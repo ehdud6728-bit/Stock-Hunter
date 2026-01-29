@@ -1,0 +1,29 @@
+name: Daily Stock Scanner
+
+on:
+  schedule:
+    # 매일 한국시간 15:40 (UTC 06:40) 실행
+    # 시간 바꾸려면 아래 '6 40' 숫자를 변경하세요 (한국시간 - 9시간 = UTC)
+    - cron: '40 6 * * 1-5' # 월~금 실행
+  workflow_dispatch: # 수동 실행 버튼 추가
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+        
+    - name: Install dependencies
+      run: |
+        pip install pandas finance-datareader requests
+
+    - name: Run Scanner
+      env:
+        TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      run: python main.py
