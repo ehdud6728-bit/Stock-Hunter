@@ -10,173 +10,11 @@ from datetime import datetime, timedelta
 # --- [환경변수] ---
 TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN')
 TELEGRAM_CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID')
-
-# 🔥 [설정] 수급 최소 금액 (단위: 원)
-# 1억이 부담스럽다면 5000만원(50000000) or 3000만원(30000000)으로 조절하세요.
-MIN_BUY_AMOUNT = 50000000 
+MIN_BUY_AMOUNT = 50000000  # 수급 최소 금액 (5천만원)
 
 # ---------------------------------------------------------
-# [수급 데이터 분석 함수] (금액 기준으로 변경됨!)
+# [0] 텔레그램 전송 함수
 # ---------------------------------------------------------
-def get_supply_filtered_tickers():
-    """
-    최근 5일간 외국인/기관 순매수 '금액' 조건을 만족하는 종목 리스트 반환
-    조건: 5천만원 이상 매수 (O, P, Q, R 조건 적용)
-    """
-    print(f"⚡ [1단계] 수급 분석 시작 (기준: {int(MIN_BUY_AMOUNT/10000)}만원 이상 순매수)...")
-    
-    end_date = datetime.now().strftime("%Y%m%d")
-    start_date = (datetime.now() - timedelta(days=12)).strftime("%Y%m%d") # 휴일 고려 넉넉히
-    
-    # 영업일 추출
-    dates = stock.get_index_ohlcv_by_date(start_date, end_date, "1001").index
-    target_dates = dates[-5:] # 최근 5일
-    
-    if len(target_dates) < 5:
-        print("데이터 부족")
-        return []
-
-    supply_data = {} 
-    
-    for date in target_dates:
-        ymd = date.strftime("%Y%m%d")
-        try:
-            # 🚨 중요: "value" 옵션으로 '거래대금(원)'을 가져옵니다.
-            df = stock.get_market_net_purchases_of_equities_by_ticker(ymd, "ALL", "value")
-            
-            for ticker, row in df.iterrows():
-                if ticker not in supply_data:
-                    supply_data[ticker] = {'for': [], 'inst': []}
-                
-                supply_data[ticker]['for'].append(row['외국인'])
-                supply_data[ticker]['inst'].append(row['기관합계'])
-                
-        except Exception as e:
-            continue
-            
-    # 조건 검증
-    passed_tickers = []
-    
-    for ticker, data in supply_data.items():
-        if len(data['for']) < 5: continue
-        
-        f_list = np.array(data['for'])
-        i_list = np.array(data['inst'])
-        
-        # [O] 5일중 3일 이상 '5천만원' 이상 순매수
-        cond_O = (f_list >= MIN_BUY_AMOUNT).sum() >= 3
-        
-        # [P] 5일중 3일 이상 '5천만원' 이상 순매수
-        cond_P = (i_list >= MIN_BUY_AMOUNT).sum() >= 3
-        
-        # [Q] 오늘(마지막날) '5천만원' 이상 순매수
-        cond_Q = f_list[-1] >= MIN_BUY_AMOUNT
-        
-        # [R] 오늘(마지막날) '5천만원' 이상 순매수
-        cond_R = i_list[-1] >= MIN_BUY_AMOUNT
-        
-        # 최종 수급 논리 (OR 조건)
-        if (cond_O or cond_P) or (cond_Q and cond_R):
-            passed_tickers.append(ticker)
-            
-    print(f"✅ 수급(5천만원↑) 통과: {len(passed_tickers)}개 종목")
-    return passed_tickers
-
-# ---------------------------------------------------------
-# [보조지표 및 차트 분석] (이전과 동일)
-# ---------------------------------------------------------
-def calc_rsi(series, period=14):
-    delta = series.diff(1)
-    gain = delta.where(delta > 0, 0).rolling(window=period).mean()
-    loss = -delta.where(delta < 0, 0).rolling(window=period).mean()
-    rs = gain / loss
-    return 100 - (100 / (1 + rs))
-
-def calc_mfi(high, low, close, volume, period=14):
-    typical_price = (high + low + close) / 3
-    money_flow = typical_price * volume
-    positive_flow = money_flow.where(typical_price > typical_price.shift(1), 0).rolling(window=period).sum()
-    negative_flow = money_flow.where(typical_price < typical_price.shift(1), 0).rolling(window=period).sum()
-    mfi = 100 - (100 / (1 + positive_flow / negative_flow))
-    return mfi
-
-def calc_stochastic(high, low, close, n=5, m=3, t=3):
-    lowest_low = low.rolling(window=n).min()
-    highest_high = high.rolling(window=n).max()
-    fast_k = ((close - lowest_low) / (highest_high - lowest_low)) * 100
-    slow_k = fast_k.rolling(window=m).mean()
-    slow_d = slow_k.rolling(window=t).mean()
-    return slow_k, slow_d
-
-def calc_dmi_adx(high, low, close, n=14):
-    tr = pd.concat([high - low, (high - close.shift(1)).abs(), (low - close.shift(1)).abs()], axis=1).max(axis=1)
-    atr = tr.rolling(window=n).mean()
-    up_move = high - high.shift(1)
-    down_move = low.shift(1) - low
-    plus_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0)
-    minus_dm = np.where((down_move > up_move) & (down_move > 0), down_move, 0)
-    plus_di = 100 * (pd.Series(plus_dm).rolling(window=n).mean() / atr)
-    minus_di = 100 * (pd.Series(minus_dm).rolling(window=n).mean() / atr)
-    dx = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di)
-    adx = dx.rolling(window=n).mean()
-    return plus_di, minus_di, adx
-
-def check_technical_condition(ticker):
-    try:
-        df = fdr.DataReader(ticker, start=(datetime.now() - timedelta(days=250)).strftime('%Y-%m-%d'))
-        if len(df) < 125: return None
-
-        curr = df.iloc[-1]
-        prev = df.iloc[-2]
-        close = df['Close']
-        vol = df['Volume']
-        
-        # 최소 거래대금 30억 (잡주 방지)
-        if (curr['Close'] * curr['Volume']) < 3000000000: return None 
-
-        # --- 지표 계산 ---
-        ma5 = close.rolling(5).mean()
-        ma20 = close.rolling(20).mean()
-        ma60 = close.rolling(60).mean()
-        ma120 = close.rolling(120).mean()
-        
-        mfi = calc_mfi(df['High'], df['Low'], close, vol, 14)
-        slow_k, slow_d = calc_stochastic(df['High'], df['Low'], close, 5, 3, 3)
-        p_di, m_di, adx = calc_dmi_adx(df['High'], df['Low'], close, 14)
-
-        # --- 조건 검증 ---
-        
-        # [D] 거래량비율 200%
-        if prev['Volume'] == 0: return None
-        cond_D = (curr['Volume'] / prev['Volume']) >= 2.0
-        
-        # [E] 정배열 초입 (종가 > 20)
-        cond_E = curr['Close'] > ma20.iloc[-1]
-
-        # [F] 5일선 골든크로스
-        cond_F = (prev['Close'] <= ma5.iloc[-2]) and (curr['Close'] > ma5.iloc[-1])
-
-        # [G, H] 추세 유지
-        cond_G = ma120.iloc[-1] >= ma120.iloc[-2]
-        cond_H = ma60.iloc[-1] >= ma60.iloc[-2]
-
-        # [I or J] MFI or DMI
-        cond_I = (mfi.iloc[-2] <= 50) and (mfi.iloc[-1] > 50)
-        cond_J = (p_di.iloc[-2] <= m_di.iloc[-2]) and (p_di.iloc[-1] > m_di.iloc[-1])
-        
-        # [L or M or N] 스토캐스틱 or 등락률 or ADX
-        cond_L = (slow_k.iloc[-2] <= slow_d.iloc[-2]) and (slow_k.iloc[-1] > slow_d.iloc[-1])
-        cond_M = ((curr['Close'] - prev['Close']) / prev['Close']) >= 0.05
-        cond_N = adx.iloc[-1] > adx.iloc[-2]
-
-        if cond_D and cond_E and cond_F and cond_G and cond_H and (cond_I or cond_J) and (cond_L or cond_M or cond_N):
-            name = stock.get_market_ticker_name(ticker)
-            return f"💎 {name}({ticker})\n- 가격: {format(int(curr['Close']), ',')}원 (+{round((curr['Close']/prev['Close']-1)*100,2)}%)\n- 거래량: 전일대비 {round(curr['Volume']/prev['Volume']*100)}% 터짐\n- 수급: 5천만원 이상 유입 ✅"
-            
-    except:
-        return None
-    return None
-
 def send_telegram(message):
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID: return
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
@@ -184,30 +22,172 @@ def send_telegram(message):
     try: requests.post(url, data=data)
     except: pass
 
-# --- 실행 ---
-print("🚀 [최종 업데이트] 5천만원 수급 필터 검색기 가동")
-filtered_tickers = get_supply_filtered_tickers()
-
-if not filtered_tickers:
-    print("수급 조건 만족 종목 없음")
-    send_telegram("🔔 [수급 필터] 5천만원 이상 매수 종목이 없습니다.")
-else:
-    print(f"⚡ {len(filtered_tickers)}개 종목 2차 분석 중...")
-    results = []
-    for ticker in filtered_tickers:
-        res = check_technical_condition(ticker)
-        if res:
-            results.append(res)
-            print(f"[발견] {ticker}")
-
-    if results:
-        header = f"🔥 [거거익선 5천] 포착 종목 ({datetime.now().strftime('%Y-%m-%d')})\n조건: 수급(5천만원↑) + 차트 급등\n\n"
-        full_msg = header + "\n\n".join(results)
+# ---------------------------------------------------------
+# [1] 시장 상황판 (코스피 지수 확인)
+# ---------------------------------------------------------
+def check_market_status():
+    """코스피가 20일선 위에 있는지 확인"""
+    try:
+        kospi = fdr.DataReader('KS11', start=(datetime.now() - timedelta(days=60)).strftime('%Y-%m-%d'))
+        ma20 = kospi['Close'].rolling(20).mean().iloc[-1]
+        current = kospi['Close'].iloc[-1]
         
-        if len(full_msg) > 4000:
-            for i in range(0, len(results), 5):
-                send_telegram(header + "\n\n".join(results[i:i+5]))
-        else:
-            send_telegram(full_msg)
-    else:
-        send_telegram(f"🔔 수급(5천만원↑) 종목 {len(filtered_tickers)}개 중 차트 조건 만족 종목이 없습니다.")
+        status = "📈 상승장 (공격 모드)" if current > ma20 else "📉 하락/조정장 (방어 모드)"
+        return status, current, ma20
+    except:
+        return "판단 불가", 0, 0
+
+# ---------------------------------------------------------
+# [2] 수급 데이터 가져오기 (공통 사용)
+# ---------------------------------------------------------
+def get_supply_data():
+    """최근 5일간 수급(5천만원 이상)이 들어온 종목 추출"""
+    print("⚡ 수급 데이터 분석 중...")
+    end_date = datetime.now().strftime("%Y%m%d")
+    start_date = (datetime.now() - timedelta(days=12)).strftime("%Y%m%d")
+    dates = stock.get_index_ohlcv_by_date(start_date, end_date, "1001").index
+    target_dates = dates[-5:]
+    
+    supply_dict = {}
+    
+    for date in target_dates:
+        ymd = date.strftime("%Y%m%d")
+        try:
+            df = stock.get_market_net_purchases_of_equities_by_ticker(ymd, "ALL", "value") # 금액 기준
+            for ticker, row in df.iterrows():
+                if ticker not in supply_dict: supply_dict[ticker] = 0
+                # 외국인 + 기관 합산 순매수 금액 누적
+                net_buy = row['외국인'] + row['기관합계']
+                if net_buy > 0: supply_dict[ticker] += net_buy
+        except: continue
+        
+    # 5일 누적 순매수 5천만원 이상인 종목만 필터링
+    filtered_tickers = [t for t, amt in supply_dict.items() if amt >= MIN_BUY_AMOUNT]
+    print(f"✅ 수급 유입 종목: {len(filtered_tickers)}개")
+    return filtered_tickers
+
+# ---------------------------------------------------------
+# [3] 보조지표 계산기
+# ---------------------------------------------------------
+def get_indicators(df):
+    close = df['Close']
+    
+    # 이평선
+    ma5 = close.rolling(5).mean()
+    ma20 = close.rolling(20).mean()
+    ma60 = close.rolling(60).mean()
+    ma224 = close.rolling(224).mean() # 바닥 확인용
+    
+    # RSI
+    delta = close.diff(1)
+    gain = (delta.where(delta > 0, 0)).rolling(14).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
+    rs = gain / loss
+    rsi = 100 - (100 / (1 + rs))
+    
+    # 일목균형표 (선행스팬2) - 52일 고가/저가 평균을 26일 뒤로
+    high_52 = df['High'].rolling(52).max()
+    low_52 = df['Low'].rolling(52).min()
+    span2 = (high_52 + low_52) / 2
+    # span2는 26일 앞에 그려지므로, 현재 시점의 구름대 값은 26일 전의 계산값임
+    cloud_span2 = span2.shift(26) 
+    
+    return ma5, ma20, ma60, ma224, rsi, cloud_span2
+
+# ---------------------------------------------------------
+# [4] 전략 실행 (A: 끝판왕 / B: 바닥낚시)
+# ---------------------------------------------------------
+def analyze_stock(ticker):
+    try:
+        df = fdr.DataReader(ticker, start=(datetime.now() - timedelta(days=365)).strftime('%Y-%m-%d'))
+        if len(df) < 230: return None # 224일선 계산 위해 넉넉히
+        
+        curr = df.iloc[-1]
+        prev = df.iloc[-2]
+        
+        # 기본 필터: 거래대금 20억 이상 (너무 소형주 제외)
+        if (curr['Close'] * curr['Volume']) < 2000000000: return None
+
+        ma5, ma20, ma60, ma224, rsi, cloud = get_indicators(df)
+        
+        # --- 🦁 전략 A: [끝판왕 튜닝] 추세 가속 ---
+        # 1. 정배열 초입 (5 > 20) & 상승 추세 (현재가 > 20일선)
+        # 2. 거래량 폭발 (전일 대비 150% 이상)
+        # 3. RSI 50 이상 (상승 에너지)
+        # 4. 수급 (이미 필터링됨)
+        cond_A_trend = (curr['Close'] > ma5.iloc[-1]) and (ma5.iloc[-1] > ma20.iloc[-1])
+        cond_A_vol = (curr['Volume'] >= prev['Volume'] * 1.5)
+        cond_A_rsi = rsi.iloc[-1] >= 50
+        
+        is_endgame = cond_A_trend and cond_A_vol and cond_A_rsi
+
+        # --- 🎣 전략 B: [바닥 낚시] 낙폭 과대 반등 ---
+        # 1. 역배열 바닥 (현재가 < 224일선)
+        # 2. 구름대 아래 (현재가 < 선행스팬2)
+        # 3. 반등 신호 (RSI 30 이상 & 5일선 회복)
+        # 4. 이격도 (20일선 근처 95~105% - 급락 멈춤)
+        # 5. 거래량 실림
+        cond_B_loc = (curr['Close'] < ma224.iloc[-1]) and (curr['Close'] < cloud.iloc[-1])
+        cond_B_signal = (rsi.iloc[-1] >= 30) and (curr['Close'] > ma5.iloc[-1])
+        disparity = (curr['Close'] / ma20.iloc[-1]) * 100
+        cond_B_disparity = 95 <= disparity <= 105
+        
+        is_bottom = cond_B_loc and cond_B_signal and cond_B_disparity and cond_A_vol
+        
+        name = stock.get_market_ticker_name(ticker)
+        
+        if is_endgame:
+            return f"🦁 [추세] {name}\n- 가격: {format(int(curr['Close']),',')}원\n- RSI: {round(rsi.iloc[-1],1)} / Vol: {int(curr['Volume']/prev['Volume']*100)}%"
+        elif is_bottom:
+            return f"🎣 [바닥] {name}\n- 가격: {format(int(curr['Close']),',')}원\n- 위치: 224선 아래 / RSI: {round(rsi.iloc[-1],1)}"
+            
+    except:
+        return None
+    return None
+
+# ---------------------------------------------------------
+# [5] 메인 실행
+# ---------------------------------------------------------
+print("🚀 통합 검색기 가동 시작")
+
+# 1. 시장 파악
+market_msg, idx_cur, idx_ma = check_market_status()
+print(f"시장 상태: {market_msg}")
+
+# 2. 수급 필터링
+target_tickers = get_supply_data()
+
+# 3. 정밀 분석
+results_trend = []
+results_bottom = []
+
+print(f"⚡ {len(target_tickers)}개 종목 정밀 분석 중...")
+for ticker in target_tickers:
+    res = analyze_stock(ticker)
+    if res:
+        if "[추세]" in res: results_trend.append(res)
+        if "[바닥]" in res: results_bottom.append(res)
+
+# 4. 결과 전송
+today = datetime.now().strftime('%m/%d')
+header = f"📊 [거거익선 통합리포트] {today}\n시장: {market_msg}\n\n"
+
+msg_body = ""
+if results_trend:
+    msg_body += f"🦁 추세 가속 (상승장 주도)\n" + "\n".join(results_trend) + "\n\n"
+if results_bottom:
+    msg_body += f"🎣 바닥 낚시 (반등 노림)\n" + "\n".join(results_bottom)
+
+if not msg_body:
+    msg_body = "조건을 만족하는 종목이 없습니다."
+    
+final_msg = header + msg_body
+
+# 길면 나눠서 전송
+if len(final_msg) > 4000:
+    send_telegram(final_msg[:4000])
+    send_telegram(final_msg[4000:])
+else:
+    send_telegram(final_msg)
+
+print("✅ 전송 완료")
