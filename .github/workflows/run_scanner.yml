@@ -2,10 +2,9 @@ name: Daily Stock Scanner
 
 on:
   schedule:
-    # 매일 한국시간 15:40 (UTC 06:40) 실행
-    # 시간 바꾸려면 아래 '6 40' 숫자를 변경하세요 (한국시간 - 9시간 = UTC)
-    - cron: '40 6 * * 1-5' # 월~금 실행
-  workflow_dispatch: # 수동 실행 버튼 추가
+    # 매일 한국시간 15:45 (장 마감 후) 실행
+    - cron: '45 6 * * 1-5'
+  workflow_dispatch:
 
 jobs:
   build:
@@ -19,8 +18,9 @@ jobs:
         python-version: '3.9'
         
     - name: Install dependencies
+      # pykrx 라이브러리 추가!
       run: |
-        pip install pandas finance-datareader requests
+        pip install pandas finance-datareader requests pykrx
 
     - name: Run Scanner
       env:
