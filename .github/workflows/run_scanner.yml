@@ -2,7 +2,7 @@ name: Daily Stock Scanner
 
 on:
   schedule:
-    # 매일 한국시간 15:45 (장 마감 후) 실행
+    # 매일 한국시간 15:45 (장 마감 후)
     - cron: '45 6 * * 1-5'
   workflow_dispatch:
 
@@ -18,12 +18,13 @@ jobs:
         python-version: '3.9'
         
     - name: Install dependencies
-      # pykrx 라이브러리 추가!
       run: |
-        pip install pandas finance-datareader requests pykrx
+        # google-generativeai 라이브러리 추가!
+        pip install pandas finance-datareader requests pykrx google-generativeai
 
     - name: Run Scanner
       env:
         TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
         TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }} # 여기서 키를 가져옵니다
       run: python main.py
