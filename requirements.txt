@@ -1,0 +1,7 @@
+finance-datareader
+pandas
+requests
+beautifulsoup4
+lxml
+pytz
+google-generativeai>=0.4.0
