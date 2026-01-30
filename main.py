@@ -1,48 +1,67 @@
-import FinanceDataReader as fdr
-import pandas as pd
-import requests
 import os
-import time
-from datetime import datetime, timedelta
-import concurrent.futures
-from io import StringIO
-import pytz
-import json
+import requests
+import sys
 
 # ---------------------------------------------------------
-# 🌍 한국 시간(KST)
+# 1. 환경변수 제대로 들어왔나 확인 (로그에 출력)
 # ---------------------------------------------------------
-KST = pytz.timezone('Asia/Seoul')
-NOW = datetime.now(KST)
-TODAY_STR = NOW.strftime('%Y-%m-%d')
+print("🕵️‍♂️ [진단 시작] 텔레그램 연결 테스트...")
 
-# --- [환경변수] ---
-TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN')
-CHAT_ID_LIST = os.environ.get('TELEGRAM_CHAT_ID', '').split(',') 
-raw_key = os.environ.get('GEMINI_API_KEY')
-GEMINI_API_KEY = raw_key.strip() if raw_key else None
+TOKEN = os.environ.get('TELEGRAM_TOKEN')
+CHAT_ID_RAW = os.environ.get('TELEGRAM_CHAT_ID')
 
+# 토큰 확인
+if not TOKEN:
+    print("❌ [치명적 오류] TELEGRAM_TOKEN이 없습니다! (Secrets/YML 확인 필수)")
+else:
+    print(f"✅ 토큰 감지됨: {TOKEN[:5]}..." + "*"*10)
+
+# 채팅 ID 확인
+if not CHAT_ID_RAW:
+    print("❌ [치명적 오류] TELEGRAM_CHAT_ID가 없습니다!")
+    sys.exit(1) # 강제 종료
+
+CHAT_ID_LIST = [c.strip() for c in CHAT_ID_RAW.split(',') if c.strip()]
+print(f"✅ 채팅방 ID 목록: {CHAT_ID_LIST}")
+
+# ---------------------------------------------------------
+# 2. 봇 자체가 살아있는지 확인 (getMe)
+# ---------------------------------------------------------
 try:
-    krx = fdr.StockListing('KRX')
-    NAME_MAP = dict(zip(krx['Code'].astype(str), krx['Name']))
-except: NAME_MAP = {}
+    url_me = f"https://api.telegram.org/bot{TOKEN}/getMe"
+    res_me = requests.get(url_me)
+    if res_me.status_code == 200:
+        bot_info = res_me.json()
+        print(f"✅ [인증 성공] 봇 이름: {bot_info['result']['first_name']} (@{bot_info['result']['username']})")
+    else:
+        print(f"❌ [인증 실패] 토큰이 틀렸습니다! 응답코드: {res_me.status_code}")
+        print(f"👉 메시지: {res_me.text}")
+        sys.exit(1)
+except Exception as e:
+    print(f"❌ [연결 실패] 인터넷 연결 문제 또는 URL 에러: {e}")
+    sys.exit(1)
 
 # ---------------------------------------------------------
-# 📨 텔레그램 전송
+# 3. 메시지 강제 발송 테스트
 # ---------------------------------------------------------
-def send_telegram(message):
-    if not TELEGRAM_TOKEN or not CHAT_ID_LIST: return
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    for chat_id in CHAT_ID_LIST:
-        if chat_id.strip():
-            try: requests.post(url, data={'chat_id': chat_id, 'text': message})
-            except: pass
+print("\n📨 [발송 테스트] 메시지를 보냅니다...")
 
-# ---------------------------------------------------------
-# 🤖 AI 요약 (문법 오류 방지용 단순화)
-# ---------------------------------------------------------
-def get_ai_summary(ticker, name, price, strategy):
-    if not GEMINI_API_KEY: return "\n🚫 [키 오류] API Key 없음"
+for chat_id in CHAT_ID_LIST:
+    send_url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
+    payload = {
+        'chat_id': chat_id,
+        'text': "🚀 [테스트 성공] 선생님, 이 메시지가 보이면 연결은 완벽합니다!"
+    }
+    
+    try:
+        res = requests.post(send_url, data=payload)
+        if res.status_code == 200:
+            print(f"🎉 [전송 성공] Chat ID {chat_id}로 메시지 발송 완료!")
+        else:
+            print(f"❌ [전송 실패] Chat ID {chat_id} | 원인: {res.text}")
+            print("👉 힌트: 봇에게 말을 건 적이 없거나(Start 안 누름), 채팅방 ID가 틀렸을 수 있습니다.")
+    except Exception as e:
+        print(f"❌ [전송 에러] {e}")
 
-    # 구글 최신 주소 (1.5-flash)
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+print("---------------------------------------------------")
+print("🏁 진단 종료. 이 로그를 확인해주세요.")
