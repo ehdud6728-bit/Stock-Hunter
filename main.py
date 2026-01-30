@@ -10,26 +10,25 @@ import pytz
 import json
 
 # ---------------------------------------------------------
-# 🌍 한국 시간(KST) 설정
+# 🌍 한국 시간(KST)
 # ---------------------------------------------------------
 KST = pytz.timezone('Asia/Seoul')
 NOW = datetime.now(KST)
 TODAY_STR = NOW.strftime('%Y-%m-%d')
 
-# --- [환경변수 로드] ---
+# --- [환경변수] ---
 TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN')
 CHAT_ID_LIST = os.environ.get('TELEGRAM_CHAT_ID', '').split(',') 
 raw_key = os.environ.get('GEMINI_API_KEY')
 GEMINI_API_KEY = raw_key.strip() if raw_key else None
 
-# 상장 종목 리스트 가져오기
 try:
     krx = fdr.StockListing('KRX')
     NAME_MAP = dict(zip(krx['Code'].astype(str), krx['Name']))
 except: NAME_MAP = {}
 
 # ---------------------------------------------------------
-# 📨 텔레그램 전송 함수
+# 📨 텔레그램 전송
 # ---------------------------------------------------------
 def send_telegram(message):
     if not TELEGRAM_TOKEN or not CHAT_ID_LIST: return
@@ -40,15 +39,20 @@ def send_telegram(message):
             except: pass
 
 # ---------------------------------------------------------
-# 🤖 AI 요약 (문법오류/404오류 완벽 해결 버전)
+# 🤖 AI 요약 (가족 상봉 3단 시도)
 # ---------------------------------------------------------
 def get_ai_summary(ticker, name, price, strategy):
     if not GEMINI_API_KEY: return "\n🚫 [키 오류] API Key 없음"
 
-    # 1. 구글 최신 주소 (1.5-flash) 사용 -> 404 에러 방지
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+    # 🚪 문 두드릴 모델 리스트 (순서대로 호출)
+    # 1. 최신형 (Flash) -> 2. 표준형 (Pro) -> 3. 구형 (1.0)
+    models_to_try = [
+        "gemini-1.5-flash", 
+        "gemini-pro", 
+        "gemini-1.0-pro"
+    ]
     
-    # 2. 안전한 삼중 따옴표 사용 -> 문법(Syntax) 에러 방지
+    # 질문 내용
     prompt = f"""종목: {name} ({ticker})
 현재가: {price}원
 포착전략: {strategy}
@@ -56,34 +60,44 @@ def get_ai_summary(ticker, name, price, strategy):
 첫 줄은 '👍 호재:', 둘째 줄은 '⚠️ 주의:' 로 시작할 것."""
 
     payload = {
-        "contents": [{
-            "parts": [{"text": prompt}]
-        }]
+        "contents": [{"parts": [{"text": prompt}]}]
     }
 
-    try:
-        # 라이브러리 없이 직접 요청
-        response = requests.post(url, json=payload, timeout=10)
+    # 🔄 하나라도 걸려라 루프
+    last_error = ""
+    for model_name in models_to_try:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={GEMINI_API_KEY}"
         
-        if response.status_code == 200:
-            data = response.json()
-            try:
-                text = data['candidates'][0]['content']['parts'][0]['text']
-                return "\n" + text.strip()
-            except:
-                return "\n🚫 [응답 오류] AI 답변 해석 실패"
-        else:
-            return f"\n🚫 [구글 거절] 코드 {response.status_code}"
+        try:
+            response = requests.post(url, json=payload, timeout=5)
             
-    except Exception as e:
-        return f"\n🚫 [연결 실패] {str(e)[:20]}..."
+            # 성공하면 바로 리턴하고 끝냄
+            if response.status_code == 200:
+                data = response.json()
+                try:
+                    text = data['candidates'][0]['content']['parts'][0]['text']
+                    return "\n" + text.strip()
+                except:
+                    continue # 응답은 왔는데 내용이 이상하면 다음 모델로
+            else:
+                # 404면 다음 모델 시도, 400(키 오류)이면 바로 중단
+                if response.status_code == 400:
+                    return f"\n🚫 [가족 거절] API 키 자체가 틀렸대요 (400)"
+                last_error = f"{response.status_code}"
+                continue # 실패하면 다음 모델로 넘어감
+
+        except Exception as e:
+            last_error = str(e)
+            continue
+
+    # 3명 다 문 안 열어줬을 때
+    return f"\n🚫 [전원 거절] 구글 가족이 다 거절함 ({last_error})"
 
 # ---------------------------------------------------------
-# ⚡ 네이버 수급 랭킹 스캔
+# ⚡ 네이버 수급 랭킹
 # ---------------------------------------------------------
 def get_top_buyer_stocks():
     print("⚡ 기관/외인 수급 랭킹 스캔 중...")
-    # 네이버 금융에서 수급 상위 종목 긁어오기
     urls = [
         "https://finance.naver.com/sise/sise_deal_rank.naver?sosok=0&investor_gubun=1000", 
         "https://finance.naver.com/sise/sise_deal_rank.naver?sosok=0&investor_gubun=9000", 
@@ -108,7 +122,7 @@ def get_top_buyer_stocks():
     return list(found_tickers)
 
 # ---------------------------------------------------------
-# 🧮 보조지표 계산 (스토캐스틱)
+# 🧮 스토캐스틱
 # ---------------------------------------------------------
 def get_stochastic(df, n=5, k=3, d=3):
     high = df['High'].rolling(window=n).max()
@@ -119,25 +133,21 @@ def get_stochastic(df, n=5, k=3, d=3):
     return slow_k, slow_d
 
 # ---------------------------------------------------------
-# 🔍 3단 필터 (바닥/잠입/추세)
+# 🔍 3단 필터
 # ---------------------------------------------------------
 def analyze_stock(ticker):
     try:
-        # 1년치 데이터 조회
         df = fdr.DataReader(ticker, start=(NOW - timedelta(days=365)).strftime('%Y-%m-%d'))
         if len(df) < 120: return None
         curr = df.iloc[-1]
         prev = df.iloc[-2]
         
-        # 거래대금 10억 미만 패스
         if (curr['Close'] * curr['Volume']) < 1000000000: return None
 
-        # 이동평균선
         ma5 = df['Close'].rolling(5).mean()
         ma20 = df['Close'].rolling(20).mean()
         ma60 = df['Close'].rolling(60).mean()
         
-        # RSI
         delta = df['Close'].diff(1)
         gain = (delta.where(delta > 0, 0)).rolling(14).mean()
         loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
@@ -147,17 +157,17 @@ def analyze_stock(ticker):
         name = NAME_MAP.get(ticker, ticker)
         price_str = format(int(curr['Close']),',')
 
-        # 1. 🎣 [바닥 잡기]
+        # 1. 🎣 [바닥]
         if (curr['Close'] < ma60.iloc[-1]) and (rsi.iloc[-1] <= 45) and (curr['Close'] > ma5.iloc[-1]):
             ai = get_ai_summary(ticker, name, price_str, "낙폭과대 바닥 반등")
             return f"🎣 [바닥] {name}\n가격: {price_str}원{ai}"
 
-        # 2. 🕵️ [세력 잠입]
+        # 2. 🕵️ [잠입]
         elif (curr['Close'] > ma20.iloc[-1]) and (pct < 3.0 and pct > -2.0) and (rsi.iloc[-1] <= 60):
             ai = get_ai_summary(ticker, name, price_str, "이평선밀집 매집")
             return f"🕵️ [잠입] {name}\n가격: {price_str}원{ai}"
 
-        # 3. 🦁 [급등 추세]
+        # 3. 🦁 [추세]
         else:
             is_trend = False
             if (pct >= 4.5) and (curr['Volume'] >= prev['Volume'] * 1.8):
@@ -175,10 +185,8 @@ def analyze_stock(ticker):
 # 🚀 메인 실행
 # ---------------------------------------------------------
 if __name__ == "__main__":
-    print(f"🚀 [시스템 정상 가동] AI 주식 분석 시작")
-    
-    # 시작 알림
-    send_telegram(f"🚀 [분석 시작] 주식 사냥을 시작합니다!\n(기준시간: {NOW.strftime('%H:%M:%S')})")
+    print(f"🚀 [최종] 구글 가족 상봉 3단 시도...")
+    send_telegram(f"🚀 [시스템 재부팅] AI 연결 3단 콤보 시도\n(시간: {NOW.strftime('%H:%M:%S')})")
 
     market_msg = "분석 중..."
     try:
@@ -188,15 +196,11 @@ if __name__ == "__main__":
         market_msg = "📈 상승장" if curr_k > ma20_k else "📉 조정장"
     except: pass
 
-    # 종목 추출
     target_tickers = get_top_buyer_stocks()
     if not target_tickers:
         print("⚠️ 수급 데이터 실패 -> 시총 상위 대체")
         target_tickers = krx.sort_values(by='Marcap', ascending=False).head(100)['Code'].astype(str).tolist()
 
-    print(f"⚡ {len(target_tickers)}개 종목 정밀 분석 중...")
-    
-    # 병렬 처리로 빠르게 분석
     results = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
         futures = {executor.submit(analyze_stock, t): t for t in target_tickers}
@@ -204,11 +208,9 @@ if __name__ == "__main__":
             res = future.result()
             if res: results.append(res)
 
-    # 결과 전송
     header = f"🤖 [AI 스마트 리포트] {TODAY_STR}\n시장: {market_msg}\n"
     
     if results:
-        # 중요도 정렬 (추세 > 잠입 > 바닥)
         def sort_priority(msg):
             if "🦁" in msg: return 1
             if "🕵️" in msg: return 2
@@ -216,9 +218,8 @@ if __name__ == "__main__":
         results.sort(key=sort_priority)
         msg = header + "\n" + "\n\n".join(results)
     else:
-        msg = header + "\n조건을 만족하는 종목이 없습니다. (휴일이거나 장 시작 전일 수 있습니다)"
+        msg = header + "\n조건 만족 종목 없음"
 
-    # 긴 메시지 나눠서 전송
     if len(msg) > 4000:
         send_telegram(msg[:4000])
         send_telegram(msg[4000:])
