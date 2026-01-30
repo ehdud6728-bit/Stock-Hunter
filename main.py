@@ -142,7 +142,7 @@ def analyze_stock(ticker):
         curr = df.iloc[-1]
         prev = df.iloc[-2]
         
-        if (curr['Close'] * curr['Volume']) < 1000000000: return None
+        if (curr['Close'] * curr['Volume']) < 500000000: return None
 
         ma5 = df['Close'].rolling(5).mean()
         ma20 = df['Close'].rolling(20).mean()
