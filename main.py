@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 import concurrent.futures
 from io import StringIO
 import pytz
-import json  # JSON 처리용 추가
+import json
 
 # ---------------------------------------------------------
 # 🌍 한국 시간(KST)
@@ -38,13 +38,14 @@ def send_telegram(message):
             except: pass
 
 # ---------------------------------------------------------
-# 🤖 AI 요약 (REST API 직접 호출 방식 - 라이브러리 X)
+# 🤖 AI 요약 (주소 수정됨: gemini-pro)
 # ---------------------------------------------------------
 def get_ai_summary(ticker, name, price, strategy):
     if not GEMINI_API_KEY: return "\n🚫 [키 오류] API Key 없음"
 
-    # 구글 AI 서버 주소 (라이브러리 없이 직접 통신)
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+    # ⚠️ [수정] 여기가 핵심! flash 대신 'gemini-pro'를 호출합니다.
+    # 404 에러를 잡는 확실한 주소입니다.
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={GEMINI_API_KEY}"
     
     prompt = (
         f"종목: {name} ({ticker})\n"
@@ -54,7 +55,6 @@ def get_ai_summary(ticker, name, price, strategy):
         "첫 줄은 '👍 호재:', 둘째 줄은 '⚠️ 주의:' 로 시작할 것."
     )
 
-    # 데이터 포장
     payload = {
         "contents": [{
             "parts": [{"text": prompt}]
@@ -62,19 +62,18 @@ def get_ai_summary(ticker, name, price, strategy):
     }
 
     try:
-        # 우편 발송 (POST 요청)
         response = requests.post(url, json=payload, timeout=10)
         
-        # 결과 확인
         if response.status_code == 200:
             data = response.json()
             try:
                 text = data['candidates'][0]['content']['parts'][0]['text']
                 return "\n" + text.strip()
             except:
-                return "\n🚫 [응답 오류] AI가 이상한 답변을 보냈습니다."
+                return "\n🚫 [응답 오류] AI 답변 해석 실패"
         else:
-            return f"\n🚫 [통신 오류] 코드 {response.status_code} (키 확인 필요)"
+            # 에러 코드를 더 자세히 봅니다
+            return f"\n🚫 [구글 거절] {response.status_code} (주소/모델명 불일치)"
             
     except Exception as e:
         return f"\n🚫 [연결 실패] {str(e)[:30]}..."
@@ -171,12 +170,9 @@ def analyze_stock(ticker):
 # 🚀 메인 실행
 # ---------------------------------------------------------
 if __name__ == "__main__":
-    print(f"🚀 [최종 해결책] 직접 연결 방식 가동 (API Key: {GEMINI_API_KEY[:5] if GEMINI_API_KEY else '없음'}...)")
-    
-    # [중요] 시작 알림 발송 (이게 안 오면 GitHub Secrets/yml 문제임)
-    send_telegram(f"🚀 [시스템 재부팅] AI 직접 연결 모드 시작\n(시간: {NOW.strftime('%H:%M:%S')})")
+    print(f"🚀 [모델명 수정: gemini-pro] 재시도...")
+    send_telegram(f"🚀 [시스템 재부팅] 모델명 gemini-pro 변경\n(시간: {NOW.strftime('%H:%M:%S')})")
 
-    # 시장 상태
     market_msg = "분석 중..."
     try:
         kospi = fdr.DataReader('KS11', start=(NOW - timedelta(days=60)).strftime('%Y-%m-%d'))
@@ -190,9 +186,7 @@ if __name__ == "__main__":
         print("⚠️ 수급 데이터 실패 -> 시총 상위 대체")
         target_tickers = krx.sort_values(by='Marcap', ascending=False).head(100)['Code'].astype(str).tolist()
 
-    print(f"⚡ {len(target_tickers)}개 종목 분석 중...")
     results = []
-
     with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
         futures = {executor.submit(analyze_stock, t): t for t in target_tickers}
         for future in concurrent.futures.as_completed(futures):
