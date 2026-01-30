@@ -16,27 +16,28 @@ KST = pytz.timezone('Asia/Seoul')
 NOW = datetime.now(KST)
 TODAY_STR = NOW.strftime('%Y-%m-%d')
 
-# --- [환경변수 확인용 출력] ---
+# --- [환경변수] ---
 TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN')
-# 채팅 ID가 여러 개일 경우를 대비해 쉼표로 분리하고 공백 제거
-raw_chat_ids = os.environ.get('TELEGRAM_CHAT_ID', '')
-CHAT_ID_LIST = [cid.strip() for cid in raw_chat_ids.split(',') if cid.strip()]
+CHAT_ID_LIST = os.environ.get('TELEGRAM_CHAT_ID', '').split(',') 
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
 
-print("---------------------------------------------------")
-print(f"🔑 텔레그램 토큰 로드: {'성공' if TELEGRAM_TOKEN else '❌ 실패 (환경변수 확인 필요)'}")
-print(f"🔑 채팅방 ID 로드: {len(CHAT_ID_LIST)}개 감지됨 ({CHAT_ID_LIST})")
-print("---------------------------------------------------")
-
 # ---------------------------------------------------------
-# 🤖 AI 모델 설정
+# 🤖 AI 모델 설정 (에러 확인을 위해 try-except 제거)
 # ---------------------------------------------------------
 model = None
+model_error = "초기화 전"
+
 if GEMINI_API_KEY:
     try:
         genai.configure(api_key=GEMINI_API_KEY)
-        model = genai.GenerativeModel('gemini-1.5-flash') 
-    except: model = None
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        print("✅ AI 모델 로드 성공")
+    except Exception as e:
+        model = None
+        model_error = str(e)
+        print(f"❌ AI 모델 로드 실패: {e}")
+else:
+    model_error = "API Key 없음 (Secrets/yml 확인 필요)"
 
 try:
     krx = fdr.StockListing('KRX')
@@ -44,36 +45,26 @@ try:
 except: NAME_MAP = {}
 
 # ---------------------------------------------------------
-# 📨 [수정] 텔레그램 전송 (디버깅 모드)
+# 📨 텔레그램 전송
 # ---------------------------------------------------------
 def send_telegram(message):
-    if not TELEGRAM_TOKEN:
-        print("❌ [전송 실패] 텔레그램 토큰이 없습니다.")
-        return
-    if not CHAT_ID_LIST:
-        print("❌ [전송 실패] 채팅방 ID가 없습니다.")
-        return
-
+    if not TELEGRAM_TOKEN or not CHAT_ID_LIST: return
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    
     for chat_id in CHAT_ID_LIST:
-        try:
-            # 타임아웃 5초 설정 (무한 대기 방지)
-            res = requests.post(url, data={'chat_id': chat_id, 'text': message}, timeout=5)
-            
-            # 전송 결과 로그 출력
-            if res.status_code == 200:
-                print(f"✅ [전송 성공] ChatID: {chat_id} (내용: {message[:10]}...)")
-            else:
-                print(f"❌ [전송 오류] ChatID: {chat_id} | 코드: {res.status_code} | 메시지: {res.text}")
-        except Exception as e:
-            print(f"❌ [연결 실패] ChatID: {chat_id} | 에러: {e}")
+        if chat_id.strip():
+            try: requests.post(url, data={'chat_id': chat_id, 'text': message})
+            except: pass
 
 # ---------------------------------------------------------
-# 🤖 AI 요약
+# 🤖 AI 요약 (여기가 핵심! 에러를 숨기지 않음)
 # ---------------------------------------------------------
 def get_ai_summary(ticker, name, price, strategy):
-    if not GEMINI_API_KEY or not model: return "\n🚫 [AI 미설정]"
+    # 1. 키가 없거나 모델이 안 만들어졌을 때
+    if not GEMINI_API_KEY: 
+        return f"\n🚫 [오류] API Key가 없습니다."
+    if not model: 
+        return f"\n🚫 [오류] 모델 초기화 실패\n(이유: {model_error})"
+
     try:
         prompt = (
             f"종목: {name} ({ticker})\n"
@@ -82,10 +73,24 @@ def get_ai_summary(ticker, name, price, strategy):
             "위 종목에 대해 딱 2줄로 요약해.\n"
             "첫 줄은 '👍 호재:', 둘째 줄은 '⚠️ 주의:' 로 시작할 것."
         )
+        
         response = model.generate_content(prompt)
         time.sleep(1)
         return "\n" + response.text.strip()
-    except: return "\n🚫 [AI 분석불가]"
+        
+    except Exception as e:
+        # ⚠️ 에러 내용을 그대로 출력합니다!
+        error_msg = str(e)
+        print(f"❌ AI 분석 중 에러: {error_msg}")
+        
+        if "403" in error_msg:
+            return "\n🚫 [키 오류] API Key가 틀렸거나 권한이 없습니다."
+        elif "429" in error_msg:
+            return "\n🚫 [과부하] 요청이 너무 많습니다."
+        elif "not found" in error_msg:
+            return "\n🚫 [모델 오류] 'gemini-1.5-flash'를 찾을 수 없습니다."
+        else:
+            return f"\n🚫 [실행 오류] {error_msg}"
 
 # ---------------------------------------------------------
 # ⚡ 네이버 수급 랭킹
@@ -179,11 +184,13 @@ def analyze_stock(ticker):
 # 🚀 메인 실행
 # ---------------------------------------------------------
 if __name__ == "__main__":
-    print(f"🚀 [디버깅 모드] 시스템 가동 (한국시간: {TODAY_STR})")
+    print(f"🚀 [진단 모드] 시스템 가동 (한국시간: {TODAY_STR})")
     
-    # ⚠️ [중요] 시작하자마자 테스트 메시지 발사!
-    print("📨 [1단계] 텔레그램 연결 테스트 중...")
-    send_telegram(f"🚀 [테스트] 시스템이 정상 가동되었습니다.\n시간: {NOW.strftime('%Y-%m-%d %H:%M:%S')}")
+    # AI 연결 상태 텔레그램으로 먼저 보고
+    status_msg = f"🚀 [시스템 가동]\nAI 상태: {'✅ 정상' if model else '❌ 고장'}"
+    if not model:
+        status_msg += f"\n(이유: {model_error})"
+    send_telegram(status_msg)
 
     # 시장 상태
     market_msg = "분석 중..."
@@ -194,13 +201,12 @@ if __name__ == "__main__":
         market_msg = "📈 상승장" if curr_k > ma20_k else "📉 조정장"
     except: pass
 
-    # 종목 스캔
     target_tickers = get_top_buyer_stocks()
     if not target_tickers:
         print("⚠️ 수급 데이터 실패 -> 시총 상위 대체")
         target_tickers = krx.sort_values(by='Marcap', ascending=False).head(100)['Code'].astype(str).tolist()
 
-    print(f"⚡ [2단계] {len(target_tickers)}개 종목 분석 시작...")
+    print(f"⚡ {len(target_tickers)}개 종목 분석 중...")
     results = []
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
@@ -219,10 +225,8 @@ if __name__ == "__main__":
         results.sort(key=sort_priority)
         msg = header + "\n" + "\n\n".join(results)
     else:
-        msg = header + "\n조건 만족 종목 없음 (장 시작 전이거나 휴일)"
+        msg = header + "\n조건 만족 종목 없음"
 
-    # 결과 전송
-    print(f"📨 [3단계] 최종 리포트 전송 시도... (발견된 종목: {len(results)}개)")
     if len(msg) > 4000:
         send_telegram(msg[:4000])
         send_telegram(msg[4000:])
