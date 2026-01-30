@@ -53,11 +53,15 @@ def send_telegram(message):
             except: pass
 
 # ---------------------------------------------------------
-# 🤖 AI 요약
+# 🤖 AI 요약 (에러 추적 기능 추가)
 # ---------------------------------------------------------
 def get_ai_summary(ticker, name, price, strategy):
-    if not GEMINI_API_KEY or not model: 
-        return "\n🚫 AI 키 미등록/오류로 분석 불가"
+    # 1. 라이브러리가 없거나 키 설정이 안 된 경우
+    if not GEMINI_API_KEY:
+        return "\n🚫 [에러] API 키가 없습니다. (YAML 파일 확인 필요)"
+    if not model:
+        return "\n🚫 [에러] AI 모델 초기화 실패 (라이브러리 설치 확인)"
+
     try:
         prompt = f"""
         종목: {name} ({ticker})
@@ -69,7 +73,21 @@ def get_ai_summary(ticker, name, price, strategy):
         response = model.generate_content(prompt)
         time.sleep(1)
         return "\n" + response.text.strip()
-    except: return "\n🚫 AI 응답 실패"
+        
+    except Exception as e:
+        # ⚠️ 여기가 핵심! 에러 내용을 숨기지 않고 출력합니다.
+        error_msg = str(e)
+        print(f"❌ AI 호출 중 에러 발생: {error_msg}")
+        
+        # 텔레그램에도 에러 내용을 요약해서 보냄
+        if "403" in error_msg:
+            return "\n🚫 [키 오류] API Key가 잘못되었습니다."
+        elif "429" in error_msg:
+            return "\n🚫 [과부하] 요청이 너무 많습니다."
+        elif "not found" in error_msg:
+            return "\n🚫 [모델 오류] 'gemini-1.5-flash' 모델명을 확인하세요."
+        else:
+            return f"\n🚫 [알수없는 오류] {error_msg[:30]}..."
 
 # ---------------------------------------------------------
 # ⚡ 네이버 수급 랭킹 스캔
