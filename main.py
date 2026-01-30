@@ -10,27 +10,33 @@ from io import StringIO
 import pytz
 
 # ---------------------------------------------------------
-# 🌍 한국 시간(KST) 강제 적용
+# 🌍 한국 시간(KST)
 # ---------------------------------------------------------
 KST = pytz.timezone('Asia/Seoul')
 NOW = datetime.now(KST)
 TODAY_STR = NOW.strftime('%Y-%m-%d')
 
-# --- [환경변수] ---
+# --- [환경변수 확인용 출력] ---
 TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN')
-CHAT_ID_LIST = os.environ.get('TELEGRAM_CHAT_ID', '').split(',') 
+# 채팅 ID가 여러 개일 경우를 대비해 쉼표로 분리하고 공백 제거
+raw_chat_ids = os.environ.get('TELEGRAM_CHAT_ID', '')
+CHAT_ID_LIST = [cid.strip() for cid in raw_chat_ids.split(',') if cid.strip()]
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
 
+print("---------------------------------------------------")
+print(f"🔑 텔레그램 토큰 로드: {'성공' if TELEGRAM_TOKEN else '❌ 실패 (환경변수 확인 필요)'}")
+print(f"🔑 채팅방 ID 로드: {len(CHAT_ID_LIST)}개 감지됨 ({CHAT_ID_LIST})")
+print("---------------------------------------------------")
+
 # ---------------------------------------------------------
-# 🤖 AI 모델 설정 (gemini-1.5-flash)
+# 🤖 AI 모델 설정
 # ---------------------------------------------------------
 model = None
 if GEMINI_API_KEY:
     try:
         genai.configure(api_key=GEMINI_API_KEY)
         model = genai.GenerativeModel('gemini-1.5-flash') 
-    except Exception as e:
-        model = None
+    except: model = None
 
 try:
     krx = fdr.StockListing('KRX')
@@ -38,25 +44,37 @@ try:
 except: NAME_MAP = {}
 
 # ---------------------------------------------------------
-# 📨 텔레그램 전송
+# 📨 [수정] 텔레그램 전송 (디버깅 모드)
 # ---------------------------------------------------------
 def send_telegram(message):
-    if not TELEGRAM_TOKEN or not CHAT_ID_LIST: return
+    if not TELEGRAM_TOKEN:
+        print("❌ [전송 실패] 텔레그램 토큰이 없습니다.")
+        return
+    if not CHAT_ID_LIST:
+        print("❌ [전송 실패] 채팅방 ID가 없습니다.")
+        return
+
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    
     for chat_id in CHAT_ID_LIST:
-        if chat_id.strip():
-            try: requests.post(url, data={'chat_id': chat_id, 'text': message})
-            except: pass
+        try:
+            # 타임아웃 5초 설정 (무한 대기 방지)
+            res = requests.post(url, data={'chat_id': chat_id, 'text': message}, timeout=5)
+            
+            # 전송 결과 로그 출력
+            if res.status_code == 200:
+                print(f"✅ [전송 성공] ChatID: {chat_id} (내용: {message[:10]}...)")
+            else:
+                print(f"❌ [전송 오류] ChatID: {chat_id} | 코드: {res.status_code} | 메시지: {res.text}")
+        except Exception as e:
+            print(f"❌ [연결 실패] ChatID: {chat_id} | 에러: {e}")
 
 # ---------------------------------------------------------
-# 🤖 AI 요약 (문법 오류 방지 수정됨)
+# 🤖 AI 요약
 # ---------------------------------------------------------
 def get_ai_summary(ticker, name, price, strategy):
-    if not GEMINI_API_KEY: return "\n🚫 [키 없음] API Key 설정 필요"
-    if not model: return "\n🚫 [모델 오류] 라이브러리 업데이트 필요"
-
+    if not GEMINI_API_KEY or not model: return "\n🚫 [AI 미설정]"
     try:
-        # ⚠️ [수정] 따옴표 에러 방지를 위해 괄호()로 감싸는 안전한 방식 사용
         prompt = (
             f"종목: {name} ({ticker})\n"
             f"현재가: {price}원\n"
@@ -64,18 +82,13 @@ def get_ai_summary(ticker, name, price, strategy):
             "위 종목에 대해 딱 2줄로 요약해.\n"
             "첫 줄은 '👍 호재:', 둘째 줄은 '⚠️ 주의:' 로 시작할 것."
         )
-        
         response = model.generate_content(prompt)
         time.sleep(1)
         return "\n" + response.text.strip()
-    except Exception as e:
-        err = str(e)
-        if "404" in err: return "\n🚫 [모델 없음] 모델명이 변경되었습니다."
-        if "429" in err: return "\n🚫 [과부하] 잠시 후 다시 시도합니다."
-        return f"\n🚫 [오류] {err[:20]}..."
+    except: return "\n🚫 [AI 분석불가]"
 
 # ---------------------------------------------------------
-# ⚡ 네이버 수급 랭킹 스캔
+# ⚡ 네이버 수급 랭킹
 # ---------------------------------------------------------
 def get_top_buyer_stocks():
     print("⚡ 기관/외인 수급 랭킹 스캔 중...")
@@ -89,7 +102,7 @@ def get_top_buyer_stocks():
     found_tickers = set()
     for url in urls:
         try:
-            res = requests.get(url, headers=headers)
+            res = requests.get(url, headers=headers, timeout=5)
             res.encoding = 'EUC-KR'
             dfs = pd.read_html(StringIO(res.text))
             for df in dfs:
@@ -103,7 +116,7 @@ def get_top_buyer_stocks():
     return list(found_tickers)
 
 # ---------------------------------------------------------
-# 🧮 스토캐스틱 계산
+# 🧮 스토캐스틱
 # ---------------------------------------------------------
 def get_stochastic(df, n=5, k=3, d=3):
     high = df['High'].rolling(window=n).max()
@@ -114,7 +127,7 @@ def get_stochastic(df, n=5, k=3, d=3):
     return slow_k, slow_d
 
 # ---------------------------------------------------------
-# 🔍 3단 필터 (오차보정 포함)
+# 🔍 3단 필터
 # ---------------------------------------------------------
 def analyze_stock(ticker):
     try:
@@ -123,7 +136,6 @@ def analyze_stock(ticker):
         curr = df.iloc[-1]
         prev = df.iloc[-2]
         
-        # 거래대금 10억
         if (curr['Close'] * curr['Volume']) < 1000000000: return None
 
         ma5 = df['Close'].rolling(5).mean()
@@ -160,7 +172,6 @@ def analyze_stock(ticker):
             if is_trend:
                 ai = get_ai_summary(ticker, name, price_str, "거래량폭발 급등추세")
                 return f"🦁 [추세] {name}\n가격: {price_str}원{ai}"
-
     except: return None
     return None
 
@@ -168,8 +179,13 @@ def analyze_stock(ticker):
 # 🚀 메인 실행
 # ---------------------------------------------------------
 if __name__ == "__main__":
-    print(f"🚀 [SyntaxError 수정완료] 시스템 재가동...")
+    print(f"🚀 [디버깅 모드] 시스템 가동 (한국시간: {TODAY_STR})")
     
+    # ⚠️ [중요] 시작하자마자 테스트 메시지 발사!
+    print("📨 [1단계] 텔레그램 연결 테스트 중...")
+    send_telegram(f"🚀 [테스트] 시스템이 정상 가동되었습니다.\n시간: {NOW.strftime('%Y-%m-%d %H:%M:%S')}")
+
+    # 시장 상태
     market_msg = "분석 중..."
     try:
         kospi = fdr.DataReader('KS11', start=(NOW - timedelta(days=60)).strftime('%Y-%m-%d'))
@@ -178,4 +194,37 @@ if __name__ == "__main__":
         market_msg = "📈 상승장" if curr_k > ma20_k else "📉 조정장"
     except: pass
 
+    # 종목 스캔
     target_tickers = get_top_buyer_stocks()
+    if not target_tickers:
+        print("⚠️ 수급 데이터 실패 -> 시총 상위 대체")
+        target_tickers = krx.sort_values(by='Marcap', ascending=False).head(100)['Code'].astype(str).tolist()
+
+    print(f"⚡ [2단계] {len(target_tickers)}개 종목 분석 시작...")
+    results = []
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        futures = {executor.submit(analyze_stock, t): t for t in target_tickers}
+        for future in concurrent.futures.as_completed(futures):
+            res = future.result()
+            if res: results.append(res)
+
+    header = f"🤖 [AI 스마트 리포트] {TODAY_STR}\n시장: {market_msg}\n"
+    
+    if results:
+        def sort_priority(msg):
+            if "🦁" in msg: return 1
+            if "🕵️" in msg: return 2
+            return 3
+        results.sort(key=sort_priority)
+        msg = header + "\n" + "\n\n".join(results)
+    else:
+        msg = header + "\n조건 만족 종목 없음 (장 시작 전이거나 휴일)"
+
+    # 결과 전송
+    print(f"📨 [3단계] 최종 리포트 전송 시도... (발견된 종목: {len(results)}개)")
+    if len(msg) > 4000:
+        send_telegram(msg[:4000])
+        send_telegram(msg[4000:])
+    else:
+        send_telegram(msg)
