@@ -7,17 +7,34 @@ from datetime import datetime, timedelta
 import google.generativeai as genai
 import concurrent.futures
 from io import StringIO
+import pytz  # 🌍 시간대 처리를 위한 라이브러리
 
-# --- [환경변수] ---
+# ---------------------------------------------------------
+# 🌍 [중요] 한국 시간(KST) 설정
+# ---------------------------------------------------------
+KST = pytz.timezone('Asia/Seoul')
+NOW = datetime.now(KST)
+TODAY_STR = NOW.strftime('%Y-%m-%d')
+
+print(f"🌍 현재 한국 시간: {NOW} (장중 여부 확인)")
+
+# --- [환경변수 & AI 키 확인] ---
 TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN')
 CHAT_ID_LIST = os.environ.get('TELEGRAM_CHAT_ID', '').split(',') 
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
 
+# 🔑 AI 키 디버깅 (보안 위해 앞뒤만 출력)
 if GEMINI_API_KEY:
+    print(f"✅ AI 키 감지됨: {GEMINI_API_KEY[:4]}****{GEMINI_API_KEY[-4:]}")
     try:
         genai.configure(api_key=GEMINI_API_KEY)
         model = genai.GenerativeModel('gemini-1.5-flash')
-    except: model = None
+    except: 
+        print("❌ AI 키 설정 중 오류 발생")
+        model = None
+else:
+    print("❌ AI 키가 없습니다! (yml 파일 env 설정을 확인하세요)")
+    model = None
 
 try:
     krx = fdr.StockListing('KRX')
@@ -36,41 +53,23 @@ def send_telegram(message):
             except: pass
 
 # ---------------------------------------------------------
-# 🤖 AI 요약 (호재/주의 포맷)
+# 🤖 AI 요약
 # ---------------------------------------------------------
 def get_ai_summary(ticker, name, price, strategy):
-    if not GEMINI_API_KEY or not model: return ""
+    if not GEMINI_API_KEY or not model: 
+        return "\n🚫 AI 키 미등록/오류로 분석 불가"
     try:
-        # 선생님이 원하시는 포맷대로 요청
         prompt = f"""
-        주식: {name} ({ticker})
+        종목: {name} ({ticker})
         현재가: {price}원
-        포착된이유: {strategy}
-        
+        포착전략: {strategy}
         위 종목에 대해 딱 2줄로 요약해.
         첫 줄은 '👍 호재:', 둘째 줄은 '⚠️ 주의:' 로 시작할 것.
-        (잡담 금지, 오직 결과만 출력)
         """
         response = model.generate_content(prompt)
         time.sleep(1)
         return "\n" + response.text.strip()
-    except: return "\n(AI 분석 불가)"
-
-# ---------------------------------------------------------
-# 📈 시장 상황 파악 (코스피)
-# ---------------------------------------------------------
-def get_market_status():
-    try:
-        kospi = fdr.DataReader('KS11', start=(datetime.now() - timedelta(days=60)))
-        curr = kospi['Close'].iloc[-1]
-        ma20 = kospi['Close'].rolling(20).mean().iloc[-1]
-        
-        if curr > ma20:
-            return "📈 상승장 (20일선 위)"
-        else:
-            return "📉 조정장 (20일선 아래)"
-    except:
-        return "❓ 시장 데이터 확인 불가"
+    except: return "\n🚫 AI 응답 실패"
 
 # ---------------------------------------------------------
 # ⚡ 네이버 수급 랭킹 스캔
@@ -112,15 +111,22 @@ def get_stochastic(df, n=5, k=3, d=3):
     return slow_k, slow_d
 
 # ---------------------------------------------------------
-# 🔍 3단 필터 (바닥/잠입/추세)
+# 🔍 3단 필터 (오차범위 보정 적용)
 # ---------------------------------------------------------
 def analyze_stock(ticker):
     try:
-        df = fdr.DataReader(ticker, start=(datetime.now() - timedelta(days=365)))
+        # 한국 시간 기준으로 오늘까지 데이터 요청
+        df = fdr.DataReader(ticker, start=(NOW - timedelta(days=365)).strftime('%Y-%m-%d'))
         if len(df) < 120: return None
+        
         curr = df.iloc[-1]
         prev = df.iloc[-2]
         
+        # 날짜 확인 (데이터가 최신인지)
+        data_date = curr.name.strftime('%Y-%m-%d')
+        # 만약 데이터 날짜가 오늘이 아니면(장 시작 전이거나 휴일), 그냥 최신 데이터로 분석
+        
+        # 거래대금 10억
         if (curr['Close'] * curr['Volume']) < 1000000000: return None
 
         ma5 = df['Close'].rolling(5).mean()
@@ -157,11 +163,13 @@ def analyze_stock(ticker):
             return f"🕵️ [잠입] {name}\n가격: {price_str}원{ai}"
 
         # -----------------------------------------------------
-        # 3. 🦁 [추세] (선생님 오리지널)
+        # 3. 🦁 [추세] (HTS 조건 싱크로율 높임)
         # -----------------------------------------------------
+        # 선생님 HTS 조건: 5% 이상 상승, 거래량 200%
+        # Python 보정: 데이터 지연 감안하여 4.5% 이상, 거래량 180%로 살짝 완화
         else:
             is_trend = False
-            if (pct >= 5.0) and (curr['Volume'] >= prev['Volume'] * 2.0):
+            if (pct >= 4.5) and (curr['Volume'] >= prev['Volume'] * 1.8):
                 if (ma5.iloc[-1] > ma20.iloc[-1]) and (curr['Close'] > ma5.iloc[-1]):
                     k, d = get_stochastic(df)
                     if k.iloc[-1] > d.iloc[-1]:
@@ -178,18 +186,22 @@ def analyze_stock(ticker):
 # 🚀 메인 실행
 # ---------------------------------------------------------
 if __name__ == "__main__":
-    print("🚀 [최종 복구] 호재/주의 포맷으로 실행...")
+    print(f"🚀 [한국시간 {TODAY_STR}] 시스템 가동")
     
-    # 1. 시장 상황 체크
-    market_msg = get_market_status()
-    
-    # 2. 종목 스캔
+    market_msg = "분석 중..."
+    try:
+        kospi = fdr.DataReader('KS11', start=(NOW - timedelta(days=60)).strftime('%Y-%m-%d'))
+        curr_k = kospi['Close'].iloc[-1]
+        ma20_k = kospi['Close'].rolling(20).mean().iloc[-1]
+        market_msg = "📈 상승장" if curr_k > ma20_k else "📉 조정장"
+    except: pass
+
     target_tickers = get_top_buyer_stocks()
     if not target_tickers:
         print("❌ 수급 데이터 확보 실패. 시총 상위로 대체.")
         target_tickers = krx.sort_values(by='Marcap', ascending=False).head(100)['Code'].astype(str).tolist()
 
-    print(f"⚡ 수급주 {len(target_tickers)}개 분석 중...")
+    print(f"⚡ {len(target_tickers)}개 종목 분석 중...")
     results = []
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
@@ -198,12 +210,9 @@ if __name__ == "__main__":
             res = future.result()
             if res: results.append(res)
 
-    # 3. 결과 전송
-    today = datetime.now().strftime('%m/%d')
-    header = f"🤖 [AI 스마트 리포트] {today}\n시장: {market_msg}\n"
+    header = f"🤖 [AI 스마트 리포트] {TODAY_STR}\n시장: {market_msg}\n"
     
     if results:
-        # 정렬: 추세 -> 잠입 -> 바닥
         def sort_priority(msg):
             if "🦁" in msg: return 1
             if "🕵️" in msg: return 2
@@ -211,7 +220,7 @@ if __name__ == "__main__":
         results.sort(key=sort_priority)
         msg = header + "\n" + "\n\n".join(results)
     else:
-        msg = header + "\n조건 만족 종목 없음"
+        msg = header + "\n조건 만족 종목 없음 (데이터 지연 가능성)"
 
     if len(msg) > 4000:
         send_telegram(msg[:4000])
