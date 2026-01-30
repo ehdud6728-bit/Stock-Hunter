@@ -180,4 +180,47 @@ if __name__ == "__main__":
     # 시작 알림
     send_telegram(f"🚀 [분석 시작] 주식 사냥을 시작합니다!\n(기준시간: {NOW.strftime('%H:%M:%S')})")
 
-    market_msg = "분석
+    market_msg = "분석 중..."
+    try:
+        kospi = fdr.DataReader('KS11', start=(NOW - timedelta(days=60)).strftime('%Y-%m-%d'))
+        curr_k = kospi['Close'].iloc[-1]
+        ma20_k = kospi['Close'].rolling(20).mean().iloc[-1]
+        market_msg = "📈 상승장" if curr_k > ma20_k else "📉 조정장"
+    except: pass
+
+    # 종목 추출
+    target_tickers = get_top_buyer_stocks()
+    if not target_tickers:
+        print("⚠️ 수급 데이터 실패 -> 시총 상위 대체")
+        target_tickers = krx.sort_values(by='Marcap', ascending=False).head(100)['Code'].astype(str).tolist()
+
+    print(f"⚡ {len(target_tickers)}개 종목 정밀 분석 중...")
+    
+    # 병렬 처리로 빠르게 분석
+    results = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        futures = {executor.submit(analyze_stock, t): t for t in target_tickers}
+        for future in concurrent.futures.as_completed(futures):
+            res = future.result()
+            if res: results.append(res)
+
+    # 결과 전송
+    header = f"🤖 [AI 스마트 리포트] {TODAY_STR}\n시장: {market_msg}\n"
+    
+    if results:
+        # 중요도 정렬 (추세 > 잠입 > 바닥)
+        def sort_priority(msg):
+            if "🦁" in msg: return 1
+            if "🕵️" in msg: return 2
+            return 3
+        results.sort(key=sort_priority)
+        msg = header + "\n" + "\n\n".join(results)
+    else:
+        msg = header + "\n조건을 만족하는 종목이 없습니다. (휴일이거나 장 시작 전일 수 있습니다)"
+
+    # 긴 메시지 나눠서 전송
+    if len(msg) > 4000:
+        send_telegram(msg[:4000])
+        send_telegram(msg[4000:])
+    else:
+        send_telegram(msg)
