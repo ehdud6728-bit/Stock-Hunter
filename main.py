@@ -9,9 +9,7 @@ import google.generativeai as genai
 
 # --- [환경변수] ---
 TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN')
-# 여러 명의 ID를 콤마(,)로 구분해서 가져옵니다.
 CHAT_ID_LIST = os.environ.get('TELEGRAM_CHAT_ID', '').split(',') 
-
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
 MIN_BUY_AMOUNT = 50000000
 
@@ -21,27 +19,34 @@ if GEMINI_API_KEY:
     model = genai.GenerativeModel('gemini-1.5-flash')
 
 # ---------------------------------------------------------
-# 📨 [수정됨] 다중 전송 함수
+# 📚 [추가됨] 종목 이름 미리 가져오기 (에러 방지용)
+# ---------------------------------------------------------
+print("📚 전체 종목 이름표 수집 중... (FDR)")
+try:
+    # KRX 전체 종목 리스트를 한 번에 가져와서 {코드: 이름} 사전으로 만듦
+    krx_stocks = fdr.StockListing('KRX')
+    # 코드를 6자리 문자열로 변환 (005930 등)
+    NAME_MAP = dict(zip(krx_stocks['Code'].astype(str), krx_stocks['Name']))
+    print("✅ 이름표 수집 완료")
+except Exception as e:
+    print(f"⚠️ 이름표 수집 실패: {e}")
+    NAME_MAP = {}
+
+# ---------------------------------------------------------
+# 📨 다중 전송 함수
 # ---------------------------------------------------------
 def send_telegram(message):
     if not TELEGRAM_TOKEN or not CHAT_ID_LIST: return
-    
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    
-    # 콤마로 쪼개진 ID 리스트를 하나씩 돌면서 전송
     for chat_id in CHAT_ID_LIST:
-        chat_id = chat_id.strip() # 공백 제거
-        if not chat_id: continue # 빈 문자열이면 패스
-        
+        chat_id = chat_id.strip()
+        if not chat_id: continue
         data = {'chat_id': chat_id, 'text': message}
-        try:
-            requests.post(url, data=data)
-            print(f"전송 성공: {chat_id}")
-        except Exception as e:
-            print(f"전송 실패 ({chat_id}): {e}")
+        try: requests.post(url, data=data)
+        except: pass
 
 # ---------------------------------------------------------
-# 🤖 [AI 애널리스트] 종목 코멘트 생성
+# 🤖 AI 애널리스트
 # ---------------------------------------------------------
 def ask_gemini_analyst(ticker, name, price, status):
     if not GEMINI_API_KEY: return ""
@@ -60,7 +65,7 @@ def ask_gemini_analyst(ticker, name, price, status):
     except: return "\n(AI 분석 실패)"
 
 # ---------------------------------------------------------
-# [기존 로직] 시장/수급/차트 분석
+# 기존 로직 (시장/수급/차트)
 # ---------------------------------------------------------
 def check_market_status():
     try:
@@ -112,7 +117,7 @@ def analyze_stock(ticker):
         prev = df.iloc[-2]
         if (curr['Close'] * curr['Volume']) < 2000000000: return None
 
-        ma5, ma20, _, ma224, rsi, cloud = get_indicators(df)
+        ma5, ma20, ma224, rsi, cloud = get_indicators(df)
         
         # 전략 A: 추세
         cond_A = (curr['Close'] > ma5.iloc[-1]) and (ma5.iloc[-1] > ma20.iloc[-1]) and \
@@ -123,7 +128,8 @@ def analyze_stock(ticker):
                  (rsi.iloc[-1] >= 30) and (curr['Close'] > ma5.iloc[-1]) and \
                  (95 <= (curr['Close']/ma20.iloc[-1]*100) <= 105)
 
-        name = stock.get_market_ticker_name(ticker)
+        # 🔧 [수정됨] 여기서 에러나던 pykrx 대신, 아까 만든 NAME_MAP을 씁니다!
+        name = NAME_MAP.get(ticker, ticker) # 이름 없으면 코드번호 출력
         price_str = format(int(curr['Close']),',')
         
         if cond_A:
@@ -136,9 +142,9 @@ def analyze_stock(ticker):
     return None
 
 # ---------------------------------------------------------
-# [실행]
+# 실행
 # ---------------------------------------------------------
-print("🚀 AI 자동매매 시스템 가동 (다중 전송 모드)")
+print("🚀 AI 자동매매 시스템 가동 (안전 모드)")
 market_msg = check_market_status()
 target_tickers = get_supply_data()
 
