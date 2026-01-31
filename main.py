@@ -16,11 +16,10 @@ KST = pytz.timezone('Asia/Seoul')
 NOW = datetime.now(KST)
 TODAY_STR = NOW.strftime('%Y-%m-%d')
 
-# --- [환경변수] ---
+# --- [환경변수 로드] ---
 TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN')
 CHAT_ID_LIST = os.environ.get('TELEGRAM_CHAT_ID', '').split(',') 
-raw_key = os.environ.get('GEMINI_API_KEY')
-GEMINI_API_KEY = raw_key.strip() if raw_key else None
+GROQ_API_KEY = os.environ.get('GROQ_API_KEY') # 👈 Groq 키 사용
 
 try:
     krx = fdr.StockListing('KRX')
@@ -39,20 +38,19 @@ def send_telegram(message):
             except: pass
 
 # ---------------------------------------------------------
-# 🤖 AI 요약 (가족 상봉 3단 시도)
+# 🤖 AI 요약 (Groq: Llama3-70b)
 # ---------------------------------------------------------
 def get_ai_summary(ticker, name, price, strategy):
-    if not GEMINI_API_KEY: return "\n🚫 [키 오류] API Key 없음"
+    if not GROQ_API_KEY: return "\n🚫 [키 없음] GROQ_API_KEY가 없습니다."
 
-    # 🚪 문 두드릴 모델 리스트 (순서대로 호출)
-    # 1. 최신형 (Flash) -> 2. 표준형 (Pro) -> 3. 구형 (1.0)
-    models_to_try = [
-        "gemini-1.5-flash", 
-        "gemini-pro", 
-        "gemini-1.0-pro"
-    ]
+    # Groq API 주소
+    url = "https://api.groq.com/openai/v1/chat/completions"
     
-    # 질문 내용
+    headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    
     prompt = f"""종목: {name} ({ticker})
 현재가: {price}원
 포착전략: {strategy}
@@ -60,38 +58,25 @@ def get_ai_summary(ticker, name, price, strategy):
 첫 줄은 '👍 호재:', 둘째 줄은 '⚠️ 주의:' 로 시작할 것."""
 
     payload = {
-        "contents": [{"parts": [{"text": prompt}]}]
+        "model": "llama3-70b-8192", # ⚡ 가장 똑똑하고 빠른 모델
+        "messages": [
+            {"role": "system", "content": "너는 한국 주식 전문가야. 반드시 한국어로 답변해."},
+            {"role": "user", "content": prompt}
+        ],
+        "temperature": 0.5
     }
 
-    # 🔄 하나라도 걸려라 루프
-    last_error = ""
-    for model_name in models_to_try:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={GEMINI_API_KEY}"
+    try:
+        response = requests.post(url, json=payload, headers=headers, timeout=10)
         
-        try:
-            response = requests.post(url, json=payload, timeout=5)
+        if response.status_code == 200:
+            data = response.json()
+            return "\n" + data['choices'][0]['message']['content'].strip()
+        else:
+            return f"\n🚫 [Groq 거절] {response.status_code} (키 확인 필요)"
             
-            # 성공하면 바로 리턴하고 끝냄
-            if response.status_code == 200:
-                data = response.json()
-                try:
-                    text = data['candidates'][0]['content']['parts'][0]['text']
-                    return "\n" + text.strip()
-                except:
-                    continue # 응답은 왔는데 내용이 이상하면 다음 모델로
-            else:
-                # 404면 다음 모델 시도, 400(키 오류)이면 바로 중단
-                if response.status_code == 400:
-                    return f"\n🚫 [가족 거절] API 키 자체가 틀렸대요 (400)"
-                last_error = f"{response.status_code}"
-                continue # 실패하면 다음 모델로 넘어감
-
-        except Exception as e:
-            last_error = str(e)
-            continue
-
-    # 3명 다 문 안 열어줬을 때
-    return f"\n🚫 [전원 거절] 구글 가족이 다 거절함 ({last_error})"
+    except Exception as e:
+        return f"\n🚫 [연결 실패] {str(e)[:20]}..."
 
 # ---------------------------------------------------------
 # ⚡ 네이버 수급 랭킹
@@ -142,7 +127,7 @@ def analyze_stock(ticker):
         curr = df.iloc[-1]
         prev = df.iloc[-2]
         
-        if (curr['Close'] * curr['Volume']) < 500000000: return None
+        if (curr['Close'] * curr['Volume']) < 1000000000: return None
 
         ma5 = df['Close'].rolling(5).mean()
         ma20 = df['Close'].rolling(20).mean()
@@ -185,8 +170,8 @@ def analyze_stock(ticker):
 # 🚀 메인 실행
 # ---------------------------------------------------------
 if __name__ == "__main__":
-    print(f"🚀 [최종] 구글 가족 상봉 3단 시도...")
-    send_telegram(f"🚀 [시스템 재부팅] AI 연결 3단 콤보 시도\n(시간: {NOW.strftime('%H:%M:%S')})")
+    print(f"🚀 [Groq] 시스템 가동 (Llama3-70b)")
+    send_telegram(f"🚀 [시스템 가동] Groq 엔진 장착 완료!\n(시간: {NOW.strftime('%H:%M:%S')})")
 
     market_msg = "분석 중..."
     try:
@@ -201,7 +186,9 @@ if __name__ == "__main__":
         print("⚠️ 수급 데이터 실패 -> 시총 상위 대체")
         target_tickers = krx.sort_values(by='Marcap', ascending=False).head(100)['Code'].astype(str).tolist()
 
+    print(f"⚡ {len(target_tickers)}개 종목 분석 중...")
     results = []
+
     with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
         futures = {executor.submit(analyze_stock, t): t for t in target_tickers}
         for future in concurrent.futures.as_completed(futures):
