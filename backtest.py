@@ -1,109 +1,143 @@
 import FinanceDataReader as fdr
 import pandas as pd
-import numpy as np
-import time
+from datetime import datetime, timedelta
+import pytz
 
-# =========================================================
-# ⚙️ [설정] 여기서 내 입맛대로 조건을 바꿉니다
-# =========================================================
-INITIAL_CAPITAL = 10000000  # 원금: 1,000만원
-STOP_LOSS = -0.05         # 손절: -5% (칼손절)
-TAKE_PROFIT = 0.15        # 익절: +15% (추세는 길게)
-MAX_HOLDING = 10          # 최대 보유일: 10일 (안 오르면 자름)
+# ---------------------------------------------------------
+# ⚙️ 백테스트 설정
+# ---------------------------------------------------------
+START_DATE = "2026-01-05"  # 검증 시작일
+END_DATE = datetime.now().strftime('%Y-%m-%d')
+HOLDING_DAYS = 10          # 선생님 요청대로 10일!
 
-# 테스트할 종목 (대장주 + 급등끼 있는 종목 20개)
-TEST_TICKERS = {
-    '005930': '삼성전자', '000660': 'SK하이닉스', '086520': '에코프로',
-    '247540': '에코프로비엠', '005380': '현대차', '000270': '기아',
-    '005490': 'POSCO홀딩스', '035420': 'NAVER', '035720': '카카오',
-    '042700': '한미반도체', '028300': 'HLB', '010130': '고려아연',
-    '041510': '에스엠', '035900': 'JYP Ent.', '068270': '셀트리온',
-    '000100': '유한양행', '010120': 'LS ELECTRIC', '042660': '대우조선해양',
-    '034020': '두산에너빌리티', '009150': '삼성전기'
-}
+print(f"🕵️‍♂️ [정밀 백테스트] 기간: {START_DATE} ~ {END_DATE}")
+print(f"🎯 전략: 10일간의 최고점(High)과 최저점(Low) 추적")
+print("-" * 60)
 
-# =========================================================
-# 📊 보조지표 계산 (검색식과 동일하게)
-# =========================================================
-def add_indicators(df):
-    df['MA5'] = df['Close'].rolling(5).mean()
-    df['MA20'] = df['Close'].rolling(20).mean()
-    df['MA60'] = df['Close'].rolling(60).mean()
+# 시가총액 상위 50개 (우량주 대상 검증)
+krx = fdr.StockListing('KRX')
+top50 = krx.sort_values(by='Marcap', ascending=False).head(50)
+TARGET_CODES = top50['Code'].astype(str).tolist()
+NAME_MAP = dict(zip(krx['Code'].astype(str), krx['Name']))
+
+# ---------------------------------------------------------
+# 🧮 전략 로직 (Wide Mode 적용)
+# ---------------------------------------------------------
+def check_strategy(df, i):
+    # 데이터 부족 시 패스
+    if i < 60: return None 
+
+    curr = df.iloc[i]
+    prev = df.iloc[i-1]
+    
+    # 과거 데이터만 사용해서 지표 계산
+    subset = df.iloc[:i+1]
+    close = subset['Close']
+    
+    ma5 = close.rolling(5).mean().iloc[-1]
+    ma20 = close.rolling(20).mean().iloc[-1]
+    ma60 = close.rolling(60).mean().iloc[-1]
     
     # RSI
-    delta = df['Close'].diff(1)
+    delta = close.diff(1)
     gain = (delta.where(delta > 0, 0)).rolling(14).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
-    df['RSI'] = 100 - (100 / (1 + (gain / loss)))
+    rsi_val = 100 - (100 / (1 + (gain.iloc[-1] / loss.iloc[-1])))
     
-    # 스토캐스틱 (추세용 비기)
-    high = df['High'].rolling(5).max()
-    low = df['Low'].rolling(5).min()
-    fast_k = ((df['Close'] - low) / (high - low)) * 100
-    df['Slow_K'] = fast_k.rolling(3).mean()
-    df['Slow_D'] = df['Slow_K'].rolling(3).mean()
+    pct = curr['Change'] * 100
     
-    return df
+    # 1. 🦁 [추세] (완화된 조건)
+    if (ma5 > ma20) and (pct >= 2.0) and (curr['Close'] > ma20):
+        if curr['Volume'] >= prev['Volume'] * 1.0:
+            return "🦁 추세"
 
-# =========================================================
-# 🤖 매수 신호 판별 (선생님 전략 100% 반영)
-# =========================================================
-def check_buy_signal(row, prev_row, strategy_name):
-    # 공통: 거래대금 50억 이상 (백테스트니까 조금 낮춰서 많이 잡히게)
-    if (row['Close'] * row['Volume']) < 5000000000:
-        return False
+    # 2. 🎣 [바닥]
+    elif (curr['Close'] < ma60) and (curr['Close'] > ma5) and (rsi_val <= 55):
+        return "🎣 바닥"
 
-    # 1. 🦁 [추세] (거래량2배 + 5%상승 + 정배열 + 스토캐스틱)
-    if strategy_name == "추세":
-        if (row['Change'] >= 0.05) and \
-           (row['Volume'] >= prev_row['Volume'] * 2.0) and \
-           (row['MA5'] > row['MA20']) and \
-           (row['Slow_K'] > row['Slow_D']):
-            return True
-
-    # 2. 🕵️ [잠입] (3% 미만 횡보 + 20일선 위 + RSI안정)
-    elif strategy_name == "잠입":
-        pct = row['Change'] * 100
-        if (row['Close'] > row['MA20']) and \
-           (-2.0 < pct < 3.0) and \
-           (row['RSI'] <= 60) and \
-           (row['MA5'] > row['MA20']):
-            return True
-
-    # 3. 🎣 [바닥] (역배열 + RSI침체 + 5일선 회복)
-    elif strategy_name == "바닥":
-        if (row['Close'] < row['MA60']) and \
-           (row['RSI'] <= 40) and \
-           (row['Close'] > row['MA5']):
-            return True
-            
-    return False
-
-# =========================================================
-# 🧪 백테스팅 엔진
-# =========================================================
-def run_simulation(strategy_name):
-    print(f"\n🎮 === [{strategy_name} 전략] 수익률 검증 중... ===")
-    
-    total_balance = INITIAL_CAPITAL * len(TEST_TICKERS) # 전체 시드
-    total_profit = 0
-    trade_count = 0
-    wins = 0
-    
-    print(f"📅 기간: 최근 1년 (2023.06 ~ 2024.06)")
-    
-    for code, name in TEST_TICKERS.items():
-        # 데이터 로드
-        df = fdr.DataReader(code, '2023-06-01', '2024-06-01')
-        if len(df) < 100: continue
-        df = add_indicators(df)
+    # 3. 🕵️ [잠입]
+    elif (curr['Close'] > ma20) and (-3.0 < pct < 5.0) and (curr['Volume'] < prev['Volume']):
+        return "🕵️ 잠입"
         
+    return None
+
+# ---------------------------------------------------------
+# 🚀 검증 실행
+# ---------------------------------------------------------
+total_trades = 0
+total_max_profit = 0.0 # 최고 수익률 합계
+total_final_profit = 0.0 # 최종 수익률 합계
+
+print("⚡ 과거 데이터로 시뮬레이션 중...")
+
+for code in TARGET_CODES:
+    name = NAME_MAP.get(code, code)
+    try:
+        # 넉넉하게 데이터 로드
+        df = fdr.DataReader(code, '2025-10-01', END_DATE)
+        dates = df.index.strftime('%Y-%m-%d').tolist()
+        
+        try:
+            start_idx = dates.index(START_DATE)
+        except: continue # 시작일 데이터 없으면 패스
+
         # 시뮬레이션
-        holding = False
-        buy_price = 0
-        days_held = 0
-        stock_profit = 0
-        
-        for i in range(1, len(df)-1):
-            curr = df.iloc[i]
-            prev = df.iloc[i-1]
+        # (10일 뒤 데이터가 있는 곳까지만 반복)
+        for i in range(start_idx, len(df) - HOLDING_DAYS):
+            signal = check_strategy(df, i)
+            
+            if signal:
+                buy_date = dates[i]
+                buy_price = df.iloc[i]['Close']
+                
+                # 향후 10일간의 데이터 조회
+                future_window = df.iloc[i+1 : i+1+HOLDING_DAYS]
+                
+                if len(future_window) < HOLDING_DAYS: continue
+
+                # 1. 최고가 (Best Case)
+                highest_price = future_window['High'].max()
+                max_profit = ((highest_price - buy_price) / buy_price) * 100
+                
+                # 2. 최저가 (Worst Case)
+                lowest_price = future_window['Low'].min()
+                max_loss = ((lowest_price - buy_price) / buy_price) * 100
+                
+                # 3. 10일 뒤 종가 (Final Case)
+                final_price = future_window.iloc[-1]['Close']
+                final_profit = ((final_price - buy_price) / buy_price) * 100
+                
+                total_trades += 1
+                total_max_profit += max_profit
+                total_final_profit += final_profit
+                
+                print(f"[{buy_date}] {signal} {name}")
+                print(f"   └ 진입가: {format(int(buy_price),',')}원")
+                print(f"   🔥 최고: +{max_profit:.2f}%  (이때 팔았으면 대박)")
+                print(f"   💧 최저: {max_loss:.2f}%  (이때 팔았으면 쪽박)")
+                print(f"   🏁 최종: {final_profit:.2f}%  (10일 존버 결과)")
+                print("-" * 40)
+
+    except Exception as e:
+        continue
+
+# ---------------------------------------------------------
+# 📊 종합 결산
+# ---------------------------------------------------------
+print("\n" + "=" * 60)
+print(f"📊 [10일 보유 전략] 최종 성적표")
+if total_trades > 0:
+    avg_max = total_max_profit / total_trades
+    avg_final = total_final_profit / total_trades
+    
+    print(f"총 매매 기회: {total_trades}번")
+    print(f"🔥 평균 최고 수익률: +{avg_max:.2f}% (잠재력)")
+    print(f"🏁 평균 최종 수익률: {avg_final:+.2f}% (실현손익)")
+    
+    print("\n[AI의 한줄평]")
+    if avg_final > 5: print("대박입니다! 10일 스윙 전략이 아주 잘 먹힙니다. 🚀")
+    elif avg_final > 0: print("나쁘지 않습니다. 은행 이자보단 낫네요. 🏦")
+    else: print("전략 수정이 필요합니다. 10일은 너무 긴가 봅니다. 📉")
+else:
+    print("해당 기간에 포착된 종목이 없습니다.")
+print("=" * 60)
