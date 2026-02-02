@@ -51,10 +51,11 @@ def send_telegram(message):
                     response = requests.post(url, data={'chat_id': chat_id, 'text': chunk})
 
                     # 결과 확인
-                    if response.status_code == 200:
-                        print(f"✅ 전송 성공! ({chat_id})")
+                    if res.status_code == 200:
+                        print(f"✅ 성공! ({chat_id} 님에게 전송됨)")
                     else:
-                        print(f"❌ 전송 실패 ({chat_id}): {response.text}")
+                        print(f"❌ 실패! (에러코드: {res.status_code})")
+                        print(f"👉 텔레그램 답변: {res.json()}") # 여기가 핵심입니다!
                         
                     time.sleep(0.5) 
                 except Exception as e:
