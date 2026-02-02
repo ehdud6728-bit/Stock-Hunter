@@ -29,13 +29,18 @@ def send_telegram(message):
     if not TELEGRAM_TOKEN or not CHAT_ID_LIST: return
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     chunks = [message[i:i+4000] for i in range(0, len(message), 4000)]
+
+    print(f"📨 전송 시작... 대상: {len(CHAT_ID_LIST)}명")
+    
     for chat_id in CHAT_ID_LIST:
         if chat_id.strip():
+            print(f"✅ 전송 ! ({chat_id})")
             for chunk in chunks:
                 try: 
                     requests.post(url, data={'chat_id': chat_id, 'text': chunk})
                     time.sleep(0.5) 
-                except: pass
+                except Exception as e:
+                    print(f"🚨 에러 발생 ({user_id}): {e}")
 
 # ---------------------------------------------------------
 # 🤖 AI 코멘트
