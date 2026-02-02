@@ -48,11 +48,18 @@ def send_telegram(message):
             print(f"✅ 전송 ! ({chat_id})")
             for chunk in chunks:
                 try: 
-                    requests.post(url, data={'chat_id': chat_id, 'text': chunk})
+                    response = requests.post(url, data={'chat_id': chat_id, 'text': chunk})
+
+                    # 결과 확인
+                    if response.status_code == 200:
+                        print(f"✅ 전송 성공! ({user_id})")
+                    else:
+                        print(f"❌ 전송 실패 ({user_id}): {response.text}")
+                        
                     time.sleep(0.5) 
                 except Exception as e:
                     print(f"🚨 에러 발생 ({user_id}): {e}")
-
+                time.sleep(0.5)
 # ---------------------------------------------------------
 # 🤖 AI 코멘트
 # ---------------------------------------------------------
