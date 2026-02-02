@@ -161,29 +161,125 @@ def get_investor_trend(code):
 # ---------------------------------------------------------
 # 🏢 재무 크롤링 (실적 추세)
 # ---------------------------------------------------------
-def get_naver_financials(code):
+def get_financial_info(code):
+    """
+    네이버 금융 '기업실적분석' 표에서 
+    1. 이익 추이 (흑자전환, 급증 등)
+    2. 기업 등급 (저평가, 성장주, 자산주 등 - PER/PBR/EPS 기반)
+    두 가지 정보를 모두 가져옵니다.
+    """
+    # 기본값 설정
+    result = {
+        "trend": "보통",          # 추이 (기세)
+        "badge": "⚖️보통",        # 등급 (가치)
+        "eps": 0, "per": 0, "pbr": 0
+    }
+    
     try:
         url = f"https://finance.naver.com/item/main.naver?code={code}"
-        dfs = pd.read_html(url, encoding='euc-kr', header=0)
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
+        
+        response = requests.get(url, headers=headers)
+        response.encoding = 'euc-kr'
+        
+        # 테이블 읽기
+        dfs = pd.read_html(response.text, header=0)
+        
+        # '기업실적분석' (또는 최근 연간 실적) 표 찾기
+        fin_df = None
         for df in dfs:
+            # 컬럼이나 내용에 '영업이익'이나 'PER' 등이 있는지 확인
             if '최근 연간 실적' in str(df.columns) or '주요재무제표' in str(df.columns):
-                if '주요재무제표' in df.columns[0]: df = df.set_index(df.columns[0])
-                if '영업이익' in df.index:
-                    op_profit = df.loc['영업이익']
-                    valid_data = []
-                    for val in op_profit.values:
-                        try:
-                            v = float(str(val).replace(',', '').strip())
-                            if not np.isnan(v): valid_data.append(v)
-                        except: pass
-                    if len(valid_data) >= 2:
-                        last = valid_data[-1]; prev = valid_data[-2]
-                        if prev < 0 and last > 0: return "🐢흑자전환"
-                        if last > prev * 1.3: return "📈이익급증"
-                        if last > prev: return "🔺이익증가"
-                        if last < prev: return "📉이익감소"
-        return "보통"
-    except: return "확인불가"
+                fin_df = df
+                break
+        
+        if fin_df is None: return result
+
+        # 인덱스 설정 (항목명으로 접근하기 위해)
+        if len(fin_df.columns) > 0: 
+            fin_df = fin_df.set_index(fin_df.columns[0])
+
+        # -------------------------------------------------------
+        # 1. 📈 이익 추이 분석 (기존 로직)
+        # -------------------------------------------------------
+        if '영업이익' in fin_df.index:
+            op_row = fin_df.loc['영업이익']
+            vals = []
+            # 문자열을 숫자로 변환 (결측치 제외)
+            for v in op_row.values:
+                try: vals.append(float(str(v).replace(',', '').strip()))
+                except: pass
+            
+            # 최근 2개 데이터 비교
+            if len(vals) >= 2:
+                prev = vals[-2] # 직전
+                last = vals[-1] # 최근
+                
+                if prev < 0 and last > 0: result['trend'] = "🐢흑자전환"
+                elif last > prev * 1.3: result['trend'] = "📈이익급증"
+                elif last > prev: result['trend'] = "🔺이익증가"
+                elif last < prev: result['trend'] = "📉이익감소"
+
+        # -------------------------------------------------------
+        # 2. 💎 기업 등급(Badge) 분석 (선생님 로직)
+        # -------------------------------------------------------
+        # 가장 최근 결산 데이터(보통 맨 오른쪽이나 그 앞)를 가져옵니다.
+        # 안전하게 유효한 값이 있는 가장 최근 컬럼을 찾습니다.
+        
+        per = 0; pbr = 0; eps = 0
+        
+        # PER 파싱
+        if 'PER(배)' in fin_df.index:
+            row = fin_df.loc['PER(배)']
+            for v in reversed(row.values): # 뒤에서부터 찾음
+                try: 
+                    per = float(str(v).replace(',', ''))
+                    if not np.isnan(per): break
+                except: pass
+                
+        # PBR 파싱
+        if 'PBR(배)' in fin_df.index:
+            row = fin_df.loc['PBR(배)']
+            for v in reversed(row.values):
+                try: 
+                    pbr = float(str(v).replace(',', ''))
+                    if not np.isnan(pbr): break
+                except: pass
+                
+        # EPS 파싱 (우선순위: 지배주주순이익 -> 그냥 EPS)
+        target_idx = 'EPS(원)' if 'EPS(원)' in fin_df.index else ('주당순이익' if '주당순이익' in fin_df.index else None)
+        if target_idx:
+            row = fin_df.loc[target_idx]
+            for v in reversed(row.values):
+                try: 
+                    eps = float(str(v).replace(',', ''))
+                    if not np.isnan(eps): break
+                except: pass
+
+        # 값 저장
+        result['eps'] = eps
+        result['per'] = per
+        result['pbr'] = pbr
+
+        # 🎖️ 뱃지 부여 로직 (선생님 요청 사항)
+        badge = "⚖️보통"
+        
+        if eps < 0: 
+            badge = "⚠️적자기업(주의)"
+        elif (eps > 0) and (0 < per < 12) and (pbr < 1.5): 
+            badge = "💎저평가우량주"
+        elif (eps > 0) and (per >= 12): 
+            badge = "💰고수익성장주"
+        elif (pbr < 0.6) and (eps >= 0): 
+            badge = "🧱헐값자산주"
+            
+        result['badge'] = badge
+
+    except Exception as e:
+        # print(f"재무 분석 에러: {e}")
+        pass
+        
+    return result
 
 # ---------------------------------------------------------
 # ⚖️ 재무 등급(Badge) 판독기
@@ -236,9 +332,26 @@ def get_indicators(df):
 # ---------------------------------------------------------
 # 💯 점수 계산 (수급 포함!)
 # ---------------------------------------------------------
-def calculate_score(row, ticker, pattern_name, is_for_buy, is_ins_buy):
+def calculate_score(row, ticker, pattern_name, is_for_buy, is_ins_buy, fin_trend):
     score = 50 
     details = [] 
+    
+    trend = fin_info.get('trend', '보통')
+    badge = fin_info.get('badge', '⚖️보통')
+    
+    # 1. 💰 재무 점수 (Trend + Badge)
+    
+    # [A] 추이 점수 (기세)
+    if "흑자전환" in trend: score += 15; details.append(f"{trend}(15)")
+    elif "이익급증" in trend: score += 10; details.append(f"{trend}(10)")
+    elif "이익증가" in trend: score += 5; details.append(f"{trend}(5)")
+    elif "이익감소" in trend: score -= 5; details.append(f"{trend}(-5)")
+    
+    # [B] 뱃지 점수 (가치)
+    if "저평가" in badge: score += 15; details.append(f"💎저평가(15)")
+    elif "성장주" in badge: score += 10; details.append(f"💰성장주(10)")
+    elif "자산주" in badge: score += 10; details.append(f"🧱자산주(10)")
+    elif "적자" in badge: score -= 15; details.append(f"⚠️적자(-15)")
     
     # [1] 수급 (30점)
     if is_for_buy and is_ins_buy: 
@@ -343,8 +456,9 @@ def analyze_stock(ticker, name):
             is_for_buy, is_ins_buy, trend_str = get_investor_trend(ticker)
             
             # ⭐️ [핵심] 점수 계산 (row와 strategy를 넘겨줍니다!)
-            # 재무(badge) 관련 코드는 싹 뺐습니다.
-            score, score_detail = calculate_score(curr, ticker, strategy, is_for_buy, is_ins_buy)
+            # 2. ⭐️ 재무 확인 (선생님 로직 함수 호출!)
+            fin_trend = get_naver_financials(ticker)
+            score, score_detail = calculate_score(curr, ticker, strategy, is_for_buy, is_ins_buy,fin_trend)
             
             # 60점 미만은 과락
             if score < 60: return None
@@ -356,7 +470,15 @@ def analyze_stock(ticker, name):
             elif score >= 70: rank = "🥈A급"
 
             # AI 코멘트 (선택사항 - 기존 코드에 있다면 유지)
-            # ai_comment = get_ai_summary(...) # 필요하면 주석 해제
+            ai_comment = ""
+            try:
+                # 80점 이상인 우등생만 AI에게 물어봐서 비용 절약
+                if score >= 80: 
+                    # 상세 채점표(score_detail)를 AI에게 넘겨줘서 분석하게 함
+                    ai_comment = get_ai_summary(ticker, name, score, score_detail)
+            except Exception as e:
+                print(f"AI 에러: {e}")
+                ai_comment = "" # 에러나면 그냥 빈칸으로
 
             price_str = format(int(curr['Close']), ',')
             
@@ -369,7 +491,7 @@ def analyze_stock(ticker, name):
                        f"💰 수급: {trend_str}\n"
                        f"📝 상세: {score_detail}\n" # 👈 (30/30) 상세 점수
                        f"💵 현재가: {price_str}원 ({pct:+.2f}%)\n"
-                       # f"🤖 AI평: {ai_comment}" 
+                       f"🤖 AI평: {ai_comment}" 
             }
             
     except Exception as e:
