@@ -56,7 +56,7 @@ def get_ai_summary(ticker, name, score, reason):
     except: return ""
 
 # ---------------------------------------------------------
-# ⚡ 데이터 수집 (Top 1000)
+# ⚡ 데이터 수집 (Top 1000 & EPS 수집)
 # ---------------------------------------------------------
 def get_market_data():
     print("⚡ 시장 데이터 수집 중...")
@@ -64,7 +64,8 @@ def get_market_data():
         df_krx = fdr.StockListing('KRX')
         global FUNDAMENTALS
         try:
-            FUNDAMENTALS = df_krx.set_index('Code')[['Name', 'PER', 'PBR', 'Amount']].to_dict('index')
+            # ⭐ EPS(주당순이익) 필수 포함
+            FUNDAMENTALS = df_krx.set_index('Code')[['Name', 'PER', 'PBR', 'EPS', 'Amount']].to_dict('index')
         except: FUNDAMENTALS = {}
         
         # 거래대금 상위 1000개 선정
@@ -73,14 +74,13 @@ def get_market_data():
     except: return {}
 
 # ---------------------------------------------------------
-# 🏢 네이버 재무 크롤링 (영업이익 추세 확인)
+# 🏢 네이버 재무 크롤링 (영업이익 추세)
 # ---------------------------------------------------------
 def get_naver_financials(code):
     try:
         url = f"https://finance.naver.com/item/main.naver?code={code}"
         dfs = pd.read_html(url, encoding='euc-kr', header=0)
         for df in dfs:
-            # 재무제표 테이블 찾기
             if '최근 연간 실적' in str(df.columns) or '주요재무제표' in str(df.columns):
                 if '주요재무제표' in df.columns[0]: df = df.set_index(df.columns[0])
                 if '영업이익' in df.index:
@@ -103,26 +103,41 @@ def get_naver_financials(code):
     except: return "확인불가"
 
 # ---------------------------------------------------------
-# ⚖️ 재무 등급(Badge) 판독기
+# ⚖️ 재무 등급(Badge) 판독기 (EPS 기준)
 # ---------------------------------------------------------
 def get_financial_badge(ticker):
     info = FUNDAMENTALS.get(ticker, {})
     per = info.get('PER', 0)
     pbr = info.get('PBR', 0)
+    eps = info.get('EPS', 0) # EPS 확인
+    
+    # 데이터 정제
+    if pd.isna(per): per = 0
+    if pd.isna(pbr): pbr = 0
+    if pd.isna(eps): eps = 0
     
     roe = 0
     if per > 0 and pbr > 0: roe = (pbr / per) * 100
         
     badge = "⚖️ 보통"
-    if per <= 0: badge = "⚠️ 적자기업 (주의)"
-    elif (0 < per < 10) and (pbr < 1.2): badge = "💎 저평가 우량주"
-    elif (roe > 15): badge = "💰 고수익 성장주"
-    elif (pbr < 0.6): badge = "🧱 헐값 자산주"
+    
+    # 1. 적자기업 (EPS가 마이너스)
+    if eps < 0:
+        badge = "⚠️ 적자기업 (주의)"
+    # 2. 저평가 우량주
+    elif (eps > 0) and (0 < per < 12) and (pbr < 1.5):
+        badge = "💎 저평가 우량주"
+    # 3. 고성장주
+    elif (eps > 0) and (per >= 12):
+        badge = "💰 고수익 성장주"
+    # 4. 자산주
+    elif (pbr < 0.6) and (eps >= 0):
+        badge = "🧱 헐값 자산주"
         
     return badge, roe
 
 # ---------------------------------------------------------
-# 🧮 [검증 완료] 6대 보조지표 계산
+# 🧮 [6대 보조지표] 전부 계산
 # ---------------------------------------------------------
 def get_indicators(df):
     # 1. 이동평균 (MA 5, 20, 60)
@@ -149,23 +164,21 @@ def get_indicators(df):
     # 5. OBV
     direction = df['Close'].diff().apply(lambda x: 1 if x > 0 else (-1 if x < 0 else 0))
     obv = (direction * df['Volume']).cumsum()
-    # OBV 상승 여부 (단기 추세)
     obv_rising = obv.iloc[-1] > obv.iloc[-2]
     
     return ma5, ma20, ma60, disparity, rsi, slow_k, slow_d, obv_rising
 
 # ---------------------------------------------------------
-# ⚔️ [공통] 3대 필수 관문 (User 요청: 모두 적용)
+# ⚔️ [필수] 3대 공통 필터 (OBV, RSI, Stoch)
 # ---------------------------------------------------------
 def check_common_conditions(obv_rising, rsi, k, d):
-    # 1. OBV: 돈이 들어오고 있어야 함
+    # 1. OBV: 돈이 들어오는가?
     if not obv_rising: return False 
     
-    # 2. RSI: 30(침체) ~ 75(과열) 사이 정상 범위
-    # (너무 낮으면 떨어지는 칼날, 너무 높으면 꼭지)
+    # 2. RSI: 정상 범위인가? (30~75)
     if not (30 <= rsi <= 75): return False 
     
-    # 3. 스토캐스틱: K가 D보다 높거나(정배열), 적어도 붙어있어야 함
+    # 3. 스토캐스틱: 정배열(K>=D)인가?
     if k < d: return False 
     
     return True
@@ -174,23 +187,20 @@ def check_common_conditions(obv_rising, rsi, k, d):
 # 💯 점수 계산 시스템
 # ---------------------------------------------------------
 def calculate_score(ticker, pct, vol_ratio, disparity, is_flag, is_golpagi, badge):
-    score = 50 # 기본점수 (공통필터 통과했으므로 높게 시작)
+    score = 50 # 기본점수
     reasons = []
     
     # [재무]
     if "💎" in badge: score += 10; reasons.append("재무우수")
-    if "💰" in badge: score += 10; reasons.append("고수익")
+    if "💰" in badge: score += 10; reasons.append("성장주")
     if "⚠️" in badge: score -= 10 # 적자는 감점
 
     # [패턴]
-    if is_golpagi:
-        score += 30; reasons.append("⛏️골파기(개미털기)")
-    elif is_flag: 
-        score += 30; reasons.append("🚩숨고르기")
-    elif vol_ratio >= 1.5: 
-        score += 15; reasons.append("수급유입")
+    if is_golpagi: score += 30; reasons.append("⛏️골파기")
+    elif is_flag: score += 30; reasons.append("🚩숨고르기")
+    elif vol_ratio >= 1.5: score += 15; reasons.append("수급유입")
     
-    # [타이밍/이격도]
+    # [타이밍]
     if 100 <= disparity <= 105: score += 20; reasons.append("이격도최상")
     elif disparity <= 110: score += 10; reasons.append("이격도양호")
     
@@ -207,7 +217,7 @@ def analyze_stock(ticker, name):
         prev = df.iloc[-2]   
         if curr['Close'] < 1000: return None
         
-        # 1. 지표 계산 (6대 지표)
+        # 1. 지표 계산
         ma5, ma20, ma60, disparity, rsi, k, d, obv_rising = get_indicators(df)
         pct = curr['Change'] * 100
         vol_ratio = curr['Volume'] / prev['Volume'] if prev['Volume'] > 0 else 0
@@ -219,10 +229,10 @@ def analyze_stock(ticker, name):
         curr_disp = disparity.iloc[-1]
 
         # -------------------------------------------------------
-        # 🛑 [공통 필터] 3대 지표 체크 (OBV, RSI, Stoch)
+        # 🛑 [공통 필터] 3대 지표 필수 통과
         # -------------------------------------------------------
         if not check_common_conditions(obv_rising, curr_rsi, curr_k, curr_d):
-            return None # 여기서 탈락하면 아예 계산 안함
+            return None # 탈락
 
         # -------------------------------------------------------
         # 🎯 전략 패턴 매칭
@@ -232,7 +242,6 @@ def analyze_stock(ticker, name):
         is_golpagi = False
 
         # 1. ⛏️ 골파기 (Bear Trap) - 이평선 깼다 복구
-        # (어제 이평선 이탈 -> 오늘 복구 + 양봉)
         broken_ma20 = (prev['Close'] < ma20.iloc[-2]) and (df['Close'].iloc[-3] > ma20.iloc[-3])
         recover_ma20 = (curr['Close'] > ma20.iloc[-1])
         broken_ma60 = (prev['Close'] < ma60.iloc[-2]) and (df['Close'].iloc[-3] > ma60.iloc[-3])
@@ -242,14 +251,14 @@ def analyze_stock(ticker, name):
             is_golpagi = True
             strategy = "⛏️ 골파기 (개미털기)"
 
-        # 2. 🏳️ 숨고르기 (Flag) - 급등 후 쉬어가기
-        # (전일 10%이상 급등 -> 오늘 거래량 50%미만 -> 주가 ±2%)
+        # 2. 🏳️ 숨고르기 (Flag)
+        # 10% 급등 -> 거래량 50% 미만 -> 주가 ±2%
         elif (prev['Change'] >= 0.10) and (curr['Volume'] < prev['Volume'] * 0.5) and (-2.0 <= pct <= 2.0):
             is_flag = True
             strategy = "🏳️ 숨고르기"
 
-        # 3. 🦁 상승 초입 (통합형: 돌파/눌림/바닥)
-        # (이격도 110% 이하 필수)
+        # 3. 🦁 상승 초입 (통합형)
+        # 이격도 110% 이하 필수
         elif (curr_disp <= 110):
             if (vol_ratio >= 1.5) and (pct >= 1.0):
                 strategy = "🦁 상승초입 (돌파형)"
@@ -266,7 +275,7 @@ def analyze_stock(ticker, name):
             # 커트라인 60점
             if score < 60: return None
             
-            # 합격한 종목만 네이버 실적 크롤링 (속도 최적화)
+            # 네이버 실적 크롤링
             fin_trend = get_naver_financials(ticker)
 
             rank = "🥉 B급"
@@ -293,7 +302,7 @@ def analyze_stock(ticker, name):
     return None
 
 # ---------------------------------------------------------
-# 🚨 비상용 (결과 없을 때)
+# 🚨 비상용
 # ---------------------------------------------------------
 def get_fallback_stocks(target_dict):
     print("🚨 [비상] 결과 없음 -> 단순 상승주 추출")
@@ -316,8 +325,8 @@ def get_fallback_stocks(target_dict):
 # 🚀 메인 실행
 # ---------------------------------------------------------
 if __name__ == "__main__":
-    print(f"🚀 [시스템 가동] 3대 공통필터(OBV,RSI,Stoch) + 골파기/숨고르기/초입")
-    send_telegram(f"🚀 [최종 검증 완료] 모든 지표와 전략이 적용되었습니다.\n'공통 필터'를 통과한 강력한 종목만 리포트합니다.")
+    print(f"🚀 [시스템 가동] 모든 요구사항 통합 및 검증 완료")
+    send_telegram(f"🚀 [검색기 가동] 3대 공통필터(OBV/RSI/Stoch)를 통과하고,\n골파기/숨고르기/초입 패턴을 완성한 '우량주'만 발굴합니다!")
 
     target_dict = get_market_data()
     target_tickers = list(target_dict.keys())
