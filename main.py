@@ -31,8 +31,19 @@ def send_telegram(message):
     chunks = [message[i:i+4000] for i in range(0, len(message), 4000)]
 
     print(f"📨 전송 시작... 대상: {len(CHAT_ID_LIST)}명")
-    
-    for chat_id in CHAT_ID_LIST:
+
+    # 1. 혹시 뭉쳐있는 아이디가 있다면 콤마(,)로 쪼개서 리스트를 다시 만듭니다.
+    real_id_list = []
+    if isinstance(CHAT_ID_LIST, list):
+        for item in CHAT_ID_LIST:
+            # 콤마로 쪼개고, 공백 제거해서 하나씩 추가
+            real_id_list.extend([x.strip() for x in item.split(',') if x.strip()])
+    else:
+        # 리스트가 아니라 문자열로 넣었을 경우 대비
+        real_id_list = [x.strip() for x in str(CHAT_ID_LIST).split(',') if x.strip()]
+
+    # 2. 정리된 리스트로 전송 시작
+    for chat_id in real_id_list:
         if chat_id.strip():
             print(f"✅ 전송 ! ({chat_id})")
             for chunk in chunks:
