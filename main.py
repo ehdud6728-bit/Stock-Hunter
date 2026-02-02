@@ -100,53 +100,49 @@ def get_market_data():
 # ---------------------------------------------------------
 def get_investor_trend(code):
     """
-    네이버 금융에서 수급 확인 (인코딩 강제 고정 + 테이블 자동 탐색)
+    네이버 금융 수급 확인 (제목 줄 제거 필터 추가)
     """
     try:
         url = f"https://finance.naver.com/item/frgn.naver?code={code}"
         
-        # 1. 사람인 척 위장 (헤더 강화)
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'Referer': f'https://finance.naver.com/item/main.naver?code={code}'
         }
         
-        # 2. 데이터 요청
         response = requests.get(url, headers=headers)
-        response.raise_for_status() # 접속 실패시 즉시 에러 발생시킴
-        
-        # ⭐️ [핵심 1] 한글 깨짐 방지 (강제로 euc-kr 인코딩 설정)
-        # 네이버 금융은 오래된 사이트라 'euc-kr'을 씁니다.
+        response.raise_for_status()
         response.encoding = 'euc-kr' 
         
-        # 3. HTML 내의 모든 표(Table)를 다 긁어옴
         dfs = pd.read_html(response.text, header=0)
         
-        # ⭐️ [핵심 2] "몇 번째 표"인지 찍지 말고, 내용물을 보고 찾기
         target_df = None
         for df in dfs:
-            # 우리가 찾는 '날짜', '외국인', '기관' 컬럼이 다 들어있는 표만 찾음
             if '날짜' in df.columns and '외국인' in df.columns and '기관' in df.columns:
                 target_df = df
-                break # 찾았으면 중단
+                break
         
         if target_df is None:
             return False, False, "테이블못찾음"
 
-        # 4. 데이터 정제 (기존 로직과 동일)
-        target_df = target_df.dropna() # 빈 줄 제거
+        # 1. 결측치(NaN) 제거
+        target_df = target_df.dropna()
         
+        # ⭐️ [핵심 수정] "날짜" 컬럼에 "날짜"라고 적힌 제목 줄(Garbage) 제거!
+        # 이 코드가 없어서 아까 '순매매량' 에러가 났던 겁니다.
+        target_df = target_df[target_df['날짜'].str.contains('날짜') == False]
+        
+        # 2. 데이터가 없는지 재확인
         if len(target_df) < 1: 
             return False, False, "데이터없음"
             
-        # 가장 최근 날짜 (맨 윗줄)
+        # 3. 가장 최근 데이터 가져오기
         latest = target_df.iloc[0]
         
-        # 콤마(,) 제거하고 숫자로 변환
+        # 4. 숫자 변환 (이제 안전합니다)
         foreigner = int(str(latest['외국인']).replace(',', ''))
         institution = int(str(latest['기관']).replace(',', ''))
         
-        # 순매수 여부 판단
         is_for_buy = foreigner > 0
         is_ins_buy = institution > 0
         
@@ -159,8 +155,7 @@ def get_investor_trend(code):
         return is_for_buy, is_ins_buy, trend_str
         
     except Exception as e:
-        # 에러가 나면 무슨 에러인지 콘솔에 찍어줍니다 (디버깅용)
-        print(f"⚠️ [{code}] 크롤링 에러: {e}")
+        print(f"⚠️ [{code}] 에러: {e}")
         return False, False, "크롤링실패"
 
 # ---------------------------------------------------------
@@ -241,105 +236,147 @@ def get_indicators(df):
 # ---------------------------------------------------------
 # 💯 점수 계산 (수급 포함!)
 # ---------------------------------------------------------
-def calculate_score(ticker, pct, vol_ratio, disparity, is_flag, is_golpagi, badge, is_for_buy, is_ins_buy):
+def calculate_score(row, ticker, pattern_name, is_for_buy, is_ins_buy):
     score = 50 
-    reasons = []
+    details = [] 
     
-    # [수급 점수] ⭐ 여기가 핵심!
-    if is_for_buy and is_ins_buy:
-        score += 30; reasons.append("쌍끌이매수") # 둘 다 사면 대박
-    elif is_for_buy:
-        score += 10; reasons.append("외인매수")
-    elif is_ins_buy:
-        score += 10; reasons.append("기관매수")
+    # [1] 수급 (30점)
+    if is_for_buy and is_ins_buy: 
+        score += 30; details.append("🚀수급(30/30)")
+    elif is_for_buy: 
+        score += 10; details.append("👨🏼‍🦰수급(10/30)")
+    elif is_ins_buy: 
+        score += 10; details.append("🏢수급(10/30)")
+    else:
+        details.append("수급(0/30)")
 
-    # [재무]
-    if "💎" in badge: score += 10; reasons.append("재무우수")
-    if "💰" in badge: score += 10; reasons.append("성장주")
-    if "⚠️" in badge: score -= 10
+    # [2] 패턴 (30점)
+    if "골파기" in pattern_name: 
+        score += 30; details.append("⛏️패턴(30/30)")
+    elif "숨고르기" in pattern_name: 
+        score += 30; details.append("🏳️패턴(30/30)")
+    elif "돌파" in pattern_name or "눌림" in pattern_name: 
+        score += 15; details.append("🦁패턴(15/30)")
+    else:
+        details.append("패턴(0/30)")
 
-    # [패턴]
-    if is_golpagi: score += 30; reasons.append("⛏️골파기")
-    elif is_flag: score += 30; reasons.append("🚩숨고르기")
-    elif vol_ratio >= 1.5: score += 15; reasons.append("수급폭발")
+    # [3] 지표 (40점) - row 안에 있는 데이터 사용
+    # 이격도
+    if 100 <= row['Disp'] <= 105: 
+        score += 20; details.append("⚡이격(20/20)")
+    elif row['Disp'] <= 110: 
+        score += 10; details.append("⚡이격(10/20)")
+    else:
+        details.append("이격(0/20)")
     
-    # [타이밍]
-    if 100 <= disparity <= 105: score += 20; reasons.append("이격도최상")
-    elif disparity <= 110: score += 10; reasons.append("이격도양호")
+    # RSI
+    if row['RSI'] <= 40: 
+        score += 15; details.append("📉RSI(15/15)")
+    elif 40 < row['RSI'] <= 65: 
+        score += 10; details.append("📉RSI(10/15)")
+    else:
+        details.append("RSI(0/15)")
+        
+    # 스토캐스틱
+    if row['Stoch_K'] > row['Stoch_D']: 
+        score += 5; details.append("🌊Stoch(5/5)")
+    else:
+        details.append("Stoch(0/5)")
     
-    return score, ", ".join(reasons)
+    return score, ", ".join(details)
 
 # ---------------------------------------------------------
 # 🔍 통합 분석
 # ---------------------------------------------------------
 def analyze_stock(ticker, name):
     try:
+        # 1. 데이터 가져오기 (200일치)
         df = fdr.DataReader(ticker, start=(NOW - timedelta(days=200)).strftime('%Y-%m-%d'))
         if len(df) < 60: return None
+        
+        # 2. 지표 계산 및 '통합 데이터(df)' 만들기
+        # (기존 get_indicators 결과를 df에 합쳐야 'row'를 만들 수 있습니다)
+        ma5, ma20, ma60, disparity, rsi, k, d, obv_rising = get_indicators(df)
+        
+        # ⭐️ [중요] 점수 계산기가 읽을 수 있게 df에 담아줍니다.
+        df['MA20'] = ma20
+        df['Disp'] = disparity
+        df['RSI'] = rsi
+        df['Stoch_K'] = k
+        df['Stoch_D'] = d
+        df['OBV_Rising'] = obv_rising
+        
+        # 현재봉과 전봉 정의
         curr = df.iloc[-1]   
-        prev = df.iloc[-2]   
+        prev = df.iloc[-2]
+        
+        # 동전주 제외 (1000원 미만)
         if curr['Close'] < 1000: return None
         
-        # 지표
-        ma5, ma20, ma60, disparity, rsi, k, d, obv_rising = get_indicators(df)
-        curr_rsi = rsi.iloc[-1]
-        curr_k = k.iloc[-1]
-        curr_d = d.iloc[-1]
-
-        # 🛑 공통 필터 (OBV, RSI, Stoch)
-        if not (obv_rising and (30 <= curr_rsi <= 75) and (curr_k >= curr_d)):
+        # 🛑 공통 필터 (OBV 상승 & RSI 정상범위 & 스토캐스틱 정배열)
+        if not (curr['OBV_Rising'] and (30 <= curr['RSI'] <= 75) and (curr['Stoch_K'] >= curr['Stoch_D'])):
             return None
 
-        # 🕵️ [NEW] 수급 분석 (합격권 애들만 조회해서 속도 방어)
-        is_for_buy, is_ins_buy, trend_str = get_investor_trend(ticker)
-
-        # 🎯 전략 패턴
+        # 3. 🎯 전략 패턴 감지
         pct = curr['Change'] * 100
-        vol_ratio = curr['Volume'] / prev['Volume'] if prev['Volume'] > 0 else 0
-        strategy = ""
-        is_flag = False; is_golpagi = False
-
-        # 1. 골파기
-        if ((prev['Close'] < ma20.iloc[-2] and df['Close'].iloc[-3] > ma20.iloc[-3]) and curr['Close'] > ma20.iloc[-1]) and pct > 0:
-            is_golpagi = True; strategy = "⛏️ 골파기 (개미털기)"
-        # 2. 숨고르기
-        elif (prev['Change'] >= 0.10) and (curr['Volume'] < prev['Volume'] * 0.5) and (-2.0 <= pct <= 2.0):
-            is_flag = True; strategy = "🏳️ 숨고르기"
-        # 3. 상승 초입
-        elif (disparity.iloc[-1] <= 110):
-            if (vol_ratio >= 1.5) and (pct >= 1.0): strategy = "🦁 상승초입 (돌파형)"
-            elif (-3.0 <= pct <= 1.0) and (disparity.iloc[-1] <= 105): strategy = "🦁 상승초입 (눌림목)"
-            elif (curr['Close'] < ma60.iloc[-1]) and (curr['Close'] > ma5.iloc[-1]): strategy = "🦁 상승초입 (바닥턴)"
-
-        if strategy:
-            badge, roe = get_financial_badge(ticker)
-            # 점수 계산에 수급 정보 전달!
-            score, reason = calculate_score(ticker, pct, vol_ratio, disparity.iloc[-1], is_flag, is_golpagi, badge, is_for_buy, is_ins_buy)
+        # 거래량 비율 (전일 거래량이 0이면 0 처리)
+        vol_ratio = (curr['Volume'] / prev['Volume']) if prev['Volume'] > 0 else 0
+        
+        strategy = "" # 패턴 이름
+        
+        # [패턴 1] 골파기 (20일선 깼다가 다시 복귀)
+        if ((prev['Close'] < prev['MA20']) and (df['Close'].iloc[-3] > df['MA20'].iloc[-3]) and \
+            (curr['Close'] > curr['MA20']) and pct > 0):
+            strategy = "⛏️골파기"
             
+        # [패턴 2] 숨고르기 (장대양봉 후 거래량 줄며 횡보)
+        elif (prev['Change'] >= 0.10) and (curr['Volume'] < prev['Volume'] * 0.5) and (-2.0 <= pct <= 2.0):
+            strategy = "🏳️숨고르기"
+            
+        # [패턴 3] 상승초입 (이격도 낮은 상태에서 돌파)
+        elif (curr['Disp'] <= 110):
+            if (vol_ratio >= 1.5) and (pct >= 1.0): strategy = "🦁돌파"
+            elif (-3.0 <= pct <= 1.0) and (curr['Disp'] <= 105): strategy = "🦁눌림"
+            
+        # 4. 🕵️ 패턴이 발견된 놈만 '수급' 확인하러 감 (속도 향상)
+        if strategy:
+            is_for_buy, is_ins_buy, trend_str = get_investor_trend(ticker)
+            
+            # ⭐️ [핵심] 점수 계산 (row와 strategy를 넘겨줍니다!)
+            # 재무(badge) 관련 코드는 싹 뺐습니다.
+            score, score_detail = calculate_score(curr, ticker, strategy, is_for_buy, is_ins_buy)
+            
+            # 60점 미만은 과락
             if score < 60: return None
             
-            fin_trend = get_naver_financials(ticker)
-            rank = "🥉 B급"
-            if score >= 90: rank = "🏆 SS급"
-            elif score >= 80: rank = "🥇 S급"
-            elif score >= 70: rank = "🥈 A급"
+            # 5. 💬 결과 메시지 포장
+            rank = "🥉B급"
+            if score >= 90: rank = "🏆SS급"
+            elif score >= 80: rank = "🥇S급"
+            elif score >= 70: rank = "🥈A급"
 
-            ai_comment = ""
-            if score >= 70: ai_comment = get_ai_summary(ticker, name, score, reason)
+            # AI 코멘트 (선택사항 - 기존 코드에 있다면 유지)
+            # ai_comment = get_ai_summary(...) # 필요하면 주석 해제
 
-            amt_billion = int(FUNDAMENTALS.get(ticker, {}).get('Amount', 0) / 100000000)
-            price_str = format(int(curr['Close']),',')
-
+            price_str = format(int(curr['Close']), ',')
+            
+            # 최종 리턴 데이터
             return {
                 "score": score,
-                "msg": f"{rank} {name} ({score}점)\n"
-                       f"💵 {price_str}원 ({pct:+.2f}%)\n"
-                       f"🛒 수급: {trend_str}\n"  # 수급 정보 표시!
-                       f"🏢 재무: {badge}\n"
-                       f"📊 특징: {reason}\n"
-                       f"👉 패턴: {strategy}{ai_comment}"
+                "msg": f"[{rank} {name} ({ticker})]\n"
+                       f"📊 총점: {score}점\n"
+                       f"🔎 패턴: {strategy}\n"
+                       f"💰 수급: {trend_str}\n"
+                       f"📝 상세: {score_detail}\n" # 👈 (30/30) 상세 점수
+                       f"💵 현재가: {price_str}원 ({pct:+.2f}%)\n"
+                       # f"🤖 AI평: {ai_comment}" 
             }
-    except: return None
+            
+    except Exception as e:
+        # 에러 나면 넘어가기 (로그 찍어보면 좋음)
+        # print(f"Err {name}: {e}") 
+        return None
+        
     return None
 
 # ---------------------------------------------------------
