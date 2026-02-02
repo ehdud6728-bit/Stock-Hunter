@@ -1,3 +1,5 @@
+pip install finance-datareader pandas numpy requests
+
 import FinanceDataReader as fdr
 import pandas as pd
 import numpy as np
