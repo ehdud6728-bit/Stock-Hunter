@@ -11,8 +11,21 @@ import numpy as np
 # ---------------------------------------------------------
 # 🌍 설정
 # ---------------------------------------------------------
+from datetime import datetime, timedelta
+
+# 👇 [시간 역행 마법] 이 코드를 맨 위에 붙여넣으세요!
+current_time = datetime.now()
+
+# 만약 지금이 "자정(00시) ~ 아침 9시 전" 이라면?
+if current_time.hour < 8:
+    # "야, 지금 오늘 아니야. 어제야." 라고 날짜를 하루 뺍니다.
+    NOW = current_time - timedelta(days=1)
+    print(f"🌙 야간 모드 발동! 날짜를 {NOW.strftime('%Y-%m-%d')}로 고정합니다.")
+else:
+    # 장 중이거나 장 마감 후라면 그냥 오늘 날짜 씀
+    NOW = current_time
 KST = pytz.timezone('Asia/Seoul')
-NOW = datetime.now(KST)
+#NOW = datetime.now(KST)
 TODAY_STR = NOW.strftime('%Y-%m-%d')
 
 TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN')
