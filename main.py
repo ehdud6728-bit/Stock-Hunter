@@ -91,7 +91,7 @@ def get_market_data():
             FUNDAMENTALS = df_krx.set_index('Code')[['Name', 'PER', 'PBR', 'EPS', 'Amount']].to_dict('index')
         except: FUNDAMENTALS = {}
         
-        df_leaders = df_krx.sort_values(by='Amount', ascending=False).head(1000)
+        df_leaders = df_krx.sort_values(by='Amount', ascending=False).head(300)
         return dict(zip(df_leaders['Code'].astype(str), df_leaders['Name']))
     except: return {}
 
