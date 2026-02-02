@@ -100,54 +100,67 @@ def get_market_data():
 # ---------------------------------------------------------
 def get_investor_trend(code):
     """
-    네이버 금융 '매매동향' 탭에서 외국인/기관 순매수량을 가져옴 (차단 우회 적용)
+    네이버 금융에서 수급 확인 (인코딩 강제 고정 + 테이블 자동 탐색)
     """
     try:
-        # 1. URL 설정
         url = f"https://finance.naver.com/item/frgn.naver?code={code}"
         
-        # ⭐️ [핵심] 네이버를 속이는 "신분증(User-Agent)" 만들기
+        # 1. 사람인 척 위장 (헤더 강화)
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Referer': f'https://finance.naver.com/item/main.naver?code={code}'
         }
         
-        # 2. requests로 "신분증" 보여주면서 접속하기
+        # 2. 데이터 요청
         response = requests.get(url, headers=headers)
-        response.raise_for_status() # 접속 에러나면 바로 멈춤
+        response.raise_for_status() # 접속 실패시 즉시 에러 발생시킴
         
-        # 3. 받아온 내용(text)을 판다스로 읽기 (기존과 동일)
-        dfs = pd.read_html(response.text, encoding='euc-kr', header=0)
+        # ⭐️ [핵심 1] 한글 깨짐 방지 (강제로 euc-kr 인코딩 설정)
+        # 네이버 금융은 오래된 사이트라 'euc-kr'을 씁니다.
+        response.encoding = 'euc-kr' 
         
-        # 4. 기존 선생님의 훌륭한 로직 그대로 적용!
+        # 3. HTML 내의 모든 표(Table)를 다 긁어옴
+        dfs = pd.read_html(response.text, header=0)
+        
+        # ⭐️ [핵심 2] "몇 번째 표"인지 찍지 말고, 내용물을 보고 찾기
+        target_df = None
         for df in dfs:
+            # 우리가 찾는 '날짜', '외국인', '기관' 컬럼이 다 들어있는 표만 찾음
             if '날짜' in df.columns and '외국인' in df.columns and '기관' in df.columns:
-                # 데이터 정제
-                df = df.dropna()
-                if len(df) < 1: return False, False, "수급정보없음"
-                
-                # 가장 최근 날짜(맨 윗줄)
-                latest = df.iloc[0]
-                
-                # 콤마 제거하고 숫자로 변환
-                foreigner = int(str(latest['외국인']).replace(',', ''))
-                institution = int(str(latest['기관']).replace(',', ''))
-                
-                # 순매수 여부 판단
-                is_for_buy = foreigner > 0
-                is_ins_buy = institution > 0
-                
-                trend_str = ""
-                if is_for_buy and is_ins_buy: trend_str = "🚀쌍끌이매수"
-                elif is_for_buy: trend_str = "👨🏼‍🦰외인매수"
-                elif is_ins_buy: trend_str = "🏢기관매수"
-                else: trend_str = "💧개인매수(양매도)"
-                
-                return is_for_buy, is_ins_buy, trend_str
-                
-        return False, False, "확인불가"
+                target_df = df
+                break # 찾았으면 중단
+        
+        if target_df is None:
+            return False, False, "테이블못찾음"
+
+        # 4. 데이터 정제 (기존 로직과 동일)
+        target_df = target_df.dropna() # 빈 줄 제거
+        
+        if len(target_df) < 1: 
+            return False, False, "데이터없음"
+            
+        # 가장 최근 날짜 (맨 윗줄)
+        latest = target_df.iloc[0]
+        
+        # 콤마(,) 제거하고 숫자로 변환
+        foreigner = int(str(latest['외국인']).replace(',', ''))
+        institution = int(str(latest['기관']).replace(',', ''))
+        
+        # 순매수 여부 판단
+        is_for_buy = foreigner > 0
+        is_ins_buy = institution > 0
+        
+        trend_str = ""
+        if is_for_buy and is_ins_buy: trend_str = "🚀쌍끌이매수"
+        elif is_for_buy: trend_str = "👨🏼‍🦰외인매수"
+        elif is_ins_buy: trend_str = "🏢기관매수"
+        else: trend_str = "💧개인매수"
+        
+        return is_for_buy, is_ins_buy, trend_str
         
     except Exception as e:
-        print(f"⚠️ 에러발생: {e}") # 에러 내용을 보면 해결이 쉽습니다
+        # 에러가 나면 무슨 에러인지 콘솔에 찍어줍니다 (디버깅용)
+        print(f"⚠️ [{code}] 크롤링 에러: {e}")
         return False, False, "크롤링실패"
 
 # ---------------------------------------------------------
