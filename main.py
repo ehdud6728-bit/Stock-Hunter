@@ -100,26 +100,35 @@ def get_market_data():
 # ---------------------------------------------------------
 def get_investor_trend(code):
     """
-    네이버 금융 '매매동향' 탭에서 외국인/기관 순매수량을 가져옴
+    네이버 금융 '매매동향' 탭에서 외국인/기관 순매수량을 가져옴 (차단 우회 적용)
     """
     try:
-        # 네이버 금융 > 투자자별 매매동향 페이지
+        # 1. URL 설정
         url = f"https://finance.naver.com/item/frgn.naver?code={code}"
         
-        # 테이블 읽기
-        dfs = pd.read_html(url, encoding='euc-kr', header=0)
+        # ⭐️ [핵심] 네이버를 속이는 "신분증(User-Agent)" 만들기
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        }
         
-        # 보통 2번째 테이블이 일별 매매동향임
+        # 2. requests로 "신분증" 보여주면서 접속하기
+        response = requests.get(url, headers=headers)
+        response.raise_for_status() # 접속 에러나면 바로 멈춤
+        
+        # 3. 받아온 내용(text)을 판다스로 읽기 (기존과 동일)
+        dfs = pd.read_html(response.text, encoding='euc-kr', header=0)
+        
+        # 4. 기존 선생님의 훌륭한 로직 그대로 적용!
         for df in dfs:
             if '날짜' in df.columns and '외국인' in df.columns and '기관' in df.columns:
-                # 데이터 정제 (결측치 제거)
+                # 데이터 정제
                 df = df.dropna()
                 if len(df) < 1: return False, False, "수급정보없음"
                 
-                # 가장 최근 날짜(맨 윗줄) 데이터 가져오기
+                # 가장 최근 날짜(맨 윗줄)
                 latest = df.iloc[0]
                 
-                # 수량 or 금액 (네이버는 보통 수량)
+                # 콤마 제거하고 숫자로 변환
                 foreigner = int(str(latest['외국인']).replace(',', ''))
                 institution = int(str(latest['기관']).replace(',', ''))
                 
@@ -136,7 +145,9 @@ def get_investor_trend(code):
                 return is_for_buy, is_ins_buy, trend_str
                 
         return False, False, "확인불가"
-    except:
+        
+    except Exception as e:
+        print(f"⚠️ 에러발생: {e}") # 에러 내용을 보면 해결이 쉽습니다
         return False, False, "크롤링실패"
 
 # ---------------------------------------------------------
