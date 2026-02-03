@@ -293,9 +293,41 @@ def analyze_stock(ticker, name):
             if not (30 <= row['RSI'] <= 75): pass_filter = False
             
             if pass_filter:
-                # [A] 골파기
-                if ((prev['Close'] < prev['MA20']) and (df.iloc[-3]['Close'] > df.iloc[-3]['MA20']) and (row['Close'] > row['MA20'])):
-                    signal = "⛏️골파기"
+                # ⭐️ [A] 골파기 (Deep Dip & Recovery) - N일간의 하락 후 복귀
+                # 로직: "최근 5일 안에 20일선 붕괴가 있었고, 오늘 드디어 회복했다."
+                
+                is_gold_digger = False
+                
+                # 1. 오늘은 무조건 20일선 위에 있어야 함 (회복)
+                if row['Close'] > row['MA20']:
+                    
+                    # 2. 어제는 20일선 밑이었어야 함 (어제까진 공포)
+                    if prev['Close'] < prev['MA20']:
+                        
+                        # 3. 최근 5일간의 데이터를 봅니다.
+                        # "멀쩡하다가 툭 떨어진 지점"이 있었는지 확인
+                        # (즉, 2~5일 전에는 20일선 위에 있었던 적이 있어야 함)
+                        was_above = False
+                        for k in range(2, 6): # 2일전 ~ 5일전
+                            if df.iloc[-k]['Close'] > df.iloc[-k]['MA20']:
+                                was_above = True
+                                break
+                        
+                        # 4. 깊이 확인: 골 파는 동안 20일선보다 최소 2% 이상은 빠졌어야 함 (겁을 줬어야 함)
+                        # (최근 5일간 최저가가 20일선보다 2% 밑)
+                        min_low_5days = df['Low'].tail(5).min()
+                        current_ma20 = row['MA20']
+                        dip_depth = ((current_ma20 - min_low_5days) / current_ma20) * 100
+                        
+                        if was_above and (dip_depth >= 2.0):
+                            is_gold_digger = True
+
+                # 신호 확정
+                if is_gold_digger:
+                    # 5. 수급 확인 (필수): 오늘 양봉이면서 거래량이 터져줘야 신뢰도 상승
+                    if (row['Pct'] >= 1.0) and (row['Volume'] > prev['Volume']):
+                         signal = "⛏️골파기"
+
                 
                 # [B] 🥷 잠입 (선생님 요청 부활!)
                 # 조건: 거래량 40% 미만 급감 + 캔들 몸통 작음 + 20일선 위 + 지표 살아있음
