@@ -9,6 +9,7 @@ import concurrent.futures
 import pytz
 from io import StringIO
 from google_sheet_manager import update_google_sheet
+from concurrent.futures import ThreadPoolExecutor
 
 # ---------------------------------------------------------
 # 🌍 [시간 설정] 무조건 한국 시간(KST) 기준!
