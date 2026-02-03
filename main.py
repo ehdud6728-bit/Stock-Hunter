@@ -21,7 +21,7 @@ else:
     NOW = current_time
 
 TODAY_STR = NOW.strftime('%Y-%m-%d')
-TOP_N = 100  # 분석 대상 상위 N개
+TOP_N = 250  # 분석 대상 상위 N개
 
 # 환경변수 (GitHub Secrets)
 TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN')
