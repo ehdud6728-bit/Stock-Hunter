@@ -11,16 +11,23 @@ from io import StringIO
 from google_sheet_manager import update_google_sheet
 
 # ---------------------------------------------------------
-# 🌍 설정
+# 🌍 [시간 설정] 무조건 한국 시간(KST) 기준!
 # ---------------------------------------------------------
-# 👇 [야간/새벽 모드] 아침 8시 전에는 '어제' 날짜로 분석
-current_time = datetime.now()
-#if current_time.hour < 8:
-#    NOW = current_time - timedelta(days=1)
-#    print(f"🌙 야간 모드: {NOW.strftime('%Y-%m-%d')} 기준 분석")
-#else:
-    NOW = current_time
+# 1. 한국 표준시(KST) 설정
+KST = pytz.timezone('Asia/Seoul')
+current_time = datetime.now(KST) # 👈 서버 시간이 아니라 한국 시간을 가져옴
 
+# 2. 자정(00시) ~ 아침 8시 사이라면?
+if current_time.hour < 8:
+    # "야, 지금 새벽이야. 어제 장 끝난 거 분석해." -> 하루 뺌
+    NOW = current_time - timedelta(days=1)
+    print(f"🌙 야간 모드(00~08시): {NOW.strftime('%Y-%m-%d')} 기준 분석")
+else:
+    # 아침 8시 지났으면 오늘 날짜
+    NOW = current_time
+    print(f"☀️ 주간 모드: {NOW.strftime('%Y-%m-%d')} 기준 분석")
+
+TODAY_STR = NOW.strftime('%Y-%m-%d')
 TODAY_STR = NOW.strftime('%Y-%m-%d')
 TOP_N = 250  # 거래대금 상위 100개만 (속도 최적화)
 
