@@ -1,5 +1,5 @@
 # ------------------------------------------------------------------
-!pip install finance-datareader requests lxml beautifulsoup4 gspread oauth2client pytz
+#!pip install finance-datareader requests lxml beautifulsoup4 gspread oauth2client pytz
 # ------------------------------------------------------------------
 import FinanceDataReader as fdr
 import pandas as pd
@@ -9,6 +9,7 @@ import os
 import time
 from datetime import datetime, timedelta
 from io import StringIO
+import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor # 👈 멀티태스킹 필수
 import pytz # 👈 한국 시간 필수
 
