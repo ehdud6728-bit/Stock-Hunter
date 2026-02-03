@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 import concurrent.futures
 import pytz
 from io import StringIO
+from google_sheet_manager import update_google_sheet
 
 # ---------------------------------------------------------
 # 🌍 설정
@@ -364,28 +365,46 @@ def analyze_stock(ticker, name):
     except: return None
 
 # ---------------------------------------------------------
-# 🚀 메인
+# 🚀 메인 실행 (수정된 부분)
 # ---------------------------------------------------------
 if __name__ == "__main__":
-    print(f"📡 [The Final Bot] {TODAY_STR} 분석 시작 (수박/잠입/공구리)")
+    print(f"📡 [The Ultimate Bot] {TODAY_STR} 분석 시작 (수박/잠입/공구리)")
+    print(f"📄 구글 시트 연동 모드 활성화")
     
-    targets = get_market_data()
+    # 1. 데이터 수집
+    targets = get_market_data() # get_market_data 함수가 위에 정의되어 있어야 함
     results = []
     
-    with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
-        futures = {executor.submit(analyze_stock, t, n): t for t, n in targets.items()}
+    # 2. 병렬 분석
+    with ThreadPoolExecutor(max_workers=30) as executor:
+        # analyze_stock 함수도 위에 정의되어 있어야 함 (mode='realtime')
+        futures = {executor.submit(analyze_stock, t, n, 'realtime'): t for t, n in targets.items()}
         for future in concurrent.futures.as_completed(futures):
             res = future.result()
             if res: results.append(res)
             
+    # 3. 결과 처리
     if results:
-        results.sort(key=lambda x: x['score'], reverse=True)
-        final_msgs = [r['msg'] for r in results[:15]]
+        # 총점순 정렬
+        results.sort(key=lambda x: x['총점'], reverse=True)
+        final_msgs = [r['msg'] for r in results[:15]] # 상위 15개 텔레그램 전송
         
+        # 텔레그램 리포트 작성
         report = f"🦁 [오늘의 추천] {len(results)}개 발견\n\n" + "\n\n".join(final_msgs)
         print(report)
-        send_telegram(report)
+        send_telegram(report) # send_telegram 함수가 위에 정의되어 있어야 함
+        
+        # 👇👇👇 [여기가 추가된 핵심!] 구글 시트로 데이터 전송 👇👇👇
+        print("-" * 50)
+        update_google_sheet(results, TODAY_STR)
+        print("-" * 50)
+
     else:
         msg = "❌ 조건에 맞는 종목이 없습니다. (시장 관망)"
         print(msg)
         send_telegram(msg)
+        
+        # 👇 종목이 없어도 '기존 보유 종목 수익률'은 업데이트해야 함!
+        print("-" * 50)
+        update_google_sheet([], TODAY_STR)
+        print("-" * 50)
