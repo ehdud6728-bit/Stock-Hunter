@@ -102,29 +102,52 @@ def get_market_data():
     except: return {}
 
 # ---------------------------------------------------------
-# 🕵️ [스텔스] 수급 데이터 (네이버)
+# 🕵️ [스텔스+스마트] 수급 데이터 크롤링 (강화판)
 # ---------------------------------------------------------
 def get_investor_trend(code):
     try:
-        headers = {'User-Agent': 'Mozilla/5.0'}
+        # 1. 헤더 강화 (브라우저인 척)
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Referer': f'https://finance.naver.com/item/frgn.naver?code={code}'
+        }
         url = f"https://finance.naver.com/item/frgn.naver?code={code}"
-        resp = requests.get(url, headers=headers)
         
-        # 테이블 파싱 (결측치 제거 및 필터링)
-        dfs = pd.read_html(StringIO(resp.text), attrs={'class': 'type2'}, header=0)
-        target_df = dfs[2] # 보통 3번째 테이블이 수급
+        # 2. 요청 및 인코딩 설정
+        resp = requests.get(url, headers=headers, timeout=5) # 타임아웃 추가
+        resp.raise_for_status() # 에러 시 중단
         
-        # "날짜" 헤더가 중간에 또 들어가는 경우 제거 (선생님 소스 반영)
+        # 3. HTML 테이블 파싱
+        # match='날짜' -> '날짜'라는 글자가 들어간 테이블만 가져옴 (속도 향상)
+        dfs = pd.read_html(StringIO(resp.text), match='날짜', header=0)
+        
+        target_df = None
+        
+        # 4. [스마트 탐색] 수많은 테이블 중 '외국인', '기관' 컬럼이 진짜 있는 놈 찾기
+        for df in dfs:
+            if '외국인' in df.columns and '기관' in df.columns:
+                target_df = df
+                break
+        
+        if target_df is None:
+            # print(f"❌ {code}: 수급 테이블 못 찾음")
+            return False, False, "분석불가"
+        
+        # 5. 데이터 정제 (중간 제목줄 제거)
         target_df = target_df.dropna()
         target_df = target_df[target_df['날짜'].str.contains('날짜') == False]
         
         if len(target_df) < 1: return False, False, "데이터없음"
         
+        # 6. 최신 데이터 추출
         latest = target_df.iloc[0]
         
-        # 콤마 제거 및 정수 변환
-        foreigner = int(str(latest['외국인']).replace(',', ''))
-        institution = int(str(latest['기관']).replace(',', ''))
+        # 7. 숫자 변환 (콤마 제거, 에러 방지)
+        try:
+            foreigner = int(str(latest['외국인']).replace(',', ''))
+            institution = int(str(latest['기관']).replace(',', ''))
+        except:
+            return False, False, "숫자변환오류"
         
         is_for_buy = foreigner > 0
         is_ins_buy = institution > 0
@@ -136,8 +159,11 @@ def get_investor_trend(code):
         else: trend_str = "💧개인"
         
         return is_for_buy, is_ins_buy, trend_str
-    except:
-        return False, False, "분석불가"
+        
+    except Exception as e:
+        # print(f"⚠️ {code} 수급 에러: {e}") # 디버깅 필요시 주석 해제
+        return False, False, "크롤링실패"
+
 
 # ---------------------------------------------------------
 # 🏢 [재무] 실적 및 뱃지 분석
