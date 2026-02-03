@@ -21,7 +21,7 @@ else:
     NOW = current_time
 
 TODAY_STR = NOW.strftime('%Y-%m-%d')
-TOP_N = 100  # 거래대금 상위 100개만 (속도 최적화)
+TOP_N = 300  # 거래대금 상위 100개만 (속도 최적화)
 
 # GitHub Secrets 환경변수
 TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN')
