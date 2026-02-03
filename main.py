@@ -15,14 +15,14 @@ from google_sheet_manager import update_google_sheet
 # ---------------------------------------------------------
 # 👇 [야간/새벽 모드] 아침 8시 전에는 '어제' 날짜로 분석
 current_time = datetime.now()
-if current_time.hour < 8:
-    NOW = current_time - timedelta(days=1)
-    print(f"🌙 야간 모드: {NOW.strftime('%Y-%m-%d')} 기준 분석")
-else:
+#if current_time.hour < 8:
+#    NOW = current_time - timedelta(days=1)
+#    print(f"🌙 야간 모드: {NOW.strftime('%Y-%m-%d')} 기준 분석")
+#else:
     NOW = current_time
 
 TODAY_STR = NOW.strftime('%Y-%m-%d')
-TOP_N = 100  # 거래대금 상위 100개만 (속도 최적화)
+TOP_N = 250  # 거래대금 상위 100개만 (속도 최적화)
 
 # GitHub Secrets 환경변수
 TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN')
