@@ -1,5 +1,5 @@
 # ------------------------------------------------------------------
-# !pip install finance-datareader requests lxml beautifulsoup4 gspread oauth2client pytz
+!pip install finance-datareader requests lxml beautifulsoup4 gspread oauth2client pytz
 # ------------------------------------------------------------------
 import FinanceDataReader as fdr
 import pandas as pd
