@@ -420,7 +420,7 @@ if __name__ == "__main__":
             
     if results:
         results.sort(key=lambda x: x['총점'], reverse=True)
-        final_msgs = [r['msg'] for r in results[:15]]
+        final_msgs = [r['msg'] for r in results[:20]]
         
         report = f"💎 [오늘의 발굴] {len(results)}개 완료\n\n" + "\n\n".join(final_msgs)
         print(report)
