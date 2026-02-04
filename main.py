@@ -26,6 +26,7 @@ from google_sheet_manager import update_google_sheet
 # =================================================
 # ⚙️ 설정
 # =================================================
+TEST_MODE = True       # 👈 True: 전송 안 함(로그만), False: 실제 전송
 TOP_N = 300            
 TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN')
 CHAT_ID_LIST = os.environ.get('TELEGRAM_CHAT_ID', '').split(',')
@@ -79,9 +80,23 @@ def create_index_chart(ticker, name):
     except: return None
 
 # ---------------------------------------------------------
-# 📨 [기능 2] 텔레그램 전송
+# 📨 [기능 2] 텔레그램 전송 (테스트 모드 지원 + 안전장치)
 # ---------------------------------------------------------
 def send_telegram_photo(message, image_paths=[]):
+    # 🛑 [테스트 모드 체크] 
+    # TEST_MODE가 True면 실제로 보내지 않고 로그만 출력 후 종료
+    if TEST_MODE:
+        print(f"\n🧪 [테스트 모드] 텔레그램 전송 차단됨")
+        if message:
+            print(f"📝 메시지 미리보기 (앞부분): {message[:100]}...")
+        if image_paths:
+            print(f"🖼️ 전송할 뻔한 사진: {image_paths}")
+            # 사진 파일은 테스트라도 생성되었으니 삭제해줌 (깔끔하게)
+            for img in image_paths:
+                if img and os.path.exists(img): try: os.remove(img)
+                except: pass
+        return # 👈 여기서 함수 강제 종료!
+        
     if not TELEGRAM_TOKEN or not CHAT_ID_LIST: return
     url_p = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
     url_t = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
