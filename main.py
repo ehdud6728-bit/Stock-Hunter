@@ -1,5 +1,5 @@
 # ------------------------------------------------------------------
-# 👑 [The Ultimate Bot] Final (이격도 밀집 기능 추가 버전)
+# 👑 [The Ultimate Bot] Final (SyntaxError 수정 완료)
 # ------------------------------------------------------------------
 import FinanceDataReader as fdr
 import pandas as pd
@@ -16,7 +16,7 @@ from concurrent.futures import ThreadPoolExecutor
 from bs4 import BeautifulSoup 
 import pytz
 
-# 👇 OpenAI
+# 👇 OpenAI 연결
 try: from openai import OpenAI
 except: OpenAI = None
 
@@ -26,7 +26,7 @@ from google_sheet_manager import update_google_sheet
 # =================================================
 # ⚙️ 설정
 # =================================================
-TEST_MODE = True       # 👈 True: 전송 안 함(로그만), False: 실제 전송
+TEST_MODE = False      # 👈 실전 모드 (True면 전송 안 함)
 TOP_N = 300            
 TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN')
 CHAT_ID_LIST = os.environ.get('TELEGRAM_CHAT_ID', '').split(',')
@@ -80,23 +80,19 @@ def create_index_chart(ticker, name):
     except: return None
 
 # ---------------------------------------------------------
-# 📨 [기능 2] 텔레그램 전송 (테스트 모드 지원 + 안전장치)
+# 📨 [기능 2] 텔레그램 전송 (SyntaxError 수정됨)
 # ---------------------------------------------------------
 def send_telegram_photo(message, image_paths=[]):
-    # 🛑 [테스트 모드 체크] 
-    # TEST_MODE가 True면 실제로 보내지 않고 로그만 출력 후 종료
+    # 테스트 모드 체크
     if TEST_MODE:
-        print(f"\n🧪 [테스트 모드] 텔레그램 전송 차단됨")
-        if message:
-            print(f"📝 메시지 미리보기 (앞부분): {message[:100]}...")
-        if image_paths:
-            print(f"🖼️ 전송할 뻔한 사진: {image_paths}")
-            # 사진 파일은 테스트라도 생성되었으니 삭제해줌 (깔끔하게)
-            for img in image_paths:
-                if img and os.path.exists(img): try: os.remove(img)
+        print(f"\n🧪 [테스트 모드] 전송 차단됨")
+        if message: print(f"📝 메시지: {message[:50]}...")
+        for img in image_paths:
+            if img and os.path.exists(img):
+                try: os.remove(img)
                 except: pass
-        return # 👈 여기서 함수 강제 종료!
-        
+        return
+
     if not TELEGRAM_TOKEN or not CHAT_ID_LIST: return
     url_p = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
     url_t = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
@@ -117,16 +113,21 @@ def send_telegram_photo(message, image_paths=[]):
                 try:
                     with open(img, 'rb') as f: requests.post(url_p, data={'chat_id': chat_id}, files={'photo': f})
                 except: pass
+    
+    # 🔥 [수정된 부분] 파일 삭제 로직 줄바꿈 적용
     for img in image_paths:
-        if img and os.path.exists(img): try: os.remove(img)
-        except: pass
+        if img and os.path.exists(img): 
+            try:
+                os.remove(img)
+            except:
+                pass
 
 # ---------------------------------------------------------
-# 📢 [기능 3] 시황 브리핑 (오전/오후 자동 분기)
+# 📢 [기능 3] 시황 브리핑 (오전/오후 분기)
 # ---------------------------------------------------------
 def get_hot_themes():
-    # ... (기존과 동일, 테마/대장주 크롤링) ...
     hot_info = []
+    print("🕵️ 테마 & 대장주 추적 중...")
     try:
         url = "https://finance.naver.com/sise/theme.naver"
         res = requests.get(url, headers=REAL_HEADERS)
@@ -152,43 +153,28 @@ def get_hot_themes():
 def get_market_briefing():
     if not OPENAI_API_KEY: return None
     try:
-        # 시간 확인 (오전/오후 구분)
         now_hour = datetime.now(KST).hour
-        is_morning = now_hour < 12  # 12시 이전이면 오전장
+        is_morning = now_hour < 12 
         
-        # 데이터 수집
         kospi = fdr.DataReader('KS11', start=datetime.now()-timedelta(days=5))
         nasdaq = fdr.DataReader('IXIC', start=datetime.now()-timedelta(days=5))
         theme_data = get_hot_themes()
         
         def rate(df): return f"{(df['Close'].iloc[-1]-df['Close'].iloc[-2])/df['Close'].iloc[-2]*100:+.2f}%"
         
-        # 프롬프트 분기 (여기가 핵심!)
         if is_morning:
-            # 🌅 오전: 나스닥 마감 -> 국장 영향 예측
-            data = f"간밤 나스닥종가:{rate(nasdaq)}, 어제 코스피:{rate(kospi)}\n현재 주도테마:{theme_data}"
-            prompt = (f"데이터:\n{data}\n\n"
-                      f"지금은 한국 주식시장 '개장 전(오전 8시 30분)'이야. 트레이더에게 아침 브리핑을 해줘.\n"
-                      f"1. 간밤 나스닥의 등락이 오늘 국장(코스피/코스닥)에 미칠 영향을 분석해.\n"
-                      f"2. 오늘 주목해야 할 테마나 관전 포인트를 짚어줘.\n"
-                      f"3. 말투: 통찰력 있는 고수의 반말 (3줄 요약).")
-            brief_title = "🌅 [굿모닝 브리핑]"
-            
+            data = f"간밤 나스닥:{rate(nasdaq)}, 어제 코스피:{rate(kospi)}\n주도테마:{theme_data}"
+            prompt = (f"데이터:\n{data}\n\n지금은 '개장 전(오전 8:30)'이야. 1.나스닥 마감이 오늘 국장에 미칠 영향 2.주목할 테마를 3줄로 요약해(반말)."
+                      f" 주도 테마와 대장주를 꼭 언급해.")
+            title = "🌅 [굿모닝 브리핑]"
         else:
-            # 🌇 오후: 오늘 장 복기 -> 내일 전망
-            data = f"오늘 나스닥(선물/전일):{rate(nasdaq)}, 오늘 코스피:{rate(kospi)}\n오늘 주도테마:{theme_data}"
-            prompt = (f"데이터:\n{data}\n\n"
-                      f"지금은 한국 주식시장 '마감 후(오후 3시 30분)'야. 트레이더에게 마감 시황을 해줘.\n"
-                      f"1. 오늘 국장을 주도한 테마와 대장주를 중심으로 시장을 복기해.\n"
-                      f"2. 수급 흐름을 볼 때 내일장은 어떨지 전망해줘.\n"
-                      f"3. 말투: 통찰력 있는 고수의 반말 (3줄 요약).")
-            brief_title = "🌇 [마감 시황 & 내일 전략]"
+            data = f"오늘 나스닥(선물):{rate(nasdaq)}, 오늘 코스피:{rate(kospi)}\n오늘 주도테마:{theme_data}"
+            prompt = (f"데이터:\n{data}\n\n지금은 '장 마감 후(오후 3:30)'야. 1.오늘 시장 복기(주도테마/대장주) 2.내일 전망을 3줄로 요약해(반말).")
+            title = "🌇 [마감 시황]"
 
         client = OpenAI(api_key=OPENAI_API_KEY)
         res = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role":"user", "content":prompt}])
-        
-        return f"{brief_title}\n{res.choices[0].message.content.strip()}"
-        
+        return f"{title}\n{res.choices[0].message.content.strip()}"
     except: return None
 
 # ---------------------------------------------------------
@@ -275,7 +261,6 @@ def run_ai_tournament(candidate_list):
 def get_stock_data_extras(code):
     trend = "정보없음"; badge = "⚖️보통"
     is_for_3days = False; is_ins_3days = False
-    
     try:
         url = f"https://finance.naver.com/item/frgn.naver?code={code}"
         df = pd.read_html(requests.get(url, headers=REAL_HEADERS).text, match='날짜')[0].dropna()
@@ -286,13 +271,11 @@ def get_stock_data_extras(code):
             if int(str(r['기관']).replace(',', '')) > 0: i_cnt += 1
         if f_cnt >= 3: is_for_3days = True
         if i_cnt >= 3: is_ins_3days = True
-        
         if is_for_3days and is_ins_3days: trend = "🚀쌍끌이(5일)"
         elif is_for_3days: trend = "👨🏼‍🦰외인매집"
         elif is_ins_3days: trend = "🏢기관매집"
         else: trend = "💧개인/관망"
     except: pass
-    
     try:
         url2 = f"https://finance.naver.com/item/main.naver?code={code}"
         for d in pd.read_html(requests.get(url2, headers=REAL_HEADERS).text):
@@ -305,39 +288,28 @@ def get_stock_data_extras(code):
     return trend, badge, is_for_3days, is_ins_3days
 
 # ---------------------------------------------------------
-# ⚔️ [기능 7] 듀얼 엔진 (단테 유지 + 엑셀 추세 + 이격도 밀집 추가)
+# ⚔️ [기능 7] 듀얼 엔진 (단테 + 엑셀 추세 + 이격도 밀집)
 # ---------------------------------------------------------
-
-# 🦁 [1] 추세 전략 (엑셀 검색식 기반 + 이격도 밀집)
 def check_trend_strategy_excel(df, row, is_for_3days, is_ins_3days):
     score = 0; reasons = []
-    
-    # [조건 G, H] 정배열 우상향
+    # 정배열
     ma60_up = df['Close_MA60'].iloc[-1] > df['Close_MA60'].iloc[-2]
     ma120_up = df['Close_MA120'].iloc[-1] > df['Close_MA120'].iloc[-2]
-    
-    # [조건 O, P] 수급
+    # 수급 & 거래량
     has_supply = is_for_3days or is_ins_3days
-    
-    # [조건 D] 거래량 급증
     vol_spike = row['Volume'] >= df['Volume'].iloc[-2] * 2.0
-    
-    # [조건 F] 골든크로스
+    # 골든크로스
     ma5 = row['Close_MA5']; ma20 = row['Close_MA20']
     golden = (df['Close_MA5'].iloc[-2] <= df['Close_MA20'].iloc[-2]) and (ma5 > ma20)
 
-    # 🔥 [New] 이격도 밀집 (5, 10, 20, 60, 112)
+    # 이격도 밀집
     try:
         mas = [row['Close_MA5'], row['Close_MA10'], row['Close_MA20'], row['Close_MA60'], row['Close_MA112']]
         if all(not np.isnan(m) for m in mas):
-            min_ma = min(mas); max_ma = max(mas)
-            # 5% 이내로 모여있으면 밀집
-            if (max_ma - min_ma) / min_ma <= 0.05:
-                score += 30
-                reasons.append("🌀이격도밀집")
+            if (max(mas) - min(mas)) / min(mas) <= 0.05:
+                score += 30; reasons.append("🌀이격도밀집")
     except: pass
     
-    # 추세 점수
     if ma60_up and ma120_up: score += 30; reasons.append("📈정배열우상향")
     if has_supply: score += 30; reasons.append("💰메이저수급")
     if vol_spike: score += 20; reasons.append("💥거래량폭발")
@@ -346,19 +318,15 @@ def check_trend_strategy_excel(df, row, is_for_3days, is_ins_3days):
     if score >= 60: return True, score, reasons
     return False, 0, []
 
-# 🥣 [2] 단테 전략 (보존)
 def check_dante_strategy_original(df, row):
     ma112 = row['Close_MA112']; ma224 = row['Close_MA224']
     score = 0; reasons = []
-    
     dist = (row['Close'] - ma112) / ma112
     if -0.05 <= dist <= 0.05: score += 40; reasons.append("🎯112선지지")
     if row['Close'] > ma224: score += 30; reasons.append("🔥224돌파")
     elif (ma224 - row['Close']) / row['Close'] < 0.05: score += 20; reasons.append("🔨224도전")
-    
     if (df['Close'].iloc[-5:].std() / df['Close'].iloc[-5:].mean()) < 0.02: 
         score += 20; reasons.append("🛡️공구리")
-    
     ma20 = row['Close_MA20']
     if row['Close'] > ma20 and df['Close'].iloc[-2] < df['Close_MA20'].iloc[-2]:
         score += 20; reasons.append("⛏️골파기")
@@ -366,37 +334,27 @@ def check_dante_strategy_original(df, row):
     if score >= 40: return True, score, reasons
     return False, 0, []
 
-# 🏭 통합 분석 함수
 def analyze_stock(ticker, name):
     try:
         df = fdr.DataReader(ticker, start=(NOW - timedelta(days=730)).strftime('%Y-%m-%d'))
         if len(df) < 225: return None
-        
-        # 🔥 이평선 계산 (10일선 추가!)
-        # [5, 10, 20, 60, 112, 120, 224]
-        for n in [5, 10, 20, 60, 112, 120, 224]: 
-            df[f'Close_MA{n}'] = df['Close'].rolling(n).mean()
+        for n in [5, 10, 20, 60, 112, 120, 224]: df[f'Close_MA{n}'] = df['Close'].rolling(n).mean()
         row = df.iloc[-1]
         
         if row['Close'] < 1000 or row['Volume'] == 0: return None
-        
-        # 거래대금 10억 이상
         amount = (row['Close'] * row['Volume']) 
         if amount < 1000000000: return None
 
-        # 재무/수급
         trend, badge, is_for_3, is_ins_3 = get_stock_data_extras(ticker)
         if "적자" in badge: return None
 
-        # 전략 실행
         is_trend, s_trend, r_trend = check_trend_strategy_excel(df, row, is_for_3, is_ins_3)
         is_dante, s_dante, r_dante = check_dante_strategy_original(df, row)
         
         if not is_trend and not is_dante: return None
         
-        category = "🦁추세Pick" if s_trend > s_dante else "🥣단테Pick"
+        category = "🦁추세(엑셀)" if s_trend > s_dante else "🥣단테"
         if is_trend and is_dante: category = "👑강력추천"
-        
         total = s_trend + s_dante
         reasons = list(set(r_trend + r_dante))
         
@@ -416,6 +374,7 @@ def analyze_stock(ticker, name):
 # ---------------------------------------------------------
 if __name__ == "__main__":
     print(f"🚀 [Ultimate Bot] {TODAY_STR} 시작")
+    
     print("📸 차트 및 시황 생성 중...")
     charts = [create_index_chart('IXIC','NASDAQ'), create_index_chart('KS11','KOSPI'), create_index_chart('KQ11','KOSDAQ')]
     brief = get_market_briefing()
@@ -423,7 +382,6 @@ if __name__ == "__main__":
     
     print("🔍 종목 스캔 중...")
     df_krx = fdr.StockListing('KRX')
-    # 시총 500억 이상 (빠른 필터)
     df_leaders = df_krx[df_krx['Marcap'] >= 50000000000].sort_values(by='Amount', ascending=False).head(TOP_N)
     target_dict = dict(zip(df_leaders['Code'].astype(str), df_leaders['Name']))
     force = {'008350':'남선알미늄', '294630':'서남', '005930':'삼성전자'}
@@ -443,7 +401,6 @@ if __name__ == "__main__":
         
         print("🏟️ AI 토너먼트 시작...")
         tournament_report, ai_picks_map = run_ai_tournament(top_50)
-        
         for r in results:
             if r['code'] in ai_picks_map: r['AI_Pick'] = ai_picks_map[r['code']]
         
