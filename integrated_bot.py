@@ -14,7 +14,7 @@ from google_sheet_manager import update_google_sheet   # 시트 매니저
 # =================================================
 # ⚙️ 설정
 # =================================================
-TOP_N = 600  # 깃허브는 힘이 좋으니 600개까지 늘려서 샅샅이 뒤집니다!
+TOP_N = 2500  # 깃허브는 힘이 좋으니 600개까지 늘려서 샅샅이 뒤집니다!
 TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN')
 CHAT_ID_LIST = os.environ.get('TELEGRAM_CHAT_ID', '').split(',')
 
