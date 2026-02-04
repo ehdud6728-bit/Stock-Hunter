@@ -1,6 +1,7 @@
 # ------------------------------------------------------------------
 # 👑 [The Ultimate Bot] 완벽 통합본 (시황+차트+듀얼엔진+AI분석)
 # ------------------------------------------------------------------
+import matplotlib.pyplot as plt
 import FinanceDataReader as fdr
 import pandas as pd
 import numpy as np
@@ -48,28 +49,61 @@ REAL_HEADERS = {
 }
 
 # ---------------------------------------------------------
-# 📸 [기능 1] 지수 차트 그리기
+# 📸 [기능 1] 지수 차트 그리기 (텍스트 정보 추가 버전)
 # ---------------------------------------------------------
 def create_index_chart(ticker, name):
+    print(f"🎨 {name} 차트 그리는 중...")
     try:
-        # 최근 6개월 데이터
-        df = fdr.DataReader(ticker, start=(datetime.now() - timedelta(days=180)))
+        # 1. 최근 데이터 가져오기
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=120) # 6개월은 너무 기니 4개월로 조정
+        df = fdr.DataReader(ticker, start=start_date, end=end_date)
         
-        # 스타일 설정
+        if len(df) < 2: return None
+
+        # 2. 등락률 및 현재가 계산
+        latest_close = df['Close'].iloc[-1]
+        prev_close = df['Close'].iloc[-2]
+        change = latest_close - prev_close
+        change_pct = (change / prev_close) * 100
+
+        # 3. 텍스트 정보 만들기 (예: NASDAQ: 12,345.67 (+1.23%))
+        sign = "+" if change_pct > 0 else ""
+        info_text = f"{name}\n{latest_close:,.2f} ({sign}{change_pct:.2f}%)"
+        text_color = 'red' if change_pct > 0 else ('blue' if change_pct < 0 else 'black')
+
+        # 4. 차트 스타일 설정
         mc = mpf.make_marketcolors(up='r', down='b', inherit=True)
-        s  = mpf.make_mpf_style(marketcolors=mc)
-        
-        # 이평선 (20일, 60일)
+        s  = mpf.make_mpf_style(marketcolors=mc, gridstyle=':', y_on_right=False)
+
+        # 이평선 추가
         apds = [
-            mpf.make_addplot(df['Close'].rolling(20).mean(), color='orange', width=1),
-            mpf.make_addplot(df['Close'].rolling(60).mean(), color='purple', width=1)
+            mpf.make_addplot(df['Close'].rolling(20).mean(), color='orange', width=1.5),
+            mpf.make_addplot(df['Close'].rolling(60).mean(), color='purple', width=1.5)
         ]
-        
-        filename = f"{name}.png"
-        
-        # 차트 저장 (volume=False 지수는 거래량 의미 적음)
-        mpf.plot(df, type='candle', style=s, addplot=apds, title=f"{name}", volume=False, savefig=filename, figscale=1.0, figratio=(10, 5))
+
+        # 5. 차트 생성 (중요: returnfig=True로 객체를 받아옴)
+        fig, axlist = mpf.plot(df, type='candle', style=s, addplot=apds,
+                               title=f"", # 제목은 텍스트 박스로 대체
+                               volume=False,
+                               returnfig=True, # 👈 핵심! 그림 객체를 받아옵니다.
+                               figscale=1.2, figratio=(10, 6),
+                               datetime_format='%m-%d', xrotation=0)
+
+        # 6. 차트 위에 텍스트 박스 추가 (왼쪽 상단)
+        # axlist[0]이 메인 차트 영역입니다.
+        axlist[0].text(0.03, 0.95, info_text, 
+                       transform=axlist[0].transAxes, # 좌표 기준을 축(0~1)으로 설정
+                       fontsize=16, fontweight='bold', color=text_color,
+                       bbox=dict(facecolor='white', alpha=0.8, edgecolor='gray', boxstyle='round,pad=0.5'))
+
+        # 7. 파일 저장
+        filename = f"{name}_chart.png"
+        fig.savefig(filename, bbox_inches='tight', pad_inches=0.1)
+        plt.close(fig) # 메모리 해제
+
         return filename
+
     except Exception as e:
         print(f"⚠️ 차트 생성 실패({name}): {e}")
         return None
@@ -106,15 +140,47 @@ def send_telegram_photo(message, image_paths=[]):
         if img_path and os.path.exists(img_path): os.remove(img_path)
 
 # ---------------------------------------------------------
-# 📢 [기능 2] 시황 브리핑 (GPT)
+# 🕵️ [New] 실시간 주도 테마/업종 긁어오기 (네이버 크롤링)
+# ---------------------------------------------------------
+def get_hot_themes():
+    """
+    네이버 증권에서 '테마별 시세'와 '업종별 시세' 상위권을 긁어옵니다.
+    이게 있어야 GPT가 "로봇주가 강세다" 같은 말을 할 수 있습니다.
+    """
+    hot_info = []
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/121.0.0.0 Safari/537.36'}
+    
+    try:
+        # 1. 상승 테마 TOP 5
+        url_theme = "https://finance.naver.com/sise/theme.naver"
+        df_theme = pd.read_html(requests.get(url_theme, headers=headers).text)[0]
+        df_theme = df_theme.dropna().head(5) # 상위 5개
+        themes = df_theme['테마명'].tolist()
+        hot_info.append(f"🔥강세테마: {', '.join(themes)}")
+
+        # 2. 상승 업종 TOP 5
+        url_up = "https://finance.naver.com/sise/sise_group.naver?type=upjong"
+        df_up = pd.read_html(requests.get(url_up, headers=headers).text)[0]
+        df_up = df_up.dropna().head(5)
+        sectors = df_up['업종명'].tolist()
+        hot_info.append(f"📈강세업종: {', '.join(sectors)}")
+        
+        return "\n".join(hot_info)
+
+    except Exception as e:
+        return "테마 정보 수집 실패"
+
+# ---------------------------------------------------------
+# 📢 [기능 2] 시황 브리핑 (전문가 모드)
 # ---------------------------------------------------------
 def get_market_briefing():
     if not OPENAI_API_KEY: 
         print("⚠️ OpenAI 키 없음: 시황 브리핑 스킵")
         return None
         
-    print("🌍 시황 데이터 수집 중...")
+    print("🌍 실시간 테마 및 지수 데이터 수집 중...")
     try:
+        # 1. 지수 데이터 (숫자)
         kospi = fdr.DataReader('KS11', start=datetime.now() - timedelta(days=5))
         kosdaq = fdr.DataReader('KQ11', start=datetime.now() - timedelta(days=5))
         nasdaq = fdr.DataReader('IXIC', start=datetime.now() - timedelta(days=5))
@@ -124,15 +190,22 @@ def get_market_briefing():
             curr = df['Close'].iloc[-1]; prev = df['Close'].iloc[-2]
             return f"{(curr - prev) / prev * 100:+.2f}%"
 
-        data = f"나스닥:{get_change(nasdaq)}, 코스피:{get_change(kospi)}, 코스닥:{get_change(kosdaq)}"
+        index_data = f"나스닥:{get_change(nasdaq)}, 코스피:{get_change(kospi)}, 코스닥:{get_change(kosdaq)}"
         
-        prompt = (f"현재 시장 데이터: {data}.\n"
-                  f"주식 트레이더에게 '오늘의 시황'을 3줄로 요약해줘.\n"
-                  f"말투: 친근한 반말(단테 스타일).")
+        # 2. 🔥 주도 테마 데이터 (여기가 핵심!)
+        theme_data = get_hot_themes()
+        
+        # 3. GPT에게 명령 (프롬프트 강화)
+        prompt = (f"시장 데이터: {index_data}\n"
+                  f"주도 섹터: {theme_data}\n\n"
+                  f"위 데이터를 바탕으로 주식 트레이더에게 '오늘의 시장 흐름'을 브리핑해줘.\n"
+                  f"단순히 지수가 올랐다는 말 말고, '미장은 빠졌는데 국장은 특정 테마(로봇, 반도체 등) 중심으로 버티고 있다'는 식으로 섹터와 연관 지어 분석해.\n"
+                  f"말투: 통찰력 있는 전문가의 반말 (3줄 요약).")
         
         client = OpenAI(api_key=OPENAI_API_KEY)
         res = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role":"user", "content":prompt}])
         return f"📢 [오늘의 시황]\n{res.choices[0].message.content.strip()}"
+
     except Exception as e: 
         print(f"⚠️ 시황 에러: {e}")
         return None
