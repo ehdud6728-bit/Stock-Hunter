@@ -12,6 +12,7 @@ from io import StringIO
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor # 👈 멀티태스킹 필수
 import pytz # 👈 한국 시간 필수
+import google.generativeai as genai  # 👈 이 줄이 꼭 있어야 합니다!
 
 # 👇 구글 시트 매니저 불러오기
 from google_sheet_manager import update_google_sheet
@@ -54,16 +55,51 @@ def send_telegram(message):
             except: pass
 
 # ---------------------------------------------------------
-# 🤖 AI 요약
+# 🤖 AI 요약 (하이브리드: Gemini 우선 -> 실패 시 Groq)
 # ---------------------------------------------------------
 def get_ai_summary(ticker, name, score, details, risk):
-    if not GROQ_API_KEY: return ""
-    url = "https://api.groq.com/openai/v1/chat/completions"
-    headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
-    prompt = f"종목: {name}\n점수: {score}\n특징: {details}\n위험: {risk}\n한줄 매매 전략 요약 (한국어)"
-    payload = {"model": "llama-3.3-70b-versatile", "messages": [{"role": "user", "content": prompt}]}
-    try: return "\n💡 " + requests.post(url, json=payload, headers=headers, timeout=5).json()['choices'][0]['message']['content'].strip()
-    except: return ""
+    # 환경변수 키 가져오기
+    GOOGLE_KEY = os.environ.get('GOOGLE_API_KEY')
+    GROQ_KEY = os.environ.get('GROQ_API_KEY')
+
+    prompt = (f"종목: {name} ({ticker})\n"
+              f"점수: {score}점\n"
+              f"특징: {details}\n"
+              f"위험: {risk}\n"
+              f"한줄 매매 전략 요약 (한국어, 전문적이고 단호하게)")
+
+    # 1순위: Google Gemini 시도
+    if GOOGLE_KEY:
+        try:
+            genai.configure(api_key=GOOGLE_KEY)
+            model = genai.GenerativeModel('gemini-1.5-flash')
+            response = model.generate_content(prompt)
+            
+            # 성공 시 바로 리턴 (출처 표기)
+            return f"\n💡 {response.text.strip()}\n(✨ Analysis by Gemini)"
+            
+        except Exception as e:
+            print(f"⚠️ [Gemini 실패] {name}: {e} \n🔄 Groq로 전환합니다...")
+
+    # 2순위: Groq (Llama-3) 시도 (Gemini가 없거나 실패했을 때 실행)
+    if GROQ_KEY:
+        try:
+            url = "https://api.groq.com/openai/v1/chat/completions"
+            headers = {"Authorization": f"Bearer {GROQ_KEY}", "Content-Type": "application/json"}
+            payload = {
+                "model": "llama-3.3-70b-versatile",
+                "messages": [{"role": "user", "content": prompt}]
+            }
+            res = requests.post(url, json=payload, headers=headers, timeout=5)
+            text = res.json()['choices'][0]['message']['content'].strip()
+            
+            # 성공 시 리턴
+            return f"\n💡 {text}\n(⚡ Analysis by Groq)"
+            
+        except Exception as e:
+            print(f"⚠️ [Groq 실패] {name}: {e}")
+
+    return "" # 둘 다 실패하면 빈카
 
 # ---------------------------------------------------------
 # ⚡ 데이터 수집
