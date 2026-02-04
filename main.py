@@ -107,11 +107,11 @@ def send_telegram_photo(message, image_paths=[]):
         except: pass
 
 # ---------------------------------------------------------
-# 📢 [기능 3] 시황 브리핑
+# 📢 [기능 3] 시황 브리핑 (오전/오후 자동 분기)
 # ---------------------------------------------------------
 def get_hot_themes():
+    # ... (기존과 동일, 테마/대장주 크롤링) ...
     hot_info = []
-    print("🕵️ 테마 & 대장주 추적 중...")
     try:
         url = "https://finance.naver.com/sise/theme.naver"
         res = requests.get(url, headers=REAL_HEADERS)
@@ -137,15 +137,43 @@ def get_hot_themes():
 def get_market_briefing():
     if not OPENAI_API_KEY: return None
     try:
+        # 시간 확인 (오전/오후 구분)
+        now_hour = datetime.now(KST).hour
+        is_morning = now_hour < 12  # 12시 이전이면 오전장
+        
+        # 데이터 수집
         kospi = fdr.DataReader('KS11', start=datetime.now()-timedelta(days=5))
         nasdaq = fdr.DataReader('IXIC', start=datetime.now()-timedelta(days=5))
         theme_data = get_hot_themes()
+        
         def rate(df): return f"{(df['Close'].iloc[-1]-df['Close'].iloc[-2])/df['Close'].iloc[-2]*100:+.2f}%"
-        data = f"나스닥:{rate(nasdaq)}, 코스피:{rate(kospi)}\n주도테마:{theme_data}"
+        
+        # 프롬프트 분기 (여기가 핵심!)
+        if is_morning:
+            # 🌅 오전: 나스닥 마감 -> 국장 영향 예측
+            data = f"간밤 나스닥종가:{rate(nasdaq)}, 어제 코스피:{rate(kospi)}\n현재 주도테마:{theme_data}"
+            prompt = (f"데이터:\n{data}\n\n"
+                      f"지금은 한국 주식시장 '개장 전(오전 8시 30분)'이야. 트레이더에게 아침 브리핑을 해줘.\n"
+                      f"1. 간밤 나스닥의 등락이 오늘 국장(코스피/코스닥)에 미칠 영향을 분석해.\n"
+                      f"2. 오늘 주목해야 할 테마나 관전 포인트를 짚어줘.\n"
+                      f"3. 말투: 통찰력 있는 고수의 반말 (3줄 요약).")
+            brief_title = "🌅 [굿모닝 브리핑]"
+            
+        else:
+            # 🌇 오후: 오늘 장 복기 -> 내일 전망
+            data = f"오늘 나스닥(선물/전일):{rate(nasdaq)}, 오늘 코스피:{rate(kospi)}\n오늘 주도테마:{theme_data}"
+            prompt = (f"데이터:\n{data}\n\n"
+                      f"지금은 한국 주식시장 '마감 후(오후 3시 30분)'야. 트레이더에게 마감 시황을 해줘.\n"
+                      f"1. 오늘 국장을 주도한 테마와 대장주를 중심으로 시장을 복기해.\n"
+                      f"2. 수급 흐름을 볼 때 내일장은 어떨지 전망해줘.\n"
+                      f"3. 말투: 통찰력 있는 고수의 반말 (3줄 요약).")
+            brief_title = "🌇 [마감 시황 & 내일 전략]"
+
         client = OpenAI(api_key=OPENAI_API_KEY)
-        prompt = (f"시장데이터:\n{data}\n\n'오늘의 시장 흐름'을 3줄로 요약해(반말). 주도 테마와 대장주를 꼭 언급해.")
         res = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role":"user", "content":prompt}])
-        return f"📢 [오늘의 시황]\n{res.choices[0].message.content.strip()}"
+        
+        return f"{brief_title}\n{res.choices[0].message.content.strip()}"
+        
     except: return None
 
 # ---------------------------------------------------------
