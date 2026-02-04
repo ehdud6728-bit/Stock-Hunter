@@ -124,9 +124,14 @@ def analyze_dante_stock(ticker, name):
         # 4. 🔨 공구리 (손절가 자동 계산)
         # -----------------------------------------------------
         # 최근 40일(약 2달) 간의 최저가를 '세력의 지지 라인'으로 봄
-        recent_low = df['Low'].iloc[-STOP_LOSS_RANGE:].min()
-        stop_loss_price = int(recent_low)
         
+# [수정 후] 손절가를 40일 최저가가 아니라 '112일 이평선' 가격으로 변경
+recent_low = df['Low'].iloc[-STOP_LOSS_RANGE:].min()
+ma112 = df['Close'].rolling(112).mean().iloc[-1]
+
+# "최저가"와 "112일선" 중 더 높은 가격을 손절가로 잡음 (손절폭을 줄이기 위해)
+stop_loss_price = int(max(recent_low, ma112 * 0.95)) # 112일선 살짝 아래
+
         # 현재가가 손절가랑 너무 멀면 안 됨 (손익비 꽝) -> 15% 이내여야 함
         risk_pct = (current_price - stop_loss_price) / current_price * 100
         if risk_pct > 15.0: return None 
