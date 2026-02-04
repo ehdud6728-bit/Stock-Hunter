@@ -8,3 +8,4 @@ google-generativeai>=0.4.0
 gspread
 oauth2client
 numpy
+google-generativeai
