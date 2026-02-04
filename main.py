@@ -110,51 +110,51 @@ def get_market_briefing():
     except: return None
 
 # ---------------------------------------------------------
-# 🧠 [기능 3] AI 종목 분석
+# 🧠 [기능 3] AI 종목 분석 (테마 분류 강화판)
 # ---------------------------------------------------------
-# 👇 디버깅용 get_ai_summary (에러 원인을 출력해줌)
 def get_ai_summary(ticker, name, category, reasons):
-    print(f"🔍 [AI 분석 시도] {name} 분석 시작...") # 로그 추가
-
-    prompt = (f"종목: {name} ({ticker})\n"
-              f"포착 결과: {category}\n"
-              f"특징: {', '.join(reasons)}\n\n"
-              f"1. [테마/업종]을 1단어로 정의 (예: [반도체]).\n"
-              f"2. 매력적인 이유를 한 줄 요약.\n"
-              f"(반말 모드)")
+    # 🔥 프롬프트 대폭 수정: "차트 얘기 금지, 회사 업종만 말해!"
+    prompt = (f"분석 대상: {name} ({ticker})\n"
+              f"기술적 신호: {', '.join(reasons)}\n\n"
+              f"위 신호는 참고만 하고, 이 회사의 '사업 내용'에 집중해.\n"
+              f"질문 1. 이 회사의 핵심 [테마/섹터]가 뭐야? (예: [반도체], [2차전지], [로봇], [제약바이오])\n"
+              f"질문 2. 왜 이 종목이 기술적으로 매력적인지 한 줄로 설명해.\n\n"
+              f"🚨 중요: 답변은 무조건 아래 형식으로만 해.\n"
+              f"형식: [테마명] 분석 내용 (반말 모드)")
 
     final_comment = ""
     
-    # 1. GPT 시도
+    # 1. GPT
     if OPENAI_API_KEY:
         try:
             client = OpenAI(api_key=OPENAI_API_KEY)
             res = client.chat.completions.create(
                 model="gpt-4o-mini", 
-                messages=[{"role":"user", "content":prompt}], 
-                max_tokens=150
+                messages=[
+                    {"role": "system", "content": "너는 주식 섹터 분류 전문가야. '상승', '급등' 같은 말은 테마가 아니야. 정확한 산업군을 말해."}, # 👈 가스라이팅 추가
+                    {"role": "user", "content": prompt}
+                ], 
+                max_tokens=200
             )
             final_comment += f"\n🧠 [GPT]: {res.choices[0].message.content.strip()}"
-            print("✅ GPT 응답 성공")
-        except Exception as e:
-            print(f"❌ [GPT 에러] {e}") # 에러 메시지 출력!!
-    else:
-        print("⚠️ OpenAI API 키가 없어서 건너뜀")
+        except: pass
 
-    # 2. Groq 시도
+    # 2. Groq
     if GROQ_API_KEY:
         try:
             url = "https://api.groq.com/openai/v1/chat/completions"
             headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
-            payload = {"model": "llama-3.3-70b-versatile", "messages": [{"role": "user", "content": prompt}]}
+            payload = {
+                "model": "llama-3.3-70b-versatile",
+                "messages": [
+                    {"role": "system", "content": "Classify the industry sector exactly (e.g., [AI Robot], [Semiconductor]). Do not say 'Rising' or 'Stock'."},
+                    {"role": "user", "content": prompt}
+                ]
+            }
             res = requests.post(url, json=payload, headers=headers, timeout=2)
             if res.status_code == 200:
                 final_comment += f"\n⚡ [Groq]: {res.json()['choices'][0]['message']['content'].strip()}"
-                print("✅ Groq 응답 성공")
-            else:
-                print(f"❌ [Groq 에러] 상태코드: {res.status_code}")
-        except Exception as e:
-            print(f"❌ [Groq 에러] {e}")
+        except: pass
 
     return final_comment
 
