@@ -30,4 +30,4 @@ jobs:
         GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }} # 여기서 키를 가져옵니다
         GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}  # 👈 요걸 쏙 넣어주세요!
         GOOGLE_JSON_KEY: ${{ secrets.GOOGLE_JSON_KEY }}
-      run: python main.py
+      run: python integrated_bot.py
