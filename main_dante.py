@@ -130,15 +130,15 @@ def analyze_dante_stock(ticker, name):
         score = 70
         signal = "🥣밥그릇_준비"
         ma_status = f"112선({int(ma112):,})"
-        
+
         # 224일선 돌파하면 대박 (+20점)
-										if row['Close'] > ma224:
-    									score += 20
-    									signal = "🔥224일선_돌파"
+        if row['Close'] > ma224:
+           score += 20
+           signal = "🔥224일선_돌파"
 									# 뚫지는 못했지만 5% 이내로 바짝 붙어서 도전 중이면 우수 (+15점) 👈 추가!
-									elif abs(row['Close'] - ma224) / ma224 < 0.05:
-    										score += 15
-    										signal = "🔨224일선_도전(공구리)"
+        elif abs(row['Close'] - ma224) / ma224 < 0.05:
+            score += 15
+            signal = "🔨224일선_도전(공구리)"
         elif row['Close'] > ma112:
             score += 10
             signal = "🌊112일선_지지"
