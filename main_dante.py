@@ -1,5 +1,5 @@
 # ------------------------------------------------------------------
-# 🥣 [단테 전용] main_dante.py (손절가 = 112일선 변경)
+# 🥣 [단테 전용] main_dante.py (최종 수정: Gemini 우선 / 들여쓰기 완벽)
 # ------------------------------------------------------------------
 import FinanceDataReader as fdr
 import pandas as pd
@@ -9,7 +9,12 @@ import os
 import time
 from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor
-import google.generativeai as genai 
+
+# Gemini 라이브러리 (없으면 패스)
+try:
+    import google.generativeai as genai
+except ImportError:
+    genai = None
 
 # 기존 시트 매니저 활용
 from google_sheet_manager import update_google_sheet
@@ -17,14 +22,14 @@ from google_sheet_manager import update_google_sheet
 # =================================================
 # ⚙️ [설정] 단테 기법 파라미터
 # =================================================
-TOP_N = 2500          # 검색 대상 2000개
+TOP_N = 2500          # 👈 전체 종목 검색
 DROP_RATE = 0.25      # 고점 대비 25% 이상 하락
-STOP_LOSS_RANGE = 40  # (참고용 변수)
+STOP_LOSS_RANGE = 40  # 40일 기준
 
 # 텔레그램 & API 설정
 TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN')
 CHAT_ID_LIST = os.environ.get('TELEGRAM_CHAT_ID', '').split(',')
-GOOGLE_API_KEY = os.environ.get('GOOGLE_API_KEY')
+GOOGLE_API_KEY = os.environ.get('GOOGLE_API_KEY') # 👈 이게 있어야 Gemini 작동
 GROQ_API_KEY = os.environ.get('GROQ_API_KEY')
 
 # =================================================
@@ -44,7 +49,7 @@ def send_telegram(message):
             except: pass
 
 # ---------------------------------------------------------
-# 🤖 AI 요약
+# 🤖 AI 요약 (Gemini 우선 사용)
 # ---------------------------------------------------------
 def get_dante_summary(ticker, name, signal, stop_loss, ma_status):
     prompt = (f"나는 주식 유튜버 '단테'의 기법(밥그릇 패턴, 이평선 돌파)으로 종목을 분석 중이다.\n"
@@ -54,22 +59,33 @@ def get_dante_summary(ticker, name, signal, stop_loss, ma_status):
               f"이평선 상태: {ma_status}\n"
               f"위 정보를 바탕으로 '왜 이 자리가 중요한지'와 '손절 원칙'을 강조해서 1줄로 조언해줘. (한국어)")
 
-    if GOOGLE_API_KEY:
+    # 1순위: Gemini (구글) - 무료 한도가 훨씬 넉넉함
+    if GOOGLE_API_KEY and genai:
         try:
             genai.configure(api_key=GOOGLE_API_KEY)
             model = genai.GenerativeModel('gemini-1.5-flash')
             res = model.generate_content(prompt)
             return f"\n🥣 {res.text.strip()} (Gemini)"
-        except: pass
+        except Exception as e:
+            # Gemini 실패 시 로그 남기고 Groq로 넘어감
+            pass 
     
+    # 2순위: Groq (그록) - 빠르지만 한도가 적음
     if GROQ_API_KEY:
         try:
             url = "https://api.groq.com/openai/v1/chat/completions"
             headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
             payload = {"model": "llama-3.3-70b-versatile", "messages": [{"role": "user", "content": prompt}]}
             res = requests.post(url, json=payload, headers=headers, timeout=5)
-            return f"\n🥣 {res.json()['choices'][0]['message']['content'].strip()} (Groq)"
-        except: pass
+            response_json = res.json()
+            
+            # 여기서 'choices'가 없으면 에러가 나므로 체크
+            if 'choices' in response_json:
+                return f"\n🥣 {response_json['choices'][0]['message']['content'].strip()} (Groq)"
+            else:
+                return "" # Groq 한도 초과 시 그냥 빈칸 리턴
+        except: 
+            pass
         
     return ""
 
@@ -78,75 +94,53 @@ def get_dante_summary(ticker, name, signal, stop_loss, ma_status):
 # ---------------------------------------------------------
 def analyze_dante_stock(ticker, name):
     try:
-        # 밥그릇 패턴을 보려면 최소 2년치 데이터 필요
         df = fdr.DataReader(ticker, start=(datetime.now() - timedelta(days=730)).strftime('%Y-%m-%d'))
         if len(df) < 250: return None
         
         row = df.iloc[-1]
-        
         if row['Close'] < 1000 or row['Volume'] == 0: return None
 
-        # -----------------------------------------------------
         # 1. 이평선 계산
-        # -----------------------------------------------------
         ma112 = df['Close'].rolling(112).mean().iloc[-1]
         ma224 = df['Close'].rolling(224).mean().iloc[-1]
             
-        # -----------------------------------------------------
-        # 2. 밥그릇 1번 체크 (고점 대비 하락폭)
-        # -----------------------------------------------------
+        # 2. 밥그릇 1번 (하락폭)
         past_high = df['High'].iloc[:-120].max() 
         current_price = row['Close']
-        
-        if current_price > past_high * (1 - DROP_RATE): 
-            return None 
+        if current_price > past_high * (1 - DROP_RATE): return None 
 
-        # -----------------------------------------------------
-        # 3. 밥그릇 3번 체크 (이평선 도전/지지)
-        # -----------------------------------------------------
-        # 범위 0.85 ~ 1.15
+        # 3. 밥그릇 3번 (이평선 근처)
         is_near_112 = (ma112 * 0.85 <= current_price <= ma112 * 1.15)
         is_near_224 = (ma224 * 0.85 <= current_price <= ma224 * 1.15)
-        
-        if not (is_near_112 or is_near_224):
-            return None 
+        if not (is_near_112 or is_near_224): return None 
 
-        # -----------------------------------------------------
-        # 4. 🔨 공구리 (손절가 = 112일선)
-        # -----------------------------------------------------
-        # ⚠️ [변경] 사용자 요청: 손절가를 112일 이평선 가격으로 설정
+        # 4. 🔨 공구리 (손절가 = 112일선) - 들여쓰기 수정됨!
         stop_loss_price = int(ma112)
-        
-        # 현재가와 112일선(손절가)의 거리 계산
-        # (만약 112일선 아래에 있다면 마이너스가 나올 수 있음 -> 즉시 손절 혹은 돌파 대기)
         risk_pct = (current_price - stop_loss_price) / current_price * 100
-        
-        # 112일선보다 너무 높게 떠있으면(30% 이상) 먹을 게 없으므로 패스
         if risk_pct > 30.0: return None 
 
-        # -----------------------------------------------------
-        # 5. 점수 및 신호 부여
-        # -----------------------------------------------------
+        # 5. 점수
         score = 70
         signal = "🥣밥그릇_준비"
         ma_status = f"112선({int(ma112):,})"
-
-        # 224일선 돌파하면 대박 (+20점)
+        
         if row['Close'] > ma224:
-           score += 20
-           signal = "🔥224일선_돌파"
-									# 뚫지는 못했지만 5% 이내로 바짝 붙어서 도전 중이면 우수 (+15점) 👈 추가!
-        elif abs(row['Close'] - ma224) / ma224 < 0.05:
-            score += 15
-            signal = "🔨224일선_도전(공구리)"
+            score += 20
+            signal = "🔥224일선_돌파"
+            ma_status = f"224선({int(ma224):,}) 돌파"
         elif row['Close'] > ma112:
             score += 10
             signal = "🌊112일선_지지"
             ma_status = f"112선({int(ma112):,}) 지지"
+        # 224일선 도전 보너스
+        elif abs(row['Close'] - ma224) / ma224 < 0.05:
+            score += 15
+            signal = "🔨224일선_도전(공구리)"
 
         if df['Close'].iloc[-10] < df['Close'].iloc[-1]:
             score += 5
 
+        # AI 요약 호출
         ai_msg = get_dante_summary(ticker, name, signal, stop_loss_price, ma_status)
         
         return {
@@ -171,8 +165,7 @@ def analyze_dante_stock(ticker, name):
 # 🚀 실행
 # ---------------------------------------------------------
 if __name__ == "__main__":
-    print(f"🥣 [단테의 밥그릇 봇] {datetime.now().strftime('%Y-%m-%d')} 분석 시작")
-    print(f"📉 손절 기준: 112일 이동평균선")
+    print(f"🥣 [단테 봇] {datetime.now().strftime('%Y-%m-%d')} Gemini 모드 분석 시작")
     
     df_krx = fdr.StockListing('KRX')
     df_leaders = df_krx.sort_values(by='Amount', ascending=False).head(TOP_N)
@@ -190,15 +183,13 @@ if __name__ == "__main__":
         results.sort(key=lambda x: x['총점'], reverse=True)
         final_msgs = [r['msg'] for r in results[:10]]
         
-        report = f"🥣 [단테 Pick] {len(results)}개 포착\n\n" + "\n\n".join(final_msgs)
+        report = f"🥣 [단테 Pick] {len(results)}개 포착 (Gemini 분석)\n\n" + "\n\n".join(final_msgs)
         print(report)
         send_telegram(report)
         
         try:
             update_google_sheet(results, datetime.now().strftime('%Y-%m-%d'))
-            print("💾 구글 시트 저장 완료")
-        except Exception as e:
-            print(f"❌ 시트 저장 실패: {e}")
+        except: pass
             
     else:
-        print("❌ 조건에 맞는 밥그릇 종목이 없습니다.")
+        print("❌ 조건에 맞는 종목이 없습니다.")
