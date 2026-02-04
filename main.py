@@ -1,5 +1,5 @@
 # ------------------------------------------------------------------
-# 🦁 [The Ultimate Bot] ChatGPT + Groq 동시 분석 버전
+# 👑 [The Ultimate Bot] 네이버 차단 우회 & 풀옵션 통합본
 # ------------------------------------------------------------------
 import FinanceDataReader as fdr
 import pandas as pd
@@ -7,337 +7,293 @@ import numpy as np
 import requests
 import os
 import time
+import mplfinance as mpf
 from datetime import datetime, timedelta
 from io import StringIO
-import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 import pytz
 
-# 👇 OpenAI 라이브러리 (필수)
+# 👇 OpenAI (필수)
 try:
     from openai import OpenAI
 except ImportError:
     OpenAI = None
     print("❌ [오류] requirements.txt에 'openai'를 추가해주세요!")
 
-# 👇 구글 시트 매니저 불러오기
+# 👇 구글 시트 매니저
 from google_sheet_manager import update_google_sheet
 
 # =================================================
 # ⚙️ 설정
 # =================================================
-TOP_N = 300            
+TOP_N = 500            
 TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN')
 CHAT_ID_LIST = os.environ.get('TELEGRAM_CHAT_ID', '').split(',')
-
-# 🔑 API 키 설정
 OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY') 
 GROQ_API_KEY = os.environ.get('GROQ_API_KEY')     
 
-# 🌍 [시간 설정] 한국 시간(KST) 기준
+# 🌍 시간 설정
 KST = pytz.timezone('Asia/Seoul')
 current_time = datetime.now(KST)
-
-if current_time.hour < 8:
-    NOW = current_time - timedelta(days=1)
-    print(f"🌙 야간 모드(00~08시): {NOW.strftime('%Y-%m-%d')} 기준 분석")
-else:
-    NOW = current_time
-    print(f"☀️ 주간 모드: {NOW.strftime('%Y-%m-%d')} 기준 분석")
-
+NOW = current_time - timedelta(days=1) if current_time.hour < 8 else current_time
 TODAY_STR = NOW.strftime('%Y-%m-%d')
 
+# 🛡️ [핵심] 네이버가 사람으로 착각하게 만드는 '진짜 헤더'
+REAL_HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+    'Referer': 'https://finance.naver.com/',
+    'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+    'Connection': 'keep-alive'
+}
+
 # ---------------------------------------------------------
-# 📨 텔레그램
+# 📸 [기능 1] 지수 차트
 # ---------------------------------------------------------
-def send_telegram(message):
+def create_index_chart(ticker, name):
+    try:
+        df = fdr.DataReader(ticker, start=(datetime.now() - timedelta(days=180)))
+        mc = mpf.make_marketcolors(up='r', down='b', inherit=True)
+        s  = mpf.make_mpf_style(marketcolors=mc)
+        apds = [
+            mpf.make_addplot(df['Close'].rolling(20).mean(), color='orange', width=1),
+            mpf.make_addplot(df['Close'].rolling(60).mean(), color='purple', width=1)
+        ]
+        filename = f"{name}.png"
+        mpf.plot(df, type='candle', style=s, addplot=apds, title=f"{name}", volume=False, savefig=filename, figscale=1.0, figratio=(10, 5))
+        return filename
+    except: return None
+
+def send_telegram_photo(message, image_paths=[]):
     if not TELEGRAM_TOKEN or not CHAT_ID_LIST: return
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    url_photo = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
+    url_text = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    
     real_id_list = []
     for item in CHAT_ID_LIST:
         real_id_list.extend([x.strip() for x in item.split(',') if x.strip()])
-    chunks = [message[i:i+4000] for i in range(0, len(message), 4000)]
+    
     for chat_id in real_id_list:
         if not chat_id: continue
-        for chunk in chunks:
-            try: requests.post(url, data={'chat_id': chat_id, 'text': chunk})
-            except: pass
+        if message: requests.post(url_text, data={'chat_id': chat_id, 'text': message})
+        if image_paths:
+            for img_path in image_paths:
+                if img_path and os.path.exists(img_path):
+                    try:
+                        with open(img_path, 'rb') as f:
+                            requests.post(url_photo, data={'chat_id': chat_id}, files={'photo': f})
+                    except: pass
+    for img_path in image_paths:
+        if img_path and os.path.exists(img_path): os.remove(img_path)
 
 # ---------------------------------------------------------
-# 🤖 AI 요약 (듀얼 모드: GPT + Groq)
+# 📢 [기능 2] 시황 브리핑
 # ---------------------------------------------------------
-def get_ai_summary(ticker, name, score, details, risk):
-    # 공통 질문
-    prompt = (f"종목: {name} ({ticker})\n"
-              f"점수: {score}점\n"
-              f"특징: {details}\n"
-              f"리스크: {risk}\n"
-              f"이 종목의 매매 전략을 한 줄로 요약해줘. (반말 모드)")
+def get_market_briefing():
+    if not OPENAI_API_KEY: return None
+    try:
+        kospi = fdr.DataReader('KS11', start=datetime.now() - timedelta(days=5))
+        kosdaq = fdr.DataReader('KQ11', start=datetime.now() - timedelta(days=5))
+        nasdaq = fdr.DataReader('IXIC', start=datetime.now() - timedelta(days=5))
+        
+        def get_change(df):
+            if len(df) < 2: return "0.00"
+            curr = df['Close'].iloc[-1]; prev = df['Close'].iloc[-2]
+            return f"{(curr - prev) / prev * 100:+.2f}%"
 
+        data = f"나스닥:{get_change(nasdaq)}, 코스피:{get_change(kospi)}, 코스닥:{get_change(kosdaq)}"
+        prompt = f"데이터: {data}. 주식 트레이더들에게 '오늘의 시황'을 3줄로 반말 요약해줘."
+        
+        client = OpenAI(api_key=OPENAI_API_KEY)
+        res = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role":"user", "content":prompt}])
+        return f"📢 [오늘의 시황]\n{res.choices[0].message.content.strip()}"
+    except: return None
+
+# ---------------------------------------------------------
+# 🧠 [기능 3] AI 종목 분석
+# ---------------------------------------------------------
+def get_ai_summary(ticker, name, category, reasons):
+    prompt = (f"종목: {name} ({ticker})\n포착: {category}\n특징: {', '.join(reasons)}\n\n"
+              f"1. [테마] 1단어 정의.\n2. 매력 이유 1줄 요약.\n(반말 모드)")
     final_comment = ""
-
-    # 1️⃣ ChatGPT (필수)
     if OPENAI_API_KEY:
         try:
             client = OpenAI(api_key=OPENAI_API_KEY)
-            response = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {"role": "system", "content": "You are a stock trading expert."},
-                    {"role": "user", "content": prompt}
-                ],
-                max_tokens=150
-            )
-            final_comment += f"\n\n🧠 [GPT]: {response.choices[0].message.content.strip()}"
-        except Exception as e:
-            print(f"⚠️ ChatGPT 오류: {e}")
-
-    # 2️⃣ Groq (선택 - 되면 붙이고 안되면 패스)
+            res = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role":"user", "content":prompt}], max_tokens=150)
+            final_comment += f"\n🧠 [GPT]: {res.choices[0].message.content.strip()}"
+        except: pass
     if GROQ_API_KEY:
         try:
             url = "https://api.groq.com/openai/v1/chat/completions"
             headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
-            payload = {
-                "model": "llama-3.3-70b-versatile",
-                "messages": [{"role": "user", "content": prompt}]
-            }
-            # 2초 안에 대답 안하면 버림 (전체 속도 저하 방지)
+            payload = {"model": "llama-3.3-70b-versatile", "messages": [{"role": "user", "content": prompt}]}
             res = requests.post(url, json=payload, headers=headers, timeout=2)
             if res.status_code == 200:
-                text = res.json()['choices'][0]['message']['content'].strip()
-                final_comment += f"\n⚡ [Groq]: {text}"
-        except:
-            pass # Groq 에러는 조용히 넘어감
-
+                final_comment += f"\n⚡ [Groq]: {res.json()['choices'][0]['message']['content'].strip()}"
+        except: pass
     return final_comment
 
 # ---------------------------------------------------------
-# ⚡ 데이터 수집 (기존 로직 유지)
+# 📊 [기능 4] 공통 데이터 (수급/재무) - ⚠️ 수정완료
 # ---------------------------------------------------------
-def get_market_data():
-    print(f"⚡ 거래대금 상위 {TOP_N}개 스캔 중...")
-    try:
-        df_krx = fdr.StockListing('KRX')
-        df_leaders = df_krx.sort_values(by='Amount', ascending=False).head(TOP_N)
-        return dict(zip(df_leaders['Code'].astype(str), df_leaders['Name']))
-    except: return {}
-
-def get_investor_trend(code):
-    try:
-        headers = {'User-Agent': 'Mozilla/5.0'}
+def get_common_data(code):
+    trend = "정보없음"; badge = "⚖️보통"
+    
+    # 1. 수급 (네이버 차단 우회 적용)
+    try: 
         url = f"https://finance.naver.com/item/frgn.naver?code={code}"
-        resp = requests.get(url, headers=headers, timeout=5)
-        dfs = pd.read_html(StringIO(resp.text), match='날짜', header=0)
-        target_df = None
-        for df in dfs:
-            if '외국인' in df.columns and '기관' in df.columns:
-                target_df = df; break
-        if target_df is None: return False, False, "분석불가"
-
-        target_df = target_df.dropna()
-        target_df = target_df[target_df['날짜'].str.contains('날짜') == False]
-        if len(target_df) < 1: return False, False, "데이터없음"
+        # 👈 선생님 말씀대로 '진짜 사람 헤더'를 넣었습니다!
+        resp = requests.get(url, headers=REAL_HEADERS, timeout=3)
         
-        latest = target_df.iloc[0]
-        foreigner = int(str(latest['외국인']).replace(',', ''))
-        institution = int(str(latest['기관']).replace(',', ''))
-        
-        is_buy = foreigner > 0; is_ins = institution > 0
-        trend = "🚀쌍끌이" if (is_buy and is_ins) else ("👨🏼‍🦰외인" if is_buy else ("🏢기관" if is_ins else "💧개인"))
-        return is_buy, is_ins, trend
-    except: return False, False, "분석불가"
+        dfs = pd.read_html(StringIO(resp.text), match='날짜')
+        if dfs:
+            target_df = dfs[0].dropna()
+            # 날짜 열이 있는 헤더가 중간에 껴있는 경우 제거
+            target_df = target_df[target_df['날짜'].astype(str).str.contains('날짜') == False]
+            
+            if len(target_df) > 0:
+                latest = target_df.iloc[0]
+                # 천단위 콤마 제거 후 정수 변환
+                foreigner = int(str(latest['외국인']).replace(',', ''))
+                institution = int(str(latest['기관']).replace(',', ''))
+                
+                buy = foreigner > 0
+                ins = institution > 0
+                trend = "🚀쌍끌이" if (buy and ins) else ("👨🏼‍🦰외인" if buy else ("🏢기관" if ins else "💧개인"))
+    except Exception as e:
+        # print(f"수급 에러({code}): {e}") # 디버깅용
+        pass
 
-def get_financial_info(code):
-    res = {"trend": "", "badge": "⚖️보통"}
+    # 2. 재무 (네이버 차단 우회 적용)
+    try: 
+        url2 = f"https://finance.naver.com/item/main.naver?code={code}"
+        resp2 = requests.get(url2, headers=REAL_HEADERS, timeout=3)
+        dfs2 = pd.read_html(StringIO(resp2.text))
+        for df in dfs2:
+            if '최근 연간 실적' in str(df.columns) or '주요재무제표' in str(df.columns):
+                # 컬럼 정리
+                if isinstance(df.columns, pd.MultiIndex):
+                    df.columns = df.columns.get_level_values(1) # 하단 컬럼만 사용
+                    
+                fin = df.set_index(df.columns[0])
+                # EPS 확인
+                target_key = next((k for k in fin.index if 'EPS' in str(k)), None)
+                if target_key:
+                    # 최근 값 가져오기 (NaN 제외)
+                    vals = fin.loc[target_key].values
+                    last_val = 0
+                    for v in vals:
+                        v_str = str(v).replace(',', '')
+                        if v_str.replace('.', '', 1).replace('-', '', 1).isdigit():
+                            last_val = float(v_str)
+                    
+                    if last_val < 0: badge = "⚠️적자"
+                    elif last_val > 0: badge = "💎흑자"
+                break
+    except Exception as e:
+        pass
+        
+    return trend, badge
+
+# ---------------------------------------------------------
+# ⚔️ [기능 5] 듀얼 엔진
+# ---------------------------------------------------------
+def check_trend_strategy(df, row):
+    ma5 = df['Close'].rolling(5).mean().iloc[-1]
+    ma20 = df['Close'].rolling(20).mean().iloc[-1]
+    prev_ma5 = df['Close'].rolling(5).mean().iloc[-2]
+    prev_ma20 = df['Close'].rolling(20).mean().iloc[-2]
+    score = 0; reasons = []
+    
+    if prev_ma5 <= prev_ma20 and ma5 > ma20: score += 40; reasons.append("✨골든크로스")
+    if row['Volume'] > df['Volume'].iloc[-20:].mean() * 2.0: score += 30; reasons.append("💥거래량폭발")
+    if row['Close'] > ma20 and df['Close'].iloc[-2] < df['Close'].rolling(20).mean().iloc[-2]: score += 30; reasons.append("⛏️골파기/복귀")
+    if score >= 50: return True, score, reasons
+    return False, 0, []
+
+def check_dante_strategy(df, row):
+    ma112 = df['Close'].rolling(112).mean().iloc[-1]
+    ma224 = df['Close'].rolling(224).mean().iloc[-1]
+    past_high = df['High'].iloc[:-120].max()
+    score = 0; reasons = []
+    
+    if row['Close'] > past_high * 0.85: return False, 0, []
+    dist_112 = (row['Close'] - ma112) / ma112
+    if -0.10 <= dist_112 <= 0.10: score += 40; reasons.append("🎯112선지지")
+    if row['Close'] > ma224: score += 30; reasons.append("🔥224돌파")
+    elif (ma224 - row['Close']) / row['Close'] < 0.05: score += 20; reasons.append("🔨224도전")
+    if (df['Close'].iloc[-5:].std() / df['Close'].iloc[-5:].mean()) < 0.02: score += 20; reasons.append("🛡️공구리")
+
+    if score >= 60: return True, score, reasons
+    return False, 0, []
+
+def analyze_stock_dual(ticker, name):
     try:
-        url = f"https://finance.naver.com/item/main.naver?code={code}"
-        resp = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'})
-        dfs = pd.read_html(StringIO(resp.text), header=0)
-        fin_df = None
-        for df in dfs:
-            if '최근 연간 실적' in str(df.columns) or '주요재무제표' in str(df.columns): fin_df = df; break
-        if fin_df is not None:
-            if len(fin_df.columns) > 0: fin_df = fin_df.set_index(fin_df.columns[0])
-            if '영업이익' in fin_df.index:
-                vals = [float(str(v).replace(',', '')) for v in fin_df.loc['영업이익'].values if str(v).replace(',', '').replace('-','').isdigit()]
-                if len(vals) >= 2 and vals[-2] < 0 and vals[-1] > 0: res['trend'] = "🐢흑자전환"
-            
-            def get_v(k): return float(str(fin_df.loc[k].values[-1]).replace(',', '')) if k in fin_df.index else 0
-            per, pbr, eps = get_v('PER(배)'), get_v('PBR(배)'), get_v('EPS(원)')
-            if eps < 0: res['badge'] = "⚠️적자"
-            elif eps > 0 and per < 10 and pbr < 1.0: res['badge'] = "💎저평가"
-            elif eps > 0 and per >= 15: res['badge'] = "💰성장주"
-    except: pass
-    return res
+        df = fdr.DataReader(ticker, start=(NOW - timedelta(days=730)).strftime('%Y-%m-%d'))
+        if len(df) < 225: return None
+        row = df.iloc[-1]
+        if row['Close'] < 1000 or row['Volume'] == 0: return None
 
-# ---------------------------------------------------------
-# 📊 지표 계산 (기존 로직 유지)
-# ---------------------------------------------------------
-def add_indicators(df):
-    df['MA5'] = df['Close'].rolling(5).mean()
-    df['MA10'] = df['Close'].rolling(10).mean()
-    df['MA20'] = df['Close'].rolling(20).mean()
-    
-    df['MA5_Slope'] = df['MA5'].diff()
-    df['MA5_Slope_Prev'] = df['MA5_Slope'].shift(1)
-    df['MA10_Slope'] = df['MA10'].diff()
-    df['MA10_Slope_Prev'] = df['MA10_Slope'].shift(1)
-    df['MA20_Slope'] = df['MA20'].diff()
-    df['MA20_Slope_Prev'] = df['MA20_Slope'].shift(1)
-    
-    df['MA5_Prev'] = df['MA5'].shift(1)
-    df['MA10_Prev'] = df['MA10'].shift(1)
-    df['MA20_Prev'] = df['MA20'].shift(1)
-    
-    df['Env_Lower'] = df['MA20'] * 0.85 
-    df['Disp'] = (df['Close'] / df['MA20']) * 100
-    
-    delta = df['Close'].diff(1)
-    gain = (delta.where(delta > 0, 0)).rolling(14).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
-    df['RSI'] = 100 - (100 / (1 + (gain / loss)))
+        is_trend, s_trend, r_trend = check_trend_strategy(df, row)
+        is_dante, s_dante, r_dante = check_dante_strategy(df, row)
+        if not is_trend and not is_dante: return None
 
-    high = df['High'].rolling(9).max()
-    low = df['Low'].rolling(9).min()
-    fast_k = ((df['Close'] - low) / (high - low)) * 100
-    df['Stoch_K'] = fast_k.rolling(3).mean()
-    df['Stoch_D'] = df['Stoch_K'].rolling(3).mean()
-    df['Stoch_Slope'] = df['Stoch_K'].diff() 
-    
-    direction = df['Close'].diff().apply(lambda x: 1 if x > 0 else (-1 if x < 0 else 0))
-    df['OBV'] = (direction * df['Volume']).cumsum()
-    df['OBV_Rising'] = df['OBV'] > df['OBV'].shift(1)
-    df['OBV_Slope'] = df['OBV'].diff() 
-    
-    df['Prev_Close'] = df['Close'].shift(1)
-    df['Prev_Vol'] = df['Volume'].shift(1)
-    df['Pct'] = df['Change'] * 100
-    df['Vol_Ratio'] = np.where(df['Prev_Vol'] > 0, df['Volume'] / df['Prev_Vol'], 1.0)
-    
-    return df
+        category = ""; final_score = 0; final_reasons = []
+        if is_trend and is_dante:
+            category = "👑 [강력추천/겹침]"; final_score = s_trend + s_dante
+            final_reasons = list(set(r_trend + r_dante))
+        elif is_trend:
+            category = "🦁 [추세 Pick]"; final_score = s_trend; final_reasons = r_trend
+        elif is_dante:
+            category = "🥣 [단테 Pick]"; final_score = s_dante; final_reasons = r_dante
 
-# ---------------------------------------------------------
-# 💯 점수 계산 (기존 로직 유지)
-# ---------------------------------------------------------
-def calculate_score(row, pattern, is_buy, is_ins, fin):
-    score = 50; details = []
-    
-    if "흑자" in fin['trend']: score += 15; details.append("흑자(15)")
-    if "저평가" in fin['badge']: score += 15; details.append("저평가(15)")
-    elif "성장" in fin['badge']: score += 10; details.append("성장(10)")
-    
-    s_score = 0
-    if is_buy and is_ins: s_score = 30; score += 30; details.append("쌍끌이(30)")
-    elif is_buy or is_ins: s_score = 10; score += 10; details.append("수급(10)")
-    
-    p_score = 0
-    if "황금수박" in pattern: p_score = 50; score += 50; details.append("👑황금(50)")
-    elif "공구리" in pattern: p_score = 40; score += 40; details.append("🔨공구리(40)")
-    elif "잠입" in pattern: p_score = 35; score += 35; details.append("🥷잠입(35)")
-    elif "골파기" in pattern: p_score = 30; score += 30; details.append("⛏️골파기(30)")
-    elif "숨고르기" in pattern: p_score = 30; score += 30; details.append("🏳️숨고르기(30)")
-    elif "돌파" in pattern: p_score = 15; score += 15; details.append("🦁돌파(15)")
-    
-    c_score = 0
-    if "수박" in pattern: 
-        if row['RSI'] <= 30: c_score = 30; score += 30; details.append("과매도(30)")
-    else:
-        if 100 <= row['Disp'] <= 105: c_score = 20; score += 20; details.append("이격(20)")
-        if row['Stoch_K'] > row['Stoch_D']: c_score += 5; score += 5; details.append("Stoch(5)")
+        trend, badge = get_common_data(ticker)
+        ai_msg = ""
+        if final_score >= 60: ai_msg = get_ai_summary(ticker, name, category, final_reasons)
 
-    warns = []
-    if row['OBV_Slope'] < 0: score -= 10; warns.append("⚠️돈이탈")
-    if row['Stoch_Slope'] < 0: score -= 5; warns.append("⚠️힘빠짐")
-    if "수박" not in pattern and row['MA10'] < row['MA10_Prev']: score -= 5; warns.append("⚠️단기저항")
-
-    risk = " ".join(warns) if warns else "✅깨끗함"
-    
-    return score, s_score, p_score, c_score, risk, ", ".join(details)
-
-# ---------------------------------------------------------
-# 🔍 분석 엔진 (기존 로직 유지)
-# ---------------------------------------------------------
-def analyze_stock(ticker, name, mode='realtime'):
-    try:
-        df = fdr.DataReader(ticker, start=(NOW - timedelta(days=200)).strftime('%Y-%m-%d'))
-        if len(df) < 60: return None
-        df = add_indicators(df)
-        row = df.iloc[-1]; prev = df.iloc[-2]
-        
-        if row['Close'] < 1000: return None
-        if (row['MA5'] < row['MA5_Prev']) and (row['MA10'] < row['MA10_Prev']): return None 
-
-        signal = None
-        
-        if row['Low'] <= row['Env_Lower']:
-            if (row['MA5_Slope'] > row['MA5_Slope_Prev']) and (row['MA10_Slope'] > row['MA10_Slope_Prev']):
-                signal = "👑황금수박" if (row['MA20_Slope'] < 0 and row['MA20_Slope'] > row['MA20_Slope_Prev']) else "🍉공구리수박"
-        else:
-            if row['MA20'] < row['MA20_Prev']: return None 
-            if not row['OBV_Rising']: return None
-            if not (30 <= row['RSI'] <= 75): return None
-            
-            if row['Close'] > row['MA20'] and prev['Close'] < prev['MA20']:
-                 min_low = df['Low'].iloc[-5:-1].min()
-                 dip = ((row['MA20'] - min_low) / row['MA20']) * 100
-                 if dip >= 2.0 and row['Pct'] >= 1.0: signal = "⛏️골파기"
-            elif (row['Volume'] < prev['Volume'] * 0.4) and (abs(row['Pct']) < 1.5) and (row['Close'] > row['MA20']):
-                if (row['OBV_Slope'] >= 0) and (row['Stoch_Slope'] > -5): signal = "🥷잠입"
-            elif (prev['Change'] >= 0.10) and (row['Volume'] < prev['Volume'] * 0.6) and (-2.0 <= row['Pct'] <= 2.0):
-                if (row['OBV_Slope'] >= 0) and (row['Stoch_Slope'] > -5): signal = "🏳️숨고르기"
-            elif (row['Disp'] <= 110) and (row['Vol_Ratio'] >= 1.5) and (row['Pct'] >= 1.0): signal = "🦁돌파"
-
-        if signal:
-            is_buy, is_ins, trend = get_investor_trend(ticker)
-            fin = get_financial_info(ticker)
-            score, s_p, p_p, c_p, risk, detail = calculate_score(row, signal, is_buy, is_ins, fin)
-            
-            if score < 50: return None
-            
-            supply_status = trend
-            
-            # 💡 [핵심] 80점 이상이면 AI 2명에게 동시에 분석 요청
-            ai_cmt = ""
-            if score >= 80: 
-                ai_cmt = get_ai_summary(ticker, name, score, detail, risk)
-            
-            return {
-                'code': ticker,
-                '종목명': name, '현재가': int(row['Close']), '등락률': f"{row['Pct']:.2f}%",
-                '신호': signal, '총점': score, '수급점수': s_p, '패턴점수': p_p, '차트점수': c_p,
-                '수급현황': supply_status, 'Risk': risk,
-                'msg': f"[{signal}] {name}\n📊 {score}점 ({fin['badge']})\n💰 {supply_status} / {risk}\n📝 {detail}\n💵 {int(row['Close']):,}원 ({row['Pct']:+.2f}%){ai_cmt}"
-            }
+        return {
+            'code': ticker, '종목명': name, '현재가': int(row['Close']),
+            '신호': " ".join(final_reasons), '총점': final_score,
+            '수급현황': trend, 'Risk': badge,
+            'msg': f"{category} {name} ({final_score}점)\n👉 신호: {' '.join(final_reasons)}\n💰 현재가: {int(row['Close']):,}원\n📊 {trend} / {badge}\n{ai_msg}"
+        }
     except: return None
 
 # ---------------------------------------------------------
-# 🚀 메인 실행
+# 🚀 실행
 # ---------------------------------------------------------
 if __name__ == "__main__":
-    print(f"📡 [The Ultimate Bot] {TODAY_STR} 분석 시작 (ChatGPT + Groq 동시분석)")
-    print(f"📄 구글 시트 연동 활성화")
+    print(f"🚀 [Ultimate Bot] {TODAY_STR} 시작 (네이버 차단 우회 적용)")
     
-    targets = get_market_data()
+    # 1. 시황
+    print("📊 지수 차트 생성 중...")
+    charts = [create_index_chart('IXIC','NASDAQ'), create_index_chart('KS11','KOSPI'), create_index_chart('KQ11','KOSDAQ')]
+    brief = get_market_briefing()
+    if brief: send_telegram_photo(brief, charts)
+    
+    # 2. 스캔
+    print("🔍 종목 스캔 중...")
+    df_krx = fdr.StockListing('KRX')
+    df_leaders = df_krx.sort_values(by='Amount', ascending=False).head(TOP_N)
+    target_dict = dict(zip(df_leaders['Code'].astype(str), df_leaders['Name']))
+    
+    force_list = {'008350':'남선알미늄', '294630':'서남', '005930':'삼성전자'}
+    for k, v in force_list.items():
+        if k not in target_dict: target_dict[k] = v
+
     results = []
-    
-    with ThreadPoolExecutor(max_workers=30) as executor:
-        futures = {executor.submit(analyze_stock, t, n, 'realtime'): t for t, n in targets.items()}
-        for future in concurrent.futures.as_completed(futures):
-            try:
-                res = future.result()
-                if res: results.append(res)
-            except: pass
+    with ThreadPoolExecutor(max_workers=20) as executor: # 네이버 차단 방지 위해 속도 조금 조절
+        futures = [executor.submit(analyze_stock_dual, t, n) for t, n in target_dict.items()]
+        for future in futures:
+            res = future.result()
+            if res: results.append(res)
             
     if results:
         results.sort(key=lambda x: x['총점'], reverse=True)
         final_msgs = [r['msg'] for r in results[:15]]
-        
-        report = f"🦁 [오늘의 추천] {len(results)}개 발견\n\n" + "\n\n".join(final_msgs)
+        report = f"💎 [오늘의 발굴] {len(results)}개 완료\n\n" + "\n\n".join(final_msgs)
         print(report)
-        send_telegram(report)
-        update_google_sheet(results, TODAY_STR)
-    else:
-        msg = "❌ 조건에 맞는 종목이 없습니다."
-        print(msg)
-        send_telegram(msg)
-        update_google_sheet([], TODAY_STR)
+        send_telegram_photo(report, []) 
+        try: update_google_sheet(results, TODAY_STR)
+        except: pass
+    else: print("❌ 발견된 종목 없음")
