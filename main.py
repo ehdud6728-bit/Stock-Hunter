@@ -1,5 +1,5 @@
 # ------------------------------------------------------------------
-#!pip install finance-datareader requests lxml beautifulsoup4 gspread oauth2client pytz
+# 🦁 [The Ultimate Bot] ChatGPT + Groq 동시 분석 버전
 # ------------------------------------------------------------------
 import FinanceDataReader as fdr
 import pandas as pd
@@ -10,9 +10,15 @@ import time
 from datetime import datetime, timedelta
 from io import StringIO
 import concurrent.futures
-from concurrent.futures import ThreadPoolExecutor # 👈 멀티태스킹 필수
-import pytz # 👈 한국 시간 필수
-import google.generativeai as genai  # 👈 이 줄이 꼭 있어야 합니다!
+from concurrent.futures import ThreadPoolExecutor
+import pytz
+
+# 👇 OpenAI 라이브러리 (필수)
+try:
+    from openai import OpenAI
+except ImportError:
+    OpenAI = None
+    print("❌ [오류] requirements.txt에 'openai'를 추가해주세요!")
 
 # 👇 구글 시트 매니저 불러오기
 from google_sheet_manager import update_google_sheet
@@ -20,10 +26,13 @@ from google_sheet_manager import update_google_sheet
 # =================================================
 # ⚙️ 설정
 # =================================================
-TOP_N = 300           
+TOP_N = 300            
 TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN')
 CHAT_ID_LIST = os.environ.get('TELEGRAM_CHAT_ID', '').split(',')
-GROQ_API_KEY = os.environ.get('GROQ_API_KEY', '').strip()
+
+# 🔑 API 키 설정
+OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY') 
+GROQ_API_KEY = os.environ.get('GROQ_API_KEY')     
 
 # 🌍 [시간 설정] 한국 시간(KST) 기준
 KST = pytz.timezone('Asia/Seoul')
@@ -55,54 +64,55 @@ def send_telegram(message):
             except: pass
 
 # ---------------------------------------------------------
-# 🤖 AI 요약 (하이브리드: Gemini 우선 -> 실패 시 Groq)
+# 🤖 AI 요약 (듀얼 모드: GPT + Groq)
 # ---------------------------------------------------------
 def get_ai_summary(ticker, name, score, details, risk):
-    # 환경변수 키 가져오기
-    GOOGLE_KEY = os.environ.get('GOOGLE_API_KEY')
-    GROQ_KEY = os.environ.get('GROQ_API_KEY')
-
+    # 공통 질문
     prompt = (f"종목: {name} ({ticker})\n"
               f"점수: {score}점\n"
               f"특징: {details}\n"
-              f"위험: {risk}\n"
-              f"한줄 매매 전략 요약 (한국어, 전문적이고 단호하게)")
+              f"리스크: {risk}\n"
+              f"이 종목의 매매 전략을 한 줄로 요약해줘. (반말 모드)")
 
-    # 1순위: Google Gemini 시도
-    if GOOGLE_KEY:
+    final_comment = ""
+
+    # 1️⃣ ChatGPT (필수)
+    if OPENAI_API_KEY:
         try:
-            genai.configure(api_key=GOOGLE_KEY)
-            model = genai.GenerativeModel('gemini-1.5-flash')
-            response = model.generate_content(prompt)
-            
-            # 성공 시 바로 리턴 (출처 표기)
-            return f"\n💡 {response.text.strip()}\n(✨ Analysis by Gemini)"
-            
+            client = OpenAI(api_key=OPENAI_API_KEY)
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": "You are a stock trading expert."},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=150
+            )
+            final_comment += f"\n\n🧠 [GPT]: {response.choices[0].message.content.strip()}"
         except Exception as e:
-            print(f"⚠️ [Gemini 실패] {name}: {e} \n🔄 Groq로 전환합니다...")
+            print(f"⚠️ ChatGPT 오류: {e}")
 
-    # 2순위: Groq (Llama-3) 시도 (Gemini가 없거나 실패했을 때 실행)
-    if GROQ_KEY:
+    # 2️⃣ Groq (선택 - 되면 붙이고 안되면 패스)
+    if GROQ_API_KEY:
         try:
             url = "https://api.groq.com/openai/v1/chat/completions"
-            headers = {"Authorization": f"Bearer {GROQ_KEY}", "Content-Type": "application/json"}
+            headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
             payload = {
                 "model": "llama-3.3-70b-versatile",
                 "messages": [{"role": "user", "content": prompt}]
             }
-            res = requests.post(url, json=payload, headers=headers, timeout=5)
-            text = res.json()['choices'][0]['message']['content'].strip()
-            
-            # 성공 시 리턴
-            return f"\n💡 {text}\n(⚡ Analysis by Groq)"
-            
-        except Exception as e:
-            print(f"⚠️ [Groq 실패] {name}: {e}")
+            # 2초 안에 대답 안하면 버림 (전체 속도 저하 방지)
+            res = requests.post(url, json=payload, headers=headers, timeout=2)
+            if res.status_code == 200:
+                text = res.json()['choices'][0]['message']['content'].strip()
+                final_comment += f"\n⚡ [Groq]: {text}"
+        except:
+            pass # Groq 에러는 조용히 넘어감
 
-    return "" # 둘 다 실패하면 빈카
+    return final_comment
 
 # ---------------------------------------------------------
-# ⚡ 데이터 수집
+# ⚡ 데이터 수집 (기존 로직 유지)
 # ---------------------------------------------------------
 def get_market_data():
     print(f"⚡ 거래대금 상위 {TOP_N}개 스캔 중...")
@@ -161,7 +171,7 @@ def get_financial_info(code):
     return res
 
 # ---------------------------------------------------------
-# 📊 지표 계산
+# 📊 지표 계산 (기존 로직 유지)
 # ---------------------------------------------------------
 def add_indicators(df):
     df['MA5'] = df['Close'].rolling(5).mean()
@@ -207,22 +217,19 @@ def add_indicators(df):
     return df
 
 # ---------------------------------------------------------
-# 💯 점수 계산 (4가지 점수 반환 수정됨)
+# 💯 점수 계산 (기존 로직 유지)
 # ---------------------------------------------------------
 def calculate_score(row, pattern, is_buy, is_ins, fin):
     score = 50; details = []
     
-    # 1. 재무
     if "흑자" in fin['trend']: score += 15; details.append("흑자(15)")
     if "저평가" in fin['badge']: score += 15; details.append("저평가(15)")
     elif "성장" in fin['badge']: score += 10; details.append("성장(10)")
     
-    # 2. 수급
     s_score = 0
     if is_buy and is_ins: s_score = 30; score += 30; details.append("쌍끌이(30)")
     elif is_buy or is_ins: s_score = 10; score += 10; details.append("수급(10)")
     
-    # 3. 패턴
     p_score = 0
     if "황금수박" in pattern: p_score = 50; score += 50; details.append("👑황금(50)")
     elif "공구리" in pattern: p_score = 40; score += 40; details.append("🔨공구리(40)")
@@ -231,7 +238,6 @@ def calculate_score(row, pattern, is_buy, is_ins, fin):
     elif "숨고르기" in pattern: p_score = 30; score += 30; details.append("🏳️숨고르기(30)")
     elif "돌파" in pattern: p_score = 15; score += 15; details.append("🦁돌파(15)")
     
-    # 4. 차트
     c_score = 0
     if "수박" in pattern: 
         if row['RSI'] <= 30: c_score = 30; score += 30; details.append("과매도(30)")
@@ -246,13 +252,12 @@ def calculate_score(row, pattern, is_buy, is_ins, fin):
 
     risk = " ".join(warns) if warns else "✅깨끗함"
     
-    # 구글 시트에 넣기 위해 세부 점수도 다 리턴합니다!
     return score, s_score, p_score, c_score, risk, ", ".join(details)
 
 # ---------------------------------------------------------
-# 🔍 [수정됨] 분석 엔진 (에러 해결 & 골파기 강화)
+# 🔍 분석 엔진 (기존 로직 유지)
 # ---------------------------------------------------------
-def analyze_stock(ticker, name, mode='realtime'): # 👈 3번째 인자 추가 완료!
+def analyze_stock(ticker, name, mode='realtime'):
     try:
         df = fdr.DataReader(ticker, start=(NOW - timedelta(days=200)).strftime('%Y-%m-%d'))
         if len(df) < 60: return None
@@ -260,55 +265,42 @@ def analyze_stock(ticker, name, mode='realtime'): # 👈 3번째 인자 추가 �
         row = df.iloc[-1]; prev = df.iloc[-2]
         
         if row['Close'] < 1000: return None
-        # 급락 제외
         if (row['MA5'] < row['MA5_Prev']) and (row['MA10'] < row['MA10_Prev']): return None 
 
         signal = None
         
-        # 1. 🍉 수박
         if row['Low'] <= row['Env_Lower']:
             if (row['MA5_Slope'] > row['MA5_Slope_Prev']) and (row['MA10_Slope'] > row['MA10_Slope_Prev']):
                 signal = "👑황금수박" if (row['MA20_Slope'] < 0 and row['MA20_Slope'] > row['MA20_Slope_Prev']) else "🍉공구리수박"
-        
-        # 2. 일반
         else:
-            if row['MA20'] < row['MA20_Prev']: return None # 20일선 하락 제외
+            if row['MA20'] < row['MA20_Prev']: return None 
             if not row['OBV_Rising']: return None
             if not (30 <= row['RSI'] <= 75): return None
             
-            # ⭐️ [골파기] 심화 로직 (Deep Dip)
-            # 최근 5일 내에 20일선 붕괴 -> 2% 이상 깊이 -> 오늘 회복
             if row['Close'] > row['MA20'] and prev['Close'] < prev['MA20']:
-                 min_low = df['Low'].iloc[-5:-1].min() # 최근 5일 저가
+                 min_low = df['Low'].iloc[-5:-1].min()
                  dip = ((row['MA20'] - min_low) / row['MA20']) * 100
-                 if dip >= 2.0 and row['Pct'] >= 1.0: # 깊이 2% 이상 + 오늘 1% 이상 상승
-                     signal = "⛏️골파기"
-            
-            # [잠입] 거래량 급감
+                 if dip >= 2.0 and row['Pct'] >= 1.0: signal = "⛏️골파기"
             elif (row['Volume'] < prev['Volume'] * 0.4) and (abs(row['Pct']) < 1.5) and (row['Close'] > row['MA20']):
                 if (row['OBV_Slope'] >= 0) and (row['Stoch_Slope'] > -5): signal = "🥷잠입"
-            
-            # [숨고르기]
             elif (prev['Change'] >= 0.10) and (row['Volume'] < prev['Volume'] * 0.6) and (-2.0 <= row['Pct'] <= 2.0):
                 if (row['OBV_Slope'] >= 0) and (row['Stoch_Slope'] > -5): signal = "🏳️숨고르기"
-            
-            # [돌파]
             elif (row['Disp'] <= 110) and (row['Vol_Ratio'] >= 1.5) and (row['Pct'] >= 1.0): signal = "🦁돌파"
 
         if signal:
             is_buy, is_ins, trend = get_investor_trend(ticker)
             fin = get_financial_info(ticker)
-            
-            # 점수 계산 (6개 값 받아옴)
             score, s_p, p_p, c_p, risk, detail = calculate_score(row, signal, is_buy, is_ins, fin)
             
             if score < 50: return None
             
             supply_status = trend
-            ai_cmt = ""
-            if score >= 80: ai_cmt = get_ai_summary(ticker, name, score, detail, risk)
             
-            # 구글 시트에 넣을 데이터 구조
+            # 💡 [핵심] 80점 이상이면 AI 2명에게 동시에 분석 요청
+            ai_cmt = ""
+            if score >= 80: 
+                ai_cmt = get_ai_summary(ticker, name, score, detail, risk)
+            
             return {
                 'code': ticker,
                 '종목명': name, '현재가': int(row['Close']), '등락률': f"{row['Pct']:.2f}%",
@@ -316,28 +308,25 @@ def analyze_stock(ticker, name, mode='realtime'): # 👈 3번째 인자 추가 �
                 '수급현황': supply_status, 'Risk': risk,
                 'msg': f"[{signal}] {name}\n📊 {score}점 ({fin['badge']})\n💰 {supply_status} / {risk}\n📝 {detail}\n💵 {int(row['Close']):,}원 ({row['Pct']:+.2f}%){ai_cmt}"
             }
-            
     except: return None
 
 # ---------------------------------------------------------
 # 🚀 메인 실행
 # ---------------------------------------------------------
 if __name__ == "__main__":
-    print(f"📡 [The Ultimate Bot] {TODAY_STR} 분석 시작")
+    print(f"📡 [The Ultimate Bot] {TODAY_STR} 분석 시작 (ChatGPT + Groq 동시분석)")
     print(f"📄 구글 시트 연동 활성화")
     
     targets = get_market_data()
     results = []
     
     with ThreadPoolExecutor(max_workers=30) as executor:
-        # ⭐️ 3번째 인자 'realtime'이 자동으로 전달됨 (에러 해결!)
         futures = {executor.submit(analyze_stock, t, n, 'realtime'): t for t, n in targets.items()}
         for future in concurrent.futures.as_completed(futures):
             try:
                 res = future.result()
                 if res: results.append(res)
-            except Exception as e:
-                pass
+            except: pass
             
     if results:
         results.sort(key=lambda x: x['총점'], reverse=True)
@@ -346,16 +335,9 @@ if __name__ == "__main__":
         report = f"🦁 [오늘의 추천] {len(results)}개 발견\n\n" + "\n\n".join(final_msgs)
         print(report)
         send_telegram(report)
-        
-        print("-" * 50)
-        # 구글 시트에 기록
         update_google_sheet(results, TODAY_STR)
-        print("-" * 50)
     else:
-        msg = "❌ 조건에 맞는 종목이 없습니다. (시장 관망)"
+        msg = "❌ 조건에 맞는 종목이 없습니다."
         print(msg)
         send_telegram(msg)
-        print("-" * 50)
-        # 종목 없어도 기존 종목 업데이트는 실행
         update_google_sheet([], TODAY_STR)
-        print("-" * 50)
