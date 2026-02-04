@@ -10,3 +10,4 @@ oauth2client
 numpy
 google-generativeai
 openai
+mplfinance
