@@ -1,5 +1,5 @@
 # ------------------------------------------------------------------
-# 👑 [The Ultimate Bot] 네이버 차단 우회 & 풀옵션 통합본
+# 👑 [The Ultimate Bot] 완벽 통합본 (시황+차트+듀얼엔진+AI분석)
 # ------------------------------------------------------------------
 import FinanceDataReader as fdr
 import pandas as pd
@@ -7,7 +7,7 @@ import numpy as np
 import requests
 import os
 import time
-import mplfinance as mpf
+import mplfinance as mpf  # 📸 차트 기능 필수
 from datetime import datetime, timedelta
 from io import StringIO
 from concurrent.futures import ThreadPoolExecutor
@@ -26,9 +26,11 @@ from google_sheet_manager import update_google_sheet
 # =================================================
 # ⚙️ 설정
 # =================================================
-TOP_N = 500            
+TOP_N = 300            
 TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN')
 CHAT_ID_LIST = os.environ.get('TELEGRAM_CHAT_ID', '').split(',')
+
+# 🔑 API 키
 OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY') 
 GROQ_API_KEY = os.environ.get('GROQ_API_KEY')     
 
@@ -38,34 +40,44 @@ current_time = datetime.now(KST)
 NOW = current_time - timedelta(days=1) if current_time.hour < 8 else current_time
 TODAY_STR = NOW.strftime('%Y-%m-%d')
 
-# 🛡️ [핵심] 네이버가 사람으로 착각하게 만드는 '진짜 헤더'
+# 🛡️ 네이버 차단 우회 헤더
 REAL_HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
     'Referer': 'https://finance.naver.com/',
-    'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-    'Connection': 'keep-alive'
+    'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7'
 }
 
 # ---------------------------------------------------------
-# 📸 [기능 1] 지수 차트
+# 📸 [기능 1] 지수 차트 그리기
 # ---------------------------------------------------------
 def create_index_chart(ticker, name):
     try:
+        # 최근 6개월 데이터
         df = fdr.DataReader(ticker, start=(datetime.now() - timedelta(days=180)))
+        
+        # 스타일 설정
         mc = mpf.make_marketcolors(up='r', down='b', inherit=True)
         s  = mpf.make_mpf_style(marketcolors=mc)
+        
+        # 이평선 (20일, 60일)
         apds = [
             mpf.make_addplot(df['Close'].rolling(20).mean(), color='orange', width=1),
             mpf.make_addplot(df['Close'].rolling(60).mean(), color='purple', width=1)
         ]
+        
         filename = f"{name}.png"
+        
+        # 차트 저장 (volume=False 지수는 거래량 의미 적음)
         mpf.plot(df, type='candle', style=s, addplot=apds, title=f"{name}", volume=False, savefig=filename, figscale=1.0, figratio=(10, 5))
         return filename
-    except: return None
+    except Exception as e:
+        print(f"⚠️ 차트 생성 실패({name}): {e}")
+        return None
 
+# 📸 사진 전송 함수 (텍스트 + 사진 묶음 전송)
 def send_telegram_photo(message, image_paths=[]):
     if not TELEGRAM_TOKEN or not CHAT_ID_LIST: return
+    
     url_photo = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
     url_text = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     
@@ -75,7 +87,12 @@ def send_telegram_photo(message, image_paths=[]):
     
     for chat_id in real_id_list:
         if not chat_id: continue
-        if message: requests.post(url_text, data={'chat_id': chat_id, 'text': message})
+        
+        # 1. 텍스트 먼저 전송 (시황 브리핑 등)
+        if message:
+            requests.post(url_text, data={'chat_id': chat_id, 'text': message})
+            
+        # 2. 이미지가 있으면 전송
         if image_paths:
             for img_path in image_paths:
                 if img_path and os.path.exists(img_path):
@@ -83,14 +100,20 @@ def send_telegram_photo(message, image_paths=[]):
                         with open(img_path, 'rb') as f:
                             requests.post(url_photo, data={'chat_id': chat_id}, files={'photo': f})
                     except: pass
+                    
+    # 3. 전송 후 이미지 삭제 (청소)
     for img_path in image_paths:
         if img_path and os.path.exists(img_path): os.remove(img_path)
 
 # ---------------------------------------------------------
-# 📢 [기능 2] 시황 브리핑
+# 📢 [기능 2] 시황 브리핑 (GPT)
 # ---------------------------------------------------------
 def get_market_briefing():
-    if not OPENAI_API_KEY: return None
+    if not OPENAI_API_KEY: 
+        print("⚠️ OpenAI 키 없음: 시황 브리핑 스킵")
+        return None
+        
+    print("🌍 시황 데이터 수집 중...")
     try:
         kospi = fdr.DataReader('KS11', start=datetime.now() - timedelta(days=5))
         kosdaq = fdr.DataReader('KQ11', start=datetime.now() - timedelta(days=5))
@@ -102,42 +125,47 @@ def get_market_briefing():
             return f"{(curr - prev) / prev * 100:+.2f}%"
 
         data = f"나스닥:{get_change(nasdaq)}, 코스피:{get_change(kospi)}, 코스닥:{get_change(kosdaq)}"
-        prompt = f"데이터: {data}. 주식 트레이더들에게 '오늘의 시황'을 3줄로 반말 요약해줘."
+        
+        prompt = (f"현재 시장 데이터: {data}.\n"
+                  f"주식 트레이더에게 '오늘의 시황'을 3줄로 요약해줘.\n"
+                  f"말투: 친근한 반말(단테 스타일).")
         
         client = OpenAI(api_key=OPENAI_API_KEY)
         res = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role":"user", "content":prompt}])
         return f"📢 [오늘의 시황]\n{res.choices[0].message.content.strip()}"
-    except: return None
+    except Exception as e: 
+        print(f"⚠️ 시황 에러: {e}")
+        return None
 
 # ---------------------------------------------------------
-# 🧠 [기능 3] AI 종목 분석 (테마 분류 강화판)
+# 🧠 [기능 3] AI 종목 분석 (줄바꿈 제거 + 가독성 향상)
 # ---------------------------------------------------------
 def get_ai_summary(ticker, name, category, reasons):
     # 🔥 프롬프트 대폭 수정: "차트 얘기 금지, 회사 업종만 말해!"
-    prompt = (f"분석 대상: {name} ({ticker})\n"
-              f"기술적 신호: {', '.join(reasons)}\n\n"
+    prompt = (f"종목: {name} ({ticker})\n"
+              f"포착: {category}\n"
+              f"특징: {', '.join(reasons)}\n\n"
               f"위 신호는 참고만 하고, 이 회사의 '사업 내용'에 집중해.\n"
-              f"질문 1. 이 회사의 핵심 [테마/섹터]가 뭐야? (예: [반도체], [2차전지], [로봇], [제약바이오])\n"
-              f"질문 2. 현재날짜 기준으로 주식전문가 입장에서 시황, 기술적 차트 분석 등 여러가지를 분석해서 간략하게 알려줘.\n\n"
+              f"1. 이 회사의 핵심 [테마/섹터]가 뭐야? (예: [반도체], [2차전지], [로봇], [제약바이오])\n"
+              f"2. 현재날짜 기준으로 주식 전문가 입장에서 시황, 기술적 차트 분석 등 여러가지를 분석해서 간략하게 알려줘.\n\n"
+			  f"3. 답변은 줄바꿈 없이 한 줄로 이어서 작성.\n"
               f"🚨 중요: 답변은 무조건 아래 형식으로만 해.\n"
               f"형식: [테마명] 분석 내용 (반말 모드)")
-              
 
     final_comment = ""
-    
+
     # 1. GPT
     if OPENAI_API_KEY:
         try:
             client = OpenAI(api_key=OPENAI_API_KEY)
             res = client.chat.completions.create(
                 model="gpt-4o-mini", 
-                messages=[
-                    {"role": "system", "content": "너는 주식 섹터 분류 전문가야. '상승', '급등' 같은 말은 테마가 아니야. 정확한 산업군을 말해."}, # 👈 가스라이팅 추가
-                    {"role": "user", "content": prompt}
-                ], 
+                messages=[{"role":"user", "content":prompt}], 
                 max_tokens=200
             )
-            final_comment += f"\n🧠 [GPT]: {res.choices[0].message.content.strip()}"
+            # 👇 핵심 수정: 줄바꿈(\n)을 공백으로 치환해서 빈 줄 삭제
+            content = res.choices[0].message.content.strip().replace('\n', ' ')
+            final_comment += f"\n\n🧠 [GPT]: {content}"
         except: pass
 
     # 2. Groq
@@ -145,84 +173,57 @@ def get_ai_summary(ticker, name, category, reasons):
         try:
             url = "https://api.groq.com/openai/v1/chat/completions"
             headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
-            payload = {
-                "model": "llama-3.3-70b-versatile",
-                "messages": [
-                    {"role": "system", "content": "Classify the industry sector exactly (e.g., [AI Robot], [Semiconductor]). Do not say 'Rising' or 'Stock'."},
-                    {"role": "user", "content": prompt}
-                ]
-            }
+            payload = {"model": "llama-3.3-70b-versatile", "messages": [{"role": "user", "content": prompt}]}
             res = requests.post(url, json=payload, headers=headers, timeout=2)
             if res.status_code == 200:
-                final_comment += f"\n⚡ [Groq]: {res.json()['choices'][0]['message']['content'].strip()}"
+                # 👇 핵심 수정: 줄바꿈 제거
+                content = res.json()['choices'][0]['message']['content'].strip().replace('\n', ' ')
+                final_comment += f"\n\n⚡ [Groq]: {content}"
         except: pass
 
     return final_comment
 
 # ---------------------------------------------------------
-# 📊 [기능 4] 공통 데이터 (수급/재무) - ⚠️ 수정완료
+# 📊 [기능 4] 공통 데이터 (수급/재무 - 네이버 차단 우회)
 # ---------------------------------------------------------
 def get_common_data(code):
     trend = "정보없음"; badge = "⚖️보통"
-    
-    # 1. 수급 (네이버 차단 우회 적용)
-    try: 
+    try: # 수급
         url = f"https://finance.naver.com/item/frgn.naver?code={code}"
-        # 👈 선생님 말씀대로 '진짜 사람 헤더'를 넣었습니다!
         resp = requests.get(url, headers=REAL_HEADERS, timeout=3)
-        
         dfs = pd.read_html(StringIO(resp.text), match='날짜')
         if dfs:
             target_df = dfs[0].dropna()
-            # 날짜 열이 있는 헤더가 중간에 껴있는 경우 제거
             target_df = target_df[target_df['날짜'].astype(str).str.contains('날짜') == False]
-            
             if len(target_df) > 0:
                 latest = target_df.iloc[0]
-                # 천단위 콤마 제거 후 정수 변환
-                foreigner = int(str(latest['외국인']).replace(',', ''))
-                institution = int(str(latest['기관']).replace(',', ''))
-                
-                buy = foreigner > 0
-                ins = institution > 0
+                buy = int(str(latest['외국인']).replace(',', '')) > 0
+                ins = int(str(latest['기관']).replace(',', '')) > 0
                 trend = "🚀쌍끌이" if (buy and ins) else ("👨🏼‍🦰외인" if buy else ("🏢기관" if ins else "💧개인"))
-    except Exception as e:
-        # print(f"수급 에러({code}): {e}") # 디버깅용
-        pass
-
-    # 2. 재무 (네이버 차단 우회 적용)
-    try: 
+    except: pass
+    try: # 재무
         url2 = f"https://finance.naver.com/item/main.naver?code={code}"
         resp2 = requests.get(url2, headers=REAL_HEADERS, timeout=3)
         dfs2 = pd.read_html(StringIO(resp2.text))
         for df in dfs2:
             if '최근 연간 실적' in str(df.columns) or '주요재무제표' in str(df.columns):
-                # 컬럼 정리
-                if isinstance(df.columns, pd.MultiIndex):
-                    df.columns = df.columns.get_level_values(1) # 하단 컬럼만 사용
-                    
+                if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.get_level_values(1)
                 fin = df.set_index(df.columns[0])
-                # EPS 확인
                 target_key = next((k for k in fin.index if 'EPS' in str(k)), None)
                 if target_key:
-                    # 최근 값 가져오기 (NaN 제외)
                     vals = fin.loc[target_key].values
                     last_val = 0
                     for v in vals:
                         v_str = str(v).replace(',', '')
-                        if v_str.replace('.', '', 1).replace('-', '', 1).isdigit():
-                            last_val = float(v_str)
-                    
+                        if v_str.replace('.', '', 1).replace('-', '', 1).isdigit(): last_val = float(v_str)
                     if last_val < 0: badge = "⚠️적자"
                     elif last_val > 0: badge = "💎흑자"
                 break
-    except Exception as e:
-        pass
-        
+    except: pass
     return trend, badge
 
 # ---------------------------------------------------------
-# ⚔️ [기능 5] 듀얼 엔진
+# ⚔️ [기능 5] 듀얼 엔진 (추세 + 단테)
 # ---------------------------------------------------------
 def check_trend_strategy(df, row):
     ma5 = df['Close'].rolling(5).mean().iloc[-1]
@@ -253,17 +254,23 @@ def check_dante_strategy(df, row):
     if score >= 60: return True, score, reasons
     return False, 0, []
 
-def analyze_stock_dual(ticker, name):
+# ---------------------------------------------------------
+# 🕵️‍♂️ 통합 분석 엔진 (가독성 패치 완료)
+# ---------------------------------------------------------
+def analyze_stock(ticker, name, mode='realtime'): 
     try:
+        # 1. 데이터 가져오기
         df = fdr.DataReader(ticker, start=(NOW - timedelta(days=730)).strftime('%Y-%m-%d'))
         if len(df) < 225: return None
         row = df.iloc[-1]
         if row['Close'] < 1000 or row['Volume'] == 0: return None
 
+        # 2. 전략 체크
         is_trend, s_trend, r_trend = check_trend_strategy(df, row)
         is_dante, s_dante, r_dante = check_dante_strategy(df, row)
         if not is_trend and not is_dante: return None
 
+        # 3. 등급 산정
         category = ""; final_score = 0; final_reasons = []
         if is_trend and is_dante:
             category = "👑 [강력추천/겹침]"; final_score = s_trend + s_dante
@@ -273,32 +280,56 @@ def analyze_stock_dual(ticker, name):
         elif is_dante:
             category = "🥣 [단테 Pick]"; final_score = s_dante; final_reasons = r_dante
 
+        # 4. 데이터 조회
         trend, badge = get_common_data(ticker)
+        
+        # 5. AI 요약
         ai_msg = ""
-        if final_score >= 60: ai_msg = get_ai_summary(ticker, name, category, final_reasons)
+        # ⚠️ 점수 0점 이상이면 무조건 AI 호출 (테스트용)
+        if final_score >= 0: 
+            ai_msg = get_ai_summary(ticker, name, category, final_reasons)
 
+        # 6. 메시지 생성 (줄바꿈 \n 확실하게 추가!)
         return {
             'code': ticker, '종목명': name, '현재가': int(row['Close']),
             '신호': " ".join(final_reasons), '총점': final_score,
             '수급현황': trend, 'Risk': badge,
-            'msg': f"{category} {name} ({final_score}점)\n👉 신호: {' '.join(final_reasons)}\n💰 현재가: {int(row['Close']):,}원\n📊 {trend} / {badge}\n{ai_msg}"
+            'msg': f"{category} {name} ({final_score}점)\n"
+                   f"👉 신호: {' '.join(final_reasons)}\n"
+                   f"💰 현재가: {int(row['Close']):,}원\n"
+                   f"📊 {trend} / {badge}"
+                   f"{ai_msg}\n\n"               # 👈 AI 멘트 끝나고 두 줄 띄움
+                   f"➖➖➖➖➖➖➖➖➖➖➖➖\n" # 👈 구분선 뒤에도 줄바꿈 추가
         }
     except: return None
 
 # ---------------------------------------------------------
-# 🚀 실행
+# 🚀 메인 실행 (이 부분이 가장 중요합니다!!)
 # ---------------------------------------------------------
 if __name__ == "__main__":
-    print(f"🚀 [Ultimate Bot] {TODAY_STR} 시작 (네이버 차단 우회 적용)")
+    print(f"🚀 [Ultimate Bot] {TODAY_STR} 시작")
     
-    # 1. 시황
-    print("📊 지수 차트 생성 중...")
-    charts = [create_index_chart('IXIC','NASDAQ'), create_index_chart('KS11','KOSPI'), create_index_chart('KQ11','KOSDAQ')]
+    # 1. 📊 차트 생성 (나스닥/코스피/코스닥)
+    print("📸 지수 차트 3장 생성 중...")
+    charts = [
+        create_index_chart('IXIC', 'NASDAQ'),
+        create_index_chart('KS11', 'KOSPI'),
+        create_index_chart('KQ11', 'KOSDAQ')
+    ]
+    
+    # 2. 📢 시황 브리핑 생성
+    print("🌍 시황 브리핑 작성 중...")
     brief = get_market_briefing()
-    #if brief: send_telegram_photo(brief, charts)
     
-    # 2. 스캔
-    print("🔍 종목 스캔 중...")
+    # 3. 📨 [중요] 브리핑 + 차트 먼저 전송!
+    if brief:
+        print("📨 시황 텔레그램 전송 중...")
+        send_telegram_photo(brief, charts)
+    else:
+        print("⚠️ 시황 브리핑 생성 실패 (API 키 확인 필요)")
+    
+    # 4. 🔍 종목 스캔 시작
+    print("🔍 종목 스캔 중... (잠시만 기다려주세요)")
     df_krx = fdr.StockListing('KRX')
     df_leaders = df_krx.sort_values(by='Amount', ascending=False).head(TOP_N)
     target_dict = dict(zip(df_leaders['Code'].astype(str), df_leaders['Name']))
@@ -308,8 +339,8 @@ if __name__ == "__main__":
         if k not in target_dict: target_dict[k] = v
 
     results = []
-    with ThreadPoolExecutor(max_workers=20) as executor: # 네이버 차단 방지 위해 속도 조금 조절
-        futures = [executor.submit(analyze_stock_dual, t, n) for t, n in target_dict.items()]
+    with ThreadPoolExecutor(max_workers=20) as executor:
+        futures = [executor.submit(analyze_stock, t, n) for t, n in target_dict.items()]
         for future in futures:
             res = future.result()
             if res: results.append(res)
@@ -317,9 +348,11 @@ if __name__ == "__main__":
     if results:
         results.sort(key=lambda x: x['총점'], reverse=True)
         final_msgs = [r['msg'] for r in results[:15]]
+        
         report = f"💎 [오늘의 발굴] {len(results)}개 완료\n\n" + "\n\n".join(final_msgs)
         print(report)
-        #send_telegram_photo(report, []) 
+        send_telegram_photo(report, []) # 종목 리스트는 텍스트로만 전송
         try: update_google_sheet(results, TODAY_STR)
         except: pass
-    else: print("❌ 발견된 종목 없음")
+    else:
+        print("❌ 발견된 종목 없음")
