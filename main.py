@@ -112,16 +112,36 @@ def get_market_briefing():
 # ---------------------------------------------------------
 # 🧠 [기능 3] AI 종목 분석
 # ---------------------------------------------------------
+# 👇 디버깅용 get_ai_summary (에러 원인을 출력해줌)
 def get_ai_summary(ticker, name, category, reasons):
-    prompt = (f"종목: {name} ({ticker})\n포착: {category}\n특징: {', '.join(reasons)}\n\n"
-              f"1. [테마] 1단어 정의.\n2. 매력 이유 1줄 요약.\n(반말 모드)")
+    print(f"🔍 [AI 분석 시도] {name} 분석 시작...") # 로그 추가
+
+    prompt = (f"종목: {name} ({ticker})\n"
+              f"포착 결과: {category}\n"
+              f"특징: {', '.join(reasons)}\n\n"
+              f"1. [테마/업종]을 1단어로 정의 (예: [반도체]).\n"
+              f"2. 매력적인 이유를 한 줄 요약.\n"
+              f"(반말 모드)")
+
     final_comment = ""
+    
+    # 1. GPT 시도
     if OPENAI_API_KEY:
         try:
             client = OpenAI(api_key=OPENAI_API_KEY)
-            res = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role":"user", "content":prompt}], max_tokens=150)
+            res = client.chat.completions.create(
+                model="gpt-4o-mini", 
+                messages=[{"role":"user", "content":prompt}], 
+                max_tokens=150
+            )
             final_comment += f"\n🧠 [GPT]: {res.choices[0].message.content.strip()}"
-        except: pass
+            print("✅ GPT 응답 성공")
+        except Exception as e:
+            print(f"❌ [GPT 에러] {e}") # 에러 메시지 출력!!
+    else:
+        print("⚠️ OpenAI API 키가 없어서 건너뜀")
+
+    # 2. Groq 시도
     if GROQ_API_KEY:
         try:
             url = "https://api.groq.com/openai/v1/chat/completions"
@@ -130,7 +150,12 @@ def get_ai_summary(ticker, name, category, reasons):
             res = requests.post(url, json=payload, headers=headers, timeout=2)
             if res.status_code == 200:
                 final_comment += f"\n⚡ [Groq]: {res.json()['choices'][0]['message']['content'].strip()}"
-        except: pass
+                print("✅ Groq 응답 성공")
+            else:
+                print(f"❌ [Groq 에러] 상태코드: {res.status_code}")
+        except Exception as e:
+            print(f"❌ [Groq 에러] {e}")
+
     return final_comment
 
 # ---------------------------------------------------------
@@ -269,7 +294,7 @@ if __name__ == "__main__":
     print("📊 지수 차트 생성 중...")
     charts = [create_index_chart('IXIC','NASDAQ'), create_index_chart('KS11','KOSPI'), create_index_chart('KQ11','KOSDAQ')]
     brief = get_market_briefing()
-    if brief: send_telegram_photo(brief, charts)
+    #if brief: send_telegram_photo(brief, charts)
     
     # 2. 스캔
     print("🔍 종목 스캔 중...")
@@ -293,7 +318,7 @@ if __name__ == "__main__":
         final_msgs = [r['msg'] for r in results[:15]]
         report = f"💎 [오늘의 발굴] {len(results)}개 완료\n\n" + "\n\n".join(final_msgs)
         print(report)
-        send_telegram_photo(report, []) 
+        #send_telegram_photo(report, []) 
         try: update_google_sheet(results, TODAY_STR)
         except: pass
     else: print("❌ 발견된 종목 없음")
