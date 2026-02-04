@@ -12,6 +12,7 @@ import matplotlib.pyplot as plt # 👈 차트 텍스트 박스용
 from datetime import datetime, timedelta
 from io import StringIO
 from concurrent.futures import ThreadPoolExecutor
+from bs4 import BeautifulSoup
 import pytz
 
 # 👇 OpenAI 연결
@@ -76,51 +77,142 @@ def create_index_chart(ticker, name):
         return fname
     except: return None
 
+# ---------------------------------------------------------
+# 📨 텔레그램 전송 (안전장치 포함 버전)
+# ---------------------------------------------------------
 def send_telegram_photo(message, image_paths=[]):
     if not TELEGRAM_TOKEN or not CHAT_ID_LIST: return
+
     url_p = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
     url_t = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     
-    real_id_list = [x.strip() for item in CHAT_ID_LIST for x in item.split(',') if x.strip()]
+    # 채팅방 ID 정리 (콤마로 구분된 경우 대비)
+    real_id_list = []
+    for item in CHAT_ID_LIST:
+        real_id_list.extend([x.strip() for x in item.split(',') if x.strip()])
+
     for chat_id in real_id_list:
-        if message: requests.post(url_t, data={'chat_id': chat_id, 'text': message})
+        if not chat_id: continue
+
+        # 1. 텍스트 전송 (혹시 4000자 넘으면 강제로 자르는 안전장치)
+        if message:
+            if len(message) > 4000:
+                # main에서 미처 못 자른 긴 메시지(AI 토너먼트 등)가 오면 여기서 자름
+                chunks = [message[i:i+4000] for i in range(0, len(message), 4000)]
+                for i, chunk in enumerate(chunks):
+                    try:
+                        requests.post(url_t, data={'chat_id': chat_id, 'text': chunk})
+                        time.sleep(0.3) 
+                    except: pass
+            else:
+                # 짧으면(스마트 분할된거면) 그냥 보냄
+                try:
+                    requests.post(url_t, data={'chat_id': chat_id, 'text': message})
+                except: pass
+
+        # 2. 사진 전송 (차트 등)
         for img in image_paths:
             if img and os.path.exists(img):
                 try:
-                    with open(img, 'rb') as f: requests.post(url_p, data={'chat_id': chat_id}, files={'photo': f})
+                    with open(img, 'rb') as f: 
+                        requests.post(url_p, data={'chat_id': chat_id}, files={'photo': f})
                 except: pass
+                
+    # 3. 사진 파일 삭제 (청소)
     for img in image_paths:
-        if img and os.path.exists(img): os.remove(img)
+        if img and os.path.exists(img): 
+            try: os.remove(img)
+            except: pass
 
 # ---------------------------------------------------------
-# 📢 [기능 2] 시황 브리핑 (테마+업종)
+# 🕵️ [New] 실시간 테마 & 대장주 발굴 (심층 크롤링)
 # ---------------------------------------------------------
 def get_hot_themes():
+    """
+    네이버 '테마별 시세' 상위 3개를 긁어온 뒤,
+    각 테마 페이지(상세)로 '직접 들어가서' 현재 등락률 1위인 대장주를 찾아옵니다.
+    """
     hot_info = []
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/121.0.0.0 Safari/537.36'}
+    
+    print("🕵️ 실시간 주도 테마 및 대장주 추적 중... (잠시 걸립니다)")
+    
     try:
-        url_t = "https://finance.naver.com/sise/theme.naver"
-        df_t = pd.read_html(requests.get(url_t, headers=REAL_HEADERS).text)[0].dropna().head(5)
-        hot_info.append(f"🔥강세테마: {', '.join(df_t['테마명'].tolist())}")
+        # 1. 테마 메인 페이지 접속
+        url = "https://finance.naver.com/sise/theme.naver"
+        res = requests.get(url, headers=headers)
+        soup = BeautifulSoup(res.text, 'html.parser')
         
-        url_u = "https://finance.naver.com/sise/sise_group.naver?type=upjong"
-        df_u = pd.read_html(requests.get(url_u, headers=REAL_HEADERS).text)[0].dropna().head(5)
-        hot_info.append(f"📈강세업종: {', '.join(df_u['업종명'].tolist())}")
-        return "\n".join(hot_info)
-    except: return "테마 정보 수집 실패"
+        # 2. 상위 3개 테마 찾기
+        # 테이블의 첫 번째 행부터 3개만 가져옴
+        rows = soup.select('table.type_1 tr')
+        
+        count = 0
+        for row in rows:
+            if count >= 3: break # 상위 3개만 (속도 위해)
+            
+            cols = row.select('td')
+            if len(cols) < 2: continue # 빈 줄 패스
+            
+            # 테마명과 링크 추출
+            theme_name = cols[0].text.strip()
+            link_tag = cols[0].select_one('a')
+            
+            if link_tag:
+                theme_url = "https://finance.naver.com" + link_tag['href']
+                
+                # 3. 🚀 [Deep Dive] 해당 테마 상세 페이지 접속
+                sub_res = requests.get(theme_url, headers=headers)
+                sub_soup = BeautifulSoup(sub_res.text, 'html.parser')
+                
+                # 4. 해당 테마 내 등락률 1위(대장주) 찾기
+                # 보통 div.name_area 근처에 종목명이 있음
+                leader_row = sub_soup.select('div.name_area')
+                leader_price = sub_soup.select('span.no_up') # 상승폭
+                
+                if leader_row:
+                    leader_name = leader_row[0].text.strip().replace('*', '') # 종목명
+                    # 상승률까지 찾으면 금상첨화지만 복잡하니 종목명만 우선 확보
+                    
+                    hot_info.append(f"🔥{theme_name}(대장: {leader_name})")
+                else:
+                    hot_info.append(f"🔥{theme_name}")
+                
+                count += 1
+                time.sleep(0.2) # 네이버 차단 방지용 딜레이
 
+        return ", ".join(hot_info)
+
+    except Exception as e:
+        print(f"⚠️ 테마 크롤링 실패: {e}")
+        return "테마 정보 없음"
+
+# ---------------------------------------------------------
+# 📢 [기능 2] 시황 브리핑 (대장주 정보 포함)
+# ---------------------------------------------------------
 def get_market_briefing():
     if not OPENAI_API_KEY: return None
     try:
         kospi = fdr.DataReader('KS11', start=datetime.now()-timedelta(days=5))
         nasdaq = fdr.DataReader('IXIC', start=datetime.now()-timedelta(days=5))
-        theme = get_hot_themes()
+        
+        # 🔥 여기서 대장주 정보를 가져옵니다
+        theme_data = get_hot_themes()
+        
         def rate(df): return f"{(df['Close'].iloc[-1]-df['Close'].iloc[-2])/df['Close'].iloc[-2]*100:+.2f}%"
-        data = f"나스닥:{rate(nasdaq)}, 코스피:{rate(kospi)}\n{theme}"
+        data = f"나스닥:{rate(nasdaq)}, 코스피:{rate(kospi)}\n주도테마:{theme_data}"
+        
+        # 프롬프트 강화: 대장주 언급 필수
+        prompt = (f"시장 데이터:\n{data}\n\n"
+                  f"위 데이터를 바탕으로 주식 트레이더에게 '오늘의 시장 흐름'을 3줄로 브리핑해줘.\n"
+                  f"1. 지수 흐름 짧게 언급.\n"
+                  f"2. 🔥반드시 '주도 테마'와 그 테마의 '대장주'를 콕 집어서 언급해줄 것. (예: 로봇 테마는 레인보우로보틱스가 이끄는 중)\n"
+                  f"말투: 주식 고수의 통찰력 있는 반말.")
         
         client = OpenAI(api_key=OPENAI_API_KEY)
         res = client.chat.completions.create(
             model="gpt-4o-mini",
-            messages=[{"role":"user", "content":f"데이터:\n{data}\n\n위 데이터를 바탕으로 '오늘의 시장 흐름'을 3줄로 요약해줘(반말). 지수 등락과 주도 테마를 연결지어 분석해."}]
+            messages=[{"role":"user", "content":prompt}]
         )
         return f"📢 [오늘의 시황]\n{res.choices[0].message.content.strip()}"
     except: return None
@@ -362,7 +454,7 @@ def analyze_stock(ticker, name):
         return None
 
 # ---------------------------------------------------------
-# 🚀 메인 실행
+# 🚀 메인 실행 (스마트 분할 전송 적용)
 # ---------------------------------------------------------
 if __name__ == "__main__":
     print(f"🚀 [Ultimate Bot] {TODAY_STR} 시작")
@@ -371,6 +463,8 @@ if __name__ == "__main__":
     print("📸 차트 및 시황 생성 중...")
     charts = [create_index_chart('IXIC','NASDAQ'), create_index_chart('KS11','KOSPI'), create_index_chart('KQ11','KOSDAQ')]
     brief = get_market_briefing()
+    
+    # 시황과 차트는 한방에 전송
     if brief: send_telegram_photo(brief, charts)
     
     # 2. 🔍 종목 스캔
@@ -394,18 +488,41 @@ if __name__ == "__main__":
         results.sort(key=lambda x: x['총점'], reverse=True)
         top_50 = results[:50]
         
-        # 3. 🏟️ AI 토너먼트
-        print("🏟️ AI 토너먼트 시작...")
+        # 3. 🏟️ AI 토너먼트 (Best 3)
+        print("🏟️ AI 토너먼트 진행 및 전송...")
         tournament_result = run_ai_tournament(top_50)
-        print(tournament_result)
+        # 토너먼트 결과는 중요하니까 단독으로 전송
         send_telegram_photo(tournament_result)
         
-        # 4. 전체 리스트 전송
-        final_msgs = [r['msg'] for r in results[:15]]
-        report = f"💎 [예선 통과 상위 15개]\n\n" + "".join(final_msgs)
-        send_telegram_photo(report)
+        # 4. 💎 [스마트 분할 전송] 여기가 핵심입니다!
+        print("📨 종목 리포트 스마트 분할 전송 중...")
         
+        # (1) 보낼 메시지 리스트 준비
+        final_msgs = [r['msg'] for r in results[:15]] # 상위 15개
+        
+        # (2) 꽉 채워서 보내기 (테트리스 로직)
+        header = f"💎 [예선 통과 상위 15개]\n(총 {len(results)}개 종목 중 엄선)\n\n"
+        current_chunk = header
+        
+        for msg in final_msgs:
+            # 만약 [지금까지 내용 + 이번 종목]이 4000자를 넘으면?
+            if len(current_chunk) + len(msg) > 4000:
+                # 1. 꽉 찬거 먼저 보냄
+                send_telegram_photo(current_chunk)
+                # 2. 새로운 메시지 시작 (이어서...)
+                current_chunk = "💎 [이어서] 다음 종목 리스트\n\n" + msg
+            else:
+                # 안 넘으면 계속 붙임
+                current_chunk += msg
+                
+        # (3) 마지막 남은 찌꺼기 전송
+        if current_chunk:
+            send_telegram_photo(current_chunk)
+        
+        # 5. 구글 시트 저장
         try: update_google_sheet(results, TODAY_STR)
         except: pass
+        
     else:
         print("❌ 발견된 종목 없음")
+        send_telegram_photo("❌ 오늘 조건에 맞는 종목이 하나도 없습니다.")
