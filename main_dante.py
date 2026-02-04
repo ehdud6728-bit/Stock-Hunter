@@ -1,5 +1,5 @@
 # ------------------------------------------------------------------
-# 🥣 [단테 전용] main_dante.py (바닥권 분출 가산점 강화 Ver)
+# 🥣 [단테 봇] main_dante.py (긴급 디버깅 모드)
 # ------------------------------------------------------------------
 import FinanceDataReader as fdr
 import pandas as pd
@@ -10,27 +10,26 @@ import time
 from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor
 
-# Gemini 라이브러리
-try:
-    import google.generativeai as genai
-except ImportError:
-    genai = None
-
-# 기존 시트 매니저 활용
+# 기존 시트 매니저
 from google_sheet_manager import update_google_sheet
 
 # =================================================
-# ⚙️ [설정] 단테 기법 파라미터
+# ⚙️ [긴급 설정] 거름망 대폭 완화
 # =================================================
-TOP_N = 2500          # 전체 종목 검색
-DROP_RATE = 0.25      # 고점 대비 25% 이상 하락
-STOP_LOSS_BUFFER = 0.95  # 112일선 -5% 여유
+TOP_N = 2500            # 검색 대상 (2500개)
+DROP_RATE = 0.10        # 📉 고점대비 하락 (기존 0.25 -> 0.10 로 대폭 완화)
+MA_MARGIN = 0.30        # 📊 이평선 거리 (기존 0.15 -> 0.30 로 대폭 완화)
+STOP_LOSS_BUFFER = 0.95 # 손절가 (112일선 -5%)
 
-# 텔레그램 & API 설정
+# 🚨 AI 잠시 끄기 (오류 방지)
+USE_AI = False 
+
+# 🕵️‍♂️ [수사반장] 얘네들은 탈락해도 이유를 꼬치꼬치 캐묻는다!
+DEBUG_TARGETS = ['서남', '남선알미늄', '테라뷰', 'SK이터닉스']
+
+# 텔레그램 설정
 TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN')
 CHAT_ID_LIST = os.environ.get('TELEGRAM_CHAT_ID', '').split(',')
-GOOGLE_API_KEY = os.environ.get('GOOGLE_API_KEY')
-GROQ_API_KEY = os.environ.get('GROQ_API_KEY')
 
 # =================================================
 
@@ -49,111 +48,85 @@ def send_telegram(message):
             except: pass
 
 # ---------------------------------------------------------
-# 🤖 AI 요약
-# ---------------------------------------------------------
-def get_dante_summary(ticker, name, signal, stop_loss, ma_status):
-    prompt = (f"나는 주식 유튜버 '단테'의 기법(밥그릇 패턴, 이평선 돌파)으로 종목을 분석 중이다.\n"
-              f"종목: {name} ({ticker})\n"
-              f"신호: {signal}\n"
-              f"손절가: {stop_loss}원 (112일선 -5% 구간)\n"
-              f"이평선 상태: {ma_status}\n"
-              f"위 정보를 바탕으로 '왜 이 자리가 중요한지'와 '손절 원칙'을 강조해서 1줄로 조언해줘. (한국어)")
-
-    if GOOGLE_API_KEY and genai:
-        try:
-            genai.configure(api_key=GOOGLE_API_KEY)
-            model = genai.GenerativeModel('gemini-1.5-flash')
-            res = model.generate_content(prompt)
-            return f"\n🥣 {res.text.strip()} (Gemini)"
-        except Exception: pass
-    
-    if GROQ_API_KEY:
-        try:
-            url = "https://api.groq.com/openai/v1/chat/completions"
-            headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
-            payload = {"model": "llama-3.3-70b-versatile", "messages": [{"role": "user", "content": prompt}]}
-            res = requests.post(url, json=payload, headers=headers, timeout=5)
-            response_json = res.json()
-            if 'choices' in response_json:
-                return f"\n🥣 {response_json['choices'][0]['message']['content'].strip()} (Groq)"
-        except: pass
-        
-    return ""
-
-# ---------------------------------------------------------
-# 🔍 [핵심] 단테 알고리즘 분석기
+# 🔍 [핵심] 단테 알고리즘 (디버깅 강화)
 # ---------------------------------------------------------
 def analyze_dante_stock(ticker, name):
     try:
+        # 데이터 가져오기
         df = fdr.DataReader(ticker, start=(datetime.now() - timedelta(days=730)).strftime('%Y-%m-%d'))
-        if len(df) < 250: return None
+        
+        # 1. 데이터 부족 체크
+        if len(df) < 225: 
+            if name in DEBUG_TARGETS:
+                print(f"🕵️‍♂️ [추적] {name}: ❌ 데이터 부족 (상장 {len(df)}일차 -> 225일 필요)")
+            return None
         
         row = df.iloc[-1]
-        prev = df.iloc[-2]
-        if row['Close'] < 1000 or row['Volume'] == 0: return None
+        current_price = row['Close']
+        
+        # 2. 동전주/거래정지 체크
+        if current_price < 500 or row['Volume'] == 0: return None
 
-        # 1. 이평선 계산
+        # -----------------------------------------------------
+        # 지표 계산
+        # -----------------------------------------------------
         ma112 = df['Close'].rolling(112).mean().iloc[-1]
         ma224 = df['Close'].rolling(224).mean().iloc[-1]
+        past_high = df['High'].iloc[:-120].max() # 6개월 전 고점
         
-        # 거래량 이동평균 (20일) - 거래량 터진거 확인용
-        vol_ma20 = df['Volume'].rolling(20).mean().iloc[-1]
-            
-        # 2. 밥그릇 1번 (하락폭)
-        past_high = df['High'].iloc[:-120].max() 
-        current_price = row['Close']
-        if current_price > past_high * (1 - DROP_RATE): return None 
+        # -----------------------------------------------------
+        # 🔍 조건 체크 (하나라도 걸리면 탈락)
+        # -----------------------------------------------------
+        
+        # [조건 A] 고점 대비 하락했는가?
+        drop_pct = (past_high - current_price) / past_high
+        if drop_pct < DROP_RATE: 
+            if name in DEBUG_TARGETS:
+                print(f"🕵️‍♂️ [추적] {name}: ❌ 하락폭 부족 (현재 -{drop_pct*100:.1f}% < 기준 {DROP_RATE*100}%)")
+            return None 
 
-        # 3. 밥그릇 3번 (이평선 근처)
-        is_near_112 = (ma112 * 0.85 <= current_price <= ma112 * 1.15)
-        is_near_224 = (ma224 * 0.85 <= current_price <= ma224 * 1.15)
-        if not (is_near_112 or is_near_224): return None 
+        # [조건 B] 이평선 근처인가? (기준: MA_MARGIN = 30%)
+        # 112일선 근처 or 224일선 근처
+        is_near_112 = abs(current_price - ma112) / ma112 <= MA_MARGIN
+        is_near_224 = abs(current_price - ma224) / ma224 <= MA_MARGIN
+        
+        if not (is_near_112 or is_near_224):
+            if name in DEBUG_TARGETS:
+                dist112 = abs(current_price - ma112) / ma112 * 100
+                dist224 = abs(current_price - ma224) / ma224 * 100
+                print(f"🕵️‍♂️ [추적] {name}: ❌ 이평선과 너무 멉니다 (112선과 {dist112:.1f}%, 224선과 {dist224:.1f}%)")
+            return None 
 
-        # 4. 🔨 공구리 (손절가 = 112일선 - 5% 버퍼)
+        # [조건 C] 손절선 이격도 (손익비)
         stop_loss_price = int(ma112 * STOP_LOSS_BUFFER)
         risk_pct = (current_price - stop_loss_price) / current_price * 100
-        if risk_pct > 35.0: return None 
+        
+        # 위험도가 50% 넘어가면 컷 (아주 널널하게 잡음)
+        if risk_pct > 50.0: 
+            if name in DEBUG_TARGETS:
+                print(f"🕵️‍♂️ [추적] {name}: ❌ 손절가 너무 멉니다 (-{risk_pct:.1f}%)")
+            return None 
 
         # -----------------------------------------------------
-        # 5. 🔥 점수 계산 (여기가 핵심!)
+        # 🏆 합격! 점수 계산
         # -----------------------------------------------------
-        score = 60 # 기본점수 시작
+        score = 60
         signal = "🥣밥그릇_준비"
         ma_status = f"112선({int(ma112):,})"
         
-        # [A] 위치 점수 (Position)
         if row['Close'] > ma224:
             score += 15
             signal = "🔥224일선_돌파"
-            ma_status = f"224선({int(ma224):,}) 돌파"
         elif row['Close'] > ma112:
             score += 10
             signal = "🌊112일선_지지"
-            ma_status = f"112선({int(ma112):,}) 지지"
         
-        # [B] 도전 점수 (Challenge) - 뚫기 직전이면 점수 팍팍!
-        dist_224 = abs(row['Close'] - ma224) / ma224
-        if row['Close'] < ma224 and dist_224 < 0.05: # 5% 이내로 근접
-            score += 20 # 뚫은 놈보다 더 줌 (기대감)
-            signal = "🔨224일선_도전(강력)"
+        # 수사반장 타겟이면 합격 소식도 출력
+        if name in DEBUG_TARGETS:
+            print(f"🕵️‍♂️ [추적] {name}: 🎉 조건 통과! (점수: {score})")
 
-        # [C] 🌋 마그마 점수 (Energy) - 바닥에서 거래량 터지면 가산점
-        # 평소 거래량의 200% 이상 터짐 + 양봉
-        if row['Volume'] > vol_ma20 * 2.0 and row['Close'] > row['Open']:
-            score += 20
-            signal = f"🌋바닥_거래폭발+{signal}"
-        
-        # [D] 기세 점수 (Momentum) - 오늘 3% 이상 상승 중
-        if row['Pct'] >= 3.0:
-            score += 10
-            
-        # V자 반등 (최근 10일 상승세)
-        if df['Close'].iloc[-10] < df['Close'].iloc[-1]:
-            score += 5
+        ai_msg = "" # AI 끔
 
-        # AI 요약 호출
-        ai_msg = get_dante_summary(ticker, name, signal, stop_loss_price, ma_status)
-        
         return {
             'code': ticker,
             '종목명': name,
@@ -162,28 +135,40 @@ def analyze_dante_stock(ticker, name):
             '총점': score,
             '수급점수': 0, '패턴점수': score, '차트점수': int(100 - abs(risk_pct)),
             'msg': f"[{signal}] {name}\n"
-                   f"📊 점수: {score}점 (바닥 에너지⚡)\n"
-                   f"💰 현재가: {int(current_price):,}원 ({row['Pct']:+.2f}%)\n"
+                   f"💰 현재가: {int(current_price):,}원\n"
                    f"🛡️ 손절가: {stop_loss_price:,}원 (112선 -5%)\n"
-                   f"📉 고점대비: -{((past_high - current_price)/past_high*100):.1f}%\n"
-                   f"📊 {ma_status} (이격: {risk_pct:.1f}%)\n"
-                   f"{ai_msg}"
+                   f"📉 고점대비: -{drop_pct*100:.1f}%\n"
+                   f"📊 점수: {score}점"
         }
 
     except Exception as e:
+        if name in DEBUG_TARGETS:
+            print(f"🕵️‍♂️ [추적] {name}: 🚨 에러 발생 ({e})")
         return None
 
 # ---------------------------------------------------------
 # 🚀 실행
 # ---------------------------------------------------------
 if __name__ == "__main__":
-    print(f"🥣 [단테 봇] {datetime.now().strftime('%Y-%m-%d')} Gemini 모드 분석 시작")
-    print("📉 전략: 바닥권 거래량 폭발 & 112일선 지지 (분출 대기 종목 가산점)")
-
+    print(f"🥣 [단테 봇] 긴급 점검 모드 시작 (AI Off)")
+    print(f"🕵️‍♂️ 추적 대상: {DEBUG_TARGETS}")
+    
     df_krx = fdr.StockListing('KRX')
+    
+    # 거래대금 상위 2500개
     df_leaders = df_krx.sort_values(by='Amount', ascending=False).head(TOP_N)
+    
+    # 딕셔너리 변환
     target_dict = dict(zip(df_leaders['Code'].astype(str), df_leaders['Name']))
     
+    # ⚠️ 혹시 목록에 없으면 강제 추가 (검사하기 위해)
+    # 테라뷰, 서남, 남선알미늄 코드가 2500등 안에 없어도 강제로 검사시킴
+    force_targets = {
+        '008350': '남선알미늄', '294630': '서남', '475150': '테라뷰', '458730': 'SK이터닉스'
+    }
+    for code, name in force_targets.items():
+        target_dict[code] = name # 강제 추가
+
     results = []
     
     with ThreadPoolExecutor(max_workers=30) as executor:
@@ -194,9 +179,9 @@ if __name__ == "__main__":
             
     if results:
         results.sort(key=lambda x: x['총점'], reverse=True)
-        final_msgs = [r['msg'] for r in results[:10]]
+        final_msgs = [r['msg'] for r in results[:15]] # 15개만
         
-        report = f"🥣 [단테 Pick] {len(results)}개 포착 (바닥 에너지⚡)\n\n" + "\n\n".join(final_msgs)
+        report = f"🥣 [단테 Pick] {len(results)}개 포착 (조건완화)\n\n" + "\n\n".join(final_msgs)
         print(report)
         send_telegram(report)
         
@@ -205,4 +190,4 @@ if __name__ == "__main__":
         except: pass
             
     else:
-        print("❌ 조건에 맞는 종목이 없습니다.")
+        print("❌ 조건 완화에도 불구하고 검색된 종목이 없습니다.")
