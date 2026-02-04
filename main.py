@@ -353,7 +353,7 @@ def analyze_stock(ticker, name):
         
         if not is_trend and not is_dante: return None
         
-        category = "🦁추세(엑셀)" if s_trend > s_dante else "🥣단테"
+        category = "🦁추세Pick" if s_trend > s_dante else "🥣단테Pick"
         if is_trend and is_dante: category = "👑강력추천"
         total = s_trend + s_dante
         reasons = list(set(r_trend + r_dante))
