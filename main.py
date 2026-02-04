@@ -26,7 +26,7 @@ from google_sheet_manager import update_google_sheet
 # =================================================
 # ⚙️ 설정
 # =================================================
-TEST_MODE = True      # 👈 실전 모드 (True 면 전송 안 함) /False
+TEST_MODE = False      # 👈 실전 모드 (True 면 전송 안 함) /False
 TOP_N = 300            
 TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN')
 CHAT_ID_LIST = os.environ.get('TELEGRAM_CHAT_ID', '').split(',')
