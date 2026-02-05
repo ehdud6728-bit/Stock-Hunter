@@ -1,5 +1,5 @@
 # ------------------------------------------------------------------
-# 👑 [The Ultimate Bot] Final (SyntaxError 수정 완료)
+# 👑 [The Ultimate Bot] Final (🍉수박지표 탑재 완료)
 # ------------------------------------------------------------------
 import FinanceDataReader as fdr
 import pandas as pd
@@ -26,7 +26,7 @@ from google_sheet_manager import update_google_sheet
 # =================================================
 # ⚙️ 설정
 # =================================================
-TEST_MODE = False      # 👈 실전 모드 (True 면 전송 안 함) /False
+TEST_MODE = False      
 TOP_N = 300            
 TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN')
 CHAT_ID_LIST = os.environ.get('TELEGRAM_CHAT_ID', '').split(',')
@@ -80,10 +80,9 @@ def create_index_chart(ticker, name):
     except: return None
 
 # ---------------------------------------------------------
-# 📨 [기능 2] 텔레그램 전송 (SyntaxError 수정됨)
+# 📨 [기능 2] 텔레그램 전송
 # ---------------------------------------------------------
 def send_telegram_photo(message, image_paths=[]):
-    # 테스트 모드 체크
     if TEST_MODE:
         print(f"\n🧪 [테스트 모드] 전송 차단됨")
         if message: print(f"📝 메시지: {message[:50]}...")
@@ -114,16 +113,13 @@ def send_telegram_photo(message, image_paths=[]):
                     with open(img, 'rb') as f: requests.post(url_p, data={'chat_id': chat_id}, files={'photo': f})
                 except: pass
     
-    # 🔥 [수정된 부분] 파일 삭제 로직 줄바꿈 적용
     for img in image_paths:
         if img and os.path.exists(img): 
-            try:
-                os.remove(img)
-            except:
-                pass
+            try: os.remove(img)
+            except: pass
 
 # ---------------------------------------------------------
-# 📢 [기능 3] 시황 브리핑 (오전/오후 분기)
+# 📢 [기능 3] 시황 브리핑
 # ---------------------------------------------------------
 def get_hot_themes():
     hot_info = []
@@ -164,7 +160,7 @@ def get_market_briefing():
         
         if is_morning:
             data = f"간밤 나스닥:{rate(nasdaq)}, 어제 코스피:{rate(kospi)}\n주도테마:{theme_data}"
-            prompt = (f"데이터:\n{data}\n\n지금은 '개장 전(오전 8:30)'이야. 1.나스닥 마감이 오늘 국장에 미칠 영향 2.주목할 테마를 3줄로 요약해(반말)."
+            prompt = (f"데이터:\n{data}\n\n지금은 '개장 전(오전 8:00)'이야. 1.나스닥 마감이 오늘 국장에 미칠 영향 2.주목할 테마를 3줄로 요약해(반말)."
                       f" 주도 테마와 대장주를 꼭 언급해.")
             title = "🌅 [굿모닝 브리핑]"
         else:
@@ -210,12 +206,10 @@ def get_ai_summary(ticker, name, category, reasons):
     return final_comment
 
 # ---------------------------------------------------------
-# 🏟️ [기능 5] AI 토너먼트 (1인 2역: 가치/수급 vs 차트/한방)
+# 🏟️ [기능 5] AI 토너먼트 (1인 2역)
 # ---------------------------------------------------------
 def run_ai_tournament(candidate_list):
     if not candidate_list: return "", {}
-    
-    # 1. 데이터 준비 (점수 가리고, 재료 위주로 전달 - 블라인드)
     prompt_data = ""
     for item in candidate_list[:50]:
         prompt_data += (f"- {item['종목명']}({item['code']}) | "
@@ -224,72 +218,41 @@ def run_ai_tournament(candidate_list):
                         f"재무:{item['Risk']}\n")
     
     print(f"🏟️ AI 토너먼트 개최! (후보 {len(candidate_list[:50])}개 - 멀티 심사)")
-
-    # 2. 프롬프트 작성 (두 가지 관점을 모두 요구)
     system_prompt = (
-        "너는 최고의 주식 트레이더야. 주어진 리스트를 분석해서 **두 가지 관점**으로 각각 Top 3 종목을 추천해줘.\n\n"
-        
+        "너는 최고의 주식 트레이더야. 두 가지 관점으로 각각 Top 3 종목을 추천해줘.\n\n"
         "🎯 [섹션 1] 가치/수급 Pick (워렌 버핏 스타일)\n"
-        "- 기준: 흑자 기업(재무 튼튼)이면서 외인/기관 수급이 좋은 종목.\n"
-        "- 잡주 제외, 펀더멘털이 확실한 대장주 위주.\n\n"
-        
+        "- 기준: 흑자 기업, 외인/기관 수급 우수.\n"
         "🚀 [섹션 2] 차트/한방 Pick (단타 트레이더 스타일)\n"
-        "- 기준: 재무 상관없음. 거래량 폭발, 골든크로스, 정배열 등 신호가 강력한 종목.\n"
-        "- 당장 급등 가능한 끼 있는 종목 위주.\n\n"
-        
-        "🚨 중요: 종목명 뒤에 반드시 (코드)를 기재하고, 두 섹션을 구분선으로 명확히 나눠.\n"
-        "출력 형식:\n"
-        "=== 가치/수급 Pick ===\n"
-        "🥇 [1위 종목명](코드)\n- 이유: ...\n"
-        "🥈 [2위 종목명](코드)\n- 이유: ...\n"
-        "🥉 [3위 종목명](코드)\n- 이유: ...\n\n"
-        "=== 차트/한방 Pick ===\n"
-        "🥇 [1위 종목명](코드)\n- 이유: ...\n"
-        "🥈 [2위 종목명](코드)\n- 이유: ...\n"
-        "🥉 [3위 종목명](코드)\n- 이유: ..."
+        "- 기준: 거래량 폭발, 골든크로스, 정배열 등 강력한 모멘텀.\n"
+        "🚨 종목명 뒤에 (코드) 필수 기재. 섹션 구분선 필수.\n"
+        "형식:\n=== 가치/수급 Pick ===\n🥇 [1위 종목명](코드)\n- 이유: ...\n"
+        "\n=== 차트/한방 Pick ===\n🥇 [1위 종목명](코드)\n- 이유: ..."
     )
-
-    final_report = "\n🏆 [AI 토너먼트 결승전 (가치 vs 차트)]\n"; ai_picks = {}
-
-    # 🛠️ 파싱 도우미 함수
+    final_report = "\n🏆 [AI 토너먼트 결승전]\n"; ai_picks = {}
+    
     def parse_and_tag(content, model_name, picks_dict):
         try:
-            # 섹션 분리
             parts = content.split("=== 차트/한방 Pick ===")
-            value_part = parts[0]
-            chart_part = parts[1] if len(parts) > 1 else ""
-            
-            # 1. 가치/수급 파싱
-            matches_v = re.findall(r'([🥇🥈🥉])\s*(?:\[)?.*?(?:\])?\s*\((\d{6})\)', value_part)
-            for rank, code in matches_v:
-                # 엑셀 태그: 🧠G_Val1 (GPT 가치 1위)
-                r_num = rank.replace('🥇','1').replace('🥈','2').replace('🥉','3')
-                tag = f"{model_name}_Val{r_num}"
-                picks_dict[code] = picks_dict.get(code, "") + f"[{tag}] "
+            value_part = parts[0]; chart_part = parts[1] if len(parts) > 1 else ""
+            for rank, code in re.findall(r'([🥇🥈🥉])\s*(?:\[)?.*?(?:\])?\s*\((\d{6})\)', value_part):
+                r = rank.replace('🥇','1').replace('🥈','2').replace('🥉','3')
+                picks_dict[code] = picks_dict.get(code, "") + f"[{model_name}_Val{r}] "
+            for rank, code in re.findall(r'([🥇🥈🥉])\s*(?:\[)?.*?(?:\])?\s*\((\d{6})\)', chart_part):
+                r = rank.replace('🥇','1').replace('🥈','2').replace('🥉','3')
+                picks_dict[code] = picks_dict.get(code, "") + f"[{model_name}_Cht{r}] "
+        except: pass
 
-            # 2. 차트/한방 파싱
-            matches_c = re.findall(r'([🥇🥈🥉])\s*(?:\[)?.*?(?:\])?\s*\((\d{6})\)', chart_part)
-            for rank, code in matches_c:
-                # 엑셀 태그: 🧠G_Cht1 (GPT 차트 1위)
-                r_num = rank.replace('🥇','1').replace('🥈','2').replace('🥉','3')
-                tag = f"{model_name}_Cht{r_num}"
-                picks_dict[code] = picks_dict.get(code, "") + f"[{tag}] "
-                
-        except Exception as e: print(f"파싱 에러: {e}")
-
-    # 🥊 1. GPT 심사
     if OPENAI_API_KEY:
         try:
             client = OpenAI(api_key=OPENAI_API_KEY)
             res = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role":"system", "content":system_prompt}, {"role":"user", "content":f"List:\n{prompt_data}"}])
             content = res.choices[0].message.content.strip()
             final_report += f"\n🧠 [GPT의 선택]\n{content}\n"
-            parse_and_tag(content, "G", ai_picks) # G = GPT
+            parse_and_tag(content, "G", ai_picks) 
         except Exception as e: final_report += f"\n🧠 GPT 오류: {e}\n"
 
     final_report += "\n" + "="*30 + "\n"
 
-    # 🥊 2. Groq 심사
     if GROQ_API_KEY:
         try:
             url = "https://api.groq.com/openai/v1/chat/completions"
@@ -298,9 +261,8 @@ def run_ai_tournament(candidate_list):
             if res.status_code == 200:
                 content = res.json()['choices'][0]['message']['content'].strip()
                 final_report += f"\n⚡ [Groq의 선택]\n{content}\n"
-                parse_and_tag(content, "Q", ai_picks) # Q = Groq (Q로 줄임)
+                parse_and_tag(content, "Q", ai_picks) 
         except: pass
-
     return final_report, ai_picks
 
 # ---------------------------------------------------------
@@ -336,7 +298,31 @@ def get_stock_data_extras(code):
     return trend, badge, is_for_3days, is_ins_3days
 
 # ---------------------------------------------------------
-# ⚔️ [기능 7] 듀얼 엔진 (단테 + 엑셀 추세 + 이격도 밀집)
+# 🍉 [기능 7] 수박지표 계산 (스토캐스틱) - New!
+# ---------------------------------------------------------
+def get_watermelon_signal(df):
+    try:
+        # Stochastic Slow (5, 3, 3)
+        # Fast %K
+        low_min = df['Low'].rolling(window=5).min()
+        high_max = df['High'].rolling(window=5).max()
+        fast_k = ((df['Close'] - low_min) / (high_max - low_min)) * 100
+        
+        # Slow %K, Slow %D
+        slow_k = fast_k.rolling(window=3).mean()
+        slow_d = slow_k.rolling(window=3).mean()
+        
+        # 어제: K <= D, 오늘: K > D (골든크로스)
+        prev_k = slow_k.iloc[-2]; prev_d = slow_d.iloc[-2]
+        curr_k = slow_k.iloc[-1]; curr_d = slow_d.iloc[-1]
+        
+        if prev_k <= prev_d and curr_k > curr_d:
+            return True
+        return False
+    except: return False
+
+# ---------------------------------------------------------
+# ⚔️ [기능 8] 듀얼 엔진 (단테 + 엑셀 추세 + 이격도 + 수박)
 # ---------------------------------------------------------
 def check_trend_strategy_excel(df, row, is_for_3days, is_ins_3days):
     score = 0; reasons = []
@@ -350,13 +336,17 @@ def check_trend_strategy_excel(df, row, is_for_3days, is_ins_3days):
     ma5 = row['Close_MA5']; ma20 = row['Close_MA20']
     golden = (df['Close_MA5'].iloc[-2] <= df['Close_MA20'].iloc[-2]) and (ma5 > ma20)
 
-    # 이격도 밀집
+    # 🌀 이격도 밀집
     try:
         mas = [row['Close_MA5'], row['Close_MA10'], row['Close_MA20'], row['Close_MA60'], row['Close_MA112']]
         if all(not np.isnan(m) for m in mas):
             if (max(mas) - min(mas)) / min(mas) <= 0.05:
-                score += 30; reasons.append("🌀이격도밀집")
+                score += 30; reasons.append("🌀밀집")
     except: pass
+    
+    # 🍉 수박지표 (스토캐스틱)
+    if get_watermelon_signal(df):
+        score += 20; reasons.append("🍉수박")
     
     if ma60_up and ma120_up: score += 30; reasons.append("📈정배열우상향")
     if has_supply: score += 30; reasons.append("💰메이저수급")
@@ -378,6 +368,10 @@ def check_dante_strategy_original(df, row):
     ma20 = row['Close_MA20']
     if row['Close'] > ma20 and df['Close'].iloc[-2] < df['Close_MA20'].iloc[-2]:
         score += 20; reasons.append("⛏️골파기")
+        
+    # 단테 전략에도 수박 보너스 적용 가능
+    if get_watermelon_signal(df):
+        score += 20; reasons.append("🍉수박")
 
     if score >= 40: return True, score, reasons
     return False, 0, []
@@ -385,7 +379,7 @@ def check_dante_strategy_original(df, row):
 def analyze_stock(ticker, name):
     try:
         df = fdr.DataReader(ticker, start=(NOW - timedelta(days=730)).strftime('%Y-%m-%d'))
-        if len(df) < 225: return None
+        if len(df) < 300: return None # 224일선 + 지표 계산용 여유
         for n in [5, 10, 20, 60, 112, 120, 224]: df[f'Close_MA{n}'] = df['Close'].rolling(n).mean()
         row = df.iloc[-1]
         
@@ -401,7 +395,7 @@ def analyze_stock(ticker, name):
         
         if not is_trend and not is_dante: return None
         
-        category = "🦁추세Pick" if s_trend > s_dante else "🥣단테Pick"
+        category = "🦁추세(엑셀)" if s_trend > s_dante else "🥣단테"
         if is_trend and is_dante: category = "👑강력추천"
         total = s_trend + s_dante
         reasons = list(set(r_trend + r_dante))
