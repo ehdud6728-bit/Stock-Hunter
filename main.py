@@ -282,13 +282,8 @@ if __name__ == "__main__":
         
 if all_hits:
     # 3. 데이터 정렬 및 전송 준비
-    # 3-1. 리스트를 데이터프레임으로 변환
-    df_res = pd.DataFrame(all_hits)
-    # 2. 종목코드를 기준으로 가장 최신 날짜(혹은 높은 점수)만 남기고 중복 제거
-    df_res = df_res.sort_values(by=['code', '날짜', '점수'], ascending=[True, False, False])
-    df_res = df_res.drop_duplicates(subset=['code'], keep='first')
-    # 3. 다시 리스트로 변환
-    all_hits = df_res.to_dict('records')
+    # 점수 순 정렬 (중복은 analyze_final에서 이미 차단됨)
+    sorted_hits = sorted(all_hits, key=lambda x: x['점수'], reverse=True)[:15]
     tournament_report = run_ai_tournament(all_hits)
         
     MAX_CHAR = 3800  # 여유 있게 3,800자로 설정
@@ -297,7 +292,7 @@ if all_hits:
     # 4. 종목별 본문 구성 및 실시간 분할
     for item in sorted_hits:
         ai_tip = get_ai_summary(item['code'], item['종목명'], item['구분'])
-    # 종목별 엔트리 생성 (구분선 포함)
+        # 종목별 엔트리 생성 (구분선 포함)
         entry = (f"⭐{item['점수']}점 [{item['종목명']}] {item['구분']}\n"
                 f"- 재무: {item['재무']} | 수급: {item['수급']}\n"
                 f"💡 {ai_tip}\n"
