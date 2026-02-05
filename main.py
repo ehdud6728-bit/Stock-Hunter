@@ -197,47 +197,67 @@ def get_ai_summary(ticker, name, tags):
     except: return "분석 불가"
 
 # ---------------------------------------------------------
-# 🕵️‍♂️ [7] 분석 엔진 (모든 조건 통합)
+# 🕵️‍♂️ [7] 분석 엔진 (당일 집중형 - 중복 방지)
 # ---------------------------------------------------------
 def analyze_final(ticker, name):
     try:
+        # 1. 지표 계산을 위해 과거 데이터를 충분히 가져옵니다.
         df = fdr.DataReader(ticker, start=(datetime.now()-timedelta(days=250)))
         if len(df) < 100: return []
-        df = get_indicators(df)
-        recent_df = df.iloc[-SCAN_DAYS:]
-        hits = []
         
-        for i in range(len(recent_df)):
-            curr_idx = recent_df.index[i]; row, prev = recent_df.iloc[i], df.iloc[df.index.get_loc(curr_idx)-1]
-            score, tags = 0, []
+        # 2. 보조지표 계산 (MA, OBV, Stochastic 등)
+        df = get_indicators(df)
+        
+        # 3. 💡 반복문 제거! 마지막(오늘) 데이터와 그 직전(어제) 데이터만 딱 집습니다.
+        # iloc[-1]은 가장 최신 날짜, iloc[-2]는 바로 전날입니다.
+        row = df.iloc[-1]
+        prev = df.iloc[-2]
+        curr_idx = df.index[-1] # 오늘 날짜
+        
+        score, tags = 0, []
+        
+        # --- [전략 1: Double GC] ---
+        # 오늘 골든크로스가 발생했는지 확인
+        is_p_gc = prev['MA5'] <= prev['MA20'] and row['MA5'] > row['MA20']
+        is_v_gc = prev['VMA5'] <= prev['VMA20'] and row['VMA5'] > row['VMA20']
+        if is_p_gc and is_v_gc: 
+            tags.append("✨Double-GC"); score += 5
+        
+        # --- [전략 2: OBV 매집 & 공구리] ---
+        if row['OBV'] > row['OBV_MA20']: 
+            tags.append("🌊OBV매집"); score += 2
             
-            # 전략 1: Double GC (가격 & 거래량)
-            is_p_gc = prev['MA5'] <= prev['MA20'] and row['MA5'] > row['MA20']
-            is_v_gc = prev['VMA5'] <= prev['VMA20'] and row['VMA5'] > row['VMA20']
-            if is_p_gc and is_v_gc: tags.append("✨Double-GC"); score += 5
-            
-            # 전략 2: OBV 매집 & 공구리
-            if row['OBV'] > row['OBV_MA20']: tags.append("🌊OBV매집"); score += 2
-            box_h = df['High'].iloc[df.index.get_loc(curr_idx)-25:df.index.get_loc(curr_idx)].max()
-            if row['Close'] > box_h: tags.append("🔨공구리"); score += 3
-            
-            # 전략 3: 수박(Stochastic)
-            if prev['Slow_K'] <= prev['Slow_D'] and row['Slow_K'] > row['Slow_D'] and row['Slow_K'] < 75:
-                tags.append("🍉수박"); score += 2
+        # 💡 공구리: 오늘 종가가 지난 25일간의 고점을 돌파했는지 확인
+        box_h = df['High'].iloc[-26:-1].max() 
+        if row['Close'] > box_h: 
+            tags.append("🔨공구리"); score += 3
+        
+        # --- [전략 3: 수박(Stochastic)] ---
+        if prev['Slow_K'] <= prev['Slow_D'] and row['Slow_K'] > row['Slow_D'] and row['Slow_K'] < 75:
+            tags.append("🍉수박"); score += 2
 
-            if not tags: continue
+        # 4. 아무런 신호가 없다면 즉시 종료
+        if not tags: return []
 
-            # 수급 및 재무 점수
-            s_tag, total_m, w_streak, whale_score = get_supply_and_money(ticker, row['Close'])
-            f_tag, f_score = get_financial_health(ticker)
-            score += (whale_score + f_score)
+        # 5. 수급 및 재무 데이터 가져오기 (신호가 뜬 종목만 정밀 분석)
+        s_tag, total_m, w_streak, whale_score = get_supply_and_money(ticker, row['Close'])
+        f_tag, f_score = get_financial_health(ticker)
+        score += (whale_score + f_score)
 
-            hits.append({
-                '날짜': curr_idx.strftime('%m-%d'), '점수': score, '종목명': name, 'code': ticker,
-                '구분': " ".join(tags), '재무': f_tag, '수급': s_tag, '베팅액': total_m, '진단': "✅양호"
-            })
-        return hits
-    except: return []
+        # 6. 결과 리턴 (리스트 안에 딕셔너리 딱 1개만 담깁니다)
+        return [{
+            '날짜': curr_idx.strftime('%m-%d'), 
+            '점수': score, 
+            '종목명': name, 
+            'code': ticker,
+            '구분': " ".join(tags), 
+            '재무': f_tag, 
+            '수급': s_tag, 
+            '베팅액': total_m, 
+            '진단': "✅양호"
+        }]
+    except: 
+        return []
 
 # ---------------------------------------------------------
 # 🚀 [8] 메인 실행 (전략 사령부 가동)
