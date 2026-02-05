@@ -28,6 +28,7 @@ jobs:
       run: |
         # google-generativeai 라이브러리 추가!
         pip install pandas finance-datareader requests pykrx google-generativeai
+        pip install finance-datareader requests mplfinance openai beautifulsoup4 pytz gspread oauth2client
         pip install -r requirements.txt
 
     - name: Run Scanner
