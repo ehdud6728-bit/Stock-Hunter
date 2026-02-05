@@ -16,7 +16,8 @@ from datetime import datetime, timedelta
 # ⚙️ [1. 설정] API 및 구글 시트 정보
 # =================================================
 # 구글 API 인증용 JSON 파일 이름 (파일을 미리 업로드해야 합니다)
-JSON_KEY_FILE = 'google_key.json' 
+JSON_KEY_FILE = os.environ.get('GOOGLE_API_KEY')
+
 # 구글 시트 파일의 제목
 SHEET_NAME = '나의_주식_스캐너_리포트' 
 
