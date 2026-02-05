@@ -1,0 +1,25 @@
+name: 🚑 Run Debug Dante (Manual)
+
+# 핵심: workflow_dispatch는 "버튼을 눌러서 실행하겠다"는 뜻입니다.
+on: workflow_dispatch
+
+jobs:
+  debug-run:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+
+    - name: Install dependencies
+      run: |
+        pip install -r requirements.txt
+        # 혹시 requirements.txt에 없다면 아래 줄 주석 해제해서 쓰세요
+        # pip install finance-datareader pandas requests
+
+    - name: Run Debug Script
+      run: python Stock_Test.py
