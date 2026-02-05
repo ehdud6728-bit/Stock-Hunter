@@ -1,8 +1,6 @@
 # ------------------------------------------------------------------
 # 💎 [Ultimate Masterpiece] 구글 시트 자동 저장 및 수익률 검증 통합판 
 # ------------------------------------------------------------------
-!pip install finance-datareader requests mplfinance gspread oauth2client
-
 import FinanceDataReader as fdr
 import pandas as pd
 import numpy as np
