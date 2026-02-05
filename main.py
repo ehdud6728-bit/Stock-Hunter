@@ -1,8 +1,6 @@
 # ------------------------------------------------------------------
 # 💎 [Ultimate Masterpiece] 전천후 AI 전략 사령부 (All-In-One 통합판)
 # ------------------------------------------------------------------
-!pip install finance-datareader requests mplfinance openai beautifulsoup4 pytz gspread oauth2client
-
 import FinanceDataReader as fdr
 import pandas as pd
 import numpy as np
