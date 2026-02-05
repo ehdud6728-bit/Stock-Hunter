@@ -80,7 +80,7 @@ def save_to_google_sheets(df_today, df_past):
     try:
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
         info = json.loads(JSON_KEY_FILE)
-        creds = ServiceAccountCredentials.from_json_dict(info, scope)
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(info, scope)
         client = gspread.authorize(creds)
         spreadsheet = client.open(SHEET_NAME)
         
