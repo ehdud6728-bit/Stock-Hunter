@@ -1,0 +1,231 @@
+# ------------------------------------------------------------------
+# 🌊 [The Masterpiece] OBV 매집 + Double-GC + 공구리 + 고래 통합판
+# ------------------------------------------------------------------
+!pip install finance-datareader requests mplfinance
+# ------------------------------------------------------------------
+# 💎 [Ultimate Masterpiece + Financial] 재무 건전성 + OBV + Double-GC 통합
+# ------------------------------------------------------------------
+import FinanceDataReader as fdr
+import pandas as pd
+import numpy as np
+import requests
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta
+
+# =================================================
+# ⚙️ [전략 설정]
+# =================================================
+SCAN_DAYS = 5             
+TOP_N = 400               
+MIN_MARCAP = 100000000000 
+STOP_LOSS_PCT = -5.0      
+WHALE_THRESHOLD = 50      
+
+HEADERS = {'User-Agent': 'Mozilla/5.0'}
+
+# ---------------------------------------------------------
+# 🏥 [1] 재무 건전성 분석 (Finance Health Check)
+# ---------------------------------------------------------
+def get_financial_health(code):
+    try:
+        url = f"https://finance.naver.com/item/main.naver?code={code}"
+        res = requests.get(url, headers=HEADERS, timeout=5)
+        dfs = pd.read_html(res.text)
+        
+        # 재무 요약 테이블 찾기 (보통 3번째 테이블)
+        df_fin = dfs[3]
+        df_fin.columns = df_fin.columns.get_level_values(1)
+        
+        # 최근 분기 영업이익과 부채비율 추출
+        latest_profit = df_fin.iloc[1, -2] # 최근 분기 영업이익
+        latest_debt = df_fin.iloc[6, -2]   # 최근 분기 부채비율
+        
+        f_score = 0
+        f_tag = "B(보통)"
+        
+        # 1. 영업이익 체크 (흑자면 +1점)
+        if float(latest_profit) > 0: f_score += 1
+        # 2. 부채비율 체크 (100% 미만이면 +1점)
+        if float(latest_debt) < 100: f_score += 1
+        
+        if f_score == 2: f_tag = "S(우량)"
+        elif f_score == 1: f_tag = "A(양호)"
+        elif float(latest_profit) < 0: f_tag = "C(주의)"
+        
+        return f_tag, f_score
+    except:
+        return "N(미비)", 0
+
+# ---------------------------------------------------------
+# 🕵️‍♂️ [2] 분석 엔진 (재무 데이터 통합)
+# ---------------------------------------------------------
+def analyze_final(ticker, name):
+    try:
+        # (차트 데이터 로드 및 지표 계산 부분은 이전과 동일)
+        df = fdr.DataReader(ticker, start=(datetime.now()-timedelta(days=730)).strftime('%Y-%m-%d'))
+        if len(df) < 100: return []
+        
+        # ... [지표 계산 로직: MA, VMA, OBV, Slow_K 등 생략] ...
+        # (이전 코드의 지표 계산 로직을 그대로 사용합니다)
+
+        # 🏥 재무 상태 확인
+        f_tag, f_score = get_financial_health(ticker)
+        
+        # 분석 결과 리스트 생성 시 재무 데이터 포함
+        # ... [전략 판별 로직: Double-GC, 공구리 등 생략] ...
+        
+        # (예시 결과 구성)
+        if tags: # 신호가 포착된 경우
+            score += f_score # 재무 점수 합산
+            hits.append({
+                '날짜': date_str, '점수': score, '종목': name, '재무': f_tag,
+                '구분': " ".join(tags), '🔥베팅': f"{total_m}천", '🛠️진단': diags
+            })
+        return hits
+    except: return []
+
+HEADERS = {'User-Agent': 'Mozilla/5.0'}
+
+# ---------------------------------------------------------
+# 💰 [1] 수급 & 고래 점수 (기능 유지)
+# ---------------------------------------------------------
+def get_supply_and_score(code, price):
+    try:
+        url = f"https://finance.naver.com/item/frgn.naver?code={code}"
+        res = requests.get(url, headers=HEADERS, timeout=5); res.encoding = 'euc-kr'
+        dfs = pd.read_html(res.text, match='날짜'); df = dfs[0].dropna().head(10)
+        new_cols = ['_'.join(col) if isinstance(col, tuple) else col for col in df.columns]; df.columns = new_cols
+        inst_col = next((c for c in df.columns if '기관' in c and '순매매' in c), None)
+        frgn_col = next((c for c in df.columns if '외국인' in c and '순매매' in c), None)
+        inst_qty = [int(float(str(v).replace(',', ''))) for v in df[inst_col].values]
+        frgn_qty = [int(float(str(v).replace(',', ''))) for v in df[frgn_col].values]
+        
+        def get_streak(data):
+            c = 0
+            for v in data:
+                if v > 0: c += 1
+                else: break
+            return c
+        
+        i_s, f_s = get_streak(inst_qty), get_streak(frgn_qty)
+        inst_m = round((inst_qty[0] * price) / 10000000); frgn_m = round((frgn_qty[0] * price) / 10000000); total_m = abs(inst_m) + abs(frgn_m)
+        leader = "🤝쌍끌" if inst_m > 0 and frgn_m > 0 else ("🔴기관" if inst_m > frgn_m else "🔵외인")
+        
+        whale_streak = 0; bonus = 0
+        for k in range(len(df)):
+            k_price = int(float(str(df.iloc[k].get('종가_종가', price)).replace(',', '')))
+            if (abs(int(float(str(df.iloc[k][inst_col]).replace(',', '')))) + abs(int(float(str(df.iloc[k][frgn_col]).replace(',', ''))))) * k_price / 10000000 >= WHALE_THRESHOLD: whale_streak += 1
+            else: break
+        
+        bonus += (total_m // 50)
+        if whale_streak >= STREAK_THRESHOLD: bonus += 3
+        return f"{leader}({i_s}/{f_s})", total_m, whale_streak, bonus
+    except: return "⚠️오류", 0, 0, 0
+
+# ---------------------------------------------------------
+# 🕵️‍♂️ [2] 분석 엔진 (OBV 로직 추가)
+# ---------------------------------------------------------
+def analyze_final(ticker, name):
+    try:
+        df = fdr.DataReader(ticker, start=(datetime.now()-timedelta(days=730)).strftime('%Y-%m-%d'))
+        if len(df) < 120: return []
+        
+        # 1. 지표 계산
+        for n in [5, 10, 20, 60, 120]: df[f'MA{n}'] = df['Close'].rolling(n).mean()
+        for n in [5, 20]: df[f'VMA{n}'] = df['Volume'].rolling(n).mean()
+        
+        # 🌊 OBV 계산
+        obv = [0]
+        for i in range(1, len(df)):
+            if df['Close'].iloc[i] > df['Close'].iloc[i-1]: obv.append(obv[-1] + df['Volume'].iloc[i])
+            elif df['Close'].iloc[i] < df['Close'].iloc[i-1]: obv.append(obv[-1] - df['Volume'].iloc[i])
+            else: obv.append(obv[-1])
+        df['OBV'] = obv
+        df['OBV_MA20'] = df['OBV'].rolling(20).mean()
+        
+        l, h = df['Low'].rolling(5).min(), df['High'].rolling(5).max()
+        df['Slow_K'] = ((df['Close'] - l) / (h - l)).rolling(3).mean() * 100
+        df['Slow_D'] = df['Slow_K'].rolling(3).mean()
+        df['RSI'] = 100 - (100 / (1 + (df['Close'].diff(1).where(df['Close'].diff(1) > 0, 0).rolling(14).mean() / (-df['Close'].diff(1).where(df['Close'].diff(1) < 0, 0)).rolling(14).mean())))
+        
+        recent_df = df.iloc[-SCAN_DAYS:]
+        hits = []
+        sector = sector_dict.get(ticker, "미분류")
+
+        for i in range(len(recent_df)):
+            curr_idx = recent_df.index[i]; raw_idx = df.index.get_loc(curr_idx); row, prev = df.iloc[raw_idx], df.iloc[raw_idx-1]
+            score = 0; tags = []
+            
+            # --- 전략 체크 ---
+            # A. 더블 골든크로스
+            is_p_gc = (prev['MA5'] <= prev['MA20']) and (row['MA5'] > row['MA20'])
+            is_v_gc = (prev['VMA5'] <= prev['VMA20']) and (row['VMA5'] > row['VMA20'])
+            
+            # B. 🌊 OBV 매집 확인
+            is_obv_up = row['OBV'] > row['OBV_MA20'] and row['OBV'] > prev['OBV']
+            
+            # C. 공구리/수박
+            is_water = (prev['Slow_K'] <= prev['Slow_D'] and row['Slow_K'] > row['Slow_D']) and (row['Slow_K'] < 75)
+            box_h = df['High'].iloc[raw_idx-25:raw_idx].max()
+            mas = [row['MA5'], row['MA10'], row['MA20'], row['MA60']]; is_dense = ((max(mas) - min(mas)) / min(mas)) * 100 <= 6.5
+
+            # --- 점수 및 태그 부여 ---
+            if is_p_gc and is_v_gc: tags.append("✨Double-GC"); score += 5
+            elif is_p_gc: tags.append("✨Price-GC"); score += 2
+            
+            if is_obv_up: tags.append("🌊OBV매집"); score += 2
+            
+            if is_dense and is_water and row['Close'] > box_h: tags.append("🔨공구리"); score += 4
+            elif is_water and row['MA60'] > row['MA120']: tags.append("🦁정배열"); score += 3
+            
+            if not tags: continue
+
+            # 수급/고래 점수
+            s_tag, total_m, w_streak, whale_score = get_supply_and_score(ticker, row['Close'])
+            score += whale_score
+            if w_streak >= STREAK_THRESHOLD: tags.insert(0, "🐳강력포착")
+
+            # 수익률 분석
+            buy_p = row['Close']; holding = df.iloc[raw_idx+1:]; sl_date = "유지중"
+            if not holding.empty:
+                for h_idx, h_row in holding.iterrows():
+                    if ((h_row['Low'] - buy_p)/buy_p)*100 <= STOP_LOSS_PCT: sl_date = h_idx.strftime('%m-%d'); break
+                max_r = ((holding['High'].max()-buy_p)/buy_p)*100; curr_r = ((holding['Close'].iloc[-1]-buy_p)/buy_p)*100
+            else: max_r=curr_r=0.0
+
+            hits.append({
+                '날짜': curr_idx.strftime('%Y-%m-%d'), '점수': score, '종목': name, '구분': " ".join(tags),
+                '🔥베팅': f"{total_m}천", '🔺최고': round(max_r, 1), '현재%': round(curr_r, 1), '🛑손절': sl_date,
+                '수급': s_tag, '산업': str(sector)[:10], '보유': len(holding)
+            })
+        return hits
+    except: return []
+
+# ---------------------------------------------------------
+# 🚀 메인 실행
+# ---------------------------------------------------------
+if __name__ == "__main__":
+    print(f"📊 [The Masterpiece Scanner] ✨Double-GC + 🌊OBV매집 통합 리포트")
+    print("=" * 175)
+    df_krx = fdr.StockListing('KRX')
+    found_col = next((c for c in ['Sector', 'Industry', 'Dept'] if c in df_krx.columns), None)
+    sector_dict = dict(zip(df_krx['Code'], df_krx[found_col])) if found_col else {c: '미분류' for c in df_krx['Code']}
+    target_dict = dict(zip(df_krx.sort_values(by='Amount', ascending=False).head(TOP_N)['Code'], df_krx.sort_values(by='Amount', ascending=False).head(TOP_N)['Name']))
+    
+    all_hits = []
+    with ThreadPoolExecutor(max_workers=20) as executor:
+        futures = [executor.submit(analyze_final, t, n) for t, n in target_dict.items()]
+        for f in futures:
+            res = f.result()
+            if res: all_hits.extend(res)
+
+    if all_hits:
+        df_total = pd.DataFrame(all_hits)
+        today = df_total[df_total['보유'] == 0].sort_values(by='점수', ascending=False)
+        print(f"📢 [오늘의 추천: 🌊OBV가 확인해준 ✨Double-GC 종목]")
+        print("-" * 175)
+        print(f"{'날짜':<12} {'⭐점수':<6} {'종목':<10} {'구분(핵심신호)':<40} {'🔥베팅':<10} {'수급':<18} {'현재가'}")
+        print("-" * 175)
+        for _, r in today.iterrows():
+            print(f"{r['날짜']:<12} {r['점수']:<6} {r['종목']:<10} {r['구분']:<40} {r['🔥베팅']:<10} {r['수급']:<18}")
+    else: print("❌ 포착된 종목이 없습니다.")
