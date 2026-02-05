@@ -249,7 +249,7 @@ def analyze_final(ticker, name):
             '날짜': curr_idx.strftime('%m-%d'), 
             '점수': score, 
             '종목명': name, 
-            'Code': ticker,
+            'code': ticker,
             '구분': " ".join(tags), 
             '재무': f_tag, 
             '수급': s_tag, 
