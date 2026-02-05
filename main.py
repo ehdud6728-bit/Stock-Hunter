@@ -173,7 +173,7 @@ def run_ai_tournament(candidate_list):
     candidate_list = sorted(candidate_list, key=lambda x: x['점수'], reverse=True)[:15]
     prompt_data = "\n".join([f"- {c['종목명']}({c['code']}): {c['구분']}, 수급:{c['수급']}, 재무:{c['재무']}" for c in candidate_list])
     
-    sys_prompt = "너는 전설적인 투자자야. 가치주 1위와 차트주 1위를 각각 선정하고 짧은 이유를 말해줘."
+    sys_prompt = "너는 전설적인 투자자야. 절대 돈을 잃으면 안되는 상화이야. 타율이 높은 종목으로 꼭 골라줘. 단타 종목 1위와 스윙 종목 1위를 각각 선정하고 짧은 이유를 말해줘."
     
     # GPT 심사
     client = OpenAI(api_key=OPENAI_API_KEY)
