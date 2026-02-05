@@ -1,4 +1,4 @@
-name: 🚑 Run Debug Dante (Manual)
+name: 🚑 Run Debug StockTest (Manual)
 
 # 핵심: workflow_dispatch는 "버튼을 눌러서 실행하겠다"는 뜻입니다.
 on: workflow_dispatch
