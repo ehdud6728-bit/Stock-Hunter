@@ -210,36 +210,86 @@ def get_ai_summary(ticker, name, category, reasons):
     return final_comment
 
 # ---------------------------------------------------------
-# 🏟️ [기능 5] AI 토너먼트
+# 🏟️ [기능 5] AI 토너먼트 (1인 2역: 가치/수급 vs 차트/한방)
 # ---------------------------------------------------------
 def run_ai_tournament(candidate_list):
     if not candidate_list: return "", {}
+    
+    # 1. 데이터 준비 (점수 가리고, 재료 위주로 전달 - 블라인드)
     prompt_data = ""
     for item in candidate_list[:50]:
-        prompt_data += f"- {item['종목명']}({item['code']}) 점수:{item['총점']} 신호:{item['신호']}\n"
+        prompt_data += (f"- {item['종목명']}({item['code']}) | "
+                        f"신호:{item['신호']} | "
+                        f"수급:{item['수급현황']} | "
+                        f"재무:{item['Risk']}\n")
     
-    print(f"🏟️ AI 토너먼트 개최! (후보 {len(candidate_list[:50])}개)")
+    print(f"🏟️ AI 토너먼트 개최! (후보 {len(candidate_list[:50])}개 - 멀티 심사)")
+
+    # 2. 프롬프트 작성 (두 가지 관점을 모두 요구)
     system_prompt = (
-        "너는 최고의 주식 트레이더야. 'Top 3 종목'을 추천해줘.\n"
-        "🚨 중요: 종목명 뒤에 반드시 (종목코드)를 적어. 예: [삼성전자](005930)\n"
-        "형식:\n🥇 [1위 종목명](코드)\n- 이유: (한 줄 요약)\n🥈 [2위 종목명](코드)\n- 이유: ...\n🥉 [3위 종목명](코드)\n- 이유: ..."
+        "너는 최고의 주식 트레이더야. 주어진 리스트를 분석해서 **두 가지 관점**으로 각각 Top 3 종목을 추천해줘.\n\n"
+        
+        "🎯 [섹션 1] 가치/수급 Pick (워렌 버핏 스타일)\n"
+        "- 기준: 흑자 기업(재무 튼튼)이면서 외인/기관 수급이 좋은 종목.\n"
+        "- 잡주 제외, 펀더멘털이 확실한 대장주 위주.\n\n"
+        
+        "🚀 [섹션 2] 차트/한방 Pick (단타 트레이더 스타일)\n"
+        "- 기준: 재무 상관없음. 거래량 폭발, 골든크로스, 정배열 등 신호가 강력한 종목.\n"
+        "- 당장 급등 가능한 끼 있는 종목 위주.\n\n"
+        
+        "🚨 중요: 종목명 뒤에 반드시 (코드)를 기재하고, 두 섹션을 구분선으로 명확히 나눠.\n"
+        "출력 형식:\n"
+        "=== 가치/수급 Pick ===\n"
+        "🥇 [1위 종목명](코드)\n- 이유: ...\n"
+        "🥈 [2위 종목명](코드)\n- 이유: ...\n"
+        "🥉 [3위 종목명](코드)\n- 이유: ...\n\n"
+        "=== 차트/한방 Pick ===\n"
+        "🥇 [1위 종목명](코드)\n- 이유: ...\n"
+        "🥈 [2위 종목명](코드)\n- 이유: ...\n"
+        "🥉 [3위 종목명](코드)\n- 이유: ..."
     )
-    final_report = "\n🏆 [AI 토너먼트 결승전]\n"; ai_picks = {}
-    
+
+    final_report = "\n🏆 [AI 토너먼트 결승전 (가치 vs 차트)]\n"; ai_picks = {}
+
+    # 🛠️ 파싱 도우미 함수
+    def parse_and_tag(content, model_name, picks_dict):
+        try:
+            # 섹션 분리
+            parts = content.split("=== 차트/한방 Pick ===")
+            value_part = parts[0]
+            chart_part = parts[1] if len(parts) > 1 else ""
+            
+            # 1. 가치/수급 파싱
+            matches_v = re.findall(r'([🥇🥈🥉])\s*(?:\[)?.*?(?:\])?\s*\((\d{6})\)', value_part)
+            for rank, code in matches_v:
+                # 엑셀 태그: 🧠G_Val1 (GPT 가치 1위)
+                r_num = rank.replace('🥇','1').replace('🥈','2').replace('🥉','3')
+                tag = f"{model_name}_Val{r_num}"
+                picks_dict[code] = picks_dict.get(code, "") + f"[{tag}] "
+
+            # 2. 차트/한방 파싱
+            matches_c = re.findall(r'([🥇🥈🥉])\s*(?:\[)?.*?(?:\])?\s*\((\d{6})\)', chart_part)
+            for rank, code in matches_c:
+                # 엑셀 태그: 🧠G_Cht1 (GPT 차트 1위)
+                r_num = rank.replace('🥇','1').replace('🥈','2').replace('🥉','3')
+                tag = f"{model_name}_Cht{r_num}"
+                picks_dict[code] = picks_dict.get(code, "") + f"[{tag}] "
+                
+        except Exception as e: print(f"파싱 에러: {e}")
+
+    # 🥊 1. GPT 심사
     if OPENAI_API_KEY:
         try:
             client = OpenAI(api_key=OPENAI_API_KEY)
             res = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role":"system", "content":system_prompt}, {"role":"user", "content":f"List:\n{prompt_data}"}])
             content = res.choices[0].message.content.strip()
-            final_report += f"\n🧠 [GPT Pick]\n{content}\n"
-            matches = re.findall(r'([🥇🥈🥉])\s*(?:\[)?.*?(?:\])?\s*\((\d{6})\)', content)
-            for rank, code in matches:
-                label = f"{rank}GPT{rank.replace('🥇','1').replace('🥈','2').replace('🥉','3')}"
-                ai_picks[code] = ai_picks.get(code, "") + label + " "
+            final_report += f"\n🧠 [GPT의 선택]\n{content}\n"
+            parse_and_tag(content, "G", ai_picks) # G = GPT
         except Exception as e: final_report += f"\n🧠 GPT 오류: {e}\n"
 
-    final_report += "\n" + "-"*30 + "\n"
+    final_report += "\n" + "="*30 + "\n"
 
+    # 🥊 2. Groq 심사
     if GROQ_API_KEY:
         try:
             url = "https://api.groq.com/openai/v1/chat/completions"
@@ -247,12 +297,10 @@ def run_ai_tournament(candidate_list):
             res = requests.post(url, json={"model":"llama-3.3-70b-versatile", "messages":[{"role":"system", "content":system_prompt}, {"role":"user", "content":f"List:\n{prompt_data}"}]}, headers=headers, timeout=5)
             if res.status_code == 200:
                 content = res.json()['choices'][0]['message']['content'].strip()
-                final_report += f"\n⚡ [Groq Pick]\n{content}\n"
-                matches = re.findall(r'([🥇🥈🥉])\s*(?:\[)?.*?(?:\])?\s*\((\d{6})\)', content)
-                for rank, code in matches:
-                    label = f"{rank}Groq{rank.replace('🥇','1').replace('🥈','2').replace('🥉','3')}"
-                    ai_picks[code] = ai_picks.get(code, "") + label + " "
+                final_report += f"\n⚡ [Groq의 선택]\n{content}\n"
+                parse_and_tag(content, "Q", ai_picks) # Q = Groq (Q로 줄임)
         except: pass
+
     return final_report, ai_picks
 
 # ---------------------------------------------------------
