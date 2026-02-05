@@ -191,7 +191,7 @@ def run_ai_tournament(candidate_list):
 def get_ai_summary(ticker, name, tags):
     try:
         client = OpenAI(api_key=OPENAI_API_KEY)
-        res = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role":"user", "content":f"{name}({ticker}) 종목의 최근 핵심 테마와 특징을 한줄로 요약해(반말)."}])
+        res = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role":"user", "content":f"{name}({ticker}) 주식 최고 트레이더 입장에서 종목의 최근 핵심 테마와 특징을 한줄로 요약해(반말)."}])
         return res.choices[0].message.content.strip()
     except: return "분석 불가"
 
@@ -258,22 +258,53 @@ if __name__ == "__main__":
         for f in futures: 
             res = f.result()
             if res: all_hits.extend(res)
-    
-    # 3. AI 토너먼트 및 개별 요약
-    tournament_report = run_ai_tournament(all_hits)
-    
-    # 4. 리포트 본문 구성
-    final_report = f"{briefing}\n\n📢 [오늘의 추천주]\n"
-    for item in sorted(all_hits, key=lambda x: x['점수'], reverse=True)[:7]:
-        ai_tip = get_ai_summary(item['code'], item['종목명'], item['구분'])
-        final_report += f"\n⭐{item['점수']}점 [{item['종목명']}] {item['구분']}\n- 재무: {item['재무']} | 수급: {item['수급']}\n💡 {ai_tip}\n"
-    
-    final_report += f"\n{tournament_report}"
-    
-    # 5. 전송
-    send_telegram_photo(final_report, imgs)
-
-    try: update_google_sheet(all_hits, TODAY_STR)
-        except: pass
+        
+if all_hits:
+        # 3. 데이터 정렬 및 전송 준비
+        sorted_hits = sorted(all_hits, key=lambda x: x['점수'], reverse=True)[:7]
+        tournament_report = run_ai_tournament(all_hits)
+        
+        MAX_CHAR = 3800  # 여유 있게 3,800자로 설정
+        current_msg = f"{briefing}\n\n📢 [오늘의 추천주]\n\n"
+        
+        # 4. 종목별 본문 구성 및 실시간 분할
+        for item in sorted_hits:
+            ai_tip = get_ai_summary(item['code'], item['종목명'], item['구분'])
             
-    print("✅ 보고서 전송 완료!")
+            # 종목별 엔트리 생성 (구분선 포함)
+            entry = (f"⭐{item['점수']}점 [{item['종목명']}] {item['구분']}\n"
+                     f"- 재무: {item['재무']} | 수급: {item['수급']}\n"
+                     f"💡 {ai_tip}\n"
+                     f"----------------------------\n")
+            
+            # 길이 체크: 현재 메시지에 이번 종목을 더했을 때 한도를 넘는지 확인
+            if len(current_msg) + len(entry) > MAX_CHAR:
+                # 한도를 넘으면 지금까지 만든 메시지를 사진과 함께(첫 전송일 때만) 발송
+                send_telegram_photo(current_msg, imgs if imgs else [])
+                imgs = [] # 사진은 한 번만 보내면 되므로 비움
+                
+                # 새 메시지 시작
+                current_msg = "📢 [오늘의 추천주 - 이어서]\n\n" + entry
+            else:
+                current_msg += entry
+
+        # 5. AI 토너먼트 결과 추가
+        final_block = f"\n{tournament_report}"
+        
+        if len(current_msg) + len(final_block) > MAX_CHAR:
+            # 토너먼트 리포트가 들어가기에 자리가 부족하면 나눠서 전송
+            send_telegram_photo(current_msg, imgs if imgs else [])
+            current_msg = "🏆 [AI 토너먼트 최종 결과]\n" + final_block
+        else:
+            current_msg += final_block
+
+        # 6. 최종 남은 메시지 전송
+        send_telegram_photo(current_msg, imgs if imgs else [])
+
+        # 7. 구글 시트 업데이트 (별도 관리)
+        try:
+            update_google_sheet(all_hits, TODAY_STR)
+        except:
+            pass
+            
+    print("✅ 모든 리포트가 전송되었습니다!")
