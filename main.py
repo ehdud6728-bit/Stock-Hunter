@@ -47,7 +47,7 @@ REAL_HEADERS = {
 }
 
 # 스캔 설정
-SCAN_DAYS, TOP_N = 1, 50
+SCAN_DAYS, TOP_N = 1, 400
 MIN_MARCAP = 10000000000 
 STOP_LOSS_PCT = -5.0
 WHALE_THRESHOLD = 50 
@@ -176,7 +176,7 @@ def run_ai_tournament(candidate_list):
     candidate_list = sorted(candidate_list, key=lambda x: x['점수'], reverse=True)[:15]
     prompt_data = "\n".join([f"- {c['종목명']}({c['code']}): {c['구분']}, 수급:{c['수급']}, 재무:{c['재무']}" for c in candidate_list])
     
-    sys_prompt = "너는 전설적인 투자자야. 절대 돈을 잃으면 안되는 상화이야. 타율이 높은 종목으로 꼭 골라줘. 단타 종목 1위와 스윙 종목 1위를 각각 선정하고 짧은 이유를 말해줘."
+    sys_prompt = "너는 전설적인 투자자야. 절대 돈을 잃으면 안되는 상황이야. 타율이 높은 종목으로 꼭 골라줘. 단타 종목 1위와 스윙 종목 1위를 각각 선정하고 짧은 이유를 말해줘."
     
     # GPT 심사
     client = OpenAI(api_key=OPENAI_API_KEY)
@@ -192,7 +192,7 @@ def run_ai_tournament(candidate_list):
 def get_ai_summary(ticker, name, tags):
     try:
         client = OpenAI(api_key=OPENAI_API_KEY)
-        res = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role":"user", "content":f"{name}({ticker}) 주식 최고 트레이더 입장에서 종목의 최근 핵심 테마와 특징을 한줄로 요약해(반말)."}])
+        res = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role":"user", "content":f"{name}({ticker}) 주식 최고 트레이더 입장에서 매매에 꼭 필요한 종목의 최근 핵심 테마와 특징을 한줄로 요약해(반말) 뻔한 이야기는 금지."}])
         return res.choices[0].message.content.strip()
     except: return "분석 불가"
 
@@ -249,7 +249,7 @@ def analyze_final(ticker, name):
             '날짜': curr_idx.strftime('%m-%d'), 
             '점수': score, 
             '종목명': name, 
-            'code': ticker,
+            'Code': ticker,
             '구분': " ".join(tags), 
             '재무': f_tag, 
             '수급': s_tag, 
@@ -302,8 +302,6 @@ if all_hits:
             # 한도를 넘으면 지금까지 만든 메시지를 사진과 함께(첫 전송일 때만) 발송
             send_telegram_photo(current_msg, imgs if imgs else [])
             imgs = [] # 사진은 한 번만 보내면 되므로 비움
-
-            print(current_msg)
             # 새 메시지 시작
             current_msg = "📢 [오늘의 추천주 - 이어서]\n\n" + entry
         else:
