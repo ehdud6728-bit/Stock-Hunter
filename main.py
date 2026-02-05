@@ -30,7 +30,7 @@ CHAT_ID_LIST = os.environ.get('TELEGRAM_CHAT_ID', '').split(',')
 OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY') 
 GROQ_API_KEY = os.environ.get('GROQ_API_KEY')     
 
-TEST_MODE = False  
+TEST_MODE = True  
 
 KST = pytz.timezone('Asia/Seoul')
 current_time = datetime.now(KST)
@@ -283,7 +283,8 @@ if all_hits:
             current_msg = "📢 [오늘의 추천주 - 이어서]\n\n" + entry
         else:
             current_msg += entry
-            
+
+        print(current_msg)
     # 5. AI 토너먼트 결과 추가
     final_block = f"\n{tournament_report}"
     
@@ -295,6 +296,7 @@ if all_hits:
         current_msg += final_block
 
     # 6. 최종 남은 메시지 전송
+    print(current_msg)
     send_telegram_photo(current_msg, imgs if imgs else [])
 
     # 7. 구글 시트 업데이트 (별도 관리)
