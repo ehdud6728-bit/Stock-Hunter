@@ -29,6 +29,10 @@ STREAK_THRESHOLD = 3
 
 HEADERS = {'User-Agent': 'Mozilla/5.0'}
 
+import io # 상단에 추가
+import warnings
+warnings.filterwarnings('ignore', category=FutureWarning) # 경고 끄기
+
 # ---------------------------------------------------------
 # 🏥 [2] 재무 건전성 및 수급 분석 로직
 # ---------------------------------------------------------
