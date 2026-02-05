@@ -21,6 +21,9 @@ except: OpenAI = None
 
 # 👇 구글 시트
 from google_sheet_manager import update_google_sheet
+import io # 상단에 추가
+import warnings
+warnings.filterwarnings('ignore', category=FutureWarning) # 경고 끄기
 
 # =================================================
 # ⚙️ [1. 필수 설정] API 키 및 텔레그램 정보
@@ -44,8 +47,8 @@ REAL_HEADERS = {
 }
 
 # 스캔 설정
-SCAN_DAYS, TOP_N = 5, 400
-MIN_MARCAP = 100000000000 
+SCAN_DAYS, TOP_N = 1, 400
+MIN_MARCAP = 10000000000 
 STOP_LOSS_PCT = -5.0
 WHALE_THRESHOLD = 50 
 
@@ -259,7 +262,7 @@ if __name__ == "__main__":
         
 if all_hits:
     # 3. 데이터 정렬 및 전송 준비
-    sorted_hits = sorted(all_hits, key=lambda x: x['점수'], reverse=True)[:7]
+    sorted_hits = sorted(all_hits, key=lambda x: x['점수'], reverse=True)[:15]
     tournament_report = run_ai_tournament(all_hits)
         
     MAX_CHAR = 3800  # 여유 있게 3,800자로 설정
