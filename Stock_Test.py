@@ -78,7 +78,8 @@ def get_supply_and_score(code, price):
 def save_to_google_sheets(df_today, df_past):
     try:
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-        creds = ServiceAccountCredentials.from_json_keyfile_name(JSON_KEY_FILE, scope)
+        info = json.loads(GOOGLE_JSON_KEY)
+        creds = ServiceAccountCredentials.from_json_dict(info, scope)
         client = gspread.authorize(creds)
         spreadsheet = client.open(SHEET_NAME)
         
