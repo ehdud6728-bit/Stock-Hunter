@@ -1,36 +1,4 @@
 # ------------------------------------------------------------------
-# 👑 [The Ultimate Bot] Final (🍉수박지표 탑재 완료)
-# ------------------------------------------------------------------
-import FinanceDataReader as fdr
-import pandas as pd
-import numpy as np
-import requests
-import os
-import time
-import re
-import mplfinance as mpf
-import matplotlib.pyplot as plt
-from datetime import datetime, timedelta
-from io import StringIO
-from concurrent.futures import ThreadPoolExecutor
-
-
-
-# =================================================
-# ⚙️ 설정
-# =================================================
-TEST_MODE = False      
-TOP_N = 300            
-TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN')
-CHAT_ID_LIST = os.environ.get('TELEGRAM_CHAT_ID', '').split(',')
-OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY') 
-GROQ_API_KEY = os.environ.get('GROQ_API_KEY')     
-
-
-
-
-
-# ------------------------------------------------------------------
 # 💎 [Ultimate Masterpiece] 전천후 AI 전략 사령부 (All-In-One 통합판)
 # ------------------------------------------------------------------
 !pip install finance-datareader requests mplfinance openai beautifulsoup4 pytz gspread oauth2client
