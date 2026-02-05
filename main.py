@@ -262,7 +262,13 @@ if __name__ == "__main__":
         
 if all_hits:
     # 3. 데이터 정렬 및 전송 준비
-    sorted_hits = sorted(all_hits, key=lambda x: x['점수'], reverse=True)[:15]
+    # 3-1. 리스트를 데이터프레임으로 변환
+    df_res = pd.DataFrame(all_hits)
+    # 2. 종목코드를 기준으로 가장 최신 날짜(혹은 높은 점수)만 남기고 중복 제거
+    df_res = df_res.sort_values(by=['code', '날짜', '점수'], ascending=[True, False, False])
+    df_res = df_res.drop_duplicates(subset=['code'], keep='first')
+    # 3. 다시 리스트로 변환
+    all_hits = df_res.to_dict('records')
     tournament_report = run_ai_tournament(all_hits)
         
     MAX_CHAR = 3800  # 여유 있게 3,800자로 설정
@@ -281,13 +287,13 @@ if all_hits:
             # 한도를 넘으면 지금까지 만든 메시지를 사진과 함께(첫 전송일 때만) 발송
             send_telegram_photo(current_msg, imgs if imgs else [])
             imgs = [] # 사진은 한 번만 보내면 되므로 비움
-            
+
+            print(current_msg)
             # 새 메시지 시작
             current_msg = "📢 [오늘의 추천주 - 이어서]\n\n" + entry
         else:
             current_msg += entry
 
-        print(current_msg)
     # 5. AI 토너먼트 결과 추가
     final_block = f"\n{tournament_report}"
     
@@ -299,7 +305,6 @@ if all_hits:
         current_msg += final_block
 
     # 6. 최종 남은 메시지 전송
-    print(current_msg)
     send_telegram_photo(current_msg, imgs if imgs else [])
 
     # 7. 구글 시트 업데이트 (별도 관리)
@@ -307,5 +312,6 @@ if all_hits:
         update_google_sheet(all_hits, TODAY_STR)
     except:
         pass
-            
+        
+    print(current_msg)            
     print("✅ 모든 리포트가 전송되었습니다!")
