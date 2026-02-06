@@ -37,7 +37,7 @@ def update_commander_dashboard(df, macro_data, sheet_name):
 
         # 2. [상단] 글로벌 지표 대시보드 작성 (1~5행)
         macro_list = [
-            ["🌐 글로벌 관제 센터 실시간 상황판", "", f"업데이트: {datetime.now().strftime('%Y-%m-%d %H:%M')}"],
+            ["🌐 글로벌 관제 센터 실시간 상황판"],[f"업데이트: {datetime.now().strftime('%Y-%m-%d %H:%M')}"],
             [macro_data['nasdaq']['text'], macro_data['sp500']['text'], macro_data['vix']['text']],
             [f"💵 달러환율: {macro_data['fx']['text']}", f"🇰🇷 KOSPI 수급: {macro_data['kospi']['text']}"],
             ["", "", ""], # 공백 행
