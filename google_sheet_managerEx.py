@@ -40,26 +40,30 @@ def update_commander_dashboard(df, macro_data, sheet_name):
         macro_list = [
             ["🌐 글로벌 관제 센터 실시간 상황판", "", ""], # 1행: 제목 (3칸 맞춤)
             [f"📅 업데이트: {datetime.now().strftime('%Y-%m-%d %H:%M')}", "", ""], # 2행: 시간
-            [macro_data['nasdaq']['text'], macro_data['sp500']['text'], macro_data['vix']['text']], # 3행: 미국 지수
-            [f"💵 달러환율: {macro_data['fx']['text']}", f"🇰🇷 KOSPI 수급: {macro_data['kospi']}", ""], # 4행: 환율 및 수급
+            [macro_data['nasdaq']['text'], "", ""],
+            [macro_data['sp500']['text'], "", ""],
+            [macro_data['vix']['text'], "", ""], # 3행: 미국 지수
+            [f"💵 달러환율: {macro_data['fx']['text']}", "", ""]
+            [f"🇰🇷 KOSPI 수급: {macro_data['kospi']}", "", ""], # 4행: 환율 및 수급
             ["", "", ""], # 5행: 공백 (가독성용)
         ]
         sheet.update('A1', macro_list)
         # 상단 제목 강조 (Bold)
         format_cell_range(sheet, 'A1:C1', cellFormat(textFormat=textFormat(bold=True, fontSize=12)))
-
+        format_cell_range(sheet, 'A9:Q9', cellFormat(textFormat=textFormat(bold=True, fontSize=12)))
+        
         # 3. [하단] 종목 리포트 작성 (7행부터)
         # 💡 금색 별(★) 추가 로직: 안전 점수 110점 이상
         df['종목'] = df.apply(lambda x: f"★ {x['종목']}" if x['안전'] >= 110 else x['종목'], axis=1)
         
         stock_data = [df.columns.values.tolist()] + df.values.tolist()
-        sheet.update('A7', stock_data)
+        sheet.update('A9', stock_data)
 
         # 4. 🎨 조건부 서식 (채색 프로토콜)
         num_rows = len(stock_data) + 7
         num_cols = len(df.columns)
         last_col_letter = chr(64 + num_cols)
-        data_range = f"A8:{last_col_letter}{num_rows}" # 헤더 제외 데이터 범위
+        data_range = f"A10:{last_col_letter}{num_rows}" # 헤더 제외 데이터 범위
 
         rules = get_conditional_format_rules(sheet)
         rules.clear()
