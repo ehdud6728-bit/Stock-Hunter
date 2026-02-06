@@ -36,11 +36,13 @@ def update_commander_dashboard(df, macro_data, sheet_name):
         sheet.clear() # 기존 데이터 완전 초기화
 
         # 2. [상단] 글로벌 지표 대시보드 작성 (1~5행)
+        # ✅ 수리된 매크로 리스트 구조
         macro_list = [
-            ["🌐 글로벌 관제 센터 실시간 상황판"],[f"업데이트: {datetime.now().strftime('%Y-%m-%d %H:%M')}"],
-            [macro_data['nasdaq']['text'], macro_data['sp500']['text'], macro_data['vix']['text']],
-            [f"💵 달러환율: {macro_data['fx']['text']}", f"🇰🇷 KOSPI 수급: {macro_data['kospi']['text']}"],
-            ["", "", ""], # 공백 행
+            ["🌐 글로벌 관제 센터 실시간 상황판", "", ""], # 1행: 제목 (3칸 맞춤)
+            [f"📅 업데이트: {datetime.now().strftime('%Y-%m-%d %H:%M')}", "", ""], # 2행: 시간
+            [macro_data['nasdaq']['text'], macro_data['sp500']['text'], macro_data['vix']['text']], # 3행: 미국 지수
+            [f"💵 달러환율: {macro_data['fx']['text']}", f"🇰🇷 KOSPI 수급: {macro_data['kospi']}", ""], # 4행: 환율 및 수급
+            ["", "", ""], # 5행: 공백 (가독성용)
         ]
         sheet.update('A1', macro_list)
         # 상단 제목 강조 (Bold)
