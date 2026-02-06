@@ -202,8 +202,9 @@ if __name__ == "__main__":
 
     # 7. 구글 시트 업데이트 (별도 관리)
     try:
-        update_google_sheet(high_perf, TODAY_STR)
-        update_google_sheet(low_perf, TODAY_STR)
+        update_google_sheet(high_perf, '나의_주식_스캐너_리포트')
+        update_google_sheet(low_perf, '나의_주식_스캐너_리포트')
+        update_google_sheet(today, '나의_주식_스캐너_리포트')
     except:
         pass
 
