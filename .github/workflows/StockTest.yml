@@ -24,7 +24,10 @@ jobs:
         python -m pip install --upgrade pip
         pip install pykrx finance-datareader pandas numpy pytz
         
-        
+    - name: Install Google Sheet Tools
+      run: |
+        pip install gspread gspread-formatting oauth2client
+      
     - name: Run Debug Script
       env:
         TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
