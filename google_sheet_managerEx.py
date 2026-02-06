@@ -6,6 +6,7 @@ import json
 import os
 import FinanceDataReader as fdr
 import time
+from datetime import datetime, timedelta  # 💡 datetime 오류 해결 핵심 라인
 
 import gspread
 from gspread_formatting import *
