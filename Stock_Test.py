@@ -1,5 +1,3 @@
-!pip install finance-datareader pykrx pandas numpy pytz
-
 import FinanceDataReader as fdr
 from pykrx import stock
 import pandas as pd
