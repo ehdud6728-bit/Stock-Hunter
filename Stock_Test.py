@@ -168,7 +168,7 @@ if __name__ == "__main__":
     m_sp5 = get_safe_macro('^GSPC', 'S&P500')
     m_vix = get_safe_macro('^VIX', 'VIX공포')
     m_fx  = get_safe_macro('USD/KRW', '달러환율')
-    macro_status = {'nasdaq': m_ndx, 'sp500': m_sp5, 'vix': m_vix}
+    macro_status = {'nasdaq': m_ndx, 'sp500': m_sp5, 'vix': m_vix, 'fx': m_fx}
 
     print("\n" + "🌍 " * 5 + "[ 글로벌 사령부 통합 관제 센터 ]" + " 🌍" * 5)
     print(f"🇺🇸 {m_ndx['text']} | {m_sp5['text']} | ⚠️ {m_vix['text']}")
