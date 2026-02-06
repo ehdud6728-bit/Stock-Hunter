@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 import warnings
 
 # 👇 구글 시트
-from google_sheet_managerEx import update_google_sheet
+from google_sheet_managerEx import update_commander_dashboard
 import io # 상단에 추가
 
 warnings.filterwarnings('ignore')
@@ -201,9 +201,8 @@ if __name__ == "__main__":
 
     # 7. 구글 시트 업데이트 (별도 관리)
     try:
-        update_google_sheet(high_perf, '나의_주식_스캐너_리포트')
-        update_google_sheet(low_perf, '나의_주식_스캐너_리포트')
-        update_google_sheet(today, '나의_주식_스캐너_리포트')
+        final_df = pd.concat([high_perf, low_perf]) # 수익조와 배신자조 합치기
+        update_commander_dashboard(macro_status_dict, final_df, "사령부_통합_상황판")
     except:
         pass
 
