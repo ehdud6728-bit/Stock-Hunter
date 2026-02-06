@@ -11,7 +11,7 @@ import gspread
 from gspread_formatting import *
 from oauth2client.service_account import ServiceAccountCredentials
 
-def update_google_sheet_with_format(df, sheet_name):
+def update_commander_dashboard(df, sheet_name):
     try:
     # 1. 인증 및 연결
     json_key_path = 'stock-key.json' # ⚠️ 키 파일 이름 확인
