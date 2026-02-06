@@ -21,6 +21,9 @@ jobs:
         # 혹시 requirements.txt에 없다면 아래 줄 주석 해제해서 쓰세요
         # pip install finance-datareader pandas requests
         pip install finance-datareader requests mplfinance gspread oauth2client
+        python -m pip install --upgrade pip
+        pip install pykrx finance-datareader pandas numpy pytz
+        
         
     - name: Run Debug Script
       env:
