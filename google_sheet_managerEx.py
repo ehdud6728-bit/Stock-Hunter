@@ -7,6 +7,78 @@ import os
 import FinanceDataReader as fdr
 import time
 
+import gspread
+from gspread_formatting import *
+from oauth2client.service_account import ServiceAccountCredentials
+
+def update_google_sheet_with_format(df, sheet_name):
+    try:
+    # 1. 인증 및 연결
+    json_key_path = 'stock-key.json' # ⚠️ 키 파일 이름 확인
+
+    try:
+        scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
+        
+        # 키 파일 우선, 없으면 환경변수 사용
+        if os.path.exists(json_key_path):
+            creds = ServiceAccountCredentials.from_json_keyfile_name(json_key_path, scope)
+        elif os.environ.get('GOOGLE_JSON_KEY'):
+            key_dict = json.loads(os.environ.get('GOOGLE_JSON_KEY'))
+            creds = ServiceAccountCredentials.from_json_keyfile_dict(key_dict, scope)
+        else:
+            print("❌ [Google] 인증 키(JSON)를 찾을 수 없습니다. (기록 건너뜀)")
+            return
+
+        client = gspread.authorize(creds)
+        
+        doc = client.open(sheet_name)
+        sheet = doc.get_worksheet(0)
+        
+        # 2. 데이터 업로드 (기존 데이터 초기화 후 업로드)
+        sheet.clear()
+        data = [df.columns.values.tolist()] + df.values.tolist()
+        sheet.update(data)
+        
+        # 3. 🎨 자동 채색 로직 (gspread-formatting 사용)
+        print("🎨 상황판 채색 중...")
+        
+        # 전체 데이터 범위 설정 (헤더 제외 2행부터 마지막 행까지)
+        num_rows = len(data)
+        num_cols = len(df.columns)
+        body_range = f"A2:{chr(64 + num_cols)}{num_rows}"
+        
+        # 💡 [조건 1] 현재 수익률이 0% 이상일 때 (연한 빨간색)
+        # '현재' 열이 11번째(K열)라고 가정할 때의 예시입니다.
+        rule_red = ConditionalFormatRule(
+            ranges=[GridRange.from_a1_range(body_range, sheet)],
+            booleanRule=BooleanRule(
+                condition=BooleanCondition('NUMBER_GREATER_THAN', ['0']),
+                format=CellFormat(backgroundColor=Color(1, 0.9, 0.9)) # 연한 빨강
+            )
+        )
+
+        # 💡 [조건 2] 최고 수익률이 0% 미만(배신자)일 때 (연한 파란색)
+        # '🔺최고' 열을 기준으로 필터링
+        rule_blue = ConditionalFormatRule(
+            ranges=[GridRange.from_a1_range(body_range, sheet)],
+            booleanRule=BooleanRule(
+                condition=BooleanCondition('NUMBER_LESS_THAN', ['0']),
+                format=CellFormat(backgroundColor=Color(0.9, 0.9, 1)) # 연한 파랑
+            )
+        )
+
+        # 서식 적용 (기존 서식 삭제 후 적용)
+        rules = get_conditional_format_rules(sheet)
+        rules.clear()
+        rules.append(rule_red)
+        rules.append(rule_blue)
+        rules.save()
+
+        print(f"✅ 구글 시트 '{sheet_name}' 업데이트 및 자동 채색 완료!")
+        
+    except Exception as e:
+        print(f"❌ 구글 시트 작업 중 오류 발생: {e}")
+        
 # ---------------------------------------------------------
 # 📊 [구글 시트 비서] 통합 관리 모듈
 # ---------------------------------------------------------
