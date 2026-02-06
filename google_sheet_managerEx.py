@@ -33,48 +33,71 @@ def update_google_sheet_with_format(df, sheet_name):
         
         doc = client.open(sheet_name)
         sheet = doc.get_worksheet(0)
+        sheet.clear() # 기존 데이터 완전 초기화
+
+        # 2. [상단] 글로벌 지표 대시보드 작성 (1~5행)
+        macro_list = [
+            ["🌐 글로벌 관제 센터 실시간 상황판", "", f"업데이트: {datetime.now().strftime('%Y-%m-%d %H:%M')}"],
+            [macro_data['nasdaq']['text'], macro_data['sp500']['text'], macro_data['vix']['text']],
+            [f"💵 달러환율: {macro_data['fx_text']}", f"🇰🇷 KOSPI 수급: {macro_data['kospi_inv']}"],
+            ["", "", ""], # 공백 행
+        ]
+        sheet.update('A1', macro_list)
+        # 상단 제목 강조 (Bold)
+        format_cell_range(sheet, 'A1:C1', cellFormat(textFormat=textFormat(bold=True, fontSize=12)))
+
+        # 3. [하단] 종목 리포트 작성 (7행부터)
+        # 💡 금색 별(★) 추가 로직: 안전 점수 110점 이상
+        df['종목'] = df.apply(lambda x: f"★ {x['종목']}" if x['안전'] >= 110 else x['종목'], axis=1)
         
-        # 2. 데이터 업로드 (기존 데이터 초기화 후 업로드)
-        sheet.clear()
-        data = [df.columns.values.tolist()] + df.values.tolist()
-        sheet.update(data)
-        
-        # 3. 🎨 자동 채색 로직 (gspread-formatting 사용)
-        print("🎨 상황판 채색 중...")
-        
-        # 전체 데이터 범위 설정 (헤더 제외 2행부터 마지막 행까지)
-        num_rows = len(data)
+        stock_data = [df.columns.values.tolist()] + df.values.tolist()
+        sheet.update('A7', stock_data)
+
+        # 4. 🎨 조건부 서식 (채색 프로토콜)
+        num_rows = len(stock_data) + 7
         num_cols = len(df.columns)
-        body_range = f"A2:{chr(64 + num_cols)}{num_rows}"
-        
-        # 💡 [조건 1] 현재 수익률이 0% 이상일 때 (연한 빨간색)
-        # '현재' 열이 11번째(K열)라고 가정할 때의 예시입니다.
-        rule_red = ConditionalFormatRule(
-            ranges=[GridRange.from_a1_range(body_range, sheet)],
-            booleanRule=BooleanRule(
-                condition=BooleanCondition('NUMBER_GREATER_THAN', ['0']),
-                format=CellFormat(backgroundColor=Color(1, 0.9, 0.9)) # 연한 빨강
-            )
-        )
+        last_col_letter = chr(64 + num_cols)
+        data_range = f"A8:{last_col_letter}{num_rows}" # 헤더 제외 데이터 범위
 
-        # 💡 [조건 2] 최고 수익률이 0% 미만(배신자)일 때 (연한 파란색)
-        # '🔺최고' 열을 기준으로 필터링
-        rule_blue = ConditionalFormatRule(
-            ranges=[GridRange.from_a1_range(body_range, sheet)],
-            booleanRule=BooleanRule(
-                condition=BooleanCondition('NUMBER_LESS_THAN', ['0']),
-                format=CellFormat(backgroundColor=Color(0.9, 0.9, 1)) # 연한 파랑
-            )
-        )
-
-        # 서식 적용 (기존 서식 삭제 후 적용)
         rules = get_conditional_format_rules(sheet)
         rules.clear()
+
+        # 💡 규칙 1: '★' 포함된 행은 금색(노란색) 배경
+        rule_star = ConditionalFormatRule(
+            ranges=[GridRange.from_a1_range(data_range, sheet)],
+            booleanRule=BooleanRule(
+                condition=BooleanCondition('TEXT_CONTAINS', ['★']),
+                format=CellFormat(backgroundColor=Color(1, 0.95, 0.8), textFormat=textFormat(bold=True))
+            )
+        )
+        
+        # 💡 규칙 2: 현재 수익률이 0% 초과일 때 (연한 빨강)
+        # '현재' 열 위치를 찾아 자동 적용 (보통 10~11번째 열)
+        curr_col_idx = df.columns.get_loc('현재') + 1
+        rule_red = ConditionalFormatRule(
+            ranges=[GridRange.from_a1_range(data_range, sheet)],
+            booleanRule=BooleanRule(
+                condition=BooleanCondition('CUSTOM_FORMULA', [f'={chr(64+curr_col_idx)}8>0']),
+                format=CellFormat(backgroundColor=Color(1, 0.9, 0.9))
+            )
+        )
+
+        # 💡 규칙 3: 최고 수익률이 0% 미만일 때 (연한 파랑)
+        max_col_idx = df.columns.get_loc('🔺최고') + 1
+        rule_blue = ConditionalFormatRule(
+            ranges=[GridRange.from_a1_range(data_range, sheet)],
+            booleanRule=BooleanRule(
+                condition=BooleanCondition('CUSTOM_FORMULA', [f'={chr(64+max_col_idx)}8<0']),
+                format=CellFormat(backgroundColor=Color(0.9, 0.9, 1))
+            )
+        )
+
+        rules.append(rule_star)
         rules.append(rule_red)
         rules.append(rule_blue)
         rules.save()
 
-        print(f"✅ 구글 시트 '{sheet_name}' 업데이트 및 자동 채색 완료!")
+        print(f"✅ [Ver 29.0] 구글 시트 '골든 스타' 상황판 업데이트 완료!")
         
     except Exception as e:
         print(f"❌ 구글 시트 작업 중 오류 발생: {e}")
