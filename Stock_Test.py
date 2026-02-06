@@ -202,7 +202,7 @@ if __name__ == "__main__":
     # 7. 구글 시트 업데이트 (별도 관리)
     try:
         final_df = pd.concat([high_perf, low_perf]) # 수익조와 배신자조 합치기
-        update_commander_dashboard(macro_status, final_df, "사령부_통합_상황판")
+        update_commander_dashboard(final_df, macro_status,"사령부_통합_상황판")
     except:
         pass
 
