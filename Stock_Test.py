@@ -104,15 +104,49 @@ def get_investor_data_stable(ticker):
                 elif f_v < 0 or i_v < 0: break
         return f"외({f_days})", f"기({i_days})", (f"쌍({s_days})" if s_days > 0 else "❌"), max(f_days, i_days), (f_net > 0 and i_net > 0)
     except: return "외(0)", "기(0)", "❌", 0, False
-
+        
+# 🏛️ [역사적 지수 데이터 통합 로직]
+def prepare_historical_weather():
+    start_point = (datetime.now() - timedelta(days=600)).strftime('%Y-%m-%d')
+    
+    # 3대 지수 호출
+    ndx = fdr.DataReader('^IXIC', start=start_point)[['Close']]
+    sp5 = fdr.DataReader('^GSPC', start=start_point)[['Close']]
+    vix = fdr.DataReader('^VIX', start=start_point)[['Close']]
+    
+    # 각 지수별 MA5 계산
+    ndx['ixic_ma5'] = ndx['Close'].rolling(5).mean()
+    sp5['sp500_ma5'] = sp5['Close'].rolling(5).mean()
+    vix['vix_ma5'] = vix['Close'].rolling(5).mean()
+    
+    # 컬럼명 변경 후 결합
+    weather_df = pd.concat([
+        ndx.rename(columns={'Close': 'ixic_close'}),
+        sp5.rename(columns={'Close': 'sp500_close'}),
+        vix.rename(columns={'Close': 'vix_close'})
+    ], axis=1).fillna(method='ffill')
+    
+    return weather_df
+    
 # ---------------------------------------------------------
 # 🕵️‍♂️ [3] 정밀 분석 엔진
 # ---------------------------------------------------------
-def analyze_final(ticker, name, macro_status, is_kospi=True):
+def analyze_final(ticker, name, historical_indices):
+    """
+    사령관님, 이 함수는 각 날짜별 '나스닥, S&P500, VIX' 상태를 실시간으로 대조하여 
+    진정한 과거 수익률 검증 점수를 산출합니다.
+    """
     try:
+        # 1. 데이터 로드 및 지표 계산
         df = fdr.DataReader(ticker, start=START_DATE)
         if len(df) < 100: return []
         df = get_indicators(df)
+        
+        # 2. 💡 [핵심] 종목 데이터와 역사적 지수 데이터 동기화 (Join)
+        # historical_indices에는 ixic_close, ixic_ma5, sp500_close, sp500_ma5, vix_close, vix_ma5가 들어있어야 함
+        df = df.join(historical_indices, how='left').fillna(method='ffill')
+        
+        # 3. 수급 데이터 확보
         f_s, i_s, s_s, max_c, twin_b = get_investor_data_stable(ticker)
         
         recent_df = df.tail(SCAN_DAYS)
@@ -123,26 +157,46 @@ def analyze_final(ticker, name, macro_status, is_kospi=True):
             if raw_idx < 15: continue
             prev = df.iloc[raw_idx-1]
             
-            # 💡 신호 판정 (스토캐스틱 골든크로스 복구)
+            # --- [A] 기술적 신호 판정 ---
             is_sto_gc = prev['Sto_D'] <= prev['Sto_SD'] and row['Sto_D'] > row['Sto_SD']
             is_vma_gc = prev['VMA5'] <= prev['VMA20'] and row['VMA5'] > row['VMA20']
             is_bb_brk = prev['Close'] <= prev['BB_Upper'] and row['Close'] > row['BB_Upper']
             is_melon = twin_b and row['OBV_Slope'] > 0 and row['ADX'] > 20 and row['MACD_Hist'] > 0
             is_nova = is_sto_gc and is_vma_gc and is_bb_brk and is_melon
             
-            # 점수 산출
-            storm_count = [macro_status['nasdaq']['status'], macro_status['sp500']['status']].count("🌪️폭풍우")
-            s_score = int(90 + (30 if is_nova else 15 if is_melon else 0) - (storm_count * 10))
+            # --- [B] 💡 역사적 기상도 분석 (3대 지수) ---
+            storm_count = 0
+            weather_icons = []
+            
+            # 1. 나스닥 판정
+            if row['ixic_close'] > row['ixic_ma5']: weather_icons.append("☀️")
+            else: weather_icons.append("🌪️"); storm_count += 1
+            
+            # 2. S&P500 판정
+            if row['sp500_close'] > row['sp500_ma5']: weather_icons.append("☀️")
+            else: weather_icons.append("🌪️"); storm_count += 1
+            
+            # 3. VIX 판정 (VIX는 낮을 때가 맑음)
+            if row['vix_close'] < row['vix_ma5']: weather_icons.append("☀️")
+            else: weather_icons.append("🌪️"); storm_count += 1
+            
+            # --- [C] 점수 산출 (당시 기상도 반영) ---
+            s_score = int(90 + (30 if is_nova else 15 if is_melon else 0))
+            s_score -= (storm_count * 10) # 🌪️ 1개당 10점 감점
+            
             if row['OBV_Slope'] < 0: s_score -= 20
             s_score -= max(0, int((row['Disparity']-105)*4))
             
+            # 꼬리% 계산
             t_pct = int((row['High']-max(row['Open'],row['Close']))/(row['High']-row['Low'])*100) if row['High']!=row['Low'] else 0
             if t_pct > 40: s_score -= 15
 
+            # 태그 생성
             tags = [t for t, c in zip(["🚀슈퍼타점","🍉수박","Sto-GC","VMA-GC","BB-Break","5일선"], 
                                       [is_nova, is_melon, is_sto_gc, is_vma_gc, is_bb_brk, row['Close']>row['MA5']]) if c]
             if not tags: continue
 
+            # --- [D] 수익률 검증 ---
             h_df = df.iloc[raw_idx+1:]; buy_p = row['Close']
             max_r = curr_r = min_r = 0.0
             if not h_df.empty:
@@ -150,16 +204,25 @@ def analyze_final(ticker, name, macro_status, is_kospi=True):
                 min_r = ((h_df['Low'].min()-buy_p)/buy_p)*100
                 curr_r = ((h_df['Close'].iloc[-1]-buy_p)/buy_p)*100
 
+            # --- [E] 결과 기록 ---
             hits.append({
-                '날짜': curr_idx.strftime('%m-%d'), '안전': int(max(0, s_score)), '종목': name,
-                '외인': f_s, '기관': i_s, '쌍끌이': s_s, '에너지': "🔋" if row['MACD_Hist']>0 else "🪫",
-                'OBV기울기': int(row['OBV_Slope']), '🔺최고': f"🔴{max_r:+.1f}%" if max_r>=0 else f"🔵{max_r:+.1f}%",
+                '날짜': curr_idx.strftime('%m-%d'), 
+                '기상': "".join(weather_icons), # 💡 기상도 컬럼 추가
+                '안전': int(max(0, s_score)), 
+                '종목': name,
+                '외인': f_s, '기관': i_s, '쌍끌이': s_s, 
+                '에너지': "🔋" if row['MACD_Hist']>0 else "🪫",
+                'OBV기울기': int(row['OBV_Slope']), 
+                '🔺최고': f"🔴{max_r:+.1f}%" if max_r>=0 else f"🔵{max_r:+.1f}%",
                 '💧최저': f"🔴{min_r:+.1f}%" if min_r>=0 else f"🔵{min_r:+.1f}%",
                 '현재': f"🔴{curr_r:+.1f}%" if curr_r>=0 else f"🔵{curr_r:+.1f}%",
-                '현재_raw': curr_r, '최고_raw': max_r, '꼬리%': t_pct, '이격': int(row['Disparity']), '구분': " ".join(tags), '보유일': len(h_df)
+                '현재_raw': curr_r, '최고_raw': max_r, '꼬리%': t_pct, 
+                '이격': int(row['Disparity']), '구분': " ".join(tags), '보유일': len(h_df)
             })
         return hits
-    except: return []
+    except Exception as e:
+        print(f"❌ {name} 분석 실패: {e}")
+        return []
 
 # 🚀 [4] 실행부 및 통합 관제 리포트
 # ---------------------------------------------------------
@@ -177,10 +240,11 @@ if __name__ == "__main__":
 
     df_krx = fdr.StockListing('KRX').copy()
     target_stocks = df_krx.sort_values(by='Amount', ascending=False).head(TOP_N).copy()
+    weather_data = prepare_historical_weather()
     
     all_hits = []
     with ThreadPoolExecutor(max_workers=10) as executor:
-        results = list(executor.map(lambda p: analyze_final(p[0], p[1], macro_status), zip(target_stocks['Code'], target_stocks['Name'])))
+        results = list(executor.map(lambda p: analyze_final(p[0], p[1], weather_data), zip(target_stocks['Code'], target_stocks['Name'])))
         for r in results: all_hits.extend(r)
 
     if all_hits:
@@ -191,13 +255,13 @@ if __name__ == "__main__":
         low_perf = past[(past['최고_raw'] <= 0) & (past['현재_raw'] <= -5.0)].sort_values(by=['안전', '현재_raw'], ascending=[False, True])
         high_perf = past.drop(low_perf.index).sort_values(by=['안전', '현재_raw'], ascending=[False, False])
 
-        display_cols = ['날짜', '안전', '종목', '외인', '기관', '쌍끌이', '에너지', 'OBV기울기', '🔺최고', '💧최저', '현재', '꼬리%', '이격', '구분']
+        display_cols = ['날짜', '기상', '안전', '종목', '외인', '기관', '쌍끌이', '에너지', 'OBV기울기', '🔺최고', '💧최저', '현재', '꼬리%', '이격', '구분']
         print("\n" + "💎" * 15 + " [사령부 수익/반등 정예군 (Sto-GC 포함)] " + "💎" * 15)
         print(high_perf[display_cols].head(40))
         print("\n" + "💀" * 15 + " [배신자 색출 리포트 (최고수익 <= 0 & 현재 <= -5%)] " + "💀" * 15)
         print(low_perf[display_cols].head(60))
         print("\n" + "🔥" * 15 + " [오늘의 신규 정예군 (0일차)] " + "🔥" * 15)
-        print(today[['날짜', '안전', '종목', '외인', '기관', '쌍끌이', '에너지', 'OBV기울기', '꼬리%', '이격', '구분']].head(20))
+        print(today[['날짜', '기상', '안전', '종목', '외인', '기관', '쌍끌이', '에너지', 'OBV기울기', '꼬리%', '이격', '구분']].head(20))
 
     # 7. 구글 시트 업데이트 (별도 관리)
     try:
