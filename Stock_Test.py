@@ -82,28 +82,58 @@ def get_indicators(df):
     df['Base_Line'] = df['Close'].rolling(20).min().shift(5)
     return df
 
-def get_investor_data_stable(ticker):
+# ---------------------------------------------------------
+# 🐳 [통합] 수급 & 고래 베팅액 분석 엔진
+# ---------------------------------------------------------
+def get_investor_data_stable(ticker, price):
     try:
         ticker = str(ticker).zfill(6)
-        df_inv = stock.get_market_net_purchases_of_equities_by_ticker(START_DATE_STR, END_DATE_STR, ticker)
-        if df_inv.empty: return "외(0)", "기(0)", "❌", 0, False
-        df_valid = df_inv[(df_inv['외국인'] != 0) | (df_inv['기관합계'] != 0)]
-        if df_valid.empty: df_valid = df_inv # 전부 0인 경우 대비
-        last_row = df_valid.iloc[-1]
+        # 최근 10일간의 수급 데이터 확보
+        df_inv = stock.get_market_net_purchases_of_equities_by_ticker(START_STR, END_STR, ticker)
+        
+        if df_inv.empty: 
+            return "외(0/0억)", "기(0/0억)", "❌", 0, False
+        
+        last_row = df_inv.iloc[-1]
         f_net, i_net = last_row['외국인'], last_row['기관합계']
-        f_days = i_days = s_days = 0
-        for val in reversed(df_inv['외국인']):
-            if val > 0: f_days += 1
-            elif val < 0: break
-        for val in reversed(df_inv['기관합계']):
-            if val > 0: i_days += 1
-            elif val < 0: break
-        if f_net > 0 and i_net > 0:
-            for f_v, i_v in zip(reversed(df_inv['외국인']), reversed(df_inv['기관합계'])):
-                if f_v > 0 and i_v > 0: s_days += 1
-                elif f_v < 0 or i_v < 0: break
-        return f"외({f_days})", f"기({i_days})", (f"쌍({s_days})" if s_days > 0 else "❌"), max(f_days, i_days), (f_net > 0 and i_net > 0)
-    except: return "외(0)", "기(0)", "❌", 0, False
+        
+        # 💰 베팅액 계산 (억 단위)
+        f_money = (f_net * price) / 100000000
+        i_money = (i_net * price) / 100000000
+        total_money = f_money + i_money
+        
+        # 🔥 연속 매수일 계산
+        def calc_streak(series):
+            streak = 0
+            for v in reversed(series):
+                if v > 0: streak += 1
+                elif v == 0: continue
+                else: break
+            return streak
+            
+        f_days = calc_streak(df_inv['외국인'])
+        i_days = calc_streak(df_inv['기관합계'])
+        
+        # 🤝 쌍끌이 및 고래 연속일(합산 10억 이상) 계산
+        s_days = 0
+        whale_streak = 0
+        for k in range(1, len(df_inv) + 1):
+            fv, iv = df_inv['외국인'].iloc[-k], df_inv['기관합계'].iloc[-k]
+            if fv > 0 and iv > 0: s_days += 1
+            if ((fv + iv) * price / 100000000) >= 10.0: whale_streak += 1
+            else: if k == 1: pass # 오늘만 고래일 수도 있으니 첫날은 체크
+        
+        # 리턴 조립
+        f_str = f"외({f_days}/{f_money:.1f}억)"
+        i_str = f"기({i_days}/{i_money:.1f}억)"
+        s_str = f"쌍({s_days}/🐳{whale_streak})" if s_days > 0 else "❌"
+        
+        # 고래 화력 가점 (베팅액 + 연속일)
+        w_score = int((total_money * 2) + (whale_streak * 3))
+        
+        return f_str, i_str, s_str, max(0, w_score), (f_net > 0 and i_net > 0)
+    except:
+        return "외(0/0억)", "기(0/0억)", "❌", 0, False
         
 # 🏛️ [역사적 지수 데이터 통합 로직]
 def prepare_historical_weather():
@@ -147,7 +177,8 @@ def analyze_final(ticker, name, historical_indices):
         df = df.join(historical_indices, how='left').fillna(method='ffill')
         
         # 3. 수급 데이터 확보
-        f_s, i_s, s_s, max_c, twin_b = get_investor_data_stable(ticker)
+        curr_price = df.iloc[-1]['Close']
+        f_s, i_s, s_s, max_c, twin_b = get_investor_data_stable(ticker, curr_price)
         
         recent_df = df.tail(SCAN_DAYS)
         hits = []
