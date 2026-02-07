@@ -7,6 +7,10 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 import warnings
 
+import requests
+import pandas as pd
+from datetime import datetime
+
 # 👇 구글 시트
 from google_sheet_managerEx import update_commander_dashboard
 import io # 상단에 추가
@@ -86,56 +90,74 @@ def get_indicators(df):
 # 🐳 [통합] 수급 & 고래 베팅액 분석 엔진
 # ---------------------------------------------------------
 def get_investor_data_stable(ticker, price):
+    """
+    사령관님, 기존 pykrx를 버리고 네이버 모바일 API를 직접 타격합니다.
+    이 방식은 차단에 훨씬 강하며 데이터가 즉각적입니다.
+    """
     try:
         ticker = str(ticker).zfill(6)
-        df_inv = stock.get_market_net_purchases_of_equities_by_ticker(START_STR, END_STR, ticker)
+        # 💡 네이버 모바일 전용 수급 API URL (비대칭 전력)
+        url = f"https://m.stock.naver.com/api/stock/{ticker}/integration/investor"
         
-        if df_inv.empty: 
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 13_2_3 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.0.3 Mobile/15E148 Safari/604.1',
+            'Referer': f'https://m.stock.naver.com/kr/stock/{ticker}/total'
+        }
+        
+        res = requests.get(url, headers=headers, timeout=10)
+        json_data = res.json()
+        
+        # 💡 데이터 추출
+        # 'investor' 항목에서 최신 순으로 데이터를 가져옴
+        raw_list = json_data.get('data', {}).get('investor', [])
+        if not raw_list:
             return "외(0/0억)", "기(0/0억)", "❌", 0, False
+            
+        # 최신 10일치 데이터로 가공 (역순으로 들어있음)
+        # 네이버 API는 수량이 아닌 '금액(백만원)'으로 바로 주는 경우가 많습니다.
+        # 확인 결과: 네이버 통합 API는 '거래량'을 줍니다.
         
-        last_row = df_inv.iloc[-1]
-        f_net, i_net = last_row['외국인'], last_row['기관합계']
+        f_days = 0
+        i_days = 0
+        whale_streak = 0
+        s_days = 0
         
-        f_money = (f_net * price) / 100000000
-        i_money = (i_net * price) / 100000000
+        # 최신 거래일 정보
+        latest = raw_list[0]
+        f_qty = int(latest.get('foreignNetPurchaseVolume', 0).replace(',', ''))
+        i_qty = int(latest.get('institutionNetPurchaseVolume', 0).replace(',', ''))
+        
+        # 💰 베팅액 계산 (억 단위)
+        f_money = (f_qty * price) / 100000000
+        i_money = (i_qty * price) / 100000000
         total_money = f_money + i_money
         
-        def calc_streak(series):
-            streak = 0
-            for v in reversed(series):
-                if v > 0: streak += 1
-                elif v == 0: continue
-                else: break
-            return streak
+        # 🔥 연속성 분석 (최신 10일)
+        for i, item in enumerate(raw_list[:10]):
+            f_v = int(item.get('foreignNetPurchaseVolume', 0).replace(',', ''))
+            i_v = int(item.get('institutionNetPurchaseVolume', 0).replace(',', ''))
             
-        f_days = calc_streak(df_inv['외국인'])
-        i_days = calc_streak(df_inv['기관합계'])
-        
-        # 🤝 쌍끌이 및 고래 연속일 계산 (elif 문법 적용)
-        s_days = 0
-        whale_streak = 0
-        for k in range(1, len(df_inv) + 1):
-            fv, iv = df_inv['외국인'].iloc[-k], df_inv['기관합계'].iloc[-k]
-            if fv > 0 and iv > 0: s_days += 1
-            
-            # 고래 판정 (10억 이상)
-            if ((fv + iv) * price / 100000000) >= 10.0:
+            # 외인 연속일
+            if i == f_days and f_v > 0: f_days += 1
+            # 기관 연속일
+            if i == i_days and i_v > 0: i_days += 1
+            # 쌍끌이 연속일
+            if i == s_days and f_v > 0 and i_v > 0: s_days += 1
+            # 고래 연속일 (10억 이상)
+            if ((f_v + i_v) * price / 100000000) >= 10.0:
                 whale_streak += 1
-            elif k == 1: # 첫 번째 날(오늘) 데이터가 고래가 아닐 경우 그냥 넘어감
-                pass
-            else: # 과거 데이터에서 고래가 끊기면 즉시 중단
-                break
-        
+
         f_str = f"외({f_days}/{f_money:.1f}억)"
         i_str = f"기({i_days}/{i_money:.1f}억)"
         s_str = f"쌍({s_days}/🐳{whale_streak})" if s_days > 0 else "❌"
         
-        # 화력 점수 합산 (연속성 + 베팅액 가산점)
+        # 화력 점수 합산
         w_score = int((total_money * 2) + (whale_streak * 3))
         
-        return f_str, i_str, s_str, max(0, w_score), (f_net > 0 and i_net > 0)
+        return f_str, i_str, s_str, max(0, w_score), (f_qty > 0 and i_qty > 0)
+
     except Exception as e:
-        print(f"📡 수급 분석 엔진 내부 오류: {e}")
+        print(f"📡 첩보망 교란 발생 (네이버 API): {e}")
         return "외(0/0억)", "기(0/0억)", "❌", 0, False
         
 # 🏛️ [역사적 지수 데이터 통합 로직]
