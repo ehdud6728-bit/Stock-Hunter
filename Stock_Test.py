@@ -206,7 +206,7 @@ def analyze_final(ticker, name, historical_indices):
 
             # --- [E] 결과 기록 ---
             hits.append({
-                '날짜': curr_idx.strftime('%m-%d'), 
+                '날짜': curr_idx.strftime('%Y-%m-%d'), 
                 '기상': "".join(weather_icons), # 💡 기상도 컬럼 추가
                 '안전': int(max(0, s_score)), 
                 '종목': name,
