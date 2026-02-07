@@ -44,7 +44,7 @@ def update_commander_dashboard(df, macro_data, sheet_name):
             [macro_data['sp500']['text'], "", ""],
             [macro_data['vix']['text'], "", ""], # 3행: 미국 지수
             [f"💵 달러환율: {macro_data['fx']['text']}", "", ""],
-            [f"🇰🇷 KOSPI 수급: {macro_data['kospi']['text']}", "", ""], # 4행: 환율 및 수급
+            #[f"🇰🇷 KOSPI 수급: {macro_data['kospi']['text']}", "", ""], # 4행: 환율 및 수급
             ["", "", ""] # 8행: 공백 (가독성용)
         ]
         sheet.update('A1', macro_list)
