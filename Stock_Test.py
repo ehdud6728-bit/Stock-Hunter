@@ -10,6 +10,7 @@ import warnings
 import requests
 from bs4 import BeautifulSoup
 import pandas as pd
+import json
 
 # 👇 구글 시트
 from google_sheet_managerEx import update_commander_dashboard
@@ -90,73 +91,68 @@ def get_indicators(df):
 # 🐳 [통합] 수급 & 고래 베팅액 분석 엔진
 # ---------------------------------------------------------
 def get_investor_data_stable(ticker, price):
-    """
-    사령관님, 네이버 본사 서버실에서 직접 털어온 수급 데이터입니다.
-    브라우저 위장을 극대화하여 차단을 회피합니다.
-    """
+    ticker = str(ticker).zfill(6)
+    
+    # 💡 [작전 1] 네이버 모바일 통합 API (가장 가벼운 루트)
     try:
-        ticker = str(ticker).zfill(6)
-        # 💡 [전술 1] 실제 브라우저와 똑같은 헤더 설정 (네이버가 속을 수밖에 없음)
+        url = f"https://m.stock.naver.com/api/stock/{ticker}/integration/investor"
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Referer': f'https://finance.naver.com/item/frgn.naver?code={ticker}'
+            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 13_2_3 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.0.3 Mobile/15E148 Safari/604.1'
         }
+        res = requests.get(url, headers=headers, timeout=5)
         
-        url = f"https://finance.naver.com/item/frgn.naver?code={ticker}"
-        res = requests.get(url, headers=headers, timeout=10)
-        
-        # 💡 [전술 2] BeautifulSoup으로 HTML 정밀 타격
-        soup = BeautifulSoup(res.text, 'lxml')
-        
-        # '외국인 기관 순매매량' 테이블 추출
-        table = soup.find('table', {'class': 'type2'})
-        if not table:
-            return "외(0/0억)", "기(0/0억)", "❌", 0, False
-            
-        rows = table.find_all('tr')
-        valid_data = []
-        
-        for row in rows:
-            cols = row.find_all('td')
-            # 날짜 데이터가 있는 행만 추출 (빈 줄 제외)
-            if len(cols) == 9 and cols[0].get_text(strip=True):
-                try:
-                    # 0:날짜, 5:기관순매매, 6:외국인순매매
-                    i_qty = int(cols[5].get_text(strip=True).replace(',', ''))
-                    f_qty = int(cols[6].get_text(strip=True).replace(',', ''))
-                    valid_data.append({'inst': i_qty, 'frgn': f_qty})
-                except ValueError: continue # 헤더 등 제외
+        if res.status_code == 200:
+            data = res.json().get('data', {}).get('investor', [])
+            if data:
+                # 데이터가 있으면 즉시 가공 (오늘 데이터가 0이면 어제 데이터인 1번 인덱스 사용)
+                idx = 0
+                f_qty = int(data[idx]['foreignNetPurchaseVolume'].replace(',', ''))
+                i_qty = int(data[idx]['institutionNetPurchaseVolume'].replace(',', ''))
                 
-        if not valid_data:
-            return "외(0/0억)", "기(0/0억)", "❌", 0, False
+                # 만약 오늘 장중이라 0이라면 어제(1) 데이터를 확인
+                if f_qty == 0 and i_qty == 0 and len(data) > 1:
+                    idx = 1
+                    f_qty = int(data[idx]['foreignNetPurchaseVolume'].replace(',', ''))
+                    i_qty = int(data[idx]['institutionNetPurchaseVolume'].replace(',', ''))
 
-        # 💡 [전술 3] 최신 데이터(0번째) 분석
-        latest = valid_data[0]
-        f_money = (latest['frgn'] * price) / 100000000
-        i_money = (latest['inst'] * price) / 100000000
-        total_money = f_money + i_money
-        
-        # 🔥 연속성 분석 (최신 5일)
-        f_days = 0; i_days = 0; s_days = 0; whale_streak = 0
-        for i, data in enumerate(valid_data[:10]):
-            if i == f_days and data['frgn'] > 0: f_days += 1
-            if i == i_days and data['inst'] > 0: i_days += 1
-            if i == s_days and data['frgn'] > 0 and data['inst'] > 0: s_days += 1
-            # 고래 연속일 (10억 기준)
-            if (data['frgn'] + data['inst']) * price / 100000000 >= 10.0:
-                whale_streak += 1
-            elif i > 0: break # 오늘 고래가 아니더라도 어제까지의 연속성 유지 위해 0일차는 체크
-
-        f_str = f"외({f_days}/{f_money:.1f}억)"
-        i_str = f"기({i_days}/{i_money:.1f}억)"
-        s_str = f"쌍({s_days}/🐳{whale_streak})" if s_days > 0 else "❌"
-        
-        w_score = int((total_money * 2) + (whale_streak * 3))
-        return f_str, i_str, s_str, max(0, w_score), (latest['frgn'] > 0 and latest['inst'] > 0)
+                return process_supply_data(data, idx, price)
 
     except Exception as e:
-        print(f"📡 본사 잠입 중 발각됨 (Error): {e}")
-        return "외(0/0억)", "기(0/0억)", "❌", 0, False
+        print(f"📡 루트1(모바일) 차단됨: {e}")
+
+    # 💡 [작전 2] 네이버 PC 금융 웹 스크래핑 (BeautifulSoup)
+    try:
+        url = f"https://finance.naver.com/item/frgn.naver?code={ticker}"
+        # 더 정교한 브라우저 위장
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        }
+        res = requests.get(url, headers=headers, timeout=5)
+        soup = BeautifulSoup(res.text, 'lxml')
+        table = soup.find('table', {'class': 'type2'})
+        
+        if table:
+            rows = table.find_all('tr')
+            for row in rows:
+                cols = row.find_all('td')
+                if len(cols) == 9 and cols[5].get_text(strip=True):
+                    i_qty = int(cols[5].get_text(strip=True).replace(',', ''))
+                    f_qty = int(cols[6].get_text(strip=True).replace(',', ''))
+                    if i_qty == 0 and f_qty == 0: continue # 0인 날은 건너뜀 (유효 데이터 찾기)
+                    
+                    return finalize_supply_output(f_qty, i_qty, price)
+    except Exception as e:
+        print(f"📡 루트2(PC웹) 차단됨: {e}")
+
+    return "외(0/0억)", "기(0/0억)", "❌", 0, False
+
+def finalize_supply_output(f_qty, i_qty, price):
+    # 공통 가공 로직
+    f_money = (f_qty * price) / 100000000
+    i_money = (i_qty * price) / 100000000
+    total_m = f_money + i_money
+    w_score = int(total_m * 2)
+    return f"외({f_money:.1f}억)", f"기({i_money:.1f}억)", "✅", max(0, w_score), (f_qty > 0 and i_qty > 0)
         
 # 🏛️ [역사적 지수 데이터 통합 로직]
 def prepare_historical_weather():
