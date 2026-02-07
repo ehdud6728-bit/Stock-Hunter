@@ -88,7 +88,6 @@ def get_indicators(df):
 def get_investor_data_stable(ticker, price):
     try:
         ticker = str(ticker).zfill(6)
-        # 최근 10일간의 수급 데이터 확보
         df_inv = stock.get_market_net_purchases_of_equities_by_ticker(START_STR, END_STR, ticker)
         
         if df_inv.empty: 
@@ -97,12 +96,10 @@ def get_investor_data_stable(ticker, price):
         last_row = df_inv.iloc[-1]
         f_net, i_net = last_row['외국인'], last_row['기관합계']
         
-        # 💰 베팅액 계산 (억 단위)
         f_money = (f_net * price) / 100000000
         i_money = (i_net * price) / 100000000
         total_money = f_money + i_money
         
-        # 🔥 연속 매수일 계산
         def calc_streak(series):
             streak = 0
             for v in reversed(series):
@@ -114,25 +111,31 @@ def get_investor_data_stable(ticker, price):
         f_days = calc_streak(df_inv['외국인'])
         i_days = calc_streak(df_inv['기관합계'])
         
-        # 🤝 쌍끌이 및 고래 연속일(합산 10억 이상) 계산
+        # 🤝 쌍끌이 및 고래 연속일 계산 (elif 문법 적용)
         s_days = 0
         whale_streak = 0
         for k in range(1, len(df_inv) + 1):
             fv, iv = df_inv['외국인'].iloc[-k], df_inv['기관합계'].iloc[-k]
             if fv > 0 and iv > 0: s_days += 1
-            if ((fv + iv) * price / 100000000) >= 10.0: whale_streak += 1
-            else: if k == 1: pass # 오늘만 고래일 수도 있으니 첫날은 체크
+            
+            # 고래 판정 (10억 이상)
+            if ((fv + iv) * price / 100000000) >= 10.0:
+                whale_streak += 1
+            elif k == 1: # 첫 번째 날(오늘) 데이터가 고래가 아닐 경우 그냥 넘어감
+                pass
+            else: # 과거 데이터에서 고래가 끊기면 즉시 중단
+                break
         
-        # 리턴 조립
         f_str = f"외({f_days}/{f_money:.1f}억)"
         i_str = f"기({i_days}/{i_money:.1f}억)"
         s_str = f"쌍({s_days}/🐳{whale_streak})" if s_days > 0 else "❌"
         
-        # 고래 화력 가점 (베팅액 + 연속일)
+        # 화력 점수 합산 (연속성 + 베팅액 가산점)
         w_score = int((total_money * 2) + (whale_streak * 3))
         
         return f_str, i_str, s_str, max(0, w_score), (f_net > 0 and i_net > 0)
-    except:
+    except Exception as e:
+        print(f"📡 수급 분석 엔진 내부 오류: {e}")
         return "외(0/0억)", "기(0/0억)", "❌", 0, False
         
 # 🏛️ [역사적 지수 데이터 통합 로직]
