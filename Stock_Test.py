@@ -8,8 +8,8 @@ from datetime import datetime, timedelta
 import warnings
 
 import requests
+from bs4 import BeautifulSoup
 import pandas as pd
-from datetime import datetime
 
 # 👇 구글 시트
 from google_sheet_managerEx import update_commander_dashboard
@@ -91,73 +91,71 @@ def get_indicators(df):
 # ---------------------------------------------------------
 def get_investor_data_stable(ticker, price):
     """
-    사령관님, 기존 pykrx를 버리고 네이버 모바일 API를 직접 타격합니다.
-    이 방식은 차단에 훨씬 강하며 데이터가 즉각적입니다.
+    사령관님, 네이버 본사 서버실에서 직접 털어온 수급 데이터입니다.
+    브라우저 위장을 극대화하여 차단을 회피합니다.
     """
     try:
         ticker = str(ticker).zfill(6)
-        # 💡 네이버 모바일 전용 수급 API URL (비대칭 전력)
-        url = f"https://m.stock.naver.com/api/stock/{ticker}/integration/investor"
-        
+        # 💡 [전술 1] 실제 브라우저와 똑같은 헤더 설정 (네이버가 속을 수밖에 없음)
         headers = {
-            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 13_2_3 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.0.3 Mobile/15E148 Safari/604.1',
-            'Referer': f'https://m.stock.naver.com/kr/stock/{ticker}/total'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Referer': f'https://finance.naver.com/item/frgn.naver?code={ticker}'
         }
         
+        url = f"https://finance.naver.com/item/frgn.naver?code={ticker}"
         res = requests.get(url, headers=headers, timeout=10)
-        json_data = res.json()
         
-        # 💡 데이터 추출
-        # 'investor' 항목에서 최신 순으로 데이터를 가져옴
-        raw_list = json_data.get('data', {}).get('investor', [])
-        if not raw_list:
+        # 💡 [전술 2] BeautifulSoup으로 HTML 정밀 타격
+        soup = BeautifulSoup(res.text, 'lxml')
+        
+        # '외국인 기관 순매매량' 테이블 추출
+        table = soup.find('table', {'class': 'type2'})
+        if not table:
             return "외(0/0억)", "기(0/0억)", "❌", 0, False
             
-        # 최신 10일치 데이터로 가공 (역순으로 들어있음)
-        # 네이버 API는 수량이 아닌 '금액(백만원)'으로 바로 주는 경우가 많습니다.
-        # 확인 결과: 네이버 통합 API는 '거래량'을 줍니다.
+        rows = table.find_all('tr')
+        valid_data = []
         
-        f_days = 0
-        i_days = 0
-        whale_streak = 0
-        s_days = 0
-        
-        # 최신 거래일 정보
-        latest = raw_list[0]
-        f_qty = int(latest.get('foreignNetPurchaseVolume', 0).replace(',', ''))
-        i_qty = int(latest.get('institutionNetPurchaseVolume', 0).replace(',', ''))
-        
-        # 💰 베팅액 계산 (억 단위)
-        f_money = (f_qty * price) / 100000000
-        i_money = (i_qty * price) / 100000000
+        for row in rows:
+            cols = row.find_all('td')
+            # 날짜 데이터가 있는 행만 추출 (빈 줄 제외)
+            if len(cols) == 9 and cols[0].get_text(strip=True):
+                try:
+                    # 0:날짜, 5:기관순매매, 6:외국인순매매
+                    i_qty = int(cols[5].get_text(strip=True).replace(',', ''))
+                    f_qty = int(cols[6].get_text(strip=True).replace(',', ''))
+                    valid_data.append({'inst': i_qty, 'frgn': f_qty})
+                except ValueError: continue # 헤더 등 제외
+                
+        if not valid_data:
+            return "외(0/0억)", "기(0/0억)", "❌", 0, False
+
+        # 💡 [전술 3] 최신 데이터(0번째) 분석
+        latest = valid_data[0]
+        f_money = (latest['frgn'] * price) / 100000000
+        i_money = (latest['inst'] * price) / 100000000
         total_money = f_money + i_money
         
-        # 🔥 연속성 분석 (최신 10일)
-        for i, item in enumerate(raw_list[:10]):
-            f_v = int(item.get('foreignNetPurchaseVolume', 0).replace(',', ''))
-            i_v = int(item.get('institutionNetPurchaseVolume', 0).replace(',', ''))
-            
-            # 외인 연속일
-            if i == f_days and f_v > 0: f_days += 1
-            # 기관 연속일
-            if i == i_days and i_v > 0: i_days += 1
-            # 쌍끌이 연속일
-            if i == s_days and f_v > 0 and i_v > 0: s_days += 1
-            # 고래 연속일 (10억 이상)
-            if ((f_v + i_v) * price / 100000000) >= 10.0:
+        # 🔥 연속성 분석 (최신 5일)
+        f_days = 0; i_days = 0; s_days = 0; whale_streak = 0
+        for i, data in enumerate(valid_data[:10]):
+            if i == f_days and data['frgn'] > 0: f_days += 1
+            if i == i_days and data['inst'] > 0: i_days += 1
+            if i == s_days and data['frgn'] > 0 and data['inst'] > 0: s_days += 1
+            # 고래 연속일 (10억 기준)
+            if (data['frgn'] + data['inst']) * price / 100000000 >= 10.0:
                 whale_streak += 1
+            elif i > 0: break # 오늘 고래가 아니더라도 어제까지의 연속성 유지 위해 0일차는 체크
 
         f_str = f"외({f_days}/{f_money:.1f}억)"
         i_str = f"기({i_days}/{i_money:.1f}억)"
         s_str = f"쌍({s_days}/🐳{whale_streak})" if s_days > 0 else "❌"
         
-        # 화력 점수 합산
         w_score = int((total_money * 2) + (whale_streak * 3))
-        
-        return f_str, i_str, s_str, max(0, w_score), (f_qty > 0 and i_qty > 0)
+        return f_str, i_str, s_str, max(0, w_score), (latest['frgn'] > 0 and latest['inst'] > 0)
 
     except Exception as e:
-        print(f"📡 첩보망 교란 발생 (네이버 API): {e}")
+        print(f"📡 본사 잠입 중 발각됨 (Error): {e}")
         return "외(0/0억)", "기(0/0억)", "❌", 0, False
         
 # 🏛️ [역사적 지수 데이터 통합 로직]
