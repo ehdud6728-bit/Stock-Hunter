@@ -45,7 +45,8 @@ def update_commander_dashboard(df, macro_data, sheet_name):
             [macro_data['vix']['text'], "", ""], # 3행: 미국 지수
             [f"💵 달러환율: {macro_data['fx']['text']}", "", ""],
             #[f"🇰🇷 KOSPI 수급: {macro_data['kospi']['text']}", "", ""], # 4행: 환율 및 수급
-            ["", "", "VMA-GC(수급 시작) + BB-Break(추세 폭발) + Sto-GC(타점 확정) = '다이아몬드 풀베팅' 이격이 105 미만이고 밴드폭이 좁은 상태(BB-Squz)에서 나오는 **VMA-GC**는 승률이 매우 높습니다. 에너지가 응축되었다가 돈의 힘으로 터지는 구간"] # 8행: 공백 (가독성용)
+            ["VMA-GC(수급 시작) + BB-Break(추세 폭발) + Sto-GC(타점 확정) = '다이아몬드 풀베팅'", "", ""],
+            ["이격이 105 미만이고 밴드폭이 좁은 상태(BB-Squz)에서 나오는 **VMA-GC**는 승률이 매우 높습니다.'", "", ""]
         ]
         sheet.update('A1', macro_list)
         # 상단 제목 강조 (Bold)
