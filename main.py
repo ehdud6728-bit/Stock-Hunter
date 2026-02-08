@@ -406,7 +406,7 @@ if all_hits:
     for item in sorted_hits:
         ai_tip = get_ai_summary(item['code'], item['종목명'], item['구분'])
         # 종목별 엔트리 생성 (구분선 포함)
-        entry = (f"⭐{item['점수']}점 {item['안전']}점 [{item['종목명']}]}\n"
+        entry = (f"⭐{item['점수']}점 {item['안전']}점 [{item['종목명']}]\n"
                 f"- {item['구분']}\n"
                 f"- 재무: {item['재무']} | 수급: {item['수급']}\n"
                 f"💡 {ai_tip}\n"
