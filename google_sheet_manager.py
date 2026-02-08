@@ -10,9 +10,10 @@ def update_google_sheet(new_picks, today_str):
     sheet_name = "주식자동매매일지"
     
     # 컬럼 정의 (이 순서대로 시트에 기록됩니다)
+    # 💡 컬럼 추가: 'AI한줄평', 'AI토너먼트'
     cols = [
         '추천일', '기상', '종목명', '종목코드', '에너지', '안전', '점수', '매수가', 
-        '현재가', '최고수익', '최저수익', '현재수익', '구분', '꼬리%', '이격', '수급', 'OBV', '상태'
+        '현재가', '최고수익', '현재수익', '구분', '이격', '수급', 'AI한줄평', 'AI토너먼트', '상태'
     ]
 
     try:
@@ -48,32 +49,23 @@ def update_google_sheet(new_picks, today_str):
         if new_picks:
             new_rows = []
             for pick in new_picks:
-                name = pick['종목명']
-                code = str(pick.get('code', '000000')).zfill(6)
-                
-                # 중복 체크 (날짜 + 종목명)
-                if not df_log.empty:
-                    if not df_log[(df_log['추천일'] == today_str) & (df_log['종목명'] == name)].empty:
-                        continue
-                
-                price = int(str(pick['현재가']).replace(',', ''))
-                
                 new_row = {
                     '추천일': today_str,
                     '기상': pick.get('기상', '☀️'),
-                    '종목명': name,
-                    '종목코드': f"'{code}", # 💡 구글 시트 숫자 변환 방지 (앞에 ' 추가)
+                    '종목명': pick.get('종목명', 'N/A'),
+                    '종목코드': f"'{pick.get('code', '000000')}", 
                     '에너지': pick.get('에너지', '🔋'),
                     '안전': pick.get('안전', 0),
                     '점수': pick.get('점수', 0),
-                    '매수가': price,
-                    '현재가': price,
-                    '최고수익': 0.0, '최저수익': 0.0, '현재수익': 0.0,
+                    '매수가': pick.get('현재가', 0),
+                    '현재가': pick.get('현재가', 0),
+                    '현재수익': 0.0,
                     '구분': pick.get('구분', ''),
-                    '꼬리%': pick.get('꼬리%', 0),
                     '이격': pick.get('이격', 0),
                     '수급': pick.get('수급', ''),
-                    'OBV': pick.get('OBV기울기', 0),
+                    # 💡 AI 분석 결과 매핑
+                    'AI한줄평': pick.get('ai_tip', '분석전'), 
+                    'AI토너먼트': pick.get('ai_tournament', '해당없음'),
                     '상태': '진행중'
                 }
                 new_rows.append(new_row)
