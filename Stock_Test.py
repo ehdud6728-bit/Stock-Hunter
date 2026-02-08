@@ -67,6 +67,7 @@ def get_indicators(df):
     std = df['Close'].rolling(20).std()
     df['BB_Upper'] = df['MA20'] + (std * 2)
     df['BB_Width'] = (df['BB_Upper'] - (df['MA20'] - (std * 2))) / df['MA20'] * 100
+    df['BB40_Upper'] = df['Close'].rolling(window=40).mean() + (df['Close'].rolling(window=40).std() * 2)
     
     # 💡 [스토캐스틱 슬로우 12-5-5]
     l_min, h_max = df['Low'].rolling(12).min(), df['High'].rolling(12).max()
@@ -213,11 +214,28 @@ def analyze_final(ticker, name, historical_indices):
             is_bb_brk = prev['Close'] <= prev['BB_Upper'] and row['Close'] > row['BB_Upper']
             is_melon = twin_b and row['OBV_Slope'] > 0 and row['ADX'] > 20 and row['MACD_Hist'] > 0
             is_nova = is_sto_gc and is_vma_gc and is_bb_brk and is_melon
+            is_bb40_brk = prev['Close'] <= prev['BB40_Upper'] and row['Close'] > row['BB40_Upper']
             
             # --- [B] 💡 역사적 기상도 분석 (3대 지수) ---
             storm_count = 0
             weather_icons = []
-            
+
+            # --- [B-1] 🎯 재영솔루텍 패턴 매칭 (Legend Filter) ---
+            # 1. 이격도가 바닥권인가? (98~104)
+            is_bottom = 98 <= row['Disparity'] <= 104
+            # 2. 거래량이 실리며 에너지가 도는가?
+            is_energy = row['OBV_Slope'] > 0 and row['MACD_Hist'] > 0
+            # 3. 고래가 입질을 시작했는가?
+            is_whale = w_score > 5
+            # 4. 볼린저밴드(40,2) 돌파했는가?
+            if is_bb40_brk:
+                s_score += 40  # 장기 추세 돌파는 매우 강력한 가점 대상!
+    
+            # 레전드 점수 계산 (재영솔루텍 조건 충족 시 폭등)
+            legend_score = 0
+            if is_bottom and is_energy and is_vma_gc:
+                legend_score = 50 # 🏆 레전드 패턴 가산점
+             
             # 1. 나스닥 판정
             if row['ixic_close'] > row['ixic_ma5']: weather_icons.append("☀️")
             else: weather_icons.append("🌪️"); storm_count += 1
@@ -242,8 +260,8 @@ def analyze_final(ticker, name, historical_indices):
             if t_pct > 40: s_score -= 15
 
             # 태그 생성
-            tags = [t for t, c in zip(["🚀슈퍼타점","🍉수박","Sto-GC","VMA-GC","BB-Break","5일선"], 
-                                      [is_nova, is_melon, is_sto_gc, is_vma_gc, is_bb_brk, row['Close']>row['MA5']]) if c]
+            tags = [t for t, c in zip(["🚀슈퍼타점","🍉수박","Sto-GC","VMA-GC","BB-Break","5일선","🏆LEGEND","🚨장기돌파" ], 
+                                      [is_nova, is_melon, is_sto_gc, is_vma_gc, is_bb_brk, row['Close']>row['MA5'], legend_score >= 50, is_bb40_brk]) if c]
             if not tags: continue
 
             # --- [D] 수익률 검증 ---
