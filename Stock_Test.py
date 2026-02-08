@@ -226,7 +226,7 @@ def analyze_final(ticker, name, historical_indices):
             # 2. 거래량이 실리며 에너지가 도는가?
             is_energy = row['OBV_Slope'] > 0 and row['MACD_Hist'] > 0
             # 3. 고래가 입질을 시작했는가?
-            is_whale = w_score > 5
+            is_whale = max_c > 5
             # 4. 볼린저밴드(40,2) 돌파했는가?
             if is_bb40_brk:
                 s_score += 40  # 장기 추세 돌파는 매우 강력한 가점 대상!
