@@ -33,7 +33,7 @@ CHAT_ID_LIST = os.environ.get('TELEGRAM_CHAT_ID', '').split(',')
 OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY') 
 GROQ_API_KEY = os.environ.get('GROQ_API_KEY')     
 
-TEST_MODE = False  
+TEST_MODE = TRUE  
 
 KST = pytz.timezone('Asia/Seoul')
 current_time = datetime.now(KST)
@@ -110,22 +110,61 @@ def get_supply_and_money(code, price):
 # 📈 [4] 기술적 분석 지표 (OBV, Double-GC 등)
 # ---------------------------------------------------------
 def get_indicators(df):
-    for n in [5, 10, 20, 60, 120]: df[f'MA{n}'] = df['Close'].rolling(n).mean()
-    for n in [5, 20]: df[f'VMA{n}'] = df['Volume'].rolling(n).mean()
-    # OBV
+    df = df.copy()
+    for n in [5, 20, 60]:
+        df[f'MA{n}'] = df['Close'].rolling(n).mean()
+        df[f'VMA{n}'] = df['Volume'].rolling(n).mean()
+        df[f'Slope{n}'] = (df[f'MA{n}'] - df[f'MA{n}'].shift(3)) / df[f'MA{n}'].shift(3) * 100
+    
+    df['Disparity'] = (df['Close'] / df['MA20']) * 100
+    std = df['Close'].rolling(20).std()
+    df['BB_Upper'] = df['MA20'] + (std * 2)
+    df['BB_Width'] = (df['BB_Upper'] - (df['MA20'] - (std * 2))) / df['MA20'] * 100
+    df['BB40_Upper'] = df['Close'].rolling(window=40).mean() + (df['Close'].rolling(window=40).std() * 2)
+    
+    # 💡 [스토캐스틱 슬로우 12-5-5]
+    l_min, h_max = df['Low'].rolling(12).min(), df['High'].rolling(12).max()
+    df['Sto_K'] = ((df['Close'] - l_min) / (h_max - l_min)) * 100
+    df['Sto_D'] = df['Sto_K'].rolling(5).mean()
+    df['Sto_SD'] = df['Sto_D'].rolling(5).mean()
+    
+    # DMI/ADX
+    high, low, close = df['High'], df['Low'], df['Close']
+    tr = pd.concat([high - low, abs(high - close.shift(1)), abs(low - close.shift(1))], axis=1).max(axis=1)
+    df['pDI'] = (pd.Series(np.where((high-high.shift(1) > low.shift(1)-low), (high-high.shift(1)).clip(lower=0), 0)).rolling(14).sum().values / tr.rolling(14).sum().values) * 100
+    df['mDI'] = (pd.Series(np.where((low.shift(1)-low > high-high.shift(1)), (low.shift(1)-low).clip(lower=0), 0)).rolling(14).sum().values / tr.rolling(14).sum().values) * 100
+    df['ADX'] = ((abs(df['pDI'] - df['mDI']) / (df['pDI'] + df['mDI'])) * 100).rolling(14).mean()
+    
+    df['MACD_Hist'] = (df['Close'].ewm(span=12).mean() - df['Close'].ewm(span=26).mean()) - (df['Close'].ewm(span=12).mean() - df['Close'].ewm(span=26).mean()).ewm(span=9).mean()
     df['OBV'] = (np.sign(df['Close'].diff()) * df['Volume']).fillna(0).cumsum()
-    df['OBV_MA20'] = df['OBV'].rolling(20).mean()
-    # Stochastic
-    l, h = df['Low'].rolling(5).min(), df['High'].rolling(5).max()
-    df['Slow_K'] = ((df['Close'] - l) / (h - l)).rolling(3).mean() * 100
-    df['Slow_D'] = df['Slow_K'].rolling(3).mean()
-    # BB & RSI
-    df['BB_Up'] = df['Close'].rolling(20).mean() + (2 * df['Close'].rolling(20).std())
-    delta = df['Close'].diff()
-    gain = (delta.where(delta > 0, 0)).rolling(14).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
-    df['RSI'] = 100 - (100 / (1 + (gain / loss)))
+    df['OBV_Slope'] = (df['OBV'] - df['OBV'].shift(5)) / df['OBV'].shift(5).abs() * 100
+    df['Base_Line'] = df['Close'].rolling(20).min().shift(5)
     return df
+    
+# ---------------------------------------------------------
+# 🏛️ [4-1] 역사적 지수 데이터 통합 로직
+# ---------------------------------------------------------
+def prepare_historical_weather():
+    start_point = (datetime.now() - timedelta(days=600)).strftime('%Y-%m-%d')
+    
+    # 3대 지수 호출
+    ndx = fdr.DataReader('^IXIC', start=start_point)[['Close']]
+    sp5 = fdr.DataReader('^GSPC', start=start_point)[['Close']]
+    vix = fdr.DataReader('^VIX', start=start_point)[['Close']]
+    
+    # 각 지수별 MA5 계산
+    ndx['ixic_ma5'] = ndx['Close'].rolling(5).mean()
+    sp5['sp500_ma5'] = sp5['Close'].rolling(5).mean()
+    vix['vix_ma5'] = vix['Close'].rolling(5).mean()
+    
+    # 컬럼명 변경 후 결합
+    weather_df = pd.concat([
+        ndx.rename(columns={'Close': 'ixic_close'}),
+        sp5.rename(columns={'Close': 'sp500_close'}),
+        vix.rename(columns={'Close': 'vix_close'})
+    ], axis=1).fillna(method='ffill')
+    
+    return weather_df
 
 # ---------------------------------------------------------
 # 📸 [5] 시각화 및 텔레그램 전송 함수 (선생님 요청 통합)
@@ -165,7 +204,7 @@ def get_hot_themes():
 def get_market_briefing():
     try:
         theme_info = get_hot_themes()
-        prompt = f"오늘 코스피/나스닥 흐름과 {theme_info} 테마를 바탕으로 개장전/마감 전략 3줄 요약해줘(반말)."
+        prompt = f"당신은 전세계 최고의 퀀트 분석가 및 월가 최고 수준의 리서치 애널리스트 입니다. 오늘 장 준비 전 코스피/나스닥 흐름과 {theme_info} 테마를 바탕으로 개장전/마감 전략 3줄 요약해줘(반말)."
         client = OpenAI(api_key=OPENAI_API_KEY)
         res = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role":"user", "content":prompt}])
         return f"🌇 [시황 브리핑]\n{res.choices[0].message.content.strip()}"
@@ -176,8 +215,12 @@ def run_ai_tournament(candidate_list):
     candidate_list = sorted(candidate_list, key=lambda x: x['점수'], reverse=True)[:15]
     prompt_data = "\n".join([f"- {c['종목명']}({c['code']}): {c['구분']}, 수급:{c['수급']}, 재무:{c['재무']}" for c in candidate_list])
     
-    sys_prompt = "너는 전설적인 투자자야. 절대 돈을 잃으면 안되는 상황이야. 타율이 높은 종목으로 꼭 골라줘. 단타 종목 1위와 스윙 종목 1위를 각각 선정하고 짧은 이유를 말해줘."
-    
+    sys_prompt = (
+        "당신은 대한민국 '역매공파(역배열바닥, 매집, 공구리돌파, 파동시작)' 매매법의 권위자이자 퀀트 분석가입니다. 절대 돈을 잃으면 안되는 상황이야."
+        "제공된 기술적 데이터를 분석하여 2024년 12월 24일 '재영솔루텍'과 같은 "
+        "역배열 바닥 매집형 급등 패턴인지 엄격하게 심사하십시오."
+        "단타 종목 1위와 스윙 종목 1위를 선정하고 각각 5백만달러 수준의 리포트 브리핑을 간략하게 알려줘 "
+    )
     # GPT 심사
     client = OpenAI(api_key=OPENAI_API_KEY)
     res_gpt = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role":"system", "content":sys_prompt}, {"role":"user", "content":prompt_data}])
@@ -215,8 +258,68 @@ def analyze_final(ticker, name):
         curr_idx = df.index[-1] # 오늘 날짜
         
         score, tags = 0, []
+        storm_count = 0
+        weather_icons = []
+
+        # 수급 및 재무 데이터 가져오기 (신호가 뜬 종목만 정밀 분석)
+        s_tag, total_m, w_streak, whale_score = get_supply_and_money(ticker, row['Close'])
+        f_tag, f_score = get_financial_health(ticker)
+        score += (whale_score + f_score)
         
-        # --- [전략 1: Double GC] ---
+        # --- [A] 기술적 신호 판정 ---
+        is_sto_gc = prev['Sto_D'] <= prev['Sto_SD'] and row['Sto_D'] > row['Sto_SD']
+        is_vma_gc = prev['VMA5'] <= prev['VMA20'] and row['VMA5'] > row['VMA20']
+        is_bb_brk = prev['Close'] <= prev['BB_Upper'] and row['Close'] > row['BB_Upper']
+        is_melon = twin_b and row['OBV_Slope'] > 0 and row['ADX'] > 20 and row['MACD_Hist'] > 0
+        is_nova = is_sto_gc and is_vma_gc and is_bb_brk and is_melon
+        is_bb40_brk = prev['Close'] <= prev['BB40_Upper'] and row['Close'] > row['BB40_Upper']
+
+        # --- [B-1] 🎯 재영솔루텍 패턴 매칭 (Legend Filter) --- 역매공파
+        # 1. 이격도가 바닥권인가? (98~104)
+        is_bottom = 98 <= row['Disparity'] <= 104
+        # 2. 거래량이 실리며 에너지가 도는가?
+        is_energy = row['OBV_Slope'] > 0 and row['MACD_Hist'] > 0
+        # 3. 고래가 입질을 시작했는가?
+        is_whale = whale_score > 5
+        
+        # 레전드 점수 계산 (재영솔루텍 조건 충족 시 폭등)
+        legend_score = 0
+        if is_bottom and is_energy and is_vma_gc:
+            legend_score = 50 # 🏆 레전드 패턴 가산점
+
+        # 1. 나스닥 판정
+        if row['ixic_close'] > row['ixic_ma5']: weather_icons.append("☀️")
+        else: weather_icons.append("🌪️"); storm_count += 1
+        
+        # 2. S&P500 판정
+        if row['sp500_close'] > row['sp500_ma5']: weather_icons.append("☀️")
+        else: weather_icons.append("🌪️"); storm_count += 1
+        
+        # 3. VIX 판정 (VIX는 낮을 때가 맑음)
+        if row['vix_close'] < row['vix_ma5']: weather_icons.append("☀️")
+        else: weather_icons.append("🌪️"); storm_count += 1
+        
+        # --- [C] 점수 산출 (당시 기상도 반영) ---
+        s_score = int(90 + (30 if is_nova else 15 if is_melon else 0))
+        s_score -= (storm_count * 10) # 🌪️ 1개당 10점 감점
+
+        if row['OBV_Slope'] < 0: s_score -= 20
+        s_score -= max(0, int((row['Disparity']-105)*4))
+
+        # 꼬리% 계산
+        t_pct = int((row['High']-max(row['Open'],row['Close']))/(row['High']-row['Low'])*100) if row['High']!=row['Low'] else 0
+        if t_pct > 40: s_score -= 15
+
+        # 4. 볼린저밴드(40,2) 돌파했는가?
+        if is_bb40_brk:
+            s_score += 40  # 장기 추세 돌파는 매우 강력한 가점 대상!
+
+        # 태그 생성
+        tags = [t for t, c in zip(["🚀슈퍼타점","🍉수박","Sto-GC","VMA-GC","BB-Break","5일선","🏆LEGEND","🚨장기돌파" ], 
+                                  [is_nova, is_melon, is_sto_gc, is_vma_gc, is_bb_brk, row['Close']>row['MA5'], legend_score >= 50, is_bb40_brk]) if c]
+        if not tags: continue
+
+        # --- [전략 1: Double GC] --- > 기존 전략 그래도 놔둔다.
         # 오늘 골든크로스가 발생했는지 확인
         is_p_gc = prev['MA5'] <= prev['MA20'] and row['MA5'] > row['MA20']
         is_v_gc = prev['VMA5'] <= prev['VMA20'] and row['VMA5'] > row['VMA20']
@@ -236,24 +339,22 @@ def analyze_final(ticker, name):
         if prev['Slow_K'] <= prev['Slow_D'] and row['Slow_K'] > row['Slow_D'] and row['Slow_K'] < 75:
             tags.append("🍉수박"); score += 2
 
-        # 4. 아무런 신호가 없다면 즉시 종료
-        if not tags: return []
-
-        # 5. 수급 및 재무 데이터 가져오기 (신호가 뜬 종목만 정밀 분석)
-        s_tag, total_m, w_streak, whale_score = get_supply_and_money(ticker, row['Close'])
-        f_tag, f_score = get_financial_health(ticker)
-        score += (whale_score + f_score)
-
         # 6. 결과 리턴 (리스트 안에 딕셔너리 딱 1개만 담깁니다)
         return [{
-            '날짜': curr_idx.strftime('%m-%d'), 
+            '날짜': curr_idx.strftime('%Y-%m-%d'),
+            '기상': "".join(weather_icons), # 💡 기상도 컬럼 추가
+            '안전': int(max(0, s_score)), 
             '점수': score, 
+            '에너지': "🔋" if row['MACD_Hist']>0 else "🪫",
+            'OBV기울기': int(row['OBV_Slope']),
             '종목명': name, 
             'code': ticker,
-            '구분': " ".join(tags), 
+            '꼬리%': t_pct, 
+            '이격': int(row['Disparity'])
             '재무': f_tag, 
             '수급': s_tag, 
             '베팅액': total_m, 
+            '구분': " ".join(tags),
             '진단': "✅양호"
         }]
     except: 
@@ -264,6 +365,17 @@ def analyze_final(ticker, name):
 # ---------------------------------------------------------
 if __name__ == "__main__":
     print("🚀 전략 사령부 가동 시작...")
+    m_ndx = get_safe_macro('^IXIC', '나스닥')
+    m_sp5 = get_safe_macro('^GSPC', 'S&P500')
+    m_vix = get_safe_macro('^VIX', 'VIX공포')
+    m_fx  = get_safe_macro('USD/KRW', '달러환율')
+    macro_status = {'nasdaq': m_ndx, 'sp500': m_sp5, 'vix': m_vix, 'fx': m_fx , 'kospi': {get_index_investor_data('KOSPI')}}
+
+    print("\n" + "🌍 " * 5 + "[ 글로벌 사령부 통합 관제 센터 ]" + " 🌍" * 5)
+    print(f"🇺🇸 {m_ndx['text']} | {m_sp5['text']} | ⚠️ {m_vix['text']}")
+    print(f"💵 {m_fx['text']} | 🇰🇷 KOSPI 수급: {get_index_investor_data('KOSPI')}")
+    print("=" * 115)
+    
     # 1. 시황 및 차트 준비
     imgs = [create_index_chart('KS11', 'KOSPI'), create_index_chart('IXIC', 'NASDAQ')]
     briefing = get_market_briefing()
@@ -271,6 +383,7 @@ if __name__ == "__main__":
     # 2. 전 종목 스캔
     df_krx = fdr.StockListing('KRX')
     target_dict = dict(zip(df_krx.sort_values(by='Amount', ascending=False).head(TOP_N)['Code'], df_krx['Name']))
+    weather_data = prepare_historical_weather()
     sector_dict = {} # (필요시 추가)
     
     all_hits = []
@@ -293,7 +406,8 @@ if all_hits:
     for item in sorted_hits:
         ai_tip = get_ai_summary(item['code'], item['종목명'], item['구분'])
         # 종목별 엔트리 생성 (구분선 포함)
-        entry = (f"⭐{item['점수']}점 [{item['종목명']}] {item['구분']}\n"
+        entry = (f"⭐{item['점수']}점 {item['안전']}점 [{item['종목명']}]}\n"
+                f"- {item['구분']}\n"
                 f"- 재무: {item['재무']} | 수급: {item['수급']}\n"
                 f"💡 {ai_tip}\n"
                 f"----------------------------\n")
