@@ -495,7 +495,7 @@ if all_hits:
     sorted_hits = sorted(all_hits, key=lambda x: x['점수'], reverse=True)[:15]
     tournament_report = run_ai_tournament(all_hits)
     
-    print("\n" + f"\n{tournament_report})
+    print(f"\n\n***tournament_report***") # 👈 굳이 더하기(+)를 쓸 필요 없이 한 번에!
     
     MAX_CHAR = 3800  # 여유 있게 3,800자로 설정
     current_msg = f"{briefing}\n\n📢 [오늘의 추천주]\n\n"
