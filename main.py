@@ -317,7 +317,7 @@ def analyze_final(ticker, name):
         # 태그 생성
         tags = [t for t, c in zip(["🚀슈퍼타점","🍉수박","Sto-GC","VMA-GC","BB-Break","5일선","🏆LEGEND","🚨장기돌파" ], 
                                   [is_nova, is_melon, is_sto_gc, is_vma_gc, is_bb_brk, row['Close']>row['MA5'], legend_score >= 50, is_bb40_brk]) if c]
-        if not tags: continue
+        if not tags: return []
 
         # --- [전략 1: Double GC] --- > 기존 전략 그래도 놔둔다.
         # 오늘 골든크로스가 발생했는지 확인
