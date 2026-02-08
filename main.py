@@ -392,6 +392,71 @@ def analyze_final(ticker, name):
         return []
 
 # ---------------------------------------------------------
+# 🕵️‍♂️ [7-1] 주간 분석 엔진
+# ---------------------------------------------------------
+def analyze_weekly_trend(ticker, name):
+    """
+    사령관님, 일봉의 잔파도를 무시하고 주봉으로 거대한 추세를 읽습니다.
+    주말에 가동하여 차주 월요일의 공략주를 선정하는 전술입니다.
+    """
+    try:
+        # 1. 주간 데이터 생성을 위해 충분한 과거 데이터 로드
+        df_daily = fdr.DataReader(ticker, start=(datetime.now()-timedelta(days=730))) # 2년치
+        if len(df_daily) < 200: return []
+
+        # 2. 💡 일봉 데이터를 주봉(Weekly)으로 변환
+        # 'W-MON'은 월요일 기준으로 한 주를 묶습니다.
+        df = df_daily.resample('W-MON').agg({
+            'Open': 'first',
+            'High': 'max',
+            'Low': 'min',
+            'Close': 'last',
+            'Volume': 'sum'
+        })
+
+        # 3. 주간 보조지표 계산 (주봉 MA, BB, OBV)
+        df['MA20_W'] = df['Close'].rolling(window=20).mean()
+        df['BB20_Upper_W'] = df['MA20_W'] + (df['Close'].rolling(window=20).std() * 2)
+        
+        # 주간 OBV 계산
+        df['OBV_W'] = (np.sign(df['Close'].diff()) * df['Volume']).fillna(0).cumsum()
+        df['OBV_MA10_W'] = df['OBV_W'].rolling(window=10).mean()
+
+        row = df.iloc[-1]   # 이번 주 (혹은 가장 최근 종료된 주)
+        prev = df.iloc[-2]  # 지난 주
+
+        # 🎯 [핵심] 주간 역매공파 신호 판정
+        # 1. 공구리 돌파: 주봉이 20주 볼린저밴드 상단을 돌파했는가?
+        is_weekly_break = prev['Close'] <= prev['BB20_Upper_W'] and row['Close'] > row['BB20_Upper_W']
+        
+        # 2. 주간 매집: 주간 OBV가 10주 평균선 위에 있는가?
+        is_weekly_acc = row['OBV_W'] > row['OBV_MA10_W']
+        
+        # 3. 주간 골든크로스: 5주선이 20주선을 돌파하는가?
+        df['MA5_W'] = df['Close'].rolling(window=5).mean()
+        is_weekly_gc = prev['MA5_W'] <= prev['MA20_W'] and row['MA5_W'] > row['MA20_W']
+
+        tags = []
+        w_score = 100
+        
+        if is_weekly_break: tags.append("🚨주봉돌파"); w_score += 30
+        if is_weekly_acc: tags.append("🌊주간매집"); w_score += 15
+        if is_weekly_gc: tags.append("✨주간GC"); w_score += 15
+
+        if not tags: return []
+
+        return [{
+            '날짜': df.index[-1].strftime('%Y-%m-%d'),
+            '종목명': f"[주간] {name}",
+            '주간화력': w_score,
+            '이격도_W': int((row['Close']/row['MA20_W'])*100),
+            '구분': " ".join(tags),
+            '진단': "주봉 단위 강력 추세 전환 포착"
+        }]
+    except Exception as e:
+        return []
+
+# ---------------------------------------------------------
 # 🚀 [8] 메인 실행 (전략 사령부 가동)
 # ---------------------------------------------------------
 if __name__ == "__main__":
