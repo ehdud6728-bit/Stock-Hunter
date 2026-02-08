@@ -5,7 +5,7 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import FinanceDataReader as fdr
 
-def update_google_sheet(new_picks, today_str):
+def update_google_sheet(new_picks, today_str, tournament_report=None):
     json_key_path = 'stock-key.json'
     sheet_name = "주식자동매매일지"
     
@@ -13,7 +13,7 @@ def update_google_sheet(new_picks, today_str):
     # 💡 컬럼 추가: 'AI한줄평', 'AI토너먼트'
     cols = [
         '추천일', '기상', '종목명', '종목코드', '에너지', '안전', '점수', '매수가', 
-        '현재가', '최고수익', '현재수익', '구분', '이격', '수급', 'AI한줄평', 'AI토너먼트', '상태'
+        '현재가', '최고수익', '현재수익', '구분', '이격', '수급', 'AI한줄평', '상태'
     ]
 
     try:
@@ -32,7 +32,7 @@ def update_google_sheet(new_picks, today_str):
         client = gspread.authorize(creds)
         doc = client.open(sheet_name)
         worksheet = doc.sheet1
-
+        
         # 2. 기존 데이터 로드 및 전처리
         existing_data = worksheet.get_all_records()
         df_log = pd.DataFrame(existing_data)
@@ -65,7 +65,6 @@ def update_google_sheet(new_picks, today_str):
                     '수급': pick.get('수급', ''),
                     # 💡 AI 분석 결과 매핑
                     'AI한줄평': pick.get('ai_tip', '분석전'), 
-                    'AI토너먼트': pick.get('ai_tournament', '해당없음'),
                     '상태': '진행중'
                 }
                 new_rows.append(new_row)
@@ -110,5 +109,19 @@ def update_google_sheet(new_picks, today_str):
         worksheet.update('A1', data_to_upload) # 💡 최신 gspread 규격 적용
         print("💾 [Google] 시트 저장 및 동기화 완료!")
 
+        # --- [탭 2: AI 전략실 (AI_Report)] ---
+        if tournament_report:
+            try:
+                # AI_Report 탭이 있으면 가져오고, 없으면 생성
+                try:
+                    report_sheet = doc.worksheet("AI_Report")
+                except:
+                    report_sheet = doc.add_worksheet(title="AI_Report", rows="1000", cols="5")
+                
+                # 날짜와 리포트 내용을 새 행으로 추가 (최신 리포트가 위로 오게 하거나 아래로 쌓음)
+                report_sheet.append_row([today_str, tournament_report])
+                print("✅ AI_Report 탭에 분석 보고서 기록 완료")
+            except Exception as e:
+                print(f"⚠️ AI 리포트 기록 실패: {e}")
     except Exception as e:
         print(f"🚨 [Google] 시트 연동 중 치명적 오류: {e}")
