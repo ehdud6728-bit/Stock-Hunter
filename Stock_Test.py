@@ -227,10 +227,7 @@ def analyze_final(ticker, name, historical_indices):
             is_energy = row['OBV_Slope'] > 0 and row['MACD_Hist'] > 0
             # 3. 고래가 입질을 시작했는가?
             is_whale = max_c > 5
-            # 4. 볼린저밴드(40,2) 돌파했는가?
-            if is_bb40_brk:
-                s_score += 40  # 장기 추세 돌파는 매우 강력한 가점 대상!
-    
+
             # 레전드 점수 계산 (재영솔루텍 조건 충족 시 폭등)
             legend_score = 0
             if is_bottom and is_energy and is_vma_gc:
@@ -259,6 +256,10 @@ def analyze_final(ticker, name, historical_indices):
             t_pct = int((row['High']-max(row['Open'],row['Close']))/(row['High']-row['Low'])*100) if row['High']!=row['Low'] else 0
             if t_pct > 40: s_score -= 15
 
+            # 4. 볼린저밴드(40,2) 돌파했는가?
+            if is_bb40_brk:
+                s_score += 40  # 장기 추세 돌파는 매우 강력한 가점 대상!
+            
             # 태그 생성
             tags = [t for t, c in zip(["🚀슈퍼타점","🍉수박","Sto-GC","VMA-GC","BB-Break","5일선","🏆LEGEND","🚨장기돌파" ], 
                                       [is_nova, is_melon, is_sto_gc, is_vma_gc, is_bb_brk, row['Close']>row['MA5'], legend_score >= 50, is_bb40_brk]) if c]
