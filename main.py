@@ -105,38 +105,55 @@ def get_financial_health(code):
     except: return "N(미비)", 0
 
 # ---------------------------------------------------------
-# 🐳 [3] 수급 및 고래 베팅액 분석
+# 🐳 [수정] 수급 및 고래 베팅액 분석 (twin_b 리턴 추가)
 # ---------------------------------------------------------
 def get_supply_and_money(code, price):
     try:
         url = f"https://finance.naver.com/item/frgn.naver?code={code}"
-        res = requests.get(url, headers=REAL_HEADERS, timeout=5); res.encoding = 'euc-kr'
+        res = requests.get(url, headers=REAL_HEADERS, timeout=5)
+        res.encoding = 'euc-kr'
         df = pd.read_html(res.text, match='날짜')[0].dropna().head(10)
-        new_cols = ['_'.join(col) if isinstance(col, tuple) else col for col in df.columns]; df.columns = new_cols
+        
+        # 컬럼 정리
+        new_cols = ['_'.join(col) if isinstance(col, tuple) else col for col in df.columns]
+        df.columns = new_cols
+        
         inst_col = next((c for c in df.columns if '기관' in c and '순매매' in c), None)
         frgn_col = next((c for c in df.columns if '외국인' in c and '순매매' in c), None)
+        
         inst_qty = [int(float(str(v).replace(',', ''))) for v in df[inst_col].values]
         frgn_qty = [int(float(str(v).replace(',', ''))) for v in df[frgn_col].values]
         
+        # 연속 순매수 계산
         def get_streak(data):
             c = 0
             for v in data:
                 if v > 0: c += 1
                 else: break
             return c
+            
         i_s, f_s = get_streak(inst_qty), get_streak(frgn_qty)
-        inst_m = round((inst_qty[0] * price) / 10000000); frgn_m = round((frgn_qty[0] * price) / 10000000)
+        inst_m = round((inst_qty[0] * price) / 100000000) # 억 단위
+        frgn_m = round((frgn_qty[0] * price) / 100000000)
         total_m = abs(inst_m) + abs(frgn_m)
-        leader = "🤝쌍끌" if inst_m > 0 and frgn_m > 0 else ("🔴기관" if inst_m > frgn_m else "🔵외인")
+        
+        # 💡 twin_b: 오늘 외인과 기관이 동시에 순매수했는가?
+        twin_b = (inst_qty[0] > 0 and frgn_qty[0] > 0)
+        
+        leader = "🤝쌍끌" if twin_b else ("🔴기관" if inst_m > frgn_m else "🔵외인")
         
         whale_streak = 0
         for k in range(len(df)):
-            if (abs(inst_qty[k]) + abs(frgn_qty[k])) * price / 10000000 >= WHALE_THRESHOLD: whale_streak += 1
+            if (abs(inst_qty[k]) + abs(frgn_qty[k])) * price / 100000000 >= 10: # 10억 기준
+                whale_streak += 1
             else: break
         
-        w_score = (total_m // 50) + (3 if whale_streak >= 3 else 0)
-        return f"{leader}({i_s}/{f_s})", total_m, whale_streak, w_score
-    except: return "⚠️오류", 0, 0, 0
+        w_score = (total_m // 2) + (3 if whale_streak >= 3 else 0)
+        
+        # ✅ 5개의 값을 정확히 리턴합니다.
+        return f"{leader}({i_s}/{f_s})", total_m, whale_streak, w_score, twin_b
+    except: 
+        return "⚠️오류", 0, 0, 0, False
 
 # ---------------------------------------------------------
 # 📈 [4] 기술적 분석 지표 (OBV, Double-GC 등)
@@ -274,19 +291,25 @@ def get_ai_summary(ticker, name, tags):
 # ---------------------------------------------------------
 # 🕵️‍♂️ [7] 분석 엔진 (당일 집중형 - 중복 방지)
 # ---------------------------------------------------------
+# ---------------------------------------------------------
+# 🕵️‍♂️ [수정] 분석 엔진 (변수명 통일 및 초기화 강화)
+# ---------------------------------------------------------
 def analyze_final(ticker, name):
+    # 💡 모든 변수를 함수 시작 시점에 안전하게 초기화합니다.
+    s_score = 0
+    f_score = 0
+    whale_score = 0
+    tags = []
+    weather_icons = []
+    storm_count = 0
+    
     try:
-        # 💡 [로그 1] 데이터 수집 시작
         df = fdr.DataReader(ticker, start=(datetime.now()-timedelta(days=250)))
-        if len(df) < 100: 
-            print(f"➖ {name}({ticker}): 데이터 부족 ({len(df)})")
-            return []
+        if len(df) < 100: return []
         
-        # 💡 [로그 2] 지표 계산
         df = get_indicators(df)
         
-        # 💡 [중요 수정] 전역 변수 weather_data를 여기서 결합해야 합니다!
-        # weather_data가 analyze_final 내부에서 보이지 않으면 에러가 납니다.
+        # 글로벌 weather_data 결합 (Main에서 정의된 weather_data 사용)
         global weather_data
         df = df.join(weather_data, how='left').fillna(method='ffill')
         
@@ -294,71 +317,56 @@ def analyze_final(ticker, name):
         prev = df.iloc[-2]
         curr_idx = df.index[-1]
         
-        # 💡 [로그 3] 수급 및 재무 수집
-        # get_supply_and_money가 twin_b를 리턴하도록 수정되어야 합니다.
-        try:
-            s_tag, total_m, w_streak, whale_score, twin_b = get_supply_and_money(ticker, row['Close'])
-        except Exception as e:
-            print(f"⚠️ {name} 수급 분석 실패: {e}")
-            twin_b = False; s_tag = "N/A"; total_m = 0; w_streak = 0; whale_score = 0
-
+        # 💡 리턴값 5개를 정확히 받아냅니다.
+        s_tag, total_m, w_streak, whale_score, twin_b = get_supply_and_money(ticker, row['Close'])
         f_tag, f_score = get_financial_health(ticker)
         
-        # --- 기술적 신호 판정 ---
+        # --- 지표 판정 ---
         is_sto_gc = prev['Sto_D'] <= prev['Sto_SD'] and row['Sto_D'] > row['Sto_SD']
         is_vma_gc = prev['VMA5'] <= prev['VMA20'] and row['VMA5'] > row['VMA20']
         is_bb_brk = prev['Close'] <= prev['BB_Upper'] and row['Close'] > row['BB_Upper']
-        
-        # adx 등 컬럼 존재 여부 체크
-        adx_val = row.get('ADX', 0)
-        is_melon = twin_b and row['OBV_Slope'] > 0 and adx_val > 20 and row['MACD_Hist'] > 0
-        is_nova = is_sto_gc and is_vma_gc and is_bb_brk and is_melon
         is_bb40_brk = prev.get('BB40_Upper', 0) <= prev['Close'] # 예시
-
-        # --- [날씨 판정 로그] ---
-        # 여기서 KeyError가 나면 weather_data 결합 문제입니다.
-        weather_icons = []
-        storm_count = 0
-        try:
-            if row['ixic_close'] > row['ixic_ma5']: weather_icons.append("☀️")
-            else: weather_icons.append("🌪️"); storm_count += 1
-        except KeyError:
-            print(f"❌ {name}: 매크로 데이터(나스닥) 결합 오류!")
-            return []
-
-        # ... (이하 점수 계산 로직 동일) ...
         
-        # 태그 생성 및 필터링
+        # 멜론/노바 판정
+        is_melon = twin_b and row['OBV_Slope'] > 0 and row.get('ADX', 0) > 20 and row['MACD_Hist'] > 0
+        is_nova = is_sto_gc and is_vma_gc and is_bb_brk and is_melon
+        
+        # --- 날씨 판정 ---
+        for m_key in ['ixic', 'sp500']:
+            if row.get(f'{m_key}_close', 0) > row.get(f'{m_key}_ma5', 0): weather_icons.append("☀️")
+            else: weather_icons.append("🌪️"); storm_count += 1
+            
+        # --- 최종 점수 산산 (s_score로 통일) ---
+        s_score = int(90 + (30 if is_nova else 15 if is_melon else 0))
+        s_score += (whale_score + f_score)
+        s_score -= (storm_count * 10)
+        
+        # 태그 생성
         tags = [t for t, c in zip(["🚀슈퍼타점","🍉수박","Sto-GC","VMA-GC","BB-Break","🏆LEGEND" ], 
                                   [is_nova, is_melon, is_sto_gc, is_vma_gc, is_bb_brk, (98 <= row['Disparity'] <= 104)]) if c]
-
-        if not tags:
-            # print(f"🔍 {name}: 신호 없음") # 너무 많이 찍히면 주석 처리
-            return []
-
-        print(f"✅ {name} 포착! 점수: {score} 태그: {tags}")
         
-        # 💡 구글 시트 규격에 100% 맞춘 데이터 패키징
+        if not tags: return []
+
+        # 💡 NameError 방지: print문에서 s_score 사용
+        print(f"✅ {name} 포착! 점수: {s_score} 태그: {tags}")
+        
         return [{
-            '날짜': TODAY_STR,
+            '날짜': curr_idx.strftime('%Y-%m-%d'),
             '기상': "".join(weather_icons),
-            '종목명': name,
-            'code': ticker,
+            '안전': int(max(0, s_score)),
+            '점수': int(s_score), # 구글 시트 전송용
+            '종목명': name, 'code': ticker,
             '에너지': "🔋" if row['MACD_Hist'] > 0 else "🪫",
-            '안전': int(max(0, s_score)),  # 기술적 안전 점수
-            '점수': int(score),           # 수급/재무 화력 점수
             '현재가': int(row['Close']),
             '구분': " ".join(tags),
-            '꼬리%': t_pct,
+            '재무': f_tag, '수급': s_tag,
             '이격': int(row['Disparity']),
-            '수급': s_tag,
-            'OBV기울기': int(row['OBV_Slope'])
+            'OBV기울기': int(row['OBV_Slope']),
+            '꼬리%': 0 # 필요 시 계산식 추가
         }]
-
     except Exception as e:
-        # 💡 모든 에러를 화면에 출력하도록 수정
         import traceback
-        print(f"🚨 {name}({ticker}) 분석 중 치명적 에러:\n{traceback.format_exc()}")
+        print(f"🚨 {name} 분석 중 치명적 에러:\n{traceback.format_exc()}")
         return []
         
 def analyze_final_back(ticker, name):
