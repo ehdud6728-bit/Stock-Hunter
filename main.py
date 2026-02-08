@@ -52,6 +52,38 @@ MIN_MARCAP = 10000000000
 STOP_LOSS_PCT = -5.0
 WHALE_THRESHOLD = 50 
 
+# =================================================
+# ⚙️ [1. 글로벌 관제 및 수급 설정]
+# =================================================
+SCAN_DAYS = 30
+TOP_N = 200 
+START_DATE = (datetime.now() - timedelta(days=600)).strftime('%Y-%m-%d')
+END_DATE_STR = datetime.now().strftime('%Y%m%d')
+START_DATE_STR = (datetime.now() - timedelta(days=60)).strftime('%Y%m%d')
+
+print(f"📡 [Ver 27.0] 사령부 퍼펙트 오버홀 가동... 스토캐스틱 레이더 및 전 지표 동기화")
+
+def get_safe_macro(symbol, name):
+    try:
+        df = fdr.DataReader(symbol, start=(datetime.now() - timedelta(days=15)).strftime('%Y-%m-%d'))
+        curr, prev = df.iloc[-1]['Close'], df.iloc[-2]['Close']
+        ma5 = df['Close'].tail(5).mean()
+        chg = ((curr - prev) / prev) * 100
+        status = "☀️맑음" if curr > ma5 else "🌪️폭풍우"
+        if "VIX" in name: status = "☀️안정" if curr < ma5 else "🌪️위험"
+        return {"val": curr, "chg": chg, "status": status, "text": f"{name}: {curr:,.2f}({chg:+.2f}%) {status}"}
+    except: return {"status": "☁️불명", "text": f"{name}: 연결실패"}
+
+def get_index_investor_data(market_name):
+    try:
+        df = stock.get_market_net_purchases_of_equities(END_DATE_STR, END_DATE_STR, market_name)
+        if df.empty:
+            prev_day = (datetime.now() - timedelta(days=1)).strftime('%Y%m%d')
+            df = stock.get_market_net_purchases_of_equities(prev_day, prev_day, market_name)
+        total = df.sum()
+        return f"개인 {total['개인']:+,.0f} | 외인 {total['외국인']:+,.0f} | 기관 {total['기관합계']:+,.0f}"
+    except: return "데이터 수신 중..."
+
 # ---------------------------------------------------------
 # 🏥 [2] 재무 건전성 분석 (건강검진)
 # ---------------------------------------------------------
