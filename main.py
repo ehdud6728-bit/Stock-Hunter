@@ -338,13 +338,21 @@ def analyze_final(ticker, name):
 
         print(f"✅ {name} 포착! 점수: {score} 태그: {tags}")
         
+        # 💡 구글 시트 규격에 100% 맞춘 데이터 패키징
         return [{
-            '날짜': curr_idx.strftime('%Y-%m-%d'),
+            '날짜': TODAY_STR,
             '기상': "".join(weather_icons),
-            '안전': int(90 - (storm_count*10)), 
-            '점수': 100, # 테스트용 고정점수
-            '종목명': name, 'code': ticker,
-            '구분': " ".join(tags), '재무': f_tag, '수급': s_tag
+            '종목명': name,
+            'code': ticker,
+            '에너지': "🔋" if row['MACD_Hist'] > 0 else "🪫",
+            '안전': int(max(0, s_score)),  # 기술적 안전 점수
+            '점수': int(score),           # 수급/재무 화력 점수
+            '현재가': int(row['Close']),
+            '구분': " ".join(tags),
+            '꼬리%': t_pct,
+            '이격': int(row['Disparity']),
+            '수급': s_tag,
+            'OBV기울기': int(row['OBV_Slope'])
         }]
 
     except Exception as e:
