@@ -598,7 +598,7 @@ if all_hits:
     for item in ai_candidates:
         # 상위 30개에만 AI 한줄평과 토너먼트 리포트 삽입
         item['ai_tip'] = get_ai_summary(item['code'], item['종목명'], item['구분'])
-        item['ai_tournament'] = tournament_report
+        #item['ai_tournament'] = tournament_report
 
     # 4. [텔레그램 전송] 상위 15개 정예만 골라 발송
     telegram_targets = ai_candidates[:15]
@@ -632,7 +632,7 @@ if all_hits:
     # 5. [구글 시트 전수 저장] 스캔된 모든 종목(all_hits_sorted)을 시트로 전송!
     try:
         # AI 분석이 안 된 종목들은 get()을 통해 빈 값으로 처리됩니다.
-        update_google_sheet(all_hits_sorted, TODAY_STR)
+        update_google_sheet(all_hits_sorted, TODAY_STR,tournament_report)
         print(f"💾 총 {len(all_hits_sorted)}개 종목 전수 기록 완료! (상위 30개 AI분석 포함)")
     except Exception as e:
         print(f"🚨 시트 업데이트 실패: {e}")
