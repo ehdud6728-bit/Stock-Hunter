@@ -47,7 +47,7 @@ REAL_HEADERS = {
 }
 
 # 스캔 설정
-SCAN_DAYS, TOP_N = 1, 400
+SCAN_DAYS, TOP_N = 1, 600
 MIN_MARCAP = 10000000000 
 STOP_LOSS_PCT = -5.0
 WHALE_THRESHOLD = 50 
@@ -430,7 +430,9 @@ if all_hits:
     # 점수 순 정렬 (중복은 analyze_final에서 이미 차단됨)
     sorted_hits = sorted(all_hits, key=lambda x: x['점수'], reverse=True)[:15]
     tournament_report = run_ai_tournament(all_hits)
-        
+    
+    print("\n" + f"\n{tournament_report})
+    
     MAX_CHAR = 3800  # 여유 있게 3,800자로 설정
     current_msg = f"{briefing}\n\n📢 [오늘의 추천주]\n\n"
         
