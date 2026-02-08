@@ -276,6 +276,85 @@ def get_ai_summary(ticker, name, tags):
 # ---------------------------------------------------------
 def analyze_final(ticker, name):
     try:
+        # 💡 [로그 1] 데이터 수집 시작
+        df = fdr.DataReader(ticker, start=(datetime.now()-timedelta(days=250)))
+        if len(df) < 100: 
+            print(f"➖ {name}({ticker}): 데이터 부족 ({len(df)})")
+            return []
+        
+        # 💡 [로그 2] 지표 계산
+        df = get_indicators(df)
+        
+        # 💡 [중요 수정] 전역 변수 weather_data를 여기서 결합해야 합니다!
+        # weather_data가 analyze_final 내부에서 보이지 않으면 에러가 납니다.
+        global weather_data
+        df = df.join(weather_data, how='left').fillna(method='ffill')
+        
+        row = df.iloc[-1]
+        prev = df.iloc[-2]
+        curr_idx = df.index[-1]
+        
+        # 💡 [로그 3] 수급 및 재무 수집
+        # get_supply_and_money가 twin_b를 리턴하도록 수정되어야 합니다.
+        try:
+            s_tag, total_m, w_streak, whale_score, twin_b = get_supply_and_money(ticker, row['Close'])
+        except Exception as e:
+            print(f"⚠️ {name} 수급 분석 실패: {e}")
+            twin_b = False; s_tag = "N/A"; total_m = 0; w_streak = 0; whale_score = 0
+
+        f_tag, f_score = get_financial_health(ticker)
+        
+        # --- 기술적 신호 판정 ---
+        is_sto_gc = prev['Sto_D'] <= prev['Sto_SD'] and row['Sto_D'] > row['Sto_SD']
+        is_vma_gc = prev['VMA5'] <= prev['VMA20'] and row['VMA5'] > row['VMA20']
+        is_bb_brk = prev['Close'] <= prev['BB_Upper'] and row['Close'] > row['BB_Upper']
+        
+        # adx 등 컬럼 존재 여부 체크
+        adx_val = row.get('ADX', 0)
+        is_melon = twin_b and row['OBV_Slope'] > 0 and adx_val > 20 and row['MACD_Hist'] > 0
+        is_nova = is_sto_gc and is_vma_gc and is_bb_brk and is_melon
+        is_bb40_brk = prev.get('BB40_Upper', 0) <= prev['Close'] # 예시
+
+        # --- [날씨 판정 로그] ---
+        # 여기서 KeyError가 나면 weather_data 결합 문제입니다.
+        weather_icons = []
+        storm_count = 0
+        try:
+            if row['ixic_close'] > row['ixic_ma5']: weather_icons.append("☀️")
+            else: weather_icons.append("🌪️"); storm_count += 1
+        except KeyError:
+            print(f"❌ {name}: 매크로 데이터(나스닥) 결합 오류!")
+            return []
+
+        # ... (이하 점수 계산 로직 동일) ...
+        
+        # 태그 생성 및 필터링
+        tags = [t for t, c in zip(["🚀슈퍼타점","🍉수박","Sto-GC","VMA-GC","BB-Break","🏆LEGEND" ], 
+                                  [is_nova, is_melon, is_sto_gc, is_vma_gc, is_bb_brk, (98 <= row['Disparity'] <= 104)]) if c]
+
+        if not tags:
+            # print(f"🔍 {name}: 신호 없음") # 너무 많이 찍히면 주석 처리
+            return []
+
+        print(f"✅ {name} 포착! 점수: {score} 태그: {tags}")
+        
+        return [{
+            '날짜': curr_idx.strftime('%Y-%m-%d'),
+            '기상': "".join(weather_icons),
+            '안전': int(90 - (storm_count*10)), 
+            '점수': 100, # 테스트용 고정점수
+            '종목명': name, 'code': ticker,
+            '구분': " ".join(tags), '재무': f_tag, '수급': s_tag
+        }]
+
+    except Exception as e:
+        # 💡 모든 에러를 화면에 출력하도록 수정
+        import traceback
+        print(f"🚨 {name}({ticker}) 분석 중 치명적 에러:\n{traceback.format_exc()}")
+        return []
+        
+def analyze_final_back(ticker, name):
+    try:
         # 1. 지표 계산을 위해 과거 데이터를 충분히 가져옵니다.
         df = fdr.DataReader(ticker, start=(datetime.now()-timedelta(days=250)))
         if len(df) < 100: return []
