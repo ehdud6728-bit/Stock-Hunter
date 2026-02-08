@@ -350,7 +350,7 @@ def analyze_final(ticker, name):
             '종목명': name, 
             'code': ticker,
             '꼬리%': t_pct, 
-            '이격': int(row['Disparity'])
+            '이격': int(row['Disparity']),
             '재무': f_tag, 
             '수급': s_tag, 
             '베팅액': total_m, 
