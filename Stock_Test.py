@@ -67,6 +67,8 @@ def get_indicators(df):
     std = df['Close'].rolling(20).std()
     df['BB_Upper'] = df['MA20'] + (std * 2)
     df['BB_Width'] = (df['BB_Upper'] - (df['MA20'] - (std * 2))) / df['MA20'] * 100
+    # 2. 40일 변동폭 (장기 응축 - 사령관님의 '공구리' 두께)
+    df['BB40_Width'] = (df['BB40_Upper'] - (df['MA40']*2 - df['BB40_Upper'])) / df['MA40'] * 100
     df['BB40_Upper'] = df['Close'].rolling(window=40).mean() + (df['Close'].rolling(window=40).std() * 2)
     
     # 💡 [스토캐스틱 슬로우 12-5-5]
@@ -232,7 +234,17 @@ def analyze_final(ticker, name, historical_indices):
             legend_score = 0
             if is_bottom and is_energy and is_vma_gc:
                 legend_score = 50 # 🏆 레전드 패턴 가산점
-             
+           
+# [업그레이드 판정]
+# - 20일 폭이 최근 100일 중 최저치 근처인가? (단기 장전)
+            is_min_width20 = df['BB20_Width'].iloc[-1] <= df['BB20_Width'].iloc[-100:].min() * 1.1
+# - 40일 폭도 충분히 좁아져서 에너지가 묵직한가? (장기 압착)
+            is_tight_width40 = df['BB40_Width'].iloc[-1] < 15 # 보통 15% 미만이면 매우 강력
+
+# 종합 '슈퍼 장전완료' 신호
+            if is_min_width20 and is_tight_width40 and row['ADX'] < 15 and row['Disparity'] < 102:
+                score += 40 # 대시세 가능성이므로 화력 대폭 가산!
+  
             # 1. 나스닥 판정
             if row['ixic_close'] > row['ixic_ma5']: weather_icons.append("☀️")
             else: weather_icons.append("🌪️"); storm_count += 1
@@ -261,8 +273,8 @@ def analyze_final(ticker, name, historical_indices):
                 s_score += 40  # 장기 추세 돌파는 매우 강력한 가점 대상!
             
             # 태그 생성
-            tags = [t for t, c in zip(["🚀슈퍼타점","🍉수박","Sto-GC","VMA-GC","BB-Break","5일선","🏆LEGEND","🚨장기돌파" ], 
-                                      [is_nova, is_melon, is_sto_gc, is_vma_gc, is_bb_brk, row['Close']>row['MA5'], legend_score >= 50, is_bb40_brk]) if c]
+            tags = [t for t, c in zip(["🚀슈퍼타점","🍉수박","Sto-GC","VMA-GC","BB-Break","5일선","🏆LEGEND","🚨장기돌파","🔋초강력응축"], 
+                                      [is_nova, is_melon, is_sto_gc, is_vma_gc, is_bb_brk, row['Close']>row['MA5'], legend_score >= 50, is_bb40_brk, is_min_width20 and is_tight_width40 and row['ADX'] < 15 and row['Disparity'] < 10]) if c]
             if not tags: continue
 
             # --- [D] 수익률 검증 ---
