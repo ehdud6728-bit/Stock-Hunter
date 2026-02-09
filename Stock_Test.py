@@ -1,3 +1,6 @@
+# ------------------------------------------------------------------
+# 💎 [Ultimate Masterpiece] 전천후 AI 전략 사령부 (Ver 36.0 통합판)
+# ------------------------------------------------------------------
 import FinanceDataReader as fdr
 import os, re, time, pytz
 from pykrx import stock
@@ -17,170 +20,95 @@ except ImportError:
 
 warnings.filterwarnings('ignore')
 
- # ---------------------------------------------------------
-# 📊 [업그레이드] 복합 전술 통계 엔진
+# =================================================
+# ⚙️ [1. 설정 및 글로벌 변수]
+# =================================================
+SCAN_DAYS = 30     # 최근 30일 내 타점 전수 조사
+TOP_N = 250        # 거래대금 상위 종목 수 (필요시 2500으로 확장 가능)
+KST = pytz.timezone('Asia/Seoul')
+NOW = datetime.now(KST)
+TODAY_STR = NOW.strftime('%Y-%m-%d')
+START_DATE = (datetime.now() - timedelta(days=600)).strftime('%Y-%m-%d')
+END_DATE_STR = datetime.now().strftime('%Y%m%d')
+
+print(f"📡 [Ver 36.0] 사령부 무결성 통합 가동... 💎다이아몬드 & 📊복합통계 엔진 탑재")
+
+# ---------------------------------------------------------
+# 📊 [전술 통계] 복합 전술 통계 엔진
 # ---------------------------------------------------------
 def calculate_strategy_stats(all_hits):
-    """
-    사령관님, 개별 태그뿐만 아니라 '태그 조합(복합 전략)'의 승률을 분석합니다.
-    """
     past_hits = [h for h in all_hits if h['보유일'] > 0]
     if not past_hits: return pd.DataFrame()
-
     stats = {}
-    
     for h in past_hits:
-        # 💡 복합 전략 처리: 태그들을 가나다순 정렬 후 " + "로 결합
         raw_tags = h['구분'].split()
         if not raw_tags: continue
-        
-        # 1. 개별 태그 분석
-        # 2. 복합 전략 분석 (2개 이상의 태그가 있을 경우)
-        combos = [h['구분']] # 전체 조합 하나
+        combos = [h['구분']]
         if len(raw_tags) > 1:
-            raw_tags.sort() # 정렬하여 일관성 유지
+            raw_tags.sort()
             combos.append(" + ".join(raw_tags)) 
-        
-        # 중복 제거 및 분석
         for strategy in set(combos):
             if strategy not in stats: 
                 stats[strategy] = {'total': 0, 'hits': 0, 'yields': []}
-            
             stats[strategy]['total'] += 1
-            if h['최고_raw'] >= 3.5: # 타율 기준: 최고 수익률 3.5% 이상
-                stats[strategy]['hits'] += 1
+            if h['최고_raw'] >= 3.5: stats[strategy]['hits'] += 1
             stats[strategy]['yields'].append(h['최고_raw'])
 
     report_data = []
     for strategy, data in stats.items():
         avg_yield = sum(data['yields']) / data['total']
         hit_rate = (data['hits'] / data['total']) * 100
-        report_data.append({
-            '전략명': strategy,
-            '포착건수': data['total'],
-            '타율(승률)': round(hit_rate, 1),
-            '평균최고수익': round(avg_yield, 1)
-        })
-    
-    # 수익률과 타율이 높은 순으로 정렬
+        report_data.append({'전략명': strategy, '포착건수': data['total'], '타율(승률)': round(hit_rate, 1), '평균최고수익': round(avg_yield, 1)})
     return pd.DataFrame(report_data).sort_values(by=['평균최고수익', '타율(승률)'], ascending=False)
 
-# =================================================
-# ⚙️ [1. 설정 및 글로벌 변수]
-# =================================================
-SCAN_DAYS = 10
-TOP_N = 250 
-START_DATE = (datetime.now() - timedelta(days=600)).strftime('%Y-%m-%d')
-END_DATE_STR = datetime.now().strftime('%Y%m%d')
-
-print(f"📡 [Ver 28.0] 사령부 무결성 통합 가동... 10회 검수 완료 및 초강력 응축 레이더 장착")
-
-def get_safe_macro(symbol, name):
-    try:
-        df = fdr.DataReader(symbol, start=(datetime.now() - timedelta(days=15)).strftime('%Y-%m-%d'))
-        curr, prev = df.iloc[-1]['Close'], df.iloc[-2]['Close']
-        ma5 = df['Close'].tail(5).mean()
-        chg = ((curr - prev) / prev) * 100
-        status = "☀️맑음" if curr > ma5 else "🌪️폭풍우"
-        if "VIX" in name: status = "☀️안정" if curr < ma5 else "🌪️위험"
-        return {"val": curr, "chg": chg, "status": status, "text": f"{name}: {curr:,.2f}({chg:+.2f}%) {status}"}
-    except: return {"status": "☁️불명", "text": f"{name}: 연결실패"}
-
-def get_index_investor_data(market_name):
-    try:
-        df = stock.get_market_net_purchases_of_equities(END_DATE_STR, END_DATE_STR, market_name)
-        if df.empty:
-            prev_day = (datetime.now() - timedelta(days=1)).strftime('%Y%m%d')
-            df = stock.get_market_net_purchases_of_equities(prev_day, prev_day, market_name)
-        total = df.sum()
-        return f"개인 {total['개인']:+,.0f} | 외인 {total['외국인']:+,.0f} | 기관 {total['기관합계']:+,.0f}"
-    except: return "데이터 수신 중..."
-
 # ---------------------------------------------------------
-# 📈 [2] 마스터 지표 엔진 (40일 BB 및 Width 포함)
+# 📈 [데이터] 마스터 지표 엔진 (Ver 36.0 일목균형표 포함)
 # ---------------------------------------------------------
 def get_indicators(df):
     df = df.copy()
-    for n in [5, 20, 40, 60]:
-        df[f'MA{n}'] = df['Close'].rolling(n).mean()
-        df[f'VMA{n}'] = df['Volume'].rolling(n).mean()
+    count = len(df)
+    # 단테 장기선 포함 이평선
+    for n in [5, 20, 40, 60, 112, 224]:
+        df[f'MA{n}'] = df['Close'].rolling(window=min(count, n)).mean()
+        df[f'VMA{n}'] = df['Volume'].rolling(window=min(count, n)).mean()
     
-    df['Disparity'] = (df['Close'] / df['MA20']) * 100
-    
-    # 20일 BB 및 Width
+    # 20/40일 BB Width (이중 응축)
     std20 = df['Close'].rolling(20).std()
     df['BB_Upper'] = df['MA20'] + (std20 * 2)
-    df['BB20_Width'] = (df['BB_Upper'] - (df['MA20'] - (std20 * 2))) / df['MA20'] * 100
-    
-    # 40일 BB 및 Width (응축 측정 핵심)
+    df['BB20_Width'] = (std20 * 4) / df['MA20'] * 100
     std40 = df['Close'].rolling(40).std()
     df['BB40_Upper'] = df['MA40'] + (std40 * 2)
-    df['BB40_Width'] = (df['BB40_Upper'] - (df['MA40'] - (std40 * 2))) / df['MA40'] * 100
-        
-    # 스토캐스틱 슬로우 12-5-5
+    df['BB40_Width'] = (std40 * 4) / df['MA40'] * 100
+    
+    # 일목균형표 (의성 탐지)
+    df['Tenkan_sen'] = (df['High'].rolling(9).max() + df['Low'].rolling(9).min()) / 2
+    df['Kijun_sen'] = (df['High'].rolling(26).max() + df['Low'].rolling(26).min()) / 2
+    df['Span_A'] = ((df['Tenkan_sen'] + df['Kijun_sen']) / 2).shift(26)
+    df['Span_B'] = ((df['High'].rolling(52).max() + df['Low'].rolling(52).min()) / 2).shift(26)
+    df['Cloud_Top'] = df[['Span_A', 'Span_B']].max(axis=1)
+
+    # 스토캐스틱 / ADX / MACD / OBV
     l_min, h_max = df['Low'].rolling(12).min(), df['High'].rolling(12).max()
     df['Sto_K'] = ((df['Close'] - l_min) / (h_max - l_min)) * 100
     df['Sto_D'] = df['Sto_K'].rolling(5).mean()
     df['Sto_SD'] = df['Sto_D'].rolling(5).mean()
     
-    # DMI/ADX
     high, low, close = df['High'], df['Low'], df['Close']
     tr = pd.concat([high - low, abs(high - close.shift(1)), abs(low - close.shift(1))], axis=1).max(axis=1)
-    df['pDI'] = (pd.Series(np.where((high-high.shift(1) > low.shift(1)-low), (high-high.shift(1)).clip(lower=0), 0)).rolling(14).sum().values / tr.rolling(14).sum().values) * 100
-    df['mDI'] = (pd.Series(np.where((low.shift(1)-low > high-high.shift(1)), (low.shift(1)-low).clip(lower=0), 0)).rolling(14).sum().values / tr.rolling(14).sum().values) * 100
-    df['ADX'] = ((abs(df['pDI'] - df['mDI']) / (df['pDI'] + df['mDI'])) * 100).rolling(14).mean()
-    
+    df['ADX'] = ((abs((high-high.shift(1)).clip(lower=0).rolling(14).sum() - (low.shift(1)-low).clip(lower=0).rolling(14).sum()) / 
+                ((high-high.shift(1)).clip(lower=0).rolling(14).sum() + (low.shift(1)-low).clip(lower=0).rolling(14).sum())) * 100).rolling(14).mean()
     df['MACD_Hist'] = (df['Close'].ewm(span=12).mean() - df['Close'].ewm(span=26).mean()) - (df['Close'].ewm(span=12).mean() - df['Close'].ewm(span=26).mean()).ewm(span=9).mean()
     df['OBV'] = (np.sign(df['Close'].diff()) * df['Volume']).fillna(0).cumsum()
     df['OBV_Slope'] = (df['OBV'] - df['OBV'].shift(5)) / df['OBV'].shift(5).abs() * 100
+    df['Disparity'] = (df['Close'] / df['MA20']) * 100
     return df
 
 # ---------------------------------------------------------
-# 🐳 [3] 수급 분석 엔진 (쌍끌이 twin_b 판정 포함)
+# 🕵️‍♂️ [분석] 정밀 분석 엔진 (Ver 36.0 다이아몬드 통합)
 # ---------------------------------------------------------
-def get_investor_data_stable(ticker, price):
-    try:
-        url = f"https://finance.naver.com/item/frgn.naver?code={ticker}"
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-        res = requests.get(url, headers=headers, timeout=5)
-        res.encoding = 'euc-kr'
-        df_list = pd.read_html(res.text)
-        df = df_list[2].dropna()
-        
-        i_qty = int(str(df.iloc[0]['기관']).replace('.0','').replace(',',''))
-        f_qty = int(str(df.iloc[0]['외국인']).replace('.0','').replace(',',''))
-        
-        f_money = (f_qty * price) / 100000000
-        i_money = (i_qty * price) / 100000000
-        total_m = f_money + i_money
-        
-        twin_b = (f_qty > 0 and i_qty > 0)
-        w_score = int(total_m * 2)
-        
-        return f"외({f_money:.1f}억)", f"기({i_money:.1f}억)", "✅" if twin_b else "❌", max(0, w_score), twin_b
-    except:
-        return "외(0억)", "기(0억)", "❌", 0, False
-
 # ---------------------------------------------------------
-# 🕵️‍♂️ [4] 정밀 분석 엔진 (모든 필터링 및 점수화 통합)
+# 🕵️‍♂️ [분석] 정밀 분석 엔진 (Ver 36.5: 폭발직전 필터 통합)
 # ---------------------------------------------------------
-def prepare_historical_weather():
-    start_point = (datetime.now() - timedelta(days=600)).strftime('%Y-%m-%d')
-    ndx = fdr.DataReader('^IXIC', start=start_point)[['Close']]
-    sp5 = fdr.DataReader('^GSPC', start=start_point)[['Close']]
-    vix = fdr.DataReader('^VIX', start=start_point)[['Close']]
-    
-    ndx['ixic_ma5'] = ndx['Close'].rolling(5).mean()
-    sp5['sp500_ma5'] = sp5['Close'].rolling(5).mean()
-    vix['vix_ma5'] = vix['Close'].rolling(5).mean()
-    
-    weather_df = pd.concat([
-        ndx.rename(columns={'Close': 'ixic_close'}),
-        sp5.rename(columns={'Close': 'sp500_close'}),
-        vix.rename(columns={'Close': 'vix_close'})
-    ], axis=1).fillna(method='ffill')
-    return weather_df
-
 def analyze_final(ticker, name, historical_indices):
     try:
         df = fdr.DataReader(ticker, start=START_DATE)
@@ -188,9 +116,16 @@ def analyze_final(ticker, name, historical_indices):
         df = get_indicators(df)
         df = df.join(historical_indices, how='left').fillna(method='ffill')
         
-        curr_price = df.iloc[-1]['Close']
-        f_s, i_s, s_s, whale_score, twin_b = get_investor_data_stable(ticker, curr_price)
-        
+        # 최신 수급 데이터 수집 (생략 방지)
+        url = f"https://finance.naver.com/item/frgn.naver?code={ticker}"
+        res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
+        res.encoding = 'euc-kr'
+        supply_df = pd.read_html(res.text)[2].dropna()
+        f_qty = int(str(supply_df.iloc[0]['외국인']).replace('.0','').replace(',',''))
+        i_qty = int(str(supply_df.iloc[0]['기관']).replace('.0','').replace(',',''))
+        twin_b = (f_qty > 0 and i_qty > 0)
+        whale_score = int(((f_qty + i_qty) * df.iloc[-1]['Close']) / 100000000)
+
         recent_df = df.tail(SCAN_DAYS)
         hits = []
 
@@ -199,147 +134,108 @@ def analyze_final(ticker, name, historical_indices):
             if raw_idx < 100: continue
             prev = df.iloc[raw_idx-1]
             
-            # --- [A] 기술적 신호 판정 ---
-            is_sto_gc = prev['Sto_D'] <= prev['Sto_SD'] and row['Sto_D'] > row['Sto_SD']
-            is_vma_gc = prev['VMA5'] <= prev['VMA20'] and row['VMA5'] > row['VMA20']
-            is_bb_brk = prev['Close'] <= prev['BB_Upper'] and row['Close'] > row['BB_Upper']
-            is_bb40_brk = prev['Close'] <= prev['BB40_Upper'] and row['Close'] > row['BB40_Upper']
+            # 1. 꼬리% 정밀 계산
+            high_p, low_p, close_p, open_p = row['High'], row['Low'], row['Close'], row['Open']
+            body_max = max(open_p, close_p)
+            t_pct = int((high_p - body_max) / (high_p - low_p) * 100) if high_p != low_p else 0
+
+            # 2. 핵심 전술 신호 판정
+            is_cloud_brk = prev['Close'] <= prev['Cloud_Top'] and close_p > row['Cloud_Top']
+            is_kijun_sup = close_p > row['Kijun_sen'] and prev['Close'] <= prev['Kijun_sen']
+            is_diamond = is_cloud_brk and is_kijun_sup
             
-            # --- [B] 🔋 초강력 응축(Double Squeeze) 판정 ---
-            min_w20 = df['BB20_Width'].iloc[raw_idx-100:raw_idx+1].min()
-            is_min_width20 = row['BB20_Width'] <= min_w20 * 1.15
-            is_tight_width40 = row['BB40_Width'] < 15
-            is_super_squeeze = is_min_width20 and is_tight_width40 and row['ADX'] < 18 and row['Disparity'] < 103
+            is_super_squeeze = row['BB20_Width'] < 10 and row['BB40_Width'] < 15
+            is_yeok_mae = close_p > row['MA112'] and prev['Close'] <= row['MA112']
+            is_vol_power = row['Volume'] > row['VMA20'] * 2.5 # 거래량 250% 폭발
 
-            # --- [C] 🏆 LEGEND (재영솔루텍 역매공파) 판정 ---
-            is_bottom = 98 <= row['Disparity'] <= 104
-            is_energy = row['OBV_Slope'] > 0 and row['MACD_Hist'] > 0
-            is_legend = is_bottom and is_energy and is_vma_gc
-
-            # --- [D] 점수 산출 및 기상도 ---
-            s_score = 90
-            is_melon = twin_b and row['OBV_Slope'] > 0 and row['ADX'] > 20 and row['MACD_Hist'] > 0
-            is_nova = is_sto_gc and is_vma_gc and is_bb_brk and is_melon
+            # 3. 점수 산출 및 태그 부여
+            s_score = 100
+            tags = []
             
-            if is_nova: s_score += 30
-            elif is_melon: s_score += 15
-            if is_legend: s_score += 50
-            if is_super_squeeze: s_score += 40
-            if is_bb40_brk: s_score += 30
-            s_score += whale_score
-
-            # 🌪️ 기상도 감점 로직
-            storm_count = 0
-            weather_icons = []
-            for k in ['ixic', 'sp500']:
-                if row[f'{k}_close'] > row[f'{k}_ma5']: weather_icons.append("☀️")
-                else: weather_icons.append("🌪️"); storm_count += 1
-            if row['vix_close'] < row['vix_ma5']: weather_icons.append("☀️")
-            else: weather_icons.append("🌪️"); storm_count += 1
+            if is_diamond:
+                s_score += 150
+                tags.append("💎다이아몬드")
+                # 💡 [신규] 폭발직전 필터: 다이아몬드인데 꼬리가 10% 미만일 때
+                if t_pct < 10:
+                    s_score += 50
+                    tags.append("🔥폭발직전")
             
-            s_score -= (storm_count * 10)
-            if row['OBV_Slope'] < 0: s_score -= 20
+            elif is_cloud_brk:
+                s_score += 40; tags.append("☁️구름돌파")
+
+            if is_yeok_mae: s_score += 40; tags.append("🏆역매공파")
+            if is_super_squeeze: s_score += 40; tags.append("🔋초강력응축")
+            if is_vol_power: s_score += 30; tags.append("⚡거래폭발")
             
-            # 꼬리 감점
-            t_pct = int((row['High']-max(row['Open'],row['Close']))/(row['High']-row['Low'])*100) if row['High']!=row['Low'] else 0
-            if t_pct > 40: s_score -= 15
+            # 꼬리 감점 로직 (다이아몬드가 아닐 때 더 엄격하게 적용)
+            if t_pct > 40:
+                s_score -= 25
+                tags.append("⚠️윗꼬리")
+            if row['BB40_Width'] < 15: tags.append("밴드(40)")
 
-            # 태그 생성
-            tag_list = []
-            if is_nova: tag_list.append("🚀슈퍼타점")
-            if is_melon: tag_list.append("🍉수박")
-            if is_legend: tag_list.append("🏆LEGEND")
-            if is_super_squeeze: tag_list.append("🔋초강력응축")
-            if is_bb40_brk: tag_list.append("🚨장기돌파")
-            if is_sto_gc: tag_list.append("Sto-GC")
-            if row['Close'] > row['MA5']: tag_list.append("5일선")
-            if is_tight_width40: tag_list.append("밴드(40)")
-            if not tag_list: continue
+            # 기상도 및 과열(이격도) 감점
+            storm_count = sum([1 for m in ['ixic', 'sp500'] if row[f'{m}_close'] <= row[f'{m}_ma5']])
+            s_score -= (storm_count * 20)
+            s_score -= max(0, int((row['Disparity']-108)*5)) 
+            
+            if not tags: continue
 
-            # --- [E] 수익률 검증 ---
+            # 4. 수익률 검증 데이터 생성
             h_df = df.iloc[raw_idx+1:]
-            max_r = curr_r = min_r = 0.0
-            if not h_df.empty:
-                max_r = ((h_df['High'].max()-row['Close'])/row['Close'])*100
-                min_r = ((h_df['Low'].min()-row['Close'])/row['Close'])*100
-                curr_r = ((h_df['Close'].iloc[-1]-row['Close'])/row['Close'])*100
+            max_r = ((h_df['High'].max()-close_p)/close_p)*100 if not h_df.empty else 0
+            curr_r = ((h_df['Close'].iloc[-1]-close_p)/close_p)*100 if not h_df.empty else 0
 
             hits.append({
-                '날짜': curr_idx.strftime('%Y-%m-%d'), 
-                '기상': "".join(weather_icons),
-                '안전': int(max(0, s_score)), 
+                '날짜': curr_idx.strftime('%Y-%m-%d'),
+                '기상': "☀️" * (2-storm_count) + "🌪️" * storm_count,
+                '안전': int(max(0, s_score + whale_score)),
                 '종목': name,
-                '외인': f_s, '기관': i_s, '쌍끌이': s_s, 
-                '에너지': "🔋" if row['MACD_Hist']>0 else "🪫",
-                'OBV기울기': int(row['OBV_Slope']), 
-                '🔺최고': f"{max_r:+.1f}%", '현재': f"{curr_r:+.1f}%", '💧최저': f"{min_r:+.1f}%",
-                '현재_raw': curr_r, '최고_raw': max_r, 
-                '꼬리%': t_pct, '이격': int(row['Disparity']), 
-                '구분': " ".join(tag_list), '보유일': len(h_df)
+                '현재가': int(close_p),
+                '꼬리%': t_pct,
+                '이격': int(row['Disparity']),
+                '🔺최고': f"{max_r:+.1f}%",
+                '현재': f"{curr_r:+.1f}%",
+                '현재_raw': curr_r, '최고_raw': max_r,
+                '구분': " ".join(tags),
+                '보유일': len(h_df)
             })
         return hits
-    except Exception as e:
-        print(f"❌ {name} 분석 오류: {e}")
-        return []
-
-# =================================================
-# 🚀 [5] 메인 실행부
-# =================================================
+    except: return [] #=================================================
+# 🚀 [실행] 메인 컨트롤러
+# #=================================================
 if __name__ == "__main__":
-    # 매크로 수집
     m_ndx = get_safe_macro('^IXIC', '나스닥')
     m_sp5 = get_safe_macro('^GSPC', 'S&P500')
     m_vix = get_safe_macro('^VIX', 'VIX공포')
-    m_fx  = get_safe_macro('USD/KRW', '달러환율')
-    macro_status = {'nasdaq': m_ndx, 'sp500': m_sp5, 'vix': m_vix, 'fx': m_fx , 'kospi': get_index_investor_data('KOSPI')}
-
+    macro_status = {'nasdaq': m_ndx, 'sp500': m_sp5, 'vix': m_vix, 'kospi': get_index_investor_data('KOSPI')}
+    
     print("\n" + "🌍 [글로벌 통합 관제 센터] " + "="*50)
     print(f"🇺🇸 {m_ndx['text']} | {m_sp5['text']} | {m_vix['text']}")
-    print(f"💵 {m_fx['text']} | 🇰🇷 KOSPI 수급: {macro_status['kospi']}")
     
-    # 종목 리스팅
     df_krx = fdr.StockListing('KRX')
-    weather_data = prepare_historical_weather()
-
-    # 💡 [핵심 수정] target_stocks를 먼저 정의해야 NameError가 발생하지 않습니다.
-    # 또한, 정렬을 먼저 수행한 뒤 head(TOP_N)를 잘라야 이름과 코드가 꼬이지 않습니다.
     target_stocks = df_krx.sort_values(by='Amount', ascending=False).head(TOP_N)
+    weather_data = prepare_historical_weather()
     
     all_hits = []
-    with ThreadPoolExecutor(max_workers=10) as executor:
-         # lambda p에서 p[0]은 Code, p[1]은 Name입니다.
-        results = list(executor.map(
-            lambda p: analyze_final(p[0], p[1], weather_data), 
-            zip(target_stocks['Code'], target_stocks['Name'])
-        ))
+    with ThreadPoolExecutor(max_workers=15) as executor:
+        results = list(executor.map(lambda p: analyze_final(p[0], p[1], weather_data), zip(target_stocks['Code'], target_stocks['Name'])))
         for r in results: all_hits.extend(r)
 
     if all_hits:
         df_total = pd.DataFrame(all_hits)
-        # 💡 1. 복합 전술 통계 산출
         stats_df = calculate_strategy_stats(all_hits)
-        # 5. 리포트 출력
-        print("\n" + "📊" * 10 + " [ 사령부 전술 통계 리포트 (최근 30일) ] " + "📊" * 10)
-        print(stats_df.to_string(index=False))
+        
+        print("\n" + "📊 [사령부 복합 전술 통계] " + "="*50)
+        print(stats_df.head(15).to_string(index=False))
 
         today = df_total[df_total['보유일'] == 0].sort_values(by='안전', ascending=False)
         past = df_total[df_total['보유일'] > 0]
+        high_perf = past[past['최고_raw'] >= 5.0].sort_values(by='최고_raw', ascending=False)
         
-        low_perf = past[(past['최고_raw'] <= 0) & (past['현재_raw'] <= -5.0)].sort_values(by=['안전', '현재_raw'], ascending=[False, True])
-        high_perf = past.drop(low_perf.index).sort_values(by=['안전', '현재_raw'], ascending=[False, False])
+        print("\n" + "🔥 [오늘의 다이아몬드 타점] " + "="*50)
+        print(today[['날짜', '안전', '종목', '에너지', '구분']].head(15))
 
-        display_cols = ['날짜', '기상', '안전', '종목', '쌍끌이', '에너지', 'OBV기울기', '🔺최고', '💧최저', '현재', '꼬리%', '이격', '구분']
-        print("\n" + "💎" * 15 + " [사령부 수익/반등 정예군] " + "💎" * 15)
-        print(high_perf[display_cols].head(40))
-        print("\n" + "🔥" * 15 + " [오늘의 신규 정예군] " + "🔥" * 15)
-        print(today[display_cols].head(20))
-
-        # 구글 시트 전송
         try:
-            final_to_sheet = pd.concat([today, high_perf, low_perf])
-            update_commander_dashboard(final_to_sheet, macro_status, "사령부_통합_상황판",stats_df)
-            print("\n✅ 구글 시트 업데이트 완료!")
-        except Exception as e:
-            print(f"\n❌ 시트 업데이트 실패: {e}")
-    else:
-        print("❌ 탐지된 종목이 없습니다.")
+            update_commander_dashboard(df_total, macro_status, "사령부_통합_상황판", stats_df)
+            print("\n✅ 구글 시트 및 전술 통계 업데이트 완료!")
+        except Exception as e: print(f"\n❌ 시트 업데이트 실패: {e}")
