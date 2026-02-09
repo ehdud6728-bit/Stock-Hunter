@@ -299,11 +299,11 @@ if __name__ == "__main__":
     
     # 종목 리스팅
     df_krx = fdr.StockListing('KRX')
-    # ✅ 안전한 코드 (인덱스 동기화)
-    sorted_df = df_krx.sort_values(by='Amount', ascending=False).head(TOP_N)
-    target_stocks = dict(zip(sorted_df['Code'], sorted_df['Name']))
-
     weather_data = prepare_historical_weather()
+
+    # 💡 [핵심 수정] target_stocks를 먼저 정의해야 NameError가 발생하지 않습니다.
+    # 또한, 정렬을 먼저 수행한 뒤 head(TOP_N)를 잘라야 이름과 코드가 꼬이지 않습니다.
+    target_stocks = df_krx.sort_values(by='Amount', ascending=False).head(TOP_N)
     
     all_hits = []
     with ThreadPoolExecutor(max_workers=10) as executor:
