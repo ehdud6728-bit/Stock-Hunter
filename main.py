@@ -1,4 +1,4 @@
-# ------------------------------------------------------------------
+ ------------------------------------------------------------------
 # 💎 [Ultimate Masterpiece] 전천후 AI 전략 사령부 (All-In-One 통합판)
 # ------------------------------------------------------------------
 import FinanceDataReader as fdr
@@ -571,13 +571,16 @@ if __name__ == "__main__":
     
     # 2. 전 종목 스캔
     df_krx = fdr.StockListing('KRX')
-    target_dict = dict(zip(df_krx.sort_values(by='Amount', ascending=False).head(TOP_N)['Code'], df_krx['Name']))
+    # ✅ 안전한 코드 (인덱스 동기화)
+    sorted_df = df_krx.sort_values(by='Amount', ascending=False).head(TOP_N)
+    target_dict = dict(zip(sorted_df['Code'], sorted_df['Name']))
+
     weather_data = prepare_historical_weather()
     sector_dict = {} # (필요시 추가)
     
     all_hits = []
     with ThreadPoolExecutor(max_workers=15) as executor:
-        futures = [executor.submit(analyze_final, t, n) for t, n in target_dict.items()]
+        futures = [executor.submit(analyze_final, t, n, weather_data) for t, n in target_dict.items()]
         for f in futures: 
             res = f.result()
             if res: all_hits.extend(res)
