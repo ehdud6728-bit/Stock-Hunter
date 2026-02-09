@@ -580,7 +580,7 @@ if __name__ == "__main__":
     
     all_hits = []
     with ThreadPoolExecutor(max_workers=15) as executor:
-        futures = [executor.submit(analyze_final, t, n, weather_data) for t, n in target_dict.items()]
+        futures = [executor.submit(analyze_final, t, n) for t, n in target_dict.items()]
         for f in futures: 
             res = f.result()
             if res: all_hits.extend(res)
