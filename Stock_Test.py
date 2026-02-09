@@ -301,7 +301,7 @@ if __name__ == "__main__":
     df_krx = fdr.StockListing('KRX')
     # ✅ 안전한 코드 (인덱스 동기화)
     sorted_df = df_krx.sort_values(by='Amount', ascending=False).head(TOP_N)
-    target_dict = dict(zip(sorted_df['Code'], sorted_df['Name']))
+    target_stocks = dict(zip(sorted_df['Code'], sorted_df['Name']))
 
     weather_data = prepare_historical_weather()
     
