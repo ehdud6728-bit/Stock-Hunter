@@ -330,7 +330,7 @@ if __name__ == "__main__":
         # 구글 시트 전송
         try:
             final_to_sheet = pd.concat([today, high_perf, low_perf])
-            update_commander_dashboard(final_to_sheet, macro_status, "사령부_통합_상황판",df_total)
+            update_commander_dashboard(final_to_sheet, macro_status, "사령부_통합_상황판",stats_df)
             print("\n✅ 구글 시트 업데이트 완료!")
         except Exception as e:
             print(f"\n❌ 시트 업데이트 실패: {e}")
