@@ -69,7 +69,7 @@ def calculate_strategy_stats(all_hits):
 # ⚙️ [1. 설정 및 글로벌 변수]
 # =================================================
 SCAN_DAYS = 5
-TOP_N = 200 
+TOP_N = 2500 
 START_DATE = (datetime.now() - timedelta(days=600)).strftime('%Y-%m-%d')
 END_DATE_STR = datetime.now().strftime('%Y%m%d')
 
