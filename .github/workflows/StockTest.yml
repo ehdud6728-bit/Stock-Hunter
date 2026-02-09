@@ -9,6 +9,9 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v3
+      
+    - name: Checkout repository
+      uses: actions/checkout@v4  # v3에서 v4로 변
 
     - name: Set up Python
       uses: actions/setup-python@v4
