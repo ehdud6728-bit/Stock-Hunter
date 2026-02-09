@@ -17,6 +17,54 @@ except ImportError:
 
 warnings.filterwarnings('ignore')
 
+ # ---------------------------------------------------------
+# 📊 [업그레이드] 복합 전술 통계 엔진
+# ---------------------------------------------------------
+def calculate_strategy_stats(all_hits):
+    """
+    사령관님, 개별 태그뿐만 아니라 '태그 조합(복합 전략)'의 승률을 분석합니다.
+    """
+    past_hits = [h for h in all_hits if h['보유일'] > 0]
+    if not past_hits: return pd.DataFrame()
+
+    stats = {}
+    
+    for h in past_hits:
+        # 💡 복합 전략 처리: 태그들을 가나다순 정렬 후 " + "로 결합
+        raw_tags = h['구분'].split()
+        if not raw_tags: continue
+        
+        # 1. 개별 태그 분석
+        # 2. 복합 전략 분석 (2개 이상의 태그가 있을 경우)
+        combos = [h['구분']] # 전체 조합 하나
+        if len(raw_tags) > 1:
+            raw_tags.sort() # 정렬하여 일관성 유지
+            combos.append(" + ".join(raw_tags)) 
+        
+        # 중복 제거 및 분석
+        for strategy in set(combos):
+            if strategy not in stats: 
+                stats[strategy] = {'total': 0, 'hits': 0, 'yields': []}
+            
+            stats[strategy]['total'] += 1
+            if h['최고_raw'] >= 3.5: # 타율 기준: 최고 수익률 3.5% 이상
+                stats[strategy]['hits'] += 1
+            stats[strategy]['yields'].append(h['최고_raw'])
+
+    report_data = []
+    for strategy, data in stats.items():
+        avg_yield = sum(data['yields']) / data['total']
+        hit_rate = (data['hits'] / data['total']) * 100
+        report_data.append({
+            '전략명': strategy,
+            '포착건수': data['total'],
+            '타율(승률)': round(hit_rate, 1),
+            '평균최고수익': round(avg_yield, 1)
+        })
+    
+    # 수익률과 타율이 높은 순으로 정렬
+    return pd.DataFrame(report_data).sort_values(by=['평균최고수익', '타율(승률)'], ascending=False)
+
 # =================================================
 # ⚙️ [1. 설정 및 글로벌 변수]
 # =================================================
@@ -261,6 +309,12 @@ if __name__ == "__main__":
 
     if all_hits:
         df_total = pd.DataFrame(all_hits)
+        # 💡 1. 복합 전술 통계 산출
+        stats_df = calculate_strategy_stats(all_hits)
+        # 5. 리포트 출력
+        print("\n" + "📊" * 10 + " [ 사령부 전술 통계 리포트 (최근 30일) ] " + "📊" * 10)
+        print(stats_df.to_string(index=False))
+
         today = df_total[df_total['보유일'] == 0].sort_values(by='안전', ascending=False)
         past = df_total[df_total['보유일'] > 0]
         
@@ -276,7 +330,7 @@ if __name__ == "__main__":
         # 구글 시트 전송
         try:
             final_to_sheet = pd.concat([today, high_perf, low_perf])
-            update_commander_dashboard(final_to_sheet, macro_status, "사령부_통합_상황판")
+            update_commander_dashboard(final_to_sheet, macro_status, "사령부_통합_상황판",df_total)
             print("\n✅ 구글 시트 업데이트 완료!")
         except Exception as e:
             print(f"\n❌ 시트 업데이트 실패: {e}")
