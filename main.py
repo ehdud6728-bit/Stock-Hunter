@@ -55,8 +55,6 @@ WHALE_THRESHOLD = 50
 # =================================================
 # ⚙️ [1. 글로벌 관제 및 수급 설정]
 # =================================================
-SCAN_DAYS = 30
-TOP_N = 200 
 START_DATE = (datetime.now() - timedelta(days=600)).strftime('%Y-%m-%d')
 END_DATE_STR = datetime.now().strftime('%Y%m%d')
 START_DATE_STR = (datetime.now() - timedelta(days=60)).strftime('%Y%m%d')
