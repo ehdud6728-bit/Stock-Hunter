@@ -253,7 +253,7 @@ def analyze_final(ticker, name, historical_indices):
             if is_bb40_brk: tag_list.append("🚨장기돌파")
             if is_sto_gc: tag_list.append("Sto-GC")
             if row['Close'] > row['MA5']: tag_list.append("5일선")
-            
+            if is_tight_width40: tag_list.append("밴드(40)")
             if not tag_list: continue
 
             # --- [E] 수익률 검증 ---
