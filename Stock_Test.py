@@ -307,7 +307,11 @@ if __name__ == "__main__":
     
     all_hits = []
     with ThreadPoolExecutor(max_workers=10) as executor:
-        results = list(executor.map(lambda p: analyze_final(p[0], p[1], weather_data), zip(target_stocks['Code'], target_stocks['Name'])))
+         # lambda p에서 p[0]은 Code, p[1]은 Name입니다.
+        results = list(executor.map(
+            lambda p: analyze_final(p[0], p[1], weather_data), 
+            zip(target_stocks['Code'], target_stocks['Name'])
+        ))
         for r in results: all_hits.extend(r)
 
     if all_hits:
