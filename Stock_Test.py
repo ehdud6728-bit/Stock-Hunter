@@ -33,6 +33,43 @@ END_DATE_STR = datetime.now().strftime('%Y%m%d')
 
 print(f"📡 [Ver 36.0] 사령부 무결성 통합 가동... 💎다이아몬드 & 📊복합통계 엔진 탑재")
 
+
+# ---------------------------------------------------------
+# 🌍 [매크로 엔진] 글로벌 지수 및 수급 데이터 수집
+# ---------------------------------------------------------
+def get_safe_macro(symbol, name):
+    try:
+        df = fdr.DataReader(symbol, start=(datetime.now() - timedelta(days=15)).strftime('%Y-%m-%d'))
+        curr, prev = df.iloc[-1]['Close'], df.iloc[-2]['Close']
+        ma5 = df['Close'].tail(5).mean()
+        chg = ((curr - prev) / prev) * 100
+        status = "☀️맑음" if curr > ma5 else "🌪️폭풍우"
+        if "VIX" in name: status = "☀️안정" if curr < ma5 else "🌪️위험"
+        return {"val": curr, "chg": chg, "status": status, "text": f"{name}: {curr:,.2f}({chg:+.2f}%) {status}"}
+    except: return {"status": "☁️불명", "text": f"{name}: 연결실패"}
+
+def get_index_investor_data(market_name):
+    try:
+        df = stock.get_market_net_purchases_of_equities(END_DATE_STR, END_DATE_STR, market_name)
+        if df.empty:
+            prev_day = (datetime.now() - timedelta(days=1)).strftime('%Y%m%d')
+            df = stock.get_market_net_purchases_of_equities(prev_day, prev_day, market_name)
+        total = df.sum()
+        return f"개인 {total['개인']:+,.0f} | 외인 {total['외국인']:+,.0f} | 기관 {total['기관합계']:+,.0f}"
+    except: return "데이터 수신 중..."
+
+def prepare_historical_weather():
+    """역사적 기상도를 작성하여 analyze_final에 보급합니다."""
+    start_point = (datetime.now() - timedelta(days=600)).strftime('%Y-%m-%d')
+    ndx = fdr.DataReader('^IXIC', start=start_point)[['Close']]
+    sp5 = fdr.DataReader('^GSPC', start=start_point)[['Close']]
+    ndx['ixic_ma5'] = ndx['Close'].rolling(5).mean()
+    sp5['sp500_ma5'] = sp5['Close'].rolling(5).mean()
+    weather_df = pd.concat([
+        ndx.rename(columns={'Close': 'ixic_close'}),
+        sp5.rename(columns={'Close': 'sp500_close'})
+    ], axis=1).fillna(method='ffill')
+    return weather_df
 # ---------------------------------------------------------
 # 📊 [전술 통계] 복합 전술 통계 엔진
 # ---------------------------------------------------------
@@ -204,38 +241,55 @@ def analyze_final(ticker, name, historical_indices):
 # 🚀 [실행] 메인 컨트롤러
 # #=================================================
 if __name__ == "__main__":
+    print(f"📡 [Ver 36.5] {TODAY_STR} 전술 사령부 통합 가동...")
+
+    # 1. 매크로 데이터 수집 (get_safe_macro가 정의되어 있어야 함)
     m_ndx = get_safe_macro('^IXIC', '나스닥')
     m_sp5 = get_safe_macro('^GSPC', 'S&P500')
     m_vix = get_safe_macro('^VIX', 'VIX공포')
-    macro_status = {'nasdaq': m_ndx, 'sp500': m_sp5, 'vix': m_vix, 'kospi': get_index_investor_data('KOSPI')}
+    m_fx  = get_safe_macro('USD/KRW', '달러환율')
     
-    print("\n" + "🌍 [글로벌 통합 관제 센터] " + "="*50)
-    print(f"🇺🇸 {m_ndx['text']} | {m_sp5['text']} | {m_vix['text']}")
-    
+    # KOSPI 수급 데이터
+    kospi_supply = get_index_investor_data('KOSPI')
+    macro_status = {'nasdaq': m_ndx, 'sp500': m_sp5, 'vix': m_vix, 'fx': m_fx, 'kospi': kospi_supply}
+
+    print("\n" + "🌍 " * 5 + "[ 글로벌 사령부 통합 관제 센터 ]" + " 🌍" * 5)
+    print(f"🇺🇸 {m_ndx['text']} | {m_sp5['text']} | ⚠️ {m_vix['text']}")
+    print(f"💵 {m_fx['text']} | 🇰🇷 KOSPI 수급: {kospi_supply}")
+    print("=" * 115)
+
+    # 2. 전 종목 리스팅 및 기상도 준비
     df_krx = fdr.StockListing('KRX')
+    # 💡 target_stocks 정의 (NameError 방지)
     target_stocks = df_krx.sort_values(by='Amount', ascending=False).head(TOP_N)
+    # 💡 weather_data 준비 (analyze_final에 전달용)
     weather_data = prepare_historical_weather()
     
+    # 3. 전술 스캔 (멀티스레딩)
     all_hits = []
+    print(f"🔍 총 {len(target_stocks)}개 종목 💎다이아몬드 레이더 가동...")
     with ThreadPoolExecutor(max_workers=15) as executor:
-        results = list(executor.map(lambda p: analyze_final(p[0], p[1], weather_data), zip(target_stocks['Code'], target_stocks['Name'])))
-        for r in results: all_hits.extend(r)
+        # lambda p에서 p[0]: Code, p[1]: Name, weather_data: 기상도 전달
+        results = list(executor.map(
+            lambda p: analyze_final(p[0], p[1], weather_data), 
+            zip(target_stocks['Code'], target_stocks['Name'])
+        ))
+        for r in results:
+            if r: all_hits.extend(r)
 
     if all_hits:
         df_total = pd.DataFrame(all_hits)
+        # 💡 복합 전술 통계 산출
         stats_df = calculate_strategy_stats(all_hits)
         
-        print("\n" + "📊 [사령부 복합 전술 통계] " + "="*50)
-        print(stats_df.head(15).to_string(index=False))
-
+        # 4. 결과 분류 및 리포트
         today = df_total[df_total['보유일'] == 0].sort_values(by='안전', ascending=False)
-        past = df_total[df_total['보유일'] > 0]
-        high_perf = past[past['최고_raw'] >= 5.0].sort_values(by='최고_raw', ascending=False)
-        
-        print("\n" + "🔥 [오늘의 다이아몬드 타점] " + "="*50)
-        print(today[['날짜', '안전', '종목', '에너지', '구분']].head(15))
+        print("\n" + "🔥 [오늘의 초정예 다이아몬드 타점] " + "="*50)
+        print(today[['날짜', '안전', '종목', '꼬리%', '구분']].head(20))
 
+        # 5. 구글 시트 전송
         try:
             update_commander_dashboard(df_total, macro_status, "사령부_통합_상황판", stats_df)
-            print("\n✅ 구글 시트 및 전술 통계 업데이트 완료!")
-        except Exception as e: print(f"\n❌ 시트 업데이트 실패: {e}")
+            print("\n✅ 구글 시트 및 전술 통계 업데이트 성공!")
+        except Exception as e:
+            print(f"\n❌ 시트 업데이트 실패: {e}")
