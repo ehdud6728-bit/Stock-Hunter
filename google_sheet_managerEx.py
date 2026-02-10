@@ -114,7 +114,7 @@ def update_commander_dashboard(df, macro_data, sheet_name, stats_df=None,
                         set_with_dataframe(ai_sheet, patterns, row=curr_row+1, col=1, include_index=False)
                         curr_row += (len(patterns) + 4) # 다음 체급을 위해 줄 띄움
                         valid_tier_count += 1
-                     else:
+                    else:
                         print(f"⚠️ [Step 3-1] {tier} 체급은 조건(수익률 등)을 만족하는 패턴이 0건입니다.")
                 print(f"✅ [Step 4] 총 {valid_tier_count}개의 체급 섹션이 시트에 기록되었습니다.")
                 print("✅ [Success] 체급별 AI 족보 전송 완료")
