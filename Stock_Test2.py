@@ -69,14 +69,23 @@ def assign_tier(ticker, cap_dict):
     """
     종목 코드를 입력하면 해당 종목의 체급(Tier)을 판정합니다.
     """
-    cap = cap_dict.get(ticker, 0)
-    
-    if cap >= 1_000_000_000_000: # 1조 이상
-        return "👑HEAVY", cap
-    elif cap >= 200_000_000_000: # 2천억 ~ 1조
-        return "⚔️MIDDLE", cap
-    else: # 2천억 미만
-        return "🚀LIGHT", cap
+    try:
+        # 1. df_krx(전체 종목 리스트)에서 종목명에 해당하는 코드를 먼저 찾습니다.
+        code_row = df_krx[df_krx['Name'] == ticker_name]
+        
+        if not code_row.empty:
+            ticker_code = code_row.iloc[0]['Code']
+            # 2. 찾은 코드로 시총 맵에서 조회
+            cap = commander_cap_map.get(ticker_code, 0)
+            
+            if cap >= 1_000_000_000_000: return "👑HEAVY", cap
+            if cap >= 200_000_000_000: return "⚔️MIDDLE", cap
+            return "🚀LIGHT", cap
+        
+        # 3. 실패 시 기본값 (미확인 방지)
+        return "🚀LIGHT", 0
+    except:
+        return "🚀LIGHT", 0
 
 # ---------------------------------------------------------
 # 🌍 [매크로 엔진] 글로벌 지수 및 수급 데이터 수집
