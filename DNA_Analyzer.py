@@ -164,10 +164,12 @@ def find_winning_pattern_by_tier(dna_df):
     """
     [체급별 랭킹] 👑HEAVY, ⚔️MIDDLE, 🚀LIGHT 별로 상위 패턴을 각각 추출합니다.
     """
-    if dna_df is None or dna_df.empty: 
-        return {}
+    if dna_df is None or dna_df.empty: return {}
 
     tier_results = {}
+    # '미확인' 데이터가 있다면 '🚀LIGHT'로 취급하여 분석합니다.
+    dna_df['유형'] = dna_df['유형'].replace('미확인', '🚀LIGHT')
+    
     tiers = ['👑HEAVY', '⚔️MIDDLE', '🚀LIGHT']
 
     for tier in tiers:
