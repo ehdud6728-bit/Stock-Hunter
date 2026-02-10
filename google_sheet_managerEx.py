@@ -6,6 +6,7 @@ from gspread_dataframe import set_with_dataframe
 import pandas as pd
 import os, json, traceback
 from datetime import datetime, timedelta
+from DNA_Analyzer import analyze_dna_sequences, find_winning_pattern, find_winning_pattern_by_tier
 
 def update_commander_dashboard(df, macro_data, sheet_name, stats_df=None, 
                                today_recommendations=None, ai_recommendation=None):
