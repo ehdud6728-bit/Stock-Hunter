@@ -117,3 +117,45 @@ def analyze_dna_sequences(all_hits):
         print(f"❌ [DNA] 분석 중 치명적 오류: {e}")
         traceback.print_exc()
         return pd.DataFrame()
+
+def analyze_dna_with_cap(all_hits, ticker_info_df):
+    """
+    사령관님의 통찰을 반영한 시가총액 가중치 분석 엔진
+    """
+    # 1. 시가총액 정보 병합
+    df = pd.merge(pd.DataFrame(all_hits), ticker_info_df[['종목', '시가총액']], on='종목', how='left')
+    
+    # 2. 체급 판정 로직
+    def get_segment(cap):
+        if cap >= 1_000_000_000_000: return 'HEAVY'
+        if cap >= 200_000_000_000: return 'MIDDLE'
+        return 'LIGHT'
+    
+    df['체급'] = df['시가총액'].apply(get_segment)
+    
+    # 3. 체급별 마스터 DNA 추출 (미리 계산되어 있다고 가정)
+    master_patterns = {
+        'HEAVY': get_master_dna(df[df['체급'] == 'HEAVY']),
+        'MIDDLE': get_master_dna(df[df['체급'] == 'MIDDLE']),
+        'LIGHT': get_master_dna(df[df['체급'] == 'LIGHT'])
+    }
+    
+    results = []
+    for ticker, group in df.groupby('종목'):
+        seg = group['체급'].iloc[0]
+        curr_seq = group['구분'].tolist()
+        
+        # 💡 해당 체급의 족보와 대조
+        raw_score = calculate_dna_score(curr_seq, master_patterns[seg])
+        
+        # 💡 가중치 적용 (HEAVY는 신뢰도 가산, LIGHT는 변동성 감산)
+        weight = 1.2 if seg == 'HEAVY' else (1.0 if seg == 'MIDDLE' else 0.8)
+        final_score = min(100, int(raw_score * weight))
+        
+        results.append({
+            '종목': ticker,
+            '체급': seg,
+            'DNA_일치도': f"{final_score}%",
+            '패턴유형': f"{seg}_유전자"
+        })
+    return pd.DataFrame(results)
