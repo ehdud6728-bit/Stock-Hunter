@@ -5,6 +5,9 @@ import pandas as pd
 import os
 from datetime import datetime
 
+import json
+import FinanceDataReader as fdr
+
 def update_commander_dashboard(df, macro_data, sheet_name, stats_df=None):
     json_key_path = 'stock-key.json' 
     try:
