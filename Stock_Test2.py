@@ -70,31 +70,22 @@ def get_commander_market_cap():
         return {"code": {}, "name": {}}
 
 def assign_tier(ticker, cap_dict):
-    #"""
-    #이름(Name)을 코드로 치환한 뒤 시총을 조회하는 2단계 검증 시스템
-    #"""
-    try:
-        # 💡 [보정] 이름 양쪽 공백 제거 및 대문자 통일
-        clean_name = str(ticker_name).strip().replace(" ", "")
-        
-        # 1. df_krx에서 이름 매칭 (공백 제거 후 비교)
-        # KRX 리스트의 이름들도 공백을 제거하고 비교합니다.
-        df_krx['Name_Clean'] = df_krx['Name'].str.replace(" ", "")
-        matched_row = df_krx[df_krx['Name_Clean'] == clean_name]
-        
-        if not matched_row.empty:
-            ticker_code = matched_row.iloc[0]['Code']
-            cap = commander_cap_map.get(ticker_code, 0)
-            
-            if cap >= 1_000_000_000_000: return "👑HEAVY", cap
-            if cap >= 200_000_000_000: return "⚔️MIDDLE", cap
-            return "🚀LIGHT", cap
-        
-        # 💡 [로그] 만약 끝까지 못 찾으면 어떤 종목인지 실명을 로그에 남깁니다.
-        print(f"⚠️ [Check] 체급 판별 실패: {ticker_name}")
-        return "❓UNIDENTIFIED", 0
-    except:
-        return "❓UNIDENTIFIED", 0
+    """
+    코드 우선, 이름 차선으로 체급을 결정합니다.
+    """
+    # 1. 코드로 조회 시도
+    cap = master_map['code'].get(code, 0)
+    
+    # 2. 코드로 실패 시 이름으로 조회 시도
+    if cap == 0:
+        cap = master_map['name'].get(name, 0)
+    
+    # 3. 체급 결정
+    if cap >= 1_000_000_000_000: return "👑HEAVY", cap
+    if cap >= 200_000_000_000: return "⚔️MIDDLE", cap
+    if cap > 0: return "🚀LIGHT", cap
+    
+    return "❓미확인", 0
 
 # ---------------------------------------------------------
 # 🌍 [매크로 엔진] 글로벌 지수 및 수급 데이터 수집
@@ -535,7 +526,8 @@ if __name__ == "__main__":
                 # 💡 [신규] 포착된 종목에 즉시 체급(Tier) 및 시총 데이터 주입
                 for hit in r:
                     # hit['종목코드']가 있다고 가정, 없으면 ticker를 찾아야 함
-                    ticker_code = hit.get('코드') or target_stocks[target_stocks['Name'] == hit['종목']]['Code'].iloc[0]
+                    name = hit['종목']
+                    ticker_code = hit.get('코드')
                     tier, mkt_cap = assign_tier(ticker_code, commander_cap_map)
                     hit['체급'] = tier
                     hit['시가총액'] = mkt_cap
