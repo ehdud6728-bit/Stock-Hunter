@@ -1,5 +1,39 @@
 # [독립 모듈] DNA_Analyzer.py
 
+import pandas as pd
+
+def analyze_dna_sequences(all_hits):
+    """
+    모든 탐지 기록(hits)을 종목별 시간순 '유전자 지도'로 시퀀싱합니다.
+    """
+    if not all_hits: return pd.DataFrame()
+    
+    df = pd.DataFrame(all_hits).sort_values(by=['종목', '날짜'])
+    dna_reports = []
+    
+    for ticker, group in df.groupby('종목'):
+        # 시간순 태그 정렬 (예: 매집봉 -> 💎다이아몬드)
+        sequence = " ➔ ".join(group['구분'].tolist())
+        max_yield = group['최고_raw'].max()
+        
+        dna_reports.append({
+            '종목': ticker,
+            'DNA_시퀀스': sequence,
+            '최고수익률': max_yield,
+            '유형': "🔥성공DNA" if max_yield >= 10 else "관찰대상"
+        })
+        
+    return pd.DataFrame(dna_reports).sort_values(by='최고수익률', ascending=False)
+
+def find_winning_pattern(dna_df):
+    """
+    성공DNA 중 가장 많이 중복되는 패턴 서열을 추출합니다.
+    """
+    success_only = dna_df[dna_df['최고수익률'] >= 10]
+    pattern_counts = success_only['DNA_시퀀스'].value_counts().head(5)
+    return pattern_counts
+
+
 def extract_success_dna(ticker_history_df, threshold=0.20):
     """
     사령관님, 이 함수는 특정 종목의 과거 데이터에서 
