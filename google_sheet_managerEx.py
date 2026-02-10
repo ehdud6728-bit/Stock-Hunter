@@ -99,14 +99,14 @@ def update_commander_dashboard(df, macro_data, sheet_name, stats_df=None,
                 curr_row = 1
                 for tier, patterns in tier_patterns.items():
                     if not patterns.empty:
-                    # 체급 헤더 작성
-                    ai_sheet.update(f'A{curr_row}', [[f"🏆 {tier} 체급별 타율 상위 패턴"]])
-                    # 데이터 전송 (헤더 포함)
-                    set_with_dataframe(ai_sheet, patterns, row=curr_row+1, col=1, include_index=False)
-                    curr_row += (len(patterns) + 4) # 다음 체급을 위해 줄 띄움
-
-            print("✅ [Success] 체급별 AI 족보 전송 완료")
-            except: pass
+                        # 체급 헤더 작성
+                        ai_sheet.update(f'A{curr_row}', [[f"🏆 {tier} 체급별 타율 상위 패턴"]])
+                        # 데이터 전송 (헤더 포함)
+                        set_with_dataframe(ai_sheet, patterns, row=curr_row+1, col=1, include_index=False)
+                        curr_row += (len(patterns) + 4) # 다음 체급을 위해 줄 띄움
+                print("✅ [Success] 체급별 AI 족보 전송 완료")
+            except Exception as e:
+              print(f"❌ [Error] 탭 2 체급별 분리 실패: {e}")
 
         # --- [탭 3: 실시간_전수_관제판] ---
         try:
