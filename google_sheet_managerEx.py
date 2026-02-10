@@ -22,9 +22,21 @@ def update_commander_dashboard(df, macro_data, sheet_name, stats_df=None,
     kst_now = datetime.utcnow() + timedelta(hours=9)
     today_str = kst_now.strftime('%Y-%m-%d')
     
+    
     try:
         scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
-        client = gspread.authorize(ServiceAccountCredentials.from_json_keyfile_name(json_key_path, scope))
+        
+        # 1. 인증 로직
+        if os.path.exists(json_key_path):
+            creds = ServiceAccountCredentials.from_json_keyfile_name(json_key_path, scope)
+        elif os.environ.get('GOOGLE_JSON_KEY'):
+            key_dict = json.loads(os.environ.get('GOOGLE_JSON_KEY'))
+            creds = ServiceAccountCredentials.from_json_keyfile_dict(key_dict, scope)
+        else:
+            print("❌ [Google] 인증 키를 찾을 수 없습니다.")
+            return
+
+        client = gspread.authorize(creds)
         doc = client.open(sheet_name)
         
         # --- [1. 신규 기능: 오늘의_추천종목 (오늘만 + 정렬)] ---
