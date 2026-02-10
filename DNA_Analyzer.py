@@ -46,6 +46,24 @@ def calculate_dna_score(current_seq, master_patterns):
 
 # 3. 승리 패턴 랭킹 요약 부품
 def find_winning_pattern(dna_df):
+    """분석된 DNA 결과에서 '전설의 패턴 랭킹'을 추출합니다."""
+    if dna_df is None or dna_df.empty: 
+        return pd.DataFrame(columns=['DNA_시퀀스', '포착수', '평균수익'])
+    try:
+        success_cases = dna_df[dna_df['최고수익률'] >= 10.0]
+        if success_cases.empty: return pd.DataFrame()
+        
+        summary = success_cases.groupby('DNA_시퀀스').agg({
+            'DNA_시퀀스': 'count',
+            '최고수익률': 'mean'
+        }).rename(columns={'DNA_시퀀스': '포착수', '최고수익률': '평균수익'}).reset_index()
+        
+        # 💡 [수정] 5개에서 30개로 대폭 늘려 보급합니다.
+        return summary.sort_values(by='포착수', ascending=False).head(30)
+    except:
+        return pd.DataFrame()
+
+def find_winning_pattern_back(dna_df):
     if dna_df is None or dna_df.empty: 
         return pd.DataFrame(columns=['DNA_시퀀스', '포착수', '평균수익'])
     try:
