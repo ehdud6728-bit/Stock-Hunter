@@ -69,7 +69,7 @@ def get_commander_market_cap():
         print(f"❌ [Cap-Scanner] 수집 실패: {e}")
         return {"code": {}, "name": {}}
 
-def assign_tier(ticker, cap_dict):
+def assign_tier(name, code, master_map):
     """
     코드 우선, 이름 차선으로 체급을 결정합니다.
     """
@@ -528,10 +528,10 @@ if __name__ == "__main__":
                     # hit['종목코드']가 있다고 가정, 없으면 ticker를 찾아야 함
                     name = hit['종목']
                     ticker_code = hit.get('코드')
-                    tier, mkt_cap = assign_tier(ticker_code, commander_cap_map)
+                    tier, mkt_cap = assign_tier(ticker_code, name, commander_cap_map)
                     hit['체급'] = tier
                     hit['시가총액'] = mkt_cap
-                all_hits.extend(r)
+                    all_hits.append(hit)
 
     if all_hits:
          # 1. 원재료(all_hits)를 연구소(DNA_Analyzer)로 송부
