@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 import warnings
 import requests
 from bs4 import BeautifulSoup
+from DNA_Analyzer import analyze_dna_sequences, find_winning_pattern
 
 # 👇 구글 시트 매니저 연결 (파일명 확인 필수)
 try:
@@ -471,6 +472,13 @@ if __name__ == "__main__":
             if r: all_hits.extend(r)
 
     if all_hits:
+         # 1. 원재료(all_hits)를 연구소(DNA_Analyzer)로 송부
+         print("🧬 [DNA Trace-Back] 성공 유전자 역추적 가동...")
+         dna_results = analyze_dna_sequences(all_hits)
+    
+        # 2. 가장 승률 높은 패턴 랭킹 추출
+        top_patterns = find_winning_pattern(dna_results)
+
         df_total = pd.DataFrame(all_hits)
         
         # 통계 계산 (상위 5개 추천 정보 포함)
@@ -498,10 +506,10 @@ if __name__ == "__main__":
             print("=" * 100)
             
             # 1위 패턴이 포함된 오늘의 종목 필터링
-            top_pattern = top_recommendations[0]['패턴']
+            #top_pattern = top_recommendations[0]['패턴']
             recommended_today = today[today['구분'].str.contains(top_pattern.split(' + ')[0], na=False)]
             if not recommended_today.empty:
-                print(f"\n✨ 오늘의 '{top_pattern}' 패턴 종목 (상위 10개)")
+                print(f"\n✨ 오늘의 '{top_pattern}' 패턴 종목")
                 print(recommended_today[['종목', '안전점수', '매입가', '역매', '매집', '구분']].head(10))
         
         # 💡 통합: 오늘의 추천종목 (역매공파 포함, 안전점수 순)
@@ -540,7 +548,7 @@ if __name__ == "__main__":
                 "사령부_통합_상황판", 
                 stats_df,
                 today_recommendations=today,  # 오늘의_추천종목 탭: 오늘만 (모든 패턴 통합)
-                ai_recommendation=recommendation_df  # AI_추천패턴 탭: TOP 5
+                ai_recommendation=dna_results  # AI_추천패턴 탭: TOP 5
             )
             print("\n✅ 구글 시트 업데이트 성공!")
             print("   📋 메인 시트: 전체 30일 검증 데이터")
