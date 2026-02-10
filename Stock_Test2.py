@@ -13,6 +13,10 @@ import requests
 from bs4 import BeautifulSoup
 from DNA_Analyzer import analyze_dna_sequences, find_winning_pattern
 
+from pykrx import stock
+import pandas as pd
+from datetime import datetime
+
 # 👇 구글 시트 매니저 연결 (파일명 확인 필수)
 try:
     from google_sheet_managerEx import update_commander_dashboard
@@ -34,6 +38,45 @@ END_DATE_STR = datetime.now().strftime('%Y%m%d')
 
 print(f"📡 [Ver 36.7 엑셀저장+추천] 사령부 무결성 통합 가동... 💎다이아몬드 & 📊복합통계 엔진 탑재")
 
+
+def get_commander_market_cap():
+    """
+    3,000개 전 종목의 시가총액을 한 번에 긁어오는 광역 레이더입니다.
+    """
+    print("📡 [Cap-Scanner] 전 종목 시가총액 데이터 수집 중...")
+    try:
+        # 오늘 날짜 확인 (장 중이라면 오늘, 장 전이라면 전날 기준)
+        now = datetime.now().strftime("%Y%m%d")
+        
+        # 1. KOSPI/KOSDAQ 전체 시총 데이터 확보
+        df_kospi = stock.get_market_cap(now, market="KOSPI")
+        df_kosdaq = stock.get_market_cap(now, market="KOSDAQ")
+        
+        # 2. 데이터 통합
+        df_total = pd.concat([df_kospi, df_kosdaq])
+        
+        # 3. '시가총액' 컬럼만 추출하여 딕셔너리로 변환 (빠른 조회를 위함)
+        # ticker(종목코드)를 키로, 시가총액을 값으로 설정
+        cap_dict = df_total['시가총액'].to_dict()
+        
+        print(f"✅ [Cap-Scanner] 총 {len(cap_dict)}개 종목의 체급 정보 확보 완료.")
+        return cap_dict
+    except Exception as e:
+        print(f"❌ [Cap-Scanner] 시총 수집 중 오류: {e}")
+        return {}
+
+def assign_tier(ticker, cap_dict):
+    """
+    종목 코드를 입력하면 해당 종목의 체급(Tier)을 판정합니다.
+    """
+    cap = cap_dict.get(ticker, 0)
+    
+    if cap >= 1_000_000_000_000: # 1조 이상
+        return "👑HEAVY", cap
+    elif cap >= 200_000_000_000: # 2천억 ~ 1조
+        return "⚔️MIDDLE", cap
+    else: # 2천억 미만
+        return "🚀LIGHT", cap
 
 # ---------------------------------------------------------
 # 🌍 [매크로 엔진] 글로벌 지수 및 수급 데이터 수집
