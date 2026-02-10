@@ -473,8 +473,8 @@ if __name__ == "__main__":
 
     if all_hits:
          # 1. 원재료(all_hits)를 연구소(DNA_Analyzer)로 송부
-         print("🧬 [DNA Trace-Back] 성공 유전자 역추적 가동...")
-         dna_results = analyze_dna_sequences(all_hits)
+        print("🧬 [DNA Trace-Back] 성공 유전자 역추적 가동...")
+        dna_results = analyze_dna_sequences(all_hits)
     
         # 2. 가장 승률 높은 패턴 랭킹 추출
         top_patterns = find_winning_pattern(dna_results)
