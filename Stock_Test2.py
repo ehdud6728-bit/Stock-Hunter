@@ -564,7 +564,7 @@ if __name__ == "__main__":
                 macro_status, 
                 "사령부_통합_상황판", 
                 stats_df,
-                today_recommendations=recommended_today,  # 오늘의_추천종목 탭: 오늘만 (모든 패턴 통합)
+                today,  # 오늘의_추천종목 탭: 오늘만 (모든 패턴 통합)
                 ai_recommendation=dna_results  # AI_추천패턴 탭: TOP 5
             )
             print("\n✅ 구글 시트 업데이트 성공!")
