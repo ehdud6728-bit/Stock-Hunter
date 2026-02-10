@@ -1,26 +1,46 @@
 # [독립 모듈] DNA_Analyzer.py
 
 import pandas as pd
+from collections import Counter
 
 def analyze_dna_sequences(all_hits):
     """
-    모든 탐지 기록(hits)을 종목별 시간순 '유전자 지도'로 시퀀싱합니다.
+    사령관님, '최고_raw' 데이터가 없더라도 멈추지 않는 무결성 시퀀싱 함수입니다.
     """
-    if not all_hits: return pd.DataFrame()
+    if not all_hits:
+        print("⚠️ [DNA] 분석할 신호(all_hits)가 비어 있습니다.")
+        return pd.DataFrame()
     
-    df = pd.DataFrame(all_hits).sort_values(by=['종목', '날짜'])
+    # 1. 데이터프레임 변환 및 컬럼 체크
+    df = pd.DataFrame(all_hits)
+    
+    # 💡 [방어 코드] '최고_raw' 컬럼이 없으면 0.0으로 강제 생성
+    if '최고_raw' not in df.columns:
+        print("⚠️ [DNA] 데이터에 '최고_raw' 컬럼이 없어 기본값(0.0)을 생성합니다.")
+        df['최고_raw'] = 0.0
+    
+    # 2. 날짜순 정렬
+    df = df.sort_values(by=['종목', '날짜'])
+    
     dna_reports = []
     
+    # 💡 Master DNA 추출을 위해 현재 데이터를 다시 get_master_dna에 전달
+    master_patterns = get_master_dna(all_hits)
+    
     for ticker, group in df.groupby('종목'):
-        # 시간순 태그 정렬 (예: 매집봉 -> 💎다이아몬드)
-        sequence = " ➔ ".join(group['구분'].tolist())
+        curr_seq = group['구분'].tolist()
+        # 💡 안전하게 데이터 추출
         max_yield = group['최고_raw'].max()
+        
+        # DNA 일치도 계산
+        match_score = calculate_dna_score(curr_seq, master_patterns)
         
         dna_reports.append({
             '종목': ticker,
-            'DNA_시퀀스': sequence,
+            'DNA_시퀀스': " ➔ ".join(curr_seq),
+            'DNA_일치도': f"{match_score}%",
             '최고수익률': max_yield,
-            '유형': "🔥성공DNA" if max_yield >= 10 else "관찰대상"
+            '유형': "🔥전설과일치" if match_score >= 80 else ("✅검증필요" if match_score >= 50 else "미확인")
         })
         
     return pd.DataFrame(dna_reports).sort_values(by='최고수익률', ascending=False)
