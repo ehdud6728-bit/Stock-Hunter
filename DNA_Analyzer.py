@@ -55,7 +55,7 @@ def find_winning_pattern(dna_df):
         summary = success_cases.groupby('DNA_시퀀스').agg({
             'DNA_시퀀스': 'count',
             '최고수익률': 'mean'
-        }).rename(columns={'DNA_시퀀스': '포착수', '최고_raw': '평균수익'}).reset_index()
+        }).rename(columns={'DNA_시퀀스': '포착수', '최고수익률_raw': '평균수익'}).reset_index()
         
         return summary.sort_values(by='포착수', ascending=False).head(5)
     except:
@@ -81,7 +81,7 @@ def analyze_dna_sequences(all_hits):
         dna_reports = []
         for ticker, group in df.groupby('종목'):
             curr_seq = group['구분'].tolist()
-            max_yield = group['최고_raw'].max()
+            max_yield = group['최고수익률_raw'].max()
             
             # 💡 위에서 정의된 calculate_dna_score를 호출합니다.
             match_score = calculate_dna_score(curr_seq, master_patterns)
