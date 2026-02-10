@@ -96,18 +96,32 @@ def update_commander_dashboard(df, macro_data, sheet_name, stats_df=None,
 
             # 체급별 패턴 랭킹 추출 (위에서 만든 함수 호출)
                 tier_patterns = find_winning_pattern_by_tier(ai_recommendation)
-            
+                print(f"📦 [Step 1] 수신된 ai_recommendation 건수: {len(ai_recommendation)}건")
+                print(f"📊 [Step 1-1] 데이터 컬럼: {ai_recommendation.columns.tolist()}")
+                print(f"📊 [Step 1-2] 데이터 샘플 (상위 2건):\n{ai_recommendation.head(2)}")
+              
+                if not tier_patterns:
+                    print("❌ [Step 2] tier_patterns 결과가 사전(dict) 형태가 아니거나 비어있습니다.")
+              
                 curr_row = 1
+                valid_tier_count = 0
                 for tier, patterns in tier_patterns.items():
+                    print(f"🔍 [Step 3] 체급별 수색: {tier} -> {len(patterns)}건 발견")
                     if not patterns.empty:
                         # 체급 헤더 작성
                         ai_sheet.update(f'A{curr_row}', [[f"🏆 {tier} 체급별 타율 상위 패턴"]])
                         # 데이터 전송 (헤더 포함)
                         set_with_dataframe(ai_sheet, patterns, row=curr_row+1, col=1, include_index=False)
                         curr_row += (len(patterns) + 4) # 다음 체급을 위해 줄 띄움
+                        valid_tier_count += 1
+                     else:
+                         print(f"⚠️ [Step 3-1] {tier} 체급은 조건(수익률 등)을 만족하는 패턴이 0건입니다.")
+                print(f"✅ [Step 4] 총 {valid_tier_count}개의 체급 섹션이 시트에 기록되었습니다.")
                 print("✅ [Success] 체급별 AI 족보 전송 완료")
             except Exception as e:
-              print(f"❌ [Error] 탭 2 체급별 분리 실패: {e}")
+                print(f"❌ [Error] 탭 2 체급별 분리 실패: {e}")
+        else:
+            print("❌ [Critical] ai_recommendation 인자가 None으로 넘어왔습니다. (데이터 전송 누락)")
 
         # --- [탭 3: 실시간_전수_관제판] ---
         try:
