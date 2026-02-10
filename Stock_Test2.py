@@ -1,5 +1,5 @@
 # ------------------------------------------------------------------
-# 💎 [Ultimate Masterpiece] 전천후 AI 전략 사령부 (Ver 36.5 역매공파 통합판 )
+# 💎 [Ultimate Masterpiece] 전천후 AI 전략 사령부 (Ver 36.5 역매공파 통합 완결판)
 # ------------------------------------------------------------------
 import FinanceDataReader as fdr
 import os, re, time, pytz
@@ -141,19 +141,18 @@ def get_indicators(df):
     df['ADX'] = ((abs((high-high.shift(1)).clip(lower=0).rolling(14).sum() - (low.shift(1)-low).clip(lower=0).rolling(14).sum()) / 
                 ((high-high.shift(1)).clip(lower=0).rolling(14).sum() + (low.shift(1)-low).clip(lower=0).rolling(14).sum())) * 100).rolling(14).mean()
     
-    # MACD
+    # 💡 [신규] MACD
     ema12 = df['Close'].ewm(span=12).mean()
     ema26 = df['Close'].ewm(span=26).mean()
     df['MACD'] = ema12 - ema26
     df['MACD_Signal'] = df['MACD'].ewm(span=9).mean()
     df['MACD_Hist'] = df['MACD'] - df['MACD_Signal']
     
-    # OBV
+    # 💡 [신규] OBV
     df['OBV'] = (np.sign(df['Close'].diff()) * df['Volume']).fillna(0).cumsum()
     df['OBV_Slope'] = (df['OBV'] - df['OBV'].shift(5)) / df['OBV'].shift(5).abs() * 100
-    df['OBV_10d_ago'] = df['OBV'].shift(10)
     
-    # RSI
+    # 💡 [신규] RSI
     delta = df['Close'].diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
@@ -178,14 +177,17 @@ def analyze_final(ticker, name, historical_indices):
         df = df.join(historical_indices, how='left').fillna(method='ffill')
         
         # 최신 수급 데이터 수집
-        url = f"https://finance.naver.com/item/frgn.naver?code={ticker}"
-        res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
-        res.encoding = 'euc-kr'
-        supply_df = pd.read_html(res.text)[2].dropna()
-        f_qty = int(str(supply_df.iloc[0]['외국인']).replace('.0','').replace(',',''))
-        i_qty = int(str(supply_df.iloc[0]['기관']).replace('.0','').replace(',',''))
-        twin_b = (f_qty > 0 and i_qty > 0)
-        whale_score = int(((f_qty + i_qty) * df.iloc[-1]['Close']) / 100000000)
+        try:
+            url = f"https://finance.naver.com/item/frgn.naver?code={ticker}"
+            res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
+            res.encoding = 'euc-kr'
+            supply_df = pd.read_html(res.text)[2].dropna()
+            f_qty = int(str(supply_df.iloc[0]['외국인']).replace('.0','').replace(',',''))
+            i_qty = int(str(supply_df.iloc[0]['기관']).replace('.0','').replace(',',''))
+            twin_b = (f_qty > 0 and i_qty > 0)
+            whale_score = int(((f_qty + i_qty) * df.iloc[-1]['Close']) / 100000000)
+        except:
+            f_qty, i_qty, twin_b, whale_score = 0, 0, False, 0
 
         recent_df = df.tail(SCAN_DAYS)
         hits = []
@@ -211,58 +213,28 @@ def analyze_final(ticker, name, historical_indices):
             is_yeok_mae_old = close_p > row['MA112'] and prev['Close'] <= row['MA112']
             is_vol_power = row['Volume'] > row['VMA20'] * 2.5
 
-            # 💡 [신규] 역매공파 완전체 패턴 감지
-            # 조건1: 이평선 정배열
-            is_ma_aligned = (row['MA5'] > row['MA20']) and (row['MA20'] > row['MA60'])
-            
-            # 조건2: 이평선 수렴 (20일과 60일이 3% 이내)
-            is_ma_converged = row['MA_Convergence'] <= 3.0
-            
-            # 조건3: 볼린저밴드(40) 수축 (10% 이내)
-            is_bb40_squeeze = row['BB40_Width'] <= 10.0
-            
-            # 조건4: 당일 음봉
-            is_red_candle = close_p < open_p
-            
-            # 조건5: 하락 1~5%
+            # 💡 [신규] 역매공파 7가지 조건 체크 (필터 아님, 체크만!)
+            yeok_1_ma_aligned = (row['MA5'] > row['MA20']) and (row['MA20'] > row['MA60'])
+            yeok_2_ma_converged = row['MA_Convergence'] <= 3.0
+            yeok_3_bb40_squeeze = row['BB40_Width'] <= 10.0
+            yeok_4_red_candle = close_p < open_p
             day_change = ((close_p - prev['Close']) / prev['Close']) * 100
-            is_pullback = -5.0 <= day_change <= -1.0
+            yeok_5_pullback = -5.0 <= day_change <= -1.0
+            yeok_6_volume_surge = row['Volume'] >= row['VMA5'] * 1.5
+            yeok_7_ma5_support = close_p >= row['MA5'] * 0.97
             
-            # 조건6: 거래량 급증 (1.5배 이상)
-            is_volume_surge = row['Volume'] >= row['VMA5'] * 1.5
-            
-            # 조건7: 5일선 지지 (종가가 5일선 97% 이상)
-            is_ma5_support = close_p >= row['MA5'] * 0.97
-            
-            # 💡 매집 신호 감지
-            # OBV 상승 (5일 전, 10일 전 대비)
-            is_obv_rising = (row['OBV'] > prev_5['OBV']) and (row['OBV'] > prev_10['OBV'])
-            
-            # 박스권 횡보 (변동폭 15% 이내)
-            is_box_range = row['Box_Range'] <= 1.15
-            
-            # MACD 골든크로스
-            is_macd_golden = row['MACD'] > row['MACD_Signal']
-            
-            # RSI 40~70
-            is_rsi_healthy = 40 <= row['RSI'] <= 70
-            
-            # 스토캐스틱 골든크로스
-            is_sto_golden = row['Sto_K'] > row['Sto_D']
+            # 💡 [신규] 매집 5가지 조건 체크
+            acc_1_obv_rising = (row['OBV'] > prev_5['OBV']) and (row['OBV'] > prev_10['OBV'])
+            acc_2_box_range = row['Box_Range'] <= 1.15
+            acc_3_macd_golden = row['MACD'] > row['MACD_Signal']
+            acc_4_rsi_healthy = 40 <= row['RSI'] <= 70
+            acc_5_sto_golden = row['Sto_K'] > row['Sto_D']
 
-            # 💡 역매공파 완전체 판정
-            yeok_mae_core = (is_ma_aligned and is_ma_converged and is_bb40_squeeze and 
-                            is_red_candle and is_pullback and is_volume_surge and is_ma5_support)
-            
-            # 💡 매집 신호 판정
-            is_accumulation = (is_obv_rising and is_box_range and is_macd_golden and 
-                              is_rsi_healthy and is_sto_golden)
-
-            # 3. 점수 산출 및 태그 부여
+            # 3. 점수 산출 및 태그 부여 (기존 로직 그대로!)
             s_score = 100
             tags = []
             
-            # 다이아몬드 패턴
+            # 기존 시그널들
             if is_diamond:
                 s_score += 150
                 tags.append("💎다이아몬드")
@@ -273,53 +245,63 @@ def analyze_final(ticker, name, historical_indices):
                 s_score += 40
                 tags.append("☁️구름돌파")
 
-            # 💡 역매공파 완전체
-            if yeok_mae_core:
-                s_score += 120
-                tags.append("🎯역매공파완전체")
-            else:
-                # 부분 점수
-                if is_ma_aligned and is_ma_converged:
-                    s_score += 30
-                    tags.append("📐이평수렴")
-                if is_bb40_squeeze:
-                    s_score += 30
-                    tags.append("🔋밴드40수축")
-                if is_pullback and is_volume_surge:
-                    s_score += 25
-                    tags.append("⚡되돌림급등")
-
-            # 💡 매집 신호
-            if is_accumulation:
-                s_score += 80
-                tags.append("🐋세력매집")
-            else:
-                # 부분 매집 신호
-                if is_obv_rising and is_macd_golden:
-                    s_score += 20
-                    tags.append("📊OBV상승")
-
-            # 기존 시그널
-            if is_yeok_mae_old:
+            if is_yeok_mae_old: 
                 s_score += 40
                 tags.append("🏆역매공파")
-            if is_super_squeeze:
+                
+            if is_super_squeeze: 
                 s_score += 40
                 tags.append("🔋초강력응축")
-            if is_vol_power:
+                
+            if is_vol_power: 
                 s_score += 30
                 tags.append("⚡거래폭발")
             
-            # 꼬리 감점 로직
+            # 💡 [신규] 역매공파 완전체 체크 (7개 조건)
+            yeok_mae_count = sum([yeok_1_ma_aligned, yeok_2_ma_converged, yeok_3_bb40_squeeze,
+                                 yeok_4_red_candle, yeok_5_pullback, yeok_6_volume_surge, yeok_7_ma5_support])
+            
+            if yeok_mae_count == 7:
+                s_score += 100
+                tags.append("🎯역매공파완전체")
+            elif yeok_mae_count >= 5:
+                s_score += 50
+                tags.append("🎯역매공파강")
+            elif yeok_mae_count >= 3:
+                s_score += 20
+                tags.append("🎯역매공파약")
+            
+            # 세부 태그
+            if yeok_1_ma_aligned and yeok_2_ma_converged:
+                tags.append("📐이평수렴")
+            if yeok_3_bb40_squeeze:
+                tags.append("🔋밴드(40)")
+            
+            # 💡 [신규] 매집 시그널 체크
+            acc_count = sum([acc_1_obv_rising, acc_2_box_range, acc_3_macd_golden,
+                           acc_4_rsi_healthy, acc_5_sto_golden])
+            
+            if acc_count >= 4:
+                s_score += 60
+                tags.append("🐋세력매집")
+            elif acc_count >= 3:
+                s_score += 30
+                tags.append("🐋매집징후")
+                
+            if acc_1_obv_rising:
+                tags.append("📊OBV상승")
+
+            # 기존 감점 로직
             if t_pct > 40:
                 s_score -= 25
                 tags.append("⚠️윗꼬리")
 
-            # 기상도 및 과열(이격도) 감점
+            # 기상도 감점
             storm_count = sum([1 for m in ['ixic', 'sp500'] if row[f'{m}_close'] <= row[f'{m}_ma5']])
             s_score -= (storm_count * 20)
-            s_score -= max(0, int((row['Disparity']-108)*5))
+            s_score -= max(0, int((row['Disparity']-108)*5)) 
             
+            # 기존과 동일: 태그 없으면 스킵
             if not tags: continue
 
             # 4. 수익률 검증 데이터 생성
@@ -337,15 +319,17 @@ def analyze_final(ticker, name, historical_indices):
                 '이격': int(row['Disparity']),
                 'BB40': f"{row['BB40_Width']:.1f}",
                 'MA수렴': f"{row['MA_Convergence']:.1f}",
+                '역매': f"{yeok_mae_count}/7",
+                '매집': f"{acc_count}/5",
                 '🔺최고': f"{max_r:+.1f}%",
                 '현재': f"{curr_r:+.1f}%",
-                '현재_raw': curr_r,
+                '현재_raw': curr_r, 
                 '최고_raw': max_r,
                 '구분': " ".join(tags),
                 '보유일': len(h_df)
             })
         return hits
-    except Exception as e:
+    except: 
         return []
 
 # =================================================
@@ -391,19 +375,19 @@ if __name__ == "__main__":
         # 4. 결과 분류 및 리포트
         today = df_total[df_total['보유일'] == 0].sort_values(by='안전', ascending=False)
         
-        print("\n" + "🎯 [오늘의 역매공파 완전체] " + "="*50)
-        yeok_mae_today = today[today['구분'].str.contains('역매공파완전체', na=False)]
-        if not yeok_mae_today.empty:
-            print(yeok_mae_today[['종목', '안전', '꼬리%', 'BB40', 'MA수렴', '구분']].head(10))
+        print("\n" + "🎯 [오늘의 역매공파 패턴] " + "="*70)
+        yeok_today = today[today['구분'].str.contains('역매공파', na=False)]
+        if not yeok_today.empty:
+            print(yeok_today[['종목', '안전', '역매', '매집', 'BB40', 'MA수렴', '구분']].head(15))
         else:
-            print("오늘은 역매공파 완전체 패턴이 포착되지 않았습니다.")
+            print("오늘은 역매공파 패턴이 포착되지 않았습니다.")
         
-        print("\n" + "🔥 [오늘의 초정예 다이아몬드 타점] " + "="*50)
-        print(today[['날짜', '안전', '종목', '꼬리%', 'BB40', 'MA수렴', '구분']].head(20))
+        print("\n" + "🔥 [오늘의 초정예 다이아몬드 타점] " + "="*70)
+        print(today[['날짜', '안전', '종목', '꼬리%', '역매', '매집', '구분']].head(20))
 
-        print("\n" + "📊 [전략별 통계] " + "="*50)
+        print("\n" + "📊 [전략별 통계 (과거 30일)] " + "="*70)
         if not stats_df.empty:
-            print(stats_df.head(15))
+            print(stats_df.head(20))
 
         # 5. 구글 시트 전송
         try:
@@ -412,4 +396,4 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"\n❌ 시트 업데이트 실패: {e}")
     else:
-        print("\n⚠️ 검색 결과가 없습니다.")
+            print("\n⚠️ 검색 결과가 없습니다.")
