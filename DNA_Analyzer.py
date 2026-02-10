@@ -162,30 +162,38 @@ def analyze_dna_with_cap(all_hits, ticker_info_df):
 
 def find_winning_pattern_by_tier(dna_df):
     """
-    [체급별 랭킹] 👑HEAVY, ⚔️MIDDLE, 🚀LIGHT 별로 상위 패턴을 각각 추출합니다.
+    [지능형 랭킹] 체급별로 성공 기준을 다르게 적용하여 0건 현상을 방지합니다.
     """
     if dna_df is None or dna_df.empty: return {}
 
     tier_results = {}
-    # '미확인' 데이터가 있다면 '🚀LIGHT'로 취급하여 분석합니다.
-    dna_df['유형'] = dna_df['유형'].replace('미확인', '🚀LIGHT')
-    
-    tiers = ['👑HEAVY', '⚔️MIDDLE', '🚀LIGHT']
+    # 체급별 '성공'이라고 부를 수 있는 최소 수익률 가이드라인
+    # 대형주는 3%만 넘어도 유의미한 패턴으로 간주합니다.
+    thresholds = {
+        '👑HEAVY': 3.0,   
+        '⚔️MIDDLE': 5.0,  
+        '🚀LIGHT': 10.0   
+    }
 
-    for tier in tiers:
-        # 해당 체급 데이터만 분리
+    print(f"📊 [Debug] 전체 {len(dna_df)}건 중 체급 분포:")
+    print(dna_df['유형'].value_counts()) # 💡 어떤 체급이 몇 개 있는지 로그로 먼저 확인
+
+    for tier, min_yield in thresholds.items():
+        # 해당 체급 필터링
         tier_df = dna_df[dna_df['유형'].str.contains(tier, na=False)]
         
         if not tier_df.empty:
-            # 10% 이상 수익을 낸 성공 사례 집계
-            success_cases = tier_df[tier_df['최고수익률'] >= 1.0]
+            # 💡 체급별 맞춤형 커트라인 적용
+            success_cases = tier_df[tier_df['최고수익률'] >= min_yield]
+            
+            print(f"🔎 {tier} 수색: 기준 {min_yield}% 이상 -> {len(success_cases)}건 발견")
+            
             if not success_cases.empty:
                 summary = success_cases.groupby('DNA_시퀀스').agg({
                     'DNA_시퀀스': 'count',
                     '최고수익률': 'mean'
                 }).rename(columns={'DNA_시퀀스': '포착수', '최고수익률': '평균수익'}).reset_index()
                 
-                # 체급별 상위 10개 패턴 저장
                 tier_results[tier] = summary.sort_values(by='포착수', ascending=False).head(10)
             else:
                 tier_results[tier] = pd.DataFrame()
