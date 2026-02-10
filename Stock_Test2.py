@@ -40,9 +40,9 @@ print(f"📡 [Ver 36.7 엑셀저장+추천] 사령부 무결성 통합 가동...
 
 
 def get_commander_market_cap():
-    """
-    3,000개 전 종목의 시가총액을 한 번에 긁어오는 광역 레이더입니다.
-    """
+    #"""
+    #3,000개 전 종목의 시가총액을 한 번에 긁어오는 광역 레이더입니다.
+    #"""
     print("📡 [Cap-Scanner] 전 종목 시가총액 데이터 수집 중...")
     try:
         # 오늘 날짜 확인 (장 중이라면 오늘, 장 전이라면 전날 기준)
@@ -66,26 +66,31 @@ def get_commander_market_cap():
         return {}
 
 def assign_tier(ticker, cap_dict):
-    """
-    종목 코드를 입력하면 해당 종목의 체급(Tier)을 판정합니다.
-    """
+    #"""
+    #이름(Name)을 코드로 치환한 뒤 시총을 조회하는 2단계 검증 시스템
+    #"""
     try:
-        # 1. df_krx(전체 종목 리스트)에서 종목명에 해당하는 코드를 먼저 찾습니다.
-        code_row = df_krx[df_krx['Name'] == ticker_name]
+        # 💡 [보정] 이름 양쪽 공백 제거 및 대문자 통일
+        clean_name = str(ticker_name).strip().replace(" ", "")
         
-        if not code_row.empty:
-            ticker_code = code_row.iloc[0]['Code']
-            # 2. 찾은 코드로 시총 맵에서 조회
+        # 1. df_krx에서 이름 매칭 (공백 제거 후 비교)
+        # KRX 리스트의 이름들도 공백을 제거하고 비교합니다.
+        df_krx['Name_Clean'] = df_krx['Name'].str.replace(" ", "")
+        matched_row = df_krx[df_krx['Name_Clean'] == clean_name]
+        
+        if not matched_row.empty:
+            ticker_code = matched_row.iloc[0]['Code']
             cap = commander_cap_map.get(ticker_code, 0)
             
             if cap >= 1_000_000_000_000: return "👑HEAVY", cap
             if cap >= 200_000_000_000: return "⚔️MIDDLE", cap
             return "🚀LIGHT", cap
         
-        # 3. 실패 시 기본값 (미확인 방지)
-        return "🚀LIGHT", 0
+        # 💡 [로그] 만약 끝까지 못 찾으면 어떤 종목인지 실명을 로그에 남깁니다.
+        print(f"⚠️ [Check] 체급 판별 실패: {ticker_name}")
+        return "❓UNIDENTIFIED", 0
     except:
-        return "🚀LIGHT", 0
+        return "❓UNIDENTIFIED", 0
 
 # ---------------------------------------------------------
 # 🌍 [매크로 엔진] 글로벌 지수 및 수급 데이터 수집
