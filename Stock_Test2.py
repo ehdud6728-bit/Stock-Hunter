@@ -473,74 +473,79 @@ if __name__ == "__main__":
     if all_hits:
         df_total = pd.DataFrame(all_hits)
         
-        # 💡 통계 계산 (추천 정보 포함)
-        stats_df, recommendation = calculate_strategy_stats(all_hits)
+        # 통계 계산 (상위 5개 추천 정보 포함)
+        stats_df, top_recommendations = calculate_strategy_stats(all_hits)
         
         # 4. 결과 분류
         today = df_total[df_total['보유일'] == 0].sort_values(by='안전점수', ascending=False)
         
-        # 💡 추천 패턴 DataFrame 생성 (구글 시트 전송용)
-        if recommendation:
-            recommendation_df = pd.DataFrame([{
-                '날짜': TODAY_STR,
-                '추천패턴': recommendation['패턴'],
-                '타율(%)': recommendation['타율'],
-                '평균수익(%)': recommendation['평균수익'],
-                '기대값': recommendation['기대값'],
-                '분석건수': recommendation['건수'],
-                '비고': recommendation.get('주의', '✅ 신뢰도 높음')
-            }])
+        # 추천 패턴 DataFrame 생성
+        if top_recommendations:
+            recommendation_df = pd.DataFrame(top_recommendations)
+            recommendation_df['날짜'] = TODAY_STR
+            recommendation_df = recommendation_df[['날짜', '순위', '패턴', '타율', '평균수익', '기대값', '건수', '신뢰도']]
         else:
             recommendation_df = pd.DataFrame()
         
-        # 💡 추천 패턴 출력
-        if recommendation:
-            print("\n" + "🏆 " * 10 + "[ AI 추천 최고 패턴 ]" + " 🏆" * 10)
-            print(f"📌 패턴명: {recommendation['패턴']}")
-            print(f"📊 통계: 타율 {recommendation['타율']}% | 평균수익 {recommendation['평균수익']}% | 기대값 {recommendation['기대값']}")
-            print(f"📈 분석건수: {recommendation['건수']}건")
-            if '주의' in recommendation:
-                print(f"{recommendation['주의']}")
+        # 💡 추천 패턴 출력 (여러 개)
+        if top_recommendations:
+            print("\n" + "🏆 " * 10 + "[ AI 추천 TOP 5 패턴 ]" + " 🏆" * 10)
+            for i, rec in enumerate(top_recommendations, 1):
+                medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"{i}위"
+                print(f"\n{medal} [{rec['패턴']}]")
+                print(f"   📊 타율 {rec['타율']}% | 평균수익 {rec['평균수익']}% | 기대값 {rec['기대값']} | 건수 {rec['건수']}건")
+                print(f"   {rec['신뢰도']}")
             print("=" * 100)
             
-            # 💡 추천 패턴이 포함된 오늘의 종목 필터링
-            recommended_today = today[today['구분'].str.contains(recommendation['패턴'].split(' + ')[0], na=False)]
+            # 1위 패턴이 포함된 오늘의 종목 필터링
+            top_pattern = top_recommendations[0]['패턴']
+            recommended_today = today[today['구분'].str.contains(top_pattern.split(' + ')[0], na=False)]
             if not recommended_today.empty:
-                print(f"\n✨ 오늘의 '{recommendation['패턴']}' 패턴 종목 (상위 10개)")
+                print(f"\n✨ 오늘의 '{top_pattern}' 패턴 종목 (상위 10개)")
                 print(recommended_today[['종목', '안전점수', '매입가', '역매', '매집', '구분']].head(10))
         
-        print("\n" + "🎯 [오늘의 역매공파 패턴] " + "="*70)
-        yeok_today = today[today['구분'].str.contains('역매공파', na=False)]
-        if not yeok_today.empty:
-            print(yeok_today[['종목', '안전점수', '매입가', '역매', '매집', 'BB40', 'MA수렴', '구분']].head(15))
-        else:
-            print("오늘은 역매공파 패턴이 포착되지 않았습니다.")
+        # 💡 통합: 오늘의 추천종목 (역매공파 포함, 안전점수 순)
+        print("\n" + "🎯 " * 10 + "[ 오늘의 추천종목 TOP 50 ]" + " 🎯" * 10)
+        print("(역매공파, 다이아몬드, 세력매집 등 모든 패턴 포함 / 안전점수 순)")
+        print("=" * 120)
         
-        print("\n" + "🔥 [오늘의 초정예 종목 TOP 30] " + "="*70)
-        display_cols = ['종목', '안전점수', '매입가', '현재가', '꼬리%', '역매', '매집', '구분']
-        print(today[display_cols].head(30))
+        if not today.empty:
+            display_cols = ['종목', '안전점수', '매입가', '현재가', '꼬리%', '역매', '매집', 'BB40', 'MA수렴', '구분']
+            print(today[display_cols].head(50))
+            
+            # 💡 패턴별 집계 (참고용)
+            diamond_count = len(today[today['구분'].str.contains('다이아몬드', na=False)])
+            yeok_complete = len(today[today['구분'].str.contains('역매공파완전체', na=False)])
+            yeok_strong = len(today[today['구분'].str.contains('역매공파강', na=False)])
+            accumulation = len(today[today['구분'].str.contains('세력매집', na=False)])
+            
+            print("\n📊 [ 오늘의 패턴 분포 ]")
+            print(f"   💎 다이아몬드: {diamond_count}개")
+            print(f"   🎯 역매공파 완전체: {yeok_complete}개")
+            print(f"   🎯 역매공파 강: {yeok_strong}개")
+            print(f"   🐋 세력매집: {accumulation}개")
+            print(f"   📈 전체 추천종목: {len(today)}개")
+        else:
+            print("오늘은 추천할 만한 종목이 없습니다.")
 
         print("\n" + "📊 [전략별 통계 (과거 30일)] " + "="*70)
         if not stats_df.empty:
             print(stats_df.head(20))
 
-        # 5. 💡 구글 시트 전송 (오늘의 추천종목 + 추천패턴 정보 추가)
+        # 5. 구글 시트 전송
         try:
-            # update_commander_dashboard 함수에 today와 recommendation_df 추가 전달
             update_commander_dashboard(
-                df_total, 
+                df_total,  # 메인 시트: 전체 30일 데이터
                 macro_status, 
                 "사령부_통합_상황판", 
                 stats_df,
-                today_recommendations=today,  # 💡 오늘의 추천종목 추가
-                ai_recommendation=recommendation_df  # 💡 AI 추천 패턴 추가
+                today_recommendations=today,  # 오늘의_추천종목 탭: 오늘만 (모든 패턴 통합)
+                ai_recommendation=recommendation_df  # AI_추천패턴 탭: TOP 5
             )
-            print("\n✅ 구글 시트 업데이트 성공! (오늘의 추천종목 + AI 추천 패턴 포함)")
-        except TypeError:
-            # 💡 기존 함수가 파라미터를 받지 않는 경우 (구버전 호환)
-            print("\n⚠️ google_sheet_managerEx 구버전 감지 - 기본 데이터만 전송")
-            update_commander_dashboard(df_total, macro_status, "사령부_통합_상황판", stats_df)
-            print("✅ 구글 시트 기본 업데이트 성공!")
+            print("\n✅ 구글 시트 업데이트 성공!")
+            print("   📋 메인 시트: 전체 30일 검증 데이터")
+            print("   🎯 오늘의_추천종목 탭: 오늘 신호만 (TOP 50, 모든 패턴 통합)")
+            print("   🏆 AI_추천패턴 탭: TOP 5 패턴 분석")
         except Exception as e:
             print(f"\n❌ 시트 업데이트 실패: {e}")
     else:
