@@ -94,40 +94,53 @@ def update_commander_dashboard(df, macro_data, sheet_name, stats_df=None,
                 print(f"⚠️ [Ex-Sheet] 오늘의 추천종목 탭 오류: {e}")
                 traceback.print_exc()
         
-        # 💡 [신규 탭 2: AI_추천패턴]
-        if ai_recommendation is not None and not ai_recommendation.empty:
-            try:
-                try:
-                    ai_sheet = doc.worksheet("AI_추천패턴")
-                except:
-                    ai_sheet = doc.add_worksheet(title="AI_추천패턴", rows="100", cols="10", index=1)
-                
-                ai_sheet.clear()
-                
-                # 헤더
-                ai_header = [
-                    ["🏆 AI 분석 기반 최고 패턴 추천", "", "", "", ""],
-                    [f"분석 기준: 과거 30일 데이터 | 업데이트: {datetime.now().strftime('%Y-%m-%d %H:%M')}", "", "", "", ""],
-                    ["", "", "", "", ""]
-                ]
-                ai_sheet.update('A1', ai_header, value_input_option='USER_ENTERED')
-                
-                # 추천 패턴 데이터
-                set_with_dataframe(ai_sheet, ai_recommendation, row=4, col=1, include_index=False)
-                
-                # 🎨 서식
-                try:
-                    ai_sheet.format('A4:Z4', {
-                        'backgroundColor': {'red': 0.2, 'green': 0.4, 'blue': 0.8},
-                        'textFormat': {'bold': True, 'foregroundColor': {'red': 1, 'green': 1, 'blue': 1}}
-                    })
-                except: pass
-                
-                print("✅ [Ex-Sheet] AI 추천패턴 탭 생성 완료")
-            except Exception as e:
-                print(f"⚠️ [Ex-Sheet] AI 추천패턴 탭 오류: {e}")
-                traceback.print_exc()
+      if ai_recommendation is not None and not ai_recommendation.empty:
+          try:
+              try:
+                  ai_sheet = doc.worksheet("AI_추천패턴")
+              except:
+                  ai_sheet = doc.add_worksheet(title="AI_추천패턴", rows="100", cols="10", index=1)
         
+           ai_sheet.clear()
+        
+           # 헤더
+           ai_header = [
+            ["🏆 AI 분석 기반 TOP 5 패턴 추천", "", "", "", "", "", ""],
+            [f"분석 기준: 과거 30일 데이터 | 업데이트: {datetime.now().strftime('%Y-%m-%d %H:%M')}", "", "", "", "", "", ""],
+            ["기대값 = (승률 × 평균수익) | 높을수록 수익 가능성 높음", "", "", "", "", "", ""],
+            ["", "", "", "", "", "", ""]
+        ]
+           ai_sheet.update('A1', ai_header, value_input_option='USER_ENTERED')
+        
+           # 추천 패턴 데이터
+           set_with_dataframe(ai_sheet, ai_recommendation, row=5, col=1, include_index=False)
+        
+        # 🎨 서식
+           try:
+               # 헤더 서식
+              ai_sheet.format('A5:H5', {
+                'backgroundColor': {'red': 0.2, 'green': 0.4, 'blue': 0.8},
+                'textFormat': {'bold': True, 'foregroundColor': {'red': 1, 'green': 1, 'blue': 1}}
+            })
+            
+               # 1위 강조 (6번째 행 = 데이터 첫 줄)
+              ai_sheet.format('A6:H6', {
+                'backgroundColor': {'red': 1.0, 'green': 0.95, 'blue': 0.7},
+                'textFormat': {'bold': True}
+            })
+            
+              # 2위 강조
+              if len(ai_recommendation) >= 2:
+                ai_sheet.format('A7:H7', {
+                    'backgroundColor': {'red': 0.95, 'green': 0.95, 'blue': 0.95},
+                    'textFormat': {'bold': True}
+                })
+        except: pass
+        
+        print("✅ [Ex-Sheet] AI 추천패턴 탭 생성 완료 (TOP 5)")
+    except Exception as e:
+        print(f"⚠️ [Ex-Sheet] AI 추천패턴 탭 오류: {e}")
+        traceback.print_exc()        
         # --- [기존 탭 1: 실시간 전수 관제판] ---
         sheet = doc.get_worksheet(0)
         sheet.clear() 
