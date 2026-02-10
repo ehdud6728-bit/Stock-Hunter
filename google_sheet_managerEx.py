@@ -47,7 +47,14 @@ def update_commander_dashboard(df, macro_data, sheet_name, stats_df=None,
                 # --- [추천종목 데이터 전처리: 필터링 & 정렬] ---
                 # 1. 오늘 날짜 데이터만 필터링
                 if '날짜' in today_recommendations.columns:
-                    today_recommendations = today_recommendations[today_recommendations['날짜'] == today_str]
+                    # 💡 [보강] 날짜 컬럼을 강제로 문자열로 변환하고 형식을 맞춥니다.
+                    # datetime 객체일 수도 있으므로 pd.to_datetime 후 다시 포맷팅합니다.
+                    today_recommendations['날짜'] = pd.to_datetime(today_recommendations['날짜']).dt.strftime('%Y-%m-%d')
+                    
+                    # 💡 오늘 날짜(today_str)와 정확히 일치하는 행만 추출
+                    today_recommendations = today_recommendations[today_recommendations['날짜'] == today_str].copy()
+                    
+                    print(f"📡 [Filter] 오늘 날짜({today_str}) 데이터 필터링 완료. 남은 종목: {len(today_recommendations)}개")
                 
                 # 2. 정렬 로직: 기대값(있을 경우) -> 안전점수(있을 경우) 순으로 내림차순
                 sort_cols = []
