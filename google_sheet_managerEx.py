@@ -65,8 +65,8 @@ def update_commander_dashboard(df, macro_data, sheet_name, stats_df=None):
         if '안전' in display_df.columns:
             display_df['종목'] = display_df.apply(lambda x: f"★ {x['종목']}" if int(x['안전']) >= 130 else x['종목'], axis=1)
         
-        # 💡 set_with_dataframe을 사용하여 헤더(제목) 누락 원천 차단
-        set_with_dataframe(sheet, display_df, row=9, col=1, include_index=False, value_input_option='USER_ENTERED')
+        # ✅ [수정 후] 규격에 맞게 매개변수 정리
+        set_with_dataframe(sheet, display_df, row=9, col=1, include_index=False)
         print("✅ [Sheet] 종목 리스트 전송 성공")
 
         # 4. 조건부 서식 (생략 가능하지만 시각화를 위해 유지)
