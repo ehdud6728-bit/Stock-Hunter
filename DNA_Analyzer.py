@@ -159,3 +159,35 @@ def analyze_dna_with_cap(all_hits, ticker_info_df):
             '패턴유형': f"{seg}_유전자"
         })
     return pd.DataFrame(results)
+
+def find_winning_pattern_by_tier(dna_df):
+    """
+    [체급별 랭킹] 👑HEAVY, ⚔️MIDDLE, 🚀LIGHT 별로 상위 패턴을 각각 추출합니다.
+    """
+    if dna_df is None or dna_df.empty: 
+        return {}
+
+    tier_results = {}
+    tiers = ['👑HEAVY', '⚔️MIDDLE', '🚀LIGHT']
+
+    for tier in tiers:
+        # 해당 체급 데이터만 분리
+        tier_df = dna_df[dna_df['유형'].str.contains(tier, na=False)]
+        
+        if not tier_df.empty:
+            # 10% 이상 수익을 낸 성공 사례 집계
+            success_cases = tier_df[tier_df['최고수익률'] >= 10.0]
+            if not success_cases.empty:
+                summary = success_cases.groupby('DNA_시퀀스').agg({
+                    'DNA_시퀀스': 'count',
+                    '최고수익률': 'mean'
+                }).rename(columns={'DNA_시퀀스': '포착수', '최고수익률': '평균수익'}).reset_index()
+                
+                # 체급별 상위 10개 패턴 저장
+                tier_results[tier] = summary.sort_values(by='포착수', ascending=False).head(10)
+            else:
+                tier_results[tier] = pd.DataFrame()
+        else:
+            tier_results[tier] = pd.DataFrame()
+            
+    return tier_results
