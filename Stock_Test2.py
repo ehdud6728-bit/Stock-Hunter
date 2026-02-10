@@ -483,6 +483,7 @@ def save_today_recommendations(df_today, recommendation_info):
 # =================================================
 if __name__ == "__main__":
     print(f"📡 [Ver 36.7 구글시트 강화] {TODAY_STR} 전술 사령부 통합 가동...")
+    commander_cap_map = get_commander_market_cap()
 
     # 1. 매크로 데이터 수집
     m_ndx = get_safe_macro('^IXIC', '나스닥')
