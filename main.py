@@ -434,6 +434,9 @@ def analyze_final(ticker, name, historical_indices):
         # 멜론/노바 판정
         is_melon = twin_b and row['OBV_Slope'] > 0 and row.get('ADX', 0) > 20 and row['MACD_Hist'] > 0
         is_nova = is_sto_gc and is_vma_gc and is_bb_brk and is_melon
+
+        # RSI
+        rsi_score = row['RSI']
         
         # --- 날씨 판정 ---
         for m_key in ['ixic', 'sp500']:
@@ -538,7 +541,7 @@ def analyze_final(ticker, name, historical_indices):
         return [{
             '날짜': curr_idx.strftime('%Y-%m-%d'),
             '기상': "".join(weather_icons),
-            '안전': int(max(0, s_score)),
+            'RSI': int(max(0, rsi_score)),
             '점수': int(s_score), # 구글 시트 전송용
             '종목명': name, 'code': ticker,
             '에너지': "🔋" if row['MACD_Hist'] > 0 else "🪫",
@@ -761,7 +764,7 @@ if all_hits:
                 f"- {item['구분']}\n"
                 f"- 재무: {item['재무']} | 수급: {item['수급']}\n"
                 f"- 역매: {item['역매']} | 매집: {item['매집']}\n"
-                f"- OBV기울기: {item['OBV기울기']} | 꼬리%: {item['꼬리%']}\n"
+                f"- OBV기울기: {item['OBV기울기']} | RSI: {item['RSI']}\n"
                 f"💡 {item.get('ai_tip', '분석전')}\n"
                 f"----------------------------\n")
      
