@@ -11,3 +11,5 @@ numpy
 google-generativeai
 openai
 mplfinance
+gspread-formatting
+gspread-dataframe
