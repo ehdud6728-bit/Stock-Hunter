@@ -176,7 +176,7 @@ def find_winning_pattern_by_tier(dna_df):
         
         if not tier_df.empty:
             # 10% 이상 수익을 낸 성공 사례 집계
-            success_cases = tier_df[tier_df['최고수익률'] >= 10.0]
+            success_cases = tier_df[tier_df['최고수익률'] >= 1.0]
             if not success_cases.empty:
                 summary = success_cases.groupby('DNA_시퀀스').agg({
                     'DNA_시퀀스': 'count',
