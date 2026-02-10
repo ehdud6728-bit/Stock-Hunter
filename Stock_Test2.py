@@ -429,10 +429,10 @@ def save_today_recommendations(df_today, recommendation_info):
         return None
 
 # =================================================
-# 🚀 [실행] 메인 컨트롤러
+# 🚀 [실행] 메인 컨트롤러 (수정 버전)
 # =================================================
 if __name__ == "__main__":
-    print(f"📡 [Ver 36.7 엑셀저장+추천] {TODAY_STR} 전술 사령부 통합 가동...")
+    print(f"📡 [Ver 36.7 구글시트 강화] {TODAY_STR} 전술 사령부 통합 가동...")
 
     # 1. 매크로 데이터 수집
     m_ndx = get_safe_macro('^IXIC', '나스닥')
@@ -473,6 +473,20 @@ if __name__ == "__main__":
         # 4. 결과 분류
         today = df_total[df_total['보유일'] == 0].sort_values(by='안전점수', ascending=False)
         
+        # 💡 추천 패턴 DataFrame 생성 (구글 시트 전송용)
+        if recommendation:
+            recommendation_df = pd.DataFrame([{
+                '날짜': TODAY_STR,
+                '추천패턴': recommendation['패턴'],
+                '타율(%)': recommendation['타율'],
+                '평균수익(%)': recommendation['평균수익'],
+                '기대값': recommendation['기대값'],
+                '분석건수': recommendation['건수'],
+                '비고': recommendation.get('주의', '✅ 신뢰도 높음')
+            }])
+        else:
+            recommendation_df = pd.DataFrame()
+        
         # 💡 추천 패턴 출력
         if recommendation:
             print("\n" + "🏆 " * 10 + "[ AI 추천 최고 패턴 ]" + " 🏆" * 10)
@@ -504,15 +518,23 @@ if __name__ == "__main__":
         if not stats_df.empty:
             print(stats_df.head(20))
 
-        # 💡 엑셀 저장 (오늘의 추천종목 상위 50개)
-        if not today.empty:
-            today_top50 = today.head(50)
-            save_today_recommendations(today_top50, recommendation)
-
-        # 5. 구글 시트 전송
+        # 5. 💡 구글 시트 전송 (오늘의 추천종목 + 추천패턴 정보 추가)
         try:
+            # update_commander_dashboard 함수에 today와 recommendation_df 추가 전달
+            update_commander_dashboard(
+                df_total, 
+                macro_status, 
+                "사령부_통합_상황판", 
+                stats_df,
+                today_recommendations=today,  # 💡 오늘의 추천종목 추가
+                ai_recommendation=recommendation_df  # 💡 AI 추천 패턴 추가
+            )
+            print("\n✅ 구글 시트 업데이트 성공! (오늘의 추천종목 + AI 추천 패턴 포함)")
+        except TypeError:
+            # 💡 기존 함수가 파라미터를 받지 않는 경우 (구버전 호환)
+            print("\n⚠️ google_sheet_managerEx 구버전 감지 - 기본 데이터만 전송")
             update_commander_dashboard(df_total, macro_status, "사령부_통합_상황판", stats_df)
-            print("\n✅ 구글 시트 및 전술 통계 업데이트 성공!")
+            print("✅ 구글 시트 기본 업데이트 성공!")
         except Exception as e:
             print(f"\n❌ 시트 업데이트 실패: {e}")
     else:
