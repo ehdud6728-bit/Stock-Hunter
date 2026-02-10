@@ -449,7 +449,7 @@ def analyze_final(ticker, name, historical_indices):
             
         # 기존 시그널들
         if is_diamond:
-            s_score += 150
+            s_score += 100
             tags.append("💎다이아몬드")
             if t_pct < 10:
                 s_score += 50
@@ -482,8 +482,10 @@ def analyze_final(ticker, name, historical_indices):
 
         # 세부 태그
         if yeok_1_ma_aligned and yeok_2_ma_converged:
+            s_score += 30
             tags.append("📐이평수렴")
         if yeok_3_bb40_squeeze:
+            s_score += 30
             tags.append("🔋밴드(40)")
             
         # 💡 매집 시그널 체크
@@ -498,6 +500,7 @@ def analyze_final(ticker, name, historical_indices):
             tags.append("🐋매집징후")
                 
         if acc_1_obv_rising:
+            s_score += 30
             tags.append("📊OBV상승")
 
         if is_nova:
@@ -507,12 +510,14 @@ def analyze_final(ticker, name, historical_indices):
             tags.append("🍉수박")
         
         if is_sto_gc:
+            s_score += 30
             tags.append("Sto-GC")
         
         if is_vma_gc:
             tags.append("VMA-GC")
         
         if 98 <= row['Disparity'] <= 104:
+            s_score += 30
             tags.append("🏆LEGEND")
      
         # 기존 감점 로직
