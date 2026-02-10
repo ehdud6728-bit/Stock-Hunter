@@ -350,7 +350,7 @@ def run_ai_tournament(candidate_list):
 def get_ai_summary(ticker, name, tags):
     try:
         client = OpenAI(api_key=OPENAI_API_KEY)
-        res = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role":"user", "content":f"{name}({ticker}) 세계 최고 주식 트레이더 입장에서 매매의견은 추천/비추천으로 해주고 매매에 꼭 필요한 종목의 최근 핵심 테마와 특징(2026년 현재기준)을 한줄로 요약해(반말) "}])
+        res = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role":"user", "content":f"{name}({ticker}) 세계 최고 주식 트레이더 입장에서 매매의견은 추천/비추천으로 해주고 단타/스윙/중장기 어떻게 대응하면 되는지 알려주고 종목의 최근 핵심 테마와 특징(2026년 현재 오늘 기준)을 한줄로 요약해(반말) "}])
         return res.choices[0].message.content.strip()
     except: return "분석 불가"
 
