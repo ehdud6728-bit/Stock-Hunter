@@ -8,11 +8,14 @@ from datetime import datetime
 def update_commander_dashboard(df, macro_data, sheet_name, stats_df=None):
     json_key_path = 'stock-key.json' 
     try:
-        scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
+        # 1. 인증 로직
         if os.path.exists(json_key_path):
             creds = ServiceAccountCredentials.from_json_keyfile_name(json_key_path, scope)
+        elif os.environ.get('GOOGLE_JSON_KEY'):
+            key_dict = json.loads(os.environ.get('GOOGLE_JSON_KEY'))
+            creds = ServiceAccountCredentials.from_json_keyfile_dict(key_dict, scope)
         else:
-            print("❌ [Google] 인증 키 파일을 찾을 수 없습니다.")
+            print("❌ [Google] 인증 키를 찾을 수 없습니다.")
             return
 
         client = gspread.authorize(creds)
