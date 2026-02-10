@@ -1,5 +1,5 @@
 # ------------------------------------------------------------------
-# 💎 [Ultimate Masterpiece] 전천후 AI 전략 사령부 (Ver 36.5 역매공파 통합 완결판)
+# 💎 [Ultimate Masterpiece] 전천후 AI 전략 사령부 (Ver 36.7 엑셀저장+추천시스템)
 # ------------------------------------------------------------------
 import FinanceDataReader as fdr
 import os, re, time, pytz
@@ -31,7 +31,7 @@ TODAY_STR = NOW.strftime('%Y-%m-%d')
 START_DATE = (datetime.now() - timedelta(days=600)).strftime('%Y-%m-%d')
 END_DATE_STR = datetime.now().strftime('%Y%m%d')
 
-print(f"📡 [Ver 36.5 역매공파] 사령부 무결성 통합 가동... 💎다이아몬드 & 📊복합통계 엔진 탑재")
+print(f"📡 [Ver 36.7 엑셀저장+추천] 사령부 무결성 통합 가동... 💎다이아몬드 & 📊복합통계 엔진 탑재")
 
 
 # ---------------------------------------------------------
@@ -72,35 +72,96 @@ def prepare_historical_weather():
     return weather_df
 
 # ---------------------------------------------------------
-# 📊 [전술 통계] 복합 전술 통계 엔진
+# 📊 [전술 통계] 복합 전술 통계 엔진 (강화)
 # ---------------------------------------------------------
 def calculate_strategy_stats(all_hits):
     past_hits = [h for h in all_hits if h['보유일'] > 0]
-    if not past_hits: return pd.DataFrame()
+    if not past_hits: return pd.DataFrame(), None
+    
     stats = {}
     for h in past_hits:
         raw_tags = h['구분'].split()
         if not raw_tags: continue
-        combos = [h['구분']]
+        
+        # 개별 태그 및 복합 태그 생성
+        combos = []
+        for tag in raw_tags:
+            combos.append(tag)
+        
+        # 2개 조합
+        if len(raw_tags) >= 2:
+            sorted_tags = sorted(raw_tags)
+            for i in range(len(sorted_tags)):
+                for j in range(i+1, len(sorted_tags)):
+                    combos.append(f"{sorted_tags[i]} + {sorted_tags[j]}")
+        
+        # 전체 조합
         if len(raw_tags) > 1:
-            raw_tags.sort()
-            combos.append(" + ".join(raw_tags)) 
+            combos.append(" + ".join(sorted(raw_tags)))
+        
         for strategy in set(combos):
             if strategy not in stats: 
-                stats[strategy] = {'total': 0, 'hits': 0, 'yields': []}
+                stats[strategy] = {'total': 0, 'hits': 0, 'yields': [], 'min_yields': []}
             stats[strategy]['total'] += 1
-            if h['최고_raw'] >= 3.5: stats[strategy]['hits'] += 1
-            stats[strategy]['yields'].append(h['최고_raw'])
+            if h['최고수익률_raw'] >= 3.5: stats[strategy]['hits'] += 1
+            stats[strategy]['yields'].append(h['최고수익률_raw'])
+            stats[strategy]['min_yields'].append(h['최저수익률_raw'])
 
     report_data = []
     for strategy, data in stats.items():
-        avg_yield = sum(data['yields']) / data['total']
+        avg_max_yield = sum(data['yields']) / data['total']
+        avg_min_yield = sum(data['min_yields']) / data['total']
         hit_rate = (data['hits'] / data['total']) * 100
-        report_data.append({'전략명': strategy, '포착건수': data['total'], '타율(승률)': round(hit_rate, 1), '평균최고수익': round(avg_yield, 1)})
-    return pd.DataFrame(report_data).sort_values(by=['평균최고수익', '타율(승률)'], ascending=False)
+        
+        # 기대값 계산 (확률 * 수익률)
+        expected_value = (hit_rate / 100) * avg_max_yield
+        
+        report_data.append({
+            '전략명': strategy, 
+            '포착건수': data['total'], 
+            '타율(승률)': round(hit_rate, 1), 
+            '평균최고수익': round(avg_max_yield, 1),
+            '평균최저수익': round(avg_min_yield, 1),
+            '기대값': round(expected_value, 2)
+        })
+    
+    df_stats = pd.DataFrame(report_data).sort_values(
+        by=['기대값', '평균최고수익', '타율(승률)'], 
+        ascending=False
+    )
+    
+    # 💡 최고 패턴 추천
+    if len(df_stats) > 0:
+        # 최소 5건 이상 데이터 있는 패턴 중에서
+        reliable_patterns = df_stats[df_stats['포착건수'] >= 5]
+        
+        if len(reliable_patterns) > 0:
+            best_pattern = reliable_patterns.iloc[0]
+            recommendation = {
+                '패턴': best_pattern['전략명'],
+                '타율': best_pattern['타율(승률)'],
+                '평균수익': best_pattern['평균최고수익'],
+                '기대값': best_pattern['기대값'],
+                '건수': best_pattern['포착건수']
+            }
+        else:
+            # 데이터 부족시 전체 중 최고
+            best_pattern = df_stats.iloc[0]
+            recommendation = {
+                '패턴': best_pattern['전략명'],
+                '타율': best_pattern['타율(승률)'],
+                '평균수익': best_pattern['평균최고수익'],
+                '기대값': best_pattern['기대값'],
+                '건수': best_pattern['포착건수'],
+                '주의': '⚠️ 데이터 5건 미만'
+            }
+    else:
+        recommendation = None
+    
+    return df_stats, recommendation
 
 # ---------------------------------------------------------
-# 📈 [데이터] 마스터 지표 엔진 (Ver 36.5 역매공파 지표 추가)
+# 📈 [데이터] 마스터 지표 엔진 (Ver 36.7)
 # ---------------------------------------------------------
 def get_indicators(df):
     df = df.copy()
@@ -120,39 +181,40 @@ def get_indicators(df):
     df['BB40_Lower'] = df['MA40'] - (std40 * 2)
     df['BB40_Width'] = (std40 * 4) / df['MA40'] * 100
     
-    # 💡 [신규] 이평선 수렴도 계산 (20일선과 60일선 차이)
+    # 이평선 수렴도 계산
     df['MA_Convergence'] = abs(df['MA20'] - df['MA60']) / df['MA60'] * 100
     
-    # 일목균형표 (의성 탐지)
+    # 일목균형표
     df['Tenkan_sen'] = (df['High'].rolling(9).max() + df['Low'].rolling(9).min()) / 2
     df['Kijun_sen'] = (df['High'].rolling(26).max() + df['Low'].rolling(26).min()) / 2
     df['Span_A'] = ((df['Tenkan_sen'] + df['Kijun_sen']) / 2).shift(26)
     df['Span_B'] = ((df['High'].rolling(52).max() + df['Low'].rolling(52).min()) / 2).shift(26)
     df['Cloud_Top'] = df[['Span_A', 'Span_B']].max(axis=1)
 
-    # 스토캐스틱 / ADX / MACD / OBV / RSI
+    # 스토캐스틱
     l_min, h_max = df['Low'].rolling(12).min(), df['High'].rolling(12).max()
     df['Sto_K'] = ((df['Close'] - l_min) / (h_max - l_min)) * 100
     df['Sto_D'] = df['Sto_K'].rolling(5).mean()
     df['Sto_SD'] = df['Sto_D'].rolling(5).mean()
     
+    # ADX
     high, low, close = df['High'], df['Low'], df['Close']
     tr = pd.concat([high - low, abs(high - close.shift(1)), abs(low - close.shift(1))], axis=1).max(axis=1)
     df['ADX'] = ((abs((high-high.shift(1)).clip(lower=0).rolling(14).sum() - (low.shift(1)-low).clip(lower=0).rolling(14).sum()) / 
                 ((high-high.shift(1)).clip(lower=0).rolling(14).sum() + (low.shift(1)-low).clip(lower=0).rolling(14).sum())) * 100).rolling(14).mean()
     
-    # 💡 [신규] MACD
+    # MACD
     ema12 = df['Close'].ewm(span=12).mean()
     ema26 = df['Close'].ewm(span=26).mean()
     df['MACD'] = ema12 - ema26
     df['MACD_Signal'] = df['MACD'].ewm(span=9).mean()
     df['MACD_Hist'] = df['MACD'] - df['MACD_Signal']
     
-    # 💡 [신규] OBV
+    # OBV
     df['OBV'] = (np.sign(df['Close'].diff()) * df['Volume']).fillna(0).cumsum()
     df['OBV_Slope'] = (df['OBV'] - df['OBV'].shift(5)) / df['OBV'].shift(5).abs() * 100
     
-    # 💡 [신규] RSI
+    # RSI
     delta = df['Close'].diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
@@ -160,14 +222,12 @@ def get_indicators(df):
     df['RSI'] = 100 - (100 / (1 + rs))
     
     df['Disparity'] = (df['Close'] / df['MA20']) * 100
-    
-    # 💡 [신규] 박스권 판정 (최근 10일 고점/저점 비율)
     df['Box_Range'] = df['High'].rolling(10).max() / df['Low'].rolling(10).min()
     
     return df
 
 # ---------------------------------------------------------
-# 🕵️‍♂️ [분석] 정밀 분석 엔진 (Ver 36.5 역매공파 패턴 추가)
+# 🕵️‍♂️ [분석] 정밀 분석 엔진 (Ver 36.7 최저수익률 추가)
 # ---------------------------------------------------------
 def analyze_final(ticker, name, historical_indices):
     try:
@@ -175,6 +235,9 @@ def analyze_final(ticker, name, historical_indices):
         if len(df) < 100: return []
         df = get_indicators(df)
         df = df.join(historical_indices, how='left').fillna(method='ffill')
+        
+        # 💡 오늘의 현재가 저장 (나중에 사용)
+        today_price = df.iloc[-1]['Close']
         
         # 최신 수급 데이터 수집
         try:
@@ -213,7 +276,7 @@ def analyze_final(ticker, name, historical_indices):
             is_yeok_mae_old = close_p > row['MA112'] and prev['Close'] <= row['MA112']
             is_vol_power = row['Volume'] > row['VMA20'] * 2.5
 
-            # 💡 [신규] 역매공파 7가지 조건 체크 (필터 아님, 체크만!)
+            # 💡 역매공파 7가지 조건 체크
             yeok_1_ma_aligned = (row['MA5'] > row['MA20']) and (row['MA20'] > row['MA60'])
             yeok_2_ma_converged = row['MA_Convergence'] <= 3.0
             yeok_3_bb40_squeeze = row['BB40_Width'] <= 10.0
@@ -223,14 +286,14 @@ def analyze_final(ticker, name, historical_indices):
             yeok_6_volume_surge = row['Volume'] >= row['VMA5'] * 1.5
             yeok_7_ma5_support = close_p >= row['MA5'] * 0.97
             
-            # 💡 [신규] 매집 5가지 조건 체크
+            # 💡 매집 5가지 조건 체크
             acc_1_obv_rising = (row['OBV'] > prev_5['OBV']) and (row['OBV'] > prev_10['OBV'])
             acc_2_box_range = row['Box_Range'] <= 1.15
             acc_3_macd_golden = row['MACD'] > row['MACD_Signal']
             acc_4_rsi_healthy = 40 <= row['RSI'] <= 70
             acc_5_sto_golden = row['Sto_K'] > row['Sto_D']
 
-            # 3. 점수 산출 및 태그 부여 (기존 로직 그대로!)
+            # 3. 점수 산출 및 태그 부여
             s_score = 100
             tags = []
             
@@ -257,7 +320,7 @@ def analyze_final(ticker, name, historical_indices):
                 s_score += 30
                 tags.append("⚡거래폭발")
             
-            # 💡 [신규] 역매공파 완전체 체크 (7개 조건)
+            # 💡 역매공파 완전체 체크
             yeok_mae_count = sum([yeok_1_ma_aligned, yeok_2_ma_converged, yeok_3_bb40_squeeze,
                                  yeok_4_red_candle, yeok_5_pullback, yeok_6_volume_surge, yeok_7_ma5_support])
             
@@ -277,7 +340,7 @@ def analyze_final(ticker, name, historical_indices):
             if yeok_3_bb40_squeeze:
                 tags.append("🔋밴드(40)")
             
-            # 💡 [신규] 매집 시그널 체크
+            # 💡 매집 시그널 체크
             acc_count = sum([acc_1_obv_rising, acc_2_box_range, acc_3_macd_golden,
                            acc_4_rsi_healthy, acc_5_sto_golden])
             
@@ -301,30 +364,40 @@ def analyze_final(ticker, name, historical_indices):
             s_score -= (storm_count * 20)
             s_score -= max(0, int((row['Disparity']-108)*5)) 
             
-            # 기존과 동일: 태그 없으면 스킵
             if not tags: continue
 
-            # 4. 수익률 검증 데이터 생성
+            # 4. 💡 수익률 검증 데이터 생성 (최고/최저 추가)
             h_df = df.iloc[raw_idx+1:]
-            max_r = ((h_df['High'].max()-close_p)/close_p)*100 if not h_df.empty else 0
-            curr_r = ((h_df['Close'].iloc[-1]-close_p)/close_p)*100 if not h_df.empty else 0
+            
+            if not h_df.empty:
+                max_r = ((h_df['High'].max() - close_p) / close_p) * 100
+                min_r = ((h_df['Low'].min() - close_p) / close_p) * 100
+                
+                # 💡 오늘이면 현재가 = 오늘 종가, 아니면 해당 시점의 마지막 종가
+                is_today = (len(h_df) == 0)  # 보유일 0이면 오늘
+                current_price = today_price if not is_today else close_p
+            else:
+                max_r = 0
+                min_r = 0
+                current_price = close_p
 
             hits.append({
                 '날짜': curr_idx.strftime('%Y-%m-%d'),
                 '기상': "☀️" * (2-storm_count) + "🌪️" * storm_count,
-                '안전': int(max(0, s_score + whale_score)),
+                '안전점수': int(max(0, s_score + whale_score)),
                 '종목': name,
-                '현재가': int(close_p),
+                '매입가': int(close_p),
+                '현재가': int(current_price),
                 '꼬리%': t_pct,
                 '이격': int(row['Disparity']),
                 'BB40': f"{row['BB40_Width']:.1f}",
                 'MA수렴': f"{row['MA_Convergence']:.1f}",
                 '역매': f"{yeok_mae_count}/7",
                 '매집': f"{acc_count}/5",
-                '🔺최고': f"{max_r:+.1f}%",
-                '현재': f"{curr_r:+.1f}%",
-                '현재_raw': curr_r, 
-                '최고_raw': max_r,
+                '최고수익률%': f"{max_r:+.1f}%",
+                '최저수익률%': f"{min_r:+.1f}%",
+                '최고수익률_raw': max_r,
+                '최저수익률_raw': min_r,
                 '구분': " ".join(tags),
                 '보유일': len(h_df)
             })
@@ -332,11 +405,34 @@ def analyze_final(ticker, name, historical_indices):
     except: 
         return []
 
+# ---------------------------------------------------------
+# 💾 [엑셀 저장] 오늘의 추천종목 저장
+# ---------------------------------------------------------
+def save_today_recommendations(df_today, recommendation_info):
+    """오늘의 추천종목을 엑셀로 저장"""
+    try:
+        filename = f"추천종목_{TODAY_STR}.xlsx"
+        
+        with pd.ExcelWriter(filename, engine='openpyxl') as writer:
+            # 시트1: 오늘의 추천 종목
+            df_today.to_excel(writer, sheet_name='오늘의_추천', index=False)
+            
+            # 시트2: 추천 정보
+            if recommendation_info:
+                rec_df = pd.DataFrame([recommendation_info])
+                rec_df.to_excel(writer, sheet_name='추천_패턴_정보', index=False)
+        
+        print(f"\n💾 엑셀 저장 완료: {filename}")
+        return filename
+    except Exception as e:
+        print(f"\n❌ 엑셀 저장 실패: {e}")
+        return None
+
 # =================================================
 # 🚀 [실행] 메인 컨트롤러
 # =================================================
 if __name__ == "__main__":
-    print(f"📡 [Ver 36.5 역매공파] {TODAY_STR} 전술 사령부 통합 가동...")
+    print(f"📡 [Ver 36.7 엑셀저장+추천] {TODAY_STR} 전술 사령부 통합 가동...")
 
     # 1. 매크로 데이터 수집
     m_ndx = get_safe_macro('^IXIC', '나스닥')
@@ -370,24 +466,48 @@ if __name__ == "__main__":
 
     if all_hits:
         df_total = pd.DataFrame(all_hits)
-        stats_df = calculate_strategy_stats(all_hits)
         
-        # 4. 결과 분류 및 리포트
-        today = df_total[df_total['보유일'] == 0].sort_values(by='안전', ascending=False)
+        # 💡 통계 계산 (추천 정보 포함)
+        stats_df, recommendation = calculate_strategy_stats(all_hits)
+        
+        # 4. 결과 분류
+        today = df_total[df_total['보유일'] == 0].sort_values(by='안전점수', ascending=False)
+        
+        # 💡 추천 패턴 출력
+        if recommendation:
+            print("\n" + "🏆 " * 10 + "[ AI 추천 최고 패턴 ]" + " 🏆" * 10)
+            print(f"📌 패턴명: {recommendation['패턴']}")
+            print(f"📊 통계: 타율 {recommendation['타율']}% | 평균수익 {recommendation['평균수익']}% | 기대값 {recommendation['기대값']}")
+            print(f"📈 분석건수: {recommendation['건수']}건")
+            if '주의' in recommendation:
+                print(f"{recommendation['주의']}")
+            print("=" * 100)
+            
+            # 💡 추천 패턴이 포함된 오늘의 종목 필터링
+            recommended_today = today[today['구분'].str.contains(recommendation['패턴'].split(' + ')[0], na=False)]
+            if not recommended_today.empty:
+                print(f"\n✨ 오늘의 '{recommendation['패턴']}' 패턴 종목 (상위 10개)")
+                print(recommended_today[['종목', '안전점수', '매입가', '역매', '매집', '구분']].head(10))
         
         print("\n" + "🎯 [오늘의 역매공파 패턴] " + "="*70)
         yeok_today = today[today['구분'].str.contains('역매공파', na=False)]
         if not yeok_today.empty:
-            print(yeok_today[['종목', '안전', '역매', '매집', 'BB40', 'MA수렴', '구분']].head(15))
+            print(yeok_today[['종목', '안전점수', '매입가', '역매', '매집', 'BB40', 'MA수렴', '구분']].head(15))
         else:
             print("오늘은 역매공파 패턴이 포착되지 않았습니다.")
         
-        print("\n" + "🔥 [오늘의 초정예 다이아몬드 타점] " + "="*70)
-        print(today[['날짜', '안전', '종목', '꼬리%', '역매', '매집', '구분']].head(20))
+        print("\n" + "🔥 [오늘의 초정예 종목 TOP 30] " + "="*70)
+        display_cols = ['종목', '안전점수', '매입가', '현재가', '꼬리%', '역매', '매집', '구분']
+        print(today[display_cols].head(30))
 
         print("\n" + "📊 [전략별 통계 (과거 30일)] " + "="*70)
         if not stats_df.empty:
             print(stats_df.head(20))
+
+        # 💡 엑셀 저장 (오늘의 추천종목 상위 50개)
+        if not today.empty:
+            today_top50 = today.head(50)
+            save_today_recommendations(today_top50, recommendation)
 
         # 5. 구글 시트 전송
         try:
@@ -396,4 +516,4 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"\n❌ 시트 업데이트 실패: {e}")
     else:
-            print("\n⚠️ 검색 결과가 없습니다.")
+        print("\n⚠️ 검색 결과가 없습니다.")
