@@ -505,8 +505,25 @@ if __name__ == "__main__":
                 print(f"   {rec['신뢰도']}")
             print("=" * 100)
             
+            if not top_patterns.empty:
+    # 💡 1. 'top_patterns' 데이터프레임에서 1순위 패턴 문자열을 추출합니다.
+    # DNA_시퀀스 컬럼의 첫 번째 행(iloc[0])을 가져옵니다.
+    best_pattern_str = top_patterns.iloc[0]['DNA_시퀀스']
+    
+    # 💡 2. 패턴의 첫 번째 요소(예: '매집봉')만 떼어내어 오늘 종목을 필터링합니다.
+    # 사령관님이 작성하신 split logic을 안전하게 처리합니다.
+    target_tag = best_pattern_str.split(' ➔ ')[0] # '➔' 기호 기준 첫 태그 추출
+    
+    print(f"🎯 [DNA 필터] 오늘의 1순위 타겟 패턴: {target_tag}")
+    
+    # 💡 3. 오늘 데이터(today)에서 해당 태그가 포함된 종목만 추출
+    recommended_today = today[today['구분'].str.contains(target_tag, na=False)]
+else:
+    print("⚠️ [DNA 필터] 유효한 성공 패턴이 없어 전체 종목을 유지합니다.")
+    recommended_today = today.copy()
+
             # 1위 패턴이 포함된 오늘의 종목 필터링
-            #top_pattern = top_recommendations[0]['패턴']
+            top_pattern = top_recommendations[0]['패턴']
             recommended_today = today[today['구분'].str.contains(top_pattern.split(' + ')[0], na=False)]
             if not recommended_today.empty:
                 print(f"\n✨ 오늘의 '{top_pattern}' 패턴 종목")
