@@ -40,30 +40,34 @@ print(f"📡 [Ver 36.7 엑셀저장+추천] 사령부 무결성 통합 가동...
 
 
 def get_commander_market_cap():
-    #"""
-    #3,000개 전 종목의 시가총액을 한 번에 긁어오는 광역 레이더입니다.
-    #"""
-    print("📡 [Cap-Scanner] 전 종목 시가총액 데이터 수집 중...")
+    """
+    이름과 코드, 어떤 것으로도 체급을 즉시 판독할 수 있는 마스터 맵을 생성합니다.
+    """
+    print("📡 [Cap-Scanner] 전 종목 마스터 데이터 수집 중...")
     try:
-        # 오늘 날짜 확인 (장 중이라면 오늘, 장 전이라면 전날 기준)
         now = datetime.now().strftime("%Y%m%d")
+        # 1. 시가총액 데이터 (인덱스가 종목코드)
+        df_cap = stock.get_market_cap(now, market="ALL")
         
-        # 1. KOSPI/KOSDAQ 전체 시총 데이터 확보
-        df_kospi = stock.get_market_cap(now, market="KOSPI")
-        df_kosdaq = stock.get_market_cap(now, market="KOSDAQ")
+        # 2. 종목명 데이터 (종목코드, 종목명 매핑)
+        df_desc = stock.get_market_net_purchases_of_equities_by_ticker(now, now, "ALL") # 이름 가져오기용 팁
+        # 더 확실한 이름-코드 매핑
+        tickers = stock.get_market_ticker_list(now, market="ALL")
+        names = [stock.get_market_ticker_name(t) for t in tickers]
+        df_name = pd.DataFrame({'Code': tickers, 'Name': names}).set_index('Code')
+
+        # 3. 데이터 병합
+        master_df = df_cap.join(df_name)
         
-        # 2. 데이터 통합
-        df_total = pd.concat([df_kospi, df_kosdaq])
-        
-        # 3. '시가총액' 컬럼만 추출하여 딕셔너리로 변환 (빠른 조회를 위함)
-        # ticker(종목코드)를 키로, 시가총액을 값으로 설정
-        cap_dict = df_total['시가총액'].to_dict()
-        
-        print(f"✅ [Cap-Scanner] 총 {len(cap_dict)}개 종목의 체급 정보 확보 완료.")
-        return cap_dict
+        # 💡 [핵심] 두 가지 타입의 딕셔너리 생성
+        code_to_cap = master_df['시가총액'].to_dict()
+        name_to_cap = master_df.set_index('Name')['시가총액'].to_dict()
+
+        print(f"✅ [Cap-Scanner] 마스터 데이터 {len(code_to_cap)}건 로드 완료.")
+        return {"code": code_to_cap, "name": name_to_cap}
     except Exception as e:
-        print(f"❌ [Cap-Scanner] 시총 수집 중 오류: {e}")
-        return {}
+        print(f"❌ [Cap-Scanner] 수집 실패: {e}")
+        return {"code": {}, "name": {}}
 
 def assign_tier(ticker, cap_dict):
     #"""
