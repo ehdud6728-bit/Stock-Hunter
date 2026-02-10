@@ -90,12 +90,22 @@ def update_commander_dashboard(df, macro_data, sheet_name, stats_df=None,
         if ai_recommendation is not None and not ai_recommendation.empty:
             try:
                 try: ai_sheet = doc.worksheet("AI_추천패턴")
-                except: ai_sheet = doc.add_worksheet(title="AI_추천패턴", rows="100", cols="10")
+                except: ai_sheet = doc.add_worksheet(title="AI_추천패턴", rows="200", cols="15")
                 ai_sheet.clear()
-                ai_disp = ai_recommendation.sort_values(by='최고수익률', ascending=False).head(15)
-                ai_sheet.update('A1', [["🏆 AI 분석 기반 타율 상위 15개 전설 패턴"]])
-                set_with_dataframe(ai_sheet, ai_disp, row=3, col=1, include_index=False)
-                print(f"✅ [Success] AI 족보 15선 업데이트 완료")
+
+            # 체급별 패턴 랭킹 추출 (위에서 만든 함수 호출)
+                tier_patterns = find_winning_pattern_by_tier(ai_recommendation)
+            
+                curr_row = 1
+                for tier, patterns in tier_patterns.items():
+                    if not patterns.empty:
+                    # 체급 헤더 작성
+                    ai_sheet.update(f'A{curr_row}', [[f"🏆 {tier} 체급별 타율 상위 패턴"]])
+                    # 데이터 전송 (헤더 포함)
+                    set_with_dataframe(ai_sheet, patterns, row=curr_row+1, col=1, include_index=False)
+                    curr_row += (len(patterns) + 4) # 다음 체급을 위해 줄 띄움
+
+            print("✅ [Success] 체급별 AI 족보 전송 완료")
             except: pass
 
         # --- [탭 3: 실시간_전수_관제판] ---
