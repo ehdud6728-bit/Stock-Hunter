@@ -513,7 +513,15 @@ if __name__ == "__main__":
             zip(target_stocks['Code'], target_stocks['Name'])
         ))
         for r in results:
-            if r: all_hits.extend(r)
+            if r:
+                # 💡 [신규] 포착된 종목에 즉시 체급(Tier) 및 시총 데이터 주입
+                for hit in r:
+                    # hit['종목코드']가 있다고 가정, 없으면 ticker를 찾아야 함
+                    ticker_code = hit.get('코드') or target_stocks[target_stocks['Name'] == hit['종목']]['Code'].iloc[0]
+                    tier, mkt_cap = assign_tier(ticker_code, commander_cap_map)
+                    hit['체급'] = tier
+                    hit['시가총액'] = mkt_cap
+                all_hits.extend(r)
 
     if all_hits:
          # 1. 원재료(all_hits)를 연구소(DNA_Analyzer)로 송부
@@ -579,7 +587,7 @@ if __name__ == "__main__":
         print("=" * 120)
         
         if not today.empty:
-            display_cols = ['종목', '안전점수', '매입가', '현재가', '꼬리%', '역매', '매집', 'BB40', 'MA수렴', '구분']
+            display_cols = ['체급', '종목', '안전점수', '매입가', '현재가', '꼬리%', '역매', '매집', 'BB40', 'MA수렴', '구분']
             print(today[display_cols].head(50))
             
             # 💡 패턴별 집계 (참고용)
