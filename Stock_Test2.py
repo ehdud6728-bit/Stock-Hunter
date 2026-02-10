@@ -72,7 +72,7 @@ def prepare_historical_weather():
     return weather_df
 
 # ---------------------------------------------------------
-# 📊 [전술 통계] 복합 전술 통계 엔진 (강화)
+# 📊 [전술 통계] 복합 전술 통계 엔진 (상위 5개 추천)
 # ---------------------------------------------------------
 def calculate_strategy_stats(all_hits):
     past_hits = [h for h in all_hits if h['보유일'] > 0]
@@ -130,35 +130,41 @@ def calculate_strategy_stats(all_hits):
         ascending=False
     )
     
-    # 💡 최고 패턴 추천
+    # 💡 상위 3~5개 패턴 추천
+    top_recommendations = []
     if len(df_stats) > 0:
-        # 최소 5건 이상 데이터 있는 패턴 중에서
+        # 최소 5건 이상 데이터 있는 패턴 우선
         reliable_patterns = df_stats[df_stats['포착건수'] >= 5]
         
-        if len(reliable_patterns) > 0:
-            best_pattern = reliable_patterns.iloc[0]
-            recommendation = {
-                '패턴': best_pattern['전략명'],
-                '타율': best_pattern['타율(승률)'],
-                '평균수익': best_pattern['평균최고수익'],
-                '기대값': best_pattern['기대값'],
-                '건수': best_pattern['포착건수']
-            }
+        if len(reliable_patterns) >= 3:
+            # 신뢰도 높은 패턴 중 상위 5개
+            top_5 = reliable_patterns.head(5)
+            for idx, row in top_5.iterrows():
+                top_recommendations.append({
+                    '순위': len(top_recommendations) + 1,
+                    '패턴': row['전략명'],
+                    '타율': row['타율(승률)'],
+                    '평균수익': row['평균최고수익'],
+                    '기대값': row['기대값'],
+                    '건수': row['포착건수'],
+                    '신뢰도': '⭐⭐⭐ 높음'
+                })
         else:
-            # 데이터 부족시 전체 중 최고
-            best_pattern = df_stats.iloc[0]
-            recommendation = {
-                '패턴': best_pattern['전략명'],
-                '타율': best_pattern['타율(승률)'],
-                '평균수익': best_pattern['평균최고수익'],
-                '기대값': best_pattern['기대값'],
-                '건수': best_pattern['포착건수'],
-                '주의': '⚠️ 데이터 5건 미만'
-            }
-    else:
-        recommendation = None
+            # 데이터 부족시 전체에서 상위 5개
+            top_5 = df_stats.head(5)
+            for idx, row in top_5.iterrows():
+                reliability = '⭐⭐⭐ 높음' if row['포착건수'] >= 5 else '⭐⭐ 보통' if row['포착건수'] >= 3 else '⭐ 주의'
+                top_recommendations.append({
+                    '순위': len(top_recommendations) + 1,
+                    '패턴': row['전략명'],
+                    '타율': row['타율(승률)'],
+                    '평균수익': row['평균최고수익'],
+                    '기대값': row['기대값'],
+                    '건수': row['포착건수'],
+                    '신뢰도': reliability
+                })
     
-    return df_stats, recommendation
+    return df_stats, top_recommendations
 
 # ---------------------------------------------------------
 # 📈 [데이터] 마스터 지표 엔진 (Ver 36.7)
