@@ -518,9 +518,9 @@ if __name__ == "__main__":
     
     # 💡 3. 오늘 데이터(today)에서 해당 태그가 포함된 종목만 추출
             recommended_today = today[today['구분'].str.contains(target_tag, na=False)]
-         else:
-             print("⚠️ [DNA 필터] 유효한 성공 패턴이 없어 전체 종목을 유지합니다.")
-             recommended_today = today.copy()
+        else:
+            print("⚠️ [DNA 필터] 유효한 성공 패턴이 없어 전체 종목을 유지합니다.")
+            recommended_today = today.copy()
 
             # 1위 패턴이 포함된 오늘의 종목 필터링
             top_pattern = top_recommendations[0]['패턴']
