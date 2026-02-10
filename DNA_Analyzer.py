@@ -13,7 +13,7 @@ def get_master_dna(all_hits, top_k=5):
         success_sequences = []
         for ticker, group in df.groupby('종목'):
             # 15% 이상 수익을 낸 전설적인 종목들의 패턴만 수집
-            if group['최고_raw'].max() >= 15.0:
+            if group['최고수익률_raw'].max() >= 15.0:
                 seq = tuple(group['구분'].tolist())
                 success_sequences.append(seq)
         
