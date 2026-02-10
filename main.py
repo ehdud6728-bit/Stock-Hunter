@@ -372,17 +372,14 @@ def analyze_final(ticker, name, historical_indices):
     try:
         df = fdr.DataReader(ticker, start=(datetime.now()-timedelta(days=250)))
         if len(df) < 100: return []
-        
+
         df = get_indicators(df)
+        # 글로벌 weather_data
         df = df.join(historical_indices, how='left').fillna(method='ffill')
 
         # 💡 오늘의 현재가 저장 (나중에 사용)
         today_price = df.iloc[-1]['Close']
      
-        # 글로벌 weather_data 결합 (Main에서 정의된 weather_data 사용)
-        global weather_data
-        df = df.join(weather_data, how='left').fillna(method='ffill')
-        
         row = df.iloc[-1]
         prev = df.iloc[-2]
         prev_5 = df.iloc[-5]
