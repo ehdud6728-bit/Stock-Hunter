@@ -33,7 +33,7 @@ CHAT_ID_LIST = os.environ.get('TELEGRAM_CHAT_ID', '').split(',')
 OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY') 
 GROQ_API_KEY = os.environ.get('GROQ_API_KEY')     
 
-TEST_MODE = False 
+TEST_MODE = True 
 
 KST = pytz.timezone('Asia/Seoul')
 current_time = datetime.now(KST)
@@ -157,6 +157,74 @@ def get_supply_and_money(code, price):
 # 📈 [4] 기술적 분석 지표 (OBV, Double-GC 등)
 # ---------------------------------------------------------
 def get_indicators(df):
+    df = df.copy()
+    count = len(df)
+
+     # 단테 장기선 포함 이평선
+    for n in [5, 20, 40, 60, 112, 224]:
+        df[f'MA{n}'] = df['Close'].rolling(window=min(count, n)).mean()
+        df[f'VMA{n}'] = df['Volume'].rolling(window=min(count, n)).mean()
+        df[f'Slope{n}'] = (df[f'MA{n}'] - df[f'MA{n}'].shift(3)) / df[f'MA{n}'].shift(3) * 100
+
+    # 20/40일 BB Width (이중 응축)
+    std20 = df['Close'].rolling(20).std()
+    std40 = df['Close'].rolling(40).std()
+    df['Disparity'] = (df['Close'] / df['MA20']) * 100
+    
+    df['BB_Upper'] = df['MA20'] + (std20 * 2)
+    df['BB20_Width'] = (std20 * 4) / df['MA20'] * 100
+    df['BB40_Upper'] = df['MA40'] + (std40 * 2)
+    df['BB40_Lower'] = df['MA40'] - (std40 * 2)
+    df['BB40_Width'] = (std40 * 4) / df['MA40'] * 100
+
+    # 이평선 수렴도 계산
+    df['MA_Convergence'] = abs(df['MA20'] - df['MA60']) / df['MA60'] * 100
+
+    # 일목균형표
+    df['Tenkan_sen'] = (df['High'].rolling(9).max() + df['Low'].rolling(9).min()) / 2
+    df['Kijun_sen'] = (df['High'].rolling(26).max() + df['Low'].rolling(26).min()) / 2
+    df['Span_A'] = ((df['Tenkan_sen'] + df['Kijun_sen']) / 2).shift(26)
+    df['Span_B'] = ((df['High'].rolling(52).max() + df['Low'].rolling(52).min()) / 2).shift(26)
+    df['Cloud_Top'] = df[['Span_A', 'Span_B']].max(axis=1)
+ 
+    # 💡 [스토캐스틱 슬로우 12-5-5]
+    l_min, h_max = df['Low'].rolling(12).min(), df['High'].rolling(12).max()
+    df['Sto_K'] = ((df['Close'] - l_min) / (h_max - l_min)) * 100
+    df['Sto_D'] = df['Sto_K'].rolling(5).mean()
+    df['Sto_SD'] = df['Sto_D'].rolling(5).mean()
+    
+    # DMI/ADX
+    high, low, close = df['High'], df['Low'], df['Close']
+    tr = pd.concat([high - low, abs(high - close.shift(1)), abs(low - close.shift(1))], axis=1).max(axis=1)
+    df['pDI'] = (pd.Series(np.where((high-high.shift(1) > low.shift(1)-low), (high-high.shift(1)).clip(lower=0), 0)).rolling(14).sum().values / tr.rolling(14).sum().values) * 100
+    df['mDI'] = (pd.Series(np.where((low.shift(1)-low > high-high.shift(1)), (low.shift(1)-low).clip(lower=0), 0)).rolling(14).sum().values / tr.rolling(14).sum().values) * 100
+    df['ADX'] = ((abs(df['pDI'] - df['mDI']) / (df['pDI'] + df['mDI'])) * 100).rolling(14).mean()
+
+     # MACD
+    ema12 = df['Close'].ewm(span=12).mean()
+    ema26 = df['Close'].ewm(span=26).mean()
+    df['MACD'] = ema12 - ema26
+    df['MACD_Signal'] = df['MACD'].ewm(span=9).mean()
+    df['MACD_Hist'] = df['MACD'] - df['MACD_Signal']
+
+    # OBV
+    df['OBV'] = (np.sign(df['Close'].diff()) * df['Volume']).fillna(0).cumsum()
+    df['OBV_Slope'] = (df['OBV'] - df['OBV'].shift(5)) / df['OBV'].shift(5).abs() * 100
+    df['Base_Line'] = df['Close'].rolling(20).min().shift(5)
+
+    # RSI
+    delta = df['Close'].diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+    rs = gain / loss
+    df['RSI'] = 100 - (100 / (1 + rs))
+    
+    df['Disparity'] = (df['Close'] / df['MA20']) * 100
+    df['Box_Range'] = df['High'].rolling(10).max() / df['Low'].rolling(10).min()
+
+    return df
+ 
+def get_indicators_back(df):
     df = df.copy()
     for n in [5, 20, 60]:
         df[f'MA{n}'] = df['Close'].rolling(n).mean()
@@ -292,7 +360,203 @@ def get_ai_summary(ticker, name, tags):
 # ---------------------------------------------------------
 # 🕵️‍♂️ [수정] 분석 엔진 (변수명 통일 및 초기화 강화)
 # ---------------------------------------------------------
-def analyze_final(ticker, name):
+def analyze_final(ticker, name, historical_indices):
+    # 💡 모든 변수를 함수 시작 시점에 안전하게 초기화합니다.
+    s_score = 0
+    f_score = 0
+    whale_score = 0
+    tags = []
+    weather_icons = []
+    storm_count = 0
+    
+    try:
+        df = fdr.DataReader(ticker, start=(datetime.now()-timedelta(days=250)))
+        if len(df) < 100: return []
+        
+        df = get_indicators(df)
+        df = df.join(historical_indices, how='left').fillna(method='ffill')
+
+        # 💡 오늘의 현재가 저장 (나중에 사용)
+        today_price = df.iloc[-1]['Close']
+     
+        # 글로벌 weather_data 결합 (Main에서 정의된 weather_data 사용)
+        global weather_data
+        df = df.join(weather_data, how='left').fillna(method='ffill')
+        
+        row = df.iloc[-1]
+        prev = df.iloc[-2]
+        prev_5 = df.iloc[-5]
+        prev_10 = df.iloc[-10]
+        curr_idx = df.index[-1]
+        
+        # 💡 리턴값 5개를 정확히 받아냅니다.
+        s_tag, total_m, w_streak, whale_score, twin_b = get_supply_and_money(ticker, row['Close'])
+        f_tag, f_score = get_financial_health(ticker)
+
+        # 1. 꼬리% 정밀 계산
+        high_p, low_p, close_p, open_p = row['High'], row['Low'], row['Close'], row['Open']
+        body_max = max(open_p, close_p)
+        t_pct = int((high_p - body_max) / (high_p - low_p) * 100) if high_p != low_p else 0
+
+        # 2. 기존 핵심 전술 신호 판정
+        is_cloud_brk = prev['Close'] <= prev['Cloud_Top'] and close_p > row['Cloud_Top']
+        is_kijun_sup = close_p > row['Kijun_sen'] and prev['Close'] <= prev['Kijun_sen']
+        is_diamond = is_cloud_brk and is_kijun_sup
+            
+        is_super_squeeze = row['BB20_Width'] < 10 and row['BB40_Width'] < 15
+        is_yeok_mae_old = close_p > row['MA112'] and prev['Close'] <= row['MA112']
+        is_vol_power = row['Volume'] > row['VMA20'] * 2.5
+     
+        # 💡 역매공파 7가지 조건 체크
+        yeok_1_ma_aligned = (row['MA5'] > row['MA20']) and (row['MA20'] > row['MA60'])
+        yeok_2_ma_converged = row['MA_Convergence'] <= 3.0
+        yeok_3_bb40_squeeze = row['BB40_Width'] <= 10.0
+        yeok_4_red_candle = close_p < open_p
+        day_change = ((close_p - prev['Close']) / prev['Close']) * 100
+        yeok_5_pullback = -5.0 <= day_change <= -1.0
+        yeok_6_volume_surge = row['Volume'] >= row['VMA5'] * 1.5
+        yeok_7_ma5_support = close_p >= row['MA5'] * 0.97
+
+        # 💡 역매공파 완전체 체크
+        yeok_mae_count = sum([yeok_1_ma_aligned, yeok_2_ma_converged, yeok_3_bb40_squeeze,
+                             yeok_4_red_candle, yeok_5_pullback, yeok_6_volume_surge, yeok_7_ma5_support])
+     
+        # 💡 매집 5가지 조건 체크
+        acc_1_obv_rising = (row['OBV'] > prev_5['OBV']) and (row['OBV'] > prev_10['OBV'])
+        acc_2_box_range = row['Box_Range'] <= 1.15
+        acc_3_macd_golden = row['MACD'] > row['MACD_Signal']
+        acc_4_rsi_healthy = 40 <= row['RSI'] <= 70
+        acc_5_sto_golden = row['Sto_K'] > row['Sto_D']
+     
+        # --- 지표 판정 ---
+        is_sto_gc = prev['Sto_D'] <= prev['Sto_SD'] and row['Sto_D'] > row['Sto_SD']
+        is_vma_gc = prev['VMA5'] <= prev['VMA20'] and row['VMA5'] > row['VMA20']
+        is_bb_brk = prev['Close'] <= prev['BB_Upper'] and row['Close'] > row['BB_Upper']
+        is_bb40_brk = prev.get('BB40_Upper', 0) <= prev['Close'] # 예시
+        
+        # 멜론/노바 판정
+        is_melon = twin_b and row['OBV_Slope'] > 0 and row.get('ADX', 0) > 20 and row['MACD_Hist'] > 0
+        is_nova = is_sto_gc and is_vma_gc and is_bb_brk and is_melon
+        
+        # --- 날씨 판정 ---
+        for m_key in ['ixic', 'sp500']:
+            if row.get(f'{m_key}_close', 0) > row.get(f'{m_key}_ma5', 0): weather_icons.append("☀️")
+            else: weather_icons.append("🌪️"); storm_count += 1
+            
+        # --- 최종 점수 산산 (s_score로 통일) ---
+        s_score = int(90 + (30 if is_nova else 15 if is_melon else 0))
+        #s_score += (whale_score + f_score) 점수가 너무 높게 나와서 재무와 수급점수는 제외
+        s_score -= (storm_count * 10)
+
+        tags = []
+            
+        # 기존 시그널들
+        if is_diamond:
+            s_score += 150
+            tags.append("💎다이아몬드")
+            if t_pct < 10:
+                s_score += 50
+                tags.append("🔥폭발직전")
+        elif is_cloud_brk:
+            s_score += 40
+            tags.append("☁️구름돌파")
+
+        if is_yeok_mae_old: 
+            s_score += 40
+            tags.append("🏆역매공파")
+                
+        if is_super_squeeze: 
+            s_score += 40
+            tags.append("🔋초강력응축")
+                
+        if is_vol_power: 
+            s_score += 30
+            tags.append("⚡거래폭발")
+
+        if yeok_mae_count == 7:
+            s_score += 100
+            tags.append("🎯역매공파완전체")
+        elif yeok_mae_count >= 5:
+            s_score += 50
+            tags.append("🎯역매공파강")
+        elif yeok_mae_count >= 3:
+            s_score += 20
+            tags.append("🎯역매공파약")     
+
+        # 세부 태그
+        if yeok_1_ma_aligned and yeok_2_ma_converged:
+            tags.append("📐이평수렴")
+        if yeok_3_bb40_squeeze:
+            tags.append("🔋밴드(40)")
+            
+        # 💡 매집 시그널 체크
+        acc_count = sum([acc_1_obv_rising, acc_2_box_range, acc_3_macd_golden,
+                       acc_4_rsi_healthy, acc_5_sto_golden])
+            
+        if acc_count >= 4:
+            s_score += 60
+            tags.append("🐋세력매집")
+        elif acc_count >= 3:
+            s_score += 30
+            tags.append("🐋매집징후")
+                
+        if acc_1_obv_rising:
+            tags.append("📊OBV상승")
+
+        if is_nova:
+            tags.append("🚀슈퍼타점")
+        
+        if is_melon:
+            tags.append("🍉수박")
+        
+        if is_sto_gc:
+            tags.append("Sto-GC")
+        
+        if is_vma_gc:
+            tags.append("VMA-GC")
+        
+        if 98 <= row['Disparity'] <= 104:
+            tags.append("🏆LEGEND")
+     
+        # 기존 감점 로직
+        if t_pct > 40:
+            s_score -= 25
+            tags.append("⚠️윗꼬리")
+
+        # 기상도 감점
+        storm_count = sum([1 for m in ['ixic', 'sp500'] if row[f'{m}_close'] <= row[f'{m}_ma5']])
+        s_score -= (storm_count * 20)
+        s_score -= max(0, int((row['Disparity']-108)*5))
+
+        if not tags: return []
+
+        # 💡 NameError 방지: print문에서 s_score 사용
+        print(f"✅ {name} 포착! 점수: {s_score} 태그: {tags}")
+        
+        return [{
+            '날짜': curr_idx.strftime('%Y-%m-%d'),
+            '기상': "".join(weather_icons),
+            '안전': int(max(0, s_score)),
+            '점수': int(s_score), # 구글 시트 전송용
+            '종목명': name, 'code': ticker,
+            '에너지': "🔋" if row['MACD_Hist'] > 0 else "🪫",
+            '현재가': int(row['Close']),
+            '구분': " ".join(tags),
+            '재무': f_tag, '수급': s_tag,
+            '이격': int(row['Disparity']),
+            'BB40': f"{row['BB40_Width']:.1f}",
+            'MA수렴': f"{row['MA_Convergence']:.1f}",
+            '역매': f"{yeok_mae_count}/7",
+            '매집': f"{acc_count}/5",
+            'OBV기울기': int(row['OBV_Slope']),
+            '꼬리%': 0 # 필요 시 계산식 추가
+        }]
+    except Exception as e:
+        import traceback
+        print(f"🚨 {name} 분석 중 치명적 에러:\n{traceback.format_exc()}")
+        return []
+     
+def analyze_final_back(ticker, name):
     # 💡 모든 변수를 함수 시작 시점에 안전하게 초기화합니다.
     s_score = 0
     f_score = 0
@@ -365,123 +629,6 @@ def analyze_final(ticker, name):
     except Exception as e:
         import traceback
         print(f"🚨 {name} 분석 중 치명적 에러:\n{traceback.format_exc()}")
-        return []
-        
-def analyze_final_back(ticker, name):
-    try:
-        # 1. 지표 계산을 위해 과거 데이터를 충분히 가져옵니다.
-        df = fdr.DataReader(ticker, start=(datetime.now()-timedelta(days=250)))
-        if len(df) < 100: return []
-        
-        # 2. 보조지표 계산 (MA, OBV, Stochastic 등)
-        df = get_indicators(df)
-        
-        # 3. 💡 반복문 제거! 마지막(오늘) 데이터와 그 직전(어제) 데이터만 딱 집습니다.
-        # iloc[-1]은 가장 최신 날짜, iloc[-2]는 바로 전날입니다.
-        row = df.iloc[-1]
-        prev = df.iloc[-2]
-        curr_idx = df.index[-1] # 오늘 날짜
-        
-        score, tags = 0, []
-        storm_count = 0
-        weather_icons = []
-
-        # 수급 및 재무 데이터 가져오기 (신호가 뜬 종목만 정밀 분석)
-        s_tag, total_m, w_streak, whale_score = get_supply_and_money(ticker, row['Close'])
-        f_tag, f_score = get_financial_health(ticker)
-        score += (whale_score + f_score)
-        
-        # --- [A] 기술적 신호 판정 ---
-        is_sto_gc = prev['Sto_D'] <= prev['Sto_SD'] and row['Sto_D'] > row['Sto_SD']
-        is_vma_gc = prev['VMA5'] <= prev['VMA20'] and row['VMA5'] > row['VMA20']
-        is_bb_brk = prev['Close'] <= prev['BB_Upper'] and row['Close'] > row['BB_Upper']
-        is_melon = twin_b and row['OBV_Slope'] > 0 and row['ADX'] > 20 and row['MACD_Hist'] > 0
-        is_nova = is_sto_gc and is_vma_gc and is_bb_brk and is_melon
-        is_bb40_brk = prev['Close'] <= prev['BB40_Upper'] and row['Close'] > row['BB40_Upper']
-
-        # --- [B-1] 🎯 재영솔루텍 패턴 매칭 (Legend Filter) --- 역매공파
-        # 1. 이격도가 바닥권인가? (98~104)
-        is_bottom = 98 <= row['Disparity'] <= 104
-        # 2. 거래량이 실리며 에너지가 도는가?
-        is_energy = row['OBV_Slope'] > 0 and row['MACD_Hist'] > 0
-        # 3. 고래가 입질을 시작했는가?
-        is_whale = whale_score > 5
-        
-        # 레전드 점수 계산 (재영솔루텍 조건 충족 시 폭등)
-        legend_score = 0
-        if is_bottom and is_energy and is_vma_gc:
-            legend_score = 50 # 🏆 레전드 패턴 가산점
-
-        # 1. 나스닥 판정
-        if row['ixic_close'] > row['ixic_ma5']: weather_icons.append("☀️")
-        else: weather_icons.append("🌪️"); storm_count += 1
-        
-        # 2. S&P500 판정
-        if row['sp500_close'] > row['sp500_ma5']: weather_icons.append("☀️")
-        else: weather_icons.append("🌪️"); storm_count += 1
-        
-        # 3. VIX 판정 (VIX는 낮을 때가 맑음)
-        if row['vix_close'] < row['vix_ma5']: weather_icons.append("☀️")
-        else: weather_icons.append("🌪️"); storm_count += 1
-        
-        # --- [C] 점수 산출 (당시 기상도 반영) ---
-        s_score = int(90 + (30 if is_nova else 15 if is_melon else 0))
-        s_score -= (storm_count * 10) # 🌪️ 1개당 10점 감점
-
-        if row['OBV_Slope'] < 0: s_score -= 20
-        s_score -= max(0, int((row['Disparity']-105)*4))
-
-        # 꼬리% 계산
-        t_pct = int((row['High']-max(row['Open'],row['Close']))/(row['High']-row['Low'])*100) if row['High']!=row['Low'] else 0
-        if t_pct > 40: s_score -= 15
-
-        # 4. 볼린저밴드(40,2) 돌파했는가?
-        if is_bb40_brk:
-            s_score += 40  # 장기 추세 돌파는 매우 강력한 가점 대상!
-
-        # 태그 생성
-        tags = [t for t, c in zip(["🚀슈퍼타점","🍉수박","Sto-GC","VMA-GC","BB-Break","5일선","🏆LEGEND","🚨장기돌파" ], 
-                                  [is_nova, is_melon, is_sto_gc, is_vma_gc, is_bb_brk, row['Close']>row['MA5'], legend_score >= 50, is_bb40_brk]) if c]
-
-        # --- [전략 1: Double GC] --- > 기존 전략 그래도 놔둔다.
-        # 오늘 골든크로스가 발생했는지 확인
-        is_p_gc = prev['MA5'] <= prev['MA20'] and row['MA5'] > row['MA20']
-        is_v_gc = prev['VMA5'] <= prev['VMA20'] and row['VMA5'] > row['VMA20']
-        if is_p_gc and is_v_gc: 
-            tags.append("✨Double-GC"); score += 5
-        
-        # --- [전략 2: OBV 매집 & 공구리] ---
-        if row['OBV'] > row['OBV_MA20']: 
-            tags.append("🌊OBV매집"); score += 2
-            
-        # 💡 공구리: 오늘 종가가 지난 25일간의 고점을 돌파했는지 확인
-        box_h = df['High'].iloc[-26:-1].max() 
-        if row['Close'] > box_h: 
-            tags.append("🔨공구리"); score += 3
-        
-        # --- [전략 3: 수박(Stochastic)] ---
-        if prev['Slow_K'] <= prev['Slow_D'] and row['Slow_K'] > row['Slow_D'] and row['Slow_K'] < 75:
-            tags.append("🍉수박"); score += 2
-
-        # 6. 결과 리턴 (리스트 안에 딕셔너리 딱 1개만 담깁니다)
-        return [{
-            '날짜': curr_idx.strftime('%Y-%m-%d'),
-            '기상': "".join(weather_icons), # 💡 기상도 컬럼 추가
-            '안전': int(max(0, s_score)), 
-            '점수': score, 
-            '에너지': "🔋" if row['MACD_Hist']>0 else "🪫",
-            'OBV기울기': int(row['OBV_Slope']),
-            '종목명': name, 
-            'code': ticker,
-            '꼬리%': t_pct, 
-            '이격': int(row['Disparity']),
-            '재무': f_tag, 
-            '수급': s_tag, 
-            '베팅액': total_m, 
-            '구분': " ".join(tags),
-            '진단': "✅양호"
-        }]
-    except: 
         return []
 
 # ---------------------------------------------------------
@@ -580,7 +727,7 @@ if __name__ == "__main__":
     
     all_hits = []
     with ThreadPoolExecutor(max_workers=15) as executor:
-        futures = [executor.submit(analyze_final, t, n) for t, n in target_dict.items()]
+        futures = [executor.submit(analyze_final, t, n, weather_data) for t, n in target_dict.items()]
         for f in futures: 
             res = f.result()
             if res: all_hits.extend(res)
@@ -608,12 +755,14 @@ if all_hits:
     current_msg = f"{briefing}\n\n📢 [오늘의 실시간 TOP 15]\n\n"
     
     for item in telegram_targets:
-        entry = (f"⭐{item['점수']}점 {item['안전']}점 [{item['종목명']}]\n"
+        entry = (f"⭐{item['점수']}점 [{item['종목명']}]\n"
                 f"- {item['구분']}\n"
                 f"- 재무: {item['재무']} | 수급: {item['수급']}\n"
+                f"- 재무: {item['역매']} | 수급: {item['매집']}\n"
+                f"- 재무: {item['OBV기울기']} | 수급: {item['꼬리%']}\n"
                 f"💡 {item.get('ai_tip', '분석전')}\n"
                 f"----------------------------\n")
-        
+     
         if len(current_msg) + len(entry) > MAX_CHAR:
             send_telegram_photo(current_msg, imgs if imgs else [])
             imgs = []
