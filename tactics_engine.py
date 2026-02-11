@@ -84,42 +84,65 @@ def get_global_and_leader_status():
     global_status = {}
     leader_status = {}
     
-    # [A] 나스닥 섹터 (ETF 기반)
-    us_sectors = {'SOXX': '반도체', 'XLK': '빅테크', 'XBI': '바이오', 'LIT': '2차전지', 'XLE': '에너지'}
-    for ticker, name in us_sectors.items():
-        try:
+    # [A] 나스닥 섹터 (이건 안정적입니다)
+    try:
+        us_sectors = {'SOXX': '반도체', 'XLK': '빅테크', 'XBI': '바이오', 'LIT': '2차전지', 'XLE': '에너지'}
+        for ticker, name in us_sectors.items():
             df_us = yf.Ticker(ticker).history(period="5d")
             if len(df_us) >= 2:
                 chg = ((df_us['Close'].iloc[-1] - df_us['Close'].iloc[-2]) / df_us['Close'].iloc[-2]) * 100
                 global_status[name] = round(chg, 2)
-        except: global_status[name] = 0.0
+    except: pass
 
-    # [B] 국내 섹터 대장주 (시총 1위) 스캔
+    # [B] 국내 섹터 대장주 스캔 (무결성 강화)
     try:
         df_krx = fdr.StockListing('KRX')
-        # 무적의 컬럼 매핑: 이름이 뭐든 0번은 'Symbol', 나머지는 검색
-        c_name = next((c for c in ['Code', 'Symbol'] if c in df_krx.columns), df_krx.columns[0])
-        s_name = next((c for c in ['Sector', 'Industry', '업종'] if c in df_krx.columns), None)
         
-        df_krx = df_krx.rename(columns={c_name: 'Symbol'})
-        if s_name: df_krx = df_krx.rename(columns={s_name: 'Sector'})
+        # 💡 [명찰 강제 집행] 0번은 Code, 1번은 Name으로 고정
+        df_krx.columns.values[0] = 'Symbol'
+        df_krx.columns.values[1] = 'Name'
         
+        # 💡 [섹터 칸 강제 생성] Sector, Industry, 업종 중 하나라도 있으면 쓰고, 없으면 새로 만듬
+        s_col = next((c for c in ['Sector', 'Industry', '업종', 'SectorName'] if c in df_krx.columns), None)
+        
+        if s_col:
+            df_krx = df_krx.rename(columns={s_col: 'Sector'})
+        else:
+            # 섹터 정보가 아예 안 들어왔을 경우 (비상)
+            df_krx['Sector'] = '일반'
+            
         now_str = datetime.now().strftime("%Y%m%d")
         df_cap = stock.get_market_cap(now_str, market="ALL")[['시가총액']]
-        df_master = df_krx.set_index('Symbol').join(df_cap).dropna(subset=['Sector'])
         
-        # 섹터별 대장주 추출
+        # 데이터 병합
+        df_master = df_krx.set_index('Symbol').join(df_cap)
+        
+        # 만약 병합 후 'Sector'가 유실되었다면 다시 '일반'으로 채움
+        if 'Sector' not in df_master.columns:
+            df_master['Sector'] = '일반'
+        df_master['Sector'] = df_master['Sector'].fillna('일반')
+
+        # 섹터별 대장주 추출 (이제 'Sector' 컬럼이 무조건 존재함)
         target_sects = ['반도체', '제약', '소프트웨어', '전기제품', '화학']
-        sector_leader_map = df_master.groupby('Sector')['시가총액'].idxmax().to_dict()
         
+        # 시총 기준 정렬 후 그룹화하여 1위 추출
+        sector_leader_map = df_master.sort_values('시가총액', ascending=False).groupby('Sector').head(1)
+        leader_dict = sector_leader_map.set_index('Sector').index.to_series().to_dict() # 실제 존재하는 섹터 확인
+        
+        # 대장주 상태 파악
         for sect in target_sects:
-            ticker = sector_leader_map.get(sect)
-            if ticker:
+            # 해당 섹터의 시총 1위 종목 코드 가져오기
+            leader_row = df_master[df_master['Sector'] == sect].sort_values('시가총액', ascending=False).head(1)
+            if not leader_row.empty:
+                ticker = leader_row.index[0]
                 df_l = fdr.DataReader(ticker, start=(datetime.now() - timedelta(days=15)).strftime('%Y-%m-%d'))
                 curr, ma5 = df_l['Close'].iloc[-1], df_l['Close'].rolling(5).mean().iloc[-1]
                 leader_status[sect] = "🔥강세" if curr > ma5 else "❄️침체"
+                
     except Exception as e:
-        print(f"⚠️ [Leader-Scanner] 국내 대장주 스캔 실패: {e}")
+        # 에러가 나도 프로그램을 멈추지 않고 빈 딕셔너리 리턴
+        print(f"⚠️ [Leader-Scanner] 국내 대장주 스캔 우회 중: {e}")
+        leader_status = {}
 
     return global_status, leader_status
 
