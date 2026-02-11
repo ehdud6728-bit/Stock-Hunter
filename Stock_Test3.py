@@ -539,9 +539,10 @@ if __name__ == "__main__":
     # leader_map: {섹터: 코드}, leader_status: {섹터: 강세/침체}
     global_env, leader_env = get_global_and_leader_status()
 
+    target_stocks = df_krx.sort_values(by='Amount', ascending=False).head(TOP_N)
+    
     # 2. 전 종목 리스트 로드 및 명찰 강제 통일
     try:
-        target_stocks = df_krx.sort_values(by='Amount', ascending=False).head(TOP_N)
         df_krx = fdr.StockListing('KRX')
         
         # 💡 [핵심] 첫 번째 열은 'Code', 두 번째 열은 'Name'으로 강제 개명
@@ -579,7 +580,6 @@ if __name__ == "__main__":
     print(f"💵 {m_fx['text']} | 🇰🇷 KOSPI 수급: {kospi_supply}")
     print("=" * 115)
     
-    target_stocks = df_krx.sort_values(by='Amount', ascending=False).head(TOP_N)
     weather_data = prepare_historical_weather()
     
     # 2. 글로벌/대장주 상태 스캔
