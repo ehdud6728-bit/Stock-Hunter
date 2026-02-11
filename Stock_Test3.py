@@ -305,7 +305,7 @@ def get_indicators(df):
 # ---------------------------------------------------------
 # 🕵️‍♂️ [분석] 정밀 분석 엔진 (Ver 36.7 최저수익률 추가)
 # ---------------------------------------------------------
-def analyze_final(ticker, name, historical_indices, g_status, l_sync, sector_master_map):
+def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
     try:
         df = fdr.DataReader(ticker, start=START_DATE)
         if len(df) < 100: return []
@@ -313,7 +313,7 @@ def analyze_final(ticker, name, historical_indices, g_status, l_sync, sector_mas
         df = df.join(historical_indices, how='left').fillna(method='ffill')
 
         # 1. 내 종목의 섹터 확인
-        my_sector = sector_master_map.get(ticker, "일반")
+        my_sector = s_map.get(ticker, "일반")
     
         # 2. 우리 섹터 대장주의 상태 확인 (leader_status 맵 활용)
         current_leader_condition = leader_status.get(my_sector, "Normal")
@@ -324,7 +324,7 @@ def analyze_final(ticker, name, historical_indices, g_status, l_sync, sector_mas
         # 🕵️ 신규 추가: 서사 분석기 호출
         sector = get_stock_sector(ticker, sector_master_map) # 섹터 판독 함수 필요
         grade, narrative, target, stop, conviction = analyze_all_narratives(
-            df, name, sector, g_status, l_sync
+            df, name, my_sector, g_env, l_env
         )
       
         # 💡 오늘의 현재가 저장 (나중에 사용)
@@ -552,7 +552,7 @@ if __name__ == "__main__":
     commander_cap_map = get_commander_market_cap()
     # 💡 1. 전쟁 시작 전 '대장주 지도'와 '그들의 상태'를 딱 한 번만 생성
     # leader_map: {섹터: 코드}, leader_status: {섹터: 강세/침체}
-    leader_map, leader_status = get_dynamic_sector_leaders()
+    global_env, leader_env = get_global_and_leader_status()
 
     # 💡 2. 섹터 마스터 맵(모든 종목의 섹터 정보) 생성
     df_krx = fdr.StockListing('KRX')
@@ -589,7 +589,7 @@ if __name__ == "__main__":
     print(f"🔍 총 {len(target_stocks)}개 종목 💎다이아몬드 & 🎯역매공파 레이더 가동...")
     with ThreadPoolExecutor(max_workers=15) as executor:
         results = list(executor.map(
-            lambda p: analyze_final(p[0], p[1], weather_data, leader_status, sector_master_map), 
+            lambda p: analyze_final(p[0], p[1], weather_data, global_env, leader_env, sector_master_map), 
             zip(target_stocks['Code'], target_stocks['Name'])
         ))
         for r in results:
