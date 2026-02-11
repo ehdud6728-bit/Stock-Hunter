@@ -29,8 +29,8 @@ warnings.filterwarnings('ignore')
 # =================================================
 # ⚙️ [1. 설정 및 글로벌 변수]
 # =================================================
-SCAN_DAYS = 20     # 최근 30일 내 타점 전수 조사
-TOP_N = 2500        # 거래대금 상위 종목 수 (필요시 2500으로 확장 가능)
+SCAN_DAYS = 10     # 최근 30일 내 타점 전수 조사
+TOP_N = 200        # 거래대금 상위 종목 수 (필요시 2500으로 확장 가능)
 KST = pytz.timezone('Asia/Seoul')
 NOW = datetime.now(KST)
 TODAY_STR = NOW.strftime('%Y-%m-%d')
@@ -557,12 +557,21 @@ if __name__ == "__main__":
     # 💡 2. 섹터 마스터 맵(모든 종목의 섹터 정보) 생성
     df_krx = fdr.StockListing('KRX')
 
-    # 'Code'가 있으면 'Code'를 쓰고, 없으면 'Symbol'을 쓰도록 유연하게 대처합니다.
-    code_col = 'Code' if 'Code' in df_krx.columns else 'Symbol'
-    # 'Sector'가 없으면 'Industry'를 찾도록 2중 방어막을 칩니다.
-    sect_col = 'Sector' if 'Sector' in df_krx.columns else 'Industry'
+    # 1. 종목코드 컬럼 찾기 (Code 또는 Symbol)
+    code_col = 'Code' if 'Code' in df_krx.columns else ('Symbol' if 'Symbol' in df_krx.columns else df_krx.columns[0])
 
-    sector_master_map = df_krx.set_index(code_col)[sect_col].to_dict()
+    # 2. 섹터 컬럼 찾기 (모든 가능성 열기: Sector, Industry, 업종, SectorName)
+    possible_sects = ['Sector', 'Industry', '업종', 'SectorName']
+    sect_col = next((c for c in possible_sects if c in df_krx.columns), None)
+
+    # 3. 지도(Mapping) 생성
+    if sect_col:
+        sector_master_map = df_krx.set_index(code_col)[sect_col].to_dict()
+    else:
+        # 💡 [핵심] 섹터 정보가 아예 없을 경우를 대비한 최후의 방어선
+        print("⚠️ [시스템 알림] 섹터 정보를 찾을 수 없어 임시 분류로 진행합니다.")
+        df_krx['Temp_Sect'] = '미분류'
+        sector_master_map = df_krx.set_index(code_col)['Temp_Sect'].to_dict()
     
     # 1. 매크로 데이터 수집
     m_ndx = get_safe_macro('^IXIC', '나스닥')
