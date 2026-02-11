@@ -605,11 +605,14 @@ if __name__ == "__main__":
     if all_hits:
          # 1. 원재료(all_hits)를 연구소(DNA_Analyzer)로 송부
         print("🧬 [DNA Trace-Back] 성공 유전자 역추적 가동...")
-        dna_results = analyze_dna_sequences(all_hits)
+        #dna_results = analyze_dna_sequences(all_hits)
     
         # 2. 가장 승률 높은 패턴 랭킹 추출
-        top_patterns = find_winning_pattern(dna_results)
+        #top_patterns = find_winning_pattern(dna_results)
+        #df_total = pd.DataFrame(all_hits)
 
+        dna_results = pd.DataFrame(all_hits)
+        top_patterns = pd.DataFrame(all_hits)
         df_total = pd.DataFrame(all_hits)
         
         # 통계 계산 (상위 5개 추천 정보 포함)
