@@ -556,7 +556,13 @@ if __name__ == "__main__":
 
     # 💡 2. 섹터 마스터 맵(모든 종목의 섹터 정보) 생성
     df_krx = fdr.StockListing('KRX')
-    sector_master_map = df_krx.set_index('Symbol')['Sector'].to_dict()
+
+    # 'Code'가 있으면 'Code'를 쓰고, 없으면 'Symbol'을 쓰도록 유연하게 대처합니다.
+    code_col = 'Code' if 'Code' in df_krx.columns else 'Symbol'
+    # 'Sector'가 없으면 'Industry'를 찾도록 2중 방어막을 칩니다.
+    sect_col = 'Sector' if 'Sector' in df_krx.columns else 'Industry'
+
+    sector_master_map = df_krx.set_index(code_col)[sect_col].to_dict()
     
     # 1. 매크로 데이터 수집
     m_ndx = get_safe_macro('^IXIC', '나스닥')
