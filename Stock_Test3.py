@@ -555,28 +555,30 @@ if __name__ == "__main__":
     # leader_map: {섹터: 코드}, leader_status: {섹터: 강세/침체}
     global_env, leader_env = get_global_and_leader_status()
 
+    # 2. 전 종목 리스트 로드 및 명찰 강제 통일
     try:
-        # 💡 2. 섹터 마스터 맵(모든 종목의 섹터 정보) 생성
         df_krx = fdr.StockListing('KRX')
-    
-        # 1. 종목코드 컬럼 찾기 (Code 또는 Symbol)
-        code_col = 'Code' if 'Code' in df_krx.columns else ('Symbol' if 'Symbol' in df_krx.columns else df_krx.columns[0])
-    
-        # 2. 섹터 컬럼 찾기 (모든 가능성 열기: Sector, Industry, 업종, SectorName)
-        possible_sects = ['Sector', 'Industry', '업종', 'SectorName']
-        sect_col = next((c for c in possible_sects if c in df_krx.columns), None)
-    
-        # 3. 지도(Mapping) 생성
-        if sect_col:
-            sector_master_map = df_krx.set_index(code_col)[sect_col].to_dict()
+        
+        # 💡 [핵심] 첫 번째 열은 'Code', 두 번째 열은 'Name'으로 강제 개명
+        # KRX 데이터 구조상 보통 0번이 코드, 1번이 종목명입니다.
+        df_krx.columns.values[0] = 'Code'
+        df_krx.columns.values[1] = 'Name'
+        
+        # 섹터 컬럼도 있으면 'Sector'로 통일
+        s_col = next((c for c in ['Sector', 'Industry', '업종'] if c in df_krx.columns), None)
+        if s_col:
+            df_krx = df_krx.rename(columns={s_col: 'Sector'})
+            sector_master_map = df_krx.set_index('Code')['Sector'].to_dict()
         else:
-            # 💡 [핵심] 섹터 정보가 아예 없을 경우를 대비한 최후의 방어선
-            print("⚠️ [시스템 알림] 섹터 정보를 찾을 수 없어 임시 분류로 진행합니다.")
-            df_krx['Temp_Sect'] = '미분류'
-            sector_master_map = df_krx.set_index(code_col)['Temp_Sect'].to_dict()
-    except:
-        print("🚨 [본진 경보] KRX 서버 불통으로 섹터 지도를 생성할 수 없습니다. 기본 분석 모드로 전환!")
-        sector_master_map = {} # 서버가 죽어도 빈 딕셔너리로 시작하게 함
+            sector_master_map = {k: '일반' for k in df_krx['Code']}
+            
+        print(f"✅ [본진] 명찰 통일 완료: {len(df_krx)}개 종목 로드")
+
+    except Exception as e:
+        print(f"🚨 [본진] 데이터 로드 실패: {e}")
+        sector_master_map = {}
+        # 여기서 죽지 않게 빈 데이터프레임이라도 생성
+        df_krx = pd.DataFrame(columns=['Code', 'Name', 'Sector'])
     
     # 1. 매크로 데이터 수집
     m_ndx = get_safe_macro('^IXIC', '나스닥')
@@ -591,52 +593,6 @@ if __name__ == "__main__":
     print(f"🇺🇸 {m_ndx['text']} | {m_sp5['text']} | ⚠️ {m_vix['text']}")
     print(f"💵 {m_fx['text']} | 🇰🇷 KOSPI 수급: {kospi_supply}")
     print("=" * 115)
-    
-    try:
-        # 2. 전 종목 리스팅 및 기상도 준비
-        df_krx = fdr.StockListing('KRX')
-    
-        # 🔍 [명찰 찾기 특공대] 종목코드와 섹터 컬럼을 유연하게 탐색
-        c_col = next((c for c in ['Code', 'Symbol'] if c in df_krx.columns), None)
-        s_col = next((c for c in ['Sector', 'Industry', '업종', 'SectorName'] if c in df_krx.columns), None)
-    
-        # 3. 🛠️ 명찰 이름을 우리 표준('Symbol', 'Sector')으로 강제 개조
-        rename_map = {c_col: 'Symbol'}
-        if s_col:
-            rename_map[s_col] = 'Sector'
-    
-        df_krx = df_krx.rename(columns=rename_map)
-    
-        # 💡 [핵심] 섹터 마스터 맵 생성 (종목코드: 업종명)
-        # 이 한 줄로 2,500개 종목의 섹터 지도가 완성됩니다.
-        # 💡 [핵심] 컬럼이 있으면 지도를 만들고, 없으면 '일반'으로 채운다
-        if c_col:
-            if s_col:
-                # 섹터 컬럼이 존재하는 경우
-                sector_master_map = df_krx.set_index(c_col)[s_col].to_dict()
-                print(f"✅ [본진] 지도 제작 완료! (기준: {c_col} / {s_col})")
-            else:
-                # 섹터 컬럼이 아예 없는 경우 (비상상황)
-                print("⚠️ [본진] 섹터 컬럼을 찾을 수 없어 모든 종목을 '일반'으로 분류합니다.")
-                sector_master_map = {k: '일반' for k in df_krx[c_col]}
-        else:
-            # 데이터 자체가 빈 경우
-            sector_master_map = {}
-            print("🚨 [본진] 종목 데이터 자체가 비어 있습니다.")
-            print(f"✅ [본진] 지도 제작 완료! (데이터 확인: {actual_code_col} -> Symbol)")
-    except Exception as e:
-        # KRX 서버가 죽었을 때 프로그램이 멈추지 않게 방어
-        print("\n" + "="*50)
-        print(f"🚨 [본진 경보] KRX 서버 통신 실패!")
-        print(f"❌ 단순 에러 요약: {e}")
-        print("-" * 50)
-        print("🔍 [사령부 정밀 진단 데이터]")
-        # 💡 이 녀석이 에러의 발생 경로(Traceback)를 전체 문자열로 가져옵니다.
-        error_details = traceback.format_exc() 
-        print(error_details)
-        print("="*50 + "\n")
-        
-        sector_master_map = {} # 지도는 못 만들었지만 일단 전진
         
     target_stocks = df_krx.sort_values(by='Amount', ascending=False).head(TOP_N)
     weather_data = prepare_historical_weather()
