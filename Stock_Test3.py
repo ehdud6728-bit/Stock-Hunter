@@ -13,6 +13,7 @@ import requests
 from bs4 import BeautifulSoup
 from DNA_Analyzer import analyze_dna_sequences, find_winning_pattern
 from tactics_engine import get_global_and_leader_status, analyze_all_narratives, get_dynamic_sector_leaders
+import traceback
 
 from pykrx import stock
 import pandas as pd
@@ -611,8 +612,21 @@ if __name__ == "__main__":
     
         # 💡 [핵심] 섹터 마스터 맵 생성 (종목코드: 업종명)
         # 이 한 줄로 2,500개 종목의 섹터 지도가 완성됩니다.
-        sector_master_map = df_krx.set_index('Symbol')['Sector'].to_dict()
-        print(f"✅ [본진] 지도 제작 완료! (데이터 확인: {actual_code_col} -> Symbol)")
+        # 💡 [핵심] 컬럼이 있으면 지도를 만들고, 없으면 '일반'으로 채운다
+        if c_col:
+            if s_col:
+                # 섹터 컬럼이 존재하는 경우
+                sector_master_map = df_krx.set_index(c_col)[s_col].to_dict()
+                print(f"✅ [본진] 지도 제작 완료! (기준: {c_col} / {s_col})")
+            else:
+                # 섹터 컬럼이 아예 없는 경우 (비상상황)
+                print("⚠️ [본진] 섹터 컬럼을 찾을 수 없어 모든 종목을 '일반'으로 분류합니다.")
+                sector_master_map = {k: '일반' for k in df_krx[c_col]}
+        else:
+            # 데이터 자체가 빈 경우
+            sector_master_map = {}
+            print("🚨 [본진] 종목 데이터 자체가 비어 있습니다.")
+            print(f"✅ [본진] 지도 제작 완료! (데이터 확인: {actual_code_col} -> Symbol)")
     except Exception as e:
         # KRX 서버가 죽었을 때 프로그램이 멈추지 않게 방어
         print("\n" + "="*50)
