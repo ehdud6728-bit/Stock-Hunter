@@ -609,8 +609,7 @@ if __name__ == "__main__":
             sector_master_map = {}
             print("⚠️ [본진] 섹터 정보를 찾을 수 없어 빈 지도로 진행합니다.")
             
-        target_stocks = df_krx.sort_values(by='Amount', ascending=False).head(TOP_N)
-        weather_data = prepare_historical_weather()
+        
     
         # 💡 [핵심] 섹터 마스터 맵 생성 (종목코드: 업종명)
         # 이 한 줄로 2,500개 종목의 섹터 지도가 완성됩니다.
@@ -628,6 +627,9 @@ if __name__ == "__main__":
         print("="*50 + "\n")
         
         sector_master_map = {} # 지도는 못 만들었지만 일단 전진
+        
+    target_stocks = df_krx.sort_values(by='Amount', ascending=False).head(TOP_N)
+    weather_data = prepare_historical_weather()
     
     # 2. 글로벌/대장주 상태 스캔
     g_status, l_sync = get_global_and_leader_status()
