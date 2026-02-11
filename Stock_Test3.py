@@ -579,6 +579,7 @@ if __name__ == "__main__":
     print(f"💵 {m_fx['text']} | 🇰🇷 KOSPI 수급: {kospi_supply}")
     print("=" * 115)
     
+    target_stocks = df_krx.sort_values(by='Amount', ascending=False).head(TOP_N)
     weather_data = prepare_historical_weather()
     
     # 2. 글로벌/대장주 상태 스캔
