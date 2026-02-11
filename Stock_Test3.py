@@ -434,26 +434,6 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
                 s_score += 30
                 tags.append("⚡거래폭발")
             
-            # 💡 역매공파 완전체 체크
-            yeok_mae_count = sum([yeok_1_ma_aligned, yeok_2_ma_converged, yeok_3_bb40_squeeze,
-                                 yeok_4_red_candle, yeok_5_pullback, yeok_6_volume_surge, yeok_7_ma5_support])
-            
-            if yeok_mae_count == 7:
-                s_score += 100
-                tags.append("🎯역매공파완전체")
-            elif yeok_mae_count >= 5:
-                s_score += 50
-                tags.append("🎯역매공파강")
-            elif yeok_mae_count >= 3:
-                s_score += 20
-                tags.append("🎯역매공파약")
-            
-            # 세부 태그
-            if yeok_1_ma_aligned and yeok_2_ma_converged:
-                tags.append("📐이평수렴")
-            if yeok_3_bb40_squeeze:
-                tags.append("🔋밴드(40)")
-            
             # 💡 매집 시그널 체크
             acc_count = sum([acc_1_obv_rising, acc_2_box_range, acc_3_macd_golden,
                            acc_4_rsi_healthy, acc_5_sto_golden])
