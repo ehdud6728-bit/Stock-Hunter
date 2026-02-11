@@ -33,7 +33,7 @@ CHAT_ID_LIST = os.environ.get('TELEGRAM_CHAT_ID', '').split(',')
 OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY') 
 GROQ_API_KEY = os.environ.get('GROQ_API_KEY')     
 
-TEST_MODE = True 
+TEST_MODE = False 
 
 KST = pytz.timezone('Asia/Seoul')
 current_time = datetime.now(KST)
