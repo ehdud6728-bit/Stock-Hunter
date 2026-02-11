@@ -601,9 +601,9 @@ if __name__ == "__main__":
         s_col = next((c for c in ['Sector', 'Industry', '업종', 'SectorName'] if c in df_krx.columns), None)
     
         # 3. 🛠️ 명찰 이름을 우리 표준('Symbol', 'Sector')으로 강제 개조
-        rename_map = {actual_code_col: 'Symbol'}
+        rename_map = {c_col: 'Symbol'}
         if actual_sect_col:
-            rename_map[actual_sect_col] = 'Sector'
+            rename_map[s_col] = 'Sector'
     
         df_krx = df_krx.rename(columns=rename_map)
     
