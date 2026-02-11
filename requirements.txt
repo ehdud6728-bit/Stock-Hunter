@@ -13,3 +13,4 @@ openai
 mplfinance
 gspread-formatting
 gspread-dataframe
+yfinance
