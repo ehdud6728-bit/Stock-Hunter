@@ -539,16 +539,14 @@ if __name__ == "__main__":
     # leader_map: {섹터: 코드}, leader_status: {섹터: 강세/침체}
     global_env, leader_env = get_global_and_leader_status()
 
-    target_stocks = df_krx.sort_values(by='Amount', ascending=False).head(TOP_N)
-    
     # 2. 전 종목 리스트 로드 및 명찰 강제 통일
     try:
         df_krx = fdr.StockListing('KRX')
         
         # 💡 [핵심] 첫 번째 열은 'Code', 두 번째 열은 'Name'으로 강제 개명
         # KRX 데이터 구조상 보통 0번이 코드, 1번이 종목명입니다.
-        df_krx.columns.values[0] = target_stocks['Code']
-        df_krx.columns.values[1] = target_stocks['Name']
+        #df_krx.columns.values[0] = target_stocks['Code']
+        #df_krx.columns.values[1] = target_stocks['Name']
         
         # 섹터 컬럼도 있으면 'Sector'로 통일
         s_col = next((c for c in ['Sector', 'Industry', '업종'] if c in df_krx.columns), None)
@@ -565,6 +563,8 @@ if __name__ == "__main__":
         sector_master_map = {}
         # 여기서 죽지 않게 빈 데이터프레임이라도 생성
         df_krx = pd.DataFrame(columns=['Code', 'Name', 'Sector'])
+
+    target_stocks = df_krx.sort_values(by='Amount', ascending=False).head(TOP_N)
     
     # 1. 매크로 데이터 수집
     m_ndx = get_safe_macro('^IXIC', '나스닥')
