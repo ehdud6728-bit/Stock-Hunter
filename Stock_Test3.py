@@ -323,6 +323,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         l_score = 25 if current_leader_condition == "🔥강세" else 0
     
         # 🕵️ 신규 추가: 서사 분석기 호출
+        print(f"✅ [본진] 서사 분석기 호출")
         sector = get_stock_sector(ticker, sector_master_map) # 섹터 판독 함수 필요
         grade, narrative, target, stop, conviction = analyze_all_narratives(
             df, name, my_sector, g_env, l_env
@@ -333,6 +334,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         
         # 최신 수급 데이터 수집
         try:
+            print(f"✅ [본진] 최신 수급 데이터 수집")
             url = f"https://finance.naver.com/item/frgn.naver?code={ticker}"
             res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
             res.encoding = 'euc-kr'
@@ -347,6 +349,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         recent_df = df.tail(SCAN_DAYS)
         hits = []
 
+        print(f"✅ [본진] 패턴 찾기")
         for curr_idx, row in recent_df.iterrows():
             raw_idx = df.index.get_loc(curr_idx)
             if raw_idx < 100: continue
@@ -519,7 +522,9 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
                 '보유일': len(h_df)
             })
         return hits
-    except: 
+    except Exception as e:
+        print(f"🚨 [본진] 데이터 로드 실패: {e}")
+        print(f"✅ [본진] 오류!")
         return []
 
 # ---------------------------------------------------------
