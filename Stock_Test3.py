@@ -596,12 +596,9 @@ if __name__ == "__main__":
         # 2. 전 종목 리스팅 및 기상도 준비
         df_krx = fdr.StockListing('KRX')
     
-        # 1. 🔍 어떤 명찰을 쓰고 있는지 실시간 감지
-        # 'Code'가 있으면 쓰고, 없으면 'Symbol'을 찾고, 그것도 없으면 첫 번째 칸을 씁니다.
-        actual_code_col = next((c for c in ['Code', 'Symbol'] if c in df_krx.columns), df_krx.columns[0])
-    
-        # 2. 🔍 섹터 명찰도 같은 방식으로 감지
-        actual_sect_col = next((c for c in ['Sector', 'Industry', '업종', 'SectorName'] if c in df_krx.columns), None)
+        # 🔍 [명찰 찾기 특공대] 종목코드와 섹터 컬럼을 유연하게 탐색
+        c_col = next((c for c in ['Code', 'Symbol'] if c in df_krx.columns), None)
+        s_col = next((c for c in ['Sector', 'Industry', '업종', 'SectorName'] if c in df_krx.columns), None)
     
         # 3. 🛠️ 명찰 이름을 우리 표준('Symbol', 'Sector')으로 강제 개조
         rename_map = {actual_code_col: 'Symbol'}
