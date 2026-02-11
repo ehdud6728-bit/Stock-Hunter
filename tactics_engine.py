@@ -271,7 +271,7 @@ def analyze_all_narratives(df, ticker_name, sector_name, g_env, l_env):
     narrative = " ➔ ".join([f"{'오늘' if d==0 else str(d)+'일전'}{n}" for d, n in events])
     if is_jongbe: narrative += " | 🎖️종베타점"
 
-    grade = "👑LEGEND" if total_conviction >= 90 else "⚔️정예" if total_conviction >= 75 else "🛡️일반"
+    grade = "👑LEGEND" if total_conviction >= 80 else "⚔️정예" if total_conviction >= 55 else "🛡️일반"
     target = round(row['Close'] * 1.1, 0) if is_jongbe else round(row['MA112'] * 1.005, 0)
     stop = round(df['MA20'].iloc[-1] * 0.97, 0) if is_jongbe else round(row['MA112'] * 0.98, 0)
 
