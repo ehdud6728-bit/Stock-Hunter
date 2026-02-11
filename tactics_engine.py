@@ -5,47 +5,7 @@ import numpy as np
 import FinanceDataReader as fdr
 from datetime import datetime, timedelta
 
-def get_global_and_leader_status():
-    """
-    1. 나스닥 주요 섹터 전일 수익률 (Global HQ 보고)
-    2. 국내 주요 섹터 대장주 상태 (사령관 보고)
-    를 동시에 수행합니다.
-    """
-    print("🌍 [Global-Scanner] 나스닥 섹터 전황 파악 중...")
-    
-    # --- [1] 나스닥 섹터 ETF 스캔 ---
-    # SOXX(반도체), XLK(테크), XBI(바이오), LIT(2차전지), XLE(에너지)
-    us_sectors = {
-        'SOXX': '반도체',
-        'XLK':  '빅테크',
-        'XBI':  '바이오',
-        'LIT':  '2차전지',
-        'XLE':  '에너지'
-    }
-    
-    global_status = {}
-    for ticker, name in us_sectors.items():
-        try:
-            # 최근 5일치 데이터를 가져와서 전일 수익률 계산
-            df_us = yf.Ticker(ticker).history(period="5d")
-            if len(df_us) >= 2:
-                prev_close = df_us['Close'].iloc[-2]
-                curr_close = df_us['Close'].iloc[-1]
-                change = ((curr_close - prev_close) / prev_close) * 100
-                global_status[name] = round(change, 2)
-            else:
-                global_status[name] = 0.0
-        except Exception as e:
-            print(f"⚠️ {name} 섹터 수집 실패: {e}")
-            global_status[name] = 0.0
 
-    # --- [2] 국내 대장주 동적 선출 및 상태 파악 ---
-    # (앞서 만든 get_dynamic_sector_leaders 로직의 핵심을 여기에 통합)
-    # 사령관님, 여기서는 속도를 위해 주요 대장주 상태를 l_sync로 반환합니다.
-    # ... (대장주 상태 판독 로직) ...
-
-    return global_status, {} # 일단 l_sync는 빈 값으로 리턴하거나 로직 추가
-    
 def get_signal_sequence(df):
     """
     각 전술 신호(역, 매, 공, 파)가 며칠 전에 발생했는지 추적하여 
@@ -89,7 +49,11 @@ def get_dynamic_sector_leaders():
     
     # 1. 전 종목 리스트 및 섹터 정보 (FinanceDataReader)
     df_krx = fdr.StockListing('KRX') 
-    
+
+    # 💡 [수정 포인트] fdr의 KRX 데이터는 'Symbol'이 아니라 'Code' 컬럼을 사용합니다.
+    if 'Code' in df_krx.columns:
+        df_krx = df_krx.rename(columns={'Code': 'Symbol'}) # 통일성을 위해 Symbol로 이름을 바꿉니다.
+        
     # 2. 전 종목 시가총액 정보 (Pykrx)
     now = datetime.now().strftime("%Y%m%d")
     df_cap = stock.get_market_cap(now, market="ALL")[['시가총액']]
@@ -125,15 +89,31 @@ def get_global_and_leader_status():
         except: global_status[name] = 0.0
 
     # 2. 국장 대장주 (pykrx) - 예시: 하이닉스(반도체), 셀트리온(바이오), LG엔솔(2차전지)
-    leaders = {'000660': '반도체', '068270': '바이오', '373220': '2차전지'}
-    leader_sync = {}
-    for t, name in leaders.items():
-        try:
-            df_l = stock.get_market_ohlcv_by_date("20260101", "20261231", t) # 2026년 날짜 적용
-            ma5 = df_l['종가'].rolling(5).mean().iloc[-1]
-            curr = df_l['종가'].iloc[-1]
-            leader_sync[name] = "🔥강세" if curr > ma5 else "❄️침체"
-        except: leader_sync[name] = "Normal"
+    # --- [B] 국내 섹터별 동적 대장주 추출 및 상태 (pykrx + fdr) ---
+    now_str = datetime.now().strftime("%Y%m%d")
+    df_krx = fdr.StockListing('KRX')
+    df_cap = stock.get_market_cap(now_str, market="ALL")[['시가총액']]
+    
+    # 섹터 정보와 시가총액 결합
+    df_master = df_krx.set_index('Symbol').join(df_cap).dropna(subset=['Sector'])
+    
+    # 섹터별 시총 1위(대장주) 추출
+    sector_leader_map = df_master.groupby('Sector')['시가총액'].idxmax().to_dict()
+    
+    leader_status = {}
+    # 주요 섹터 대장주들의 컨디션(5일선 위/아래) 체크
+    target_sectors = ['반도체', '제약', '소프트웨어', '전기제품', '화학'] # 국장 주요 섹터명
+    
+    for sect in target_sectors:
+        ticker = sector_leader_map.get(sect)
+        if ticker:
+            try:
+                # 대장주 시세 10일치 확인
+                df_l = fdr.DataReader(ticker, start=(datetime.now() - timedelta(days=15)).strftime('%Y-%m-%d'))
+                curr = df_l['Close'].iloc[-1]
+                ma5 = df_l['Close'].rolling(5).mean().iloc[-1]
+                leader_status[sect] = "🔥강세" if curr > ma5 else "❄️침체"
+            except: leader_status[sect] = "Normal"
         
     return global_status, leader_sync
 
