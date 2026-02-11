@@ -97,11 +97,34 @@ def get_global_and_leader_status():
     # 이를 'Symbol'로 이름을 바꿔주면 뒤쪽 코드와 호환됩니다.
     if 'Code' in df_krx.columns:
         df_krx = df_krx.rename(columns={'Code': 'Symbol'})
+
+    # 2. 섹터(업종) 컬럼 표준화 (Sector / Industry / 업종 대응)
+    # 어떤 이름으로 들어오든 'Sector'로 통일합니다.
+    possible_sector_names = ['Sector', 'Industry', '업종']
+    found_sector_col = None
+    for col in possible_sector_names:
+        if col in df_krx.columns:
+            found_sector_col = col
+            break
+    
+    if found_sector_col:
+        df_krx = df_krx.rename(columns={found_sector_col: 'Sector'})
+    else:
+        # 섹터 정보가 아예 없는 경우 (비상상황)
+        # 빈 값이라도 채워서 에러를 방지합니다.
+        df_krx['Sector'] = '기타'
         
     df_cap = stock.get_market_cap(now_str, market="ALL")[['시가총액']]
     
     # 섹터 정보와 시가총액 결합
     df_master = df_krx.set_index('Symbol').join(df_cap).dropna(subset=['Sector'])
+
+    # 'Sector' 컬럼이 존재하는지 최종 확인 후 dropna 수행
+    if 'Sector' in df_master.columns:
+        df_master = df_master.dropna(subset=['Sector'])
+    else:
+        # 여기까지 왔는데 Sector가 없다면 병합 과정에서 유실된 것
+        df_master['Sector'] = '기타'
     
     # 섹터별 시총 1위(대장주) 추출
     sector_leader_map = df_master.groupby('Sector')['시가총액'].idxmax().to_dict()
