@@ -92,6 +92,12 @@ def get_global_and_leader_status():
     # --- [B] 국내 섹터별 동적 대장주 추출 및 상태 (pykrx + fdr) ---
     now_str = datetime.now().strftime("%Y%m%d")
     df_krx = fdr.StockListing('KRX')
+
+    # 💡 핵심 수정: fdr은 'Symbol'이 아니라 'Code'를 사용합니다.
+    # 이를 'Symbol'로 이름을 바꿔주면 뒤쪽 코드와 호환됩니다.
+    if 'Code' in df_krx.columns:
+        df_krx = df_krx.rename(columns={'Code': 'Symbol'})
+        
     df_cap = stock.get_market_cap(now_str, market="ALL")[['시가총액']]
     
     # 섹터 정보와 시가총액 결합
