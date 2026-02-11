@@ -95,7 +95,7 @@ def update_commander_dashboard(df, macro_data, sheet_name, stats_df=None,
                 ai_sheet.clear()
 
             # 체급별 패턴 랭킹 추출 (위에서 만든 함수 호출)
-                tier_patterns = find_winning_pattern_by_tier(ai_recommendation)
+                tier_patterns = find_winning_pattern(ai_recommendation)
                 print(f"📦 [Step 1] 수신된 ai_recommendation 건수: {len(ai_recommendation)}건")
                 print(f"📊 [Step 1-1] 데이터 컬럼: {ai_recommendation.columns.tolist()}")
                 print(f"📊 [Step 1-2] 데이터 샘플 (상위 2건):\n{ai_recommendation.head(2)}")
