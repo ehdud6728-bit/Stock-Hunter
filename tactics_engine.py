@@ -2,6 +2,35 @@ import pandas as pd
 import yfinance as yf
 from pykrx import stock
 
+def get_dynamic_sector_leaders():
+    """아침마다 시총 기준 섹터별 대장주를 선정합니다."""
+    print("📡 [Leader-Scanner] 오늘의 섹터별 대장주 선출 중...")
+    
+    # 1. 전 종목 리스트 및 섹터 정보 (FinanceDataReader)
+    df_krx = fdr.StockListing('KRX') 
+    
+    # 2. 전 종목 시가총액 정보 (Pykrx)
+    now = datetime.now().strftime("%Y%m%d")
+    df_cap = stock.get_market_cap(now, market="ALL")[['시가총액']]
+    
+    # 3. 데이터 병합 및 섹터별 1위 추출
+    df_master = df_krx.set_index('Symbol').join(df_cap)
+    df_valid = df_master.dropna(subset=['Sector'])
+    
+    # {섹터명: 종목코드} 맵 생성
+    sector_leader_map = df_valid.groupby('Sector')['시가총액'].idxmax().to_dict()
+    
+    # 추가: 대장주들의 '상태(강세/침체)'를 미리 분석해서 저장 (속도 최적화)
+    leader_status_map = {}
+    for sector, ticker in sector_leader_map.items():
+        # 대장주 데이터 10일치만 가져와서 상태 판독
+        df_l = fdr.DataReader(ticker, start=(datetime.now() - timedelta(days=15)).strftime('%Y-%m-%d'))
+        curr = df_l['Close'].iloc[-1]
+        ma5 = df_l['Close'].rolling(5).mean().iloc[-1]
+        leader_status_map[sector] = "🔥강세" if curr > ma5 else "❄️침체"
+        
+    return sector_leader_map, leader_status_map
+    
 def get_global_and_leader_status():
     """나스닥 섹터와 국장 대장주 상태를 아침마다 스캔합니다."""
     # 1. 나스닥 섹터 (yfinance)
