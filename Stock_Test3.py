@@ -602,7 +602,7 @@ if __name__ == "__main__":
     
         # 3. 🛠️ 명찰 이름을 우리 표준('Symbol', 'Sector')으로 강제 개조
         rename_map = {c_col: 'Symbol'}
-        if actual_sect_col:
+        if s_col:
             rename_map[s_col] = 'Sector'
     
         df_krx = df_krx.rename(columns=rename_map)
