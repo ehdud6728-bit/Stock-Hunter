@@ -595,25 +595,24 @@ if __name__ == "__main__":
         # 2. 전 종목 리스팅 및 기상도 준비
         df_krx = fdr.StockListing('KRX')
     
-        # 1. 종목코드 컬럼 식별 (Code가 우선, 없으면 Symbol)
-        c_col = next((c for c in ['Code', 'Symbol'] if c in df_krx.columns), None)
-        
-        # 2. 섹터 컬럼 식별 (Sector, Industry, 업종 순서로 검색)
-        s_col = next((c for c in ['Sector', 'Industry', '업종'] if c in df_krx.columns), None)
+        # 1. 🔍 어떤 명찰을 쓰고 있는지 실시간 감지
+        # 'Code'가 있으면 쓰고, 없으면 'Symbol'을 찾고, 그것도 없으면 첫 번째 칸을 씁니다.
+        actual_code_col = next((c for c in ['Code', 'Symbol'] if c in df_krx.columns), df_krx.columns[0])
     
-        if c_col and s_col:
-            sector_master_map = df_krx.set_index(c_col)[s_col].to_dict()
-            print(f"✅ [본진] 섹터 지도 로드 성공! ({len(sector_master_map)}개 종목)")
-        else:
-            # 컬럼을 못 찾았을 경우 대비
-            sector_master_map = {}
-            print("⚠️ [본진] 섹터 정보를 찾을 수 없어 빈 지도로 진행합니다.")
-            
-        
+        # 2. 🔍 섹터 명찰도 같은 방식으로 감지
+        actual_sect_col = next((c for c in ['Sector', 'Industry', '업종', 'SectorName'] if c in df_krx.columns), None)
+    
+        # 3. 🛠️ 명찰 이름을 우리 표준('Symbol', 'Sector')으로 강제 개조
+        rename_map = {actual_code_col: 'Symbol'}
+        if actual_sect_col:
+            rename_map[actual_sect_col] = 'Sector'
+    
+        df_krx = df_krx.rename(columns=rename_map)
     
         # 💡 [핵심] 섹터 마스터 맵 생성 (종목코드: 업종명)
         # 이 한 줄로 2,500개 종목의 섹터 지도가 완성됩니다.
         sector_master_map = df_krx.set_index('Symbol')['Sector'].to_dict()
+        print(f"✅ [본진] 지도 제작 완료! (데이터 확인: {actual_code_col} -> Symbol)")
     except Exception as e:
         # KRX 서버가 죽었을 때 프로그램이 멈추지 않게 방어
         print("\n" + "="*50)
