@@ -335,15 +335,38 @@ def analyze_final(ticker, name, historical_indices):
             is_yeok_mae_old = close_p > row['MA112'] and prev['Close'] <= row['MA112']
             is_vol_power = row['Volume'] > row['VMA20'] * 2.5
 
-            # 💡 역매공파 7가지 조건 체크
-            yeok_1_ma_aligned = (row['MA5'] > row['MA20']) and (row['MA20'] > row['MA60'])
-            yeok_2_ma_converged = row['MA_Convergence'] <= 3.0
-            yeok_3_bb40_squeeze = row['BB40_Width'] <= 10.0
-            yeok_4_red_candle = close_p < open_p
-            day_change = ((close_p - prev['Close']) / prev['Close']) * 100
-            yeok_5_pullback = -5.0 <= day_change <= -1.0
-            yeok_6_volume_surge = row['Volume'] >= row['VMA5'] * 1.5
-            yeok_7_ma5_support = close_p >= row['MA5'] * 0.97
+            # --- [역매공파 통합 7단계 로직] ---
+            # 1. [역(逆)] 역배열 바닥 탈출 (5/20 골든크로스)
+            # 의미: 하락을 멈추고 단기 추세를 돌리는 첫 신호
+            is_yeok = (prev['MA5'] <= prev['MA20']) and (row['MA5'] > row['MA20'])
+
+            # 2. [매(埋)] 에너지 응축 (이평선 밀집)
+            # 의미: 5, 20, 60일선이 3% 이내로 모여 에너지가 압축된 상태
+            is_mae = row['MA_Convergence'] <= 3.0
+
+            # 3. [공(空)] 공구리 돌파 (MA112 돌파) - 사령관님이 찾아낸 핵심!
+            # 의미: 6개월 장기 저항선(공구리)을 종가로 뚫어버리는 순간
+            is_gong = (close_p > row['MA112']) and (prev['Close'] <= row['MA112'])
+
+            # 4. [파(破)] 파동의 시작 (BB40 상단 돌파)
+            # 의미: 볼린저밴드 상단을 뚫고 변동성이 위로 터지는 시점
+            is_pa = (row['Close'] > row['BB40_Upper']) and (prev['Close'] <= row['BB40_Upper'])
+
+            # 5. [화력] 거래량 동반 (VMA5 대비 2배)
+            # 의미: 가짜 돌파를 걸러내는 세력의 입성 증거
+            is_volume = row['Volume'] >= row['VMA5'] * 2.0
+
+            # 6. [안전] 적정 이격도 (100~106%)
+            # 의미: 이미 너무 날아간 종목(추격매수)은 거르는 안전장치
+            is_safe = 100.0 <= row['Disparity'] <= 106.0
+
+            # 7. [수급] OBV 우상향 유지
+            # 의미: 주가는 흔들어도 돈(매집세)은 빠져나가지 않는 상태
+            is_obv = row['OBV_Slope'] > 0
+
+            # 🏆 [최종 판정] 7가지 중 5가지 이상 만족 시 '정예', 7가지 모두 만족 시 'LEGEND'
+            conditions = [is_yeok, is_mae, is_gong, is_pa, is_volume, is_safe, is_obv]
+            match_count = sum(conditions)
             
             # 💡 매집 5가지 조건 체크
             acc_1_obv_rising = (row['OBV'] > prev_5['OBV']) and (row['OBV'] > prev_10['OBV'])
@@ -367,10 +390,6 @@ def analyze_final(ticker, name, historical_indices):
                 s_score += 40
                 tags.append("☁️구름돌파")
 
-            if is_yeok_mae_old: 
-                s_score += 40
-                tags.append("🏆역매공파")
-                
             if is_super_squeeze: 
                 s_score += 40
                 tags.append("🔋초강력응축")
