@@ -144,7 +144,7 @@ def get_global_and_leader_status():
                 leader_status[sect] = "🔥강세" if curr > ma5 else "❄️침체"
             except: leader_status[sect] = "Normal"
         
-    return global_status, leader_sync
+    return global_status, leader_status
 
 def analyze_all_narratives(df, ticker_name, sector_name, g_status, l_sync):
     """
