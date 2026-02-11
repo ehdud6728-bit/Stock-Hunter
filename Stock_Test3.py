@@ -593,6 +593,21 @@ if __name__ == "__main__":
 
     # 2. 전 종목 리스팅 및 기상도 준비
     df_krx = fdr.StockListing('KRX')
+
+    # 1. 종목코드 컬럼 식별 (Code가 우선, 없으면 Symbol)
+    c_col = next((c for c in ['Code', 'Symbol'] if c in df_krx.columns), None)
+    
+    # 2. 섹터 컬럼 식별 (Sector, Industry, 업종 순서로 검색)
+    s_col = next((c for c in ['Sector', 'Industry', '업종'] if c in df_krx.columns), None)
+
+    if c_col and s_col:
+        sector_master_map = df_krx.set_index(c_col)[s_col].to_dict()
+        print(f"✅ [본진] 섹터 지도 로드 성공! ({len(sector_master_map)}개 종목)")
+    else:
+        # 컬럼을 못 찾았을 경우 대비
+        sector_master_map = {}
+        print("⚠️ [본진] 섹터 정보를 찾을 수 없어 빈 지도로 진행합니다.")
+        
     target_stocks = df_krx.sort_values(by='Amount', ascending=False).head(TOP_N)
     weather_data = prepare_historical_weather()
 
