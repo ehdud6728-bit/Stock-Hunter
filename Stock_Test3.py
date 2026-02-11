@@ -12,7 +12,7 @@ import warnings
 import requests
 from bs4 import BeautifulSoup
 from DNA_Analyzer import analyze_dna_sequences, find_winning_pattern
-from tactics_engine import get_global_and_leader_status, analyze_all_narratives
+from tactics_engine import get_global_and_leader_status, analyze_all_narratives, get_dynamic_sector_leaders
 
 from pykrx import stock
 import pandas as pd
@@ -38,39 +38,6 @@ START_DATE = (datetime.now() - timedelta(days=600)).strftime('%Y-%m-%d')
 END_DATE_STR = datetime.now().strftime('%Y%m%d')
 
 print(f"📡 [Ver 36.7 엑셀저장+추천] 사령부 무결성 통합 가동... 💎다이아몬드 & 📊복합통계 엔진 탑재")
-
-def get_dynamic_sector_leaders():
-    """
-    오늘 아침 시가총액을 기준으로 각 섹터별 사령관(대장주)을 자동 선출합니다.
-    """
-    print("📡 [Leader-Scanner] 오늘의 섹터별 대장주 선출 중...")
-    
-    # 1. KRX 전 종목 리스트 및 업종 정보 (FinanceDataReader)
-    df_krx = fdr.StockListing('KRX') 
-    
-    # 2. 전 종목 시가총액 정보 (Pykrx)
-    now = datetime.now().strftime("%Y%m%d")
-    df_cap = stock.get_market_cap(now, market="ALL")[['시가총액']]
-    
-    # 3. 데이터 병합 (종목코드 기준)
-    # df_krx의 Symbol을 인덱스로 설정하여 시가총액과 합칩니다.
-    df_master = df_krx.set_index('Symbol').join(df_cap)
-    
-    # 4. 섹터별 시가총액 1위 종목 추출
-    # Sector가 없는 종목(ETF 등)은 제외하고 그룹화
-    df_valid = df_master.dropna(subset=['Sector'])
-    
-    # 각 섹터에서 시가총액(시가총액 컬럼)이 가장 큰 행의 인덱스(종목코드)를 가져옴
-    leader_indices = df_valid.groupby('Sector')['시가총액'].idxmax()
-    
-    # {섹터명: 종목코드} 맵 생성
-    sector_leader_map = leader_indices.to_dict()
-    
-    # 역으로 {종목코드: 섹터명} 맵도 생성 (분석 시 대장주 여부 확인용)
-    leader_ticker_map = {v: k for k, v in sector_leader_map.items()}
-    
-    print(f"✅ 총 {len(sector_leader_map)}개 섹터의 사령관 선출 완료.")
-    return sector_leader_map, leader_ticker_map
 
 def get_stock_sector(ticker, sector_map):
     """
@@ -345,6 +312,15 @@ def analyze_final(ticker, name, historical_indices, g_status, l_sync, sector_mas
         df = get_indicators(df)
         df = df.join(historical_indices, how='left').fillna(method='ffill')
 
+        # 1. 내 종목의 섹터 확인
+        my_sector = sector_master_map.get(ticker, "일반")
+    
+        # 2. 우리 섹터 대장주의 상태 확인 (leader_status 맵 활용)
+        current_leader_condition = leader_status.get(my_sector, "Normal")
+    
+        # 3. 확신 점수에 반영
+        l_score = 25 if current_leader_condition == "🔥강세" else 0
+    
         # 🕵️ 신규 추가: 서사 분석기 호출
         sector = get_stock_sector(ticker, sector_master_map) # 섹터 판독 함수 필요
         grade, narrative, target, stop, conviction = analyze_all_narratives(
@@ -573,9 +549,14 @@ def save_today_recommendations(df_today, recommendation_info):
 if __name__ == "__main__":
     print(f"📡 [Ver 36.7 구글시트 강화] {TODAY_STR} 전술 사령부 통합 가동...")
     commander_cap_map = get_commander_market_cap()
-    # 글로벌 및 대장주 상태 미리 확보 (한 번만 실행)
-    g_status, l_sync = get_global_and_leader_status()
-  
+    # 💡 1. 전쟁 시작 전 '대장주 지도'와 '그들의 상태'를 딱 한 번만 생성
+    # leader_map: {섹터: 코드}, leader_status: {섹터: 강세/침체}
+    leader_map, leader_status = get_dynamic_sector_leaders()
+
+    # 💡 2. 섹터 마스터 맵(모든 종목의 섹터 정보) 생성
+    df_krx = fdr.StockListing('KRX')
+    sector_master_map = df_krx.set_index('Symbol')['Sector'].to_dict()
+    
     # 1. 매크로 데이터 수집
     m_ndx = get_safe_macro('^IXIC', '나스닥')
     m_sp5 = get_safe_macro('^GSPC', 'S&P500')
@@ -607,7 +588,7 @@ if __name__ == "__main__":
     print(f"🔍 총 {len(target_stocks)}개 종목 💎다이아몬드 & 🎯역매공파 레이더 가동...")
     with ThreadPoolExecutor(max_workers=15) as executor:
         results = list(executor.map(
-            lambda p: analyze_final(p[0], p[1], weather_data, g_status, l_sync, sector_master_map), 
+            lambda p: analyze_final(p[0], p[1], weather_data, leader_status, sector_master_map), 
             zip(target_stocks['Code'], target_stocks['Name'])
         ))
         for r in results:
