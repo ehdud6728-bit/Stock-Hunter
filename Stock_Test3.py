@@ -30,8 +30,8 @@ warnings.filterwarnings('ignore')
 # =================================================
 # ⚙️ [1. 설정 및 글로벌 변수]
 # =================================================
-SCAN_DAYS = 122     # 최근 30일 내 타점 전수 조사
-TOP_N = 2500        # 거래대금 상위 종목 수 (필요시 2500으로 확장 가능)
+SCAN_DAYS = 20      # 최근 30일 내 타점 전수 조사
+TOP_N = 250         # 거래대금 상위 종목 수 (필요시 2500으로 확장 가능)
 KST = pytz.timezone('Asia/Seoul')
 NOW = datetime.now(KST)
 TODAY_STR = NOW.strftime('%Y-%m-%d')
@@ -657,27 +657,23 @@ if __name__ == "__main__":
             recommended_today = today[today['구분'].str.contains(top_pattern.split(' + ')[0], na=False)]
             if not recommended_today.empty:
                 print(f"\n✨ 오늘의 '{top_pattern}' 패턴 종목")
-                print(recommended_today[['종목', '안전점수', '매입가', '역매', '매집', '구분']].head(10))
+                print(recommended_today[['종목', '안전점수', '매입가', '매집', '구분']].head(10))
         
         # 💡 통합: 오늘의 추천종목 (역매공파 포함, 안전점수 순)
         print("\n" + "🎯 " * 10 + "[ 오늘의 추천종목 TOP 50 ]" + " 🎯" * 10)
         print("(역매공파, 다이아몬드, 세력매집 등 모든 패턴 포함 / 안전점수 순)")
         print("=" * 120)
-        
+
         if not today.empty:
-            display_cols = ['섹터', '종목', '안전점수', '매입가', '현재가', '꼬리%', '역매', '매집', 'BB40', 'MA수렴', '구분']
+            display_cols = ['👑등급', '📜서사히스토리','확신점수', '🎯목표타점', '🚨손절가', '종목', '안전점수', '매입가', '현재가', '꼬리%', '매집', 'BB40', 'MA수렴', '구분']
             print(today[display_cols].head(50))
             
             # 💡 패턴별 집계 (참고용)
             diamond_count = len(today[today['구분'].str.contains('다이아몬드', na=False)])
-            yeok_complete = len(today[today['구분'].str.contains('역매공파완전체', na=False)])
-            yeok_strong = len(today[today['구분'].str.contains('역매공파강', na=False)])
             accumulation = len(today[today['구분'].str.contains('세력매집', na=False)])
             
             print("\n📊 [ 오늘의 패턴 분포 ]")
             print(f"   💎 다이아몬드: {diamond_count}개")
-            print(f"   🎯 역매공파 완전체: {yeok_complete}개")
-            print(f"   🎯 역매공파 강: {yeok_strong}개")
             print(f"   🐋 세력매집: {accumulation}개")
             print(f"   📈 전체 추천종목: {len(today)}개")
         else:
