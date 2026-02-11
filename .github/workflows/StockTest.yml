@@ -26,7 +26,7 @@ jobs:
         pip install finance-datareader requests mplfinance gspread oauth2client
         python -m pip install --upgrade pip
         pip install pykrx finance-datareader pandas numpy pytz
-        pip install yfinance pykrx FinanceDataReader pandas  # 👈 여기에 yfinance 추가
+        pip install yfinance pykrx finance-datareader pandas  # 👈 여기에 yfinance 추가
         
     - name: Install Google Sheet Tools
       run: |
