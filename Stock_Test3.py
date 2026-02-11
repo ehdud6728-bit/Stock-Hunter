@@ -554,24 +554,28 @@ if __name__ == "__main__":
     # leader_map: {섹터: 코드}, leader_status: {섹터: 강세/침체}
     global_env, leader_env = get_global_and_leader_status()
 
-    # 💡 2. 섹터 마스터 맵(모든 종목의 섹터 정보) 생성
-    df_krx = fdr.StockListing('KRX')
-
-    # 1. 종목코드 컬럼 찾기 (Code 또는 Symbol)
-    code_col = 'Code' if 'Code' in df_krx.columns else ('Symbol' if 'Symbol' in df_krx.columns else df_krx.columns[0])
-
-    # 2. 섹터 컬럼 찾기 (모든 가능성 열기: Sector, Industry, 업종, SectorName)
-    possible_sects = ['Sector', 'Industry', '업종', 'SectorName']
-    sect_col = next((c for c in possible_sects if c in df_krx.columns), None)
-
-    # 3. 지도(Mapping) 생성
-    if sect_col:
-        sector_master_map = df_krx.set_index(code_col)[sect_col].to_dict()
-    else:
-        # 💡 [핵심] 섹터 정보가 아예 없을 경우를 대비한 최후의 방어선
-        print("⚠️ [시스템 알림] 섹터 정보를 찾을 수 없어 임시 분류로 진행합니다.")
-        df_krx['Temp_Sect'] = '미분류'
-        sector_master_map = df_krx.set_index(code_col)['Temp_Sect'].to_dict()
+    try:
+        # 💡 2. 섹터 마스터 맵(모든 종목의 섹터 정보) 생성
+        df_krx = fdr.StockListing('KRX')
+    
+        # 1. 종목코드 컬럼 찾기 (Code 또는 Symbol)
+        code_col = 'Code' if 'Code' in df_krx.columns else ('Symbol' if 'Symbol' in df_krx.columns else df_krx.columns[0])
+    
+        # 2. 섹터 컬럼 찾기 (모든 가능성 열기: Sector, Industry, 업종, SectorName)
+        possible_sects = ['Sector', 'Industry', '업종', 'SectorName']
+        sect_col = next((c for c in possible_sects if c in df_krx.columns), None)
+    
+        # 3. 지도(Mapping) 생성
+        if sect_col:
+            sector_master_map = df_krx.set_index(code_col)[sect_col].to_dict()
+        else:
+            # 💡 [핵심] 섹터 정보가 아예 없을 경우를 대비한 최후의 방어선
+            print("⚠️ [시스템 알림] 섹터 정보를 찾을 수 없어 임시 분류로 진행합니다.")
+            df_krx['Temp_Sect'] = '미분류'
+            sector_master_map = df_krx.set_index(code_col)['Temp_Sect'].to_dict()
+    except:
+        print("🚨 [본진 경보] KRX 서버 불통으로 섹터 지도를 생성할 수 없습니다. 기본 분석 모드로 전환!")
+        sector_master_map = {} # 서버가 죽어도 빈 딕셔너리로 시작하게 함
     
     # 1. 매크로 데이터 수집
     m_ndx = get_safe_macro('^IXIC', '나스닥')
