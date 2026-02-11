@@ -492,7 +492,6 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
                 '이격': int(row['Disparity']),
                 'BB40': f"{row['BB40_Width']:.1f}",
                 'MA수렴': f"{row['MA_Convergence']:.1f}",
-                '역매': f"{yeok_mae_count}/7",
                 '매집': f"{acc_count}/5",
                 '최고수익률%': f"{max_r:+.1f}%",
                 '최저수익률%': f"{min_r:+.1f}%",
