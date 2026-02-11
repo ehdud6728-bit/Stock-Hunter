@@ -184,6 +184,14 @@ def analyze_all_narratives(df, ticker_name, sector_name, g_status, l_sync):
     d_gong = get_days_ago(gong_series)
     d_pa   = get_days_ago(pa_series)
 
+    # --- [전술 2] 강창권 종베(눌림목) 로직 ---
+    # 엔벨로프 상단(20, 20%) 터치 여부
+    df['Env_Upper'] = df['MA20'] * 1.20
+    is_hot_stock = (df['High'].iloc[-20:-5] > df['Env_Upper'].iloc[-20:-5]).any()
+    # 20일선 지지 여부
+    is_on_20ma = df['MA20'].iloc[-1] * 0.98 <= row['Close'] <= df['MA20'].iloc[-1] * 1.05
+    is_jongbe = is_hot_stock and is_on_20ma and (row['Close'] > row['Open'])
+    
     # 이벤트 리스트 구성 및 시간순 정렬
     if d_yeok is not None: events.append((d_yeok, "역(逆)"))
     if d_mae is not None:  events.append((d_mae, "매(埋)"))
@@ -193,6 +201,7 @@ def analyze_all_narratives(df, ticker_name, sector_name, g_status, l_sync):
     # 며칠 전(숫자)이 큰 것부터(과거부터) 정렬
     events.sort(key=lambda x: x[0], reverse=True)
     report = " ➔ ".join([f"{'오늘' if d==0 else str(d)+'일전'} {name}" for d, name in events])
+    if is_jongbe: history += " | 🎖️종베타점"
     if not report: report = "서사 관찰 중"
 
     # [3] 확신 지수(Conviction) 및 점수 산출
@@ -202,7 +211,8 @@ def analyze_all_narratives(df, ticker_name, sector_name, g_status, l_sync):
     if d_mae is not None:  narrative_score += 20
     if d_gong == 0: narrative_score += 30  # 오늘 공구리 돌파 시 가점
     if d_pa == 0: narrative_score += 30    # 오늘 파동 시작 시 가점
-
+    if is_jongbe: n_score += 20 # 종베 신호 시 가점
+        
     # 글로벌 및 대장주 동기화 점수
     g_score = 25 if g_status.get(sector_name, 0) > 0 else 0
     l_score = 25 if l_sync.get(sector_name) == "🔥강세" else 0
