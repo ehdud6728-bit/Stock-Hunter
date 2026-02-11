@@ -1,7 +1,45 @@
 import pandas as pd
 import yfinance as yf
 from pykrx import stock
+import numpy as np
 
+def get_signal_sequence(df):
+    """
+    각 전술 신호(역, 매, 공, 파)가 며칠 전에 발생했는지 추적하여 
+    시간순(과거 -> 현재)으로 나열된 서사를 만듭니다.
+    """
+    import numpy as np
+    
+    # 1. 각 신호의 발생 인덱스 찾기
+    # df['is_yeok'] 등은 analyze_all_narratives 내부에서 계산된 컬럼이어야 함
+    yeok_idx = np.where(df['is_yeok'])[0]
+    mae_idx  = np.where(df['is_mae'])[0]
+    gong_idx = np.where(df['is_gong'])[0]
+    pa_idx   = np.where(df['is_pa'])[0]
+
+    last_idx = len(df) - 1
+    events = []
+
+    # 2. 발생 기록이 있다면 '오늘로부터 며칠 전'인지 계산해서 저장
+    if len(yeok_idx) > 0: events.append((last_idx - yeok_idx[-1], "역(逆)"))
+    if len(mae_idx)  > 0: events.append((last_idx - mae_idx[-1],  "매(埋)"))
+    if len(gong_idx) > 0: events.append((last_idx - gong_idx[-1], "공(空)"))
+    if len(pa_idx)   > 0: events.append((last_idx - pa_idx[-1],   "파(破)"))
+
+    # 3. 며칠 전(숫자)이 큰 것부터 작은 순서로 정렬 (즉, 먼 과거부터 오늘 순서)
+    events.sort(key=lambda x: x[0], reverse=True)
+
+    # 4. 문자열로 변환 (예: "20일전 역 ➔ 10일전 매 ➔ 오늘 공")
+    if not events:
+        return "진행 중인 서사 없음"
+        
+    narrative_parts = []
+    for days, name in events:
+        day_str = "오늘" if days == 0 else f"{days}일전"
+        narrative_parts.append(f"{day_str} {name}")
+    
+    return " ➔ ".join(narrative_parts)
+    
 def get_dynamic_sector_leaders():
     """아침마다 시총 기준 섹터별 대장주를 선정합니다."""
     print("📡 [Leader-Scanner] 오늘의 섹터별 대장주 선출 중...")
@@ -57,38 +95,76 @@ def get_global_and_leader_status():
     return global_status, leader_sync
 
 def analyze_all_narratives(df, ticker_name, sector_name, g_status, l_sync):
-    """개별 종목의 서사와 글로벌/대장주 동기화를 종합 분석합니다."""
-    row = df.iloc[-1]
-    prev = df.iloc[-2]
+    """
+    개별 종목의 서사 시퀀스와 글로벌/대장주 동기화를 종합 분석합니다.
+    """
+    if len(df) < 120: return "🛡️일반", "데이터 부족", 0, 0, 0
     
-    # [1] 기술적 서사 체크 (역매공파)
-    is_yeok = (df['MA5'].iloc[-20:] > df['MA20'].iloc[-20:]).any()
-    is_mae = df['MA_Convergence'].iloc[-10:].min() <= 3.0
-    is_gong = (row['Close'] > row['MA112']) and (prev['Close'] <= row['MA112'])
-    is_pa = (row['Close'] > row['BB40_Upper']) and (prev['Close'] <= row['BB40_Upper'])
+    # [1] 전체 데이터에서 각 신호의 발생 여부(Series) 계산
+    # 역(逆): 5일선이 20일선 위에 있는 상태 (최근 20일 내 발생 추적)
+    yeok_series = df['MA5'] > df['MA20']
+    
+    # 매(埋): 이평선들이 수렴(3% 이내)한 상태
+    mae_series = df['MA_Convergence'] <= 3.0
+    
+    # 공(空): 오늘 112일선을 종가로 뚫은 순간 (역사적 돌파일 추적)
+    gong_series = (df['Close'] > df['MA112']) & (df['Close'].shift(1) <= df['MA112'])
+    
+    # 파(破): 볼린저밴드 40 상단을 돌파한 순간
+    pa_series = (df['Close'] > df['BB40_Upper']) & (df['Close'].shift(1) <= df['BB40_Upper'])
 
-    # [2] 서사 요약 및 점수
+    # [2] 시퀀스 타임라인 추출 (며칠 전에 발생했는가?)
+    last_idx = len(df) - 1
+    events = []
+
+    def get_days_ago(series, window=30):
+        # 최근 window일 이내의 발생 지점 확인
+        subset = series.tail(window)
+        idx = np.where(subset)[0]
+        if len(idx) > 0:
+            # 전체 데이터에서의 실제 인덱스로 변환 후 '오늘'과의 거리 계산
+            actual_last_idx = (len(df) - len(subset)) + idx[-1]
+            return last_idx - actual_last_idx
+        return None
+
+    d_yeok = get_days_ago(yeok_series)
+    d_mae  = get_days_ago(mae_series)
+    d_gong = get_days_ago(gong_series)
+    d_pa   = get_days_ago(pa_series)
+
+    # 이벤트 리스트 구성 및 시간순 정렬
+    if d_yeok is not None: events.append((d_yeok, "역(逆)"))
+    if d_mae is not None:  events.append((d_mae, "매(埋)"))
+    if d_gong is not None: events.append((d_gong, "공(空)"))
+    if d_pa is not None:   events.append((d_pa, "파(破)"))
+
+    # 며칠 전(숫자)이 큰 것부터(과거부터) 정렬
+    events.sort(key=lambda x: x[0], reverse=True)
+    report = " ➔ ".join([f"{'오늘' if d==0 else str(d)+'일전'} {name}" for d, name in events])
+    if not report: report = "서사 관찰 중"
+
+    # [3] 확신 지수(Conviction) 및 점수 산출
+    # 기술적 서사 점수 (오늘 시점 기준 가중치)
     narrative_score = 0
-    history = []
-    if is_yeok: narrative_score += 20; history.append("바닥확인")
-    if is_mae: narrative_score += 20; history.append("에너지응축")
-    if is_gong: narrative_score += 30; history.append("공구리돌파")
-    if is_pa: narrative_score += 30; history.append("파동시작")
+    if d_yeok is not None: narrative_score += 20
+    if d_mae is not None:  narrative_score += 20
+    if d_gong == 0: narrative_score += 30  # 오늘 공구리 돌파 시 가점
+    if d_pa == 0: narrative_score += 30    # 오늘 파동 시작 시 가점
 
-    # [3] 확신 지수(Conviction) 산출
-    # $$Conviction = (Narrative \times 0.5) + (Global \times 0.25) + (Leader \times 0.25)$$
+    # 글로벌 및 대장주 동기화 점수
     g_score = 25 if g_status.get(sector_name, 0) > 0 else 0
     l_score = 25 if l_sync.get(sector_name) == "🔥강세" else 0
+    
+    # $$Conviction = Narrative + Global + Leader$$
     total_conviction = narrative_score + g_score + l_score
 
-    # [4] 정밀 타점
+    # [4] 정밀 타점 및 등급 부여
+    row = df.iloc[-1]
     target = round(row['MA112'] * 1.005, 0)
     stop_loss = round(row['MA112'] * 0.98, 0)
     
-    # 등급 부여
     if total_conviction >= 90: grade = "👑LEGEND"
     elif total_conviction >= 70: grade = "⚔️정예"
     else: grade = "🛡️일반"
 
-    report = " ➔ ".join(history)
     return grade, report, target, stop_loss, total_conviction
