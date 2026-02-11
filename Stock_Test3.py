@@ -500,6 +500,7 @@ def analyze_final(ticker, name, historical_indices, g_status, l_sync, sector_mas
                 '🚨손절가': int(stop),         # 👈 서사 기반 손절가
                 '기상': "☀️" * (2-storm_count) + "🌪️" * storm_count,
                 '안전점수': int(max(0, s_score + whale_score)),
+                '섹터': sector,
                 '종목': name,
                 '매입가': int(close_p),
                 '현재가': int(current_price),
@@ -598,9 +599,6 @@ if __name__ == "__main__":
                     # hit['종목코드']가 있다고 가정, 없으면 ticker를 찾아야 함
                     name = hit['종목']
                     ticker_code = hit.get('코드')
-                    tier, mkt_cap = assign_tier(ticker_code, name, commander_cap_map)
-                    hit['체급'] = tier
-                    hit['시가총액'] = mkt_cap
                     all_hits.append(hit)
 
     if all_hits:
