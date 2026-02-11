@@ -90,59 +90,64 @@ def get_global_and_leader_status():
 
     # 2. 국장 대장주 (pykrx) - 예시: 하이닉스(반도체), 셀트리온(바이오), LG엔솔(2차전지)
     # --- [B] 국내 섹터별 동적 대장주 추출 및 상태 (pykrx + fdr) ---
-    now_str = datetime.now().strftime("%Y%m%d")
-    df_krx = fdr.StockListing('KRX')
-
-    # 💡 핵심 수정: fdr은 'Symbol'이 아니라 'Code'를 사용합니다.
-    # 이를 'Symbol'로 이름을 바꿔주면 뒤쪽 코드와 호환됩니다.
-    if 'Code' in df_krx.columns:
-        df_krx = df_krx.rename(columns={'Code': 'Symbol'})
-
-    # 2. 섹터(업종) 컬럼 표준화 (Sector / Industry / 업종 대응)
-    # 어떤 이름으로 들어오든 'Sector'로 통일합니다.
-    possible_sector_names = ['Sector', 'Industry', '업종']
-    found_sector_col = None
-    for col in possible_sector_names:
-        if col in df_krx.columns:
-            found_sector_col = col
-            break
+    try:
+        now_str = datetime.now().strftime("%Y%m%d")
+        df_krx = fdr.StockListing('KRX')
     
-    if found_sector_col:
-        df_krx = df_krx.rename(columns={found_sector_col: 'Sector'})
-    else:
-        # 섹터 정보가 아예 없는 경우 (비상상황)
-        # 빈 값이라도 채워서 에러를 방지합니다.
-        df_krx['Sector'] = '기타'
+        # 💡 핵심 수정: fdr은 'Symbol'이 아니라 'Code'를 사용합니다.
+        # 이를 'Symbol'로 이름을 바꿔주면 뒤쪽 코드와 호환됩니다.
+        if 'Code' in df_krx.columns:
+            df_krx = df_krx.rename(columns={'Code': 'Symbol'})
+    
+        # 2. 섹터(업종) 컬럼 표준화 (Sector / Industry / 업종 대응)
+        # 어떤 이름으로 들어오든 'Sector'로 통일합니다.
+        possible_sector_names = ['Sector', 'Industry', '업종']
+        found_sector_col = None
+        for col in possible_sector_names:
+            if col in df_krx.columns:
+                found_sector_col = col
+                break
         
-    df_cap = stock.get_market_cap(now_str, market="ALL")[['시가총액']]
+        if found_sector_col:
+            df_krx = df_krx.rename(columns={found_sector_col: 'Sector'})
+        else:
+            # 섹터 정보가 아예 없는 경우 (비상상황)
+            # 빈 값이라도 채워서 에러를 방지합니다.
+            df_krx['Sector'] = '기타'
+            
+        df_cap = stock.get_market_cap(now_str, market="ALL")[['시가총액']]
+        
+        # 섹터 정보와 시가총액 결합
+        df_master = df_krx.set_index('Symbol').join(df_cap).dropna(subset=['Sector'])
     
-    # 섹터 정보와 시가총액 결합
-    df_master = df_krx.set_index('Symbol').join(df_cap).dropna(subset=['Sector'])
-
-    # 'Sector' 컬럼이 존재하는지 최종 확인 후 dropna 수행
-    if 'Sector' in df_master.columns:
-        df_master = df_master.dropna(subset=['Sector'])
-    else:
-        # 여기까지 왔는데 Sector가 없다면 병합 과정에서 유실된 것
-        df_master['Sector'] = '기타'
-    
-    # 섹터별 시총 1위(대장주) 추출
-    sector_leader_map = df_master.groupby('Sector')['시가총액'].idxmax().to_dict()
-    
-    leader_status = {}
-    # 주요 섹터 대장주들의 컨디션(5일선 위/아래) 체크
-    target_sectors = ['반도체', '제약', '소프트웨어', '전기제품', '화학'] # 국장 주요 섹터명
-    
-    for sect in target_sectors:
-        ticker = sector_leader_map.get(sect)
-        if ticker:
-            try:
-                # 대장주 시세 10일치 확인
-                df_l = fdr.DataReader(ticker, start=(datetime.now() - timedelta(days=15)).strftime('%Y-%m-%d'))
-                curr = df_l['Close'].iloc[-1]
-                ma5 = df_l['Close'].rolling(5).mean().iloc[-1]
-                leader_status[sect] = "🔥강세" if curr > ma5 else "❄️침체"
-            except: leader_status[sect] = "Normal"
+        # 'Sector' 컬럼이 존재하는지 최종 확인 후 dropna 수행
+        if 'Sector' in df_master.columns:
+            df_master = df_master.dropna(subset=['Sector'])
+        else:
+            # 여기까지 왔는데 Sector가 없다면 병합 과정에서 유실된 것
+            df_master['Sector'] = '기타'
+        
+        # 섹터별 시총 1위(대장주) 추출
+        sector_leader_map = df_master.groupby('Sector')['시가총액'].idxmax().to_dict()
+        
+        leader_status = {}
+        # 주요 섹터 대장주들의 컨디션(5일선 위/아래) 체크
+        target_sectors = ['반도체', '제약', '소프트웨어', '전기제품', '화학'] # 국장 주요 섹터명
+        
+        for sect in target_sectors:
+            ticker = sector_leader_map.get(sect)
+            if ticker:
+                try:
+                    # 대장주 시세 10일치 확인
+                    df_l = fdr.DataReader(ticker, start=(datetime.now() - timedelta(days=15)).strftime('%Y-%m-%d'))
+                    curr = df_l['Close'].iloc[-1]
+                    ma5 = df_l['Close'].rolling(5).mean().iloc[-1]
+                    leader_status[sect] = "🔥강세" if curr > ma5 else "❄️침체"
+                except: leader_status[sect] = "Normal"
+    except Exception as e:
+        # 💡 여기가 핵심! KRX 서버가 죽어있으면 에러를 뱉지 않고 '빈 장부'를 넘겨줍니다.
+        print(f"⚠️ [비상] KRX 서버 통신 실패(장애). 대장주 분석을 생략하고 진행합니다.")
+        leader_status = {} # 빈 값으로 리턴하여 메인 루프를 살립니다.
         
     return global_status, leader_status
 
