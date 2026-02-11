@@ -2,6 +2,8 @@ import pandas as pd
 import yfinance as yf
 from pykrx import stock
 import numpy as np
+import FinanceDataReader as fdr
+from datetime import datetime, timedelta
 
 def get_signal_sequence(df):
     """
