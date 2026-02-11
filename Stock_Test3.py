@@ -617,8 +617,17 @@ if __name__ == "__main__":
         sector_master_map = df_krx.set_index('Symbol')['Sector'].to_dict()
     except Exception as e:
         # KRX 서버가 죽었을 때 프로그램이 멈추지 않게 방어
-        print(f"🚨 [본진 경보] KRX 서버 통신 실패로 지도를 생성할 수 없습니다: {e}")
-        sector_master_map = {}
+        print("\n" + "="*50)
+        print(f"🚨 [본진 경보] KRX 서버 통신 실패!")
+        print(f"❌ 단순 에러 요약: {e}")
+        print("-" * 50)
+        print("🔍 [사령부 정밀 진단 데이터]")
+        # 💡 이 녀석이 에러의 발생 경로(Traceback)를 전체 문자열로 가져옵니다.
+        error_details = traceback.format_exc() 
+        print(error_details)
+        print("="*50 + "\n")
+        
+        sector_master_map = {} # 지도는 못 만들었지만 일단 전진
     
     # 2. 글로벌/대장주 상태 스캔
     g_status, l_sync = get_global_and_leader_status()
