@@ -665,7 +665,7 @@ if __name__ == "__main__":
         print("=" * 120)
 
         if not today.empty:
-            display_cols = ['👑등급', '📜서사히스토리','확신점수', '🎯목표타점', '🚨손절가', '종목', '안전점수', '매입가', '현재가', '꼬리%', '매집', 'BB40', 'MA수렴', '구분']
+            display_cols = [c for c in desired_cols if c in today.columns]
             print(today[display_cols].head(50))
             
             # 💡 패턴별 집계 (참고용)
