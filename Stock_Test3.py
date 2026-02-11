@@ -323,7 +323,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         l_score = 25 if current_leader_condition == "🔥강세" else 0
     
         # 🕵️ 신규 추가: 서사 분석기 호출
-        print(f"✅ [본진] 서사 분석기 호출")
+        print(f"✅ [본진] 서사 분석기 호출 : {name}")
         sector = get_stock_sector(ticker, sector_master_map) # 섹터 판독 함수 필요
         grade, narrative, target, stop, conviction = analyze_all_narratives(
             df, name, my_sector, g_env, l_env
@@ -541,12 +541,13 @@ if __name__ == "__main__":
 
     # 2. 전 종목 리스트 로드 및 명찰 강제 통일
     try:
+        target_stocks = df_krx.sort_values(by='Amount', ascending=False).head(TOP_N)
         df_krx = fdr.StockListing('KRX')
         
         # 💡 [핵심] 첫 번째 열은 'Code', 두 번째 열은 'Name'으로 강제 개명
         # KRX 데이터 구조상 보통 0번이 코드, 1번이 종목명입니다.
-        df_krx.columns.values[0] = 'Code'
-        df_krx.columns.values[1] = 'Name'
+        df_krx.columns.values[0] = target_stocks['Code']
+        df_krx.columns.values[1] = target_stocks['Name']
         
         # 섹터 컬럼도 있으면 'Sector'로 통일
         s_col = next((c for c in ['Sector', 'Industry', '업종'] if c in df_krx.columns), None)
@@ -577,8 +578,7 @@ if __name__ == "__main__":
     print(f"🇺🇸 {m_ndx['text']} | {m_sp5['text']} | ⚠️ {m_vix['text']}")
     print(f"💵 {m_fx['text']} | 🇰🇷 KOSPI 수급: {kospi_supply}")
     print("=" * 115)
-        
-    target_stocks = df_krx.sort_values(by='Amount', ascending=False).head(TOP_N)
+    
     weather_data = prepare_historical_weather()
     
     # 2. 글로벌/대장주 상태 스캔
