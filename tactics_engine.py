@@ -1,10 +1,10 @@
 import pandas as pd
-import yfinance as yf
-from pykrx import stock
 import numpy as np
+import yfinance as yf
 import FinanceDataReader as fdr
+from pykrx import stock
 from datetime import datetime, timedelta
-
+import traceback
 
 def get_signal_sequence(df):
     """
@@ -76,7 +76,54 @@ def get_dynamic_sector_leaders():
         
     return sector_leader_map, leader_status_map
     
+# =================================================
+# 📡 [1. 글로벌 & 대장주 상황 브리핑]
+# =================================================
 def get_global_and_leader_status():
+    print("🌍 [Global-Scanner] 글로벌 및 국내 섹터 상태 점검 중...")
+    global_status = {}
+    leader_status = {}
+    
+    # [A] 나스닥 섹터 (ETF 기반)
+    us_sectors = {'SOXX': '반도체', 'XLK': '빅테크', 'XBI': '바이오', 'LIT': '2차전지', 'XLE': '에너지'}
+    for ticker, name in us_sectors.items():
+        try:
+            df_us = yf.Ticker(ticker).history(period="5d")
+            if len(df_us) >= 2:
+                chg = ((df_us['Close'].iloc[-1] - df_us['Close'].iloc[-2]) / df_us['Close'].iloc[-2]) * 100
+                global_status[name] = round(chg, 2)
+        except: global_status[name] = 0.0
+
+    # [B] 국내 섹터 대장주 (시총 1위) 스캔
+    try:
+        df_krx = fdr.StockListing('KRX')
+        # 무적의 컬럼 매핑: 이름이 뭐든 0번은 'Symbol', 나머지는 검색
+        c_name = next((c for c in ['Code', 'Symbol'] if c in df_krx.columns), df_krx.columns[0])
+        s_name = next((c for c in ['Sector', 'Industry', '업종'] if c in df_krx.columns), None)
+        
+        df_krx = df_krx.rename(columns={c_name: 'Symbol'})
+        if s_name: df_krx = df_krx.rename(columns={s_name: 'Sector'})
+        
+        now_str = datetime.now().strftime("%Y%m%d")
+        df_cap = stock.get_market_cap(now_str, market="ALL")[['시가총액']]
+        df_master = df_krx.set_index('Symbol').join(df_cap).dropna(subset=['Sector'])
+        
+        # 섹터별 대장주 추출
+        target_sects = ['반도체', '제약', '소프트웨어', '전기제품', '화학']
+        sector_leader_map = df_master.groupby('Sector')['시가총액'].idxmax().to_dict()
+        
+        for sect in target_sects:
+            ticker = sector_leader_map.get(sect)
+            if ticker:
+                df_l = fdr.DataReader(ticker, start=(datetime.now() - timedelta(days=15)).strftime('%Y-%m-%d'))
+                curr, ma5 = df_l['Close'].iloc[-1], df_l['Close'].rolling(5).mean().iloc[-1]
+                leader_status[sect] = "🔥강세" if curr > ma5 else "❄️침체"
+    except Exception as e:
+        print(f"⚠️ [Leader-Scanner] 국내 대장주 스캔 실패: {e}")
+
+    return global_status, leader_status
+
+def get_global_and_leader_status_back():
     """나스닥 섹터와 국장 대장주 상태를 아침마다 스캔합니다."""
     # 1. 나스닥 섹터 (yfinance)
     sectors = {'SOXX': '반도체', 'XLK': '빅테크', 'XBI': '바이오', 'LIT': '2차전지'}
@@ -151,7 +198,63 @@ def get_global_and_leader_status():
         
     return global_status, leader_status
 
-def analyze_all_narratives(df, ticker_name, sector_name, g_status, l_sync):
+# =================================================
+# 🧬 [2. 통합 서사 및 확신 점수 계산]
+# =================================================
+def analyze_all_narratives(df, ticker_name, sector_name, g_env, l_env):
+    if len(df) < 120: return "🛡️일반", "데이터부족", 0, 0, 0
+    
+    last_idx = len(df) - 1
+    row = df.iloc[-1]
+    
+    # [1] 역매공파 시퀀스 (바닥 돌파형)
+    def get_days_ago(condition_series):
+        idx = np.where(condition_series)[0]
+        return (last_idx - idx[-1]) if len(idx) > 0 else None
+
+    d_yeok = get_days_ago(df['MA5'] > df['MA20'])
+    d_mae  = get_days_ago(df['MA_Convergence'] <= 3.0)
+    d_gong = get_days_ago((df['Close'] > df['MA112']) & (df['Close'].shift(1) <= df['MA112']))
+    d_pa   = get_days_ago((df['Close'] > df['BB40_Upper']) & (df['Close'].shift(1) <= df['BB40_Upper']))
+
+    # [2] 강창권 종베 로직 (눌림목 타격형)
+    df['Env_Upper'] = df['MA20'] * 1.20
+    is_hot = (df['High'].iloc[-20:-5] > df['Env_Upper'].iloc[-20:-5]).any()
+    is_on_20ma = df['MA20'].iloc[-1] * 0.98 <= row['Close'] <= df['MA20'].iloc[-1] * 1.05
+    is_jongbe = is_hot and is_on_20ma and (row['Close'] > row['Open'])
+
+    # [3] 확신 점수 공식 (Conviction Score)
+    # n_score (기술적 서사: 60점 만점)
+    n_score = (20 if d_yeok is not None else 0) + (20 if d_mae is not None else 0)
+    if d_gong == 0: n_score += 30
+    if d_pa == 0: n_score += 30
+    if is_jongbe: n_score += 20
+    
+    # 외부 버프 (40점 만점)
+    us_map = {'제약': '바이오', '반도체': '반도체', '전기제품': '2차전지'}
+    g_score = 20 if g_env.get(us_map.get(sector_name, ""), 0) > 1.0 else 0
+    l_score = 20 if l_env.get(sector_name) == "🔥강세" else 0
+    
+    total_conviction = min(100, n_score + g_score + l_score)
+
+    # [4] 리포트 작성
+    events = []
+    if d_yeok is not None: events.append((d_yeok, "역"))
+    if d_mae is not None:  events.append((d_mae, "매"))
+    if d_gong is not None: events.append((d_gong, "공"))
+    if d_pa is not None:   events.append((d_pa, "파"))
+    events.sort(key=lambda x: x[0], reverse=True)
+    
+    narrative = " ➔ ".join([f"{'오늘' if d==0 else str(d)+'일전'}{n}" for d, n in events])
+    if is_jongbe: narrative += " | 🎖️종베타점"
+
+    grade = "👑LEGEND" if total_conviction >= 90 else "⚔️정예" if total_conviction >= 75 else "🛡️일반"
+    target = round(row['Close'] * 1.1, 0) if is_jongbe else round(row['MA112'] * 1.005, 0)
+    stop = round(df['MA20'].iloc[-1] * 0.97, 0) if is_jongbe else round(row['MA112'] * 0.98, 0)
+
+    return grade, narrative, target, stop, total_conviction
+    
+def analyze_all_narratives_back(df, ticker_name, sector_name, g_status, l_sync):
     """
     개별 종목의 서사 시퀀스와 글로벌/대장주 동기화를 종합 분석합니다.
     """
