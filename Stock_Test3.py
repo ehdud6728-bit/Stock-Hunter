@@ -317,7 +317,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         my_sector = s_map.get(ticker, "일반")
     
         # 2. 우리 섹터 대장주의 상태 확인 (leader_status 맵 활용)
-        current_leader_condition = leader_status.get(my_sector, "Normal")
+        current_leader_condition = l_env.get(my_sector, "Normal")
     
         # 3. 확신 점수에 반영
         l_score = 25 if current_leader_condition == "🔥강세" else 0
