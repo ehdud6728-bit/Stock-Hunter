@@ -610,7 +610,7 @@ if __name__ == "__main__":
         stats_df, top_recommendations = calculate_strategy_stats(all_hits)
 
         # 4. 결과 분류
-        today = df_total[df_total['보유일'] == 0].sort_values(by='안전점수', ascending=False)
+        today = df_total[df_total['보유일'] == 0].sort_values(by='확신점수', ascending=False)
 
         # 5. 구글 시트 전송
         try:
