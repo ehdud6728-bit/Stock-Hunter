@@ -611,7 +611,10 @@ if __name__ == "__main__":
 
         # 4. 결과 분류
         today = df_total[df_total['보유일'] == 0].sort_values(by='확신점수', ascending=False)
+        display_cols = [c for c in desired_cols if c in today.columns]
 
+        if not today.empty:
+            print(today[display_cols].head(50))
         # 5. 구글 시트 전송
         try:
             update_commander_dashboard(
@@ -619,8 +622,8 @@ if __name__ == "__main__":
                 macro_status, 
                 "사령부_통합_상황판", 
                 stats_df if not stats_df.empty else None,
-                today.head(50),  # 오늘의_추천종목 탭: 오늘만 (모든 패턴 통합)
-                ai_recommendation=dna_results if not dna_results.empty else None
+                today[display_cols].head(50),  # 오늘의_추천종목 탭: 오늘만 (모든 패턴 통합)
+                None
             )
             print("\n✅ 구글 시트 업데이트 성공!")
             print("   📋 메인 시트")
