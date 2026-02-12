@@ -619,7 +619,7 @@ if __name__ == "__main__":
                 macro_status, 
                 "사령부_통합_상황판", 
                 stats_df if not stats_df.empty else None,
-                today,  # 오늘의_추천종목 탭: 오늘만 (모든 패턴 통합)
+                today.head(50),  # 오늘의_추천종목 탭: 오늘만 (모든 패턴 통합)
                 ai_recommendation=dna_results if not dna_results.empty else None
             )
             print("\n✅ 구글 시트 업데이트 성공!")
