@@ -32,7 +32,7 @@ warnings.filterwarnings('ignore')
 # =================================================
 DNA_CHECK = False
 SCAN_DAYS = 10        # 최근 30일 내 타점 전수 조사
-TOP_N = 2500         # 거래대금 상위 종목 수 (필요시 2500으로 확장 가능)
+TOP_N = 250         # 거래대금 상위 종목 수 (필요시 2500으로 확장 가능)
 KST = pytz.timezone('Asia/Seoul')
 NOW = datetime.now(KST)
 TODAY_STR = NOW.strftime('%Y-%m-%d')
@@ -641,7 +641,7 @@ if __name__ == "__main__":
         # 5. 구글 시트 전송
         try:
             update_commander_dashboard(
-                df_total,
+                df_total[display_cols],
                 macro_status, 
                 "사령부_통합_상황판", 
                 stats_df if not stats_df.empty else None,
