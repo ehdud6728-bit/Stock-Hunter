@@ -74,7 +74,9 @@ def update_commander_dashboard(df_main, macro_data, sheet_name, stats_df=None,
                 ]
                 m_sheet.update('A1', macro_list)
                 # 데이터 전송
-                legend_list = df_main[df_main['👑등급'] == "👑LEGEND"].copy()
+                legend_list = df_main[
+    df_main['👑등급'].isin(["👑LEGEND", "👑MASTER"])
+].copy()
                 set_with_dataframe(m_sheet, legend_list, row=6, col=1, include_index=False)
                 print("✅ [실시간_전수_관제판] 저장 완료")
             except Exception as e: print(f"❌ 탭 3 에러: {e}")
