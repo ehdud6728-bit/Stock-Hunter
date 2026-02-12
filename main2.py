@@ -346,7 +346,7 @@ def get_hot_themes():
 def get_market_briefing():
     try:
         theme_info = get_hot_themes()
-        prompt = f"당신은 전세계 최고의 퀀트 분석가 및 월가 최고 수준의 리서치 애널리스트 입니다. 오늘 장 준비 전 코스피/나스닥 흐름과 {theme_info} 테마를 바탕으로 개장전/마감 전략 3줄 요약해줘(반말)."
+        prompt = f"당신은 전세계 최고의 퀀트 분석가 및 월가 최고 수준의 리서치 애널리스트 입니다. 미 증시 주도섹터를 파악해서 한국 증시 어떤 테마에 영향이 있을지 어떤 종목들이 있을지 파악해주고 오늘 장 준비 전 코스피/나스닥 흐름과 {theme_info} 테마를 바탕으로 개장전/마감 전략 3줄 요약해줘(반말)."
         client = OpenAI(api_key=OPENAI_API_KEY)
         res = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role":"user", "content":prompt}])
         return f"🌇 [시황 브리핑]\n{res.choices[0].message.content.strip()}"
