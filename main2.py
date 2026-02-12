@@ -804,6 +804,7 @@ if all_hits:
     
     # 2. [정예 선발] 상위 30개 추출 (AI 심층 분석 대상)
     #ai_candidates = all_hits_sorted[:30]
+    all_hits = pd.DataFrame(all_hits)
     ai_candidates = all_hits[(all_hits['👑등급'].isin(["👑LEGEND"])) | (all_hits['📜서사히스토리'].str.contains("🎖️종베타점"))].sort_values(by='안전점수', ascending=False).copy()
     # 3. [AI 분석] 상위 30개 종목에만 AI 지능 주입
     print(f"🧠 상위 30개 종목 AI 심층 분석 중... (나머지는 데이터만 기록)")
