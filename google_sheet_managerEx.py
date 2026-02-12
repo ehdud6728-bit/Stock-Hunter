@@ -62,7 +62,7 @@ def update_commander_dashboard(df_main, macro_data, sheet_name, stats_df=None,
         if df_main is not None and not df_main.empty:
             try:
                 try: m_sheet = doc.worksheet("실시간_전수_관제판")
-                except: m_sheet = doc.get_worksheet(0); m_sheet.update_title("실시간_전수_관제판")
+                except: m_sheet = doc.add_worksheet(title="실시간_전수_관제판", rows="200", cols="15") m_sheet.update_title("실시간_전수_관제판")
                 m_sheet.clear()
                 
                 # 상단 매크로 정보
