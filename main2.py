@@ -404,6 +404,12 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         # 글로벌 weather_data
         df = df.join(historical_indices, how='left').fillna(method='ffill')
 
+        # 1. 내 종목의 섹터 확인
+        my_sector = s_map.get(ticker, "일반")
+    
+        # 2. 우리 섹터 대장주의 상태 확인 (leader_status 맵 활용)
+        current_leader_condition = l_env.get(my_sector, "Normal")
+     
         # 🕵️ 신규 추가: 서사 분석기 호출
         #print(f"✅ [본진] 서사 분석기 호출 : {name}")
         #sector = get_stock_sector(ticker, sector_master_map) # 섹터 판독 함수 필요
