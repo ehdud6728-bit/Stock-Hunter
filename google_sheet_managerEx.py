@@ -38,7 +38,7 @@ def update_commander_dashboard(df_main, macro_data, sheet_name, stats_df=None,
                 t_sheet.clear()
                 
 																		# '👑등급' 컬럼에서 '👑LEGEND'인 행만 추출합니다.
-                legend_today = today_only_df[today_only_df['👑등급'] == "👑LEGEND"].copy()
+                legend_today = today_only_df[today_df['👑등급'] == "👑LEGEND"].copy()
                 #
                 # 헤더 정보
                 t_sheet.update('A1', [[f"🎯 {today_str} 레이더 포착 종목 (안전점수 순)"]])
