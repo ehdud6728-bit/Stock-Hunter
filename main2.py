@@ -810,7 +810,7 @@ if __name__ == "__main__":
         
 if all_hits:
     # 1. [정렬] 전체 검색 결과 점수순 정렬
-    #all_hits_sorted = sorted(all_hits, key=lambda x: x['점수'], reverse=True)
+    all_hits_sorted = sorted(all_hits, key=lambda x: x['👑등급'], reverse=True)
     
     # 2. [정예 선발] 상위 30개 추출 (AI 심층 분석 대상)
     #ai_candidates = all_hits_sorted[:30]
