@@ -371,7 +371,7 @@ def run_ai_tournament(candidate_list):
         "당신은 대한민국 '역매공파(역배열바닥, 매집, 공구리돌파, 파동시작)' 매매법의 권위자이자 퀀트 분석가입니다. 절대 돈을 잃으면 안되는 상황이야."
         "제공된 기술적 데이터를 분석하여"
         "역배열 바닥 매집형(세력 매집봉 또는 몰래 매집하고 있는지 확인필요) 급등 패턴인지 엄격하게 심사하십시오."
-        "단타 종목 1위와 스윙 종목 1위를 선정하고 월가에서 사용될 리포트 브리핑을 간략하게 알려줘 "
+        "단타 종목 1위와 스윙 종목 1위를 선정하고 기술적으로 분석해서 타점까지 포함해서 월가에서 사용될 리포트 브리핑을 간략하게 알려줘 "
     )
     # GPT 심사
     client = OpenAI(api_key=OPENAI_API_KEY)
@@ -387,7 +387,7 @@ def run_ai_tournament(candidate_list):
 def get_ai_summary(ticker, name, tags):
     try:
         client = OpenAI(api_key=OPENAI_API_KEY)
-        res = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role":"user", "content":f"{name}({ticker}) 세계 최고 주식 트레이더 입장에서 매매의견은 추천/비추천으로 해주고 단타/스윙/중장기 어떻게 대응하면 되는지 알려주고 종목의 최근 핵심 테마와 특징(2026년 현재 오늘 기준)을 한줄로 요약해(반말) "}])
+        res = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role":"user", "content":f"{name}({ticker}) 세계 최고 주식 트레이더 입장에서 매매의견은 추천/비추천으로 해주고 단타/스윙/중장기 어떻게 대응하면 되는지 알려주고 종목의 최근 핵심 테마와 특징(2026년 현재 오늘 기준), 진입타점까지 한줄로 요약해(반말) "}])
         return res.choices[0].message.content.strip()
     except: return "분석 불가"
 
