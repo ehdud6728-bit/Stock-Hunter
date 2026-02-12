@@ -832,16 +832,16 @@ if all_hits:
     MAX_CHAR = 3800
     current_msg = f"{briefing}\n\n📢 [오늘의 실시간 TOP 15]\n\n"
     
-    for item in telegram_targets:
-        entry = (f"⭐{item['점수']}점 [{item['종목명']}]\n"
-                f"- {item['구분']}\n"
-                f"- {item['📜서사히스토리']}\n"
-                f"- 재무: {item['재무']} | 수급: {item['수급']}\n"
-                f"- 역매: {item['역매']} | 매집: {item['매집']}\n"
-                f"- OBV기울기: {item['OBV기울기']} | RSI: {item['RSI']}\n"
-                f"- 이격: {item['이격']}\n"
-                f"💡 {item.get('ai_tip', '분석전')}\n"
-                f"----------------------------\n")
+    for _, item in telegram_targets.iterrows():
+        entry = (f"⭐{item['안전점수']}점 [{item['종목명']}]\n"
+                 f"- {item['구분']}\n"
+                 f"- {item['📜서사히스토리']}\n"
+                 f"- 재무: {item['재무']} | 수급: {item['수급']}\n"
+                 f"- 역매: {item['역매']} | 매집: {item['매집']}\n"
+                 f"- OBV기울기: {item['OBV기울기']} | RSI: {item['RSI']}\n"
+                 f"- 이격: {item['이격']}\n"
+                 f"💡 {item.get('ai_tip', '분석전')}\n"
+                 f"----------------------------\n")
      
         if len(current_msg) + len(entry) > MAX_CHAR:
             send_telegram_photo(current_msg, imgs if imgs else [])
