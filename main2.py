@@ -781,7 +781,7 @@ if __name__ == "__main__":
     with ThreadPoolExecutor(max_workers=15) as executor:
         results = list(executor.map(
             lambda p: analyze_final(p[0], p[1], weather_data, global_env, leader_env, sector_master_map), 
-            zip(target_stocks['Code'], target_stocks['Name'])
+            zip(target_dict['Code'], target_dict['Name'])
         ))
         for r in results:
             if r:
