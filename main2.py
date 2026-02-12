@@ -515,25 +515,25 @@ def analyze_final(ticker, name, historical_indices):
             
         # 기존 시그널들
         if is_diamond:
-            s_score += 100
+            s_score += 30
             tags.append("💎다이아몬드")
             if t_pct < 10:
-                s_score += 50
+                s_score += 30
                 tags.append("🔥폭발직전")
         elif is_cloud_brk:
-            s_score += 40
+            s_score += 30
             tags.append("☁️구름돌파")
 
         if is_yeok_mae_old: 
-            s_score += 40
+            s_score += 30
             tags.append("🏆역매공파")
                 
         if is_super_squeeze: 
-            s_score += 40
+            s_score += 20
             tags.append("🔋초강력응축")
                 
         if is_vol_power: 
-            s_score += 30
+            s_score += 20
             tags.append("⚡거래폭발")
           
         # 💡 매집 시그널 체크
@@ -541,10 +541,10 @@ def analyze_final(ticker, name, historical_indices):
                        acc_4_rsi_healthy, acc_5_sto_golden])
             
         if acc_count >= 4:
-            s_score += 60
+            s_score += 30
             tags.append("🐋세력매집")
         elif acc_count >= 3:
-            s_score += 30
+            s_score += 20
             tags.append("🐋매집징후")
                 
         if acc_1_obv_rising:
@@ -566,7 +566,7 @@ def analyze_final(ticker, name, historical_indices):
 
         # 💡 [신규] 조용한 매집 (최고 점수!)
         if is_silent_accumulation:
-            s_score += 80
+            s_score += 30
             tags.append("🤫조용한매집💰")
 
         # 세부 조건 태그
@@ -636,81 +636,6 @@ def analyze_final(ticker, name, historical_indices):
         print(f"🚨 {name} 분석 중 치명적 에러:\n{traceback.format_exc()}")
         return []
      
-def analyze_final_back(ticker, name):
-    # 💡 모든 변수를 함수 시작 시점에 안전하게 초기화합니다.
-    s_score = 0
-    f_score = 0
-    whale_score = 0
-    tags = []
-    weather_icons = []
-    storm_count = 0
-    
-    try:
-        df = fdr.DataReader(ticker, start=(datetime.now()-timedelta(days=250)))
-        if len(df) < 100: return []
-        
-        df = get_indicators(df)
-        
-        # 글로벌 weather_data 결합 (Main에서 정의된 weather_data 사용)
-        global weather_data
-        df = df.join(weather_data, how='left').fillna(method='ffill')
-        
-        row = df.iloc[-1]
-        prev = df.iloc[-2]
-        curr_idx = df.index[-1]
-        
-        # 💡 리턴값 5개를 정확히 받아냅니다.
-        s_tag, total_m, w_streak, whale_score, twin_b = get_supply_and_money(ticker, row['Close'])
-        f_tag, f_score = get_financial_health(ticker)
-        
-        # --- 지표 판정 ---
-        is_sto_gc = prev['Sto_D'] <= prev['Sto_SD'] and row['Sto_D'] > row['Sto_SD']
-        is_vma_gc = prev['VMA5'] <= prev['VMA20'] and row['VMA5'] > row['VMA20']
-        is_bb_brk = prev['Close'] <= prev['BB_Upper'] and row['Close'] > row['BB_Upper']
-        is_bb40_brk = prev.get('BB40_Upper', 0) <= prev['Close'] # 예시
-        
-        # 멜론/노바 판정
-        is_melon = twin_b and row['OBV_Slope'] > 0 and row.get('ADX', 0) > 20 and row['MACD_Hist'] > 0
-        is_nova = is_sto_gc and is_vma_gc and is_bb_brk and is_melon
-        
-        # --- 날씨 판정 ---
-        for m_key in ['ixic', 'sp500']:
-            if row.get(f'{m_key}_close', 0) > row.get(f'{m_key}_ma5', 0): weather_icons.append("☀️")
-            else: weather_icons.append("🌪️"); storm_count += 1
-            
-        # --- 최종 점수 산산 (s_score로 통일) ---
-        s_score = int(90 + (30 if is_nova else 15 if is_melon else 0))
-        #s_score += (whale_score + f_score) 점수가 너무 높게 나와서 재무와 수급점수는 제외
-        s_score -= (storm_count * 10)
-        
-        # 태그 생성
-        tags = [t for t, c in zip(["🚀슈퍼타점","🍉수박","Sto-GC","VMA-GC","BB-Break","🏆LEGEND" ], 
-                                  [is_nova, is_melon, is_sto_gc, is_vma_gc, is_bb_brk, (98 <= row['Disparity'] <= 104)]) if c]
-        
-        if not tags: return []
-
-        # 💡 NameError 방지: print문에서 s_score 사용
-        print(f"✅ {name} 포착! 점수: {s_score} 태그: {tags}")
-        
-        return [{
-            '날짜': curr_idx.strftime('%Y-%m-%d'),
-            '기상': "".join(weather_icons),
-            '안전': int(max(0, s_score)),
-            '점수': int(s_score), # 구글 시트 전송용
-            '종목명': name, 'code': ticker,
-            '에너지': "🔋" if row['MACD_Hist'] > 0 else "🪫",
-            '현재가': int(row['Close']),
-            '구분': " ".join(tags),
-            '재무': f_tag, '수급': s_tag,
-            '이격': int(row['Disparity']),
-            'OBV기울기': int(row['OBV_Slope']),
-            '꼬리%': 0 # 필요 시 계산식 추가
-        }]
-    except Exception as e:
-        import traceback
-        print(f"🚨 {name} 분석 중 치명적 에러:\n{traceback.format_exc()}")
-        return []
-
 # ---------------------------------------------------------
 # 🕵️‍♂️ [7-1] 주간 분석 엔진
 # ---------------------------------------------------------
@@ -814,11 +739,11 @@ if __name__ == "__main__":
         
 if all_hits:
     # 1. [정렬] 전체 검색 결과 점수순 정렬
-    all_hits_sorted = sorted(all_hits, key=lambda x: x['점수'], reverse=True)
+    #all_hits_sorted = sorted(all_hits, key=lambda x: x['점수'], reverse=True)
     
     # 2. [정예 선발] 상위 30개 추출 (AI 심층 분석 대상)
-    ai_candidates = all_hits_sorted[:30]
-    
+    #ai_candidates = all_hits_sorted[:30]
+    ai_candidates = all_hits[(all_hits['👑등급'].isin(["👑LEGEND"])) | (all_hits['📜서사히스토리'].str.contains("🎖️종베타점"))].sort_values(by='안전점수', ascending=False).copy()
     # 3. [AI 분석] 상위 30개 종목에만 AI 지능 주입
     print(f"🧠 상위 30개 종목 AI 심층 분석 중... (나머지는 데이터만 기록)")
     tournament_report = run_ai_tournament(ai_candidates)
