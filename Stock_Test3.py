@@ -302,6 +302,41 @@ def get_indicators(df):
     df['Disparity'] = (df['Close'] / df['MA20']) * 100
     df['Box_Range'] = df['High'].rolling(10).max() / df['Low'].rolling(10).min()
     
+    # ATR
+    high, low, close = df['High'], df['Low'], df['Close']
+    tr = pd.concat([
+        high - low, 
+        abs(high - close.shift(1)), 
+        abs(low - close.shift(1))
+    ], axis=1).max(axis=1)
+    df['ATR'] = tr.rolling(14).mean()
+    df['ATR_MA20'] = df['ATR'].rolling(20).mean()
+    
+    # MFI
+    typical_price = (df['High'] + df['Low'] + df['Close']) / 3
+    money_flow = typical_price * df['Volume']
+    
+    positive_flow = money_flow.where(typical_price > typical_price.shift(1), 0).rolling(14).sum()
+    negative_flow = money_flow.where(typical_price < typical_price.shift(1), 0).rolling(14).sum()
+    
+    mfi_ratio = positive_flow / negative_flow
+    df['MFI'] = 100 - (100 / (1 + mfi_ratio))
+    
+    # 💡 [신규] 최근 N일 지속성 체크용 컬럼들
+    # ATR이 평균 아래인 날 카운트 (최근 10일)
+    df['ATR_Below_MA'] = (df['ATR'] < df['ATR_MA20']).astype(int)
+    df['ATR_Below_Days'] = df['ATR_Below_MA'].rolling(10).sum()
+    
+    # MFI 50 이상인 날 카운트 (최근 10일)
+    df['MFI_Above50'] = (df['MFI'] > 50).astype(int)
+    df['MFI_Strong_Days'] = df['MFI_Above50'].rolling(10).sum()
+    
+    # MFI 상승 추세 (10일 전보다 높음)
+    df['MFI_10d_ago'] = df['MFI'].shift(10)
+    
+    # 볼린저 %B
+    df['BB40_PercentB'] = (df['Close'] - df['BB40_Lower']) / (df['BB40_Upper'] - df['BB40_Lower'])
+
     return df
 
 # ---------------------------------------------------------
@@ -411,6 +446,16 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             acc_3_macd_golden = row['MACD'] > row['MACD_Signal']
             acc_4_rsi_healthy = 40 <= row['RSI'] <= 70
             acc_5_sto_golden = row['Sto_K'] > row['Sto_D']
+    
+            # 💡 [신규] 조용한 매집 패턴 (당신이 말한 이상적 조건!)
+            silent_1_atr_low = row['ATR'] < row['ATR_MA20']  # ATR이 20일 평균 아래
+            silent_2_mfi_strong = row['MFI'] > 50  # MFI 50 이상
+            silent_3_mfi_rising = row['MFI'] > row['MFI_Prev5']  # MFI 상승 중
+            silent_4_obv_rising = row['OBV'] > prev_5['OBV']  # OBV 상승 중
+            
+            # 💡 조용한 매집 완성 조건 (4개 모두 충족)
+            is_silent_accumulation = (silent_1_atr_low and silent_2_mfi_strong and 
+                                     silent_3_mfi_rising and silent_4_obv_rising)
 
             # 3. 점수 산출 및 태그 부여
             s_score = 100
@@ -448,6 +493,31 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
                 
             if acc_1_obv_rising:
                 tags.append("📊OBV상승")
+
+            # 💡 [신규] 조용한 매집 (최고 점수!)
+            if is_silent_accumulation:
+                s_score += 80
+                tags.append("🤫조용한매집💰")
+
+            # 세부 조건 태그
+            if silent_1_atr_low:
+                tags.append("🔇ATR수축")
+            if silent_2_mfi_strong and silent_3_mfi_rising:
+                tags.append("💰MFI강세")
+
+            # RSI 정보
+            rsi_val = row['RSI']
+            if rsi_val >= 80:
+                tags.append("🔥RSI강세")
+                s_score += 10
+            elif rsi_val >= 70:
+                tags.append("📈RSI상승")
+            elif rsi_val >= 50:
+                tags.append("✅RSI중립상")
+            elif rsi_val >= 30:
+                tags.append("📉RSI하락")
+            else:
+                tags.append("❄️RSI약세")
 
             # 기존 감점 로직
             if t_pct > 40:
