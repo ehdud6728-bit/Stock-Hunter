@@ -834,7 +834,7 @@ if all_hits:
     
     for _, item in telegram_targets.iterrows():
         entry = (f"⭐{item['👑등급']}점 [{item['종목명']}]\n"
-                 f"- {item['구분']}\n"
+                 f"- {item['기상']} | {item['구분']}\n"
                  f"- {item['📜서사히스토리']}\n"
                  f"- 재무: {item['재무']} | 수급: {item['수급']}\n"
                  f"- RSI: {item['RSI']} | 이격: {item['이격']}\n"
