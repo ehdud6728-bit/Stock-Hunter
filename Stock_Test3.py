@@ -604,6 +604,14 @@ if __name__ == "__main__":
                     all_hits.append(hit)
 
     if all_hits:
+        df_total = pd.DataFrame(all_hits)
+
+        # 통계 계산 (상위 5개 추천 정보 포함)
+        stats_df, top_recommendations = calculate_strategy_stats(all_hits)
+
+        # 4. 결과 분류
+        today = df_total[df_total['보유일'] == 0].sort_values(by='안전점수', ascending=False)
+
         # 5. 구글 시트 전송
         try:
             update_commander_dashboard(
