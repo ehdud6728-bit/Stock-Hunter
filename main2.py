@@ -353,9 +353,19 @@ def get_market_briefing():
     except: return "브리핑 생성 실패"
 
 def run_ai_tournament(candidate_list):
-    if not candidate_list: return "후보 없음"
-    candidate_list = sorted(candidate_list, key=lambda x: x['점수'], reverse=True)[:15]
-    prompt_data = "\n".join([f"- {c['종목명']}({c['code']}): {c['구분']}, 수급:{c['수급']}, 재무:{c['재무']}" for c in candidate_list])
+    if candidate_list.empty:
+        return "후보 없음"
+     
+    candidate_list = (
+        candidate_list
+        .sort_values(by='안전점수', ascending=False)
+        .head(15)
+    )
+    
+    prompt_data = "\n".join([
+        f"- {row['종목명']}({row['code']}): {row['구분']}, 수급:{row['수급']}, 재무:{row['재무']}"
+        for _, row in candidate_list.iterrows()
+    ])
     
     sys_prompt = (
         "당신은 대한민국 '역매공파(역배열바닥, 매집, 공구리돌파, 파동시작)' 매매법의 권위자이자 퀀트 분석가입니다. 절대 돈을 잃으면 안되는 상황이야."
