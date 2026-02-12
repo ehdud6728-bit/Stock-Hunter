@@ -8,7 +8,86 @@ import os, json, traceback
 from datetime import datetime, timedelta
 from DNA_Analyzer import analyze_dna_sequences, find_winning_pattern, find_winning_pattern_by_tier
 
-def update_commander_dashboard(df, macro_data, sheet_name, stats_df=None, 
+def update_commander_dashboard(df_main, macro_data, sheet_name, stats_df=None, 
+                               today_df=None, ai_recommendation=None):
+    """
+    [경량화 버전] 함수 내 복잡한 계산을 제거하고 저장에만 집중합니다.
+    """
+    print(f"📡 [Ex-Sheet] 시트 전송 시작...")
+    json_key_path = 'stock-key.json' 
+    today_str = (datetime.utcnow() + timedelta(hours=9)).strftime('%Y-%m-%d')
+    
+    try:
+        # 1. 🔑 인증 (환경변수 또는 파일)
+        scope = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
+        if os.path.exists(json_key_path):
+            creds = Credentials.from_service_account_file(json_key_path, scopes=scope)
+        elif os.environ.get('GOOGLE_JSON_KEY'):
+            creds = Credentials.from_service_account_info(json.loads(os.environ.get('GOOGLE_JSON_KEY')), scopes=scope)
+        else:
+            print("❌ [Auth] 인증 키가 없습니다."); return
+
+        client = gspread.authorize(creds)
+        doc = client.open(sheet_name)
+
+        # --- [탭 1: 오늘의_추천종목] (심플하게 변경) ---
+        if today_df is not None and not today_df.empty:
+            try:
+                try: t_sheet = doc.worksheet("오늘의_추천종목")
+                except: t_sheet = doc.add_worksheet(title="오늘의_추천종목", rows="200", cols="20")
+                t_sheet.clear()
+                
+                # 헤더 정보
+                t_sheet.update('A1', [[f"🎯 {today_str} 레이더 포착 종목 (안전점수 순)"]])
+                # 데이터 전송 (함수 밖에서 이미 가공된 데이터를 그대로 넣음)
+                set_with_dataframe(t_sheet, today_df, row=3, col=1, include_index=False)
+                print("✅ [오늘의_추천종목] 저장 완료")
+            except Exception as e: print(f"❌ 탭 1 에러: {e}")
+
+        # --- [탭 2: AI_추천패턴] (데이터가 있을 때만 가동) ---
+        if ai_recommendation is not None and not ai_recommendation.empty:
+            try:
+                try: ai_sheet = doc.worksheet("AI_추천패턴")
+                except: ai_sheet = doc.add_worksheet(title="AI_추천패턴", rows="200", cols="15")
+                ai_sheet.clear()
+                set_with_dataframe(ai_sheet, ai_recommendation, include_index=False)
+                print("✅ [AI_추천패턴] 저장 완료")
+            except Exception as e: print(f"❌ 탭 2 에러: {e}")
+
+        # --- [탭 3: 실시간_전수_관제판] ---
+        if df_main is not None and not df_main.empty:
+            try:
+                try: m_sheet = doc.worksheet("실시간_전수_관제판")
+                except: m_sheet = doc.get_worksheet(0); m_sheet.update_title("실시간_전수_관제판")
+                m_sheet.clear()
+                
+                # 상단 매크로 정보
+                m = macro_data
+                macro_list = [
+                    [f"📅 업데이트: {datetime.now().strftime('%H:%M:%S')}"],
+                    [f"📈 나스닥: {m.get('nasdaq',{}).get('text','-')}"],
+                    [f"💵 달러환율: {m.get('fx',{}).get('text','-')}"]
+                ]
+                m_sheet.update('A1', macro_list)
+                # 데이터 전송
+                set_with_dataframe(m_sheet, df_main, row=6, col=1, include_index=False)
+                print("✅ [실시간_전수_관제판] 저장 완료")
+            except Exception as e: print(f"❌ 탭 3 에러: {e}")
+
+        # --- [탭 4: 전술통계_리포트] ---
+        if stats_df is not None and not stats_df.empty:
+            try:
+                try: s_sheet = doc.worksheet("전술통계_리포트")
+                except: s_sheet = doc.add_worksheet(title="전술통계_리포트", rows="100", cols="10")
+                s_sheet.clear()
+                set_with_dataframe(s_sheet, stats_df, include_index=False)
+                print("✅ [전술통계_리포트] 저장 완료")
+            except Exception as e: print(f"❌ 탭 4 에러: {e}")
+
+    except Exception as e:
+        print(f"🚨 [Critical] 구글 시트 전송 실패: {e}")
+
+def update_commander_dashboard_back(df, macro_data, sheet_name, stats_df=None, 
                                today_recommendations=None, ai_recommendation=None):
     """
     [최신 인증 반영] google-auth를 사용하여 보안성이 강화된 통합 관제 모듈
