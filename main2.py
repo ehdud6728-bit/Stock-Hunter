@@ -389,7 +389,7 @@ def analyze_final(ticker, name, historical_indices):
 
         # 🕵️ 신규 추가: 서사 분석기 호출
         #print(f"✅ [본진] 서사 분석기 호출 : {name}")
-        sector = get_stock_sector(ticker, sector_master_map) # 섹터 판독 함수 필요
+        #sector = get_stock_sector(ticker, sector_master_map) # 섹터 판독 함수 필요
         grade, narrative, target, stop, conviction = analyze_all_narratives(
             df, name, my_sector, g_env, l_env
         )
