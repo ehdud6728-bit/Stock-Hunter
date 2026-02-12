@@ -321,6 +321,7 @@ def get_indicators(df):
     
     mfi_ratio = positive_flow / negative_flow
     df['MFI'] = 100 - (100 / (1 + mfi_ratio))
+    df['MFI_Prev5'] = df['MFI'].shift(5)
     
     # 💡 [신규] 최근 N일 지속성 체크용 컬럼들
     # ATR이 평균 아래인 날 카운트 (최근 10일)
