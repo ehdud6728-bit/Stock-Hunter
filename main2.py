@@ -819,12 +819,13 @@ if all_hits:
     # 3. [AI 분석] 상위 30개 종목에만 AI 지능 주입
     print(f"🧠 상위 30개 종목 AI 심층 분석 중... (나머지는 데이터만 기록)")
     tournament_report = run_ai_tournament(ai_candidates)
-    
-    for item in ai_candidates:
-        # 상위 30개에만 AI 한줄평과 토너먼트 리포트 삽입
-        item['ai_tip'] = get_ai_summary(item['code'], item['종목명'], item['구분'])
-        #item['ai_tournament'] = tournament_report
 
+    # 상위 30개에만 AI 한줄평과 토너먼트 리포트 삽입
+    for idx, item in ai_candidates.iterrows():
+    ai_candidates.loc[idx, 'ai_tip'] = get_ai_summary(
+        item['code'], item['종목명'], item['구분']
+    )
+    
     # 4. [텔레그램 전송] 상위 15개 정예만 골라 발송
     telegram_targets = ai_candidates[:15]
     
