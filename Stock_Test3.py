@@ -30,6 +30,7 @@ warnings.filterwarnings('ignore')
 # =================================================
 # ⚙️ [1. 설정 및 글로벌 변수]
 # =================================================
+DNA_CHECK = False
 SCAN_DAYS = 1        # 최근 30일 내 타점 전수 조사
 TOP_N = 2500         # 거래대금 상위 종목 수 (필요시 2500으로 확장 가능)
 KST = pytz.timezone('Asia/Seoul')
@@ -603,104 +604,19 @@ if __name__ == "__main__":
                     all_hits.append(hit)
 
     if all_hits:
-         # 1. 원재료(all_hits)를 연구소(DNA_Analyzer)로 송부
-        print("🧬 [DNA Trace-Back] 성공 유전자 역추적 가동...")
-        #dna_results = analyze_dna_sequences(all_hits)
-    
-        # 2. 가장 승률 높은 패턴 랭킹 추출
-        #top_patterns = find_winning_pattern(dna_results)
-        #df_total = pd.DataFrame(all_hits)
-
-        dna_results = pd.DataFrame(all_hits)
-        top_patterns = pd.DataFrame(all_hits)
-        df_total = pd.DataFrame(all_hits)
-        
-        # 통계 계산 (상위 5개 추천 정보 포함)
-        stats_df, top_recommendations = calculate_strategy_stats(all_hits)
-        
-        # 4. 결과 분류
-        today = df_total[df_total['보유일'] == 0].sort_values(by='안전점수', ascending=False)
-        
-        # 추천 패턴 DataFrame 생성
-        if top_recommendations:
-            recommendation_df = pd.DataFrame(top_recommendations)
-            recommendation_df['날짜'] = TODAY_STR
-            recommendation_df = recommendation_df[['날짜', '순위', '패턴', '타율', '평균수익', '기대값', '건수', '신뢰도']]
-        else:
-            recommendation_df = pd.DataFrame()
-        
-        # 💡 추천 패턴 출력 (여러 개)
-        if top_recommendations:
-            print("\n" + "🏆 " * 10 + "[ AI 추천 TOP 5 패턴 ]" + " 🏆" * 10)
-            for i, rec in enumerate(top_recommendations, 1):
-                medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"{i}위"
-                print(f"\n{medal} [{rec['패턴']}]")
-                print(f"   📊 타율 {rec['타율']}% | 평균수익 {rec['평균수익']}% | 기대값 {rec['기대값']} | 건수 {rec['건수']}건")
-                print(f"   {rec['신뢰도']}")
-            print("=" * 100)
-            
-        if not top_patterns.empty:
-    # 💡 1. 'top_patterns' 데이터프레임에서 1순위 패턴 문자열을 추출합니다.
-    # DNA_시퀀스 컬럼의 첫 번째 행(iloc[0])을 가져옵니다.
-            best_pattern_str = top_patterns.iloc[0]['DNA_시퀀스']
-    
-    # 💡 2. 패턴의 첫 번째 요소(예: '매집봉')만 떼어내어 오늘 종목을 필터링합니다.
-    # 사령관님이 작성하신 split logic을 안전하게 처리합니다.
-            target_tag = best_pattern_str.split(' ➔ ')[0] # '➔' 기호 기준 첫 태그 추출
-    
-            print(f"🎯 [DNA 필터] 오늘의 1순위 타겟 패턴: {target_tag}")
-    
-    # 💡 3. 오늘 데이터(today)에서 해당 태그가 포함된 종목만 추출
-            recommended_today = today[today['구분'].str.contains(target_tag, na=False)]
-        else:
-            print("⚠️ [DNA 필터] 유효한 성공 패턴이 없어 전체 종목을 유지합니다.")
-            recommended_today = today.copy()
-
-            # 1위 패턴이 포함된 오늘의 종목 필터링
-            top_pattern = top_recommendations[0]['패턴']
-            recommended_today = today[today['구분'].str.contains(top_pattern.split(' + ')[0], na=False)]
-            if not recommended_today.empty:
-                print(f"\n✨ 오늘의 '{top_pattern}' 패턴 종목")
-                print(recommended_today[['종목', '안전점수', '매입가', '매집', '구분']].head(10))
-        
-        # 💡 통합: 오늘의 추천종목 (역매공파 포함, 안전점수 순)
-        print("\n" + "🎯 " * 10 + "[ 오늘의 추천종목 TOP 50 ]" + " 🎯" * 10)
-        print("(역매공파, 다이아몬드, 세력매집 등 모든 패턴 포함 / 안전점수 순)")
-        print("=" * 120)
-
-        if not today.empty:
-            display_cols = [c for c in desired_cols if c in today.columns]
-            print(today[display_cols].head(50))
-            
-            # 💡 패턴별 집계 (참고용)
-            diamond_count = len(today[today['구분'].str.contains('다이아몬드', na=False)])
-            accumulation = len(today[today['구분'].str.contains('세력매집', na=False)])
-            
-            print("\n📊 [ 오늘의 패턴 분포 ]")
-            print(f"   💎 다이아몬드: {diamond_count}개")
-            print(f"   🐋 세력매집: {accumulation}개")
-            print(f"   📈 전체 추천종목: {len(today)}개")
-        else:
-            print("오늘은 추천할 만한 종목이 없습니다.")
-
-        print("\n" + "📊 [전략별 통계 (과거 30일)] " + "="*70)
-        if not stats_df.empty:
-            print(stats_df.head(20))
-
         # 5. 구글 시트 전송
         try:
             update_commander_dashboard(
-                df_total,  # 메인 시트: 전체 30일 데이터
+                df_total,
                 macro_status, 
                 "사령부_통합_상황판", 
-                stats_df,
+                stats_df if not stats_df.empty else None,
                 today,  # 오늘의_추천종목 탭: 오늘만 (모든 패턴 통합)
-                ai_recommendation=dna_results  # AI_추천패턴 탭: TOP 5
+                ai_recommendation=dna_results if not dna_results.empty else None
             )
             print("\n✅ 구글 시트 업데이트 성공!")
-            print("   📋 메인 시트: 전체 30일 검증 데이터")
+            print("   📋 메인 시트")
             print("   🎯 오늘의_추천종목 탭: 오늘 신호만 (TOP 50, 모든 패턴 통합)")
-            print("   🏆 AI_추천패턴 탭: TOP 5 패턴 분석")
         except Exception as e:
             print(f"\n❌ 시트 업데이트 실패: {e}")
     else:
