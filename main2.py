@@ -67,6 +67,23 @@ START_DATE_STR = (datetime.now() - timedelta(days=60)).strftime('%Y%m%d')
 
 print(f"📡 [Ver 27.0] 사령부 퍼펙트 오버홀 가동... 스토캐스틱 레이더 및 전 지표 동기화")
 
+def get_stock_sector(ticker, sector_map):
+    """
+    기존에 수집된 섹터 마스터 맵에서 종목의 업종을 판독합니다.
+    """
+    # 1. 마스터 맵에서 해당 종목의 업종명 추출
+    raw_sector = sector_map.get(ticker, "일반")
+    
+    # 2. 키워드 매칭을 통한 섹터 정규화 (대장주 동기화용)
+    if any(k in raw_sector for k in ['반도체', 'IT부품', '장비']): 
+        return "반도체"
+    if any(k in raw_sector for k in ['제약', '바이오', '의료기기', '생물']): 
+        return "바이오"
+    if any(k in raw_sector for k in ['전기차', '배터리', '에너지', '축전지']): 
+        return "2차전지"
+    
+    return "일반"
+
 def get_safe_macro(symbol, name):
     try:
         df = fdr.DataReader(symbol, start=(datetime.now() - timedelta(days=15)).strftime('%Y-%m-%d'))
@@ -370,7 +387,7 @@ def get_ai_summary(ticker, name, tags):
 # ---------------------------------------------------------
 # 🕵️‍♂️ [수정] 분석 엔진 (변수명 통일 및 초기화 강화)
 # ---------------------------------------------------------
-def analyze_final(ticker, name, historical_indices):
+def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
     # 💡 모든 변수를 함수 시작 시점에 안전하게 초기화합니다.
     s_score = 0
     f_score = 0
@@ -706,6 +723,36 @@ def analyze_weekly_trend(ticker, name):
 # ---------------------------------------------------------
 if __name__ == "__main__":
     print("🚀 전략 사령부 가동 시작...")
+
+    # 💡 1. 전쟁 시작 전 '대장주 지도'와 '그들의 상태'를 딱 한 번만 생성
+    # leader_map: {섹터: 코드}, leader_status: {섹터: 강세/침체}
+    global_env, leader_env = get_global_and_leader_status()
+
+    # 2. 전 종목 리스트 로드 및 명찰 강제 통일
+    try:
+        df_krx = fdr.StockListing('KRX')
+        
+        # 💡 [핵심] 첫 번째 열은 'Code', 두 번째 열은 'Name'으로 강제 개명
+        # KRX 데이터 구조상 보통 0번이 코드, 1번이 종목명입니다.
+        #df_krx.columns.values[0] = target_stocks['Code']
+        #df_krx.columns.values[1] = target_stocks['Name']
+        
+        # 섹터 컬럼도 있으면 'Sector'로 통일
+        s_col = next((c for c in ['Sector', 'Industry', '업종'] if c in df_krx.columns), None)
+        if s_col:
+            df_krx = df_krx.rename(columns={s_col: 'Sector'})
+            sector_master_map = df_krx.set_index('Code')['Sector'].to_dict()
+        else:
+            sector_master_map = {k: '일반' for k in df_krx['Code']}
+            
+        print(f"✅ [본진] 명찰 통일 완료: {len(df_krx)}개 종목 로드")
+
+    except Exception as e:
+        print(f"🚨 [본진] 데이터 로드 실패: {e}")
+        sector_master_map = {}
+        # 여기서 죽지 않게 빈 데이터프레임이라도 생성
+        df_krx = pd.DataFrame(columns=['Code', 'Name', 'Sector'])
+ 
     m_ndx = get_safe_macro('^IXIC', '나스닥')
     m_sp5 = get_safe_macro('^GSPC', 'S&P500')
     m_vix = get_safe_macro('^VIX', 'VIX공포')
@@ -732,10 +779,18 @@ if __name__ == "__main__":
     
     all_hits = []
     with ThreadPoolExecutor(max_workers=15) as executor:
-        futures = [executor.submit(analyze_final, t, n, weather_data) for t, n in target_dict.items()]
-        for f in futures: 
-            res = f.result()
-            if res: all_hits.extend(res)
+        results = list(executor.map(
+            lambda p: analyze_final(p[0], p[1], weather_data, global_env, leader_env, sector_master_map), 
+            zip(target_stocks['Code'], target_stocks['Name'])
+        ))
+        for r in results:
+            if r:
+                # 💡 [신규] 포착된 종목에 즉시 체급(Tier) 및 시총 데이터 주입
+                for hit in r:
+                    # hit['종목코드']가 있다고 가정, 없으면 ticker를 찾아야 함
+                    name = hit['종목']
+                    ticker_code = hit.get('코드')
+                    all_hits.append(hit)
         
 if all_hits:
     # 1. [정렬] 전체 검색 결과 점수순 정렬
