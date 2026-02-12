@@ -833,7 +833,7 @@ if all_hits:
     current_msg = f"{briefing}\n\n📢 [오늘의 실시간 TOP 15]\n\n"
     
     for _, item in telegram_targets.iterrows():
-        entry = (f"⭐{item['안전점수']}점 [{item['종목명']}]\n"
+        entry = (f"⭐{item['👑등급']}점 [{item['종목명']}]\n"
                  f"- {item['구분']}\n"
                  f"- {item['📜서사히스토리']}\n"
                  f"- 재무: {item['재무']} | 수급: {item['수급']}\n"
