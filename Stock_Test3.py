@@ -611,6 +611,29 @@ if __name__ == "__main__":
 
         # 4. 결과 분류
         today = df_total[df_total['보유일'] == 0].sort_values(by='확신점수', ascending=False)
+        desired_cols = ['날짜',
+                '👑등급',
+                '📜서사히스토리',
+                '확신점수',
+                '🎯목표타점',
+                '🚨손절가',
+                '기상',
+                '안전점수',
+                '섹터',
+                '종목',
+                '매입가',
+                '현재가',
+                '꼬리%',
+                '이격',
+                'BB40',
+                'MA수렴',
+                '매집',
+                '최고수익률%',
+                '최저수익률%',
+                '최고수익률_raw',
+                '최저수익률_raw',
+                '구분',
+                '보유일']
         display_cols = [c for c in desired_cols if c in today.columns]
 
         if not today.empty:
