@@ -781,7 +781,7 @@ if __name__ == "__main__":
     with ThreadPoolExecutor(max_workers=15) as executor:
         results = list(executor.map(
             lambda p: analyze_final(p[0], p[1], weather_data, global_env, leader_env, sector_master_map), 
-            zip(target_dict['Code'], target_dict['Name'])
+            zip(sorted_df['Code'], sorted_df['Name'])
         ))
         for r in results:
             if r:
