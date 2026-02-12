@@ -459,7 +459,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             s_score -= (storm_count * 20)
             s_score -= max(0, int((row['Disparity']-108)*5)) 
             
-            print(f"🕵️ [분석 중] {name}: {conviction}점 | 서사: {narrative}")
+            #print(f"🕵️ [분석 중] {name}: {conviction}점 | 서사: {narrative}")
 
             # 4. 💡 수익률 검증 데이터 생성 (최고/최저 추가)
             h_df = df.iloc[raw_idx+1:]
