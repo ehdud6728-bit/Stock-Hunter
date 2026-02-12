@@ -37,10 +37,13 @@ def update_commander_dashboard(df_main, macro_data, sheet_name, stats_df=None,
                 except: t_sheet = doc.add_worksheet(title="오늘의_추천종목", rows="200", cols="20")
                 t_sheet.clear()
                 
+																		# '👑등급' 컬럼에서 '👑LEGEND'인 행만 추출합니다.
+                legend_today = today_only_df[today_only_df['👑등급'] == "👑LEGEND"].copy()
+                #
                 # 헤더 정보
                 t_sheet.update('A1', [[f"🎯 {today_str} 레이더 포착 종목 (안전점수 순)"]])
                 # 데이터 전송 (함수 밖에서 이미 가공된 데이터를 그대로 넣음)
-                set_with_dataframe(t_sheet, today_df, row=3, col=1, include_index=False)
+                set_with_dataframe(t_sheet, legend_today, row=3, col=1, include_index=False)
                 print("✅ [오늘의_추천종목] 저장 완료")
             except Exception as e: print(f"❌ 탭 1 에러: {e}")
 
