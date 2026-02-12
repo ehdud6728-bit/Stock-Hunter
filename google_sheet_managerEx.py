@@ -39,12 +39,13 @@ def update_commander_dashboard(df_main, macro_data, sheet_name, stats_df=None,
                 
 																		# '👑등급' 컬럼에서 '👑LEGEND'인 행만 추출합니다.
                 legend_today = today_df[today_df['👑등급'] == "👑LEGEND"].copy()
+                legend_today = legend_today[legend_today['날짜'] == today_str].copy()
                 #
                 # 헤더 정보
                 t_sheet.update('A1', [[f"🎯 {today_str} 레이더 포착 종목 (안전점수 순)"]])
                 # 데이터 전송 (함수 밖에서 이미 가공된 데이터를 그대로 넣음)
                 set_with_dataframe(t_sheet, legend_today, row=3, col=1, include_index=False)
-                print("✅ [오늘의_추천종목] 저장 완료")
+                print("✅ [오늘의_추천종목] {today_str} 저장 완료")
             except Exception as e: print(f"❌ 탭 1 에러: {e}")
 
         # --- [탭 2: AI_추천패턴] (데이터가 있을 때만 가동) ---
@@ -73,7 +74,8 @@ def update_commander_dashboard(df_main, macro_data, sheet_name, stats_df=None,
                 ]
                 m_sheet.update('A1', macro_list)
                 # 데이터 전송
-                set_with_dataframe(m_sheet, df_main, row=6, col=1, include_index=False)
+                legend_list = today_df[today_df['👑등급'] == "👑LEGEND"].copy()
+                set_with_dataframe(m_sheet, legend_list, row=6, col=1, include_index=False)
                 print("✅ [실시간_전수_관제판] 저장 완료")
             except Exception as e: print(f"❌ 탭 3 에러: {e}")
 
