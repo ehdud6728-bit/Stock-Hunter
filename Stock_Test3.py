@@ -369,11 +369,12 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         #하락기간과 횡보(공구리)기간 비교(1이상 추천)
         dante_data = calculate_dante_symmetry(df)
         
-        if dante_data['ratio'] is None:
+        if dante_data is None:
             dante_data_ratio = 0
             dante_data_mae_jip = 0
-
-        
+        else
+            dante_data_ratio = dante_data['ratio']
+            dante_data_mae_jip = dante_data['mae_jip']
         # 💡 오늘의 현재가 저장 (나중에 사용)
         today_price = df.iloc[-1]['Close']
         
@@ -584,8 +585,8 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
                 '🚨손절가': int(stop),         # 👈 서사 기반 손절가
                 '기상': "☀️" * (2-storm_count) + "🌪️" * storm_count,
                 '안전점수': int(max(0, s_score + whale_score)),
-                '대칭비율': dante_data['ratio'],
-                '매집봉': dante_data['mae_jip'],
+                '대칭비율': dante_data_ratio,
+                '매집봉': dante_data_mae_jip,
                 '섹터': sector,
                 '종목': name,
                 '매입가': int(close_p),
