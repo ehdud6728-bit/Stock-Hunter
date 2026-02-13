@@ -397,3 +397,82 @@ def calculate_dante_symmetry(df):
         'decline_period': decline_days,
         'sideways_period': sideways_days
     }
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 🍉 수박지표 완전체 (3가지 통합)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+def watermelon_indicator_complete(df):
+    """
+    OBV + MFI + 매집파워 종합
+    """
+    
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # 1. OBV 계산
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    df['OBV'] = (np.sign(df['Close'].diff()) * df['Volume']).cumsum()
+    df['OBV_MA10'] = df['OBV'].rolling(10).mean()
+    df['OBV_Rising'] = df['OBV'] > df['OBV_MA10']
+    
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # 2. MFI 계산
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    typical_price = (df['High'] + df['Low'] + df['Close']) / 3
+    money_flow = typical_price * df['Volume']
+    
+    positive_flow = money_flow.where(typical_price > typical_price.shift(1), 0).rolling(14).sum()
+    negative_flow = money_flow.where(typical_price < typical_price.shift(1), 0).rolling(14).sum()
+    
+    mfi_ratio = positive_flow / negative_flow
+    df['MFI'] = 100 - (100 / (1 + mfi_ratio))
+    df['MFI_Strong'] = df['MFI'] > 50
+    
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # 3. 매집 파워 계산
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    df['Buy_Power'] = df['Volume'] * (df['Close'] - df['Open'])
+    df['Buy_Power_MA'] = df['Buy_Power'].rolling(10).mean()
+    df['Buying_Pressure'] = df['Buy_Power'] > df['Buy_Power_MA']
+    
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # 4. 수박 색상 결정 (종합)
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    
+    # 빨강 조건 (3가지 중 2개 이상)
+    red_score = (
+        df['OBV_Rising'].astype(int) +
+        df['MFI_Strong'].astype(int) +
+        df['Buying_Pressure'].astype(int)
+    )
+    
+    df['Watermelon_Color'] = np.where(
+        red_score >= 2,
+        'red',    # 빨강 (강세)
+        'green'   # 초록 (약세)
+    )
+    
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # 5. 수박 신호 (매수 타이밍)
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    
+    # 조건 1: 초록 → 빨강 전환
+    color_change = (
+        (df['Watermelon_Color'] == 'red') & 
+        (df['Watermelon_Color'].shift(1) == 'green')
+    )
+    
+    # 조건 2: 최근 10일 중 7일 이상 초록이었다가
+    df['Green_Days_10'] = (df['Watermelon_Color'].shift(1) == 'green').rolling(10).sum()
+    long_green_period = df['Green_Days_10'] >= 7
+    
+    # 조건 3: 빨강으로 전환 + 거래량 증가
+    volume_surge = df['Volume'] >= df['Volume'].rolling(20).mean() * 1.2
+    
+    # 최종 수박 신호
+    df['Watermelon_Signal'] = (
+        color_change & 
+        long_green_period & 
+        volume_surge
+    )
+    
+    return df
