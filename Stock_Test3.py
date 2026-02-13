@@ -745,7 +745,7 @@ if __name__ == "__main__":
         # 5. 구글 시트 전송
         try:
             update_commander_dashboard(
-                df_total[display_cols].sort_values(by='확신점수', ascending=False),
+                df_total[display_cols].sort_values(by=['종목','날짜'], ascending=False),
                 macro_status, 
                 "사령부_통합_상황판", 
                 stats_df if not stats_df.empty else None,
