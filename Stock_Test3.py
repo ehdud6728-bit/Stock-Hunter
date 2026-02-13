@@ -557,8 +557,8 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
                 '🚨손절가': int(stop),         # 👈 서사 기반 손절가
                 '기상': "☀️" * (2-storm_count) + "🌪️" * storm_count,
                 '안전점수': int(max(0, s_score + whale_score)),
-                '대칭비율' : dante_data['ratio'],
-                '매집봉' : dante_data['mae_jip'],
+                '대칭비율': dante_data['ratio'],
+                '매집봉': dante_data['mae_jip'],
                 '섹터': sector,
                 '종목': name,
                 '매입가': int(close_p),
