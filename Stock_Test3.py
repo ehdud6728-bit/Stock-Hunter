@@ -337,6 +337,7 @@ def get_indicators(df):
     
     # 볼린저 %B
     df['BB40_PercentB'] = (df['Close'] - df['BB40_Lower']) / (df['BB40_Upper'] - df['BB40_Lower'])
+    df += watermelon_indicator_complete(df)
 
     return df
 
@@ -365,12 +366,14 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         grade, narrative, target, stop, conviction = analyze_all_narratives(
             df, name, my_sector, g_env, l_env
         )
+        #하락기간과 횡보(공구리)기간 비교(1이상 추천)
         dante_data = calculate_dante_symmetry(df)
         
         if dante_data is None:
             dante_data_ratio = 0
             dante_data_mae_jip = 0
 
+        
         # 💡 오늘의 현재가 저장 (나중에 사용)
         today_price = df.iloc[-1]['Close']
         
@@ -524,7 +527,17 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
                 tags.append("📉RSI하락")
             else:
                 tags.append("❄️RSI약세")
-
+            #수박지표
+            if is_watermelon:
+                s_score += 100
+                tags.append("🍉수박신호")
+                tags.append(f"🍉빨강전환(강도{red_score}/3)")
+            elif watermelon_color == 'red' and red_score >= 2:
+                s_score += 60
+                tags.append("🍉빨강상태")    
+            elif row['Green_Days_10'] >= 7:
+                s_score += 30
+                tags.append("🍉초록축적")
             # 기존 감점 로직
             if t_pct > 40:
                 s_score -= 25
