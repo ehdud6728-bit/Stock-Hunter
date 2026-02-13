@@ -366,7 +366,11 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             df, name, my_sector, g_env, l_env
         )
         dante_data = calculate_dante_symmetry(df)
-      
+        
+        if dante_data is None:
+            dante_data_ratio = 0
+            dante_data_mae_jip = 0
+
         # 💡 오늘의 현재가 저장 (나중에 사용)
         today_price = df.iloc[-1]['Close']
         
