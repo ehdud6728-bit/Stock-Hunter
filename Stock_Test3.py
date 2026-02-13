@@ -369,7 +369,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         #하락기간과 횡보(공구리)기간 비교(1이상 추천)
         dante_data = calculate_dante_symmetry(df)
         
-        if dante_data is None:
+        if dante_data['ratio'] is None:
             dante_data_ratio = 0
             dante_data_mae_jip = 0
 
