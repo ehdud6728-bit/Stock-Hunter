@@ -355,9 +355,35 @@ def analyze_all_narratives_back(df, ticker_name, sector_name, g_status, l_sync):
     row = df.iloc[-1]
     target = round(row['MA112'] * 1.005, 0)
     stop_loss = round(row['MA112'] * 0.98, 0)
+
+    # [시간 대칭 및 매집 분석 로직]
+
+    # 1. 전고점과 최저점 찾기 (최근 250일 기준)
+    high_idx = df['High'].idxmax()
+    low_df = df.loc[high_idx:] # 고점 이후 데이터만 추출
+    low_idx = low_df['Low'].idxmin()
+
+    # 2. 기간 계산 (A: 하락, B: 횡보)
+    decline_period = (low_idx - high_idx).days  # 하락 기간 (A)
+    sideways_period = (df.index[-1] - low_idx).days # 횡보 기간 (B)
+
+    # 3. 시간 대칭 비율 계산
+    time_ratio = sideways_period / decline_period if decline_period > 0 else 0
+
+    # 4. 횡보 기간 중 매집봉 횟수 카운트
+    # (종가보다 윗꼬리가 길고 거래량이 빵 터진 봉)
+    mae_jip_count = len(df[(df.index > low_idx) & 
+                       (df['Volume'] > df['Volume'].rolling(20).mean() * 3) & 
+                       (df['High'] > df['Close'] * 1.03)])
+
+    # 🔥 [사령관의 필살기 판정]
+    if time_ratio >= 1.0 and mae_jip_count >= 3:
+        grade = "👑밥그릇3번(시간대칭) "
+    elif time_ratio >= 0.7:
+        grade = "⚔️정예(시간대칭) "
     
-    if total_conviction >= 90: grade = "👑LEGEND"
-    elif total_conviction >= 70: grade = "⚔️정예"
+    if total_conviction >= 90: grade += "👑LEGEND"
+    elif total_conviction >= 70: grade += "⚔️정예"
     else: grade = "🛡️일반"
 
     return grade, report, target, stop_loss, total_conviction
