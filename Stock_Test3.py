@@ -366,17 +366,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         grade, narrative, target, stop, conviction = analyze_all_narratives(
             df, name, my_sector, g_env, l_env
         )
-        #하락기간과 횡보(공구리)기간 비교(1이상 추천)
-        dante_data = calculate_dante_symmetry(df)
         
-        if dante_data is None:
-            dante_data_ratio = 0
-            dante_data_mae_jip = 0
-        else:
-            dante_data_ratio = dante_data['ratio']
-            dante_data_mae_jip = dante_data['mae_jip']
-        # 💡 오늘의 현재가 저장 (나중에 사용)
-        today_price = df.iloc[-1]['Close']
         
         # 최신 수급 데이터 수집
         try:
@@ -403,6 +393,21 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             prev_5 = df.iloc[max(0, raw_idx-5)]
             prev_10 = df.iloc[max(0, raw_idx-10)]
             
+            temp_df = df.iloc[:raw_idx + 1]
+
+            #하락기간과 횡보(공구리)기간 비교(1이상 추천)
+            dante_data = calculate_dante_symmetry(temp_df)
+        
+            if dante_data is None:
+                dante_data_ratio = 0
+                dante_data_mae_jip = 0
+            else:
+                dante_data_ratio = dante_data['ratio']
+                dante_data_mae_jip = dante_data['mae_jip']
+
+            # 💡 오늘의 현재가 저장 (나중에 사용)
+            today_price = df.iloc[-1]['Close']
+
             # 1. 꼬리% 정밀 계산
             high_p, low_p, close_p, open_p = row['High'], row['Low'], row['Close'], row['Open']
             body_max = max(open_p, close_p)
@@ -591,6 +596,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
                 '종목': name,
                 '매입가': int(close_p),
                 '현재가': int(current_price),
+                'RSI' : rsi_val,
                 '꼬리%': t_pct,
                 '이격': int(row['Disparity']),
                 'BB40': f"{row['BB40_Width']:.1f}",
