@@ -372,7 +372,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         if dante_data is None:
             dante_data_ratio = 0
             dante_data_mae_jip = 0
-        else
+        else:
             dante_data_ratio = dante_data['ratio']
             dante_data_mae_jip = dante_data['mae_jip']
         # 💡 오늘의 현재가 저장 (나중에 사용)
