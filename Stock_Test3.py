@@ -12,7 +12,7 @@ import warnings
 import requests
 from bs4 import BeautifulSoup
 from DNA_Analyzer import analyze_dna_sequences, find_winning_pattern
-from tactics_engine import get_global_and_leader_status, analyze_all_narratives, get_dynamic_sector_leaders, calculate_dante_symmetry
+from tactics_engine import get_global_and_leader_status, analyze_all_narratives, get_dynamic_sector_leaders, calculate_dante_symmetry, watermelon_indicator_complete
 import traceback
 
 from pykrx import stock
