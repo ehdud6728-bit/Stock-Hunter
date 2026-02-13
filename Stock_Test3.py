@@ -466,6 +466,15 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             is_silent_accumulation = (silent_1_atr_low and silent_2_mfi_strong and 
                                      silent_3_mfi_rising and silent_4_obv_rising)
 
+            #수박지표
+            is_watermelon = row['Watermelon_Signal']
+            watermelon_color = row['Watermelon_Color']
+            red_score = (
+                int(row['OBV_Rising']) +
+                int(row['MFI_Strong']) +
+                int(row['Buying_Pressure'])
+            )
+
             # 3. 점수 산출 및 태그 부여
             s_score = 100
             tags = []
@@ -527,6 +536,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
                 tags.append("📉RSI하락")
             else:
                 tags.append("❄️RSI약세")
+
             #수박지표
             if is_watermelon:
                 s_score += 100
