@@ -12,7 +12,7 @@ import warnings
 import requests
 from bs4 import BeautifulSoup
 from DNA_Analyzer import analyze_dna_sequences, find_winning_pattern
-from tactics_engine import get_global_and_leader_status, analyze_all_narratives, get_dynamic_sector_leaders
+from tactics_engine import get_global_and_leader_status, analyze_all_narratives, get_dynamic_sector_leaders, calculate_dante_symmetry
 import traceback
 
 from pykrx import stock
@@ -365,6 +365,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         grade, narrative, target, stop, conviction = analyze_all_narratives(
             df, name, my_sector, g_env, l_env
         )
+        dante_data = calculate_dante_symmetry(df)
       
         # 💡 오늘의 현재가 저장 (나중에 사용)
         today_price = df.iloc[-1]['Close']
@@ -556,6 +557,8 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
                 '🚨손절가': int(stop),         # 👈 서사 기반 손절가
                 '기상': "☀️" * (2-storm_count) + "🌪️" * storm_count,
                 '안전점수': int(max(0, s_score + whale_score)),
+                '대칭비율' : dante_data['ratio'],
+                '매집봉' : dante_data['mae_jip'],
                 '섹터': sector,
                 '종목': name,
                 '매입가': int(close_p),
