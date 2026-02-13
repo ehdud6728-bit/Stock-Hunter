@@ -386,7 +386,7 @@ def calculate_dante_symmetry(df):
     # 조건: 거래량이 20일 평균의 3배 이상 + 윗꼬리가 몸통보다 김
     sideways_df = df.loc[trough_idx:]
     mae_jip_candles = sideways_df[
-        (sideways_df['Volume'] > sideways_df['Volume'].rolling(20).mean() * 3) & 
+        (sideways_df['Volume'] > sideways_df['Volume'].rolling(20).mean() * 2.5) & 
         ((sideways_df['High'] - sideways_df['Close']) > (sideways_df['Close'] - sideways_df['Open']))
     ]
     mae_jip_count = len(mae_jip_candles)
