@@ -380,7 +380,7 @@ def calculate_dante_symmetry(df):
     
     # 3. ⚖️ 시간 대칭 비율 (B / A)
     # 1.0 이상이면 하락한 만큼 충분히 기었다는 뜻!
-    symmetry_ratio = sideways_days / decline_days if decline_days > 0 else 0
+    symmetry_ratio = round(sideways_days / decline_days, 1) if decline_days > 0 else 0
     
     # 4. 🐋 매집 밀도 분석 (횡보 구간 내 매집봉 카운트)
     # 조건: 거래량이 20일 평균의 3배 이상 + 윗꼬리가 몸통보다 김
