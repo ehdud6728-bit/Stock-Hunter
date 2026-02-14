@@ -600,10 +600,39 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             # 💡 조용한 매집 완성 조건 (4개 모두 충족)
             is_silent_accumulation = (silent_1_atr_low and silent_2_mfi_strong and 
                                      silent_3_mfi_rising and silent_4_obv_rising)
+   
+            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            # 🤫 조용한 매집 (신규 지표 활용!)
+            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            silent_1_atr = row['ATR_Below_Days'] >= 7
+            silent_2_mfi_persist = row['MFI_Strong_Days'] >= 7
+            silent_3_mfi_current = row['MFI'] > 50
+            silent_4_mfi_rising = row['MFI'] > row['MFI_10d_ago']
+            silent_5_obv = row['OBV_Rising']
+            silent_6_box = row['Box_Range'] <= 1.15
+            
+            silent_count = sum([silent_1_atr, silent_2_mfi_persist, 
+                              silent_3_mfi_current, silent_4_mfi_rising,
+                              silent_5_obv, silent_6_box])
+            
+            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            # 🏆 역매공파 바닥권 (신규 지표 활용!)
+            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            near_ma112 = row['Near_MA112'] <= 5.0
+            long_bottom = row['Below_MA112_60d'] >= 40
+            bottom_area = near_ma112 and long_bottom
+            
+            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            # 💎 폭발 직전 (BB수축 + 수급)
+            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            bb_squeeze = row['BB40_Width'] <= 10.0
+            supply_strong = row['OBV_Rising'] and row['MFI_Strong']
+            explosion_ready = bb_squeeze and supply_strong
 
             #수박지표
             is_watermelon = row['Watermelon_Signal']
             watermelon_color = row['Watermelon_Color']
+            watermelon_score = row['Watermelon_Score']
             red_score = (
                 int(row['OBV_Rising']) +
                 int(row['MFI_Strong']) +
@@ -646,11 +675,17 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
                 
             if acc_1_obv_rising:
                 tags.append("📊OBV상승")
-
-            # 💡 [신규] 조용한 매집 (최고 점수!)
-            if is_silent_accumulation:
-                s_score += 80
-                tags.append("🤫조용한매집💰")
+            
+            # 조용한 매집
+            if silent_count >= 5:
+                s_score += 100
+                tags.append("🤫조용한매집완전")
+            elif silent_count >= 4:
+                s_score += 60
+                tags.append("🤫조용한매집강")
+            elif silent_count >= 3:
+                s_score += 30
+                tags.append("🤫조용한매집약")
 
             # 세부 조건 태그
             if silent_1_atr_low:
@@ -677,6 +712,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
                 s_score += 100
                 tags.append("🍉수박신호")
                 tags.append(f"🍉빨강전환(강도{red_score}/3)")
+                tags.append(f"🍉강도{watermelon_score}/3")
             elif watermelon_color == 'red' and red_score >= 2:
                 s_score += 60
                 tags.append("🍉빨강상태")    
@@ -687,6 +723,28 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             if t_pct > 40:
                 s_score -= 25
                 tags.append("⚠️윗꼬리")
+
+            # 세부 태그
+            if silent_1_atr:
+                tags.append(f"🔇ATR조용{int(row['ATR_Below_Days'])}일")
+            if silent_2_mfi_persist:
+                tags.append(f"💰MFI강세{int(row['MFI_Strong_Days'])}일")
+            
+            # 역매공파 바닥권
+            if bottom_area:
+                s_score += 80
+                tags.append("🏆112선바닥권")
+                tags.append(f"📍거리{row['Near_MA112']:.1f}%")
+            
+            # 폭발 직전
+            if explosion_ready:
+                s_score += 90
+                tags.append("💎폭발직전")
+            
+            # 최강 조합
+            if is_watermelon and explosion_ready and bottom_area:
+                s_score += 80
+                tags.append("💎💎💎스윙골드")
 
             # 기상도 감점
             storm_count = sum([1 for m in ['ixic', 'sp500'] if row[f'{m}_close'] <= row[f'{m}_ma5']])
