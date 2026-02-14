@@ -241,7 +241,7 @@ def calculate_strategy_stats(all_hits):
 # ---------------------------------------------------------
 # 📈 [데이터] 마스터 지표 엔진 (Ver 36.7)
 # ---------------------------------------------------------
-def get_indicators(df):
+def get_indicators_back(df):
     df = df.copy()
     count = len(df)
 
@@ -344,89 +344,93 @@ def get_indicators(df):
 
     return df
 
-def get_indicators_back(df):
+def get_indicators(df):
     df = df.copy()
     count = len(df)
-    
-    # 단테 장기선 포함 이평선
+
+    # 1. 이동평균선 및 거래량 이평 (단테 112/224 포함)
     for n in [5, 20, 40, 60, 112, 224]:
         df[f'MA{n}'] = df['Close'].rolling(window=min(count, n)).mean()
         df[f'VMA{n}'] = df['Volume'].rolling(window=min(count, n)).mean()
-    
-    # 20/40일 BB Width (이중 응축)
+
+    # 2. 볼린저 밴드 (20/40 이중 응축)
     std20 = df['Close'].rolling(20).std()
     df['BB_Upper'] = df['MA20'] + (std20 * 2)
     df['BB20_Width'] = (std20 * 4) / df['MA20'] * 100
+    
     std40 = df['Close'].rolling(40).std()
     df['BB40_Upper'] = df['MA40'] + (std40 * 2)
     df['BB40_Lower'] = df['MA40'] - (std40 * 2)
     df['BB40_Width'] = (std40 * 4) / df['MA40'] * 100
-    
-    # 이평선 수렴도 계산
+    df['BB40_PercentB'] = (df['Close'] - df['BB40_Lower']) / (df['BB40_Upper'] - df['BB40_Lower'])
+
+    # 3. 이평선 수렴도 및 이격도
     df['MA_Convergence'] = abs(df['MA20'] - df['MA60']) / df['MA60'] * 100
-    
-    # 일목균형표
+    df['Disparity'] = (df['Close'] / df['MA20']) * 100
+
+    # 4. 일목균형표 (구름대 및 기준선)
     df['Tenkan_sen'] = (df['High'].rolling(9).max() + df['Low'].rolling(9).min()) / 2
     df['Kijun_sen'] = (df['High'].rolling(26).max() + df['Low'].rolling(26).min()) / 2
     df['Span_A'] = ((df['Tenkan_sen'] + df['Kijun_sen']) / 2).shift(26)
     df['Span_B'] = ((df['High'].rolling(52).max() + df['Low'].rolling(52).min()) / 2).shift(26)
     df['Cloud_Top'] = df[['Span_A', 'Span_B']].max(axis=1)
 
-    # 스토캐스틱
+    # 5. 스토캐스틱 (K, D, SD)
     l_min, h_max = df['Low'].rolling(12).min(), df['High'].rolling(12).max()
     df['Sto_K'] = ((df['Close'] - l_min) / (h_max - l_min)) * 100
     df['Sto_D'] = df['Sto_K'].rolling(5).mean()
     df['Sto_SD'] = df['Sto_D'].rolling(5).mean()
-    
-    # ADX
+
+    # 6. ADX (방향성 지수)
     high, low, close = df['High'], df['Low'], df['Close']
     tr = pd.concat([high - low, abs(high - close.shift(1)), abs(low - close.shift(1))], axis=1).max(axis=1)
-    df['ADX'] = ((abs((high-high.shift(1)).clip(lower=0).rolling(14).sum() - (low.shift(1)-low).clip(lower=0).rolling(14).sum()) / 
-                ((high-high.shift(1)).clip(lower=0).rolling(14).sum() + (low.shift(1)-low).clip(lower=0).rolling(14).sum())) * 100).rolling(14).mean()
-    
-    # MACD
+    dm_plus = (high - high.shift(1)).clip(lower=0)
+    dm_minus = (low.shift(1) - low).clip(lower=0)
+    df['ADX'] = ((abs(dm_plus.rolling(14).sum() - dm_minus.rolling(14).sum()) / 
+                (dm_plus.rolling(14).sum() + dm_minus.rolling(14).sum())) * 100).rolling(14).mean()
+
+    # 7. MACD
     ema12 = df['Close'].ewm(span=12).mean()
     ema26 = df['Close'].ewm(span=26).mean()
     df['MACD'] = ema12 - ema26
     df['MACD_Signal'] = df['MACD'].ewm(span=9).mean()
     df['MACD_Hist'] = df['MACD'] - df['MACD_Signal']
-    
-    # OBV
+
+    # 8. OBV (수박 로직 통합)
     df['OBV'] = (np.sign(df['Close'].diff()) * df['Volume']).fillna(0).cumsum()
+    df['OBV_MA10'] = df['OBV'].rolling(10).mean()
+    df['OBV_Rising'] = df['OBV'] > df['OBV_MA10']
     df['OBV_Slope'] = (df['OBV'] - df['OBV'].shift(5)) / df['OBV'].shift(5).abs() * 100
-    
-    # RSI
+
+    # 9. RSI (정밀 Wilder's 방식 - 100 초과 방지)
     delta = df['Close'].diff()
-    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+    gain = delta.where(delta > 0, 0).ewm(com=13, adjust=False).mean()
+    loss = (-delta.where(delta < 0, 0)).ewm(com=13, adjust=False).mean()
     rs = gain / loss
     df['RSI'] = 100 - (100 / (1 + rs))
-    
-    df['Disparity'] = (df['Close'] / df['MA20']) * 100
-    df['Box_Range'] = df['High'].rolling(10).max() / df['Low'].rolling(10).min()
-    
-    # ATR
-    high, low, close = df['High'], df['Low'], df['Close']
-    tr = pd.concat([
-        high - low, 
-        abs(high - close.shift(1)), 
-        abs(low - close.shift(1))
-    ], axis=1).max(axis=1)
-    df['ATR'] = tr.rolling(14).mean()
-    df['ATR_MA20'] = df['ATR'].rolling(20).mean()
-    
-    # MFI
+
+    # 10. MFI (수박 로직 통합)
     typical_price = (df['High'] + df['Low'] + df['Close']) / 3
     money_flow = typical_price * df['Volume']
-    
-    positive_flow = money_flow.where(typical_price > typical_price.shift(1), 0).rolling(14).sum()
-    negative_flow = money_flow.where(typical_price < typical_price.shift(1), 0).rolling(14).sum()
-    
-    mfi_ratio = positive_flow / negative_flow
-    df['MFI'] = 100 - (100 / (1 + mfi_ratio))
+    pos_f = money_flow.where(typical_price > typical_price.shift(1), 0).rolling(14).sum()
+    neg_f = money_flow.where(typical_price < typical_price.shift(1), 0).rolling(14).sum()
+    df['MFI'] = 100 - (100 / (1 + (pos_f / neg_f)))
+    df['MFI_Strong'] = df['MFI'] > 50
     df['MFI_Prev5'] = df['MFI'].shift(5)
+
+    # 11. 매집 파워 및 조용한 매집용 ATR
+    df['Buy_Power'] = df['Volume'] * (df['Close'] - df['Open'])
+    df['Buy_Power_MA'] = df['Buy_Power'].rolling(10).mean()
+    df['Buying_Pressure'] = df['Buy_Power'] > df['Buy_Power_MA']
     
-    # 💡 [신규] 최근 N일 지속성 체크용 컬럼들
+    tr_atr = pd.concat([high - low, abs(high - close.shift(1)), abs(low - close.shift(1))], axis=1).max(axis=1)
+    df['ATR'] = tr_atr.rolling(14).mean()
+    df['ATR_MA20'] = df['ATR'].rolling(20).mean()
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # 💡 [신규 추가] 조용한 매집 지속성 체크용
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    
     # ATR이 평균 아래인 날 카운트 (최근 10일)
     df['ATR_Below_MA'] = (df['ATR'] < df['ATR_MA20']).astype(int)
     df['ATR_Below_Days'] = df['ATR_Below_MA'].rolling(10).sum()
@@ -435,12 +439,34 @@ def get_indicators_back(df):
     df['MFI_Above50'] = (df['MFI'] > 50).astype(int)
     df['MFI_Strong_Days'] = df['MFI_Above50'].rolling(10).sum()
     
-    # MFI 상승 추세 (10일 전보다 높음)
+    # MFI 10일 전 값 (상승 추세 확인용)
     df['MFI_10d_ago'] = df['MFI'].shift(10)
     
-    # 볼린저 %B
-    df['BB40_PercentB'] = (df['Close'] - df['BB40_Lower']) / (df['BB40_Upper'] - df['BB40_Lower'])
-    df += watermelon_indicator_complete(df)
+    # 112일선 근접도 (스윙 검색용)
+    df['Near_MA112'] = (abs(df['Close'] - df['MA112']) / df['MA112'] * 100)
+    
+    # 장기 바닥권 체크 (최근 60일 중 112선 아래 일수)
+    df['Below_MA112'] = (df['Close'] < df['MA112']).astype(int)
+    df['Below_MA112_60d'] = df['Below_MA112'].rolling(60).sum()
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    # 12. 수박 색상 및 신호 시스템
+    red_score = (
+        df['OBV_Rising'].astype(int) + 
+        df['MFI_Strong'].astype(int) + 
+        df['Buying_Pressure'].astype(int)
+    )
+    df['Watermelon_Color'] = np.where(red_score >= 2, 'red', 'green')
+    
+    color_change = (df['Watermelon_Color'] == 'red') & (df['Watermelon_Color'].shift(1) == 'green')
+    df['Green_Days_10'] = (df['Watermelon_Color'].shift(1) == 'green').rolling(10).sum()
+    volume_surge = df['Volume'] >= df['Volume'].rolling(20).mean() * 1.2
+    
+    df['Watermelon_Signal'] = color_change & (df['Green_Days_10'] >= 7) & volume_surge
+    df['Watermelon_Score'] = red_score # 0~3점
+
+    # 13. 기타 (박스권 범위 등)
+    df['Box_Range'] = df['High'].rolling(10).max() / df['Low'].rolling(10).min()
 
     return df
 
