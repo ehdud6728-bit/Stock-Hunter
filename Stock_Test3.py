@@ -750,6 +750,78 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
                 dante_data_ratio = dante_data['ratio']
                 dante_data_mae_jip = dante_data['mae_jip']
 
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            # 1. 신호 수집
+            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            
+            signals = {
+                # 수박지표
+                'watermelon_signal': row['Watermelon_Signal'],
+                'watermelon_red': row['Watermelon_Color'] == 'red',
+                'watermelon_green_7d': row['Green_Days_10'] >= 7,
+                
+                # 폭발 직전
+                'explosion_ready': (
+                    row['BB40_Width'] <= 10.0 and 
+                    row['OBV_Rising'] and 
+                    row['MFI_Strong']
+                ),
+                
+                # 바닥권
+                'bottom_area': (
+                    row['Near_MA112'] <= 5.0 and 
+                    row['Below_MA112_60d'] >= 40
+                ),
+                
+                # 조용한 매집
+                'silent_perfect': (
+                    row['ATR_Below_Days'] >= 7 and
+                    row['MFI_Strong_Days'] >= 7 and
+                    row['MFI'] > 50 and
+                    row['MFI'] > row['MFI_10d_ago'] and
+                    row['OBV_Rising'] and
+                    row['Box_Range'] <= 1.15
+                ),
+                'silent_strong': (
+                    row['ATR_Below_Days'] >= 5 and
+                    row['MFI_Strong_Days'] >= 5 and
+                    row['OBV_Rising']
+                ),
+                
+                # 역매공파 돌파
+                'yeok_break': (
+                    close_p > row['MA112'] and 
+                    prev['Close'] <= row['MA112']
+                ),
+                
+                # 기타
+                'volume_surge': row['Volume'] >= row['VMA20'] * 1.5,
+                'obv_rising': row['OBV_Rising'],
+                'mfi_strong': row['MFI_Strong'],
+            }
+            
+            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            # 2. 조합 점수 계산
+            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            
+            result = calculate_combination_score(signals)
+
+ # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            # 3. 추가 정보 태그
+            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            new_tags = result['tags'].copy()
+            
+            # 세부 정보 추가
+            if signals['watermelon_signal']:
+                new_tags.append(f"🍉강도{row['Watermelon_Score']}/3")
+            
+            if signals['bottom_area']:
+                new_tags.append(f"📍거리{row['Near_MA112']:.1f}%")
+            
+            if signals['silent_perfect'] or signals['silent_strong']:
+                new_tags.append(f"🔇ATR{int(row['ATR_Below_Days'])}일")
+                new_tags.append(f"💰MFI{int(row['MFI_Strong_Days'])}일")
+
             # 💡 오늘의 현재가 저장 (나중에 사용)
             today_price = df.iloc[-1]['Close']
 
@@ -986,7 +1058,11 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
 
             hits.append({
                 '날짜': curr_idx.strftime('%Y-%m-%d'),
-                '👑등급': grade,              # 👈 서사 엔진 결과물 1
+                '👑등급': grade,
+                'N등급': result['grade'],
+                'N점수': result['score'],
+                'N조합': result['combination'],
+                  # 👈 서사 엔진 결과물 1
                 '📜서사히스토리': narrative,    # 👈 서사 엔진 결과물 2
                 '확신점수': conviction,        # 👈 서사 엔진 결과물 3
                 '🎯목표타점': int(target),      # 👈 서사 기반 타점
@@ -1007,8 +1083,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
                 '매집': f"{acc_count}/5",
                 '최고수익률%': f"{max_r:+.1f}%",
                 '최저수익률%': f"{min_r:+.1f}%",
-                '최고수익률_raw': max_r,
-                '최저수익률_raw': min_r,
+                'N구분': " ".join(newtags),
                 '구분': " ".join(tags),
                 '보유일': len(h_df)
             })
