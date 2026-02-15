@@ -737,6 +737,12 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             prev = df.iloc[raw_idx-1]
             prev_5 = df.iloc[max(0, raw_idx-5)]
             prev_10 = df.iloc[max(0, raw_idx-10)]
+
+            # ✅ [필수] 가격 변수 정의
+            close_p = row['Close']      # 당일 종가
+            open_p = row['Open']        # 당일 시가
+            high_p = row['High']        # 당일 고가
+            low_p = row['Low']          # 당일 저가
             
             temp_df = df.iloc[:raw_idx + 1]
 
