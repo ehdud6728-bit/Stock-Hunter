@@ -357,11 +357,11 @@ def proper_backtest_analysis(all_hits):
         # 실전 통계 (현실적)
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         
-        winners_real = len([h for h in hits if h['최고수익률_real'] >= 3.5])
-        avg_max_real = sum([h['최고수익률_real'] for h in hits]) / total
-        avg_min_real = sum([h['최저수익률_real'] for h in hits]) / total
-        max_gain_real = max([h['최고수익률_real'] for h in hits])
-        max_loss_real = min([h['최저수익률_real'] for h in hits])
+        winners_real = len([h for h in hits if h['최고수익률_raw'] >= 3.5])
+        avg_max_real = sum([h['최고수익률_raw'] for h in hits]) / total
+        avg_min_real = sum([h['최저수익률_raw'] for h in hits]) / total
+        max_gain_real = max([h['최고수익률_raw'] for h in hits])
+        max_loss_real = min([h['최저수익률_raw'] for h in hits])
         
         win_rate_real = (winners_real / total) * 100
         expected_real = (win_rate_real / 100) * avg_max_real
