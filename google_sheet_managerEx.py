@@ -8,8 +8,12 @@ import os, json, traceback
 from datetime import datetime, timedelta
 from DNA_Analyzer import analyze_dna_sequences, find_winning_pattern, find_winning_pattern_by_tier
 
-def update_commander_dashboard(df_main, macro_data, sheet_name, stats_df=None, 
-                               today_df=None, ai_recommendation=None):
+def update_commander_dashboard(df, macro_data, sheet_name, stats_df=None, 
+                               today_recommendations=None, ai_recommendation=None,
+                               s_grade_special=None, grade_analysis=None,
+                               df_backtest=None, df_realistic=None,
+                               df_combo=None, best_combos=None, worst_combos=None,
+                               df_profit_dist=None):
     """
     [경량화 버전] 함수 내 복잡한 계산을 제거하고 저장에만 집중합니다.
     """
