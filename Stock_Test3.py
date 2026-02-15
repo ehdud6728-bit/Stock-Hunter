@@ -193,7 +193,7 @@ def analyze_specific_combination(all_hits, combination_name):
     combo_hits = [h for h in all_hits 
                   if h['조합'] == combination_name 
                   and h['보유일'] > 0
-                  and h['최저수익률_real'] > -50]
+                  and h['최저수익률_raw'] > -50]
     
     if not combo_hits:
         print(f"⚠️ {combination_name} 데이터 없음")
@@ -203,16 +203,16 @@ def analyze_specific_combination(all_hits, combination_name):
     df_detail = pd.DataFrame(combo_hits)
     
     # 수익률 기준 정렬
-    df_detail = df_detail.sort_values(by='최고수익률_real', ascending=False)
+    df_detail = df_detail.sort_values(by='최고수익률_raw', ascending=False)
     
     # 통계 요약
     print(f"\n{'='*100}")
     print(f"🔍 [ {combination_name} 상세 분석 ]")
     print(f"{'='*100}")
     print(f"총 건수: {len(combo_hits)}건")
-    print(f"승률: {len([h for h in combo_hits if h['최고수익률_real'] >= 3.5]) / len(combo_hits) * 100:.1f}%")
-    print(f"평균 수익: {sum([h['최고수익률_real'] for h in combo_hits]) / len(combo_hits):.1f}%")
-    print(f"평균 손실: {sum([h['최저수익률_real'] for h in combo_hits]) / len(combo_hits):.1f}%")
+    print(f"승률: {len([h for h in combo_hits if h['최고수익률_raw'] >= 3.5]) / len(combo_hits) * 100:.1f}%")
+    print(f"평균 수익: {sum([h['최고수익률_raw'] for h in combo_hits]) / len(combo_hits):.1f}%")
+    print(f"평균 손실: {sum([h['최저수익률_raw'] for h in combo_hits]) / len(combo_hits):.1f}%")
     print(f"\n{'='*100}")
     print("개별 케이스:")
     print(f"{'='*100}")
