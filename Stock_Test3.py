@@ -308,9 +308,9 @@ def proper_backtest_analysis(all_hits):
     
     # 점수 구간별 분류
     groups = {
-        'S급 (300+)': [h for h in past_hits if h['점수'] >= 300],
-        'A급 (250-299)': [h for h in past_hits if 250 <= h['점수'] < 300],
-        'B급 (200-249)': [h for h in past_hits if 200 <= h['점수'] < 250],
+        'S급 (300+)': [h for h in past_hits if h['N점수'] >= 300],
+        'A급 (250-299)': [h for h in past_hits if 250 <= h['N점수'] < 300],
+        'B급 (200-249)': [h for h in past_hits if 200 <= h['N점수'] < 250],
     }
     
     backtest_results = []
