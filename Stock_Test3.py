@@ -54,11 +54,11 @@ def proper_backtest_analysis(all_hits):
     
     # 점수 구간별 분류
     groups = {
-        'S급 (300+)': [h for h in past_hits if h['점수'] >= 300],
-        'A급 (250-299)': [h for h in past_hits if 250 <= h['점수'] < 300],
-        'B급 (200-249)': [h for h in past_hits if 200 <= h['점수'] < 250],
-        'C급 (150-199)': [h for h in past_hits if 150 <= h['점수'] < 200],
-        'D급 (100-149)': [h for h in past_hits if h['점수'] < 150],
+        'S급 (300+)': [h for h in past_hits if h['N점수'] >= 300],
+        'A급 (250-299)': [h for h in past_hits if 250 <= h['N점수'] < 300],
+        'B급 (200-249)': [h for h in past_hits if 200 <= h['N점수'] < 250],
+        'C급 (150-199)': [h for h in past_hits if 150 <= h['N점수'] < 200],
+        'D급 (100-149)': [h for h in past_hits if h['N점수'] < 150],
     }
     
     results = []
@@ -1332,7 +1332,7 @@ if __name__ == "__main__":
                 "사령부_통합_상황판", 
                 stats_df if not stats_df.empty else None,
                 today[display_cols],  # 오늘의_추천종목 탭: 오늘만 (모든 패턴 통합)
-                None
+                grade_analysis
             )
             print("\n✅ 구글 시트 업데이트 성공!")
             print("   📋 메인 시트")
