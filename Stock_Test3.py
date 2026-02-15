@@ -1089,6 +1089,8 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
                 '매집': f"{acc_count}/5",
                 '최고수익률%': f"{max_r:+.1f}%",
                 '최저수익률%': f"{min_r:+.1f}%",
+                '최고수익률_raw': max_r,
+                '최저수익률_raw': min_r,
                 'N구분': " ".join(new_tags),
                 '구분': " ".join(tags),
                 '보유일': len(h_df)
