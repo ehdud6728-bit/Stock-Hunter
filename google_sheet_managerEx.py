@@ -35,14 +35,14 @@ def update_commander_dashboard(df, macro_data, sheet_name, stats_df=None,
         doc = client.open(sheet_name)
 
         # --- [탭 1: 오늘의_추천종목] (심플하게 변경) ---
-        if today_df is not None and not today_df.empty:
+        if today_recommendations is not None and not today_recommendations.empty:
             try:
                 try: t_sheet = doc.worksheet("오늘의_추천종목")
                 except: t_sheet = doc.add_worksheet(title="오늘의_추천종목", rows="200", cols="20")
                 t_sheet.clear()
                 
 																		# '👑등급' 컬럼에서 '👑LEGEND'인 행만 추출합니다.
-                legend_today = today_df[today_df['👑등급'] == "👑LEGEND"].copy()
+                legend_today = today_df[today_recommendations['👑등급'] == "👑LEGEND"].copy()
                #legend_today = legend_today[legend_today['날짜'] == today_str].copy()
                 #
                 # 헤더 정보
