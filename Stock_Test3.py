@@ -237,10 +237,10 @@ def analyze_profit_distribution(all_hits):
     
     past_hits = [h for h in all_hits 
                 if h['보유일'] > 0 
-                and h['최저수익률_real'] > -50]
+                and h['최저수익률_raw'] > -50]
     
     if not past_hits:
-        return
+        return pd.DataFrame()
     
     # 수익률 구간 정의
     ranges = [
@@ -259,17 +259,20 @@ def analyze_profit_distribution(all_hits):
     
     for label, min_val, max_val in ranges:
         count = len([h for h in past_hits 
-                    if min_val <= h['최고수익률_real'] < max_val])
+                    if min_val <= h['최고수익률_raw'] < max_val])
         
         ratio = (count / len(past_hits)) * 100
         
         # 해당 구간의 조합 분석
         range_hits = [h for h in past_hits 
-                     if min_val <= h['최고수익률_real'] < max_val]
+                     if min_val <= h['최고수익률_raw'] < max_val]
         
         if range_hits:
-            top_combo = max(set([h['조합'] for h in range_hits]),
-                          key=lambda x: len([h for h in range_hits if h['조합'] == x]))
+            combo_counts = {}
+            for h in range_hits:
+                combo = h['조합']
+                combo_counts[combo] = combo_counts.get(combo, 0) + 1
+            top_combo = max(combo_counts, key=combo_counts.get)
         else:
             top_combo = '-'
         
@@ -287,6 +290,7 @@ def analyze_profit_distribution(all_hits):
     print(f"{'='*100}")
     print(df_dist)
     
+    # ✅ DataFrame 반환 추가
     return df_dist
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1547,102 +1551,17 @@ if __name__ == "__main__":
     if all_hits:
         df_total = pd.DataFrame(all_hits)
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    # 등급별 비교 분석
-    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        # ✅ 백테스트 분석 (백테스트 + 실전)
+        # 백테스트 분석
         df_backtest, df_realistic, s_grade_info = proper_backtest_analysis(all_hits)
-        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        # ✅ 조합별 성과 분석 (신규!)
-        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         
+        # 조합별 성과 분석
         df_combo, best_combos, worst_combos = analyze_combination_performance(all_hits)
-  
-        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        # 출력 3: 조합별 성과 분석
-        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         
-        print("\n" + "🏆 " * 25)
-        print("[ 조합별 성과 분석 (과거 30일) ]")
-        print("=" * 120)
+        # 수익률 분포
+        df_profit_dist = analyze_profit_distribution(all_hits)
         
-        if not df_combo.empty:
-            # 전체 조합
-            print("\n📊 전체 조합 성과:")
-            print("=" * 120)
-            display_cols = ['조합', '등급', '건수', '승률(%)', '평균수익(%)', 
-                          '중앙수익(%)', '기대값', '샤프비율', '안정성']
-            print(df_combo[display_cols])
-            
-            # TOP 10
-            if best_combos:
-                print("\n" + "🥇 " * 25)
-                print("[ TOP 10 최고 성과 조합 ]")
-                print("=" * 120)
-                
-                for idx, combo in enumerate(best_combos[:10], 1):
-                    medal = "🥇" if idx == 1 else "🥈" if idx == 2 else "🥉" if idx == 3 else f"{idx}."
-                    print(f"\n{medal} {combo['조합']} ({combo['등급']})")
-                    print(f"   건수: {combo['건수']}건 | 승률: {combo['승률(%)']}% | "
-                          f"평균수익: {combo['평균수익(%)']}% | 기대값: {combo['기대값']}")
-                    print(f"   샤프비율: {combo['샤프비율']} | 안정성: {combo['안정성']}")
-            
-            # WORST 5
-            if worst_combos:
-                print("\n" + "⚠️ " * 25)
-                print("[ WORST 5 저성과 조합 (개선 필요) ]")
-                print("=" * 120)
-                
-                for idx, combo in enumerate(worst_combos, 1):
-                    print(f"\n{idx}. {combo['조합']}")
-                    print(f"   건수: {combo['건수']}건 | 승률: {combo['승률(%)']}% | "
-                          f"평균수익: {combo['평균수익(%)']}% | 기대값: {combo['기대값']}")
-        
-        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        # 출력 4: 수익률 분포 분석
-        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        
-        analyze_profit_distribution(all_hits)
-        
-        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        # 출력 5: 특정 조합 상세 분석 (TOP 3)
-        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        
-        if best_combos:
-            print("\n" + "🔍 " * 25)
-            print("[ TOP 3 조합 상세 분석 ]")
-            
-            for combo in best_combos[:3]:
-                analyze_specific_combination(all_hits, combo['조합'])
-    
-        print("\n" + "🔍 " * 15)
-        print("[ 핵심 질문: 우리 점수가 정말 의미 있나? ]")
-        print("=" * 100)
-        print(grade_analysis)
-        print("\n")
-    
-        # 결론 자동 판정
-        if not grade_analysis.empty:
-            s_grade = grade_analysis[grade_analysis['등급'].str.contains('S급')]
-            d_grade = grade_analysis[grade_analysis['등급'].str.contains('D급')]
-        
-        if not s_grade.empty and not d_grade.empty:
-            s_expected = s_grade.iloc[0]['기대값']
-            d_expected = d_grade.iloc[0]['기대값']
-            diff = s_expected - d_expected
-            
-            print(f"📊 S급 기대값: {s_expected}")
-            print(f"📊 D급 기대값: {d_expected}")
-            print(f"📊 차이: {diff} ({diff/d_expected*100:.1f}%)\n")
-            
-            if diff > 5:
-                print("✅ 결론: 우리 점수가 의미 있음! (5 이상 차이)")
-            elif diff > 2:
-                print("⚠️ 결론: 약간 의미 있음 (2~5 차이)")
-            else:
-                print("❌ 결론: 거래대금만으로 충분 (2 이하 차이)")
-                print("   → 거래대금 필터가 너무 강력")
-                print("   → 범위 확대 검토 (700위?)")
+        # 조합별 통계
+        stats_df, top_5 = calculate_strategy_stats(all_hits)
 
         # 통계 계산 (상위 5개 추천 정보 포함)
         stats_df, top_recommendations = calculate_strategy_stats(all_hits)
@@ -1684,16 +1603,38 @@ if __name__ == "__main__":
         # 5. 구글 시트 전송
         try:
             update_commander_dashboard(
-                df_total[display_cols].sort_values(by=['최고수익률%','종목','날짜'], ascending=False),
-                macro_status, 
-                "사령부_통합_상황판", 
-                stats_df if not stats_df.empty else None,
-                today[display_cols],  # 오늘의_추천종목 탭: 오늘만 (모든 패턴 통합)
-                grade_analysis
+                df_total,
+                macro_status,
+                "사령부_통합_상황판",
+                stats_df=stats_df,
+                today_recommendations=today,
+                ai_recommendation=pd.DataFrame(top_5) if top_5 else None,
+                s_grade_special=s_grade_today if not s_grade_today.empty else None,
+                grade_analysis=grade_analysis,
+                
+                # ✅ 신규 파라미터
+                df_backtest=df_backtest,
+                df_realistic=df_realistic,
+                df_combo=df_combo,
+                best_combos=best_combos,
+                worst_combos=worst_combos,
+                df_profit_dist=df_profit_dist
             )
-            print("\n✅ 구글 시트 업데이트 성공!")
-            print("   📋 메인 시트")
-            print("   🎯 오늘의_추천종목 탭: 오늘 신호만 (TOP 50, 모든 패턴 통합)")
+            
+            print("\n" + "="*100)
+            print("✅ 구글 시트 업데이트 성공!")
+            print("="*100)
+            print("📋 생성된 시트:")
+            print("   1. 메인 시트: 전체 30일 데이터")
+            print("   2. 오늘의_추천종목: 오늘 신호 (등급별)")
+            print("   3. S급_긴급: S급 종목 특별 모니터링")
+            print("   4. 등급별_분석: S/A/B급 백테스트")
+            print("   5. AI_추천패턴: TOP 5 조합")
+            print("   ✅ 6. 조합별_성과: 전체 조합 성과 (신규!)")
+            print("   ✅ 7. TOP_WORST_조합: 최고/최악 조합 (신규!)")
+            print("   ✅ 8. 수익률_분포: 구간별 분포 (신규!)")
+            print("   ✅ 9. 백테스트_비교: 이상 vs 현실 (신규!)")
+            print("="*100)
         except Exception as e:
             print(f"\n❌ 시트 업데이트 실패: {e}")
     else:
