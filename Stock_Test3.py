@@ -64,7 +64,7 @@ def analyze_combination_performance(all_hits):
         return pd.DataFrame(), [], []
     
     # 상폐주 제거
-    past_hits = [h for h in past_hits if h['최저수익률_real'] > -50]
+    past_hits = [h for h in past_hits if h['최저수익률_raw'] > -50]
     
     # 조합별 그룹화
     combination_stats = {}
@@ -80,8 +80,8 @@ def analyze_combination_performance(all_hits):
             }
         
         combination_stats[combo]['hits'].append(hit)
-        combination_stats[combo]['gains'].append(hit['최고수익률_real'])
-        combination_stats[combo]['losses'].append(hit['최저수익률_real'])
+        combination_stats[combo]['gains'].append(hit['최고수익률_raw'])
+        combination_stats[combo]['losses'].append(hit['최저수익률_raw'])
     
     # 통계 계산
     results = []
