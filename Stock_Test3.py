@@ -1567,7 +1567,14 @@ if __name__ == "__main__":
         stats_df, top_recommendations = calculate_strategy_stats(all_hits)
 
         # 4. 결과 분류
+        today = df_total[df_total['보유일'] == 0]
+        today = today[today['점수'] >= 0]
+        today = today.sort_values(by='N점수', ascending=False)
+        
         today = df_total[df_total['보유일'] == 0].sort_values(by='확신점수', ascending=False)
+        
+        s_grade_today = today[today['등급'] == 'S']
+        
         desired_cols = ['날짜',
                 '👑등급',
                 '종목',
