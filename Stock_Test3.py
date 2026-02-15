@@ -1573,7 +1573,7 @@ if __name__ == "__main__":
         
         today = df_total[df_total['보유일'] == 0].sort_values(by='확신점수', ascending=False)
         
-        s_grade_today = today[today['등급'] == 'S']
+        s_grade_today = today[today['N등급'] == 'S']
         
         desired_cols = ['날짜',
                 '👑등급',
