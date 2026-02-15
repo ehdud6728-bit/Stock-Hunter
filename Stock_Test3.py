@@ -270,7 +270,7 @@ def analyze_profit_distribution(all_hits):
         if range_hits:
             combo_counts = {}
             for h in range_hits:
-                combo = h['조합']
+                combo = h['N조합']
                 combo_counts[combo] = combo_counts.get(combo, 0) + 1
             top_combo = max(combo_counts, key=combo_counts.get)
         else:
