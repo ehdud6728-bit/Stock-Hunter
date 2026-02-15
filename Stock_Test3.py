@@ -41,6 +41,59 @@ END_DATE_STR = datetime.now().strftime('%Y%m%d')
 
 print(f"📡 [Ver 36.7 엑셀저장+추천] 사령부 무결성 통합 가동... 💎다이아몬드 & 📊복합통계 엔진 탑재")
 
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 진짜 검증: 점수별 그룹 비교
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+def proper_backtest_analysis(all_hits):
+    """
+    점수 구간별 성과 비교
+    """
+    
+    past_hits = [h for h in all_hits if h['보유일'] > 0]
+    
+    # 점수 구간별 분류
+    groups = {
+        'S급 (300+)': [h for h in past_hits if h['점수'] >= 300],
+        'A급 (250-299)': [h for h in past_hits if 250 <= h['점수'] < 300],
+        'B급 (200-249)': [h for h in past_hits if 200 <= h['점수'] < 250],
+        'C급 (150-199)': [h for h in past_hits if 150 <= h['점수'] < 200],
+        'D급 (100-149)': [h for h in past_hits if h['점수'] < 150],
+    }
+    
+    results = []
+    
+    for grade, hits in groups.items():
+        if not hits:
+            continue
+        
+        # 통계 계산
+        total = len(hits)
+        winners = len([h for h in hits if h['최고수익률_raw'] >= 3.5])
+        
+        avg_max = sum([h['최고수익률_raw'] for h in hits]) / total
+        avg_min = sum([h['최저수익률_raw'] for h in hits]) / total
+        
+        max_gain = max([h['최고수익률_raw'] for h in hits])
+        max_loss = min([h['최저수익률_raw'] for h in hits])
+        
+        win_rate = (winners / total) * 100
+        expected = (win_rate / 100) * avg_max
+        
+        results.append({
+            '등급': grade,
+            '건수': total,
+            '승률(%)': round(win_rate, 1),
+            '평균수익(%)': round(avg_max, 1),
+            '평균손실(%)': round(avg_min, 1),
+            '최대수익(%)': round(max_gain, 1),
+            '최대손실(%)': round(max_loss, 1),
+            '기대값': round(expected, 2),
+            '샤프비율': round(avg_max / abs(avg_min) if avg_min != 0 else 0, 2)
+        })
+    
+    return pd.DataFrame(results)
+
 def get_stock_sector(ticker, sector_map):
     """
     기존에 수집된 섹터 마스터 맵에서 종목의 업종을 판독합니다.
@@ -1199,6 +1252,40 @@ if __name__ == "__main__":
 
     if all_hits:
         df_total = pd.DataFrame(all_hits)
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # 등급별 비교 분석
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        grade_analysis = proper_backtest_analysis(all_hits)
+    
+        print("\n" + "🔍 " * 15)
+        print("[ 핵심 질문: 우리 점수가 정말 의미 있나? ]")
+        print("=" * 100)
+        print(grade_analysis)
+        print("\n")
+    
+        # 결론 자동 판정
+        if not grade_analysis.empty:
+            s_grade = grade_analysis[grade_analysis['등급'].str.contains('S급')]
+            d_grade = grade_analysis[grade_analysis['등급'].str.contains('D급')]
+        
+        if not s_grade.empty and not d_grade.empty:
+            s_expected = s_grade.iloc[0]['기대값']
+            d_expected = d_grade.iloc[0]['기대값']
+            diff = s_expected - d_expected
+            
+            print(f"📊 S급 기대값: {s_expected}")
+            print(f"📊 D급 기대값: {d_expected}")
+            print(f"📊 차이: {diff} ({diff/d_expected*100:.1f}%)\n")
+            
+            if diff > 5:
+                print("✅ 결론: 우리 점수가 의미 있음! (5 이상 차이)")
+            elif diff > 2:
+                print("⚠️ 결론: 약간 의미 있음 (2~5 차이)")
+            else:
+                print("❌ 결론: 거래대금만으로 충분 (2 이하 차이)")
+                print("   → 거래대금 필터가 너무 강력")
+                print("   → 범위 확대 검토 (700위?)")
 
         # 통계 계산 (상위 5개 추천 정보 포함)
         stats_df, top_recommendations = calculate_strategy_stats(all_hits)
