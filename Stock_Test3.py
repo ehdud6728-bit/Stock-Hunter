@@ -1230,8 +1230,6 @@ if __name__ == "__main__":
                 '확신점수',
                 '안전점수',
                 '섹터',
-                '최고수익률_raw',
-                '최저수익률_raw',
                 '보유일']
         display_cols = [c for c in desired_cols if c in today.columns]
 
