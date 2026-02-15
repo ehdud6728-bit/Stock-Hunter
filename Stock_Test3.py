@@ -289,87 +289,104 @@ def analyze_profit_distribution(all_hits):
     
     return df_dist
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# 진짜 검증: 점수별 그룹 비교
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# 📊 등급별 백테스트 분석 (버그 수정)
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 📊 등급별 백테스트 분석 (실전 포함)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 def proper_backtest_analysis(all_hits):
     """
-    점수 구간별 성과 비교 (승률 버그 수정)
+    점수 구간별 성과 비교 (백테스트 vs 실전)
     """
     
     past_hits = [h for h in all_hits if h['보유일'] > 0]
     
     if not past_hits:
-        return pd.DataFrame(), None
+        return pd.DataFrame(), pd.DataFrame(), None
+    
+    # 상폐주 제거 (손실 -50% 이하)
+    past_hits = [h for h in past_hits if h['최저수익률_raw'] > -50]
     
     # 점수 구간별 분류
     groups = {
-        'S급 (300+)': [h for h in past_hits if h['N점수'] >= 300],
-        'A급 (250-299)': [h for h in past_hits if 250 <= h['N점수'] < 300],
-        'B급 (200-249)': [h for h in past_hits if 200 <= h['N점수'] < 250],
-        'C급 (150-199)': [h for h in past_hits if 150 <= h['N점수'] < 200],
-        'D급 (100-149)': [h for h in past_hits if h['N점수'] < 150],
+        'S급 (300+)': [h for h in past_hits if h['점수'] >= 300],
+        'A급 (250-299)': [h for h in past_hits if 250 <= h['점수'] < 300],
+        'B급 (200-249)': [h for h in past_hits if 200 <= h['점수'] < 250],
     }
     
-    results = []
+    backtest_results = []
+    realistic_results = []
     
     for grade, hits in groups.items():
         if not hits:
             continue
         
+        total = len(hits)
+        
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        # 상폐주 필터링 (손실 -90% 이하 제외)
+        # 백테스트 통계 (이상적)
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        clean_hits = [h for h in hits if h['최저수익률_raw'] > -90]
         
-        if not clean_hits:
-            clean_hits = hits  # 전부 상폐주면 그냥 사용
+        winners_bt = len([h for h in hits if h['최고수익률_raw'] >= 3.5])
+        avg_max_bt = sum([h['최고수익률_raw'] for h in hits]) / total
+        avg_min_bt = sum([h['최저수익률_raw'] for h in hits]) / total
+        max_gain_bt = max([h['최고수익률_raw'] for h in hits])
+        max_loss_bt = min([h['최저수익률_raw'] for h in hits])
         
-        # 통계 계산
-        total = len(clean_hits)
-        winners = len([h for h in clean_hits if h['최고수익률_raw'] >= 3.5])
+        win_rate_bt = (winners_bt / total) * 100
+        expected_bt = (win_rate_bt / 100) * avg_max_bt
+        sharpe_bt = avg_max_bt / abs(avg_min_bt) if avg_min_bt != 0 else 0
         
-        avg_max = sum([h['최고수익률_raw'] for h in clean_hits]) / total
-        avg_min = sum([h['최저수익률_raw'] for h in clean_hits]) / total
-        
-        max_gain = max([h['최고수익률_raw'] for h in clean_hits])
-        max_loss = min([h['최저수익률_raw'] for h in clean_hits])
-        
-        # ✅ 승률 계산 (0~100 사이)
-        win_rate = (winners / total) * 100
-        
-        # ✅ 기대값 계산
-        expected = (win_rate / 100) * avg_max
-        
-        # 샤프비율 (위험 대비 수익)
-        sharpe = avg_max / abs(avg_min) if avg_min != 0 else 0
-        
-        results.append({
+        backtest_results.append({
             '등급': grade,
             '건수': total,
-            '승률(%)': round(win_rate, 1),
-            '승리건수': f"{winners}/{total}",
-            '평균수익(%)': round(avg_max, 1),
-            '평균손실(%)': round(avg_min, 1),
-            '최대수익(%)': round(max_gain, 1),
-            '최대손실(%)': round(max_loss, 1),
-            '기대값': round(expected, 2),
-            '샤프비율': round(sharpe, 2)
+            '승률(%)': round(win_rate_bt, 1),
+            '승리건수': f"{winners_bt}/{total}",
+            '평균수익(%)': round(avg_max_bt, 1),
+            '평균손실(%)': round(avg_min_bt, 1),
+            '최대수익(%)': round(max_gain_bt, 1),
+            '최대손실(%)': round(max_loss_bt, 1),
+            '기대값': round(expected_bt, 2),
+            '샤프비율': round(sharpe_bt, 2)
+        })
+        
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        # 실전 통계 (현실적)
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        
+        winners_real = len([h for h in hits if h['최고수익률_real'] >= 3.5])
+        avg_max_real = sum([h['최고수익률_real'] for h in hits]) / total
+        avg_min_real = sum([h['최저수익률_real'] for h in hits]) / total
+        max_gain_real = max([h['최고수익률_real'] for h in hits])
+        max_loss_real = min([h['최저수익률_real'] for h in hits])
+        
+        win_rate_real = (winners_real / total) * 100
+        expected_real = (win_rate_real / 100) * avg_max_real
+        sharpe_real = avg_max_real / abs(avg_min_real) if avg_min_real != 0 else 0
+        
+        realistic_results.append({
+            '등급': grade,
+            '건수': total,
+            '승률(%)': round(win_rate_real, 1),
+            '승리건수': f"{winners_real}/{total}",
+            '평균수익(%)': round(avg_max_real, 1),
+            '평균손실(%)': round(avg_min_real, 1),
+            '최대수익(%)': round(max_gain_real, 1),
+            '최대손실(%)': round(max_loss_real, 1),
+            '기대값': round(expected_real, 2),
+            '샤프비율': round(sharpe_real, 2)
         })
     
-    df_result = pd.DataFrame(results)
+    df_backtest = pd.DataFrame(backtest_results)
+    df_realistic = pd.DataFrame(realistic_results)
     
-    # S급 정보 추출 (알림용)
+    # S급 정보 (실전 기준)
     s_grade_info = None
-    if not df_result.empty:
-        s_grade = df_result[df_result['등급'].str.contains('S급')]
+    if not df_realistic.empty:
+        s_grade = df_realistic[df_realistic['등급'].str.contains('S급')]
         if not s_grade.empty:
             s_grade_info = s_grade.iloc[0].to_dict()
     
-    return df_result, s_grade_info
+    return df_backtest, df_realistic, s_grade_info
 
 def get_stock_sector(ticker, sector_map):
     """
