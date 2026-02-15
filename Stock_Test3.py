@@ -41,6 +41,254 @@ END_DATE_STR = datetime.now().strftime('%Y%m%d')
 
 print(f"📡 [Ver 36.7 엑셀저장+추천] 사령부 무결성 통합 가동... 💎다이아몬드 & 📊복합통계 엔진 탑재")
 
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 📊 조합별 성과 분석 (상세 버전)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+def analyze_combination_performance(all_hits):
+    """
+    조합 패턴별 수익률 분석
+    
+    Returns:
+        - df_combination: 조합별 통계 DataFrame
+        - best_combinations: TOP 10 조합
+        - worst_combinations: WORST 5 조합
+    """
+    
+    # 과거 데이터만 (보유일 > 0)
+    past_hits = [h for h in all_hits if h['보유일'] > 0]
+    
+    if not past_hits:
+        return pd.DataFrame(), [], []
+    
+    # 상폐주 제거
+    past_hits = [h for h in past_hits if h['최저수익률_real'] > -50]
+    
+    # 조합별 그룹화
+    combination_stats = {}
+    
+    for hit in past_hits:
+        combo = hit['조합']
+        
+        if combo not in combination_stats:
+            combination_stats[combo] = {
+                'hits': [],
+                'gains': [],
+                'losses': []
+            }
+        
+        combination_stats[combo]['hits'].append(hit)
+        combination_stats[combo]['gains'].append(hit['최고수익률_real'])
+        combination_stats[combo]['losses'].append(hit['최저수익률_real'])
+    
+    # 통계 계산
+    results = []
+    
+    for combo, data in combination_stats.items():
+        total = len(data['hits'])
+        
+        # 건수가 너무 적으면 신뢰도 낮음
+        if total < 3:
+            continue
+        
+        # 승률 (3.5% 이상)
+        winners = len([g for g in data['gains'] if g >= 3.5])
+        win_rate = (winners / total) * 100
+        
+        # 평균 수익/손실
+        avg_gain = sum(data['gains']) / total
+        avg_loss = sum(data['losses']) / total
+        
+        # 최대/최소
+        max_gain = max(data['gains'])
+        max_loss = min(data['losses'])
+        
+        # 중앙값 (평균보다 안정적)
+        median_gain = sorted(data['gains'])[total // 2]
+        
+        # 기대값
+        expected = (win_rate / 100) * avg_gain
+        
+        # 샤프비율
+        sharpe = avg_gain / abs(avg_loss) if avg_loss != 0 else 0
+        
+        # 손익비
+        profit_loss_ratio = abs(avg_gain / avg_loss) if avg_loss != 0 else 0
+        
+        # 안정성 점수 (승률 + 샤프비율)
+        stability_score = (win_rate * 0.5) + (sharpe * 10)
+        
+        results.append({
+            '조합': combo,
+            '건수': total,
+            '승률(%)': round(win_rate, 1),
+            '승리건수': f"{winners}/{total}",
+            '평균수익(%)': round(avg_gain, 1),
+            '중앙수익(%)': round(median_gain, 1),
+            '평균손실(%)': round(avg_loss, 1),
+            '최대수익(%)': round(max_gain, 1),
+            '최대손실(%)': round(max_loss, 1),
+            '기대값': round(expected, 2),
+            '샤프비율': round(sharpe, 2),
+            '손익비': round(profit_loss_ratio, 2),
+            '안정성': round(stability_score, 1),
+            
+            # 등급 자동 부여
+            '등급': assign_combination_grade(win_rate, expected, sharpe, total)
+        })
+    
+    # DataFrame 생성
+    df_combo = pd.DataFrame(results)
+    
+    if df_combo.empty:
+        return df_combo, [], []
+    
+    # 정렬 (기대값 기준)
+    df_combo = df_combo.sort_values(by='기대값', ascending=False)
+    
+    # TOP 10 / WORST 5
+    best_combinations = df_combo.head(10).to_dict('records')
+    worst_combinations = df_combo.tail(5).to_dict('records')
+    
+    return df_combo, best_combinations, worst_combinations
+
+
+def assign_combination_grade(win_rate, expected, sharpe, count):
+    """
+    조합 등급 자동 부여
+    """
+    
+    # 신뢰도 체크 (건수가 적으면 감점)
+    reliability = min(count / 10, 1.0)  # 10건 이상이면 100%
+    
+    # 점수 계산
+    score = (
+        (win_rate * 0.4) +       # 승률 40%
+        (expected * 0.4) +       # 기대값 40%
+        (sharpe * 5) +           # 샤프비율 20%
+        0
+    ) * reliability
+    
+    if score >= 80:
+        return 'S급 ⭐⭐⭐'
+    elif score >= 60:
+        return 'A급 ⭐⭐'
+    elif score >= 40:
+        return 'B급 ⭐'
+    else:
+        return 'C급'
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 🔍 특정 조합 상세 분석
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+def analyze_specific_combination(all_hits, combination_name):
+    """
+    특정 조합의 모든 케이스 상세 분석
+    """
+    
+    # 해당 조합 필터
+    combo_hits = [h for h in all_hits 
+                  if h['조합'] == combination_name 
+                  and h['보유일'] > 0
+                  and h['최저수익률_real'] > -50]
+    
+    if not combo_hits:
+        print(f"⚠️ {combination_name} 데이터 없음")
+        return None
+    
+    # DataFrame으로 변환
+    df_detail = pd.DataFrame(combo_hits)
+    
+    # 수익률 기준 정렬
+    df_detail = df_detail.sort_values(by='최고수익률_real', ascending=False)
+    
+    # 통계 요약
+    print(f"\n{'='*100}")
+    print(f"🔍 [ {combination_name} 상세 분석 ]")
+    print(f"{'='*100}")
+    print(f"총 건수: {len(combo_hits)}건")
+    print(f"승률: {len([h for h in combo_hits if h['최고수익률_real'] >= 3.5]) / len(combo_hits) * 100:.1f}%")
+    print(f"평균 수익: {sum([h['최고수익률_real'] for h in combo_hits]) / len(combo_hits):.1f}%")
+    print(f"평균 손실: {sum([h['최저수익률_real'] for h in combo_hits]) / len(combo_hits):.1f}%")
+    print(f"\n{'='*100}")
+    print("개별 케이스:")
+    print(f"{'='*100}")
+    
+    # 주요 컬럼만 출력
+    display_cols = ['날짜', '종목', '매수가', '실전예상_최고(%)', 
+                   '실전예상_최저(%)', '보유일', '구분']
+    
+    print(df_detail[display_cols].head(20))
+    
+    return df_detail
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 📈 수익률 구간별 분석
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+def analyze_profit_distribution(all_hits):
+    """
+    수익률 구간별 분포 분석
+    """
+    
+    past_hits = [h for h in all_hits 
+                if h['보유일'] > 0 
+                and h['최저수익률_real'] > -50]
+    
+    if not past_hits:
+        return
+    
+    # 수익률 구간 정의
+    ranges = [
+        ('🔴 손실 (-50% ~ 0%)', -50, 0),
+        ('⚪ 미미 (0% ~ 5%)', 0, 5),
+        ('🟡 소폭 (5% ~ 10%)', 5, 10),
+        ('🟢 보통 (10% ~ 20%)', 10, 20),
+        ('🔵 양호 (20% ~ 30%)', 20, 30),
+        ('🟣 우수 (30% ~ 50%)', 30, 50),
+        ('⭐ 대박 (50% ~ 100%)', 50, 100),
+        ('💎 초대박 (100%+)', 100, 10000)
+    ]
+    
+    # 구간별 분류
+    distribution = []
+    
+    for label, min_val, max_val in ranges:
+        count = len([h for h in past_hits 
+                    if min_val <= h['최고수익률_real'] < max_val])
+        
+        ratio = (count / len(past_hits)) * 100
+        
+        # 해당 구간의 조합 분석
+        range_hits = [h for h in past_hits 
+                     if min_val <= h['최고수익률_real'] < max_val]
+        
+        if range_hits:
+            top_combo = max(set([h['조합'] for h in range_hits]),
+                          key=lambda x: len([h for h in range_hits if h['조합'] == x]))
+        else:
+            top_combo = '-'
+        
+        distribution.append({
+            '구간': label,
+            '건수': count,
+            '비율(%)': round(ratio, 1),
+            '대표조합': top_combo
+        })
+    
+    df_dist = pd.DataFrame(distribution)
+    
+    print(f"\n{'='*100}")
+    print("📊 [ 수익률 구간별 분포 ]")
+    print(f"{'='*100}")
+    print(df_dist)
+    
+    return df_dist
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # 진짜 검증: 점수별 그룹 비교
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
