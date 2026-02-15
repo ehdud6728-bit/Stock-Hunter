@@ -43,22 +43,27 @@ print(f"📡 [Ver 36.7 엑셀저장+추천] 사령부 무결성 통합 가동...
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # 진짜 검증: 점수별 그룹 비교
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 📊 등급별 백테스트 분석 (버그 수정)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 def proper_backtest_analysis(all_hits):
     """
-    점수 구간별 성과 비교
+    점수 구간별 성과 비교 (승률 버그 수정)
     """
     
     past_hits = [h for h in all_hits if h['보유일'] > 0]
     
+    if not past_hits:
+        return pd.DataFrame(), None
+    
     # 점수 구간별 분류
     groups = {
-        'S급 (300+)': [h for h in past_hits if h['N점수'] >= 300],
-        'A급 (250-299)': [h for h in past_hits if 250 <= h['N점수'] < 300],
-        'B급 (200-249)': [h for h in past_hits if 200 <= h['N점수'] < 250],
-        'C급 (150-199)': [h for h in past_hits if 150 <= h['N점수'] < 200],
-        'D급 (100-149)': [h for h in past_hits if h['N점수'] < 150],
+        'S급 (300+)': [h for h in past_hits if h['점수'] >= 300],
+        'A급 (250-299)': [h for h in past_hits if 250 <= h['점수'] < 300],
+        'B급 (200-249)': [h for h in past_hits if 200 <= h['점수'] < 250],
+        'C급 (150-199)': [h for h in past_hits if 150 <= h['점수'] < 200],
+        'D급 (100-149)': [h for h in past_hits if h['점수'] < 150],
     }
     
     results = []
@@ -67,32 +72,56 @@ def proper_backtest_analysis(all_hits):
         if not hits:
             continue
         
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        # 상폐주 필터링 (손실 -90% 이하 제외)
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        clean_hits = [h for h in hits if h['최저수익률_raw'] > -90]
+        
+        if not clean_hits:
+            clean_hits = hits  # 전부 상폐주면 그냥 사용
+        
         # 통계 계산
-        total = len(hits)
-        winners = len([h for h in hits if h['최고수익률_raw'] >= 3.5])
+        total = len(clean_hits)
+        winners = len([h for h in clean_hits if h['최고수익률_raw'] >= 3.5])
         
-        avg_max = sum([h['최고수익률_raw'] for h in hits]) / total
-        avg_min = sum([h['최저수익률_raw'] for h in hits]) / total
+        avg_max = sum([h['최고수익률_raw'] for h in clean_hits]) / total
+        avg_min = sum([h['최저수익률_raw'] for h in clean_hits]) / total
         
-        max_gain = max([h['최고수익률_raw'] for h in hits])
-        max_loss = min([h['최저수익률_raw'] for h in hits])
+        max_gain = max([h['최고수익률_raw'] for h in clean_hits])
+        max_loss = min([h['최저수익률_raw'] for h in clean_hits])
         
+        # ✅ 승률 계산 (0~100 사이)
         win_rate = (winners / total) * 100
+        
+        # ✅ 기대값 계산
         expected = (win_rate / 100) * avg_max
+        
+        # 샤프비율 (위험 대비 수익)
+        sharpe = avg_max / abs(avg_min) if avg_min != 0 else 0
         
         results.append({
             '등급': grade,
             '건수': total,
             '승률(%)': round(win_rate, 1),
+            '승리건수': f"{winners}/{total}",
             '평균수익(%)': round(avg_max, 1),
             '평균손실(%)': round(avg_min, 1),
             '최대수익(%)': round(max_gain, 1),
             '최대손실(%)': round(max_loss, 1),
             '기대값': round(expected, 2),
-            '샤프비율': round(avg_max / abs(avg_min) if avg_min != 0 else 0, 2)
+            '샤프비율': round(sharpe, 2)
         })
     
-    return pd.DataFrame(results)
+    df_result = pd.DataFrame(results)
+    
+    # S급 정보 추출 (알림용)
+    s_grade_info = None
+    if not df_result.empty:
+        s_grade = df_result[df_result['등급'].str.contains('S급')]
+        if not s_grade.empty:
+            s_grade_info = s_grade.iloc[0].to_dict()
+    
+    return df_result, s_grade_info
 
 def get_stock_sector(ticker, sector_map):
     """
