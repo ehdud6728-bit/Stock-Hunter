@@ -10,7 +10,7 @@ from DNA_Analyzer import analyze_dna_sequences, find_winning_pattern, find_winni
 
 def update_commander_dashboard(df, macro_data, sheet_name, stats_df=None, 
                                today_recommendations=None, ai_recommendation=None,
-                               s_grade_special=None, grade_analysis=None,
+                               s_grade_special=None,
                                df_backtest=None, df_realistic=None,
                                df_combo=None, best_combos=None, worst_combos=None,
                                df_profit_dist=None):
@@ -383,7 +383,59 @@ def update_commander_dashboard(df, macro_data, sheet_name, stats_df=None,
                 print("✅ [Ex-Sheet] 백테스트 비교 시트 생성 완료")
             except Exception as e:
                 print(f"⚠️ [Ex-Sheet] 백테스트 비교 오류: {e}")
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        # 📊 [등급별 분석 시트 - 백테스트 기반]
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         
+        # ✅ df_backtest와 df_realistic를 사용하여 등급별 시트 생성
+        if df_backtest is not None and not df_backtest.empty:
+            try:
+                try:
+                    grade_sheet = doc.worksheet("등급별_분석")
+                except:
+                    grade_sheet = doc.add_worksheet(
+                        title="등급별_분석", 
+                        rows="50", 
+                        cols="12", 
+                        index=1
+                    )
+                
+                grade_sheet.clear()
+                
+                # 헤더
+                header = [
+                    ["📊 등급별 백테스트 분석", "", "", ""],
+                    ["", "", "", ""],
+                    ["🔬 백테스트 (이상적)", "", "", ""],
+                    ["", "", "", ""]
+                ]
+                grade_sheet.update('A1', header, value_input_option='USER_ENTERED')
+                
+                # 백테스트 데이터
+                set_with_dataframe(grade_sheet, df_backtest, row=5, col=1, include_index=False)
+                
+                # 실전 섹션
+                real_start = 5 + len(df_backtest) + 3
+                real_header = [
+                    ["", "", "", ""],
+                    ["💡 실전 예상 (현실적)", "", "", ""],
+                    ["", "", "", ""]
+                ]
+                grade_sheet.update(f'A{real_start}', real_header, value_input_option='USER_ENTERED')
+                
+                # 실전 데이터
+                if df_realistic is not None and not df_realistic.empty:
+                    set_with_dataframe(grade_sheet, df_realistic, row=real_start+3, col=1, include_index=False)
+                
+                # S급 강조
+                grade_sheet.format('A5:J5', {
+                    'backgroundColor': {'red': 1.0, 'green': 0.95, 'blue': 0.7},
+                    'textFormat': {'bold': True}
+                })
+                
+                print("✅ [Ex-Sheet] 등급별 분석 시트 생성 완료")
+            except Exception as e:
+                print(f"⚠️ [Ex-Sheet] 등급별 분석 오류: {e}")        
 
     except Exception as e:
         print(f"🚨 [Critical] 구글 시트 전송 실패: {e}")
