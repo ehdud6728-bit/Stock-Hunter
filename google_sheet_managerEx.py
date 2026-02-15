@@ -89,6 +89,297 @@ def update_commander_dashboard(df_main, macro_data, sheet_name, stats_df=None,
                 set_with_dataframe(s_sheet, stats_df, include_index=False)
                 print("✅ [전술통계_리포트] 저장 완료")
             except Exception as e: print(f"❌ 탭 4 에러: {e}")
+        
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        # 💎 [신규 탭 1: 조합별 성과]
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        
+        if df_combo is not None and not df_combo.empty:
+            try:
+                try:
+                    combo_sheet = doc.worksheet("조합별_성과")
+                except:
+                    combo_sheet = doc.add_worksheet(
+                        title="조합별_성과", 
+                        rows="200", 
+                        cols="15", 
+                        index=2
+                    )
+                
+                combo_sheet.clear()
+                
+                # 헤더
+                header = [
+                    ["🏆 조합별 성과 분석 (실전 예상)", "", "", "", ""],
+                    [f"분석 기간: 과거 30일", "", "", "", ""],
+                    [f"업데이트: {datetime.now().strftime('%Y-%m-%d %H:%M')}", "", "", "", ""],
+                    ["※ 다음날 시초가 매수 + 최고가 70% + 수수료 0.26% 반영", "", "", "", ""],
+                    ["", "", "", "", ""]
+                ]
+                combo_sheet.update('A1', header, value_input_option='USER_ENTERED')
+                
+                # 데이터
+                set_with_dataframe(combo_sheet, df_combo, row=6, col=1, include_index=False)
+                
+                # 서식
+                combo_sheet.format('A6:O6', {
+                    'backgroundColor': {'red': 0.2, 'green': 0.6, 'blue': 0.9},
+                    'textFormat': {
+                        'bold': True, 
+                        'foregroundColor': {'red': 1, 'green': 1, 'blue': 1}
+                    }
+                })
+                
+                # S급 조합 강조 (골드)
+                if len(df_combo) > 0:
+                    for idx, row in df_combo.iterrows():
+                        row_num = 7 + idx
+                        if 'S급' in str(row.get('등급', '')):
+                            combo_sheet.format(f'A{row_num}:O{row_num}', {
+                                'backgroundColor': {'red': 1.0, 'green': 0.95, 'blue': 0.7}
+                            })
+                
+                print("✅ [Ex-Sheet] 조합별 성과 시트 생성 완료")
+            except Exception as e:
+                print(f"⚠️ [Ex-Sheet] 조합별 성과 오류: {e}")
+        
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        # 🥇 [신규 탭 2: TOP/WORST 조합]
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        
+        if best_combos and worst_combos:
+            try:
+                try:
+                    top_sheet = doc.worksheet("TOP_WORST_조합")
+                except:
+                    top_sheet = doc.add_worksheet(
+                        title="TOP_WORST_조합", 
+                        rows="100", 
+                        cols="12", 
+                        index=3
+                    )
+                
+                top_sheet.clear()
+                
+                # TOP 10 섹션
+                top_header = [
+                    ["🥇 TOP 10 최고 성과 조합", "", "", "", ""],
+                    [f"업데이트: {datetime.now().strftime('%Y-%m-%d %H:%M')}", "", "", "", ""],
+                    ["", "", "", "", ""],
+                    ["순위", "조합", "등급", "건수", "승률(%)", "평균수익(%)", "기대값", "샤프비율", "안정성"]
+                ]
+                top_sheet.update('A1', top_header, value_input_option='USER_ENTERED')
+                
+                # TOP 10 데이터
+                top_data = []
+                for idx, combo in enumerate(best_combos[:10], 1):
+                    medal = "🥇" if idx == 1 else "🥈" if idx == 2 else "🥉" if idx == 3 else str(idx)
+                    top_data.append([
+                        medal,
+                        combo['조합'],
+                        combo['등급'],
+                        combo['건수'],
+                        combo['승률(%)'],
+                        combo['평균수익(%)'],
+                        combo['기대값'],
+                        combo['샤프비율'],
+                        combo['안정성']
+                    ])
+                
+                if top_data:
+                    top_sheet.update('A5', top_data, value_input_option='USER_ENTERED')
+                
+                # TOP 10 서식
+                top_sheet.format('A4:I4', {
+                    'backgroundColor': {'red': 1.0, 'green': 0.84, 'blue': 0.0},
+                    'textFormat': {'bold': True}
+                })
+                
+                # 1-3위 강조
+                top_sheet.format('A5:I7', {
+                    'backgroundColor': {'red': 1.0, 'green': 0.95, 'blue': 0.8}
+                })
+                
+                # WORST 5 섹션
+                worst_start_row = 5 + len(best_combos) + 3
+                worst_header = [
+                    ["", "", "", "", ""],
+                    ["⚠️ WORST 5 저성과 조합 (개선 필요)", "", "", "", ""],
+                    ["", "", "", "", ""],
+                    ["순위", "조합", "건수", "승률(%)", "평균수익(%)", "기대값", "샤프비율", "문제점"]
+                ]
+                top_sheet.update(f'A{worst_start_row}', worst_header, value_input_option='USER_ENTERED')
+                
+                # WORST 5 데이터
+                worst_data = []
+                for idx, combo in enumerate(worst_combos, 1):
+                    # 문제점 분석
+                    issues = []
+                    if combo['승률(%)'] < 70:
+                        issues.append("승률↓")
+                    if combo['평균수익(%)'] < 15:
+                        issues.append("수익↓")
+                    if combo['샤프비율'] < 3:
+                        issues.append("안정성↓")
+                    
+                    worst_data.append([
+                        idx,
+                        combo['조합'],
+                        combo['건수'],
+                        combo['승률(%)'],
+                        combo['평균수익(%)'],
+                        combo['기대값'],
+                        combo['샤프비율'],
+                        ", ".join(issues) if issues else "건수부족"
+                    ])
+                
+                if worst_data:
+                    data_start = worst_start_row + 3
+                    top_sheet.update(f'A{data_start}', worst_data, value_input_option='USER_ENTERED')
+                
+                # WORST 서식 (빨강)
+                top_sheet.format(f'A{worst_start_row+3}:H{worst_start_row+3}', {
+                    'backgroundColor': {'red': 1.0, 'green': 0.7, 'blue': 0.7},
+                    'textFormat': {'bold': True}
+                })
+                
+                if len(worst_data) > 0:
+                    top_sheet.format(f'A{data_start}:H{data_start+len(worst_data)-1}', {
+                        'backgroundColor': {'red': 1.0, 'green': 0.9, 'blue': 0.9}
+                    })
+                
+                print("✅ [Ex-Sheet] TOP/WORST 조합 시트 생성 완료")
+            except Exception as e:
+                print(f"⚠️ [Ex-Sheet] TOP/WORST 조합 오류: {e}")
+        
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        # 📊 [신규 탭 3: 수익률 분포]
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        
+        if df_profit_dist is not None and not df_profit_dist.empty:
+            try:
+                try:
+                    dist_sheet = doc.worksheet("수익률_분포")
+                except:
+                    dist_sheet = doc.add_worksheet(
+                        title="수익률_분포", 
+                        rows="50", 
+                        cols="10", 
+                        index=4
+                    )
+                
+                dist_sheet.clear()
+                
+                # 헤더
+                header = [
+                    ["📊 수익률 구간별 분포 분석", "", "", ""],
+                    [f"전체 케이스: {df_profit_dist['건수'].sum()}건", "", "", ""],
+                    [f"업데이트: {datetime.now().strftime('%Y-%m-%d %H:%M')}", "", "", ""],
+                    ["", "", "", ""],
+                ]
+                dist_sheet.update('A1', header, value_input_option='USER_ENTERED')
+                
+                # 데이터
+                set_with_dataframe(dist_sheet, df_profit_dist, row=5, col=1, include_index=False)
+                
+                # 서식 (헤더)
+                dist_sheet.format('A5:D5', {
+                    'backgroundColor': {'red': 0.4, 'green': 0.7, 'blue': 0.4},
+                    'textFormat': {'bold': True, 'foregroundColor': {'red': 1, 'green': 1, 'blue': 1}}
+                })
+                
+                # 구간별 색상
+                if len(df_profit_dist) > 0:
+                    for idx, row in df_profit_dist.iterrows():
+                        row_num = 6 + idx
+                        구간 = str(row['구간'])
+                        
+                        if '🔴' in 구간:  # 손실
+                            color = {'red': 1.0, 'green': 0.8, 'blue': 0.8}
+                        elif '⚪' in 구간:  # 미미
+                            color = {'red': 1.0, 'green': 1.0, 'blue': 1.0}
+                        elif '🟡' in 구간:  # 소폭
+                            color = {'red': 1.0, 'green': 1.0, 'blue': 0.8}
+                        elif '🟢' in 구간:  # 보통
+                            color = {'red': 0.8, 'green': 1.0, 'blue': 0.8}
+                        elif '🔵' in 구간:  # 양호
+                            color = {'red': 0.8, 'green': 0.9, 'blue': 1.0}
+                        elif '🟣' in 구간:  # 우수
+                            color = {'red': 0.9, 'green': 0.8, 'blue': 1.0}
+                        elif '⭐' in 구간:  # 대박
+                            color = {'red': 1.0, 'green': 0.95, 'blue': 0.7}
+                        elif '💎' in 구간:  # 초대박
+                            color = {'red': 1.0, 'green': 0.84, 'blue': 0.0}
+                        else:
+                            color = {'red': 1.0, 'green': 1.0, 'blue': 1.0}
+                        
+                        dist_sheet.format(f'A{row_num}:D{row_num}', {
+                            'backgroundColor': color
+                        })
+                
+                print("✅ [Ex-Sheet] 수익률 분포 시트 생성 완료")
+            except Exception as e:
+                print(f"⚠️ [Ex-Sheet] 수익률 분포 오류: {e}")
+        
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        # 📈 [신규 탭 4: 백테스트 비교]
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        
+        if df_backtest is not None and df_realistic is not None:
+            try:
+                try:
+                    bt_sheet = doc.worksheet("백테스트_비교")
+                except:
+                    bt_sheet = doc.add_worksheet(
+                        title="백테스트_비교", 
+                        rows="50", 
+                        cols="12", 
+                        index=5
+                    )
+                
+                bt_sheet.clear()
+                
+                # 백테스트 섹션
+                bt_header = [
+                    ["📊 백테스트 vs 실전 비교", "", "", ""],
+                    ["", "", "", ""],
+                    ["🔬 백테스트 (이상적 시나리오)", "", "", ""],
+                    ["※ 최고가 정확히 매도 가정", "", "", ""],
+                    ["", "", "", ""]
+                ]
+                bt_sheet.update('A1', bt_header, value_input_option='USER_ENTERED')
+                
+                # 백테스트 데이터
+                set_with_dataframe(bt_sheet, df_backtest, row=6, col=1, include_index=False)
+                
+                # 실전 섹션
+                real_start = 6 + len(df_backtest) + 3
+                real_header = [
+                    ["", "", "", ""],
+                    ["💡 실전 예상 (현실적 시나리오)", "", "", ""],
+                    ["※ 다음날 시초가 + 최고가 70% + 수수료 0.26%", "", "", ""],
+                    ["", "", "", ""]
+                ]
+                bt_sheet.update(f'A{real_start}', real_header, value_input_option='USER_ENTERED')
+                
+                # 실전 데이터
+                set_with_dataframe(bt_sheet, df_realistic, row=real_start+4, col=1, include_index=False)
+                
+                # 서식
+                bt_sheet.format('A6:J6', {
+                    'backgroundColor': {'red': 0.8, 'green': 0.8, 'blue': 1.0},
+                    'textFormat': {'bold': True}
+                })
+                
+                bt_sheet.format(f'A{real_start+4}:J{real_start+4}', {
+                    'backgroundColor': {'red': 0.8, 'green': 1.0, 'blue': 0.8},
+                    'textFormat': {'bold': True}
+                })
+                
+                print("✅ [Ex-Sheet] 백테스트 비교 시트 생성 완료")
+            except Exception as e:
+                print(f"⚠️ [Ex-Sheet] 백테스트 비교 오류: {e}")
+        
 
     except Exception as e:
         print(f"🚨 [Critical] 구글 시트 전송 실패: {e}")
