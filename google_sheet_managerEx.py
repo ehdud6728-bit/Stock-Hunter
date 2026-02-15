@@ -153,7 +153,7 @@ def update_commander_dashboard_back(df, macro_data, sheet_name, stats_df=None,
                     )
                     
                     # 정렬 (수익률 -> 관상점수) 및 상위 50개
-                    final_today = final_today.sort_values(by=['최고수익률', 'match_val'], ascending=False).head(100)
+                    final_today = final_today.sort_values(by=['최고수익률%'], ascending=False).head(100)
                     
                     header_info = [[f"🎯 금일 정예 관상 종목 (기준일: {today_str})"]]
                     today_sheet.update('A1', header_info)
