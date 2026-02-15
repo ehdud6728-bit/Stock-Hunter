@@ -70,7 +70,7 @@ def analyze_combination_performance(all_hits):
     combination_stats = {}
     
     for hit in past_hits:
-        combo = hit['조합']
+        combo = hit['N조합']
         
         if combo not in combination_stats:
             combination_stats[combo] = {
