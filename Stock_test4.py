@@ -1767,6 +1767,9 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
                 # 📅 날짜 포맷팅 (예: 2024-05-20)
                 max_r_date = max_date_ts.strftime('%Y-%m-%d')
 
+                # ⏳ 도달 소요 시간 (보유일 기준 몇 일째에 최고점이었나?)
+                days_to_max = (max_date_ts - curr_idx).days
+    
                 # 💡 오늘이면 현재가 = 오늘 종가, 아니면 해당 시점의 마지막 종가
                 is_today = (len(h_df) == 0)  # 보유일 0이면 오늘
                 current_price = today_price if not is_today else close_p
@@ -1803,6 +1806,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
                 'MA수렴': f"{row['MA_Convergence']:.1f}",
                 '매집': f"{acc_count}/5",
                 '최고수익날': max_r_date,
+                '소요기간': days_to_max,
                 '최고수익률%': f"{max_r:+.1f}%",
                 '최저수익률%': f"{min_r:+.1f}%",
                 '최고수익률_raw': max_r,
