@@ -56,7 +56,7 @@ def update_commander_dashboard(df, macro_data, sheet_name, stats_df=None,
         # --- [탭 2: AI_추천패턴] (데이터가 있을 때만 가동) ---
         if ai_recommendation is not None and not ai_recommendation.empty:
             try:
-                time.sleep(2)  # ✅ 2초 대기
+                time.sleep(5)  # ✅ 5초 대기
 
                 try: ai_sheet = doc.worksheet("AI_추천패턴")
                 except: ai_sheet = doc.add_worksheet(title="AI_추천패턴", rows="200", cols="15")
@@ -68,7 +68,7 @@ def update_commander_dashboard(df, macro_data, sheet_name, stats_df=None,
         # --- [탭 3: 실시간_전수_관제판] ---
         if df is not None and not df.empty:
             try:
-                time.sleep(2)  # ✅ 2초 대기
+                time.sleep(5)  # ✅ 5초 대기
 
                 try: m_sheet = doc.worksheet("실시간_전수_관제판")
                 except:
@@ -92,7 +92,7 @@ def update_commander_dashboard(df, macro_data, sheet_name, stats_df=None,
         # --- [탭 4: 전술통계_리포트] ---
         if stats_df is not None and not stats_df.empty:
             try:
-                time.sleep(2)  # ✅ 2초 대기
+                time.sleep(5)  # ✅ 5초 대기
 
                 try: s_sheet = doc.worksheet("전술통계_리포트")
                 except: s_sheet = doc.add_worksheet(title="전술통계_리포트", rows="100", cols="10")
@@ -107,7 +107,7 @@ def update_commander_dashboard(df, macro_data, sheet_name, stats_df=None,
         
         if df_combo is not None and not df_combo.empty:
             try:
-                time.sleep(2)  # ✅ 2초 대기
+                time.sleep(5)  # ✅ 5초 대기
 
                 try:
                     combo_sheet = doc.worksheet("조합별_성과")
@@ -162,7 +162,7 @@ def update_commander_dashboard(df, macro_data, sheet_name, stats_df=None,
         
         if best_combos and worst_combos:
             try:
-                time.sleep(2)  # ✅ 2초 대기
+                time.sleep(5)  # ✅ 5초 대기
 
                 try:
                     top_sheet = doc.worksheet("TOP_WORST_조합")
@@ -273,7 +273,7 @@ def update_commander_dashboard(df, macro_data, sheet_name, stats_df=None,
         
         if df_profit_dist is not None and not df_profit_dist.empty:
             try:
-                time.sleep(2)  # ✅ 2초 대기
+                time.sleep(5)  # ✅ 5초 대기
 
                 try:
                     dist_sheet = doc.worksheet("수익률_분포")
@@ -344,7 +344,7 @@ def update_commander_dashboard(df, macro_data, sheet_name, stats_df=None,
         
         if df_backtest is not None and df_realistic is not None:
             try:
-                time.sleep(2)  # ✅ 2초 대기
+                time.sleep(5)  # ✅ 5초 대기
 
                 try:
                     bt_sheet = doc.worksheet("백테스트_비교")
@@ -405,7 +405,7 @@ def update_commander_dashboard(df, macro_data, sheet_name, stats_df=None,
         # ✅ df_backtest와 df_realistic를 사용하여 등급별 시트 생성
         if df_backtest is not None and not df_backtest.empty:
             try:
-                time.sleep(2)  # ✅ 2초 대기
+                time.sleep(5)  # ✅ 5초 대기
 
                 try:
                     grade_sheet = doc.worksheet("등급별_분석")
