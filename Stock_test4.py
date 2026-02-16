@@ -1774,7 +1774,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
                 'N등급': result['grade'],
                 'N점수': result['score'],
                 'N조합': result['combination'],
-                '정류장': is_rn_signal | is_1st_buy | is_2st_buy,
+                '정류장': is_rn_signal | is_1st_buy | is_2nd_buy,
                   # 👈 서사 엔진 결과물 1
                 '📜서사히스토리': narrative,    # 👈 서사 엔진 결과물 2
                 '확신점수': conviction,        # 👈 서사 엔진 결과물 3
