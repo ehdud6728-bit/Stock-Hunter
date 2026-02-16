@@ -1885,10 +1885,24 @@ if __name__ == "__main__":
             print(f"🚨 [본진] 데이터 로드 실패: {e}")
             sector_master_map = {}
             # 여기서 죽지 않게 빈 데이터프레임이라도 생성
-
-        #df_krx = pd.DataFrame(columns=['Code', 'Name', 'Sector'])
-
-        target_stocks = df_krx.sort_values(by='Marcap', ascending=False).head(TOP_N)
+        
+        # 2. 🛡️ 불순물 제거 작전 (ETF, ETN, 우선주, 스팩 제거)
+        # 삼성전자, 하이닉스 같은 '보통주'만 남깁니다.
+        df_clean = df_krx[df_krx['Market'].isin(['KOSPI', 'KOSDAQ'])] # 시장 한정
+        df_clean = df_clean[~df_clean['Name'].str.contains('ETF|ETN|스팩|제[0-9]+호|우$|우A|우B|우C')]
+        
+        # 3. 💰 거래대금(Amount) 정렬
+        # Amount가 0인 데이터가 있을 수 있으니, 시가총액(Marcap)과 혼합해서 봐도 좋습니다.
+        target_stocks = df_clean.sort_values(by='Amount', ascending=False).head(TOP_N)
+        
+        # 4. 📢 확인 사격 (삼성전자가 있는지 확인!)
+        print(f"📡 현재 거래대금 1위: {target_stocks.iloc[0]['Name']}")
+        if '삼성전자' in target_stocks['Name'].values:
+            print("✅ 삼성전자 포착! 레이더 정상 작동 중.")
+        else:
+            print("❌ 아직도 안 보인다면 데이터 단위를 점검해야 합니다.")
+    
+        #target_stocks = df_krx.sort_values(by='Marcap', ascending=False).head(TOP_N)
             
         # 1. 매크로 데이터 수집
         m_ndx = get_safe_macro('^IXIC', '나스닥')
