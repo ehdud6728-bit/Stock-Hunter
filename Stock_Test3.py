@@ -1912,7 +1912,30 @@ if __name__ == "__main__":
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         # 장기 백테스트 모드 (신규)
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    
+        # mode 설정
+        parser.add_argument(
+            '--mode',
+            choices=['daily', 'longterm'],
+            default='longterm',
+            help='실행 모드: daily (일일 스캔) | longterm (장기 백테스트)'
+        )
+        
+        # sampling 설정
+        parser.add_argument(
+            '--sampling',
+            choices=['weekly', 'monthly', 'full'],
+            default='full',  # ✅ 기본값 'full'로 변경
+            help='백테스트 샘플링: weekly (주1회) | monthly (월1회) | full (전체)'
+        )
+        
+        # priority 설정 (일일 스캔용)
+        parser.add_argument(
+            '--priority',
+            choices=['critical', 'high', 'medium', 'all'],
+            default='all',
+            help='구글 시트 우선순위: critical (S급만) | high (핵심) | medium | all (전체)'
+        )
+
         print(f"🔬 [장기 백테스트 모드] 2023.01 ~ 2026.02")
         print(f"   샘플링: {args.sampling}")
     
