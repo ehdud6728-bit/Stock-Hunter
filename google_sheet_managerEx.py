@@ -41,7 +41,7 @@ def update_commander_dashboard(df, macro_data, sheet_name, stats_df=None,
                 try: t_sheet = doc.worksheet("오늘의_추천종목")
                 except: t_sheet = doc.add_worksheet(title="오늘의_추천종목", rows="200", cols="20")
                 t_sheet.clear()
-                
+                legend_today = today_recommendations.copy()
 																		# '👑등급' 컬럼에서 '👑LEGEND'인 행만 추출합니다.
                #legend_today = today_recommendations[today_recommendations['👑등급'] == "👑LEGEND"].copy()
                #legend_today = legend_today[legend_today['날짜'] == today_str].copy()
