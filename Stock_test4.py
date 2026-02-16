@@ -1395,6 +1395,13 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             
             temp_df = df.iloc[:raw_idx + 1]
 
+            # analyze_final 함수 내부 루프 안에서
+            # 최근 5일간의 진짜 거래대금 계산 (단위: 억)
+            recent_avg_amount = (df['Close'] * df['Volume']).tail(5).mean() / 100000000
+        
+            if recent_avg_amount < 50: # 평균 거래대금 50억 미만은 탈락!
+                continue
+            
             #하락기간과 횡보(공구리)기간 비교(1이상 추천)
             dante_data = calculate_dante_symmetry(temp_df)
         
@@ -1882,7 +1889,7 @@ if __name__ == "__main__":
         #df_krx = pd.DataFrame(columns=['Code', 'Name', 'Sector'])
 
         target_stocks = df_krx.sort_values(by='Marcap', ascending=False).head(TOP_N)
-    
+            
         # 1. 매크로 데이터 수집
         m_ndx = get_safe_macro('^IXIC', '나스닥')
         m_sp5 = get_safe_macro('^GSPC', 'S&P500')
