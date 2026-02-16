@@ -1185,6 +1185,270 @@ def get_indicators(df):
 
     return df
 
+def analyze_final_longterm(ticker, name, historical_indices, scan_days=750, sampling='weekly'):
+    """
+    장기 백테스트용 분석 함수 (샘플링 지원)
+    """
+    
+    try:
+        # 데이터 다운로드 (3년치)
+        df = yf.download(ticker, period='3y', interval='1d', progress=False)
+        
+        if df.empty or len(df) < 200:
+            return []
+        
+        df.columns = ['Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume']
+        df = df[['Open', 'High', 'Low', 'Close', 'Volume']].copy()
+        df.index = pd.to_datetime(df.index)
+        
+        # 매크로 지표 추가
+        for idx_name, idx_data in historical_indices.items():
+            matching = idx_data[idx_data.index.isin(df.index)]
+            df[f'{idx_name}_close'] = matching['Close']
+            df[f'{idx_name}_ma5'] = matching['Close'].rolling(5).mean()
+        
+        # 지표 계산
+        df = get_indicators(df)
+        
+        today_price = df.iloc[-1]['Close']
+        
+        # 샘플링 (주 1회 또는 월 1회)
+        if sampling == 'weekly':
+            # 매주 금요일만 스캔
+            df_scan = df[df.index.dayofweek == 4]  # 4 = 금요일
+        elif sampling == 'monthly':
+            # 매월 마지막 거래일만
+            df_scan = df.groupby(df.index.to_period('M')).tail(1)
+        else:  # full
+            df_scan = df.tail(scan_days)
+        
+        # 분석 (기존 로직과 동일)
+        hits = []
+        
+        for curr_idx, row in df_scan.iterrows():
+            raw_idx = df.index.get_loc(curr_idx)
+            
+            # ... (기존 analyze_final과 동일) ...
+            
+            # 신호 수집
+            signals = {
+                'watermelon_signal': row['Watermelon_Signal'],
+                'explosion_ready': (
+                    row['BB40_Width'] <= 10.0 and 
+                    row['OBV_Rising'] and 
+                    row['MFI_Strong']
+                ),
+                'bottom_area': (
+                    row['Near_MA112'] <= 5.0 and 
+                    row['Below_MA112_60d'] >= 40
+                ),
+                # ... (나머지 동일)
+            }
+            
+            result = calculate_combination_score(signals)
+            
+            if result['score'] < 200:
+                continue
+            
+            # 수익률 계산
+            returns = calculate_realistic_returns(df, raw_idx, row['Close'])
+            
+            # 결과 저장
+            hits.append({
+                '날짜': curr_idx.strftime('%Y-%m-%d'),
+                '등급': result['grade'],
+                '점수': result['score'],
+                '조합': result['combination'],
+                '종목': name,
+                '매수가': int(returns['entry_price']),
+                '최고수익률_real': returns['max_gain_real'],
+                '최저수익률_real': returns['min_loss_real'],
+                '보유일': returns['hold_days'],
+                # ... (나머지 필드)
+            })
+        
+        return hits
+        
+    except Exception as e:
+        return []
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 📊 시장 국면별 성과 분석
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+def analyze_by_market_condition(df_longterm):
+    """
+    시장 국면별 성과 분석
+    """
+    
+    # 보유 기간 있는 것만 (과거 데이터)
+    df = df_longterm[df_longterm['보유일'] > 0].copy()
+    
+    # 상폐주 제거
+    df = df[df['최저수익률_real'] > -50]
+    
+    print("\n" + "=" * 100)
+    print("📊 시장 국면별 성과 분석")
+    print("=" * 100)
+    
+    results = []
+    
+    # 추세별 분석
+    for trend in ['down', 'sideways', 'up']:
+        trend_df = df[df['시장추세'] == trend]
+        
+        if len(trend_df) == 0:
+            continue
+        
+        # 등급별 분석
+        for grade in ['S', 'A', 'B']:
+            grade_df = trend_df[trend_df['등급'] == grade]
+            
+            if len(grade_df) < 3:  # 최소 3건
+                continue
+            
+            total = len(grade_df)
+            winners = len(grade_df[grade_df['최고수익률_real'] >= 3.5])
+            
+            avg_gain = grade_df['최고수익률_real'].mean()
+            avg_loss = grade_df['최저수익률_real'].mean()
+            
+            win_rate = (winners / total) * 100
+            expected = (win_rate / 100) * avg_gain
+            
+            sharpe = avg_gain / abs(avg_loss) if avg_loss != 0 else 0
+            
+            # 시장 이름
+            if trend == 'down':
+                market_name = '📉 약세장'
+            elif trend == 'sideways':
+                market_name = '➡️ 횡보장'
+            else:
+                market_name = '📈 강세장'
+            
+            results.append({
+                '시장': market_name,
+                '등급': f'{grade}급',
+                '건수': total,
+                '승률(%)': round(win_rate, 1),
+                '평균수익(%)': round(avg_gain, 1),
+                '평균손실(%)': round(avg_loss, 1),
+                '기대값': round(expected, 2),
+                '샤프비율': round(sharpe, 2)
+            })
+    
+    df_results = pd.DataFrame(results)
+    
+    print("\n전체 분석:")
+    print(df_results)
+    
+    # 핵심 인사이트
+    print("\n" + "=" * 100)
+    print("💡 핵심 인사이트")
+    print("=" * 100)
+    
+    # S급 비교
+    s_grade = df_results[df_results['등급'] == 'S급']
+    
+    if len(s_grade) >= 2:
+        down = s_grade[s_grade['시장'] == '📉 약세장']
+        up = s_grade[s_grade['시장'] == '📈 강세장']
+        
+        if not down.empty and not up.empty:
+            down_val = down.iloc[0]['평균수익(%)']
+            up_val = up.iloc[0]['평균수익(%)']
+            
+            print(f"\n🏆 S급 성과:")
+            print(f"   약세장: {down_val}%")
+            print(f"   강세장: {up_val}%")
+            print(f"   차이: {up_val - down_val}%p")
+            
+            if down_val > 15:
+                print(f"   ✅ 약세장에서도 {down_val}% 수익! (전천후 전략)")
+            elif down_val > 5:
+                print(f"   ⚠️ 약세장에서는 성과 감소 ({down_val}%)")
+            else:
+                print(f"   ❌ 약세장에서는 부진 ({down_val}%)")
+    
+    return df_results
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 🎯 조합별 시장 적합도 분석
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+def analyze_combination_by_market(df_longterm):
+    """
+    조합별로 어느 시장에서 강한지 분석
+    """
+    
+    df = df_longterm[df_longterm['보유일'] > 0].copy()
+    df = df[df['최저수익률_real'] > -50]
+    
+    print("\n" + "=" * 100)
+    print("🎯 조합별 시장 적합도 분석")
+    print("=" * 100)
+    
+    # 주요 조합만
+    top_combos = df['조합'].value_counts().head(10).index
+    
+    results = []
+    
+    for combo in top_combos:
+        combo_df = df[df['조합'] == combo]
+        
+        # 시장별 성과
+        down_df = combo_df[combo_df['시장추세'] == 'down']
+        side_df = combo_df[combo_df['시장추세'] == 'sideways']
+        up_df = combo_df[combo_df['시장추세'] == 'up']
+        
+        def calc_stats(df):
+            if len(df) < 3:
+                return None
+            total = len(df)
+            winners = len(df[df['최고수익률_real'] >= 3.5])
+            avg = df['최고수익률_real'].mean()
+            return {
+                'count': total,
+                'win_rate': (winners/total)*100,
+                'avg': avg
+            }
+        
+        down_stats = calc_stats(down_df)
+        side_stats = calc_stats(side_df)
+        up_stats = calc_stats(up_df)
+        
+        # 최적 시장 결정
+        best_market = '없음'
+        best_avg = 0
+        
+        if down_stats and down_stats['avg'] > best_avg:
+            best_market = '약세장'
+            best_avg = down_stats['avg']
+        if side_stats and side_stats['avg'] > best_avg:
+            best_market = '횡보장'
+            best_avg = side_stats['avg']
+        if up_stats and up_stats['avg'] > best_avg:
+            best_market = '강세장'
+            best_avg = up_stats['avg']
+        
+        results.append({
+            '조합': combo,
+            '최적시장': best_market,
+            '약세_수익(%)': round(down_stats['avg'], 1) if down_stats else '-',
+            '약세_건수': down_stats['count'] if down_stats else 0,
+            '횡보_수익(%)': round(side_stats['avg'], 1) if side_stats else '-',
+            '횡보_건수': side_stats['count'] if side_stats else 0,
+            '강세_수익(%)': round(up_stats['avg'], 1) if up_stats else '-',
+            '강세_건수': up_stats['count'] if up_stats else 0
+        })
+    
+    df_results = pd.DataFrame(results)
+    print("\n조합별 시장 적합도:")
+    print(df_results)
+    
+    return df_results
+
 # ---------------------------------------------------------
 # 🕵️‍♂️ [분석] 정밀 분석 엔진 (Ver 36.7 최저수익률 추가)
 # ---------------------------------------------------------
@@ -1633,141 +1897,183 @@ if __name__ == "__main__":
     # leader_map: {섹터: 코드}, leader_status: {섹터: 강세/침체}
     global_env, leader_env = get_global_and_leader_status()
 
+    import argparse
+    
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--mode', choices=['daily', 'longterm'], default='daily',
+                       help='daily: 오늘 스캔 | longterm: 3년 백테스트')
+    parser.add_argument('--sampling', choices=['full', 'weekly', 'monthly'], default='weekly',
+                       help='longterm 모드 샘플링')
+    
+    args = parser.parse_args()
+    
     # 2. 전 종목 리스트 로드 및 명찰 강제 통일
     try:
-        df_krx = fdr.StockListing('KRX')
+        if args.mode != 'daily':
+           # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        # 장기 백테스트 모드 (신규)
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         
-        # 💡 [핵심] 첫 번째 열은 'Code', 두 번째 열은 'Name'으로 강제 개명
-        # KRX 데이터 구조상 보통 0번이 코드, 1번이 종목명입니다.
-        #df_krx.columns.values[0] = target_stocks['Code']
-        #df_krx.columns.values[1] = target_stocks['Name']
+            print(f"🔬 [장기 백테스트 모드] 2023.01 ~ 2026.02")
+            print(f"   샘플링: {args.sampling}")
         
-        # 섹터 컬럼도 있으면 'Sector'로 통일
-        s_col = next((c for c in ['Sector', 'Industry', '업종'] if c in df_krx.columns), None)
-        if s_col:
-            df_krx = df_krx.rename(columns={s_col: 'Sector'})
-            sector_master_map = df_krx.set_index('Code')['Sector'].to_dict()
+            # 백테스트 실행
+            df_longterm = long_term_backtest(mode=args.sampling)
+        
+            if df_longterm.empty:
+                print("\n⚠️ 백테스트 결과 없음")
+                exit()
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        # 분석
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        
+            # 1. 시장 국면별 성과
+            df_market = analyze_by_market_condition(df_longterm)
+        
+            # 2. 조합별 시장 적합도
+            df_combo_market = analyze_combination_by_market(df_longterm)
+        
+            # 3. 등급별 분석 (전체)
+            df_backtest, df_realistic, s_info = proper_backtest_analysis(df_longterm.to_dict('records'))
+        
+            print("\n" + "=" * 100)
+            print("📊 3년 전체 성과 (실전 예상)")
+            print("=" * 100)
+            print(df_realistic)
         else:
-            sector_master_map = {k: '일반' for k in df_krx['Code']}
+            df_krx = fdr.StockListing('KRX')
+        
+            # 💡 [핵심] 첫 번째 열은 'Code', 두 번째 열은 'Name'으로 강제 개명
+            # KRX 데이터 구조상 보통 0번이 코드, 1번이 종목명입니다.
+            #df_krx.columns.values[0] = target_stocks['Code']
+            #df_krx.columns.values[1] = target_stocks['Name']
+        
+            # 섹터 컬럼도 있으면 'Sector'로 통일
+            s_col = next((c for c in ['Sector', 'Industry', '업종'] if c in df_krx.columns), None)
+            if s_col:
+                df_krx = df_krx.rename(columns={s_col: 'Sector'})
+                sector_master_map = df_krx.set_index('Code')['Sector'].to_dict()
+            else:
+                sector_master_map = {k: '일반' for k in df_krx['Code']}
             
-        print(f"✅ [본진] 명찰 통일 완료: {len(df_krx)}개 종목 로드")
+            print(f"✅ [본진] 명찰 통일 완료: {len(df_krx)}개 종목 로드")
 
-    except Exception as e:
-        print(f"🚨 [본진] 데이터 로드 실패: {e}")
-        sector_master_map = {}
-        # 여기서 죽지 않게 빈 데이터프레임이라도 생성
+        except Exception as e:
+            print(f"🚨 [본진] 데이터 로드 실패: {e}")
+            sector_master_map = {}
+            # 여기서 죽지 않게 빈 데이터프레임이라도 생성
         df_krx = pd.DataFrame(columns=['Code', 'Name', 'Sector'])
 
-    target_stocks = df_krx.sort_values(by='Amount', ascending=False).head(TOP_N)
+        target_stocks = df_krx.sort_values(by='Amount', ascending=False).head(TOP_N)
     
-    # 1. 매크로 데이터 수집
-    m_ndx = get_safe_macro('^IXIC', '나스닥')
-    m_sp5 = get_safe_macro('^GSPC', 'S&P500')
-    m_vix = get_safe_macro('^VIX', 'VIX공포')
-    m_fx  = get_safe_macro('USD/KRW', '달러환율')
+        # 1. 매크로 데이터 수집
+        m_ndx = get_safe_macro('^IXIC', '나스닥')
+        m_sp5 = get_safe_macro('^GSPC', 'S&P500')
+        m_vix = get_safe_macro('^VIX', 'VIX공포')
+        m_fx  = get_safe_macro('USD/KRW', '달러환율')
     
-    kospi_supply = get_index_investor_data('KOSPI')
-    macro_status = {'nasdaq': m_ndx, 'sp500': m_sp5, 'vix': m_vix, 'fx': m_fx, 'kospi': kospi_supply}
+        kospi_supply = get_index_investor_data('KOSPI')
+        macro_status = {'nasdaq': m_ndx, 'sp500': m_sp5, 'vix': m_vix, 'fx': m_fx, 'kospi': kospi_supply}
 
-    print("\n" + "🌍 " * 5 + "[ 글로벌 사령부 통합 관제 센터 ]" + " 🌍" * 5)
-    print(f"🇺🇸 {m_ndx['text']} | {m_sp5['text']} | ⚠️ {m_vix['text']}")
-    print(f"💵 {m_fx['text']} | 🇰🇷 KOSPI 수급: {kospi_supply}")
-    print("=" * 115)
+        print("\n" + "🌍 " * 5 + "[ 글로벌 사령부 통합 관제 센터 ]" + " 🌍" * 5)
+        print(f"🇺🇸 {m_ndx['text']} | {m_sp5['text']} | ⚠️ {m_vix['text']}")
+        print(f"💵 {m_fx['text']} | 🇰🇷 KOSPI 수급: {kospi_supply}")
+        print("=" * 115)
     
-    weather_data = prepare_historical_weather()
+        weather_data = prepare_historical_weather()
     
-    # 2. 글로벌/대장주 상태 스캔
-    g_status, l_sync = get_global_and_leader_status()
+        # 2. 글로벌/대장주 상태 스캔
+        g_status, l_sync = get_global_and_leader_status()
   
-    # 3. 전술 스캔 (멀티스레딩)
-    all_hits = []
-    print(f"🔍 총 {len(target_stocks)}개 종목 💎다이아몬드 & 🎯역매공파 레이더 가동...")
-    with ThreadPoolExecutor(max_workers=15) as executor:
+        # 3. 전술 스캔 (멀티스레딩)
+        all_hits = []
+        print(f"🔍 총 {len(target_stocks)}개 종목 💎다이아몬드 & 🎯역매공파 레이더 가동...")
+        with ThreadPoolExecutor(max_workers=15) as executor:
         results = list(executor.map(
             lambda p: analyze_final(p[0], p[1], weather_data, global_env, leader_env, sector_master_map), 
             zip(target_stocks['Code'], target_stocks['Name'])
         ))
-        for r in results:
-            if r:
-                # 💡 [신규] 포착된 종목에 즉시 체급(Tier) 및 시총 데이터 주입
-                for hit in r:
-                    # hit['종목코드']가 있다고 가정, 없으면 ticker를 찾아야 함
-                    name = hit['종목']
-                    ticker_code = hit.get('코드')
-                    all_hits.append(hit)
+            for r in results:
+                if r:
+                    # 💡 [신규] 포착된 종목에 즉시 체급(Tier) 및 시총 데이터 주입
+                    for hit in r:
+                        # hit['종목코드']가 있다고 가정, 없으면 ticker를 찾아야 함
+                        name = hit['종목']
+                        ticker_code = hit.get('코드')
+                        all_hits.append(hit)
 
-    if all_hits:
-        df_total = pd.DataFrame(all_hits)
+        if all_hits:
+            df_total = pd.DataFrame(all_hits)
 
-        # 백테스트 분석
-        df_backtest, df_realistic, s_grade_info = proper_backtest_analysis(all_hits)
+            # 백테스트 분석
+            df_backtest, df_realistic, s_grade_info = proper_backtest_analysis(all_hits)
         
-        # 조합별 성과 분석
-        df_combo, best_combos, worst_combos = analyze_combination_performance(all_hits)
+            # 조합별 성과 분석
+            df_combo, best_combos, worst_combos = analyze_combination_performance(all_hits)
         
-        # 수익률 분포
-        df_profit_dist = analyze_profit_distribution(all_hits)
+            # 수익률 분포
+            df_profit_dist = analyze_profit_distribution(all_hits)
         
-        # 조합별 통계
-        stats_df, top_5 = calculate_strategy_stats(all_hits)
+            # 조합별 통계
+            stats_df, top_5 = calculate_strategy_stats(all_hits)
 
-        # 통계 계산 (상위 5개 추천 정보 포함)
-        stats_df, top_recommendations = calculate_strategy_stats(all_hits)
+            # 통계 계산 (상위 5개 추천 정보 포함)
+            stats_df, top_recommendations = calculate_strategy_stats(all_hits)
 
-        # 4. 결과 분류
-        today = df_total[df_total['보유일'] == 0]
-        today = today[today['N점수'] >= 0]
-        today = today.sort_values(by='N점수', ascending=False)
+            # 4. 결과 분류
+            today = df_total[df_total['보유일'] == 0]
+            today = today[today['N점수'] >= 0]
+            today = today.sort_values(by='N점수', ascending=False)
         
-        today = df_total[df_total['보유일'] == 0].sort_values(by='확신점수', ascending=False)
+            today = df_total[df_total['보유일'] == 0].sort_values(by='확신점수', ascending=False)
         
-        s_grade_today = today[today['N등급'] == 'S']
+            s_grade_today = today[today['N등급'] == 'S']
         
-        desired_cols = ['날짜',
-                '👑등급',
-                '종목',
-                'N등급',
-                'N점수',
-                'N조합',
-                'RSI',
-                '대칭비율',
-                '매집봉',
-                '🎯목표타점',
-                '🚨손절가',
-                '매입가',
-                '현재가',
-                '최고수익률%',
-                '최저수익률%',
-                '기상',
-                '매집',
-                '이격',
-                '꼬리%',
-                'BB40',
-                'MA수렴',
-                '📜서사히스토리',
-                'N구분',
-                '구분',
-                '확신점수',
-                '안전점수',
-                '섹터',
-                '보유일']
-        display_cols = [c for c in desired_cols if c in today.columns]
+            desired_cols = ['날짜',
+                    '👑등급',
+                    '종목',
+                    'N등급',
+                    'N점수',
+                    'N조합',
+                    'RSI',
+                    '대칭비율',
+                    '매집봉',
+                    '🎯목표타점',
+                    '🚨손절가',
+                    '매입가',
+                    '현재가',
+                    '최고수익률%',
+                    '최저수익률%',
+                    '기상',
+                    '매집',
+                    '이격',
+                    '꼬리%',
+                    'BB40',
+                    'MA수렴',
+                    '📜서사히스토리',
+                    'N구분',
+                    '구분',
+                    '확신점수',
+                    '안전점수',
+                    '섹터',
+                    '보유일']
+            display_cols = [c for c in desired_cols if c in today.columns]
 
-        if not today.empty:
+            if not today.empty:
             print(today[display_cols].head(50))
-        # 5. 구글 시트 전송
-        try:
-            update_commander_dashboard(
-                df_total,
-                macro_status,
-                "사령부_통합_상황판",
-                stats_df=stats_df,
-                today_recommendations=today,
-                ai_recommendation=pd.DataFrame(top_5) if top_5 else None,
+            # 5. 구글 시트 전송
+            try:
+                update_commander_dashboard(
+                    df_total,
+                    macro_status,
+                    "사령부_통합_상황판",
+                    stats_df=stats_df,
+                   today_recommendations=today,
+                     ai_recommendation=pd.DataFrame(top_5) if top_5 else None,
                 s_grade_special=s_grade_today if not s_grade_today.empty else None,
                 
-                # ✅ 수정: grade_analysis 제거하고 df_backtest, df_realistic 직접 전달
-                # grade_analysis=grade_analysis,  # ← 삭제
+                    # ✅ 수정: grade_analysis 제거하고 df_backtest, df_realistic 직접 전달
+                #      grade_analysis=grade_analysis,  # ← 삭제
                 
                 df_backtest=df_backtest,
                 df_realistic=df_realistic,
@@ -1777,21 +2083,21 @@ if __name__ == "__main__":
                 df_profit_dist=df_profit_dist
             )
             
-            print("\n" + "="*100)
-            print("✅ 구글 시트 업데이트 성공!")
-            print("="*100)
-            print("📋 생성된 시트:")
-            print("   1. 메인 시트: 전체 30일 데이터")
-            print("   2. 오늘의_추천종목: 오늘 신호 (등급별)")
-            print("   3. S급_긴급: S급 종목 특별 모니터링")
-            print("   4. 등급별_분석: S/A/B급 백테스트")
-            print("   5. AI_추천패턴: TOP 5 조합")
-            print("   ✅ 6. 조합별_성과: 전체 조합 성과 (신규!)")
-            print("   ✅ 7. TOP_WORST_조합: 최고/최악 조합 (신규!)")
-            print("   ✅ 8. 수익률_분포: 구간별 분포 (신규!)")
-            print("   ✅ 9. 백테스트_비교: 이상 vs 현실 (신규!)")
-            print("="*100)
-        except Exception as e:
-            print(f"\n❌ 시트 업데이트 실패: {e}")
-    else:
-        print("\n⚠️ 검색 결과가 없습니다.")
+                print("\n" + "="*100)
+                print("✅ 구글 시트 업데이트 성공!")
+                print("="*100)
+                print("📋 생성된 시트:")
+                print("   1. 메인 시트: 전체 30일 데이터")
+                print("   2. 오늘의_추천종목: 오늘 신호 (등급별)")
+                print("   3. S급_긴급: S급 종목 특별 모니터링")
+                print("   4. 등급별_분석: S/A/B급 백테스트")
+                print("   5. AI_추천패턴: TOP 5 조합")
+                print("   ✅ 6. 조합별_성과: 전체 조합 성과 (신규!)")
+                print("   ✅ 7. TOP_WORST_조합: 최고/최악 조합 (신규!)")
+                print("   ✅ 8. 수익률_분포: 구간별 분포 (신규!)")
+                print("   ✅ 9. 백테스트_비교: 이상 vs 현실 (신규!)")
+                print("="*100)
+            except Exception as e:
+                print(f"\n❌ 시트 업데이트 실패: {e}")
+        else:
+            print("\n⚠️ 검색 결과가 없습니다.")
