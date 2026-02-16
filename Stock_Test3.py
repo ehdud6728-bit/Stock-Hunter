@@ -1909,107 +1909,103 @@ if __name__ == "__main__":
     
     # 2. 전 종목 리스트 로드 및 명찰 강제 통일
     try:
-        if args.mode != 'daily':
-            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            # 장기 백테스트 모드 (신규)
-            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        
-            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            # 장기 백테스트 모드 (신규)
-            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        
-            print(f"🔬 [장기 백테스트 모드] 2023.01 ~ 2026.02")
-            print(f"   샘플링: {args.sampling}")
-        
-            # 1. 백테스트 실행
-            df_longterm = long_term_backtest(mode=args.sampling)
-        
-            if df_longterm.empty:
-                print("\n⚠️ 백테스트 결과 없음")
-                exit()
-        
-            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            # 3. 분석 실행
-            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        
-            print("\n📊 분석 시작...")
-        
-            # 3-1. 시장 국면별 성과
-            print("   [1/5] 시장 국면별 성과 분석...")
-            df_market = analyze_by_market_condition(df_longterm)
-            df_market.to_csv('analysis_by_market.csv', index=False, encoding='utf-8-sig')
-        
-            # 3-2. 조합별 시장 적합도
-            print("   [2/5] 조합별 시장 적합도 분석...")
-            df_combo_market = analyze_combination_by_market(df_longterm)
-            df_combo_market.to_csv('analysis_combo_by_market.csv', index=False, encoding='utf-8-sig')
-        
-            # 3-3. 등급별 전체 성과
-            print("   [3/5] 등급별 전체 성과 분석...")
-            longterm_hits = df_longterm.to_dict('records')
-            df_backtest, df_realistic, s_info = proper_backtest_analysis(longterm_hits)
-        
-            # 3-4. 조합별 전체 성과
-            print("   [4/5] 조합별 전체 성과 분석...")
-            df_combo, best_combos, worst_combos = analyze_combination_performance(longterm_hits)
-        
-            # 3-5. 수익률 분포
-            print("   [5/5] 수익률 분포 분석...")
-            df_profit_dist = analyze_profit_distribution(longterm_hits)
-        
-            print("✅ 분석 완료!")
-        
-            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            # 4. 콘솔 출력
-            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        
-            print("\n" + "=" * 100)
-            print("📊 3년 전체 성과 (실전 예상)")
-            print("=" * 100)
-            print(df_realistic)
-        
-            print("\n" + "=" * 100)
-            print("📊 시장 국면별 성과")
-            print("=" * 100)
-            print(df_market)
-        
-            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            # 5. 구글 시트 업로드
-            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        
-            print("\n📊 구글 시트 업로드 중...")
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        # 장기 백테스트 모드 (신규)
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    
+        print(f"🔬 [장기 백테스트 모드] 2023.01 ~ 2026.02")
+        print(f"   샘플링: {args.sampling}")
+    
+        # 1. 백테스트 실행
+        df_longterm = long_term_backtest(mode=args.sampling)
+    
+        if df_longterm.empty:
+            print("\n⚠️ 백테스트 결과 없음")
+            exit()
+    
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        # 3. 분석 실행
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    
+        print("\n📊 분석 시작...")
+    
+        # 3-1. 시장 국면별 성과
+        print("   [1/5] 시장 국면별 성과 분석...")
+        df_market = analyze_by_market_condition(df_longterm)
+        df_market.to_csv('analysis_by_market.csv', index=False, encoding='utf-8-sig')
+    
+        # 3-2. 조합별 시장 적합도
+        print("   [2/5] 조합별 시장 적합도 분석...")
+        df_combo_market = analyze_combination_by_market(df_longterm)
+        df_combo_market.to_csv('analysis_combo_by_market.csv', index=False, encoding='utf-8-sig')
+    
+        # 3-3. 등급별 전체 성과
+        print("   [3/5] 등급별 전체 성과 분석...")
+        longterm_hits = df_longterm.to_dict('records')
+        df_backtest, df_realistic, s_info = proper_backtest_analysis(longterm_hits)
+    
+        # 3-4. 조합별 전체 성과
+        print("   [4/5] 조합별 전체 성과 분석...")
+        df_combo, best_combos, worst_combos = analyze_combination_performance(longterm_hits)
+    
+        # 3-5. 수익률 분포
+        print("   [5/5] 수익률 분포 분석...")
+        df_profit_dist = analyze_profit_distribution(longterm_hits)
+    
+        print("✅ 분석 완료!")
+    
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        # 4. 콘솔 출력
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    
+        print("\n" + "=" * 100)
+        print("📊 3년 전체 성과 (실전 예상)")
+        print("=" * 100)
+        print(df_realistic)
+    
+        print("\n" + "=" * 100)
+        print("📊 시장 국면별 성과")
+        print("=" * 100)
+        print(df_market)
+    
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        # 5. 구글 시트 업로드
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    
+        print("\n📊 구글 시트 업로드 중...")
    
+        
+        # 매크로 데이터 (더미 - 장기 백테스트에서는 불필요)
+        macro_status = {
+            'kospi': {'close': 0, 'change': 0},
+            'ixic': {'close': 0, 'change': 0},
+            'sp500': {'close': 0, 'change': 0}
+        }
+        
+        # ✅ 장기 백테스트 전용 구글 시트 업데이트
+        update_longterm_backtest_sheet(
+            df_main=df_longterm,
+            df_market=df_market,
+            df_combo_market=df_combo_market,
+            df_backtest=df_backtest,
+            df_realistic=df_realistic,
+            df_combo=df_combo,
+            best_combos=best_combos,
+            worst_combos=worst_combos,
+            df_profit_dist=df_profit_dist,
+            sampling=args.sampling
+        )
+        
+        print("✅ 구글 시트 업로드 성공!")
+
+        df_krx = fdr.StockListing('KRX')
+    
+        # 💡 [핵심] 첫 번째 열은 'Code', 두 번째 열은 'Name'으로 강제 개명
+        # KRX 데이터 구조상 보통 0번이 코드, 1번이 종목명입니다.
+        #df_krx.columns.values[0] = target_stocks['Code']
+        #df_krx.columns.values[1] = target_stocks['Name']
+    
         try:
-            # 매크로 데이터 (더미 - 장기 백테스트에서는 불필요)
-            macro_status = {
-                'kospi': {'close': 0, 'change': 0},
-                'ixic': {'close': 0, 'change': 0},
-                'sp500': {'close': 0, 'change': 0}
-            }
-            
-            # ✅ 장기 백테스트 전용 구글 시트 업데이트
-            update_longterm_backtest_sheet(
-                df_main=df_longterm,
-                df_market=df_market,
-                df_combo_market=df_combo_market,
-                df_backtest=df_backtest,
-                df_realistic=df_realistic,
-                df_combo=df_combo,
-                best_combos=best_combos,
-                worst_combos=worst_combos,
-                df_profit_dist=df_profit_dist,
-                sampling=args.sampling
-            )
-            
-            print("✅ 구글 시트 업로드 성공!")
-        else:
-            df_krx = fdr.StockListing('KRX')
-        
-            # 💡 [핵심] 첫 번째 열은 'Code', 두 번째 열은 'Name'으로 강제 개명
-            # KRX 데이터 구조상 보통 0번이 코드, 1번이 종목명입니다.
-            #df_krx.columns.values[0] = target_stocks['Code']
-            #df_krx.columns.values[1] = target_stocks['Name']
-        
             # 섹터 컬럼도 있으면 'Sector'로 통일
             s_col = next((c for c in ['Sector', 'Industry', '업종'] if c in df_krx.columns), None)
             if s_col:
