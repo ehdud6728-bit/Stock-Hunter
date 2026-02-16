@@ -118,11 +118,11 @@ def long_term_backtest(mode='full'):
     
     if mode == 'full':
         # 전체 스캔 (시간 오래 걸림)
-        stock_list = get_top_volume_stocks(TOP_N=100, MIN_VOLUME_KRW=500_000_000)
+        stock_list = get_top_volume_stocks(TOP_N=300, MIN_VOLUME_KRW=500_000_000)
         print(f"   대상 종목: {len(stock_list)}개 (거래대금 상위 100)")
     elif mode == 'weekly':
         # 주 1회 샘플링
-        stock_list = get_top_volume_stocks(TOP_N=200, MIN_VOLUME_KRW=500_000_000)
+        stock_list = get_top_volume_stocks(TOP_N=300, MIN_VOLUME_KRW=500_000_000)
         print(f"   대상 종목: {len(stock_list)}개 (주 1회 샘플링)")
     else:  # monthly
         # 월 1회 샘플링
@@ -134,7 +134,7 @@ def long_term_backtest(mode='full'):
     
     print(f"\n🔍 백테스트 실행 중...")
     
-    with ThreadPoolExecutor(max_workers=10) as executor:
+    with ThreadPoolExecutor(max_workers=15) as executor:
         futures = {
             executor.submit(
                 analyze_final_longterm, 
