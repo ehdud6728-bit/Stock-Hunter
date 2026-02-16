@@ -2002,3 +2002,6 @@ if __name__ == "__main__":
                 print(f"\n❌ 시트 업데이트 실패: {e}")
         else:
             print("\n⚠️ 검색 결과가 없습니다.")
+    # 🚨 [가장 중요] 메인 try 구문을 닫아주는 except를 추가해야 합니다!
+    except Exception as main_error:
+        print(f"🚨 [치명적 오류] 메인 엔진 정지: {main_error}")
