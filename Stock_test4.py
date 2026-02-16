@@ -1890,10 +1890,10 @@ if __name__ == "__main__":
         all_hits = []
         print(f"🔍 총 {len(target_stocks)}개 종목 💎다이아몬드 & 🎯역매공파 레이더 가동...")
         with ThreadPoolExecutor(max_workers=15) as executor:
-        results = list(executor.map(
-            lambda p: analyze_final(p[0], p[1], weather_data, global_env, leader_env, sector_master_map), 
-            zip(target_stocks['Code'], target_stocks['Name'])
-        ))
+            results = list(executor.map(
+                lambda p: analyze_final(p[0], p[1], weather_data, global_env, leader_env, sector_master_map), 
+                zip(target_stocks['Code'], target_stocks['Name'])
+            ))
             for r in results:
                 if r:
                     # 💡 [신규] 포착된 종목에 즉시 체급(Tier) 및 시총 데이터 주입
