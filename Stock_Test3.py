@@ -1910,75 +1910,98 @@ if __name__ == "__main__":
     # 2. 전 종목 리스트 로드 및 명찰 강제 통일
     try:
         if args.mode != 'daily':
-        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        # 장기 백테스트 모드 (신규)
-        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            # 장기 백테스트 모드 (신규)
+            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        
+            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            # 장기 백테스트 모드 (신규)
+            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         
             print(f"🔬 [장기 백테스트 모드] 2023.01 ~ 2026.02")
             print(f"   샘플링: {args.sampling}")
         
-            # 백테스트 실행
+            # 1. 백테스트 실행
             df_longterm = long_term_backtest(mode=args.sampling)
         
             if df_longterm.empty:
                 print("\n⚠️ 백테스트 결과 없음")
                 exit()
-        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        # 분석
-        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         
-            # 1. 시장 국면별 성과
+            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            # 3. 분석 실행
+            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        
+            print("\n📊 분석 시작...")
+        
+            # 3-1. 시장 국면별 성과
+            print("   [1/5] 시장 국면별 성과 분석...")
             df_market = analyze_by_market_condition(df_longterm)
+            df_market.to_csv('analysis_by_market.csv', index=False, encoding='utf-8-sig')
         
-            # 2. 조합별 시장 적합도
+            # 3-2. 조합별 시장 적합도
+            print("   [2/5] 조합별 시장 적합도 분석...")
             df_combo_market = analyze_combination_by_market(df_longterm)
+            df_combo_market.to_csv('analysis_combo_by_market.csv', index=False, encoding='utf-8-sig')
         
-            # 3. 등급별 분석 (전체)
-            df_backtest, df_realistic, s_info = proper_backtest_analysis(df_longterm.to_dict('records'))
+            # 3-3. 등급별 전체 성과
+            print("   [3/5] 등급별 전체 성과 분석...")
+            longterm_hits = df_longterm.to_dict('records')
+            df_backtest, df_realistic, s_info = proper_backtest_analysis(longterm_hits)
+        
+            # 3-4. 조합별 전체 성과
+            print("   [4/5] 조합별 전체 성과 분석...")
+            df_combo, best_combos, worst_combos = analyze_combination_performance(longterm_hits)
+        
+            # 3-5. 수익률 분포
+            print("   [5/5] 수익률 분포 분석...")
+            df_profit_dist = analyze_profit_distribution(longterm_hits)
+        
+            print("✅ 분석 완료!")
+        
+            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            # 4. 콘솔 출력
+            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         
             print("\n" + "=" * 100)
             print("📊 3년 전체 성과 (실전 예상)")
             print("=" * 100)
             print(df_realistic)
-
-# 5. 구글 시트 전송
-            try:
-                update_commander_dashboard(
-                    df_total,
-                    macro_status,
-                    "사령부_통합_상황판",
-                    stats_df=stats_df,
-                    today_recommendations=today,
-                    ai_recommendation=pd.DataFrame(top_5) if top_5 else None,
-                    s_grade_special=s_grade_today if not s_grade_today.empty else None,
-                
-                    # ✅ 수정: grade_analysis 제거하고 df_backtest, df_realistic 직접 전달
-                    #grade_analysis=grade_analysis,  # ← 삭제
-                
-                    df_backtest=df_backtest,
-                    df_realistic=df_realistic,
-                    df_combo=df_combo,
-                    best_combos=best_combos,
-                    worst_combos=worst_combos,
-                    df_profit_dist=df_profit_dist
-                )
+        
+            print("\n" + "=" * 100)
+            print("📊 시장 국면별 성과")
+            print("=" * 100)
+            print(df_market)
+        
+            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            # 5. 구글 시트 업로드
+            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        
+            print("\n📊 구글 시트 업로드 중...")
+   
+        try:
+            # 매크로 데이터 (더미 - 장기 백테스트에서는 불필요)
+            macro_status = {
+                'kospi': {'close': 0, 'change': 0},
+                'ixic': {'close': 0, 'change': 0},
+                'sp500': {'close': 0, 'change': 0}
+            }
             
-                print("\n" + "="*100)
-                print("✅ 구글 시트 업데이트 성공!")
-                print("="*100)
-                print("📋 생성된 시트:")
-                print("   1. 메인 시트: 전체 30일 데이터")
-                print("   2. 오늘의_추천종목: 오늘 신호 (등급별)")
-                print("   3. S급_긴급: S급 종목 특별 모니터링")
-                print("   4. 등급별_분석: S/A/B급 백테스트")
-                print("   5. AI_추천패턴: TOP 5 조합")
-                print("   ✅ 6. 조합별_성과: 전체 조합 성과 (신규!)")
-                print("   ✅ 7. TOP_WORST_조합: 최고/최악 조합 (신규!)")
-                print("   ✅ 8. 수익률_분포: 구간별 분포 (신규!)")
-                print("   ✅ 9. 백테스트_비교: 이상 vs 현실 (신규!)")
-                print("="*100)
-            except Exception as e:
-                print(f"\n❌ 시트 업데이트 실패: {e}")
+            # ✅ 장기 백테스트 전용 구글 시트 업데이트
+            update_longterm_backtest_sheet(
+                df_main=df_longterm,
+                df_market=df_market,
+                df_combo_market=df_combo_market,
+                df_backtest=df_backtest,
+                df_realistic=df_realistic,
+                df_combo=df_combo,
+                best_combos=best_combos,
+                worst_combos=worst_combos,
+                df_profit_dist=df_profit_dist,
+                sampling=args.sampling
+            )
+            
+            print("✅ 구글 시트 업로드 성공!")
         else:
             df_krx = fdr.StockListing('KRX')
         
