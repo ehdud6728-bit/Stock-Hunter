@@ -1910,7 +1910,7 @@ if __name__ == "__main__":
     # 2. 전 종목 리스트 로드 및 명찰 강제 통일
     try:
         if args.mode != 'daily':
-           # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         # 장기 백테스트 모드 (신규)
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         
@@ -1940,6 +1940,45 @@ if __name__ == "__main__":
             print("📊 3년 전체 성과 (실전 예상)")
             print("=" * 100)
             print(df_realistic)
+
+# 5. 구글 시트 전송
+            try:
+                update_commander_dashboard(
+                    df_total,
+                    macro_status,
+                    "사령부_통합_상황판",
+                    stats_df=stats_df,
+                    today_recommendations=today,
+                    ai_recommendation=pd.DataFrame(top_5) if top_5 else None,
+                    s_grade_special=s_grade_today if not s_grade_today.empty else None,
+                
+                    # ✅ 수정: grade_analysis 제거하고 df_backtest, df_realistic 직접 전달
+                    #grade_analysis=grade_analysis,  # ← 삭제
+                
+                    df_backtest=df_backtest,
+                    df_realistic=df_realistic,
+                    df_combo=df_combo,
+                    best_combos=best_combos,
+                    worst_combos=worst_combos,
+                    df_profit_dist=df_profit_dist
+                )
+            
+                print("\n" + "="*100)
+                print("✅ 구글 시트 업데이트 성공!")
+                print("="*100)
+                print("📋 생성된 시트:")
+                print("   1. 메인 시트: 전체 30일 데이터")
+                print("   2. 오늘의_추천종목: 오늘 신호 (등급별)")
+                print("   3. S급_긴급: S급 종목 특별 모니터링")
+                print("   4. 등급별_분석: S/A/B급 백테스트")
+                print("   5. AI_추천패턴: TOP 5 조합")
+                print("   ✅ 6. 조합별_성과: 전체 조합 성과 (신규!)")
+                print("   ✅ 7. TOP_WORST_조합: 최고/최악 조합 (신규!)")
+                print("   ✅ 8. 수익률_분포: 구간별 분포 (신규!)")
+                print("   ✅ 9. 백테스트_비교: 이상 vs 현실 (신규!)")
+                print("="*100)
+            except Exception as e:
+                print(f"\n❌ 시트 업데이트 실패: {e}")
         else:
             df_krx = fdr.StockListing('KRX')
         
@@ -1962,6 +2001,7 @@ if __name__ == "__main__":
             print(f"🚨 [본진] 데이터 로드 실패: {e}")
             sector_master_map = {}
             # 여기서 죽지 않게 빈 데이터프레임이라도 생성
+
         df_krx = pd.DataFrame(columns=['Code', 'Name', 'Sector'])
 
         target_stocks = df_krx.sort_values(by='Amount', ascending=False).head(TOP_N)
@@ -2060,7 +2100,7 @@ if __name__ == "__main__":
             display_cols = [c for c in desired_cols if c in today.columns]
 
             if not today.empty:
-            print(today[display_cols].head(50))
+                print(today[display_cols].head(50))
             # 5. 구글 시트 전송
             try:
                 update_commander_dashboard(
@@ -2068,20 +2108,20 @@ if __name__ == "__main__":
                     macro_status,
                     "사령부_통합_상황판",
                     stats_df=stats_df,
-                   today_recommendations=today,
-                     ai_recommendation=pd.DataFrame(top_5) if top_5 else None,
-                s_grade_special=s_grade_today if not s_grade_today.empty else None,
+                    today_recommendations=today,
+                    ai_recommendation=pd.DataFrame(top_5) if top_5 else None,
+                    s_grade_special=s_grade_today if not s_grade_today.empty else None,
                 
                     # ✅ 수정: grade_analysis 제거하고 df_backtest, df_realistic 직접 전달
-                #      grade_analysis=grade_analysis,  # ← 삭제
+                    #grade_analysis=grade_analysis,  # ← 삭제
                 
-                df_backtest=df_backtest,
-                df_realistic=df_realistic,
-                df_combo=df_combo,
-                best_combos=best_combos,
-                worst_combos=worst_combos,
-                df_profit_dist=df_profit_dist
-            )
+                    df_backtest=df_backtest,
+                    df_realistic=df_realistic,
+                    df_combo=df_combo,
+                    best_combos=best_combos,
+                    worst_combos=worst_combos,
+                    df_profit_dist=df_profit_dist
+                )
             
                 print("\n" + "="*100)
                 print("✅ 구글 시트 업데이트 성공!")
