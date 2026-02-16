@@ -1774,6 +1774,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
                 max_r = 0
                 min_r = 0
                 current_price = close_p
+                max_date_ts = curr_idx.strftime('%Y-%m-%d')
 
             hits.append({
                 '날짜': curr_idx.strftime('%Y-%m-%d'),
