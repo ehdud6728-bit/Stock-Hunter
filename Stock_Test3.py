@@ -39,9 +39,157 @@ TODAY_STR = NOW.strftime('%Y-%m-%d')
 START_DATE = (datetime.now() - timedelta(days=600)).strftime('%Y-%m-%d')
 END_DATE_STR = datetime.now().strftime('%Y%m%d')
 
+MARKET_PERIODS = {
+    '약세장_1': {
+        'start': '2023-01-01',
+        'end': '2023-06-30',
+        'description': '2023 상반기 약세',
+        'kospi_range': (2300, 2500),
+        'trend': 'down'
+    },
+    '횡보장_1': {
+        'start': '2023-07-01',
+        'end': '2023-12-31',
+        'description': '2023 하반기 횡보',
+        'kospi_range': (2400, 2600),
+        'trend': 'sideways'
+    },
+    '약세장_2': {
+        'start': '2024-01-01',
+        'end': '2024-04-30',
+        'description': '2024 Q1-Q2 조정',
+        'kospi_range': (2500, 2700),
+        'trend': 'down'
+    },
+    '횡보장_2': {
+        'start': '2024-05-01',
+        'end': '2024-08-31',
+        'description': '2024 여름 횡보',
+        'kospi_range': (2600, 2750),
+        'trend': 'sideways'
+    },
+    '강세장_1': {
+        'start': '2024-09-01',
+        'end': '2025-12-31',
+        'description': '2024 하반기~2025 강세',
+        'kospi_range': (2650, 2900),
+        'trend': 'up'
+    },
+    '강세장_2': {
+        'start': '2026-01-01',
+        'end': '2026-02-20',
+        'description': '2026 현재 강세',
+        'kospi_range': (2800, 3000),
+        'trend': 'up'
+    }
+}
+
 print(f"📡 [Ver 36.7 엑셀저장+추천] 사령부 무결성 통합 가동... 💎다이아몬드 & 📊복합통계 엔진 탑재")
 
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 📈 3년 장기 백테스트
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+def long_term_backtest(mode='full'):
+    """
+    3년 장기 백테스트
+    
+    Args:
+        mode: 'full' (전체 매일) | 'weekly' (주 1회) | 'monthly' (월 1회)
+    
+    Returns:
+        결과 DataFrame
+    """
+    
+    print("=" * 100)
+    print("🔬 3년 장기 백테스트 시작 (2023.01 ~ 2026.02)")
+    print("=" * 100)
+    
+    # 매크로 지표 (3년치)
+    print("\n📊 매크로 지표 로드 중...")
+    historical_indices = {}
+    for idx_name, ticker in [('kospi', '^KS11'), ('ixic', '^IXIC'), ('sp500', '^GSPC')]:
+        idx_df = yf.download(ticker, start='2023-01-01', end='2026-02-20', progress=False)
+        idx_df.columns = ['Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume']
+        historical_indices[idx_name] = idx_df[['Close']]
+    
+    # 종목 리스트 (대표 종목만)
+    print("\n📋 종목 리스트 준비 중...")
+    
+    if mode == 'full':
+        # 전체 스캔 (시간 오래 걸림)
+        stock_list = get_top_volume_stocks(TOP_N=100, MIN_VOLUME_KRW=500_000_000)
+        print(f"   대상 종목: {len(stock_list)}개 (거래대금 상위 100)")
+    elif mode == 'weekly':
+        # 주 1회 샘플링
+        stock_list = get_top_volume_stocks(TOP_N=200, MIN_VOLUME_KRW=500_000_000)
+        print(f"   대상 종목: {len(stock_list)}개 (주 1회 샘플링)")
+    else:  # monthly
+        # 월 1회 샘플링
+        stock_list = get_top_volume_stocks(TOP_N=350, MIN_VOLUME_KRW=300_000_000)
+        print(f"   대상 종목: {len(stock_list)}개 (월 1회 샘플링)")
+    
+    # 백테스트 실행
+    all_hits = []
+    
+    print(f"\n🔍 백테스트 실행 중...")
+    
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        futures = {
+            executor.submit(
+                analyze_final_longterm, 
+                code, 
+                name, 
+                historical_indices,
+                scan_days=750,  # 3년치
+                sampling=mode
+            ): (code, name)
+            for code, name in stock_list.items()
+        }
+        
+        for future in tqdm(as_completed(futures), total=len(futures), desc="종목 분석"):
+            try:
+                hits = future.result()
+                if hits:
+                    all_hits.extend(hits)
+            except Exception as e:
+                continue
+    
+    if not all_hits:
+        print("\n⚠️ 백테스트 결과 없음")
+        return pd.DataFrame()
+    
+    # DataFrame 변환
+    df_results = pd.DataFrame(all_hits)
+    
+    # 시장 구간 레이블 추가
+    df_results['시장구간'] = df_results['날짜'].apply(classify_market_period)
+    df_results['시장추세'] = df_results['시장구간'].apply(lambda x: get_market_trend(x))
+    
+    print(f"\n✅ 백테스트 완료: 총 {len(df_results)}개 신호 발견")
+    
+    return df_results
+
+
+def classify_market_period(date_str):
+    """날짜로 시장 구간 분류"""
+    date = pd.to_datetime(date_str)
+    
+    for period_name, period_info in MARKET_PERIODS.items():
+        start = pd.to_datetime(period_info['start'])
+        end = pd.to_datetime(period_info['end'])
+        
+        if start <= date <= end:
+            return period_name
+    
+    return 'unknown'
+
+
+def get_market_trend(period_name):
+    """시장 구간의 추세 반환"""
+    if period_name in MARKET_PERIODS:
+        return MARKET_PERIODS[period_name]['trend']
+    return 'unknown'
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # 📊 조합별 성과 분석 (상세 버전)
