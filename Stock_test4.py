@@ -1881,7 +1881,7 @@ if __name__ == "__main__":
 
         #df_krx = pd.DataFrame(columns=['Code', 'Name', 'Sector'])
 
-        target_stocks = df_krx.sort_values(by='Amount', ascending=False).head(TOP_N)
+        target_stocks = df_krx.sort_values(by='Marcap', ascending=False).head(TOP_N)
     
         # 1. 매크로 데이터 수집
         m_ndx = get_safe_macro('^IXIC', '나스닥')
