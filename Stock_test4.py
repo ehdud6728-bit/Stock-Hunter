@@ -1593,6 +1593,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             is_1st_buy = False
             is_2nd_buy = False
             is_rapid_target = False
+            is_rn_signal = False
             
             if lower_rn and upper_rn:
                 # 🕵️ 조건 A: 최근 20일 내에 위 정거장(+4%)을 터치했었나?
