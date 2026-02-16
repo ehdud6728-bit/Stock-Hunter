@@ -1863,7 +1863,7 @@ if __name__ == "__main__":
             sector_master_map = {}
             # 여기서 죽지 않게 빈 데이터프레임이라도 생성
 
-        df_krx = pd.DataFrame(columns=['Code', 'Name', 'Sector'])
+        #df_krx = pd.DataFrame(columns=['Code', 'Name', 'Sector'])
 
         target_stocks = df_krx.sort_values(by='Amount', ascending=False).head(TOP_N)
     
