@@ -1760,6 +1760,10 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             if not h_df.empty:
                 max_r = ((h_df['High'].max() - close_p) / close_p) * 100
                 min_r = ((h_df['Low'].min() - close_p) / close_p) * 100
+
+                max_close_series = h_df['Close']
+                max_close_val = max_close_series.max() # 최고가(종가)
+                max_date_ts = max_close_series.idxmax() # 최고가인 날의 Timestamp
                 
                 # 💡 오늘이면 현재가 = 오늘 종가, 아니면 해당 시점의 마지막 종가
                 is_today = (len(h_df) == 0)  # 보유일 0이면 오늘
@@ -1795,6 +1799,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
                 'BB40': f"{row['BB40_Width']:.1f}",
                 'MA수렴': f"{row['MA_Convergence']:.1f}",
                 '매집': f"{acc_count}/5",
+                '최고수익날': max_date_ts,
                 '최고수익률%': f"{max_r:+.1f}%",
                 '최저수익률%': f"{min_r:+.1f}%",
                 '최고수익률_raw': max_r,
@@ -1948,6 +1953,7 @@ if __name__ == "__main__":
                     '🚨손절가',
                     '매입가',
                     '현재가',
+                    '최고수익날',
                     '최고수익률%',
                     '최저수익률%',
                     '기상',
