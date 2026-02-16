@@ -1,3 +1,4 @@
+import time
 import gspread
 from gspread_formatting import *
 # 💡 최신 인증 라이브러리로 교체
