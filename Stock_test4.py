@@ -1590,7 +1590,9 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             lower_rn, upper_rn = get_target_levels(row['Close'])
             avg_money = (row['Close'] * row['Volume']) # 간이 거래대금
             is_leader = avg_money >= 100000000000 # 1,000억 기준 (시장 상황에 따라 조정)
-            is_1st_buy, is_2nd_buy
+            is_1st_buy = False
+            is_2nd_buy = False
+            is_rapid_target = False
             
             if lower_rn and upper_rn:
                 # 🕵️ 조건 A: 최근 20일 내에 위 정거장(+4%)을 터치했었나?
