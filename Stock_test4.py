@@ -1357,9 +1357,9 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         # 🕵️ 신규 추가: 서사 분석기 호출
         #print(f"✅ [본진] 서사 분석기 호출 : {name}")
         sector = get_stock_sector(ticker, sector_master_map) # 섹터 판독 함수 필요
-        grade, narrative, target, stop, conviction = analyze_all_narratives(
-            df, name, my_sector, g_env, l_env
-        )
+        #grade, narrative, target, stop, conviction = analyze_all_narratives(
+        #    df, name, my_sector, g_env, l_env
+        #)
         
         
         # 최신 수급 데이터 수집
@@ -1412,6 +1412,10 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
                 dante_data_ratio = dante_data['ratio']
                 dante_data_mae_jip = dante_data['mae_jip']
 
+            grade, narrative, target, stop, conviction = analyze_all_narratives(
+                temp_df, name, my_sector, g_env, l_env
+            )
+            
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
             # 1. 신호 수집
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
