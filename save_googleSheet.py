@@ -89,7 +89,7 @@ def analyze_save_googleSheet(all_hits, isNasdaq):
                 best_combos=best_combos,
                 worst_combos=worst_combos,
                 df_profit_dist=df_profit_dist,
-                isNasdaq
+                isNasdaq=isNasdaq
             )
         
             print("\n" + "="*100)
