@@ -173,7 +173,7 @@ def update_commander_dashboard(df, macro_data, sheet_name, stats_df=None,
                     top_sheet = doc.worksheet(f"{Nasdaq_str}TOP_WORST_조합")
                 except:
                     top_sheet = doc.add_worksheet(
-                        title="TOP_WORST_조합", 
+                        title=f"{Nasdaq_str}TOP_WORST_조합", 
                         rows="100", 
                         cols="12", 
                         index=3
@@ -284,7 +284,7 @@ def update_commander_dashboard(df, macro_data, sheet_name, stats_df=None,
                     dist_sheet = doc.worksheet(f"{Nasdaq_str}수익률_분포")
                 except:
                     dist_sheet = doc.add_worksheet(
-                        title="수익률_분포", 
+                        title=f"{Nasdaq_str}수익률_분포", 
                         rows="50", 
                         cols="10", 
                         index=4
@@ -355,7 +355,7 @@ def update_commander_dashboard(df, macro_data, sheet_name, stats_df=None,
                     bt_sheet = doc.worksheet(f"{Nasdaq_str}백테스트_비교")
                 except:
                     bt_sheet = doc.add_worksheet(
-                        title="백테스트_비교", 
+                        title=f"{Nasdaq_str}백테스트_비교", 
                         rows="50", 
                         cols="12", 
                         index=5
@@ -416,7 +416,7 @@ def update_commander_dashboard(df, macro_data, sheet_name, stats_df=None,
                     grade_sheet = doc.worksheet("등급별_분석" & Nasdaq_str)
                 except:
                     grade_sheet = doc.add_worksheet(
-                        title="등급별_분석", 
+                        title=f"{Nasdaq_str}등급별_분석", 
                         rows="50", 
                         cols="12", 
                         index=1
