@@ -1,11 +1,16 @@
 import yfinance as yf
 import pandas as pd
 import numpy as np
-
+# 👇 구글 시트 매니저 연결 (파일명 확인 필수)
+try:
+    from google_sheet_managerEx import update_commander_dashboard
+except ImportError:
+    def update_commander_dashboard(*args, **kwargs): print("⚠️ 구글 시트 모듈 연결 실패")
+        
 # 1. 나스닥 정예 부대 명단 (Nasdaq 100 등)
 nasdaq_tickers = ['AAPL', 'MSFT', 'NVDA', 'TSLA', 'GOOGL', 'AMZN', 'META', 'AVGO', 'COST'] # 예시
 
-def analyze_save_googleSheet(all_hits):
+def analyze_save_googleSheet(all_hits, isNasdaq):
     if all_hits:
         df_total = pd.DataFrame(all_hits)
     
@@ -87,7 +92,8 @@ def analyze_save_googleSheet(all_hits):
                 df_combo=df_combo,
                 best_combos=best_combos,
                 worst_combos=worst_combos,
-                df_profit_dist=df_profit_dist
+                df_profit_dist=df_profit_dist,
+                isNasdaq
             )
         
             print("\n" + "="*100)
