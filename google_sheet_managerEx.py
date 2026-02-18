@@ -24,8 +24,8 @@ def update_commander_dashboard(df, macro_data, sheet_name, stats_df=None,
     Nasdaq_str = 'NasDaq_'
 								   
     try:
-		if not isNasdaq:
-		    Nasdaq_str = '' 
+        if not isNasdaq:
+            Nasdaq_str = '' 
 		    
         # 1. 🔑 인증 (환경변수 또는 파일)
         scope = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
