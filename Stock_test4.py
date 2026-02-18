@@ -1860,119 +1860,65 @@ def save_today_recommendations(df_today, recommendation_info):
 # 🚀 [실행] 메인 컨트롤러 (수정 버전)
 # =================================================
 if __name__ == "__main__":
-    print(f"📡 [Ver 36.7 구글시트 강화] {TODAY_STR} 전술 사령부 통합 가동...")
-    commander_cap_map = get_commander_market_cap()
-    # 💡 1. 전쟁 시작 전 '대장주 지도'와 '그들의 상태'를 딱 한 번만 생성
-    # leader_map: {섹터: 코드}, leader_status: {섹터: 강세/침체}
-    global_env, leader_env = get_global_and_leader_status()
+    print(f"📡 [Ver 36.7] {TODAY_STR} 전술 사령부 통합 가동...")
     
-    # 2. 전 종목 리스트 로드 및 명찰 강제 통일
     try:
+        # 1. 기본 환경 및 데이터 로드
+        global_env, leader_env = get_global_and_leader_status()
         df_krx = fdr.StockListing('KRX')
+        
+        # 🇺🇸 미국 주식 로드 (데이터프레임 유지)
         df_nasdaq = fdr.StockListing('NASDAQ')
         df_nyse = fdr.StockListing('NYSE')
+        df_us_all = pd.concat([df_nasdaq, df_nyse]) # 리스트가 아닌 데이터프레임으로 합침
         
-        # 두 리스트 합치기
-        df_nasdaqNnyse = df_nasdaq['Symbol'].tolist() + df_nyse['Symbol'].tolist()
-        print(f"✅ [글로벌 전면전] 총 {len(all_tickers)}개 종목 소집 완료!")
-        
-        # 💡 [핵심] 첫 번째 열은 'Code', 두 번째 열은 'Name'으로 강제 개명
-        # KRX 데이터 구조상 보통 0번이 코드, 1번이 종목명입니다.
-        #df_krx.columns.values[0] = target_stocks['Code']
-        #df_krx.columns.values[1] = target_stocks['Name']
-    
-        try:
-            # 섹터 컬럼도 있으면 'Sector'로 통일
-            s_col = next((c for c in ['Sector', 'Industry', '업종'] if c in df_krx.columns), None)
-            if s_col:
-                df_krx = df_krx.rename(columns={s_col: 'Sector'})
-                sector_master_map = df_krx.set_index('Code')['Sector'].to_dict()
-            else:
-                sector_master_map = {k: '일반' for k in df_krx['Code']}
-            
-            print(f"✅ [본진] 명찰 통일 완료: {len(df_krx)}개 종목 로드")
+        print(f"✅ [글로벌 전면전] 총 {len(df_us_all)}개 미국 종목 확보")
 
-        except Exception as e:
-            print(f"🚨 [본진] 데이터 로드 실패: {e}")
-            sector_master_map = {}
-            # 여기서 죽지 않게 빈 데이터프레임이라도 생성
-        
-        # 2. 🛡️ 불순물 제거 작전 (ETF, ETN, 우선주, 스팩 제거)
-        # 삼성전자, 하이닉스 같은 '보통주'만 남깁니다.
-        df_clean = df_krx[df_krx['Market'].isin(['KOSPI', 'KOSDAQ'])] # 시장 한정
+        # 2. 국내주식 정제 및 타겟팅
+        df_clean = df_krx[df_krx['Market'].isin(['KOSPI', 'KOSDAQ'])]
         df_clean = df_clean[~df_clean['Name'].str.contains('ETF|ETN|스팩|제[0-9]+호|우$|우A|우B|우C')]
         
-        # 3. 💰 거래대금(Amount) 정렬
-        # Amount가 0인 데이터가 있을 수 있으니, 시가총액(Marcap)과 혼합해서 봐도 좋습니다.
+        # 💰 거래대금 상위 추출 (국내)
         target_stocks = df_clean.sort_values(by='Amount', ascending=False).head(TOP_N)
-        target_Nasdaq_stocks = df_nasdaqNnyse.sort_values(by='Amount', ascending=False).head(TOP_N)
         
-        # 4. 📢 확인 사격 (삼성전자가 있는지 확인!)
-        print(f"📡 현재 거래대금 1위: {target_stocks.iloc[0]['Name']}")
-        if '삼성전자' in target_stocks['Name'].values:
-            print("✅ 삼성전자 포착! 레이더 정상 작동 중.")
-        else:
-            print("❌ 아직도 안 보인다면 데이터 단위를 점검해야 합니다.")
-    
-        #target_stocks = df_krx.sort_values(by='Marcap', ascending=False).head(TOP_N)
-            
-        # 1. 매크로 데이터 수집
-        m_ndx = get_safe_macro('^IXIC', '나스닥')
-        m_sp5 = get_safe_macro('^GSPC', 'S&P500')
-        m_vix = get_safe_macro('^VIX', 'VIX공포')
-        m_fx  = get_safe_macro('USD/KRW', '달러환율')
-    
-        kospi_supply = get_index_investor_data('KOSPI')
-        macro_status = {'nasdaq': m_ndx, 'sp500': m_sp5, 'vix': m_vix, 'fx': m_fx, 'kospi': kospi_supply}
+        # 💰 시가총액 상위 추출 (미국) - 미국 fdr 데이터는 Marcap 기준이 안정적입니다.
+        target_Nasdaq_stocks = df_us_all.sort_values(by='Marcap', ascending=False).head(TOP_N)
 
-        print("\n" + "🌍 " * 5 + "[ 글로벌 사령부 통합 관제 센터 ]" + " 🌍" * 5)
-        print(f"🇺🇸 {m_ndx['text']} | {m_sp5['text']} | ⚠️ {m_vix['text']}")
-        print(f"💵 {m_fx['text']} | 🇰🇷 KOSPI 수급: {kospi_supply}")
-        print("=" * 115)
-    
+        # 3. 매크로 및 기상 데이터
+        macro_status = {
+            'nasdaq': get_safe_macro('^IXIC', '나스닥'),
+            'sp500': get_safe_macro('^GSPC', 'S&P500'),
+            'vix': get_safe_macro('^VIX', 'VIX공포'),
+            'fx': get_safe_macro('USD/KRW', '달러환율'),
+            'kospi': get_index_investor_data('KOSPI')
+        }
         weather_data = prepare_historical_weather()
-    
-        # 2. 글로벌/대장주 상태 스캔
-        g_status, l_sync = get_global_and_leader_status()
-  
-        # 3. 전술 스캔 (멀티스레딩)
+        sector_master_map = df_krx.set_index('Code')['Sector'].to_dict() if 'Sector' in df_krx.columns else {}
+
+        # 4. [국내전] 스캔
         all_hits = []
-        print(f"🔍 총 {len(target_stocks)}개 종목 💎다이아몬드 & 🎯역매공파 레이더 가동...")
+        print(f"🔍 [국내] {len(target_stocks)}개 종목 레이더 가동...")
         with ThreadPoolExecutor(max_workers=15) as executor:
             results = list(executor.map(
                 lambda p: analyze_final(p[0], p[1], weather_data, global_env, leader_env, sector_master_map), 
                 zip(target_stocks['Code'], target_stocks['Name'])
             ))
-            for r in results:
-                if r:
-                    # 💡 [신규] 포착된 종목에 즉시 체급(Tier) 및 시총 데이터 주입
-                    for hit in r:
-                        # hit['종목코드']가 있다고 가정, 없으면 ticker를 찾아야 함
-                        name = hit['종목']
-                        ticker_code = hit.get('코드')
-                        all_hits.append(hit)
-
+            all_hits = [item for r in results if r for item in r]
+        
         analyze_save_googleSheet(all_hits, False)
 
-        
+        # 5. [나스닥전] 스캔
         all_Nasdaq_hits = []
-        print(f"🔍 총 {len(all_Nasdaq_hits)}개 종목 💎다이아몬드 & 🎯역매공파 레이더 가동...")
+        print(f"🔍 [미국] {len(target_Nasdaq_stocks)}개 종목 레이더 가동...")
         with ThreadPoolExecutor(max_workers=15) as executor:
+            # 미국 데이터프레임은 'Symbol'과 'Name' 컬럼을 사용합니다.
             results = list(executor.map(
-                lambda p: analyze_final(p[0], p[1], weather_data, global_env, leader_env, sector_master_map), 
-                zip(target_Nasdaq_stocks['Code'], target_Nasdaq_stocks['Name'])
+                lambda p: analyze_final(p[0], p[1], weather_data, global_env, leader_env, {}), 
+                zip(target_Nasdaq_stocks['Symbol'], target_Nasdaq_stocks['Name'])
             ))
-            for r in results:
-                if r:
-                    # 💡 [신규] 포착된 종목에 즉시 체급(Tier) 및 시총 데이터 주입
-                    for hit in r:
-                        # hit['종목코드']가 있다고 가정, 없으면 ticker를 찾아야 함
-                        name = hit['종목']
-                        ticker_code = hit.get('코드')
-                        all_Nasdaq_hits.append(hit)
-                        
+            all_Nasdaq_hits = [item for r in results if r for item in r]
+            
         analyze_save_googleSheet(all_Nasdaq_hits, True)
         
-    # 🚨 [가장 중요] 메인 try 구문을 닫아주는 except를 추가해야 합니다!
     except Exception as main_error:
         print(f"🚨 [치명적 오류] 메인 엔진 정지: {main_error}")
