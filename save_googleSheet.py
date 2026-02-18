@@ -83,10 +83,6 @@ def analyze_save_googleSheet(all_hits, isNasdaq):
                 today_recommendations=today,
                 ai_recommendation=pd.DataFrame(top_5) if top_5 else None,
                 s_grade_special=s_grade_today if not s_grade_today.empty else None,
-            
-                # ✅ 수정: grade_analysis 제거하고 df_backtest, df_realistic 직접 전달
-                #grade_analysis=grade_analysis,  # ← 삭제
-            
                 df_backtest=df_backtest,
                 df_realistic=df_realistic,
                 df_combo=df_combo,
