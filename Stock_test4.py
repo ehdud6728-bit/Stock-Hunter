@@ -13,6 +13,7 @@ import requests
 from bs4 import BeautifulSoup
 from DNA_Analyzer import analyze_dna_sequences, find_winning_pattern
 from tactics_engine import get_global_and_leader_status, analyze_all_narratives, get_dynamic_sector_leaders, calculate_dante_symmetry, watermelon_indicator_complete
+from save_googleSheet import analyze_save_googleSheet
 import traceback
 
 from pykrx import stock
@@ -1868,7 +1869,13 @@ if __name__ == "__main__":
     # 2. 전 종목 리스트 로드 및 명찰 강제 통일
     try:
         df_krx = fdr.StockListing('KRX')
-    
+        df_nasdaq = fdr.StockListing('NASDAQ')
+        df_nyse = fdr.StockListing('NYSE')
+        
+        # 두 리스트 합치기
+        df_nasdaqNnyse = df_nasdaq['Symbol'].tolist() + df_nyse['Symbol'].tolist()
+        print(f"✅ [글로벌 전면전] 총 {len(all_tickers)}개 종목 소집 완료!")
+        
         # 💡 [핵심] 첫 번째 열은 'Code', 두 번째 열은 'Name'으로 강제 개명
         # KRX 데이터 구조상 보통 0번이 코드, 1번이 종목명입니다.
         #df_krx.columns.values[0] = target_stocks['Code']
@@ -1898,6 +1905,7 @@ if __name__ == "__main__":
         # 3. 💰 거래대금(Amount) 정렬
         # Amount가 0인 데이터가 있을 수 있으니, 시가총액(Marcap)과 혼합해서 봐도 좋습니다.
         target_stocks = df_clean.sort_values(by='Amount', ascending=False).head(TOP_N)
+        target_Nasdaq_stocks = df_nasdaqNnyse.sort_values(by='Amount', ascending=False).head(TOP_N)
         
         # 4. 📢 확인 사격 (삼성전자가 있는지 확인!)
         print(f"📡 현재 거래대금 1위: {target_stocks.iloc[0]['Name']}")
@@ -1944,108 +1952,27 @@ if __name__ == "__main__":
                         ticker_code = hit.get('코드')
                         all_hits.append(hit)
 
-        if all_hits:
-            df_total = pd.DataFrame(all_hits)
+        analyze_save_googleSheet(all_hits)
 
-            # 백테스트 분석
-            df_backtest, df_realistic, s_grade_info = proper_backtest_analysis(all_hits)
         
-            # 조합별 성과 분석
-            df_combo, best_combos, worst_combos = analyze_combination_performance(all_hits)
+        all_Nasdaq_hits = []
+        print(f"🔍 총 {len(all_Nasdaq_hits)}개 종목 💎다이아몬드 & 🎯역매공파 레이더 가동...")
+        with ThreadPoolExecutor(max_workers=15) as executor:
+            results = list(executor.map(
+                lambda p: analyze_final(p[0], p[1], weather_data, global_env, leader_env, sector_master_map), 
+                zip(target_Nasdaq_stocks['Code'], target_Nasdaq_stocks['Name'])
+            ))
+            for r in results:
+                if r:
+                    # 💡 [신규] 포착된 종목에 즉시 체급(Tier) 및 시총 데이터 주입
+                    for hit in r:
+                        # hit['종목코드']가 있다고 가정, 없으면 ticker를 찾아야 함
+                        name = hit['종목']
+                        ticker_code = hit.get('코드')
+                        all_Nasdaq_hits.append(hit)
+                        
+        analyze_save_googleSheet(all_Nasdaq_hits)
         
-            # 수익률 분포
-            df_profit_dist = analyze_profit_distribution(all_hits)
-        
-            # 조합별 통계
-            stats_df, top_5 = calculate_strategy_stats(all_hits)
-
-            # 통계 계산 (상위 5개 추천 정보 포함)
-            stats_df, top_recommendations = calculate_strategy_stats(all_hits)
-
-            # 4. 결과 분류
-            today = df_total[df_total['보유일'] == 0]
-            today = today[today['N점수'] >= 0]
-            today = today.sort_values(by='N점수', ascending=False)
-        
-            today = df_total[df_total['보유일'] == 0].sort_values(by='확신점수', ascending=False)
-        
-            s_grade_today = today[today['N등급'] == 'S']
-        
-            desired_cols = ['날짜',
-                    '👑등급',
-                    '종목',
-                    'N등급',
-                    'N점수',
-                    'N조합',
-                    '정류장',
-                    'RSI',
-                    '대칭비율',
-                    '매집봉',
-                    '🎯목표타점',
-                    '🚨손절가',
-                    '매입가',
-                    '현재가',
-                    '최고수익날',
-                    '소요기간',
-                    '최고수익률%',
-                    '최저수익률%',
-                    '기상',
-                    '매집',
-                    '이격',
-                    '꼬리%',
-                    'BB40',
-                    'MA수렴',
-                    '📜서사히스토리',
-                    'N구분',
-                    '구분',
-                    '확신점수',
-                    '안전점수',
-                    '섹터',
-                    '보유일']
-            display_cols = [c for c in desired_cols if c in today.columns]
-
-            if not today.empty:
-                print(today[display_cols].head(50))
-            # 5. 구글 시트 전송
-            try:
-                update_commander_dashboard(
-                    df_total,
-                    macro_status,
-                    "사령부_통합_상황판",
-                    stats_df=stats_df,
-                    today_recommendations=today,
-                    ai_recommendation=pd.DataFrame(top_5) if top_5 else None,
-                    s_grade_special=s_grade_today if not s_grade_today.empty else None,
-                
-                    # ✅ 수정: grade_analysis 제거하고 df_backtest, df_realistic 직접 전달
-                    #grade_analysis=grade_analysis,  # ← 삭제
-                
-                    df_backtest=df_backtest,
-                    df_realistic=df_realistic,
-                    df_combo=df_combo,
-                    best_combos=best_combos,
-                    worst_combos=worst_combos,
-                    df_profit_dist=df_profit_dist
-                )
-            
-                print("\n" + "="*100)
-                print("✅ 구글 시트 업데이트 성공!")
-                print("="*100)
-                print("📋 생성된 시트:")
-                print("   1. 메인 시트: 전체 30일 데이터")
-                print("   2. 오늘의_추천종목: 오늘 신호 (등급별)")
-                print("   3. S급_긴급: S급 종목 특별 모니터링")
-                print("   4. 등급별_분석: S/A/B급 백테스트")
-                print("   5. AI_추천패턴: TOP 5 조합")
-                print("   ✅ 6. 조합별_성과: 전체 조합 성과 (신규!)")
-                print("   ✅ 7. TOP_WORST_조합: 최고/최악 조합 (신규!)")
-                print("   ✅ 8. 수익률_분포: 구간별 분포 (신규!)")
-                print("   ✅ 9. 백테스트_비교: 이상 vs 현실 (신규!)")
-                print("="*100)
-            except Exception as e:
-                print(f"\n❌ 시트 업데이트 실패: {e}")
-        else:
-            print("\n⚠️ 검색 결과가 없습니다.")
     # 🚨 [가장 중요] 메인 try 구문을 닫아주는 except를 추가해야 합니다!
     except Exception as main_error:
         print(f"🚨 [치명적 오류] 메인 엔진 정지: {main_error}")
