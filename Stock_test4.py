@@ -1906,7 +1906,7 @@ if __name__ == "__main__":
         target_stocks = df_clean.sort_values(by='Amount', ascending=False).head(TOP_N)
         
         # 💰 시가총액 상위 추출 (미국) - 미국 fdr 데이터는 Marcap 기준이 안정적입니다.
-        target_Nasdaq_stocks = df_us_all.sort_values(by='Marcap', ascending=False).head(TOP_N)
+        target_Nasdaq_stocks = df_us_all.head(TOP_N)
 
         # 3. 매크로 및 기상 데이터
         macro_status = {
