@@ -80,21 +80,28 @@ def get_market_trend(period_name):
 
 
 # =================================================
-# 📡 [전술 1] 나스닥 100 티커 자동 수집 (위키피디아)
+
+# =================================================
+# 📡 [전술 1] 나스닥 100 티커 자동 수집 (403 에러 우회)
 # =================================================
 def get_nasdaq100_tickers():
     try:
         url = 'https://en.wikipedia.org/wiki/Nasdaq-100'
-        tables = pd.read_html(url)
-        df_nasdaq100 = tables[4] 
+        # 위장막(Header) 장착: 브라우저인 척 위장합니다.
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
+        response = requests.get(url, headers=headers)
+        
+        tables = pd.read_html(response.text)
+        # 보통 4번째 또는 5번째 테이블이 구성 종목입니다.
+        df_nasdaq100 = tables[4] if len(tables) > 4 else tables[3]
+        
         ticker_column = 'Ticker' if 'Ticker' in df_nasdaq100.columns else 'Symbol'
         nasdaq_tickers = df_nasdaq100[ticker_column].tolist()
         return [ticker.replace('.', '-') for ticker in nasdaq_tickers]
     except Exception as e:
-        print(f"🚨 나스닥 티커 수집 실패: {e}")
-        return ['AAPL', 'MSFT', 'NVDA', 'TSLA', 'GOOGL', 'AMZN', 'META']
-
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        print(f"🚨 위키피디아 정찰 실패(403 우회불가): {e}")
+        return ['AAPL', 'MSFT', 'NVDA', 'TSLA', 'GOOGL', 'AMZN', 'META', 'AVGO', 'COST']
+    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # 📊 조합별 성과 분석 (상세 버전)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
