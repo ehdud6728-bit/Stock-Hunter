@@ -1952,7 +1952,7 @@ if __name__ == "__main__":
                         ticker_code = hit.get('코드')
                         all_hits.append(hit)
 
-        analyze_save_googleSheet(all_hits)
+        analyze_save_googleSheet(all_hits, False)
 
         
         all_Nasdaq_hits = []
@@ -1971,7 +1971,7 @@ if __name__ == "__main__":
                         ticker_code = hit.get('코드')
                         all_Nasdaq_hits.append(hit)
                         
-        analyze_save_googleSheet(all_Nasdaq_hits)
+        analyze_save_googleSheet(all_Nasdaq_hits, True)
         
     # 🚨 [가장 중요] 메인 try 구문을 닫아주는 except를 추가해야 합니다!
     except Exception as main_error:
