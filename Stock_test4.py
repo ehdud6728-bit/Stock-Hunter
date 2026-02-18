@@ -78,6 +78,22 @@ def get_market_trend(period_name):
         return MARKET_PERIODS[period_name]['trend']
     return 'unknown'
 
+
+# =================================================
+# 📡 [전술 1] 나스닥 100 티커 자동 수집 (위키피디아)
+# =================================================
+def get_nasdaq100_tickers():
+    try:
+        url = 'https://en.wikipedia.org/wiki/Nasdaq-100'
+        tables = pd.read_html(url)
+        df_nasdaq100 = tables[4] 
+        ticker_column = 'Ticker' if 'Ticker' in df_nasdaq100.columns else 'Symbol'
+        nasdaq_tickers = df_nasdaq100[ticker_column].tolist()
+        return [ticker.replace('.', '-') for ticker in nasdaq_tickers]
+    except Exception as e:
+        print(f"🚨 나스닥 티커 수집 실패: {e}")
+        return ['AAPL', 'MSFT', 'NVDA', 'TSLA', 'GOOGL', 'AMZN', 'META']
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # 📊 조합별 성과 분석 (상세 버전)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
