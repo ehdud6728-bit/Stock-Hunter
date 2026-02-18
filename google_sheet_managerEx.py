@@ -21,10 +21,10 @@ def update_commander_dashboard(df, macro_data, sheet_name, stats_df=None,
     print(f"📡 [Ex-Sheet] 시트 전송 시작...")
     json_key_path = 'stock-key.json' 
     today_str = (datetime.utcnow() + timedelta(hours=9)).strftime('%Y-%m-%d')
-    Nasdaq_str = '_NasDaq'
+    Nasdaq_str = 'NasDaq_'
 								   
     try:
-		if isNasdaq = False
+		if not isNasdaq:
 		    Nasdaq_str = '' 
 		    
         # 1. 🔑 인증 (환경변수 또는 파일)
@@ -42,8 +42,8 @@ def update_commander_dashboard(df, macro_data, sheet_name, stats_df=None,
         # --- [탭 1: 오늘의_추천종목] (심플하게 변경) ---
         if today_recommendations is not None and not today_recommendations.empty:
             try:
-                try: t_sheet = doc.worksheet("오늘의_추천종목" & Nasdaq_str)
-                except: t_sheet = doc.add_worksheet(title="오늘의_추천종목", rows="200", cols="20")
+                try: t_sheet = doc.worksheet(f"{Nasdaq_str}오늘의_추천종목")
+                except: t_sheet = doc.add_worksheet(title=f"{Nasdaq_str}오늘의_추천종목", rows="200", cols="20")
                 t_sheet.clear()
                 legend_today = today_recommendations.copy()
 																		# '👑등급' 컬럼에서 '👑LEGEND'인 행만 추출합니다.
@@ -62,7 +62,7 @@ def update_commander_dashboard(df, macro_data, sheet_name, stats_df=None,
             try:
                 time.sleep(5)  # ✅ 5초 대기
 
-                try: ai_sheet = doc.worksheet("AI_추천패턴" & Nasdaq_str)
+                try: ai_sheet = doc.worksheet(f"{Nasdaq_str}AI_추천패턴")
                 except: ai_sheet = doc.add_worksheet(title="AI_추천패턴 & Nasdaq_str", rows="200", cols="15")
                 ai_sheet.clear()
                 set_with_dataframe(ai_sheet, ai_recommendation, include_index=False)
@@ -74,9 +74,9 @@ def update_commander_dashboard(df, macro_data, sheet_name, stats_df=None,
             try:
                 time.sleep(5)  # ✅ 5초 대기
 
-                try: m_sheet = doc.worksheet("실시간_전수_관제판" & Nasdaq_str)
+                try: m_sheet = doc.worksheet(f"{Nasdaq_str}실시간_전수_관제판")
                 except:
-                    m_sheet = doc.add_worksheet(title="실시간_전수_관제판" & Nasdaq_str, rows="200", cols="15")
+                    m_sheet = doc.add_worksheet(title=f"{Nasdaq_str} 실시간_전수_관제판", rows="200", cols="15")
                 m_sheet.clear()
                 
                 # 상단 매크로 정보
@@ -99,8 +99,8 @@ def update_commander_dashboard(df, macro_data, sheet_name, stats_df=None,
             try:
                 time.sleep(5)  # ✅ 5초 대기
 
-                try: s_sheet = doc.worksheet("전술통계_리포트" & Nasdaq_str)
-                except: s_sheet = doc.add_worksheet(title="전술통계_리포트" & Nasdaq_str, rows="100", cols="10")
+                try: s_sheet = doc.worksheet(f"{Nasdaq_str}전술통계_리포트")
+                except: s_sheet = doc.add_worksheet(title=f"{Nasdaq_str}전술통계_리포트", rows="100", cols="10")
                 s_sheet.clear()
                 set_with_dataframe(s_sheet, stats_df, include_index=False)
                 print("✅ [전술통계_리포트] 저장 완료")
@@ -115,10 +115,10 @@ def update_commander_dashboard(df, macro_data, sheet_name, stats_df=None,
                 time.sleep(5)  # ✅ 5초 대기
 
                 try:
-                    combo_sheet = doc.worksheet("조합별_성과" & Nasdaq_str)
+                    combo_sheet = doc.worksheet(f"{Nasdaq_str}조합별_성과")
                 except:
                     combo_sheet = doc.add_worksheet(
-                        title="조합별_성과", 
+                        title=f"{Nasdaq_str}조합별_성과", 
                         rows="200", 
                         cols="15", 
                         index=2
@@ -170,7 +170,7 @@ def update_commander_dashboard(df, macro_data, sheet_name, stats_df=None,
                 time.sleep(5)  # ✅ 5초 대기
 
                 try:
-                    top_sheet = doc.worksheet("TOP_WORST_조합" & Nasdaq_str)
+                    top_sheet = doc.worksheet(f"{Nasdaq_str}TOP_WORST_조합")
                 except:
                     top_sheet = doc.add_worksheet(
                         title="TOP_WORST_조합", 
@@ -281,7 +281,7 @@ def update_commander_dashboard(df, macro_data, sheet_name, stats_df=None,
                 time.sleep(5)  # ✅ 5초 대기
 
                 try:
-                    dist_sheet = doc.worksheet("수익률_분포" & Nasdaq_str)
+                    dist_sheet = doc.worksheet(f"{Nasdaq_str}수익률_분포")
                 except:
                     dist_sheet = doc.add_worksheet(
                         title="수익률_분포", 
@@ -352,7 +352,7 @@ def update_commander_dashboard(df, macro_data, sheet_name, stats_df=None,
                 time.sleep(5)  # ✅ 5초 대기
 
                 try:
-                    bt_sheet = doc.worksheet("백테스트_비교" & Nasdaq_str)
+                    bt_sheet = doc.worksheet(f"{Nasdaq_str}백테스트_비교")
                 except:
                     bt_sheet = doc.add_worksheet(
                         title="백테스트_비교", 
