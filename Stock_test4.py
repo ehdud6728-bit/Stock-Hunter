@@ -1866,12 +1866,13 @@ if __name__ == "__main__":
         # 1. 기본 환경 및 데이터 로드
         global_env, leader_env = get_global_and_leader_status()
         df_krx = fdr.StockListing('KRX')
-        
-        # 🇺🇸 미국 주식 로드 (데이터프레임 유지)
-        df_nasdaq = fdr.StockListing('NASDAQ')
-        df_nyse = fdr.StockListing('NYSE')
-        df_us_all = pd.concat([df_nasdaq, df_nyse]) # 리스트가 아닌 데이터프레임으로 합침
-        
+        # 위키피디아에서 나스닥 100 티커 자동 수집 (이전에 만든 함수 활용)
+        nasdaq_100_list = get_nasdaq100_tickers() 
+        # 데이터프레임 형태로 변환 (기존 코드와 호환성을 위해)
+        df_us_all = pd.DataFrame({
+                'Symbol': nasdaq_100_list,
+                'Name': nasdaq_100_list  # 이름 데이터가 없으면 티커로 대체
+            })
         print(f"✅ [글로벌 전면전] 총 {len(df_us_all)}개 미국 종목 확보")
 
         # 2. 국내주식 정제 및 타겟팅
