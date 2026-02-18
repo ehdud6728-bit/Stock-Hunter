@@ -63,7 +63,7 @@ def update_commander_dashboard(df, macro_data, sheet_name, stats_df=None,
                 time.sleep(5)  # ✅ 5초 대기
 
                 try: ai_sheet = doc.worksheet(f"{Nasdaq_str}AI_추천패턴")
-                except: ai_sheet = doc.add_worksheet(title="AI_추천패턴 & Nasdaq_str", rows="200", cols="15")
+                except: ai_sheet = doc.add_worksheet(title=f"{Nasdaq_str}AI_추천패턴", rows="200", cols="15")
                 ai_sheet.clear()
                 set_with_dataframe(ai_sheet, ai_recommendation, include_index=False)
                 print("✅ [AI_추천패턴] 저장 완료")
@@ -76,7 +76,7 @@ def update_commander_dashboard(df, macro_data, sheet_name, stats_df=None,
 
                 try: m_sheet = doc.worksheet(f"{Nasdaq_str}실시간_전수_관제판")
                 except:
-                    m_sheet = doc.add_worksheet(title=f"{Nasdaq_str} 실시간_전수_관제판", rows="200", cols="15")
+                    m_sheet = doc.add_worksheet(title=f"{Nasdaq_str}실시간_전수_관제판", rows="200", cols="15")
                 m_sheet.clear()
                 
                 # 상단 매크로 정보
@@ -413,7 +413,7 @@ def update_commander_dashboard(df, macro_data, sheet_name, stats_df=None,
                 time.sleep(5)  # ✅ 5초 대기
 
                 try:
-                    grade_sheet = doc.worksheet("등급별_분석" & Nasdaq_str)
+                    grade_sheet = doc.worksheet(f"{Nasdaq_str}등급별_분석")
                 except:
                     grade_sheet = doc.add_worksheet(
                         title=f"{Nasdaq_str}등급별_분석", 
