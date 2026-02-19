@@ -433,10 +433,35 @@ def get_indicators(df):
     
     # MFI 상승 추세 (10일 전보다 높음)
     df['MFI_10d_ago'] = df['MFI'].shift(10)
+ 
+    # 112일선 근접도 (스윙 검색용)
+    df['Near_MA112'] = (abs(df['Close'] - df['MA112']) / df['MA112'] * 100)
     
+    # 장기 바닥권 체크 (최근 60일 중 112선 아래 일수)
+    df['Below_MA112'] = (df['Close'] < df['MA112']).astype(int)
+    df['Below_MA112_60d'] = df['Below_MA112'].rolling(60).sum()
+ 
     # 볼린저 %B
     df['BB40_PercentB'] = (df['Close'] - df['BB40_Lower']) / (df['BB40_Upper'] - df['BB40_Lower'])
-  
+
+    # 12. 수박 색상 및 신호 시스템
+    red_score = (
+        df['OBV_Rising'].astype(int) + 
+        df['MFI_Strong'].astype(int) + 
+        df['Buying_Pressure'].astype(int)
+    )
+    df['Watermelon_Color'] = np.where(red_score >= 2, 'red', 'green')
+    
+    color_change = (df['Watermelon_Color'] == 'red') & (df['Watermelon_Color'].shift(1) == 'green')
+    df['Green_Days_10'] = (df['Watermelon_Color'].shift(1) == 'green').rolling(10).sum()
+    volume_surge = df['Volume'] >= df['Volume'].rolling(20).mean() * 1.2
+    
+    df['Watermelon_Signal'] = color_change & (df['Green_Days_10'] >= 7) & volume_surge
+    df['Watermelon_Score'] = red_score # 0~3점
+
+    # 13. 기타 (박스권 범위 등)
+    df['Box_Range'] = df['High'].rolling(10).max() / df['Low'].rolling(10).min()
+ 
     return df
     
 # ---------------------------------------------------------
