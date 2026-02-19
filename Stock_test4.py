@@ -786,6 +786,175 @@ def calculate_combination_score(signals):
     combination = '기본'
     tags = []
     
+    # =========================
+    # S급 조합
+    # =========================
+
+    # 💎전설조합 (공격형 S)
+    if (signals.get('watermelon_signal') and
+        signals.get('explosion_ready') and
+        signals.get('bottom_area') and
+        signals.get('silent_perfect')):
+        return {
+            'score': 350,
+            'grade': 'S',
+            'combination': '💎전설조합',
+            'tags': ['🍉수박전환', '💎폭발직전', '📍바닥권', '🤫조용한매집완전'],
+            'type': '🗡'
+        }
+
+    # 💎매집완성 (안정형 S)
+    if (signals.get('silent_perfect') and
+        signals.get('watermelon_signal') and
+        signals.get('explosion_ready')):
+        return {
+            'score': 310,
+            'grade': 'S',
+            'combination': '💎매집완성',
+            'tags': ['🤫조용한매집완전', '🍉수박전환', '💎폭발직전'],
+            'type': '🛡'
+        }
+
+    # 💎돌파골드 (안정형 S)
+    if (signals.get('yeok_break') and
+        signals.get('watermelon_signal') and
+        signals.get('volume_surge')):
+        return {
+            'score': 320,
+            'grade': 'S',
+            'combination': '💎돌파골드',
+            'tags': ['🏆역매공파돌파', '🍉수박전환', '⚡거래량폭발'],
+            'type': '🛡'
+        }
+
+    # 💎바닥폭발 (공격형 S)
+    if (signals.get('bottom_area') and
+        signals.get('explosion_ready') and
+        signals.get('watermelon_signal')):
+        return {
+            'score': 300,
+            'grade': 'S',
+            'combination': '💎바닥폭발',
+            'tags': ['📍바닥권', '💎폭발직전', '🍉수박전환'],
+            'type': '🗡'
+        }
+
+    # =========================
+    # A급 조합
+    # =========================
+
+    # 🔥조용폭발 (안정형 A)
+    if signals.get('silent_strong') and signals.get('explosion_ready'):
+        return {
+            'score': 250,
+            'grade': 'A',
+            'combination': '🔥조용폭발',
+            'tags': ['🤫조용한매집강', '💎폭발직전'],
+            'type': '🛡'
+        }
+
+    # 🔥돌파확인 (안정형 A)
+    if signals.get('yeok_break') and signals.get('volume_surge'):
+        return {
+            'score': 260,
+            'grade': 'A',
+            'combination': '🔥돌파확인',
+            'tags': ['🏆역매공파돌파', '⚡거래량폭발'],
+            'type': '🛡'
+        }
+
+    # 🔥수박폭발 (공격형 A)
+    if signals.get('watermelon_signal') and signals.get('explosion_ready'):
+        return {
+            'score': 280,
+            'grade': 'A',
+            'combination': '🔥수박폭발',
+            'tags': ['🍉수박전환', '💎폭발직전'],
+            'type': '🗡'
+        }
+
+    # =========================
+    # B급 (후보군)
+    # =========================
+
+    if signals.get('watermelon_signal'):
+        return {
+            'score': 230,
+            'grade': 'B',
+            'combination': '📍수박단독',
+            'tags': ['🍉수박전환'],
+            'type': '🔍'
+        }
+
+    if signals.get('bottom_area'):
+        return {
+            'score': 210,
+            'grade': 'B',
+            'combination': '📍바닥단독',
+            'tags': ['📍바닥권'],
+            'type': '🔍'
+        }
+
+    # =========================
+    # C/D급 (무시 가능)
+    # =========================
+
+    tags = []
+    bonus = 0
+
+    if signals.get('obv_rising'):
+        bonus += 10
+        tags.append('📊OBV')
+    if signals.get('mfi_strong'):
+        bonus += 10
+        tags.append('💰MFI')
+    if signals.get('volume_surge'):
+        bonus += 10
+        tags.append('⚡거래량')
+
+    return {
+        'score': 100 + bonus,
+        'grade': 'D',
+        'combination': '🔍기본',
+        'tags': tags,
+        'type': 'none'
+    }
+
+
+def calculate_combination_score_back(signals):
+    """
+    신호 조합을 분석해서 확정 점수 부여
+    
+    Args:
+        signals: dict with boolean flags
+            {
+                'watermelon_signal': True/False,
+                'watermelon_red': True/False,
+                'watermelon_green_7d': True/False,
+                'explosion_ready': True/False,
+                'bottom_area': True/False,
+                'silent_perfect': True/False,
+                'silent_strong': True/False,
+                'yeok_break': True/False,
+                'volume_surge': True/False,
+                'obv_rising': True/False,
+                'mfi_strong': True/False,
+            }
+    
+    Returns:
+        {
+            'score': int,
+            'grade': str,
+            'combination': str,
+            'tags': list
+        }
+    """
+    
+    score = 100  # 기본 점수 (거래대금 상위 350 진입)
+    grade = 'D'
+    combination = '기본'
+    tags = []
+    
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # S급 조합 체크 (300~350점)
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1296,7 +1465,7 @@ def analyze_by_market_condition(df_longterm):
     df = df_longterm[df_longterm['보유일'] > 0].copy()
     
     # 상폐주 제거
-    df = df[df['최저수익률_real'] > -50]
+    df = df[df['최저수익률_raw'] > -50]
     
     print("\n" + "=" * 100)
     print("📊 시장 국면별 성과 분석")
@@ -1319,10 +1488,10 @@ def analyze_by_market_condition(df_longterm):
                 continue
             
             total = len(grade_df)
-            winners = len(grade_df[grade_df['최고수익률_real'] >= 3.5])
+            winners = len(grade_df[grade_df['최고수익률_raw'] >= 3.5])
             
-            avg_gain = grade_df['최고수익률_real'].mean()
-            avg_loss = grade_df['최저수익률_real'].mean()
+            avg_gain = grade_df['최고수익률_raw'].mean()
+            avg_loss = grade_df['최저수익률_raw'].mean()
             
             win_rate = (winners / total) * 100
             expected = (win_rate / 100) * avg_gain
@@ -1394,7 +1563,7 @@ def analyze_combination_by_market(df_longterm):
     """
     
     df = df_longterm[df_longterm['보유일'] > 0].copy()
-    df = df[df['최저수익률_real'] > -50]
+    df = df[df['최저수익률_raw'] > -50]
     
     print("\n" + "=" * 100)
     print("🎯 조합별 시장 적합도 분석")
@@ -1918,7 +2087,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             hits.append({
                 '날짜': curr_idx.strftime('%Y-%m-%d'),
                 '👑등급': grade,
-                'N등급': result['grade'],
+                'N등급': result['type'] result['grade'],
                 'N점수': result['score'],
                 'N조합': result['combination'],
                 '정류장': is_rn_signal | is_1st_buy | is_2nd_buy,
