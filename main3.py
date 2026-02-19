@@ -601,6 +601,10 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         if recent_avg_amount < 50: # 평균 거래대금 50억 미만은 탈락!
             return []
 
+        # 💡 리턴값 5개를 정확히 받아냅니다.
+        s_tag, total_m, w_streak, whale_score, twin_b = get_supply_and_money(ticker, row['Close'])
+        f_tag, f_score = get_financial_health(ticker)
+     
         # 💡 오늘의 현재가 저장 (나중에 사용)
         today_price = df.iloc[-1]['Close']
      
@@ -789,10 +793,6 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             'mfi_strong': row['MFI_Strong'],
         }
      
-        # 💡 리턴값 5개를 정확히 받아냅니다.
-        s_tag, total_m, w_streak, whale_score, twin_b = get_supply_and_money(ticker, row['Close'])
-        f_tag, f_score = get_financial_health(ticker)
-
         # 세부 정보 추가
         if signals['watermelon_signal']:
             new_tags.append(f"🍉강도{row['Watermelon_Score']}/3")
