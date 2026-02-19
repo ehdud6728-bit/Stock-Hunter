@@ -618,6 +618,56 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             temp_df, name, my_sector, g_env, l_env
         )
      
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        # 1. 신호 수집
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        
+        signals = {
+            # 수박지표
+            'watermelon_signal': row['Watermelon_Signal'],
+            'watermelon_red': row['Watermelon_Color'] == 'red',
+            'watermelon_green_7d': row['Green_Days_10'] >= 7,
+            
+            # 폭발 직전
+            'explosion_ready': (
+                row['BB40_Width'] <= 10.0 and 
+                row['OBV_Rising'] and 
+                row['MFI_Strong']
+            ),
+            
+            # 바닥권
+            'bottom_area': (
+                row['Near_MA112'] <= 5.0 and 
+                row['Below_MA112_60d'] >= 40
+            ),
+            
+            # 조용한 매집
+            'silent_perfect': (
+                row['ATR_Below_Days'] >= 7 and
+                row['MFI_Strong_Days'] >= 7 and
+                row['MFI'] > 50 and
+                row['MFI'] > row['MFI_10d_ago'] and
+                row['OBV_Rising'] and
+                row['Box_Range'] <= 1.15
+            ),
+            'silent_strong': (
+                row['ATR_Below_Days'] >= 5 and
+                row['MFI_Strong_Days'] >= 5 and
+                row['OBV_Rising']
+            ),
+            
+            # 역매공파 돌파
+            'yeok_break': (
+                close_p > row['MA112'] and 
+                prev['Close'] <= row['MA112']
+            ),
+            
+            # 기타
+            'volume_surge': row['Volume'] >= row['VMA20'] * 1.5,
+            'obv_rising': row['OBV_Rising'],
+            'mfi_strong': row['MFI_Strong'],
+        }
+     
         # 💡 리턴값 5개를 정확히 받아냅니다.
         s_tag, total_m, w_streak, whale_score, twin_b = get_supply_and_money(ticker, row['Close'])
         f_tag, f_score = get_financial_health(ticker)
@@ -755,56 +805,6 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         )
 
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        # 1. 신호 수집
-        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        
-        signals = {
-            # 수박지표
-            'watermelon_signal': row['Watermelon_Signal'],
-            'watermelon_red': row['Watermelon_Color'] == 'red',
-            'watermelon_green_7d': row['Green_Days_10'] >= 7,
-            
-            # 폭발 직전
-            'explosion_ready': (
-                row['BB40_Width'] <= 10.0 and 
-                row['OBV_Rising'] and 
-                row['MFI_Strong']
-            ),
-            
-            # 바닥권
-            'bottom_area': (
-                row['Near_MA112'] <= 5.0 and 
-                row['Below_MA112_60d'] >= 40
-            ),
-            
-            # 조용한 매집
-            'silent_perfect': (
-                row['ATR_Below_Days'] >= 7 and
-                row['MFI_Strong_Days'] >= 7 and
-                row['MFI'] > 50 and
-                row['MFI'] > row['MFI_10d_ago'] and
-                row['OBV_Rising'] and
-                row['Box_Range'] <= 1.15
-            ),
-            'silent_strong': (
-                row['ATR_Below_Days'] >= 5 and
-                row['MFI_Strong_Days'] >= 5 and
-                row['OBV_Rising']
-            ),
-            
-            # 역매공파 돌파
-            'yeok_break': (
-                close_p > row['MA112'] and 
-                prev['Close'] <= row['MA112']
-            ),
-            
-            # 기타
-            'volume_surge': row['Volume'] >= row['VMA20'] * 1.5,
-            'obv_rising': row['OBV_Rising'],
-            'mfi_strong': row['MFI_Strong'],
-        }
-        
-        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         # 2. 조합 점수 계산
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         
@@ -814,8 +814,6 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         # 3. 추가 정보 태그
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         new_tags = result['tags'].copy()
-        
-        
 
         s_score = 100
         tags = []
