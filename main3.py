@@ -600,89 +600,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
     
         if recent_avg_amount < 50: # 평균 거래대금 50억 미만은 탈락!
             return []
-        
-        #하락기간과 횡보(공구리)기간 비교(1이상 추천)
-        dante_data = calculate_dante_symmetry(temp_df)
-    
-        if dante_data is None:
-            dante_data_ratio = 0
-            dante_data_mae_jip = 0
-        else:
-            dante_data_ratio = dante_data['ratio']
-            dante_data_mae_jip = dante_data['mae_jip']
 
-        # 🕵️ 신규 추가: 서사 분석기 호출
-        #print(f"✅ [본진] 서사 분석기 호출 : {name}")
-        #sector = get_stock_sector(ticker, sector_master_map) # 섹터 판독 함수 필요
-        grade, narrative, target, stop, conviction = analyze_all_narratives(
-            temp_df, name, my_sector, g_env, l_env
-        )
-     
-        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        # 1. 신호 수집
-        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        
-        signals = {
-            # 수박지표
-            'watermelon_signal': row['Watermelon_Signal'],
-            'watermelon_red': row['Watermelon_Color'] == 'red',
-            'watermelon_green_7d': row['Green_Days_10'] >= 7,
-            
-            # 폭발 직전
-            'explosion_ready': (
-                row['BB40_Width'] <= 10.0 and 
-                row['OBV_Rising'] and 
-                row['MFI_Strong']
-            ),
-            
-            # 바닥권
-            'bottom_area': (
-                row['Near_MA112'] <= 5.0 and 
-                row['Below_MA112_60d'] >= 40
-            ),
-            
-            # 조용한 매집
-            'silent_perfect': (
-                row['ATR_Below_Days'] >= 7 and
-                row['MFI_Strong_Days'] >= 7 and
-                row['MFI'] > 50 and
-                row['MFI'] > row['MFI_10d_ago'] and
-                row['OBV_Rising'] and
-                row['Box_Range'] <= 1.15
-            ),
-            'silent_strong': (
-                row['ATR_Below_Days'] >= 5 and
-                row['MFI_Strong_Days'] >= 5 and
-                row['OBV_Rising']
-            ),
-            
-            # 역매공파 돌파
-            'yeok_break': (
-                close_p > row['MA112'] and 
-                prev['Close'] <= row['MA112']
-            ),
-            
-            # 기타
-            'volume_surge': row['Volume'] >= row['VMA20'] * 1.5,
-            'obv_rising': row['OBV_Rising'],
-            'mfi_strong': row['MFI_Strong'],
-        }
-     
-        # 💡 리턴값 5개를 정확히 받아냅니다.
-        s_tag, total_m, w_streak, whale_score, twin_b = get_supply_and_money(ticker, row['Close'])
-        f_tag, f_score = get_financial_health(ticker)
-
-        # 세부 정보 추가
-        if signals['watermelon_signal']:
-            new_tags.append(f"🍉강도{row['Watermelon_Score']}/3")
-        
-        if signals['bottom_area']:
-            new_tags.append(f"📍거리{row['Near_MA112']:.1f}%")
-        
-        if signals['silent_perfect'] or signals['silent_strong']:
-            new_tags.append(f"🔇ATR{int(row['ATR_Below_Days'])}일")
-            new_tags.append(f"💰MFI{int(row['MFI_Strong_Days'])}일")
- 
         # 💡 오늘의 현재가 저장 (나중에 사용)
         today_price = df.iloc[-1]['Close']
      
@@ -803,6 +721,90 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             int(row['MFI_Strong']) +
             int(row['Buying_Pressure'])
         )
+     
+        #하락기간과 횡보(공구리)기간 비교(1이상 추천)
+        dante_data = calculate_dante_symmetry(temp_df)
+    
+        if dante_data is None:
+            dante_data_ratio = 0
+            dante_data_mae_jip = 0
+        else:
+            dante_data_ratio = dante_data['ratio']
+            dante_data_mae_jip = dante_data['mae_jip']
+
+        # 🕵️ 신규 추가: 서사 분석기 호출
+        #print(f"✅ [본진] 서사 분석기 호출 : {name}")
+        #sector = get_stock_sector(ticker, sector_master_map) # 섹터 판독 함수 필요
+        grade, narrative, target, stop, conviction = analyze_all_narratives(
+            temp_df, name, my_sector, g_env, l_env
+        )
+     
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        # 1. 신호 수집
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        
+        signals = {
+            # 수박지표
+            'watermelon_signal': row['Watermelon_Signal'],
+            'watermelon_red': row['Watermelon_Color'] == 'red',
+            'watermelon_green_7d': row['Green_Days_10'] >= 7,
+            
+            # 폭발 직전
+            'explosion_ready': (
+                row['BB40_Width'] <= 10.0 and 
+                row['OBV_Rising'] and 
+                row['MFI_Strong']
+            ),
+            
+            # 바닥권
+            'bottom_area': (
+                row['Near_MA112'] <= 5.0 and 
+                row['Below_MA112_60d'] >= 40
+            ),
+            
+            # 조용한 매집
+            'silent_perfect': (
+                row['ATR_Below_Days'] >= 7 and
+                row['MFI_Strong_Days'] >= 7 and
+                row['MFI'] > 50 and
+                row['MFI'] > row['MFI_10d_ago'] and
+                row['OBV_Rising'] and
+                row['Box_Range'] <= 1.15
+            ),
+            'silent_strong': (
+                row['ATR_Below_Days'] >= 5 and
+                row['MFI_Strong_Days'] >= 5 and
+                row['OBV_Rising']
+            ),
+            
+            # 역매공파 돌파
+            'yeok_break': (
+                close_p > row['MA112'] and 
+                prev['Close'] <= row['MA112']
+            ),
+            
+            # 기타
+            'volume_surge': row['Volume'] >= row['VMA20'] * 1.5,
+            'obv_rising': row['OBV_Rising'],
+            'mfi_strong': row['MFI_Strong'],
+        }
+     
+        # 💡 리턴값 5개를 정확히 받아냅니다.
+        s_tag, total_m, w_streak, whale_score, twin_b = get_supply_and_money(ticker, row['Close'])
+        f_tag, f_score = get_financial_health(ticker)
+
+        # 세부 정보 추가
+        if signals['watermelon_signal']:
+            new_tags.append(f"🍉강도{row['Watermelon_Score']}/3")
+        
+        if signals['bottom_area']:
+            new_tags.append(f"📍거리{row['Near_MA112']:.1f}%")
+        
+        if signals['silent_perfect'] or signals['silent_strong']:
+            new_tags.append(f"🔇ATR{int(row['ATR_Below_Days'])}일")
+            new_tags.append(f"💰MFI{int(row['MFI_Strong_Days'])}일")
+ 
+        
 
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         # 2. 조합 점수 계산
