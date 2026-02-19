@@ -418,7 +418,12 @@ def get_indicators(df):
     df['MFI'] = 100 - (100 / (1 + mfi_ratio))
     df['MFI_Strong'] = df['MFI'] > 50
     df['MFI_Prev5'] = df['MFI'].shift(5)
-    
+
+    # 매집 파워 및 조용한 매집용 ATR
+    df['Buy_Power'] = df['Volume'] * (df['Close'] - df['Open'])
+    df['Buy_Power_MA'] = df['Buy_Power'].rolling(10).mean()
+    df['Buying_Pressure'] = df['Buy_Power'] > df['Buy_Power_MA']
+ 
     # 💡 [신규] 최근 N일 지속성 체크용 컬럼들
     # ATR이 평균 아래인 날 카운트 (최근 10일)
     tr_atr = pd.concat([high - low, abs(high - close.shift(1)), abs(low - close.shift(1))], axis=1).max(axis=1)
