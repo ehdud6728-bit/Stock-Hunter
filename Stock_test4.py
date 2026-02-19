@@ -786,139 +786,109 @@ def calculate_combination_score(signals):
     combination = '기본'
     tags = []
     
-    # =========================
-    # S급 조합
-    # =========================
+    # silent_perfect는 silent_strong을 포함
+    effective = signals.copy()
+    if effective.get('silent_perfect'):
+        effective['silent_strong'] = True
 
-    # 💎전설조합 (공격형 S)
-    if (signals.get('watermelon_signal') and
-        signals.get('explosion_ready') and
-        signals.get('bottom_area') and
-        signals.get('silent_perfect')):
-        return {
-            'score': 350,
-            'grade': 'S',
+    candidates = []
+
+    # ── S급 ──────────────────────────────────
+    if (effective.get('watermelon_signal') and effective.get('explosion_ready') and
+        effective.get('bottom_area') and effective.get('silent_perfect')):
+        candidates.append({
+            'score': 350, 'grade': 'S',
             'combination': '💎전설조합',
             'tags': ['🍉수박전환', '💎폭발직전', '📍바닥권', '🤫조용한매집완전'],
             'type': '🗡'
-        }
+        })
 
-    # 💎매집완성 (안정형 S)
-    if (signals.get('silent_perfect') and
-        signals.get('watermelon_signal') and
-        signals.get('explosion_ready')):
-        return {
-            'score': 310,
-            'grade': 'S',
-            'combination': '💎매집완성',
-            'tags': ['🤫조용한매집완전', '🍉수박전환', '💎폭발직전'],
-            'type': '🛡'
-        }
-
-    # 💎돌파골드 (안정형 S)
-    if (signals.get('yeok_break') and
-        signals.get('watermelon_signal') and
-        signals.get('volume_surge')):
-        return {
-            'score': 320,
-            'grade': 'S',
+    if (effective.get('yeok_break') and
+        effective.get('watermelon_signal') and effective.get('volume_surge')):
+        candidates.append({
+            'score': 320, 'grade': 'S',
             'combination': '💎돌파골드',
             'tags': ['🏆역매공파돌파', '🍉수박전환', '⚡거래량폭발'],
             'type': '🛡'
-        }
+        })
 
-    # 💎바닥폭발 (공격형 S)
-    if (signals.get('bottom_area') and
-        signals.get('explosion_ready') and
-        signals.get('watermelon_signal')):
-        return {
-            'score': 300,
-            'grade': 'S',
+    if (effective.get('silent_perfect') and
+        effective.get('watermelon_signal') and effective.get('explosion_ready')):
+        candidates.append({
+            'score': 310, 'grade': 'S',
+            'combination': '💎매집완성',
+            'tags': ['🤫조용한매집완전', '🍉수박전환', '💎폭발직전'],
+            'type': '🛡'
+        })
+
+    if (effective.get('bottom_area') and effective.get('explosion_ready') and
+        effective.get('watermelon_signal')):
+        candidates.append({
+            'score': 300, 'grade': 'S',
             'combination': '💎바닥폭발',
             'tags': ['📍바닥권', '💎폭발직전', '🍉수박전환'],
             'type': '🗡'
-        }
+        })
 
-    # =========================
-    # A급 조합
-    # =========================
-
-    # 🔥조용폭발 (안정형 A)
-    if signals.get('silent_strong') and signals.get('explosion_ready'):
-        return {
-            'score': 250,
-            'grade': 'A',
-            'combination': '🔥조용폭발',
-            'tags': ['🤫조용한매집강', '💎폭발직전'],
-            'type': '🛡'
-        }
-
-    # 🔥돌파확인 (안정형 A)
-    if signals.get('yeok_break') and signals.get('volume_surge'):
-        return {
-            'score': 260,
-            'grade': 'A',
-            'combination': '🔥돌파확인',
-            'tags': ['🏆역매공파돌파', '⚡거래량폭발'],
-            'type': '🛡'
-        }
-
-    # 🔥수박폭발 (공격형 A)
-    if signals.get('watermelon_signal') and signals.get('explosion_ready'):
-        return {
-            'score': 280,
-            'grade': 'A',
+    # ── A급 ──────────────────────────────────
+    if effective.get('watermelon_signal') and effective.get('explosion_ready'):
+        candidates.append({
+            'score': 280, 'grade': 'A',
             'combination': '🔥수박폭발',
             'tags': ['🍉수박전환', '💎폭발직전'],
             'type': '🗡'
-        }
+        })
 
-    # =========================
-    # B급 (후보군)
-    # =========================
+    if effective.get('yeok_break') and effective.get('volume_surge'):
+        candidates.append({
+            'score': 260, 'grade': 'A',
+            'combination': '🔥돌파확인',
+            'tags': ['🏆역매공파돌파', '⚡거래량폭발'],
+            'type': '🛡'
+        })
 
-    if signals.get('watermelon_signal'):
-        return {
-            'score': 230,
-            'grade': 'B',
+    if effective.get('silent_strong') and effective.get('explosion_ready'):
+        candidates.append({
+            'score': 250, 'grade': 'A',
+            'combination': '🔥조용폭발',
+            'tags': ['🤫조용한매집강', '💎폭발직전'],
+            'type': '🛡'
+        })
+
+    # ── B급 ──────────────────────────────────
+    if effective.get('watermelon_signal'):
+        candidates.append({
+            'score': 230, 'grade': 'B',
             'combination': '📍수박단독',
             'tags': ['🍉수박전환'],
             'type': '🔍'
-        }
+        })
 
-    if signals.get('bottom_area'):
-        return {
-            'score': 210,
-            'grade': 'B',
+    if effective.get('bottom_area'):
+        candidates.append({
+            'score': 210, 'grade': 'B',
             'combination': '📍바닥단독',
             'tags': ['📍바닥권'],
             'type': '🔍'
-        }
+        })
 
-    # =========================
-    # C/D급 (무시 가능)
-    # =========================
+    # 최고점 조합 반환
+    if candidates:
+        return max(candidates, key=lambda x: x['score'])
 
-    tags = []
-    bonus = 0
+    # ── C급 ──────────────────────────────────
+    if effective.get('obv_rising') and effective.get('mfi_strong'):
+        return {'score': 170, 'grade': 'C', 'combination': '📊OBV+MFI', 'tags': ['📊OBV', '💰MFI'], 'type': None}
+    if effective.get('volume_surge') and effective.get('obv_rising'):
+        return {'score': 155, 'grade': 'C', 'combination': '⚡거래량+OBV', 'tags': ['⚡거래량', '📊OBV'], 'type': None}
 
-    if signals.get('obv_rising'):
-        bonus += 10
-        tags.append('📊OBV')
-    if signals.get('mfi_strong'):
-        bonus += 10
-        tags.append('💰MFI')
-    if signals.get('volume_surge'):
-        bonus += 10
-        tags.append('⚡거래량')
+    # ── D급 ──────────────────────────────────
+    tags, bonus = [], 0
+    if effective.get('obv_rising'):   bonus += 30; tags.append('📊OBV')
+    if effective.get('mfi_strong'):   bonus += 20; tags.append('💰MFI')
+    if effective.get('volume_surge'): bonus += 10; tags.append('⚡거래량')
 
-    return {
-        'score': 100 + bonus,
-        'grade': 'D',
-        'combination': '🔍기본',
-        'tags': tags,
-        'type': 'none'
-    }
+    return {'score': 100 + bonus, 'grade': 'D', 'combination': '🔍기본', 'tags': tags, 'type': None}
 
 
 def calculate_combination_score_back(signals):
