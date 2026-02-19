@@ -962,6 +962,19 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             tags.append("📉RSI하락")
         else:
             tags.append("❄️RSI약세")
+
+        #수박지표
+        if is_watermelon:
+            s_score += 100
+            tags.append("🍉수박신호")
+            tags.append(f"🍉빨강전환(강도{red_score}/3)")
+            tags.append(f"🍉강도{watermelon_score}/3")
+        elif watermelon_color == 'red' and red_score >= 2:
+            s_score += 60
+            tags.append("🍉빨강상태")    
+        elif row['Green_Days_10'] >= 7:
+            s_score += 30
+            tags.append("🍉초록축적")
       
         if 98 <= row['Disparity'] <= 104:
             s_score += 30
@@ -972,6 +985,22 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             s_score -= 25
             tags.append("⚠️윗꼬리")
 
+        # 역매공파 바닥권
+        if bottom_area:
+            s_score += 80
+            tags.append("🏆112선바닥권")
+            tags.append(f"📍거리{row['Near_MA112']:.1f}%")
+        
+        # 폭발 직전
+        if explosion_ready:
+            s_score += 90
+            tags.append("💎폭발직전")
+        
+        # 최강 조합
+        if is_watermelon and explosion_ready and bottom_area:
+            s_score += 80
+            tags.append("💎💎💎스윙골드")
+     
         # 기상도 감점
         storm_count = sum([1 for m in ['ixic', 'sp500'] if row[f'{m}_close'] <= row[f'{m}_ma5']])
         s_score -= (storm_count * 20)
@@ -984,6 +1013,9 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         
         return [{
             '날짜': curr_idx.strftime('%Y-%m-%d'),
+            'N등급': f"{result['type']}{result['grade']}",
+            'N조합': result['combination'],
+            'N점수': result['score'],
             '👑등급': grade,              # 👈 서사 엔진 결과물 1
             '📜서사히스토리': narrative,    # 👈 서사 엔진 결과물 2
             '확신점수': conviction,        # 👈 서사 엔진 결과물 3
@@ -1151,12 +1183,12 @@ if __name__ == "__main__":
         
 if all_hits:
     # 1. [정렬] 전체 검색 결과 점수순 정렬
-    all_hits_sorted = sorted(all_hits, key=lambda x: x['👑등급'], reverse=True)
+    all_hits_sorted = sorted(all_hits, key=lambda x: x['N점수'], reverse=True)
     
     # 2. [정예 선발] 상위 30개 추출 (AI 심층 분석 대상)
     #ai_candidates = all_hits_sorted[:30]
-    ai_candidates = pd.DataFrame(all_hits)
-    ai_candidates = ai_candidates[(ai_candidates['👑등급'].isin(["👑LEGEND"])) | (ai_candidates['📜서사히스토리'].str.contains("🎖️종베타점"))].sort_values(by='확신점수', ascending=False).copy()
+    ai_candidates = pd.DataFrame(all_hits_sorted)
+    ai_candidates = ai_candidates.sort_values(by='N점수', ascending=False)[:30].copy()
     # 3. [AI 분석] 상위 30개 종목에만 AI 지능 주입
     print(f"🧠 상위 30개 종목 AI 심층 분석 중... (나머지는 데이터만 기록)")
     tournament_report = run_ai_tournament(ai_candidates)
@@ -1175,7 +1207,9 @@ if all_hits:
     
     for _, item in telegram_targets.iterrows():
         entry = (f"⭐{item['👑등급']}점 [{item['종목명']}]\n"
+                 f"- {item['N등급']} | {item['N조합']}\n"
                  f"- {item['기상']} | {item['구분']}\n"
+                 f"- {item['📜N구분']}\n
                  f"- {item['📜서사히스토리']}\n"
                  f"- 재무: {item['재무']} | 수급: {item['수급']}\n"
                  f"- RSI: {item['RSI']} | 이격: {item['이격']}\n"
@@ -1187,6 +1221,7 @@ if all_hits:
             send_telegram_photo(current_msg, imgs if imgs else [])
             imgs = []
             current_msg = "📢 [오늘의 추천주 - 이어서]\n\n" + entry
+            print(f"{current_msg}")
         else:
             current_msg += entry
 
