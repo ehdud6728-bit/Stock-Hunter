@@ -1072,7 +1072,18 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         import traceback
         print(f"🚨 {name} 분석 중 치명적 에러:\n{traceback.format_exc()}")
         return []
-     
+
+def get_target_levels(current_price):
+    """현재가 기준 위/아래 정거장을 찾아주는 함수"""
+    # 현재가보다 큰 RN들 중 가장 작은 것이 '위 정거장'
+    upper_rns = [rn for rn in RN_LIST if rn > current_price]
+    # 현재가보다 작은 RN들 중 가장 큰 것이 '아래 정거장'
+    lower_rns = [rn for rn in RN_LIST if rn <= current_price]
+    
+    upper = upper_rns[0] if upper_rns else None
+    lower = lower_rns[-1] if lower_rns else None
+    return lower, upper
+
 # ---------------------------------------------------------
 # 🕵️‍♂️ [7-1] 주간 분석 엔진
 # ---------------------------------------------------------
