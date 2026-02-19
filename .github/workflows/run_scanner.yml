@@ -39,4 +39,4 @@ jobs:
         GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}  # 👈 요걸 쏙 넣어주세요!
         GOOGLE_JSON_KEY: ${{ secrets.GOOGLE_JSON_KEY }}
         OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-      run: python main2.py
+      run: python main3.py
