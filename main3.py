@@ -411,7 +411,7 @@ def get_indicators(df):
     ], axis=1).max(axis=1)
     df['ATR'] = tr.rolling(14).mean()
     df['ATR_MA20'] = df['ATR'].rolling(20).mean()
-    
+ 
     # MFI
     typical_price = (df['High'] + df['Low'] + df['Close']) / 3
     money_flow = typical_price * df['Volume']
@@ -594,6 +594,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
     f_score = 0
     whale_score = 0
     tags = []
+    new_tags = []
     weather_icons = []
     storm_count = 0
     
