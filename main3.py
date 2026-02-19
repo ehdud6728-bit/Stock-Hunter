@@ -162,7 +162,7 @@ def calculate_combination_score(signals):
             'score': 350, 'grade': 'S',
             'combination': '💎전설조합',
             'tags': ['🍉수박전환', '💎폭발직전', '📍바닥권', '🤫조용한매집완전'],
-            'type': '🗡'
+            'type': '⚡(단타)'
         })
 
     if (effective.get('yeok_break') and
@@ -171,7 +171,7 @@ def calculate_combination_score(signals):
             'score': 320, 'grade': 'S',
             'combination': '💎돌파골드',
             'tags': ['🏆역매공파돌파', '🍉수박전환', '⚡거래량폭발'],
-            'type': '🛡'
+            'type': '🏹(스윙)'
         })
 
     if (effective.get('silent_perfect') and
@@ -180,7 +180,7 @@ def calculate_combination_score(signals):
             'score': 310, 'grade': 'S',
             'combination': '💎매집완성',
             'tags': ['🤫조용한매집완전', '🍉수박전환', '💎폭발직전'],
-            'type': '🛡'
+            'type': '🏹(스윙)'
         })
 
     if (effective.get('bottom_area') and effective.get('explosion_ready') and
@@ -189,7 +189,7 @@ def calculate_combination_score(signals):
             'score': 300, 'grade': 'S',
             'combination': '💎바닥폭발',
             'tags': ['📍바닥권', '💎폭발직전', '🍉수박전환'],
-            'type': '🗡'
+            'type': '⚡(단타)'
         })
 
     # ── A급 ──────────────────────────────────
@@ -198,7 +198,7 @@ def calculate_combination_score(signals):
             'score': 280, 'grade': 'A',
             'combination': '🔥수박폭발',
             'tags': ['🍉수박전환', '💎폭발직전'],
-            'type': '🗡'
+            'type': '⚡(단타)'
         })
 
     if effective.get('yeok_break') and effective.get('volume_surge'):
@@ -206,7 +206,7 @@ def calculate_combination_score(signals):
             'score': 260, 'grade': 'A',
             'combination': '🔥돌파확인',
             'tags': ['🏆역매공파돌파', '⚡거래량폭발'],
-            'type': '🛡'
+            'type': '🏹(스윙)'
         })
 
     if effective.get('silent_strong') and effective.get('explosion_ready'):
@@ -214,7 +214,7 @@ def calculate_combination_score(signals):
             'score': 250, 'grade': 'A',
             'combination': '🔥조용폭발',
             'tags': ['🤫조용한매집강', '💎폭발직전'],
-            'type': '🛡'
+            'type': '🏹(스윙)'
         })
 
     # ── B급 ──────────────────────────────────
@@ -223,7 +223,7 @@ def calculate_combination_score(signals):
             'score': 230, 'grade': 'B',
             'combination': '📍수박단독',
             'tags': ['🍉수박전환'],
-            'type': '🔍'
+            'type': '🔍(관망)'
         })
 
     if effective.get('bottom_area'):
@@ -231,7 +231,7 @@ def calculate_combination_score(signals):
             'score': 210, 'grade': 'B',
             'combination': '📍바닥단독',
             'tags': ['📍바닥권'],
-            'type': '🔍'
+            'type': '🔍(관망)'
         })
 
     # 최고점 조합 반환
@@ -1255,10 +1255,10 @@ if all_hits:
     current_msg = f"{briefing}\n\n📢 [오늘의 실시간 TOP 15]\n\n"
     
     for _, item in telegram_targets.iterrows():
-        entry = (f"⭐{item['👑등급']}점 [{item['종목명']}]\n"
-                 f"- {item['N등급']} | {item['N조합']}\n"
+        entry = (f"⭐{item['N등급']} | {item['👑등급']}점 [{item['종목명']}]\n"
+                 f"- {item['N조합']} | {item['N구분']}\n"
                  f"- {item['기상']} | {item['구분']}\n"
-                 f"- {item['N구분']}\n"
+                 f"- {item['에너지']} | {item['매집']}\n"
                  f"- {item['📜서사히스토리']}\n"
                  f"- 재무: {item['재무']} | 수급: {item['수급']}\n"
                  f"- RSI: {item['RSI']} | 이격: {item['이격']}\n"
