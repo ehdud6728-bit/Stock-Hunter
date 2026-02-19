@@ -14,7 +14,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from bs4 import BeautifulSoup 
 import pytz
-from tactics_engine import get_global_and_leader_status, analyze_all_narratives, get_dynamic_sector_leaders
+from tactics_engine import get_global_and_leader_status, analyze_all_narratives, get_dynamic_sector_leaders,calculate_dante_symmetry, watermelon_indicator_complete
 import traceback
 
 from pykrx import stock
