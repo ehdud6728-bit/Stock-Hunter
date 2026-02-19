@@ -576,8 +576,6 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         # 2. 우리 섹터 대장주의 상태 확인 (leader_status 맵 활용)
         current_leader_condition = l_env.get(my_sector, "Normal")
      
-        
-      
         # 💡 오늘의 현재가 저장 (나중에 사용)
         today_price = df.iloc[-1]['Close']
      
@@ -593,6 +591,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         high_p = row['High']        # 당일 고가
         low_p = row['Low']          # 당일 저가
 
+        raw_idx = len(df) - 1
         temp_df = df.iloc[:raw_idx + 1]
 
         # analyze_final 함수 내부 루프 안에서
