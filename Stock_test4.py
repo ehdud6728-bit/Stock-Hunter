@@ -2087,7 +2087,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             hits.append({
                 '날짜': curr_idx.strftime('%Y-%m-%d'),
                 '👑등급': grade,
-                'N등급': result['type'] result['grade'],
+                'N등급': f"{result['type']}{result['grade']}",
                 'N점수': result['score'],
                 'N조합': result['combination'],
                 '정류장': is_rn_signal | is_1st_buy | is_2nd_buy,
