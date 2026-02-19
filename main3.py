@@ -600,7 +600,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         recent_avg_amount = (df['Close'] * df['Volume']).tail(5).mean() / 100000000
     
         if recent_avg_amount < 50: # 평균 거래대금 50억 미만은 탈락!
-            continue
+            return []
         
         #하락기간과 횡보(공구리)기간 비교(1이상 추천)
         dante_data = calculate_dante_symmetry(temp_df)
