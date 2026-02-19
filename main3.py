@@ -1050,9 +1050,11 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         
         return [{
             '날짜': curr_idx.strftime('%Y-%m-%d'),
+            '종목명': name, 'code': ticker,
             'N등급': f"{result['type']}{result['grade']}",
             'N조합': result['combination'],
             'N점수': result['score'],
+            'N구분': " ".join(new_tags),
             '👑등급': grade,              # 👈 서사 엔진 결과물 1
             '📜서사히스토리': narrative,    # 👈 서사 엔진 결과물 2
             '확신점수': conviction,        # 👈 서사 엔진 결과물 3
@@ -1062,7 +1064,6 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             '안전점수': int(max(0, s_score + whale_score)),
             'RSI': int(max(0, rsi_score)),
             '점수': int(s_score), # 구글 시트 전송용
-            '종목명': name, 'code': ticker,
             '에너지': "🔋" if row['MACD_Hist'] > 0 else "🪫",
             '현재가': int(row['Close']),
             '구분': " ".join(tags),
