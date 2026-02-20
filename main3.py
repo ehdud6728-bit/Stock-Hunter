@@ -1300,15 +1300,27 @@ if all_hits:
     # 상위 30개에만 AI 한줄평과 토너먼트 리포트 삽입
     lines = []
     
+    def safe_int(x, default=0):
+        try:
+            return int(float(x))
+        except:
+            return default
+    
+    def safe_float(x, default=0.0):
+        try:
+            return float(x)
+        except:
+            return default
+    
     for _, item in ai_candidates.iterrows():
         line = (
             f"{item['종목명']}({item['code']}): {item['구분']}, "
             f"수급:{item['수급']}, N구분:{item['N구분']}, "
-            f"이격:{int(item['이격'])}, "
-            f"BB40:{item['BB40']:.1f}, "
-            f"MA수렴:{item['MA수렴']:.1f}, "
-            f"OBV기울기:{int(item['OBV기울기'])}, "
-            f"RSI:{int(max(0, item['RSI']))}"
+            f"이격:{safe_int(item['이격'])}, "
+            f"BB40:{safe_float(item['BB40']):.1f}, "
+            f"MA수렴:{safe_float(item['MA수렴']):.1f}, "
+            f"OBV기울기:{safe_int(item['OBV기울기'])}, "
+            f"RSI:{safe_int(max(0, safe_float(item['RSI'])))}"
         )
         lines.append(line)
     
