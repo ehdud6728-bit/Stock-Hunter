@@ -571,9 +571,6 @@ def run_ai_tournament(candidate_list):
         f"N구분:{row['N구분']}, 이격:{safe_int(row['이격'])}, 현재가:{safe_int(row['현재가'])}, "
         f"BB40:{safe_float(row['BB40']):.1f}, MA수렴:{safe_float(row['MA수렴']):.1f}, "
         f"OBV기울기:{safe_int(row['OBV기울기'])}, RSI:{safe_int(safe_float(row['RSI']))}"
-        f"이 종목({row['종목명']}, {row['code']})에 대해 투자 전략 관점에서 "
-        f"3~5문장 정도로 고급 코멘트를 만들어주세요. "
-        f"읽는 사람이 바로 이해할 수 있는 스토리텔링 형식으로 작성."
         for _, row in candidate_list.iterrows()
     ])
     
@@ -607,7 +604,7 @@ def get_ai_summary(ticker, name, tags):
         "다음 요소를 반드시 포함: 현재 가격 위치, 거래량·OBV·MFI·RSI 분석, "
         "진입 포인트, 목표, 손절, 리스크 요인."
         "역배열 바닥 매집형(세력 매집봉 또는 몰래 매집하고 있는지 확인필요) 급등 패턴인지 엄격하게 심사하십시오. 억지 추천 금지! 조건 부족 시 '해당없음'이라 답하십시오."
-        "단타 종목 1위와 스윙 종목 1위를 선정하고 기술적으로 분석해서 타점까지 포함해서 월가에서 사용될 리포트 브리핑을 간략하게 알려줘 "
+        "단타 종목과 스윙 종목을 구분하고 기술적으로 분석해서 타점까지 포함해서 월가에서 사용될 리포트 브리핑을 간략하게 알려줘 "
         )
         client = OpenAI(api_key=OPENAI_API_KEY)
         res = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role":"sys_prompt", "content":f"{name}({ticker}) ({sys_prompt})"} , {"role":"user", "content":tags}])
