@@ -1776,15 +1776,15 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
 
             # 2. [매(埋)] 에너지 응축 (이평선 밀집)
             # 의미: 5, 20, 60일선이 3% 이내로 모여 에너지가 압축된 상태
-            is_mae = row['MA_Convergence'] <= 3.0
+            is_mae = row['MA_Convergence'] <= 3.0 and (row['BB40_Width'] <= 10.0) and row['ATR'] < row['ATR_MA20'] and row['OBV_Slope'] > 0
 
             # 3. [공(空)] 공구리 돌파 (MA112 돌파) - 사령관님이 찾아낸 핵심!
             # 의미: 6개월 장기 저항선(공구리)을 종가로 뚫어버리는 순간
-            is_gong = (close_p > row['MA112']) and (prev['Close'] <= row['MA112'])
+            is_gong = (close_p > row['MA112']) and (prev['Close'] <= row['MA112']) and (row['Volume'] > row['VMA20'] * 1.5)
 
             # 4. [파(破)] 파동의 시작 (BB40 상단 돌파)
             # 의미: 볼린저밴드 상단을 뚫고 변동성이 위로 터지는 시점
-            is_pa = (row['Close'] > row['BB40_Upper']) and (prev['Close'] <= row['BB40_Upper'])
+            is_pa = (row['Close'] > row['BB40_Upper']) and (prev['Close'] <= row['BB40_Upper']) and row['Disparity'] <= 106
 
             # 5. [화력] 거래량 동반 (VMA5 대비 2배)
             # 의미: 가짜 돌파를 걸러내는 세력의 입성 증거
@@ -1797,6 +1797,9 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             # 7. [수급] OBV 우상향 유지
             # 의미: 주가는 흔들어도 돈(매집세)은 빠져나가지 않는 상태
             is_obv = row['OBV_Slope'] > 0
+
+            # ⛔ 무효화 조건 (패턴 붕괴)
+            invalid = row['Close'] < row['MA60']
 
             # 🏆 [최종 판정] 7가지 중 5가지 이상 만족 시 '정예', 7가지 모두 만족 시 'LEGEND'
             conditions = [is_yeok, is_mae, is_gong, is_pa, is_volume, is_safe, is_obv]
@@ -2095,6 +2098,18 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         print(f"🚨 [본진] 데이터 로드 실패: {e}")
         print(f"✅ [본진] 오류!")
         return []
+# ---------------------------------------------------------
+# 단타/스윙 분리형 시퀀스        
+# ---------------------------------------------------------
+def classify_style(row):
+    vol_ratio = row['ATR'] / row['Close']
+
+    if vol_ratio > 0.05:
+        return "SCALP"   # 단타
+    elif row['BB40_Width'] < 12 and row['MA_Convergence'] < 3:
+        return "SWING"
+    else:
+        return "NONE"
 
 # ---------------------------------------------------------
 # 💾 [엑셀 저장] 오늘의 추천종목 저장
