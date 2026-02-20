@@ -552,7 +552,6 @@ def run_ai_tournament(candidate_list):
         .sort_values(by='안전점수', ascending=False)
         .head(15)
     )
-    print(candidate_list[['이격','BB40','MA수렴','OBV기울기','RSI']].dtypes)
  
     def safe_int(x, default=0):
         try:
@@ -569,15 +568,21 @@ def run_ai_tournament(candidate_list):
     
     prompt_data = "\n".join([
         f"- {row['종목명']}({row['code']}): {row['구분']}, 수급:{row['수급']}, "
-        f"N구분:{row['N구분']}, 이격:{safe_int(row['이격'])}, "
+        f"N구분:{row['N구분']}, 이격:{safe_int(row['이격'])}, 현재가:{safe_int(row['현재가'])}, "
         f"BB40:{safe_float(row['BB40']):.1f}, MA수렴:{safe_float(row['MA수렴']):.1f}, "
         f"OBV기울기:{safe_int(row['OBV기울기'])}, RSI:{safe_int(safe_float(row['RSI']))}"
+        f"이 종목({row['종목명']}, {row['code']})에 대해 투자 전략 관점에서 "
+        f"3~5문장 정도로 고급 코멘트를 만들어주세요. "
+        f"읽는 사람이 바로 이해할 수 있는 스토리텔링 형식으로 작성."
         for _, row in candidate_list.iterrows()
     ])
     
     sys_prompt = (
         "당신은 대한민국 '역매공파(역배열바닥, 매집, 공구리돌파, 파동시작)' 매매법의 권위자이자 퀀트 분석가입니다. 절대 돈을 잃으면 안되는 상황이야."
-        "제공된 기술적 데이터를 분석하여"
+        "주어진 종목 데이터에 기반해, 스윙/단기 관점에서 "
+        "전략적 코멘트를 만들어주세요. "
+        "다음 요소를 반드시 포함: 현재 가격 위치, 거래량·OBV·MFI·RSI 분석, "
+        "진입 포인트, 목표, 손절, 리스크 요인."
         "역배열 바닥 매집형(세력 매집봉 또는 몰래 매집하고 있는지 확인필요) 급등 패턴인지 엄격하게 심사하십시오. 억지 추천 금지! 조건 부족 시 '해당없음'이라 답하십시오."
         "단타 종목 1위와 스윙 종목 1위를 선정하고 기술적으로 분석해서 타점까지 포함해서 월가에서 사용될 리포트 브리핑을 간략하게 알려줘 "
     )
@@ -595,18 +600,29 @@ def run_ai_tournament(candidate_list):
 
 def get_ai_summary(ticker, name, tags):
     try:
+        sys_prompt = (
+        "당신은 세계 최고 주식 트레이더이며 대한민국 '역매공파(역배열바닥, 매집, 공구리돌파, 파동시작)' 매매법의 권위자이자 퀀트 분석가입니다. 절대 돈을 잃으면 안되는 상황이야."
+        "주어진 종목 데이터에 기반해, 스윙/단기 관점에서 "
+        "전략적 코멘트를 만들어주세요. "
+        "다음 요소를 반드시 포함: 현재 가격 위치, 거래량·OBV·MFI·RSI 분석, "
+        "진입 포인트, 목표, 손절, 리스크 요인."
+        "역배열 바닥 매집형(세력 매집봉 또는 몰래 매집하고 있는지 확인필요) 급등 패턴인지 엄격하게 심사하십시오. 억지 추천 금지! 조건 부족 시 '해당없음'이라 답하십시오."
+        "단타 종목 1위와 스윙 종목 1위를 선정하고 기술적으로 분석해서 타점까지 포함해서 월가에서 사용될 리포트 브리핑을 간략하게 알려줘 "
+        )
         client = OpenAI(api_key=OPENAI_API_KEY)
-        res = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role":"user", "content":f"{name}({ticker}) 세계 최고 주식 트레이더 입장에서 매매의견은 추천/비추천으로 해주고 단타/스윙/중장기 어떻게 대응하면 되는지 알려주고 종목의 최근 핵심 테마와 특징(2026년 현재 오늘 기준), 진입타점까지 한줄로 요약해(반말) "} , {"role":"user", "content":tags}])
+        res = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role":"sys_prompt", "content":f"{name}({ticker}) ({sys_prompt})"} , {"role":"user", "content":tags}])
         return res.choices[0].message.content.strip()
     except: return "분석 불가"
 
 def get_ai_summary_batch(stock_lines: list):
-    system_prompt = (
-        "너는 세계 최고 주식 트레이더 보조 AI다. "
-        "아래 여러 종목 데이터를 보고 매매의견은 추천/비추천으로 해주고 단타/스윙/중장기 어떻게 대응하면 되는지 알려주고 종목별로 간단한 코멘트를 만들어라. "
-        "확정적인 투자 권유는 하지 말고 참고용 분석만 제공하라. "
-        "각 종목의 최근 핵심 테마와 특징(2026년 현재 오늘 기준), 진입타점까지 한줄로 요약해라. "
-        "각 종목마다 한 줄씩 출력하라."
+    sys_prompt = (
+        "당신은 대한민국 '역매공파(역배열바닥, 매집, 공구리돌파, 파동시작)' 매매법의 권위자이자 퀀트 분석가입니다. 절대 돈을 잃으면 안되는 상황이야."
+        "주어진 종목 데이터에 기반해, 스윙/단기 관점에서 "
+        "전략적 코멘트를 만들어주세요. "
+        "다음 요소를 반드시 포함: 현재 가격 위치, 거래량·OBV·MFI·RSI 분석, "
+        "진입 포인트, 목표, 손절, 리스크 요인."
+        "역배열 바닥 매집형(세력 매집봉 또는 몰래 매집하고 있는지 확인필요) 급등 패턴인지 엄격하게 심사하십시오. 억지 추천 금지! 조건 부족 시 '해당없음'이라 답하십시오."
+        "단타 종목 1위와 스윙 종목 1위를 선정하고 기술적으로 분석해서 타점까지 포함해서 월가에서 사용될 리포트 브리핑을 간략하게 알려줘 "
     )
 
     user_prompt = (
@@ -1321,6 +1337,9 @@ if all_hits:
             f"MA수렴:{safe_float(item['MA수렴']):.1f}, "
             f"OBV기울기:{safe_int(item['OBV기울기'])}, "
             f"RSI:{safe_int(max(0, safe_float(item['RSI'])))}"
+            f"이 종목({item['종목명']}, {item['code']})에 대해 투자 전략 관점에서 "
+            f"3~5문장 정도로 고급 코멘트를 만들어주세요. "
+            f"읽는 사람이 바로 이해할 수 있는 스토리텔링 형식으로 작성."
         )
         lines.append(line)
     
