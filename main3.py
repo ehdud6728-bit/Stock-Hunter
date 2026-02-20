@@ -554,11 +554,24 @@ def run_ai_tournament(candidate_list):
     )
     print(candidate_list[['이격','BB40','MA수렴','OBV기울기','RSI']].dtypes)
  
+    def safe_int(x, default=0):
+        try:
+            return int(float(x))
+        except:
+            return default
+    
+    def safe_float(x, default=0.0):
+        try:
+            return float(x)
+        except:
+            return default
+    
+    
     prompt_data = "\n".join([
         f"- {row['종목명']}({row['code']}): {row['구분']}, 수급:{row['수급']}, "
-        f"N구분:{row['N구분']}, 이격:{row['이격']}, "
-        f"BB40:{row['BB40']}, MA수렴:{row['MA수렴']}, "
-        f"OBV기울기:{row['OBV기울기']}, RSI:{row['RSI']}"
+        f"N구분:{row['N구분']}, 이격:{safe_int(row['이격'])}, "
+        f"BB40:{safe_float(row['BB40']):.1f}, MA수렴:{safe_float(row['MA수렴']):.1f}, "
+        f"OBV기울기:{safe_int(row['OBV기울기'])}, RSI:{safe_int(safe_float(row['RSI']))}"
         for _, row in candidate_list.iterrows()
     ])
     
