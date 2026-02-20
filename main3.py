@@ -636,7 +636,7 @@ def get_ai_summary_batch(stock_lines: list):
         res = client.responses.create(
             model="gpt-4o",  # gpt-4.1 / gpt-5 가능
             input=[
-                {"role": "system", "content": system_prompt},
+                {"role": "system", "content": sys_prompt},
                 {"role": "user", "content": user_prompt}
             ],
             max_output_tokens=500
