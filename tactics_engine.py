@@ -229,16 +229,18 @@ def analyze_all_narratives(df, ticker_name, sector_name, g_env, l_env):
     
     last_idx = len(df) - 1
     row = df.iloc[-1]
+    prev_5 = df.iloc[max(0, raw_idx-5)]
+    prev_10 = df.iloc[max(0, raw_idx-10)]
     
     # [1] 역매공파 시퀀스 (바닥 돌파형)
     def get_days_ago(condition_series):
         idx = np.where(condition_series)[0]
         return (last_idx - idx[-1]) if len(idx) > 0 else None
 
-    d_yeok = get_days_ago(df['MA5'] > df['MA20'])
-    d_mae  = get_days_ago(df['MA_Convergence'] <= 3.0)
-    d_gong = get_days_ago((df['Close'] > df['MA112']) & (df['Close'].shift(1) <= df['MA112']))
-    d_pa   = get_days_ago((df['Close'] > df['BB40_Upper']) & (df['Close'].shift(1) <= df['BB40_Upper']))
+    d_yeok = get_days_ago(df['MA5'] > df['MA20'] & row['MA5'] <= row['MA20'])
+    d_mae  = get_days_ago(df['MA_Convergence'] <= 3.0 & (df['BB40_Width'] <= 10.0) & df['ATR'] < df['ATR_MA20'] & df['OBV_Slope'] > 0)
+    d_gong = get_days_ago((df['Close'] > df['MA112']) & (df['Close'].shift(1) <= df['MA112']) & (df['Volume'] > df['VMA20'] * 1.5))
+    d_pa   = get_days_ago((df['Close'] > df['BB40_Upper']) & (df['Close'].shift(1) <= df['BB40_Upper']) & (df['Disparity'] <= 106))
 
     # [2] 강창권 종베 로직 (눌림목 타격형)
     df['Env_Upper'] = df['MA20'] * 1.20
