@@ -554,16 +554,17 @@ def run_ai_tournament(candidate_list):
     )
     
     prompt_data = "\n".join([
-        f"- {row['종목명']}({row['code']}): {row['구분']}, 수급:{row['수급']}, 재무:{row['재무']}"
+        f"- {row['종목명']}({row['code']}): {row['구분']}, 수급:{row['수급']}, N구분:{row['N구분']}, 이격:{int(row['Disparity']}, 'BB40': {row['BB40_Width']:.1f}, 'MA수렴': {row['MA_Convergence']:.1f},'OBV기울기': {int(row['OBV_Slope'])},'RSI': {int(max(0, row['rsi_score']))}"
         for _, row in candidate_list.iterrows()
     ])
     
     sys_prompt = (
         "당신은 대한민국 '역매공파(역배열바닥, 매집, 공구리돌파, 파동시작)' 매매법의 권위자이자 퀀트 분석가입니다. 절대 돈을 잃으면 안되는 상황이야."
         "제공된 기술적 데이터를 분석하여"
-        "역배열 바닥 매집형(세력 매집봉 또는 몰래 매집하고 있는지 확인필요) 급등 패턴인지 엄격하게 심사하십시오."
+        "역배열 바닥 매집형(세력 매집봉 또는 몰래 매집하고 있는지 확인필요) 급등 패턴인지 엄격하게 심사하십시오. 억지 추천 금지! 조건 부족 시 '해당없음'이라 답하십시오."
         "단타 종목 1위와 스윙 종목 1위를 선정하고 기술적으로 분석해서 타점까지 포함해서 월가에서 사용될 리포트 브리핑을 간략하게 알려줘 "
     )
+ 
     # GPT 심사
     client = OpenAI(api_key=OPENAI_API_KEY)
     res_gpt = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role":"system", "content":sys_prompt}, {"role":"user", "content":prompt_data}])
@@ -578,7 +579,7 @@ def run_ai_tournament(candidate_list):
 def get_ai_summary(ticker, name, tags):
     try:
         client = OpenAI(api_key=OPENAI_API_KEY)
-        res = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role":"user", "content":f"{name}({ticker}) 세계 최고 주식 트레이더 입장에서 매매의견은 추천/비추천으로 해주고 단타/스윙/중장기 어떻게 대응하면 되는지 알려주고 종목의 최근 핵심 테마와 특징(2026년 현재 오늘 기준), 진입타점까지 한줄로 요약해(반말) "}])
+        res = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role":"user", "content":f"{name}({ticker}) 세계 최고 주식 트레이더 입장에서 매매의견은 추천/비추천으로 해주고 단타/스윙/중장기 어떻게 대응하면 되는지 알려주고 종목의 최근 핵심 테마와 특징(2026년 현재 오늘 기준), 진입타점까지 한줄로 요약해(반말) "} , {"role":"user", "content":tags}])
         return res.choices[0].message.content.strip()
     except: return "분석 불가"
 
@@ -1161,7 +1162,12 @@ def analyze_weekly_trend(ticker, name):
 # ---------------------------------------------------------
 if __name__ == "__main__":
     print("🚀 전략 사령부 가동 시작...")
-
+    
+    client = OpenAI()
+    models = client.models.list()
+    for m in models.data:
+        print(m.id)
+     
     # 💡 1. 전쟁 시작 전 '대장주 지도'와 '그들의 상태'를 딱 한 번만 생성
     # leader_map: {섹터: 코드}, leader_status: {섹터: 강세/침체}
     global_env, leader_env = get_global_and_leader_status()
@@ -1245,7 +1251,9 @@ if all_hits:
     # 상위 30개에만 AI 한줄평과 토너먼트 리포트 삽입
     for idx, item in ai_candidates.iterrows():
         ai_candidates.loc[idx, 'ai_tip'] = get_ai_summary(
-            item['code'], item['종목명'], item['구분']
+            item['code'], item['종목명'], prompt_data = "\n".join([
+        f"- {item['종목명']}({item['code']}): {item['구분']}, 수급:{item['수급']}, N구분:{item['N구분']}, 이격:{int(item['Disparity']}, 'BB40': {item['BB40_Width']:.1f}, 'MA수렴': {item['MA_Convergence']:.1f},'OBV기울기': {int(item['OBV_Slope'])},'RSI': {int(max(0, item['rsi_score']))}"
+        ])
     )
     
     # 4. [텔레그램 전송] 상위 15개 정예만 골라 발송
