@@ -586,6 +586,38 @@ def get_ai_summary(ticker, name, tags):
         return res.choices[0].message.content.strip()
     except: return "분석 불가"
 
+def get_ai_summary_batch(stock_lines: list):
+    system_prompt = (
+        "너는 세계 최고 주식 트레이더 보조 AI다. "
+        "아래 여러 종목 데이터를 보고 매매의견은 추천/비추천으로 해주고 단타/스윙/중장기 어떻게 대응하면 되는지 알려주고 종목별로 간단한 코멘트를 만들어라. "
+        "확정적인 투자 권유는 하지 말고 참고용 분석만 제공하라. "
+        "각 종목의 최근 핵심 테마와 특징(2026년 현재 오늘 기준), 진입타점까지 한줄로 요약해라. "
+        "각 종목마다 한 줄씩 출력하라."
+    )
+
+    user_prompt = (
+        "다음 종목 정보를 보고 종목별 요약을 작성해줘.\n\n"
+        + "\n".join(stock_lines)
+        + "\n\n형식:\n종목명(코드): 요약"
+    )
+
+    try:
+        client = OpenAI(api_key=OPENAI_API_KEY)
+        res = client.responses.create(
+            model="gpt-4o",  # gpt-4.1 / gpt-5 가능
+            input=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            max_output_tokens=500
+        )
+
+        return res.output_text.strip()
+
+    except Exception as e:
+        print("[AI 배치 요약 오류]", e)
+        return ""
+     
 # ---------------------------------------------------------
 # 🕵️‍♂️ [7] 분석 엔진 (당일 집중형 - 중복 방지)
 # ---------------------------------------------------------
@@ -1252,12 +1284,32 @@ if all_hits:
     tournament_report = run_ai_tournament(ai_candidates)
 
     # 상위 30개에만 AI 한줄평과 토너먼트 리포트 삽입
-    for idx, item in ai_candidates.iterrows():
-        ai_candidates.loc[idx, 'ai_tip'] = get_ai_summary(
-            item['code'], item['종목명'], prompt_data = "\n".join([
-        f"- {item['종목명']}({item['code']}): {item['구분']}, 수급:{item['수급']}, N구분:{item['N구분']}, 이격:{int(item['Disparity']}, 'BB40': {item['BB40_Width']:.1f}, 'MA수렴': {item['MA_Convergence']:.1f},'OBV기울기': {int(item['OBV_Slope'])},'RSI': {int(max(0, item['rsi_score']))}"
-        ])
-    )
+    lines = []
+    
+    for _, item in ai_candidates.iterrows():
+        line = (
+            f"{item['종목명']}({item['code']}): {item['구분']}, "
+            f"수급:{item['수급']}, N구분:{item['N구분']}, "
+            f"이격:{int(item['Disparity'])}, "
+            f"BB40:{item['BB40_Width']:.1f}, "
+            f"MA수렴:{item['MA_Convergence']:.1f}, "
+            f"OBV기울기:{int(item['OBV_Slope'])}, "
+            f"RSI:{int(max(0, item['rsi_score']))}"
+        )
+        lines.append(line)
+    
+    # 🔥 AI 한 번만 호출
+    ai_result_text = get_ai_summary_batch(lines)
+    ai_map = {}
+   
+   for line in ai_result_text.splitlines():
+       if ":" in line:
+           key, val = line.split(":", 1)
+           ai_map[key.strip()] = val.strip()
+   
+   for idx, item in ai_candidates.iterrows():
+       key = f"{item['종목명']}({item['code']})"
+       ai_candidates.loc[idx, "ai_tip"] = ai_map.get(key, "")
     
     # 4. [텔레그램 전송] 상위 15개 정예만 골라 발송
     telegram_targets = ai_candidates[:15]
