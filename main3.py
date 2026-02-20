@@ -555,9 +555,9 @@ def run_ai_tournament(candidate_list):
         
     prompt_data = "\n".join([
         f"- {row['종목명']}({row['code']}): {row['구분']}, 수급:{row['수급']}, "
-        f"N구분:{row['N구분']}, 이격:{int(row['Disparity'])}, "
-        f"BB40:{row['BB40_Width']:.1f}, MA수렴:{row['MA_Convergence']:.1f}, "
-        f"OBV기울기:{int(row['OBV_Slope'])}, RSI:{int(max(0, row['rsi_score']))}"
+        f"N구분:{row['N구분']}, 이격:{int(row['이격'])}, "
+        f"BB40:{row['BB40']:.1f}, MA수렴:{row['MA수렴']:.1f}, "
+        f"OBV기울기:{int(row['OBV기울기'])}, RSI:{int(max(0, row['RSI']))}"
         for _, row in candidate_list.iterrows()
     ])
     
@@ -1290,11 +1290,11 @@ if all_hits:
         line = (
             f"{item['종목명']}({item['code']}): {item['구분']}, "
             f"수급:{item['수급']}, N구분:{item['N구분']}, "
-            f"이격:{int(item['Disparity'])}, "
-            f"BB40:{item['BB40_Width']:.1f}, "
-            f"MA수렴:{item['MA_Convergence']:.1f}, "
-            f"OBV기울기:{int(item['OBV_Slope'])}, "
-            f"RSI:{int(max(0, item['rsi_score']))}"
+            f"이격:{int(item['이격'])}, "
+            f"BB40:{item['BB40']:.1f}, "
+            f"MA수렴:{item['MA수렴']:.1f}, "
+            f"OBV기울기:{int(item['OBV기울기'])}, "
+            f"RSI:{int(max(0, item['RSI']))}"
         )
         lines.append(line)
     
