@@ -1302,14 +1302,14 @@ if all_hits:
     ai_result_text = get_ai_summary_batch(lines)
     ai_map = {}
    
-   for line in ai_result_text.splitlines():
-       if ":" in line:
-           key, val = line.split(":", 1)
-           ai_map[key.strip()] = val.strip()
-   
-   for idx, item in ai_candidates.iterrows():
-       key = f"{item['종목명']}({item['code']})"
-       ai_candidates.loc[idx, "ai_tip"] = ai_map.get(key, "")
+    for line in ai_result_text.splitlines():
+        if ":" in line:
+            key, val = line.split(":", 1)
+            ai_map[key.strip()] = val.strip()
+    
+    for idx, item in ai_candidates.iterrows():
+        key = f"{item['종목명']}({item['code']})"
+        ai_candidates.loc[idx, "ai_tip"] = ai_map.get(key, "")
     
     # 4. [텔레그램 전송] 상위 15개 정예만 골라 발송
     telegram_targets = ai_candidates[:15]
