@@ -552,12 +552,13 @@ def run_ai_tournament(candidate_list):
         .sort_values(by='안전점수', ascending=False)
         .head(15)
     )
-        
+    print(candidate_list[['이격','BB40','MA수렴','OBV기울기','RSI']].dtypes)
+ 
     prompt_data = "\n".join([
         f"- {row['종목명']}({row['code']}): {row['구분']}, 수급:{row['수급']}, "
-        f"N구분:{row['N구분']}, 이격:{int(row['이격'])}, "
-        f"BB40:{row['BB40']:.1f}, MA수렴:{row['MA수렴']:.1f}, "
-        f"OBV기울기:{int(row['OBV기울기'])}, RSI:{int(max(0, row['RSI']))}"
+        f"N구분:{row['N구분']}, 이격:{row['이격']}, "
+        f"BB40:{row['BB40']}, MA수렴:{row['MA수렴']}, "
+        f"OBV기울기:{row['OBV기울기']}, RSI:{row['RSI']}"
         for _, row in candidate_list.iterrows()
     ])
     
