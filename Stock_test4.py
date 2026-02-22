@@ -1364,6 +1364,26 @@ def get_indicators(df):
 
     return df
 
+# 🚀 [Commander's Special] 돌반지 + 300% Vol + 쌍바닥 엔진
+def check_legend_pattern(df):
+    ma200 = df['Close'].rolling(224).mean()
+    vol_avg20 = df['Volume'].rolling(20).mean()
+    
+    # 1. 거래량 300% 폭발 (Vol Power >= 3.0)
+    vol_power = df['Volume'].iloc[-1] / vol_avg20.iloc[-1]
+    
+    # 2. 200일선 돌파 및 안착 (Stone-Ring)
+    is_above_ma200 = df['Close'].iloc[-1] > ma200.iloc[-1]
+    
+    # 3. 쌍바닥 감지 (최근 30일 내 200일선 근처 저점 2개)
+    lows = df['Low'].iloc[-30:]
+    near_ma200 = lows[abs(lows - ma200.iloc[-1]) / ma200.iloc[-1] < 0.03]
+    is_double_bottom = len(near_ma200[near_ma200 == near_ma200.rolling(5, center=True).min()]) >= 2
+
+    if vol_power >= 3.0 and is_above_ma200 and is_double_bottom:
+        return "🏆LEGEND", 100
+    return "NORMAL", 0
+
 def analyze_final_longterm(ticker, name, historical_indices, scan_days=750, sampling='weekly'):
     """
     장기 백테스트용 분석 함수 (샘플링 지원)
