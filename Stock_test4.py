@@ -1712,7 +1712,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
             # 1. 신호 수집
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            
+            print(f"✅ [본진] 신호 수집!")
             signals = {
                 # 수박지표
                 'watermelon_signal': row['Watermelon_Signal'],
@@ -1762,6 +1762,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
             # 2. 조합 점수 계산
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            print(f"✅ [본진] 조합 점수 계산!")
             result = judge_trade_with_sequence(temp_df, signals)
             #result = calculate_combination_score(signals)
 
@@ -1892,7 +1893,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
           # 3. 점수 산출 및 태그 부여
             s_score = 100
             tags = []
-          
+            print(f"✅ [본진] 라운드넘버 계산!")
             # 라운드넘버 정거장 매매법 => 현재가 기준 정거장 파악
             lower_rn, upper_rn = get_target_levels(row['Close'])
             avg_money = (row['Close'] * row['Volume']) # 간이 거래대금
