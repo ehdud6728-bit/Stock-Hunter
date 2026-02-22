@@ -12,7 +12,7 @@ import warnings
 import requests
 from bs4 import BeautifulSoup
 from DNA_Analyzer import analyze_dna_sequences, find_winning_pattern
-from tactics_engine import get_global_and_leader_status, analyze_all_narratives, get_dynamic_sector_leaders, calculate_dante_symmetry, watermelon_indicator_complete
+from tactics_engine import get_global_and_leader_status, analyze_all_narratives, get_dynamic_sector_leaders, calculate_dante_symmetry, watermelon_indicator_complete, judge_yeok_break_sequence_v2
 import traceback
 
 from pykrx import stock
@@ -747,6 +747,35 @@ def calculate_strategy_stats(all_hits):
                 })
     
     return df_stats, top_recommendations
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 🎯 시퀀스 확인 통합함수
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+def judge_trade_with_sequence(df, signals):
+    """
+    df: 최근 N봉 (시퀀스용)
+    signals: 기존 calculate_combination_score용 신호 dict
+
+    return: score_result dict
+    """
+
+    # 1️⃣ 시퀀스 판별
+    seq_ok = judge_yeok_break_sequence_v2(df)
+
+    # 2️⃣ signals에 반영
+    signals = signals.copy()  # 원본 보호
+    signals['yeok_break'] = seq_ok
+
+    # 3️⃣ 조합 점수 계산
+    result = calculate_combination_score(signals)
+
+    # 4️⃣ 보조 태그 추가
+    if seq_ok:
+        result['tags'].append('🧬시퀀스확인')
+
+    result['sequence'] = seq_ok
+
+    return result
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # 🎯 조합 중심 점수 산정 시스템
@@ -1733,8 +1762,8 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
             # 2. 조합 점수 계산
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            
-            result = calculate_combination_score(signals)
+            result = judge_trade_with_sequence(temp_df, signals)
+            #result = calculate_combination_score(signals)
 
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
             # 3. 추가 정보 태그
