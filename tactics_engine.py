@@ -417,7 +417,7 @@ def judge_yeok_break_sequence_v2(df):
     """
     역매공파 시퀀스 판별기
     df: 최근 N봉 (20봉 이상)
-    컬럼: ['open','high','low','close','volume']
+    컬럼: ['Open','High','Low','Close','Volume']
     """
     if len(df) < 20:
         return False
@@ -426,32 +426,32 @@ def judge_yeok_break_sequence_v2(df):
     pull = df.iloc[10:15]   # 눌림
     recent = df.iloc[15:]   # 돌파
 
-    acc_range = (acc['high'].max() - acc['low'].min()) / acc['close'].mean()
-    acc_vol = acc['volume'].mean()
-    total_vol = df['volume'].mean()
+    acc_range = (acc['High'].max() - acc['Low'].min()) / acc['Close'].mean()
+    acc_vol = acc['Volume'].mean()
+    total_vol = df['Volume'].mean()
 
     cond_acc = (
         acc_range < 0.04 and
         acc_vol < total_vol * 0.7 and
-        acc['close'].iloc[-1] >= acc['close'].iloc[0] * 0.98
+        acc['Close'].iloc[-1] >= acc['Close'].iloc[0] * 0.98
     )
 
-    pull_start = pull['close'].iloc[0]
-    pull_low = pull['low'].min()
+    pull_start = pull['Close'].iloc[0]
+    pull_low = pull['Low'].min()
     pull_ratio = (pull_start - pull_low) / pull_start
 
     cond_pull = (
         0.02 <= pull_ratio <= 0.08 and
-        pull['volume'].mean() < acc_vol * 1.2
+        pull['Volume'].mean() < acc_vol * 1.2
     )
 
     last = recent.iloc[-1]
-    prev_high = df['high'].iloc[:-1].max()
+    prev_high = df['High'].iloc[:-1].max()
 
     cond_break = (
-        last['close'] > prev_high * 1.002 and
-        last['volume'] > total_vol * 1.5 and
-        last['close'] > last['open']
+        last['Close'] > prev_high * 1.002 and
+        last['Volume'] > total_vol * 1.5 and
+        last['Close'] > last['open']
     )
 
     return cond_acc and cond_pull and cond_break
