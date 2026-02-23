@@ -823,6 +823,7 @@ def calculate_combination_score(signals):
 
     candidates = []
     # 👑 [S++급] 수박 돌반지 챔피언 (최강의 시너지)
+    ring_count = effective.get('dolbanzi_Count')
     if (effective.get('watermelon_signal') and effective.get('dolbanzi')):
         combo_name = '👑💍수박첫돌반지' if ring_count == 1 else '🍉💍수박돌반지'
         final_score = 500 if ring_count == 1 else 450
