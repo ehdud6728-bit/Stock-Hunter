@@ -1270,7 +1270,7 @@ def get_indicators(df):
     near_ma200 = lows[abs(lows - ma200.iloc[-1]) / ma200.iloc[-1] < 0.03]
     is_double_bottom = len(near_ma200[near_ma200 == near_ma200.rolling(5, center=True).min()]) >= 2
 
-    df['Dolbanzi'] = vol_power >= 3.0 & is_above_ma200 & is_double_bottom:
+    df['Dolbanzi'] = (vol_power >= 3.0) & (is_above_ma200) & (is_double_bottom)
 
     return df
 
