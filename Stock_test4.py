@@ -1089,12 +1089,17 @@ def get_indicators(df):
     
     # 2. [최적화] 200일선 위/아래가 바뀔 때마다 그룹 번호 부여 (중복 연산 제거)
     # .diff()를 사용하여 상태가 변하는 지점만 포착합니다.
-    df['Trend_Group'] = is_above_ma200.astype(int).diff().ne(0).cumsum()
+    # 1. [.iloc[-1]를 제거하여 전체 시리즈로 만듭니다]
+    # 현재가 200일선 위인지 여부를 전체 행에 대해 계산
+    is_above_series = df['Close'] > df['MA200']
+    # 2. [전체 시리즈에 대해 diff()와 cumsum()을 실행]
+    # 200일선 위/아래 상태가 변할 때마다 그룹 번호가 생성됩니다.
+    df['Trend_Group'] = is_above_series.astype(int).diff().fillna(0).ne(0).cumsum()
     
     # 3. [최적화] 동일 그룹 내에서만 돌반지 횟수 누적
     # 현재가 200일선 위에 있을 때만(is_above_ma200) 카운트를 쌓습니다.
     df['Dolbanzi_Count'] = 0
-    df.loc[is_above_ma200, 'Dolbanzi_Count'] = df[is_above_ma200].groupby('Trend_Group')['Dolbanzi'].cumsum()
+    df['Dolbanzi_Count'] = df.groupby('Trend_Group')['Dolbanzi'].cumsum()
     
     return df
 
