@@ -31,8 +31,8 @@ warnings.filterwarnings('ignore')
 # ⚙️ [1. 설정 및 글로벌 변수]
 # =================================================
 DNA_CHECK = False
-SCAN_DAYS = 224       # 최근 30일 내 타점 전수 조사
-TOP_N = 250         # 거래대금 상위 종목 수 (필요시 2500으로 확장 가능)
+SCAN_DAYS = 30       # 최근 30일 내 타점 전수 조사
+TOP_N = 450         # 거래대금 상위 종목 수 (필요시 2500으로 확장 가능)
 KST = pytz.timezone('Asia/Seoul')
 NOW = datetime.now(KST)
 TODAY_STR = NOW.strftime('%Y-%m-%d')
