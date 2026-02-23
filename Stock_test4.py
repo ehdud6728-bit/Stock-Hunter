@@ -799,6 +799,7 @@ def calculate_combination_score(signals):
                 'volume_surge': True/False,
                 'obv_rising': True/False,
                 'mfi_strong': True/False,
+                'dobanzi': True/False, 
             }
     
     Returns:
@@ -821,7 +822,24 @@ def calculate_combination_score(signals):
         effective['silent_strong'] = True
 
     candidates = []
+    # 👑 [S++급] 수박 돌반지 챔피언 (최강의 시너지)
+    if (effective.get('watermelon_signal') and effective.get('dolbanzi')):
+        candidates.append({
+            'score': 450, 'grade': 'SSS',
+            'combination': '🍉💍수박돌반지',
+            'tags': ['🍉수박전환', '💍돌반지완성', '🔥최종병기', '🚀대시세시작'],
+            'type': '👑'
+        })
 
+    # 🚀 ── SS급: 돌반지 완성 (최고 점수 부여) ──────────────────────
+    if effective.get('dolbanzi'): # 200일 돌파 + 300% Vol + 쌍바닥
+        candidates.append({
+            'score': 420, 'grade': 'SS', 
+            'combination': '💍돌반지', 
+            'tags': ['💍돌반지완성', '⚡300%폭발', '👣쌍바닥확인'],
+            'type': '👑' 
+        })
+    
     # ── S급 ──────────────────────────────────
     if (effective.get('watermelon_signal') and effective.get('explosion_ready') and
         effective.get('bottom_area') and effective.get('silent_perfect')):
@@ -918,219 +936,6 @@ def calculate_combination_score(signals):
     if effective.get('volume_surge'): bonus += 10; tags.append('⚡거래량')
 
     return {'score': 100 + bonus, 'grade': 'D', 'combination': '🔍기본', 'tags': tags, 'type': None}
-
-
-def calculate_combination_score_back(signals):
-    """
-    신호 조합을 분석해서 확정 점수 부여
-    
-    Args:
-        signals: dict with boolean flags
-            {
-                'watermelon_signal': True/False,
-                'watermelon_red': True/False,
-                'watermelon_green_7d': True/False,
-                'explosion_ready': True/False,
-                'bottom_area': True/False,
-                'silent_perfect': True/False,
-                'silent_strong': True/False,
-                'yeok_break': True/False,
-                'volume_surge': True/False,
-                'obv_rising': True/False,
-                'mfi_strong': True/False,
-            }
-    
-    Returns:
-        {
-            'score': int,
-            'grade': str,
-            'combination': str,
-            'tags': list
-        }
-    """
-    
-    score = 100  # 기본 점수 (거래대금 상위 350 진입)
-    grade = 'D'
-    combination = '기본'
-    tags = []
-    
-    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    # S급 조합 체크 (300~350점)
-    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    
-    # 💎전설조합 (350점)
-    if (signals['watermelon_signal'] and 
-        signals['explosion_ready'] and 
-        signals['bottom_area'] and 
-        signals['silent_perfect']):
-        score = 350
-        grade = 'S'
-        combination = '💎전설조합'
-        tags = ['🍉수박전환', '💎폭발직전', '📍바닥권', '🤫조용한매집완전']
-        return {'score': score, 'grade': grade, 'combination': combination, 'tags': tags}
-    
-    # 💎스윙골드 (330점)
-    if (signals['watermelon_signal'] and 
-        signals['explosion_ready'] and 
-        signals['bottom_area']):
-        score = 330
-        grade = 'S'
-        combination = '💎스윙골드'
-        tags = ['🍉수박전환', '💎폭발직전', '📍바닥권']
-        return {'score': score, 'grade': grade, 'combination': combination, 'tags': tags}
-    
-    # 💎돌파골드 (320점)
-    if (signals['yeok_break'] and 
-        signals['watermelon_signal'] and 
-        signals['volume_surge']):
-        score = 320
-        grade = 'S'
-        combination = '💎돌파골드'
-        tags = ['🏆역매공파돌파', '🍉수박전환', '⚡거래량폭발']
-        return {'score': score, 'grade': grade, 'combination': combination, 'tags': tags}
-    
-    # 💎매집완성 (310점)
-    if (signals['silent_perfect'] and 
-        signals['watermelon_signal'] and 
-        signals['explosion_ready']):
-        score = 310
-        grade = 'S'
-        combination = '💎매집완성'
-        tags = ['🤫조용한매집완전', '🍉수박전환', '💎폭발직전']
-        return {'score': score, 'grade': grade, 'combination': combination, 'tags': tags}
-    
-    # 💎바닥폭발 (300점)
-    if (signals['bottom_area'] and 
-        signals['explosion_ready'] and 
-        signals['watermelon_signal']):
-        score = 300
-        grade = 'S'
-        combination = '💎바닥폭발'
-        tags = ['📍바닥권', '💎폭발직전', '🍉수박전환']
-        return {'score': score, 'grade': grade, 'combination': combination, 'tags': tags}
-    
-    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    # A급 조합 체크 (250~290점)
-    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    
-    # 🔥수박폭발 (280점)
-    if signals['watermelon_signal'] and signals['explosion_ready']:
-        score = 280
-        grade = 'A'
-        combination = '🔥수박폭발'
-        tags = ['🍉수박전환', '💎폭발직전']
-        return {'score': score, 'grade': grade, 'combination': combination, 'tags': tags}
-    
-    # 🔥바닥수박 (270점)
-    if signals['bottom_area'] and signals['watermelon_signal']:
-        score = 270
-        grade = 'A'
-        combination = '🔥바닥수박'
-        tags = ['📍바닥권', '🍉수박전환']
-        return {'score': score, 'grade': grade, 'combination': combination, 'tags': tags}
-    
-    # 🔥돌파확인 (260점)
-    if signals['yeok_break'] and signals['volume_surge']:
-        score = 260
-        grade = 'A'
-        combination = '🔥돌파확인'
-        tags = ['🏆역매공파돌파', '⚡거래량폭발']
-        return {'score': score, 'grade': grade, 'combination': combination, 'tags': tags}
-    
-    # 🔥조용폭발 (250점)
-    if signals['silent_strong'] and signals['explosion_ready']:
-        score = 250
-        grade = 'A'
-        combination = '🔥조용폭발'
-        tags = ['🤫조용한매집강', '💎폭발직전']
-        return {'score': score, 'grade': grade, 'combination': combination, 'tags': tags}
-    
-    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    # B급 조합 체크 (200~240점)
-    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    
-    # 📍수박단독 (230점)
-    if signals['watermelon_signal']:
-        score = 230
-        grade = 'B'
-        combination = '📍수박단독'
-        tags = ['🍉수박전환']
-        return {'score': score, 'grade': grade, 'combination': combination, 'tags': tags}
-    
-    # 📍폭발단독 (220점)
-    if signals['explosion_ready']:
-        score = 220
-        grade = 'B'
-        combination = '📍폭발단독'
-        tags = ['💎폭발직전']
-        return {'score': score, 'grade': grade, 'combination': combination, 'tags': tags}
-    
-    # 📍바닥단독 (210점)
-    if signals['bottom_area']:
-        score = 210
-        grade = 'B'
-        combination = '📍바닥단독'
-        tags = ['📍바닥권']
-        return {'score': score, 'grade': grade, 'combination': combination, 'tags': tags}
-    
-    # 📍조용단독 (200점)
-    if signals['silent_strong']:
-        score = 200
-        grade = 'B'
-        combination = '📍조용단독'
-        tags = ['🤫조용한매집강']
-        return {'score': score, 'grade': grade, 'combination': combination, 'tags': tags}
-    
-    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    # C급 조합 체크 (150~190점)
-    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    
-    # 🔍빨강상태 (180점)
-    if signals['watermelon_red']:
-        score = 180
-        grade = 'C'
-        combination = '🔍빨강상태'
-        tags = ['🍉빨강유지']
-        return {'score': score, 'grade': grade, 'combination': combination, 'tags': tags}
-    
-    # 🔍초록축적 (170점)
-    if signals['watermelon_green_7d']:
-        score = 170
-        grade = 'C'
-        combination = '🔍초록축적'
-        tags = ['🍉초록7일']
-        return {'score': score, 'grade': grade, 'combination': combination, 'tags': tags}
-    
-    # 🔍수급흐름 (160점)
-    if signals['obv_rising'] and signals['mfi_strong']:
-        score = 160
-        grade = 'C'
-        combination = '🔍수급흐름'
-        tags = ['📊OBV상승', '💰MFI강세']
-        return {'score': score, 'grade': grade, 'combination': combination, 'tags': tags}
-    
-    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    # D급 (100~140점) - 기본 점수만
-    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    
-    # 개별 신호 카운트 (보너스)
-    bonus = 0
-    if signals['obv_rising']: 
-        bonus += 10
-        tags.append('📊OBV')
-    if signals['mfi_strong']: 
-        bonus += 10
-        tags.append('💰MFI')
-    if signals['volume_surge']: 
-        bonus += 10
-        tags.append('⚡거래량')
-    
-    score = 100 + bonus
-    grade = 'D'
-    combination = '🔍기본'
-    
-    return {'score': score, 'grade': grade, 'combination': combination, 'tags': tags}
-
 
 def get_indicators(df):
     df = df.copy()
@@ -1687,6 +1492,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
                 'volume_surge': row['Volume'] >= row['VMA20'] * 1.5,
                 'obv_rising': row['OBV_Rising'],
                 'mfi_strong': row['MFI_Strong'],
+                'dolbanzi': row['Dolbanzi'],
             }
             
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
