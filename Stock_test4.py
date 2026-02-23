@@ -824,18 +824,28 @@ def calculate_combination_score(signals):
     candidates = []
     # 👑 [S++급] 수박 돌반지 챔피언 (최강의 시너지)
     if (effective.get('watermelon_signal') and effective.get('dolbanzi')):
+        combo_name = '👑💍수박첫돌반지' if ring_count == 1 else '🍉💍수박돌반지'
+        final_score = 500 if ring_count == 1 else 450
+        ring_tag = '🥇최초의반지' if ring_count == 1 else f'💍{ring_count}회차반지'
         candidates.append({
-            'score': 450, 'grade': 'SSS',
-            'combination': '🍉💍수박돌반지',
+            'score': final_score, 'grade': 'SSS',
+            'combination': combo_name,
             'tags': ['🍉수박전환', '💍돌반지완성', '🔥최종병기', '🚀대시세시작'],
             'type': '👑'
         })
 
     # 🚀 ── SS급: 돌반지 완성 (최고 점수 부여) ──────────────────────
     if effective.get('dolbanzi'): # 200일 돌파 + 300% Vol + 쌍바닥
+        # 카운트에 따라 메달 색깔과 태그를 바꿉니다.
+        if ring_count == 1:
+            combo_name, ring_tag, bonus = '🥇💍첫번째돌반지', '🔥GoldenEntry', 30
+        elif ring_count == 2:
+            combo_name, ring_tag, bonus = '🥈💍두번째돌반지', '📈추세지속', 0
+        else:
+            combo_name, ring_tag, bonus = '🥉💍늙은돌반지', '⚠️과열주의', -50 # 3회부턴 감점 전술
         candidates.append({
-            'score': 420, 'grade': 'SS', 
-            'combination': '💍돌반지', 
+            'score': 420 + bonus, 'grade': 'SS', 
+            'combination': combo_name,
             'tags': ['💍돌반지완성', '⚡300%폭발', '👣쌍바닥확인'],
             'type': '👑' 
         })
@@ -1076,7 +1086,16 @@ def get_indicators(df):
     is_double_bottom = len(near_ma200[near_ma200 == near_ma200.rolling(5, center=True).min()]) >= 2
 
     df['Dolbanzi'] = (vol_power >= 3.0) & (is_above_ma200) & (is_double_bottom)
-
+    
+    # 2. [최적화] 200일선 위/아래가 바뀔 때마다 그룹 번호 부여 (중복 연산 제거)
+    # .diff()를 사용하여 상태가 변하는 지점만 포착합니다.
+    df['Trend_Group'] = is_above_ma200.astype(int).diff().ne(0).cumsum()
+    
+    # 3. [최적화] 동일 그룹 내에서만 돌반지 횟수 누적
+    # 현재가 200일선 위에 있을 때만(is_above_ma200) 카운트를 쌓습니다.
+    df['Dolbanzi_Count'] = 0
+    df.loc[is_above_ma200, 'Dolbanzi_Count'] = df[is_above_ma200].groupby('Trend_Group')['Dolbanzi'].cumsum()
+    
     return df
 
 # 🚀 [Commander's Special] 돌반지 + 300% Vol + 쌍바닥 엔진
@@ -1493,6 +1512,8 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
                 'obv_rising': row['OBV_Rising'],
                 'mfi_strong': row['MFI_Strong'],
                 'dolbanzi': row['Dolbanzi'],
+                'dolbanzi_Trend_Group': row['Trend_Group'],
+                'dolbanzi_Count': row['Dolbanzi_Count'],
             }
             
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
