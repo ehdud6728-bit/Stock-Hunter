@@ -836,9 +836,9 @@ def calculate_combination_score(signals):
 
     # 👑 [SSS+급 각성] 수박품은독사에 '킥(Kick)'을 더했다!
     # 기존 조건에 'explosion_ready(폭발 직전/볼밴 돌파 등)'를 킥으로 추가!
-    elif effective.get('viper_hook') and effective.get('watermelon_signal') and effective.get('obv_bullish') and 
+    elif (effective.get('viper_hook') and effective.get('watermelon_signal') and effective.get('obv_bullish') and 
          effective.get('explosion_ready') and effective.get('is_no_long_tail') and effective.get('is_agile') and 
-         effective.get('is_not_blocked') and effective.get('is_safe_distance'):
+         effective.get('is_not_blocked') and effective.get('is_safe_distance')):
         candidates.append({
             'score': 999,  
             'grade': 'SSS+', 
@@ -850,8 +850,8 @@ def calculate_combination_score(signals):
         
     # 🐍 [SS+급 일반 독사] 킥(폭발)이 없는 일반 수박독사는 점수 하향 (사령관님 지시)
     # 돌반지(500점)보다 수익률이 떨어지므로 480점으로 낮췄습니다.
-    elif effective.get('viper_hook') and effective.get('watermelon_signal') and effective.get('obv_bullish') and 
-         effective.get('is_no_long_tail') and effective.get('is_agile') and effective.get('is_not_blocked') and effective.get('is_safe_distance'):
+    elif (effective.get('viper_hook') and effective.get('watermelon_signal') and effective.get('obv_bullish') and 
+         effective.get('is_no_long_tail') and effective.get('is_agile') and effective.get('is_not_blocked') and effective.get('is_safe_distance')):
         candidates.append({
             'score': 480,  
             'grade': 'SS+', 
@@ -862,7 +862,7 @@ def calculate_combination_score(signals):
     
     # 🐍 [S+급] 독사출현 단독 판독 로직
     # 하극상 방지를 위해 460점에서 440점으로 점수 소폭 하향 조정
-    elif effective.get('viper_hook') and effective.get('is_safe_distance') and effective.get('is_agile') and effective.get('is_not_blocked') and effective.get('is_no_long_tail'):
+    elif (effective.get('viper_hook') and effective.get('is_safe_distance') and effective.get('is_agile') and effective.get('is_not_blocked') and effective.get('is_no_long_tail')):
         candidates.append({
             'score': 440, 'grade': 'S+', 
             'combination': '🐍5-20독사훅',
