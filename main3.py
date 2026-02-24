@@ -951,6 +951,9 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             'volume_surge': row['Volume'] >= row['VMA20'] * 1.5,
             'obv_rising': row['OBV_Rising'],
             'mfi_strong': row['MFI_Strong'],
+            'dolbanzi': row['Dolbanzi'],
+            'dolbanzi_Trend_Group': row['Trend_Group'],
+            'dolbanzi_Count': row['Dolbanzi_Count'],
         }
      
         # 세부 정보 추가
