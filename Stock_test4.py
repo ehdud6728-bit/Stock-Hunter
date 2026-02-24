@@ -822,24 +822,37 @@ def calculate_combination_score(signals):
         effective['silent_strong'] = True
 
     candidates = []
-    # 👑 [SSS+급 최종 병기] 뱀이 수박을 삼키고 매집까지 끝냈다!
-    # 점수를 999점으로 올려서 어떤 조합이 와도 무조건 1순위로 출력되게 만듭니다.
-    if effective.get('viper_hook') and effective.get('watermelon_signal') and effective.get('obv_bullish'):
+    # 🌌 [GOD급 핵무기] 잃어버린 전설의 패턴 복구!
+    # 독사가 수박을 물고 200일선(돌반지)을 같이 뚫어버리는 미친 시너지
+    if effective.get('viper_hook') and effective.get('dolbanzi') and effective.get('watermelon_signal'):
+        candidates.append({
+            'score': 10000, # 측정 불가 (무조건 1순위)
+            'grade': 'GOD', 
+            'combination': '🌌🍉💍독사품은수박돌반지',
+            'tags': ['🚀대시세확정', '💥200일선폭파', '🐍단기개미털기완료', '🍉수급대폭발'],
+            'type': '🌌' 
+        })
+
+    # 👑 [SSS+급 각성] 수박품은독사에 '킥(Kick)'을 더했다!
+    # 기존 조건에 'explosion_ready(폭발 직전/볼밴 돌파 등)'를 킥으로 추가!
+    elif effective.get('viper_hook') and effective.get('watermelon_signal') and effective.get('obv_bullish') and effective.get('explosion_ready'):
         candidates.append({
             'score': 999,  
             'grade': 'SSS+', 
-            'combination': '👑🍉🐍수박품은독사',
-            'tags': ['🔥최종병기', '🧲OBV매집확인', '📈기울기상승턴', '🍉속살폭발'],
+            'combination': '👑🍉🐍수박품은독사(각성)',
+            # 사령관님이 주문하신 '킥'이 들어갔습니다!
+            'tags': ['🔥최종병기', '🧲OBV매집', '💥볼밴폭발(Kick)', '🍉속살폭발'],
             'type': '👑' 
         })
         
-    # 🐍 [SS급] 수박은 없지만, 매집이 끝난 독사 출현 (준수함)
-    # 위 조건이 아닐 때만 발동하도록 elif를 사용하여 중복 출력을 막습니다.
-    elif effective.get('viper_hook') and effective.get('obv_bullish'):
+    # 🐍 [SS+급 일반 독사] 킥(폭발)이 없는 일반 수박독사는 점수 하향 (사령관님 지시)
+    # 돌반지(500점)보다 수익률이 떨어지므로 480점으로 낮췄습니다.
+    elif effective.get('viper_hook') and effective.get('watermelon_signal') and effective.get('obv_bullish'):
         candidates.append({
-            'score': 460, 'grade': 'SS', 
-            'combination': '🐍🧲매집완료독사',
-            'tags': ['🐍독사대가리', '🧲세력입성'],
+            'score': 480,  
+            'grade': 'SS+', 
+            'combination': '🐍🍉일반수박독사',
+            'tags': ['🐍독사대가리', '🧲OBV매집', '🍉단기수급'],
             'type': '👑' 
         })
     
