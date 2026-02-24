@@ -1202,7 +1202,7 @@ def get_indicators(df):
     # 🚨 [KILL SWITCH 3] 역배열 폭포수 사살: 112일선(반년 선)이 200일선 아래로 곤두박질치는가?
     # 장기 이평선이 완벽한 역배열 폭포수라면 뱀이 아니라 미꾸라지입니다.
     is_not_waterfall = df['MA112'] >= df['MA200'] * 0.9  # 최소한 200일선 근처에서 놀아야 함
-    is_heading_ceiling = (df['Close'] < df['MA112']) and (df['MA112_Slope'] < 0) and (df['Dist_to_MA112'] <= 0.04)
+    is_heading_ceiling = (df['Close'] < df['MA112']) & (df['MA112_Slope'] < 0) & (df['Dist_to_MA112'] <= 0.04)
     is_not_blocked = not is_heading_ceiling
     
     # 5. [최종 판독] 모든 조건이 일치하는 날을 'Viper_Hook'으로 명명!
