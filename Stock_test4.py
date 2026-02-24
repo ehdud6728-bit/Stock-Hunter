@@ -1181,9 +1181,6 @@ def get_indicators(df):
 
     # 🚨 [KILL SWITCH 1] LG화학 사살: 60일선의 "기울기"가 하락 중이면 무조건 탈락!
     # 주가가 60일선 위에 있든 아래에 있든, 60일선 자체가 쏟아져 내리면 그건 악성 시체밭입니다.
-    ma60_today = df['MA60']
-    ma60_yesterday = df['MA60'].shift(1).loc[current_idx]
-    is_ma60_safe = ma60_today >= ma60_yesterday  # 평행이거나 위를 향해야만 합격!
     is_ma60_safe = df['MA60_Slope'] >= 0
     
     # 🚨 [KILL SWITCH 2] 두산밥캣 사살: "5일선(대가리)"에서 너무 멀어지면 탈락!
