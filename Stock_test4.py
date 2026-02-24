@@ -822,32 +822,66 @@ def calculate_combination_score(signals):
         effective['silent_strong'] = True
 
     candidates = []
-    # 👑 [S++급] 수박 돌반지 챔피언 (최강의 시너지)
-    ring_count = effective.get('dolbanzi_Count')
-    if (effective.get('watermelon_signal') and effective.get('dolbanzi')):
+    # 👑 [SSS+급 최종 병기] 뱀이 수박을 삼키고 매집까지 끝냈다!
+    # 점수를 999점으로 올려서 어떤 조합이 와도 무조건 1순위로 출력되게 만듭니다.
+    if effective.get('viper_hook') and effective.get('watermelon_signal') and effective.get('obv_bullish'):
+        candidates.append({
+            'score': 999,  
+            'grade': 'SSS+', 
+            'combination': '👑🍉🐍수박품은독사',
+            'tags': ['🔥최종병기', '🧲OBV매집확인', '📈기울기상승턴', '🍉속살폭발'],
+            'type': '👑' 
+        })
+        
+    # 🐍 [SS급] 수박은 없지만, 매집이 끝난 독사 출현 (준수함)
+    # 위 조건이 아닐 때만 발동하도록 elif를 사용하여 중복 출력을 막습니다.
+    elif effective.get('viper_hook') and effective.get('obv_bullish'):
+        candidates.append({
+            'score': 460, 'grade': 'SS', 
+            'combination': '🐍🧲매집완료독사',
+            'tags': ['🐍독사대가리', '🧲세력입성'],
+            'type': '👑' 
+        })
+    
+    # 🐍 [S+급] 독사출현 단독 판독 로직
+    # 하극상 방지를 위해 460점에서 440점으로 점수 소폭 하향 조정
+    elif effective.get('viper_hook'):
+        candidates.append({
+            'score': 440, 'grade': 'S+', 
+            'combination': '🐍5-20독사훅',
+            'tags': ['🐍독사대가리', '📉개미털기완료', '📈기울기상승턴'],
+            'type': '👑' 
+        })
+        
+    # 👑 [SSS급] 수박 돌반지 챔피언 (최강의 시너지)
+    # 안전장치: dolbanzi_Count가 없을 경우 기본값 0을 반환하도록 get 옵션 추가
+    ring_count = effective.get('dolbanzi_Count', 0) 
+    if effective.get('watermelon_signal') and effective.get('dolbanzi'):
         combo_name = '👑💍수박첫돌반지' if ring_count == 1 else '🍉💍수박돌반지'
         final_score = 500 if ring_count == 1 else 450
         ring_tag = '🥇최초의반지' if ring_count == 1 else f'💍{ring_count}회차반지'
         candidates.append({
             'score': final_score, 'grade': 'SSS',
             'combination': combo_name,
-            'tags': ['🍉수박전환', '💍돌반지완성', '🔥최종병기', '🚀대시세시작'],
+            # 🚨 [수정 완료] tags 리스트 맨 끝에 ring_tag를 추가했습니다!
+            'tags': ['🍉수박전환', '💍돌반지완성', '🔥최종병기', '🚀대시세시작', ring_tag],
             'type': '👑'
         })
 
-    # 🚀 ── SS급: 돌반지 완성 (최고 점수 부여) ──────────────────────
-    if effective.get('dolbanzi'): # 200일 돌파 + 300% Vol + 쌍바닥
-        # 카운트에 따라 메달 색깔과 태그를 바꿉니다.
+    # 🚀 ── SS급: 돌반지 완성 (단독) ──────────────────────
+    elif effective.get('dolbanzi'): # 200일 돌파 + 300% Vol + 쌍바닥
         if ring_count == 1:
             combo_name, ring_tag, bonus = '🥇💍첫번째돌반지', '🔥GoldenEntry', 30
         elif ring_count == 2:
             combo_name, ring_tag, bonus = '🥈💍두번째돌반지', '📈추세지속', 0
         else:
-            combo_name, ring_tag, bonus = '🥉💍늙은돌반지', '⚠️과열주의', -50 # 3회부턴 감점 전술
+            combo_name, ring_tag, bonus = '🥉💍늙은돌반지', '⚠️과열주의', -50 # 3회부턴 감점 
+            
         candidates.append({
             'score': 420 + bonus, 'grade': 'SS', 
             'combination': combo_name,
-            'tags': ['💍돌반지완성', '⚡300%폭발', '👣쌍바닥확인'],
+            # 🚨 [수정 완료] 여기도 tags 리스트 맨 끝에 ring_tag를 추가했습니다!
+            'tags': ['💍돌반지완성', '⚡300%폭발', '👣쌍바닥확인', ring_tag],
             'type': '👑' 
         })
     
@@ -930,7 +964,7 @@ def calculate_combination_score(signals):
             'type': '🔍'
         })
 
-    # 최고점 조합 반환
+    # 최고점 조합 반환 (결과가 여러 개라도 가장 점수가 높은 1개만 사령관님께 보고합니다)
     if candidates:
         return max(candidates, key=lambda x: x['score'])
 
@@ -953,7 +987,7 @@ def get_indicators(df):
     count = len(df)
 
     # 1. 이동평균선 및 거래량 이평 (단테 112/224 포함)
-    for n in [5, 20, 40, 60, 112, 224]:
+    for n in [5, 10, 20, 40, 60, 112, 224]:
         df[f'MA{n}'] = df['Close'].rolling(window=min(count, n)).mean()
         df[f'VMA{n}'] = df['Volume'].rolling(window=min(count, n)).mean()
 
@@ -1103,6 +1137,33 @@ def get_indicators(df):
     # 현재가 200일선 위에 있을 때만(is_above_ma200) 카운트를 쌓습니다.
     df['Dolbanzi_Count'] = 0
     df['Dolbanzi_Count'] = df.groupby('Trend_Group')['Dolbanzi'].cumsum()
+
+    # 2. 🧲 [OBV 세력 매집 지표 계산]
+    # 주가가 오를 때의 거래량은 더하고, 내릴 때의 거래량은 뺍니다.
+    df['OBV'] = (np.sign(df['Close'].diff()) * df['Volume']).fillna(0).cumsum()
+    df['OBV_MA10'] = df['OBV'].rolling(window=10).mean() # OBV의 추세선
+    
+    # [핵심] 5일선이 지하실에 박혀있던 최근 10일간, OBV 추세는 상승(매집)했는가?
+    df['OBV_Bullish'] = df['OBV_MA10'] > df['OBV_MA10'].shift(1)
+    
+    # 2. [조건 1] 똬리 수축: 5, 10, 20일선이 3% 이내로 밀집 (에너지 응축)
+    # 3개 이평선 중 최고값과 최저값의 차이가 3% 이하인지 판별
+    max_ma = df[['MA5', 'MA10', 'MA20']].max(axis=1)
+    min_ma = df[['MA5', 'MA10', 'MA20']].min(axis=1)
+    is_squeezed = (max_ma - min_ma) / min_ma <= 0.03
+
+    # 3. [조건 2] 늪지대 함정: 최근 10일 이내에 5일선이 20일선 아래로 빠진 적이 있는가?
+    # True(1) 상태가 지난 10일 중 한 번이라도 있었는지 검사합니다.
+    is_below_20 = (df['MA5'] < df['MA20']).astype(int)
+    was_below_20 = is_below_20.rolling(window=10).max() == 1
+
+    # 4. [조건 3 & 4] 독사 대가리 + 기울기 방어선 (사령관님 특별 지시!)
+    # 어제보다 5일선이 올라갔고(상승 턴), 현재 5일선이 20일선을 뚫었거나 바짝 붙었을 때!
+    is_slope_up = df['MA5'] > df['MA5'].shift(1)
+    is_head_up = is_slope_up & (df['MA5'] >= df['MA20'] * 0.99)
+
+    # 5. [최종 판독] 모든 조건이 일치하는 날을 'Viper_Hook'으로 명명!
+    df['Viper_Hook'] = is_squeezed & was_below_20 & is_head_up
     
     return df
 
@@ -1519,9 +1580,14 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
                 'volume_surge': row['Volume'] >= row['VMA20'] * 1.5,
                 'obv_rising': row['OBV_Rising'],
                 'mfi_strong': row['MFI_Strong'],
+                # 돌반지
                 'dolbanzi': row['Dolbanzi'],
                 'dolbanzi_Trend_Group': row['Trend_Group'],
                 'dolbanzi_Count': row['Dolbanzi_Count'],
+
+                #독사 5-20
+                'viper_hook': row['Viper_Hook'],
+                'obv_bullish': row['OBV_Bullish']
             }
             
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
