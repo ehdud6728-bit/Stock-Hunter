@@ -1632,8 +1632,8 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             }
 
             # 임시 디버그용 레이더 (화면에 출력됨)
-            if row['종목명'] in ['LG화학', '두산밥캣']:
-                print(f"🚨 [{row['종목명']}] 60일선기울기: {row['MA60_Slope']:.2f}, 112일선거리: {row['Dist_to_MA112']:.3f}, 112일선기울기: {row['MA112_Slope']:.2f}")
+            if row['name'] in ['LG화학', '두산밥캣']:
+                print(f"🚨 [{row['name']}] 60일선기울기: {row['MA60_Slope']:.2f}, 112일선거리: {row['Dist_to_MA112']:.3f}, 112일선기울기: {row['MA112_Slope']:.2f}")
         
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
             # 2. 조합 점수 계산
