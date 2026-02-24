@@ -1221,8 +1221,13 @@ def get_indicators(df):
     # 🚨 [킬 스위치 3] LG화학 60일선 하락 방지 (Safe MA60)
     df['is_ma60_safe'] = df['MA60_Slope'] >= 0
 
+    # 🎯 [복구된 킬 스위치 4] 두산밥캣 절대 사살용: 5일선 허공답보 방지!
+    # 오늘 종가가 5일선(MA5)보다 8% 이상 높게 허공에 떠 있다면 '오버슈팅(에너지 고갈)'으로 간주!
+    df['Dist_from_MA5'] = (df['Close'] - df['MA5']) / df['MA5']
+    df['is_hugging_ma5'] = df['Dist_from_MA5'] < 0.08
+
     # 👑 [최종 융합] 이 모든 필터를 통과한 '진짜 독사'만 찾아라!
-    df['Real_Viper_Hook'] = (df['is_not_blocked'] & df['is_not_waterfall'] & df['is_ma60_safe'])
+    df['Real_Viper_Hook'] = (df['is_not_blocked'] & df['is_not_waterfall'] & df['is_ma60_safe'] & df['is_hugging_ma5'])
     
     print(f"✅ 최종판독")
     # 5. [최종 판독] 모든 조건이 일치하는 날을 'Viper_Hook'으로 명명!
