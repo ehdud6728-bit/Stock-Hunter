@@ -1184,7 +1184,8 @@ def get_indicators(df):
     ma60_today = row['MA60']
     ma60_yesterday = df['MA60'].shift(1).loc[current_idx]
     is_ma60_safe = ma60_today >= ma60_yesterday  # 평행이거나 위를 향해야만 합격!
-
+    is_ma60_safe = row['MA60_Slope'] >= 0
+    
     # 🚨 [KILL SWITCH 2] 두산밥캣 사살: "5일선(대가리)"에서 너무 멀어지면 탈락!
     # 20일선이 아니라, 당장 오늘 꺾어 올린 '5일선' 위로 주가가 5% 이상 혼자 튀어 나가면 허공답보입니다.
     distance_from_ma5 = (row['Close'] - row['MA5']) / row['MA5']
@@ -1193,12 +1194,14 @@ def get_indicators(df):
     # 🚨 [KILL SWITCH 3] 역배열 폭포수 사살: 112일선(반년 선)이 200일선 아래로 곤두박질치는가?
     # 장기 이평선이 완벽한 역배열 폭포수라면 뱀이 아니라 미꾸라지입니다.
     is_not_waterfall = row['MA112'] >= row['MA200'] * 0.9  # 최소한 200일선 근처에서 놀아야 함
+    is_heading_ceiling = (row['Close'] < row['MA112']) and (row['MA112_Slope'] < 0) and (row['Dist_to_MA112'] <= 0.04)
+    is_not_blocked = not is_heading_ceiling
     
     # 5. [최종 판독] 모든 조건이 일치하는 날을 'Viper_Hook'으로 명명!
     df['Viper_Hook'] = is_squeezed & was_below_20 & is_head_up
     df['is_ma60_safe'] = is_ma60_safe
     df['is_hugging_ma5'] = is_hugging_ma5
-    df['is_not_waterfall'] = is_not_waterfall
+    df['is_not_waterfall'] = is_not_blocked
     
     return df
 
