@@ -1181,20 +1181,20 @@ def get_indicators(df):
 
     # 🚨 [KILL SWITCH 1] LG화학 사살: 60일선의 "기울기"가 하락 중이면 무조건 탈락!
     # 주가가 60일선 위에 있든 아래에 있든, 60일선 자체가 쏟아져 내리면 그건 악성 시체밭입니다.
-    ma60_today = row['MA60']
+    ma60_today = df['MA60']
     ma60_yesterday = df['MA60'].shift(1).loc[current_idx]
     is_ma60_safe = ma60_today >= ma60_yesterday  # 평행이거나 위를 향해야만 합격!
-    is_ma60_safe = row['MA60_Slope'] >= 0
+    is_ma60_safe = df['MA60_Slope'] >= 0
     
     # 🚨 [KILL SWITCH 2] 두산밥캣 사살: "5일선(대가리)"에서 너무 멀어지면 탈락!
     # 20일선이 아니라, 당장 오늘 꺾어 올린 '5일선' 위로 주가가 5% 이상 혼자 튀어 나가면 허공답보입니다.
-    distance_from_ma5 = (row['Close'] - row['MA5']) / row['MA5']
+    distance_from_ma5 = (df['Close'] - df['MA5']) / df['MA5']
     is_hugging_ma5 = distance_from_ma5 < 0.05  # 5일선에 5% 이내로 바짝 붙어있어야 진짜 뱀!
 
     # 🚨 [KILL SWITCH 3] 역배열 폭포수 사살: 112일선(반년 선)이 200일선 아래로 곤두박질치는가?
     # 장기 이평선이 완벽한 역배열 폭포수라면 뱀이 아니라 미꾸라지입니다.
-    is_not_waterfall = row['MA112'] >= row['MA200'] * 0.9  # 최소한 200일선 근처에서 놀아야 함
-    is_heading_ceiling = (row['Close'] < row['MA112']) and (row['MA112_Slope'] < 0) and (row['Dist_to_MA112'] <= 0.04)
+    is_not_waterfall = df['MA112'] >= df['MA200'] * 0.9  # 최소한 200일선 근처에서 놀아야 함
+    is_heading_ceiling = (df['Close'] < df['MA112']) and (df['MA112_Slope'] < 0) and (df['Dist_to_MA112'] <= 0.04)
     is_not_blocked = not is_heading_ceiling
     
     # 5. [최종 판독] 모든 조건이 일치하는 날을 'Viper_Hook'으로 명명!
