@@ -680,7 +680,7 @@ def get_ai_summary_batch(stock_lines: list):
         "다음 요소를 반드시 포함: 현재 가격 위치, 거래량·OBV·MFI·RSI 분석, "
         "진입 포인트, 목표, 손절, 리스크 요인."
         "역배열 바닥 매집형(세력 매집봉 또는 몰래 매집하고 있는지 확인필요) 급등 패턴인지 엄격하게 심사하십시오. 억지 추천 금지! 조건 부족 시 '해당없음'이라 답하십시오."
-        "단타 종목 1위와 스윙 종목 1위를 선정하고 기술적으로 분석해서 타점까지 포함해서 월가에서 사용될 리포트 브리핑을 간략하게 알려줘 "
+        "단타 종목과 스윙 종목을 선정하고 기술적으로 분석해서 타점까지 포함해서 월가에서 사용될 리포트 브리핑을 간략하게 알려줘 "
     )
 
     user_prompt = (
@@ -697,7 +697,7 @@ def get_ai_summary_batch(stock_lines: list):
                 {"role": "system", "content": sys_prompt},
                 {"role": "user", "content": user_prompt}
             ],
-            max_output_tokens=500
+            max_output_tokens=1000
         )
 
         return res.output_text.strip()
