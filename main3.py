@@ -155,6 +155,35 @@ def calculate_combination_score(signals):
 
     candidates = []
 
+    # 👑 [S++급] 수박 돌반지 챔피언 (최강의 시너지)
+    ring_count = effective.get('dolbanzi_Count')
+    if (effective.get('watermelon_signal') and effective.get('dolbanzi')):
+        combo_name = '👑💍수박첫돌반지' if ring_count == 1 else '🍉💍수박돌반지'
+        final_score = 500 if ring_count == 1 else 450
+        ring_tag = '🥇최초의반지' if ring_count == 1 else f'💍{ring_count}회차반지'
+        candidates.append({
+            'score': final_score, 'grade': 'SSS',
+            'combination': combo_name,
+            'tags': ['🍉수박전환', '💍돌반지완성', '🔥최종병기', '🚀대시세시작'],
+            'type': '👑'
+        })
+
+    # 🚀 ── SS급: 돌반지 완성 (최고 점수 부여) ──────────────────────
+    if effective.get('dolbanzi'): # 200일 돌파 + 300% Vol + 쌍바닥
+        # 카운트에 따라 메달 색깔과 태그를 바꿉니다.
+        if ring_count == 1:
+            combo_name, ring_tag, bonus = '🥇💍첫번째돌반지', '🔥GoldenEntry', 30
+        elif ring_count == 2:
+            combo_name, ring_tag, bonus = '🥈💍두번째돌반지', '📈추세지속', 0
+        else:
+            combo_name, ring_tag, bonus = '🥉💍늙은돌반지', '⚠️과열주의', -50 # 3회부턴 감점 전술
+        candidates.append({
+            'score': 420 + bonus, 'grade': 'SS', 
+            'combination': combo_name,
+            'tags': ['💍돌반지완성', '⚡300%폭발', '👣쌍바닥확인'],
+            'type': '👑' 
+        })
+
     # ── S급 ──────────────────────────────────
     if (effective.get('watermelon_signal') and effective.get('explosion_ready') and
         effective.get('bottom_area') and effective.get('silent_perfect')):
