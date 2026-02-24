@@ -822,7 +822,7 @@ def calculate_combination_score(signals):
         effective['silent_strong'] = True
 
     candidates = []
-    
+
     # 🌌 [GOD급 핵무기] 잃어버린 전설의 패턴 복구!
     # 독사가 수박을 물고 200일선(돌반지)을 같이 뚫어버리는 미친 시너지
     if effective.get('viper_hook') and effective.get('dolbanzi') and effective.get('watermelon_signal'):
@@ -836,7 +836,9 @@ def calculate_combination_score(signals):
 
     # 👑 [SSS+급 각성] 수박품은독사에 '킥(Kick)'을 더했다!
     # 기존 조건에 'explosion_ready(폭발 직전/볼밴 돌파 등)'를 킥으로 추가!
-    elif effective.get('viper_hook') and effective.get('watermelon_signal') and effective.get('obv_bullish') and effective.get('explosion_ready') and effective.get('Viper_Hook_exhausted') and effective.get('is_agile') and effective.get('is_not_blocked') :
+    elif effective.get('viper_hook') and effective.get('watermelon_signal') and effective.get('obv_bullish') and 
+         effective.get('explosion_ready') and effective.get('is_no_long_tail') and effective.get('is_agile') and 
+         effective.get('is_not_blocked') and effective.get('is_safe_distance'):
         candidates.append({
             'score': 999,  
             'grade': 'SSS+', 
@@ -848,7 +850,8 @@ def calculate_combination_score(signals):
         
     # 🐍 [SS+급 일반 독사] 킥(폭발)이 없는 일반 수박독사는 점수 하향 (사령관님 지시)
     # 돌반지(500점)보다 수익률이 떨어지므로 480점으로 낮췄습니다.
-    elif effective.get('viper_hook') and effective.get('watermelon_signal') and effective.get('obv_bullish') and effective.get('Viper_Hook_exhausted') and effective.get('is_agile') and effective.get('is_not_blocked'):
+    elif effective.get('viper_hook') and effective.get('watermelon_signal') and effective.get('obv_bullish') and 
+         effective.get('is_no_long_tail') and effective.get('is_agile') and effective.get('is_not_blocked') and effective.get('is_safe_distance'):
         candidates.append({
             'score': 480,  
             'grade': 'SS+', 
@@ -859,7 +862,7 @@ def calculate_combination_score(signals):
     
     # 🐍 [S+급] 독사출현 단독 판독 로직
     # 하극상 방지를 위해 460점에서 440점으로 점수 소폭 하향 조정
-    elif effective.get('viper_hook') and effective.get('Viper_Hook_exhausted') and effective.get('is_agile') and effective.get('is_not_blocked'):
+    elif effective.get('viper_hook') and effective.get('is_safe_distance') and effective.get('is_agile') and effective.get('is_not_blocked') and effective.get('is_no_long_tail'):
         candidates.append({
             'score': 440, 'grade': 'S+', 
             'combination': '🐍5-20독사훅',
@@ -1165,9 +1168,6 @@ def get_indicators(df):
     max_ma = df[['MA5', 'MA10', 'MA20']].max(axis=1)
     min_ma = df[['MA5', 'MA10', 'MA20']].min(axis=1)
     is_squeezed = (max_ma - min_ma) / min_ma <= 0.02
-    # 오늘 시가 대비 종가가 8% 이상 솟구쳤다면 이미 에너지를 다 쓴 '가짜 킥'으로 간주.
-    candle_body_size = (row['Close'] - row['Open']) / row['Open']
-    is_not_exhausted = candle_body_size < 0.08
     
     # 3. [조건 2] 늪지대 함정: 최근 10일 이내에 5일선이 20일선 아래로 빠진 적이 있는가?
     # True(1) 상태가 지난 10일 중 한 번이라도 있었는지 검사합니다.
@@ -1191,12 +1191,23 @@ def get_indicators(df):
     else:
         is_not_blocked = True # 이미 60일선 위에 있으면 뚜껑 없음!
     
+    # 1. [윗꼬리 검증] 고점 대비 종가가 얼마나 밀렸는가? 
+    # 윗꼬리가 캔들 몸통보다 길거나, 고점 대비 3% 이상 밀렸다면 '전투 패배(매물 폭탄)'로 간주!
+    upper_tail = (row['High'] - row['Close']) / row['Close']
+    is_no_long_tail = upper_tail < 0.03  # 윗꼬리 3% 미만만 합격
+    
+    # 2. [이격도 검증] 주가가 20일선(본진)에서 너무 멀리 떨어져 있는가?
+    # 주가가 20일선 위로 10% 이상 벌어져 있다면, 당장 내일 회귀 본능(하락)이 나옵니다.
+    distance_from_ma20 = (row['Close'] - row['MA20']) / row['MA20']
+    is_safe_distance = distance_from_ma20 < 0.10  # 20일선과 10% 이내로 붙어있을 것!
+    
     # 5. [최종 판독] 모든 조건이 일치하는 날을 'Viper_Hook'으로 명명!
     df['Viper_Hook'] = is_squeezed & was_below_20 & is_head_up
-    df['Viper_Hook_exhausted'] = is_not_exhausted
     df['is_agile'] = is_agile
     df['is_not_blocked'] = is_not_blocked
-        
+    df['is_no_long_tail'] = is_no_long_tail
+    df['is_safe_distance'] = is_safe_distance
+    
     return df
 
 # 🚀 [Commander's Special] 돌반지 + 300% Vol + 쌍바닥 엔진
@@ -1620,9 +1631,10 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
                 #독사 5-20
                 'viper_hook': row['Viper_Hook'],
                 'obv_bullish': row['OBV_Bullish']
-                'Viper_Hook_exhausted' = row['Viper_Hook_exhausted']
+                'is_no_long_tail' = row['is_no_long_tail']
                 'is_agile' = row['is_agile']
                 'is_not_blocked' = row['is_not_blocked']
+                'is_safe_distance' = row['is_safe_distance']
             }
             
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
