@@ -822,6 +822,11 @@ def calculate_combination_score(signals):
         effective['silent_strong'] = True
 
     candidates = []
+    df['Viper_Hook'] = is_squeezed & was_below_20 & is_head_up
+    df['Viper_Hook_exhausted'] = is_not_exhausted
+    df['is_agile'] = is_agile
+    df['is_not_blocked'] = is_not_blocked
+    
     # 🌌 [GOD급 핵무기] 잃어버린 전설의 패턴 복구!
     # 독사가 수박을 물고 200일선(돌반지)을 같이 뚫어버리는 미친 시너지
     if effective.get('viper_hook') and effective.get('dolbanzi') and effective.get('watermelon_signal'):
@@ -835,7 +840,7 @@ def calculate_combination_score(signals):
 
     # 👑 [SSS+급 각성] 수박품은독사에 '킥(Kick)'을 더했다!
     # 기존 조건에 'explosion_ready(폭발 직전/볼밴 돌파 등)'를 킥으로 추가!
-    elif effective.get('viper_hook') and effective.get('watermelon_signal') and effective.get('obv_bullish') and effective.get('explosion_ready'):
+    elif effective.get('viper_hook') and effective.get('watermelon_signal') and effective.get('obv_bullish') and effective.get('explosion_ready') and effective.get('Viper_Hook_exhausted') and effective.get('is_agile') and effective.get('is_not_blocked') :
         candidates.append({
             'score': 999,  
             'grade': 'SSS+', 
@@ -847,7 +852,7 @@ def calculate_combination_score(signals):
         
     # 🐍 [SS+급 일반 독사] 킥(폭발)이 없는 일반 수박독사는 점수 하향 (사령관님 지시)
     # 돌반지(500점)보다 수익률이 떨어지므로 480점으로 낮췄습니다.
-    elif effective.get('viper_hook') and effective.get('watermelon_signal') and effective.get('obv_bullish'):
+    elif effective.get('viper_hook') and effective.get('watermelon_signal') and effective.get('obv_bullish') and effective.get('Viper_Hook_exhausted') and effective.get('is_agile') and effective.get('is_not_blocked':
         candidates.append({
             'score': 480,  
             'grade': 'SS+', 
@@ -858,7 +863,7 @@ def calculate_combination_score(signals):
     
     # 🐍 [S+급] 독사출현 단독 판독 로직
     # 하극상 방지를 위해 460점에서 440점으로 점수 소폭 하향 조정
-    elif effective.get('viper_hook'):
+    elif effective.get('viper_hook') and effective.get('Viper_Hook_exhausted') and effective.get('is_agile') and effective.get('is_not_blocked':
         candidates.append({
             'score': 440, 'grade': 'S+', 
             'combination': '🐍5-20독사훅',
@@ -1164,7 +1169,10 @@ def get_indicators(df):
     max_ma = df[['MA5', 'MA10', 'MA20']].max(axis=1)
     min_ma = df[['MA5', 'MA10', 'MA20']].min(axis=1)
     is_squeezed = (max_ma - min_ma) / min_ma <= 0.02
-
+    # 오늘 시가 대비 종가가 8% 이상 솟구쳤다면 이미 에너지를 다 쓴 '가짜 킥'으로 간주.
+    candle_body_size = (row['Close'] - row['Open']) / row['Open']
+    is_not_exhausted = candle_body_size < 0.08
+    
     # 3. [조건 2] 늪지대 함정: 최근 10일 이내에 5일선이 20일선 아래로 빠진 적이 있는가?
     # True(1) 상태가 지난 10일 중 한 번이라도 있었는지 검사합니다.
     is_below_20 = (df['MA5'] < df['MA20']).astype(int)
@@ -1175,9 +1183,24 @@ def get_indicators(df):
     is_slope_up = df['MA5'] > df['MA5'].shift(1)
     is_head_up = is_slope_up & (df['MA5'] >= df['MA20'] * 0.99)
 
+   # 1. [무게 검증] 시가총액 5조 이상의 '초대형 공룡'은 일반 독사에서 제외
+    # (무거운 종목은 '킥(볼밴 돌파)'이 있는 각성 상태에서만 인정합니다)
+    is_agile = row['Market_Cap'] < 5000000000000  # 5조 미만 (단위: 원)
+    
+    # 2. [뚜껑 검증] 대가리 바로 위(5% 이내)에 60일선 뚜껑이 누르고 있는가?
+    # 주가가 60일선보다 낮은데, 그 거리가 5% 이내로 바짝 붙어있으면 뚫지 못하고 죽습니다.
+    if row['Close'] < row['MA60']:
+        distance_to_ceiling = (row['MA60'] - row['Close']) / row['Close']
+        is_not_blocked = distance_to_ceiling > 0.05 # 5% 이상 윗공간이 열려있어야 함
+    else:
+        is_not_blocked = True # 이미 60일선 위에 있으면 뚜껑 없음!
+    
     # 5. [최종 판독] 모든 조건이 일치하는 날을 'Viper_Hook'으로 명명!
     df['Viper_Hook'] = is_squeezed & was_below_20 & is_head_up
-    
+    df['Viper_Hook_exhausted'] = is_not_exhausted
+    df['is_agile'] = is_agile
+    df['is_not_blocked'] = is_not_blocked
+        
     return df
 
 # 🚀 [Commander's Special] 돌반지 + 300% Vol + 쌍바닥 엔진
