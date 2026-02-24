@@ -13,7 +13,7 @@ def update_google_sheet(new_picks, today_str, tournament_report=None):
     # 💡 컬럼 추가: 'AI한줄평', 'AI토너먼트'
     cols = [
         '추천일', '기상', '종목명', '종목코드', '에너지', '안전', '점수', '매수가', 
-        '현재가', '최고수익', '현재수익', '구분', '이격', '수급', 'AI한줄평', '상태', '👑등급', '📜서사히스토리'
+        '현재가', '최고수익', '현재수익', '구분','N구분', '이격', '수급', 'AI한줄평', '상태', '👑등급', 'N등급', '📜서사히스토리'
     ]
 
     try:
@@ -61,12 +61,14 @@ def update_google_sheet(new_picks, today_str, tournament_report=None):
                     '현재가': pick.get('현재가', 0),
                     '현재수익': 0.0,
                     '구분': pick.get('구분', ''),
+                    'N구분': pick.get('N구분', ''),
                     '이격': pick.get('이격', 0),
                     '수급': pick.get('수급', ''),
                     # 💡 AI 분석 결과 매핑
                     'AI한줄평': pick.get('ai_tip', '분석전'), 
                     '상태': '진행중',
                     '👑등급': pick.get('👑등급', ''),
+                    'N등급': pick.get('N등급', ''),
                     '📜서사히스토리': pick.get('📜서사히스토리', '')
                 }
                 new_rows.append(new_row)
