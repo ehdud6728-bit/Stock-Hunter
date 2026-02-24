@@ -1630,11 +1630,11 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
 
                 #독사 5-20
                 'viper_hook': row['Viper_Hook'],
-                'obv_bullish': row['OBV_Bullish']
-                'is_no_long_tail' = row['is_no_long_tail']
-                'is_agile' = row['is_agile']
-                'is_not_blocked' = row['is_not_blocked']
-                'is_safe_distance' = row['is_safe_distance']
+                'obv_bullish': row['OBV_Bullish'],
+                'is_no_long_tail' = row['is_no_long_tail'],
+                'is_agile' = row['is_agile'],
+                'is_not_blocked' = row['is_not_blocked'],
+                'is_safe_distance' = row['is_safe_distance'],
             }
             
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
