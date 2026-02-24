@@ -471,7 +471,39 @@ def get_indicators(df):
 
     # 13. 기타 (박스권 범위 등)
     df['Box_Range'] = df['High'].rolling(10).max() / df['Low'].rolling(10).min()
- 
+
+    ma200 = df['Close'].rolling(224).mean()
+    vol_avg20 = df['Volume'].rolling(20).mean()
+    
+    # 1. 거래량 300% 폭발 (Vol Power >= 3.0)
+    vol_power = df['Volume'].iloc[-1] / vol_avg20.iloc[-1]
+    
+    # 2. 200일선 돌파 및 안착 (Stone-Ring)
+    is_above_ma200 = df['Close'].iloc[-1] > ma200.iloc[-1]
+    
+    # 3. 쌍바닥 감지 (최근 30일 내 200일선 근처 저점 2개)
+    lows = df['Low'].iloc[-30:]
+    near_ma200 = lows[abs(lows - ma200.iloc[-1]) / ma200.iloc[-1] < 0.03]
+    is_double_bottom = len(near_ma200[near_ma200 == near_ma200.rolling(5, center=True).min()]) >= 2
+
+    df['Dolbanzi'] = (vol_power >= 3.0) & (is_above_ma200) & (is_double_bottom)
+    
+    # 2. [전체 시리즈에 대해 diff()와 cumsum()을 실행]
+    # 200일선 위/아래 상태가 변할 때마다 그룹 번호가 생성됩니다.
+    # 🚀 [MA200 생성] 모든 로직의 최상단에 배치하세요!
+    df['MA200'] = df['Close'].rolling(window=224).mean()
+    
+    # [추가 전술] 상장한 지 200일이 안 된 종목은 NaN(공백)이 생깁니다.
+    # 이를 0으로 채우거나, 데이터가 부족한 경우를 대비해 처리해주는 것이 안전합니다.
+    df['MA200'] = df['MA200'].ffill().fillna(0)
+    is_above_series = df['Close'] > df['MA200']
+    df['Trend_Group'] = is_above_series.astype(int).diff().fillna(0).ne(0).cumsum()
+    
+    # 3. [최적화] 동일 그룹 내에서만 돌반지 횟수 누적
+    # 현재가 200일선 위에 있을 때만(is_above_ma200) 카운트를 쌓습니다.
+    df['Dolbanzi_Count'] = 0
+    df['Dolbanzi_Count'] = df.groupby('Trend_Group')['Dolbanzi'].cumsum()
+
     return df
     
 # ---------------------------------------------------------
