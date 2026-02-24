@@ -822,10 +822,6 @@ def calculate_combination_score(signals):
         effective['silent_strong'] = True
 
     candidates = []
-    df['Viper_Hook'] = is_squeezed & was_below_20 & is_head_up
-    df['Viper_Hook_exhausted'] = is_not_exhausted
-    df['is_agile'] = is_agile
-    df['is_not_blocked'] = is_not_blocked
     
     # 🌌 [GOD급 핵무기] 잃어버린 전설의 패턴 복구!
     # 독사가 수박을 물고 200일선(돌반지)을 같이 뚫어버리는 미친 시너지
@@ -1624,6 +1620,9 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
                 #독사 5-20
                 'viper_hook': row['Viper_Hook'],
                 'obv_bullish': row['OBV_Bullish']
+                'Viper_Hook_exhausted' = row['Viper_Hook_exhausted']
+                'is_agile' = row['is_agile']
+                'is_not_blocked' = row['is_not_blocked']
             }
             
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
