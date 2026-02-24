@@ -14,7 +14,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from bs4 import BeautifulSoup 
 import pytz
-from tactics_engine import get_global_and_leader_status, analyze_all_narratives, get_dynamic_sector_leaders,calculate_dante_symmetry, watermelon_indicator_complete
+from tactics_engine import get_global_and_leader_status, analyze_all_narratives, get_dynamic_sector_leaders, calculate_dante_symmetry, watermelon_indicator_complete, judge_yeok_break_sequence_v2
 import traceback
 
 from pykrx import stock
@@ -111,6 +111,35 @@ def get_index_investor_data(market_name):
     except: return "데이터 수신 중..."
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 🎯 시퀀스 확인 통합함수
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+def judge_trade_with_sequence(df, signals):
+    """
+    df: 최근 N봉 (시퀀스용)
+    signals: 기존 calculate_combination_score용 신호 dict
+
+    return: score_result dict
+    """
+
+    # 1️⃣ 시퀀스 판별
+    seq_ok = judge_yeok_break_sequence_v2(df)
+
+    # 2️⃣ signals에 반영
+    signals = signals.copy()  # 원본 보호
+    signals['yeok_break'] = seq_ok
+
+    # 3️⃣ 조합 점수 계산
+    result = calculate_combination_score(signals)
+
+    # 4️⃣ 보조 태그 추가
+    if seq_ok:
+        result['tags'].append('🧬시퀀스확인')
+
+    result['sequence'] = seq_ok
+
+    return result
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # 🎯 조합 중심 점수 산정 시스템
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -155,30 +184,46 @@ def calculate_combination_score(signals):
 
     candidates = []
 
-    # 👑 [SSS+급 최종 병기] 뱀이 수박을 삼키고 매집까지 끝냈다!
-    # 점수를 999점으로 올려서 어떤 조합이 와도 무조건 1순위로 출력되게 만듭니다.
-    if effective.get('viper_hook') and effective.get('watermelon_signal') and effective.get('obv_bullish'):
+    # 🌌 [GOD급 핵무기] 잃어버린 전설의 패턴 복구!
+    # 독사가 수박을 물고 200일선(돌반지)을 같이 뚫어버리는 미친 시너지
+    if effective.get('viper_hook') and effective.get('dolbanzi') and effective.get('watermelon_signal'):
+        candidates.append({
+            'score': 10000, # 측정 불가 (무조건 1순위)
+            'grade': 'GOD', 
+            'combination': '🌌🍉💍독사품은수박돌반지',
+            'tags': ['🚀대시세확정', '💥200일선폭파', '🐍단기개미털기완료', '🍉수급대폭발'],
+            'type': '🌌' 
+        })
+
+    # 👑 [SSS+급 각성] 수박품은독사에 '킥(Kick)'을 더했다!
+    # 기존 조건에 'explosion_ready(폭발 직전/볼밴 돌파 등)'를 킥으로 추가!
+    elif (effective.get('viper_hook') and effective.get('watermelon_signal') and effective.get('obv_bullish') and 
+         effective.get('explosion_ready') and effective.get('is_no_long_tail') and effective.get('is_agile') and 
+         effective.get('is_not_blocked') and effective.get('is_safe_distance')):
         candidates.append({
             'score': 999,  
             'grade': 'SSS+', 
-            'combination': '👑🍉🐍수박품은독사',
-            'tags': ['🔥최종병기', '🧲OBV매집확인', '📈기울기상승턴', '🍉속살폭발'],
+            'combination': '👑🍉🐍수박품은독사(각성)',
+            # 사령관님이 주문하신 '킥'이 들어갔습니다!
+            'tags': ['🔥최종병기', '🧲OBV매집', '💥볼밴폭발(Kick)', '🍉속살폭발'],
             'type': '👑' 
         })
         
-    # 🐍 [SS급] 수박은 없지만, 매집이 끝난 독사 출현 (준수함)
-    # 위 조건이 아닐 때만 발동하도록 elif를 사용하여 중복 출력을 막습니다.
-    elif effective.get('viper_hook') and effective.get('obv_bullish'):
+    # 🐍 [SS+급 일반 독사] 킥(폭발)이 없는 일반 수박독사는 점수 하향 (사령관님 지시)
+    # 돌반지(500점)보다 수익률이 떨어지므로 480점으로 낮췄습니다.
+    elif (effective.get('viper_hook') and effective.get('watermelon_signal') and effective.get('obv_bullish') and 
+         effective.get('is_no_long_tail') and effective.get('is_agile') and effective.get('is_not_blocked') and effective.get('is_safe_distance')):
         candidates.append({
-            'score': 460, 'grade': 'SS', 
-            'combination': '🐍🧲매집완료독사',
-            'tags': ['🐍독사대가리', '🧲세력입성'],
+            'score': 480,  
+            'grade': 'SS+', 
+            'combination': '🐍🍉일반수박독사',
+            'tags': ['🐍독사대가리', '🧲OBV매집', '🍉단기수급'],
             'type': '👑' 
         })
     
     # 🐍 [S+급] 독사출현 단독 판독 로직
     # 하극상 방지를 위해 460점에서 440점으로 점수 소폭 하향 조정
-    elif effective.get('viper_hook'):
+    elif (effective.get('viper_hook') and effective.get('is_safe_distance') and effective.get('is_agile') and effective.get('is_not_blocked') and effective.get('is_no_long_tail')):
         candidates.append({
             'score': 440, 'grade': 'S+', 
             'combination': '🐍5-20독사훅',
@@ -592,8 +637,34 @@ def get_indicators(df):
     is_slope_up = df['MA5'] > df['MA5'].shift(1)
     is_head_up = is_slope_up & (df['MA5'] >= df['MA20'] * 0.99)
 
-    # 5. [최종 판독] 모든 조건이 일치하는 날을 'Viper_Hook'으로 명명!
-    df['Viper_Hook'] = is_squeezed & was_below_20 & is_head_up
+    # 1. [무게 검증] 시가총액 5조 이상의 '초대형 공룡'은 일반 독사에서 제외
+     # (무거운 종목은 '킥(볼밴 돌파)'이 있는 각성 상태에서만 인정합니다)
+     is_agile = row['Market_Cap'] < 5000000000000  # 5조 미만 (단위: 원)
+     
+     # 2. [뚜껑 검증] 대가리 바로 위(5% 이내)에 60일선 뚜껑이 누르고 있는가?
+     # 주가가 60일선보다 낮은데, 그 거리가 5% 이내로 바짝 붙어있으면 뚫지 못하고 죽습니다.
+     if row['Close'] < row['MA60']:
+         distance_to_ceiling = (row['MA60'] - row['Close']) / row['Close']
+         is_not_blocked = distance_to_ceiling > 0.05 # 5% 이상 윗공간이 열려있어야 함
+     else:
+         is_not_blocked = True # 이미 60일선 위에 있으면 뚜껑 없음!
+     
+     # 1. [윗꼬리 검증] 고점 대비 종가가 얼마나 밀렸는가? 
+     # 윗꼬리가 캔들 몸통보다 길거나, 고점 대비 3% 이상 밀렸다면 '전투 패배(매물 폭탄)'로 간주!
+     upper_tail = (row['High'] - row['Close']) / row['Close']
+     is_no_long_tail = upper_tail < 0.03  # 윗꼬리 3% 미만만 합격
+     
+     # 2. [이격도 검증] 주가가 20일선(본진)에서 너무 멀리 떨어져 있는가?
+     # 주가가 20일선 위로 10% 이상 벌어져 있다면, 당장 내일 회귀 본능(하락)이 나옵니다.
+     distance_from_ma20 = (row['Close'] - row['MA20']) / row['MA20']
+     is_safe_distance = distance_from_ma20 < 0.10  # 20일선과 10% 이내로 붙어있을 것!
+     
+     # 5. [최종 판독] 모든 조건이 일치하는 날을 'Viper_Hook'으로 명명!
+     df['Viper_Hook'] = is_squeezed & was_below_20 & is_head_up
+     df['is_agile'] = is_agile
+     df['is_not_blocked'] = is_not_blocked
+     df['is_no_long_tail'] = is_no_long_tail
+     df['is_safe_distance'] = is_safe_distance
  
     return df
     
@@ -1020,7 +1091,11 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
 
             #독사 5-20
             'viper_hook': row['Viper_Hook'],
-            'obv_bullish': row['OBV_Bullish']
+            'obv_bullish': row['OBV_Bullish'],
+            'is_no_long_tail' = row['is_no_long_tail'],
+            'is_agile' = row['is_agile'],
+            'is_not_blocked' = row['is_not_blocked'],
+            'is_safe_distance' = row['is_safe_distance'],
         }
      
         # 세부 정보 추가
@@ -1040,8 +1115,9 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         # 2. 조합 점수 계산
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        
-        result = calculate_combination_score(signals)
+        print(f"✅ [본진] 조합 점수 계산!")
+        result = judge_trade_with_sequence(temp_df, signals)
+        #result = calculate_combination_score(signals)
  
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         # 3. 추가 정보 태그
