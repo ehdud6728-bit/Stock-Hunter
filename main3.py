@@ -39,7 +39,7 @@ CHAT_ID_LIST = os.environ.get('TELEGRAM_CHAT_ID', '').split(',')
 OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY') 
 GROQ_API_KEY = os.environ.get('GROQ_API_KEY')     
 
-TEST_MODE = True
+TEST_MODE = False
 
 KST = pytz.timezone('Asia/Seoul')
 current_time = datetime.now(KST)
@@ -58,7 +58,7 @@ RN_LIST = [500, 1000, 1500, 2000, 3000, 5000, 7500, 10000, 15000, 20000,
            750000, 1000000, 1500000]
 
 # 스캔 설정
-SCAN_DAYS, TOP_N = 1, 950
+SCAN_DAYS, TOP_N = 1, 550
 MIN_MARCAP = 1000000000 
 STOP_LOSS_PCT = -5.0
 WHALE_THRESHOLD = 50 
