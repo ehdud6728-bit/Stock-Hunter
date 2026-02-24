@@ -900,6 +900,16 @@ def calculate_combination_score(signals):
             'tags': ['💍돌반지완성', '⚡300%폭발', '👣쌍바닥확인', ring_tag],
             'type': '👑' 
         })
+
+    # 🚀 [SS급] 골파기 V자 반등 (개미 무덤 돌파)
+    if effective.get('Golpagi_Trap') and effective.get('watermelon_signal'):
+        candidates.append({
+            'score': 470,  
+            'grade': 'SS', 
+            'combination': '🕳️🚀수박품은골파기',
+            'tags': ['🕳️가짜하락(개미털기)', '🧲OBV방어', '📈20일선탈환', '🍉단기수급폭발'],
+            'type': '👑' 
+        })
     
     # ── S급 ──────────────────────────────────
     if (effective.get('watermelon_signal') and effective.get('explosion_ready') and
@@ -1233,6 +1243,27 @@ def get_indicators(df):
     # 5. [최종 판독] 모든 조건이 일치하는 날을 'Viper_Hook'으로 명명!
     df['Viper_Hook'] = is_squeezed & was_below_20 & is_head_up
 
+    # 🚨 [사령부 특수 전술] 골파기(Bear Trap) 감별 레이더
+    
+    # 1. [함정 발생] 최근 5일 이내에 20일선(생명선)을 깬 적이 있는가? (개미 털기 구간)
+    df['was_broken_20'] = (df['Close'].shift(1) < df['MA20'].shift(1)) | \
+                          (df['Close'].shift(2) < df['MA20'].shift(2)) | \
+                          (df['Close'].shift(3) < df['MA20'].shift(3))
+
+    # 2. [가짜 하락 인증] 20일선을 깰 때(하락할 때) 거래량이 말라붙었는가?
+    # 최근 5일 중 가장 거래량이 적었던 날이 20일 평균 거래량의 절반 이하라면 '가짜'로 판정!
+    df['lowest_vol_5d'] = df['Volume'].rolling(window=5).min()
+    df['is_fake_drop'] = df['lowest_vol_5d'] < (df['Volume'].rolling(window=20).mean() * 0.5)
+
+    # 3. [돈줄 방어] 주가는 최근 5일 전보다 빠졌는데, OBV는 오히려 올랐는가? (다이버전스)
+    df['obv_divergence'] = (df['Close'] < df['Close'].shift(5)) & (df['OBV'] >= df['OBV'].shift(5))
+
+    # 4. [반격 개시] 오늘 드디어 20일선을 다시 강하게 탈환했는가? (V자 반등)
+    df['reclaim_20'] = (df['Close'] > df['MA20']) & (df['Close'] > df['Open']) & (df['Volume'] > df['Volume'].shift(1))
+
+    # 👑 [최종 융합] 이 모든 조건이 맞아떨어지면 완벽한 '골파기 후 반등' 패턴!
+    df['Golpagi_Trap'] = df['was_broken_20'] & df['is_fake_drop'] & df['obv_divergence'] & df['reclaim_20']
+    
     return df
 
 # 🚀 [Commander's Special] 돌반지 + 300% Vol + 쌍바닥 엔진
@@ -1657,6 +1688,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
                 'viper_hook': row['Viper_Hook'],
                 'obv_bullish': row['OBV_Bullish'],
                 'Real_Viper_Hook': row['Real_Viper_Hook']
+                'Golpagi_Trap': row['Golpagi_Trap']
             }
 
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
