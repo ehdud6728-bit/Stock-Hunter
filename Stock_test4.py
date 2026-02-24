@@ -837,8 +837,7 @@ def calculate_combination_score(signals):
     # 👑 [SSS+급 각성] 수박품은독사에 '킥(Kick)'을 더했다!
     # 기존 조건에 'explosion_ready(폭발 직전/볼밴 돌파 등)'를 킥으로 추가!
     elif (effective.get('viper_hook') and effective.get('watermelon_signal') and effective.get('obv_bullish') and 
-         effective.get('explosion_ready') and effective.get('is_ma60_safe') and effective.get('is_hugging_ma5') and 
-         effective.get('is_not_waterfall')):
+         effective.get('explosion_ready') and effective.get('Real_Viper_Hook')):
         candidates.append({
             'score': 999,  
             'grade': 'SSS+', 
@@ -851,7 +850,7 @@ def calculate_combination_score(signals):
     # 🐍 [SS+급 일반 독사] 킥(폭발)이 없는 일반 수박독사는 점수 하향 (사령관님 지시)
     # 돌반지(500점)보다 수익률이 떨어지므로 480점으로 낮췄습니다.
     elif (effective.get('viper_hook') and effective.get('watermelon_signal') and effective.get('obv_bullish') and 
-         effective.get('is_ma60_safe') and effective.get('is_hugging_ma5') and effective.get('is_not_waterfall')):
+         effective.get('Real_Viper_Hook')):
         candidates.append({
             'score': 480,  
             'grade': 'SS+', 
@@ -862,7 +861,7 @@ def calculate_combination_score(signals):
     
     # 🐍 [S+급] 독사출현 단독 판독 로직
     # 하극상 방지를 위해 460점에서 440점으로 점수 소폭 하향 조정
-    elif (effective.get('viper_hook') and effective.get('is_ma60_safe') and effective.get('is_hugging_ma5') and effective.get('is_not_waterfall')):
+    elif (effective.get('viper_hook') and effective.get('Real_Viper_Hook')):
         candidates.append({
             'score': 440, 'grade': 'S+', 
             'combination': '🐍5-20독사훅',
@@ -1212,12 +1211,22 @@ def get_indicators(df):
     print(f"✅ 역배열 폭포수 사살 - 2")
     is_not_blocked = ~is_heading_ceiling
 
+    # 🚨 [킬 스위치 1] 두산밥캣 뚜껑 박치기 방지 (Blocked)
+    is_heading_ceiling = (df['Close'] < df['MA112']) & (df['MA112_Slope'] < 0) & (df['Dist_to_MA112'] <= 0.04)
+    df['is_not_blocked'] = ~is_heading_ceiling  # 👈 뚜껑 필터는 뚜껑 명찰로!
+
+    # 🚨 [킬 스위치 2] 장기 역배열 지하실 폭포수 방지 (Waterfall)
+    df['is_not_waterfall'] = df['MA112'] >= df['MA200'] * 0.9 # 👈 폭포수 필터는 폭포수 명찰로!
+    
+    # 🚨 [킬 스위치 3] LG화학 60일선 하락 방지 (Safe MA60)
+    df['is_ma60_safe'] = df['MA60_Slope'] >= 0
+
+    # 👑 [최종 융합] 이 모든 필터를 통과한 '진짜 독사'만 찾아라!
+    df['Real_Viper_Hook'] = (df['is_not_blocked'] & df['is_not_waterfall'] & df['is_ma60_safe'])
+    
     print(f"✅ 최종판독")
     # 5. [최종 판독] 모든 조건이 일치하는 날을 'Viper_Hook'으로 명명!
     df['Viper_Hook'] = is_squeezed & was_below_20 & is_head_up
-    df['is_ma60_safe'] = is_ma60_safe
-    df['is_hugging_ma5'] = is_hugging_ma5
-    df['is_not_waterfall'] = is_not_blocked
 
     return df
 
@@ -1642,9 +1651,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
                 #독사 5-20
                 'viper_hook': row['Viper_Hook'],
                 'obv_bullish': row['OBV_Bullish'],
-                'is_ma60_safe': row['is_ma60_safe'],
-                'is_hugging_ma5': row['is_hugging_ma5'],
-                'is_not_waterfall': row['is_not_waterfall']
+                'Real_Viper_Hook': row['Real_Viper_Hook']
             }
 
             # 임시 디버그용 레이더 (화면에 출력됨)
