@@ -108,8 +108,13 @@ def update_google_sheet(new_picks, today_str, tournament_report=None):
 
         # 5. 시트 반영 (Overwrite)
         df_log = df_log.fillna('')
-        data_to_upload = [df_log.columns.values.tolist()] + df_log.values.tolist()
         
+        # 🌟 화면 확인용 깔끔한 출력!
+        print("=== 📊 [사령부 최종 판독 결과] ===")
+        print(df_log.to_string()) # .to_string()을 쓰면 중간에 생략 없이 표 전체를 예쁘게 보여줍니다.
+        
+        data_to_upload = [df_log.columns.values.tolist()] + df_log.values.tolist()
+
         worksheet.clear()
         worksheet.update('A1', data_to_upload) # 💡 최신 gspread 규격 적용
         print("💾 [Google] 시트 저장 및 동기화 완료!")
