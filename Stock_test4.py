@@ -1236,8 +1236,20 @@ def get_indicators(df):
     df['Dist_from_MA5'] = (df['Close'] - df['MA5']) / df['MA5']
     df['is_hugging_ma5'] = df['Dist_from_MA5'] < 0.08
 
+    # 🚨 [킬 스위치 6] 전고점 쌍봉 박치기 방지 (Double Top Trap)
+    # 최근 10일간의 최고가를 구합니다. (어제 기준)
+    df['recent_high_10d'] = df['High'].rolling(window=10).max().shift(1)
+    
+    # 오늘 종가가 최근 최고가 턱밑(2% 이내)에 바짝 붙었는데, 돌파는 못 했는가?
+    # 돌파를 못 하고 턱밑에 멈췄다면 내일 쌍봉 맞고 떨어질 확률 90%입니다.
+    is_hitting_wall = ((df['recent_high_10d'] - df['Close']) / df['Close'] < 0.02)
+    is_breaking_high = df['Close'] > df['recent_high_10d']
+    
+    # 턱밑에 붙었더라도 시원하게 돌파(breaking)했다면 봐주고, 돌파 못 하고 막혔다면(False) 탈락!
+    df['is_not_double_top'] = ~(is_hitting_wall & ~is_breaking_high)
+    
     # 👑 [최종 융합] 이 모든 필터를 통과한 '진짜 독사'만 찾아라!
-    df['Real_Viper_Hook'] = (df['is_not_blocked'] & df['is_not_waterfall'] & df['is_ma60_safe'] & df['is_hugging_ma5'])
+    df['Real_Viper_Hook'] = (df['is_not_blocked'] & df['is_not_waterfall'] & df['is_ma60_safe'] & df['is_hugging_ma5'] & df['is_not_double_top'])
     
     print(f"✅ 최종판독")
     # 5. [최종 판독] 모든 조건이 일치하는 날을 'Viper_Hook'으로 명명!
