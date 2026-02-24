@@ -1210,7 +1210,7 @@ def get_indicators(df):
     print(f"✅ 역배열 폭포수 사살 - 1")
     is_heading_ceiling = (df['Close'] < df['MA112']) & (df['MA112_Slope'] < 0) & (df['Dist_to_MA112'] <= 0.04)
     print(f"✅ 역배열 폭포수 사살 - 2")
-    is_not_blocked = not is_heading_ceiling
+    is_not_blocked = ~is_heading_ceiling
 
     print(f"✅ 최종판독")
     # 5. [최종 판독] 모든 조건이 일치하는 날을 'Viper_Hook'으로 명명!
