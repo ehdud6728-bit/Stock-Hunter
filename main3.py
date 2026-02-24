@@ -198,8 +198,8 @@ def calculate_combination_score(signals):
     # 👑 [SSS+급 각성] 수박품은독사에 '킥(Kick)'을 더했다!
     # 기존 조건에 'explosion_ready(폭발 직전/볼밴 돌파 등)'를 킥으로 추가!
     elif (effective.get('viper_hook') and effective.get('watermelon_signal') and effective.get('obv_bullish') and 
-         effective.get('explosion_ready') and effective.get('is_no_long_tail') and effective.get('is_agile') and 
-         effective.get('is_not_blocked') and effective.get('is_safe_distance')):
+         effective.get('explosion_ready') and effective.get('is_ma60_safe') and effective.get('is_hugging_ma5') and 
+         effective.get('is_not_waterfall')):
         candidates.append({
             'score': 999,  
             'grade': 'SSS+', 
@@ -212,7 +212,7 @@ def calculate_combination_score(signals):
     # 🐍 [SS+급 일반 독사] 킥(폭발)이 없는 일반 수박독사는 점수 하향 (사령관님 지시)
     # 돌반지(500점)보다 수익률이 떨어지므로 480점으로 낮췄습니다.
     elif (effective.get('viper_hook') and effective.get('watermelon_signal') and effective.get('obv_bullish') and 
-         effective.get('is_no_long_tail') and effective.get('is_agile') and effective.get('is_not_blocked') and effective.get('is_safe_distance')):
+         effective.get('is_ma60_safe') and effective.get('is_hugging_ma5') and effective.get('is_not_waterfall')):
         candidates.append({
             'score': 480,  
             'grade': 'SS+', 
@@ -223,7 +223,7 @@ def calculate_combination_score(signals):
     
     # 🐍 [S+급] 독사출현 단독 판독 로직
     # 하극상 방지를 위해 460점에서 440점으로 점수 소폭 하향 조정
-    elif (effective.get('viper_hook') and effective.get('is_safe_distance') and effective.get('is_agile') and effective.get('is_not_blocked') and effective.get('is_no_long_tail')):
+    elif (effective.get('viper_hook') and effective.get('is_ma60_safe') and effective.get('is_hugging_ma5') and effective.get('is_not_waterfall')):
         candidates.append({
             'score': 440, 'grade': 'S+', 
             'combination': '🐍5-20독사훅',
@@ -637,34 +637,26 @@ def get_indicators(df):
     is_slope_up = df['MA5'] > df['MA5'].shift(1)
     is_head_up = is_slope_up & (df['MA5'] >= df['MA20'] * 0.99)
 
-    # 1. [무게 검증] 시가총액 5조 이상의 '초대형 공룡'은 일반 독사에서 제외
-     # (무거운 종목은 '킥(볼밴 돌파)'이 있는 각성 상태에서만 인정합니다)
-     is_agile = row['Market_Cap'] < 5000000000000  # 5조 미만 (단위: 원)
-     
-     # 2. [뚜껑 검증] 대가리 바로 위(5% 이내)에 60일선 뚜껑이 누르고 있는가?
-     # 주가가 60일선보다 낮은데, 그 거리가 5% 이내로 바짝 붙어있으면 뚫지 못하고 죽습니다.
-     if row['Close'] < row['MA60']:
-         distance_to_ceiling = (row['MA60'] - row['Close']) / row['Close']
-         is_not_blocked = distance_to_ceiling > 0.05 # 5% 이상 윗공간이 열려있어야 함
-     else:
-         is_not_blocked = True # 이미 60일선 위에 있으면 뚜껑 없음!
-     
-     # 1. [윗꼬리 검증] 고점 대비 종가가 얼마나 밀렸는가? 
-     # 윗꼬리가 캔들 몸통보다 길거나, 고점 대비 3% 이상 밀렸다면 '전투 패배(매물 폭탄)'로 간주!
-     upper_tail = (row['High'] - row['Close']) / row['Close']
-     is_no_long_tail = upper_tail < 0.03  # 윗꼬리 3% 미만만 합격
-     
-     # 2. [이격도 검증] 주가가 20일선(본진)에서 너무 멀리 떨어져 있는가?
-     # 주가가 20일선 위로 10% 이상 벌어져 있다면, 당장 내일 회귀 본능(하락)이 나옵니다.
-     distance_from_ma20 = (row['Close'] - row['MA20']) / row['MA20']
-     is_safe_distance = distance_from_ma20 < 0.10  # 20일선과 10% 이내로 붙어있을 것!
-     
-     # 5. [최종 판독] 모든 조건이 일치하는 날을 'Viper_Hook'으로 명명!
-     df['Viper_Hook'] = is_squeezed & was_below_20 & is_head_up
-     df['is_agile'] = is_agile
-     df['is_not_blocked'] = is_not_blocked
-     df['is_no_long_tail'] = is_no_long_tail
-     df['is_safe_distance'] = is_safe_distance
+    # 🚨 [KILL SWITCH 1] LG화학 사살: 60일선의 "기울기"가 하락 중이면 무조건 탈락!
+    # 주가가 60일선 위에 있든 아래에 있든, 60일선 자체가 쏟아져 내리면 그건 악성 시체밭입니다.
+    is_ma60_safe = row['MA60_Slope'] >= 0
+    
+    # 🚨 [KILL SWITCH 2] 두산밥캣 사살: "5일선(대가리)"에서 너무 멀어지면 탈락!
+    # 20일선이 아니라, 당장 오늘 꺾어 올린 '5일선' 위로 주가가 5% 이상 혼자 튀어 나가면 허공답보입니다.
+    distance_from_ma5 = (row['Close'] - row['MA5']) / row['MA5']
+    is_hugging_ma5 = distance_from_ma5 < 0.05  # 5일선에 5% 이내로 바짝 붙어있어야 진짜 뱀!
+
+    # 🚨 [KILL SWITCH 3] 역배열 폭포수 사살: 112일선(반년 선)이 200일선 아래로 곤두박질치는가?
+    # 장기 이평선이 완벽한 역배열 폭포수라면 뱀이 아니라 미꾸라지입니다.
+    is_not_waterfall = row['MA112'] >= row['MA200'] * 0.9  # 최소한 200일선 근처에서 놀아야 함
+    is_heading_ceiling = (row['Close'] < row['MA112']) and (row['MA112_Slope'] < 0) and (row['Dist_to_MA112'] <= 0.04)
+    is_not_blocked = not is_heading_ceiling
+
+    # 5. [최종 판독] 모든 조건이 일치하는 날을 'Viper_Hook'으로 명명!
+    df['Viper_Hook'] = is_squeezed & was_below_20 & is_head_up
+    df['is_ma60_safe'] = is_ma60_safe
+    df['is_hugging_ma5'] = is_hugging_ma5
+    df['is_not_waterfall'] = is_not_blocked
  
     return df
     
