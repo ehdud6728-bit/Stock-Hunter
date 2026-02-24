@@ -967,7 +967,8 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             new_tags.append(f"🔇ATR{int(row['ATR_Below_Days'])}일")
             new_tags.append(f"💰MFI{int(row['MFI_Strong_Days'])}일")
  
-        
+        if row['Dolbanzi']:
+            new_tags.append(f"🟡돌반지")
 
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         # 2. 조합 점수 계산
