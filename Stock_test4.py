@@ -1687,7 +1687,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
                 #독사 5-20
                 'viper_hook': row['Viper_Hook'],
                 'obv_bullish': row['OBV_Bullish'],
-                'Real_Viper_Hook': row['Real_Viper_Hook']
+                'Real_Viper_Hook': row['Real_Viper_Hook'],
                 'Golpagi_Trap': row['Golpagi_Trap']
             }
 
