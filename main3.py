@@ -198,8 +198,7 @@ def calculate_combination_score(signals):
     # 👑 [SSS+급 각성] 수박품은독사에 '킥(Kick)'을 더했다!
     # 기존 조건에 'explosion_ready(폭발 직전/볼밴 돌파 등)'를 킥으로 추가!
     elif (effective.get('viper_hook') and effective.get('watermelon_signal') and effective.get('obv_bullish') and 
-         effective.get('explosion_ready') and effective.get('is_ma60_safe') and effective.get('is_hugging_ma5') and 
-         effective.get('is_not_waterfall')):
+         effective.get('explosion_ready') and effective.get('Real_Viper_Hook')):
         candidates.append({
             'score': 999,  
             'grade': 'SSS+', 
@@ -212,7 +211,7 @@ def calculate_combination_score(signals):
     # 🐍 [SS+급 일반 독사] 킥(폭발)이 없는 일반 수박독사는 점수 하향 (사령관님 지시)
     # 돌반지(500점)보다 수익률이 떨어지므로 480점으로 낮췄습니다.
     elif (effective.get('viper_hook') and effective.get('watermelon_signal') and effective.get('obv_bullish') and 
-         effective.get('is_ma60_safe') and effective.get('is_hugging_ma5') and effective.get('is_not_waterfall')):
+         effective.get('Real_Viper_Hook')):
         candidates.append({
             'score': 480,  
             'grade': 'SS+', 
@@ -223,7 +222,7 @@ def calculate_combination_score(signals):
     
     # 🐍 [S+급] 독사출현 단독 판독 로직
     # 하극상 방지를 위해 460점에서 440점으로 점수 소폭 하향 조정
-    elif (effective.get('viper_hook') and effective.get('is_ma60_safe') and effective.get('is_hugging_ma5') and effective.get('is_not_waterfall')):
+    elif (effective.get('viper_hook') and effective.get('Real_Viper_Hook')):
         candidates.append({
             'score': 440, 'grade': 'S+', 
             'combination': '🐍5-20독사훅',
@@ -262,6 +261,17 @@ def calculate_combination_score(signals):
             'tags': ['💍돌반지완성', '⚡300%폭발', '👣쌍바닥확인', ring_tag],
             'type': '👑' 
         })
+
+    # 🚀 [SS급] 골파기 V자 반등 (개미 무덤 돌파)
+    if effective.get('Golpagi_Trap') and effective.get('watermelon_signal'):
+        candidates.append({
+            'score': 470,  
+            'grade': 'SS', 
+            'combination': '🕳️🚀수박품은골파기',
+            'tags': ['🕳️가짜하락(개미털기)', '🧲OBV방어', '📈20일선탈환', '🍉단기수급폭발'],
+            'type': '👑' 
+        })
+    
     
     # ── S급 ──────────────────────────────────
     if (effective.get('watermelon_signal') and effective.get('explosion_ready') and
@@ -646,17 +656,48 @@ def get_indicators(df):
     distance_from_ma5 = (row['Close'] - row['MA5']) / row['MA5']
     is_hugging_ma5 = distance_from_ma5 < 0.05  # 5일선에 5% 이내로 바짝 붙어있어야 진짜 뱀!
 
-    # 🚨 [KILL SWITCH 3] 역배열 폭포수 사살: 112일선(반년 선)이 200일선 아래로 곤두박질치는가?
-    # 장기 이평선이 완벽한 역배열 폭포수라면 뱀이 아니라 미꾸라지입니다.
-    is_not_waterfall = row['MA112'] >= row['MA200'] * 0.9  # 최소한 200일선 근처에서 놀아야 함
-    is_heading_ceiling = (row['Close'] < row['MA112']) and (row['MA112_Slope'] < 0) and (row['Dist_to_MA112'] <= 0.04)
-    is_not_blocked = not is_heading_ceiling
+    # 🚨 [킬 스위치 1] 두산밥캣 뚜껑 박치기 방지 (Blocked)
+    is_heading_ceiling = (df['Close'] < df['MA112']) & (df['MA112_Slope'] < 0) & (df['Dist_to_MA112'] <= 0.04)
+    df['is_not_blocked'] = ~is_heading_ceiling  # 👈 뚜껑 필터는 뚜껑 명찰로!
 
+    # 🚨 [킬 스위치 2] 장기 역배열 지하실 폭포수 방지 (Waterfall)
+    df['is_not_waterfall'] = df['MA112'] >= df['MA200'] * 0.9 # 👈 폭포수 필터는 폭포수 명찰로!
+    
+    # 🚨 [킬 스위치 3] LG화학 60일선 하락 방지 (Safe MA60)
+    df['is_ma60_safe'] = df['MA60_Slope'] >= 0
+
+    # 🎯 [복구된 킬 스위치 4] 두산밥캣 절대 사살용: 5일선 허공답보 방지!
+    # 오늘 종가가 5일선(MA5)보다 8% 이상 높게 허공에 떠 있다면 '오버슈팅(에너지 고갈)'으로 간주!
+    df['Dist_from_MA5'] = (df['Close'] - df['MA5']) / df['MA5']
+    df['is_hugging_ma5'] = df['Dist_from_MA5'] < 0.08
+
+    # 👑 [최종 융합] 이 모든 필터를 통과한 '진짜 독사'만 찾아라!
+    df['Real_Viper_Hook'] = (df['is_not_blocked'] & df['is_not_waterfall'] & df['is_ma60_safe'] & df['is_hugging_ma5'])
+    
+    print(f"✅ 최종판독")
     # 5. [최종 판독] 모든 조건이 일치하는 날을 'Viper_Hook'으로 명명!
     df['Viper_Hook'] = is_squeezed & was_below_20 & is_head_up
-    df['is_ma60_safe'] = is_ma60_safe
-    df['is_hugging_ma5'] = is_hugging_ma5
-    df['is_not_waterfall'] = is_not_blocked
+
+    # 🚨 [사령부 특수 전술] 골파기(Bear Trap) 감별 레이더
+    
+    # 1. [함정 발생] 최근 5일 이내에 20일선(생명선)을 깬 적이 있는가? (개미 털기 구간)
+    df['was_broken_20'] = (df['Close'].shift(1) < df['MA20'].shift(1)) | \
+                          (df['Close'].shift(2) < df['MA20'].shift(2)) | \
+                          (df['Close'].shift(3) < df['MA20'].shift(3))
+
+    # 2. [가짜 하락 인증] 20일선을 깰 때(하락할 때) 거래량이 말라붙었는가?
+    # 최근 5일 중 가장 거래량이 적었던 날이 20일 평균 거래량의 절반 이하라면 '가짜'로 판정!
+    df['lowest_vol_5d'] = df['Volume'].rolling(window=5).min()
+    df['is_fake_drop'] = df['lowest_vol_5d'] < (df['Volume'].rolling(window=20).mean() * 0.5)
+
+    # 3. [돈줄 방어] 주가는 최근 5일 전보다 빠졌는데, OBV는 오히려 올랐는가? (다이버전스)
+    df['obv_divergence'] = (df['Close'] < df['Close'].shift(5)) & (df['OBV'] >= df['OBV'].shift(5))
+
+    # 4. [반격 개시] 오늘 드디어 20일선을 다시 강하게 탈환했는가? (V자 반등)
+    df['reclaim_20'] = (df['Close'] > df['MA20']) & (df['Close'] > df['Open']) & (df['Volume'] > df['Volume'].shift(1))
+
+    # 👑 [최종 융합] 이 모든 조건이 맞아떨어지면 완벽한 '골파기 후 반등' 패턴!
+    df['Golpagi_Trap'] = df['was_broken_20'] & df['is_fake_drop'] & df['obv_divergence'] & df['reclaim_20']
  
     return df
     
@@ -1081,13 +1122,11 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             'dolbanzi_Trend_Group': row['Trend_Group'],
             'dolbanzi_Count': row['Dolbanzi_Count'],
 
-            #독사 5-20                
+            #독사 5-20
             'viper_hook': row['Viper_Hook'],
             'obv_bullish': row['OBV_Bullish'],
-            'is_no_long_tail': row['is_no_long_tail'],
-            'is_agile': row['is_agile'],
-            'is_not_blocked': row['is_not_blocked'],
-            'is_safe_distance': row['is_safe_distance']
+            'Real_Viper_Hook': row['Real_Viper_Hook']
+            'Golpagi_Trap': row['Golpagi_Trap']
         }
      
         # 세부 정보 추가
