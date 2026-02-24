@@ -213,7 +213,7 @@ def calculate_combination_score(signals):
     elif (effective.get('viper_hook') and effective.get('watermelon_signal') and effective.get('obv_bullish') and 
          effective.get('Real_Viper_Hook')):
         candidates.append({
-            'score': 480,  
+            'score': 420,  
             'grade': 'SS+', 
             'combination': '🐍🍉일반수박독사',
             'tags': ['🐍독사대가리', '🧲OBV매집', '🍉단기수급'],
@@ -224,7 +224,7 @@ def calculate_combination_score(signals):
     # 하극상 방지를 위해 460점에서 440점으로 점수 소폭 하향 조정
     elif (effective.get('viper_hook') and effective.get('Real_Viper_Hook')):
         candidates.append({
-            'score': 440, 'grade': 'S+', 
+            'score': 400, 'grade': 'S+', 
             'combination': '🐍5-20독사훅',
             'tags': ['🐍독사대가리', '📉개미털기완료', '📈기울기상승턴'],
             'type': '👑' 
@@ -265,7 +265,7 @@ def calculate_combination_score(signals):
     # 🚀 [SS급] 골파기 V자 반등 (개미 무덤 돌파)
     if effective.get('Golpagi_Trap') and effective.get('watermelon_signal'):
         candidates.append({
-            'score': 470,  
+            'score': 420,  
             'grade': 'SS', 
             'combination': '🕳️🚀수박품은골파기',
             'tags': ['🕳️가짜하락(개미털기)', '🧲OBV방어', '📈20일선탈환', '🍉단기수급폭발'],
