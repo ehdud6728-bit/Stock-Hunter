@@ -451,7 +451,7 @@ def judge_yeok_break_sequence_v2(df):
     cond_break = (
         last['Close'] > prev_high * 1.002 and
         last['Volume'] > total_vol * 1.5 and
-        last['Close'] > last['open']
+        last['Close'] > last['Open']
     )
 
     return cond_acc and cond_pull and cond_break
