@@ -825,7 +825,7 @@ def calculate_combination_score(signals):
     
     # 🌌 [GOD급 핵무기] 잃어버린 전설의 패턴 복구!
     # 독사가 수박을 물고 200일선(돌반지)을 같이 뚫어버리는 미친 시너지
-    if effective.get('viper_hook') and effective.get('dolbanzi') and effective.get('watermelon_signal') and effective.get('watermelon_red'):
+    if effective.get('viper_hook') and effective.get('dolbanzi') and effective.get('watermelon_signal'):
         candidates.append({
             'score': 10000, # 측정 불가 (무조건 1순위)
             'grade': 'GOD', 
@@ -836,7 +836,7 @@ def calculate_combination_score(signals):
 
     # 👑 [SSS+급 각성] 수박품은독사에 '킥(Kick)'을 더했다!
     # 기존 조건에 'explosion_ready(폭발 직전/볼밴 돌파 등)'를 킥으로 추가!
-    elif (effective.get('viper_hook') and effective.get('watermelon_signal')  and effective.get('watermelon_red') and effective.get('obv_bullish') and 
+    elif (effective.get('viper_hook') and effective.get('watermelon_signal') and effective.get('watermelon_red') and effective.get('obv_bullish') and 
          effective.get('explosion_ready') and effective.get('Real_Viper_Hook')):
         candidates.append({
             'score': 999,  
@@ -849,7 +849,7 @@ def calculate_combination_score(signals):
         
     # 🐍 [SS+급 일반 독사] 킥(폭발)이 없는 일반 수박독사는 점수 하향 (사령관님 지시)
     # 돌반지(500점)보다 수익률이 떨어지므로 480점으로 낮췄습니다.
-    elif (effective.get('viper_hook') and effective.get('watermelon_signal')  and effective.get('watermelon_red') and effective.get('obv_bullish') and 
+    elif (effective.get('viper_hook') and effective.get('watermelon_signal') and effective.get('obv_bullish') and 
          effective.get('Real_Viper_Hook')):
         candidates.append({
             'score': 480,  
@@ -872,7 +872,7 @@ def calculate_combination_score(signals):
     # 👑 [SSS급] 수박 돌반지 챔피언 (최강의 시너지)
     # 안전장치: dolbanzi_Count가 없을 경우 기본값 0을 반환하도록 get 옵션 추가
     ring_count = effective.get('dolbanzi_Count', 0) 
-    if effective.get('watermelon_signal')  and effective.get('watermelon_red') and effective.get('dolbanzi'):
+    if effective.get('watermelon_signal') and effective.get('dolbanzi'):
         combo_name = '👑💍수박첫돌반지' if ring_count == 1 else '🍉💍수박돌반지'
         final_score = 500 if ring_count == 1 else 450
         ring_tag = '🥇최초의반지' if ring_count == 1 else f'💍{ring_count}회차반지'
@@ -894,7 +894,7 @@ def calculate_combination_score(signals):
             combo_name, ring_tag, bonus = '🥉💍늙은돌반지', '⚠️과열주의', -50 # 3회부턴 감점 
             
         candidates.append({
-            'score': 420 + bonus, 'grade': 'SS', 
+            'score': 480 + bonus, 'grade': 'SS', 
             'combination': combo_name,
             # 🚨 [수정 완료] 여기도 tags 리스트 맨 끝에 ring_tag를 추가했습니다!
             'tags': ['💍돌반지완성', '⚡300%폭발', '👣쌍바닥확인', ring_tag],
@@ -902,7 +902,7 @@ def calculate_combination_score(signals):
         })
 
     # 🚀 [SS급] 골파기 V자 반등 (개미 무덤 돌파)
-    if effective.get('Golpagi_Trap') and effective.get('watermelon_signal')  and effective.get('watermelon_red'):
+    if effective.get('Golpagi_Trap') and effective.get('watermelon_signal'):
         candidates.append({
             'score': 470,  
             'grade': 'SS', 
@@ -912,7 +912,7 @@ def calculate_combination_score(signals):
         })
     
     # ── S급 ──────────────────────────────────
-    if (effective.get('watermelon_signal')  and effective.get('watermelon_red') and effective.get('explosion_ready') and
+    if (effective.get('watermelon_signal') and effective.get('explosion_ready') and
         effective.get('bottom_area') and effective.get('silent_perfect')):
         candidates.append({
             'score': 350, 'grade': 'S',
@@ -2005,6 +2005,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             elif row['Green_Days_10'] >= 7:
                 s_score += 30
                 tags.append("🍉초록축적")
+
             # 기존 감점 로직
             if t_pct > 40:
                 s_score -= 25
