@@ -1291,7 +1291,9 @@ def get_indicators(df):
     
     # 빨간수박(폭발): 초록수박 상태에서 화력이 임계값(예: 5)을 돌파할 때
     df['Watermelon_Red'] = df['Watermelon_Green'] & (df['Watermelon_Fire'] > 5.0)
-    
+
+    df['Watermelon_Red2'] = ((df['Close'].iloc[-1] > df['VWMA40'].iloc[-1]) and
+                            (df['Close'].iloc[-1] >= df['Open'].iloc[-1]))
     return df
 
 # 🚀 [Commander's Special] 돌반지 + 300% Vol + 쌍바닥 엔진
@@ -1861,6 +1863,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             is_watermelon = row['Watermelon_Signal']
             watermelon_color = row['Watermelon_Color']
             watermelon_red = row['Watermelon_Red']
+            watermelon_red2 = row['Watermelon_Red2']
             watermelon_score = row['Watermelon_Score']
             # 마지막 날(오늘)의 수박 상태 확인
             is_hot_watermelon = row['Watermelon_Red']
@@ -1999,6 +2002,8 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
                 tags.append("❄️RSI약세")
 
             #수박지표
+            if watermelon_red2:
+                tags.append(f"📍수박지표검증")
             if is_hot_watermelon:
                 tags.append(f"🍉진짜수박 화력 {watermelon_power}")
             if is_watermelon:
