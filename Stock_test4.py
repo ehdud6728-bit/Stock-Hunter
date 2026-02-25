@@ -1862,6 +1862,10 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             watermelon_color = row['Watermelon_Color']
             watermelon_red = row['Watermelon_Red']
             watermelon_score = row['Watermelon_Score']
+            # 마지막 날(오늘)의 수박 상태 확인
+            is_hot_watermelon = row['Watermelon_Red']
+            watermelon_power = row['Watermelon_Fire']
+            
             red_score = (
                 int(row['OBV_Rising']) +
                 int(row['MFI_Strong']) +
@@ -1995,8 +1999,8 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
                 tags.append("❄️RSI약세")
 
             #수박지표
-            if watermelon_red:
-                tags.append("🍉왕수박신호")
+            if is_hot_watermelon:
+                tags.append(f"🍉진짜수박 화력 {watermelon_power}")
             if is_watermelon:
                 s_score += 100
                 tags.append("🍉수박신호")
