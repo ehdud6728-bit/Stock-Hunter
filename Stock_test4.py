@@ -1745,7 +1745,10 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
 
             if row['Dolbanzi']:
                 new_tags.append(f"🟡돌반지")
-                
+
+            if signals['watermelon_red']:
+                new_tags.append(f"🍉진짜수박")
+            
             # 💡 오늘의 현재가 저장 (나중에 사용)
             today_price = df.iloc[-1]['Close']
 
