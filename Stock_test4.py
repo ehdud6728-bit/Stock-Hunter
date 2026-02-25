@@ -825,7 +825,7 @@ def calculate_combination_score(signals):
     
     # 🌌 [GOD급 핵무기] 잃어버린 전설의 패턴 복구!
     # 독사가 수박을 물고 200일선(돌반지)을 같이 뚫어버리는 미친 시너지
-    if effective.get('viper_hook') and effective.get('dolbanzi') and effective.get('watermelon_signal'):
+    if effective.get('viper_hook') and effective.get('dolbanzi') and effective.get('watermelon_signal') and effective.get('watermelon_red'):
         candidates.append({
             'score': 10000, # 측정 불가 (무조건 1순위)
             'grade': 'GOD', 
@@ -836,7 +836,7 @@ def calculate_combination_score(signals):
 
     # 👑 [SSS+급 각성] 수박품은독사에 '킥(Kick)'을 더했다!
     # 기존 조건에 'explosion_ready(폭발 직전/볼밴 돌파 등)'를 킥으로 추가!
-    elif (effective.get('viper_hook') and effective.get('watermelon_signal') and effective.get('obv_bullish') and 
+    elif (effective.get('viper_hook') and effective.get('watermelon_signal')  and effective.get('watermelon_red') and effective.get('obv_bullish') and 
          effective.get('explosion_ready') and effective.get('Real_Viper_Hook')):
         candidates.append({
             'score': 999,  
@@ -849,7 +849,7 @@ def calculate_combination_score(signals):
         
     # 🐍 [SS+급 일반 독사] 킥(폭발)이 없는 일반 수박독사는 점수 하향 (사령관님 지시)
     # 돌반지(500점)보다 수익률이 떨어지므로 480점으로 낮췄습니다.
-    elif (effective.get('viper_hook') and effective.get('watermelon_signal') and effective.get('obv_bullish') and 
+    elif (effective.get('viper_hook') and effective.get('watermelon_signal')  and effective.get('watermelon_red') and effective.get('obv_bullish') and 
          effective.get('Real_Viper_Hook')):
         candidates.append({
             'score': 480,  
@@ -872,7 +872,7 @@ def calculate_combination_score(signals):
     # 👑 [SSS급] 수박 돌반지 챔피언 (최강의 시너지)
     # 안전장치: dolbanzi_Count가 없을 경우 기본값 0을 반환하도록 get 옵션 추가
     ring_count = effective.get('dolbanzi_Count', 0) 
-    if effective.get('watermelon_signal') and effective.get('dolbanzi'):
+    if effective.get('watermelon_signal')  and effective.get('watermelon_red') and effective.get('dolbanzi'):
         combo_name = '👑💍수박첫돌반지' if ring_count == 1 else '🍉💍수박돌반지'
         final_score = 500 if ring_count == 1 else 450
         ring_tag = '🥇최초의반지' if ring_count == 1 else f'💍{ring_count}회차반지'
@@ -902,7 +902,7 @@ def calculate_combination_score(signals):
         })
 
     # 🚀 [SS급] 골파기 V자 반등 (개미 무덤 돌파)
-    if effective.get('Golpagi_Trap') and effective.get('watermelon_signal'):
+    if effective.get('Golpagi_Trap') and effective.get('watermelon_signal')  and effective.get('watermelon_red'):
         candidates.append({
             'score': 470,  
             'grade': 'SS', 
@@ -912,7 +912,7 @@ def calculate_combination_score(signals):
         })
     
     # ── S급 ──────────────────────────────────
-    if (effective.get('watermelon_signal') and effective.get('explosion_ready') and
+    if (effective.get('watermelon_signal')  and effective.get('watermelon_red') and effective.get('explosion_ready') and
         effective.get('bottom_area') and effective.get('silent_perfect')):
         candidates.append({
             'score': 350, 'grade': 'S',
@@ -949,7 +949,7 @@ def calculate_combination_score(signals):
         })
 
     # ── A급 ──────────────────────────────────
-    if effective.get('watermelon_signal') and effective.get('explosion_ready'):
+    if effective.get('watermelon_signal')   and effective.get('watermelon_red') and effective.get('explosion_ready'):
         candidates.append({
             'score': 280, 'grade': 'A',
             'combination': '🔥수박폭발',
@@ -974,7 +974,7 @@ def calculate_combination_score(signals):
         })
 
     # ── B급 ──────────────────────────────────
-    if effective.get('watermelon_signal'):
+    if effective.get('watermelon_signal')  and effective.get('watermelon_red'):
         candidates.append({
             'score': 230, 'grade': 'B',
             'combination': '📍수박단독',
@@ -1275,6 +1275,22 @@ def get_indicators(df):
 
     # 👑 [최종 융합] 이 모든 조건이 맞아떨어지면 완벽한 '골파기 후 반등' 패턴!
     df['Golpagi_Trap'] = df['was_broken_20'] & df['is_fake_drop'] & df['obv_divergence'] & df['reclaim_20']
+
+    # 1. 파란 점선: VWMA (거래량 가중 40일 이평)
+    # 종가에 거래량을 곱한 값의 합을 거래량의 합으로 나눕니다.
+    df['VWMA40'] = (df['Close'] * df['Volume']).rolling(window=40).mean() / df['Volume'].rolling(window=40).mean()
+
+    # 3. 수박 에너지 (화력) 계산 - 사령관님의 '킥(Kick)' 적용
+    # 이격도(현재가/VWMA40)에 거래량 가속도(당일거래량/5일평균)를 곱함
+    df['Vol_Accel'] = df['Volume'] / df['Volume'].rolling(window=5).mean()
+    df['Watermelon_Fire'] = (df['Close'] / df['VWMA40'] - 1) * 100 * df['Vol_Accel']
+    
+    # 4. 수박 상태 판독
+    # 초록수박: 파란점선 위 + 에너지가 모이는 중 (밴드폭 10% 이내)
+    df['Watermelon_Green'] = (df['Close'] > df['VWMA40']) & (df['BB40_Width'] < 0.10)
+    
+    # 빨간수박(폭발): 초록수박 상태에서 화력이 임계값(예: 5)을 돌파할 때
+    df['Watermelon_Red'] = df['Watermelon_Green'] & (df['Watermelon_Fire'] > 5.0)
     
     return df
 
@@ -1650,7 +1666,8 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             signals = {
                 # 수박지표
                 'watermelon_signal': row['Watermelon_Signal'],
-                'watermelon_red': row['Watermelon_Color'] == 'red',
+                'watermelon_red': row['Watermelon_Red'],
+                
                 'watermelon_green_7d': row['Green_Days_10'] >= 7,
                 
                 # 폭발 직전
@@ -1840,6 +1857,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             print(f"✅ [본진] 수박지표 계산!")
             is_watermelon = row['Watermelon_Signal']
             watermelon_color = row['Watermelon_Color']
+            watermelon_red = row['watermelon_Red']
             watermelon_score = row['Watermelon_Score']
             red_score = (
                 int(row['OBV_Rising']) +
@@ -1974,6 +1992,8 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
                 tags.append("❄️RSI약세")
 
             #수박지표
+            if watermelon_red:
+                tags.append("🍉왕수박신호")
             if is_watermelon:
                 s_score += 100
                 tags.append("🍉수박신호")
