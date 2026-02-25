@@ -250,7 +250,7 @@ def calculate_combination_score(signals):
         if ring_count == 1:
             combo_name, ring_tag, bonus = '🥇💍첫번째돌반지', '🔥GoldenEntry', 30
         elif ring_count == 2:
-            combo_name, ring_tag, bonus = '🥈💍두번째돌반지', '📈추세지속', 0
+            combo_name, ring_tag, bonus = '🥈💍두번째돌반지', '📈추세지속', 10
         else:
             combo_name, ring_tag, bonus = '🥉💍늙은돌반지', '⚠️과열주의', -50 # 3회부턴 감점 
             
