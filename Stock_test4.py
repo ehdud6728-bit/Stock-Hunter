@@ -1857,7 +1857,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             print(f"✅ [본진] 수박지표 계산!")
             is_watermelon = row['Watermelon_Signal']
             watermelon_color = row['Watermelon_Color']
-            watermelon_red = row['watermelon_Red']
+            watermelon_red = row['Watermelon_Red']
             watermelon_score = row['Watermelon_Score']
             red_score = (
                 int(row['OBV_Rising']) +
