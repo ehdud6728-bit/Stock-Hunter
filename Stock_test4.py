@@ -1333,7 +1333,7 @@ def get_indicators(df):
 
     # 1. 종베 골든크로스 (전환 순간)
     gap_ratio = abs(curr['MA20'] - curr['MA40']) / (curr['MA40'] + 1e-9)
-
+    cross_series = (df['MA20'] > df['MA40']) & (df['MA20'].shift(1) <= df['MA40'].shift(1))
     cross_recent = cross_series.iloc[-5:].any()
     cross_near   = (curr['MA20'] > curr['MA40']) and (gap_ratio < 0.03)
 
