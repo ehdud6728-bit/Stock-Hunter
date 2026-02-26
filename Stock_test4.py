@@ -1331,8 +1331,6 @@ def get_indicators(df):
 
     df['Maejip_Count'] = int(df['Is_Maejip'].iloc[-20:].sum())
 
-    
-
     # 1. 종베 골든크로스 (전환 순간)
     df['Jongbe_Break'] = (
         pd.notna(curr['MA20']) and pd.notna(curr['MA40']) and
@@ -1340,6 +1338,8 @@ def get_indicators(df):
         (curr['MA20'] >  curr['MA40']) and
         (curr['Close'] > curr['MA20'])
     )
+    # 3. MA 밀집
+    df['Converge'] = pd.notna(curr['MA_Converge']) and curr['MA_Converge'] < 0.02
 
     return df
 
@@ -1927,7 +1927,9 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             maejip_count =                row['Maejip_Count']
             #볼린저밴드 20,40 골든크로스
             jongbe_break = row['Jongbe_Break']
-            
+            #MA밀집도
+            converge = df['Converge']
+
             # 3. 점수 산출 및 태그 부여
             s_score = 100
             tags = []
@@ -2157,6 +2159,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
                 '꼬리%': t_pct,
                 '이격': int(row['Disparity']),
                 'BB40': f"{row['BB40_Width']:.1f}",
+                'MA밀집': converge,
                 'MA수렴': f"{row['MA_Convergence']:.1f}",
                 '매집': f"{acc_count}/5",
                 '최고수익날': max_r_date,
