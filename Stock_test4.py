@@ -1311,6 +1311,9 @@ def get_indicators(df):
                     touches += 1
         return touches
 
+    curr = df.iloc[-1]
+    prev = df.iloc[-2]
+
     df['Daily_Touch'] = df.apply(check_touch, axis=1)
     # 최근 20일 동안 성벽을 두드린 총 횟수
     df['Total_hammering'] = int(df['Daily_Touch'].iloc[-20:].sum())
@@ -1328,8 +1331,7 @@ def get_indicators(df):
 
     df['Maejip_Count'] = int(df['Is_Maejip'].iloc[-20:].sum())
 
-    curr = df.iloc[-1]
-    prev = df.iloc[-2]
+    
 
     # 1. 종베 골든크로스 (전환 순간)
     df['Jongbe_Break'] = (
