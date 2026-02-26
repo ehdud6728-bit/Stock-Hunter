@@ -100,7 +100,6 @@ def analyze_save_googleSheet(all_hits, isNasdaq):
                 '이격',
                 '꼬리%',
                 'BB40',
-                'MA밀집',
                 'MA수렴',
                 '📜서사히스토리',
                 'N구분',
@@ -1349,9 +1348,6 @@ def get_indicators(df):
     ma20_accel and
     curr['Close'] > curr['MA20']
 )
-    # 3. MA 밀집
-    df['Converge'] = pd.notna(curr['MA_Converge']) and curr['MA_Converge'] < 0.02
-
     return df
 
 # 🚀 [Commander's Special] 돌반지 + 300% Vol + 쌍바닥 엔진
@@ -2170,7 +2166,6 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
                 '꼬리%': t_pct,
                 '이격': int(row['Disparity']),
                 'BB40': f"{row['BB40_Width']:.1f}",
-                'MA밀집': converge,
                 'MA수렴': f"{row['MA_Convergence']:.1f}",
                 '매집': f"{acc_count}/5",
                 '최고수익날': max_r_date,
