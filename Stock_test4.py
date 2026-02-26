@@ -1311,6 +1311,9 @@ def get_indicators(df):
                     touches += 1
         return touches
 
+    df['MA20_slope'] = (df['MA20'] - df['MA20'].shift(5)) / (df['MA20'].shift(5) + 1e-9) * 100
+    df['MA40_slope'] = (df['MA40'] - df['MA40'].shift(5)) / (df['MA40'].shift(5) + 1e-9) * 100
+
     curr = df.iloc[-1]
     prev = df.iloc[-2]
 
