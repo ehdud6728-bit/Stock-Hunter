@@ -1299,7 +1299,7 @@ def get_indicators(df):
     # ── 저항선 터치 흔적 스캔 (최근 20일) ──────────
     # 각 저항선 중 현재 주가보다 위에 있는 가장 강력한 선들을 타겟으로 함
     def check_touch(row):
-        resistances = [row['BB_Upper'], row['BB40_Upper'], row['MA60'], row['MA122']]
+        resistances = [row['BB_Upper'], row['BB40_Upper'], row['MA60'], row['MA112']]
         # 현재가보다 높은 저항선들 중, 고가(High)가 저항선의 99%~101% 범위에 닿았는지 확인
         touches = 0
         for res in resistances:
@@ -1313,7 +1313,7 @@ def get_indicators(df):
     df['Total_hammering'] = int(df['Daily_Touch'].iloc[-20:].sum())
     
     # 현재 봉이 저항선을 완전히 돌파했는지 여부
-    current_res_max = max(curr['BB_Upper'], curr['BB40_Upper'], curr['MA60'], curr['MA122'])
+    current_res_max = max(curr['BB_Upper'], curr['BB40_Upper'], curr['MA60'], curr['MA112'])
     df['Is_resistance_break'] = curr['Close'] > current_res_max
 
     # ── 매집봉 (거래량 급증 양봉) ──────────────
