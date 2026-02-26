@@ -1333,12 +1333,22 @@ def get_indicators(df):
     df['Maejip_Count'] = int(df['Is_Maejip'].iloc[-20:].sum())
 
     # 1. 종베 골든크로스 (전환 순간)
+    gap_ratio = abs(curr['MA20'] - curr['MA40']) / (curr['MA40'] + 1e-9)
+
+    cross_recent = cross_series.iloc[-5:].any()
+    cross_near   = (curr['MA20'] > curr['MA40']) and (gap_ratio < 0.03)
+
+    ma20_rising  = curr['MA20_slope'] > 0
+    ma40_rising  = curr['MA40_slope'] > -0.05
+    ma20_accel   = curr['MA20_slope'] > df['MA20_slope'].rolling(3).mean().iloc[-2]
+
     df['Jongbe_Break'] = (
-        pd.notna(curr['MA20']) and pd.notna(curr['MA40']) and
-        (prev['MA20'] <= prev['MA40']) and
-        (curr['MA20'] >  curr['MA40']) and
-        (curr['Close'] > curr['MA20'])
-    )
+    (cross_recent or cross_near) and
+    ma20_rising and
+    ma40_rising and
+    ma20_accel and
+    curr['Close'] > curr['MA20']
+)
     # 3. MA 밀집
     df['Converge'] = pd.notna(curr['MA_Converge']) and curr['MA_Converge'] < 0.02
 
