@@ -100,6 +100,7 @@ def analyze_save_googleSheet(all_hits, isNasdaq):
                 '이격',
                 '꼬리%',
                 'BB40',
+                'MA밀집',
                 'MA수렴',
                 '📜서사히스토리',
                 'N구분',
