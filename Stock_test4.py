@@ -1105,7 +1105,7 @@ def get_indicators(df):
     
     # MFI 10일 전 값 (상승 추세 확인용)
     df['MFI_10d_ago'] = df['MFI'].shift(10)
-    
+    df['MFI_Strong']= df['MFI'] > 50
     # 112일선 근접도 (스윙 검색용)
     df['Near_MA112'] = (abs(df['Close'] - df['MA112']) / df['MA112'] * 100)
     
@@ -1294,6 +1294,48 @@ def get_indicators(df):
 
     df['Watermelon_Red2'] = ((df['Close'].iloc[-1] > df['VWMA40'].iloc[-1]) and
                             (df['Close'].iloc[-1] >= df['Open'].iloc[-1]))
+
+    # ── 저항선 계산 (BB 상한선 추가) 
+    # ── 저항선 터치 흔적 스캔 (최근 20일) ──────────
+    # 각 저항선 중 현재 주가보다 위에 있는 가장 강력한 선들을 타겟으로 함
+    def check_touch(row):
+        resistances = [row['BB_Upper'], row['BB40_Upper'], row['MA60'], row['MA122']]
+        # 현재가보다 높은 저항선들 중, 고가(High)가 저항선의 99%~101% 범위에 닿았는지 확인
+        touches = 0
+        for res in resistances:
+            if pd.notna(res) and row['Close'] < res: # 현재가 위에 있는 저항선만
+                if row['High'] >= res * 0.995: # 0.5% 오차 범위 내 터치
+                    touches += 1
+        return touches
+
+    df['Daily_Touch'] = df.apply(check_touch, axis=1)
+    # 최근 20일 동안 성벽을 두드린 총 횟수
+    df['Total_hammering'] = int(df['Daily_Touch'].iloc[-20:].sum())
+    
+    # 현재 봉이 저항선을 완전히 돌파했는지 여부
+    current_res_max = max(curr['BB_Upper'], curr['BB40_Upper'], curr['MA60'], curr['MA122'])
+    df['Is_resistance_break'] = curr['Close'] > current_res_max
+
+    # ── 매집봉 (거래량 급증 양봉) ──────────────
+    df['Is_Maejip'] = (
+        (df['Volume'] > df['Volume'].shift(1) * 2) &
+        (df['Close'] > df['Open']) &
+        (df['Close'] > df['Close'].shift(1))
+    )
+
+    df['Maejip_Count'] = int(df['Is_Maejip'].iloc[-20:].sum())
+
+    curr = df.iloc[-1]
+    prev = df.iloc[-2]
+
+    # 1. 종베 골든크로스 (전환 순간)
+    df['Jongbe_Break'] = (
+        pd.notna(curr['MA20']) and pd.notna(curr['MA40']) and
+        (prev['MA20'] <= prev['MA40']) and
+        (curr['MA20'] >  curr['MA40']) and
+        (curr['Close'] > curr['MA20'])
+    )
+
     return df
 
 # 🚀 [Commander's Special] 돌반지 + 300% Vol + 쌍바닥 엔진
@@ -1874,8 +1916,14 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
                 int(row['MFI_Strong']) +
                 int(row['Buying_Pressure'])
             )
-          
-          # 3. 점수 산출 및 태그 부여
+            #상단저항선 터치횟수
+            total_hammering = row['Total_hammering']
+            #최근20일간 매집봉 카운트
+            maejip_count =                row['Maejip_Count']
+            #볼린저밴드 20,40 골든크로스
+            jongbe_break = row['Jongbe_Break']
+            
+            # 3. 점수 산출 및 태그 부여
             s_score = 100
             tags = []
             print(f"✅ [본진] 라운드넘버 계산!")
@@ -2093,6 +2141,9 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
                 '안전점수': int(max(0, s_score + whale_score)),
                 '대칭비율': dante_data_ratio,
                 '매집봉': dante_data_mae_jip,
+                'D20매집봉' : maejip_count,
+                '저항터치': total_hammering,
+                'BB-GC': jongbe_break,
                 '섹터': sector,
                 '종목': name,
                 '매입가': int(close_p),
