@@ -2308,7 +2308,8 @@ if __name__ == "__main__":
     
     try:
         # 1. 기본 환경 및 데이터 로드
-        global_env, leader_env = get_global_and_leader_status()
+        #global_env, leader_env = get_global_and_leader_status()
+        status = get_global_and_leader_status()
 
         # 데이터가 아예 없거나(None), 내용이 없는 경우를 대비한 방어막
         if status is None or not status:
