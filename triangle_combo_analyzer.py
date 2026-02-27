@@ -244,12 +244,15 @@ def jongbe_triangle_combo_v3(df: pd.DataFrame) -> dict | None:
         'pass':             score >= 70,
         'grade':            grade,
         'score':            score,
+        'jongbe':           jongbe_ok,          # ✅ 이거 추가
+        'has_triangle':     has_triangle,        # ✅ 이거 추가
         'ma20_dna':         f"{round(dna_score * 100)}%",
         'triangle_pattern': tri['pattern'] if has_triangle else 'None',
         'convergence_pct':  tri['convergence_pct'] if has_triangle else 0,
         'apex_remain':      tri['bars_to_apex'] if has_triangle else 'N/A',
         'is_breakout':      tri['breakout_up'] if has_triangle else False,
         'lines_crossed':    tri.get('lines_crossed', False),
+        'triangle':         tri if has_triangle else {},   # ✅ 이거 추가 (STEP 2에서 tri 접근용)
         'jongbe_detail': {              # ✅ 디버그용
             'cross_recent': bool(cross_recent),
             'cross_near':   cross_near,
