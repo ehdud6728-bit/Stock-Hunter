@@ -18,6 +18,7 @@ from triangle_combo_analyzer import jongbe_triangle_combo_v3
 from pykrx import stock
 import pandas as pd
 from datetime import datetime
+import traceback
 
 # 👇 구글 시트 매니저 연결 (파일명 확인 필수)
 try:
@@ -2322,8 +2323,11 @@ if __name__ == "__main__":
             print("✅ [성공] 시장 환경 데이터 로드 완료.")
 
         df_krx = fdr.StockListing('KRX')
-        if df_krx is None or not df_krx:
-            print("⚠️ KRX 데이터를 가져오지 못했습니다.")
+        # 2. 데이터가 진짜 있는지 검증
+        if df is None or df.empty:
+            raise ValueError("KRX 데이터가 비어있습니다.")
+            
+        print("✅ [성공] KRX 종목 리스트 로드 완료.")
 
         # 위키피디아에서 나스닥 100 티커 자동 수집 (이전에 만든 함수 활용)
         nasdaq_100_list = get_nasdaq100_tickers() 
@@ -2382,3 +2386,5 @@ if __name__ == "__main__":
         
     except Exception as main_error:
         print(f"🚨 [치명적 오류] 메인 엔진 정지: {main_error}")
+        print("🚨 [디버깅] 상세 에러 리포트:")
+        traceback.print_exc()
