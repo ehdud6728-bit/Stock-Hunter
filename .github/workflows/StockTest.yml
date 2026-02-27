@@ -1,17 +1,13 @@
 name: 🚑 Run Debug StockTest (Manual)
 
-# 핵심: workflow_dispatch는 "버튼을 눌러서 실행하겠다"는 뜻입니다.
 on: workflow_dispatch
 
 jobs:
   debug-run:
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v3
-      
     - name: Checkout repository
-      uses: actions/checkout@v4  # v3에서 v4로 변
+      uses: actions/checkout@v4 # v4 하나로 통합
 
     - name: Set up Python
       uses: actions/setup-python@v4
@@ -20,28 +16,16 @@ jobs:
 
     - name: Install dependencies
       run: |
-        pip install -r requirements.txt
-        # 혹시 requirements.txt에 없다면 아래 줄 주석 해제해서 쓰세요
-        # pip install finance-datareader pandas requests
-        #pip install finance-datareader requests mplfinance gspread oauth2client
         python -m pip install --upgrade pip
-        # 2. 모든 부품을 한 번에 설치하되, 특히 FDR은 최신 버전(-U)으로 강제 업데이트
-        pip install -U finance-datareader yfinance pykrx pandas numpy requests mplfinance gspread oauth2client pytz
-        pip install pandas numpy scipy matplotlib
-        #pip install pykrx finance-datareader pandas numpy pytz
-        #pip install yfinance pykrx finance-datareader pandas  # 👈 여기에 yfinance 추가
-        
-    - name: Install Google Sheet Tools
-      run: |
-        pip install gspread gspread-formatting oauth2client
-      
+        # 1. 모든 필요 라이브러리를 한 번에 설치 (scipy 포함)
+        pip install -U finance-datareader yfinance pykrx pandas numpy scipy requests mplfinance gspread gspread-formatting oauth2client pytz
+
     - name: Run Debug Script
       env:
         TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
         TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }} # 여기서 키를 가져옵니다
-        GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}  # 👈 요걸 쏙 넣어주세요!
+        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         GOOGLE_JSON_KEY: ${{ secrets.GOOGLE_JSON_KEY }}
         OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-        
       run: python Stock_test4.py
