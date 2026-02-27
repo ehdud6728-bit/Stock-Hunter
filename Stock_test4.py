@@ -57,12 +57,18 @@ def load_krx_listing_safe():
         return df
     except Exception as e:
         print(f"⚠️ FDR 실패 → pykrx 대체 사용 ({e})")
-        tickers = stock.get_market_ticker_list(market="ALL")
-        data = []
-        for t in tickers:
-            name = stock.get_market_ticker_name(t)
-            data.append({"Code": t, "Name": name})
-        return pd.DataFrame(data)
+        SHEET_ID = "13Esd11iwgzLN7opMYobQ3ee6huHs1FDEbyeb3Djnu6o"
+        URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/edit?usp=drivesdk"
+
+        df_krx = pd.read_csv(URL)
+
+        df_krx.rename(columns={
+               '종목코드': 'Code',
+               '회사명': 'Name',
+               '시장구분': 'Market'
+               }, inplace=True)
+
+        return df_krx
 
 def analyze_save_googleSheet(all_hits, isNasdaq):
     if all_hits:
