@@ -47,6 +47,23 @@ RN_LIST = [500, 1000, 1500, 2000, 3000, 5000, 7500, 10000, 15000, 20000,
 
 print(f"📡 [Ver 38 ] 사령부 무결성 통합 가동... 💎다이아몬드 & 📊복합통계 엔진 탑재")
 
+def load_krx_listing_safe():
+    try:
+        print("📡 FDR KRX 시도...")
+        df = fdr.StockListing('KRX')
+        if df is None or df.empty:
+            raise ValueError("빈 데이터")
+        print("✅ FDR 성공")
+        return df
+    except Exception as e:
+        print(f"⚠️ FDR 실패 → pykrx 대체 사용 ({e})")
+        tickers = stock.get_market_ticker_list(market="ALL")
+        data = []
+        for t in tickers:
+            name = stock.get_market_ticker_name(t)
+            data.append({"Code": t, "Name": name})
+        return pd.DataFrame(data)
+
 def analyze_save_googleSheet(all_hits, isNasdaq):
     if all_hits:
         df_total = pd.DataFrame(all_hits)
@@ -2451,7 +2468,7 @@ if __name__ == "__main__":
         # 기존 2325번 라인 근처를 아래 코드로 대체하세요
         try:
             print("📡 KRX 종목 리스트 보급 시도 중...")
-            df_krx = fdr.StockListing('KRX')
+            df_krx = load_krx_listing_safe()
             
             # 데이터가 정상적으로 들어왔는지 최종 검문
             if df_krx is None or df_krx.empty:
