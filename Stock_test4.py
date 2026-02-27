@@ -2250,7 +2250,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
                 '최저수익률_raw': min_r,
                 'N구분': " ".join(new_tags),
                 '구분': " ".join(tags),
-                '보유일': len(h_df)
+                '보유일': len(h_df),
                 # ✅ 신규 컬럼 추가
                 '삼각패턴':   tri_result['triangle_pattern'] if tri_result else 'None',
                 '삼각수렴%':  tri_result['triangle']['convergence_pct'] if tri_result and tri_result.get('triangle') else 0,
