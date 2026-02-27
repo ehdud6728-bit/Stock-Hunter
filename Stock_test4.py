@@ -832,7 +832,23 @@ def calculate_combination_score(signals):
         effective['silent_strong'] = True
 
     candidates = []
-    
+
+    # 🌌 [GOD+급] 삼각꼭지 + 독사 + 수박 + 돌반지 — 역대급 4중주
+    if (effective.get('triangle_signal') and
+        effective.get('triangle_apex') is not None and
+        isinstance(effective.get('triangle_apex'), (int, float)) and
+        0 <= effective['triangle_apex'] <= 3 and   # 꼭지 3봉 이내
+        effective.get('viper_hook') and
+        effective.get('watermelon_signal') and
+        effective.get('dolbanzi')):
+        candidates.append({
+            'score': 10001,
+            'grade': 'GOD+',
+            'combination': '🌌🔺💍독사삼각돌반지',
+            'tags': ['🔺꼭지임박', '🐍독사대가리', '💍200일돌파', '🍉수급폭발', '🚀역대급시그널'],
+            'type': '🌌'
+        })
+            
     # 🌌 [GOD급 핵무기] 잃어버린 전설의 패턴 복구!
     # 독사가 수박을 물고 200일선(돌반지)을 같이 뚫어버리는 미친 시너지
     if effective.get('viper_hook') and effective.get('dolbanzi') and effective.get('watermelon_signal'):
@@ -911,6 +927,34 @@ def calculate_combination_score(signals):
             'type': '👑' 
         })
 
+     # 👑 [SSS급] 삼각수렴 꼭지 임박 + 돌반지 — 응축 에너지가 200일선 돌파
+    if (effective.get('triangle_signal') and
+        effective.get('triangle_apex') is not None and
+        isinstance(effective.get('triangle_apex'), (int, float)) and
+        0 <= effective['triangle_apex'] <= 5 and
+        effective.get('dolbanzi')):
+        ring_count = effective.get('dolbanzi_Count', 0)
+        candidates.append({
+            'score': 480,
+            'grade': 'SSS',
+            'combination': '🔺💍삼각꼭지돌반지',
+            'tags': ['🔺꼭지임박', '💍200일돌파', '💥에너지응축폭발',
+                     f'💍{ring_count}회차반지'],
+            'type': '👑'
+        })
+
+    # 👑 [SSS급] 종베 GC + 삼각수렴 + 수박 — 방향+에너지+수급 3박자
+    if (effective.get('jongbe_ok') and
+        effective.get('triangle_signal') and
+        effective.get('watermelon_signal')):
+        candidates.append({
+            'score': 460,
+            'grade': 'SSS',
+            'combination': '💛🔺🍉종베삼각수박',
+            'tags': ['💛MA방향확정', '🔺에너지응축', '🍉수급폭발', '🚀3박자완성'],
+            'type': '👑'
+        })
+            
     # 🚀 [SS급] 골파기 V자 반등 (개미 무덤 돌파)
     if effective.get('Golpagi_Trap') and effective.get('watermelon_signal'):
         candidates.append({
@@ -919,6 +963,30 @@ def calculate_combination_score(signals):
             'combination': '🕳️🚀수박품은골파기',
             'tags': ['🕳️가짜하락(개미털기)', '🧲OBV방어', '📈20일선탈환', '🍉단기수급폭발'],
             'type': '👑' 
+        })
+    
+    # 🐍 [SS+급] 종베 GC + 독사 + 삼각수렴 — 이평선+단기+중기 동시 전환
+    if (effective.get('jongbe_ok') and
+        effective.get('viper_hook') and
+        effective.get('triangle_signal')):
+        candidates.append({
+            'score': 480,
+            'grade': 'SS+',
+            'combination': '💛🐍🔺종베독사삼각',
+            'tags': ['💛MA전환', '🐍단기전환', '🔺중기응축', '⚡3중전환'],
+            'type': '👑'
+        })
+
+    # 🕳️ [SS+급] 골파기 + 종베 GC + 삼각수렴 — 털기 후 응축 돌파
+    if (effective.get('Golpagi_Trap') and
+        effective.get('jongbe_ok') and
+        effective.get('triangle_signal')):
+        candidates.append({
+            'score': 480,
+            'grade': 'SS+',
+            'combination': '🕳️💛🔺골파기종베삼각',
+            'tags': ['🕳️가짜하락완료', '💛MA방향전환', '🔺에너지응축', '📈반등확정'],
+            'type': '👑'
         })
     
     # ── S급 ──────────────────────────────────
@@ -958,6 +1026,42 @@ def calculate_combination_score(signals):
             'type': '🗡'
         })
 
+    # 💎 [S급] 삼각수렴 + 폭발직전 + 수박 — 응축+수급+전환 황금조합
+    if (effective.get('triangle_signal') and
+        effective.get('explosion_ready') and
+        effective.get('watermelon_signal')):
+        candidates.append({
+            'score': 340,
+            'grade': 'S',
+            'combination': '🔺💎🍉삼각폭발수박',
+            'tags': ['🔺에너지응축', '💎BB수축', '🍉수급전환', '🚀폭발임박'],
+            'type': '🗡'
+        })
+
+    # 💎 [S급] 종베 GC + 바닥권 + 삼각수렴 — 바닥에서 응축 후 방향 전환
+    if (effective.get('jongbe_ok') and
+        effective.get('bottom_area') and
+        effective.get('triangle_signal')):
+        candidates.append({
+            'score': 330,
+            'grade': 'S',
+            'combination': '💛📍🔺종베바닥삼각',
+            'tags': ['💛MA전환', '📍바닥권확인', '🔺에너지응축', '🏆바닥반등확정'],
+            'type': '🗡'
+        })
+
+    # 💎 [S급] 조용한매집 + 종베 GC + 삼각수렴 — 몰래 모으다가 터지는 패턴
+    if (effective.get('silent_perfect') and
+        effective.get('jongbe_ok') and
+        effective.get('triangle_signal')):
+        candidates.append({
+            'score': 320,
+            'grade': 'S',
+            'combination': '🤫💛🔺침묵종베삼각',
+            'tags': ['🤫조용한매집완전', '💛MA전환', '🔺에너지응축', '💥침묵폭발'],
+            'type': '🛡'
+        })
+            
     # ── A급 ──────────────────────────────────
     if effective.get('watermelon_signal')   and effective.get('watermelon_red') and effective.get('explosion_ready'):
         candidates.append({
@@ -980,6 +1084,28 @@ def calculate_combination_score(signals):
             'score': 250, 'grade': 'A',
             'combination': '🔥조용폭발',
             'tags': ['🤫조용한매집강', '💎폭발직전'],
+            'type': '🛡'
+        })
+
+    # 🔥 [A급] 종베 GC + 삼각수렴 단독
+    if (effective.get('jongbe_ok') and
+        effective.get('triangle_signal')):
+        candidates.append({
+            'score': 275,
+            'grade': 'A',
+            'combination': '💛🔺종베삼각',
+            'tags': ['💛MA전환확인', '🔺삼각수렴'],
+            'type': '🛡'
+        })
+
+    # 🔥 [A급] 삼각수렴 + 역매공파 돌파
+    if (effective.get('triangle_signal') and
+        effective.get('yeok_break')):
+        candidates.append({
+            'score': 265,
+            'grade': 'A',
+            'combination': '🔺🏆삼각역매공파',
+            'tags': ['🔺삼각수렴', '🏆역매공파돌파'],
             'type': '🛡'
         })
 
