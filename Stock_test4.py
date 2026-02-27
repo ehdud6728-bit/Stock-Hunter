@@ -2309,6 +2309,17 @@ if __name__ == "__main__":
     try:
         # 1. 기본 환경 및 데이터 로드
         global_env, leader_env = get_global_and_leader_status()
+
+        # 데이터가 아예 없거나(None), 내용이 없는 경우를 대비한 방어막
+        if status is None or not status:
+            print("⚠️ [주의] 글로벌/대장주 데이터를 가져오지 못했습니다. 기본값으로 진행합니다.")
+            global_env = {"status": "UNKNOWN", "score": 50} # 기본 중립 상태
+            leader_env = []                                 # 빈 리스트로 초기화
+        else:
+            # 데이터가 정상일 때만 언패킹 진행
+            global_env, leader_env = status
+            print("✅ [성공] 시장 환경 데이터 로드 완료.")
+        
         df_krx = fdr.StockListing('KRX')
         # 위키피디아에서 나스닥 100 티커 자동 수집 (이전에 만든 함수 활용)
         nasdaq_100_list = get_nasdaq100_tickers() 
