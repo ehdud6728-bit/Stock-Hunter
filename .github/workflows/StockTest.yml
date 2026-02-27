@@ -21,13 +21,13 @@ jobs:
     - name: Install dependencies
       run: |
         pip install -r requirements.txt
-        pip install pandas numpy scipy matplotlib
         # 혹시 requirements.txt에 없다면 아래 줄 주석 해제해서 쓰세요
         # pip install finance-datareader pandas requests
         #pip install finance-datareader requests mplfinance gspread oauth2client
         python -m pip install --upgrade pip
         # 2. 모든 부품을 한 번에 설치하되, 특히 FDR은 최신 버전(-U)으로 강제 업데이트
         pip install -U finance-datareader yfinance pykrx pandas numpy requests mplfinance gspread oauth2client pytz
+        pip install pandas numpy scipy matplotlib
         #pip install pykrx finance-datareader pandas numpy pytz
         #pip install yfinance pykrx finance-datareader pandas  # 👈 여기에 yfinance 추가
         
