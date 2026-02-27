@@ -2320,8 +2320,11 @@ if __name__ == "__main__":
             # 데이터가 정상일 때만 언패킹 진행
             global_env, leader_env = status
             print("✅ [성공] 시장 환경 데이터 로드 완료.")
-        
+
         df_krx = fdr.StockListing('KRX')
+        if df_krx is None or not df_krx:
+            print("⚠️ KRX 데이터를 가져오지 못했습니다.")
+
         # 위키피디아에서 나스닥 100 티커 자동 수집 (이전에 만든 함수 활용)
         nasdaq_100_list = get_nasdaq100_tickers() 
         # 데이터프레임 형태로 변환 (기존 코드와 호환성을 위해)
