@@ -14,7 +14,7 @@ from bs4 import BeautifulSoup
 from DNA_Analyzer import analyze_dna_sequences, find_winning_pattern
 from tactics_engine import get_global_and_leader_status, analyze_all_narratives, get_dynamic_sector_leaders, calculate_dante_symmetry, watermelon_indicator_complete, judge_yeok_break_sequence_v2
 import traceback
-
+from triangle_combo_analyzer import jongbe_triangle_combo_v3
 from pykrx import stock
 import pandas as pd
 from datetime import datetime
