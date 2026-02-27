@@ -2322,13 +2322,19 @@ if __name__ == "__main__":
             global_env, leader_env = status
             print("✅ [성공] 시장 환경 데이터 로드 완료.")
 
-        df_krx = fdr.StockListing('KRX')
-        # 2. 데이터가 진짜 있는지 검증
-        if df is None or df.empty:
-            raise ValueError("KRX 데이터가 비어있습니다.")
+        # 기존 2325번 라인 근처를 아래 코드로 대체하세요
+        try:
+            print("📡 KRX 종목 리스트 보급 시도 중...")
+            df_krx = fdr.StockListing('KRX')
             
-        print("✅ [성공] KRX 종목 리스트 로드 완료.")
-
+            # 데이터가 정상적으로 들어왔는지 최종 검문
+            if df_krx is None or df_krx.empty:
+                raise ValueError("데이터가 텅 비어있습니다.")
+            else:
+                print("✅ [성공] KRX 종목 리스트 로드 완료.")        
+        except Exception as e:
+            print(f"⚠️ [보급 차단] KRX 서버 응답 없음 ({e})")
+            
         # 위키피디아에서 나스닥 100 티커 자동 수집 (이전에 만든 함수 활용)
         nasdaq_100_list = get_nasdaq100_tickers() 
         # 데이터프레임 형태로 변환 (기존 코드와 호환성을 위해)
