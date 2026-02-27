@@ -104,6 +104,12 @@ def analyze_save_googleSheet(all_hits, isNasdaq):
                 '📜서사히스토리',
                 'N구분',
                 '구분',
+                '삼각패턴',
+                '삼각수렴%',
+                '꼭지잔여',
+                '종베GC',
+                '삼각점수',
+                '삼각등급',
                 '확신점수',
                 '안전점수',
                 '섹터',
@@ -1353,26 +1359,6 @@ def get_indicators(df):
 )
     return df
 
-# 🚀 [Commander's Special] 돌반지 + 300% Vol + 쌍바닥 엔진
-def check_legend_pattern(df):
-    ma200 = df['Close'].rolling(224).mean()
-    vol_avg20 = df['Volume'].rolling(20).mean()
-    
-    # 1. 거래량 300% 폭발 (Vol Power >= 3.0)
-    vol_power = df['Volume'].iloc[-1] / vol_avg20.iloc[-1]
-    
-    # 2. 200일선 돌파 및 안착 (Stone-Ring)
-    is_above_ma200 = df['Close'].iloc[-1] > ma200.iloc[-1]
-    
-    # 3. 쌍바닥 감지 (최근 30일 내 200일선 근처 저점 2개)
-    lows = df['Low'].iloc[-30:]
-    near_ma200 = lows[abs(lows - ma200.iloc[-1]) / ma200.iloc[-1] < 0.03]
-    is_double_bottom = len(near_ma200[near_ma200 == near_ma200.rolling(5, center=True).min()]) >= 2
-
-    if vol_power >= 3.0 and is_above_ma200 and is_double_bottom:
-        return "🏆LEGEND", 100
-    return "NORMAL", 0
-
 def analyze_final_longterm(ticker, name, historical_indices, scan_days=750, sampling='weekly'):
     """
     장기 백테스트용 분석 함수 (샘플링 지원)
@@ -1717,7 +1703,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             grade, narrative, target, stop, conviction = analyze_all_narratives(
                 temp_df, name, my_sector, g_env, l_env
             )
-            
+
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
             # 1. 신호 수집
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1776,16 +1762,30 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
                 'viper_hook': row['Viper_Hook'],
                 'obv_bullish': row['OBV_Bullish'],
                 'Real_Viper_Hook': row['Real_Viper_Hook'],
-                'Golpagi_Trap': row['Golpagi_Trap']
+                'Golpagi_Trap': row['Golpagi_Trap'],
+
+                # ✅ 신규: 삼각수렴 + 종베 신호 추가
+                'jongbe_break':    row.get('Jongbe_Break', False),
+                'triangle_signal': False,   # 아래에서 채워짐
+                'triangle_apex':   None,
+                'triangle_pattern': 'None',
             }
 
+            tri_result = jongbe_triangle_combo_v3(temp_df)
+
+            if tri_result is not None:
+                signals['triangle_signal']  = tri_result['pass']
+                signals['triangle_apex']    = tri_result['apex_remain']
+                signals['triangle_pattern'] = tri_result['triangle_pattern']
+                signals['jongbe_ok']        = tri_result['jongbe']
+                signals['explosion_ready']  = signals['explosion_ready'] or tri_result['score'] >= 70
+            
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
             # 2. 조합 점수 계산
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
             print(f"✅ [본진] 조합 점수 계산!")
             result = judge_trade_with_sequence(temp_df, signals)
-            #result = calculate_combination_score(signals)
-
+            
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
             # 3. 추가 정보 태그
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1915,6 +1915,76 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             supply_strong = row['OBV_Rising'] and row['MFI_Strong']
             explosion_ready = bb_squeeze and supply_strong
 
+            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            # 🔺 삼각수렴 + 종베 골든크로스
+            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            if tri_result is not None:
+                tri = tri_result.get('triangle') or {}
+        
+            # 삼각수렴 감지
+            if tri_result.get('has_triangle') and tri.get('is_triangle'):
+                pattern_labels = {
+                    'Symmetrical': '대칭삼각',
+                    'Ascending':   '상승삼각',
+                    'Descending':  '하락삼각',
+                }
+                pat_label = pattern_labels.get(tri.get('pattern', ''), '')
+                conf      = tri.get('confidence', 'LOW')
+                conv      = tri.get('convergence_pct', 0)
+                
+                s_score += 60
+                tags.append(f"🔺{pat_label}수렴({conv:.0f}%)")
+                
+                if conf == 'HIGH':
+                    s_score += 20
+                    tags.append("🔺고신뢰삼각")
+        
+            # 꼭지점 임박
+            apex = tri_result.get('apex_remain')
+            if apex is not None:
+                if 0 <= apex <= 5:
+                    s_score += 40
+                    tags.append(f"🔺꼭지{apex}봉임박")
+                elif apex < 0:
+                    s_score -= 20
+                    tags.append(f"🔺꼭지초과{abs(apex)}봉")
+        
+            # 수렴선 교차 (에너지 소멸)
+            if tri.get('lines_crossed'):
+                s_score -= 30
+                tags.append("⚠️수렴에너지소멸")
+        
+            # 상방 돌파
+            if tri.get('breakout_up'):
+                s_score += 50
+                tags.append("🚀삼각상방돌파")
+        
+            # 하방 이탈
+            if tri.get('breakout_down'):
+                s_score -= 50
+                tags.append("🔻삼각하방이탈")
+        
+            # 종베 골든크로스
+            if tri_result.get('jongbe'):
+                s_score += 40
+                tags.append("💛종베GC")
+                detail = tri_result.get('jongbe_detail', {})
+                if detail.get('cross_recent'):
+                    tags.append("💛종베크로스(최근5일)")
+                if detail.get('ma20_accel'):
+                    tags.append("💛MA가속중")
+        
+            # 종베 + 삼각수렴 동시 달성 (최강 조합)
+            if tri_result.get('jongbe') and tri_result.get('has_triangle') and tri.get('is_triangle'):
+                s_score += 80
+                tags.append("💎종베+삼각수렴")
+        
+            # 삼각수렴 DNA
+            dna = tri_result.get('ma20_dna', '0%')
+            if int(dna.replace('%', '')) >= 70:
+                s_score += 20
+                tags.append(f"🧬MA지지DNA({dna})")
+
             #수박지표
             print(f"✅ [본진] 수박지표 계산!")
             is_watermelon = row['Watermelon_Signal']
@@ -1931,6 +2001,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
                 int(row['MFI_Strong']) +
                 int(row['Buying_Pressure'])
             )
+            
             #상단저항선 터치횟수
             total_hammering = row['Total_hammering']
             #최근20일간 매집봉 카운트
@@ -2180,6 +2251,13 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
                 'N구분': " ".join(new_tags),
                 '구분': " ".join(tags),
                 '보유일': len(h_df)
+                # ✅ 신규 컬럼 추가
+                '삼각패턴':   tri_result['triangle_pattern'] if tri_result else 'None',
+                '삼각수렴%':  tri_result['triangle']['convergence_pct'] if tri_result and tri_result.get('triangle') else 0,
+                '꼭지잔여':   tri_result['apex_remain'] if tri_result else 'N/A',
+                '종베GC':    tri_result['jongbe'] if tri_result else False,
+                '삼각점수':   tri_result['score'] if tri_result else 0,
+                '삼각등급':   tri_result['grade'] if tri_result else 'N/A',
             })
         return hits
     except Exception as e:
