@@ -52,15 +52,18 @@ def load_krx_listing_safe():
         print("📡 FDR KRX 시도...")
         df = fdr.StockListing('KRX')
         if df is None or df.empty:
+            SHEET_ID = "13Esd11iwgzLN7opMYobQ3ee6huHs1FDEbyeb3Djnu6o"
+            URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/edit?usp=sharing"
+            df_krx = pd.read_csv(URL)
+            
+        if df is None or df.empty:            
             raise ValueError("빈 데이터")
+            
         print("✅ FDR 성공")
         return df
     except Exception as e:
         print(f"⚠️ FDR 실패 → pykrx 대체 사용 ({e})")
-        SHEET_ID = "13Esd11iwgzLN7opMYobQ3ee6huHs1FDEbyeb3Djnu6o"
-        URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/edit?usp=drivesdk"
 
-        df_krx = pd.read_csv(URL)
 
         #df_krx.rename(columns={
         #       '종목코드': 'Code',
