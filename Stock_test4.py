@@ -19,6 +19,7 @@ from pykrx import stock
 import pandas as pd
 from datetime import datetime
 import traceback
+from news_sentiment import get_news_sentiment
 
 # 👇 구글 시트 매니저 연결 (파일명 확인 필수)
 try:
@@ -126,6 +127,8 @@ def analyze_save_googleSheet(all_hits, isNasdaq):
                 '🚨손절가',
                 '매입가',
                 '현재가',
+                '뉴스점수',
+                '뉴스코멘트',
                 '최고수익날',
                 '소요기간',
                 '최고수익률%',
@@ -1853,7 +1856,9 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             
             #하락기간과 횡보(공구리)기간 비교(1이상 추천)
             dante_data = calculate_dante_symmetry(temp_df)
-        
+            #최근뉴스평가
+            news_score, news_comment = get_news_sentiment(ticker)
+            
             if dante_data is None:
                 dante_data_ratio = 0
                 dante_data_mae_jip = 0
@@ -1973,7 +1978,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
 
             if signals['watermelon_red']:
                 new_tags.append(f"🍉진짜수박")
-            
+                       
             # 💡 오늘의 현재가 저장 (나중에 사용)
             today_price = df.iloc[-1]['Close']
 
@@ -2421,6 +2426,8 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
                 '종베GC':    tri_result['jongbe'] if tri_result else False,
                 '삼각점수':   tri_result['score'] if tri_result else 0,
                 '삼각등급':   tri_result['grade'] if tri_result else 'N/A',
+                '뉴스점수': news_score,
+                '뉴스코멘트': news_comment,
             })
         return hits
     except Exception as e:
