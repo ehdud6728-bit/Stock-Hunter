@@ -1941,6 +1941,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             tri = tri_result.get('triangle') or {}
             
             if tri_result is not None:
+                print(f"✅ [본진] tri_result 수집!")
                 signals['triangle_signal']  = tri_result['pass']
                 signals['triangle_apex']    = tri_result['apex_remain']
                 signals['triangle_pattern'] = tri_result['triangle_pattern']
