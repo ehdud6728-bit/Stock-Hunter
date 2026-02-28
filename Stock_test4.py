@@ -1849,9 +1849,23 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
 
             # analyze_final 함수 내부 루프 안에서
             # 최근 5일간의 진짜 거래대금 계산 (단위: 억)
-            recent_avg_amount = (df['Close'] * df['Volume']).tail(5).mean() / 100000000
-        
-            if recent_avg_amount < 300: # 평균 거래대금 300억 미만은 탈락!
+            # ─────────────────────────────
+            # 거래대금 필터 (돌파직전 대응형)
+            # ─────────────────────────────
+            
+            recent_avg_amount = (df['Close'] * df['Volume']).tail(5).mean() / 100_000_000
+            ma20_amount = (df['Close'] * df['Volume']).tail(20).mean() / 100_000_000
+            
+            amount_ok = (
+                (
+                    recent_avg_amount >= 50
+                    and recent_avg_amount >= ma20_amount * 1.5
+                )
+                or
+                recent_avg_amount >= 300
+            )
+            
+            if not amount_ok:
                 continue
             
             #하락기간과 횡보(공구리)기간 비교(1이상 추천)
