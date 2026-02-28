@@ -155,7 +155,7 @@ def analyze_save_googleSheet(all_hits, isNasdaq):
         display_cols = [c for c in desired_cols if c in today.columns]
     
         if not today.empty:
-            print(today[display_cols].head(50))
+            print(today[display_cols].head(1000))
         # 5. 구글 시트 전송
         try:
             update_commander_dashboard(
