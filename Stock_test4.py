@@ -1848,7 +1848,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             # 최근 5일간의 진짜 거래대금 계산 (단위: 억)
             recent_avg_amount = (df['Close'] * df['Volume']).tail(5).mean() / 100000000
         
-            if recent_avg_amount < 200: # 평균 거래대금 200억 미만은 탈락!
+            if recent_avg_amount < 300: # 평균 거래대금 300억 미만은 탈락!
                 continue
             
             #하락기간과 횡보(공구리)기간 비교(1이상 추천)
@@ -1940,6 +1940,10 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
                 signals['triangle_pattern'] = tri_result['triangle_pattern']
                 signals['jongbe_ok']        = tri_result['jongbe']
                 signals['explosion_ready']  = signals['explosion_ready'] or tri_result['score'] >= 70
+
+            # 3. 점수 산출 및 태그 부여
+            s_score = 100
+            tags = []
             
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
             # 2. 조합 점수 계산
@@ -2172,9 +2176,6 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             #MA밀집도
             converge = df['Converge']
 
-            # 3. 점수 산출 및 태그 부여
-            s_score = 100
-            tags = []
             print(f"✅ [본진] 라운드넘버 계산!")
             # 라운드넘버 정거장 매매법 => 현재가 기준 정거장 파악
             lower_rn, upper_rn = get_target_levels(row['Close'])
