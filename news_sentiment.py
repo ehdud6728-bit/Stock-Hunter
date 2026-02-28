@@ -1,54 +1,59 @@
 # news_sentiment.py
-from pygooglenews import GoogleNews
+import os
+import requests
+from bs4 import BeautifulSoup
 from openai import OpenAI
-import json
 
-client = OpenAI(api_key=os.environ.get('OPENAI_API_KEY'))  # 또는 환경변수 사용
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+
+def get_news_headlines(ticker, n=10):
+    """
+    Google News RSS에서 ticker 관련 최신 뉴스 n개 가져오기
+    """
+    url = f"https://news.google.com/rss/search?q={ticker}+when:7d&hl=en-US&gl=US&ceid=US:en"
+    res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'})
+    soup = BeautifulSoup(res.content, "xml")
+    items = soup.find_all("item")
+    headlines = [item.title.text for item in items[:n]]
+    return headlines
 
 def get_news_sentiment(ticker):
     """
-    ticker: 종목 코드나 이름
-    return: (score:int, comment:str)
+    뉴스 기반 점수(0~100)와 한줄 코멘트 반환
     """
-    sentiment_score = 50
-    sentiment_comment = "뉴스 없음 - 중립"
-    
+    headlines = get_news_headlines(ticker)
+    if not headlines:
+        return 50, "최근 뉴스 없음, 중립"
+
+    # ChatGPT 프롬프트
+    prompt = f"""
+    아래 {ticker} 관련 최신 뉴스 {len(headlines)}개를 분석해줘.
+    - 치명적 부정적 이슈(공급망, 규제, 경영진 문제 등)는 점수 낮게
+    - 긍정적 뉴스는 점수 높게
+    - 점수는 0(매우 부정) ~ 100(매우 긍정)
+    - 한줄 코멘트도 작성
+    뉴스: {headlines}
+    결과를 JSON으로 {"score":0~100, "comment":"..."} 형태로 출력
+    """
+
+    client = OpenAI(api_key=OPENAI_API_KEY)
+    res = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role":"system","content":"You are a financial analyst."},
+            {"role":"user","content":prompt}
+        ]
+    )
+
+    # GPT 응답에서 JSON 파싱
+    import json
     try:
-        gn = GoogleNews(lang='en')
-        search = gn.search(f'{ticker} when:7d')
-        entries = search.get('entries', [])
-        
-        if entries:
-            headlines = [entry.title for entry in entries[:10]]
-            prompt = f"""
-            다음 {ticker} 뉴스 10개를 분석하세요.
-            1. 뉴스가 긍정적이면 점수 높게, 부정적이면 낮게, 0~100 숫자로 점수화 (50은 중립)
-            2. 특히 공급망, 규제, 경영진 결함 등 치명적 리스크가 있다면 점수를 낮게 줘.
-            3. 세계 증시 전문가 관점에서 냉정하게 핵심 리스크/긍정 포인트를 한 줄로 요약 및 평가
-            헤드라인:
-            {headlines}
-            JSON 형식으로 응답:
-            {{
-                "score": 숫자,
-                "comment": "한 줄 코멘트"
-            }}
-            """
-            
-            res_gpt = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {"role":"system", "content":"You are a professional stock market analyst."},
-                    {"role":"user", "content":prompt}
-                ],
-                temperature=0.3
-            )
-            
-            content = res_gpt.choices[0].message.content
-            data = json.loads(content)
-            sentiment_score = int(data.get('score', 50))
-            sentiment_comment = data.get('comment', "코멘트 없음")
-            
-    except Exception as e:
-        print(f"⚠️ 뉴스 점수 분석 실패 ({ticker}): {e}")
+        text = res.choices[0].message.content
+        data = json.loads(text)
+        score = int(data.get("score", 50))
+        comment = data.get("comment", "코멘트 없음")
+    except Exception:
+        score = 50
+        comment = "분석 실패, 중립"
     
-    return sentiment_score, sentiment_comment
+    return score, comment
