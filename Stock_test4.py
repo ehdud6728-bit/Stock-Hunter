@@ -2547,7 +2547,7 @@ if __name__ == "__main__":
             ))
             all_hits = [item for r in results if r for item in r]
         
-        analyze_save_googleSheet(all_hits.head(1000), False)
+        analyze_save_googleSheet(all_hits[:1000], False)
 
         # 5. [나스닥전] 스캔
         all_Nasdaq_hits = []
