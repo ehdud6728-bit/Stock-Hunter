@@ -3,7 +3,7 @@ from pygooglenews import GoogleNews
 from openai import OpenAI
 import json
 
-client = OpenAI(api_key="YOUR_API_KEY")  # 또는 환경변수 사용
+client = OpenAI(api_key=os.environ.get('OPENAI_API_KEY'))  # 또는 환경변수 사용
 
 def get_news_sentiment(ticker):
     """
@@ -23,7 +23,8 @@ def get_news_sentiment(ticker):
             prompt = f"""
             다음 {ticker} 뉴스 10개를 분석하세요.
             1. 뉴스가 긍정적이면 점수 높게, 부정적이면 낮게, 0~100 숫자로 점수화 (50은 중립)
-            2. 핵심 리스크/긍정 포인트를 한 줄로 요약
+            2. 특히 공급망, 규제, 경영진 결함 등 치명적 리스크가 있다면 점수를 낮게 줘.
+            3. 세계 증시 전문가 관점에서 냉정하게 핵심 리스크/긍정 포인트를 한 줄로 요약 및 평가
             헤드라인:
             {headlines}
             JSON 형식으로 응답:
