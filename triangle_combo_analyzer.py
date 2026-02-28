@@ -146,8 +146,24 @@ def analyze_support_dna(
 # ── [3] 통합 엔진 ────────────────────────────────
 def jongbe_triangle_combo_v3(df: pd.DataFrame) -> dict | None:
 
-    if len(df) < 60:
-        return {}
+    # ── 안전 가드 ────────────────────────────────
+    if df is None or len(df) < 60:
+        return {
+            'date': 'N/A',
+            'pass': False,
+            'grade': 'C (❄️PASS)',
+            'score': 0,
+            'jongbe': False,
+            'has_triangle': False,
+            'ma20_dna': "0%",
+            'triangle_pattern': 'None',
+            'convergence_pct': 0,
+            'apex_remain': None,
+            'is_breakout': False,
+            'lines_crossed': False,
+            'triangle': {},
+            'jongbe_detail': {}
+        }
 
     df = df.copy()
     df['MA20']       = df['Close'].rolling(20).mean()
@@ -250,7 +266,7 @@ def jongbe_triangle_combo_v3(df: pd.DataFrame) -> dict | None:
         'ma20_dna':         f"{round(dna_score * 100)}%",
         'triangle_pattern': tri_safe.get('pattern', 'None'),
         'convergence_pct':  tri_safe.get('convergence_pct', 0),
-        'apex_remain':      tri_safe.get('bars_to_apex', 'None'),
+        'apex_remain':      tri_safe.get('bars_to_apex', None),
         'is_breakout':      tri_safe.get('breakout_up', False),
         'lines_crossed':    tri_safe.get('lines_crossed', False),
         'triangle':         tri_safe,
