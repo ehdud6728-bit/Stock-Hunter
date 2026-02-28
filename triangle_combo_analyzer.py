@@ -147,7 +147,7 @@ def analyze_support_dna(
 def jongbe_triangle_combo_v3(df: pd.DataFrame) -> dict | None:
 
     if len(df) < 60:
-        return None
+        return {}
 
     df = df.copy()
     df['MA20']       = df['Close'].rolling(20).mean()
@@ -185,6 +185,7 @@ def jongbe_triangle_combo_v3(df: pd.DataFrame) -> dict | None:
     # ── 삼각수렴 + DNA ───────────────────────────
     tri          = analyze_triangle_convergence_pivot_v2(df)
     has_triangle = tri is not None
+    tri_safe = tri or {}
     dna_score    = analyze_support_dna(df, 'MA20')
 
     # ── 점수 계산 ────────────────────────────────
@@ -244,16 +245,16 @@ def jongbe_triangle_combo_v3(df: pd.DataFrame) -> dict | None:
         'pass':             score >= 70,
         'grade':            grade,
         'score':            score,
-        'jongbe':           jongbe_ok,          # ✅ 이거 추가
-        'has_triangle':     has_triangle,        # ✅ 이거 추가
+        'jongbe':           jongbe_ok,
+        'has_triangle':     has_triangle,
         'ma20_dna':         f"{round(dna_score * 100)}%",
-        'triangle_pattern': tri['pattern'] if has_triangle else 'None',
-        'convergence_pct':  tri['convergence_pct'] if has_triangle else 0,
-        'apex_remain':      tri['bars_to_apex'] if has_triangle else 'N/A',
-        'is_breakout':      tri['breakout_up'] if has_triangle else False,
-        'lines_crossed':    tri.get('lines_crossed', False),
-        'triangle':         tri if has_triangle else {},   # ✅ 이거 추가 (STEP 2에서 tri 접근용)
-        'jongbe_detail': {              # ✅ 디버그용
+        'triangle_pattern': tri_safe.get('pattern', 'None'),
+        'convergence_pct':  tri_safe.get('convergence_pct', 0),
+        'apex_remain':      tri_safe.get('bars_to_apex', 'N/A'),
+        'is_breakout':      tri_safe.get('breakout_up', False),
+        'lines_crossed':    tri_safe.get('lines_crossed', False),
+        'triangle':         tri_safe,
+        'jongbe_detail': {
             'cross_recent': bool(cross_recent),
             'cross_near':   cross_near,
             'ma20_rising':  ma20_rising,
