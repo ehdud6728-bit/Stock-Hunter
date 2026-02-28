@@ -50,12 +50,12 @@ print(f"📡 [Ver 38 ] 사령부 무결성 통합 가동... 💎다이아몬드 
 def load_krx_listing_safe():
     try:
         SHEET_ID = "13Esd11iwgzLN7opMYobQ3ee6huHs1FDEbyeb3Djnu6o"
-        GID = "0"  # 시트 번호 (기본 첫 시트)
+        GID = "1238448456"
     
-        url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/edit?usp=sharing"
+        url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={GID}"
+    
         df = pd.read_csv(
             url,
-            sep="\t",          # ⭐ 핵심
             encoding="utf-8",
             engine="python"
         )
