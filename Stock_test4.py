@@ -1940,13 +1940,17 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             tri_result = jongbe_triangle_combo_v3(temp_df) or {}
             tri = tri_result.get('triangle') or {}
             
-            if tri_result is not None:
-                print(f"✅ [본진] tri_result 수집!")
-                signals['triangle_signal']  = tri_result['pass']
-                signals['triangle_apex']    = tri_result['apex_remain']
-                signals['triangle_pattern'] = tri_result['triangle_pattern']
-                signals['jongbe_ok']        = tri_result['jongbe']
-                signals['explosion_ready']  = signals['explosion_ready'] or tri_result['score'] >= 70
+            try:
+                if tri_result is not None:
+                    print(f"✅ [본진] tri_result 수집!")
+                    signals['triangle_signal']  = tri_result['pass']
+                    signals['triangle_apex']    = tri_result['apex_remain']
+                    signals['triangle_pattern'] = tri_result['triangle_pattern']
+                    signals['jongbe_ok']        = tri_result['jongbe']
+                    signals['explosion_ready']  = signals['explosion_ready'] or tri_result['pass']
+            except Exception as e:
+                print(f"🚨 tri_result 계산 실패: {e}")
+                tri_result = {}
 
             # 3. 점수 산출 및 태그 부여
             s_score = 100
