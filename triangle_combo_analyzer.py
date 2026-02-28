@@ -250,7 +250,7 @@ def jongbe_triangle_combo_v3(df: pd.DataFrame) -> dict | None:
         'ma20_dna':         f"{round(dna_score * 100)}%",
         'triangle_pattern': tri_safe.get('pattern', 'None'),
         'convergence_pct':  tri_safe.get('convergence_pct', 0),
-        'apex_remain':      tri_safe.get('bars_to_apex', 'N/A'),
+        'apex_remain':      tri_safe.get('bars_to_apex', 'None'),
         'is_breakout':      tri_safe.get('breakout_up', False),
         'lines_crossed':    tri_safe.get('lines_crossed', False),
         'triangle':         tri_safe,
