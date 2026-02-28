@@ -2174,7 +2174,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             #볼린저밴드 20,40 골든크로스
             jongbe_break = row['Jongbe_Break']
             #MA밀집도
-            converge = df['Converge']
+            converge = df['MA_Convergence']
 
             print(f"✅ [본진] 라운드넘버 계산!")
             # 라운드넘버 정거장 매매법 => 현재가 기준 정거장 파악
