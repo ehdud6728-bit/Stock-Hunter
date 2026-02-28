@@ -62,11 +62,11 @@ def load_krx_listing_safe():
 
         df_krx = pd.read_csv(URL)
 
-        df_krx.rename(columns={
-               '종목코드': 'Code',
-               '회사명': 'Name',
-               '시장구분': 'Market'
-               }, inplace=True)
+        #df_krx.rename(columns={
+        #       '종목코드': 'Code',
+        #       '회사명': 'Name',
+        #       '시장구분': 'Market'
+        #       }, inplace=True)
 
         return df_krx
 
