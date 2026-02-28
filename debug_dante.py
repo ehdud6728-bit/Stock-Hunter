@@ -18,9 +18,44 @@ DROP_RATE = 0.30      # 30% 하락
 MA_MARGIN = 0.15      # 이평선 근처 범위 (여기를 10% -> 15%로 늘려볼 예정)
 STOP_LOSS_RANGE = 40  # 40일 최저가
 
+def load_krx_listing_safe():
+    try:
+        print("📡 FDR KRX 시도...")
+        df = fdr.StockListing('KRX')
+        if df is None or df.empty:
+            raise ValueError("빈 데이터")
+        print("✅ FDR 성공")
+        return df
+    except Exception as e:
+        print(f"⚠️ FDR 실패 → pykrx 대체 사용 ({e})")
+        SHEET_ID = "13Esd11iwgzLN7opMYobQ3ee6huHs1FDEbyeb3Djnu6o"
+        URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/edit?usp=drivesdk"
+
+        df_krx = pd.read_csv(URL)
+
+        df_krx.rename(columns={
+               '종목코드': 'Code',
+               '회사명': 'Name',
+               '시장구분': 'Market'
+               }, inplace=True)
+
+        return df_krx
+
 def diagnose_stock(code, name):
     print(f"\n💉 [진단 시작] {name} ({code})")
     
+    try:
+        print("📡 KRX 종목 리스트 보급 시도 중...")
+        df_krx = load_krx_listing_safe()
+        
+        # 데이터가 정상적으로 들어왔는지 최종 검문
+        if df_krx is None or df_krx.empty:
+            raise ValueError("데이터가 텅 비어있습니다.")
+        else:
+            print("✅ [성공] KRX 종목 리스트 로드 완료.")        
+    except Exception as e:
+        print(f"⚠️ [보급 차단] KRX 서버 응답 없음 ({e})")
+        
     # 2년치 데이터 가져오기
     try:
         df = fdr.DataReader(code, start=(datetime.now() - timedelta(days=730)).strftime('%Y-%m-%d'))
