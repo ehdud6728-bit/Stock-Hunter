@@ -1848,7 +1848,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             # 최근 5일간의 진짜 거래대금 계산 (단위: 억)
             recent_avg_amount = (df['Close'] * df['Volume']).tail(5).mean() / 100000000
         
-            if recent_avg_amount < 50: # 평균 거래대금 50억 미만은 탈락!
+            if recent_avg_amount < 200: # 평균 거래대금 200억 미만은 탈락!
                 continue
             
             #하락기간과 횡보(공구리)기간 비교(1이상 추천)
@@ -2517,7 +2517,10 @@ if __name__ == "__main__":
         df_clean = df_clean[~df_clean['Name'].str.contains('ETF|ETN|스팩|제[0-9]+호|우$|우A|우B|우C')]
         
         # 💰 거래대금 상위 추출 (국내)
-        target_stocks = df_clean.sort_values(by='Amount', ascending=False).head(TOP_N)
+        if 'Amount' in df_clean.columns:
+            target_stocks = df_clean.sort_values(by='Amount', ascending=False).head(TOP_N)
+        else:
+            target_stocks = df_clean.copy()
         
         # 💰 시가총액 상위 추출 (미국) - 미국 fdr 데이터는 Marcap 기준이 안정적입니다.
         target_Nasdaq_stocks = df_us_all.head(TOP_N)
@@ -2543,7 +2546,7 @@ if __name__ == "__main__":
             ))
             all_hits = [item for r in results if r for item in r]
         
-        analyze_save_googleSheet(all_hits, False)
+        analyze_save_googleSheet(all_hits.head(1000), False)
 
         # 5. [나스닥전] 스캔
         all_Nasdaq_hits = []
