@@ -49,12 +49,13 @@ print(f"📡 [Ver 38 ] 사령부 무결성 통합 가동... 💎다이아몬드 
 
 def load_krx_listing_safe():
     try:
-        print("📡 FDR KRX 시도...")
-        df = fdr.StockListing('KRX')
+        SHEET_ID = "13Esd11iwgzLN7opMYobQ3ee6huHs1FDEbyeb3Djnu6o"
+        URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/edit?usp=sharing"
+        df_krx = pd.read_csv(URL)
+        
         if df is None or df.empty:
-            SHEET_ID = "13Esd11iwgzLN7opMYobQ3ee6huHs1FDEbyeb3Djnu6o"
-            URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/edit?usp=sharing"
-            df_krx = pd.read_csv(URL)
+            print("📡 FDR KRX 시도...")
+            df = fdr.StockListing('KRX')    
             
         if df is None or df.empty:            
             raise ValueError("빈 데이터")
