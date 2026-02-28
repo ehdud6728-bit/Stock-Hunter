@@ -52,8 +52,7 @@ def load_krx_listing_safe():
         SHEET_ID = "13Esd11iwgzLN7opMYobQ3ee6huHs1FDEbyeb3Djnu6o"
         GID = "0"  # 시트 번호 (기본 첫 시트)
     
-        url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=tsv&gid={GID}"
-    
+        url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/edit?usp=sharing"
         df = pd.read_csv(
             url,
             sep="\t",          # ⭐ 핵심
