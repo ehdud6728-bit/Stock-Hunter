@@ -2486,6 +2486,13 @@ if __name__ == "__main__":
         try:
             print("📡 KRX 종목 리스트 보급 시도 중...")
             df_krx = load_krx_listing_safe()
+            df_krx['Code'] = (
+                df_krx['Code']
+                .fillna('')
+                .astype(str)
+                .str.replace('.0', '', regex=False)
+                .str.zfill(6)
+            )
             
             # 데이터가 정상적으로 들어왔는지 최종 검문
             if df_krx is None or df_krx.empty:
