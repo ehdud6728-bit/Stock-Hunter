@@ -51,7 +51,7 @@ def load_krx_listing_safe():
     try:
         SHEET_ID = "13Esd11iwgzLN7opMYobQ3ee6huHs1FDEbyeb3Djnu6o"
         URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/edit?usp=sharing"
-        df_krx = pd.read_csv(URL)
+        df = pd.read_csv(URL)
         
         if df is None or df.empty:
             print("📡 FDR KRX 시도...")
