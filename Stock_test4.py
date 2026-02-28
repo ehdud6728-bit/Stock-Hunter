@@ -2505,6 +2505,7 @@ if __name__ == "__main__":
         print(f"✅ [글로벌 전면전] 총 {len(df_us_all)}개 미국 종목 확보")
 
         # 2. 국내주식 정제 및 타겟팅
+        df_clean['Name'] = df_clean['Name'].astype(str)
         df_clean = df_krx[df_krx['Market'].isin(['KOSPI', 'KOSDAQ','코스닥','유가'])]
         df_clean = df_clean[~df_clean['Name'].str.contains('ETF|ETN|스팩|제[0-9]+호|우$|우A|우B|우C')]
         
