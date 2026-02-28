@@ -1932,8 +1932,9 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
                 'triangle_pattern': 'None',
             }
 
-            tri_result = jongbe_triangle_combo_v3(temp_df)
-
+            tri_result = jongbe_triangle_combo_v3(temp_df) or {}
+            tri = tri_result.get('triangle') or {}
+            
             if tri_result is not None:
                 signals['triangle_signal']  = tri_result['pass']
                 signals['triangle_apex']    = tri_result['apex_remain']
