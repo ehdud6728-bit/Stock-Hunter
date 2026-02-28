@@ -50,12 +50,15 @@ print(f"📡 [Ver 38 ] 사령부 무결성 통합 가동... 💎다이아몬드 
 def load_krx_listing_safe():
     try:
         SHEET_ID = "13Esd11iwgzLN7opMYobQ3ee6huHs1FDEbyeb3Djnu6o"
-        URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/edit?usp=sharing"
+        GID = "0"  # 시트 번호 (기본 첫 시트)
+    
+        url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=tsv&gid={GID}"
+    
         df = pd.read_csv(
-        path,
-        sep="\t",                 # ⭐ 핵심
-        encoding="utf-8",
-        engine="python"
+            url,
+            sep="\t",          # ⭐ 핵심
+            encoding="utf-8",
+            engine="python"
         )
         
         if df is None or df.empty:
