@@ -2563,9 +2563,14 @@ if __name__ == "__main__":
                 lambda p: analyze_final(p[0], p[1], weather_data, global_env, leader_env, sector_master_map), 
                 zip(target_stocks['Code'], target_stocks['Name'])
             ))
+            print(f"📦 results 수: {len(results)}")
             all_hits = [item for r in results if r for item in r]
-        
-        analyze_save_googleSheet(all_hits[:1000], False)
+            print(f"🎯 all_hits 수: {len(all_hits)}")
+            
+        if not all_hits:
+            print("⚠️ all_hits 비어있음 → 조건 만족 종목 없음")
+        else:
+            analyze_save_googleSheet(all_hits[:1000], False)
 
         # 5. [나스닥전] 스캔
         all_Nasdaq_hits = []
