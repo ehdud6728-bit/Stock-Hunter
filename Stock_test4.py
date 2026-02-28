@@ -2381,6 +2381,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
                 current_price = close_p
                 max_date_ts = curr_idx.strftime('%Y-%m-%d')
 
+            print(f"🕵️ [분석 완료] {name}: {grade}점")
             hits.append({
                 '날짜': curr_idx.strftime('%Y-%m-%d'),
                 '👑등급': grade,
