@@ -24,8 +24,12 @@ from news_sentiment import get_news_sentiment
 # 👇 구글 시트 매니저 연결 (파일명 확인 필수)
 try:
     from google_sheet_managerEx import update_commander_dashboard
-except ImportError:
-    def update_commander_dashboard(*args, **kwargs): print("⚠️ 구글 시트 모듈 연결 실패")
+except Exception as e:
+    print("⚠️ 구글 시트 모듈 import 실패:", e)
+    import traceback
+    traceback.print_exc()
+    def update_commander_dashboard(*args, **kwargs):
+        print("⚠️ 더미 함수 실행됨")
 
 warnings.filterwarnings('ignore')
 
