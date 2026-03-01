@@ -1894,7 +1894,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
             # 1. 신호 수집
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            print(f"✅ [본진] 신호 수집!")
+            #print(f"✅ [본진] 신호 수집!")
             signals = {
                 # 수박지표
                 'watermelon_signal': row['Watermelon_Signal'],
@@ -1960,7 +1960,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
 
             try:
                 if tri_result is not None:
-                    print(f"✅ [본진] tri_result 수집!")
+                    #print(f"✅ [본진] tri_result 수집!")
                     signals['triangle_signal']  = tri_result['pass']
                     signals['triangle_apex']    = tri_result['apex_remain']
                     signals['triangle_pattern'] = tri_result['triangle_pattern']
@@ -1977,7 +1977,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
             # 2. 조합 점수 계산
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            print(f"✅ [본진] 조합 점수 계산!")
+            #print(f"✅ [본진] 조합 점수 계산!")
             result = judge_trade_with_sequence(temp_df, signals)
             
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -2005,7 +2005,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             # 💡 오늘의 현재가 저장 (나중에 사용)
             today_price = df.iloc[-1]['Close']
 
-            print(f"✅ [본진] 꼬리% 정밀 계산!")
+            #print(f"✅ [본진] 꼬리% 정밀 계산!")
             # 1. 꼬리% 정밀 계산
             high_p, low_p, close_p, open_p = row['High'], row['Low'], row['Close'], row['Open']
             body_max = max(open_p, close_p)
@@ -2020,7 +2020,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             is_yeok_mae_old = close_p > row['MA112'] and prev['Close'] <= row['MA112']
             is_vol_power = row['Volume'] > row['VMA20'] * 2.5
 
-            print(f"✅ [본진] 역매공파 계산!")
+            #print(f"✅ [본진] 역매공파 계산!")
             # --- [역매공파 통합 7단계 로직] ---
             # 1. [역(逆)] 역배열 바닥 탈출 (5/20 골든크로스)
             # 의미: 하락을 멈추고 단기 추세를 돌리는 첫 신호
@@ -2056,7 +2056,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             #돌반지
             isDolbanzi = row['Dolbanzi']
             
-            print(f"✅ [본진] 역매공파 최종 계산!")
+            #print(f"✅ [본진] 역매공파 최종 계산!")
             # 🏆 [최종 판정] 7가지 중 5가지 이상 만족 시 '정예', 7가지 모두 만족 시 'LEGEND'
             conditions = [is_yeok, is_mae, is_gong, is_pa, is_volume, is_safe, is_obv]
             match_count = sum(conditions)
@@ -2081,7 +2081,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
             # 🤫 조용한 매집 (신규 지표 활용!)
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            print(f"✅ [본진] 조용한 매집 계산!")
+            #print(f"✅ [본진] 조용한 매집 계산!")
             silent_1_atr = row['ATR_Below_Days'] >= 7
             silent_2_mfi_persist = row['MFI_Strong_Days'] >= 7
             silent_3_mfi_current = row['MFI'] > 50
@@ -2096,7 +2096,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
             # 🏆 역매공파 바닥권 (신규 지표 활용!)
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            print(f"✅ [본진] 역매공파 바닥권 계산!")
+            #print(f"✅ [본진] 역매공파 바닥권 계산!")
             near_ma112 = row['Near_MA112'] <= 5.0
             long_bottom = row['Below_MA112_60d'] >= 40
             bottom_area = near_ma112 and long_bottom
@@ -2104,7 +2104,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
             # 💎 폭발 직전 (BB수축 + 수급)
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            print(f"✅ [본진] 폭발 직전 (BB수축 + 수급) 계산!")
+            #print(f"✅ [본진] 폭발 직전 (BB수축 + 수급) 계산!")
             bb_squeeze = row['BB40_Width'] <= 10.0
             supply_strong = row['OBV_Rising'] and row['MFI_Strong']
             explosion_ready = bb_squeeze and supply_strong
@@ -2180,7 +2180,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
                 tags.append(f"🧬MA지지DNA({dna})")
 
             #수박지표
-            print(f"✅ [본진] 수박지표 계산!")
+            #print(f"✅ [본진] 수박지표 계산!")
             is_watermelon = row['Watermelon_Signal']
             watermelon_color = row['Watermelon_Color']
             watermelon_red = row['Watermelon_Red']
@@ -2205,7 +2205,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             #MA밀집도
             converge = df['MA_Convergence']
 
-            print(f"✅ [본진] 라운드넘버 계산!")
+            #print(f"✅ [본진] 라운드넘버 계산!")
             # 라운드넘버 정거장 매매법 => 현재가 기준 정거장 파악
             lower_rn, upper_rn = get_target_levels(row['Close'])
             avg_money = (row['Close'] * row['Volume']) # 간이 거래대금
