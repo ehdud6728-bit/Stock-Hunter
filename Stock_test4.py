@@ -1858,11 +1858,11 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             
             amount_ok = (
                 (
-                    recent_avg_amount >= 150
+                    recent_avg_amount >= 300
                     and recent_avg_amount >= ma20_amount * 1.5
                 )
                 or
-                recent_avg_amount >= 500
+                recent_avg_amount >= 1000
             )
             
             if not amount_ok:
