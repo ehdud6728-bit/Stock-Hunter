@@ -37,13 +37,15 @@ warnings.filterwarnings('ignore')
 # ⚙️ [1. 설정 및 글로벌 변수]
 # =================================================
 DNA_CHECK = False
-SCAN_DAYS = 2       # 최근 30일 내 타점 전수 조사
+SCAN_DAYS = 20       # 최근 30일 내 타점 전수 조사
 TOP_N = 600         # 거래대금 상위 종목 수 (필요시 2500으로 확장 가능)
 KST = pytz.timezone('Asia/Seoul')
 NOW = datetime.now(KST)
 TODAY_STR = NOW.strftime('%Y-%m-%d')
 START_DATE = (datetime.now() - timedelta(days=600)).strftime('%Y-%m-%d')
 END_DATE_STR = datetime.now().strftime('%Y%m%d')
+RECENT_AVG_AMOUNT_1 = 200 #거래대금조건 * 1.5
+RECENT_AVG_AMOUNT_2 = 500 #거래대금조건
 
 # 사령관님의 21개 라운드넘버 리스트
 RN_LIST = [500, 1000, 1500, 2000, 3000, 5000, 7500, 10000, 15000, 20000, 
@@ -1862,11 +1864,11 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             
             amount_ok = (
                 (
-                    recent_avg_amount >= 300
+                    recent_avg_amount >= RECENT_AVG_AMOUNT_1
                     and recent_avg_amount >= ma20_amount * 1.5
                 )
                 or
-                recent_avg_amount >= 1000
+                recent_avg_amount >= RECENT_AVG_AMOUNT_2
             )
             
             if not amount_ok:
