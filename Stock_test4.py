@@ -44,8 +44,8 @@ NOW = datetime.now(KST)
 TODAY_STR = NOW.strftime('%Y-%m-%d')
 START_DATE = (datetime.now() - timedelta(days=600)).strftime('%Y-%m-%d')
 END_DATE_STR = datetime.now().strftime('%Y%m%d')
-RECENT_AVG_AMOUNT_1 = 200 #거래대금조건 * 1.5
-RECENT_AVG_AMOUNT_2 = 500 #거래대금조건
+RECENT_AVG_AMOUNT_1 = 150 #거래대금조건 * 1.5
+RECENT_AVG_AMOUNT_2 = 350 #거래대금조건
 
 # 사령관님의 21개 라운드넘버 리스트
 RN_LIST = [500, 1000, 1500, 2000, 3000, 5000, 7500, 10000, 15000, 20000, 
