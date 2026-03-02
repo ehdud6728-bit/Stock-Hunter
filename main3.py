@@ -1687,6 +1687,10 @@ if __name__ == "__main__":
     
     # 2. 전 종목 스캔
     #df_krx = fdr.StockListing('KRX')
+    # 2. 국내주식 정제 및 타겟팅
+    df_clean = df_krx[df_krx['Market'].isin(['KOSPI', 'KOSDAQ','코스닥','유가'])]
+    df_clean['Name'] = df_clean['Name'].astype(str)
+    df_clean = df_clean[~df_clean['Name'].str.contains('ETF|ETN|스팩|제[0-9]+호|우$|우A|우B|우C')]
     # ✅ 안전한 코드 (인덱스 동기화)
     # 💰 거래대금 상위 추출 (국내)
     if 'Amount' in df_clean.columns:
