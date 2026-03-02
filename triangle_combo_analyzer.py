@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 from scipy.stats import linregress
-
+import ta
 
 # ── [1] 삼각수렴 ─────────────────────────────────
 def analyze_triangle_convergence_pivot_v2(
