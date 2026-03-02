@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 from scipy.stats import linregress
 import ta
+from ta.trend import ADXIndicator
 
 # ── [1] 삼각수렴 ─────────────────────────────────
 def analyze_triangle_convergence_pivot_v2(
@@ -171,9 +172,10 @@ def jongbe_triangle_combo_v3(df: pd.DataFrame) -> dict | None:
     df['MA40_slope'] = (df['MA40'] - df['MA40'].shift(5)) / (df['MA40'].shift(5) + 1e-9) * 100
 
     # ✅ DMI 계산 추가
-    df['plus_di']  = ta.trend.plus_di(df['High'], df['Low'], df['Close'], 14)
-    df['minus_di'] = ta.trend.minus_di(df['High'], df['Low'], df['Close'], 14)
-    df['adx']      = ta.trend.adx(df['High'], df['Low'], df['Close'], 14)
+    adx = ADXIndicator(df['High'], df['Low'], df['Close'], window=14)
+    df['adx'] = adx.adx()
+    df['plus_di'] = adx.adx_pos()
+    df['minus_di'] = adx.adx_neg()
 
     curr = df.iloc[-1]
     prev = df.iloc[-2]
