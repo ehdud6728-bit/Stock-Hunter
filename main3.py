@@ -393,7 +393,7 @@ def calculate_combination_score(signals):
     if effective.get('jongbe_ok') and effective.get('dmi_ok'):
         score += 500
 
-    if effective.get('triangle_pattern') = 'Symmetrical' and effective.get('MA_Convergence') <= 50:
+    if effective.get('triangle_pattern') == 'Symmetrical' and effective.get('MA_Convergence') <= 50:
         score += 500
 
     if ((effective.get('dmi_ok') or effective.get('dmi_cross')) and effective.get('MA_Convergence') <= 1.5):
