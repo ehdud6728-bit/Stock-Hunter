@@ -1254,7 +1254,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             'triangle_apex':   None,
             'triangle_pattern': 'None',
 
-            'MA_Convergence' = df['MA_Convergence']
+            'MA_Convergence': df['MA_Convergence']
         }
      
         try:
