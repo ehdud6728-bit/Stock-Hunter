@@ -3,6 +3,7 @@ import numpy as np
 from scipy.stats import linregress
 import ta
 from ta.trend import ADXIndicator
+from __future__ import annotations
 
 # ── [1] 삼각수렴 ─────────────────────────────────
 def analyze_triangle_convergence_pivot_v2(
