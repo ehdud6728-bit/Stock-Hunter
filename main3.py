@@ -1253,7 +1253,8 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             'triangle_signal': False,   # 아래에서 채워짐
             'triangle_apex':   None,
             'triangle_pattern': 'None',
-
+            'dmi_cross': False,
+            'dmi_ok': False,
             'MA_Convergence': df['MA_Convergence'],
         }
      
