@@ -405,9 +405,9 @@ def calculate_combination_score(signals):
 
     # ── C급 ──────────────────────────────────
     if effective.get('obv_rising') and effective.get('mfi_strong'):
-        return {'score': score += 170, 'grade': 'C', 'combination': '📊OBV+MFI', 'tags': ['📊OBV', '💰MFI'], 'type': None}
+        return {'score': score + 170, 'grade': 'C', 'combination': '📊OBV+MFI', 'tags': ['📊OBV', '💰MFI'], 'type': None}
     if effective.get('volume_surge') and effective.get('obv_rising'):
-        return {'score': score += 155, 'grade': 'C', 'combination': '⚡거래량+OBV', 'tags': ['⚡거래량', '📊OBV'], 'type': None}
+        return {'score': score + 155, 'grade': 'C', 'combination': '⚡거래량+OBV', 'tags': ['⚡거래량', '📊OBV'], 'type': None}
 
     # ── D급 ──────────────────────────────────
     tags, bonus = [], 0
