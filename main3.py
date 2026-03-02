@@ -15,8 +15,9 @@ from datetime import datetime, timedelta
 from bs4 import BeautifulSoup 
 import pytz
 from tactics_engine import get_global_and_leader_status, analyze_all_narratives, get_dynamic_sector_leaders, calculate_dante_symmetry, watermelon_indicator_complete, judge_yeok_break_sequence_v2
+from triangle_combo_analyzer import jongbe_triangle_combo_v3
 import traceback
-
+from news_sentiment import get_news_sentiment
 from pykrx import stock
 import pandas as pd
 from datetime import datetime
@@ -70,8 +71,45 @@ START_DATE = (datetime.now() - timedelta(days=600)).strftime('%Y-%m-%d')
 END_DATE_STR = datetime.now().strftime('%Y%m%d')
 START_DATE_STR = (datetime.now() - timedelta(days=60)).strftime('%Y%m%d')
 
+RECENT_AVG_AMOUNT_1 = 100 #거래대금조건 * 1.5
+RECENT_AVG_AMOUNT_2 = 300 #거래대금조건
+
 print(f"📡 [Ver 27.0] 사령부 퍼펙트 오버홀 가동... 스토캐스틱 레이더 및 전 지표 동기화")
 
+def load_krx_listing_safe():
+    try:
+        SHEET_ID = "13Esd11iwgzLN7opMYobQ3ee6huHs1FDEbyeb3Djnu6o"
+        GID = "1238448456"
+    
+        url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={GID}"
+    
+        df = pd.read_csv(
+            url,
+            encoding="utf-8",
+            engine="python"
+        )
+        
+        if df is None or df.empty:
+            print("📡 FDR KRX 시도...")
+            df = fdr.StockListing('KRX')    
+            
+        if df is None or df.empty:            
+            raise ValueError("빈 데이터")
+            
+        print("✅ FDR 성공")
+        return df
+    except Exception as e:
+        print(f"⚠️ FDR 실패 → pykrx 대체 사용 ({e})")
+
+
+        #df_krx.rename(columns={
+        #       '종목코드': 'Code',
+        #       '회사명': 'Name',
+        #       '시장구분': 'Market'
+        #       }, inplace=True)
+
+        return df_krx
+     
 def get_stock_sector(ticker, sector_map):
     """
     기존에 수집된 섹터 마스터 맵에서 종목의 업종을 판독합니다.
@@ -351,16 +389,25 @@ def calculate_combination_score(signals):
             'tags': ['📍바닥권'],
             'type': '🔍'
         })
+     
+    if effective.get('jongbe_ok') and effective.get('dmi_ok'):
+        score += 500
 
+    if effective.get('triangle_pattern') = 'Symmetrical' and effective.get('MA_Convergence') <= 50:
+        score += 500
+
+    if ((effective.get('dmi_ok') or effective.get('dmi_cross')) and effective.get('MA_Convergence') <= 1.5):
+        score += 500
+     
     # 최고점 조합 반환 (결과가 여러 개라도 가장 점수가 높은 1개만 사령관님께 보고합니다)
     if candidates:
         return max(candidates, key=lambda x: x['score'])
 
     # ── C급 ──────────────────────────────────
     if effective.get('obv_rising') and effective.get('mfi_strong'):
-        return {'score': 170, 'grade': 'C', 'combination': '📊OBV+MFI', 'tags': ['📊OBV', '💰MFI'], 'type': None}
+        return {'score': score += 170, 'grade': 'C', 'combination': '📊OBV+MFI', 'tags': ['📊OBV', '💰MFI'], 'type': None}
     if effective.get('volume_surge') and effective.get('obv_rising'):
-        return {'score': 155, 'grade': 'C', 'combination': '⚡거래량+OBV', 'tags': ['⚡거래량', '📊OBV'], 'type': None}
+        return {'score': score += 155, 'grade': 'C', 'combination': '⚡거래량+OBV', 'tags': ['⚡거래량', '📊OBV'], 'type': None}
 
     # ── D급 ──────────────────────────────────
     tags, bonus = [], 0
@@ -368,7 +415,7 @@ def calculate_combination_score(signals):
     if effective.get('mfi_strong'):   bonus += 20; tags.append('💰MFI')
     if effective.get('volume_surge'): bonus += 10; tags.append('⚡거래량')
 
-    return {'score': 100 + bonus, 'grade': 'D', 'combination': '🔍기본', 'tags': tags, 'type': None}
+    return {'score': score + bonus, 'grade': 'D', 'combination': '🔍기본', 'tags': tags, 'type': None}
 
 # ---------------------------------------------------------
 # 🏥 [2] 재무 건전성 분석 (건강검진)
@@ -448,6 +495,21 @@ def get_indicators(df):
     df = df.copy()
     count = len(df)
 
+    recent_avg_amount = (df['Close'] * df['Volume']).tail(5).mean() / 100_000_000
+    ma20_amount = (df['Close'] * df['Volume']).tail(20).mean() / 100_000_000
+            
+    amount_ok = (
+        (
+            recent_avg_amount >= RECENT_AVG_AMOUNT_1
+            and recent_avg_amount >= ma20_amount * 1.5
+        )
+        or
+        recent_avg_amount >= RECENT_AVG_AMOUNT_2
+    )
+    
+    if not amount_ok:
+        None
+     
      # 단테 장기선 포함 이평선
     for n in [5, 10, 20, 40, 60, 112, 224]:
         df[f'MA{n}'] = df['Close'].rolling(window=min(count, n)).mean()
@@ -721,6 +783,25 @@ def get_indicators(df):
 
     # 👑 [최종 융합] 이 모든 조건이 맞아떨어지면 완벽한 '골파기 후 반등' 패턴!
     df['Golpagi_Trap'] = df['was_broken_20'] & df['is_fake_drop'] & df['obv_divergence'] & df['reclaim_20']
+
+     # 1. 파란 점선: VWMA (거래량 가중 40일 이평)
+    # 종가에 거래량을 곱한 값의 합을 거래량의 합으로 나눕니다.
+    df['VWMA40'] = (df['Close'] * df['Volume']).rolling(window=40).mean() / df['Volume'].rolling(window=40).mean()
+
+    # 3. 수박 에너지 (화력) 계산 - 사령관님의 '킥(Kick)' 적용
+    # 이격도(현재가/VWMA40)에 거래량 가속도(당일거래량/5일평균)를 곱함
+    df['Vol_Accel'] = df['Volume'] / df['Volume'].rolling(window=5).mean()
+    df['Watermelon_Fire'] = (df['Close'] / df['VWMA40'] - 1) * 100 * df['Vol_Accel']
+    
+    # 4. 수박 상태 판독
+    # 초록수박: 파란점선 위 + 에너지가 모이는 중 (밴드폭 10% 이내)
+    df['Watermelon_Green'] = (df['Close'] > df['VWMA40']) & (df['BB40_Width'] < 0.10)
+    
+    # 빨간수박(폭발): 초록수박 상태에서 화력이 임계값(예: 5)을 돌파할 때
+    df['Watermelon_Red'] = df['Watermelon_Green'] & (df['Watermelon_Fire'] > 5.0)
+
+    df['Watermelon_Red2'] = ((df['Close'].iloc[-1] > df['VWMA40'].iloc[-1]) and
+                            (df['Close'].iloc[-1] >= df['Open'].iloc[-1]))
  
     return df
     
@@ -920,6 +1001,11 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         if len(df) < 100: return []
 
         df = get_indicators(df)
+        
+        #조건에 맞지 않으면 처리하지 않는다.
+        if df is None or df.empty:
+            return []  # 또는 pd.DataFrame()
+         
         # 글로벌 weather_data
         df = df.join(historical_indices, how='left').fillna(method='ffill')
 
@@ -1095,7 +1181,14 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         grade, narrative, target, stop, conviction = analyze_all_narratives(
             temp_df, name, my_sector, g_env, l_env
         )
-     
+
+        try:
+            tri_result = jongbe_triangle_combo_v3(temp_df) or {}
+            tri = tri_result.get('triangle') or {}
+        except Exception as e:
+            print(f"🚨 jongbe_triangle_combo_v3 계산 실패: {e}")
+            tri_result = {}
+         
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         # 1. 신호 수집
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1153,8 +1246,38 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             'viper_hook': row['Viper_Hook'],
             'obv_bullish': row['OBV_Bullish'],
             'Real_Viper_Hook': row['Real_Viper_Hook'],
-            'Golpagi_Trap': row['Golpagi_Trap']
+            'Golpagi_Trap': row['Golpagi_Trap'],
+
+            # ✅ 신규: 삼각수렴 + 종베 신호 추가
+            'jongbe_break':    row.get('Jongbe_Break', False),
+            'triangle_signal': False,   # 아래에서 채워짐
+            'triangle_apex':   None,
+            'triangle_pattern': 'None',
+
+            'MA_Convergence' = df['MA_Convergence']
         }
+     
+        try:
+            if tri_result is not None:
+                #print(f"✅ [본진] tri_result 수집!")
+                signals['triangle_signal']  = tri_result['pass']
+                signals['triangle_apex']    = tri_result['apex_remain']
+                signals['triangle_pattern'] = tri_result['triangle_pattern']
+                signals['jongbe_ok']        = tri_result['jongbe']
+                signals['explosion_ready']  = signals['explosion_ready'] or tri_result['pass']
+                # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                # 🔺 삼각수렴 + 종베 골든크로스
+                # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                signals['dmi_cross'] = tri_result['triangle']['dmi_cross'] if tri_result and tri_result.get('dmi_cross') else False
+                signals['dmi_ok'] = tri_result['triangle']['dmi_ok'] if tri_result and tri_result.get('dmi_ok') else False
+                if tri_result['triangle']['dmi_ok']
+                    new_tags.append(f"✅DMI")
+                if tri_result['pass']
+                    new_tags.append(f"🔺삼각수렴")
+                
+        except Exception as e:
+            print(f"🚨 tri_result 계산 실패: {e}")
+            tri_result = {}
      
         # 세부 정보 추가
         if signals['watermelon_signal']:
@@ -1170,6 +1293,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         if row['Dolbanzi']:
             new_tags.append(f"🟡돌반지")
 
+         
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         # 2. 조합 점수 계산
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1516,7 +1640,14 @@ if __name__ == "__main__":
 
     # 2. 전 종목 리스트 로드 및 명찰 강제 통일
     try:
-        df_krx = fdr.StockListing('KRX')
+        df_krx = load_krx_listing_safe()
+        df_krx['Code'] = (
+            df_krx['Code']
+            .fillna('')
+            .astype(str)
+            .str.replace('.0', '', regex=False)
+            .str.zfill(6)
+        )
         
         # 💡 [핵심] 첫 번째 열은 'Code', 두 번째 열은 'Name'으로 강제 개명
         # KRX 데이터 구조상 보통 0번이 코드, 1번이 종목명입니다.
@@ -1555,9 +1686,14 @@ if __name__ == "__main__":
     briefing = get_market_briefing()
     
     # 2. 전 종목 스캔
-    df_krx = fdr.StockListing('KRX')
+    #df_krx = fdr.StockListing('KRX')
     # ✅ 안전한 코드 (인덱스 동기화)
-    sorted_df = df_krx.sort_values(by='Amount', ascending=False).head(TOP_N)
+    # 💰 거래대금 상위 추출 (국내)
+    if 'Amount' in df_clean.columns:
+        sorted_df = df_clean.sort_values(by='Amount', ascending=False).head(TOP_N)
+    else:
+        sorted_df = df_clean.copy()
+    
     target_dict = dict(zip(sorted_df['Code'], sorted_df['Name']))
 
     weather_data = prepare_historical_weather()
@@ -1646,7 +1782,7 @@ if all_hits:
                  f"- {item['에너지']} | {item['매집']}\n"
                  f"- {item['📜서사히스토리']}\n"
                  f"- 재무: {item['재무']} | 수급: {item['수급']}\n"
-                 f"- RSI: {item['RSI']} | 이격: {item['이격']}\n"
+                 f"- MA수렴: {safe_float(item['MA수렴']):.1f}} | 이격: {item['이격']}\n"
                  f"- OBV기울기: {item['OBV기울기']} | RSI: {item['RSI']}\n"
                  f"💡 {item.get('ai_tip', '분석전')}\n"
                  f"----------------------------\n")
