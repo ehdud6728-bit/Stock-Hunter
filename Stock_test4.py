@@ -1191,6 +1191,21 @@ def get_indicators(df):
     df = df.copy()
     count = len(df)
 
+    recent_avg_amount = (df['Close'] * df['Volume']).tail(5).mean() / 100_000_000
+    ma20_amount = (df['Close'] * df['Volume']).tail(20).mean() / 100_000_000
+            
+    amount_ok = (
+        (
+            recent_avg_amount >= RECENT_AVG_AMOUNT_1
+            and recent_avg_amount >= ma20_amount * 1.5
+        )
+        or
+        recent_avg_amount >= RECENT_AVG_AMOUNT_2
+    )
+    
+    if not amount_ok:
+        None
+    
     # 1. 이동평균선 및 거래량 이평 (단테 112/224 포함)
     for n in [5, 10, 20, 40, 60, 112, 224]:
         df[f'MA{n}'] = df['Close'].rolling(window=min(count, n)).mean()
@@ -1553,7 +1568,6 @@ def analyze_final_longterm(ticker, name, historical_indices, scan_days=750, samp
         
         # 지표 계산
         df = get_indicators(df)
-        
         today_price = df.iloc[-1]['Close']
         
         # 샘플링 (주 1회 또는 월 1회)
@@ -1801,6 +1815,11 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         df = fdr.DataReader(ticker, start=START_DATE)
         if len(df) < 100: return []
         df = get_indicators(df)
+        
+        #조건에 맞지 않으면 처리하지 않는다.
+        if df is None or df.empty:
+            return []  # 또는 pd.DataFrame()
+            
         df = df.join(historical_indices, how='left').fillna(method='ffill')
 
         # 1. 내 종목의 섹터 확인
@@ -2184,7 +2203,12 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             if int(dna.replace('%', '')) >= 70:
                 s_score += 20
                 tags.append(f"🧬MA지지DNA({dna})")
-
+            #종베 디테일
+            detail = tri_result.get('jongbe_detail', {})
+            is_dmi_cross = detail.get('dmi_cross')
+            is_adx_ok = detail.get('adx_ok')
+            is_dmi_ok = detail.get('dmi_ok')
+            
             #수박지표
             #print(f"✅ [본진] 수박지표 계산!")
             is_watermelon = row['Watermelon_Signal']
@@ -2205,7 +2229,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             #상단저항선 터치횟수
             total_hammering = row['Total_hammering']
             #최근20일간 매집봉 카운트
-            maejip_count =                row['Maejip_Count']
+            maejip_count = row['Maejip_Count']
             #볼린저밴드 20,40 골든크로스
             jongbe_break = row['Jongbe_Break']
             #MA밀집도
@@ -2456,6 +2480,9 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
                 '종베GC':    tri_result['jongbe'] if tri_result else False,
                 '삼각점수':   tri_result['score'] if tri_result else 0,
                 '삼각등급':   tri_result['grade'] if tri_result else 'N/A',
+                'DMI추세': is_dmi_cross,
+                'ADX추세힘': is_adx_ok,
+                'DMI_OK': is_dmi_ok,
                 '뉴스점수': news_score,
                 '뉴스코멘트': news_comment,
             })
