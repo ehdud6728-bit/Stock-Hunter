@@ -30,7 +30,7 @@ jobs:
         pip install gspread gspread-formatting google-auth pandas
         pip install gspread-dataframe   # ✅ 이 줄 추가 (핵심)
         pip install pandas finance-datareader requests pykrx google-generativeai
-        pip install finance-datareader requests mplfinance openai beautifulsoup4 pytz gspread oauth2client ta
+        pip install finance-datareader requests mplfinance openai beautifulsoup4 pytz gspread oauth2client scipy ta
         pip install -r requirements.txt
 
     - name: Run Scanner
