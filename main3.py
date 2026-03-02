@@ -1782,7 +1782,7 @@ if all_hits:
                  f"- {item['에너지']} | {item['매집']}\n"
                  f"- {item['📜서사히스토리']}\n"
                  f"- 재무: {item['재무']} | 수급: {item['수급']}\n"
-                 f"- MA수렴: {safe_float(item['MA수렴']):.1f}} | 이격: {item['이격']}\n"
+                 f"- MA수렴: {safe_float(item['MA수렴']):.1f} | 이격: {item['이격']}\n"
                  f"- OBV기울기: {item['OBV기울기']} | RSI: {item['RSI']}\n"
                  f"💡 {item.get('ai_tip', '분석전')}\n"
                  f"----------------------------\n")
