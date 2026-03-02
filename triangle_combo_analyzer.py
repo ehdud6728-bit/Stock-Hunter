@@ -146,7 +146,6 @@ def analyze_support_dna(
 # ── [3] 통합 엔진 ────────────────────────────────
 def jongbe_triangle_combo_v3(df: pd.DataFrame) -> dict | None:
 
-    # ── 안전 가드 ────────────────────────────────
     if df is None or len(df) < 60:
         return {
             'date': 'N/A',
@@ -166,14 +165,20 @@ def jongbe_triangle_combo_v3(df: pd.DataFrame) -> dict | None:
         }
 
     df = df.copy()
-    df['MA20']       = df['Close'].rolling(20).mean()
-    df['MA40']       = df['Close'].rolling(40).mean()
+    df['MA20'] = df['Close'].rolling(20).mean()
+    df['MA40'] = df['Close'].rolling(40).mean()
     df['MA20_slope'] = (df['MA20'] - df['MA20'].shift(5)) / (df['MA20'].shift(5) + 1e-9) * 100
     df['MA40_slope'] = (df['MA40'] - df['MA40'].shift(5)) / (df['MA40'].shift(5) + 1e-9) * 100
 
-    curr = df.iloc[-1]
+    # ✅ DMI 계산 추가
+    df['plus_di']  = ta.trend.plus_di(df['High'], df['Low'], df['Close'], 14)
+    df['minus_di'] = ta.trend.minus_di(df['High'], df['Low'], df['Close'], 14)
+    df['adx']      = ta.trend.adx(df['High'], df['Low'], df['Close'], 14)
 
-    # ── 골든크로스 ───────────────────────────────
+    curr = df.iloc[-1]
+    prev = df.iloc[-2]
+
+    # ── 골든크로스
     cross_series = (
         (df['MA20'] > df['MA40']) &
         (df['MA20'].shift(1) <= df['MA40'].shift(1))
@@ -198,24 +203,32 @@ def jongbe_triangle_combo_v3(df: pd.DataFrame) -> dict | None:
         curr['Close'] > curr['MA20']
     )
 
-    # ── 삼각수렴 + DNA ───────────────────────────
+    # ── ✅ DMI 조건
+    dmi_cross = curr['plus_di'] > curr['minus_di'] and prev['plus_di'] <= prev['minus_di']
+    adx_ok    = curr['adx'] > 20 and curr['adx'] > prev['adx']
+    dmi_ok    = dmi_cross and adx_ok
+
+    # ── 삼각수렴 + DNA
     tri          = analyze_triangle_convergence_pivot_v2(df)
     has_triangle = tri is not None
-    tri_safe = tri or {}
+    tri_safe     = tri or {}
     dna_score    = analyze_support_dna(df, 'MA20')
 
-    # ── 점수 계산 ────────────────────────────────
+    # ── 점수 계산
     score = 0
 
     if jongbe_ok:
         score += 30
+
+    if dmi_ok:                # ✅ DMI 가중치
+        score += 10
 
     if has_triangle:
         if tri['is_triangle']:
             score += 20
 
         pattern_bonus = {
-            'Symmetrical': 15,   # ✅ 신뢰도 기준 재정렬
+            'Symmetrical': 15,
             'Ascending':   10,
             'Descending':   5,
             'Unknown':      0
@@ -231,7 +244,7 @@ def jongbe_triangle_combo_v3(df: pd.DataFrame) -> dict | None:
             elif tri['bars_to_apex'] < 0:
                 score -= 10
 
-        if tri.get('lines_crossed'):        # ✅ 수렴 완료 패널티
+        if tri.get('lines_crossed'):
             score -= 15
 
         if tri['breakout_up']:
@@ -244,13 +257,12 @@ def jongbe_triangle_combo_v3(df: pd.DataFrame) -> dict | None:
 
     score = max(min(score, 100), 0)
 
-    # ── 등급 ─────────────────────────────────────
+    # ── 등급
     if   score >= 85: grade = 'S (🏆LEGEND)'
     elif score >= 70: grade = 'A (🔥KING WATERMELON)'
     elif score >= 50: grade = 'B (👀WATCHING)'
     else:             grade = 'C (❄️PASS)'
 
-    # 날짜 ✅
     date_str = (
         str(df.index[-1].date())
         if isinstance(df.index, pd.DatetimeIndex) else 'N/A'
@@ -276,5 +288,8 @@ def jongbe_triangle_combo_v3(df: pd.DataFrame) -> dict | None:
             'ma20_rising':  ma20_rising,
             'ma40_rising':  ma40_rising,
             'ma20_accel':   ma20_accel,
+            'dmi_cross':    bool(dmi_cross),   # ✅ 추가
+            'adx_ok':       bool(adx_ok),      # ✅ 추가
+            'dmi_ok':       bool(dmi_ok),      # ✅ 추가
         }
     }
