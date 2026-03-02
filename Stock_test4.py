@@ -2590,7 +2590,7 @@ if __name__ == "__main__":
         if not all_hits:
             print("⚠️ all_hits 비어있음 → 조건 만족 종목 없음")
         else:
-            analyze_save_googleSheet(all_hits[:1000], False)
+            analyze_save_googleSheet(all_hits, False)
 
         # 5. [나스닥전] 스캔
         all_Nasdaq_hits = []
