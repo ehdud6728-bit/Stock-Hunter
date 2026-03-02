@@ -1270,9 +1270,9 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
                 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
                 signals['dmi_cross'] = tri_result['triangle']['dmi_cross'] if tri_result and tri_result.get('dmi_cross') else False
                 signals['dmi_ok'] = tri_result['triangle']['dmi_ok'] if tri_result and tri_result.get('dmi_ok') else False
-                if tri_result['triangle']['dmi_ok']
+                if tri_result['triangle']['dmi_ok']:
                     new_tags.append(f"✅DMI")
-                if tri_result['pass']
+                if tri_result['pass']:
                     new_tags.append(f"🔺삼각수렴")
                 
         except Exception as e:
