@@ -392,12 +392,21 @@ def calculate_combination_score(signals):
      
     if effective.get('jongbe_ok') and effective.get('dmi_ok'):
         score += 500
+        candidates[-1]['score'] += 500
+        # 2. 기존 리스트에 새 태그 '추가' (append 사용)
+        candidates[-1]['tags'].append('🚀DMI_OK')
 
     if effective.get('triangle_pattern') == 'Symmetrical' and effective.get('MA_Convergence') <= 50:
         score += 500
+        candidates[-1]['score'] += 500
+        # 2. 기존 리스트에 새 태그 '추가' (append 사용)
+        candidates[-1]['tags'].append('🚀삼각')
 
     if ((effective.get('dmi_ok') or effective.get('dmi_cross')) and effective.get('MA_Convergence') <= 1.5):
         score += 500
+        candidates[-1]['score'] += 500
+        # 2. 기존 리스트에 새 태그 '추가' (append 사용)
+        candidates[-1]['tags'].append('🚀DMI_MA수렴')
      
     # 최고점 조합 반환 (결과가 여러 개라도 가장 점수가 높은 1개만 사령관님께 보고합니다)
     if candidates:
