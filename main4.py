@@ -878,17 +878,29 @@ def get_hot_themes():
 def get_market_briefing(issues):
     try:
         theme_info = get_hot_themes()
+        
+        # 1. 이슈가 없을 경우를 대비해 'comments' 초기화 (NameError 방지)
+        comments = "특이사항 없음"
         if issues:
             comments = " | ".join([i["comment"] for i in issues])
-        prompt = f"이슈 리스트 : {comments}"
-                 f"당신은 전세계 최고의 퀀트 분석가 및 월가 최고 수준의 리서치 애널리스트 입니다. " 
-                 f"미 증시 주도섹터를 파악하고 이슈 리스트를 참고해서 한국 증시 어떤 테마에 영향이 있을지 어떤 종목들이 있을지 파악해주고" 
-                 f"오늘 장 준비 전 코스피/나스닥 흐름과 {theme_info} 테마를 바탕으로 개장전/마감 전략 3줄 요약해줘(반말)."
+        
+        # 2. 괄호 ()를 사용하여 여러 줄의 f-string을 안전하게 결합
+        prompt = (
+            f"이슈 리스트 : {comments}\n"
+            f"당신은 전세계 최고의 퀀트 분석가 및 월가 최고 수준의 리서치 애널리스트 입니다. "
+            f"미 증시 주도섹터를 파악하고 이슈 리스트를 참고해서 한국 증시 어떤 테마에 영향이 있을지 어떤 종목들이 있을지 파악해주고 "
+            f"오늘 장 준비 전 코스피/나스닥 흐름과 {theme_info} 테마를 바탕으로 개장전/마감 전략 3줄 요약해줘(반말)."
+        )
       
         client = OpenAI(api_key=OPENAI_API_KEY)
-        res = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role":"user", "content":prompt}])
+        res = client.chat.completions.create(
+            model="gpt-4o-mini", 
+            messages=[{"role":"user", "content":prompt}]
+        )
         return f"🌇 [시황 브리핑]\n{res.choices[0].message.content.strip()}"
-    except: return "브리핑 생성 실패"
+    except Exception as e: 
+        # 에러 내용을 확인하기 위해 로그를 남기는 것이 좋습니다.
+        return f"브리핑 생성 실패: {str(e)}"
 
 def run_ai_tournament(candidate_list, issues):
     if candidate_list.empty:
