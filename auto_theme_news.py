@@ -62,6 +62,8 @@ def analyze_market_issues():
     try:
         text = res.choices[0].message.content.strip()
         issues = json.loads(text)
+        print("\n" + "🌍 " * 5 + "[ 뉴스정보 ]" + " 🌍" * 5)
+        print(f"💵 {issues}") 
         return issues
     except Exception as e:
         return [{"issue": "분석 실패", "score": 50, "comment": "이슈 분석 실패"}]
