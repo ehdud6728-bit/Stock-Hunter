@@ -164,112 +164,114 @@ def jongbe_triangle_combo_v3(df: pd.DataFrame) -> dict | None:
             'triangle': {},
             'jongbe_detail': {}
         }
-
-    df = df.copy()
-    df['MA20'] = df['Close'].rolling(20).mean()
-    df['MA40'] = df['Close'].rolling(40).mean()
-    df['MA20_slope'] = (df['MA20'] - df['MA20'].shift(5)) / (df['MA20'].shift(5) + 1e-9) * 100
-    df['MA40_slope'] = (df['MA40'] - df['MA40'].shift(5)) / (df['MA40'].shift(5) + 1e-9) * 100
-
-    # ✅ DMI 계산 추가
-    adx = ADXIndicator(df['High'], df['Low'], df['Close'], window=14)
-    df['adx'] = adx.adx()
-    df['plus_di'] = adx.adx_pos()
-    df['minus_di'] = adx.adx_neg()
-
-    curr = df.iloc[-1]
-    prev = df.iloc[-2]
-
-    # ── 골든크로스
-    cross_series = (
-        (df['MA20'] > df['MA40']) &
-        (df['MA20'].shift(1) <= df['MA40'].shift(1))
-    )
-    cross_recent = cross_series.iloc[-5:].any()
-    gap_ratio    = abs(curr['MA20'] - curr['MA40']) / (curr['MA40'] + 1e-9)
-    cross_near   = (
-        curr['MA20'] > curr['MA40'] and
-        gap_ratio < 0.03 and
-        curr['MA20'] > df['MA20'].iloc[-3]
-    )
-
-    slope_5ago  = df['MA20_slope'].shift(5).iloc[-1]
-    ma20_rising = curr['MA20_slope'] > 0
-    ma40_rising = curr['MA40_slope'] > -0.05
-    ma20_accel  = pd.notna(slope_5ago) and curr['MA20_slope'] > slope_5ago
-
-    jongbe_ok = (
-        (cross_recent or cross_near) and
-        ma20_rising and ma40_rising and
-        ma20_accel and
-        curr['Close'] > curr['MA20']
-    )
-
-    # ── ✅ DMI 조건
-    dmi_cross = curr['plus_di'] > curr['minus_di'] and prev['plus_di'] <= prev['minus_di']
-    adx_ok    = curr['adx'] > 20 and curr['adx'] > prev['adx']
-    dmi_ok    = dmi_cross and adx_ok
-
-    # ── 삼각수렴 + DNA
-    tri          = analyze_triangle_convergence_pivot_v2(df)
-    has_triangle = tri is not None
-    tri_safe     = tri or {}
-    dna_score    = analyze_support_dna(df, 'MA20')
-
-    # ── 점수 계산
-    score = 0
-
-    if jongbe_ok:
-        score += 30
-
-    if dmi_ok:                # ✅ DMI 가중치
-        score += 10
-
-    if has_triangle:
-        if tri['is_triangle']:
-            score += 20
-
-        pattern_bonus = {
-            'Symmetrical': 15,
-            'Ascending':   10,
-            'Descending':   5,
-            'Unknown':      0
-        }
-        score += pattern_bonus.get(tri['pattern'], 0)
-
-        if tri['confidence'] == 'HIGH':
-            score += 5
-
-        if tri['bars_to_apex'] is not None:
-            if 0 <= tri['bars_to_apex'] <= 5:
-                score += 10
-            elif tri['bars_to_apex'] < 0:
-                score -= 10
-
-        if tri.get('lines_crossed'):
-            score -= 15
-
-        if tri['breakout_up']:
-            score += 15
-        if tri.get('breakout_down'):
-            score -= 25
-
-    if dna_score >= 0.7:
-        score += 10
-
-    score = max(min(score, 100), 0)
-
-    # ── 등급
-    if   score >= 85: grade = 'S (🏆LEGEND)'
-    elif score >= 70: grade = 'A (🔥KING WATERMELON)'
-    elif score >= 50: grade = 'B (👀WATCHING)'
-    else:             grade = 'C (❄️PASS)'
-
-    date_str = (
-        str(df.index[-1].date())
-        if isinstance(df.index, pd.DatetimeIndex) else 'N/A'
-    )
-
+    try:
+        df = df.copy()
+        df['MA20'] = df['Close'].rolling(20).mean()
+        df['MA40'] = df['Close'].rolling(40).mean()
+        df['MA20_slope'] = (df['MA20'] - df['MA20'].shift(5)) / (df['MA20'].shift(5) + 1e-9) * 100
+        df['MA40_slope'] = (df['MA40'] - df['MA40'].shift(5)) / (df['MA40'].shift(5) + 1e-9) * 100
+    
+        # ✅ DMI 계산 추가
+        adx = ADXIndicator(df['High'], df['Low'], df['Close'], window=14)
+        df['adx'] = adx.adx()
+        df['plus_di'] = adx.adx_pos()
+        df['minus_di'] = adx.adx_neg()
+    
+        curr = df.iloc[-1]
+        prev = df.iloc[-2]
+    
+        # ── 골든크로스
+        cross_series = (
+            (df['MA20'] > df['MA40']) &
+            (df['MA20'].shift(1) <= df['MA40'].shift(1))
+        )
+        cross_recent = cross_series.iloc[-5:].any()
+        gap_ratio    = abs(curr['MA20'] - curr['MA40']) / (curr['MA40'] + 1e-9)
+        cross_near   = (
+            curr['MA20'] > curr['MA40'] and
+            gap_ratio < 0.03 and
+            curr['MA20'] > df['MA20'].iloc[-3]
+        )
+    
+        slope_5ago  = df['MA20_slope'].shift(5).iloc[-1]
+        ma20_rising = curr['MA20_slope'] > 0
+        ma40_rising = curr['MA40_slope'] > -0.05
+        ma20_accel  = pd.notna(slope_5ago) and curr['MA20_slope'] > slope_5ago
+    
+        jongbe_ok = (
+            (cross_recent or cross_near) and
+            ma20_rising and ma40_rising and
+            ma20_accel and
+            curr['Close'] > curr['MA20']
+        )
+    
+        # ── ✅ DMI 조건
+        dmi_cross = curr['plus_di'] > curr['minus_di'] and prev['plus_di'] <= prev['minus_di']
+        adx_ok    = curr['adx'] > 20 and curr['adx'] > prev['adx']
+        dmi_ok    = dmi_cross and adx_ok
+    
+        # ── 삼각수렴 + DNA
+        tri          = analyze_triangle_convergence_pivot_v2(df)
+        has_triangle = tri is not None
+        tri_safe     = tri or {}
+        dna_score    = analyze_support_dna(df, 'MA20')
+    
+        # ── 점수 계산
+        score = 0
+    
+        if jongbe_ok:
+            score += 30
+    
+        if dmi_ok:                # ✅ DMI 가중치
+            score += 10
+    
+        if has_triangle:
+            if tri['is_triangle']:
+                score += 20
+    
+            pattern_bonus = {
+                'Symmetrical': 15,
+                'Ascending':   10,
+                'Descending':   5,
+                'Unknown':      0
+            }
+            score += pattern_bonus.get(tri['pattern'], 0)
+    
+            if tri['confidence'] == 'HIGH':
+                score += 5
+    
+            if tri['bars_to_apex'] is not None:
+                if 0 <= tri['bars_to_apex'] <= 5:
+                    score += 10
+                elif tri['bars_to_apex'] < 0:
+                    score -= 10
+    
+            if tri.get('lines_crossed'):
+                score -= 15
+    
+            if tri['breakout_up']:
+                score += 15
+            if tri.get('breakout_down'):
+                score -= 25
+    
+        if dna_score >= 0.7:
+            score += 10
+    
+        score = max(min(score, 100), 0)
+    
+        # ── 등급
+        if   score >= 85: grade = 'S (🏆LEGEND)'
+        elif score >= 70: grade = 'A (🔥KING WATERMELON)'
+        elif score >= 50: grade = 'B (👀WATCHING)'
+        else:             grade = 'C (❄️PASS)'
+    
+        date_str = (
+            str(df.index[-1].date())
+            if isinstance(df.index, pd.DatetimeIndex) else 'N/A'
+        )
+    except Exception as e:
+        print(f"jongbe_triangle_combo_v3 내부 계산 중 오류 발생: {e}")
+    
     return {
         'date':             date_str,
         'pass':             score >= 70,
