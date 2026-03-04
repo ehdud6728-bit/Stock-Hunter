@@ -904,60 +904,70 @@ def get_market_briefing(issues):
 
 def run_ai_tournament(candidate_list, issues):
     if candidate_list.empty:
-        return "후보 없음"
+        return "종목 후보가 없어 토너먼트를 취소합니다."
      
-    candidate_list = (
-        candidate_list
-        .sort_values(by='안전점수', ascending=False)
-        .head(15)
-    )
+    # 1. 상위 15개 종목 선별
+    candidate_list = candidate_list.sort_values(by='안전점수', ascending=False).head(15)
  
     def safe_int(x, default=0):
-        try:
-            return int(float(x))
-        except:
-            return default
+        try: return int(float(x))
+        except: return default
     
     def safe_float(x, default=0.0):
-        try:
-            return float(x)
-        except:
-            return default
+        try: return float(x)
+        except: return default
           
+    # [핵심 수리] comments 변수 안전장치
+    comments = "특이 이슈 없음"
     if issues:
-        comments = " | ".join([i["comment"] for i in issues])
+        comments = " | ".join([i.get("comment", "") for i in issues])
       
+    # 2. AI에게 전달할 데이터 팩키징
     prompt_data = "\n".join([
-        f"- {row['종목명']}({row['code']}): {row['구분']}, 수급:{row['수급']}, "
-        f"N구분:{row['N구분']}, 이격:{safe_int(row['이격'])}, 현재가:{safe_int(row['현재가'])}, "
-        f"BB40:{safe_float(row['BB40']):.1f}, MA수렴:{safe_float(row['MA수렴']):.1f}, "
-        f"OBV기울기:{safe_int(row['OBV기울기'])}, RSI:{safe_int(safe_float(row['RSI']))}"
+        f"- {row['종목명']}({row['code']}): {row.get('구분','N/A')}, 수급:{row.get('수급',0)}, "
+        f"N구분:{row.get('N구분','N/A')}, 이격:{safe_int(row.get('이격',0))}, 현재가:{safe_int(row.get('현재가',0))}, "
+        f"BB40:{safe_float(row.get('BB40',0)):.1f}, MA수렴:{safe_float(row.get('MA수렴',0)):.1f}, "
+        f"OBV기울기:{safe_int(row.get('OBV기울기',0))}, RSI:{safe_int(safe_float(row.get('RSI',0)))}"
         for _, row in candidate_list.iterrows()
     ])
     
+    # [수리] 문자열 사이에 콤마(,)나 괄호 관리가 안 되면 문장이 끊길 수 있음
     sys_prompt = (
-        f"이슈코멘트 : {comments}"
-        "당신은 대한민국 '역매공파(역배열바닥, 매집, 공구리돌파, 파동시작)' 매매법의 권위자이자 퀀트 분석가입니다. 절대 돈을 잃으면 안되는 상황이야."
-        "주어진 종목 데이터에 기반하고 이슈코멘트를 참고해서, 스윙/단기 관점에서 "
-        "전략적 코멘트를 만들어주세요. "
-        "다음 요소를 반드시 포함: [현재 가격 위치, 거래량·OBV·MFI·RSI 분석, 다이버전스 체크 (Bearish Divergence)를 해줘 20~40봉 동안 주가의 고점은 "
-        "높아지는데 MFI나 RSI의 고점이 낮아지고 있지는 않은지 봐주고 지표의 기세가 꺽였다면 '위험' 신호를 줘. " 
-        "ADX 수치가 20 이상이면서 우상향 중인지 확인해줘. 하락 중이라면 추세소멸 주의라고 신호를 줘. "
-        "진입 포인트, 목표, 손절, 리스크 요인까지 종합적으로 분석을 해줘.]"
-        "역배열 바닥 매집형(세력 매집봉 또는 몰래 매집하고 있는지 확인필요) 급등 패턴인지 엄격하게 심사하십시오. 억지 추천 금지! 조건 부족 시 '해당없음'이라 답하십시오."
-        "단타 종목 1위와 스윙 종목 1위를 선정하고 기술적으로 분석해서 타점까지 포함해서 월가에서 사용될 리포트 브리핑을 간략하게 알려줘 "
+        f"이슈코멘트 : {comments}\n"
+        "당신은 대한민국 '역매공파' 매매법의 권위자이자 퀀트 분석가입니다. 절대 돈을 잃지 않는 보수적 관점에서 심사하십시오.\n"
+        "주어진 종목 데이터와 이슈를 기반으로 스윙/단기 전략을 수립하십시오.\n"
+        "### 필수 분석 요소:\n"
+        "1. 현재 가격 위치 및 거래량/OBV/RSI 분석\n"
+        "2. Bearish Divergence 체크: 주가 고점은 높아지는데 RSI/MFI 고점이 낮아지면 '위험' 신호 부여\n"
+        "3. ADX 20 이상 및 우상향 여부 확인 (하락 중이면 '추세소멸 주의')\n"
+        "4. 진입/목표/손절 및 세력 매집 흔적 엄격 심사\n\n"
+        "단타 1위와 스윙 1위를 선정하고 타점 포함 월가 수준 브리핑을 작성해줘(반말)."
     )
  
-    # GPT 심사
-    client = OpenAI(api_key=OPENAI_API_KEY)
-    res_gpt = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role":"system", "content":sys_prompt}, {"role":"user", "content":prompt_data}])
-    # Groq 심사 (Llama)
-    res_groq = requests.post("https://api.groq.com/openai/v1/chat/completions", 
-                             json={"model":"llama-3.3-70b-versatile", "messages":[{"role":"system", "content":sys_prompt}, {"role":"user", "content":prompt_data}]},
-                             headers={"Authorization": f"Bearer {GROQ_API_KEY}"})
+    try:
+        # GPT-4o-mini 심사
+        client = OpenAI(api_key=OPENAI_API_KEY)
+        res_gpt = client.chat.completions.create(
+            model="gpt-4o-mini", 
+            messages=[{"role":"system", "content":sys_prompt}, {"role":"user", "content":prompt_data}]
+        )
+        gpt_text = res_gpt.choices[0].message.content
+
+        # Groq (Llama-3.3-70b) 심사
+        res_groq = requests.post(
+            "https://api.groq.com/openai/v1/chat/completions", 
+            json={
+                "model": "llama-3.3-70b-versatile", 
+                "messages": [{"role":"system", "content":sys_prompt}, {"role":"user", "content":prompt_data}]
+            },
+            headers={"Authorization": f"Bearer {GROQ_API_KEY}"}
+        )
+        groq_text = res_groq.json()['choices'][0]['message']['content'] if res_groq.status_code == 200 else "Groq 연결 실패"
+
+        return f"🏆 [AI 토너먼트 결승]\n\n🧠 [GPT]:\n{gpt_text}\n\n⚡ [Groq]:\n{groq_text}"
     
-    groq_text = res_groq.json()['choices'][0]['message']['content'] if res_groq.status_code == 200 else "Groq 연결 실패"
-    return f"🏆 [AI 토너먼트 결승]\n\n🧠 [GPT]: {res_gpt.choices[0].message.content}\n\n⚡ [Groq]: {groq_text}"
+    except Exception as e:
+        return f"토너먼트 중단: {str(e)}"
 
 def get_ai_summary(ticker, name, tags):
     try:
@@ -977,18 +987,20 @@ def get_ai_summary(ticker, name, tags):
         return res.choices[0].message.content.strip()
     except: return "분석 불가"
 
-def get_ai_summary_batch(stock_lines: list, ):
+def get_ai_summary_batch(stock_lines: list, issues: list = None):
+    # 1. 인자 누락 및 변수 초기화 방어
+    comments = "특이 이슈 없음"
     if issues:
-        comments = " | ".join([i["comment"] for i in issues])
+        comments = " | ".join([i.get("comment", "분석 필요") for i in issues])
+    
+    # 2. 시스템 프롬프트 (가독성을 위해 튜플 결합 방식 권장)
     sys_prompt = (
-        f"이슈코멘트 : {comments}"
-        "당신은 대한민국 '역매공파(역배열바닥, 매집, 공구리돌파, 파동시작)' 매매법의 권위자이자 퀀트 분석가입니다. 절대 돈을 잃으면 안되는 상황이야."
-        "주어진 종목 데이터에 기반하고 이슈코멘트를 참고해서, 스윙/단기 관점에서 "
-        "전략적 코멘트를 만들어주세요. "
-        "다음 요소를 반드시 포함: 현재 가격 위치, 거래량·OBV·MFI·RSI 분석, "
-        "진입 포인트, 목표, 손절, 리스크 요인."
-        "역배열 바닥 매집형(세력 매집봉 또는 몰래 매집하고 있는지 확인필요) 급등 패턴인지 엄격하게 심사하십시오. 억지 추천 금지! 조건 부족 시 '해당없음'이라 답하십시오."
-        "단타 종목과 스윙 종목을 선정하고 기술적으로 분석해서 타점까지 포함해서 월가에서 사용될 리포트 브리핑을 간략하게 알려줘 "
+        f"이슈코멘트 : {comments}\n"
+        "당신은 대한민국 '역매공파(역배열바닥, 매집, 공구리돌파, 파동시작)' 매매법의 권위자이자 퀀트 분석가입니다. "
+        "절대 돈을 잃으면 안되는 보수적 관점에서, 주어진 종목 데이터와 이슈를 참고해 전략적 코멘트를 작성하십시오.\n"
+        "필수 포함: 현재 가격 위치, 거래량·OBV·MFI·RSI 분석, 진입 포인트, 목표, 손절, 리스크 요인.\n"
+        "세력 매집봉 여부를 엄격히 심사하고, 조건 부족 시 '해당없음'이라 답하십시오. "
+        "단타/스윙 종목을 선정해 타점 포함 월가 리포트 형식으로 간략히 브리핑해줘(반말)."
     )
 
     user_prompt = (
@@ -999,20 +1011,22 @@ def get_ai_summary_batch(stock_lines: list, ):
 
     try:
         client = OpenAI(api_key=OPENAI_API_KEY)
-        res = client.responses.create(
-            model="gpt-4o",  # gpt-4.1 / gpt-5 가능
-            input=[
+        # [수정] 표준 API 호출 문법으로 변경
+        res = client.chat.completions.create(
+            model="gpt-4o", 
+            messages=[
                 {"role": "system", "content": sys_prompt},
                 {"role": "user", "content": user_prompt}
             ],
-            max_output_tokens=2000
+            max_tokens=2000,
+            temperature=0.7 # 분석의 창의성과 논리성을 위해 적절한 값 설정
         )
 
-        return res.output_text.strip()
+        return res.choices[0].message.content.strip()
 
     except Exception as e:
-        print("[AI 배치 요약 오류]", e)
-        return ""
+        print(f"[AI 배치 요약 오류] {e}")
+        return "브리핑 생성 중 오류가 발생했습니다."
      
 # ---------------------------------------------------------
 # 🕵️‍♂️ [7] 분석 엔진 (당일 집중형 - 중복 방지)
