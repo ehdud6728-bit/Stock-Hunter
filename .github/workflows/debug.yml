@@ -22,4 +22,4 @@ jobs:
         # pip install finance-datareader pandas requests
 
     - name: Run Debug Script
-      run: python debug_dante.py
+      run: python Stock_NewVer_Test5.py
