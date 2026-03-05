@@ -12,6 +12,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import time
 import openai
 from google_sheet_manager import update_google_sheet
+
 # ──────────────────────────────
 # 전역 변수 (조건값 조정 가능)
 # ──────────────────────────────
@@ -26,21 +27,20 @@ TOP_N = 20
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 openai.api_key = OPENAI_API_KEY
 
+# ──────────────────────────────
+# KRX 종목 로드 (안전버전)
+# ──────────────────────────────
 def load_krx_listing_safe():
     try:
         SHEET_ID = "13Esd11iwgzLN7opMYobQ3ee6huHs1FDEbyeb3Djnu6o"
         GID = "1238448456"
 
         url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={GID}"
-
-        df = pd.read_csv(
-            url,
-            encoding="utf-8",
-            engine="python"
-        )
+        df = pd.read_csv(url, encoding="utf-8", engine="python")
 
         if df is None or df.empty:
             print("📡 FDR KRX 시도...")
+            import FinanceDataReader as fdr
             df = fdr.StockListing('KRX')    
 
         if df is None or df.empty:            
@@ -48,17 +48,12 @@ def load_krx_listing_safe():
 
         print("✅ FDR 성공")
         return df
+
     except Exception as e:
         print(f"⚠️ FDR 실패 → pykrx 대체 사용 ({e})")
-
-
-        #df_krx.rename(columns={
-        #       '종목코드': 'Code',
-        #       '회사명': 'Name',
-        #       '시장구분': 'Market'
-        #       }, inplace=True)
-
+        df_krx = pd.DataFrame(columns=['Code', 'Name', 'Market', 'Sector'])
         return df_krx
+
 # ──────────────────────────────
 # 유틸 함수
 # ──────────────────────────────
@@ -78,7 +73,6 @@ def compute_rsi(series: pd.Series, period: int = 14) -> pd.Series:
     return rsi
 
 def ai_comment_summary(name: str, pattern_info: str) -> str:
-    """OpenAI GPT를 사용해 간단 코멘트 생성"""
     try:
         if not OPENAI_API_KEY:
             return "API Key 없음"
@@ -142,24 +136,31 @@ def analyze_stock(name: str, code: str):
             df = flatten_df(df)
         if len(df)<60:
             return None
+
         df['MA20'] = df['Close'].rolling(20).mean()
         df['MA40'] = df['Close'].rolling(40).mean()
         df['BB_UP'] = df['MA40'] + 2*df['Close'].rolling(40).std()
         df['BB_LOW'] = df['MA20'] - 2*df['Close'].rolling(20).std()
         df['RSI'] = compute_rsi(df['Close'], 14)
         df.dropna(subset=['BB_UP','BB_LOW','RSI'], inplace=True)
+
         curr = df.iloc[-1]
         past = df.iloc[-21:-1]
+
         wm, wm_detail = check_watermelon(curr, past)
         ross, ross_detail = check_ross(curr, past)
         rsi_div, rsi_detail = check_rsi_div(curr, past)
+
         score = (50 if wm else 0) + (30 if ross else 0) + (20 if rsi_div else 0)
         grade = 'S' if score>=80 else 'A' if score>=50 else 'B' if score>=30 else 'C'
+
         pattern_info = []
         if wm: pattern_info.append("수박")
         if ross: pattern_info.append("로스쌍바닥")
         if rsi_div: pattern_info.append("RSI다이버전스")
+
         ai_comment = ai_comment_summary(name, ",".join(pattern_info)) if pattern_info else "패턴없음"
+
         return {
             "종목명": name,
             "코드": code,
@@ -188,36 +189,40 @@ def scan_market():
     kospi = stock.get_market_ticker_list(today, market="KOSPI")
     kosdaq = stock.get_market_ticker_list(today, market="KOSDAQ")
     tickers = [(stock.get_market_ticker_name(c), c) for c in kospi + kosdaq]
-    print(f"종목 카운트: {len(tickers)}")
+    print(f"초기 종목 카운트: {len(tickers)}")
 
     try:
-        tickers = load_krx_listing_safe()
-        tickers['Code'] = (
-            tickers['Code']
-            .fillna('')
-            .astype(str)
-            .str.replace('.0', '', regex=False)
-            .str.zfill(6)
-        )
-
-        # 섹터 컬럼도 있으면 'Sector'로 통일
-        s_col = next((c for c in ['Sector', 'Industry', '업종'] if c in tickers.columns), None)
-        if s_col:
-            tickers = tickers.rename(columns={s_col: 'Sector'})
-            sector_master_map = tickers.set_index('Code')['Sector'].to_dict()
+        df_listing = load_krx_listing_safe()
+        if df_listing.empty:
+            print("⚠️ 종목 리스트 로드 실패")
         else:
-            sector_master_map = {k: '일반' for k in tickers['Code']}
+            df_listing['Code'] = (
+                df_listing['Code']
+                .fillna('')
+                .astype(str)
+                .str.replace('.0', '', regex=False)
+                .str.zfill(6)
+            )
+            # 섹터 컬럼 통일
+            s_col = next((c for c in ['Sector', 'Industry', '업종'] if c in df_listing.columns), None)
+            if s_col:
+                df_listing = df_listing.rename(columns={s_col: 'Sector'})
+                sector_master_map = df_listing.set_index('Code')['Sector'].to_dict()
+            else:
+                sector_master_map = {k: '일반' for k in df_listing['Code']}
 
-        print(f"✅ [본진] 명찰 통일 완료: {len(tickers)}개 종목 로드")
+            tickers = list(zip(df_listing['Name'], df_listing['Code']))
+            print(f"✅ 종목 리스트 준비 완료: {len(tickers)}개")
 
     except Exception as e:
-        print(f"🚨 [본진] 데이터 로드 실패: {e}")
-        sector_master_map = {}
-        # 여기서 죽지 않게 빈 데이터프레임이라도 생성
-        tickers = pd.DataFrame(columns=['Code', 'Name', 'Sector'])
-    if not tickers.empty:
-            # 2. 전 종목 리스트 로드 및 명찰 강제 통일
-        results = []
+        print(f"🚨 데이터 로드 실패: {e}")
+        tickers = []
+
+    if len(tickers) == 0:
+        print("조건 만족 종목 없음")
+        return
+
+    results = []
     done = 0
     start_ts = time.time()
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
@@ -227,20 +232,23 @@ def scan_market():
             r = future.result()
             if r:
                 results.append(r)
-            if done%100==0 or done==len(tickers):
+            if done%50==0 or done==len(tickers):
                 elapsed = time.time()-start_ts
                 eta = (elapsed/done)*(len(tickers)-done)
                 print(f"진행 {done}/{len(tickers)}, 후보:{len(results)}, 경과:{elapsed:.0f}s, 남은:{eta:.0f}s")
+
     if not results:
         print("조건 만족 종목 없음")
         return
+
     df_result = pd.DataFrame(results)
-    df_result = df_result.sort_values("점수",ascending=False).reset_index(drop=True)
+    df_result = df_result.sort_values("점수", ascending=False).reset_index(drop=True)
     df_result.index +=1
     print(f"\n🔥 TOP {min(TOP_N,len(df_result))} 후보\n")
     print(df_result.head(TOP_N).to_string())
+
     out_path = "watermelon_candidates.csv"
-    df_result.to_csv(out_path,index=False,encoding="utf-8-sig")
+    df_result.to_csv(out_path, index=False, encoding="utf-8-sig")
     print(f"\n✅ CSV 저장 완료 → {out_path}")
     print(f"⏱️ 총 소요시간: {time.time()-start_ts:.0f}초")
 
