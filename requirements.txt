@@ -14,3 +14,4 @@ mplfinance
 gspread-formatting
 gspread-dataframe
 yfinance
+feedparser
