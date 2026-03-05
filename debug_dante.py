@@ -87,22 +87,40 @@ def fetch_naver_themes(stock_name: str, stock_code: str) -> tuple[str, list[str]
         res = requests.get(url, headers=headers, timeout=10)
         # bytes를 직접 넘겨 BS4가 HTML meta charset 기준으로 디코딩
         soup = BeautifulSoup(res.content, 'html.parser')
-        
 
-        # ── 업종 추출 ──
-        # td.td_industry > a 구조가 가장 안전 (PER 등 숫자 셀 회피)
+        # ── 업종 추출 (다중 폴백) ──
         industry = "기타"
+        raw = ""
+
+        # 방법 1: th[string~=업종] 엄격 매칭
         industry_tag = soup.find('th', string=re.compile(r'^\s*업종\s*$'))
+
+        # 방법 2: th 전체에서 '업종' 포함 텍스트 (공백·개행 포함 구조 대응)
+        if not industry_tag:
+            for th in soup.find_all('th'):
+                if '업종' in th.get_text():
+                    industry_tag = th
+                    break
+
         if industry_tag:
             td = industry_tag.find_next_sibling('td')
             if td:
                 a_tag = td.find('a')
-                raw = a_tag.text.strip() if a_tag else td.text.strip()
+                raw = a_tag.text.strip() if a_tag else td.get_text(strip=True)
                 cleaned = clean_keyword(raw)
-                print(f"  [디버그] 업종 raw값: '{raw}' → 정제: '{cleaned}'")
+                industry = cleaned if cleaned else "기타"
 
-                if cleaned:
-                    industry = cleaned
+        # 방법 3: 업종 링크 직접 탐색 (sise_group_detail?type=upjong)
+        if industry == "기타":
+            upjong_links = soup.find_all(
+                'a', href=re.compile(r"sise_group_detail\.naver\?type=upjong")
+            )
+            if upjong_links:
+                raw = upjong_links[0].text.strip()
+                cleaned = clean_keyword(raw)
+                industry = cleaned if cleaned else "기타"
+
+        print(f"  [디버그] 업종 raw: '{raw}' → '{industry}'")
 
         # ── 테마 추출 (상위 3개 후보 → 정제 후 유효한 것만) ──
         theme_links = soup.find_all(
