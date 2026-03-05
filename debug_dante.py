@@ -40,9 +40,33 @@ def install_and_import():
 
 install_and_import()
 
+import unicodedata
 import requests
 from bs4 import BeautifulSoup
 import feedparser
+
+
+# ───────────────────────────────────────────────
+# 텍스트 정제 유틸
+# ───────────────────────────────────────────────
+def clean_keyword(text: str) -> str:
+    """
+    테마/업종 텍스트에서 깨진 문자·숫자·특수문자 제거.
+    예) 'HBM(���뿪����..' → 'HBM'  /  '63.67배' → ''
+    """
+    # NFC 정규화
+    text = unicodedata.normalize('NFC', text.strip())
+    # 숫자로 시작하거나 숫자+단위(배, %, 원)만 있는 토큰 → 빈 문자열
+    if re.match(r'^[\d.,]+', text):
+        return ''
+    # 깨진 바이트 대체문자(U+FFFD) 및 특수문자 제거
+    text = re.sub(r'[\uFFFD\x00-\x1F]', '', text)
+    # 괄호 뒤 깨진 부분 제거: 'HBM(깨짐..' → 'HBM'
+    text = re.sub(r'[(\[].{0,10}$', '', text).strip()
+    # 한글·영문·숫자·공백만 남기기
+    text = re.sub(r'[^\w\s가-힣a-zA-Z0-9]', '', text).strip()
+    # 2글자 미만 단어는 의미 없음
+    return text if len(text) >= 2 else ''
 
 
 # ───────────────────────────────────────────────
@@ -61,29 +85,40 @@ def fetch_naver_themes(stock_name: str, stock_code: str) -> tuple[str, list[str]
 
     try:
         res = requests.get(url, headers=headers, timeout=10)
-        res.encoding = 'utf-8'  # 네이버는 UTF-8 고정 (apparent_encoding 오탐 방지)
-        soup = BeautifulSoup(res.text, 'html.parser')
+        # bytes를 직접 넘겨 BS4가 HTML meta charset 기준으로 디코딩
+        soup = BeautifulSoup(res.content, 'html.parser')
 
-        # 업종 추출
-        industry_tag = soup.find('th', string=re.compile("업종"))
-        industry = (
-            industry_tag.find_next_sibling('td').text.strip()
-            if industry_tag else "반도체"
-        )
-        clean_ind = re.split(r'[\s와및,]', industry)[0]  # 첫 단어만
+        # ── 업종 추출 ──
+        # td.td_industry > a 구조가 가장 안전 (PER 등 숫자 셀 회피)
+        industry = "기타"
+        industry_tag = soup.find('th', string=re.compile(r'^\s*업종\s*$'))
+        if industry_tag:
+            td = industry_tag.find_next_sibling('td')
+            if td:
+                a_tag = td.find('a')
+                raw = a_tag.text.strip() if a_tag else td.text.strip()
+                cleaned = clean_keyword(raw)
+                if cleaned:
+                    industry = cleaned
 
-        # 테마 추출 (상위 2개)
+        # ── 테마 추출 (상위 3개 후보 → 정제 후 유효한 것만) ──
         theme_links = soup.find_all(
             'a', href=re.compile(r"sise_group_detail\.naver\?type=theme")
         )
-        themes = [link.text.strip() for link in theme_links[:2]]
+        themes = []
+        for link in theme_links[:5]:
+            t = clean_keyword(link.text)
+            if t and t not in themes:
+                themes.append(t)
+            if len(themes) == 2:
+                break
 
-        print(f"🏭 업종: {clean_ind}  |  🎯 테마: {themes}")
-        return clean_ind, themes
+        print(f"🏭 업종: {industry}  |  🎯 테마: {themes}")
+        return industry, themes
 
     except Exception as e:
         print(f"⚠️ 테마 추출 실패(기본값 사용): {e}")
-        return "반도체", []
+        return "기타", []
 
 
 # ───────────────────────────────────────────────
@@ -195,9 +230,16 @@ def get_dynamic_analysis(stock_name: str, stock_code: str) -> dict:
         title = entry.title
 
         # [A] 종목명 미포함 → 제외
-        if stock_name not in title:
-            filtered_irrelevant += 1
-            continue
+        # 2글자 이하(서남 등)는 다른 단어 안에 포함될 수 있어 단어 경계 체크
+        if len(stock_name) <= 2:
+            pattern = r'(?<![가-힣a-zA-Z])' + re.escape(stock_name) + r'(?![가-힣a-zA-Z])'
+            if not re.search(pattern, title):
+                filtered_irrelevant += 1
+                continue
+        else:
+            if stock_name not in title:
+                filtered_irrelevant += 1
+                continue
 
         # [B] 광고/스팸 → 제외
         if any(nw in title for nw in NOISE_WORDS):
