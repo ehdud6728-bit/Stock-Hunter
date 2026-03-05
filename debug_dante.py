@@ -75,7 +75,7 @@ def get_dynamic_analysis(stock_name, stock_code):
     return {
         'stock': stock_name,
         'score': score,
-        'themes': themes,
+        'themes': base_keywords,
         'grade': grade,
         'signals': signals,
         'keywords_used': base_keywords
