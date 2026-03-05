@@ -26,6 +26,39 @@ TOP_N = 20
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 openai.api_key = OPENAI_API_KEY
 
+def load_krx_listing_safe():
+    try:
+        SHEET_ID = "13Esd11iwgzLN7opMYobQ3ee6huHs1FDEbyeb3Djnu6o"
+        GID = "1238448456"
+
+        url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={GID}"
+
+        df = pd.read_csv(
+            url,
+            encoding="utf-8",
+            engine="python"
+        )
+
+        if df is None or df.empty:
+            print("📡 FDR KRX 시도...")
+            df = fdr.StockListing('KRX')    
+
+        if df is None or df.empty:            
+            raise ValueError("빈 데이터")
+
+        print("✅ FDR 성공")
+        return df
+    except Exception as e:
+        print(f"⚠️ FDR 실패 → pykrx 대체 사용 ({e})")
+
+
+        #df_krx.rename(columns={
+        #       '종목코드': 'Code',
+        #       '회사명': 'Name',
+        #       '시장구분': 'Market'
+        #       }, inplace=True)
+
+        return df_krx
 # ──────────────────────────────
 # 유틸 함수
 # ──────────────────────────────
