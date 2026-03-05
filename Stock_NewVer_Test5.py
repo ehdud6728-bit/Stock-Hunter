@@ -27,6 +27,33 @@ OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 openai.api_key = OPENAI_API_KEY
 
 # ──────────────────────────────
+# KRX 종목 리스트 안전 로드
+# ──────────────────────────────
+def load_krx_listing_safe():
+    try:
+        SHEET_ID = "13Esd11iwgzLN7opMYobQ3ee6huHs1FDEbyeb3Djnu6o"
+        GID = "1238448456"
+        url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={GID}"
+        df_krx = pd.read_csv(url, encoding="utf-8", engine="python")
+        if df_krx.empty:
+            print("📡 FDR KRX 시도...")
+            import FinanceDataReader as fdr
+            df_krx = fdr.StockListing('KRX')
+        if df_krx.empty:
+            raise ValueError("빈 데이터")
+        print("✅ FDR 성공")
+        return df_krx
+    except Exception as e:
+        print(f"⚠️ FDR 실패 → pykrx 대체 사용 ({e})")
+        tickers = stock.get_market_ticker_list(datetime.today().strftime("%Y%m%d"), market="ALL")
+        df_krx = pd.DataFrame({
+            'Code': tickers,
+            'Name': [stock.get_market_ticker_name(c) for c in tickers],
+            'Sector': ['일반']*len(tickers)
+        })
+        return df_krx
+
+# ──────────────────────────────
 # 유틸 함수
 # ──────────────────────────────
 def flatten_df(df: pd.DataFrame) -> pd.DataFrame:
@@ -67,8 +94,7 @@ def check_watermelon(curr: pd.Series, past: pd.DataFrame):
     cond2 = curr['거래량'] > past['거래량'].mean() * WATERMELON_VOLUME_MULTIPLIER
     body_ratio = (curr['종가'] - curr['시가']) / curr['시가']
     cond3 = body_ratio > WATERMELON_BODY_RATIO
-    detail = f"종가:{curr['종가']:.0f}, 거래량:{curr['거래량']}, 몸통:{body_ratio:.2f}"
-    return cond1 and cond2 and cond3, detail
+    return cond1 and cond2 and cond3, f"종가:{curr['종가']:.0f}, 거래량:{curr['거래량']}, 몸통:{body_ratio:.2f}"
 
 def check_ross(curr: pd.Series, past: pd.DataFrame):
     if past.empty or past['BB_LOW'].isna().all():
@@ -83,8 +109,7 @@ def check_ross(curr: pd.Series, past: pd.DataFrame):
     near_band = curr['저가'] <= curr['BB_LOW'] * ROSS_BAND_TOLERANCE
     close_above = curr['종가'] > curr['BB_LOW']
     passed = rebound and near_band and close_above
-    detail = f"반등:{rebound}, 저가밴드근접:{near_band}, 종가밴드위:{close_above}"
-    return passed, detail
+    return passed, f"반등:{rebound}, 저가밴드근접:{near_band}, 종가밴드위:{close_above}"
 
 def check_rsi_div(curr: pd.Series, past: pd.DataFrame):
     if past['RSI'].isna().all() or pd.isna(curr['RSI']):
@@ -93,11 +118,10 @@ def check_rsi_div(curr: pd.Series, past: pd.DataFrame):
     min_rsi_past = past['RSI'].min()
     price_similar = curr['저가'] <= min_price_past * RSI_LOW_TOLERANCE
     rsi_higher = curr['RSI'] > min_rsi_past
-    detail = f"주가저점:{curr['저가']:.0f}(과거:{min_price_past:.0f}), RSI:{curr['RSI']:.1f}(과거:{min_rsi_past:.1f})"
-    return price_similar and rsi_higher, detail
+    return price_similar and rsi_higher, f"주가저점:{curr['저가']:.0f}(과거:{min_price_past:.0f}), RSI:{curr['RSI']:.1f}(과거:{min_rsi_past:.1f})"
 
 # ──────────────────────────────
-# 단일 종목 분석 (pykrx 기반)
+# 단일 종목 분석
 # ──────────────────────────────
 def analyze_stock(name: str, code: str):
     try:
@@ -116,9 +140,9 @@ def analyze_stock(name: str, code: str):
         df.dropna(subset=['BB_UP','BB_LOW','RSI'], inplace=True)
         curr = df.iloc[-1]
         past = df.iloc[-21:-1]
-        wm, wm_detail = check_watermelon(curr, past)
-        ross, ross_detail = check_ross(curr, past)
-        rsi_div, rsi_detail = check_rsi_div(curr, past)
+        wm, _ = check_watermelon(curr, past)
+        ross, _ = check_ross(curr, past)
+        rsi_div, _ = check_rsi_div(curr, past)
         score = (50 if wm else 0) + (30 if ross else 0) + (20 if rsi_div else 0)
         grade = 'S' if score>=80 else 'A' if score>=50 else 'B' if score>=30 else 'C'
         pattern_info = []
@@ -150,30 +174,22 @@ def analyze_stock(name: str, code: str):
 # ──────────────────────────────
 def scan_market():
     print("📊 Scanning all KOSPI & KOSDAQ stocks...")
-    today_str = datetime.today().strftime("%Y%m%d")
-    try:
-        kospi = stock.get_market_ticker_list(today_str, market="KOSPI")
-        kosdaq = stock.get_market_ticker_list(today_str, market="KOSDAQ")
-        tickers = [(stock.get_market_ticker_name(c), c) for c in kospi + kosdaq]
-        print(f"총 종목 카운트: {len(tickers)}")
-    except Exception as e:
-        print(f"🚨 종목 리스트 로드 실패: {e}")
-        return
-
+    tickers = load_krx_listing_safe()
+    tickers['Code'] = tickers['Code'].astype(str).str.zfill(6)
     results = []
     done = 0
     start_ts = time.time()
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-        futures = {executor.submit(analyze_stock,name,code): code for name, code in tickers}
+        futures = {executor.submit(analyze_stock,name,code): code for name, code in zip(tickers['Name'], tickers['Code'])}
         for future in as_completed(futures):
             done +=1
             r = future.result()
             if r:
                 results.append(r)
-            if done%50==0 or done==len(tickers):
+            if done%50==0 or done==len(futures):
                 elapsed = time.time()-start_ts
-                eta = (elapsed/done)*(len(tickers)-done)
-                print(f"진행 {done}/{len(tickers)}, 후보:{len(results)}, 경과:{elapsed:.0f}s, 남은:{eta:.0f}s")
+                eta = (elapsed/done)*(len(futures)-done)
+                print(f"진행 {done}/{len(futures)}, 후보:{len(results)}, 경과:{elapsed:.0f}s, 남은:{eta:.0f}s")
 
     if not results:
         print("조건 만족 종목 없음")
