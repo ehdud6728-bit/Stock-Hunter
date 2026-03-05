@@ -74,6 +74,8 @@ START_DATE_STR = (datetime.now() - timedelta(days=60)).strftime('%Y%m%d')
 
 RECENT_AVG_AMOUNT_1 = 150 #거래대금조건 * 1.5
 RECENT_AVG_AMOUNT_2 = 350 #거래대금조건
+ROSS_BAND_TOLERANCE = 1.03   # 로스 쌍바닥 ±5%
+RSI_LOW_TOLERANCE   = 1.03   # RSI 저점 허용 ±5%
 
 print(f"📡 [Ver 27.0] 사령부 퍼펙트 오버홀 가동... 스토캐스틱 레이더 및 전 지표 동기화")
 
