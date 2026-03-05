@@ -521,11 +521,11 @@ def check_ross(curr: pd.Series, past: pd.DataFrame):
 def check_rsi_div(curr: pd.Series, past: pd.DataFrame):
     if past['RSI'].isna().all() or pd.isna(curr['RSI']):
         return False, "RSI 데이터 부족"
-    min_price_past = past['저가'].min()
+    min_price_past = past['Low'].min()
     min_rsi_past = past['RSI'].min()
-    price_similar = curr['저가'] <= min_price_past * RSI_LOW_TOLERANCE
+    price_similar = curr['Low'] <= min_price_past * RSI_LOW_TOLERANCE
     rsi_higher = curr['RSI'] > min_rsi_past
-    return price_similar and rsi_higher, f"주가저점:{curr['저가']:.0f}(과거:{min_price_past:.0f}), RSI:{curr['RSI']:.1f}(과거:{min_rsi_past:.1f})"
+    return price_similar and rsi_higher, f"주가저점:{curr['Low']:.0f}(과거:{min_price_past:.0f}), RSI:{curr['RSI']:.1f}(과거:{min_rsi_past:.1f})"
 
 # ---------------------------------------------------------
 # 📈 [4] 기술적 분석 지표 (OBV, Double-GC 등)
