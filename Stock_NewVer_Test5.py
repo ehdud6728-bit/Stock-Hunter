@@ -9,16 +9,16 @@ warnings.filterwarnings("ignore")
 # ─────────────────────────────────────────────
 # 전역변수 (조건 수정 가능)
 # ─────────────────────────────────────────────
-BB40_STD           = 2      # BB40 상단 표준편차
-BB20_STD           = 2      # BB20 하단 표준편차
-WATERMELON_BODY_PCT = 0.05 # 수박 캔들 몸통 최소 비율
+BB40_STD           = 2.5      # BB40 상단 표준편차
+BB20_STD           = 2.5      # BB20 하단 표준편차
+WATERMELON_BODY_PCT = 0.03 # 수박 캔들 몸통 최소 비율
 WATERMELON_VOL_MULT = 2    # 수박 거래량 배수
 ROSS_LOW_TOL        = 0.03 # 쌍바닥 ±3% 허용
-DIV_LOW_TOL         = 0.03 # RSI 다이버전스 ±3% 허용
+DIV_LOW_TOL         = 0.05 # RSI 다이버전스 ±3% 허용
 RSI_PERIOD          = 14
 BB40_PERIOD         = 40
 BB20_PERIOD         = 20
-PAST_PERIOD         = 20   # 과거봉 수
+PAST_PERIOD         = 40   # 과거봉 수
 
 # ─────────────────────────────────────────────
 # 라이브러리 설치
