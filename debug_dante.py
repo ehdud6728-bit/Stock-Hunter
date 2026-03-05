@@ -22,6 +22,242 @@ DROP_RATE = 0.30      # 30% 하락
 MA_MARGIN = 0.15      # 이평선 근처 범위 (여기를 10% -> 15%로 늘려볼 예정)
 STOP_LOSS_RANGE = 40  # 40일 최저가
 
+import sys
+import subprocess
+import re
+from datetime import datetime, timezone
+import time
+
+# 1. 필수 라이브러리 자동 설치 및 임포트
+def install_and_import():
+    required = ['feedparser', 'requests', 'beautifulsoup4']
+    for lib in required:
+        try:
+            __import__(lib if lib != 'beautifulsoup4' else 'bs4')
+        except ImportError:
+            print(f"🚀 라이브러리 설치 중: {lib}...")
+            subprocess.check_call([sys.executable, "-m", "pip", "install", lib])
+
+install_and_import()
+
+import requests
+from bs4 import BeautifulSoup
+import feedparser
+
+
+# ───────────────────────────────────────────────
+# [Step 1] 네이버 금융 → 업종 / 테마 동적 추출
+# ───────────────────────────────────────────────
+def fetch_naver_themes(stock_name: str, stock_code: str) -> tuple[str, list[str]]:
+    """네이버 금융에서 업종명과 테마 리스트를 반환."""
+    url = f"https://finance.naver.com/item/main.naver?code={stock_code}"
+    headers = {
+        'User-Agent': (
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+            'AppleWebKit/537.36 (KHTML, like Gecko) '
+            'Chrome/120.0.0.0 Safari/537.36'
+        )
+    }
+
+    try:
+        res = requests.get(url, headers=headers, timeout=10)
+        res.encoding = 'utf-8'  # 네이버는 UTF-8 고정 (apparent_encoding 오탐 방지)
+        soup = BeautifulSoup(res.text, 'html.parser')
+
+        # 업종 추출
+        industry_tag = soup.find('th', string=re.compile("업종"))
+        industry = (
+            industry_tag.find_next_sibling('td').text.strip()
+            if industry_tag else "반도체"
+        )
+        clean_ind = re.split(r'[\s와및,]', industry)[0]  # 첫 단어만
+
+        # 테마 추출 (상위 2개)
+        theme_links = soup.find_all(
+            'a', href=re.compile(r"sise_group_detail\.naver\?type=theme")
+        )
+        themes = [link.text.strip() for link in theme_links[:2]]
+
+        print(f"🏭 업종: {clean_ind}  |  🎯 테마: {themes}")
+        return clean_ind, themes
+
+    except Exception as e:
+        print(f"⚠️ 테마 추출 실패(기본값 사용): {e}")
+        return "반도체", []
+
+
+# ───────────────────────────────────────────────
+# [Step 2] 구글 뉴스 RSS 수집
+# ───────────────────────────────────────────────
+def build_query(stock_name: str, themes: list[str]) -> str:
+    """
+    종목명을 필수 조건(따옴표)으로, 테마는 OR 확장 조건으로 구성.
+    → AND 과잉 필터로 뉴스가 0건 되는 문제 방지.
+    """
+    if themes:
+        theme_part = " OR ".join(themes)
+        return f'"{stock_name}" ({theme_part})'
+    return f'"{stock_name}"'
+
+
+def fetch_rss(query: str, max_entries: int = 20) -> list:
+    rss_url = (
+        f"https://news.google.com/rss/search"
+        f"?q={requests.utils.quote(query)}&hl=ko&gl=KR&ceid=KR:ko"
+    )
+    feed = feedparser.parse(rss_url)
+    return feed.entries[:max_entries]
+
+
+# ───────────────────────────────────────────────
+# [Step 3] 뉴스 검증 + 스코어링
+# ───────────────────────────────────────────────
+POS_WORDS = ['상승', '돌파', '수주', '계약', '흑자', '최대', '강세',
+             '공급', 'HBM', 'AI', '독점', '신기술', '수출', '호실적']
+NEG_WORDS = ['하락', '급락', '적자', '취소', '감소', '부진',
+             '유상증자', '소송', '논란', '경고', '위기']
+NOISE_WORDS = ['카톡', '리딩', '무료체험', '종목추천', '찌라시', '광고']
+
+CUTOFF_DAYS = 3  # 이 일수 이상 된 뉴스는 제외
+
+
+def is_recent(entry) -> bool:
+    """published_parsed 기준 CUTOFF_DAYS 이내인지 확인."""
+    try:
+        pub = datetime(*entry.published_parsed[:6], tzinfo=timezone.utc)
+        age = (datetime.now(timezone.utc) - pub).days
+        return age <= CUTOFF_DAYS
+    except Exception:
+        return True  # 날짜 파싱 실패 시 통과
+
+
+def score_title(title: str) -> tuple[int, list[str]]:
+    """
+    긍정/부정 키워드가 공존하면 상쇄(0점) 처리.
+    단독 긍정 → +15, 단독 부정 → -20.
+    """
+    pos_hits = [pw for pw in POS_WORDS if pw in title]
+    neg_hits = [nw for nw in NEG_WORDS if nw in title]
+
+    if pos_hits and not neg_hits:
+        return 15, pos_hits          # 순수 긍정
+    elif neg_hits and not pos_hits:
+        return -20, []               # 순수 부정
+    elif pos_hits and neg_hits:
+        return 0, []                 # 혼재 → 중립
+    return 0, []
+
+
+def deduplicate(entries: list) -> list:
+    """유사 제목 중복 제거 (앞 20자 기준)."""
+    seen_titles = set()
+    unique = []
+    for e in entries:
+        key = e.title[:20]
+        if key not in seen_titles:
+            seen_titles.add(key)
+            unique.append(e)
+    return unique
+
+
+# ───────────────────────────────────────────────
+# [메인] 통합 분석 함수
+# ───────────────────────────────────────────────
+def get_dynamic_analysis(stock_name: str, stock_code: str) -> dict:
+    print(f"\n🔍 {stock_name}({stock_code}) 분석 시작...")
+
+    # Step 1 — 테마/업종
+    clean_ind, themes = fetch_naver_themes(stock_name, stock_code)
+
+    # 순서 유지 dedup
+    raw_keywords = [stock_name] + themes + [clean_ind]
+    seen = set()
+    base_keywords = [x for x in raw_keywords if not (x in seen or seen.add(x))]
+
+    # Step 2 — RSS 수집
+    query = build_query(stock_name, themes)
+    print(f"🔎 검색 쿼리: {query}")
+    entries = fetch_rss(query, max_entries=20)
+    entries = deduplicate(entries)
+
+    # Step 3 — 필터링 + 스코어링
+    score = 0
+    valid_news_count = 0
+    filtered_noise = 0
+    filtered_old = 0
+    filtered_irrelevant = 0
+    matched_tags: list[str] = []
+    signals = {'positive': False, 'negative': False, 'is_main_subject': False}
+
+    print(f"\n--- [{stock_name}] 검증된 최신 뉴스 ---")
+
+    for entry in entries:
+        title = entry.title
+
+        # [A] 종목명 미포함 → 제외
+        if stock_name not in title:
+            filtered_irrelevant += 1
+            continue
+
+        # [B] 광고/스팸 → 제외
+        if any(nw in title for nw in NOISE_WORDS):
+            filtered_noise += 1
+            continue
+
+        # [C] 오래된 뉴스 → 제외
+        if not is_recent(entry):
+            filtered_old += 1
+            continue
+
+        valid_news_count += 1
+        signals['is_main_subject'] = True
+
+        s, tags = score_title(title)
+        score += s
+        if s > 0:
+            signals['positive'] = True
+            for t in tags:
+                if t not in matched_tags:
+                    matched_tags.append(t)
+        elif s < 0:
+            signals['negative'] = True
+
+        # 날짜 표시
+        try:
+            pub_str = time.strftime("%m/%d", entry.published_parsed)
+        except Exception:
+            pub_str = "??/??"
+
+        mark = "📈" if s > 0 else ("📉" if s < 0 else "➖")
+        print(f"  {mark} [{pub_str}] {title}  ({s:+d}점)")
+
+    # 필터링 통계 출력
+    print(f"\n  [필터 통계] 무관: {filtered_irrelevant}건 | "
+          f"스팸: {filtered_noise}건 | 오래됨({CUTOFF_DAYS}일↑): {filtered_old}건")
+
+    # Step 4 — 등급 산정
+    if valid_news_count == 0:
+        grade = 'C (무소식)'
+    elif score >= 60:
+        grade = 'S'
+    elif score >= 30:
+        grade = 'A'
+    elif score >= 0:
+        grade = 'B'
+    else:
+        grade = 'D'
+
+    return {
+        'stock': stock_name,
+        'code': stock_code,
+        'score': score,
+        'grade': grade,
+        'themes': base_keywords,
+        'tags': matched_tags,
+        'news_count': valid_news_count,
+        'signals': signals,
+    }
+
 def get_dynamic_analysis(stock_name, stock_code):
     print(f"🔍 {stock_name}({stock_code}) 분석 시작...")
     
@@ -212,9 +448,12 @@ if __name__ == "__main__":
         diagnose_stock(code, name)
         # 실행 테스트 (덕산하이메탈)
         result = get_dynamic_analysis(name, code)
-
-        print("\n" + "="*30)
-        print(f"📊 종목 : {result['stock']}   테마 : {result['themes']} 분석 리포트")
-        print(f"점수: {result['score']}점 | 등급: {result['grade']}")
-        print(f"상태: {result['signals']}")
-        print("="*30)
+        print("\n" + "=" * 50)
+    print(f"📊 {result['stock']} 수박 통합 분석 보고")
+    print(f"▶ 최종 등급 : {result['grade']} ({result['score']}점)")
+    print(f"▶ 핵심 테마 : {', '.join(result['themes'])}")
+    print(f"▶ 감지 호재 : {result['tags'] if result['tags'] else '없음'}")
+    print(f"▶ 유효 뉴스 : {result['news_count']}건")
+    print(f"▶ 시그널    : 긍정={result['signals']['positive']} / "
+          f"부정={result['signals']['negative']}")
+    print("=" * 50)
