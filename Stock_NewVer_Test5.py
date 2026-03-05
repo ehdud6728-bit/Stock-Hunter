@@ -189,9 +189,34 @@ def scan_market():
     kosdaq = stock.get_market_ticker_list(today, market="KOSDAQ")
     tickers = [(stock.get_market_ticker_name(c), c) for c in kospi + kosdaq]
     print(f"종목 카운트: {len(tickers)}")
+
+    try:
+        tickers = load_krx_listing_safe()
+        tickers['Code'] = (
+            tickers['Code']
+            .fillna('')
+            .astype(str)
+            .str.replace('.0', '', regex=False)
+            .str.zfill(6)
+        )
+
+        # 섹터 컬럼도 있으면 'Sector'로 통일
+        s_col = next((c for c in ['Sector', 'Industry', '업종'] if c in tickers.columns), None)
+        if s_col:
+            tickers = tickers.rename(columns={s_col: 'Sector'})
+            sector_master_map = tickers.set_index('Code')['Sector'].to_dict()
+        else:
+            sector_master_map = {k: '일반' for k in tickers['Code']}
+
+        print(f"✅ [본진] 명찰 통일 완료: {len(tickers)}개 종목 로드")
+
+    except Exception as e:
+        print(f"🚨 [본진] 데이터 로드 실패: {e}")
+        sector_master_map = {}
+        # 여기서 죽지 않게 빈 데이터프레임이라도 생성
+        tickers = pd.DataFrame(columns=['Code', 'Name', 'Sector'])
     if not tickers:
-        print("전체 종목 리스트: []")
-        return
+            # 2. 전 종목 리스트 로드 및 명찰 강제 통일
     results = []
     done = 0
     start_ts = time.time()
