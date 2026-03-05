@@ -1227,7 +1227,9 @@ def get_indicators(df):
     df['BB40_Lower'] = df['MA40'] - (std40 * 2)
     df['BB40_Width'] = (std40 * 4) / df['MA40'] * 100
     df['BB40_PercentB'] = (df['Close'] - df['BB40_Lower']) / (df['BB40_Upper'] - df['BB40_Lower'])
-
+    df['BB_UP'] = df['MA40'] + 2*df['Close'].rolling(40).std()
+    df['BB_LOW'] = df['MA20'] - 2*df['Close'].rolling(20).std()
+    
     # 3. 이평선 수렴도 및 이격도
     df['MA_Convergence'] = abs(df['MA20'] - df['MA60']) / df['MA60'] * 100
     df['Disparity'] = (df['Close'] / df['MA20']) * 100
