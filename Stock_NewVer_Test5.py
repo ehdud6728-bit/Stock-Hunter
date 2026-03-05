@@ -10,7 +10,7 @@ from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import time
 import openai
-
+from google_sheet_manager import update_google_sheet
 # ──────────────────────────────
 # 전역 변수 (조건값 조정 가능)
 # ──────────────────────────────
