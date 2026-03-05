@@ -47,6 +47,9 @@ END_DATE_STR = datetime.now().strftime('%Y%m%d')
 RECENT_AVG_AMOUNT_1 = 100 #거래대금조건 * 1.5
 RECENT_AVG_AMOUNT_2 = 300 #거래대금조건
 
+ROSS_BAND_TOLERANCE = 1.05   # 로스 쌍바닥 ±5%
+RSI_LOW_TOLERANCE   = 1.05   # RSI 저점 허용 ±5%
+
 # 사령관님의 21개 라운드넘버 리스트
 RN_LIST = [500, 1000, 1500, 2000, 3000, 5000, 7500, 10000, 15000, 20000, 
            30000, 50000, 75000, 100000, 150000, 200000, 300000, 500000, 
@@ -155,6 +158,8 @@ def analyze_save_googleSheet(all_hits, isNasdaq):
                 '종베GC',
                 '삼각점수',
                 '삼각등급',
+                'BB_Ross',
+                'RSI-DIV',
                 '확신점수',
                 '안전점수',
                 '섹터',
@@ -1267,7 +1272,19 @@ def get_indicators(df):
     loss = (-delta.where(delta < 0, 0)).ewm(com=13, adjust=False).mean()
     rs = gain / loss
     df['RSI'] = 100 - (100 / (1 + rs))
-
+    # 9-1. RSI_DIV, BB_Ross
+    df['BB_Ross'] = False
+    df['RSI_DIV'] = False
+ 
+    df_signal = df.dropna(subset=['BB_UP','BB_LOW','RSI']).copy()
+    if len(df_signal) > 21:
+        curr = df_signal.iloc[-1]
+        past = df_signal.iloc[-21:-1]
+        ross, _ = check_ross(curr, past)
+        rsi_div, _ = check_rsi_div(curr, past)
+        df.at[df.index[-1], 'BB_Ross'] = ross
+        df.at[df.index[-1], 'RSI_DIV'] = rsi_div
+    
     # 10. MFI (수박 로직 통합)
     typical_price = (df['High'] + df['Low'] + df['Close']) / 3
     money_flow = typical_price * df['Volume']
@@ -1808,6 +1825,30 @@ def analyze_combination_by_market(df_longterm):
     
     return df_results
 
+def check_ross(curr: pd.Series, past: pd.DataFrame):
+    if past.empty or past['BB_LOW'].isna().all():
+        return False, "과거 데이터 부족"
+    bb_low = past['BB_LOW']
+    outside_mask = past['저가'] < bb_low
+    if not outside_mask.any():
+        return False, "1차 저점 없음"
+    first_idx = outside_mask.values.argmax()
+    after_first = past.iloc[first_idx + 1:]
+    rebound = (after_first['종가'] > after_first['BB_LOW']).any()
+    near_band = curr['저가'] <= curr['BB_LOW'] * ROSS_BAND_TOLERANCE
+    close_above = curr['종가'] > curr['BB_LOW']
+    passed = rebound and near_band and close_above
+    return passed, f"반등:{rebound}, 저가밴드근접:{near_band}, 종가밴드위:{close_above}"
+
+def check_rsi_div(curr: pd.Series, past: pd.DataFrame):
+    if past['RSI'].isna().all() or pd.isna(curr['RSI']):
+        return False, "RSI 데이터 부족"
+    min_price_past = past['저가'].min()
+    min_rsi_past = past['RSI'].min()
+    price_similar = curr['저가'] <= min_price_past * RSI_LOW_TOLERANCE
+    rsi_higher = curr['RSI'] > min_rsi_past
+    return price_similar and rsi_higher, f"주가저점:{curr['저가']:.0f}(과거:{min_price_past:.0f}), RSI:{curr['RSI']:.1f}(과거:{min_rsi_past:.1f})"
+
 # ---------------------------------------------------------
 # 🕵️‍♂️ [분석] 정밀 분석 엔진 (Ver 36.7 최저수익률 추가)
 # ---------------------------------------------------------
@@ -1982,6 +2023,10 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
                 'triangle_signal': False,   # 아래에서 채워짐
                 'triangle_apex':   None,
                 'triangle_pattern': 'None',
+                'MA_Convergence': row['MA_Convergence'],
+
+                'bb_ross': False,
+                'ris_div': False,
             }
 
             try:
@@ -2010,6 +2055,12 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             # 3. 추가 정보 태그
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
             new_tags = result['tags'].copy()
+    
+            if row['BB_Ross']:
+                new_tags.append(f"🔺🔺Ross쌍바닥")
+    
+            if row['RSI_DIV']:
+                new_tags.append(f"📊RSI DIV")
             
             # 세부 정보 추가
             if signals['watermelon_signal']:
@@ -2484,6 +2535,8 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
                 'DMI추세': is_dmi_cross,
                 'ADX추세힘': is_adx_ok,
                 'DMI_OK': is_dmi_ok,
+                'BB_Ross': row['BB_Ross'],
+                'RSI-DIV': row['RSI_DIV'],
                 '뉴스점수': news_score,
                 '뉴스코멘트': news_comment,
             })
