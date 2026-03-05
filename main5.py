@@ -623,15 +623,17 @@ def get_indicators(df):
     
     df['Disparity'] = (df['Close'] / df['MA20']) * 100
     df['Box_Range'] = df['High'].rolling(10).max() / df['Low'].rolling(10).min()
-
-    df.dropna(subset=['BB_UP','BB_LOW','RSI'], inplace=True)
-    curr = df.iloc[-1]
-    past = df.iloc[-21:-1]
-    ross, _ = check_ross(curr, past)
-    rsi_div, _ = check_rsi_div(curr, past)
-
-    df['BB_Ross'] = ross
-    df['RSI_DIV'] = rsi_div
+    df['BB_Ross'] = False
+    df['RSI_DIV'] = False
+ 
+    df_signal = df.dropna(subset=['BB_UP','BB_LOW','RSI']).copy()
+    if len(df_signal) > 21:
+        curr = df_signal.iloc[-1]
+        past = df_signal.iloc[-21:-1]
+        ross, _ = check_ross(curr, past)
+        rsi_div, _ = check_rsi_div(curr, past)
+        df.at[df.index[-1], 'BB_Ross'] = ross
+        df.at[df.index[-1], 'RSI_DIV'] = rsi_div
 
     # ATR
     high, low, close = df['High'], df['Low'], df['Close']
