@@ -9,6 +9,10 @@ import os
 import mplfinance as mpf
 from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor
+import requests
+from bs4 import BeautifulSoup
+import feedparser
+import re
 
 # 💎 OpenAI
 try:
@@ -236,9 +240,77 @@ def analyze_dante_stock(ticker, name):
                    f"🛡️ 손절가: {stop_loss_price:,}원\n"
                    f"{ai_msg}"
         }
-
+        get_dynamic_analysis(name,ticker)
     except Exception:
         return None
+
+def get_dynamic_analysis(stock_name, stock_code):
+    # 1. 네이버 증권에서 실시간 테마/업종 긁어오기
+    url = f"https://finance.naver.com/item/main.naver?code={stock_code}"
+    headers = {'User-Agent': 'Mozilla/5.0'}
+    res = requests.get(url, headers=headers)
+    soup = BeautifulSoup(res.text, 'html.parser')
+
+    # 현재 시장이 부여한 테마 키워드 추출
+    themes = [a.text.strip() for a in soup.select(".u_gstree_v2 .item a")]
+    # 업종 키워드 추출 (예: 반도체와반도체장비 -> 반도체)
+    industry = soup.select_one(".gray .p11")
+    ind_keyword = industry.text.replace("와", " ").split()[0] if industry else ""
+    
+    # 최종 검색 키워드 조합 (종목명 + 상위 테마 2개 + 업종)
+    base_keywords = [stock_name] + themes[:2] + [ind_keyword]
+    query = "+".join(base_keywords)
+    
+    print(f"🎯 실시간 타겟 키워드: {base_keywords}")
+    print(f"🚀 생성된 RSS 검색어: {query}\n")
+
+    # 2. 구글 뉴스 RSS 분석
+    rss_url = f"https://news.google.com/rss/search?q={query}&hl=ko&gl=KR&ceid=KR:ko"
+    feed = feedparser.parse(rss_url)
+    
+    # 3. 긍정/부정 스코어링 사전
+    pos_words = ['상승', '돌파', '수주', '계약', '흑자', '최대', '강세', '공급', 'HBM', 'AI', '국산화']
+    neg_words = ['하락', '급락', '적자', '취소', '감소', '부진', '유상증자', '소송']
+
+    score = 0
+    signals = {'positive': False, 'negative': False, 'hbm_tagged': False}
+    
+    print("--- [최신 뉴스 헤드라인] ---")
+    for entry in feed.entries[:8]:  # 최신 뉴스 8개 확인
+        title = entry.title
+        print(f"- {title}")
+        
+        # 점수 계산 루틴
+        for pw in pos_words:
+            if pw in title: 
+                score += 15
+                signals['positive'] = True
+        for nw in neg_words:
+            if nw in title: 
+                score -= 20
+                signals['negative'] = True
+        if 'HBM' in title: signals['hbm_tagged'] = True
+
+    # 4. 최종 결과 리턴
+    grade = 'S' if score >= 80 else 'A' if score >= 40 else 'B' if score >= 0 else 'C'
+    
+    return {
+        'stock': stock_name,
+        'score': score,
+        'grade': grade,
+        'signals': signals,
+        'keywords_used': base_keywords
+    }
+
+    # 실행 테스트 (덕산하이메탈)
+    result = get_dynamic_analysis("덕산하이메탈", "077360")
+
+    print("\n" + "="*30)
+    print(f"📊 {result['stock']} 분석 리포트")
+    print(f"점수: {result['score']}점 | 등급: {result['grade']}")
+    print(f"상태: {result['signals']}")
+    print("="*30)
+
 
 # ---------------------------------------------------------
 # 🚀 실행
