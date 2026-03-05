@@ -505,14 +505,14 @@ def check_ross(curr: pd.Series, past: pd.DataFrame):
     if past.empty or past['BB_LOW'].isna().all():
         return False, "과거 데이터 부족"
     bb_low = past['BB_LOW']
-    outside_mask = past['저가'] < bb_low
+    outside_mask = past['Low'] < bb_low
     if not outside_mask.any():
         return False, "1차 저점 없음"
     first_idx = outside_mask.values.argmax()
     after_first = past.iloc[first_idx + 1:]
-    rebound = (after_first['종가'] > after_first['BB_LOW']).any()
-    near_band = curr['저가'] <= curr['BB_LOW'] * ROSS_BAND_TOLERANCE
-    close_above = curr['종가'] > curr['BB_LOW']
+    rebound = (after_first['Close'] > after_first['BB_LOW']).any()
+    near_band = curr['Low'] <= curr['BB_LOW'] * ROSS_BAND_TOLERANCE
+    close_above = curr['Close'] > curr['BB_LOW']
     passed = rebound and near_band and close_above
     return passed, f"반등:{rebound}, 저가밴드근접:{near_band}, 종가밴드위:{close_above}"
 
@@ -564,8 +564,8 @@ def get_indicators(df):
     df['BB40_Lower'] = df['MA40'] - (std40 * 2)
     df['BB40_Width'] = (std40 * 4) / df['MA40'] * 100
     df['BB40_PercentB'] = (df['Close'] - df['BB40_Lower']) / (df['BB40_Upper'] - df['BB40_Lower'])
-    df['BB_UP'] = df['MA40'] + 2*df['종가'].rolling(40).std()
-    df['BB_LOW'] = df['MA20'] - 2*df['종가'].rolling(20).std()
+    df['BB_UP'] = df['MA40'] + 2*df['Close'].rolling(40).std()
+    df['BB_LOW'] = df['MA20'] - 2*df['Close'].rolling(20).std()
  
     # 이평선 수렴도 계산
     df['MA_Convergence'] = abs(df['MA20'] - df['MA60']) / df['MA60'] * 100
