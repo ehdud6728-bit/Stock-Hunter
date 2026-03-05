@@ -1,233 +1,165 @@
-# ===========================================
-# 📊 AI 종목 스캔 + 뉴스 분석 + 패턴종류 표시
-# ===========================================
-
+# ─────────────────────────────────────────────
+# Stock Hunter Ultimate Version
+# ─────────────────────────────────────────────
 import sys
 import subprocess
 import warnings
 warnings.filterwarnings("ignore")
 
+# ── 라이브러리 설치
 def install_libs():
-    for lib in ['yfinance','pykrx','requests','beautifulsoup4','openai']:
+    for lib in ['yfinance', 'pandas_ta', 'pykrx', 'numpy', 'pandas']:
         try:
             __import__(lib.replace('-', '_'))
         except ImportError:
-            subprocess.check_call([sys.executable,"-m","pip","install",lib])
+            print(f"🚀 Installing {lib} ...")
+            subprocess.check_call([sys.executable, "-m", "pip", "install", lib])
 
 install_libs()
 
 import pandas as pd
 import numpy as np
 import yfinance as yf
+import pandas_ta as ta
 from pykrx import stock
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
-import requests
-from bs4 import BeautifulSoup
 import time
-import os
-import json
-from openai import OpenAI
 
-# ───────────────────────────────────────────
-# OPENAI API SETUP
-# ───────────────────────────────────────────
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
-if not OPENAI_API_KEY:
-    raise Exception("❌ OPENAI_API_KEY 환경 변수 미설정")
-
-client = OpenAI(api_key=OPENAI_API_KEY)
-
-# ───────────────────────────────────────────
-# UTILS
-# ───────────────────────────────────────────
-def flatten_df(df):
+# ── 유틸: MultiIndex 컬럼 정리
+def flatten_df(df: pd.DataFrame) -> pd.DataFrame:
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
     return df
 
-# ───────────────────────────────────────────
-# INDICATORS
-# ───────────────────────────────────────────
-def add_indicators(df):
-    df['MA40'] = df['Close'].rolling(40).mean()
-    df['STD40']= df['Close'].rolling(40).std()
-    df['BB_UP']= df['MA40'] + 2*df['STD40']
+# ── 유틸: 티커 선택 (KS 먼저, 없으면 KQ)
+def get_ticker(code: str) -> tuple[str, pd.DataFrame]:
+    df = yf.download(f"{code}.KS", period="200d", interval="1d", progress=False)
+    df = flatten_df(df)
+    if not df.empty:
+        return f"{code}.KS", df
+    df = yf.download(f"{code}.KQ", period="200d", interval="1d", progress=False)
+    df = flatten_df(df)
+    return f"{code}.KQ", df
 
-    df['MA20'] = df['Close'].rolling(20).mean()
-    df['STD20']= df['Close'].rolling(20).std()
-    df['BB_LOW']= df['MA20'] - 2*df['STD20']
+# ── 로직 1: 수박 BB40 돌파
+def check_watermelon(curr: pd.Series, past: pd.DataFrame) -> tuple[bool, str]:
+    if pd.isna(curr.get('BB_UP_40')):
+        return False, "BB40 데이터 부족"
 
-    delta = df['Close'].diff()
-    gain  = delta.clip(lower=0)
-    loss  = -delta.clip(upper=0)
-    avg_gain = gain.rolling(14).mean()
-    avg_loss = loss.rolling(14).mean()
-    rs = avg_gain/avg_loss
-    df['RSI'] = 100 - 100/(1+rs)
+    cond1 = curr['Close'] > curr['BB_UP_40'] * 0.99  # ±1% 허용
+    cond2 = curr['Volume'] > past['Volume'].mean() * 1.2  # 거래량 1.2배
+    body  = (curr['Close'] - curr['Open']) / curr['Open']
+    cond3 = body > 0.03  # 3% 이상 양봉
+    passed = bool(cond1 and cond2 and cond3)
+    detail = f"{curr['Close']:.0f} / BB40:{curr['BB_UP_40']:.0f} | Volume:{curr['Volume']:.0f} | Body:{body*100:.1f}%"
+    return passed, detail
 
-    df.dropna(subset=['BB_UP','BB_LOW','RSI'], inplace=True)
-    return df
+# ── 로직 2: 로스 쌍바닥
+def check_ross(curr: pd.Series, past: pd.DataFrame) -> tuple[bool, str]:
+    if past.empty or past['BB_LOW_20'].isna().all() or pd.isna(curr.get('BB_LOW_20')):
+        return False, "BB20 데이터 부족"
+    bb_low = past['BB_LOW_20']
+    outside_mask = past['Low'] < bb_low
+    if not outside_mask.any():
+        return False, "1차 저점 없음"
+    first_idx = outside_mask.values.argmax()
+    after_first = past.iloc[first_idx + 1:]
+    rebound = (after_first['Close'] > after_first['BB_LOW_20']).any() if not after_first.empty else False
+    near_band = curr['Low'] <= curr['BB_LOW_20'] * 1.03
+    close_above = curr['Close'] > curr['BB_LOW_20']
+    passed = bool(rebound and near_band and close_above)
+    detail = f"2차저점:{curr['Low']:.0f} / BB20:{curr['BB_LOW_20']:.0f}"
+    return passed, detail
 
-# ───────────────────────────────────────────
-# PATTERN CHECKS
-# ───────────────────────────────────────────
-def check_watermelon(curr, past):
-    cond1 = curr['Close'] > curr['BB_UP']
-    cond2 = curr['Volume'] > past['Volume'].mean()*2
-    body  = (curr['Close']-curr['Open'])/curr['Open']
-    cond3 = body > 0.05
-    return bool(cond1 and cond2 and cond3)
-
-def check_ross(curr, past):
-    if past['BB_LOW'].isna().all(): return False
-    outside = past['Low'] < past['BB_LOW']
-    if not outside.any(): return False
-    idx = outside.values.argmax()
-    after = past.iloc[idx+1:]
-    if after.empty: return False
-    rebound = (after['Close']>after['BB_LOW']).any()
-    near  = curr['Low'] <= past['BB_LOW'].iloc[-1]*1.03
-    above = curr['Close'] > past['BB_LOW'].iloc[-1]
-    return bool(rebound and near and above)
-
-def check_divergence(curr, past):
+# ── 로직 3: RSI 다이버전스
+def check_divergence(curr: pd.Series, past: pd.DataFrame) -> tuple[bool, str]:
+    if pd.isna(curr.get('RSI')) or past['RSI'].isna().all():
+        return False, "RSI 데이터 부족"
     price_low = past['Low'].min()
-    rsi_low   = past['RSI'].min()
-    cond1 = curr['Low'] <= price_low*1.03
+    rsi_low = past['RSI'].min()
+    cond1 = curr['Low'] <= price_low * 1.03
     cond2 = curr['RSI'] > rsi_low
-    return bool(cond1 and cond2)
+    passed = bool(cond1 and cond2)
+    detail = f"Low:{curr['Low']:.0f}(과거:{price_low:.0f}) / RSI:{curr['RSI']:.1f}(과거:{rsi_low:.1f})"
+    return passed, detail
 
-# ───────────────────────────────────────────
-# SMART MONEY SCORE
-# ───────────────────────────────────────────
-def smart_money_score(df):
-    score = 0
-    vol_ratio = df['Volume'].iloc[-5:].mean()/df['Volume'].iloc[-60:].mean()
-    if vol_ratio>1.5: score+=30
-    up_vol   = df[df['Close']>df['Open']]['Volume'].tail(20).mean()
-    down_vol = df[df['Close']<df['Open']]['Volume'].tail(20).mean()
-    if up_vol > down_vol*1.2: score+=30
-    volatility = (df['High']-df['Low'])/df['Close']
-    if volatility.tail(10).mean() < volatility.tail(60).mean(): score+=20
-    if df['Close'].iloc[-1] > df['Close'].rolling(60).mean().iloc[-1]: score+=20
-    return min(score,100)
-
-# ───────────────────────────────────────────
-# NEWS SCORE
-# ───────────────────────────────────────────
-def get_news_score(code, n=5):
+# ── 단일 종목 분석
+def analyze_stock(name: str, code: str) -> dict | None:
     try:
-        url = f"https://news.google.com/rss/search?q={code}+when:7d&hl=en-US&gl=US&ceid=US:en"
-        res = requests.get(url, headers={'User-Agent':'Mozilla/5.0'})
-        soup = BeautifulSoup(res.content,"xml")
-        items = soup.find_all("item")
-        headlines = [item.title.text for item in items[:n]]
-        if not headlines:
-            return 50, "No recent news"
-
-        prompt = f"""
-        Analyze these {len(headlines)} news items for stock {code}.
-        Score sentiment 0-100 and give one-line comment.
-        Headlines: {headlines}
-        Return JSON: {{"score":xx, "comment":"..."}} 
-        """
-
-        res = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role":"system","content":"You are a stock sentiment analyst."},
-                {"role":"user","content":prompt}
-            ]
-        )
-        text = res.choices[0].message.content
-        data = json.loads(text)
-        return int(data.get("score",50)), data.get("comment","")
-    except:
-        return 50, "News parse failed"
-
-# ───────────────────────────────────────────
-# SINGLE STOCK ANALYSIS
-# ───────────────────────────────────────────
-def analyze_stock(name, code):
-    try:
-        df = yf.download(f"{code}.KS", period="200d", interval="1d", progress=False)
-        df = flatten_df(df)
-        if df.empty or len(df)<60:
-            df = yf.download(f"{code}.KQ", period="200d", interval="1d", progress=False)
-            df = flatten_df(df)
-        if len(df)<60: return None
-
-        df = add_indicators(df)
-        curr = df.iloc[-1]; past = df.iloc[-21:-1]
-
-        wm   = check_watermelon(curr,past)
-        ross = check_ross(curr,past)
-        div  = check_divergence(curr,past)
-
-        # 패턴종류
-        patterns = []
-        if wm: patterns.append("수박")
-        if ross: patterns.append("로스")
-        if div: patterns.append("RSI")
-
-        pattern_score = (50 if wm else 0) + (30 if ross else 0) + (20 if div else 0)
-        smart_score   = smart_money_score(df)
-        news_score, news_comment = get_news_score(code)
-        final_score = round(pattern_score*0.3 + smart_score*0.3 + news_score*0.4,1)
-        grade = 'S' if final_score>=80 else 'A' if final_score>=50 else 'B'
-
+        ticker, df = get_ticker(code)
+        if df.empty or len(df) < 60:
+            return None
+        # 지표 계산
+        close = df['Close'].squeeze()
+        bb40 = ta.bbands(close, length=40, std=2)
+        bb20 = ta.bbands(close, length=20, std=2)
+        df['BB_UP_40']  = bb40['BBU_40_2.0']
+        df['BB_LOW_20'] = bb20['BBL_20_2.0']
+        df['RSI'] = ta.rsi(close, length=14)
+        df.dropna(subset=['BB_UP_40','BB_LOW_20','RSI'], inplace=True)
+        if len(df) < 22:
+            return None
+        curr = df.iloc[-1]
+        past = df.iloc[-21:-1]
+        # 패턴 체크
+        wm_pass, wm_detail = check_watermelon(curr, past)
+        ross_pass, ross_detail = check_ross(curr, past)
+        div_pass, div_detail = check_divergence(curr, past)
+        score = (50 if wm_pass else 0) + (30 if ross_pass else 0) + (20 if div_pass else 0)
+        if score == 0:
+            return None
+        grade = 'S' if score >= 80 else 'A' if score >= 50 else 'B'
         return {
             "종목명": name,
             "코드": code,
-            "패턴종류": ",".join(patterns) if patterns else "없음",
-            "패턴점수": pattern_score,
-            "세력매집": smart_score,
-            "뉴스점수": news_score,
-            "AI코멘트": news_comment,
-            "최종점수": final_score,
-            "등급": grade
+            "등급": grade,
+            "점수": score,
+            "수박": "✅" if wm_pass else "❌",
+            "수박_패턴": wm_detail if wm_pass else "",
+            "로스쌍바닥": "✅" if ross_pass else "❌",
+            "로스_패턴": ross_detail if ross_pass else "",
+            "RSI다이버전스": "✅" if div_pass else "❌",
+            "RSI_패턴": div_detail if div_pass else "",
+            "현재가": f"{curr['Close']:.0f}원"
         }
-    except:
+    except Exception:
         return None
 
-# ───────────────────────────────────────────
-# MARKET SCAN
-# ───────────────────────────────────────────
-def scan_market(max_workers=20):
+# ── 전체 종목 스캔
+def scan_market(max_workers: int = 20):
     print("📊 Scanning all KOSPI & KOSDAQ stocks...")
     today = datetime.today().strftime("%Y%m%d")
-    kospi = stock.get_market_ticker_list(today, market="KOSPI")
+    kospi  = stock.get_market_ticker_list(today, market="KOSPI")
     kosdaq = stock.get_market_ticker_list(today, market="KOSDAQ")
-    tickers = [(stock.get_market_ticker_name(c),c) for c in kospi+kosdaq]
-
+    tickers = [(stock.get_market_ticker_name(c), c) for c in kospi + kosdaq]
     results = []
+    done = 0
     start_ts = time.time()
-    done=0
-
-    with ThreadPoolExecutor(max_workers=max_workers) as exe:
-        futures = [exe.submit(analyze_stock,name,code) for name,code in tickers]
-        for f in as_completed(futures):
-            done+=1
-            r = f.result()
-            if r: results.append(r)
-            if done % 100 == 0 or done==len(tickers):
-                print(f"Progress {done}/{len(tickers)}")
-
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(analyze_stock, name, code): code for name, code in tickers}
+        for future in as_completed(futures):
+            done += 1
+            r = future.result()
+            if r:
+                results.append(r)
+            if done % 100 == 0 or done == len(futures):
+                elapsed = time.time() - start_ts
+                eta = (elapsed / done) * (len(futures) - done)
+                print(f"Progress {done}/{len(futures)} | Candidates {len(results)} | ETA ~{eta:.0f}s")
     if not results:
         print("No candidates found.")
         return
+    df_result = pd.DataFrame(results)
+    df_result = df_result.sort_values("점수", ascending=False).reset_index(drop=True)
+    df_result.index += 1
+    print("\n🔥 Top Candidates\n")
+    print(df_result.head(20).to_string())
+    df_result.to_csv("ultimate_candidates.csv", index=False, encoding="utf-8-sig")
+    print("\n✅ CSV saved → ultimate_candidates.csv")
+    total_time = time.time() - start_ts
+    print(f"⏱️  Total elapsed time: {total_time:.0f}s")
 
-    df = pd.DataFrame(results).sort_values("최종점수", ascending=False)
-    df.index += 1
-    print("\n🔥 TOP Stock Candidates\n")
-    print(df.head(20).to_string())
-    df.to_csv("ai_stock_full_results_patterns.csv", index=False, encoding="utf-8-sig")
-    print("\n✅ CSV saved -> ai_stock_full_results_patterns.csv")
-    print(f"⏱ Total time: {round(time.time()-start_ts,1)}s")
-
-# ───────────────────────────────────────────
-# RUN
-# ───────────────────────────────────────────
+# ── 실행
 if __name__ == "__main__":
     scan_market(max_workers=20)
