@@ -215,7 +215,7 @@ def scan_market():
         sector_master_map = {}
         # 여기서 죽지 않게 빈 데이터프레임이라도 생성
         tickers = pd.DataFrame(columns=['Code', 'Name', 'Sector'])
-    if not tickers:
+    if not tickers.empty:
             # 2. 전 종목 리스트 로드 및 명찰 강제 통일
         results = []
     done = 0
