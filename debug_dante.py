@@ -182,7 +182,7 @@ if __name__ == "__main__":
         result = get_dynamic_analysis(name, code)
 
         print("\n" + "="*30)
-        print(f"📊 {result['stock']} {result['themes']} 분석 리포트")
+        print(f"📊 종목 : {result['stock']}   테마 : {result['themes']} 분석 리포트")
         print(f"점수: {result['score']}점 | 등급: {result['grade']}")
         print(f"상태: {result['signals']}")
         print("="*30)
