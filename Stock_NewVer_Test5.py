@@ -217,7 +217,7 @@ def scan_market():
         tickers = pd.DataFrame(columns=['Code', 'Name', 'Sector'])
     if not tickers:
             # 2. 전 종목 리스트 로드 및 명찰 강제 통일
-    results = []
+        results = []
     done = 0
     start_ts = time.time()
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
