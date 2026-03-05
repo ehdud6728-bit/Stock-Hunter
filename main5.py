@@ -399,15 +399,17 @@ def calculate_combination_score(signals):
         candidates[-1]['grade'] = 'SS+'
         # 2. 기존 리스트에 새 태그 '추가' (append 사용)
         candidates[-1]['tags'].append('🚀DMI_OK')
-
-    if effective.get('triangle_pattern') == 'Symmetrical' and effective.get('MA_Convergence') <= 50:
+    
+    ma_conv = effective.get('MA_Convergence')
+     
+    if effective.get('triangle_pattern') == 'Symmetrical' and ma_conv <= 50:
         score += 500
         candidates[-1]['score'] += 500
         candidates[-1]['grade'] = 'SS+'
         # 2. 기존 리스트에 새 태그 '추가' (append 사용)
         candidates[-1]['tags'].append('🚀삼각')
 
-    if ((effective.get('dmi_ok', False) or effective.get('dmi_cross', False)) and effective.get('MA_Convergence') <= 1.5):
+    if ((effective.get('dmi_ok', False) or effective.get('dmi_cross', False)) and ma_conv <= 1.5):
         score += 500
         candidates[-1]['score'] += 500
         candidates[-1]['grade'] = 'SS+'
@@ -1345,7 +1347,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             'triangle_pattern': 'None',
             'dmi_cross': False,
             'dmi_ok': False,
-            'MA_Convergence': df['MA_Convergence'],
+            'MA_Convergence': row['MA_Convergence'],
 
             'bb_ross': False,
             'ris_div': False,
