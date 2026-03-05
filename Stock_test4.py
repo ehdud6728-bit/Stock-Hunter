@@ -1831,25 +1831,25 @@ def check_ross(curr: pd.Series, past: pd.DataFrame):
     if past.empty or past['BB_LOW'].isna().all():
         return False, "과거 데이터 부족"
     bb_low = past['BB_LOW']
-    outside_mask = past['저가'] < bb_low
+    outside_mask = past['Low'] < bb_low
     if not outside_mask.any():
         return False, "1차 저점 없음"
     first_idx = outside_mask.values.argmax()
     after_first = past.iloc[first_idx + 1:]
-    rebound = (after_first['종가'] > after_first['BB_LOW']).any()
-    near_band = curr['저가'] <= curr['BB_LOW'] * ROSS_BAND_TOLERANCE
-    close_above = curr['종가'] > curr['BB_LOW']
+    rebound = (after_first['Close'] > after_first['BB_LOW']).any()
+    near_band = curr['Low'] <= curr['BB_LOW'] * ROSS_BAND_TOLERANCE
+    close_above = curr['Close'] > curr['BB_LOW']
     passed = rebound and near_band and close_above
     return passed, f"반등:{rebound}, 저가밴드근접:{near_band}, 종가밴드위:{close_above}"
 
 def check_rsi_div(curr: pd.Series, past: pd.DataFrame):
     if past['RSI'].isna().all() or pd.isna(curr['RSI']):
         return False, "RSI 데이터 부족"
-    min_price_past = past['저가'].min()
+    min_price_past = past['Low'].min()
     min_rsi_past = past['RSI'].min()
-    price_similar = curr['저가'] <= min_price_past * RSI_LOW_TOLERANCE
+    price_similar = curr['Low'] <= min_price_past * RSI_LOW_TOLERANCE
     rsi_higher = curr['RSI'] > min_rsi_past
-    return price_similar and rsi_higher, f"주가저점:{curr['저가']:.0f}(과거:{min_price_past:.0f}), RSI:{curr['RSI']:.1f}(과거:{min_rsi_past:.1f})"
+    return price_similar and rsi_higher, f"주가저점:{curr['Low']:.0f}(과거:{min_price_past:.0f}), RSI:{curr['RSI']:.1f}(과거:{min_rsi_past:.1f})"
 
 # ---------------------------------------------------------
 # 🕵️‍♂️ [분석] 정밀 분석 엔진 (Ver 36.7 최저수익률 추가)
