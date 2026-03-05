@@ -21,7 +21,7 @@ jobs:
         # 혹시 requirements.txt에 없다면 아래 줄 주석 해제해서 쓰세요
         # pip install finance-datareader pandas requests
 
-    - name: Run Scanner
+    - name: Run Debug Script
       env:
         TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
         TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
@@ -30,5 +30,4 @@ jobs:
         GOOGLE_JSON_KEY: ${{ secrets.GOOGLE_JSON_KEY }}
         OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
 
-    - name: Run Debug Script
       run: python Stock_NewVer_Test5.py
