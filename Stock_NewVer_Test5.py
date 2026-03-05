@@ -1,203 +1,193 @@
-# ─────────────────────────────────────────────
-# Stock Hunter 끝판왕 버전
-# ─────────────────────────────────────────────
 import os
 import sys
 import warnings
-import time
-from datetime import datetime
-from concurrent.futures import ThreadPoolExecutor, as_completed
-
-import numpy as np
-import pandas as pd
-import yfinance as yf
-from pykrx import stock
-import requests
-
 warnings.filterwarnings("ignore")
 
-# ─────────────────────────────────────────────
-# 전역 변수: 조건값 조정 가능
-# ─────────────────────────────────────────────
-BB40_STD = 2
-BB20_STD = 2
-ROSS_BAND_TOLERANCE = 1.05   # 로스 쌍바닥 ±5%
-RSI_LOW_TOLERANCE = 1.05     # RSI 저점 ±5%
-WATERMELON_BODY_MIN = 0.05   # 5% 이상 양봉
-VOLUME_MULT = 2               # 20일 평균 대비 거래량 배수
-TOP_N = 20                    # TOP 후보 수
-MAX_WORKERS = 20              # 병렬 스레드 수
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+import pandas as pd
+import numpy as np
+import yfinance as yf
+from pykrx import stock
+from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import time
+import openai
 
-# ─────────────────────────────────────────────
+# ──────────────────────────────
+# 전역 변수 (조건값 조정 가능)
+# ──────────────────────────────
+ROSS_BAND_TOLERANCE = 1.05   # 로스 쌍바닥 ±5%
+RSI_LOW_TOLERANCE   = 1.05   # RSI 저점 허용 ±5%
+WATERMELON_VOLUME_MULTIPLIER = 2
+WATERMELON_BODY_RATIO = 0.05
+MAX_WORKERS = 20
+TOP_N = 20
+
+# OpenAI API
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+openai.api_key = OPENAI_API_KEY
+
+# ──────────────────────────────
 # 유틸 함수
-# ─────────────────────────────────────────────
+# ──────────────────────────────
 def flatten_df(df: pd.DataFrame) -> pd.DataFrame:
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
     return df
 
-def calculate_bb(close: pd.Series, length: int, std: float) -> tuple[pd.Series, pd.Series]:
-    ma = close.rolling(length).mean()
-    sd = close.rolling(length).std()
-    upper = ma + (sd * std)
-    lower = ma - (sd * std)
-    return upper, lower
-
-def calculate_rsi(series: pd.Series, period: int = 14) -> pd.Series:
+def compute_rsi(series: pd.Series, period: int = 14) -> pd.Series:
     delta = series.diff()
     up = delta.clip(lower=0)
-    down = -1 * delta.clip(upper=0)
-    ma_up = up.rolling(period).mean()
-    ma_down = down.rolling(period).mean()
-    rsi = 100 - (100 / (1 + ma_up / ma_down))
+    down = -delta.clip(upper=0)
+    roll_up = up.ewm(span=period, adjust=False).mean()
+    roll_down = down.ewm(span=period, adjust=False).mean()
+    rs = roll_up / roll_down
+    rsi = 100 - 100 / (1 + rs)
     return rsi
 
-# ─────────────────────────────────────────────
-# 패턴 로직
-# ─────────────────────────────────────────────
-def check_watermelon(curr: pd.Series, past: pd.DataFrame) -> tuple[bool, str]:
-    cond1 = curr['Close'] > curr['BB_UP_40']
-    cond2 = curr['Volume'] > past['Volume'].mean() * VOLUME_MULT
-    body = (curr['Close'] - curr['Open']) / curr['Open']
-    cond3 = body > WATERMELON_BODY_MIN
-    detail = f"종가 {curr['Close']:.0f} / BB40 상단 {curr['BB_UP_40']:.0f} / 몸통 {body:.2%} / 거래량 {curr['Volume']}"
+def ai_comment_summary(name: str, pattern_info: str) -> str:
+    """OpenAI GPT를 사용해 간단 코멘트 생성"""
+    try:
+        if not OPENAI_API_KEY:
+            return "API Key 없음"
+        prompt = f"한국 주식 종목 {name}이 다음 패턴을 보였습니다: {pattern_info}. 투자자에게 짧게 코멘트 해주세요."
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role":"user","content":prompt}],
+            max_tokens=50,
+            temperature=0.5
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        return f"AI 코멘트 실패: {e}"
+
+# ──────────────────────────────
+# 패턴 체크
+# ──────────────────────────────
+def check_watermelon(curr: pd.Series, past: pd.DataFrame):
+    cond1 = curr['Close'] > curr['BB_UP']
+    cond2 = curr['Volume'] > past['Volume'].mean() * WATERMELON_VOLUME_MULTIPLIER
+    body_ratio = (curr['Close'] - curr['Open']) / curr['Open']
+    cond3 = body_ratio > WATERMELON_BODY_RATIO
+    detail = f"종가:{curr['Close']:.0f}, 볼륨:{curr['Volume']}, 몸통:{body_ratio:.2f}"
     return cond1 and cond2 and cond3, detail
 
-def check_ross(curr: pd.Series, past: pd.DataFrame) -> tuple[bool, str]:
-    bb_low = past['BB_LOW_20']
+def check_ross(curr: pd.Series, past: pd.DataFrame):
+    if past.empty or past['BB_LOW'].isna().all():
+        return False, "과거 데이터 부족"
+    bb_low = past['BB_LOW']
     outside_mask = past['Low'] < bb_low
     if not outside_mask.any():
         return False, "1차 저점 없음"
     first_idx = outside_mask.values.argmax()
     after_first = past.iloc[first_idx + 1:]
-    rebound = (after_first['Close'] > after_first['BB_LOW_20']).any()
-    near_band = curr['Low'] <= curr['BB_LOW_20'] * ROSS_BAND_TOLERANCE
-    close_above = curr['Close'] > curr['BB_LOW_20']
-    detail = f"현재 저가 {curr['Low']:.0f} / BB20 {curr['BB_LOW_20']:.0f}"
-    return bool(rebound and near_band and close_above), detail
+    rebound = (after_first['Close'] > after_first['BB_LOW']).any()
+    near_band = curr['Low'] <= curr['BB_LOW'] * ROSS_BAND_TOLERANCE
+    close_above = curr['Close'] > curr['BB_LOW']
+    passed = rebound and near_band and close_above
+    detail = f"반등:{rebound}, 저가밴드근접:{near_band}, 종가밴드위:{close_above}"
+    return passed, detail
 
-def check_divergence(curr: pd.Series, past: pd.DataFrame) -> tuple[bool, str]:
-    price_low = past['Low'].min()
-    rsi_low = past['RSI'].min()
-    cond1 = curr['Low'] <= price_low * RSI_LOW_TOLERANCE
-    cond2 = curr['RSI'] > rsi_low
-    detail = f"현재 저가 {curr['Low']:.0f} / 과거 최저 {price_low:.0f} / RSI {curr['RSI']:.1f} vs {rsi_low:.1f}"
-    return cond1 and cond2, detail
+def check_rsi_div(curr: pd.Series, past: pd.DataFrame):
+    if past['RSI'].isna().all() or pd.isna(curr['RSI']):
+        return False, "RSI 데이터 부족"
+    min_price_past = past['Low'].min()
+    min_rsi_past = past['RSI'].min()
+    price_similar = curr['Low'] <= min_price_past * RSI_LOW_TOLERANCE
+    rsi_higher = curr['RSI'] > min_rsi_past
+    detail = f"주가저점:{curr['Low']:.0f}(과거:{min_price_past:.0f}), RSI:{curr['RSI']:.1f}(과거:{min_rsi_past:.1f})"
+    return price_similar and rsi_higher, detail
 
-# ─────────────────────────────────────────────
-# AI 코멘트 (간단 샘플)
-# ─────────────────────────────────────────────
-def generate_ai_comment(stock_name: str, patterns: list[str]) -> str:
-    return f"{stock_name} 패턴: {', '.join(patterns)} 분석 완료. 상승 가능성 확인 필요."
-
-# ─────────────────────────────────────────────
-# 뉴스 점수 (한국 뉴스 간단 샘플)
-# ─────────────────────────────────────────────
-def fetch_news_score(stock_name: str) -> int:
-    # 단순 샘플: 실제 API 연결 필요
-    return np.random.randint(0, 11)
-
-# ─────────────────────────────────────────────
-# 종목 분석
-# ─────────────────────────────────────────────
-def analyze_stock(name: str, code: str) -> dict | None:
+# ──────────────────────────────
+# 단일 종목 분석
+# ──────────────────────────────
+def analyze_stock(name: str, code: str):
     try:
         df = yf.download(f"{code}.KS", period="200d", interval="1d", progress=False)
         df = flatten_df(df)
-        if df.empty or len(df) < 60:
+        if df.empty or len(df)<60:
             df = yf.download(f"{code}.KQ", period="200d", interval="1d", progress=False)
             df = flatten_df(df)
-        if len(df) < 60:
+        if len(df)<60:
             return None
-
-        # 지표 계산
-        close = df['Close']
-        df['BB_UP_40'], _ = calculate_bb(close, 40, BB40_STD)
-        _, df['BB_LOW_20'] = calculate_bb(close, 20, BB20_STD)
-        df['RSI'] = calculate_rsi(close, 14)
-        df.dropna(subset=['BB_UP_40', 'BB_LOW_20', 'RSI'], inplace=True)
-
+        df['MA20'] = df['Close'].rolling(20).mean()
+        df['MA40'] = df['Close'].rolling(40).mean()
+        df['BB_UP'] = df['MA40'] + 2*df['Close'].rolling(40).std()
+        df['BB_LOW'] = df['MA20'] - 2*df['Close'].rolling(20).std()
+        df['RSI'] = compute_rsi(df['Close'], 14)
+        df.dropna(subset=['BB_UP','BB_LOW','RSI'], inplace=True)
         curr = df.iloc[-1]
         past = df.iloc[-21:-1]
-
-        patterns = []
-        score = 0
-
         wm, wm_detail = check_watermelon(curr, past)
-        if wm:
-            score += 50
-            patterns.append("수박")
         ross, ross_detail = check_ross(curr, past)
-        if ross:
-            score += 30
-            patterns.append("로스쌍바닥")
-        div, div_detail = check_divergence(curr, past)
-        if div:
-            score += 20
-            patterns.append("RSI다이버전스")
-
-        news_score = fetch_news_score(name)
-        final_score = score + news_score
-        grade = 'S' if final_score >= 80 else 'A' if final_score >= 50 else 'B'
-
+        rsi_div, rsi_detail = check_rsi_div(curr, past)
+        score = (50 if wm else 0) + (30 if ross else 0) + (20 if rsi_div else 0)
+        grade = 'S' if score>=80 else 'A' if score>=50 else 'B' if score>=30 else 'C'
+        pattern_info = []
+        if wm: pattern_info.append("수박")
+        if ross: pattern_info.append("로스쌍바닥")
+        if rsi_div: pattern_info.append("RSI다이버전스")
+        ai_comment = ai_comment_summary(name, ",".join(pattern_info)) if pattern_info else "패턴없음"
         return {
             "종목명": name,
             "코드": code,
-            "패턴점수": score,
-            "패턴종류": ",".join(patterns) if patterns else "없음",
-            "뉴스점수": news_score,
-            "최종점수": final_score,
+            "점수": score,
             "등급": grade,
-            "AI코멘트": generate_ai_comment(name, patterns),
+            "패턴": ",".join(pattern_info),
+            "수박": "✅" if wm else "❌",
+            "로스쌍바닥": "✅" if ross else "❌",
+            "RSI다이버전스": "✅" if rsi_div else "❌",
             "현재가": f"{curr['Close']:.0f}원",
+            "패턴점수": score,
+            "패턴정보": ",".join(pattern_info),
+            "AI코멘트": ai_comment,
+            "뉴스점수": 0
         }
-
     except Exception as e:
-        print(f"[ERROR] {name} ({code}) 분석 실패: {e}")
+        print(f"❌ {name}({code}) 분석 실패: {e}")
         return None
 
-# ─────────────────────────────────────────────
+# ──────────────────────────────
 # 전체 스캔
-# ─────────────────────────────────────────────
+# ──────────────────────────────
 def scan_market():
     print("📊 Scanning all KOSPI & KOSDAQ stocks...")
     today = datetime.today().strftime("%Y%m%d")
     kospi = stock.get_market_ticker_list(today, market="KOSPI")
     kosdaq = stock.get_market_ticker_list(today, market="KOSDAQ")
     tickers = [(stock.get_market_ticker_name(c), c) for c in kospi + kosdaq]
+    print(f"종목 카운트: {len(tickers)}")
+    if not tickers:
+        print("전체 종목 리스트: []")
+        return
     results = []
     done = 0
-    start_ts = time.time() 
-    print(f"종목 카운트: {len(tickers)}")
-    print("전체 종목 리스트:", tickers)
-
+    start_ts = time.time()
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-        futures = {executor.submit(analyze_stock, name, code): code for name, code in tickers}
+        futures = {executor.submit(analyze_stock,name,code): code for name, code in tickers}
         for future in as_completed(futures):
-            done += 1
+            done +=1
             r = future.result()
             if r:
                 results.append(r)
-            if done % 50 == 0 or done == len(futures):
-                elapsed = time.time() - start_ts
-                eta = (elapsed / done) * (len(futures) - done)
-                print(f"진행 {done}/{len(futures)} | 후보 {len(results)} | 경과 {elapsed:.0f}s | 남은시간 ~{eta:.0f}s")
-
+            if done%100==0 or done==len(tickers):
+                elapsed = time.time()-start_ts
+                eta = (elapsed/done)*(len(tickers)-done)
+                print(f"진행 {done}/{len(tickers)}, 후보:{len(results)}, 경과:{elapsed:.0f}s, 남은:{eta:.0f}s")
     if not results:
         print("조건 만족 종목 없음")
         return
-
     df_result = pd.DataFrame(results)
-    df_result = df_result.sort_values("최종점수", ascending=False).reset_index(drop=True)
-    df_result.index += 1
-    print(f"\n🔥 오늘의 TOP {min(TOP_N, len(df_result))} 후보\n")
+    df_result = df_result.sort_values("점수",ascending=False).reset_index(drop=True)
+    df_result.index +=1
+    print(f"\n🔥 TOP {min(TOP_N,len(df_result))} 후보\n")
     print(df_result.head(TOP_N).to_string())
-    df_result.to_csv("final_candidates.csv", index=False, encoding="utf-8-sig")
-    print("\n✅ CSV 저장 완료 → final_candidates.csv")
+    out_path = "watermelon_candidates.csv"
+    df_result.to_csv(out_path,index=False,encoding="utf-8-sig")
+    print(f"\n✅ CSV 저장 완료 → {out_path}")
+    print(f"⏱️ 총 소요시간: {time.time()-start_ts:.0f}초")
 
-# ─────────────────────────────────────────────
+# ──────────────────────────────
 # 실행
-# ─────────────────────────────────────────────
-if __name__ == "__main__":
+# ──────────────────────────────
+if __name__=="__main__":
     scan_market()
