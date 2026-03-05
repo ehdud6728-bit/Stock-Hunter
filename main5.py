@@ -1371,10 +1371,10 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             print(f"🚨 tri_result 계산 실패: {e}")
             tri_result = {}
          
-        if row[BB_Ross]:
+        if row['BB_Ross']:
             new_tags.append(f"🔺🔺Ross쌍바닥")
 
-        if row[RSI_DIV]:
+        if row['RSI_DIV']:
             new_tags.append(f"📊RSI DIV")
         
         # 세부 정보 추가
