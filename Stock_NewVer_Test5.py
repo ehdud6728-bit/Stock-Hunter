@@ -26,7 +26,7 @@ OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 # ─────────────────────────────────────────────
 # 전역 변수 / 설정 (여기서 수정 가능)
 # ─────────────────────────────────────────────
-WATERMELON_VOLUME_MULTIPLIER = 2      # 거래량 기준
+WATERMELON_VOLUME_MULTIPLIER = 1.5      # 거래량 기준
 WATERMELON_BODY_PCT = 0.05            # 캔들 몸통 기준
 
 ROSS_BAND_MARGIN = 0.05                # ±5% 허용
