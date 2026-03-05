@@ -168,7 +168,9 @@ def scan_market():
     tickers = [(stock.get_market_ticker_name(c), c) for c in kospi + kosdaq]
     results = []
     done = 0
-    start_ts = time.time()
+    start_ts = time.time() 
+    print(f"종목 카운트: {len(tickers)}")
+    print("전체 종목 리스트:", tickers)
 
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         futures = {executor.submit(analyze_stock, name, code): code for name, code in tickers}
