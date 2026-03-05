@@ -87,6 +87,7 @@ def fetch_naver_themes(stock_name: str, stock_code: str) -> tuple[str, list[str]
         res = requests.get(url, headers=headers, timeout=10)
         # bytes를 직접 넘겨 BS4가 HTML meta charset 기준으로 디코딩
         soup = BeautifulSoup(res.content, 'html.parser')
+        
 
         # ── 업종 추출 ──
         # td.td_industry > a 구조가 가장 안전 (PER 등 숫자 셀 회피)
@@ -98,6 +99,8 @@ def fetch_naver_themes(stock_name: str, stock_code: str) -> tuple[str, list[str]
                 a_tag = td.find('a')
                 raw = a_tag.text.strip() if a_tag else td.text.strip()
                 cleaned = clean_keyword(raw)
+                print(f"  [디버그] 업종 raw값: '{raw}' → 정제: '{cleaned}'")
+
                 if cleaned:
                     industry = cleaned
 
