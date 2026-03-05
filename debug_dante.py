@@ -135,6 +135,8 @@ def fetch_naver_themes(stock_name: str, stock_code: str) -> tuple[str, list[str]
                 break
 
         print(f"🏭 업종: {industry}  |  🎯 테마: {themes}")
+        # 테마 추출 직후에 추가
+        print(f"  [디버그] 테마 링크 수: {len(theme_links)}개 / raw: {[l.text.strip() for l in theme_links[:5]]}")
         return industry, themes
 
     except Exception as e:
