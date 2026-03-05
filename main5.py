@@ -41,7 +41,7 @@ CHAT_ID_LIST = os.environ.get('TELEGRAM_CHAT_ID', '').split(',')
 OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY') 
 GROQ_API_KEY = os.environ.get('GROQ_API_KEY')     
 
-TEST_MODE = False
+TEST_MODE = True
 
 KST = pytz.timezone('Asia/Seoul')
 current_time = datetime.now(KST)
@@ -72,8 +72,8 @@ START_DATE = (datetime.now() - timedelta(days=600)).strftime('%Y-%m-%d')
 END_DATE_STR = datetime.now().strftime('%Y%m%d')
 START_DATE_STR = (datetime.now() - timedelta(days=60)).strftime('%Y%m%d')
 
-RECENT_AVG_AMOUNT_1 = 100 #거래대금조건 * 1.5
-RECENT_AVG_AMOUNT_2 = 300 #거래대금조건
+RECENT_AVG_AMOUNT_1 = 150 #거래대금조건 * 1.5
+RECENT_AVG_AMOUNT_2 = 350 #거래대금조건
 
 print(f"📡 [Ver 27.0] 사령부 퍼펙트 오버홀 가동... 스토캐스틱 레이더 및 전 지표 동기화")
 
@@ -394,18 +394,21 @@ def calculate_combination_score(signals):
     if effective.get('jongbe_ok') and effective.get('dmi_ok', False):
         score += 500
         candidates[-1]['score'] += 500
+        candidates[-1]['grade'] = 'SS+'
         # 2. 기존 리스트에 새 태그 '추가' (append 사용)
         candidates[-1]['tags'].append('🚀DMI_OK')
 
     if effective.get('triangle_pattern') == 'Symmetrical' and effective.get('MA_Convergence') <= 50:
         score += 500
         candidates[-1]['score'] += 500
+        candidates[-1]['grade'] = 'SS+'
         # 2. 기존 리스트에 새 태그 '추가' (append 사용)
         candidates[-1]['tags'].append('🚀삼각')
 
     if ((effective.get('dmi_ok', False) or effective.get('dmi_cross', False)) and effective.get('MA_Convergence') <= 1.5):
         score += 500
         candidates[-1]['score'] += 500
+        candidates[-1]['grade'] = 'SS+'
         # 2. 기존 리스트에 새 태그 '추가' (append 사용)
         candidates[-1]['tags'].append('🚀DMI_MA수렴')
      
@@ -498,6 +501,30 @@ def get_supply_and_money(code, price):
     except: 
         return "⚠️오류", 0, 0, 0, False
 
+def check_ross(curr: pd.Series, past: pd.DataFrame):
+    if past.empty or past['BB_LOW'].isna().all():
+        return False, "과거 데이터 부족"
+    bb_low = past['BB_LOW']
+    outside_mask = past['저가'] < bb_low
+    if not outside_mask.any():
+        return False, "1차 저점 없음"
+    first_idx = outside_mask.values.argmax()
+    after_first = past.iloc[first_idx + 1:]
+    rebound = (after_first['종가'] > after_first['BB_LOW']).any()
+    near_band = curr['저가'] <= curr['BB_LOW'] * ROSS_BAND_TOLERANCE
+    close_above = curr['종가'] > curr['BB_LOW']
+    passed = rebound and near_band and close_above
+    return passed, f"반등:{rebound}, 저가밴드근접:{near_band}, 종가밴드위:{close_above}"
+
+def check_rsi_div(curr: pd.Series, past: pd.DataFrame):
+    if past['RSI'].isna().all() or pd.isna(curr['RSI']):
+        return False, "RSI 데이터 부족"
+    min_price_past = past['저가'].min()
+    min_rsi_past = past['RSI'].min()
+    price_similar = curr['저가'] <= min_price_past * RSI_LOW_TOLERANCE
+    rsi_higher = curr['RSI'] > min_rsi_past
+    return price_similar and rsi_higher, f"주가저점:{curr['저가']:.0f}(과거:{min_price_past:.0f}), RSI:{curr['RSI']:.1f}(과거:{min_rsi_past:.1f})"
+
 # ---------------------------------------------------------
 # 📈 [4] 기술적 분석 지표 (OBV, Double-GC 등)
 # ---------------------------------------------------------
@@ -537,6 +564,8 @@ def get_indicators(df):
     df['BB40_Lower'] = df['MA40'] - (std40 * 2)
     df['BB40_Width'] = (std40 * 4) / df['MA40'] * 100
     df['BB40_PercentB'] = (df['Close'] - df['BB40_Lower']) / (df['BB40_Upper'] - df['BB40_Lower'])
+    df['BB_UP'] = df['MA40'] + 2*df['종가'].rolling(40).std()
+    df['BB_LOW'] = df['MA20'] - 2*df['종가'].rolling(20).std()
  
     # 이평선 수렴도 계산
     df['MA_Convergence'] = abs(df['MA20'] - df['MA60']) / df['MA60'] * 100
@@ -592,6 +621,15 @@ def get_indicators(df):
     
     df['Disparity'] = (df['Close'] / df['MA20']) * 100
     df['Box_Range'] = df['High'].rolling(10).max() / df['Low'].rolling(10).min()
+
+    df.dropna(subset=['BB_UP','BB_LOW','RSI'], inplace=True)
+    curr = df.iloc[-1]
+    past = df.iloc[-21:-1]
+    ross, _ = check_ross(curr, past)
+    rsi_div, _ = check_rsi_div(curr, past)
+
+    df['BB_Ross'] = ross
+    df['RSI_DIV'] = rsi_div
 
     # ATR
     high, low, close = df['High'], df['Low'], df['Close']
@@ -1304,6 +1342,9 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             'dmi_cross': False,
             'dmi_ok': False,
             'MA_Convergence': df['MA_Convergence'],
+
+            'bb_ross': False,
+            'ris_div': False,
         }
      
         try:
@@ -1327,7 +1368,13 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         except Exception as e:
             print(f"🚨 tri_result 계산 실패: {e}")
             tri_result = {}
-     
+         
+        if row[BB_Ross]:
+            new_tags.append(f"🔺🔺Ross쌍바닥")
+
+        if row[RSI_DIV]:
+            new_tags.append(f"📊RSI DIV")
+        
         # 세부 정보 추가
         if signals['watermelon_signal']:
             new_tags.append(f"🍉강도{row['Watermelon_Score']}/3")
