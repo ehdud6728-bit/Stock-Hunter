@@ -1438,6 +1438,9 @@ def get_indicators(df):
     cross_series = (df['MA20'] > df['MA40']) & (df['MA20'].shift(1) <= df['MA40'].shift(1))
     cross_recent = cross_series.iloc[-5:].any()
     cross_near   = (curr['MA20'] > curr['MA40']) and (gap_ratio < 0.03)
+    
+    df['MA20_slope'] = (df['MA20'] - df['MA20'].shift(5)) / (df['MA20'].shift(5) + 1e-9) * 100
+    df['MA40_slope'] = (df['MA40'] - df['MA40'].shift(5)) / (df['MA40'].shift(5) + 1e-9) * 100
 
     ma20_rising  = curr['MA20_slope'] > 0
     ma40_rising  = curr['MA40_slope'] > -0.05
