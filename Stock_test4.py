@@ -1127,6 +1127,9 @@ def get_indicators(df):
         df[f'VMA{n}']   = df['Volume'].rolling(window=min(count, n)).mean()
         df[f'Slope{n}'] = (df[f'MA{n}'] - df[f'MA{n}'].shift(3)) / df[f'MA{n}'].shift(3) * 100
 
+    df['MA20_slope'] = (df['MA20'] - df['MA20'].shift(5)) / (df['MA20'].shift(5) + 1e-9) * 100
+    df['MA40_slope'] = (df['MA40'] - df['MA40'].shift(5)) / (df['MA40'].shift(5) + 1e-9) * 100
+
     # ──────────────────────────────────────────────
     # 3. 볼린저 밴드 (20 / 40)
     # ──────────────────────────────────────────────
@@ -1439,8 +1442,7 @@ def get_indicators(df):
     cross_recent = cross_series.iloc[-5:].any()
     cross_near   = (curr['MA20'] > curr['MA40']) and (gap_ratio < 0.03)
     
-    df['MA20_slope'] = (df['MA20'] - df['MA20'].shift(5)) / (df['MA20'].shift(5) + 1e-9) * 100
-    df['MA40_slope'] = (df['MA40'] - df['MA40'].shift(5)) / (df['MA40'].shift(5) + 1e-9) * 100
+
 
     ma20_rising  = curr['MA20_slope'] > 0
     ma40_rising  = curr['MA40_slope'] > -0.05
