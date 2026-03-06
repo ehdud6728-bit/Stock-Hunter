@@ -1449,7 +1449,7 @@ def get_indicators(df):
     ma40_rising and
     ma20_accel and
     curr['Close'] > curr['MA20']
-
+    )
     print("✅ 최종판독 완료")
     return df
 
