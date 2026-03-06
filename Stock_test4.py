@@ -1152,21 +1152,7 @@ def get_indicators(df):
     df['Disparity']      = (close / df['MA20']) * 100
     df['MA_Convergence'] = abs(df['MA20'] - df['MA60']) / df['MA60'] * 100
     df['Box_Range']      = high.rolling(10).max() / low.rolling(10).min()
-    df['Daily_Touch'] = df.apply(check_touch, axis=1)
-    # 최근 20일 동안 성벽을 두드린 총 횟수
-    df['Total_hammering'] = int(df['Daily_Touch'].iloc[-20:].sum())
-    # 현재 봉이 저항선을 완전히 돌파했는지 여부
-    current_res_max = max(curr['BB_Upper'], curr['BB40_Upper'], curr['MA60'], curr['MA112'])
-    df['Is_resistance_break'] = curr['Close'] > current_res_max
-
-    # ── 매집봉 (거래량 급증 양봉) ──────────────
-    df['Is_Maejip'] = (
-        (df['Volume'] > df['Volume'].shift(1) * 2) &
-        (df['Close'] > df['Open']) &
-        (df['Close'] > df['Close'].shift(1))
-    )
-
-    df['Maejip_Count'] = int(df['Is_Maejip'].iloc[-20:].sum())
+    
     # ──────────────────────────────────────────────
     # 5. True Range (1회 계산 → 전체 재사용)
     # ──────────────────────────────────────────────
@@ -1374,6 +1360,22 @@ def get_indicators(df):
     if cond_cross and cond_inverse_mid and cond_below_448 and cond_ma224_range and cond_bb40_range and cond_break_448 and cond_vol_300:
         df.at[df.index[-1], 'Is_Real_Watermelon'] = True                               # ✅ FIX: 마지막 행만 True
 
+    df['Daily_Touch'] = df.apply(check_touch, axis=1)
+    # 최근 20일 동안 성벽을 두드린 총 횟수
+    df['Total_hammering'] = int(df['Daily_Touch'].iloc[-20:].sum())
+    # 현재 봉이 저항선을 완전히 돌파했는지 여부
+    current_res_max = max(curr['BB_Upper'], curr['BB40_Upper'], curr['MA60'], curr['MA112'])
+    df['Is_resistance_break'] = curr['Close'] > current_res_max
+
+    # ── 매집봉 (거래량 급증 양봉) ──────────────
+    df['Is_Maejip'] = (
+        (df['Volume'] > df['Volume'].shift(1) * 2) &
+        (df['Close'] > df['Open']) &
+        (df['Close'] > df['Close'].shift(1))
+    )
+
+    df['Maejip_Count'] = int(df['Is_Maejip'].iloc[-20:].sum())
+    
     # ──────────────────────────────────────────────
     # 23. 독사 훅 (Viper Hook / Real Viper Hook)
     # ✅ FIX: 수렴 기준 2% → 3% 완화 / 쌍봉 킬스위치 abs() 추가
@@ -1430,7 +1432,20 @@ def get_indicators(df):
 
     print("✅ 최종판독 완료")
     return df
-    
+
+# ── 저항선 계산 (BB 상한선 추가) 
+# ── 저항선 터치 흔적 스캔 (최근 20일) ──────────
+# 각 저항선 중 현재 주가보다 위에 있는 가장 강력한 선들을 타겟으로 함
+def check_touch(row):
+    resistances = [row['BB_Upper'], row['BB40_Upper'], row['MA60'], row['MA112']]
+    # 현재가보다 높은 저항선들 중, 고가(High)가 저항선의 99%~101% 범위에 닿았는지 확인
+    touches = 0
+    for res in resistances:
+        if pd.notna(res) and row['Close'] < res: # 현재가 위에 있는 저항선만
+            if row['High'] >= res * 0.995: # 0.5% 오차 범위 내 터치
+                touches += 1
+    return touches
+
 def get_indicators_back(df):
     df = df.copy()
     count = len(df)
