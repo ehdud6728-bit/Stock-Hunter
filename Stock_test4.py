@@ -160,6 +160,9 @@ def analyze_save_googleSheet(all_hits, isNasdaq):
                 '삼각등급',
                 'BB_Ross',
                 'RSI-DIV',
+                'Is_bb_low_Stable',
+                'Has_Accumulation',
+                'Is_Rsi_Divergence',
                 '확신점수',
                 '안전점수',
                 '섹터',
@@ -1213,10 +1216,30 @@ def get_indicators(df):
         None
     
     # 1. 이동평균선 및 거래량 이평 (단테 112/224 포함)
-    for n in [5, 10, 20, 40, 60, 112, 224]:
+    for n in [5, 10, 20, 40, 60, 112, 224, 448]:
         df[f'MA{n}'] = df['Close'].rolling(window=min(count, n)).mean()
         df[f'VMA{n}'] = df['Volume'].rolling(window=min(count, n)).mean()
 
+
+    # 4. 분석 포인트 데이터 설정
+    curr = df.iloc[-1]           # 오늘 데이터
+
+
+    # --- [검증 1: 수박(BB40) 돌파 여부] ---
+    
+
+    # --- [검증 2: 로스 캐머런 50일 공구리 패턴] ---
+    # A. 50일 내에 밴드 밖(BB 20,2 하단)으로 이탈하며 '공포'를 준 적이 있는가? (외바닥)
+    was_panic = (past_50['Low'] < past_50['BB_LOW_20']).any()
+    
+    # B. 현재 저가는 밴드 하단선보다 높은가? (안착 및 쌍바닥)
+    is_stable = curr['Low'] > curr['BB_LOW_20']
+    
+    # C. 50일간의 RSI 최저점보다 현재 RSI가 높은가? (중기 다이버전스)
+    min_rsi_50 = past_50['RSI'].min()
+    is_divergence = curr['RSI'] > min_rsi_50
+
+    
     # 2. 볼린저 밴드 (20/40 이중 응축)
     std20 = df['Close'].rolling(20).std()
     df['BB_Upper'] = df['MA20'] + (std20 * 2)
@@ -1277,15 +1300,41 @@ def get_indicators(df):
     # 9-1. RSI_DIV, BB_Ross
     df['BB_Ross'] = False
     df['RSI_DIV'] = False
- 
+    df['Was_Panic'] = False
+    df['Is_bb_low_Stable'] = False
+    df['Has_Accumulation'] = False
+    df['Is_Rsi_Divergence'] = False
+
     df_signal = df.dropna(subset=['BB_UP','BB_LOW','RSI']).copy()
-    if len(df_signal) > 21:
+    if len(df_signal) > 51:
         curr = df_signal.iloc[-1]
         past = df_signal.iloc[-21:-1]
+        past_50 = df_signal.iloc[-51:-1]    # 최근 50일간의 데이터 (오늘 제외)
         ross, _ = check_ross(curr, past)
         rsi_div, _ = check_rsi_div(curr, past)
         df.at[df.index[-1], 'BB_Ross'] = ross
         df.at[df.index[-1], 'RSI_DIV'] = rsi_div
+        # --- [검증 2: 로스 캐머런 50일 공구리 패턴] ---
+        # A. 50일 내에 밴드 밖(BB 20,2 하단)으로 이탈하며 '공포'를 준 적이 있는가? (외바닥)
+        was_panic = (past_50['Low'] < past_50['BB_LOW']).any()
+    
+        # B. 현재 저가는 밴드 하단선보다 높은가? (안착 및 쌍바닥)
+        is_bb_low_stable = curr['Low'] > curr['BB_LOW']
+    
+        # C. 50일간의 RSI 최저점보다 현재 RSI가 높은가? (중기 다이버전스)
+        min_rsi_50 = past_50['RSI'].min()
+        is_rsi_divergence = curr['RSI'] > min_rsi_50
+
+        # --- [검증 3: 거래량 매집 흔적] ---
+        # 50일 내에 평소 거래량의 3배가 넘는 '매집봉'이 하나라도 있었는가?
+        has_accumulation = (past_50['Volume'] > (past_50['Vol_Avg'] * 3)).any()
+
+        df.at[df.index[-1],'Was_Panic'] = was_panic
+        df.at[df.index[-1],'Is_Rsi_Divergence'] = is_rsi_divergence
+        df.at[df.index[-1],'Is_bb_low_Stable'] = is_bb_low_stable
+        df.at[df.index[-1],'Has_Accumulation'] = has_accumulation
+
+
     
     # 10. MFI (수박 로직 통합)
     typical_price = (df['High'] + df['Low'] + df['Close']) / 3
@@ -1348,7 +1397,7 @@ def get_indicators(df):
 
     ma200 = df['Close'].rolling(224).mean()
     vol_avg20 = df['Volume'].rolling(20).mean()
-    
+
     # 1. 거래량 300% 폭발 (Vol Power >= 3.0)
     vol_power = df['Volume'].iloc[-1] / vol_avg20.iloc[-1]
     
@@ -1359,6 +1408,8 @@ def get_indicators(df):
     lows = df['Low'].iloc[-30:]
     near_ma200 = lows[abs(lows - ma200.iloc[-1]) / ma200.iloc[-1] < 0.03]
     is_double_bottom = len(near_ma200[near_ma200 == near_ma200.rolling(5, center=True).min()]) >= 2
+    # 조건: 오늘 종가가 BB(40,2) 상단선을 돌파했는가?
+    is_watermelon = df['Close'].iloc[-1] > df['BB40_Upper'].iloc[-1]
 
     df['Dolbanzi'] = (vol_power >= 3.0) & (is_above_ma200) & (is_double_bottom)
     
@@ -2057,7 +2108,16 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             # 3. 추가 정보 태그
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
             new_tags = result['tags'].copy()
-    
+        
+            if row['Was_Panic']:
+                new_tags.append(f"🔺🔺Was_Panic")
+            if row['Is_bb_low_Stable']:
+                new_tags.append(f"🔺🔺Is_bb_low_Stable")
+            if row['Has_Accumulation']:
+                new_tags.append(f"🔺🔺Has_Accumulation")
+            if row['Is_Rsi_Divergence']:
+                new_tags.append(f"🔺🔺Is_Rsi_Divergence")
+
             if row['BB_Ross']:
                 new_tags.append(f"🔺🔺Ross쌍바닥")
     
@@ -2539,6 +2599,10 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
                 'DMI_OK': is_dmi_ok,
                 'BB_Ross': row['BB_Ross'],
                 'RSI-DIV': row['RSI_DIV'],
+                'Was_Panic': row['Was_Panic'],
+                'Is_bb_low_Stable': row['Is_bb_low_Stable'],
+                'Has_Accumulation': row['Has_Accumulation'],
+                'Is_Rsi_Divergence': row['Is_Rsi_Divergence'],
                 '뉴스점수': news_score,
                 '뉴스코멘트': news_comment,
             })
