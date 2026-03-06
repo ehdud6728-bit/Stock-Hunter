@@ -845,35 +845,7 @@ def judge_trade_with_sequence(df, signals):
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 def calculate_combination_score(signals):
-    """
-    신호 조합을 분석해서 확정 점수 부여
-    
-    Args:
-        signals: dict with boolean flags
-            {
-                'watermelon_signal': True/False,
-                'watermelon_red': True/False,
-                'watermelon_green_7d': True/False,
-                'explosion_ready': True/False,
-                'bottom_area': True/False,
-                'silent_perfect': True/False,
-                'silent_strong': True/False,
-                'yeok_break': True/False,
-                'volume_surge': True/False,
-                'obv_rising': True/False,
-                'mfi_strong': True/False,
-                'dobanzi': True/False, 
-            }
-    
-    Returns:
-        {
-            'score': int,
-            'grade': str,
-            'combination': str,
-            'tags': list
-        }
-    """
-    
+
     score = 100  # 기본 점수 (거래대금 상위 350 진입)
     grade = 'D'
     combination = '기본'
@@ -2475,7 +2447,8 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             # ──────────────────────────────────────────────
             # 조합 점수 계산
             # ──────────────────────────────────────────────
-            result   = judge_trade_with_sequence(temp_df, signals)
+            #result   = judge_trade_with_sequence(temp_df, signals)
+            result = judge_trade_with_sequence(temp_df.tail(20), signals)
             s_score  = 100
             tags     = []
             new_tags = result['tags'].copy()
