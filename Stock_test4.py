@@ -1219,26 +1219,6 @@ def get_indicators(df):
     for n in [5, 10, 20, 40, 60, 112, 224, 448]:
         df[f'MA{n}'] = df['Close'].rolling(window=min(count, n)).mean()
         df[f'VMA{n}'] = df['Volume'].rolling(window=min(count, n)).mean()
-
-
-    # 4. 분석 포인트 데이터 설정
-    curr = df.iloc[-1]           # 오늘 데이터
-
-
-    # --- [검증 1: 수박(BB40) 돌파 여부] ---
-    
-
-    # --- [검증 2: 로스 캐머런 50일 공구리 패턴] ---
-    # A. 50일 내에 밴드 밖(BB 20,2 하단)으로 이탈하며 '공포'를 준 적이 있는가? (외바닥)
-    was_panic = (past_50['Low'] < past_50['BB_LOW_20']).any()
-    
-    # B. 현재 저가는 밴드 하단선보다 높은가? (안착 및 쌍바닥)
-    is_stable = curr['Low'] > curr['BB_LOW_20']
-    
-    # C. 50일간의 RSI 최저점보다 현재 RSI가 높은가? (중기 다이버전스)
-    min_rsi_50 = past_50['RSI'].min()
-    is_divergence = curr['RSI'] > min_rsi_50
-
     
     # 2. 볼린저 밴드 (20/40 이중 응축)
     std20 = df['Close'].rolling(20).std()
