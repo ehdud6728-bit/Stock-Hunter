@@ -1220,6 +1220,8 @@ def get_indicators(df):
         df[f'MA{n}'] = df['Close'].rolling(window=min(count, n)).mean()
         df[f'VMA{n}'] = df['Volume'].rolling(window=min(count, n)).mean()
     
+     df['Vol_Avg'] = df['Volume'].rolling(window=20).mean()
+
     # 2. 볼린저 밴드 (20/40 이중 응축)
     std20 = df['Close'].rolling(20).std()
     df['BB_Upper'] = df['MA20'] + (std20 * 2)
