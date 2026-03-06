@@ -2749,38 +2749,17 @@ def save_today_recommendations(df_today, recommendation_info):
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # main.py  (스캔 진입점)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-from combo_storage import (
-    rebuild_score_overrides,
-    record_combo_performance,
-    flush_and_push,
-    print_combo_report,
-)
-
-def main():
-
-
-
-    all_hits = []
-    for ticker, name in TICKER_LIST:
-        hits = analyze_final(ticker, name, ...)
-
-        for hit in hits:
-            # ② 수익률 기록 (hits 루프 안에서)
-            record_combo_performance(
-                combination = hit['N조합'],
-                max_return  = hit['최고수익률_raw'],
-                min_return  = hit['최저수익률_raw'],
-                days_to_max = hit['소요기간'],
-                style       = hit.get('전략스타일', 'NONE'),
-            )
-
-        all_hits.extend(hits)
-
-    # ③ 스캔 종료 후: JSON → 레포에 1회 커밋/푸시
-    flush_and_push()
-
-    # ④ 현황 출력 (터미널 / Actions 로그에서 확인)
-    print_combo_report(top_n=15)
+#from combo_storage import (
+#    rebuild_score_overrides,
+#    record_combo_performance,
+#    flush_and_push,
+#    print_combo_report,
+#)
+# 아래 더미 함수로 대체 (파일 추가 전까지 오류 방지)
+def rebuild_score_overrides(): pass
+def record_combo_performance(*args, **kwargs): pass
+def flush_and_push(): pass
+def print_combo_report(**kwargs): pass
     
 # =================================================
 # 🚀 [실행] 메인 컨트롤러 (수정 버전)
