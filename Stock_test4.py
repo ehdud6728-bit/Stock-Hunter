@@ -44,8 +44,12 @@ NOW = datetime.now(KST)
 TODAY_STR = NOW.strftime('%Y-%m-%d')
 START_DATE = (datetime.now() - timedelta(days=600)).strftime('%Y-%m-%d')
 END_DATE_STR = datetime.now().strftime('%Y%m%d')
+
 RECENT_AVG_AMOUNT_1 = 100 #거래대금조건 * 1.5
 RECENT_AVG_AMOUNT_2 = 300 #거래대금조건
+# 나스닥 거래대금 기준 (달러)
+RECENT_AVG_AMOUNT_US_1 = 3_700_000   # ≈ 50억원
+RECENT_AVG_AMOUNT_US_2 = 7_000_000   # ≈ 100억원
 
 ROSS_BAND_TOLERANCE = 1.05   # 로스 쌍바닥 ±5%
 RSI_LOW_TOLERANCE   = 1.05   # RSI 저점 허용 ±5%
@@ -92,123 +96,99 @@ def load_krx_listing_safe():
         return df_krx
 
 def analyze_save_googleSheet(all_hits, isNasdaq):
-    if all_hits:
-        df_total = pd.DataFrame(all_hits)
-    
-        # 백테스트 분석
-        df_backtest, df_realistic, s_grade_info = proper_backtest_analysis(all_hits)
-    
-        # 조합별 성과 분석
-        df_combo, best_combos, worst_combos = analyze_combination_performance(all_hits)
-    
-        # 수익률 분포
-        df_profit_dist = analyze_profit_distribution(all_hits)
-    
-        # 조합별 통계
-        stats_df, top_5 = calculate_strategy_stats(all_hits)
-    
-        # 통계 계산 (상위 5개 추천 정보 포함)
-        stats_df, top_recommendations = calculate_strategy_stats(all_hits)
-    
-        # 4. 결과 분류
-        today = df_total[df_total['보유일'] == 0]
-        today = today[today['N점수'] >= 0]
-        today = today.sort_values(by='N점수', ascending=False)
-    
-        today = df_total[df_total['보유일'] == 0].sort_values(by='확신점수', ascending=False)
-    
-        s_grade_today = today[today['N등급'] == 'S']
-    
-        desired_cols = ['날짜',
-                '👑등급',
-                '종목',
-                'N등급',
-                'N점수',
-                'N조합',
-                '정류장',
-                'D20매집봉',
-                '저항터치',
-                'BB-GC',
-                'RSI',
-                '대칭비율',
-                '매집봉',
-                '🎯목표타점',
-                '🚨손절가',
-                '매입가',
-                '현재가',
-                'DMI추세',
-                'ADX추세힘',
-                'DMI_OK',
-                '최고수익날',
-                '소요기간',
-                '최고수익률%',
-                '최저수익률%',
-                '기상',
-                '매집',
-                '이격',
-                '꼬리%',
-                'BB40',
-                'MA수렴',
-                '📜서사히스토리',
-                'N구분',
-                '구분',
-                '삼각패턴',
-                '삼각수렴%',
-                '꼭지잔여',
-                '종베GC',
-                '삼각점수',
-                '삼각등급',
-                'BB_Ross',
-                'RSI-DIV',
-                'Is_bb_low_Stable',
-                'Has_Accumulation',
-                'Is_Rsi_Divergence',
-                'Is_Real_Watermelron',
-                '확신점수',
-                '안전점수',
-                '섹터',
-                '보유일']
-        display_cols = [c for c in desired_cols if c in today.columns]
-    
-        if not today.empty:
-            print(today[display_cols].head(1000))
-        # 5. 구글 시트 전송
-        try:
-            update_commander_dashboard(
-                df_total,
-                macro_status,
-                "사령부_통합_상황판",
-                stats_df=stats_df,
-                today_recommendations=today,
-                ai_recommendation=pd.DataFrame(top_5) if top_5 else None,
-                s_grade_special=s_grade_today if not s_grade_today.empty else None,
-                df_backtest=df_backtest,
-                df_realistic=df_realistic,
-                df_combo=df_combo,
-                best_combos=best_combos,
-                worst_combos=worst_combos,
-                df_profit_dist=df_profit_dist,
-                isNasdaq=isNasdaq
-            )
-        
-            print("\n" + "="*100)
-            print("✅ 구글 시트 업데이트 성공!")
-            print("="*100)
-            print("📋 생성된 시트:")
-            print("   1. 메인 시트: 전체 30일 데이터")
-            print("   2. 오늘의_추천종목: 오늘 신호 (등급별)")
-            print("   3. S급_긴급: S급 종목 특별 모니터링")
-            print("   4. 등급별_분석: S/A/B급 백테스트")
-            print("   5. AI_추천패턴: TOP 5 조합")
-            print("   ✅ 6. 조합별_성과: 전체 조합 성과 (신규!)")
-            print("   ✅ 7. TOP_WORST_조합: 최고/최악 조합 (신규!)")
-            print("   ✅ 8. 수익률_분포: 구간별 분포 (신규!)")
-            print("   ✅ 9. 백테스트_비교: 이상 vs 현실 (신규!)")
-            print("="*100)
-        except Exception as e:
-            print(f"\n❌ 시트 업데이트 실패: {e}")
-    else:
+    # ──────────────────────────────────────────────────
+    # 0. 데이터 없으면 early return
+    # ──────────────────────────────────────────────────
+    if not all_hits:
         print("\n⚠️ 검색 결과가 없습니다.")
+        return False, 0
+
+    # ──────────────────────────────────────────────────
+    # 1. 분석 실행
+    # ✅ FIX: calculate_strategy_stats 2번 호출 → 1번으로 통합
+    # ──────────────────────────────────────────────────
+    df_total                        = pd.DataFrame(all_hits)
+    df_backtest, df_realistic, _    = proper_backtest_analysis(all_hits)
+    df_combo, best_combos, worst_combos = analyze_combination_performance(all_hits)
+    df_profit_dist                  = analyze_profit_distribution(all_hits)
+    stats_df, top_5                 = calculate_strategy_stats(all_hits)   # ✅ 1회만
+
+    # ──────────────────────────────────────────────────
+    # 2. 오늘 신호 필터링
+    # ✅ FIX: today 변수 2번 덮어쓰기 → 의도에 맞게 분리
+    #   - 원본: N점수 기준 정렬 후 바로 확신점수 기준으로 덮어씀
+    #   - 수정: 확신점수 기준 정렬 1회로 통일 (마지막 의도 기준)
+    # ──────────────────────────────────────────────────
+    today = (
+        df_total[df_total['보유일'] == 0]
+        .sort_values(by='확신점수', ascending=False)
+    )
+
+    # ✅ FIX: Is_Real_Watermelron 오타 컬럼명 수정
+    if 'Is_Real_Watermelron' in today.columns and 'Is_Real_Watermelon' not in today.columns:
+        today = today.rename(columns={'Is_Real_Watermelron': 'Is_Real_Watermelon'})
+
+    s_grade_today = today[today['N등급'].str.startswith('S')]  # ✅ S, S+, SS, SSS 전부 포함
+
+    # ──────────────────────────────────────────────────
+    # 3. 출력 컬럼 정의
+    # ✅ 신규 컬럼 추가 (전략스타일, 학습보정, 기본점수)
+    # ──────────────────────────────────────────────────
+    # 앞에 올 핵심 컬럼만 고정, 나머지는 자동
+    priority_cols = ['날짜', '종목', 'N등급', 'N점수', 'N조합', '전략스타일', '확신점수', '안전점수']
+    
+    # 핵심 컬럼 중 실제 있는 것 + 나머지 컬럼 전부
+    front = [c for c in priority_cols if c in today.columns]
+    rest  = [c for c in today.columns  if c not in priority_cols]
+    display_cols = front + rest
+
+    if not today.empty:
+        print(today[display_cols].head(1000))
+
+    # ──────────────────────────────────────────────────
+    # 4. 구글 시트 업데이트
+    # ──────────────────────────────────────────────────
+    try:
+        update_commander_dashboard(
+            df_total,
+            macro_status,
+            "사령부_통합_상황판",
+            stats_df              = stats_df,
+            today_recommendations = today,
+            ai_recommendation     = pd.DataFrame(top_5) if top_5 else None,
+            s_grade_special       = s_grade_today if not s_grade_today.empty else None,
+            df_backtest           = df_backtest,
+            df_realistic          = df_realistic,
+            df_combo              = df_combo,
+            best_combos           = best_combos,
+            worst_combos          = worst_combos,
+            df_profit_dist        = df_profit_dist,
+            isNasdaq              = isNasdaq,
+        )
+
+        print("\n" + "=" * 60)
+        print("✅ 구글 시트 업데이트 성공!")
+        print("=" * 60)
+        sheets = [
+            "1. 메인 시트: 전체 30일 데이터",
+            "2. 오늘의_추천종목: 오늘 신호 (등급별)",
+            "3. S급_긴급: S급 종목 특별 모니터링",
+            "4. 등급별_분석: S/A/B급 백테스트",
+            "5. AI_추천패턴: TOP 5 조합",
+            "6. 조합별_성과: 전체 조합 성과",
+            "7. TOP_WORST_조합: 최고/최악 조합",
+            "8. 수익률_분포: 구간별 분포",
+            "9. 백테스트_비교: 이상 vs 현실",
+        ]
+        for s in sheets:
+            print(f"   {s}")
+        print("=" * 60)
+
+    except Exception as e:
+        print(f"\n❌ 시트 업데이트 실패: {e}")
+        import traceback
+        traceback.print_exc()   # ✅ 원인 추적 가능하도록 상세 오류 출력
+
     return False, 0
 
 def get_target_levels(current_price):
@@ -844,330 +824,272 @@ def judge_trade_with_sequence(df, signals):
 # 🎯 조합 중심 점수 산정 시스템
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-def calculate_combination_score(signals):
+COMBO_TABLE = [
+    # ─── GOD+ ───────────────────────────────────────
+    {
+        'grade': 'GOD+', 'score': 10001, 'type': '🌌',
+        'combination': '🌌🔺💍독사삼각돌반지',
+        'tags': ['🔺꼭지임박', '🐍독사대가리', '💍200일돌파', '🍉수급폭발', '🚀역대급시그널'],
+        'cond': lambda e: (
+            e.get('triangle_signal') and
+            isinstance(e.get('triangle_apex'), (int,float)) and 0 <= e['triangle_apex'] <= 3 and
+            e.get('viper_hook') and e.get('watermelon_signal') and e.get('dolbanzi')
+        ),
+    },
+    # ─── GOD ────────────────────────────────────────
+    {
+        'grade': 'GOD', 'score': 10000, 'type': '🌌',
+        'combination': '🌌🍉💍독사품은수박돌반지',
+        'tags': ['🚀대시세확정', '💥200일선폭파', '🐍단기개미털기완료', '🍉수급대폭발'],
+        'cond': lambda e: e.get('viper_hook') and e.get('dolbanzi') and e.get('watermelon_signal'),
+    },
+    # ─── SSS+ ───────────────────────────────────────
+    {
+        'grade': 'SSS+', 'score': 999, 'type': '👑',
+        'combination': '👑🍉🐍수박품은독사(각성)',
+        'tags': ['🔥최종병기', '🧲OBV매집', '💥볼밴폭발(Kick)', '🍉속살폭발'],
+        'cond': lambda e: (
+            e.get('viper_hook') and e.get('watermelon_signal') and
+            e.get('watermelon_red') and e.get('obv_bullish') and
+            e.get('explosion_ready') and e.get('Real_Viper_Hook')
+        ),
+    },
+    # ─── SSS ────────────────────────────────────────
+    {
+        'grade': 'SSS', 'score': 500, 'type': '👑',   # 첫돌반지는 score_fn으로 조정
+        'combination': '👑💍수박돌반지',
+        'tags': ['🍉수박전환', '💍돌반지완성', '🔥최종병기', '🚀대시세시작'],
+        'cond': lambda e: e.get('watermelon_signal') and e.get('dolbanzi'),
+        'score_fn': lambda e: 500 if e.get('dolbanzi_Count', 0) == 1 else 450,
+        'tag_fn':   lambda e: ['🥇최초의반지'] if e.get('dolbanzi_Count', 0) == 1 else [f"💍{e.get('dolbanzi_Count',0)}회차반지"],
+    },
+    {
+        'grade': 'SSS', 'score': 480, 'type': '👑',
+        'combination': '🔺💍삼각꼭지돌반지',
+        'tags': ['🔺꼭지임박', '💍200일돌파', '💥에너지응축폭발'],
+        'cond': lambda e: (
+            e.get('triangle_signal') and
+            isinstance(e.get('triangle_apex'), (int,float)) and 0 <= e['triangle_apex'] <= 5 and
+            e.get('dolbanzi')
+        ),
+        'tag_fn': lambda e: [f"💍{e.get('dolbanzi_Count',0)}회차반지"],
+    },
+    {
+        'grade': 'SSS', 'score': 460, 'type': '👑',
+        'combination': '💛🔺🍉종베삼각수박',
+        'tags': ['💛MA방향확정', '🔺에너지응축', '🍉수급폭발', '🚀3박자완성'],
+        'cond': lambda e: e.get('jongbe_ok') and e.get('triangle_signal') and e.get('watermelon_signal'),
+    },
+    # ─── SS+ ────────────────────────────────────────
+    {
+        'grade': 'SS+', 'score': 480, 'type': '👑',
+        'combination': '🐍🍉일반수박독사',
+        'tags': ['🐍독사대가리', '🧲OBV매집', '🍉단기수급'],
+        'cond': lambda e: e.get('viper_hook') and e.get('watermelon_signal') and e.get('obv_bullish') and e.get('Real_Viper_Hook'),
+    },
+    {
+        'grade': 'SS+', 'score': 480, 'type': '👑',
+        'combination': '💛🐍🔺종베독사삼각',
+        'tags': ['💛MA전환', '🐍단기전환', '🔺중기응축', '⚡3중전환'],
+        'cond': lambda e: e.get('jongbe_ok') and e.get('viper_hook') and e.get('triangle_signal'),
+    },
+    {
+        'grade': 'SS+', 'score': 480, 'type': '👑',
+        'combination': '🕳️💛🔺골파기종베삼각',
+        'tags': ['🕳️가짜하락완료', '💛MA방향전환', '🔺에너지응축', '📈반등확정'],
+        'cond': lambda e: e.get('Golpagi_Trap') and e.get('jongbe_ok') and e.get('triangle_signal'),
+    },
+    # ─── SS ─────────────────────────────────────────
+    {
+        'grade': 'SS', 'score': 480, 'type': '👑',
+        'combination': '💍돌반지단독',
+        'tags': ['💍돌반지완성', '⚡300%폭발', '👣쌍바닥확인'],
+        'cond': lambda e: e.get('dolbanzi'),
+        'score_fn': lambda e: {1: 510, 2: 480}.get(e.get('dolbanzi_Count', 0), 430),
+        'tag_fn':   lambda e: (['🔥GoldenEntry'] if e.get('dolbanzi_Count',0) == 1
+                               else ['📈추세지속'] if e.get('dolbanzi_Count',0) == 2
+                               else ['⚠️과열주의']),
+    },
+    {
+        'grade': 'SS', 'score': 470, 'type': '👑',
+        'combination': '🕳️🚀수박품은골파기',
+        'tags': ['🕳️가짜하락(개미털기)', '🧲OBV방어', '📈20일선탈환', '🍉단기수급폭발'],
+        'cond': lambda e: e.get('Golpagi_Trap') and e.get('watermelon_signal'),
+    },
+    # ─── S+ ─────────────────────────────────────────
+    {
+        'grade': 'S+', 'score': 440, 'type': '👑',
+        'combination': '🐍5-20독사훅',
+        'tags': ['🐍독사대가리', '📉개미털기완료', '📈기울기상승턴'],
+        'cond': lambda e: e.get('viper_hook') and e.get('Real_Viper_Hook'),
+    },
+    # ─── S ──────────────────────────────────────────
+    {
+        'grade': 'S', 'score': 350, 'type': '🗡',
+        'combination': '💎전설조합',
+        'tags': ['🍉수박전환', '💎폭발직전', '📍바닥권', '🤫조용한매집완전'],
+        'cond': lambda e: e.get('watermelon_signal') and e.get('explosion_ready') and e.get('bottom_area') and e.get('silent_perfect'),
+    },
+    {
+        'grade': 'S', 'score': 340, 'type': '🗡',
+        'combination': '🔺💎🍉삼각폭발수박',
+        'tags': ['🔺에너지응축', '💎BB수축', '🍉수급전환', '🚀폭발임박'],
+        'cond': lambda e: e.get('triangle_signal') and e.get('explosion_ready') and e.get('watermelon_signal'),
+    },
+    {
+        'grade': 'S', 'score': 330, 'type': '🗡',
+        'combination': '💛📍🔺종베바닥삼각',
+        'tags': ['💛MA전환', '📍바닥권확인', '🔺에너지응축', '🏆바닥반등확정'],
+        'cond': lambda e: e.get('jongbe_ok') and e.get('bottom_area') and e.get('triangle_signal'),
+    },
+    {
+        'grade': 'S', 'score': 320, 'type': '🛡',
+        'combination': '💎돌파골드',
+        'tags': ['🏆역매공파돌파', '🍉수박전환', '⚡거래량폭발'],
+        'cond': lambda e: e.get('yeok_break') and e.get('watermelon_signal') and e.get('volume_surge'),
+    },
+    {
+        'grade': 'S', 'score': 320, 'type': '🛡',
+        'combination': '🤫💛🔺침묵종베삼각',
+        'tags': ['🤫조용한매집완전', '💛MA전환', '🔺에너지응축', '💥침묵폭발'],
+        'cond': lambda e: e.get('silent_perfect') and e.get('jongbe_ok') and e.get('triangle_signal'),
+    },
+    {
+        'grade': 'S', 'score': 310, 'type': '🛡',
+        'combination': '💎매집완성',
+        'tags': ['🤫조용한매집완전', '🍉수박전환', '💎폭발직전'],
+        'cond': lambda e: e.get('silent_perfect') and e.get('watermelon_signal') and e.get('explosion_ready'),
+    },
+    {
+        'grade': 'S', 'score': 300, 'type': '🗡',
+        'combination': '💎바닥폭발',
+        'tags': ['📍바닥권', '💎폭발직전', '🍉수박전환'],
+        'cond': lambda e: e.get('bottom_area') and e.get('explosion_ready') and e.get('watermelon_signal'),
+    },
+    # ─── A ──────────────────────────────────────────
+    {
+        'grade': 'A', 'score': 280, 'type': '🗡',
+        'combination': '🔥수박폭발',
+        'tags': ['🍉수박전환', '💎폭발직전'],
+        'cond': lambda e: e.get('watermelon_signal') and e.get('watermelon_red') and e.get('explosion_ready'),
+    },
+    {
+        'grade': 'A', 'score': 275, 'type': '🛡',
+        'combination': '💛🔺종베삼각',
+        'tags': ['💛MA전환확인', '🔺삼각수렴'],
+        'cond': lambda e: e.get('jongbe_ok') and e.get('triangle_signal'),
+    },
+    {
+        'grade': 'A', 'score': 265, 'type': '🛡',
+        'combination': '🔺🏆삼각역매공파',
+        'tags': ['🔺삼각수렴', '🏆역매공파돌파'],
+        'cond': lambda e: e.get('triangle_signal') and e.get('yeok_break'),
+    },
+    {
+        'grade': 'A', 'score': 260, 'type': '🛡',
+        'combination': '🔥돌파확인',
+        'tags': ['🏆역매공파돌파', '⚡거래량폭발'],
+        'cond': lambda e: e.get('yeok_break') and e.get('volume_surge'),
+    },
+    {
+        'grade': 'A', 'score': 250, 'type': '🛡',
+        'combination': '🔥조용폭발',
+        'tags': ['🤫조용한매집강', '💎폭발직전'],
+        'cond': lambda e: e.get('silent_strong') and e.get('explosion_ready'),
+    },
+    # ─── B ──────────────────────────────────────────
+    {
+        'grade': 'B', 'score': 230, 'type': '🔍',
+        'combination': '📍수박단독',
+        'tags': ['🍉수박전환'],
+        'cond': lambda e: e.get('watermelon_signal') and e.get('watermelon_red'),
+    },
+    {
+        'grade': 'B', 'score': 210, 'type': '🔍',
+        'combination': '📍바닥단독',
+        'tags': ['📍바닥권'],
+        'cond': lambda e: e.get('bottom_area'),
+    },
+    # ─── C ──────────────────────────────────────────
+    {
+        'grade': 'C', 'score': 170, 'type': None,
+        'combination': '📊OBV+MFI',
+        'tags': ['📊OBV', '💰MFI'],
+        'cond': lambda e: e.get('obv_rising') and e.get('mfi_strong'),
+    },
+    {
+        'grade': 'C', 'score': 155, 'type': None,
+        'combination': '⚡거래량+OBV',
+        'tags': ['⚡거래량', '📊OBV'],
+        'cond': lambda e: e.get('volume_surge') and e.get('obv_rising'),
+    },
+]
 
-    score = 100  # 기본 점수 (거래대금 상위 350 진입)
-    grade = 'D'
-    combination = '기본'
-    tags = []
-    
-    # silent_perfect는 silent_strong을 포함
+
+def calculate_combination_score(signals):
     effective = signals.copy()
     if effective.get('silent_perfect'):
         effective['silent_strong'] = True
 
-    candidates = []
+    # 스타일 가중치 로드 (없으면 NONE 기본값)
+    style = effective.get('style', 'NONE')
+    W     = STYLE_WEIGHTS.get(style, STYLE_WEIGHTS['NONE'])
 
-    # 🌌 [GOD+급] 삼각꼭지 + 독사 + 수박 + 돌반지 — 역대급 4중주
-    if (effective.get('triangle_signal') and
-        effective.get('triangle_apex') is not None and
-        isinstance(effective.get('triangle_apex'), (int, float)) and
-        0 <= effective['triangle_apex'] <= 3 and   # 꼭지 3봉 이내
-        effective.get('viper_hook') and
-        effective.get('watermelon_signal') and
-        effective.get('dolbanzi')):
-        candidates.append({
-            'score': 10001,
-            'grade': 'GOD+',
-            'combination': '🌌🔺💍독사삼각돌반지',
-            'tags': ['🔺꼭지임박', '🐍독사대가리', '💍200일돌파', '🍉수급폭발', '🚀역대급시그널'],
-            'type': '🌌'
-        })
-            
-    # 🌌 [GOD급 핵무기] 잃어버린 전설의 패턴 복구!
-    # 독사가 수박을 물고 200일선(돌반지)을 같이 뚫어버리는 미친 시너지
-    if effective.get('viper_hook') and effective.get('dolbanzi') and effective.get('watermelon_signal'):
-        candidates.append({
-            'score': 10000, # 측정 불가 (무조건 1순위)
-            'grade': 'GOD', 
-            'combination': '🌌🍉💍독사품은수박돌반지',
-            'tags': ['🚀대시세확정', '💥200일선폭파', '🐍단기개미털기완료', '🍉수급대폭발'],
-            'type': '🌌' 
+    # ── 조합 테이블 전체 평가 (elif 없이 전부 체크) ──
+    matched = []
+    for combo in COMBO_TABLE:
+        try:
+            if not combo['cond'](effective):
+                continue
+        except Exception:
+            continue
+
+        # score_fn / tag_fn 이 있으면 동적 계산
+        base_score = combo['score_fn'](effective) if 'score_fn' in combo else combo['score']
+        extra_tags = combo['tag_fn'](effective)   if 'tag_fn'  in combo else []
+
+        matched.append({
+            'score':       base_score,
+            'grade':       combo['grade'],
+            'combination': combo['combination'],
+            'tags':        combo['tags'] + extra_tags,
+            'type':        combo['type'],
         })
 
-    # 👑 [SSS+급 각성] 수박품은독사에 '킥(Kick)'을 더했다!
-    # 기존 조건에 'explosion_ready(폭발 직전/볼밴 돌파 등)'를 킥으로 추가!
-    elif (effective.get('viper_hook') and effective.get('watermelon_signal') and effective.get('watermelon_red') and effective.get('obv_bullish') and 
-         effective.get('explosion_ready') and effective.get('Real_Viper_Hook')):
-        candidates.append({
-            'score': 999,  
-            'grade': 'SSS+', 
-            'combination': '👑🍉🐍수박품은독사(각성)',
-            # 사령관님이 주문하신 '킥'이 들어갔습니다!
-            'tags': ['🔥최종병기', '🧲OBV매집', '💥볼밴폭발(Kick)', '🍉속살폭발'],
-            'type': '👑' 
-        })
-        
-    # 🐍 [SS+급 일반 독사] 킥(폭발)이 없는 일반 수박독사는 점수 하향 (사령관님 지시)
-    # 돌반지(500점)보다 수익률이 떨어지므로 480점으로 낮췄습니다.
-    elif (effective.get('viper_hook') and effective.get('watermelon_signal') and effective.get('obv_bullish') and 
-         effective.get('Real_Viper_Hook')):
-        candidates.append({
-            'score': 480,  
-            'grade': 'SS+', 
-            'combination': '🐍🍉일반수박독사',
-            'tags': ['🐍독사대가리', '🧲OBV매집', '🍉단기수급'],
-            'type': '👑' 
-        })
-    
-    # 🐍 [S+급] 독사출현 단독 판독 로직
-    # 하극상 방지를 위해 460점에서 440점으로 점수 소폭 하향 조정
-    elif (effective.get('viper_hook') and effective.get('Real_Viper_Hook')):
-        candidates.append({
-            'score': 440, 'grade': 'S+', 
-            'combination': '🐍5-20독사훅',
-            'tags': ['🐍독사대가리', '📉개미털기완료', '📈기울기상승턴'],
-            'type': '👑' 
-        })
-        
-    # 👑 [SSS급] 수박 돌반지 챔피언 (최강의 시너지)
-    # 안전장치: dolbanzi_Count가 없을 경우 기본값 0을 반환하도록 get 옵션 추가
-    ring_count = effective.get('dolbanzi_Count', 0) 
-    if effective.get('watermelon_signal') and effective.get('dolbanzi'):
-        combo_name = '👑💍수박첫돌반지' if ring_count == 1 else '🍉💍수박돌반지'
-        final_score = 500 if ring_count == 1 else 450
-        ring_tag = '🥇최초의반지' if ring_count == 1 else f'💍{ring_count}회차반지'
-        candidates.append({
-            'score': final_score, 'grade': 'SSS',
-            'combination': combo_name,
-            # 🚨 [수정 완료] tags 리스트 맨 끝에 ring_tag를 추가했습니다!
-            'tags': ['🍉수박전환', '💍돌반지완성', '🔥최종병기', '🚀대시세시작', ring_tag],
-            'type': '👑'
-        })
+    # 매칭된 조합 중 최고점 반환
+    if matched:
+        best = max(matched, key=lambda x: x['score'])
+        # 스타일 보너스: SWING이면 스윙 조합에, SCALP면 단타 조합에 보너스
+        best['score'] = _apply_style_bonus(best, style, W)
+        return best
 
-    # 🚀 ── SS급: 돌반지 완성 (단독) ──────────────────────
-    elif effective.get('dolbanzi'): # 200일 돌파 + 300% Vol + 쌍바닥
-        if ring_count == 1:
-            combo_name, ring_tag, bonus = '🥇💍첫번째돌반지', '🔥GoldenEntry', 30
-        elif ring_count == 2:
-            combo_name, ring_tag, bonus = '🥈💍두번째돌반지', '📈추세지속', 0
-        else:
-            combo_name, ring_tag, bonus = '🥉💍늙은돌반지', '⚠️과열주의', -50 # 3회부턴 감점 
-            
-        candidates.append({
-            'score': 480 + bonus, 'grade': 'SS', 
-            'combination': combo_name,
-            # 🚨 [수정 완료] 여기도 tags 리스트 맨 끝에 ring_tag를 추가했습니다!
-            'tags': ['💍돌반지완성', '⚡300%폭발', '👣쌍바닥확인', ring_tag],
-            'type': '👑' 
-        })
-
-     # 👑 [SSS급] 삼각수렴 꼭지 임박 + 돌반지 — 응축 에너지가 200일선 돌파
-    if (effective.get('triangle_signal') and
-        effective.get('triangle_apex') is not None and
-        isinstance(effective.get('triangle_apex'), (int, float)) and
-        0 <= effective['triangle_apex'] <= 5 and
-        effective.get('dolbanzi')):
-        ring_count = effective.get('dolbanzi_Count', 0)
-        candidates.append({
-            'score': 480,
-            'grade': 'SSS',
-            'combination': '🔺💍삼각꼭지돌반지',
-            'tags': ['🔺꼭지임박', '💍200일돌파', '💥에너지응축폭발',
-                     f'💍{ring_count}회차반지'],
-            'type': '👑'
-        })
-
-    # 👑 [SSS급] 종베 GC + 삼각수렴 + 수박 — 방향+에너지+수급 3박자
-    if (effective.get('jongbe_ok') and
-        effective.get('triangle_signal') and
-        effective.get('watermelon_signal')):
-        candidates.append({
-            'score': 460,
-            'grade': 'SSS',
-            'combination': '💛🔺🍉종베삼각수박',
-            'tags': ['💛MA방향확정', '🔺에너지응축', '🍉수급폭발', '🚀3박자완성'],
-            'type': '👑'
-        })
-            
-    # 🚀 [SS급] 골파기 V자 반등 (개미 무덤 돌파)
-    if effective.get('Golpagi_Trap') and effective.get('watermelon_signal'):
-        candidates.append({
-            'score': 470,  
-            'grade': 'SS', 
-            'combination': '🕳️🚀수박품은골파기',
-            'tags': ['🕳️가짜하락(개미털기)', '🧲OBV방어', '📈20일선탈환', '🍉단기수급폭발'],
-            'type': '👑' 
-        })
-    
-    # 🐍 [SS+급] 종베 GC + 독사 + 삼각수렴 — 이평선+단기+중기 동시 전환
-    if (effective.get('jongbe_ok') and
-        effective.get('viper_hook') and
-        effective.get('triangle_signal')):
-        candidates.append({
-            'score': 480,
-            'grade': 'SS+',
-            'combination': '💛🐍🔺종베독사삼각',
-            'tags': ['💛MA전환', '🐍단기전환', '🔺중기응축', '⚡3중전환'],
-            'type': '👑'
-        })
-
-    # 🕳️ [SS+급] 골파기 + 종베 GC + 삼각수렴 — 털기 후 응축 돌파
-    if (effective.get('Golpagi_Trap') and
-        effective.get('jongbe_ok') and
-        effective.get('triangle_signal')):
-        candidates.append({
-            'score': 480,
-            'grade': 'SS+',
-            'combination': '🕳️💛🔺골파기종베삼각',
-            'tags': ['🕳️가짜하락완료', '💛MA방향전환', '🔺에너지응축', '📈반등확정'],
-            'type': '👑'
-        })
-    
-    # ── S급 ──────────────────────────────────
-    if (effective.get('watermelon_signal') and effective.get('explosion_ready') and
-        effective.get('bottom_area') and effective.get('silent_perfect')):
-        candidates.append({
-            'score': 350, 'grade': 'S',
-            'combination': '💎전설조합',
-            'tags': ['🍉수박전환', '💎폭발직전', '📍바닥권', '🤫조용한매집완전'],
-            'type': '🗡'
-        })
-
-    if (effective.get('yeok_break') and
-        effective.get('watermelon_signal') and effective.get('volume_surge')):
-        candidates.append({
-            'score': 320, 'grade': 'S',
-            'combination': '💎돌파골드',
-            'tags': ['🏆역매공파돌파', '🍉수박전환', '⚡거래량폭발'],
-            'type': '🛡'
-        })
-
-    if (effective.get('silent_perfect') and
-        effective.get('watermelon_signal') and effective.get('explosion_ready')):
-        candidates.append({
-            'score': 310, 'grade': 'S',
-            'combination': '💎매집완성',
-            'tags': ['🤫조용한매집완전', '🍉수박전환', '💎폭발직전'],
-            'type': '🛡'
-        })
-
-    if (effective.get('bottom_area') and effective.get('explosion_ready') and
-        effective.get('watermelon_signal')):
-        candidates.append({
-            'score': 300, 'grade': 'S',
-            'combination': '💎바닥폭발',
-            'tags': ['📍바닥권', '💎폭발직전', '🍉수박전환'],
-            'type': '🗡'
-        })
-
-    # 💎 [S급] 삼각수렴 + 폭발직전 + 수박 — 응축+수급+전환 황금조합
-    if (effective.get('triangle_signal') and
-        effective.get('explosion_ready') and
-        effective.get('watermelon_signal')):
-        candidates.append({
-            'score': 340,
-            'grade': 'S',
-            'combination': '🔺💎🍉삼각폭발수박',
-            'tags': ['🔺에너지응축', '💎BB수축', '🍉수급전환', '🚀폭발임박'],
-            'type': '🗡'
-        })
-
-    # 💎 [S급] 종베 GC + 바닥권 + 삼각수렴 — 바닥에서 응축 후 방향 전환
-    if (effective.get('jongbe_ok') and
-        effective.get('bottom_area') and
-        effective.get('triangle_signal')):
-        candidates.append({
-            'score': 330,
-            'grade': 'S',
-            'combination': '💛📍🔺종베바닥삼각',
-            'tags': ['💛MA전환', '📍바닥권확인', '🔺에너지응축', '🏆바닥반등확정'],
-            'type': '🗡'
-        })
-
-    # 💎 [S급] 조용한매집 + 종베 GC + 삼각수렴 — 몰래 모으다가 터지는 패턴
-    if (effective.get('silent_perfect') and
-        effective.get('jongbe_ok') and
-        effective.get('triangle_signal')):
-        candidates.append({
-            'score': 320,
-            'grade': 'S',
-            'combination': '🤫💛🔺침묵종베삼각',
-            'tags': ['🤫조용한매집완전', '💛MA전환', '🔺에너지응축', '💥침묵폭발'],
-            'type': '🛡'
-        })
-            
-    # ── A급 ──────────────────────────────────
-    if effective.get('watermelon_signal')   and effective.get('watermelon_red') and effective.get('explosion_ready'):
-        candidates.append({
-            'score': 280, 'grade': 'A',
-            'combination': '🔥수박폭발',
-            'tags': ['🍉수박전환', '💎폭발직전'],
-            'type': '🗡'
-        })
-
-    if effective.get('yeok_break') and effective.get('volume_surge'):
-        candidates.append({
-            'score': 260, 'grade': 'A',
-            'combination': '🔥돌파확인',
-            'tags': ['🏆역매공파돌파', '⚡거래량폭발'],
-            'type': '🛡'
-        })
-
-    if effective.get('silent_strong') and effective.get('explosion_ready'):
-        candidates.append({
-            'score': 250, 'grade': 'A',
-            'combination': '🔥조용폭발',
-            'tags': ['🤫조용한매집강', '💎폭발직전'],
-            'type': '🛡'
-        })
-
-    # 🔥 [A급] 종베 GC + 삼각수렴 단독
-    if (effective.get('jongbe_ok') and
-        effective.get('triangle_signal')):
-        candidates.append({
-            'score': 275,
-            'grade': 'A',
-            'combination': '💛🔺종베삼각',
-            'tags': ['💛MA전환확인', '🔺삼각수렴'],
-            'type': '🛡'
-        })
-
-    # 🔥 [A급] 삼각수렴 + 역매공파 돌파
-    if (effective.get('triangle_signal') and
-        effective.get('yeok_break')):
-        candidates.append({
-            'score': 265,
-            'grade': 'A',
-            'combination': '🔺🏆삼각역매공파',
-            'tags': ['🔺삼각수렴', '🏆역매공파돌파'],
-            'type': '🛡'
-        })
-
-    # ── B급 ──────────────────────────────────
-    if effective.get('watermelon_signal')  and effective.get('watermelon_red'):
-        candidates.append({
-            'score': 230, 'grade': 'B',
-            'combination': '📍수박단독',
-            'tags': ['🍉수박전환'],
-            'type': '🔍'
-        })
-
-    if effective.get('bottom_area'):
-        candidates.append({
-            'score': 210, 'grade': 'B',
-            'combination': '📍바닥단독',
-            'tags': ['📍바닥권'],
-            'type': '🔍'
-        })
-
-    # 최고점 조합 반환 (결과가 여러 개라도 가장 점수가 높은 1개만 사령관님께 보고합니다)
-    if candidates:
-        return max(candidates, key=lambda x: x['score'])
-
-    # ── C급 ──────────────────────────────────
-    if effective.get('obv_rising') and effective.get('mfi_strong'):
-        return {'score': 170, 'grade': 'C', 'combination': '📊OBV+MFI', 'tags': ['📊OBV', '💰MFI'], 'type': None}
-    if effective.get('volume_surge') and effective.get('obv_rising'):
-        return {'score': 155, 'grade': 'C', 'combination': '⚡거래량+OBV', 'tags': ['⚡거래량', '📊OBV'], 'type': None}
-
-    # ── D급 ──────────────────────────────────
+    # ── D급 (기본) ───────────────────────────────────
     tags, bonus = [], 0
     if effective.get('obv_rising'):   bonus += 30; tags.append('📊OBV')
     if effective.get('mfi_strong'):   bonus += 20; tags.append('💰MFI')
     if effective.get('volume_surge'): bonus += 10; tags.append('⚡거래량')
 
     return {'score': 100 + bonus, 'grade': 'D', 'combination': '🔍기본', 'tags': tags, 'type': None}
+
+
+def _apply_style_bonus(best, style, W):
+    """스타일에 따라 조합 점수에 보너스/감점 적용"""
+    score = best['score']
+    grade = best['grade']
+
+    if style == 'SWING':
+        # 스윙에서 폭발/바닥 관련 조합은 추가 보너스
+        if any(k in best['combination'] for k in ['폭발', '바닥', '매집', '수렴']):
+            score += 30
+    elif style == 'SCALP':
+        # 단타에서 수박/돌파/거래량 관련 조합은 추가 보너스
+        if any(k in best['combination'] for k in ['수박', '돌파', '거래량', '골파기']):
+            score += 30
+        # 단타에서 장기 패턴(바닥권 등)은 감점
+        if any(k in best['combination'] for k in ['바닥', '매집완성']):
+            score -= 20
+
+    return score
 
 #--------------------------
 # 계산식
@@ -1941,92 +1863,6 @@ def get_indicators_back(df):
 )
     return df
 
-def analyze_final_longterm(ticker, name, historical_indices, scan_days=750, sampling='weekly'):
-    """
-    장기 백테스트용 분석 함수 (샘플링 지원)
-    """
-    
-    try:
-        # 데이터 다운로드 (3년치)
-        df = yf.download(ticker, period='3y', interval='1d', progress=False)
-        
-        if df.empty or len(df) < 200:
-            return []
-        
-        df.columns = ['Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume']
-        df = df[['Open', 'High', 'Low', 'Close', 'Volume']].copy()
-        df.index = pd.to_datetime(df.index)
-        
-        # 매크로 지표 추가
-        for idx_name, idx_data in historical_indices.items():
-            matching = idx_data[idx_data.index.isin(df.index)]
-            df[f'{idx_name}_close'] = matching['Close']
-            df[f'{idx_name}_ma5'] = matching['Close'].rolling(5).mean()
-        
-        # 지표 계산
-        df = get_indicators(df)
-        today_price = df.iloc[-1]['Close']
-        
-        # 샘플링 (주 1회 또는 월 1회)
-        if sampling == 'weekly':
-            # 매주 금요일만 스캔
-            df_scan = df[df.index.dayofweek == 4]  # 4 = 금요일
-        elif sampling == 'monthly':
-            # 매월 마지막 거래일만
-            df_scan = df.groupby(df.index.to_period('M')).tail(1)
-        else:  # full
-            df_scan = df.tail(scan_days)
-        
-        # 분석 (기존 로직과 동일)
-        hits = []
-        
-        for curr_idx, row in df_scan.iterrows():
-            raw_idx = df.index.get_loc(curr_idx)
-            
-            # ... (기존 analyze_final과 동일) ...
-            
-            # 신호 수집
-            signals = {
-                'watermelon_signal': row['Watermelon_Signal'],
-                'explosion_ready': (
-                    row['BB40_Width'] <= 10.0 and 
-                    row['OBV_Rising'] and 
-                    row['MFI_Strong']
-                ),
-                'bottom_area': (
-                    row['Near_MA112'] <= 5.0 and 
-                    row['Below_MA112_60d'] >= 40
-                ),
-                # ... (나머지 동일)
-            }
-            
-            result = calculate_combination_score(signals)
-            
-            if result['score'] < 200:
-                continue
-            
-            # 수익률 계산
-            returns = calculate_realistic_returns(df, raw_idx, row['Close'])
-            
-            # 결과 저장
-            hits.append({
-                '날짜': curr_idx.strftime('%Y-%m-%d'),
-                '등급': result['grade'],
-                '점수': result['score'],
-                '조합': result['combination'],
-                '종목': name,
-                '매수가': int(returns['entry_price']),
-                '최고수익률_real': returns['max_gain_real'],
-                '최저수익률_real': returns['min_loss_real'],
-                '보유일': returns['hold_days'],
-                # ... (나머지 필드)
-            })
-        
-        return hits
-        
-    except Exception as e:
-        return []
-
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # 📊 시장 국면별 성과 분석
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -2231,7 +2067,8 @@ def check_rsi_div(curr: pd.Series, past: pd.DataFrame):
 # ---------------------------------------------------------
 # 🕵️‍♂️ [분석] 정밀 분석 엔진 (Ver 36.7 최저수익률 추가)
 # ---------------------------------------------------------
-def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
+def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map,
+                  market='KR'):   # ✅ 신규: 'KR' 또는 'US'
     try:
         df = fdr.DataReader(ticker, start=START_DATE)
         if len(df) < 100: return []
@@ -2251,17 +2088,42 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
 
         news_score, news_comment = get_news_sentiment(ticker)      # ✅ 루프 밖으로
 
-        try:
-            url = f"https://finance.naver.com/item/frgn.naver?code={ticker}"
-            res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
-            res.encoding = 'euc-kr'
-            supply_df = pd.read_html(res.text)[2].dropna()
-            f_qty      = int(str(supply_df.iloc[0]['외국인']).replace('.0','').replace(',',''))
-            i_qty      = int(str(supply_df.iloc[0]['기관']).replace('.0','').replace(',',''))
-            twin_b     = (f_qty > 0 and i_qty > 0)
-            whale_score= int(((f_qty + i_qty) * df.iloc[-1]['Close']) / 100_000_000)
-        except:
+        # ──────────────────────────────────────────────
+        # 시장별 거래대금 기준 분기
+        # KR : 억원 기준 / US : 달러 기준 (단위 변환 없이 그대로 비교)
+        # ──────────────────────────────────────────────
+        if market == 'KR':
+            AMT_1 = RECENT_AVG_AMOUNT_1        # 예: 50  (억원)
+            AMT_2 = RECENT_AVG_AMOUNT_2        # 예: 100 (억원)
+            AMT_DIV = 100_000_000              # 억원 단위 환산
+        else:
+            AMT_1 = RECENT_AVG_AMOUNT_US_1     # 예: 3_700_000  (달러, ≈50억원)
+            AMT_2 = RECENT_AVG_AMOUNT_US_2     # 예: 7_000_000  (달러, ≈100억원)
+            AMT_DIV = 1                        # 달러는 환산 없이 그대로
+
+        # ──────────────────────────────────────────────
+        # 수급 데이터 (KR: 네이버 / US: 스킵)
+        # ──────────────────────────────────────────────
+        if market == 'KR':
+            try:
+                url = f"https://finance.naver.com/item/frgn.naver?code={ticker}"
+                res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
+                res.encoding = 'euc-kr'
+                supply_df  = pd.read_html(res.text)[2].dropna()
+                f_qty      = int(str(supply_df.iloc[0]['외국인']).replace('.0','').replace(',',''))
+                i_qty      = int(str(supply_df.iloc[0]['기관']).replace('.0','').replace(',',''))
+                twin_b     = (f_qty > 0 and i_qty > 0)
+                whale_score= int(((f_qty + i_qty) * df.iloc[-1]['Close']) / 100_000_000)
+            except:
+                f_qty, i_qty, twin_b, whale_score = 0, 0, False, 0
+        else:
+            # 나스닥: 수급 크롤링 없이 스킵 (yfinance institutional 붙이려면 여기에 추가)
             f_qty, i_qty, twin_b, whale_score = 0, 0, False, 0
+
+        # ──────────────────────────────────────────────
+        # 기상 지수 대상 (KR: ixic+sp500 / US: sp500+vix)
+        # ──────────────────────────────────────────────
+        storm_targets = ['ixic', 'sp500'] if market == 'KR' else ['sp500', 'vix']
 
         today_price = df.iloc[-1]['Close']
         recent_df   = df.tail(SCAN_DAYS)
@@ -2289,12 +2151,12 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             # ✅ FIX: df 전체 → temp_df 기준으로 (look-ahead bias 제거)
             # ──────────────────────────────────────────────
             amount_series     = temp_df['Close'] * temp_df['Volume']
-            recent_avg_amount = amount_series.tail(5).mean()  / 100_000_000
-            ma20_amount       = amount_series.tail(20).mean() / 100_000_000
+            recent_avg_amount = amount_series.tail(5).mean()  / AMT_DIV
+            ma20_amount       = amount_series.tail(20).mean() / AMT_DIV
 
             amount_ok = (
-                (recent_avg_amount >= RECENT_AVG_AMOUNT_1 and recent_avg_amount >= ma20_amount * 1.5)
-                or recent_avg_amount >= RECENT_AVG_AMOUNT_2
+                (recent_avg_amount >= AMT_1 and recent_avg_amount >= ma20_amount * 1.5)
+                or recent_avg_amount >= AMT_2
             )
             if not amount_ok:
                 continue
@@ -2447,11 +2309,23 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             # ──────────────────────────────────────────────
             # 조합 점수 계산
             # ──────────────────────────────────────────────
-            #result   = judge_trade_with_sequence(temp_df, signals)
-            result = judge_trade_with_sequence(temp_df.tail(20), signals)
+            result   = judge_trade_with_sequence(temp_df, signals)
             s_score  = 100
             tags     = []
             new_tags = result['tags'].copy()
+
+            # ──────────────────────────────────────────────
+            # 전략 스타일 분류 + 가중치 로드
+            # ──────────────────────────────────────────────
+            style  = classify_style(row)
+            W      = STYLE_WEIGHTS[style]
+
+            style_label = {
+                "SWING": "📈스윙(5~15일)",
+                "SCALP": "⚡단타(1~3일)",
+                "NONE":  "➖미분류",
+            }[style]
+            tags.append(style_label)
 
             # ──────────────────────────────────────────────
             # 삼각수렴 + 종베 점수
@@ -2573,21 +2447,36 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             if acc_1_obv_rising:
                 tags.append("📊OBV상승")
 
+            # ──────────────────────────────────────────────
+            # 🎯 스타일 가중치 점수 (SWING / SCALP / NONE)
+            # ──────────────────────────────────────────────
+
             # 조용한 매집
             if silent_count >= 5:
-                s_score += 100
+                s_score += W['silent_perfect']
                 tags.append("🤫조용한매집완전")
             elif silent_count >= 4:
-                s_score += 60
+                s_score += W['silent_strong']
                 tags.append("🤫조용한매집강")
             elif silent_count >= 3:
-                s_score += 30
+                s_score += W['silent_weak']
                 tags.append("🤫조용한매집약")
 
             if silent_1_atr:         tags.append(f"🔇ATR조용{int(row['ATR_Below_Days'])}일")
             if silent_2_mfi_persist: tags.append(f"💰MFI강세{int(row['MFI_Strong_Days'])}일")
-            if row['ATR'] < row['ATR_MA20']:            tags.append("🔇ATR수축")
-            if row['MFI'] > 50 and row['MFI'] > row['MFI_Prev5']: tags.append("💰MFI강세")
+            if row['ATR'] < row['ATR_MA20']:                        tags.append("🔇ATR수축")
+            if row['MFI'] > 50 and row['MFI'] > row['MFI_Prev5']:  tags.append("💰MFI강세")
+
+            # MA수렴 보너스 (스윙에서 추가 가점)
+            if row['MA_Convergence'] < 3.0 and W['ma_convergence'] > 0:
+                s_score += W['ma_convergence']
+                tags.append(f"🔀MA수렴({row['MA_Convergence']:.1f}%)")
+
+            # ADX 강세 (단타에서 핵심)
+            if row['ADX'] >= 25:
+                s_score += W['adx_strong']
+                if style == "SCALP":
+                    tags.append(f"💪ADX강세({row['ADX']:.0f})")
 
             # RSI
             if rsi_val >= 80:
@@ -2598,41 +2487,50 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             elif rsi_val >= 30: tags.append("📉RSI하락")
             else:               tags.append("❄️RSI약세")
 
-            # 수박
-            if watermelon_red2:     tags.append("📍수박지표검증")
-            if watermelon_red:      tags.append(f"🍉진짜수박 화력 {watermelon_power:.1f}")
+            # 수박 (단타 핵심 / 스윙 보조)
+            if watermelon_red2:  tags.append("📍수박지표검증")
+            if watermelon_red:   tags.append(f"🍉진짜수박 화력 {watermelon_power:.1f}")
             if is_watermelon:
-                s_score += 100
+                s_score += W['watermelon']
                 tags.append("🍉수박신호")
                 tags.append(f"🍉빨강전환(강도{red_score}/3)")
                 tags.append(f"🍉강도{watermelon_score}/3")
             elif watermelon_color == 'red' and red_score >= 2:
-                s_score += 60
+                s_score += W['watermelon_red']
                 tags.append("🍉빨강상태")
             elif row['Green_Days_10'] >= 7:
                 s_score += 30
                 tags.append("🍉초록축적")
 
-            # 바닥권 / 폭발직전
+            # 거래량 폭발 (단타 핵심)
+            if is_vol_power:
+                s_score += W['volume_surge']
+                tags.append("⚡거래폭발")
+
+            # 바닥권 (스윙 핵심 / 단타 무관)
             if bottom_area:
-                s_score += 80
+                s_score += W['bottom_area']
                 tags.append("🏆112선바닥권")
                 tags.append(f"📍거리{row['Near_MA112']:.1f}%")
+
+            # 폭발직전 (스윙 핵심)
             if explosion_ready:
-                s_score += 90
+                s_score += W['explosion_ready']
                 tags.append("💎폭발직전")
+
+            # 최강 조합: 수박 + 폭발직전 + 바닥권
             if is_watermelon and explosion_ready and bottom_area:
-                s_score += 80
+                s_score += W['swing_gold']
                 tags.append("💎💎💎스윙골드")
 
-            # 감점
+            # 감점 (스타일별 다른 강도)
             if t_pct > 40:
-                s_score -= 25
+                s_score += W['high_tail']   # SCALP는 더 크게 감점
                 tags.append("⚠️윗꼬리")
 
-            storm_count = sum([1 for m in ['ixic', 'sp500'] if row[f'{m}_close'] <= row[f'{m}_ma5']])
+            storm_count = sum([1 for m in storm_targets if row[f'{m}_close'] <= row[f'{m}_ma5']])
             s_score -= storm_count * 20
-            s_score -= max(0, int((row['Disparity'] - 108) * 5))
+            s_score -= max(0, int((row['Disparity'] - 108) * abs(W['disparity_over'])))
 
             # ──────────────────────────────────────────────
             # Ross / RSI DIV 태그
@@ -2685,6 +2583,9 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
                 '🚨손절가':        int(stop),
                 '기상':           "☀️" * (2 - storm_count) + "🌪️" * storm_count,
                 '안전점수':        int(max(0, s_score + whale_score)),
+                '전략스타일':      style,
+                '스타일라벨':      style_label,
+                '시장':           market,            # ✅ 신규: KR / US
                 '대칭비율':        dante_data_ratio,
                 '매집봉':          dante_data_mae_jip,
                 'D20매집봉':       maejip_count,
@@ -2734,18 +2635,93 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
     except Exception as e:
         print(f"🚨 [본진] 데이터 로드 실패: {e}")
         return []
-# ---------------------------------------------------------
-# 단타/스윙 분리형 시퀀스        
-# ---------------------------------------------------------
-def classify_style(row):
-    vol_ratio = row['ATR'] / row['Close']
 
-    if vol_ratio > 0.05:
-        return "SCALP"   # 단타
-    elif row['BB40_Width'] < 12 and row['MA_Convergence'] < 3:
+
+# 스타일별 가중치 테이블
+# 기준점수(base) 대비 각 신호에 얼마나 가중치를 줄지 정의
+STYLE_WEIGHTS = {
+    "SWING": {
+        # 핵심 (스윙의 본질 = 응축 후 폭발)
+        'explosion_ready': 150,   # BB수축 + 수급 → 스윙 핵심
+        'bottom_area':     120,   # 바닥권 확인 → 스윙 핵심
+        'silent_perfect':  130,   # 조용한 매집 완전 → 스윙 핵심
+        'silent_strong':    80,
+        'silent_weak':      40,
+        'bb_squeeze_bonus': 50,   # 삼각수렴 고신뢰 보너스
+        'ma_convergence':   40,   # MA수렴 자체 보너스
+        # 보조
+        'watermelon':       70,   # 수박신호 (스윙에선 보조)
+        'watermelon_red':   50,
+        'volume_surge':     20,   # 거래량 폭발 (스윙엔 덜 중요)
+        'adx_strong':       10,   # ADX (스윙엔 별로)
+        # 최강 조합
+        'swing_gold':      100,   # 수박 + 폭발직전 + 바닥권 동시
+        # 감점
+        'high_tail':       -25,
+        'disparity_over':    -5,  # (Disparity-108) 당 감점
+    },
+    "SCALP": {
+        # 핵심 (단타의 본질 = 지금 당장 터지는 중)
+        'explosion_ready':  50,   # 단타엔 덜 중요 (이미 터졌어야)
+        'bottom_area':      20,   # 단타엔 무관
+        'silent_perfect':   30,
+        'silent_strong':    20,
+        'silent_weak':      10,
+        'bb_squeeze_bonus': 10,
+        'ma_convergence':   10,
+        # 핵심
+        'watermelon':      150,   # 수박신호 → 단타 핵심 (지금 터지는 중)
+        'watermelon_red':  100,
+        'volume_surge':     80,   # 거래량 폭발 → 단타 핵심
+        'adx_strong':       80,   # ADX 강세 → 단타 핵심
+        # 최강 조합
+        'swing_gold':       40,
+        # 감점 (단타는 손절 빠르므로 윗꼬리 더 치명적)
+        'high_tail':       -40,
+        'disparity_over':   -8,
+    },
+    "NONE": {
+        # 기본값 (기존 점수 그대로 유지)
+        'explosion_ready':  90,
+        'bottom_area':      80,
+        'silent_perfect':  100,
+        'silent_strong':    60,
+        'silent_weak':      30,
+        'bb_squeeze_bonus': 20,
+        'ma_convergence':    0,
+        'watermelon':      100,
+        'watermelon_red':   60,
+        'volume_surge':     30,
+        'adx_strong':       20,
+        'swing_gold':       80,
+        'high_tail':       -25,
+        'disparity_over':   -5,
+    },
+}
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 전략 스타일 분류 (단타 1~3일 / 스윙 5~15일)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+def classify_style(row):
+    """
+    SWING : BB40 수축 + 이평 수렴 + ADX 미발동 → 에너지 응축 대기 구간 (5~15일)
+    SCALP : 변동성 적당 + ADX 강세 → 추세 이미 발동, 올라타는 구간 (1~3일)
+    NONE  : 두 조건 모두 미충족
+    """
+    vol_ratio = row['ATR'] / row['Close'] if row['Close'] > 0 else 0
+
+    # 1순위: 스윙 (응축 → 폭발 직전)
+    if (row['BB40_Width'] < 12
+            and row['MA_Convergence'] < 3
+            and row['ADX'] < 25):
         return "SWING"
-    else:
-        return "NONE"
+
+    # 2순위: 단타 (추세 이미 발동)
+    elif (0.02 <= vol_ratio <= 0.05
+          and row['ADX'] >= 25):
+        return "SCALP"
+
+    return "NONE"
 
 # ---------------------------------------------------------
 # 💾 [엑셀 저장] 오늘의 추천종목 저장
@@ -2770,6 +2746,42 @@ def save_today_recommendations(df_today, recommendation_info):
         print(f"\n❌ 엑셀 저장 실패: {e}")
         return None
 
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# main.py  (스캔 진입점)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+from combo_storage import (
+    rebuild_score_overrides,
+    record_combo_performance,
+    flush_and_push,
+    print_combo_report,
+)
+
+def main():
+
+
+
+    all_hits = []
+    for ticker, name in TICKER_LIST:
+        hits = analyze_final(ticker, name, ...)
+
+        for hit in hits:
+            # ② 수익률 기록 (hits 루프 안에서)
+            record_combo_performance(
+                combination = hit['N조합'],
+                max_return  = hit['최고수익률_raw'],
+                min_return  = hit['최저수익률_raw'],
+                days_to_max = hit['소요기간'],
+                style       = hit.get('전략스타일', 'NONE'),
+            )
+
+        all_hits.extend(hits)
+
+    # ③ 스캔 종료 후: JSON → 레포에 1회 커밋/푸시
+    flush_and_push()
+
+    # ④ 현황 출력 (터미널 / Actions 로그에서 확인)
+    print_combo_report(top_n=15)
+    
 # =================================================
 # 🚀 [실행] 메인 컨트롤러 (수정 버전)
 # =================================================
@@ -2844,19 +2856,35 @@ if __name__ == "__main__":
         }
         weather_data = prepare_historical_weather()
         sector_master_map = df_krx.set_index('Code')['Sector'].to_dict() if 'Sector' in df_krx.columns else {}
-
+    
+        # ① 스캔 시작 전: 누적 수익률로 점수 보정 재계산
+        rebuild_score_overrides()
+        
         # 4. [국내전] 스캔
         all_hits = []
         print(f"🔍 [국내] {len(target_stocks)}개 종목 레이더 가동...")
         with ThreadPoolExecutor(max_workers=15) as executor:
             results = list(executor.map(
-                lambda p: analyze_final(p[0], p[1], weather_data, global_env, leader_env, sector_master_map), 
+                lambda p: analyze_final(p[0], p[1], weather_data, global_env, leader_env, sector_master_map, market='KR'), 
                 zip(target_stocks['Code'], target_stocks['Name'])
             ))
             print(f"📦 results 수: {len(results)}")
             all_hits = [item for r in results if r for item in r]
             print(f"🎯 all_hits 수: {len(all_hits)}")
+
+        # ✅ executor 끝난 후 all_hits 루프로 한 번에 기록
+        for hit in all_hits:
+            record_combo_performance(
+                combination = hit['N조합'],
+                max_return  = hit['최고수익률_raw'],
+                min_return  = hit['최저수익률_raw'],
+                days_to_max = hit['소요기간'],
+                style       = hit.get('전략스타일', 'NONE'),
+            )
             
+        # ✅ 전부 기록 끝난 후 레포에 1회 커밋
+        flush_and_push()
+
         if not all_hits:
             print("⚠️ all_hits 비어있음 → 조건 만족 종목 없음")
         else:
@@ -2868,7 +2896,7 @@ if __name__ == "__main__":
         with ThreadPoolExecutor(max_workers=15) as executor:
             # 미국 데이터프레임은 'Symbol'과 'Name' 컬럼을 사용합니다.
             results = list(executor.map(
-                lambda p: analyze_final(p[0], p[1], weather_data, global_env, leader_env, {}), 
+                lambda p: analyze_final(p[0], p[1], weather_data, global_env, leader_env, {}, market='US'), 
                 zip(target_Nasdaq_stocks['Symbol'], target_Nasdaq_stocks['Name'])
             ))
             all_Nasdaq_hits = [item for r in results if r for item in r]
