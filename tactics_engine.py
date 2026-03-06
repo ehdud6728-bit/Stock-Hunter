@@ -414,40 +414,36 @@ def watermelon_indicator_complete(df):
 
 # 시퀀스 판별기
 def judge_yeok_break_sequence_v2(df):
-    """
-    역매공파 시퀀스 판별기
-    df: 최근 N봉 (20봉 이상)
-    컬럼: ['Open','High','Low','Close','Volume']
-    """
     if len(df) < 20:
         return False
 
-    acc = df.iloc[:10]      # 매집
-    pull = df.iloc[10:15]   # 눌림
-    recent = df.iloc[15:]   # 돌파
+    acc    = df.iloc[:10]
+    pull   = df.iloc[10:15]
+    recent = df.iloc[15:]
+    last   = recent.iloc[-1]
+
+    # ✅ FIX: 전체 평균 → 눌림 구간 대비
+    acc_vol  = acc['Volume'].mean()
+    pull_vol = pull['Volume'].mean()
 
     acc_range = (acc['High'].max() - acc['Low'].min()) / acc['Close'].mean()
-    acc_vol = acc['Volume'].mean()
-    total_vol = df['Volume'].mean()
-
     cond_acc = (
         acc_range < 0.04 and
-        acc_vol < total_vol * 0.7 and
+        acc_vol < pull_vol * 1.1 and          # ✅ 전체 평균 → 눌림 대비
         acc['Close'].iloc[-1] >= acc['Close'].iloc[0] * 0.98
     )
 
     pull_start = pull['Close'].iloc[0]
-    pull_low = pull['Low'].min()
+    pull_low   = pull['Low'].min()
     pull_ratio = (pull_start - pull_low) / pull_start
-
     cond_pull = (
         0.02 <= pull_ratio <= 0.08 and
-        pull['Volume'].mean() < acc_vol * 1.2
+        pull_vol < acc_vol * 1.2
     )
 
-    last = recent.iloc[-1]
-    prev_high = df['High'].iloc[:-1].max()
-
+    # ✅ FIX: 전고점 기준을 매집+눌림 구간으로 명확히
+    prev_high = df['High'].iloc[:15].max()
+    total_vol = df['Volume'].mean()
     cond_break = (
         last['Close'] > prev_high * 1.002 and
         last['Volume'] > total_vol * 1.5 and
