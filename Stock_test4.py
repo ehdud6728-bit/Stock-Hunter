@@ -163,6 +163,7 @@ def analyze_save_googleSheet(all_hits, isNasdaq):
                 'Is_bb_low_Stable',
                 'Has_Accumulation',
                 'Is_Rsi_Divergence',
+                'Is_Real_Watermelron',
                 '확신점수',
                 '안전점수',
                 '섹터',
