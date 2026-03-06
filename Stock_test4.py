@@ -1196,6 +1196,9 @@ def calculate_combination_score(signals):
 
     return {'score': 100 + bonus, 'grade': 'D', 'combination': '🔍기본', 'tags': tags, 'type': None}
 
+#--------------------------
+# 계산식
+#--------------------------
 def get_indicators(df):
     df = df.copy()
     count = len(df)
@@ -1373,6 +1376,48 @@ def get_indicators(df):
     
     df['Watermelon_Signal'] = color_change & (df['Green_Days_10'] >= 7) & volume_surge
     df['Watermelon_Score'] = red_score # 0~3점
+
+    prev = df.iloc[-2]   # 어제
+    curr = df.iloc[-1]   # 오늘
+    # [Option A] 골든크로스 당일: 어제 MA5 < MA112, 오늘 MA5 >= MA112
+    cond_golden_cross = (
+        (prev['MA5'] < prev['MA112']) and
+        (curr['MA5'] >= curr['MA112'])
+    )
+
+    # [Option B] 근접 진입 중: 어제까지 역배열 + 오늘 MA5가 MA112의 98~103%
+    cond_approaching = (
+        (prev['MA5'] < prev['MA112']) and
+        (curr['MA112'] * 0.98 <= curr['MA5'] <= curr['MA112'] * 1.03)
+    )
+
+# [조건] 중장기 역배열 유지: MA112 < MA224 (큰 그림은 아직 역배열)
+    cond_inverse_mid = (curr['MA112'] < curr['MA224'])
+
+    # [조건] 종가 448일선 아래 (장기 눌림 구간)
+    cond_below_448 = (curr['Close'] < curr['MA448'])
+
+    # [조건] 224일선 밀착: 종가가 MA224 대비 -3% ~ +5%
+    rate_ma224 = ((curr['Close'] - curr['MA224']) / curr['MA224']) * 100
+    cond_ma224_range = -3 <= rate_ma224 <= 5
+
+    # [조건] BB(40,2) 상단 근접: 종가가 BB상단 대비 -7% ~ +3%
+    rate_bb40 = ((curr['Close'] - curr['BB40_Upper']) / curr['BB40_Upper']) * 100
+    cond_bb40_range = -7 <= rate_bb40 <= 3
+
+    # [조건] 최근 50봉 내 거래량 300% 이상 매집봉
+    vol_ratio = volume / volume.shift(1).replace(0, np.nan)
+    cond_vol_300 = (vol_ratio >= 3.0).iloc[-50:].any()
+
+    # [조건] 최근 50봉 내 448일선 상향 돌파 이력 (찔러본 흔적 포함)
+    cond_break_448 = (df['High'] > df['MA448']).iloc[-50:].any()
+
+    # A or B 하나라도 충족 시 통과
+    cond_cross = cond_golden_cross or cond_approaching
+    
+    df['Is_Real_Watermelron'] = False
+    if (cond_cross and cond_inverse_mid and cond_below_448 and cond_ma224_range and cond_bb40_range and cond_break_448 and cond_vol_300):
+        df['Is_Real_Watermelron'] = True
 
     # 13. 기타 (박스권 범위 등)
     df['Box_Range'] = df['High'].rolling(10).max() / df['Low'].rolling(10).min()
@@ -2585,6 +2630,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
                 'Is_bb_low_Stable': row['Is_bb_low_Stable'],
                 'Has_Accumulation': row['Has_Accumulation'],
                 'Is_Rsi_Divergence': row['Is_Rsi_Divergence'],
+                'Is_Real_Watermelron': row['Is_Real_Watermelron'],
                 '뉴스점수': news_score,
                 '뉴스코멘트': news_comment,
             })
