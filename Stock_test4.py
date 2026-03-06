@@ -1152,7 +1152,21 @@ def get_indicators(df):
     df['Disparity']      = (close / df['MA20']) * 100
     df['MA_Convergence'] = abs(df['MA20'] - df['MA60']) / df['MA60'] * 100
     df['Box_Range']      = high.rolling(10).max() / low.rolling(10).min()
+    df['Daily_Touch'] = df.apply(check_touch, axis=1)
+    # 최근 20일 동안 성벽을 두드린 총 횟수
+    df['Total_hammering'] = int(df['Daily_Touch'].iloc[-20:].sum())
+    # 현재 봉이 저항선을 완전히 돌파했는지 여부
+    current_res_max = max(curr['BB_Upper'], curr['BB40_Upper'], curr['MA60'], curr['MA112'])
+    df['Is_resistance_break'] = curr['Close'] > current_res_max
 
+    # ── 매집봉 (거래량 급증 양봉) ──────────────
+    df['Is_Maejip'] = (
+        (df['Volume'] > df['Volume'].shift(1) * 2) &
+        (df['Close'] > df['Open']) &
+        (df['Close'] > df['Close'].shift(1))
+    )
+
+    df['Maejip_Count'] = int(df['Is_Maejip'].iloc[-20:].sum())
     # ──────────────────────────────────────────────
     # 5. True Range (1회 계산 → 전체 재사용)
     # ──────────────────────────────────────────────
