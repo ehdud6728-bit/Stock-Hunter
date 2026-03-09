@@ -1741,6 +1741,67 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         print(f"🚨 {name} 분석 중 치명적 에러:\n{traceback.format_exc()}")
         return []
 
+# 스타일별 가중치 테이블
+# 기준점수(base) 대비 각 신호에 얼마나 가중치를 줄지 정의
+STYLE_WEIGHTS = {
+    "SWING": {
+        # 핵심 (스윙의 본질 = 응축 후 폭발)
+        'explosion_ready': 150,   # BB수축 + 수급 → 스윙 핵심
+        'bottom_area':     120,   # 바닥권 확인 → 스윙 핵심
+        'silent_perfect':  130,   # 조용한 매집 완전 → 스윙 핵심
+        'silent_strong':    80,
+        'silent_weak':      40,
+        'bb_squeeze_bonus': 50,   # 삼각수렴 고신뢰 보너스
+        'ma_convergence':   40,   # MA수렴 자체 보너스
+        # 보조
+        'watermelon':       70,   # 수박신호 (스윙에선 보조)
+        'watermelon_red':   50,
+        'volume_surge':     20,   # 거래량 폭발 (스윙엔 덜 중요)
+        'adx_strong':       10,   # ADX (스윙엔 별로)
+        # 최강 조합
+        'swing_gold':      100,   # 수박 + 폭발직전 + 바닥권 동시
+        # 감점
+        'high_tail':       -25,
+        'disparity_over':    -5,  # (Disparity-108) 당 감점
+    },
+    "SCALP": {
+        # 핵심 (단타의 본질 = 지금 당장 터지는 중)
+        'explosion_ready':  50,   # 단타엔 덜 중요 (이미 터졌어야)
+        'bottom_area':      20,   # 단타엔 무관
+        'silent_perfect':   30,
+        'silent_strong':    20,
+        'silent_weak':      10,
+        'bb_squeeze_bonus': 10,
+        'ma_convergence':   10,
+        # 핵심
+        'watermelon':      150,   # 수박신호 → 단타 핵심 (지금 터지는 중)
+        'watermelon_red':  100,
+        'volume_surge':     80,   # 거래량 폭발 → 단타 핵심
+        'adx_strong':       80,   # ADX 강세 → 단타 핵심
+        # 최강 조합
+        'swing_gold':       40,
+        # 감점 (단타는 손절 빠르므로 윗꼬리 더 치명적)
+        'high_tail':       -40,
+        'disparity_over':   -8,
+    },
+    "NONE": {
+        # 기본값 (기존 점수 그대로 유지)
+        'explosion_ready':  90,
+        'bottom_area':      80,
+        'silent_perfect':  100,
+        'silent_strong':    60,
+        'silent_weak':      30,
+        'bb_squeeze_bonus': 20,
+        'ma_convergence':    0,
+        'watermelon':      100,
+        'watermelon_red':   60,
+        'volume_surge':     30,
+        'adx_strong':       20,
+        'swing_gold':       80,
+        'high_tail':       -25,
+        'disparity_over':   -5,
+    },
+}
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # 전략 스타일 분류 (단타 1~3일 / 스윙 5~15일)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
