@@ -1308,10 +1308,13 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
 
         # RSI
         rsi_score = row['RSI']
-
+     
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         # 🏆 역매공파 바닥권 (신규 지표 활용!)
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        # 장기 바닥권 체크 (최근 60일 중 112선 아래 일수)
+        df['Below_MA112'] = (df['Close'] < df['MA112']).astype(int)
+        df['Below_MA112_60d'] = df['Below_MA112'].rolling(60).sum()
         near_ma112 = row['Near_MA112'] <= 5.0
         long_bottom = row['Below_MA112_60d'] >= 40
         bottom_area = near_ma112 and long_bottom
