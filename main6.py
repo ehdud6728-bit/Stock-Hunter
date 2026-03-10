@@ -284,6 +284,12 @@ COMBO_TABLE = [
         'tags': ['🐍독사대가리', '📉개미털기완료', '📈기울기상승턴'],
         'cond': lambda e: e.get('viper_hook') and e.get('Real_Viper_Hook'),
     },
+    {
+        'grade': 'S+', 'score': 440, 'type': '👑',
+        'combination': '💎BB하단눌림목',
+        'tags': ['📉BB하단눌림목', '📈RSI-DIV'],
+        'cond': lambda e: e.get('bb_ross') and e.get('ris_div'),
+    },
     # ─── S ──────────────────────────────────────────
     {
         'grade': 'S', 'score': 350, 'type': '🗡',
