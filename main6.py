@@ -1181,7 +1181,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         
         #조건에 맞지 않으면 처리하지 않는다.
         if df is None or df.empty:
-            return []  # 또는 pd.DataFrame()
+            return []
          
         # 글로벌 weather_data
         df = df.join(historical_indices, how='left').fillna(method='ffill')
@@ -1192,7 +1192,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         # 2. 우리 섹터 대장주의 상태 확인 (leader_status 맵 활용)
         current_leader_condition = l_env.get(my_sector, "Normal")
      
-        # 💡 오늘의 현재가 저장 (나중에 사용)
+        # ✅ FIX 1: today_price 중복 할당 제거 → 한 번만 정의
         today_price = df.iloc[-1]['Close']
      
         row = df.iloc[-1]
@@ -1202,27 +1202,23 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         curr_idx = df.index[-1]
 
         # ✅ [필수] 가격 변수 정의
-        close_p = row['Close']      # 당일 종가
-        open_p = row['Open']        # 당일 시가
-        high_p = row['High']        # 당일 고가
-        low_p = row['Low']          # 당일 저가
+        close_p = row['Close']
+        open_p = row['Open']
+        high_p = row['High']
+        low_p = row['Low']
 
         raw_idx = len(df) - 1
         temp_df = df.iloc[:raw_idx + 1]
 
-        # analyze_final 함수 내부 루프 안에서
         # 최근 5일간의 진짜 거래대금 계산 (단위: 억)
         recent_avg_amount = (df['Close'] * df['Volume']).tail(5).mean() / 100000000
     
-        if recent_avg_amount < 50: # 평균 거래대금 50억 미만은 탈락!
+        if recent_avg_amount < 50:
             return []
 
         # 💡 리턴값 5개를 정확히 받아냅니다.
         s_tag, total_m, w_streak, whale_score, twin_b = get_supply_and_money(ticker, row['Close'])
         f_tag, f_score = get_financial_health(ticker)
-     
-        # 💡 오늘의 현재가 저장 (나중에 사용)
-        today_price = df.iloc[-1]['Close']
      
         # 1. 꼬리% 정밀 계산
         high_p, low_p, close_p, open_p = row['High'], row['Low'], row['Close'], row['Open']
@@ -1230,11 +1226,8 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         t_pct = int((high_p - body_max) / (high_p - low_p) * 100) if high_p != low_p else 0
 
         # 2. 기존 핵심 전술 신호 판정
-        # 조건 1: 구름(Cloud) 돌파
         is_cloud_brk = prev['Close'] <= prev['Cloud_Top'] and close_p > row['Cloud_Top']
-        # 조건 2: 기준선(Kijun) 돌파 
         is_kijun_sup = close_p > row['Kijun_sen'] and prev['Close'] <= prev['Kijun_sen']
-        # 다이아몬드 = 둘 다 동시에!
         is_diamond = is_cloud_brk and is_kijun_sup
             
         is_super_squeeze = row['BB20_Width'] < 10 and row['BB40_Width'] < 15
@@ -1251,40 +1244,18 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         yeok_6_volume_surge = row['Volume'] >= row['VMA5'] * 1.5
         yeok_7_ma5_support = close_p >= row['MA5'] * 0.97
 
-        # 💡 역매공파 완전체 체크
         yeok_mae_count = sum([yeok_1_ma_aligned, yeok_2_ma_converged, yeok_3_bb40_squeeze,
                              yeok_4_red_candle, yeok_5_pullback, yeok_6_volume_surge, yeok_7_ma5_support])
 
         # --- [역매공파 통합 7단계 로직 (V2)] ---
-        # 1. [역(逆)] 역배열 바닥 탈출 (5/20 골든크로스)
-        # 의미: 하락을 멈추고 단기 추세를 돌리는 첫 신호
         is_yeok = (prev['MA5'] <= prev['MA20']) and (row['MA5'] > row['MA20'])
-
-        # 2. [매(埋)] 에너지 응축 (이평선 밀집)
-        # 의미: 5, 20, 60일선이 3% 이내로 모여 에너지가 압축된 상태
         is_mae = row['MA_Convergence'] <= 3.0
-
-        # 3. [공(空)] 공구리 돌파 (MA112 돌파) - 사령관님이 찾아낸 핵심!
-        # 의미: 6개월 장기 저항선(공구리)을 종가로 뚫어버리는 순간
         is_gong = (close_p > row['MA112']) and (prev['Close'] <= row['MA112'])
-
-        # 4. [파(破)] 파동의 시작 (BB40 상단 돌파)
-        # 의미: 볼린저밴드 상단을 뚫고 변동성이 위로 터지는 시점
         is_pa = (row['Close'] > row['BB40_Upper']) and (prev['Close'] <= row['BB40_Upper'])
-
-        # 5. [화력] 거래량 동반 (VMA5 대비 2배)
-        # 의미: 가짜 돌파를 걸러내는 세력의 입성 증거
         is_volume = row['Volume'] >= row['VMA5'] * 2.0
-
-        # 6. [안전] 적정 이격도 (100~106%)
-        # 의미: 이미 너무 날아간 종목(추격매수)은 거르는 안전장치
         is_safe = 100.0 <= row['Disparity'] <= 106.0
-
-        # 7. [수급] OBV 우상향 유지
-        # 의미: 주가는 흔들어도 돈(매집세)은 빠져나가지 않는 상태
         is_obv = row['OBV_Slope'] > 0
 
-        # 🏆 [최종 판정] 7가지 중 5가지 이상 만족 시 '정예', 7가지 모두 만족 시 'LEGEND'
         conditions = [is_yeok, is_mae, is_gong, is_pa, is_volume, is_safe, is_obv]
         match_count = sum(conditions)
       
@@ -1295,13 +1266,12 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         acc_4_rsi_healthy = 40 <= row['RSI'] <= 70
         acc_5_sto_golden = row['Sto_K'] > row['Sto_D']
 
-        # 💡 [신규] 조용한 매집 패턴 (당신이 말한 이상적 조건!)
-        silent_1_atr_low = row['ATR'] < row['ATR_MA20']  # ATR이 20일 평균 아래
-        silent_2_mfi_strong = row['MFI'] > 50  # MFI 50 이상
-        silent_3_mfi_rising = row['MFI'] > row['MFI_Prev5']  # MFI 상승 중
-        silent_4_obv_rising = row['OBV'] > prev_5['OBV']  # OBV 상승 중
+        # 💡 [신규] 조용한 매집 패턴
+        silent_1_atr_low = row['ATR'] < row['ATR_MA20']
+        silent_2_mfi_strong = row['MFI'] > 50
+        silent_3_mfi_rising = row['MFI'] > row['MFI_Prev5']
+        silent_4_obv_rising = row['OBV'] > prev_5['OBV']
         
-        # 💡 조용한 매집 완성 조건 (4개 모두 충족)
         is_silent_accumulation = (silent_1_atr_low and silent_2_mfi_strong and 
                                  silent_3_mfi_rising and silent_4_obv_rising)
       
@@ -1309,17 +1279,16 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         is_sto_gc = prev['Sto_D'] <= prev['Sto_SD'] and row['Sto_D'] > row['Sto_SD']
         is_vma_gc = prev['VMA5'] <= prev['VMA20'] and row['VMA5'] > row['VMA20']
         is_bb_brk = prev['Close'] <= prev['BB_Upper'] and row['Close'] > row['BB_Upper']
-        is_bb40_brk = prev.get('BB40_Upper', 0) <= prev['Close'] # 예시
+        is_bb40_brk = prev.get('BB40_Upper', 0) <= prev['Close']
         
         # 멜론/노바 판정
         is_melon = twin_b and row['OBV_Slope'] > 0 and row.get('ADX', 0) > 20 and row['MACD_Hist'] > 0
         is_nova = is_sto_gc and is_vma_gc and is_bb_brk and is_melon
 
-        # RSI
         rsi_score = row['RSI']
      
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        # 🏆 역매공파 바닥권 (신규 지표 활용!)
+        # 🏆 역매공파 바닥권
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         near_ma112 = row['Near_MA112'] <= 5.0
         long_bottom = row['Below_MA112_60d'] >= 40
@@ -1332,7 +1301,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         supply_strong = row['OBV_Rising'] and row['MFI_Strong']
         explosion_ready = bb_squeeze and supply_strong
 
-        #수박지표
+        # 수박지표
         is_watermelon = row['Watermelon_Signal']
         watermelon_color = row['Watermelon_Color']
         watermelon_score = row['Watermelon_Score']
@@ -1342,7 +1311,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             int(row['Buying_Pressure'])
         )
      
-        #하락기간과 횡보(공구리)기간 비교(1이상 추천)
+        # 하락기간과 횡보(공구리)기간 비교
         dante_data = calculate_dante_symmetry(temp_df)
     
         if dante_data is None:
@@ -1352,9 +1321,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             dante_data_ratio = dante_data['ratio']
             dante_data_mae_jip = dante_data['mae_jip']
 
-        # 🕵️ 신규 추가: 서사 분석기 호출
-        #print(f"✅ [본진] 서사 분석기 호출 : {name}")
-        #sector = get_stock_sector(ticker, sector_master_map) # 섹터 판독 함수 필요
+        # 🕵️ 서사 분석기 호출
         grade, narrative, target, stop, conviction = analyze_all_narratives(
             temp_df, name, my_sector, g_env, l_env
         )
@@ -1369,27 +1336,19 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         # 1. 신호 수집
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        
         signals = {
-            # 수박지표
             'watermelon_signal': row['Watermelon_Signal'],
             'watermelon_red': row['Watermelon_Color'] == 'red',
             'watermelon_green_7d': row['Green_Days_10'] >= 7,
-            
-            # 폭발 직전
             'explosion_ready': (
                 row['BB40_Width'] <= 10.0 and 
                 row['OBV_Rising'] and 
                 row['MFI_Strong']
             ),
-            
-            # 바닥권
             'bottom_area': (
                 row['Near_MA112'] <= 5.0 and 
                 row['Below_MA112_60d'] >= 40
             ),
-            
-            # 조용한 매집
             'silent_perfect': (
                 row['ATR_Below_Days'] >= 7 and
                 row['MFI_Strong_Days'] >= 7 and
@@ -1403,52 +1362,38 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
                 row['MFI_Strong_Days'] >= 5 and
                 row['OBV_Rising']
             ),
-            
-            # 역매공파 돌파
             'yeok_break': (
                 close_p > row['MA112'] and 
                 prev['Close'] <= row['MA112']
             ),
-            
-            # 기타
             'volume_surge': row['Volume'] >= row['VMA20'] * 1.5,
             'obv_rising': row['OBV_Rising'],
             'mfi_strong': row['MFI_Strong'],
-            # 돌반지
             'dolbanzi': row['Dolbanzi'],
             'dolbanzi_Trend_Group': row['Trend_Group'],
             'dolbanzi_Count': row['Dolbanzi_Count'],
-
-            #독사 5-20
             'viper_hook': row['Viper_Hook'],
             'obv_bullish': row['OBV_Bullish'],
             'Real_Viper_Hook': row['Real_Viper_Hook'],
             'Golpagi_Trap': row['Golpagi_Trap'],
-
-            # ✅ 신규: 삼각수렴 + 종베 신호 추가
             'jongbe_break':    row.get('Jongbe_Break', False),
-            'triangle_signal': False,   # 아래에서 채워짐
+            'triangle_signal': False,
             'triangle_apex':   None,
             'triangle_pattern': 'None',
             'dmi_cross': False,
             'dmi_ok': False,
             'MA_Convergence': row['MA_Convergence'],
-
             'bb_ross': False,
             'ris_div': False,
         }
      
         try:
             if tri_result is not None:
-                #print(f"✅ [본진] tri_result 수집!")
                 signals['triangle_signal']  = tri_result['pass']
                 signals['triangle_apex']    = tri_result['apex_remain']
                 signals['triangle_pattern'] = tri_result['triangle_pattern']
                 signals['jongbe_ok']        = tri_result['jongbe']
                 signals['explosion_ready']  = signals['explosion_ready'] or tri_result['pass']
-                # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-                # 🔺 삼각수렴 + 종베 골든크로스
-                # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
                 signals['dmi_cross'] = tri_result.get('triangle', {}).get('dmi_cross', False)
                 signals['dmi_ok'] = tri_result.get('triangle', {}).get('dmi_ok', False)
                 if signals['dmi_ok']:
@@ -1465,8 +1410,20 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
 
         if row['RSI_DIV']:
             new_tags.append(f"📊RSI DIV")
-        
-        # 세부 정보 추가
+
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        # 2. 조합 점수 계산
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        print(f"✅ [본진] 조합 점수 계산!")
+        result = judge_trade_with_sequence(temp_df, signals)
+
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        # 3. 추가 정보 태그
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        # ✅ FIX 2: new_tags 이중 초기화 제거 → result['tags']를 extend로 병합
+        new_tags.extend(result['tags'])
+
+        # 세부 정보 추가 (한 번만)
         if signals['watermelon_signal']:
             new_tags.append(f"🍉강도{row['Watermelon_Score']}/3")
         
@@ -1476,119 +1433,78 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         if signals['silent_perfect'] or signals['silent_strong']:
             new_tags.append(f"🔇ATR{int(row['ATR_Below_Days'])}일")
             new_tags.append(f"💰MFI{int(row['MFI_Strong_Days'])}일")
- 
+
         if row['Dolbanzi']:
             new_tags.append(f"🟡돌반지")
 
-         
-        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        # 2. 조합 점수 계산
-        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        print(f"✅ [본진] 조합 점수 계산!")
-        result = judge_trade_with_sequence(temp_df, signals)
-        #result = calculate_combination_score(signals)
- 
-        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        # 3. 추가 정보 태그
-        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        new_tags = result['tags'].copy()
-
         # ──────────────────────────────────────────────
-        # 전략 스타일 분류 + 가중치 로드
+        # 전략 스타일 분류
         # ──────────────────────────────────────────────
         style  = classify_style(row)
         W      = STYLE_WEIGHTS[style]
-
         style_label = {
             "SWING": "📈스윙(5~15일)",
             "SCALP": "⚡단타(1~3일)",
             "NONE":  "➖미분류",
         }[style]
         tags.append(style_label)
-      
-        # 세부 정보 추가
-        if signals['watermelon_signal']:
-            new_tags.append(f"🍉강도{row['Watermelon_Score']}/3")
-        
-        if signals['bottom_area']:
-            new_tags.append(f"📍거리{row['Near_MA112']:.1f}%")
-        
-        if signals['silent_perfect'] or signals['silent_strong']:
-            new_tags.append(f"🔇ATR{int(row['ATR_Below_Days'])}일")
-            new_tags.append(f"💰MFI{int(row['MFI_Strong_Days'])}일")
 
-        if row['Dolbanzi']:
-            new_tags.append(f"🟡돌반지")
-     
-        s_score = 100
-        tags = []
+        # ✅ FIX 3: s_score 중간 리셋 제거 → 기본 점수를 여기서 한 번만 설정
+        # ✅ FIX 4: tags = [] 제거 → style_label이 유지됨
+        s_score = int(90 + (30 if is_nova else 15 if is_melon else 0))
       
-        # 라운드넘버 정거장 매매법 => 현재가 기준 정거장 파악
+        # 라운드넘버 정거장 매매법
         lower_rn, upper_rn = get_target_levels(row['Close'])
-        avg_money = (row['Close'] * row['Volume']) # 간이 거래대금
-        is_leader = avg_money >= 100000000000 # 1,000억 기준 (시장 상황에 따라 조정)
+        avg_money = (row['Close'] * row['Volume'])
+        is_leader = avg_money >= 100000000000
         is_1st_buy = False
         is_2nd_buy = False
         is_rapid_target = False
         is_rn_signal = False
         
         if lower_rn and upper_rn:
-            # 🕵️ 조건 A: 최근 20일 내에 위 정거장(+4%)을 터치했었나?
-            # (세력이 위쪽 물량을 체크하고 내려왔다는 증거)
             lookback_df = df.iloc[max(0, raw_idx-20) : raw_idx]
             hit_upper = any(lookback_df['High'] >= upper_rn * 1.04)
-            
-            # 🕵️ 조건 B: 현재 아래 정거장 근처(±4%)에 도달했나?
-            # (분할 매수 1차 타점 진입)
             at_lower_station = lower_rn * 0.96 <= row['Close'] <= lower_rn * 1.04
-            
-            # 🏆 [최종 판정] '정거장 회귀' 신호
             is_rn_signal = hit_upper and at_lower_station
           
         if lower_rn:
-            # 🚩 [신호 발생] 최근 20일간 정거장 대비 +30% 상단선을 터치했는가?
-            # 예: 10,000원 정거장 기준 13,000원 돌파 이력 체크
             signal_line_30 = lower_rn * 1.30
             lookback_df = df.iloc[max(0, raw_idx-20) : raw_idx]
             has_surged_30 = any(lookback_df['High'] >= signal_line_30)
         
-            # 🎯 [급등존 설정] Round Number ±4% 구간
             zone_upper = lower_rn * 1.04
             zone_lower = lower_rn * 0.96
         
-            # 🚀 [1차 매수 타점] 급등 후 조정받아 급등존 상단 터치
             is_1st_buy = has_surged_30 and (row['Low'] <= zone_upper <= row['High'])
-            
-            # 🚀 [2차 매수 타점] 급등존 하단 터치
             is_2nd_buy = has_surged_30 and (row['Low'] <= zone_lower <= row['High'])
         
             if is_1st_buy:
                 tags.append("🚀급등_1차타점")
-                s_score += 100 # 급등주 전술이므로 높은 가점
+                s_score += 100
             if is_2nd_buy:
                 tags.append("🚀급등_2차타점")
-                s_score += 120 # 비중을 더 싣는 구간
+                s_score += 120
         
-            # 결과 전송을 위한 데이터 저장
             rn_signal_data = {
                 'base_rn': lower_rn,
                 'is_rapid': has_surged_30,
                 'status': "급등존진입" if zone_lower <= row['Close'] <= zone_upper else "관찰중"
             }
           
-        # 라운드 넘버
         if is_rn_signal:
             tags.append("🚉라운드넘버")
-            s_score += 70 # 강력한 매수 근거로 활용
+            s_score += 70
 
         # --- 날씨 판정 ---
+        # ✅ FIX 5: storm_count 이중 계산 제거 → 루프 한 번으로 통일
         for m_key in ['ixic', 'sp500']:
-            if row.get(f'{m_key}_close', 0) > row.get(f'{m_key}_ma5', 0): weather_icons.append("☀️")
-            else: weather_icons.append("🌪️"); storm_count += 1
-            
-        # --- 최종 점수 산산 (s_score로 통일) ---
-        s_score = int(90 + (30 if is_nova else 15 if is_melon else 0))
-        #s_score += (whale_score + f_score) 점수가 너무 높게 나와서 재무와 수급점수는 제외
+            if row.get(f'{m_key}_close', 0) > row.get(f'{m_key}_ma5', 0):
+                weather_icons.append("☀️")
+            else:
+                weather_icons.append("🌪️")
+                storm_count += 1
+
         s_score -= (storm_count * 10)
 
         # 기존 시그널들
@@ -1614,7 +1530,6 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             s_score += 20
             tags.append("⚡거래폭발")
           
-        # 💡 매집 시그널 체크
         acc_count = sum([acc_1_obv_rising, acc_2_box_range, acc_3_macd_golden,
                        acc_4_rsi_healthy, acc_5_sto_golden])
             
@@ -1642,12 +1557,10 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         if is_vma_gc:
             tags.append("VMA-GC")
 
-        # 💡 [신규] 조용한 매집 (최고 점수!)
         if is_silent_accumulation:
             s_score += 30
             tags.append("🤫조용한매집💰")
 
-        # 세부 조건 태그
         if silent_1_atr_low:
             tags.append("🔇ATR수축")
         if silent_2_mfi_strong and silent_3_mfi_rising:
@@ -1667,7 +1580,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         else:
             tags.append("❄️RSI약세")
 
-        #수박지표
+        # 수박지표
         if is_watermelon:
             s_score += 100
             tags.append("🍉수박신호")
@@ -1684,35 +1597,27 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             s_score += 30
             tags.append("🏆LEGEND")
      
-        # 기존 감점 로직
         if t_pct > 40:
             s_score -= 25
             tags.append("⚠️윗꼬리")
 
-        # 역매공파 바닥권
         if bottom_area:
             s_score += 80
             tags.append("🏆112선바닥권")
             tags.append(f"📍거리{row['Near_MA112']:.1f}%")
         
-        # 폭발 직전
         if explosion_ready:
             s_score += 90
             tags.append("💎폭발직전")
         
-        # 최강 조합
         if is_watermelon and explosion_ready and bottom_area:
             s_score += 80
             tags.append("💎💎💎스윙골드")
      
-        # 기상도 감점
-        storm_count = sum([1 for m in ['ixic', 'sp500'] if row[f'{m}_close'] <= row[f'{m}_ma5']])
-        s_score -= (storm_count * 20)
         s_score -= max(0, int((row['Disparity']-108)*5))
 
         if not tags: return []
 
-        # 💡 NameError 방지: print문에서 s_score 사용
         print(f"✅ {name} 포착! 점수: {s_score} 태그: {tags}")
         
         return [{
@@ -1722,15 +1627,15 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             'N조합': result['combination'],
             'N점수': result['score'],
             'N구분': " ".join(new_tags),
-            '👑등급': grade,              # 👈 서사 엔진 결과물 1
-            '📜서사히스토리': narrative,    # 👈 서사 엔진 결과물 2
-            '확신점수': conviction,        # 👈 서사 엔진 결과물 3
-            '🎯목표타점': int(target),      # 👈 서사 기반 타점
-            '🚨손절가': int(stop),         # 👈 서사 기반 손절가
+            '👑등급': grade,
+            '📜서사히스토리': narrative,
+            '확신점수': conviction,
+            '🎯목표타점': int(target),
+            '🚨손절가': int(stop),
             '기상': "☀️" * (2-storm_count) + "🌪️" * storm_count,
             '안전점수': int(max(0, s_score + whale_score)),
             'RSI': int(max(0, rsi_score)),
-            '점수': int(s_score), # 구글 시트 전송용
+            '점수': int(s_score),
             '에너지': "🔋" if row['MACD_Hist'] > 0 else "🪫",
             '현재가': int(row['Close']),
             '구분': " ".join(tags),
@@ -1740,7 +1645,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             'MA수렴': f"{row['MA_Convergence']:.1f}",
             '매집': f"{acc_count}/5",
             'OBV기울기': int(row['OBV_Slope']),
-            '꼬리%': 0 # 필요 시 계산식 추가
+            '꼬리%': 0
         }]
     except Exception as e:
         import traceback
