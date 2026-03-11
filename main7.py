@@ -1,4 +1,4 @@
-#------------------------------------------------------------------
+ #------------------------------------------------------------------
 # 💎 [Ultimate Masterpiece] 전천후 AI 전략 사령부 (All-In-One 통합판)
 # ------------------------------------------------------------------
 import FinanceDataReader as fdr
@@ -762,7 +762,7 @@ def get_indicators(df):
     'BB40_Ross', 'BB40_RSI_DIV', 'BB40_Reclaim_RSI_DIV',
     'Was_Panic', 'Is_bb_low_Stable', 'Has_Accumulation', 'Is_Rsi_Divergence'
 ]:
-    df[col] = False
+        df[col] = False
 
     df_signal = df.dropna(subset=['BB_UP', 'BB_LOW', 'BB40_Lower', 'RSI']).copy()
 if len(df_signal) > 51:
