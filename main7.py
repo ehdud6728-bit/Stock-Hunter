@@ -639,8 +639,7 @@ def get_indicators(df):
     df['Disparity']      = (close / df['MA20']) * 100
     df['MA_Convergence'] = abs(df['MA20'] - df['MA60']) / df['MA60'] * 100
     df['Box_Range']      = high.rolling(10).max() / low.rolling(10).min()
-    
-    # ✅ TR 1회 계산 후 전체 재사용
+
     tr = pd.concat([
         high - low,
         abs(high - close.shift(1)),
@@ -707,13 +706,13 @@ def get_indicators(df):
     df['Vol_Avg'] = df['Volume'].rolling(20).mean()
     vol_avg20     = df['Vol_Avg']
 
-    df['MA60_Slope']    = df['MA60'].diff()
-    df['MA112_Slope']   = df['MA112'].diff()
-    df['Dist_to_MA112'] = (df['MA112'] - close) / close
-    df['Near_MA112']    = abs(close - df['MA112']) / df['MA112'] * 100
-    df['Below_MA112']   = (df['Close'] < df['MA112']).astype(int)
+    df['MA60_Slope']      = df['MA60'].diff()
+    df['MA112_Slope']     = df['MA112'].diff()
+    df['Dist_to_MA112']   = (df['MA112'] - close) / close
+    df['Near_MA112']      = abs(close - df['MA112']) / df['MA112'] * 100
+    df['Below_MA112']     = (df['Close'] < df['MA112']).astype(int)
     df['Below_MA112_60d'] = df['Below_MA112'].rolling(60).sum()
- 
+
     df['MA224'] = df['MA224'].ffill().fillna(0)
 
     is_above_series       = close > df['MA224']
@@ -721,36 +720,30 @@ def get_indicators(df):
     df['Below_MA224']     = (~is_above_series).astype(int)
     df['Below_MA224_60d'] = df['Below_MA224'].rolling(60).sum()
 
-    # ✅ FIX 4: Dolbanzi - is_double_bottom 스칼라 오염 수정
-    # 전체 df에 적용되는 벡터화 방식으로 교체
     vol_power_series = df['Volume'] / vol_avg20
     is_above_ma224   = close > df['MA224']
-    ma224_last       = df['MA224'].iloc[-1]
 
-    # 최근 30일치 low에서 MA224 ±3% 내 저점 2개 이상 = 쌍바닥
-    # → 전체 Series 기준 rolling 방식으로 대체
     near_band_low = (low - df['MA224']).abs() / df['MA224'] < 0.03
-    # 5봉 rolling min과 같은 경우 = 로컬 저점
     local_min     = low == low.rolling(5, center=True, min_periods=1).min()
     double_bottom_series = (near_band_low & local_min).rolling(30).sum() >= 2
 
     df['Dolbanzi']       = (vol_power_series >= 3.0) & is_above_ma224 & double_bottom_series
     df['Dolbanzi_Count'] = df.groupby('Trend_Group')['Dolbanzi'].cumsum()
 
-    df['VWMA40']          = (close * df['Volume']).rolling(40).mean() / df['Volume'].rolling(40).mean()
-    df['Vol_Accel']       = df['Volume'] / df['Volume'].rolling(5).mean()
-    df['Watermelon_Fire'] = (close / df['VWMA40'] - 1) * 100 * df['Vol_Accel']
-    df['Watermelon_Green']= (close > df['VWMA40']) & (df['BB40_Width'] < 0.10)
-    df['Watermelon_Red']  = df['Watermelon_Green'] & (df['Watermelon_Fire'] > 5.0)
-    df['Watermelon_Red2'] = (close > df['VWMA40']) & (close >= df['Open'])
+    df['VWMA40']           = (close * df['Volume']).rolling(40).mean() / df['Volume'].rolling(40).mean()
+    df['Vol_Accel']        = df['Volume'] / df['Volume'].rolling(5).mean()
+    df['Watermelon_Fire']  = (close / df['VWMA40'] - 1) * 100 * df['Vol_Accel']
+    df['Watermelon_Green'] = (close > df['VWMA40']) & (df['BB40_Width'] < 0.10)
+    df['Watermelon_Red']   = df['Watermelon_Green'] & (df['Watermelon_Fire'] > 5.0)
+    df['Watermelon_Red2']  = (close > df['VWMA40']) & (close >= df['Open'])
 
     red_score = (
         df['OBV_Rising'].astype(int) +
         df['MFI_Strong'].astype(int) +
         df['Buying_Pressure'].astype(int)
     )
-    df['Watermelon_Score']  = red_score
-    df['Watermelon_Color']  = np.where(red_score >= 2, 'red', 'green')
+    df['Watermelon_Score'] = red_score
+    df['Watermelon_Color'] = np.where(red_score >= 2, 'red', 'green')
 
     color_change            = (df['Watermelon_Color'] == 'red') & (df['Watermelon_Color'].shift(1) == 'green')
     df['Green_Days_10']     = (df['Watermelon_Color'].shift(1) == 'green').rolling(10).sum()
@@ -758,42 +751,40 @@ def get_indicators(df):
     df['Watermelon_Signal'] = color_change & (df['Green_Days_10'] >= 7) & volume_surge
 
     for col in [
-    'BB_Ross', 'RSI_DIV',
-    'BB40_Ross', 'BB40_RSI_DIV', 'BB40_Reclaim_RSI_DIV',
-    'Was_Panic', 'Is_bb_low_Stable', 'Has_Accumulation', 'Is_Rsi_Divergence'
-]:
+        'BB_Ross', 'RSI_DIV',
+        'BB40_Ross', 'BB40_RSI_DIV', 'BB40_Reclaim_RSI_DIV',
+        'Was_Panic', 'Is_bb_low_Stable', 'Has_Accumulation', 'Is_Rsi_Divergence'
+    ]:
         df[col] = False
 
     df_signal = df.dropna(subset=['BB_UP', 'BB_LOW', 'BB40_Lower', 'RSI']).copy()
-if len(df_signal) > 51:
-    curr_s  = df_signal.iloc[-1]
-    past    = df_signal.iloc[-21:-1]
-    past_50 = df_signal.iloc[-51:-1]
+    if len(df_signal) > 51:
+        curr_s  = df_signal.iloc[-1]
+        past    = df_signal.iloc[-21:-1]
+        past_50 = df_signal.iloc[-51:-1]
 
-    # 기존 BB20 기준 유지
-    ross, _ = check_ross(curr_s, past)
-    rsi_div, _ = check_rsi_div(curr_s, past)
+        ross, _ = check_ross(curr_s, past)
+        rsi_div, _ = check_rsi_div(curr_s, past)
 
-    # 추가 BB40 기준
-    bb40_ross, _ = check_bb40_ross(curr_s, past)
-    bb40_rsi_div, _ = check_bb40_rsi_div(curr_s, past)
-    bb40_combo, _ = check_bb40_reclaim_rsi_div(curr_s, past)
+        bb40_ross, _ = check_bb40_ross(curr_s, past)
+        bb40_rsi_div, _ = check_bb40_rsi_div(curr_s, past)
+        bb40_combo, _ = check_bb40_reclaim_rsi_div(curr_s, past)
 
-    was_panic         = (past_50['Low'] < past_50['BB_LOW']).any()
-    is_bb_low_stable  = curr_s['Low'] > curr_s['BB_LOW']
-    is_rsi_divergence = curr_s['RSI'] > past_50['RSI'].min()
-    has_accumulation  = (past_50['Volume'] > (past_50['Vol_Avg'] * 3)).any()
+        was_panic         = (past_50['Low'] < past_50['BB_LOW']).any()
+        is_bb_low_stable  = curr_s['Low'] > curr_s['BB_LOW']
+        is_rsi_divergence = curr_s['RSI'] > past_50['RSI'].min()
+        has_accumulation  = (past_50['Volume'] > (past_50['Vol_Avg'] * 3)).any()
 
-    idx = df.index[-1]
-    df.at[idx, 'BB_Ross']              = ross
-    df.at[idx, 'RSI_DIV']              = rsi_div
-    df.at[idx, 'BB40_Ross']            = bb40_ross
-    df.at[idx, 'BB40_RSI_DIV']         = bb40_rsi_div
-    df.at[idx, 'BB40_Reclaim_RSI_DIV'] = bb40_combo
-    df.at[idx, 'Was_Panic']            = was_panic
-    df.at[idx, 'Is_bb_low_Stable']     = is_bb_low_stable
-    df.at[idx, 'Is_Rsi_Divergence']    = is_rsi_divergence
-    df.at[idx, 'Has_Accumulation']     = has_accumulation
+        idx = df.index[-1]
+        df.at[idx, 'BB_Ross']              = ross
+        df.at[idx, 'RSI_DIV']              = rsi_div
+        df.at[idx, 'BB40_Ross']            = bb40_ross
+        df.at[idx, 'BB40_RSI_DIV']         = bb40_rsi_div
+        df.at[idx, 'BB40_Reclaim_RSI_DIV'] = bb40_combo
+        df.at[idx, 'Was_Panic']            = was_panic
+        df.at[idx, 'Is_bb_low_Stable']     = is_bb_low_stable
+        df.at[idx, 'Is_Rsi_Divergence']    = is_rsi_divergence
+        df.at[idx, 'Has_Accumulation']     = has_accumulation
 
     prev = df.iloc[-2]
     curr = df.iloc[-1]
@@ -802,21 +793,19 @@ if len(df_signal) > 51:
     cond_approaching  = (prev['MA5'] < prev['MA112']) and (curr['MA112'] * 0.98 <= curr['MA5'] <= curr['MA112'] * 1.03)
     cond_cross        = cond_golden_cross or cond_approaching
 
-    cond_inverse_mid  = curr['MA112'] < curr['MA224']
-    cond_below_448    = curr['Close'] < curr['MA448']
-    cond_ma224_range  = -3 <= ((curr['Close'] - curr['MA224']) / curr['MA224']) * 100 <= 5
-    cond_bb40_range   = -7 <= ((curr['Close'] - curr['BB40_Upper']) / curr['BB40_Upper']) * 100 <= 3
+    cond_inverse_mid = curr['MA112'] < curr['MA224']
+    cond_below_448   = curr['Close'] < curr['MA448']
+    cond_ma224_range = -3 <= ((curr['Close'] - curr['MA224']) / curr['MA224']) * 100 <= 5
+    cond_bb40_range  = -7 <= ((curr['Close'] - curr['BB40_Upper']) / curr['BB40_Upper']) * 100 <= 3
 
-    vol_ratio       = df['Volume'] / df['Volume'].shift(1).replace(0, np.nan)
-    cond_vol_300    = (vol_ratio >= 3.0).iloc[-50:].any()
-    cond_break_448  = (df['High'] > df['MA448']).iloc[-50:].any()
+    vol_ratio      = df['Volume'] / df['Volume'].shift(1).replace(0, np.nan)
+    cond_vol_300   = (vol_ratio >= 3.0).iloc[-50:].any()
+    cond_break_448 = (df['High'] > df['MA448']).iloc[-50:].any()
 
     df['Is_Real_Watermelon'] = False
     if cond_cross and cond_inverse_mid and cond_below_448 and cond_ma224_range and cond_bb40_range and cond_break_448 and cond_vol_300:
         df.at[df.index[-1], 'Is_Real_Watermelon'] = True
 
-    # ✅ FIX 2: check_touch → 반환값 없는 apply 제거, 벡터화로 교체
-    # 각 저항선보다 종가가 낮고 고가가 저항선의 99.5% 이상이면 터치로 간주
     resistances = df[['BB_Upper', 'BB40_Upper', 'MA60', 'MA112']]
     touch_count = pd.DataFrame({
         col: (close < df[col]) & (high >= df[col] * 0.995)
@@ -835,7 +824,7 @@ if len(df_signal) > 51:
         (df['Close'] > df['Close'].shift(1))
     )
     df['Maejip_Count'] = df['Is_Maejip'].rolling(20).sum().fillna(0).astype(int)
-    
+
     max_ma      = df[['MA5', 'MA10', 'MA20']].max(axis=1)
     min_ma      = df[['MA5', 'MA10', 'MA20']].min(axis=1)
     is_squeezed = (max_ma - min_ma) / min_ma <= 0.03
@@ -880,16 +869,14 @@ if len(df_signal) > 51:
         df['reclaim_20']
     )
 
-    # ✅ FIX 3: Jongbe_Break 스칼라 전체 컬럼 오염 수정
-    # → 전체 컬럼 False 초기화 후 마지막 행에만 True 할당
     gap_ratio    = abs(curr['MA20'] - curr['MA40']) / (curr['MA40'] + 1e-9)
     cross_series = (df['MA20'] > df['MA40']) & (df['MA20'].shift(1) <= df['MA40'].shift(1))
     cross_recent = cross_series.iloc[-5:].any()
     cross_near   = (curr['MA20'] > curr['MA40']) and (gap_ratio < 0.03)
 
-    ma20_rising  = curr['MA20_slope'] > 0
-    ma40_rising  = curr['MA40_slope'] > -0.05
-    ma20_accel   = curr['MA20_slope'] > df['MA20_slope'].rolling(3).mean().iloc[-2]
+    ma20_rising = curr['MA20_slope'] > 0
+    ma40_rising = curr['MA40_slope'] > -0.05
+    ma20_accel  = curr['MA20_slope'] > df['MA20_slope'].rolling(3).mean().iloc[-2]
 
     jongbe_value = (
         (cross_recent or cross_near) and
@@ -898,8 +885,8 @@ if len(df_signal) > 51:
         ma20_accel and
         curr['Close'] > curr['MA20']
     )
-    df['Jongbe_Break'] = False                              # ✅ 전체 False 초기화
-    df.at[df.index[-1], 'Jongbe_Break'] = jongbe_value     # ✅ 마지막 행만 설정
+    df['Jongbe_Break'] = False
+    df.at[df.index[-1], 'Jongbe_Break'] = jongbe_value
 
     print("✅ 최종판독 완료")
     return df
