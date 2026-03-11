@@ -733,7 +733,7 @@ def get_indicators(df):
     df['VWMA40']           = (close * df['Volume']).rolling(40).mean() / df['Volume'].rolling(40).mean()
     df['Vol_Accel']        = df['Volume'] / df['Volume'].rolling(5).mean()
     df['Watermelon_Fire']  = (close / df['VWMA40'] - 1) * 100 * df['Vol_Accel']
-    df['Watermelon_Green'] = (close > df['VWMA40']) & (df['BB40_Width'] < 0.10)
+    df['Watermelon_Green'] = (close > df['VWMA40']) & (df['BB40_Width'] < 10)
     df['Watermelon_Red']   = df['Watermelon_Green'] & (df['Watermelon_Fire'] > 5.0)
     df['Watermelon_Red2']  = (close > df['VWMA40']) & (close >= df['Open'])
 
