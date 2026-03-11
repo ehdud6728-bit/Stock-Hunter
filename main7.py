@@ -1,6 +1,7 @@
  #------------------------------------------------------------------
 # 💎 [Ultimate Masterpiece] 전천후 AI 전략 사령부 (All-In-One 통합판)
 # ------------------------------------------------------------------
+import json
 import FinanceDataReader as fdr
 import pandas as pd
 import numpy as np
