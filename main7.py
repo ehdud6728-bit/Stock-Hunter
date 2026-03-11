@@ -264,6 +264,36 @@ COMBO_TABLE = [
         ),
     },
     {
+       'grade': 'SS', 'score': 460, 'type': '👑',
+       'combination': '🧲세력눌림목',
+       'tags': ['🧲세력눌림', '📉건강한조정', '📈재상승대기'],
+       'cond': lambda e: e.get('force_pullback'),
+   },
+   {
+        'grade': 'SSS', 'score': 520, 'type': '👑',
+        'combination': '🟣BB40 2차파동',
+        'tags': ['🟣BB40재안착', '🌊2차파동', '📈중기시동'],
+        'cond': lambda e: e.get('bb40_second_wave'),
+    },
+    {
+        'grade': 'SSS', 'score': 560, 'type': '👑',
+        'combination': '🍉수박재폭발',
+        'tags': ['🍉기존수박', '💥재폭발', '🚀2차시동'],
+        'cond': lambda e: e.get('watermelon_relaunch'),
+    },
+    {
+        'grade': 'SS', 'score': 470, 'type': '👑',
+        'combination': '📊OBV매집돌파',
+        'tags': ['📊OBV선행', '📦박스권', '🚀돌파'],
+        'cond': lambda e: e.get('obv_acc_breakout'),
+    },
+    {
+        'grade': 'SS', 'score': 500, 'type': '👑',
+        'combination': '🟣🍉BB40수박재안착',
+        'tags': ['🟣BB40재안착', '🍉수박', '📈실전핵심'],
+        'cond': lambda e: e.get('bb40_reclaim_rsi_div') and e.get('watermelon_signal'),
+    },
+    {
         'grade': 'SSS', 'score': 500, 'type': '👑',
         'combination': '👑💍수박돌반지',
         'tags': ['🍉수박전환', '💍돌반지완성', '🔥최종병기', '🚀대시세시작'],
@@ -754,6 +784,7 @@ def get_indicators(df):
     for col in [
         'BB_Ross', 'RSI_DIV',
         'BB40_Ross', 'BB40_RSI_DIV', 'BB40_Reclaim_RSI_DIV',
+        'Force_Pullback', 'BB40_Second_Wave', 'Watermelon_Relaunch', 'OBV_Acc_Breakout',
         'Was_Panic', 'Is_bb_low_Stable', 'Has_Accumulation', 'Is_Rsi_Divergence'
     ]:
         df[col] = False
@@ -770,7 +801,11 @@ def get_indicators(df):
         bb40_ross, _ = check_bb40_ross(curr_s, past)
         bb40_rsi_div, _ = check_bb40_rsi_div(curr_s, past)
         bb40_combo, _ = check_bb40_reclaim_rsi_div(curr_s, past)
-
+        force_pullback, _ = check_force_pullback(curr_s, past_50)
+        bb40_second_wave, _ = check_bb40_second_wave(curr_s, past_50)
+        watermelon_relaunch, _ = check_watermelon_relaunch(curr_s, past_50)
+        obv_acc_breakout, _ = check_obv_acc_breakout(curr_s, past_50)
+     
         was_panic         = (past_50['Low'] < past_50['BB_LOW']).any()
         is_bb_low_stable  = curr_s['Low'] > curr_s['BB_LOW']
         is_rsi_divergence = curr_s['RSI'] > past_50['RSI'].min()
@@ -786,6 +821,11 @@ def get_indicators(df):
         df.at[idx, 'Is_bb_low_Stable']     = is_bb_low_stable
         df.at[idx, 'Is_Rsi_Divergence']    = is_rsi_divergence
         df.at[idx, 'Has_Accumulation']     = has_accumulation
+        df.at[idx, 'Force_Pullback']      = force_pullback
+        df.at[idx, 'BB40_Second_Wave']    = bb40_second_wave
+        df.at[idx, 'Watermelon_Relaunch'] = watermelon_relaunch
+        df.at[idx, 'OBV_Acc_Breakout']    = obv_acc_breakout
+
 
     prev = df.iloc[-2]
     curr = df.iloc[-1]
@@ -892,6 +932,124 @@ def get_indicators(df):
     print("✅ 최종판독 완료")
     return df
 
+def check_force_pullback(curr: pd.Series, past: pd.DataFrame):
+    """
+    세력 눌림목:
+    - 최근 15일 내 강한 양봉/거래량 폭증 흔적
+    - 현재는 과열이 아니라 눌림 구간
+    - 거래량 감소
+    - OBV 훼손 적음
+    - 5일/20일/BB 중심선 근처 지지
+    """
+    if past.empty or len(past) < 10:
+        return False, "데이터 부족"
+
+    strong_candle = (
+        ((past['Close'] > past['Open']) &
+         (((past['Close'] - past['Open']) / (past['Open'] + 1e-9)) * 100 >= 8)) &
+        (past['Volume'] > past['Vol_Avg'] * 1.8)
+    ).any()
+
+    volume_cooling = curr['Volume'] < (curr['Vol_Avg'] * 1.0)
+
+    near_ma20 = abs(curr['Close'] - curr['MA20']) / (curr['MA20'] + 1e-9) <= 0.03
+    near_bb_mid = abs(curr['Close'] - curr['MA40']) / (curr['MA40'] + 1e-9) <= 0.04
+
+    obv_safe = curr['OBV'] >= past['OBV'].tail(5).min()
+
+    candle_not_broken = curr['Close'] >= curr['MA20'] * 0.97
+
+    passed = strong_candle and volume_cooling and (near_ma20 or near_bb_mid) and obv_safe and candle_not_broken
+    return passed, f"강봉흔적:{strong_candle}, 거래량감소:{volume_cooling}, 이평근접:{near_ma20 or near_bb_mid}, OBV방어:{obv_safe}"
+
+def check_bb40_second_wave(curr: pd.Series, past: pd.DataFrame):
+    """
+    BB40 재안착 후 2차 파동:
+    - 과거 BB40 하단 이탈 후 복귀 이력
+    - 현재 BB40 중심선 위 or 상단밴드 방향
+    - OBV/RSI가 1차 반등보다 강해짐
+    """
+    if past.empty or len(past) < 15:
+        return False, "데이터 부족"
+
+    bb40_break = (past['Low'] < past['BB40_Lower']).any()
+    bb40_reclaim = (past['Close'] > past['BB40_Lower']).any()
+
+    above_mid = curr['Close'] > curr['MA40']
+    bb_expand = curr['BB40_Width'] > past['BB40_Width'].tail(5).mean()
+    obv_up = curr['OBV'] > past['OBV'].tail(5).max()
+    rsi_up = curr['RSI'] > past['RSI'].tail(5).max()
+
+    passed = bb40_break and bb40_reclaim and above_mid and (obv_up or rsi_up) and bb_expand
+    return passed, f"BB40이탈:{bb40_break}, 복귀:{bb40_reclaim}, 중심선위:{above_mid}, OBV상승:{obv_up}, RSI상승:{rsi_up}"
+
+def check_watermelon_relaunch(curr: pd.Series, past: pd.DataFrame):
+    """
+    수박 눌림 재폭발:
+    - 최근 수박 시그널 이력 존재
+    - 중간 눌림 구간 존재
+    - 현재 다시 빨강/거래량/상승 압력 재개
+    """
+    if past.empty or len(past) < 15:
+        return False, "데이터 부족"
+
+    had_watermelon = past['Watermelon_Signal'].tail(15).any()
+
+    pullback_happened = (
+        (past['Close'] < past['MA20']).tail(10).any() or
+        (past['Volume'] < past['Vol_Avg']).tail(10).any()
+    )
+
+    relaunch = (
+        (curr['Watermelon_Color'] == 'red') and
+        (curr['Volume'] > curr['Vol_Avg'] * 1.2) and
+        (curr['Close'] >= curr['Open'])
+    )
+
+    obv_hold = curr['OBV_Rising']
+    passed = had_watermelon and pullback_happened and relaunch and obv_hold
+    return passed, f"기존수박:{had_watermelon}, 눌림:{pullback_happened}, 재시동:{relaunch}, OBV유지:{obv_hold}"
+
+def check_obv_acc_breakout(curr: pd.Series, past: pd.DataFrame):
+    """
+    OBV 매집 후 돌파:
+    - 최근 박스권/수렴
+    - OBV는 미리 상승
+    - 현재 가격/거래량 돌파
+    """
+    if past.empty or len(past) < 20:
+        return False, "데이터 부족"
+
+    box_range = (past['High'].max() / (past['Low'].min() + 1e-9)) <= 1.18
+    obv_acc = curr['OBV'] > past['OBV'].tail(10).max()
+    price_break = curr['Close'] > past['High'].tail(10).max()
+    vol_break = curr['Volume'] > curr['Vol_Avg'] * 1.5
+
+    passed = box_range and obv_acc and price_break and vol_break
+    return passed, f"박스권:{box_range}, OBV매집:{obv_acc}, 가격돌파:{price_break}, 거래량:{vol_break}"
+
+def check_institutional_bottom(row):
+    """
+    후처리 수급 기반 바닥형:
+    - bottom_area 또는 bb40 재안착 계열
+    - 수급 문자열에 기관/외인/쌍끌 포함
+    """
+    supply_text = str(row.get('수급', ''))
+    bottom_like = (
+        bool(row.get('BB40재안착조합', False)) or
+        bool(row.get('BB40로스', False)) or
+        "112선바닥권" in str(row.get('구분', ''))
+    )
+
+    supply_good = (
+        "🤝쌍끌" in supply_text or
+        "🔴기관" in supply_text or
+        "🔵외인" in supply_text
+    )
+
+    return bottom_like and supply_good
+ 
+ 
 # ---------------------------------------------------------
 # 🏛️ [4-1] 역사적 지수 데이터 (캐시 적용)
 # ---------------------------------------------------------
@@ -1461,6 +1619,10 @@ if recent_avg_amount < 50:
             'bb40_ross': row.get('BB40_Ross', False),
             'bb40_rsi_div': row.get('BB40_RSI_DIV', False),
             'bb40_reclaim_rsi_div': row.get('BB40_Reclaim_RSI_DIV', False),
+            'force_pullback': row.get('Force_Pullback', False),
+            'bb40_second_wave': row.get('BB40_Second_Wave', False),
+            'watermelon_relaunch': row.get('Watermelon_Relaunch', False),
+            'obv_acc_breakout': row.get('OBV_Acc_Breakout', False),
         }
      
         try:
@@ -1495,6 +1657,18 @@ if recent_avg_amount < 50:
 
         if row.get('BB40_Reclaim_RSI_DIV', False):
             new_tags.append("🟣BB40재안착+RSI")
+
+        if row.get('Force_Pullback', False):
+            new_tags.append("🧲세력눌림")
+        
+        if row.get('BB40_Second_Wave', False):
+            new_tags.append("🟣BB40 2차파동")
+        
+        if row.get('Watermelon_Relaunch', False):
+            new_tags.append("🍉수박재폭발")
+        
+        if row.get('OBV_Acc_Breakout', False):
+            new_tags.append("📊OBV매집돌파")
 
         print(f"✅ [본진] 조합 점수 계산!")
         result = judge_trade_with_sequence(temp_df, signals)
@@ -1672,7 +1846,19 @@ if recent_avg_amount < 50:
         if is_watermelon and explosion_ready and bottom_area:
             s_score += 80
             tags.append("💎💎💎스윙골드")
-     
+
+        if row.get('Force_Pullback', False):
+            s_score += 25
+        
+        if row.get('BB40_Second_Wave', False):
+            s_score += 35
+        
+        if row.get('Watermelon_Relaunch', False):
+            s_score += 40
+        
+        if row.get('OBV_Acc_Breakout', False):
+            s_score += 30
+
         s_score -= max(0, int((row['Disparity']-108)*5))
 
         if not tags: return []
