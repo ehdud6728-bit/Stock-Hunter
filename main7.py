@@ -334,6 +334,24 @@ COMBO_TABLE = [
         'cond': lambda e: e.get('bb_ross') and e.get('ris_div'),
     },
     {
+        'grade': 'SS', 'score': 470, 'type': '👑',
+        'combination': '🟣BB40재안착눌림목',
+        'tags': ['🟣BB40하단재안착', '📈RSI-DIV', '🏹중기눌림핵심'],
+        'cond': lambda e: e.get('bb40_reclaim_rsi_div'),
+    },
+    {
+        'grade': 'S+', 'score': 445, 'type': '👑',
+        'combination': '🟣BB40재안착',
+        'tags': ['🟣BB40하단재안착', '📉중기눌림목'],
+        'cond': lambda e: e.get('bb40_ross'),
+    },
+    {
+        'grade': 'S+', 'score': 435, 'type': '👑',
+        'combination': '🟣BB40 RSI-DIV',
+        'tags': ['🟣BB40구간', '📈RSI-DIV'],
+        'cond': lambda e: e.get('bb40_rsi_div'),
+    },
+    {
         'grade': 'S', 'score': 350, 'type': '🗡',
         'combination': '💎전설조합',
         'tags': ['🍉수박전환', '💎폭발직전', '📍바닥권', '🤫조용한매집완전'],
@@ -506,6 +524,76 @@ def check_rsi_div(curr: pd.Series, past: pd.DataFrame):
     rsi_higher = curr['RSI'] > min_rsi_past
     return price_similar and rsi_higher, f"주가저점:{curr['Low']:.0f}(과거:{min_price_past:.0f}), RSI:{curr['RSI']:.1f}(과거:{min_rsi_past:.1f})"
 
+def check_bb40_ross(curr: pd.Series, past: pd.DataFrame):
+    """
+    BB40 하단 이탈 후 재안착 판단
+    - 과거 구간에서 BB40_Lower 하향 이탈이 있었는지
+    - 이후 다시 BB40_Lower 위로 복귀한 적이 있는지
+    - 현재봉이 BB40_Lower 근처에서 종가 기준 위에 안착했는지
+    """
+    if past.empty or 'BB40_Lower' not in past.columns or past['BB40_Lower'].isna().all():
+        return False, "BB40 데이터 부족"
+
+    bb40_low = past['BB40_Lower']
+    outside_mask = past['Low'] < bb40_low
+
+    if not outside_mask.any():
+        return False, "BB40 1차 저점 없음"
+
+    first_idx = outside_mask.values.argmax()
+    after_first = past.iloc[first_idx + 1:]
+
+    if after_first.empty:
+        return False, "BB40 반등 확인 구간 부족"
+
+    rebound = (after_first['Close'] > after_first['BB40_Lower']).any()
+    near_band = curr['Low'] <= curr['BB40_Lower'] * ROSS_BAND_TOLERANCE
+    close_above = curr['Close'] > curr['BB40_Lower']
+
+    passed = rebound and near_band and close_above
+    return passed, f"BB40반등:{rebound}, 저가밴드근접:{near_band}, 종가밴드위:{close_above}"
+
+
+def check_bb40_rsi_div(curr: pd.Series, past: pd.DataFrame):
+    """
+    BB40 관점 RSI 다이버전스
+    - 과거 BB40 하단 이탈 봉들만 후보로 봄
+    - 현재 저점이 과거 저점 부근이거나 더 낮고
+    - RSI는 과거보다 높으면 다이버전스로 판단
+    """
+    if past.empty or 'BB40_Lower' not in past.columns or past['RSI'].isna().all() or pd.isna(curr['RSI']):
+        return False, "RSI 데이터 부족"
+
+    bb40_break_df = past[past['Low'] < past['BB40_Lower']].copy()
+
+    if bb40_break_df.empty:
+        return False, "BB40 하단 이탈 이력 없음"
+
+    min_price_idx = bb40_break_df['Low'].idxmin()
+    min_price_past = bb40_break_df.loc[min_price_idx, 'Low']
+    min_rsi_past = bb40_break_df.loc[min_price_idx, 'RSI']
+
+    if pd.isna(min_rsi_past):
+        min_rsi_past = bb40_break_df['RSI'].min()
+
+    price_similar = curr['Low'] <= min_price_past * RSI_LOW_TOLERANCE
+    rsi_higher = curr['RSI'] > min_rsi_past
+
+    passed = price_similar and rsi_higher
+    return passed, f"BB40저점:{curr['Low']:.0f}(과거:{min_price_past:.0f}), RSI:{curr['RSI']:.1f}(과거:{min_rsi_past:.1f})"
+
+
+def check_bb40_reclaim_rsi_div(curr: pd.Series, past: pd.DataFrame):
+    """
+    최종 결합형:
+    BB40 하단 이탈 후 재안착 + RSI DIV
+    """
+    bb40_ross, ross_msg = check_bb40_ross(curr, past)
+    bb40_div, div_msg = check_bb40_rsi_div(curr, past)
+
+    passed = bb40_ross and bb40_div
+    return passed, f"[BB40_Ross] {ross_msg} | [BB40_RSI_DIV] {div_msg}"
+
 # ---------------------------------------------------------
 # 📈 [4] 기술적 분석 지표
 # ---------------------------------------------------------
@@ -669,30 +757,43 @@ def get_indicators(df):
     volume_surge            = df['Volume'] >= vol_avg20 * 1.2
     df['Watermelon_Signal'] = color_change & (df['Green_Days_10'] >= 7) & volume_surge
 
-    for col in ['BB_Ross', 'RSI_DIV', 'Was_Panic', 'Is_bb_low_Stable', 'Has_Accumulation', 'Is_Rsi_Divergence']:
-        df[col] = False
+    for col in [
+    'BB_Ross', 'RSI_DIV',
+    'BB40_Ross', 'BB40_RSI_DIV', 'BB40_Reclaim_RSI_DIV',
+    'Was_Panic', 'Is_bb_low_Stable', 'Has_Accumulation', 'Is_Rsi_Divergence'
+]:
+    df[col] = False
 
-    df_signal = df.dropna(subset=['BB_UP', 'BB_LOW', 'RSI']).copy()
-    if len(df_signal) > 51:
-        curr_s  = df_signal.iloc[-1]
-        past    = df_signal.iloc[-21:-1]
-        past_50 = df_signal.iloc[-51:-1]
+    df_signal = df.dropna(subset=['BB_UP', 'BB_LOW', 'BB40_Lower', 'RSI']).copy()
+if len(df_signal) > 51:
+    curr_s  = df_signal.iloc[-1]
+    past    = df_signal.iloc[-21:-1]
+    past_50 = df_signal.iloc[-51:-1]
 
-        ross,    _ = check_ross(curr_s, past)
-        rsi_div, _ = check_rsi_div(curr_s, past)
+    # 기존 BB20 기준 유지
+    ross, _ = check_ross(curr_s, past)
+    rsi_div, _ = check_rsi_div(curr_s, past)
 
-        was_panic         = (past_50['Low'] < past_50['BB_LOW']).any()
-        is_bb_low_stable  = curr_s['Low'] > curr_s['BB_LOW']
-        is_rsi_divergence = curr_s['RSI'] > past_50['RSI'].min()
-        has_accumulation  = (past_50['Volume'] > (past_50['Vol_Avg'] * 3)).any()
+    # 추가 BB40 기준
+    bb40_ross, _ = check_bb40_ross(curr_s, past)
+    bb40_rsi_div, _ = check_bb40_rsi_div(curr_s, past)
+    bb40_combo, _ = check_bb40_reclaim_rsi_div(curr_s, past)
 
-        idx = df.index[-1]
-        df.at[idx, 'BB_Ross']           = ross
-        df.at[idx, 'RSI_DIV']           = rsi_div
-        df.at[idx, 'Was_Panic']         = was_panic
-        df.at[idx, 'Is_bb_low_Stable']  = is_bb_low_stable
-        df.at[idx, 'Is_Rsi_Divergence'] = is_rsi_divergence
-        df.at[idx, 'Has_Accumulation']  = has_accumulation
+    was_panic         = (past_50['Low'] < past_50['BB_LOW']).any()
+    is_bb_low_stable  = curr_s['Low'] > curr_s['BB_LOW']
+    is_rsi_divergence = curr_s['RSI'] > past_50['RSI'].min()
+    has_accumulation  = (past_50['Volume'] > (past_50['Vol_Avg'] * 3)).any()
+
+    idx = df.index[-1]
+    df.at[idx, 'BB_Ross']              = ross
+    df.at[idx, 'RSI_DIV']              = rsi_div
+    df.at[idx, 'BB40_Ross']            = bb40_ross
+    df.at[idx, 'BB40_RSI_DIV']         = bb40_rsi_div
+    df.at[idx, 'BB40_Reclaim_RSI_DIV'] = bb40_combo
+    df.at[idx, 'Was_Panic']            = was_panic
+    df.at[idx, 'Is_bb_low_Stable']     = is_bb_low_stable
+    df.at[idx, 'Is_Rsi_Divergence']    = is_rsi_divergence
+    df.at[idx, 'Has_Accumulation']     = has_accumulation
 
     prev = df.iloc[-2]
     curr = df.iloc[-1]
@@ -1360,8 +1461,11 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             'dmi_cross': False,
             'dmi_ok': False,
             'MA_Convergence': row['MA_Convergence'],
-            'bb_ross': False,
-            'ris_div': False,
+            'bb_ross': row.get('BB_Ross', False),
+            'ris_div': row.get('RSI_DIV', False),
+            'bb40_ross': row.get('BB40_Ross', False),
+            'bb40_rsi_div': row.get('BB40_RSI_DIV', False),
+            'bb40_reclaim_rsi_div': row.get('BB40_Reclaim_RSI_DIV', False),
         }
      
         try:
@@ -1383,9 +1487,19 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             tri_result = {}
          
         if row['BB_Ross']:
-            new_tags.append(f"🔺🔺Ross쌍바닥")
+            new_tags.append("🔺🔺Ross쌍바닥")
+
         if row['RSI_DIV']:
-            new_tags.append(f"📊RSI DIV")
+            new_tags.append("📊RSI DIV")
+
+        if row.get('BB40_Ross', False):
+            new_tags.append("🟣BB40재안착")
+
+        if row.get('BB40_RSI_DIV', False):
+            new_tags.append("🟣BB40 RSI-DIV")
+
+        if row.get('BB40_Reclaim_RSI_DIV', False):
+            new_tags.append("🟣BB40재안착+RSI")
 
         print(f"✅ [본진] 조합 점수 계산!")
         result = judge_trade_with_sequence(temp_df, signals)
@@ -1549,6 +1663,14 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             s_score += 80
             tags.append("🏆112선바닥권")
             tags.append(f"📍거리{row['Near_MA112']:.1f}%")
+        if row.get('BB40_Ross', False):
+            s_score += 35
+
+        if row.get('BB40_RSI_DIV', False):
+            s_score += 25
+
+        if row.get('BB40_Reclaim_RSI_DIV', False):
+            s_score += 50
         if explosion_ready:
             s_score += 90
             tags.append("💎폭발직전")
@@ -1587,6 +1709,11 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             'MA수렴': f"{row['MA_Convergence']:.1f}",
             '매집': f"{acc_count}/5",
             'OBV기울기': int(row['OBV_Slope']),
+            'BB20로스': bool(row.get('BB_Ross', False)),
+            'RSI다이버': bool(row.get('RSI_DIV', False)),
+            'BB40로스': bool(row.get('BB40_Ross', False)),
+            'BB40_RSI_DIV': bool(row.get('BB40_RSI_DIV', False)),
+            'BB40재안착조합': bool(row.get('BB40_Reclaim_RSI_DIV', False)),
             '꼬리%': 0
         }]
     except Exception as e:
