@@ -1895,6 +1895,10 @@ if recent_avg_amount < 50:
             'BB40로스': bool(row.get('BB40_Ross', False)),
             'BB40_RSI_DIV': bool(row.get('BB40_RSI_DIV', False)),
             'BB40재안착조합': bool(row.get('BB40_Reclaim_RSI_DIV', False)),
+            '세력눌림': bool(row.get('Force_Pullback', False)),
+            'BB40_2차파동': bool(row.get('BB40_Second_Wave', False)),
+            '수박재폭발': bool(row.get('Watermelon_Relaunch', False)),
+            'OBV매집돌파': bool(row.get('OBV_Acc_Breakout', False)),
             '꼬리%': 0
         }]
     except Exception as e:
