@@ -1302,11 +1302,18 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         temp_df = df.iloc[:raw_idx + 1]
 
         recent_avg_amount = (df['Close'] * df['Volume']).tail(5).mean() / 100000000
-        if recent_avg_amount < 50:
-            return []
+if recent_avg_amount < 50:
+    return []
 
-        s_tag, total_m, w_streak, whale_score, twin_b = get_supply_and_money(ticker, row['Close'])
-        f_tag, f_score = get_financial_health(ticker)
+        # ✅ 후처리 단계에서 채울 예정
+        s_tag = "미계산"
+        total_m = 0
+        w_streak = 0
+        whale_score = 0
+        twin_b = False
+
+        f_tag = "미계산"
+        f_score = 0
      
         high_p, low_p, close_p, open_p = row['High'], row['Low'], row['Close'], row['Open']
         body_max = max(open_p, close_p)
@@ -1361,7 +1368,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         is_bb_brk = prev['Close'] <= prev['BB_Upper'] and row['Close'] > row['BB_Upper']
         is_bb40_brk = prev.get('BB40_Upper', 0) <= prev['Close']
         
-        is_melon = twin_b and row['OBV_Slope'] > 0 and row.get('ADX', 0) > 20 and row['MACD_Hist'] > 0
+        is_melon = row['OBV_Slope'] > 0 and row.get('ADX', 0) > 20 and row['MACD_Hist'] > 0
         is_nova = is_sto_gc and is_vma_gc and is_bb_brk and is_melon
 
         rsi_score = row['RSI']
@@ -1709,6 +1716,66 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         print(f"🚨 {name} 분석 중 치명적 에러:\n{traceback.format_exc()}")
         return []
 
+def enrich_hits_with_supply_and_financial(all_hits_sorted, top_k_supply=80, top_k_financial=30):
+    """
+    전수 기술 스캔 후, 상위 후보에만 네이버 수급/재무를 붙인다.
+    - top_k_supply: 수급 조회할 상위 종목 수
+    - top_k_financial: 재무 조회할 상위 종목 수
+    """
+    enriched = []
+
+    for idx, item in enumerate(all_hits_sorted):
+        item = item.copy()
+
+        code = item.get('code')
+        price = item.get('현재가', 0)
+
+        # 기본값 유지
+        if '수급' not in item or not item['수급']:
+            item['수급'] = "미계산"
+        if '재무' not in item or not item['재무']:
+            item['재무'] = "미계산"
+
+        # 상위 후보만 수급 조회
+        if idx < top_k_supply:
+            try:
+                s_tag, total_m, w_streak, whale_score, twin_b = get_supply_and_money(code, price)
+                item['수급'] = s_tag
+
+                # 안전점수에 고래점수 반영
+                item['안전점수'] = int(item.get('안전점수', 0)) + int(whale_score)
+
+                # twin_b 있으면 태그 강화
+                current_n = str(item.get('N구분', ''))
+                current_g = str(item.get('구분', ''))
+
+                if twin_b:
+                    if "🤝쌍끌" not in current_n:
+                        item['N구분'] = (current_n + " 🤝쌍끌").strip()
+                    if "🍉쌍끌수급" not in current_g:
+                        item['구분'] = (current_g + " 🍉쌍끌수급").strip()
+
+                    # 쌍끌이면 추가 보너스
+                    item['안전점수'] += 20
+
+            except Exception as e:
+                item['수급'] = f"⚠️수급오류"
+
+        # 더 상위권만 재무 조회
+        if idx < top_k_financial:
+            try:
+                f_tag, f_score = get_financial_health(code)
+                item['재무'] = f_tag
+                item['안전점수'] = int(item.get('안전점수', 0)) + int(f_score * 5)
+            except Exception as e:
+                item['재무'] = f"⚠️재무오류"
+
+        enriched.append(item)
+
+    # 후처리 후 안전점수 기준으로 한 번 더 정렬
+    enriched = sorted(enriched, key=lambda x: x.get('안전점수', 0), reverse=True)
+    return enriched
+
 # 스타일별 가중치
 STYLE_WEIGHTS = {
     "SWING": {
@@ -1871,6 +1938,13 @@ if __name__ == "__main__":
         
 if all_hits:
     all_hits_sorted = sorted(all_hits, key=lambda x: x['N점수'], reverse=True)
+
+    print(f"⚙️ 상위 후보 수급/재무 후처리 중...")
+    all_hits_sorted = enrich_hits_with_supply_and_financial(
+        all_hits_sorted,
+        top_k_supply=80,
+        top_k_financial=30
+    )
 
     ai_candidates = pd.DataFrame(all_hits_sorted)
     ai_candidates = ai_candidates.sort_values(by='N점수', ascending=False)[:30].copy()
