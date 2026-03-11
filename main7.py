@@ -27,7 +27,7 @@ from functools import lru_cache  # ✅ FIX 1: 캐시용
 try: from openai import OpenAI
 except: OpenAI = None
 
-from google_sheet_manager import update_google_sheet
+from google_sheet_manager import update_google_sheet, update_ai_briefing_sheet
 import io
 import warnings
 warnings.filterwarnings('ignore', category=FutureWarning)
@@ -989,7 +989,188 @@ def get_ai_summary_batch(stock_lines: list, issues: list = None):
     except Exception as e:
         print(f"[AI 배치 요약 오류] {e}")
         return "브리핑 생성 중 오류가 발생했습니다."
-     
+
+def build_ai_candidates_for_macro(ai_candidates: pd.DataFrame):
+    result = []
+
+    for _, row in ai_candidates.iterrows():
+        result.append({
+            "name": row.get("종목명", ""),
+            "code": row.get("code", ""),
+            "sector": row.get("구분", ""),
+            "n_grade": row.get("N등급", ""),
+            "n_combo": row.get("N조합", ""),
+            "n_score": row.get("N점수", 0),
+            "safe_score": row.get("안전점수", 0),
+            "current_price": row.get("현재가", 0),
+            "disparity": row.get("이격", 0),
+            "bb40": row.get("BB40", ""),
+            "ma_conv": row.get("MA수렴", ""),
+            "obv_slope": row.get("OBV기울기", 0),
+            "rsi": row.get("RSI", 0),
+            "supply": row.get("수급", ""),
+            "finance": row.get("재무", ""),
+            "story": row.get("📜서사히스토리", ""),
+        })
+    return result
+
+
+def build_macro_snapshot(m_ndx, m_sp5, m_vix, m_fx, issues):
+    comments = "특이 이슈 없음"
+    if issues:
+        comments = " | ".join([i.get("comment", "") for i in issues])
+
+    return {
+        "nasdaq": {
+            "value": m_ndx.get("val"),
+            "change_pct": round(m_ndx.get("chg", 0), 2) if m_ndx.get("chg") is not None else None,
+            "status": m_ndx.get("status", "")
+        },
+        "sp500": {
+            "value": m_sp5.get("val"),
+            "change_pct": round(m_sp5.get("chg", 0), 2) if m_sp5.get("chg") is not None else None,
+            "status": m_sp5.get("status", "")
+        },
+        "vix": {
+            "value": m_vix.get("val"),
+            "change_pct": round(m_vix.get("chg", 0), 2) if m_vix.get("chg") is not None else None,
+            "status": m_vix.get("status", "")
+        },
+        "usdkrw": {
+            "value": m_fx.get("val"),
+            "change_pct": round(m_fx.get("chg", 0), 2) if m_fx.get("chg") is not None else None,
+            "status": m_fx.get("status", "")
+        },
+        "issues": comments
+    }
+
+
+def run_macro_candidate_briefing(ai_candidates: pd.DataFrame, m_ndx, m_sp5, m_vix, m_fx, issues):
+    if ai_candidates is None or ai_candidates.empty:
+        return {"error": "후보 종목 없음"}
+
+    macro_data = build_macro_snapshot(m_ndx, m_sp5, m_vix, m_fx, issues)
+    candidate_data = build_ai_candidates_for_macro(ai_candidates.head(15))
+
+    prompt = f"""
+당신은 한국 주식시장 단기/스윙 트레이딩 보조 AI입니다.
+사용자는 자동매매를 하지 않고 직접 매매합니다.
+목표는 글로벌 시장 상황과 오늘 후보 종목의 궁합을 평가해 우선 검토 순서를 정하는 것입니다.
+
+반드시 JSON만 출력하세요.
+마크다운, 코드블록, 설명문 없이 JSON만 출력하세요.
+
+출력 형식:
+{{
+  "market_briefing": {{
+    "market_risk_score": 0,
+    "market_state": "Risk On | Neutral | Risk Off",
+    "korea_bias": "강세 | 강보합 | 혼조 | 약세 | 약세주의",
+    "trading_stance": "공격적 | 선별적 | 방어적",
+    "summary": ""
+  }},
+  "sector_view": {{
+    "favorable_sectors": ["", "", ""],
+    "unfavorable_sectors": ["", "", ""]
+  }},
+  "candidate_ranking": [
+    {{
+      "rank": 1,
+      "name": "",
+      "code": "",
+      "fit_score": 0,
+      "action_type": "돌파형 | 눌림목형 | 관망형",
+      "why": "",
+      "risk": ""
+    }}
+  ],
+  "top_pick": {{
+    "name": "",
+    "code": "",
+    "reason": ""
+  }},
+  "avoid_first": {{
+    "name": "",
+    "code": "",
+    "reason": ""
+  }},
+  "today_checkpoints": ["", "", ""]
+}}
+
+판단 원칙:
+- VIX 상승, 나스닥 약세, S&P500 약세면 Risk Off 성향 강화
+- 환율 상승은 한국 성장주/외국인 수급에 부담 요인이 될 수 있음
+- N점수, 안전점수는 참고하되 시장 궁합을 더 중요하게 판단
+- 추격보다 실전 대응 관점으로 작성
+- candidate_ranking에는 반드시 모든 후보 종목을 포함
+- action_type은 반드시 돌파형 / 눌림목형 / 관망형 중 하나
+- summary는 2~4문장
+- today_checkpoints는 장중 체크할 핵심 3개
+
+글로벌 시장 데이터:
+{json.dumps(macro_data, ensure_ascii=False, indent=2)}
+
+후보 종목 데이터:
+{json.dumps(candidate_data, ensure_ascii=False, indent=2)}
+"""
+
+    try:
+        client = OpenAI(api_key=OPENAI_API_KEY)
+        res = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "너는 보수적이고 실전적인 한국 주식 트레이딩 보조 AI다."
+                },
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+            temperature=0.3
+        )
+
+        text = res.choices[0].message.content.strip()
+
+        try:
+            return json.loads(text)
+        except Exception:
+            return {
+                "error": "JSON 파싱 실패",
+                "raw_response": text
+            }
+
+    except Exception as e:
+        return {
+            "error": f"OpenAI 호출 실패: {str(e)}"
+        }
+
+
+def format_macro_briefing_for_telegram(result):
+    if "error" in result:
+        return f"🌍 [시장 통합 브리핑 실패]\n{result['error']}"
+
+    mb = result["market_briefing"]
+    sv = result["sector_view"]
+    tp = result["top_pick"]
+    av = result["avoid_first"]
+    ck = result["today_checkpoints"]
+
+    text = (
+        f"🌍 [시장 통합 브리핑]\n"
+        f"- 위험도: {mb.get('market_risk_score','')}\n"
+        f"- 상태: {mb.get('market_state','')}\n"
+        f"- 한국장: {mb.get('korea_bias','')}\n"
+        f"- 태도: {mb.get('trading_stance','')}\n"
+        f"- 유리섹터: {', '.join(sv.get('favorable_sectors', []))}\n"
+        f"- 불리섹터: {', '.join(sv.get('unfavorable_sectors', []))}\n"
+        f"- 최우선: {tp.get('name','')}({tp.get('code','')}) / {tp.get('reason','')}\n"
+        f"- 주의종목: {av.get('name','')}({av.get('code','')}) / {av.get('reason','')}\n"
+        f"- 요약: {mb.get('summary','')}\n"
+        f"- 체크: {', '.join(ck)}"
+    )
+    return text     
 # ---------------------------------------------------------
 # 🕵️ [7] 분석 엔진
 # ---------------------------------------------------------
@@ -1575,9 +1756,30 @@ if __name__ == "__main__":
         
 if all_hits:
     all_hits_sorted = sorted(all_hits, key=lambda x: x['N점수'], reverse=True)
-    
+
     ai_candidates = pd.DataFrame(all_hits_sorted)
     ai_candidates = ai_candidates.sort_values(by='N점수', ascending=False)[:30].copy()
+
+    print(f"🌍 시장 + 후보종목 통합 AI 브리핑 생성 중...")
+    macro_briefing_result = run_macro_candidate_briefing(
+        ai_candidates=ai_candidates,
+        m_ndx=m_ndx,
+        m_sp5=m_sp5,
+        m_vix=m_vix,
+        m_fx=m_fx,
+        issues=issues
+    )
+
+    print("✅ 통합 AI 브리핑 결과:")
+    print(json.dumps(macro_briefing_result, ensure_ascii=False, indent=2))
+
+    try:
+        update_ai_briefing_sheet(macro_briefing_result, TODAY_STR)
+        print("💾 AI_Briefing 시트 저장 완료")
+    except Exception as e:
+        print(f"🚨 AI_Briefing 저장 실패: {e}")
+
+    macro_briefing_text = format_macro_briefing_for_telegram(macro_briefing_result)
 
     print(f"🧠 상위 30개 종목 AI 심층 분석 중...")
     tournament_report = run_ai_tournament(ai_candidates, issues)
@@ -1622,7 +1824,7 @@ if all_hits:
     telegram_targets = ai_candidates[:15]
     
     MAX_CHAR = 3800
-    current_msg = f"{briefing}\n\n📢 [오늘의 실시간 TOP 15]\n\n"
+    current_msg = f"{briefing}\n\n{macro_briefing_text}\n\n📢 [오늘의 실시간 TOP 15]\n\n"
     
     for _, item in telegram_targets.iterrows():
         entry = (f"⭐{item['N등급']} | {item['👑등급']}점 [{item['종목명']}]\n"
