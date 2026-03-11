@@ -2,43 +2,50 @@ name: Daily Stock Scanner
 
 on:
   schedule:
-    # 1. 한국 시간 평일 오전 8:30 (UTC 23:30)
-    # 일~목요일 밤 23:30에 돌려야 -> 월~금 아침 08:30이 됩니다.
-    - cron: '22 11 * * 0-4'
-    
-    # 2. 한국 시간 평일 오후 15:30 (UTC 06:30)
-    # 월~금요일 아침 06:30에 돌려야 -> 월~금 오후 15:30이 됩니다.
-    - cron: '5 47 * * 1-5'
+    # 한국시간 평일 오전 8:30
+    # = UTC 전날 23:30
+    # 일~목 UTC 23:30 -> 월~금 KST 08:30
+    - cron: '30 23 * * 0-4'
 
-  # 수동 실행 버튼도 유지 (테스트용)
+    # 한국시간 평일 오후 3:30
+    # = UTC 06:30
+    # 월~금 UTC 06:30 -> 월~금 KST 15:30
+    - cron: '30 6 * * 1-5'
+
   workflow_dispatch:
 
 jobs:
   build:
+    timeout-minutes: 60
     runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v3
-    
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.10'
-        
-    - name: Install dependencies
-      run: |
-        # google-generativeai 라이브러리 추가!
-        pip install gspread gspread-formatting google-auth pandas
-        pip install gspread-dataframe   # ✅ 이 줄 추가 (핵심)
-        pip install pandas finance-datareader requests pykrx google-generativeai
-        pip install finance-datareader requests mplfinance openai beautifulsoup4 pytz gspread oauth2client scipy ta
-        pip install -r requirements.txt
 
-    - name: Run Scanner
-      env:
-        TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }} # 여기서 키를 가져옵니다
-        GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}  # 👈 요걸 쏙 넣어주세요!
-        GOOGLE_JSON_KEY: ${{ secrets.GOOGLE_JSON_KEY }}
-        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-      run: python main7.py
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Upgrade pip
+        run: python -m pip install --upgrade pip
+
+      - name: Install dependencies
+        run: |
+          pip install pandas
+          pip install requests beautifulsoup4 pytz scipy ta
+          pip install finance-datareader pykrx mplfinance
+          pip install openai google-generativeai
+          pip install gspread gspread-formatting gspread-dataframe google-auth oauth2client
+          pip install -r requirements.txt
+
+      - name: Run Scanner
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GOOGLE_JSON_KEY: ${{ secrets.GOOGLE_JSON_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: python main7.py
