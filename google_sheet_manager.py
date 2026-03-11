@@ -135,3 +135,128 @@ def update_google_sheet(new_picks, today_str, tournament_report=None):
                 print(f"⚠️ AI 리포트 기록 실패: {e}")
     except Exception as e:
         print(f"🚨 [Google] 시트 연동 중 치명적 오류: {e}")
+
+def update_ai_briefing_sheet(briefing_result, today_str):
+    import os
+    import json
+    import gspread
+    from oauth2client.service_account import ServiceAccountCredentials
+
+    json_key_path = 'stock-key.json'
+    sheet_name = "주식자동매매일지"
+    worksheet_name = "AI_Briefing"
+
+    scope = [
+        'https://spreadsheets.google.com/feeds',
+        'https://www.googleapis.com/auth/drive'
+    ]
+
+    # 1) 인증
+    try:
+        if os.path.exists(json_key_path):
+            creds = ServiceAccountCredentials.from_json_keyfile_name(json_key_path, scope)
+        elif os.environ.get('GOOGLE_JSON_KEY'):
+            key_dict = json.loads(os.environ.get('GOOGLE_JSON_KEY'))
+            creds = ServiceAccountCredentials.from_json_keyfile_dict(key_dict, scope)
+        else:
+            print("❌ [Google] 인증 키를 찾을 수 없습니다.")
+            return
+    except Exception as e:
+        print(f"❌ [Google] 인증 객체 생성 실패: {e}")
+        return
+
+    # 2) 클라이언트 연결
+    try:
+        client = gspread.authorize(creds)
+        sh = client.open(sheet_name)
+    except Exception as e:
+        print(f"❌ [Google] 시트 열기 실패: {e}")
+        return
+
+    # 3) 워크시트 열기 / 없으면 생성
+    try:
+        ws = sh.worksheet(worksheet_name)
+    except Exception:
+        try:
+            ws = sh.add_worksheet(title=worksheet_name, rows=100, cols=20)
+        except Exception as e:
+            print(f"❌ [Google] 워크시트 생성 실패: {e}")
+            return
+
+    # 4) 기존 내용 초기화
+    try:
+        ws.clear()
+    except Exception as e:
+        print(f"❌ [Google] 워크시트 초기화 실패: {e}")
+        return
+
+    # 5) 에러 응답 저장
+    if "error" in briefing_result:
+        try:
+            ws.update("A1", [
+                ["날짜", "상태", "메시지"],
+                [today_str, "ERROR", briefing_result["error"]]
+            ])
+            print("⚠️ [Google] AI 브리핑 에러 내용을 시트에 기록했습니다.")
+        except Exception as e:
+            print(f"❌ [Google] 에러 내용 기록 실패: {e}")
+        return
+
+    # 6) 정상 응답 파싱
+    try:
+        mb = briefing_result.get("market_briefing", {})
+        sv = briefing_result.get("sector_view", {})
+        tp = briefing_result.get("top_pick", {})
+        av = briefing_result.get("avoid_first", {})
+        ck = briefing_result.get("today_checkpoints", [])
+    except Exception as e:
+        print(f"❌ [Google] 브리핑 결과 파싱 실패: {e}")
+        return
+
+    # 7) 상단 요약 저장
+    rows = [
+        ["날짜", today_str],
+        ["시장위험도", mb.get("market_risk_score", "")],
+        ["시장상태", mb.get("market_state", "")],
+        ["한국장", mb.get("korea_bias", "")],
+        ["매매태도", mb.get("trading_stance", "")],
+        ["요약", mb.get("summary", "")],
+        ["유리섹터", ", ".join(sv.get("favorable_sectors", []))],
+        ["불리섹터", ", ".join(sv.get("unfavorable_sectors", []))],
+        ["최우선", f"{tp.get('name','')}({tp.get('code','')}) / {tp.get('reason','')}"],
+        ["후순위주의", f"{av.get('name','')}({av.get('code','')}) / {av.get('reason','')}"],
+        ["체크포인트1", ck[0] if len(ck) > 0 else ""],
+        ["체크포인트2", ck[1] if len(ck) > 1 else ""],
+        ["체크포인트3", ck[2] if len(ck) > 2 else ""],
+    ]
+
+    try:
+        ws.update("A1", rows)
+    except Exception as e:
+        print(f"❌ [Google] 상단 요약 저장 실패: {e}")
+        return
+
+    # 8) 하단 랭킹 저장
+    ranking_header_row = 16
+    ranking_rows = [[
+        "rank", "name", "code", "fit_score", "action_type", "why", "risk"
+    ]]
+
+    try:
+        for item in briefing_result.get("candidate_ranking", []):
+            ranking_rows.append([
+                item.get("rank", ""),
+                item.get("name", ""),
+                item.get("code", ""),
+                item.get("fit_score", ""),
+                item.get("action_type", ""),
+                item.get("why", ""),
+                item.get("risk", ""),
+            ])
+
+        ws.update(f"A{ranking_header_row}", ranking_rows)
+    except Exception as e:
+        print(f"❌ [Google] 후보 랭킹 저장 실패: {e}")
+        return
+
+    print("✅ [Google] AI_Briefing 시트 업데이트 완료")
