@@ -243,7 +243,7 @@ COMBO_TABLE = [
         'cond': lambda e: (
             e.get('triangle_signal') and
             isinstance(e.get('triangle_apex'), (int,float)) and 0 <= e['triangle_apex'] <= 3 and
-            e.get('viper_hook') and e.get('watermelon_signal') and e.get('dolbanzi')
+            e.get('viper_hook') and e.get('Real_Viper_Hook') and e.get('watermelon_signal') and e.get('dolbanzi')
         ),
     },
     {
