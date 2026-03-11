@@ -1460,8 +1460,8 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         temp_df = df.iloc[:raw_idx + 1]
 
         recent_avg_amount = (df['Close'] * df['Volume']).tail(5).mean() / 100000000
-if recent_avg_amount < 50:
-    return []
+        if recent_avg_amount < 50:
+            return []
 
         # ✅ 후처리 단계에서 채울 예정
         s_tag = "미계산"
