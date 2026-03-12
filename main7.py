@@ -251,10 +251,10 @@ def detect_leading_sectors(m_ndx, m_sp5, m_vix, m_wti, m_fx):
 
         # 강도 보너스: 트리거 지수의 변화폭이 클수록 점수 추가
         strength_bonus = sum(
-            strengths.get(key, 0)
-            for key, _ in info["triggers"]
-            if directions.get(key) == direction
-        )
+    strengths.get(key, 0)
+    for key, expected_dir in info["triggers"]
+    if directions.get(key) == expected_dir   # ← 루프 변수 이름 통일
+)
 
         results.append({
             "sector":    sector_name,
