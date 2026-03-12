@@ -2983,4 +2983,5 @@ if all_hits:
         print(f"🚨 시트 업데이트 실패: {e}")
 
     print("✅ 작전 종료: 전수 기록 완료 및 정예 15건 보고 완료!")
+    graceful_shutdown(exit_code=0)
 
