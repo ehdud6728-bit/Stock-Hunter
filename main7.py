@@ -74,6 +74,86 @@ RSI_LOW_TOLERANCE   = 1.03
 
 print(f"📡 [Ver 27.1] 성능 최적화 오버홀 가동...")
 
+import sys
+import os
+import threading
+
+# ================================================================
+# ✅ 프로그램 정상 종료 패치
+# 아래 함수를 파일 상단 (import 아래)에 추가하고
+# main 블록 맨 마지막에 graceful_shutdown() 호출
+# ================================================================
+
+def graceful_shutdown(exit_code=0):
+    """
+    모든 작업 완료 후 프로세스를 강제로 정리하고 종료.
+    백그라운드 스레드(requests/fdr/openai)가 남아있어도 강제 종료.
+    """
+    print("🔚 정상 종료 시작...")
+
+    # 1. 살아있는 비데몬 스레드 확인 (디버그용)
+    alive = [t for t in threading.enumerate() if t.is_alive() and not t.daemon and t != threading.main_thread()]
+    if alive:
+        print(f"⚠️ 잔여 스레드 {len(alive)}개 감지: {[t.name for t in alive]}")
+    else:
+        print("✅ 잔여 스레드 없음")
+
+    print(f"✅ 종료 완료 (exit code: {exit_code})")
+
+    # 2. os._exit() → GC/atexit 무시하고 즉시 종료
+    #    sys.exit()는 백그라운드 스레드가 있으면 블로킹될 수 있어서
+    #    os._exit()를 사용
+    os._exit(exit_code)
+
+
+# ================================================================
+# ✅ ThreadPoolExecutor 타임아웃 래퍼
+# 기존 executor.map() 을 아래로 교체
+# 스레드가 무한 대기하는 것을 방지
+# ================================================================
+
+from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FuturesTimeoutError
+
+def run_scan_with_timeout(target_dict, weather_data, global_env, leader_env, sector_master_map, timeout_per_stock=15):
+    """
+    기존:
+        with ThreadPoolExecutor(max_workers=15) as executor:
+            results = list(executor.map(lambda p: analyze_final(...), zip(...)))
+
+    교체: 종목당 최대 timeout_per_stock초 제한
+    전체 스캔이 멈추지 않도록 보장
+    """
+    all_hits = []
+    pairs = list(zip(target_dict.keys(), target_dict.values()))
+    total = len(pairs)
+
+    with ThreadPoolExecutor(max_workers=15) as executor:
+        future_map = {
+            executor.submit(
+                analyze_final,
+                code, name, weather_data, global_env, leader_env, sector_master_map
+            ): (code, name)
+            for code, name in pairs
+        }
+
+        done_count = 0
+        for future in as_completed(future_map, timeout=timeout_per_stock * total):
+            code, name = future_map[future]
+            done_count += 1
+            try:
+                result = future.result(timeout=timeout_per_stock)
+                if result:
+                    all_hits.extend(result)
+            except FuturesTimeoutError:
+                print(f"⏰ [{name}] 타임아웃 스킵")
+            except Exception as e:
+                print(f"🚨 [{name}] 오류: {e}")
+
+            if done_count % 50 == 0:
+                print(f"📊 진행: {done_count}/{total}")
+
+    return all_hits
+
 # ────────────────────────────────────────────────────────────────
 # ✅ NEW 1: 유가지수 추가 (WTI / 브렌트)
 # get_safe_macro() 재사용
@@ -2874,16 +2954,10 @@ if __name__ == "__main__":
 
     weather_data = prepare_historical_weather()
     
-    all_hits = []
-    with ThreadPoolExecutor(max_workers=15) as executor:
-        results = list(executor.map(
-            lambda p: analyze_final(p[0], p[1], weather_data, global_env, leader_env, sector_master_map), 
-            zip(sorted_df['Code'], sorted_df['Name'])
-        ))
-        for r in results:
-            if r:
-                for hit in r:
-                    all_hits.append(hit)
+    target_dict = dict(zip(sorted_df['Code'], sorted_df['Name']))
+    all_hits = run_scan_with_timeout(
+        target_dict, weather_data, global_env, leader_env, sector_master_map
+    )
         
 if all_hits:
     all_hits_sorted = sorted(all_hits, key=lambda x: x['N점수'], reverse=True)
