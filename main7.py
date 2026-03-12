@@ -1154,7 +1154,17 @@ def run_ai_tournament(candidate_list, issues):
     comments = "특이 이슈 없음"
     if issues:
         comments = " | ".join([i.get("comment", "") for i in issues])
-      
+    
+    # ✅ prompt_data 먼저 생성
+    prompt_data = "\n".join([
+        f"- {row['종목명']}({row['code']}): {row.get('구분','N/A')}, "
+        f"수급:{row.get('수급',0)}, N구분:{row.get('N구분','N/A')}, "
+        f"이격:{safe_int(row.get('이격',0))}, 현재가:{safe_int(row.get('현재가',0))}, "
+        f"BB40:{safe_float(row.get('BB40',0)):.1f}, MA수렴:{safe_float(row.get('MA수렴',0)):.1f}, "
+        f"OBV기울기:{safe_int(row.get('OBV기울기',0))}, RSI:{safe_int(safe_float(row.get('RSI',0)))}"
+        for _, row in candidate_list.iterrows()
+    ])
+  
     system_prompt, user_prompt = get_tournament_prompt(prompt_data, comments)
 
     try:
