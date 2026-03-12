@@ -1381,7 +1381,521 @@ def format_macro_briefing_for_telegram(result):
         f"- 요약: {mb.get('summary','')}\n"
         f"- 체크: {', '.join(ck)}"
     )
-    return text     
+    return text
+# =============================================================
+# ✅ PATCH 1: signals 기본값 전수 정리
+# 목적: tri_result 실패 시 KeyError 방지, 누락 패턴 오탐 제거
+# =============================================================
+
+def build_default_signals(row, close_p, prev):
+    """
+    모든 signals 키를 False/None으로 초기화한 뒤 반환.
+    이후 개별 패턴 결과를 덮어씀으로써 KeyError 원천 차단.
+    """
+    return {
+        # ── 수박 계열 ──────────────────────────────────────────
+        'watermelon_signal':     row['Watermelon_Signal'],
+        'watermelon_red':        row['Watermelon_Color'] == 'red',
+        'watermelon_green_7d':   row['Green_Days_10'] >= 7,
+        'watermelon_relaunch':   row.get('Watermelon_Relaunch', False),
+
+        # ── 폭발/바닥/침묵 ────────────────────────────────────
+        'explosion_ready': (
+            row['BB40_Width'] <= 10.0 and
+            row['OBV_Rising'] and
+            row['MFI_Strong']
+        ),
+        'bottom_area': (
+            row['Near_MA112'] <= 5.0 and
+            row['Below_MA112_60d'] >= 40
+        ),
+        'silent_perfect': (
+            row['ATR_Below_Days'] >= 7 and
+            row['MFI_Strong_Days'] >= 7 and
+            row['MFI'] > 50 and
+            row['MFI'] > row['MFI_10d_ago'] and
+            row['OBV_Rising'] and
+            row['Box_Range'] <= 1.15
+        ),
+        'silent_strong': (
+            row['ATR_Below_Days'] >= 5 and
+            row['MFI_Strong_Days'] >= 5 and
+            row['OBV_Rising']
+        ),
+
+        # ── 역매공파 / 거래량 ──────────────────────────────────
+        'yeok_break': (
+            close_p > row['MA112'] and
+            prev['Close'] <= row['MA112']
+        ),
+        'volume_surge':  row['Volume'] >= row['VMA20'] * 1.5,
+        'obv_rising':    row['OBV_Rising'],
+        'mfi_strong':    row['MFI_Strong'],
+
+        # ── 돌반지 ────────────────────────────────────────────
+        'dolbanzi':            row['Dolbanzi'],
+        'dolbanzi_Trend_Group': row['Trend_Group'],
+        'dolbanzi_Count':       row['Dolbanzi_Count'],
+
+        # ── 독사 / 골파기 / 종베 ──────────────────────────────
+        'viper_hook':    row['Viper_Hook'],
+        'obv_bullish':   row['OBV_Bullish'],
+        'Real_Viper_Hook': row['Real_Viper_Hook'],
+        'Golpagi_Trap':  row['Golpagi_Trap'],
+        'jongbe_break':  row.get('Jongbe_Break', False),
+
+        # ── 삼각/종베 (tri_result 주입 전 기본값) ──────────────
+        'jongbe_ok':        False,   # ★ PATCH 1 핵심: 기본 False
+        'triangle_signal':  False,
+        'triangle_apex':    None,
+        'triangle_pattern': 'None',
+        'dmi_cross':        False,
+        'dmi_ok':           False,
+
+        # ── MA 수렴 ───────────────────────────────────────────
+        'MA_Convergence': row['MA_Convergence'],
+
+        # ── BB/RSI 계열 ───────────────────────────────────────
+        'bb_ross':               row.get('BB_Ross', False),
+        'ris_div':               row.get('RSI_DIV', False),
+        'bb40_ross':             row.get('BB40_Ross', False),
+        'bb40_rsi_div':          row.get('BB40_RSI_DIV', False),
+        'bb40_reclaim_rsi_div':  row.get('BB40_Reclaim_RSI_DIV', False),
+
+        # ── 신규 패턴 ─────────────────────────────────────────
+        'force_pullback':     row.get('Force_Pullback', False),
+        'bb40_second_wave':   row.get('BB40_Second_Wave', False),
+        'obv_acc_breakout':   row.get('OBV_Acc_Breakout', False),
+    }
+
+
+# =============================================================
+# ✅ PATCH 2: COMBO 누적 합산 (상위 3개 조합 보너스 반영)
+# 목적: 복합 패턴의 가치가 1개 조합에 묻히지 않도록
+# =============================================================
+
+def calculate_combination_score(signals):
+    effective = signals.copy()
+    if effective.get('silent_perfect'):
+        effective['silent_strong'] = True
+
+    style = effective.get('style', 'NONE')
+    W     = STYLE_WEIGHTS.get(style, STYLE_WEIGHTS['NONE'])
+
+    matched = []
+    for combo in COMBO_TABLE:
+        try:
+            if not combo['cond'](effective):
+                continue
+        except Exception:
+            continue
+
+        base_score = combo['score_fn'](effective) if 'score_fn' in combo else combo['score']
+        extra_tags = combo['tag_fn'](effective)   if 'tag_fn'  in combo else []
+
+        matched.append({
+            'score':       base_score,
+            'grade':       combo['grade'],
+            'combination': combo['combination'],
+            'tags':        combo['tags'] + extra_tags,
+            'type':        combo['type'],
+        })
+
+    if matched:
+        # ★ PATCH 2: 상위 3개 합산
+        sorted_matched = sorted(matched, key=lambda x: x['score'], reverse=True)
+        best = sorted_matched[0].copy()
+
+        # 2위(×0.3) + 3위(×0.1) 보너스
+        bonus = 0
+        bonus_tags = []
+        weights = [0.3, 0.1]
+        for m, w in zip(sorted_matched[1:3], weights):
+            bonus += int(m['score'] * w)
+            bonus_tags += m['tags']  # 2~3위 태그도 병합
+
+        best['score'] = best['score'] + bonus
+        best['tags']  = best['tags'] + bonus_tags   # 중복 제거는 표시 단계에서
+        best['combo_count'] = len(sorted_matched)   # 몇 개 조합 매칭됐는지 기록
+
+        best['score'] = _apply_style_bonus(best, style, W)
+        return best
+
+    # 기본 점수 (아무 조합도 없을 때)
+    tags, bonus = [], 0
+    if effective.get('obv_rising'):   bonus += 30; tags.append('📊OBV')
+    if effective.get('mfi_strong'):   bonus += 20; tags.append('💰MFI')
+    if effective.get('volume_surge'): bonus += 10; tags.append('⚡거래량')
+
+    return {
+        'score': 100 + bonus, 'grade': 'D',
+        'combination': '🔍기본', 'tags': tags,
+        'type': None, 'combo_count': 0
+    }
+
+
+# =============================================================
+# ✅ PATCH 3: analyze_final 내부 signals 구성 교체
+# 기존 인라인 dict → build_default_signals() 호출로 대체
+# 아래 블록을 analyze_final() 안의 signals = {...} 부분과 교체
+# =============================================================
+
+def build_signals_in_analyze_final(row, close_p, prev):
+    """
+    analyze_final() 안에서 호출.
+    기존 인라인 signals dict를 이걸로 대체.
+    """
+    signals = build_default_signals(row, close_p, prev)
+
+    # tri_result는 외부에서 주입 (아래 PATCH 3-B 참고)
+    return signals
+
+
+def inject_tri_result(signals, tri_result, new_tags):
+    """
+    PATCH 3-B: tri_result를 signals에 안전하게 주입.
+    tri_result가 {} 또는 None이어도 KeyError 없음.
+    """
+    if not tri_result:
+        return signals, new_tags
+
+    signals['triangle_signal']  = tri_result.get('pass', False)
+    signals['triangle_apex']    = tri_result.get('apex_remain', None)
+    signals['triangle_pattern'] = tri_result.get('triangle_pattern', 'None')
+    signals['jongbe_ok']        = tri_result.get('jongbe', False)       # ★ 핵심
+    signals['explosion_ready']  = signals['explosion_ready'] or tri_result.get('pass', False)
+
+    tri_inner = tri_result.get('triangle', {}) or {}
+    signals['dmi_cross'] = tri_inner.get('dmi_cross', False)
+    signals['dmi_ok']    = tri_inner.get('dmi_ok', False)
+
+    if signals['dmi_ok']:
+        new_tags.append('✅DMI')
+    if tri_result.get('pass', False):
+        new_tags.append('🔺삼각수렴')
+
+    return signals, new_tags
+
+
+# =============================================================
+# ✅ PATCH 4: 안전점수 기준 발송 정렬 통일
+# 목적: N점수로 30개 cut → 안전점수 재정렬 → 상위 15개 발송
+# 기존 main 블록의 ai_candidates 구성 부분을 아래로 교체
+# =============================================================
+
+def build_and_sort_candidates(all_hits_sorted, top_k=30):
+    """
+    PATCH 4:
+    1) N점수 기준 상위 top_k 추출  (패턴 순도 필터)
+    2) 수급/재무 후처리             (enrich_hits_with_supply_and_financial)
+    3) 안전점수 재정렬              (실전 투자 우선순위)
+    4) DataFrame 반환
+    """
+    # Step 1: N점수 상위 cut
+    n_top = sorted(all_hits_sorted, key=lambda x: x['N점수'], reverse=True)[:top_k]
+
+    # Step 2: 수급/재무 후처리
+    enriched = enrich_hits_with_supply_and_financial(
+        n_top,
+        top_k_supply=top_k,
+        top_k_financial=top_k // 3
+    )
+
+    # Step 3: 안전점수 재정렬 (★ 발송 기준)
+    enriched = sorted(enriched, key=lambda x: x.get('안전점수', 0), reverse=True)
+
+    df = pd.DataFrame(enriched)
+    return df
+
+
+# =============================================================
+# ✅ 개선된 AI 프롬프트 모음 (Ver 2.0)
+# 변경 원칙:
+#   1. 역할 → 컨텍스트 → 데이터 → 지시 → 출력형식 순서로 구조화
+#   2. 데이터 필드 의미를 AI에게 명확히 설명
+#   3. 출력 섹션과 형식을 구체적으로 지정
+#   4. 모호한 표현 제거 ("월가 수준" → 실제 항목 명시)
+# =============================================================
+
+# ──────────────────────────────────────────────────────────────
+# 공통 컨텍스트 블록 (모든 프롬프트에서 재사용)
+# ──────────────────────────────────────────────────────────────
+
+YEOK_MAE_CONTEXT = """
+## 역매공파 매매법 핵심 원칙
+- 역배열(MA5 < MA20 < MA60 < MA112) 상태에서 MA112 돌파 시 진입
+- 이격도 98~106 구간이 가장 안전한 매수 구간
+- 수박 신호 = OBV/MFI/매수압력 3개 중 2개 이상 + 초록→빨강 전환
+- 돌반지 = MA224 위에서 거래량 3배 + 쌍바닥 형성 → 대시세 전조
+- 독사훅 = MA5/10/20 수렴 후 MA5 상향 기울기 전환 → 단기 핵심
+- BB40 폭 10% 이하 = 에너지 응축 구간, 폭발 임박
+- 세력 눌림목 = 강봉 후 거래량 감소 + OBV 방어 = 재매수 구간
+- 손절 기준: 진입가 대비 -5% 이탈 시 무조건 손절
+"""
+
+FIELD_GLOSSARY = """
+## 데이터 필드 설명
+- N등급/N조합: 패턴 조합 등급 (GOD > SSS > SS > S > A > B > C 순)
+- N점수: 패턴 조합 강도 점수 (높을수록 신호 강도 강함)
+- 안전점수: N점수 + 수급/재무 보정 (실전 우선순위 기준)
+- 이격: 현재가/MA20 × 100 (98~106이 매수 적정 구간)
+- BB40: 볼린저밴드40 폭 (10 이하 = 에너지 응축)
+- MA수렴: MA20과 MA60의 수렴도 (3 이하 = 강한 수렴)
+- OBV기울기: OBV 5일 변화율 (양수 = 매집, 음수 = 분산)
+- RSI: 과매도 30↓, 적정 40~60, 과매수 70↑
+- 수급: 기관/외인 순매수 상태 (🤝쌍끌 = 최강, 🔴기관, 🔵외인)
+- 재무: S(우량)/A(양호)/C(주의)
+"""
+
+
+# ──────────────────────────────────────────────────────────────
+# 1. get_market_briefing() 개선
+# ──────────────────────────────────────────────────────────────
+
+def get_market_briefing_prompt(comments, theme_info, m_ndx, m_sp5, m_vix, m_fx):
+    """
+    기존 문제:
+    - 매크로 데이터를 AI에게 안 줌 (AI가 최신 데이터 모름)
+    - 출력 형식 없음
+    - 역할/컨텍스트/지시가 뒤섞임
+
+    개선:
+    - 실제 매크로 수치 전달
+    - 섹션별 출력 구조 지정
+    - 역매공파 관점 명시
+    """
+    macro_block = f"""
+## 현재 글로벌 매크로 수치
+- 나스닥: {m_ndx.get('val', 'N/A')} ({m_ndx.get('chg', 0):+.2f}%) → {m_ndx.get('status', '')}
+- S&P500: {m_sp5.get('val', 'N/A')} ({m_sp5.get('chg', 0):+.2f}%) → {m_sp5.get('status', '')}
+- VIX공포지수: {m_vix.get('val', 'N/A')} ({m_vix.get('chg', 0):+.2f}%) → {m_vix.get('status', '')}
+- 달러/원: {m_fx.get('val', 'N/A')} ({m_fx.get('chg', 0):+.2f}%) → {m_fx.get('status', '')}
+"""
+
+    system_prompt = f"""
+너는 역매공파 매매법 기반의 한국 주식 전략 분석가야.
+매일 개장 전 트레이더에게 당일 전략 브리핑을 제공하는 역할이야.
+보수적이고 실전 중심으로, 잃지 않는 것을 최우선으로 판단해.
+
+{YEOK_MAE_CONTEXT}
+"""
+
+    user_prompt = f"""
+{macro_block}
+
+## 오늘의 시장 이슈
+{comments}
+
+## 현재 핫 테마
+{theme_info}
+
+---
+위 데이터를 바탕으로 다음 형식으로 개장 전 브리핑을 작성해줘 (반말로):
+
+【시장 온도】
+- 미국 시장 상태 한 줄 요약
+- VIX 기반 리스크 레벨: 낮음/보통/높음
+
+【한국장 영향】
+- 오늘 코스피/코스닥에 미칠 방향성 (긍정/혼조/부정)
+- 이유 1~2줄
+
+【수혜 테마】
+- 오늘 주목할 테마 1~2개 + 이유 한 줄씩
+
+【오늘 전략】
+- 개장 초반 전략 (공격/선별/관망 중 선택)
+- 주의사항 한 줄
+
+⚠️ 없는 정보는 추측하지 말고 "데이터 없음"으로 표기해.
+"""
+    return system_prompt, user_prompt
+
+
+# ──────────────────────────────────────────────────────────────
+# 2. run_ai_tournament() 개선
+# ──────────────────────────────────────────────────────────────
+
+def get_tournament_prompt(prompt_data, comments):
+    """
+    기존 문제:
+    - 데이터 필드 의미 설명 없음
+    - 단타/스윙 선정 기준 불명확
+    - 출력 구조 없음
+
+    개선:
+    - 필드 사전 제공
+    - 단타/스윙 판단 기준 명시
+    - 출력 템플릿 고정
+    """
+    system_prompt = f"""
+너는 역매공파 매매법의 최고 전문가이자 실전 트레이더야.
+절대 돈을 잃으면 안 된다는 원칙 하에, 주어진 종목을 엄격하게 심사해.
+확신 없는 종목은 "관망"으로 판정해. 억지로 뽑지 마.
+
+{YEOK_MAE_CONTEXT}
+
+{FIELD_GLOSSARY}
+
+## 심사 기준
+### 단타 (1~3일) 적합 조건
+- 수박 신호 또는 독사훅 발생
+- 거래량 MA20 대비 1.5배 이상
+- RSI 40~65 구간 (과매수 아닐 것)
+- 이격도 110 이하
+
+### 스윙 (5~15일) 적합 조건
+- BB40 폭 12 이하 (에너지 응축)
+- MA수렴도 3 이하
+- OBV 기울기 양수 + MFI > 50
+- 이격도 98~107 이상적
+
+### 공통 제외 조건
+- 이격도 115 초과 → 추격 금지
+- 윗꼬리 40% 이상 → 세력 매도 의심
+- 재무 C등급 + 수급 없음 → 제외
+
+## 오늘 이슈
+{comments}
+"""
+
+    user_prompt = f"""
+아래 종목 데이터를 보고 단타 1위, 스윙 1위를 선정해줘.
+확신이 없으면 "해당 없음"으로 답해.
+
+{prompt_data}
+
+---
+다음 형식으로 작성해 (반말로):
+
+🏆 [단타 1위]
+- 종목명(코드):
+- 선정 이유: (패턴/수급/거래량 근거 중심, 3줄 이내)
+- 진입 타점:
+- 1차 목표가:
+- 손절가:
+- 리스크 요인:
+
+🎯 [스윙 1위]
+- 종목명(코드):
+- 선정 이유: (응축/매집/이격 근거 중심, 3줄 이내)
+- 진입 타점:
+- 1차 목표가:
+- 손절가:
+- 리스크 요인:
+
+⚠️ [주의 종목] (보유 중이라면 익절/손절 검토)
+- 종목명(코드): 이유 한 줄
+
+💬 [오늘 장 한마디]
+- 전체 시장 관점에서 오늘 트레이더에게 하고 싶은 말 2줄
+"""
+    return system_prompt, user_prompt
+
+
+# ──────────────────────────────────────────────────────────────
+# 3. get_ai_summary_batch() 개선
+# ──────────────────────────────────────────────────────────────
+
+def get_summary_batch_system_prompt(comments):
+    """
+    기존 문제:
+    - stock_lines에 데이터 + 지시가 뒤섞임 (치명적)
+    - 출력 형식이 "종목명: 요약" 1줄로 너무 단순
+    - 역매공파 컨텍스트 없음
+
+    개선:
+    - 시스템 프롬프트에서 역할/기준 완전히 분리
+    - 종목별 출력 구조 명확화
+    - 데이터 필드 의미 제공
+    """
+    return f"""
+너는 역매공파 매매법 기반의 한국 주식 전략 분석가야.
+아래 종목 데이터를 보고 각 종목에 대해 실전 투자 관점의 코멘트를 작성해.
+
+{YEOK_MAE_CONTEXT}
+
+{FIELD_GLOSSARY}
+
+## 오늘 시장 이슈 (참고)
+{comments}
+
+## 작성 원칙
+- 각 종목당 3~4문장으로 간결하게
+- 스토리텔링 형식: 왜 눈에 띄는지 → 지금 어느 구간인지 → 진입 관점 → 주의사항
+- 확신 없으면 "현재 관망 구간" 명시
+- 수치 근거 반드시 포함 (RSI, BB40, OBV 등)
+- 없는 정보는 추측하지 말 것
+
+## 출력 형식 (종목마다 반복)
+[종목명(코드)]
+✅ 핵심 포인트: (왜 지금 눈에 띄는지 1줄)
+📊 현재 상태: (지표 기반 위치 설명)
+🎯 진입 관점: (진입 타점 / 관망 여부)
+⚠️ 주의사항: (리스크 요인 1줄)
+"""
+
+
+def build_stock_lines_for_batch(ai_candidates):
+    """
+    기존 문제:
+    stock_lines 구성에서 데이터와 지시가 뒤섞임:
+        line = f"데이터... 이 종목에 대해 투자 전략 관점에서 3~5문장..."
+    
+    개선:
+    데이터만 깔끔하게 전달, 지시는 system_prompt에서만
+    """
+    lines = []
+    for _, item in ai_candidates.iterrows():
+        def si(x, d=0):
+            try: return int(float(x))
+            except: return d
+        def sf(x, d=0.0):
+            try: return float(x)
+            except: return d
+
+        line = (
+            f"[{item['종목명']}({item['code']})]"
+            f"\n  패턴등급: {item.get('N등급','N/A')} | 조합: {item.get('N조합','N/A')}"
+            f"\n  패턴태그: {item.get('N구분','')}"
+            f"\n  이격도: {si(item.get('이격',0))} | BB40폭: {sf(item.get('BB40',0)):.1f}"
+            f"\n  MA수렴: {sf(item.get('MA수렴',0)):.1f} | OBV기울기: {si(item.get('OBV기울기',0))}"
+            f"\n  RSI: {si(sf(item.get('RSI',0)))} | 현재가: {si(item.get('현재가',0))}"
+            f"\n  수급: {item.get('수급','미계산')} | 재무: {item.get('재무','미계산')}"
+            f"\n  서사: {item.get('📜서사히스토리','')}"
+        )
+        lines.append(line)
+    return "\n\n".join(lines)
+
+
+# ──────────────────────────────────────────────────────────────
+# 4. run_macro_candidate_briefing() 개선 (시스템 프롬프트만)
+# ──────────────────────────────────────────────────────────────
+
+MACRO_SYSTEM_PROMPT_IMPROVED = f"""
+너는 역매공파 매매법 기반의 한국 주식 트레이딩 보조 AI야.
+사용자는 자동매매 없이 직접 매매하며, 보수적 관점을 최우선으로 해.
+
+{YEOK_MAE_CONTEXT}
+
+{FIELD_GLOSSARY}
+
+## 네 역할
+글로벌 시장 상황과 오늘 후보 종목의 궁합을 평가해서:
+1. 시장 전체 리스크 수준 판단
+2. 오늘 유리한 섹터/불리한 섹터 분류
+3. 후보 종목별 시장 적합도 평가 (fit_score)
+4. 최우선 매매 종목 1개, 오늘 피해야 할 종목 1개 선정
+
+## 판단 원칙
+- VIX 상승 + 나스닥 약세 = Risk Off → 공격적 진입 자제
+- 환율 급등 = 외국인 이탈 가능성 → 외인 수급 종목 주의
+- N점수/안전점수는 참고, 시장 궁합을 더 중요하게
+- 추격보다 눌림목/재진입 관점
+- 확신 없는 종목은 반드시 관망형으로 분류
+
+반드시 JSON만 출력. 마크다운, 코드블록, 설명문 없이 순수 JSON만.
+"""     
 # ---------------------------------------------------------
 # 🕵️ [7] 분석 엔진
 # ---------------------------------------------------------
@@ -1495,11 +2009,11 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
 
         rsi_score = row['RSI']
      
-        near_ma112 = row['Near_MA112'] <= 5.0
+        near_ma112 = row['Near_MA112'] <= 2.0
         long_bottom = row['Below_MA112_60d'] >= 40
         bottom_area = near_ma112 and long_bottom
         
-        bb_squeeze = row['BB40_Width'] <= 10.0
+        bb_squeeze = row['BB40_Width'] <= 0.2
         supply_strong = row['OBV_Rising'] and row['MFI_Strong']
         explosion_ready = bb_squeeze and supply_strong
 
@@ -2131,566 +2645,4 @@ if all_hits:
         print(f"🚨 시트 업데이트 실패: {e}")
 
     print("✅ 작전 종료: 전수 기록 완료 및 정예 15건 보고 완료!")
-
-# =============================================================
-# ✅ PATCH 1: signals 기본값 전수 정리
-# 목적: tri_result 실패 시 KeyError 방지, 누락 패턴 오탐 제거
-# =============================================================
-
-def build_default_signals(row, close_p, prev):
-    """
-    모든 signals 키를 False/None으로 초기화한 뒤 반환.
-    이후 개별 패턴 결과를 덮어씀으로써 KeyError 원천 차단.
-    """
-    return {
-        # ── 수박 계열 ──────────────────────────────────────────
-        'watermelon_signal':     row['Watermelon_Signal'],
-        'watermelon_red':        row['Watermelon_Color'] == 'red',
-        'watermelon_green_7d':   row['Green_Days_10'] >= 7,
-        'watermelon_relaunch':   row.get('Watermelon_Relaunch', False),
-
-        # ── 폭발/바닥/침묵 ────────────────────────────────────
-        'explosion_ready': (
-            row['BB40_Width'] <= 10.0 and
-            row['OBV_Rising'] and
-            row['MFI_Strong']
-        ),
-        'bottom_area': (
-            row['Near_MA112'] <= 5.0 and
-            row['Below_MA112_60d'] >= 40
-        ),
-        'silent_perfect': (
-            row['ATR_Below_Days'] >= 7 and
-            row['MFI_Strong_Days'] >= 7 and
-            row['MFI'] > 50 and
-            row['MFI'] > row['MFI_10d_ago'] and
-            row['OBV_Rising'] and
-            row['Box_Range'] <= 1.15
-        ),
-        'silent_strong': (
-            row['ATR_Below_Days'] >= 5 and
-            row['MFI_Strong_Days'] >= 5 and
-            row['OBV_Rising']
-        ),
-
-        # ── 역매공파 / 거래량 ──────────────────────────────────
-        'yeok_break': (
-            close_p > row['MA112'] and
-            prev['Close'] <= row['MA112']
-        ),
-        'volume_surge':  row['Volume'] >= row['VMA20'] * 1.5,
-        'obv_rising':    row['OBV_Rising'],
-        'mfi_strong':    row['MFI_Strong'],
-
-        # ── 돌반지 ────────────────────────────────────────────
-        'dolbanzi':            row['Dolbanzi'],
-        'dolbanzi_Trend_Group': row['Trend_Group'],
-        'dolbanzi_Count':       row['Dolbanzi_Count'],
-
-        # ── 독사 / 골파기 / 종베 ──────────────────────────────
-        'viper_hook':    row['Viper_Hook'],
-        'obv_bullish':   row['OBV_Bullish'],
-        'Real_Viper_Hook': row['Real_Viper_Hook'],
-        'Golpagi_Trap':  row['Golpagi_Trap'],
-        'jongbe_break':  row.get('Jongbe_Break', False),
-
-        # ── 삼각/종베 (tri_result 주입 전 기본값) ──────────────
-        'jongbe_ok':        False,   # ★ PATCH 1 핵심: 기본 False
-        'triangle_signal':  False,
-        'triangle_apex':    None,
-        'triangle_pattern': 'None',
-        'dmi_cross':        False,
-        'dmi_ok':           False,
-
-        # ── MA 수렴 ───────────────────────────────────────────
-        'MA_Convergence': row['MA_Convergence'],
-
-        # ── BB/RSI 계열 ───────────────────────────────────────
-        'bb_ross':               row.get('BB_Ross', False),
-        'ris_div':               row.get('RSI_DIV', False),
-        'bb40_ross':             row.get('BB40_Ross', False),
-        'bb40_rsi_div':          row.get('BB40_RSI_DIV', False),
-        'bb40_reclaim_rsi_div':  row.get('BB40_Reclaim_RSI_DIV', False),
-
-        # ── 신규 패턴 ─────────────────────────────────────────
-        'force_pullback':     row.get('Force_Pullback', False),
-        'bb40_second_wave':   row.get('BB40_Second_Wave', False),
-        'obv_acc_breakout':   row.get('OBV_Acc_Breakout', False),
-    }
-
-
-# =============================================================
-# ✅ PATCH 2: COMBO 누적 합산 (상위 3개 조합 보너스 반영)
-# 목적: 복합 패턴의 가치가 1개 조합에 묻히지 않도록
-# =============================================================
-
-def calculate_combination_score(signals):
-    effective = signals.copy()
-    if effective.get('silent_perfect'):
-        effective['silent_strong'] = True
-
-    style = effective.get('style', 'NONE')
-    W     = STYLE_WEIGHTS.get(style, STYLE_WEIGHTS['NONE'])
-
-    matched = []
-    for combo in COMBO_TABLE:
-        try:
-            if not combo['cond'](effective):
-                continue
-        except Exception:
-            continue
-
-        base_score = combo['score_fn'](effective) if 'score_fn' in combo else combo['score']
-        extra_tags = combo['tag_fn'](effective)   if 'tag_fn'  in combo else []
-
-        matched.append({
-            'score':       base_score,
-            'grade':       combo['grade'],
-            'combination': combo['combination'],
-            'tags':        combo['tags'] + extra_tags,
-            'type':        combo['type'],
-        })
-
-    if matched:
-        # ★ PATCH 2: 상위 3개 합산
-        sorted_matched = sorted(matched, key=lambda x: x['score'], reverse=True)
-        best = sorted_matched[0].copy()
-
-        # 2위(×0.3) + 3위(×0.1) 보너스
-        bonus = 0
-        bonus_tags = []
-        weights = [0.3, 0.1]
-        for m, w in zip(sorted_matched[1:3], weights):
-            bonus += int(m['score'] * w)
-            bonus_tags += m['tags']  # 2~3위 태그도 병합
-
-        best['score'] = best['score'] + bonus
-        best['tags']  = best['tags'] + bonus_tags   # 중복 제거는 표시 단계에서
-        best['combo_count'] = len(sorted_matched)   # 몇 개 조합 매칭됐는지 기록
-
-        best['score'] = _apply_style_bonus(best, style, W)
-        return best
-
-    # 기본 점수 (아무 조합도 없을 때)
-    tags, bonus = [], 0
-    if effective.get('obv_rising'):   bonus += 30; tags.append('📊OBV')
-    if effective.get('mfi_strong'):   bonus += 20; tags.append('💰MFI')
-    if effective.get('volume_surge'): bonus += 10; tags.append('⚡거래량')
-
-    return {
-        'score': 100 + bonus, 'grade': 'D',
-        'combination': '🔍기본', 'tags': tags,
-        'type': None, 'combo_count': 0
-    }
-
-
-# =============================================================
-# ✅ PATCH 3: analyze_final 내부 signals 구성 교체
-# 기존 인라인 dict → build_default_signals() 호출로 대체
-# 아래 블록을 analyze_final() 안의 signals = {...} 부분과 교체
-# =============================================================
-
-def build_signals_in_analyze_final(row, close_p, prev):
-    """
-    analyze_final() 안에서 호출.
-    기존 인라인 signals dict를 이걸로 대체.
-    """
-    signals = build_default_signals(row, close_p, prev)
-
-    # tri_result는 외부에서 주입 (아래 PATCH 3-B 참고)
-    return signals
-
-
-def inject_tri_result(signals, tri_result, new_tags):
-    """
-    PATCH 3-B: tri_result를 signals에 안전하게 주입.
-    tri_result가 {} 또는 None이어도 KeyError 없음.
-    """
-    if not tri_result:
-        return signals, new_tags
-
-    signals['triangle_signal']  = tri_result.get('pass', False)
-    signals['triangle_apex']    = tri_result.get('apex_remain', None)
-    signals['triangle_pattern'] = tri_result.get('triangle_pattern', 'None')
-    signals['jongbe_ok']        = tri_result.get('jongbe', False)       # ★ 핵심
-    signals['explosion_ready']  = signals['explosion_ready'] or tri_result.get('pass', False)
-
-    tri_inner = tri_result.get('triangle', {}) or {}
-    signals['dmi_cross'] = tri_inner.get('dmi_cross', False)
-    signals['dmi_ok']    = tri_inner.get('dmi_ok', False)
-
-    if signals['dmi_ok']:
-        new_tags.append('✅DMI')
-    if tri_result.get('pass', False):
-        new_tags.append('🔺삼각수렴')
-
-    return signals, new_tags
-
-
-# =============================================================
-# ✅ PATCH 4: 안전점수 기준 발송 정렬 통일
-# 목적: N점수로 30개 cut → 안전점수 재정렬 → 상위 15개 발송
-# 기존 main 블록의 ai_candidates 구성 부분을 아래로 교체
-# =============================================================
-
-def build_and_sort_candidates(all_hits_sorted, top_k=30):
-    """
-    PATCH 4:
-    1) N점수 기준 상위 top_k 추출  (패턴 순도 필터)
-    2) 수급/재무 후처리             (enrich_hits_with_supply_and_financial)
-    3) 안전점수 재정렬              (실전 투자 우선순위)
-    4) DataFrame 반환
-    """
-    # Step 1: N점수 상위 cut
-    n_top = sorted(all_hits_sorted, key=lambda x: x['N점수'], reverse=True)[:top_k]
-
-    # Step 2: 수급/재무 후처리
-    enriched = enrich_hits_with_supply_and_financial(
-        n_top,
-        top_k_supply=top_k,
-        top_k_financial=top_k // 3
-    )
-
-    # Step 3: 안전점수 재정렬 (★ 발송 기준)
-    enriched = sorted(enriched, key=lambda x: x.get('안전점수', 0), reverse=True)
-
-    df = pd.DataFrame(enriched)
-    return df
-
-
-# =============================================================
-# ✅ 개선된 AI 프롬프트 모음 (Ver 2.0)
-# 변경 원칙:
-#   1. 역할 → 컨텍스트 → 데이터 → 지시 → 출력형식 순서로 구조화
-#   2. 데이터 필드 의미를 AI에게 명확히 설명
-#   3. 출력 섹션과 형식을 구체적으로 지정
-#   4. 모호한 표현 제거 ("월가 수준" → 실제 항목 명시)
-# =============================================================
-
-# ──────────────────────────────────────────────────────────────
-# 공통 컨텍스트 블록 (모든 프롬프트에서 재사용)
-# ──────────────────────────────────────────────────────────────
-
-YEOK_MAE_CONTEXT = """
-## 역매공파 매매법 핵심 원칙
-- 역배열(MA5 < MA20 < MA60 < MA112) 상태에서 MA112 돌파 시 진입
-- 이격도 98~106 구간이 가장 안전한 매수 구간
-- 수박 신호 = OBV/MFI/매수압력 3개 중 2개 이상 + 초록→빨강 전환
-- 돌반지 = MA224 위에서 거래량 3배 + 쌍바닥 형성 → 대시세 전조
-- 독사훅 = MA5/10/20 수렴 후 MA5 상향 기울기 전환 → 단기 핵심
-- BB40 폭 10% 이하 = 에너지 응축 구간, 폭발 임박
-- 세력 눌림목 = 강봉 후 거래량 감소 + OBV 방어 = 재매수 구간
-- 손절 기준: 진입가 대비 -5% 이탈 시 무조건 손절
-"""
-
-FIELD_GLOSSARY = """
-## 데이터 필드 설명
-- N등급/N조합: 패턴 조합 등급 (GOD > SSS > SS > S > A > B > C 순)
-- N점수: 패턴 조합 강도 점수 (높을수록 신호 강도 강함)
-- 안전점수: N점수 + 수급/재무 보정 (실전 우선순위 기준)
-- 이격: 현재가/MA20 × 100 (98~106이 매수 적정 구간)
-- BB40: 볼린저밴드40 폭 (10 이하 = 에너지 응축)
-- MA수렴: MA20과 MA60의 수렴도 (3 이하 = 강한 수렴)
-- OBV기울기: OBV 5일 변화율 (양수 = 매집, 음수 = 분산)
-- RSI: 과매도 30↓, 적정 40~60, 과매수 70↑
-- 수급: 기관/외인 순매수 상태 (🤝쌍끌 = 최강, 🔴기관, 🔵외인)
-- 재무: S(우량)/A(양호)/C(주의)
-"""
-
-
-# ──────────────────────────────────────────────────────────────
-# 1. get_market_briefing() 개선
-# ──────────────────────────────────────────────────────────────
-
-def get_market_briefing_prompt(comments, theme_info, m_ndx, m_sp5, m_vix, m_fx):
-    """
-    기존 문제:
-    - 매크로 데이터를 AI에게 안 줌 (AI가 최신 데이터 모름)
-    - 출력 형식 없음
-    - 역할/컨텍스트/지시가 뒤섞임
-
-    개선:
-    - 실제 매크로 수치 전달
-    - 섹션별 출력 구조 지정
-    - 역매공파 관점 명시
-    """
-    macro_block = f"""
-## 현재 글로벌 매크로 수치
-- 나스닥: {m_ndx.get('val', 'N/A')} ({m_ndx.get('chg', 0):+.2f}%) → {m_ndx.get('status', '')}
-- S&P500: {m_sp5.get('val', 'N/A')} ({m_sp5.get('chg', 0):+.2f}%) → {m_sp5.get('status', '')}
-- VIX공포지수: {m_vix.get('val', 'N/A')} ({m_vix.get('chg', 0):+.2f}%) → {m_vix.get('status', '')}
-- 달러/원: {m_fx.get('val', 'N/A')} ({m_fx.get('chg', 0):+.2f}%) → {m_fx.get('status', '')}
-"""
-
-    system_prompt = f"""
-너는 역매공파 매매법 기반의 한국 주식 전략 분석가야.
-매일 개장 전 트레이더에게 당일 전략 브리핑을 제공하는 역할이야.
-보수적이고 실전 중심으로, 잃지 않는 것을 최우선으로 판단해.
-
-{YEOK_MAE_CONTEXT}
-"""
-
-    user_prompt = f"""
-{macro_block}
-
-## 오늘의 시장 이슈
-{comments}
-
-## 현재 핫 테마
-{theme_info}
-
----
-위 데이터를 바탕으로 다음 형식으로 개장 전 브리핑을 작성해줘 (반말로):
-
-【시장 온도】
-- 미국 시장 상태 한 줄 요약
-- VIX 기반 리스크 레벨: 낮음/보통/높음
-
-【한국장 영향】
-- 오늘 코스피/코스닥에 미칠 방향성 (긍정/혼조/부정)
-- 이유 1~2줄
-
-【수혜 테마】
-- 오늘 주목할 테마 1~2개 + 이유 한 줄씩
-
-【오늘 전략】
-- 개장 초반 전략 (공격/선별/관망 중 선택)
-- 주의사항 한 줄
-
-⚠️ 없는 정보는 추측하지 말고 "데이터 없음"으로 표기해.
-"""
-    return system_prompt, user_prompt
-
-
-# ──────────────────────────────────────────────────────────────
-# 2. run_ai_tournament() 개선
-# ──────────────────────────────────────────────────────────────
-
-def get_tournament_prompt(prompt_data, comments):
-    """
-    기존 문제:
-    - 데이터 필드 의미 설명 없음
-    - 단타/스윙 선정 기준 불명확
-    - 출력 구조 없음
-
-    개선:
-    - 필드 사전 제공
-    - 단타/스윙 판단 기준 명시
-    - 출력 템플릿 고정
-    """
-    system_prompt = f"""
-너는 역매공파 매매법의 최고 전문가이자 실전 트레이더야.
-절대 돈을 잃으면 안 된다는 원칙 하에, 주어진 종목을 엄격하게 심사해.
-확신 없는 종목은 "관망"으로 판정해. 억지로 뽑지 마.
-
-{YEOK_MAE_CONTEXT}
-
-{FIELD_GLOSSARY}
-
-## 심사 기준
-### 단타 (1~3일) 적합 조건
-- 수박 신호 또는 독사훅 발생
-- 거래량 MA20 대비 1.5배 이상
-- RSI 40~65 구간 (과매수 아닐 것)
-- 이격도 110 이하
-
-### 스윙 (5~15일) 적합 조건
-- BB40 폭 12 이하 (에너지 응축)
-- MA수렴도 3 이하
-- OBV 기울기 양수 + MFI > 50
-- 이격도 98~107 이상적
-
-### 공통 제외 조건
-- 이격도 115 초과 → 추격 금지
-- 윗꼬리 40% 이상 → 세력 매도 의심
-- 재무 C등급 + 수급 없음 → 제외
-
-## 오늘 이슈
-{comments}
-"""
-
-    user_prompt = f"""
-아래 종목 데이터를 보고 단타 1위, 스윙 1위를 선정해줘.
-확신이 없으면 "해당 없음"으로 답해.
-
-{prompt_data}
-
----
-다음 형식으로 작성해 (반말로):
-
-🏆 [단타 1위]
-- 종목명(코드):
-- 선정 이유: (패턴/수급/거래량 근거 중심, 3줄 이내)
-- 진입 타점:
-- 1차 목표가:
-- 손절가:
-- 리스크 요인:
-
-🎯 [스윙 1위]
-- 종목명(코드):
-- 선정 이유: (응축/매집/이격 근거 중심, 3줄 이내)
-- 진입 타점:
-- 1차 목표가:
-- 손절가:
-- 리스크 요인:
-
-⚠️ [주의 종목] (보유 중이라면 익절/손절 검토)
-- 종목명(코드): 이유 한 줄
-
-💬 [오늘 장 한마디]
-- 전체 시장 관점에서 오늘 트레이더에게 하고 싶은 말 2줄
-"""
-    return system_prompt, user_prompt
-
-
-# ──────────────────────────────────────────────────────────────
-# 3. get_ai_summary_batch() 개선
-# ──────────────────────────────────────────────────────────────
-
-def get_summary_batch_system_prompt(comments):
-    """
-    기존 문제:
-    - stock_lines에 데이터 + 지시가 뒤섞임 (치명적)
-    - 출력 형식이 "종목명: 요약" 1줄로 너무 단순
-    - 역매공파 컨텍스트 없음
-
-    개선:
-    - 시스템 프롬프트에서 역할/기준 완전히 분리
-    - 종목별 출력 구조 명확화
-    - 데이터 필드 의미 제공
-    """
-    return f"""
-너는 역매공파 매매법 기반의 한국 주식 전략 분석가야.
-아래 종목 데이터를 보고 각 종목에 대해 실전 투자 관점의 코멘트를 작성해.
-
-{YEOK_MAE_CONTEXT}
-
-{FIELD_GLOSSARY}
-
-## 오늘 시장 이슈 (참고)
-{comments}
-
-## 작성 원칙
-- 각 종목당 3~4문장으로 간결하게
-- 스토리텔링 형식: 왜 눈에 띄는지 → 지금 어느 구간인지 → 진입 관점 → 주의사항
-- 확신 없으면 "현재 관망 구간" 명시
-- 수치 근거 반드시 포함 (RSI, BB40, OBV 등)
-- 없는 정보는 추측하지 말 것
-
-## 출력 형식 (종목마다 반복)
-[종목명(코드)]
-✅ 핵심 포인트: (왜 지금 눈에 띄는지 1줄)
-📊 현재 상태: (지표 기반 위치 설명)
-🎯 진입 관점: (진입 타점 / 관망 여부)
-⚠️ 주의사항: (리스크 요인 1줄)
-"""
-
-
-def build_stock_lines_for_batch(ai_candidates):
-    """
-    기존 문제:
-    stock_lines 구성에서 데이터와 지시가 뒤섞임:
-        line = f"데이터... 이 종목에 대해 투자 전략 관점에서 3~5문장..."
-    
-    개선:
-    데이터만 깔끔하게 전달, 지시는 system_prompt에서만
-    """
-    lines = []
-    for _, item in ai_candidates.iterrows():
-        def si(x, d=0):
-            try: return int(float(x))
-            except: return d
-        def sf(x, d=0.0):
-            try: return float(x)
-            except: return d
-
-        line = (
-            f"[{item['종목명']}({item['code']})]"
-            f"\n  패턴등급: {item.get('N등급','N/A')} | 조합: {item.get('N조합','N/A')}"
-            f"\n  패턴태그: {item.get('N구분','')}"
-            f"\n  이격도: {si(item.get('이격',0))} | BB40폭: {sf(item.get('BB40',0)):.1f}"
-            f"\n  MA수렴: {sf(item.get('MA수렴',0)):.1f} | OBV기울기: {si(item.get('OBV기울기',0))}"
-            f"\n  RSI: {si(sf(item.get('RSI',0)))} | 현재가: {si(item.get('현재가',0))}"
-            f"\n  수급: {item.get('수급','미계산')} | 재무: {item.get('재무','미계산')}"
-            f"\n  서사: {item.get('📜서사히스토리','')}"
-        )
-        lines.append(line)
-    return "\n\n".join(lines)
-
-
-# ──────────────────────────────────────────────────────────────
-# 4. run_macro_candidate_briefing() 개선 (시스템 프롬프트만)
-# ──────────────────────────────────────────────────────────────
-
-MACRO_SYSTEM_PROMPT_IMPROVED = f"""
-너는 역매공파 매매법 기반의 한국 주식 트레이딩 보조 AI야.
-사용자는 자동매매 없이 직접 매매하며, 보수적 관점을 최우선으로 해.
-
-{YEOK_MAE_CONTEXT}
-
-{FIELD_GLOSSARY}
-
-## 네 역할
-글로벌 시장 상황과 오늘 후보 종목의 궁합을 평가해서:
-1. 시장 전체 리스크 수준 판단
-2. 오늘 유리한 섹터/불리한 섹터 분류
-3. 후보 종목별 시장 적합도 평가 (fit_score)
-4. 최우선 매매 종목 1개, 오늘 피해야 할 종목 1개 선정
-
-## 판단 원칙
-- VIX 상승 + 나스닥 약세 = Risk Off → 공격적 진입 자제
-- 환율 급등 = 외국인 이탈 가능성 → 외인 수급 종목 주의
-- N점수/안전점수는 참고, 시장 궁합을 더 중요하게
-- 추격보다 눌림목/재진입 관점
-- 확신 없는 종목은 반드시 관망형으로 분류
-
-반드시 JSON만 출력. 마크다운, 코드블록, 설명문 없이 순수 JSON만.
-"""
-
-
-# ──────────────────────────────────────────────────────────────
-# 적용 방법 (기존 함수 교체 가이드)
-# ──────────────────────────────────────────────────────────────
-"""
-[1] get_market_briefing() 교체:
-    system_prompt, user_prompt = get_market_briefing_prompt(
-        comments, theme_info, m_ndx, m_sp5, m_vix, m_fx
-    )
-    res = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user",   "content": user_prompt}
-        ]
-    )
-
-[2] run_ai_tournament() 교체:
-    system_prompt, user_prompt = get_tournament_prompt(prompt_data, comments)
-    res_gpt = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user",   "content": user_prompt}
-        ]
-    )
-
-[3] get_ai_summary_batch() 교체:
-    system_prompt = get_summary_batch_system_prompt(comments)
-    stock_text    = build_stock_lines_for_batch(ai_candidates)
-    res = client.chat.completions.create(
-        model="gpt-4o",
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user",   "content": f"다음 종목들을 분석해줘:\\n\\n{stock_text}"}
-        ],
-        max_tokens=3000,
-        temperature=0.5   # 0.7 → 0.5로 낮춰 일관성 향상
-    )
-
-[4] run_macro_candidate_briefing() 교체:
-    messages=[
-        {"role": "system", "content": MACRO_SYSTEM_PROMPT_IMPROVED},
-        {"role": "user",   "content": prompt}   # 기존 user prompt 유지
-    ]
-"""
 
