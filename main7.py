@@ -24,7 +24,7 @@ import pandas as pd
 from datetime import datetime
 from auto_theme_news import analyze_market_issues
 from functools import lru_cache  # ✅ FIX 1: 캐시용
-
+from Watermelonchart import create_watermelon_charts_for_hits
 try: from openai import OpenAI
 except: OpenAI = None
 
@@ -3010,7 +3010,10 @@ if all_hits:
 
     print(f"🧠 상위 30개 종목 AI 심층 분석 중...")
     tournament_report = run_ai_tournament(ai_candidates, issues)
-
+ 
+    print("📊 수박지표 차트 생성 중...")
+    chart_paths = create_watermelon_charts_for_hits(ai_candidates, top_n=5)
+ 
     lines = []
     
     def safe_int(x, default=0):
@@ -3086,6 +3089,9 @@ if all_hits:
     else:
         current_msg += final_block
         send_telegram_photo(current_msg, imgs if imgs else [])
+
+    if chart_paths:
+        send_telegram_photo("📊 [수박지표 차트 TOP 5]", chart_paths)
 
     try:
         update_google_sheet(all_hits_sorted, TODAY_STR, tournament_report)
