@@ -2975,8 +2975,8 @@ if all_hits:
     macro_briefing_result = run_macro_candidate_briefing(
         ai_candidates=ai_candidates,
         m_ndx=m_ndx, m_sp5=m_sp5, m_vix=m_vix, m_fx=m_fx,
-        m_wti=m_wti,           ← 추가
-        sector_results=sector_results,  ← 추가
+        m_wti=m_wti,           
+        sector_results=sector_results,
         issues=issues
     )
 
@@ -3016,8 +3016,8 @@ if all_hits:
     MAX_CHAR = 3800
     current_msg = (
         f"{briefing}\\n\\n"
-        f"{sector_report}\\n\\n"      ← 섹터 순환
-        f"{oil_briefing}\\n\\n"       ← 유가 브리핑
+        f"{sector_report}\\n\\n"      
+        f"{oil_briefing}\\n\\n"       
         f"{macro_briefing_text}\\n\\n"
         f"📢 [오늘의 실시간 TOP 15]\\n\\n"
     )
