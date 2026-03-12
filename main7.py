@@ -1567,81 +1567,9 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             print(f"🚨 jongbe_triangle_combo_v3 계산 실패: {e}")
             tri_result = {}
          
-        signals = {
-            'watermelon_signal': row['Watermelon_Signal'],
-            'watermelon_red': row['Watermelon_Color'] == 'red',
-            'watermelon_green_7d': row['Green_Days_10'] >= 7,
-            'explosion_ready': (
-                row['BB40_Width'] <= 10.0 and 
-                row['OBV_Rising'] and 
-                row['MFI_Strong']
-            ),
-            'bottom_area': (
-                row['Near_MA112'] <= 5.0 and 
-                row['Below_MA112_60d'] >= 40
-            ),
-            'silent_perfect': (
-                row['ATR_Below_Days'] >= 7 and
-                row['MFI_Strong_Days'] >= 7 and
-                row['MFI'] > 50 and
-                row['MFI'] > row['MFI_10d_ago'] and
-                row['OBV_Rising'] and
-                row['Box_Range'] <= 1.15
-            ),
-            'silent_strong': (
-                row['ATR_Below_Days'] >= 5 and
-                row['MFI_Strong_Days'] >= 5 and
-                row['OBV_Rising']
-            ),
-            'yeok_break': (
-                close_p > row['MA112'] and 
-                prev['Close'] <= row['MA112']
-            ),
-            'volume_surge': row['Volume'] >= row['VMA20'] * 1.5,
-            'obv_rising': row['OBV_Rising'],
-            'mfi_strong': row['MFI_Strong'],
-            'dolbanzi': row['Dolbanzi'],
-            'dolbanzi_Trend_Group': row['Trend_Group'],
-            'dolbanzi_Count': row['Dolbanzi_Count'],
-            'viper_hook': row['Viper_Hook'],
-            'obv_bullish': row['OBV_Bullish'],
-            'Real_Viper_Hook': row['Real_Viper_Hook'],
-            'Golpagi_Trap': row['Golpagi_Trap'],
-            'jongbe_break':    row.get('Jongbe_Break', False),
-            'triangle_signal': False,
-            'triangle_apex':   None,
-            'triangle_pattern': 'None',
-            'dmi_cross': False,
-            'dmi_ok': False,
-            'MA_Convergence': row['MA_Convergence'],
-            'bb_ross': row.get('BB_Ross', False),
-            'ris_div': row.get('RSI_DIV', False),
-            'bb40_ross': row.get('BB40_Ross', False),
-            'bb40_rsi_div': row.get('BB40_RSI_DIV', False),
-            'bb40_reclaim_rsi_div': row.get('BB40_Reclaim_RSI_DIV', False),
-            'force_pullback': row.get('Force_Pullback', False),
-            'bb40_second_wave': row.get('BB40_Second_Wave', False),
-            'watermelon_relaunch': row.get('Watermelon_Relaunch', False),
-            'obv_acc_breakout': row.get('OBV_Acc_Breakout', False),
-        }
+        signals = build_default_signals(row, close_p, prev)
      
-        try:
-            if tri_result is not None:
-                signals['triangle_signal']  = tri_result['pass']
-                signals['triangle_apex']    = tri_result['apex_remain']
-                signals['triangle_pattern'] = tri_result['triangle_pattern']
-                signals['jongbe_ok']        = tri_result['jongbe']
-                signals['explosion_ready']  = signals['explosion_ready'] or tri_result['pass']
-                signals['dmi_cross'] = tri_result.get('triangle', {}).get('dmi_cross', False)
-                signals['dmi_ok'] = tri_result.get('triangle', {}).get('dmi_ok', False)
-                if signals['dmi_ok']:
-                    new_tags.append(f"✅DMI")
-                if tri_result['pass']:
-                    new_tags.append(f"🔺삼각수렴")
-                
-        except Exception as e:
-            print(f"🚨 tri_result 계산 실패: {e}")
-            tri_result = {}
+        signals, new_tags = inject_tri_result(signals, tri_result, new_tags)
          
         if row['BB_Ross']:
             new_tags.append("🔺🔺Ross쌍바닥")
@@ -2136,8 +2064,7 @@ if all_hits:
         top_k_financial=30
     )
 
-    ai_candidates = pd.DataFrame(all_hits_sorted)
-    ai_candidates = ai_candidates.sort_values(by='N점수', ascending=False)[:30].copy()
+    ai_candidates = build_and_sort_candidates(all_hits_sorted, top_k=30)
 
     print(f"🌍 시장 + 후보종목 통합 AI 브리핑 생성 중...")
     macro_briefing_result = run_macro_candidate_briefing(
@@ -2240,3 +2167,255 @@ if all_hits:
         print(f"🚨 시트 업데이트 실패: {e}")
 
     print("✅ 작전 종료: 전수 기록 완료 및 정예 15건 보고 완료!")
+
+# =============================================================
+# ✅ PATCH 1: signals 기본값 전수 정리
+# 목적: tri_result 실패 시 KeyError 방지, 누락 패턴 오탐 제거
+# =============================================================
+
+def build_default_signals(row, close_p, prev):
+    """
+    모든 signals 키를 False/None으로 초기화한 뒤 반환.
+    이후 개별 패턴 결과를 덮어씀으로써 KeyError 원천 차단.
+    """
+    return {
+        # ── 수박 계열 ──────────────────────────────────────────
+        'watermelon_signal':     row['Watermelon_Signal'],
+        'watermelon_red':        row['Watermelon_Color'] == 'red',
+        'watermelon_green_7d':   row['Green_Days_10'] >= 7,
+        'watermelon_relaunch':   row.get('Watermelon_Relaunch', False),
+
+        # ── 폭발/바닥/침묵 ────────────────────────────────────
+        'explosion_ready': (
+            row['BB40_Width'] <= 10.0 and
+            row['OBV_Rising'] and
+            row['MFI_Strong']
+        ),
+        'bottom_area': (
+            row['Near_MA112'] <= 5.0 and
+            row['Below_MA112_60d'] >= 40
+        ),
+        'silent_perfect': (
+            row['ATR_Below_Days'] >= 7 and
+            row['MFI_Strong_Days'] >= 7 and
+            row['MFI'] > 50 and
+            row['MFI'] > row['MFI_10d_ago'] and
+            row['OBV_Rising'] and
+            row['Box_Range'] <= 1.15
+        ),
+        'silent_strong': (
+            row['ATR_Below_Days'] >= 5 and
+            row['MFI_Strong_Days'] >= 5 and
+            row['OBV_Rising']
+        ),
+
+        # ── 역매공파 / 거래량 ──────────────────────────────────
+        'yeok_break': (
+            close_p > row['MA112'] and
+            prev['Close'] <= row['MA112']
+        ),
+        'volume_surge':  row['Volume'] >= row['VMA20'] * 1.5,
+        'obv_rising':    row['OBV_Rising'],
+        'mfi_strong':    row['MFI_Strong'],
+
+        # ── 돌반지 ────────────────────────────────────────────
+        'dolbanzi':            row['Dolbanzi'],
+        'dolbanzi_Trend_Group': row['Trend_Group'],
+        'dolbanzi_Count':       row['Dolbanzi_Count'],
+
+        # ── 독사 / 골파기 / 종베 ──────────────────────────────
+        'viper_hook':    row['Viper_Hook'],
+        'obv_bullish':   row['OBV_Bullish'],
+        'Real_Viper_Hook': row['Real_Viper_Hook'],
+        'Golpagi_Trap':  row['Golpagi_Trap'],
+        'jongbe_break':  row.get('Jongbe_Break', False),
+
+        # ── 삼각/종베 (tri_result 주입 전 기본값) ──────────────
+        'jongbe_ok':        False,   # ★ PATCH 1 핵심: 기본 False
+        'triangle_signal':  False,
+        'triangle_apex':    None,
+        'triangle_pattern': 'None',
+        'dmi_cross':        False,
+        'dmi_ok':           False,
+
+        # ── MA 수렴 ───────────────────────────────────────────
+        'MA_Convergence': row['MA_Convergence'],
+
+        # ── BB/RSI 계열 ───────────────────────────────────────
+        'bb_ross':               row.get('BB_Ross', False),
+        'ris_div':               row.get('RSI_DIV', False),
+        'bb40_ross':             row.get('BB40_Ross', False),
+        'bb40_rsi_div':          row.get('BB40_RSI_DIV', False),
+        'bb40_reclaim_rsi_div':  row.get('BB40_Reclaim_RSI_DIV', False),
+
+        # ── 신규 패턴 ─────────────────────────────────────────
+        'force_pullback':     row.get('Force_Pullback', False),
+        'bb40_second_wave':   row.get('BB40_Second_Wave', False),
+        'obv_acc_breakout':   row.get('OBV_Acc_Breakout', False),
+    }
+
+
+# =============================================================
+# ✅ PATCH 2: COMBO 누적 합산 (상위 3개 조합 보너스 반영)
+# 목적: 복합 패턴의 가치가 1개 조합에 묻히지 않도록
+# =============================================================
+
+def calculate_combination_score(signals):
+    effective = signals.copy()
+    if effective.get('silent_perfect'):
+        effective['silent_strong'] = True
+
+    style = effective.get('style', 'NONE')
+    W     = STYLE_WEIGHTS.get(style, STYLE_WEIGHTS['NONE'])
+
+    matched = []
+    for combo in COMBO_TABLE:
+        try:
+            if not combo['cond'](effective):
+                continue
+        except Exception:
+            continue
+
+        base_score = combo['score_fn'](effective) if 'score_fn' in combo else combo['score']
+        extra_tags = combo['tag_fn'](effective)   if 'tag_fn'  in combo else []
+
+        matched.append({
+            'score':       base_score,
+            'grade':       combo['grade'],
+            'combination': combo['combination'],
+            'tags':        combo['tags'] + extra_tags,
+            'type':        combo['type'],
+        })
+
+    if matched:
+        # ★ PATCH 2: 상위 3개 합산
+        sorted_matched = sorted(matched, key=lambda x: x['score'], reverse=True)
+        best = sorted_matched[0].copy()
+
+        # 2위(×0.3) + 3위(×0.1) 보너스
+        bonus = 0
+        bonus_tags = []
+        weights = [0.3, 0.1]
+        for m, w in zip(sorted_matched[1:3], weights):
+            bonus += int(m['score'] * w)
+            bonus_tags += m['tags']  # 2~3위 태그도 병합
+
+        best['score'] = best['score'] + bonus
+        best['tags']  = best['tags'] + bonus_tags   # 중복 제거는 표시 단계에서
+        best['combo_count'] = len(sorted_matched)   # 몇 개 조합 매칭됐는지 기록
+
+        best['score'] = _apply_style_bonus(best, style, W)
+        return best
+
+    # 기본 점수 (아무 조합도 없을 때)
+    tags, bonus = [], 0
+    if effective.get('obv_rising'):   bonus += 30; tags.append('📊OBV')
+    if effective.get('mfi_strong'):   bonus += 20; tags.append('💰MFI')
+    if effective.get('volume_surge'): bonus += 10; tags.append('⚡거래량')
+
+    return {
+        'score': 100 + bonus, 'grade': 'D',
+        'combination': '🔍기본', 'tags': tags,
+        'type': None, 'combo_count': 0
+    }
+
+
+# =============================================================
+# ✅ PATCH 3: analyze_final 내부 signals 구성 교체
+# 기존 인라인 dict → build_default_signals() 호출로 대체
+# 아래 블록을 analyze_final() 안의 signals = {...} 부분과 교체
+# =============================================================
+
+def build_signals_in_analyze_final(row, close_p, prev):
+    """
+    analyze_final() 안에서 호출.
+    기존 인라인 signals dict를 이걸로 대체.
+    """
+    signals = build_default_signals(row, close_p, prev)
+
+    # tri_result는 외부에서 주입 (아래 PATCH 3-B 참고)
+    return signals
+
+
+def inject_tri_result(signals, tri_result, new_tags):
+    """
+    PATCH 3-B: tri_result를 signals에 안전하게 주입.
+    tri_result가 {} 또는 None이어도 KeyError 없음.
+    """
+    if not tri_result:
+        return signals, new_tags
+
+    signals['triangle_signal']  = tri_result.get('pass', False)
+    signals['triangle_apex']    = tri_result.get('apex_remain', None)
+    signals['triangle_pattern'] = tri_result.get('triangle_pattern', 'None')
+    signals['jongbe_ok']        = tri_result.get('jongbe', False)       # ★ 핵심
+    signals['explosion_ready']  = signals['explosion_ready'] or tri_result.get('pass', False)
+
+    tri_inner = tri_result.get('triangle', {}) or {}
+    signals['dmi_cross'] = tri_inner.get('dmi_cross', False)
+    signals['dmi_ok']    = tri_inner.get('dmi_ok', False)
+
+    if signals['dmi_ok']:
+        new_tags.append('✅DMI')
+    if tri_result.get('pass', False):
+        new_tags.append('🔺삼각수렴')
+
+    return signals, new_tags
+
+
+# =============================================================
+# ✅ PATCH 4: 안전점수 기준 발송 정렬 통일
+# 목적: N점수로 30개 cut → 안전점수 재정렬 → 상위 15개 발송
+# 기존 main 블록의 ai_candidates 구성 부분을 아래로 교체
+# =============================================================
+
+def build_and_sort_candidates(all_hits_sorted, top_k=30):
+    """
+    PATCH 4:
+    1) N점수 기준 상위 top_k 추출  (패턴 순도 필터)
+    2) 수급/재무 후처리             (enrich_hits_with_supply_and_financial)
+    3) 안전점수 재정렬              (실전 투자 우선순위)
+    4) DataFrame 반환
+    """
+    # Step 1: N점수 상위 cut
+    n_top = sorted(all_hits_sorted, key=lambda x: x['N점수'], reverse=True)[:top_k]
+
+    # Step 2: 수급/재무 후처리
+    enriched = enrich_hits_with_supply_and_financial(
+        n_top,
+        top_k_supply=top_k,
+        top_k_financial=top_k // 3
+    )
+
+    # Step 3: 안전점수 재정렬 (★ 발송 기준)
+    enriched = sorted(enriched, key=lambda x: x.get('안전점수', 0), reverse=True)
+
+    df = pd.DataFrame(enriched)
+    return df
+
+
+# =============================================================
+# ✅ 적용 방법 요약 (main 블록 교체 가이드)
+# =============================================================
+"""
+[교체 1] analyze_final() 안의 signals = { ... } 딕셔너리 전체를:
+    signals = build_default_signals(row, close_p, prev)
+    로 교체.
+
+[교체 2] tri_result 주입 블록:
+    기존 try: signals['triangle_signal'] = ... 블록 전체를:
+    signals, new_tags = inject_tri_result(signals, tri_result, new_tags)
+    로 교체.
+
+[교체 3] main 블록의 ai_candidates 구성:
+    기존:
+        ai_candidates = pd.DataFrame(all_hits_sorted)
+        ai_candidates = ai_candidates.sort_values(by='N점수', ascending=False)[:30].copy()
+    교체:
+        ai_candidates = build_and_sort_candidates(all_hits_sorted, top_k=30)
+
+[교체 4] 텔레그램 발송:
+    기존: telegram_targets = ai_candidates[:15]  (N점수 순)
+    교체: telegram_targets = ai_candidates.head(15)  (안전점수 순, 이미 정렬됨)
+"""
+
