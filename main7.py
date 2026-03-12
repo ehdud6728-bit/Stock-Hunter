@@ -1182,7 +1182,7 @@ def run_ai_tournament(candidate_list, issues):
             "https://api.groq.com/openai/v1/chat/completions", 
             json={
                 "model": "llama-3.3-70b-versatile", 
-                "messages": [{"role":"system", "content":sys_prompt}, {"role":"user", "content":prompt_data}]
+                "messages": [{"role":"system", "content":system_prompt}, {"role":"user", "content":prompt_data}]
             },
             headers={"Authorization": f"Bearer {GROQ_API_KEY}"}
         )
