@@ -74,6 +74,218 @@ RSI_LOW_TOLERANCE   = 1.03
 
 print(f"📡 [Ver 27.1] 성능 최적화 오버홀 가동...")
 
+# ────────────────────────────────────────────────────────────────
+# ✅ NEW 1: 유가지수 추가 (WTI / 브렌트)
+# get_safe_macro() 재사용
+# ────────────────────────────────────────────────────────────────
+
+def get_oil_macro():
+    """WTI / 브렌트 유가 수집"""
+    m_wti   = get_safe_macro('CL=F',  'WTI유가')    # WTI 원유
+    m_brent = get_safe_macro('BZ=F',  '브렌트유가')  # 브렌트 원유
+    return m_wti, m_brent
+
+# main 블록에서 호출 위치 (m_fx 아래에 추가):
+# m_wti, m_brent = get_oil_macro()
+# print(f"🛢️ {m_wti['text']} | {m_brent['text']}")
+
+
+# ────────────────────────────────────────────────────────────────
+# ✅ NEW 2: 섹터 순환 탐지 시스템
+# 유가/달러/나스닥 수치 조합으로 현재 주도 섹터 판단
+# ────────────────────────────────────────────────────────────────
+
+# 섹터별 연관 지수 맵
+SECTOR_MACRO_MAP = {
+    "정유/화학": {
+        "triggers": [("oil", "up")],
+        "tickers": ["010950", "096770", "267250", "011170"],  # S-Oil, SK이노, HD현대오일뱅크, 롯데케미칼
+        "desc": "유가 상승 → 정유/화학 마진 개선"
+    },
+    "조선/해운": {
+        "triggers": [("oil", "up"), ("dollar", "up")],
+        "tickers": ["009540", "000720", "010140", "011200"],  # HD한국조선해양, 현대건설, 삼성중공업, HMM
+        "desc": "유가↑ + 달러↑ → 조선 수주 단가 상승"
+    },
+    "반도체": {
+        "triggers": [("nasdaq", "up"), ("dollar", "down")],
+        "tickers": ["005930", "000660", "042700"],  # 삼성전자, SK하이닉스, 한미반도체
+        "desc": "나스닥 강세 + 달러 약세 → 반도체 수출 유리"
+    },
+    "2차전지": {
+        "triggers": [("nasdaq", "up"), ("oil", "up")],
+        "tickers": ["373220", "051910", "006400"],  # LG에너지솔루션, LG화학, 삼성SDI
+        "desc": "유가↑ → EV 전환 가속 + 나스닥 성장주 동반"
+    },
+    "바이오": {
+        "triggers": [("vix", "down"), ("nasdaq", "up")],
+        "tickers": ["068270", "207940", "326030"],  # 셀트리온, 삼성바이오로직스, SK바이오팜
+        "desc": "VIX 안정 + 나스닥 강세 → 성장주 바이오 선호"
+    },
+    "금융/은행": {
+        "triggers": [("dollar", "up"), ("vix", "down")],
+        "tickers": ["105560", "055550", "086790"],  # KB금융, 신한지주, 하나금융지주
+        "desc": "달러 강세 + 시장 안정 → 금융주 선호"
+    },
+    "방산": {
+        "triggers": [("vix", "up"), ("dollar", "up")],
+        "tickers": ["012450", "047810", "064350"],  # 한화에어로스페이스, 한국항공우주, 현대로템
+        "desc": "지정학 리스크↑ → 방산 수혜"
+    },
+    "유틸리티/전력": {
+        "triggers": [("oil", "up"), ("vix", "up")],
+        "tickers": ["015760", "036460"],  # 한국전력, 한국가스공사
+        "desc": "유가↑ + 불안심리 → 방어주 유틸리티"
+    },
+}
+
+def detect_leading_sectors(m_ndx, m_sp5, m_vix, m_wti, m_fx):
+    """
+    매크로 지수 조합으로 현재 주도 섹터 판단.
+    각 섹터의 trigger 조건 충족 수로 순위 결정.
+    """
+    # 방향 판단
+    directions = {
+        "nasdaq": "up" if m_ndx.get("chg", 0) > 0 else "down",
+        "sp500":  "up" if m_sp5.get("chg", 0) > 0 else "down",
+        "vix":    "up" if m_vix.get("chg", 0) > 0 else "down",
+        "oil":    "up" if m_wti.get("chg", 0) > 0 else "down",
+        "dollar": "up" if m_fx.get("chg",  0) > 0 else "down",
+    }
+
+    # 변화 강도 (절대값 기준)
+    strengths = {
+        "nasdaq": abs(m_ndx.get("chg", 0)),
+        "oil":    abs(m_wti.get("chg", 0)),
+        "vix":    abs(m_vix.get("chg", 0)),
+        "dollar": abs(m_fx.get("chg",  0)),
+    }
+
+    results = []
+    for sector_name, info in SECTOR_MACRO_MAP.items():
+        match_count = sum(
+            1 for key, direction in info["triggers"]
+            if directions.get(key) == direction
+        )
+        total_triggers = len(info["triggers"])
+
+        # 강도 보너스: 트리거 지수의 변화폭이 클수록 점수 추가
+        strength_bonus = sum(
+            strengths.get(key, 0)
+            for key, _ in info["triggers"]
+            if directions.get(key) == direction
+        )
+
+        results.append({
+            "sector":    sector_name,
+            "match":     match_count,
+            "total":     total_triggers,
+            "strength":  round(strength_bonus, 2),
+            "score":     match_count * 10 + strength_bonus,
+            "tickers":   info["tickers"],
+            "desc":      info["desc"],
+        })
+
+    # 점수 내림차순 정렬
+    results = sorted(results, key=lambda x: x["score"], reverse=True)
+    return results, directions
+
+
+def format_sector_rotation_report(sector_results, directions):
+    """섹터 순환 탐지 결과 텔레그램 메시지 포맷"""
+    dir_emoji = {
+        "nasdaq": "📈" if directions["nasdaq"] == "up" else "📉",
+        "oil":    "🛢️↑" if directions["oil"] == "up" else "🛢️↓",
+        "vix":    "😱" if directions["vix"] == "up" else "😌",
+        "dollar": "💵↑" if directions["dollar"] == "up" else "💵↓",
+    }
+
+    lines = [
+        "🔄 [섹터 순환 레이더]\n",
+        f"매크로: {dir_emoji['nasdaq']}나스닥 | {dir_emoji['oil']}유가 | "
+        f"{dir_emoji['vix']}VIX | {dir_emoji['dollar']}달러\n",
+        "─────────────────────",
+    ]
+
+    for i, s in enumerate(sector_results[:5], 1):  # 상위 5개만
+        bar = "🟢" * s["match"] + "⬜" * (s["total"] - s["match"])
+        lines.append(
+            f"{i}위 [{s['sector']}] {bar}\n"
+            f"   → {s['desc']}\n"
+            f"   관련주: {', '.join(s['tickers'][:3])}"
+        )
+
+    return "\n".join(lines)
+
+
+# ────────────────────────────────────────────────────────────────
+# ✅ NEW 3: 유가 연관 섹터 AI 브리핑
+# ────────────────────────────────────────────────────────────────
+
+def get_oil_sector_briefing(m_wti, m_brent, sector_results, issues):
+    """
+    유가 수준 + 섹터 순환 분석 결과를 AI에게 전달해
+    유가 관련 종목 투자 전략 브리핑 생성
+    """
+    comments = "특이 이슈 없음"
+    if issues:
+        comments = " | ".join([i.get("comment", "") for i in issues])
+
+    top_sectors = sector_results[:3]
+    sector_text = "\n".join([
+        f"- {s['sector']}: 트리거 {s['match']}/{s['total']}개 충족 | {s['desc']}"
+        for s in top_sectors
+    ])
+
+    system_prompt = """
+너는 글로벌 매크로와 한국 주식시장의 관계를 분석하는 섹터 전략가야.
+유가, 달러, 나스닥 흐름을 보고 오늘 한국 시장에서 어떤 섹터에 집중해야 할지 판단해.
+보수적 관점 유지, 확신 없으면 관망 권고.
+"""
+
+    user_prompt = f"""
+## 현재 유가 현황
+- WTI 원유: {m_wti.get('val', 'N/A')} ({m_wti.get('chg', 0):+.2f}%) → {m_wti.get('status', '')}
+- 브렌트유: {m_brent.get('val', 'N/A')} ({m_brent.get('chg', 0):+.2f}%) → {m_brent.get('status', '')}
+
+## 섹터 순환 탐지 결과 (상위 3개)
+{sector_text}
+
+## 오늘 이슈
+{comments}
+
+---
+다음 형식으로 브리핑해줘 (반말로):
+
+🛢️ [유가 영향 분석]
+- 현재 유가 흐름이 한국 시장에 미치는 영향 2줄
+
+🏆 [오늘 주도 섹터]
+- 1순위 섹터: 이유 한 줄
+- 2순위 섹터: 이유 한 줄
+
+📋 [섹터별 전략]
+- 공략 섹터: (구체적 이유)
+- 피할 섹터: (구체적 이유)
+
+⚡ [실전 체크포인트]
+- 오늘 장중 유가/달러 관련 체크할 것 2가지
+"""
+
+    try:
+        client = OpenAI(api_key=OPENAI_API_KEY)
+        res = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user",   "content": user_prompt}
+            ],
+            temperature=0.4
+        )
+        return res.choices[0].message.content.strip()
+    except Exception as e:
+        return f"유가 섹터 브리핑 실패: {e}"
+
 # =================================================
 # ✅ FIX 1: HTTP 요청 함수에 딕셔너리 캐시 적용
 # 종목당 2번 × 550종목 = 1,100번 요청 → 중복 요청 제거
@@ -1193,7 +1405,96 @@ def run_ai_tournament(candidate_list, issues):
     except Exception as e:
         return f"토너먼트 중단: {str(e)}"
 
-def get_ai_summary_batch(stock_lines: list, issues: list = None):
+def get_ai_summary_batch(ai_candidates_df, issues=None):
+    """
+    ai_candidates DataFrame을 받아 종목별 브리핑 생성.
+    기존 stock_lines 리스트 방식 → DataFrame 직접 받는 방식으로 변경.
+    """
+    comments = "특이 이슈 없음"
+    if issues:
+        comments = " | ".join([i.get("comment", "분석 필요") for i in issues])
+
+    system_prompt = f"""
+너는 역매공파 매매법 기반의 한국 주식 전략 분석가야.
+아래 종목 데이터를 보고 각 종목에 대해 실전 투자 관점의 코멘트를 작성해.
+
+## 역매공파 핵심 원칙
+- 역배열 상태에서 MA112 돌파 시 진입
+- 이격도 98~106 구간이 안전한 매수 구간
+- 수박 신호 = OBV/MFI/매수압력 중 2개 이상 + 초록→빨강 전환
+- BB40 폭 10 이하 = 에너지 응축, 폭발 임박
+- 손절 기준: 진입가 대비 -5%
+
+## 데이터 필드 설명
+- N등급/N조합: 패턴 강도 등급
+- 이격도: 현재가/MA20×100 (98~106이 이상적)
+- BB40: 볼린저밴드40 폭 (10↓ = 응축)
+- MA수렴: MA20-MA60 수렴도 (3↓ = 강한 수렴)
+- OBV기울기: 양수=매집, 음수=분산
+- RSI: 30↓과매도, 70↑과매수
+- 수급: 🤝쌍끌>🔴기관>🔵외인
+
+## 오늘 시장 이슈
+{comments}
+
+## 작성 원칙
+- 각 종목당 3~4문장
+- 왜 눈에 띄는지 → 지금 어느 구간인지 → 진입 관점 → 주의사항 순서
+- 수치 근거 반드시 포함
+- 확신 없으면 "현재 관망 구간" 명시
+"""
+
+    # 종목 데이터 블록 구성 (지시 없이 데이터만)
+    stock_blocks = []
+    for _, item in ai_candidates_df.iterrows():
+        def si(x, d=0):
+            try: return int(float(x))
+            except: return d
+        def sf(x, d=0.0):
+            try: return float(x)
+            except: return d
+
+        block = (
+            f"[{item['종목명']}({item['code']})]"
+            f"\n  패턴: {item.get('N등급','N/A')} | {item.get('N조합','N/A')}"
+            f"\n  태그: {item.get('N구분','')}"
+            f"\n  이격:{si(item.get('이격',0))} | BB40:{sf(item.get('BB40',0)):.1f}"
+            f" | MA수렴:{sf(item.get('MA수렴',0)):.1f} | OBV:{si(item.get('OBV기울기',0))}"
+            f"\n  RSI:{si(sf(item.get('RSI',0)))} | 현재가:{si(item.get('현재가',0))}"
+            f"\n  수급:{item.get('수급','미계산')} | 재무:{item.get('재무','미계산')}"
+            f"\n  서사:{item.get('📜서사히스토리','')}"
+        )
+        stock_blocks.append(block)
+
+    user_prompt = (
+        "다음 종목들을 분석해줘. 각 종목마다 아래 형식으로 작성해 (반말로):\n\n"
+        "[종목명(코드)]\n"
+        "✅ 핵심: (왜 지금 눈에 띄는지 1줄)\n"
+        "📊 상태: (지표 기반 위치)\n"
+        "🎯 진입: (타점 or 관망)\n"
+        "⚠️ 주의: (리스크 1줄)\n\n"
+        "---\n\n"
+        + "\n\n".join(stock_blocks)
+    )
+
+    try:
+        client = OpenAI(api_key=OPENAI_API_KEY)
+        res = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user",   "content": user_prompt}
+            ],
+            max_tokens=3000,
+            temperature=0.5
+        )
+        return res.choices[0].message.content.strip()
+
+    except Exception as e:
+        print(f"[AI 배치 요약 오류] {e}")
+        return "브리핑 생성 중 오류가 발생했습니다."
+
+def get_ai_summary_batch_back(stock_lines: list, issues: list = None):
     comments = "특이 이슈 없음"
     if issues:
         comments = " | ".join([i.get("comment", "분석 필요") for i in issues])
@@ -1242,42 +1543,64 @@ def build_ai_candidates_for_macro(ai_candidates: pd.DataFrame):
     return result
 
 
-def build_macro_snapshot(m_ndx, m_sp5, m_vix, m_fx, issues):
+def build_macro_snapshot(m_ndx, m_sp5, m_vix, m_fx, m_wti, issues):
+    """
+    m_wti 추가 반영
+    """
     comments = "특이 이슈 없음"
     if issues:
         comments = " | ".join([i.get("comment", "") for i in issues])
 
     return {
         "nasdaq": {
-            "value": m_ndx.get("val"),
-            "change_pct": round(m_ndx.get("chg", 0), 2) if m_ndx.get("chg") is not None else None,
-            "status": m_ndx.get("status", "")
+            "value":      m_ndx.get("val"),
+            "change_pct": round(m_ndx.get("chg", 0), 2),
+            "status":     m_ndx.get("status", "")
         },
         "sp500": {
-            "value": m_sp5.get("val"),
-            "change_pct": round(m_sp5.get("chg", 0), 2) if m_sp5.get("chg") is not None else None,
-            "status": m_sp5.get("status", "")
+            "value":      m_sp5.get("val"),
+            "change_pct": round(m_sp5.get("chg", 0), 2),
+            "status":     m_sp5.get("status", "")
         },
         "vix": {
-            "value": m_vix.get("val"),
-            "change_pct": round(m_vix.get("chg", 0), 2) if m_vix.get("chg") is not None else None,
-            "status": m_vix.get("status", "")
+            "value":      m_vix.get("val"),
+            "change_pct": round(m_vix.get("chg", 0), 2),
+            "status":     m_vix.get("status", "")
         },
         "usdkrw": {
-            "value": m_fx.get("val"),
-            "change_pct": round(m_fx.get("chg", 0), 2) if m_fx.get("chg") is not None else None,
-            "status": m_fx.get("status", "")
+            "value":      m_fx.get("val"),
+            "change_pct": round(m_fx.get("chg", 0), 2),
+            "status":     m_fx.get("status", "")
+        },
+        # ✅ 추가
+        "wti_oil": {
+            "value":      m_wti.get("val"),
+            "change_pct": round(m_wti.get("chg", 0), 2),
+            "status":     m_wti.get("status", "")
         },
         "issues": comments
     }
 
 
-def run_macro_candidate_briefing(ai_candidates: pd.DataFrame, m_ndx, m_sp5, m_vix, m_fx, issues):
+def run_macro_candidate_briefing(
+    ai_candidates,
+    m_ndx, m_sp5, m_vix, m_fx,
+    m_wti,            # ✅ 추가
+    sector_results,   # ✅ 추가
+    issues
+):
     if ai_candidates is None or ai_candidates.empty:
         return {"error": "후보 종목 없음"}
 
-    macro_data = build_macro_snapshot(m_ndx, m_sp5, m_vix, m_fx, issues)
+    # ✅ build_macro_snapshot에 m_wti 전달
+    macro_data = build_macro_snapshot(m_ndx, m_sp5, m_vix, m_fx, m_wti, issues)
     candidate_data = build_ai_candidates_for_macro(ai_candidates.head(15))
+
+    # ✅ 섹터 순환 데이터 요약 (상위 3개만 프롬프트에 포함)
+    sector_summary = "\n".join([
+        f"- {s['sector']}: 트리거 {s['match']}/{s['total']}개 | {s['desc']}"
+        for s in sector_results[:3]
+    ]) if sector_results else "섹터 데이터 없음"
 
     prompt = f"""
 당신은 한국 주식시장 단기/스윙 트레이딩 보조 AI입니다.
@@ -1294,6 +1617,7 @@ def run_macro_candidate_briefing(ai_candidates: pd.DataFrame, m_ndx, m_sp5, m_vi
     "market_state": "Risk On | Neutral | Risk Off",
     "korea_bias": "강세 | 강보합 | 혼조 | 약세 | 약세주의",
     "trading_stance": "공격적 | 선별적 | 방어적",
+    "oil_impact": "",
     "summary": ""
   }},
   "sector_view": {{
@@ -1326,16 +1650,19 @@ def run_macro_candidate_briefing(ai_candidates: pd.DataFrame, m_ndx, m_sp5, m_vi
 
 판단 원칙:
 - VIX 상승, 나스닥 약세, S&P500 약세면 Risk Off 성향 강화
-- 환율 상승은 한국 성장주/외국인 수급에 부담 요인이 될 수 있음
-- N점수, 안전점수는 참고하되 시장 궁합을 더 중요하게 판단
-- 추격보다 실전 대응 관점으로 작성
-- candidate_ranking에는 반드시 모든 후보 종목을 포함
+- 환율 상승은 한국 성장주/외국인 수급에 부담
+- 유가 상승 시 정유/화학/조선 수혜, 2차전지/항공 부담
+- 유가 급락 시 수송/항공 수혜, 정유 마진 압박
+- N점수/안전점수는 참고, 시장 궁합을 더 중요하게 판단
+- candidate_ranking에 반드시 모든 후보 종목 포함
 - action_type은 반드시 돌파형 / 눌림목형 / 관망형 중 하나
-- summary는 2~4문장
-- today_checkpoints는 장중 체크할 핵심 3개
+- oil_impact는 유가 흐름이 오늘 한국 시장에 미치는 영향 1줄
 
 글로벌 시장 데이터:
 {json.dumps(macro_data, ensure_ascii=False, indent=2)}
+
+섹터 순환 탐지 결과:
+{sector_summary}
 
 후보 종목 데이터:
 {json.dumps(candidate_data, ensure_ascii=False, indent=2)}
@@ -1346,8 +1673,14 @@ def run_macro_candidate_briefing(ai_candidates: pd.DataFrame, m_ndx, m_sp5, m_vi
         res = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-        {"role": "system", "content": MACRO_SYSTEM_PROMPT_IMPROVED},
-        {"role": "user",   "content": prompt}   # 기존 user prompt 유지
+                {
+                    "role": "system",
+                    "content": "너는 보수적이고 실전적인 한국 주식 트레이딩 보조 AI다."
+                },
+                {
+                    "role": "user",
+                    "content": prompt
+                }
             ],
             temperature=0.3
         )
@@ -1357,16 +1690,15 @@ def run_macro_candidate_briefing(ai_candidates: pd.DataFrame, m_ndx, m_sp5, m_vi
         try:
             return json.loads(text)
         except Exception:
-            return {
-                "error": "JSON 파싱 실패",
-                "raw_response": text
-            }
+            return {"error": "JSON 파싱 실패", "raw_response": text}
 
     except Exception as e:
-        return {
-            "error": f"OpenAI 호출 실패: {str(e)}"
-        }
+        return {"error": f"OpenAI 호출 실패: {str(e)}"}
 
+
+# ================================================================
+# ✅ format_macro_briefing_for_telegram() 도 oil_impact 추가
+# ================================================================
 
 def format_macro_briefing_for_telegram(result):
     if "error" in result:
@@ -1384,6 +1716,7 @@ def format_macro_briefing_for_telegram(result):
         f"- 상태: {mb.get('market_state','')}\n"
         f"- 한국장: {mb.get('korea_bias','')}\n"
         f"- 태도: {mb.get('trading_stance','')}\n"
+        f"- 🛢️ 유가영향: {mb.get('oil_impact','')}\n"   # ✅ 추가
         f"- 유리섹터: {', '.join(sv.get('favorable_sectors', []))}\n"
         f"- 불리섹터: {', '.join(sv.get('unfavorable_sectors', []))}\n"
         f"- 최우선: {tp.get('name','')}({tp.get('code','')}) / {tp.get('reason','')}\n"
@@ -2507,6 +2840,8 @@ if __name__ == "__main__":
     m_sp5 = get_safe_macro('^GSPC', 'S&P500')
     m_vix = get_safe_macro('^VIX', 'VIX공포')
     m_fx  = get_safe_macro('USD/KRW', '달러환율')
+    m_wti, m_brent = get_oil_macro()
+    print(f"🛢️ {m_wti['text']} | {m_brent['text']}")
     macro_status = {'nasdaq': m_ndx, 'sp500': m_sp5, 'vix': m_vix, 'fx': m_fx, 'kospi': {get_index_investor_data('KOSPI')}}
 
     print("\n" + "🌍 " * 5 + "[ 글로벌 사령부 통합 관제 센터 ]" + " 🌍" * 5)
@@ -2515,9 +2850,17 @@ if __name__ == "__main__":
     print("=" * 115)
     
     imgs = [create_index_chart('KS11', 'KOSPI'), create_index_chart('IXIC', 'NASDAQ')]
+    
+    sector_results, directions = detect_leading_sectors(
+        m_ndx, m_sp5, m_vix, m_wti, m_fx
+    )
+    sector_report = format_sector_rotation_report(sector_results, directions)
+    print(sector_report)
+    
     issues = analyze_market_issues()
     briefing = get_market_briefing(issues)
-    
+    oil_briefing = get_oil_sector_briefing(m_wti, m_brent, sector_results, issues)
+
     df_clean = df_krx[df_krx['Market'].isin(['KOSPI', 'KOSDAQ','코스닥','유가'])]
     df_clean['Name'] = df_clean['Name'].astype(str)
     df_clean = df_clean[~df_clean['Name'].str.contains('ETF|ETN|스팩|제[0-9]+호|우$|우A|우B|우C')]
@@ -2557,10 +2900,9 @@ if all_hits:
     print(f"🌍 시장 + 후보종목 통합 AI 브리핑 생성 중...")
     macro_briefing_result = run_macro_candidate_briefing(
         ai_candidates=ai_candidates,
-        m_ndx=m_ndx,
-        m_sp5=m_sp5,
-        m_vix=m_vix,
-        m_fx=m_fx,
+        m_ndx=m_ndx, m_sp5=m_sp5, m_vix=m_vix, m_fx=m_fx,
+        m_wti=m_wti,           ← 추가
+        sector_results=sector_results,  ← 추가
         issues=issues
     )
 
@@ -2588,29 +2930,9 @@ if all_hits:
         try: return float(x)
         except: return default
     
-    for _, item in ai_candidates.iterrows():
-        line = (
-            f"{item['종목명']}({item['code']}): {item['구분']}, "
-            f"수급:{item['수급']}, N구분:{item['N구분']}, "
-            f"이격:{safe_int(item['이격'])}, "
-            f"BB40:{safe_float(item['BB40']):.1f}, "
-            f"MA수렴:{safe_float(item['MA수렴']):.1f}, "
-            f"OBV기울기:{safe_int(item['OBV기울기'])}, "
-            f"RSI:{safe_int(max(0, safe_float(item['RSI'])))}"
-            f"이 종목({item['종목명']}, {item['code']})에 대해 투자 전략 관점에서 "
-            f"3~5문장 정도로 고급 코멘트를 만들어주세요. "
-            f"읽는 사람이 바로 이해할 수 있는 스토리텔링 형식으로 작성."
-        )
-        lines.append(line)
-    
-    ai_result_text = get_ai_summary_batch(lines, issues)
+    get_ai_summary_batch(ai_candidates, issues)  ← DF 직접 전달
     ai_map = {}
-   
-    for line in ai_result_text.splitlines():
-        if ":" in line:
-            key, val = line.split(":", 1)
-            ai_map[key.strip()] = val.strip()
-    
+       
     for idx, item in ai_candidates.iterrows():
         key = f"{item['종목명']}({item['code']})"
         ai_candidates.loc[idx, "ai_tip"] = ai_map.get(key, "")
@@ -2618,7 +2940,13 @@ if all_hits:
     telegram_targets = ai_candidates[:15]
     
     MAX_CHAR = 3800
-    current_msg = f"{briefing}\n\n{macro_briefing_text}\n\n📢 [오늘의 실시간 TOP 15]\n\n"
+    current_msg = (
+        f"{briefing}\\n\\n"
+        f"{sector_report}\\n\\n"      ← 섹터 순환
+        f"{oil_briefing}\\n\\n"       ← 유가 브리핑
+        f"{macro_briefing_text}\\n\\n"
+        f"📢 [오늘의 실시간 TOP 15]\\n\\n"
+    )
     
     for _, item in telegram_targets.iterrows():
         entry = (f"⭐{item['N등급']} | {item['👑등급']}점 [{item['종목명']}]\n"
