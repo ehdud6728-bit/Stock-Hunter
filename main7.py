@@ -3004,7 +3004,7 @@ if all_hits:
         try: return float(x)
         except: return default
     
-    get_ai_summary_batch(ai_candidates, issues)  ← DF 직접 전달
+    get_ai_summary_batch(ai_candidates, issues)
     ai_map = {}
        
     for idx, item in ai_candidates.iterrows():
