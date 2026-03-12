@@ -1588,7 +1588,7 @@ def get_ai_summary_batch_back(stock_lines: list, issues: list = None):
         model="gpt-4o",
         messages=[
             {"role": "system", "content": system_prompt},
-            {"role": "user",   "content": f"다음 종목들을 분석해줘:\\n\\n{stock_text}"}
+            {"role": "user",   "content": f"다음 종목들을 분석해줘:\n\n{stock_text}"}
         ],
         max_tokens=3000,
         temperature=0.5)   # 0.7 → 0.5로 낮춰 일관성 향상
@@ -3004,22 +3004,42 @@ if all_hits:
         try: return float(x)
         except: return default
     
-    get_ai_summary_batch(ai_candidates, issues)
+    ai_result_text = get_ai_summary_batch(ai_candidates, issues)
+
+    # ✅ 파싱 복구
     ai_map = {}
-       
+    current_key = None
+    current_lines = []
+    
+    for line in ai_result_text.splitlines():
+        # [종목명(코드)] 형식 감지
+        if line.startswith("[") and "(" in line and line.endswith("]"):
+            # 이전 종목 저장
+            if current_key and current_lines:
+                ai_map[current_key] = "\n".join(current_lines).strip()
+            current_key = line[1:-1]  # [ ] 제거
+            current_lines = []
+        elif current_key:
+            current_lines.append(line)
+    
+    # 마지막 종목 저장
+    if current_key and current_lines:
+        ai_map[current_key] = "\n".join(current_lines).strip()
+    
+    # ✅ ai_tip 주입
     for idx, item in ai_candidates.iterrows():
         key = f"{item['종목명']}({item['code']})"
-        ai_candidates.loc[idx, "ai_tip"] = ai_map.get(key, "")
+        ai_candidates.loc[idx, "ai_tip"] = ai_map.get(key, "브리핑 생성 실패")
     
-    telegram_targets = ai_candidates[:15]
+    telegram_targets = ai_candidates.head(15)
     
     MAX_CHAR = 3800
     current_msg = (
-        f"{briefing}\\n\\n"
-        f"{sector_report}\\n\\n"      
-        f"{oil_briefing}\\n\\n"       
-        f"{macro_briefing_text}\\n\\n"
-        f"📢 [오늘의 실시간 TOP 15]\\n\\n"
+        f"{briefing}\n\n"
+        f"{sector_report}\n\n"      
+        f"{oil_briefing}\n\n"       
+        f"{macro_briefing_text}\n\n"
+        f"📢 [오늘의 실시간 TOP 15]\n\n"
     )
     
     for _, item in telegram_targets.iterrows():
