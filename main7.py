@@ -3036,8 +3036,8 @@ if __name__ == "__main__":
         target_dict, weather_data, global_env, leader_env, sector_master_map
     )
         
-if all_hits:
-    all_hits_sorted = sorted(all_hits, key=lambda x: x['N점수'], reverse=True)
+    if all_hits:
+        all_hits_sorted = sorted(all_hits, key=lambda x: x['N점수'], reverse=True)
 
     print(f"⚙️ 상위 후보 수급/재무 후처리 중...")
     all_hits_sorted = enrich_hits_with_supply_and_financial(
