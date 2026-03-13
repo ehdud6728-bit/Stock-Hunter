@@ -41,6 +41,16 @@ from news_event_engine import (
     apply_news_theme_bonus,
     format_news_theme_for_telegram,
 )
+
+from us_kor_market_mapper import (
+    fetch_us_market_snapshot,
+    infer_kor_themes_rule_based,
+    analyze_us_to_kor_with_gpt,
+    merge_rule_and_gpt_us_mapping,
+    apply_us_theme_bonus,
+    format_us_mapping_for_telegram,
+)
+
 # =================================================
 # ⚙️ [1. 필수 설정]
 # =================================================
