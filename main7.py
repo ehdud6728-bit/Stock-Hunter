@@ -2985,16 +2985,12 @@ if __name__ == "__main__":
 
     # ✅ 룰베이스 뉴스 분석
     rule_news_result = analyze_news_rule_based(market_news_titles)
-print("✅ 룰베이스 테마:", rule_news_result)
+    print("✅ 룰베이스 테마:", rule_news_result)
 
     # ✅ GPT 뉴스 분석
-    news_theme_analysis = analyze_news_to_korea_theme(
-    market_news_titles,
-    OPENAI_API_KEY
-    )
-
+    news_theme_analysis = analyze_news_to_korea_theme(market_news_titles, OPENAI_API_KEY)
     news_theme_text = format_news_theme_for_telegram(news_theme_analysis)
-print(news_theme_text)
+    print(news_theme_text)
 
     # ✅ 미국시장 → 한국종목 연결 엔진
     us_snapshot = fetch_us_market_snapshot()
