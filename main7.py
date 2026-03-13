@@ -33,6 +33,7 @@ import io
 import warnings
 warnings.filterwarnings('ignore', category=FutureWarning)
 
+from news_keyword_engine import analyze_news_rule_based
 from news_event_engine import (
     collect_market_news,
     flatten_news_titles,
@@ -2962,7 +2963,9 @@ if __name__ == "__main__":
     print(sector_report)
     
     issues = analyze_market_issues()
-	   # 1) 뉴스 수집
+    briefing = get_market_briefing(issues)
+
+    # ✅ 뉴스 수집
     market_news_map = collect_market_news()
     market_news_titles = flatten_news_titles(market_news_map, max_items=18)
 
@@ -2970,16 +2973,20 @@ if __name__ == "__main__":
     for x in market_news_titles[:10]:
         print("-", x)
 
-    # 2) 뉴스 -> 한국 테마/종목 연결형 분석
+    # ✅ 룰베이스 뉴스 분석
+    rule_news_result = analyze_news_rule_based(market_news_titles)
+print("✅ 룰베이스 테마:", rule_news_result)
+
+    # ✅ GPT 뉴스 분석
     news_theme_analysis = analyze_news_to_korea_theme(
     market_news_titles,
     OPENAI_API_KEY
 )
 
     news_theme_text = format_news_theme_for_telegram(news_theme_analysis)
-    print(news_theme_text)
+print(news_theme_text)
 
-    briefing = get_market_briefing(issues)
+
     oil_briefing = get_oil_sector_briefing(m_wti, m_brent, sector_results, issues)
 
     df_clean = df_krx[df_krx['Market'].isin(['KOSPI', 'KOSDAQ','코스닥','유가'])]
