@@ -34,7 +34,6 @@ from main7 import (
 
     # AI 브리핑
     get_ai_summary_batch,
-    parse_ai_summary_to_map,
     run_ai_tournament,
 
     # 구글시트
@@ -399,25 +398,44 @@ if __name__ == "__main__":
         # AI 코멘트 (main7 함수 재사용)
         print("🧠 AI 코멘트 생성 중...")
         ai_result_text = get_ai_summary_batch(ai_candidates, issues=None)
-        ai_map = parse_ai_summary_to_map(ai_result_text)
-
+        # ✅ 파싱 복구
+        ai_map = {}
+        current_key = None
+        current_lines = []
+        
+        for line in ai_result_text.splitlines():
+            # [종목명(코드)] 형식 감지
+            if line.startswith("[") and "(" in line and line.endswith("]"):
+                # 이전 종목 저장
+                if current_key and current_lines:
+                    ai_map[current_key] = "\n".join(current_lines).strip()
+                current_key = line[1:-1]  # [ ] 제거
+                current_lines = []
+            elif current_key:
+                current_lines.append(line)
+        
+        # 마지막 종목 저장
+        if current_key and current_lines:
+            ai_map[current_key] = "\n".join(current_lines).strip()
+        
+        # ✅ ai_tip 주입
         for idx, item in ai_candidates.iterrows():
             key = f"{item['종목명']}({item['code']})"
-            ai_candidates.loc[idx, 'ai_tip'] = ai_map.get(key, '')
-
-        # 텔레그램 발송
-        MAX_CHAR = 3800
-        current_msg = f"🇺🇸 [미국주식 수박신호 TOP {min(10, len(us_hits))}]\n\n"
-
-        for _, item in ai_candidates.head(10).iterrows():
-            entry = format_us_entry(item)
-            entry += f"💡 {item.get('ai_tip', '분석전')}\n----------------------------\n"
-
-            if len(current_msg) + len(entry) > MAX_CHAR:
-                send_telegram_photo(current_msg, [])
-                current_msg = "🇺🇸 [미국주식 - 이어서]\n\n" + entry
-            else:
-                current_msg += entry
+            ai_candidates.loc[idx, "ai_tip"] = ai_map.get(key, "브리핑 생성 실패")
+    
+            # 텔레그램 발송
+            MAX_CHAR = 3800
+            current_msg = f"🇺🇸 [미국주식 수박신호 TOP {min(10, len(us_hits))}]\n\n"
+    
+            for _, item in ai_candidates.head(10).iterrows():
+                entry = format_us_entry(item)
+                entry += f"💡 {item.get('ai_tip', '분석전')}\n----------------------------\n"
+    
+                if len(current_msg) + len(entry) > MAX_CHAR:
+                    send_telegram_photo(current_msg, [])
+                    current_msg = "🇺🇸 [미국주식 - 이어서]\n\n" + entry
+                else:
+                    current_msg += entry
 
         send_telegram_photo(current_msg, [])
 
