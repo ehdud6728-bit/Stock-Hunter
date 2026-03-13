@@ -2996,6 +2996,14 @@ print("✅ 룰베이스 테마:", rule_news_result)
     news_theme_text = format_news_theme_for_telegram(news_theme_analysis)
 print(news_theme_text)
 
+    # ✅ 미국시장 → 한국종목 연결 엔진
+    us_snapshot = fetch_us_market_snapshot()
+    us_rule_events = infer_kor_themes_rule_based(us_snapshot)
+    us_gpt_result = analyze_us_to_kor_with_gpt(us_snapshot, OPENAI_API_KEY)
+    us_merged_events = merge_rule_and_gpt_us_mapping(us_rule_events, us_gpt_result)
+    us_mapping_text = format_us_mapping_for_telegram(us_gpt_result, us_merged_events)
+
+    print(us_mapping_text)
 
     oil_briefing = get_oil_sector_briefing(m_wti, m_brent, sector_results, issues)
 
@@ -3030,6 +3038,8 @@ if all_hits:
     ai_candidates = build_and_sort_candidates(all_hits_sorted, top_k=30)
     # 3) 뉴스 테마 보너스 적용
     ai_candidates = apply_news_theme_bonus(ai_candidates, news_theme_analysis)
+    ai_candidates = apply_us_theme_bonus(ai_candidates, us_merged_events)
+
     print(f"🌍 시장 + 후보종목 통합 AI 브리핑 생성 중...")
     macro_briefing_result = run_macro_candidate_briefing(
         ai_candidates=ai_candidates,
@@ -3100,7 +3110,8 @@ if all_hits:
         f"{briefing}\n\n"
         f"{sector_report}\n\n"      
         f"{oil_briefing}\n\n"
-        f"{news_theme_text}\n\n"       
+        f"{news_theme_text}\n\n"
+        f"{us_mapping_text}\n\n"
         f"{macro_briefing_text}\n\n"
         f"📢 [오늘의 실시간 TOP 15]\n\n"
     )
