@@ -2991,7 +2991,7 @@ print("✅ 룰베이스 테마:", rule_news_result)
     news_theme_analysis = analyze_news_to_korea_theme(
     market_news_titles,
     OPENAI_API_KEY
-)
+    )
 
     news_theme_text = format_news_theme_for_telegram(news_theme_analysis)
 print(news_theme_text)
