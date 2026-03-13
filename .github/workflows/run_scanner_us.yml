@@ -40,7 +40,7 @@ jobs:
           pip install gspread gspread-formatting gspread-dataframe google-auth oauth2client
           pip install -r requirements.txt
 
-      - name: Run Scanner
+      - name: Run Scanner US
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
