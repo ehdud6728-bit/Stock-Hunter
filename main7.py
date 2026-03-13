@@ -33,6 +33,13 @@ import io
 import warnings
 warnings.filterwarnings('ignore', category=FutureWarning)
 
+from news_event_engine import (
+    collect_market_news,
+    flatten_news_titles,
+    analyze_news_to_korea_theme,
+    apply_news_theme_bonus,
+    format_news_theme_for_telegram,
+)
 # =================================================
 # ⚙️ [1. 필수 설정]
 # =================================================
@@ -2955,6 +2962,23 @@ if __name__ == "__main__":
     print(sector_report)
     
     issues = analyze_market_issues()
+	   # 1) 뉴스 수집
+    market_news_map = collect_market_news()
+    market_news_titles = flatten_news_titles(market_news_map, max_items=18)
+
+    print("📰 수집된 뉴스 헤드라인")
+    for x in market_news_titles[:10]:
+        print("-", x)
+
+    # 2) 뉴스 -> 한국 테마/종목 연결형 분석
+    news_theme_analysis = analyze_news_to_korea_theme(
+    market_news_titles,
+    OPENAI_API_KEY
+)
+
+    news_theme_text = format_news_theme_for_telegram(news_theme_analysis)
+    print(news_theme_text)
+
     briefing = get_market_briefing(issues)
     oil_briefing = get_oil_sector_briefing(m_wti, m_brent, sector_results, issues)
 
@@ -2987,7 +3011,8 @@ if all_hits:
     )
 
     ai_candidates = build_and_sort_candidates(all_hits_sorted, top_k=30)
-
+    # 3) 뉴스 테마 보너스 적용
+    ai_candidates = apply_news_theme_bonus(ai_candidates, news_theme_analysis)
     print(f"🌍 시장 + 후보종목 통합 AI 브리핑 생성 중...")
     macro_briefing_result = run_macro_candidate_briefing(
         ai_candidates=ai_candidates,
@@ -3057,7 +3082,8 @@ if all_hits:
     current_msg = (
         f"{briefing}\n\n"
         f"{sector_report}\n\n"      
-        f"{oil_briefing}\n\n"       
+        f"{oil_briefing}\n\n"
+        f"{news_theme_text}\n\n"       
         f"{macro_briefing_text}\n\n"
         f"📢 [오늘의 실시간 TOP 15]\n\n"
     )
