@@ -379,14 +379,10 @@ if __name__ == "__main__":
     # 기상 데이터 (main7 함수 재사용)
     weather_data = prepare_historical_weather()
 
-    # 나스닥100만
-    #us_hits = run_us_scanner(weather_data, mode='nasdaq100')
-    
-    # S&P500 전체
-    #us_hits = run_us_scanner(weather_data, mode='sp500')
-    
-    # 시총 500억달러 이상 전체
-    us_hits = load_us_tickers(weather_data, mode='all', min_marcap_b=50)
+    # 교체 (원하는 모드 선택)
+    #tickers = load_us_tickers(mode='nasdaq100')          # 나스닥100
+    #tickers = load_us_tickers(mode='sp500')              # S&P500 500개
+    tickers = load_us_tickers(mode='all', min_marcap_b=50)  # 시총 500억달러 이상 전체
     
     if not us_hits:
         print("❌ 포착된 미국주식 없음")
