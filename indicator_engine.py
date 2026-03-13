@@ -15,17 +15,12 @@ import pytz
 from tactics_engine import get_global_and_leader_status, analyze_all_narratives, get_dynamic_sector_leaders, calculate_dante_symmetry, watermelon_indicator_complete, judge_yeok_break_sequence_v2
 from triangle_combo_analyzer import jongbe_triangle_combo_v3
 import traceback
-from news_sentiment import get_news_sentiment
 from pykrx import stock
 import pandas as pd
 from datetime import datetime
 from auto_theme_news import analyze_market_issues
 from functools import lru_cache  # ✅ FIX 1: 캐시용
-from Watermelonchart import create_watermelon_charts_for_hits
-try: from openai import OpenAI
-except: OpenAI = None
 
-from google_sheet_manager import update_google_sheet, update_ai_briefing_sheet
 import io
 import warnings
 warnings.filterwarnings('ignore', category=FutureWarning)
