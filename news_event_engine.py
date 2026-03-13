@@ -119,8 +119,19 @@ def analyze_news_to_korea_theme(news_titles, openai_api_key: str):
     )
 
     text = res.choices[0].message.content.strip()
-    return json.loads(text)
+    # 1. 마크다운 코드 블록 제거 (LLM이 ```json ... ``` 이렇게 보낼 때 대비)
+    clean_text = re.sub(r'```json|```', '', text).strip()
 
+    if not clean_text:
+        print("⚠️ API 응답이 비어있습니다.")
+        return [] # 혹은 적절한 기본값
+
+    try:
+        return json.loads(clean_text)
+    except json.JSONDecodeError as e:
+        print(f"❌ JSON 파싱 실패! 응답 내용: {response_text}")
+        # 파싱 실패 시 빈 리스트나 에러를 담은 객체 반환
+        return []
 
 def apply_news_theme_bonus(candidates_df, news_analysis):
     if candidates_df is None or candidates_df.empty:
