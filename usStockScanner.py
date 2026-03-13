@@ -262,7 +262,11 @@ def analyze_final_us(ticker, historical_indices):
 
 def run_us_scanner(weather_data, mode='nasdaq100', min_marcap_b=10):
     # ✅ 변경 1: 하드코딩 대신 동적 로딩
-    tickers = load_us_tickers(mode=mode, min_marcap_b=min_marcap_b)
+    #tickers = load_us_tickers(mode=mode, min_marcap_b=min_marcap_b)
+    # 교체 (원하는 모드 선택)
+    #tickers = load_us_tickers(mode='nasdaq100')          # 나스닥100
+    #tickers = load_us_tickers(mode='sp500')              # S&P500 500개
+    tickers = load_us_tickers(mode='all', min_marcap_b=50)  # 시총 500억달러 이상 전체
     
     print(f"🇺🇸 미국주식 스캔 시작: {len(tickers)}개 종목")
     all_hits = []
@@ -318,10 +322,7 @@ if __name__ == "__main__":
     # 기상 데이터 (main7 함수 재사용)
     weather_data = prepare_historical_weather()
 
-    # 교체 (원하는 모드 선택)
-    #tickers = load_us_tickers(mode='nasdaq100')          # 나스닥100
-    #tickers = load_us_tickers(mode='sp500')              # S&P500 500개
-    tickers = load_us_tickers(mode='all', min_marcap_b=50)  # 시총 500억달러 이상 전체
+    us_hits = run_us_scanner(weather_data)
     
     if not us_hits:
         print("❌ 포착된 미국주식 없음")
