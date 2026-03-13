@@ -255,67 +255,6 @@ def analyze_final_us(ticker, historical_indices):
         import traceback
         print(f"🚨 {ticker} 오류: {traceback.format_exc()}")
         return []
-
-# ────────────────────────────────────────────────────────────────
-# ✅ 통합 로더 (우선순위 자동 fallback)
-# ────────────────────────────────────────────────────────────────
- 
-def load_us_tickers(
-    mode='nasdaq100',       # 'nasdaq100' / 'sp500' / 'all'
-    min_marcap_b=10,        # 최소 시가총액 (단위: 십억달러), all 모드에서만 사용
-    max_count=None,         # 최대 종목 수 제한 (None = 전체)
-):
-    """
-    미국주식 종목 리스트 동적 로딩
-    
-    mode:
-      'nasdaq100' → 나스닥100 구성 종목
-      'sp500'     → S&P500 구성 종목
-      'all'       → 나스닥+NYSE 전체 (시가총액 필터 적용)
-    
-    반환: 티커 리스트
-    """
-    tickers = []
- 
-    if mode == 'nasdaq100':
-        # 1순위: Wikipedia
-        tickers = get_nasdaq100_wikipedia()
-        # 2순위: FDR
-        if not tickers:
-            tickers = get_nasdaq100_fdr()
-        # 3순위: 하드코딩
-        if not tickers:
-            tickers = NASDAQ_100_FALLBACK
-            print("⚠️ fallback 사용: 하드코딩 나스닥100")
- 
-    elif mode == 'sp500':
-        # 1순위: Wikipedia
-        tickers = get_sp500_wikipedia()
-        # 2순위: FDR
-        if not tickers:
-            tickers = get_nasdaq100_fdr()
-        if not tickers:
-            tickers = NASDAQ_100_FALLBACK
- 
-    elif mode == 'all':
-        min_marcap = min_marcap_b * 1_000_000_000
-        tickers = get_nyse_nasdaq_all_fdr(min_marcap=min_marcap)
-        if not tickers:
-            tickers = NASDAQ_100_FALLBACK
- 
-    # ETF / 특수문자 제거
-    tickers = [
-        t for t in tickers
-        if isinstance(t, str) and t.strip()
-        and not any(c in t for c in ['^', '.', '/', ' '])
-    ]
- 
-    # 최대 수 제한
-    if max_count:
-        tickers = tickers[:max_count]
- 
-    print(f"✅ 최종 스캔 대상: {len(tickers)}개 ({mode})")
-    return tickers
     
 # ────────────────────────────────────────────────────────────────
 # ✅ 스캔 실행
