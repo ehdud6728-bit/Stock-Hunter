@@ -5,7 +5,7 @@ import matplotlib.dates as mdates
 import numpy as np
 import FinanceDataReader as fdr
 from datetime import datetime, timedelta
-from main7 import get_indicators
+from indicator_engine import get_indicators
 
 # ================================================================
 # ✅ 수박지표 차트 시각화
