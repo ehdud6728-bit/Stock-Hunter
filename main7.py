@@ -1363,7 +1363,14 @@ def check_institutional_bottom(row):
 # ---------------------------------------------------------
 # 🏛️ [4-1] 역사적 지수 데이터 (캐시 적용)
 # ---------------------------------------------------------
-_weather_cache = {}  # ✅ FIX 6: 매 실행마다 재다운로드 방지
+_weather_cache = {}
+
+def _clean_unique_index(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+    df.index = pd.to_datetime(df.index)
+    df = df.sort_index()
+    df = df[~df.index.duplicated(keep='last')]
+    return df
 
 def prepare_historical_weather():
     cache_key = datetime.now().strftime('%Y-%m-%d')
@@ -1372,21 +1379,29 @@ def prepare_historical_weather():
         return _weather_cache[cache_key]
 
     start_point = (datetime.now() - timedelta(days=600)).strftime('%Y-%m-%d')
-    
+
     ndx = fdr.DataReader('^IXIC', start=start_point)[['Close']]
     sp5 = fdr.DataReader('^GSPC', start=start_point)[['Close']]
     vix = fdr.DataReader('^VIX', start=start_point)[['Close']]
-    
-    ndx['ixic_ma5']   = ndx['Close'].rolling(5).mean()
-    sp5['sp500_ma5']  = sp5['Close'].rolling(5).mean()
-    vix['vix_ma5']    = vix['Close'].rolling(5).mean()
-    
-    weather_df = pd.concat([
-        ndx.rename(columns={'Close': 'ixic_close'}),
-        sp5.rename(columns={'Close': 'sp500_close'}),
-        vix.rename(columns={'Close': 'vix_close'})
-    ], axis=1).fillna(method='ffill')
-    
+
+    # ✅ 인덱스 정리
+    ndx = _clean_unique_index(ndx)
+    sp5 = _clean_unique_index(sp5)
+    vix = _clean_unique_index(vix)
+
+    # ✅ 컬럼명 먼저 변경
+    ndx = ndx.rename(columns={'Close': 'ixic_close'})
+    sp5 = sp5.rename(columns={'Close': 'sp500_close'})
+    vix = vix.rename(columns={'Close': 'vix_close'})
+
+    # ✅ 이동평균 계산
+    ndx['ixic_ma5'] = ndx['ixic_close'].rolling(5).mean()
+    sp5['sp500_ma5'] = sp5['sp500_close'].rolling(5).mean()
+    vix['vix_ma5'] = vix['vix_close'].rolling(5).mean()
+
+    # ✅ concat
+    weather_df = pd.concat([ndx, sp5, vix], axis=1).ffill()
+
     _weather_cache[cache_key] = weather_df
     return weather_df
 
