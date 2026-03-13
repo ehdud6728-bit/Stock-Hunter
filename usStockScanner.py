@@ -386,7 +386,7 @@ if __name__ == "__main__":
     #us_hits = run_us_scanner(weather_data, mode='sp500')
     
     # 시총 500억달러 이상 전체
-    us_hits = run_us_scanner(weather_data, mode='all', min_marcap_b=50)
+    us_hits = load_us_tickers(weather_data, mode='all', min_marcap_b=50)
     
     if not us_hits:
         print("❌ 포착된 미국주식 없음")
