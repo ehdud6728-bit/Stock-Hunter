@@ -1,10 +1,8 @@
-
 import re
-import time
 import json
-from typing import List, Dict, Tuple
-
+import time
 import feedparser
+import pandas as pd
 from openai import OpenAI
 
 
@@ -22,7 +20,7 @@ def _clean_title(title: str) -> str:
     return title
 
 
-def fetch_rss_titles(url: str, limit: int = 8) -> List[Dict]:
+def fetch_rss_titles(url: str, limit: int = 8):
     feed = feedparser.parse(url)
     items = []
 
@@ -43,7 +41,7 @@ def fetch_rss_titles(url: str, limit: int = 8) -> List[Dict]:
     return items
 
 
-def collect_market_news() -> Dict[str, List[Dict]]:
+def collect_market_news():
     result = {}
     for key, url in NEWS_FEEDS.items():
         try:
@@ -54,11 +52,11 @@ def collect_market_news() -> Dict[str, List[Dict]]:
     return result
 
 
-def flatten_news_titles(news_map: Dict[str, List[Dict]], max_items: int = 20) -> List[str]:
+def flatten_news_titles(news_map, max_items: int = 20):
     seen = set()
     merged = []
 
-    for source_name, items in news_map.items():
+    for _, items in news_map.items():
         for item in items:
             title = item["title"]
             norm = title.lower().strip()
@@ -69,7 +67,8 @@ def flatten_news_titles(news_map: Dict[str, List[Dict]], max_items: int = 20) ->
 
     return merged[:max_items]
 
-def analyze_news_to_korea_theme(news_titles: List[str], openai_api_key: str) -> Dict:
+
+def analyze_news_to_korea_theme(news_titles, openai_api_key: str):
     client = OpenAI(api_key=openai_api_key)
 
     news_text = "\n".join(f"- {x}" for x in news_titles[:20])
@@ -84,17 +83,11 @@ def analyze_news_to_korea_theme(news_titles: List[str], openai_api_key: str) -> 
 3. 대장주 / 후발주 / 연동주를 구분.
 4. 과거 유사 이슈 때 자주 움직였던 종목군을 우선 제시.
 5. 실전 체크포인트를 제시.
-6. 모호하면 가장 가능성 높은 한국 테마주 연결로 추론.
-7. JSON으로만 답변.
+6. JSON으로만 답변.
 """
 
     user_prompt = f"""
 다음 뉴스들을 바탕으로 오늘 한국 증시에서 실제로 움직일 가능성이 높은 테마와 종목을 분석해줘.
-
-원하는 스타일 예시:
-"유가 상승 주의"가 아니라
-"유가 이슈면 흥구석유를 먼저 보고, 전쟁/물류 차질이 붙으면 흥아해운까지 같이 보는 게 좋다"
-같은 식으로 답해야 한다.
 
 반드시 아래 JSON 형식으로만 답해라:
 
@@ -128,7 +121,8 @@ def analyze_news_to_korea_theme(news_titles: List[str], openai_api_key: str) -> 
     text = res.choices[0].message.content.strip()
     return json.loads(text)
 
-def apply_news_theme_bonus(candidates_df, news_analysis: Dict):
+
+def apply_news_theme_bonus(candidates_df, news_analysis):
     if candidates_df is None or candidates_df.empty:
         return candidates_df
 
@@ -162,7 +156,7 @@ def apply_news_theme_bonus(candidates_df, news_analysis: Dict):
             elif info["bucket"] == "followers":
                 bonus = 25
             else:
-                bonus = 15
+                bonus = 10
 
             df.at[idx, "뉴스보너스"] = bonus
             df.at[idx, "뉴스키워드"] = f"{info['event']} | {info['reason']}"
@@ -175,7 +169,8 @@ def apply_news_theme_bonus(candidates_df, news_analysis: Dict):
 
     return df
 
-def format_news_theme_for_telegram(news_analysis: Dict) -> str:
+
+def format_news_theme_for_telegram(news_analysis):
     if not news_analysis:
         return "📰 [뉴스-테마 분석]\n분석 결과 없음"
 
