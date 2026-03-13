@@ -14,6 +14,7 @@ import FinanceDataReader as fdr
 from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from openai import OpenAI
+from Ustickerloader import load_us_tickers
 
 # ────────────────────────────────────────────────────────────────
 # ✅ main7.py에서 필요한 함수들 import
