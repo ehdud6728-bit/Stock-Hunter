@@ -598,10 +598,22 @@ COMBO_TABLE = [
         'cond': lambda e: e.get('obv_acc_breakout'),
     },
     {
+        'grade': 'SSS', 'score': 560, 'type': '👑',
+        'combination': '🚀📐🍉수렴돌파수박',
+        'tags': ['🚀폭발직전수렴', '🍉수박', '💥실전타점'],
+        'cond': lambda e: e.get('ma_break_ready') and e.get('watermelon_signal'),
+    },
+    {
         'grade': 'SS', 'score': 500, 'type': '👑',
         'combination': '🟣🍉BB40수박재안착',
         'tags': ['🟣BB40재안착', '🍉수박', '📈실전핵심'],
         'cond': lambda e: e.get('bb40_reclaim_rsi_div') and e.get('watermelon_signal'),
+    },
+    {
+        'grade': 'SS', 'score': 500, 'type': '👑',
+        'combination': '🚀📐🔺응축완성',
+        'tags': ['🚀폭발직전수렴', '🔺삼각수렴', '🔋응축완성'],
+        'cond': lambda e: e.get('ma_break_ready') and e.get('triangle_signal'),
     },
     {
         'grade': 'SSS', 'score': 500, 'type': '👑',
@@ -610,6 +622,12 @@ COMBO_TABLE = [
         'cond': lambda e: e.get('watermelon_signal') and e.get('dolbanzi'),
         'score_fn': lambda e: 500 if e.get('dolbanzi_Count', 0) == 1 else 450,
         'tag_fn':   lambda e: ['🥇최초의반지'] if e.get('dolbanzi_Count', 0) == 1 else [f"💍{e.get('dolbanzi_Count',0)}회차반지"],
+    },
+    {
+        'grade': 'SS', 'score': 490, 'type': '👑',
+        'combination': '📐🟣수렴재안착',
+        'tags': ['📐좋은수렴', '🟣BB40재안착', '📈중기매집'],
+        'cond': lambda e: e.get('good_ma_convergence') and e.get('bb40_reclaim_rsi_div'),
     },
     {
         'grade': 'SSS', 'score': 480, 'type': '👑',
@@ -655,6 +673,12 @@ COMBO_TABLE = [
         'tag_fn':   lambda e: (['🔥GoldenEntry'] if e.get('dolbanzi_Count',0) == 1
                                else ['📈추세지속'] if e.get('dolbanzi_Count',0) == 2
                                else ['⚠️과열주의']),
+    },
+    {
+        'grade': 'SS', 'score': 480, 'type': '👑',
+        'combination': '🚀📐폭발직전수렴',
+        'tags': ['📐좋은수렴', '🚀돌파직전', '🔋BB수축'],
+        'cond': lambda e: e.get('ma_break_ready'),
     },
     {
         'grade': 'SS', 'score': 470, 'type': '👑',
@@ -733,6 +757,12 @@ COMBO_TABLE = [
         'combination': '💎바닥폭발',
         'tags': ['📍바닥권', '💎폭발직전', '🍉수박전환'],
         'cond': lambda e: e.get('bottom_area') and e.get('explosion_ready') and e.get('watermelon_signal'),
+    },
+    {
+        'grade': 'A', 'score': 280, 'type': '🛡',
+        'combination': '📐좋은수렴',
+        'tags': ['📐20/40/60수렴', '🧭기울기안정', '🔋응축'],
+        'cond': lambda e: e.get('good_ma_convergence'),
     },
     {
         'grade': 'A', 'score': 280, 'type': '🗡',
@@ -1003,6 +1033,7 @@ def check_good_ma_convergence(curr: pd.Series, past: pd.DataFrame):
 
     except Exception as e:
         return False, {"score": 0, "msg": f"오류:{e}"}
+
 def check_ma_convergence_break_ready(curr: pd.Series, past: pd.DataFrame):
     """
     폭발직전 수렴:
@@ -1214,12 +1245,16 @@ def get_indicators(df):
     df['Green_Days_10']     = (df['Watermelon_Color'].shift(1) == 'green').rolling(10).sum()
     volume_surge            = df['Volume'] >= vol_avg20 * 1.2
     df['Watermelon_Signal'] = color_change & (df['Green_Days_10'] >= 7) & volume_surge
+    df['Good_MA_Convergence_Score'] = 0
+    df['MA_Convergence_Break_Ready_Score'] = 0
 
     for col in [
         'BB_Ross', 'RSI_DIV',
         'BB40_Ross', 'BB40_RSI_DIV', 'BB40_Reclaim_RSI_DIV',
         'Force_Pullback', 'BB40_Second_Wave', 'Watermelon_Relaunch', 'OBV_Acc_Breakout',
-        'Was_Panic', 'Is_bb_low_Stable', 'Has_Accumulation', 'Is_Rsi_Divergence'
+        'Was_Panic', 'Is_bb_low_Stable', 'Has_Accumulation', 'Is_Rsi_Divergence',
+'Good_MA_Convergence',
+'MA_Convergence_Break_Ready'
     ]:
         df[col] = False
 
@@ -1239,6 +1274,8 @@ def get_indicators(df):
         bb40_second_wave, _ = check_bb40_second_wave(curr_s, past_50)
         watermelon_relaunch, _ = check_watermelon_relaunch(curr_s, past_50)
         obv_acc_breakout, _ = check_obv_acc_breakout(curr_s, past_50)
+        good_ma_conv, ma_conv_info = check_good_ma_convergence(curr_s, past_50)
+ma_break_ready, ma_break_info = check_ma_convergence_break_ready(curr_s, past_50)
      
         was_panic         = (past_50['Low'] < past_50['BB_LOW']).any()
         is_bb_low_stable  = curr_s['Low'] > curr_s['BB_LOW']
@@ -1258,8 +1295,11 @@ def get_indicators(df):
         df.at[idx, 'Force_Pullback']      = force_pullback
         df.at[idx, 'BB40_Second_Wave']    = bb40_second_wave
         df.at[idx, 'Watermelon_Relaunch'] = watermelon_relaunch
-        df.at[idx, 'OBV_Acc_Breakout']    = obv_acc_breakout
-
+        df.at[idx, 'OBV_Acc_Breakout']    = obv_acc_breakout      
+        df.at[idx, 'Good_MA_Convergence'] = good_ma_conv
+        df.at[idx, 'Good_MA_Convergence_Score'] = int(ma_conv_info.get("score", 0))
+        df.at[idx, 'MA_Convergence_Break_Ready'] = ma_break_ready
+        df.at[idx, 'MA_Convergence_Break_Ready_Score'] = int(ma_break_info.get("score", 0))
 
     prev = df.iloc[-2]
     curr = df.iloc[-1]
@@ -2063,7 +2103,11 @@ def build_default_signals(row, close_p, prev):
         'force_pullback':     row.get('Force_Pullback', False),
         'bb40_second_wave':   row.get('BB40_Second_Wave', False),
         'obv_acc_breakout':   row.get('OBV_Acc_Breakout', False),
-    }
+        'good_ma_convergence': row.get('Good_MA_Convergence', False),
+        'good_ma_convergence_score': int(row.get('Good_MA_Convergence_Score', 0)),
+        'ma_break_ready': row.get('MA_Convergence_Break_Ready', False),
+        'ma_break_ready_score': int(row.get('MA_Convergence_Break_Ready_Score', 0)),
+    }       
 
 
 # =============================================================
@@ -2673,6 +2717,12 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         if row.get('OBV_Acc_Breakout', False):
             new_tags.append("📊OBV매집돌파")
 
+        if row.get('Good_MA_Convergence', False):
+    new_tags.append(f"📐좋은수렴({int(row.get('Good_MA_Convergence_Score', 0))})")
+
+        if row.get('MA_Convergence_Break_Ready', False):
+    new_tags.append(f"🚀폭발직전수렴({int(row.get('MA_Convergence_Break_Ready_Score', 0))})")
+
         print(f"✅ [본진] 조합 점수 계산!")
         result = judge_trade_with_sequence(temp_df, signals)
 
@@ -2862,6 +2912,12 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         if row.get('OBV_Acc_Breakout', False):
             s_score += 30
 
+        if row.get('Good_MA_Convergence', False):
+    s_score += min(20, int(row.get('Good_MA_Convergence_Score', 0) * 0.25))
+
+        if row.get('MA_Convergence_Break_Ready', False):
+    s_score += min(30, int(row.get('MA_Convergence_Break_Ready_Score', 0) * 0.30))
+
         s_score -= max(0, int((row['Disparity']-108)*5))
 
         if not tags: return []
@@ -2902,6 +2958,10 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             'BB40_2차파동': bool(row.get('BB40_Second_Wave', False)),
             '수박재폭발': bool(row.get('Watermelon_Relaunch', False)),
             'OBV매집돌파': bool(row.get('OBV_Acc_Breakout', False)),
+            '좋은수렴': bool(row.get('Good_MA_Convergence', False)),
+            '좋은수렴점수': int(row.get('Good_MA_Convergence_Score', 0)),
+            '폭발직전수렴': bool(row.get('MA_Convergence_Break_Ready', False)),
+            '폭발직전수렴점수': int(row.get('MA_Convergence_Break_Ready_Score', 0)),
             '꼬리%': 0
         }]
     except Exception as e:
