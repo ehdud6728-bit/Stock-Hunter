@@ -2913,10 +2913,10 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             s_score += 30
 
         if row.get('Good_MA_Convergence', False):
-    s_score += min(20, int(row.get('Good_MA_Convergence_Score', 0) * 0.25))
+            s_score += min(20, int(row.get('Good_MA_Convergence_Score', 0) * 0.25))
 
         if row.get('MA_Convergence_Break_Ready', False):
-    s_score += min(30, int(row.get('MA_Convergence_Break_Ready_Score', 0) * 0.30))
+            s_score += min(30, int(row.get('MA_Convergence_Break_Ready_Score', 0) * 0.30))
 
         s_score -= max(0, int((row['Disparity']-108)*5))
 
