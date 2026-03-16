@@ -1275,7 +1275,7 @@ def get_indicators(df):
         watermelon_relaunch, _ = check_watermelon_relaunch(curr_s, past_50)
         obv_acc_breakout, _ = check_obv_acc_breakout(curr_s, past_50)
         good_ma_conv, ma_conv_info = check_good_ma_convergence(curr_s, past_50)
-ma_break_ready, ma_break_info = check_ma_convergence_break_ready(curr_s, past_50)
+        ma_break_ready, ma_break_info = check_ma_convergence_break_ready(curr_s, past_50)
      
         was_panic         = (past_50['Low'] < past_50['BB_LOW']).any()
         is_bb_low_stable  = curr_s['Low'] > curr_s['BB_LOW']
