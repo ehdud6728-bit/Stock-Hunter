@@ -935,6 +935,130 @@ def check_bb40_reclaim_rsi_div(curr: pd.Series, past: pd.DataFrame):
     passed = bb40_ross and bb40_div
     return passed, f"[BB40_Ross] {ross_msg} | [BB40_RSI_DIV] {div_msg}"
 
+def check_good_ma_convergence(curr: pd.Series, past: pd.DataFrame):
+    """
+    좋은 MA 수렴:
+    1. MA20/40/60 서로 가깝다
+    2. MA20/40 기울기가 꺾이지 않음
+    3. 종가가 수렴대 너무 아래에 있지 않음
+    4. BB40 수축 동반
+    """
+    try:
+        ma20 = curr['MA20']
+        ma40 = curr['MA40']
+        ma60 = curr['MA60']
+
+        if pd.isna(ma20) or pd.isna(ma40) or pd.isna(ma60):
+            return False, {"score": 0, "msg": "MA 데이터 부족"}
+
+        gap_20_40 = abs(ma20 - ma40) / (ma40 + 1e-9)
+        gap_40_60 = abs(ma40 - ma60) / (ma60 + 1e-9)
+        gap_20_60 = abs(ma20 - ma60) / (ma60 + 1e-9)
+        cond_gap = (gap_20_40 <= 0.025) and (gap_40_60 <= 0.025) and (gap_20_60 <= 0.035)
+
+        if len(past) >= 5:
+            ma20_prev = past['MA20'].iloc[-5]
+            ma40_prev = past['MA40'].iloc[-5]
+        else:
+            ma20_prev, ma40_prev = ma20, ma40
+
+        ma20_slope = (ma20 - ma20_prev) / (ma20_prev + 1e-9)
+        ma40_slope = (ma40 - ma40_prev) / (ma40_prev + 1e-9)
+        cond_slope = (ma20_slope >= -0.003) and (ma40_slope >= -0.003)
+
+        close = curr['Close']
+        convergence_bottom = min(ma20, ma40, ma60)
+        convergence_top = max(ma20, ma40, ma60)
+
+        cond_price_zone = close >= convergence_bottom * 0.98
+        cond_not_too_far = close <= convergence_top * 1.06
+
+        bb40_width = curr['BB40_Width'] if 'BB40_Width' in curr.index else 999
+        cond_bb_squeeze = bb40_width <= 14
+
+        score = 0
+        if cond_gap:
+            score += 35
+        if cond_slope:
+            score += 20
+        if cond_price_zone:
+            score += 15
+        if cond_not_too_far:
+            score += 10
+        if cond_bb_squeeze:
+            score += 20
+        if bb40_width <= 10:
+            score += 10
+
+        passed = cond_gap and cond_slope and cond_price_zone and cond_not_too_far and cond_bb_squeeze
+
+        msg = (
+            f"gap20_40:{gap_20_40:.3f} gap40_60:{gap_40_60:.3f} gap20_60:{gap_20_60:.3f} | "
+            f"ma20기울기:{ma20_slope:+.4f} ma40기울기:{ma40_slope:+.4f} | "
+            f"종가:{close:.0f} 수렴하단:{convergence_bottom:.0f} 수렴상단:{convergence_top:.0f} | "
+            f"BB40:{bb40_width:.1f}"
+        )
+
+        return passed, {"score": score, "msg": msg}
+
+    except Exception as e:
+        return False, {"score": 0, "msg": f"오류:{e}"}
+def check_ma_convergence_break_ready(curr: pd.Series, past: pd.DataFrame):
+    """
+    폭발직전 수렴:
+    1. 좋은 수렴이 이미 형성
+    2. 종가가 수렴대 상단 근처 또는 그 위
+    3. BB40 수축이 유지
+    4. 거래량이 너무 죽지 않음
+    """
+    try:
+        good_conv, good_info = check_good_ma_convergence(curr, past)
+
+        ma20 = curr['MA20']
+        ma40 = curr['MA40']
+        ma60 = curr['MA60']
+        close = curr['Close']
+        volume = curr['Volume']
+        vol_avg = curr['Vol_Avg']
+
+        convergence_top = max(ma20, ma40, ma60)
+
+        cond_price_break_ready = close >= convergence_top * 0.995
+        cond_not_overheat = close <= convergence_top * 1.05
+
+        bb40_width = curr['BB40_Width'] if 'BB40_Width' in curr.index else 999
+        cond_bb_squeeze = bb40_width <= 12
+
+        cond_volume_alive = volume >= vol_avg * 0.8
+
+        score = 0
+        if good_conv:
+            score += int(good_info.get("score", 0) * 0.5)
+        if cond_price_break_ready:
+            score += 25
+        if cond_not_overheat:
+            score += 10
+        if cond_bb_squeeze:
+            score += 20
+        if cond_volume_alive:
+            score += 10
+        if bb40_width <= 8:
+            score += 10
+
+        passed = good_conv and cond_price_break_ready and cond_not_overheat and cond_bb_squeeze
+
+        msg = (
+            f"좋은수렴:{good_conv} | "
+            f"종가:{close:.0f} 수렴상단:{convergence_top:.0f} | "
+            f"돌파준비:{cond_price_break_ready} 과열아님:{cond_not_overheat} | "
+            f"BB40:{bb40_width:.1f} 거래량유지:{cond_volume_alive}"
+        )
+
+        return passed, {"score": score, "msg": msg}
+
+    except Exception as e:
+        return False, {"score": 0, "msg": f"오류:{e}"}
+
 # ---------------------------------------------------------
 # 📈 [4] 기술적 분석 지표
 # ---------------------------------------------------------
