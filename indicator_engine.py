@@ -30,6 +30,225 @@ RECENT_AVG_AMOUNT_2 = 350
 ROSS_BAND_TOLERANCE = 1.03
 RSI_LOW_TOLERANCE   = 1.03
 
+def check_ross(curr: pd.Series, past: pd.DataFrame):
+    if past.empty or past['BB_LOW'].isna().all():
+        return False, "과거 데이터 부족"
+    bb_low = past['BB_LOW']
+    outside_mask = past['Low'] < bb_low
+    if not outside_mask.any():
+        return False, "1차 저점 없음"
+    first_idx = outside_mask.values.argmax()
+    after_first = past.iloc[first_idx + 1:]
+    rebound = (after_first['Close'] > after_first['BB_LOW']).any()
+    near_band = curr['Low'] <= curr['BB_LOW'] * ROSS_BAND_TOLERANCE
+    close_above = curr['Close'] > curr['BB_LOW']
+    passed = rebound and near_band and close_above
+    return passed, f"반등:{rebound}, 저가밴드근접:{near_band}, 종가밴드위:{close_above}"
+
+def check_rsi_div(curr: pd.Series, past: pd.DataFrame):
+    if past['RSI'].isna().all() or pd.isna(curr['RSI']):
+        return False, "RSI 데이터 부족"
+    min_price_past = past['Low'].min()
+    min_rsi_past = past['RSI'].min()
+    price_similar = curr['Low'] <= min_price_past * RSI_LOW_TOLERANCE
+    rsi_higher = curr['RSI'] > min_rsi_past
+    return price_similar and rsi_higher, f"주가저점:{curr['Low']:.0f}(과거:{min_price_past:.0f}), RSI:{curr['RSI']:.1f}(과거:{min_rsi_past:.1f})"
+
+def check_bb40_ross(curr: pd.Series, past: pd.DataFrame):
+    """
+    BB40 하단 이탈 후 재안착 판단
+    - 과거 구간에서 BB40_Lower 하향 이탈이 있었는지
+    - 이후 다시 BB40_Lower 위로 복귀한 적이 있는지
+    - 현재봉이 BB40_Lower 근처에서 종가 기준 위에 안착했는지
+    """
+    if past.empty or 'BB40_Lower' not in past.columns or past['BB40_Lower'].isna().all():
+        return False, "BB40 데이터 부족"
+
+    bb40_low = past['BB40_Lower']
+    outside_mask = past['Low'] < bb40_low
+
+    if not outside_mask.any():
+        return False, "BB40 1차 저점 없음"
+
+    first_idx = outside_mask.values.argmax()
+    after_first = past.iloc[first_idx + 1:]
+
+    if after_first.empty:
+        return False, "BB40 반등 확인 구간 부족"
+
+    rebound = (after_first['Close'] > after_first['BB40_Lower']).any()
+    near_band = curr['Low'] <= curr['BB40_Lower'] * ROSS_BAND_TOLERANCE
+    close_above = curr['Close'] > curr['BB40_Lower']
+
+    passed = rebound and near_band and close_above
+    return passed, f"BB40반등:{rebound}, 저가밴드근접:{near_band}, 종가밴드위:{close_above}"
+
+
+def check_bb40_rsi_div(curr: pd.Series, past: pd.DataFrame):
+    """
+    BB40 관점 RSI 다이버전스
+    - 과거 BB40 하단 이탈 봉들만 후보로 봄
+    - 현재 저점이 과거 저점 부근이거나 더 낮고
+    - RSI는 과거보다 높으면 다이버전스로 판단
+    """
+    if past.empty or 'BB40_Lower' not in past.columns or past['RSI'].isna().all() or pd.isna(curr['RSI']):
+        return False, "RSI 데이터 부족"
+
+    bb40_break_df = past[past['Low'] < past['BB40_Lower']].copy()
+
+    if bb40_break_df.empty:
+        return False, "BB40 하단 이탈 이력 없음"
+
+    min_price_idx = bb40_break_df['Low'].idxmin()
+    min_price_past = bb40_break_df.loc[min_price_idx, 'Low']
+    min_rsi_past = bb40_break_df.loc[min_price_idx, 'RSI']
+
+    if pd.isna(min_rsi_past):
+        min_rsi_past = bb40_break_df['RSI'].min()
+
+    price_similar = curr['Low'] <= min_price_past * RSI_LOW_TOLERANCE
+    rsi_higher = curr['RSI'] > min_rsi_past
+
+    passed = price_similar and rsi_higher
+    return passed, f"BB40저점:{curr['Low']:.0f}(과거:{min_price_past:.0f}), RSI:{curr['RSI']:.1f}(과거:{min_rsi_past:.1f})"
+
+
+def check_bb40_reclaim_rsi_div(curr: pd.Series, past: pd.DataFrame):
+    """
+    최종 결합형:
+    BB40 하단 이탈 후 재안착 + RSI DIV
+    """
+    bb40_ross, ross_msg = check_bb40_ross(curr, past)
+    bb40_div, div_msg = check_bb40_rsi_div(curr, past)
+
+    passed = bb40_ross and bb40_div
+    return passed, f"[BB40_Ross] {ross_msg} | [BB40_RSI_DIV] {div_msg}"
+
+def check_good_ma_convergence(curr: pd.Series, past: pd.DataFrame):
+    """
+    좋은 MA 수렴:
+    1. MA20/40/60 서로 가깝다
+    2. MA20/40 기울기가 꺾이지 않음
+    3. 종가가 수렴대 너무 아래에 있지 않음
+    4. BB40 수축 동반
+    """
+    try:
+        ma20 = curr['MA20']
+        ma40 = curr['MA40']
+        ma60 = curr['MA60']
+
+        if pd.isna(ma20) or pd.isna(ma40) or pd.isna(ma60):
+            return False, {"score": 0, "msg": "MA 데이터 부족"}
+
+        gap_20_40 = abs(ma20 - ma40) / (ma40 + 1e-9)
+        gap_40_60 = abs(ma40 - ma60) / (ma60 + 1e-9)
+        gap_20_60 = abs(ma20 - ma60) / (ma60 + 1e-9)
+        cond_gap = (gap_20_40 <= 0.025) and (gap_40_60 <= 0.025) and (gap_20_60 <= 0.035)
+
+        if len(past) >= 5:
+            ma20_prev = past['MA20'].iloc[-5]
+            ma40_prev = past['MA40'].iloc[-5]
+        else:
+            ma20_prev, ma40_prev = ma20, ma40
+
+        ma20_slope = (ma20 - ma20_prev) / (ma20_prev + 1e-9)
+        ma40_slope = (ma40 - ma40_prev) / (ma40_prev + 1e-9)
+        cond_slope = (ma20_slope >= -0.003) and (ma40_slope >= -0.003)
+
+        close = curr['Close']
+        convergence_bottom = min(ma20, ma40, ma60)
+        convergence_top = max(ma20, ma40, ma60)
+
+        cond_price_zone = close >= convergence_bottom * 0.98
+        cond_not_too_far = close <= convergence_top * 1.06
+
+        bb40_width = curr['BB40_Width'] if 'BB40_Width' in curr.index else 999
+        cond_bb_squeeze = bb40_width <= 14
+
+        score = 0
+        if cond_gap:
+            score += 35
+        if cond_slope:
+            score += 20
+        if cond_price_zone:
+            score += 15
+        if cond_not_too_far:
+            score += 10
+        if cond_bb_squeeze:
+            score += 20
+        if bb40_width <= 10:
+            score += 10
+
+        passed = cond_gap and cond_slope and cond_price_zone and cond_not_too_far and cond_bb_squeeze
+
+        msg = (
+            f"gap20_40:{gap_20_40:.3f} gap40_60:{gap_40_60:.3f} gap20_60:{gap_20_60:.3f} | "
+            f"ma20기울기:{ma20_slope:+.4f} ma40기울기:{ma40_slope:+.4f} | "
+            f"종가:{close:.0f} 수렴하단:{convergence_bottom:.0f} 수렴상단:{convergence_top:.0f} | "
+            f"BB40:{bb40_width:.1f}"
+        )
+
+        return passed, {"score": score, "msg": msg}
+
+    except Exception as e:
+        return False, {"score": 0, "msg": f"오류:{e}"}
+
+def check_ma_convergence_break_ready(curr: pd.Series, past: pd.DataFrame):
+    """
+    폭발직전 수렴:
+    1. 좋은 수렴이 이미 형성
+    2. 종가가 수렴대 상단 근처 또는 그 위
+    3. BB40 수축이 유지
+    4. 거래량이 너무 죽지 않음
+    """
+    try:
+        good_conv, good_info = check_good_ma_convergence(curr, past)
+
+        ma20 = curr['MA20']
+        ma40 = curr['MA40']
+        ma60 = curr['MA60']
+        close = curr['Close']
+        volume = curr['Volume']
+        vol_avg = curr['Vol_Avg']
+
+        convergence_top = max(ma20, ma40, ma60)
+
+        cond_price_break_ready = close >= convergence_top * 0.995
+        cond_not_overheat = close <= convergence_top * 1.05
+
+        bb40_width = curr['BB40_Width'] if 'BB40_Width' in curr.index else 999
+        cond_bb_squeeze = bb40_width <= 12
+
+        cond_volume_alive = volume >= vol_avg * 0.8
+
+        score = 0
+        if good_conv:
+            score += int(good_info.get("score", 0) * 0.5)
+        if cond_price_break_ready:
+            score += 25
+        if cond_not_overheat:
+            score += 10
+        if cond_bb_squeeze:
+            score += 20
+        if cond_volume_alive:
+            score += 10
+        if bb40_width <= 8:
+            score += 10
+
+        passed = good_conv and cond_price_break_ready and cond_not_overheat and cond_bb_squeeze
+
+        msg = (
+            f"좋은수렴:{good_conv} | "
+            f"종가:{close:.0f} 수렴상단:{convergence_top:.0f} | "
+            f"돌파준비:{cond_price_break_ready} 과열아님:{cond_not_overheat} | "
+            f"BB40:{bb40_width:.1f} 거래량유지:{cond_volume_alive}"
+        )
+
+        return passed, {"score": score, "msg": msg}
+
+    except Exception as e:
+        return False, {"score": 0, "msg": f"오류:{e}"}
+
 # ---------------------------------------------------------
 # 📈 [4] 기술적 분석 지표
 # ---------------------------------------------------------
