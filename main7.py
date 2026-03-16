@@ -2718,10 +2718,10 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             new_tags.append("📊OBV매집돌파")
 
         if row.get('Good_MA_Convergence', False):
-    new_tags.append(f"📐좋은수렴({int(row.get('Good_MA_Convergence_Score', 0))})")
+            new_tags.append(f"📐좋은수렴({int(row.get('Good_MA_Convergence_Score', 0))})")
 
         if row.get('MA_Convergence_Break_Ready', False):
-    new_tags.append(f"🚀폭발직전수렴({int(row.get('MA_Convergence_Break_Ready_Score', 0))})")
+            new_tags.append(f"🚀폭발직전수렴({int(row.get('MA_Convergence_Break_Ready_Score', 0))})")
 
         print(f"✅ [본진] 조합 점수 계산!")
         result = judge_trade_with_sequence(temp_df, signals)
