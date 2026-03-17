@@ -3346,6 +3346,30 @@ def analyze_weekly_trend(ticker, name):
     except Exception as e:
         return []
 
+def generate_stage_ai_tip(row):
+    try:
+        stage = row.get('단계상태', '')
+        energy = row.get('에너지', '')
+        volume = row.get('거래대금', 0)
+        obv = row.get('OBV기울기', 0)
+        rsi = row.get('RSI', 50)
+
+        if stage == "PASS_A":
+            return "초동 파동 시작 구간, 첫 돌파 흐름. 눌림 시 매수 유효"
+
+        elif stage == "PASS_B":
+            if obv > 0 and rsi < 70:
+                return "재파동 초입, 수급 유지 상태. 강한 종목 가능성 높음"
+            elif rsi >= 70:
+                return "과열 구간 진입, 단기 눌림 확인 필요"
+            else:
+                return "재응축 후 돌파 시도, 거래대금 동반 여부 중요"
+
+        return "타이밍 애매, 추가 확인 필요"
+
+    except Exception as e:
+        return "분석 실패"
+
 # ---------------------------------------------------------
 # 🚀 [8] 메인 실행
 # ---------------------------------------------------------
@@ -3464,6 +3488,27 @@ if __name__ == "__main__":
     )
 
     ai_candidates = build_and_sort_candidates(all_hits_sorted, top_k=30)
+
+    # =========================================================
+    # 🚀 단계 기반 급등 후보 TOP5 생성
+    # =========================================================
+    stage_candidates_top5 = pd.DataFrame()
+
+    if not ai_candidates.empty and '단계상태' in ai_candidates.columns:
+        stage_candidates = ai_candidates[
+            ai_candidates['단계상태'].isin(['PASS_A', 'PASS_B'])
+        ].copy()
+
+        if not stage_candidates.empty:
+            stage_candidates = stage_candidates.sort_values(
+                by=['단계랭크', '안전점수', 'N점수'],
+                ascending=False
+            ).reset_index(drop=True)
+
+            stage_candidates_top5 = stage_candidates.head(5)
+
+    print(f"🚀 단계 기반 급등 후보 수: {len(stage_candidates_top5)}")
+
     # ✅ 최종 후보는 PASS_A / PASS_B만 통과
     if not ai_candidates.empty and '단계상태' in ai_candidates.columns:
         passed_candidates = ai_candidates[
@@ -3560,38 +3605,65 @@ if __name__ == "__main__":
         f"📢 [오늘의 실시간 TOP 15]\n\n"
     )
     
+    stage_block = ""
+
+    if not stage_candidates_top5.empty:
+        stage_block = "\n🚀 [단계 기반 급등 후보 TOP 5]\n\n"
+
+    for i, item in stage_candidates_top5.iterrows():
+        stage_block += (
+            f"{i+1}) [{item['종목명']}]\n"
+            f"- 단계: {item.get('단계상태', 'N/A')} | {item.get('단계태그', '')}\n"
+            f"- S1:{item.get('S1날짜', '-')}, "
+            f"S2:{item.get('S2날짜', '-')}, "
+            f"S3:{item.get('S3날짜', '-')}\n"
+            f"- N조합: {item.get('N조합', '')}\n"
+            f"- 재무: {item.get('재무', '미계산')} | 수급: {item.get('수급', '미계산')}\n"
+            f"- 안전:{item.get('안전점수', 0)} | N점수:{item.get('N점수', 0)}\n"
+            f"----------------------------\n"
+        )
+
     for _, item in telegram_targets.iterrows():
         entry = (f"⭐{item['N등급']} | {item['👑등급']}점 [{item['종목명']}]\n"
-                 f"- {item['N조합']} | {item['N구분']}\n"
-                 f"- 단계: {item.get('단계상태', 'N/A')} | {item.get('단계태그', '')}\n"
-                 f"- S1:{item.get('S1날짜', '-')}, S2:{item.get('S2날짜', '-')}, S3:{item.get('S3날짜', '-')}\n"
-                 f"- {item['기상']} | {item['구분']}\n"
-                 f"- {item['에너지']} | {item['매집']}\n"
-                 f"- {item['📜서사히스토리']}\n"
-                 f"- 재무: {item['재무']} | 수급: {item['수급']}\n"
-                 f"- MA수렴: {safe_float(item['MA수렴']):.1f} | 이격: {item['이격']}\n"
-                 f"- OBV기울기: {item['OBV기울기']} | RSI: {item['RSI']}\n"
-                 f"💡 {item.get('ai_tip', '분석전')}\n"
-                 f"----------------------------\n")
-     
-        if len(current_msg) + len(entry) > MAX_CHAR:
-            send_telegram_photo(current_msg, imgs if imgs else [])
-            imgs = []
-            current_msg = "📢 [오늘의 추천주 - 이어서]\n\n" + entry
-            print(f"{current_msg}")
-        else:
-            current_msg += entry
+            f"- {item['N조합']} | {item['N구분']}\n"
+            f"- 단계: {item.get('단계상태', 'N/A')} | {item.get('단계태그', '')}\n"
+            f"- S1:{item.get('S1날짜', '-')}, S2:{item.get('S2날짜', '-')}, S3:{item.get('S3날짜', '-')}\n"
+            f"- {item['기상']} | {item['구분']}\n"
+            f"- {item['에너지']} | {item['매집']}\n"
+            f"- {item['📜서사히스토리']}\n"
+            f"- 재무: {item['재무']} | 수급: {item['수급']}\n"
+            f"- MA수렴: {safe_float(item['MA수렴']):.1f} | 이격: {item['이격']}\n"
+            f"- OBV기울기: {item['OBV기울기']} | RSI: {item['RSI']}\n"
+            f"💡 {item.get('ai_tip', '분석전')}\n"
+             f"----------------------------\n")
 
-    final_block = f"\n{tournament_report}"
+    if len(current_msg) + len(entry) > MAX_CHAR:
+        send_telegram_photo(current_msg, imgs if imgs else [])
+        imgs = []
+        current_msg = "📢 [오늘의 추천주 - 이어서]\n\n" + entry
+        print(f"{current_msg}")
+    else:
+        current_msg += entry
+
+    # 마지막 블록은 급등후보
+    final_block = stage_block if stage_block else ""
+
     if len(current_msg) + len(final_block) > MAX_CHAR:
         send_telegram_photo(current_msg, imgs if imgs else [])
-        send_telegram_photo(f"🏆 [AI 토너먼트 최종 결과]\n{final_block}", [])
+    imgs = []
+    if final_block:
+        send_telegram_photo(final_block, [])
     else:
         current_msg += final_block
         send_telegram_photo(current_msg, imgs if imgs else [])
+    imgs = []
 
     if chart_paths:
         send_telegram_photo("📊 [수박지표 차트 TOP 5]", chart_paths)
+
+    # AI 토너먼트는 맨 마지막
+    if tournament_report:
+        send_telegram_photo(f"🏆 [AI 토너먼트 최종 결과]\n\n{tournament_report}", [])
 
     try:
         update_google_sheet(all_hits_sorted, TODAY_STR, tournament_report)
