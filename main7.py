@@ -3483,11 +3483,11 @@ if __name__ == "__main__":
     print(f"⚙️ 상위 후보 수급/재무 후처리 중...")
     all_hits_sorted = enrich_hits_with_supply_and_financial(
         all_hits_sorted,
-        top_k_supply=80,
-        top_k_financial=30
+        top_k_supply=200,
+        top_k_financial=100
     )
 
-    ai_candidates = build_and_sort_candidates(all_hits_sorted, top_k=30)
+    ai_candidates = build_and_sort_candidates(all_hits_sorted, top_k=100)
 
     # =========================================================
     # 🚀 단계 기반 급등 후보 TOP5 생성
