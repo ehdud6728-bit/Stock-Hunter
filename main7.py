@@ -3666,7 +3666,7 @@ if __name__ == "__main__":
         send_telegram_photo(f"🏆 [AI 토너먼트 최종 결과]\n\n{tournament_report}", [])
 
     try:
-        update_google_sheet(all_hits_sorted, TODAY_STR, tournament_report)
+        update_google_sheet(all_hits_sorted, TODAY_STR, tournament_report + stage_block)
         print(f"💾 총 {len(all_hits_sorted)}개 종목 전수 기록 완료!")
     except Exception as e:
         print(f"🚨 시트 업데이트 실패: {e}")
