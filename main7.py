@@ -59,7 +59,7 @@ CHAT_ID_LIST = os.environ.get('TELEGRAM_CHAT_ID', '').split(',')
 OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY') 
 GROQ_API_KEY = os.environ.get('GROQ_API_KEY')     
 
-TEST_MODE = False
+TEST_MODE = True
 
 KST = pytz.timezone('Asia/Seoul')
 current_time = datetime.now(KST)
@@ -3501,7 +3501,7 @@ if __name__ == "__main__":
 
         if not stage_candidates.empty:
             stage_candidates = stage_candidates.sort_values(
-                by=['단계랭크', '안전점수', 'N점수'],
+                by=['단계랭크', 'N점수'],
                 ascending=False
             ).reset_index(drop=True)
 
@@ -3550,7 +3550,7 @@ if __name__ == "__main__":
     macro_briefing_text = format_macro_briefing_for_telegram(macro_briefing_result)
 
     print(f"🧠 상위 30개 종목 AI 심층 분석 중...")
-    tournament_report = run_ai_tournament(ai_candidates, issues)
+    tournament_report = run_ai_tournament(ai_candidates.head(30), issues)
  
     print("📊 수박지표 차트 생성 중...")
     chart_paths = create_watermelon_charts_for_hits(ai_candidates, top_n=5)
