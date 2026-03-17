@@ -3506,8 +3506,7 @@ if __name__ == "__main__":
             ).reset_index(drop=True)
 
             stage_candidates_top5 = stage_candidates.head(5)
-
-    print(f"🚀 단계 기반 급등 후보 수: {len(stage_candidates_top5)}")
+            print(f"🚀 단계 기반 급등 후보 수: {len(stage_candidates_top5)}")
 
     # ✅ 최종 후보는 PASS_A / PASS_B만 통과
     if not ai_candidates.empty and '단계상태' in ai_candidates.columns:
@@ -3523,6 +3522,7 @@ if __name__ == "__main__":
             ).reset_index(drop=True)
 
             ai_candidates = passed_candidates
+            print("✅ 단계 시퀀스 PASS_A/PASS_B 종목 정렬")
         else:
             print("⚠️ 단계 시퀀스 PASS_A/PASS_B 종목이 없어 기존 후보 유지")
     # 3) 뉴스 테마 보너스 적용
@@ -3622,7 +3622,8 @@ if __name__ == "__main__":
             f"- 안전:{item.get('안전점수', 0)} | N점수:{item.get('N점수', 0)}\n"
             f"----------------------------\n"
         )
-
+    print(f"🚀 단계 기반 급등 후보 수: {len(stage_block)}")
+ 
     for _, item in telegram_targets.iterrows():
         entry = (f"⭐{item['N등급']} | {item['👑등급']}점 [{item['종목명']}]\n"
             f"- {item['N조합']} | {item['N구분']}\n"
