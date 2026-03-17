@@ -3566,7 +3566,6 @@ if __name__ == "__main__":
                  f"- 단계: {item.get('단계상태', 'N/A')} | {item.get('단계태그', '')}\n"
                  f"- S1:{item.get('S1날짜', '-')}, S2:{item.get('S2날짜', '-')}, S3:{item.get('S3날짜', '-')}\n"
                  f"- {item['기상']} | {item['구분']}\n"
-                 f"- {item['기상']} | {item['구분']}\n"
                  f"- {item['에너지']} | {item['매집']}\n"
                  f"- {item['📜서사히스토리']}\n"
                  f"- 재무: {item['재무']} | 수급: {item['수급']}\n"
