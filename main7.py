@@ -3487,7 +3487,7 @@ if __name__ == "__main__":
         top_k_financial=100
     )
 
-    ai_candidates = build_and_sort_candidates(all_hits_sorted, top_k=100)
+    ai_candidates = build_and_sort_candidates(all_hits_sorted, top_k=50)
 
     # =========================================================
     # 🚀 단계 기반 급등 후보 TOP5 생성
@@ -3550,7 +3550,7 @@ if __name__ == "__main__":
     macro_briefing_text = format_macro_briefing_for_telegram(macro_briefing_result)
 
     print(f"🧠 상위 30개 종목 AI 심층 분석 중...")
-    tournament_report = run_ai_tournament(ai_candidates.head(30), issues)
+    tournament_report = run_ai_tournament(ai_candidates, issues)
  
     print("📊 수박지표 차트 생성 중...")
     chart_paths = create_watermelon_charts_for_hits(ai_candidates, top_n=5)
@@ -3656,11 +3656,8 @@ if __name__ == "__main__":
     else:
         current_msg += final_block
         send_telegram_photo(current_msg, imgs if imgs else [])
+    
     imgs = []
-
-    if chart_paths:
-        send_telegram_photo("📊 [수박지표 차트 TOP 5]", chart_paths)
-
     # AI 토너먼트는 맨 마지막
     if tournament_report:
         send_telegram_photo(f"🏆 [AI 토너먼트 최종 결과]\n\n{tournament_report}", [])
