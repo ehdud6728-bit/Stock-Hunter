@@ -3637,13 +3637,13 @@ if __name__ == "__main__":
             f"💡 {item.get('ai_tip', '분석전')}\n"
              f"----------------------------\n")
 
-    if len(current_msg) + len(entry) > MAX_CHAR:
-        send_telegram_photo(current_msg, imgs if imgs else [])
-        imgs = []
-        current_msg = "📢 [오늘의 추천주 - 이어서]\n\n" + entry
-        print(f"{current_msg}")
-    else:
-        current_msg += entry
+        if len(current_msg) + len(entry) > MAX_CHAR:
+            send_telegram_photo(current_msg, imgs if imgs else [])
+            imgs = []
+            current_msg = "📢 [오늘의 추천주 - 이어서]\n\n" + entry
+            print(f"{current_msg}")
+        else:
+            current_msg += entry
 
     # 마지막 블록은 급등후보
     final_block = stage_block if stage_block else ""
