@@ -17,6 +17,5 @@ yfinance
 feedparser
 pykrx
 flask
-FinanceDataReader
 html5lib
 openpyxl
