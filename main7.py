@@ -2243,7 +2243,16 @@ def build_and_sort_candidates(all_hits_sorted, top_k=30):
     )
 
     # Step 3: 안전점수 재정렬 (★ 발송 기준)
-    enriched = sorted(enriched, key=lambda x: x.get('안전점수', 0), reverse=True)
+    #enriched = sorted(enriched, key=lambda x: x.get('안전점수', 0), reverse=True)
+    enriched = sorted(
+        enriched,
+        key=lambda x: (
+            x.get('단계랭크', 0),
+            x.get('안전점수', 0),
+            x.get('N점수', 0)
+        ),
+        reverse=True
+    )
 
     df = pd.DataFrame(enriched)
     return df
@@ -2536,7 +2545,214 @@ MACRO_SYSTEM_PROMPT_IMPROVED = f"""
 - 확신 없는 종목은 반드시 관망형으로 분류
 
 반드시 JSON만 출력. 마크다운, 코드블록, 설명문 없이 순수 JSON만.
-"""     
+"""
+
+# =========================================================
+# ✅ Stage Sequence Filter
+# PASS_A = 1 → 2 → 3
+# PASS_B = 2 → 3
+# DROP   = 나머지
+# =========================================================
+
+def _safe_rolling_mean(series, window):
+    return series.rolling(window, min_periods=max(2, window // 2)).mean()
+
+def _safe_rolling_max(series, window):
+    return series.rolling(window, min_periods=max(2, window // 2)).max()
+
+def compute_stage_filters(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    1번: 매집 수렴
+    2번: BB40 응축
+    3번: 돌파 직전(또는 돌파 직전+초기 돌파 허용)
+    """
+    df = df.copy()
+
+    # 거래량 평균
+    vol_ma5 = _safe_rolling_mean(df['Volume'], 5)
+    vol_ma20 = _safe_rolling_mean(df['Volume'], 20)
+
+    # 전일 기준 20일 고점 사용 (오늘 고점 포함 왜곡 방지)
+    high20_prev = _safe_rolling_max(df['High'], 20).shift(1)
+
+    # BB40 폭 평균
+    bb40w_ma10 = _safe_rolling_mean(df['BB40_Width'], 10)
+
+    # --- 1번: 매집 수렴 ---
+    # 의미:
+    # - 추세 안 죽음
+    # - 거래량 줄어듦
+    # - 고점 대비 너무 멀지 않음
+    # - 수렴/응축 시작
+    df['S1_ACC'] = (
+        (df['Close'] > df['MA20']) &
+        (df['Close'] > df['MA60']) &
+        (vol_ma5 < vol_ma20) &
+        (df['Close'] >= high20_prev * 0.85) &
+        (df['MA_Convergence'] <= 6.0)
+    )
+
+    # --- 2번: BB40 응축 ---
+    # 의미:
+    # - BB40 응축
+    # - 고점 근처 접근
+    # - 이평 수렴 상태
+    df['S2_SQUEEZE'] = (
+        (df['BB40_Width'] <= bb40w_ma10) &
+        (df['BB40_Width'] <= 15.0) &
+        (df['Close'] > df['MA20']) &
+        (df['Close'] >= high20_prev * 0.90) &
+        (df['MA_Convergence'] <= 4.5)
+    )
+
+    # --- 3번: 돌파 직전 / 초동 돌파 허용 ---
+    # 의미:
+    # - 전일 20일 고점 근처
+    # - 거래량 너무 과하지 않음
+    # - 추세 유지
+    # - 완전 장대양봉 추격 방지는 아래 PASS_B 필터에서 추가
+    df['S3_READY'] = (
+        (df['Close'] > df['MA20']) &
+        (df['Close'] > df['MA60']) &
+        (df['Close'] >= high20_prev * 0.92) &
+        (df['Close'] <= high20_prev * 1.03) &
+        (df['BB40_Width'] <= 18.0)
+    )
+
+    return df
+
+
+def _get_last_true_date(mask: pd.Series, lookback: int, include_today: bool = True):
+    if len(mask) == 0:
+        return None
+
+    if include_today:
+        sub = mask.iloc[-lookback:]
+    else:
+        sub = mask.iloc[-(lookback + 1):-1]
+
+    true_idx = sub[sub].index
+    if len(true_idx) == 0:
+        return None
+    return true_idx[-1]
+
+
+def _calc_upper_wick_ratio(row: pd.Series) -> float:
+    high_p = float(row.get('High', 0))
+    low_p = float(row.get('Low', 0))
+    open_p = float(row.get('Open', 0))
+    close_p = float(row.get('Close', 0))
+
+    body_top = max(open_p, close_p)
+    total_range = max(1e-9, high_p - low_p)
+    upper_wick = max(0.0, high_p - body_top)
+
+    return upper_wick / total_range
+
+
+def _calc_body_ratio(row: pd.Series) -> float:
+    open_p = float(row.get('Open', 0))
+    close_p = float(row.get('Close', 0))
+    base = max(1e-9, open_p)
+    return abs(close_p - open_p) / base
+
+
+def pass_b_quality_filter(df: pd.DataFrame) -> bool:
+    """
+    PASS_B(2→3) 종목은 재파동 종목이 많아서
+    너무 약한 놈은 한 번 더 필터링
+    """
+    if df is None or len(df) < 20:
+        return False
+
+    row = df.iloc[-1]
+
+    vol_avg = row.get('Vol_Avg', np.nan)
+    vol_now = row.get('Volume', 0)
+    close_p = row.get('Close', 0)
+    high_p = row.get('High', 0)
+    obv_ok = bool(row.get('OBV_Rising', False))
+
+    upper_wick_ratio = _calc_upper_wick_ratio(row)
+    body_ratio = _calc_body_ratio(row)
+
+    cond_volume = pd.notna(vol_avg) and (vol_now >= vol_avg * 1.05)
+    cond_close_high = (high_p > 0) and (close_p >= high_p * 0.97)
+    cond_upper_wick = upper_wick_ratio <= 0.35
+    cond_not_chase = body_ratio <= 0.12
+
+    return cond_volume and cond_close_high and cond_upper_wick and cond_not_chase and obv_ok
+
+
+def evaluate_stage_sequence(df: pd.DataFrame) -> dict:
+    """
+    최종 상태:
+    - PASS_A : 1 → 2 → 3
+    - PASS_B : 2 → 3
+    - DROP   : 나머지
+
+    WATCH는 쓰지 않음.
+    """
+    result = {
+        "stage_status": "DROP",
+        "s1_hit": False,
+        "s2_hit": False,
+        "s3_hit": False,
+        "sequence_a": False,
+        "sequence_b": False,
+        "s1_date": None,
+        "s2_date": None,
+        "s3_date": None,
+        "stage_tags": [],
+    }
+
+    if df is None or len(df) < 40:
+        return result
+
+    df = compute_stage_filters(df)
+
+    s3_today = bool(df['S3_READY'].iloc[-1])
+    s2_date = _get_last_true_date(df['S2_SQUEEZE'], lookback=6, include_today=True)
+    s1_date = _get_last_true_date(df['S1_ACC'], lookback=12, include_today=True)
+    s3_date = df.index[-1] if s3_today else None
+
+    s2_hit = s2_date is not None
+    s1_hit = s1_date is not None
+
+    result["s1_hit"] = s1_hit
+    result["s2_hit"] = s2_hit
+    result["s3_hit"] = s3_today
+    result["s1_date"] = s1_date.strftime('%Y-%m-%d') if s1_date is not None else None
+    result["s2_date"] = s2_date.strftime('%Y-%m-%d') if s2_date is not None else None
+    result["s3_date"] = s3_date.strftime('%Y-%m-%d') if s3_date is not None else None
+
+    if not s3_today:
+        return result
+
+    # PASS_A: 1→2→3
+    if s1_hit and s2_hit and (s1_date <= s2_date <= s3_date):
+        result["stage_status"] = "PASS_A"
+        result["sequence_a"] = True
+        result["stage_tags"] = ["🧬1→2→3", "📦매집", "🟣응축", "🚀돌파직전"]
+        return result
+
+    # PASS_B: 2→3
+    if s2_hit and (s2_date <= s3_date):
+        if pass_b_quality_filter(df):
+            result["stage_status"] = "PASS_B"
+            result["sequence_b"] = True
+            result["stage_tags"] = ["🟣2→3", "♻️재응축", "🚀재파동"]
+            return result
+
+    return result
+
+
+def stage_rank_value(stage_status: str) -> int:
+    if stage_status == "PASS_A":
+        return 2
+    if stage_status == "PASS_B":
+        return 1
+    return 0     
 # ---------------------------------------------------------
 # 🕵️ [7] 분석 엔진
 # ---------------------------------------------------------
@@ -2559,6 +2775,9 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             return []
          
         df = df.join(historical_indices, how='left').fillna(method='ffill')
+
+        # ✅ 단계 시퀀스 판정
+        stage_eval = evaluate_stage_sequence(df)
 
         my_sector = s_map.get(ticker, "일반")
         current_leader_condition = l_env.get(my_sector, "Normal")
@@ -2899,6 +3118,11 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         if is_watermelon and explosion_ready and bottom_area:
             s_score += 80
             tags.append("💎💎💎스윙골드")
+        # ✅ PASS_A / PASS_B 태그 부여
+        if stage_eval['stage_status'] in ('PASS_A', 'PASS_B'):
+            tags.extend(stage_eval['stage_tags'])
+        else:
+            tags.append("⛔단계미통과")
 
         if row.get('Force_Pullback', False):
             s_score += 25
@@ -2951,6 +3175,15 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             'OBV기울기': int(row['OBV_Slope']),
             'BB20로스': bool(row.get('BB_Ross', False)),
             'RSI다이버': bool(row.get('RSI_DIV', False)),
+            '단계상태': stage_eval['stage_status'],
+            '단계랭크': stage_rank_value(stage_eval['stage_status']),
+            'S1발생': bool(stage_eval['s1_hit']),
+            'S2발생': bool(stage_eval['s2_hit']),
+            'S3발생': bool(stage_eval['s3_hit']),
+            'S1날짜': stage_eval['s1_date'],
+            'S2날짜': stage_eval['s2_date'],
+            'S3날짜': stage_eval['s3_date'],
+            '단계태그': " ".join(stage_eval['stage_tags']),
             'BB40로스': bool(row.get('BB40_Ross', False)),
             'BB40_RSI_DIV': bool(row.get('BB40_RSI_DIV', False)),
             'BB40재안착조합': bool(row.get('BB40_Reclaim_RSI_DIV', False)),
@@ -3231,6 +3464,22 @@ if __name__ == "__main__":
     )
 
     ai_candidates = build_and_sort_candidates(all_hits_sorted, top_k=30)
+    # ✅ 최종 후보는 PASS_A / PASS_B만 통과
+    if not ai_candidates.empty and '단계상태' in ai_candidates.columns:
+        passed_candidates = ai_candidates[
+            ai_candidates['단계상태'].isin(['PASS_A', 'PASS_B'])
+        ].copy()
+
+        # PASS_A 우선, 그 다음 PASS_B, 그 안에서 안전점수/N점수
+        if not passed_candidates.empty:
+            passed_candidates = passed_candidates.sort_values(
+                by=['단계랭크', '안전점수', 'N점수'],
+                ascending=False
+            ).reset_index(drop=True)
+
+            ai_candidates = passed_candidates
+        else:
+            print("⚠️ 단계 시퀀스 PASS_A/PASS_B 종목이 없어 기존 후보 유지")
     # 3) 뉴스 테마 보너스 적용
     ai_candidates = apply_news_theme_bonus(ai_candidates, news_theme_analysis)
     ai_candidates = apply_us_theme_bonus(ai_candidates, us_merged_events)
@@ -3314,6 +3563,9 @@ if __name__ == "__main__":
     for _, item in telegram_targets.iterrows():
         entry = (f"⭐{item['N등급']} | {item['👑등급']}점 [{item['종목명']}]\n"
                  f"- {item['N조합']} | {item['N구분']}\n"
+                 f"- 단계: {item.get('단계상태', 'N/A')} | {item.get('단계태그', '')}\n"
+                 f"- S1:{item.get('S1날짜', '-')}, S2:{item.get('S2날짜', '-')}, S3:{item.get('S3날짜', '-')}\n"
+                 f"- {item['기상']} | {item['구분']}\n"
                  f"- {item['기상']} | {item['구분']}\n"
                  f"- {item['에너지']} | {item['매집']}\n"
                  f"- {item['📜서사히스토리']}\n"
