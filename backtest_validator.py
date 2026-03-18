@@ -34,7 +34,17 @@ from triangle_combo_analyzer import jongbe_triangle_combo_v3
 # main7.py를 직접 import 하거나 아래처럼 sys.path 활용
 import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from main7_bugfix import (
+
+# scan_logger 없으면 print로 폴백
+try:
+    from scan_logger import set_log_level, log_error, log_info, log_debug, log_scan_date
+    set_log_level('NORMAL')
+except ImportError:
+    def log_info(msg):  print(msg)
+    def log_error(msg): print(msg)
+    def log_debug(msg): pass
+    def log_scan_date(date, n): print(f"🗓️  {date} → 히트: {n}개")
+from main7 import (
     get_indicators,
     calculate_combination_score,
     build_default_signals,
@@ -43,7 +53,7 @@ from main7_bugfix import (
     STYLE_WEIGHTS,
     stage_rank_value,
 )
-import main7_bugfix as _main7
+import main7 as _main7
 # v2 함수 우선, 없으면 기존 함수 사용
 evaluate_stage_sequence_v2 = getattr(
     _main7, 'evaluate_stage_sequence_v2',
@@ -55,7 +65,7 @@ evaluate_stage_sequence_v2 = getattr(
 # ⚙️ 설정
 # =============================================================
 
-HOLD_DAYS_LIST  = [5, 10, 15, 20]   # 보유 기간 시나리오
+HOLD_DAYS_LIST  = [3, 5, 10, 15, 20]  # ✅ FIX-E: 3일 추가 (초단기 급등 포착)
 MIN_SCORE       = 150                # 최소 N점수 필터
 MIN_AMOUNT      = 50                 # 최소 평균 거래대금 (억)
 MAX_WORKERS     = 12                 # 병렬 스레드 수
@@ -311,25 +321,25 @@ def run_backtest(start_date: str, end_date: str,
     freq       : 'weekly' or 'daily'
     top_n      : 거래대금 상위 N종목으로 제한
     """
-    print(f"\n{'='*60}")
-    print(f"📊 백테스트 시작: {start_date} ~ {end_date}")
-    print(f"   스캔 주기: {freq} | 보유일: {HOLD_DAYS_LIST} | 종목수: {top_n}")
-    print(f"{'='*60}\n")
+    log_info(f"\n{'='*60}")
+    log_info(f"📊 백테스트 시작: {start_date} ~ {end_date}")
+    log_info(f"   스캔 주기: {freq} | 보유일: {HOLD_DAYS_LIST} | 종목수: {top_n}")
+    log_info(f"{'='*60}")
 
     # 스캔 날짜 목록
     scan_dates = get_trading_dates(start_date, end_date, freq=freq)
-    print(f"📅 총 스캔일: {len(scan_dates)}개")
+    log_info(f"📅 총 스캔일: {len(scan_dates)}개")
 
     # 종목 목록
     ticker_dict = load_krx_tickers()
     # 거래대금 상위 top_n으로 제한 (시간 절약)
     tickers_list = list(ticker_dict.items())[:top_n]
-    print(f"🔭 대상 종목: {len(tickers_list)}개\n")
+    log_info(f"🔭 대상 종목: {len(tickers_list)}개")
 
     all_records = []
 
     for scan_date in scan_dates:
-        print(f"🗓️  스캔 중: {scan_date}  ", end='', flush=True)
+        # 날짜별 진행은 히트 결과와 함께 출력
         date_records = []
 
         # 병렬 처리
@@ -346,16 +356,16 @@ def run_backtest(start_date: str, end_date: str,
                 except Exception:
                     pass
 
-        print(f"→ 히트: {len(date_records)}개")
+        log_scan_date(scan_date, len(date_records))
         all_records.extend(date_records)
 
     if not all_records:
-        print("⚠️ 결과 없음")
+        log_error("⚠️ 결과 없음")
         return pd.DataFrame()
 
     df = pd.DataFrame(all_records)
     df.to_csv(output_csv, index=False, encoding='utf-8-sig')
-    print(f"\n✅ 원본 결과 저장: {output_csv}  ({len(df)}건)")
+    log_info(f"✅ 원본 결과 저장: {output_csv}  ({len(df)}건)")
     return df
 
 
@@ -466,13 +476,13 @@ def analyze_monthly_winrate(df: pd.DataFrame, hold_col: str = '수익률_10일')
 # =============================================================
 
 def print_report(df: pd.DataFrame):
-    print("\n" + "="*60)
-    print("📊 [백테스트 결과 요약]")
-    print("="*60)
-    print(f"총 신호 건수: {len(df)}")
-    print(f"기간: {df['스캔일'].min()} ~ {df['스캔일'].max()}")
-    print(f"평균 최고점(MFE): {df['최고점%'].mean():.2f}%")
-    print(f"평균 최저점(MAE): {df['최저점%'].mean():.2f}%")
+    log_info("\n" + "="*60)
+    log_info("📊 [백테스트 결과 요약]")
+    log_info("="*60)
+    log_info(f"총 신호 건수: {len(df)}")
+    log_info(f"기간: {df['스캔일'].min()} ~ {df['스캔일'].max()}")
+    log_info(f"평균 최고점(MFE): {df['최고점%'].mean():.2f}%")
+    log_info(f"평균 최저점(MAE): {df['최저점%'].mean():.2f}%")
 
     for hold in HOLD_DAYS_LIST:
         ret_col = f'수익률_{hold}일'
@@ -482,19 +492,19 @@ def print_report(df: pd.DataFrame):
             continue
         wr = (valid[win_col] == '승').sum() / len(valid) * 100
         avg = valid[ret_col].mean()
-        print(f"  {hold}일 보유: 승률 {wr:.1f}% | 평균수익 {avg:.2f}%")
+        log_info(f"  {hold}일 보유: 승률 {wr:.1f}% | 평균수익 {avg:.2f}%")
 
-    print("\n📌 [패턴별 Top10 승률 — 10일 기준]")
+    log_info("\n📌 [패턴별 Top10 승률 — 10일 기준]")
     summary = analyze_pattern_winrate(df)
     if not summary.empty:
         cols = ['패턴', '총건수', '승률_10일%', '평균수익_10일%', 'MFE평균%', 'MAE평균%']
         cols = [c for c in cols if c in summary.columns]
-        print(summary[cols].head(10).to_string(index=False))
+        log_info(summary[cols].head(10).to_string(index=False))
 
-    print("\n📌 [Stage별 승률]")
+    log_info("\n📌 [Stage별 승률]")
     stage_summary = analyze_stage_winrate(df)
     if not stage_summary.empty:
-        print(stage_summary.to_string(index=False))
+        log_info(stage_summary.to_string(index=False))
 
 
 # =============================================================
@@ -505,7 +515,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='backtest_validator')
     parser.add_argument('--start',     default='2024-09-01', help='시작일 YYYY-MM-DD')
     parser.add_argument('--end',       default='2025-01-31', help='종료일 YYYY-MM-DD')
-    parser.add_argument('--freq',      default='weekly',     help='weekly or daily')
+    parser.add_argument('--freq',      default='daily',      help='weekly or daily  (default: daily — 급등 초동 포착)')
     parser.add_argument('--top_n',     default=500, type=int,help='종목 수')
     parser.add_argument('--no_sheet',  action='store_true',  help='구글시트 업로드 생략')
     args = parser.parse_args()
@@ -520,7 +530,7 @@ if __name__ == '__main__':
     )
 
     if result_df.empty:
-        print("결과 없음 종료")
+        log_error("결과 없음 종료")
         raise SystemExit(0)
 
     # 2) 집계 CSV 저장
