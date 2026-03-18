@@ -53,7 +53,7 @@ from main7 import (
     STYLE_WEIGHTS,
     stage_rank_value,
 )
-import main7 as _main7
+import main7_bugfix as _main7
 # v2 함수 우선, 없으면 기존 함수 사용
 evaluate_stage_sequence_v2 = getattr(
     _main7, 'evaluate_stage_sequence_v2',
