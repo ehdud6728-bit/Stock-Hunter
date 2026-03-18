@@ -1,4 +1,4 @@
-name: Daily Stock Scanner
+name: BackTest Stock Scanner
 
 on:
   workflow_dispatch:
