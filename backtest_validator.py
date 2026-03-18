@@ -38,7 +38,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 # scan_logger 없으면 print로 폴백
 try:
     from scan_logger import set_log_level, log_error, log_info, log_debug, log_scan_date
-    set_log_level('NORMAL')
+    set_log_level('QUIET')
 except ImportError:
     def log_info(msg):  print(msg)
     def log_error(msg): print(msg)
