@@ -34,7 +34,7 @@ from triangle_combo_analyzer import jongbe_triangle_combo_v3
 # main7.py를 직접 import 하거나 아래처럼 sys.path 활용
 import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from main7 import (
+from main7_bugfix import (
     get_indicators,
     calculate_combination_score,
     build_default_signals,
@@ -43,7 +43,7 @@ from main7 import (
     STYLE_WEIGHTS,
     stage_rank_value,
 )
-import main7 as _main7
+import main7_bugfix as _main7
 # v2 함수 우선, 없으면 기존 함수 사용
 evaluate_stage_sequence_v2 = getattr(
     _main7, 'evaluate_stage_sequence_v2',
