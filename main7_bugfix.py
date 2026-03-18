@@ -35,8 +35,7 @@ import io
 import warnings
 warnings.filterwarnings('ignore', category=FutureWarning)
 
-from scan_logger import logger, set_log_level, log_hit, log_progress, log_error, log_info, log_debug
-set_log_level('NORMAL')   # QUIET / NORMAL / VERBOSE  또는 env: SCAN_LOG_LEVEL=QUIET
+
 
 from news_keyword_engine import analyze_news_rule_based
 from news_event_engine import (
