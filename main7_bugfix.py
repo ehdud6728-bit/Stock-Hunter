@@ -1,8 +1,7 @@
  #------------------------------------------------------------------
 # 💎 [Ultimate Masterpiece] 전천후 AI 전략 사령부 (All-In-One 통합판)
-# Ver 27.2 패치: BUG-1(bb_squeeze) BUG-3(enumerate) BUG-4(macro_status)
-#               BUG-5(target_dict중복) BUG-6(ffill) BUG-7(enrich이중)
-#               TUNE-1(Stage임계완화) TUNE-2(로그스팸제거)
+# Ver 27.3 패치: FIX-1(TOP_N 700) FIX-2(거래대금이원화) FIX-3(소형주필터완화)
+#               FIX-4(S3상단1.15) FIX-5(급등초동COMBO) FIX-6(소형주추가스캔)
 # ------------------------------------------------------------------
 import json
 import FinanceDataReader as fdr
@@ -35,6 +34,9 @@ from google_sheet_manager import update_google_sheet, update_ai_briefing_sheet
 import io
 import warnings
 warnings.filterwarnings('ignore', category=FutureWarning)
+
+from scan_logger import logger, set_log_level, log_hit, log_progress, log_error, log_info, log_debug
+set_log_level('NORMAL')   # QUIET / NORMAL / VERBOSE  또는 env: SCAN_LOG_LEVEL=QUIET
 
 from news_keyword_engine import analyze_news_rule_based
 from news_event_engine import (
@@ -79,7 +81,7 @@ RN_LIST = [500, 1000, 1500, 2000, 3000, 5000, 7500, 10000, 15000, 20000,
            30000, 50000, 75000, 100000, 150000, 200000, 300000, 500000, 
            750000, 1000000, 1500000]
 
-SCAN_DAYS, TOP_N = 1, 550
+SCAN_DAYS, TOP_N = 1, 700  # ✅ FIX: 소형주 커버리지 확대
 MIN_MARCAP = 1000000000 
 STOP_LOSS_PCT = -5.0
 WHALE_THRESHOLD = 50 
@@ -93,7 +95,7 @@ RECENT_AVG_AMOUNT_2 = 350
 ROSS_BAND_TOLERANCE = 1.03
 RSI_LOW_TOLERANCE   = 1.03
 
-print(f"📡 [Ver 27.2] 버그픽스 + Stage 튜닝 적용...")
+log_info("📡 [Ver 27.3] 급등초동 탐지 + 소형주 커버리지 확대...")
 
 import sys
 import os
@@ -110,16 +112,16 @@ def graceful_shutdown(exit_code=0):
     모든 작업 완료 후 프로세스를 강제로 정리하고 종료.
     백그라운드 스레드(requests/fdr/openai)가 남아있어도 강제 종료.
     """
-    print("🔚 정상 종료 시작...")
+    log_info("🔚 정상 종료 시작...")
 
     # 1. 살아있는 비데몬 스레드 확인 (디버그용)
     alive = [t for t in threading.enumerate() if t.is_alive() and not t.daemon and t != threading.main_thread()]
     if alive:
-        print(f"⚠️ 잔여 스레드 {len(alive)}개 감지: {[t.name for t in alive]}")
+        log_error(f"⚠️ 잔여 스레드 {len(alive)}개 감지: {[t.name for t in alive]}")
     else:
-        print("✅ 잔여 스레드 없음")
+        log_debug("✅ 잔여 스레드 없음")
 
-    print(f"✅ 종료 완료 (exit code: {exit_code})")
+    log_info(f"✅ 종료 완료 (exit code: {exit_code})")
 
     # 2. os._exit() → GC/atexit 무시하고 즉시 종료
     #    sys.exit()는 백그라운드 스레드가 있으면 블로킹될 수 있어서
@@ -166,12 +168,11 @@ def run_scan_with_timeout(target_dict, weather_data, global_env, leader_env, sec
                 if result:
                     all_hits.extend(result)
             except FuturesTimeoutError:
-                print(f"⏰ [{name}] 타임아웃 스킵")
+                log_error(f"⏰ [{name}] 타임아웃 스킵")
             except Exception as e:
-                print(f"🚨 [{name}] 오류: {e}")
+                log_error(f"🚨 [{name}] 오류: {e}")
 
-            if done_count % 50 == 0:
-                print(f"📊 진행: {done_count}/{total}")
+            log_progress(done_count, total)
 
     return all_hits
 
@@ -477,16 +478,16 @@ def load_krx_listing_safe():
         df = pd.read_csv(url, encoding="utf-8", engine="python")
         
         if df is None or df.empty:
-            print("📡 FDR KRX 시도...")
+            log_debug("📡 FDR KRX 시도...")
             df = fdr.StockListing('KRX')    
             
         if df is None or df.empty:
             raise ValueError("빈 데이터")
             
-        print("✅ FDR 성공")
+        log_debug("✅ FDR 성공")
         return df
     except Exception as e:
-        print(f"⚠️ FDR 실패 → pykrx 대체 사용 ({e})")
+        log_info(f"⚠️ FDR 실패 → pykrx 대체 사용 ({e})")
         try:
             # ✅ FIX: except 블록 안에서 df_krx를 직접 생성
             df_krx = pd.DataFrame(
@@ -499,7 +500,7 @@ def load_krx_listing_safe():
             df_krx['Market'] = 'KOSPI'
             return df_krx
         except Exception as e2:
-            print(f"🚨 pykrx도 실패: {e2}")
+            log_error(f"🚨 pykrx도 실패: {e2}")
             return pd.DataFrame(columns=['Code', 'Name', 'Market'])
 
 def get_stock_sector(ticker, sector_map):
@@ -550,6 +551,13 @@ def judge_trade_with_sequence(df, signals):
 # 🎯 조합 중심 점수 산정 시스템
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 COMBO_TABLE = [
+    # ✅ FIX-5b: 급등 초동 탐지 조합 (나무기술/휴림로봇 유형)
+    {
+        'grade': 'SSS', 'score': 580, 'type': '🚀',
+        'combination': '🚀거래량폭발초동돌파',
+        'tags': ['🚀거래량3배+', '📈BB40상단돌파', '📊OBV매집', '⚡초동포착'],
+        'cond': lambda e: e.get('surge_breakout', False),
+    },
     {
         'grade': 'GOD+', 'score': 10001, 'type': '🌌',
         'combination': '🌌🔺💍독사삼각돌반지',
@@ -1103,12 +1111,26 @@ def get_indicators(df):
     recent_avg_amount = (df['Close'] * df['Volume']).tail(5).mean() / 100_000_000
     ma20_amount       = (df['Close'] * df['Volume']).tail(20).mean() / 100_000_000
 
-    amount_ok = (
+    # ✅ FIX-2: 거래대금 필터 이원화
+    # 트랙 A — 기존 안정형: 최근5일 150억+ (또는 350억+)
+    track_a = (
         (recent_avg_amount >= RECENT_AVG_AMOUNT_1 and recent_avg_amount >= ma20_amount * 1.5)
         or recent_avg_amount >= RECENT_AVG_AMOUNT_2
     )
-    if not amount_ok:
+    # 트랙 B — 급등 초동형: 최근 거래대금 30억 이상 + 당일 거래량이 20일 평균의 3배 이상
+    last_vol    = df['Volume'].iloc[-1]
+    last_close  = df['Close'].iloc[-1]
+    last_amount = (last_vol * last_close) / 100_000_000
+    vol_ma20_v  = df['Volume'].tail(20).mean()
+    track_b = (
+        last_amount >= 30 and
+        vol_ma20_v > 0 and
+        last_vol >= vol_ma20_v * 3.0
+    )
+    if not (track_a or track_b):
         return None
+    # 어느 트랙인지 기록 (analyze_final에서 활용)
+    df['_track'] = 'B' if (not track_a and track_b) else 'A'
 
     high  = df['High']
     low   = df['Low']
@@ -1541,7 +1563,7 @@ def _clean_unique_index(df: pd.DataFrame) -> pd.DataFrame:
 def prepare_historical_weather():
     cache_key = datetime.now().strftime('%Y-%m-%d')
     if cache_key in _weather_cache:
-        print("✅ 날씨 데이터 캐시 사용")
+        log_debug("✅ 날씨 데이터 캐시 사용")
         return _weather_cache[cache_key]
 
     start_point = (datetime.now() - timedelta(days=600)).strftime('%Y-%m-%d')
@@ -1787,7 +1809,7 @@ def get_ai_summary_batch(ai_candidates_df, issues=None):
         return res.choices[0].message.content.strip()
 
     except Exception as e:
-        print(f"[AI 배치 요약 오류] {e}")
+        log_error(f"[AI 배치 요약 오류] {e}")
         return "브리핑 생성 중 오류가 발생했습니다."
 
 def get_ai_summary_batch_back(stock_lines: list, issues: list = None):
@@ -1811,7 +1833,7 @@ def get_ai_summary_batch_back(stock_lines: list, issues: list = None):
         return res.choices[0].message.content.strip()
 
     except Exception as e:
-        print(f"[AI 배치 요약 오류] {e}")
+        log_error(f"[AI 배치 요약 오류] {e}")
         return "브리핑 생성 중 오류가 발생했습니다."
 
 def build_ai_candidates_for_macro(ai_candidates: pd.DataFrame):
@@ -2090,6 +2112,14 @@ def build_default_signals(row, close_p, prev):
         'triangle_pattern': 'None',
         'dmi_cross':        False,
         'dmi_ok':           False,
+
+        # ── 급등 초동 탐지 ────────────────────────────────────
+        'surge_breakout': (
+            row['Volume'] >= row.get('VMA20', row['Volume']) * 3.0 and
+            row['Close'] > row.get('MA20', 0) and
+            row['OBV_Rising'] and
+            row['Close'] > row.get('BB40_Upper', row['Close'])
+        ),
 
         # ── MA 수렴 ───────────────────────────────────────────
         'MA_Convergence': row['MA_Convergence'],
@@ -2589,7 +2619,7 @@ def compute_stage_filters(df: pd.DataFrame) -> pd.DataFrame:
         (df['Close'] > df['MA20']) &
         (df['Close'] > df['MA60']) &
         (df['Close'] >= high20_prev * 0.90) &     # 0.92 → 0.90
-        (df['Close'] <= high20_prev * 1.05) &     # 1.03 → 1.05 (초동 포함)
+        (df['Close'] <= high20_prev * 1.15) &     # ✅ FIX-4: 1.05 → 1.15 (초동 급등봉 포함)
         (df['BB40_Width'] <= 20.0)                # 18.0 → 20.0
     )
 
@@ -2772,7 +2802,10 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         temp_df = df.iloc[:raw_idx + 1]
 
         recent_avg_amount = (df['Close'] * df['Volume']).tail(5).mean() / 100000000
-        if recent_avg_amount < 50:
+        # ✅ FIX-3: 급등 초동 트랙(B)은 거래대금 기준 완화
+        _track = df.get('_track', pd.Series(['A'])).iloc[-1] if '_track' in df.columns else 'A'
+        min_amount = 10 if _track == 'B' else 50
+        if recent_avg_amount < min_amount:
             return []
 
         # ✅ 후처리 단계에서 채울 예정
@@ -2892,7 +2925,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             tri_result = jongbe_triangle_combo_v3(temp_df) or {}
             tri = tri_result.get('triangle') or {}
         except Exception as e:
-            print(f"🚨 jongbe_triangle_combo_v3 계산 실패: {e}")
+            log_debug(f"🚨 jongbe_triangle_combo_v3 계산 실패: {e}")
             tri_result = {}
          
         signals = build_default_signals(row, close_p, prev)
@@ -3136,7 +3169,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
 
         if not tags: return []
 
-        print(f"✅ {name} 포착! 점수: {s_score} 태그: {tags}")
+        log_hit(name, s_score, tags)
         
         return [{
             '날짜': curr_idx.strftime('%Y-%m-%d'),
@@ -3189,7 +3222,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         }]
     except Exception as e:
         import traceback
-        print(f"🚨 {name} 분석 중 치명적 에러:\n{traceback.format_exc()}")
+        log_error(f"🚨 {name} 분석 중 치명적 에러:\n{traceback.format_exc()}")
         return []
 
 def enrich_hits_with_supply_and_financial(all_hits_sorted, top_k_supply=80, top_k_financial=30):
@@ -3364,12 +3397,12 @@ def generate_stage_ai_tip(row):
 # 🚀 [8] 메인 실행
 # ---------------------------------------------------------
 if __name__ == "__main__":
-    print("🚀 전략 사령부 가동 시작...")
+    log_info("🚀 전략 사령부 가동 시작...")
     
     client = OpenAI()
     models = client.models.list()
     for m in models.data:
-        print(m.id)
+        log_debug(m.id)
      
     global_env, leader_env = get_global_and_leader_status()
 
@@ -3390,10 +3423,10 @@ if __name__ == "__main__":
         else:
             sector_master_map = {k: '일반' for k in df_krx['Code']}
             
-        print(f"✅ [본진] 명찰 통일 완료: {len(df_krx)}개 종목 로드")
+        log_info(f"✅ [본진] 명찰 통일 완료: {len(df_krx)}개 종목 로드")
 
     except Exception as e:
-        print(f"🚨 [본진] 데이터 로드 실패: {e}")
+        log_error(f"🚨 [본진] 데이터 로드 실패: {e}")
         sector_master_map = {}
         df_krx = pd.DataFrame(columns=['Code', 'Name', 'Sector'])
  
@@ -3402,13 +3435,13 @@ if __name__ == "__main__":
     m_vix = get_safe_macro('^VIX', 'VIX공포')
     m_fx  = get_safe_macro('USD/KRW', '달러환율')
     m_wti, m_brent = get_oil_macro()
-    print(f"🛢️ {m_wti['text']} | {m_brent['text']}")
+    log_info(f"🛢️ {m_wti['text']} | {m_brent['text']}")
     macro_status = {'nasdaq': m_ndx, 'sp500': m_sp5, 'vix': m_vix, 'fx': m_fx, 'kospi': get_index_investor_data('KOSPI')}  # ✅ BUG-4 FIX
 
-    print("\n" + "🌍 " * 5 + "[ 글로벌 사령부 통합 관제 센터 ]" + " 🌍" * 5)
-    print(f"🇺🇸 {m_ndx['text']} | {m_sp5['text']} | ⚠️ {m_vix['text']}")
-    print(f"💵 {m_fx['text']} | 🇰🇷 KOSPI 수급: {get_index_investor_data('KOSPI')}")
-    print("=" * 115)
+    log_info("[ 글로벌 사령부 통합 관제 센터 ]")
+    log_info(f"🇺🇸 {m_ndx['text']} | {m_sp5['text']} | ⚠️ {m_vix['text']}")
+    log_info(f"💵 {m_fx['text']} | 🇰🇷 KOSPI 수급: {get_index_investor_data('KOSPI')}")
+    log_info("=" * 60)
     
     imgs = [create_index_chart('KS11', 'KOSPI'), create_index_chart('IXIC', 'NASDAQ')]
     
@@ -3416,7 +3449,7 @@ if __name__ == "__main__":
         m_ndx, m_sp5, m_vix, m_wti, m_fx
     )
     sector_report = format_sector_rotation_report(sector_results, directions)
-    print(sector_report)
+    log_debug(sector_report)
     
     issues = analyze_market_issues()
     briefing = get_market_briefing(issues)
@@ -3425,18 +3458,18 @@ if __name__ == "__main__":
     market_news_map = collect_market_news()
     market_news_titles = flatten_news_titles(market_news_map, max_items=18)
 
-    print("📰 수집된 뉴스 헤드라인")
+    log_debug("📰 수집된 뉴스 헤드라인")
     for x in market_news_titles[:10]:
-        print("-", x)
+        log_debug(f"  - {x}")
 
     # ✅ 룰베이스 뉴스 분석
     rule_news_result = analyze_news_rule_based(market_news_titles)
-    print("✅ 룰베이스 테마:", rule_news_result)
+    log_debug(f"✅ 룰베이스 테마: {rule_news_result}")
 
     # ✅ GPT 뉴스 분석
     news_theme_analysis = analyze_news_to_korea_theme(market_news_titles, OPENAI_API_KEY)
     news_theme_text = format_news_theme_for_telegram(news_theme_analysis)
-    print(news_theme_text)
+    log_debug(news_theme_text)
 
     # ✅ 미국시장 → 한국종목 연결 엔진
     us_snapshot = fetch_us_market_snapshot()
@@ -3445,7 +3478,7 @@ if __name__ == "__main__":
     us_merged_events = merge_rule_and_gpt_us_mapping(us_rule_events, us_gpt_result)
     us_mapping_text = format_us_mapping_for_telegram(us_gpt_result, us_merged_events)
 
-    print(us_mapping_text)
+    log_debug(us_mapping_text)
 
     oil_briefing = get_oil_sector_briefing(m_wti, m_brent, sector_results, issues)
 
@@ -3454,10 +3487,24 @@ if __name__ == "__main__":
     df_clean = df_clean[~df_clean['Name'].str.contains('ETF|ETN|스팩|제[0-9]+호|우$|우A|우B|우C')]
 
     if 'Amount' in df_clean.columns:
-        sorted_df = df_clean.sort_values(by='Amount', ascending=False).head(TOP_N)
+        # ✅ FIX-6: 거래대금 상위 TOP_N + 급등 소형주 50 병합
+        sorted_main = df_clean.sort_values(by='Amount', ascending=False).head(TOP_N)
+
+        # 급등 소형주: 거래대금 하위권이지만 당일 거래대금 급증 종목
+        # (전체에서 거래대금 상위를 이미 제외했으므로 추가로 붙임)
+        sorted_small = df_clean[~df_clean['Code'].isin(sorted_main['Code'])].copy()
+        if 'ChangeRate' in sorted_small.columns:
+            sorted_small = sorted_small[sorted_small['ChangeRate'] >= 10].head(50)
+        elif 'Change' in sorted_small.columns:
+            sorted_small = sorted_small.sort_values('Amount', ascending=False).head(50)
+        else:
+            sorted_small = pd.DataFrame(columns=sorted_main.columns)
+
+        sorted_df = pd.concat([sorted_main, sorted_small], ignore_index=True).drop_duplicates(subset='Code')
+        log_info(f"🔭 스캔 대상: 주력 {len(sorted_main)}개 + 소형급등 {len(sorted_small)}개 = 총 {len(sorted_df)}개")
     else:
         sorted_df = df_clean.copy()
-    
+
     target_dict = dict(zip(sorted_df['Code'], sorted_df['Name']))
 
     weather_data = prepare_historical_weather()  # ✅ BUG-5 FIX: target_dict 중복 제거
@@ -3468,7 +3515,7 @@ if __name__ == "__main__":
     if all_hits:
         all_hits_sorted = sorted(all_hits, key=lambda x: x['N점수'], reverse=True)
 
-    print(f"⚙️ 상위 후보 수급/재무 후처리 중...")
+    log_info("⚙️ 상위 후보 수급/재무 후처리 중...")
     all_hits_sorted = enrich_hits_with_supply_and_financial(
         all_hits_sorted,
         top_k_supply=200,
@@ -3494,7 +3541,7 @@ if __name__ == "__main__":
             ).reset_index(drop=True)
 
             stage_candidates_top5 = stage_candidates.head(5)
-            print(f"🚀 단계 기반 급등 후보 수: {len(stage_candidates_top5)}")
+            log_info(f"🚀 단계 기반 급등 후보 수: {len(stage_candidates_top5)}")
 
     # ✅ 최종 후보는 PASS_A / PASS_B만 통과
     if not ai_candidates.empty and '단계상태' in ai_candidates.columns:
@@ -3510,14 +3557,14 @@ if __name__ == "__main__":
             ).reset_index(drop=True)
 
             ai_candidates = passed_candidates
-            print("✅ 단계 시퀀스 PASS_A/PASS_B 종목 정렬")
+            log_info("✅ 단계 시퀀스 PASS_A/PASS_B 종목 정렬")
         else:
-            print("⚠️ 단계 시퀀스 PASS_A/PASS_B 종목이 없어 기존 후보 유지")
+            log_info("⚠️ 단계 시퀀스 PASS_A/PASS_B 종목이 없어 기존 후보 유지")
     # 3) 뉴스 테마 보너스 적용
     ai_candidates = apply_news_theme_bonus(ai_candidates, news_theme_analysis)
     ai_candidates = apply_us_theme_bonus(ai_candidates, us_merged_events)
 
-    print(f"🌍 시장 + 후보종목 통합 AI 브리핑 생성 중...")
+    log_info("🌍 시장 + 후보종목 통합 AI 브리핑 생성 중...")
     macro_briefing_result = run_macro_candidate_briefing(
         ai_candidates=ai_candidates,
         m_ndx=m_ndx, m_sp5=m_sp5, m_vix=m_vix, m_fx=m_fx,
@@ -3526,21 +3573,21 @@ if __name__ == "__main__":
         issues=issues
     )
 
-    print("✅ 통합 AI 브리핑 결과:")
-    print(json.dumps(macro_briefing_result, ensure_ascii=False, indent=2))
+    log_debug("✅ 통합 AI 브리핑 결과:")
+    log_debug(json.dumps(macro_briefing_result, ensure_ascii=False, indent=2))
 
     try:
         update_ai_briefing_sheet(macro_briefing_result, TODAY_STR)
-        print("💾 AI_Briefing 시트 저장 완료")
+        log_info("💾 AI_Briefing 시트 저장 완료")
     except Exception as e:
-        print(f"🚨 AI_Briefing 저장 실패: {e}")
+        log_error(f"🚨 AI_Briefing 저장 실패: {e}")
 
     macro_briefing_text = format_macro_briefing_for_telegram(macro_briefing_result)
 
-    print(f"🧠 상위 30개 종목 AI 심층 분석 중...")
+    log_info("🧠 상위 30개 종목 AI 심층 분석 중...")
     tournament_report = run_ai_tournament(ai_candidates, issues)
  
-    print("📊 수박지표 차트 생성 중...")
+    log_info("📊 수박지표 차트 생성 중...")
     chart_paths = create_watermelon_charts_for_hits(ai_candidates, top_n=5)
  
     lines = []
@@ -3610,7 +3657,7 @@ if __name__ == "__main__":
             f"- 안전:{item.get('안전점수', 0)} | N점수:{item.get('N점수', 0)}\n"
             f"----------------------------\n"
         )
-    print(f"🚀 단계 기반 급등 후보 수: {len(stage_block)}")
+    log_debug(f"🚀 stage_block 길이: {len(stage_block)}")
  
     for _, item in telegram_targets.iterrows():
         entry = (f"⭐{item['N등급']} | {item['👑등급']}점 [{item['종목명']}]\n"
@@ -3630,7 +3677,7 @@ if __name__ == "__main__":
             send_telegram_photo(current_msg, imgs if imgs else [])
             imgs = []
             current_msg = "📢 [오늘의 추천주 - 이어서]\n\n" + entry
-            print(f"{current_msg}")
+            log_debug(f"[메시지 분할] {len(current_msg)}자")
         else:
             current_msg += entry
 
@@ -3653,9 +3700,10 @@ if __name__ == "__main__":
 
     try:
         update_google_sheet(all_hits_sorted, TODAY_STR, tournament_report + stage_block)
-        print(f"💾 총 {len(all_hits_sorted)}개 종목 전수 기록 완료!")
+        log_info(f"💾 총 {len(all_hits_sorted)}개 종목 전수 기록 완료!")
     except Exception as e:
-        print(f"🚨 시트 업데이트 실패: {e}")
+        log_error(f"🚨 시트 업데이트 실패: {e}")
 
-    print("✅ 작전 종료: 전수 기록 완료 및 정예 15건 보고 완료!")
+    log_info("✅ 작전 종료: 전수 기록 완료 및 정예 15건 보고 완료!")
     graceful_shutdown(exit_code=0)
+
