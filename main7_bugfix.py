@@ -35,8 +35,17 @@ import io
 import warnings
 warnings.filterwarnings('ignore', category=FutureWarning)
 
-from scan_logger import logger, set_log_level, log_hit, log_progress, log_error, log_info, log_debug
-set_log_level('NORMAL')   # QUIET / NORMAL / VERBOSE  또는 env: SCAN_LOG_LEVEL=QUIET
+# scan_logger 없으면 print로 폴백
+try:
+    from scan_logger import set_log_level, log_hit, log_progress, log_error, log_info, log_debug
+    set_log_level('NORMAL')   # QUIET / NORMAL / VERBOSE  또는 env: SCAN_LOG_LEVEL=QUIET
+except ImportError:
+    def log_info(msg):  print(msg)
+    def log_error(msg): print(msg)
+    def log_debug(msg): pass
+    def log_hit(name, score, tags): print(f"🎯 {name} 포착! 점수:{score}")
+    def log_progress(done, total):
+        if done % 50 == 0: print(f"📊 진행: {done}/{total}")
 
 from news_keyword_engine import analyze_news_rule_based
 from news_event_engine import (
