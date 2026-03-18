@@ -5,7 +5,7 @@ on:
     # 한국시간 평일 오전 8:30
     # = UTC 전날 23:30
     # 일~목 UTC 23:30 -> 월~금 KST 08:30
-    - cron: '22 22 * * 0-4'
+    - cron: '19 22 * * 0-4'
 
     # 한국시간 평일 오후 3:30
     # = UTC 06:30
@@ -48,4 +48,4 @@ jobs:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           GOOGLE_JSON_KEY: ${{ secrets.GOOGLE_JSON_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-        run: python main7.py
+        run: python main7_bugfix.py
