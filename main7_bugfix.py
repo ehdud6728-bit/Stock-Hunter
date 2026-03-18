@@ -104,7 +104,7 @@ RECENT_AVG_AMOUNT_2 = 350
 ROSS_BAND_TOLERANCE = 1.03
 RSI_LOW_TOLERANCE   = 1.03
 
-log_info("📡 [Ver 27.8] 검색식 정합성 수정 (수박/골파기/BB40로스/조용매집/세력눌림)...")
+log_info("📡 [Ver 27.10] 매집대 품질 검증 지표 추가 (단테 HTS 수식)...")
 
 import sys
 import os
@@ -821,6 +821,44 @@ COMBO_TABLE = [
         'tags': ['🤫조용한매집강', '💎폭발직전'],
         'cond': lambda e: e.get('silent_strong') and e.get('explosion_ready'),
     },
+    # ✅ 매집대 품질 A등급 + 수박 조합 (진짜 세력 매집 확인)
+    {
+        'grade': 'SSS', 'score': 590, 'type': '💎',
+        'combination': '💎🍉진짜매집수박',
+        'tags': ['💎A급매집확인', '🍉수박전환', '🏦세력매집검증', '🚀폭발임박'],
+        'cond': lambda e: e.get('maejip_quality_a') and e.get('watermelon_signal'),
+    },
+    {
+        'grade': 'SS+', 'score': 510, 'type': '💎',
+        'combination': '💎🍉양호매집수박',
+        'tags': ['💎B급매집확인', '🍉수박전환', '📦매집품질양호'],
+        'cond': lambda e: e.get('maejip_quality_b') and e.get('watermelon_signal') and not e.get('maejip_quality_a'),
+    },
+    {
+        'grade': 'SS', 'score': 470, 'type': '💎',
+        'combination': '💎매집진행중(수박대기)',
+        'tags': ['💎매집Score60', '🍉초록축적중', '📊OBV상승추세'],
+        'cond': lambda e: e.get('maejip_score_now') == 60 and e.get('watermelon_green_7d') and not e.get('watermelon_signal'),
+    },
+    # ✅ STEP3: BB30 Shift GC + 수박 조합 (단테 핵심 타점)
+    {
+        'grade': 'SSS', 'score': 600, 'type': '🎯',
+        'combination': '🎯🍉BB30시프트GC수박',
+        'tags': ['🎯과거저항돌파', '🍉수박전환', '💡저항→지지전환', '🚀단테타점'],
+        'cond': lambda e: e.get('bb30_shift_gc') and e.get('watermelon_signal'),
+    },
+    {
+        'grade': 'SS+', 'score': 520, 'type': '🎯',
+        'combination': '🎯🍉BB30시프트근접수박',
+        'tags': ['🎯과거저항근접', '🍉수박전환', '📍타점대기'],
+        'cond': lambda e: e.get('bb30_shift_near') and e.get('watermelon_signal'),
+    },
+    {
+        'grade': 'SS', 'score': 480, 'type': '🎯',
+        'combination': '🎯BB30시프트GC단독',
+        'tags': ['🎯과거저항돌파', '📈저항→지지전환', '⚡돌파확인'],
+        'cond': lambda e: e.get('bb30_shift_gc') and e.get('watermelon_red'),
+    },
     {
         'grade': 'B', 'score': 230, 'type': '🔍',
         'combination': '📍수박단독',
@@ -1183,6 +1221,24 @@ def get_indicators(df):
     df['BB_UP']  = df['BB40_Upper']
     df['BB_LOW'] = df['BB_Lower']
 
+    # ✅ SHIFT(BBandsUp(30,1.8), 20) — 단테 수박 골든크로스 타점
+    # 30일 MA + 1.8σ 상단을 20봉 뒤로 시프트
+    # 의미: "20일 전 과열 저항선" → 현재가가 이 선을 하→상 돌파 시 저항→지지 전환 확정
+    std30              = close.rolling(30).std()
+    df['BB30_Upper_18']       = close.rolling(30).mean() + std30 * 1.8
+    df['BB30_Upper_18_Shift'] = df['BB30_Upper_18'].shift(20)   # SHIFT(..., 20)
+    # 골든크로스: 전일 종가≤Shift선, 당일 종가>Shift선
+    prev_close = close.shift(1)
+    df['BB30_Shift_GC'] = (
+        (prev_close <= df['BB30_Upper_18_Shift']) &
+        (close      >  df['BB30_Upper_18_Shift'])
+    )
+    # 근접 여부: Shift선 ±3% 이내 (타점 진입 구간)
+    df['BB30_Shift_Near'] = (
+        (close >= df['BB30_Upper_18_Shift'] * 0.97) &
+        (close <= df['BB30_Upper_18_Shift'] * 1.05)
+    )
+
     df['Disparity']      = (close / df['MA20']) * 100
     df['MA_Convergence'] = abs(df['MA20'] - df['MA60']) / df['MA60'] * 100
     df['Box_Range']      = high.rolling(10).max() / low.rolling(10).min()
@@ -1296,6 +1352,37 @@ def get_indicators(df):
     df['Green_Days_10']     = (df['Watermelon_Color'].shift(1) == 'green').rolling(10).sum()
     volume_surge            = df['Volume'] >= vol_avg20 * 1.5  # ✅ FIX-검색식3: 1.2→1.5 (수박=거래량폭발)
     df['Watermelon_Signal'] = color_change & (df['Green_Days_10'] >= 7) & volume_surge
+
+    # ✅ 매집대 품질 검증 지표 (단테 HTS 수식)
+    # If(V>Avg(V,20)*1.1 And Avg(OBV,5)>Avg(OBV,20) And C>Avg(C,20) And C>=Highest(H,20,1)*0.9, 60, 0)
+    # 의미: 거래량+OBV상승+MA20위+고점90% → 매집이 실제로 일어나고 있는지 검증
+    _obv_ma5      = df['OBV'].rolling(5).mean()
+    _obv_ma20     = df['OBV'].rolling(20).mean()
+    _high20_prev  = df['High'].rolling(20).max().shift(1)   # Highest(H,20,1) = 전일 기준 20일 최고가
+
+    _maejip_cond = (
+        (df['Volume'] > vol_avg20 * 1.1) &          # V > Avg(V,20)*1.1
+        (_obv_ma5 > _obv_ma20) &                     # Avg(OBV,5) > Avg(OBV,20)
+        (close > df['MA20']) &                        # C > Avg(C,20)
+        (close >= _high20_prev * 0.9)                 # C >= Highest(H,20,1)*0.9
+    )
+    df['Maejip_Score']   = np.where(_maejip_cond, 60, 0)   # 원본 수식 그대로 60/0
+    df['Maejip_Days_10'] = (_maejip_cond).rolling(10).sum().fillna(0).astype(int)  # 10일 중 몇 번
+    df['Maejip_Days_20'] = (_maejip_cond).rolling(20).sum().fillna(0).astype(int)  # 20일 중 몇 번
+
+    # 수박 초록 축적 중 매집 품질 등급
+    # 초록 기간 중 매집 발생일이 많을수록 진짜 세력 매집
+    _green_mask     = df['Watermelon_Color'] == 'green'
+    _green_maejip   = _green_mask & _maejip_cond
+    df['Green_Maejip_Days'] = _green_maejip.rolling(10).sum().fillna(0).astype(int)
+
+    # 매집 품질 등급 (Green 10일 중 매집일 비율)
+    _quality_ratio  = df['Green_Maejip_Days'] / df['Green_Days_10'].replace(0, np.nan)
+    df['Maejip_Quality'] = pd.cut(
+        _quality_ratio.fillna(0),
+        bins=[-0.1, 0.3, 0.5, 0.7, 1.01],
+        labels=['D(허위매집)', 'C(보통)', 'B(양호)', 'A(진짜매집)']
+    ).astype(str)
     df['Good_MA_Convergence_Score'] = 0
     df['MA_Convergence_Break_Ready_Score'] = 0
 
@@ -2087,6 +2174,18 @@ def build_default_signals(row, close_p, prev):
         'watermelon_red':        row['Watermelon_Color'] == 'red',
         'watermelon_green_7d':   row['Green_Days_10'] >= 7,
         'watermelon_relaunch':   row.get('Watermelon_Relaunch', False),
+
+        # ── BB30 Shift 골든크로스 (단테 수박 타점) ────────────
+        # SHIFT(BBandsUp(30,1.8), 20) 골든크로스
+        'bb30_shift_gc':   bool(row.get('BB30_Shift_GC',   False)),
+        'bb30_shift_near': bool(row.get('BB30_Shift_Near',  False)),
+
+        # ── 매집대 품질 검증 ───────────────────────────────────
+        'maejip_quality_a': row.get('Maejip_Quality', '') == 'A(진짜매집)',
+        'maejip_quality_b': row.get('Maejip_Quality', '') in ('A(진짜매집)', 'B(양호)'),
+        'maejip_score_now': int(row.get('Maejip_Score', 0)),       # 60 or 0
+        'maejip_days_10':   int(row.get('Maejip_Days_10', 0)),     # 10일 중 발생횟수
+        'green_maejip_days': int(row.get('Green_Maejip_Days', 0)), # 초록 중 매집일수
 
         # ── 폭발/바닥/침묵 ────────────────────────────────────
         # ✅ BUG-A FIX: FIX-A 기준과 통일 (BB40<=5.0)
@@ -3361,11 +3460,42 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         else:
             tags.append("❄️RSI약세")
 
+        # ✅ 매집대 품질 보너스
+        _maejip_q    = row.get('Maejip_Quality', 'D(허위매집)')
+        _maejip_days = int(row.get('Maejip_Days_10', 0))
+        _green_m     = int(row.get('Green_Maejip_Days', 0))
+        _maejip_now  = int(row.get('Maejip_Score', 0))
+
+        if _maejip_q == 'A(진짜매집)':
+            s_score += 70
+            tags.append(f"💎매집A급({_green_m}일/10일)")
+        elif _maejip_q == 'B(양호)':
+            s_score += 40
+            tags.append(f"💎매집B급({_green_m}일/10일)")
+        elif _maejip_now == 60:
+            s_score += 20
+            tags.append(f"💎매집진행({_maejip_days}일/10일)")
+
+        # ✅ STEP4: BB30 Shift GC 타점 보너스
+        _bb30_gc   = bool(row.get('BB30_Shift_GC',   False))
+        _bb30_near = bool(row.get('BB30_Shift_Near',  False))
+        _shift_val = row.get('BB30_Upper_18_Shift', 0)
+        if _bb30_gc:
+            s_score += 120
+            tags.append("🎯BB30시프트돌파")
+            tags.append(f"🎯시프트선:{int(_shift_val)}원")
+        elif _bb30_near:
+            s_score += 50
+            tags.append("🎯BB30시프트근접")
+
         if is_watermelon:
             s_score += 100
             tags.append("🍉수박신호")
             tags.append(f"🍉빨강전환(강도{red_score}/3)")
             tags.append(f"🍉강도{watermelon_score}/3")
+            if _bb30_gc:
+                s_score += 80   # 수박 + 시프트GC 동반 추가 보너스
+                tags.append("🏆단테핵심타점!")
         elif watermelon_color == 'red' and red_score >= 2:
             s_score += 60
             tags.append("🍉빨강상태")    
@@ -3475,6 +3605,16 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             '폭발직전수렴': bool(row.get('MA_Convergence_Break_Ready', False)),
             '폭발직전수렴점수': int(row.get('MA_Convergence_Break_Ready_Score', 0)),
             '꼬리%': 0,
+            # ── 매집대 품질 정보 ──────────────────────────────
+            '매집품질등급':   str(row.get('Maejip_Quality', 'D(허위매집)')),
+            '매집점수':       int(row.get('Maejip_Score',    0)),
+            '매집일수_10일':  int(row.get('Maejip_Days_10',  0)),
+            '매집일수_20일':  int(row.get('Maejip_Days_20',  0)),
+            '초록매집일수':   int(row.get('Green_Maejip_Days', 0)),
+            # ── BB30 Shift 타점 정보 ──────────────────────────
+            'BB30시프트선': int(row.get('BB30_Upper_18_Shift', 0) or 0),
+            'BB30시프트GC': bool(row.get('BB30_Shift_GC', False)),
+            'BB30시프트근접': bool(row.get('BB30_Shift_Near', False)),
             # ── 보조 분류 (Ver 27.5) ──────────────────────────
             **build_sub_classification(row),
             # 수급 상태는 enrich 후 업데이트되므로 초기값
@@ -3936,6 +4076,7 @@ if __name__ == "__main__":
             f"📊 {item.get('추세강도','?')} | {item.get('거래량패턴','?')} | {item.get('가격위치','?')}\n"
             f"🕯️ {item.get('캔들패턴','?')} | {item.get('BB상태','?')} | {item.get('단테패턴','?')}\n"
             f"📈 ADX:{item.get('ADX',0)} | Stoch:{item.get('Stoch_K',0):.0f}/{item.get('Stoch_D',0):.0f} | BB%B:{item.get('BB%B',0):.2f}\n"
+            f"💎 매집품질:{item.get('매집품질등급','?')} | 매집일수:{item.get('매집일수_10일',0)}/10일 | 초록매집:{item.get('초록매집일수',0)}일\n"
             f"💡 {item.get('ai_tip', '분석전')}\n"
              f"----------------------------\n")
 
