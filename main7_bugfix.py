@@ -104,7 +104,7 @@ RECENT_AVG_AMOUNT_2 = 350
 ROSS_BAND_TOLERANCE = 1.03
 RSI_LOW_TOLERANCE   = 1.03
 
-log_info("📡 [Ver 27.4] 급등초동 탐지 로직 전면 재설계...")
+log_info("📡 [Ver 27.5] 보조 분류 시스템 추가...")
 
 import sys
 import os
@@ -2763,6 +2763,182 @@ def stage_rank_value(stage_status: str) -> int:
     if stage_status == "PASS_B":
         return 1
     return 0     
+
+# =============================================================
+# 🏷️ 보조 분류 시스템 (Ver 27.5)
+# N태그 외 추가 분류 레이블을 생성
+# =============================================================
+
+def classify_momentum(row) -> str:
+    """추세 강도 분류: ADX + MACD 기반"""
+    adx  = float(row.get('ADX', 0) or 0)
+    macd = float(row.get('MACD_Hist', 0) or 0)
+    if adx >= 40 and macd > 0:   return "🔥강추세"
+    if adx >= 25 and macd > 0:   return "📈중추세"
+    if adx >= 25 and macd <= 0:  return "⚠️추세약화"
+    if adx < 20:                  return "🔄횡보"
+    return "➖보통"
+
+def classify_volume_pattern(row) -> str:
+    """거래량 패턴 분류"""
+    vol     = float(row.get('Volume', 0) or 0)
+    vma20   = float(row.get('VMA20', 1) or 1)
+    vma5    = float(row.get('VMA5', 1) or 1)
+    maejip  = int(row.get('Maejip_Count', 0) or 0)
+    hammer  = int(row.get('Total_hammering', 0) or 0)
+    ratio   = vol / vma20 if vma20 > 0 else 0
+
+    if ratio >= 5:                 return "💥거래량폭발(5배+)"
+    if ratio >= 3:                 return "⚡거래량급증(3배+)"
+    if maejip >= 5:                return "🐋매집봉집중"
+    if hammer >= 10:               return "🔨저항선두드리기"
+    if vma5 > vma20 and ratio > 1: return "📈거래량증가추세"
+    if ratio < 0.5:                return "😴거래량소멸"
+    return "➖보통"
+
+def classify_position(row) -> str:
+    """현재 가격 위치 분류: 이격도 + MA 구조"""
+    disp   = float(row.get('Disparity', 100) or 100)
+    ma20   = float(row.get('MA20', 0) or 0)
+    ma60   = float(row.get('MA60', 0) or 0)
+    ma112  = float(row.get('MA112', 0) or 0)
+    close  = float(row.get('Close', 0) or 0)
+
+    above_112 = close > ma112 > 0
+    above_60  = close > ma60  > 0
+
+    if disp <= 97:
+        return "📍눌림목(MA20하)"
+    if 97 < disp <= 103:
+        if above_112: return "🏆황금존(MA20근접+112위)"
+        return "✅적정권(MA20근접)"
+    if 103 < disp <= 108:
+        return "📊이격확대(주의)"
+    if disp > 115:
+        return "🚨과열(추격위험)"
+    return "🔼상승중"
+
+def classify_rsi_state(rsi_val) -> str:
+    """RSI 상태 분류"""
+    r = float(rsi_val or 0)
+    if r >= 80:   return "🔴RSI과열(80+)"
+    if r >= 70:   return "🟠RSI강세(70~80)"
+    if r >= 50:   return "🟡RSI중립상(50~70)"
+    if r >= 40:   return "🟢RSI눌림(40~50)"
+    if r >= 30:   return "🔵RSI저점권(30~40)"
+    return "💜RSI과매도(~30)"
+
+def classify_bb_state(row) -> str:
+    """볼린저밴드 상태 분류"""
+    bb40w  = float(row.get('BB40_Width', 99) or 99)
+    bb20w  = float(row.get('BB20_Width', 99) or 99)
+    pct_b  = float(row.get('BB40_PercentB', 0.5) or 0.5)
+
+    if bb40w <= 3:   return "💎극강응축(BB40≤3)"
+    if bb40w <= 5:   return "💎강응축(BB40≤5)"
+    if bb40w <= 10:  return "🔋응축중(BB40≤10)"
+    if pct_b >= 0.9: return "🚀BB상단돌파권"
+    if pct_b <= 0.1: return "📍BB하단근접"
+    return f"➖BB보통({bb40w:.1f})"
+
+def classify_candle(row) -> str:
+    """당일 캔들 패턴 분류"""
+    high   = float(row.get('High', 0) or 0)
+    low    = float(row.get('Low', 0) or 0)
+    open_p = float(row.get('Open', 0) or 0)
+    close  = float(row.get('Close', 0) or 0)
+    if high == low:
+        return "➖도지"
+    total  = high - low
+    body   = abs(close - open_p)
+    upper  = high - max(open_p, close)
+    lower  = min(open_p, close) - low
+    body_r = body / total
+    tail_r = upper / total
+
+    is_bull = close >= open_p
+    if body_r >= 0.7 and is_bull:    return "🕯️장대양봉"
+    if body_r >= 0.7 and not is_bull:return "🕯️장대음봉"
+    if tail_r >= 0.4 and body_r < 0.3:return "⚠️윗꼬리(세력매도)"
+    if lower / total >= 0.4 and is_bull: return "🔨망치형(반등)"
+    if body_r < 0.15:                return "🕯️도지(관망)"
+    return "🕯️일반봉"
+
+def classify_obv_trend(row) -> str:
+    """OBV 추세 분류"""
+    slope = float(row.get('OBV_Slope', 0) or 0)
+    obv_r = bool(row.get('OBV_Rising', False))
+    obv_b = bool(row.get('OBV_Bullish', False))
+    if slope > 20 and obv_r and obv_b:  return "📊OBV강매집(3중확인)"
+    if slope > 5 and obv_r:             return "📊OBV매집중"
+    if slope > 0:                        return "📊OBV소폭상승"
+    if slope < -10:                      return "📉OBV강분산"
+    if slope < 0:                        return "📉OBV분산중"
+    return "➖OBV보합"
+
+def classify_pattern_type(row) -> str:
+    """단테 패턴 유형 분류"""
+    is_dolbanzi  = bool(row.get('Dolbanzi', False))
+    is_viper     = bool(row.get('Real_Viper_Hook', False))
+    is_golpagi   = bool(row.get('Golpagi_Trap', False))
+    is_jongbe    = bool(row.get('Jongbe_Break', False))
+    is_watermelon= bool(row.get('Watermelon_Signal', False))
+    is_real_wm   = bool(row.get('Is_Real_Watermelon', False))
+    is_surge     = bool(row.get('_is_track_b', False))
+
+    labels = []
+    if is_real_wm:   labels.append("🍉진짜수박")
+    elif is_watermelon: labels.append("🍉수박신호")
+    if is_dolbanzi:  labels.append("💍돌반지")
+    if is_viper:     labels.append("🐍독사훅")
+    if is_golpagi:   labels.append("🕳️골파기")
+    if is_jongbe:    labels.append("💛종베")
+    if is_surge:     labels.append("🚀급등초동")
+    return " ".join(labels) if labels else "➖일반"
+
+def classify_supply_state(row) -> str:
+    """수급 상태 분류 (enrich 후 사용)"""
+    supply = str(row.get('수급', '') or '')
+    maejip = int(row.get('매집', '0/5').split('/')[0] if '/' in str(row.get('매집','0/5')) else 0)
+    if '쌍끌' in supply:      return "🤝쌍끌매수"
+    if '기관' in supply:      return "🔴기관매수"
+    if '외인' in supply:      return "🔵외인매수"
+    if maejip >= 4:            return "🐋세력매집강"
+    if maejip >= 3:            return "🐋세력매집"
+    return "➖수급보통"
+
+def build_sub_classification(row) -> dict:
+    """
+    모든 보조 분류를 한 번에 생성.
+    analyze_final return dict에 **sub 로 추가.
+    """
+    rsi = float(row.get('RSI', 50) or 50)
+    return {
+        '추세강도':     classify_momentum(row),
+        '거래량패턴':   classify_volume_pattern(row),
+        '가격위치':     classify_position(row),
+        'RSI상태':      classify_rsi_state(rsi),
+        'BB상태':       classify_bb_state(row),
+        '캔들패턴':     classify_candle(row),
+        'OBV추세':      classify_obv_trend(row),
+        '단테패턴':     classify_pattern_type(row),
+        # 수치형 보조지표
+        'ADX':          round(float(row.get('ADX', 0) or 0), 1),
+        'MACD히스토':   round(float(row.get('MACD_Hist', 0) or 0), 2),
+        'Stoch_K':      round(float(row.get('Sto_K', 0) or 0), 1),
+        'Stoch_D':      round(float(row.get('Sto_D', 0) or 0), 1),
+        'BB%B':         round(float(row.get('BB40_PercentB', 0) or 0), 2),
+        'ATR비율':      round(float(row.get('ATR', 0) or 0) / float(row.get('Close', 1) or 1) * 100, 2),
+        '매집봉수':     int(row.get('Maejip_Count', 0) or 0),
+        '저항두드리기': int(row.get('Total_hammering', 0) or 0),
+        '수박Fire':     round(float(row.get('Watermelon_Fire', 0) or 0), 2),
+        'MA60기울기':   round(float(row.get('MA60_Slope', 0) or 0), 2),
+        'MA112기울기':  round(float(row.get('MA112_Slope', 0) or 0), 2),
+        '박스레인지':   round(float(row.get('Box_Range', 1) or 1), 3),
+        '역매공파수':   int(row.get('yeok_mae_count', 0) if 'yeok_mae_count' in str(row.index.tolist()) else 0),
+        '일목구름위':   row.get('Close', 0) > row.get('Cloud_Top', 0),
+    }
+
 # ---------------------------------------------------------
 # 🕵️ [7] 분석 엔진
 # ---------------------------------------------------------
@@ -3242,7 +3418,13 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             '좋은수렴점수': int(row.get('Good_MA_Convergence_Score', 0)),
             '폭발직전수렴': bool(row.get('MA_Convergence_Break_Ready', False)),
             '폭발직전수렴점수': int(row.get('MA_Convergence_Break_Ready_Score', 0)),
-            '꼬리%': 0
+            '꼬리%': 0,
+            # ── 보조 분류 (Ver 27.5) ──────────────────────────
+            **build_sub_classification(row),
+            # 수급 상태는 enrich 후 업데이트되므로 초기값
+            '수급상태': classify_supply_state({'수급': s_tag, '매집': f"{acc_count}/5"}),
+            # 급등초동 여부
+            '급등초동': _is_track_b_final if '_is_track_b_final' in dir() else False,
         }]
     except Exception as e:
         import traceback
@@ -3287,9 +3469,10 @@ def enrich_hits_with_supply_and_financial(all_hits_sorted, top_k_supply=80, top_
                         item['N구분'] = (current_n + " 🤝쌍끌").strip()
                     if "🍉쌍끌수급" not in current_g:
                         item['구분'] = (current_g + " 🍉쌍끌수급").strip()
-
-                    # 쌍끌이면 추가 보너스
                     item['안전점수'] += 20
+
+                # ✅ 수급 enrich 후 보조분류 업데이트
+                item['수급상태'] = classify_supply_state(item)
 
             except Exception as e:
                 item['수급'] = f"⚠️수급오류"
@@ -3694,6 +3877,9 @@ if __name__ == "__main__":
             f"- 재무: {item['재무']} | 수급: {item['수급']}\n"
             f"- MA수렴: {safe_float(item['MA수렴']):.1f} | 이격: {item['이격']}\n"
             f"- OBV기울기: {item['OBV기울기']} | RSI: {item['RSI']}\n"
+            f"📊 {item.get('추세강도','?')} | {item.get('거래량패턴','?')} | {item.get('가격위치','?')}\n"
+            f"🕯️ {item.get('캔들패턴','?')} | {item.get('BB상태','?')} | {item.get('단테패턴','?')}\n"
+            f"📈 ADX:{item.get('ADX',0)} | Stoch:{item.get('Stoch_K',0):.0f}/{item.get('Stoch_D',0):.0f} | BB%B:{item.get('BB%B',0):.2f}\n"
             f"💡 {item.get('ai_tip', '분석전')}\n"
              f"----------------------------\n")
 
@@ -3730,3 +3916,4 @@ if __name__ == "__main__":
 
     log_info("✅ 작전 종료: 전수 기록 완료 및 정예 15건 보고 완료!")
     graceful_shutdown(exit_code=0)
+
