@@ -37,4 +37,4 @@ jobs:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           GOOGLE_JSON_KEY: ${{ secrets.GOOGLE_JSON_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-        run: python main7.py
+        run: python backtest_validator.py --start 2026-01-01 --end 2026-03-17
