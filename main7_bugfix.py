@@ -1,4 +1,4 @@
- #------------------------------------------------------------------
+#------------------------------------------------------------------
 # 💎 [Ultimate Masterpiece] 전천후 AI 전략 사령부 (All-In-One 통합판)
 # Ver 27.3 패치: FIX-1(TOP_N 700) FIX-2(거래대금이원화) FIX-3(소형주필터완화)
 #               FIX-4(S3상단1.15) FIX-5(급등초동COMBO) FIX-6(소형주추가스캔)
@@ -104,7 +104,7 @@ RECENT_AVG_AMOUNT_2 = 350
 ROSS_BAND_TOLERANCE = 1.03
 RSI_LOW_TOLERANCE   = 1.03
 
-log_info("📡 [Ver 27.5] 보조 분류 시스템 추가...")
+log_info("📡 [Ver 27.6] 성능 최적화 (사전필터/캐시/스레드/rolling중복제거)...")
 
 import sys
 import os
@@ -146,7 +146,7 @@ def graceful_shutdown(exit_code=0):
 
 from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FuturesTimeoutError
 
-def run_scan_with_timeout(target_dict, weather_data, global_env, leader_env, sector_master_map, timeout_per_stock=15):
+def run_scan_with_timeout(target_dict, weather_data, global_env, leader_env, sector_master_map, timeout_per_stock=10):  # PERF-5: 15→10초
     """
     기존:
         with ThreadPoolExecutor(max_workers=15) as executor:
@@ -159,7 +159,7 @@ def run_scan_with_timeout(target_dict, weather_data, global_env, leader_env, sec
     pairs = list(zip(target_dict.keys(), target_dict.values()))
     total = len(pairs)
 
-    with ThreadPoolExecutor(max_workers=15) as executor:
+    with ThreadPoolExecutor(max_workers=20) as executor:  # PERF-5: 15→20
         future_map = {
             executor.submit(
                 analyze_final,
@@ -1114,7 +1114,7 @@ def check_ma_convergence_break_ready(curr: pd.Series, past: pd.DataFrame):
 # 📈 [4] 기술적 분석 지표
 # ---------------------------------------------------------
 def get_indicators(df):
-    df = df.copy()
+    # PERF-1: df.copy() 제거 — analyze_final에서 이미 복사본 전달
     count = len(df)
 
     recent_avg_amount = (df['Close'] * df['Volume']).tail(5).mean() / 100_000_000
@@ -1152,8 +1152,9 @@ def get_indicators(df):
         df[f'VMA{n}']   = df['Volume'].rolling(window=min(count, n)).mean()
         df[f'Slope{n}'] = (df[f'MA{n}'] - df[f'MA{n}'].shift(3)) / df[f'MA{n}'].shift(3) * 100
 
-    df['MA20_slope'] = (df['MA20'] - df['MA20'].shift(5)) / (df['MA20'].shift(5) + 1e-9) * 100
-    df['MA40_slope'] = (df['MA40'] - df['MA40'].shift(5)) / (df['MA40'].shift(5) + 1e-9) * 100
+    # PERF-4: Slope20/40은 이미 Slope 루프에서 계산됨 → 재활용
+    df['MA20_slope'] = df['Slope20']
+    df['MA40_slope'] = df['Slope40']
 
     std20 = close.rolling(20).std()
     std40 = close.rolling(40).std()
@@ -2595,8 +2596,7 @@ def compute_stage_filters(df: pd.DataFrame) -> pd.DataFrame:
     2번: BB40 응축  (BB40 기준 15→18, 고점비율 0.90→0.88, 수렴 4.5→5.5)
     3번: 돌파 직전  (상단 허용 1.03→1.05 초동 돌파봉 포함, BB40 18→20)
     """
-    df = df.copy()
-
+    # PERF-2: df.copy() 제거
     vol_ma5  = _safe_rolling_mean(df['Volume'], 5)
     vol_ma20 = _safe_rolling_mean(df['Volume'], 20)
     high20_prev = _safe_rolling_max(df['High'], 20).shift(1)
@@ -2939,6 +2939,23 @@ def build_sub_classification(row) -> dict:
         '일목구름위':   row.get('Close', 0) > row.get('Cloud_Top', 0),
     }
 
+
+# ════════════════════════════════════════════════
+# PERF-6: fdr.DataReader 결과 당일 메모리 캐시
+# 같은 종목을 여러 번 호출하는 경우 방지
+# ════════════════════════════════════════════════
+_fdr_cache = {}
+
+def fdr_cached(ticker: str, days: int = 250) -> pd.DataFrame:
+    """fdr.DataReader 결과를 당일 메모리 캐시."""
+    today_key = f"{ticker}_{days}_{datetime.now().strftime('%Y%m%d')}"
+    if today_key in _fdr_cache:
+        return _fdr_cache[today_key]
+    start = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
+    df = fdr.DataReader(ticker, start=start)
+    _fdr_cache[today_key] = df
+    return df
+
 # ---------------------------------------------------------
 # 🕵️ [7] 분석 엔진
 # ---------------------------------------------------------
@@ -2952,8 +2969,17 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
     storm_count = 0
     
     try:
-        df = fdr.DataReader(ticker, start=(datetime.now()-timedelta(days=250)))
+        df = fdr_cached(ticker, days=250)  # PERF-6: 캐시 활용
         if len(df) < 100: return []
+
+        # PERF-3: get_indicators 전 빠른 거래대금 사전 필터 (무거운 rolling 계산 전에 탈락)
+        _pre_amount = (df['Close'] * df['Volume']).tail(5).mean() / 1e8
+        _pre_vol    = df['Volume'].iloc[-1]
+        _pre_vma20  = df['Volume'].tail(20).mean()
+        _pre_track_b = (_pre_amount >= 10 and _pre_vma20 > 0 and _pre_vol >= _pre_vma20 * 3.0)
+        _pre_track_a = (_pre_amount >= 50)
+        if not (_pre_track_a or _pre_track_b):
+            return []
 
         df = get_indicators(df)
         
@@ -3916,4 +3942,3 @@ if __name__ == "__main__":
 
     log_info("✅ 작전 종료: 전수 기록 완료 및 정예 15건 보고 완료!")
     graceful_shutdown(exit_code=0)
-
