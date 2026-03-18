@@ -104,7 +104,7 @@ RECENT_AVG_AMOUNT_2 = 350
 ROSS_BAND_TOLERANCE = 1.03
 RSI_LOW_TOLERANCE   = 1.03
 
-log_info("📡 [Ver 27.6] 성능 최적화 (사전필터/캐시/스레드/rolling중복제거)...")
+log_info("📡 [Ver 27.8] 검색식 정합성 수정 (수박/골파기/BB40로스/조용매집/세력눌림)...")
 
 import sys
 import os
@@ -796,6 +796,13 @@ COMBO_TABLE = [
         'tags': ['💛MA전환확인', '🔺삼각수렴'],
         'cond': lambda e: e.get('jongbe_ok') and e.get('triangle_signal'),
     },
+    # ✅ BUG-C FIX: jongbe_break 단독 (삼각수렴 없이 MA 골크만)
+    {
+        'grade': 'B', 'score': 240, 'type': '🛡',
+        'combination': '💛종베단독(MA골크)',
+        'tags': ['💛MA20/40골든크로스', '📈추세전환'],
+        'cond': lambda e: e.get('jongbe_break', False),
+    },
     {
         'grade': 'A', 'score': 265, 'type': '🛡',
         'combination': '🔺🏆삼각역매공파',
@@ -825,6 +832,13 @@ COMBO_TABLE = [
         'combination': '📍바닥단독',
         'tags': ['📍바닥권'],
         'cond': lambda e: e.get('bottom_area'),
+    },
+    # ✅ MISS-1: watermelon_green_7d 단독 조합 추가
+    {
+        'grade': 'B', 'score': 200, 'type': '🔍',
+        'combination': '🍉초록축적(수박직전)',
+        'tags': ['🍉초록10일축적', '📦수박직전대기'],
+        'cond': lambda e: e.get('watermelon_green_7d') and not e.get('watermelon_signal'),
     },
     {
         'grade': 'C', 'score': 170, 'type': None,
@@ -1280,7 +1294,7 @@ def get_indicators(df):
 
     color_change            = (df['Watermelon_Color'] == 'red') & (df['Watermelon_Color'].shift(1) == 'green')
     df['Green_Days_10']     = (df['Watermelon_Color'].shift(1) == 'green').rolling(10).sum()
-    volume_surge            = df['Volume'] >= vol_avg20 * 1.2
+    volume_surge            = df['Volume'] >= vol_avg20 * 1.5  # ✅ FIX-검색식3: 1.2→1.5 (수박=거래량폭발)
     df['Watermelon_Signal'] = color_change & (df['Green_Days_10'] >= 7) & volume_surge
     df['Good_MA_Convergence_Score'] = 0
     df['MA_Convergence_Break_Ready_Score'] = 0
@@ -1298,8 +1312,8 @@ def get_indicators(df):
     df_signal = df.dropna(subset=['BB_UP', 'BB_LOW', 'BB40_Lower', 'RSI']).copy()
     if len(df_signal) > 51:
         curr_s  = df_signal.iloc[-1]
-        past    = df_signal.iloc[-21:-1]
-        past_50 = df_signal.iloc[-51:-1]
+        past    = df_signal.iloc[-41:-1]   # ✅ FIX-검색식1: 20→40일 (중기 눌림목 포착)
+        past_50 = df_signal.iloc[-61:-1]   # ✅ FIX-검색식1: 51→61일
 
         ross, _ = check_ross(curr_s, past)
         rsi_div, _ = check_rsi_div(curr_s, past)
@@ -1307,7 +1321,9 @@ def get_indicators(df):
         bb40_ross, _ = check_bb40_ross(curr_s, past)
         bb40_rsi_div, _ = check_bb40_rsi_div(curr_s, past)
         bb40_combo, _ = check_bb40_reclaim_rsi_div(curr_s, past)
-        force_pullback, _ = check_force_pullback(curr_s, past_50)
+        # ✅ FIX-검색식5: 세력눌림목 강봉탐지는 최근 20일만
+        past_20_fp = df_signal.iloc[-21:-1]
+        force_pullback, _ = check_force_pullback(curr_s, past_20_fp)
         bb40_second_wave, _ = check_bb40_second_wave(curr_s, past_50)
         watermelon_relaunch, _ = check_watermelon_relaunch(curr_s, past_50)
         obv_acc_breakout, _ = check_obv_acc_breakout(curr_s, past_50)
@@ -1410,8 +1426,8 @@ def get_indicators(df):
     )
 
     df['was_broken_20']  = (close < df['MA20']).rolling(5).max() == 1
-    df['lowest_vol_5d']  = df['Volume'].rolling(5).min()
-    df['is_fake_drop']   = df['lowest_vol_5d'] < (vol_avg20 * 0.5)
+    # ✅ FIX-검색식4: 5일 최저값이 아닌 '5일 내 하루라도 저거래량' 기준
+    df['is_fake_drop']   = (df['Volume'] < vol_avg20 * 0.5).rolling(5).max() == 1
     df['obv_divergence'] = (close < close.shift(5)) & (df['OBV'] >= df['OBV'].shift(5))
     df['reclaim_20']     = (close > df['MA20']) & (close > df['Open']) & (df['Volume'] > df['Volume'].shift(1))
 
@@ -1460,7 +1476,7 @@ def check_force_pullback(curr: pd.Series, past: pd.DataFrame):
         (past['Volume'] > past['Vol_Avg'] * 1.8)
     ).any()
 
-    volume_cooling = curr['Volume'] < (curr['Vol_Avg'] * 1.0)
+    volume_cooling = curr['Volume'] < (curr['Vol_Avg'] * 0.8)  # ✅ FIX-검색식5b: 1.0→0.8 (명확한 거래소멸)
 
     near_ma20 = abs(curr['Close'] - curr['MA20']) / (curr['MA20'] + 1e-9) <= 0.03
     near_bb_mid = abs(curr['Close'] - curr['MA40']) / (curr['MA40'] + 1e-9) <= 0.04
@@ -2073,22 +2089,24 @@ def build_default_signals(row, close_p, prev):
         'watermelon_relaunch':   row.get('Watermelon_Relaunch', False),
 
         # ── 폭발/바닥/침묵 ────────────────────────────────────
+        # ✅ BUG-A FIX: FIX-A 기준과 통일 (BB40<=5.0)
         'explosion_ready': (
-            row['BB40_Width'] <= 10.0 and
+            float(row.get('BB40_Width', 99)) <= 5.0 and
             row['OBV_Rising'] and
             row['MFI_Strong']
         ),
+        # ✅ BUG-B FIX: analyze_final과 기준 통일 (Near_MA112<=2.0)
         'bottom_area': (
-            row['Near_MA112'] <= 5.0 and
+            row['Near_MA112'] <= 2.0 and
             row['Below_MA112_60d'] >= 40
         ),
         'silent_perfect': (
             row['ATR_Below_Days'] >= 7 and
             row['MFI_Strong_Days'] >= 7 and
-            row['MFI'] > 50 and
+            # ✅ FIX-검색식2a: MFI>50 중복 제거 (MFI_Strong_Days>=7이 포함)
             row['MFI'] > row['MFI_10d_ago'] and
             row['OBV_Rising'] and
-            row['Box_Range'] <= 1.15
+            row['Box_Range'] <= 1.10          # ✅ FIX-검색식2b: 1.15→1.10 (진짜 박스권)
         ),
         'silent_strong': (
             row['ATR_Below_Days'] >= 5 and
@@ -2192,11 +2210,23 @@ def calculate_combination_score(signals):
         weights = [0.3, 0.1]
         for m, w in zip(sorted_matched[1:3], weights):
             bonus += int(m['score'] * w)
-            bonus_tags += m['tags']  # 2~3위 태그도 병합
+            bonus_tags += m['tags']
 
         best['score'] = best['score'] + bonus
-        best['tags']  = best['tags'] + bonus_tags   # 중복 제거는 표시 단계에서
-        best['combo_count'] = len(sorted_matched)   # 몇 개 조합 매칭됐는지 기록
+        best['tags']  = best['tags'] + bonus_tags
+        best['combo_count'] = len(sorted_matched)
+
+        # ✅ MISS-2: dmi_ok 보너스 (+20) — 삼각수렴 신뢰도 강화
+        if effective.get('dmi_ok'):
+            best['score'] += 20
+            if '✅DMI확인' not in best['tags']:
+                best['tags'].append('✅DMI확인')
+
+        # ✅ MISS-3: watermelon_green_7d 보너스 (+15) — 수박 직전 대기 상태
+        if effective.get('watermelon_green_7d') and not effective.get('watermelon_signal'):
+            best['score'] += 15
+            if '🍉초록대기' not in best['tags']:
+                best['tags'].append('🍉초록대기')
 
         best['score'] = _apply_style_bonus(best, style, W)
         return best
