@@ -44,7 +44,7 @@ except ImportError:
     def log_error(msg): print(msg)
     def log_debug(msg): pass
     def log_scan_date(date, n): print(f"🗓️  {date} → 히트: {n}개")
-from main7 import (
+from main7_bugfix import (
     get_indicators,
     calculate_combination_score,
     build_default_signals,
