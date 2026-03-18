@@ -104,7 +104,7 @@ RECENT_AVG_AMOUNT_2 = 350
 ROSS_BAND_TOLERANCE = 1.03
 RSI_LOW_TOLERANCE   = 1.03
 
-log_info("📡 [Ver 27.3] 급등초동 탐지 + 소형주 커버리지 확대...")
+log_info("📡 [Ver 27.4] 급등초동 탐지 로직 전면 재설계...")
 
 import sys
 import os
@@ -1120,26 +1120,28 @@ def get_indicators(df):
     recent_avg_amount = (df['Close'] * df['Volume']).tail(5).mean() / 100_000_000
     ma20_amount       = (df['Close'] * df['Volume']).tail(20).mean() / 100_000_000
 
-    # ✅ FIX-2: 거래대금 필터 이원화
-    # 트랙 A — 기존 안정형: 최근5일 150억+ (또는 350억+)
+    # ✅ FIX-A: 거래대금 필터 이원화 (Ver 27.4)
+    # 트랙 A — 안정형: 최근5일 150억+ (또는 350억+)
     track_a = (
         (recent_avg_amount >= RECENT_AVG_AMOUNT_1 and recent_avg_amount >= ma20_amount * 1.5)
         or recent_avg_amount >= RECENT_AVG_AMOUNT_2
     )
-    # 트랙 B — 급등 초동형: 최근 거래대금 30억 이상 + 당일 거래량이 20일 평균의 3배 이상
+    # 트랙 B — 급등 초동형 (나무기술/소형 급등주 포착)
+    #   조건: 당일 거래량 3배+ AND 당일 거래대금 10억+
+    #   (소형주 1,400원 × 70만주 = 9.8억 → 10억 기준)
     last_vol    = df['Volume'].iloc[-1]
     last_close  = df['Close'].iloc[-1]
     last_amount = (last_vol * last_close) / 100_000_000
     vol_ma20_v  = df['Volume'].tail(20).mean()
     track_b = (
-        last_amount >= 30 and
+        last_amount >= 10 and
         vol_ma20_v > 0 and
         last_vol >= vol_ma20_v * 3.0
     )
     if not (track_a or track_b):
         return None
-    # 어느 트랙인지 기록 (analyze_final에서 활용)
-    df['_track'] = 'B' if (not track_a and track_b) else 'A'
+    # 트랙 기록 (boolean 컬럼 — iloc로 안전하게 접근)
+    df['_is_track_b'] = (not track_a) and track_b
 
     high  = df['High']
     low   = df['Low']
@@ -2122,13 +2124,8 @@ def build_default_signals(row, close_p, prev):
         'dmi_cross':        False,
         'dmi_ok':           False,
 
-        # ── 급등 초동 탐지 ────────────────────────────────────
-        'surge_breakout': (
-            row['Volume'] >= row.get('VMA20', row['Volume']) * 3.0 and
-            row['Close'] > row.get('MA20', 0) and
-            row['OBV_Rising'] and
-            row['Close'] > row.get('BB40_Upper', row['Close'])
-        ),
+        # ── 급등 초동 탐지 (FIX-C: 소형주 역배열 돌파 포함) ──────
+        'surge_breakout': False,   # 아래에서 실제 계산 후 덮어씀
 
         # ── MA 수렴 ───────────────────────────────────────────
         'MA_Convergence': row['MA_Convergence'],
@@ -2811,9 +2808,9 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         temp_df = df.iloc[:raw_idx + 1]
 
         recent_avg_amount = (df['Close'] * df['Volume']).tail(5).mean() / 100000000
-        # ✅ FIX-3: 급등 초동 트랙(B)은 거래대금 기준 완화
-        _track = df.get('_track', pd.Series(['A'])).iloc[-1] if '_track' in df.columns else 'A'
-        min_amount = 10 if _track == 'B' else 50
+        # ✅ FIX-B: 트랙B 판별 (iloc로 안전하게)
+        _is_track_b = bool(df['_is_track_b'].iloc[-1]) if '_is_track_b' in df.columns else False
+        min_amount = 5 if _is_track_b else 50   # 트랙B: 5억 (소형주 초동 커버)
         if recent_avg_amount < min_amount:
             return []
 
@@ -2939,6 +2936,20 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
          
         signals = build_default_signals(row, close_p, prev)
      
+        # ✅ FIX-C: surge_breakout 실제 계산 (dict 밖에서)
+        _vma20_val  = float(row.get('VMA20', 0) or 0)
+        _vol_ratio  = row['Volume'] / _vma20_val if _vma20_val > 0 else 0
+        _is_bigbull = row['Close'] > row['Open'] * 1.05          # 5%+ 양봉
+        _obv_up     = bool(row.get('OBV_Rising', False))
+        _near_ma20  = row['Close'] >= row.get('MA20', 0) * 0.97  # MA20 근처 이상
+        _bb_touch   = row['Close'] >= row.get('BB40_Upper', row['Close']) * 0.95
+        signals['surge_breakout'] = (
+            _vol_ratio >= 3.0 and
+            _is_bigbull and
+            _obv_up and
+            (_near_ma20 or _bb_touch)
+        )
+
         signals, new_tags = inject_tri_result(signals, tri_result, new_tags)
          
         if row['BB_Ross']:
@@ -3000,7 +3011,11 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         tags.append(style_label)
 
         # ✅ s_score 한 번만 설정 (중간 리셋 제거)
+        # ✅ FIX-D: 트랙B(급등초동) 기본 점수 상향
+        _is_track_b_final = bool(df['_is_track_b'].iloc[-1]) if '_is_track_b' in df.columns else False
         s_score = int(90 + (30 if is_nova else 15 if is_melon else 0))
+        if _is_track_b_final:
+            s_score += 50  # 급등 초동 트랙 가점
       
         lower_rn, upper_rn = get_target_levels(row['Close'])
         avg_money = (row['Close'] * row['Volume'])
@@ -3715,4 +3730,3 @@ if __name__ == "__main__":
 
     log_info("✅ 작전 종료: 전수 기록 완료 및 정예 15건 보고 완료!")
     graceful_shutdown(exit_code=0)
-
