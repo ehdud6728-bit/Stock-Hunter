@@ -101,8 +101,8 @@ RN_LIST = [500, 1000, 1500, 2000, 3000, 5000, 7500, 10000, 15000, 20000,
            750000, 1000000, 1500000]
 
 SCAN_DAYS, TOP_N = 1, 700  # ✅ FIX: 소형주 커버리지 확대
-MIN_MARCAP  = 20_000_000_000   # ✅ FIX-3: 10억→300억 (시총 200억 미만 제외)
-MIN_PRICE   = 3_000            # ✅ FIX-3: 동전주 제외 (3,000원 미만)
+MIN_MARCAP  = 30_000_000_000   # ✅ FIX-3: 10억→300억 (시총 300억 미만 제외)
+MIN_PRICE   = 5_000            # ✅ FIX-3: 동전주 제외 (5,000원 미만)
 STOP_LOSS_PCT = -5.0
 WHALE_THRESHOLD = 50 
 
@@ -4467,8 +4467,8 @@ if __name__ == "__main__":
         target_dict, weather_data, global_env, leader_env, sector_master_map
     )
         
-    if all_hits:
-        all_hits_sorted = sorted(all_hits, key=lambda x: x['N점수'], reverse=True)
+    # ✅ BUGFIX: all_hits 비어있을 때 all_hits_sorted 미정의 방지
+    all_hits_sorted = sorted(all_hits, key=lambda x: x['N점수'], reverse=True) if all_hits else []
 
     log_info("⚙️ 상위 후보 수급/재무 후처리 중...")
     all_hits_sorted = enrich_hits_with_supply_and_financial(
