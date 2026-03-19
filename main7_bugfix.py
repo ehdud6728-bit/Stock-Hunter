@@ -115,7 +115,7 @@ RECENT_AVG_AMOUNT_2 = 350
 ROSS_BAND_TOLERANCE = 1.03
 RSI_LOW_TOLERANCE   = 1.03
 
-log_info("📡 [Ver 27.18] 피봇포인트 + 피보나치 + ATR 2단계 목표가 추가...")
+log_info("📡 [Ver 27.19] 피보나치 지지선 COMBO + 백테스트 패턴 저장 확장...")
 
 import sys
 import os
@@ -987,6 +987,37 @@ COMBO_TABLE = [
         'combination': '🍉초록축적(수박직전)',
         'tags': ['🍉초록10일축적', '📦수박직전대기'],
         'cond': lambda e: e.get('watermelon_green_7d') and not e.get('watermelon_signal'),
+    },
+    # ✅ 피보나치 지지 + 수박 조합 (황금비율 타점)
+    {
+        'grade': 'SSS', 'score': 620, 'type': '🔢',
+        'combination': '🔢🍉피보나치38.2수박',
+        'tags': ['🔢Fib38.2%지지', '🍉수박전환', '📐황금비율타점', '🚀고신뢰진입'],
+        'cond': lambda e: e.get('fib_support_382') and e.get('watermelon_signal'),
+    },
+    {
+        'grade': 'SSS+', 'score': 650, 'type': '🔢',
+        'combination': '🔢🍉피보나치61.8수박',
+        'tags': ['🔢Fib61.8%강지지', '🍉수박전환', '📐황금비율최강타점', '🚀최고신뢰진입'],
+        'cond': lambda e: e.get('fib_support_618') and e.get('watermelon_signal'),
+    },
+    {
+        'grade': 'SS+', 'score': 500, 'type': '🔢',
+        'combination': '🔢피봇S1수박',
+        'tags': ['📐피봇S1지지', '🍉수박전환', '📊전일기반타점'],
+        'cond': lambda e: e.get('pivot_support') and e.get('watermelon_signal'),
+    },
+    {
+        'grade': 'SS', 'score': 460, 'type': '🔢',
+        'combination': '🔢피보나치38.2눌림',
+        'tags': ['🔢Fib38.2%지지', '📉눌림목', '📐황금비율지지확인'],
+        'cond': lambda e: e.get('fib_support_382') and e.get('obv_rising') and not e.get('watermelon_signal'),
+    },
+    {
+        'grade': 'SS', 'score': 480, 'type': '🔢',
+        'combination': '🔢피보나치61.8강지지',
+        'tags': ['🔢Fib61.8%강지지', '📊OBV방어', '🏆최강지지구간'],
+        'cond': lambda e: e.get('fib_support_618') and e.get('obv_rising'),
     },
     {
         'grade': 'C', 'score': 170, 'type': None,
@@ -2389,9 +2420,16 @@ def build_default_signals(row, close_p, prev):
         'watermelon_relaunch':   row.get('Watermelon_Relaunch', False),
 
         # ── BB30 Shift 골든크로스 (단테 수박 타점) ────────────
-        # SHIFT(BBandsUp(30,1.8), 20) 골든크로스
         'bb30_shift_gc':   bool(row.get('BB30_Shift_GC',   False)),
         'bb30_shift_near': bool(row.get('BB30_Shift_Near',  False)),
+
+        # ── 피보나치 지지선 근접 ────────────────────────────
+        # 피봇/피보나치는 analyze_final에서 _fib/_pivot으로 계산 후 주입
+        # 여기선 기본값 False, 아래 FIX-FIB에서 덮어씀
+        'fib_support_382': False,   # 38.2% 지지선 ±2% 근처
+        'fib_support_618': False,   # 61.8% 지지선 ±2% 근처
+        'pivot_support':   False,   # 피봇 S1 ±2% 근처
+        'pivot_resist':    False,   # 피봇 R1 ±2% 근처
 
         # ── 매집대 품질 검증 (재설계 — 독립 매집강도 기준) ──────
         'maejip_quality_a': row.get('Maejip_Quality', '') == 'A(강한매집)',   # 10일 중 7일+
@@ -3498,6 +3536,22 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
          
         signals = build_default_signals(row, close_p, prev)
      
+        # ✅ FIX-FIB: 피보나치/피봇 지지선 근접 여부 주입
+        _fib382_val = float(_fib.get('fib_382', 0))
+        _fib618_val = float(_fib.get('fib_618', 0))
+        _pivot_s1   = float(_pivot.get('S1', 0))
+        _pivot_r1   = float(_pivot.get('R1', 0))
+        _tol        = 0.02   # ±2% 허용
+
+        if _fib382_val > 0:
+            signals['fib_support_382'] = abs(close_p - _fib382_val) / _fib382_val <= _tol
+        if _fib618_val > 0:
+            signals['fib_support_618'] = abs(close_p - _fib618_val) / _fib618_val <= _tol
+        if _pivot_s1 > 0:
+            signals['pivot_support']   = abs(close_p - _pivot_s1)   / _pivot_s1   <= _tol
+        if _pivot_r1 > 0:
+            signals['pivot_resist']    = abs(close_p - _pivot_r1)   / _pivot_r1   <= _tol
+
         # ✅ FIX-C: surge_breakout 실제 계산 (dict 밖에서)
         _vma20_val  = float(row.get('VMA20', 0) or 0)
         _vol_ratio  = row['Volume'] / _vma20_val if _vma20_val > 0 else 0
@@ -3772,6 +3826,17 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             elif _gap_pct > 30:
                 tags.append(f"⚠️평단괴리({_gap_pct:.0f}%↑)")
                 s_score -= 15   # 너무 많이 올랐으면 추격 위험
+
+        # ✅ 피보나치 지지선 가점
+        if signals.get('fib_support_618'):
+            s_score += 60
+            tags.append(f"🔢Fib61.8%({int(_fib618_val):,}원)")
+        elif signals.get('fib_support_382'):
+            s_score += 35
+            tags.append(f"🔢Fib38.2%({int(_fib382_val):,}원)")
+        if signals.get('pivot_support'):
+            s_score += 25
+            tags.append(f"📐피봇S1({int(_pivot_s1):,}원)")
 
         # ✅ STEP4: BB30 Shift GC 타점 보너스
         _bb30_gc   = bool(row.get('BB30_Shift_GC',   False))
