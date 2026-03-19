@@ -101,7 +101,8 @@ RN_LIST = [500, 1000, 1500, 2000, 3000, 5000, 7500, 10000, 15000, 20000,
            750000, 1000000, 1500000]
 
 SCAN_DAYS, TOP_N = 1, 700  # ✅ FIX: 소형주 커버리지 확대
-MIN_MARCAP = 1000000000 
+MIN_MARCAP  = 30_000_000_000   # ✅ FIX-3: 10억→300억 (시총 300억 미만 제외)
+MIN_PRICE   = 5_000            # ✅ FIX-3: 동전주 제외 (5,000원 미만)
 STOP_LOSS_PCT = -5.0
 WHALE_THRESHOLD = 50 
 
@@ -114,7 +115,7 @@ RECENT_AVG_AMOUNT_2 = 350
 ROSS_BAND_TOLERANCE = 1.03
 RSI_LOW_TOLERANCE   = 1.03
 
-log_info("📡 [Ver 27.15] 종목별 뉴스 감성 + 시장뉴스 AI 연동 복구...")
+log_info("📡 [Ver 27.17] 뉴스 조회 인코딩/파싱 견고화 + 3단계 폴백...")
 
 import sys
 import os
@@ -125,6 +126,94 @@ import threading
 # 아래 함수를 파일 상단 (import 아래)에 추가하고
 # main 블록 맨 마지막에 graceful_shutdown() 호출
 # ================================================================
+
+# =============================================================
+# 📰 _fetch_stock_news — 종목별 뉴스 조회 (견고한 버전)
+#
+# 문제였던 것:
+#   ① get_news_sentiment 내부에서 한글 종목명을 URL에 직접 붙일 때
+#      UTF-8 인코딩 안 되면 깨짐 → requests params= 로 넘겨야 함
+#   ② 네이버 금융 HTML 구조가 바뀌면 파싱 실패
+#   ③ euc-kr 인코딩 누락 시 한글 깨짐
+#
+# 해결:
+#   1순위: 기존 get_news_sentiment 호출
+#   2순위: 네이버 금융 코드 기반 직접 파싱 (코드 = 숫자라 인코딩 문제 없음)
+#   3순위: 네이버 뉴스 검색 (한글 종목명, params= 로 안전하게 전달)
+# =============================================================
+
+def _fetch_stock_news(code: str, name: str) -> str:
+    """
+    종목 코드 + 이름으로 뉴스 헤드라인 최대 3개 반환.
+    실패 시 빈 문자열 반환 (에러 전파 안 함).
+    """
+    if not code:
+        return ''
+
+    # ── 1순위: 기존 get_news_sentiment 모듈
+    try:
+        result = get_news_sentiment(code, name)
+        if result:
+            if isinstance(result, dict):
+                sentiment   = str(result.get('sentiment', ''))
+                titles      = result.get('titles', [])
+                if titles:
+                    return (f"{sentiment} | " if sentiment else '') +                            ' / '.join(str(t)[:30] for t in titles[:3])
+                return sentiment
+            elif isinstance(result, str) and result.strip():
+                return result.strip()[:150]
+    except Exception as e:
+        log_debug(f"📰 get_news_sentiment 실패({name}): {e}")
+
+    # ── 2순위: 네이버 금융 종목 뉴스 직접 파싱 (코드 기반 — 인코딩 안전)
+    try:
+        url  = f"https://finance.naver.com/item/news_news.naver?code={code}&page=1"
+        res  = requests.get(url, headers=REAL_HEADERS, timeout=5)
+        res.encoding = 'euc-kr'
+        soup = BeautifulSoup(res.text, 'html.parser')
+
+        # 여러 선택자 시도 (네이버 구조 변경 대응)
+        titles = []
+        for sel in ['td.title a', '.articleSubject a', '.news_tit', 'a.tit']:
+            items = soup.select(sel)
+            if items:
+                titles = [t.get_text(strip=True) for t in items if t.get_text(strip=True)][:3]
+                break
+
+        if titles:
+            log_debug(f"📰 [{name}] 네이버금융 뉴스 {len(titles)}건")
+            return ' / '.join(t[:30] for t in titles)
+    except Exception as e:
+        log_debug(f"📰 네이버금융 파싱 실패({name}): {e}")
+
+    # ── 3순위: 네이버 뉴스 검색 (한글 종목명 — params= 로 안전 전달)
+    try:
+        search_url = "https://search.naver.com/search.naver"
+        params     = {
+            'where': 'news',
+            'query': name,      # ← 한글을 params= 로 넘기면 requests가 자동 URL인코딩
+            'sort':  '1',       # 최신순
+            'ds':    '',
+            'de':    '',
+        }
+        res2 = requests.get(search_url, params=params, headers=REAL_HEADERS, timeout=5)
+        soup2 = BeautifulSoup(res2.text, 'html.parser')
+
+        titles2 = []
+        for sel in ['.news_tit', 'a.news_tit', '.api_txt_lines', '.title_link']:
+            items2 = soup2.select(sel)
+            if items2:
+                titles2 = [t.get_text(strip=True) for t in items2 if t.get_text(strip=True)][:3]
+                break
+
+        if titles2:
+            log_debug(f"📰 [{name}] 네이버검색 뉴스 {len(titles2)}건")
+            return ' / '.join(t[:30] for t in titles2)
+    except Exception as e:
+        log_debug(f"📰 네이버검색 실패({name}): {e}")
+
+    return ''
+
 
 def graceful_shutdown(exit_code=0):
     """
@@ -3237,12 +3326,18 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         df = fdr_cached(ticker, days=250)  # PERF-6: 캐시 활용
         if len(df) < 100: return []
 
-        # PERF-3: get_indicators 전 빠른 거래대금 사전 필터 (무거운 rolling 계산 전에 탈락)
-        _pre_amount = (df['Close'] * df['Volume']).tail(5).mean() / 1e8
-        _pre_vol    = df['Volume'].iloc[-1]
-        _pre_vma20  = df['Volume'].tail(20).mean()
+        # PERF-3: get_indicators 전 빠른 사전 필터
+        _last_close  = float(df['Close'].iloc[-1])
+        _pre_amount  = (df['Close'] * df['Volume']).tail(5).mean() / 1e8
+        _pre_vol     = df['Volume'].iloc[-1]
+        _pre_vma20   = df['Volume'].tail(20).mean()
         _pre_track_b = (_pre_amount >= 10 and _pre_vma20 > 0 and _pre_vol >= _pre_vma20 * 3.0)
         _pre_track_a = (_pre_amount >= 50)
+
+        # ✅ FIX-5: 동전주 조기 탈락 (5,000원 미만)
+        if _last_close < MIN_PRICE:
+            return []
+
         if not (_pre_track_a or _pre_track_b):
             return []
 
@@ -4089,6 +4184,21 @@ if __name__ == "__main__":
     df_clean['Name'] = df_clean['Name'].astype(str)
     df_clean = df_clean[~df_clean['Name'].str.contains('ETF|ETN|스팩|제[0-9]+호|우$|우A|우B|우C')]
 
+    # ✅ FIX-4: 동전주 + 저시총 제외
+    # 가격 필터 (5,000원 미만 제외)
+    if 'Close' in df_clean.columns:
+        df_clean = df_clean[df_clean['Close'] >= MIN_PRICE]
+    elif 'Price' in df_clean.columns:
+        df_clean = df_clean[df_clean['Price'] >= MIN_PRICE]
+
+    # 시총 필터 (300억 미만 제외)
+    if 'Marcap' in df_clean.columns:
+        df_clean = df_clean[df_clean['Marcap'] >= MIN_MARCAP]
+    elif 'MarCap' in df_clean.columns:
+        df_clean = df_clean[df_clean['MarCap'] >= MIN_MARCAP]
+
+    log_info(f"🔭 필터 후 대상: {len(df_clean)}개 (5천원↑, 시총300억↑)")
+
     if 'Amount' in df_clean.columns:
         # ✅ FIX-6: 거래대금 상위 TOP_N + 급등 소형주 50 병합
         sorted_main = df_clean.sort_values(by='Amount', ascending=False).head(TOP_N)
@@ -4125,13 +4235,16 @@ if __name__ == "__main__":
         top_k_financial=100
     )
 
-    # ✅ DART 공시 정보 추가 (상위 100종목)
+    # ✅ DART 공시 정보 추가
     if DART_ENABLED:
         log_info("📋 DART 공시 조회 중 (상위 100종목)...")
         all_hits_sorted = enrich_with_disclosure(all_hits_sorted, top_k=100)
         log_info("✅ 공시 조회 완료")
     else:
-        log_info("⚙️ DART_API_KEY 없음 — 공시 조회 생략")
+        log_info("⚙️ DART_API_KEY 없음 — 공시 조회 생략 (GitHub Secrets에 DART_API_KEY 추가 필요)")
+        # 키 없으면 '공시미조회'로 표시 (완전 생략 아님)
+        for item in all_hits_sorted:
+            item['공시태그'] = '⚙️미조회'
 
     ai_candidates = build_and_sort_candidates(all_hits_sorted, top_k=50)
 
@@ -4200,23 +4313,11 @@ if __name__ == "__main__":
     if 'news_sentiment' not in ai_candidates.columns:
         ai_candidates['news_sentiment'] = ''
     for idx, row_n in ai_candidates.head(15).iterrows():
-        try:
-            code_n = str(row_n.get('code', ''))
-            name_n = str(row_n.get('종목명', ''))
-            if code_n:
-                news_result = get_news_sentiment(code_n, name_n)
-                # get_news_sentiment 반환값 형식에 따라 처리
-                if isinstance(news_result, dict):
-                    sentiment   = news_result.get('sentiment', '')
-                    news_titles = news_result.get('titles', [])
-                    news_str    = f"{sentiment} | " + ' / '.join(news_titles[:3]) if news_titles else sentiment
-                elif isinstance(news_result, str):
-                    news_str = news_result
-                else:
-                    news_str = str(news_result) if news_result else ''
-                ai_candidates.at[idx, 'news_sentiment'] = news_str[:150]
-        except Exception as e:
-            ai_candidates.at[idx, 'news_sentiment'] = ''
+        news_str = _fetch_stock_news(
+            str(row_n.get('code', '')),
+            str(row_n.get('종목명', ''))
+        )
+        ai_candidates.at[idx, 'news_sentiment'] = news_str
 
     log_info("🧠 상위 30개 종목 AI 심층 분석 중...")
     tournament_report = run_ai_tournament(ai_candidates, issues)
@@ -4377,7 +4478,7 @@ if __name__ == "__main__":
 
         # ─── 악재 공시 경고 줄
         disc_str = ''
-        if disc_tag not in ('없음', '공시없음', '⚙️DART키없음', '📋공시조회불가'):
+        if disc_tag not in ('없음', '공시없음'):  # 미조회/오류도 표시
             _disc_icon = '🚨' if has_bad_disc else '📋'
             _disc_detail = f" ({disc_nm})" if disc_nm else ''
             disc_str = f"{_disc_icon} 공시: {disc_tag}{_disc_detail}" 
@@ -4477,3 +4578,4 @@ if __name__ == "__main__":
 
     log_info("✅ 작전 종료: 전수 기록 완료 및 정예 15건 보고 완료!")
     graceful_shutdown(exit_code=0)
+
