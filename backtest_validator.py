@@ -1,6 +1,6 @@
 # =============================================================
 # 📊 backtest_validator.py
-# 기간 지정 백테스트 — 패턴별 승률 + 최고/최저점 추적
+# 기간 지정 백테스트 — 패턴별 승률 + 최고/최저점 + 전체 패턴 저장 (Ver 2.1)
 # =============================================================
 # 사용법:
 #   python backtest_validator.py --start 2024-09-01 --end 2025-01-31
@@ -38,13 +38,13 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 # scan_logger 없으면 print로 폴백
 try:
     from scan_logger import set_log_level, log_error, log_info, log_debug, log_scan_date
-    set_log_level('QUIET')
+    set_log_level('NORMAL')
 except ImportError:
     def log_info(msg):  print(msg)
     def log_error(msg): print(msg)
     def log_debug(msg): pass
     def log_scan_date(date, n): print(f"🗓️  {date} → 히트: {n}개")
-from main7_bugfix import (
+from main7 import (
     get_indicators,
     calculate_combination_score,
     build_default_signals,
@@ -53,7 +53,7 @@ from main7_bugfix import (
     STYLE_WEIGHTS,
     stage_rank_value,
 )
-import main7_bugfix as _main7
+import main7 as _main7
 # v2 함수 우선, 없으면 기존 함수 사용
 evaluate_stage_sequence_v2 = getattr(
     _main7, 'evaluate_stage_sequence_v2',
@@ -226,25 +226,97 @@ def analyze_on_date(ticker: str, name: str, scan_date: str,
                     stop_triggered_day = i + 1
                     break
 
+        # ── 피봇/피보나치/ATR 계산 (백테스트용)
+        try:
+            from main7 import calc_pivot_levels, calc_fibonacci_levels, calc_atr_targets
+            _pivot_bt = calc_pivot_levels(hist_df)
+            _fib_bt   = calc_fibonacci_levels(hist_df)
+            _atr_bt   = calc_atr_targets(hist_df.iloc[-1], entry_price)
+        except Exception:
+            _pivot_bt, _fib_bt, _atr_bt = {}, {}, {}
+
+        # ── 보조 분류 (main7 함수 재활용)
+        _row = hist_df.iloc[-1]
+        try:
+            from main7 import (classify_momentum, classify_volume_pattern,
+                               classify_position, classify_rsi_state,
+                               classify_bb_state, classify_candle,
+                               classify_obv_trend, classify_pattern_type)
+            _sub = {
+                '추세강도':   classify_momentum(_row),
+                '거래량패턴': classify_volume_pattern(_row),
+                '가격위치':   classify_position(_row),
+                'RSI상태':    classify_rsi_state(float(_row.get('RSI', 50))),
+                'BB상태':     classify_bb_state(_row),
+                '캔들패턴':   classify_candle(_row),
+                'OBV추세':    classify_obv_trend(_row),
+            }
+        except Exception:
+            _sub = {}
+
         record = {
+            # ── 기본
             '스캔일':       scan_date,
             '종목명':       name,
             'code':         ticker,
             '진입가':       int(entry_price),
+            # ── 패턴
             'N등급':        f"{result['type']}{result['grade']}",
             PATTERN_COL:    result['combination'],
             'N점수':        result['score'],
             'N구분':        " ".join(new_tags),
+            '복합조합수':   result.get('combo_count', 0),
+            # ── 단계
             '단계상태':     stage_eval.get('stage_status', 'DROP'),
             '단계랭크':     stage_rank_value(stage_eval.get('stage_status', 'DROP')),
             'S1날짜':       stage_eval.get('s1_date'),
             'S2날짜':       stage_eval.get('s2_date'),
             'S3날짜':       stage_eval.get('s3_date'),
-            'RSI':          round(float(row.get('RSI', 0)), 1),
-            'BB40폭':       round(float(row.get('BB40_Width', 0)), 1),
-            'MA수렴':       round(float(row.get('MA_Convergence', 0)), 1),
-            'OBV기울기':    int(row.get('OBV_Slope', 0)),
-            '이격':         int(row.get('Disparity', 0)),
+            # ── 핵심 지표
+            'RSI':          round(float(_row.get('RSI', 0)), 1),
+            'BB40폭':       round(float(_row.get('BB40_Width', 0)), 1),
+            'MA수렴':       round(float(_row.get('MA_Convergence', 0)), 1),
+            'OBV기울기':    int(_row.get('OBV_Slope', 0)),
+            '이격':         int(_row.get('Disparity', 0)),
+            'ADX':          round(float(_row.get('ADX', 0)), 1),
+            'MACD히스토':   round(float(_row.get('MACD_Hist', 0)), 2),
+            'Stoch_K':      round(float(_row.get('Sto_K', 0)), 1),
+            'BB_PercentB':  round(float(_row.get('BB40_PercentB', 0)), 2),
+            'MFI':          round(float(_row.get('MFI', 0)), 1),
+            'ATR':          round(float(_row.get('ATR', 0)), 1),
+            # ── 패턴 불리언 (어떤 패턴이 발동했는지)
+            '수박신호':     bool(_row.get('Watermelon_Signal', False)),
+            '수박색':       str(_row.get('Watermelon_Color', '')),
+            '돌반지':       bool(_row.get('Dolbanzi', False)),
+            '독사훅':       bool(_row.get('Real_Viper_Hook', False)),
+            '골파기':       bool(_row.get('Golpagi_Trap', False)),
+            '종베':         bool(_row.get('Jongbe_Break', False)),
+            'BB40로스':     bool(_row.get('BB40_Ross', False)),
+            'RSI다이버':    bool(_row.get('RSI_DIV', False)),
+            'BB40RSI':      bool(_row.get('BB40_Reclaim_RSI_DIV', False)),
+            '세력눌림':     bool(_row.get('Force_Pullback', False)),
+            'OBV매집돌파':  bool(_row.get('OBV_Acc_Breakout', False)),
+            '좋은수렴':     bool(_row.get('Good_MA_Convergence', False)),
+            '폭발직전':     bool(_row.get('MA_Convergence_Break_Ready', False)),
+            '급등초동':     bool(hist_df.get('_is_track_b', pd.Series([False])).iloc[-1]
+                               if '_is_track_b' in hist_df.columns else False),
+            # ── 매집 강도
+            '매집품질':     str(_row.get('Maejip_Quality', '')),
+            '매집강도':     str(_row.get('Maejip_Power_Grade', '')),
+            '매집일수':     int(_row.get('Maejip_Days_10', 0)),
+            '수박직전매집': int(_row.get('Pre_Signal_Maejip', 0)),
+            # ── 피봇/피보나치
+            'PP':           _pivot_bt.get('PP', 0),
+            'R1':           _pivot_bt.get('R1', 0),
+            'S1':           _pivot_bt.get('S1', 0),
+            'Fib382':       _fib_bt.get('fib_382', 0),
+            'Fib618':       _fib_bt.get('fib_618', 0),
+            'ATR목표1':     _atr_bt.get('target_1', 0),
+            'ATR목표2':     _atr_bt.get('target_2', 0),
+            'RR비율':       _atr_bt.get('risk_reward', 0),
+            # ── 보조 분류
+            **_sub,
+            # ── 결과
             '최고점%':      max_high_pct,
             '최저점%':      max_low_pct,
             '손절발동일':   stop_triggered_day,
@@ -385,14 +457,23 @@ def analyze_pattern_winrate(df: pd.DataFrame) -> pd.DataFrame:
             continue
 
         row_data = {
-            '패턴':   pattern,
-            '총건수': n_total,
-            '평균N점수': round(grp['N점수'].mean(), 1),
-            'MFE평균%':  round(grp['최고점%'].mean(), 2),   # Max Favorable Excursion
-            'MAE평균%':  round(grp['최저점%'].mean(), 2),   # Max Adverse Excursion
-            '손절발동률': round(
-                grp['손절발동일'].notna().sum() / n_total * 100, 1
-            ),
+            '패턴':       pattern,
+            '총건수':     n_total,
+            '평균N점수':  round(grp['N점수'].mean(), 1),
+            'MFE평균%':   round(grp['최고점%'].mean(), 2),
+            'MAE평균%':   round(grp['최저점%'].mean(), 2),
+            '손절발동률': round(grp['손절발동일'].notna().sum() / n_total * 100, 1),
+            # 패턴별 보조 지표 평균 (패턴 특성 분석용)
+            '평균RSI':    round(grp['RSI'].mean(), 1)      if 'RSI'    in grp.columns else 0,
+            '평균BB40폭': round(grp['BB40폭'].mean(), 1)   if 'BB40폭' in grp.columns else 0,
+            '평균MA수렴': round(grp['MA수렴'].mean(), 1)   if 'MA수렴' in grp.columns else 0,
+            '평균이격':   round(grp['이격'].mean(), 1)     if '이격'   in grp.columns else 0,
+            '평균ADX':    round(grp['ADX'].mean(), 1)      if 'ADX'    in grp.columns else 0,
+            '수박비율%':  round(grp['수박신호'].mean()*100, 1) if '수박신호' in grp.columns else 0,
+            '돌반지비율%':round(grp['돌반지'].mean()*100, 1)   if '돌반지'  in grp.columns else 0,
+            '독사비율%':  round(grp['독사훅'].mean()*100, 1)   if '독사훅'  in grp.columns else 0,
+            '골파기비율%':round(grp['골파기'].mean()*100, 1)   if '골파기'  in grp.columns else 0,
+            '평균RR비율': round(grp['RR비율'].mean(), 2)   if 'RR비율' in grp.columns else 0,
         }
 
         for hold in HOLD_DAYS_LIST:
