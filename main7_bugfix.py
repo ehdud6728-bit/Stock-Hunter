@@ -3536,22 +3536,6 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
          
         signals = build_default_signals(row, close_p, prev)
      
-        # ✅ FIX-FIB: 피보나치/피봇 지지선 근접 여부 주입
-        _fib382_val = float(_fib.get('fib_382', 0))
-        _fib618_val = float(_fib.get('fib_618', 0))
-        _pivot_s1   = float(_pivot.get('S1', 0))
-        _pivot_r1   = float(_pivot.get('R1', 0))
-        _tol        = 0.02   # ±2% 허용
-
-        if _fib382_val > 0:
-            signals['fib_support_382'] = abs(close_p - _fib382_val) / _fib382_val <= _tol
-        if _fib618_val > 0:
-            signals['fib_support_618'] = abs(close_p - _fib618_val) / _fib618_val <= _tol
-        if _pivot_s1 > 0:
-            signals['pivot_support']   = abs(close_p - _pivot_s1)   / _pivot_s1   <= _tol
-        if _pivot_r1 > 0:
-            signals['pivot_resist']    = abs(close_p - _pivot_r1)   / _pivot_r1   <= _tol
-
         # ✅ FIX-C: surge_breakout 실제 계산 (dict 밖에서)
         _vma20_val  = float(row.get('VMA20', 0) or 0)
         _vol_ratio  = row['Volume'] / _vma20_val if _vma20_val > 0 else 0
@@ -3638,6 +3622,23 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         _pivot  = _sr['pivot']
         _fib    = _sr['fib']
         _atr_t  = _sr['atr_targets']
+
+        # ✅ FIX-FIB: 피보나치/피봇 지지선 근접 여부 → signals 주입
+        #   (_sr 계산 이후에 위치해야 함 — UnboundLocalError 방지)
+        _fib382_val = float(_fib.get('fib_382', 0))
+        _fib618_val = float(_fib.get('fib_618', 0))
+        _pivot_s1   = float(_pivot.get('S1', 0))
+        _pivot_r1   = float(_pivot.get('R1', 0))
+        _tol        = 0.02   # ±2% 허용
+
+        if _fib382_val > 0:
+            signals['fib_support_382'] = abs(close_p - _fib382_val) / _fib382_val <= _tol
+        if _fib618_val > 0:
+            signals['fib_support_618'] = abs(close_p - _fib618_val) / _fib618_val <= _tol
+        if _pivot_s1 > 0:
+            signals['pivot_support']   = abs(close_p - _pivot_s1)   / _pivot_s1   <= _tol
+        if _pivot_r1 > 0:
+            signals['pivot_resist']    = abs(close_p - _pivot_r1)   / _pivot_r1   <= _tol
 
         # ATR 기반 목표가 (기존 target이 0이면 ATR로 대체)
         atr_target1 = _atr_t.get('target_1', 0)
@@ -4490,6 +4491,11 @@ if __name__ == "__main__":
 
     ai_candidates = build_and_sort_candidates(all_hits_sorted, top_k=50)
 
+    # ✅ BUGFIX: ai_candidates 비어있으면 빈 DataFrame + 필수 컬럼 보장
+    if ai_candidates.empty:
+        log_info("⚠️ 스캔 결과 없음 — 알림 생략")
+        graceful_shutdown(exit_code=0)
+
     # =========================================================
     # 🚀 단계 기반 급등 후보 TOP5 생성
     # =========================================================
@@ -4565,7 +4571,19 @@ if __name__ == "__main__":
     tournament_report = run_ai_tournament(ai_candidates, issues)
  
     log_info("📊 수박지표 차트 생성 중...")
-    chart_paths = create_watermelon_charts_for_hits(ai_candidates, top_n=5)
+    # ✅ BUGFIX: Watermelonchart.py가 기대하는 컬럼 누락 시 빈값으로 보완
+    _chart_required_cols = ['N구분', 'N등급', 'N조합', '종목명', 'code',
+                            '현재가', 'RSI', 'BB40', 'MA수렴', 'OBV기울기',
+                            '이격', '안전점수', '수급', '재무']
+    for _col in _chart_required_cols:
+        if _col not in ai_candidates.columns:
+            ai_candidates[_col] = ''
+
+    try:
+        chart_paths = create_watermelon_charts_for_hits(ai_candidates, top_n=5)
+    except Exception as e:
+        log_error(f"⚠️ 차트 생성 실패 (무시하고 계속): {e}")
+        chart_paths = []
  
     lines = []
     
