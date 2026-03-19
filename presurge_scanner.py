@@ -515,6 +515,35 @@ def signal_prev_accumulation(top_codes: list, snapshot_map: dict) -> list:
 
             grade = '🏆A급' if score_count == 5 else ('✅B급' if score_count == 4 else '📋C급')
 
+            # 피봇/피보나치/ATR 계산
+            _pivot_r = {}
+            _fib_r   = {}
+            _atr_r   = {}
+            try:
+                _p = (p_high + p_low + p_close) / 3
+                _pivot_r = {
+                    'pp': round(_p),
+                    'r1': round(2*_p - p_low),
+                    'r2': round(_p + (p_high - p_low)),
+                    's1': round(2*_p - p_high),
+                    's2': round(_p - (p_high - p_low)),
+                }
+                _diff = p_high - p_low
+                if _diff > 0:
+                    _fib_r = {
+                        'fib_382': round(p_high - _diff * 0.382),
+                        'fib_618': round(p_high - _diff * 0.618),
+                    }
+                _atr_s = df['Close'].diff().abs().rolling(14).mean().iloc[-1]
+                if _atr_s > 0:
+                    _atr_r = {
+                        'atr_val':   round(float(_atr_s)),
+                        'target1':   round(close + _atr_s * 2),
+                        'target2':   round(close + _atr_s * 3.5),
+                    }
+            except Exception:
+                pass
+
             return {
                 'code':    code,
                 'name':    str(row.get('name', code)),
@@ -526,7 +555,15 @@ def signal_prev_accumulation(top_codes: list, snapshot_map: dict) -> list:
                     f"{grade} {score_count}/5개 충족 | {' + '.join(passed)} | "
                     f"이격도:{disparity:.0f} | 전일거래:{p_vol/vol_ma20:.1f}배"
                 ),
-                'score': score_count * 12 + (5 if disparity < 105 else 0),
+                'score':      score_count * 12 + (5 if disparity < 105 else 0),
+                'pivot_pp':   _pivot_r.get('pp', 0),
+                'pivot_r1':   _pivot_r.get('r1', 0),
+                'pivot_s1':   _pivot_r.get('s1', 0),
+                'fib_382':    _fib_r.get('fib_382', 0),
+                'fib_618':    _fib_r.get('fib_618', 0),
+                'atr_val':    _atr_r.get('atr_val', 0),
+                'atr_target1':_atr_r.get('target1', 0),
+                'atr_target2':_atr_r.get('target2', 0),
             }
         except Exception as e:
             log_debug(f"⑤ {code} 실패: {e}")
@@ -578,12 +615,22 @@ def format_presurge_message(hit: dict, scan_time: str) -> str:
             emoji = v
             break
 
+    # 피봇/피보나치/ATR (있을 때만)
+    extra = ''
+    if hit.get('pivot_pp'):
+        extra += f"\n📐 PP:{hit['pivot_pp']:,} | R1:{hit.get('pivot_r1',0):,} | S1:{hit.get('pivot_s1',0):,}"
+    if hit.get('fib_382'):
+        extra += f"\n🔢 Fib38.2%:{hit['fib_382']:,} | Fib61.8%:{hit.get('fib_618',0):,}"
+    if hit.get('atr_target1'):
+        extra += f"\n📌 목표1:{hit['atr_target1']:,} → 목표2:{hit.get('atr_target2',0):,} | ATR:{hit.get('atr_val',0):,}"
+
     return (
         f"{emoji} <b>[선제포착]</b> {hit['name']}({hit['code']})\n"
         f"📌 <b>{hit['signal_type']}</b>\n"
         f"💡 {hit['signal_detail']}\n"
         f"💰 현재가: <b>{hit['close']:,}원</b> ({hit['change']:+.1f}%) | "
-        f"거래대금 {hit['amount']:.0f}억\n"
+        f"거래대금 {hit['amount']:.0f}억"
+        f"{extra}\n"
         f"⏰ {scan_time} 포착 | 점수 {hit['score']:.0f}"
     )
 
