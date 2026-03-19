@@ -16,6 +16,7 @@ jobs:
         with:
           python-version: '3.11'
       - run: pip install requests pandas numpy pykrx pytz
+             pip install -r requirements.txt
       - name: 실행
         env:
           TELEGRAM_TOKEN:   ${{ secrets.TELEGRAM_TOKEN }}
