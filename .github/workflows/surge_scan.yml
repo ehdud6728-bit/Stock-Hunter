@@ -1,0 +1,23 @@
+surge_scan.yml (급등 감지):
+name: 🚨 급등 스캐너
+
+on:
+  schedule:
+    - cron: '*/10 0-6 * * 1-5'
+  workflow_dispatch:
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install requests pandas numpy pykrx pytz
+      - name: 실행
+        env:
+          TELEGRAM_TOKEN:   ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python surge_scanner.py
