@@ -115,7 +115,7 @@ RECENT_AVG_AMOUNT_2 = 350
 ROSS_BAND_TOLERANCE = 1.03
 RSI_LOW_TOLERANCE   = 1.03
 
-log_info("📡 [Ver 27.17] 뉴스 조회 인코딩/파싱 견고화 + 3단계 폴백...")
+log_info("📡 [Ver 27.18] 피봇포인트 + 피보나치 + ATR 2단계 목표가 추가...")
 
 import sys
 import os
@@ -3579,6 +3579,26 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         if _is_track_b_final:
             s_score += 50  # 급등 초동 트랙 가점
       
+        # ✅ STEP2: 피봇/피보나치/ATR 통합 계산
+        _sr = calc_support_resistance(temp_df, row, close_p)
+        _pivot  = _sr['pivot']
+        _fib    = _sr['fib']
+        _atr_t  = _sr['atr_targets']
+
+        # ATR 기반 목표가 (기존 target이 0이면 ATR로 대체)
+        atr_target1 = _atr_t.get('target_1', 0)
+        atr_target2 = _atr_t.get('target_2', 0)
+        atr_stop    = _atr_t.get('stop_atr', 0)
+
+        # 최종 목표가: analyze_all_narratives 결과 우선, 없으면 ATR 1차
+        if target <= close_p and atr_target1 > close_p:
+            target = atr_target1
+
+        # 최종 손절가: -5% vs ATR손절 중 더 높은 것 (덜 위험한 쪽)
+        stop_5pct = round(close_p * 0.95)
+        if atr_stop > 0:
+            stop = max(stop_5pct, atr_stop)   # 더 빡빡한 (높은) 손절
+
         lower_rn, upper_rn = get_target_levels(row['Close'])
         avg_money = (row['Close'] * row['Volume'])
         is_leader = avg_money >= 100000000000
@@ -3845,7 +3865,25 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             '📜서사히스토리': narrative,
             '확신점수': conviction,
             '🎯목표타점': int(target),
-            '🚨손절가': int(stop),
+            '🎯목표2차':  int(atr_target2) if atr_target2 > close_p else int(target * 1.05),
+            '🚨손절가':   int(stop),
+            # 피봇 포인트
+            'PP':    _pivot.get('PP',  0),
+            'R1':    _pivot.get('R1',  0),
+            'R2':    _pivot.get('R2',  0),
+            'S1':    _pivot.get('S1',  0),
+            'S2':    _pivot.get('S2',  0),
+            'S3':    _pivot.get('S3',  0),
+            # 피보나치
+            'Fib382': _fib.get('fib_382', 0),
+            'Fib500': _fib.get('fib_500', 0),
+            'Fib618': _fib.get('fib_618', 0),
+            # ATR 정보
+            'ATR값':  _atr_t.get('atr_val', 0),
+            'RR비율': _atr_t.get('risk_reward', 0),
+            # 가장 가까운 지지/저항
+            '근접저항': f"{_sr['nearest_res'][0]}:{_sr['nearest_res'][1]:,}" if _sr['nearest_res'][1] > 0 else '',
+            '근접지지': f"{_sr['nearest_sup'][0]}:{_sr['nearest_sup'][1]:,}" if _sr['nearest_sup'][1] > 0 else '',
             '기상': "☀️" * (2-storm_count) + "🌪️" * storm_count,
             '안전점수': int(max(0, s_score + whale_score)),
             'RSI': int(max(0, rsi_score)),
@@ -4016,6 +4054,145 @@ def classify_style(row):
         return "SCALP"
     return "NONE"
   
+
+# =============================================================
+# 📐 피봇 포인트 + 피보나치 + ATR 목표가 계산 (Ver 27.18)
+# =============================================================
+
+def calc_pivot_levels(df: pd.DataFrame) -> dict:
+    """
+    전일 고/저/종가 기반 피봇 포인트 계산.
+    PP  = (H + L + C) / 3
+    R1  = 2*PP - L
+    R2  = PP + (H - L)
+    R3  = H + 2*(PP - L)
+    S1  = 2*PP - H
+    S2  = PP - (H - L)
+    S3  = L - 2*(H - PP)
+    """
+    if df is None or len(df) < 2:
+        return {}
+
+    prev = df.iloc[-2]
+    H = float(prev['High'])
+    L = float(prev['Low'])
+    C = float(prev['Close'])
+
+    PP = (H + L + C) / 3
+    R1 = round(2 * PP - L)
+    R2 = round(PP + (H - L))
+    R3 = round(H + 2 * (PP - L))
+    S1 = round(2 * PP - H)
+    S2 = round(PP - (H - L))
+    S3 = round(L - 2 * (H - PP))
+
+    return {
+        'PP': round(PP), 'R1': R1, 'R2': R2, 'R3': R3,
+        'S1': S1, 'S2': S2, 'S3': S3,
+    }
+
+
+def calc_fibonacci_levels(df: pd.DataFrame, lookback: int = 20) -> dict:
+    """
+    최근 N봉 고점~저점 기준 피보나치 되돌림 레벨.
+    상승 추세: 저점에서 고점으로의 되돌림
+    0%, 23.6%, 38.2%, 50%, 61.8%, 78.6%, 100%
+    """
+    if df is None or len(df) < lookback:
+        return {}
+
+    recent = df.tail(lookback)
+    swing_high = float(recent['High'].max())
+    swing_low  = float(recent['Low'].min())
+    diff       = swing_high - swing_low
+
+    if diff <= 0:
+        return {}
+
+    return {
+        'fib_0':    round(swing_high),
+        'fib_236':  round(swing_high - diff * 0.236),
+        'fib_382':  round(swing_high - diff * 0.382),
+        'fib_500':  round(swing_high - diff * 0.500),
+        'fib_618':  round(swing_high - diff * 0.618),
+        'fib_786':  round(swing_high - diff * 0.786),
+        'fib_100':  round(swing_low),
+        'swing_high': round(swing_high),
+        'swing_low':  round(swing_low),
+    }
+
+
+def calc_atr_targets(row: pd.Series, close: float) -> dict:
+    """
+    ATR 기반 동적 목표가/손절가 계산.
+    1차 목표: 현재가 + ATR × 2
+    2차 목표: 현재가 + ATR × 3.5
+    손절:     현재가 - ATR × 1.5  (역매공파 -5% 기준과 취사선택)
+    """
+    atr = float(row.get('ATR', 0) or 0)
+    if atr <= 0:
+        return {}
+
+    return {
+        'atr_val':    round(atr),
+        'target_1':   round(close + atr * 2),     # 1차 목표
+        'target_2':   round(close + atr * 3.5),   # 2차 목표
+        'stop_atr':   round(close - atr * 1.5),   # ATR 손절
+        'risk_reward': round((atr * 2) / (atr * 1.5), 1),  # 기본 RR비율
+    }
+
+
+def calc_support_resistance(df: pd.DataFrame, row: pd.Series, close: float) -> dict:
+    """
+    현재가 기준 가장 가까운 지지/저항 레벨 찾기.
+    피봇 + 피보나치 + BB밴드 + MA를 통합해서 가장 근접한 레벨 반환.
+    """
+    pivot  = calc_pivot_levels(df)
+    fib    = calc_fibonacci_levels(df)
+    atr_t  = calc_atr_targets(row, close)
+
+    # 모든 레벨 수집
+    all_levels = []
+
+    # 피봇 레벨
+    for k, v in pivot.items():
+        if v > 0:
+            all_levels.append(('pivot_' + k, v))
+
+    # 피보나치 레벨
+    for k, v in fib.items():
+        if v > 0 and k.startswith('fib'):
+            all_levels.append((k, v))
+
+    # MA 레벨
+    for ma in ['MA20', 'MA40', 'MA60', 'MA112', 'MA224']:
+        val = float(row.get(ma, 0) or 0)
+        if val > 0:
+            all_levels.append((ma, round(val)))
+
+    # BB 레벨
+    for bb in ['BB_Upper', 'BB_Lower', 'BB40_Upper', 'BB40_Lower']:
+        val = float(row.get(bb, 0) or 0)
+        if val > 0:
+            all_levels.append((bb, round(val)))
+
+    # 현재가 위: 저항, 아래: 지지
+    resistances = sorted([(n, v) for n, v in all_levels if v > close], key=lambda x: x[1])
+    supports    = sorted([(n, v) for n, v in all_levels if v < close], key=lambda x: x[1], reverse=True)
+
+    nearest_res = resistances[0] if resistances else ('없음', 0)
+    nearest_sup = supports[0]    if supports    else ('없음', 0)
+
+    return {
+        'pivot':        pivot,
+        'fib':          fib,
+        'atr_targets':  atr_t,
+        'nearest_res':  nearest_res,
+        'nearest_sup':  nearest_sup,
+        'resistances':  resistances[:3],   # 상위 3개 저항
+        'supports':     supports[:3],      # 상위 3개 지지
+    }
+
 def get_target_levels(current_price):
     upper_rns = [rn for rn in RN_LIST if rn > current_price]
     lower_rns = [rn for rn in RN_LIST if rn <= current_price]
@@ -4538,9 +4715,31 @@ if __name__ == "__main__":
         if ai_short:
             entry += f"{ai_short}\n"
 
-        # 매수/손절 타점
+        # 타점 (2단계 목표 + 지지저항)
+        target2_p = _si(item.get('🎯목표2차', 0))
+        rr_ratio  = float(item.get('RR비율', 0))
+        nearest_r = item.get('근접저항', '')
+        nearest_s = item.get('근접지지', '')
+        pp_val    = _si(item.get('PP', 0))
+        r1_val    = _si(item.get('R1', 0))
+        s1_val    = _si(item.get('S1', 0))
+        fib382    = _si(item.get('Fib382', 0))
+        fib618    = _si(item.get('Fib618', 0))
+        atr_val   = _si(item.get('ATR값', 0))
+
         if target_p > 0 and stop_p > 0:
-            entry += f"📌 목표:{target_p:,} | 손절:{stop_p:,}\n"
+            entry += f"📌 목표1:{target_p:,} → 목표2:{target2_p:,} | 손절:{stop_p:,}"
+            if rr_ratio > 0:
+                entry += f" (RR {rr_ratio:.1f})"
+            entry += "\n"
+
+        # 피봇/피보나치 지지저항
+        if pp_val > 0:
+            entry += f"📐 PP:{pp_val:,} | R1:{r1_val:,} | S1:{s1_val:,}\n"
+        if fib382 > 0:
+            entry += f"🔢 Fib38.2%:{fib382:,} | Fib61.8%:{fib618:,}\n"
+        if atr_val > 0:
+            entry += f"📏 ATR:{atr_val:,}원\n"
 
         entry += f"점수: 안전{safe_score} / N{n_score}\n"
 
