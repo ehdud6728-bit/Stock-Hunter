@@ -2150,64 +2150,96 @@ def run_ai_tournament(candidate_list, issues):
   
     system_prompt, user_prompt = get_tournament_prompt(prompt_data, comments)
 
-    try:
-        client = OpenAI(api_key=OPENAI_API_KEY)
-        res_gpt = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user",   "content": user_prompt}
-        ]
-        )
-        gpt_text = res_gpt.choices[0].message.content
+    # ── GPT 호출 (실패해도 계속)
+    gpt_text = ''
+    if OPENAI_API_KEY:
+        try:
+            client = OpenAI(api_key=OPENAI_API_KEY)
+            res_gpt = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user",   "content": user_prompt}
+                ],
+                timeout=60
+            )
+            gpt_text = res_gpt.choices[0].message.content or ''
+            log_info("✅ GPT 토너먼트 완료")
+        except Exception as e:
+            gpt_text = ''
+            log_error(f"⚠️ GPT 토너먼트 실패: {e}")
+    else:
+        log_info("⚠️ OPENAI_API_KEY 없음 — GPT 생략")
 
-        res_groq = requests.post(
-            "https://api.groq.com/openai/v1/chat/completions", 
-            json={
-                "model": "llama-3.3-70b-versatile", 
-                "messages": [{"role":"system", "content":system_prompt}, {"role":"user", "content":prompt_data}]
-            },
-            headers={"Authorization": f"Bearer {GROQ_API_KEY}"}
-        )
-        groq_text = res_groq.json()['choices'][0]['message']['content'] if res_groq.status_code == 200 else "Groq 연결 실패"
+    # ── Claude 호출 (실패해도 계속)
+    claude_text = ''
+    if ANTHROPIC_API_KEY:
+        try:
+            res_claude = requests.post(
+                'https://api.anthropic.com/v1/messages',
+                headers={
+                    'Content-Type':      'application/json',
+                    'x-api-key':         ANTHROPIC_API_KEY,
+                    'anthropic-version': '2023-06-01',
+                },
+                json={
+                    'model':      'claude-sonnet-4-20250514',
+                    'max_tokens': 1000,
+                    'system':     system_prompt,
+                    'messages':   [{'role': 'user', 'content': user_prompt}],
+                },
+                timeout=60
+            )
+            data = res_claude.json()
+            if 'content' in data and data['content']:
+                claude_text = data['content'][0].get('text', '').strip()
+                log_info("✅ Claude 토너먼트 완료")
+            else:
+                log_error(f"⚠️ Claude 응답 오류: {data.get('error', data)}")
+        except Exception as e:
+            log_error(f"⚠️ Claude 토너먼트 실패: {e}")
+    else:
+        log_info("⚠️ ANTHROPIC_API_KEY 없음 — Claude 생략")
 
-        # ✅ Claude API 추가 (세 번째 심사위원)
-        claude_text = ''
-        if ANTHROPIC_API_KEY:
-            try:
-                res_claude = requests.post(
-                    'https://api.anthropic.com/v1/messages',
-                    headers={
-                        'Content-Type':      'application/json',
-                        'x-api-key':         ANTHROPIC_API_KEY,
-                        'anthropic-version': '2023-06-01',
-                    },
-                    json={
-                        'model':      'claude-sonnet-4-20250514',
-                        'max_tokens': 1000,
-                        'system':     system_prompt,
-                        'messages':   [{'role': 'user', 'content': user_prompt}],
-                    },
-                    timeout=30
-                )
-                data = res_claude.json()
-                claude_text = data['content'][0].get('text', '').strip() if 'content' in data else ''
-            except Exception as e:
-                claude_text = f'Claude 호출 실패: {e}'
+    # ── Groq 호출 (실패해도 계속)
+    groq_text = ''
+    if GROQ_API_KEY:
+        try:
+            res_groq = requests.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                json={
+                    "model": "llama-3.3-70b-versatile",
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user",   "content": user_prompt}
+                    ]
+                },
+                headers={"Authorization": f"Bearer {GROQ_API_KEY}"},
+                timeout=60
+            )
+            if res_groq.status_code == 200:
+                groq_text = res_groq.json()['choices'][0]['message']['content'] or ''
+                log_info("✅ Groq 토너먼트 완료")
+            else:
+                log_error(f"⚠️ Groq 응답 오류: {res_groq.status_code}")
+        except Exception as e:
+            log_error(f"⚠️ Groq 토너먼트 실패: {e}")
+    else:
+        log_info("⚠️ GROQ_API_KEY 없음 — Groq 생략")
 
-        # 결과 조합 — 있는 것만 포함
-        result = "🏆 [AI 토너먼트 결승]\n"
-        if gpt_text:
-            result += f"\n🧠 [GPT-4o]:\n{gpt_text}"
-        if claude_text:
-            result += f"\n\n🤖 [Claude-Sonnet]:\n{claude_text}"
-        if groq_text:
-            result += f"\n\n⚡ [Groq-Llama]:\n{groq_text}"
+    # ── 결과 조합 (하나라도 있으면 반환)
+    if not any([gpt_text, claude_text, groq_text]):
+        return "⚠️ 모든 AI 호출 실패 (API 키 확인 필요)"
 
-        return result
-    
-    except Exception as e:
-        return f"토너먼트 중단: {str(e)}"
+    result = "🏆 [AI 토너먼트 결승]\n"
+    if gpt_text:
+        result += f"\n🧠 [GPT-4o]:\n{gpt_text}"
+    if claude_text:
+        result += f"\n\n🤖 [Claude-Sonnet]:\n{claude_text}"
+    if groq_text:
+        result += f"\n\n⚡ [Groq-Llama]:\n{groq_text}"
+
+    return result
 
 # =============================================================
 # 🤖 Claude API 직접 호출 (Anthropic)
@@ -4813,7 +4845,13 @@ if __name__ == "__main__":
         ai_candidates.at[idx, 'news_sentiment'] = news_str
 
     log_info("🧠 상위 30개 종목 AI 심층 분석 중...")
+    log_info(f"  OPENAI_API_KEY:    {'✅ 있음' if OPENAI_API_KEY else '❌ 없음'}")
+    log_info(f"  ANTHROPIC_API_KEY: {'✅ 있음' if ANTHROPIC_API_KEY else '❌ 없음'}")
+    log_info(f"  GROQ_API_KEY:      {'✅ 있음' if GROQ_API_KEY else '❌ 없음'}")
     tournament_report = run_ai_tournament(ai_candidates, issues)
+    log_info(f"  토너먼트 결과 길이: {len(tournament_report)}자")
+    if not tournament_report or len(tournament_report) < 10:
+        log_error("⚠️ 토너먼트 결과 없음 — API 키 또는 네트워크 문제")
  
     log_info("📊 수박지표 차트 생성 중...")
     # ✅ BUGFIX: Watermelonchart.py가 기대하는 컬럼 누락 시 빈값으로 보완
@@ -5094,9 +5132,12 @@ if __name__ == "__main__":
     
     imgs = []
     # AI 토너먼트는 맨 마지막
-    if tournament_report:
-        # ✅ AI별 분리 + 길면 자동 분할 전송
+    if tournament_report and len(tournament_report) > 10:
+        log_info(f"📨 토너먼트 결과 전송 중 ({len(tournament_report)}자)...")
         send_tournament_results(tournament_report)
+        log_info("✅ 토너먼트 전송 완료")
+    else:
+        log_error("⚠️ 토너먼트 결과 없어서 전송 생략")
 
     try:
         update_google_sheet(all_hits_sorted, TODAY_STR, tournament_report + stage_block)
