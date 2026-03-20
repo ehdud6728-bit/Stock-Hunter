@@ -131,9 +131,10 @@ def _get_snapshot() -> pd.DataFrame:
         try:
             df = stock.get_market_ohlcv(today, market=market)
             if df is not None and not df.empty:
-                df = df.reset_index()
-                df['market'] = market
-                dfs.append(df)
+                # ✅ BUGFIX: 한글/영문 컬럼명 통합 정규화
+                df = _normalize_ohlcv(df, market)
+                if not df.empty:
+                    dfs.append(df)
         except Exception as e:
             log_error(f"⚠️ {market} 시세 실패: {e}")
 
@@ -141,34 +142,7 @@ def _get_snapshot() -> pd.DataFrame:
         return pd.DataFrame()
 
     result = pd.concat(dfs, ignore_index=True)
-
-    # 컬럼 정규화
-    col_map = {}
-    for c in result.columns:
-        cl = c.replace(' ', '')
-        if '티커' in cl or cl == '종목코드': col_map[c] = 'code'
-        elif '종가' in cl:                   col_map[c] = 'close'
-        elif '시가' in cl and '총' not in cl: col_map[c] = 'open'
-        elif '고가' in cl:                   col_map[c] = 'high'
-        elif '저가' in cl:                   col_map[c] = 'low'
-        elif '거래량' in cl:                 col_map[c] = 'volume'
-        elif '등락률' in cl:                 col_map[c] = 'change_pct'
-        elif '거래대금' in cl:               col_map[c] = 'amount'
-    result = result.rename(columns=col_map)
-
-    # 종목명 보강
-    try:
-        name_map = {}
-        for market in ['KOSPI', 'KOSDAQ']:
-            tickers = stock.get_market_ticker_list(today, market=market)
-            for t in tickers:
-                name_map[t] = stock.get_market_ticker_name(t)
-        if 'code' in result.columns:
-            result['name'] = result['code'].map(name_map).fillna(result.get('code', ''))
-    except Exception:
-        if 'name' not in result.columns:
-            result['name'] = result.get('code', '')
-
+    # _normalize_ohlcv에서 이미 정규화 + 종목명 보강 완료
     return result
 
 
