@@ -1,35 +1,50 @@
-
-name: 🚨 급등 스캐너
+name: 🚨 급등 스캐너 (급등+선제+넥스트레이드)
 
 on:
   schedule:
-    - cron: '*/10 0-6 * * 1-5'
+    - cron: '*/10 23 * * 0-4'
+    - cron: '*/10 0-14 * * 1-5'
+
   workflow_dispatch:
+    inputs:
+      test_mode:
+        description: '테스트 모드 (장외 강제 실행)'
+        required: false
+        default: 'false'
 
 jobs:
-  scan:
+  surge-scan:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 9
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: 📥 코드 체크아웃
+        uses: actions/checkout@v4
+
+      - name: 🐍 Python 설정
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Upgrade pip
-        run: python -m pip install --upgrade pip
 
-      - name: Install dependencies
+      - name: 📦 의존성 설치
         run: |
-          pip install pandas
-          pip install requests beautifulsoup4 pytz scipy ta
-          pip install finance-datareader pykrx mplfinance
-          pip install openai google-generativeai
-          pip install gspread gspread-formatting gspread-dataframe google-auth oauth2client
-          pip install -r requirements.txt
-      - name: 실행
+          pip install --upgrade pip
+          pip install requests pandas numpy pykrx pytz finance-datareader beautifulsoup4
+
+      - name: 🚨 스캐너 실행
         env:
           TELEGRAM_TOKEN:   ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python surge_scanner.py &
-          python presurge_scanner.py &
-          wait
+          DART_API_KEY:     ${{ secrets.DART_API_KEY }}
+          SCAN_LOG_LEVEL:   NORMAL
+        run: |
+          if [ "${{ github.event.inputs.test_mode }}" = "true" ]; then
+            python surge_scanner.py --test
+            python presurge_scanner.py --test
+            python nextrade_scanner.py --test
+          else
+            python surge_scanner.py &
+            python presurge_scanner.py &
+            python nextrade_scanner.py &
+            wait
+          fi
