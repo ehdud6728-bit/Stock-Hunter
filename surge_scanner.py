@@ -98,6 +98,85 @@ def _mark_alerted(code: str, alerted: dict):
 # 📊 당일 시세 수집 — pykrx 기반
 # =============================================================
 
+def _normalize_ohlcv(df: pd.DataFrame, market: str) -> pd.DataFrame:
+    """
+    pykrx 버전에 따라 컬럼명이 달라지는 문제 해결.
+    
+    구버전 pykrx: '시가','고가','저가','종가','거래량','거래대금','등락률'
+    신버전 pykrx: 'Open','High','Low','Close','Volume','Amount','Change' 또는
+                  '시가','고가','저가','종가' (한글 유지 버전도 있음)
+    인덱스: '티커' 또는 'Ticker' 또는 '종목코드'
+    """
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    df = df.copy()
+    df = df.reset_index()
+    # 공백 제거
+    df.columns = [str(c).strip() for c in df.columns]
+
+    # ── 한글 → 영문 매핑 (모든 알려진 패턴 포함)
+    KR_TO_EN = {
+        # 코드/티커
+        '티커': 'code', 'Ticker': 'code', '종목코드': 'code',
+        # 가격
+        '시가': 'open',   'Open': 'open',
+        '고가': 'high',   'High': 'high',
+        '저가': 'low',    'Low': 'low',
+        '종가': 'close',  'Close': 'close', '현재가': 'close',
+        # 거래량/대금
+        '거래량': 'volume',  'Volume': 'volume',
+        '거래대금': 'amount', 'Amount': 'amount', 'Turnover': 'amount',
+        # 등락
+        '등락률': 'change_pct', '변동률': 'change_pct',
+        'Change': 'change_pct', 'ChangeRate': 'change_pct',
+        # 시총
+        '시가총액': 'marcap', 'Marcap': 'marcap', 'MarCap': 'marcap',
+        # 종목명
+        '종목명': 'name', 'Name': 'name',
+    }
+
+    rename = {}
+    for c in df.columns:
+        c_clean = str(c).strip()
+        if c_clean in KR_TO_EN:
+            rename[c] = KR_TO_EN[c_clean]
+        # 부분 매칭 (컬럼명에 키워드 포함)
+        elif '티커' in c_clean or c_clean.lower() == 'ticker':
+            rename[c] = 'code'
+        elif '종가' in c_clean or '현재가' in c_clean:
+            rename[c] = 'close'
+        elif '시가' in c_clean and '총' not in c_clean:
+            rename[c] = 'open'
+        elif '고가' in c_clean:
+            rename[c] = 'high'
+        elif '저가' in c_clean:
+            rename[c] = 'low'
+        elif '거래량' in c_clean:
+            rename[c] = 'volume'
+        elif '등락률' in c_clean or '변동률' in c_clean:
+            rename[c] = 'change_pct'
+        elif '거래대금' in c_clean:
+            rename[c] = 'amount'
+        elif '시가총액' in c_clean:
+            rename[c] = 'marcap'
+
+    df = df.rename(columns=rename)
+    df['market'] = market
+
+    # ── 종목명 보강 (없으면 pykrx로 조회)
+    if 'name' not in df.columns and 'code' in df.columns:
+        try:
+            today = datetime.now(KST).strftime('%Y%m%d')
+            name_map = {t: stock.get_market_ticker_name(t)
+                        for t in df['code'].tolist()[:500]}
+            df['name'] = df['code'].map(name_map).fillna(df['code'])
+        except Exception:
+            df['name'] = df.get('code', '')
+
+    return df
+
+
 def _get_today_str() -> str:
     now = datetime.now(KST)
     # 장 시작 전이면 전 거래일
@@ -119,36 +198,10 @@ def _get_market_snapshot() -> pd.DataFrame:
             df = stock.get_market_ohlcv(today, market=market)
             if df is None or df.empty:
                 continue
-
-            df = df.reset_index()
-            df.columns = [c.replace(' ', '') for c in df.columns]
-
-            # 컬럼명 정규화
-            rename = {}
-            for c in df.columns:
-                if '티커' in c or 'ticker' in c.lower() or c == '종목코드':
-                    rename[c] = 'code'
-                elif '종가' in c or '현재' in c:
-                    rename[c] = 'close'
-                elif '시가' in c and '총' not in c:
-                    rename[c] = 'open'
-                elif '고가' in c:
-                    rename[c] = 'high'
-                elif '저가' in c:
-                    rename[c] = 'low'
-                elif '거래량' in c:
-                    rename[c] = 'volume'
-                elif '등락률' in c or '변동률' in c:
-                    rename[c] = 'change_pct'
-                elif '거래대금' in c:
-                    rename[c] = 'amount'
-            df = df.rename(columns=rename)
-
-            # index가 code인 경우
-            if df.index.name and ('ticker' in df.index.name.lower() or '티커' in df.index.name):
-                df = df.reset_index().rename(columns={df.index.name: 'code'})
-
-            df['market'] = market
+            # ✅ BUGFIX: 한글/영문 컬럼명 통합 정규화
+            df = _normalize_ohlcv(df, market)
+            if df.empty:
+                continue
             dfs.append(df)
         except Exception as e:
             log_error(f"⚠️ {market} 시세 수집 실패: {e}")
