@@ -24,6 +24,13 @@ import pandas as pd
 import numpy as np
 
 try:
+    import gspread
+    from oauth2client.service_account import ServiceAccountCredentials
+    HAS_GSPREAD = True
+except ImportError:
+    HAS_GSPREAD = False
+
+try:
     import FinanceDataReader as fdr
 except ImportError:
     print("pip install FinanceDataReader 필요")
@@ -210,6 +217,91 @@ def summarize(df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+
+
+# =============================================================
+# 📤 구글시트 저장
+# =============================================================
+
+JSON_KEY_PATH = 'stock-key.json'
+SHEET_NAME    = '주식자동매매일지'
+SCOPE = [
+    'https://spreadsheets.google.com/feeds',
+    'https://www.googleapis.com/auth/drive'
+]
+
+def _get_gspread_client():
+    """google_sheet_manager와 동일한 인증 방식"""
+    if not HAS_GSPREAD:
+        return None, None
+    try:
+        import json as _json
+        if os.path.exists(JSON_KEY_PATH):
+            creds = ServiceAccountCredentials.from_json_keyfile_name(JSON_KEY_PATH, SCOPE)
+        elif os.environ.get('GOOGLE_JSON_KEY'):
+            key_dict = _json.loads(os.environ['GOOGLE_JSON_KEY'])
+            creds = ServiceAccountCredentials.from_json_keyfile_dict(key_dict, SCOPE)
+        else:
+            print("⚠️ 구글시트 인증 정보 없음 (stock-key.json or GOOGLE_JSON_KEY)")
+            return None, None
+        gc  = gspread.authorize(creds)
+        doc = gc.open(SHEET_NAME)
+        return gc, doc
+    except Exception as e:
+        print(f"⚠️ 구글시트 연결 실패: {e}")
+        return None, None
+
+
+def _upsert_worksheet(doc, tab_name: str, df: pd.DataFrame, max_rows: int = 5000):
+    """탭이 없으면 생성, 있으면 덮어씀"""
+    import time as _time
+    try:
+        try:
+            ws = doc.worksheet(tab_name)
+            ws.clear()
+        except gspread.exceptions.WorksheetNotFound:
+            ws = doc.add_worksheet(title=tab_name, rows=max_rows, cols=len(df.columns) + 5)
+
+        # 헤더 + 데이터
+        data = [df.columns.tolist()] + df.fillna('').astype(str).values.tolist()
+
+        # 청크 단위 업로드 (Quota 방지)
+        chunk = 500
+        for i in range(0, len(data), chunk):
+            ws.append_rows(data[i:i+chunk], value_input_option='RAW')
+            if i + chunk < len(data):
+                _time.sleep(1)
+
+        print(f"  ✅ [{tab_name}] {len(df)}행 저장")
+        return True
+    except Exception as e:
+        print(f"  ❌ [{tab_name}] 저장 실패: {e}")
+        return False
+
+
+def save_to_gsheet(summary: pd.DataFrame, raw: pd.DataFrame,
+                   start: str, end: str):
+    """
+    백테스트 결과를 구글시트에 저장.
+    탭 구조:
+      NXT_요약   : 갭다운 구간별 회복률 통계
+      NXT_원본   : 전체 갭다운 이벤트 원본
+    """
+    gc, doc = _get_gspread_client()
+    if doc is None:
+        print("⚠️ 구글시트 저장 생략")
+        return
+
+    print(f"\n📤 구글시트 저장 중... ({SHEET_NAME})")
+
+    # 메타 정보 추가
+    summary.insert(0, '분석기간', f"{start}~{end}")
+    summary.insert(1, '저장시각', datetime.now().strftime('%Y-%m-%d %H:%M'))
+
+    _upsert_worksheet(doc, 'NXT_요약',   summary)
+    _upsert_worksheet(doc, 'NXT_원본',   raw.head(5000))   # 최대 5000건
+    print("✅ 구글시트 저장 완료")
+
 def print_results(summary: pd.DataFrame, raw: pd.DataFrame):
     """결과 출력"""
     total = len(raw)
@@ -322,8 +414,11 @@ def main():
     # CSV 저장
     raw_df.to_csv(args.output, index=False, encoding='utf-8-sig')
     summary.to_csv(f"summary_{args.output}", index=False, encoding='utf-8-sig')
-    print(f"\n💾 저장: {args.output}")
-    print(f"💾 요약: summary_{args.output}")
+    print(f"\n💾 CSV 저장: {args.output}")
+    print(f"💾 요약 CSV: summary_{args.output}")
+
+    # 구글시트 저장
+    save_to_gsheet(summary, raw_df, args.start, args.end)
 
 
 if __name__ == '__main__':
