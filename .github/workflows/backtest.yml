@@ -1,0 +1,54 @@
+# .github/workflows/backtest.yml
+name: 📊 넥스트레이드 백테스트
+
+on:
+  workflow_dispatch:          # 수동 실행만 (자동 실행 없음)
+    inputs:
+      start_date:
+        description: '시작일 (예: 2023-01-01)'
+        required: true
+        default: '2023-01-01'
+      end_date:
+        description: '종료일 (예: 2024-12-31)'
+        required: true
+        default: '2024-12-31'
+      top_n:
+        description: '분석 종목 수 (기본 300)'
+        required: false
+        default: '300'
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60       # 300종목 × 2년치 = 약 30~50분
+
+    steps:
+      - name: 📥 코드 체크아웃
+        uses: actions/checkout@v4
+
+      - name: 🐍 Python 설정
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 📦 의존성 설치
+        run: |
+          pip install --upgrade pip
+          pip install pandas numpy FinanceDataReader pykrx gspread oauth2client
+
+      - name: 📊 백테스트 실행
+        env:
+          GOOGLE_JSON_KEY: ${{ secrets.GOOGLE_JSON_KEY }}
+        run: |
+          python nextrade_backtest.py \
+            --start ${{ github.event.inputs.start_date }} \
+            --end   ${{ github.event.inputs.end_date }} \
+            --top   ${{ github.event.inputs.top_n }}
+
+      - name: 📁 결과 파일 업로드 (Actions Artifacts)
+        uses: actions/upload-artifact@v4
+        with:
+          name: backtest-result
+          path: |
+            nextrade_backtest_result.csv
+            summary_nextrade_backtest_result.csv
