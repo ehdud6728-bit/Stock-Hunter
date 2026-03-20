@@ -38,7 +38,7 @@ warnings.filterwarnings('ignore', category=FutureWarning)
 # scan_logger 없으면 print로 폴백
 try:
     from scan_logger import set_log_level, log_hit, log_progress, log_error, log_info, log_debug
-    set_log_level('NORMAL')   # QUIET / NORMAL / VERBOSE  또는 env: SCAN_LOG_LEVEL=QUIET
+    set_log_level('QUIET')   # QUIET / NORMAL / VERBOSE  또는 env: SCAN_LOG_LEVEL=QUIET
 except ImportError:
     def log_info(msg):  print(msg)
     def log_error(msg): print(msg)
@@ -84,7 +84,7 @@ except ImportError:
     def enrich_with_disclosure(hits, top_k=100):
         return hits     
 
-TEST_MODE = False
+TEST_MODE = True
 
 KST = pytz.timezone('Asia/Seoul')
 current_time = datetime.now(KST)
