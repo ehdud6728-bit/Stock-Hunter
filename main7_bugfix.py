@@ -70,8 +70,9 @@ from us_kor_market_mapper import (
 # =================================================
 TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN')
 CHAT_ID_LIST = os.environ.get('TELEGRAM_CHAT_ID', '').split(',')
-OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY') 
-GROQ_API_KEY = os.environ.get('GROQ_API_KEY')
+OPENAI_API_KEY    = os.environ.get('OPENAI_API_KEY')
+GROQ_API_KEY      = os.environ.get('GROQ_API_KEY')
+ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY', '')
 DART_API_KEY   = os.environ.get('DART_API_KEY', '')
 
 # DART 공시 모듈 (dart_disclosure.py 없으면 빈 결과 반환)
@@ -115,7 +116,7 @@ RECENT_AVG_AMOUNT_2 = 350
 ROSS_BAND_TOLERANCE = 1.03
 RSI_LOW_TOLERANCE   = 1.03
 
-log_info("📡 [Ver 27.19] 피보나치 지지선 COMBO + 백테스트 패턴 저장 확장...")
+log_info("📡 [Ver 27.21] Claude API 연동 (claude-sonnet-4, OpenAI 폴백)...")
 
 import sys
 import os
@@ -579,37 +580,74 @@ def get_financial_health(code):
 # except 블록에서 df_krx가 미정의 상태로 반환되던 버그
 # =================================================
 def load_krx_listing_safe():
+    """
+    KRX 전종목 리스트 로드.
+    우선순위: ① fdr.StockListing ② pykrx 당일 OHLCV 기반 ③ 빈 DataFrame
+
+    pykrx 당일 시세를 쓰면 Code/Name/Market/Amount/ChangeRate까지 한번에 확보.
+    """
+    # ① FDR (가장 풍부한 메타데이터)
     try:
-        SHEET_ID = "13Esd11iwgzLN7opMYobQ3ee6huHs1FDEbyeb3Djnu6o"
-        GID = "1238448456"
-        url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={GID}"
-        df = pd.read_csv(url, encoding="utf-8", engine="python")
-        
-        if df is None or df.empty:
-            log_debug("📡 FDR KRX 시도...")
-            df = fdr.StockListing('KRX')    
-            
-        if df is None or df.empty:
-            raise ValueError("빈 데이터")
-            
-        log_debug("✅ FDR 성공")
-        return df
+        df = fdr.StockListing('KRX')
+        if df is not None and not df.empty and len(df) > 100:
+            log_info(f"✅ FDR StockListing 성공: {len(df)}개")
+            return df
     except Exception as e:
-        log_info(f"⚠️ FDR 실패 → pykrx 대체 사용 ({e})")
-        try:
-            # ✅ FIX: except 블록 안에서 df_krx를 직접 생성
-            df_krx = pd.DataFrame(
-                stock.get_market_ticker_list(market="ALL"),
-                columns=['Code']
-            )
-            df_krx['Name'] = df_krx['Code'].apply(
-                lambda c: stock.get_market_ticker_name(c)
-            )
-            df_krx['Market'] = 'KOSPI'
-            return df_krx
-        except Exception as e2:
-            log_error(f"🚨 pykrx도 실패: {e2}")
-            return pd.DataFrame(columns=['Code', 'Name', 'Market'])
+        log_info(f"⚠️ FDR 실패: {e}")
+
+    # ② pykrx 당일 OHLCV — Code/Name/Market/Amount 모두 포함
+    log_info("📡 pykrx 당일 시세로 종목 리스트 구성 중...")
+    try:
+        today = datetime.now().strftime('%Y%m%d')
+        dfs = []
+
+        for market in ['KOSPI', 'KOSDAQ']:
+            try:
+                df_m = stock.get_market_ohlcv(today, market=market)
+                if df_m is None or df_m.empty:
+                    continue
+
+                df_m = df_m.reset_index()
+                col_map = {}
+                for c in df_m.columns:
+                    cs = str(c).strip()
+                    if   cs in ('티커', 'Ticker', '종목코드'):        col_map[c] = 'Code'
+                    elif cs in ('시가', 'Open'):                      col_map[c] = 'Open'
+                    elif cs in ('고가', 'High'):                      col_map[c] = 'High'
+                    elif cs in ('저가', 'Low'):                       col_map[c] = 'Low'
+                    elif cs in ('종가', 'Close', '현재가'):           col_map[c] = 'Close'
+                    elif cs in ('거래량', 'Volume'):                  col_map[c] = 'Volume'
+                    elif cs in ('거래대금', 'Amount', 'Turnover'):    col_map[c] = 'Amount'
+                    elif cs in ('등락률', 'Change', 'ChangeRate'):    col_map[c] = 'ChangeRate'
+                df_m = df_m.rename(columns=col_map)
+
+                # 종목명 추가
+                tickers = df_m['Code'].tolist() if 'Code' in df_m.columns else []
+                name_map = {}
+                for t in tickers[:2000]:
+                    try:
+                        name_map[t] = stock.get_market_ticker_name(t)
+                    except Exception:
+                        name_map[t] = t
+                df_m['Name']   = df_m['Code'].map(name_map).fillna(df_m['Code'])
+                df_m['Market'] = market
+                dfs.append(df_m)
+                log_info(f"  {market}: {len(df_m)}개")
+            except Exception as e:
+                log_error(f"  {market} 실패: {e}")
+
+        if dfs:
+            result = pd.concat(dfs, ignore_index=True)
+            log_info(f"✅ pykrx 종목 구성 완료: {len(result)}개")
+            return result
+
+    except Exception as e:
+        log_error(f"🚨 pykrx 전체 실패: {e}")
+
+    # ③ 완전 실패
+    log_error("🚨 종목 리스트 로드 완전 실패 — 빈 DataFrame 반환")
+    return pd.DataFrame(columns=['Code', 'Name', 'Market'])
+
 
 def get_stock_sector(ticker, sector_map):
     raw_sector = sector_map.get(ticker, "일반")
@@ -1964,6 +2002,91 @@ def send_telegram_photo(message, image_paths=[]):
                 with open(img, 'rb') as f: requests.post(url_p, data={'chat_id': chat_id}, files={'photo': f})
                 os.remove(img)
 
+
+def send_telegram_chunks(message: str, title: str = '', max_len: int = 3800):
+    """
+    긴 메시지를 max_len 단위로 나눠서 텔레그램 전송.
+    문단(\n\n) 기준으로 자르고, 각 청크에 번호 표시.
+    """
+    if not message.strip():
+        return
+
+    # 문단 단위로 분리
+    paragraphs = message.split('\n\n')
+    chunks = []
+    current = title + '\n\n' if title else ''
+
+    for para in paragraphs:
+        candidate = current + para + '\n\n'
+        if len(candidate) > max_len and current.strip():
+            chunks.append(current.strip())
+            current = para + '\n\n'
+        else:
+            current = candidate
+
+    if current.strip():
+        chunks.append(current.strip())
+
+    total = len(chunks)
+    for idx, chunk in enumerate(chunks, 1):
+        if total > 1:
+            header = f"({idx}/{total})\n"
+            chunk  = header + chunk
+        send_telegram_photo(chunk, [])
+
+
+def send_tournament_results(tournament_report: str):
+    """
+    AI 토너먼트 결과를 AI별로 분리해서 개별 전송.
+    각 AI 코멘트가 길면 추가 분할.
+    """
+    if not tournament_report:
+        return
+
+    # AI별 섹션 분리 마커
+    markers = [
+        ('🧠 [GPT-4o]',       '🧠 GPT-4o 분석'),
+        ('🤖 [Claude-Sonnet]','🤖 Claude-Sonnet 분석'),
+        ('⚡ [Groq-Llama]',   '⚡ Groq-Llama 분석'),
+    ]
+
+    # 헤더 분리
+    header_end = tournament_report.find('\n\n🧠')
+    if header_end == -1:
+        header_end = tournament_report.find('\n\n⚡')
+    if header_end == -1:
+        header_end = tournament_report.find('\n\n🤖')
+
+    header = tournament_report[:header_end].strip() if header_end > 0 else '🏆 AI 토너먼트 결과'
+
+    # 헤더 먼저 전송
+    send_telegram_photo(header, [])
+
+    # 각 AI 섹션 찾아서 개별 전송
+    sent_any = False
+    for marker, title in markers:
+        start = tournament_report.find(marker)
+        if start == -1:
+            continue
+
+        # 다음 AI 섹션 시작 위치 찾기
+        end = len(tournament_report)
+        for other_marker, _ in markers:
+            if other_marker == marker:
+                continue
+            pos = tournament_report.find(other_marker, start + len(marker))
+            if pos != -1 and pos < end:
+                end = pos
+
+        section = tournament_report[start:end].strip()
+        if section:
+            send_telegram_chunks(section, title=title, max_len=3500)
+            sent_any = True
+
+    # 마커를 못 찾으면 전체를 분할 전송
+    if not sent_any:
+        send_telegram_chunks(tournament_report, max_len=3500)
+
 # ---------------------------------------------------------
 # 🧠 [6] AI 브리핑 및 토너먼트
 # ---------------------------------------------------------
@@ -2048,10 +2171,116 @@ def run_ai_tournament(candidate_list, issues):
         )
         groq_text = res_groq.json()['choices'][0]['message']['content'] if res_groq.status_code == 200 else "Groq 연결 실패"
 
-        return f"🏆 [AI 토너먼트 결승]\n\n🧠 [GPT]:\n{gpt_text}\n\n⚡ [Groq]:\n{groq_text}"
+        # ✅ Claude API 추가 (세 번째 심사위원)
+        claude_text = ''
+        if ANTHROPIC_API_KEY:
+            try:
+                res_claude = requests.post(
+                    'https://api.anthropic.com/v1/messages',
+                    headers={
+                        'Content-Type':      'application/json',
+                        'x-api-key':         ANTHROPIC_API_KEY,
+                        'anthropic-version': '2023-06-01',
+                    },
+                    json={
+                        'model':      'claude-sonnet-4-20250514',
+                        'max_tokens': 1000,
+                        'system':     system_prompt,
+                        'messages':   [{'role': 'user', 'content': user_prompt}],
+                    },
+                    timeout=30
+                )
+                data = res_claude.json()
+                claude_text = data['content'][0].get('text', '').strip() if 'content' in data else ''
+            except Exception as e:
+                claude_text = f'Claude 호출 실패: {e}'
+
+        # 결과 조합 — 있는 것만 포함
+        result = "🏆 [AI 토너먼트 결승]\n"
+        if gpt_text:
+            result += f"\n🧠 [GPT-4o]:\n{gpt_text}"
+        if claude_text:
+            result += f"\n\n🤖 [Claude-Sonnet]:\n{claude_text}"
+        if groq_text:
+            result += f"\n\n⚡ [Groq-Llama]:\n{groq_text}"
+
+        return result
     
     except Exception as e:
         return f"토너먼트 중단: {str(e)}"
+
+# =============================================================
+# 🤖 Claude API 직접 호출 (Anthropic)
+#    OpenAI 실패 시 또는 ANTHROPIC_API_KEY 있으면 우선 사용
+# =============================================================
+
+def _call_claude_api(system_prompt: str, user_prompt: str,
+                     max_tokens: int = 3000) -> str:
+    """
+    Anthropic Claude API 직접 호출.
+    OpenAI와 동일한 입출력 구조로 교체 가능.
+    """
+    if not ANTHROPIC_API_KEY:
+        return ''
+    try:
+        res = requests.post(
+            'https://api.anthropic.com/v1/messages',
+            headers={
+                'Content-Type':      'application/json',
+                'x-api-key':         ANTHROPIC_API_KEY,
+                'anthropic-version': '2023-06-01',
+            },
+            json={
+                'model':      'claude-sonnet-4-20250514',
+                'max_tokens': max_tokens,
+                'system':     system_prompt,
+                'messages':   [{'role': 'user', 'content': user_prompt}],
+            },
+            timeout=60
+        )
+        data = res.json()
+        if 'content' in data and data['content']:
+            return data['content'][0].get('text', '').strip()
+        log_error(f"[Claude API 오류] {data.get('error', data)}")
+        return ''
+    except Exception as e:
+        log_error(f"[Claude API 호출 실패] {e}")
+        return ''
+
+
+def _call_ai(system_prompt: str, user_prompt: str,
+             max_tokens: int = 3000, prefer_claude: bool = True) -> str:
+    """
+    AI API 호출 — Claude 우선, 실패 시 OpenAI 폴백.
+    prefer_claude=True: ANTHROPIC_API_KEY 있으면 Claude 먼저 시도
+    """
+    # Claude 우선 시도
+    if prefer_claude and ANTHROPIC_API_KEY:
+        result = _call_claude_api(system_prompt, user_prompt, max_tokens)
+        if result:
+            log_debug("✅ Claude API 사용")
+            return result
+
+    # OpenAI 폴백
+    if OPENAI_API_KEY:
+        try:
+            client = OpenAI(api_key=OPENAI_API_KEY)
+            res = client.chat.completions.create(
+                model='gpt-4o',
+                messages=[
+                    {'role': 'system', 'content': system_prompt},
+                    {'role': 'user',   'content': user_prompt},
+                ],
+                max_tokens=max_tokens,
+                temperature=0.5
+            )
+            log_debug("✅ OpenAI API 사용 (폴백)")
+            return res.choices[0].message.content.strip()
+        except Exception as e:
+            log_error(f"[OpenAI 폴백 실패] {e}")
+
+    return "AI 분석 불가 (API 키 없음)"
+
 
 def get_ai_summary_batch(ai_candidates_df, issues=None, market_news=None):
     """
@@ -2154,22 +2383,11 @@ def get_ai_summary_batch(ai_candidates_df, issues=None, market_news=None):
         + "\n\n".join(stock_blocks)
     )
 
-    try:
-        client = OpenAI(api_key=OPENAI_API_KEY)
-        res = client.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user",   "content": user_prompt}
-            ],
-            max_tokens=3000,
-            temperature=0.5
-        )
-        return res.choices[0].message.content.strip()
-
-    except Exception as e:
-        log_error(f"[AI 배치 요약 오류] {e}")
+    # ✅ Claude 우선, OpenAI 폴백
+    result = _call_ai(system_prompt, user_prompt, max_tokens=3000)
+    if not result:
         return "브리핑 생성 중 오류가 발생했습니다."
+    return result
 
 def get_ai_summary_batch_back(stock_lines: list, issues: list = None):
     comments = "특이 이슈 없음"
@@ -4850,7 +5068,8 @@ if __name__ == "__main__":
     imgs = []
     # AI 토너먼트는 맨 마지막
     if tournament_report:
-        send_telegram_photo(f"🏆 [AI 토너먼트 최종 결과]\n\n{tournament_report}", [])
+        # ✅ AI별 분리 + 길면 자동 분할 전송
+        send_tournament_results(tournament_report)
 
     try:
         update_google_sheet(all_hits_sorted, TODAY_STR, tournament_report + stage_block)
