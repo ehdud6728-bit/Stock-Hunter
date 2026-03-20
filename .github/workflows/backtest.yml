@@ -1,8 +1,7 @@
-# .github/workflows/backtest.yml
 name: 📊 넥스트레이드 백테스트
 
 on:
-  workflow_dispatch:          # 수동 실행만 (자동 실행 없음)
+  workflow_dispatch:
     inputs:
       start_date:
         description: '시작일 (예: 2023-01-01)'
@@ -20,7 +19,7 @@ on:
 jobs:
   backtest:
     runs-on: ubuntu-latest
-    timeout-minutes: 60       # 300종목 × 2년치 = 약 30~50분
+    timeout-minutes: 60
 
     steps:
       - name: 📥 코드 체크아웃
@@ -34,7 +33,7 @@ jobs:
       - name: 📦 의존성 설치
         run: |
           pip install --upgrade pip
-          pip install pandas numpy FinanceDataReader pykrx gspread oauth2client
+          pip install pandas numpy pykrx gspread oauth2client finance-datareader
 
       - name: 📊 백테스트 실행
         env:
@@ -45,7 +44,8 @@ jobs:
             --end   ${{ github.event.inputs.end_date }} \
             --top   ${{ github.event.inputs.top_n }}
 
-      - name: 📁 결과 파일 업로드 (Actions Artifacts)
+      - name: 📁 결과 파일 업로드
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: backtest-result
