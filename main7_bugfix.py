@@ -1,4 +1,4 @@
- #------------------------------------------------------------------
+#------------------------------------------------------------------
 # 💎 [Ultimate Masterpiece] 전천후 AI 전략 사령부 (All-In-One 통합판)
 # Ver 27.3 패치: FIX-1(TOP_N 700) FIX-2(거래대금이원화) FIX-3(소형주필터완화)
 #               FIX-4(S3상단1.15) FIX-5(급등초동COMBO) FIX-6(소형주추가스캔)
@@ -2360,15 +2360,42 @@ def get_ai_summary_batch(ai_candidates_df, issues=None, market_news=None):
             try: return float(x)
             except: return d
 
+        # 추가 데이터
+        pp_v  = si(item.get('PP', 0))
+        r1_v  = si(item.get('R1', 0))
+        s1_v  = si(item.get('S1', 0))
+        f382  = si(item.get('Fib382', 0))
+        f618  = si(item.get('Fib618', 0))
+        atr_v = si(item.get('ATR값', 0))
+        tgt1  = si(item.get('🎯목표타점', 0))
+        tgt2  = si(item.get('🎯목표2차', 0))
+        stp   = si(item.get('🚨손절가', 0))
+        rr    = sf(item.get('RR비율', 0))
+        sv60  = si(item.get('세력평단_60일', 0))
+        gpct  = sf(item.get('평단이격', 0))
+        mq    = item.get('매집강도등급', '')
+        md    = si(item.get('매집일수_10일', 0))
+        mv    = sf(item.get('매집거래량배율', 0))
+        disc  = item.get('공시태그', '')
+        dbad  = bool(item.get('악재공시', False))
+        news  = str(item.get('news_sentiment', '')).strip()
+
         block = (
             f"[{item['종목명']}({item['code']})]"
             f"\n  패턴: {item.get('N등급','N/A')} | {item.get('N조합','N/A')}"
             f"\n  태그: {item.get('N구분','')}"
-            f"\n  이격:{si(item.get('이격',0))} | BB40:{sf(item.get('BB40',0)):.1f}"
-            f" | MA수렴:{sf(item.get('MA수렴',0)):.1f} | OBV:{si(item.get('OBV기울기',0))}"
-            f"\n  RSI:{si(sf(item.get('RSI',0)))} | 현재가:{si(item.get('현재가',0))}"
-            f"\n  수급:{item.get('수급','미계산')} | 재무:{item.get('재무','미계산')}"
-            f"\n  서사:{item.get('📜서사히스토리','')}"
+            f"\n  현재가:{si(item.get('현재가',0)):,}원 | 이격:{si(item.get('이격',0))}"
+            f"\n  BB40:{sf(item.get('BB40',0)):.1f} | MA수렴:{sf(item.get('MA수렴',0)):.1f} | OBV:{si(item.get('OBV기울기',0))}"
+            f"\n  RSI:{si(sf(item.get('RSI',0)))} | 수급:{item.get('수급','미계산')} | 재무:{item.get('재무','미계산')}"
+            + (f"\n  피봇: PP={pp_v:,} R1={r1_v:,} S1={s1_v:,}" if pp_v else "")
+            + (f"\n  피보나치: 38.2%={f382:,} | 61.8%={f618:,}" if f382 else "")
+            + (f"\n  목표: 1차={tgt1:,} 2차={tgt2:,} | 손절={stp:,} | RR={rr:.1f}" if tgt1 else "")
+            + (f"\n  ATR={atr_v:,}원" if atr_v else "")
+            + (f"\n  세력평단={sv60:,}원 이격={gpct:+.1f}%" if sv60 else "")
+            + (f"\n  매집:{mq} {md}일/10일 {mv:.1f}배" if md > 0 else "")
+            + (f"\n  공시:{disc}" + (" ⚠️악재" if dbad else "") if disc and disc not in ('없음','공시없음','⚙️미조회','') else "")
+            + f"\n  서사:{item.get('📜서사히스토리','')}"
+            + (f"\n  뉴스:{news}" if news else "")
         )
         stock_blocks.append(block)
 
@@ -5079,4 +5106,3 @@ if __name__ == "__main__":
 
     log_info("✅ 작전 종료: 전수 기록 완료 및 정예 15건 보고 완료!")
     graceful_shutdown(exit_code=0)
-
