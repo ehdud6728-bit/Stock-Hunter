@@ -74,6 +74,7 @@ OPENAI_API_KEY    = os.environ.get('OPENAI_API_KEY')
 GROQ_API_KEY      = os.environ.get('GROQ_API_KEY')
 ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY', '')
 DART_API_KEY   = os.environ.get('DART_API_KEY', '')
+GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
 
 # DART 공시 모듈 (dart_disclosure.py 없으면 빈 결과 반환)
 try:
@@ -2227,8 +2228,38 @@ def run_ai_tournament(candidate_list, issues):
     else:
         log_info("⚠️ GROQ_API_KEY 없음 — Groq 생략")
 
+    # ── Gemini 호출 (실패해도 계속)
+    gemini_text = ''
+    if GEMINI_API_KEY:
+        try:
+            res_gemini = requests.post(
+                f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-pro:generateContent?key={GEMINI_API_KEY}",
+                headers={"Content-Type": "application/json"},
+                json={
+                    "contents": [
+                        {
+                            "role": "user",
+                            "parts": [{"text": f"{system_prompt}\n\n{user_prompt}"}]
+                        }
+                    ]
+                },
+                timeout=60
+            )
+    
+            if res_gemini.status_code == 200:
+                data = res_gemini.json()
+                gemini_text = data['candidates'][0]['content']['parts'][0]['text']
+                log_info("✅ Gemini 토너먼트 완료")
+            else:
+                log_error(f"⚠️ Gemini 응답 오류: {res_gemini.status_code}")
+    
+        except Exception as e:
+            log_error(f"⚠️ Gemini 토너먼트 실패: {e}")
+    else:
+        log_info("⚠️ GEMINI_API_KEY 없음 — Gemini 생략")
+        
     # ── 결과 조합 (하나라도 있으면 반환)
-    if not any([gpt_text, claude_text, groq_text]):
+    if not any([gpt_text, claude_text, groq_text, gemini_text]):
         return "⚠️ 모든 AI 호출 실패 (API 키 확인 필요)"
 
     result = "🏆 [AI 토너먼트 결승]\n"
@@ -2238,6 +2269,8 @@ def run_ai_tournament(candidate_list, issues):
         result += f"\n\n🤖 [Claude-Sonnet]:\n{claude_text}"
     if groq_text:
         result += f"\n\n⚡ [Groq-Llama]:\n{groq_text}"
+    if gemini_text:
+        result += f"\n\n🌟 [Gemini]:\n{gemini_text}"
 
     return result
 
@@ -2286,13 +2319,6 @@ def _call_ai(system_prompt: str, user_prompt: str,
     AI API 호출 — Claude 우선, 실패 시 OpenAI 폴백.
     prefer_claude=True: ANTHROPIC_API_KEY 있으면 Claude 먼저 시도
     """
-    # Claude 우선 시도
-    if prefer_claude and ANTHROPIC_API_KEY:
-        result = _call_claude_api(system_prompt, user_prompt, max_tokens)
-        if result:
-            log_debug("✅ Claude API 사용")
-            return result
-
     # OpenAI 폴백
     if OPENAI_API_KEY:
         try:
@@ -2310,6 +2336,13 @@ def _call_ai(system_prompt: str, user_prompt: str,
             return res.choices[0].message.content.strip()
         except Exception as e:
             log_error(f"[OpenAI 폴백 실패] {e}")
+            
+    # Claude 우선 시도
+    if prefer_claude and ANTHROPIC_API_KEY:
+        result = _call_claude_api(system_prompt, user_prompt, max_tokens)
+        if result:
+            log_debug("✅ Claude API 사용")
+            return result
 
     return "AI 분석 불가 (API 키 없음)"
 
