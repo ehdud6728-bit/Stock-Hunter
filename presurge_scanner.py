@@ -9,6 +9,7 @@
 #   ③ 섹터 선행주 동반  — 대장주 오르면 후행주 예측
 #   ④ 시간외 이상 징후  — 장전 시간외 거래에서 이미 움직임
 #   ⑤ 전일 종가 세력매집 — 전날 종가 기준 5가지 매집 흔적 복합 판단
+#   ⑥ 종가 수급 집중  — 15:20~15:30 거래량 폭발 탐지 (다음날 갭업 예고)
 #
 # 실행:
 #   python presurge_scanner.py              # 1회 실행
@@ -828,6 +829,122 @@ def signal_prev_accumulation(top_codes: list, snapshot_map: dict) -> list:
     return results
 
 
+# =============================================================
+# 🎯 선제 신호 ⑥ — 종가 수급 집중 탐지 (15:20~15:30)
+# =============================================================
+
+def signal_closing_volume(snapshot: pd.DataFrame) -> list:
+    """
+    장 마감 직전 (15:20~15:30) 갑자기 거래량/거래대금이 집중되는 종목 탐지.
+
+    [원리]
+    기관/외인이 다음날 시초가 노리고 종가 직전 대량 매수
+    → 당일 등락률이 낮아도 거래량이 갑자기 폭발
+    → 다음날 갭업 시초가 확률 높음
+
+    [탐지 조건]
+    A. 현재 시각이 15:20~15:30 사이
+    B. 현재 거래량이 전일 총 거래량 대비 이미 80%+ 도달
+       (하루치 거래량이 마감 10분 전에 거의 다 찼다 = 오후에 폭발적 유입)
+    C. 등락률은 아직 낮음 (0~3%) — 아직 덜 오른 상태
+    D. 거래대금 최소 기준 충족
+
+    [추가 품질 필터]
+    E. 오후 들어 거래량 가속 — 오전보다 오후 거래량이 급증한 패턴
+    """
+    results = []
+    now = datetime.now(KST)
+
+    # 15:20~15:30 구간에서만 유효
+    closing_start = now.replace(hour=15, minute=20, second=0)
+    closing_end   = now.replace(hour=15, minute=30, second=0)
+    if not (closing_start <= now <= closing_end):
+        return results
+
+    today = now.strftime('%Y%m%d')
+
+    for _, row in snapshot.iterrows():
+        try:
+            code   = str(row.get('code', ''))
+            close  = float(row.get('close', 0))
+            chg    = float(row.get('change_pct', 0))
+            volume = float(row.get('volume', 0))
+            amount = float(row.get('amount', 0)) / 1e8
+            open_p = float(row.get('open', 0))
+
+            if close < MIN_PRICE or amount < MIN_AMOUNT_PREV:
+                continue
+
+            # 이미 많이 오른 건 제외 (순수 종가 수급 집중 패턴)
+            if chg > 5 or chg < -3:
+                continue
+
+            # 전일 거래량 조회
+            try:
+                prev_date = (datetime.strptime(today, '%Y%m%d') - timedelta(days=5)).strftime('%Y%m%d')
+                df_prev = stock.get_market_ohlcv(prev_date, today, code)
+                if df_prev is None or len(df_prev) < 2:
+                    continue
+                vol_col  = next((c for c in df_prev.columns
+                                 if c in ('거래량', 'Volume', 'volume')), None)
+                if not vol_col:
+                    continue
+                prev_vol = float(df_prev[vol_col].iloc[-2])
+                if prev_vol <= 0:
+                    continue
+            except Exception:
+                continue
+
+            # 핵심 조건: 현재 거래량 / 전일 거래량 비율
+            vol_ratio = volume / prev_vol
+
+            # B. 전일 거래량의 70%+ 이미 소화 (15:20 기준이면 매우 비정상)
+            if vol_ratio < 0.7:
+                continue
+
+            # 품질 점수 계산
+            # vol_ratio가 클수록 (1.0 이상이면 전일보다 더 많이 거래됨)
+            # 등락률이 낮을수록 (거래량에 비해 가격이 안 올랐다 = 세력이 조용히 사는 중)
+            # 거래대금이 클수록
+            score = (
+                min(vol_ratio * 30, 50) +           # 거래량 비율 (최대 50)
+                max(0, (3 - chg) * 5) +             # 낮은 등락률 보너스 (최대 15)
+                min(amount * 1.5, 15)               # 거래대금 (최대 15)
+            )
+
+            # 양봉 여부 (종가가 시가보다 높아야 세력 매수)
+            is_bullish = close >= open_p
+            if not is_bullish:
+                score -= 10
+
+            if score < 20:
+                continue
+
+            results.append({
+                'code':    code,
+                'name':    str(row.get('name', code)),
+                'close':   int(close),
+                'change':  round(chg, 1),
+                'amount':  round(amount, 1),
+                'signal_type': '⑥ 종가수급집중',
+                'signal_detail': (
+                    f"전일대비 거래량 {vol_ratio:.1f}배 | "
+                    f"등락 {chg:+.1f}% | 거래대금 {amount:.0f}억 | "
+                    f"{'양봉✅' if is_bullish else '음봉⚠️'} | "
+                    f"📌다음날 갭업 주목"
+                ),
+                'score': round(score, 1),
+                'vol_ratio': round(vol_ratio, 2),
+            })
+            log_debug(f"  ⑥ [{row.get('name', code)}] 종가수급집중 거래량{vol_ratio:.1f}배")
+
+        except Exception:
+            continue
+
+    results.sort(key=lambda x: x['score'], reverse=True)
+    return results
+
+
 
 # =============================================================
 # 📡 텔레그램
@@ -856,6 +973,7 @@ def format_presurge_message(hit: dict, scan_time: str) -> str:
         '③-B 소부장선행':   '🔩',
         '④ 갭업출발':       '🚀',
         '⑤ 전일매집징후':   '🐋',
+        '⑥ 종가수급집중':   '🔔',
     }
     # signal_type에서 이모지 찾기
     emoji = '🎯'
@@ -956,6 +1074,11 @@ def run_presurge_scan() -> list:
     all_hits.extend(hits5)
     log_info(f"     → {len(hits5)}개")
 
+    log_info("  🔔 ⑥ 종가 수급 집중 탐지 (15:20~15:30)...")
+    hits6 = signal_closing_volume(snapshot)
+    all_hits.extend(hits6)
+    log_info(f"     → {len(hits6)}개")
+
     if not all_hits:
         log_info("✅ 선제 신호 없음")
         return []
@@ -1012,7 +1135,7 @@ def run_loop(interval: int = 10):
     send_telegram(
         f"🎯 <b>선제 급등 스캐너 시작</b>\n"
         f"⏱ {interval}분 간격 | 09:00~15:30\n"
-        f"신호: 거래량누적 | BB압축 | 섹터후행 | 소부장선행 | 갭업출발 | 전일매집"
+        f"신호: 거래량누적 | BB압축 | 섹터후행 | 소부장선행 | 갭업출발 | 전일매집 | 종가수급"
     )
 
     while True:
