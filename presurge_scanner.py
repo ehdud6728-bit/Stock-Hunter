@@ -158,6 +158,102 @@ SECTOR_LEADERS = {
                  'followers': ['000270', '012330', '204320', '003620']},
 }
 
+# =============================================================
+# 🔩 소부장(소재·부품·장비) 서브섹터 맵
+#    대장주보다 먼저 움직이는 선행주 탐지용
+#    구조: {서브섹터명: {'sector': 상위섹터, 'leader': 대장주코드, 'stocks': [소부장 종목들]}}
+# =============================================================
+SOBUJANGS = {
+    # 반도체 장비
+    '반도체장비': {
+        'sector': '반도체', 'leader': '000660', 'leader_name': 'SK하이닉스',
+        'stocks': [
+            ('042700', '한미반도체'),   # HBM 본딩 장비
+            ('240810', '원익IPS'),       # CVD 장비
+            ('336370', '솔브레인'),      # 식각 소재
+            ('058470', '리노공업'),      # 반도체 소켓
+            ('131970', '두산테스나'),    # 테스트
+            ('019570', '알테오젠'),      # 특수
+            ('039030', '이오테크닉스'), # 레이저 장비
+            ('140670', '알에프텍'),      # RF 부품
+        ]
+    },
+    # 반도체 소재
+    '반도체소재': {
+        'sector': '반도체', 'leader': '000660', 'leader_name': 'SK하이닉스',
+        'stocks': [
+            ('017550', '조이맥스'),
+            ('005290', '동진쎄미켐'),    # 포토레지스트
+            ('036830', '솔브레인홀딩스'),
+            ('449080', 'SK머티리얼즈'),  # 특수가스
+            ('361390', '제노코'),
+        ]
+    },
+    # 2차전지 소재
+    '배터리소재': {
+        'sector': '2차전지', 'leader': '373220', 'leader_name': 'LG에너지솔루션',
+        'stocks': [
+            ('006650', '대한유화'),      # NMP 용매
+            ('117730', '티에스아이'),    # 분리막
+            ('121600', '나노신소재'),    # 도전재
+            ('178920', 'PI첨단소재'),    # 분리막
+            ('033290', '코웰패션'),
+            ('298060', '에코프로'),      # 양극재
+            ('247540', '에코프로비엠'),  # 양극재
+            ('196300', '에코프로에이치엔'),
+        ]
+    },
+    # 2차전지 장비
+    '배터리장비': {
+        'sector': '2차전지', 'leader': '373220', 'leader_name': 'LG에너지솔루션',
+        'stocks': [
+            ('033640', '네패스'),
+            ('140910', '피엔티'),        # 코팅·롤프레스
+            ('383310', '에코앤드림'),
+            ('348370', '엔켐'),          # 전해질
+            ('000670', '영풍'),
+            ('352480', '씨앤씨인터내셔널'),
+        ]
+    },
+    # 방산 부품
+    '방산부품': {
+        'sector': '방산', 'leader': '012450', 'leader_name': '한화에어로스페이스',
+        'stocks': [
+            ('012630', 'HDC'),
+            ('047810', '한국항공우주'),
+            ('272210', '한화시스템'),
+            ('079550', 'LIG넥스원'),
+            ('064350', '현대로템'),
+            ('000075', '삼양홀딩스우'),
+            ('021820', '동전자'),
+        ]
+    },
+    # 조선 기자재
+    '조선기자재': {
+        'sector': '조선', 'leader': '009540', 'leader_name': 'HD한국조선해양',
+        'stocks': [
+            ('071970', '피에스케이홀딩스'),
+            ('003570', '에스앤에스텍'),
+            ('007570', '일양약품'),
+            ('008260', 'NI스틸'),        # 후판 강판
+            ('105560', 'KB금융'),
+            ('100090', '삼익악기'),
+        ]
+    },
+    # 전기차 부품
+    '전기차부품': {
+        'sector': '자동차', 'leader': '005380', 'leader_name': '현대차',
+        'stocks': [
+            ('204320', '어보브반도체'),
+            ('003620', '케이엠더블유'),
+            ('012330', '현대모비스'),
+            ('018880', '한온시스템'),    # 열관리
+            ('032750', '삼성SDI부품'),
+            ('225570', '넥슨게임즈'),
+        ]
+    },
+}
+
 
 # =============================================================
 # 🛠️ 공통 유틸
@@ -447,6 +543,92 @@ def signal_sector_follower(snapshot_map: dict) -> list:
 
     return results
 
+# =============================================================
+# 🎯 선제 신호 ③-B — 소부장 독립 선행 탐지
+# =============================================================
+
+def signal_sobu_leading(snapshot_map: dict) -> list:
+    """
+    소부장(소재·부품·장비) 종목이 대장주보다 먼저 독립적으로 움직이는 패턴 탐지.
+
+    [탐지 로직]
+    A. 소부장 자체 이상 거래량 (전일 대비 2배+) + 가격 상승
+    B. 같은 섹터 대장주는 아직 조용함 (등락률 1% 미만)
+       → "대장주 오르기 전에 소부장이 먼저 움직이는 중"
+
+    실전 의미:
+    - 세력이 대형주(대장) 매수 전 소형 소부장 선매수 흔적
+    - 2~5일 후 대장주 본격 상승 예고
+    - 섹터 순환의 가장 초기 신호
+    """
+    results = []
+
+    for subsector, info in SOBUJANGS.items():
+        leader_code = info['leader']
+        leader_name = info['leader_name']
+        sector_name = info['sector']
+        stocks      = info['stocks']
+
+        # 대장주 현재 상태
+        leader_row = snapshot_map.get(leader_code, {})
+        leader_chg = float(leader_row.get('change_pct', 0))
+
+        # 대장주가 이미 많이 오르고 있으면 선행 탐지가 아님 (후행)
+        if leader_chg >= 2.0:
+            continue
+
+        # 소부장 종목별 체크
+        for code, name in stocks:
+            row     = snapshot_map.get(code, {})
+            if not row:
+                continue
+
+            chg     = float(row.get('change_pct', 0))
+            close   = float(row.get('close', 0))
+            volume  = float(row.get('volume', 0))
+            amount  = float(row.get('amount', 0)) / 1e8
+
+            if close < MIN_PRICE or amount < MIN_AMOUNT_PREV:
+                continue
+
+            # 핵심 조건:
+            # ① 소부장 본인이 상승 중 (+1.5% 이상)
+            # ② 거래량 이상 (amount로 판단 — vol_ratio 계산 생략으로 속도 최적화)
+            # ③ 대장주는 아직 조용함 (이미 체크됨)
+            if chg < 1.5:
+                continue
+            if amount < 2:   # 최소 거래대금 2억
+                continue
+
+            # 선행 강도 점수
+            # 등락률 높을수록 + 대장주와 격차 클수록 + 거래대금 클수록
+            lead_gap = chg - leader_chg   # 소부장이 대장주보다 얼마나 더 오르나
+            score    = min(chg * 8, 40) + min(lead_gap * 5, 25) + min(amount * 1.5, 15)
+
+            results.append({
+                'code':    code,
+                'name':    name,
+                'close':   int(close),
+                'change':  round(chg, 1),
+                'amount':  round(amount, 1),
+                'signal_type': f'③-B 소부장선행({subsector})',
+                'signal_detail': (
+                    f"[{subsector}] {name} +{chg:.1f}% 선행 | "
+                    f"대장 {leader_name} {leader_chg:+.1f}% (격차 {lead_gap:.1f}%p) | "
+                    f"거래대금 {amount:.0f}억"
+                ),
+                'score': round(score, 1),
+                'subsector': subsector,
+                'sector':    sector_name,
+                'leader_name': leader_name,
+                'leader_chg':  leader_chg,
+            })
+            log_debug(f"  ③-B [{name}] {subsector} +{chg:.1f}% 선행 (대장:{leader_chg:+.1f}%)")
+
+    # 점수 순 정렬
+    results.sort(key=lambda x: x['score'], reverse=True)
+    return results
+
 
 # =============================================================
 # 🎯 선제 신호 ④ — 시간외 이상 징후
@@ -671,6 +853,7 @@ def format_presurge_message(hit: dict, scan_time: str) -> str:
         '① 거래량누적이상': '📦',
         '② BB압축응축':     '🔋',
         '③ 섹터후행':       '🔗',
+        '③-B 소부장선행':   '🔩',
         '④ 갭업출발':       '🚀',
         '⑤ 전일매집징후':   '🐋',
     }
@@ -758,6 +941,11 @@ def run_presurge_scan() -> list:
     all_hits.extend(hits3)
     log_info(f"     → {len(hits3)}개")
 
+    log_info("  🔩 ③-B 소부장 독립 선행 탐지...")
+    hits3b = signal_sobu_leading(snapshot_map)
+    all_hits.extend(hits3b)
+    log_info(f"     → {len(hits3b)}개")
+
     log_info("  🚀 ④ 갭업 출발 탐지...")
     hits4 = signal_premarket(snapshot)
     all_hits.extend(hits4)
@@ -824,7 +1012,7 @@ def run_loop(interval: int = 10):
     send_telegram(
         f"🎯 <b>선제 급등 스캐너 시작</b>\n"
         f"⏱ {interval}분 간격 | 09:00~15:30\n"
-        f"신호: 거래량누적 | BB압축 | 섹터후행 | 갭업출발 | 전일매집"
+        f"신호: 거래량누적 | BB압축 | 섹터후행 | 소부장선행 | 갭업출발 | 전일매집"
     )
 
     while True:
