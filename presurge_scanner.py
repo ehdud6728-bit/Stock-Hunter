@@ -40,6 +40,88 @@ TELEGRAM_TOKEN  = os.environ.get('TELEGRAM_TOKEN', '')
 CHAT_ID_LIST    = os.environ.get('TELEGRAM_CHAT_ID', '').split(',')
 KST             = pytz.timezone('Asia/Seoul')
 
+# =============================================================
+# 📋 KRX 종목 리스트 로드 — main7.py와 동일한 방식
+#   우선순위: ① 구글시트(공개CSV) ② FDR ③ pykrx ④ 빈DataFrame
+# =============================================================
+
+SHEET_ID = "13Esd11iwgzLN7opMYobQ3ee6huHs1FDEbyeb3Djnu6o"
+SHEET_GID = "1238448456"
+
+def _load_krx_listing() -> pd.DataFrame:
+    """
+    KRX 전종목 리스트 로드.
+    main7.py와 동일한 폴백 체인 사용.
+    """
+    import FinanceDataReader as fdr
+
+    # ① 구글시트 (공개 CSV 내보내기) — main7.py 동일 방식
+    try:
+        url = (f"https://docs.google.com/spreadsheets/d/{SHEET_ID}"
+               f"/export?format=csv&gid={SHEET_GID}")
+        df = pd.read_csv(url, encoding="utf-8", engine="python")
+        if df is not None and not df.empty and len(df) > 100:
+            log_info(f"✅ 구글시트 종목 로드: {len(df)}개")
+            return df
+    except Exception as e:
+        log_info(f"⚠️ 구글시트 실패: {e}")
+
+    # ② FDR StockListing
+    try:
+        df = fdr.StockListing('KRX')
+        if df is not None and not df.empty and len(df) > 100:
+            log_info(f"✅ FDR 종목 로드: {len(df)}개")
+            return df
+    except Exception as e:
+        log_info(f"⚠️ FDR 실패: {e}")
+
+    # ③ pykrx 당일 시세 기반 (Code/Name/Market/Amount 포함)
+    log_info("📡 pykrx로 종목 리스트 구성 중...")
+    try:
+        today = datetime.now(KST).strftime('%Y%m%d')
+        dfs = []
+        for mkt in ['KOSPI', 'KOSDAQ']:
+            try:
+                df_m = stock.get_market_ohlcv(today, market=mkt)
+                if df_m is None or df_m.empty:
+                    continue
+                df_m = df_m.reset_index()
+                # 컬럼 정규화
+                col_map = {}
+                for c in df_m.columns:
+                    cs = str(c).strip()
+                    if   cs in ('티커','Ticker','종목코드'):       col_map[c] = 'Code'
+                    elif cs in ('종가','Close','현재가'):           col_map[c] = 'Close'
+                    elif cs in ('거래량','Volume'):                col_map[c] = 'Volume'
+                    elif cs in ('거래대금','Amount','Turnover'):   col_map[c] = 'Amount'
+                    elif cs in ('등락률','Change','ChangeRate'):   col_map[c] = 'ChangeRate'
+                df_m = df_m.rename(columns=col_map)
+                # 종목명
+                if 'Code' in df_m.columns:
+                    name_map = {}
+                    for t in df_m['Code'].tolist()[:2000]:
+                        try: name_map[t] = stock.get_market_ticker_name(t)
+                        except: name_map[t] = t
+                    df_m['Name']   = df_m['Code'].map(name_map).fillna(df_m['Code'])
+                df_m['Market'] = mkt
+                dfs.append(df_m)
+                log_info(f"  {mkt}: {len(df_m)}개")
+            except Exception as e:
+                log_error(f"  {mkt} 실패: {e}")
+
+        if dfs:
+            result = pd.concat(dfs, ignore_index=True)
+            log_info(f"✅ pykrx 종목 구성 완료: {len(result)}개")
+            return result
+    except Exception as e:
+        log_error(f"🚨 pykrx 실패: {e}")
+
+    # ④ 완전 실패
+    log_error("🚨 종목 리스트 로드 실패")
+    return pd.DataFrame(columns=['Code', 'Name', 'Market'])
+
+
+
 # 필터 기준
 MIN_PRICE       = 5_000           # 5,000원 미만 제외
 MIN_MARCAP      = 30_000_000_000  # 시총 300억 미만 제외
@@ -124,26 +206,32 @@ def _mark_alerted(code: str, alerted: dict):
 # =============================================================
 
 def _get_snapshot() -> pd.DataFrame:
-    """오늘 전 종목 시세 (pykrx)"""
-    today = _today()
-    dfs = []
-    for market in ['KOSPI', 'KOSDAQ']:
-        try:
-            df = stock.get_market_ohlcv(today, market=market)
-            if df is not None and not df.empty:
-                # ✅ BUGFIX: 한글/영문 컬럼명 통합 정규화
-                df = _normalize_ohlcv(df, market)
-                if not df.empty:
-                    dfs.append(df)
-        except Exception as e:
-            log_error(f"⚠️ {market} 시세 실패: {e}")
-
-    if not dfs:
+    """
+    전 종목 시세 수집.
+    _load_krx_listing() 사용: 구글시트 → FDR → pykrx 순서로 폴백.
+    """
+    df = _load_krx_listing()
+    if df is None or df.empty:
         return pd.DataFrame()
 
-    result = pd.concat(dfs, ignore_index=True)
-    # _normalize_ohlcv에서 이미 정규화 + 종목명 보강 완료
-    return result
+    # 컬럼명 소문자 정규화
+    col_map = {}
+    for c in df.columns:
+        cs = str(c).strip()
+        if   cs in ('Code', 'code', '종목코드', '티커', 'Ticker'):  col_map[c] = 'code'
+        elif cs in ('Name', 'name', '종목명'):                        col_map[c] = 'name'
+        elif cs in ('Close', 'close', '종가', '현재가'):              col_map[c] = 'close'
+        elif cs in ('Open', 'open', '시가'):                          col_map[c] = 'open'
+        elif cs in ('High', 'high', '고가'):                          col_map[c] = 'high'
+        elif cs in ('Low', 'low', '저가'):                            col_map[c] = 'low'
+        elif cs in ('Volume', 'volume', '거래량'):                    col_map[c] = 'volume'
+        elif cs in ('Amount', 'amount', '거래대금', 'Turnover'):      col_map[c] = 'amount'
+        elif cs in ('ChangeRate', 'Change', '등락률', '변동률'):      col_map[c] = 'change_pct'
+        elif cs in ('Market', 'market'):                              col_map[c] = 'market'
+    df = df.rename(columns=col_map)
+
+    log_info(f"✅ 시세 로드: {len(df)}개 종목")
+    return df
 
 
 # =============================================================
@@ -179,7 +267,11 @@ def signal_vol_accumulation(snapshot: pd.DataFrame) -> list:
             df = stock.get_market_ohlcv(prev_date, today, code)
             if df is None or len(df) < 2:
                 return code, 0
-            return code, float(df['거래량'].iloc[-2])
+            # ✅ 한글/영문 컬럼명 모두 대응
+            vol_col = next((c for c in df.columns if c in ('거래량', 'Volume', 'volume')), None)
+            if not vol_col:
+                return code, 0
+            return code, float(df[vol_col].iloc[-2])
         except Exception:
             return code, 0
 
