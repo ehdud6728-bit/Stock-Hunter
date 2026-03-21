@@ -5216,6 +5216,7 @@ if __name__ == "__main__":
     # AI 토너먼트는 맨 마지막
     if tournament_report and len(tournament_report) > 10:
         log_info(f"📨 토너먼트 결과 전송 중 ({len(tournament_report)}자)...")
+        log_info(f"📨 토너먼트 결과 ({tournament_report}")
         send_tournament_results(tournament_report)
         log_info("✅ 토너먼트 전송 완료")
     else:
