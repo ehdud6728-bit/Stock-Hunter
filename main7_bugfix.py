@@ -85,7 +85,7 @@ except ImportError:
     def enrich_with_disclosure(hits, top_k=100):
         return hits     
 
-TEST_MODE = True
+TEST_MODE = False
 
 KST = pytz.timezone('Asia/Seoul')
 current_time = datetime.now(KST)
@@ -2233,8 +2233,33 @@ def run_ai_tournament(candidate_list, issues):
                     .strip()
                 )
                 log_info("✅ Gemini 토너먼트 완료")
+            elif res_gem.status_code == 429:
+                # 2.0-flash 쿼터 초과 → 1.5-flash 로 폴백 시도
+                log_info("⚠️ Gemini 2.0-flash 쿼터 초과 → 1.5-flash 폴백 시도...")
+                try:
+                    gem_url_fb = (
+                        f"https://generativelanguage.googleapis.com/v1beta/models"
+                        f"/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+                    )
+                    res_gem2 = requests.post(gem_url_fb, json=gem_body, timeout=60)
+                    if res_gem2.status_code == 200:
+                        gem_data2 = res_gem2.json()
+                        gemini_text = (
+                            gem_data2.get('candidates', [{}])[0]
+                            .get('content', {})
+                            .get('parts', [{}])[0]
+                            .get('text', '')
+                            .strip()
+                        )
+                        log_info("✅ Gemini 1.5-flash 폴백 성공")
+                    else:
+                        log_info(f"⚠️ Gemini 1.5-flash도 실패 ({res_gem2.status_code}) — 생략")
+                except Exception as e2:
+                    log_info(f"⚠️ Gemini 폴백 실패: {e2}")
+            elif res_gem.status_code == 400:
+                log_error(f"⚠️ Gemini 요청 오류 (400): {res_gem.text[:200]}")
             else:
-                log_error(f"⚠️ Gemini 응답 오류: {res_gem.status_code} {res_gem.text[:200]}")
+                log_error(f"⚠️ Gemini 응답 오류: {res_gem.status_code}")
         except Exception as e:
             log_error(f"⚠️ Gemini 토너먼트 실패: {e}")
     else:
