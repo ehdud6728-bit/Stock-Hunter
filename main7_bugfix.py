@@ -38,7 +38,7 @@ warnings.filterwarnings('ignore', category=FutureWarning)
 # scan_logger 없으면 print로 폴백
 try:
     from scan_logger import set_log_level, log_hit, log_progress, log_error, log_info, log_debug
-    set_log_level('QUIET')   # QUIET / NORMAL / VERBOSE  또는 env: SCAN_LOG_LEVEL=QUIET
+    set_log_level('NORMAL')   # QUIET / NORMAL / VERBOSE  또는 env: SCAN_LOG_LEVEL=QUIET
 except ImportError:
     def log_info(msg):  print(msg)
     def log_error(msg): print(msg)
@@ -73,8 +73,8 @@ CHAT_ID_LIST = os.environ.get('TELEGRAM_CHAT_ID', '').split(',')
 OPENAI_API_KEY    = os.environ.get('OPENAI_API_KEY')
 GROQ_API_KEY      = os.environ.get('GROQ_API_KEY')
 ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY', '')
+GEMINI_API_KEY    = os.environ.get('GEMINI_API_KEY', '')
 DART_API_KEY   = os.environ.get('DART_API_KEY', '')
-GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
 
 # DART 공시 모듈 (dart_disclosure.py 없으면 빈 결과 반환)
 try:
@@ -85,7 +85,7 @@ except ImportError:
     def enrich_with_disclosure(hits, top_k=100):
         return hits     
 
-TEST_MODE = True
+TEST_MODE = False
 
 KST = pytz.timezone('Asia/Seoul')
 current_time = datetime.now(KST)
@@ -117,7 +117,7 @@ RECENT_AVG_AMOUNT_2 = 350
 ROSS_BAND_TOLERANCE = 1.03
 RSI_LOW_TOLERANCE   = 1.03
 
-log_info("📡 [Ver 27.21] Claude API 연동 (claude-sonnet-4, OpenAI 폴백)...")
+log_info("📡 [Ver 27.21] AI 토너먼트 4종 (GPT+Claude+Gemini+Groq) + 분할전송...")
 
 import sys
 import os
@@ -2046,17 +2046,17 @@ def send_tournament_results(tournament_report: str):
 
     # AI별 섹션 분리 마커
     markers = [
-        ('🧠 [GPT-4o]',       '🧠 GPT-4o 분석'),
-        ('🤖 [Claude-Sonnet]','🤖 Claude-Sonnet 분석'),
-        ('⚡ [Groq-Llama]',   '⚡ Groq-Llama 분석'),
+        ('🧠 [GPT-4o]',        '🧠 GPT-4o 분석'),
+        ('🤖 [Claude-Sonnet]', '🤖 Claude-Sonnet 분석'),
+        ('♊ [Gemini-Flash]',  '♊ Gemini-Flash 분석'),
+        ('⚡ [Groq-Llama]',    '⚡ Groq-Llama 분석'),
     ]
 
     # 헤더 분리
     header_end = tournament_report.find('\n\n🧠')
-    if header_end == -1:
-        header_end = tournament_report.find('\n\n⚡')
-    if header_end == -1:
-        header_end = tournament_report.find('\n\n🤖')
+    for _mark in ['\n\n🤖', '\n\n♊', '\n\n⚡']:
+        if header_end == -1:
+            header_end = tournament_report.find(_mark)
 
     header = tournament_report[:header_end].strip() if header_end > 0 else '🏆 AI 토너먼트 결과'
 
@@ -2202,6 +2202,44 @@ def run_ai_tournament(candidate_list, issues):
     else:
         log_info("⚠️ ANTHROPIC_API_KEY 없음 — Claude 생략")
 
+    # ── Gemini 호출 (실패해도 계속)
+    gemini_text = ''
+    if GEMINI_API_KEY:
+        try:
+            gem_url = (
+                f"https://generativelanguage.googleapis.com/v1beta/models"
+                f"/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
+            )
+            gem_body = {
+                "system_instruction": {
+                    "parts": [{"text": system_prompt}]
+                },
+                "contents": [{
+                    "parts": [{"text": user_prompt}]
+                }],
+                "generationConfig": {
+                    "maxOutputTokens": 1000,
+                    "temperature": 0.5
+                }
+            }
+            res_gem = requests.post(gem_url, json=gem_body, timeout=60)
+            if res_gem.status_code == 200:
+                gem_data = res_gem.json()
+                gemini_text = (
+                    gem_data.get('candidates', [{}])[0]
+                    .get('content', {})
+                    .get('parts', [{}])[0]
+                    .get('text', '')
+                    .strip()
+                )
+                log_info("✅ Gemini 토너먼트 완료")
+            else:
+                log_error(f"⚠️ Gemini 응답 오류: {res_gem.status_code} {res_gem.text[:200]}")
+        except Exception as e:
+            log_error(f"⚠️ Gemini 토너먼트 실패: {e}")
+    else:
+        log_info("⚠️ GEMINI_API_KEY 없음 — Gemini 생략")
+
     # ── Groq 호출 (실패해도 계속)
     groq_text = ''
     if GROQ_API_KEY:
@@ -2219,58 +2257,32 @@ def run_ai_tournament(candidate_list, issues):
                 timeout=60
             )
             if res_groq.status_code == 200:
-                groq_text = res_groq.json()['choices'][0]['message']['content'] or ''
+                groq_json = res_groq.json()
+                groq_text = groq_json.get('choices', [{}])[0].get('message', {}).get('content', '') or ''
                 log_info("✅ Groq 토너먼트 완료")
             else:
-                log_error(f"⚠️ Groq 응답 오류: {res_groq.status_code}")
+                log_error(f"⚠️ Groq 응답 오류: {res_groq.status_code} {res_groq.text[:200]}")
         except Exception as e:
             log_error(f"⚠️ Groq 토너먼트 실패: {e}")
     else:
         log_info("⚠️ GROQ_API_KEY 없음 — Groq 생략")
 
-    # ── Gemini 호출 (실패해도 계속)
-    gemini_text = ''
-    if GEMINI_API_KEY:
-        try:
-            res_gemini = requests.post(
-                f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-pro:generateContent?key={GEMINI_API_KEY}",
-                headers={"Content-Type": "application/json"},
-                json={
-                    "contents": [
-                        {
-                            "role": "user",
-                            "parts": [{"text": f"{system_prompt}\n\n{user_prompt}"}]
-                        }
-                    ]
-                },
-                timeout=60
-            )
-    
-            if res_gemini.status_code == 200:
-                data = res_gemini.json()
-                gemini_text = data['candidates'][0]['content']['parts'][0]['text']
-                log_info("✅ Gemini 토너먼트 완료")
-            else:
-                log_error(f"⚠️ Gemini 응답 오류: {res_gemini.status_code}")
-    
-        except Exception as e:
-            log_error(f"⚠️ Gemini 토너먼트 실패: {e}")
-    else:
-        log_info("⚠️ GEMINI_API_KEY 없음 — Gemini 생략")
-        
     # ── 결과 조합 (하나라도 있으면 반환)
-    if not any([gpt_text, claude_text, groq_text, gemini_text]):
+    results_map = {
+        '🧠 [GPT-4o]':        gpt_text,
+        '🤖 [Claude-Sonnet]': claude_text,
+        '♊ [Gemini-Flash]':  gemini_text,
+        '⚡ [Groq-Llama]':   groq_text,
+    }
+    log_info(f"  GPT:{bool(gpt_text)} Claude:{bool(claude_text)} Gemini:{bool(gemini_text)} Groq:{bool(groq_text)}")
+
+    if not any(results_map.values()):
         return "⚠️ 모든 AI 호출 실패 (API 키 확인 필요)"
 
     result = "🏆 [AI 토너먼트 결승]\n"
-    if gpt_text:
-        result += f"\n🧠 [GPT-4o]:\n{gpt_text}"
-    if claude_text:
-        result += f"\n\n🤖 [Claude-Sonnet]:\n{claude_text}"
-    if groq_text:
-        result += f"\n\n⚡ [Groq-Llama]:\n{groq_text}"
-    if gemini_text:
-        result += f"\n\n🌟 [Gemini]:\n{gemini_text}"
+    for label, text in results_map.items():
+        if text:
+            result += f"\n{label}:\n{text}\n"
 
     return result
 
@@ -2319,6 +2331,13 @@ def _call_ai(system_prompt: str, user_prompt: str,
     AI API 호출 — Claude 우선, 실패 시 OpenAI 폴백.
     prefer_claude=True: ANTHROPIC_API_KEY 있으면 Claude 먼저 시도
     """
+    # Claude 우선 시도
+    if prefer_claude and ANTHROPIC_API_KEY:
+        result = _call_claude_api(system_prompt, user_prompt, max_tokens)
+        if result:
+            log_debug("✅ Claude API 사용")
+            return result
+
     # OpenAI 폴백
     if OPENAI_API_KEY:
         try:
@@ -2336,13 +2355,6 @@ def _call_ai(system_prompt: str, user_prompt: str,
             return res.choices[0].message.content.strip()
         except Exception as e:
             log_error(f"[OpenAI 폴백 실패] {e}")
-            
-    # Claude 우선 시도
-    if prefer_claude and ANTHROPIC_API_KEY:
-        result = _call_claude_api(system_prompt, user_prompt, max_tokens)
-        if result:
-            log_debug("✅ Claude API 사용")
-            return result
 
     return "AI 분석 불가 (API 키 없음)"
 
@@ -4866,21 +4878,33 @@ if __name__ == "__main__":
 
     macro_briefing_text = format_macro_briefing_for_telegram(macro_briefing_result)
 
-    # ✅ 종목별 뉴스 감성 조회 (상위 15개만)
+    # ✅ 종목별 뉴스 감성 조회 (상위 15개, 종목당 5초 타임아웃)
     log_info("📰 종목별 뉴스 조회 중 (상위 15개)...")
     if 'news_sentiment' not in ai_candidates.columns:
         ai_candidates['news_sentiment'] = ''
     for idx, row_n in ai_candidates.head(15).iterrows():
-        news_str = _fetch_stock_news(
-            str(row_n.get('code', '')),
-            str(row_n.get('종목명', ''))
-        )
+        try:
+            import signal as _sig
+            def _timeout_handler(signum, frame):
+                raise TimeoutError("뉴스 조회 타임아웃")
+            _sig.signal(_sig.SIGALRM, _timeout_handler)
+            _sig.alarm(5)  # 종목당 5초 제한
+            news_str = _fetch_stock_news(
+                str(row_n.get('code', '')),
+                str(row_n.get('종목명', ''))
+            )
+            _sig.alarm(0)  # 타임아웃 해제
+        except Exception:
+            news_str = ''
+            try: _sig.alarm(0)
+            except: pass
         ai_candidates.at[idx, 'news_sentiment'] = news_str
 
     log_info("🧠 상위 30개 종목 AI 심층 분석 중...")
-    log_info(f"  OPENAI_API_KEY:    {'✅ 있음' if OPENAI_API_KEY else '❌ 없음'}")
-    log_info(f"  ANTHROPIC_API_KEY: {'✅ 있음' if ANTHROPIC_API_KEY else '❌ 없음'}")
-    log_info(f"  GROQ_API_KEY:      {'✅ 있음' if GROQ_API_KEY else '❌ 없음'}")
+    log_info(f"  OPENAI_API_KEY:    {'✅' if OPENAI_API_KEY else '❌ 없음'}")
+    log_info(f"  ANTHROPIC_API_KEY: {'✅' if ANTHROPIC_API_KEY else '❌ 없음'}")
+    log_info(f"  GEMINI_API_KEY:    {'✅' if GEMINI_API_KEY else '❌ 없음'}")
+    log_info(f"  GROQ_API_KEY:      {'✅' if GROQ_API_KEY else '❌ 없음'}")
     tournament_report = run_ai_tournament(ai_candidates, issues)
     log_info(f"  토너먼트 결과 길이: {len(tournament_report)}자")
     if not tournament_report or len(tournament_report) < 10:
