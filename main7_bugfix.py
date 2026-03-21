@@ -85,7 +85,7 @@ except ImportError:
     def enrich_with_disclosure(hits, top_k=100):
         return hits     
 
-TEST_MODE = True
+TEST_MODE = False
 
 KST = pytz.timezone('Asia/Seoul')
 current_time = datetime.now(KST)
@@ -117,7 +117,7 @@ RECENT_AVG_AMOUNT_2 = 350
 ROSS_BAND_TOLERANCE = 1.03
 RSI_LOW_TOLERANCE   = 1.03
 
-log_info("📡 [Ver 27.21] AI 토너먼트 4종 (GPT+Claude+Gemini+Groq) + 분할전송...")
+log_info("📡 [Ver 27.22] 종가배팅 타점 신호 추가 (전고점+윗꼬리없음+거래량폭발+MA정배열)...")
 
 import sys
 import os
@@ -1027,6 +1027,46 @@ COMBO_TABLE = [
         'tags': ['🍉초록10일축적', '📦수박직전대기'],
         'cond': lambda e: e.get('watermelon_green_7d') and not e.get('watermelon_signal'),
     },
+    # ✅ 종가배팅 타점 조합 (전고점+강봉+거래량)
+    {
+        'grade': 'SSS', 'score': 640, 'type': '🕯️',
+        'combination': '🕯️🍉종가배팅수박',
+        'tags': ['🕯️전고점강봉마감', '💥거래량2배폭발', '🍉수박전환', '📈종가배팅최강'],
+        'cond': lambda e: (
+            e.get('near_high20') and e.get('low_upper_wick') and
+            e.get('vol_2x') and e.get('bullish_close') and
+            e.get('watermelon_signal')
+        ),
+    },
+    {
+        'grade': 'SS+', 'score': 520, 'type': '🕯️',
+        'combination': '🕯️종가배팅완전체',
+        'tags': ['🕯️전고점강봉마감', '💥거래량2배폭발', '📈MA20위양봉', '✅7조건완전충족'],
+        'cond': lambda e: (
+            e.get('near_high20') and e.get('low_upper_wick') and
+            e.get('vol_2x') and e.get('bullish_close') and
+            e.get('disparity_ok') and e.get('above_ma20')
+        ),
+    },
+    {
+        'grade': 'SS', 'score': 460, 'type': '🕯️',
+        'combination': '🕯️종가배팅기본',
+        'tags': ['🕯️전고점강봉마감', '⚡거래량폭발', '📈양봉마감'],
+        'cond': lambda e: (
+            e.get('near_high20') and e.get('low_upper_wick') and
+            e.get('vol_2x') and e.get('bullish_close') and
+            not e.get('watermelon_signal')
+        ),
+    },
+    {
+        'grade': 'SS', 'score': 480, 'type': '🕯️',
+        'combination': '🕯️🧲종가배팅세력눌림',
+        'tags': ['🕯️전고점강봉마감', '🧲세력눌림목', '💥거래량폭발', '📈세력매집확인'],
+        'cond': lambda e: (
+            e.get('near_high20') and e.get('low_upper_wick') and
+            e.get('vol_2x') and e.get('force_pullback')
+        ),
+    },
     # ✅ 피보나치 지지 + 수박 조합 (황금비율 타점)
     {
         'grade': 'SSS', 'score': 620, 'type': '🔢',
@@ -1069,6 +1109,28 @@ COMBO_TABLE = [
         'combination': '⚡거래량+OBV',
         'tags': ['⚡거래량', '📊OBV'],
         'cond': lambda e: e.get('volume_surge') and e.get('obv_rising'),
+    },
+
+    # ════════════════════════════════════════════
+    # 🕯️ 종가배팅 조합 (전고점+윗꼬리없음+거래량폭발)
+    # ════════════════════════════════════════════
+    {
+        'grade': 'SSS', 'score': 630, 'type': '🕯️',
+        'combination': '🕯️🍉종가배팅A급(수박동반)',
+        'tags': ['🕯️강봉마감', '📈전고점돌파직전', '💥거래량2배', '🍉수박동반', '🏆최강종가타점'],
+        'cond': lambda e: e.get('closing_bet') and e.get('closing_bet_grade') == 'A',
+    },
+    {
+        'grade': 'SS+', 'score': 530, 'type': '🕯️',
+        'combination': '🕯️종가배팅B급(OBV확인)',
+        'tags': ['🕯️강봉마감', '📈전고점돌파직전', '💥거래량2배', '📊OBV상승', '✅종가타점'],
+        'cond': lambda e: e.get('closing_bet') and e.get('closing_bet_grade') == 'B',
+    },
+    {
+        'grade': 'SS', 'score': 440, 'type': '🕯️',
+        'combination': '🕯️종가배팅C급(기본충족)',
+        'tags': ['🕯️강봉마감', '📈전고점권진입', '⚡거래량1.5배', '📋종가참고'],
+        'cond': lambda e: e.get('closing_bet') and e.get('closing_bet_grade') == 'C',
     },
 ]
 
@@ -1421,6 +1483,12 @@ def get_indicators(df):
 
     df['Disparity']      = (close / df['MA20']) * 100
     df['MA_Convergence'] = abs(df['MA20'] - df['MA60']) / df['MA60'] * 100
+
+    # ── 전고점 대비 이격 (종가배팅 타점용)
+    df['High20']         = df['High'].rolling(20).max()
+    df['High52']         = df['High'].rolling(252).max()
+    df['NearHigh20_Pct'] = (close / df['High20'] * 100).round(1)
+    df['NearHigh52_Pct'] = (close / df['High52'] * 100).round(1)
     df['Box_Range']      = high.rolling(10).max() / low.rolling(10).min()
 
     tr = pd.concat([
@@ -2208,7 +2276,7 @@ def run_ai_tournament(candidate_list, issues):
         try:
             gem_url = (
                 f"https://generativelanguage.googleapis.com/v1beta/models"
-                f"/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
+                f"/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
             )
             gem_body = {
                 "system_instruction": {
@@ -2235,11 +2303,11 @@ def run_ai_tournament(candidate_list, issues):
                 log_info("✅ Gemini 토너먼트 완료")
             elif res_gem.status_code == 429:
                 # 2.0-flash 쿼터 초과 → 1.5-flash 로 폴백 시도
-                log_info("⚠️ Gemini 2.0-flash 쿼터 초과 → 1.5-flash 폴백 시도...")
+                log_info("⚠️ Gemini 2.5-flash 쿼터 초과 → 2.0-flash 폴백 시도...")
                 try:
                     gem_url_fb = (
                         f"https://generativelanguage.googleapis.com/v1beta/models"
-                        f"/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+                        f"/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
                     )
                     res_gem2 = requests.post(gem_url_fb, json=gem_body, timeout=60)
                     if res_gem2.status_code == 200:
@@ -2251,9 +2319,9 @@ def run_ai_tournament(candidate_list, issues):
                             .get('text', '')
                             .strip()
                         )
-                        log_info("✅ Gemini 1.5-flash 폴백 성공")
+                        log_info("✅ Gemini 2.0-flash 폴백 성공")
                     else:
-                        log_info(f"⚠️ Gemini 1.5-flash도 실패 ({res_gem2.status_code}) — 생략")
+                        log_info(f"⚠️ Gemini 2.0-flash도 실패 ({res_gem2.status_code}) — 생략")
                 except Exception as e2:
                     log_info(f"⚠️ Gemini 폴백 실패: {e2}")
             elif res_gem.status_code == 400:
@@ -2824,6 +2892,20 @@ def build_default_signals(row, close_p, prev):
             prev['Close'] <= row['MA112']
         ),
         'volume_surge':  row['Volume'] >= row['VMA20'] * 1.5,
+
+        # ── 종가배팅 타점 신호 (7가지 복합 조건)
+        # ① 전고점(20일) 대비 85~100% 구간
+        'near_high20':   85.0 <= float(row.get('NearHigh20_Pct', 0)) <= 100.0,
+        # ② 윗꼬리 비율 20% 이하 (강봉마감)
+        'low_upper_wick': _calc_upper_wick_ratio(row) <= 0.20,
+        # ③ 거래량 VMA20 × 2배 이상
+        'vol_2x':        float(row.get('Volume', 0)) >= float(row.get('VMA20', 0)) * 2.0,
+        # ④ 양봉 마감
+        'bullish_close': float(row.get('Close', 0)) >= float(row.get('Open', 0)),
+        # ⑤ 이격도 98~112
+        'disparity_ok':  98.0 <= float(row.get('Disparity', 100)) <= 112.0,
+        # ⑥ MA20 위 마감
+        'above_ma20':    float(row.get('Close', 0)) >= float(row.get('MA20', 0)),
         'obv_rising':    row['OBV_Rising'],
         'mfi_strong':    row['MFI_Strong'],
 
@@ -2868,6 +2950,10 @@ def build_default_signals(row, close_p, prev):
         'good_ma_convergence_score': int(row.get('Good_MA_Convergence_Score', 0)),
         'ma_break_ready': row.get('MA_Convergence_Break_Ready', False),
         'ma_break_ready_score': int(row.get('MA_Convergence_Break_Ready_Score', 0)),
+
+        # ── 종가배팅 신호 (기본값 False, FIX-CLOSE에서 주입) ──────
+        'closing_bet':        False,   # 종가배팅 전체 충족
+        'closing_bet_grade':  '',      # A(최강)/B(강)/C(보통)
     }       
 
 
@@ -3987,6 +4073,77 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         if _pivot_r1 > 0:
             signals['pivot_resist']    = abs(close_p - _pivot_r1)   / _pivot_r1   <= _tol
 
+        # ✅ FIX-CLOSE: 종가배팅 신호 계산 (조건 7가지)
+        try:
+            _high_p  = float(row.get('High',  close_p))
+            _low_p   = float(row.get('Low',   close_p))
+            _open_p  = float(row.get('Open',  close_p))
+            _vol     = float(row.get('Volume', 0))
+            _vma20   = float(row.get('VMA20', 0) or 0)
+            _ma20    = float(row.get('MA20',  0) or 0)
+            _ma60    = float(row.get('MA60',  0) or 0)
+            _rsi_v   = float(row.get('RSI',   50) or 50)
+            _obv_up  = bool(row.get('OBV_Rising', False))
+            _disp    = float(row.get('Disparity', 100) or 100)
+
+            # 최근 20일 전고점
+            _high20  = float(temp_df['High'].tail(20).max()) if len(temp_df) >= 20 else _high_p
+            # 최근 60일 전고점 (중기 저항)
+            _high60  = float(temp_df['High'].tail(60).max()) if len(temp_df) >= 60 else _high20
+
+            # ── 조건 계산
+            # ① 전고점 대비 현재가 위치 (85~100% — 돌파 직전 구간)
+            _near_high20 = (_high20 > 0) and (0.85 <= close_p / _high20 <= 1.02)
+            _near_high60 = (_high60 > 0) and (0.80 <= close_p / _high60 <= 1.02)
+
+            # ② 윗꼬리 비율 20% 이하 (강봉마감)
+            _total_range = _high_p - _low_p
+            _upper_wick  = max(0.0, _high_p - max(_open_p, close_p))
+            _wick_ratio  = _upper_wick / _total_range if _total_range > 0 else 1.0
+            _no_upwick   = _wick_ratio <= 0.20
+
+            # ③ 거래량 폭발 (VMA20 × 2배 이상)
+            _vol_x2      = (_vma20 > 0) and (_vol >= _vma20 * 2.0)
+            _vol_x15     = (_vma20 > 0) and (_vol >= _vma20 * 1.5)
+
+            # ④ 이격도 적정 (MA20 대비 108 이하 — 추격 방지)
+            _disp_ok     = _disp <= 108
+
+            # ⑤ MA 정배열 (MA20 > MA60)
+            _ma_align    = (_ma20 > 0 and _ma60 > 0) and (_ma20 >= _ma60)
+
+            # ⑥ RSI 적정 구간 (40~70)
+            _rsi_ok      = 40 <= _rsi_v <= 70
+
+            # ⑦ 양봉 마감 (종가 > 시가)
+            _bull_close  = close_p >= _open_p
+
+            # ── 등급 결정
+            # A급: 7가지 전부 + 수박 동반
+            _cb_a = (_near_high20 and _no_upwick and _vol_x2 and
+                     _disp_ok and _ma_align and _rsi_ok and _bull_close and
+                     signals.get('watermelon_signal', False))
+
+            # B급: 핵심 4가지 (전고점+윗꼬리+거래량+이격) + OBV
+            _cb_b = (_near_high20 and _no_upwick and _vol_x2 and
+                     _disp_ok and _obv_up)
+
+            # C급: 완화 조건 (전고점60일+윗꼬리+거래량1.5배)
+            _cb_c = (_near_high60 and _no_upwick and _vol_x15 and _bull_close)
+
+            if _cb_a:
+                signals['closing_bet']       = True
+                signals['closing_bet_grade'] = 'A'
+            elif _cb_b:
+                signals['closing_bet']       = True
+                signals['closing_bet_grade'] = 'B'
+            elif _cb_c:
+                signals['closing_bet']       = True
+                signals['closing_bet_grade'] = 'C'
+
+        except Exception as _e:
+            log_debug(f"FIX-CLOSE 계산 실패: {_e}")
+
         # ATR 기반 목표가 (기존 target이 0이면 ATR로 대체)
         atr_target1 = _atr_t.get('target_1', 0)
         atr_target2 = _atr_t.get('target_2', 0)
@@ -4174,6 +4331,30 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             elif _gap_pct > 30:
                 tags.append(f"⚠️평단괴리({_gap_pct:.0f}%↑)")
                 s_score -= 15   # 너무 많이 올랐으면 추격 위험
+
+        # ✅ 종가배팅 가점
+        _cb_grade = signals.get('closing_bet_grade', '')
+        if signals.get('closing_bet'):
+            _cb_bonus = {'A': 60, 'B': 35, 'C': 15}.get(_cb_grade, 0)
+            s_score  += _cb_bonus
+            _near20_pct = round(close_p / float(temp_df['High'].tail(20).max()) * 100, 1) if len(temp_df) >= 20 else 0
+            tags.append(f"🕯️종가배팅{_cb_grade}급({_near20_pct}%)")
+
+        # ✅ 종가배팅 완전체 가점
+        _closing_bet_count = sum([
+            signals.get('near_high20', False),
+            signals.get('low_upper_wick', False),
+            signals.get('vol_2x', False),
+            signals.get('bullish_close', False),
+            signals.get('disparity_ok', False),
+            signals.get('above_ma20', False),
+        ])
+        if _closing_bet_count >= 6:
+            s_score += 50
+            tags.append(f"🕯️종가배팅({_closing_bet_count}/6)")
+        elif _closing_bet_count >= 4:
+            s_score += 25
+            tags.append(f"🕯️종가배팅({_closing_bet_count}/6)")
 
         # ✅ 피보나치 지지선 가점
         if signals.get('fib_support_618'):
@@ -5216,7 +5397,6 @@ if __name__ == "__main__":
     # AI 토너먼트는 맨 마지막
     if tournament_report and len(tournament_report) > 10:
         log_info(f"📨 토너먼트 결과 전송 중 ({len(tournament_report)}자)...")
-        log_info(f"📨 토너먼트 결과 ({tournament_report}")
         send_tournament_results(tournament_report)
         log_info("✅ 토너먼트 전송 완료")
     else:
