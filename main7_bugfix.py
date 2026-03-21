@@ -85,7 +85,7 @@ except ImportError:
     def enrich_with_disclosure(hits, top_k=100):
         return hits     
 
-TEST_MODE = False
+TEST_MODE = True
 
 KST = pytz.timezone('Asia/Seoul')
 current_time = datetime.now(KST)
