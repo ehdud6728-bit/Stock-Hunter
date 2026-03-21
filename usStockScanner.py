@@ -22,9 +22,9 @@ from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # ────────────────────────────────────────────────────────────────
-# main7.py에서 import
+# main7_bugfix.py에서 import
 # ────────────────────────────────────────────────────────────────
-from main7 import (
+from main7_bugfix import (
     # 지표 계산
     get_indicators,
     classify_style,
