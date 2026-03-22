@@ -197,63 +197,114 @@ ALERTED_FILE     = '/tmp/closing_bet_alerted.json'
 # 📋 스캔 유니버스 로딩
 # =============================================================
 
-def _get_kospi200() -> list:
-    """코스피200 구성 종목 코드 리스트"""
+def _get_index_tickers_naver(index_code: str) -> list:
+    """
+    네이버 금융에서 지수 구성 종목 코드 수집.
+    index_code:
+      'KOSPI200' → 코스피200 구성 종목
+      'KQ150'    → 코스닥150 구성 종목
+    """
     try:
-        from pykrx import stock as pykrx_stock
-        tickers = pykrx_stock.get_index_portfolio_deposit_file("1028")  # 코스피200
-        if tickers:
-            print(f"  코스피200: {len(tickers)}개")
-            return list(tickers)
-    except Exception as e:
-        log_error(f"⚠️ 코스피200 로드 실패: {e}")
+        from bs4 import BeautifulSoup
+        HEADERS = {
+            'User-Agent': 'Mozilla/5.0',
+            'Referer': 'https://finance.naver.com/',
+        }
+        # 네이버 금융 지수 구성 종목 페이지
+        url_map = {
+            'KOSPI200': 'https://finance.naver.com/sise/entryJongmok.naver?kospiCode=KOSPI200',
+            'KQ150':    'https://finance.naver.com/sise/entryJongmok.naver?kospiCode=KQ150',
+        }
+        url = url_map.get(index_code, '')
+        if not url:
+            return []
 
-    # 폴백: FDR
+        tickers = []
+        for page in range(1, 30):  # 최대 29페이지
+            res = requests.get(f"{url}&page={page}", headers=HEADERS, timeout=10)
+            res.encoding = 'euc-kr'
+            soup = BeautifulSoup(res.text, 'html.parser')
+
+            # 종목 링크에서 코드 추출
+            links = soup.select('td.ctg a[href*="code="]')
+            if not links:
+                break
+
+            for a in links:
+                href = a.get('href', '')
+                code = href.split('code=')[-1].strip()
+                if code and len(code) == 6 and code.isdigit():
+                    tickers.append(code)
+
+        tickers = list(dict.fromkeys(tickers))  # 중복 제거
+        if tickers:
+            log_info(f"  네이버 {index_code}: {len(tickers)}개 ✅")
+        return tickers
+
+    except Exception as e:
+        log_error(f"⚠️ 네이버 {index_code} 실패: {e}")
+        return []
+
+
+def _get_index_tickers_krx(market: str, top_n: int) -> list:
+    """FDR / pykrx 시총 기반 폴백"""
+    # pykrx 시도
     try:
-        df = fdr.StockListing('KOSPI')
+        from pykrx import stock as _pk
+        today = datetime.now().strftime('%Y%m%d')
+        idx_code = '1028' if market == 'KOSPI' else '2203'
+        tickers = _pk.get_index_portfolio_deposit_file(idx_code, today)
+        if tickers and len(tickers) > 50:
+            log_info(f"  pykrx {market}: {len(tickers)}개 ✅")
+            return list(tickers)[:top_n]
+    except Exception:
+        pass
+
+    # FDR 시총 기반
+    try:
+        df = fdr.StockListing(market)
         if df is not None and not df.empty:
-            # 시총 상위 200개
             mcap_col = next((c for c in df.columns if 'cap' in c.lower()), None)
-            if mcap_col:
-                df = df.nlargest(200, mcap_col)
-            sym_col = next((c for c in df.columns
-                            if c in ('Code', 'Symbol', '코드', '종목코드')), None)
-            if sym_col:
-                tickers = df[sym_col].tolist()[:200]
-                print(f"  코스피200(FDR): {len(tickers)}개")
+            sym_col  = next((c for c in df.columns
+                             if c in ('Code','Symbol','코드','종목코드')), None)
+            if mcap_col and sym_col:
+                df = df.nlargest(top_n, mcap_col)
+                tickers = [str(c).zfill(6) for c in df[sym_col].tolist()]
+                log_info(f"  FDR {market} 시총상위{top_n}: {len(tickers)}개 ✅")
                 return tickers
     except Exception as e:
-        log_error(f"⚠️ 코스피200 FDR 실패: {e}")
+        log_error(f"⚠️ FDR {market} 실패: {e}")
     return []
+
+
+def _get_kospi200() -> list:
+    """
+    코스피200 구성 종목.
+    우선순위: ① 네이버금융 ② pykrx ③ FDR 시총상위200
+    """
+    # ① 네이버 금융
+    tickers = _get_index_tickers_naver('KOSPI200')
+    if len(tickers) >= 150:
+        return tickers
+
+    # ② ③ pykrx / FDR 폴백
+    log_info("  코스피200 네이버 실패 → pykrx/FDR 폴백")
+    return _get_index_tickers_krx('KOSPI', 200)
 
 
 def _get_kosdaq150() -> list:
-    """코스닥150 구성 종목 코드 리스트"""
-    try:
-        from pykrx import stock as pykrx_stock
-        tickers = pykrx_stock.get_index_portfolio_deposit_file("2203")  # 코스닥150
-        if tickers:
-            print(f"  코스닥150: {len(tickers)}개")
-            return list(tickers)
-    except Exception as e:
-        log_error(f"⚠️ 코스닥150 로드 실패: {e}")
+    """
+    코스닥150 구성 종목.
+    우선순위: ① 네이버금융 ② pykrx ③ FDR 시총상위150
+    """
+    # ① 네이버 금융
+    tickers = _get_index_tickers_naver('KQ150')
+    if len(tickers) >= 100:
+        return tickers
 
-    # 폴백: FDR
-    try:
-        df = fdr.StockListing('KOSDAQ')
-        if df is not None and not df.empty:
-            mcap_col = next((c for c in df.columns if 'cap' in c.lower()), None)
-            if mcap_col:
-                df = df.nlargest(150, mcap_col)
-            sym_col = next((c for c in df.columns
-                            if c in ('Code', 'Symbol', '코드', '종목코드')), None)
-            if sym_col:
-                tickers = df[sym_col].tolist()[:150]
-                print(f"  코스닥150(FDR): {len(tickers)}개")
-                return tickers
-    except Exception as e:
-        log_error(f"⚠️ 코스닥150 FDR 실패: {e}")
-    return []
+    # ② ③ pykrx / FDR 폴백
+    log_info("  코스닥150 네이버 실패 → pykrx/FDR 폴백")
+    return _get_index_tickers_krx('KOSDAQ', 150)
 
 
 # 전역 지수 소속 맵 (코드 → 지수명)
@@ -677,7 +728,10 @@ def _format_hit(hit: dict, rank: int, mins_left: int) -> str:
 
 
 def _send_results(hits: list, mins_left: int):
-    """결과 텔레그램 전송"""
+    """
+    결과 텔레그램 전송.
+    전략별 상위 5개씩 선별 → AI 분석 포함해서 전송.
+    """
     log_info(f"📨 _send_results 호출: {len(hits)}개 | TOKEN={'✅' if TELEGRAM_TOKEN else '❌'}")
     if not hits:
         log_info("  → 후보 없음 메시지 전송")
@@ -688,68 +742,106 @@ def _send_results(hits: list, mins_left: int):
         )
         return
 
-    # 헤더
-    a_count = sum(1 for h in hits if h.get('mode')=='A')
-    b_count = sum(1 for h in hits if h.get('mode')=='B')
+    # ── 전략별 상위 5개씩 선별
+    hits_a = [h for h in hits if h.get('mode') == 'A'][:5]
+    hits_b = [h for h in hits if h.get('mode') == 'B'][:5]
+    total  = len(hits_a) + len(hits_b)
+
+    log_info(f"  📈 돌파형 {len(hits_a)}개 | 📉 반등형 {len(hits_b)}개 선별")
+
+    # ── 헤더
     header = (
-        f"🕯️ 종가배팅 후보 {len(hits)}종목 ({TODAY_STR})\n"
+        f"🕯️ 종가배팅 선별 TOP {total} ({TODAY_STR})\n"
         f"⏰ 마감까지 {mins_left}분\n"
-        f"📈 돌파형(A): {a_count}개 | 📉 반등형(B): {b_count}개\n"
-        f"A: 전고점85~100%+거래량2배+강봉\n"
-        f"B: Envelope하한선+거래량1.5배+양봉\n"
+        f"📈 돌파형(A): {len(hits_a)}개 | 📉 반등형(B): {len(hits_b)}개\n"
     )
     send_telegram_photo(header, [])
 
-    # 종목별 (완전체 우선) — 전략별 최대 점수 달라서 비율로 분류
-    def _grade_score(h):
-        s = h['score']
-        if h.get('mode') == 'A':   # 최대 6개
-            return '완전체' if s >= 6 else ('A급' if s == 5 else 'B급')
-        else:                       # 최대 7개
-            return '완전체' if s >= 5 else ('A급' if s == 4 else 'B급')
-
-    full  = [h for h in hits if _grade_score(h) == '완전체']
-    a_cls = [h for h in hits if _grade_score(h) == 'A급']
-    b_cls = [h for h in hits if _grade_score(h) == 'B급']
-
-    current_msg = ''
-    MAX_CHAR = 3800
-
-    for hit in full + a_cls + b_cls:
-        entry = _format_hit(hit, 0, mins_left)
-        if len(current_msg) + len(entry) > MAX_CHAR:
+    # ── 전략 A — 종목 카드 전송
+    if hits_a:
+        send_telegram_photo("── 📈 돌파형(A) TOP5 ──", [])
+        current_msg = ''
+        MAX_CHAR = 3800
+        for hit in hits_a:
+            entry = _format_hit(hit, 0, mins_left)
+            if len(current_msg) + len(entry) > MAX_CHAR:
+                send_telegram_photo(current_msg, [])
+                current_msg = entry
+            else:
+                current_msg += entry
+        if current_msg.strip():
             send_telegram_photo(current_msg, [])
-            current_msg = entry
-        else:
-            current_msg += entry
 
-    if current_msg.strip():
-        send_telegram_photo(current_msg, [])
+    # ── 전략 B — 종목 카드 전송
+    if hits_b:
+        send_telegram_photo("── 📉 반등형(B) TOP5 ──", [])
+        current_msg = ''
+        for hit in hits_b:
+            entry = _format_hit(hit, 0, mins_left)
+            if len(current_msg) + len(entry) > MAX_CHAR:
+                send_telegram_photo(current_msg, [])
+                current_msg = entry
+            else:
+                current_msg += entry
+        if current_msg.strip():
+            send_telegram_photo(current_msg, [])
 
-    # AI 코멘트 (완전체 있을 때만)
-    if full and (ANTHROPIC_API_KEY or OPENAI_API_KEY):
-        _send_ai_comment(full[:5], mins_left)
+    # ── AI 분석 (전략별 각각)
+    if ANTHROPIC_API_KEY or OPENAI_API_KEY:
+        if hits_a:
+            _send_ai_comment(hits_a, mins_left, strategy='A')
+        if hits_b:
+            _send_ai_comment(hits_b, mins_left, strategy='B')
 
 
-def _send_ai_comment(hits: list, mins_left: int):
-    """완전체 종목에 대한 AI 간단 코멘트"""
+def _send_ai_comment(hits: list, mins_left: int, strategy: str = 'A'):
+    """전략별 AI 종가배팅 분석 (각각 전송)"""
     try:
-        lines = '\n'.join([
-            f"- {h['name']}({h['code']}): 현재가={h['close']:,}원 | "
-            f"거래량={h['vol_ratio']}배 | 전고점={h['near20']}% | "
-            f"이격={h['disp']} | 윗꼬리={h['wick_pct']}% | "
-            f"목표={h['target1']:,} 손절={h['stoploss']:,}"
-            for h in hits
-        ])
+        strategy_name = '돌파형(A)' if strategy == 'A' else '반등형(B)'
+
+        # 전략별 데이터 포맷
+        if strategy == 'A':
+            data_lines = '\n'.join([
+                f"- {h['name']}({h['code']}): 현재가={h['close']:,}원 | "
+                f"거래량={h['vol_ratio']}배 | 전고점={h.get('near20',0)}% | "
+                f"이격={h.get('disp',0)} | 윗꼬리={h['wick_pct']}% | "
+                f"목표={h['target1']:,} 손절={h['stoploss']:,} | "
+                f"지수={h.get('index_label','')}"
+                for h in hits
+            ])
+            strategy_context = (
+                "전략 A는 전고점 돌파형이야. "
+                "전고점 85~100% 근처에서 거래량 폭발하며 강봉 마감하는 패턴. "
+                "오늘 종가에 진입하면 내일 전고점 돌파 기대."
+            )
+        else:
+            data_lines = '\n'.join([
+                f"- {h['name']}({h['code']}): 현재가={h['close']:,}원 | "
+                f"Env20={h.get('env20_pct',0):+.1f}% | Env40={h.get('env40_pct',0):+.1f}% | "
+                f"RSI={h.get('rsi',0)} | 5일매집={h.get('maejip_5d',0)}회 | "
+                f"OBV={'↑' if h.get('obv_rising') else '↓'} | "
+                f"거래량vs3일평균={h.get('vol_vs_3d',0):.0f}% | "
+                f"목표={h['target1']:,}(MA20) 손절={h['stoploss']:,} | "
+                f"지수={h.get('index_label','')}"
+                for h in hits
+            ])
+            strategy_context = (
+                "전략 B는 Envelope 하한선 반등형이야. "
+                "많이 빠진 바닥 구간에서 OBV 매수세 유입 + 세력 매집 징후 포착. "
+                "오늘 종가에 진입하면 Envelope 중심선(MA20) 회귀 기대."
+            )
 
         system_msg = (
             "너는 단테 역매공파 매매법 전문가야. "
-            "종가배팅 타점 분석을 해줘. 각 종목당 2~3문장으로 간결하게."
+            "종가배팅 타점을 분석해줘. "
+            "각 종목당 2문장으로 핵심만 간결하게. "
+            "진입 추천/보류 판단을 반드시 포함해줘."
         )
         user_msg = (
-            f"오늘 15시 종가배팅 후보 종목들이야. "
-            f"마감까지 {mins_left}분 남았어. "
-            f"각 종목별로 진입 여부와 이유를 알려줘:\n\n{lines}"
+            f"[{strategy_name} 종가배팅 후보 — 마감 {mins_left}분 전]\n\n"
+            f"{strategy_context}\n\n"
+            f"후보 종목:\n{data_lines}\n\n"
+            f"각 종목별 진입 여부와 핵심 이유를 알려줘."
         )
 
         comment = ''
@@ -775,7 +867,7 @@ def _send_ai_comment(hits: list, mins_left: int):
                 data = res.json()
                 if 'content' in data and data['content']:
                     comment = data['content'][0].get('text', '').strip()
-                    log_info("✅ Claude 코멘트 완료")
+                    log_info(f"✅ Claude {strategy_name} 코멘트 완료")
             except Exception as e:
                 log_error(f"⚠️ Claude 실패: {e}")
 
@@ -798,8 +890,9 @@ def _send_ai_comment(hits: list, mins_left: int):
                 log_error(f"⚠️ GPT 실패: {e}")
 
         if comment:
+            emoji = '📈' if strategy == 'A' else '📉'
             send_telegram_chunks(
-                f"🤖 종가배팅 AI 코멘트\n\n{comment}",
+                f"🤖 {emoji} {strategy_name} AI 분석\n\n{comment}",
                 max_len=3500
             )
 
