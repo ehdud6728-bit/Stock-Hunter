@@ -34,7 +34,8 @@ jobs:
           pip install --upgrade pip
           pip install pandas numpy pytz requests pykrx pytz \
                       finance-datareader gspread oauth2client \
-                      beautifulsoup4 openai anthropic
+                      beautifulsoup4 openai anthropic \
+                      beautifulsoup4 openai anthropic mplfinance
 
       - name: 🕯️ 종가배팅 스캔
         env:
