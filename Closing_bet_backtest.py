@@ -46,8 +46,8 @@ except ImportError:
     def log_debug(m): pass
 
 # main7 / closing_bet_scanner import
-from main7 import get_indicators
-from closing_bet_scanner import (
+from main7_bugfix import get_indicators
+from Closing_bet_scanner import (
     _calc_envelope,
     _check_envelope_bottom,
     _calc_upper_wick_ratio,
