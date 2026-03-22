@@ -37,16 +37,26 @@ from main7_bugfix import (
     get_indicators,
     _calc_upper_wick_ratio,
     load_krx_listing_safe,
-    send_telegram_photo,
-    send_telegram_chunks,
-    TELEGRAM_TOKEN,
-    CHAT_ID_LIST,
     ANTHROPIC_API_KEY,
     OPENAI_API_KEY,
     GROQ_API_KEY,
     TODAY_STR,
     KST,
 )
+
+# ── 종가배팅 전용 텔레그램 설정 (yml에서 별도 지정 가능)
+# CLOSING_BET_TOKEN / CLOSING_BET_CHAT_ID 있으면 그걸 우선 사용
+# 없으면 기존 TELEGRAM_TOKEN / TELEGRAM_CHAT_ID 사용
+TELEGRAM_TOKEN = (
+    os.environ.get('CLOSING_BET_TOKEN') or
+    os.environ.get('TELEGRAM_TOKEN', '')
+)
+CHAT_ID_LIST = [
+    c.strip() for c in (
+        os.environ.get('CLOSING_BET_CHAT_ID') or
+        os.environ.get('TELEGRAM_CHAT_ID', '')
+    ).split(',') if c.strip()
+]
 
 try:
     from scan_logger import set_log_level, log_info, log_error, log_debug
@@ -55,6 +65,45 @@ except ImportError:
     def log_info(m):  print(m)
     def log_error(m): print(m)
     def log_debug(m): pass
+
+# ── 텔레그램 전송 (자체 구현 — main7 독립)
+def send_telegram_photo(message: str, image_paths: list = []):
+    if not TELEGRAM_TOKEN or not message.strip():
+        return
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    for chat_id in CHAT_ID_LIST:
+        if not chat_id:
+            continue
+        try:
+            requests.post(url, data={
+                'chat_id': chat_id,
+                'text':    message[:4000],
+            }, timeout=5)
+        except Exception as e:
+            log_error(f"텔레그램 전송 실패: {e}")
+
+
+def send_telegram_chunks(message: str, max_len: int = 3800):
+    if not message.strip():
+        return
+    paragraphs = message.split('\n\n')
+    chunks, current = [], ''
+    for para in paragraphs:
+        candidate = current + para + '\n\n'
+        if len(candidate) > max_len and current.strip():
+            chunks.append(current.strip())
+            current = para + '\n\n'
+        else:
+            current = candidate
+    if current.strip():
+        chunks.append(current.strip())
+    total = len(chunks)
+    for idx, chunk in enumerate(chunks, 1):
+        if total > 1:
+            chunk = f"({idx}/{total})\n" + chunk
+        send_telegram_photo(chunk)
+
+
 
 
 # =============================================================
@@ -453,15 +502,22 @@ def _check_envelope_bet(code: str, name: str) -> dict | None:
         maejip_5d = int(((recent5['Volume'] > vma10_val) &
                          (recent5['Close'] > recent5['Open'])).sum())
 
-        # ── 보조 조건
+        # ── 오늘 거래량 / 3일 평균 비율 (코멘트용)
+        vma3_val  = float(df['Volume'].tail(3).mean())
+        vol_vs_3d = round(vol / vma3_val * 100, 1) if vma3_val > 0 else 0
+        # 예) 67% = 오늘 거래량이 3일 평균의 67% → 소진 중
+        #     130% = 오늘 거래량이 3일 평균보다 30% 많음
+
+        # ── 아랫꼬리/윗꼬리 코멘트용 (필터 아님)
+        lower_wick_comment = '아랫꼬리↑' if lower_wick_long else '아랫꼬리↓'
+
+        # ── 점수 조건 (필터만 남김)
         bonus = {
             '①Env20하한2%이내':   env['env20_near'],
             '②Env40하한10%이내':  env['env40_near'],
             '③RSI40이하':         rsi <= 40,
             '④OBV매수세유입':     obv_rising,
             '⑤5일내매집봉1회↑':   maejip_5d >= 1,
-            '⑥거래량소진중':      vol_drying,
-            '⑦아랫꼬리>윗꼬리':  lower_wick_long,
         }
         passed = [k for k, v in bonus.items() if v]
         score  = len(passed)
@@ -471,7 +527,7 @@ def _check_envelope_bet(code: str, name: str) -> dict | None:
             return None
 
         # 등급
-        if env['env20_near'] and env['env40_near'] and score >= 5:
+        if env['env20_near'] and env['env40_near'] and score >= 4:
             grade = '🏆완전체'
         elif score >= 4:
             grade = '✅A급'
@@ -487,24 +543,26 @@ def _check_envelope_bet(code: str, name: str) -> dict | None:
 
         return {
             **info,
-            'code':           code, 'name': name,
-            'mode':           'B', 'mode_label': '📉반등형',
-            'index_label':    INDEX_MAP.get(code, ''),
-            'env20_pct':      env['env20_pct'],
-            'env40_pct':      env['env40_pct'],
-            'lower20':        env['lower20'],
-            'lower40':        env['lower40'],
-            'rsi':            round(rsi, 1),
-            'obv_rising':     obv_rising,
-            'maejip_5d':      maejip_5d,
-            'vol_drying':     vol_drying,
-            'lower_wick_pct': round(lower_wick / total * 100, 1),
-            'upper_wick_pct': round(upper_wick_len / total * 100, 1),
-            'target1':        target_env,
-            'score':          score,
-            'grade':          grade,
-            'passed':         passed,
-            'maejip_chart':   maejip_chart,
+            'code':             code, 'name': name,
+            'mode':             'B', 'mode_label': '📉반등형',
+            'index_label':      INDEX_MAP.get(code, ''),
+            'env20_pct':        env['env20_pct'],
+            'env40_pct':        env['env40_pct'],
+            'lower20':          env['lower20'],
+            'lower40':          env['lower40'],
+            'rsi':              round(rsi, 1),
+            'obv_rising':       obv_rising,
+            'maejip_5d':        maejip_5d,
+            # 코멘트용 (필터 아님)
+            'vol_vs_3d':        vol_vs_3d,       # 오늘 거래량/3일평균 %
+            'lower_wick_comment': lower_wick_comment,  # 아랫꼬리 방향
+            'lower_wick_pct':   round(lower_wick / total * 100, 1),
+            'upper_wick_pct':   round(upper_wick_len / total * 100, 1),
+            'target1':          target_env,
+            'score':            score,
+            'grade':            grade,
+            'passed':           passed,
+            'maejip_chart':     maejip_chart,
         }
     except Exception as e:
         log_debug(f"  [B/{name}] {e}")
@@ -582,15 +640,21 @@ def _format_hit(hit: dict, rank: int, mins_left: int) -> str:
     if hit.get('mode') == 'A':
         extra = (f"전고점:{hit.get('near20',0)}% | 이격:{hit.get('disp',0)}")
     elif hit.get('mode') == 'B':
+        vol3d    = hit.get('vol_vs_3d', 0)
+        vol3d_comment = (
+            f"거래량소진({vol3d:.0f}%)" if vol3d < 85
+            else f"거래량보통({vol3d:.0f}%)" if vol3d < 120
+            else f"거래량증가({vol3d:.0f}%)"
+        )
         extra = (
             f"Env20:{hit.get('env20_pct',0):+.1f}% | "
             f"Env40:{hit.get('env40_pct',0):+.1f}% | "
             f"RSI:{hit.get('rsi',0)} | "
             f"5일매집:{hit.get('maejip_5d',0)}회 | "
             f"{'OBV↑' if hit.get('obv_rising') else 'OBV↓'} | "
-            f"{'거래량소진✅' if hit.get('vol_drying') else ''} | "
-            f"아랫:{hit.get('lower_wick_pct',0):.0f}%"
-            f" 윗:{hit.get('upper_wick_pct',0):.0f}%"
+            f"{vol3d_comment} | "
+            f"{hit.get('lower_wick_comment','')} "
+            f"(아랫:{hit.get('lower_wick_pct',0):.0f}% 윗:{hit.get('upper_wick_pct',0):.0f}%)"
         )
 
     # 매집 차트 (전략 B만)
@@ -614,10 +678,12 @@ def _format_hit(hit: dict, rank: int, mins_left: int) -> str:
 
 def _send_results(hits: list, mins_left: int):
     """결과 텔레그램 전송"""
+    log_info(f"📨 _send_results 호출: {len(hits)}개 | TOKEN={'✅' if TELEGRAM_TOKEN else '❌'}")
     if not hits:
+        log_info("  → 후보 없음 메시지 전송")
         send_telegram_photo(
             f"🕯️ [{TODAY_STR}] 종가배팅 후보 없음\n"
-            f"(조건 4개 이상 충족 종목 없음)",
+            f"(대상: {SCAN_UNIVERSE} | 조건 미충족)",
             []
         )
         return
@@ -626,7 +692,7 @@ def _send_results(hits: list, mins_left: int):
     a_count = sum(1 for h in hits if h.get('mode')=='A')
     b_count = sum(1 for h in hits if h.get('mode')=='B')
     header = (
-        f"🕯️ <b>종가배팅 후보 {len(hits)}종목</b> ({TODAY_STR})\n"
+        f"🕯️ 종가배팅 후보 {len(hits)}종목 ({TODAY_STR})\n"
         f"⏰ 마감까지 {mins_left}분\n"
         f"📈 돌파형(A): {a_count}개 | 📉 반등형(B): {b_count}개\n"
         f"A: 전고점85~100%+거래량2배+강봉\n"
@@ -634,10 +700,17 @@ def _send_results(hits: list, mins_left: int):
     )
     send_telegram_photo(header, [])
 
-    # 종목별 (완전체 우선)
-    full  = [h for h in hits if h['score'] == 6]
-    a_cls = [h for h in hits if h['score'] == 5]
-    b_cls = [h for h in hits if h['score'] == 4]
+    # 종목별 (완전체 우선) — 전략별 최대 점수 달라서 비율로 분류
+    def _grade_score(h):
+        s = h['score']
+        if h.get('mode') == 'A':   # 최대 6개
+            return '완전체' if s >= 6 else ('A급' if s == 5 else 'B급')
+        else:                       # 최대 7개
+            return '완전체' if s >= 5 else ('A급' if s == 4 else 'B급')
+
+    full  = [h for h in hits if _grade_score(h) == '완전체']
+    a_cls = [h for h in hits if _grade_score(h) == 'A급']
+    b_cls = [h for h in hits if _grade_score(h) == 'B급']
 
     current_msg = ''
     MAX_CHAR = 3800
@@ -854,7 +927,33 @@ if __name__ == '__main__':
     parser.add_argument('--force', action='store_true', help='시간 무관 강제 실행')
     args = parser.parse_args()
 
+    # 진단 정보 출력
+    now = datetime.now(KST)
+    log_info(f"🕯️ 종가배팅 스캐너 시작: {now.strftime('%H:%M')} (force={args.force})")
+    log_info(f"  TELEGRAM_TOKEN:    {'✅' if TELEGRAM_TOKEN else '❌ 없음'}")
+    log_info(f"  CHAT_ID_LIST:      {'✅ ' + str(CHAT_ID_LIST) if CHAT_ID_LIST else '❌ 없음'}")
+    log_info(f"  SCAN_UNIVERSE:     {SCAN_UNIVERSE}")
+    log_info(f"  시간 체크:         {'✅ 통과' if _is_closing_time(args.force) else '❌ 시간 외'}")
+
+    # 시간 체크 먼저 — 시간 외면 텔레그램 없이 종료
+    if not _is_closing_time(args.force):
+        log_info(f"⏸️ 종가배팅 유효 시간 아님 ({now.strftime('%H:%M')}) — 텔레그램 전송 안 함")
+        log_info("  유효 시간: 14:50~15:25 | 강제 실행: --force")
+        sys.exit(0)
+
     hits = run_closing_bet_scan(force=args.force)
+
     if not hits:
         log_info("✅ 종가배팅 후보 없음")
+        # 유효 시간 내 실행인데 후보가 없는 경우만 텔레그램
+        if TELEGRAM_TOKEN:
+            send_telegram_photo(
+                f"🕯️ [{TODAY_STR} {now.strftime('%H:%M')}] 종가배팅 후보 없음\n"
+                f"(대상: {SCAN_UNIVERSE} | 조건 미충족)",
+                []
+            )
+            log_info("✅ '후보없음' 텔레그램 전송 완료")
+    else:
+        log_info(f"✅ 종가배팅 후보 {len(hits)}개 텔레그램 전송 완료")
+
     sys.exit(0)
