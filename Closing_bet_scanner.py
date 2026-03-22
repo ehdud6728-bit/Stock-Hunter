@@ -758,7 +758,7 @@ def _send_results(hits: list, mins_left: int):
             g_rank = 0 if '완전체' in grade else (1 if 'A급' in grade else 2)
             return (g_rank, -h.get('score', 0), -h.get('vol_ratio', 0))
         pool.sort(key=_priority)
-        return pool[:10]
+        return pool[:5]
 
     hits_a = _pick_top5('A')
     hits_b = _pick_top5('B')
