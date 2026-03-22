@@ -33,7 +33,7 @@ from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # ── main7.py에서 필요한 것만 import
-from main7 import (
+from main7_bugfix import (
     get_indicators,
     _calc_upper_wick_ratio,
     load_krx_listing_safe,
@@ -207,28 +207,42 @@ def _get_kosdaq150() -> list:
     return []
 
 
+# 전역 지수 소속 맵 (코드 → 지수명)
+INDEX_MAP: dict = {}
+
 def _load_universe(mode: str = 'kospi200+kosdaq150') -> list:
     """
     스캔 대상 종목 코드 리스트 반환.
+    동시에 INDEX_MAP(코드→지수) 글로벌 변수 업데이트.
 
     mode:
       'kospi200+kosdaq150' — 코스피200 + 코스닥150 (기본, 약 350개)
       'kospi200'           — 코스피200만 (200개)
       'amount_top400'      — 거래대금 상위 400개
     """
+    global INDEX_MAP
+    INDEX_MAP = {}
     log_info(f"📋 유니버스 로딩: {mode}")
 
     if mode == 'kospi200':
         codes = _get_kospi200()
+        for c in codes:
+            INDEX_MAP[c] = '🏛️코스피200'
 
     elif mode == 'kospi200+kosdaq150':
         kospi  = _get_kospi200()
         kosdaq = _get_kosdaq150()
-        # 중복 제거
+        for c in kospi:
+            INDEX_MAP[c] = '🏛️코스피200'
+        for c in kosdaq:
+            if c not in INDEX_MAP:
+                INDEX_MAP[c] = '📊코스닥150'
+            else:
+                INDEX_MAP[c] = '🏛️코스피200+📊코스닥150'
         codes = list(dict.fromkeys(kospi + kosdaq))
 
     else:  # amount_top400 또는 기타
-        return []  # 기존 run_closing_bet_scan에서 처리
+        return []
 
     log_info(f"✅ 유니버스: {len(codes)}개 종목")
     return codes
@@ -353,13 +367,14 @@ def _check_breakout_bet(code: str, name: str) -> dict | None:
 
         return {
             **info,
-            'code':    code, 'name': name,
-            'mode':    'A', 'mode_label': '📈돌파형',
-            'near20':  round(info['_near20'], 1),
-            'disp':    round(info['_disp'], 1),
-            'score':   score,
-            'grade':   '🏆완전체' if score==6 else ('✅A급' if score==5 else '📋B급'),
-            'passed':  passed,
+            'code':        code, 'name': name,
+            'mode':        'A', 'mode_label': '📈돌파형',
+            'index_label': INDEX_MAP.get(code, ''),
+            'near20':      round(info['_near20'], 1),
+            'disp':        round(info['_disp'], 1),
+            'score':       score,
+            'grade':       '🏆완전체' if score==6 else ('✅A급' if score==5 else '📋B급'),
+            'passed':      passed,
         }
     except Exception as e:
         log_debug(f"  [A/{name}] {e}")
@@ -472,23 +487,24 @@ def _check_envelope_bet(code: str, name: str) -> dict | None:
 
         return {
             **info,
-            'code':          code, 'name': name,
-            'mode':          'B', 'mode_label': '📉반등형',
-            'env20_pct':     env['env20_pct'],
-            'env40_pct':     env['env40_pct'],
-            'lower20':       env['lower20'],
-            'lower40':       env['lower40'],
-            'rsi':           round(rsi, 1),
-            'obv_rising':    obv_rising,
-            'maejip_5d':     maejip_5d,
-            'vol_drying':    vol_drying,
+            'code':           code, 'name': name,
+            'mode':           'B', 'mode_label': '📉반등형',
+            'index_label':    INDEX_MAP.get(code, ''),
+            'env20_pct':      env['env20_pct'],
+            'env40_pct':      env['env40_pct'],
+            'lower20':        env['lower20'],
+            'lower40':        env['lower40'],
+            'rsi':            round(rsi, 1),
+            'obv_rising':     obv_rising,
+            'maejip_5d':      maejip_5d,
+            'vol_drying':     vol_drying,
             'lower_wick_pct': round(lower_wick / total * 100, 1),
             'upper_wick_pct': round(upper_wick_len / total * 100, 1),
-            'target1':       target_env,
-            'score':         score,
-            'grade':         grade,
-            'passed':        passed,
-            'maejip_chart':  maejip_chart,
+            'target1':        target_env,
+            'score':          score,
+            'grade':          grade,
+            'passed':         passed,
+            'maejip_chart':   maejip_chart,
         }
     except Exception as e:
         log_debug(f"  [B/{name}] {e}")
@@ -582,9 +598,12 @@ def _format_hit(hit: dict, rank: int, mins_left: int) -> str:
     if hit.get('mode') == 'B' and hit.get('maejip_chart'):
         chart_str = f"\n{hit['maejip_chart']}\n"
 
+    idx_label = hit.get('index_label', '')
+    idx_str   = f" | {idx_label}" if idx_label else ''
+
     return (
         f"{'─'*28}\n"
-        f"🕯️ {mode_label} {hit['grade']}  [{hit['name']}({hit['code']})]  {hit['close']:,}원\n"
+        f"🕯️ {mode_label} {hit['grade']}  [{hit['name']}({hit['code']})]  {hit['close']:,}원{idx_str}\n"
         f"✅ {passed_str}\n"
         f"📊 거래량:{hit['vol_ratio']}배 | 윗꼬리:{hit['wick_pct']}% | {extra}\n"
         f"💰 거래대금:{hit['amount_b']}억 | ATR:{hit['atr']:,}원\n"
