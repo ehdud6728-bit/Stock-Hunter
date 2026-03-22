@@ -14,15 +14,15 @@ on:
       start_date:
         description: '시작일 (예: 2024-01-01)'
         required: true
-        default: '2024-01-01'
+        default: '2026-03-05'
       end_date:
         description: '종료일 (예: 2024-12-31)'
         required: true
-        default: '2024-12-31'
+        default: '2026-03-20'
       top_n:
         description: '분석 종목 수'
         required: false
-        default: '300'
+        default: '2000'
 
 jobs:
   backtest:
