@@ -41,9 +41,7 @@ jobs:
       - name: 📦 의존성 설치
         run: |
           pip install --upgrade pip
-          pip install pandas numpy pykrx gspread oauth2client \
-                      finance-datareader beautifulsoup4 \
-                      mplfinance requests pytz openai anthropic
+          pip install pandas numpy yfinance pykrx finance-datareader beautifulsoup4 requests mplfinance ta openai anthropic gspread oauth2client scipy feedparser \
 
       - name: 📊 종가배팅 백테스트
         if: ${{ github.event.inputs.backtest_type == 'closing_bet' }}
