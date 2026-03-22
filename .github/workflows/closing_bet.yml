@@ -32,7 +32,7 @@ jobs:
       - name: 📦 의존성 설치
         run: |
           pip install --upgrade pip
-          pip install pandas numpy pytz requests pykrx pytz yfinance scipy \
+          pip install pandas numpy pytz requests pykrx pytz yfinance scipy ta \
                       finance-datareader gspread oauth2client \
                       beautifulsoup4 openai anthropic \
                       beautifulsoup4 openai anthropic mplfinance \
