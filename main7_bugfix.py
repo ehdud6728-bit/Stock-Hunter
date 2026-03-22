@@ -85,7 +85,7 @@ except ImportError:
     def enrich_with_disclosure(hits, top_k=100):
         return hits     
 
-TEST_MODE = True
+TEST_MODE = False
 
 KST = pytz.timezone('Asia/Seoul')
 current_time = datetime.now(KST)
@@ -1489,6 +1489,11 @@ def get_indicators(df):
     df['High52']         = df['High'].rolling(252).max()
     df['NearHigh20_Pct'] = (close / df['High20'] * 100).round(1)
     df['NearHigh52_Pct'] = (close / df['High52'] * 100).round(1)
+
+    # ✅ DataFrame 단편화 해소 (PerformanceWarning 방지)
+    # 93개 컬럼을 개별 삽입하면 메모리 단편화 발생
+    # → copy()로 한 번에 재구성
+    df = df.copy()
     df['Box_Range']      = high.rolling(10).max() / low.rolling(10).min()
 
     tr = pd.concat([
