@@ -36,6 +36,9 @@ jobs:
                       finance-datareader gspread oauth2client \
                       beautifulsoup4 openai anthropic \
                       beautifulsoup4 openai anthropic mplfinance \
+          pip install openai google-generativeai
+          pip install gspread gspread-formatting gspread-dataframe google-auth oauth2client
+          pip install -r requirements.txt
                       
 
       - name: 🕯️ 종가배팅 스캔
