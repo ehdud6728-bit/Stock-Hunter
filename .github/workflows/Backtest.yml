@@ -50,7 +50,7 @@ jobs:
         env:
           GOOGLE_JSON_KEY: ${{ secrets.GOOGLE_JSON_KEY }}
         run: |
-          python closing_bet_backtest.py \
+          python Closing_bet_backtest.py \
             --start ${{ github.event.inputs.start_date }} \
             --end   ${{ github.event.inputs.end_date }} \
             --top   ${{ github.event.inputs.top_n }}
