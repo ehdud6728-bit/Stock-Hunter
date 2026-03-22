@@ -936,10 +936,10 @@ if __name__ == '__main__':
     log_info(f"  시간 체크:         {'✅ 통과' if _is_closing_time(args.force) else '❌ 시간 외'}")
 
     # 시간 체크 먼저 — 시간 외면 텔레그램 없이 종료
-    if not _is_closing_time(args.force):
-        log_info(f"⏸️ 종가배팅 유효 시간 아님 ({now.strftime('%H:%M')}) — 텔레그램 전송 안 함")
-        log_info("  유효 시간: 14:50~15:25 | 강제 실행: --force")
-        sys.exit(0)
+    #if not _is_closing_time(args.force):
+    #    log_info(f"⏸️ 종가배팅 유효 시간 아님 ({now.strftime('%H:%M')}) — 텔레그램 전송 안 함")
+    #    log_info("  유효 시간: 14:50~15:25 | 강제 실행: --force")
+    #    sys.exit(0)
 
     hits = run_closing_bet_scan(force=args.force)
 
