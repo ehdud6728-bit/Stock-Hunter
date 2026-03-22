@@ -336,9 +336,9 @@ def _load_universe(mode: str = 'kospi200+kosdaq150') -> list:
             INDEX_MAP[c] = '🏛️코스피200'
         for c in kosdaq:
             if c not in INDEX_MAP:
+                # 코스피200에 없는 것만 코스닥150
                 INDEX_MAP[c] = '📊코스닥150'
-            else:
-                INDEX_MAP[c] = '🏛️코스피200+📊코스닥150'
+            # 코스피200에 이미 있으면 덮어쓰지 않음 (코스피200 우선)
         codes = list(dict.fromkeys(kospi + kosdaq))
 
     else:  # amount_top400 또는 기타
@@ -713,8 +713,15 @@ def _format_hit(hit: dict, rank: int, mins_left: int) -> str:
     if hit.get('mode') == 'B' and hit.get('maejip_chart'):
         chart_str = f"\n{hit['maejip_chart']}\n"
 
-    idx_label = hit.get('index_label', '')
-    idx_str   = f" | {idx_label}" if idx_label else ''
+    idx_raw   = hit.get('index_label', '')
+    # 지수 소속 표시 정리
+    if idx_raw == '🏛️코스피200':
+        idx_str = ' | 🏛️코스피200'
+    elif idx_raw == '📊코스닥150':
+        idx_str = ' | 📊코스닥150'
+    else:
+        # 지수 외 종목 → 비지수 표시
+        idx_str = ' | 📋비지수'
 
     return (
         f"{'─'*28}\n"
@@ -742,12 +749,23 @@ def _send_results(hits: list, mins_left: int):
         )
         return
 
-    # ── 전략별 상위 5개씩 선별
-    hits_a = [h for h in hits if h.get('mode') == 'A'][:5]
-    hits_b = [h for h in hits if h.get('mode') == 'B'][:5]
+    # ── 전략별 완전체 우선, 상위 5개씩 선별
+    def _pick_top5(mode: str) -> list:
+        pool = [h for h in hits if h.get('mode') == mode]
+        # 완전체 → A급 → B급 → 점수 → 거래량 순
+        def _priority(h):
+            grade = h.get('grade', '')
+            g_rank = 0 if '완전체' in grade else (1 if 'A급' in grade else 2)
+            return (g_rank, -h.get('score', 0), -h.get('vol_ratio', 0))
+        pool.sort(key=_priority)
+        return pool[:5]
+
+    hits_a = _pick_top5('A')
+    hits_b = _pick_top5('B')
     total  = len(hits_a) + len(hits_b)
 
-    log_info(f"  📈 돌파형 {len(hits_a)}개 | 📉 반등형 {len(hits_b)}개 선별")
+    log_info(f"  📈 돌파형 {len(hits_a)}개 (완전체:{sum(1 for h in hits_a if '완전체' in h.get('grade',''))}개)")
+    log_info(f"  📉 반등형 {len(hits_b)}개 (완전체:{sum(1 for h in hits_b if '완전체' in h.get('grade',''))}개)")
 
     # ── 헤더
     header = (
@@ -1005,8 +1023,8 @@ def run_closing_bet_scan(force: bool = False) -> list:
     log_info(f"  ✅A급:    {sum(1 for h in hits if h['score']==4)}개")
     log_info(f"  📋B급:    {sum(1 for h in hits if h['score']==3)}개")
 
-    # 텔레그램 전송
-    _send_results(hits[:10], mins_left)
+    # 텔레그램 전송 (전체 넘기고 _send_results 내부에서 완전체 우선 5개 선별)
+    _send_results(hits, mins_left)
 
     return hits
 
