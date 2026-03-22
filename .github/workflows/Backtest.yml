@@ -1,0 +1,76 @@
+name: 📊 백테스트 (주식스캐너 + 종가배팅)
+
+on:
+  workflow_dispatch:
+    inputs:
+      backtest_type:
+        description: '백테스트 종류'
+        required: true
+        default: 'closing_bet'
+        type: choice
+        options:
+          - closing_bet       # 종가배팅 전략 A/B
+          - main_scanner      # 메인 수박지표 스캐너
+      start_date:
+        description: '시작일 (예: 2024-01-01)'
+        required: true
+        default: '2024-01-01'
+      end_date:
+        description: '종료일 (예: 2024-12-31)'
+        required: true
+        default: '2024-12-31'
+      top_n:
+        description: '분석 종목 수'
+        required: false
+        default: '300'
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: 📥 코드 체크아웃
+        uses: actions/checkout@v4
+
+      - name: 🐍 Python 설정
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 📦 의존성 설치
+        run: |
+          pip install --upgrade pip
+          pip install pandas numpy pykrx gspread oauth2client \
+                      finance-datareader beautifulsoup4 \
+                      mplfinance requests pytz openai anthropic
+
+      - name: 📊 종가배팅 백테스트
+        if: ${{ github.event.inputs.backtest_type == 'closing_bet' }}
+        env:
+          GOOGLE_JSON_KEY: ${{ secrets.GOOGLE_JSON_KEY }}
+        run: |
+          python closing_bet_backtest.py \
+            --start ${{ github.event.inputs.start_date }} \
+            --end   ${{ github.event.inputs.end_date }} \
+            --top   ${{ github.event.inputs.top_n }}
+
+      - name: 📊 메인 스캐너 백테스트
+        if: ${{ github.event.inputs.backtest_type == 'main_scanner' }}
+        env:
+          GOOGLE_JSON_KEY: ${{ secrets.GOOGLE_JSON_KEY }}
+        run: |
+          python nextrade_backtest.py \
+            --start ${{ github.event.inputs.start_date }} \
+            --end   ${{ github.event.inputs.end_date }} \
+            --top   ${{ github.event.inputs.top_n }}
+
+      - name: 📁 결과 파일 업로드
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backtest-result
+          path: |
+            closing_bet_bt.csv
+            nextrade_backtest_result.csv
+            summary_nextrade_backtest_result.csv
