@@ -142,12 +142,12 @@ def _check_envelope_bottom(row: pd.Series, df: pd.DataFrame) -> dict:
                 'env20_pct': 0, 'env40_pct': 0}
 
     # Envelope(20, 20%)
-    env20  = _calc_envelope(df, 20, 20)
+    env20  = _calc_envelope(df, 20, 2)
     lower20 = float(env20['lower'].iloc[-1])
     env20_pct = (close - lower20) / lower20 * 100  # 하한선 대비 얼마나 위에 있나
 
     # Envelope(40, 40%)
-    env40  = _calc_envelope(df, 40, 40)
+    env40  = _calc_envelope(df, 40, 10)
     lower40 = float(env40['lower'].iloc[-1])
     env40_pct = (close - lower40) / lower40 * 100
 
