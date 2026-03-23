@@ -520,7 +520,7 @@ def _check_envelope_bet(code: str, name: str) -> dict | None:
         rsi = float(row.get('RSI', 50) or 50)
 
         # ══ 필수: Envelope 하한선 근접 (① 또는 ② 중 하나)
-        if not (env['env20_near'] or env['env40_near']):
+        if not (env['env20_near'] and env['env40_near']):
             return None
 
         close  = info['_close']
