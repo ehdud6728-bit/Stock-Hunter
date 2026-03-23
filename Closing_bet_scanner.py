@@ -119,7 +119,8 @@ def _calc_envelope(df: pd.DataFrame, period: int, pct: float) -> dict:
     예) Envelope(20, 20) → MA20 ± 20%
         Envelope(40, 40) → MA40 ± 40%
     """
-    ma      = df['Close'].rolling(period).mean()
+    ma = df['Close'].rolling(period).mean()
+    ma = df['Close'].ewm(span=period, adjust=False).mean()
     upper   = ma * (1 + pct / 100)
     lower   = ma * (1 - pct / 100)
     return {
