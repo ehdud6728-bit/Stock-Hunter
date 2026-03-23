@@ -153,8 +153,8 @@ def _check_envelope_bottom(row: pd.Series, df: pd.DataFrame) -> dict:
     env40_pct = (close - lower40) / lower40 * 100
 
     return {
-        'env20_near':  env20_pct <= 2.0,   # 하한선 2% 이내
-        'env40_near':  env40_pct <= 10.0,  # 하한선 10% 이내
+        'env20_near':  -2.0 <= env20_pct <= 2.0,   # 하한선 2% 이내
+        'env40_near':  -10.0 <= env40_pct <= 10.0,  # 하한선 10% 이내
         'env20_pct':   round(env20_pct, 1),
         'env40_pct':   round(env40_pct, 1),
         'lower20':     round(lower20),
