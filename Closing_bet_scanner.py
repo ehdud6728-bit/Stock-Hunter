@@ -505,7 +505,14 @@ def _check_envelope_bet(code: str, name: str) -> dict | None:
         row  = df.iloc[-1]
         info = _base_info(row, df)
 
-        if info['_close'] < MIN_PRICE or info['amount_b'] < MIN_AMOUNT / 1e8:
+        # ✅ 전략 B: 코스피200 or 코스닥150 소속 종목만
+        # - 시총/거래대금/주가 필터 없음 (지수 편입이 품질 보증)
+        # - 단, INDEX_MAP에 없으면 지수 외 → 전략B 스킵
+        # - 상장폐지 방어용 1,000원 미만 제외
+        idx = INDEX_MAP.get(code, '')
+        if not idx:
+            return None   # 코스피200도 코스닥150도 아니면 전략B 제외
+        if info['_close'] < 1_000:
             return None
 
         # Envelope 계산
@@ -1047,10 +1054,10 @@ if __name__ == '__main__':
     log_info(f"  시간 체크:         {'✅ 통과' if _is_closing_time(args.force) else '❌ 시간 외'}")
 
     # 시간 체크 먼저 — 시간 외면 텔레그램 없이 종료
-    #if not _is_closing_time(args.force):
-    #    log_info(f"⏸️ 종가배팅 유효 시간 아님 ({now.strftime('%H:%M')}) — 텔레그램 전송 안 함")
-    #    log_info("  유효 시간: 14:50~15:25 | 강제 실행: --force")
-    #    sys.exit(0)
+    if not _is_closing_time(args.force):
+        log_info(f"⏸️ 종가배팅 유효 시간 아님 ({now.strftime('%H:%M')}) — 텔레그램 전송 안 함")
+        log_info("  유효 시간: 14:50~15:25 | 강제 실행: --force")
+        sys.exit(0)
 
     hits = run_closing_bet_scan(force=args.force)
 
