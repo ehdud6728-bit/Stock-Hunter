@@ -33,7 +33,7 @@ from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # ── main7.py에서 필요한 것만 import
-from main7_bugfix import (
+from main7 import (
     get_indicators,
     _calc_upper_wick_ratio,
     load_krx_listing_safe,
@@ -65,6 +65,18 @@ except ImportError:
     def log_info(m):  print(m)
     def log_error(m): print(m)
     def log_debug(m): pass
+
+def _calc_upper_wick_body_ratio(row) -> float:
+    """윗꼬리 비율 — 몸통 기준 (몸통의 몇 배인가)"""
+    high_p  = float(row.get('High',  0))
+    open_p  = float(row.get('Open',  0))
+    close_p = float(row.get('Close', 0))
+    body_top  = max(open_p, close_p)
+    body_size = max(abs(close_p - open_p), 1e-9)
+    upper_wick = max(0.0, high_p - body_top)
+    return upper_wick / body_size
+
+
 
 # ── 텔레그램 전송 (자체 구현 — main7 독립)
 def send_telegram_photo(message: str, image_paths: list = []):
@@ -119,8 +131,7 @@ def _calc_envelope(df: pd.DataFrame, period: int, pct: float) -> dict:
     예) Envelope(20, 20) → MA20 ± 20%
         Envelope(40, 40) → MA40 ± 40%
     """
-    ma = df['Close'].rolling(period).mean()
-    #ma = df['Close'].ewm(span=period, adjust=False).mean()
+    ma      = df['Close'].rolling(period).mean()
     upper   = ma * (1 + pct / 100)
     lower   = ma * (1 - pct / 100)
     return {
@@ -153,8 +164,10 @@ def _check_envelope_bottom(row: pd.Series, df: pd.DataFrame) -> dict:
     env40_pct = (close - lower40) / lower40 * 100
 
     return {
-        'env20_near':  -2.0 <= env20_pct <= 2.0,   # 하한선 2% 이내
-        'env40_near':  -10.0 <= env40_pct <= 10.0,  # 하한선 10% 이내
+        # -2% ~ +2% : 하한선 아래 2% ~ 위 2% 구간
+        'env20_near':  -2.0 <= env20_pct <= 2.0,
+        # -10% ~ +10% : 하한선 아래 10% ~ 위 10% 구간
+        'env40_near':  -10.0 <= env40_pct <= 10.0,
         'env20_pct':   round(env20_pct, 1),
         'env40_pct':   round(env40_pct, 1),
         'lower20':     round(lower20),
@@ -425,7 +438,8 @@ def _base_info(row, df) -> dict:
         '_ma20':     float(row.get('MA20', 0) or 0),
         '_disp':     float(row.get('Disparity', 100) or 100),
         '_near20':   float(row.get('NearHigh20_Pct', 0) or 0),
-        '_upper_wick': _calc_upper_wick_ratio(row),
+        '_upper_wick':      _calc_upper_wick_ratio(row),         # 전체범위 기준 (0~1)
+        '_upper_wick_body': _calc_upper_wick_body_ratio(row),    # 몸통 기준 (0~N)
     }
 
 
@@ -456,7 +470,8 @@ def _check_breakout_bet(code: str, name: str) -> dict | None:
 
         cond = {
             '①전고점85~100%': NEAR_HIGH20_MIN <= info['_near20'] <= NEAR_HIGH20_MAX,
-            '②윗꼬리20%이하':  info['_upper_wick'] <= UPPER_WICK_MAX,
+            # 윗꼬리 20%이하: 몸통 기준으로 윗꼬리가 몸통의 20% 이하
+            '②윗꼬리20%이하':  info['_upper_wick_body'] <= UPPER_WICK_MAX,
             '③거래량2배폭발':  info['_vma20'] > 0 and info['_vol'] >= info['_vma20'] * VOL_MULT,
             '④양봉마감':       info['_close'] >= info['_open'],
             '⑤이격도98~112':   DISPARITY_MIN <= info['_disp'] <= DISPARITY_MAX,
@@ -506,13 +521,12 @@ def _check_envelope_bet(code: str, name: str) -> dict | None:
         row  = df.iloc[-1]
         info = _base_info(row, df)
 
-        # ✅ 전략 B: 코스피200 or 코스닥150 소속 종목만
-        # - 시총/거래대금/주가 필터 없음 (지수 편입이 품질 보증)
-        # - 단, INDEX_MAP에 없으면 지수 외 → 전략B 스킵
-        # - 상장폐지 방어용 1,000원 미만 제외
+        # ✅ 전략 B: 코스피200 or 코스닥150 소속 종목 우선
+        # INDEX_MAP이 비어있으면 (지수 로딩 실패) → 필터 무시하고 진행
         idx = INDEX_MAP.get(code, '')
-        if not idx:
-            return None   # 코스피200도 코스닥150도 아니면 전략B 제외
+        if INDEX_MAP and not idx:
+            return None   # 지수 로딩 성공했는데 소속 아니면 스킵
+        # 상장폐지 방어
         if info['_close'] < 1_000:
             return None
 
@@ -521,7 +535,7 @@ def _check_envelope_bet(code: str, name: str) -> dict | None:
         rsi = float(row.get('RSI', 50) or 50)
 
         # ══ 필수: Envelope 하한선 근접 (① 또는 ② 중 하나)
-        if not (env['env20_near'] and env['env40_near']):
+        if not (env['env20_near'] or env['env40_near']):
             return None
 
         close  = info['_close']
@@ -531,12 +545,18 @@ def _check_envelope_bet(code: str, name: str) -> dict | None:
         vol    = info['_vol']
         vma20  = info['_vma20']
 
-        # ── 아랫꼬리 > 윗꼬리 (하방 지지 신호)
-        total    = high - low if high > low else 1
-        body_bot = min(close, open_p)
-        body_top = max(close, open_p)
+        # ── 윗꼬리/아랫꼬리 계산 (몸통 기준)
+        total      = high - low if high > low else 1
+        body_bot   = min(close, open_p)
+        body_top   = max(close, open_p)
+        body_size  = max(body_top - body_bot, 1)  # 몸통 크기
         lower_wick     = body_bot - low
         upper_wick_len = high - body_top
+
+        # 윗꼬리 비율: 몸통 대비 (몸통의 몇 배인가)
+        # 예) 윗꼬리=1000, 몸통=2000 → 50%
+        # 예) 윗꼬리=3000, 몸통=1000 → 300% (윗꼬리가 몸통의 3배 → 제외 대상)
+        wick_ratio_body = upper_wick_len / body_size * 100  # 몸통 기준 %
         lower_wick_long = lower_wick > upper_wick_len
 
         # ── 거래량 소진 (최근 3일 평균 < 10일 평균)
@@ -615,7 +635,7 @@ def _check_envelope_bet(code: str, name: str) -> dict | None:
             # 코멘트용 (필터 아님)
             'vol_vs_3d':        vol_vs_3d,       # 오늘 거래량/3일평균 %
             'lower_wick_comment': lower_wick_comment,  # 아랫꼬리 방향
-            'lower_wick_pct':   round(lower_wick / total * 100, 1),
+            'lower_wick_pct':   round(lower_wick / body_size * 100, 1),   # 몸통기준
             'upper_wick_pct':   round(upper_wick_len / total * 100, 1),
             'target1':          target_env,
             'score':            score,
