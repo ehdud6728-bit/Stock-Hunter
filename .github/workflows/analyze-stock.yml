@@ -1,0 +1,92 @@
+name: Analyze Single Stock
+
+on:
+  workflow_dispatch:
+    inputs:
+      stock_code:
+        description: "종목코드 (예: 005930)"
+        required: true
+        default: "005930"
+        type: string
+      stock_name:
+        description: "종목명 (선택)"
+        required: false
+        default: ""
+        type: string
+      mode:
+        description: "분석 모드"
+        required: true
+        default: "closing_bet"
+        type: choice
+        options:
+          - closing_bet
+          - envelope_bet
+          - all
+      force:
+        description: "장중 시간 제한 무시"
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: analyze-stock-pages
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    env:
+      TZ: Asia/Seoul
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas numpy requests FinanceDataReader pykrx beautifulsoup4 lxml pytz matplotlib jinja2
+
+      - name: Run analyzer
+        run: |
+          mkdir -p site reports
+          python tools/analyze_single_stock.py \
+            --code "${{ inputs.stock_code }}" \
+            --name "${{ inputs.stock_name }}" \
+            --mode "${{ inputs.mode }}" \
+            ${{ inputs.force && '--force' || '' }} \
+            --output-json reports/latest_result.json \
+            --output-html site/index.html
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: stock-analysis-report
+          path: |
+            reports/latest_result.json
+            site/index.html
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - name: Deploy to Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
