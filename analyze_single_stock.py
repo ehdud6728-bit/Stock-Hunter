@@ -224,7 +224,6 @@ def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
     obv_delta[direction < 0] = -out.loc[direction < 0, "Volume"]
     out["OBV"] = obv_delta.cumsum()
 
-    # OBV 기울기: raw 누적값 차이 대신 최근 거래량 합 대비 %로 정규화
     vol5 = out["Volume"].rolling(5).sum().replace(0, pd.NA)
     vol10 = out["Volume"].rolling(10).sum().replace(0, pd.NA)
     out["OBV_SLOPE_5"] = ((out["OBV"].diff(5) / vol5) * 100).round(2)
@@ -236,7 +235,6 @@ def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
     out["Green"] = (out["Close"] >= out["Open"]).astype(int)
     out["Green_Days_10"] = out["Green"].rolling(10).sum()
 
-    # 이동평균 기울기: 절대 가격 차이 대신 % 변화율
     out["MA5_SLOPE"] = (((out["MA5"] - out["MA5"].shift(3)) / out["MA5"].shift(3)) * 100).round(2)
     out["MA20_SLOPE"] = (((out["MA20"] - out["MA20"].shift(3)) / out["MA20"].shift(3)) * 100).round(2)
     out["MA60_SLOPE"] = (((out["MA60"] - out["MA60"].shift(5)) / out["MA60"].shift(5)) * 100).round(2)
@@ -779,40 +777,166 @@ def build_smart_comment(price: Dict[str, Any], patterns: List[PatternResult], na
     return " ".join(dict.fromkeys(comments))
 
 
-def sparkline_svg(df: pd.DataFrame, width: int = 920, height: int = 240) -> str:
-    sub = df.tail(90).copy()
-    closes = [safe_float(v) for v in sub["Close"].tolist()]
-    if not closes:
+def sparkline_svg(df: pd.DataFrame, width: int = 960, height: int = 360) -> str:
+    sub = df.tail(120).copy()
+
+    env20 = calc_envelope(df, 20, ENV20_PCT)
+    env40 = calc_envelope(df, 40, ENV40_PCT)
+
+    sub["ENV20_LOWER"] = env20["lower"].tail(120).values
+    sub["ENV40_LOWER"] = env40["lower"].tail(120).values
+
+    price_cols = [
+        "Close",
+        "MA20",
+        "MA60",
+        "MA200",
+        "BB40_UP",
+        "BB40_DN",
+        "ENV20_LOWER",
+        "ENV40_LOWER",
+    ]
+
+    values = []
+    for col in price_cols:
+        if col in sub.columns:
+            vals = pd.to_numeric(sub[col], errors="coerce").dropna().tolist()
+            values.extend(vals)
+
+    if not values:
         return ""
 
-    min_v = min(closes)
-    max_v = max(closes)
+    min_v = min(values)
+    max_v = max(values)
     rng = max(max_v - min_v, 1e-9)
 
-    pts = []
-    for i, v in enumerate(closes):
-        x = 20 + (width - 40) * i / max(len(closes) - 1, 1)
-        y = 20 + (height - 40) * (1 - (v - min_v) / rng)
-        pts.append(f"{x:.1f},{y:.1f}")
+    left = 22
+    right = width - 22
+    top = 18
+    bottom = height - 34
 
-    poly = " ".join(pts)
-    last = closes[-1]
-    color = "#22c55e" if last >= closes[0] else "#ef4444"
+    def x_pos(i: int, count: int) -> float:
+        if count <= 1:
+            return left
+        return left + (right - left) * i / (count - 1)
+
+    def y_pos(v: float) -> float:
+        return top + (bottom - top) * (1 - (v - min_v) / rng)
+
+    def series_points(series: pd.Series) -> List[str]:
+        pts = []
+        arr = pd.to_numeric(series, errors="coerce").tolist()
+        for i, v in enumerate(arr):
+            if pd.isna(v):
+                pts.append("")
+            else:
+                pts.append(f"{x_pos(i, len(arr)):.1f},{y_pos(float(v)):.1f}")
+        return pts
+
+    def polyline(points: List[str], color: str, stroke_width: int = 2, dash: str = "", opacity: float = 1.0) -> str:
+        segs = []
+        current = []
+        for p in points:
+            if p:
+                current.append(p)
+            else:
+                if len(current) >= 2:
+                    segs.append(current)
+                current = []
+        if len(current) >= 2:
+            segs.append(current)
+
+        lines = []
+        for seg in segs:
+            dash_attr = f' stroke-dasharray="{dash}"' if dash else ""
+            lines.append(
+                f'<polyline points="{" ".join(seg)}" fill="none" stroke="{color}" '
+                f'stroke-width="{stroke_width}" stroke-linejoin="round" '
+                f'stroke-linecap="round" opacity="{opacity}"{dash_attr}/>'
+            )
+        return "".join(lines)
+
+    bb_up = pd.to_numeric(sub["BB40_UP"], errors="coerce").tolist()
+    bb_dn = pd.to_numeric(sub["BB40_DN"], errors="coerce").tolist()
+
+    band_up = []
+    band_dn = []
+    for i, v in enumerate(bb_up):
+        if pd.notna(v):
+            band_up.append(f"{x_pos(i, len(bb_up)):.1f},{y_pos(float(v)):.1f}")
+    for i in range(len(bb_dn) - 1, -1, -1):
+        v = bb_dn[i]
+        if pd.notna(v):
+            band_dn.append(f"{x_pos(i, len(bb_dn)):.1f},{y_pos(float(v)):.1f}")
+
+    band_polygon = ""
+    if len(band_up) >= 2 and len(band_dn) >= 2:
+        band_polygon = (
+            f'<polygon points="{" ".join(band_up + band_dn)}" '
+            f'fill="rgba(99,102,241,0.10)" stroke="none"/>'
+        )
+
+    close_points = series_points(sub["Close"])
+    ma20_points = series_points(sub["MA20"])
+    ma60_points = series_points(sub["MA60"])
+    ma200_points = series_points(sub["MA200"])
+    bb40_up_points = series_points(sub["BB40_UP"])
+    bb40_dn_points = series_points(sub["BB40_DN"])
+    env20_points = series_points(sub["ENV20_LOWER"])
+    env40_points = series_points(sub["ENV40_LOWER"])
+
+    last_close = safe_float(sub["Close"].iloc[-1])
+    first_close = safe_float(sub["Close"].iloc[0])
+    close_color = "#22c55e" if last_close >= first_close else "#ef4444"
+
+    def legend_item(x: int, y: int, color: str, label: str, dash: str = "") -> str:
+        dash_attr = f' stroke-dasharray="{dash}"' if dash else ""
+        return (
+            f'<line x1="{x}" y1="{y}" x2="{x+18}" y2="{y}" stroke="{color}" stroke-width="3"{dash_attr}/>'
+            f'<text x="{x+24}" y="{y+4}" fill="#d9e6f7" font-size="12">{escape(label)}</text>'
+        )
+
+    legends = [
+        legend_item(26, 24, close_color, "종가"),
+        legend_item(120, 24, "#f59e0b", "MA20"),
+        legend_item(210, 24, "#38bdf8", "MA60"),
+        legend_item(300, 24, "#a78bfa", "MA200"),
+        legend_item(400, 24, "#818cf8", "BB40 상단"),
+        legend_item(510, 24, "#6366f1", "BB40 하단"),
+        legend_item(620, 24, "#10b981", "Env20 하단", "6 4"),
+        legend_item(760, 24, "#f97316", "Env40 하단", "6 4"),
+    ]
+
+    price_label = (
+        f'<text x="{width-24}" y="24" fill="#f8fbff" font-size="12" text-anchor="end">'
+        f'종가 {fmt_int(last_close)}</text>'
+    )
+    min_label = f'<text x="6" y="{bottom:.1f}" fill="#8aa0bf" font-size="11">{fmt_int(min_v)}</text>'
+    max_label = f'<text x="6" y="{top+4:.1f}" fill="#8aa0bf" font-size="11">{fmt_int(max_v)}</text>'
 
     return f"""
     <svg class="chart-svg" viewBox="0 0 {width} {height}" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none">
-      <defs>
-        <linearGradient id="grad1" x1="0" x2="0" y1="0" y2="1">
-          <stop offset="0%" stop-color="{color}" stop-opacity="0.28"/>
-          <stop offset="100%" stop-color="{color}" stop-opacity="0.02"/>
-        </linearGradient>
-      </defs>
       <rect x="0" y="0" width="{width}" height="{height}" fill="transparent"/>
-      <polyline points="{poly}" fill="none" stroke="{color}" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
-      <line x1="20" y1="{height-20}" x2="{width-20}" y2="{height-20}" stroke="#24385d" stroke-width="1"/>
-      <line x1="20" y1="20" x2="20" y2="{height-20}" stroke="#24385d" stroke-width="1"/>
-      <text x="22" y="24" fill="#9db2d2" font-size="12">최근 90봉 종가 흐름</text>
-      <text x="{width-20}" y="24" fill="#dbe7f6" font-size="12" text-anchor="end">종가 {fmt_int(last)}</text>
+      <line x1="{left}" y1="{bottom}" x2="{right}" y2="{bottom}" stroke="#24385d" stroke-width="1"/>
+      <line x1="{left}" y1="{top}" x2="{left}" y2="{bottom}" stroke="#24385d" stroke-width="1"/>
+
+      {band_polygon}
+
+      {polyline(bb40_up_points, "#818cf8", 1)}
+      {polyline(bb40_dn_points, "#6366f1", 1)}
+      {polyline(env20_points, "#10b981", 2, "6 4", 0.95)}
+      {polyline(env40_points, "#f97316", 2, "6 4", 0.95)}
+      {polyline(ma200_points, "#a78bfa", 2)}
+      {polyline(ma60_points, "#38bdf8", 2)}
+      {polyline(ma20_points, "#f59e0b", 2)}
+      {polyline(close_points, close_color, 3)}
+
+      <text x="{left}" y="{height-10}" fill="#9db2d2" font-size="12">최근 120봉 · 종가 / MA / BB40 / Envelope 하단</text>
+      {price_label}
+      {min_label}
+      {max_label}
+
+      {''.join(legends)}
     </svg>
     """
 
@@ -1042,7 +1166,7 @@ def render_html(result: Dict[str, Any]) -> str:
     }}
     .chart-svg {{
       width:100%;
-      height:220px;
+      height:260px;
       display:block;
     }}
     .pattern-head {{
@@ -1133,7 +1257,7 @@ def render_html(result: Dict[str, Any]) -> str:
     @media (min-width:768px) {{
       .title {{ font-size:30px; }}
       .metric-grid {{ grid-template-columns:repeat(4,minmax(0,1fr)); }}
-      .chart-svg {{ height:260px; }}
+      .chart-svg {{ height:360px; }}
     }}
   </style>
   <script>
@@ -1168,6 +1292,7 @@ def render_html(result: Dict[str, Any]) -> str:
     </section>
 
     <section class="card chart-box">
+      <div class="section-title" style="padding:16px 16px 0 16px;">가격 구조 차트</div>
       {sparkline_svg(df)}
     </section>
 
