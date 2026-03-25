@@ -45,7 +45,6 @@ jobs:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -55,10 +54,10 @@ jobs:
         with:
           python-version: "3.10"
 
-      - name: 📦 의존성 설치
+      - name: Install dependencies
         run: |
-          pip install --upgrade pip
-          pip install pandas numpy yfinance pykrx finance-datareader beautifulsoup4 requests mplfinance ta openai anthropic gspread oauth2client scipy feedparser Jinja2 \
+          python -m pip install --upgrade pip
+          pip install pandas numpy requests FinanceDataReader pykrx beautifulsoup4 lxml pytz matplotlib jinja2
 
       - name: Run analyzer
         run: |
