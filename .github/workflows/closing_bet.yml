@@ -46,7 +46,7 @@ jobs:
           GEMINI_API_KEY:    ${{ secrets.GEMINI_API_KEY }}
         run: |
           if [ "${{ github.event.inputs.force }}" = "true" ]; then
-            python Closing_bet_scanner.py --force
+            python Closing_bet_scanner_v2.py --force
           else
-            python Closing_bet_scanner.py
+            python Closing_bet_scanner_v2.py
           fi
