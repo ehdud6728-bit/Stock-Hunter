@@ -69,6 +69,7 @@ STATUS_CLASS = {
     "해당": "pass",
     "유사": "warn",
     "미해당": "fail",
+    "데이터부족": "na",
 }
 
 
@@ -140,8 +141,8 @@ def load_price_history(code: str) -> pd.DataFrame:
 
     df = df.dropna(subset=needed).copy()
 
-    if len(df) < 240:
-        raise RuntimeError("최소 240봉 이상 데이터가 필요합니다.")
+    if len(df) < 40:
+        raise RuntimeError("최소 40봉 이상 데이터가 필요합니다.")
 
     return df
 
@@ -372,6 +373,10 @@ def build_snapshot(df: pd.DataFrame) -> Dict[str, Any]:
 
     return {
         "date": str(pd.to_datetime(df.index[-1]).date()),
+        "bars": len(df),
+        "has_ma112": len(df) >= 112,
+        "has_ma200": len(df) >= 200,
+        "has_ma224": len(df) >= 224,
         "open": round(open_p),
         "close": round(close),
         "high": round(high),
@@ -428,98 +433,26 @@ def decide_status(score: int, max_score: int) -> str:
     return "미해당"
 
 
-def build_closing_bet(price: Dict[str, Any]) -> PatternResult:
-    rows: List[CheckRow] = []
-    s = "종가배팅"
-
-    c1 = price["close"] >= MIN_PRICE
-    add_check(rows, s, "최소 주가", f"{fmt_int(price['close'])}", f">= {fmt_int(MIN_PRICE)}", c1, "가격 조건 충족" if c1 else "저가주 구간")
-
-    c2 = NEAR_HIGH20_MIN <= price["near_high20_pct"] <= NEAR_HIGH20_MAX
-    add_check(rows, s, "20일 전고점 근접도", f"{price['near_high20_pct']}%", f"{NEAR_HIGH20_MIN}~{NEAR_HIGH20_MAX}%", c2, "전고점 부근" if c2 else "전고점과 거리 있음")
-
-    c3 = price["upper_wick_body_pct"] <= UPPER_WICK_BODY_MAX
-    add_check(rows, s, "윗꼬리(몸통 기준)", f"{price['upper_wick_body_pct']}%", f"<= {UPPER_WICK_BODY_MAX}%", c3, "강봉 마감" if c3 else "윗꼬리 길어 종가 힘 약함")
-
-    c4 = price["vol_ratio"] >= VOL_MULT
-    add_check(rows, s, "거래량 배수", f"{price['vol_ratio']}배", f">= {VOL_MULT}배", c4, "거래량 폭발" if c4 else "거래량 확산 부족")
-
-    c5 = DISPARITY_MIN <= price["disparity"] <= DISPARITY_MAX
-    add_check(rows, s, "이격도", f"{price['disparity']}", f"{DISPARITY_MIN}~{DISPARITY_MAX}", c5, "적정 이격" if c5 else "과열 또는 힘 부족")
-
-    c6 = price["close"] >= price["ma20"]
-    add_check(rows, s, "MA20 위 마감", f"{fmt_int(price['close'])} / MA20 {fmt_float(price['ma20'])}", "종가 >= MA20", c6, "추세선 위" if c6 else "MA20 아래")
-
-    c7 = price["amount_b"] >= MIN_AMOUNT_B
-    add_check(rows, s, "거래대금", f"{price['amount_b']}억", f">= {MIN_AMOUNT_B}억", c7, "유동성 충분" if c7 else "거래대금 약함")
-
-    score = sum(1 for r in rows if r.ok)
-    status = decide_status(score, len(rows))
-
-    if status == "해당":
-        comment = "종가배팅 관점에서 구조가 비교적 잘 맞습니다. 전고점 부근 강한 마감으로 해석 가능합니다."
-    elif status == "유사":
-        comment = "큰 틀은 비슷하지만 몇 가지 핵심 수치가 부족합니다. 다음 봉 확인이 필요합니다."
-    else:
-        comment = "현재는 종가배팅 완성형으로 보기 어렵습니다. 힘이 모자라거나 자리 자체가 다를 가능성이 큽니다."
-
-    return PatternResult("closing_bet", s, status, score, len(rows), "전고점 부근 강한 종가 마감형", comment, rows)
-
-
-def build_envelope_bet(price: Dict[str, Any]) -> PatternResult:
-    rows: List[CheckRow] = []
-    s = "엔벨로프"
-
-    c1 = price["env20_near"]
-    add_check(rows, s, "Envelope20 하단 근접", f"{price['env20_pct']}%", f"{ENV20_NEAR_MIN}~{ENV20_NEAR_MAX}%", c1, "하단 근접" if c1 else "20일 하단선과 거리 있음")
-
-    c2 = price["env40_near"]
-    add_check(rows, s, "Envelope40 하단 근접", f"{price['env40_pct']}%", f"{ENV40_NEAR_MIN}~{ENV40_NEAR_MAX}%", c2, "하단 근접" if c2 else "40일 하단선과 거리 있음")
-
-    c3 = price["close"] >= MIN_PRICE
-    add_check(rows, s, "최소 주가", f"{fmt_int(price['close'])}", f">= {fmt_int(MIN_PRICE)}", c3, "가격 조건 충족" if c3 else "저가주")
-
-    c4 = price["lower_wick_body_pct"] >= 20
-    add_check(rows, s, "아랫꼬리(몸통 기준)", f"{price['lower_wick_body_pct']}%", ">= 20%", c4, "하단 지지 흔적" if c4 else "받아올림 약함")
-
-    c5 = price["rsi14"] <= 45
-    add_check(rows, s, "RSI 과열 여부", f"{price['rsi14']}", "<= 45", c5, "과열 아님" if c5 else "이미 많이 반등")
-
-    score = sum(1 for r in rows if r.ok)
-    status = decide_status(score, len(rows))
-
-    if status == "해당":
-        comment = "엔벨로프 하단 근처의 되돌림 자리로 해석할 수 있습니다."
-    elif status == "유사":
-        comment = "엔벨로프 관점은 일부 맞지만 핵심 하단 근접도가 다소 아쉽습니다."
-    else:
-        comment = "엔벨로프 하단 매매 자리로 보기엔 거리나 캔들 구조가 부족합니다."
-
-    return PatternResult("envelope_bet", s, status, score, len(rows), "하단 근접 반등 후보", comment, rows)
-
-
 def build_dolbanji(price: Dict[str, Any], df: pd.DataFrame) -> PatternResult:
+    if not price["has_ma200"]:
+        rows = [CheckRow("돌반지", "데이터 길이", f'{price["bars"]}봉', ">= 200봉", False, "상장 기간이 짧아 MA200 기반 돌반지 판정 불가")]
+        return PatternResult("dolbanji", "돌반지", "데이터부족", 0, 1, "200일선 돌파 직후 응축형", "신규상장주라 200일 이동평균선이 아직 형성되지 않아 돌반지 패턴은 판정 보류입니다.", rows)
+
     rows: List[CheckRow] = []
     s = "돌반지"
-
     recent20 = df.tail(20)
     recent_below_200 = bool((recent20["Close"] < recent20["MA200"]).fillna(False).any())
 
     c1 = price["close"] >= price["ma200"]
     add_check(rows, s, "200일선 위", f"{fmt_int(price['close'])} / MA200 {fmt_float(price['ma200'])}", "종가 >= MA200", c1, "200일선 돌파/안착" if c1 else "아직 200일선 아래")
-
     c2 = recent_below_200
     add_check(rows, s, "최근 20봉 내 200일선 하단 이력", "있음" if c2 else "없음", "있음", c2, "최근 돌파형 가능" if c2 else "너무 오래 위에 있었음")
-
     c3 = -3.0 <= price["ma200_gap_pct"] <= 8.0
     add_check(rows, s, "200일선 이격", f"{price['ma200_gap_pct']}%", "-3% ~ +8%", c3, "돌파 직후 적정 이격" if c3 else "이격이 너무 큼 또는 너무 아래")
-
     c4 = price["vol_ratio"] >= 1.2
     add_check(rows, s, "거래량 배수", f"{price['vol_ratio']}배", ">= 1.2배", c4, "거래량 보강" if c4 else "거래량 약함")
-
     c5 = price["obv_slope_10"] > 0
     add_check(rows, s, "OBV 기울기", f"{price['obv_slope_10']}%", "> 0%", c5, "매집 우위" if c5 else "수급 기울기 약함")
-
     c6 = price["ma60_slope"] >= 0
     add_check(rows, s, "MA60 기울기", f"{price['ma60_slope']}%", ">= 0%", c6, "중기 추세 꺾임 완화" if c6 else "중기 추세 아직 하방")
 
@@ -536,6 +469,50 @@ def build_dolbanji(price: Dict[str, Any], df: pd.DataFrame) -> PatternResult:
     return PatternResult("dolbanji", s, status, score, len(rows), "200일선 돌파 직후 응축형", comment, rows)
 
 
+def build_yeokmae(price: Dict[str, Any], df: pd.DataFrame) -> PatternResult:
+    if not price["has_ma112"]:
+        rows = [CheckRow("역매공파", "데이터 길이", f'{price["bars"]}봉', ">= 112봉", False, "상장 기간이 짧아 MA112 기반 역매공파 판정 불가")]
+        return PatternResult("yeokmae", "역매공파", "데이터부족", 0, 1, "수렴 → 공구리 → 상단 돌파형", "신규상장주라 MA112가 아직 충분히 형성되지 않아 역매공파는 판정 보류입니다.", rows)
+
+    rows: List[CheckRow] = []
+    s = "역매공파"
+    close = safe_float(df["Close"].iloc[-1])
+    bb40_up = safe_float(df["BB40_UP"].iloc[-1])
+
+    vals = [price["ma20"], price["ma60"], price["ma112"]]
+    valid_vals = [v for v in vals if v > 0]
+    ma_conv = 999.0
+    if valid_vals:
+        ma_conv = (max(valid_vals) - min(valid_vals)) / max(valid_vals) * 100
+
+    c1 = ma_conv <= 8.0
+    add_check(rows, s, "MA20/60/112 수렴도", f"{fmt_float(ma_conv)}%", "<= 8%", c1, "이평 수렴" if c1 else "이평 벌어짐")
+    c2 = price["bb40_width"] <= 20.0
+    add_check(rows, s, "BB40 폭", f"{price['bb40_width']}", "<= 20", c2, "응축 구간" if c2 else "응축 부족")
+    c3 = price["close"] >= price["ma112"]
+    add_check(rows, s, "공구리(MA112) 돌파", f"{fmt_int(price['close'])} / {fmt_float(price['ma112'])}", "종가 >= MA112", c3, "공구리 돌파" if c3 else "아직 공구리 아래")
+    c4 = close >= bb40_up * 0.98
+    add_check(rows, s, "BB40 상단 근접/돌파", f"종가 {fmt_int(close)} / 상단 {fmt_float(bb40_up)}", "종가 >= 상단의 98%", c4, "상단 돌파권" if c4 else "상단 돌파 전")
+    c5 = price["vol_ratio"] >= 1.5
+    add_check(rows, s, "거래량 배수", f"{price['vol_ratio']}배", ">= 1.5배", c5, "거래량 확산" if c5 else "거래량 부족")
+    c6 = 98.0 <= price["disparity"] <= 110.0
+    add_check(rows, s, "이격도", f"{price['disparity']}", "98~110", c6, "안전 이격" if c6 else "이격 과열/부족")
+    c7 = price["obv_slope_10"] > 0
+    add_check(rows, s, "OBV 기울기", f"{price['obv_slope_10']}%", "> 0%", c7, "매집 우위" if c7 else "수급 약함")
+
+    score = sum(1 for r in rows if r.ok)
+    status = decide_status(score, len(rows))
+
+    if status == "해당":
+        comment = "역매공파 구조와 꽤 닮아 있습니다. 수렴 → 공구리 → 상단 돌파 흐름으로 볼 수 있습니다."
+    elif status == "유사":
+        comment = "역매공파 느낌은 있지만 공구리/상단돌파/거래량 중 일부가 약합니다."
+    else:
+        comment = "현재는 역매공파 완성 구조로 보기 어렵습니다."
+
+    return PatternResult("yeokmae", s, status, score, len(rows), "수렴 → 공구리 → 상단 돌파형", comment, rows)
+
+
 def build_watermelon(price: Dict[str, Any], df: pd.DataFrame) -> PatternResult:
     rows: List[CheckRow] = []
     s = "수박"
@@ -546,19 +523,14 @@ def build_watermelon(price: Dict[str, Any], df: pd.DataFrame) -> PatternResult:
 
     c1 = price["bb40_width"] <= 18.0
     add_check(rows, s, "BB40 폭", f"{price['bb40_width']}", "<= 18", c1, "응축 구간" if c1 else "밴드 폭 넓음")
-
     c2 = price["green_days_10"] >= 6
     add_check(rows, s, "최근 10봉 양봉 수", f"{price['green_days_10']}", ">= 6", c2, "양봉 우위" if c2 else "양봉 비중 부족")
-
     c3 = price["obv_slope_10"] > 0
     add_check(rows, s, "OBV 기울기", f"{price['obv_slope_10']}%", "> 0%", c3, "매집 우위" if c3 else "매집 신호 약함")
-
     c4 = price["mfi14"] >= 50
     add_check(rows, s, "MFI", f"{price['mfi14']}", ">= 50", c4, "자금 유입 우위" if c4 else "자금 유입 부족")
-
     c5 = close >= bb40_mid and close <= bb40_up * 1.03
     add_check(rows, s, "BB40 중단~상단 위치", f"종가 {fmt_int(close)} / 중단 {fmt_float(bb40_mid)} / 상단 {fmt_float(bb40_up)}", "중단 이상, 상단 과열 전", c5, "수박형 위치" if c5 else "위치가 다름")
-
     c6 = price["amount_b"] >= MIN_AMOUNT_B
     add_check(rows, s, "거래대금", f"{price['amount_b']}억", f">= {MIN_AMOUNT_B}억", c6, "유동성 충분" if c6 else "유동성 부족")
 
@@ -588,19 +560,14 @@ def build_viper(price: Dict[str, Any], df: pd.DataFrame) -> PatternResult:
 
     c1 = price["ma5"] > price["ma20"]
     add_check(rows, s, "MA5 > MA20", f"{fmt_float(price['ma5'])} / {fmt_float(price['ma20'])}", "MA5 > MA20", c1, "단기 우상향" if c1 else "아직 단기선 약함")
-
     c2 = recent_cross
     add_check(rows, s, "최근 5봉 내 5-20 교차", "있음" if c2 else "없음", "있음", c2, "훅 출현" if c2 else "최근 교차 흔적 약함")
-
     c3 = price["ma5_slope"] > 0
     add_check(rows, s, "MA5 기울기", f"{price['ma5_slope']}%", "> 0%", c3, "단기 기울기 양호" if c3 else "기울기 약함")
-
     c4 = price["close"] >= price["ma20"]
     add_check(rows, s, "MA20 위 종가", f"{fmt_int(price['close'])} / {fmt_float(price['ma20'])}", "종가 >= MA20", c4, "추세선 위" if c4 else "MA20 아래")
-
     c5 = price["upper_wick_body_pct"] <= 35.0
     add_check(rows, s, "윗꼬리", f"{price['upper_wick_body_pct']}%", "<= 35%", c5, "종가 밀림 약함" if c5 else "윗꼬리 길어 힘 분산")
-
     c6 = price["vol_ratio"] >= 1.0
     add_check(rows, s, "거래량 배수", f"{price['vol_ratio']}배", ">= 1.0배", c6, "거래량 최소 확인" if c6 else "거래량 부족")
 
@@ -617,53 +584,6 @@ def build_viper(price: Dict[str, Any], df: pd.DataFrame) -> PatternResult:
     return PatternResult("viper", s, status, score, len(rows), "5일선-20일선 훅형", comment, rows)
 
 
-def build_yeokmae(price: Dict[str, Any], df: pd.DataFrame) -> PatternResult:
-    rows: List[CheckRow] = []
-    s = "역매공파"
-
-    close = safe_float(df["Close"].iloc[-1])
-    bb40_up = safe_float(df["BB40_UP"].iloc[-1])
-
-    vals = [price["ma20"], price["ma60"], price["ma112"]]
-    valid_vals = [v for v in vals if v > 0]
-    ma_conv = 999.0
-    if valid_vals:
-        ma_conv = (max(valid_vals) - min(valid_vals)) / max(valid_vals) * 100
-
-    c1 = ma_conv <= 8.0
-    add_check(rows, s, "MA20/60/112 수렴도", f"{fmt_float(ma_conv)}%", "<= 8%", c1, "이평 수렴" if c1 else "이평 벌어짐")
-
-    c2 = price["bb40_width"] <= 20.0
-    add_check(rows, s, "BB40 폭", f"{price['bb40_width']}", "<= 20", c2, "응축 구간" if c2 else "응축 부족")
-
-    c3 = price["close"] >= price["ma112"]
-    add_check(rows, s, "공구리(MA112) 돌파", f"{fmt_int(price['close'])} / {fmt_float(price['ma112'])}", "종가 >= MA112", c3, "공구리 돌파" if c3 else "아직 공구리 아래")
-
-    c4 = close >= bb40_up * 0.98
-    add_check(rows, s, "BB40 상단 근접/돌파", f"종가 {fmt_int(close)} / 상단 {fmt_float(bb40_up)}", "종가 >= 상단의 98%", c4, "상단 돌파권" if c4 else "상단 돌파 전")
-
-    c5 = price["vol_ratio"] >= 1.5
-    add_check(rows, s, "거래량 배수", f"{price['vol_ratio']}배", ">= 1.5배", c5, "거래량 확산" if c5 else "거래량 부족")
-
-    c6 = 98.0 <= price["disparity"] <= 110.0
-    add_check(rows, s, "이격도", f"{price['disparity']}", "98~110", c6, "안전 이격" if c6 else "이격 과열/부족")
-
-    c7 = price["obv_slope_10"] > 0
-    add_check(rows, s, "OBV 기울기", f"{price['obv_slope_10']}%", "> 0%", c7, "매집 우위" if c7 else "수급 약함")
-
-    score = sum(1 for r in rows if r.ok)
-    status = decide_status(score, len(rows))
-
-    if status == "해당":
-        comment = "역매공파 구조와 꽤 닮아 있습니다. 수렴 → 공구리 → 상단 돌파 흐름으로 볼 수 있습니다."
-    elif status == "유사":
-        comment = "역매공파 느낌은 있지만 공구리/상단돌파/거래량 중 일부가 약합니다."
-    else:
-        comment = "현재는 역매공파 완성 구조로 보기 어렵습니다."
-
-    return PatternResult("yeokmae", s, status, score, len(rows), "수렴 → 공구리 → 상단 돌파형", comment, rows)
-
-
 def build_double_bottom(price: Dict[str, Any]) -> PatternResult:
     rows: List[CheckRow] = []
     s = "쌍바닥"
@@ -672,19 +592,14 @@ def build_double_bottom(price: Dict[str, Any]) -> PatternResult:
     found = bool(db.get("found"))
     c1 = found
     add_check(rows, s, "쌍바닥 감지", "감지" if found else "미감지", "감지", c1, "두 저점 구조 확인" if c1 else "의미 있는 두 바닥 미발견")
-
     c2 = found and safe_float(db.get("diff_pct")) <= 5.0
     add_check(rows, s, "두 바닥 가격 차이", f"{db.get('diff_pct', '-')}%", "<= 5%", c2, "두 바닥 유사" if c2 else "두 바닥 차이 큼")
-
     c3 = found and 15 <= safe_int(db.get("gap_days")) <= 45
     add_check(rows, s, "두 바닥 간격", f"{db.get('gap_days', '-')}일", "15~45일", c3, "이상적 간격" if c3 else "간격이 너무 짧거나 김")
-
     c4 = found and bool(db.get("neckline_break"))
     add_check(rows, s, "넥라인 근접/돌파", f"{db.get('neckline_distance_pct', '-')}%", "넥라인 -1.5% 이내 또는 돌파", c4, "넥라인 돌파권" if c4 else "넥라인 아직 멀음")
-
     c5 = price["close"] >= price["ma20"]
     add_check(rows, s, "MA20 위 위치", f"{fmt_int(price['close'])} / {fmt_float(price['ma20'])}", "종가 >= MA20", c5, "회복 흐름" if c5 else "추세 회복 미흡")
-
     c6 = price["vol_ratio"] >= 1.2
     add_check(rows, s, "거래량 배수", f"{price['vol_ratio']}배", ">= 1.2배", c6, "거래량 보강" if c6 else "거래량 부족")
 
@@ -715,7 +630,7 @@ def build_patterns(price: Dict[str, Any], df: pd.DataFrame) -> List[PatternResul
         build_yeokmae(price, df),
         build_double_bottom(price),
     ]
-    patterns.sort(key=lambda x: ({"해당": 3, "유사": 2, "미해당": 1}[x.status], x.score), reverse=True)
+    patterns.sort(key=lambda x: ({"해당": 4, "유사": 3, "미해당": 2, "데이터부족": 1}[x.status], x.score), reverse=True)
     return patterns
 
 
@@ -732,13 +647,16 @@ def build_summary(name: str, patterns: List[PatternResult]) -> str:
     good = [p for p in patterns if p.status == "해당"]
     near = [p for p in patterns if p.status == "유사"]
     bad = [p for p in patterns if p.status == "미해당"]
+    na = [p for p in patterns if p.status == "데이터부족"]
 
     parts = []
     if good:
         parts.append(f"{name}은 {', '.join(p.name for p in good)} 패턴에 해당합니다.")
     if near:
         parts.append(f"유사 패턴은 {', '.join(p.name for p in near)} 입니다.")
-    if not good and not near and bad:
+    if na:
+        parts.append(f"데이터 부족으로 판정 보류된 패턴은 {', '.join(p.name for p in na)} 입니다.")
+    if not good and not near and bad and not na:
         parts.append(f"{name}은 현재 뚜렷하게 맞는 패턴이 적습니다.")
     return " ".join(parts)
 
@@ -754,9 +672,13 @@ def build_smart_comment(price: Dict[str, Any], patterns: List[PatternResult], na
         comments.append("완성도가 높은 편이라 해당 패턴 기준으로 추적하기 좋습니다.")
     elif best.status == "유사":
         comments.append("뼈대는 있으나 아직 핵심 한두 조건이 부족합니다.")
+    elif best.status == "데이터부족":
+        comments.append("상장 기간이 짧아 장기이평 기반 패턴은 판정 보류입니다.")
     else:
         comments.append("어느 한 패턴으로 강하게 단정할 정도는 아닙니다.")
 
+    if price["bars"] < 112:
+        comments.append("신규상장주 구간이라 장기 패턴보다 20/40일선 중심 패턴 해석이 더 중요합니다.")
     if price["upper_wick_body_pct"] > 30:
         comments.append("윗꼬리가 길어 종가 힘이 분산된 점은 보수적으로 봐야 합니다.")
     if price["vol_ratio"] < 1.0:
@@ -767,7 +689,7 @@ def build_smart_comment(price: Dict[str, Any], patterns: List[PatternResult], na
         comments.append("이격이 낮아 돌파 탄력은 아직 약할 수 있습니다.")
     if price["obv_slope_10"] < 0:
         comments.append("OBV 기울기가 음수라 최근 구간은 분산 우위 해석이 가능합니다.")
-    if price["ma60_slope"] < 0:
+    if price["has_ma200"] and price["ma60_slope"] < 0:
         comments.append("MA60 기울기가 음수면 중기 추세는 아직 완전히 돌아섰다고 보기 어렵습니다.")
 
     db = price["double_bottom"]
@@ -775,170 +697,6 @@ def build_smart_comment(price: Dict[str, Any], patterns: List[PatternResult], na
         comments.append(f"쌍바닥은 감지되었고 넥라인과의 거리는 {db.get('neckline_distance_pct')}% 수준입니다.")
 
     return " ".join(dict.fromkeys(comments))
-
-
-def sparkline_svg(df: pd.DataFrame, width: int = 960, height: int = 360) -> str:
-    sub = df.tail(120).copy()
-
-    env20 = calc_envelope(df, 20, ENV20_PCT)
-    env40 = calc_envelope(df, 40, ENV40_PCT)
-
-    sub["ENV20_LOWER"] = env20["lower"].tail(120).values
-    sub["ENV40_LOWER"] = env40["lower"].tail(120).values
-
-    price_cols = [
-        "Close",
-        "MA20",
-        "MA60",
-        "MA200",
-        "BB40_UP",
-        "BB40_DN",
-        "ENV20_LOWER",
-        "ENV40_LOWER",
-    ]
-
-    values = []
-    for col in price_cols:
-        if col in sub.columns:
-            vals = pd.to_numeric(sub[col], errors="coerce").dropna().tolist()
-            values.extend(vals)
-
-    if not values:
-        return ""
-
-    min_v = min(values)
-    max_v = max(values)
-    rng = max(max_v - min_v, 1e-9)
-
-    left = 22
-    right = width - 22
-    top = 18
-    bottom = height - 34
-
-    def x_pos(i: int, count: int) -> float:
-        if count <= 1:
-            return left
-        return left + (right - left) * i / (count - 1)
-
-    def y_pos(v: float) -> float:
-        return top + (bottom - top) * (1 - (v - min_v) / rng)
-
-    def series_points(series: pd.Series) -> List[str]:
-        pts = []
-        arr = pd.to_numeric(series, errors="coerce").tolist()
-        for i, v in enumerate(arr):
-            if pd.isna(v):
-                pts.append("")
-            else:
-                pts.append(f"{x_pos(i, len(arr)):.1f},{y_pos(float(v)):.1f}")
-        return pts
-
-    def polyline(points: List[str], color: str, stroke_width: int = 2, dash: str = "", opacity: float = 1.0) -> str:
-        segs = []
-        current = []
-        for p in points:
-            if p:
-                current.append(p)
-            else:
-                if len(current) >= 2:
-                    segs.append(current)
-                current = []
-        if len(current) >= 2:
-            segs.append(current)
-
-        lines = []
-        for seg in segs:
-            dash_attr = f' stroke-dasharray="{dash}"' if dash else ""
-            lines.append(
-                f'<polyline points="{" ".join(seg)}" fill="none" stroke="{color}" '
-                f'stroke-width="{stroke_width}" stroke-linejoin="round" '
-                f'stroke-linecap="round" opacity="{opacity}"{dash_attr}/>'
-            )
-        return "".join(lines)
-
-    bb_up = pd.to_numeric(sub["BB40_UP"], errors="coerce").tolist()
-    bb_dn = pd.to_numeric(sub["BB40_DN"], errors="coerce").tolist()
-
-    band_up = []
-    band_dn = []
-    for i, v in enumerate(bb_up):
-        if pd.notna(v):
-            band_up.append(f"{x_pos(i, len(bb_up)):.1f},{y_pos(float(v)):.1f}")
-    for i in range(len(bb_dn) - 1, -1, -1):
-        v = bb_dn[i]
-        if pd.notna(v):
-            band_dn.append(f"{x_pos(i, len(bb_dn)):.1f},{y_pos(float(v)):.1f}")
-
-    band_polygon = ""
-    if len(band_up) >= 2 and len(band_dn) >= 2:
-        band_polygon = (
-            f'<polygon points="{" ".join(band_up + band_dn)}" '
-            f'fill="rgba(99,102,241,0.10)" stroke="none"/>'
-        )
-
-    close_points = series_points(sub["Close"])
-    ma20_points = series_points(sub["MA20"])
-    ma60_points = series_points(sub["MA60"])
-    ma200_points = series_points(sub["MA200"])
-    bb40_up_points = series_points(sub["BB40_UP"])
-    bb40_dn_points = series_points(sub["BB40_DN"])
-    env20_points = series_points(sub["ENV20_LOWER"])
-    env40_points = series_points(sub["ENV40_LOWER"])
-
-    last_close = safe_float(sub["Close"].iloc[-1])
-    first_close = safe_float(sub["Close"].iloc[0])
-    close_color = "#22c55e" if last_close >= first_close else "#ef4444"
-
-    def legend_item(x: int, y: int, color: str, label: str, dash: str = "") -> str:
-        dash_attr = f' stroke-dasharray="{dash}"' if dash else ""
-        return (
-            f'<line x1="{x}" y1="{y}" x2="{x+18}" y2="{y}" stroke="{color}" stroke-width="3"{dash_attr}/>'
-            f'<text x="{x+24}" y="{y+4}" fill="#d9e6f7" font-size="12">{escape(label)}</text>'
-        )
-
-    legends = [
-        legend_item(26, 24, close_color, "종가"),
-        legend_item(120, 24, "#f59e0b", "MA20"),
-        legend_item(210, 24, "#38bdf8", "MA60"),
-        legend_item(300, 24, "#a78bfa", "MA200"),
-        legend_item(400, 24, "#818cf8", "BB40 상단"),
-        legend_item(510, 24, "#6366f1", "BB40 하단"),
-        legend_item(620, 24, "#10b981", "Env20 하단", "6 4"),
-        legend_item(760, 24, "#f97316", "Env40 하단", "6 4"),
-    ]
-
-    price_label = (
-        f'<text x="{width-24}" y="24" fill="#f8fbff" font-size="12" text-anchor="end">'
-        f'종가 {fmt_int(last_close)}</text>'
-    )
-    min_label = f'<text x="6" y="{bottom:.1f}" fill="#8aa0bf" font-size="11">{fmt_int(min_v)}</text>'
-    max_label = f'<text x="6" y="{top+4:.1f}" fill="#8aa0bf" font-size="11">{fmt_int(max_v)}</text>'
-
-    return f"""
-    <svg class="chart-svg" viewBox="0 0 {width} {height}" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none">
-      <rect x="0" y="0" width="{width}" height="{height}" fill="transparent"/>
-      <line x1="{left}" y1="{bottom}" x2="{right}" y2="{bottom}" stroke="#24385d" stroke-width="1"/>
-      <line x1="{left}" y1="{top}" x2="{left}" y2="{bottom}" stroke="#24385d" stroke-width="1"/>
-
-      {band_polygon}
-
-      {polyline(bb40_up_points, "#818cf8", 1)}
-      {polyline(bb40_dn_points, "#6366f1", 1)}
-      {polyline(env20_points, "#10b981", 2, "6 4", 0.95)}
-      {polyline(env40_points, "#f97316", 2, "6 4", 0.95)}
-      {polyline(ma200_points, "#a78bfa", 2)}
-      {polyline(ma60_points, "#38bdf8", 2)}
-      {polyline(ma20_points, "#f59e0b", 2)}
-      {polyline(close_points, close_color, 3)}
-
-      <text x="{left}" y="{height-10}" fill="#9db2d2" font-size="12">최근 120봉 · 종가 / MA / BB40 / Envelope 하단</text>
-      {price_label}
-      {min_label}
-      {max_label}
-
-      {''.join(legends)}
-    </svg>
-    """
 
 
 def render_html(result: Dict[str, Any]) -> str:
@@ -953,6 +711,7 @@ def render_html(result: Dict[str, Any]) -> str:
 
     metric_items = [
         ("현재가", fmt_int(price["close"])),
+        ("상장 후 데이터", f'{price["bars"]}봉'),
         ("거래대금", f'{price["amount_b"]}억'),
         ("거래량 배수", f'{price["vol_ratio"]}배'),
         ("이격도", f'{price["disparity"]}'),
@@ -1190,6 +949,7 @@ def render_html(result: Dict[str, Any]) -> str:
     .pass {{ color:var(--green); }}
     .fail {{ color:var(--red); }}
     .warn {{ color:var(--amber); }}
+    .na {{ color:#94a3b8; }}
 
     .badge.pass {{
       background:rgba(34,197,94,.12);
@@ -1202,6 +962,10 @@ def render_html(result: Dict[str, Any]) -> str:
     .badge.warn {{
       background:rgba(245,158,11,.12);
       border:1px solid rgba(245,158,11,.28);
+    }}
+    .badge.na {{
+      background:rgba(148,163,184,.12);
+      border:1px solid rgba(148,163,184,.28);
     }}
     .score-line {{
       margin-top:8px;
@@ -1275,6 +1039,7 @@ def render_html(result: Dict[str, Any]) -> str:
       <div class="pill-row">
         <div class="pill">분석모드 {escape(result['mode'])}</div>
         <div class="pill">현재가 {fmt_int(price['close'])}</div>
+        <div class="pill">데이터 {price['bars']}봉</div>
         <div class="pill">거래대금 {price['amount_b']}억</div>
         <div class="pill">쌍바닥 {'감지' if price['double_bottom'].get('found') else '미감지'}</div>
       </div>
