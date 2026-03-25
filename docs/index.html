@@ -3,148 +3,59 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>Stock Hunter 실행기 2차 업그레이드</title>
+  <title>Stock Hunter 실행기 v4</title>
   <style>
     :root{
-      --bg:#08111f;
-      --panel:#101b31;
-      --line:#243759;
-      --text:#e8eef8;
-      --muted:#8ea5c6;
-      --accent:#3b82f6;
-      --ok:#22c55e;
-      --warn:#f59e0b;
-      --bad:#ef4444;
+      --bg:#08111f;--panel:#101b31;--line:#243759;--text:#e8eef8;--muted:#8ea5c6;
+      --accent:#3b82f6;--ok:#22c55e;--warn:#f59e0b;--bad:#ef4444;
     }
     *{box-sizing:border-box}
-    body{
-      margin:0;
-      font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans KR",sans-serif;
-      background:linear-gradient(180deg,#07101d 0%,#0d1527 100%);
-      color:var(--text);
-    }
-    .wrap{max-width:760px;margin:0 auto;padding:20px 16px 40px}
-    .card{
-      background:linear-gradient(180deg,rgba(16,27,49,.98),rgba(11,21,40,.98));
-      border:1px solid var(--line);
-      border-radius:22px;
-      padding:18px;
-      margin-bottom:14px;
-      box-shadow:0 14px 30px rgba(0,0,0,.18);
-    }
+    body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans KR",sans-serif;background:linear-gradient(180deg,#07101d 0%,#0d1527 100%);color:var(--text)}
+    .wrap{max-width:860px;margin:0 auto;padding:20px 16px 40px}
+    .card{background:linear-gradient(180deg,rgba(16,27,49,.98),rgba(11,21,40,.98));border:1px solid var(--line);border-radius:22px;padding:18px;margin-bottom:14px;box-shadow:0 14px 30px rgba(0,0,0,.18)}
     h1{font-size:28px;margin:0 0 8px;letter-spacing:-.02em}
+    h2{font-size:18px;margin:0 0 10px}
     .muted{color:var(--muted);font-size:14px;line-height:1.5}
     label{display:block;font-size:14px;font-weight:700;margin:14px 0 8px;color:#dbe7f7}
-    input, select, button{
-      width:100%;
-      border-radius:16px;
-      border:1px solid var(--line);
-      background:#0b1630;
-      color:var(--text);
-      padding:14px 14px;
-      font-size:16px;
-      outline:none;
-    }
-    input:focus, select:focus{
-      border-color:#4f7cff;
-      box-shadow:0 0 0 3px rgba(79,124,255,.18);
-    }
-    button{
-      margin-top:16px;
-      background:linear-gradient(180deg,#3b82f6,#2463d7);
-      border:none;
-      font-weight:800;
-      cursor:pointer;
-    }
-    button.secondary{
-      background:#13203b;
-      border:1px solid var(--line);
-    }
-    button.ghost{
-      background:#0b1630;
-      border:1px solid var(--line);
-    }
+    input,select,button{width:100%;border-radius:16px;border:1px solid var(--line);background:#0b1630;color:var(--text);padding:14px 14px;font-size:16px;outline:none}
+    input:focus,select:focus{border-color:#4f7cff;box-shadow:0 0 0 3px rgba(79,124,255,.18)}
+    button{margin-top:12px;background:linear-gradient(180deg,#3b82f6,#2463d7);border:none;font-weight:800;cursor:pointer}
+    button.secondary{background:#13203b;border:1px solid var(--line)}
     button:disabled{opacity:.65;cursor:not-allowed}
-    .row{display:grid;grid-template-columns:1fr;gap:12px}
-    .actions{display:grid;grid-template-columns:1fr;gap:10px;margin-top:14px}
-    .chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
-    .chip{
-      border:1px solid var(--line);
-      padding:8px 12px;
-      border-radius:999px;
-      color:var(--muted);
-      font-size:13px;
-      background:#0b1630;
-    }
-    .status{
-      font-weight:800;
-      margin-bottom:10px;
-      padding:10px 12px;
-      border-radius:14px;
-      background:#0b1630;
-      border:1px solid var(--line);
-    }
-    .status.ok{color:var(--ok)}
-    .status.warn{color:var(--warn)}
-    .status.bad{color:var(--bad)}
-    .info-grid{
-      display:grid;
-      grid-template-columns:1fr 1fr;
-      gap:10px;
-      margin:12px 0 0;
-    }
-    .info{
-      background:#0b1630;
-      border:1px solid var(--line);
-      border-radius:16px;
-      padding:12px;
-    }
+    .row,.actions,.link-row{display:grid;grid-template-columns:1fr;gap:10px}
+    .row{gap:12px}.actions{margin-top:14px}.chips,.quick-list,.history-list{display:flex;gap:8px;flex-wrap:wrap}
+    .chips{margin-top:12px}
+    .chip,.quick-btn,.history-btn{border:1px solid var(--line);padding:8px 12px;border-radius:999px;color:var(--muted);font-size:13px;background:#0b1630;cursor:pointer}
+    .quick-btn,.history-btn{color:var(--text)}
+    .status{font-weight:800;margin-bottom:10px;padding:10px 12px;border-radius:14px;background:#0b1630;border:1px solid var(--line)}
+    .status.ok{color:var(--ok)} .status.warn{color:var(--warn)} .status.bad{color:var(--bad)}
+    .info-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:12px 0 0}
+    .info{background:#0b1630;border:1px solid var(--line);border-radius:16px;padding:12px}
     .info-label{font-size:12px;color:var(--muted)}
     .info-value{font-size:18px;font-weight:800;margin-top:6px;word-break:break-word}
-    .link-row{display:grid;grid-template-columns:1fr;gap:10px;margin-top:12px}
-    a.btn{
-      display:block;
-      text-decoration:none;
-      text-align:center;
-      border-radius:16px;
-      padding:14px 14px;
-      font-weight:800;
-      background:linear-gradient(180deg,#16a34a,#15803d);
-      color:white;
-    }
-    pre{
-      white-space:pre-wrap;
-      word-break:break-word;
-      background:#08101f;
-      border:1px solid var(--line);
-      border-radius:16px;
-      padding:14px;
-      margin:0;
-      font-size:13px;
-      line-height:1.5;
-      max-height:360px;
-      overflow:auto;
-    }
+    a.btn{display:block;text-decoration:none;text-align:center;border-radius:16px;padding:14px 14px;font-weight:800;background:linear-gradient(180deg,#16a34a,#15803d);color:white}
+    a.btn.blue{background:linear-gradient(180deg,#0ea5e9,#0369a1)}
+    pre{white-space:pre-wrap;word-break:break-word;background:#08101f;border:1px solid var(--line);border-radius:16px;padding:14px;margin:0;font-size:13px;line-height:1.5;max-height:360px;overflow:auto}
     .hint{font-size:13px;color:var(--muted);margin-top:8px;line-height:1.5}
-    @media (min-width:720px){
-      .row{grid-template-columns:1fr 1fr}
-      .actions{grid-template-columns:1fr 1fr}
-      .link-row{grid-template-columns:1fr 1fr}
-    }
+    @media (min-width:720px){.row{grid-template-columns:1fr 1fr}.actions{grid-template-columns:1fr 1fr}.link-row{grid-template-columns:1fr 1fr}}
   </style>
 </head>
 <body>
   <div class="wrap">
     <div class="card">
-      <h1>Stock Hunter 실행기 2차 업그레이드</h1>
-      <div class="muted">
-        실행 후 GitHub Actions 링크 버튼을 바로 띄우고, run_id가 있으면 상태를 자동 조회합니다.
-      </div>
+      <h1>Stock Hunter 실행기 v4</h1>
+      <div class="muted">실행 · 상태조회 · 최근 실행 종목 · 자주 쓰는 종목 버튼까지 포함된 버전입니다.</div>
       <div class="chips">
         <div class="chip">저장소: ehdud6728-bit / Stock-Hunter</div>
         <div class="chip">워크플로: analyze-stock.yml</div>
         <div class="chip">브랜치: main</div>
       </div>
+    </div>
+
+    <div class="card">
+      <h2>자주 쓰는 종목</h2>
+      <div id="quickList" class="quick-list"></div>
+      <div class="hint">버튼을 누르면 종목코드와 종목명이 자동 입력됩니다.</div>
     </div>
 
     <div class="card">
@@ -178,34 +89,28 @@
         <button id="runBtn">분석 실행</button>
         <button id="checkBtn" class="secondary" disabled>상태 조회</button>
       </div>
-      <div class="hint">Worker URL은 자동 저장됩니다. run_id가 있으면 15초마다 상태를 자동 새로고침합니다.</div>
+
+      <div class="hint">Worker URL, 마지막 run_id, html_url, 최근 실행 종목이 브라우저에 저장됩니다.</div>
+    </div>
+
+    <div class="card">
+      <h2>최근 실행 종목</h2>
+      <div id="historyList" class="history-list"></div>
     </div>
 
     <div class="card">
       <div id="status" class="status">대기 중</div>
 
       <div class="info-grid">
-        <div class="info">
-          <div class="info-label">run_id</div>
-          <div id="runIdBox" class="info-value">-</div>
-        </div>
-        <div class="info">
-          <div class="info-label">현재 상태</div>
-          <div id="runStatusBox" class="info-value">-</div>
-        </div>
-        <div class="info">
-          <div class="info-label">결론</div>
-          <div id="runConclusionBox" class="info-value">-</div>
-        </div>
-        <div class="info">
-          <div class="info-label">업데이트 시각</div>
-          <div id="runUpdatedBox" class="info-value">-</div>
-        </div>
+        <div class="info"><div class="info-label">run_id</div><div id="runIdBox" class="info-value">-</div></div>
+        <div class="info"><div class="info-label">현재 상태</div><div id="runStatusBox" class="info-value">-</div></div>
+        <div class="info"><div class="info-label">결론</div><div id="runConclusionBox" class="info-value">-</div></div>
+        <div class="info"><div class="info-label">업데이트 시각</div><div id="runUpdatedBox" class="info-value">-</div></div>
       </div>
 
       <div class="link-row">
         <a id="htmlUrlBtn" class="btn" href="#" target="_blank" rel="noopener noreferrer" style="display:none;">GitHub Actions 열기</a>
-        <a id="resultUrlBtn" class="btn" href="#" target="_blank" rel="noopener noreferrer" style="display:none;background:linear-gradient(180deg,#0ea5e9,#0369a1);">결과 페이지 열기</a>
+        <a id="resultUrlBtn" class="btn blue" href="#" target="_blank" rel="noopener noreferrer" style="display:none;">결과 페이지 열기</a>
       </div>
     </div>
 
@@ -215,6 +120,15 @@
   </div>
 
   <script>
+    const QUICK_STOCKS = [
+      { code: "005930", name: "삼성전자" },
+      { code: "000660", name: "SK하이닉스" },
+      { code: "035420", name: "NAVER" },
+      { code: "068270", name: "셀트리온" },
+      { code: "207940", name: "삼성바이오로직스" },
+      { code: "105560", name: "KB금융" }
+    ];
+
     const workerUrlEl = document.getElementById("workerUrl");
     const stockCodeEl = document.getElementById("stockCode");
     const stockNameEl = document.getElementById("stockName");
@@ -229,10 +143,13 @@
     const runStatusBox = document.getElementById("runStatusBox");
     const runConclusionBox = document.getElementById("runConclusionBox");
     const runUpdatedBox = document.getElementById("runUpdatedBox");
+    const quickList = document.getElementById("quickList");
+    const historyList = document.getElementById("historyList");
 
-    const LS_WORKER = "stock-hunter-worker-url-v2";
-    const LS_RUNID = "stock-hunter-last-run-id-v2";
-    const LS_HTMLURL = "stock-hunter-last-html-url-v2";
+    const LS_WORKER = "stock-hunter-worker-url-v4";
+    const LS_RUNID = "stock-hunter-last-run-id-v4";
+    const LS_HTMLURL = "stock-hunter-last-html-url-v4";
+    const LS_HISTORY = "stock-hunter-history-v4";
 
     let pollTimer = null;
     let currentRunId = localStorage.getItem(LS_RUNID) || "";
@@ -253,6 +170,61 @@
       localStorage.setItem(LS_WORKER, workerUrlEl.value.trim());
     });
 
+    function getHistory() {
+      try {
+        return JSON.parse(localStorage.getItem(LS_HISTORY) || "[]");
+      } catch {
+        return [];
+      }
+    }
+
+    function saveHistoryItem(item) {
+      const history = getHistory();
+      const filtered = history.filter(h => !(h.code === item.code && h.mode === item.mode));
+      filtered.unshift(item);
+      localStorage.setItem(LS_HISTORY, JSON.stringify(filtered.slice(0, 12)));
+      renderHistory();
+    }
+
+    function renderQuickStocks() {
+      quickList.innerHTML = "";
+      QUICK_STOCKS.forEach((s) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "quick-btn";
+        btn.textContent = `${s.name} (${s.code})`;
+        btn.addEventListener("click", () => {
+          stockCodeEl.value = s.code;
+          stockNameEl.value = s.name;
+        });
+        quickList.appendChild(btn);
+      });
+    }
+
+    function renderHistory() {
+      const history = getHistory();
+      historyList.innerHTML = "";
+      if (!history.length) {
+        const div = document.createElement("div");
+        div.className = "muted";
+        div.textContent = "아직 실행 기록이 없습니다.";
+        historyList.appendChild(div);
+        return;
+      }
+      history.forEach((h) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "history-btn";
+        btn.textContent = `${h.name || "-"} (${h.code}) · ${h.mode}`;
+        btn.addEventListener("click", () => {
+          stockCodeEl.value = h.code || "";
+          stockNameEl.value = h.name || "";
+          modeEl.value = h.mode || "all";
+        });
+        historyList.appendChild(btn);
+      });
+    }
+
     function setStatus(text, tone = "warn") {
       statusEl.textContent = text;
       statusEl.className = "status " + tone;
@@ -266,23 +238,33 @@
     }
 
     function setHtmlUrl(url) {
-      if (url) {
-        currentHtmlUrl = url;
-        localStorage.setItem(LS_HTMLURL, url);
-        htmlUrlBtn.href = url;
-        htmlUrlBtn.style.display = "block";
-      }
+      if (!url) return;
+      currentHtmlUrl = url;
+      localStorage.setItem(LS_HTMLURL, url);
+      htmlUrlBtn.href = url;
+      htmlUrlBtn.style.display = "block";
     }
 
     function setResultUrlFromPages() {
-      // 현재 페이지가 GitHub Pages라면 같은 origin의 루트 index로 이동시키는 버튼
       try {
         const origin = location.origin;
         if (origin.includes("github.io")) {
           resultUrlBtn.href = origin + location.pathname.replace(/\/[^\/]*$/, "/");
           resultUrlBtn.style.display = "block";
         }
-      } catch {}
+      } catch (_) {}
+    }
+
+    function stopPolling() {
+      if (pollTimer) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+      }
+    }
+
+    function startPolling() {
+      stopPolling();
+      pollTimer = setInterval(pollRunStatus, 15000);
     }
 
     async function pollRunStatus() {
@@ -315,11 +297,11 @@
         if (data.status === "completed") {
           if (data.conclusion === "success") {
             setStatus("완료: 성공", "ok");
+            setResultUrlFromPages();
           } else {
             setStatus("완료: " + (data.conclusion || "실패"), "bad");
           }
           stopPolling();
-          setResultUrlFromPages();
         } else if (data.status === "in_progress") {
           setStatus("실행 중...", "warn");
         } else if (data.status === "queued" || data.status === "waiting" || data.status === "requested") {
@@ -331,18 +313,6 @@
         setStatus("상태 조회 오류", "bad");
         resultEl.textContent = String(err);
       }
-    }
-
-    function stopPolling() {
-      if (pollTimer) {
-        clearInterval(pollTimer);
-        pollTimer = null;
-      }
-    }
-
-    function startPolling() {
-      stopPolling();
-      pollTimer = setInterval(pollRunStatus, 15000);
     }
 
     runBtn.addEventListener("click", async () => {
@@ -385,22 +355,29 @@
         resultEl.textContent = JSON.stringify(data, null, 2);
 
         if (resp.ok && data.ok) {
-          setStatus("성공: 실행 요청 완료", "ok");
+          saveHistoryItem({
+            code: stockCode,
+            name: stockName,
+            mode: mode,
+            ts: new Date().toISOString()
+          });
 
-          const runId = data.workflow_run_id || data.github_response?.workflow_run_id || "";
-          const htmlUrl = data.html_url || data.github_response?.html_url || "";
+          const runId = data.workflow_run_id || "";
+          const htmlUrl = data.html_url || "";
 
           if (runId) {
             currentRunId = String(runId);
             localStorage.setItem(LS_RUNID, currentRunId);
             runIdBox.textContent = currentRunId;
             checkBtn.disabled = false;
+
+            setStatus("성공: 실행 요청 완료", "ok");
             startPolling();
             pollRunStatus();
           } else {
             currentRunId = "";
             localStorage.removeItem(LS_RUNID);
-            setStatus("실행 요청 완료, run_id 없음", "warn");
+            setStatus("실행 요청 완료, run_id 탐색 실패", "warn");
           }
 
           if (htmlUrl) setHtmlUrl(htmlUrl);
@@ -420,7 +397,9 @@
       await pollRunStatus();
     });
 
-    // 이전 run_id가 있으면 버튼 활성화
+    renderQuickStocks();
+    renderHistory();
+
     if (currentRunId) {
       checkBtn.disabled = false;
     }
