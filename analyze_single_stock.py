@@ -127,18 +127,22 @@ def load_price_history(code: str) -> pd.DataFrame:
     end = datetime.now(KST).strftime("%Y-%m-%d")
     start = (datetime.now(KST) - pd.Timedelta(days=450)).strftime("%Y-%m-%d")
     df = fdr.DataReader(code, start, end)
+
     if df is None or df.empty:
         raise RuntimeError(f"가격 데이터를 불러오지 못했습니다: {code}")
 
     df = df.rename(columns={c: c.capitalize() for c in df.columns})
     needed = ["Open", "High", "Low", "Close", "Volume"]
+
     for col in needed:
         if col not in df.columns:
             raise RuntimeError(f"필수 컬럼 누락: {col}")
 
     df = df.dropna(subset=needed).copy()
+
     if len(df) < 240:
         raise RuntimeError("최소 240봉 이상 데이터가 필요합니다.")
+
     return df
 
 
@@ -146,8 +150,10 @@ def rsi(series: pd.Series, period: int = 14) -> pd.Series:
     delta = series.diff()
     up = delta.clip(lower=0)
     down = -delta.clip(upper=0)
+
     avg_gain = up.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
     avg_loss = down.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
+
     rs = avg_gain / avg_loss.replace(0, pd.NA)
     out = 100 - (100 / (1 + rs))
     return out.fillna(50)
@@ -217,8 +223,12 @@ def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
     obv_delta[direction > 0] = out.loc[direction > 0, "Volume"]
     obv_delta[direction < 0] = -out.loc[direction < 0, "Volume"]
     out["OBV"] = obv_delta.cumsum()
-    out["OBV_SLOPE_5"] = out["OBV"].diff(5)
-    out["OBV_SLOPE_10"] = out["OBV"].diff(10)
+
+    # OBV 기울기: raw 누적값 차이 대신 최근 거래량 합 대비 %로 정규화
+    vol5 = out["Volume"].rolling(5).sum().replace(0, pd.NA)
+    vol10 = out["Volume"].rolling(10).sum().replace(0, pd.NA)
+    out["OBV_SLOPE_5"] = ((out["OBV"].diff(5) / vol5) * 100).round(2)
+    out["OBV_SLOPE_10"] = ((out["OBV"].diff(10) / vol10) * 100).round(2)
 
     out["RSI14"] = rsi(out["Close"], 14).round(1)
     out["MFI14"] = mfi(out, 14).round(1)
@@ -226,9 +236,10 @@ def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
     out["Green"] = (out["Close"] >= out["Open"]).astype(int)
     out["Green_Days_10"] = out["Green"].rolling(10).sum()
 
-    out["MA5_SLOPE"] = out["MA5"].diff(3)
-    out["MA20_SLOPE"] = out["MA20"].diff(3)
-    out["MA60_SLOPE"] = out["MA60"].diff(5)
+    # 이동평균 기울기: 절대 가격 차이 대신 % 변화율
+    out["MA5_SLOPE"] = (((out["MA5"] - out["MA5"].shift(3)) / out["MA5"].shift(3)) * 100).round(2)
+    out["MA20_SLOPE"] = (((out["MA20"] - out["MA20"].shift(3)) / out["MA20"].shift(3)) * 100).round(2)
+    out["MA60_SLOPE"] = (((out["MA60"] - out["MA60"].shift(5)) / out["MA60"].shift(5)) * 100).round(2)
 
     out["MA200_GAP_PCT"] = ((out["Close"] - out["MA200"]) / out["MA200"] * 100).round(1)
 
@@ -303,6 +314,7 @@ def find_double_bottom(df: pd.DataFrame, lookback: int = 120) -> Dict[str, Any]:
         for j in range(i + 1, len(lows)):
             a, b = lows[i], lows[j]
             gap = b - a
+
             if gap < 12 or gap > 60:
                 continue
 
@@ -343,6 +355,7 @@ def find_double_bottom(df: pd.DataFrame, lookback: int = 120) -> Dict[str, Any]:
 
 def build_snapshot(df: pd.DataFrame) -> Dict[str, Any]:
     row = df.iloc[-1]
+
     close = safe_float(row["Close"])
     open_p = safe_float(row["Open"])
     high = safe_float(row["High"])
@@ -379,8 +392,8 @@ def build_snapshot(df: pd.DataFrame) -> Dict[str, Any]:
         "mfi14": round(safe_float(row.get("MFI14")), 1),
         "bb20_width": round(safe_float(row.get("BB20_WIDTH")), 1),
         "bb40_width": round(safe_float(row.get("BB40_WIDTH")), 1),
-        "obv_slope_5": round(safe_float(row.get("OBV_SLOPE_5")), 1),
-        "obv_slope_10": round(safe_float(row.get("OBV_SLOPE_10")), 1),
+        "obv_slope_5": round(safe_float(row.get("OBV_SLOPE_5")), 2),
+        "obv_slope_10": round(safe_float(row.get("OBV_SLOPE_10")), 2),
         "green_days_10": safe_int(row.get("Green_Days_10")),
         "ma5": round(safe_float(row.get("MA5")), 1),
         "ma20": round(safe_float(row.get("MA20")), 1),
@@ -433,7 +446,7 @@ def build_closing_bet(price: Dict[str, Any]) -> PatternResult:
     c4 = price["vol_ratio"] >= VOL_MULT
     add_check(rows, s, "거래량 배수", f"{price['vol_ratio']}배", f">= {VOL_MULT}배", c4, "거래량 폭발" if c4 else "거래량 확산 부족")
 
-    c5 = price["disparity"] >= DISPARITY_MIN and price["disparity"] <= DISPARITY_MAX
+    c5 = DISPARITY_MIN <= price["disparity"] <= DISPARITY_MAX
     add_check(rows, s, "이격도", f"{price['disparity']}", f"{DISPARITY_MIN}~{DISPARITY_MAX}", c5, "적정 이격" if c5 else "과열 또는 힘 부족")
 
     c6 = price["close"] >= price["ma20"]
@@ -507,10 +520,10 @@ def build_dolbanji(price: Dict[str, Any], df: pd.DataFrame) -> PatternResult:
     add_check(rows, s, "거래량 배수", f"{price['vol_ratio']}배", ">= 1.2배", c4, "거래량 보강" if c4 else "거래량 약함")
 
     c5 = price["obv_slope_10"] > 0
-    add_check(rows, s, "OBV 기울기", f"{price['obv_slope_10']}", "> 0", c5, "매집 우위" if c5 else "수급 기울기 약함")
+    add_check(rows, s, "OBV 기울기", f"{price['obv_slope_10']}%", "> 0%", c5, "매집 우위" if c5 else "수급 기울기 약함")
 
     c6 = price["ma60_slope"] >= 0
-    add_check(rows, s, "MA60 기울기", f"{price['ma60_slope']}", ">= 0", c6, "중기 추세 꺾임 완화" if c6 else "중기 추세 아직 하방")
+    add_check(rows, s, "MA60 기울기", f"{price['ma60_slope']}%", ">= 0%", c6, "중기 추세 꺾임 완화" if c6 else "중기 추세 아직 하방")
 
     score = sum(1 for r in rows if r.ok)
     status = decide_status(score, len(rows))
@@ -540,7 +553,7 @@ def build_watermelon(price: Dict[str, Any], df: pd.DataFrame) -> PatternResult:
     add_check(rows, s, "최근 10봉 양봉 수", f"{price['green_days_10']}", ">= 6", c2, "양봉 우위" if c2 else "양봉 비중 부족")
 
     c3 = price["obv_slope_10"] > 0
-    add_check(rows, s, "OBV 기울기", f"{price['obv_slope_10']}", "> 0", c3, "매집 우위" if c3 else "매집 신호 약함")
+    add_check(rows, s, "OBV 기울기", f"{price['obv_slope_10']}%", "> 0%", c3, "매집 우위" if c3 else "매집 신호 약함")
 
     c4 = price["mfi14"] >= 50
     add_check(rows, s, "MFI", f"{price['mfi14']}", ">= 50", c4, "자금 유입 우위" if c4 else "자금 유입 부족")
@@ -582,7 +595,7 @@ def build_viper(price: Dict[str, Any], df: pd.DataFrame) -> PatternResult:
     add_check(rows, s, "최근 5봉 내 5-20 교차", "있음" if c2 else "없음", "있음", c2, "훅 출현" if c2 else "최근 교차 흔적 약함")
 
     c3 = price["ma5_slope"] > 0
-    add_check(rows, s, "MA5 기울기", f"{price['ma5_slope']}", "> 0", c3, "단기 기울기 양호" if c3 else "기울기 약함")
+    add_check(rows, s, "MA5 기울기", f"{price['ma5_slope']}%", "> 0%", c3, "단기 기울기 양호" if c3 else "기울기 약함")
 
     c4 = price["close"] >= price["ma20"]
     add_check(rows, s, "MA20 위 종가", f"{fmt_int(price['close'])} / {fmt_float(price['ma20'])}", "종가 >= MA20", c4, "추세선 위" if c4 else "MA20 아래")
@@ -638,7 +651,7 @@ def build_yeokmae(price: Dict[str, Any], df: pd.DataFrame) -> PatternResult:
     add_check(rows, s, "이격도", f"{price['disparity']}", "98~110", c6, "안전 이격" if c6 else "이격 과열/부족")
 
     c7 = price["obv_slope_10"] > 0
-    add_check(rows, s, "OBV 기울기", f"{price['obv_slope_10']}", "> 0", c7, "매집 우위" if c7 else "수급 약함")
+    add_check(rows, s, "OBV 기울기", f"{price['obv_slope_10']}%", "> 0%", c7, "매집 우위" if c7 else "수급 약함")
 
     score = sum(1 for r in rows if r.ok)
     status = decide_status(score, len(rows))
@@ -663,13 +676,13 @@ def build_double_bottom(price: Dict[str, Any]) -> PatternResult:
     add_check(rows, s, "쌍바닥 감지", "감지" if found else "미감지", "감지", c1, "두 저점 구조 확인" if c1 else "의미 있는 두 바닥 미발견")
 
     c2 = found and safe_float(db.get("diff_pct")) <= 5.0
-    add_check(rows, s, "두 바닥 가격 차이", f"{db.get('diff_pct', '-') }%", "<= 5%", c2, "두 바닥 유사" if c2 else "두 바닥 차이 큼")
+    add_check(rows, s, "두 바닥 가격 차이", f"{db.get('diff_pct', '-')}%", "<= 5%", c2, "두 바닥 유사" if c2 else "두 바닥 차이 큼")
 
-    c3 = found and safe_int(db.get("gap_days")) >= 15 and safe_int(db.get("gap_days")) <= 45
-    add_check(rows, s, "두 바닥 간격", f"{db.get('gap_days', '-') }일", "15~45일", c3, "이상적 간격" if c3 else "간격이 너무 짧거나 김")
+    c3 = found and 15 <= safe_int(db.get("gap_days")) <= 45
+    add_check(rows, s, "두 바닥 간격", f"{db.get('gap_days', '-')}일", "15~45일", c3, "이상적 간격" if c3 else "간격이 너무 짧거나 김")
 
     c4 = found and bool(db.get("neckline_break"))
-    add_check(rows, s, "넥라인 근접/돌파", f"{db.get('neckline_distance_pct', '-') }%", "넥라인 -1.5% 이내 또는 돌파", c4, "넥라인 돌파권" if c4 else "넥라인 아직 멀음")
+    add_check(rows, s, "넥라인 근접/돌파", f"{db.get('neckline_distance_pct', '-')}%", "넥라인 -1.5% 이내 또는 돌파", c4, "넥라인 돌파권" if c4 else "넥라인 아직 멀음")
 
     c5 = price["close"] >= price["ma20"]
     add_check(rows, s, "MA20 위 위치", f"{fmt_int(price['close'])} / {fmt_float(price['ma20'])}", "종가 >= MA20", c5, "회복 흐름" if c5 else "추세 회복 미흡")
@@ -737,8 +750,8 @@ def build_smart_comment(price: Dict[str, Any], patterns: List[PatternResult], na
         return f"{name}은 현재 분석할 패턴 결과가 없습니다."
 
     best = patterns[0]
-
     comments = [f"가장 가까운 구조는 {best.name}입니다."]
+
     if best.status == "해당":
         comments.append("완성도가 높은 편이라 해당 패턴 기준으로 추적하기 좋습니다.")
     elif best.status == "유사":
@@ -754,10 +767,14 @@ def build_smart_comment(price: Dict[str, Any], patterns: List[PatternResult], na
         comments.append("이격도가 높아 추격 관점은 불리할 수 있습니다.")
     elif price["disparity"] < 98:
         comments.append("이격이 낮아 돌파 탄력은 아직 약할 수 있습니다.")
+    if price["obv_slope_10"] < 0:
+        comments.append("OBV 기울기가 음수라 최근 구간은 분산 우위 해석이 가능합니다.")
+    if price["ma60_slope"] < 0:
+        comments.append("MA60 기울기가 음수면 중기 추세는 아직 완전히 돌아섰다고 보기 어렵습니다.")
 
     db = price["double_bottom"]
     if db.get("found"):
-        comments.append(f"쌍바닥은 감지되었고 넥라인과의 거리도 {db.get('neckline_distance_pct')}% 수준입니다.")
+        comments.append(f"쌍바닥은 감지되었고 넥라인과의 거리는 {db.get('neckline_distance_pct')}% 수준입니다.")
 
     return " ".join(dict.fromkeys(comments))
 
@@ -819,6 +836,9 @@ def render_html(result: Dict[str, Any]) -> str:
         ("윗꼬리(몸통)", f'{price["upper_wick_body_pct"]}%'),
         ("RSI14", f'{price["rsi14"]}'),
         ("MFI14", f'{price["mfi14"]}'),
+        ("OBV 기울기(10)", f'{price["obv_slope_10"]}%'),
+        ("MA5 기울기", f'{price["ma5_slope"]}%'),
+        ("MA60 기울기", f'{price["ma60_slope"]}%'),
         ("BB40 폭", f'{price["bb40_width"]}'),
         ("MA200 이격", f'{price["ma200_gap_pct"]}%'),
         ("Env20 하단 괴리", f'{price["env20_pct"]}%'),
@@ -843,6 +863,7 @@ def render_html(result: Dict[str, Any]) -> str:
         for c in p.checks:
             cls = "pass" if c.ok else "fail"
             text = "통과" if c.ok else "미달"
+
             check_rows.append(
                 f"""
                 <tr>
@@ -854,6 +875,7 @@ def render_html(result: Dict[str, Any]) -> str:
                 </tr>
                 """
             )
+
             all_rows.append(
                 f"""
                 <tr>
