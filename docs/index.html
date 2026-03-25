@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Stock Hunter 실행기</title>
+  <style>
+    :root{
+      --bg:#08111f;
+      --panel:#101b31;
+      --line:#243759;
+      --text:#e8eef8;
+      --muted:#8ea5c6;
+      --accent:#3b82f6;
+      --ok:#22c55e;
+      --bad:#ef4444;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans KR",sans-serif;
+      background:linear-gradient(180deg,#07101d 0%,#0d1527 100%);
+      color:var(--text);
+    }
+    .wrap{
+      max-width:760px;
+      margin:0 auto;
+      padding:20px 16px 40px;
+    }
+    .card{
+      background:linear-gradient(180deg,rgba(16,27,49,.98),rgba(11,21,40,.98));
+      border:1px solid var(--line);
+      border-radius:22px;
+      padding:18px;
+      margin-bottom:14px;
+      box-shadow:0 14px 30px rgba(0,0,0,.18);
+    }
+    h1{
+      font-size:28px;
+      margin:0 0 8px;
+      letter-spacing:-.02em;
+    }
+    .muted{
+      color:var(--muted);
+      font-size:14px;
+      line-height:1.5;
+    }
+    label{
+      display:block;
+      font-size:14px;
+      font-weight:700;
+      margin:14px 0 8px;
+      color:#dbe7f7;
+    }
+    input, select, button, textarea{
+      width:100%;
+      border-radius:16px;
+      border:1px solid var(--line);
+      background:#0b1630;
+      color:var(--text);
+      padding:14px 14px;
+      font-size:16px;
+      outline:none;
+    }
+    input:focus, select:focus, textarea:focus{
+      border-color:#4f7cff;
+      box-shadow:0 0 0 3px rgba(79,124,255,.18);
+    }
+    button{
+      margin-top:16px;
+      background:linear-gradient(180deg,#3b82f6,#2463d7);
+      border:none;
+      font-weight:800;
+      cursor:pointer;
+    }
+    button:disabled{
+      opacity:.65;
+      cursor:not-allowed;
+    }
+    .row{
+      display:grid;
+      grid-template-columns:1fr;
+      gap:12px;
+    }
+    .chips{
+      display:flex;
+      gap:8px;
+      flex-wrap:wrap;
+      margin-top:12px;
+    }
+    .chip{
+      border:1px solid var(--line);
+      padding:8px 12px;
+      border-radius:999px;
+      color:var(--muted);
+      font-size:13px;
+      background:#0b1630;
+    }
+    .status{
+      font-weight:800;
+      margin-bottom:10px;
+    }
+    .status.ok{color:var(--ok)}
+    .status.bad{color:var(--bad)}
+    pre{
+      white-space:pre-wrap;
+      word-break:break-word;
+      background:#08101f;
+      border:1px solid var(--line);
+      border-radius:16px;
+      padding:14px;
+      margin:0;
+      font-size:13px;
+      line-height:1.5;
+    }
+    .hint{
+      font-size:13px;
+      color:var(--muted);
+      margin-top:8px;
+      line-height:1.5;
+    }
+    @media (min-width:720px){
+      .row{
+        grid-template-columns:1fr 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>Stock Hunter 실행기</h1>
+      <div class="muted">
+        휴대폰에서 종목을 입력하고 GitHub Actions 분석을 실행하는 페이지입니다.
+        첫 실행 전에는 Worker URL만 한 번 넣어두면 됩니다.
+      </div>
+      <div class="chips">
+        <div class="chip">저장소: ehdud6728-bit / Stock-Hunter</div>
+        <div class="chip">워크플로: analyze-stock.yml</div>
+        <div class="chip">브랜치: main</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <label for="workerUrl">Cloudflare Worker URL</label>
+      <input id="workerUrl" placeholder="https://stock-hunter-trigger.xxxxx.workers.dev" />
+
+      <div class="row">
+        <div>
+          <label for="stockCode">종목코드</label>
+          <input id="stockCode" placeholder="예: 005930" inputmode="numeric" />
+        </div>
+        <div>
+          <label for="stockName">종목명</label>
+          <input id="stockName" placeholder="예: 삼성전자" />
+        </div>
+      </div>
+
+      <label for="mode">분석 모드</label>
+      <select id="mode">
+        <option value="all">all</option>
+        <option value="closing_bet">closing_bet</option>
+        <option value="envelope_bet">envelope_bet</option>
+        <option value="dolbanji">dolbanji</option>
+        <option value="watermelon">watermelon</option>
+        <option value="viper">viper</option>
+        <option value="yeokmae">yeokmae</option>
+        <option value="double_bottom">double_bottom</option>
+      </select>
+
+      <button id="runBtn">분석 실행</button>
+      <div class="hint">Worker URL은 자동 저장됩니다. 다음부터는 다시 입력하지 않아도 됩니다.</div>
+    </div>
+
+    <div class="card">
+      <div id="status" class="status">대기 중</div>
+      <pre id="result">아직 실행하지 않았습니다.</pre>
+    </div>
+  </div>
+
+  <script>
+    const workerUrlEl = document.getElementById("workerUrl");
+    const stockCodeEl = document.getElementById("stockCode");
+    const stockNameEl = document.getElementById("stockName");
+    const modeEl = document.getElementById("mode");
+    const runBtn = document.getElementById("runBtn");
+    const statusEl = document.getElementById("status");
+    const resultEl = document.getElementById("result");
+
+    const LS_KEY = "stock-hunter-worker-url";
+    workerUrlEl.value = localStorage.getItem(LS_KEY) || "";
+
+    workerUrlEl.addEventListener("change", () => {
+      localStorage.setItem(LS_KEY, workerUrlEl.value.trim());
+    });
+
+    function setStatus(text, ok) {
+      statusEl.textContent = text;
+      statusEl.className = "status " + (ok ? "ok" : "bad");
+    }
+
+    runBtn.addEventListener("click", async () => {
+      const workerUrl = workerUrlEl.value.trim();
+      const stockCode = stockCodeEl.value.trim();
+      const stockName = stockNameEl.value.trim();
+      const mode = modeEl.value;
+
+      if (!workerUrl) {
+        setStatus("Worker URL을 먼저 입력하세요.", false);
+        return;
+      }
+
+      if (!stockCode) {
+        setStatus("종목코드를 입력하세요.", false);
+        return;
+      }
+
+      localStorage.setItem(LS_KEY, workerUrl);
+
+      runBtn.disabled = true;
+      setStatus("실행 요청 중...", true);
+      resultEl.textContent = "요청 전송 중...";
+
+      try {
+        const resp = await fetch(workerUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            stock_code: stockCode,
+            stock_name: stockName,
+            mode: mode
+          })
+        });
+
+        const data = await resp.json();
+
+        if (resp.ok && data.ok) {
+          setStatus("성공: GitHub Actions 실행 요청 완료", true);
+        } else {
+          setStatus("실패: 응답을 확인하세요.", false);
+        }
+
+        resultEl.textContent = JSON.stringify(data, null, 2);
+      } catch (err) {
+        setStatus("오류 발생", false);
+        resultEl.textContent = String(err);
+      } finally {
+        runBtn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>
