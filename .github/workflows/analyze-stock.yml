@@ -35,10 +35,19 @@ on:
 
 permissions:
   contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
 
 jobs:
   analyze:
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     env:
       TZ: Asia/Seoul
 
@@ -51,10 +60,10 @@ jobs:
         with:
           python-version: "3.10"
 
-      - name: 📦 의존성 설치
+      - name: Install dependencies
         run: |
-          pip install --upgrade pip
-          pip install pandas numpy yfinance pykrx finance-datareader beautifulsoup4 requests mplfinance ta openai anthropic gspread oauth2client scipy feedparser \
+          python -m pip install --upgrade pip
+          pip install pandas numpy requests FinanceDataReader pykrx beautifulsoup4 lxml pytz
 
       - name: Create output directories
         run: |
@@ -78,3 +87,18 @@ jobs:
             reports/latest_result.json
             site/index.html
           retention-days: 7
+
+      - name: Configure Pages
+        id: pages
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
