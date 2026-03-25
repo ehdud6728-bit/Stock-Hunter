@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>Stock Hunter 실행기</title>
+  <title>Stock Hunter 실행기 2차 업그레이드</title>
   <style>
     :root{
       --bg:#08111f;
@@ -13,6 +13,7 @@
       --muted:#8ea5c6;
       --accent:#3b82f6;
       --ok:#22c55e;
+      --warn:#f59e0b;
       --bad:#ef4444;
     }
     *{box-sizing:border-box}
@@ -22,11 +23,7 @@
       background:linear-gradient(180deg,#07101d 0%,#0d1527 100%);
       color:var(--text);
     }
-    .wrap{
-      max-width:760px;
-      margin:0 auto;
-      padding:20px 16px 40px;
-    }
+    .wrap{max-width:760px;margin:0 auto;padding:20px 16px 40px}
     .card{
       background:linear-gradient(180deg,rgba(16,27,49,.98),rgba(11,21,40,.98));
       border:1px solid var(--line);
@@ -35,24 +32,10 @@
       margin-bottom:14px;
       box-shadow:0 14px 30px rgba(0,0,0,.18);
     }
-    h1{
-      font-size:28px;
-      margin:0 0 8px;
-      letter-spacing:-.02em;
-    }
-    .muted{
-      color:var(--muted);
-      font-size:14px;
-      line-height:1.5;
-    }
-    label{
-      display:block;
-      font-size:14px;
-      font-weight:700;
-      margin:14px 0 8px;
-      color:#dbe7f7;
-    }
-    input, select, button, textarea{
+    h1{font-size:28px;margin:0 0 8px;letter-spacing:-.02em}
+    .muted{color:var(--muted);font-size:14px;line-height:1.5}
+    label{display:block;font-size:14px;font-weight:700;margin:14px 0 8px;color:#dbe7f7}
+    input, select, button{
       width:100%;
       border-radius:16px;
       border:1px solid var(--line);
@@ -62,7 +45,7 @@
       font-size:16px;
       outline:none;
     }
-    input:focus, select:focus, textarea:focus{
+    input:focus, select:focus{
       border-color:#4f7cff;
       box-shadow:0 0 0 3px rgba(79,124,255,.18);
     }
@@ -73,21 +56,18 @@
       font-weight:800;
       cursor:pointer;
     }
-    button:disabled{
-      opacity:.65;
-      cursor:not-allowed;
+    button.secondary{
+      background:#13203b;
+      border:1px solid var(--line);
     }
-    .row{
-      display:grid;
-      grid-template-columns:1fr;
-      gap:12px;
+    button.ghost{
+      background:#0b1630;
+      border:1px solid var(--line);
     }
-    .chips{
-      display:flex;
-      gap:8px;
-      flex-wrap:wrap;
-      margin-top:12px;
-    }
+    button:disabled{opacity:.65;cursor:not-allowed}
+    .row{display:grid;grid-template-columns:1fr;gap:12px}
+    .actions{display:grid;grid-template-columns:1fr;gap:10px;margin-top:14px}
+    .chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
     .chip{
       border:1px solid var(--line);
       padding:8px 12px;
@@ -99,9 +79,39 @@
     .status{
       font-weight:800;
       margin-bottom:10px;
+      padding:10px 12px;
+      border-radius:14px;
+      background:#0b1630;
+      border:1px solid var(--line);
     }
     .status.ok{color:var(--ok)}
+    .status.warn{color:var(--warn)}
     .status.bad{color:var(--bad)}
+    .info-grid{
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:10px;
+      margin:12px 0 0;
+    }
+    .info{
+      background:#0b1630;
+      border:1px solid var(--line);
+      border-radius:16px;
+      padding:12px;
+    }
+    .info-label{font-size:12px;color:var(--muted)}
+    .info-value{font-size:18px;font-weight:800;margin-top:6px;word-break:break-word}
+    .link-row{display:grid;grid-template-columns:1fr;gap:10px;margin-top:12px}
+    a.btn{
+      display:block;
+      text-decoration:none;
+      text-align:center;
+      border-radius:16px;
+      padding:14px 14px;
+      font-weight:800;
+      background:linear-gradient(180deg,#16a34a,#15803d);
+      color:white;
+    }
     pre{
       white-space:pre-wrap;
       word-break:break-word;
@@ -112,27 +122,23 @@
       margin:0;
       font-size:13px;
       line-height:1.5;
+      max-height:360px;
+      overflow:auto;
     }
-    .hint{
-      font-size:13px;
-      color:var(--muted);
-      margin-top:8px;
-      line-height:1.5;
-    }
+    .hint{font-size:13px;color:var(--muted);margin-top:8px;line-height:1.5}
     @media (min-width:720px){
-      .row{
-        grid-template-columns:1fr 1fr;
-      }
+      .row{grid-template-columns:1fr 1fr}
+      .actions{grid-template-columns:1fr 1fr}
+      .link-row{grid-template-columns:1fr 1fr}
     }
   </style>
 </head>
 <body>
   <div class="wrap">
     <div class="card">
-      <h1>Stock Hunter 실행기</h1>
+      <h1>Stock Hunter 실행기 2차 업그레이드</h1>
       <div class="muted">
-        휴대폰에서 종목을 입력하고 GitHub Actions 분석을 실행하는 페이지입니다.
-        첫 실행 전에는 Worker URL만 한 번 넣어두면 됩니다.
+        실행 후 GitHub Actions 링크 버튼을 바로 띄우고, run_id가 있으면 상태를 자동 조회합니다.
       </div>
       <div class="chips">
         <div class="chip">저장소: ehdud6728-bit / Stock-Hunter</div>
@@ -168,12 +174,42 @@
         <option value="double_bottom">double_bottom</option>
       </select>
 
-      <button id="runBtn">분석 실행</button>
-      <div class="hint">Worker URL은 자동 저장됩니다. 다음부터는 다시 입력하지 않아도 됩니다.</div>
+      <div class="actions">
+        <button id="runBtn">분석 실행</button>
+        <button id="checkBtn" class="secondary" disabled>상태 조회</button>
+      </div>
+      <div class="hint">Worker URL은 자동 저장됩니다. run_id가 있으면 15초마다 상태를 자동 새로고침합니다.</div>
     </div>
 
     <div class="card">
       <div id="status" class="status">대기 중</div>
+
+      <div class="info-grid">
+        <div class="info">
+          <div class="info-label">run_id</div>
+          <div id="runIdBox" class="info-value">-</div>
+        </div>
+        <div class="info">
+          <div class="info-label">현재 상태</div>
+          <div id="runStatusBox" class="info-value">-</div>
+        </div>
+        <div class="info">
+          <div class="info-label">결론</div>
+          <div id="runConclusionBox" class="info-value">-</div>
+        </div>
+        <div class="info">
+          <div class="info-label">업데이트 시각</div>
+          <div id="runUpdatedBox" class="info-value">-</div>
+        </div>
+      </div>
+
+      <div class="link-row">
+        <a id="htmlUrlBtn" class="btn" href="#" target="_blank" rel="noopener noreferrer" style="display:none;">GitHub Actions 열기</a>
+        <a id="resultUrlBtn" class="btn" href="#" target="_blank" rel="noopener noreferrer" style="display:none;background:linear-gradient(180deg,#0ea5e9,#0369a1);">결과 페이지 열기</a>
+      </div>
+    </div>
+
+    <div class="card">
       <pre id="result">아직 실행하지 않았습니다.</pre>
     </div>
   </div>
@@ -184,19 +220,129 @@
     const stockNameEl = document.getElementById("stockName");
     const modeEl = document.getElementById("mode");
     const runBtn = document.getElementById("runBtn");
+    const checkBtn = document.getElementById("checkBtn");
     const statusEl = document.getElementById("status");
     const resultEl = document.getElementById("result");
+    const htmlUrlBtn = document.getElementById("htmlUrlBtn");
+    const resultUrlBtn = document.getElementById("resultUrlBtn");
+    const runIdBox = document.getElementById("runIdBox");
+    const runStatusBox = document.getElementById("runStatusBox");
+    const runConclusionBox = document.getElementById("runConclusionBox");
+    const runUpdatedBox = document.getElementById("runUpdatedBox");
 
-    const LS_KEY = "stock-hunter-worker-url";
-    workerUrlEl.value = localStorage.getItem(LS_KEY) || "";
+    const LS_WORKER = "stock-hunter-worker-url-v2";
+    const LS_RUNID = "stock-hunter-last-run-id-v2";
+    const LS_HTMLURL = "stock-hunter-last-html-url-v2";
+
+    let pollTimer = null;
+    let currentRunId = localStorage.getItem(LS_RUNID) || "";
+    let currentHtmlUrl = localStorage.getItem(LS_HTMLURL) || "";
+
+    workerUrlEl.value = localStorage.getItem(LS_WORKER) || "";
+
+    if (currentRunId) {
+      runIdBox.textContent = currentRunId;
+      checkBtn.disabled = false;
+    }
+    if (currentHtmlUrl) {
+      htmlUrlBtn.href = currentHtmlUrl;
+      htmlUrlBtn.style.display = "block";
+    }
 
     workerUrlEl.addEventListener("change", () => {
-      localStorage.setItem(LS_KEY, workerUrlEl.value.trim());
+      localStorage.setItem(LS_WORKER, workerUrlEl.value.trim());
     });
 
-    function setStatus(text, ok) {
+    function setStatus(text, tone = "warn") {
       statusEl.textContent = text;
-      statusEl.className = "status " + (ok ? "ok" : "bad");
+      statusEl.className = "status " + tone;
+    }
+
+    function setRunInfo(runId, status, conclusion, updatedAt) {
+      runIdBox.textContent = runId || "-";
+      runStatusBox.textContent = status || "-";
+      runConclusionBox.textContent = conclusion || "-";
+      runUpdatedBox.textContent = updatedAt || "-";
+    }
+
+    function setHtmlUrl(url) {
+      if (url) {
+        currentHtmlUrl = url;
+        localStorage.setItem(LS_HTMLURL, url);
+        htmlUrlBtn.href = url;
+        htmlUrlBtn.style.display = "block";
+      }
+    }
+
+    function setResultUrlFromPages() {
+      // 현재 페이지가 GitHub Pages라면 같은 origin의 루트 index로 이동시키는 버튼
+      try {
+        const origin = location.origin;
+        if (origin.includes("github.io")) {
+          resultUrlBtn.href = origin + location.pathname.replace(/\/[^\/]*$/, "/");
+          resultUrlBtn.style.display = "block";
+        }
+      } catch {}
+    }
+
+    async function pollRunStatus() {
+      const workerUrl = workerUrlEl.value.trim();
+      if (!workerUrl || !currentRunId) return;
+
+      try {
+        const url = new URL(workerUrl);
+        url.searchParams.set("run_id", currentRunId);
+
+        const resp = await fetch(url.toString(), { method: "GET" });
+        const data = await resp.json();
+
+        resultEl.textContent = JSON.stringify(data, null, 2);
+
+        if (!(resp.ok && data.ok)) {
+          setStatus("상태 조회 실패", "bad");
+          return;
+        }
+
+        setRunInfo(
+          data.run_id,
+          data.status,
+          data.conclusion || "-",
+          data.updated_at || "-"
+        );
+
+        if (data.html_url) setHtmlUrl(data.html_url);
+
+        if (data.status === "completed") {
+          if (data.conclusion === "success") {
+            setStatus("완료: 성공", "ok");
+          } else {
+            setStatus("완료: " + (data.conclusion || "실패"), "bad");
+          }
+          stopPolling();
+          setResultUrlFromPages();
+        } else if (data.status === "in_progress") {
+          setStatus("실행 중...", "warn");
+        } else if (data.status === "queued" || data.status === "waiting" || data.status === "requested") {
+          setStatus("대기 중...", "warn");
+        } else {
+          setStatus("상태 조회됨: " + data.status, "warn");
+        }
+      } catch (err) {
+        setStatus("상태 조회 오류", "bad");
+        resultEl.textContent = String(err);
+      }
+    }
+
+    function stopPolling() {
+      if (pollTimer) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+      }
+    }
+
+    function startPolling() {
+      stopPolling();
+      pollTimer = setInterval(pollRunStatus, 15000);
     }
 
     runBtn.addEventListener("click", async () => {
@@ -206,27 +352,28 @@
       const mode = modeEl.value;
 
       if (!workerUrl) {
-        setStatus("Worker URL을 먼저 입력하세요.", false);
+        setStatus("Worker URL을 먼저 입력하세요.", "bad");
         return;
       }
-
       if (!stockCode) {
-        setStatus("종목코드를 입력하세요.", false);
+        setStatus("종목코드를 입력하세요.", "bad");
         return;
       }
 
-      localStorage.setItem(LS_KEY, workerUrl);
-
+      localStorage.setItem(LS_WORKER, workerUrl);
       runBtn.disabled = true;
-      setStatus("실행 요청 중...", true);
+      checkBtn.disabled = true;
+      setStatus("실행 요청 중...", "warn");
       resultEl.textContent = "요청 전송 중...";
+      setRunInfo("-", "-", "-", "-");
+      htmlUrlBtn.style.display = "none";
+      resultUrlBtn.style.display = "none";
+      stopPolling();
 
       try {
         const resp = await fetch(workerUrl, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             stock_code: stockCode,
             stock_name: stockName,
@@ -235,21 +382,48 @@
         });
 
         const data = await resp.json();
+        resultEl.textContent = JSON.stringify(data, null, 2);
 
         if (resp.ok && data.ok) {
-          setStatus("성공: GitHub Actions 실행 요청 완료", true);
-        } else {
-          setStatus("실패: 응답을 확인하세요.", false);
-        }
+          setStatus("성공: 실행 요청 완료", "ok");
 
-        resultEl.textContent = JSON.stringify(data, null, 2);
+          const runId = data.workflow_run_id || data.github_response?.workflow_run_id || "";
+          const htmlUrl = data.html_url || data.github_response?.html_url || "";
+
+          if (runId) {
+            currentRunId = String(runId);
+            localStorage.setItem(LS_RUNID, currentRunId);
+            runIdBox.textContent = currentRunId;
+            checkBtn.disabled = false;
+            startPolling();
+            pollRunStatus();
+          } else {
+            currentRunId = "";
+            localStorage.removeItem(LS_RUNID);
+            setStatus("실행 요청 완료, run_id 없음", "warn");
+          }
+
+          if (htmlUrl) setHtmlUrl(htmlUrl);
+        } else {
+          setStatus("실패: 응답을 확인하세요.", "bad");
+        }
       } catch (err) {
-        setStatus("오류 발생", false);
+        setStatus("오류 발생", "bad");
         resultEl.textContent = String(err);
       } finally {
         runBtn.disabled = false;
+        if (currentRunId) checkBtn.disabled = false;
       }
     });
+
+    checkBtn.addEventListener("click", async () => {
+      await pollRunStatus();
+    });
+
+    // 이전 run_id가 있으면 버튼 활성화
+    if (currentRunId) {
+      checkBtn.disabled = false;
+    }
   </script>
 </body>
 </html>
