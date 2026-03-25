@@ -897,6 +897,40 @@ def render_html(result: Dict[str, Any]) -> str:
 
     nav = "".join(f'<button class="nav-chip" onclick="scrollToId(\'sec-{escape(p.key)}\')">{escape(p.name)}</button>' for p in patterns)
 
+    research_panel = f"""
+    <section class="card">
+      <div class="section-title">다음 종목 바로 재검색</div>
+      <div class="muted" style="margin-bottom:10px;">
+        현재 결과 페이지에서 바로 다른 종목 분석을 다시 요청할 수 있습니다.
+        Worker URL은 실행기 페이지에서 저장된 값을 자동으로 사용합니다.
+      </div>
+
+      <div class="research-grid">
+        <input id="reCode" placeholder="종목코드 예: 005930" inputmode="numeric" />
+        <input id="reName" placeholder="종목명 예: 삼성전자" />
+      </div>
+
+      <select id="reMode" style="margin-top:10px;">
+        <option value="all">all</option>
+        <option value="closing_bet">closing_bet</option>
+        <option value="envelope_bet">envelope_bet</option>
+        <option value="dolbanji">dolbanji</option>
+        <option value="watermelon">watermelon</option>
+        <option value="viper">viper</option>
+        <option value="yeokmae">yeokmae</option>
+        <option value="double_bottom">double_bottom</option>
+      </select>
+
+      <div class="research-actions">
+        <button class="action-btn" onclick="runFromResultPage()">바로 재검색 실행</button>
+        <button class="action-btn secondary" onclick="goRunnerPage()">실행기 페이지 열기</button>
+        <button class="action-btn secondary" onclick="history.back()">이전 페이지로</button>
+      </div>
+
+      <div id="reStatus" class="muted" style="margin-top:10px;">대기 중</div>
+    </section>
+    """
+
     metric_items = [
         ("현재가", fmt_int(price["close"])),
         ("상장 후 데이터", f'{price["bars"]}봉'),
@@ -1003,6 +1037,11 @@ def render_html(result: Dict[str, Any]) -> str:
     th {{ color:#c7d5ea; background:#0d1a33; position:sticky; top:0; }}
     .mono {{ font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }}
     .muted {{ color:var(--muted); }}
+    .research-grid{{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }}
+    .research-actions{{ display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; margin-top:10px; }}
+    .action-btn{{ width:100%; border-radius:16px; padding:14px 14px; font-weight:800; background:linear-gradient(180deg,#3b82f6,#2463d7); color:#fff; border:none; cursor:pointer; }}
+    .action-btn.secondary{{ background:#13203b; border:1px solid #243759; }}
+    @media (max-width:720px){{ .research-grid, .research-actions{{ grid-template-columns:1fr; }} }}
     @media (min-width:768px) {{ .metric-grid {{ grid-template-columns:repeat(4,minmax(0,1fr)); }} .chart-svg {{ height:360px; }} }}
   </style>
   <script>
@@ -1010,6 +1049,98 @@ def render_html(result: Dict[str, Any]) -> str:
       const el = document.getElementById(id);
       if (el) el.scrollIntoView({{ behavior:'smooth', block:'start' }});
     }}
+
+    function getSavedWorkerUrl() {{
+      return (
+        localStorage.getItem("stock-hunter-worker-url-v4") ||
+        localStorage.getItem("stock-hunter-worker-url-v3") ||
+        localStorage.getItem("stock-hunter-worker-url-v2") ||
+        localStorage.getItem("stock-hunter-worker-url") ||
+        ""
+      );
+    }}
+
+    function goRunnerPage() {{
+      const code = (document.getElementById("reCode")?.value || "").trim();
+      const name = (document.getElementById("reName")?.value || "").trim();
+      const mode = (document.getElementById("reMode")?.value || "all").trim();
+
+      const url = new URL("./runner.html", location.href);
+      if (code) url.searchParams.set("code", code);
+      if (name) url.searchParams.set("name", name);
+      if (mode) url.searchParams.set("mode", mode);
+      location.href = url.toString();
+    }}
+
+    async function runFromResultPage() {{
+      const code = (document.getElementById("reCode")?.value || "").trim();
+      const name = (document.getElementById("reName")?.value || "").trim();
+      const mode = (document.getElementById("reMode")?.value || "all").trim();
+      const statusEl = document.getElementById("reStatus");
+
+      if (!code) {{
+        statusEl.textContent = "종목코드를 입력하세요.";
+        return;
+      }}
+
+      const workerUrl = String(getSavedWorkerUrl()).trim().replace(/\/+$/, "");
+      if (!workerUrl) {{
+        statusEl.textContent = "저장된 Worker URL이 없어 실행기 페이지로 이동합니다.";
+        goRunnerPage();
+        return;
+      }}
+
+      statusEl.textContent = "실행 요청 중...";
+
+      try {{
+        const resp = await fetch(workerUrl, {{
+          method: "POST",
+          headers: {{ "Content-Type": "application/json" }},
+          body: JSON.stringify({{
+            stock_code: code,
+            stock_name: name,
+            mode: mode
+          }})
+        }});
+
+        const data = await resp.json();
+
+        if (!(resp.ok && data.ok)) {{
+          statusEl.textContent = "실행 실패: 응답을 확인하세요.";
+          console.log(data);
+          return;
+        }}
+
+        if (data.html_url) {{
+          statusEl.textContent = "실행 성공. GitHub Actions 페이지를 엽니다.";
+          window.open(data.html_url, "_blank", "noopener");
+        }} else {{
+          statusEl.textContent = "실행 성공. run_id 탐색 중입니다.";
+        }}
+
+        const runnerUrl = new URL("./runner.html", location.href);
+        runnerUrl.searchParams.set("code", code);
+        if (name) runnerUrl.searchParams.set("name", name);
+        runnerUrl.searchParams.set("mode", mode);
+        setTimeout(() => {{
+          location.href = runnerUrl.toString();
+        }}, 700);
+
+      }} catch (err) {{
+        statusEl.textContent = "Worker 연결 실패: 실행기 페이지로 이동하세요.";
+        console.log(err);
+      }}
+    }}
+
+    document.addEventListener("DOMContentLoaded", () => {{
+      const reCode = document.getElementById("reCode");
+      const reName = document.getElementById("reName");
+      const reMode = document.getElementById("reMode");
+
+      if (reCode) reCode.value = "";
+      if (reName) reName.value = "";
+      if (reMode) reMode.value = "all";
+    }});
   </script>
 </head>
 <body>
@@ -1025,6 +1156,7 @@ def render_html(result: Dict[str, Any]) -> str:
       <div class="nav-row">{nav}</div>
   </div></div>
   <div class="app">
+    {research_panel}
     <section class="card"><div class="section-title">핵심 요약</div><p>{escape(result['summary'])}</p><p><strong>종합 코멘트</strong><br>{escape(result['smart_comment'])}</p></section>
     <section class="card"><div class="section-title">가격 구조 차트</div>{sparkline_svg(df)}</section>
     <section class="card"><div class="section-title">기본 수치</div><div class="metric-grid">{metric_cards}</div></section>
