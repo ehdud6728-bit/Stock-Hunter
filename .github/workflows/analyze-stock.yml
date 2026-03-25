@@ -58,7 +58,7 @@ jobs:
       - name: 📦 의존성 설치
         run: |
           pip install --upgrade pip
-          pip install pandas numpy yfinance pykrx finance-datareader beautifulsoup4 requests mplfinance ta openai anthropic gspread oauth2client scipy feedparser \
+          pip install pandas numpy yfinance pykrx finance-datareader beautifulsoup4 requests mplfinance ta openai anthropic gspread oauth2client scipy feedparser Jinja2 \
 
       - name: Run analyzer
         run: |
