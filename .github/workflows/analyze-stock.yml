@@ -63,7 +63,7 @@ jobs:
       - name: Run analyzer
         run: |
           mkdir -p site reports
-          python tools/analyze_single_stock.py \
+          python analyze_single_stock.py \
             --code "${{ inputs.stock_code }}" \
             --name "${{ inputs.stock_name }}" \
             --mode "${{ inputs.mode }}" \
