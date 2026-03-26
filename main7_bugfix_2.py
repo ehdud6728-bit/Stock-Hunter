@@ -3089,12 +3089,24 @@ def get_market_briefing(issues):
     except Exception as e: 
         return f"브리핑 생성 실패: {str(e)}"
 
+
+def _gemini_sections_complete(text: str) -> bool:
+    if not text or len(text.strip()) < 80:
+        return False
+    required = [
+        "🏆 [단타 1위]",
+        "🎯 [스윙 1위]",
+        "⚠️ [주의 종목]",
+        "💬 [오늘 장 한마디]",
+    ]
+    return all(x in text for x in required)
+
 def run_ai_tournament(candidate_list, issues):
     if candidate_list.empty:
         return "종목 후보가 없어 토너먼트를 취소합니다."
 
     candidate_list = candidate_list.sort_values(by='안전점수', ascending=False).head(15)
-    gemini_candidates = candidate_list.head(8).copy()
+    gemini_candidates = candidate_list.head(6).copy()
 
     def safe_int(x, default=0):
         try:
@@ -3131,8 +3143,8 @@ def run_ai_tournament(candidate_list, issues):
         f"- {row['종목명']}({row['code']}): 조합:{row.get('N조합','N/A')}, 수급:{row.get('수급',0)}, 이격:{safe_int(row.get('이격',0))}, 현재가:{safe_int(row.get('현재가',0))}, BB40:{safe_float(row.get('BB40',0)):.1f}, RSI:{safe_int(safe_float(row.get('RSI',0)))}"
         for _, row in gemini_candidates.iterrows()
     ])
-    _, gemini_user_prompt = get_tournament_prompt(gemini_prompt_data, comments)
-    gemini_user_prompt += "\n\n[중요 추가 지시]\n- 반드시 끝까지 완성해서 출력해.\n- 각 섹션은 핵심만 2~3줄로 짧고 압축적으로 작성해.\n- 전체 분량은 너무 길지 않게, 그러나 '단타 1위/스윙 1위/주의 종목/오늘 장 한마디' 4개 섹션은 모두 반드시 채워라."
+    gemini_system_prompt, gemini_user_prompt = get_tournament_prompt(gemini_prompt_data, comments)
+    gemini_user_prompt += "\n\n[Gemini 전용 강제 지시]\n- 응답 첫 줄은 반드시 '🏆 [단타 1위]'로 시작해.\n- 서론, 심사관 소개, 검토 과정 설명, 머리말을 절대 쓰지 마.\n- 4개 섹션을 반드시 모두 채워.\n- 각 섹션은 너무 짧지 않게 4~6줄로 작성해.\n- 선정 이유는 패턴 낭독이 아니라 자리의 의미, 수급, 이격, 리스크를 실제 판단처럼 설명해.\n- 답변이 중간에 끊기지 않도록 군더더기 없이 바로 결과만 써."
 
 
     # ── GPT 호출 (실패해도 계속)
@@ -3197,18 +3209,19 @@ def run_ai_tournament(candidate_list, issues):
 
             gem_body = {
                 "system_instruction": {
-                    "parts": [{"text": system_prompt}]
+                    "parts": [{"text": gemini_system_prompt}]
                 },
                 "contents": [{
                     "parts": [{"text": gemini_user_prompt}]
                 }],
                 "generationConfig": {
-                    "maxOutputTokens": 4000,
-                    "temperature": 0.5
+                    "maxOutputTokens": 8192,
+                    "temperature": 0.4,
+                    "candidateCount": 1
                 }
             }
 
-            res_gem = requests.post(gem_url, json=gem_body, timeout=60)
+            res_gem = requests.post(gem_url, json=gem_body, timeout=90)
 
             if res_gem.status_code == 200:
                 gem_data = res_gem.json()
@@ -3222,6 +3235,37 @@ def run_ai_tournament(candidate_list, issues):
                 if finish_reason == 'MAX_TOKENS':
                     log_error("⚠️ Gemini 출력이 MAX_TOKENS로 잘렸을 가능성 있음")
 
+                if (finish_reason == 'MAX_TOKENS') or (not _gemini_sections_complete(gemini_text)):
+                    log_error("⚠️ Gemini 응답이 불완전하여 재시도합니다")
+                    retry_candidates = candidate_list.head(4).copy()
+                    gemini_prompt_data2 = "\n".join([
+                        f"- {row['종목명']}({row['code']}): 조합:{row.get('N조합','N/A')}, 수급:{row.get('수급',0)}, 이격:{safe_int(row.get('이격',0))}, 현재가:{safe_int(row.get('현재가',0))}, BB40:{safe_float(row.get('BB40',0)):.1f}, RSI:{safe_int(safe_float(row.get('RSI',0)))}"
+                        for _, row in retry_candidates.iterrows()
+                    ])
+                    gemini_system_prompt2, gemini_user_prompt2 = get_tournament_prompt(gemini_prompt_data2, comments)
+                    gemini_user_prompt2 += "\n\n[Gemini 재시도 지시]\n- 이번에는 절대 서론 없이 바로 4개 섹션만 완성해.\n- 응답 첫 줄은 반드시 '🏆 [단타 1위]'로 시작해.\n- 단타/스윙/주의/오늘 장 한마디 4개를 모두 채워.\n- 각 섹션은 4~6줄로 충분히 설명하되 중간에 끊기지 마."
+
+                    gem_body2 = {
+                        "system_instruction": {
+                            "parts": [{"text": gemini_system_prompt2}]
+                        },
+                        "contents": [{
+                            "parts": [{"text": gemini_user_prompt2}]
+                        }],
+                        "generationConfig": {
+                            "maxOutputTokens": 8192,
+                            "temperature": 0.3,
+                            "candidateCount": 1
+                        }
+                    }
+
+                    res_gem_retry = requests.post(gem_url, json=gem_body2, timeout=90)
+                    if res_gem_retry.status_code == 200:
+                        gem_data_retry = res_gem_retry.json()
+                        gemini_text_retry = _extract_gemini_text(gem_data_retry)
+                        if _gemini_sections_complete(gemini_text_retry):
+                            gemini_text = gemini_text_retry
+
             elif res_gem.status_code == 429:
                 log_info("⚠️ Gemini 2.5-flash 쿼터 초과 → 2.0-flash 폴백 시도...")
                 try:
@@ -3229,7 +3273,7 @@ def run_ai_tournament(candidate_list, issues):
                         f"https://generativelanguage.googleapis.com/v1beta/models"
                         f"/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
                     )
-                    res_gem2 = requests.post(gem_url_fb, json=gem_body, timeout=60)
+                    res_gem2 = requests.post(gem_url_fb, json=gem_body, timeout=90)
 
                     if res_gem2.status_code == 200:
                         gem_data2 = res_gem2.json()
@@ -3384,7 +3428,7 @@ def get_ai_summary_batch(ai_candidates_df, issues=None, market_news=None):
     if market_news and isinstance(market_news, list):
         top_news = [str(n) for n in market_news[:5] if n]
         if top_news:
-            market_news_block = "\\n\\n## 오늘 시장 주요 뉴스\\n" + "\\n".join(f"- {n}" for n in top_news)
+            market_news_block = "\n\n## 오늘 시장 주요 뉴스\n" + "\n".join(f"- {n}" for n in top_news)
 
     # ✅ 깊이 확보를 위해 너무 많은 종목을 한 번에 넣지 않음
     work_df = ai_candidates_df.head(8).copy()
@@ -3407,6 +3451,8 @@ def get_ai_summary_batch(ai_candidates_df, issues=None, market_news=None):
 5. 확신이 없으면 관망이라고 말할 것
 6. 같은 문장 구조 반복 금지
 7. 각 종목의 첫 문장은 모두 다르게 시작할 것
+8. 종목당 너무 짧게 끝내지 말고 실제 판단 이유가 느껴지게 충분히 설명할 것
+9. 반드시 '지금 왜 볼 만한지'와 '지금 왜 망설여야 하는지'를 둘 다 말할 것
 
 오늘 시장 이슈:
 {comments}{market_news_block}
@@ -3418,12 +3464,12 @@ def get_ai_summary_batch(ai_candidates_df, issues=None, market_news=None):
 
 형식:
 [종목명(코드)]
-한 줄 결론:
-왜 지금 보는지:
-왜 지금 애매한지:
-진입 방식:
-무효화 조건:
-총평:
+한 줄 결론: 1~2문장
+왜 지금 보는지: 2~3문장
+왜 지금 애매한지: 2문장 이상
+진입 방식: 2문장 이상
+무효화 조건: 1~2문장
+총평: 1~2문장
 
 종목 패킷(JSON):
 {json.dumps(packets, ensure_ascii=False, indent=2)}
@@ -3433,13 +3479,14 @@ def get_ai_summary_batch(ai_candidates_df, issues=None, market_news=None):
 - 숫자 나열 금지
 - "좋다/나쁘다"보다 왜 그런지 말할 것
 - 손절가가 있으면 무효화 조건에 자연스럽게 반영할 것
+- 종목당 최소 7~9문장 분량으로 작성할 것
+- 너무 짧게 끊지 말고 실제 판단 이유를 충분히 붙일 것
 """
 
-    result = _call_ai(system_prompt, user_prompt, max_tokens=3200)
+    result = _call_ai(system_prompt, user_prompt, max_tokens=5200)
     if not result:
         return "브리핑 생성 중 오류가 발생했습니다."
     return result
-
 
 def get_ai_summary_batch_back(stock_lines: list, issues: list = None):
     comments = "특이 이슈 없음"
