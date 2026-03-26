@@ -1,0 +1,5578 @@
+#------------------------------------------------------------------
+# 💎 [Ultimate Masterpiece] 전천후 AI 전략 사령부 (All-In-One 통합판)
+# Ver 27.3 패치: FIX-1(TOP_N 700) FIX-2(거래대금이원화) FIX-3(소형주필터완화)
+#               FIX-4(S3상단1.15) FIX-5(급등초동COMBO) FIX-6(소형주추가스캔)
+# ------------------------------------------------------------------
+import json
+import FinanceDataReader as fdr
+import pandas as pd
+import numpy as np
+import requests
+import mplfinance as mpf
+import matplotlib.pyplot as plt
+import os, re, time, pytz
+from bs4 import BeautifulSoup
+from openai import OpenAI
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta
+from bs4 import BeautifulSoup 
+import pytz
+from tactics_engine import get_global_and_leader_status, analyze_all_narratives, get_dynamic_sector_leaders, calculate_dante_symmetry, watermelon_indicator_complete, judge_yeok_break_sequence_v2
+from triangle_combo_analyzer import jongbe_triangle_combo_v3
+import traceback
+from news_sentiment import get_news_sentiment
+from pykrx import stock
+import pandas as pd
+from datetime import datetime
+from auto_theme_news import analyze_market_issues
+from functools import lru_cache  # ✅ FIX 1: 캐시용
+from Watermelonchart import create_watermelon_charts_for_hits
+try: from openai import OpenAI
+except: OpenAI = None
+
+from google_sheet_manager import update_google_sheet, update_ai_briefing_sheet
+import io
+import warnings
+warnings.filterwarnings('ignore', category=FutureWarning)
+
+# scan_logger 없으면 print로 폴백
+try:
+    from scan_logger import set_log_level, log_hit, log_progress, log_error, log_info, log_debug
+    set_log_level('NORMAL')   # QUIET / NORMAL / VERBOSE  또는 env: SCAN_LOG_LEVEL=QUIET
+except ImportError:
+    def log_info(msg):  print(msg)
+    def log_error(msg): print(msg)
+    def log_debug(msg): pass
+    def log_hit(name, score, tags): print(f"🎯 {name} 포착! 점수:{score}")
+    def log_progress(done, total):
+        if done % 50 == 0: print(f"📊 진행: {done}/{total}")
+
+from news_keyword_engine import analyze_news_rule_based
+from news_event_engine import (
+    collect_market_news,
+    flatten_news_titles,
+    analyze_news_to_korea_theme,
+    apply_news_theme_bonus,
+    format_news_theme_for_telegram,
+)
+
+from us_kor_market_mapper import (
+    fetch_us_market_snapshot,
+    infer_kor_themes_rule_based,
+    analyze_us_to_kor_with_gpt,
+    merge_rule_and_gpt_us_mapping,
+    apply_us_theme_bonus,
+    format_us_mapping_for_telegram,
+)
+
+# =================================================
+# ⚙️ [1. 필수 설정]
+# =================================================
+TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN')
+CHAT_ID_LIST = os.environ.get('TELEGRAM_CHAT_ID', '').split(',')
+OPENAI_API_KEY    = os.environ.get('OPENAI_API_KEY')
+GROQ_API_KEY      = os.environ.get('GROQ_API_KEY')
+ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY', '')
+GEMINI_API_KEY    = os.environ.get('GEMINI_API_KEY', '')
+DART_API_KEY   = os.environ.get('DART_API_KEY', '')
+
+# DART 공시 모듈 (dart_disclosure.py 없으면 빈 결과 반환)
+try:
+    from dart_disclosure import enrich_with_disclosure
+    DART_ENABLED = bool(DART_API_KEY)
+except ImportError:
+    DART_ENABLED = False
+    def enrich_with_disclosure(hits, top_k=100):
+        return hits     
+
+TEST_MODE = False
+
+KST = pytz.timezone('Asia/Seoul')
+current_time = datetime.now(KST)
+NOW = current_time - timedelta(days=1) if current_time.hour < 8 else current_time
+TODAY_STR = NOW.strftime('%Y-%m-%d')
+
+REAL_HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+    'Referer': 'https://finance.naver.com/',
+    'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7'
+}
+
+RN_LIST = [500, 1000, 1500, 2000, 3000, 5000, 7500, 10000, 15000, 20000, 
+           30000, 50000, 75000, 100000, 150000, 200000, 300000, 500000, 
+           750000, 1000000, 1500000]
+
+SCAN_DAYS, TOP_N = 1, 700  # ✅ FIX: 소형주 커버리지 확대
+MIN_MARCAP  = 30_000_000_000   # ✅ FIX-3: 10억→300억 (시총 300억 미만 제외)
+MIN_PRICE   = 5_000            # ✅ FIX-3: 동전주 제외 (5,000원 미만)
+STOP_LOSS_PCT = -5.0
+WHALE_THRESHOLD = 50 
+
+START_DATE = (datetime.now() - timedelta(days=600)).strftime('%Y-%m-%d')
+END_DATE_STR = datetime.now().strftime('%Y%m%d')
+START_DATE_STR = (datetime.now() - timedelta(days=60)).strftime('%Y%m%d')
+
+RECENT_AVG_AMOUNT_1 = 150
+RECENT_AVG_AMOUNT_2 = 350
+ROSS_BAND_TOLERANCE = 1.03
+RSI_LOW_TOLERANCE   = 1.03
+
+log_info("📡 [Ver 27.22] 종가배팅 타점 신호 추가 (전고점+윗꼬리없음+거래량폭발+MA정배열)...")
+
+import sys
+import os
+import threading
+
+# ================================================================
+# ✅ 프로그램 정상 종료 패치
+# 아래 함수를 파일 상단 (import 아래)에 추가하고
+# main 블록 맨 마지막에 graceful_shutdown() 호출
+# ================================================================
+
+# =============================================================
+# 📰 _fetch_stock_news — 종목별 뉴스 조회 (견고한 버전)
+#
+# 문제였던 것:
+#   ① get_news_sentiment 내부에서 한글 종목명을 URL에 직접 붙일 때
+#      UTF-8 인코딩 안 되면 깨짐 → requests params= 로 넘겨야 함
+#   ② 네이버 금융 HTML 구조가 바뀌면 파싱 실패
+#   ③ euc-kr 인코딩 누락 시 한글 깨짐
+#
+# 해결:
+#   1순위: 기존 get_news_sentiment 호출
+#   2순위: 네이버 금융 코드 기반 직접 파싱 (코드 = 숫자라 인코딩 문제 없음)
+#   3순위: 네이버 뉴스 검색 (한글 종목명, params= 로 안전하게 전달)
+# =============================================================
+
+def _fetch_stock_news(code: str, name: str) -> str:
+    """
+    종목 코드 + 이름으로 뉴스 헤드라인 최대 3개 반환.
+    실패 시 빈 문자열 반환 (에러 전파 안 함).
+    """
+    if not code:
+        return ''
+
+    # ── 1순위: 기존 get_news_sentiment 모듈
+    try:
+        result = get_news_sentiment(code, name)
+        if result:
+            if isinstance(result, dict):
+                sentiment   = str(result.get('sentiment', ''))
+                titles      = result.get('titles', [])
+                if titles:
+                    return (f"{sentiment} | " if sentiment else '') +                            ' / '.join(str(t)[:30] for t in titles[:3])
+                return sentiment
+            elif isinstance(result, str) and result.strip():
+                return result.strip()[:150]
+    except Exception as e:
+        log_debug(f"📰 get_news_sentiment 실패({name}): {e}")
+
+    # ── 2순위: 네이버 금융 종목 뉴스 직접 파싱 (코드 기반 — 인코딩 안전)
+    try:
+        url  = f"https://finance.naver.com/item/news_news.naver?code={code}&page=1"
+        res  = requests.get(url, headers=REAL_HEADERS, timeout=5)
+        res.encoding = 'euc-kr'
+        soup = BeautifulSoup(res.text, 'html.parser')
+
+        # 여러 선택자 시도 (네이버 구조 변경 대응)
+        titles = []
+        for sel in ['td.title a', '.articleSubject a', '.news_tit', 'a.tit']:
+            items = soup.select(sel)
+            if items:
+                titles = [t.get_text(strip=True) for t in items if t.get_text(strip=True)][:3]
+                break
+
+        if titles:
+            log_debug(f"📰 [{name}] 네이버금융 뉴스 {len(titles)}건")
+            return ' / '.join(t[:30] for t in titles)
+    except Exception as e:
+        log_debug(f"📰 네이버금융 파싱 실패({name}): {e}")
+
+    # ── 3순위: 네이버 뉴스 검색 (한글 종목명 — params= 로 안전 전달)
+    try:
+        search_url = "https://search.naver.com/search.naver"
+        params     = {
+            'where': 'news',
+            'query': name,      # ← 한글을 params= 로 넘기면 requests가 자동 URL인코딩
+            'sort':  '1',       # 최신순
+            'ds':    '',
+            'de':    '',
+        }
+        res2 = requests.get(search_url, params=params, headers=REAL_HEADERS, timeout=5)
+        soup2 = BeautifulSoup(res2.text, 'html.parser')
+
+        titles2 = []
+        for sel in ['.news_tit', 'a.news_tit', '.api_txt_lines', '.title_link']:
+            items2 = soup2.select(sel)
+            if items2:
+                titles2 = [t.get_text(strip=True) for t in items2 if t.get_text(strip=True)][:3]
+                break
+
+        if titles2:
+            log_debug(f"📰 [{name}] 네이버검색 뉴스 {len(titles2)}건")
+            return ' / '.join(t[:30] for t in titles2)
+    except Exception as e:
+        log_debug(f"📰 네이버검색 실패({name}): {e}")
+
+    return ''
+
+
+def graceful_shutdown(exit_code=0):
+    """
+    모든 작업 완료 후 프로세스를 강제로 정리하고 종료.
+    백그라운드 스레드(requests/fdr/openai)가 남아있어도 강제 종료.
+    """
+    log_info("🔚 정상 종료 시작...")
+
+    # 1. 살아있는 비데몬 스레드 확인 (디버그용)
+    alive = [t for t in threading.enumerate() if t.is_alive() and not t.daemon and t != threading.main_thread()]
+    if alive:
+        log_error(f"⚠️ 잔여 스레드 {len(alive)}개 감지: {[t.name for t in alive]}")
+    else:
+        log_debug("✅ 잔여 스레드 없음")
+
+    log_info(f"✅ 종료 완료 (exit code: {exit_code})")
+
+    # 2. os._exit() → GC/atexit 무시하고 즉시 종료
+    #    sys.exit()는 백그라운드 스레드가 있으면 블로킹될 수 있어서
+    #    os._exit()를 사용
+    os._exit(exit_code)
+
+
+# ================================================================
+# ✅ ThreadPoolExecutor 타임아웃 래퍼
+# 기존 executor.map() 을 아래로 교체
+# 스레드가 무한 대기하는 것을 방지
+# ================================================================
+
+from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FuturesTimeoutError
+
+def run_scan_with_timeout(target_dict, weather_data, global_env, leader_env, sector_master_map, timeout_per_stock=10):  # PERF-5: 15→10초
+    """
+    기존:
+        with ThreadPoolExecutor(max_workers=15) as executor:
+            results = list(executor.map(lambda p: analyze_final(...), zip(...)))
+
+    교체: 종목당 최대 timeout_per_stock초 제한
+    전체 스캔이 멈추지 않도록 보장
+    """
+    all_hits = []
+    pairs = list(zip(target_dict.keys(), target_dict.values()))
+    total = len(pairs)
+
+    with ThreadPoolExecutor(max_workers=20) as executor:  # PERF-5: 15→20
+        future_map = {
+            executor.submit(
+                analyze_final,
+                code, name, weather_data, global_env, leader_env, sector_master_map
+            ): (code, name)
+            for code, name in pairs
+        }
+
+        done_count = 0
+        for future in as_completed(future_map, timeout=timeout_per_stock * total):
+            code, name = future_map[future]
+            done_count += 1
+            try:
+                result = future.result(timeout=timeout_per_stock)
+                if result:
+                    all_hits.extend(result)
+            except FuturesTimeoutError:
+                log_error(f"⏰ [{name}] 타임아웃 스킵")
+            except Exception as e:
+                log_error(f"🚨 [{name}] 오류: {e}")
+
+            log_progress(done_count, total)
+
+    return all_hits
+
+# ────────────────────────────────────────────────────────────────
+# ✅ NEW 1: 유가지수 추가 (WTI / 브렌트)
+# get_safe_macro() 재사용
+# ────────────────────────────────────────────────────────────────
+
+def get_oil_macro():
+    """WTI / 브렌트 유가 수집"""
+    m_wti   = get_safe_macro('CL=F',  'WTI유가')    # WTI 원유
+    m_brent = get_safe_macro('BZ=F',  '브렌트유가')  # 브렌트 원유
+    return m_wti, m_brent
+
+# main 블록에서 호출 위치 (m_fx 아래에 추가):
+# m_wti, m_brent = get_oil_macro()
+# print(f"🛢️ {m_wti['text']} | {m_brent['text']}")
+
+
+# ────────────────────────────────────────────────────────────────
+# ✅ NEW 2: 섹터 순환 탐지 시스템
+# 유가/달러/나스닥 수치 조합으로 현재 주도 섹터 판단
+# ────────────────────────────────────────────────────────────────
+
+# 섹터별 연관 지수 맵
+SECTOR_MACRO_MAP = {
+    "정유/화학": {
+        "triggers": [("oil", "up")],
+        "tickers": ["010950", "096770", "267250", "011170"],  # S-Oil, SK이노, HD현대오일뱅크, 롯데케미칼
+        "desc": "유가 상승 → 정유/화학 마진 개선"
+    },
+    "조선/해운": {
+        "triggers": [("oil", "up"), ("dollar", "up")],
+        "tickers": ["009540", "000720", "010140", "011200"],  # HD한국조선해양, 현대건설, 삼성중공업, HMM
+        "desc": "유가↑ + 달러↑ → 조선 수주 단가 상승"
+    },
+    "반도체": {
+        "triggers": [("nasdaq", "up"), ("dollar", "down")],
+        "tickers": ["005930", "000660", "042700"],  # 삼성전자, SK하이닉스, 한미반도체
+        "desc": "나스닥 강세 + 달러 약세 → 반도체 수출 유리"
+    },
+    "2차전지": {
+        "triggers": [("nasdaq", "up"), ("oil", "up")],
+        "tickers": ["373220", "051910", "006400"],  # LG에너지솔루션, LG화학, 삼성SDI
+        "desc": "유가↑ → EV 전환 가속 + 나스닥 성장주 동반"
+    },
+    "바이오": {
+        "triggers": [("vix", "down"), ("nasdaq", "up")],
+        "tickers": ["068270", "207940", "326030"],  # 셀트리온, 삼성바이오로직스, SK바이오팜
+        "desc": "VIX 안정 + 나스닥 강세 → 성장주 바이오 선호"
+    },
+    "금융/은행": {
+        "triggers": [("dollar", "up"), ("vix", "down")],
+        "tickers": ["105560", "055550", "086790"],  # KB금융, 신한지주, 하나금융지주
+        "desc": "달러 강세 + 시장 안정 → 금융주 선호"
+    },
+    "방산": {
+        "triggers": [("vix", "up"), ("dollar", "up")],
+        "tickers": ["012450", "047810", "064350"],  # 한화에어로스페이스, 한국항공우주, 현대로템
+        "desc": "지정학 리스크↑ → 방산 수혜"
+    },
+    "유틸리티/전력": {
+        "triggers": [("oil", "up"), ("vix", "up")],
+        "tickers": ["015760", "036460"],  # 한국전력, 한국가스공사
+        "desc": "유가↑ + 불안심리 → 방어주 유틸리티"
+    },
+}
+
+def detect_leading_sectors(m_ndx, m_sp5, m_vix, m_wti, m_fx):
+    """
+    매크로 지수 조합으로 현재 주도 섹터 판단.
+    각 섹터의 trigger 조건 충족 수로 순위 결정.
+    """
+    # 방향 판단
+    directions = {
+        "nasdaq": "up" if m_ndx.get("chg", 0) > 0 else "down",
+        "sp500":  "up" if m_sp5.get("chg", 0) > 0 else "down",
+        "vix":    "up" if m_vix.get("chg", 0) > 0 else "down",
+        "oil":    "up" if m_wti.get("chg", 0) > 0 else "down",
+        "dollar": "up" if m_fx.get("chg",  0) > 0 else "down",
+    }
+
+    # 변화 강도 (절대값 기준)
+    strengths = {
+        "nasdaq": abs(m_ndx.get("chg", 0)),
+        "oil":    abs(m_wti.get("chg", 0)),
+        "vix":    abs(m_vix.get("chg", 0)),
+        "dollar": abs(m_fx.get("chg",  0)),
+    }
+
+    results = []
+    for sector_name, info in SECTOR_MACRO_MAP.items():
+        match_count = sum(
+            1 for key, direction in info["triggers"]
+            if directions.get(key) == direction
+        )
+        total_triggers = len(info["triggers"])
+
+        # 강도 보너스: 트리거 지수의 변화폭이 클수록 점수 추가
+        strength_bonus = sum(
+    strengths.get(key, 0)
+    for key, expected_dir in info["triggers"]
+    if directions.get(key) == expected_dir   # ← 루프 변수 이름 통일
+)
+
+        results.append({
+            "sector":    sector_name,
+            "match":     match_count,
+            "total":     total_triggers,
+            "strength":  round(strength_bonus, 2),
+            "score":     match_count * 10 + strength_bonus,
+            "tickers":   info["tickers"],
+            "desc":      info["desc"],
+        })
+
+    # 점수 내림차순 정렬
+    results = sorted(results, key=lambda x: x["score"], reverse=True)
+    return results, directions
+
+
+def format_sector_rotation_report(sector_results, directions):
+    """섹터 순환 탐지 결과 텔레그램 메시지 포맷"""
+    dir_emoji = {
+        "nasdaq": "📈" if directions["nasdaq"] == "up" else "📉",
+        "oil":    "🛢️↑" if directions["oil"] == "up" else "🛢️↓",
+        "vix":    "😱" if directions["vix"] == "up" else "😌",
+        "dollar": "💵↑" if directions["dollar"] == "up" else "💵↓",
+    }
+
+    lines = [
+        "🔄 [섹터 순환 레이더]\n",
+        f"매크로: {dir_emoji['nasdaq']}나스닥 | {dir_emoji['oil']}유가 | "
+        f"{dir_emoji['vix']}VIX | {dir_emoji['dollar']}달러\n",
+        "─────────────────────",
+    ]
+
+    for i, s in enumerate(sector_results[:5], 1):  # 상위 5개만
+        bar = "🟢" * s["match"] + "⬜" * (s["total"] - s["match"])
+        lines.append(
+            f"{i}위 [{s['sector']}] {bar}\n"
+            f"   → {s['desc']}\n"
+            f"   관련주: {', '.join(s['tickers'][:3])}"
+        )
+
+    return "\n".join(lines)
+
+
+# ────────────────────────────────────────────────────────────────
+# ✅ NEW 3: 유가 연관 섹터 AI 브리핑
+# ────────────────────────────────────────────────────────────────
+
+def get_oil_sector_briefing(m_wti, m_brent, sector_results, issues):
+    """
+    유가 수준 + 섹터 순환 분석 결과를 AI에게 전달해
+    유가 관련 종목 투자 전략 브리핑 생성
+    """
+    comments = "특이 이슈 없음"
+    if issues:
+        comments = " | ".join([i.get("comment", "") for i in issues])
+
+    top_sectors = sector_results[:3]
+    sector_text = "\n".join([
+        f"- {s['sector']}: 트리거 {s['match']}/{s['total']}개 충족 | {s['desc']}"
+        for s in top_sectors
+    ])
+
+    system_prompt = """
+너는 글로벌 매크로와 한국 주식시장의 관계를 분석하는 섹터 전략가야.
+유가, 달러, 나스닥 흐름을 보고 오늘 한국 시장에서 어떤 섹터에 집중해야 할지 판단해.
+보수적 관점 유지, 확신 없으면 관망 권고.
+"""
+
+    user_prompt = f"""
+## 현재 유가 현황
+- WTI 원유: {m_wti.get('val', 'N/A')} ({m_wti.get('chg', 0):+.2f}%) → {m_wti.get('status', '')}
+- 브렌트유: {m_brent.get('val', 'N/A')} ({m_brent.get('chg', 0):+.2f}%) → {m_brent.get('status', '')}
+
+## 섹터 순환 탐지 결과 (상위 3개)
+{sector_text}
+
+## 오늘 이슈
+{comments}
+
+---
+다음 형식으로 브리핑해줘 (반말로):
+
+🛢️ [유가 영향 분석]
+- 현재 유가 흐름이 한국 시장에 미치는 영향 2줄
+
+🏆 [오늘 주도 섹터]
+- 1순위 섹터: 이유 한 줄
+- 2순위 섹터: 이유 한 줄
+
+📋 [섹터별 전략]
+- 공략 섹터: (구체적 이유)
+- 피할 섹터: (구체적 이유)
+
+⚡ [실전 체크포인트]
+- 오늘 장중 유가/달러 관련 체크할 것 2가지
+"""
+
+    try:
+        client = OpenAI(api_key=OPENAI_API_KEY)
+        res = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user",   "content": user_prompt}
+            ],
+            temperature=0.4
+        )
+        return res.choices[0].message.content.strip()
+    except Exception as e:
+        return f"유가 섹터 브리핑 실패: {e}"
+
+# =================================================
+# ✅ FIX 1: HTTP 요청 함수에 딕셔너리 캐시 적용
+# 종목당 2번 × 550종목 = 1,100번 요청 → 중복 요청 제거
+# =================================================
+_supply_cache = {}
+_financial_cache = {}
+
+def get_supply_and_money(code, price):
+    if code in _supply_cache:
+        return _supply_cache[code]
+    try:
+        url = f"https://finance.naver.com/item/frgn.naver?code={code}"
+        res = requests.get(url, headers=REAL_HEADERS, timeout=5)
+        res.encoding = 'euc-kr'
+        df = pd.read_html(res.text, match='날짜')[0].dropna().head(10)
+        
+        new_cols = ['_'.join(col) if isinstance(col, tuple) else col for col in df.columns]
+        df.columns = new_cols
+        
+        inst_col = next((c for c in df.columns if '기관' in c and '순매매' in c), None)
+        frgn_col = next((c for c in df.columns if '외국인' in c and '순매매' in c), None)
+        
+        inst_qty = [int(float(str(v).replace(',', ''))) for v in df[inst_col].values]
+        frgn_qty = [int(float(str(v).replace(',', ''))) for v in df[frgn_col].values]
+        
+        def get_streak(data):
+            c = 0
+            for v in data:
+                if v > 0: c += 1
+                else: break
+            return c
+            
+        i_s, f_s = get_streak(inst_qty), get_streak(frgn_qty)
+        inst_m = round((inst_qty[0] * price) / 100000000)
+        frgn_m = round((frgn_qty[0] * price) / 100000000)
+        total_m = abs(inst_m) + abs(frgn_m)
+        
+        twin_b = (inst_qty[0] > 0 and frgn_qty[0] > 0)
+        leader = "🤝쌍끌" if twin_b else ("🔴기관" if inst_m > frgn_m else "🔵외인")
+        
+        whale_streak = 0
+        for k in range(len(df)):
+            if (abs(inst_qty[k]) + abs(frgn_qty[k])) * price / 100000000 >= 10:
+                whale_streak += 1
+            else: break
+        
+        w_score = (total_m // 2) + (3 if whale_streak >= 3 else 0)
+        result = f"{leader}({i_s}/{f_s})", total_m, whale_streak, w_score, twin_b
+        _supply_cache[code] = result
+        return result
+    except: 
+        result = "⚠️오류", 0, 0, 0, False
+        _supply_cache[code] = result
+        return result
+
+def get_financial_health(code):
+    if code in _financial_cache:
+        return _financial_cache[code]
+    try:
+        url = f"https://finance.naver.com/item/main.naver?code={code}"
+        res = requests.get(url, headers=REAL_HEADERS, timeout=5)
+        dfs = pd.read_html(res.text)
+        df_fin = dfs[3]; df_fin.columns = df_fin.columns.get_level_values(1)
+        profit = str(df_fin.iloc[1, -2]).replace(',', '')
+        debt = str(df_fin.iloc[6, -2]).replace(',', '')
+        p_val = float(profit) if profit != 'nan' else 0
+        d_val = float(debt) if debt != 'nan' else 999
+        
+        f_score = (1 if p_val > 0 else 0) + (1 if d_val < 150 else 0)
+        tag = "S(우량)" if f_score == 2 else ("A(양호)" if f_score == 1 else "C(주의)")
+        result = tag, f_score
+        _financial_cache[code] = result
+        return result
+    except:
+        result = "N(미비)", 0
+        _financial_cache[code] = result
+        return result
+
+# =================================================
+# ✅ FIX 5: load_krx_listing_safe NameError 수정
+# except 블록에서 df_krx가 미정의 상태로 반환되던 버그
+# =================================================
+def load_krx_listing_safe():
+    """
+    KRX 전종목 리스트 로드.
+    우선순위: ① fdr.StockListing ② pykrx 당일 OHLCV 기반 ③ 빈 DataFrame
+
+    pykrx 당일 시세를 쓰면 Code/Name/Market/Amount/ChangeRate까지 한번에 확보.
+    """
+    # ① FDR (가장 풍부한 메타데이터)
+    try:
+        df = fdr.StockListing('KRX')
+        if df is not None and not df.empty and len(df) > 100:
+            log_info(f"✅ FDR StockListing 성공: {len(df)}개")
+            return df
+    except Exception as e:
+        log_info(f"⚠️ FDR 실패: {e}")
+
+    # ② pykrx 당일 OHLCV — Code/Name/Market/Amount 모두 포함
+    log_info("📡 pykrx 당일 시세로 종목 리스트 구성 중...")
+    try:
+        today = datetime.now().strftime('%Y%m%d')
+        dfs = []
+
+        for market in ['KOSPI', 'KOSDAQ']:
+            try:
+                df_m = stock.get_market_ohlcv(today, market=market)
+                if df_m is None or df_m.empty:
+                    continue
+
+                df_m = df_m.reset_index()
+                col_map = {}
+                for c in df_m.columns:
+                    cs = str(c).strip()
+                    if   cs in ('티커', 'Ticker', '종목코드'):        col_map[c] = 'Code'
+                    elif cs in ('시가', 'Open'):                      col_map[c] = 'Open'
+                    elif cs in ('고가', 'High'):                      col_map[c] = 'High'
+                    elif cs in ('저가', 'Low'):                       col_map[c] = 'Low'
+                    elif cs in ('종가', 'Close', '현재가'):           col_map[c] = 'Close'
+                    elif cs in ('거래량', 'Volume'):                  col_map[c] = 'Volume'
+                    elif cs in ('거래대금', 'Amount', 'Turnover'):    col_map[c] = 'Amount'
+                    elif cs in ('등락률', 'Change', 'ChangeRate'):    col_map[c] = 'ChangeRate'
+                df_m = df_m.rename(columns=col_map)
+
+                # 종목명 추가
+                tickers = df_m['Code'].tolist() if 'Code' in df_m.columns else []
+                name_map = {}
+                for t in tickers[:2000]:
+                    try:
+                        name_map[t] = stock.get_market_ticker_name(t)
+                    except Exception:
+                        name_map[t] = t
+                df_m['Name']   = df_m['Code'].map(name_map).fillna(df_m['Code'])
+                df_m['Market'] = market
+                dfs.append(df_m)
+                log_info(f"  {market}: {len(df_m)}개")
+            except Exception as e:
+                log_error(f"  {market} 실패: {e}")
+
+        if dfs:
+            result = pd.concat(dfs, ignore_index=True)
+            log_info(f"✅ pykrx 종목 구성 완료: {len(result)}개")
+            return result
+
+    except Exception as e:
+        log_error(f"🚨 pykrx 전체 실패: {e}")
+
+    # ③ 완전 실패
+    log_error("🚨 종목 리스트 로드 완전 실패 — 빈 DataFrame 반환")
+    return pd.DataFrame(columns=['Code', 'Name', 'Market'])
+
+
+def get_stock_sector(ticker, sector_map):
+    raw_sector = sector_map.get(ticker, "일반")
+    if any(k in raw_sector for k in ['반도체', 'IT부품', '장비']): 
+        return "반도체"
+    if any(k in raw_sector for k in ['제약', '바이오', '의료기기', '생물']): 
+        return "바이오"
+    if any(k in raw_sector for k in ['전기차', '배터리', '에너지', '축전지']): 
+        return "2차전지"
+    return "일반"
+
+def get_safe_macro(symbol, name):
+    try:
+        df = fdr.DataReader(symbol, start=(datetime.now() - timedelta(days=15)).strftime('%Y-%m-%d'))
+        curr, prev = df.iloc[-1]['Close'], df.iloc[-2]['Close']
+        ma5 = df['Close'].tail(5).mean()
+        chg = ((curr - prev) / prev) * 100
+        status = "☀️맑음" if curr > ma5 else "🌪️폭풍우"
+        if "VIX" in name: status = "☀️안정" if curr < ma5 else "🌪️위험"
+        return {"val": curr, "chg": chg, "status": status, "text": f"{name}: {curr:,.2f}({chg:+.2f}%) {status}"}
+    except: return {"status": "☁️불명", "text": f"{name}: 연결실패"}
+
+def get_index_investor_data(market_name):
+    try:
+        df = stock.get_market_net_purchases_of_equities(END_DATE_STR, END_DATE_STR, market_name)
+        if df.empty:
+            prev_day = (datetime.now() - timedelta(days=1)).strftime('%Y%m%d')
+            df = stock.get_market_net_purchases_of_equities(prev_day, prev_day, market_name)
+        total = df.sum()
+        return f"개인 {total['개인']:+,.0f} | 외인 {total['외국인']:+,.0f} | 기관 {total['기관합계']:+,.0f}"
+    except: return "데이터 수신 중..."
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 🎯 시퀀스 확인 통합함수
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+def judge_trade_with_sequence(df, signals):
+    seq_ok = judge_yeok_break_sequence_v2(df)
+    signals = signals.copy()
+    signals['yeok_break'] = seq_ok
+    result = calculate_combination_score(signals)
+    if seq_ok:
+        result['tags'].append('🧬시퀀스확인')
+    result['sequence'] = seq_ok
+    return result
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 🎯 조합 중심 점수 산정 시스템
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+COMBO_TABLE = [
+    # ✅ FIX-5b: 급등 초동 탐지 조합 (나무기술/휴림로봇 유형)
+    {
+        'grade': 'SSS', 'score': 580, 'type': '🚀',
+        'combination': '🚀거래량폭발초동돌파',
+        'tags': ['🚀거래량3배+', '📈BB40상단돌파', '📊OBV매집', '⚡초동포착'],
+        'cond': lambda e: e.get('surge_breakout', False),
+    },
+    {
+        'grade': 'GOD+', 'score': 10001, 'type': '🌌',
+        'combination': '🌌🔺💍독사삼각돌반지',
+        'tags': ['🔺꼭지임박', '🐍독사대가리', '💍200일돌파', '🍉수급폭발', '🚀역대급시그널'],
+        'cond': lambda e: (
+            e.get('triangle_signal') and
+            isinstance(e.get('triangle_apex'), (int,float)) and 0 <= e['triangle_apex'] <= 3 and
+            e.get('viper_hook') and e.get('Real_Viper_Hook') and e.get('watermelon_signal') and e.get('dolbanzi')
+        ),
+    },
+    {
+        'grade': 'GOD', 'score': 10000, 'type': '🌌',
+        'combination': '🌌🍉💍독사품은수박돌반지',
+        'tags': ['🚀대시세확정', '💥200일선폭파', '🐍단기개미털기완료', '🍉수급대폭발'],
+        'cond': lambda e: e.get('viper_hook') and e.get('dolbanzi') and e.get('watermelon_signal'),
+    },
+    {
+        'grade': 'SSS+', 'score': 999, 'type': '👑',
+        'combination': '👑🍉🐍수박품은독사(각성)',
+        'tags': ['🔥최종병기', '🧲OBV매집', '💥볼밴폭발(Kick)', '🍉속살폭발'],
+        'cond': lambda e: (
+            e.get('viper_hook') and e.get('watermelon_signal') and
+            e.get('watermelon_red') and e.get('obv_bullish') and
+            e.get('explosion_ready') and e.get('Real_Viper_Hook')
+        ),
+    },
+    {
+       'grade': 'SS', 'score': 460, 'type': '👑',
+       'combination': '🧲세력눌림목',
+       'tags': ['🧲세력눌림', '📉건강한조정', '📈재상승대기'],
+       'cond': lambda e: e.get('force_pullback'),
+   },
+   {
+        'grade': 'SSS', 'score': 520, 'type': '👑',
+        'combination': '🟣BB40 2차파동',
+        'tags': ['🟣BB40재안착', '🌊2차파동', '📈중기시동'],
+        'cond': lambda e: e.get('bb40_second_wave'),
+    },
+    {
+        'grade': 'SSS', 'score': 560, 'type': '👑',
+        'combination': '🍉수박재폭발',
+        'tags': ['🍉기존수박', '💥재폭발', '🚀2차시동'],
+        'cond': lambda e: e.get('watermelon_relaunch'),
+    },
+    {
+        'grade': 'SS', 'score': 470, 'type': '👑',
+        'combination': '📊OBV매집돌파',
+        'tags': ['📊OBV선행', '📦박스권', '🚀돌파'],
+        'cond': lambda e: e.get('obv_acc_breakout'),
+    },
+    {
+        'grade': 'SSS', 'score': 560, 'type': '👑',
+        'combination': '🚀📐🍉수렴돌파수박',
+        'tags': ['🚀폭발직전수렴', '🍉수박', '💥실전타점'],
+        'cond': lambda e: e.get('ma_break_ready') and e.get('watermelon_signal'),
+    },
+    {
+        'grade': 'SS', 'score': 500, 'type': '👑',
+        'combination': '🟣🍉BB40수박재안착',
+        'tags': ['🟣BB40재안착', '🍉수박', '📈실전핵심'],
+        'cond': lambda e: e.get('bb40_reclaim_rsi_div') and e.get('watermelon_signal'),
+    },
+    {
+        'grade': 'SS', 'score': 500, 'type': '👑',
+        'combination': '🚀📐🔺응축완성',
+        'tags': ['🚀폭발직전수렴', '🔺삼각수렴', '🔋응축완성'],
+        'cond': lambda e: e.get('ma_break_ready') and e.get('triangle_signal'),
+    },
+    {
+        'grade': 'SSS', 'score': 500, 'type': '👑',
+        'combination': '👑💍수박돌반지',
+        'tags': ['🍉수박전환', '💍돌반지완성', '🔥최종병기', '🚀대시세시작'],
+        'cond': lambda e: e.get('watermelon_signal') and e.get('dolbanzi'),
+        'score_fn': lambda e: 500 if e.get('dolbanzi_Count', 0) == 1 else 450,
+        'tag_fn':   lambda e: ['🥇최초의반지'] if e.get('dolbanzi_Count', 0) == 1 else [f"💍{e.get('dolbanzi_Count',0)}회차반지"],
+    },
+    {
+        'grade': 'SS', 'score': 490, 'type': '👑',
+        'combination': '📐🟣수렴재안착',
+        'tags': ['📐좋은수렴', '🟣BB40재안착', '📈중기매집'],
+        'cond': lambda e: e.get('good_ma_convergence') and e.get('bb40_reclaim_rsi_div'),
+    },
+    {
+        'grade': 'SSS', 'score': 480, 'type': '👑',
+        'combination': '🔺💍삼각꼭지돌반지',
+        'tags': ['🔺꼭지임박', '💍200일돌파', '💥에너지응축폭발'],
+        'cond': lambda e: (
+            e.get('triangle_signal') and
+            isinstance(e.get('triangle_apex'), (int,float)) and 0 <= e['triangle_apex'] <= 5 and
+            e.get('dolbanzi')
+        ),
+        'tag_fn': lambda e: [f"💍{e.get('dolbanzi_Count',0)}회차반지"],
+    },
+    {
+        'grade': 'SSS', 'score': 460, 'type': '👑',
+        'combination': '💛🔺🍉종베삼각수박',
+        'tags': ['💛MA방향확정', '🔺에너지응축', '🍉수급폭발', '🚀3박자완성'],
+        'cond': lambda e: e.get('jongbe_ok') and e.get('triangle_signal') and e.get('watermelon_signal'),
+    },
+    {
+        'grade': 'SS+', 'score': 480, 'type': '👑',
+        'combination': '🐍🍉일반수박독사',
+        'tags': ['🐍독사대가리', '🧲OBV매집', '🍉단기수급'],
+        'cond': lambda e: e.get('viper_hook') and e.get('watermelon_signal') and e.get('obv_bullish') and e.get('Real_Viper_Hook'),
+    },
+    {
+        'grade': 'SS+', 'score': 480, 'type': '👑',
+        'combination': '💛🐍🔺종베독사삼각',
+        'tags': ['💛MA전환', '🐍단기전환', '🔺중기응축', '⚡3중전환'],
+        'cond': lambda e: e.get('jongbe_ok') and e.get('viper_hook') and e.get('triangle_signal'),
+    },
+    {
+        'grade': 'SS+', 'score': 480, 'type': '👑',
+        'combination': '🕳️💛🔺골파기종베삼각',
+        'tags': ['🕳️가짜하락완료', '💛MA방향전환', '🔺에너지응축', '📈반등확정'],
+        'cond': lambda e: e.get('Golpagi_Trap') and e.get('jongbe_ok') and e.get('triangle_signal'),
+    },
+    {
+        'grade': 'SS', 'score': 480, 'type': '👑',
+        'combination': '💍돌반지단독',
+        'tags': ['💍돌반지완성', '⚡300%폭발', '👣쌍바닥확인'],
+        'cond': lambda e: e.get('dolbanzi'),
+        'score_fn': lambda e: {1: 510, 2: 480}.get(e.get('dolbanzi_Count', 0), 430),
+        'tag_fn':   lambda e: (['🔥GoldenEntry'] if e.get('dolbanzi_Count',0) == 1
+                               else ['📈추세지속'] if e.get('dolbanzi_Count',0) == 2
+                               else ['⚠️과열주의']),
+    },
+    {
+        'grade': 'SS', 'score': 480, 'type': '👑',
+        'combination': '🚀📐폭발직전수렴',
+        'tags': ['📐좋은수렴', '🚀돌파직전', '🔋BB수축'],
+        'cond': lambda e: e.get('ma_break_ready'),
+    },
+    {
+        'grade': 'SS', 'score': 470, 'type': '👑',
+        'combination': '🕳️🚀수박품은골파기',
+        'tags': ['🕳️가짜하락(개미털기)', '🧲OBV방어', '📈20일선탈환', '🍉단기수급폭발'],
+        'cond': lambda e: e.get('Golpagi_Trap') and e.get('watermelon_signal'),
+    },
+    {
+        'grade': 'S+', 'score': 440, 'type': '👑',
+        'combination': '🐍5-20독사훅',
+        'tags': ['🐍독사대가리', '📉개미털기완료', '📈기울기상승턴'],
+        'cond': lambda e: e.get('viper_hook') and e.get('Real_Viper_Hook'),
+    },
+    {
+        'grade': 'S+', 'score': 440, 'type': '👑',
+        'combination': '💎BB하단눌림목',
+        'tags': ['📉BB하단눌림목', '📈RSI-DIV'],
+        'cond': lambda e: e.get('bb_ross') and e.get('ris_div'),
+    },
+    {
+        'grade': 'SS', 'score': 470, 'type': '👑',
+        'combination': '🟣BB40재안착눌림목',
+        'tags': ['🟣BB40하단재안착', '📈RSI-DIV', '🏹중기눌림핵심'],
+        'cond': lambda e: e.get('bb40_reclaim_rsi_div'),
+    },
+    {
+        'grade': 'S+', 'score': 445, 'type': '👑',
+        'combination': '🟣BB40재안착',
+        'tags': ['🟣BB40하단재안착', '📉중기눌림목'],
+        'cond': lambda e: e.get('bb40_ross'),
+    },
+    {
+        'grade': 'S+', 'score': 435, 'type': '👑',
+        'combination': '🟣BB40 RSI-DIV',
+        'tags': ['🟣BB40구간', '📈RSI-DIV'],
+        'cond': lambda e: e.get('bb40_rsi_div'),
+    },
+    {
+        'grade': 'S', 'score': 350, 'type': '🗡',
+        'combination': '💎전설조합',
+        'tags': ['🍉수박전환', '💎폭발직전', '📍바닥권', '🤫조용한매집완전'],
+        'cond': lambda e: e.get('watermelon_signal') and e.get('explosion_ready') and e.get('bottom_area') and e.get('silent_perfect'),
+    },
+    {
+        'grade': 'S', 'score': 340, 'type': '🗡',
+        'combination': '🔺💎🍉삼각폭발수박',
+        'tags': ['🔺에너지응축', '💎BB수축', '🍉수급전환', '🚀폭발임박'],
+        'cond': lambda e: e.get('triangle_signal') and e.get('explosion_ready') and e.get('watermelon_signal'),
+    },
+    {
+        'grade': 'S', 'score': 330, 'type': '🗡',
+        'combination': '💛📍🔺종베바닥삼각',
+        'tags': ['💛MA전환', '📍바닥권확인', '🔺에너지응축', '🏆바닥반등확정'],
+        'cond': lambda e: e.get('jongbe_ok') and e.get('bottom_area') and e.get('triangle_signal'),
+    },
+    {
+        'grade': 'S', 'score': 320, 'type': '🛡',
+        'combination': '💎돌파골드',
+        'tags': ['🏆역매공파돌파', '🍉수박전환', '⚡거래량폭발'],
+        'cond': lambda e: e.get('yeok_break') and e.get('watermelon_signal') and e.get('volume_surge'),
+    },
+    {
+        'grade': 'S', 'score': 320, 'type': '🛡',
+        'combination': '🤫💛🔺침묵종베삼각',
+        'tags': ['🤫조용한매집완전', '💛MA전환', '🔺에너지응축', '💥침묵폭발'],
+        'cond': lambda e: e.get('silent_perfect') and e.get('jongbe_ok') and e.get('triangle_signal'),
+    },
+    {
+        'grade': 'S', 'score': 310, 'type': '🛡',
+        'combination': '💎매집완성',
+        'tags': ['🤫조용한매집완전', '🍉수박전환', '💎폭발직전'],
+        'cond': lambda e: e.get('silent_perfect') and e.get('watermelon_signal') and e.get('explosion_ready'),
+    },
+    {
+        'grade': 'S', 'score': 300, 'type': '🗡',
+        'combination': '💎바닥폭발',
+        'tags': ['📍바닥권', '💎폭발직전', '🍉수박전환'],
+        'cond': lambda e: e.get('bottom_area') and e.get('explosion_ready') and e.get('watermelon_signal'),
+    },
+    {
+        'grade': 'A', 'score': 280, 'type': '🛡',
+        'combination': '📐좋은수렴',
+        'tags': ['📐20/40/60수렴', '🧭기울기안정', '🔋응축'],
+        'cond': lambda e: e.get('good_ma_convergence'),
+    },
+    {
+        'grade': 'A', 'score': 280, 'type': '🗡',
+        'combination': '🔥수박폭발',
+        'tags': ['🍉수박전환', '💎폭발직전'],
+        'cond': lambda e: e.get('watermelon_signal') and e.get('watermelon_red') and e.get('explosion_ready'),
+    },
+    {
+        'grade': 'A', 'score': 275, 'type': '🛡',
+        'combination': '💛🔺종베삼각',
+        'tags': ['💛MA전환확인', '🔺삼각수렴'],
+        'cond': lambda e: e.get('jongbe_ok') and e.get('triangle_signal'),
+    },
+    # ✅ BUG-C FIX: jongbe_break 단독 (삼각수렴 없이 MA 골크만)
+    {
+        'grade': 'B', 'score': 240, 'type': '🛡',
+        'combination': '💛종베단독(MA골크)',
+        'tags': ['💛MA20/40골든크로스', '📈추세전환'],
+        'cond': lambda e: e.get('jongbe_break', False),
+    },
+    {
+        'grade': 'A', 'score': 265, 'type': '🛡',
+        'combination': '🔺🏆삼각역매공파',
+        'tags': ['🔺삼각수렴', '🏆역매공파돌파'],
+        'cond': lambda e: e.get('triangle_signal') and e.get('yeok_break'),
+    },
+    {
+        'grade': 'A', 'score': 260, 'type': '🛡',
+        'combination': '🔥돌파확인',
+        'tags': ['🏆역매공파돌파', '⚡거래량폭발'],
+        'cond': lambda e: e.get('yeok_break') and e.get('volume_surge'),
+    },
+    {
+        'grade': 'A', 'score': 250, 'type': '🛡',
+        'combination': '🔥조용폭발',
+        'tags': ['🤫조용한매집강', '💎폭발직전'],
+        'cond': lambda e: e.get('silent_strong') and e.get('explosion_ready'),
+    },
+    # ✅ 매집 강도 A(빈도×거래량) + 수박 — 최고 등급
+    {
+        'grade': 'SSS', 'score': 610, 'type': '💎',
+        'combination': '💎🍉초강력매집수박',
+        'tags': ['💎A급강도매집', '🍉수박전환', '🏦세력대량매집', '🚀폭발임박'],
+        'cond': lambda e: e.get('maejip_power_a') and e.get('watermelon_signal'),
+    },
+    # ✅ 매집대 품질 A등급 + 수박 조합 (진짜 세력 매집 확인)
+    {
+        'grade': 'SSS', 'score': 590, 'type': '💎',
+        'combination': '💎🍉진짜매집수박',
+        'tags': ['💎A급매집확인', '🍉수박전환', '🏦세력매집검증', '🚀폭발임박'],
+        'cond': lambda e: e.get('maejip_quality_a') and e.get('watermelon_signal'),  # A(강한매집) 10일 중 7일+
+    },
+    {
+        'grade': 'SS+', 'score': 510, 'type': '💎',
+        'combination': '💎🍉양호매집수박',
+        'tags': ['💎B급매집확인', '🍉수박전환', '📦매집품질양호'],
+        'cond': lambda e: e.get('maejip_quality_b') and e.get('watermelon_signal') and not e.get('maejip_quality_a'),  # B(매집중) 5~6일
+    },
+    {
+        'grade': 'SS', 'score': 470, 'type': '💎',
+        'combination': '💎매집진행중(수박대기)',
+        'tags': ['💎매집Score60', '🍉초록축적중', '📊OBV상승추세'],
+        # 오늘 매집 + 최근 3일 연속 + 수박 green 대기
+        'cond': lambda e: (e.get('maejip_score_now') == 60
+                          and e.get('maejip_recent3', 0) >= 2
+                          and e.get('watermelon_green_7d')
+                          and not e.get('watermelon_signal')),
+    },
+    # ✅ STEP3: BB30 Shift GC + 수박 조합 (단테 핵심 타점)
+    {
+        'grade': 'SSS', 'score': 600, 'type': '🎯',
+        'combination': '🎯🍉BB30시프트GC수박',
+        'tags': ['🎯과거저항돌파', '🍉수박전환', '💡저항→지지전환', '🚀단테타점'],
+        'cond': lambda e: e.get('bb30_shift_gc') and e.get('watermelon_signal'),
+    },
+    {
+        'grade': 'SS+', 'score': 520, 'type': '🎯',
+        'combination': '🎯🍉BB30시프트근접수박',
+        'tags': ['🎯과거저항근접', '🍉수박전환', '📍타점대기'],
+        'cond': lambda e: e.get('bb30_shift_near') and e.get('watermelon_signal'),
+    },
+    {
+        'grade': 'SS', 'score': 480, 'type': '🎯',
+        'combination': '🎯BB30시프트GC단독',
+        'tags': ['🎯과거저항돌파', '📈저항→지지전환', '⚡돌파확인'],
+        'cond': lambda e: e.get('bb30_shift_gc') and e.get('watermelon_red'),
+    },
+    {
+        'grade': 'B', 'score': 230, 'type': '🔍',
+        'combination': '📍수박단독',
+        'tags': ['🍉수박전환'],
+        'cond': lambda e: e.get('watermelon_signal') and e.get('watermelon_red'),
+    },
+    {
+        'grade': 'B', 'score': 210, 'type': '🔍',
+        'combination': '📍바닥단독',
+        'tags': ['📍바닥권'],
+        'cond': lambda e: e.get('bottom_area'),
+    },
+    # ✅ MISS-1: watermelon_green_7d 단독 조합 추가
+    {
+        'grade': 'B', 'score': 200, 'type': '🔍',
+        'combination': '🍉초록축적(수박직전)',
+        'tags': ['🍉초록10일축적', '📦수박직전대기'],
+        'cond': lambda e: e.get('watermelon_green_7d') and not e.get('watermelon_signal'),
+    },
+    # ✅ 종가배팅 타점 조합 (전고점+강봉+거래량)
+    {
+        'grade': 'SSS', 'score': 640, 'type': '🕯️',
+        'combination': '🕯️🍉종가배팅수박',
+        'tags': ['🕯️전고점강봉마감', '💥거래량2배폭발', '🍉수박전환', '📈종가배팅최강'],
+        'cond': lambda e: (
+            e.get('near_high20') and e.get('low_upper_wick') and
+            e.get('vol_2x') and e.get('bullish_close') and
+            e.get('watermelon_signal')
+        ),
+    },
+    {
+        'grade': 'SS+', 'score': 520, 'type': '🕯️',
+        'combination': '🕯️종가배팅완전체',
+        'tags': ['🕯️전고점강봉마감', '💥거래량2배폭발', '📈MA20위양봉', '✅7조건완전충족'],
+        'cond': lambda e: (
+            e.get('near_high20') and e.get('low_upper_wick') and
+            e.get('vol_2x') and e.get('bullish_close') and
+            e.get('disparity_ok') and e.get('above_ma20')
+        ),
+    },
+    {
+        'grade': 'SS', 'score': 460, 'type': '🕯️',
+        'combination': '🕯️종가배팅기본',
+        'tags': ['🕯️전고점강봉마감', '⚡거래량폭발', '📈양봉마감'],
+        'cond': lambda e: (
+            e.get('near_high20') and e.get('low_upper_wick') and
+            e.get('vol_2x') and e.get('bullish_close') and
+            not e.get('watermelon_signal')
+        ),
+    },
+    {
+        'grade': 'SS', 'score': 480, 'type': '🕯️',
+        'combination': '🕯️🧲종가배팅세력눌림',
+        'tags': ['🕯️전고점강봉마감', '🧲세력눌림목', '💥거래량폭발', '📈세력매집확인'],
+        'cond': lambda e: (
+            e.get('near_high20') and e.get('low_upper_wick') and
+            e.get('vol_2x') and e.get('force_pullback')
+        ),
+    },
+    # ✅ 피보나치 지지 + 수박 조합 (황금비율 타점)
+    {
+        'grade': 'SSS', 'score': 620, 'type': '🔢',
+        'combination': '🔢🍉피보나치38.2수박',
+        'tags': ['🔢Fib38.2%지지', '🍉수박전환', '📐황금비율타점', '🚀고신뢰진입'],
+        'cond': lambda e: e.get('fib_support_382') and e.get('watermelon_signal'),
+    },
+    {
+        'grade': 'SSS+', 'score': 650, 'type': '🔢',
+        'combination': '🔢🍉피보나치61.8수박',
+        'tags': ['🔢Fib61.8%강지지', '🍉수박전환', '📐황금비율최강타점', '🚀최고신뢰진입'],
+        'cond': lambda e: e.get('fib_support_618') and e.get('watermelon_signal'),
+    },
+    {
+        'grade': 'SS+', 'score': 500, 'type': '🔢',
+        'combination': '🔢피봇S1수박',
+        'tags': ['📐피봇S1지지', '🍉수박전환', '📊전일기반타점'],
+        'cond': lambda e: e.get('pivot_support') and e.get('watermelon_signal'),
+    },
+    {
+        'grade': 'SS', 'score': 460, 'type': '🔢',
+        'combination': '🔢피보나치38.2눌림',
+        'tags': ['🔢Fib38.2%지지', '📉눌림목', '📐황금비율지지확인'],
+        'cond': lambda e: e.get('fib_support_382') and e.get('obv_rising') and not e.get('watermelon_signal'),
+    },
+    {
+        'grade': 'SS', 'score': 480, 'type': '🔢',
+        'combination': '🔢피보나치61.8강지지',
+        'tags': ['🔢Fib61.8%강지지', '📊OBV방어', '🏆최강지지구간'],
+        'cond': lambda e: e.get('fib_support_618') and e.get('obv_rising'),
+    },
+    {
+        'grade': 'C', 'score': 170, 'type': None,
+        'combination': '📊OBV+MFI',
+        'tags': ['📊OBV', '💰MFI'],
+        'cond': lambda e: e.get('obv_rising') and e.get('mfi_strong'),
+    },
+    {
+        'grade': 'C', 'score': 155, 'type': None,
+        'combination': '⚡거래량+OBV',
+        'tags': ['⚡거래량', '📊OBV'],
+        'cond': lambda e: e.get('volume_surge') and e.get('obv_rising'),
+    },
+
+    # ════════════════════════════════════════════
+    # 🕯️ 종가배팅 조합 (전고점+윗꼬리없음+거래량폭발)
+    # ════════════════════════════════════════════
+    {
+        'grade': 'SSS', 'score': 630, 'type': '🕯️',
+        'combination': '🕯️🍉종가배팅A급(수박동반)',
+        'tags': ['🕯️강봉마감', '📈전고점돌파직전', '💥거래량2배', '🍉수박동반', '🏆최강종가타점'],
+        'cond': lambda e: e.get('closing_bet') and e.get('closing_bet_grade') == 'A',
+    },
+    {
+        'grade': 'SS+', 'score': 530, 'type': '🕯️',
+        'combination': '🕯️종가배팅B급(OBV확인)',
+        'tags': ['🕯️강봉마감', '📈전고점돌파직전', '💥거래량2배', '📊OBV상승', '✅종가타점'],
+        'cond': lambda e: e.get('closing_bet') and e.get('closing_bet_grade') == 'B',
+    },
+    {
+        'grade': 'SS', 'score': 440, 'type': '🕯️',
+        'combination': '🕯️종가배팅C급(기본충족)',
+        'tags': ['🕯️강봉마감', '📈전고점권진입', '⚡거래량1.5배', '📋종가참고'],
+        'cond': lambda e: e.get('closing_bet') and e.get('closing_bet_grade') == 'C',
+    },
+]
+
+def calculate_combination_score(signals):
+    effective = signals.copy()
+    if effective.get('silent_perfect'):
+        effective['silent_strong'] = True
+
+    style = effective.get('style', 'NONE')
+    W     = STYLE_WEIGHTS.get(style, STYLE_WEIGHTS['NONE'])
+
+    matched = []
+    for combo in COMBO_TABLE:
+        try:
+            if not combo['cond'](effective):
+                continue
+        except Exception:
+            continue
+
+        base_score = combo['score_fn'](effective) if 'score_fn' in combo else combo['score']
+        extra_tags = combo['tag_fn'](effective)   if 'tag_fn'  in combo else []
+
+        matched.append({
+            'score':       base_score,
+            'grade':       combo['grade'],
+            'combination': combo['combination'],
+            'tags':        combo['tags'] + extra_tags,
+            'type':        combo['type'],
+        })
+
+    if matched:
+        best = max(matched, key=lambda x: x['score'])
+        best['score'] = _apply_style_bonus(best, style, W)
+        return best
+
+    tags, bonus = [], 0
+    if effective.get('obv_rising'):   bonus += 30; tags.append('📊OBV')
+    if effective.get('mfi_strong'):   bonus += 20; tags.append('💰MFI')
+    if effective.get('volume_surge'): bonus += 10; tags.append('⚡거래량')
+
+    return {'score': 100 + bonus, 'grade': 'D', 'combination': '🔍기본', 'tags': tags, 'type': None}
+
+def _apply_style_bonus(best, style, W):
+    score = best['score']
+    if style == 'SWING':
+        if any(k in best['combination'] for k in ['폭발', '바닥', '매집', '수렴']):
+            score += 30
+    elif style == 'SCALP':
+        if any(k in best['combination'] for k in ['수박', '돌파', '거래량', '골파기']):
+            score += 30
+        if any(k in best['combination'] for k in ['바닥', '매집완성']):
+            score -= 20
+    return score
+
+def check_ross(curr: pd.Series, past: pd.DataFrame):
+    if past.empty or past['BB_LOW'].isna().all():
+        return False, "과거 데이터 부족"
+    bb_low = past['BB_LOW']
+    outside_mask = past['Low'] < bb_low
+    if not outside_mask.any():
+        return False, "1차 저점 없음"
+    first_idx = outside_mask.values.argmax()
+    after_first = past.iloc[first_idx + 1:]
+    rebound = (after_first['Close'] > after_first['BB_LOW']).any()
+    near_band = curr['Low'] <= curr['BB_LOW'] * ROSS_BAND_TOLERANCE
+    close_above = curr['Close'] > curr['BB_LOW']
+    passed = rebound and near_band and close_above
+    return passed, f"반등:{rebound}, 저가밴드근접:{near_band}, 종가밴드위:{close_above}"
+
+def check_rsi_div(curr: pd.Series, past: pd.DataFrame):
+    if past['RSI'].isna().all() or pd.isna(curr['RSI']):
+        return False, "RSI 데이터 부족"
+    min_price_past = past['Low'].min()
+    min_rsi_past = past['RSI'].min()
+    price_similar = curr['Low'] <= min_price_past * RSI_LOW_TOLERANCE
+    rsi_higher = curr['RSI'] > min_rsi_past
+    return price_similar and rsi_higher, f"주가저점:{curr['Low']:.0f}(과거:{min_price_past:.0f}), RSI:{curr['RSI']:.1f}(과거:{min_rsi_past:.1f})"
+
+def check_bb40_ross(curr: pd.Series, past: pd.DataFrame):
+    """
+    BB40 하단 이탈 후 재안착 판단
+    - 과거 구간에서 BB40_Lower 하향 이탈이 있었는지
+    - 이후 다시 BB40_Lower 위로 복귀한 적이 있는지
+    - 현재봉이 BB40_Lower 근처에서 종가 기준 위에 안착했는지
+    """
+    if past.empty or 'BB40_Lower' not in past.columns or past['BB40_Lower'].isna().all():
+        return False, "BB40 데이터 부족"
+
+    bb40_low = past['BB40_Lower']
+    outside_mask = past['Low'] < bb40_low
+
+    if not outside_mask.any():
+        return False, "BB40 1차 저점 없음"
+
+    first_idx = outside_mask.values.argmax()
+    after_first = past.iloc[first_idx + 1:]
+
+    if after_first.empty:
+        return False, "BB40 반등 확인 구간 부족"
+
+    rebound = (after_first['Close'] > after_first['BB40_Lower']).any()
+    near_band = curr['Low'] <= curr['BB40_Lower'] * ROSS_BAND_TOLERANCE
+    close_above = curr['Close'] > curr['BB40_Lower']
+
+    passed = rebound and near_band and close_above
+    return passed, f"BB40반등:{rebound}, 저가밴드근접:{near_band}, 종가밴드위:{close_above}"
+
+
+def check_bb40_rsi_div(curr: pd.Series, past: pd.DataFrame):
+    """
+    BB40 관점 RSI 다이버전스
+    - 과거 BB40 하단 이탈 봉들만 후보로 봄
+    - 현재 저점이 과거 저점 부근이거나 더 낮고
+    - RSI는 과거보다 높으면 다이버전스로 판단
+    """
+    if past.empty or 'BB40_Lower' not in past.columns or past['RSI'].isna().all() or pd.isna(curr['RSI']):
+        return False, "RSI 데이터 부족"
+
+    bb40_break_df = past[past['Low'] < past['BB40_Lower']].copy()
+
+    if bb40_break_df.empty:
+        return False, "BB40 하단 이탈 이력 없음"
+
+    min_price_idx = bb40_break_df['Low'].idxmin()
+    min_price_past = bb40_break_df.loc[min_price_idx, 'Low']
+    min_rsi_past = bb40_break_df.loc[min_price_idx, 'RSI']
+
+    if pd.isna(min_rsi_past):
+        min_rsi_past = bb40_break_df['RSI'].min()
+
+    price_similar = curr['Low'] <= min_price_past * RSI_LOW_TOLERANCE
+    rsi_higher = curr['RSI'] > min_rsi_past
+
+    passed = price_similar and rsi_higher
+    return passed, f"BB40저점:{curr['Low']:.0f}(과거:{min_price_past:.0f}), RSI:{curr['RSI']:.1f}(과거:{min_rsi_past:.1f})"
+
+
+def check_bb40_reclaim_rsi_div(curr: pd.Series, past: pd.DataFrame):
+    """
+    최종 결합형:
+    BB40 하단 이탈 후 재안착 + RSI DIV
+    """
+    bb40_ross, ross_msg = check_bb40_ross(curr, past)
+    bb40_div, div_msg = check_bb40_rsi_div(curr, past)
+
+    passed = bb40_ross and bb40_div
+    return passed, f"[BB40_Ross] {ross_msg} | [BB40_RSI_DIV] {div_msg}"
+
+def check_good_ma_convergence(curr: pd.Series, past: pd.DataFrame):
+    """
+    좋은 MA 수렴:
+    1. MA20/40/60 서로 가깝다
+    2. MA20/40 기울기가 꺾이지 않음
+    3. 종가가 수렴대 너무 아래에 있지 않음
+    4. BB40 수축 동반
+    """
+    try:
+        ma20 = curr['MA20']
+        ma40 = curr['MA40']
+        ma60 = curr['MA60']
+
+        if pd.isna(ma20) or pd.isna(ma40) or pd.isna(ma60):
+            return False, {"score": 0, "msg": "MA 데이터 부족"}
+
+        gap_20_40 = abs(ma20 - ma40) / (ma40 + 1e-9)
+        gap_40_60 = abs(ma40 - ma60) / (ma60 + 1e-9)
+        gap_20_60 = abs(ma20 - ma60) / (ma60 + 1e-9)
+        cond_gap = (gap_20_40 <= 0.025) and (gap_40_60 <= 0.025) and (gap_20_60 <= 0.035)
+
+        if len(past) >= 5:
+            ma20_prev = past['MA20'].iloc[-5]
+            ma40_prev = past['MA40'].iloc[-5]
+        else:
+            ma20_prev, ma40_prev = ma20, ma40
+
+        ma20_slope = (ma20 - ma20_prev) / (ma20_prev + 1e-9)
+        ma40_slope = (ma40 - ma40_prev) / (ma40_prev + 1e-9)
+        cond_slope = (ma20_slope >= -0.003) and (ma40_slope >= -0.003)
+
+        close = curr['Close']
+        convergence_bottom = min(ma20, ma40, ma60)
+        convergence_top = max(ma20, ma40, ma60)
+
+        cond_price_zone = close >= convergence_bottom * 0.98
+        cond_not_too_far = close <= convergence_top * 1.06
+
+        bb40_width = curr['BB40_Width'] if 'BB40_Width' in curr.index else 999
+        cond_bb_squeeze = bb40_width <= 14
+
+        score = 0
+        if cond_gap:
+            score += 35
+        if cond_slope:
+            score += 20
+        if cond_price_zone:
+            score += 15
+        if cond_not_too_far:
+            score += 10
+        if cond_bb_squeeze:
+            score += 20
+        if bb40_width <= 10:
+            score += 10
+
+        passed = cond_gap and cond_slope and cond_price_zone and cond_not_too_far and cond_bb_squeeze
+
+        msg = (
+            f"gap20_40:{gap_20_40:.3f} gap40_60:{gap_40_60:.3f} gap20_60:{gap_20_60:.3f} | "
+            f"ma20기울기:{ma20_slope:+.4f} ma40기울기:{ma40_slope:+.4f} | "
+            f"종가:{close:.0f} 수렴하단:{convergence_bottom:.0f} 수렴상단:{convergence_top:.0f} | "
+            f"BB40:{bb40_width:.1f}"
+        )
+
+        return passed, {"score": score, "msg": msg}
+
+    except Exception as e:
+        return False, {"score": 0, "msg": f"오류:{e}"}
+
+def check_ma_convergence_break_ready(curr: pd.Series, past: pd.DataFrame):
+    """
+    폭발직전 수렴:
+    1. 좋은 수렴이 이미 형성
+    2. 종가가 수렴대 상단 근처 또는 그 위
+    3. BB40 수축이 유지
+    4. 거래량이 너무 죽지 않음
+    """
+    try:
+        good_conv, good_info = check_good_ma_convergence(curr, past)
+
+        ma20 = curr['MA20']
+        ma40 = curr['MA40']
+        ma60 = curr['MA60']
+        close = curr['Close']
+        volume = curr['Volume']
+        vol_avg = curr['Vol_Avg']
+
+        convergence_top = max(ma20, ma40, ma60)
+
+        cond_price_break_ready = close >= convergence_top * 0.995
+        cond_not_overheat = close <= convergence_top * 1.05
+
+        bb40_width = curr['BB40_Width'] if 'BB40_Width' in curr.index else 999
+        cond_bb_squeeze = bb40_width <= 12
+
+        cond_volume_alive = volume >= vol_avg * 0.8
+
+        score = 0
+        if good_conv:
+            score += int(good_info.get("score", 0) * 0.5)
+        if cond_price_break_ready:
+            score += 25
+        if cond_not_overheat:
+            score += 10
+        if cond_bb_squeeze:
+            score += 20
+        if cond_volume_alive:
+            score += 10
+        if bb40_width <= 8:
+            score += 10
+
+        passed = good_conv and cond_price_break_ready and cond_not_overheat and cond_bb_squeeze
+
+        msg = (
+            f"좋은수렴:{good_conv} | "
+            f"종가:{close:.0f} 수렴상단:{convergence_top:.0f} | "
+            f"돌파준비:{cond_price_break_ready} 과열아님:{cond_not_overheat} | "
+            f"BB40:{bb40_width:.1f} 거래량유지:{cond_volume_alive}"
+        )
+
+        return passed, {"score": score, "msg": msg}
+
+    except Exception as e:
+        return False, {"score": 0, "msg": f"오류:{e}"}
+
+# ---------------------------------------------------------
+# 📈 [4] 기술적 분석 지표
+# ---------------------------------------------------------
+
+def _conv3_series(a: pd.Series, b: pd.Series, c: pd.Series) -> pd.Series:
+    mx = pd.concat([a, b, c], axis=1).max(axis=1)
+    mn = pd.concat([a, b, c], axis=1).min(axis=1)
+    return ((mx - mn) / mx.replace(0, np.nan) * 100).round(2)
+
+def build_ma_convergence_comment_from_row(row) -> str:
+    ultra   = bool(row.get('Is_UltraShort_MA_Conv', False))      # 5/10/20
+    short   = bool(row.get('Is_Short_MA_Conv', False))           # 5/20/60
+    struct  = bool(row.get('Is_Structure_MA_Conv', False))       # 20/60/112
+    bridge  = bool(row.get('Is_Bridge_MA_Conv', False))          # 5/20/112
+    link    = bool(row.get('Is_Structure_Link_MA_Conv', False))  # 5/60/112
+    super_m = bool(row.get('Is_Super_MA_Conv', False))
+
+    if super_m:
+        return "초단기·단기·구조 흐름이 동시에 압축된 초강력 응축 구간"
+    if ultra and short:
+        return "초단기와 단기 이평이 함께 조여져 단기 발사 가능성이 높은 구간"
+    if struct and not short:
+        return "20/60/112 구조 수렴으로 중기 바닥 구조가 정리되는 준비형 구간"
+    if bridge:
+        return "MA5가 MA20/112로 붙는 브릿지 수렴, 구조선 재합류 초입"
+    if link:
+        return "MA5가 MA60/112 구조선으로 접히는 초기 구조 회복형 수렴"
+    if ultra:
+        return "5/10/20 초단기 응축으로 독사·종가배팅형 단기 탄력 구간"
+    if short:
+        return "5/20/60 단기 수렴으로 돌파 직전 정돈된 응축 구간"
+    return "뚜렷한 MA 응축은 아님"
+
+def get_indicators(df):
+    # PERF-1: df.copy() 제거 — analyze_final에서 이미 복사본 전달
+    count = len(df)
+
+    recent_avg_amount = (df['Close'] * df['Volume']).tail(5).mean() / 100_000_000
+    ma20_amount       = (df['Close'] * df['Volume']).tail(20).mean() / 100_000_000
+
+    # ✅ FIX-A: 거래대금 필터 이원화 (Ver 27.4)
+    # 트랙 A — 안정형: 최근5일 150억+ (또는 350억+)
+    track_a = (
+        (recent_avg_amount >= RECENT_AVG_AMOUNT_1 and recent_avg_amount >= ma20_amount * 1.5)
+        or recent_avg_amount >= RECENT_AVG_AMOUNT_2
+    )
+    # 트랙 B — 급등 초동형 (나무기술/소형 급등주 포착)
+    #   조건: 당일 거래량 3배+ AND 당일 거래대금 10억+
+    #   (소형주 1,400원 × 70만주 = 9.8억 → 10억 기준)
+    last_vol    = df['Volume'].iloc[-1]
+    last_close  = df['Close'].iloc[-1]
+    last_amount = (last_vol * last_close) / 100_000_000
+    vol_ma20_v  = df['Volume'].tail(20).mean()
+    track_b = (
+        last_amount >= 10 and
+        vol_ma20_v > 0 and
+        last_vol >= vol_ma20_v * 3.0
+    )
+    if not (track_a or track_b):
+        return None
+    # 트랙 기록 (boolean 컬럼 — iloc로 안전하게 접근)
+    df['_is_track_b'] = (not track_a) and track_b
+
+    high  = df['High']
+    low   = df['Low']
+    close = df['Close']
+
+    for n in [5, 10, 20, 40, 60, 112, 224, 448]:
+        df[f'MA{n}']    = close.rolling(window=min(count, n)).mean()
+        df[f'VMA{n}']   = df['Volume'].rolling(window=min(count, n)).mean()
+        df[f'Slope{n}'] = (df[f'MA{n}'] - df[f'MA{n}'].shift(3)) / df[f'MA{n}'].shift(3) * 100
+
+    # PERF-4: Slope20/40은 이미 Slope 루프에서 계산됨 → 재활용
+    df['MA20_slope'] = df['Slope20']
+    df['MA40_slope'] = df['Slope40']
+
+    std20 = close.rolling(20).std()
+    std40 = close.rolling(40).std()
+
+    df['BB_Upper']      = df['MA20'] + std20 * 2
+    df['BB_Lower']      = df['MA20'] - std20 * 2
+    df['BB20_Width']    = std20 * 4 / df['MA20'] * 100
+    df['BB40_Upper']    = df['MA40'] + std40 * 2
+    df['BB40_Lower']    = df['MA40'] - std40 * 2
+    df['BB40_Width']    = std40 * 4 / df['MA40'] * 100
+    df['BB40_PercentB'] = (close - df['BB40_Lower']) / (df['BB40_Upper'] - df['BB40_Lower'])
+    df['BB_UP']  = df['BB40_Upper']
+    df['BB_LOW'] = df['BB_Lower']
+
+    # ✅ SHIFT(BBandsUp(30,1.8), 20) — 단테 수박 골든크로스 타점
+    # 30일 MA + 1.8σ 상단을 20봉 뒤로 시프트
+    # 의미: "20일 전 과열 저항선" → 현재가가 이 선을 하→상 돌파 시 저항→지지 전환 확정
+    std30              = close.rolling(30).std()
+    df['BB30_Upper_18']       = close.rolling(30).mean() + std30 * 1.8
+    df['BB30_Upper_18_Shift'] = df['BB30_Upper_18'].shift(20)   # SHIFT(..., 20)
+    # 골든크로스: 전일 종가≤Shift선, 당일 종가>Shift선
+    prev_close = close.shift(1)
+    df['BB30_Shift_GC'] = (
+        (prev_close <= df['BB30_Upper_18_Shift']) &
+        (close      >  df['BB30_Upper_18_Shift'])
+    )
+    # 근접 여부: Shift선 ±3% 이내 (타점 진입 구간)
+    df['BB30_Shift_Near'] = (
+        (close >= df['BB30_Upper_18_Shift'] * 0.97) &
+        (close <= df['BB30_Upper_18_Shift'] * 1.05)
+    )
+
+    df['Disparity']      = (close / df['MA20']) * 100
+    df['MA_Convergence'] = abs(df['MA20'] - df['MA60']) / df['MA60'] * 100
+
+    # ── 신규 다층 MA수렴 ────────────────────────────────────────
+    df['MAConv_5_10_20']   = _conv3_series(df['MA5'],  df['MA10'], df['MA20'])   # 초단기
+    df['MAConv_5_20_60']   = _conv3_series(df['MA5'],  df['MA20'], df['MA60'])   # 단기
+    df['MAConv_20_60_112'] = _conv3_series(df['MA20'], df['MA60'], df['MA112'])  # 구조
+    df['MAConv_5_20_112']  = _conv3_series(df['MA5'],  df['MA20'], df['MA112'])  # 브릿지
+    df['MAConv_5_60_112']  = _conv3_series(df['MA5'],  df['MA60'], df['MA112'])  # 구조접속
+
+    df['Is_UltraShort_MA_Conv']      = df['MAConv_5_10_20']   <= 3.5
+    df['Is_Short_MA_Conv']           = df['MAConv_5_20_60']   <= 4.5
+    df['Is_Structure_MA_Conv']       = df['MAConv_20_60_112'] <= 8.0
+    df['Is_Bridge_MA_Conv']          = df['MAConv_5_20_112']  <= 5.5
+    df['Is_Structure_Link_MA_Conv']  = df['MAConv_5_60_112']  <= 6.5
+    df['Is_Super_MA_Conv']           = df['Is_Short_MA_Conv'] & df['Is_Structure_MA_Conv']
+
+    # ── 전고점 대비 이격 (종가배팅 타점용)
+    df['High20']         = df['High'].rolling(20).max()
+    df['High52']         = df['High'].rolling(252).max()
+    df['NearHigh20_Pct'] = (close / df['High20'] * 100).round(1)
+    df['NearHigh52_Pct'] = (close / df['High52'] * 100).round(1)
+
+    # ✅ DataFrame 단편화 해소 (PerformanceWarning 방지)
+    # 93개 컬럼을 개별 삽입하면 메모리 단편화 발생
+    # → copy()로 한 번에 재구성
+    df = df.copy()
+    df['Box_Range']      = high.rolling(10).max() / low.rolling(10).min()
+
+    tr = pd.concat([
+        high - low,
+        abs(high - close.shift(1)),
+        abs(low  - close.shift(1))
+    ], axis=1).max(axis=1)
+
+    dm_plus  = (high - high.shift(1)).clip(lower=0)
+    dm_minus = (low.shift(1) - low).clip(lower=0)
+    tr14     = tr.rolling(14).sum()
+
+    df['pDI'] = dm_plus.rolling(14).sum()  / tr14 * 100
+    df['mDI'] = dm_minus.rolling(14).sum() / tr14 * 100
+    df['ADX'] = ((abs(df['pDI'] - df['mDI']) / (df['pDI'] + df['mDI'])) * 100).rolling(14).mean()
+
+    df['ATR']            = tr.rolling(14).mean()
+    df['ATR_MA20']       = df['ATR'].rolling(20).mean()
+    df['ATR_Below_MA']   = (df['ATR'] < df['ATR_MA20']).astype(int)
+    df['ATR_Below_Days'] = df['ATR_Below_MA'].rolling(10).sum()
+
+    df['Tenkan_sen'] = (high.rolling(9).max()  + low.rolling(9).min())  / 2
+    df['Kijun_sen']  = (high.rolling(26).max() + low.rolling(26).min()) / 2
+    df['Span_A']     = ((df['Tenkan_sen'] + df['Kijun_sen']) / 2).shift(26)
+    df['Span_B']     = ((high.rolling(52).max() + low.rolling(52).min()) / 2).shift(26)
+    df['Cloud_Top']  = df[['Span_A', 'Span_B']].max(axis=1)
+
+    l_min, h_max = low.rolling(12).min(), high.rolling(12).max()
+    df['Sto_K']  = (close - l_min) / (h_max - l_min) * 100
+    df['Sto_D']  = df['Sto_K'].rolling(5).mean()
+    df['Sto_SD'] = df['Sto_D'].rolling(5).mean()
+
+    ema12             = close.ewm(span=12).mean()
+    ema26             = close.ewm(span=26).mean()
+    df['MACD']        = ema12 - ema26
+    df['MACD_Signal'] = df['MACD'].ewm(span=9).mean()
+    df['MACD_Hist']   = df['MACD'] - df['MACD_Signal']
+
+    df['OBV']         = (np.sign(close.diff()) * df['Volume']).fillna(0).cumsum()
+    df['OBV_MA10']    = df['OBV'].rolling(10).mean()
+    df['OBV_Rising']  = df['OBV'] > df['OBV_MA10']
+    df['OBV_Slope']   = (df['OBV'] - df['OBV'].shift(5)) / df['OBV'].shift(5).abs() * 100
+    df['OBV_Bullish'] = df['OBV_MA10'] > df['OBV_MA10'].shift(1)
+    df['Base_Line']   = close.rolling(20).min().shift(5)
+
+    delta      = close.diff()
+    gain       = delta.where(delta > 0, 0).ewm(com=13, adjust=False).mean()
+    loss       = (-delta.where(delta < 0, 0)).ewm(com=13, adjust=False).mean()
+    df['RSI']  = 100 - (100 / (1 + gain / loss))
+
+    typical_price     = (high + low + close) / 3
+    money_flow        = typical_price * df['Volume']
+    pos_flow          = money_flow.where(typical_price > typical_price.shift(1), 0).rolling(14).sum()
+    neg_flow          = money_flow.where(typical_price < typical_price.shift(1), 0).rolling(14).sum()
+    df['MFI']             = 100 - (100 / (1 + pos_flow / neg_flow))
+    df['MFI_Strong']      = df['MFI'] > 50
+    df['MFI_Prev5']       = df['MFI'].shift(5)
+    df['MFI_Above50']     = df['MFI_Strong'].astype(int)
+    df['MFI_Strong_Days'] = df['MFI_Above50'].rolling(10).sum()
+    df['MFI_10d_ago']     = df['MFI'].shift(10)
+
+    df['Buy_Power']       = df['Volume'] * (close - df['Open'])
+    df['Buy_Power_MA']    = df['Buy_Power'].rolling(10).mean()
+    df['Buying_Pressure'] = df['Buy_Power'] > df['Buy_Power_MA']
+
+    df['Vol_Avg'] = df['Volume'].rolling(20).mean()
+    vol_avg20     = df['Vol_Avg']
+
+    df['MA60_Slope']      = df['MA60'].diff()
+    df['MA112_Slope']     = df['MA112'].diff()
+    df['Dist_to_MA112']   = (df['MA112'] - close) / close
+    df['Near_MA112']      = abs(close - df['MA112']) / df['MA112'] * 100
+    df['Below_MA112']     = (df['Close'] < df['MA112']).astype(int)
+    df['Below_MA112_60d'] = df['Below_MA112'].rolling(60).sum()
+
+    df['MA224'] = df['MA224'].ffill().fillna(0)
+
+    is_above_series       = close > df['MA224']
+    df['Trend_Group']     = is_above_series.astype(int).diff().fillna(0).ne(0).cumsum()
+    df['Below_MA224']     = (~is_above_series).astype(int)
+    df['Below_MA224_60d'] = df['Below_MA224'].rolling(60).sum()
+
+    vol_power_series = df['Volume'] / vol_avg20
+    is_above_ma224   = close > df['MA224']
+
+    near_band_low = (low - df['MA224']).abs() / df['MA224'] < 0.03
+    local_min     = low == low.rolling(5, center=True, min_periods=1).min()
+    double_bottom_series = (near_band_low & local_min).rolling(30).sum() >= 2
+
+    df['Dolbanzi']       = (vol_power_series >= 3.0) & is_above_ma224 & double_bottom_series
+    df['Dolbanzi_Count'] = df.groupby('Trend_Group')['Dolbanzi'].cumsum()
+
+    df['VWMA40']           = (close * df['Volume']).rolling(40).mean() / df['Volume'].rolling(40).mean()
+    df['Vol_Accel']        = df['Volume'] / df['Volume'].rolling(5).mean()
+    df['Watermelon_Fire']  = (close / df['VWMA40'] - 1) * 100 * df['Vol_Accel']
+    df['Watermelon_Green'] = (close > df['VWMA40']) & (df['BB40_Width'] < 10)
+    df['Watermelon_Red']   = df['Watermelon_Green'] & (df['Watermelon_Fire'] > 5.0)
+    df['Watermelon_Red2']  = (close > df['VWMA40']) & (close >= df['Open'])
+
+    red_score = (
+        df['OBV_Rising'].astype(int) +
+        df['MFI_Strong'].astype(int) +
+        df['Buying_Pressure'].astype(int)
+    )
+    df['Watermelon_Score'] = red_score
+    df['Watermelon_Color'] = np.where(red_score >= 2, 'red', 'green')
+
+    color_change            = (df['Watermelon_Color'] == 'red') & (df['Watermelon_Color'].shift(1) == 'green')
+    df['Green_Days_10']     = (df['Watermelon_Color'].shift(1) == 'green').rolling(10).sum()
+    volume_surge            = df['Volume'] >= vol_avg20 * 1.5  # ✅ FIX-검색식3: 1.2→1.5 (수박=거래량폭발)
+    df['Watermelon_Signal'] = color_change & (df['Green_Days_10'] >= 7) & volume_surge
+
+    # ── 수박 보강판: 준비형 / 발사형 ─────────────────────────────
+    turnover_eok = (close * df['Volume']) / 100_000_000
+
+    df['Watermelon_Prepare'] = (
+        (df['BB40_Width'] <= 18) &
+        (df['OBV_Rising']) &
+        (turnover_eok >= 30) &
+        (df['Close'] >= df['MA20'] * 0.97) &
+        (df['Close'] <= df['BB40_Upper'] * 0.98) &
+        (df['MFI'] >= 45) &
+        (
+            df['Is_UltraShort_MA_Conv'] |
+            df['Is_Short_MA_Conv'] |
+            df['Is_Structure_MA_Conv']
+        )
+    )
+
+    df['Watermelon_Launch'] = (
+        (df['Close'] >= df['MA40']) &
+        (df['Close'] >= df['Open']) &
+        (df['Volume'] >= df['VMA20'] * 1.2) &
+        (df['OBV_Rising']) &
+        (
+            (df['Watermelon_Color'] == 'red') |
+            (df['Watermelon_Score'] >= 2)
+        )
+    )
+
+    df['Watermelon_Prepare_Recent'] = (
+        df['Watermelon_Prepare'].rolling(10, min_periods=1).max().shift(1).fillna(0) >= 1
+    )
+
+    df['Watermelon_Signal_Refined'] = (
+        df['Watermelon_Launch'] & df['Watermelon_Prepare_Recent']
+    )
+
+    # ✅ 매집대 품질 검증 지표 (단테 HTS 수식) — 재설계 Ver 27.11
+    # If(V>Avg(V,20)*1.1 And Avg(OBV,5)>Avg(OBV,20) And C>Avg(C,20) And C>=Highest(H,20,1)*0.9, 60, 0)
+    #
+    # [재설계 이유]
+    # 기존: Green_Maejip_Days / Green_Days_10 → 구조적 모순 (green=조용함, maejip=활발함)
+    # 수정: HTS 수식을 독립 매집강도 지표로 사용 (green/red 색상과 무관)
+    #
+    # [3가지 독립 신호]
+    # A. 독립 매집강도: 최근 10/20일 중 매집 조건 발생 횟수
+    # B. 수박 직전 품질: 수박 red 직전 10일간 매집 발생 횟수 (신뢰도 검증)
+    # C. 현재 스냅샷: 오늘 매집 조건 충족 여부
+
+    _obv_ma5     = df['OBV'].rolling(5).mean()
+    _obv_ma20    = df['OBV'].rolling(20).mean()
+    _high20_prev = df['High'].rolling(20).max().shift(1)  # Highest(H,20,1)
+
+    _maejip_cond = (
+        (df['Volume'] > vol_avg20 * 1.1) &   # V > Avg(V,20)*1.1
+        (_obv_ma5 > _obv_ma20) &              # Avg(OBV,5) > Avg(OBV,20)
+        (close > df['MA20']) &                # C > Avg(C,20)
+        (close >= _high20_prev * 0.9)         # C >= Highest(H,20,1)*0.9
+    )
+
+    # [A] 독립 매집강도 (color 무관 — 이게 핵심)
+    df['Maejip_Score']   = np.where(_maejip_cond, 60, 0)
+    df['Maejip_Days_10'] = _maejip_cond.rolling(10).sum().fillna(0).astype(int)
+    df['Maejip_Days_20'] = _maejip_cond.rolling(20).sum().fillna(0).astype(int)
+
+    # 품질 등급: 최근 10일 중 매집 발생 횟수 기준 (color 무관)
+    #   A(강한매집): 7일+ / B(매집중): 5~6일 / C(간헐): 3~4일 / D(미발생): 0~2일
+    _days = df['Maejip_Days_10']
+    df['Maejip_Quality'] = pd.cut(
+        _days,
+        bins=[-1, 2, 4, 6, 10],
+        labels=['D(미발생)', 'C(간헐적)', 'B(매집중)', 'A(강한매집)']
+    ).astype(str)
+
+    # [B] 수박 직전 품질 — red 전환 직전 10일간 매집 발생 횟수
+    # 수박이 떴을 때 "직전 매집이 얼마나 있었는가" → 신호 신뢰도
+    _pre_signal_maejip = _maejip_cond.rolling(10).sum().shift(1).fillna(0)
+    df['Pre_Signal_Maejip'] = _pre_signal_maejip.astype(int)
+
+    # [C] 현재 + 직전 3일 매집 연속성
+    _recent3 = _maejip_cond.rolling(3).sum().fillna(0)
+    df['Maejip_Recent3'] = _recent3.astype(int)  # 최근 3일 중 몇 번
+
+    # 수박 green 기간 중 매집 발생 (참고용 — 드물게 발생하지만 발생하면 강신호)
+    _green_mask = df['Watermelon_Color'] == 'green'
+    df['Green_Maejip_Days'] = (_green_mask & _maejip_cond).rolling(10).sum().fillna(0).astype(int)
+
+    # ════════════════════════════════════════════════════
+    # 매집 강도 + 세력 추정 평단가 (Ver 27.12)
+    # ════════════════════════════════════════════════════
+
+    # [1] 매집 발생일 거래량 강도
+    # 매집일(Maejip_cond True)의 평균 거래량 vs 전체 평균 → 강도 배율
+    _maejip_vol       = df['Volume'].where(_maejip_cond, np.nan)
+    _maejip_vol_mean  = _maejip_vol.rolling(20, min_periods=1).mean()
+    df['Maejip_Vol_Ratio'] = (_maejip_vol_mean / vol_avg20).fillna(0).round(2)
+    # 매집일 평균 거래대금 (억)
+    _maejip_amount    = (df['Volume'] * close).where(_maejip_cond, np.nan)
+    df['Maejip_Avg_Amount'] = (_maejip_amount.rolling(20, min_periods=1).mean() / 1e8).fillna(0).round(1)
+
+    # [2] 매집 강도 등급 (빈도 × 거래량 배율 결합)
+    # 빈도 점수: 10일 중 발생횟수 (0~10)
+    # 강도 점수: 매집일 거래량이 평균의 몇 배 (1.0~5.0+)
+    _freq_score   = df['Maejip_Days_10']                       # 0~10
+    _vol_score    = df['Maejip_Vol_Ratio'].clip(1.0, 5.0)      # 1~5
+    _combo_score  = (_freq_score * _vol_score).round(1)        # 최대 50점
+    df['Maejip_Power'] = _combo_score                          # 종합 매집력
+
+    # 매집력 등급
+    df['Maejip_Power_Grade'] = pd.cut(
+        _combo_score,
+        bins=[-0.1, 5, 15, 30, 50],
+        labels=['D(매집없음)', 'C(약한매집)', 'B(보통매집)', 'A(강한매집)']
+    ).astype(str)
+
+    # [3] 세력 추정 평단가 — 3가지 방법 동시 계산
+    # ─ ③ Maejip 발생일 VWAP (최근 60일, 매집일만)
+    _m_vol_60  = df['Volume'].where(_maejip_cond, 0).rolling(60, min_periods=1).sum()
+    _m_amt_60  = (close * df['Volume']).where(_maejip_cond, 0).rolling(60, min_periods=1).sum()
+    df['Seryeok_VWAP_60'] = (_m_amt_60 / _m_vol_60.replace(0, np.nan)).fillna(0).round(0)
+
+    # ─ ③-B 최근 20일 매집일 VWAP (단기 평단)
+    _m_vol_20  = df['Volume'].where(_maejip_cond, 0).rolling(20, min_periods=1).sum()
+    _m_amt_20  = (close * df['Volume']).where(_maejip_cond, 0).rolling(20, min_periods=1).sum()
+    df['Seryeok_VWAP_20'] = (_m_amt_20 / _m_vol_20.replace(0, np.nan)).fillna(0).round(0)
+
+    # ─ ④ 볼륨 클러스터 — 최근 60일 가격대별 거래량 최대 구간
+    # 60일 가격 범위를 20구간으로 나눠 거래량 합산 → 최대 거래량 가격대 중앙값
+    def _calc_volume_cluster(df_slice, n_bins=20):
+        if len(df_slice) < 5:
+            return 0
+        price_min = df_slice['Low'].min()
+        price_max = df_slice['High'].max()
+        if price_max <= price_min:
+            return float(df_slice['Close'].mean())
+        bins = np.linspace(price_min, price_max, n_bins + 1)
+        vol_by_bin = np.zeros(n_bins)
+        for _, row_s in df_slice.iterrows():
+            # 각 봉의 거래량을 High~Low 범위에 균등 분포
+            lo, hi, vol = row_s['Low'], row_s['High'], row_s['Volume']
+            for b in range(n_bins):
+                overlap = max(0, min(hi, bins[b+1]) - max(lo, bins[b]))
+                span    = max(hi - lo, 1e-9)
+                vol_by_bin[b] += vol * (overlap / span)
+        peak_bin = vol_by_bin.argmax()
+        return round((bins[peak_bin] + bins[peak_bin+1]) / 2, 0)
+
+    # 롤링으로 매일 계산하면 너무 느림 → 마지막 행만 계산
+    _last60 = df.tail(60)
+    _vol_cluster_price = _calc_volume_cluster(_last60)
+    df['Vol_Cluster_Price'] = 0.0
+    df.at[df.index[-1], 'Vol_Cluster_Price'] = _vol_cluster_price
+
+    # [4] 세력 평단 vs 현재가 이격 (수익 구간 판단)
+    _sv60 = df['Seryeok_VWAP_60']
+    df['Seryeok_Gap_Pct'] = ((close - _sv60) / _sv60.replace(0, np.nan) * 100).fillna(0).round(1)
+    # 양수: 현재가가 평단 위 (세력 수익 구간)
+    # 음수: 현재가가 평단 아래 (세력 손실 구간 — 지지 가능성↑)
+    df['Good_MA_Convergence_Score'] = 0
+    df['MA_Convergence_Break_Ready_Score'] = 0
+
+    for col in [
+        'BB_Ross', 'RSI_DIV',
+        'BB40_Ross', 'BB40_RSI_DIV', 'BB40_Reclaim_RSI_DIV',
+        'Force_Pullback', 'BB40_Second_Wave', 'Watermelon_Relaunch', 'OBV_Acc_Breakout',
+        'Was_Panic', 'Is_bb_low_Stable', 'Has_Accumulation', 'Is_Rsi_Divergence',
+'Good_MA_Convergence',
+'MA_Convergence_Break_Ready'
+    ]:
+        df[col] = False
+
+    df_signal = df.dropna(subset=['BB_UP', 'BB_LOW', 'BB40_Lower', 'RSI']).copy()
+    if len(df_signal) > 51:
+        curr_s  = df_signal.iloc[-1]
+        past    = df_signal.iloc[-41:-1]   # ✅ FIX-검색식1: 20→40일 (중기 눌림목 포착)
+        past_50 = df_signal.iloc[-61:-1]   # ✅ FIX-검색식1: 51→61일
+
+        ross, _ = check_ross(curr_s, past)
+        rsi_div, _ = check_rsi_div(curr_s, past)
+
+        bb40_ross, _ = check_bb40_ross(curr_s, past)
+        bb40_rsi_div, _ = check_bb40_rsi_div(curr_s, past)
+        bb40_combo, _ = check_bb40_reclaim_rsi_div(curr_s, past)
+        # ✅ FIX-검색식5: 세력눌림목 강봉탐지는 최근 20일만
+        past_20_fp = df_signal.iloc[-21:-1]
+        force_pullback, _ = check_force_pullback(curr_s, past_20_fp)
+        bb40_second_wave, _ = check_bb40_second_wave(curr_s, past_50)
+        watermelon_relaunch, _ = check_watermelon_relaunch(curr_s, past_50)
+        obv_acc_breakout, _ = check_obv_acc_breakout(curr_s, past_50)
+        good_ma_conv, ma_conv_info = check_good_ma_convergence(curr_s, past_50)
+        ma_break_ready, ma_break_info = check_ma_convergence_break_ready(curr_s, past_50)
+     
+        was_panic         = (past_50['Low'] < past_50['BB_LOW']).any()
+        is_bb_low_stable  = curr_s['Low'] > curr_s['BB_LOW']
+        is_rsi_divergence = curr_s['RSI'] > past_50['RSI'].min()
+        has_accumulation  = (past_50['Volume'] > (past_50['Vol_Avg'] * 3)).any()
+
+        idx = df.index[-1]
+        df.at[idx, 'BB_Ross']              = ross
+        df.at[idx, 'RSI_DIV']              = rsi_div
+        df.at[idx, 'BB40_Ross']            = bb40_ross
+        df.at[idx, 'BB40_RSI_DIV']         = bb40_rsi_div
+        df.at[idx, 'BB40_Reclaim_RSI_DIV'] = bb40_combo
+        df.at[idx, 'Was_Panic']            = was_panic
+        df.at[idx, 'Is_bb_low_Stable']     = is_bb_low_stable
+        df.at[idx, 'Is_Rsi_Divergence']    = is_rsi_divergence
+        df.at[idx, 'Has_Accumulation']     = has_accumulation
+        df.at[idx, 'Force_Pullback']      = force_pullback
+        df.at[idx, 'BB40_Second_Wave']    = bb40_second_wave
+        df.at[idx, 'Watermelon_Relaunch'] = watermelon_relaunch
+        df.at[idx, 'OBV_Acc_Breakout']    = obv_acc_breakout      
+        df.at[idx, 'Good_MA_Convergence'] = good_ma_conv
+        df.at[idx, 'Good_MA_Convergence_Score'] = int(ma_conv_info.get("score", 0))
+        df.at[idx, 'MA_Convergence_Break_Ready'] = ma_break_ready
+        df.at[idx, 'MA_Convergence_Break_Ready_Score'] = int(ma_break_info.get("score", 0))
+
+    prev = df.iloc[-2]
+    curr = df.iloc[-1]
+
+    cond_golden_cross = (prev['MA5'] < prev['MA112']) and (curr['MA5'] >= curr['MA112'])
+    cond_approaching  = (prev['MA5'] < prev['MA112']) and (curr['MA112'] * 0.98 <= curr['MA5'] <= curr['MA112'] * 1.03)
+    cond_cross        = cond_golden_cross or cond_approaching
+
+    cond_inverse_mid = curr['MA112'] < curr['MA224']
+    cond_below_448   = curr['Close'] < curr['MA448']
+    cond_ma224_range = -3 <= ((curr['Close'] - curr['MA224']) / curr['MA224']) * 100 <= 5
+    cond_bb40_range  = -7 <= ((curr['Close'] - curr['BB40_Upper']) / curr['BB40_Upper']) * 100 <= 3
+
+    vol_ratio      = df['Volume'] / df['Volume'].shift(1).replace(0, np.nan)
+    cond_vol_300   = (vol_ratio >= 3.0).iloc[-50:].any()
+    cond_break_448 = (df['High'] > df['MA448']).iloc[-50:].any()
+
+    df['Is_Real_Watermelon'] = False
+    if cond_cross and cond_inverse_mid and cond_below_448 and cond_ma224_range and cond_bb40_range and cond_break_448 and cond_vol_300:
+        df.at[df.index[-1], 'Is_Real_Watermelon'] = True
+
+    resistances = df[['BB_Upper', 'BB40_Upper', 'MA60', 'MA112']]
+    touch_count = pd.DataFrame({
+        col: (close < df[col]) & (high >= df[col] * 0.995)
+        for col in ['BB_Upper', 'BB40_Upper', 'MA60', 'MA112']
+        if col in df.columns
+    }).sum(axis=1)
+    df['Daily_Touch']     = touch_count
+    df['Total_hammering'] = df['Daily_Touch'].rolling(20).sum().fillna(0).astype(int)
+
+    current_res_max = max(curr['BB_Upper'], curr['BB40_Upper'], curr['MA60'], curr['MA112'])
+    df['Is_resistance_break'] = curr['Close'] > current_res_max
+
+    df['Is_Maejip'] = (
+        (df['Volume'] > df['Volume'].shift(1) * 2) &
+        (df['Close'] > df['Open']) &
+        (df['Close'] > df['Close'].shift(1))
+    )
+    df['Maejip_Count'] = df['Is_Maejip'].rolling(20).sum().fillna(0).astype(int)
+
+    max_ma      = df[['MA5', 'MA10', 'MA20']].max(axis=1)
+    min_ma      = df[['MA5', 'MA10', 'MA20']].min(axis=1)
+    is_squeezed = (max_ma - min_ma) / min_ma <= 0.03
+
+    was_below_20 = (close < df['MA20']).astype(int).rolling(10).max() == 1
+    is_slope_up  = df['MA5'] > df['MA5'].shift(1)
+    is_head_up   = is_slope_up & (df['MA5'] >= df['MA20'] * 0.99)
+
+    df['Viper_Hook'] = is_squeezed & was_below_20 & is_head_up
+
+    is_heading_ceiling     = (close < df['MA112']) & (df['MA112_Slope'] < 0) & (df['Dist_to_MA112'] <= 0.04)
+    df['is_not_blocked']   = ~is_heading_ceiling
+    df['is_not_waterfall'] = df['MA112'] >= df['MA224'] * 0.9
+    df['is_ma60_safe']     = df['MA60_Slope'] >= 0
+
+    df['Dist_from_MA5']  = (close - df['MA5']) / df['MA5']
+    df['is_hugging_ma5'] = df['Dist_from_MA5'] < 0.08
+
+    df['recent_high_10d'] = df['High'].rolling(10).max().shift(1)
+    is_hitting_wall       = abs(df['recent_high_10d'] - close) / close < 0.02
+    is_breaking_high      = close > df['recent_high_10d']
+    df['is_not_double_top'] = ~(is_hitting_wall & ~is_breaking_high)
+
+    df['Real_Viper_Hook'] = (
+        df['Viper_Hook'] &
+        df['is_not_blocked'] &
+        df['is_not_waterfall'] &
+        df['is_ma60_safe'] &
+        df['is_hugging_ma5'] &
+        df['is_not_double_top']
+    )
+
+    df['was_broken_20']  = (close < df['MA20']).rolling(5).max() == 1
+    # ✅ FIX-검색식4: 5일 최저값이 아닌 '5일 내 하루라도 저거래량' 기준
+    df['is_fake_drop']   = (df['Volume'] < vol_avg20 * 0.5).rolling(5).max() == 1
+    df['obv_divergence'] = (close < close.shift(5)) & (df['OBV'] >= df['OBV'].shift(5))
+    df['reclaim_20']     = (close > df['MA20']) & (close > df['Open']) & (df['Volume'] > df['Volume'].shift(1))
+
+    df['Golpagi_Trap'] = (
+        df['was_broken_20'] &
+        (df['is_fake_drop'] & df['obv_divergence']) &
+        df['reclaim_20']
+    )
+
+    gap_ratio    = abs(curr['MA20'] - curr['MA40']) / (curr['MA40'] + 1e-9)
+    cross_series = (df['MA20'] > df['MA40']) & (df['MA20'].shift(1) <= df['MA40'].shift(1))
+    cross_recent = cross_series.iloc[-5:].any()
+    cross_near   = (curr['MA20'] > curr['MA40']) and (gap_ratio < 0.03)
+
+    ma20_rising = curr['MA20_slope'] > 0
+    ma40_rising = curr['MA40_slope'] > -0.05
+    ma20_accel  = curr['MA20_slope'] > df['MA20_slope'].rolling(3).mean().iloc[-2]
+
+    jongbe_value = (
+        (cross_recent or cross_near) and
+        ma20_rising and
+        ma40_rising and
+        ma20_accel and
+        curr['Close'] > curr['MA20']
+    )
+    df['Jongbe_Break'] = False
+    df.at[df.index[-1], 'Jongbe_Break'] = jongbe_value
+
+    return df  # ✅ TUNE-2: 로그 스팸 제거
+
+def check_force_pullback(curr: pd.Series, past: pd.DataFrame):
+    """
+    세력 눌림목:
+    - 최근 15일 내 강한 양봉/거래량 폭증 흔적
+    - 현재는 과열이 아니라 눌림 구간
+    - 거래량 감소
+    - OBV 훼손 적음
+    - 5일/20일/BB 중심선 근처 지지
+    """
+    if past.empty or len(past) < 10:
+        return False, "데이터 부족"
+
+    strong_candle = (
+        ((past['Close'] > past['Open']) &
+         (((past['Close'] - past['Open']) / (past['Open'] + 1e-9)) * 100 >= 8)) &
+        (past['Volume'] > past['Vol_Avg'] * 1.8)
+    ).any()
+
+    volume_cooling = curr['Volume'] < (curr['Vol_Avg'] * 0.8)  # ✅ FIX-검색식5b: 1.0→0.8 (명확한 거래소멸)
+
+    near_ma20 = abs(curr['Close'] - curr['MA20']) / (curr['MA20'] + 1e-9) <= 0.03
+    near_bb_mid = abs(curr['Close'] - curr['MA40']) / (curr['MA40'] + 1e-9) <= 0.04
+
+    obv_safe = curr['OBV'] >= past['OBV'].tail(5).min()
+
+    candle_not_broken = curr['Close'] >= curr['MA20'] * 0.97
+
+    passed = strong_candle and volume_cooling and (near_ma20 or near_bb_mid) and obv_safe and candle_not_broken
+    return passed, f"강봉흔적:{strong_candle}, 거래량감소:{volume_cooling}, 이평근접:{near_ma20 or near_bb_mid}, OBV방어:{obv_safe}"
+
+def check_bb40_second_wave(curr: pd.Series, past: pd.DataFrame):
+    """
+    BB40 재안착 후 2차 파동:
+    - 과거 BB40 하단 이탈 후 복귀 이력
+    - 현재 BB40 중심선 위 or 상단밴드 방향
+    - OBV/RSI가 1차 반등보다 강해짐
+    """
+    if past.empty or len(past) < 15:
+        return False, "데이터 부족"
+
+    bb40_break = (past['Low'] < past['BB40_Lower']).any()
+    bb40_reclaim = (past['Close'] > past['BB40_Lower']).any()
+
+    above_mid = curr['Close'] > curr['MA40']
+    bb_expand = curr['BB40_Width'] > past['BB40_Width'].tail(5).mean()
+    obv_up = curr['OBV'] > past['OBV'].tail(5).max()
+    rsi_up = curr['RSI'] > past['RSI'].tail(5).max()
+
+    passed = bb40_break and bb40_reclaim and above_mid and (obv_up or rsi_up) and bb_expand
+    return passed, f"BB40이탈:{bb40_break}, 복귀:{bb40_reclaim}, 중심선위:{above_mid}, OBV상승:{obv_up}, RSI상승:{rsi_up}"
+
+def check_watermelon_relaunch(curr: pd.Series, past: pd.DataFrame):
+    """
+    수박 눌림 재폭발:
+    - 최근 수박 시그널 이력 존재
+    - 중간 눌림 구간 존재
+    - 현재 다시 빨강/거래량/상승 압력 재개
+    """
+    if past.empty or len(past) < 15:
+        return False, "데이터 부족"
+
+    had_watermelon = past['Watermelon_Signal'].tail(15).any()
+
+    pullback_happened = (
+        (past['Close'] < past['MA20']).tail(10).any() or
+        (past['Volume'] < past['Vol_Avg']).tail(10).any()
+    )
+
+    relaunch = (
+        (curr['Watermelon_Color'] == 'red') and
+        (curr['Volume'] > curr['Vol_Avg'] * 1.2) and
+        (curr['Close'] >= curr['Open'])
+    )
+
+    obv_hold = curr['OBV_Rising']
+    passed = had_watermelon and pullback_happened and relaunch and obv_hold
+    return passed, f"기존수박:{had_watermelon}, 눌림:{pullback_happened}, 재시동:{relaunch}, OBV유지:{obv_hold}"
+
+def check_obv_acc_breakout(curr: pd.Series, past: pd.DataFrame):
+    """
+    OBV 매집 후 돌파:
+    - 최근 박스권/수렴
+    - OBV는 미리 상승
+    - 현재 가격/거래량 돌파
+    """
+    if past.empty or len(past) < 20:
+        return False, "데이터 부족"
+
+    box_range = (past['High'].max() / (past['Low'].min() + 1e-9)) <= 1.18
+    obv_acc = curr['OBV'] > past['OBV'].tail(10).max()
+    price_break = curr['Close'] > past['High'].tail(10).max()
+    vol_break = curr['Volume'] > curr['Vol_Avg'] * 1.5
+
+    passed = box_range and obv_acc and price_break and vol_break
+    return passed, f"박스권:{box_range}, OBV매집:{obv_acc}, 가격돌파:{price_break}, 거래량:{vol_break}"
+
+def check_institutional_bottom(row):
+    """
+    후처리 수급 기반 바닥형:
+    - bottom_area 또는 bb40 재안착 계열
+    - 수급 문자열에 기관/외인/쌍끌 포함
+    """
+    supply_text = str(row.get('수급', ''))
+    bottom_like = (
+        bool(row.get('BB40재안착조합', False)) or
+        bool(row.get('BB40로스', False)) or
+        "112선바닥권" in str(row.get('구분', ''))
+    )
+
+    supply_good = (
+        "🤝쌍끌" in supply_text or
+        "🔴기관" in supply_text or
+        "🔵외인" in supply_text
+    )
+
+    return bottom_like and supply_good
+ 
+ 
+# ---------------------------------------------------------
+# 🏛️ [4-1] 역사적 지수 데이터 (캐시 적용)
+# ---------------------------------------------------------
+_weather_cache = {}
+
+def _clean_unique_index(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+    df.index = pd.to_datetime(df.index)
+    df = df.sort_index()
+    df = df[~df.index.duplicated(keep='last')]
+    return df
+
+def prepare_historical_weather():
+    cache_key = datetime.now().strftime('%Y-%m-%d')
+    if cache_key in _weather_cache:
+        log_debug("✅ 날씨 데이터 캐시 사용")
+        return _weather_cache[cache_key]
+
+    start_point = (datetime.now() - timedelta(days=600)).strftime('%Y-%m-%d')
+
+    ndx = fdr.DataReader('^IXIC', start=start_point)[['Close']]
+    sp5 = fdr.DataReader('^GSPC', start=start_point)[['Close']]
+    vix = fdr.DataReader('^VIX', start=start_point)[['Close']]
+
+    # ✅ 인덱스 정리
+    ndx = _clean_unique_index(ndx)
+    sp5 = _clean_unique_index(sp5)
+    vix = _clean_unique_index(vix)
+
+    # ✅ 컬럼명 먼저 변경
+    ndx = ndx.rename(columns={'Close': 'ixic_close'})
+    sp5 = sp5.rename(columns={'Close': 'sp500_close'})
+    vix = vix.rename(columns={'Close': 'vix_close'})
+
+    # ✅ 이동평균 계산
+    ndx['ixic_ma5'] = ndx['ixic_close'].rolling(5).mean()
+    sp5['sp500_ma5'] = sp5['sp500_close'].rolling(5).mean()
+    vix['vix_ma5'] = vix['vix_close'].rolling(5).mean()
+
+    # ✅ concat
+    weather_df = pd.concat([ndx, sp5, vix], axis=1).ffill()
+
+    _weather_cache[cache_key] = weather_df
+    return weather_df
+
+# ---------------------------------------------------------
+# 📸 [5] 시각화 및 텔레그램
+# ---------------------------------------------------------
+def create_index_chart(ticker, name):
+    try:
+        df = fdr.DataReader(ticker, start=(datetime.now() - timedelta(days=100)))
+        mc = mpf.make_marketcolors(up='r', down='b', inherit=True)
+        s  = mpf.make_mpf_style(marketcolors=mc, gridstyle=':', y_on_right=False)
+        fname = f"{name}.png"
+        mpf.plot(df, type='candle', style=s, title=f"\n{name} Index", savefig=fname, figsize=(8, 4))
+        return fname
+    except: return None
+
+def send_telegram_photo(message, image_paths=[]):
+    if TEST_MODE: print(f"📝 [TEST] {message}"); return
+    url_p = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
+    url_t = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    for chat_id in CHAT_ID_LIST:
+        if message: requests.post(url_t, data={'chat_id': chat_id, 'text': message[:4000]})
+        for img in image_paths:
+            if img and os.path.exists(img):
+                with open(img, 'rb') as f: requests.post(url_p, data={'chat_id': chat_id}, files={'photo': f})
+                os.remove(img)
+
+
+def send_telegram_chunks(message: str, title: str = '', max_len: int = 3800):
+    """
+    긴 메시지를 max_len 단위로 나눠서 텔레그램 전송.
+    문단(\n\n) 기준으로 자르고, 각 청크에 번호 표시.
+    """
+    if not message.strip():
+        return
+
+    # 문단 단위로 분리
+    paragraphs = message.split('\n\n')
+    chunks = []
+    current = title + '\n\n' if title else ''
+
+    for para in paragraphs:
+        candidate = current + para + '\n\n'
+        if len(candidate) > max_len and current.strip():
+            chunks.append(current.strip())
+            current = para + '\n\n'
+        else:
+            current = candidate
+
+    if current.strip():
+        chunks.append(current.strip())
+
+    total = len(chunks)
+    for idx, chunk in enumerate(chunks, 1):
+        if total > 1:
+            header = f"({idx}/{total})\n"
+            chunk  = header + chunk
+        send_telegram_photo(chunk, [])
+
+
+def send_tournament_results(tournament_report: str):
+    """
+    AI 토너먼트 결과를 AI별로 분리해서 개별 전송.
+    각 AI 코멘트가 길면 추가 분할.
+    """
+    if not tournament_report:
+        return
+
+    # AI별 섹션 분리 마커
+    markers = [
+        ('🧠 [GPT-4o]',        '🧠 GPT-4o 분석'),
+        ('🤖 [Claude-Sonnet]', '🤖 Claude-Sonnet 분석'),
+        ('♊ [Gemini-Flash]',  '♊ Gemini-Flash 분석'),
+        ('⚡ [Groq-Llama]',    '⚡ Groq-Llama 분석'),
+    ]
+
+    # 헤더 분리
+    header_end = tournament_report.find('\n\n🧠')
+    for _mark in ['\n\n🤖', '\n\n♊', '\n\n⚡']:
+        if header_end == -1:
+            header_end = tournament_report.find(_mark)
+
+    header = tournament_report[:header_end].strip() if header_end > 0 else '🏆 AI 토너먼트 결과'
+
+    # 헤더 먼저 전송
+    send_telegram_photo(header, [])
+
+    # 각 AI 섹션 찾아서 개별 전송
+    sent_any = False
+    for marker, title in markers:
+        start = tournament_report.find(marker)
+        if start == -1:
+            continue
+
+        # 다음 AI 섹션 시작 위치 찾기
+        end = len(tournament_report)
+        for other_marker, _ in markers:
+            if other_marker == marker:
+                continue
+            pos = tournament_report.find(other_marker, start + len(marker))
+            if pos != -1 and pos < end:
+                end = pos
+
+        section = tournament_report[start:end].strip()
+        if section:
+            send_telegram_chunks(section, title=title, max_len=3500)
+            sent_any = True
+
+    # 마커를 못 찾으면 전체를 분할 전송
+    if not sent_any:
+        send_telegram_chunks(tournament_report, max_len=3500)
+
+# ---------------------------------------------------------
+# 🧠 [6] AI 브리핑 및 토너먼트
+# ---------------------------------------------------------
+def get_hot_themes():
+    try:
+        res = requests.get("https://finance.naver.com/sise/theme.naver", headers=REAL_HEADERS)
+        soup = BeautifulSoup(res.text, 'html.parser')
+        themes = [t.text.strip() for t in soup.select('table.type_1 td.col_type1')[:3]]
+        return ", ".join(themes)
+    except: return "테마수집불가"
+
+def get_market_briefing(issues):
+    try:
+        theme_info = get_hot_themes()
+        comments = "특이사항 없음"
+        if issues:
+            comments = " | ".join([i["comment"] for i in issues])
+        
+        system_prompt, user_prompt = get_market_briefing_prompt(
+        comments, theme_info, m_ndx, m_sp5, m_vix, m_fx
+    )
+        client = OpenAI(api_key=OPENAI_API_KEY)
+        res = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user",   "content": user_prompt}
+        ]
+        )
+        return f"🌇 [시황 브리핑]\n{res.choices[0].message.content.strip()}"
+    except Exception as e: 
+        return f"브리핑 생성 실패: {str(e)}"
+
+def run_ai_tournament(candidate_list, issues):
+    if candidate_list.empty:
+        return "종목 후보가 없어 토너먼트를 취소합니다."
+     
+    candidate_list = candidate_list.sort_values(by='안전점수', ascending=False).head(15)
+ 
+    def safe_int(x, default=0):
+        try: return int(float(x))
+        except: return default
+    
+    def safe_float(x, default=0.0):
+        try: return float(x)
+        except: return default
+          
+    comments = "특이 이슈 없음"
+    if issues:
+        comments = " | ".join([i.get("comment", "") for i in issues])
+    
+    # ✅ prompt_data 먼저 생성
+    prompt_data = "\n".join([
+        f"- {row['종목명']}({row['code']}): {row.get('구분','N/A')}, "
+        f"수급:{row.get('수급',0)}, N구분:{row.get('N구분','N/A')}, "
+        f"이격:{safe_int(row.get('이격',0))}, 현재가:{safe_int(row.get('현재가',0))}, "
+        f"BB40:{safe_float(row.get('BB40',0)):.1f}, "
+        f"초단기MA:{safe_float(row.get('초단기MA수렴도',0)):.1f}, "
+        f"단기MA:{safe_float(row.get('단기MA수렴도',0)):.1f}, "
+        f"구조MA:{safe_float(row.get('구조MA수렴도',0)):.1f}, "
+        f"초강력MA:{'Y' if row.get('초강력MA수렴', False) else 'N'}, "
+        f"OBV기울기:{safe_int(row.get('OBV기울기',0))}, RSI:{safe_int(safe_float(row.get('RSI',0)))}"
+        for _, row in candidate_list.iterrows()
+    ])
+  
+    system_prompt, user_prompt = get_tournament_prompt(prompt_data, comments)
+
+    # ── GPT 호출 (실패해도 계속)
+    gpt_text = ''
+    if OPENAI_API_KEY:
+        try:
+            client = OpenAI(api_key=OPENAI_API_KEY)
+            res_gpt = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user",   "content": user_prompt}
+                ],
+                timeout=60
+            )
+            gpt_text = res_gpt.choices[0].message.content or ''
+            log_info("✅ GPT 토너먼트 완료")
+        except Exception as e:
+            gpt_text = ''
+            log_error(f"⚠️ GPT 토너먼트 실패: {e}")
+    else:
+        log_info("⚠️ OPENAI_API_KEY 없음 — GPT 생략")
+
+    # ── Claude 호출 (실패해도 계속)
+    claude_text = ''
+    if ANTHROPIC_API_KEY:
+        try:
+            res_claude = requests.post(
+                'https://api.anthropic.com/v1/messages',
+                headers={
+                    'Content-Type':      'application/json',
+                    'x-api-key':         ANTHROPIC_API_KEY,
+                    'anthropic-version': '2023-06-01',
+                },
+                json={
+                    'model':      'claude-sonnet-4-20250514',
+                    'max_tokens': 1000,
+                    'system':     system_prompt,
+                    'messages':   [{'role': 'user', 'content': user_prompt}],
+                },
+                timeout=60
+            )
+            data = res_claude.json()
+            if 'content' in data and data['content']:
+                claude_text = data['content'][0].get('text', '').strip()
+                log_info("✅ Claude 토너먼트 완료")
+            else:
+                log_error(f"⚠️ Claude 응답 오류: {data.get('error', data)}")
+        except Exception as e:
+            log_error(f"⚠️ Claude 토너먼트 실패: {e}")
+    else:
+        log_info("⚠️ ANTHROPIC_API_KEY 없음 — Claude 생략")
+
+    # ── Gemini 호출 (실패해도 계속)
+    gemini_text = ''
+    if GEMINI_API_KEY:
+        try:
+            gem_url = (
+                f"https://generativelanguage.googleapis.com/v1beta/models"
+                f"/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
+            )
+            gem_body = {
+                "system_instruction": {
+                    "parts": [{"text": system_prompt}]
+                },
+                "contents": [{
+                    "parts": [{"text": user_prompt}]
+                }],
+                "generationConfig": {
+                    "maxOutputTokens": 1000,
+                    "temperature": 0.5
+                }
+            }
+            res_gem = requests.post(gem_url, json=gem_body, timeout=60)
+            if res_gem.status_code == 200:
+                gem_data = res_gem.json()
+                gemini_text = (
+                    gem_data.get('candidates', [{}])[0]
+                    .get('content', {})
+                    .get('parts', [{}])[0]
+                    .get('text', '')
+                    .strip()
+                )
+                log_info("✅ Gemini 토너먼트 완료")
+            elif res_gem.status_code == 429:
+                # 2.0-flash 쿼터 초과 → 1.5-flash 로 폴백 시도
+                log_info("⚠️ Gemini 2.5-flash 쿼터 초과 → 2.0-flash 폴백 시도...")
+                try:
+                    gem_url_fb = (
+                        f"https://generativelanguage.googleapis.com/v1beta/models"
+                        f"/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
+                    )
+                    res_gem2 = requests.post(gem_url_fb, json=gem_body, timeout=60)
+                    if res_gem2.status_code == 200:
+                        gem_data2 = res_gem2.json()
+                        gemini_text = (
+                            gem_data2.get('candidates', [{}])[0]
+                            .get('content', {})
+                            .get('parts', [{}])[0]
+                            .get('text', '')
+                            .strip()
+                        )
+                        log_info("✅ Gemini 2.0-flash 폴백 성공")
+                    else:
+                        log_info(f"⚠️ Gemini 2.0-flash도 실패 ({res_gem2.status_code}) — 생략")
+                except Exception as e2:
+                    log_info(f"⚠️ Gemini 폴백 실패: {e2}")
+            elif res_gem.status_code == 400:
+                log_error(f"⚠️ Gemini 요청 오류 (400): {res_gem.text[:200]}")
+            else:
+                log_error(f"⚠️ Gemini 응답 오류: {res_gem.status_code}")
+        except Exception as e:
+            log_error(f"⚠️ Gemini 토너먼트 실패: {e}")
+    else:
+        log_info("⚠️ GEMINI_API_KEY 없음 — Gemini 생략")
+
+    # ── Groq 호출 (실패해도 계속)
+    groq_text = ''
+    if GROQ_API_KEY:
+        try:
+            res_groq = requests.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                json={
+                    "model": "llama-3.3-70b-versatile",
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user",   "content": user_prompt}
+                    ]
+                },
+                headers={"Authorization": f"Bearer {GROQ_API_KEY}"},
+                timeout=60
+            )
+            if res_groq.status_code == 200:
+                groq_json = res_groq.json()
+                groq_text = groq_json.get('choices', [{}])[0].get('message', {}).get('content', '') or ''
+                log_info("✅ Groq 토너먼트 완료")
+            else:
+                log_error(f"⚠️ Groq 응답 오류: {res_groq.status_code} {res_groq.text[:200]}")
+        except Exception as e:
+            log_error(f"⚠️ Groq 토너먼트 실패: {e}")
+    else:
+        log_info("⚠️ GROQ_API_KEY 없음 — Groq 생략")
+
+    # ── 결과 조합 (하나라도 있으면 반환)
+    results_map = {
+        '🧠 [GPT-4o]':        gpt_text,
+        '🤖 [Claude-Sonnet]': claude_text,
+        '♊ [Gemini-Flash]':  gemini_text,
+        '⚡ [Groq-Llama]':   groq_text,
+    }
+    log_info(f"  GPT:{bool(gpt_text)} Claude:{bool(claude_text)} Gemini:{bool(gemini_text)} Groq:{bool(groq_text)}")
+
+    if not any(results_map.values()):
+        return "⚠️ 모든 AI 호출 실패 (API 키 확인 필요)"
+
+    result = "🏆 [AI 토너먼트 결승]\n"
+    for label, text in results_map.items():
+        if text:
+            result += f"\n{label}:\n{text}\n"
+
+    return result
+
+# =============================================================
+# 🤖 Claude API 직접 호출 (Anthropic)
+#    OpenAI 실패 시 또는 ANTHROPIC_API_KEY 있으면 우선 사용
+# =============================================================
+
+def _call_claude_api(system_prompt: str, user_prompt: str,
+                     max_tokens: int = 3000) -> str:
+    """
+    Anthropic Claude API 직접 호출.
+    OpenAI와 동일한 입출력 구조로 교체 가능.
+    """
+    if not ANTHROPIC_API_KEY:
+        return ''
+    try:
+        res = requests.post(
+            'https://api.anthropic.com/v1/messages',
+            headers={
+                'Content-Type':      'application/json',
+                'x-api-key':         ANTHROPIC_API_KEY,
+                'anthropic-version': '2023-06-01',
+            },
+            json={
+                'model':      'claude-sonnet-4-20250514',
+                'max_tokens': max_tokens,
+                'system':     system_prompt,
+                'messages':   [{'role': 'user', 'content': user_prompt}],
+            },
+            timeout=60
+        )
+        data = res.json()
+        if 'content' in data and data['content']:
+            return data['content'][0].get('text', '').strip()
+        log_error(f"[Claude API 오류] {data.get('error', data)}")
+        return ''
+    except Exception as e:
+        log_error(f"[Claude API 호출 실패] {e}")
+        return ''
+
+
+def _call_ai(system_prompt: str, user_prompt: str,
+             max_tokens: int = 3000, prefer_claude: bool = True) -> str:
+    """
+    AI API 호출 — Claude 우선, 실패 시 OpenAI 폴백.
+    prefer_claude=True: ANTHROPIC_API_KEY 있으면 Claude 먼저 시도
+    """
+    # Claude 우선 시도
+    if prefer_claude and ANTHROPIC_API_KEY:
+        result = _call_claude_api(system_prompt, user_prompt, max_tokens)
+        if result:
+            log_debug("✅ Claude API 사용")
+            return result
+
+    # OpenAI 폴백
+    if OPENAI_API_KEY:
+        try:
+            client = OpenAI(api_key=OPENAI_API_KEY)
+            res = client.chat.completions.create(
+                model='gpt-4o',
+                messages=[
+                    {'role': 'system', 'content': system_prompt},
+                    {'role': 'user',   'content': user_prompt},
+                ],
+                max_tokens=max_tokens,
+                temperature=0.5
+            )
+            log_debug("✅ OpenAI API 사용 (폴백)")
+            return res.choices[0].message.content.strip()
+        except Exception as e:
+            log_error(f"[OpenAI 폴백 실패] {e}")
+
+    return "AI 분석 불가 (API 키 없음)"
+
+
+def get_ai_summary_batch(ai_candidates_df, issues=None, market_news=None):
+    """
+    ai_candidates DataFrame + 시장 뉴스를 받아 종목별 브리핑 생성.
+    market_news: market_news_titles 리스트 (시장 전체 뉴스 헤드라인)
+    """
+    comments = "특이 이슈 없음"
+    if issues:
+        comments = " | ".join([i.get("comment", "분석 필요") for i in issues])
+
+    # 시장 뉴스 요약 (상위 5개)
+    market_news_block = ""
+    if market_news and isinstance(market_news, list):
+        top_news = [str(n) for n in market_news[:5] if n]
+        if top_news:
+            market_news_block = "\n\n## 오늘 시장 주요 뉴스\n" + "\n".join(f"- {n}" for n in top_news)
+
+    system_prompt = f"""
+너는 역매공파 매매법 기반의 한국 주식 전략 분석가야.
+아래 종목 데이터를 보고 각 종목에 대해 실전 투자 관점의 코멘트를 작성해.
+
+## 역매공파 핵심 원칙
+- 역배열 상태에서 MA112 돌파 시 진입
+- 이격도 98~106 구간이 안전한 매수 구간
+- 수박 신호 = OBV/MFI/매수압력 중 2개 이상 + 초록→빨강 전환
+- BB40 폭 10 이하 = 에너지 응축, 폭발 임박
+- 손절 기준: 진입가 대비 -5%
+
+## 데이터 필드 설명
+- N등급/N조합: 패턴 강도 등급
+- 이격도: 현재가/MA20×100 (98~106이 이상적)
+- BB40: 볼린저밴드40 폭 (10↓ = 응축)
+- MA수렴: MA20-MA60 수렴도 (3↓ = 강한 수렴)
+- OBV기울기: 양수=매집, 음수=분산
+- RSI: 30↓과매도, 70↑과매수
+- 수급: 🤝쌍끌>🔴기관>🔵외인
+
+## 오늘 시장 이슈
+{comments}{market_news_block}
+
+## 작성 규칙 (반드시 준수)
+1. 반드시 실제 수치를 언급해
+   예) "RSI 48로 눌림목 구간 진입", "BB40 7.3으로 에너지 응축 완료"
+   예) "OBV 기울기 +120으로 세력 매집 진행 중"
+
+2. 각 종목의 패턴 조합과 서사를 바탕으로 맥락을 설명해
+   - 수박 신호 종목: 전환 강도와 초록 축적 기간 중심
+   - 돌반지 종목: 쌍바닥 위치와 거래량 폭발 맥락 중심
+   - 독사훅 종목: MA 수렴 후 전환 시점과 기울기 중심
+   - BB40 종목: 응축 기간과 폭발 방향성 중심
+
+3. 각 종목마다 반드시 다른 첫 문장으로 시작해
+   (절대 "이 종목은", "현재" 같은 똑같은 시작 금지)
+
+4. 진입/목표/손절 수치는 반드시 포함
+   - 진입가: 현재가 기준 눌림 or 돌파 타점
+   - 1차 목표: 현재가 +5~10% 구간
+   - 손절가: 현재가 -5% (역매공파 기본 원칙)
+
+5. 확신 없는 종목은 억지로 좋게 쓰지 말고 "관망 권고" 명시
+
+6. 반말로, 4~5문장으로 작성
+
+7. 종목 데이터에 '최근뉴스'가 있으면 반드시 1문장 이상 반영해
+   - 긍정 뉴스면: 모멘텀 강화 요인으로 언급
+   - 부정 뉴스면: 리스크 요인으로 경고
+   - 중립 뉴스면: 섹터/테마 맥락으로 활용
+"""
+
+    # 종목 데이터 블록 구성 (지시 없이 데이터만)
+    stock_blocks = []
+    for _, item in ai_candidates_df.iterrows():
+        def si(x, d=0):
+            try: return int(float(x))
+            except: return d
+        def sf(x, d=0.0):
+            try: return float(x)
+            except: return d
+
+        # 추가 데이터
+        pp_v  = si(item.get('PP', 0))
+        r1_v  = si(item.get('R1', 0))
+        s1_v  = si(item.get('S1', 0))
+        f382  = si(item.get('Fib382', 0))
+        f618  = si(item.get('Fib618', 0))
+        atr_v = si(item.get('ATR값', 0))
+        tgt1  = si(item.get('🎯목표타점', 0))
+        tgt2  = si(item.get('🎯목표2차', 0))
+        stp   = si(item.get('🚨손절가', 0))
+        rr    = sf(item.get('RR비율', 0))
+        sv60  = si(item.get('세력평단_60일', 0))
+        gpct  = sf(item.get('평단이격', 0))
+        mq    = item.get('매집강도등급', '')
+        md    = si(item.get('매집일수_10일', 0))
+        mv    = sf(item.get('매집거래량배율', 0))
+        disc  = item.get('공시태그', '')
+        dbad  = bool(item.get('악재공시', False))
+        news  = str(item.get('news_sentiment', '')).strip()
+
+        block = (
+            f"[{item['종목명']}({item['code']})]"
+            f"\n  패턴: {item.get('N등급','N/A')} | {item.get('N조합','N/A')}"
+            f"\n  태그: {item.get('N구분','')}"
+            f"\n  현재가:{si(item.get('현재가',0)):,}원 | 이격:{si(item.get('이격',0))}"
+            f"\n  BB40:{sf(item.get('BB40',0)):.1f} | MA수렴:{sf(item.get('MA수렴',0)):.1f} | OBV:{si(item.get('OBV기울기',0))}"
+            f"\n  RSI:{si(sf(item.get('RSI',0)))} | 수급:{item.get('수급','미계산')} | 재무:{item.get('재무','미계산')}"
+            + (f"\n  피봇: PP={pp_v:,} R1={r1_v:,} S1={s1_v:,}" if pp_v else "")
+            + (f"\n  피보나치: 38.2%={f382:,} | 61.8%={f618:,}" if f382 else "")
+            + (f"\n  목표: 1차={tgt1:,} 2차={tgt2:,} | 손절={stp:,} | RR={rr:.1f}" if tgt1 else "")
+            + (f"\n  ATR={atr_v:,}원" if atr_v else "")
+            + (f"\n  세력평단={sv60:,}원 이격={gpct:+.1f}%" if sv60 else "")
+            + (f"\n  매집:{mq} {md}일/10일 {mv:.1f}배" if md > 0 else "")
+            + (f"\n  공시:{disc}" + (" ⚠️악재" if dbad else "") if disc and disc not in ('없음','공시없음','⚙️미조회','') else "")
+            + f"\n  서사:{item.get('📜서사히스토리','')}"
+            + (f"\n  뉴스:{news}" if news else "")
+        )
+        stock_blocks.append(block)
+
+    user_prompt = (
+        "다음 종목들을 분석해줘. 각 종목마다 아래 형식으로 작성해 (반말로):\n\n"
+        "[종목명(코드)]\n"
+        "✅ 핵심: (왜 지금 눈에 띄는지 1줄)\n"
+        "📊 상태: (지표 기반 위치)\n"
+        "🎯 진입: (타점 or 관망)\n"
+        "⚠️ 주의: (리스크 1줄)\n\n"
+        "---\n\n"
+        + "\n\n".join(stock_blocks)
+    )
+
+    # ✅ Claude 우선, OpenAI 폴백
+    result = _call_ai(system_prompt, user_prompt, max_tokens=3000)
+    if not result:
+        return "브리핑 생성 중 오류가 발생했습니다."
+    return result
+
+def get_ai_summary_batch_back(stock_lines: list, issues: list = None):
+    comments = "특이 이슈 없음"
+    if issues:
+        comments = " | ".join([i.get("comment", "분석 필요") for i in issues])
+    
+    system_prompt = get_summary_batch_system_prompt(comments)
+    stock_text    = build_stock_lines_for_batch(ai_candidates)
+
+    try:
+        client = OpenAI(api_key=OPENAI_API_KEY)
+        res = client.chat.completions.create(
+        model="gpt-4o",
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user",   "content": f"다음 종목들을 분석해줘:\n\n{stock_text}"}
+        ],
+        max_tokens=3000,
+        temperature=0.5)   # 0.7 → 0.5로 낮춰 일관성 향상
+        return res.choices[0].message.content.strip()
+
+    except Exception as e:
+        log_error(f"[AI 배치 요약 오류] {e}")
+        return "브리핑 생성 중 오류가 발생했습니다."
+
+def build_ai_candidates_for_macro(ai_candidates: pd.DataFrame):
+    result = []
+
+    for _, row in ai_candidates.iterrows():
+        result.append({
+            "name": row.get("종목명", ""),
+            "code": row.get("code", ""),
+            "sector": row.get("구분", ""),
+            "n_grade": row.get("N등급", ""),
+            "n_combo": row.get("N조합", ""),
+            "n_score": row.get("N점수", 0),
+            "safe_score": row.get("안전점수", 0),
+            "current_price": row.get("현재가", 0),
+            "disparity": row.get("이격", 0),
+            "bb40": row.get("BB40", ""),
+            "ma_conv": row.get("MA수렴", ""),
+            "ma_ultra": row.get("초단기MA수렴도", ""),
+            "ma_short": row.get("단기MA수렴도", ""),
+            "ma_structure": row.get("구조MA수렴도", ""),
+            "ma_comment": row.get("MA수렴코멘트", ""),
+            "obv_slope": row.get("OBV기울기", 0),
+            "rsi": row.get("RSI", 0),
+            "supply": row.get("수급", ""),
+            "finance": row.get("재무", ""),
+            "story": row.get("📜서사히스토리", ""),
+        })
+    return result
+
+
+def build_macro_snapshot(m_ndx, m_sp5, m_vix, m_fx, m_wti, issues):
+    """
+    m_wti 추가 반영
+    """
+    comments = "특이 이슈 없음"
+    if issues:
+        comments = " | ".join([i.get("comment", "") for i in issues])
+
+    return {
+        "nasdaq": {
+            "value":      m_ndx.get("val"),
+            "change_pct": round(m_ndx.get("chg", 0), 2),
+            "status":     m_ndx.get("status", "")
+        },
+        "sp500": {
+            "value":      m_sp5.get("val"),
+            "change_pct": round(m_sp5.get("chg", 0), 2),
+            "status":     m_sp5.get("status", "")
+        },
+        "vix": {
+            "value":      m_vix.get("val"),
+            "change_pct": round(m_vix.get("chg", 0), 2),
+            "status":     m_vix.get("status", "")
+        },
+        "usdkrw": {
+            "value":      m_fx.get("val"),
+            "change_pct": round(m_fx.get("chg", 0), 2),
+            "status":     m_fx.get("status", "")
+        },
+        # ✅ 추가
+        "wti_oil": {
+            "value":      m_wti.get("val"),
+            "change_pct": round(m_wti.get("chg", 0), 2),
+            "status":     m_wti.get("status", "")
+        },
+        "issues": comments
+    }
+
+
+def run_macro_candidate_briefing(
+    ai_candidates,
+    m_ndx, m_sp5, m_vix, m_fx,
+    m_wti,            # ✅ 추가
+    sector_results,   # ✅ 추가
+    issues
+):
+    if ai_candidates is None or ai_candidates.empty:
+        return {"error": "후보 종목 없음"}
+
+    # ✅ build_macro_snapshot에 m_wti 전달
+    macro_data = build_macro_snapshot(m_ndx, m_sp5, m_vix, m_fx, m_wti, issues)
+    candidate_data = build_ai_candidates_for_macro(ai_candidates.head(15))
+
+    # ✅ 섹터 순환 데이터 요약 (상위 3개만 프롬프트에 포함)
+    sector_summary = "\n".join([
+        f"- {s['sector']}: 트리거 {s['match']}/{s['total']}개 | {s['desc']}"
+        for s in sector_results[:3]
+    ]) if sector_results else "섹터 데이터 없음"
+
+    prompt = f"""
+당신은 한국 주식시장 단기/스윙 트레이딩 보조 AI입니다.
+사용자는 자동매매를 하지 않고 직접 매매합니다.
+목표는 글로벌 시장 상황과 오늘 후보 종목의 궁합을 평가해 우선 검토 순서를 정하는 것입니다.
+
+반드시 JSON만 출력하세요.
+마크다운, 코드블록, 설명문 없이 JSON만 출력하세요.
+
+출력 형식:
+{{
+  "market_briefing": {{
+    "market_risk_score": 0,
+    "market_state": "Risk On | Neutral | Risk Off",
+    "korea_bias": "강세 | 강보합 | 혼조 | 약세 | 약세주의",
+    "trading_stance": "공격적 | 선별적 | 방어적",
+    "oil_impact": "",
+    "summary": ""
+  }},
+  "sector_view": {{
+    "favorable_sectors": ["", "", ""],
+    "unfavorable_sectors": ["", "", ""]
+  }},
+  "candidate_ranking": [
+    {{
+      "rank": 1,
+      "name": "",
+      "code": "",
+      "fit_score": 0,
+      "action_type": "돌파형 | 눌림목형 | 관망형",
+      "why": "",
+      "risk": ""
+    }}
+  ],
+  "top_pick": {{
+    "name": "",
+    "code": "",
+    "reason": ""
+  }},
+  "avoid_first": {{
+    "name": "",
+    "code": "",
+    "reason": ""
+  }},
+  "today_checkpoints": ["", "", ""]
+}}
+
+판단 원칙:
+- VIX 상승, 나스닥 약세, S&P500 약세면 Risk Off 성향 강화
+- 환율 상승은 한국 성장주/외국인 수급에 부담
+- 유가 상승 시 정유/화학/조선 수혜, 2차전지/항공 부담
+- 유가 급락 시 수송/항공 수혜, 정유 마진 압박
+- N점수/안전점수는 참고, 시장 궁합을 더 중요하게 판단
+- candidate_ranking에 반드시 모든 후보 종목 포함
+- action_type은 반드시 돌파형 / 눌림목형 / 관망형 중 하나
+- oil_impact는 유가 흐름이 오늘 한국 시장에 미치는 영향을 분석해서 1줄
+
+글로벌 시장 데이터:
+{json.dumps(macro_data, ensure_ascii=False, indent=2)}
+
+섹터 순환 탐지 결과:
+{sector_summary}
+
+후보 종목 데이터:
+{json.dumps(candidate_data, ensure_ascii=False, indent=2)}
+"""
+
+    try:
+        client = OpenAI(api_key=OPENAI_API_KEY)
+        res = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "너는 보수적이고 실전적인 한국 주식 트레이딩 보조 AI다."
+                },
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+            temperature=0.3
+        )
+
+        text = res.choices[0].message.content.strip()
+
+        try:
+            return json.loads(text)
+        except Exception:
+            return {"error": "JSON 파싱 실패", "raw_response": text}
+
+    except Exception as e:
+        return {"error": f"OpenAI 호출 실패: {str(e)}"}
+
+
+# ================================================================
+# ✅ format_macro_briefing_for_telegram() 도 oil_impact 추가
+# ================================================================
+
+def format_macro_briefing_for_telegram(result):
+    if "error" in result:
+        return f"🌍 [시장 통합 브리핑 실패]\n{result['error']}"
+
+    mb = result["market_briefing"]
+    sv = result["sector_view"]
+    tp = result["top_pick"]
+    av = result["avoid_first"]
+    ck = result["today_checkpoints"]
+
+    text = (
+        f"🌍 [시장 통합 브리핑]\n"
+        f"- 위험도: {mb.get('market_risk_score','')}\n"
+        f"- 상태: {mb.get('market_state','')}\n"
+        f"- 한국장: {mb.get('korea_bias','')}\n"
+        f"- 태도: {mb.get('trading_stance','')}\n"
+        f"- 🛢️ 유가영향: {mb.get('oil_impact','')}\n"   # ✅ 추가
+        f"- 유리섹터: {', '.join(sv.get('favorable_sectors', []))}\n"
+        f"- 불리섹터: {', '.join(sv.get('unfavorable_sectors', []))}\n"
+        f"- 최우선: {tp.get('name','')}({tp.get('code','')}) / {tp.get('reason','')}\n"
+        f"- 주의종목: {av.get('name','')}({av.get('code','')}) / {av.get('reason','')}\n"
+        f"- 요약: {mb.get('summary','')}\n"
+        f"- 체크: {', '.join(ck)}"
+    )
+    return text
+# =============================================================
+# ✅ PATCH 1: signals 기본값 전수 정리
+# 목적: tri_result 실패 시 KeyError 방지, 누락 패턴 오탐 제거
+# =============================================================
+
+def build_default_signals(row, close_p, prev):
+    """
+    모든 signals 키를 False/None으로 초기화한 뒤 반환.
+    이후 개별 패턴 결과를 덮어씀으로써 KeyError 원천 차단.
+    """
+    return {
+        # ── 수박 계열 ──────────────────────────────────────────
+        'watermelon_signal':     bool(row.get('Watermelon_Signal_Refined', row.get('Watermelon_Signal', False))),
+        'watermelon_prepare':    bool(row.get('Watermelon_Prepare', False)),
+        'watermelon_launch':     bool(row.get('Watermelon_Launch', False)),
+        'watermelon_red':        row['Watermelon_Color'] == 'red',
+        'watermelon_green_7d':   row['Green_Days_10'] >= 7,
+        'watermelon_relaunch':   row.get('Watermelon_Relaunch', False),
+
+        # ── BB30 Shift 골든크로스 (단테 수박 타점) ────────────
+        'bb30_shift_gc':   bool(row.get('BB30_Shift_GC',   False)),
+        'bb30_shift_near': bool(row.get('BB30_Shift_Near',  False)),
+
+        # ── 피보나치 지지선 근접 ────────────────────────────
+        # 피봇/피보나치는 analyze_final에서 _fib/_pivot으로 계산 후 주입
+        # 여기선 기본값 False, 아래 FIX-FIB에서 덮어씀
+        'fib_support_382': False,   # 38.2% 지지선 ±2% 근처
+        'fib_support_618': False,   # 61.8% 지지선 ±2% 근처
+        'pivot_support':   False,   # 피봇 S1 ±2% 근처
+        'pivot_resist':    False,   # 피봇 R1 ±2% 근처
+
+        # ── 매집대 품질 검증 (재설계 — 독립 매집강도 기준) ──────
+        'maejip_quality_a': row.get('Maejip_Quality', '') == 'A(강한매집)',   # 10일 중 7일+
+        'maejip_quality_b': row.get('Maejip_Quality', '') in ('A(강한매집)', 'B(매집중)'),  # 5일+
+        'maejip_score_now':  int(row.get('Maejip_Score', 0)),
+        'maejip_days_10':    int(row.get('Maejip_Days_10', 0)),
+        'maejip_recent3':    int(row.get('Maejip_Recent3', 0)),
+        'pre_signal_maejip': int(row.get('Pre_Signal_Maejip', 0)),
+        'green_maejip_days': int(row.get('Green_Maejip_Days', 0)),
+        # 매집 강도
+        'maejip_power':      float(row.get('Maejip_Power', 0)),
+        'maejip_power_a':    row.get('Maejip_Power_Grade', '') == 'A(강한매집)',
+        'maejip_power_b':    row.get('Maejip_Power_Grade', '') in ('A(강한매집)', 'B(보통매집)'),
+        'maejip_vol_ratio':  float(row.get('Maejip_Vol_Ratio', 0)),  # 매집일 거래량 배율
+
+        # ── 폭발/바닥/침묵 ────────────────────────────────────
+        # ✅ BUG-A FIX: FIX-A 기준과 통일 (BB40<=5.0)
+        'explosion_ready': (
+            float(row.get('BB40_Width', 99)) <= 5.0 and
+            row['OBV_Rising'] and
+            row['MFI_Strong']
+        ),
+        # ✅ BUG-B FIX: analyze_final과 기준 통일 (Near_MA112<=2.0)
+        'bottom_area': (
+            row['Near_MA112'] <= 2.0 and
+            row['Below_MA112_60d'] >= 40
+        ),
+        'silent_perfect': (
+            row['ATR_Below_Days'] >= 7 and
+            row['MFI_Strong_Days'] >= 7 and
+            # ✅ FIX-검색식2a: MFI>50 중복 제거 (MFI_Strong_Days>=7이 포함)
+            row['MFI'] > row['MFI_10d_ago'] and
+            row['OBV_Rising'] and
+            row['Box_Range'] <= 1.10          # ✅ FIX-검색식2b: 1.15→1.10 (진짜 박스권)
+        ),
+        'silent_strong': (
+            row['ATR_Below_Days'] >= 5 and
+            row['MFI_Strong_Days'] >= 5 and
+            row['OBV_Rising']
+        ),
+
+        # ── 역매공파 / 거래량 ──────────────────────────────────
+        'yeok_break': (
+            close_p > row['MA112'] and
+            prev['Close'] <= row['MA112']
+        ),
+        'volume_surge':  row['Volume'] >= row['VMA20'] * 1.5,
+
+        # ── 종가배팅 타점 신호 (7가지 복합 조건)
+        # ① 전고점(20일) 대비 85~100% 구간
+        'near_high20':   85.0 <= float(row.get('NearHigh20_Pct', 0)) <= 100.0,
+        # ② 윗꼬리 비율 20% 이하 (강봉마감)
+        'low_upper_wick': _calc_upper_wick_ratio(row) <= 0.20,
+        # ③ 거래량 VMA20 × 2배 이상
+        'vol_2x':        float(row.get('Volume', 0)) >= float(row.get('VMA20', 0)) * 2.0,
+        # ④ 양봉 마감
+        'bullish_close': float(row.get('Close', 0)) >= float(row.get('Open', 0)),
+        # ⑤ 이격도 98~112
+        'disparity_ok':  98.0 <= float(row.get('Disparity', 100)) <= 112.0,
+        # ⑥ MA20 위 마감
+        'above_ma20':    float(row.get('Close', 0)) >= float(row.get('MA20', 0)),
+        'obv_rising':    row['OBV_Rising'],
+        'mfi_strong':    row['MFI_Strong'],
+
+        # ── 돌반지 ────────────────────────────────────────────
+        'dolbanzi':            row['Dolbanzi'],
+        'dolbanzi_Trend_Group': row['Trend_Group'],
+        'dolbanzi_Count':       row['Dolbanzi_Count'],
+
+        # ── 독사 / 골파기 / 종베 ──────────────────────────────
+        'viper_hook':    row['Viper_Hook'],
+        'obv_bullish':   row['OBV_Bullish'],
+        'Real_Viper_Hook': row['Real_Viper_Hook'],
+        'Golpagi_Trap':  row['Golpagi_Trap'],
+        'jongbe_break':  row.get('Jongbe_Break', False),
+
+        # ── 삼각/종베 (tri_result 주입 전 기본값) ──────────────
+        'jongbe_ok':        False,   # ★ PATCH 1 핵심: 기본 False
+        'triangle_signal':  False,
+        'triangle_apex':    None,
+        'triangle_pattern': 'None',
+        'dmi_cross':        False,
+        'dmi_ok':           False,
+
+        # ── 급등 초동 탐지 (FIX-C: 소형주 역배열 돌파 포함) ──────
+        'surge_breakout': False,   # 아래에서 실제 계산 후 덮어씀
+
+        # ── MA 수렴 ───────────────────────────────────────────
+        'MA_Convergence': row['MA_Convergence'],
+        'ultra_short_ma_conv':      bool(row.get('Is_UltraShort_MA_Conv', False)),
+        'short_ma_conv':            bool(row.get('Is_Short_MA_Conv', False)),
+        'structure_ma_conv':        bool(row.get('Is_Structure_MA_Conv', False)),
+        'bridge_ma_conv':           bool(row.get('Is_Bridge_MA_Conv', False)),
+        'structure_link_ma_conv':   bool(row.get('Is_Structure_Link_MA_Conv', False)),
+        'super_ma_conv':            bool(row.get('Is_Super_MA_Conv', False)),
+
+        # ── BB/RSI 계열 ───────────────────────────────────────
+        'bb_ross':               row.get('BB_Ross', False),
+        'ris_div':               row.get('RSI_DIV', False),
+        'bb40_ross':             row.get('BB40_Ross', False),
+        'bb40_rsi_div':          row.get('BB40_RSI_DIV', False),
+        'bb40_reclaim_rsi_div':  row.get('BB40_Reclaim_RSI_DIV', False),
+
+        # ── 신규 패턴 ─────────────────────────────────────────
+        'force_pullback':     row.get('Force_Pullback', False),
+        'bb40_second_wave':   row.get('BB40_Second_Wave', False),
+        'obv_acc_breakout':   row.get('OBV_Acc_Breakout', False),
+        'good_ma_convergence': row.get('Good_MA_Convergence', False),
+        'good_ma_convergence_score': int(row.get('Good_MA_Convergence_Score', 0)),
+        'ma_break_ready': row.get('MA_Convergence_Break_Ready', False),
+        'ma_break_ready_score': int(row.get('MA_Convergence_Break_Ready_Score', 0)),
+
+        # ── 종가배팅 신호 (기본값 False, FIX-CLOSE에서 주입) ──────
+        'closing_bet':        False,   # 종가배팅 전체 충족
+        'closing_bet_grade':  '',      # A(최강)/B(강)/C(보통)
+    }       
+
+
+# =============================================================
+# ✅ PATCH 2: COMBO 누적 합산 (상위 3개 조합 보너스 반영)
+# 목적: 복합 패턴의 가치가 1개 조합에 묻히지 않도록
+# =============================================================
+
+def calculate_combination_score(signals):
+    effective = signals.copy()
+    if effective.get('silent_perfect'):
+        effective['silent_strong'] = True
+
+    style = effective.get('style', 'NONE')
+    W     = STYLE_WEIGHTS.get(style, STYLE_WEIGHTS['NONE'])
+
+    matched = []
+    for combo in COMBO_TABLE:
+        try:
+            if not combo['cond'](effective):
+                continue
+        except Exception:
+            continue
+
+        base_score = combo['score_fn'](effective) if 'score_fn' in combo else combo['score']
+        extra_tags = combo['tag_fn'](effective)   if 'tag_fn'  in combo else []
+
+        matched.append({
+            'score':       base_score,
+            'grade':       combo['grade'],
+            'combination': combo['combination'],
+            'tags':        combo['tags'] + extra_tags,
+            'type':        combo['type'],
+        })
+
+    if matched:
+        # ★ PATCH 2: 상위 3개 합산
+        sorted_matched = sorted(matched, key=lambda x: x['score'], reverse=True)
+        best = sorted_matched[0].copy()
+
+        # 2위(×0.3) + 3위(×0.1) 보너스
+        bonus = 0
+        bonus_tags = []
+        weights = [0.3, 0.1]
+        for m, w in zip(sorted_matched[1:3], weights):
+            bonus += int(m['score'] * w)
+            bonus_tags += m['tags']
+
+        best['score'] = best['score'] + bonus
+        best['tags']  = best['tags'] + bonus_tags
+        best['combo_count'] = len(sorted_matched)
+
+        # ✅ MISS-2: dmi_ok 보너스 (+20) — 삼각수렴 신뢰도 강화
+        if effective.get('dmi_ok'):
+            best['score'] += 20
+            if '✅DMI확인' not in best['tags']:
+                best['tags'].append('✅DMI확인')
+
+        # ✅ MISS-3: watermelon_green_7d 보너스 (+15) — 수박 직전 대기 상태
+        if effective.get('watermelon_green_7d') and not effective.get('watermelon_signal'):
+            best['score'] += 15
+            if '🍉초록대기' not in best['tags']:
+                best['tags'].append('🍉초록대기')
+
+        best['score'] = _apply_style_bonus(best, style, W)
+        return best
+
+    # 기본 점수 (아무 조합도 없을 때)
+    tags, bonus = [], 0
+    if effective.get('obv_rising'):   bonus += 30; tags.append('📊OBV')
+    if effective.get('mfi_strong'):   bonus += 20; tags.append('💰MFI')
+    if effective.get('volume_surge'): bonus += 10; tags.append('⚡거래량')
+
+    return {
+        'score': 100 + bonus, 'grade': 'D',
+        'combination': '🔍기본', 'tags': tags,
+        'type': None, 'combo_count': 0
+    }
+
+
+# =============================================================
+# ✅ PATCH 3: analyze_final 내부 signals 구성 교체
+# 기존 인라인 dict → build_default_signals() 호출로 대체
+# 아래 블록을 analyze_final() 안의 signals = {...} 부분과 교체
+# =============================================================
+
+def build_signals_in_analyze_final(row, close_p, prev):
+    """
+    analyze_final() 안에서 호출.
+    기존 인라인 signals dict를 이걸로 대체.
+    """
+    signals = build_default_signals(row, close_p, prev)
+
+    # tri_result는 외부에서 주입 (아래 PATCH 3-B 참고)
+    return signals
+
+
+def inject_tri_result(signals, tri_result, new_tags):
+    """
+    PATCH 3-B: tri_result를 signals에 안전하게 주입.
+    tri_result가 {} 또는 None이어도 KeyError 없음.
+    """
+    if not tri_result:
+        return signals, new_tags
+
+    signals['triangle_signal']  = tri_result.get('pass', False)
+    signals['triangle_apex']    = tri_result.get('apex_remain', None)
+    signals['triangle_pattern'] = tri_result.get('triangle_pattern', 'None')
+    signals['jongbe_ok']        = tri_result.get('jongbe', False)       # ★ 핵심
+    signals['explosion_ready']  = signals['explosion_ready'] or tri_result.get('pass', False)
+
+    tri_inner = tri_result.get('triangle', {}) or {}
+    signals['dmi_cross'] = tri_inner.get('dmi_cross', False)
+    signals['dmi_ok']    = tri_inner.get('dmi_ok', False)
+
+    if signals['dmi_ok']:
+        new_tags.append('✅DMI')
+    if tri_result.get('pass', False):
+        new_tags.append('🔺삼각수렴')
+
+    return signals, new_tags
+
+
+# =============================================================
+# ✅ PATCH 4: 안전점수 기준 발송 정렬 통일
+# 목적: N점수로 30개 cut → 안전점수 재정렬 → 상위 15개 발송
+# 기존 main 블록의 ai_candidates 구성 부분을 아래로 교체
+# =============================================================
+
+def build_and_sort_candidates(all_hits_sorted, top_k=50):
+    """
+    Ver 27.2: enrich 이중호출 제거.
+    main 블록에서 enrich 완료된 리스트를 받아 정렬만 수행.
+    ✅ BUG-7 FIX: 기존에 내부에서 enrich 재호출 → 안전점수 중복 가산 방지
+    """
+    # Step 1: N점수 상위 cut
+    n_top = sorted(all_hits_sorted, key=lambda x: x['N점수'], reverse=True)[:top_k]
+
+    # Step 2: 단계랭크 → 안전점수 → N점수 순 정렬
+    enriched = sorted(
+        n_top,
+        key=lambda x: (
+            x.get('단계랭크', 0),
+            x.get('안전점수', 0),
+            x.get('N점수', 0)
+        ),
+        reverse=True
+    )
+
+    df = pd.DataFrame(enriched)
+    return df
+
+
+# =============================================================
+# ✅ 개선된 AI 프롬프트 모음 (Ver 2.0)
+# 변경 원칙:
+#   1. 역할 → 컨텍스트 → 데이터 → 지시 → 출력형식 순서로 구조화
+#   2. 데이터 필드 의미를 AI에게 명확히 설명
+#   3. 출력 섹션과 형식을 구체적으로 지정
+#   4. 모호한 표현 제거 ("월가 수준" → 실제 항목 명시)
+# =============================================================
+
+# ──────────────────────────────────────────────────────────────
+# 공통 컨텍스트 블록 (모든 프롬프트에서 재사용)
+# ──────────────────────────────────────────────────────────────
+
+YEOK_MAE_CONTEXT = """
+## 역매공파 매매법 핵심 원칙
+- 역배열(MA5 < MA20 < MA60 < MA112) 상태에서 MA112 돌파 시 진입
+- 이격도 98~106 구간이 가장 안전한 매수 구간
+- 수박 신호 = OBV/MFI/매수압력 3개 중 2개 이상 + 초록→빨강 전환
+- 돌반지 = MA224 위에서 거래량 3배 + 쌍바닥 형성 → 대시세 전조
+- 독사훅 = MA5/10/20 수렴 후 MA5 상향 기울기 전환 → 단기 핵심
+- BB40 폭 10% 이하 = 에너지 응축 구간, 폭발 임박
+- 세력 눌림목 = 강봉 후 거래량 감소 + OBV 방어 = 재매수 구간
+- 손절 기준: 진입가 대비 -5% 이탈 시 무조건 손절
+"""
+
+FIELD_GLOSSARY = """
+## 데이터 필드 설명
+- N등급/N조합: 패턴 조합 등급 (GOD > SSS > SS > S > A > B > C 순)
+- N점수: 패턴 조합 강도 점수 (높을수록 신호 강도 강함)
+- 안전점수: N점수 + 수급/재무 보정 (실전 우선순위 기준)
+- 이격: 현재가/MA20 × 100 (98~106이 매수 적정 구간)
+- BB40: 볼린저밴드40 폭 (10 이하 = 에너지 응축)
+- MA수렴: MA20과 MA60의 수렴도 (3 이하 = 강한 수렴)
+- OBV기울기: OBV 5일 변화율 (양수 = 매집, 음수 = 분산)
+- RSI: 과매도 30↓, 적정 40~60, 과매수 70↑
+- 수급: 기관/외인 순매수 상태 (🤝쌍끌 = 최강, 🔴기관, 🔵외인)
+- 재무: S(우량)/A(양호)/C(주의)
+"""
+
+
+# ──────────────────────────────────────────────────────────────
+# 1. get_market_briefing() 개선
+# ──────────────────────────────────────────────────────────────
+
+def get_market_briefing_prompt(comments, theme_info, m_ndx, m_sp5, m_vix, m_fx):
+    """
+    기존 문제:
+    - 매크로 데이터를 AI에게 안 줌 (AI가 최신 데이터 모름)
+    - 출력 형식 없음
+    - 역할/컨텍스트/지시가 뒤섞임
+
+    개선:
+    - 실제 매크로 수치 전달
+    - 섹션별 출력 구조 지정
+    - 역매공파 관점 명시
+    """
+    macro_block = f"""
+## 현재 글로벌 매크로 수치
+- 나스닥: {m_ndx.get('val', 'N/A')} ({m_ndx.get('chg', 0):+.2f}%) → {m_ndx.get('status', '')}
+- S&P500: {m_sp5.get('val', 'N/A')} ({m_sp5.get('chg', 0):+.2f}%) → {m_sp5.get('status', '')}
+- VIX공포지수: {m_vix.get('val', 'N/A')} ({m_vix.get('chg', 0):+.2f}%) → {m_vix.get('status', '')}
+- 달러/원: {m_fx.get('val', 'N/A')} ({m_fx.get('chg', 0):+.2f}%) → {m_fx.get('status', '')}
+"""
+
+    system_prompt = f"""
+너는 역매공파 매매법 기반의 한국 주식 전략 분석가야.
+매일 개장 전 트레이더에게 당일 전략 브리핑을 제공하는 역할이야.
+보수적이고 실전 중심으로, 잃지 않는 것을 최우선으로 판단해.
+
+{YEOK_MAE_CONTEXT}
+"""
+
+    user_prompt = f"""
+{macro_block}
+
+## 오늘의 시장 이슈
+{comments}
+
+## 현재 핫 테마
+{theme_info}
+
+---
+위 데이터를 바탕으로 다음 형식으로 개장 전 브리핑을 작성해줘 (반말로):
+
+【시장 온도】
+- 미국 시장 상태 한 줄 요약
+- VIX 기반 리스크 레벨: 낮음/보통/높음
+
+【한국장 영향】
+- 오늘 코스피/코스닥에 미칠 방향성 (긍정/혼조/부정)
+- 이유 1~2줄
+
+【수혜 테마】
+- 오늘 주목할 테마 1~2개 + 이유 한 줄씩
+
+【오늘 전략】
+- 개장 초반 전략 (공격/선별/관망 중 선택)
+- 주의사항 한 줄
+
+⚠️ 없는 정보는 추측하지 말고 "데이터 없음"으로 표기해.
+"""
+    return system_prompt, user_prompt
+
+
+# ──────────────────────────────────────────────────────────────
+# 2. run_ai_tournament() 개선
+# ──────────────────────────────────────────────────────────────
+
+def get_tournament_prompt(prompt_data, comments):
+    """
+    기존 문제:
+    - 데이터 필드 의미 설명 없음
+    - 단타/스윙 선정 기준 불명확
+    - 출력 구조 없음
+
+    개선:
+    - 필드 사전 제공
+    - 단타/스윙 판단 기준 명시
+    - 출력 템플릿 고정
+    """
+    system_prompt = f"""
+너는 역매공파 매매법의 최고 전문가이자 실전 트레이더야.
+절대 돈을 잃으면 안 된다는 원칙 하에, 주어진 종목을 엄격하게 심사해.
+확신 없는 종목은 "관망"으로 판정해. 억지로 뽑지 마.
+
+{YEOK_MAE_CONTEXT}
+
+{FIELD_GLOSSARY}
+
+## 심사 기준
+### 단타 (1~3일) 적합 조건
+- 수박 신호 또는 독사훅 발생
+- 거래량 MA20 대비 1.5배 이상
+- RSI 40~65 구간 (과매수 아닐 것)
+- 이격도 110 이하
+
+### 스윙 (5~15일) 적합 조건
+- BB40 폭 12 이하 (에너지 응축)
+- MA수렴도 3 이하
+- OBV 기울기 양수 + MFI > 50
+- 이격도 98~107 이상적
+
+### 공통 제외 조건
+- 이격도 115 초과 → 추격 금지
+- 윗꼬리 40% 이상 → 세력 매도 의심
+- 재무 C등급 + 수급 없음 → 제외
+
+## 오늘 이슈
+{comments}
+"""
+
+    user_prompt = f"""
+아래 종목 데이터를 보고 단타 1위, 스윙 1위를 선정해줘.
+확신이 없으면 "해당 없음"으로 답해.
+
+{prompt_data}
+
+---
+다음 형식으로 작성해 (반말로):
+
+🏆 [단타 1위]
+- 종목명(코드):
+- 선정 이유: (패턴/수급/거래량/재료/시황 근거 중심, 3줄 이내)
+- 진입 타점:
+- 1차 목표가:
+- 손절가:
+- 리스크 요인:
+
+🎯 [스윙 1위]
+- 종목명(코드):
+- 선정 이유: (응축/매집/이격 근거 중심, 3줄 이내)
+- 진입 타점:
+- 1차 목표가:
+- 손절가:
+- 리스크 요인:
+
+⚠️ [주의 종목] (보유 중이라면 익절/손절 검토)
+- 종목명(코드): 이유 한 줄
+
+💬 [오늘 장 한마디]
+- 전체 시장 관점에서 오늘 트레이더에게 하고 싶은 말 2줄
+"""
+    return system_prompt, user_prompt
+
+
+# ──────────────────────────────────────────────────────────────
+# 3. get_ai_summary_batch() 개선
+# ──────────────────────────────────────────────────────────────
+
+def get_summary_batch_system_prompt(comments):
+    """
+    기존 문제:
+    - stock_lines에 데이터 + 지시가 뒤섞임 (치명적)
+    - 출력 형식이 "종목명: 요약" 1줄로 너무 단순
+    - 역매공파 컨텍스트 없음
+
+    개선:
+    - 시스템 프롬프트에서 역할/기준 완전히 분리
+    - 종목별 출력 구조 명확화
+    - 데이터 필드 의미 제공
+    """
+    return f"""
+너는 역매공파 매매법 기반의 한국 주식 전략 분석가야.
+아래 종목 데이터를 보고 각 종목에 대해 실전 투자 관점의 코멘트를 작성해.
+
+{YEOK_MAE_CONTEXT}
+
+{FIELD_GLOSSARY}
+
+## 오늘 시장 이슈 (참고)
+{comments}
+
+## 작성 원칙
+- 각 종목당 3~4문장으로 간결하게
+- 스토리텔링 형식: 왜 눈에 띄는지 → 지금 어느 구간인지 → 진입 관점 → 주의사항
+- 확신 없으면 "현재 관망 구간" 명시
+- 수치 근거 반드시 포함 (RSI, BB40, OBV 등)
+- 없는 정보는 추측하지 말 것
+
+## 출력 형식 (종목마다 반복)
+[종목명(코드)]
+✅ 핵심 포인트: (왜 지금 눈에 띄는지 1줄)
+📊 현재 상태: (지표 기반 위치 설명)
+🎯 진입 관점: (진입 타점 / 관망 여부)
+⚠️ 주의사항: (리스크 요인 1줄)
+"""
+
+
+def build_stock_lines_for_batch(ai_candidates):
+    """
+    기존 문제:
+    stock_lines 구성에서 데이터와 지시가 뒤섞임:
+        line = f"데이터... 이 종목에 대해 투자 전략 관점에서 3~5문장..."
+    
+    개선:
+    데이터만 깔끔하게 전달, 지시는 system_prompt에서만
+    """
+    lines = []
+    for _, item in ai_candidates.iterrows():
+        def si(x, d=0):
+            try: return int(float(x))
+            except: return d
+        def sf(x, d=0.0):
+            try: return float(x)
+            except: return d
+
+        # 뉴스 감성 (있을 때만)
+        news_str = str(item.get('news_sentiment', '')).strip()
+        news_line = f"\n  최근뉴스: {news_str}" if news_str else ''
+
+        line = (
+            f"[{item['종목명']}({item['code']})]"
+            f"\n  패턴등급: {item.get('N등급','N/A')} | 조합: {item.get('N조합','N/A')}"
+            f"\n  패턴태그: {item.get('N구분','')}"
+            f"\n  이격도: {si(item.get('이격',0))} | BB40폭: {sf(item.get('BB40',0)):.1f}"
+            f"\n  초단기MA: {sf(item.get('초단기MA수렴도',0)):.1f} | 단기MA: {sf(item.get('단기MA수렴도',0)):.1f} | 구조MA: {sf(item.get('구조MA수렴도',0)):.1f}"
+            f"\n  MA수렴코멘트: {item.get('MA수렴코멘트','')}"
+            f"\n  OBV기울기: {si(item.get('OBV기울기',0))}"
+            f"\n  RSI: {si(sf(item.get('RSI',0)))} | 현재가: {si(item.get('현재가',0))}"
+            f"\n  수급: {item.get('수급','미계산')} | 재무: {item.get('재무','미계산')}"
+            f"\n  서사: {item.get('📜서사히스토리','')}"
+            f"{news_line}"
+        )
+        lines.append(line)
+    return "\n\n".join(lines)
+
+
+# ──────────────────────────────────────────────────────────────
+# 4. run_macro_candidate_briefing() 개선 (시스템 프롬프트만)
+# ──────────────────────────────────────────────────────────────
+
+MACRO_SYSTEM_PROMPT_IMPROVED = f"""
+너는 역매공파 매매법 기반의 한국 주식 트레이딩 보조 AI야.
+사용자는 자동매매 없이 직접 매매하며, 보수적 관점을 최우선으로 해.
+
+{YEOK_MAE_CONTEXT}
+
+{FIELD_GLOSSARY}
+
+## 네 역할
+글로벌 시장 상황과 오늘 후보 종목의 궁합을 평가해서:
+1. 시장 전체 리스크 수준 판단
+2. 오늘 유리한 섹터/불리한 섹터 분류
+3. 후보 종목별 시장 적합도 평가 (fit_score)
+4. 최우선 매매 종목 1개, 오늘 피해야 할 종목 1개 선정
+
+## 판단 원칙
+- VIX 상승 + 나스닥 약세 = Risk Off → 공격적 진입 자제
+- 환율 급등 = 외국인 이탈 가능성 → 외인 수급 종목 주의
+- N점수/안전점수는 참고, 시장 궁합을 더 중요하게
+- 추격보다 눌림목/재진입 관점
+- 확신 없는 종목은 반드시 관망형으로 분류
+
+반드시 JSON만 출력. 마크다운, 코드블록, 설명문 없이 순수 JSON만.
+"""
+
+# =========================================================
+# ✅ Stage Sequence Filter
+# PASS_A = 1 → 2 → 3
+# PASS_B = 2 → 3
+# DROP   = 나머지
+# =========================================================
+
+def _safe_rolling_mean(series, window):
+    return series.rolling(window, min_periods=max(2, window // 2)).mean()
+
+def _safe_rolling_max(series, window):
+    return series.rolling(window, min_periods=max(2, window // 2)).max()
+
+def compute_stage_filters(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    ✅ TUNE-1: Stage 임계값 완화 (Ver 27.2)
+    1번: 매집 수렴  (lookback 12→15일, 수렴 기준 6→7, 고점비율 0.85→0.82)
+    2번: BB40 응축  (BB40 기준 15→18, 고점비율 0.90→0.88, 수렴 4.5→5.5)
+    3번: 돌파 직전  (상단 허용 1.03→1.05 초동 돌파봉 포함, BB40 18→20)
+    """
+    # PERF-2: df.copy() 제거
+    vol_ma5  = _safe_rolling_mean(df['Volume'], 5)
+    vol_ma20 = _safe_rolling_mean(df['Volume'], 20)
+    high20_prev = _safe_rolling_max(df['High'], 20).shift(1)
+    bb40w_ma10  = _safe_rolling_mean(df['BB40_Width'], 10)
+
+    # --- 1번: 매집 수렴 ---
+    df['S1_ACC'] = (
+        (df['Close'] > df['MA20']) &
+        (df['Close'] > df['MA60']) &
+        (vol_ma5 < vol_ma20) &
+        (df['Close'] >= high20_prev * 0.82) &    # 0.85 → 0.82
+        (df['MA_Convergence'] <= 7.0)             # 6.0  → 7.0
+    )
+
+    # --- 2번: BB40 응축 ---
+    df['S2_SQUEEZE'] = (
+        (df['BB40_Width'] <= bb40w_ma10) &
+        (df['BB40_Width'] <= 18.0) &              # 15.0 → 18.0
+        (df['Close'] > df['MA20']) &
+        (df['Close'] >= high20_prev * 0.88) &     # 0.90 → 0.88
+        (df['MA_Convergence'] <= 5.5)             # 4.5  → 5.5
+    )
+
+    # --- 3번: 돌파 직전 / 초동 돌파 허용 ---
+    df['S3_READY'] = (
+        (df['Close'] > df['MA20']) &
+        (df['Close'] > df['MA60']) &
+        (df['Close'] >= high20_prev * 0.90) &     # 0.92 → 0.90
+        (df['Close'] <= high20_prev * 1.15) &     # ✅ FIX-4: 1.05 → 1.15 (초동 급등봉 포함)
+        (df['BB40_Width'] <= 20.0)                # 18.0 → 20.0
+    )
+
+    return df
+
+
+def _get_last_true_date(mask: pd.Series, lookback: int, include_today: bool = True):
+    if len(mask) == 0:
+        return None
+
+    if include_today:
+        sub = mask.iloc[-lookback:]
+    else:
+        sub = mask.iloc[-(lookback + 1):-1]
+
+    true_idx = sub[sub].index
+    if len(true_idx) == 0:
+        return None
+    return true_idx[-1]
+
+
+def _calc_upper_wick_ratio(row: pd.Series) -> float:
+    high_p = float(row.get('High', 0))
+    low_p = float(row.get('Low', 0))
+    open_p = float(row.get('Open', 0))
+    close_p = float(row.get('Close', 0))
+
+    body_top = max(open_p, close_p)
+    total_range = max(1e-9, high_p - low_p)
+    upper_wick = max(0.0, high_p - body_top)
+
+    return upper_wick / total_range
+
+
+def _calc_body_ratio(row: pd.Series) -> float:
+    open_p = float(row.get('Open', 0))
+    close_p = float(row.get('Close', 0))
+    base = max(1e-9, open_p)
+    return abs(close_p - open_p) / base
+
+
+def pass_b_quality_filter(df: pd.DataFrame) -> bool:
+    """
+    PASS_B(2→3) 종목은 재파동 종목이 많아서
+    너무 약한 놈은 한 번 더 필터링
+    """
+    if df is None or len(df) < 20:
+        return False
+
+    row = df.iloc[-1]
+
+    vol_avg = row.get('Vol_Avg', np.nan)
+    vol_now = row.get('Volume', 0)
+    close_p = row.get('Close', 0)
+    high_p = row.get('High', 0)
+    obv_ok = bool(row.get('OBV_Rising', False))
+
+    upper_wick_ratio = _calc_upper_wick_ratio(row)
+    body_ratio = _calc_body_ratio(row)
+
+    cond_volume    = pd.notna(vol_avg) and (vol_now >= vol_avg * 1.05)
+    cond_close_high = (high_p > 0) and (close_p >= high_p * 0.96)  # 0.97→0.96 ✅TUNE-1c
+    cond_upper_wick = upper_wick_ratio <= 0.38                       # 0.35→0.38 ✅TUNE-1c
+    cond_not_chase  = body_ratio <= 0.15                             # 0.12→0.15 ✅TUNE-1c
+
+    return cond_volume and cond_close_high and cond_upper_wick and cond_not_chase and obv_ok
+
+
+def evaluate_stage_sequence(df: pd.DataFrame) -> dict:
+    """
+    최종 상태:
+    - PASS_A : 1 → 2 → 3
+    - PASS_B : 2 → 3
+    - DROP   : 나머지
+
+    WATCH는 쓰지 않음.
+    """
+    result = {
+        "stage_status": "DROP",
+        "s1_hit": False,
+        "s2_hit": False,
+        "s3_hit": False,
+        "sequence_a": False,
+        "sequence_b": False,
+        "s1_date": None,
+        "s2_date": None,
+        "s3_date": None,
+        "stage_tags": [],
+    }
+
+    if df is None or len(df) < 40:
+        return result
+
+    df = compute_stage_filters(df)
+
+    s3_today = bool(df['S3_READY'].iloc[-1])
+    s2_date = _get_last_true_date(df['S2_SQUEEZE'], lookback=8,  include_today=True)  # 6→8  ✅TUNE-1b
+    s1_date = _get_last_true_date(df['S1_ACC'],     lookback=15, include_today=True)  # 12→15 ✅TUNE-1b
+    s3_date = df.index[-1] if s3_today else None
+
+    s2_hit = s2_date is not None
+    s1_hit = s1_date is not None
+
+    result["s1_hit"] = s1_hit
+    result["s2_hit"] = s2_hit
+    result["s3_hit"] = s3_today
+    result["s1_date"] = s1_date.strftime('%Y-%m-%d') if s1_date is not None else None
+    result["s2_date"] = s2_date.strftime('%Y-%m-%d') if s2_date is not None else None
+    result["s3_date"] = s3_date.strftime('%Y-%m-%d') if s3_date is not None else None
+
+    if not s3_today:
+        return result
+
+    # PASS_A: 1→2→3
+    if s1_hit and s2_hit and (s1_date <= s2_date <= s3_date):
+        result["stage_status"] = "PASS_A"
+        result["sequence_a"] = True
+        result["stage_tags"] = ["🧬1→2→3", "📦매집", "🟣응축", "🚀돌파직전"]
+        return result
+
+    # PASS_B: 2→3
+    if s2_hit and (s2_date <= s3_date):
+        if pass_b_quality_filter(df):
+            result["stage_status"] = "PASS_B"
+            result["sequence_b"] = True
+            result["stage_tags"] = ["🟣2→3", "♻️재응축", "🚀재파동"]
+            return result
+
+    return result
+
+
+def stage_rank_value(stage_status: str) -> int:
+    if stage_status == "PASS_A":
+        return 2
+    if stage_status == "PASS_B":
+        return 1
+    return 0     
+
+# =============================================================
+# 🏷️ 보조 분류 시스템 (Ver 27.5)
+# N태그 외 추가 분류 레이블을 생성
+# =============================================================
+
+def classify_momentum(row) -> str:
+    """추세 강도 분류: ADX + MACD 기반"""
+    adx  = float(row.get('ADX', 0) or 0)
+    macd = float(row.get('MACD_Hist', 0) or 0)
+    if adx >= 40 and macd > 0:   return "🔥강추세"
+    if adx >= 25 and macd > 0:   return "📈중추세"
+    if adx >= 25 and macd <= 0:  return "⚠️추세약화"
+    if adx < 20:                  return "🔄횡보"
+    return "➖보통"
+
+def classify_volume_pattern(row) -> str:
+    """거래량 패턴 분류"""
+    vol     = float(row.get('Volume', 0) or 0)
+    vma20   = float(row.get('VMA20', 1) or 1)
+    vma5    = float(row.get('VMA5', 1) or 1)
+    maejip  = int(row.get('Maejip_Count', 0) or 0)
+    hammer  = int(row.get('Total_hammering', 0) or 0)
+    ratio   = vol / vma20 if vma20 > 0 else 0
+
+    if ratio >= 5:                 return "💥거래량폭발(5배+)"
+    if ratio >= 3:                 return "⚡거래량급증(3배+)"
+    if maejip >= 5:                return "🐋매집봉집중"
+    if hammer >= 10:               return "🔨저항선두드리기"
+    if vma5 > vma20 and ratio > 1: return "📈거래량증가추세"
+    if ratio < 0.5:                return "😴거래량소멸"
+    return "➖보통"
+
+def classify_position(row) -> str:
+    """현재 가격 위치 분류: 이격도 + MA 구조"""
+    disp   = float(row.get('Disparity', 100) or 100)
+    ma20   = float(row.get('MA20', 0) or 0)
+    ma60   = float(row.get('MA60', 0) or 0)
+    ma112  = float(row.get('MA112', 0) or 0)
+    close  = float(row.get('Close', 0) or 0)
+
+    above_112 = close > ma112 > 0
+    above_60  = close > ma60  > 0
+
+    if disp <= 97:
+        return "📍눌림목(MA20하)"
+    if 97 < disp <= 103:
+        if above_112: return "🏆황금존(MA20근접+112위)"
+        return "✅적정권(MA20근접)"
+    if 103 < disp <= 108:
+        return "📊이격확대(주의)"
+    if disp > 115:
+        return "🚨과열(추격위험)"
+    return "🔼상승중"
+
+def classify_rsi_state(rsi_val) -> str:
+    """RSI 상태 분류"""
+    r = float(rsi_val or 0)
+    if r >= 80:   return "🔴RSI과열(80+)"
+    if r >= 70:   return "🟠RSI강세(70~80)"
+    if r >= 50:   return "🟡RSI중립상(50~70)"
+    if r >= 40:   return "🟢RSI눌림(40~50)"
+    if r >= 30:   return "🔵RSI저점권(30~40)"
+    return "💜RSI과매도(~30)"
+
+def classify_bb_state(row) -> str:
+    """볼린저밴드 상태 분류"""
+    bb40w  = float(row.get('BB40_Width', 99) or 99)
+    bb20w  = float(row.get('BB20_Width', 99) or 99)
+    pct_b  = float(row.get('BB40_PercentB', 0.5) or 0.5)
+
+    if bb40w <= 3:   return "💎극강응축(BB40≤3)"
+    if bb40w <= 5:   return "💎강응축(BB40≤5)"
+    if bb40w <= 10:  return "🔋응축중(BB40≤10)"
+    if pct_b >= 0.9: return "🚀BB상단돌파권"
+    if pct_b <= 0.1: return "📍BB하단근접"
+    return f"➖BB보통({bb40w:.1f})"
+
+def classify_candle(row) -> str:
+    """당일 캔들 패턴 분류"""
+    high   = float(row.get('High', 0) or 0)
+    low    = float(row.get('Low', 0) or 0)
+    open_p = float(row.get('Open', 0) or 0)
+    close  = float(row.get('Close', 0) or 0)
+    if high == low:
+        return "➖도지"
+    total  = high - low
+    body   = abs(close - open_p)
+    upper  = high - max(open_p, close)
+    lower  = min(open_p, close) - low
+    body_r = body / total
+    tail_r = upper / total
+
+    is_bull = close >= open_p
+    if body_r >= 0.7 and is_bull:    return "🕯️장대양봉"
+    if body_r >= 0.7 and not is_bull:return "🕯️장대음봉"
+    if tail_r >= 0.4 and body_r < 0.3:return "⚠️윗꼬리(세력매도)"
+    if lower / total >= 0.4 and is_bull: return "🔨망치형(반등)"
+    if body_r < 0.15:                return "🕯️도지(관망)"
+    return "🕯️일반봉"
+
+def classify_obv_trend(row) -> str:
+    """OBV 추세 분류"""
+    slope = float(row.get('OBV_Slope', 0) or 0)
+    obv_r = bool(row.get('OBV_Rising', False))
+    obv_b = bool(row.get('OBV_Bullish', False))
+    if slope > 20 and obv_r and obv_b:  return "📊OBV강매집(3중확인)"
+    if slope > 5 and obv_r:             return "📊OBV매집중"
+    if slope > 0:                        return "📊OBV소폭상승"
+    if slope < -10:                      return "📉OBV강분산"
+    if slope < 0:                        return "📉OBV분산중"
+    return "➖OBV보합"
+
+def classify_pattern_type(row) -> str:
+    """단테 패턴 유형 분류"""
+    is_dolbanzi  = bool(row.get('Dolbanzi', False))
+    is_viper     = bool(row.get('Real_Viper_Hook', False))
+    is_golpagi   = bool(row.get('Golpagi_Trap', False))
+    is_jongbe    = bool(row.get('Jongbe_Break', False))
+    is_watermelon= bool(row.get('Watermelon_Signal', False))
+    is_real_wm   = bool(row.get('Is_Real_Watermelon', False))
+    is_surge     = bool(row.get('_is_track_b', False))
+
+    labels = []
+    if is_real_wm:   labels.append("🍉진짜수박")
+    elif is_watermelon: labels.append("🍉수박신호")
+    if is_dolbanzi:  labels.append("💍돌반지")
+    if is_viper:     labels.append("🐍독사훅")
+    if is_golpagi:   labels.append("🕳️골파기")
+    if is_jongbe:    labels.append("💛종베")
+    if is_surge:     labels.append("🚀급등초동")
+    return " ".join(labels) if labels else "➖일반"
+
+def classify_supply_state(row) -> str:
+    """수급 상태 분류 (enrich 후 사용)"""
+    supply = str(row.get('수급', '') or '')
+    maejip = int(row.get('매집', '0/5').split('/')[0] if '/' in str(row.get('매집','0/5')) else 0)
+    if '쌍끌' in supply:      return "🤝쌍끌매수"
+    if '기관' in supply:      return "🔴기관매수"
+    if '외인' in supply:      return "🔵외인매수"
+    if maejip >= 4:            return "🐋세력매집강"
+    if maejip >= 3:            return "🐋세력매집"
+    return "➖수급보통"
+
+def build_sub_classification(row) -> dict:
+    """
+    모든 보조 분류를 한 번에 생성.
+    analyze_final return dict에 **sub 로 추가.
+    """
+    rsi = float(row.get('RSI', 50) or 50)
+    return {
+        '추세강도':     classify_momentum(row),
+        '거래량패턴':   classify_volume_pattern(row),
+        '가격위치':     classify_position(row),
+        'RSI상태':      classify_rsi_state(rsi),
+        'BB상태':       classify_bb_state(row),
+        '캔들패턴':     classify_candle(row),
+        'OBV추세':      classify_obv_trend(row),
+        '단테패턴':     classify_pattern_type(row),
+        # 수치형 보조지표
+        'ADX':          round(float(row.get('ADX', 0) or 0), 1),
+        'MACD히스토':   round(float(row.get('MACD_Hist', 0) or 0), 2),
+        'Stoch_K':      round(float(row.get('Sto_K', 0) or 0), 1),
+        'Stoch_D':      round(float(row.get('Sto_D', 0) or 0), 1),
+        'BB%B':         round(float(row.get('BB40_PercentB', 0) or 0), 2),
+        'ATR비율':      round(float(row.get('ATR', 0) or 0) / float(row.get('Close', 1) or 1) * 100, 2),
+        '매집봉수':     int(row.get('Maejip_Count', 0) or 0),
+        '저항두드리기': int(row.get('Total_hammering', 0) or 0),
+        '수박Fire':     round(float(row.get('Watermelon_Fire', 0) or 0), 2),
+        'MA60기울기':   round(float(row.get('MA60_Slope', 0) or 0), 2),
+        'MA112기울기':  round(float(row.get('MA112_Slope', 0) or 0), 2),
+        '박스레인지':   round(float(row.get('Box_Range', 1) or 1), 3),
+        '역매공파수':   int(row.get('yeok_mae_count', 0) if 'yeok_mae_count' in str(row.index.tolist()) else 0),
+        '일목구름위':   row.get('Close', 0) > row.get('Cloud_Top', 0),
+    }
+
+
+# ════════════════════════════════════════════════
+# PERF-6: fdr.DataReader 결과 당일 메모리 캐시
+# 같은 종목을 여러 번 호출하는 경우 방지
+# ════════════════════════════════════════════════
+_fdr_cache = {}
+
+def fdr_cached(ticker: str, days: int = 250) -> pd.DataFrame:
+    """fdr.DataReader 결과를 당일 메모리 캐시."""
+    today_key = f"{ticker}_{days}_{datetime.now().strftime('%Y%m%d')}"
+    if today_key in _fdr_cache:
+        return _fdr_cache[today_key]
+    start = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
+    df = fdr.DataReader(ticker, start=start)
+    _fdr_cache[today_key] = df
+    return df
+
+# ---------------------------------------------------------
+# 🕵️ [7] 분석 엔진
+# ---------------------------------------------------------
+def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
+    s_score = 0
+    f_score = 0
+    whale_score = 0
+    tags = []
+    new_tags = []
+    weather_icons = []
+    storm_count = 0
+    
+    try:
+        df = fdr_cached(ticker, days=250)  # PERF-6: 캐시 활용
+        if len(df) < 100: return []
+
+        # PERF-3: get_indicators 전 빠른 사전 필터
+        _last_close  = float(df['Close'].iloc[-1])
+        _pre_amount  = (df['Close'] * df['Volume']).tail(5).mean() / 1e8
+        _pre_vol     = df['Volume'].iloc[-1]
+        _pre_vma20   = df['Volume'].tail(20).mean()
+        _pre_track_b = (_pre_amount >= 10 and _pre_vma20 > 0 and _pre_vol >= _pre_vma20 * 3.0)
+        _pre_track_a = (_pre_amount >= 50)
+
+        # ✅ FIX-5: 동전주 조기 탈락 (5,000원 미만)
+        if _last_close < MIN_PRICE:
+            return []
+
+        if not (_pre_track_a or _pre_track_b):
+            return []
+
+        df = get_indicators(df)
+        
+        if df is None or df.empty:
+            return []
+         
+        df = df.join(historical_indices, how='left').ffill()  # ✅ BUG-6 FIX
+
+        # ✅ 단계 시퀀스 판정
+        stage_eval = evaluate_stage_sequence(df)
+
+        my_sector = s_map.get(ticker, "일반")
+        current_leader_condition = l_env.get(my_sector, "Normal")
+        today_price = df.iloc[-1]['Close']
+     
+        row = df.iloc[-1]
+        prev = df.iloc[-2]
+        prev_5 = df.iloc[-5]
+        prev_10 = df.iloc[-10]
+        curr_idx = df.index[-1]
+
+        close_p = row['Close']
+        open_p = row['Open']
+        high_p = row['High']
+        low_p = row['Low']
+
+        raw_idx = len(df) - 1
+        temp_df = df.iloc[:raw_idx + 1]
+
+        recent_avg_amount = (df['Close'] * df['Volume']).tail(5).mean() / 100000000
+        # ✅ FIX-B: 트랙B 판별 (iloc로 안전하게)
+        _is_track_b = bool(df['_is_track_b'].iloc[-1]) if '_is_track_b' in df.columns else False
+        min_amount = 5 if _is_track_b else 50   # 트랙B: 5억 (소형주 초동 커버)
+        if recent_avg_amount < min_amount:
+            return []
+
+        # ✅ 후처리 단계에서 채울 예정
+        s_tag = "미계산"
+        total_m = 0
+        w_streak = 0
+        whale_score = 0
+        twin_b = False
+
+        f_tag = "미계산"
+        f_score = 0
+     
+        high_p, low_p, close_p, open_p = row['High'], row['Low'], row['Close'], row['Open']
+        body_max = max(open_p, close_p)
+        t_pct = int((high_p - body_max) / (high_p - low_p) * 100) if high_p != low_p else 0
+
+        is_cloud_brk = prev['Close'] <= prev['Cloud_Top'] and close_p > row['Cloud_Top']
+        is_kijun_sup = close_p > row['Kijun_sen'] and prev['Close'] <= prev['Kijun_sen']
+        is_diamond = is_cloud_brk and is_kijun_sup
+        is_super_squeeze = row['BB20_Width'] < 10 and row['BB40_Width'] < 15
+        is_yeok_mae_old = close_p > row['MA112'] and prev['Close'] <= row['MA112']
+        is_vol_power = row['Volume'] > row['VMA20'] * 2.5
+     
+        yeok_1_ma_aligned = (row['MA5'] > row['MA20']) and (row['MA20'] > row['MA60'])
+        yeok_2_ma_converged = row['MA_Convergence'] <= 3.0
+        yeok_3_bb40_squeeze = row['BB40_Width'] <= 10.0
+        yeok_4_red_candle = close_p < open_p
+        day_change = ((close_p - prev['Close']) / prev['Close']) * 100
+        yeok_5_pullback = -5.0 <= day_change <= -1.0
+        yeok_6_volume_surge = row['Volume'] >= row['VMA5'] * 1.5
+        yeok_7_ma5_support = close_p >= row['MA5'] * 0.97
+
+        yeok_mae_count = sum([yeok_1_ma_aligned, yeok_2_ma_converged, yeok_3_bb40_squeeze,
+                             yeok_4_red_candle, yeok_5_pullback, yeok_6_volume_surge, yeok_7_ma5_support])
+
+        is_yeok = (prev['MA5'] <= prev['MA20']) and (row['MA5'] > row['MA20'])
+        is_mae = row['MA_Convergence'] <= 3.0
+        is_gong = (close_p > row['MA112']) and (prev['Close'] <= row['MA112'])
+        is_pa = (row['Close'] > row['BB40_Upper']) and (prev['Close'] <= row['BB40_Upper'])
+        is_volume = row['Volume'] >= row['VMA5'] * 2.0
+        is_safe = 100.0 <= row['Disparity'] <= 106.0
+        is_obv = row['OBV_Slope'] > 0
+
+        conditions = [is_yeok, is_mae, is_gong, is_pa, is_volume, is_safe, is_obv]
+        match_count = sum(conditions)
+      
+        acc_1_obv_rising = (row['OBV'] > prev_5['OBV']) and (row['OBV'] > prev_10['OBV'])
+        acc_2_box_range = row['Box_Range'] <= 1.15
+        acc_3_macd_golden = row['MACD'] > row['MACD_Signal']
+        acc_4_rsi_healthy = 40 <= row['RSI'] <= 70
+        acc_5_sto_golden = row['Sto_K'] > row['Sto_D']
+
+        silent_1_atr_low = row['ATR'] < row['ATR_MA20']
+        silent_2_mfi_strong = row['MFI'] > 50
+        silent_3_mfi_rising = row['MFI'] > row['MFI_Prev5']
+        silent_4_obv_rising = row['OBV'] > prev_5['OBV']
+        
+        is_silent_accumulation = (silent_1_atr_low and silent_2_mfi_strong and 
+                                 silent_3_mfi_rising and silent_4_obv_rising)
+      
+        is_sto_gc = prev['Sto_D'] <= prev['Sto_SD'] and row['Sto_D'] > row['Sto_SD']
+        is_vma_gc = prev['VMA5'] <= prev['VMA20'] and row['VMA5'] > row['VMA20']
+        is_bb_brk = prev['Close'] <= prev['BB_Upper'] and row['Close'] > row['BB_Upper']
+        is_bb40_brk = prev.get('BB40_Upper', 0) <= prev['Close']
+        
+        is_melon = row['OBV_Slope'] > 0 and row.get('ADX', 0) > 20 and row['MACD_Hist'] > 0
+        is_nova = is_sto_gc and is_vma_gc and is_bb_brk and is_melon
+
+        rsi_score = row['RSI']
+     
+        near_ma112 = row['Near_MA112'] <= 2.0
+        long_bottom = row['Below_MA112_60d'] >= 40
+        bottom_area = near_ma112 and long_bottom
+        
+        # ✅ BUG-1 FIX: 0.2 → 5.0 (폭발직전 신호 복구)
+        bb40_w = float(row.get('BB40_Width', 99))
+        supply_strong = row['OBV_Rising'] and row['MFI_Strong']
+        buy_pressure  = bool(row.get('Buying_Pressure', False))
+        supply_score  = int(row['OBV_Rising']) + int(row['MFI_Strong']) + int(buy_pressure)
+        if bb40_w <= 3.0 and supply_score >= 2:
+            explosion_ready = True
+            explosion_level = "💎💎극강응축"
+        elif bb40_w <= 5.0 and supply_score >= 2:
+            explosion_ready = True
+            explosion_level = "💎강응축"
+        elif bb40_w <= 8.0 and supply_score >= 2:
+            explosion_ready = True
+            explosion_level = "💎약응축"
+        else:
+            explosion_ready = False
+            explosion_level = ""
+        if explosion_ready and explosion_level and explosion_level not in tags:
+            tags.append(explosion_level)
+
+        is_watermelon = bool(row.get('Watermelon_Signal_Refined', row.get('Watermelon_Signal', False)))
+        is_watermelon_prepare = bool(row.get('Watermelon_Prepare', False))
+        watermelon_color = row['Watermelon_Color']
+        watermelon_score = row['Watermelon_Score']
+        red_score = (
+            int(row['OBV_Rising']) +
+            int(row['MFI_Strong']) +
+            int(row['Buying_Pressure'])
+        )
+     
+        dante_data = calculate_dante_symmetry(temp_df)
+        if dante_data is None:
+            dante_data_ratio = 0
+            dante_data_mae_jip = 0
+        else:
+            dante_data_ratio = dante_data['ratio']
+            dante_data_mae_jip = dante_data['mae_jip']
+
+        grade, narrative, target, stop, conviction = analyze_all_narratives(
+            temp_df, name, my_sector, g_env, l_env
+        )
+
+        try:
+            tri_result = jongbe_triangle_combo_v3(temp_df) or {}
+            tri = tri_result.get('triangle') or {}
+        except Exception as e:
+            log_debug(f"🚨 jongbe_triangle_combo_v3 계산 실패: {e}")
+            tri_result = {}
+         
+        signals = build_default_signals(row, close_p, prev)
+     
+        # ✅ FIX-C: surge_breakout 실제 계산 (dict 밖에서)
+        _vma20_val  = float(row.get('VMA20', 0) or 0)
+        _vol_ratio  = row['Volume'] / _vma20_val if _vma20_val > 0 else 0
+        _is_bigbull = row['Close'] > row['Open'] * 1.05          # 5%+ 양봉
+        _obv_up     = bool(row.get('OBV_Rising', False))
+        _near_ma20  = row['Close'] >= row.get('MA20', 0) * 0.97  # MA20 근처 이상
+        _bb_touch   = row['Close'] >= row.get('BB40_Upper', row['Close']) * 0.95
+        signals['surge_breakout'] = (
+            _vol_ratio >= 3.0 and
+            _is_bigbull and
+            _obv_up and
+            (_near_ma20 or _bb_touch)
+        )
+
+        signals, new_tags = inject_tri_result(signals, tri_result, new_tags)
+         
+        if row['BB_Ross']:
+            new_tags.append("🔺🔺Ross쌍바닥")
+
+        if row['RSI_DIV']:
+            new_tags.append("📊RSI DIV")
+
+        if row.get('BB40_Ross', False):
+            new_tags.append("🟣BB40재안착")
+
+        if row.get('BB40_RSI_DIV', False):
+            new_tags.append("🟣BB40 RSI-DIV")
+
+        if row.get('BB40_Reclaim_RSI_DIV', False):
+            new_tags.append("🟣BB40재안착+RSI")
+
+        if row.get('Force_Pullback', False):
+            new_tags.append("🧲세력눌림")
+        
+        if row.get('BB40_Second_Wave', False):
+            new_tags.append("🟣BB40 2차파동")
+        
+        if row.get('Watermelon_Relaunch', False):
+            new_tags.append("🍉수박재폭발")
+        
+        if row.get('OBV_Acc_Breakout', False):
+            new_tags.append("📊OBV매집돌파")
+
+        if row.get('Good_MA_Convergence', False):
+            new_tags.append(f"📐좋은수렴({int(row.get('Good_MA_Convergence_Score', 0))})")
+
+        if row.get('MA_Convergence_Break_Ready', False):
+            new_tags.append(f"🚀폭발직전수렴({int(row.get('MA_Convergence_Break_Ready_Score', 0))})")
+
+        if bool(row.get('Is_UltraShort_MA_Conv', False)):
+            new_tags.append(f"⚡초단기수렴({float(row.get('MAConv_5_10_20', 0)):.1f})")
+        if bool(row.get('Is_Short_MA_Conv', False)):
+            new_tags.append(f"📐단기수렴({float(row.get('MAConv_5_20_60', 0)):.1f})")
+        if bool(row.get('Is_Structure_MA_Conv', False)):
+            new_tags.append(f"🏗구조수렴({float(row.get('MAConv_20_60_112', 0)):.1f})")
+        if bool(row.get('Is_Bridge_MA_Conv', False)):
+            new_tags.append(f"🌉브릿지수렴({float(row.get('MAConv_5_20_112', 0)):.1f})")
+        if bool(row.get('Is_Structure_Link_MA_Conv', False)):
+            new_tags.append(f"🧲구조접속수렴({float(row.get('MAConv_5_60_112', 0)):.1f})")
+        if bool(row.get('Is_Super_MA_Conv', False)):
+            new_tags.append("🧬초강력MA수렴")
+        if bool(row.get('Watermelon_Prepare', False)) and not bool(row.get('Watermelon_Signal_Refined', row.get('Watermelon_Signal', False))):
+            new_tags.append("🍈수박준비형")
+
+        # ✅ TUNE-2: 로그 스팸 제거 (히트 종목 포착 시에만 출력)
+        result = judge_trade_with_sequence(temp_df, signals)
+
+        # ✅ new_tags extend (덮어쓰기 제거)
+        new_tags.extend(result['tags'])
+
+        if signals['watermelon_signal']:
+            new_tags.append(f"🍉강도{row['Watermelon_Score']}/3")
+        if signals['bottom_area']:
+            new_tags.append(f"📍거리{row['Near_MA112']:.1f}%")
+        if signals['silent_perfect'] or signals['silent_strong']:
+            new_tags.append(f"🔇ATR{int(row['ATR_Below_Days'])}일")
+            new_tags.append(f"💰MFI{int(row['MFI_Strong_Days'])}일")
+        if row['Dolbanzi']:
+            new_tags.append(f"🟡돌반지")
+
+        style  = classify_style(row)
+        W      = STYLE_WEIGHTS[style]
+        style_label = {
+            "SWING": "📈스윙(5~15일)",
+            "SCALP": "⚡단타(1~3일)",
+            "NONE":  "➖미분류",
+        }[style]
+        tags.append(style_label)
+
+        # ✅ s_score 한 번만 설정 (중간 리셋 제거)
+        # ✅ FIX-D: 트랙B(급등초동) 기본 점수 상향
+        _is_track_b_final = bool(df['_is_track_b'].iloc[-1]) if '_is_track_b' in df.columns else False
+        s_score = int(90 + (30 if is_nova else 15 if is_melon else 0))
+        if _is_track_b_final:
+            s_score += 50  # 급등 초동 트랙 가점
+
+        if bool(row.get('Is_UltraShort_MA_Conv', False)):
+            s_score += 12
+            tags.append(f"⚡초단기수렴({float(row.get('MAConv_5_10_20', 0)):.1f})")
+
+        if bool(row.get('Is_Short_MA_Conv', False)):
+            s_score += 18
+            tags.append(f"📐단기수렴({float(row.get('MAConv_5_20_60', 0)):.1f})")
+
+        if bool(row.get('Is_Structure_MA_Conv', False)):
+            s_score += 25
+            tags.append(f"🏗구조수렴({float(row.get('MAConv_20_60_112', 0)):.1f})")
+
+        if bool(row.get('Is_Bridge_MA_Conv', False)):
+            s_score += 10
+            tags.append(f"🌉브릿지수렴({float(row.get('MAConv_5_20_112', 0)):.1f})")
+
+        if bool(row.get('Is_Structure_Link_MA_Conv', False)):
+            s_score += 8
+            tags.append(f"🧲구조접속수렴({float(row.get('MAConv_5_60_112', 0)):.1f})")
+
+        if bool(row.get('Is_Super_MA_Conv', False)):
+            s_score += 45
+            tags.append("🧬초강력MA수렴")
+      
+        # ✅ STEP2: 피봇/피보나치/ATR 통합 계산
+        _sr = calc_support_resistance(temp_df, row, close_p)
+        _pivot  = _sr['pivot']
+        _fib    = _sr['fib']
+        _atr_t  = _sr['atr_targets']
+
+        # ✅ FIX-FIB: 피보나치/피봇 지지선 근접 여부 → signals 주입
+        #   (_sr 계산 이후에 위치해야 함 — UnboundLocalError 방지)
+        _fib382_val = float(_fib.get('fib_382', 0))
+        _fib618_val = float(_fib.get('fib_618', 0))
+        _pivot_s1   = float(_pivot.get('S1', 0))
+        _pivot_r1   = float(_pivot.get('R1', 0))
+        _tol        = 0.02   # ±2% 허용
+
+        if _fib382_val > 0:
+            signals['fib_support_382'] = abs(close_p - _fib382_val) / _fib382_val <= _tol
+        if _fib618_val > 0:
+            signals['fib_support_618'] = abs(close_p - _fib618_val) / _fib618_val <= _tol
+        if _pivot_s1 > 0:
+            signals['pivot_support']   = abs(close_p - _pivot_s1)   / _pivot_s1   <= _tol
+        if _pivot_r1 > 0:
+            signals['pivot_resist']    = abs(close_p - _pivot_r1)   / _pivot_r1   <= _tol
+
+        # ✅ FIX-CLOSE: 종가배팅 신호 계산 (조건 7가지)
+        try:
+            _high_p  = float(row.get('High',  close_p))
+            _low_p   = float(row.get('Low',   close_p))
+            _open_p  = float(row.get('Open',  close_p))
+            _vol     = float(row.get('Volume', 0))
+            _vma20   = float(row.get('VMA20', 0) or 0)
+            _ma20    = float(row.get('MA20',  0) or 0)
+            _ma60    = float(row.get('MA60',  0) or 0)
+            _rsi_v   = float(row.get('RSI',   50) or 50)
+            _obv_up  = bool(row.get('OBV_Rising', False))
+            _disp    = float(row.get('Disparity', 100) or 100)
+
+            # 최근 20일 전고점
+            _high20  = float(temp_df['High'].tail(20).max()) if len(temp_df) >= 20 else _high_p
+            # 최근 60일 전고점 (중기 저항)
+            _high60  = float(temp_df['High'].tail(60).max()) if len(temp_df) >= 60 else _high20
+
+            # ── 조건 계산
+            # ① 전고점 대비 현재가 위치 (85~100% — 돌파 직전 구간)
+            _near_high20 = (_high20 > 0) and (0.85 <= close_p / _high20 <= 1.02)
+            _near_high60 = (_high60 > 0) and (0.80 <= close_p / _high60 <= 1.02)
+
+            # ② 윗꼬리 비율 20% 이하 (강봉마감)
+            _total_range = _high_p - _low_p
+            _upper_wick  = max(0.0, _high_p - max(_open_p, close_p))
+            _wick_ratio  = _upper_wick / _total_range if _total_range > 0 else 1.0
+            _no_upwick   = _wick_ratio <= 0.20
+
+            # ③ 거래량 폭발 (VMA20 × 2배 이상)
+            _vol_x2      = (_vma20 > 0) and (_vol >= _vma20 * 2.0)
+            _vol_x15     = (_vma20 > 0) and (_vol >= _vma20 * 1.5)
+
+            # ④ 이격도 적정 (MA20 대비 108 이하 — 추격 방지)
+            _disp_ok     = _disp <= 108
+
+            # ⑤ MA 정배열 (MA20 > MA60)
+            _ma_align    = (_ma20 > 0 and _ma60 > 0) and (_ma20 >= _ma60)
+
+            # ⑥ RSI 적정 구간 (40~70)
+            _rsi_ok      = 40 <= _rsi_v <= 70
+
+            # ⑦ 양봉 마감 (종가 > 시가)
+            _bull_close  = close_p >= _open_p
+
+            # ── 등급 결정
+            # A급: 7가지 전부 + 수박 동반
+            _cb_a = (_near_high20 and _no_upwick and _vol_x2 and
+                     _disp_ok and _ma_align and _rsi_ok and _bull_close and
+                     signals.get('watermelon_signal', False))
+
+            # B급: 핵심 4가지 (전고점+윗꼬리+거래량+이격) + OBV
+            _cb_b = (_near_high20 and _no_upwick and _vol_x2 and
+                     _disp_ok and _obv_up)
+
+            # C급: 완화 조건 (전고점60일+윗꼬리+거래량1.5배)
+            _cb_c = (_near_high60 and _no_upwick and _vol_x15 and _bull_close)
+
+            if _cb_a:
+                signals['closing_bet']       = True
+                signals['closing_bet_grade'] = 'A'
+            elif _cb_b:
+                signals['closing_bet']       = True
+                signals['closing_bet_grade'] = 'B'
+            elif _cb_c:
+                signals['closing_bet']       = True
+                signals['closing_bet_grade'] = 'C'
+
+        except Exception as _e:
+            log_debug(f"FIX-CLOSE 계산 실패: {_e}")
+
+        # ATR 기반 목표가 (기존 target이 0이면 ATR로 대체)
+        atr_target1 = _atr_t.get('target_1', 0)
+        atr_target2 = _atr_t.get('target_2', 0)
+        atr_stop    = _atr_t.get('stop_atr', 0)
+
+        # 최종 목표가: analyze_all_narratives 결과 우선, 없으면 ATR 1차
+        if target <= close_p and atr_target1 > close_p:
+            target = atr_target1
+
+        # 최종 손절가: -5% vs ATR손절 중 더 높은 것 (덜 위험한 쪽)
+        stop_5pct = round(close_p * 0.95)
+        if atr_stop > 0:
+            stop = max(stop_5pct, atr_stop)   # 더 빡빡한 (높은) 손절
+
+        lower_rn, upper_rn = get_target_levels(row['Close'])
+        avg_money = (row['Close'] * row['Volume'])
+        is_leader = avg_money >= 100000000000
+        is_1st_buy = False
+        is_2nd_buy = False
+        is_rn_signal = False
+        
+        if lower_rn and upper_rn:
+            lookback_df = df.iloc[max(0, raw_idx-20) : raw_idx]
+            hit_upper = any(lookback_df['High'] >= upper_rn * 1.04)
+            at_lower_station = lower_rn * 0.96 <= row['Close'] <= lower_rn * 1.04
+            is_rn_signal = hit_upper and at_lower_station
+          
+        if lower_rn:
+            signal_line_30 = lower_rn * 1.30
+            lookback_df = df.iloc[max(0, raw_idx-20) : raw_idx]
+            has_surged_30 = any(lookback_df['High'] >= signal_line_30)
+            zone_upper = lower_rn * 1.04
+            zone_lower = lower_rn * 0.96
+            is_1st_buy = has_surged_30 and (row['Low'] <= zone_upper <= row['High'])
+            is_2nd_buy = has_surged_30 and (row['Low'] <= zone_lower <= row['High'])
+        
+            if is_1st_buy:
+                tags.append("🚀급등_1차타점")
+                s_score += 100
+            if is_2nd_buy:
+                tags.append("🚀급등_2차타점")
+                s_score += 120
+        
+            rn_signal_data = {
+                'base_rn': lower_rn,
+                'is_rapid': has_surged_30,
+                'status': "급등존진입" if zone_lower <= row['Close'] <= zone_upper else "관찰중"
+            }
+          
+        if is_rn_signal:
+            tags.append("🚉라운드넘버")
+            s_score += 70
+
+        # ✅ storm_count 루프 한 번으로 통일
+        for m_key in ['ixic', 'sp500']:
+            if row.get(f'{m_key}_close', 0) > row.get(f'{m_key}_ma5', 0):
+                weather_icons.append("☀️")
+            else:
+                weather_icons.append("🌪️")
+                storm_count += 1
+
+        s_score -= (storm_count * 10)
+
+        if is_diamond:
+            s_score += 30
+            tags.append("💎다이아몬드")
+            if t_pct < 10:
+                s_score += 30
+                tags.append("🔥폭발직전")
+        elif is_cloud_brk:
+            s_score += 30
+            tags.append("☁️구름돌파")
+
+        if is_yeok_mae_old: 
+            s_score += 30
+            tags.append("🏆역매공파")
+        if is_super_squeeze: 
+            s_score += 20
+            tags.append("🔋초강력응축")
+        if is_vol_power: 
+            s_score += 20
+            tags.append("⚡거래폭발")
+          
+        acc_count = sum([acc_1_obv_rising, acc_2_box_range, acc_3_macd_golden,
+                       acc_4_rsi_healthy, acc_5_sto_golden])
+            
+        if acc_count >= 4:
+            s_score += 30
+            tags.append("🐋세력매집")
+        elif acc_count >= 3:
+            s_score += 20
+            tags.append("🐋매집징후")
+                
+        if acc_1_obv_rising:
+            s_score += 30
+            tags.append("📊OBV상승")
+
+        if is_nova:
+            tags.append("🚀슈퍼타점")
+        if is_melon:
+            tags.append("🍉수박")
+        if is_sto_gc:
+            s_score += 30
+            tags.append("Sto-GC")
+        if is_vma_gc:
+            tags.append("VMA-GC")
+        if is_silent_accumulation:
+            s_score += 30
+            tags.append("🤫조용한매집💰")
+        if silent_1_atr_low:
+            tags.append("🔇ATR수축")
+        if silent_2_mfi_strong and silent_3_mfi_rising:
+            tags.append("💰MFI강세")
+
+        rsi_val = row['RSI']
+        if rsi_val >= 80:
+            tags.append("🔥RSI강세"); s_score += 10
+        elif rsi_val >= 70:
+            tags.append("📈RSI상승")
+        elif rsi_val >= 50:
+            tags.append("✅RSI중립상")
+        elif rsi_val >= 30:
+            tags.append("📉RSI하락")
+        else:
+            tags.append("❄️RSI약세")
+
+        # ✅ 매집대 품질 보너스
+        _maejip_q    = row.get('Maejip_Quality', 'D(허위매집)')
+        _maejip_days = int(row.get('Maejip_Days_10', 0))
+        _green_m     = int(row.get('Green_Maejip_Days', 0))
+        _maejip_now  = int(row.get('Maejip_Score', 0))
+
+        _pre_m      = int(row.get('Pre_Signal_Maejip', 0))
+        _recent3    = int(row.get('Maejip_Recent3', 0))
+        _power      = float(row.get('Maejip_Power', 0))
+        _power_g    = str(row.get('Maejip_Power_Grade', 'D(매집없음)'))
+        _vol_ratio  = float(row.get('Maejip_Vol_Ratio', 0))
+        _sv60       = int(row.get('Seryeok_VWAP_60', 0))
+        _sv20       = int(row.get('Seryeok_VWAP_20', 0))
+        _vc_price   = int(row.get('Vol_Cluster_Price', 0))
+        _gap_pct    = float(row.get('Seryeok_Gap_Pct', 0))
+
+        # 매집 빈도 등급 보너스
+        if _maejip_q == 'A(강한매집)':
+            s_score += 70
+            tags.append(f"💎강한매집({_maejip_days}일/10일)")
+        elif _maejip_q == 'B(매집중)':
+            s_score += 40
+            tags.append(f"💎매집중({_maejip_days}일/10일)")
+        elif _maejip_q == 'C(간헐적)':
+            s_score += 15
+            tags.append(f"💎간헐매집({_maejip_days}일/10일)")
+
+        # 매집 강도(빈도×거래량) 보너스
+        if _power_g == 'A(강한매집)':
+            s_score += 60
+            tags.append(f"🔥매집강도A({_vol_ratio:.1f}배×{_maejip_days}일)")
+        elif _power_g == 'B(보통매집)':
+            s_score += 30
+            tags.append(f"💪매집강도B({_vol_ratio:.1f}배)")
+
+        # 수박 직전 매집 품질 보너스
+        if _pre_m >= 5 and is_watermelon:
+            s_score += 50
+            tags.append(f"🏆수박직전매집({_pre_m}일)")
+        elif _pre_m >= 3 and is_watermelon:
+            s_score += 25
+            tags.append(f"💎수박전매집({_pre_m}일)")
+
+        # 최근 3일 연속 매집 보너스
+        if _recent3 >= 3:
+            s_score += 30
+            tags.append("💎3일연속매집")
+        elif _recent3 == 2:
+            s_score += 15
+            tags.append("💎2일연속매집")
+
+        # 세력 평단 vs 현재가 이격 태그
+        if _sv60 > 0:
+            if _gap_pct <= 3:
+                tags.append(f"📍평단근접({_sv60:,}원,+{_gap_pct:.1f}%)")
+                s_score += 20   # 세력 평단 근처 = 강한 지지
+            elif _gap_pct <= 10:
+                tags.append(f"📊평단위({_sv60:,}원,+{_gap_pct:.1f}%)")
+            elif _gap_pct > 30:
+                tags.append(f"⚠️평단괴리({_gap_pct:.0f}%↑)")
+                s_score -= 15   # 너무 많이 올랐으면 추격 위험
+
+        # ✅ 종가배팅 가점
+        _cb_grade = signals.get('closing_bet_grade', '')
+        if signals.get('closing_bet'):
+            _cb_bonus = {'A': 60, 'B': 35, 'C': 15}.get(_cb_grade, 0)
+            s_score  += _cb_bonus
+            _near20_pct = round(close_p / float(temp_df['High'].tail(20).max()) * 100, 1) if len(temp_df) >= 20 else 0
+            tags.append(f"🕯️종가배팅{_cb_grade}급({_near20_pct}%)")
+
+        # ✅ 종가배팅 완전체 가점
+        _closing_bet_count = sum([
+            signals.get('near_high20', False),
+            signals.get('low_upper_wick', False),
+            signals.get('vol_2x', False),
+            signals.get('bullish_close', False),
+            signals.get('disparity_ok', False),
+            signals.get('above_ma20', False),
+        ])
+        if _closing_bet_count >= 6:
+            s_score += 50
+            tags.append(f"🕯️종가배팅({_closing_bet_count}/6)")
+        elif _closing_bet_count >= 4:
+            s_score += 25
+            tags.append(f"🕯️종가배팅({_closing_bet_count}/6)")
+
+        # ✅ 피보나치 지지선 가점
+        if signals.get('fib_support_618'):
+            s_score += 60
+            tags.append(f"🔢Fib61.8%({int(_fib618_val):,}원)")
+        elif signals.get('fib_support_382'):
+            s_score += 35
+            tags.append(f"🔢Fib38.2%({int(_fib382_val):,}원)")
+        if signals.get('pivot_support'):
+            s_score += 25
+            tags.append(f"📐피봇S1({int(_pivot_s1):,}원)")
+
+        # ✅ STEP4: BB30 Shift GC 타점 보너스
+        _bb30_gc   = bool(row.get('BB30_Shift_GC',   False))
+        _bb30_near = bool(row.get('BB30_Shift_Near',  False))
+        _shift_val = row.get('BB30_Upper_18_Shift', 0)
+        if _bb30_gc:
+            s_score += 120
+            tags.append("🎯BB30시프트돌파")
+            tags.append(f"🎯시프트선:{int(_shift_val)}원")
+        elif _bb30_near:
+            s_score += 50
+            tags.append("🎯BB30시프트근접")
+
+        if is_watermelon_prepare and not is_watermelon:
+            s_score += 20
+            tags.append("🍈수박준비형")
+
+        if is_watermelon:
+            s_score += 100
+            tags.append("🍉수박발사형")
+            tags.append(f"🍉빨강전환(강도{red_score}/3)")
+            tags.append(f"🍉강도{watermelon_score}/3")
+            if _bb30_gc:
+                s_score += 80   # 수박 + 시프트GC 동반 추가 보너스
+                tags.append("🏆단테핵심타점!")
+        elif watermelon_color == 'red' and red_score >= 2:
+            s_score += 60
+            tags.append("🍉빨강상태")    
+        elif row['Green_Days_10'] >= 7:
+            s_score += 30
+            tags.append("🍉초록축적")
+      
+        if 98 <= row['Disparity'] <= 104:
+            s_score += 30
+            tags.append("🏆LEGEND")
+        if t_pct > 40:
+            s_score -= 25
+            tags.append("⚠️윗꼬리")
+        if bottom_area:
+            s_score += 80
+            tags.append("🏆112선바닥권")
+            tags.append(f"📍거리{row['Near_MA112']:.1f}%")
+        if row.get('BB40_Ross', False):
+            s_score += 35
+
+        if row.get('BB40_RSI_DIV', False):
+            s_score += 25
+
+        if row.get('BB40_Reclaim_RSI_DIV', False):
+            s_score += 50
+        if explosion_ready:
+            s_score += 90
+            tags.append("💎폭발직전")
+        if is_watermelon and explosion_ready and bottom_area:
+            s_score += 80
+            tags.append("💎💎💎스윙골드")
+        # ✅ PASS_A / PASS_B 태그 부여
+        if stage_eval['stage_status'] in ('PASS_A', 'PASS_B'):
+            tags.extend(stage_eval['stage_tags'])
+        else:
+            tags.append("⛔단계미통과")
+
+        if row.get('Force_Pullback', False):
+            s_score += 25
+        
+        if row.get('BB40_Second_Wave', False):
+            s_score += 35
+        
+        if row.get('Watermelon_Relaunch', False):
+            s_score += 40
+        
+        if row.get('OBV_Acc_Breakout', False):
+            s_score += 30
+
+        if row.get('Good_MA_Convergence', False):
+            s_score += min(20, int(row.get('Good_MA_Convergence_Score', 0) * 0.25))
+
+        if row.get('MA_Convergence_Break_Ready', False):
+            s_score += min(30, int(row.get('MA_Convergence_Break_Ready_Score', 0) * 0.30))
+
+        s_score -= max(0, int((row['Disparity']-108)*5))
+
+        if not tags: return []
+
+        log_hit(name, s_score, tags)
+        
+        return [{
+            '날짜': curr_idx.strftime('%Y-%m-%d'),
+            '종목명': name, 'code': ticker,
+            'N등급': f"{result['type']}{result['grade']}",
+            'N조합': result['combination'],
+            'N점수': result['score'],
+            'N구분': " ".join(new_tags),
+            '👑등급': grade,
+            '📜서사히스토리': narrative,
+            '확신점수': conviction,
+            '🎯목표타점': int(target),
+            '🎯목표2차':  int(atr_target2) if atr_target2 > close_p else int(target * 1.05),
+            '🚨손절가':   int(stop),
+            # 피봇 포인트
+            'PP':    _pivot.get('PP',  0),
+            'R1':    _pivot.get('R1',  0),
+            'R2':    _pivot.get('R2',  0),
+            'S1':    _pivot.get('S1',  0),
+            'S2':    _pivot.get('S2',  0),
+            'S3':    _pivot.get('S3',  0),
+            # 피보나치
+            'Fib382': _fib.get('fib_382', 0),
+            'Fib500': _fib.get('fib_500', 0),
+            'Fib618': _fib.get('fib_618', 0),
+            # ATR 정보
+            'ATR값':  _atr_t.get('atr_val', 0),
+            'RR비율': _atr_t.get('risk_reward', 0),
+            # 가장 가까운 지지/저항
+            '근접저항': f"{_sr['nearest_res'][0]}:{_sr['nearest_res'][1]:,}" if _sr['nearest_res'][1] > 0 else '',
+            '근접지지': f"{_sr['nearest_sup'][0]}:{_sr['nearest_sup'][1]:,}" if _sr['nearest_sup'][1] > 0 else '',
+            '기상': "☀️" * (2-storm_count) + "🌪️" * storm_count,
+            '안전점수': int(max(0, s_score + whale_score)),
+            'RSI': int(max(0, rsi_score)),
+            '점수': int(s_score),
+            '에너지': "🔋" if row['MACD_Hist'] > 0 else "🪫",
+            '현재가': int(row['Close']),
+            '구분': " ".join(tags),
+            '재무': f_tag, '수급': s_tag,
+            '이격': int(row['Disparity']),
+            'BB40': f"{row['BB40_Width']:.1f}",
+            'MA수렴': f"{float(row.get('MAConv_20_60_112', row.get('MA_Convergence', 0))):.1f}",
+            '초단기MA수렴도': round(float(row.get('MAConv_5_10_20', 0)), 1),
+            '단기MA수렴도': round(float(row.get('MAConv_5_20_60', 0)), 1),
+            '구조MA수렴도': round(float(row.get('MAConv_20_60_112', 0)), 1),
+            '브릿지MA수렴도': round(float(row.get('MAConv_5_20_112', 0)), 1),
+            '구조접속MA수렴도': round(float(row.get('MAConv_5_60_112', 0)), 1),
+            '초단기MA수렴': bool(row.get('Is_UltraShort_MA_Conv', False)),
+            '단기MA수렴': bool(row.get('Is_Short_MA_Conv', False)),
+            '구조MA수렴': bool(row.get('Is_Structure_MA_Conv', False)),
+            '브릿지MA수렴': bool(row.get('Is_Bridge_MA_Conv', False)),
+            '구조접속MA수렴': bool(row.get('Is_Structure_Link_MA_Conv', False)),
+            '초강력MA수렴': bool(row.get('Is_Super_MA_Conv', False)),
+            'MA수렴코멘트': build_ma_convergence_comment_from_row(row),
+            '수박준비형': bool(row.get('Watermelon_Prepare', False)),
+            '수박발사형': bool(row.get('Watermelon_Signal_Refined', row.get('Watermelon_Signal', False))),
+            '매집': f"{acc_count}/5",
+            'OBV기울기': int(row['OBV_Slope']),
+            'BB20로스': bool(row.get('BB_Ross', False)),
+            'RSI다이버': bool(row.get('RSI_DIV', False)),
+            '단계상태': stage_eval['stage_status'],
+            '단계랭크': stage_rank_value(stage_eval['stage_status']),
+            'S1발생': bool(stage_eval['s1_hit']),
+            'S2발생': bool(stage_eval['s2_hit']),
+            'S3발생': bool(stage_eval['s3_hit']),
+            'S1날짜': stage_eval['s1_date'],
+            'S2날짜': stage_eval['s2_date'],
+            'S3날짜': stage_eval['s3_date'],
+            '단계태그': " ".join(stage_eval['stage_tags']),
+            'BB40로스': bool(row.get('BB40_Ross', False)),
+            'BB40_RSI_DIV': bool(row.get('BB40_RSI_DIV', False)),
+            'BB40재안착조합': bool(row.get('BB40_Reclaim_RSI_DIV', False)),
+            '세력눌림': bool(row.get('Force_Pullback', False)),
+            'BB40_2차파동': bool(row.get('BB40_Second_Wave', False)),
+            '수박재폭발': bool(row.get('Watermelon_Relaunch', False)),
+            'OBV매집돌파': bool(row.get('OBV_Acc_Breakout', False)),
+            '좋은수렴': bool(row.get('Good_MA_Convergence', False)),
+            '좋은수렴점수': int(row.get('Good_MA_Convergence_Score', 0)),
+            '폭발직전수렴': bool(row.get('MA_Convergence_Break_Ready', False)),
+            '폭발직전수렴점수': int(row.get('MA_Convergence_Break_Ready_Score', 0)),
+            '꼬리%': 0,
+            # ── 매집대 품질 정보 ──────────────────────────────
+            '매집품질등급':   str(row.get('Maejip_Quality', 'D(미발생)')),
+            '매집점수':       int(row.get('Maejip_Score',    0)),
+            '매집일수_10일':  int(row.get('Maejip_Days_10',  0)),
+            '매집일수_20일':  int(row.get('Maejip_Days_20',  0)),
+            '초록매집일수':   int(row.get('Green_Maejip_Days', 0)),
+            '수박직전매집':   int(row.get('Pre_Signal_Maejip', 0)),
+            '최근3일매집':    int(row.get('Maejip_Recent3', 0)),
+            # 매집 강도
+            '매집강도점수':   float(row.get('Maejip_Power', 0)),
+            '매집강도등급':   str(row.get('Maejip_Power_Grade', 'D(매집없음)')),
+            '매집거래량배율': float(row.get('Maejip_Vol_Ratio', 0)),
+            # 세력 추정 평단가
+            '세력평단_60일':  int(row.get('Seryeok_VWAP_60', 0) or 0),
+            '세력평단_20일':  int(row.get('Seryeok_VWAP_20', 0) or 0),
+            '볼륨클러스터':   int(row.get('Vol_Cluster_Price', 0) or 0),
+            '평단이격':       float(row.get('Seryeok_Gap_Pct', 0)),
+            # ── BB30 Shift 타점 정보 ──────────────────────────
+            'BB30시프트선': int(row.get('BB30_Upper_18_Shift', 0) or 0),
+            'BB30시프트GC': bool(row.get('BB30_Shift_GC', False)),
+            # 공시 (enrich 단계에서 채워짐 — 기본값)
+            '공시태그':    '공시없음',
+            '공시점수조정': 0,
+            '공시최신일':  '',
+            '공시내용':    '',
+            '공시건수':    0,
+            '악재공시':    False,
+            'BB30시프트근접': bool(row.get('BB30_Shift_Near', False)),
+            # ── 보조 분류 (Ver 27.5) ──────────────────────────
+            **build_sub_classification(row),
+            # 수급 상태는 enrich 후 업데이트되므로 초기값
+            '수급상태': classify_supply_state({'수급': s_tag, '매집': f"{acc_count}/5"}),
+            # 급등초동 여부
+            '급등초동': _is_track_b_final if '_is_track_b_final' in dir() else False,
+        }]
+    except Exception as e:
+        import traceback
+        log_error(f"🚨 {name} 분석 중 치명적 에러:\n{traceback.format_exc()}")
+        return []
+
+def enrich_hits_with_supply_and_financial(all_hits_sorted, top_k_supply=80, top_k_financial=30):
+    """
+    전수 기술 스캔 후, 상위 후보에만 네이버 수급/재무를 붙인다.
+    - top_k_supply: 수급 조회할 상위 종목 수
+    - top_k_financial: 재무 조회할 상위 종목 수
+    """
+    enriched = []
+
+    for idx, item in enumerate(all_hits_sorted):
+        item = item.copy()
+
+        code = item.get('code')
+        price = item.get('현재가', 0)
+
+        # 기본값 유지
+        if '수급' not in item or not item['수급']:
+            item['수급'] = "미계산"
+        if '재무' not in item or not item['재무']:
+            item['재무'] = "미계산"
+
+        # 상위 후보만 수급 조회
+        if idx < top_k_supply:
+            try:
+                s_tag, total_m, w_streak, whale_score, twin_b = get_supply_and_money(code, price)
+                item['수급'] = s_tag
+
+                # 안전점수에 고래점수 반영
+                item['안전점수'] = int(item.get('안전점수', 0)) + int(whale_score)
+
+                # twin_b 있으면 태그 강화
+                current_n = str(item.get('N구분', ''))
+                current_g = str(item.get('구분', ''))
+
+                if twin_b:
+                    if "🤝쌍끌" not in current_n:
+                        item['N구분'] = (current_n + " 🤝쌍끌").strip()
+                    if "🍉쌍끌수급" not in current_g:
+                        item['구분'] = (current_g + " 🍉쌍끌수급").strip()
+                    item['안전점수'] += 20
+
+                # ✅ 수급 enrich 후 보조분류 업데이트
+                item['수급상태'] = classify_supply_state(item)
+
+            except Exception as e:
+                item['수급'] = f"⚠️수급오류"
+
+        # 더 상위권만 재무 조회
+        if idx < top_k_financial:
+            try:
+                f_tag, f_score = get_financial_health(code)
+                item['재무'] = f_tag
+                item['안전점수'] = int(item.get('안전점수', 0)) + int(f_score * 5)
+            except Exception as e:
+                item['재무'] = f"⚠️재무오류"
+
+        enriched.append(item)
+
+    # 후처리 후 안전점수 기준으로 한 번 더 정렬
+    enriched = sorted(enriched, key=lambda x: x.get('안전점수', 0), reverse=True)
+    return enriched
+
+# 스타일별 가중치
+STYLE_WEIGHTS = {
+    "SWING": {
+        'explosion_ready': 150, 'bottom_area': 120, 'silent_perfect': 130,
+        'silent_strong': 80, 'silent_weak': 40, 'bb_squeeze_bonus': 50,
+        'ma_convergence': 40, 'watermelon': 70, 'watermelon_red': 50,
+        'volume_surge': 20, 'adx_strong': 10, 'swing_gold': 100,
+        'high_tail': -25, 'disparity_over': -5,
+    },
+    "SCALP": {
+        'explosion_ready': 50, 'bottom_area': 20, 'silent_perfect': 30,
+        'silent_strong': 20, 'silent_weak': 10, 'bb_squeeze_bonus': 10,
+        'ma_convergence': 10, 'watermelon': 150, 'watermelon_red': 100,
+        'volume_surge': 80, 'adx_strong': 80, 'swing_gold': 40,
+        'high_tail': -40, 'disparity_over': -8,
+    },
+    "NONE": {
+        'explosion_ready': 90, 'bottom_area': 80, 'silent_perfect': 100,
+        'silent_strong': 60, 'silent_weak': 30, 'bb_squeeze_bonus': 20,
+        'ma_convergence': 0, 'watermelon': 100, 'watermelon_red': 60,
+        'volume_surge': 30, 'adx_strong': 20, 'swing_gold': 80,
+        'high_tail': -25, 'disparity_over': -5,
+    },
+}
+
+def classify_style(row):
+    vol_ratio = row['ATR'] / row['Close'] if row['Close'] > 0 else 0
+    if (row['BB40_Width'] < 12 and row['MA_Convergence'] < 3 and row['ADX'] < 25):
+        return "SWING"
+    elif (0.02 <= vol_ratio <= 0.05 and row['ADX'] >= 25):
+        return "SCALP"
+    return "NONE"
+  
+
+# =============================================================
+# 📐 피봇 포인트 + 피보나치 + ATR 목표가 계산 (Ver 27.18)
+# =============================================================
+
+def calc_pivot_levels(df: pd.DataFrame) -> dict:
+    """
+    전일 고/저/종가 기반 피봇 포인트 계산.
+    PP  = (H + L + C) / 3
+    R1  = 2*PP - L
+    R2  = PP + (H - L)
+    R3  = H + 2*(PP - L)
+    S1  = 2*PP - H
+    S2  = PP - (H - L)
+    S3  = L - 2*(H - PP)
+    """
+    if df is None or len(df) < 2:
+        return {}
+
+    prev = df.iloc[-2]
+    H = float(prev['High'])
+    L = float(prev['Low'])
+    C = float(prev['Close'])
+
+    PP = (H + L + C) / 3
+    R1 = round(2 * PP - L)
+    R2 = round(PP + (H - L))
+    R3 = round(H + 2 * (PP - L))
+    S1 = round(2 * PP - H)
+    S2 = round(PP - (H - L))
+    S3 = round(L - 2 * (H - PP))
+
+    return {
+        'PP': round(PP), 'R1': R1, 'R2': R2, 'R3': R3,
+        'S1': S1, 'S2': S2, 'S3': S3,
+    }
+
+
+def calc_fibonacci_levels(df: pd.DataFrame, lookback: int = 20) -> dict:
+    """
+    최근 N봉 고점~저점 기준 피보나치 되돌림 레벨.
+    상승 추세: 저점에서 고점으로의 되돌림
+    0%, 23.6%, 38.2%, 50%, 61.8%, 78.6%, 100%
+    """
+    if df is None or len(df) < lookback:
+        return {}
+
+    recent = df.tail(lookback)
+    swing_high = float(recent['High'].max())
+    swing_low  = float(recent['Low'].min())
+    diff       = swing_high - swing_low
+
+    if diff <= 0:
+        return {}
+
+    return {
+        'fib_0':    round(swing_high),
+        'fib_236':  round(swing_high - diff * 0.236),
+        'fib_382':  round(swing_high - diff * 0.382),
+        'fib_500':  round(swing_high - diff * 0.500),
+        'fib_618':  round(swing_high - diff * 0.618),
+        'fib_786':  round(swing_high - diff * 0.786),
+        'fib_100':  round(swing_low),
+        'swing_high': round(swing_high),
+        'swing_low':  round(swing_low),
+    }
+
+
+def calc_atr_targets(row: pd.Series, close: float) -> dict:
+    """
+    ATR 기반 동적 목표가/손절가 계산.
+    1차 목표: 현재가 + ATR × 2
+    2차 목표: 현재가 + ATR × 3.5
+    손절:     현재가 - ATR × 1.5  (역매공파 -5% 기준과 취사선택)
+    """
+    atr = float(row.get('ATR', 0) or 0)
+    if atr <= 0:
+        return {}
+
+    return {
+        'atr_val':    round(atr),
+        'target_1':   round(close + atr * 2),     # 1차 목표
+        'target_2':   round(close + atr * 3.5),   # 2차 목표
+        'stop_atr':   round(close - atr * 1.5),   # ATR 손절
+        'risk_reward': round((atr * 2) / (atr * 1.5), 1),  # 기본 RR비율
+    }
+
+
+def calc_support_resistance(df: pd.DataFrame, row: pd.Series, close: float) -> dict:
+    """
+    현재가 기준 가장 가까운 지지/저항 레벨 찾기.
+    피봇 + 피보나치 + BB밴드 + MA를 통합해서 가장 근접한 레벨 반환.
+    """
+    pivot  = calc_pivot_levels(df)
+    fib    = calc_fibonacci_levels(df)
+    atr_t  = calc_atr_targets(row, close)
+
+    # 모든 레벨 수집
+    all_levels = []
+
+    # 피봇 레벨
+    for k, v in pivot.items():
+        if v > 0:
+            all_levels.append(('pivot_' + k, v))
+
+    # 피보나치 레벨
+    for k, v in fib.items():
+        if v > 0 and k.startswith('fib'):
+            all_levels.append((k, v))
+
+    # MA 레벨
+    for ma in ['MA20', 'MA40', 'MA60', 'MA112', 'MA224']:
+        val = float(row.get(ma, 0) or 0)
+        if val > 0:
+            all_levels.append((ma, round(val)))
+
+    # BB 레벨
+    for bb in ['BB_Upper', 'BB_Lower', 'BB40_Upper', 'BB40_Lower']:
+        val = float(row.get(bb, 0) or 0)
+        if val > 0:
+            all_levels.append((bb, round(val)))
+
+    # 현재가 위: 저항, 아래: 지지
+    resistances = sorted([(n, v) for n, v in all_levels if v > close], key=lambda x: x[1])
+    supports    = sorted([(n, v) for n, v in all_levels if v < close], key=lambda x: x[1], reverse=True)
+
+    nearest_res = resistances[0] if resistances else ('없음', 0)
+    nearest_sup = supports[0]    if supports    else ('없음', 0)
+
+    return {
+        'pivot':        pivot,
+        'fib':          fib,
+        'atr_targets':  atr_t,
+        'nearest_res':  nearest_res,
+        'nearest_sup':  nearest_sup,
+        'resistances':  resistances[:3],   # 상위 3개 저항
+        'supports':     supports[:3],      # 상위 3개 지지
+    }
+
+def get_target_levels(current_price):
+    upper_rns = [rn for rn in RN_LIST if rn > current_price]
+    lower_rns = [rn for rn in RN_LIST if rn <= current_price]
+    upper = upper_rns[0] if upper_rns else None
+    lower = lower_rns[-1] if lower_rns else None
+    return lower, upper
+
+def analyze_weekly_trend(ticker, name):
+    try:
+        df_daily = fdr.DataReader(ticker, start=(datetime.now()-timedelta(days=730)))
+        if len(df_daily) < 200: return []
+
+        df = df_daily.resample('W-MON').agg({
+            'Open': 'first', 'High': 'max',
+            'Low': 'min', 'Close': 'last', 'Volume': 'sum'
+        })
+
+        df['MA20_W'] = df['Close'].rolling(window=20).mean()
+        df['BB20_Upper_W'] = df['MA20_W'] + (df['Close'].rolling(window=20).std() * 2)
+        df['OBV_W'] = (np.sign(df['Close'].diff()) * df['Volume']).fillna(0).cumsum()
+        df['OBV_MA10_W'] = df['OBV_W'].rolling(window=10).mean()
+
+        row = df.iloc[-1]
+        prev = df.iloc[-2]
+
+        is_weekly_break = prev['Close'] <= prev['BB20_Upper_W'] and row['Close'] > row['BB20_Upper_W']
+        is_weekly_acc = row['OBV_W'] > row['OBV_MA10_W']
+        
+        df['MA5_W'] = df['Close'].rolling(window=5).mean()
+        is_weekly_gc = prev['MA5_W'] <= prev['MA20_W'] and row['MA5_W'] > row['MA20_W']
+
+        tags = []
+        w_score = 100
+        
+        if is_weekly_break: tags.append("🚨주봉돌파"); w_score += 30
+        if is_weekly_acc: tags.append("🌊주간매집"); w_score += 15
+        if is_weekly_gc: tags.append("✨주간GC"); w_score += 15
+
+        if not tags: return []
+
+        return [{
+            '날짜': df.index[-1].strftime('%Y-%m-%d'),
+            '종목명': f"[주간] {name}",
+            '주간화력': w_score,
+            '이격도_W': int((row['Close']/row['MA20_W'])*100),
+            '구분': " ".join(tags),
+            '진단': "주봉 단위 강력 추세 전환 포착"
+        }]
+    except Exception as e:
+        return []
+
+def generate_stage_ai_tip(row):
+    try:
+        stage = row.get('단계상태', '')
+        energy = row.get('에너지', '')
+        volume = row.get('거래대금', 0)
+        obv = row.get('OBV기울기', 0)
+        rsi = row.get('RSI', 50)
+
+        if stage == "PASS_A":
+            return "초동 파동 시작 구간, 첫 돌파 흐름. 눌림 시 매수 유효"
+
+        elif stage == "PASS_B":
+            if obv > 0 and rsi < 70:
+                return "재파동 초입, 수급 유지 상태. 강한 종목 가능성 높음"
+            elif rsi >= 70:
+                return "과열 구간 진입, 단기 눌림 확인 필요"
+            else:
+                return "재응축 후 돌파 시도, 거래대금 동반 여부 중요"
+
+        return "타이밍 애매, 추가 확인 필요"
+
+    except Exception as e:
+        return "분석 실패"
+
+# ---------------------------------------------------------
+# 🚀 [8] 메인 실행
+# ---------------------------------------------------------
+if __name__ == "__main__":
+    log_info("🚀 전략 사령부 가동 시작...")
+    
+    client = OpenAI()
+    models = client.models.list()
+    for m in models.data:
+        log_debug(m.id)
+     
+    global_env, leader_env = get_global_and_leader_status()
+
+    try:
+        df_krx = load_krx_listing_safe()
+        df_krx['Code'] = (
+            df_krx['Code']
+            .fillna('')
+            .astype(str)
+            .str.replace('.0', '', regex=False)
+            .str.zfill(6)
+        )
+        
+        s_col = next((c for c in ['Sector', 'Industry', '업종'] if c in df_krx.columns), None)
+        if s_col:
+            df_krx = df_krx.rename(columns={s_col: 'Sector'})
+            sector_master_map = df_krx.set_index('Code')['Sector'].to_dict()
+        else:
+            sector_master_map = {k: '일반' for k in df_krx['Code']}
+            
+        log_info(f"✅ [본진] 명찰 통일 완료: {len(df_krx)}개 종목 로드")
+
+    except Exception as e:
+        log_error(f"🚨 [본진] 데이터 로드 실패: {e}")
+        sector_master_map = {}
+        df_krx = pd.DataFrame(columns=['Code', 'Name', 'Sector'])
+ 
+    m_ndx = get_safe_macro('^IXIC', '나스닥')
+    m_sp5 = get_safe_macro('^GSPC', 'S&P500')
+    m_vix = get_safe_macro('^VIX', 'VIX공포')
+    m_fx  = get_safe_macro('USD/KRW', '달러환율')
+    m_wti, m_brent = get_oil_macro()
+    log_info(f"🛢️ {m_wti['text']} | {m_brent['text']}")
+    macro_status = {'nasdaq': m_ndx, 'sp500': m_sp5, 'vix': m_vix, 'fx': m_fx, 'kospi': get_index_investor_data('KOSPI')}  # ✅ BUG-4 FIX
+
+    log_info("[ 글로벌 사령부 통합 관제 센터 ]")
+    log_info(f"🇺🇸 {m_ndx['text']} | {m_sp5['text']} | ⚠️ {m_vix['text']}")
+    log_info(f"💵 {m_fx['text']} | 🇰🇷 KOSPI 수급: {get_index_investor_data('KOSPI')}")
+    log_info("=" * 60)
+    
+    imgs = [create_index_chart('KS11', 'KOSPI'), create_index_chart('IXIC', 'NASDAQ')]
+    
+    sector_results, directions = detect_leading_sectors(
+        m_ndx, m_sp5, m_vix, m_wti, m_fx
+    )
+    sector_report = format_sector_rotation_report(sector_results, directions)
+    log_debug(sector_report)
+    
+    issues = analyze_market_issues()
+    briefing = get_market_briefing(issues)
+
+    # ✅ 뉴스 수집
+    market_news_map = collect_market_news()
+    market_news_titles = flatten_news_titles(market_news_map, max_items=18)
+
+    log_debug("📰 수집된 뉴스 헤드라인")
+    for x in market_news_titles[:10]:
+        log_debug(f"  - {x}")
+
+    # ✅ 룰베이스 뉴스 분석
+    rule_news_result = analyze_news_rule_based(market_news_titles)
+    log_debug(f"✅ 룰베이스 테마: {rule_news_result}")
+
+    # ✅ GPT 뉴스 분석
+    news_theme_analysis = analyze_news_to_korea_theme(market_news_titles, OPENAI_API_KEY)
+    news_theme_text = format_news_theme_for_telegram(news_theme_analysis)
+    log_debug(news_theme_text)
+
+    # ✅ 미국시장 → 한국종목 연결 엔진
+    us_snapshot = fetch_us_market_snapshot()
+    us_rule_events = infer_kor_themes_rule_based(us_snapshot)
+    us_gpt_result = analyze_us_to_kor_with_gpt(us_snapshot, OPENAI_API_KEY)
+    us_merged_events = merge_rule_and_gpt_us_mapping(us_rule_events, us_gpt_result)
+    us_mapping_text = format_us_mapping_for_telegram(us_gpt_result, us_merged_events)
+
+    log_debug(us_mapping_text)
+
+    oil_briefing = get_oil_sector_briefing(m_wti, m_brent, sector_results, issues)
+
+    df_clean = df_krx[df_krx['Market'].isin(['KOSPI', 'KOSDAQ','코스닥','유가'])]
+    df_clean['Name'] = df_clean['Name'].astype(str)
+    df_clean = df_clean[~df_clean['Name'].str.contains('ETF|ETN|스팩|제[0-9]+호|우$|우A|우B|우C')]
+
+    # ✅ FIX-4: 동전주 + 저시총 제외
+    # 가격 필터 (5,000원 미만 제외)
+    if 'Close' in df_clean.columns:
+        df_clean = df_clean[df_clean['Close'] >= MIN_PRICE]
+    elif 'Price' in df_clean.columns:
+        df_clean = df_clean[df_clean['Price'] >= MIN_PRICE]
+
+    # 시총 필터 (300억 미만 제외)
+    if 'Marcap' in df_clean.columns:
+        df_clean = df_clean[df_clean['Marcap'] >= MIN_MARCAP]
+    elif 'MarCap' in df_clean.columns:
+        df_clean = df_clean[df_clean['MarCap'] >= MIN_MARCAP]
+
+    log_info(f"🔭 필터 후 대상: {len(df_clean)}개 (5천원↑, 시총300억↑)")
+
+    if 'Amount' in df_clean.columns:
+        # ✅ FIX-6: 거래대금 상위 TOP_N + 급등 소형주 50 병합
+        sorted_main = df_clean.sort_values(by='Amount', ascending=False).head(TOP_N)
+
+        # 급등 소형주: 거래대금 하위권이지만 당일 거래대금 급증 종목
+        # (전체에서 거래대금 상위를 이미 제외했으므로 추가로 붙임)
+        sorted_small = df_clean[~df_clean['Code'].isin(sorted_main['Code'])].copy()
+        if 'ChangeRate' in sorted_small.columns:
+            sorted_small = sorted_small[sorted_small['ChangeRate'] >= 10].head(50)
+        elif 'Change' in sorted_small.columns:
+            sorted_small = sorted_small.sort_values('Amount', ascending=False).head(50)
+        else:
+            sorted_small = pd.DataFrame(columns=sorted_main.columns)
+
+        sorted_df = pd.concat([sorted_main, sorted_small], ignore_index=True).drop_duplicates(subset='Code')
+        log_info(f"🔭 스캔 대상: 주력 {len(sorted_main)}개 + 소형급등 {len(sorted_small)}개 = 총 {len(sorted_df)}개")
+    else:
+        sorted_df = df_clean.copy()
+
+    target_dict = dict(zip(sorted_df['Code'], sorted_df['Name']))
+
+    weather_data = prepare_historical_weather()  # ✅ BUG-5 FIX: target_dict 중복 제거
+    all_hits = run_scan_with_timeout(
+        target_dict, weather_data, global_env, leader_env, sector_master_map
+    )
+        
+    # ✅ BUGFIX: all_hits 비어있을 때 all_hits_sorted 미정의 방지
+    all_hits_sorted = sorted(all_hits, key=lambda x: x['N점수'], reverse=True) if all_hits else []
+
+    log_info("⚙️ 상위 후보 수급/재무 후처리 중...")
+    all_hits_sorted = enrich_hits_with_supply_and_financial(
+        all_hits_sorted,
+        top_k_supply=200,
+        top_k_financial=100
+    )
+
+    # ✅ DART 공시 정보 추가
+    if DART_ENABLED:
+        log_info("📋 DART 공시 조회 중 (상위 100종목)...")
+        all_hits_sorted = enrich_with_disclosure(all_hits_sorted, top_k=100)
+        log_info("✅ 공시 조회 완료")
+    else:
+        log_info("⚙️ DART_API_KEY 없음 — 공시 조회 생략 (GitHub Secrets에 DART_API_KEY 추가 필요)")
+        # 키 없으면 '공시미조회'로 표시 (완전 생략 아님)
+        for item in all_hits_sorted:
+            item['공시태그'] = '⚙️미조회'
+
+    ai_candidates = build_and_sort_candidates(all_hits_sorted, top_k=50)
+
+    # ✅ BUGFIX: ai_candidates 비어있으면 빈 DataFrame + 필수 컬럼 보장
+    if ai_candidates.empty:
+        log_info("⚠️ 스캔 결과 없음 — 알림 생략")
+        graceful_shutdown(exit_code=0)
+
+    # =========================================================
+    # 🚀 단계 기반 급등 후보 TOP5 생성
+    # =========================================================
+    stage_candidates_top5 = pd.DataFrame()
+
+    if not ai_candidates.empty and '단계상태' in ai_candidates.columns:
+        stage_candidates = ai_candidates[
+            ai_candidates['단계상태'].isin(['PASS_A', 'PASS_B'])
+        ].copy()
+
+        if not stage_candidates.empty:
+            stage_candidates = stage_candidates.sort_values(
+                by=['단계랭크', 'N점수'],
+                ascending=False
+            ).reset_index(drop=True)
+
+            stage_candidates_top5 = stage_candidates.head(5)
+            log_info(f"🚀 단계 기반 급등 후보 수: {len(stage_candidates_top5)}")
+
+    # ✅ 최종 후보는 PASS_A / PASS_B만 통과
+    if not ai_candidates.empty and '단계상태' in ai_candidates.columns:
+        passed_candidates = ai_candidates[
+            ai_candidates['단계상태'].isin(['PASS_A', 'PASS_B'])
+        ].copy()
+
+        # PASS_A 우선, 그 다음 PASS_B, 그 안에서 안전점수/N점수
+        if not passed_candidates.empty:
+            passed_candidates = passed_candidates.sort_values(
+                by=['단계랭크', '안전점수', 'N점수'],
+                ascending=False
+            ).reset_index(drop=True)
+
+            ai_candidates = passed_candidates
+            log_info("✅ 단계 시퀀스 PASS_A/PASS_B 종목 정렬")
+        else:
+            log_info("⚠️ 단계 시퀀스 PASS_A/PASS_B 종목이 없어 기존 후보 유지")
+    # 3) 뉴스 테마 보너스 적용
+    ai_candidates = apply_news_theme_bonus(ai_candidates, news_theme_analysis)
+    ai_candidates = apply_us_theme_bonus(ai_candidates, us_merged_events)
+
+    log_info("🌍 시장 + 후보종목 통합 AI 브리핑 생성 중...")
+    macro_briefing_result = run_macro_candidate_briefing(
+        ai_candidates=ai_candidates,
+        m_ndx=m_ndx, m_sp5=m_sp5, m_vix=m_vix, m_fx=m_fx,
+        m_wti=m_wti,           
+        sector_results=sector_results,
+        issues=issues
+    )
+
+    log_debug("✅ 통합 AI 브리핑 결과:")
+    log_debug(json.dumps(macro_briefing_result, ensure_ascii=False, indent=2))
+
+    try:
+        update_ai_briefing_sheet(macro_briefing_result, TODAY_STR)
+        log_info("💾 AI_Briefing 시트 저장 완료")
+    except Exception as e:
+        log_error(f"🚨 AI_Briefing 저장 실패: {e}")
+
+    macro_briefing_text = format_macro_briefing_for_telegram(macro_briefing_result)
+
+    # ✅ 종목별 뉴스 감성 조회 (상위 15개, 종목당 5초 타임아웃)
+    log_info("📰 종목별 뉴스 조회 중 (상위 15개)...")
+    if 'news_sentiment' not in ai_candidates.columns:
+        ai_candidates['news_sentiment'] = ''
+    for idx, row_n in ai_candidates.head(15).iterrows():
+        try:
+            import signal as _sig
+            def _timeout_handler(signum, frame):
+                raise TimeoutError("뉴스 조회 타임아웃")
+            _sig.signal(_sig.SIGALRM, _timeout_handler)
+            _sig.alarm(5)  # 종목당 5초 제한
+            news_str = _fetch_stock_news(
+                str(row_n.get('code', '')),
+                str(row_n.get('종목명', ''))
+            )
+            _sig.alarm(0)  # 타임아웃 해제
+        except Exception:
+            news_str = ''
+            try: _sig.alarm(0)
+            except: pass
+        ai_candidates.at[idx, 'news_sentiment'] = news_str
+
+    log_info("🧠 상위 30개 종목 AI 심층 분석 중...")
+    log_info(f"  OPENAI_API_KEY:    {'✅' if OPENAI_API_KEY else '❌ 없음'}")
+    log_info(f"  ANTHROPIC_API_KEY: {'✅' if ANTHROPIC_API_KEY else '❌ 없음'}")
+    log_info(f"  GEMINI_API_KEY:    {'✅' if GEMINI_API_KEY else '❌ 없음'}")
+    log_info(f"  GROQ_API_KEY:      {'✅' if GROQ_API_KEY else '❌ 없음'}")
+    tournament_report = run_ai_tournament(ai_candidates, issues)
+    log_info(f"  토너먼트 결과 길이: {len(tournament_report)}자")
+    if not tournament_report or len(tournament_report) < 10:
+        log_error("⚠️ 토너먼트 결과 없음 — API 키 또는 네트워크 문제")
+ 
+    log_info("📊 수박지표 차트 생성 중...")
+    # ✅ BUGFIX: Watermelonchart.py가 기대하는 컬럼 누락 시 빈값으로 보완
+    _chart_required_cols = ['N구분', 'N등급', 'N조합', '종목명', 'code',
+                            '현재가', 'RSI', 'BB40', 'MA수렴', 'OBV기울기',
+                            '이격', '안전점수', '수급', '재무']
+    for _col in _chart_required_cols:
+        if _col not in ai_candidates.columns:
+            ai_candidates[_col] = ''
+
+    try:
+        chart_paths = create_watermelon_charts_for_hits(ai_candidates, top_n=5)
+    except Exception as e:
+        log_error(f"⚠️ 차트 생성 실패 (무시하고 계속): {e}")
+        chart_paths = []
+ 
+    lines = []
+    
+    def safe_int(x, default=0):
+        try: return int(float(x))
+        except: return default
+    
+    def safe_float(x, default=0.0):
+        try: return float(x)
+        except: return default
+    
+    # market_news_titles를 issues와 함께 전달 (시장 맥락 제공)
+    ai_result_text = get_ai_summary_batch(ai_candidates, issues, market_news_titles)
+
+    # ✅ 파싱 복구
+    ai_map = {}
+    current_key = None
+    current_lines = []
+    
+    for line in ai_result_text.splitlines():
+        # [종목명(코드)] 형식 감지
+        if line.startswith("[") and "(" in line and line.endswith("]"):
+            # 이전 종목 저장
+            if current_key and current_lines:
+                ai_map[current_key] = "\n".join(current_lines).strip()
+            current_key = line[1:-1]  # [ ] 제거
+            current_lines = []
+        elif current_key:
+            current_lines.append(line)
+    
+    # 마지막 종목 저장
+    if current_key and current_lines:
+        ai_map[current_key] = "\n".join(current_lines).strip()
+    
+    # ✅ ai_tip 주입
+    for idx, item in ai_candidates.iterrows():
+        key = f"{item['종목명']}({item['code']})"
+        ai_candidates.loc[idx, "ai_tip"] = ai_map.get(key, "브리핑 생성 실패")
+    
+    telegram_targets = ai_candidates.head(15)
+    
+    MAX_CHAR = 3800
+    current_msg = (
+        f"{briefing}\n\n"
+        f"{sector_report}\n\n"      
+        f"{oil_briefing}\n\n"
+        f"{news_theme_text}\n\n"
+        f"{us_mapping_text}\n\n"
+        f"{macro_briefing_text}\n\n"
+        f"📢 [오늘의 실시간 TOP 15]\n\n"
+    )
+    
+    stage_block = ""
+
+    if not stage_candidates_top5.empty:
+        stage_block = "\n🚀 [단계 기반 급등 후보 TOP 5]\n\n"
+
+    for _rank, (_, item) in enumerate(stage_candidates_top5.iterrows(), 1):  # ✅ BUG-3 FIX
+        stage_block += (
+            f"{_rank}) [{item['종목명']}]\n"
+            f"- 단계: {item.get('단계상태', 'N/A')} | {item.get('단계태그', '')}\n"
+            f"- S1:{item.get('S1날짜', '-')}, "
+            f"S2:{item.get('S2날짜', '-')}, "
+            f"S3:{item.get('S3날짜', '-')}\n"
+            f"- N조합: {item.get('N조합', '')}\n"
+            f"- 재무: {item.get('재무', '미계산')} | 수급: {item.get('수급', '미계산')}\n"
+            f"- 안전:{item.get('안전점수', 0)} | N점수:{item.get('N점수', 0)}\n"
+            f"----------------------------\n"
+        )
+    log_debug(f"🚀 stage_block 길이: {len(stage_block)}")
+ 
+    for _, item in telegram_targets.iterrows():
+        # ─── 헬퍼
+        def _si(v, d=0):
+            try: return int(float(v))
+            except: return d
+        def _sf(v, d=0.0):
+            try: return float(v)
+            except: return d
+
+        # ─── 핵심 값 추출
+        name_str    = item['종목명']
+        code_str    = item.get('code', '')
+        price       = _si(item.get('현재가', 0))
+        n_grade     = item.get('N등급', '')
+        n_combo     = item.get('N조합', '')
+        safe_score  = _si(item.get('안전점수', 0))
+        n_score     = _si(item.get('N점수', 0))
+        rsi         = _si(item.get('RSI', 0))
+        disparity   = _si(item.get('이격', 0))
+        ma_conv     = _sf(item.get('MA수렴', 0))
+        ma_ultra    = _sf(item.get('초단기MA수렴도', 0))
+        ma_short    = _sf(item.get('단기MA수렴도', 0))
+        ma_struct   = _sf(item.get('구조MA수렴도', 0))
+        ma_comment  = str(item.get('MA수렴코멘트', ''))
+        obv_slope   = _si(item.get('OBV기울기', 0))
+        bb40        = _sf(item.get('BB40', 0))
+        stage       = item.get('단계상태', 'DROP')
+        supply      = item.get('수급', '-')
+        finance     = item.get('재무', '-')
+        narrative   = item.get('📜서사히스토리', '')
+        ai_tip      = item.get('ai_tip', '')
+        energy      = item.get('에너지', '')
+        weather     = item.get('기상', '')
+
+        # ─── 핵심 태그만 추출 (중복/노이즈 제거)
+        # N구분에서 의미있는 태그만 골라냄 (5개 이하)
+        n_tags_raw  = str(item.get('N구분', '')).split()
+        # 우선순위: 수박>돌반지>독사>골파기>종베>BB30 순
+        priority_kw = ['🍉', '💍', '🐍', '🕳️', '💛', '🎯', '💎', '🟣', '📊OBV']
+        n_tags_top  = []
+        for kw in priority_kw:
+            for tag in n_tags_raw:
+                if kw in tag and tag not in n_tags_top:
+                    n_tags_top.append(tag)
+                    break
+        # 부족하면 앞에서 채움
+        for tag in n_tags_raw:
+            if tag not in n_tags_top and len(n_tags_top) < 4:
+                n_tags_top.append(tag)
+        key_tags = ' '.join(n_tags_top[:4])
+
+        # ─── 매집 정보
+        maejip_grade  = item.get('매집강도등급', 'D(매집없음)')
+        maejip_days   = _si(item.get('매집일수_10일', 0))
+        vol_ratio     = _sf(item.get('매집거래량배율', 0))
+        sv60          = _si(item.get('세력평단_60일', 0))
+        gap_pct       = _sf(item.get('평단이격', 0))
+        pre_maejip    = _si(item.get('수박직전매집', 0))
+
+        # ─── 공시
+        disc_tag      = item.get('공시태그', '없음')
+        disc_nm       = item.get('공시내용', '')[:15] if item.get('공시내용') else ''
+        has_bad_disc  = bool(item.get('악재공시', False))
+
+        # ─── 타점 정보
+        target_p = _si(item.get('🎯목표타점', 0))
+        stop_p   = _si(item.get('🚨손절가', 0))
+        bb30_gc  = bool(item.get('BB30시프트GC', False))
+        bb30_val = _si(item.get('BB30시프트선', 0))
+
+        # ─── 단계 표시 (PASS_A/B만 표시, DROP은 생략)
+        stage_str = ''
+        if stage == 'PASS_A':
+            stage_str = f"🧬PASS_A({item.get('S1날짜','?')[:5]}→{item.get('S3날짜','?')[:5]})"
+        elif stage == 'PASS_B':
+            stage_str = f"🟣PASS_B({item.get('S2날짜','?')[:5]}→{item.get('S3날짜','?')[:5]})"
+
+        # ─── 이격도 경고
+        disp_warn = ''
+        if disparity >= 120: disp_warn = ' ⚠️과열'
+        elif disparity <= 95: disp_warn = ' 📍눌림'
+
+        # ─── BB30 시프트선 표시
+        bb30_str = f"🎯시프트:{bb30_val:,}원" if bb30_gc and bb30_val > 0 else ''
+
+        # ─── 악재 공시 경고 줄
+        disc_str = ''
+        if disc_tag not in ('없음', '공시없음'):  # 미조회/오류도 표시
+            _disc_icon = '🚨' if has_bad_disc else '📋'
+            _disc_detail = f" ({disc_nm})" if disc_nm else ''
+            disc_str = f"{_disc_icon} 공시: {disc_tag}{_disc_detail}" 
+
+        # ─── AI 코멘트 핵심만 (첫 줄만)
+        ai_short = ''
+        if ai_tip:
+            first_line = [l.strip() for l in ai_tip.splitlines() if l.strip()]
+            if first_line:
+                # ✅핵심: 이후 텍스트만 추출
+                line = first_line[0].replace('✅ 핵심:', '').replace('✅핵심:', '').strip()
+                ai_short = f"💡 {line[:60]}" if line else ''
+
+        # ════════════════════════════════════
+        # 최종 메시지 포맷 (간결 + 구조적)
+        # ════════════════════════════════════
+        entry = (
+            f"{'─'*28}\n"
+            f"⭐ {n_grade}  [{name_str}]  {price:,}원\n"
+            f"🎯 {n_combo}\n"
+            f"🏷️ {key_tags}\n"
+        )
+
+        # 단계 (PASS만)
+        if stage_str:
+            entry += f"📶 {stage_str}\n"
+
+        # BB30 시프트 타점
+        if bb30_str:
+            entry += f"🎯 {bb30_str}\n"
+
+        entry += (
+            f"\n"
+            f"💰 현재가:{price:,} | 이격:{disparity}{disp_warn} | RSI:{rsi}\n"
+            f"📊 초:{ma_ultra:.1f} | 단:{ma_short:.1f} | 구:{ma_struct:.1f} | BB40:{bb40:.1f} | OBV:{obv_slope:+}\n"
+            f"🧭 {ma_comment[:42]}\n"
+            f"🏦 수급:{supply} | 재무:{finance} | {energy}\n"
+        )
+
+        # 세력 평단 (0이 아닐 때만)
+        if sv60 > 0:
+            entry += f"💎 평단:{sv60:,}원 | 이격:{gap_pct:+.1f}% | 매집:{maejip_days}일({vol_ratio:.1f}배)\n"
+
+        # 서사 (있을 때만, 30자 제한)
+        if narrative:
+            entry += f"📖 {narrative[:40]}\n"
+
+        # 공시 (악재만 표시)
+        if disc_str:
+            entry += f"{disc_str}\n"
+
+        # 종목 뉴스 감성 (있을 때만)
+        _news_sent = str(item.get('news_sentiment', '')).strip()
+        if _news_sent:
+            entry += f"📰 {_news_sent[:60]}\n"
+
+        # AI 코멘트
+        if ai_short:
+            entry += f"{ai_short}\n"
+
+        # 타점 (2단계 목표 + 지지저항)
+        target2_p = _si(item.get('🎯목표2차', 0))
+        rr_ratio  = float(item.get('RR비율', 0))
+        nearest_r = item.get('근접저항', '')
+        nearest_s = item.get('근접지지', '')
+        pp_val    = _si(item.get('PP', 0))
+        r1_val    = _si(item.get('R1', 0))
+        s1_val    = _si(item.get('S1', 0))
+        fib382    = _si(item.get('Fib382', 0))
+        fib618    = _si(item.get('Fib618', 0))
+        atr_val   = _si(item.get('ATR값', 0))
+
+        if target_p > 0 and stop_p > 0:
+            entry += f"📌 목표1:{target_p:,} → 목표2:{target2_p:,} | 손절:{stop_p:,}"
+            if rr_ratio > 0:
+                entry += f" (RR {rr_ratio:.1f})"
+            entry += "\n"
+
+        # 피봇/피보나치 지지저항
+        if pp_val > 0:
+            entry += f"📐 PP:{pp_val:,} | R1:{r1_val:,} | S1:{s1_val:,}\n"
+        if fib382 > 0:
+            entry += f"🔢 Fib38.2%:{fib382:,} | Fib61.8%:{fib618:,}\n"
+        if atr_val > 0:
+            entry += f"📏 ATR:{atr_val:,}원\n"
+
+        entry += f"점수: 안전{safe_score} / N{n_score}\n"
+
+
+        if len(current_msg) + len(entry) > MAX_CHAR:
+            send_telegram_photo(current_msg, imgs if imgs else [])
+            imgs = []
+            current_msg = "📢 [오늘의 추천주 - 이어서]\n\n" + entry
+            log_debug(f"[메시지 분할] {len(current_msg)}자")
+        else:
+            current_msg += entry
+
+    # 마지막 블록은 급등후보
+    final_block = stage_block if stage_block else ""
+
+    if len(current_msg) + len(final_block) > MAX_CHAR:
+        send_telegram_photo(current_msg, imgs if imgs else [])
+    imgs = []
+    if final_block:
+        send_telegram_photo(final_block, [])
+    else:
+        current_msg += final_block
+        send_telegram_photo(current_msg, imgs if imgs else [])
+    
+    imgs = []
+    # AI 토너먼트는 맨 마지막
+    if tournament_report and len(tournament_report) > 10:
+        log_info(f"📨 토너먼트 결과 전송 중 ({len(tournament_report)}자)...")
+        send_tournament_results(tournament_report)
+        log_info("✅ 토너먼트 전송 완료")
+    else:
+        log_error("⚠️ 토너먼트 결과 없어서 전송 생략")
+
+    try:
+        update_google_sheet(all_hits_sorted, TODAY_STR, tournament_report + stage_block)
+        log_info(f"💾 총 {len(all_hits_sorted)}개 종목 전수 기록 완료!")
+    except Exception as e:
+        log_error(f"🚨 시트 업데이트 실패: {e}")
+
+    log_info("✅ 작전 종료: 전수 기록 완료 및 정예 15건 보고 완료!")
+    graceful_shutdown(exit_code=0)
