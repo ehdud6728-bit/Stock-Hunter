@@ -291,144 +291,396 @@ def run_scan_with_timeout(target_dict, weather_data, global_env, leader_env, sec
 # get_safe_macro() 재사용
 # ────────────────────────────────────────────────────────────────
 
+# ────────────────────────────────────────────────────────────────
+# ✅ NEW 1: 유가지수 추가 (WTI / 브렌트)
+# get_safe_macro() 재사용
+# ────────────────────────────────────────────────────────────────
+
 def get_oil_macro():
     """WTI / 브렌트 유가 수집"""
-    m_wti   = get_safe_macro('CL=F',  'WTI유가')    # WTI 원유
-    m_brent = get_safe_macro('BZ=F',  '브렌트유가')  # 브렌트 원유
+    m_wti   = get_safe_macro('CL=F',  'WTI유가')
+    m_brent = get_safe_macro('BZ=F',  '브렌트유가')
     return m_wti, m_brent
 
-# main 블록에서 호출 위치 (m_fx 아래에 추가):
-# m_wti, m_brent = get_oil_macro()
-# print(f"🛢️ {m_wti['text']} | {m_brent['text']}")
-
 
 # ────────────────────────────────────────────────────────────────
-# ✅ NEW 2: 섹터 순환 탐지 시스템
-# 유가/달러/나스닥 수치 조합으로 현재 주도 섹터 판단
+# ✅ NEW 2: 확장 시황/섹터 테이프 시스템
+# 시장지수 → 섹터ETF → 대표주 breadth → 쇼크 페널티까지 반영
 # ────────────────────────────────────────────────────────────────
 
-# 섹터별 연관 지수 맵
 SECTOR_MACRO_MAP = {
-    "정유/화학": {
-        "triggers": [("oil", "up")],
-        "tickers": ["010950", "096770", "267250", "011170"],  # S-Oil, SK이노, HD현대오일뱅크, 롯데케미칼
-        "desc": "유가 상승 → 정유/화학 마진 개선"
+    "반도체": {
+        "triggers": [("nasdaq", "up", 1.2), ("dollar", "down", 0.8), ("vix", "down", 0.6)],
+        "etfs": [("SOXX", "반도체ETF"), ("SMH", "반도체ETF2")],
+        "leaders": [("NVDA", "엔비디아"), ("AMD", "AMD"), ("AVGO", "브로드컴"), ("MU", "마이크론"), ("TSM", "TSMC")],
+        "shock_rules": [{"symbol": "MU", "chg_lte": -3.0, "penalty": 2.0, "reason": "마이크론 급락"}],
+        "tickers": ["005930", "000660", "042700"],
+        "desc": "나스닥보다 SOXX/SMH와 NVDA·MU 같은 대표주 흐름을 더 중요하게 본다."
+    },
+    "AI전력/전력설비": {
+        "triggers": [("nasdaq", "up", 0.8), ("vix", "down", 0.5), ("us10y", "down", 0.5)],
+        "etfs": [("XLU", "유틸리티ETF")],
+        "leaders": [("VRT", "버티브"), ("ETN", "이튼"), ("PWR", "콴타"), ("NVT", "엔벤트"), ("CEG", "컨스털레이션")],
+        "shock_rules": [],
+        "tickers": ["015760", "130660", "000500", "024110"],
+        "desc": "AI 데이터센터 전력/냉각/설비 테마. 대형 전력 대표주 breadth 확인이 중요하다."
+    },
+    "정유/에너지": {
+        "triggers": [("oil", "up", 1.2), ("dollar", "up", 0.4)],
+        "etfs": [("XLE", "에너지ETF"), ("OIH", "오일서비스ETF")],
+        "leaders": [("XOM", "엑손모빌"), ("CVX", "셰브론"), ("SLB", "슐럼버거")],
+        "shock_rules": [],
+        "tickers": ["010950", "096770", "267250", "011170"],
+        "desc": "유가만 보지 말고 XLE/OIH와 메이저 정유주가 실제로 같이 받는지 확인한다."
     },
     "조선/해운": {
-        "triggers": [("oil", "up"), ("dollar", "up")],
-        "tickers": ["009540", "000720", "010140", "011200"],  # HD한국조선해양, 현대건설, 삼성중공업, HMM
-        "desc": "유가↑ + 달러↑ → 조선 수주 단가 상승"
+        "triggers": [("oil", "up", 0.6), ("dollar", "up", 0.8), ("russell", "up", 0.3)],
+        "etfs": [("BDRY", "벌크운임ETF")],
+        "leaders": [("ZIM", "짐"), ("MATX", "매트슨"), ("DAC", "다나오스")],
+        "shock_rules": [],
+        "tickers": ["009540", "010140", "011200", "329180"],
+        "desc": "유가/달러 환경뿐 아니라 해운 대표주와 운임 관련 ETF 흐름을 같이 본다."
     },
-    "반도체": {
-        "triggers": [("nasdaq", "up"), ("dollar", "down")],
-        "tickers": ["005930", "000660", "042700"],  # 삼성전자, SK하이닉스, 한미반도체
-        "desc": "나스닥 강세 + 달러 약세 → 반도체 수출 유리"
-    },
-    "2차전지": {
-        "triggers": [("nasdaq", "up"), ("oil", "up")],
-        "tickers": ["373220", "051910", "006400"],  # LG에너지솔루션, LG화학, 삼성SDI
-        "desc": "유가↑ → EV 전환 가속 + 나스닥 성장주 동반"
+    "2차전지/EV": {
+        "triggers": [("nasdaq", "up", 0.8), ("oil", "up", 0.5), ("us10y", "down", 0.6)],
+        "etfs": [("LIT", "리튬배터리ETF")],
+        "leaders": [("TSLA", "테슬라"), ("ALB", "알버말"), ("SQM", "SQM"), ("RIVN", "리비안"), ("LI", "리오토")],
+        "shock_rules": [{"symbol": "TSLA", "chg_lte": -4.0, "penalty": 1.5, "reason": "테슬라 급락"}],
+        "tickers": ["373220", "051910", "006400"],
+        "desc": "성장주 환경만으로 보지 말고 LIT와 테슬라/리튬 대표주의 실제 breadth를 확인한다."
     },
     "바이오": {
-        "triggers": [("vix", "down"), ("nasdaq", "up")],
-        "tickers": ["068270", "207940", "326030"],  # 셀트리온, 삼성바이오로직스, SK바이오팜
-        "desc": "VIX 안정 + 나스닥 강세 → 성장주 바이오 선호"
+        "triggers": [("vix", "down", 0.8), ("nasdaq", "up", 0.7), ("us10y", "down", 0.7)],
+        "etfs": [("XBI", "바이오ETF"), ("IBB", "바이오대형ETF")],
+        "leaders": [("LLY", "일라이릴리"), ("NVO", "노보노디스크"), ("REGN", "리제네론"), ("VRTX", "버텍스"), ("AMGN", "암젠")],
+        "shock_rules": [],
+        "tickers": ["068270", "207940", "326030"],
+        "desc": "금리와 XBI/IBB, 대형 바이오 대표주 흐름을 함께 보며 리스크온/리스크오프를 구분한다."
     },
     "금융/은행": {
-        "triggers": [("dollar", "up"), ("vix", "down")],
-        "tickers": ["105560", "055550", "086790"],  # KB금융, 신한지주, 하나금융지주
-        "desc": "달러 강세 + 시장 안정 → 금융주 선호"
+        "triggers": [("dollar", "up", 0.4), ("vix", "down", 0.6), ("us10y", "up", 0.8)],
+        "etfs": [("XLF", "금융ETF"), ("KRE", "은행ETF")],
+        "leaders": [("JPM", "JP모건"), ("BAC", "뱅크오브아메리카"), ("GS", "골드만삭스"), ("MS", "모건스탠리")],
+        "shock_rules": [],
+        "tickers": ["105560", "055550", "086790"],
+        "desc": "10년물 금리와 XLF/KRE, 대형 은행주 breadth를 같이 봐야 금융주 추천이 자연스럽다."
     },
     "방산": {
-        "triggers": [("vix", "up"), ("dollar", "up")],
-        "tickers": ["012450", "047810", "064350"],  # 한화에어로스페이스, 한국항공우주, 현대로템
-        "desc": "지정학 리스크↑ → 방산 수혜"
+        "triggers": [("vix", "up", 0.8), ("dollar", "up", 0.4)],
+        "etfs": [("ITA", "방산ETF")],
+        "leaders": [("LMT", "록히드"), ("RTX", "RTX"), ("NOC", "노스럽"), ("GD", "제너럴다이내믹스")],
+        "shock_rules": [],
+        "tickers": ["012450", "047810", "064350"],
+        "desc": "지정학 리스크가 올라갈 때 ITA와 미국 방산 대형주가 실제로 받는지 확인한다."
     },
-    "유틸리티/전력": {
-        "triggers": [("oil", "up"), ("vix", "up")],
-        "tickers": ["015760", "036460"],  # 한국전력, 한국가스공사
-        "desc": "유가↑ + 불안심리 → 방어주 유틸리티"
+    "원전/우라늄": {
+        "triggers": [("oil", "up", 0.4), ("vix", "down", 0.3), ("us10y", "down", 0.3)],
+        "etfs": [("URA", "우라늄ETF"), ("NLR", "원전ETF")],
+        "leaders": [("CCJ", "카메코"), ("CEG", "컨스털레이션"), ("LEU", "센트러스"), ("UEC", "우라늄에너지")],
+        "shock_rules": [],
+        "tickers": ["034020", "130660", "015760"],
+        "desc": "원전/우라늄 테마는 URA/NLR과 우라늄 대표주의 동행 여부를 확인해야 한다."
+    },
+    "로봇/자동화": {
+        "triggers": [("nasdaq", "up", 0.7), ("vix", "down", 0.4), ("russell", "up", 0.4)],
+        "etfs": [("BOTZ", "로봇ETF"), ("ROBO", "자동화ETF")],
+        "leaders": [("ABB", "ABB"), ("ISRG", "인튜이티브서지컬"), ("SYM", "심보틱"), ("TER", "테라다인")],
+        "shock_rules": [],
+        "tickers": ["277810", "454910", "090360"],
+        "desc": "로봇주는 BOTZ/ROBO와 실제 자동화 대형주 테이프를 같이 봐야 허상이 줄어든다."
+    },
+    "소프트웨어/클라우드": {
+        "triggers": [("nasdaq", "up", 1.0), ("us10y", "down", 0.8), ("vix", "down", 0.4)],
+        "etfs": [("IGV", "소프트웨어ETF")],
+        "leaders": [("MSFT", "마이크로소프트"), ("AMZN", "아마존"), ("CRM", "세일즈포스"), ("NOW", "서비스나우"), ("SNOW", "스노우플레이크")],
+        "shock_rules": [],
+        "tickers": ["030200", "053800", "376300"],
+        "desc": "금리와 IGV, 클라우드 대표주의 동행 여부를 같이 봐야 성장주 판단이 정확해진다."
     },
 }
 
-def detect_leading_sectors(m_ndx, m_sp5, m_vix, m_wti, m_fx):
-    """
-    매크로 지수 조합으로 현재 주도 섹터 판단.
-    각 섹터의 trigger 조건 충족 수로 순위 결정.
-    """
-    # 방향 판단
-    directions = {
-        "nasdaq": "up" if m_ndx.get("chg", 0) > 0 else "down",
-        "sp500":  "up" if m_sp5.get("chg", 0) > 0 else "down",
-        "vix":    "up" if m_vix.get("chg", 0) > 0 else "down",
-        "oil":    "up" if m_wti.get("chg", 0) > 0 else "down",
-        "dollar": "up" if m_fx.get("chg",  0) > 0 else "down",
+_safe_macro_cache = {}
+
+def get_safe_macro(symbol, name):
+    cache_key = f"{datetime.now().strftime('%Y-%m-%d')}::{symbol}::{name}"
+    if cache_key in _safe_macro_cache:
+        return _safe_macro_cache[cache_key]
+
+    try:
+        df = fdr.DataReader(symbol, start=(datetime.now() - timedelta(days=20)).strftime('%Y-%m-%d'))
+        if df is None or df.empty or len(df) < 2:
+            result = {"val": None, "chg": 0.0, "status": "☁️불명", "text": f"{name}: 연결실패", "ok": False}
+            _safe_macro_cache[cache_key] = result
+            return result
+
+        curr = float(df.iloc[-1]['Close'])
+        prev = float(df.iloc[-2]['Close'])
+        ma5 = float(df['Close'].tail(5).mean())
+        chg = ((curr - prev) / prev) * 100 if prev else 0.0
+
+        status = "☀️맑음" if curr > ma5 else "🌪️폭풍우"
+        if "VIX" in name:
+            status = "☀️안정" if curr < ma5 else "🌪️위험"
+        elif "금리" in name:
+            status = "📉완화" if curr < ma5 else "📈상승압력"
+
+        result = {
+            "val": curr,
+            "chg": round(chg, 2),
+            "status": status,
+            "text": f"{name}: {curr:,.2f}({chg:+.2f}%) {status}",
+            "ok": True,
+        }
+        _safe_macro_cache[cache_key] = result
+        return result
+    except Exception:
+        result = {"val": None, "chg": 0.0, "status": "☁️불명", "text": f"{name}: 연결실패", "ok": False}
+        _safe_macro_cache[cache_key] = result
+        return result
+
+def _fetch_symbol_bundle(symbol_items, max_workers=8):
+    results = {}
+    if not symbol_items:
+        return results
+
+    with ThreadPoolExecutor(max_workers=min(max_workers, len(symbol_items))) as executor:
+        future_map = {
+            executor.submit(get_safe_macro, symbol, label): (symbol, label)
+            for symbol, label in symbol_items
+        }
+        for future in as_completed(future_map):
+            symbol, label = future_map[future]
+            try:
+                results[symbol] = future.result()
+            except Exception:
+                results[symbol] = {"val": None, "chg": 0.0, "status": "☁️불명", "text": f"{label}: 연결실패", "ok": False}
+    return results
+
+def _direction_from_change(chg, flat_threshold=0.15):
+    chg = float(chg or 0.0)
+    if chg >= flat_threshold:
+        return "up"
+    if chg <= -flat_threshold:
+        return "down"
+    return "flat"
+
+def _count_bundle_breadth(bundle):
+    vals = [v for v in bundle.values() if isinstance(v, dict)]
+    if not vals:
+        return {"up": 0, "down": 0, "flat": 0, "avg_chg": 0.0, "valid": 0}
+
+    up = down = flat = 0
+    chgs = []
+    for v in vals:
+        chg = float(v.get("chg", 0) or 0.0)
+        direction = _direction_from_change(chg)
+        if direction == "up":
+            up += 1
+        elif direction == "down":
+            down += 1
+        else:
+            flat += 1
+        chgs.append(chg)
+
+    return {
+        "up": up,
+        "down": down,
+        "flat": flat,
+        "avg_chg": round(sum(chgs) / len(chgs), 2) if chgs else 0.0,
+        "valid": len(chgs),
     }
 
-    # 변화 강도 (절대값 기준)
-    strengths = {
-        "nasdaq": abs(m_ndx.get("chg", 0)),
-        "oil":    abs(m_wti.get("chg", 0)),
-        "vix":    abs(m_vix.get("chg", 0)),
-        "dollar": abs(m_fx.get("chg",  0)),
+def get_extended_market_pack(m_ndx, m_sp5, m_vix, m_wti, m_fx, m_brent=None):
+    extra_items = [
+        ('^RUT', '러셀2000'),
+        ('^TNX', '미10년금리'),
+        ('HG=F', '구리선물'),
+        ('GC=F', '금선물'),
+    ]
+    extra = _fetch_symbol_bundle(extra_items, max_workers=4)
+
+    pack = {
+        "nasdaq": m_ndx,
+        "sp500": m_sp5,
+        "vix": m_vix,
+        "oil": m_wti,
+        "brent": m_brent or {"val": None, "chg": 0.0, "status": "☁️불명", "text": "브렌트: 연결실패", "ok": False},
+        "dollar": m_fx,
+        "russell": extra.get('^RUT', {"val": None, "chg": 0.0, "status": "☁️불명", "text": "러셀2000: 연결실패", "ok": False}),
+        "us10y": extra.get('^TNX', {"val": None, "chg": 0.0, "status": "☁️불명", "text": "미10년금리: 연결실패", "ok": False}),
+        "copper": extra.get('HG=F', {"val": None, "chg": 0.0, "status": "☁️불명", "text": "구리선물: 연결실패", "ok": False}),
+        "gold": extra.get('GC=F', {"val": None, "chg": 0.0, "status": "☁️불명", "text": "금선물: 연결실패", "ok": False}),
     }
+    return pack
+
+def _score_macro_triggers(config, market_pack):
+    score = 0.0
+    match = 0
+    total = len(config.get("triggers", []))
+    trigger_hits = []
+
+    for trig in config.get("triggers", []):
+        if len(trig) == 3:
+            key, expected_dir, weight = trig
+        else:
+            key, expected_dir = trig
+            weight = 1.0
+
+        item = market_pack.get(key, {})
+        actual_dir = _direction_from_change(item.get("chg", 0))
+        if actual_dir == expected_dir:
+            score += weight * 10
+            match += 1
+            trigger_hits.append(f"{key}:{expected_dir}")
+        elif actual_dir == "flat":
+            score += weight * 2
+        else:
+            score -= weight * 4
+
+    return round(score, 2), match, total, trigger_hits
+
+def _calc_shock_penalty(config, leader_bundle, etf_bundle):
+    penalty = 0.0
+    warnings = []
+
+    for rule in config.get("shock_rules", []):
+        symbol = rule.get("symbol")
+        ref = leader_bundle.get(symbol) or etf_bundle.get(symbol) or {}
+        chg = float(ref.get("chg", 0) or 0.0)
+        if "chg_lte" in rule and chg <= float(rule["chg_lte"]):
+            penalty += float(rule.get("penalty", 0.0))
+            warnings.append(f"{rule.get('reason', symbol)}({chg:+.1f}%)")
+        elif "chg_gte" in rule and chg >= float(rule["chg_gte"]):
+            penalty += float(rule.get("penalty", 0.0))
+            warnings.append(f"{rule.get('reason', symbol)}({chg:+.1f}%)")
+
+    leader_breadth = _count_bundle_breadth(leader_bundle)
+    etf_breadth = _count_bundle_breadth(etf_bundle)
+
+    if leader_breadth["valid"] >= 4 and leader_breadth["down"] >= max(3, leader_breadth["valid"] - 1):
+        penalty += 2.0
+        warnings.append("대표주 breadth 악화")
+
+    if etf_breadth["valid"] >= 1 and etf_breadth["down"] == etf_breadth["valid"]:
+        penalty += 1.5
+        warnings.append("섹터ETF 약세")
+
+    return round(penalty, 2), warnings
+
+def detect_leading_sectors(m_ndx, m_sp5, m_vix, m_wti, m_fx, extended_market_pack=None):
+    market_pack = extended_market_pack or get_extended_market_pack(m_ndx, m_sp5, m_vix, m_wti, m_fx)
+
+    directions = {
+        "nasdaq": _direction_from_change(m_ndx.get("chg", 0)),
+        "sp500": _direction_from_change(m_sp5.get("chg", 0)),
+        "vix": _direction_from_change(m_vix.get("chg", 0)),
+        "oil": _direction_from_change(m_wti.get("chg", 0)),
+        "dollar": _direction_from_change(m_fx.get("chg", 0)),
+        "russell": _direction_from_change(market_pack.get("russell", {}).get("chg", 0)),
+        "us10y": _direction_from_change(market_pack.get("us10y", {}).get("chg", 0)),
+    }
+
+    symbol_items = []
+    for _, cfg in SECTOR_MACRO_MAP.items():
+        symbol_items.extend(cfg.get("etfs", []))
+        symbol_items.extend(cfg.get("leaders", []))
+
+    bundle_all = _fetch_symbol_bundle(symbol_items, max_workers=12)
 
     results = []
-    for sector_name, info in SECTOR_MACRO_MAP.items():
-        match_count = sum(
-            1 for key, direction in info["triggers"]
-            if directions.get(key) == direction
-        )
-        total_triggers = len(info["triggers"])
+    for sector_name, cfg in SECTOR_MACRO_MAP.items():
+        etf_bundle = {sym: bundle_all.get(sym, {}) for sym, _ in cfg.get("etfs", [])}
+        leader_bundle = {sym: bundle_all.get(sym, {}) for sym, _ in cfg.get("leaders", [])}
 
-        # 강도 보너스: 트리거 지수의 변화폭이 클수록 점수 추가
-        strength_bonus = sum(
-    strengths.get(key, 0)
-    for key, expected_dir in info["triggers"]
-    if directions.get(key) == expected_dir   # ← 루프 변수 이름 통일
-)
+        macro_score, match_count, total_triggers, trigger_hits = _score_macro_triggers(cfg, market_pack)
+
+        etf_breadth = _count_bundle_breadth(etf_bundle)
+        leader_breadth = _count_bundle_breadth(leader_bundle)
+
+        etf_score = (etf_breadth["up"] * 8) - (etf_breadth["down"] * 6) + (etf_breadth["avg_chg"] * 2.0)
+        leader_score = (leader_breadth["up"] * 4) - (leader_breadth["down"] * 3) + (leader_breadth["avg_chg"] * 1.5)
+
+        shock_penalty, warnings = _calc_shock_penalty(cfg, leader_bundle, etf_bundle)
+        final_score = round(macro_score + etf_score + leader_score - (shock_penalty * 8), 2)
+
+        if shock_penalty >= 2.5 or (etf_breadth["valid"] >= 1 and etf_breadth["down"] == etf_breadth["valid"] and leader_breadth["down"] > leader_breadth["up"]):
+            verdict = "회피"
+        elif final_score >= 18 and etf_breadth["up"] >= max(1, etf_breadth["valid"] // 2) and leader_breadth["up"] >= max(2, leader_breadth["valid"] // 2):
+            verdict = "추천"
+        elif final_score >= 6:
+            verdict = "관찰"
+        else:
+            verdict = "회피"
 
         results.append({
-            "sector":    sector_name,
-            "match":     match_count,
-            "total":     total_triggers,
-            "strength":  round(strength_bonus, 2),
-            "score":     match_count * 10 + strength_bonus,
-            "tickers":   info["tickers"],
-            "desc":      info["desc"],
+            "sector": sector_name,
+            "match": match_count,
+            "total": total_triggers,
+            "macro_score": round(macro_score, 2),
+            "etf_score": round(etf_score, 2),
+            "leader_score": round(leader_score, 2),
+            "penalty": round(shock_penalty, 2),
+            "score": final_score,
+            "tickers": cfg.get("tickers", []),
+            "desc": cfg.get("desc", ""),
+            "verdict": verdict,
+            "trigger_hits": trigger_hits,
+            "etf_up": etf_breadth["up"],
+            "etf_down": etf_breadth["down"],
+            "etf_valid": etf_breadth["valid"],
+            "etf_avg_chg": etf_breadth["avg_chg"],
+            "leaders_up": leader_breadth["up"],
+            "leaders_down": leader_breadth["down"],
+            "leaders_valid": leader_breadth["valid"],
+            "leaders_avg_chg": leader_breadth["avg_chg"],
+            "warnings": warnings,
+            "warning_text": " | ".join(warnings) if warnings else "",
         })
 
-    # 점수 내림차순 정렬
-    results = sorted(results, key=lambda x: x["score"], reverse=True)
+    results = sorted(results, key=lambda x: ({"추천": 2, "관찰": 1, "회피": 0}.get(x["verdict"], 0), x["score"]), reverse=True)
     return results, directions
 
-
 def format_sector_rotation_report(sector_results, directions):
-    """섹터 순환 탐지 결과 텔레그램 메시지 포맷"""
     dir_emoji = {
-        "nasdaq": "📈" if directions["nasdaq"] == "up" else "📉",
-        "oil":    "🛢️↑" if directions["oil"] == "up" else "🛢️↓",
-        "vix":    "😱" if directions["vix"] == "up" else "😌",
-        "dollar": "💵↑" if directions["dollar"] == "up" else "💵↓",
+        "nasdaq": "📈" if directions.get("nasdaq") == "up" else "📉",
+        "oil": "🛢️↑" if directions.get("oil") == "up" else "🛢️↓",
+        "vix": "😱" if directions.get("vix") == "up" else "😌",
+        "dollar": "💵↑" if directions.get("dollar") == "up" else "💵↓",
+        "russell": "🧢↑" if directions.get("russell") == "up" else "🧢↓",
+        "us10y": "📈금리" if directions.get("us10y") == "up" else "📉금리",
     }
 
     lines = [
         "🔄 [섹터 순환 레이더]\n",
-        f"매크로: {dir_emoji['nasdaq']}나스닥 | {dir_emoji['oil']}유가 | "
-        f"{dir_emoji['vix']}VIX | {dir_emoji['dollar']}달러\n",
+        f"매크로: {dir_emoji['nasdaq']}나스닥 | {dir_emoji['oil']}유가 | {dir_emoji['vix']}VIX | {dir_emoji['dollar']}달러 | {dir_emoji['russell']}러셀 | {dir_emoji['us10y']}\n",
         "─────────────────────",
     ]
 
-    for i, s in enumerate(sector_results[:5], 1):  # 상위 5개만
-        bar = "🟢" * s["match"] + "⬜" * (s["total"] - s["match"])
+    for i, s in enumerate(sector_results[:6], 1):
+        verdict_emoji = {"추천": "✅", "관찰": "👀", "회피": "⛔"}.get(s["verdict"], "➖")
         lines.append(
-            f"{i}위 [{s['sector']}] {bar}\n"
+            f"{i}위 [{s['sector']}] {verdict_emoji}{s['verdict']} | 점수 {s['score']:.1f}\n"
+            f"   매크로 {s['match']}/{s['total']} | ETF {s['etf_up']}↑/{s['etf_down']}↓({s['etf_avg_chg']:+.1f}%) | 대표주 {s['leaders_up']}↑/{s['leaders_down']}↓({s['leaders_avg_chg']:+.1f}%)\n"
             f"   → {s['desc']}\n"
             f"   관련주: {', '.join(s['tickers'][:3])}"
+            + (f"\n   ⚠️ {s['warning_text']}" if s.get('warning_text') else "")
         )
 
     return "\n".join(lines)
 
+def build_sector_summary_for_prompt(sector_results, top_n=5):
+    if not sector_results:
+        return "섹터 데이터 없음"
+
+    lines = []
+    for s in sector_results[:top_n]:
+        lines.append(
+            f"- {s['sector']} | 판정:{s['verdict']} | 점수:{s['score']:.1f} | "
+            f"매크로:{s['match']}/{s['total']} | ETF:{s['etf_up']}↑/{s['etf_down']}↓({s['etf_avg_chg']:+.1f}%) | "
+            f"대표주:{s['leaders_up']}↑/{s['leaders_down']}↓({s['leaders_avg_chg']:+.1f}%)"
+            + (f" | 경고:{s['warning_text']}" if s.get('warning_text') else "")
+        )
+    return "\n".join(lines)
 
 # ────────────────────────────────────────────────────────────────
 # ✅ NEW 3: 유가 연관 섹터 AI 브리핑
@@ -2273,6 +2525,190 @@ def _extract_gemini_text(gem_data: dict) -> str:
         log_error(f"⚠️ _extract_gemini_text 실패: {e}")
         return ""
 
+def _safe_int_ai(x, default=0):
+    try:
+        return int(float(x))
+    except:
+        return default
+
+def _safe_float_ai(x, default=0.0):
+    try:
+        return float(x)
+    except:
+        return default
+
+def classify_entry_phase(row) -> str:
+    """
+    종목이 초입/중간/후행/눌림 중 어디에 있는지 간단 분류
+    """
+    disparity = _safe_float_ai(row.get('이격', row.get('Disparity', 100)), 100.0)
+    rsi = _safe_float_ai(row.get('RSI', 50), 50.0)
+    bb40 = _safe_float_ai(row.get('BB40', row.get('BB40폭', 99)), 99.0)
+    close_p = _safe_float_ai(row.get('현재가', row.get('Close', 0)), 0)
+    target = _safe_float_ai(row.get('🎯목표타점', 0), 0)
+
+    if disparity <= 98:
+        return "눌림초입"
+    if 98 < disparity <= 106 and rsi <= 62 and bb40 <= 15:
+        return "초입"
+    if 106 < disparity <= 112 and rsi <= 70:
+        return "중간"
+    if disparity > 112 or rsi >= 72:
+        return "후행"
+    if target > 0 and close_p > 0 and (target - close_p) / close_p < 0.03:
+        return "후행"
+    return "중간"
+
+def build_judgment_packet(row) -> dict:
+    """
+    AI에게 숫자 원본 대신 판단용 압축 패킷 제공
+    """
+    name = str(row.get('종목명', ''))
+    code = str(row.get('code', ''))
+    combo = str(row.get('N조합', ''))
+    grade = str(row.get('N등급', ''))
+    tags = str(row.get('N구분', ''))
+    story = str(row.get('📜서사히스토리', ''))
+    supply = str(row.get('수급', ''))
+    finance = str(row.get('재무', ''))
+    news = str(row.get('news_sentiment', '')).strip()
+
+    close_p = _safe_int_ai(row.get('현재가', 0))
+    target1 = _safe_int_ai(row.get('🎯목표타점', 0))
+    target2 = _safe_int_ai(row.get('🎯목표2차', 0))
+    stop = _safe_int_ai(row.get('🚨손절가', 0))
+    disparity = _safe_float_ai(row.get('이격', 100), 100)
+    rsi = _safe_float_ai(row.get('RSI', 50), 50)
+    bb40 = _safe_float_ai(row.get('BB40', row.get('BB40폭', 99)), 99)
+    ma_conv = _safe_float_ai(row.get('MA수렴', 99), 99)
+    obv_slope = _safe_float_ai(row.get('OBV기울기', 0), 0)
+    rr = _safe_float_ai(row.get('RR비율', 0), 0)
+
+    ultra = bool(row.get('초단기MA수렴', False))
+    short = bool(row.get('단기MA수렴', False))
+    struct = bool(row.get('구조MA수렴', False))
+    super_ma = bool(row.get('초강력MA수렴', False))
+
+    supply_turn = bool(row.get('수급전환', False))
+    wm_prepare = bool(row.get('수박준비형', False))
+    wm_launch = bool(row.get('수박발사형', False))
+    dolbanzi = bool(row.get('돌반지', False))
+    viper = bool(row.get('독사훅', False))
+    golpagi = bool(row.get('골파기', False))
+    jongbe = bool(row.get('종베', False))
+    surge = bool(row.get('급등초동', False))
+    force_pullback = bool(row.get('세력눌림', False))
+    obv_acc = bool(row.get('OBV매집돌파', False))
+    good_conv = bool(row.get('좋은수렴', False))
+    explosion_ready = bool(row.get('폭발직전', False))
+    stage = str(row.get('단계상태', 'DROP'))
+
+    strengths = []
+    risks = []
+
+    if wm_launch:
+        strengths.append("발사형 수급 전환이 확인돼서 당일 탄력이 붙을 가능성이 큼")
+    elif wm_prepare:
+        strengths.append("수박 준비형이라 응축 상태는 좋은데 아직 발사 전일 수 있음")
+    elif supply_turn:
+        strengths.append("수급 전환은 잡혀서 수급 측면 선행 신호는 있음")
+
+    if super_ma:
+        strengths.append("초강력 MA 수렴이라 자리 자체의 질이 높음")
+    elif struct:
+        strengths.append("구조 MA 수렴이라 중기 바닥 정리 가능성이 있음")
+    elif ultra or short:
+        strengths.append("단기 MA 수렴으로 초입 타점 성격이 있음")
+
+    if dolbanzi:
+        strengths.append("돌반지 계열이라 대시세 초입 가능성을 열어둘 수 있음")
+    if viper:
+        strengths.append("독사 계열이라 단기 전환 각도가 살아있음")
+    if force_pullback:
+        strengths.append("세력 눌림목 성격이라 눌림 재진입 관점이 가능함")
+    if obv_acc:
+        strengths.append("OBV 매집 돌파라 가격보다 수급이 먼저 움직였을 가능성이 있음")
+    if surge:
+        strengths.append("급등 초동형이라 재료성 탄력이 강할 수 있음")
+
+    if disparity > 112:
+        risks.append("이격이 커서 지금 진입은 추격 매수 위험이 있음")
+    elif disparity < 97:
+        risks.append("아직 완전히 방향이 확인된 자리는 아닐 수 있음")
+
+    if rsi >= 72:
+        risks.append("RSI가 높아 단기 과열 조정이 바로 나올 수 있음")
+    elif rsi <= 38:
+        risks.append("약한 구간에서 반등 시도일 수도 있어 확정 신호가 더 필요함")
+
+    if bb40 >= 20:
+        risks.append("BB40 폭이 넓어서 응축형보다는 이미 한 번 진행된 자리일 수 있음")
+    elif bb40 <= 6:
+        strengths.append("BB40 폭이 매우 좁아 한 번 방향이 나오면 크게 움직일 수 있음")
+
+    if ma_conv >= 7:
+        risks.append("MA 수렴이 약해서 예쁜 응축형이라고 보기엔 부족함")
+
+    if obv_slope < 0:
+        risks.append("OBV 기울기가 음수라 수급 누적 관점은 약함")
+
+    if stage == 'DROP':
+        risks.append("단계 시퀀스를 통과하지 못해서 구조적 신뢰도는 낮음")
+    elif stage == 'PASS_B':
+        strengths.append("재응축 후 재파동 성격이라 탄력 재개 가능성이 있음")
+    elif stage == 'PASS_A':
+        strengths.append("단계 시퀀스를 예쁘게 통과해 구조 신뢰도가 높은 편임")
+
+    phase = classify_entry_phase(row)
+
+    if phase == "초입":
+        entry_style = "돌파 추격보다 시가 초반 과열 확인 후 1차 눌림이 더 유리"
+    elif phase == "눌림초입":
+        entry_style = "급하게 따라붙기보다 지지 확인 후 분할 진입이 유리"
+    elif phase == "중간":
+        entry_style = "지금은 애매한 중간 구간이라 재돌파 확인 또는 눌림 재확인이 필요"
+    else:
+        entry_style = "후행 구간일 가능성이 있어 신규 진입보다 보유자 대응이 더 중요"
+
+    invalidation = []
+    if stop > 0:
+        invalidation.append(f"{stop:,}원 이탈")
+    if _safe_float_ai(row.get('OBV기울기', 0), 0) < 0:
+        invalidation.append("수급 회복 실패")
+    if bb40 > 20:
+        invalidation.append("장중 반등 후 거래량 감소")
+    if not invalidation:
+        invalidation.append("당일 돌파 실패 후 종가 약세 마감")
+
+    return {
+        "name": name,
+        "code": code,
+        "grade": grade,
+        "combo": combo,
+        "tags": tags,
+        "story": story,
+        "supply": supply,
+        "finance": finance,
+        "news": news,
+        "close": close_p,
+        "target1": target1,
+        "target2": target2,
+        "stop": stop,
+        "rr": rr,
+        "phase": phase,
+        "entry_style": entry_style,
+        "strengths": strengths[:4],
+        "risks": risks[:4],
+        "invalidation": invalidation[:2],
+        "metrics": {
+            "disparity": round(disparity, 1),
+            "rsi": round(rsi, 1),
+            "bb40": round(bb40, 1),
+            "ma_conv": round(ma_conv, 1),
+            "obv_slope": round(obv_slope, 1),
+        }
+    }
+
 def get_hot_themes():
     try:
         res = requests.get("https://finance.naver.com/sise/theme.naver", headers=REAL_HEADERS)
@@ -2578,137 +3014,73 @@ def _call_ai(system_prompt: str, user_prompt: str,
 
 def get_ai_summary_batch(ai_candidates_df, issues=None, market_news=None):
     """
-    ai_candidates DataFrame + 시장 뉴스를 받아 종목별 브리핑 생성.
-    market_news: market_news_titles 리스트 (시장 전체 뉴스 헤드라인)
+    판단형 종목 코멘트 생성.
+    기존 낭독형 대신 '왜 지금 / 왜 아님 / 무효화 조건' 중심으로 출력.
     """
     comments = "특이 이슈 없음"
     if issues:
         comments = " | ".join([i.get("comment", "분석 필요") for i in issues])
 
-    # 시장 뉴스 요약 (상위 5개)
     market_news_block = ""
     if market_news and isinstance(market_news, list):
         top_news = [str(n) for n in market_news[:5] if n]
         if top_news:
-            market_news_block = "\n\n## 오늘 시장 주요 뉴스\n" + "\n".join(f"- {n}" for n in top_news)
+            market_news_block = "\\n\\n## 오늘 시장 주요 뉴스\\n" + "\\n".join(f"- {n}" for n in top_news)
+
+    # ✅ 깊이 확보를 위해 너무 많은 종목을 한 번에 넣지 않음
+    work_df = ai_candidates_df.head(8).copy()
+
+    packets = []
+    for _, row in work_df.iterrows():
+        packets.append(build_judgment_packet(row))
 
     system_prompt = f"""
-너는 역매공파 매매법 기반의 한국 주식 전략 분석가야.
-아래 종목 데이터를 보고 각 종목에 대해 실전 투자 관점의 코멘트를 작성해.
+너는 한국 주식 실전 트레이딩 보조 AI다.
+역할은 '좋은 말로 소개'가 아니라 '매매 가능 여부를 심사'하는 것이다.
 
-## 역매공파 핵심 원칙
-- 역배열 상태에서 MA112 돌파 시 진입
-- 이격도 98~106 구간이 안전한 매수 구간
-- 수급전환 = OBV/MFI/매수압력 중 2개 이상 + 초록→빨강 전환
-- BB40 폭 10 이하 = 에너지 응축, 폭발 임박
-- 손절 기준: 진입가 대비 -5%
+{YEOK_MAE_CONTEXT}
 
-## 데이터 필드 설명
-- N등급/N조합: 패턴 강도 등급
-- 이격도: 현재가/MA20×100 (98~106이 이상적)
-- BB40: 볼린저밴드40 폭 (10↓ = 응축)
-- MA수렴: MA20-MA60 수렴도 (3↓ = 강한 수렴)
-- OBV기울기: 양수=매집, 음수=분산
-- RSI: 30↓과매도, 70↑과매수
-- 수급: 🤝쌍끌>🔴기관>🔵외인
+판단 원칙:
+1. 먼저 초입/중간/후행/눌림 중 어느 위치인지 판단할 것
+2. 장점보다 약점과 무효화 조건을 더 중요하게 볼 것
+3. 패턴 이름을 반복하지 말고, 패턴이 만들어내는 자리의 의미를 설명할 것
+4. 숫자를 그대로 읽지 말고, 그 숫자가 의미하는 해석을 말할 것
+5. 확신이 없으면 관망이라고 말할 것
+6. 같은 문장 구조 반복 금지
+7. 각 종목의 첫 문장은 모두 다르게 시작할 것
 
-## 오늘 시장 이슈
+오늘 시장 이슈:
 {comments}{market_news_block}
-
-## 작성 규칙 (반드시 준수)
-1. 반드시 실제 수치를 언급해
-   예) "RSI 48로 눌림목 구간 진입", "BB40 7.3으로 에너지 응축 완료"
-   예) "OBV 기울기 +120으로 세력 매집 진행 중"
-
-2. 각 종목의 패턴 조합과 서사를 바탕으로 맥락을 설명해
-   - 수급전환 종목: 전환 강도와 초록 축적 기간 중심
-   - 돌반지 종목: 쌍바닥 위치와 거래량 폭발 맥락 중심
-   - 독사훅 종목: MA 수렴 후 전환 시점과 기울기 중심
-   - BB40 종목: 응축 기간과 폭발 방향성 중심
-
-3. 각 종목마다 반드시 다른 첫 문장으로 시작해
-   (절대 "이 종목은", "현재" 같은 똑같은 시작 금지)
-
-4. 진입/목표/손절 수치는 반드시 포함
-   - 진입가: 현재가 기준 눌림 or 돌파 타점
-   - 1차 목표: 현재가 +5~10% 구간
-   - 손절가: 현재가 -5% (역매공파 기본 원칙)
-
-5. 확신 없는 종목은 억지로 좋게 쓰지 말고 "관망 권고" 명시
-
-6. 반말로, 4~5문장으로 작성
-
-7. 종목 데이터에 '최근뉴스'가 있으면 반드시 1문장 이상 반영해
-   - 긍정 뉴스면: 모멘텀 강화 요인으로 언급
-   - 부정 뉴스면: 리스크 요인으로 경고
-   - 중립 뉴스면: 섹터/테마 맥락으로 활용
 """
 
-    # 종목 데이터 블록 구성 (지시 없이 데이터만)
-    stock_blocks = []
-    for _, item in ai_candidates_df.iterrows():
-        def si(x, d=0):
-            try: return int(float(x))
-            except: return d
-        def sf(x, d=0.0):
-            try: return float(x)
-            except: return d
+    user_prompt = f"""
+다음은 종목별 판단 패킷이다.
+각 종목마다 아래 형식으로 써라.
 
-        # 추가 데이터
-        pp_v  = si(item.get('PP', 0))
-        r1_v  = si(item.get('R1', 0))
-        s1_v  = si(item.get('S1', 0))
-        f382  = si(item.get('Fib382', 0))
-        f618  = si(item.get('Fib618', 0))
-        atr_v = si(item.get('ATR값', 0))
-        tgt1  = si(item.get('🎯목표타점', 0))
-        tgt2  = si(item.get('🎯목표2차', 0))
-        stp   = si(item.get('🚨손절가', 0))
-        rr    = sf(item.get('RR비율', 0))
-        sv60  = si(item.get('세력평단_60일', 0))
-        gpct  = sf(item.get('평단이격', 0))
-        mq    = item.get('매집강도등급', '')
-        md    = si(item.get('매집일수_10일', 0))
-        mv    = sf(item.get('매집거래량배율', 0))
-        disc  = item.get('공시태그', '')
-        dbad  = bool(item.get('악재공시', False))
-        news  = str(item.get('news_sentiment', '')).strip()
+형식:
+[종목명(코드)]
+한 줄 결론:
+왜 지금 보는지:
+왜 지금 애매한지:
+진입 방식:
+무효화 조건:
+총평:
 
-        block = (
-            f"[{item['종목명']}({item['code']})]"
-            f"\n  패턴: {item.get('N등급','N/A')} | {item.get('N조합','N/A')}"
-            f"\n  태그: {item.get('N구분','')}"
-            f"\n  현재가:{si(item.get('현재가',0)):,}원 | 이격:{si(item.get('이격',0))}"
-            f"\n  BB40:{sf(item.get('BB40',0)):.1f} | MA수렴:{sf(item.get('MA수렴',0)):.1f} | OBV:{si(item.get('OBV기울기',0))}"
-            f"\n  RSI:{si(sf(item.get('RSI',0)))} | 수급:{item.get('수급','미계산')} | 재무:{item.get('재무','미계산')}"
-            + (f"\n  피봇: PP={pp_v:,} R1={r1_v:,} S1={s1_v:,}" if pp_v else "")
-            + (f"\n  피보나치: 38.2%={f382:,} | 61.8%={f618:,}" if f382 else "")
-            + (f"\n  목표: 1차={tgt1:,} 2차={tgt2:,} | 손절={stp:,} | RR={rr:.1f}" if tgt1 else "")
-            + (f"\n  ATR={atr_v:,}원" if atr_v else "")
-            + (f"\n  세력평단={sv60:,}원 이격={gpct:+.1f}%" if sv60 else "")
-            + (f"\n  매집:{mq} {md}일/10일 {mv:.1f}배" if md > 0 else "")
-            + (f"\n  공시:{disc}" + (" ⚠️악재" if dbad else "") if disc and disc not in ('없음','공시없음','⚙️미조회','') else "")
-            + f"\n  서사:{item.get('📜서사히스토리','')}"
-            + (f"\n  뉴스:{news}" if news else "")
-        )
-        stock_blocks.append(block)
+종목 패킷(JSON):
+{json.dumps(packets, ensure_ascii=False, indent=2)}
 
-    user_prompt = (
-        "다음 종목들을 분석해줘. 각 종목마다 아래 형식으로 작성해 (반말로):\n\n"
-        "[종목명(코드)]\n"
-        "✅ 핵심: (왜 지금 눈에 띄는지 1줄)\n"
-        "📊 상태: (지표 기반 위치)\n"
-        "🎯 진입: (타점 or 관망)\n"
-        "⚠️ 주의: (리스크 1줄)\n\n"
-        "---\n\n"
-        + "\n\n".join(stock_blocks)
-    )
+주의:
+- 패턴명 낭독 금지
+- 숫자 나열 금지
+- "좋다/나쁘다"보다 왜 그런지 말할 것
+- 손절가가 있으면 무효화 조건에 자연스럽게 반영할 것
+"""
 
-    # ✅ Claude 우선, OpenAI 폴백
-    result = _call_ai(system_prompt, user_prompt, max_tokens=3000)
+    result = _call_ai(system_prompt, user_prompt, max_tokens=3200)
     if not result:
         return "브리핑 생성 중 오류가 발생했습니다."
     return result
+
 
 def get_ai_summary_batch_back(stock_lines: list, issues: list = None):
     comments = "특이 이슈 없음"
@@ -2763,64 +3135,53 @@ def build_ai_candidates_for_macro(ai_candidates: pd.DataFrame):
     return result
 
 
-def build_macro_snapshot(m_ndx, m_sp5, m_vix, m_fx, m_wti, issues):
-    """
-    m_wti 추가 반영
-    """
+def build_macro_snapshot(m_ndx, m_sp5, m_vix, m_fx, m_wti, issues, extended_macro_pack=None, sector_results=None):
     comments = "특이 이슈 없음"
     if issues:
         comments = " | ".join([i.get("comment", "") for i in issues])
 
-    return {
-        "nasdaq": {
-            "value":      m_ndx.get("val"),
-            "change_pct": round(m_ndx.get("chg", 0), 2),
-            "status":     m_ndx.get("status", "")
-        },
-        "sp500": {
-            "value":      m_sp5.get("val"),
-            "change_pct": round(m_sp5.get("chg", 0), 2),
-            "status":     m_sp5.get("status", "")
-        },
-        "vix": {
-            "value":      m_vix.get("val"),
-            "change_pct": round(m_vix.get("chg", 0), 2),
-            "status":     m_vix.get("status", "")
-        },
-        "usdkrw": {
-            "value":      m_fx.get("val"),
-            "change_pct": round(m_fx.get("chg", 0), 2),
-            "status":     m_fx.get("status", "")
-        },
-        # ✅ 추가
-        "wti_oil": {
-            "value":      m_wti.get("val"),
-            "change_pct": round(m_wti.get("chg", 0), 2),
-            "status":     m_wti.get("status", "")
-        },
-        "issues": comments
-    }
+    pack = extended_macro_pack or {}
+    russell = pack.get("russell", {})
+    us10y = pack.get("us10y", {})
+    copper = pack.get("copper", {})
+    gold = pack.get("gold", {})
 
+    favorable = [s['sector'] for s in (sector_results or []) if s.get('verdict') == '추천'][:3]
+    unfavorable = [s['sector'] for s in (sector_results or []) if s.get('verdict') == '회피'][:3]
+
+    return {
+        "nasdaq": {"value": m_ndx.get("val"), "change_pct": round(m_ndx.get("chg", 0), 2), "status": m_ndx.get("status", "")},
+        "sp500": {"value": m_sp5.get("val"), "change_pct": round(m_sp5.get("chg", 0), 2), "status": m_sp5.get("status", "")},
+        "vix": {"value": m_vix.get("val"), "change_pct": round(m_vix.get("chg", 0), 2), "status": m_vix.get("status", "")},
+        "usdkrw": {"value": m_fx.get("val"), "change_pct": round(m_fx.get("chg", 0), 2), "status": m_fx.get("status", "")},
+        "wti_oil": {"value": m_wti.get("val"), "change_pct": round(m_wti.get("chg", 0), 2), "status": m_wti.get("status", "")},
+        "russell2000": {"value": russell.get("val"), "change_pct": round(russell.get("chg", 0), 2), "status": russell.get("status", "")},
+        "us10y": {"value": us10y.get("val"), "change_pct": round(us10y.get("chg", 0), 2), "status": us10y.get("status", "")},
+        "copper": {"value": copper.get("val"), "change_pct": round(copper.get("chg", 0), 2), "status": copper.get("status", "")},
+        "gold": {"value": gold.get("val"), "change_pct": round(gold.get("chg", 0), 2), "status": gold.get("status", "")},
+        "favorable_sectors": favorable,
+        "unfavorable_sectors": unfavorable,
+        "issues": comments,
+    }
 
 def run_macro_candidate_briefing(
     ai_candidates,
     m_ndx, m_sp5, m_vix, m_fx,
-    m_wti,            # ✅ 추가
-    sector_results,   # ✅ 추가
-    issues
+    m_wti,
+    sector_results,
+    issues,
+    extended_macro_pack=None,
 ):
     if ai_candidates is None or ai_candidates.empty:
         return {"error": "후보 종목 없음"}
 
-    # ✅ build_macro_snapshot에 m_wti 전달
-    macro_data = build_macro_snapshot(m_ndx, m_sp5, m_vix, m_fx, m_wti, issues)
+    macro_data = build_macro_snapshot(
+        m_ndx, m_sp5, m_vix, m_fx, m_wti, issues,
+        extended_macro_pack=extended_macro_pack,
+        sector_results=sector_results,
+    )
     candidate_data = build_ai_candidates_for_macro(ai_candidates.head(15))
-
-    # ✅ 섹터 순환 데이터 요약 (상위 3개만 프롬프트에 포함)
-    sector_summary = "\n".join([
-        f"- {s['sector']}: 트리거 {s['match']}/{s['total']}개 | {s['desc']}"
-        for s in sector_results[:3]
-    ]) if sector_results else "섹터 데이터 없음"
+    sector_summary = build_sector_summary_for_prompt(sector_results, top_n=6)
 
     prompt = f"""
 당신은 한국 주식시장 단기/스윙 트레이딩 보조 AI입니다.
@@ -2869,10 +3230,11 @@ def run_macro_candidate_briefing(
 }}
 
 판단 원칙:
-- VIX 상승, 나스닥 약세, S&P500 약세면 Risk Off 성향 강화
+- VIX 상승, 나스닥 약세, 러셀 약세면 Risk Off 성향 강화
 - 환율 상승은 한국 성장주/외국인 수급에 부담
-- 유가 상승 시 정유/화학/조선 수혜, 2차전지/항공 부담
-- 유가 급락 시 수송/항공 수혜, 정유 마진 압박
+- 유가 상승 시 정유/화학/조선 수혜 가능, 단 실제 에너지 ETF/대표주 동행 여부를 확인
+- 반도체/바이오/로봇/클라우드는 금리와 섹터 ETF, 대표주 breadth까지 같이 본다
+- 대표 대장주가 급락했으면 해당 섹터를 바로 추천하지 말고 최소 관찰로 낮춰라
 - N점수/안전점수는 참고, 시장 궁합을 더 중요하게 판단
 - candidate_ranking에 반드시 모든 후보 종목 포함
 - action_type은 반드시 돌파형 / 눌림목형 / 관망형 중 하나
@@ -2881,7 +3243,7 @@ def run_macro_candidate_briefing(
 글로벌 시장 데이터:
 {json.dumps(macro_data, ensure_ascii=False, indent=2)}
 
-섹터 순환 탐지 결과:
+확장 섹터 테이프 판정:
 {sector_summary}
 
 후보 종목 데이터:
@@ -2893,20 +3255,13 @@ def run_macro_candidate_briefing(
         res = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {
-                    "role": "system",
-                    "content": "너는 보수적이고 실전적인 한국 주식 트레이딩 보조 AI다."
-                },
-                {
-                    "role": "user",
-                    "content": prompt
-                }
+                {"role": "system", "content": "너는 보수적이고 실전적인 한국 주식 트레이딩 보조 AI다. 섹터 추천 전에는 반드시 대표주 테이프와 반대 근거를 먼저 검토해라."},
+                {"role": "user", "content": prompt}
             ],
             temperature=0.3
         )
 
         text = res.choices[0].message.content.strip()
-
         try:
             return json.loads(text)
         except Exception:
@@ -2914,7 +3269,6 @@ def run_macro_candidate_briefing(
 
     except Exception as e:
         return {"error": f"OpenAI 호출 실패: {str(e)}"}
-
 
 # ================================================================
 # ✅ format_macro_briefing_for_telegram() 도 oil_impact 추가
@@ -3354,85 +3708,62 @@ def get_market_briefing_prompt(comments, theme_info, m_ndx, m_sp5, m_vix, m_fx):
 # ──────────────────────────────────────────────────────────────
 
 def get_tournament_prompt(prompt_data, comments):
-    """
-    기존 문제:
-    - 데이터 필드 의미 설명 없음
-    - 단타/스윙 선정 기준 불명확
-    - 출력 구조 없음
-
-    개선:
-    - 필드 사전 제공
-    - 단타/스윙 판단 기준 명시
-    - 출력 템플릿 고정
-    """
     system_prompt = f"""
-너는 역매공파 매매법의 최고 전문가이자 실전 트레이더야.
-절대 돈을 잃으면 안 된다는 원칙 하에, 주어진 종목을 엄격하게 심사해.
-확신 없는 종목은 "관망"으로 판정해. 억지로 뽑지 마.
+너는 한국 주식 단기/스윙 트레이딩 실전 심사관이다.
+목표는 '좋아 보이는 종목 소개'가 아니라 '지금 실제로 먼저 볼 종목을 골라내는 것'이다.
 
 {YEOK_MAE_CONTEXT}
 
 {FIELD_GLOSSARY}
 
-## 심사 기준
-### 단타 (1~3일) 적합 조건
-- 수박발사형 또는 독사훅 발생
-- 거래량 MA20 대비 1.5배 이상
-- RSI 40~65 구간 (과매수 아닐 것)
-- 이격도 110 이하
+중요 원칙:
+- 패턴명 반복 금지
+- 숫자 낭독 금지
+- 왜 지금이 초입인지 / 왜 후행인지 먼저 판단
+- 반드시 반대 증거 1개 이상 제시
+- 확신 없으면 관망이라고 말할 것
+- 좋은 점보다 '실패 조건'을 더 중요하게 볼 것
+- 패턴 이름을 읽는 대신, 자리의 질과 타점의 성격을 해석할 것
 
-### 스윙 (5~15일) 적합 조건
-- BB40 폭 12 이하 (에너지 응축)
-- MA수렴도 3 이하
-- OBV 기울기 양수 + MFI > 50
-- 이격도 98~107 이상적
-
-### 공통 제외 조건
-- 이격도 115 초과 → 추격 금지
-- 윗꼬리 40% 이상 → 세력 매도 의심
-- 재무 C등급 + 수급 없음 → 제외
-
-## 오늘 이슈
+오늘 이슈:
 {comments}
 """
 
     user_prompt = f"""
-아래 종목 데이터를 보고 단타 1위, 스윙 1위를 선정해줘.
-확신이 없으면 "해당 없음"으로 답해.
+다음 후보들을 보고 '단타 1위 1개', '스윙 1위 1개'만 고르세요.
+좋지 않으면 과감히 해당 없음이라고 말하세요.
 
+후보 데이터:
 {prompt_data}
 
----
-다음 형식으로 작성해 (반말로):
-
+출력 형식:
 🏆 [단타 1위]
 - 종목명(코드):
-- 선정 이유: (패턴/수급/거래량/재료/시황 근거 중심, 3줄 이내)
-- 진입 타점:
-- 1차 목표가:
-- 손절가:
-- 리스크 요인:
+- 한 줄 결론:
+- 지금 볼 이유:
+- 지금 안 볼 이유:
+- 진입 방식:
+- 무효화 조건:
+- 한 줄 총평:
 
 🎯 [스윙 1위]
 - 종목명(코드):
-- 선정 이유: (응축/매집/이격 근거 중심, 3줄 이내)
-- 진입 타점:
-- 1차 목표가:
-- 손절가:
-- 리스크 요인:
+- 한 줄 결론:
+- 지금 볼 이유:
+- 지금 안 볼 이유:
+- 진입 방식:
+- 무효화 조건:
+- 한 줄 총평:
 
-⚠️ [주의 종목] (보유 중이라면 익절/손절 검토)
-- 종목명(코드): 이유 한 줄
+⚠️ [주의 종목]
+- 1개만 고르고 왜 조심해야 하는지 한 줄
 
-💬 [오늘 장 한마디]
-- 전체 시장 관점에서 오늘 트레이더에게 하고 싶은 말 2줄
+중요:
+- 패턴명 그대로 읽는 답변 금지
+- 'BB40 8.3이라 좋다' 식의 낭독 금지
+- 반드시 맥락으로 해석할 것
 """
     return system_prompt, user_prompt
-
-
-# ──────────────────────────────────────────────────────────────
-# 3. get_ai_summary_batch() 개선
-# ──────────────────────────────────────────────────────────────
 
 def get_summary_batch_system_prompt(comments):
     """
@@ -5108,22 +5439,25 @@ if __name__ == "__main__":
     m_vix = get_safe_macro('^VIX', 'VIX공포')
     m_fx  = get_safe_macro('USD/KRW', '달러환율')
     m_wti, m_brent = get_oil_macro()
+    extended_macro_pack = get_extended_market_pack(m_ndx, m_sp5, m_vix, m_wti, m_fx, m_brent)
+
     log_info(f"🛢️ {m_wti['text']} | {m_brent['text']}")
-    macro_status = {'nasdaq': m_ndx, 'sp500': m_sp5, 'vix': m_vix, 'fx': m_fx, 'kospi': get_index_investor_data('KOSPI')}  # ✅ BUG-4 FIX
+    macro_status = {'nasdaq': m_ndx, 'sp500': m_sp5, 'vix': m_vix, 'fx': m_fx, 'kospi': get_index_investor_data('KOSPI')}
 
     log_info("[ 글로벌 사령부 통합 관제 센터 ]")
     log_info(f"🇺🇸 {m_ndx['text']} | {m_sp5['text']} | ⚠️ {m_vix['text']}")
     log_info(f"💵 {m_fx['text']} | 🇰🇷 KOSPI 수급: {get_index_investor_data('KOSPI')}")
+    log_info(f"🧢 {extended_macro_pack.get('russell', {}).get('text', '러셀2000: 연결실패')} | {extended_macro_pack.get('us10y', {}).get('text', '미10년금리: 연결실패')}")
     log_info("=" * 60)
-    
+
     imgs = [create_index_chart('KS11', 'KOSPI'), create_index_chart('IXIC', 'NASDAQ')]
-    
+
     sector_results, directions = detect_leading_sectors(
-        m_ndx, m_sp5, m_vix, m_wti, m_fx
+        m_ndx, m_sp5, m_vix, m_wti, m_fx, extended_market_pack=extended_macro_pack
     )
     sector_report = format_sector_rotation_report(sector_results, directions)
     log_debug(sector_report)
-    
+
     issues = analyze_market_issues()
     briefing = get_market_briefing(issues)
 
@@ -5272,9 +5606,10 @@ if __name__ == "__main__":
     macro_briefing_result = run_macro_candidate_briefing(
         ai_candidates=ai_candidates,
         m_ndx=m_ndx, m_sp5=m_sp5, m_vix=m_vix, m_fx=m_fx,
-        m_wti=m_wti,           
+        m_wti=m_wti,
         sector_results=sector_results,
-        issues=issues
+        issues=issues,
+        extended_macro_pack=extended_macro_pack,
     )
 
     log_debug("✅ 통합 AI 브리핑 결과:")
