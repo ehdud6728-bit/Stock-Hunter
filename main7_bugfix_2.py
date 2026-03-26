@@ -592,6 +592,46 @@ def _count_bundle_breadth(bundle):
     }
 
 
+def _bundle_symbol_details(bundle, limit=5):
+    details = []
+    for sym, info in bundle.items():
+        if not isinstance(info, dict):
+            continue
+
+        label = info.get("label", sym)
+        if info.get("ok", False) and info.get("val") is not None:
+            chg = safe_float(info.get("chg", 0), 0.0)
+            details.append({
+                "symbol": sym,
+                "label": label,
+                "ok": True,
+                "chg": chg,
+                "text": f"{label} {chg:+.1f}%"
+            })
+        else:
+            err = str(info.get("error", "실패"))[:20]
+            details.append({
+                "symbol": sym,
+                "label": label,
+                "ok": False,
+                "chg": None,
+                "text": f"{label} 실패"
+            })
+
+    details = sorted(
+        details,
+        key=lambda x: (0 if x["ok"] else 1, -(abs(x["chg"]) if x["chg"] is not None else -999))
+    )
+    return details[:limit]
+
+
+def _bundle_detail_text(bundle, limit=5):
+    details = _bundle_symbol_details(bundle, limit=limit)
+    if not details:
+        return "데이터 없음"
+    return ", ".join([d["text"] for d in details])
+
+
 def get_extended_market_pack(m_ndx, m_sp5, m_vix, m_wti, m_fx, m_brent=None):
     extra_items = [
         ('^RUT', '러셀2000'),
@@ -705,6 +745,7 @@ def _calc_shock_penalty(config, leader_bundle, etf_bundle):
 
 
 
+
 def detect_leading_sectors(m_ndx, m_sp5, m_vix, m_wti, m_fx, extended_market_pack=None):
     market_pack = extended_market_pack or get_extended_market_pack(m_ndx, m_sp5, m_vix, m_wti, m_fx)
 
@@ -791,6 +832,8 @@ def detect_leading_sectors(m_ndx, m_sp5, m_vix, m_wti, m_fx, extended_market_pac
             "leaders_valid": leader_breadth["valid"],
             "leaders_fail": leader_breadth["fail"],
             "leaders_avg_chg": leader_breadth["avg_chg"],
+            "etf_detail": _bundle_detail_text(etf_bundle, limit=3),
+            "leader_detail": _bundle_detail_text(leader_bundle, limit=5),
             "warnings": warnings,
             "warning_text": " | ".join(warnings) if warnings else "",
         })
@@ -801,6 +844,7 @@ def detect_leading_sectors(m_ndx, m_sp5, m_vix, m_wti, m_fx, extended_market_pac
         reverse=True
     )
     return results, directions
+
 
 def format_sector_rotation_report(sector_results, directions):
     dir_emoji = {
@@ -825,6 +869,8 @@ def format_sector_rotation_report(sector_results, directions):
             lines.append(
                 f"{i}위 [{s['sector']}] {verdict_emoji}{s['verdict']}\n"
                 f"   ETF 데이터 {s['etf_valid']}/{s['etf_valid'] + s['etf_fail']} | 대표주 데이터 {s['leaders_valid']}/{s['leaders_valid'] + s['leaders_fail']}\n"
+                f"   ETF상세: {s.get('etf_detail', '데이터 없음')}\n"
+                f"   대표상세: {s.get('leader_detail', '데이터 없음')}\n"
                 f"   → 미국 티커 데이터 수집 실패로 판정 보류\n"
                 f"   관련주: {', '.join(s['tickers'][:3])}"
                 + (f"\n   ⚠️ {s['warning_text']}" if s.get('warning_text') else "")
@@ -834,6 +880,8 @@ def format_sector_rotation_report(sector_results, directions):
                 f"{i}위 [{s['sector']}] {verdict_emoji}{s['verdict']} | 점수 {s['score']:.1f}\n"
                 f"   매크로 {s['match']}/{s['total']} | ETF {s['etf_up']}↑/{s['etf_down']}↓/{s['etf_flat']}↔ (유효 {s['etf_valid']}, 실패 {s['etf_fail']}) | "
                 f"대표주 {s['leaders_up']}↑/{s['leaders_down']}↓/{s['leaders_flat']}↔ (유효 {s['leaders_valid']}, 실패 {s['leaders_fail']})\n"
+                f"   ETF상세: {s.get('etf_detail', '데이터 없음')}\n"
+                f"   대표상세: {s.get('leader_detail', '데이터 없음')}\n"
                 f"   → {s['desc']}\n"
                 f"   관련주: {', '.join(s['tickers'][:3])}"
                 + (f"\n   ⚠️ {s['warning_text']}" if s.get('warning_text') else "")
@@ -850,13 +898,12 @@ def build_sector_summary_for_prompt(sector_results, top_n=5):
     for s in sector_results[:top_n]:
         if s.get("verdict") == "데이터부족":
             lines.append(
-                f"- {s['sector']} | 판정:데이터부족 | ETF유효:{s['etf_valid']} 실패:{s['etf_fail']} | 대표주유효:{s['leaders_valid']} 실패:{s['leaders_fail']}"
+                f"- {s['sector']} | 판정:데이터부족 | ETF:{s.get('etf_detail', '없음')} | 대표주:{s.get('leader_detail', '없음')}"
             )
         else:
             lines.append(
                 f"- {s['sector']} | 판정:{s['verdict']} | 점수:{s['score']:.1f} | "
-                f"매크로:{s['match']}/{s['total']} | ETF:{s['etf_up']}↑/{s['etf_down']}↓/{s['etf_flat']}↔(유효{s['etf_valid']},실패{s['etf_fail']}) | "
-                f"대표주:{s['leaders_up']}↑/{s['leaders_down']}↓/{s['leaders_flat']}↔(유효{s['leaders_valid']},실패{s['leaders_fail']})"
+                f"매크로:{s['match']}/{s['total']} | ETF:{s.get('etf_detail', '없음')} | 대표주:{s.get('leader_detail', '없음')}"
                 + (f" | 경고:{s['warning_text']}" if s.get('warning_text') else "")
             )
     return "\n".join(lines)
