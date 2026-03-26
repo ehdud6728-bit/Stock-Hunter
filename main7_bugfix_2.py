@@ -717,13 +717,13 @@ COMBO_TABLE = [
     },
     {
         'grade': 'GOD', 'score': 10000, 'type': '🌌',
-        'combination': '🌌🍉💍독사품은수박돌반지',
+        'combination': '🌌🔄💍독사수급전환돌반지',
         'tags': ['🚀대시세확정', '💥200일선폭파', '🐍단기개미털기완료', '🍉수급대폭발'],
         'cond': lambda e: e.get('viper_hook') and e.get('dolbanzi') and e.get('watermelon_signal'),
     },
     {
         'grade': 'SSS+', 'score': 999, 'type': '👑',
-        'combination': '👑🍉🐍수박품은독사(각성)',
+        'combination': '👑🔄🐍독사발사형(각성)',
         'tags': ['🔥최종병기', '🧲OBV매집', '💥볼밴폭발(Kick)', '🍉속살폭발'],
         'cond': lambda e: (
             e.get('viper_hook') and e.get('watermelon_signal') and
@@ -746,7 +746,7 @@ COMBO_TABLE = [
     {
         'grade': 'SSS', 'score': 560, 'type': '👑',
         'combination': '🍉수박재폭발',
-        'tags': ['🍉기존수박', '💥재폭발', '🚀2차시동'],
+        'tags': ['🔄수급전환', '💥재폭발', '🚀2차시동'],
         'cond': lambda e: e.get('watermelon_relaunch'),
     },
     {
@@ -757,14 +757,14 @@ COMBO_TABLE = [
     },
     {
         'grade': 'SSS', 'score': 560, 'type': '👑',
-        'combination': '🚀📐🍉수렴돌파수박',
-        'tags': ['🚀폭발직전수렴', '🍉수박', '💥실전타점'],
+        'combination': '🚀📐🍉수렴돌파발사형',
+        'tags': ['🚀폭발직전수렴', '🍉수박발사형', '💥실전타점'],
         'cond': lambda e: e.get('ma_break_ready') and e.get('watermelon_signal'),
     },
     {
         'grade': 'SS', 'score': 500, 'type': '👑',
-        'combination': '🟣🍉BB40수박재안착',
-        'tags': ['🟣BB40재안착', '🍉수박', '📈실전핵심'],
+        'combination': '🟣🍉BB40발사형재안착',
+        'tags': ['🟣BB40재안착', '🍉수박발사형', '📈실전핵심'],
         'cond': lambda e: e.get('bb40_reclaim_rsi_div') and e.get('watermelon_signal'),
     },
     {
@@ -775,8 +775,8 @@ COMBO_TABLE = [
     },
     {
         'grade': 'SSS', 'score': 500, 'type': '👑',
-        'combination': '👑💍수박돌반지',
-        'tags': ['🍉수박전환', '💍돌반지완성', '🔥최종병기', '🚀대시세시작'],
+        'combination': '👑💍발사형돌반지',
+        'tags': ['🍉수박발사형', '💍돌반지완성', '🔥최종병기', '🚀대시세시작'],
         'cond': lambda e: e.get('watermelon_signal') and e.get('dolbanzi'),
         'score_fn': lambda e: 500 if e.get('dolbanzi_Count', 0) == 1 else 450,
         'tag_fn':   lambda e: ['🥇최초의반지'] if e.get('dolbanzi_Count', 0) == 1 else [f"💍{e.get('dolbanzi_Count',0)}회차반지"],
@@ -800,13 +800,13 @@ COMBO_TABLE = [
     },
     {
         'grade': 'SSS', 'score': 460, 'type': '👑',
-        'combination': '💛🔺🍉종베삼각수박',
+        'combination': '💛🔺🍉종베삼각발사형',
         'tags': ['💛MA방향확정', '🔺에너지응축', '🍉수급폭발', '🚀3박자완성'],
         'cond': lambda e: e.get('jongbe_ok') and e.get('triangle_signal') and e.get('watermelon_signal'),
     },
     {
         'grade': 'SS+', 'score': 480, 'type': '👑',
-        'combination': '🐍🍉일반수박독사',
+        'combination': '🐍🍉독사발사형',
         'tags': ['🐍독사대가리', '🧲OBV매집', '🍉단기수급'],
         'cond': lambda e: e.get('viper_hook') and e.get('watermelon_signal') and e.get('obv_bullish') and e.get('Real_Viper_Hook'),
     },
@@ -840,7 +840,7 @@ COMBO_TABLE = [
     },
     {
         'grade': 'SS', 'score': 470, 'type': '👑',
-        'combination': '🕳️🚀수박품은골파기',
+        'combination': '🕳️🚀수급전환골파기',
         'tags': ['🕳️가짜하락(개미털기)', '🧲OBV방어', '📈20일선탈환', '🍉단기수급폭발'],
         'cond': lambda e: e.get('Golpagi_Trap') and e.get('watermelon_signal'),
     },
@@ -877,12 +877,12 @@ COMBO_TABLE = [
     {
         'grade': 'S', 'score': 350, 'type': '🗡',
         'combination': '💎전설조합',
-        'tags': ['🍉수박전환', '💎폭발직전', '📍바닥권', '🤫조용한매집완전'],
+        'tags': ['🍉수박발사형', '💎폭발직전', '📍바닥권', '🤫조용한매집완전'],
         'cond': lambda e: e.get('watermelon_signal') and e.get('explosion_ready') and e.get('bottom_area') and e.get('silent_perfect'),
     },
     {
         'grade': 'S', 'score': 340, 'type': '🗡',
-        'combination': '🔺💎🍉삼각폭발수박',
+        'combination': '🔺💎🍉삼각발사형',
         'tags': ['🔺에너지응축', '💎BB수축', '🍉수급전환', '🚀폭발임박'],
         'cond': lambda e: e.get('triangle_signal') and e.get('explosion_ready') and e.get('watermelon_signal'),
     },
@@ -895,7 +895,7 @@ COMBO_TABLE = [
     {
         'grade': 'S', 'score': 320, 'type': '🛡',
         'combination': '💎돌파골드',
-        'tags': ['🏆역매공파돌파', '🍉수박전환', '⚡거래량폭발'],
+        'tags': ['🏆역매공파돌파', '🍉수박발사형', '⚡거래량폭발'],
         'cond': lambda e: e.get('yeok_break') and e.get('watermelon_signal') and e.get('volume_surge'),
     },
     {
@@ -907,13 +907,13 @@ COMBO_TABLE = [
     {
         'grade': 'S', 'score': 310, 'type': '🛡',
         'combination': '💎매집완성',
-        'tags': ['🤫조용한매집완전', '🍉수박전환', '💎폭발직전'],
+        'tags': ['🤫조용한매집완전', '🍉수박발사형', '💎폭발직전'],
         'cond': lambda e: e.get('silent_perfect') and e.get('watermelon_signal') and e.get('explosion_ready'),
     },
     {
         'grade': 'S', 'score': 300, 'type': '🗡',
         'combination': '💎바닥폭발',
-        'tags': ['📍바닥권', '💎폭발직전', '🍉수박전환'],
+        'tags': ['📍바닥권', '💎폭발직전', '🍉수박발사형'],
         'cond': lambda e: e.get('bottom_area') and e.get('explosion_ready') and e.get('watermelon_signal'),
     },
     {
@@ -924,8 +924,8 @@ COMBO_TABLE = [
     },
     {
         'grade': 'A', 'score': 280, 'type': '🗡',
-        'combination': '🔥수박폭발',
-        'tags': ['🍉수박전환', '💎폭발직전'],
+        'combination': '🔥수급전환폭발',
+        'tags': ['🍉수박발사형', '💎폭발직전'],
         'cond': lambda e: e.get('watermelon_signal') and e.get('watermelon_red') and e.get('explosion_ready'),
     },
     {
@@ -962,26 +962,26 @@ COMBO_TABLE = [
     # ✅ 매집 강도 A(빈도×거래량) + 수박 — 최고 등급
     {
         'grade': 'SSS', 'score': 610, 'type': '💎',
-        'combination': '💎🍉초강력매집수박',
-        'tags': ['💎A급강도매집', '🍉수박전환', '🏦세력대량매집', '🚀폭발임박'],
+        'combination': '💎🍉초강력매집발사형',
+        'tags': ['💎A급강도매집', '🍉수박발사형', '🏦세력대량매집', '🚀폭발임박'],
         'cond': lambda e: e.get('maejip_power_a') and e.get('watermelon_signal'),
     },
     # ✅ 매집대 품질 A등급 + 수박 조합 (진짜 세력 매집 확인)
     {
         'grade': 'SSS', 'score': 590, 'type': '💎',
-        'combination': '💎🍉진짜매집수박',
-        'tags': ['💎A급매집확인', '🍉수박전환', '🏦세력매집검증', '🚀폭발임박'],
+        'combination': '💎🍉진짜매집발사형',
+        'tags': ['💎A급매집확인', '🍉수박발사형', '🏦세력매집검증', '🚀폭발임박'],
         'cond': lambda e: e.get('maejip_quality_a') and e.get('watermelon_signal'),  # A(강한매집) 10일 중 7일+
     },
     {
         'grade': 'SS+', 'score': 510, 'type': '💎',
-        'combination': '💎🍉양호매집수박',
-        'tags': ['💎B급매집확인', '🍉수박전환', '📦매집품질양호'],
+        'combination': '💎🍉양호매집발사형',
+        'tags': ['💎B급매집확인', '🍉수박발사형', '📦매집품질양호'],
         'cond': lambda e: e.get('maejip_quality_b') and e.get('watermelon_signal') and not e.get('maejip_quality_a'),  # B(매집중) 5~6일
     },
     {
         'grade': 'SS', 'score': 470, 'type': '💎',
-        'combination': '💎매집진행중(수박대기)',
+        'combination': '💎매집진행중(발사대기)',
         'tags': ['💎매집Score60', '🍉초록축적중', '📊OBV상승추세'],
         # 오늘 매집 + 최근 3일 연속 + 수박 green 대기
         'cond': lambda e: (e.get('maejip_score_now') == 60
@@ -992,14 +992,14 @@ COMBO_TABLE = [
     # ✅ STEP3: BB30 Shift GC + 수박 조합 (단테 핵심 타점)
     {
         'grade': 'SSS', 'score': 600, 'type': '🎯',
-        'combination': '🎯🍉BB30시프트GC수박',
-        'tags': ['🎯과거저항돌파', '🍉수박전환', '💡저항→지지전환', '🚀단테타점'],
+        'combination': '🎯🍉BB30시프트GC발사형',
+        'tags': ['🎯과거저항돌파', '🍉수박발사형', '💡저항→지지전환', '🚀단테타점'],
         'cond': lambda e: e.get('bb30_shift_gc') and e.get('watermelon_signal'),
     },
     {
         'grade': 'SS+', 'score': 520, 'type': '🎯',
-        'combination': '🎯🍉BB30시프트근접수박',
-        'tags': ['🎯과거저항근접', '🍉수박전환', '📍타점대기'],
+        'combination': '🎯🍉BB30시프트근접발사형',
+        'tags': ['🎯과거저항근접', '🍉수박발사형', '📍타점대기'],
         'cond': lambda e: e.get('bb30_shift_near') and e.get('watermelon_signal'),
     },
     {
@@ -1010,8 +1010,8 @@ COMBO_TABLE = [
     },
     {
         'grade': 'B', 'score': 230, 'type': '🔍',
-        'combination': '📍수박단독',
-        'tags': ['🍉수박전환'],
+        'combination': '📍수급전환단독',
+        'tags': ['🍉수박발사형'],
         'cond': lambda e: e.get('watermelon_signal') and e.get('watermelon_red'),
     },
     {
@@ -1023,15 +1023,15 @@ COMBO_TABLE = [
     # ✅ MISS-1: watermelon_green_7d 단독 조합 추가
     {
         'grade': 'B', 'score': 200, 'type': '🔍',
-        'combination': '🍉초록축적(수박직전)',
-        'tags': ['🍉초록10일축적', '📦수박직전대기'],
+        'combination': '🍉초록축적(수급전환직전)',
+        'tags': ['🍉초록10일축적', '📦수급전환직전대기'],
         'cond': lambda e: e.get('watermelon_green_7d') and not e.get('watermelon_signal'),
     },
     # ✅ 종가배팅 타점 조합 (전고점+강봉+거래량)
     {
         'grade': 'SSS', 'score': 640, 'type': '🕯️',
-        'combination': '🕯️🍉종가배팅수박',
-        'tags': ['🕯️전고점강봉마감', '💥거래량2배폭발', '🍉수박전환', '📈종가배팅최강'],
+        'combination': '🕯️🍉종가배팅발사형',
+        'tags': ['🕯️전고점강봉마감', '💥거래량2배폭발', '🍉수박발사형', '📈종가배팅최강'],
         'cond': lambda e: (
             e.get('near_high20') and e.get('low_upper_wick') and
             e.get('vol_2x') and e.get('bullish_close') and
@@ -1070,20 +1070,20 @@ COMBO_TABLE = [
     # ✅ 피보나치 지지 + 수박 조합 (황금비율 타점)
     {
         'grade': 'SSS', 'score': 620, 'type': '🔢',
-        'combination': '🔢🍉피보나치38.2수박',
-        'tags': ['🔢Fib38.2%지지', '🍉수박전환', '📐황금비율타점', '🚀고신뢰진입'],
+        'combination': '🔢🍉피보38.2발사형',
+        'tags': ['🔢Fib38.2%지지', '🍉수박발사형', '📐황금비율타점', '🚀고신뢰진입'],
         'cond': lambda e: e.get('fib_support_382') and e.get('watermelon_signal'),
     },
     {
         'grade': 'SSS+', 'score': 650, 'type': '🔢',
-        'combination': '🔢🍉피보나치61.8수박',
-        'tags': ['🔢Fib61.8%강지지', '🍉수박전환', '📐황금비율최강타점', '🚀최고신뢰진입'],
+        'combination': '🔢🍉피보61.8발사형',
+        'tags': ['🔢Fib61.8%강지지', '🍉수박발사형', '📐황금비율최강타점', '🚀최고신뢰진입'],
         'cond': lambda e: e.get('fib_support_618') and e.get('watermelon_signal'),
     },
     {
         'grade': 'SS+', 'score': 500, 'type': '🔢',
-        'combination': '🔢피봇S1수박',
-        'tags': ['📐피봇S1지지', '🍉수박전환', '📊전일기반타점'],
+        'combination': '🔢피봇S1발사형',
+        'tags': ['📐피봇S1지지', '🍉수박발사형', '📊전일기반타점'],
         'cond': lambda e: e.get('pivot_support') and e.get('watermelon_signal'),
     },
     {
@@ -1116,8 +1116,8 @@ COMBO_TABLE = [
     # ════════════════════════════════════════════
     {
         'grade': 'SSS', 'score': 630, 'type': '🕯️',
-        'combination': '🕯️🍉종가배팅A급(수박동반)',
-        'tags': ['🕯️강봉마감', '📈전고점돌파직전', '💥거래량2배', '🍉수박동반', '🏆최강종가타점'],
+        'combination': '🕯️🍉종가배팅A급(발사형동반)',
+        'tags': ['🕯️강봉마감', '📈전고점돌파직전', '💥거래량2배', '🍉발사형동반', '🏆최강종가타점'],
         'cond': lambda e: e.get('closing_bet') and e.get('closing_bet_grade') == 'A',
     },
     {
@@ -1650,6 +1650,10 @@ def get_indicators(df):
     volume_surge            = df['Volume'] >= vol_avg20 * 1.5  # ✅ FIX-검색식3: 1.2→1.5 (수박=거래량폭발)
     df['Watermelon_Signal'] = color_change & (df['Green_Days_10'] >= 7) & volume_surge
 
+    # ── 기존 수박 로직 별칭: 수급전환(레거시 수급 전환 감지) ─────────────
+    df['Supply_Turn_Signal'] = df['Watermelon_Signal']
+    df['Supply_Turn_Prepare'] = (df['Watermelon_Color'].shift(1) == 'green').rolling(10).sum() >= 7
+
     # ── 수박 보강판: 준비형 / 발사형 ─────────────────────────────
     turnover_eok = (close * df['Volume']) / 100_000_000
 
@@ -1724,7 +1728,7 @@ def get_indicators(df):
     ).astype(str)
 
     # [B] 수박 직전 품질 — red 전환 직전 10일간 매집 발생 횟수
-    # 수박이 떴을 때 "직전 매집이 얼마나 있었는가" → 신호 신뢰도
+    # 발사형이 떴을 때 "직전 매집이 얼마나 있었는가" → 신호 신뢰도
     _pre_signal_maejip = _maejip_cond.rolling(10).sum().shift(1).fillna(0)
     df['Pre_Signal_Maejip'] = _pre_signal_maejip.astype(int)
 
@@ -1732,7 +1736,7 @@ def get_indicators(df):
     _recent3 = _maejip_cond.rolling(3).sum().fillna(0)
     df['Maejip_Recent3'] = _recent3.astype(int)  # 최근 3일 중 몇 번
 
-    # 수박 green 기간 중 매집 발생 (참고용 — 드물게 발생하지만 발생하면 강신호)
+    # 수급전환 green 기간 중 매집 발생 (참고용 — 드물게 발생하지만 발생하면 강신호)
     _green_mask = df['Watermelon_Color'] == 'green'
     df['Green_Maejip_Days'] = (_green_mask & _maejip_cond).rolling(10).sum().fillna(0).astype(int)
 
@@ -2244,6 +2248,31 @@ def send_tournament_results(tournament_report: str):
 # ---------------------------------------------------------
 # 🧠 [6] AI 브리핑 및 토너먼트
 # ---------------------------------------------------------
+def _extract_gemini_text(gem_data: dict) -> str:
+    """
+    Gemini 응답에서 parts 전체를 합쳐 텍스트 추출.
+    기존처럼 parts[0]만 읽으면 뒤 내용이 잘릴 수 있음.
+    """
+    try:
+        candidates = gem_data.get("candidates", [])
+        if not candidates:
+            return ""
+
+        cand = candidates[0]
+        content = cand.get("content", {}) or {}
+        parts = content.get("parts", []) or []
+
+        texts = []
+        for p in parts:
+            t = p.get("text", "")
+            if t:
+                texts.append(t)
+
+        return "\n".join(texts).strip()
+    except Exception as e:
+        log_error(f"⚠️ _extract_gemini_text 실패: {e}")
+        return ""
+
 def get_hot_themes():
     try:
         res = requests.get("https://finance.naver.com/sise/theme.naver", headers=REAL_HEADERS)
@@ -2277,22 +2306,25 @@ def get_market_briefing(issues):
 def run_ai_tournament(candidate_list, issues):
     if candidate_list.empty:
         return "종목 후보가 없어 토너먼트를 취소합니다."
-     
+
     candidate_list = candidate_list.sort_values(by='안전점수', ascending=False).head(15)
- 
+
     def safe_int(x, default=0):
-        try: return int(float(x))
-        except: return default
-    
+        try:
+            return int(float(x))
+        except:
+            return default
+
     def safe_float(x, default=0.0):
-        try: return float(x)
-        except: return default
-          
+        try:
+            return float(x)
+        except:
+            return default
+
     comments = "특이 이슈 없음"
     if issues:
         comments = " | ".join([i.get("comment", "") for i in issues])
-    
-    # ✅ prompt_data 먼저 생성
+
     prompt_data = "\n".join([
         f"- {row['종목명']}({row['code']}): {row.get('구분','N/A')}, "
         f"수급:{row.get('수급',0)}, N구분:{row.get('N구분','N/A')}, "
@@ -2305,7 +2337,7 @@ def run_ai_tournament(candidate_list, issues):
         f"OBV기울기:{safe_int(row.get('OBV기울기',0))}, RSI:{safe_int(safe_float(row.get('RSI',0)))}"
         for _, row in candidate_list.iterrows()
     ])
-  
+
     system_prompt, user_prompt = get_tournament_prompt(prompt_data, comments)
 
     # ── GPT 호출 (실패해도 계속)
@@ -2367,6 +2399,7 @@ def run_ai_tournament(candidate_list, issues):
                 f"https://generativelanguage.googleapis.com/v1beta/models"
                 f"/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
             )
+
             gem_body = {
                 "system_instruction": {
                     "parts": [{"text": system_prompt}]
@@ -2375,23 +2408,26 @@ def run_ai_tournament(candidate_list, issues):
                     "parts": [{"text": user_prompt}]
                 }],
                 "generationConfig": {
-                    "maxOutputTokens": 1000,
+                    "maxOutputTokens": 2200,
                     "temperature": 0.5
                 }
             }
+
             res_gem = requests.post(gem_url, json=gem_body, timeout=60)
+
             if res_gem.status_code == 200:
                 gem_data = res_gem.json()
-                gemini_text = (
-                    gem_data.get('candidates', [{}])[0]
-                    .get('content', {})
-                    .get('parts', [{}])[0]
-                    .get('text', '')
-                    .strip()
-                )
-                log_info("✅ Gemini 토너먼트 완료")
+                gemini_text = _extract_gemini_text(gem_data)
+
+                cand = gem_data.get('candidates', [{}])[0]
+                finish_reason = cand.get('finishReason', '')
+                usage = gem_data.get('usageMetadata', {})
+                log_info(f"✅ Gemini 토너먼트 완료 | finishReason={finish_reason} | usage={usage}")
+
+                if finish_reason == 'MAX_TOKENS':
+                    log_info("⚠️ Gemini 출력이 MAX_TOKENS로 잘렸을 가능성 있음")
+
             elif res_gem.status_code == 429:
-                # 2.0-flash 쿼터 초과 → 1.5-flash 로 폴백 시도
                 log_info("⚠️ Gemini 2.5-flash 쿼터 초과 → 2.0-flash 폴백 시도...")
                 try:
                     gem_url_fb = (
@@ -2399,24 +2435,28 @@ def run_ai_tournament(candidate_list, issues):
                         f"/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
                     )
                     res_gem2 = requests.post(gem_url_fb, json=gem_body, timeout=60)
+
                     if res_gem2.status_code == 200:
                         gem_data2 = res_gem2.json()
-                        gemini_text = (
-                            gem_data2.get('candidates', [{}])[0]
-                            .get('content', {})
-                            .get('parts', [{}])[0]
-                            .get('text', '')
-                            .strip()
-                        )
-                        log_info("✅ Gemini 2.0-flash 폴백 성공")
+                        gemini_text = _extract_gemini_text(gem_data2)
+
+                        cand2 = gem_data2.get('candidates', [{}])[0]
+                        finish_reason2 = cand2.get('finishReason', '')
+                        usage2 = gem_data2.get('usageMetadata', {})
+                        log_info(f"✅ Gemini 2.0-flash 폴백 성공 | finishReason={finish_reason2} | usage={usage2}")
+
+                        if finish_reason2 == 'MAX_TOKENS':
+                            log_info("⚠️ Gemini 2.0-flash 출력도 MAX_TOKENS로 잘렸을 가능성 있음")
                     else:
-                        log_info(f"⚠️ Gemini 2.0-flash도 실패 ({res_gem2.status_code}) — 생략")
+                        log_info(f"⚠️ Gemini 2.0-flash도 실패 ({res_gem2.status_code}) - {res_gem2.text[:300]}")
                 except Exception as e2:
                     log_info(f"⚠️ Gemini 폴백 실패: {e2}")
+
             elif res_gem.status_code == 400:
-                log_error(f"⚠️ Gemini 요청 오류 (400): {res_gem.text[:200]}")
+                log_error(f"⚠️ Gemini 요청 오류 (400): {res_gem.text[:300]}")
             else:
-                log_error(f"⚠️ Gemini 응답 오류: {res_gem.status_code}")
+                log_error(f"⚠️ Gemini 응답 오류: {res_gem.status_code} / {res_gem.text[:300]}")
+
         except Exception as e:
             log_error(f"⚠️ Gemini 토너먼트 실패: {e}")
     else:
@@ -2449,12 +2489,12 @@ def run_ai_tournament(candidate_list, issues):
     else:
         log_info("⚠️ GROQ_API_KEY 없음 — Groq 생략")
 
-    # ── 결과 조합 (하나라도 있으면 반환)
+    # ── 결과 조합
     results_map = {
         '🧠 [GPT-4o]':        gpt_text,
         '🤖 [Claude-Sonnet]': claude_text,
-        '♊ [Gemini-Flash]':  gemini_text,
-        '⚡ [Groq-Llama]':   groq_text,
+        '♊ [Gemini-Flash]':   gemini_text,
+        '⚡ [Groq-Llama]':    groq_text,
     }
     log_info(f"  GPT:{bool(gpt_text)} Claude:{bool(claude_text)} Gemini:{bool(gemini_text)} Groq:{bool(groq_text)}")
 
@@ -2467,11 +2507,6 @@ def run_ai_tournament(candidate_list, issues):
             result += f"\n{label}:\n{text}\n"
 
     return result
-
-# =============================================================
-# 🤖 Claude API 직접 호출 (Anthropic)
-#    OpenAI 실패 시 또는 ANTHROPIC_API_KEY 있으면 우선 사용
-# =============================================================
 
 def _call_claude_api(system_prompt: str, user_prompt: str,
                      max_tokens: int = 3000) -> str:
@@ -2564,7 +2599,7 @@ def get_ai_summary_batch(ai_candidates_df, issues=None, market_news=None):
 ## 역매공파 핵심 원칙
 - 역배열 상태에서 MA112 돌파 시 진입
 - 이격도 98~106 구간이 안전한 매수 구간
-- 수박 신호 = OBV/MFI/매수압력 중 2개 이상 + 초록→빨강 전환
+- 수급전환 = OBV/MFI/매수압력 중 2개 이상 + 초록→빨강 전환
 - BB40 폭 10 이하 = 에너지 응축, 폭발 임박
 - 손절 기준: 진입가 대비 -5%
 
@@ -2586,7 +2621,7 @@ def get_ai_summary_batch(ai_candidates_df, issues=None, market_news=None):
    예) "OBV 기울기 +120으로 세력 매집 진행 중"
 
 2. 각 종목의 패턴 조합과 서사를 바탕으로 맥락을 설명해
-   - 수박 신호 종목: 전환 강도와 초록 축적 기간 중심
+   - 수급전환 종목: 전환 강도와 초록 축적 기간 중심
    - 돌반지 종목: 쌍바닥 위치와 거래량 폭발 맥락 중심
    - 독사훅 종목: MA 수렴 후 전환 시점과 기울기 중심
    - BB40 종목: 응축 기간과 폭발 방향성 중심
@@ -2923,6 +2958,8 @@ def build_default_signals(row, close_p, prev):
     return {
         # ── 수박 계열 ──────────────────────────────────────────
         'watermelon_signal':     bool(row.get('Watermelon_Signal_Refined', row.get('Watermelon_Signal', False))),
+        'supply_turn_signal':    bool(row.get('Supply_Turn_Signal', row.get('Watermelon_Signal', False))),
+        'supply_turn_prepare':   bool(row.get('Supply_Turn_Prepare', False)),
         'watermelon_prepare':    bool(row.get('Watermelon_Prepare', False)),
         'watermelon_launch':     bool(row.get('Watermelon_Launch', False)),
         'watermelon_red':        row['Watermelon_Color'] == 'red',
@@ -3113,7 +3150,7 @@ def calculate_combination_score(signals):
             if '✅DMI확인' not in best['tags']:
                 best['tags'].append('✅DMI확인')
 
-        # ✅ MISS-3: watermelon_green_7d 보너스 (+15) — 수박 직전 대기 상태
+        # ✅ MISS-3: watermelon_green_7d 보너스 (+15) — 수급전환 직전 대기 상태
         if effective.get('watermelon_green_7d') and not effective.get('watermelon_signal'):
             best['score'] += 15
             if '🍉초록대기' not in best['tags']:
@@ -3225,7 +3262,7 @@ YEOK_MAE_CONTEXT = """
 ## 역매공파 매매법 핵심 원칙
 - 역배열(MA5 < MA20 < MA60 < MA112) 상태에서 MA112 돌파 시 진입
 - 이격도 98~106 구간이 가장 안전한 매수 구간
-- 수박 신호 = OBV/MFI/매수압력 3개 중 2개 이상 + 초록→빨강 전환
+- 수급전환 = OBV/MFI/매수압력 3개 중 2개 이상 + 초록→빨강 전환
 - 돌반지 = MA224 위에서 거래량 3배 + 쌍바닥 형성 → 대시세 전조
 - 독사훅 = MA5/10/20 수렴 후 MA5 상향 기울기 전환 → 단기 핵심
 - BB40 폭 10% 이하 = 에너지 응축 구간, 폭발 임박
@@ -3339,7 +3376,7 @@ def get_tournament_prompt(prompt_data, comments):
 
 ## 심사 기준
 ### 단타 (1~3일) 적합 조건
-- 수박 신호 또는 독사훅 발생
+- 수박발사형 또는 독사훅 발생
 - 거래량 MA20 대비 1.5배 이상
 - RSI 40~65 구간 (과매수 아닐 것)
 - 이격도 110 이하
@@ -3816,7 +3853,8 @@ def classify_pattern_type(row) -> str:
 
     labels = []
     if is_real_wm:   labels.append("🍉진짜수박")
-    elif is_watermelon: labels.append("🍉수박신호")
+    elif is_watermelon: labels.append("🍉수박발사형")
+    elif bool(row.get('Supply_Turn_Signal', False)): labels.append("🔄수급전환")
     if is_dolbanzi:  labels.append("💍돌반지")
     if is_viper:     labels.append("🐍독사훅")
     if is_golpagi:   labels.append("🕳️골파기")
@@ -4043,6 +4081,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             tags.append(explosion_level)
 
         is_watermelon = bool(row.get('Watermelon_Signal_Refined', row.get('Watermelon_Signal', False)))
+        is_supply_turn = bool(row.get('Supply_Turn_Signal', row.get('Watermelon_Signal', False)))
         is_watermelon_prepare = bool(row.get('Watermelon_Prepare', False))
         watermelon_color = row['Watermelon_Color']
         watermelon_score = row['Watermelon_Score']
@@ -4136,6 +4175,8 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             new_tags.append("🧬초강력MA수렴")
         if bool(row.get('Watermelon_Prepare', False)) and not bool(row.get('Watermelon_Signal_Refined', row.get('Watermelon_Signal', False))):
             new_tags.append("🍈수박준비형")
+        if bool(row.get('Supply_Turn_Signal', row.get('Watermelon_Signal', False))):
+            new_tags.append("🔄수급전환")
 
         # ✅ TUNE-2: 로그 스팸 제거 (히트 종목 포착 시에만 출력)
         result = judge_trade_with_sequence(temp_df, signals)
@@ -4387,7 +4428,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         if is_nova:
             tags.append("🚀슈퍼타점")
         if is_melon:
-            tags.append("🍉수박")
+            tags.append("🔄수급전환")
         if is_sto_gc:
             s_score += 30
             tags.append("Sto-GC")
@@ -4451,10 +4492,10 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         # 수박 직전 매집 품질 보너스
         if _pre_m >= 5 and is_watermelon:
             s_score += 50
-            tags.append(f"🏆수박직전매집({_pre_m}일)")
+            tags.append(f"🏆발사직전매집({_pre_m}일)")
         elif _pre_m >= 3 and is_watermelon:
             s_score += 25
-            tags.append(f"💎수박전매집({_pre_m}일)")
+            tags.append(f"💎발사전매집({_pre_m}일)")
 
         # 최근 3일 연속 매집 보너스
         if _recent3 >= 3:
@@ -4648,6 +4689,8 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             '구조접속MA수렴': bool(row.get('Is_Structure_Link_MA_Conv', False)),
             '초강력MA수렴': bool(row.get('Is_Super_MA_Conv', False)),
             'MA수렴코멘트': build_ma_convergence_comment_from_row(row),
+            '수급전환': bool(row.get('Supply_Turn_Signal', row.get('Watermelon_Signal', False))),
+            '수급전환예비': bool(row.get('Supply_Turn_Prepare', False)),
             '수박준비형': bool(row.get('Watermelon_Prepare', False)),
             '수박발사형': bool(row.get('Watermelon_Signal_Refined', row.get('Watermelon_Signal', False))),
             '매집': f"{acc_count}/5",
@@ -4681,7 +4724,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             '매집일수_10일':  int(row.get('Maejip_Days_10',  0)),
             '매집일수_20일':  int(row.get('Maejip_Days_20',  0)),
             '초록매집일수':   int(row.get('Green_Maejip_Days', 0)),
-            '수박직전매집':   int(row.get('Pre_Signal_Maejip', 0)),
+            '발사직전매집':   int(row.get('Pre_Signal_Maejip', 0)),
             '최근3일매집':    int(row.get('Maejip_Recent3', 0)),
             # 매집 강도
             '매집강도점수':   float(row.get('Maejip_Power', 0)),
@@ -5419,7 +5462,7 @@ if __name__ == "__main__":
         vol_ratio     = _sf(item.get('매집거래량배율', 0))
         sv60          = _si(item.get('세력평단_60일', 0))
         gap_pct       = _sf(item.get('평단이격', 0))
-        pre_maejip    = _si(item.get('수박직전매집', 0))
+        pre_maejip    = _si(item.get('발사직전매집', 0))
 
         # ─── 공시
         disc_tag      = item.get('공시태그', '없음')
