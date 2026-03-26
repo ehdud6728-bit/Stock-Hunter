@@ -15,7 +15,7 @@ import pytz
 
 KST = pytz.timezone("Asia/Seoul")
 
-MIN_PRICE = 5_000
+MIN_PRICE = 3_000
 MIN_AMOUNT_B = 30.0
 
 NEAR_HIGH20_MIN = 85.0
