@@ -175,6 +175,28 @@ import threading
 #   2순위: 네이버 금융 코드 기반 직접 파싱 (코드 = 숫자라 인코딩 문제 없음)
 #   3순위: 네이버 뉴스 검색 (한글 종목명, params= 로 안전하게 전달)
 # =============================================================
+# =============================================================
+# ✅ 전역 공용 숫자 변환 헬퍼
+# 섹터 테이프 / 시황 / AI 파트 어디서든 공통 사용
+# =============================================================
+def safe_float(x, default=0.0):
+    try:
+        if x is None:
+            return default
+        if isinstance(x, str):
+            x = x.replace(',', '').strip()
+            if x == '':
+                return default
+        return float(x)
+    except Exception:
+        return default
+
+
+def safe_int(x, default=0):
+    try:
+        return int(round(safe_float(x, default)))
+    except Exception:
+        return default
 
 def _fetch_stock_news(code: str, name: str) -> str:
     """
