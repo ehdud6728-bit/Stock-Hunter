@@ -36,16 +36,48 @@ import warnings
 warnings.filterwarnings('ignore', category=FutureWarning)
 
 # scan_logger 없으면 print로 폴백
+# ✅ 오류/에러 로그만 남기도록 강제
 try:
-    from scan_logger import set_log_level, log_hit, log_progress, log_error, log_info, log_debug
-    set_log_level('NORMAL')   # QUIET / NORMAL / VERBOSE  또는 env: SCAN_LOG_LEVEL=QUIET
+    from scan_logger import (
+        set_log_level,
+        log_hit as _scan_log_hit,
+        log_progress as _scan_log_progress,
+        log_error as _scan_log_error,
+        log_info as _scan_log_info,
+        log_debug as _scan_log_debug,
+    )
+    set_log_level('QUIET')
+
+    def log_info(msg):  # 정보 로그 차단
+        pass
+
+    def log_debug(msg):  # 디버그 로그 차단
+        pass
+
+    def log_hit(name, score, tags):  # 히트 로그 차단
+        pass
+
+    def log_progress(done, total):  # 진행률 로그 차단
+        pass
+
+    def log_error(msg):  # 오류 로그만 허용
+        _scan_log_error(msg)
+
 except ImportError:
-    def log_info(msg):  print(msg)
-    def log_error(msg): print(msg)
-    def log_debug(msg): pass
-    def log_hit(name, score, tags): print(f"🎯 {name} 포착! 점수:{score}")
+    def log_info(msg):
+        pass
+
+    def log_error(msg):
+        print(msg)
+
+    def log_debug(msg):
+        pass
+
+    def log_hit(name, score, tags):
+        pass
+
     def log_progress(done, total):
-        if done % 50 == 0: print(f"📊 진행: {done}/{total}")
+        pass
 
 from news_keyword_engine import analyze_news_rule_based
 from news_event_engine import (
@@ -400,43 +432,83 @@ SECTOR_MACRO_MAP = {
 }
 
 _safe_macro_cache = {}
+_macro_fetch_failures = {}
+
+
+def _clear_macro_fetch_failures():
+    _macro_fetch_failures.clear()
+
+
+def _flush_macro_fetch_failures(context='시황'):
+    if not _macro_fetch_failures:
+        return
+
+    items = []
+    for sym, meta in sorted(_macro_fetch_failures.items()):
+        name = meta.get('name', sym)
+        err = str(meta.get('error', ''))[:80]
+        items.append(f"{sym}/{name}:{err}")
+
+    preview = " | ".join(items[:15])
+    if len(items) > 15:
+        preview += f" | ...외 {len(items)-15}건"
+
+    log_error(f"🚨 [{context} 데이터 수집 실패] {preview}")
+
+
 
 def get_safe_macro(symbol, name):
     cache_key = f"{datetime.now().strftime('%Y-%m-%d')}::{symbol}::{name}"
     if cache_key in _safe_macro_cache:
         return _safe_macro_cache[cache_key]
 
-    try:
-        df = fdr.DataReader(symbol, start=(datetime.now() - timedelta(days=20)).strftime('%Y-%m-%d'))
-        if df is None or df.empty or len(df) < 2:
-            result = {"val": None, "chg": 0.0, "status": "☁️불명", "text": f"{name}: 연결실패", "ok": False}
+    last_err = ""
+    for _try in range(3):
+        try:
+            df = fdr.DataReader(symbol, start=(datetime.now() - timedelta(days=20)).strftime('%Y-%m-%d'))
+            if df is None or df.empty or len(df) < 2:
+                raise ValueError("empty dataframe")
+
+            curr = float(df.iloc[-1]['Close'])
+            prev = float(df.iloc[-2]['Close'])
+            ma5 = float(df['Close'].tail(5).mean())
+            chg = ((curr - prev) / prev) * 100 if prev else 0.0
+
+            status = "☀️맑음" if curr > ma5 else "🌪️폭풍우"
+            if "VIX" in name:
+                status = "☀️안정" if curr < ma5 else "🌪️위험"
+            elif "금리" in name:
+                status = "📉완화" if curr < ma5 else "📈상승압력"
+
+            result = {
+                "val": curr,
+                "chg": round(chg, 2),
+                "status": status,
+                "text": f"{name}: {curr:,.2f}({chg:+.2f}%) {status}",
+                "ok": True,
+                "error": "",
+            }
             _safe_macro_cache[cache_key] = result
+            _macro_fetch_failures.pop(symbol, None)
             return result
+        except Exception as e:
+            last_err = str(e)
+            try:
+                time.sleep(0.4 * (_try + 1))
+            except Exception:
+                pass
 
-        curr = float(df.iloc[-1]['Close'])
-        prev = float(df.iloc[-2]['Close'])
-        ma5 = float(df['Close'].tail(5).mean())
-        chg = ((curr - prev) / prev) * 100 if prev else 0.0
-
-        status = "☀️맑음" if curr > ma5 else "🌪️폭풍우"
-        if "VIX" in name:
-            status = "☀️안정" if curr < ma5 else "🌪️위험"
-        elif "금리" in name:
-            status = "📉완화" if curr < ma5 else "📈상승압력"
-
-        result = {
-            "val": curr,
-            "chg": round(chg, 2),
-            "status": status,
-            "text": f"{name}: {curr:,.2f}({chg:+.2f}%) {status}",
-            "ok": True,
-        }
-        _safe_macro_cache[cache_key] = result
-        return result
-    except Exception:
-        result = {"val": None, "chg": 0.0, "status": "☁️불명", "text": f"{name}: 연결실패", "ok": False}
-        _safe_macro_cache[cache_key] = result
-        return result
+    result = {
+        "val": None,
+        "chg": 0.0,
+        "status": "☁️불명",
+        "text": f"{name}: 연결실패",
+        "ok": False,
+        "error": last_err[:120],
+    }
+    _safe_macro_cache[cache_key] = result
+    _macro_fetch_failures[symbol] = {"name": name, "error": last_err[:120]}
+    return result
 
 def _fetch_symbol_bundle(symbol_items, max_workers=8):
     results = {}
@@ -464,15 +536,21 @@ def _direction_from_change(chg, flat_threshold=0.15):
         return "down"
     return "flat"
 
+
 def _count_bundle_breadth(bundle):
     vals = [v for v in bundle.values() if isinstance(v, dict)]
     if not vals:
-        return {"up": 0, "down": 0, "flat": 0, "avg_chg": 0.0, "valid": 0}
+        return {"up": 0, "down": 0, "flat": 0, "avg_chg": 0.0, "valid": 0, "fail": 0}
 
-    up = down = flat = 0
+    up = down = flat = fail = 0
     chgs = []
+
     for v in vals:
-        chg = float(v.get("chg", 0) or 0.0)
+        if not v.get("ok", False) or v.get("val") is None:
+            fail += 1
+            continue
+
+        chg = safe_float(v.get("chg", 0), 0.0)
         direction = _direction_from_change(chg)
         if direction == "up":
             up += 1
@@ -488,6 +566,7 @@ def _count_bundle_breadth(bundle):
         "flat": flat,
         "avg_chg": round(sum(chgs) / len(chgs), 2) if chgs else 0.0,
         "valid": len(chgs),
+        "fail": fail,
     }
 
 def get_extended_market_pack(m_ndx, m_sp5, m_vix, m_wti, m_fx, m_brent=None):
@@ -513,6 +592,7 @@ def get_extended_market_pack(m_ndx, m_sp5, m_vix, m_wti, m_fx, m_brent=None):
     }
     return pack
 
+
 def _score_macro_triggers(config, market_pack):
     score = 0.0
     match = 0
@@ -527,17 +607,24 @@ def _score_macro_triggers(config, market_pack):
             weight = 1.0
 
         item = market_pack.get(key, {})
+        if not item or not item.get("ok", False) or item.get("val") is None:
+            trigger_hits.append(f"{key}:fail")
+            continue
+
         actual_dir = _direction_from_change(item.get("chg", 0))
         if actual_dir == expected_dir:
             score += weight * 10
             match += 1
             trigger_hits.append(f"{key}:{expected_dir}")
         elif actual_dir == "flat":
-            score += weight * 2
+            score += weight * 1.0
+            trigger_hits.append(f"{key}:flat")
         else:
             score -= weight * 4
+            trigger_hits.append(f"{key}:opp")
 
     return round(score, 2), match, total, trigger_hits
+
 
 def _calc_shock_penalty(config, leader_bundle, etf_bundle):
     penalty = 0.0
@@ -546,12 +633,15 @@ def _calc_shock_penalty(config, leader_bundle, etf_bundle):
     for rule in config.get("shock_rules", []):
         symbol = rule.get("symbol")
         ref = leader_bundle.get(symbol) or etf_bundle.get(symbol) or {}
-        chg = float(ref.get("chg", 0) or 0.0)
-        if "chg_lte" in rule and chg <= float(rule["chg_lte"]):
-            penalty += float(rule.get("penalty", 0.0))
+        if not ref or not ref.get("ok", False) or ref.get("val") is None:
+            continue
+
+        chg = safe_float(ref.get("chg", 0), 0.0)
+        if "chg_lte" in rule and chg <= safe_float(rule["chg_lte"]):
+            penalty += safe_float(rule.get("penalty", 0.0))
             warnings.append(f"{rule.get('reason', symbol)}({chg:+.1f}%)")
-        elif "chg_gte" in rule and chg >= float(rule["chg_gte"]):
-            penalty += float(rule.get("penalty", 0.0))
+        elif "chg_gte" in rule and chg >= safe_float(rule["chg_gte"]):
+            penalty += safe_float(rule.get("penalty", 0.0))
             warnings.append(f"{rule.get('reason', symbol)}({chg:+.1f}%)")
 
     leader_breadth = _count_bundle_breadth(leader_bundle)
@@ -565,7 +655,13 @@ def _calc_shock_penalty(config, leader_bundle, etf_bundle):
         penalty += 1.5
         warnings.append("섹터ETF 약세")
 
+    if etf_breadth["fail"] >= max(1, len(etf_bundle)):
+        warnings.append("ETF 데이터부족")
+    if leader_breadth["fail"] >= max(2, len(leader_bundle) // 2):
+        warnings.append("대표주 데이터부족")
+
     return round(penalty, 2), warnings
+
 
 def detect_leading_sectors(m_ndx, m_sp5, m_vix, m_wti, m_fx, extended_market_pack=None):
     market_pack = extended_market_pack or get_extended_market_pack(m_ndx, m_sp5, m_vix, m_wti, m_fx)
@@ -576,8 +672,8 @@ def detect_leading_sectors(m_ndx, m_sp5, m_vix, m_wti, m_fx, extended_market_pac
         "vix": _direction_from_change(m_vix.get("chg", 0)),
         "oil": _direction_from_change(m_wti.get("chg", 0)),
         "dollar": _direction_from_change(m_fx.get("chg", 0)),
-        "russell": _direction_from_change(market_pack.get("russell", {}).get("chg", 0)),
-        "us10y": _direction_from_change(market_pack.get("us10y", {}).get("chg", 0)),
+        "russell": _direction_from_change(market_pack.get("russell", {}).get("chg", 0)) if market_pack.get("russell", {}).get("ok", False) else "flat",
+        "us10y": _direction_from_change(market_pack.get("us10y", {}).get("chg", 0)) if market_pack.get("us10y", {}).get("ok", False) else "flat",
     }
 
     symbol_items = []
@@ -585,7 +681,7 @@ def detect_leading_sectors(m_ndx, m_sp5, m_vix, m_wti, m_fx, extended_market_pac
         symbol_items.extend(cfg.get("etfs", []))
         symbol_items.extend(cfg.get("leaders", []))
 
-    bundle_all = _fetch_symbol_bundle(symbol_items, max_workers=12)
+    bundle_all = _fetch_symbol_bundle(symbol_items, max_workers=6)
 
     results = []
     for sector_name, cfg in SECTOR_MACRO_MAP.items():
@@ -601,9 +697,14 @@ def detect_leading_sectors(m_ndx, m_sp5, m_vix, m_wti, m_fx, extended_market_pac
         leader_score = (leader_breadth["up"] * 4) - (leader_breadth["down"] * 3) + (leader_breadth["avg_chg"] * 1.5)
 
         shock_penalty, warnings = _calc_shock_penalty(cfg, leader_bundle, etf_bundle)
+
         final_score = round(macro_score + etf_score + leader_score - (shock_penalty * 8), 2)
 
-        if shock_penalty >= 2.5 or (etf_breadth["valid"] >= 1 and etf_breadth["down"] == etf_breadth["valid"] and leader_breadth["down"] > leader_breadth["up"]):
+        data_missing = (etf_breadth["valid"] == 0 and leader_breadth["valid"] == 0)
+        if data_missing:
+            verdict = "데이터부족"
+            final_score = -999.0
+        elif shock_penalty >= 2.5 or (etf_breadth["valid"] >= 1 and etf_breadth["down"] == etf_breadth["valid"] and leader_breadth["down"] > leader_breadth["up"]):
             verdict = "회피"
         elif final_score >= 18 and etf_breadth["up"] >= max(1, etf_breadth["valid"] // 2) and leader_breadth["up"] >= max(2, leader_breadth["valid"] // 2):
             verdict = "추천"
@@ -627,18 +728,27 @@ def detect_leading_sectors(m_ndx, m_sp5, m_vix, m_wti, m_fx, extended_market_pac
             "trigger_hits": trigger_hits,
             "etf_up": etf_breadth["up"],
             "etf_down": etf_breadth["down"],
+            "etf_flat": etf_breadth["flat"],
             "etf_valid": etf_breadth["valid"],
+            "etf_fail": etf_breadth["fail"],
             "etf_avg_chg": etf_breadth["avg_chg"],
             "leaders_up": leader_breadth["up"],
             "leaders_down": leader_breadth["down"],
+            "leaders_flat": leader_breadth["flat"],
             "leaders_valid": leader_breadth["valid"],
+            "leaders_fail": leader_breadth["fail"],
             "leaders_avg_chg": leader_breadth["avg_chg"],
             "warnings": warnings,
             "warning_text": " | ".join(warnings) if warnings else "",
         })
 
-    results = sorted(results, key=lambda x: ({"추천": 2, "관찰": 1, "회피": 0}.get(x["verdict"], 0), x["score"]), reverse=True)
+    results = sorted(
+        results,
+        key=lambda x: ({"추천": 3, "관찰": 2, "회피": 1, "데이터부족": 0}.get(x["verdict"], 0), x["score"]),
+        reverse=True
+    )
     return results, directions
+
 
 def format_sector_rotation_report(sector_results, directions):
     dir_emoji = {
@@ -657,16 +767,28 @@ def format_sector_rotation_report(sector_results, directions):
     ]
 
     for i, s in enumerate(sector_results[:6], 1):
-        verdict_emoji = {"추천": "✅", "관찰": "👀", "회피": "⛔"}.get(s["verdict"], "➖")
-        lines.append(
-            f"{i}위 [{s['sector']}] {verdict_emoji}{s['verdict']} | 점수 {s['score']:.1f}\n"
-            f"   매크로 {s['match']}/{s['total']} | ETF {s['etf_up']}↑/{s['etf_down']}↓({s['etf_avg_chg']:+.1f}%) | 대표주 {s['leaders_up']}↑/{s['leaders_down']}↓({s['leaders_avg_chg']:+.1f}%)\n"
-            f"   → {s['desc']}\n"
-            f"   관련주: {', '.join(s['tickers'][:3])}"
-            + (f"\n   ⚠️ {s['warning_text']}" if s.get('warning_text') else "")
-        )
+        verdict_emoji = {"추천": "✅", "관찰": "👀", "회피": "⛔", "데이터부족": "❓"}.get(s["verdict"], "➖")
+
+        if s["verdict"] == "데이터부족":
+            lines.append(
+                f"{i}위 [{s['sector']}] {verdict_emoji}{s['verdict']}\n"
+                f"   ETF 데이터 {s['etf_valid']}/{s['etf_valid'] + s['etf_fail']} | 대표주 데이터 {s['leaders_valid']}/{s['leaders_valid'] + s['leaders_fail']}\n"
+                f"   → 미국 티커 데이터 수집 실패로 판정 보류\n"
+                f"   관련주: {', '.join(s['tickers'][:3])}"
+                + (f"\n   ⚠️ {s['warning_text']}" if s.get('warning_text') else "")
+            )
+        else:
+            lines.append(
+                f"{i}위 [{s['sector']}] {verdict_emoji}{s['verdict']} | 점수 {s['score']:.1f}\n"
+                f"   매크로 {s['match']}/{s['total']} | ETF {s['etf_up']}↑/{s['etf_down']}↓/{s['etf_flat']}↔ (유효 {s['etf_valid']}, 실패 {s['etf_fail']}) | "
+                f"대표주 {s['leaders_up']}↑/{s['leaders_down']}↓/{s['leaders_flat']}↔ (유효 {s['leaders_valid']}, 실패 {s['leaders_fail']})\n"
+                f"   → {s['desc']}\n"
+                f"   관련주: {', '.join(s['tickers'][:3])}"
+                + (f"\n   ⚠️ {s['warning_text']}" if s.get('warning_text') else "")
+            )
 
     return "\n".join(lines)
+
 
 def build_sector_summary_for_prompt(sector_results, top_n=5):
     if not sector_results:
@@ -674,12 +796,17 @@ def build_sector_summary_for_prompt(sector_results, top_n=5):
 
     lines = []
     for s in sector_results[:top_n]:
-        lines.append(
-            f"- {s['sector']} | 판정:{s['verdict']} | 점수:{s['score']:.1f} | "
-            f"매크로:{s['match']}/{s['total']} | ETF:{s['etf_up']}↑/{s['etf_down']}↓({s['etf_avg_chg']:+.1f}%) | "
-            f"대표주:{s['leaders_up']}↑/{s['leaders_down']}↓({s['leaders_avg_chg']:+.1f}%)"
-            + (f" | 경고:{s['warning_text']}" if s.get('warning_text') else "")
-        )
+        if s.get("verdict") == "데이터부족":
+            lines.append(
+                f"- {s['sector']} | 판정:데이터부족 | ETF유효:{s['etf_valid']} 실패:{s['etf_fail']} | 대표주유효:{s['leaders_valid']} 실패:{s['leaders_fail']}"
+            )
+        else:
+            lines.append(
+                f"- {s['sector']} | 판정:{s['verdict']} | 점수:{s['score']:.1f} | "
+                f"매크로:{s['match']}/{s['total']} | ETF:{s['etf_up']}↑/{s['etf_down']}↓/{s['etf_flat']}↔(유효{s['etf_valid']},실패{s['etf_fail']}) | "
+                f"대표주:{s['leaders_up']}↑/{s['leaders_down']}↓/{s['leaders_flat']}↔(유효{s['leaders_valid']},실패{s['leaders_fail']})"
+                + (f" | 경고:{s['warning_text']}" if s.get('warning_text') else "")
+            )
     return "\n".join(lines)
 
 # ────────────────────────────────────────────────────────────────
@@ -912,7 +1039,8 @@ def get_stock_sector(ticker, sector_map):
         return "2차전지"
     return "일반"
 
-def get_safe_macro(symbol, name):
+def get_safe_macro_legacy_unused(symbol, name):
+    # ✅ 중복 정의 제거용 레거시 보관 함수 (실사용 금지)
     try:
         df = fdr.DataReader(symbol, start=(datetime.now() - timedelta(days=15)).strftime('%Y-%m-%d'))
         curr, prev = df.iloc[-1]['Close'], df.iloc[-2]['Close']
@@ -921,7 +1049,9 @@ def get_safe_macro(symbol, name):
         status = "☀️맑음" if curr > ma5 else "🌪️폭풍우"
         if "VIX" in name: status = "☀️안정" if curr < ma5 else "🌪️위험"
         return {"val": curr, "chg": chg, "status": status, "text": f"{name}: {curr:,.2f}({chg:+.2f}%) {status}"}
-    except: return {"status": "☁️불명", "text": f"{name}: 연결실패"}
+    except:
+        return {"status": "☁️불명", "text": f"{name}: 연결실패"}
+
 
 def get_index_investor_data(market_name):
     try:
@@ -1540,6 +1670,9 @@ def check_good_ma_convergence(curr: pd.Series, past: pd.DataFrame):
     4. BB40 수축 동반
     """
     try:
+        if bool(curr.get('Halt_Like', False)) or int(past.get('NoTrade', pd.Series(dtype=float)).sum()) >= 5:
+            return False, {'score': 0, 'msg': '거래정지/장기무거래 이력'}
+
         ma20 = curr['MA20']
         ma40 = curr['MA40']
         ma60 = curr['MA60']
@@ -1609,6 +1742,9 @@ def check_ma_convergence_break_ready(curr: pd.Series, past: pd.DataFrame):
     4. 거래량이 너무 죽지 않음
     """
     try:
+        if bool(curr.get('Halt_Like', False)) or int(past.get('NoTrade', pd.Series(dtype=float)).sum()) >= 5:
+            return False, {'score': 0, 'msg': '거래정지/장기무거래 이력'}
+
         good_conv, good_info = check_good_ma_convergence(curr, past)
 
         ma20 = curr['MA20']
@@ -1857,6 +1993,18 @@ def get_indicators(df):
 
     df['Vol_Avg'] = df['Volume'].rolling(20).mean()
     vol_avg20     = df['Vol_Avg']
+
+    # ✅ 거래정지/장기 무거래 감지
+    _same_price_bar = (
+        (df['Open'] == df['High']) &
+        (df['High'] == df['Low']) &
+        (df['Low'] == df['Close']) &
+        (df['Close'] == df['Close'].shift(1))
+    )
+    df['NoTrade'] = ((df['Volume'] <= 0) | _same_price_bar).astype(int)
+    df['NoTrade_20'] = df['NoTrade'].rolling(20).sum().fillna(0)
+    df['NoTrade_60'] = df['NoTrade'].rolling(60).sum().fillna(0)
+    df['Halt_Like'] = (df['NoTrade_20'] >= 5) | (df['NoTrade_60'] >= 10)
 
     df['MA60_Slope']      = df['MA60'].diff()
     df['MA112_Slope']     = df['MA112'].diff()
@@ -4015,6 +4163,10 @@ def evaluate_stage_sequence(df: pd.DataFrame) -> dict:
     if df is None or len(df) < 40:
         return result
 
+    if bool(df.iloc[-1].get('Halt_Like', False)) or int(df.get('NoTrade', pd.Series(dtype=float)).tail(60).sum()) >= 10:
+        result['stage_tags'] = ['⛔거래정지이력']
+        return result
+
     df = compute_stage_filters(df)
 
     s3_today = bool(df['S3_READY'].iloc[-1])
@@ -5434,6 +5586,8 @@ if __name__ == "__main__":
         sector_master_map = {}
         df_krx = pd.DataFrame(columns=['Code', 'Name', 'Sector'])
  
+    _clear_macro_fetch_failures()
+
     m_ndx = get_safe_macro('^IXIC', '나스닥')
     m_sp5 = get_safe_macro('^GSPC', 'S&P500')
     m_vix = get_safe_macro('^VIX', 'VIX공포')
@@ -5455,6 +5609,7 @@ if __name__ == "__main__":
     sector_results, directions = detect_leading_sectors(
         m_ndx, m_sp5, m_vix, m_wti, m_fx, extended_market_pack=extended_macro_pack
     )
+    _flush_macro_fetch_failures("미국지수/섹터테이프")
     sector_report = format_sector_rotation_report(sector_results, directions)
     log_debug(sector_report)
 
