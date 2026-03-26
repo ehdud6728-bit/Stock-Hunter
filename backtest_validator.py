@@ -19,7 +19,7 @@ import pandas as pd
 import FinanceDataReader as fdr
 from pykrx import stock
 
-# ─── 로컬 모듈 (main7.py 와 같은 폴더에서 실행)
+# ─── 로컬 모듈 (main7_bugfix_2.py 와 같은 폴더에서 실행)
 from tactics_engine import (
     get_global_and_leader_status,
     analyze_all_narratives,
@@ -44,7 +44,7 @@ except ImportError:
     def log_error(msg): print(msg)
     def log_debug(msg): pass
     def log_scan_date(date, n): print(f"🗓️  {date} → 히트: {n}개")
-from main7 import (
+from main7_bugfix_2 import (
     get_indicators,
     calculate_combination_score,
     build_default_signals,
@@ -53,7 +53,7 @@ from main7 import (
     STYLE_WEIGHTS,
     stage_rank_value,
 )
-import main7 as _main7
+import main7_bugfix_2 as _main7
 # v2 함수 우선, 없으면 기존 함수 사용
 evaluate_stage_sequence_v2 = getattr(
     _main7, 'evaluate_stage_sequence_v2',
