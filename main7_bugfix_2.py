@@ -5593,15 +5593,18 @@ if __name__ == "__main__":
     # 마지막 블록은 급등후보
     final_block = stage_block if stage_block else ""
 
-    if len(current_msg) + len(final_block) > MAX_CHAR:
-        send_telegram_photo(current_msg, imgs if imgs else [])
-    imgs = []
+    # ✅ FIX: stage_block 이 있을 때도 메인 TOP15 메시지가 누락되지 않도록 전송 순서 보정
     if final_block:
-        send_telegram_photo(final_block, [])
+        if len(current_msg) + len(final_block) <= MAX_CHAR:
+            current_msg += final_block
+            send_telegram_photo(current_msg, imgs if imgs else [])
+        else:
+            send_telegram_photo(current_msg, imgs if imgs else [])
+            imgs = []
+            send_telegram_photo(final_block, [])
     else:
-        current_msg += final_block
         send_telegram_photo(current_msg, imgs if imgs else [])
-    
+
     imgs = []
     # AI 토너먼트는 맨 마지막
     if tournament_report and len(tournament_report) > 10:
