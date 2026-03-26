@@ -32,6 +32,13 @@ ENV20_NEAR_MAX = 2.0
 ENV40_NEAR_MIN = -10.0
 ENV40_NEAR_MAX = 10.0
 
+
+ULTRA_MA_CONV_MAX = 3.5
+SHORT_MA_CONV_MAX = 4.5
+STRUCT_MA_CONV_MAX = 8.0
+BRIDGE_MA_CONV_MAX = 5.5
+CONNECT_MA_CONV_MAX = 6.5
+
 MODE_CHOICES = {
     "all",
     "closing_bet",
@@ -232,12 +239,12 @@ def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
     out["Green_Days_10"] = out["Green"].rolling(10).sum()
 
     out["MA5_SLOPE"] = (((out["MA5"] - out["MA5"].shift(3)) / out["MA5"].shift(3)) * 100).round(2)
+    out["MA10_SLOPE"] = (((out["MA10"] - out["MA10"].shift(3)) / out["MA10"].shift(3)) * 100).round(2)
     out["MA20_SLOPE"] = (((out["MA20"] - out["MA20"].shift(3)) / out["MA20"].shift(3)) * 100).round(2)
     out["MA60_SLOPE"] = (((out["MA60"] - out["MA60"].shift(5)) / out["MA60"].shift(5)) * 100).round(2)
 
     out["MA200_GAP_PCT"] = ((out["Close"] - out["MA200"]) / out["MA200"] * 100).round(1)
     return out
-
 
 def calc_envelope(df: pd.DataFrame, period: int, pct: float) -> Dict[str, pd.Series]:
     ma = df["Close"].rolling(period).mean()
@@ -342,6 +349,50 @@ def find_double_bottom(df: pd.DataFrame, lookback: int = 120) -> Dict[str, Any]:
     return best or {"found": False}
 
 
+
+def calc_triplet_convergence(*values: float) -> float:
+    valid = [safe_float(v, -1.0) for v in values]
+    valid = [v for v in valid if v > 0]
+    if len(valid) < 3:
+        return 999.0
+    return round((max(valid) - min(valid)) / max(valid) * 100, 2)
+
+
+def build_ma_convergence_comment(price: Dict[str, Any]) -> str:
+    comments: List[str] = []
+
+    if price.get("super_ma_conv"):
+        comments.append(
+            "단기 수렴과 구조 수렴이 함께 잡히는 초강력 응축 구간입니다. 거래량 확산과 BB40 상단 돌파가 붙으면 가장 강한 발사 구간으로 볼 수 있습니다."
+        )
+    else:
+        if price.get("ultra_ma_conv"):
+            comments.append(
+                "초단기 MA수렴(5/10/20)이 확인됩니다. 아주 짧은 호흡의 응축이라 독사·종가배팅·수박 준비형처럼 빠른 전개에 유리합니다."
+            )
+        if price.get("short_ma_conv"):
+            comments.append(
+                "단기 MA수렴(5/20/60)이 확인됩니다. 단기 에너지 응축이 살아 있어 돌파 직전의 정돈된 흐름으로 해석할 수 있습니다."
+            )
+        if price.get("struct_ma_conv"):
+            comments.append(
+                "구조 MA수렴(20/60/112)이 확인됩니다. 중기 바닥 구조가 정리되는 단계라 역매공파나 스윙 준비형 해석에 적합합니다."
+            )
+        if price.get("bridge_ma_conv"):
+            comments.append(
+                "브릿지 MA수렴(5/20/112)이 확인됩니다. 단기 흐름이 구조선으로 재합류하는 형태라 MA112 부근 재출발형 해석에 의미가 있습니다."
+            )
+        if price.get("connect_ma_conv"):
+            comments.append(
+                "구조접속 MA수렴(5/60/112)이 확인됩니다. 초기 구조 회복형에 가깝고, MA20 정렬이 아직 약할 수 있으므로 거래량과 종가 위치를 함께 보는 편이 좋습니다."
+            )
+
+    if not comments:
+        return "현재는 의미 있는 MA수렴이 약합니다. 이평 응축보다는 개별 패턴이나 수급, 거래대금 중심으로 해석하는 편이 적절합니다."
+
+    return " ".join(dict.fromkeys(comments))
+
+
 def build_snapshot(df: pd.DataFrame) -> Dict[str, Any]:
     row = df.iloc[-1]
     close = safe_float(row["Close"])
@@ -355,6 +406,27 @@ def build_snapshot(df: pd.DataFrame) -> Dict[str, Any]:
 
     env = check_envelope_bottom(row, df)
     double_bottom = find_double_bottom(df)
+
+    ma5 = safe_float(row.get("MA5"))
+    ma10 = safe_float(row.get("MA10"))
+    ma20 = safe_float(row.get("MA20"))
+    ma40 = safe_float(row.get("MA40"))
+    ma60 = safe_float(row.get("MA60"))
+    ma112 = safe_float(row.get("MA112"))
+    ma200 = safe_float(row.get("MA200"))
+
+    ultra_ma_conv_pct = calc_triplet_convergence(ma5, ma10, ma20)
+    short_ma_conv_pct = calc_triplet_convergence(ma5, ma20, ma60)
+    struct_ma_conv_pct = calc_triplet_convergence(ma20, ma60, ma112)
+    bridge_ma_conv_pct = calc_triplet_convergence(ma5, ma20, ma112)
+    connect_ma_conv_pct = calc_triplet_convergence(ma5, ma60, ma112)
+
+    ultra_ma_conv = ultra_ma_conv_pct <= ULTRA_MA_CONV_MAX
+    short_ma_conv = short_ma_conv_pct <= SHORT_MA_CONV_MAX
+    struct_ma_conv = struct_ma_conv_pct <= STRUCT_MA_CONV_MAX
+    bridge_ma_conv = bridge_ma_conv_pct <= BRIDGE_MA_CONV_MAX
+    connect_ma_conv = connect_ma_conv_pct <= CONNECT_MA_CONV_MAX
+    super_ma_conv = (short_ma_conv and struct_ma_conv) or (ultra_ma_conv and struct_ma_conv)
 
     return {
         "date": str(pd.to_datetime(df.index[-1]).date()),
@@ -383,16 +455,29 @@ def build_snapshot(df: pd.DataFrame) -> Dict[str, Any]:
         "obv_slope_5": round(safe_float(row.get("OBV_SLOPE_5")), 2),
         "obv_slope_10": round(safe_float(row.get("OBV_SLOPE_10")), 2),
         "green_days_10": safe_int(row.get("Green_Days_10")),
-        "ma5": round(safe_float(row.get("MA5")), 1),
-        "ma20": round(safe_float(row.get("MA20")), 1),
-        "ma40": round(safe_float(row.get("MA40")), 1),
-        "ma60": round(safe_float(row.get("MA60")), 1),
-        "ma112": round(safe_float(row.get("MA112")), 1),
-        "ma200": round(safe_float(row.get("MA200")), 1),
+        "ma5": round(ma5, 1),
+        "ma10": round(ma10, 1),
+        "ma20": round(ma20, 1),
+        "ma40": round(ma40, 1),
+        "ma60": round(ma60, 1),
+        "ma112": round(ma112, 1),
+        "ma200": round(ma200, 1),
         "ma5_slope": round(safe_float(row.get("MA5_SLOPE")), 2),
+        "ma10_slope": round(safe_float(row.get("MA10_SLOPE")), 2),
         "ma20_slope": round(safe_float(row.get("MA20_SLOPE")), 2),
         "ma60_slope": round(safe_float(row.get("MA60_SLOPE")), 2),
         "ma200_gap_pct": round(safe_float(row.get("MA200_GAP_PCT")), 1),
+        "ultra_ma_conv_pct": ultra_ma_conv_pct,
+        "short_ma_conv_pct": short_ma_conv_pct,
+        "struct_ma_conv_pct": struct_ma_conv_pct,
+        "bridge_ma_conv_pct": bridge_ma_conv_pct,
+        "connect_ma_conv_pct": connect_ma_conv_pct,
+        "ultra_ma_conv": ultra_ma_conv,
+        "short_ma_conv": short_ma_conv,
+        "struct_ma_conv": struct_ma_conv,
+        "bridge_ma_conv": bridge_ma_conv,
+        "connect_ma_conv": connect_ma_conv,
+        "super_ma_conv": super_ma_conv,
         "env20_pct": env["env20_pct"],
         "env40_pct": env["env40_pct"],
         "env20_near": env["env20_near"],
@@ -401,7 +486,6 @@ def build_snapshot(df: pd.DataFrame) -> Dict[str, Any]:
         "env40_lower": env["lower40"],
         "double_bottom": double_bottom,
     }
-
 
 def add_check(rows: List[CheckRow], strategy: str, label: str, current: str, target: str, ok: bool, reason: str) -> None:
     rows.append(CheckRow(strategy, label, current, target, ok, reason))
@@ -526,38 +610,65 @@ def build_dolbanji(price: Dict[str, Any], df: pd.DataFrame) -> PatternResult:
 def build_watermelon(price: Dict[str, Any], df: pd.DataFrame) -> PatternResult:
     rows: List[CheckRow] = []
     s = "수박"
+
     close = safe_float(df["Close"].iloc[-1])
     bb40_mid = safe_float(df["BB40_MID"].iloc[-1])
     bb40_up = safe_float(df["BB40_UP"].iloc[-1])
+    bb40_dn = safe_float(df["BB40_DN"].iloc[-1])
+
+    prep_zone = bb40_dn * 0.98 <= close <= bb40_mid * 1.02
+    launch_zone = bb40_mid * 0.98 <= close <= bb40_up * 1.02
+    conv_tags = []
+    if price["ultra_ma_conv"]:
+        conv_tags.append("5/10/20")
+    if price["short_ma_conv"]:
+        conv_tags.append("5/20/60")
+    if price["struct_ma_conv"]:
+        conv_tags.append("20/60/112")
+    if price["bridge_ma_conv"]:
+        conv_tags.append("5/20/112")
+    if price["connect_ma_conv"]:
+        conv_tags.append("5/60/112")
+    conv_ok = len(conv_tags) > 0
 
     c1 = price["bb40_width"] <= 18.0
     add_check(rows, s, "BB40 폭", f"{price['bb40_width']}", "<= 18", c1, "응축 구간" if c1 else "밴드 폭 넓음")
 
-    c2 = price["green_days_10"] >= 6
-    add_check(rows, s, "최근 10봉 양봉 수", f"{price['green_days_10']}", ">= 6", c2, "양봉 우위" if c2 else "양봉 비중 부족")
+    c2 = price["obv_slope_10"] > 0
+    add_check(rows, s, "OBV 기울기", f"{price['obv_slope_10']}%", "> 0%", c2, "매집 우위" if c2 else "매집 신호 약함")
 
-    c3 = price["obv_slope_10"] > 0
-    add_check(rows, s, "OBV 기울기", f"{price['obv_slope_10']}%", "> 0%", c3, "매집 우위" if c3 else "매집 신호 약함")
+    c3 = price["amount_b"] >= MIN_AMOUNT_B
+    add_check(rows, s, "거래대금", f"{price['amount_b']}억", f">= {MIN_AMOUNT_B}억", c3, "유동성 충분" if c3 else "유동성 부족")
 
-    c4 = price["mfi14"] >= 50
-    add_check(rows, s, "MFI", f"{price['mfi14']}", ">= 50", c4, "자금 유입 우위" if c4 else "자금 유입 부족")
+    c4 = conv_ok
+    add_check(rows, s, "MA수렴 동반", ", ".join(conv_tags) if conv_tags else "없음", "1개 이상", c4, "응축 정렬 동반" if c4 else "이평 응축 부족")
 
-    c5 = close >= bb40_mid and close <= bb40_up * 1.03
-    add_check(rows, s, "BB40 중단~상단 위치", f"종가 {fmt_int(close)} / 중단 {fmt_float(bb40_mid)} / 상단 {fmt_float(bb40_up)}", "중단 이상, 상단 과열 전", c5, "수박형 위치" if c5 else "위치가 다름")
+    c5 = prep_zone or launch_zone
+    zone_txt = "준비형" if prep_zone and close < bb40_mid else "발사형" if launch_zone else "영역밖"
+    add_check(rows, s, "BB40 위치", f"{zone_txt} / 종가 {fmt_int(close)}", "준비형 또는 발사형", c5, "수박 위치" if c5 else "위치가 너무 아래거나 과열")
 
-    c6 = price["amount_b"] >= MIN_AMOUNT_B
-    add_check(rows, s, "거래대금", f"{price['amount_b']}억", f">= {MIN_AMOUNT_B}억", c6, "유동성 충분" if c6 else "유동성 부족")
+    c6 = price["mfi14"] >= 45
+    add_check(rows, s, "MFI", f"{price['mfi14']}", ">= 45", c6, "자금 흐름 보통 이상" if c6 else "자금 유입 약함")
+
+    c7 = price["green_days_10"] >= 4
+    add_check(rows, s, "최근 10봉 양봉 수", f"{price['green_days_10']}", ">= 4", c7, "양봉 우위" if c7 else "양봉 비중 부족")
 
     score = sum(1 for r in rows if r.ok)
     status = decide_status(score, len(rows))
-    if status == "해당":
-        comment = "수박형 응축+매집 패턴으로 꽤 닮아 있습니다."
-    elif status == "유사":
-        comment = "수박형 느낌은 있으나 매집 강도나 위치가 완전하진 않습니다."
-    else:
-        comment = "현재는 수박 패턴으로 보기엔 응축 또는 수급이 부족합니다."
-    return PatternResult("watermelon", s, status, score, len(rows), "응축 + 매집 + 밴드 위치형", comment, rows)
 
+    phase = "준비형" if prep_zone and close < bb40_mid else "발사형" if launch_zone else "비정형"
+    if status == "해당":
+        if phase == "준비형":
+            comment = "응축과 매집이 동반된 수박 준비형에 가깝습니다. BB40 중단 회복과 거래량 확산이 붙으면 발사형 전환 가능성이 있습니다."
+        else:
+            comment = "응축 이후 중단 이상으로 올라온 수박 발사형에 가깝습니다. 다만 상단 접근 구간이므로 윗꼬리와 거래량 지속 여부를 함께 봐야 합니다."
+    elif status == "유사":
+        comment = "수박형 느낌은 있으나 위치·수급·수렴 중 일부가 덜 맞습니다. 준비형과 발사형의 경계 구간으로 볼 수 있습니다."
+    else:
+        comment = "현재는 수박 패턴으로 보기엔 응축이나 수급 근거가 약합니다."
+
+    subtitle = f"수박 {phase} · MA수렴 {', '.join(conv_tags) if conv_tags else '없음'}"
+    return PatternResult("watermelon", s, status, score, len(rows), subtitle, comment, rows)
 
 def build_viper(price: Dict[str, Any], df: pd.DataFrame) -> PatternResult:
     rows: List[CheckRow] = []
@@ -741,6 +852,8 @@ def build_smart_comment(price: Dict[str, Any], patterns: List[PatternResult], na
     else:
         comments.append("어느 한 패턴으로 강하게 단정할 정도는 아닙니다.")
 
+    comments.append(build_ma_convergence_comment(price))
+
     if price["bars"] < 112:
         comments.append("신규상장주 구간이라 장기 패턴보다 20/40일선 중심 패턴 해석이 더 중요합니다.")
     if price["upper_wick_body_pct"] > 30:
@@ -759,7 +872,6 @@ def build_smart_comment(price: Dict[str, Any], patterns: List[PatternResult], na
         comments.append(f"쌍바닥은 감지되었고 넥라인과의 거리는 {price['double_bottom'].get('neckline_distance_pct')}% 수준입니다.")
 
     return " ".join(dict.fromkeys(comments))
-
 
 def sparkline_svg(df: pd.DataFrame, width: int = 960, height: int = 360) -> str:
     sub = df.tail(120).copy()
@@ -943,11 +1055,18 @@ def render_html(result: Dict[str, Any]) -> str:
         ("MFI14", f'{price["mfi14"]}'),
         ("OBV 기울기(10)", f'{price["obv_slope_10"]}%'),
         ("MA5 기울기", f'{price["ma5_slope"]}%'),
+        ("MA10 기울기", f'{price["ma10_slope"]}%'),
         ("MA60 기울기", f'{price["ma60_slope"]}%'),
         ("BB40 폭", f'{price["bb40_width"]}'),
         ("MA200 이격", f'{price["ma200_gap_pct"]}%'),
         ("Env20 하단 괴리", f'{price["env20_pct"]}%'),
         ("Env40 하단 괴리", f'{price["env40_pct"]}%'),
+        ("초단기수렴 5/10/20", f'{price["ultra_ma_conv_pct"]}% / {"해당" if price["ultra_ma_conv"] else "미달"}'),
+        ("단기수렴 5/20/60", f'{price["short_ma_conv_pct"]}% / {"해당" if price["short_ma_conv"] else "미달"}'),
+        ("구조수렴 20/60/112", f'{price["struct_ma_conv_pct"]}% / {"해당" if price["struct_ma_conv"] else "미달"}'),
+        ("브릿지수렴 5/20/112", f'{price["bridge_ma_conv_pct"]}% / {"해당" if price["bridge_ma_conv"] else "미달"}'),
+        ("구조접속 5/60/112", f'{price["connect_ma_conv_pct"]}% / {"해당" if price["connect_ma_conv"] else "미달"}'),
+        ("초강력MA수렴", "해당" if price["super_ma_conv"] else "미달"),
     ]
     metric_cards = "".join(
         f'<div class="metric"><div class="metric-label">{escape(k)}</div><div class="metric-value">{escape(v)}</div></div>'
@@ -1157,7 +1276,7 @@ def render_html(result: Dict[str, Any]) -> str:
   </div></div>
   <div class="app">
     {research_panel}
-    <section class="card"><div class="section-title">핵심 요약</div><p>{escape(result['summary'])}</p><p><strong>종합 코멘트</strong><br>{escape(result['smart_comment'])}</p></section>
+    <section class="card"><div class="section-title">핵심 요약</div><p>{escape(result['summary'])}</p><p><strong>종합 코멘트</strong><br>{escape(result['smart_comment'])}</p><p><strong>MA수렴 해석</strong><br>{escape(build_ma_convergence_comment(price))}</p></section>
     <section class="card"><div class="section-title">가격 구조 차트</div>{sparkline_svg(df)}</section>
     <section class="card"><div class="section-title">기본 수치</div><div class="metric-grid">{metric_cards}</div></section>
     {''.join(pattern_blocks)}
