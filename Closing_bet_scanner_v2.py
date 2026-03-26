@@ -33,7 +33,7 @@ from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # ── main7.py에서 필요한 것만 import
-from main7_bugfix import (
+from main7_bugfix_2 import (
     get_indicators,
     _calc_upper_wick_ratio,
     load_krx_listing_safe,
