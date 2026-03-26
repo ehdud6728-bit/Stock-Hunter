@@ -152,6 +152,13 @@ REAL_HEADERS = {
     'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7'
 }
 
+# 미국/해외 지수 보조 소스용 헤더
+YAHOO_HEADERS = {
+    'User-Agent': REAL_HEADERS['User-Agent'],
+    'Accept': 'application/json,text/plain,*/*',
+    'Accept-Language': 'en-US,en;q=0.9',
+}
+
 RN_LIST = [500, 1000, 1500, 2000, 3000, 5000, 7500, 10000, 15000, 20000, 
            30000, 50000, 75000, 100000, 150000, 200000, 300000, 500000, 
            750000, 1000000, 1500000]
@@ -479,54 +486,140 @@ def _flush_macro_fetch_failures(context='시황'):
 
 
 
+
+def _fetch_price_from_fdr(symbol):
+    df = fdr.DataReader(symbol, start=(datetime.now() - timedelta(days=20)).strftime('%Y-%m-%d'))
+    if df is None or df.empty or len(df) < 2:
+        raise ValueError("FDR empty dataframe")
+
+    closes = [float(x) for x in df['Close'].dropna().tolist()]
+    if len(closes) < 2:
+        raise ValueError("FDR insufficient closes")
+
+    return {
+        "curr": closes[-1],
+        "prev": closes[-2],
+        "source": "FDR"
+    }
+
+
+def _fetch_price_from_yahoo_chart(symbol):
+    from urllib.parse import quote
+
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{quote(symbol, safe='')}"
+    params = {
+        "range": "1mo",
+        "interval": "1d",
+        "includePrePost": "false",
+    }
+    res = requests.get(url, params=params, headers=YAHOO_HEADERS, timeout=8)
+    res.raise_for_status()
+    data = res.json()
+
+    result_list = (((data or {}).get("chart") or {}).get("result")) or []
+    if not result_list:
+        raise ValueError("Yahoo chart result missing")
+
+    result = result_list[0]
+    meta = result.get("meta", {}) or {}
+    indicators = result.get("indicators", {}) or {}
+    quote_list = indicators.get("quote", []) or []
+
+    # 우선 meta 값 사용
+    regular = meta.get("regularMarketPrice")
+    prev_close = meta.get("previousClose")
+    if regular is not None and prev_close not in (None, 0):
+        return {
+            "curr": float(regular),
+            "prev": float(prev_close),
+            "source": "YahooChartMeta"
+        }
+
+    # 없으면 close 배열 사용
+    if not quote_list:
+        raise ValueError("Yahoo quote missing")
+    closes = quote_list[0].get("close", []) or []
+    closes = [float(x) for x in closes if x is not None]
+    if len(closes) < 2:
+        raise ValueError("Yahoo insufficient closes")
+
+    return {
+        "curr": closes[-1],
+        "prev": closes[-2],
+        "source": "YahooChartSeries"
+    }
+
+
 def get_safe_macro(symbol, name):
     cache_key = f"{datetime.now().strftime('%Y-%m-%d')}::{symbol}::{name}"
     if cache_key in _safe_macro_cache:
         return _safe_macro_cache[cache_key]
 
     last_err = ""
-    for _try in range(3):
-        try:
-            df = fdr.DataReader(symbol, start=(datetime.now() - timedelta(days=20)).strftime('%Y-%m-%d'))
-            if df is None or df.empty or len(df) < 2:
-                raise ValueError("empty dataframe")
+    candidates = []
 
-            curr = float(df.iloc[-1]['Close'])
-            prev = float(df.iloc[-2]['Close'])
-            ma5 = float(df['Close'].tail(5).mean())
+    # 1차: FDR
+    try:
+        candidates.append(_fetch_price_from_fdr(symbol))
+    except Exception as e:
+        last_err = f"FDR:{e}"
+
+    # 2차: Yahoo chart fallback
+    try:
+        candidates.append(_fetch_price_from_yahoo_chart(symbol))
+    except Exception as e:
+        if last_err:
+            last_err += f" | Yahoo:{e}"
+        else:
+            last_err = f"Yahoo:{e}"
+
+    if candidates:
+        # 0%로 고정되는 걸 줄이기 위해, 변화가 있는 소스를 우선 채택
+        chosen = None
+        for item in candidates:
+            curr = float(item["curr"])
+            prev = float(item["prev"])
             chg = ((curr - prev) / prev) * 100 if prev else 0.0
+            if abs(chg) >= 0.01:
+                chosen = item
+                break
+        if chosen is None:
+            chosen = candidates[0]
 
-            status = "☀️맑음" if curr > ma5 else "🌪️폭풍우"
-            if "VIX" in name:
-                status = "☀️안정" if curr < ma5 else "🌪️위험"
-            elif "금리" in name:
-                status = "📉완화" if curr < ma5 else "📈상승압력"
+        curr = float(chosen["curr"])
+        prev = float(chosen["prev"])
+        ma5 = curr  # fallback 소스에서는 ma5 신뢰가 낮으므로 단순 상태 처리
+        chg = ((curr - prev) / prev) * 100 if prev else 0.0
 
-            result = {
-                "val": curr,
-                "chg": round(chg, 2),
-                "status": status,
-                "text": f"{name}: {curr:,.2f}({chg:+.2f}%) {status}",
-                "ok": True,
-                "error": "",
-            }
-            _safe_macro_cache[cache_key] = result
-            _macro_fetch_failures.pop(symbol, None)
-            return result
-        except Exception as e:
-            last_err = str(e)
-            try:
-                time.sleep(0.4 * (_try + 1))
-            except Exception:
-                pass
+        status = "☀️맑음" if chg >= 0 else "🌪️폭풍우"
+        if "VIX" in name:
+            status = "☀️안정" if chg <= 0 else "🌪️위험"
+        elif "금리" in name:
+            status = "📉완화" if chg <= 0 else "📈상승압력"
+
+        result = {
+            "val": curr,
+            "chg": round(chg, 2),
+            "status": status,
+            "text": f"{name}: {curr:,.2f}({chg:+.2f}%) {status}",
+            "ok": True,
+            "error": "",
+            "source": chosen.get("source", ""),
+            "label": name,
+        }
+        _safe_macro_cache[cache_key] = result
+        _macro_fetch_failures.pop(symbol, None)
+        return result
 
     result = {
         "val": None,
-        "chg": 0.0,
+        "chg": None,
         "status": "☁️불명",
         "text": f"{name}: 연결실패",
         "ok": False,
-        "error": last_err[:120],
+        "error": last_err[:200],
+        "source": "",
+        "label": name,
     }
     _safe_macro_cache[cache_key] = result
     _macro_fetch_failures[symbol] = {"name": name, "error": last_err[:120]}
@@ -545,13 +638,16 @@ def _fetch_symbol_bundle(symbol_items, max_workers=8):
         for future in as_completed(future_map):
             symbol, label = future_map[future]
             try:
-                results[symbol] = future.result()
+                item = future.result()
+                if isinstance(item, dict):
+                    item["label"] = label
+                results[symbol] = item
             except Exception:
-                results[symbol] = {"val": None, "chg": 0.0, "status": "☁️불명", "text": f"{label}: 연결실패", "ok": False}
+                results[symbol] = {"val": None, "chg": None, "status": "☁️불명", "text": f"{label}: 연결실패", "ok": False, "label": label}
     return results
 
 def _direction_from_change(chg, flat_threshold=0.15):
-    chg = float(chg or 0.0)
+    chg = safe_float(chg, 0.0)
     if chg >= flat_threshold:
         return "up"
     if chg <= -flat_threshold:
@@ -2998,6 +3094,7 @@ def run_ai_tournament(candidate_list, issues):
         return "종목 후보가 없어 토너먼트를 취소합니다."
 
     candidate_list = candidate_list.sort_values(by='안전점수', ascending=False).head(15)
+    gemini_candidates = candidate_list.head(8).copy()
 
     def safe_int(x, default=0):
         try:
@@ -3029,6 +3126,14 @@ def run_ai_tournament(candidate_list, issues):
     ])
 
     system_prompt, user_prompt = get_tournament_prompt(prompt_data, comments)
+
+    gemini_prompt_data = "\n".join([
+        f"- {row['종목명']}({row['code']}): 조합:{row.get('N조합','N/A')}, 수급:{row.get('수급',0)}, 이격:{safe_int(row.get('이격',0))}, 현재가:{safe_int(row.get('현재가',0))}, BB40:{safe_float(row.get('BB40',0)):.1f}, RSI:{safe_int(safe_float(row.get('RSI',0)))}"
+        for _, row in gemini_candidates.iterrows()
+    ])
+    _, gemini_user_prompt = get_tournament_prompt(gemini_prompt_data, comments)
+    gemini_user_prompt += "\n\n[중요 추가 지시]\n- 반드시 끝까지 완성해서 출력해.\n- 각 섹션은 핵심만 2~3줄로 짧고 압축적으로 작성해.\n- 전체 분량은 너무 길지 않게, 그러나 '단타 1위/스윙 1위/주의 종목/오늘 장 한마디' 4개 섹션은 모두 반드시 채워라."
+
 
     # ── GPT 호출 (실패해도 계속)
     gpt_text = ''
@@ -3095,10 +3200,10 @@ def run_ai_tournament(candidate_list, issues):
                     "parts": [{"text": system_prompt}]
                 },
                 "contents": [{
-                    "parts": [{"text": user_prompt}]
+                    "parts": [{"text": gemini_user_prompt}]
                 }],
                 "generationConfig": {
-                    "maxOutputTokens": 2200,
+                    "maxOutputTokens": 4000,
                     "temperature": 0.5
                 }
             }
@@ -3390,42 +3495,50 @@ def build_ai_candidates_for_macro(ai_candidates: pd.DataFrame):
 
 
 
+
+def _macro_snapshot_item(item: dict):
+    if not isinstance(item, dict) or not item.get("ok", False) or item.get("val") is None:
+        return {
+            "value": None,
+            "change_pct": None,
+            "status": "데이터부족",
+            "ok": False,
+            "source": item.get("source", "") if isinstance(item, dict) else "",
+        }
+    return {
+        "value": item.get("val"),
+        "change_pct": round(safe_float(item.get("chg"), 0.0), 2),
+        "status": item.get("status", ""),
+        "ok": True,
+        "source": item.get("source", ""),
+    }
+
+
 def build_macro_snapshot(m_ndx, m_sp5, m_vix, m_fx, m_wti, issues, extended_macro_pack=None, sector_results=None):
     comments = "특이 이슈 없음"
     if issues:
         comments = " | ".join([i.get("comment", "") for i in issues])
 
     pack = extended_macro_pack or {}
-    russell = pack.get("russell", {})
-    us10y = pack.get("us10y", {})
-    copper = pack.get("copper", {})
-    gold = pack.get("gold", {})
-    sp500_fut = pack.get("sp500_fut", {})
-    nasdaq_fut = pack.get("nasdaq_fut", {})
-    dow_fut = pack.get("dow_fut", {})
-    russell_fut = pack.get("russell_fut", {})
-    nikkei_fut = pack.get("nikkei_fut", {})
-    hsi_fut = pack.get("hsi_fut", {})
-
     favorable = [s['sector'] for s in (sector_results or []) if s.get('verdict') == '추천'][:3]
     unfavorable = [s['sector'] for s in (sector_results or []) if s.get('verdict') == '회피'][:3]
 
     return {
-        "nasdaq": {"value": m_ndx.get("val"), "change_pct": round(m_ndx.get("chg", 0), 2), "status": m_ndx.get("status", "")},
-        "sp500": {"value": m_sp5.get("val"), "change_pct": round(m_sp5.get("chg", 0), 2), "status": m_sp5.get("status", "")},
-        "vix": {"value": m_vix.get("val"), "change_pct": round(m_vix.get("chg", 0), 2), "status": m_vix.get("status", "")},
-        "usdkrw": {"value": m_fx.get("val"), "change_pct": round(m_fx.get("chg", 0), 2), "status": m_fx.get("status", "")},
-        "wti_oil": {"value": m_wti.get("val"), "change_pct": round(m_wti.get("chg", 0), 2), "status": m_wti.get("status", "")},
-        "russell2000": {"value": russell.get("val"), "change_pct": round(russell.get("chg", 0), 2), "status": russell.get("status", "")},
-        "us10y": {"value": us10y.get("val"), "change_pct": round(us10y.get("chg", 0), 2), "status": us10y.get("status", "")},
-        "copper": {"value": copper.get("val"), "change_pct": round(copper.get("chg", 0), 2), "status": copper.get("status", "")},
-        "gold": {"value": gold.get("val"), "change_pct": round(gold.get("chg", 0), 2), "status": gold.get("status", "")},
-        "sp500_fut": {"value": sp500_fut.get("val"), "change_pct": round(sp500_fut.get("chg", 0), 2), "status": sp500_fut.get("status", "")},
-        "nasdaq_fut": {"value": nasdaq_fut.get("val"), "change_pct": round(nasdaq_fut.get("chg", 0), 2), "status": nasdaq_fut.get("status", "")},
-        "dow_fut": {"value": dow_fut.get("val"), "change_pct": round(dow_fut.get("chg", 0), 2), "status": dow_fut.get("status", "")},
-        "russell_fut": {"value": russell_fut.get("val"), "change_pct": round(russell_fut.get("chg", 0), 2), "status": russell_fut.get("status", "")},
-        "nikkei_fut": {"value": nikkei_fut.get("val"), "change_pct": round(nikkei_fut.get("chg", 0), 2), "status": nikkei_fut.get("status", "")},
-        "hsi_fut": {"value": hsi_fut.get("val"), "change_pct": round(hsi_fut.get("chg", 0), 2), "status": hsi_fut.get("status", "")},
+        "nasdaq": _macro_snapshot_item(m_ndx),
+        "sp500": _macro_snapshot_item(m_sp5),
+        "vix": _macro_snapshot_item(m_vix),
+        "usdkrw": _macro_snapshot_item(m_fx),
+        "wti_oil": _macro_snapshot_item(m_wti),
+        "russell2000": _macro_snapshot_item(pack.get("russell", {})),
+        "us10y": _macro_snapshot_item(pack.get("us10y", {})),
+        "copper": _macro_snapshot_item(pack.get("copper", {})),
+        "gold": _macro_snapshot_item(pack.get("gold", {})),
+        "sp500_fut": _macro_snapshot_item(pack.get("sp500_fut", {})),
+        "nasdaq_fut": _macro_snapshot_item(pack.get("nasdaq_fut", {})),
+        "dow_fut": _macro_snapshot_item(pack.get("dow_fut", {})),
+        "russell_fut": _macro_snapshot_item(pack.get("russell_fut", {})),
+        "nikkei_fut": _macro_snapshot_item(pack.get("nikkei_fut", {})),
+        "hsi_fut": _macro_snapshot_item(pack.get("hsi_fut", {})),
         "favorable_sectors": favorable,
         "unfavorable_sectors": unfavorable,
         "issues": comments,
