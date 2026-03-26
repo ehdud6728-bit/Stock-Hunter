@@ -35,6 +35,28 @@ import io
 import warnings
 warnings.filterwarnings('ignore', category=FutureWarning)
 
+# =================================================
+# ✅ 전역 공용 숫자 변환 헬퍼
+# =================================================
+def safe_float(x, default=0.0):
+    try:
+        if x is None:
+            return default
+        if isinstance(x, str):
+            x = x.replace(',', '').strip()
+            if x == '':
+                return default
+        return float(x)
+    except Exception:
+        return default
+
+
+def safe_int(x, default=0):
+    try:
+        return int(round(safe_float(x, default)))
+    except Exception:
+        return default
+
 # scan_logger 없으면 print로 폴백
 # ✅ 오류/에러 로그만 남기도록 강제
 try:
@@ -175,28 +197,6 @@ import threading
 #   2순위: 네이버 금융 코드 기반 직접 파싱 (코드 = 숫자라 인코딩 문제 없음)
 #   3순위: 네이버 뉴스 검색 (한글 종목명, params= 로 안전하게 전달)
 # =============================================================
-# =============================================================
-# ✅ 전역 공용 숫자 변환 헬퍼
-# 섹터 테이프 / 시황 / AI 파트 어디서든 공통 사용
-# =============================================================
-def safe_float(x, default=0.0):
-    try:
-        if x is None:
-            return default
-        if isinstance(x, str):
-            x = x.replace(',', '').strip()
-            if x == '':
-                return default
-        return float(x)
-    except Exception:
-        return default
-
-
-def safe_int(x, default=0):
-    try:
-        return int(round(safe_float(x, default)))
-    except Exception:
-        return default
 
 def _fetch_stock_news(code: str, name: str) -> str:
     """
@@ -591,12 +591,19 @@ def _count_bundle_breadth(bundle):
         "fail": fail,
     }
 
+
 def get_extended_market_pack(m_ndx, m_sp5, m_vix, m_wti, m_fx, m_brent=None):
     extra_items = [
         ('^RUT', '러셀2000'),
         ('^TNX', '미10년금리'),
         ('HG=F', '구리선물'),
         ('GC=F', '금선물'),
+        ('ES=F', 'S&P500선물'),
+        ('NQ=F', '나스닥100선물'),
+        ('YM=F', '다우선물'),
+        ('RTY=F', '러셀2000선물'),
+        ('NKD=F', '니케이선물'),
+        ('HSI=F', '홍콩항셍선물'),
     ]
     extra = _fetch_symbol_bundle(extra_items, max_workers=4)
 
@@ -611,9 +618,21 @@ def get_extended_market_pack(m_ndx, m_sp5, m_vix, m_wti, m_fx, m_brent=None):
         "us10y": extra.get('^TNX', {"val": None, "chg": 0.0, "status": "☁️불명", "text": "미10년금리: 연결실패", "ok": False}),
         "copper": extra.get('HG=F', {"val": None, "chg": 0.0, "status": "☁️불명", "text": "구리선물: 연결실패", "ok": False}),
         "gold": extra.get('GC=F', {"val": None, "chg": 0.0, "status": "☁️불명", "text": "금선물: 연결실패", "ok": False}),
+        "sp500_fut": extra.get('ES=F', {"val": None, "chg": 0.0, "status": "☁️불명", "text": "S&P500선물: 연결실패", "ok": False}),
+        "nasdaq_fut": extra.get('NQ=F', {"val": None, "chg": 0.0, "status": "☁️불명", "text": "나스닥100선물: 연결실패", "ok": False}),
+        "dow_fut": extra.get('YM=F', {"val": None, "chg": 0.0, "status": "☁️불명", "text": "다우선물: 연결실패", "ok": False}),
+        "russell_fut": extra.get('RTY=F', {"val": None, "chg": 0.0, "status": "☁️불명", "text": "러셀2000선물: 연결실패", "ok": False}),
+        "nikkei_fut": extra.get('NKD=F', {"val": None, "chg": 0.0, "status": "☁️불명", "text": "니케이선물: 연결실패", "ok": False}),
+        "hsi_fut": extra.get('HSI=F', {"val": None, "chg": 0.0, "status": "☁️불명", "text": "홍콩항셍선물: 연결실패", "ok": False}),
     }
     return pack
 
+def _pick_market_signal(primary: dict, secondary: dict):
+    if isinstance(primary, dict) and primary.get("ok", False) and primary.get("val") is not None:
+        return primary
+    if isinstance(secondary, dict) and secondary.get("ok", False) and secondary.get("val") is not None:
+        return secondary
+    return primary if isinstance(primary, dict) else secondary
 
 def _score_macro_triggers(config, market_pack):
     score = 0.0
@@ -685,16 +704,21 @@ def _calc_shock_penalty(config, leader_bundle, etf_bundle):
     return round(penalty, 2), warnings
 
 
+
 def detect_leading_sectors(m_ndx, m_sp5, m_vix, m_wti, m_fx, extended_market_pack=None):
     market_pack = extended_market_pack or get_extended_market_pack(m_ndx, m_sp5, m_vix, m_wti, m_fx)
 
+    nasdaq_ref = _pick_market_signal(m_ndx, market_pack.get("nasdaq_fut", {}))
+    sp500_ref = _pick_market_signal(m_sp5, market_pack.get("sp500_fut", {}))
+    russell_ref = _pick_market_signal(market_pack.get("russell", {}), market_pack.get("russell_fut", {}))
+
     directions = {
-        "nasdaq": _direction_from_change(m_ndx.get("chg", 0)),
-        "sp500": _direction_from_change(m_sp5.get("chg", 0)),
+        "nasdaq": _direction_from_change(nasdaq_ref.get("chg", 0)) if nasdaq_ref and nasdaq_ref.get("ok", False) else "flat",
+        "sp500": _direction_from_change(sp500_ref.get("chg", 0)) if sp500_ref and sp500_ref.get("ok", False) else "flat",
         "vix": _direction_from_change(m_vix.get("chg", 0)),
         "oil": _direction_from_change(m_wti.get("chg", 0)),
         "dollar": _direction_from_change(m_fx.get("chg", 0)),
-        "russell": _direction_from_change(market_pack.get("russell", {}).get("chg", 0)) if market_pack.get("russell", {}).get("ok", False) else "flat",
+        "russell": _direction_from_change(russell_ref.get("chg", 0)) if russell_ref and russell_ref.get("ok", False) else "flat",
         "us10y": _direction_from_change(market_pack.get("us10y", {}).get("chg", 0)) if market_pack.get("us10y", {}).get("ok", False) else "flat",
     }
 
@@ -710,7 +734,15 @@ def detect_leading_sectors(m_ndx, m_sp5, m_vix, m_wti, m_fx, extended_market_pac
         etf_bundle = {sym: bundle_all.get(sym, {}) for sym, _ in cfg.get("etfs", [])}
         leader_bundle = {sym: bundle_all.get(sym, {}) for sym, _ in cfg.get("leaders", [])}
 
-        macro_score, match_count, total_triggers, trigger_hits = _score_macro_triggers(cfg, market_pack)
+        macro_score, match_count, total_triggers, trigger_hits = _score_macro_triggers(cfg, {
+            **market_pack,
+            "nasdaq": nasdaq_ref,
+            "sp500": sp500_ref,
+            "russell": russell_ref,
+            "vix": m_vix,
+            "oil": m_wti,
+            "dollar": m_fx,
+        })
 
         etf_breadth = _count_bundle_breadth(etf_bundle)
         leader_breadth = _count_bundle_breadth(leader_bundle)
@@ -719,7 +751,6 @@ def detect_leading_sectors(m_ndx, m_sp5, m_vix, m_wti, m_fx, extended_market_pac
         leader_score = (leader_breadth["up"] * 4) - (leader_breadth["down"] * 3) + (leader_breadth["avg_chg"] * 1.5)
 
         shock_penalty, warnings = _calc_shock_penalty(cfg, leader_bundle, etf_bundle)
-
         final_score = round(macro_score + etf_score + leader_score - (shock_penalty * 8), 2)
 
         data_missing = (etf_breadth["valid"] == 0 and leader_breadth["valid"] == 0)
@@ -770,7 +801,6 @@ def detect_leading_sectors(m_ndx, m_sp5, m_vix, m_wti, m_fx, extended_market_pac
         reverse=True
     )
     return results, directions
-
 
 def format_sector_rotation_report(sector_results, directions):
     dir_emoji = {
@@ -2670,27 +2700,34 @@ def send_tournament_results(tournament_report: str):
 # ---------------------------------------------------------
 # 🧠 [6] AI 브리핑 및 토너먼트
 # ---------------------------------------------------------
+
 def _extract_gemini_text(gem_data: dict) -> str:
     """
-    Gemini 응답에서 parts 전체를 합쳐 텍스트 추출.
-    기존처럼 parts[0]만 읽으면 뒤 내용이 잘릴 수 있음.
+    Gemini 응답에서 candidates/parts 전체를 합쳐 텍스트 추출.
+    parts[0]만 읽어서 잘리는 문제를 방지한다.
     """
     try:
-        candidates = gem_data.get("candidates", [])
+        candidates = gem_data.get("candidates", []) or []
         if not candidates:
             return ""
 
-        cand = candidates[0]
-        content = cand.get("content", {}) or {}
-        parts = content.get("parts", []) or []
+        chunks = []
+        for idx, cand in enumerate(candidates):
+            content = cand.get("content", {}) or {}
+            parts = content.get("parts", []) or []
 
-        texts = []
-        for p in parts:
-            t = p.get("text", "")
-            if t:
-                texts.append(t)
+            texts = []
+            for p in parts:
+                t = p.get("text", "")
+                if t:
+                    texts.append(t)
 
-        return "\n".join(texts).strip()
+            text = "\n".join(texts).strip()
+            if text:
+                if idx == 0 or text not in chunks:
+                    chunks.append(text)
+
+        return "\n\n".join(chunks).strip()
     except Exception as e:
         log_error(f"⚠️ _extract_gemini_text 실패: {e}")
         return ""
@@ -3031,7 +3068,7 @@ def run_ai_tournament(candidate_list, issues):
                 log_info(f"✅ Gemini 토너먼트 완료 | finishReason={finish_reason} | usage={usage}")
 
                 if finish_reason == 'MAX_TOKENS':
-                    log_info("⚠️ Gemini 출력이 MAX_TOKENS로 잘렸을 가능성 있음")
+                    log_error("⚠️ Gemini 출력이 MAX_TOKENS로 잘렸을 가능성 있음")
 
             elif res_gem.status_code == 429:
                 log_info("⚠️ Gemini 2.5-flash 쿼터 초과 → 2.0-flash 폴백 시도...")
@@ -3052,7 +3089,7 @@ def run_ai_tournament(candidate_list, issues):
                         log_info(f"✅ Gemini 2.0-flash 폴백 성공 | finishReason={finish_reason2} | usage={usage2}")
 
                         if finish_reason2 == 'MAX_TOKENS':
-                            log_info("⚠️ Gemini 2.0-flash 출력도 MAX_TOKENS로 잘렸을 가능성 있음")
+                            log_error("⚠️ Gemini 2.0-flash 출력도 MAX_TOKENS로 잘렸을 가능성 있음")
                     else:
                         log_info(f"⚠️ Gemini 2.0-flash도 실패 ({res_gem2.status_code}) - {res_gem2.text[:300]}")
                 except Exception as e2:
@@ -3305,6 +3342,7 @@ def build_ai_candidates_for_macro(ai_candidates: pd.DataFrame):
     return result
 
 
+
 def build_macro_snapshot(m_ndx, m_sp5, m_vix, m_fx, m_wti, issues, extended_macro_pack=None, sector_results=None):
     comments = "특이 이슈 없음"
     if issues:
@@ -3315,6 +3353,12 @@ def build_macro_snapshot(m_ndx, m_sp5, m_vix, m_fx, m_wti, issues, extended_macr
     us10y = pack.get("us10y", {})
     copper = pack.get("copper", {})
     gold = pack.get("gold", {})
+    sp500_fut = pack.get("sp500_fut", {})
+    nasdaq_fut = pack.get("nasdaq_fut", {})
+    dow_fut = pack.get("dow_fut", {})
+    russell_fut = pack.get("russell_fut", {})
+    nikkei_fut = pack.get("nikkei_fut", {})
+    hsi_fut = pack.get("hsi_fut", {})
 
     favorable = [s['sector'] for s in (sector_results or []) if s.get('verdict') == '추천'][:3]
     unfavorable = [s['sector'] for s in (sector_results or []) if s.get('verdict') == '회피'][:3]
@@ -3329,6 +3373,12 @@ def build_macro_snapshot(m_ndx, m_sp5, m_vix, m_fx, m_wti, issues, extended_macr
         "us10y": {"value": us10y.get("val"), "change_pct": round(us10y.get("chg", 0), 2), "status": us10y.get("status", "")},
         "copper": {"value": copper.get("val"), "change_pct": round(copper.get("chg", 0), 2), "status": copper.get("status", "")},
         "gold": {"value": gold.get("val"), "change_pct": round(gold.get("chg", 0), 2), "status": gold.get("status", "")},
+        "sp500_fut": {"value": sp500_fut.get("val"), "change_pct": round(sp500_fut.get("chg", 0), 2), "status": sp500_fut.get("status", "")},
+        "nasdaq_fut": {"value": nasdaq_fut.get("val"), "change_pct": round(nasdaq_fut.get("chg", 0), 2), "status": nasdaq_fut.get("status", "")},
+        "dow_fut": {"value": dow_fut.get("val"), "change_pct": round(dow_fut.get("chg", 0), 2), "status": dow_fut.get("status", "")},
+        "russell_fut": {"value": russell_fut.get("val"), "change_pct": round(russell_fut.get("chg", 0), 2), "status": russell_fut.get("status", "")},
+        "nikkei_fut": {"value": nikkei_fut.get("val"), "change_pct": round(nikkei_fut.get("chg", 0), 2), "status": nikkei_fut.get("status", "")},
+        "hsi_fut": {"value": hsi_fut.get("val"), "change_pct": round(hsi_fut.get("chg", 0), 2), "status": hsi_fut.get("status", "")},
         "favorable_sectors": favorable,
         "unfavorable_sectors": unfavorable,
         "issues": comments,
@@ -3400,7 +3450,7 @@ def run_macro_candidate_briefing(
 }}
 
 판단 원칙:
-- VIX 상승, 나스닥 약세, 러셀 약세면 Risk Off 성향 강화
+- VIX 상승, 나스닥/나스닥선물 약세, 러셀/러셀선물 약세면 Risk Off 성향 강화
 - 환율 상승은 한국 성장주/외국인 수급에 부담
 - 유가 상승 시 정유/화학/조선 수혜 가능, 단 실제 에너지 ETF/대표주 동행 여부를 확인
 - 반도체/바이오/로봇/클라우드는 금리와 섹터 ETF, 대표주 breadth까지 같이 본다
@@ -5623,7 +5673,7 @@ if __name__ == "__main__":
     log_info("[ 글로벌 사령부 통합 관제 센터 ]")
     log_info(f"🇺🇸 {m_ndx['text']} | {m_sp5['text']} | ⚠️ {m_vix['text']}")
     log_info(f"💵 {m_fx['text']} | 🇰🇷 KOSPI 수급: {get_index_investor_data('KOSPI')}")
-    log_info(f"🧢 {extended_macro_pack.get('russell', {}).get('text', '러셀2000: 연결실패')} | {extended_macro_pack.get('us10y', {}).get('text', '미10년금리: 연결실패')}")
+    log_info(f"🧢 {extended_macro_pack.get('russell', {}).get('text', '러셀2000: 연결실패')} | {extended_macro_pack.get('us10y', {}).get('text', '미10년금리: 연결실패')} | {extended_macro_pack.get('sp500_fut', {}).get('text', 'S&P500선물: 연결실패')} | {extended_macro_pack.get('nasdaq_fut', {}).get('text', '나스닥100선물: 연결실패')}")
     log_info("=" * 60)
 
     imgs = [create_index_chart('KS11', 'KOSPI'), create_index_chart('IXIC', 'NASDAQ')]
