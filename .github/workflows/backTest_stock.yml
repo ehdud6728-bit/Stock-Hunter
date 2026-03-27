@@ -39,4 +39,4 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           SCAN_LOG_LEVEL: QUIET
           
-        run: python backtest_validator.py --start 2026-01-23 --end 2026-01-28
+        run: python backtest_validator.py --start 2026-01-03 --end 2026-03-27
