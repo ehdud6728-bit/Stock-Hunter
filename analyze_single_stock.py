@@ -1213,23 +1213,38 @@ def get_pattern_viz(pattern_key: str) -> Dict[str, str]:
     return PATTERN_VIZ.get(pattern_key, {"abbr": "?", "color": "#94a3b8", "name": pattern_key})
 
 
+DISPLAY_PATTERN_KEYS = ("watermelon", "envelope_bet", "dolbanji", "closing_bet")
+DISPLAY_PATTERN_SET = set(DISPLAY_PATTERN_KEYS)
+STATUS_PRIORITY = {"해당": 3, "유사": 2, "미해당": 1, "데이터부족": 0}
+
+
+def visible_pattern_keys_for_mode(mode: str) -> List[str]:
+    if mode == "all":
+        return list(DISPLAY_PATTERN_KEYS)
+    return [mode]
+
+
+def filter_display_patterns(patterns: List[PatternResult], mode: str) -> List[PatternResult]:
+    visible_keys = set(visible_pattern_keys_for_mode(mode))
+    return [p for p in patterns if p.key in visible_keys]
+
+
+def filter_display_hits(hits: List[Dict[str, Any]], mode: str) -> List[Dict[str, Any]]:
+    visible_keys = set(visible_pattern_keys_for_mode(mode))
+    return [h for h in hits if h.get("pattern_key") in visible_keys]
+
+
 def build_pattern_line_legend(mode: str = "all") -> str:
     items = []
-    keys = list(PATTERN_VIZ.keys()) if mode == "all" else [mode]
+    keys = visible_pattern_keys_for_mode(mode)
     for key in keys:
         viz = get_pattern_viz(key)
         items.append(
             f'<span style="display:inline-flex;align-items:center;gap:6px;margin-right:12px;white-space:nowrap;">'
             f'<span style="display:inline-block;width:12px;height:3px;background:{viz["color"]};border-radius:99px;"></span>'
-            f'<span>{escape(viz["abbr"])}={escape(viz["name"])}</span>'
+            f'<span>{escape(viz["abbr"])}={escape(viz["name"])}'
             f'</span>'
         )
-    items.append(
-        '<span style="display:inline-flex;align-items:center;gap:6px;white-space:nowrap;">'
-        '<span style="display:inline-block;width:12px;height:3px;background:#e5ecf6;border-radius:99px;"></span>'
-        '<span>복수패턴 동시 발생</span>'
-        '</span>'
-    )
     return ''.join(items)
 
 
@@ -1362,9 +1377,10 @@ def sparkline_svg(
     # 패턴 세로선 + 상단 약어 라벨
     vertical_markers = []
     hit_dates: Dict[str, List[Dict[str, Any]]] = {}
-    if pattern_hits:
+    visible_hits = filter_display_hits(pattern_hits or [], mode)
+    if visible_hits:
         sub_dates = {str(pd.Timestamp(idx).date()) for idx in sub.index}
-        for hit in pattern_hits:
+        for hit in visible_hits:
             d = str(hit.get("date", ""))
             if d in sub_dates:
                 hit_dates.setdefault(d, []).append(hit)
@@ -1375,31 +1391,46 @@ def sparkline_svg(
         if not hits:
             continue
         x = x_pos(i, len(sub))
-        unique_keys = sorted({h.get("pattern_key", "") for h in hits})
-        line_color = "#e5ecf6" if len(unique_keys) >= 2 else get_pattern_viz(unique_keys[0])["color"]
+        ordered_hits = sorted(
+            hits,
+            key=lambda h: (STATUS_PRIORITY.get(h.get("status", "미해당"), 0), h.get("score", 0), h.get("pattern_name", "")),
+            reverse=True,
+        )
+        unique_keys: List[str] = []
+        for hit in ordered_hits:
+            key = str(hit.get("pattern_key", ""))
+            if key and key not in unique_keys:
+                unique_keys.append(key)
+
+        lead_key = unique_keys[0]
+        line_color = get_pattern_viz(lead_key)["color"]
         vertical_markers.append(
             f'<line x1="{x:.1f}" y1="{price_top:.1f}" x2="{x:.1f}" y2="{score_bottom:.1f}" '
             f'stroke="{line_color}" stroke-width="1.3" opacity="0.5" stroke-dasharray="4 4"/>'
         )
 
-        # 상단에 약어 표시. 복수면 최대 3개, 넘치면 +N 처리
-        abbrs = [get_pattern_viz(k)["abbr"] for k in unique_keys]
-        show_abbrs = abbrs[:3]
-        if len(abbrs) > 3:
-            show_abbrs.append(f'+{len(abbrs)-3}')
-        for j, abbr in enumerate(show_abbrs):
+        show_keys = unique_keys[:3]
+        if len(unique_keys) > 3:
+            show_keys.append(f'+{len(unique_keys)-3}')
+        for j, key in enumerate(show_keys):
             y = label_levels[j % len(label_levels)]
-            color = line_color if len(unique_keys) >= 2 or abbr.startswith('+') else get_pattern_viz(unique_keys[j])["color"]
+            if key.startswith('+'):
+                label = key
+                color = line_color
+            else:
+                viz = get_pattern_viz(key)
+                label = viz["abbr"]
+                color = viz["color"]
             vertical_markers.append(
                 f'<rect x="{x-8:.1f}" y="{y-10:.1f}" width="16" height="12" rx="4" fill="{color}" opacity="0.95"/>'
-                f'<text x="{x:.1f}" y="{y-1:.1f}" fill="#07101d" font-size="9" font-weight="800" text-anchor="middle">{escape(abbr)}</text>'
+                f'<text x="{x:.1f}" y="{y-1:.1f}" fill="#07101d" font-size="9" font-weight="800" text-anchor="middle">{escape(label)}</text>'
             )
 
     pattern_legends = []
     base_x = 370
     legend_y = 334
     legend_gap = 72
-    legend_keys = list(PATTERN_VIZ.keys()) if mode == "all" else [mode]
+    legend_keys = visible_pattern_keys_for_mode(mode)
     for idx, key in enumerate(legend_keys[:7]):
         viz = get_pattern_viz(key)
         pattern_legends.append(legend_item(base_x + idx * legend_gap, legend_y, viz["color"], f'{viz["abbr"]}={viz["name"]}'))
@@ -1416,7 +1447,6 @@ def sparkline_svg(
         legend_item(26, 334, "#f43f5e", "수박 품질"),
         legend_item(140, 334, "#22c55e", "초록 점등"),
         legend_item(255, 334, "#ef4444", "빨강 점등"),
-        legend_item(26, 350, "#e5ecf6", "세로선=패턴 발생일", "4 4"),
     ]
     legends.extend(pattern_legends)
 
@@ -1463,9 +1493,15 @@ def render_html(result: Dict[str, Any]) -> str:
     patterns: List[PatternResult] = result["patterns"]
     df = result["df"]
     pattern_hits: List[Dict[str, Any]] = result.get("pattern_hits", [])
-    hit_summary: Dict[str, Any] = result.get("pattern_hit_summary", {})
+    visible_mode = result.get("mode", "all")
+    visible_patterns = filter_display_patterns(patterns, visible_mode)
+    visible_hits = filter_display_hits(pattern_hits, visible_mode)
+    hit_summary: Dict[str, Any] = summarize_pattern_hits(visible_hits)
 
-    nav = "".join(f'<button class="nav-chip" onclick="scrollToId(\'sec-{escape(p.key)}\')">{escape(p.name)}</button>' for p in patterns)
+    nav = "".join(f'<button class="nav-chip" onclick="scrollToId(\'sec-{escape(p.key)}\')">{escape(p.name)}</button>' for p in visible_patterns)
+
+    display_summary = build_summary(result["name"], visible_patterns)
+    display_smart_comment = build_smart_comment(price, visible_patterns, result["name"])
 
     research_panel = f"""
     <section class="card">
@@ -1493,7 +1529,7 @@ def render_html(result: Dict[str, Any]) -> str:
 
       <div class="research-actions">
         <button class="action-btn" onclick="runFromResultPage()">바로 재검색 실행</button>
-        <button class="action-btn secondary" onclick="goRunnerPage()">실행기 페이지 열기</button>
+        <button class="action-btn secondary" onclick="goRunnerPage()">현재 결과 페이지 열기</button>
         <button class="action-btn secondary" onclick="history.back()">이전 페이지로</button>
       </div>
 
@@ -1554,7 +1590,7 @@ def render_html(result: Dict[str, Any]) -> str:
     pattern_blocks = []
     all_rows = []
 
-    for p in patterns:
+    for p in visible_patterns:
         check_rows = []
         for c in p.checks:
             cls = "pass" if c.ok else "fail"
@@ -1591,7 +1627,7 @@ def render_html(result: Dict[str, Any]) -> str:
             """
         )
 
-    hits_table = build_pattern_hits_table(pattern_hits)
+    hits_table = build_pattern_hits_table(visible_hits)
 
     return f"""<!doctype html>
 <html lang="ko">
@@ -1664,7 +1700,8 @@ def render_html(result: Dict[str, Any]) -> str:
       const name = (document.getElementById("reName")?.value || "").trim();
       const mode = (document.getElementById("reMode")?.value || "all").trim();
 
-      const url = new URL("./runner.html", location.href);
+      const url = new URL(location.href);
+      url.hash = "";
       if (code) url.searchParams.set("code", code);
       if (name) url.searchParams.set("name", name);
       if (mode) url.searchParams.set("mode", mode);
@@ -1684,8 +1721,7 @@ def render_html(result: Dict[str, Any]) -> str:
 
       const workerUrl = String(getSavedWorkerUrl()).trim().replace(new RegExp("/+$"), "");
       if (!workerUrl) {{
-        statusEl.textContent = "저장된 Worker URL이 없어 실행기 페이지로 이동합니다.";
-        goRunnerPage();
+        statusEl.textContent = "저장된 Worker URL이 없습니다. 현재 페이지에서 값만 다시 확인해 주세요.";
         return;
       }}
 
@@ -1710,23 +1746,19 @@ def render_html(result: Dict[str, Any]) -> str:
           return;
         }}
 
-        if (data.html_url) {{
-          statusEl.textContent = "실행 성공. GitHub Actions 페이지를 엽니다.";
+        const resultUrl = data.page_url || data.pages_url || data.result_url || data.report_url || "";
+        if (resultUrl) {{
+          statusEl.textContent = "실행 성공. 새 결과 페이지를 엽니다.";
+          window.open(resultUrl, "_blank", "noopener");
+        }} else if (data.html_url) {{
+          statusEl.textContent = "실행 성공. GitHub Actions 페이지를 엽니다. 완료 후 이 페이지를 새로고침하세요.";
           window.open(data.html_url, "_blank", "noopener");
         }} else {{
-          statusEl.textContent = "실행 성공. run_id 탐색 중입니다.";
+          statusEl.textContent = "실행 성공. Pages 반영 후 이 페이지를 새로고침하세요.";
         }}
 
-        const runnerUrl = new URL("./runner.html", location.href);
-        runnerUrl.searchParams.set("code", code);
-        if (name) runnerUrl.searchParams.set("name", name);
-        runnerUrl.searchParams.set("mode", mode);
-        setTimeout(() => {{
-          location.href = runnerUrl.toString();
-        }}, 700);
-
       }} catch (err) {{
-        statusEl.textContent = "Worker 연결 실패: 실행기 페이지로 이동하세요.";
+        statusEl.textContent = "Worker 연결 실패: 현재 페이지에 머무릅니다. Worker URL과 응답을 확인하세요.";
         console.log(err);
       }}
     }}
@@ -1760,8 +1792,8 @@ def render_html(result: Dict[str, Any]) -> str:
   </div></div>
   <div class="app">
     {research_panel}
-    <section class="card"><div class="section-title">핵심 요약</div><p>{escape(result['summary'])}</p><p><strong>종합 코멘트</strong><br>{escape(result['smart_comment'])}</p><p><strong>MA수렴 해석</strong><br>{escape(build_ma_convergence_comment(price))}</p></section>
-    <section class="card"><div class="section-title">가격 구조 차트 + 수박 점수 + 패턴 세로선</div><div class="muted" style="margin-bottom:10px;">세로선 상단 약어로 어떤 패턴이 발생했는지 구분합니다. 같은 날짜에 여러 패턴이 겹치면 흰색 세로선과 복수 약어가 함께 표시됩니다.</div>{sparkline_svg(df, pattern_hits, result.get("mode", "all"))}</section>
+    <section class="card"><div class="section-title">핵심 요약</div><p>{escape(display_summary)}</p><p><strong>종합 코멘트</strong><br>{escape(display_smart_comment)}</p><p><strong>MA수렴 해석</strong><br>{escape(build_ma_convergence_comment(price))}</p></section>
+    <section class="card"><div class="section-title">가격 구조 차트 + 수박 점수 + 패턴 세로선</div><div class="muted" style="margin-bottom:10px;">세로선 상단 약어로 어떤 패턴이 발생했는지 구분합니다. 같은 날짜에 여러 패턴이 겹치면 대표 패턴 색 세로선과 복수 약어가 함께 표시됩니다.</div>{sparkline_svg(df, visible_hits, result.get("mode", "all"))}</section>
     <section class="card"><div class="section-title">기본 수치</div><div class="metric-grid">{metric_cards}</div></section>
     <section class="card">
       <div class="section-title">요청구간 패턴 발생 이력</div>
