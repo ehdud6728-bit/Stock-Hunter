@@ -1686,7 +1686,7 @@ def render_html(result: Dict[str, Any]) -> str:
     }}
 
     function getWorkerUrl() {{
-      return DEFAULT_WORKER_URL.replace(/\/+$/, "");
+      return DEFAULT_WORKER_URL.replace(/\\/+$/, "");
     }}
 
     async function runFromResultPage() {{
