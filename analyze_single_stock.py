@@ -1099,13 +1099,160 @@ def build_smart_comment(price: Dict[str, Any], patterns: List[PatternResult], na
     return " ".join(dict.fromkeys(comments))
 
 
-def sparkline_svg(df: pd.DataFrame, width: int = 960, height: int = 360) -> str:
+
+def scan_pattern_history(df: pd.DataFrame, window: Dict[str, str], mode: str, min_bars: int = 40) -> List[Dict[str, Any]]:
+    target_start = pd.Timestamp(window["target_start"])
+    target_end = pd.Timestamp(window["target_end"])
+
+    work_idx = [idx for idx in df.index if target_start <= pd.Timestamp(idx).normalize() <= target_end]
+    hits: List[Dict[str, Any]] = []
+
+    for current_date in work_idx:
+        subdf = df[df.index <= current_date].copy()
+        if len(subdf) < min_bars:
+            continue
+
+        sub_window = {
+            "target_start": window["target_start"],
+            "target_end": str(pd.Timestamp(current_date).date()),
+            "fetch_start": window["fetch_start"],
+            "fetch_end": str(pd.Timestamp(current_date).date()),
+        }
+        day_price = build_snapshot(subdf, sub_window)
+        day_patterns = build_patterns(day_price, subdf)
+        day_selected = patterns_for_mode(day_patterns, mode)
+
+        for p in day_selected:
+            if p.status not in ("해당", "유사"):
+                continue
+            hits.append({
+                "date": str(pd.Timestamp(current_date).date()),
+                "pattern_key": p.key,
+                "pattern_name": p.name,
+                "status": p.status,
+                "score": p.score,
+                "max_score": p.max_score,
+                "subtitle": p.subtitle,
+                "comment": p.comment,
+                "close": safe_int(day_price.get("close")),
+                "amount_b": safe_float(day_price.get("amount_b")),
+                "watermelon_value": safe_int(day_price.get("watermelon_value")),
+                "watermelon_quality": safe_float(day_price.get("watermelon_quality")),
+            })
+
+    hits.sort(key=lambda x: (x["date"], x["score"], x["pattern_name"]))
+    return hits
+
+
+def summarize_pattern_hits(hits: List[Dict[str, Any]]) -> Dict[str, Any]:
+    if not hits:
+        return {
+            "total_hits": 0,
+            "dates_count": 0,
+            "first_hit_date": "",
+            "last_hit_date": "",
+            "top_pattern_name": "",
+            "top_pattern_hits": 0,
+        }
+
+    unique_dates = sorted({h["date"] for h in hits})
+    counts: Dict[str, int] = {}
+    for h in hits:
+        counts[h["pattern_name"]] = counts.get(h["pattern_name"], 0) + 1
+
+    top_pattern_name, top_pattern_hits = sorted(counts.items(), key=lambda x: (-x[1], x[0]))[0]
+    return {
+        "total_hits": len(hits),
+        "dates_count": len(unique_dates),
+        "first_hit_date": unique_dates[0],
+        "last_hit_date": unique_dates[-1],
+        "top_pattern_name": top_pattern_name,
+        "top_pattern_hits": top_pattern_hits,
+    }
+
+
+def build_pattern_hits_table(hits: List[Dict[str, Any]]) -> str:
+    if not hits:
+        return '<div class="muted">요청구간 내 해당/유사 패턴 발생 이력이 없습니다.</div>'
+
+    rows = []
+    for hit in hits:
+        status_cls = STATUS_CLASS.get(hit["status"], "fail")
+        rows.append(
+            f"<tr>"
+            f"<td>{escape(hit['date'])}</td>"
+            f"<td>{escape(hit['pattern_name'])}</td>"
+            f"<td class='{status_cls}'>{escape(hit['status'])}</td>"
+            f"<td class='mono'>{hit['score']}/{hit['max_score']}</td>"
+            f"<td class='mono'>{fmt_int(hit['close'])}</td>"
+            f"<td class='mono'>{fmt_float(hit['amount_b'], 1)}억</td>"
+            f"<td class='mono'>{fmt_float(hit['watermelon_quality'], 1)}</td>"
+            f"<td>{escape(hit['subtitle'])}</td>"
+            f"</tr>"
+        )
+    return (
+        "<div class='table-wrap'><table>"
+        "<thead><tr><th>날짜</th><th>패턴</th><th>상태</th><th>점수</th><th>종가</th><th>거래대금</th><th>수박품질</th><th>설명</th></tr></thead>"
+        f"<tbody>{''.join(rows)}</tbody></table></div>"
+    )
+
+
+
+PATTERN_VIZ = {
+    "closing_bet": {"abbr": "종", "color": "#f59e0b", "name": "종가배팅"},
+    "envelope_bet": {"abbr": "엔", "color": "#10b981", "name": "엔벨로프"},
+    "dolbanji": {"abbr": "돌", "color": "#a78bfa", "name": "돌반지"},
+    "watermelon": {"abbr": "수", "color": "#f43f5e", "name": "수박"},
+    "viper": {"abbr": "독", "color": "#22c55e", "name": "독사"},
+    "yeokmae": {"abbr": "역", "color": "#38bdf8", "name": "역매공파"},
+    "double_bottom": {"abbr": "쌍", "color": "#f97316", "name": "쌍바닥"},
+}
+
+
+def get_pattern_viz(pattern_key: str) -> Dict[str, str]:
+    return PATTERN_VIZ.get(pattern_key, {"abbr": "?", "color": "#94a3b8", "name": pattern_key})
+
+
+def build_pattern_line_legend(mode: str = "all") -> str:
+    items = []
+    keys = list(PATTERN_VIZ.keys()) if mode == "all" else [mode]
+    for key in keys:
+        viz = get_pattern_viz(key)
+        items.append(
+            f'<span style="display:inline-flex;align-items:center;gap:6px;margin-right:12px;white-space:nowrap;">'
+            f'<span style="display:inline-block;width:12px;height:3px;background:{viz["color"]};border-radius:99px;"></span>'
+            f'<span>{escape(viz["abbr"])}={escape(viz["name"])}</span>'
+            f'</span>'
+        )
+    items.append(
+        '<span style="display:inline-flex;align-items:center;gap:6px;white-space:nowrap;">'
+        '<span style="display:inline-block;width:12px;height:3px;background:#e5ecf6;border-radius:99px;"></span>'
+        '<span>복수패턴 동시 발생</span>'
+        '</span>'
+    )
+    return ''.join(items)
+
+
+
+def sparkline_svg(
+    df: pd.DataFrame,
+    pattern_hits: List[Dict[str, Any]] | None = None,
+    mode: str = "all",
+    width: int = 960,
+    height: int = 500,
+) -> str:
     sub = df.tail(120).copy()
     env20 = calc_envelope(df, 20, ENV20_PCT)
     env40 = calc_envelope(df, 40, ENV40_PCT)
 
-    sub["ENV20_LOWER"] = env20["lower"].tail(120).values
-    sub["ENV40_LOWER"] = env40["lower"].tail(120).values
+    sub["ENV20_LOWER"] = env20["lower"].tail(len(sub)).values
+    sub["ENV40_LOWER"] = env40["lower"].tail(len(sub)).values
+
+    price_top = 24
+    price_bottom = 318
+    score_top = 356
+    score_bottom = height - 38
+    left, right = 22, width - 22
 
     price_cols = ["Close", "MA20", "MA60", "MA200", "BB40_UP", "BB40_DN", "ENV20_LOWER", "ENV40_LOWER"]
     values = []
@@ -1117,25 +1264,30 @@ def sparkline_svg(df: pd.DataFrame, width: int = 960, height: int = 360) -> str:
 
     min_v = min(values)
     max_v = max(values)
-    rng = max(max_v - min_v, 1e-9)
-    left, right, top, bottom = 22, width - 22, 18, height - 34
+    price_rng = max(max_v - min_v, 1e-9)
+
+    score_vals = pd.to_numeric(sub.get("WATERMELON_QUALITY", pd.Series([], dtype="float64")), errors="coerce").fillna(0)
+    score_max = max(8.0, float(score_vals.max()) + 1.0)
 
     def x_pos(i: int, count: int) -> float:
         if count <= 1:
             return left
         return left + (right - left) * i / (count - 1)
 
-    def y_pos(v: float) -> float:
-        return top + (bottom - top) * (1 - (v - min_v) / rng)
+    def price_y(v: float) -> float:
+        return price_top + (price_bottom - price_top) * (1 - (v - min_v) / price_rng)
 
-    def series_points(series: pd.Series) -> List[str]:
+    def score_y(v: float) -> float:
+        return score_top + (score_bottom - score_top) * (1 - (v / score_max))
+
+    def series_points(series: pd.Series, mapper) -> List[str]:
         pts = []
         arr = pd.to_numeric(series, errors="coerce").tolist()
         for i, v in enumerate(arr):
             if pd.isna(v):
                 pts.append("")
             else:
-                pts.append(f"{x_pos(i, len(arr)):.1f},{y_pos(float(v)):.1f}")
+                pts.append(f"{x_pos(i, len(arr)):.1f},{mapper(float(v)):.1f}")
         return pts
 
     def polyline(points: List[str], color: str, stroke_width: int = 2, dash: str = "", opacity: float = 1.0) -> str:
@@ -1159,33 +1311,34 @@ def sparkline_svg(df: pd.DataFrame, width: int = 960, height: int = 360) -> str:
             )
         return "".join(lines)
 
+    close_points = series_points(sub["Close"], price_y)
+    ma20_points = series_points(sub["MA20"], price_y)
+    ma60_points = series_points(sub["MA60"], price_y)
+    ma200_points = series_points(sub["MA200"], price_y)
+    bb40_up_points = series_points(sub["BB40_UP"], price_y)
+    bb40_dn_points = series_points(sub["BB40_DN"], price_y)
+    env20_points = series_points(sub["ENV20_LOWER"], price_y)
+    env40_points = series_points(sub["ENV40_LOWER"], price_y)
+    wm_quality_points = series_points(sub["WATERMELON_QUALITY"], score_y)
+
+    last_close = safe_float(sub["Close"].iloc[-1])
+    first_close = safe_float(sub["Close"].iloc[0])
+    close_color = "#22c55e" if last_close >= first_close else "#ef4444"
+
     bb_up = pd.to_numeric(sub["BB40_UP"], errors="coerce").tolist()
     bb_dn = pd.to_numeric(sub["BB40_DN"], errors="coerce").tolist()
     band_up, band_dn = [], []
     for i, v in enumerate(bb_up):
         if pd.notna(v):
-            band_up.append(f"{x_pos(i, len(bb_up)):.1f},{y_pos(float(v)):.1f}")
+            band_up.append(f"{x_pos(i, len(bb_up)):.1f},{price_y(float(v)):.1f}")
     for i in range(len(bb_dn) - 1, -1, -1):
         v = bb_dn[i]
         if pd.notna(v):
-            band_dn.append(f"{x_pos(i, len(bb_dn)):.1f},{y_pos(float(v)):.1f}")
+            band_dn.append(f"{x_pos(i, len(bb_dn)):.1f},{price_y(float(v)):.1f}")
 
     band_polygon = ""
     if len(band_up) >= 2 and len(band_dn) >= 2:
         band_polygon = f'<polygon points="{" ".join(band_up + band_dn)}" fill="rgba(99,102,241,0.10)" stroke="none"/>'
-
-    close_points = series_points(sub["Close"])
-    ma20_points = series_points(sub["MA20"])
-    ma60_points = series_points(sub["MA60"])
-    ma200_points = series_points(sub["MA200"])
-    bb40_up_points = series_points(sub["BB40_UP"])
-    bb40_dn_points = series_points(sub["BB40_DN"])
-    env20_points = series_points(sub["ENV20_LOWER"])
-    env40_points = series_points(sub["ENV40_LOWER"])
-
-    last_close = safe_float(sub["Close"].iloc[-1])
-    first_close = safe_float(sub["Close"].iloc[0])
-    close_color = "#22c55e" if last_close >= first_close else "#ef4444"
 
     def legend_item(x: int, y: int, color: str, label: str, dash: str = "") -> str:
         dash_attr = f' stroke-dasharray="{dash}"' if dash else ""
@@ -1193,6 +1346,63 @@ def sparkline_svg(df: pd.DataFrame, width: int = 960, height: int = 360) -> str:
             f'<line x1="{x}" y1="{y}" x2="{x+18}" y2="{y}" stroke="{color}" stroke-width="3"{dash_attr}/>'
             f'<text x="{x+24}" y="{y+4}" fill="#d9e6f7" font-size="12">{escape(label)}</text>'
         )
+
+    score_markers = []
+    for i, (_, row) in enumerate(sub.iterrows()):
+        x = x_pos(i, len(sub))
+        q = safe_float(row.get("WATERMELON_QUALITY"))
+        y = score_y(q)
+        if safe_int(row.get("WATERMELON_GREEN")) == 1:
+            score_markers.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="3.4" fill="#22c55e" opacity="0.9"/>')
+        if safe_int(row.get("WATERMELON_RED")) == 1:
+            score_markers.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="4.6" fill="#ef4444" opacity="0.95"/>')
+        if safe_int(row.get("WATERMELON_RED_NEW")) == 1:
+            score_markers.append(f'<line x1="{x:.1f}" y1="{score_bottom:.1f}" x2="{x:.1f}" y2="{y:.1f}" stroke="#ef4444" stroke-width="1.5" opacity="0.6" stroke-dasharray="4 3"/>')
+
+    # 패턴 세로선 + 상단 약어 라벨
+    vertical_markers = []
+    hit_dates: Dict[str, List[Dict[str, Any]]] = {}
+    if pattern_hits:
+        sub_dates = {str(pd.Timestamp(idx).date()) for idx in sub.index}
+        for hit in pattern_hits:
+            d = str(hit.get("date", ""))
+            if d in sub_dates:
+                hit_dates.setdefault(d, []).append(hit)
+
+    label_levels = [price_top + 10, price_top + 26, price_top + 42]
+    for i, dt in enumerate([str(pd.Timestamp(idx).date()) for idx in sub.index]):
+        hits = hit_dates.get(dt, [])
+        if not hits:
+            continue
+        x = x_pos(i, len(sub))
+        unique_keys = sorted({h.get("pattern_key", "") for h in hits})
+        line_color = "#e5ecf6" if len(unique_keys) >= 2 else get_pattern_viz(unique_keys[0])["color"]
+        vertical_markers.append(
+            f'<line x1="{x:.1f}" y1="{price_top:.1f}" x2="{x:.1f}" y2="{score_bottom:.1f}" '
+            f'stroke="{line_color}" stroke-width="1.3" opacity="0.5" stroke-dasharray="4 4"/>'
+        )
+
+        # 상단에 약어 표시. 복수면 최대 3개, 넘치면 +N 처리
+        abbrs = [get_pattern_viz(k)["abbr"] for k in unique_keys]
+        show_abbrs = abbrs[:3]
+        if len(abbrs) > 3:
+            show_abbrs.append(f'+{len(abbrs)-3}')
+        for j, abbr in enumerate(show_abbrs):
+            y = label_levels[j % len(label_levels)]
+            color = line_color if len(unique_keys) >= 2 or abbr.startswith('+') else get_pattern_viz(unique_keys[j])["color"]
+            vertical_markers.append(
+                f'<rect x="{x-8:.1f}" y="{y-10:.1f}" width="16" height="12" rx="4" fill="{color}" opacity="0.95"/>'
+                f'<text x="{x:.1f}" y="{y-1:.1f}" fill="#07101d" font-size="9" font-weight="800" text-anchor="middle">{escape(abbr)}</text>'
+            )
+
+    pattern_legends = []
+    base_x = 370
+    legend_y = 334
+    legend_gap = 72
+    legend_keys = list(PATTERN_VIZ.keys()) if mode == "all" else [mode]
+    for idx, key in enumerate(legend_keys[:7]):
+        viz = get_pattern_viz(key)
+        pattern_legends.append(legend_item(base_x + idx * legend_gap, legend_y, viz["color"], f'{viz["abbr"]}={viz["name"]}'))
 
     legends = [
         legend_item(26, 24, close_color, "종가"),
@@ -1203,14 +1413,26 @@ def sparkline_svg(df: pd.DataFrame, width: int = 960, height: int = 360) -> str:
         legend_item(510, 24, "#6366f1", "BB40 하단"),
         legend_item(620, 24, "#10b981", "Env20 하단", "6 4"),
         legend_item(760, 24, "#f97316", "Env40 하단", "6 4"),
+        legend_item(26, 334, "#f43f5e", "수박 품질"),
+        legend_item(140, 334, "#22c55e", "초록 점등"),
+        legend_item(255, 334, "#ef4444", "빨강 점등"),
+        legend_item(26, 350, "#e5ecf6", "세로선=패턴 발생일", "4 4"),
     ]
+    legends.extend(pattern_legends)
+
+    score_last = safe_float(sub["WATERMELON_QUALITY"].iloc[-1]) if "WATERMELON_QUALITY" in sub.columns else 0.0
 
     return f"""
     <svg class="chart-svg" viewBox="0 0 {width} {height}" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none">
       <rect x="0" y="0" width="{width}" height="{height}" fill="transparent"/>
-      <line x1="{left}" y1="{bottom}" x2="{right}" y2="{bottom}" stroke="#24385d" stroke-width="1"/>
-      <line x1="{left}" y1="{top}" x2="{left}" y2="{bottom}" stroke="#24385d" stroke-width="1"/>
+      <line x1="{left}" y1="{price_bottom}" x2="{right}" y2="{price_bottom}" stroke="#24385d" stroke-width="1"/>
+      <line x1="{left}" y1="{price_top}" x2="{left}" y2="{price_bottom}" stroke="#24385d" stroke-width="1"/>
+      <line x1="{left}" y1="{score_bottom}" x2="{right}" y2="{score_bottom}" stroke="#24385d" stroke-width="1"/>
+      <line x1="{left}" y1="{score_top}" x2="{left}" y2="{score_bottom}" stroke="#24385d" stroke-width="1"/>
+      <line x1="{left}" y1="{score_y(4):.1f}" x2="{right}" y2="{score_y(4):.1f}" stroke="#3b4e74" stroke-width="1" stroke-dasharray="5 4"/>
+      <line x1="{left}" y1="{score_y(7):.1f}" x2="{right}" y2="{score_y(7):.1f}" stroke="#5b4968" stroke-width="1" stroke-dasharray="5 4"/>
       {band_polygon}
+      {''.join(vertical_markers)}
       {polyline(bb40_up_points, "#818cf8", 1)}
       {polyline(bb40_dn_points, "#6366f1", 1)}
       {polyline(env20_points, "#10b981", 2, "6 4", 0.95)}
@@ -1219,10 +1441,18 @@ def sparkline_svg(df: pd.DataFrame, width: int = 960, height: int = 360) -> str:
       {polyline(ma60_points, "#38bdf8", 2)}
       {polyline(ma20_points, "#f59e0b", 2)}
       {polyline(close_points, close_color, 3)}
-      <text x="{left}" y="{height-10}" fill="#9db2d2" font-size="12">최근 120봉 · 종가 / MA / BB40 / Envelope 하단</text>
+      {polyline(wm_quality_points, "#f43f5e", 2.4)}
+      {''.join(score_markers)}
+      <text x="{left}" y="{price_bottom + 18}" fill="#9db2d2" font-size="12">최근 120봉 · 종가 / MA / BB40 / Envelope 하단 · 세로선 상단 약어로 패턴 구분</text>
+      <text x="{left}" y="{score_bottom + 18}" fill="#9db2d2" font-size="12">수박 품질 점수 · 4점/7점 기준선 · 초록/빨강 점등 마커</text>
       <text x="{width-24}" y="24" fill="#f8fbff" font-size="12" text-anchor="end">종가 {fmt_int(last_close)}</text>
-      <text x="6" y="{bottom:.1f}" fill="#8aa0bf" font-size="11">{fmt_int(min_v)}</text>
-      <text x="6" y="{top+4:.1f}" fill="#8aa0bf" font-size="11">{fmt_int(max_v)}</text>
+      <text x="{width-24}" y="334" fill="#f8fbff" font-size="12" text-anchor="end">수박품질 {fmt_float(score_last, 1)}</text>
+      <text x="6" y="{price_bottom:.1f}" fill="#8aa0bf" font-size="11">{fmt_int(min_v)}</text>
+      <text x="6" y="{price_top+4:.1f}" fill="#8aa0bf" font-size="11">{fmt_int(max_v)}</text>
+      <text x="6" y="{score_bottom:.1f}" fill="#8aa0bf" font-size="11">0</text>
+      <text x="6" y="{score_y(4):.1f}" fill="#8aa0bf" font-size="11">4</text>
+      <text x="6" y="{score_y(7):.1f}" fill="#8aa0bf" font-size="11">7</text>
+      <text x="6" y="{score_top+4:.1f}" fill="#8aa0bf" font-size="11">{fmt_float(score_max, 0)}</text>
       {''.join(legends)}
     </svg>
     """
@@ -1232,6 +1462,8 @@ def render_html(result: Dict[str, Any]) -> str:
     price = result["price"]
     patterns: List[PatternResult] = result["patterns"]
     df = result["df"]
+    pattern_hits: List[Dict[str, Any]] = result.get("pattern_hits", [])
+    hit_summary: Dict[str, Any] = result.get("pattern_hit_summary", {})
 
     nav = "".join(f'<button class="nav-chip" onclick="scrollToId(\'sec-{escape(p.key)}\')">{escape(p.name)}</button>' for p in patterns)
 
@@ -1304,6 +1536,21 @@ def render_html(result: Dict[str, Any]) -> str:
         for k, v in metric_items
     )
 
+    hit_summary_cards = ""
+    if hit_summary.get("total_hits", 0) > 0:
+        hit_summary_items = [
+            ("발생건수", str(hit_summary.get("total_hits", 0))),
+            ("발생일수", str(hit_summary.get("dates_count", 0))),
+            ("첫 발생일", hit_summary.get("first_hit_date", "-") or "-"),
+            ("마지막 발생일", hit_summary.get("last_hit_date", "-") or "-"),
+            ("가장 자주 나온 패턴", hit_summary.get("top_pattern_name", "-") or "-"),
+            ("그 패턴 횟수", str(hit_summary.get("top_pattern_hits", 0))),
+        ]
+        hit_summary_cards = "".join(
+            f'<div class="metric"><div class="metric-label">{escape(k)}</div><div class="metric-value">{escape(v)}</div></div>'
+            for k, v in hit_summary_items
+        )
+
     pattern_blocks = []
     all_rows = []
 
@@ -1344,6 +1591,8 @@ def render_html(result: Dict[str, Any]) -> str:
             """
         )
 
+    hits_table = build_pattern_hits_table(pattern_hits)
+
     return f"""<!doctype html>
 <html lang="ko">
 <head>
@@ -1358,7 +1607,7 @@ def render_html(result: Dict[str, Any]) -> str:
     .hero {{ position:sticky; top:0; z-index:10; backdrop-filter: blur(14px); background:rgba(8,17,31,.9); border-bottom:1px solid rgba(34,53,86,.7); padding:14px 0 10px; margin-bottom:12px; }}
     .hero-inner, .app {{ max-width:1024px; margin:0 auto; padding:0 16px; }}
     .title {{ font-size:24px; font-weight:900; margin:0; }}
-    .sub {{ color:var(--muted); font-size:13px; margin-top:4px; }}
+    .sub {{ color:var(--muted); font-size:13px; margin-top:4px; line-height:1.55; }}
     .pill-row, .nav-row {{ display:flex; gap:8px; overflow:auto; white-space:nowrap; padding:10px 0 2px; scrollbar-width:none; }}
     .pill-row::-webkit-scrollbar, .nav-row::-webkit-scrollbar {{ display:none; }}
     .pill, .nav-chip {{ border:1px solid var(--line); background:#12203a; color:var(--text); padding:8px 12px; border-radius:999px; font-size:13px; }}
@@ -1368,8 +1617,8 @@ def render_html(result: Dict[str, Any]) -> str:
     .metric-grid {{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }}
     .metric {{ background:#0b1730; border:1px solid var(--line); border-radius:18px; padding:12px; min-height:84px; }}
     .metric-label {{ color:var(--muted); font-size:12px; }}
-    .metric-value {{ font-size:24px; font-weight:900; margin-top:6px; }}
-    .chart-svg {{ width:100%; height:260px; display:block; }}
+    .metric-value {{ font-size:24px; font-weight:900; margin-top:6px; line-height:1.2; word-break:keep-all; }}
+    .chart-svg {{ width:100%; height:360px; display:block; }}
     .pattern-head {{ display:flex; justify-content:space-between; gap:12px; align-items:flex-start; }}
     .pattern-title {{ font-size:20px; font-weight:900; }}
     .badge {{ min-width:62px; text-align:center; padding:8px 12px; border-radius:999px; font-weight:900; font-size:13px; }}
@@ -1382,7 +1631,7 @@ def render_html(result: Dict[str, Any]) -> str:
     .pattern-comment {{ margin-top:10px; line-height:1.65; color:#dde6f6; }}
     details summary {{ cursor:pointer; color:#bdd0ec; font-weight:700; margin:8px 0 12px; }}
     .table-wrap {{ overflow:auto; border-radius:16px; border:1px solid var(--line); }}
-    table {{ width:100%; border-collapse:collapse; min-width:680px; background:#0b1730; }}
+    table {{ width:100%; border-collapse:collapse; min-width:760px; background:#0b1730; }}
     th, td {{ padding:11px 10px; border-bottom:1px solid #1f3150; text-align:left; vertical-align:top; font-size:13px; }}
     th {{ color:#c7d5ea; background:#0d1a33; position:sticky; top:0; }}
     .mono {{ font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }}
@@ -1392,7 +1641,7 @@ def render_html(result: Dict[str, Any]) -> str:
     .action-btn{{ width:100%; border-radius:16px; padding:14px 14px; font-weight:800; background:linear-gradient(180deg,#3b82f6,#2463d7); color:#fff; border:none; cursor:pointer; }}
     .action-btn.secondary{{ background:#13203b; border:1px solid #243759; }}
     @media (max-width:720px){{ .research-grid, .research-actions{{ grid-template-columns:1fr; }} }}
-    @media (min-width:768px) {{ .metric-grid {{ grid-template-columns:repeat(4,minmax(0,1fr)); }} .chart-svg {{ height:360px; }} }}
+    @media (min-width:768px) {{ .metric-grid {{ grid-template-columns:repeat(4,minmax(0,1fr)); }} .chart-svg {{ height:430px; }} }}
   </style>
   <script>
     function scrollToId(id) {{
@@ -1512,14 +1761,19 @@ def render_html(result: Dict[str, Any]) -> str:
   <div class="app">
     {research_panel}
     <section class="card"><div class="section-title">핵심 요약</div><p>{escape(result['summary'])}</p><p><strong>종합 코멘트</strong><br>{escape(result['smart_comment'])}</p><p><strong>MA수렴 해석</strong><br>{escape(build_ma_convergence_comment(price))}</p></section>
-    <section class="card"><div class="section-title">가격 구조 차트</div>{sparkline_svg(df)}</section>
+    <section class="card"><div class="section-title">가격 구조 차트 + 수박 점수 + 패턴 세로선</div><div class="muted" style="margin-bottom:10px;">세로선 상단 약어로 어떤 패턴이 발생했는지 구분합니다. 같은 날짜에 여러 패턴이 겹치면 흰색 세로선과 복수 약어가 함께 표시됩니다.</div>{sparkline_svg(df, pattern_hits, result.get("mode", "all"))}</section>
     <section class="card"><div class="section-title">기본 수치</div><div class="metric-grid">{metric_cards}</div></section>
+    <section class="card">
+      <div class="section-title">요청구간 패턴 발생 이력</div>
+      <div class="muted" style="margin-bottom:10px;">요청구간 안에서 날짜별로 해당/유사 판정이 나온 패턴만 뽑았습니다. mode=all이면 여러 패턴이 같은 날짜에 함께 나올 수 있습니다.</div>
+      {'<div class="metric-grid" style="margin-bottom:12px;">' + hit_summary_cards + '</div>' if hit_summary_cards else ''}
+      {hits_table}
+    </section>
     {''.join(pattern_blocks)}
     <section class="card"><div class="section-title">전체 조건표</div><div class="table-wrap"><table><thead><tr><th>패턴</th><th>조건</th><th>현재값</th><th>기준</th><th>결과</th><th>사유</th></tr></thead><tbody>{''.join(all_rows)}</tbody></table></div></section>
   </div>
 </body>
 </html>"""
-
 
 def pattern_results_to_json(patterns: List[PatternResult]) -> List[Dict[str, Any]]:
     return [
@@ -1572,6 +1826,8 @@ def main() -> None:
 
     summary = build_summary(name, selected)
     smart_comment = build_smart_comment(price, selected, name)
+    pattern_hits = scan_pattern_history(df, window, args.mode, min_bars=args.min_bars)
+    pattern_hit_summary = summarize_pattern_hits(pattern_hits)
 
     result = {
         "code": code,
@@ -1583,6 +1839,8 @@ def main() -> None:
         "smart_comment": smart_comment,
         "patterns": selected,
         "df": df,
+        "pattern_hits": pattern_hits,
+        "pattern_hit_summary": pattern_hit_summary,
     }
 
     out_json = Path(args.output_json)
@@ -1599,6 +1857,8 @@ def main() -> None:
         "summary": summary,
         "smart_comment": smart_comment,
         "patterns": pattern_results_to_json(selected),
+        "pattern_hits": pattern_hits,
+        "pattern_hit_summary": pattern_hit_summary,
     }
 
     out_json.write_text(json.dumps(json_payload, ensure_ascii=False, indent=2), encoding="utf-8")
