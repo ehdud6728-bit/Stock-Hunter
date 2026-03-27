@@ -102,7 +102,7 @@ jobs:
 
       - name: Run analyzer
         run: |
-          python integrated_stock_pattern_analyzer.py \
+          python analyze_single_stock.py \
             --code "${{ inputs.stock_code }}" \
             --name "${{ inputs.stock_name }}" \
             --mode "${{ inputs.mode }}" \
