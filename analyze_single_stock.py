@@ -132,25 +132,56 @@ def detect_name(code: str, given_name: str = "") -> str:
     return code
 
 
-def resolve_date_window(start_date: str = "", end_date: str = "", days: int = 450) -> Dict[str, str]:
-    end_dt = pd.Timestamp(end_date).normalize() if end_date else pd.Timestamp(datetime.now(KST).date())
-    start_dt = pd.Timestamp(start_date).normalize() if start_date else (end_dt - pd.Timedelta(days=max(days, 240)))
+def resolve_analysis_window(
+    start_date: str = "",
+    end_date: str = "",
+    days: int = 450,
+    warmup_days: int = 320,
+) -> Dict[str, str]:
+    """
+    target_start/target_end:
+      - 사용자가 결과를 보고 싶은 구간
+    fetch_start/fetch_end:
+      - 실제 지표 계산용 과거 데이터 조회 구간
+    """
+    target_end = pd.Timestamp(end_date).normalize() if end_date else pd.Timestamp(datetime.now(KST).date())
+    target_start = pd.Timestamp(start_date).normalize() if start_date else target_end
 
-    if start_dt > end_dt:
+    if target_start > target_end:
         raise RuntimeError("start_date는 end_date보다 늦을 수 없습니다.")
 
+    fetch_span_days = max(days, warmup_days)
+    fetch_start = target_end - pd.Timedelta(days=fetch_span_days)
+
     return {
-        "start": start_dt.strftime("%Y-%m-%d"),
-        "end": end_dt.strftime("%Y-%m-%d"),
+        "target_start": target_start.strftime("%Y-%m-%d"),
+        "target_end": target_end.strftime("%Y-%m-%d"),
+        "fetch_start": fetch_start.strftime("%Y-%m-%d"),
+        "fetch_end": target_end.strftime("%Y-%m-%d"),
     }
 
 
-def load_price_history(code: str, start_date: str = "", end_date: str = "", days: int = 450) -> pd.DataFrame:
-    window = resolve_date_window(start_date=start_date, end_date=end_date, days=days)
-    df = fdr.DataReader(code, window["start"], window["end"])
+def load_price_history(
+    code: str,
+    start_date: str = "",
+    end_date: str = "",
+    days: int = 450,
+    min_bars: int = 40,
+) -> tuple[pd.DataFrame, Dict[str, str]]:
+    window = resolve_analysis_window(
+        start_date=start_date,
+        end_date=end_date,
+        days=days,
+        warmup_days=320,
+    )
+
+    df = fdr.DataReader(code, window["fetch_start"], window["fetch_end"])
 
     if df is None or df.empty:
-        raise RuntimeError(f"가격 데이터를 불러오지 못했습니다: {code}")
+        raise RuntimeError(
+            f"가격 데이터를 불러오지 못했습니다: {code} "
+            f"({window['fetch_start']} ~ {window['fetch_end']})"
+        )
 
     df = df.rename(columns={c: c.capitalize() for c in df.columns})
     needed = ["Open", "High", "Low", "Close", "Volume"]
@@ -159,9 +190,22 @@ def load_price_history(code: str, start_date: str = "", end_date: str = "", days
             raise RuntimeError(f"필수 컬럼 누락: {col}")
 
     df = df.dropna(subset=needed).copy()
-    if len(df) < 40:
-        raise RuntimeError("최소 40봉 이상 데이터가 필요합니다.")
-    return df
+
+    # 사용자가 보고 싶은 기준일 이하 데이터만 최종 판정에 사용
+    target_end_ts = pd.Timestamp(window["target_end"])
+    df = df[df.index <= target_end_ts].copy()
+
+    if df.empty:
+        raise RuntimeError(f"기준일({window['target_end']}) 이전 거래 데이터가 없습니다.")
+
+    if len(df) < min_bars:
+        raise RuntimeError(
+            f"지표 계산에 필요한 최소 거래봉이 부족합니다. "
+            f"현재 {len(df)}봉 / 필요 {min_bars}봉 "
+            f"(실제 조회: {window['fetch_start']} ~ {window['fetch_end']})"
+        )
+
+    return df, window
 
 
 def rsi(series: pd.Series, period: int = 14) -> pd.Series:
@@ -580,8 +624,10 @@ def build_snapshot(df: pd.DataFrame, window: Dict[str, str]) -> Dict[str, Any]:
 
     return {
         "date": str(pd.to_datetime(df.index[-1]).date()),
-        "start_date": window["start"],
-        "end_date": window["end"],
+        "target_start_date": window["target_start"],
+        "target_end_date": window["target_end"],
+        "fetch_start_date": window["fetch_start"],
+        "fetch_end_date": window["fetch_end"],
         "bars": len(df),
         "has_ma112": len(df) >= 112,
         "has_ma200": len(df) >= 200,
@@ -1452,7 +1498,8 @@ def render_html(result: Dict[str, Any]) -> str:
       <h1 class="title">{escape(result['name'])} <span style="color:var(--muted)">({escape(result['code'])})</span></h1>
       <div class="sub">
         생성시각 {escape(result['generated_at'])} · 기준봉 {escape(price['date'])}
-        · 조회기간 {escape(price['start_date'])} ~ {escape(price['end_date'])}
+        · 요청구간 {escape(price['target_start_date'])} ~ {escape(price['target_end_date'])}
+        · 계산데이터 {escape(price['fetch_start_date'])} ~ {escape(price['fetch_end_date'])}
       </div>
       <div class="pill-row">
         <div class="pill">분석모드 {escape(result['mode'])}</div>
@@ -1496,9 +1543,10 @@ def main() -> None:
     ap.add_argument("--name", default="")
     ap.add_argument("--mode", default="all")
     ap.add_argument("--force", action="store_true")
-    ap.add_argument("--days", type=int, default=450, help="최근 N일 조회")
-    ap.add_argument("--start-date", default="", help="조회 시작일 YYYY-MM-DD")
-    ap.add_argument("--end-date", default="", help="조회 종료일 YYYY-MM-DD")
+    ap.add_argument("--days", type=int, default=450, help="계산용 과거 데이터 조회 일수")
+    ap.add_argument("--start-date", default="", help="결과를 보고 싶은 시작일 YYYY-MM-DD")
+    ap.add_argument("--end-date", default="", help="결과를 보고 싶은 기준일 YYYY-MM-DD")
+    ap.add_argument("--min-bars", type=int, default=40, help="지표 계산에 필요한 최소 거래봉 수")
     ap.add_argument("--output-json", default="reports/latest_result.json")
     ap.add_argument("--output-html", default="site/index.html")
     args = ap.parse_args()
@@ -1509,17 +1557,12 @@ def main() -> None:
     code = normalize_code(args.code)
     name = detect_name(code, args.name)
 
-    window = resolve_date_window(
+    df, window = load_price_history(
+        code=code,
         start_date=args.start_date,
         end_date=args.end_date,
         days=args.days,
-    )
-
-    df = load_price_history(
-        code,
-        start_date=window["start"],
-        end_date=window["end"],
-        days=args.days,
+        min_bars=args.min_bars,
     )
     df = add_indicators(df)
 
