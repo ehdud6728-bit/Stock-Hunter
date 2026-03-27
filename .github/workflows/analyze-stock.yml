@@ -32,6 +32,21 @@ on:
         required: true
         default: true
         type: boolean
+      days:
+        description: "최근 조회 일수 (start/end 미입력 시 사용)"
+        required: false
+        default: "450"
+        type: string
+      start_date:
+        description: "조회 시작일 YYYY-MM-DD (선택)"
+        required: false
+        default: ""
+        type: string
+      end_date:
+        description: "조회 종료일 YYYY-MM-DD (선택)"
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -62,8 +77,24 @@ jobs:
 
       - name: 📦 의존성 설치
         run: |
-          pip install --upgrade pip
-          pip install pandas numpy yfinance pykrx finance-datareader beautifulsoup4 requests mplfinance ta openai anthropic gspread oauth2client scipy feedparser \
+          python -m pip install --upgrade pip
+          pip install \
+            pandas \
+            numpy \
+            pytz \
+            yfinance \
+            pykrx \
+            finance-datareader \
+            beautifulsoup4 \
+            requests \
+            mplfinance \
+            ta \
+            openai \
+            anthropic \
+            gspread \
+            oauth2client \
+            scipy \
+            feedparser
 
       - name: Create output directories
         run: |
@@ -71,10 +102,13 @@ jobs:
 
       - name: Run analyzer
         run: |
-          python analyze_single_stock.py \
+          python integrated_stock_pattern_analyzer.py \
             --code "${{ inputs.stock_code }}" \
             --name "${{ inputs.stock_name }}" \
             --mode "${{ inputs.mode }}" \
+            --days "${{ inputs.days }}" \
+            ${{ inputs.start_date != '' && format('--start-date "{0}"', inputs.start_date) || '' }} \
+            ${{ inputs.end_date != '' && format('--end-date "{0}"', inputs.end_date) || '' }} \
             ${{ inputs.force && '--force' || '' }} \
             --output-json reports/latest_result.json \
             --output-html site/index.html
