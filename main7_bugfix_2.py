@@ -1987,6 +1987,234 @@ def check_ma_convergence_break_ready(curr: pd.Series, past: pd.DataFrame):
     except Exception as e:
         return False, {"score": 0, "msg": f"오류:{e}"}
 
+
+# =========================================================
+# 🍉 수박패턴 V2 (준비형 → 발사형)
+# 기존 Watermelon_Color / Watermelon_Signal 로직을 점수형으로 업그레이드
+# =========================================================
+def _wm_safe_series(df: pd.DataFrame, col: str, default=0.0) -> pd.Series:
+    if col in df.columns:
+        return pd.to_numeric(df[col], errors='coerce')
+    return pd.Series(default, index=df.index, dtype='float64')
+
+
+def integrate_watermelon_v2_columns(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+
+    close = _wm_safe_series(out, 'Close')
+    open_ = _wm_safe_series(out, 'Open')
+    high = _wm_safe_series(out, 'High')
+    low = _wm_safe_series(out, 'Low')
+    volume = _wm_safe_series(out, 'Volume')
+
+    ma5 = _wm_safe_series(out, 'MA5')
+    ma20 = _wm_safe_series(out, 'MA20')
+    ma40 = _wm_safe_series(out, 'MA40')
+    bb40_up = _wm_safe_series(out, 'BB40_Upper')
+    bb40_dn = _wm_safe_series(out, 'BB40_Lower')
+    bb40_width = _wm_safe_series(out, 'BB40_Width')
+    disparity = _wm_safe_series(out, 'Disparity', 100.0)
+    vma20 = _wm_safe_series(out, 'VMA20')
+
+    atr = _wm_safe_series(out, 'ATR')
+    atr_ma20 = _wm_safe_series(out, 'ATR_MA20')
+    mfi = _wm_safe_series(out, 'MFI')
+
+    macd = _wm_safe_series(out, 'MACD')
+    macd_signal = _wm_safe_series(out, 'MACD_Signal')
+    macd_hist = _wm_safe_series(out, 'MACD_Hist')
+
+    plus_di = _wm_safe_series(out, 'pDI')
+    minus_di = _wm_safe_series(out, 'mDI')
+
+    obv = _wm_safe_series(out, 'OBV')
+
+    if 'OBV_SLOPE_10' not in out.columns:
+        vol10 = volume.rolling(10).sum().replace(0, np.nan)
+        out['OBV_SLOPE_10'] = ((obv.diff(10) / vol10) * 100).replace([np.inf, -np.inf], np.nan).fillna(0).round(2)
+    obv_slope_10 = _wm_safe_series(out, 'OBV_SLOPE_10')
+
+    total_range = (high - low).replace(0, np.nan)
+    upper_wick_total = (high - pd.concat([open_, close], axis=1).max(axis=1)).clip(lower=0)
+    upper_wick_total_pct = (upper_wick_total / total_range).replace([np.inf, -np.inf], np.nan).fillna(0) * 100
+    out['UPPER_WICK_TOTAL_PCT'] = upper_wick_total_pct.round(1)
+
+    mfi_up = (mfi > mfi.shift(1)).fillna(False).astype(int)
+    vol_ok = (volume >= vma20 * 0.8).fillna(False).astype(int)
+    atr_quiet = (atr <= atr_ma20).fillna(False).astype(int)
+
+    green_score = (
+        (obv_slope_10 > 0).astype(int) +
+        (mfi >= 50).astype(int) +
+        mfi_up +
+        (close >= ma20).astype(int) +
+        (close >= ma40).astype(int) +
+        vol_ok +
+        atr_quiet
+    )
+
+    green_filter = (
+        (disparity >= 97) &
+        (disparity <= 108) &
+        (bb40_width >= 3) &
+        (bb40_width <= 24) &
+        (close >= bb40_dn * 0.98) &
+        (close <= ma40 * 1.05)
+    ).fillna(False)
+
+    out['WATERMELON_GREEN_SCORE'] = green_score.fillna(0).astype(int)
+    out['WATERMELON_GREEN'] = ((out['WATERMELON_GREEN_SCORE'] >= 4) & green_filter).astype(int)
+
+    macd_hist_up = (macd_hist > macd_hist.shift(1)).fillna(False).astype(int)
+    breakout_3d = (close > high.shift(1).rolling(3).max()).fillna(False).astype(int)
+    vol_trigger = (volume >= vma20 * 0.9).fillna(False).astype(int)
+
+    red_score = (
+        macd_hist_up +
+        (macd >= macd_signal).astype(int) +
+        (plus_di >= minus_di).astype(int) +
+        breakout_3d +
+        (ma5 >= ma20).astype(int) +
+        (out['UPPER_WICK_TOTAL_PCT'] <= 35).astype(int) +
+        vol_trigger
+    )
+
+    red_filter = (
+        (disparity >= 98) &
+        (disparity <= 110) &
+        (close >= ma40 * 0.98) &
+        (close <= bb40_up * 1.02)
+    ).fillna(False)
+
+    out['WATERMELON_RED_SCORE'] = red_score.fillna(0).astype(int)
+    out['WATERMELON_RED'] = (
+        (out['WATERMELON_GREEN'] == 1) &
+        (out['WATERMELON_RED_SCORE'] >= 4) &
+        red_filter
+    ).astype(int)
+
+    out['WATERMELON_GREEN_NEW'] = (
+        (out['WATERMELON_GREEN'] == 1) &
+        (out['WATERMELON_GREEN'].shift(1).fillna(0) == 0)
+    ).astype(int)
+    out['WATERMELON_RED_NEW'] = (
+        (out['WATERMELON_RED'] == 1) &
+        (out['WATERMELON_RED'].shift(1).fillna(0) == 0)
+    ).astype(int)
+
+    green_days = []
+    red_days = []
+    g_cnt = 0
+    r_cnt = 0
+    for g, r in zip(out['WATERMELON_GREEN'].tolist(), out['WATERMELON_RED'].tolist()):
+        g_cnt = g_cnt + 1 if int(g) == 1 else 0
+        r_cnt = r_cnt + 1 if int(r) == 1 else 0
+        green_days.append(g_cnt)
+        red_days.append(r_cnt)
+    out['WATERMELON_GREEN_DAYS'] = green_days
+    out['WATERMELON_RED_DAYS'] = red_days
+
+    out['WATERMELON_QUALITY'] = (
+        out['WATERMELON_GREEN_SCORE'] * 0.4 +
+        out['WATERMELON_RED_SCORE'] * 0.6 +
+        np.where(out['WATERMELON_RED_NEW'] == 1, 1.5, 0.0) +
+        np.where(obv_slope_10 > 0, 0.5, 0.0) +
+        np.where(mfi >= 55, 0.5, 0.0) +
+        np.where(plus_di > minus_di, 0.5, 0.0)
+    ).round(2)
+
+    out['Watermelon_Prepare'] = ((out['WATERMELON_GREEN'] == 1) & (out['WATERMELON_RED'] == 0)).astype(bool)
+    out['Watermelon_Launch'] = (out['WATERMELON_RED'] == 1).astype(bool)
+    out['Watermelon_Prepare_Recent'] = (
+        out['Watermelon_Prepare'].rolling(10, min_periods=1).max().shift(1).fillna(0) >= 1
+    ).astype(bool)
+    out['Watermelon_Signal'] = (out['WATERMELON_RED_NEW'] == 1)
+    out['Watermelon_Signal_Refined'] = (out['WATERMELON_RED_NEW'] == 1)
+    out['Supply_Turn_Signal'] = out['Watermelon_Signal_Refined']
+    out['Supply_Turn_Prepare'] = out['Watermelon_Prepare_Recent']
+
+    out['Watermelon_Color'] = np.where(
+        out['WATERMELON_RED'] == 1, 'red',
+        np.where(out['WATERMELON_GREEN'] == 1, 'green', 'none')
+    )
+    out['Watermelon_Score'] = out['WATERMELON_RED_SCORE'].astype(int)
+    out['Green_Days_10'] = out['WATERMELON_GREEN'].rolling(10, min_periods=1).sum().fillna(0).astype(int)
+    out['Watermelon_Green'] = (out['WATERMELON_GREEN'] == 1)
+    out['Watermelon_Red'] = (out['WATERMELON_RED'] == 1)
+    out['Watermelon_Red2'] = out['Watermelon_Red']
+    out['VWMA40'] = (close * volume).rolling(40).mean() / volume.rolling(40).mean()
+    out['Vol_Accel'] = volume / volume.rolling(5).mean()
+    out['Watermelon_Fire'] = (
+        out['WATERMELON_GREEN_SCORE'] * 1.5 +
+        out['WATERMELON_RED_SCORE'] * 2.0 +
+        np.where(out['WATERMELON_RED_NEW'] == 1, 3.0, 0.0)
+    ).round(2)
+
+    return out
+
+
+def watermelon_signal_snapshot(row: pd.Series) -> dict:
+    green = bool(int(row.get('WATERMELON_GREEN', 0)))
+    red = bool(int(row.get('WATERMELON_RED', 0)))
+    red_new = bool(int(row.get('WATERMELON_RED_NEW', 0)))
+    green_new = bool(int(row.get('WATERMELON_GREEN_NEW', 0)))
+
+    green_score = int(row.get('WATERMELON_GREEN_SCORE', 0) or 0)
+    red_score = int(row.get('WATERMELON_RED_SCORE', 0) or 0)
+    quality = float(row.get('WATERMELON_QUALITY', 0) or 0)
+    green_days = int(row.get('WATERMELON_GREEN_DAYS', 0) or 0)
+    red_days = int(row.get('WATERMELON_RED_DAYS', 0) or 0)
+
+    tags = []
+    score_bonus = 0
+    phase = '없음'
+
+    if green and not red:
+        phase = '준비형'
+        tags.append(f'🍈수박준비형(G{green_score})')
+        score_bonus += 25 + min(green_score * 3, 18)
+        if green_new:
+            tags.append('🍈초록신규')
+            score_bonus += 10
+        if green_days >= 3:
+            tags.append(f'🍈초록{green_days}일')
+            score_bonus += min(green_days * 2, 12)
+
+    if red:
+        phase = '발사형'
+        tags.append(f'🍉수박발사형(R{red_score})')
+        score_bonus += 60 + min(red_score * 6, 36)
+        if red_days >= 2:
+            tags.append(f'🍉빨강{red_days}일')
+            score_bonus += min(red_days * 3, 12)
+
+    if red_new:
+        phase = '발사형'
+        tags.append('🍉빨강신규점등')
+        score_bonus += 45
+
+    if quality >= 5.5:
+        tags.append(f'🏆수박품질{quality:.1f}')
+        score_bonus += 20
+    elif quality >= 4.0:
+        tags.append(f'💎수박품질{quality:.1f}')
+        score_bonus += 10
+
+    return {
+        'green': green,
+        'red': red,
+        'red_new': red_new,
+        'green_new': green_new,
+        'phase': phase,
+        'green_score': green_score,
+        'red_score': red_score,
+        'quality': quality,
+        'green_days': green_days,
+        'red_days': red_days,
+        'score_bonus': int(score_bonus),
+        'tags': tags,
+    }
+
 # ---------------------------------------------------------
 # 📈 [4] 기술적 분석 지표
 # ---------------------------------------------------------
@@ -2225,65 +2453,8 @@ def get_indicators(df):
     df['Dolbanzi']       = (vol_power_series >= 3.0) & is_above_ma224 & double_bottom_series
     df['Dolbanzi_Count'] = df.groupby('Trend_Group')['Dolbanzi'].cumsum()
 
-    df['VWMA40']           = (close * df['Volume']).rolling(40).mean() / df['Volume'].rolling(40).mean()
-    df['Vol_Accel']        = df['Volume'] / df['Volume'].rolling(5).mean()
-    df['Watermelon_Fire']  = (close / df['VWMA40'] - 1) * 100 * df['Vol_Accel']
-    df['Watermelon_Green'] = (close > df['VWMA40']) & (df['BB40_Width'] < 10)
-    df['Watermelon_Red']   = df['Watermelon_Green'] & (df['Watermelon_Fire'] > 5.0)
-    df['Watermelon_Red2']  = (close > df['VWMA40']) & (close >= df['Open'])
-
-    red_score = (
-        df['OBV_Rising'].astype(int) +
-        df['MFI_Strong'].astype(int) +
-        df['Buying_Pressure'].astype(int)
-    )
-    df['Watermelon_Score'] = red_score
-    df['Watermelon_Color'] = np.where(red_score >= 2, 'red', 'green')
-
-    color_change            = (df['Watermelon_Color'] == 'red') & (df['Watermelon_Color'].shift(1) == 'green')
-    df['Green_Days_10']     = (df['Watermelon_Color'].shift(1) == 'green').rolling(10).sum()
-    volume_surge            = df['Volume'] >= vol_avg20 * 1.5  # ✅ FIX-검색식3: 1.2→1.5 (수박=거래량폭발)
-    df['Watermelon_Signal'] = color_change & (df['Green_Days_10'] >= 7) & volume_surge
-
-    # ── 기존 수박 로직 별칭: 수급전환(레거시 수급 전환 감지) ─────────────
-    df['Supply_Turn_Signal'] = df['Watermelon_Signal']
-    df['Supply_Turn_Prepare'] = (df['Watermelon_Color'].shift(1) == 'green').rolling(10).sum() >= 7
-
-    # ── 수박 보강판: 준비형 / 발사형 ─────────────────────────────
-    turnover_eok = (close * df['Volume']) / 100_000_000
-
-    df['Watermelon_Prepare'] = (
-        (df['BB40_Width'] <= 18) &
-        (df['OBV_Rising']) &
-        (turnover_eok >= 30) &
-        (df['Close'] >= df['MA20'] * 0.97) &
-        (df['Close'] <= df['BB40_Upper'] * 0.98) &
-        (df['MFI'] >= 45) &
-        (
-            df['Is_UltraShort_MA_Conv'] |
-            df['Is_Short_MA_Conv'] |
-            df['Is_Structure_MA_Conv']
-        )
-    )
-
-    df['Watermelon_Launch'] = (
-        (df['Close'] >= df['MA40']) &
-        (df['Close'] >= df['Open']) &
-        (df['Volume'] >= df['VMA20'] * 1.2) &
-        (df['OBV_Rising']) &
-        (
-            (df['Watermelon_Color'] == 'red') |
-            (df['Watermelon_Score'] >= 2)
-        )
-    )
-
-    df['Watermelon_Prepare_Recent'] = (
-        df['Watermelon_Prepare'].rolling(10, min_periods=1).max().shift(1).fillna(0) >= 1
-    )
-
-    df['Watermelon_Signal_Refined'] = (
-        df['Watermelon_Launch'] & df['Watermelon_Prepare_Recent']
-    )
+    # ── 수박패턴 V2 적용: 준비형(초록) → 발사형(빨강) 점수 구조 ─────────────
+    df = integrate_watermelon_v2_columns(df)
 
     # ✅ 매집대 품질 검증 지표 (단테 HTS 수식) — 재설계 Ver 27.11
     # If(V>Avg(V,20)*1.1 And Avg(OBV,5)>Avg(OBV,20) And C>Avg(C,20) And C>=Highest(H,20,1)*0.9, 60, 0)
@@ -3737,15 +3908,15 @@ def build_default_signals(row, close_p, prev):
     이후 개별 패턴 결과를 덮어씀으로써 KeyError 원천 차단.
     """
     return {
-        # ── 수박 계열 ──────────────────────────────────────────
+        # ── 수박 계열(V2) ────────────────────────────────────────
         'watermelon_signal':     bool(row.get('Watermelon_Signal_Refined', row.get('Watermelon_Signal', False))),
-        'supply_turn_signal':    bool(row.get('Supply_Turn_Signal', row.get('Watermelon_Signal', False))),
-        'supply_turn_prepare':   bool(row.get('Supply_Turn_Prepare', False)),
+        'supply_turn_signal':    bool(row.get('Watermelon_Signal_Refined', row.get('Watermelon_Signal', False))),
+        'supply_turn_prepare':   bool(row.get('Watermelon_Prepare_Recent', False)),
         'watermelon_prepare':    bool(row.get('Watermelon_Prepare', False)),
         'watermelon_launch':     bool(row.get('Watermelon_Launch', False)),
-        'watermelon_red':        row['Watermelon_Color'] == 'red',
-        'watermelon_green_7d':   row['Green_Days_10'] >= 7,
-        'watermelon_relaunch':   row.get('Watermelon_Relaunch', False),
+        'watermelon_red':        bool(row.get('Watermelon_Red', False)),
+        'watermelon_green_7d':   int(row.get('Green_Days_10', 0)) >= 7,
+        'watermelon_relaunch':   bool(row.get('Watermelon_Relaunch', False)) or (bool(row.get('Watermelon_Red', False)) and int(row.get('WATERMELON_RED_DAYS', 0)) >= 2),
 
         # ── BB30 Shift 골든크로스 (단테 수박 타점) ────────────
         'bb30_shift_gc':   bool(row.get('BB30_Shift_GC',   False)),
@@ -4659,7 +4830,7 @@ def build_sub_classification(row) -> dict:
         'ATR비율':      round(float(row.get('ATR', 0) or 0) / float(row.get('Close', 1) or 1) * 100, 2),
         '매집봉수':     int(row.get('Maejip_Count', 0) or 0),
         '저항두드리기': int(row.get('Total_hammering', 0) or 0),
-        '수박Fire':     round(float(row.get('Watermelon_Fire', 0) or 0), 2),
+        '수박품질':     round(float(row.get('WATERMELON_QUALITY', row.get('Watermelon_Fire', 0) or 0)), 2),
         'MA60기울기':   round(float(row.get('MA60_Slope', 0) or 0), 2),
         'MA112기울기':  round(float(row.get('MA112_Slope', 0) or 0), 2),
         '박스레인지':   round(float(row.get('Box_Range', 1) or 1), 3),
@@ -4842,16 +5013,13 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         if explosion_ready and explosion_level and explosion_level not in tags:
             tags.append(explosion_level)
 
+        wm = watermelon_signal_snapshot(row)
         is_watermelon = bool(row.get('Watermelon_Signal_Refined', row.get('Watermelon_Signal', False)))
         is_supply_turn = bool(row.get('Supply_Turn_Signal', row.get('Watermelon_Signal', False)))
         is_watermelon_prepare = bool(row.get('Watermelon_Prepare', False))
         watermelon_color = row['Watermelon_Color']
-        watermelon_score = row['Watermelon_Score']
-        red_score = (
-            int(row['OBV_Rising']) +
-            int(row['MFI_Strong']) +
-            int(row['Buying_Pressure'])
-        )
+        watermelon_score = int(max(row.get('Watermelon_Score', 0) or 0, wm.get('red_score', 0)))
+        red_score = int(wm.get('red_score', 0))
      
         dante_data = calculate_dante_symmetry(temp_df)
         if dante_data is None:
@@ -4946,8 +5114,13 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         # ✅ new_tags extend (덮어쓰기 제거)
         new_tags.extend(result['tags'])
 
+        if wm.get('score_bonus', 0):
+            s_score += int(wm['score_bonus'])
+            for _wm_tag in wm.get('tags', []):
+                if _wm_tag not in new_tags:
+                    new_tags.append(_wm_tag)
         if signals['watermelon_signal']:
-            new_tags.append(f"🍉강도{row['Watermelon_Score']}/3")
+            new_tags.append(f"🍉강도{int(row.get('WATERMELON_RED_SCORE', row.get('Watermelon_Score', 0) or 0))}/7")
         if signals['bottom_area']:
             new_tags.append(f"📍거리{row['Near_MA112']:.1f}%")
         if signals['silent_perfect'] or signals['silent_strong']:
