@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 import FinanceDataReader as fdr
+import numpy as np
 import pandas as pd
 import pytz
 
@@ -31,7 +32,6 @@ ENV20_NEAR_MIN = -2.0
 ENV20_NEAR_MAX = 2.0
 ENV40_NEAR_MIN = -10.0
 ENV40_NEAR_MAX = 10.0
-
 
 ULTRA_MA_CONV_MAX = 3.5
 SHORT_MA_CONV_MAX = 4.5
@@ -132,10 +132,22 @@ def detect_name(code: str, given_name: str = "") -> str:
     return code
 
 
-def load_price_history(code: str) -> pd.DataFrame:
-    end = datetime.now(KST).strftime("%Y-%m-%d")
-    start = (datetime.now(KST) - pd.Timedelta(days=450)).strftime("%Y-%m-%d")
-    df = fdr.DataReader(code, start, end)
+def resolve_date_window(start_date: str = "", end_date: str = "", days: int = 450) -> Dict[str, str]:
+    end_dt = pd.Timestamp(end_date).normalize() if end_date else pd.Timestamp(datetime.now(KST).date())
+    start_dt = pd.Timestamp(start_date).normalize() if start_date else (end_dt - pd.Timedelta(days=max(days, 240)))
+
+    if start_dt > end_dt:
+        raise RuntimeError("start_date는 end_date보다 늦을 수 없습니다.")
+
+    return {
+        "start": start_dt.strftime("%Y-%m-%d"),
+        "end": end_dt.strftime("%Y-%m-%d"),
+    }
+
+
+def load_price_history(code: str, start_date: str = "", end_date: str = "", days: int = 450) -> pd.DataFrame:
+    window = resolve_date_window(start_date=start_date, end_date=end_date, days=days)
+    df = fdr.DataReader(code, window["start"], window["end"])
 
     if df is None or df.empty:
         raise RuntimeError(f"가격 데이터를 불러오지 못했습니다: {code}")
@@ -158,7 +170,7 @@ def rsi(series: pd.Series, period: int = 14) -> pd.Series:
     down = -delta.clip(upper=0)
     avg_gain = up.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
     avg_loss = down.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
-    rs = avg_gain / avg_loss.replace(0, pd.NA)
+    rs = avg_gain / avg_loss.replace(0, np.nan)
     out = 100 - (100 / (1 + rs))
     return out.fillna(50)
 
@@ -174,7 +186,7 @@ def mfi(df: pd.DataFrame, period: int = 14) -> pd.Series:
     neg[diff < 0] = mf[diff < 0]
 
     pos_sum = pos.rolling(period).sum()
-    neg_sum = neg.rolling(period).sum().replace(0, pd.NA)
+    neg_sum = neg.rolling(period).sum().replace(0, np.nan)
     ratio = pos_sum / neg_sum
     out = 100 - (100 / (1 + ratio))
     return out.fillna(50)
@@ -206,6 +218,7 @@ def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
     tr3 = (out["Low"] - out["Close"].shift(1)).abs()
     out["TR"] = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
     out["ATR"] = out["TR"].rolling(14).mean()
+    out["ATR_MA20"] = out["ATR"].rolling(20).mean()
 
     std20 = out["Close"].rolling(20).std(ddof=0)
     std40 = out["Close"].rolling(40).std(ddof=0)
@@ -221,19 +234,53 @@ def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
     out["BB20_WIDTH"] = ((out["BB20_UP"] - out["BB20_DN"]) / out["BB20_MID"] * 100).round(1)
     out["BB40_WIDTH"] = ((out["BB40_UP"] - out["BB40_DN"]) / out["BB40_MID"] * 100).round(1)
 
+    width40_raw = (out["BB40_UP"] - out["BB40_DN"]).replace(0, np.nan)
+    out["BB40_PCTB"] = ((out["Close"] - out["BB40_DN"]) / width40_raw).round(3)
+
     direction = out["Close"].diff().fillna(0)
     obv_delta = pd.Series(0, index=out.index, dtype="float64")
     obv_delta[direction > 0] = out.loc[direction > 0, "Volume"]
     obv_delta[direction < 0] = -out.loc[direction < 0, "Volume"]
     out["OBV"] = obv_delta.cumsum()
 
-    vol5 = out["Volume"].rolling(5).sum().replace(0, pd.NA)
-    vol10 = out["Volume"].rolling(10).sum().replace(0, pd.NA)
+    vol5 = out["Volume"].rolling(5).sum().replace(0, np.nan)
+    vol10 = out["Volume"].rolling(10).sum().replace(0, np.nan)
     out["OBV_SLOPE_5"] = ((out["OBV"].diff(5) / vol5) * 100).round(2)
     out["OBV_SLOPE_10"] = ((out["OBV"].diff(10) / vol10) * 100).round(2)
 
     out["RSI14"] = rsi(out["Close"], 14).round(1)
     out["MFI14"] = mfi(out, 14).round(1)
+
+    ema12 = out["Close"].ewm(span=12, adjust=False).mean()
+    ema26 = out["Close"].ewm(span=26, adjust=False).mean()
+    out["MACD"] = ema12 - ema26
+    out["MACD_SIGNAL"] = out["MACD"].ewm(span=9, adjust=False).mean()
+    out["MACD_HIST"] = out["MACD"] - out["MACD_SIGNAL"]
+
+    up_move = out["High"].diff()
+    down_move = -out["Low"].diff()
+
+    plus_dm = pd.Series(
+        np.where((up_move > down_move) & (up_move > 0), up_move, 0.0),
+        index=out.index,
+        dtype="float64",
+    )
+    minus_dm = pd.Series(
+        np.where((down_move > up_move) & (down_move > 0), down_move, 0.0),
+        index=out.index,
+        dtype="float64",
+    )
+
+    atr14 = out["TR"].rolling(14).mean().replace(0, np.nan)
+    out["PLUS_DI"] = (100 * plus_dm.rolling(14).mean() / atr14).fillna(0).round(2)
+    out["MINUS_DI"] = (100 * minus_dm.rolling(14).mean() / atr14).fillna(0).round(2)
+
+    dx = ((out["PLUS_DI"] - out["MINUS_DI"]).abs() / (out["PLUS_DI"] + out["MINUS_DI"]).replace(0, np.nan) * 100)
+    out["ADX"] = dx.rolling(14).mean().fillna(0).round(2)
+
+    total_range = (out["High"] - out["Low"]).replace(0, np.nan)
+    upper_wick_total = (out["High"] - out[["Open", "Close"]].max(axis=1)).clip(lower=0)
+    out["UPPER_WICK_TOTAL_PCT"] = (upper_wick_total / total_range).fillna(0).mul(100).round(1)
 
     out["Green"] = (out["Close"] >= out["Open"]).astype(int)
     out["Green_Days_10"] = out["Green"].rolling(10).sum()
@@ -244,7 +291,98 @@ def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
     out["MA60_SLOPE"] = (((out["MA60"] - out["MA60"].shift(5)) / out["MA60"].shift(5)) * 100).round(2)
 
     out["MA200_GAP_PCT"] = ((out["Close"] - out["MA200"]) / out["MA200"] * 100).round(1)
+
+    mfi_up = (out["MFI14"] > out["MFI14"].shift(1)).fillna(False).astype(int)
+    macd_hist_up = (out["MACD_HIST"] > out["MACD_HIST"].shift(1)).fillna(False).astype(int)
+    breakout_3d = (out["Close"] > out["High"].shift(1).rolling(3).max()).fillna(False).astype(int)
+    vol_ok = (out["Volume"] >= out["VMA20"] * 0.8).fillna(False).astype(int)
+    vol_trigger = (out["Volume"] >= out["VMA20"] * 0.9).fillna(False).astype(int)
+    atr_quiet = (out["ATR"] <= out["ATR_MA20"]).fillna(False).astype(int)
+
+    green_score = (
+        (out["OBV_SLOPE_10"] > 0).astype(int) +
+        (out["MFI14"] >= 50).astype(int) +
+        mfi_up +
+        (out["Close"] >= out["MA20"]).astype(int) +
+        (out["Close"] >= out["BB40_MID"]).astype(int) +
+        vol_ok +
+        atr_quiet
+    )
+
+    red_score = (
+        macd_hist_up +
+        (out["MACD"] >= out["MACD_SIGNAL"]).astype(int) +
+        (out["PLUS_DI"] >= out["MINUS_DI"]).astype(int) +
+        breakout_3d +
+        (out["MA5"] >= out["MA20"]).astype(int) +
+        (out["UPPER_WICK_TOTAL_PCT"] <= 35).astype(int) +
+        vol_trigger
+    )
+
+    green_filter = (
+        (out["Disparity"] >= 97) &
+        (out["Disparity"] <= 108) &
+        (out["BB40_WIDTH"] >= 3) &
+        (out["BB40_WIDTH"] <= 24) &
+        (out["Close"] >= out["BB40_DN"] * 0.98) &
+        (out["Close"] <= out["BB40_MID"] * 1.05)
+    ).fillna(False)
+
+    red_filter = (
+        (out["Disparity"] >= 98) &
+        (out["Disparity"] <= 110) &
+        (out["Close"] >= out["BB40_MID"] * 0.98) &
+        (out["Close"] <= out["BB40_UP"] * 1.02)
+    ).fillna(False)
+
+    out["WATERMELON_GREEN_SCORE"] = green_score.fillna(0).astype(int)
+    out["WATERMELON_RED_SCORE"] = red_score.fillna(0).astype(int)
+
+    out["WATERMELON_GREEN"] = ((out["WATERMELON_GREEN_SCORE"] >= 4) & green_filter).astype(int)
+    out["WATERMELON_RED"] = (
+        (out["WATERMELON_GREEN"] == 1) &
+        (out["WATERMELON_RED_SCORE"] >= 4) &
+        red_filter
+    ).astype(int)
+
+    out["WATERMELON_VALUE"] = 0
+    out.loc[out["WATERMELON_GREEN"] == 1, "WATERMELON_VALUE"] = 1
+    out.loc[out["WATERMELON_RED"] == 1, "WATERMELON_VALUE"] = 2
+
+    green_days = []
+    red_days = []
+    g_cnt = 0
+    r_cnt = 0
+    for g, r in zip(out["WATERMELON_GREEN"].tolist(), out["WATERMELON_RED"].tolist()):
+        g_cnt = g_cnt + 1 if g == 1 else 0
+        r_cnt = r_cnt + 1 if r == 1 else 0
+        green_days.append(g_cnt)
+        red_days.append(r_cnt)
+
+    out["WATERMELON_GREEN_DAYS"] = green_days
+    out["WATERMELON_RED_DAYS"] = red_days
+
+    out["WATERMELON_GREEN_NEW"] = (
+        (out["WATERMELON_GREEN"] == 1) &
+        (out["WATERMELON_GREEN"].shift(1).fillna(0) == 0)
+    ).astype(int)
+
+    out["WATERMELON_RED_NEW"] = (
+        (out["WATERMELON_RED"] == 1) &
+        (out["WATERMELON_RED"].shift(1).fillna(0) == 0)
+    ).astype(int)
+
+    out["WATERMELON_QUALITY"] = (
+        out["WATERMELON_GREEN_SCORE"] * 0.4 +
+        out["WATERMELON_RED_SCORE"] * 0.6 +
+        np.where(out["WATERMELON_RED_NEW"] == 1, 1.5, 0.0) +
+        np.where(out["OBV_SLOPE_10"] > 0, 0.5, 0.0) +
+        np.where(out["MFI14"] >= 55, 0.5, 0.0) +
+        np.where(out["PLUS_DI"] > out["MINUS_DI"], 0.5, 0.0)
+    ).round(2)
+
     return out
+
 
 def calc_envelope(df: pd.DataFrame, period: int, pct: float) -> Dict[str, pd.Series]:
     ma = df["Close"].rolling(period).mean()
@@ -349,7 +487,6 @@ def find_double_bottom(df: pd.DataFrame, lookback: int = 120) -> Dict[str, Any]:
     return best or {"found": False}
 
 
-
 def calc_triplet_convergence(*values: float) -> float:
     valid = [safe_float(v, -1.0) for v in values]
     valid = [v for v in valid if v > 0]
@@ -393,7 +530,7 @@ def build_ma_convergence_comment(price: Dict[str, Any]) -> str:
     return " ".join(dict.fromkeys(comments))
 
 
-def build_snapshot(df: pd.DataFrame) -> Dict[str, Any]:
+def build_snapshot(df: pd.DataFrame, window: Dict[str, str]) -> Dict[str, Any]:
     row = df.iloc[-1]
     close = safe_float(row["Close"])
     open_p = safe_float(row["Open"])
@@ -428,8 +565,23 @@ def build_snapshot(df: pd.DataFrame) -> Dict[str, Any]:
     connect_ma_conv = connect_ma_conv_pct <= CONNECT_MA_CONV_MAX
     super_ma_conv = (short_ma_conv and struct_ma_conv) or (ultra_ma_conv and struct_ma_conv)
 
+    bb40_mid = safe_float(row.get("BB40_MID"))
+    bb40_up = safe_float(row.get("BB40_UP"))
+    bb40_dn = safe_float(row.get("BB40_DN"))
+
+    prep_zone = bb40_dn * 0.98 <= close <= bb40_mid * 1.02 if bb40_dn > 0 and bb40_mid > 0 else False
+    launch_zone = bb40_mid * 0.98 <= close <= bb40_up * 1.02 if bb40_mid > 0 and bb40_up > 0 else False
+
+    watermelon_phase = "비정형"
+    if prep_zone and close < bb40_mid:
+        watermelon_phase = "준비형"
+    elif launch_zone:
+        watermelon_phase = "발사형"
+
     return {
         "date": str(pd.to_datetime(df.index[-1]).date()),
+        "start_date": window["start"],
+        "end_date": window["end"],
         "bars": len(df),
         "has_ma112": len(df) >= 112,
         "has_ma200": len(df) >= 200,
@@ -452,6 +604,7 @@ def build_snapshot(df: pd.DataFrame) -> Dict[str, Any]:
         "mfi14": round(safe_float(row.get("MFI14")), 1),
         "bb20_width": round(safe_float(row.get("BB20_WIDTH")), 1),
         "bb40_width": round(safe_float(row.get("BB40_WIDTH")), 1),
+        "bb40_pctb": round(safe_float(row.get("BB40_PCTB")), 3),
         "obv_slope_5": round(safe_float(row.get("OBV_SLOPE_5")), 2),
         "obv_slope_10": round(safe_float(row.get("OBV_SLOPE_10")), 2),
         "green_days_10": safe_int(row.get("Green_Days_10")),
@@ -485,7 +638,25 @@ def build_snapshot(df: pd.DataFrame) -> Dict[str, Any]:
         "env20_lower": env["lower20"],
         "env40_lower": env["lower40"],
         "double_bottom": double_bottom,
+        "macd": round(safe_float(row.get("MACD")), 4),
+        "macd_signal": round(safe_float(row.get("MACD_SIGNAL")), 4),
+        "macd_hist": round(safe_float(row.get("MACD_HIST")), 4),
+        "plus_di": round(safe_float(row.get("PLUS_DI")), 2),
+        "minus_di": round(safe_float(row.get("MINUS_DI")), 2),
+        "adx": round(safe_float(row.get("ADX")), 2),
+        "watermelon_green": bool(safe_int(row.get("WATERMELON_GREEN"))),
+        "watermelon_red": bool(safe_int(row.get("WATERMELON_RED"))),
+        "watermelon_green_new": bool(safe_int(row.get("WATERMELON_GREEN_NEW"))),
+        "watermelon_red_new": bool(safe_int(row.get("WATERMELON_RED_NEW"))),
+        "watermelon_green_score": safe_int(row.get("WATERMELON_GREEN_SCORE")),
+        "watermelon_red_score": safe_int(row.get("WATERMELON_RED_SCORE")),
+        "watermelon_green_days": safe_int(row.get("WATERMELON_GREEN_DAYS")),
+        "watermelon_red_days": safe_int(row.get("WATERMELON_RED_DAYS")),
+        "watermelon_value": safe_int(row.get("WATERMELON_VALUE")),
+        "watermelon_quality": round(safe_float(row.get("WATERMELON_QUALITY")), 2),
+        "watermelon_phase": watermelon_phase,
     }
+
 
 def add_check(rows: List[CheckRow], strategy: str, label: str, current: str, target: str, ok: bool, reason: str) -> None:
     rows.append(CheckRow(strategy, label, current, target, ok, reason))
@@ -611,13 +782,6 @@ def build_watermelon(price: Dict[str, Any], df: pd.DataFrame) -> PatternResult:
     rows: List[CheckRow] = []
     s = "수박"
 
-    close = safe_float(df["Close"].iloc[-1])
-    bb40_mid = safe_float(df["BB40_MID"].iloc[-1])
-    bb40_up = safe_float(df["BB40_UP"].iloc[-1])
-    bb40_dn = safe_float(df["BB40_DN"].iloc[-1])
-
-    prep_zone = bb40_dn * 0.98 <= close <= bb40_mid * 1.02
-    launch_zone = bb40_mid * 0.98 <= close <= bb40_up * 1.02
     conv_tags = []
     if price["ultra_ma_conv"]:
         conv_tags.append("5/10/20")
@@ -631,44 +795,55 @@ def build_watermelon(price: Dict[str, Any], df: pd.DataFrame) -> PatternResult:
         conv_tags.append("5/60/112")
     conv_ok = len(conv_tags) > 0
 
-    c1 = price["bb40_width"] <= 18.0
-    add_check(rows, s, "BB40 폭", f"{price['bb40_width']}", "<= 18", c1, "응축 구간" if c1 else "밴드 폭 넓음")
+    c1 = price["watermelon_green"]
+    add_check(rows, s, "초록 수박", "점등" if c1 else "꺼짐", "점등", c1, "매집/받침 상태 형성" if c1 else "매집 상태 미완성")
 
-    c2 = price["obv_slope_10"] > 0
-    add_check(rows, s, "OBV 기울기", f"{price['obv_slope_10']}%", "> 0%", c2, "매집 우위" if c2 else "매집 신호 약함")
+    c2 = price["watermelon_green_score"] >= 4
+    add_check(rows, s, "초록 점수", f"{price['watermelon_green_score']}", ">= 4", c2, "기본 매집 점수 충족" if c2 else "매집 점수 부족")
 
-    c3 = price["amount_b"] >= MIN_AMOUNT_B
-    add_check(rows, s, "거래대금", f"{price['amount_b']}억", f">= {MIN_AMOUNT_B}억", c3, "유동성 충분" if c3 else "유동성 부족")
+    c3 = price["watermelon_red"] or price["watermelon_red_score"] >= 4
+    add_check(rows, s, "빨강 수박/점수", f"빨강={'점등' if price['watermelon_red'] else '꺼짐'} / 점수 {price['watermelon_red_score']}", "빨강 점등 또는 점수>=4", c3, "진입 조건 강화" if c3 else "진입 조건 아직 약함")
 
-    c4 = conv_ok
-    add_check(rows, s, "MA수렴 동반", ", ".join(conv_tags) if conv_tags else "없음", "1개 이상", c4, "응축 정렬 동반" if c4 else "이평 응축 부족")
+    c4 = price["bb40_width"] <= 18.0
+    add_check(rows, s, "BB40 폭", f"{price['bb40_width']}", "<= 18", c4, "응축 구간" if c4 else "밴드 폭 넓음")
 
-    c5 = prep_zone or launch_zone
-    zone_txt = "준비형" if prep_zone and close < bb40_mid else "발사형" if launch_zone else "영역밖"
-    add_check(rows, s, "BB40 위치", f"{zone_txt} / 종가 {fmt_int(close)}", "준비형 또는 발사형", c5, "수박 위치" if c5 else "위치가 너무 아래거나 과열")
+    c5 = price["obv_slope_10"] > 0
+    add_check(rows, s, "OBV 기울기", f"{price['obv_slope_10']}%", "> 0%", c5, "매집 우위" if c5 else "매집 신호 약함")
 
-    c6 = price["mfi14"] >= 45
-    add_check(rows, s, "MFI", f"{price['mfi14']}", ">= 45", c6, "자금 흐름 보통 이상" if c6 else "자금 유입 약함")
+    c6 = price["mfi14"] >= 50
+    add_check(rows, s, "MFI", f"{price['mfi14']}", ">= 50", c6, "자금 흐름 양호" if c6 else "자금 흐름 약함")
 
-    c7 = price["green_days_10"] >= 4
-    add_check(rows, s, "최근 10봉 양봉 수", f"{price['green_days_10']}", ">= 4", c7, "양봉 우위" if c7 else "양봉 비중 부족")
+    c7 = price["macd"] >= price["macd_signal"]
+    add_check(rows, s, "MACD 우위", f"{price['macd']} / {price['macd_signal']}", "MACD >= SIGNAL", c7, "모멘텀 우위" if c7 else "모멘텀 약함")
+
+    c8 = price["plus_di"] >= price["minus_di"]
+    add_check(rows, s, "DMI 방향성", f"+DI {price['plus_di']} / -DI {price['minus_di']}", "+DI >= -DI", c8, "상방 방향성 우위" if c8 else "방향성 약함")
+
+    c9 = price["watermelon_phase"] in ("준비형", "발사형")
+    add_check(rows, s, "BB40 위치", price["watermelon_phase"], "준비형 또는 발사형", c9, "수박 위치 적정" if c9 else "위치가 너무 아래거나 과열")
+
+    c10 = conv_ok
+    add_check(rows, s, "MA수렴 동반", ", ".join(conv_tags) if conv_tags else "없음", "1개 이상", c10, "응축 정렬 동반" if c10 else "이평 응축 부족")
 
     score = sum(1 for r in rows if r.ok)
     status = decide_status(score, len(rows))
 
-    phase = "준비형" if prep_zone and close < bb40_mid else "발사형" if launch_zone else "비정형"
+    phase = price["watermelon_phase"]
     if status == "해당":
-        if phase == "준비형":
-            comment = "응축과 매집이 동반된 수박 준비형에 가깝습니다. BB40 중단 회복과 거래량 확산이 붙으면 발사형 전환 가능성이 있습니다."
+        if price["watermelon_red_new"]:
+            comment = "초록 매집 위에 빨강 진입 신호가 새로 붙은 구간입니다. 가장 주목할 만한 수박 초기 타점으로 해석할 수 있습니다."
+        elif phase == "준비형":
+            comment = "응축과 매집이 동반된 수박 준비형입니다. BB40 중단 회복과 거래량 재확산이 붙으면 발사형 전환 가능성이 있습니다."
         else:
-            comment = "응축 이후 중단 이상으로 올라온 수박 발사형에 가깝습니다. 다만 상단 접근 구간이므로 윗꼬리와 거래량 지속 여부를 함께 봐야 합니다."
+            comment = "수박 발사형에 가깝습니다. 다만 상단 접근 구간일 수 있으니 윗꼬리와 거래량 지속 여부를 함께 봐야 합니다."
     elif status == "유사":
-        comment = "수박형 느낌은 있으나 위치·수급·수렴 중 일부가 덜 맞습니다. 준비형과 발사형의 경계 구간으로 볼 수 있습니다."
+        comment = "수박형 느낌은 있지만 초록/빨강 점수, 위치, 수렴 중 일부가 덜 맞습니다. 준비형과 발사형 경계 구간으로 볼 수 있습니다."
     else:
         comment = "현재는 수박 패턴으로 보기엔 응축이나 수급 근거가 약합니다."
 
-    subtitle = f"수박 {phase} · MA수렴 {', '.join(conv_tags) if conv_tags else '없음'}"
+    subtitle = f"수박 {phase} · 품질 {price['watermelon_quality']} · MA수렴 {', '.join(conv_tags) if conv_tags else '없음'}"
     return PatternResult("watermelon", s, status, score, len(rows), subtitle, comment, rows)
+
 
 def build_viper(price: Dict[str, Any], df: pd.DataFrame) -> PatternResult:
     rows: List[CheckRow] = []
@@ -870,8 +1045,13 @@ def build_smart_comment(price: Dict[str, Any], patterns: List[PatternResult], na
         comments.append("MA60 기울기가 음수면 중기 추세는 아직 완전히 돌아섰다고 보기 어렵습니다.")
     if price["double_bottom"].get("found"):
         comments.append(f"쌍바닥은 감지되었고 넥라인과의 거리는 {price['double_bottom'].get('neckline_distance_pct')}% 수준입니다.")
+    if price.get("watermelon_green"):
+        comments.append(f"수박 매집 신호는 켜져 있고 현재 단계는 {price.get('watermelon_phase')}입니다.")
+    if price.get("watermelon_red_new"):
+        comments.append("수박 빨강 신규 점등 구간이면 진입 타점 초기 가능성을 체크할 만합니다.")
 
     return " ".join(dict.fromkeys(comments))
+
 
 def sparkline_svg(df: pd.DataFrame, width: int = 960, height: int = 360) -> str:
     sub = df.tail(120).copy()
@@ -1054,9 +1234,14 @@ def render_html(result: Dict[str, Any]) -> str:
         ("RSI14", f'{price["rsi14"]}'),
         ("MFI14", f'{price["mfi14"]}'),
         ("OBV 기울기(10)", f'{price["obv_slope_10"]}%'),
-        ("MA5 기울기", f'{price["ma5_slope"]}%'),
-        ("MA10 기울기", f'{price["ma10_slope"]}%'),
-        ("MA60 기울기", f'{price["ma60_slope"]}%'),
+        ("MACD HIST", f'{price["macd_hist"]}'),
+        ("+DI / -DI", f'{price["plus_di"]} / {price["minus_di"]}'),
+        ("ADX", f'{price["adx"]}'),
+        ("수박 품질", f'{price["watermelon_quality"]}'),
+        ("수박 단계", f'{price["watermelon_phase"]}'),
+        ("수박 값", f'{price["watermelon_value"]}'),
+        ("초록 점수", f'{price["watermelon_green_score"]}'),
+        ("빨강 점수", f'{price["watermelon_red_score"]}'),
         ("BB40 폭", f'{price["bb40_width"]}'),
         ("MA200 이격", f'{price["ma200_gap_pct"]}%'),
         ("Env20 하단 괴리", f'{price["env20_pct"]}%'),
@@ -1202,7 +1387,7 @@ def render_html(result: Dict[str, Any]) -> str:
         return;
       }}
 
-      const workerUrl = String(getSavedWorkerUrl()).trim().replace(/\/+$/, "");
+      const workerUrl = String(getSavedWorkerUrl()).trim().replace(new RegExp("/+$"), "");
       if (!workerUrl) {{
         statusEl.textContent = "저장된 Worker URL이 없어 실행기 페이지로 이동합니다.";
         goRunnerPage();
@@ -1265,7 +1450,10 @@ def render_html(result: Dict[str, Any]) -> str:
 <body>
   <div class="hero"><div class="hero-inner">
       <h1 class="title">{escape(result['name'])} <span style="color:var(--muted)">({escape(result['code'])})</span></h1>
-      <div class="sub">생성시각 {escape(result['generated_at'])} · 기준봉 {escape(price['date'])}</div>
+      <div class="sub">
+        생성시각 {escape(result['generated_at'])} · 기준봉 {escape(price['date'])}
+        · 조회기간 {escape(price['start_date'])} ~ {escape(price['end_date'])}
+      </div>
       <div class="pill-row">
         <div class="pill">분석모드 {escape(result['mode'])}</div>
         <div class="pill">현재가 {fmt_int(price['close'])}</div>
@@ -1308,6 +1496,9 @@ def main() -> None:
     ap.add_argument("--name", default="")
     ap.add_argument("--mode", default="all")
     ap.add_argument("--force", action="store_true")
+    ap.add_argument("--days", type=int, default=450, help="최근 N일 조회")
+    ap.add_argument("--start-date", default="", help="조회 시작일 YYYY-MM-DD")
+    ap.add_argument("--end-date", default="", help="조회 종료일 YYYY-MM-DD")
     ap.add_argument("--output-json", default="reports/latest_result.json")
     ap.add_argument("--output-html", default="site/index.html")
     args = ap.parse_args()
@@ -1318,10 +1509,21 @@ def main() -> None:
     code = normalize_code(args.code)
     name = detect_name(code, args.name)
 
-    df = load_price_history(code)
+    window = resolve_date_window(
+        start_date=args.start_date,
+        end_date=args.end_date,
+        days=args.days,
+    )
+
+    df = load_price_history(
+        code,
+        start_date=window["start"],
+        end_date=window["end"],
+        days=args.days,
+    )
     df = add_indicators(df)
 
-    price = build_snapshot(df)
+    price = build_snapshot(df, window)
     patterns = build_patterns(price, df)
     selected = patterns_for_mode(patterns, args.mode)
 
