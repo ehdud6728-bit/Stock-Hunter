@@ -1508,7 +1508,6 @@ def render_html(result: Dict[str, Any]) -> str:
       <div class="section-title">다음 종목 바로 재검색</div>
       <div class="muted" style="margin-bottom:10px;">
         현재 결과 페이지에서 바로 다른 종목 분석을 다시 요청할 수 있습니다.
-        Worker URL은 실행기 페이지에서 저장된 값을 자동으로 사용합니다.
       </div>
 
       <div class="research-grid">
@@ -1529,7 +1528,6 @@ def render_html(result: Dict[str, Any]) -> str:
 
       <div class="research-actions">
         <button class="action-btn" onclick="runFromResultPage()">바로 재검색 실행</button>
-        <button class="action-btn secondary" onclick="goRunnerPage()">현재 결과 페이지 열기</button>
         <button class="action-btn secondary" onclick="history.back()">이전 페이지로</button>
       </div>
 
@@ -1673,39 +1671,22 @@ def render_html(result: Dict[str, Any]) -> str:
     .mono {{ font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }}
     .muted {{ color:var(--muted); }}
     .research-grid{{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }}
-    .research-actions{{ display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; margin-top:10px; }}
+    .research-actions{{ display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:10px; }}
     .action-btn{{ width:100%; border-radius:16px; padding:14px 14px; font-weight:800; background:linear-gradient(180deg,#3b82f6,#2463d7); color:#fff; border:none; cursor:pointer; }}
     .action-btn.secondary{{ background:#13203b; border:1px solid #243759; }}
     @media (max-width:720px){{ .research-grid, .research-actions{{ grid-template-columns:1fr; }} }}
     @media (min-width:768px) {{ .metric-grid {{ grid-template-columns:repeat(4,minmax(0,1fr)); }} .chart-svg {{ height:430px; }} }}
   </style>
   <script>
+    const DEFAULT_WORKER_URL = "https://stock-hunter-trigger.ehdud6728.workers.dev";
+
     function scrollToId(id) {{
       const el = document.getElementById(id);
       if (el) el.scrollIntoView({{ behavior:'smooth', block:'start' }});
     }}
 
-    function getSavedWorkerUrl() {{
-      return (
-        localStorage.getItem("stock-hunter-worker-url-v4") ||
-        localStorage.getItem("stock-hunter-worker-url-v3") ||
-        localStorage.getItem("stock-hunter-worker-url-v2") ||
-        localStorage.getItem("stock-hunter-worker-url") ||
-        ""
-      );
-    }}
-
-    function goRunnerPage() {{
-      const code = (document.getElementById("reCode")?.value || "").trim();
-      const name = (document.getElementById("reName")?.value || "").trim();
-      const mode = (document.getElementById("reMode")?.value || "all").trim();
-
-      const url = new URL(location.href);
-      url.hash = "";
-      if (code) url.searchParams.set("code", code);
-      if (name) url.searchParams.set("name", name);
-      if (mode) url.searchParams.set("mode", mode);
-      location.href = url.toString();
+    function getWorkerUrl() {{
+      return DEFAULT_WORKER_URL.replace(/\/+$/, "");
     }}
 
     async function runFromResultPage() {{
@@ -1719,12 +1700,7 @@ def render_html(result: Dict[str, Any]) -> str:
         return;
       }}
 
-      const workerUrl = String(getSavedWorkerUrl()).trim().replace(new RegExp("/+$"), "");
-      if (!workerUrl) {{
-        statusEl.textContent = "저장된 Worker URL이 없습니다. 현재 페이지에서 값만 다시 확인해 주세요.";
-        return;
-      }}
-
+      const workerUrl = getWorkerUrl();
       statusEl.textContent = "실행 요청 중...";
 
       try {{
@@ -1738,10 +1714,21 @@ def render_html(result: Dict[str, Any]) -> str:
           }})
         }});
 
-        const data = await resp.json();
+        let data = null;
+        try {{
+          data = await resp.json();
+        }} catch (e) {{
+          data = null;
+        }}
 
-        if (!(resp.ok && data.ok)) {{
-          statusEl.textContent = "실행 실패: 응답을 확인하세요.";
+        if (!resp.ok) {{
+          statusEl.textContent = `실행 실패: HTTP ${{resp.status}}`;
+          console.log(data);
+          return;
+        }}
+
+        if (!data || !data.ok) {{
+          statusEl.textContent = "실행 실패: 응답값을 확인하세요.";
           console.log(data);
           return;
         }}
@@ -1753,12 +1740,15 @@ def render_html(result: Dict[str, Any]) -> str:
         }} else if (data.html_url) {{
           statusEl.textContent = "실행 성공. GitHub Actions 페이지를 엽니다. 완료 후 이 페이지를 새로고침하세요.";
           window.open(data.html_url, "_blank", "noopener");
+        }} else if (data.run_url) {{
+          statusEl.textContent = "실행 성공. Actions 실행 페이지를 엽니다.";
+          window.open(data.run_url, "_blank", "noopener");
         }} else {{
-          statusEl.textContent = "실행 성공. Pages 반영 후 이 페이지를 새로고침하세요.";
+          statusEl.textContent = "실행 성공. 결과 URL이 아직 준비되지 않았습니다.";
         }}
 
       }} catch (err) {{
-        statusEl.textContent = "Worker 연결 실패: 현재 페이지에 머무릅니다. Worker URL과 응답을 확인하세요.";
+        statusEl.textContent = "Worker 연결 실패";
         console.log(err);
       }}
     }}
@@ -1772,8 +1762,7 @@ def render_html(result: Dict[str, Any]) -> str:
       if (reName) reName.value = "";
       if (reMode) reMode.value = "all";
     }});
-  </script>
-</head>
+  </script></head>
 <body>
   <div class="hero"><div class="hero-inner">
       <h1 class="title">{escape(result['name'])} <span style="color:var(--muted)">({escape(result['code'])})</span></h1>
