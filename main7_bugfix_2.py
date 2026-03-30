@@ -6383,6 +6383,11 @@ if __name__ == "__main__":
         for item in all_hits_sorted:
             item['공시태그'] = '⚙️미조회'
 
+    # =========================================================
+    # ✅ 전체 후보 / PASS 후보 분리 운영
+    # - ai_candidates       : 전체 추천 후보 (TOP15 본문/AI 토너먼트용)
+    # - pass_ai_candidates  : PASS_A / PASS_B 전용 후보 (종가베팅/단계형 전용)
+    # =========================================================
     ai_candidates = build_and_sort_candidates(all_hits_sorted, top_k=50)
 
     # ✅ BUGFIX: ai_candidates 비어있으면 빈 DataFrame + 필수 컬럼 보장
@@ -6390,42 +6395,27 @@ if __name__ == "__main__":
         log_info("⚠️ 스캔 결과 없음 — 알림 생략")
         graceful_shutdown(exit_code=0)
 
-    # =========================================================
-    # 🚀 단계 기반 급등 후보 TOP5 생성
-    # =========================================================
+    pass_ai_candidates = pd.DataFrame()
     stage_candidates_top5 = pd.DataFrame()
 
-    if not ai_candidates.empty and '단계상태' in ai_candidates.columns:
-        stage_candidates = ai_candidates[
+    if '단계상태' in ai_candidates.columns:
+        pass_ai_candidates = ai_candidates[
             ai_candidates['단계상태'].isin(['PASS_A', 'PASS_B'])
         ].copy()
 
-        if not stage_candidates.empty:
-            stage_candidates = stage_candidates.sort_values(
-                by=['단계랭크', 'N점수'],
-                ascending=False
-            ).reset_index(drop=True)
-
-            stage_candidates_top5 = stage_candidates.head(5)
-            log_info(f"🚀 단계 기반 급등 후보 수: {len(stage_candidates_top5)}")
-
-    # ✅ 최종 후보는 PASS_A / PASS_B만 통과
-    if not ai_candidates.empty and '단계상태' in ai_candidates.columns:
-        passed_candidates = ai_candidates[
-            ai_candidates['단계상태'].isin(['PASS_A', 'PASS_B'])
-        ].copy()
-
-        # PASS_A 우선, 그 다음 PASS_B, 그 안에서 안전점수/N점수
-        if not passed_candidates.empty:
-            passed_candidates = passed_candidates.sort_values(
+        if not pass_ai_candidates.empty:
+            pass_ai_candidates = pass_ai_candidates.sort_values(
                 by=['단계랭크', '안전점수', 'N점수'],
                 ascending=False
             ).reset_index(drop=True)
 
-            ai_candidates = passed_candidates
-            log_info("✅ 단계 시퀀스 PASS_A/PASS_B 종목 정렬")
+            stage_candidates_top5 = pass_ai_candidates.head(5)
+            log_info(f"✅ 단계 시퀀스 PASS_A/PASS_B 종목 정렬 완료: {len(pass_ai_candidates)}개")
+            log_info(f"🚀 단계 기반 급등 후보 TOP5 구성 완료: {len(stage_candidates_top5)}개")
         else:
-            log_info("⚠️ 단계 시퀀스 PASS_A/PASS_B 종목이 없어 기존 후보 유지")
+            log_info("⚠️ 단계 시퀀스 PASS_A/PASS_B 종목 없음 — 종가베팅 별도 블록 생략")
+    else:
+        log_info("⚠️ '단계상태' 컬럼 없음 — PASS 후보 분리 생략")
     # 3) 뉴스 테마 보너스 적용
     ai_candidates = apply_news_theme_bonus(ai_candidates, news_theme_analysis)
     ai_candidates = apply_us_theme_bonus(ai_candidates, us_merged_events)
@@ -6535,8 +6525,26 @@ if __name__ == "__main__":
     for idx, item in ai_candidates.iterrows():
         key = f"{item['종목명']}({item['code']})"
         ai_candidates.loc[idx, "ai_tip"] = ai_map.get(key, "브리핑 생성 실패")
-    
+
+    # ✅ PASS 후보는 전체 후보와 분리 유지 (TOP15 본문과 섞지 않음)
+    if '단계상태' in ai_candidates.columns:
+        pass_ai_candidates = ai_candidates[
+            ai_candidates['단계상태'].isin(['PASS_A', 'PASS_B'])
+        ].copy()
+        if not pass_ai_candidates.empty:
+            pass_ai_candidates = pass_ai_candidates.sort_values(
+                by=['단계랭크', '안전점수', 'N점수'],
+                ascending=False
+            ).reset_index(drop=True)
+            stage_candidates_top5 = pass_ai_candidates.head(5)
+        else:
+            stage_candidates_top5 = pd.DataFrame()
+
     telegram_targets = ai_candidates.head(15)
+    log_info(f"📌 전체 추천 후보 수: {len(ai_candidates)}")
+    log_info(f"📌 PASS_A/PASS_B 후보 수: {len(pass_ai_candidates)}")
+    log_info(f"📌 텔레그램 TOP15 전송 수: {len(telegram_targets)}")
+    log_info(f"📌 종가베팅/단계형 TOP5 전송 수: {len(stage_candidates_top5)}")
     
     MAX_CHAR = 3800
     current_msg = (
