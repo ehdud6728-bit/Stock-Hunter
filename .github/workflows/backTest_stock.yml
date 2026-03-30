@@ -1,4 +1,4 @@
-name: BackTest Stock Scanner
+name: BackTest Stock Scanner (Fast V4)
 
 on:
   workflow_dispatch:
@@ -13,10 +13,28 @@ on:
         required: true
         default: "2026-03-27"
         type: string
-      extra_args:
-        description: "추가 실행 인자 (선택)"
-        required: false
-        default: ""
+      freq:
+        description: "스캔 빈도"
+        required: true
+        default: "weekly"
+        type: choice
+        options:
+          - daily
+          - weekly
+      top_n:
+        description: "백테스트 대상 상위 종목 수"
+        required: true
+        default: "200"
+        type: string
+      workers:
+        description: "분석 워커 수"
+        required: true
+        default: "8"
+        type: string
+      prefetch_workers:
+        description: "사전 데이터 적재 워커 수"
+        required: true
+        default: "8"
         type: string
 
 jobs:
@@ -45,24 +63,49 @@ jobs:
           pip install gspread gspread-formatting gspread-dataframe google-auth oauth2client
           pip install -r requirements.txt
 
-      - name: Validate input dates
+      - name: Validate inputs
         shell: bash
         run: |
           python - <<'PY'
+          import re
+          import sys
           from datetime import datetime
+
           start = "${{ inputs.start_date }}"
           end = "${{ inputs.end_date }}"
-          try:
-              s = datetime.strptime(start, "%Y-%m-%d")
-              e = datetime.strptime(end, "%Y-%m-%d")
-          except ValueError as exc:
-              raise SystemExit(f"날짜 형식 오류: {exc}")
-          if s > e:
-              raise SystemExit("start_date는 end_date보다 늦을 수 없습니다.")
-          print(f"OK: {start} ~ {end}")
+          freq = "${{ inputs.freq }}"
+          top_n = "${{ inputs.top_n }}"
+          workers = "${{ inputs.workers }}"
+          prefetch_workers = "${{ inputs.prefetch_workers }}"
+
+          date_pat = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+          if not date_pat.match(start):
+              raise SystemExit(f"start_date 형식 오류: {start}")
+          if not date_pat.match(end):
+              raise SystemExit(f"end_date 형식 오류: {end}")
+
+          ds = datetime.strptime(start, "%Y-%m-%d")
+          de = datetime.strptime(end, "%Y-%m-%d")
+          if ds > de:
+              raise SystemExit("start_date 는 end_date 보다 늦을 수 없습니다.")
+
+          if freq not in {"daily", "weekly"}:
+              raise SystemExit(f"freq 값 오류: {freq}")
+
+          for label, value in {
+              "top_n": top_n,
+              "workers": workers,
+              "prefetch_workers": prefetch_workers,
+          }.items():
+              try:
+                  n = int(value)
+              except Exception:
+                  raise SystemExit(f"{label} 는 정수여야 합니다: {value}")
+              if n <= 0:
+                  raise SystemExit(f"{label} 는 1 이상이어야 합니다: {value}")
           PY
 
-      - name: Run Scanner
+      - name: Run fast backtest
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
@@ -71,11 +114,11 @@ jobs:
           GOOGLE_JSON_KEY: ${{ secrets.GOOGLE_JSON_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           SCAN_LOG_LEVEL: QUIET
-        shell: bash
         run: |
-          EXTRA_ARGS="${{ inputs.extra_args }}"
-          echo "Running backtest from ${{ inputs.start_date }} to ${{ inputs.end_date }}"
-          python backtest_validator.py \
+          python backtest_validator_fast_v4.py \
             --start "${{ inputs.start_date }}" \
             --end "${{ inputs.end_date }}" \
-            ${EXTRA_ARGS}
+            --freq "${{ inputs.freq }}" \
+            --top_n "${{ inputs.top_n }}" \
+            --workers "${{ inputs.workers }}" \
+            --prefetch_workers "${{ inputs.prefetch_workers }}"
