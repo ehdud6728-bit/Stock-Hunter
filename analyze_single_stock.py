@@ -1436,6 +1436,69 @@ def build_smart_comment(price: Dict[str, Any], patterns: List[PatternResult], na
 
 
 
+def calc_signal_trade_window(df: pd.DataFrame, idx: pd.Timestamp) -> Dict[str, Any]:
+    """
+    패턴이 idx 날짜 종가 기준으로 확정됐다고 보고,
+    실제 매매 가능한 다음 거래일 시가/종가/장중 고저가를 함께 계산한다.
+    """
+    try:
+        loc = df.index.get_loc(idx)
+    except Exception:
+        return {}
+
+    def _value(col: str, pos: int) -> Optional[float]:
+        if 0 <= pos < len(df):
+            return safe_float(df[col].iloc[pos], None)
+        return None
+
+    signal_close = _value("Close", loc)
+    next_open = _value("Open", loc + 1)
+    next_high = _value("High", loc + 1)
+    next_low = _value("Low", loc + 1)
+    next_close = _value("Close", loc + 1)
+    day2_close = _value("Close", loc + 2)
+    day3_close = _value("Close", loc + 3)
+
+    gap_pct = None
+    next_day_ret = None
+    next_day_mfe = None
+    next_day_mae = None
+    day2_ret = None
+    day3_ret = None
+
+    if signal_close is not None and next_open is not None and signal_close > 0:
+        gap_pct = round((next_open - signal_close) / signal_close * 100, 1)
+
+    if next_open is not None and next_close is not None and next_open > 0:
+        next_day_ret = round((next_close - next_open) / next_open * 100, 1)
+
+    if next_open is not None and next_high is not None and next_open > 0:
+        next_day_mfe = round((next_high - next_open) / next_open * 100, 1)
+
+    if next_open is not None and next_low is not None and next_open > 0:
+        next_day_mae = round((next_low - next_open) / next_open * 100, 1)
+
+    if next_open is not None and day2_close is not None and next_open > 0:
+        day2_ret = round((day2_close - next_open) / next_open * 100, 1)
+
+    if next_open is not None and day3_close is not None and next_open > 0:
+        day3_ret = round((day3_close - next_open) / next_open * 100, 1)
+
+    return {
+        "signal_close": round(signal_close) if signal_close is not None else None,
+        "next_open": round(next_open) if next_open is not None else None,
+        "next_close": round(next_close) if next_close is not None else None,
+        "gap_pct": gap_pct,
+        "next_day_ret": next_day_ret,
+        "next_day_mfe": next_day_mfe,
+        "next_day_mae": next_day_mae,
+        "day2_close": round(day2_close) if day2_close is not None else None,
+        "day2_ret": day2_ret,
+        "day3_close": round(day3_close) if day3_close is not None else None,
+        "day3_ret": day3_ret,
+    }
+
+
 def scan_pattern_history(df: pd.DataFrame, window: Dict[str, str], mode: str, min_bars: int = 40) -> List[Dict[str, Any]]:
     target_start = pd.Timestamp(window["target_start"])
     target_end = pd.Timestamp(window["target_end"])
@@ -1458,6 +1521,8 @@ def scan_pattern_history(df: pd.DataFrame, window: Dict[str, str], mode: str, mi
         day_patterns = build_patterns(day_price, subdf)
         day_selected = patterns_for_mode(day_patterns, mode)
 
+        trade_info = calc_signal_trade_window(df, current_date)
+
         for p in day_selected:
             if p.status not in ("해당", "유사"):
                 continue
@@ -1474,6 +1539,17 @@ def scan_pattern_history(df: pd.DataFrame, window: Dict[str, str], mode: str, mi
                 "amount_b": safe_float(day_price.get("amount_b")),
                 "watermelon_value": safe_int(day_price.get("watermelon_value")),
                 "watermelon_quality": safe_float(day_price.get("watermelon_quality")),
+                "signal_close": trade_info.get("signal_close"),
+                "next_open": trade_info.get("next_open"),
+                "next_close": trade_info.get("next_close"),
+                "gap_pct": trade_info.get("gap_pct"),
+                "next_day_ret": trade_info.get("next_day_ret"),
+                "next_day_mfe": trade_info.get("next_day_mfe"),
+                "next_day_mae": trade_info.get("next_day_mae"),
+                "day2_close": trade_info.get("day2_close"),
+                "day2_ret": trade_info.get("day2_ret"),
+                "day3_close": trade_info.get("day3_close"),
+                "day3_ret": trade_info.get("day3_ret"),
             })
 
     hits.sort(key=lambda x: (x["date"], x["score"], x["pattern_name"]))
@@ -1511,6 +1587,12 @@ def build_pattern_hits_table(hits: List[Dict[str, Any]]) -> str:
     if not hits:
         return '<div class="muted">요청구간 내 해당/유사 패턴 발생 이력이 없습니다.</div>'
 
+    def _fmt_price(v: Any) -> str:
+        return fmt_int(v) if v is not None else '-'
+
+    def _fmt_pct(v: Any) -> str:
+        return f"{float(v):+.1f}%" if v is not None else '-'
+
     rows = []
     for hit in hits:
         status_cls = STATUS_CLASS.get(hit["status"], "fail")
@@ -1520,15 +1602,23 @@ def build_pattern_hits_table(hits: List[Dict[str, Any]]) -> str:
             f"<td>{escape(hit['pattern_name'])}</td>"
             f"<td class='{status_cls}'>{escape(hit['status'])}</td>"
             f"<td class='mono'>{hit['score']}/{hit['max_score']}</td>"
-            f"<td class='mono'>{fmt_int(hit['close'])}</td>"
+            f"<td class='mono'>{_fmt_price(hit.get('signal_close'))}</td>"
+            f"<td class='mono'>{_fmt_price(hit.get('next_open'))}</td>"
+            f"<td class='mono'>{_fmt_price(hit.get('next_close'))}</td>"
+            f"<td class='mono'>{_fmt_pct(hit.get('gap_pct'))}</td>"
+            f"<td class='mono'>{_fmt_pct(hit.get('next_day_ret'))}</td>"
+            f"<td class='mono'>{_fmt_pct(hit.get('next_day_mfe'))}</td>"
+            f"<td class='mono'>{_fmt_pct(hit.get('next_day_mae'))}</td>"
+            f"<td class='mono'>{_fmt_pct(hit.get('day3_ret'))}</td>"
             f"<td class='mono'>{fmt_float(hit['amount_b'], 1)}억</td>"
             f"<td class='mono'>{fmt_float(hit['watermelon_quality'], 1)}</td>"
             f"<td>{escape(hit['subtitle'])}</td>"
             f"</tr>"
         )
     return (
+        "<div class='muted' style='margin-bottom:10px;'>신호종가 = 패턴 확정일 종가 / 익일시가 = 실제 첫 진입 가능 가격 / 익일수익% = 익일 시가 진입 후 익일 종가 청산 기준</div>"
         "<div class='table-wrap'><table>"
-        "<thead><tr><th>날짜</th><th>패턴</th><th>상태</th><th>점수</th><th>종가</th><th>거래대금</th><th>수박품질</th><th>설명</th></tr></thead>"
+        "<thead><tr><th>날짜</th><th>패턴</th><th>상태</th><th>점수</th><th>신호종가</th><th>익일시가</th><th>익일종가</th><th>갭%</th><th>익일수익%</th><th>장중최대%</th><th>장중최저%</th><th>3일후%</th><th>거래대금</th><th>수박품질</th><th>설명</th></tr></thead>"
         f"<tbody>{''.join(rows)}</tbody></table></div>"
     )
 
@@ -2128,7 +2218,7 @@ def render_html(result: Dict[str, Any]) -> str:
     <section class="card"><div class="section-title">기본 수치</div><div class="metric-grid">{metric_cards}</div></section>
     <section class="card">
       <div class="section-title">요청구간 패턴 발생 이력</div>
-      <div class="muted" style="margin-bottom:10px;">요청구간 안에서 날짜별로 해당/유사 판정이 나온 패턴만 뽑았습니다. mode=all이면 여러 패턴이 같은 날짜에 함께 나올 수 있습니다.</div>
+      <div class="muted" style="margin-bottom:10px;">요청구간 안에서 날짜별로 해당/유사 판정이 나온 패턴만 뽑았습니다. mode=all이면 여러 패턴이 같은 날짜에 함께 나올 수 있습니다. 아래 표의 신호종가는 패턴이 확정된 날의 종가이고, 익일시가는 실제 첫 진입 가능 가격입니다.</div>
       {'<div class="metric-grid" style="margin-bottom:12px;">' + hit_summary_cards + '</div>' if hit_summary_cards else ''}
       {hits_table}
     </section>
