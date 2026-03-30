@@ -7,12 +7,21 @@ import re
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Tuple
+from functools import lru_cache
+import difflib
+import os
 
 import FinanceDataReader as fdr
 import numpy as np
 import pandas as pd
 import pytz
+import requests
+
+try:
+    from openai import OpenAI
+except Exception:
+    OpenAI = None
 
 try:
     from dante_3phase_v4_module_synced import apply_dante_v4, build_v4_signal_map, apply_fear_and_quality_bonus
@@ -30,6 +39,10 @@ except Exception:
             return float(base_score)
 
 KST = pytz.timezone("Asia/Seoul")
+
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 
 MIN_PRICE = 3_000
 MIN_AMOUNT_B = 30.0
@@ -145,6 +158,292 @@ def detect_name(code: str, given_name: str = "") -> str:
     except Exception:
         pass
     return code
+
+
+@lru_cache(maxsize=1)
+def load_krx_universe() -> pd.DataFrame:
+    """
+    우선순위:
+    1) 로컬 캐시 파일
+    2) FinanceDataReader
+    3) pykrx
+    """
+    candidates = [
+        "krx_listing_cache.csv",
+        "data/krx_listing_cache.csv",
+        "cache/krx_listing_cache.csv",
+    ]
+
+    for path in candidates:
+        try:
+            if os.path.exists(path):
+                df = pd.read_csv(path, encoding="utf-8")
+                if df is not None and not df.empty:
+                    df = _normalize_universe_df(df)
+                    if len(df) > 100:
+                        return df
+        except Exception:
+            pass
+
+    try:
+        df = fdr.StockListing("KRX")
+        if df is not None and not df.empty:
+            df = _normalize_universe_df(df)
+            if len(df) > 100:
+                return df
+    except Exception:
+        pass
+
+    try:
+        from pykrx import stock as pk
+        rows = []
+        for market in ["KOSPI", "KOSDAQ"]:
+            tickers = pk.get_market_ticker_list(market=market)
+            for code in tickers:
+                try:
+                    name = pk.get_market_ticker_name(code)
+                    rows.append({"Code": str(code).zfill(6), "Name": str(name).strip()})
+                except Exception:
+                    continue
+        df = pd.DataFrame(rows)
+        if not df.empty:
+            df = _normalize_universe_df(df)
+            if len(df) > 100:
+                return df
+    except Exception:
+        pass
+
+    raise RuntimeError("종목 유니버스를 불러오지 못했습니다. 로컬 캐시/FDR/pykrx 모두 실패했습니다.")
+
+
+def _normalize_universe_df(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+
+    rename_map = {}
+    for c in df.columns:
+        lc = str(c).lower()
+        if lc in ("code", "ticker", "symbol", "종목코드", "티커"):
+            rename_map[c] = "Code"
+        elif lc in ("name", "company", "companyname", "종목명", "회사명"):
+            rename_map[c] = "Name"
+
+    if rename_map:
+        df = df.rename(columns=rename_map)
+
+    if "Code" not in df.columns or "Name" not in df.columns:
+        raise RuntimeError("유니버스 데이터에 Code/Name 컬럼이 없습니다.")
+
+    df["Code"] = df["Code"].astype(str).str.replace(r"\D", "", regex=True).str.zfill(6)
+    df["Name"] = df["Name"].astype(str).str.strip()
+    df["NameNorm"] = (
+        df["Name"]
+        .str.replace(r"\s+", "", regex=True)
+        .str.replace(r"[㈜()\-_/]", "", regex=True)
+        .str.upper()
+    )
+
+    return df[["Code", "Name", "NameNorm"]].drop_duplicates().reset_index(drop=True)
+
+
+def _search_universe_by_name(query: str, df_uni: pd.DataFrame) -> Dict[str, List[Dict[str, str]]]:
+    q = str(query).strip().replace(" ", "").upper()
+
+    exact = df_uni[df_uni["NameNorm"] == q]
+    if len(exact) == 1:
+        row = exact.iloc[0]
+        return {"exact": [{"Code": row["Code"], "Name": row["Name"]}], "partial": [], "fuzzy": []}
+
+    partial = df_uni[df_uni["NameNorm"].str.contains(q, na=False)].copy()
+
+    fuzzy: List[Dict[str, str]] = []
+    try:
+        all_names = df_uni["NameNorm"].tolist()
+        close_matches = difflib.get_close_matches(q, all_names, n=10, cutoff=0.6)
+        if close_matches:
+            fuzzy_df = df_uni[df_uni["NameNorm"].isin(close_matches)].drop_duplicates()
+            fuzzy = fuzzy_df[["Code", "Name"]].to_dict("records")
+    except Exception:
+        pass
+
+    return {
+        "exact": exact[["Code", "Name"]].to_dict("records"),
+        "partial": partial.head(10)[["Code", "Name"]].to_dict("records"),
+        "fuzzy": fuzzy[:10],
+    }
+
+
+def _extract_json_block(text: str) -> Optional[Dict[str, object]]:
+    raw = (text or "").strip()
+    if not raw:
+        return None
+    candidates = [raw]
+    if "```" in raw:
+        for part in raw.split("```"):
+            part = part.strip()
+            if part.startswith("json"):
+                part = part[4:].strip()
+            if part:
+                candidates.append(part)
+    start = raw.find("{")
+    end = raw.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        candidates.append(raw[start:end+1])
+    for cand in candidates:
+        try:
+            obj = json.loads(cand)
+            if isinstance(obj, dict):
+                return obj
+        except Exception:
+            continue
+    return None
+
+
+def _call_llm_stock_resolver(user_query: str, candidates: List[Dict[str, str]]) -> Optional[Dict[str, object]]:
+    prompt = f"""
+사용자 입력 종목명/종목코드 후보를 보고 가장 가능성 높은 한국 상장 종목 1개를 골라라.
+반드시 JSON만 출력해라.
+
+입력값:
+{user_query}
+
+후보목록:
+{json.dumps(candidates[:15], ensure_ascii=False)}
+
+출력형식:
+{{
+  "best_name": "...",
+  "best_code": "......",
+  "confidence": 0.0,
+  "reason": "..."
+}}
+"""
+
+    try:
+        if OPENAI_API_KEY and OpenAI is not None:
+            client = OpenAI(api_key=OPENAI_API_KEY)
+            res = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": "너는 한국 주식 종목명 정규화 도우미다. 반드시 JSON만 출력해라."},
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0,
+            )
+            data = _extract_json_block(res.choices[0].message.content or "")
+            if data:
+                return data
+    except Exception:
+        pass
+
+    try:
+        if GROQ_API_KEY:
+            res = requests.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={"Authorization": f"Bearer {GROQ_API_KEY}"},
+                json={
+                    "model": "llama-3.3-70b-versatile",
+                    "messages": [
+                        {"role": "system", "content": "너는 한국 주식 종목명 정규화 도우미다. 반드시 JSON만 출력해라."},
+                        {"role": "user", "content": prompt},
+                    ],
+                    "temperature": 0,
+                },
+                timeout=30,
+            )
+            if res.status_code == 200:
+                text = res.json().get("choices", [{}])[0].get("message", {}).get("content", "")
+                data = _extract_json_block(text)
+                if data:
+                    return data
+    except Exception:
+        pass
+
+    try:
+        if GEMINI_API_KEY:
+            gem_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
+            res = requests.post(
+                gem_url,
+                json={
+                    "contents": [{"parts": [{"text": prompt}]}],
+                    "generationConfig": {"temperature": 0},
+                },
+                timeout=30,
+            )
+            if res.status_code == 200:
+                data = res.json()
+                parts = (((data.get("candidates") or [{}])[0].get("content") or {}).get("parts") or [])
+                text = "\n".join([p.get("text", "") for p in parts if p.get("text")])
+                parsed = _extract_json_block(text)
+                if parsed:
+                    return parsed
+    except Exception:
+        pass
+
+    return None
+
+
+def resolve_code_and_name_twotrack(user_input: str, given_name: str = "") -> Tuple[str, str]:
+    raw = (user_input or "").strip()
+    if not raw:
+        raise RuntimeError("종목코드 또는 종목명을 입력해야 합니다.")
+
+    digits = re.sub(r"\D", "", raw)
+    if digits:
+        code = digits.zfill(6)
+        name = detect_name(code, given_name)
+        return code, name
+
+    candidates: List[Dict[str, str]] = []
+
+    try:
+        df_uni = load_krx_universe()
+        result = _search_universe_by_name(raw, df_uni)
+
+        if len(result["exact"]) == 1:
+            row = result["exact"][0]
+            return row["Code"], row["Name"]
+
+        if len(result["partial"]) == 1:
+            row = result["partial"][0]
+            return row["Code"], row["Name"]
+
+        candidates = result["exact"] + result["partial"] + result["fuzzy"]
+
+        if candidates:
+            ai_result = _call_llm_stock_resolver(raw, candidates)
+            if ai_result:
+                best_code = str(ai_result.get("best_code", "")).strip().zfill(6)
+                best_name = str(ai_result.get("best_name", "")).strip()
+                confidence = safe_float(ai_result.get("confidence", 0.0), 0.0)
+
+                if confidence >= 0.70:
+                    verified = df_uni[df_uni["Code"] == best_code]
+                    if len(verified) == 1:
+                        row = verified.iloc[0]
+                        return str(row["Code"]), str(row["Name"])
+                    verified2 = df_uni[df_uni["Name"] == best_name]
+                    if len(verified2) == 1:
+                        row = verified2.iloc[0]
+                        return str(row["Code"]), str(row["Name"])
+
+            sample = ", ".join([f"{x['Name']}({x['Code']})" for x in candidates[:5]])
+            raise RuntimeError(f"종목명이 여러 개로 검색됩니다: {sample}")
+
+    except Exception as local_err:
+        ai_result = _call_llm_stock_resolver(raw, candidates or [])
+        if ai_result:
+            best_code = str(ai_result.get("best_code", "")).strip()
+            best_name = str(ai_result.get("best_name", "")).strip()
+            confidence = safe_float(ai_result.get("confidence", 0.0), 0.0)
+
+            if re.fullmatch(r"\d{6}", best_code) and confidence >= 0.80:
+                try:
+                    name = detect_name(best_code, best_name)
+                    return best_code, name or best_name
+                except Exception:
+                    return best_code, best_name
+
+        raise RuntimeError(f"종목명 해석 실패: {raw} / 원인: {local_err}")
 
 
 def resolve_analysis_window(
@@ -1857,7 +2156,7 @@ def pattern_results_to_json(patterns: List[PatternResult]) -> List[Dict[str, Any
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--code", required=True)
+    ap.add_argument("--code", required=True, help="종목코드 또는 종목명")
     ap.add_argument("--name", default="")
     ap.add_argument("--mode", default="all")
     ap.add_argument("--force", action="store_true")
@@ -1872,8 +2171,7 @@ def main() -> None:
     if args.mode not in MODE_CHOICES:
         raise SystemExit(f"지원하지 않는 mode 입니다: {args.mode}")
 
-    code = normalize_code(args.code)
-    name = detect_name(code, args.name)
+    code, name = resolve_code_and_name_twotrack(args.code, args.name)
 
     df, window = load_price_history(
         code=code,
