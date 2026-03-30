@@ -14,6 +14,21 @@ import numpy as np
 import pandas as pd
 import pytz
 
+try:
+    from dante_3phase_v4_module_synced import apply_dante_v4, build_v4_signal_map, apply_fear_and_quality_bonus
+except Exception:
+    try:
+        from dante_3phase_v4_module import apply_dante_v4, build_v4_signal_map, apply_fear_and_quality_bonus
+    except Exception:
+        def apply_dante_v4(df: pd.DataFrame) -> pd.DataFrame:
+            return df
+
+        def build_v4_signal_map(row: pd.Series) -> Dict[str, object]:
+            return {}
+
+        def apply_fear_and_quality_bonus(base_score: float, row: pd.Series) -> float:
+            return float(base_score)
+
 KST = pytz.timezone("Asia/Seoul")
 
 MIN_PRICE = 3_000
@@ -701,6 +716,19 @@ def build_snapshot(df: pd.DataFrame, window: Dict[str, str]) -> Dict[str, Any]:
         "watermelon_value": safe_int(row.get("WATERMELON_VALUE")),
         "watermelon_quality": round(safe_float(row.get("WATERMELON_QUALITY")), 2),
         "watermelon_phase": watermelon_phase,
+        "dante_v4_score": round(safe_float(row.get("DANTE_3PHASE_SCORE")), 1),
+        "dante_v4_grade": str(row.get("DANTE_3PHASE_GRADE", "C")),
+        "dante_v4_fire": bool(safe_int(row.get("DANTE_FINAL_FIRE"))),
+        "dante_v4_prep": bool(safe_int(row.get("DANTE_FINAL_PREP"))),
+        "dante_v4_hold": bool(safe_int(row.get("DANTE_FINAL_HOLD"))),
+        "sym_score_v4": safe_int(row.get("SYM_SCORE")),
+        "energy_total_v4": round(safe_float(row.get("ENERGY_TOTAL")), 1),
+        "watermelon_phase_v4": str(row.get("WM_STATE_NAME", "NONE")),
+        "watermelon_quality_v4": round(safe_float(row.get("WATERMELON_QUALITY_V4")), 1),
+        "watermelon_prepare_v4": bool(safe_int(row.get("Watermelon_Prepare_V4"))),
+        "watermelon_first_launch_v4": bool(safe_int(row.get("Watermelon_First_Launch_V4"))),
+        "watermelon_hold_v4": bool(safe_int(row.get("Watermelon_Hold_V4"))),
+        "watermelon_launch_v4": bool(safe_int(row.get("Watermelon_Launch_V4"))),
     }
 
 
@@ -841,32 +869,35 @@ def build_watermelon(price: Dict[str, Any], df: pd.DataFrame) -> PatternResult:
         conv_tags.append("5/60/112")
     conv_ok = len(conv_tags) > 0
 
-    c1 = price["watermelon_green"]
-    add_check(rows, s, "초록 수박", "점등" if c1 else "꺼짐", "점등", c1, "매집/받침 상태 형성" if c1 else "매집 상태 미완성")
+    v4_phase = price.get("watermelon_phase_v4", "NONE")
+    display_phase = v4_phase if v4_phase and v4_phase != "NONE" else price.get("watermelon_phase", "비정형")
 
-    c2 = price["watermelon_green_score"] >= 4
-    add_check(rows, s, "초록 점수", f"{price['watermelon_green_score']}", ">= 4", c2, "기본 매집 점수 충족" if c2 else "매집 점수 부족")
+    c1 = price.get("watermelon_prepare_v4", False) or price["watermelon_green"]
+    add_check(rows, s, "준비형 축적", "점등" if c1 else "꺼짐", "점등", c1, "수박 준비 상태 형성" if c1 else "준비형 축적 부족")
 
-    c3 = price["watermelon_red"] or price["watermelon_red_score"] >= 4
-    add_check(rows, s, "빨강 수박/점수", f"빨강={'점등' if price['watermelon_red'] else '꺼짐'} / 점수 {price['watermelon_red_score']}", "빨강 점등 또는 점수>=4", c3, "진입 조건 강화" if c3 else "진입 조건 아직 약함")
+    c2 = price.get("sym_score_v4", 0) >= 60
+    add_check(rows, s, "기간대칭 점수", f"{price.get('sym_score_v4', 0)}", ">= 60", c2, "시간 구조 적정" if c2 else "시간 대칭성 부족")
 
-    c4 = price["bb40_width"] <= 18.0
-    add_check(rows, s, "BB40 폭", f"{price['bb40_width']}", "<= 18", c4, "응축 구간" if c4 else "밴드 폭 넓음")
+    c3 = price.get("energy_total_v4", 0) >= 60
+    add_check(rows, s, "파동에너지 점수", f"{price.get('energy_total_v4', 0)}", ">= 60", c3, "발사 에너지 양호" if c3 else "파동 에너지 부족")
 
-    c5 = price["obv_slope_10"] > 0
-    add_check(rows, s, "OBV 기울기", f"{price['obv_slope_10']}%", "> 0%", c5, "매집 우위" if c5 else "매집 신호 약함")
+    c4 = price.get("watermelon_first_launch_v4", False) or price.get("dante_v4_fire", False)
+    add_check(rows, s, "1차 발사형 V4", "해당" if c4 else "미해당", "해당", c4, "신규 점화 구간" if c4 else "신규 발사형 아님")
 
-    c6 = price["mfi14"] >= 50
-    add_check(rows, s, "MFI", f"{price['mfi14']}", ">= 50", c6, "자금 흐름 양호" if c6 else "자금 흐름 약함")
+    c5 = price.get("watermelon_hold_v4", False) or price.get("dante_v4_hold", False)
+    add_check(rows, s, "유지형 V4", "해당" if c5 else "미해당", "해당", c5, "발사 후 유지 상태" if c5 else "유지형 아님")
 
-    c7 = price["macd"] >= price["macd_signal"]
-    add_check(rows, s, "MACD 우위", f"{price['macd']} / {price['macd_signal']}", "MACD >= SIGNAL", c7, "모멘텀 우위" if c7 else "모멘텀 약함")
+    c6 = price["bb40_width"] <= 18.0
+    add_check(rows, s, "BB40 폭", f"{price['bb40_width']}", "<= 18", c6, "응축 구간" if c6 else "밴드 폭 넓음")
 
-    c8 = price["plus_di"] >= price["minus_di"]
-    add_check(rows, s, "DMI 방향성", f"+DI {price['plus_di']} / -DI {price['minus_di']}", "+DI >= -DI", c8, "상방 방향성 우위" if c8 else "방향성 약함")
+    c7 = price["obv_slope_10"] > 0
+    add_check(rows, s, "OBV 기울기", f"{price['obv_slope_10']}%", "> 0%", c7, "매집 우위" if c7 else "매집 신호 약함")
 
-    c9 = price["watermelon_phase"] in ("준비형", "발사형")
-    add_check(rows, s, "BB40 위치", price["watermelon_phase"], "준비형 또는 발사형", c9, "수박 위치 적정" if c9 else "위치가 너무 아래거나 과열")
+    c8 = price["mfi14"] >= 50
+    add_check(rows, s, "MFI", f"{price['mfi14']}", ">= 50", c8, "자금 흐름 양호" if c8 else "자금 흐름 약함")
+
+    c9 = price["upper_wick_total_pct"] <= 35.0
+    add_check(rows, s, "윗꼬리", f"{price['upper_wick_total_pct']}%", "<= 35%", c9, "종가 품질 양호" if c9 else "윗꼬리 길어 힘 분산")
 
     c10 = conv_ok
     add_check(rows, s, "MA수렴 동반", ", ".join(conv_tags) if conv_tags else "없음", "1개 이상", c10, "응축 정렬 동반" if c10 else "이평 응축 부족")
@@ -874,20 +905,20 @@ def build_watermelon(price: Dict[str, Any], df: pd.DataFrame) -> PatternResult:
     score = sum(1 for r in rows if r.ok)
     status = decide_status(score, len(rows))
 
-    phase = price["watermelon_phase"]
-    if status == "해당":
-        if price["watermelon_red_new"]:
-            comment = "초록 매집 위에 빨강 진입 신호가 새로 붙은 구간입니다. 가장 주목할 만한 수박 초기 타점으로 해석할 수 있습니다."
-        elif phase == "준비형":
-            comment = "응축과 매집이 동반된 수박 준비형입니다. BB40 중단 회복과 거래량 재확산이 붙으면 발사형 전환 가능성이 있습니다."
-        else:
-            comment = "수박 발사형에 가깝습니다. 다만 상단 접근 구간일 수 있으니 윗꼬리와 거래량 지속 여부를 함께 봐야 합니다."
+    if price.get("dante_v4_fire", False):
+        status = "해당"
+        comment = "기간대칭과 파동에너지를 통과한 뒤 수박이 새롭게 점화된 V4 발사형입니다. 기존 수박 단독 신호보다 신뢰도를 높여 해석할 수 있습니다."
+    elif price.get("dante_v4_hold", False):
+        status = "해당" if score >= 6 else "유사"
+        comment = "V4 기준으로 이미 발사 후 유지 상태에 들어온 구간입니다. 첫 점화봉보다는 보수적으로 보되 추세 지속 여부를 확인할 만합니다."
+    elif price.get("dante_v4_prep", False):
+        comment = "기간대칭과 파동에너지가 어느 정도 갖춰진 준비형입니다. 수박이 바로 점화되기 전의 감시 구간으로 해석하는 편이 좋습니다."
     elif status == "유사":
-        comment = "수박형 느낌은 있지만 초록/빨강 점수, 위치, 수렴 중 일부가 덜 맞습니다. 준비형과 발사형 경계 구간으로 볼 수 있습니다."
+        comment = "수박형 느낌은 있지만 3박자 구조나 수급 품질이 아직 완전히 맞지 않습니다. 준비형과 발사형의 경계 구간으로 볼 수 있습니다."
     else:
-        comment = "현재는 수박 패턴으로 보기엔 응축이나 수급 근거가 약합니다."
+        comment = "현재는 수박 패턴으로 보기엔 응축·수급·3박자 구조가 모두 충분하지 않습니다."
 
-    subtitle = f"수박 {phase} · 품질 {price['watermelon_quality']} · MA수렴 {', '.join(conv_tags) if conv_tags else '없음'}"
+    subtitle = f"수박 {display_phase} · V4 {price.get('dante_v4_grade', 'C')} · 품질 {price.get('watermelon_quality_v4', price['watermelon_quality'])} · MA수렴 {', '.join(conv_tags) if conv_tags else '없음'}"
     return PatternResult("watermelon", s, status, score, len(rows), subtitle, comment, rows)
 
 
@@ -1095,6 +1126,12 @@ def build_smart_comment(price: Dict[str, Any], patterns: List[PatternResult], na
         comments.append(f"수박 매집 신호는 켜져 있고 현재 단계는 {price.get('watermelon_phase')}입니다.")
     if price.get("watermelon_red_new"):
         comments.append("수박 빨강 신규 점등 구간이면 진입 타점 초기 가능성을 체크할 만합니다.")
+    if price.get("dante_v4_prep"):
+        comments.append(f"V4 3박자 기준으로는 준비형이며 기간대칭 {price.get('sym_score_v4')}점, 파동에너지 {price.get('energy_total_v4')}점 수준입니다.")
+    if price.get("dante_v4_fire"):
+        comments.append(f"V4 3박자 최종 발사형이 켜져 있고 수박 상태는 {price.get('watermelon_phase_v4')}입니다.")
+    elif price.get("dante_v4_hold"):
+        comments.append("V4 기준 발사 후 유지형 구간이며 과열보다 유지력 확인이 중요합니다.")
 
     return " ".join(dict.fromkeys(comments))
 
@@ -1549,6 +1586,12 @@ def render_html(result: Dict[str, Any]) -> str:
         ("MACD HIST", f'{price["macd_hist"]}'),
         ("+DI / -DI", f'{price["plus_di"]} / {price["minus_di"]}'),
         ("ADX", f'{price["adx"]}'),
+        ("V4 3박자 점수", f'{price.get("dante_v4_score", 0)}'),
+        ("V4 등급", f'{price.get("dante_v4_grade", "C")}'),
+        ("기간대칭 점수", f'{price.get("sym_score_v4", 0)}'),
+        ("파동에너지 점수", f'{price.get("energy_total_v4", 0)}'),
+        ("수박 V4 상태", f'{price.get("watermelon_phase_v4", "NONE")}'),
+        ("수박 V4 품질", f'{price.get("watermelon_quality_v4", 0)}'),
         ("수박 품질", f'{price["watermelon_quality"]}'),
         ("수박 단계", f'{price["watermelon_phase"]}'),
         ("수박 값", f'{price["watermelon_value"]}'),
@@ -1840,6 +1883,7 @@ def main() -> None:
         min_bars=args.min_bars,
     )
     df = add_indicators(df)
+    df = apply_dante_v4(df)
 
     price = build_snapshot(df, window)
     patterns = build_patterns(price, df)
