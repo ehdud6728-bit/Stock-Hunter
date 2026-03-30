@@ -33,9 +33,15 @@ except ImportError:
     def log_scan_date(date, n): print(f"🗓️  {date} → 히트: {n}개")
 
 # ─────────────────────────────────────────────────────────────
-# 최신 본진 모듈: 사용자 기준 최신 파일명 = main7_bugfix_2
+# 최신 본진 모듈: V4 통합본 우선, 없으면 기본 main7_bugfix_2 fallback
 # ─────────────────────────────────────────────────────────────
-import main7_bugfix_2 as _main7
+try:
+    import main7_bugfix_2_v4_integrated_synced as _main7
+except Exception:
+    try:
+        import main7_bugfix_2_v4_integrated as _main7
+    except Exception:
+        import main7_bugfix_2 as _main7
 
 get_indicators              = _main7.get_indicators
 calculate_combination_score = _main7.calculate_combination_score
@@ -50,6 +56,25 @@ calc_support_resistance     = getattr(_main7, 'calc_support_resistance', None)
 load_krx_listing_safe       = getattr(_main7, 'load_krx_listing_safe', None)
 evaluate_stage_sequence_v2  = getattr(_main7, 'evaluate_stage_sequence_v2',
                                       getattr(_main7, 'evaluate_stage_sequence', None))
+detect_fear_absorption      = getattr(_main7, 'detect_fear_absorption', None)
+apply_dante_v4              = getattr(_main7, 'apply_dante_v4', None)
+build_v4_signal_map         = getattr(_main7, 'build_v4_signal_map', None)
+apply_fear_and_quality_bonus = getattr(_main7, 'apply_fear_and_quality_bonus', None)
+
+if apply_dante_v4 is None or build_v4_signal_map is None or apply_fear_and_quality_bonus is None:
+    try:
+        from dante_3phase_v4_module_synced import apply_dante_v4 as _apply_dante_v4, build_v4_signal_map as _build_v4_signal_map, apply_fear_and_quality_bonus as _apply_fear_and_quality_bonus
+        apply_dante_v4 = apply_dante_v4 or _apply_dante_v4
+        build_v4_signal_map = build_v4_signal_map or _build_v4_signal_map
+        apply_fear_and_quality_bonus = apply_fear_and_quality_bonus or _apply_fear_and_quality_bonus
+    except Exception:
+        try:
+            from dante_3phase_v4_module import apply_dante_v4 as _apply_dante_v4, build_v4_signal_map as _build_v4_signal_map, apply_fear_and_quality_bonus as _apply_fear_and_quality_bonus
+            apply_dante_v4 = apply_dante_v4 or _apply_dante_v4
+            build_v4_signal_map = build_v4_signal_map or _build_v4_signal_map
+            apply_fear_and_quality_bonus = apply_fear_and_quality_bonus or _apply_fear_and_quality_bonus
+        except Exception:
+            pass
 
 # 선택 함수들
 classify_momentum       = getattr(_main7, 'classify_momentum', None)
@@ -176,7 +201,7 @@ def load_krx_tickers(top_n: int = 500, min_marcap: int = MIN_MARCAP_DEFAULT) -> 
         return []
     return list(zip(df['Code'].tolist()[:top_n], df['Name'].tolist()[:top_n]))
 
-def build_live_like_signals(hist_df: pd.DataFrame, row: pd.Series, prev: pd.Series):
+def build_live_like_signals(hist_df: pd.DataFrame, row: pd.Series, prev: pd.Series, ticker: str = ''):
     """
     live analyze_final() 에서 build_default_signals 이후 추가로 주입하는 신호를
     백테스트에서도 최대한 동일하게 반영.
@@ -190,6 +215,30 @@ def build_live_like_signals(hist_df: pd.DataFrame, row: pd.Series, prev: pd.Seri
         signals['style'] = classify_style(row)
     except Exception:
         signals['style'] = 'NONE'
+
+    # V4 3박자 신호 주입
+    if build_v4_signal_map is not None:
+        try:
+            signals.update(build_v4_signal_map(row))
+        except Exception:
+            pass
+
+    # 공포매물흡수 주입
+    fear_info = {
+        'fear_absorb': False,
+        'personal_sell': 0,
+        'foreign_buy': 0,
+        'inst_buy': 0,
+        'score': 0,
+        'tag': '',
+    }
+    if detect_fear_absorption is not None and ticker:
+        try:
+            close_chg_pct = ((safe_float(row.get('Close', 0)) - safe_float(prev.get('Close', 0))) / safe_float(prev.get('Close', 1))) * 100 if safe_float(prev.get('Close', 0)) > 0 else 0.0
+            fear_info = detect_fear_absorption(ticker, safe_float(row.get('Close', 0)), close_chg_pct) or fear_info
+            signals['fear_absorb'] = to_bool(fear_info.get('fear_absorb', False))
+        except Exception:
+            pass
 
     # triangle / jongbe 주입
     tri_result = {}
@@ -286,7 +335,7 @@ def build_live_like_signals(hist_df: pd.DataFrame, row: pd.Series, prev: pd.Seri
         signals['closing_bet'] = True
         signals['closing_bet_grade'] = 'C'
 
-    return signals, new_tags, _sr
+    return signals, new_tags, _sr, fear_info
 
 # =============================================================
 # 단일 종목/단일 날짜 분석
@@ -314,6 +363,12 @@ def analyze_on_date(ticker: str, name: str, scan_date: str) -> dict | None:
         if hist_df is None or hist_df.empty or len(hist_df) < 20:
             return None
 
+        if apply_dante_v4 is not None and 'DANTE_3PHASE_SCORE' not in hist_df.columns:
+            try:
+                hist_df = apply_dante_v4(hist_df)
+            except Exception:
+                pass
+
         row = hist_df.iloc[-1]
         prev = hist_df.iloc[-2]
 
@@ -325,7 +380,7 @@ def analyze_on_date(ticker: str, name: str, scan_date: str) -> dict | None:
             return None
 
         # live와 동일한 신호 주입
-        signals, new_tags, sr_data = build_live_like_signals(hist_df, row, prev)
+        signals, new_tags, sr_data, fear_info = build_live_like_signals(hist_df, row, prev, ticker=ticker)
 
         # live와 동일하게 시퀀스 반영
         if judge_trade_with_sequence is not None:
@@ -335,6 +390,12 @@ def analyze_on_date(ticker: str, name: str, scan_date: str) -> dict | None:
                 result = calculate_combination_score(signals)
         else:
             result = calculate_combination_score(signals)
+
+        if apply_fear_and_quality_bonus is not None:
+            try:
+                result['score'] = round(apply_fear_and_quality_bonus(safe_float(result.get('score', 0)), row), 1)
+            except Exception:
+                pass
 
         if safe_int(result.get('score', 0)) < MIN_SCORE:
             return None
@@ -428,6 +489,23 @@ def analyze_on_date(ticker: str, name: str, scan_date: str) -> dict | None:
             'BB_PercentB':  round(safe_float(row.get('BB40_PercentB', 0)), 2),
             'MFI':          round(safe_float(row.get('MFI', 0)), 1),
             'ATR':          round(safe_float(row.get('ATR', 0)), 1),
+
+            # V4 3박자 컬럼
+            '기간대칭점수':   round(safe_float(row.get('SYM_SCORE', row.get('sym_score_v4', 0))), 1),
+            '기간대칭등급':   str(row.get('SYM_GRADE', '')),
+            '파동에너지점수': round(safe_float(row.get('ENERGY_TOTAL', row.get('energy_total_v4', 0))), 1),
+            '파동에너지등급': str(row.get('ENERGY_GRADE', '')),
+            '3박자종합점수':  round(safe_float(row.get('DANTE_3PHASE_SCORE', row.get('dante_v4_score', 0))), 1),
+            '3박자등급':      str(row.get('DANTE_3PHASE_GRADE', row.get('dante_v4_grade', ''))),
+            '수박상태V4':     str(row.get('WM_STATE_NAME', row.get('watermelon_phase_v4', ''))),
+            '3박자준비형':    to_bool(row.get('DANTE_FINAL_PREP', False)),
+            '3박자발사형':    to_bool(row.get('DANTE_FINAL_FIRE', False)),
+            '3박자유지형':    to_bool(row.get('DANTE_FINAL_HOLD', False)),
+            '수박1차발사형V4': to_bool(row.get('Watermelon_First_Launch', False)),
+            '수박재발사형V4': to_bool(row.get('Watermelon_Relaunch', False)),
+            '공포매물흡수':   to_bool(fear_info.get('fear_absorb', False)) or to_bool(row.get('공포매물흡수', False)),
+            '공포흡수점수':   safe_int(fear_info.get('score', row.get('공포흡수점수', 0))),
+            '공포흡수태그':   str(fear_info.get('tag', row.get('공포흡수태그', ''))),
 
             # 기존 + 최신 컬럼 같이 저장
             '수급전환':      to_bool(row.get('Watermelon_Signal', False)),
@@ -615,6 +693,54 @@ def analyze_stage_winrate(df: pd.DataFrame) -> pd.DataFrame:
         rows.append(row_data)
     return pd.DataFrame(rows)
 
+def analyze_v4_signal_winrate(df: pd.DataFrame) -> pd.DataFrame:
+    signal_cols = [
+        ('3박자발사형', 'DANTE_FINAL_FIRE'),
+        ('3박자준비형', 'DANTE_FINAL_PREP'),
+        ('3박자유지형', 'DANTE_FINAL_HOLD'),
+        ('수박1차발사형V4', 'Watermelon_First_Launch'),
+        ('수박재발사형V4', 'Watermelon_Relaunch'),
+        ('공포매물흡수', 'FearAbsorb'),
+    ]
+
+    rows = []
+    for col_name, label in signal_cols:
+        if col_name not in df.columns:
+            continue
+        grp = df[df[col_name] == True].copy()
+        n_total = len(grp)
+        if n_total < 2:
+            continue
+
+        row_data = {
+            '신호': label,
+            '컬럼': col_name,
+            '건수': n_total,
+            '평균N점수': round(grp['N점수'].mean(), 1) if 'N점수' in grp.columns else 0,
+            '평균3박자점수': round(grp['3박자종합점수'].mean(), 1) if '3박자종합점수' in grp.columns else 0,
+            'MFE평균%': round(grp['최고점%'].mean(), 2),
+            'MAE평균%': round(grp['최저점%'].mean(), 2),
+        }
+
+        for hold in HOLD_DAYS_LIST:
+            win_col = f'승패_{hold}일'
+            ret_col = f'수익률_{hold}일'
+            valid = grp[grp[win_col] != 'N/A']
+            if valid.empty:
+                row_data[f'승률_{hold}일%'] = None
+                row_data[f'평균수익_{hold}일%'] = None
+                continue
+            row_data[f'승률_{hold}일%'] = round((valid[win_col] == '승').sum() / len(valid) * 100, 1)
+            row_data[f'평균수익_{hold}일%'] = round(valid[ret_col].mean(), 2)
+
+        rows.append(row_data)
+
+    summary = pd.DataFrame(rows)
+    if summary.empty:
+        return summary
+    sort_col = '승률_10일%' if '승률_10일%' in summary.columns else '승률_5일%'
+    return summary.sort_values(sort_col, ascending=False).reset_index(drop=True)
+
 def analyze_monthly_winrate(df: pd.DataFrame, hold_col: str = '수익률_10일') -> pd.DataFrame:
     if '스캔일' not in df.columns:
         return pd.DataFrame()
@@ -696,10 +822,12 @@ if __name__ == '__main__':
     pattern_df = analyze_pattern_winrate(result_df)
     stage_df = analyze_stage_winrate(result_df)
     monthly_df = analyze_monthly_winrate(result_df)
+    v4_df = analyze_v4_signal_winrate(result_df)
 
     pattern_df.to_csv('backtest_pattern_winrate.csv', index=False, encoding='utf-8-sig')
     stage_df.to_csv('backtest_stage_winrate.csv', index=False, encoding='utf-8-sig')
     monthly_df.to_csv('backtest_monthly.csv', index=False, encoding='utf-8-sig')
+    v4_df.to_csv('backtest_v4_signal_winrate.csv', index=False, encoding='utf-8-sig')
 
     print_report(result_df)
 
