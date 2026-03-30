@@ -115,7 +115,7 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           SCAN_LOG_LEVEL: QUIET
         run: |
-          python backtest_validator_fast_v4.py \
+          python backtest_validator.py \
             --start "${{ inputs.start_date }}" \
             --end "${{ inputs.end_date }}" \
             --freq "${{ inputs.freq }}" \
