@@ -2,6 +2,22 @@ name: BackTest Stock Scanner
 
 on:
   workflow_dispatch:
+    inputs:
+      start_date:
+        description: "백테스트 시작일 (YYYY-MM-DD)"
+        required: true
+        default: "2026-01-03"
+        type: string
+      end_date:
+        description: "백테스트 종료일 (YYYY-MM-DD)"
+        required: true
+        default: "2026-03-27"
+        type: string
+      extra_args:
+        description: "추가 실행 인자 (선택)"
+        required: false
+        default: ""
+        type: string
 
 jobs:
   build:
@@ -29,6 +45,23 @@ jobs:
           pip install gspread gspread-formatting gspread-dataframe google-auth oauth2client
           pip install -r requirements.txt
 
+      - name: Validate input dates
+        shell: bash
+        run: |
+          python - <<'PY'
+          from datetime import datetime
+          start = "${{ inputs.start_date }}"
+          end = "${{ inputs.end_date }}"
+          try:
+              s = datetime.strptime(start, "%Y-%m-%d")
+              e = datetime.strptime(end, "%Y-%m-%d")
+          except ValueError as exc:
+              raise SystemExit(f"날짜 형식 오류: {exc}")
+          if s > e:
+              raise SystemExit("start_date는 end_date보다 늦을 수 없습니다.")
+          print(f"OK: {start} ~ {end}")
+          PY
+
       - name: Run Scanner
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
@@ -38,5 +71,11 @@ jobs:
           GOOGLE_JSON_KEY: ${{ secrets.GOOGLE_JSON_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           SCAN_LOG_LEVEL: QUIET
-          
-        run: python backtest_validator.py --start 2026-01-03 --end 2026-03-27
+        shell: bash
+        run: |
+          EXTRA_ARGS="${{ inputs.extra_args }}"
+          echo "Running backtest from ${{ inputs.start_date }} to ${{ inputs.end_date }}"
+          python backtest_validator.py \
+            --start "${{ inputs.start_date }}" \
+            --end "${{ inputs.end_date }}" \
+            ${EXTRA_ARGS}
