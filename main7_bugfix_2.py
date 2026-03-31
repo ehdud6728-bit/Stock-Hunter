@@ -139,6 +139,8 @@ from us_kor_market_mapper import (
 TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN')
 TELEGRAM_REAL_CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID', '')
 TELEGRAM_TEST_CHAT_ID = os.environ.get('TELEGRAM_TEST_CHAT_ID', '')
+TELEGRAM_CHAT_ID_EFFECTIVE = os.environ.get('TELEGRAM_CHAT_ID_EFFECTIVE', '')
+TEST_CHAT_ID_OVERRIDE = os.environ.get('TEST_CHAT_ID_OVERRIDE', '')
 OPENAI_API_KEY    = os.environ.get('OPENAI_API_KEY')
 GROQ_API_KEY      = os.environ.get('GROQ_API_KEY')
 ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY', '')
@@ -166,8 +168,11 @@ def _parse_chat_ids(raw: str):
 def get_target_chat_ids():
     real_ids = _parse_chat_ids(TELEGRAM_REAL_CHAT_ID)
     test_ids = _parse_chat_ids(TELEGRAM_TEST_CHAT_ID)
+    override_ids = _parse_chat_ids(TELEGRAM_CHAT_ID_EFFECTIVE or TEST_CHAT_ID_OVERRIDE)
 
     if TEST_MODE:
+        if override_ids:
+            return override_ids, 'test_override'
         if test_ids:
             return test_ids, 'test'
         return [], 'test_missing'
@@ -6344,7 +6349,11 @@ if __name__ == "__main__":
 
     _tg_ids, _tg_mode = get_target_chat_ids()
     if TEST_MODE:
-        log_info(f"🧪 TEST_MODE 활성화 | 대상방 수: {len(_tg_ids)} | 모드: {_tg_mode}")
+        _override_preview = ','.join(_parse_chat_ids(TELEGRAM_CHAT_ID_EFFECTIVE or TEST_CHAT_ID_OVERRIDE))
+        if _override_preview:
+            log_info(f"🧪 TEST_MODE 활성화 | 대상방 수: {len(_tg_ids)} | 모드: {_tg_mode} | override: {_override_preview}")
+        else:
+            log_info(f"🧪 TEST_MODE 활성화 | 대상방 수: {len(_tg_ids)} | 모드: {_tg_mode}")
     else:
         log_info(f"📨 실전 전송 모드 | 대상방 수: {len(_tg_ids)}")
     
