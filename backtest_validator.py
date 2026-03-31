@@ -1,3 +1,4 @@
+# HTS 정확복제형 + main7 통일 엔진 반영 백테스트 최종본
 # =============================================================
 # 📊 backtest_validator_latest_complete.py
 # main7_bugfix_2 기준 최신 통합 백테스트 교체본
@@ -11,7 +12,6 @@ import os
 import traceback
 from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
-import threading
 
 import numpy as np
 import pandas as pd
@@ -34,15 +34,21 @@ except ImportError:
     def log_scan_date(date, n): print(f"🗓️  {date} → 히트: {n}개")
 
 # ─────────────────────────────────────────────────────────────
-# 최신 본진 모듈: V4 통합본 우선, 없으면 기본 main7_bugfix_2 fallback
+# 최신 본진 모듈: HTS 정확복제 통합본 우선, 없으면 기존 V4/기본 main7 fallback
 # ─────────────────────────────────────────────────────────────
 try:
-    import main7_bugfix_2_v4_integrated_synced as _main7
+    import main7_bugfix_2_hts_exact_integrated_final as _main7
 except Exception:
     try:
-        import main7_bugfix_2_v4_integrated as _main7
+        import main7_bugfix_2_engine_consistent_final as _main7
     except Exception:
-        import main7_bugfix_2 as _main7
+        try:
+            import main7_bugfix_2_v4_integrated_synced as _main7
+        except Exception:
+            try:
+                import main7_bugfix_2_v4_integrated as _main7
+            except Exception:
+                import main7_bugfix_2 as _main7
 
 get_indicators              = _main7.get_indicators
 calculate_combination_score = _main7.calculate_combination_score
@@ -64,18 +70,24 @@ apply_fear_and_quality_bonus = getattr(_main7, 'apply_fear_and_quality_bonus', N
 
 if apply_dante_v4 is None or build_v4_signal_map is None or apply_fear_and_quality_bonus is None:
     try:
-        from dante_3phase_v4_module_synced import apply_dante_v4 as _apply_dante_v4, build_v4_signal_map as _build_v4_signal_map, apply_fear_and_quality_bonus as _apply_fear_and_quality_bonus
+        from dante_3phase_v4_module_hts_exact_integrated_final import apply_dante_v4 as _apply_dante_v4, build_v4_signal_map as _build_v4_signal_map, apply_fear_and_quality_bonus as _apply_fear_and_quality_bonus
         apply_dante_v4 = apply_dante_v4 or _apply_dante_v4
         build_v4_signal_map = build_v4_signal_map or _build_v4_signal_map
         apply_fear_and_quality_bonus = apply_fear_and_quality_bonus or _apply_fear_and_quality_bonus
     except Exception:
         try:
-            from dante_3phase_v4_module import apply_dante_v4 as _apply_dante_v4, build_v4_signal_map as _build_v4_signal_map, apply_fear_and_quality_bonus as _apply_fear_and_quality_bonus
+            from dante_3phase_v4_module_engine_consistent import apply_dante_v4 as _apply_dante_v4, build_v4_signal_map as _build_v4_signal_map, apply_fear_and_quality_bonus as _apply_fear_and_quality_bonus
             apply_dante_v4 = apply_dante_v4 or _apply_dante_v4
             build_v4_signal_map = build_v4_signal_map or _build_v4_signal_map
             apply_fear_and_quality_bonus = apply_fear_and_quality_bonus or _apply_fear_and_quality_bonus
         except Exception:
-            pass
+            try:
+                from dante_3phase_v4_module import apply_dante_v4 as _apply_dante_v4, build_v4_signal_map as _build_v4_signal_map, apply_fear_and_quality_bonus as _apply_fear_and_quality_bonus
+                apply_dante_v4 = apply_dante_v4 or _apply_dante_v4
+                build_v4_signal_map = build_v4_signal_map or _build_v4_signal_map
+                apply_fear_and_quality_bonus = apply_fear_and_quality_bonus or _apply_fear_and_quality_bonus
+            except Exception:
+                pass
 
 # 선택 함수들
 classify_momentum       = getattr(_main7, 'classify_momentum', None)
@@ -93,6 +105,18 @@ try:
 except Exception:
     jongbe_triangle_combo_v3 = None
 
+# HTS 정확복제형 예비돌반지
+try:
+    from pre_dolbanji_hts_exact_clone import build_pre_dolbanji_hts_exact_bundle
+except Exception:
+    def build_pre_dolbanji_hts_exact_bundle(df, fund=None, require_fundamentals=False):
+        return {
+            "pre_dolbanji_hts_exact": False,
+            "pre_dolbanji_hts_exact_score": 0,
+            "pre_dolbanji_hts_exact_tags": [],
+            "pre_dolbanji_hts_exact_detail": {},
+        }
+
 # =============================================================
 # 설정
 # =============================================================
@@ -105,14 +129,6 @@ PROFIT_TARGET         = 5.0
 STOP_LOSS             = -5.0
 PATTERN_COL           = 'N조합'
 MIN_MARCAP_DEFAULT    = 1_000_000_000
-
-# 캐시/성능 튜닝
-RAW_CACHE_LOOKBACK_DAYS = 420
-RAW_CACHE_LOOKAHEAD_DAYS = max(HOLD_DAYS_LIST) + 10
-PREFETCH_WORKERS = 8
-_PRICE_DATA_CACHE = {}
-_PRICE_DATA_CACHE_LOCK = threading.Lock()
-
 
 # =============================================================
 # 유틸
@@ -347,91 +363,25 @@ def build_live_like_signals(hist_df: pd.DataFrame, row: pd.Series, prev: pd.Seri
     return signals, new_tags, _sr, fear_info
 
 # =============================================================
-# 캐시 기반 데이터 준비
-# =============================================================
-def _price_cache_key(ticker: str, start_date: str, end_date: str) -> tuple:
-    return (ticker, start_date, end_date)
-
-
-def get_price_data_cached(ticker: str, start_date: str, end_date: str) -> pd.DataFrame | None:
-    key = _price_cache_key(ticker, start_date, end_date)
-    with _PRICE_DATA_CACHE_LOCK:
-        cached = _PRICE_DATA_CACHE.get(key)
-    if cached is not None:
-        return cached.copy()
-
-    try:
-        s_dt = datetime.strptime(start_date, '%Y-%m-%d') - timedelta(days=RAW_CACHE_LOOKBACK_DAYS)
-        e_dt = datetime.strptime(end_date, '%Y-%m-%d') + timedelta(days=RAW_CACHE_LOOKAHEAD_DAYS)
-        df = fdr.DataReader(
-            ticker,
-            start=s_dt.strftime('%Y-%m-%d'),
-            end=e_dt.strftime('%Y-%m-%d')
-        )
-        if df is None or df.empty or len(df) < 60:
-            return None
-        df = df.sort_index()
-        with _PRICE_DATA_CACHE_LOCK:
-            _PRICE_DATA_CACHE[key] = df.copy()
-        return df
-    except Exception:
-        return None
-
-
-def prefetch_price_data(tickers_list: list, start_date: str, end_date: str, workers: int = PREFETCH_WORKERS) -> dict:
-    if not tickers_list:
-        return {}
-
-    results = {}
-    hit = 0
-    miss = 0
-    workers = max(1, min(workers, len(tickers_list)))
-
-    with ThreadPoolExecutor(max_workers=workers) as executor:
-        future_map = {
-            executor.submit(get_price_data_cached, code, start_date, end_date): (code, name)
-            for code, name in tickers_list
-        }
-        for future in as_completed(future_map):
-            code, name = future_map[future]
-            try:
-                df = future.result()
-                if df is not None and not df.empty:
-                    results[code] = df
-                    hit += 1
-                else:
-                    miss += 1
-            except Exception:
-                miss += 1
-
-    log_info(f"🚚 가격데이터 사전적재 완료: 성공 {hit}개 / 실패 {miss}개")
-    return results
-
-
-# =============================================================
 # 단일 종목/단일 날짜 분석
 # =============================================================
-def analyze_on_date(ticker: str, name: str, scan_date: str, full_df: pd.DataFrame | None = None) -> dict | None:
+def analyze_on_date(ticker: str, name: str, scan_date: str) -> dict | None:
     try:
-        if full_df is None:
-            # fallback: 외부에서 캐시를 못 넘겨준 경우에도 동작
-            full_df = get_price_data_cached(ticker, scan_date, scan_date)
+        scan_dt = datetime.strptime(scan_date, '%Y-%m-%d')
+        start_dt = scan_dt - timedelta(days=400)
+        end_dt = scan_dt + timedelta(days=60)
+
+        full_df = fdr.DataReader(
+            ticker,
+            start=start_dt.strftime('%Y-%m-%d'),
+            end=end_dt.strftime('%Y-%m-%d')
+        )
 
         if full_df is None or full_df.empty or len(full_df) < 60:
             return None
 
-        full_df = full_df.sort_index()
         hist_df = full_df[full_df.index <= scan_date].copy()
         if hist_df.empty or len(hist_df) < 60:
-            return None
-
-        # 빠른 원시 데이터 선필터: 불필요한 지표 계산 줄이기
-        raw_recent_avg_amount = (hist_df['Close'] * hist_df['Volume']).tail(5).mean() / 1e8
-        raw_vol = safe_float(hist_df['Volume'].iloc[-1])
-        raw_vma20 = safe_float(hist_df['Volume'].tail(20).mean())
-        raw_track_b = (raw_recent_avg_amount >= 10) and (raw_vma20 > 0) and (raw_vol >= raw_vma20 * 3.0)
-        raw_min_amount = MIN_AMOUNT_TRACK_B if raw_track_b else MIN_AMOUNT_MAIN
-        if raw_recent_avg_amount < raw_min_amount:
             return None
 
         hist_df = get_indicators(hist_df)
@@ -535,6 +485,18 @@ def analyze_on_date(ticker: str, name: str, scan_date: str, full_df: pd.DataFram
         pivot = sr_data.get('pivot', {}) if isinstance(sr_data, dict) else {}
         atr_targets = sr_data.get('atr_targets', {}) if isinstance(sr_data, dict) else {}
 
+        # HTS 정확복제형 예비돌반지
+        try:
+            exact_bundle = build_pre_dolbanji_hts_exact_bundle(hist_df, fund=None, require_fundamentals=False) or {}
+        except Exception:
+            exact_bundle = {
+                "pre_dolbanji_hts_exact": False,
+                "pre_dolbanji_hts_exact_score": 0,
+                "pre_dolbanji_hts_exact_tags": [],
+                "pre_dolbanji_hts_exact_detail": {},
+            }
+        exact_detail = exact_bundle.get("pre_dolbanji_hts_exact_detail", {}) or {}
+
         record = {
             '스캔일':       scan_date,
             '종목명':       name,
@@ -599,6 +561,12 @@ def analyze_on_date(ticker: str, name: str, scan_date: str, full_df: pd.DataFram
             '좋은수렴':      to_bool(row.get('Good_MA_Convergence', False)),
             '폭발직전':      to_bool(row.get('MA_Convergence_Break_Ready', False)),
             '급등초동':      is_track_b,
+
+            # HTS 정확복제형 예비돌반지
+            '예비돌반지HTS정확복제': to_bool(exact_bundle.get('pre_dolbanji_hts_exact', False)),
+            '예비돌반지HTS정확점수': safe_int(exact_bundle.get('pre_dolbanji_hts_exact_score', 0)),
+            '예비돌반지HTS정확최대': safe_int(exact_detail.get('tech_max', 10)),
+            '예비돌반지HTS정확태그': " ".join(exact_bundle.get('pre_dolbanji_hts_exact_tags', [])),
 
             '초단기MA수렴도':   round(safe_float(row.get('MAConv_5_10_20', 0)), 1),
             '단기MA수렴도':     round(safe_float(row.get('MAConv_5_20_60', 0)), 1),
@@ -667,22 +635,17 @@ def run_backtest(start_date: str, end_date: str,
     tickers_list = load_krx_tickers(top_n=top_n)
     log_info(f"🔭 대상 종목: {len(tickers_list)}개")
 
-    # 가장 큰 병목인 DataReader 반복 호출을 제거하기 위해 종목별 원시 데이터를 1회만 적재
-    cached_price_map = prefetch_price_data(tickers_list, start_date, end_date, workers=PREFETCH_WORKERS)
-    tickers_list = [(code, name) for code, name in tickers_list if code in cached_price_map]
-    log_info(f"🧠 캐시 사용 가능 종목: {len(tickers_list)}개")
-
     all_records = []
 
     for scan_date in scan_dates:
         date_records = []
         with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
             future_map = {
-                executor.submit(analyze_on_date, code, name, scan_date, cached_price_map.get(code)): (code, name)
+                executor.submit(analyze_on_date, code, name, scan_date): (code, name)
                 for code, name in tickers_list
             }
 
-            for future in as_completed(future_map, timeout=max(30, 20 * max(1, len(tickers_list)))):
+            for future in as_completed(future_map, timeout=max(30, 20 * len(tickers_list))):
                 try:
                     rec = future.result(timeout=20)
                     if rec:
@@ -852,6 +815,10 @@ def print_report(df: pd.DataFrame):
     log_info(f"기간: {df['스캔일'].min()} ~ {df['스캔일'].max()}")
     log_info(f"평균 최고점(MFE): {df['최고점%'].mean():.2f}%")
     log_info(f"평균 최저점(MAE): {df['최저점%'].mean():.2f}%")
+    if '예비돌반지HTS정확복제' in df.columns:
+        hit_cnt = int(df['예비돌반지HTS정확복제'].fillna(False).sum())
+        log_info(f"HTS정확복제 예비돌반지 발생 건수: {hit_cnt}")
+
 
     for hold in HOLD_DAYS_LIST:
         ret_col = f'수익률_{hold}일'
@@ -879,18 +846,13 @@ def print_report(df: pd.DataFrame):
 # CLI
 # =============================================================
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='backtest_validator_latest_complete')
+    parser = argparse.ArgumentParser(description='backtest_validator_hts_exact_integrated_final')
     parser.add_argument('--start', default='2024-09-01', help='시작일 YYYY-MM-DD')
     parser.add_argument('--end', default='2025-01-31', help='종료일 YYYY-MM-DD')
     parser.add_argument('--freq', default='daily', help='weekly or daily')
     parser.add_argument('--top_n', default=500, type=int, help='스캔 종목 수')
-    parser.add_argument('--workers', default=MAX_WORKERS, type=int, help='날짜별 병렬 worker 수')
-    parser.add_argument('--prefetch_workers', default=PREFETCH_WORKERS, type=int, help='사전 데이터 적재 worker 수')
     parser.add_argument('--no_sheet', action='store_true', help='구글시트 업로드 생략')
     args = parser.parse_args()
-
-    MAX_WORKERS = max(1, safe_int(args.workers, MAX_WORKERS))
-    PREFETCH_WORKERS = max(1, safe_int(args.prefetch_workers, PREFETCH_WORKERS))
 
     result_df = run_backtest(
         start_date=args.start,
