@@ -24,11 +24,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
 
+DANTE_V4_VERSION = 'v4.3-one-module-pre-dolbanji'
 
 # ============================================================
 # 공용 유틸
@@ -678,6 +679,9 @@ def apply_dante_v4(df: pd.DataFrame) -> pd.DataFrame:
     out['WATERMELON_RED_SCORE_V4'] = out['WM_FIRE_SCORE']
     out['WATERMELON_QUALITY_V4'] = out['WM_BLOCK_SCORE']
     out['Watermelon_State_Name_V4'] = out['WM_STATE_NAME']
+    out['WATERMELON_STATE_V4'] = out['WM_STATE']
+    out['WATERMELON_PHASE_V4'] = out['WM_STATE_NAME']
+    out['DANTE_V4_VERSION'] = DANTE_V4_VERSION
 
     # 추천 태그 텍스트
     tags = []
@@ -702,6 +706,17 @@ def apply_dante_v4(df: pd.DataFrame) -> pd.DataFrame:
 # 기존 main7_bugfix_2.py 에 연결하기 쉬운 helper
 # ============================================================
 
+
+def summarize_v4_row(row: pd.Series) -> str:
+    phase = str(row.get('WM_STATE_NAME', 'NONE'))
+    grade = str(row.get('DANTE_3PHASE_GRADE', 'C'))
+    score = round(safe_float(row.get('DANTE_3PHASE_SCORE', 0)), 1)
+    sym = safe_int(row.get('SYM_SCORE', 0))
+    energy = safe_int(row.get('ENERGY_TOTAL', 0))
+    quality = round(safe_float(row.get('WATERMELON_QUALITY_V4', 0)), 1)
+    return f"{phase} | 등급 {grade} | 점수 {score} | 대칭 {sym} | 에너지 {energy} | 품질 {quality}"
+
+
 def build_v4_signal_map(row: pd.Series) -> Dict[str, object]:
     """기존 콤보엔진 signals 딕셔너리에 주입하기 쉬운 맵."""
     return {
@@ -718,6 +733,8 @@ def build_v4_signal_map(row: pd.Series) -> Dict[str, object]:
         'sym_score_v4': int(row.get('SYM_SCORE', 0)),
         'energy_total_v4': int(row.get('ENERGY_TOTAL', 0)),
         'wm_state_name_v4': str(row.get('WM_STATE_NAME', 'NONE')),
+        'dante_v4_summary': summarize_v4_row(row),
+        'dante_v4_version': str(row.get('DANTE_V4_VERSION', DANTE_V4_VERSION)),
     }
 
 
@@ -754,3 +771,284 @@ if __name__ == '__main__':
 
     out = apply_dante_v4(sample)
     print(out[['DANTE_3PHASE_SCORE', 'DANTE_3PHASE_GRADE', 'WM_STATE_NAME', 'DANTE_FINAL_PREP', 'DANTE_FINAL_FIRE', 'DANTE_FINAL_HOLD']].tail(10))
+
+
+# ============================================================
+# 예비돌반지(통합형)
+# ============================================================
+
+def safe_float(x: Any, default: float = 0.0) -> float:
+    try:
+        if x is None:
+            return default
+        if isinstance(x, str):
+            x = x.replace(",", "").strip()
+            if x == "":
+                return default
+        v = float(x)
+        if math.isnan(v):
+            return default
+        return v
+    except Exception:
+        return default
+
+
+def safe_int(x: Any, default: int = 0) -> int:
+    try:
+        return int(round(safe_float(x, default)))
+    except Exception:
+        return default
+
+
+def _has_required_columns(df: pd.DataFrame, cols: List[str]) -> bool:
+    return all(c in df.columns for c in cols)
+
+
+def _recent(df: pd.DataFrame, n: int) -> pd.DataFrame:
+    return df.tail(n).copy()
+
+
+def _pct_diff(a: float, b: float) -> float:
+    if b == 0:
+        return 0.0
+    return (a - b) / b * 100.0
+
+
+def _between(v: float, lo: float, hi: float) -> bool:
+    return lo <= v <= hi
+
+
+@dataclass
+class PatternCheckResult:
+    name: str
+    passed: bool
+    score: int
+    max_score: int
+    detail: Dict[str, Any]
+
+
+def _pre_dolbanji_common(row: pd.Series, df: pd.DataFrame) -> Dict[str, Any]:
+    close = safe_float(row.get("Close"))
+    ma5 = safe_float(row.get("MA5"))
+    ma20 = safe_float(row.get("MA20"))
+    ma60 = safe_float(row.get("MA60"))
+    ma112 = safe_float(row.get("MA112"))
+    ma224 = safe_float(row.get("MA224"))
+    ma448 = safe_float(row.get("MA448"))
+    bb40u = safe_float(row.get("BB40_Upper"))
+    bb40w = safe_float(row.get("BB40_Width"))
+    obv = safe_float(row.get("OBV"))
+    obv_ma10 = safe_float(row.get("OBV_MA10"))
+    macd_hist = safe_float(row.get("MACD_Hist"))
+
+    recent50 = _recent(df, 50)
+    prev_close = recent50["Close"].shift(1) if "Close" in recent50.columns else pd.Series(dtype=float)
+    surge_pct = ((recent50["High"] / prev_close) - 1.0) * 100 if "High" in recent50.columns else pd.Series(dtype=float)
+    vol_ratio = (recent50["Volume"] / recent50["Volume"].shift(1)) if "Volume" in recent50.columns else pd.Series(dtype=float)
+
+    ma224_below_448_days_50 = int(((recent50["MA224"] < recent50["MA448"]).fillna(False)).sum()) \
+        if _has_required_columns(recent50, ["MA224", "MA448"]) else 0
+
+    past_ma448_break = bool((recent50["High"] > recent50["MA448"]).fillna(False).any()) \
+        if _has_required_columns(recent50, ["High", "MA448"]) else False
+
+    past_ma448_near_break = bool((recent50["High"] > recent50["MA448"] * 0.98).fillna(False).any()) \
+        if _has_required_columns(recent50, ["High", "MA448"]) else False
+
+    info = {
+        "close": close,
+        "ma5": ma5,
+        "ma20": ma20,
+        "ma60": ma60,
+        "ma112": ma112,
+        "ma224": ma224,
+        "ma448": ma448,
+        "bb40_upper": bb40u,
+        "bb40_width": bb40w,
+        "obv": obv,
+        "obv_ma10": obv_ma10,
+        "macd_hist": macd_hist,
+        "ma224_below_448_days_50": ma224_below_448_days_50,
+        "past_surge_12_30": bool(surge_pct.between(12, 30).any()) if len(surge_pct) else False,
+        "past_surge_10_35": bool(surge_pct.between(10, 35).any()) if len(surge_pct) else False,
+        "past_surge_15_40": bool(surge_pct.between(15, 40).any()) if len(surge_pct) else False,
+        "past_volume_3x": bool((vol_ratio >= 3.0).any()) if len(vol_ratio) else False,
+        "past_volume_2_5x": bool((vol_ratio >= 2.5).any()) if len(vol_ratio) else False,
+        "past_volume_4x": bool((vol_ratio >= 4.0).any()) if len(vol_ratio) else False,
+        "past_ma448_break": past_ma448_break,
+        "past_ma448_near_break": past_ma448_near_break,
+        "recent30_obv_up": bool(obv > obv_ma10) if obv_ma10 > 0 else False,
+        "recent30_close_above_ma112": bool(close > ma112) if ma112 > 0 else False,
+        "recent30_ma20_gt_ma60": bool(ma20 > ma60) if ma20 > 0 and ma60 > 0 else False,
+    }
+
+    info["close_vs_ma224_pct"] = round(_pct_diff(close, ma224), 2) if ma224 > 0 else None
+    info["close_vs_ma448_pct"] = round(_pct_diff(close, ma448), 2) if ma448 > 0 else None
+    info["close_vs_bb40u_pct"] = round(_pct_diff(close, bb40u), 2) if bb40u > 0 else None
+    return info
+
+
+def check_pre_dolbanji_A(row: pd.Series, df: pd.DataFrame) -> PatternCheckResult:
+    info = _pre_dolbanji_common(row, df)
+    cond1 = info["ma224"] > 0 and info["ma448"] > 0 and info["ma224"] < info["ma448"]
+    cond2 = info["ma224_below_448_days_50"] >= 35
+    cond3 = info["close_vs_ma224_pct"] is not None and _between(info["close_vs_ma224_pct"], -3.0, 5.0)
+    cond4 = info["close"] < info["ma448"] if info["ma448"] > 0 else False
+    cond5 = info["ma5"] > info["ma112"] if info["ma112"] > 0 else False
+    cond6 = info["close_vs_bb40u_pct"] is not None and _between(info["close_vs_bb40u_pct"], -7.0, 3.0)
+    cond7 = info["past_surge_12_30"]
+    cond8 = info["past_volume_4x"]
+    cond9 = info["past_ma448_break"]
+    conditions = [cond1, cond2, cond3, cond4, cond5, cond6, cond7, cond8, cond9]
+    return PatternCheckResult("예비돌반지A", all(conditions), sum(1 for x in conditions if x), 9, info)
+
+
+def check_pre_dolbanji_B(row: pd.Series, df: pd.DataFrame) -> PatternCheckResult:
+    info = _pre_dolbanji_common(row, df)
+    cond1 = info["ma224"] > 0 and info["ma448"] > 0 and info["ma224"] < info["ma448"]
+    cond2 = info["ma224_below_448_days_50"] >= 25
+    cond3 = info["close_vs_ma224_pct"] is not None and _between(info["close_vs_ma224_pct"], -5.0, 8.0)
+    cond4 = info["close_vs_ma448_pct"] is not None and info["close_vs_ma448_pct"] <= 3.0
+    cond5 = info["ma112"] > 0 and info["ma5"] >= info["ma112"] * 0.98
+    cond6 = info["close_vs_bb40u_pct"] is not None and _between(info["close_vs_bb40u_pct"], -10.0, 5.0)
+    cond7 = info["past_surge_10_35"]
+    cond8 = info["past_volume_2_5x"]
+    cond9 = info["past_ma448_near_break"]
+    conditions = [cond1, cond2, cond3, cond4, cond5, cond6, cond7, cond8, cond9]
+    score = sum(1 for x in conditions if x)
+    return PatternCheckResult("예비돌반지B", score >= 7, score, 9, info)
+
+
+def check_pre_dolbanji_C(row: pd.Series, df: pd.DataFrame) -> PatternCheckResult:
+    info = _pre_dolbanji_common(row, df)
+    cond1 = info["ma224"] > 0 and info["ma448"] > 0 and info["ma224"] < info["ma448"]
+    cond2 = info["close_vs_ma224_pct"] is not None and _between(info["close_vs_ma224_pct"], -6.0, 10.0)
+    cond3 = info["close_vs_ma448_pct"] is not None and info["close_vs_ma448_pct"] <= 5.0
+    cond4 = info["recent30_close_above_ma112"]
+    cond5 = info["past_surge_15_40"]
+    cond6 = info["past_volume_4x"]
+    cond7 = info["past_ma448_break"]
+    cond8 = info["recent30_obv_up"]
+    conditions = [cond1, cond2, cond3, cond4, cond5, cond6, cond7, cond8]
+    score = sum(1 for x in conditions if x)
+    return PatternCheckResult("예비돌반지C", score >= 6, score, 8, info)
+
+
+def check_pre_dolbanji_D(row: pd.Series, df: pd.DataFrame) -> PatternCheckResult:
+    info = _pre_dolbanji_common(row, df)
+    cond1 = info["ma224"] > 0 and info["ma448"] > 0 and info["ma224"] < info["ma448"]
+    cond2 = info["close_vs_ma448_pct"] is not None and info["close_vs_ma448_pct"] <= 2.0
+    cond3 = info["recent30_ma20_gt_ma60"] or (info["ma112"] > 0 and info["ma5"] > info["ma112"])
+    cond4 = info["bb40_width"] > 0 and info["bb40_width"] <= 18.0
+    cond5 = info["recent30_obv_up"]
+    cond6 = info["past_ma448_break"]
+    cond7 = info["past_volume_3x"]
+    conditions = [cond1, cond2, cond3, cond4, cond5, cond6, cond7]
+    return PatternCheckResult("예비돌반지D", all(conditions), sum(1 for x in conditions if x), 7, info)
+
+
+def check_trend_reversal_confirm(row: pd.Series, df: pd.DataFrame) -> PatternCheckResult:
+    if len(df) < 5:
+        return PatternCheckResult("구조전환확인", False, 0, 4, {"reason": "데이터 부족"})
+    ma20_now = safe_float(row.get("MA20"))
+    ma20_prev = safe_float(df["MA20"].iloc[-4]) if "MA20" in df.columns else 0.0
+    macd_hist_now = safe_float(row.get("MACD_Hist"))
+    macd_hist_prev = safe_float(df["MACD_Hist"].iloc[-2]) if "MACD_Hist" in df.columns else 0.0
+    obv = safe_float(row.get("OBV"))
+    obv_ma10 = safe_float(row.get("OBV_MA10"))
+    close = safe_float(row.get("Close"))
+    ma112 = safe_float(row.get("MA112"))
+    c1 = ma20_now > ma20_prev if ma20_now > 0 and ma20_prev > 0 else False
+    c2 = (macd_hist_now > 0) or (macd_hist_now > macd_hist_prev)
+    c3 = obv > obv_ma10 if obv_ma10 > 0 else False
+    c4 = close > ma112 if ma112 > 0 else False
+    score = sum([c1, c2, c3, c4])
+    return PatternCheckResult("구조전환확인", score >= 3, score, 4, {
+        "ma20_slope_up": c1,
+        "macd_turn_up": c2,
+        "obv_confirm": c3,
+        "close_above_ma112": c4,
+    })
+
+
+def evaluate_pre_dolbanji_suite(df: pd.DataFrame) -> Dict[str, Any]:
+    required = [
+        "Open", "High", "Low", "Close", "Volume",
+        "MA5", "MA20", "MA60", "MA112", "MA224", "MA448",
+        "BB40_Upper", "BB40_Width", "OBV", "OBV_MA10", "MACD_Hist",
+    ]
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        return {"ok": False, "error": f"필수 컬럼 부족: {', '.join(missing)}", "patterns": []}
+    if len(df) < 60:
+        return {"ok": False, "error": "최소 60봉 이상 필요", "patterns": []}
+
+    row = df.iloc[-1]
+    patterns = [
+        check_pre_dolbanji_A(row, df),
+        check_pre_dolbanji_B(row, df),
+        check_pre_dolbanji_C(row, df),
+        check_pre_dolbanji_D(row, df),
+    ]
+    trend = check_trend_reversal_confirm(row, df)
+    passed_patterns = [p for p in patterns if p.passed]
+    tags = [f"💍{p.name}" for p in passed_patterns]
+    score = sum(p.score * 10 for p in passed_patterns)
+    if trend.passed:
+        tags.append(f"🧭구조전환확인({trend.score}/4)")
+        score += 40
+    else:
+        tags.append(f"🧭구조전환미완({trend.score}/4)")
+    if any(p.name == "예비돌반지D" and p.passed for p in passed_patterns):
+        tags.append("🚀재돌파임박")
+        score += 20
+    if any(p.name == "예비돌반지A" and p.passed for p in passed_patterns):
+        tags.append("📚정석형")
+        score += 15
+    if any(p.name == "예비돌반지C" and p.passed for p in passed_patterns):
+        tags.append("🐋세력흔적형")
+        score += 15
+
+    confirmed = bool(passed_patterns) and trend.passed
+    grade = "없음"
+    if confirmed and len(passed_patterns) >= 2 and trend.score >= 4:
+        grade = "S"
+    elif confirmed and len(passed_patterns) >= 1:
+        grade = "A"
+    elif len(passed_patterns) >= 1:
+        grade = "B"
+
+    return {
+        "ok": True,
+        "patterns": [asdict(p) for p in patterns],
+        "trend_confirm": asdict(trend),
+        "passed_names": [p.name for p in passed_patterns],
+        "confirmed": confirmed,
+        "score": int(score),
+        "grade": grade,
+        "tags": tags,
+        "best_pattern": passed_patterns[0].name if passed_patterns else "",
+    }
+
+
+def build_pre_dolbanji_bundle(df: pd.DataFrame) -> Dict[str, Any]:
+    suite = evaluate_pre_dolbanji_suite(df)
+    if not suite.get("ok", False):
+        return {
+            "pre_dolbanji": False,
+            "pre_dolbanji_confirmed": False,
+            "pre_dolbanji_score": 0,
+            "pre_dolbanji_grade": "없음",
+            "pre_dolbanji_tags": [],
+            "pre_dolbanji_best": "",
+            "pre_dolbanji_detail": suite,
+        }
+    return {
+        "pre_dolbanji": bool(suite["passed_names"]),
+        "pre_dolbanji_confirmed": bool(suite["confirmed"]),
+        "pre_dolbanji_score": int(suite["score"]),
+        "pre_dolbanji_grade": suite["grade"],
+        "pre_dolbanji_tags": suite["tags"],
+        "pre_dolbanji_best": suite["best_pattern"],
+        "pre_dolbanji_detail": suite,
+    }
