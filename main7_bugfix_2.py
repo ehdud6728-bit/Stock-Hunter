@@ -1,3 +1,4 @@
+# 예비돌반지 TOP5 전체스캔 기준 수정본
 # 예비돌반지 TOP5 / HTS 정확복제형 TOP5 별도 블록 반영본
 #------------------------------------------------------------------
 # 💎 [Ultimate Masterpiece] 전천후 AI 전략 사령부 (All-In-One 통합판)
@@ -6743,7 +6744,8 @@ if __name__ == "__main__":
     ai_candidates = apply_news_theme_bonus(ai_candidates, news_theme_analysis)
     ai_candidates = apply_us_theme_bonus(ai_candidates, us_merged_events)
 
-    pre_top5, exact_top5, broad_only_top5 = build_pre_dolbanji_top5(ai_candidates)
+    all_hits_df_for_pre = pd.DataFrame(all_hits_sorted) if all_hits_sorted else pd.DataFrame()
+    pre_top5, exact_top5, broad_only_top5 = build_pre_dolbanji_top5(all_hits_df_for_pre)
     log_info(f"💍 예비돌반지 전체 TOP5 수: {len(pre_top5)}")
     log_info(f"💍 HTS 정확복제형 TOP5 수: {len(exact_top5)}")
     log_info(f"💍 기존 예비돌반지 TOP5 수: {len(broad_only_top5)}")
