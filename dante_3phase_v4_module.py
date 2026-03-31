@@ -1052,3 +1052,159 @@ def build_pre_dolbanji_bundle(df: pd.DataFrame) -> Dict[str, Any]:
         "pre_dolbanji_best": suite["best_pattern"],
         "pre_dolbanji_detail": suite,
     }
+
+
+# ============================================================
+# 예비돌반지 HTS 정확복제형 (스크린샷 기반)
+# ============================================================
+
+def _hts_exact_ensure_ma180(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+    if "MA180" not in out.columns:
+        if "Close" in out.columns:
+            out["MA180"] = out["Close"].rolling(180, min_periods=30).mean()
+        else:
+            out["MA180"] = 0.0
+    return out
+
+def _hts_exact_ensure_bb40_upper(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+    if "BB40_Upper" not in out.columns:
+        close = out["Close"] if "Close" in out.columns else pd.Series(dtype=float)
+        ma40 = close.rolling(40, min_periods=20).mean()
+        std40 = close.rolling(40, min_periods=20).std()
+        out["BB40_Upper"] = ma40 + std40 * 2.0
+    return out
+
+def _hts_exact_avg_turnover_prev10(df: pd.DataFrame) -> float:
+    if "Close" not in df.columns or "Volume" not in df.columns or len(df) < 11:
+        return 0.0
+    prev10 = df.iloc[-11:-1].copy()
+    return float((prev10["Close"] * prev10["Volume"]).mean())
+
+def _hts_exact_cond_inverse_arrangement_recent10(df: pd.DataFrame) -> bool:
+    if len(df) < 10:
+        return False
+    recent10 = df.tail(10)
+    cond = (
+        (recent10["Close"] < recent10["MA180"]) &
+        (recent10["MA180"] < recent10["MA224"]) &
+        (recent10["MA224"] < recent10["MA448"])
+    )
+    return bool(cond.any())
+
+def _hts_exact_cond_ma224_lt_ma448_persist50(df: pd.DataFrame) -> bool:
+    if len(df) < 50:
+        return False
+    recent50 = df.tail(50)
+    return bool((recent50["MA224"] < recent50["MA448"]).all())
+
+def _hts_exact_cond_close_vs_ma224(row: pd.Series) -> bool:
+    close_p = safe_float(row.get("Close"))
+    ma224 = safe_float(row.get("MA224"))
+    if ma224 <= 0:
+        return False
+    pct = (close_p - ma224) / ma224 * 100.0
+    return -3.0 <= pct <= 5.0
+
+def _hts_exact_cond_close_lt_ma448(row: pd.Series) -> bool:
+    close_p = safe_float(row.get("Close"))
+    ma448 = safe_float(row.get("MA448"))
+    return ma448 > 0 and close_p < ma448
+
+def _hts_exact_cond_ma5_ge_ma112(row: pd.Series) -> bool:
+    ma5 = safe_float(row.get("MA5"))
+    ma112 = safe_float(row.get("MA112"))
+    return ma5 > 0 and ma112 > 0 and ma5 >= ma112
+
+def _hts_exact_cond_close_near_bb40_upper(row: pd.Series) -> bool:
+    close_p = safe_float(row.get("Close"))
+    bb40u = safe_float(row.get("BB40_Upper"))
+    if bb40u <= 0:
+        return False
+    pct = (close_p - bb40u) / bb40u * 100.0
+    return -7.0 <= pct <= 3.0
+
+def _hts_exact_cond_past_surge_recent50(df: pd.DataFrame) -> bool:
+    if len(df) < 51:
+        return False
+    recent50 = df.tail(50)
+    prev_close = df["Close"].shift(1).loc[recent50.index].replace(0, np.nan)
+    surge_pct = ((recent50["High"] / prev_close) - 1.0) * 100.0
+    return bool(surge_pct.between(12.0, 30.0).fillna(False).any())
+
+def _hts_exact_cond_past_volume_burst_recent50(df: pd.DataFrame) -> bool:
+    if len(df) < 51:
+        return False
+    recent50 = df.tail(50)
+    prev_vol = df["Volume"].shift(1).loc[recent50.index].replace(0, np.nan)
+    vol_pct = (recent50["Volume"] / prev_vol) * 100.0
+    return bool(vol_pct.between(300.0, 999999.0).fillna(False).any())
+
+def _hts_exact_cond_past_ma448_high_break_recent50(df: pd.DataFrame) -> bool:
+    if len(df) < 51:
+        return False
+    recent50 = df.tail(50)
+    return bool((recent50["High"] > recent50["MA448"]).fillna(False).any())
+
+def evaluate_pre_dolbanji_hts_exact(df: pd.DataFrame) -> Dict[str, Any]:
+    work = _hts_exact_ensure_ma180(df)
+    work = _hts_exact_ensure_bb40_upper(work)
+    required_cols = ["Close", "High", "Volume", "MA5", "MA112", "MA224", "MA448", "MA180", "BB40_Upper"]
+    missing = [c for c in required_cols if c not in work.columns]
+    if missing or len(work) < 60:
+        return {
+            "passed": False,
+            "score": 0,
+            "max_score": 10,
+            "tags": [],
+            "detail": {"error": f"필수 컬럼/봉수 부족: {missing}, len={len(work)}"}
+        }
+
+    row = work.iloc[-1]
+    conds = {
+        "A_turnover_ma10_prev_between_3e8_and_max": _hts_exact_avg_turnover_prev10(work) >= 300_000_000,
+        "B_inverse_arrangement_recent10": _hts_exact_cond_inverse_arrangement_recent10(work),
+        "C_ma224_lt_ma448_persist50": _hts_exact_cond_ma224_lt_ma448_persist50(work),
+        "D_close_vs_ma224_-3_to_5": _hts_exact_cond_close_vs_ma224(row),
+        "E_close_lt_ma448_now": _hts_exact_cond_close_lt_ma448(row),
+        "F_ma5_ge_ma112_now": _hts_exact_cond_ma5_ge_ma112(row),
+        "G_close_near_bb40_upper": _hts_exact_cond_close_near_bb40_upper(row),
+        "H_past_surge_recent50": _hts_exact_cond_past_surge_recent50(work),
+        "I_past_volume_burst_recent50": _hts_exact_cond_past_volume_burst_recent50(work),
+        "J_past_high_break_ma448_recent50": _hts_exact_cond_past_ma448_high_break_recent50(work),
+    }
+    tech_keys = list(conds.keys())
+    tech_score = sum(1 for k in tech_keys if bool(conds[k]))
+    tags: List[str] = []
+    if tech_score == len(tech_keys):
+        tags.append("💍HTS정확복제형")
+    elif tech_score >= 8:
+        tags.append("💍HTS유사강형")
+    elif tech_score >= 6:
+        tags.append("💍HTS유사약형")
+    if conds["C_ma224_lt_ma448_persist50"]:
+        tags.append("🧱224<448_50봉지속")
+    if conds["G_close_near_bb40_upper"]:
+        tags.append("🟣BB40상단근접")
+    if conds["H_past_surge_recent50"] and conds["I_past_volume_burst_recent50"]:
+        tags.append("🚀과거폭발흔적")
+    if conds["J_past_high_break_ma448_recent50"]:
+        tags.append("📈448상향돌파이력")
+    return {
+        "passed": tech_score == len(tech_keys),
+        "score": int(tech_score),
+        "max_score": len(tech_keys),
+        "tags": tags,
+        "detail": {**conds, "tech_score": tech_score, "tech_max": len(tech_keys)},
+    }
+
+def build_pre_dolbanji_hts_exact_bundle(df: pd.DataFrame) -> Dict[str, Any]:
+    res = evaluate_pre_dolbanji_hts_exact(df)
+    return {
+        "pre_dolbanji_hts_exact": bool(res.get("passed", False)),
+        "pre_dolbanji_hts_exact_score": int(res.get("score", 0)),
+        "pre_dolbanji_hts_exact_max_score": int(res.get("max_score", 10)),
+        "pre_dolbanji_hts_exact_tags": res.get("tags", []),
+        "pre_dolbanji_hts_exact_detail": res.get("detail", {}),
+    }
