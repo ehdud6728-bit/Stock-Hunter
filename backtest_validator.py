@@ -851,8 +851,15 @@ if __name__ == '__main__':
     parser.add_argument('--end', default='2025-01-31', help='종료일 YYYY-MM-DD')
     parser.add_argument('--freq', default='daily', help='weekly or daily')
     parser.add_argument('--top_n', default=500, type=int, help='스캔 종목 수')
+    parser.add_argument('--workers', default=12, type=int, help='병렬 분석 스레드 수')
+    parser.add_argument('--prefetch_workers', default=8, type=int, help='호환용 옵션(현재는 예약값으로만 사용)')
     parser.add_argument('--no_sheet', action='store_true', help='구글시트 업로드 생략')
     args = parser.parse_args()
+
+    # 워크플로 호환: --workers 실제 반영, --prefetch_workers는 현재 호환용으로만 수용
+    globals()['MAX_WORKERS'] = max(1, int(args.workers))
+
+    print(f"[Backtest] workers={args.workers}, prefetch_workers={args.prefetch_workers}, top_n={args.top_n}, freq={args.freq}")
 
     result_df = run_backtest(
         start_date=args.start,
