@@ -1,3 +1,4 @@
+# 예비돌반지 TOP5 / HTS 정확복제형 TOP5 별도 블록 반영본
 #------------------------------------------------------------------
 # 💎 [Ultimate Masterpiece] 전천후 AI 전략 사령부 (All-In-One 통합판)
 # Ver 27.3 패치: FIX-1(TOP_N 700) FIX-2(거래대금이원화) FIX-3(소형주필터완화)
@@ -6432,6 +6433,111 @@ def analyze_single_stock_with_main7_engine(ticker, name, end_date='', context=No
 # ---------------------------------------------------------
 # 🚀 [8] 메인 실행
 # ---------------------------------------------------------
+
+
+def _to_bool_value(v):
+    try:
+        if isinstance(v, str):
+            return v.strip().lower() in ("1", "true", "t", "y", "yes")
+        return bool(v)
+    except Exception:
+        return False
+
+
+def build_pre_dolbanji_top5(df: pd.DataFrame):
+    """
+    예비돌반지 계열을 메인 TOP15와 별도로 추리기
+    반환:
+      pre_top5         : 전체 예비돌반지(기존 + HTS정확복제)
+      exact_top5       : HTS 정확복제형 TOP5
+      broad_only_top5  : 기존 예비돌반지(정확복제 제외) TOP5
+    """
+    if df is None or df.empty:
+        empty = pd.DataFrame()
+        return empty, empty, empty
+
+    work = df.copy()
+
+    broad_cols = ['예비돌반지', 'pre_dolbanji', '예비돌반지복제형', '예비돌반지유사형']
+    exact_cols = ['예비돌반지HTS정확복제', 'pre_dolbanji_hts_exact']
+
+    broad_mask = pd.Series(False, index=work.index)
+    for c in broad_cols:
+        if c in work.columns:
+            broad_mask = broad_mask | work[c].apply(_to_bool_value)
+
+    exact_mask = pd.Series(False, index=work.index)
+    for c in exact_cols:
+        if c in work.columns:
+            exact_mask = exact_mask | work[c].apply(_to_bool_value)
+
+    all_mask = broad_mask | exact_mask
+
+    base_sort_cols = [c for c in ['단계랭크', '안전점수', 'N점수'] if c in work.columns]
+    base_ascending = [False] * len(base_sort_cols)
+
+    pre_top5 = work[all_mask].copy()
+    if not pre_top5.empty and base_sort_cols:
+        pre_top5 = pre_top5.sort_values(by=base_sort_cols, ascending=base_ascending).head(5).reset_index(drop=True)
+
+    exact_top5 = work[exact_mask].copy()
+    if not exact_top5.empty:
+        if '예비돌반지HTS정확점수' in exact_top5.columns and base_sort_cols:
+            exact_top5 = exact_top5.sort_values(
+                by=['예비돌반지HTS정확점수'] + base_sort_cols,
+                ascending=[False] + base_ascending
+            ).head(5).reset_index(drop=True)
+        elif base_sort_cols:
+            exact_top5 = exact_top5.sort_values(by=base_sort_cols, ascending=base_ascending).head(5).reset_index(drop=True)
+
+    broad_only_top5 = work[broad_mask & ~exact_mask].copy()
+    if not broad_only_top5.empty:
+        if '예비돌반지점수' in broad_only_top5.columns and base_sort_cols:
+            broad_only_top5 = broad_only_top5.sort_values(
+                by=['예비돌반지점수'] + base_sort_cols,
+                ascending=[False] + base_ascending
+            ).head(5).reset_index(drop=True)
+        elif base_sort_cols:
+            broad_only_top5 = broad_only_top5.sort_values(by=base_sort_cols, ascending=base_ascending).head(5).reset_index(drop=True)
+
+    return pre_top5, exact_top5, broad_only_top5
+
+
+def build_pre_dolbanji_block(title: str, df: pd.DataFrame, exact_mode: bool = False) -> str:
+    if df is None or df.empty:
+        return f"💍 [{title}]\n- 해당 종목 없음\n"
+
+    lines = [f"💍 [{title}]\n"]
+    for rank, (_, row) in enumerate(df.iterrows(), 1):
+        name = str(row.get('종목명', ''))
+        code = str(row.get('code', ''))
+        combo = str(row.get('N조합', ''))
+        safe_score = safe_int(row.get('안전점수', 0))
+        n_score = safe_int(row.get('N점수', 0))
+        stage = str(row.get('단계상태', ''))
+        stage_tag = str(row.get('단계태그', ''))
+
+        if exact_mode:
+            p_score = safe_int(row.get('예비돌반지HTS정확점수', 0))
+            p_tag = str(row.get('예비돌반지HTS정확태그', ''))
+            label = 'HTS정확'
+        else:
+            p_score = safe_int(row.get('예비돌반지점수', 0))
+            p_tag = str(row.get('예비돌반지태그', ''))
+            label = '예비돌반지'
+
+        lines.append(
+            f"{rank}) [{name}]({code})\n"
+            f"- 조합: {combo}\n"
+            f"- 단계: {stage} | {stage_tag}\n"
+            f"- {label}점수: {p_score} | 안전:{safe_score} | N점수:{n_score}\n"
+            f"- 태그: {p_tag}\n"
+            f"----------------------------"
+        )
+
+    return "\n".join(lines) + "\n"
+
+
 if __name__ == "__main__":
     log_info("🚀 전략 사령부 가동 시작...")
 
@@ -6637,6 +6743,11 @@ if __name__ == "__main__":
     ai_candidates = apply_news_theme_bonus(ai_candidates, news_theme_analysis)
     ai_candidates = apply_us_theme_bonus(ai_candidates, us_merged_events)
 
+    pre_top5, exact_top5, broad_only_top5 = build_pre_dolbanji_top5(ai_candidates)
+    log_info(f"💍 예비돌반지 전체 TOP5 수: {len(pre_top5)}")
+    log_info(f"💍 HTS 정확복제형 TOP5 수: {len(exact_top5)}")
+    log_info(f"💍 기존 예비돌반지 TOP5 수: {len(broad_only_top5)}")
+
     log_info("🌍 시장 + 후보종목 통합 AI 브리핑 생성 중...")
     macro_briefing_result = run_macro_candidate_briefing(
         ai_candidates=ai_candidates,
@@ -6762,6 +6873,8 @@ if __name__ == "__main__":
     log_info(f"📌 PASS_A/PASS_B 후보 수: {len(pass_ai_candidates)}")
     log_info(f"📌 텔레그램 TOP15 전송 수: {len(telegram_targets)}")
     log_info(f"📌 종가베팅/단계형 TOP5 전송 수: {len(stage_candidates_top5)}")
+    log_info(f"📌 예비돌반지 TOP5 전송 수: {len(pre_top5)}")
+    log_info(f"📌 HTS 정확복제형 예비돌반지 TOP5 전송 수: {len(exact_top5)}")
     
     MAX_CHAR = 3800
     current_msg = (
@@ -6775,6 +6888,8 @@ if __name__ == "__main__":
     )
     
     stage_block = ""
+    pre_block = build_pre_dolbanji_block("예비돌반지 TOP 5", pre_top5, exact_mode=False)
+    exact_block = build_pre_dolbanji_block("HTS 정확복제형 예비돌반지 TOP 5", exact_top5, exact_mode=True)
 
     if not stage_candidates_top5.empty:
         stage_block = "\n🚀 [단계 기반 급등 후보 TOP 5]\n\n"
@@ -6978,8 +7093,8 @@ if __name__ == "__main__":
         else:
             current_msg += entry
 
-    # 마지막 블록은 급등후보
-    final_block = stage_block if stage_block else ""
+    # 마지막 블록은 급등후보 + 예비돌반지 별도 TOP5
+    final_block = (stage_block or "") + "\n" + pre_block + "\n" + exact_block
 
     # ✅ FIX: stage_block 이 있을 때도 메인 TOP15 메시지가 누락되지 않도록 전송 순서 보정
     if final_block:
@@ -7003,7 +7118,7 @@ if __name__ == "__main__":
         log_error("⚠️ 토너먼트 결과 없어서 전송 생략")
 
     try:
-        update_google_sheet(all_hits_sorted, TODAY_STR, tournament_report + stage_block)
+        update_google_sheet(all_hits_sorted, TODAY_STR, tournament_report + stage_block + "\n" + pre_block + "\n" + exact_block)
         log_info(f"💾 총 {len(all_hits_sorted)}개 종목 전수 기록 완료!")
     except Exception as e:
         log_error(f"🚨 시트 업데이트 실패: {e}")
