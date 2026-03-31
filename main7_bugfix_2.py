@@ -28,6 +28,19 @@ from auto_theme_news import analyze_market_issues
 from functools import lru_cache  # ✅ FIX 1: 캐시용
 from Watermelonchart import create_watermelon_charts_for_hits
 from dante_3phase_v4_module import apply_dante_v4, build_v4_signal_map, apply_fear_and_quality_bonus
+try:
+    from pre_dolbanji_final import build_pre_dolbanji_bundle
+except Exception:
+    def build_pre_dolbanji_bundle(df):
+        return {
+            'pre_dolbanji': False,
+            'pre_dolbanji_confirmed': False,
+            'pre_dolbanji_score': 0,
+            'pre_dolbanji_grade': '없음',
+            'pre_dolbanji_tags': [],
+            'pre_dolbanji_best': '',
+            'pre_dolbanji_detail': {'ok': False, 'error': 'module import failed'},
+        }
 try: from openai import OpenAI
 except: OpenAI = None
 
@@ -124,7 +137,8 @@ from us_kor_market_mapper import (
 # ⚙️ [1. 필수 설정]
 # =================================================
 TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN')
-CHAT_ID_LIST = os.environ.get('TELEGRAM_CHAT_ID', '').split(',')
+TELEGRAM_REAL_CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID', '')
+TELEGRAM_TEST_CHAT_ID = os.environ.get('TELEGRAM_TEST_CHAT_ID', '')
 OPENAI_API_KEY    = os.environ.get('OPENAI_API_KEY')
 GROQ_API_KEY      = os.environ.get('GROQ_API_KEY')
 ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY', '')
@@ -140,7 +154,28 @@ except ImportError:
     def enrich_with_disclosure(hits, top_k=100):
         return hits     
 
-TEST_MODE = False
+def _env_flag(name: str, default: bool = False) -> bool:
+    raw = str(os.environ.get(name, str(default))).strip().lower()
+    return raw in ('1', 'true', 't', 'yes', 'y', 'on')
+
+
+def _parse_chat_ids(raw: str):
+    return [x.strip() for x in str(raw or '').split(',') if x.strip()]
+
+
+def get_target_chat_ids():
+    real_ids = _parse_chat_ids(TELEGRAM_REAL_CHAT_ID)
+    test_ids = _parse_chat_ids(TELEGRAM_TEST_CHAT_ID)
+
+    if TEST_MODE:
+        if test_ids:
+            return test_ids, 'test'
+        return [], 'test_missing'
+
+    return real_ids, 'real'
+
+
+TEST_MODE = _env_flag('TEST_MODE', False)
 
 KST = pytz.timezone('Asia/Seoul')
 current_time = datetime.now(KST)
@@ -2972,15 +3007,54 @@ def create_index_chart(ticker, name):
     except: return None
 
 def send_telegram_photo(message, image_paths=[]):
-    if TEST_MODE: print(f"📝 [TEST] {message}"); return
+    target_chat_ids, mode_label = get_target_chat_ids()
+
+    if not TELEGRAM_TOKEN:
+        log_error('⚠️ TELEGRAM_TOKEN 없음 — 텔레그램 전송 생략')
+        return
+
+    if mode_label == 'test_missing':
+        log_error('⚠️ TEST_MODE=True 이지만 TELEGRAM_TEST_CHAT_ID가 없어 테스트방 전송을 생략합니다.')
+        return
+
+    if not target_chat_ids:
+        log_error('⚠️ 전송 대상 chat_id 없음 — TELEGRAM_CHAT_ID / TELEGRAM_TEST_CHAT_ID를 확인하세요.')
+        return
+
     url_p = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
     url_t = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    for chat_id in CHAT_ID_LIST:
-        if message: requests.post(url_t, data={'chat_id': chat_id, 'text': message[:4000]})
-        for img in image_paths:
-            if img and os.path.exists(img):
-                with open(img, 'rb') as f: requests.post(url_p, data={'chat_id': chat_id}, files={'photo': f})
+
+    text_to_send = message or ''
+    if TEST_MODE:
+        text_to_send = '[TEST]\n' + text_to_send if text_to_send else '[TEST]'
+
+    for chat_id in target_chat_ids:
+        try:
+            if text_to_send:
+                requests.post(
+                    url_t,
+                    data={'chat_id': chat_id, 'text': text_to_send[:4000]},
+                    timeout=15,
+                )
+
+            for img in image_paths:
+                if img and os.path.exists(img):
+                    with open(img, 'rb') as f:
+                        requests.post(
+                            url_p,
+                            data={'chat_id': chat_id},
+                            files={'photo': f},
+                            timeout=30,
+                        )
+        except Exception as e:
+            log_error(f'⚠️ 텔레그램 전송 실패 ({chat_id}): {e}')
+
+    for img in image_paths:
+        if img and os.path.exists(img):
+            try:
                 os.remove(img)
+            except Exception:
+                pass
 
 
 def send_telegram_chunks(message: str, title: str = '', max_len: int = 3800):
@@ -5058,6 +5132,20 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         raw_idx = len(df) - 1
         temp_df = df.iloc[:raw_idx + 1]
 
+        try:
+            pre_bundle = build_pre_dolbanji_bundle(temp_df)
+        except Exception as _pred_e:
+            log_debug(f"예비돌반지 계산 실패: {_pred_e}")
+            pre_bundle = {
+                'pre_dolbanji': False,
+                'pre_dolbanji_confirmed': False,
+                'pre_dolbanji_score': 0,
+                'pre_dolbanji_grade': '없음',
+                'pre_dolbanji_tags': [],
+                'pre_dolbanji_best': '',
+                'pre_dolbanji_detail': {'ok': False, 'error': str(_pred_e)},
+            }
+
         recent_avg_amount = (df['Close'] * df['Volume']).tail(5).mean() / 100000000
         # ✅ FIX-B: 트랙B 판별 (iloc로 안전하게)
         _is_track_b = bool(df['_is_track_b'].iloc[-1]) if '_is_track_b' in df.columns else False
@@ -5186,6 +5274,8 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
          
         signals = build_default_signals(row, close_p, prev)
         signals['fear_absorb'] = bool(fear_info.get('fear_absorb', False))
+        signals['pre_dolbanji'] = bool(pre_bundle.get('pre_dolbanji', False))
+        signals['pre_dolbanji_confirmed'] = bool(pre_bundle.get('pre_dolbanji_confirmed', False))
         try:
             signals.update(build_v4_signal_map(row))
         except Exception as _v4sig_e:
@@ -5206,6 +5296,13 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         )
 
         signals, new_tags = inject_tri_result(signals, tri_result, new_tags)
+
+        if pre_bundle.get('pre_dolbanji', False):
+            for _ptag in pre_bundle.get('pre_dolbanji_tags', []):
+                if _ptag not in new_tags:
+                    new_tags.append(_ptag)
+        if pre_bundle.get('pre_dolbanji_confirmed', False) and '💍예비돌반지확인형' not in new_tags:
+            new_tags.append('💍예비돌반지확인형')
          
         if row['BB_Ross']:
             new_tags.append("🔺🔺Ross쌍바닥")
@@ -5760,6 +5857,17 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         if row.get('MA_Convergence_Break_Ready', False):
             s_score += min(30, int(row.get('MA_Convergence_Break_Ready_Score', 0) * 0.30))
 
+        if pre_bundle.get('pre_dolbanji', False):
+            s_score += min(120, int(pre_bundle.get('pre_dolbanji_score', 0)))
+            for _ptag in pre_bundle.get('pre_dolbanji_tags', []):
+                if _ptag not in tags:
+                    tags.append(_ptag)
+
+        if pre_bundle.get('pre_dolbanji_confirmed', False):
+            s_score += 60
+            if '💍예비돌반지확인형' not in tags:
+                tags.append('💍예비돌반지확인형')
+
         s_score -= max(0, int((row['Disparity']-108)*5))
 
         if not tags: return []
@@ -5845,6 +5953,12 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             '공포매물흡수': bool(fear_info.get('fear_absorb', False)),
             '공포흡수점수': int(fear_info.get('score', 0)),
             '공포흡수태그': str(fear_info.get('tag', '')),
+            '예비돌반지': bool(pre_bundle.get('pre_dolbanji', False)),
+            '예비돌반지확인': bool(pre_bundle.get('pre_dolbanji_confirmed', False)),
+            '예비돌반지점수': int(pre_bundle.get('pre_dolbanji_score', 0)),
+            '예비돌반지등급': str(pre_bundle.get('pre_dolbanji_grade', '없음')),
+            '예비돌반지최상': str(pre_bundle.get('pre_dolbanji_best', '')),
+            '예비돌반지태그': " ".join(pre_bundle.get('pre_dolbanji_tags', [])),
             '개인순매도': int(fear_info.get('personal_sell', 0)),
             '외인순매수금액': int(fear_info.get('foreign_buy', 0)),
             '기관순매수금액': int(fear_info.get('inst_buy', 0)),
@@ -6227,6 +6341,12 @@ def generate_stage_ai_tip(row):
 # ---------------------------------------------------------
 if __name__ == "__main__":
     log_info("🚀 전략 사령부 가동 시작...")
+
+    _tg_ids, _tg_mode = get_target_chat_ids()
+    if TEST_MODE:
+        log_info(f"🧪 TEST_MODE 활성화 | 대상방 수: {len(_tg_ids)} | 모드: {_tg_mode}")
+    else:
+        log_info(f"📨 실전 전송 모드 | 대상방 수: {len(_tg_ids)}")
     
     client = OpenAI()
     models = client.models.list()
