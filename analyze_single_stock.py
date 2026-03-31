@@ -21,6 +21,7 @@ try:
         build_v4_signal_map,
         apply_fear_and_quality_bonus,
         build_pre_dolbanji_bundle,
+        build_pre_dolbanji_hts_exact_bundle,
     )
 except Exception:
     def apply_dante_v4(df: pd.DataFrame) -> pd.DataFrame:
@@ -41,6 +42,15 @@ except Exception:
             "pre_dolbanji_tags": [],
             "pre_dolbanji_best": "",
             "pre_dolbanji_detail": {},
+        }
+
+    def build_pre_dolbanji_hts_exact_bundle(df: pd.DataFrame) -> Dict[str, object]:
+        return {
+            "pre_dolbanji_hts_exact": False,
+            "pre_dolbanji_hts_exact_score": 0,
+            "pre_dolbanji_hts_exact_max_score": 10,
+            "pre_dolbanji_hts_exact_tags": [],
+            "pre_dolbanji_hts_exact_detail": {},
         }
 
 try:
@@ -89,6 +99,7 @@ MODE_CHOICES = {
     "dolbanji",
     "watermelon",
     "pre_dolbanji",
+    "pre_dolbanji_hts_exact",
     "viper",
     "yeokmae",
     "double_bottom",
@@ -747,6 +758,8 @@ def build_snapshot(df: pd.DataFrame, window: Dict[str, str]) -> Dict[str, Any]:
     pre_bundle = build_pre_dolbanji_bundle(df)
     pre_detail = pre_bundle.get("pre_dolbanji_detail", {}) if isinstance(pre_bundle, dict) else {}
     pre_trend = pre_detail.get("trend_confirm", {}) if isinstance(pre_detail, dict) else {}
+    pre_hts_bundle = build_pre_dolbanji_hts_exact_bundle(df)
+    pre_hts_detail = pre_hts_bundle.get("pre_dolbanji_hts_exact_detail", {}) if isinstance(pre_hts_bundle, dict) else {}
 
     prep_zone = bb40_dn * 0.98 <= close <= bb40_mid * 1.02 if bb40_dn > 0 and bb40_mid > 0 else False
     launch_zone = bb40_mid * 0.98 <= close <= bb40_up * 1.02 if bb40_mid > 0 and bb40_up > 0 else False
@@ -856,6 +869,11 @@ def build_snapshot(df: pd.DataFrame, window: Dict[str, str]) -> Dict[str, Any]:
         "pre_dolbanji_best": str(pre_bundle.get("pre_dolbanji_best", "")),
         "pre_dolbanji_tags": " ".join(pre_bundle.get("pre_dolbanji_tags", [])) if isinstance(pre_bundle, dict) else "",
         "pre_dolbanji_trend_score": safe_int(pre_trend.get("score", 0)),
+        "pre_dolbanji_hts_exact": bool(pre_hts_bundle.get("pre_dolbanji_hts_exact", False)),
+        "pre_dolbanji_hts_exact_score": safe_int(pre_hts_bundle.get("pre_dolbanji_hts_exact_score", 0)),
+        "pre_dolbanji_hts_exact_max_score": safe_int(pre_hts_bundle.get("pre_dolbanji_hts_exact_max_score", 10)),
+        "pre_dolbanji_hts_exact_tags": " ".join(pre_hts_bundle.get("pre_dolbanji_hts_exact_tags", [])) if isinstance(pre_hts_bundle, dict) else "",
+        "pre_dolbanji_hts_exact_tech_score": safe_int(pre_hts_detail.get("tech_score", 0)),
     }
 
 
@@ -1016,6 +1034,46 @@ def build_pre_dolbanji(price: Dict[str, Any], df: pd.DataFrame) -> PatternResult
 
     subtitle = f"대표 {price.get('pre_dolbanji_best', '없음')} · 등급 {price.get('pre_dolbanji_grade', '없음')} · 점수 {safe_int(price.get('pre_dolbanji_score', 0))} · 구조전환 {safe_int(price.get('pre_dolbanji_trend_score', 0))}/4"
     return PatternResult("pre_dolbanji", s, status, score, len(rows), subtitle, comment, rows)
+
+
+
+def build_pre_dolbanji_hts_exact(price: Dict[str, Any], df: pd.DataFrame) -> PatternResult:
+    rows: List[CheckRow] = []
+    s = "예비돌반지(HTS정확복제)"
+
+    c1 = bool(price.get("pre_dolbanji_hts_exact", False))
+    add_check(rows, s, "정확복제형 통과", "통과" if c1 else "미통과", "통과", c1, "스크린샷 조건을 전부 통과" if c1 else "정확복제형은 아직 미통과")
+
+    c2 = safe_int(price.get("pre_dolbanji_hts_exact_score", 0)) >= 8
+    add_check(rows, s, "기술 점수", f"{safe_int(price.get('pre_dolbanji_hts_exact_score', 0))}/{safe_int(price.get('pre_dolbanji_hts_exact_max_score', 10))}", ">= 8/10", c2, "기술조건 대부분 충족" if c2 else "기술조건 충족 수 부족")
+
+    tags_now = str(price.get("pre_dolbanji_hts_exact_tags", ""))
+    c3 = "🧱224<448_50봉지속" in tags_now
+    add_check(rows, s, "224<448 50봉 지속", "해당" if c3 else "미해당", "해당", c3, "장기 역배열 구조 유지" if c3 else "224<448 장기구조 부족")
+
+    c4 = "🟣BB40상단근접" in tags_now
+    add_check(rows, s, "BB40 상단 근접", "해당" if c4 else "미해당", "해당", c4, "상단선 근접" if c4 else "BB40 상단 근접 아님")
+
+    c5 = "🚀과거폭발흔적" in tags_now
+    add_check(rows, s, "과거 폭발 흔적", "해당" if c5 else "미해당", "해당", c5, "급등+거래량 폭증 이력" if c5 else "과거 폭발 흔적 부족")
+
+    c6 = "📈448상향돌파이력" in tags_now
+    add_check(rows, s, "448 상향 돌파 이력", "해당" if c6 else "미해당", "해당", c6, "과거 448 돌파 이력 존재" if c6 else "448 돌파 이력 부족")
+
+    score = sum(1 for r in rows if r.ok)
+    status = decide_status(score, len(rows))
+    if c1:
+        status = "해당"
+        comment = "사용자가 제시한 영웅문 HTS 스크린샷 조건을 기술적으로 거의 그대로 통과한 엄격형 패턴입니다."
+    elif c2 and c3 and (c5 or c6):
+        comment = "정확복제형에 꽤 가깝습니다. 기존 예비돌반지보다 더 엄격하게 보는 확인용 패턴으로 적합합니다."
+    elif c2:
+        comment = "일부 핵심 조건은 붙었지만 정확복제형으로 보기엔 아직 1~2개가 부족합니다."
+    else:
+        comment = "HTS 정확복제형 기준으로는 현재 구조가 부족합니다."
+
+    subtitle = f"기술 {safe_int(price.get('pre_dolbanji_hts_exact_score', 0))}/{safe_int(price.get('pre_dolbanji_hts_exact_max_score', 10))} · 태그 {tags_now or '없음'}"
+    return PatternResult("pre_dolbanji_hts_exact", s, status, score, len(rows), subtitle, comment, rows)
 
 
 def build_watermelon(price: Dict[str, Any], df: pd.DataFrame) -> PatternResult:
@@ -1220,6 +1278,7 @@ def build_patterns(price: Dict[str, Any], df: pd.DataFrame) -> List[PatternResul
         build_envelope_bet(price),
         build_dolbanji(price, df),
         build_pre_dolbanji(price, df),
+        build_pre_dolbanji_hts_exact(price, df),
         build_watermelon(price, df),
         build_viper(price, df),
         build_yeokmae(price, df),
@@ -1297,6 +1356,8 @@ def build_smart_comment(price: Dict[str, Any], patterns: List[PatternResult], na
         comments.append(f"예비돌반지 계열이 감지되었고 대표 변형은 {price.get('pre_dolbanji_best', '') or '없음'} 입니다. 구조전환 점수는 {price.get('pre_dolbanji_trend_score', 0)}/4 입니다.")
     if price.get("pre_dolbanji_confirmed"):
         comments.append("예비돌반지 확인형이면 단순 감시목록이 아니라 재돌파 관찰 우선순위를 높일 수 있습니다.")
+    if price.get("pre_dolbanji_hts_exact"):
+        comments.append("HTS 정확복제형까지 동시에 통과하면 기존 예비돌반지보다 더 엄격한 교차검증을 통과한 상태로 볼 수 있습니다.")
     if price.get("dante_v4_prep"):
         comments.append(f"V4 3박자 기준으로는 준비형이며 기간대칭 {price.get('sym_score_v4')}점, 파동에너지 {price.get('energy_total_v4')}점 수준입니다.")
     if price.get("dante_v4_fire"):
@@ -1730,6 +1791,7 @@ def render_html(result: Dict[str, Any]) -> str:
         <option value="envelope_bet">envelope_bet</option>
         <option value="dolbanji">dolbanji</option>
         <option value="pre_dolbanji">pre_dolbanji</option>
+        <option value="pre_dolbanji_hts_exact">pre_dolbanji_hts_exact</option>
         <option value="watermelon">watermelon</option>
         <option value="viper">viper</option>
         <option value="yeokmae">yeokmae</option>
@@ -1765,6 +1827,9 @@ def render_html(result: Dict[str, Any]) -> str:
         ("예비돌반지 등급", f'{price.get("pre_dolbanji_grade", "없음")}'),
         ("예비돌반지 대표형", f'{price.get("pre_dolbanji_best", "") or "없음"}'),
         ("예비돌반지 구조전환", f'{price.get("pre_dolbanji_trend_score", 0)}/4'),
+        ("예비돌반지 HTS정확복제", "통과" if price.get("pre_dolbanji_hts_exact", False) else "미통과"),
+        ("예비돌반지 HTS점수", f'{price.get("pre_dolbanji_hts_exact_score", 0)}/{price.get("pre_dolbanji_hts_exact_max_score", 10)}'),
+        ("예비돌반지 HTS태그", f'{price.get("pre_dolbanji_hts_exact_tags", "") or "없음"}'),
         ("main7 엔진 N등급", f'{price.get("main7_engine_grade", "-")}'),
         ("main7 엔진 조합", f'{price.get("main7_engine_combo", "-")}'),
         ("main7 엔진 N점수", f'{price.get("main7_engine_score", 0)}'),
