@@ -1,3 +1,5 @@
+# 신규예비돌반지 Lite 별도 TOP5 분리본
+# HTS 정합용 장기이평 수정본 (900일 로드 + 진짜 224/448 + 데이터부족시 판정생략)
 # 예비돌반지 TOP5 전체스캔 기준 수정본
 # 예비돌반지 TOP5 / HTS 정확복제형 TOP5 별도 블록 반영본
 #------------------------------------------------------------------
@@ -35,6 +37,7 @@ from dante_3phase_v4_module import (
     apply_fear_and_quality_bonus,
     build_pre_dolbanji_bundle,
     build_pre_dolbanji_hts_exact_bundle,
+    build_pre_dolbanji_lite_bundle,
 )
 try: from openai import OpenAI
 except: OpenAI = None
@@ -2374,8 +2377,8 @@ def get_indicators(df):
     close = df['Close']
 
     for n in [5, 10, 20, 40, 60, 112, 224, 448]:
-        df[f'MA{n}']    = close.rolling(window=min(count, n)).mean()
-        df[f'VMA{n}']   = df['Volume'].rolling(window=min(count, n)).mean()
+        df[f'MA{n}']    = close.rolling(window=n, min_periods=n).mean()
+        df[f'VMA{n}']   = df['Volume'].rolling(window=n, min_periods=n).mean()
         df[f'Slope{n}'] = (df[f'MA{n}'] - df[f'MA{n}'].shift(3)) / df[f'MA{n}'].shift(3) * 100
 
     # PERF-4: Slope20/40은 이미 Slope 루프에서 계산됨 → 재활용
@@ -5055,7 +5058,7 @@ def build_sub_classification(row) -> dict:
 # ════════════════════════════════════════════════
 _fdr_cache = {}
 
-def fdr_cached(ticker: str, days: int = 250) -> pd.DataFrame:
+def fdr_cached(ticker: str, days: int = 900) -> pd.DataFrame:
     """fdr.DataReader 결과를 당일 메모리 캐시."""
     today_key = f"{ticker}_{days}_{datetime.now().strftime('%Y%m%d')}"
     if today_key in _fdr_cache:
@@ -5078,7 +5081,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
     storm_count = 0
     
     try:
-        df = fdr_cached(ticker, days=250)  # PERF-6: 캐시 활용
+        df = fdr_cached(ticker, days=900)  # HTS 장기이평(224/448) 정합용
         if len(df) < 100: return []
 
         # PERF-3: get_indicators 전 빠른 사전 필터
@@ -5132,10 +5135,32 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         raw_idx = len(df) - 1
         temp_df = df.iloc[:raw_idx + 1]
 
+        # HTS 정합성 확보:
+        # 224/448 장기이평이 실제로 계산 가능한 구간이 아니면
+        # 예비돌반지 / HTS정확복제형 판정을 아예 하지 않음
+        has_long_ma = (
+            len(temp_df) >= 500 and
+            ('MA224' in temp_df.columns) and
+            ('MA448' in temp_df.columns) and
+            pd.notna(temp_df['MA224'].iloc[-1]) and
+            pd.notna(temp_df['MA448'].iloc[-1])
+        )
+
         try:
-            pre_bundle = build_pre_dolbanji_bundle(temp_df)
-        except Exception as _pred_e:
-            log_debug(f"예비돌반지 계산 실패: {_pred_e}")
+            pre_lite_bundle = build_pre_dolbanji_lite_bundle(temp_df)
+        except Exception as _pred_lite_e:
+            log_debug(f"신규예비돌반지 Lite 계산 실패: {_pred_lite_e}")
+            pre_lite_bundle = {
+                'pre_dolbanji_lite': False,
+                'pre_dolbanji_lite_confirmed': False,
+                'pre_dolbanji_lite_score': 0,
+                'pre_dolbanji_lite_grade': '없음',
+                'pre_dolbanji_lite_tags': [],
+                'pre_dolbanji_lite_best': '',
+                'pre_dolbanji_lite_detail': {'ok': False, 'error': str(_pred_lite_e)},
+            }
+
+        if not has_long_ma:
             pre_bundle = {
                 'pre_dolbanji': False,
                 'pre_dolbanji_confirmed': False,
@@ -5143,20 +5168,41 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
                 'pre_dolbanji_grade': '없음',
                 'pre_dolbanji_tags': [],
                 'pre_dolbanji_best': '',
-                'pre_dolbanji_detail': {'ok': False, 'error': str(_pred_e)},
+                'pre_dolbanji_detail': {'ok': False, 'error': '장기이평 데이터 부족(MA224/MA448)'},
             }
-
-        try:
-            pre_hts_bundle = build_pre_dolbanji_hts_exact_bundle(temp_df)
-        except Exception as _pred_hts_e:
-            log_debug(f"예비돌반지 HTS 정확복제형 계산 실패: {_pred_hts_e}")
             pre_hts_bundle = {
                 'pre_dolbanji_hts_exact': False,
                 'pre_dolbanji_hts_exact_score': 0,
                 'pre_dolbanji_hts_exact_max_score': 10,
                 'pre_dolbanji_hts_exact_tags': [],
-                'pre_dolbanji_hts_exact_detail': {'error': str(_pred_hts_e)},
+                'pre_dolbanji_hts_exact_detail': {'error': '장기이평 데이터 부족(MA224/MA448)'},
             }
+        else:
+            try:
+                pre_bundle = build_pre_dolbanji_bundle(temp_df)
+            except Exception as _pred_e:
+                log_debug(f"예비돌반지 계산 실패: {_pred_e}")
+                pre_bundle = {
+                    'pre_dolbanji': False,
+                    'pre_dolbanji_confirmed': False,
+                    'pre_dolbanji_score': 0,
+                    'pre_dolbanji_grade': '없음',
+                    'pre_dolbanji_tags': [],
+                    'pre_dolbanji_best': '',
+                    'pre_dolbanji_detail': {'ok': False, 'error': str(_pred_e)},
+                }
+
+            try:
+                pre_hts_bundle = build_pre_dolbanji_hts_exact_bundle(temp_df)
+            except Exception as _pred_hts_e:
+                log_debug(f"예비돌반지 HTS 정확복제형 계산 실패: {_pred_hts_e}")
+                pre_hts_bundle = {
+                    'pre_dolbanji_hts_exact': False,
+                    'pre_dolbanji_hts_exact_score': 0,
+                    'pre_dolbanji_hts_exact_max_score': 10,
+                    'pre_dolbanji_hts_exact_tags': [],
+                    'pre_dolbanji_hts_exact_detail': {'error': str(_pred_hts_e)},
+                }
 
         recent_avg_amount = (df['Close'] * df['Volume']).tail(5).mean() / 100000000
         # ✅ FIX-B: 트랙B 판별 (iloc로 안전하게)
@@ -5288,6 +5334,8 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         signals['fear_absorb'] = bool(fear_info.get('fear_absorb', False))
         signals['pre_dolbanji'] = bool(pre_bundle.get('pre_dolbanji', False))
         signals['pre_dolbanji_confirmed'] = bool(pre_bundle.get('pre_dolbanji_confirmed', False))
+        signals['pre_dolbanji_lite'] = bool(pre_lite_bundle.get('pre_dolbanji_lite', False))
+        signals['pre_dolbanji_lite_confirmed'] = bool(pre_lite_bundle.get('pre_dolbanji_lite_confirmed', False))
         signals['pre_dolbanji_hts_exact'] = bool(pre_hts_bundle.get('pre_dolbanji_hts_exact', False))
         try:
             signals.update(build_v4_signal_map(row))
@@ -5316,6 +5364,12 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
                     new_tags.append(_ptag)
         if pre_bundle.get('pre_dolbanji_confirmed', False) and '💍예비돌반지확인형' not in new_tags:
             new_tags.append('💍예비돌반지확인형')
+        if pre_lite_bundle.get('pre_dolbanji_lite', False):
+            for _ltag in pre_lite_bundle.get('pre_dolbanji_lite_tags', []):
+                if _ltag not in new_tags:
+                    new_tags.append(_ltag)
+        if pre_lite_bundle.get('pre_dolbanji_lite_confirmed', False) and '💎신규예비돌반지Lite확인형' not in new_tags:
+            new_tags.append('💎신규예비돌반지Lite확인형')
         if pre_hts_bundle.get('pre_dolbanji_hts_exact', False):
             for _htag in pre_hts_bundle.get('pre_dolbanji_hts_exact_tags', []):
                 if _htag not in new_tags:
@@ -5989,6 +6043,12 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             '예비돌반지등급': str(pre_bundle.get('pre_dolbanji_grade', '없음')),
             '예비돌반지최상': str(pre_bundle.get('pre_dolbanji_best', '')),
             '예비돌반지태그': " ".join(pre_bundle.get('pre_dolbanji_tags', [])),
+            '신규예비돌반지Lite': bool(pre_lite_bundle.get('pre_dolbanji_lite', False)),
+            '신규예비돌반지Lite확인': bool(pre_lite_bundle.get('pre_dolbanji_lite_confirmed', False)),
+            '신규예비돌반지Lite점수': int(pre_lite_bundle.get('pre_dolbanji_lite_score', 0)),
+            '신규예비돌반지Lite등급': str(pre_lite_bundle.get('pre_dolbanji_lite_grade', '없음')),
+            '신규예비돌반지Lite최상': str(pre_lite_bundle.get('pre_dolbanji_lite_best', '')),
+            '신규예비돌반지Lite태그': " ".join(pre_lite_bundle.get('pre_dolbanji_lite_tags', [])),
             '예비돌반지HTS정확복제': bool(pre_hts_bundle.get('pre_dolbanji_hts_exact', False)),
             '예비돌반지HTS정확점수': int(pre_hts_bundle.get('pre_dolbanji_hts_exact_score', 0)),
             '예비돌반지HTS정확최대': int(pre_hts_bundle.get('pre_dolbanji_hts_exact_max_score', 10)),
@@ -6449,17 +6509,19 @@ def build_pre_dolbanji_top5(df: pd.DataFrame):
     """
     예비돌반지 계열을 메인 TOP15와 별도로 추리기
     반환:
-      pre_top5         : 전체 예비돌반지(기존 + HTS정확복제)
+      pre_top5         : 전체 예비돌반지(기존 + Lite + HTS정확복제)
       exact_top5       : HTS 정확복제형 TOP5
-      broad_only_top5  : 기존 예비돌반지(정확복제 제외) TOP5
+      broad_only_top5  : 기존 예비돌반지(정확복제/Lite 제외) TOP5
+      lite_top5        : 신규예비돌반지 Lite TOP5
     """
     if df is None or df.empty:
         empty = pd.DataFrame()
-        return empty, empty, empty
+        return empty, empty, empty, empty
 
     work = df.copy()
 
     broad_cols = ['예비돌반지', 'pre_dolbanji', '예비돌반지복제형', '예비돌반지유사형']
+    lite_cols = ['신규예비돌반지Lite', 'pre_dolbanji_lite']
     exact_cols = ['예비돌반지HTS정확복제', 'pre_dolbanji_hts_exact']
 
     broad_mask = pd.Series(False, index=work.index)
@@ -6467,19 +6529,34 @@ def build_pre_dolbanji_top5(df: pd.DataFrame):
         if c in work.columns:
             broad_mask = broad_mask | work[c].apply(_to_bool_value)
 
+    lite_mask = pd.Series(False, index=work.index)
+    for c in lite_cols:
+        if c in work.columns:
+            lite_mask = lite_mask | work[c].apply(_to_bool_value)
+
     exact_mask = pd.Series(False, index=work.index)
     for c in exact_cols:
         if c in work.columns:
             exact_mask = exact_mask | work[c].apply(_to_bool_value)
 
-    all_mask = broad_mask | exact_mask
+    all_mask = broad_mask | lite_mask | exact_mask
 
     base_sort_cols = [c for c in ['단계랭크', '안전점수', 'N점수'] if c in work.columns]
     base_ascending = [False] * len(base_sort_cols)
 
     pre_top5 = work[all_mask].copy()
     if not pre_top5.empty and base_sort_cols:
-        pre_top5 = pre_top5.sort_values(by=base_sort_cols, ascending=base_ascending).head(5).reset_index(drop=True)
+        pre_sort_cols = []
+        pre_asc = []
+        if '예비돌반지HTS정확점수' in pre_top5.columns:
+            pre_sort_cols.append('예비돌반지HTS정확점수'); pre_asc.append(False)
+        if '신규예비돌반지Lite점수' in pre_top5.columns:
+            pre_sort_cols.append('신규예비돌반지Lite점수'); pre_asc.append(False)
+        if '예비돌반지점수' in pre_top5.columns:
+            pre_sort_cols.append('예비돌반지점수'); pre_asc.append(False)
+        pre_sort_cols += base_sort_cols
+        pre_asc += base_ascending
+        pre_top5 = pre_top5.sort_values(by=pre_sort_cols, ascending=pre_asc).head(5).reset_index(drop=True)
 
     exact_top5 = work[exact_mask].copy()
     if not exact_top5.empty:
@@ -6491,7 +6568,7 @@ def build_pre_dolbanji_top5(df: pd.DataFrame):
         elif base_sort_cols:
             exact_top5 = exact_top5.sort_values(by=base_sort_cols, ascending=base_ascending).head(5).reset_index(drop=True)
 
-    broad_only_top5 = work[broad_mask & ~exact_mask].copy()
+    broad_only_top5 = work[broad_mask & ~exact_mask & ~lite_mask].copy()
     if not broad_only_top5.empty:
         if '예비돌반지점수' in broad_only_top5.columns and base_sort_cols:
             broad_only_top5 = broad_only_top5.sort_values(
@@ -6501,7 +6578,17 @@ def build_pre_dolbanji_top5(df: pd.DataFrame):
         elif base_sort_cols:
             broad_only_top5 = broad_only_top5.sort_values(by=base_sort_cols, ascending=base_ascending).head(5).reset_index(drop=True)
 
-    return pre_top5, exact_top5, broad_only_top5
+    lite_top5 = work[lite_mask].copy()
+    if not lite_top5.empty:
+        if '신규예비돌반지Lite점수' in lite_top5.columns and base_sort_cols:
+            lite_top5 = lite_top5.sort_values(
+                by=['신규예비돌반지Lite점수'] + base_sort_cols,
+                ascending=[False] + base_ascending
+            ).head(5).reset_index(drop=True)
+        elif base_sort_cols:
+            lite_top5 = lite_top5.sort_values(by=base_sort_cols, ascending=base_ascending).head(5).reset_index(drop=True)
+
+    return pre_top5, exact_top5, broad_only_top5, lite_top5
 
 
 def build_pre_dolbanji_block(title: str, df: pd.DataFrame, exact_mode: bool = False) -> str:
@@ -6522,6 +6609,10 @@ def build_pre_dolbanji_block(title: str, df: pd.DataFrame, exact_mode: bool = Fa
             p_score = safe_int(row.get('예비돌반지HTS정확점수', 0))
             p_tag = str(row.get('예비돌반지HTS정확태그', ''))
             label = 'HTS정확'
+        elif bool(row.get('신규예비돌반지Lite', False)) and not bool(row.get('예비돌반지', False)):
+            p_score = safe_int(row.get('신규예비돌반지Lite점수', 0))
+            p_tag = str(row.get('신규예비돌반지Lite태그', ''))
+            label = '신규Lite'
         else:
             p_score = safe_int(row.get('예비돌반지점수', 0))
             p_tag = str(row.get('예비돌반지태그', ''))
@@ -6745,10 +6836,11 @@ if __name__ == "__main__":
     ai_candidates = apply_us_theme_bonus(ai_candidates, us_merged_events)
 
     all_hits_df_for_pre = pd.DataFrame(all_hits_sorted) if all_hits_sorted else pd.DataFrame()
-    pre_top5, exact_top5, broad_only_top5 = build_pre_dolbanji_top5(all_hits_df_for_pre)
+    pre_top5, exact_top5, broad_only_top5, lite_top5 = build_pre_dolbanji_top5(all_hits_df_for_pre)
     log_info(f"💍 예비돌반지 전체 TOP5 수: {len(pre_top5)}")
     log_info(f"💍 HTS 정확복제형 TOP5 수: {len(exact_top5)}")
     log_info(f"💍 기존 예비돌반지 TOP5 수: {len(broad_only_top5)}")
+    log_info(f"💎 신규예비돌반지 Lite TOP5 수: {len(lite_top5)}")
 
     log_info("🌍 시장 + 후보종목 통합 AI 브리핑 생성 중...")
     macro_briefing_result = run_macro_candidate_briefing(
@@ -6892,6 +6984,7 @@ if __name__ == "__main__":
     stage_block = ""
     pre_block = build_pre_dolbanji_block("예비돌반지 TOP 5", pre_top5, exact_mode=False)
     exact_block = build_pre_dolbanji_block("HTS 정확복제형 예비돌반지 TOP 5", exact_top5, exact_mode=True)
+    lite_block = build_pre_dolbanji_block("신규예비돌반지 Lite TOP 5", lite_top5, exact_mode=False)
 
     if not stage_candidates_top5.empty:
         stage_block = "\n🚀 [단계 기반 급등 후보 TOP 5]\n\n"
@@ -7096,7 +7189,7 @@ if __name__ == "__main__":
             current_msg += entry
 
     # 마지막 블록은 급등후보 + 예비돌반지 별도 TOP5
-    final_block = (stage_block or "") + "\n" + pre_block + "\n" + exact_block
+    final_block = (stage_block or "") + "\n" + pre_block + "\n" + exact_block + "\n" + lite_block
 
     # ✅ FIX: stage_block 이 있을 때도 메인 TOP15 메시지가 누락되지 않도록 전송 순서 보정
     if final_block:
