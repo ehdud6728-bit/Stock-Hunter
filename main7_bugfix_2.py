@@ -27,20 +27,12 @@ from datetime import datetime
 from auto_theme_news import analyze_market_issues
 from functools import lru_cache  # ✅ FIX 1: 캐시용
 from Watermelonchart import create_watermelon_charts_for_hits
-from dante_3phase_v4_module import apply_dante_v4, build_v4_signal_map, apply_fear_and_quality_bonus
-try:
-    from pre_dolbanji_final import build_pre_dolbanji_bundle
-except Exception:
-    def build_pre_dolbanji_bundle(df):
-        return {
-            'pre_dolbanji': False,
-            'pre_dolbanji_confirmed': False,
-            'pre_dolbanji_score': 0,
-            'pre_dolbanji_grade': '없음',
-            'pre_dolbanji_tags': [],
-            'pre_dolbanji_best': '',
-            'pre_dolbanji_detail': {'ok': False, 'error': 'module import failed'},
-        }
+from dante_3phase_v4_module import (
+    apply_dante_v4,
+    build_v4_signal_map,
+    apply_fear_and_quality_bonus,
+    build_pre_dolbanji_bundle,
+)
 try: from openai import OpenAI
 except: OpenAI = None
 
@@ -6340,6 +6332,67 @@ def generate_stage_ai_tip(row):
 
     except Exception as e:
         return "분석 실패"
+
+
+
+# =========================================================
+# 🔗 main7 원본 검색 엔진을 단일종목 분석기에서 그대로 재사용하기 위한 브리지
+# =========================================================
+def build_single_stock_context():
+    global_env, leader_env = get_global_and_leader_status()
+    try:
+        df_krx = load_krx_listing_safe()
+        df_krx['Code'] = (
+            df_krx['Code']
+            .fillna('')
+            .astype(str)
+            .str.replace('.0', '', regex=False)
+            .str.zfill(6)
+        )
+        s_col = next((c for c in ['Sector', 'Industry', '업종'] if c in df_krx.columns), None)
+        if s_col:
+            df_krx = df_krx.rename(columns={s_col: 'Sector'})
+            sector_master_map = df_krx.set_index('Code')['Sector'].to_dict()
+        else:
+            sector_master_map = {k: '일반' for k in df_krx['Code']}
+    except Exception:
+        sector_master_map = {}
+    weather_data = prepare_historical_weather()
+    return {
+        'weather_data': weather_data,
+        'global_env': global_env,
+        'leader_env': leader_env,
+        'sector_master_map': sector_master_map,
+    }
+
+
+def analyze_single_stock_with_main7_engine(ticker, name, end_date='', context=None):
+    if context is None:
+        context = build_single_stock_context()
+
+    original_fdr_cached = globals().get('fdr_cached')
+    patched = False
+
+    if end_date:
+        end_ts = pd.Timestamp(end_date).strftime('%Y-%m-%d')
+        def _fdr_cached_for_date(_ticker: str, days: int = 250):
+            start_ts = (pd.Timestamp(end_ts) - pd.Timedelta(days=days)).strftime('%Y-%m-%d')
+            return fdr.DataReader(_ticker, start=start_ts, end=end_ts)
+        globals()['fdr_cached'] = _fdr_cached_for_date
+        patched = True
+
+    try:
+        return analyze_final(
+            ticker,
+            name,
+            context['weather_data'],
+            context['global_env'],
+            context['leader_env'],
+            context['sector_master_map'],
+        )
+    finally:
+        if patched and original_fdr_cached is not None:
+            globals()['fdr_cached'] = original_fdr_cached
 
 # ---------------------------------------------------------
 # 🚀 [8] 메인 실행
