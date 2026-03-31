@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# main7 원본 엔진 연동 최종본: 단일종목 분석기가 main7 검색엔진을 직접 참조합니다.
 import argparse
 import html
 import json
@@ -7,42 +8,56 @@ import re
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
-from functools import lru_cache
-import difflib
-import os
+from typing import Any, Dict, List
 
 import FinanceDataReader as fdr
 import numpy as np
 import pandas as pd
 import pytz
-import requests
 
 try:
-    from openai import OpenAI
+    from dante_3phase_v4_module import (
+        apply_dante_v4,
+        build_v4_signal_map,
+        apply_fear_and_quality_bonus,
+        build_pre_dolbanji_bundle,
+    )
 except Exception:
-    OpenAI = None
+    def apply_dante_v4(df: pd.DataFrame) -> pd.DataFrame:
+        return df
+
+    def build_v4_signal_map(row: pd.Series) -> Dict[str, object]:
+        return {}
+
+    def apply_fear_and_quality_bonus(base_score: float, row: pd.Series) -> float:
+        return float(base_score)
+
+    def build_pre_dolbanji_bundle(df: pd.DataFrame) -> Dict[str, object]:
+        return {
+            "pre_dolbanji": False,
+            "pre_dolbanji_confirmed": False,
+            "pre_dolbanji_score": 0,
+            "pre_dolbanji_grade": "없음",
+            "pre_dolbanji_tags": [],
+            "pre_dolbanji_best": "",
+            "pre_dolbanji_detail": {},
+        }
 
 try:
-    from dante_3phase_v4_module_synced import apply_dante_v4, build_v4_signal_map, apply_fear_and_quality_bonus
+    from main7_bugfix_2_engine_consistent_final import (
+        get_indicators as main7_get_indicators,
+        build_ma_convergence_comment_from_row as main7_build_ma_convergence_comment_from_row,
+        analyze_single_stock_with_main7_engine,
+    )
 except Exception:
-    try:
-        from dante_3phase_v4_module import apply_dante_v4, build_v4_signal_map, apply_fear_and_quality_bonus
-    except Exception:
-        def apply_dante_v4(df: pd.DataFrame) -> pd.DataFrame:
-            return df
+    main7_get_indicators = None
+    main7_build_ma_convergence_comment_from_row = None
 
-        def build_v4_signal_map(row: pd.Series) -> Dict[str, object]:
-            return {}
-
-        def apply_fear_and_quality_bonus(base_score: float, row: pd.Series) -> float:
-            return float(base_score)
+    def analyze_single_stock_with_main7_engine(ticker: str, name: str, end_date: str = "", context=None):
+        return []
 
 KST = pytz.timezone("Asia/Seoul")
 
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 
 MIN_PRICE = 3_000
 MIN_AMOUNT_B = 30.0
@@ -73,6 +88,7 @@ MODE_CHOICES = {
     "envelope_bet",
     "dolbanji",
     "watermelon",
+    "pre_dolbanji",
     "viper",
     "yeokmae",
     "double_bottom",
@@ -158,292 +174,6 @@ def detect_name(code: str, given_name: str = "") -> str:
     except Exception:
         pass
     return code
-
-
-@lru_cache(maxsize=1)
-def load_krx_universe() -> pd.DataFrame:
-    """
-    우선순위:
-    1) 로컬 캐시 파일
-    2) FinanceDataReader
-    3) pykrx
-    """
-    candidates = [
-        "krx_listing_cache.csv",
-        "data/krx_listing_cache.csv",
-        "cache/krx_listing_cache.csv",
-    ]
-
-    for path in candidates:
-        try:
-            if os.path.exists(path):
-                df = pd.read_csv(path, encoding="utf-8")
-                if df is not None and not df.empty:
-                    df = _normalize_universe_df(df)
-                    if len(df) > 100:
-                        return df
-        except Exception:
-            pass
-
-    try:
-        df = fdr.StockListing("KRX")
-        if df is not None and not df.empty:
-            df = _normalize_universe_df(df)
-            if len(df) > 100:
-                return df
-    except Exception:
-        pass
-
-    try:
-        from pykrx import stock as pk
-        rows = []
-        for market in ["KOSPI", "KOSDAQ"]:
-            tickers = pk.get_market_ticker_list(market=market)
-            for code in tickers:
-                try:
-                    name = pk.get_market_ticker_name(code)
-                    rows.append({"Code": str(code).zfill(6), "Name": str(name).strip()})
-                except Exception:
-                    continue
-        df = pd.DataFrame(rows)
-        if not df.empty:
-            df = _normalize_universe_df(df)
-            if len(df) > 100:
-                return df
-    except Exception:
-        pass
-
-    raise RuntimeError("종목 유니버스를 불러오지 못했습니다. 로컬 캐시/FDR/pykrx 모두 실패했습니다.")
-
-
-def _normalize_universe_df(df: pd.DataFrame) -> pd.DataFrame:
-    df = df.copy()
-
-    rename_map = {}
-    for c in df.columns:
-        lc = str(c).lower()
-        if lc in ("code", "ticker", "symbol", "종목코드", "티커"):
-            rename_map[c] = "Code"
-        elif lc in ("name", "company", "companyname", "종목명", "회사명"):
-            rename_map[c] = "Name"
-
-    if rename_map:
-        df = df.rename(columns=rename_map)
-
-    if "Code" not in df.columns or "Name" not in df.columns:
-        raise RuntimeError("유니버스 데이터에 Code/Name 컬럼이 없습니다.")
-
-    df["Code"] = df["Code"].astype(str).str.replace(r"\D", "", regex=True).str.zfill(6)
-    df["Name"] = df["Name"].astype(str).str.strip()
-    df["NameNorm"] = (
-        df["Name"]
-        .str.replace(r"\s+", "", regex=True)
-        .str.replace(r"[㈜()\-_/]", "", regex=True)
-        .str.upper()
-    )
-
-    return df[["Code", "Name", "NameNorm"]].drop_duplicates().reset_index(drop=True)
-
-
-def _search_universe_by_name(query: str, df_uni: pd.DataFrame) -> Dict[str, List[Dict[str, str]]]:
-    q = str(query).strip().replace(" ", "").upper()
-
-    exact = df_uni[df_uni["NameNorm"] == q]
-    if len(exact) == 1:
-        row = exact.iloc[0]
-        return {"exact": [{"Code": row["Code"], "Name": row["Name"]}], "partial": [], "fuzzy": []}
-
-    partial = df_uni[df_uni["NameNorm"].str.contains(q, na=False)].copy()
-
-    fuzzy: List[Dict[str, str]] = []
-    try:
-        all_names = df_uni["NameNorm"].tolist()
-        close_matches = difflib.get_close_matches(q, all_names, n=10, cutoff=0.6)
-        if close_matches:
-            fuzzy_df = df_uni[df_uni["NameNorm"].isin(close_matches)].drop_duplicates()
-            fuzzy = fuzzy_df[["Code", "Name"]].to_dict("records")
-    except Exception:
-        pass
-
-    return {
-        "exact": exact[["Code", "Name"]].to_dict("records"),
-        "partial": partial.head(10)[["Code", "Name"]].to_dict("records"),
-        "fuzzy": fuzzy[:10],
-    }
-
-
-def _extract_json_block(text: str) -> Optional[Dict[str, object]]:
-    raw = (text or "").strip()
-    if not raw:
-        return None
-    candidates = [raw]
-    if "```" in raw:
-        for part in raw.split("```"):
-            part = part.strip()
-            if part.startswith("json"):
-                part = part[4:].strip()
-            if part:
-                candidates.append(part)
-    start = raw.find("{")
-    end = raw.rfind("}")
-    if start != -1 and end != -1 and end > start:
-        candidates.append(raw[start:end+1])
-    for cand in candidates:
-        try:
-            obj = json.loads(cand)
-            if isinstance(obj, dict):
-                return obj
-        except Exception:
-            continue
-    return None
-
-
-def _call_llm_stock_resolver(user_query: str, candidates: List[Dict[str, str]]) -> Optional[Dict[str, object]]:
-    prompt = f"""
-사용자 입력 종목명/종목코드 후보를 보고 가장 가능성 높은 한국 상장 종목 1개를 골라라.
-반드시 JSON만 출력해라.
-
-입력값:
-{user_query}
-
-후보목록:
-{json.dumps(candidates[:15], ensure_ascii=False)}
-
-출력형식:
-{{
-  "best_name": "...",
-  "best_code": "......",
-  "confidence": 0.0,
-  "reason": "..."
-}}
-"""
-
-    try:
-        if OPENAI_API_KEY and OpenAI is not None:
-            client = OpenAI(api_key=OPENAI_API_KEY)
-            res = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {"role": "system", "content": "너는 한국 주식 종목명 정규화 도우미다. 반드시 JSON만 출력해라."},
-                    {"role": "user", "content": prompt},
-                ],
-                temperature=0,
-            )
-            data = _extract_json_block(res.choices[0].message.content or "")
-            if data:
-                return data
-    except Exception:
-        pass
-
-    try:
-        if GROQ_API_KEY:
-            res = requests.post(
-                "https://api.groq.com/openai/v1/chat/completions",
-                headers={"Authorization": f"Bearer {GROQ_API_KEY}"},
-                json={
-                    "model": "llama-3.3-70b-versatile",
-                    "messages": [
-                        {"role": "system", "content": "너는 한국 주식 종목명 정규화 도우미다. 반드시 JSON만 출력해라."},
-                        {"role": "user", "content": prompt},
-                    ],
-                    "temperature": 0,
-                },
-                timeout=30,
-            )
-            if res.status_code == 200:
-                text = res.json().get("choices", [{}])[0].get("message", {}).get("content", "")
-                data = _extract_json_block(text)
-                if data:
-                    return data
-    except Exception:
-        pass
-
-    try:
-        if GEMINI_API_KEY:
-            gem_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
-            res = requests.post(
-                gem_url,
-                json={
-                    "contents": [{"parts": [{"text": prompt}]}],
-                    "generationConfig": {"temperature": 0},
-                },
-                timeout=30,
-            )
-            if res.status_code == 200:
-                data = res.json()
-                parts = (((data.get("candidates") or [{}])[0].get("content") or {}).get("parts") or [])
-                text = "\n".join([p.get("text", "") for p in parts if p.get("text")])
-                parsed = _extract_json_block(text)
-                if parsed:
-                    return parsed
-    except Exception:
-        pass
-
-    return None
-
-
-def resolve_code_and_name_twotrack(user_input: str, given_name: str = "") -> Tuple[str, str]:
-    raw = (user_input or "").strip()
-    if not raw:
-        raise RuntimeError("종목코드 또는 종목명을 입력해야 합니다.")
-
-    digits = re.sub(r"\D", "", raw)
-    if digits:
-        code = digits.zfill(6)
-        name = detect_name(code, given_name)
-        return code, name
-
-    candidates: List[Dict[str, str]] = []
-
-    try:
-        df_uni = load_krx_universe()
-        result = _search_universe_by_name(raw, df_uni)
-
-        if len(result["exact"]) == 1:
-            row = result["exact"][0]
-            return row["Code"], row["Name"]
-
-        if len(result["partial"]) == 1:
-            row = result["partial"][0]
-            return row["Code"], row["Name"]
-
-        candidates = result["exact"] + result["partial"] + result["fuzzy"]
-
-        if candidates:
-            ai_result = _call_llm_stock_resolver(raw, candidates)
-            if ai_result:
-                best_code = str(ai_result.get("best_code", "")).strip().zfill(6)
-                best_name = str(ai_result.get("best_name", "")).strip()
-                confidence = safe_float(ai_result.get("confidence", 0.0), 0.0)
-
-                if confidence >= 0.70:
-                    verified = df_uni[df_uni["Code"] == best_code]
-                    if len(verified) == 1:
-                        row = verified.iloc[0]
-                        return str(row["Code"]), str(row["Name"])
-                    verified2 = df_uni[df_uni["Name"] == best_name]
-                    if len(verified2) == 1:
-                        row = verified2.iloc[0]
-                        return str(row["Code"]), str(row["Name"])
-
-            sample = ", ".join([f"{x['Name']}({x['Code']})" for x in candidates[:5]])
-            raise RuntimeError(f"종목명이 여러 개로 검색됩니다: {sample}")
-
-    except Exception as local_err:
-        ai_result = _call_llm_stock_resolver(raw, candidates or [])
-        if ai_result:
-            best_code = str(ai_result.get("best_code", "")).strip()
-            best_name = str(ai_result.get("best_name", "")).strip()
-            confidence = safe_float(ai_result.get("confidence", 0.0), 0.0)
-
-            if re.fullmatch(r"\d{6}", best_code) and confidence >= 0.80:
-                try:
-                    name = detect_name(best_code, best_name)
-                    return best_code, name or best_name
-                except Exception:
-                    return best_code, best_name
-
-        raise RuntimeError(f"종목명 해석 실패: {raw} / 원인: {local_err}")
 
 
 def resolve_analysis_window(
@@ -550,7 +280,62 @@ def mfi(df: pd.DataFrame, period: int = 14) -> pd.Series:
     return out.fillna(50)
 
 
-def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
+
+
+def _apply_main7_aliases(out: pd.DataFrame) -> pd.DataFrame:
+    out = out.copy()
+    alias_map = {
+        'BB_Upper': 'BB20_UP',
+        'BB_Lower': 'BB20_DN',
+        'BB20_Width': 'BB20_WIDTH',
+        'BB40_Upper': 'BB40_UP',
+        'BB40_Lower': 'BB40_DN',
+        'BB40_Width': 'BB40_WIDTH',
+        'BB40_PercentB': 'BB40_PCTB',
+        'MACD_Signal': 'MACD_SIGNAL',
+        'MACD_Hist': 'MACD_HIST',
+        'RSI': 'RSI14',
+        'MFI': 'MFI14',
+        'pDI': 'PLUS_DI',
+        'mDI': 'MINUS_DI',
+    }
+    for src, dst in alias_map.items():
+        if src in out.columns and dst not in out.columns:
+            out[dst] = out[src]
+
+    if 'MA20' in out.columns and 'BB20_MID' not in out.columns:
+        out['BB20_MID'] = out['MA20']
+    if 'MA40' in out.columns and 'BB40_MID' not in out.columns:
+        out['BB40_MID'] = out['MA40']
+
+    if 'OBV_Slope' in out.columns:
+        if 'OBV_SLOPE_5' not in out.columns:
+            out['OBV_SLOPE_5'] = out['OBV_Slope']
+        if 'OBV_SLOPE_10' not in out.columns:
+            out['OBV_SLOPE_10'] = out['OBV_Slope']
+
+    for n in [5, 10, 20, 40, 60]:
+        slope_src = f'Slope{n}'
+        slope_dst = f'MA{n}_SLOPE'
+        if slope_src in out.columns and slope_dst not in out.columns:
+            out[slope_dst] = out[slope_src]
+
+    if 'MA200' not in out.columns and 'MA224' in out.columns:
+        out['MA200'] = out['MA224']
+    if 'Amount' not in out.columns and 'Close' in out.columns and 'Volume' in out.columns:
+        out['Amount'] = out['Close'] * out['Volume']
+    if 'AmountB' not in out.columns and 'Amount' in out.columns:
+        out['AmountB'] = (out['Amount'] / 1e8).round(1)
+
+    if 'Watermelon_Color' in out.columns:
+        if 'WATERMELON_GREEN' not in out.columns:
+            out['WATERMELON_GREEN'] = (out['Watermelon_Color'] == 'green').astype(int)
+        if 'WATERMELON_RED' not in out.columns:
+            out['WATERMELON_RED'] = (out['Watermelon_Color'] == 'red').astype(int)
+
+    return out
+
+def _add_indicators_legacy(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
 
     for n in [5, 10, 20, 40, 60, 112, 200, 224]:
@@ -742,6 +527,24 @@ def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+
+
+def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
+    if main7_get_indicators is not None:
+        try:
+            out = main7_get_indicators(df.copy())
+            if out is None or out.empty:
+                raise RuntimeError('main7_get_indicators empty')
+            out = apply_dante_v4(out)
+            out = _apply_main7_aliases(out)
+            return out
+        except Exception:
+            pass
+
+    out = _add_indicators_legacy(df)
+    out = apply_dante_v4(out)
+    return out
+
 def calc_envelope(df: pd.DataFrame, period: int, pct: float) -> Dict[str, pd.Series]:
     ma = df["Close"].rolling(period).mean()
     upper = ma * (1 + pct / 100)
@@ -853,7 +656,22 @@ def calc_triplet_convergence(*values: float) -> float:
     return round((max(valid) - min(valid)) / max(valid) * 100, 2)
 
 
+
 def build_ma_convergence_comment(price: Dict[str, Any]) -> str:
+    if main7_build_ma_convergence_comment_from_row is not None:
+        try:
+            proxy = {
+                'Is_UltraShort_MA_Conv': bool(price.get('ultra_ma_conv')),
+                'Is_Short_MA_Conv': bool(price.get('short_ma_conv')),
+                'Is_Structure_MA_Conv': bool(price.get('struct_ma_conv')),
+                'Is_Bridge_MA_Conv': bool(price.get('bridge_ma_conv')),
+                'Is_Structure_Link_MA_Conv': bool(price.get('connect_ma_conv')),
+                'Is_Super_MA_Conv': bool(price.get('super_ma_conv')),
+            }
+            return main7_build_ma_convergence_comment_from_row(proxy)
+        except Exception:
+            pass
+
     comments: List[str] = []
 
     if price.get("super_ma_conv"):
@@ -886,7 +704,6 @@ def build_ma_convergence_comment(price: Dict[str, Any]) -> str:
         return "현재는 의미 있는 MA수렴이 약합니다. 이평 응축보다는 개별 패턴이나 수급, 거래대금 중심으로 해석하는 편이 적절합니다."
 
     return " ".join(dict.fromkeys(comments))
-
 
 def build_snapshot(df: pd.DataFrame, window: Dict[str, str]) -> Dict[str, Any]:
     row = df.iloc[-1]
@@ -926,6 +743,10 @@ def build_snapshot(df: pd.DataFrame, window: Dict[str, str]) -> Dict[str, Any]:
     bb40_mid = safe_float(row.get("BB40_MID"))
     bb40_up = safe_float(row.get("BB40_UP"))
     bb40_dn = safe_float(row.get("BB40_DN"))
+
+    pre_bundle = build_pre_dolbanji_bundle(df)
+    pre_detail = pre_bundle.get("pre_dolbanji_detail", {}) if isinstance(pre_bundle, dict) else {}
+    pre_trend = pre_detail.get("trend_confirm", {}) if isinstance(pre_detail, dict) else {}
 
     prep_zone = bb40_dn * 0.98 <= close <= bb40_mid * 1.02 if bb40_dn > 0 and bb40_mid > 0 else False
     launch_zone = bb40_mid * 0.98 <= close <= bb40_up * 1.02 if bb40_mid > 0 and bb40_up > 0 else False
@@ -1028,6 +849,13 @@ def build_snapshot(df: pd.DataFrame, window: Dict[str, str]) -> Dict[str, Any]:
         "watermelon_first_launch_v4": bool(safe_int(row.get("Watermelon_First_Launch_V4"))),
         "watermelon_hold_v4": bool(safe_int(row.get("Watermelon_Hold_V4"))),
         "watermelon_launch_v4": bool(safe_int(row.get("Watermelon_Launch_V4"))),
+        "pre_dolbanji": bool(pre_bundle.get("pre_dolbanji", False)),
+        "pre_dolbanji_confirmed": bool(pre_bundle.get("pre_dolbanji_confirmed", False)),
+        "pre_dolbanji_score": safe_int(pre_bundle.get("pre_dolbanji_score", 0)),
+        "pre_dolbanji_grade": str(pre_bundle.get("pre_dolbanji_grade", "없음")),
+        "pre_dolbanji_best": str(pre_bundle.get("pre_dolbanji_best", "")),
+        "pre_dolbanji_tags": " ".join(pre_bundle.get("pre_dolbanji_tags", [])) if isinstance(pre_bundle, dict) else "",
+        "pre_dolbanji_trend_score": safe_int(pre_trend.get("score", 0)),
     }
 
 
@@ -1149,6 +977,45 @@ def build_dolbanji(price: Dict[str, Any], df: pd.DataFrame) -> PatternResult:
     else:
         comment = "현재는 돌반지 핵심 구조가 약합니다."
     return PatternResult("dolbanji", s, status, score, len(rows), "200일선 돌파 직후 응축형", comment, rows)
+
+
+
+def build_pre_dolbanji(price: Dict[str, Any], df: pd.DataFrame) -> PatternResult:
+    rows: List[CheckRow] = []
+    s = "예비돌반지"
+
+    c1 = bool(price.get("pre_dolbanji", False))
+    add_check(rows, s, "후보 감지", "감지" if c1 else "미감지", "감지", c1, "예비돌반지 계열 조건 포착" if c1 else "현재는 예비돌반지 계열 미감지")
+
+    c2 = str(price.get("pre_dolbanji_grade", "없음")) in ("A", "S", "B")
+    add_check(rows, s, "등급", str(price.get("pre_dolbanji_grade", "없음")), "B 이상", c2, "등급 부여됨" if c2 else "등급 낮음")
+
+    c3 = safe_int(price.get("pre_dolbanji_score", 0)) >= 60
+    add_check(rows, s, "종합 점수", f"{safe_int(price.get('pre_dolbanji_score', 0))}", ">= 60", c3, "예비돌반지 점수 양호" if c3 else "점수 부족")
+
+    c4 = str(price.get("pre_dolbanji_best", "")).strip() != ""
+    add_check(rows, s, "대표 변형", str(price.get("pre_dolbanji_best", "") or "없음"), "A/B/C/D 중 1개", c4, "대표 변형 확인" if c4 else "대표 변형 없음")
+
+    c5 = safe_int(price.get("pre_dolbanji_trend_score", 0)) >= 3
+    add_check(rows, s, "구조전환 확인", f"{safe_int(price.get('pre_dolbanji_trend_score', 0))}/4", ">= 3/4", c5, "추세전환 확인" if c5 else "아직 추세전환 미완")
+
+    c6 = bool(price.get("pre_dolbanji_confirmed", False))
+    add_check(rows, s, "확인형 여부", "확인" if c6 else "대기", "확인", c6, "예비돌반지 확인형" if c6 else "아직 감시형 단계")
+
+    score = sum(1 for r in rows if r.ok)
+    status = decide_status(score, len(rows))
+    if c6:
+        status = "해당"
+        comment = "장기 역배열 구간에서 과거 폭발 흔적 이후 재정비를 거쳐 구조전환 확인까지 동반된 예비돌반지 확인형입니다."
+    elif c1 and c5:
+        comment = "예비돌반지 감시형으로는 꽤 괜찮지만, 완전한 돌반지보다는 재돌파 대기형에 가깝습니다."
+    elif c1:
+        comment = "예비돌반지 계열 흔적은 있으나 아직 추세전환 확인이 덜 붙었습니다. 감시목록 성격으로 보는 편이 좋습니다."
+    else:
+        comment = "현재는 예비돌반지 계열 패턴으로 보기 어렵습니다."
+
+    subtitle = f"대표 {price.get('pre_dolbanji_best', '없음')} · 등급 {price.get('pre_dolbanji_grade', '없음')} · 점수 {safe_int(price.get('pre_dolbanji_score', 0))} · 구조전환 {safe_int(price.get('pre_dolbanji_trend_score', 0))}/4"
+    return PatternResult("pre_dolbanji", s, status, score, len(rows), subtitle, comment, rows)
 
 
 def build_watermelon(price: Dict[str, Any], df: pd.DataFrame) -> PatternResult:
@@ -1352,6 +1219,7 @@ def build_patterns(price: Dict[str, Any], df: pd.DataFrame) -> List[PatternResul
         build_closing_bet(price),
         build_envelope_bet(price),
         build_dolbanji(price, df),
+        build_pre_dolbanji(price, df),
         build_watermelon(price, df),
         build_viper(price, df),
         build_yeokmae(price, df),
@@ -1425,6 +1293,10 @@ def build_smart_comment(price: Dict[str, Any], patterns: List[PatternResult], na
         comments.append(f"수박 매집 신호는 켜져 있고 현재 단계는 {price.get('watermelon_phase')}입니다.")
     if price.get("watermelon_red_new"):
         comments.append("수박 빨강 신규 점등 구간이면 진입 타점 초기 가능성을 체크할 만합니다.")
+    if price.get("pre_dolbanji"):
+        comments.append(f"예비돌반지 계열이 감지되었고 대표 변형은 {price.get('pre_dolbanji_best', '') or '없음'} 입니다. 구조전환 점수는 {price.get('pre_dolbanji_trend_score', 0)}/4 입니다.")
+    if price.get("pre_dolbanji_confirmed"):
+        comments.append("예비돌반지 확인형이면 단순 감시목록이 아니라 재돌파 관찰 우선순위를 높일 수 있습니다.")
     if price.get("dante_v4_prep"):
         comments.append(f"V4 3박자 기준으로는 준비형이며 기간대칭 {price.get('sym_score_v4')}점, 파동에너지 {price.get('energy_total_v4')}점 수준입니다.")
     if price.get("dante_v4_fire"):
@@ -1434,69 +1306,6 @@ def build_smart_comment(price: Dict[str, Any], patterns: List[PatternResult], na
 
     return " ".join(dict.fromkeys(comments))
 
-
-
-def calc_signal_trade_window(df: pd.DataFrame, idx: pd.Timestamp) -> Dict[str, Any]:
-    """
-    패턴이 idx 날짜 종가 기준으로 확정됐다고 보고,
-    실제 매매 가능한 다음 거래일 시가/종가/장중 고저가를 함께 계산한다.
-    """
-    try:
-        loc = df.index.get_loc(idx)
-    except Exception:
-        return {}
-
-    def _value(col: str, pos: int) -> Optional[float]:
-        if 0 <= pos < len(df):
-            return safe_float(df[col].iloc[pos], None)
-        return None
-
-    signal_close = _value("Close", loc)
-    next_open = _value("Open", loc + 1)
-    next_high = _value("High", loc + 1)
-    next_low = _value("Low", loc + 1)
-    next_close = _value("Close", loc + 1)
-    day2_close = _value("Close", loc + 2)
-    day3_close = _value("Close", loc + 3)
-
-    gap_pct = None
-    next_day_ret = None
-    next_day_mfe = None
-    next_day_mae = None
-    day2_ret = None
-    day3_ret = None
-
-    if signal_close is not None and next_open is not None and signal_close > 0:
-        gap_pct = round((next_open - signal_close) / signal_close * 100, 1)
-
-    if next_open is not None and next_close is not None and next_open > 0:
-        next_day_ret = round((next_close - next_open) / next_open * 100, 1)
-
-    if next_open is not None and next_high is not None and next_open > 0:
-        next_day_mfe = round((next_high - next_open) / next_open * 100, 1)
-
-    if next_open is not None and next_low is not None and next_open > 0:
-        next_day_mae = round((next_low - next_open) / next_open * 100, 1)
-
-    if next_open is not None and day2_close is not None and next_open > 0:
-        day2_ret = round((day2_close - next_open) / next_open * 100, 1)
-
-    if next_open is not None and day3_close is not None and next_open > 0:
-        day3_ret = round((day3_close - next_open) / next_open * 100, 1)
-
-    return {
-        "signal_close": round(signal_close) if signal_close is not None else None,
-        "next_open": round(next_open) if next_open is not None else None,
-        "next_close": round(next_close) if next_close is not None else None,
-        "gap_pct": gap_pct,
-        "next_day_ret": next_day_ret,
-        "next_day_mfe": next_day_mfe,
-        "next_day_mae": next_day_mae,
-        "day2_close": round(day2_close) if day2_close is not None else None,
-        "day2_ret": day2_ret,
-        "day3_close": round(day3_close) if day3_close is not None else None,
-        "day3_ret": day3_ret,
-    }
 
 
 def scan_pattern_history(df: pd.DataFrame, window: Dict[str, str], mode: str, min_bars: int = 40) -> List[Dict[str, Any]]:
@@ -1521,8 +1330,6 @@ def scan_pattern_history(df: pd.DataFrame, window: Dict[str, str], mode: str, mi
         day_patterns = build_patterns(day_price, subdf)
         day_selected = patterns_for_mode(day_patterns, mode)
 
-        trade_info = calc_signal_trade_window(df, current_date)
-
         for p in day_selected:
             if p.status not in ("해당", "유사"):
                 continue
@@ -1539,17 +1346,6 @@ def scan_pattern_history(df: pd.DataFrame, window: Dict[str, str], mode: str, mi
                 "amount_b": safe_float(day_price.get("amount_b")),
                 "watermelon_value": safe_int(day_price.get("watermelon_value")),
                 "watermelon_quality": safe_float(day_price.get("watermelon_quality")),
-                "signal_close": trade_info.get("signal_close"),
-                "next_open": trade_info.get("next_open"),
-                "next_close": trade_info.get("next_close"),
-                "gap_pct": trade_info.get("gap_pct"),
-                "next_day_ret": trade_info.get("next_day_ret"),
-                "next_day_mfe": trade_info.get("next_day_mfe"),
-                "next_day_mae": trade_info.get("next_day_mae"),
-                "day2_close": trade_info.get("day2_close"),
-                "day2_ret": trade_info.get("day2_ret"),
-                "day3_close": trade_info.get("day3_close"),
-                "day3_ret": trade_info.get("day3_ret"),
             })
 
     hits.sort(key=lambda x: (x["date"], x["score"], x["pattern_name"]))
@@ -1587,12 +1383,6 @@ def build_pattern_hits_table(hits: List[Dict[str, Any]]) -> str:
     if not hits:
         return '<div class="muted">요청구간 내 해당/유사 패턴 발생 이력이 없습니다.</div>'
 
-    def _fmt_price(v: Any) -> str:
-        return fmt_int(v) if v is not None else '-'
-
-    def _fmt_pct(v: Any) -> str:
-        return f"{float(v):+.1f}%" if v is not None else '-'
-
     rows = []
     for hit in hits:
         status_cls = STATUS_CLASS.get(hit["status"], "fail")
@@ -1602,23 +1392,15 @@ def build_pattern_hits_table(hits: List[Dict[str, Any]]) -> str:
             f"<td>{escape(hit['pattern_name'])}</td>"
             f"<td class='{status_cls}'>{escape(hit['status'])}</td>"
             f"<td class='mono'>{hit['score']}/{hit['max_score']}</td>"
-            f"<td class='mono'>{_fmt_price(hit.get('signal_close'))}</td>"
-            f"<td class='mono'>{_fmt_price(hit.get('next_open'))}</td>"
-            f"<td class='mono'>{_fmt_price(hit.get('next_close'))}</td>"
-            f"<td class='mono'>{_fmt_pct(hit.get('gap_pct'))}</td>"
-            f"<td class='mono'>{_fmt_pct(hit.get('next_day_ret'))}</td>"
-            f"<td class='mono'>{_fmt_pct(hit.get('next_day_mfe'))}</td>"
-            f"<td class='mono'>{_fmt_pct(hit.get('next_day_mae'))}</td>"
-            f"<td class='mono'>{_fmt_pct(hit.get('day3_ret'))}</td>"
+            f"<td class='mono'>{fmt_int(hit['close'])}</td>"
             f"<td class='mono'>{fmt_float(hit['amount_b'], 1)}억</td>"
             f"<td class='mono'>{fmt_float(hit['watermelon_quality'], 1)}</td>"
             f"<td>{escape(hit['subtitle'])}</td>"
             f"</tr>"
         )
     return (
-        "<div class='muted' style='margin-bottom:10px;'>신호종가 = 패턴 확정일 종가 / 익일시가 = 실제 첫 진입 가능 가격 / 익일수익% = 익일 시가 진입 후 익일 종가 청산 기준</div>"
         "<div class='table-wrap'><table>"
-        "<thead><tr><th>날짜</th><th>패턴</th><th>상태</th><th>점수</th><th>신호종가</th><th>익일시가</th><th>익일종가</th><th>갭%</th><th>익일수익%</th><th>장중최대%</th><th>장중최저%</th><th>3일후%</th><th>거래대금</th><th>수박품질</th><th>설명</th></tr></thead>"
+        "<thead><tr><th>날짜</th><th>패턴</th><th>상태</th><th>점수</th><th>종가</th><th>거래대금</th><th>수박품질</th><th>설명</th></tr></thead>"
         f"<tbody>{''.join(rows)}</tbody></table></div>"
     )
 
@@ -1628,6 +1410,7 @@ PATTERN_VIZ = {
     "closing_bet": {"abbr": "종", "color": "#f59e0b", "name": "종가배팅"},
     "envelope_bet": {"abbr": "엔", "color": "#10b981", "name": "엔벨로프"},
     "dolbanji": {"abbr": "돌", "color": "#a78bfa", "name": "돌반지"},
+    "pre_dolbanji": {"abbr": "예", "color": "#8b5cf6", "name": "예비돌반지"},
     "watermelon": {"abbr": "수", "color": "#f43f5e", "name": "수박"},
     "viper": {"abbr": "독", "color": "#22c55e", "name": "독사"},
     "yeokmae": {"abbr": "역", "color": "#38bdf8", "name": "역매공파"},
@@ -1639,7 +1422,7 @@ def get_pattern_viz(pattern_key: str) -> Dict[str, str]:
     return PATTERN_VIZ.get(pattern_key, {"abbr": "?", "color": "#94a3b8", "name": pattern_key})
 
 
-DISPLAY_PATTERN_KEYS = ("watermelon", "envelope_bet", "dolbanji", "closing_bet")
+DISPLAY_PATTERN_KEYS = ("watermelon", "pre_dolbanji", "envelope_bet", "dolbanji", "closing_bet")
 DISPLAY_PATTERN_SET = set(DISPLAY_PATTERN_KEYS)
 STATUS_PRIORITY = {"해당": 3, "유사": 2, "미해당": 1, "데이터부족": 0}
 
@@ -1946,6 +1729,7 @@ def render_html(result: Dict[str, Any]) -> str:
         <option value="closing_bet">closing_bet</option>
         <option value="envelope_bet">envelope_bet</option>
         <option value="dolbanji">dolbanji</option>
+        <option value="pre_dolbanji">pre_dolbanji</option>
         <option value="watermelon">watermelon</option>
         <option value="viper">viper</option>
         <option value="yeokmae">yeokmae</option>
@@ -1977,6 +1761,15 @@ def render_html(result: Dict[str, Any]) -> str:
         ("ADX", f'{price["adx"]}'),
         ("V4 3박자 점수", f'{price.get("dante_v4_score", 0)}'),
         ("V4 등급", f'{price.get("dante_v4_grade", "C")}'),
+        ("예비돌반지 점수", f'{price.get("pre_dolbanji_score", 0)}'),
+        ("예비돌반지 등급", f'{price.get("pre_dolbanji_grade", "없음")}'),
+        ("예비돌반지 대표형", f'{price.get("pre_dolbanji_best", "") or "없음"}'),
+        ("예비돌반지 구조전환", f'{price.get("pre_dolbanji_trend_score", 0)}/4'),
+        ("main7 엔진 N등급", f'{price.get("main7_engine_grade", "-")}'),
+        ("main7 엔진 조합", f'{price.get("main7_engine_combo", "-")}'),
+        ("main7 엔진 N점수", f'{price.get("main7_engine_score", 0)}'),
+        ("main7 엔진 안전점수", f'{price.get("main7_engine_safe_score", 0)}'),
+        ("main7 엔진 단계", f'{price.get("main7_engine_stage", "-")}'),
         ("기간대칭 점수", f'{price.get("sym_score_v4", 0)}'),
         ("파동에너지 점수", f'{price.get("energy_total_v4", 0)}'),
         ("수박 V4 상태", f'{price.get("watermelon_phase_v4", "NONE")}'),
@@ -2218,7 +2011,7 @@ def render_html(result: Dict[str, Any]) -> str:
     <section class="card"><div class="section-title">기본 수치</div><div class="metric-grid">{metric_cards}</div></section>
     <section class="card">
       <div class="section-title">요청구간 패턴 발생 이력</div>
-      <div class="muted" style="margin-bottom:10px;">요청구간 안에서 날짜별로 해당/유사 판정이 나온 패턴만 뽑았습니다. mode=all이면 여러 패턴이 같은 날짜에 함께 나올 수 있습니다. 아래 표의 신호종가는 패턴이 확정된 날의 종가이고, 익일시가는 실제 첫 진입 가능 가격입니다.</div>
+      <div class="muted" style="margin-bottom:10px;">요청구간 안에서 날짜별로 해당/유사 판정이 나온 패턴만 뽑았습니다. mode=all이면 여러 패턴이 같은 날짜에 함께 나올 수 있습니다.</div>
       {'<div class="metric-grid" style="margin-bottom:12px;">' + hit_summary_cards + '</div>' if hit_summary_cards else ''}
       {hits_table}
     </section>
@@ -2246,7 +2039,7 @@ def pattern_results_to_json(patterns: List[PatternResult]) -> List[Dict[str, Any
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--code", required=True, help="종목코드 또는 종목명")
+    ap.add_argument("--code", required=True)
     ap.add_argument("--name", default="")
     ap.add_argument("--mode", default="all")
     ap.add_argument("--force", action="store_true")
@@ -2261,7 +2054,8 @@ def main() -> None:
     if args.mode not in MODE_CHOICES:
         raise SystemExit(f"지원하지 않는 mode 입니다: {args.mode}")
 
-    code, name = resolve_code_and_name_twotrack(args.code, args.name)
+    code = normalize_code(args.code)
+    name = detect_name(code, args.name)
 
     df, window = load_price_history(
         code=code,
@@ -2273,7 +2067,25 @@ def main() -> None:
     df = add_indicators(df)
     df = apply_dante_v4(df)
 
-    price = build_snapshot(df, window)
+
+price = build_snapshot(df, window)
+
+engine_hits = []
+engine_hit = {}
+try:
+    engine_hits = analyze_single_stock_with_main7_engine(code, name, end_date=window["target_end"])
+    engine_hit = engine_hits[0] if engine_hits else {}
+except Exception:
+    engine_hits = []
+    engine_hit = {}
+
+if engine_hit:
+    price["main7_engine_grade"] = str(engine_hit.get("N등급", ""))
+    price["main7_engine_combo"] = str(engine_hit.get("N조합", ""))
+    price["main7_engine_score"] = safe_int(engine_hit.get("N점수", 0))
+    price["main7_engine_safe_score"] = safe_int(engine_hit.get("안전점수", 0))
+    price["main7_engine_stage"] = str(engine_hit.get("단계상태", ""))
+    price["main7_engine_tags"] = str(engine_hit.get("N구분", ""))
     patterns = build_patterns(price, df)
     selected = patterns_for_mode(patterns, args.mode)
 
@@ -2294,6 +2106,7 @@ def main() -> None:
         "df": df,
         "pattern_hits": pattern_hits,
         "pattern_hit_summary": pattern_hit_summary,
+        "main7_engine_result": engine_hit,
     }
 
     out_json = Path(args.output_json)
@@ -2312,6 +2125,7 @@ def main() -> None:
         "patterns": pattern_results_to_json(selected),
         "pattern_hits": pattern_hits,
         "pattern_hit_summary": pattern_hit_summary,
+        "main7_engine_result": engine_hit,
     }
 
     out_json.write_text(json.dumps(json_payload, ensure_ascii=False, indent=2), encoding="utf-8")
