@@ -1,3 +1,4 @@
+# 백테스트 속도개선 + 로컬CSV저장 제거 최종본
 # HTS 정확복제형 + main7 통일 엔진 반영 백테스트 최종본
 # =============================================================
 # 📊 backtest_validator_latest_complete.py
@@ -37,7 +38,7 @@ except ImportError:
 # 최신 본진 모듈: HTS 정확복제 통합본 우선, 없으면 기존 V4/기본 main7 fallback
 # ─────────────────────────────────────────────────────────────
 try:
-    import main7_bugfix_2 as _main7
+    import main7_bugfix_2_hts_exact_integrated_final as _main7
 except Exception:
     try:
         import main7_bugfix_2_engine_consistent_final as _main7
@@ -125,6 +126,45 @@ MIN_SCORE             = 150
 MIN_AMOUNT_MAIN       = 50     # 일반형 최소 최근 평균 거래대금(억)
 MIN_AMOUNT_TRACK_B    = 5      # 급등초동형 최소 최근 평균 거래대금(억)
 MAX_WORKERS           = 12
+
+# 티커별 전체 구간 가격 캐시 (백테스트 속도 개선)
+PRICE_CACHE = {}
+
+def preload_price_cache(tickers_list, start_date: str, end_date: str, prefetch_workers: int = 8):
+    """
+    백테스트 전체 기간에 필요한 가격 데이터를 티커별 1회만 미리 로드.
+    기존 구조는 scan_date마다 FDR 재호출해서 매우 느렸음.
+    """
+    global PRICE_CACHE
+    cache = {}
+
+    start_dt = datetime.strptime(start_date, '%Y-%m-%d') - timedelta(days=400)
+    end_dt = datetime.strptime(end_date, '%Y-%m-%d') + timedelta(days=60)
+
+    def _load_one(item):
+        code, name = item
+        try:
+            df = fdr.DataReader(
+                code,
+                start=start_dt.strftime('%Y-%m-%d'),
+                end=end_dt.strftime('%Y-%m-%d')
+            )
+            if df is None or df.empty or len(df) < 60:
+                return code, None
+            return code, df
+        except Exception:
+            return code, None
+
+    workers = max(1, int(prefetch_workers or 1))
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        futs = [ex.submit(_load_one, item) for item in tickers_list]
+        for fut in as_completed(futs):
+            code, df = fut.result()
+            if df is not None:
+                cache[code] = df
+
+    PRICE_CACHE = cache
+    log_info(f"📦 가격 캐시 준비 완료: {len(PRICE_CACHE)}/{len(tickers_list)}개")
 PROFIT_TARGET         = 5.0
 STOP_LOSS             = -5.0
 PATTERN_COL           = 'N조합'
@@ -371,11 +411,13 @@ def analyze_on_date(ticker: str, name: str, scan_date: str) -> dict | None:
         start_dt = scan_dt - timedelta(days=400)
         end_dt = scan_dt + timedelta(days=60)
 
-        full_df = fdr.DataReader(
-            ticker,
-            start=start_dt.strftime('%Y-%m-%d'),
-            end=end_dt.strftime('%Y-%m-%d')
-        )
+        full_df = PRICE_CACHE.get(ticker)
+        if full_df is None or full_df.empty:
+            full_df = fdr.DataReader(
+                ticker,
+                start=start_dt.strftime('%Y-%m-%d'),
+                end=end_dt.strftime('%Y-%m-%d')
+            )
 
         if full_df is None or full_df.empty or len(full_df) < 60:
             return None
@@ -623,7 +665,7 @@ def analyze_on_date(ticker: str, name: str, scan_date: str) -> dict | None:
 def run_backtest(start_date: str, end_date: str,
                  freq: str = 'daily',
                  top_n: int = 500,
-                 output_csv: str = 'backtest_result.csv') -> pd.DataFrame:
+                 prefetch_workers: int = 8) -> pd.DataFrame:
     log_info(f"\n{'='*60}")
     log_info(f"📊 백테스트 시작: {start_date} ~ {end_date}")
     log_info(f"   스캔 주기: {freq} | 보유일: {HOLD_DAYS_LIST} | 종목수: {top_n}")
@@ -634,6 +676,9 @@ def run_backtest(start_date: str, end_date: str,
 
     tickers_list = load_krx_tickers(top_n=top_n)
     log_info(f"🔭 대상 종목: {len(tickers_list)}개")
+
+    # 속도 개선: 티커별 가격 데이터를 한 번만 미리 로드
+    preload_price_cache(tickers_list, start_date, end_date, prefetch_workers=prefetch_workers)
 
     all_records = []
 
@@ -661,8 +706,7 @@ def run_backtest(start_date: str, end_date: str,
         return pd.DataFrame()
 
     df = pd.DataFrame(all_records)
-    df.to_csv(output_csv, index=False, encoding='utf-8-sig')
-    log_info(f"✅ 원본 결과 저장: {output_csv} ({len(df)}건)")
+    log_info(f"✅ 원본 결과 메모리 생성 완료: {len(df)}건")
     return df
 
 # =============================================================
@@ -859,14 +903,14 @@ if __name__ == '__main__':
     # 워크플로 호환: --workers 실제 반영, --prefetch_workers는 현재 호환용으로만 수용
     globals()['MAX_WORKERS'] = max(1, int(args.workers))
 
-    print(f"[Backtest] workers={args.workers}, prefetch_workers={args.prefetch_workers}, top_n={args.top_n}, freq={args.freq}")
+    print(f"[Backtest] workers={args.workers}, prefetch_workers={args.prefetch_workers}, top_n={args.top_n}, freq={args.freq}, local_csv_save=OFF")
 
     result_df = run_backtest(
         start_date=args.start,
         end_date=args.end,
         freq=args.freq,
         top_n=args.top_n,
-        output_csv='backtest_result.csv',
+        prefetch_workers=args.prefetch_workers,
     )
 
     if result_df.empty:
@@ -878,11 +922,8 @@ if __name__ == '__main__':
     monthly_df = analyze_monthly_winrate(result_df)
     v4_df = analyze_v4_signal_winrate(result_df)
 
-    pattern_df.to_csv('backtest_pattern_winrate.csv', index=False, encoding='utf-8-sig')
-    stage_df.to_csv('backtest_stage_winrate.csv', index=False, encoding='utf-8-sig')
-    monthly_df.to_csv('backtest_monthly.csv', index=False, encoding='utf-8-sig')
-    v4_df.to_csv('backtest_v4_signal_winrate.csv', index=False, encoding='utf-8-sig')
 
+    log_info('💾 로컬 CSV 저장은 모두 제거됨')
     print_report(result_df)
 
     if not args.no_sheet:
