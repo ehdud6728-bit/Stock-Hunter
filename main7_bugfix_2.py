@@ -32,6 +32,7 @@ from dante_3phase_v4_module import (
     build_v4_signal_map,
     apply_fear_and_quality_bonus,
     build_pre_dolbanji_bundle,
+    build_pre_dolbanji_hts_exact_bundle,
 )
 try: from openai import OpenAI
 except: OpenAI = None
@@ -5143,6 +5144,18 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
                 'pre_dolbanji_detail': {'ok': False, 'error': str(_pred_e)},
             }
 
+        try:
+            pre_hts_bundle = build_pre_dolbanji_hts_exact_bundle(temp_df)
+        except Exception as _pred_hts_e:
+            log_debug(f"예비돌반지 HTS 정확복제형 계산 실패: {_pred_hts_e}")
+            pre_hts_bundle = {
+                'pre_dolbanji_hts_exact': False,
+                'pre_dolbanji_hts_exact_score': 0,
+                'pre_dolbanji_hts_exact_max_score': 10,
+                'pre_dolbanji_hts_exact_tags': [],
+                'pre_dolbanji_hts_exact_detail': {'error': str(_pred_hts_e)},
+            }
+
         recent_avg_amount = (df['Close'] * df['Volume']).tail(5).mean() / 100000000
         # ✅ FIX-B: 트랙B 판별 (iloc로 안전하게)
         _is_track_b = bool(df['_is_track_b'].iloc[-1]) if '_is_track_b' in df.columns else False
@@ -5273,6 +5286,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         signals['fear_absorb'] = bool(fear_info.get('fear_absorb', False))
         signals['pre_dolbanji'] = bool(pre_bundle.get('pre_dolbanji', False))
         signals['pre_dolbanji_confirmed'] = bool(pre_bundle.get('pre_dolbanji_confirmed', False))
+        signals['pre_dolbanji_hts_exact'] = bool(pre_hts_bundle.get('pre_dolbanji_hts_exact', False))
         try:
             signals.update(build_v4_signal_map(row))
         except Exception as _v4sig_e:
@@ -5300,6 +5314,10 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
                     new_tags.append(_ptag)
         if pre_bundle.get('pre_dolbanji_confirmed', False) and '💍예비돌반지확인형' not in new_tags:
             new_tags.append('💍예비돌반지확인형')
+        if pre_hts_bundle.get('pre_dolbanji_hts_exact', False):
+            for _htag in pre_hts_bundle.get('pre_dolbanji_hts_exact_tags', []):
+                if _htag not in new_tags:
+                    new_tags.append(_htag)
          
         if row['BB_Ross']:
             new_tags.append("🔺🔺Ross쌍바닥")
@@ -5865,6 +5883,19 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             if '💍예비돌반지확인형' not in tags:
                 tags.append('💍예비돌반지확인형')
 
+        if pre_hts_bundle.get('pre_dolbanji_hts_exact', False):
+            s_score += 90
+            for _htag in pre_hts_bundle.get('pre_dolbanji_hts_exact_tags', []):
+                if _htag not in tags:
+                    tags.append(_htag)
+        else:
+            _hts_score = int(pre_hts_bundle.get('pre_dolbanji_hts_exact_score', 0))
+            if _hts_score >= 8:
+                s_score += 30
+                for _htag in pre_hts_bundle.get('pre_dolbanji_hts_exact_tags', []):
+                    if _htag not in tags:
+                        tags.append(_htag)
+
         s_score -= max(0, int((row['Disparity']-108)*5))
 
         if not tags: return []
@@ -5956,6 +5987,10 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             '예비돌반지등급': str(pre_bundle.get('pre_dolbanji_grade', '없음')),
             '예비돌반지최상': str(pre_bundle.get('pre_dolbanji_best', '')),
             '예비돌반지태그': " ".join(pre_bundle.get('pre_dolbanji_tags', [])),
+            '예비돌반지HTS정확복제': bool(pre_hts_bundle.get('pre_dolbanji_hts_exact', False)),
+            '예비돌반지HTS정확점수': int(pre_hts_bundle.get('pre_dolbanji_hts_exact_score', 0)),
+            '예비돌반지HTS정확최대': int(pre_hts_bundle.get('pre_dolbanji_hts_exact_max_score', 10)),
+            '예비돌반지HTS정확태그': " ".join(pre_hts_bundle.get('pre_dolbanji_hts_exact_tags', [])),
             '개인순매도': int(fear_info.get('personal_sell', 0)),
             '외인순매수금액': int(fear_info.get('foreign_buy', 0)),
             '기관순매수금액': int(fear_info.get('inst_buy', 0)),
