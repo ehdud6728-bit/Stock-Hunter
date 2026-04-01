@@ -1,3 +1,4 @@
+# 숫자형 필터 오류 수정 + 불안정 미국지수/섹터 심볼 보정본
 # AI 코멘트 안정화 + 토너먼트 리포트형 강화본
 # 신규예비돌반지 Lite 별도 TOP5 분리본
 # HTS 정합용 장기이평 수정본 (900일 로드 + 진짜 224/448 + 데이터부족시 판정생략)
@@ -485,7 +486,7 @@ SECTOR_MACRO_MAP = {
     "로봇/자동화": {
         "triggers": [("nasdaq", "up", 0.7), ("vix", "down", 0.4), ("russell", "up", 0.4)],
         "etfs": [("BOTZ", "로봇ETF"), ("ROBO", "자동화ETF")],
-        "leaders": [("ABB", "ABB"), ("ISRG", "인튜이티브서지컬"), ("SYM", "심보틱"), ("TER", "테라다인")],
+        "leaders": [("ROK", "록웰오토메이션"), ("ISRG", "인튜이티브서지컬"), ("SYM", "심보틱"), ("TER", "테라다인")],
         "shock_rules": [],
         "tickers": ["277810", "454910", "090360"],
         "desc": "로봇주는 BOTZ/ROBO와 실제 자동화 대형주 테이프를 같이 봐야 허상이 줄어든다."
@@ -779,7 +780,7 @@ def get_extended_market_pack(m_ndx, m_sp5, m_vix, m_wti, m_fx, m_brent=None):
         ('YM=F', '다우선물'),
         ('RTY=F', '러셀2000선물'),
         ('NKD=F', '니케이선물'),
-        ('HSI=F', '홍콩항셍선물'),
+        ('^HSI', '홍콩항셍지수'),
     ]
     extra = _fetch_symbol_bundle(extra_items, max_workers=4)
 
@@ -6907,28 +6908,45 @@ if __name__ == "__main__":
 
     oil_briefing = get_oil_sector_briefing(m_wti, m_brent, sector_results, issues)
 
-    df_clean = df_krx[df_krx['Market'].isin(['KOSPI', 'KOSDAQ','코스닥','유가'])]
+    df_clean = df_krx[df_krx['Market'].isin(['KOSPI', 'KOSDAQ','코스닥','유가'])].copy()
     df_clean['Name'] = df_clean['Name'].astype(str)
-    df_clean = df_clean[~df_clean['Name'].str.contains('ETF|ETN|스팩|제[0-9]+호|우$|우A|우B|우C')]
+    df_clean = df_clean[~df_clean['Name'].str.contains('ETF|ETN|스팩|제[0-9]+호|우$|우A|우B|우C', regex=True)].copy()
+
+    # 숫자 컬럼 정규화: 문자열/콤마 섞여도 필터에서 죽지 않게 처리
+    df_clean = coerce_numeric_columns(df_clean, ['Close', 'Price', 'Amount', 'Marcap', 'MarCap'])
+    log_info(f"🧮 숫자 컬럼 정규화 완료 | Close dtype={df_clean['Close'].dtype if 'Close' in df_clean.columns else 'N/A'} | Price dtype={df_clean['Price'].dtype if 'Price' in df_clean.columns else 'N/A'}")
 
     # ✅ FIX-4: 동전주 + 저시총 제외
     # 가격 필터 (5,000원 미만 제외)
-    if 'Close' in df_clean.columns:
-        df_clean = df_clean[df_clean['Close'] >= MIN_PRICE]
-    elif 'Price' in df_clean.columns:
-        df_clean = df_clean[df_clean['Price'] >= MIN_PRICE]
+    if 'Close' in df_clean.columns and df_clean['Close'].notna().any():
+        before_cnt = len(df_clean)
+        df_clean = df_clean[df_clean['Close'].fillna(-1) >= MIN_PRICE].copy()
+        log_info(f"💰 Close 가격필터 적용: {before_cnt} → {len(df_clean)}")
+    elif 'Price' in df_clean.columns and df_clean['Price'].notna().any():
+        before_cnt = len(df_clean)
+        df_clean = df_clean[df_clean['Price'].fillna(-1) >= MIN_PRICE].copy()
+        log_info(f"💰 Price 가격필터 적용: {before_cnt} → {len(df_clean)}")
+    else:
+        log_info("⚠️ 가격 컬럼이 없거나 전부 NaN이라 가격필터를 건너뜀")
 
     # 시총 필터 (300억 미만 제외)
-    if 'Marcap' in df_clean.columns:
-        df_clean = df_clean[df_clean['Marcap'] >= MIN_MARCAP]
-    elif 'MarCap' in df_clean.columns:
-        df_clean = df_clean[df_clean['MarCap'] >= MIN_MARCAP]
+    if 'Marcap' in df_clean.columns and df_clean['Marcap'].notna().any():
+        before_cnt = len(df_clean)
+        df_clean = df_clean[df_clean['Marcap'].fillna(-1) >= MIN_MARCAP].copy()
+        log_info(f"🏦 Marcap 시총필터 적용: {before_cnt} → {len(df_clean)}")
+    elif 'MarCap' in df_clean.columns and df_clean['MarCap'].notna().any():
+        before_cnt = len(df_clean)
+        df_clean = df_clean[df_clean['MarCap'].fillna(-1) >= MIN_MARCAP].copy()
+        log_info(f"🏦 MarCap 시총필터 적용: {before_cnt} → {len(df_clean)}")
+    else:
+        log_info("⚠️ 시총 컬럼이 없거나 전부 NaN이라 시총필터를 건너뜀")
 
     log_info(f"🔭 필터 후 대상: {len(df_clean)}개 (5천원↑, 시총300억↑)")
 
     if 'Amount' in df_clean.columns:
         # ✅ FIX-6: 거래대금 상위 TOP_N + 급등 소형주 50 병합
-        sorted_main = df_clean.sort_values(by='Amount', ascending=False).head(TOP_N)
+        df_clean = coerce_numeric_columns(df_clean, ['Amount'])
+        sorted_main = df_clean.sort_values(by='Amount', ascending=False, na_position='last').head(TOP_N)
 
         # 급등 소형주: 거래대금 하위권이지만 당일 거래대금 급증 종목
         # (전체에서 거래대금 상위를 이미 제외했으므로 추가로 붙임)
