@@ -22,7 +22,7 @@ on:
       test_chat_id_override:
         description: "테스트 채널 ID 직접 입력 (선택)"
         required: false
-        default: ""
+        default: "8325973023"
         type: string
 
 jobs:
