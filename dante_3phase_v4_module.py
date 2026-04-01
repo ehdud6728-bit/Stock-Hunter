@@ -1208,3 +1208,193 @@ def build_pre_dolbanji_hts_exact_bundle(df: pd.DataFrame) -> Dict[str, Any]:
         "pre_dolbanji_hts_exact_tags": res.get("tags", []),
         "pre_dolbanji_hts_exact_detail": res.get("detail", {}),
     }
+
+
+# ============================================================
+# 신규상장 / 장기이평 부족 종목용 예비돌반지 Lite
+# - 224/448 장기선이 없는 종목은 기존 예비돌반지 대신 이 패턴으로 평가
+# - HTS 정확복제형이 아니라 "신규상장 대체형" 성격
+# ============================================================
+
+def _pre_dolbanji_lite_common(row: pd.Series, df: pd.DataFrame) -> Dict[str, Any]:
+    close = safe_float(row.get("Close"))
+    ma5 = safe_float(row.get("MA5"))
+    ma20 = safe_float(row.get("MA20"))
+    ma60 = safe_float(row.get("MA60"))
+    ma112 = safe_float(row.get("MA112"))
+    ma224 = safe_float(row.get("MA224"))
+    ma448 = safe_float(row.get("MA448"))
+    bb40u = safe_float(row.get("BB40_Upper"))
+    bb40w = safe_float(row.get("BB40_Width"))
+    obv = safe_float(row.get("OBV"))
+    obv_ma10 = safe_float(row.get("OBV_MA10"))
+    macd_hist = safe_float(row.get("MACD_Hist"))
+    macd_hist_prev = safe_float(df["MACD_Hist"].iloc[-2]) if "MACD_Hist" in df.columns and len(df) >= 2 else 0.0
+
+    recent40 = _recent(df, 40)
+    recent20 = _recent(df, 20)
+    prev_close = recent40["Close"].shift(1) if "Close" in recent40.columns else pd.Series(dtype=float)
+    surge_pct = ((recent40["High"] / prev_close) - 1.0) * 100 if "High" in recent40.columns else pd.Series(dtype=float)
+    vol_ratio = (recent40["Volume"] / recent40["Volume"].shift(1)) if "Volume" in recent40.columns else pd.Series(dtype=float)
+
+    recent20_high = float(recent20["High"].max()) if "High" in recent20.columns and len(recent20) else 0.0
+
+    info = {
+        "bars": len(df),
+        "short_listing": bool(len(df) < 500 or ma224 <= 0 or ma448 <= 0),
+        "close": close,
+        "ma5": ma5,
+        "ma20": ma20,
+        "ma60": ma60,
+        "ma112": ma112,
+        "ma224": ma224,
+        "ma448": ma448,
+        "bb40_upper": bb40u,
+        "bb40_width": bb40w,
+        "obv": obv,
+        "obv_ma10": obv_ma10,
+        "macd_hist": macd_hist,
+        "macd_hist_prev": macd_hist_prev,
+        "past_surge_12_35": bool(surge_pct.between(12, 35).any()) if len(surge_pct) else False,
+        "past_surge_15_40": bool(surge_pct.between(15, 40).any()) if len(surge_pct) else False,
+        "past_volume_2_5x": bool((vol_ratio >= 2.5).any()) if len(vol_ratio) else False,
+        "past_volume_3x": bool((vol_ratio >= 3.0).any()) if len(vol_ratio) else False,
+        "obv_up": bool(obv > obv_ma10) if obv_ma10 > 0 else False,
+        "macd_turn_up": bool((macd_hist > 0) or (macd_hist > macd_hist_prev)),
+        "ma20_slope_up": bool(ma20 > safe_float(df["MA20"].iloc[-4])) if "MA20" in df.columns and len(df) >= 4 and ma20 > 0 else False,
+        "close_gt_ma20": bool(close > ma20) if ma20 > 0 else False,
+        "close_gt_ma60": bool(close > ma60) if ma60 > 0 else False,
+        "close_gt_ma112": bool(close > ma112) if ma112 > 0 else False,
+        "recent20_high": recent20_high,
+    }
+    info["close_vs_ma60_pct"] = round(_pct_diff(close, ma60), 2) if ma60 > 0 else None
+    info["close_vs_ma112_pct"] = round(_pct_diff(close, ma112), 2) if ma112 > 0 else None
+    info["close_vs_bb40u_pct"] = round(_pct_diff(close, bb40u), 2) if bb40u > 0 else None
+    info["close_vs_recent20_high_pct"] = round((close / recent20_high) * 100.0, 2) if recent20_high > 0 else None
+    return info
+
+
+def check_pre_dolbanji_lite_A(row: pd.Series, df: pd.DataFrame) -> PatternCheckResult:
+    info = _pre_dolbanji_lite_common(row, df)
+    cond1 = info["short_listing"]
+    cond2 = info["ma20"] > 0 and info["ma60"] > 0 and info["ma5"] >= info["ma20"] * 0.97 and info["ma20"] >= info["ma60"] * 0.95
+    cond3 = (
+        (info["close_vs_ma112_pct"] is not None and _between(info["close_vs_ma112_pct"], -6.0, 8.0))
+        or
+        (info["close_vs_ma60_pct"] is not None and _between(info["close_vs_ma60_pct"], -6.0, 10.0))
+    )
+    cond4 = info["close_vs_bb40u_pct"] is not None and _between(info["close_vs_bb40u_pct"], -12.0, 5.0)
+    cond5 = info["past_surge_12_35"]
+    cond6 = info["past_volume_2_5x"]
+    cond7 = info["obv_up"] or info["macd_turn_up"]
+    conditions = [cond1, cond2, cond3, cond4, cond5, cond6, cond7]
+    score = sum(1 for x in conditions if x)
+    return PatternCheckResult("신규예비돌반지LiteA", score >= 6, score, 7, info)
+
+
+def check_pre_dolbanji_lite_B(row: pd.Series, df: pd.DataFrame) -> PatternCheckResult:
+    info = _pre_dolbanji_lite_common(row, df)
+    cond1 = info["short_listing"]
+    cond2 = info["bb40_width"] > 0 and info["bb40_width"] <= 22.0
+    cond3 = info["close_gt_ma20"]
+    cond4 = info["ma20_slope_up"]
+    cond5 = info["past_surge_15_40"] or (info["close_vs_recent20_high_pct"] is not None and info["close_vs_recent20_high_pct"] >= 85.0)
+    cond6 = info["past_volume_3x"]
+    cond7 = info["obv_up"]
+    cond8 = info["close_gt_ma60"] or info["close_gt_ma112"]
+    conditions = [cond1, cond2, cond3, cond4, cond5, cond6, cond7, cond8]
+    score = sum(1 for x in conditions if x)
+    return PatternCheckResult("신규예비돌반지LiteB", score >= 6, score, 8, info)
+
+
+def check_pre_dolbanji_lite_trend(row: pd.Series, df: pd.DataFrame) -> PatternCheckResult:
+    info = _pre_dolbanji_lite_common(row, df)
+    c1 = info["ma20_slope_up"]
+    c2 = info["macd_turn_up"]
+    c3 = info["obv_up"]
+    c4 = info["close_gt_ma60"] or info["close_gt_ma112"]
+    score = sum([c1, c2, c3, c4])
+    return PatternCheckResult("신규구조전환확인", score >= 2, score, 4, {
+        "ma20_slope_up": c1,
+        "macd_turn_up": c2,
+        "obv_confirm": c3,
+        "close_above_mid_ma": c4,
+    })
+
+
+def evaluate_pre_dolbanji_lite_suite(df: pd.DataFrame) -> Dict[str, Any]:
+    required = [
+        "Open", "High", "Low", "Close", "Volume",
+        "MA5", "MA20", "MA60", "BB40_Upper", "BB40_Width", "OBV", "OBV_MA10", "MACD_Hist",
+    ]
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        return {"ok": False, "error": f"필수 컬럼 부족: {', '.join(missing)}", "patterns": []}
+    if len(df) < 60:
+        return {"ok": False, "error": "최소 60봉 이상 필요", "patterns": []}
+
+    row = df.iloc[-1]
+    patterns = [
+        check_pre_dolbanji_lite_A(row, df),
+        check_pre_dolbanji_lite_B(row, df),
+    ]
+    trend = check_pre_dolbanji_lite_trend(row, df)
+    passed_patterns = [p for p in patterns if p.passed]
+    tags = [f"💎{p.name}" for p in passed_patterns]
+    score = sum(p.score * 8 for p in passed_patterns)
+    if trend.passed:
+        tags.append(f"🧭신규구조전환({trend.score}/4)")
+        score += 20
+    else:
+        tags.append(f"🧭신규구조미완({trend.score}/4)")
+    if any(p.name == "신규예비돌반지LiteA" and p.passed for p in passed_patterns):
+        tags.append("🌱신규정석형")
+        score += 10
+    if any(p.name == "신규예비돌반지LiteB" and p.passed for p in passed_patterns):
+        tags.append("🚀초기파동재정비")
+        score += 10
+
+    confirmed = bool(passed_patterns) and trend.passed
+    grade = "없음"
+    if confirmed and len(passed_patterns) >= 2 and trend.score >= 3:
+        grade = "S"
+    elif confirmed and len(passed_patterns) >= 1:
+        grade = "A"
+    elif len(passed_patterns) >= 1:
+        grade = "B"
+
+    return {
+        "ok": True,
+        "patterns": [asdict(p) for p in patterns],
+        "trend_confirm": asdict(trend),
+        "passed_names": [p.name for p in passed_patterns],
+        "confirmed": confirmed,
+        "score": int(score),
+        "grade": grade,
+        "tags": tags,
+        "best_pattern": passed_patterns[0].name if passed_patterns else "",
+        "note": "224/448 장기이평이 없거나 부족한 신규상장/짧은 이력 종목용 대체 패턴",
+    }
+
+
+def build_pre_dolbanji_lite_bundle(df: pd.DataFrame) -> Dict[str, Any]:
+    suite = evaluate_pre_dolbanji_lite_suite(df)
+    if not suite.get("ok", False):
+        return {
+            "pre_dolbanji_lite": False,
+            "pre_dolbanji_lite_confirmed": False,
+            "pre_dolbanji_lite_score": 0,
+            "pre_dolbanji_lite_grade": "없음",
+            "pre_dolbanji_lite_tags": [],
+            "pre_dolbanji_lite_best": "",
+            "pre_dolbanji_lite_detail": suite,
+        }
+    return {
+        "pre_dolbanji_lite": bool(suite["passed_names"]),
+        "pre_dolbanji_lite_confirmed": bool(suite["confirmed"]),
+        "pre_dolbanji_lite_score": int(suite["score"]),
+        "pre_dolbanji_lite_grade": suite["grade"],
+        "pre_dolbanji_lite_tags": suite["tags"],
+        "pre_dolbanji_lite_best": suite["best_pattern"],
+        "pre_dolbanji_lite_detail": suite,
+    }
