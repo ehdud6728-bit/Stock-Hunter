@@ -26,6 +26,7 @@ import os
 import sys
 import time
 import argparse
+from pathlib import Path
 from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -156,8 +157,10 @@ STOP_LOSS = -3.0
 MAX_WORKERS = 15
 TOP_N = 300
 
-JSON_KEY_PATH = 'stock-key.json'
-SHEET_NAME = '종가배팅'
+JSON_KEY_PATH = str(Path(__file__).resolve().with_name('stock-key.json'))
+SHEET_NAME = '주식자동매매일지'
+MAIN_TAB_NAME = '종가배팅'
+SUMMARY_TAB_PREFIX = '종가배팅_'
 SCOPE = [
     'https://spreadsheets.google.com/feeds',
     'https://www.googleapis.com/auth/drive',
@@ -645,9 +648,12 @@ def summarize(df: pd.DataFrame) -> dict:
 # =============================================================
 def _get_gspread_client():
     if not HAS_GSPREAD:
+        log_info("⚠️ gspread 미설치")
         return None, None
     try:
         import json as _json
+        log_info(f"구글시트 연결 확인 | JSON exists={os.path.exists(JSON_KEY_PATH)} | GOOGLE_JSON_KEY exists={'YES' if os.environ.get('GOOGLE_JSON_KEY') else 'NO'}")
+
         if os.path.exists(JSON_KEY_PATH):
             creds = ServiceAccountCredentials.from_json_keyfile_name(JSON_KEY_PATH, SCOPE)
         elif os.environ.get('GOOGLE_JSON_KEY'):
@@ -657,8 +663,10 @@ def _get_gspread_client():
         else:
             log_info("⚠️ 구글시트 인증 없음")
             return None, None
+
         gc = gspread.authorize(creds)
         doc = gc.open(SHEET_NAME)
+        log_info(f"✅ 구글시트 문서 연결 성공: {SHEET_NAME}")
         return gc, doc
     except Exception as e:
         log_error(f"구글시트 연결 실패: {e}")
@@ -692,9 +700,30 @@ def save_to_gsheet(raw_df: pd.DataFrame, summary: dict, start: str, end: str):
         log_info("⚠️ 구글시트 저장 생략")
         return
 
-    _upsert_tab(doc, 'CB_원본', raw_df)
-    for tab_name, df in summary.items():
-        _upsert_tab(doc, f'CB_{tab_name}', df)
+    log_info(f"구글시트 저장 시작... [{SHEET_NAME}]")
+    saved_at = datetime.now().strftime('%Y-%m-%d %H:%M')
+
+    raw_out = raw_df.copy()
+    raw_out.insert(0, '분석기간', f"{start}~{end}")
+    raw_out.insert(1, '저장시각', saved_at)
+    _upsert_tab(doc, MAIN_TAB_NAME, raw_out.head(5000))
+
+    tab_map = {
+        '전략별': f'{SUMMARY_TAB_PREFIX}전략별',
+        '월별': f'{SUMMARY_TAB_PREFIX}월별',
+        '밴드별': f'{SUMMARY_TAB_PREFIX}밴드별',
+        '보유기간별': f'{SUMMARY_TAB_PREFIX}보유기간별',
+    }
+    for key, tab_name in tab_map.items():
+        df = summary.get(key)
+        if df is None or df.empty:
+            continue
+        out = df.copy()
+        out.insert(0, '분석기간', f"{start}~{end}")
+        out.insert(1, '저장시각', saved_at)
+        _upsert_tab(doc, tab_name, out)
+
+    log_info("✅ 구글시트 저장 완료")
 
 
 # =============================================================
@@ -712,7 +741,6 @@ def main():
         help='백테스트 유니버스',
     )
     parser.add_argument('--save-csv', action='store_true', help='원본/요약 CSV 저장')
-    parser.add_argument('--gsheet', action='store_true', help='구글시트 저장')
     args = parser.parse_args()
 
     codes = _get_ticker_list(args.top, universe=args.universe)
@@ -764,8 +792,12 @@ def main():
             df.to_csv(out, index=False, encoding='utf-8-sig')
             log_info(f"요약 CSV 저장: {out}")
 
-    if args.gsheet:
+    auto_gsheet = bool(os.environ.get('GOOGLE_JSON_KEY')) or os.path.exists(JSON_KEY_PATH)
+    if auto_gsheet:
+        log_info("구글시트 자동저장 조건 충족")
         save_to_gsheet(raw_df, summary, args.start, args.end)
+    else:
+        log_info("구글시트 자동저장 생략 (인증정보 없음)")
 
 
 if __name__ == '__main__':
