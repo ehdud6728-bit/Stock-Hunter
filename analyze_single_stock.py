@@ -66,7 +66,7 @@ except Exception:
         }
 
 try:
-    from main7_bugfix_2_engine_consistent_final import (
+    from main7_bugfix_2 import (
         get_indicators as main7_get_indicators,
         build_ma_convergence_comment_from_row as main7_build_ma_convergence_comment_from_row,
         analyze_single_stock_with_main7_engine,
