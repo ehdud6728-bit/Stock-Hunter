@@ -1,42 +1,35 @@
+
 # =============================================================
-# closing_bet_scanner.py — 종가배팅 타점 스캐너 (통합본)
+# closing_bet_scanner.py — 종가배팅 타점 스캐너 (최종 통합본)
 # =============================================================
-# 실행 시간: 14:50 ~ 15:25
+# 전략 구성
+# A  : 돌파형 종가배팅
+# B1 : ENV 엄격형 바닥 반등 (HTS 철학 유지)
+# B2 : BB 확장형 하단 재안착
 #
-# 전략 A — 돌파형 종가배팅
-# ① 전고점(20일) 대비 85~100% 구간
-# ② 윗꼬리 비율 20% 이하
-# ③ 거래량 VMA20 × 2배 이상 폭발
-# ④ 양봉 마감 (현재가 ≥ 시가)
-# ⑤ 이격도 98~112 (MA20 적정 위치)
-# ⑥ MA20 위 마감
+# 검증 기능
+# - 오늘 후보를 CSV 로그로 저장
+# - 다음 거래일 OHLC로 자동 성과 평가
+# - 전략별/등급별/지수별 누적 통계 출력
 #
-# 전략 B — 적응형 하단 종가배팅
-# 기본:
-#   - 코스피200  -> Envelope 하단 우선
-#   - 코스닥150 -> Bollinger(40,2) 하단 우선
-#
-# 예외:
-#   - BB폭 확대 / ATR 확대 / 거래대금 활발 -> BB 우선
-#   - 지나치게 안정적 -> ENV 우선
-#
-# 실행:
+# 실행 예시
 # python closing_bet_scanner.py
 # python closing_bet_scanner.py --force
+# python closing_bet_scanner.py --eval-pending --summary --send-summary --force
 # =============================================================
 
 import os
 import sys
 import argparse
-import requests
-import pandas as pd
-import numpy as np
-import FinanceDataReader as fdr
-
+from pathlib import Path
 from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-# ── main7.py에서 필요한 것만 import
+import numpy as np
+import pandas as pd
+import requests
+import FinanceDataReader as fdr
+
 from main7_bugfix_2 import (
     get_indicators,
     _calc_upper_wick_ratio,
@@ -76,8 +69,77 @@ except ImportError:
         pass
 
 
+# =============================================================
+# 기본 설정
+# =============================================================
+MIN_PRICE = 5_000
+MIN_AMOUNT = 3_000_000_000    # 거래대금 30억 이상
+MIN_MARCAP = 50_000_000_000   # 시총 500억 이상
+TOP_N = 400
+
+# 유니버스
+# 'kospi200+kosdaq150' : 코스피200 + 코스닥150
+# 'amount_top400'      : 거래대금 상위 400개
+# 'kospi200'           : 코스피200만
+SCAN_UNIVERSE = 'kospi200+kosdaq150'
+
+MAX_WORKERS = 20
+
+# 실행 가능 시간대
+SCAN_START_HOUR = 14
+SCAN_START_MIN = 50
+SCAN_END_HOUR = 15
+SCAN_END_MIN = 25
+
+# 전략 A 임계값
+NEAR_HIGH20_MIN = 85.0
+NEAR_HIGH20_MAX = 100.0
+UPPER_WICK_MAX = 0.20
+VOL_MULT = 2.0
+DISPARITY_MIN = 98.0
+DISPARITY_MAX = 112.0
+
+# B2용 BB 기준
+BB40_NEAR_PCT = 2.5
+BB_SWITCH_WIDTH = 18.0
+ENV_SWITCH_WIDTH = 10.0
+BB_SWITCH_ATR = 4.0
+ENV_SWITCH_ATR = 2.2
+BB_SWITCH_AMOUNT20_B = 500.0
+ENV_SWITCH_AMOUNT20_B = 150.0
+
+# 알림/로그
+ALERTED_FILE = '/tmp/closing_bet_alerted.json'
+LOG_DIR = Path(os.environ.get("CLOSING_BET_LOG_DIR", "./closing_bet_logs"))
+SIGNAL_LOG_CSV = LOG_DIR / "closing_bet_signals.csv"
+SUMMARY_REPORT_TXT = LOG_DIR / "closing_bet_summary.txt"
+
+# 다음날 성과 평가 가능 시간
+EVAL_READY_HOUR = 16
+EVAL_READY_MIN = 10
+
+# 전역 지수 소속 맵
+INDEX_MAP: dict = {}
+
+
+# =============================================================
+# 유틸
+# =============================================================
+def _safe_float(v, default=0.0) -> float:
+    try:
+        if pd.isna(v):
+            return default
+        return float(v)
+    except Exception:
+        return default
+
+
+def _ensure_log_dir():
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+
 def _calc_upper_wick_body_ratio(row) -> float:
-    """윗꼬리 비율 — 몸통 기준 (몸통의 몇 배인가)"""
+    """윗꼬리 비율 — 몸통 기준"""
     high_p = float(row.get('High', 0))
     open_p = float(row.get('Open', 0))
     close_p = float(row.get('Close', 0))
@@ -138,18 +200,9 @@ def send_telegram_chunks(message: str, max_len: int = 3800):
 
 
 # =============================================================
-# Envelope 계산 유틸
+# Envelope / Bollinger 계산 유틸
 # =============================================================
 def _calc_envelope(df: pd.DataFrame, period: int, pct: float) -> dict:
-    """
-    Envelope 계산
-    상한선 = MA × (1 + pct/100)
-    하한선 = MA × (1 - pct/100)
-
-    예:
-    Envelope(20, 20) -> MA20 ± 20%
-    Envelope(40, 40) -> MA40 ± 40%
-    """
     ma = df['Close'].rolling(period).mean()
     upper = ma * (1 + pct / 100)
     lower = ma * (1 - pct / 100)
@@ -161,13 +214,6 @@ def _calc_envelope(df: pd.DataFrame, period: int, pct: float) -> dict:
 
 
 def _check_envelope_bottom(row: pd.Series, df: pd.DataFrame) -> dict:
-    """
-    Envelope 하한선 근접 여부 체크
-
-    조건:
-    - Envelope(20,20%) 하한선 2% 이내
-    - Envelope(40,40%) 하한선 10% 이내
-    """
     close = float(row.get('Close', 0))
     if close <= 0:
         return {
@@ -195,18 +241,6 @@ def _check_envelope_bottom(row: pd.Series, df: pd.DataFrame) -> dict:
         'lower20': round(lower20) if lower20 > 0 else 0,
         'lower40': round(lower40) if lower40 > 0 else 0,
     }
-
-
-# =============================================================
-# Bollinger 계산 유틸
-# =============================================================
-BB40_NEAR_PCT = 2.5          # BB40 하단 ±2.5% 이내면 근접
-BB_SWITCH_WIDTH = 18.0       # ENV -> BB 전환 기준: BB폭
-ENV_SWITCH_WIDTH = 10.0      # BB -> ENV 전환 기준: 좁은 BB폭
-BB_SWITCH_ATR = 4.0          # ENV -> BB 전환 기준: ATR%
-ENV_SWITCH_ATR = 2.2         # BB -> ENV 전환 기준: 안정 ATR%
-BB_SWITCH_AMOUNT20_B = 500.0 # ENV -> BB 전환 기준: 최근20일 평균 거래대금(억)
-ENV_SWITCH_AMOUNT20_B = 150.0
 
 
 def _calc_bollinger(df: pd.DataFrame, period: int = 40, std_mult: float = 2.0) -> dict:
@@ -252,7 +286,6 @@ def _check_bb_bottom(row: pd.Series, df: pd.DataFrame) -> dict:
         }
 
     bb40_pct = (close - lower40) / lower40 * 100
-
     return {
         'bb40_near': -BB40_NEAR_PCT <= bb40_pct <= BB40_NEAR_PCT,
         'bb40_pct': round(bb40_pct, 1),
@@ -283,7 +316,6 @@ def _choose_lower_band_type(code: str, df: pd.DataFrame, row: pd.Series) -> dict
     bb = _check_bb_bottom(row, df)
     bb40_width = float(bb.get('bb40_width', 0) or 0)
 
-    # 기본 배정
     if idx == '코스피200':
         selected = 'ENV'
         reason = '기본=코스피200'
@@ -294,7 +326,6 @@ def _choose_lower_band_type(code: str, df: pd.DataFrame, row: pd.Series) -> dict
         selected = 'BB'
         reason = '기본=비지수/변동성우선'
 
-    # ENV -> BB 전환
     if selected == 'ENV':
         if bb40_width >= BB_SWITCH_WIDTH:
             selected = 'BB'
@@ -305,8 +336,6 @@ def _choose_lower_band_type(code: str, df: pd.DataFrame, row: pd.Series) -> dict
         elif amount20_b >= BB_SWITCH_AMOUNT20_B:
             selected = 'BB'
             reason = f'예외전환=거래대금활발({amount20_b:.1f}억)'
-
-    # BB -> ENV 전환
     elif selected == 'BB':
         if (
             bb40_width <= ENV_SWITCH_WIDTH
@@ -327,40 +356,7 @@ def _choose_lower_band_type(code: str, df: pd.DataFrame, row: pd.Series) -> dict
 
 
 # =============================================================
-# 설정
-# =============================================================
-MIN_PRICE = 5_000
-MIN_AMOUNT = 3_000_000_000    # 거래대금 30억 이상
-MIN_MARCAP = 50_000_000_000   # 시총 500억 이상
-TOP_N = 400                   # 거래대금 상위 N종목
-
-# 스캔 유니버스
-# 'kospi200+kosdaq150' : 코스피200 + 코스닥150
-# 'amount_top400'      : 거래대금 상위 400개
-# 'kospi200'           : 코스피200만
-SCAN_UNIVERSE = 'kospi200+kosdaq150'
-
-MAX_WORKERS = 20
-
-# 종가배팅 조건 임계값
-NEAR_HIGH20_MIN = 85.0
-NEAR_HIGH20_MAX = 100.0
-UPPER_WICK_MAX = 0.20
-VOL_MULT = 2.0
-DISPARITY_MIN = 98.0
-DISPARITY_MAX = 112.0
-
-# 실행 가능 시간대
-SCAN_START_HOUR = 14
-SCAN_START_MIN = 50
-SCAN_END_HOUR = 15
-SCAN_END_MIN = 25
-
-ALERTED_FILE = '/tmp/closing_bet_alerted.json'
-
-
-# =============================================================
-# 스캔 유니버스 로딩
+# 유니버스 로딩
 # =============================================================
 def _get_index_tickers_naver(index_code: str) -> list:
     """
@@ -402,7 +398,6 @@ def _get_index_tickers_naver(index_code: str) -> list:
         if tickers:
             log_info(f"네이버 {index_code}: {len(tickers)}개 ✅")
         return tickers
-
     except Exception as e:
         log_error(f"⚠️ 네이버 {index_code} 실패: {e}")
         return []
@@ -436,7 +431,6 @@ def _get_index_tickers_krx(market: str, top_n: int) -> list:
             if tickers and len(tickers) > 50:
                 log_info(f"pykrx {target_name}: {len(tickers)}개 ✅")
                 return list(tickers)[:top_n]
-
     except Exception as e:
         log_error(f"⚠️ pykrx {market} 실패: {e}")
 
@@ -550,9 +544,6 @@ def _load_amount_top_universe(top_n: int = TOP_N) -> tuple[list, list]:
     return codes, names
 
 
-INDEX_MAP: dict = {}
-
-
 def _load_universe(mode: str = 'kospi200+kosdaq150') -> list:
     global INDEX_MAP
     INDEX_MAP = {}
@@ -609,7 +600,7 @@ def _time_to_close() -> int:
 
 
 # =============================================================
-# 종가배팅 조건 체크
+# 데이터 로딩 / 공통 정보
 # =============================================================
 def _load_df(code: str) -> pd.DataFrame | None:
     try:
@@ -624,10 +615,11 @@ def _load_df(code: str) -> pd.DataFrame | None:
 
         if 'NearHigh20_Pct' not in df.columns:
             df['High20'] = df['High'].rolling(20).max()
-            df['NearHigh20_Pct'] = (df['Close'] / df['High20'] * 100)
+            df['NearHigh20_Pct'] = df['Close'] / df['High20'] * 100
 
         return df
-    except Exception:
+    except Exception as e:
+        log_debug(f"_load_df 실패 {code}: {e}")
         return None
 
 
@@ -682,7 +674,43 @@ def _base_info(row, df) -> dict:
     }
 
 
-# ── 전략 A: 전고점 돌파 종가배팅 ──────────────────────────────
+def _build_maejip_chart(df: pd.DataFrame) -> str:
+    if df is None or len(df) < 6:
+        return ''
+
+    recent = df.tail(6).copy()
+    vma10 = float(df['Volume'].rolling(10).mean().iloc[-1]) or 1
+    lines = ['최근 5일 매집 현황']
+
+    rows = list(recent.iterrows())
+    for idx, (_, row) in enumerate(rows[-5:], start=1):
+        label = f"D-{5 - idx}" if idx < 5 else 'D-0(오늘)'
+        close = float(row['Close'])
+        open_p = float(row['Open'])
+        vol = float(row['Volume'])
+        pct = (close - open_p) / open_p * 100 if open_p > 0 else 0
+        v_ratio = vol / vma10
+
+        if pct > 0.3:
+            candle = '양봉'
+        elif pct < -0.3:
+            candle = '음봉'
+        else:
+            candle = '도지'
+
+        is_maejip = v_ratio > 1.0 and close > open_p
+        maejip_mark = ' | 매집✅' if is_maejip else ''
+
+        lines.append(
+            f"{label:<9} {candle} {pct:+.1f}% | 거래량{v_ratio:.1f}배{maejip_mark}"
+        )
+
+    return '\n'.join(lines)
+
+
+# =============================================================
+# 전략 A / B1 / B2
+# =============================================================
 def _check_breakout_bet(code: str, name: str) -> dict | None:
     """
     전략 A — 전고점 돌파형 종가배팅
@@ -725,23 +753,18 @@ def _check_breakout_bet(code: str, name: str) -> dict | None:
             'grade': '완전체' if score == 6 else ('✅A급' if score == 5 else 'B급'),
             'passed': passed,
         }
-
     except Exception as e:
         log_debug(f"[A/{name}] {e}")
         return None
 
 
-# ── 전략 B: 적응형 하단 종가배팅 ───────────────────────────────
-def _check_envelope_bet(code: str, name: str) -> dict | None:
+def _check_env_strict_bet(code: str, name: str) -> dict | None:
     """
-    전략 B — 적응형 하단 종가배팅
-    기본:
-      - 코스피200  -> Envelope 하단
-      - 코스닥150 -> BB40 하단
-
-    예외:
-      - 변동성/거래대금이 크면 BB
-      - 지나치게 안정적이면 ENV
+    전략 B1 — ENV 엄격형 바닥 반등
+    HTS 철학 그대로:
+      - Env20 하단 2% 이내
+      - Env40 하단 10% 이내
+      - 동시 만족(AND)
     """
     try:
         df = _load_df(code)
@@ -759,24 +782,21 @@ def _check_envelope_bet(code: str, name: str) -> dict | None:
             return None
 
         env = _check_envelope_bottom(row, df)
-        bb = _check_bb_bottom(row, df)
-        band_meta = _choose_lower_band_type(code, df, row)
-
-        band_type = band_meta['selected']
-        band_reason = band_meta['reason']
-
         rsi = float(row.get('RSI', 50) or 50)
+
+        env_strict = env['env20_near'] and env['env40_near']
+        if not env_strict:
+            return None
+
         close = info['_close']
         open_p = info['_open']
         high = float(row.get('High', close))
         low = float(row.get('Low', close))
         vol = info['_vol']
 
-        total = high - low if high > low else 1
         body_bot = min(close, open_p)
         body_top = max(close, open_p)
         body_size = max(body_top - body_bot, 1)
-
         lower_wick = body_bot - low
         upper_wick_len = high - body_top
         lower_wick_long = lower_wick > upper_wick_len
@@ -803,37 +823,144 @@ def _check_envelope_bet(code: str, name: str) -> dict | None:
 
         lower_wick_comment = '아랫꼬리↑' if lower_wick_long else '아랫꼬리↓'
 
-        if band_type == 'ENV':
-            lower_band_near = env['env20_near'] or env['env40_near']
-            lower_band_label = '①ENV하단근접'
-            band_pct_text = f"Env20:{env['env20_pct']:+.1f}% | Env40:{env['env40_pct']:+.1f}%"
-            target_price = round(float(_calc_envelope(df, 20, 20)['ma'].iloc[-1]))
-        else:
-            lower_band_near = bb['bb40_near']
-            lower_band_label = '①BB40하단근접'
-            band_pct_text = f"BB40:{bb['bb40_pct']:+.1f}% | BB폭:{bb['bb40_width']:.1f}%"
-            target_price = bb['mid40']
-
-        if not lower_band_near:
-            return None
-
         bonus = {
-            lower_band_label: lower_band_near,
-            '②RSI40이하': rsi <= 40,
-            '③OBV매수세유입': obv_rising,
-            '④5일내매집봉1회↑': maejip_5d >= 1,
-            '⑤윗꼬리25%이하': info['_upper_wick_body'] <= 0.25,
+            '①Env20하단2%': env['env20_near'],
+            '②Env40하단10%': env['env40_near'],
+            '③RSI40이하': rsi <= 40,
+            '④OBV매수세유입': obv_rising,
+            '⑤5일내매집봉1회↑': maejip_5d >= 1,
             '⑥종가강도양호': (close >= open_p) or (close_to_high >= 95),
+            '⑦윗꼬리25%이하': info['_upper_wick_body'] <= 0.25,
         }
         passed = [k for k, v in bonus.items() if v]
         score = len(passed)
 
-        if score < 3:
+        if score < 4:
             return None
 
-        if score >= 5:
+        if score >= 6:
             grade = '완전체'
-        elif score == 4:
+        elif score == 5:
+            grade = '✅A급'
+        else:
+            grade = 'B급'
+
+        env20_ma = float(_calc_envelope(df, 20, 20)['ma'].iloc[-1])
+        target_env = round(env20_ma)
+        maejip_chart = _build_maejip_chart(df)
+
+        return {
+            **info,
+            'code': code,
+            'name': name,
+            'mode': 'B1',
+            'mode_label': 'ENV엄격형',
+            'index_label': INDEX_MAP.get(code, ''),
+            'band_type': 'ENV',
+            'band_reason': 'HTS엄격형(Env20&Env40 동시만족)',
+            'band_pct_text': f"Env20:{env['env20_pct']:+.1f}% | Env40:{env['env40_pct']:+.1f}%",
+            'env20_pct': env['env20_pct'],
+            'env40_pct': env['env40_pct'],
+            'lower20': env['lower20'],
+            'lower40': env['lower40'],
+            'rsi': round(rsi, 1),
+            'obv_rising': obv_rising,
+            'maejip_5d': maejip_5d,
+            'vol_vs_3d': vol_vs_3d,
+            'lower_wick_comment': lower_wick_comment,
+            'lower_wick_pct': round(lower_wick / body_size * 100, 1),
+            'upper_wick_pct': round(upper_wick_len / body_size * 100, 1),
+            'target1': target_env,
+            'score': score,
+            'grade': grade,
+            'passed': passed,
+            'maejip_chart': maejip_chart,
+            '_vol_drying': vol_drying,
+        }
+    except Exception as e:
+        log_debug(f"[B1/{name}] {e}")
+        return None
+
+
+def _check_bb_expand_bet(code: str, name: str) -> dict | None:
+    """
+    전략 B2 — BB/확장형 하단 재안착
+    """
+    try:
+        df = _load_df(code)
+        if df is None:
+            return None
+
+        row = df.iloc[-1]
+        info = _base_info(row, df)
+
+        idx = INDEX_MAP.get(code, '')
+        if INDEX_MAP and not idx:
+            return None
+
+        if info['_close'] < MIN_PRICE:
+            return None
+
+        bb = _check_bb_bottom(row, df)
+        rsi = float(row.get('RSI', 50) or 50)
+
+        if not bb['bb40_near']:
+            return None
+
+        close = info['_close']
+        open_p = info['_open']
+        high = float(row.get('High', close))
+        low = float(row.get('Low', close))
+        vol = info['_vol']
+
+        body_bot = min(close, open_p)
+        body_top = max(close, open_p)
+        body_size = max(body_top - body_bot, 1)
+        lower_wick = body_bot - low
+        upper_wick_len = high - body_top
+        lower_wick_long = lower_wick > upper_wick_len
+        close_to_high = (close / high * 100) if high > 0 else 0
+
+        vma3 = float(df['Volume'].tail(3).mean())
+        vma10 = float(df['Volume'].tail(10).mean())
+        vol_drying = vma3 < vma10 * 0.85
+
+        obv = (
+            df['Close'].diff().apply(lambda x: 1 if x > 0 else (-1 if x < 0 else 0))
+            * df['Volume']
+        ).cumsum()
+        obv_ma5 = obv.rolling(5).mean()
+        obv_ma10 = obv.rolling(10).mean()
+        obv_rising = float(obv_ma5.iloc[-1]) > float(obv_ma10.iloc[-1])
+
+        recent5 = df.tail(5)
+        vma10_val = float(df['Volume'].rolling(10).mean().iloc[-1])
+        maejip_5d = int(((recent5['Volume'] > vma10_val) & (recent5['Close'] > recent5['Open'])).sum())
+
+        vma3_val = float(df['Volume'].tail(3).mean())
+        vol_vs_3d = round(vol / vma3_val * 100, 1) if vma3_val > 0 else 0
+
+        band_meta = _choose_lower_band_type(code, df, row)
+        lower_wick_comment = '아랫꼬리↑' if lower_wick_long else '아랫꼬리↓'
+
+        bonus = {
+            '①BB40하단근접': bb['bb40_near'],
+            '②RSI45이하': rsi <= 45,
+            '③OBV매수세유입': obv_rising,
+            '④5일내매집봉1회↑': maejip_5d >= 1,
+            '⑤종가강도양호': (close >= open_p) or (close_to_high >= 95),
+            '⑥윗꼬리25%이하': info['_upper_wick_body'] <= 0.25,
+            '⑦BB폭확대/변동성': (band_meta['bb40_width'] >= 14) or (band_meta['atr_pct'] >= 3.0),
+        }
+        passed = [k for k, v in bonus.items() if v]
+        score = len(passed)
+
+        if score < 4:
+            return None
+
+        if score >= 6:
+            grade = '완전체'
+        elif score == 5:
             grade = '✅A급'
         else:
             grade = 'B급'
@@ -844,16 +971,12 @@ def _check_envelope_bet(code: str, name: str) -> dict | None:
             **info,
             'code': code,
             'name': name,
-            'mode': 'B',
-            'mode_label': '하단형',
+            'mode': 'B2',
+            'mode_label': 'BB확장형',
             'index_label': INDEX_MAP.get(code, ''),
-            'band_type': band_type,
-            'band_reason': band_reason,
-            'band_pct_text': band_pct_text,
-            'env20_pct': env['env20_pct'],
-            'env40_pct': env['env40_pct'],
-            'lower20': env['lower20'],
-            'lower40': env['lower40'],
+            'band_type': 'BB',
+            'band_reason': band_meta.get('reason', 'BB40하단재안착'),
+            'band_pct_text': f"BB40:{bb['bb40_pct']:+.1f}% | BB폭:{bb['bb40_width']:.1f}%",
             'bb40_pct': bb['bb40_pct'],
             'bb40_width': bb['bb40_width'],
             'bb40_lower': bb['lower40'],
@@ -866,63 +989,365 @@ def _check_envelope_bet(code: str, name: str) -> dict | None:
             'lower_wick_comment': lower_wick_comment,
             'lower_wick_pct': round(lower_wick / body_size * 100, 1),
             'upper_wick_pct': round(upper_wick_len / body_size * 100, 1),
-            'target1': target_price,
+            'target1': bb['mid40'],
             'score': score,
             'grade': grade,
             'passed': passed,
             'maejip_chart': maejip_chart,
             '_vol_drying': vol_drying,
         }
-
     except Exception as e:
-        log_debug(f"[B/{name}] {e}")
+        log_debug(f"[B2/{name}] {e}")
         return None
 
 
 def _check_closing_bet(code: str, name: str) -> dict | None:
+    """
+    A / B1 / B2 중 우선순위가 가장 높은 전략 1개 반환
+    """
     a = _check_breakout_bet(code, name)
-    b = _check_envelope_bet(code, name)
-    if a and b:
-        return a if a['score'] >= b['score'] else b
-    return a or b
+    b1 = _check_env_strict_bet(code, name)
+    b2 = _check_bb_expand_bet(code, name)
 
+    candidates = [x for x in [a, b1, b2] if x]
+    if not candidates:
+        return None
 
-def _build_maejip_chart(df: pd.DataFrame) -> str:
-    if df is None or len(df) < 6:
-        return ''
+    def _priority(h):
+        grade = h.get('grade', '')
+        g_rank = 0 if '완전체' in grade else (1 if 'A급' in grade else 2)
+        return (g_rank, -h.get('score', 0), -h.get('vol_ratio', 0), -h.get('amount_b', 0))
 
-    recent = df.tail(6).copy()
-    vma10 = float(df['Volume'].rolling(10).mean().iloc[-1]) or 1
-    lines = ['최근 5일 매집 현황']
-
-    rows = list(recent.iterrows())
-    for idx, (_, row) in enumerate(rows[-5:], start=1):
-        label = f"D-{5 - idx}" if idx < 5 else 'D-0(오늘)'
-        close = float(row['Close'])
-        open_p = float(row['Open'])
-        vol = float(row['Volume'])
-        pct = (close - open_p) / open_p * 100 if open_p > 0 else 0
-        v_ratio = vol / vma10
-
-        if pct > 0.3:
-            candle = '양봉'
-        elif pct < -0.3:
-            candle = '음봉'
-        else:
-            candle = '도지'
-
-        is_maejip = v_ratio > 1.0 and close > open_p
-        maejip_mark = ' | 매집✅' if is_maejip else ''
-
-        lines.append(
-            f"{label:<9} {candle} {pct:+.1f}% | 거래량{v_ratio:.1f}배{maejip_mark}"
-        )
-
-    return '\n'.join(lines)
+    candidates.sort(key=_priority)
+    return candidates[0]
 
 
 # =============================================================
-# 텔레그램 포맷
+# 검증 로그 / 다음날 성과 평가
+# =============================================================
+def _load_signal_log() -> pd.DataFrame:
+    _ensure_log_dir()
+    if SIGNAL_LOG_CSV.exists():
+        try:
+            df = pd.read_csv(
+                SIGNAL_LOG_CSV,
+                dtype={
+                    'code': str,
+                    'name': str,
+                    'scan_date': str,
+                    'scan_time': str,
+                    'mode': str,
+                    'mode_label': str,
+                    'grade': str,
+                    'index_label': str,
+                    'band_type': str,
+                    'band_reason': str,
+                    'status': str,
+                    'eval_date': str,
+                },
+                encoding='utf-8-sig',
+            )
+            if not df.empty and 'code' in df.columns:
+                df['code'] = df['code'].astype(str).str.zfill(6)
+            return df
+        except Exception as e:
+            log_error(f"⚠️ 검증 로그 로드 실패: {e}")
+    return pd.DataFrame()
+
+
+def _save_signal_log(df: pd.DataFrame):
+    _ensure_log_dir()
+    try:
+        df.to_csv(SIGNAL_LOG_CSV, index=False, encoding='utf-8-sig')
+    except Exception as e:
+        log_error(f"⚠️ 검증 로그 저장 실패: {e}")
+
+
+def _append_hits_to_validation_log(hits: list, scan_dt: datetime):
+    if not hits:
+        return
+
+    rows = []
+    scan_date = scan_dt.strftime('%Y-%m-%d')
+    scan_time = scan_dt.strftime('%H:%M')
+
+    for h in hits:
+        rows.append({
+            'key': f"{scan_date}|{h.get('code','')}|{h.get('mode','')}",
+            'scan_date': scan_date,
+            'scan_time': scan_time,
+            'code': str(h.get('code', '')).zfill(6),
+            'name': h.get('name', ''),
+            'mode': h.get('mode', ''),
+            'mode_label': h.get('mode_label', ''),
+            'grade': h.get('grade', ''),
+            'score': h.get('score', 0),
+            'index_label': h.get('index_label', ''),
+            'band_type': h.get('band_type', ''),
+            'band_reason': h.get('band_reason', ''),
+            'close_entry': _safe_float(h.get('close', 0)),
+            'target1': _safe_float(h.get('target1', 0)),
+            'stoploss': _safe_float(h.get('stoploss', 0)),
+            'rr': _safe_float(h.get('rr', 0)),
+            'vol_ratio': _safe_float(h.get('vol_ratio', 0)),
+            'wick_pct': _safe_float(h.get('wick_pct', 0)),
+            'amount_b': _safe_float(h.get('amount_b', 0)),
+            'near20': _safe_float(h.get('near20', 0)),
+            'disp': _safe_float(h.get('disp', 0)),
+            'env20_pct': _safe_float(h.get('env20_pct', 0)),
+            'env40_pct': _safe_float(h.get('env40_pct', 0)),
+            'bb40_pct': _safe_float(h.get('bb40_pct', 0)),
+            'bb40_width': _safe_float(h.get('bb40_width', 0)),
+            'atr_pct': _safe_float(h.get('atr_pct', 0)),
+            'amount20_b': _safe_float(h.get('amount20_b', 0)),
+            'rsi': _safe_float(h.get('rsi', 0)),
+            'maejip_5d': _safe_float(h.get('maejip_5d', 0)),
+            'status': 'pending',
+            'eval_date': '',
+            'next_open': np.nan,
+            'next_high': np.nan,
+            'next_low': np.nan,
+            'next_close': np.nan,
+            'ret_open': np.nan,
+            'ret_high': np.nan,
+            'ret_low': np.nan,
+            'ret_close': np.nan,
+            'hit_plus2': np.nan,
+            'hit_plus3': np.nan,
+            'hit_plus5': np.nan,
+            'close_win': np.nan,
+            'stoploss_hit': np.nan,
+            'target1_hit': np.nan,
+        })
+
+    new_df = pd.DataFrame(rows)
+    old_df = _load_signal_log()
+
+    if old_df.empty:
+        merged = new_df
+    else:
+        if 'key' not in old_df.columns:
+            old_df['key'] = (
+                old_df['scan_date'].astype(str) + '|' +
+                old_df['code'].astype(str).str.zfill(6) + '|' +
+                old_df['mode'].astype(str)
+            )
+        merged = pd.concat([old_df, new_df], ignore_index=True)
+        merged = merged.drop_duplicates(subset=['key'], keep='last')
+
+    merged = merged.sort_values(['scan_date', 'code', 'mode']).reset_index(drop=True)
+    _save_signal_log(merged)
+    log_info(f"✅ 검증로그 저장: {len(new_df)}건 추가")
+
+
+def _get_next_trading_bar(code: str, scan_date: str) -> dict | None:
+    """
+    scan_date 다음 첫 거래일의 OHLC 반환.
+    단, 그 다음 거래일이 오늘이고 아직 종가가 확정되지 않았으면 평가 보류.
+    """
+    try:
+        now = datetime.now(KST)
+        eval_ready = now.replace(hour=EVAL_READY_HOUR, minute=EVAL_READY_MIN, second=0, microsecond=0)
+
+        base_date = pd.Timestamp(scan_date).date()
+        start = (pd.Timestamp(scan_date) - pd.Timedelta(days=10)).strftime('%Y-%m-%d')
+        end = (now + timedelta(days=5)).strftime('%Y-%m-%d')
+
+        df = fdr.DataReader(code, start=start, end=end)
+        if df is None or df.empty:
+            return None
+
+        df = df.sort_index()
+        df = df[~df.index.duplicated(keep='last')]
+
+        next_rows = df[df.index.date > base_date]
+        if next_rows.empty:
+            return None
+
+        next_dt = next_rows.index[0]
+        next_date = next_dt.date()
+
+        if next_date == now.date() and now < eval_ready:
+            return None
+
+        row = next_rows.iloc[0]
+        return {
+            'eval_date': next_date.strftime('%Y-%m-%d'),
+            'open': _safe_float(row.get('Open', 0)),
+            'high': _safe_float(row.get('High', 0)),
+            'low': _safe_float(row.get('Low', 0)),
+            'close': _safe_float(row.get('Close', 0)),
+        }
+    except Exception as e:
+        log_debug(f"_get_next_trading_bar 실패 {code} {scan_date}: {e}")
+        return None
+
+
+def _evaluate_pending_signals() -> int:
+    df = _load_signal_log()
+    if df.empty:
+        log_info("검증 로그 없음")
+        return 0
+
+    if 'status' not in df.columns:
+        df['status'] = 'pending'
+
+    pending_idx = df.index[df['status'] != 'resolved'].tolist()
+    if not pending_idx:
+        log_info("미평가 후보 없음")
+        return 0
+
+    updated = 0
+    for idx in pending_idx:
+        row = df.loc[idx]
+        code = str(row.get('code', '')).zfill(6)
+        scan_date = str(row.get('scan_date', ''))
+        entry = _safe_float(row.get('close_entry', 0))
+        stoploss = _safe_float(row.get('stoploss', 0))
+        target1 = _safe_float(row.get('target1', 0))
+
+        if not code or not scan_date or entry <= 0:
+            continue
+
+        bar = _get_next_trading_bar(code, scan_date)
+        if not bar:
+            continue
+
+        next_open = _safe_float(bar['open'])
+        next_high = _safe_float(bar['high'])
+        next_low = _safe_float(bar['low'])
+        next_close = _safe_float(bar['close'])
+
+        ret_open = (next_open / entry - 1) * 100 if entry > 0 else np.nan
+        ret_high = (next_high / entry - 1) * 100 if entry > 0 else np.nan
+        ret_low = (next_low / entry - 1) * 100 if entry > 0 else np.nan
+        ret_close = (next_close / entry - 1) * 100 if entry > 0 else np.nan
+
+        df.at[idx, 'eval_date'] = bar['eval_date']
+        df.at[idx, 'next_open'] = round(next_open, 2)
+        df.at[idx, 'next_high'] = round(next_high, 2)
+        df.at[idx, 'next_low'] = round(next_low, 2)
+        df.at[idx, 'next_close'] = round(next_close, 2)
+        df.at[idx, 'ret_open'] = round(ret_open, 2)
+        df.at[idx, 'ret_high'] = round(ret_high, 2)
+        df.at[idx, 'ret_low'] = round(ret_low, 2)
+        df.at[idx, 'ret_close'] = round(ret_close, 2)
+
+        df.at[idx, 'hit_plus2'] = int(ret_high >= 2.0)
+        df.at[idx, 'hit_plus3'] = int(ret_high >= 3.0)
+        df.at[idx, 'hit_plus5'] = int(ret_high >= 5.0)
+        df.at[idx, 'close_win'] = int(ret_close > 0)
+        df.at[idx, 'stoploss_hit'] = int(next_low <= stoploss) if stoploss > 0 else np.nan
+        df.at[idx, 'target1_hit'] = int(next_high >= target1) if target1 > 0 else np.nan
+        df.at[idx, 'status'] = 'resolved'
+        updated += 1
+
+    if updated > 0:
+        _save_signal_log(df)
+        log_info(f"✅ 다음날 성과 평가 완료: {updated}건")
+    else:
+        log_info("평가 가능한 후보 없음")
+
+    return updated
+
+
+def _group_summary_lines(df: pd.DataFrame, group_cols: list[str], title: str) -> list[str]:
+    if df.empty:
+        return [f"[{title}] 데이터 없음"]
+
+    lines = [f"[{title}]"]
+    grouped = df.groupby(group_cols, dropna=False)
+
+    for keys, sub in grouped:
+        if not isinstance(keys, tuple):
+            keys = (keys,)
+
+        cnt = len(sub)
+        avg_close = sub['ret_close'].mean()
+        avg_high = sub['ret_high'].mean()
+        avg_low = sub['ret_low'].mean()
+        win_close = (sub['close_win'].fillna(0).mean() * 100) if 'close_win' in sub.columns else 0
+        hit2 = (sub['hit_plus2'].fillna(0).mean() * 100) if 'hit_plus2' in sub.columns else 0
+        hit3 = (sub['hit_plus3'].fillna(0).mean() * 100) if 'hit_plus3' in sub.columns else 0
+        hit5 = (sub['hit_plus5'].fillna(0).mean() * 100) if 'hit_plus5' in sub.columns else 0
+        stop_hit = (sub['stoploss_hit'].fillna(0).mean() * 100) if 'stoploss_hit' in sub.columns else 0
+
+        key_str = " | ".join([str(k) if str(k) != '' else '-' for k in keys])
+        lines.append(
+            f"- {key_str}: {cnt}건 | 종가승률 {win_close:.1f}% | "
+            f"+2%도달 {hit2:.1f}% | +3%도달 {hit3:.1f}% | +5%도달 {hit5:.1f}% | "
+            f"평균 고가수익 {avg_high:.2f}% | 평균 종가수익 {avg_close:.2f}% | "
+            f"평균 저가낙폭 {avg_low:.2f}% | 손절터치 {stop_hit:.1f}%"
+        )
+
+    return lines
+
+
+def _build_validation_summary(last_n_days: int = 120) -> str:
+    df = _load_signal_log()
+    if df.empty:
+        return "검증 로그가 없습니다."
+
+    if 'status' not in df.columns:
+        return "검증 로그 형식이 맞지 않습니다."
+
+    df = df[df['status'] == 'resolved'].copy()
+    if df.empty:
+        return "아직 resolved 된 검증 데이터가 없습니다."
+
+    if 'scan_date' in df.columns:
+        df['scan_date_dt'] = pd.to_datetime(df['scan_date'], errors='coerce')
+        cutoff = pd.Timestamp(datetime.now(KST).date()) - pd.Timedelta(days=last_n_days)
+        df = df[df['scan_date_dt'] >= cutoff]
+
+    if df.empty:
+        return f"최근 {last_n_days}일 기준 resolved 데이터가 없습니다."
+
+    total = len(df)
+    avg_close = df['ret_close'].mean()
+    avg_high = df['ret_high'].mean()
+    avg_low = df['ret_low'].mean()
+    win_close = df['close_win'].fillna(0).mean() * 100
+    hit2 = df['hit_plus2'].fillna(0).mean() * 100
+    hit3 = df['hit_plus3'].fillna(0).mean() * 100
+    hit5 = df['hit_plus5'].fillna(0).mean() * 100
+    stop_hit = df['stoploss_hit'].fillna(0).mean() * 100
+
+    lines = []
+    lines.append(f"종가배팅 검증 요약 (최근 {last_n_days}일)")
+    lines.append(f"전체 {total}건")
+    lines.append(
+        f"전체 성과 | 종가승률 {win_close:.1f}% | +2%도달 {hit2:.1f}% | +3%도달 {hit3:.1f}% | "
+        f"+5%도달 {hit5:.1f}% | 평균 고가수익 {avg_high:.2f}% | 평균 종가수익 {avg_close:.2f}% | "
+        f"평균 저가낙폭 {avg_low:.2f}% | 손절터치 {stop_hit:.1f}%"
+    )
+    lines.append("")
+
+    lines += _group_summary_lines(df, ['mode_label'], '전략별')
+    lines.append("")
+    lines += _group_summary_lines(df, ['mode_label', 'grade'], '전략+등급별')
+    lines.append("")
+    lines += _group_summary_lines(df, ['mode_label', 'index_label'], '전략+지수별')
+
+    if 'band_type' in df.columns and df['band_type'].notna().any():
+        lines.append("")
+        lines += _group_summary_lines(df[df['band_type'] != ''], ['band_type'], '밴드별')
+        lines.append("")
+        lines += _group_summary_lines(df[df['band_type'] != ''], ['index_label', 'band_type'], '지수+밴드별')
+
+    report = "\n".join(lines)
+
+    _ensure_log_dir()
+    try:
+        SUMMARY_REPORT_TXT.write_text(report, encoding='utf-8')
+    except Exception as e:
+        log_error(f"⚠️ 요약 리포트 저장 실패: {e}")
+
+    return report
+
+
+# =============================================================
+# 텔레그램 출력 포맷
 # =============================================================
 def _format_hit(hit: dict, rank: int, mins_left: int) -> str:
     passed_str = ' '.join(hit['passed'])
@@ -931,8 +1356,7 @@ def _format_hit(hit: dict, rank: int, mins_left: int) -> str:
     extra = ''
     if hit.get('mode') == 'A':
         extra = f"전고점:{hit.get('near20', 0)}% | 이격:{hit.get('disp', 0)}"
-
-    elif hit.get('mode') == 'B':
+    else:
         vol3d = hit.get('vol_vs_3d', 0)
         vol3d_comment = (
             f"거래량소진({vol3d:.0f}%)" if vol3d < 85
@@ -954,7 +1378,7 @@ def _format_hit(hit: dict, rank: int, mins_left: int) -> str:
         )
 
     chart_str = ''
-    if hit.get('mode') == 'B' and hit.get('maejip_chart'):
+    if hit.get('mode') in ('B1', 'B2') and hit.get('maejip_chart'):
         chart_str = f"\n{hit['maejip_chart']}\n"
 
     idx_raw = hit.get('index_label', '')
@@ -976,115 +1400,56 @@ def _format_hit(hit: dict, rank: int, mins_left: int) -> str:
     )
 
 
-def _send_results(hits: list, mins_left: int):
-    log_info(f"_send_results 호출: {len(hits)}개 | TOKEN={'✅' if TELEGRAM_TOKEN else '❌'}")
-
-    if not hits:
-        log_info("→ 후보 없음 메시지 전송")
-        send_telegram_photo(
-            f"[{TODAY_STR}] 종가배팅 후보 없음\n"
-            f"(대상: {SCAN_UNIVERSE} | 조건 미충족)",
-            [],
-        )
-        return
-
-    def _pick_top5(mode: str) -> list:
-        pool = [h for h in hits if h.get('mode') == mode]
-
-        def _priority(h):
-            grade = h.get('grade', '')
-            g_rank = 0 if '완전체' in grade else (1 if 'A급' in grade else 2)
-            return (g_rank, -h.get('score', 0), -h.get('vol_ratio', 0))
-
-        pool.sort(key=_priority)
-        return pool[:5]
-
-    hits_a = _pick_top5('A')
-    hits_b = _pick_top5('B')
-    total = len(hits_a) + len(hits_b)
-
-    log_info(f"돌파형 {len(hits_a)}개 (완전체:{sum(1 for h in hits_a if '완전체' in h.get('grade', ''))}개)")
-    log_info(f"하단형 {len(hits_b)}개 (완전체:{sum(1 for h in hits_b if '완전체' in h.get('grade', ''))}개)")
-
-    header = (
-        f"종가배팅 선별 TOP {total} ({TODAY_STR})\n"
-        f"⏰ 마감까지 {mins_left}분\n"
-        f"돌파형(A): {len(hits_a)}개 | 하단형(B): {len(hits_b)}개\n"
-    )
-    send_telegram_photo(header, [])
-
-    if hits_a:
-        send_telegram_photo("── 돌파형(A) TOP5 ──", [])
-        current_msg = ''
-        max_char = 3800
-        for hit in hits_a:
-            entry = _format_hit(hit, 0, mins_left)
-            if len(current_msg) + len(entry) > max_char:
-                send_telegram_photo(current_msg, [])
-                current_msg = entry
-            else:
-                current_msg += entry
-        if current_msg.strip():
-            send_telegram_photo(current_msg, [])
-
-    if hits_b:
-        send_telegram_photo("── 하단형(B) TOP5 ──", [])
-        current_msg = ''
-        max_char = 3800
-        for hit in hits_b:
-            entry = _format_hit(hit, 0, mins_left)
-            if len(current_msg) + len(entry) > max_char:
-                send_telegram_photo(current_msg, [])
-                current_msg = entry
-            else:
-                current_msg += entry
-        if current_msg.strip():
-            send_telegram_photo(current_msg, [])
-
-    if ANTHROPIC_API_KEY or OPENAI_API_KEY:
-        if hits_a:
-            _send_ai_comment(hits_a, mins_left, strategy='A')
-        if hits_b:
-            _send_ai_comment(hits_b, mins_left, strategy='B')
-
-
 def _send_ai_comment(hits: list, mins_left: int, strategy: str = 'A'):
     try:
-        strategy_name = '돌파형(A)' if strategy == 'A' else '하단형(B)'
+        if strategy == 'A':
+            strategy_name = '돌파형(A)'
+        elif strategy == 'B1':
+            strategy_name = 'ENV엄격형(B1)'
+        else:
+            strategy_name = 'BB확장형(B2)'
 
         if strategy == 'A':
             data_lines = '\n'.join([
                 f"- {h['name']}({h['code']}): 현재가={h['close']:,}원 | "
                 f"거래량={h['vol_ratio']}배 | 전고점={h.get('near20', 0)}% | "
-                f"이격={h.get('disp', 0)} | 윗꼬리(몸통)={h['wick_pct']}% | "
+                f"이격={h.get('disp', 0)} | 윗꼬리={h['wick_pct']}% | "
                 f"목표={h['target1']:,} 손절={h['stoploss']:,} | "
                 f"지수={h.get('index_label', '')}"
                 for h in hits
             ])
             strategy_context = (
-                "전략 A는 전고점 돌파형이야. "
-                "전고점 85~100% 근처에서 거래량 폭발하며 강봉 마감하는 패턴. "
-                "오늘 종가에 진입하면 내일 전고점 돌파 기대."
+                "전략 A는 전고점 돌파형 종가배팅이다. "
+                "전고점 85~100% 구간에서 거래량이 터지고 종가가 강하게 잠기는 패턴이다."
+            )
+        elif strategy == 'B1':
+            data_lines = '\n'.join([
+                f"- {h['name']}({h['code']}): 현재가={h['close']:,}원 | "
+                f"Env20={h.get('env20_pct', 0):+.1f}% | Env40={h.get('env40_pct', 0):+.1f}% | "
+                f"RSI={h.get('rsi', 0)} | 5일매집={h.get('maejip_5d', 0)}회 | "
+                f"OBV={'↑' if h.get('obv_rising') else '↓'} | "
+                f"목표={h['target1']:,} 손절={h['stoploss']:,} | "
+                f"지수={h.get('index_label', '')}"
+                for h in hits
+            ])
+            strategy_context = (
+                "전략 B1은 HTS와 같은 ENV 엄격형이다. "
+                "Env20 하단 2% 이내와 Env40 하단 10% 이내를 동시에 만족하는 깊은 바닥 반등형이다."
             )
         else:
             data_lines = '\n'.join([
                 f"- {h['name']}({h['code']}): 현재가={h['close']:,}원 | "
-                f"밴드={h.get('band_type', '')} | "
-                f"{h.get('band_pct_text', '')} | "
-                f"RSI={h.get('rsi', 0)} | "
-                f"5일매집={h.get('maejip_5d', 0)}회 | "
+                f"BB40={h.get('bb40_pct', 0):+.1f}% | BB폭={h.get('bb40_width', 0):.1f}% | "
+                f"RSI={h.get('rsi', 0)} | 5일매집={h.get('maejip_5d', 0)}회 | "
                 f"OBV={'↑' if h.get('obv_rising') else '↓'} | "
                 f"ATR={h.get('atr_pct', 0)}% | "
-                f"20일평균거래대금={h.get('amount20_b', 0)}억 | "
                 f"목표={h['target1']:,} 손절={h['stoploss']:,} | "
                 f"지수={h.get('index_label', '')}"
                 for h in hits
             ])
             strategy_context = (
-                "전략 B는 적응형 하단 종가배팅이야. "
-                "코스피200은 엔벨로프, 코스닥150은 볼린저밴드40 하단을 기본으로 보고, "
-                "변동성이 크면 BB, 안정적이면 ENV로 자동 전환한다. "
-                "오늘 종가에 진입하면 하단 반등 후 중심선 회귀 또는 재상승을 노리는 전략이야."
+                "전략 B2는 BB40 확장형 하단 재안착 전략이다. "
+                "변동성이 있는 종목이 볼린저밴드40 하단 근처에서 반등하는 종가베팅 전략이다."
             )
 
         system_msg = (
@@ -1150,9 +1515,77 @@ def _send_ai_comment(hits: list, mins_left: int, strategy: str = 'A'):
                 f"{emoji} {strategy_name} AI 분석\n\n{comment}",
                 max_len=3500,
             )
-
     except Exception as e:
         log_error(f"⚠️ AI 코멘트 실패: {e}")
+
+
+def _send_results(hits: list, mins_left: int):
+    log_info(f"_send_results 호출: {len(hits)}개 | TOKEN={'✅' if TELEGRAM_TOKEN else '❌'}")
+
+    if not hits:
+        log_info("→ 후보 없음 메시지 전송")
+        send_telegram_photo(
+            f"[{TODAY_STR}] 종가배팅 후보 없음\n"
+            f"(대상: {SCAN_UNIVERSE} | 조건 미충족)",
+            [],
+        )
+        return
+
+    def _pick_top5(mode: str) -> list:
+        pool = [h for h in hits if h.get('mode') == mode]
+
+        def _priority(h):
+            grade = h.get('grade', '')
+            g_rank = 0 if '완전체' in grade else (1 if 'A급' in grade else 2)
+            return (g_rank, -h.get('score', 0), -h.get('vol_ratio', 0), -h.get('amount_b', 0))
+
+        pool.sort(key=_priority)
+        return pool[:5]
+
+    hits_a = _pick_top5('A')
+    hits_b1 = _pick_top5('B1')
+    hits_b2 = _pick_top5('B2')
+    total = len(hits_a) + len(hits_b1) + len(hits_b2)
+
+    log_info(f"돌파형 {len(hits_a)}개")
+    log_info(f"ENV엄격형 {len(hits_b1)}개")
+    log_info(f"BB확장형 {len(hits_b2)}개")
+
+    header = (
+        f"종가배팅 선별 TOP {total} ({TODAY_STR})\n"
+        f"⏰ 마감까지 {mins_left}분\n"
+        f"돌파형(A): {len(hits_a)}개 | ENV엄격형(B1): {len(hits_b1)}개 | BB확장형(B2): {len(hits_b2)}개\n"
+    )
+    send_telegram_photo(header, [])
+
+    for title, pool in [
+        ("── 돌파형(A) TOP5 ──", hits_a),
+        ("── ENV엄격형(B1) TOP5 ──", hits_b1),
+        ("── BB확장형(B2) TOP5 ──", hits_b2),
+    ]:
+        if not pool:
+            continue
+
+        send_telegram_photo(title, [])
+        current_msg = ''
+        max_char = 3800
+        for hit in pool:
+            entry = _format_hit(hit, 0, mins_left)
+            if len(current_msg) + len(entry) > max_char:
+                send_telegram_photo(current_msg, [])
+                current_msg = entry
+            else:
+                current_msg += entry
+        if current_msg.strip():
+            send_telegram_photo(current_msg, [])
+
+    if ANTHROPIC_API_KEY or OPENAI_API_KEY:
+        if hits_a:
+            _send_ai_comment(hits_a, mins_left, strategy='A')
+        if hits_b1:
+            _send_ai_comment(hits_b1, mins_left, strategy='B1')
+        if hits_b2:
+            _send_ai_comment(hits_b2, mins_left, strategy='B2')
 
 
 # =============================================================
@@ -1219,19 +1652,22 @@ def run_closing_bet_scan(force: bool = False) -> list:
                 log_info(f"진행: {done}/{len(codes)} | 후보: {len(hits)}개")
 
     hits_a = [h for h in hits if h.get('mode') == 'A']
-    hits_b = [h for h in hits if h.get('mode') == 'B']
+    hits_b1 = [h for h in hits if h.get('mode') == 'B1']
+    hits_b2 = [h for h in hits if h.get('mode') == 'B2']
 
     hits_a.sort(key=lambda x: (x['score'], x['vol_ratio']), reverse=True)
-    hits_b.sort(key=lambda x: (x['score'], x['amount_b']), reverse=True)
-    hits = hits_a + hits_b
+    hits_b1.sort(key=lambda x: (x['score'], x['amount_b']), reverse=True)
+    hits_b2.sort(key=lambda x: (x['score'], x['amount_b']), reverse=True)
+    hits = hits_a + hits_b1 + hits_b2
 
     log_info(f"\n종가배팅 후보: {len(hits)}개")
-    log_info(f"돌파형(A): {len(hits_a)}개 | 하단형(B): {len(hits_b)}개")
-    log_info(f"완전체: {sum(1 for h in hits if h['score'] >= 5)}개")
-    log_info(f"✅A급: {sum(1 for h in hits if h['score'] == 4)}개")
-    log_info(f"B급: {sum(1 for h in hits if h['score'] == 3)}개")
+    log_info(f"돌파형(A): {len(hits_a)}개 | ENV엄격형(B1): {len(hits_b1)}개 | BB확장형(B2): {len(hits_b2)}개")
+    log_info(f"완전체: {sum(1 for h in hits if '완전체' in h.get('grade', ''))}개")
+    log_info(f"✅A급: {sum(1 for h in hits if 'A급' in h.get('grade', ''))}개")
+    log_info(f"B급: {sum(1 for h in hits if h.get('grade') == 'B급')}개")
 
     _send_results(hits, mins_left)
+    _append_hits_to_validation_log(hits, now)
     return hits
 
 
@@ -1241,6 +1677,9 @@ def run_closing_bet_scan(force: bool = False) -> list:
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='종가배팅 타점 스캐너')
     parser.add_argument('--force', action='store_true', help='시간 무관 강제 실행')
+    parser.add_argument('--eval-pending', action='store_true', help='미평가 후보를 다음날 성과로 평가')
+    parser.add_argument('--summary', action='store_true', help='검증 요약 출력')
+    parser.add_argument('--send-summary', action='store_true', help='검증 요약을 텔레그램으로 전송')
     args = parser.parse_args()
 
     now = datetime.now(KST)
@@ -1250,22 +1689,36 @@ if __name__ == '__main__':
     log_info(f"SCAN_UNIVERSE: {SCAN_UNIVERSE}")
     log_info(f"시간 체크: {'✅ 통과' if _is_closing_time(args.force) else '❌ 시간 외'}")
 
-    if not _is_closing_time(args.force):
-        log_info(f"⏸️ 종가배팅 유효 시간 아님 ({now.strftime('%H:%M')}) — 텔레그램 전송 안 함")
-        log_info("유효 시간: 14:50~15:25 | 강제 실행: --force")
-        sys.exit(0)
+    if args.eval_pending:
+        updated = _evaluate_pending_signals()
+        log_info(f"평가 완료 건수: {updated}")
 
-    hits = run_closing_bet_scan(force=args.force)
-    if not hits:
-        log_info("✅ 종가배팅 후보 없음")
-        if TELEGRAM_TOKEN:
-            send_telegram_photo(
-                f"[{TODAY_STR} {now.strftime('%H:%M')}] 종가배팅 후보 없음\n"
-                f"(대상: {SCAN_UNIVERSE} | 조건 미충족)",
-                [],
-            )
-            log_info("✅ '후보없음' 텔레그램 전송 완료")
-    else:
-        log_info(f"✅ 종가배팅 후보 {len(hits)}개 텔레그램 전송 완료")
+    if args.summary:
+        summary_text = _build_validation_summary(last_n_days=120)
+        log_info("\n" + summary_text)
+        if args.send_summary and TELEGRAM_TOKEN:
+            send_telegram_chunks(summary_text, max_len=3500)
+
+    # 스캔 없이 평가/요약만 실행한 경우 빠져나갈 수 있게 처리
+    run_scan = not (args.eval_pending or args.summary)
+
+    if run_scan:
+        if not _is_closing_time(args.force):
+            log_info(f"⏸️ 종가배팅 유효 시간 아님 ({now.strftime('%H:%M')}) — 텔레그램 전송 안 함")
+            log_info("유효 시간: 14:50~15:25 | 강제 실행: --force")
+            sys.exit(0)
+
+        hits = run_closing_bet_scan(force=args.force)
+        if not hits:
+            log_info("✅ 종가배팅 후보 없음")
+            if TELEGRAM_TOKEN:
+                send_telegram_photo(
+                    f"[{TODAY_STR} {now.strftime('%H:%M')}] 종가배팅 후보 없음\n"
+                    f"(대상: {SCAN_UNIVERSE} | 조건 미충족)",
+                    [],
+                )
+                log_info("✅ '후보없음' 텔레그램 전송 완료")
+        else:
+            log_info(f"✅ 종가배팅 후보 {len(hits)}개 텔레그램 전송 완료")
 
     sys.exit(0)
