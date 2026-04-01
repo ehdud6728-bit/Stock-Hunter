@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>Stock Hunter 실행기 v4</title>
+  <title>Stock Hunter 실행기 v5</title>
   <style>
     :root{
       --bg:#08111f;--panel:#101b31;--line:#243759;--text:#e8eef8;--muted:#8ea5c6;
@@ -43,8 +43,8 @@
 <body>
   <div class="wrap">
     <div class="card">
-      <h1>Stock Hunter 실행기 v4</h1>
-      <div class="muted">실행 · 상태조회 · 최근 실행 종목 · 자주 쓰는 종목 버튼까지 포함된 버전입니다.</div>
+      <h1>Stock Hunter 실행기 v5</h1>
+      <div class="muted">실행 · 상태조회 · 최근 실행 종목 · 자주 쓰는 종목 · 최신 패턴 모드 · 고급 옵션까지 포함된 버전입니다.</div>
       <div class="chips">
         <div class="chip">저장소: ehdud6728-bit / Stock-Hunter</div>
         <div class="chip">워크플로: analyze-stock.yml</div>
@@ -60,12 +60,12 @@
 
     <div class="card">
       <label for="workerUrl">Cloudflare Worker URL</label>
-      <input id="workerUrl" placeholder="https://stock-hunter-trigger.xxxxx.workers.dev" />
+      <input id="workerUrl" placeholder="https://stock-hunter-trigger.ehdud6728.workers.dev" />
 
       <div class="row">
         <div>
-          <label for="stockCode">종목코드</label>
-          <input id="stockCode" placeholder="예: 005930" inputmode="numeric" />
+          <label for="stockCode">종목코드 또는 종목명</label>
+          <input id="stockCode" placeholder="예: 005930 또는 삼성전자" />
         </div>
         <div>
           <label for="stockName">종목명</label>
@@ -83,14 +83,46 @@
         <option value="viper">viper</option>
         <option value="yeokmae">yeokmae</option>
         <option value="double_bottom">double_bottom</option>
+        <option value="pre_dolbanji">pre_dolbanji</option>
+        <option value="pre_dolbanji_lite">pre_dolbanji_lite</option>
+        <option value="pre_dolbanji_hts_exact">pre_dolbanji_hts_exact</option>
       </select>
+
+      <details style="margin-top:14px;">
+        <summary style="cursor:pointer;color:#dbe7f7;font-weight:800;">고급 옵션</summary>
+        <div class="row" style="margin-top:10px;">
+          <div>
+            <label for="days">계산용 과거 데이터 조회 일수</label>
+            <input id="days" value="900" inputmode="numeric" />
+          </div>
+          <div>
+            <label for="minBars">최소 거래봉 수</label>
+            <input id="minBars" value="40" inputmode="numeric" />
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <label for="startDate">결과 시작일 (선택)</label>
+            <input id="startDate" placeholder="YYYY-MM-DD" />
+          </div>
+          <div>
+            <label for="endDate">결과 기준일 (선택)</label>
+            <input id="endDate" placeholder="YYYY-MM-DD" />
+          </div>
+        </div>
+        <label for="forceFlag">장중 시간 제한 무시</label>
+        <select id="forceFlag">
+          <option value="true" selected>true</option>
+          <option value="false">false</option>
+        </select>
+      </details>
 
       <div class="actions">
         <button id="runBtn">분석 실행</button>
         <button id="checkBtn" class="secondary" disabled>상태 조회</button>
       </div>
 
-      <div class="hint">Worker URL, 마지막 run_id, html_url, 최근 실행 종목이 브라우저에 저장됩니다.</div>
+      <div class="hint">Worker URL, 마지막 run_id, html_url, 최근 실행 종목, 고급 옵션이 브라우저에 저장됩니다.</div>
     </div>
 
     <div class="card">
@@ -133,6 +165,11 @@
     const stockCodeEl = document.getElementById("stockCode");
     const stockNameEl = document.getElementById("stockName");
     const modeEl = document.getElementById("mode");
+    const daysEl = document.getElementById("days");
+    const minBarsEl = document.getElementById("minBars");
+    const startDateEl = document.getElementById("startDate");
+    const endDateEl = document.getElementById("endDate");
+    const forceFlagEl = document.getElementById("forceFlag");
     const runBtn = document.getElementById("runBtn");
     const checkBtn = document.getElementById("checkBtn");
     const statusEl = document.getElementById("status");
@@ -146,16 +183,23 @@
     const quickList = document.getElementById("quickList");
     const historyList = document.getElementById("historyList");
 
-    const LS_WORKER = "stock-hunter-worker-url-v4";
+    const LS_WORKER = "stock-hunter-worker-url-v5";
+    const DEFAULT_WORKER_URL = "https://stock-hunter-trigger.ehdud6728.workers.dev";
     const LS_RUNID = "stock-hunter-last-run-id-v4";
     const LS_HTMLURL = "stock-hunter-last-html-url-v4";
-    const LS_HISTORY = "stock-hunter-history-v4";
+    const LS_HISTORY = "stock-hunter-history-v5";
+    const LS_DAYS = "stock-hunter-days-v5";
+    const LS_MINBARS = "stock-hunter-minbars-v5";
+    const LS_FORCE = "stock-hunter-force-v5";
 
     let pollTimer = null;
     let currentRunId = localStorage.getItem(LS_RUNID) || "";
     let currentHtmlUrl = localStorage.getItem(LS_HTMLURL) || "";
 
-    workerUrlEl.value = localStorage.getItem(LS_WORKER) || "";
+    workerUrlEl.value = localStorage.getItem(LS_WORKER) || DEFAULT_WORKER_URL;
+    daysEl.value = localStorage.getItem(LS_DAYS) || "900";
+    minBarsEl.value = localStorage.getItem(LS_MINBARS) || "40";
+    forceFlagEl.value = localStorage.getItem(LS_FORCE) || "true";
 
     if (currentRunId) {
       runIdBox.textContent = currentRunId;
@@ -169,6 +213,9 @@
     workerUrlEl.addEventListener("change", () => {
       localStorage.setItem(LS_WORKER, workerUrlEl.value.trim());
     });
+    daysEl.addEventListener("change", () => localStorage.setItem(LS_DAYS, daysEl.value.trim()));
+    minBarsEl.addEventListener("change", () => localStorage.setItem(LS_MINBARS, minBarsEl.value.trim()));
+    forceFlagEl.addEventListener("change", () => localStorage.setItem(LS_FORCE, forceFlagEl.value));
 
     function getHistory() {
       try {
@@ -317,20 +364,36 @@
 
     runBtn.addEventListener("click", async () => {
       const workerUrl = workerUrlEl.value.trim();
-      const stockCode = stockCodeEl.value.trim();
+      const stockQuery = stockCodeEl.value.trim();
       const stockName = stockNameEl.value.trim();
       const mode = modeEl.value;
+      const days = (daysEl.value || "900").trim();
+      const minBars = (minBarsEl.value || "40").trim();
+      const startDate = startDateEl.value.trim();
+      const endDate = endDateEl.value.trim();
+      const force = forceFlagEl.value === "true";
 
       if (!workerUrl) {
         setStatus("Worker URL을 먼저 입력하세요.", "bad");
         return;
       }
-      if (!stockCode) {
-        setStatus("종목코드를 입력하세요.", "bad");
+      if (!stockQuery && !stockName) {
+        setStatus("종목코드 또는 종목명을 입력하세요.", "bad");
+        return;
+      }
+      if (startDate && !/^\d{4}-\d{2}-\d{2}$/.test(startDate)) {
+        setStatus("시작일 형식이 올바르지 않습니다. YYYY-MM-DD", "bad");
+        return;
+      }
+      if (endDate && !/^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
+        setStatus("기준일 형식이 올바르지 않습니다. YYYY-MM-DD", "bad");
         return;
       }
 
-      localStorage.setItem(LS_WORKER, workerUrl);
+      localStorage.setItem(LS_WORKER, workerUrl || DEFAULT_WORKER_URL);
+      localStorage.setItem(LS_DAYS, days);
+      localStorage.setItem(LS_MINBARS, minBars);
+      localStorage.setItem(LS_FORCE, force ? "true" : "false");
       runBtn.disabled = true;
       checkBtn.disabled = true;
       setStatus("실행 요청 중...", "warn");
@@ -345,9 +408,14 @@
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            stock_code: stockCode,
+            stock_code: stockQuery || stockName,
             stock_name: stockName,
-            mode: mode
+            mode: mode,
+            days: days,
+            min_bars: minBars,
+            start_date: startDate,
+            end_date: endDate,
+            force: force
           })
         });
 
@@ -356,8 +424,8 @@
 
         if (resp.ok && data.ok) {
           saveHistoryItem({
-            code: stockCode,
-            name: stockName,
+            code: stockQuery || stockName,
+            name: stockName || stockQuery,
             mode: mode,
             ts: new Date().toISOString()
           });
