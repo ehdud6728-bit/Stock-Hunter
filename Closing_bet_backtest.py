@@ -65,7 +65,7 @@ except ImportError:
 # 1) repo 안에 최종 통합 scanner 가 있으면 그걸 사용
 # 2) 기존 Closing_bet_scanner 가 있으면 거기서 일부 사용
 try:
-    from closing_bet_scanner_final import (
+    from closing_bet_scanner_v2 import (
         _calc_envelope,
         _check_envelope_bottom,
         _calc_bollinger,
