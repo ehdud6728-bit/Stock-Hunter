@@ -21,6 +21,7 @@ try:
         build_v4_signal_map,
         apply_fear_and_quality_bonus,
         build_pre_dolbanji_bundle,
+        build_pre_dolbanji_lite_bundle,
         build_pre_dolbanji_hts_exact_bundle,
     )
 except Exception:
@@ -44,6 +45,17 @@ except Exception:
             "pre_dolbanji_detail": {},
         }
 
+    def build_pre_dolbanji_lite_bundle(df: pd.DataFrame) -> Dict[str, object]:
+        return {
+            "pre_dolbanji_lite": False,
+            "pre_dolbanji_lite_confirmed": False,
+            "pre_dolbanji_lite_score": 0,
+            "pre_dolbanji_lite_grade": "없음",
+            "pre_dolbanji_lite_tags": [],
+            "pre_dolbanji_lite_best": "",
+            "pre_dolbanji_lite_detail": {},
+        }
+
     def build_pre_dolbanji_hts_exact_bundle(df: pd.DataFrame) -> Dict[str, object]:
         return {
             "pre_dolbanji_hts_exact": False,
@@ -54,7 +66,7 @@ except Exception:
         }
 
 try:
-    from main7_bugfix_2 import (
+    from main7_bugfix_2_engine_consistent_final import (
         get_indicators as main7_get_indicators,
         build_ma_convergence_comment_from_row as main7_build_ma_convergence_comment_from_row,
         analyze_single_stock_with_main7_engine,
@@ -99,6 +111,7 @@ MODE_CHOICES = {
     "dolbanji",
     "watermelon",
     "pre_dolbanji",
+    "pre_dolbanji_lite",
     "pre_dolbanji_hts_exact",
     "viper",
     "yeokmae",
@@ -869,6 +882,13 @@ def build_snapshot(df: pd.DataFrame, window: Dict[str, str]) -> Dict[str, Any]:
         "pre_dolbanji_best": str(pre_bundle.get("pre_dolbanji_best", "")),
         "pre_dolbanji_tags": " ".join(pre_bundle.get("pre_dolbanji_tags", [])) if isinstance(pre_bundle, dict) else "",
         "pre_dolbanji_trend_score": safe_int(pre_trend.get("score", 0)),
+        "pre_dolbanji_lite": bool(pre_lite_bundle.get("pre_dolbanji_lite", False)),
+        "pre_dolbanji_lite_confirmed": bool(pre_lite_bundle.get("pre_dolbanji_lite_confirmed", False)),
+        "pre_dolbanji_lite_score": safe_int(pre_lite_bundle.get("pre_dolbanji_lite_score", 0)),
+        "pre_dolbanji_lite_grade": str(pre_lite_bundle.get("pre_dolbanji_lite_grade", "없음")),
+        "pre_dolbanji_lite_best": str(pre_lite_bundle.get("pre_dolbanji_lite_best", "")),
+        "pre_dolbanji_lite_tags": " ".join(pre_lite_bundle.get("pre_dolbanji_lite_tags", [])) if isinstance(pre_lite_bundle, dict) else "",
+        "pre_dolbanji_lite_trend_score": safe_int((pre_lite_detail.get("trend_confirm", {}) or {}).get("score", 0)),
         "pre_dolbanji_hts_exact": bool(pre_hts_bundle.get("pre_dolbanji_hts_exact", False)),
         "pre_dolbanji_hts_exact_score": safe_int(pre_hts_bundle.get("pre_dolbanji_hts_exact_score", 0)),
         "pre_dolbanji_hts_exact_max_score": safe_int(pre_hts_bundle.get("pre_dolbanji_hts_exact_max_score", 10)),
@@ -1036,6 +1056,46 @@ def build_pre_dolbanji(price: Dict[str, Any], df: pd.DataFrame) -> PatternResult
     return PatternResult("pre_dolbanji", s, status, score, len(rows), subtitle, comment, rows)
 
 
+
+
+def build_pre_dolbanji_lite(price: Dict[str, Any], df: pd.DataFrame) -> PatternResult:
+    rows: List[CheckRow] = []
+    s = "신규예비돌반지 Lite"
+
+    c1 = bool(price.get("pre_dolbanji_lite", False))
+    add_check(rows, s, "후보 감지", "감지" if c1 else "미감지", "감지", c1, "신규상장/장기이평 부족 종목용 Lite 패턴 포착" if c1 else "현재는 Lite 패턴 미감지")
+
+    c2 = str(price.get("pre_dolbanji_lite_grade", "없음")) in ("A", "S", "B")
+    add_check(rows, s, "등급", str(price.get("pre_dolbanji_lite_grade", "없음")), "B 이상", c2, "Lite 등급 부여" if c2 else "등급 낮음")
+
+    c3 = safe_int(price.get("pre_dolbanji_lite_score", 0)) >= 30
+    add_check(rows, s, "종합 점수", f"{safe_int(price.get('pre_dolbanji_lite_score', 0))}", ">= 30", c3, "Lite 점수 양호" if c3 else "점수 부족")
+
+    c4 = str(price.get("pre_dolbanji_lite_best", "")).strip() != ""
+    add_check(rows, s, "대표 변형", str(price.get("pre_dolbanji_lite_best", "") or "없음"), "LiteA/B 중 1개", c4, "대표 Lite 변형 확인" if c4 else "대표 Lite 변형 없음")
+
+    c5 = safe_int(price.get("pre_dolbanji_lite_trend_score", 0)) >= 2
+    add_check(rows, s, "구조전환 확인", f"{safe_int(price.get('pre_dolbanji_lite_trend_score', 0))}/4", ">= 2/4", c5, "신규 구조전환 확인" if c5 else "아직 구조전환 미완")
+
+    c6 = bool(price.get("pre_dolbanji_lite_confirmed", False))
+    add_check(rows, s, "확인형 여부", "확인" if c6 else "대기", "확인", c6, "Lite 확인형" if c6 else "감시형 단계")
+
+    score = sum(1 for r in rows if r.ok)
+    if c6 and score >= 5:
+        status = "좋음"
+        comment = "224/448 장기선이 없는 신규상장/짧은 이력 종목에서 기존 예비돌반지를 대체할 수 있는 Lite 확인형입니다."
+    elif c1 and score >= 4:
+        status = "보통"
+        comment = "신규상장 감시형으로는 괜찮습니다. 장기선이 생기기 전까지는 Lite 패턴으로 추적하는 편이 좋습니다."
+    elif c1:
+        status = "약함"
+        comment = "Lite 흔적은 있지만 아직 초기 구조전환이 덜 붙었습니다."
+    else:
+        status = "미충족"
+        comment = "현재는 신규예비돌반지 Lite 패턴으로 보기 어렵습니다."
+
+    subtitle = f"대표 {price.get('pre_dolbanji_lite_best', '없음')} · 등급 {price.get('pre_dolbanji_lite_grade', '없음')} · 점수 {safe_int(price.get('pre_dolbanji_lite_score', 0))} · 구조전환 {safe_int(price.get('pre_dolbanji_lite_trend_score', 0))}/4"
+    return PatternResult("pre_dolbanji_lite", s, status, score, len(rows), subtitle, comment, rows)
 
 def build_pre_dolbanji_hts_exact(price: Dict[str, Any], df: pd.DataFrame) -> PatternResult:
     rows: List[CheckRow] = []
@@ -1278,6 +1338,7 @@ def build_patterns(price: Dict[str, Any], df: pd.DataFrame) -> List[PatternResul
         build_envelope_bet(price),
         build_dolbanji(price, df),
         build_pre_dolbanji(price, df),
+        build_pre_dolbanji_lite(price, df),
         build_pre_dolbanji_hts_exact(price, df),
         build_watermelon(price, df),
         build_viper(price, df),
@@ -1356,6 +1417,10 @@ def build_smart_comment(price: Dict[str, Any], patterns: List[PatternResult], na
         comments.append(f"예비돌반지 계열이 감지되었고 대표 변형은 {price.get('pre_dolbanji_best', '') or '없음'} 입니다. 구조전환 점수는 {price.get('pre_dolbanji_trend_score', 0)}/4 입니다.")
     if price.get("pre_dolbanji_confirmed"):
         comments.append("예비돌반지 확인형이면 단순 감시목록이 아니라 재돌파 관찰 우선순위를 높일 수 있습니다.")
+    if price.get("pre_dolbanji_lite"):
+        comments.append(f"신규예비돌반지 Lite가 감지되었고 대표 변형은 {price.get('pre_dolbanji_lite_best', '') or '없음'} 입니다. 구조전환 점수는 {price.get('pre_dolbanji_lite_trend_score', 0)}/4 입니다.")
+    if price.get("pre_dolbanji_lite_confirmed"):
+        comments.append("신규예비돌반지 Lite 확인형이면 장기이평이 형성되기 전의 대체 감시 패턴으로 우선순위를 높일 수 있습니다.")
     if price.get("pre_dolbanji_hts_exact"):
         comments.append("HTS 정확복제형까지 동시에 통과하면 기존 예비돌반지보다 더 엄격한 교차검증을 통과한 상태로 볼 수 있습니다.")
     if price.get("dante_v4_prep"):
@@ -1472,6 +1537,7 @@ PATTERN_VIZ = {
     "envelope_bet": {"abbr": "엔", "color": "#10b981", "name": "엔벨로프"},
     "dolbanji": {"abbr": "돌", "color": "#a78bfa", "name": "돌반지"},
     "pre_dolbanji": {"abbr": "예", "color": "#8b5cf6", "name": "예비돌반지"},
+    "pre_dolbanji_lite": {"abbr": "라", "color": "#06b6d4", "name": "신규예비Lite"},
     "watermelon": {"abbr": "수", "color": "#f43f5e", "name": "수박"},
     "viper": {"abbr": "독", "color": "#22c55e", "name": "독사"},
     "yeokmae": {"abbr": "역", "color": "#38bdf8", "name": "역매공파"},
@@ -1483,7 +1549,7 @@ def get_pattern_viz(pattern_key: str) -> Dict[str, str]:
     return PATTERN_VIZ.get(pattern_key, {"abbr": "?", "color": "#94a3b8", "name": pattern_key})
 
 
-DISPLAY_PATTERN_KEYS = ("watermelon", "pre_dolbanji", "envelope_bet", "dolbanji", "closing_bet")
+DISPLAY_PATTERN_KEYS = ("watermelon", "pre_dolbanji", "pre_dolbanji_lite", "envelope_bet", "dolbanji", "closing_bet")
 DISPLAY_PATTERN_SET = set(DISPLAY_PATTERN_KEYS)
 STATUS_PRIORITY = {"해당": 3, "유사": 2, "미해당": 1, "데이터부족": 0}
 
@@ -1791,6 +1857,7 @@ def render_html(result: Dict[str, Any]) -> str:
         <option value="envelope_bet">envelope_bet</option>
         <option value="dolbanji">dolbanji</option>
         <option value="pre_dolbanji">pre_dolbanji</option>
+        <option value="pre_dolbanji_lite">pre_dolbanji_lite</option>
         <option value="pre_dolbanji_hts_exact">pre_dolbanji_hts_exact</option>
         <option value="watermelon">watermelon</option>
         <option value="viper">viper</option>
@@ -1827,6 +1894,11 @@ def render_html(result: Dict[str, Any]) -> str:
         ("예비돌반지 등급", f'{price.get("pre_dolbanji_grade", "없음")}'),
         ("예비돌반지 대표형", f'{price.get("pre_dolbanji_best", "") or "없음"}'),
         ("예비돌반지 구조전환", f'{price.get("pre_dolbanji_trend_score", 0)}/4'),
+        ("신규예비Lite", "통과" if price.get("pre_dolbanji_lite", False) else "미통과"),
+        ("신규예비Lite 점수", f'{price.get("pre_dolbanji_lite_score", 0)}'),
+        ("신규예비Lite 등급", f'{price.get("pre_dolbanji_lite_grade", "없음")}'),
+        ("신규예비Lite 대표형", f'{price.get("pre_dolbanji_lite_best", "") or "없음"}'),
+        ("신규예비Lite 구조전환", f'{price.get("pre_dolbanji_lite_trend_score", 0)}/4'),
         ("예비돌반지 HTS정확복제", "통과" if price.get("pre_dolbanji_hts_exact", False) else "미통과"),
         ("예비돌반지 HTS점수", f'{price.get("pre_dolbanji_hts_exact_score", 0)}/{price.get("pre_dolbanji_hts_exact_max_score", 10)}'),
         ("예비돌반지 HTS태그", f'{price.get("pre_dolbanji_hts_exact_tags", "") or "없음"}'),
