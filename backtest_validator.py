@@ -38,7 +38,7 @@ except ImportError:
 # 최신 본진 모듈: HTS 정확복제 통합본 우선, 없으면 기존 V4/기본 main7 fallback
 # ─────────────────────────────────────────────────────────────
 try:
-    import main7_bugfix_2_hts_exact_integrated_final as _main7
+    import main7_bugfix_2 as _main7
 except Exception:
     try:
         import main7_bugfix_2_engine_consistent_final as _main7
