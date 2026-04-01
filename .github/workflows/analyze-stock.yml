@@ -27,10 +27,13 @@ on:
           - viper
           - yeokmae
           - double_bottom
+          - pre_dolbanji
+          - pre_dolbanji_lite
+          - pre_dolbanji_hts_exact
       days:
         description: "계산용 과거 데이터 조회 일수"
         required: true
-        default: "450"
+        default: "900"
         type: string
       start_date:
         description: "결과를 보고 싶은 시작일 YYYY-MM-DD (선택)"
@@ -73,6 +76,7 @@ jobs:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 
     steps:
       - name: Checkout
@@ -87,10 +91,6 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install pandas numpy pytz pykrx finance-datareader lxml html5lib requests openai
-
-      - name: Create output directories
-        run: |
-          mkdir -p site reports
 
       - name: Validate optional dates
         shell: bash
@@ -113,27 +113,12 @@ jobs:
       - name: Run analyzer
         shell: bash
         run: |
-          args=(python analyze_single_stock.py \
-            --code "${{ inputs.stock_query }}" \
-            --name "${{ inputs.stock_name }}" \
-            --mode "${{ inputs.mode }}" \
-            --days "${{ inputs.days }}" \
-            --min-bars "${{ inputs.min_bars }}" \
-            --output-json reports/latest_result.json \
-            --output-html site/index.html)
+          args=(python analyze_single_stock.py             --code "${{ inputs.stock_query }}"             --name "${{ inputs.stock_name }}"             --mode "${{ inputs.mode }}"             --days "${{ inputs.days }}"             --min-bars "${{ inputs.min_bars }}"             --output-json reports/latest_result.json             --output-html site/index.html)
+          if [[ "${{ inputs.force }}" == "true" ]]; then args+=(--force); fi
+          if [[ -n "${{ inputs.start_date }}" ]]; then args+=(--start-date "${{ inputs.start_date }}"); fi
+          if [[ -n "${{ inputs.end_date }}" ]]; then args+=(--end-date "${{ inputs.end_date }}"); fi
 
-          if [[ "${{ inputs.force }}" == "true" ]]; then
-            args+=(--force)
-          fi
-
-          if [[ -n "${{ inputs.start_date }}" ]]; then
-            args+=(--start-date "${{ inputs.start_date }}")
-          fi
-
-          if [[ -n "${{ inputs.end_date }}" ]]; then
-            args+=(--end-date "${{ inputs.end_date }}")
-          fi
-
+          mkdir -p site reports
           printf 'Running: %q ' "${args[@]}"
           echo
           "${args[@]}"
