@@ -151,9 +151,12 @@ except ImportError:
 # =============================================================
 # 설정
 # =============================================================
-HOLD_DAYS_LIST = [1, 3, 5, 10]
+HOLD_DAYS_LIST = [1, 3, 5, 10, 15]
 PROFIT_TARGET = 3.0
 STOP_LOSS = -3.0
+MAX_HOLD_DAYS = 15
+TARGET_HIT_PCT = 2.0
+SAME_DAY_EXIT_POLICY = 'stop_first'  # stop_first | target_first
 MAX_WORKERS = 15
 TOP_N = 300
 
@@ -454,6 +457,109 @@ def _check_conditions_on_date(df: pd.DataFrame, date_idx: int, code: str = '') -
 
 
 # =============================================================
+# 실전형 판정 유틸 (최대 15일 / +2% 선도달 / -3% 손절)
+# =============================================================
+def _evaluate_trade_window(df: pd.DataFrame, entry_idx: int, entry_price: float) -> dict:
+    """
+    entry_idx의 시가에 진입했다고 가정하고 최대 15거래일을 추적.
+
+    판정 우선순위
+    1) +2% 먼저 도달 -> 승
+    2) -3% 먼저 도달 -> 손절
+    3) 둘 다 없으면 마지막 종가가 진입가보다 높으면 승(종가), 낮으면 패(종가)
+
+    같은 날 고가와 저가가 동시에 익절/손절 범위를 터치하면 SAME_DAY_EXIT_POLICY를 따른다.
+    기본은 보수적으로 stop_first.
+    """
+    result = {
+        '15일판정': 'N/A',
+        '15일내2%도달': 'N',
+        '2%도달일': None,
+        '15일내손절터치': 'N',
+        '손절터치일': None,
+        '15일종가수익률%': None,
+        '15일최고수익률%': None,
+        '15일최저수익률%': None,
+        '실전청산일': None,
+        '실전청산사유': '',
+    }
+
+    if entry_price <= 0 or entry_idx >= len(df):
+        return result
+
+    window = df.iloc[entry_idx:entry_idx + MAX_HOLD_DAYS].copy()
+    if window.empty:
+        return result
+
+    target_price = entry_price * (1 + TARGET_HIT_PCT / 100.0)
+    stop_price = entry_price * (1 + STOP_LOSS / 100.0)
+
+    max_high = _safe_float(window['High'].max())
+    min_low = _safe_float(window['Low'].min())
+    final_close = _safe_float(window['Close'].iloc[-1])
+
+    result['15일최고수익률%'] = round((max_high - entry_price) / entry_price * 100, 2) if entry_price > 0 else None
+    result['15일최저수익률%'] = round((min_low - entry_price) / entry_price * 100, 2) if entry_price > 0 else None
+    result['15일종가수익률%'] = round((final_close - entry_price) / entry_price * 100, 2) if entry_price > 0 else None
+
+    target_hit_day = None
+    stop_hit_day = None
+
+    for day_no, (_, r) in enumerate(window.iterrows(), start=1):
+        high = _safe_float(r.get('High', 0))
+        low = _safe_float(r.get('Low', 0))
+        hit_target = high >= target_price
+        hit_stop = low <= stop_price
+
+        if target_hit_day is None and hit_target:
+            target_hit_day = day_no
+        if stop_hit_day is None and hit_stop:
+            stop_hit_day = day_no
+
+        if hit_target and hit_stop:
+            if SAME_DAY_EXIT_POLICY == 'target_first':
+                result['15일판정'] = '승'
+                result['실전청산일'] = day_no
+                result['실전청산사유'] = '동일봉_익절우선'
+            else:
+                result['15일판정'] = '손절'
+                result['실전청산일'] = day_no
+                result['실전청산사유'] = '동일봉_손절우선'
+            break
+        elif hit_target:
+            result['15일판정'] = '승'
+            result['실전청산일'] = day_no
+            result['실전청산사유'] = '2%도달'
+            break
+        elif hit_stop:
+            result['15일판정'] = '손절'
+            result['실전청산일'] = day_no
+            result['실전청산사유'] = '손절터치'
+            break
+
+    if target_hit_day is not None:
+        result['15일내2%도달'] = 'Y'
+        result['2%도달일'] = target_hit_day
+    if stop_hit_day is not None:
+        result['15일내손절터치'] = 'Y'
+        result['손절터치일'] = stop_hit_day
+
+    if result['15일판정'] == 'N/A':
+        if final_close > entry_price:
+            result['15일판정'] = '승(종가)'
+            result['실전청산사유'] = '15일종가상승'
+        elif final_close < entry_price:
+            result['15일판정'] = '패(종가)'
+            result['실전청산사유'] = '15일종가하락'
+        else:
+            result['15일판정'] = '보합'
+            result['실전청산사유'] = '15일종가보합'
+        result['실전청산일'] = len(window)
+
+    return result
+
+
+# =============================================================
 # 단일 종목 백테스트
 # =============================================================
 def backtest_ticker(code: str, start: str, end: str) -> list:
@@ -475,7 +581,7 @@ def backtest_ticker(code: str, start: str, end: str) -> list:
         start_dt = datetime.strptime(start, '%Y-%m-%d')
         end_dt = datetime.strptime(end, '%Y-%m-%d')
 
-        for i in range(60, len(df) - max(HOLD_DAYS_LIST) - 1):
+        for i in range(60, len(df) - MAX_HOLD_DAYS - 1):
             row_date = pd.to_datetime(df[date_col].iloc[i])
             row_dt = row_date.to_pydatetime().replace(tzinfo=None)
             if not (start_dt <= row_dt <= end_dt):
@@ -490,13 +596,10 @@ def backtest_ticker(code: str, start: str, end: str) -> list:
             if entry_price <= 0:
                 continue
 
+            # 기존 보유기간별 종가 수익률 (진입당일 포함 hold거래일째 종가 기준)
             forward_returns = {}
-            stop_day = None
-            max_high_pct = 0.0
-            max_low_pct = 0.0
-
             for hold in HOLD_DAYS_LIST:
-                future_idx = entry_idx + hold
+                future_idx = entry_idx + hold - 1
                 if future_idx >= len(df):
                     forward_returns[f'수익률_{hold}일'] = None
                     forward_returns[f'승패_{hold}일'] = 'N/A'
@@ -509,18 +612,7 @@ def backtest_ticker(code: str, start: str, end: str) -> list:
                     '승' if ret >= PROFIT_TARGET else ('손절' if ret <= STOP_LOSS else '보합')
                 )
 
-            future_range = df.iloc[entry_idx:entry_idx + 11]
-            if not future_range.empty:
-                max_high = _safe_float(future_range['High'].max())
-                min_low = _safe_float(future_range['Low'].min())
-                max_high_pct = round((max_high - entry_price) / entry_price * 100, 2)
-                max_low_pct = round((min_low - entry_price) / entry_price * 100, 2)
-
-            for d in range(1, min(11, len(df) - entry_idx)):
-                daily_low = _safe_float(df['Low'].iloc[entry_idx + d])
-                if (daily_low - entry_price) / entry_price * 100 <= STOP_LOSS:
-                    stop_day = d
-                    break
+            trade_eval = _evaluate_trade_window(df, entry_idx, entry_price)
 
             records.append({
                 '스캔일': row_dt.strftime('%Y-%m-%d'),
@@ -550,9 +642,7 @@ def backtest_ticker(code: str, start: str, end: str) -> list:
                 '5일매집수': cond['maejip_5d'],
                 'OBV상승': 'Y' if cond['obv_rising'] else 'N',
                 '거래대금억': cond['amount_b'],
-                '최고점%': max_high_pct,
-                '최저점%': max_low_pct,
-                '손절발동일': stop_day,
+                **trade_eval,
                 **forward_returns,
             })
 
@@ -580,6 +670,10 @@ def summarize(df: pd.DataFrame) -> dict:
             'B1': 'ENV엄격형(B1)',
             'B2': 'BB확장형(B2)',
         }
+        판정승 = grp['15일판정'].isin(['승', '승(종가)']).mean() * 100 if '15일판정' in grp.columns else 0
+        타겟도달 = (grp['15일내2%도달'] == 'Y').mean() * 100 if '15일내2%도달' in grp.columns else 0
+        손절터치 = (grp['15일내손절터치'] == 'Y').mean() * 100 if '15일내손절터치' in grp.columns else 0
+
         row = {
             '전략': name_map.get(strategy, strategy),
             '총건수': n,
@@ -587,9 +681,12 @@ def summarize(df: pd.DataFrame) -> dict:
             '평균A점수': round(grp['A점수'].mean(), 1),
             '평균B1점수': round(grp['B1점수'].mean(), 1),
             '평균B2점수': round(grp['B2점수'].mean(), 1),
-            'MFE평균%': round(grp['최고점%'].mean(), 2),
-            'MAE평균%': round(grp['최저점%'].mean(), 2),
-            '손절발동률%': round(grp['손절발동일'].notna().sum() / n * 100, 1),
+            '15일판정승률%': round(판정승, 1),
+            '15일내2%도달률%': round(타겟도달, 1),
+            '15일내손절터치율%': round(손절터치, 1),
+            '15일평균종가수익%': round(pd.to_numeric(grp['15일종가수익률%'], errors='coerce').dropna().mean(), 2),
+            '15일MFE평균%': round(pd.to_numeric(grp['15일최고수익률%'], errors='coerce').dropna().mean(), 2),
+            '15일MAE평균%': round(pd.to_numeric(grp['15일최저수익률%'], errors='coerce').dropna().mean(), 2),
         }
         for hold in HOLD_DAYS_LIST:
             key = f'승패_{hold}일'
@@ -597,14 +694,41 @@ def summarize(df: pd.DataFrame) -> dict:
                 valid = grp[grp[key] != 'N/A']
                 if not valid.empty:
                     win_rate = (valid[key] == '승').mean() * 100
-                    avg_ret = valid[f'수익률_{hold}일'].dropna().mean()
+                    avg_ret = pd.to_numeric(valid[f'수익률_{hold}일'], errors='coerce').dropna().mean()
                     row[f'{hold}일_승률%'] = round(win_rate, 1)
                     row[f'{hold}일_평균수익%'] = round(avg_ret, 2)
         rows.append(row)
     results['전략별'] = pd.DataFrame(rows)
 
+    hold_rows = []
+    for strategy in ['A', 'B1', 'B2']:
+        grp = df[df['전략'] == strategy]
+        if grp.empty:
+            continue
+        name_map = {
+            'A': '돌파형(A)',
+            'B1': 'ENV엄격형(B1)',
+            'B2': 'BB확장형(B2)',
+        }
+        for hold in HOLD_DAYS_LIST:
+            key = f'승패_{hold}일'
+            ret_key = f'수익률_{hold}일'
+            if key not in grp.columns:
+                continue
+            valid = grp[grp[key] != 'N/A']
+            if valid.empty:
+                continue
+            hold_rows.append({
+                '전략': name_map.get(strategy, strategy),
+                '보유일': hold,
+                '건수': len(valid),
+                '승률%': round((valid[key] == '승').mean() * 100, 1),
+                '평균수익%': round(pd.to_numeric(valid[ret_key], errors='coerce').dropna().mean(), 2),
+            })
+    results['보유기간별'] = pd.DataFrame(hold_rows)
+
     df2 = df.copy()
-    df2['년월'] = df2['스캔일'].str[:7]
+    df2['년월'] = df2['스캔일'].astype(str).str[:7]
     monthly = []
     for ym, grp in df2.groupby('년월'):
         n = len(grp)
@@ -614,13 +738,9 @@ def summarize(df: pd.DataFrame) -> dict:
             'A건수': (grp['전략'] == 'A').sum(),
             'B1건수': (grp['전략'] == 'B1').sum(),
             'B2건수': (grp['전략'] == 'B2').sum(),
+            '15일판정승률%': round(grp['15일판정'].isin(['승', '승(종가)']).mean() * 100, 1),
+            '15일내2%도달률%': round((grp['15일내2%도달'] == 'Y').mean() * 100, 1),
         }
-        for hold in HOLD_DAYS_LIST:
-            key = f'승패_{hold}일'
-            if key in grp.columns:
-                valid = grp[grp[key] != 'N/A']
-                if not valid.empty:
-                    row[f'{hold}일승률%'] = round((valid[key] == '승').mean() * 100, 1)
         monthly.append(row)
     results['월별'] = pd.DataFrame(monthly)
 
@@ -633,10 +753,11 @@ def summarize(df: pd.DataFrame) -> dict:
                 '전략': strategy,
                 '밴드': band,
                 '건수': len(grp),
-                '1일평균수익%': round(grp['수익률_1일'].dropna().mean(), 2) if '수익률_1일' in grp.columns else None,
-                '3일평균수익%': round(grp['수익률_3일'].dropna().mean(), 2) if '수익률_3일' in grp.columns else None,
-                '5일평균수익%': round(grp['수익률_5일'].dropna().mean(), 2) if '수익률_5일' in grp.columns else None,
-                '10일평균수익%': round(grp['수익률_10일'].dropna().mean(), 2) if '수익률_10일' in grp.columns else None,
+                '15일판정승률%': round(grp['15일판정'].isin(['승', '승(종가)']).mean() * 100, 1),
+                '15일내2%도달률%': round((grp['15일내2%도달'] == 'Y').mean() * 100, 1),
+                '15일평균종가수익%': round(pd.to_numeric(grp['15일종가수익률%'], errors='coerce').dropna().mean(), 2),
+                '15일MFE평균%': round(pd.to_numeric(grp['15일최고수익률%'], errors='coerce').dropna().mean(), 2),
+                '15일MAE평균%': round(pd.to_numeric(grp['15일최저수익률%'], errors='coerce').dropna().mean(), 2),
             })
     results['밴드별'] = pd.DataFrame(band_rows)
 
