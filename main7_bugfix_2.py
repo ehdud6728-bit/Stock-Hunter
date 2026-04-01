@@ -1,3 +1,4 @@
+# AI 코멘트 안정화 + 토너먼트 리포트형 강화본
 # 신규예비돌반지 Lite 별도 TOP5 분리본
 # HTS 정합용 장기이평 수정본 (900일 로드 + 진짜 224/448 + 데이터부족시 판정생략)
 # 예비돌반지 TOP5 전체스캔 기준 수정본
@@ -3429,26 +3430,36 @@ def run_ai_tournament(candidate_list, issues):
         comments = " | ".join([i.get("comment", "") for i in issues])
 
     prompt_data = "\n".join([
-        f"- {row['종목명']}({row['code']}): {row.get('구분','N/A')}, "
-        f"수급:{row.get('수급',0)}, N구분:{row.get('N구분','N/A')}, "
+        f"- {row['종목명']}({row['code']}): "
+        f"구분:{row.get('구분','N/A')}, 단계:{row.get('단계상태','')}, "
+        f"등급:{row.get('N등급','')}, 조합:{row.get('N조합','')}, "
+        f"수급:{row.get('수급',0)}, 재무:{row.get('재무','')}, N구분:{row.get('N구분','N/A')}, "
         f"이격:{safe_int(row.get('이격',0))}, 현재가:{safe_int(row.get('현재가',0))}, "
+        f"거래대금:{safe_int(row.get('거래대금',0))}, 안전점수:{safe_int(row.get('안전점수',0))}, N점수:{safe_int(row.get('N점수',0))}, "
         f"BB40:{safe_float(row.get('BB40',0)):.1f}, "
         f"초단기MA:{safe_float(row.get('초단기MA수렴도',0)):.1f}, "
         f"단기MA:{safe_float(row.get('단기MA수렴도',0)):.1f}, "
         f"구조MA:{safe_float(row.get('구조MA수렴도',0)):.1f}, "
         f"초강력MA:{'Y' if row.get('초강력MA수렴', False) else 'N'}, "
-        f"OBV기울기:{safe_int(row.get('OBV기울기',0))}, RSI:{safe_int(safe_float(row.get('RSI',0)))}"
+        f"OBV기울기:{safe_int(row.get('OBV기울기',0))}, RSI:{safe_int(safe_float(row.get('RSI',0)))}, "
+        f"예비돌반지:{'Y' if row.get('예비돌반지', False) else 'N'}, "
+        f"신규Lite:{'Y' if row.get('신규예비돌반지Lite', False) else 'N'}, "
+        f"HTS정확:{'Y' if row.get('예비돌반지HTS정확복제', False) else 'N'}"
         for _, row in candidate_list.iterrows()
     ])
 
     system_prompt, user_prompt = get_tournament_prompt(prompt_data, comments)
 
     gemini_prompt_data = "\n".join([
-        f"- {row['종목명']}({row['code']}): 조합:{row.get('N조합','N/A')}, 수급:{row.get('수급',0)}, 이격:{safe_int(row.get('이격',0))}, 현재가:{safe_int(row.get('현재가',0))}, BB40:{safe_float(row.get('BB40',0)):.1f}, RSI:{safe_int(safe_float(row.get('RSI',0)))}"
+        f"- {row['종목명']}({row['code']}): 단계:{row.get('단계상태','')}, 조합:{row.get('N조합','N/A')}, "
+        f"수급:{row.get('수급',0)}, 재무:{row.get('재무','')}, 이격:{safe_int(row.get('이격',0))}, "
+        f"현재가:{safe_int(row.get('현재가',0))}, BB40:{safe_float(row.get('BB40',0)):.1f}, "
+        f"안전점수:{safe_int(row.get('안전점수',0))}, N점수:{safe_int(row.get('N점수',0))}, "
+        f"RSI:{safe_int(safe_float(row.get('RSI',0)))}, OBV기울기:{safe_int(row.get('OBV기울기',0))}"
         for _, row in gemini_candidates.iterrows()
     ])
     gemini_system_prompt, gemini_user_prompt = get_tournament_prompt(gemini_prompt_data, comments)
-    gemini_user_prompt += "\n\n[Gemini 전용 강제 지시]\n- 응답 첫 줄은 반드시 '🏆 [단타 1위]'로 시작해.\n- 서론, 심사관 소개, 검토 과정 설명, 머리말을 절대 쓰지 마.\n- 4개 섹션을 반드시 모두 채워.\n- 각 섹션은 너무 짧지 않게 4~6줄로 작성해.\n- 선정 이유는 패턴 낭독이 아니라 자리의 의미, 수급, 이격, 리스크를 실제 판단처럼 설명해.\n- 답변이 중간에 끊기지 않도록 군더더기 없이 바로 결과만 써."
+    gemini_user_prompt += "\n\n[Gemini 전용 강제 지시]\n- 응답 첫 줄은 반드시 '🏆 [단타 1위]'로 시작해.\n- 서론, 심사관 소개, 검토 과정 설명, 머리말을 절대 쓰지 마.\n- 4개 섹션을 반드시 모두 채워.\n- 각 섹션은 너무 짧지 않게 8~12줄 리포트형으로 작성해.\n- 선정 이유는 패턴 낭독이 아니라 차트 구조, 자리의 의미, 수급, 시황, 리스크를 실제 판단처럼 설명해.\n- 답변이 중간에 끊기지 않도록 군더더기 없이 바로 결과만 써."
 
 
     # ── GPT 호출 (실패해도 계속)
@@ -3685,20 +3696,123 @@ def _call_claude_api(system_prompt: str, user_prompt: str,
         return ''
 
 
+
+def _call_gemini_api_generic(system_prompt: str, user_prompt: str, max_tokens: int = 3000) -> str:
+    if not GEMINI_API_KEY:
+        return ''
+    try:
+        gem_body = {
+            "contents": [{
+                "parts": [{
+                    "text": f"{system_prompt}\n\n{user_prompt}"
+                }]
+            }],
+            "generationConfig": {
+                "temperature": 0.5,
+                "maxOutputTokens": max_tokens,
+            }
+        }
+
+        gem_url = (
+            "https://generativelanguage.googleapis.com/v1beta/models"
+            f"/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
+        )
+        res = requests.post(gem_url, json=gem_body, timeout=90)
+        if res.status_code == 200:
+            out = _extract_gemini_text(res.json())
+            if out:
+                log_debug("✅ Gemini API 사용")
+                return out
+
+        gem_url_fb = (
+            "https://generativelanguage.googleapis.com/v1beta/models"
+            f"/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
+        )
+        res2 = requests.post(gem_url_fb, json=gem_body, timeout=90)
+        if res2.status_code == 200:
+            out2 = _extract_gemini_text(res2.json())
+            if out2:
+                log_debug("✅ Gemini API 사용 (폴백)")
+                return out2
+        return ''
+    except Exception as e:
+        log_error(f"[Gemini 종목별 코멘트 실패] {e}")
+        return ''
+
+
+def _call_groq_api_generic(system_prompt: str, user_prompt: str, max_tokens: int = 3000) -> str:
+    if not GROQ_API_KEY:
+        return ''
+    try:
+        res = requests.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={"Authorization": f"Bearer {GROQ_API_KEY}"},
+            json={
+                "model": "llama-3.3-70b-versatile",
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user",   "content": user_prompt},
+                ],
+                "temperature": 0.5,
+                "max_tokens": max_tokens,
+            },
+            timeout=60
+        )
+        if res.status_code == 200:
+            data = res.json()
+            out = data.get("choices", [{}])[0].get("message", {}).get("content", "") or ""
+            if out:
+                log_debug("✅ Groq API 사용")
+                return out.strip()
+        else:
+            log_error(f"[Groq 종목별 코멘트 실패] {res.status_code} {res.text[:200]}")
+        return ''
+    except Exception as e:
+        log_error(f"[Groq 종목별 코멘트 예외] {e}")
+        return ''
+
+
+def parse_ai_summary_to_map(ai_result_text: str) -> dict:
+    ai_map = {}
+    current_key = None
+    current_lines = []
+    header_re = re.compile(r'^\s*(?:[#>\-\d\.\)]\s*)*\[?\s*([^\[\]\(\)]+?)\s*\(\s*(\d{6})\s*\)\s*\]?\s*$')
+
+    for raw_line in str(ai_result_text or "").splitlines():
+        line = raw_line.strip()
+        if not line:
+            if current_key:
+                current_lines.append(raw_line)
+            continue
+
+        m = header_re.match(line)
+        if m:
+            if current_key and current_lines:
+                ai_map[current_key] = "\n".join(current_lines).strip()
+            name = m.group(1).strip()
+            code = m.group(2).strip()
+            current_key = f"{name}({code})"
+            current_lines = []
+        elif current_key:
+            current_lines.append(raw_line)
+
+    if current_key and current_lines:
+        ai_map[current_key] = "\n".join(current_lines).strip()
+
+    return ai_map
+
+
 def _call_ai(system_prompt: str, user_prompt: str,
              max_tokens: int = 3000, prefer_claude: bool = True) -> str:
     """
-    AI API 호출 — Claude 우선, 실패 시 OpenAI 폴백.
-    prefer_claude=True: ANTHROPIC_API_KEY 있으면 Claude 먼저 시도
+    AI API 호출 — Claude/OpenAI 우선, 실패 시 Gemini/Groq까지 폴백.
     """
-    # Claude 우선 시도
     if prefer_claude and ANTHROPIC_API_KEY:
         result = _call_claude_api(system_prompt, user_prompt, max_tokens)
         if result:
             log_debug("✅ Claude API 사용")
             return result
 
-    # OpenAI 폴백
     if OPENAI_API_KEY:
         try:
             client = OpenAI(api_key=OPENAI_API_KEY)
@@ -3711,18 +3825,27 @@ def _call_ai(system_prompt: str, user_prompt: str,
                 max_tokens=max_tokens,
                 temperature=0.5
             )
-            log_debug("✅ OpenAI API 사용 (폴백)")
-            return res.choices[0].message.content.strip()
+            out = (res.choices[0].message.content or '').strip()
+            if out:
+                log_debug("✅ OpenAI API 사용 (폴백)")
+                return out
         except Exception as e:
             log_error(f"[OpenAI 폴백 실패] {e}")
 
-    return "AI 분석 불가 (API 키 없음)"
+    result = _call_gemini_api_generic(system_prompt, user_prompt, max_tokens=max_tokens)
+    if result:
+        return result
 
+    result = _call_groq_api_generic(system_prompt, user_prompt, max_tokens=min(max_tokens, 4000))
+    if result:
+        return result
+
+    return "AI 분석 불가 (API 키 없음 또는 호출 실패)"
 
 def get_ai_summary_batch(ai_candidates_df, issues=None, market_news=None):
     """
     판단형 종목 코멘트 생성.
-    기존 낭독형 대신 '왜 지금 / 왜 아님 / 무효화 조건' 중심으로 출력.
+    안정성을 위해 후보를 5개까지만 보고, 2~3개씩 나눠서 배치 호출한다.
     """
     comments = "특이 이슈 없음"
     if issues:
@@ -3734,46 +3857,53 @@ def get_ai_summary_batch(ai_candidates_df, issues=None, market_news=None):
         if top_news:
             market_news_block = "\n\n## 오늘 시장 주요 뉴스\n" + "\n".join(f"- {n}" for n in top_news)
 
-    # ✅ 깊이 확보를 위해 너무 많은 종목을 한 번에 넣지 않음
-    work_df = ai_candidates_df.head(8).copy()
+    work_df = ai_candidates_df.head(5).copy()
+    if work_df is None or work_df.empty:
+        return "브리핑 생성 중 오류가 발생했습니다."
 
-    packets = []
-    for _, row in work_df.iterrows():
-        packets.append(build_judgment_packet(row))
+    batch_size = 3
+    outputs = []
 
-    system_prompt = f"""
+    for start_idx in range(0, len(work_df), batch_size):
+        batch_df = work_df.iloc[start_idx:start_idx + batch_size].copy()
+
+        packets = []
+        for _, row in batch_df.iterrows():
+            packets.append(build_judgment_packet(row))
+
+        system_prompt = f"""
 너는 한국 주식 실전 트레이딩 보조 AI다.
-역할은 '좋은 말로 소개'가 아니라 '매매 가능 여부를 심사'하는 것이다.
+역할은 '좋은 말로 소개'가 아니라 '지금 실제로 매매 가능한지 심사하는 것'이다.
 
 {YEOK_MAE_CONTEXT}
 
 판단 원칙:
 1. 먼저 초입/중간/후행/눌림 중 어느 위치인지 판단할 것
-2. 장점보다 약점과 무효화 조건을 더 중요하게 볼 것
-3. 패턴 이름을 반복하지 말고, 패턴이 만들어내는 자리의 의미를 설명할 것
-4. 숫자를 그대로 읽지 말고, 그 숫자가 의미하는 해석을 말할 것
-5. 확신이 없으면 관망이라고 말할 것
-6. 같은 문장 구조 반복 금지
+2. 차트 구조를 먼저 보고, 그 다음 수급과 시황 적합성을 붙일 것
+3. 장점보다 약점과 무효화 조건을 더 중요하게 볼 것
+4. 패턴명을 반복하지 말고, 패턴이 만들어내는 자리의 의미를 설명할 것
+5. 숫자를 그대로 읽지 말고, 그 숫자가 의미하는 해석을 말할 것
+6. 시장/테마 흐름이 받쳐주는지 또는 역풍인지 반드시 1회 언급할 것
 7. 각 종목의 첫 문장은 모두 다르게 시작할 것
-8. 종목당 너무 짧게 끝내지 말고 실제 판단 이유가 느껴지게 충분히 설명할 것
-9. 반드시 '지금 왜 볼 만한지'와 '지금 왜 망설여야 하는지'를 둘 다 말할 것
+8. 짧더라도 실전적인 문장으로 쓸 것
+9. 확신이 없으면 관망이라고 명확히 말할 것
 
 오늘 시장 이슈:
 {comments}{market_news_block}
 """
 
-    user_prompt = f"""
+        user_prompt = f"""
 다음은 종목별 판단 패킷이다.
-각 종목마다 아래 형식으로 써라.
+각 종목마다 아래 형식으로만 써라.
 
 형식:
 [종목명(코드)]
-한 줄 결론: 1~2문장
-왜 지금 보는지: 2~3문장
-왜 지금 애매한지: 2문장 이상
-진입 방식: 2문장 이상
-무효화 조건: 1~2문장
-총평: 1~2문장
+한 줄 결론: 1문장
+차트 구조 해석: 2문장
+수급/시황 적합성: 1~2문장
+진입 방식: 1~2문장
+무효화 조건: 1문장
+총평: 1문장
 
 종목 패킷(JSON):
 {json.dumps(packets, ensure_ascii=False, indent=2)}
@@ -3781,16 +3911,18 @@ def get_ai_summary_batch(ai_candidates_df, issues=None, market_news=None):
 주의:
 - 패턴명 낭독 금지
 - 숫자 나열 금지
-- "좋다/나쁘다"보다 왜 그런지 말할 것
-- 손절가가 있으면 무효화 조건에 자연스럽게 반영할 것
-- 종목당 최소 7~9문장 분량으로 작성할 것
-- 너무 짧게 끊지 말고 실제 판단 이유를 충분히 붙일 것
+- 같은 문장 반복 금지
+- 너무 장황하게 쓰지 말고, 종목당 6~8문장 정도의 리포트형 요약으로 작성
+- 반드시 [종목명(코드)] 헤더를 정확히 써라
 """
 
-    result = _call_ai(system_prompt, user_prompt, max_tokens=5200)
-    if not result:
+        result = _call_ai(system_prompt, user_prompt, max_tokens=1800)
+        if result and str(result).strip():
+            outputs.append(str(result).strip())
+
+    if not outputs:
         return "브리핑 생성 중 오류가 발생했습니다."
-    return result
+    return "\n\n".join(outputs)
 
 def get_ai_summary_batch_back(stock_lines: list, issues: list = None):
     comments = "특이 이슈 없음"
@@ -4446,7 +4578,7 @@ def get_market_briefing_prompt(comments, theme_info, m_ndx, m_sp5, m_vix, m_fx):
 def get_tournament_prompt(prompt_data, comments):
     system_prompt = f"""
 너는 한국 주식 단기/스윙 트레이딩 실전 심사관이다.
-목표는 '좋아 보이는 종목 소개'가 아니라 '지금 실제로 먼저 볼 종목을 골라내는 것'이다.
+목표는 '좋아 보이는 종목 소개'가 아니라 '오늘 실제로 먼저 볼 종목을 골라내는 것'이다.
 
 {YEOK_MAE_CONTEXT}
 
@@ -4455,11 +4587,14 @@ def get_tournament_prompt(prompt_data, comments):
 중요 원칙:
 - 패턴명 반복 금지
 - 숫자 낭독 금지
-- 왜 지금이 초입인지 / 왜 후행인지 먼저 판단
+- 차트 구조를 먼저 해석하고, 그 다음 시황/수급/리스크를 연결할 것
+- 왜 지금이 초입인지 / 왜 이미 후행인지 먼저 판단
 - 반드시 반대 증거 1개 이상 제시
-- 확신 없으면 관망이라고 말할 것
+- 확신 없으면 관망 또는 해당 없음이라고 말할 것
 - 좋은 점보다 '실패 조건'을 더 중요하게 볼 것
-- 패턴 이름을 읽는 대신, 자리의 질과 타점의 성격을 해석할 것
+- 리포트처럼 써라. 한두 줄 소개문이 아니라 실제 매매 메모 수준의 분석을 원한다
+- 단기 후보는 당일/익일의 타점과 무효화 조건을 더 선명하게, 스윙 후보는 1~3주 관점의 구조와 재료 지속성을 더 강조할 것
+- 반드시 시장/테마 맥락이 받쳐주는지 한 번은 짚을 것
 
 오늘 이슈:
 {comments}
@@ -4475,29 +4610,37 @@ def get_tournament_prompt(prompt_data, comments):
 출력 형식:
 🏆 [단타 1위]
 - 종목명(코드):
-- 한 줄 결론:
+- 핵심 판단:
+- 차트 구조 해석:
+- 수급/시황 해석:
 - 지금 볼 이유:
 - 지금 안 볼 이유:
-- 진입 방식:
+- 진입 시나리오:
 - 무효화 조건:
+- 리스크 요약:
 - 한 줄 총평:
 
 🎯 [스윙 1위]
 - 종목명(코드):
-- 한 줄 결론:
+- 핵심 판단:
+- 차트 구조 해석:
+- 수급/시황 해석:
 - 지금 볼 이유:
 - 지금 안 볼 이유:
-- 진입 방식:
+- 진입 시나리오:
 - 무효화 조건:
+- 리스크 요약:
 - 한 줄 총평:
 
 ⚠️ [주의 종목]
-- 1개만 고르고 왜 조심해야 하는지 한 줄
+- 1개만 고르고 왜 조심해야 하는지 3~5줄로 설명
 
 중요:
 - 패턴명 그대로 읽는 답변 금지
 - 'BB40 8.3이라 좋다' 식의 낭독 금지
-- 반드시 맥락으로 해석할 것
+- 차트 구조/매물대/눌림 여부/선행성 여부를 해석할 것
+- 시장이 받쳐주는지 또는 역풍인지 반드시 한 번 짚을 것
+- 각 메인 섹션은 너무 짧지 않게, 실제 리포트처럼 8~12줄 수준으로 작성
 """
     return system_prompt, user_prompt
 
@@ -6408,27 +6551,59 @@ def analyze_weekly_trend(ticker, name):
 
 def generate_stage_ai_tip(row):
     try:
-        stage = row.get('단계상태', '')
-        energy = row.get('에너지', '')
-        volume = row.get('거래대금', 0)
-        obv = row.get('OBV기울기', 0)
-        rsi = row.get('RSI', 50)
+        stage = str(row.get('단계상태', '') or '')
+        safe_score = safe_int(row.get('안전점수', 0))
+        nscore = safe_int(row.get('N점수', 0))
+        obv = safe_float(row.get('OBV기울기', 0))
+        rsi = safe_float(row.get('RSI', 50))
+        pre = bool(row.get('예비돌반지', False))
+        pre_exact = bool(row.get('예비돌반지HTS정확복제', False))
+        pre_lite = bool(row.get('신규예비돌반지Lite', False))
+
+        reasons = []
+        cautions = []
+
+        if pre_exact:
+            reasons.append("장기 구조 조건까지 맞물린 HTS 정확복제형 예비돌반지 후보라 자리 해석의 질이 높은 편입니다")
+        elif pre:
+            reasons.append("예비돌반지 계열로 잡혀 재돌파 감시 가치가 있습니다")
+        elif pre_lite:
+            reasons.append("신규상장/짧은 이력 구간에서 대체 패턴인 신규예비돌반지 Lite가 감지되었습니다")
 
         if stage == "PASS_A":
-            return "초동 파동 시작 구간, 첫 돌파 흐름. 눌림 시 매수 유효"
-
+            reasons.append("초동 파동 시작 구간이라 첫 돌파 흐름을 확인하는 자리입니다")
         elif stage == "PASS_B":
-            if obv > 0 and rsi < 70:
-                return "재파동 초입, 수급 유지 상태. 강한 종목 가능성 높음"
-            elif rsi >= 70:
-                return "과열 구간 진입, 단기 눌림 확인 필요"
-            else:
-                return "재응축 후 돌파 시도, 거래대금 동반 여부 중요"
+            reasons.append("재파동 초입으로 수급만 유지되면 한 번 더 뻗을 여지가 있습니다")
+        elif stage:
+            reasons.append(f"{stage} 단계로 분류되어 현재 구조의 위치 해석이 가능합니다")
 
+        if obv > 0:
+            reasons.append("OBV 기울기가 살아 있어 수급의 방향성은 나쁘지 않습니다")
+        if safe_score >= 70:
+            reasons.append("안전점수가 높은 편이라 무너지기 전까지는 관찰 우선순위를 둘 수 있습니다")
+        if nscore >= 80:
+            reasons.append("종합 점수가 높아 다른 후보와 비교해도 우선 검토할 만합니다")
+
+        if rsi >= 72:
+            cautions.append("다만 RSI가 과열권이면 바로 추격보다 눌림 확인이 더 중요합니다")
+        elif rsi <= 35:
+            cautions.append("RSI가 낮으면 아직 반등 확인이 덜 된 약세 구간일 수 있습니다")
+
+        if safe_score < 50:
+            cautions.append("안전점수가 낮아 구조가 예뻐 보여도 실패 시 흔들림이 커질 수 있습니다")
+
+        if not reasons:
+            reasons.append("아직 강한 확신 구간이라기보다 추가 확인이 필요한 중립 위치입니다")
+        if not cautions:
+            cautions.append("다만 무효화 기준 없이 보는 자리로는 애매하니 전일 저점이나 핵심 이평 이탈은 반드시 체크해야 합니다")
+
+        body = f"{reasons[0]}. "
+        if len(reasons) > 1:
+            body += " ".join(reasons[1:]) + " "
+        body += " ".join(cautions)
+        return body.strip()
+    except Exception:
         return "타이밍 애매, 추가 확인 필요"
-
-    except Exception as e:
-        return "분석 실패"
 
 
 
@@ -6923,30 +7098,29 @@ if __name__ == "__main__":
     # market_news_titles를 issues와 함께 전달 (시장 맥락 제공)
     ai_result_text = get_ai_summary_batch(ai_candidates, issues, market_news_titles)
 
-    # ✅ 파싱 복구
-    ai_map = {}
-    current_key = None
-    current_lines = []
-    
-    for line in ai_result_text.splitlines():
-        # [종목명(코드)] 형식 감지
-        if line.startswith("[") and "(" in line and line.endswith("]"):
-            # 이전 종목 저장
-            if current_key and current_lines:
-                ai_map[current_key] = "\n".join(current_lines).strip()
-            current_key = line[1:-1]  # [ ] 제거
-            current_lines = []
-        elif current_key:
-            current_lines.append(line)
-    
-    # 마지막 종목 저장
-    if current_key and current_lines:
-        ai_map[current_key] = "\n".join(current_lines).strip()
-    
+    # ✅ 파싱 복구 (유연 파서 + 규칙기반 fallback)
+    ai_map = parse_ai_summary_to_map(ai_result_text)
+    log_info(f"🧠 AI 코멘트 파싱 성공 수: {len(ai_map)} / 후보 {len(ai_candidates)}")
+
     # ✅ ai_tip 주입
     for idx, item in ai_candidates.iterrows():
         key = f"{item['종목명']}({item['code']})"
-        ai_candidates.loc[idx, "ai_tip"] = ai_map.get(key, "브리핑 생성 실패")
+        ai_tip_text = str(ai_map.get(key, "") or "").strip()
+
+        if not ai_tip_text:
+            code = str(item.get('code', '')).strip()
+            for k, v in ai_map.items():
+                if k.endswith(f"({code})") and str(v).strip():
+                    ai_tip_text = str(v).strip()
+                    break
+
+        if not ai_tip_text or ai_tip_text in ("브리핑 생성 실패", "AI 분석 불가 (API 키 없음 또는 호출 실패)"):
+            ai_tip_text = generate_stage_ai_tip(item)
+
+        if not ai_tip_text:
+            ai_tip_text = "타이밍 애매, 추가 확인 필요"
+
+        ai_candidates.loc[idx, "ai_tip"] = ai_tip_text
 
     # ✅ PASS 후보는 전체 후보와 분리 유지 (TOP15 본문과 섞지 않음)
     if '단계상태' in ai_candidates.columns:
