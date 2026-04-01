@@ -1,4 +1,4 @@
-# 숫자형 필터 오류 수정 + 불안정 미국지수/섹터 심볼 보정본
+# 기준본 단일 파일: main7_bugfix_2_canonical_base_final.py
 # AI 코멘트 안정화 + 토너먼트 리포트형 강화본
 # 신규예비돌반지 Lite 별도 TOP5 분리본
 # HTS 정합용 장기이평 수정본 (900일 로드 + 진짜 224/448 + 데이터부족시 판정생략)
@@ -70,6 +70,20 @@ def safe_int(x, default=0):
         return int(round(safe_float(x, default)))
     except Exception:
         return default
+
+def coerce_numeric_columns(df: pd.DataFrame, columns):
+    """문자열/콤마 섞인 숫자 컬럼을 안전하게 숫자로 변환"""
+    if df is None or len(df) == 0:
+        return df
+    out = df.copy()
+    for col in columns:
+        if col in out.columns:
+            out[col] = pd.to_numeric(
+                out[col].astype(str).str.replace(',', '', regex=False).str.strip(),
+                errors='coerce'
+            )
+    return out
+
 
 # scan_logger 없으면 print로 폴백
 # ✅ 오류/에러 로그만 남기도록 강제
@@ -6913,11 +6927,14 @@ if __name__ == "__main__":
     df_clean = df_clean[~df_clean['Name'].str.contains('ETF|ETN|스팩|제[0-9]+호|우$|우A|우B|우C', regex=True)].copy()
 
     # 숫자 컬럼 정규화: 문자열/콤마 섞여도 필터에서 죽지 않게 처리
-    df_clean = coerce_numeric_columns(df_clean, ['Close', 'Price', 'Amount', 'Marcap', 'MarCap'])
-    log_info(f"🧮 숫자 컬럼 정규화 완료 | Close dtype={df_clean['Close'].dtype if 'Close' in df_clean.columns else 'N/A'} | Price dtype={df_clean['Price'].dtype if 'Price' in df_clean.columns else 'N/A'}")
+    df_clean = coerce_numeric_columns(df_clean, ['Close', 'Price', 'Amount', 'Marcap', 'MarCap', 'ChangeRate', 'Change'])
 
-    # ✅ FIX-4: 동전주 + 저시총 제외
-    # 가격 필터 (5,000원 미만 제외)
+    try:
+        log_info(f"🧮 숫자 컬럼 정규화 완료 | Close dtype={df_clean['Close'].dtype if 'Close' in df_clean.columns else 'N/A'} | Price dtype={df_clean['Price'].dtype if 'Price' in df_clean.columns else 'N/A'}")
+    except Exception:
+        pass
+
+    # 가격 필터
     if 'Close' in df_clean.columns and df_clean['Close'].notna().any():
         before_cnt = len(df_clean)
         df_clean = df_clean[df_clean['Close'].fillna(-1) >= MIN_PRICE].copy()
@@ -6929,7 +6946,7 @@ if __name__ == "__main__":
     else:
         log_info("⚠️ 가격 컬럼이 없거나 전부 NaN이라 가격필터를 건너뜀")
 
-    # 시총 필터 (300억 미만 제외)
+    # 시총 필터
     if 'Marcap' in df_clean.columns and df_clean['Marcap'].notna().any():
         before_cnt = len(df_clean)
         df_clean = df_clean[df_clean['Marcap'].fillna(-1) >= MIN_MARCAP].copy()
@@ -6944,8 +6961,8 @@ if __name__ == "__main__":
     log_info(f"🔭 필터 후 대상: {len(df_clean)}개 (5천원↑, 시총300억↑)")
 
     if 'Amount' in df_clean.columns:
-        # ✅ FIX-6: 거래대금 상위 TOP_N + 급등 소형주 50 병합
         df_clean = coerce_numeric_columns(df_clean, ['Amount'])
+        # 거래대금 상위 TOP_N + 급등 소형주 50 병합
         sorted_main = df_clean.sort_values(by='Amount', ascending=False, na_position='last').head(TOP_N)
 
         # 급등 소형주: 거래대금 하위권이지만 당일 거래대금 급증 종목
