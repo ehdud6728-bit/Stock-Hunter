@@ -1,20 +1,24 @@
 # =============================================================
-# closing_bet_scanner.py — 종가배팅 타점 스캐너
+# closing_bet_scanner.py — 종가배팅 타점 스캐너 (통합본)
 # =============================================================
-# 실행 시간: 15:00 ~ 15:20 (이 시간대에만 의미 있음)
+# 실행 시간: 14:50 ~ 15:25
 #
-# 왜 이 시간인가:
-# 15:00 이전 → 아직 장 중, 종가 확정 안 됨
-# 15:20 이후 → 동시호가 진입 타이밍 지남
-# 15:00~15:20 → 오늘 종가 흐름 확인 + 진입 결정 가능
-#
-# 종가배팅 조건 6가지:
+# 전략 A — 돌파형 종가배팅
 # ① 전고점(20일) 대비 85~100% 구간
-# ② 윗꼬리 비율 20% 이하 (강봉 마감 중)
+# ② 윗꼬리 비율 20% 이하
 # ③ 거래량 VMA20 × 2배 이상 폭발
 # ④ 양봉 마감 (현재가 ≥ 시가)
 # ⑤ 이격도 98~112 (MA20 적정 위치)
 # ⑥ MA20 위 마감
+#
+# 전략 B — 적응형 하단 종가배팅
+# 기본:
+#   - 코스피200  -> Envelope 하단 우선
+#   - 코스닥150 -> Bollinger(40,2) 하단 우선
+#
+# 예외:
+#   - BB폭 확대 / ATR 확대 / 거래대금 활발 -> BB 우선
+#   - 지나치게 안정적 -> ENV 우선
 #
 # 실행:
 # python closing_bet_scanner.py
@@ -44,9 +48,7 @@ from main7_bugfix_2 import (
     KST,
 )
 
-# ── 종가배팅 전용 텔레그램 설정 (yml에서 별도 지정 가능)
-# CLOSING_BET_TOKEN / CLOSING_BET_CHAT_ID 있으면 그걸 우선 사용
-# 없으면 기존 TELEGRAM_TOKEN / TELEGRAM_CHAT_ID 사용
+# ── 종가배팅 전용 텔레그램 설정
 TELEGRAM_TOKEN = (
     os.environ.get('CLOSING_BET_TOKEN')
     or os.environ.get('TELEGRAM_TOKEN', '')
@@ -85,7 +87,9 @@ def _calc_upper_wick_body_ratio(row) -> float:
     return upper_wick / body_size
 
 
-# ── 텔레그램 전송 (자체 구현 — main7 독립)
+# =============================================================
+# 텔레그램 전송
+# =============================================================
 def send_telegram_photo(message: str, image_paths: list = None):
     if image_paths is None:
         image_paths = []
@@ -138,11 +142,13 @@ def send_telegram_chunks(message: str, max_len: int = 3800):
 # =============================================================
 def _calc_envelope(df: pd.DataFrame, period: int, pct: float) -> dict:
     """
-    Envelope 계산.
+    Envelope 계산
     상한선 = MA × (1 + pct/100)
     하한선 = MA × (1 - pct/100)
-    예) Envelope(20, 20) → MA20 ± 20%
-        Envelope(40, 40) → MA40 ± 40%
+
+    예:
+    Envelope(20, 20) -> MA20 ± 20%
+    Envelope(40, 40) -> MA40 ± 40%
     """
     ma = df['Close'].rolling(period).mean()
     upper = ma * (1 + pct / 100)
@@ -154,41 +160,169 @@ def _calc_envelope(df: pd.DataFrame, period: int, pct: float) -> dict:
     }
 
 
-
 def _check_envelope_bottom(row: pd.Series, df: pd.DataFrame) -> dict:
     """
-    Envelope 하한선 근접 여부 체크.
+    Envelope 하한선 근접 여부 체크
 
     조건:
-    - Envelope(20, 20%) 하한선 2% 이내
-    - Envelope(40, 40%) 하한선 10% 이내
+    - Envelope(20,20%) 하한선 2% 이내
+    - Envelope(40,40%) 하한선 10% 이내
     """
     close = float(row.get('Close', 0))
     if close <= 0:
         return {
             'env20_near': False,
             'env40_near': False,
-            'env20_pct': 0,
-            'env40_pct': 0,
+            'env20_pct': 0.0,
+            'env40_pct': 0.0,
             'lower20': 0,
             'lower40': 0,
         }
 
     env20 = _calc_envelope(df, 20, 20)
-    lower20 = float(env20['lower'].iloc[-1])
-    env20_pct = (close - lower20) / lower20 * 100
+    lower20 = float(env20['lower'].iloc[-1]) if not pd.isna(env20['lower'].iloc[-1]) else 0.0
+    env20_pct = ((close - lower20) / lower20 * 100) if lower20 > 0 else 999.0
 
     env40 = _calc_envelope(df, 40, 40)
-    lower40 = float(env40['lower'].iloc[-1])
-    env40_pct = (close - lower40) / lower40 * 100
+    lower40 = float(env40['lower'].iloc[-1]) if not pd.isna(env40['lower'].iloc[-1]) else 0.0
+    env40_pct = ((close - lower40) / lower40 * 100) if lower40 > 0 else 999.0
 
     return {
         'env20_near': -2.0 <= env20_pct <= 2.0,
         'env40_near': -10.0 <= env40_pct <= 10.0,
         'env20_pct': round(env20_pct, 1),
         'env40_pct': round(env40_pct, 1),
-        'lower20': round(lower20),
+        'lower20': round(lower20) if lower20 > 0 else 0,
+        'lower40': round(lower40) if lower40 > 0 else 0,
+    }
+
+
+# =============================================================
+# Bollinger 계산 유틸
+# =============================================================
+BB40_NEAR_PCT = 2.5          # BB40 하단 ±2.5% 이내면 근접
+BB_SWITCH_WIDTH = 18.0       # ENV -> BB 전환 기준: BB폭
+ENV_SWITCH_WIDTH = 10.0      # BB -> ENV 전환 기준: 좁은 BB폭
+BB_SWITCH_ATR = 4.0          # ENV -> BB 전환 기준: ATR%
+ENV_SWITCH_ATR = 2.2         # BB -> ENV 전환 기준: 안정 ATR%
+BB_SWITCH_AMOUNT20_B = 500.0 # ENV -> BB 전환 기준: 최근20일 평균 거래대금(억)
+ENV_SWITCH_AMOUNT20_B = 150.0
+
+
+def _calc_bollinger(df: pd.DataFrame, period: int = 40, std_mult: float = 2.0) -> dict:
+    mid = df['Close'].rolling(period).mean()
+    std = df['Close'].rolling(period).std()
+    upper = mid + std * std_mult
+    lower = mid - std * std_mult
+    width = pd.Series(
+        np.where(mid > 0, (upper - lower) / mid * 100, np.nan),
+        index=df.index,
+    )
+    return {
+        'mid': mid,
+        'upper': upper,
+        'lower': lower,
+        'width': width,
+    }
+
+
+def _check_bb_bottom(row: pd.Series, df: pd.DataFrame) -> dict:
+    close = float(row.get('Close', 0))
+    if close <= 0:
+        return {
+            'bb40_near': False,
+            'bb40_pct': 0.0,
+            'bb40_width': 0.0,
+            'lower40': 0,
+            'mid40': 0,
+        }
+
+    bb40 = _calc_bollinger(df, 40, 2.0)
+    lower40 = float(bb40['lower'].iloc[-1]) if not pd.isna(bb40['lower'].iloc[-1]) else 0.0
+    mid40 = float(bb40['mid'].iloc[-1]) if not pd.isna(bb40['mid'].iloc[-1]) else 0.0
+    width40 = float(bb40['width'].iloc[-1]) if not pd.isna(bb40['width'].iloc[-1]) else 0.0
+
+    if lower40 <= 0:
+        return {
+            'bb40_near': False,
+            'bb40_pct': 999.0,
+            'bb40_width': round(width40, 1),
+            'lower40': 0,
+            'mid40': round(mid40) if mid40 > 0 else 0,
+        }
+
+    bb40_pct = (close - lower40) / lower40 * 100
+
+    return {
+        'bb40_near': -BB40_NEAR_PCT <= bb40_pct <= BB40_NEAR_PCT,
+        'bb40_pct': round(bb40_pct, 1),
+        'bb40_width': round(width40, 1),
         'lower40': round(lower40),
+        'mid40': round(mid40) if mid40 > 0 else 0,
+    }
+
+
+def _choose_lower_band_type(code: str, df: pd.DataFrame, row: pd.Series) -> dict:
+    """
+    기본:
+      - 코스피200  -> ENV
+      - 코스닥150 -> BB
+
+    예외:
+      - 변동성 크고 거래대금 크면 BB
+      - 너무 안정적이면 ENV
+    """
+    idx = INDEX_MAP.get(code, '')
+    close = float(row.get('Close', 0) or 0)
+    atr = float(row.get('ATR', 0) or 0)
+    atr_pct = (atr / close * 100) if close > 0 else 0.0
+
+    amount_b_series = (df['Close'] * df['Volume']) / 1e8
+    amount20_b = float(amount_b_series.rolling(20).mean().iloc[-1]) if len(amount_b_series) >= 20 else 0.0
+
+    bb = _check_bb_bottom(row, df)
+    bb40_width = float(bb.get('bb40_width', 0) or 0)
+
+    # 기본 배정
+    if idx == '코스피200':
+        selected = 'ENV'
+        reason = '기본=코스피200'
+    elif idx == '코스닥150':
+        selected = 'BB'
+        reason = '기본=코스닥150'
+    else:
+        selected = 'BB'
+        reason = '기본=비지수/변동성우선'
+
+    # ENV -> BB 전환
+    if selected == 'ENV':
+        if bb40_width >= BB_SWITCH_WIDTH:
+            selected = 'BB'
+            reason = f'예외전환=BB폭확대({bb40_width:.1f})'
+        elif atr_pct >= BB_SWITCH_ATR:
+            selected = 'BB'
+            reason = f'예외전환=ATR확대({atr_pct:.1f}%)'
+        elif amount20_b >= BB_SWITCH_AMOUNT20_B:
+            selected = 'BB'
+            reason = f'예외전환=거래대금활발({amount20_b:.1f}억)'
+
+    # BB -> ENV 전환
+    elif selected == 'BB':
+        if (
+            bb40_width <= ENV_SWITCH_WIDTH
+            and atr_pct <= ENV_SWITCH_ATR
+            and amount20_b <= ENV_SWITCH_AMOUNT20_B
+        ):
+            selected = 'ENV'
+            reason = f'예외전환=안정형(BB폭{bb40_width:.1f}/ATR{atr_pct:.1f}%)'
+
+    return {
+        'index_label': idx,
+        'selected': selected,
+        'reason': reason,
+        'atr_pct': round(atr_pct, 1),
+        'amount20_b': round(amount20_b, 1),
+        'bb40_width': round(bb40_width, 1),
     }
 
 
@@ -196,13 +330,13 @@ def _check_envelope_bottom(row: pd.Series, df: pd.DataFrame) -> dict:
 # 설정
 # =============================================================
 MIN_PRICE = 5_000
-MIN_AMOUNT = 3_000_000_000   # 거래대금 30억 이상 (지수 구성 종목 기준 완화)
-MIN_MARCAP = 50_000_000_000  # 시총 500억 이상
-TOP_N = 400                  # 거래대금 상위 N종목 (amount_top400 모드용)
+MIN_AMOUNT = 3_000_000_000    # 거래대금 30억 이상
+MIN_MARCAP = 50_000_000_000   # 시총 500억 이상
+TOP_N = 400                   # 거래대금 상위 N종목
 
-# 스캔 유니버스 선택
-# 'kospi200+kosdaq150' : 코스피200 + 코스닥150 (기본값, 신뢰도 높음)
-# 'amount_top400'      : 거래대금 상위 400개 (오늘 활발한 종목)
+# 스캔 유니버스
+# 'kospi200+kosdaq150' : 코스피200 + 코스닥150
+# 'amount_top400'      : 거래대금 상위 400개
 # 'kospi200'           : 코스피200만
 SCAN_UNIVERSE = 'kospi200+kosdaq150'
 
@@ -232,8 +366,8 @@ def _get_index_tickers_naver(index_code: str) -> list:
     """
     네이버 금융에서 지수 구성 종목 코드 수집.
     index_code:
-        'KOSPI200' → 코스피200 구성 종목
-        'KQ150'    → 코스닥150 구성 종목
+        'KOSPI200' -> 코스피200
+        'KQ150'    -> 코스닥150
     """
     try:
         from bs4 import BeautifulSoup
@@ -268,24 +402,43 @@ def _get_index_tickers_naver(index_code: str) -> list:
         if tickers:
             log_info(f"네이버 {index_code}: {len(tickers)}개 ✅")
         return tickers
+
     except Exception as e:
         log_error(f"⚠️ 네이버 {index_code} 실패: {e}")
         return []
 
 
-
 def _get_index_tickers_krx(market: str, top_n: int) -> list:
-    """FDR / pykrx 시총 기반 폴백"""
+    """
+    pykrx에서 지수명으로 구성종목 가져오기.
+    market:
+        'KOSPI'  -> 코스피200
+        'KOSDAQ' -> 코스닥150
+    """
     try:
         from pykrx import stock as _pk
-        today = datetime.now().strftime('%Y%m%d')
-        idx_code = '1028' if market == 'KOSPI' else '2203'
-        tickers = _pk.get_index_portfolio_deposit_file(idx_code, today)
-        if tickers and len(tickers) > 50:
-            log_info(f"pykrx {market}: {len(tickers)}개 ✅")
-            return list(tickers)[:top_n]
-    except Exception:
-        pass
+
+        target_name = '코스피 200' if market == 'KOSPI' else '코스닥 150'
+        idx_codes = _pk.get_index_ticker_list(market=market)
+
+        target_code = None
+        for idx_code in idx_codes:
+            try:
+                idx_name = _pk.get_index_ticker_name(idx_code)
+                if idx_name == target_name:
+                    target_code = idx_code
+                    break
+            except Exception:
+                continue
+
+        if target_code:
+            tickers = _pk.get_index_portfolio_deposit_file(target_code)
+            if tickers and len(tickers) > 50:
+                log_info(f"pykrx {target_name}: {len(tickers)}개 ✅")
+                return list(tickers)[:top_n]
+
+    except Exception as e:
+        log_error(f"⚠️ pykrx {market} 실패: {e}")
 
     try:
         df = fdr.StockListing(market)
@@ -303,12 +456,7 @@ def _get_index_tickers_krx(market: str, top_n: int) -> list:
     return []
 
 
-
 def _get_kospi200() -> list:
-    """
-    코스피200 구성 종목.
-    우선순위: ① 네이버금융 ② pykrx ③ FDR 시총상위200
-    """
     tickers = _get_index_tickers_naver('KOSPI200')
     if len(tickers) >= 150:
         return tickers
@@ -317,12 +465,7 @@ def _get_kospi200() -> list:
     return _get_index_tickers_krx('KOSPI', 200)
 
 
-
 def _get_kosdaq150() -> list:
-    """
-    코스닥150 구성 종목.
-    우선순위: ① 네이버금융 ② pykrx ③ FDR 시총상위150
-    """
     tickers = _get_index_tickers_naver('KQ150')
     if len(tickers) >= 100:
         return tickers
@@ -331,9 +474,7 @@ def _get_kosdaq150() -> list:
     return _get_index_tickers_krx('KOSDAQ', 150)
 
 
-
 def _normalize_listing_df(df_krx: pd.DataFrame) -> pd.DataFrame:
-    """load_krx_listing_safe() 결과 컬럼 표준화"""
     if df_krx is None or df_krx.empty:
         return pd.DataFrame()
 
@@ -376,12 +517,7 @@ def _normalize_listing_df(df_krx: pd.DataFrame) -> pd.DataFrame:
     return df_krx
 
 
-
 def _load_amount_top_universe(top_n: int = TOP_N) -> tuple[list, list]:
-    """
-    거래대금 상위 유니버스 로드.
-    반환: (codes, names)
-    """
     df_krx = _normalize_listing_df(load_krx_listing_safe())
     if df_krx.empty:
         return [], []
@@ -414,21 +550,10 @@ def _load_amount_top_universe(top_n: int = TOP_N) -> tuple[list, list]:
     return codes, names
 
 
-# 전역 지수 소속 맵 (코드 → 지수명)
 INDEX_MAP: dict = {}
 
 
-
 def _load_universe(mode: str = 'kospi200+kosdaq150') -> list:
-    """
-    스캔 대상 종목 코드 리스트 반환.
-    동시에 INDEX_MAP(코드→지수) 글로벌 변수 업데이트.
-
-    mode:
-    'kospi200+kosdaq150' — 코스피200 + 코스닥150 (기본, 약 350개)
-    'kospi200' — 코스피200만 (200개)
-    'amount_top400' — 거래대금 상위 400개
-    """
     global INDEX_MAP
     INDEX_MAP = {}
 
@@ -466,7 +591,6 @@ def _load_universe(mode: str = 'kospi200+kosdaq150') -> list:
 # 시간 체크
 # =============================================================
 def _is_closing_time(force: bool = False) -> bool:
-    """종가배팅 유효 시간 (14:50~15:25)"""
     if force:
         return True
     now = datetime.now(KST)
@@ -478,9 +602,7 @@ def _is_closing_time(force: bool = False) -> bool:
     return start <= t <= end
 
 
-
 def _time_to_close() -> int:
-    """마감까지 남은 분"""
     now = datetime.now(KST)
     close = now.replace(hour=15, minute=30, second=0, microsecond=0)
     return max(0, int((close - now).total_seconds() / 60))
@@ -490,7 +612,6 @@ def _time_to_close() -> int:
 # 종가배팅 조건 체크
 # =============================================================
 def _load_df(code: str) -> pd.DataFrame | None:
-    """종목 일봉 데이터 로드 + 지표 계산"""
     try:
         start = (datetime.now() - timedelta(days=300)).strftime('%Y-%m-%d')
         df = fdr.DataReader(code, start=start)
@@ -510,9 +631,7 @@ def _load_df(code: str) -> pd.DataFrame | None:
         return None
 
 
-
 def _base_info(row, df) -> dict:
-    """공통 기본 정보 추출"""
     close = float(row['Close'])
     open_p = float(row['Open'])
     high = float(row['High'])
@@ -567,15 +686,6 @@ def _base_info(row, df) -> dict:
 def _check_breakout_bet(code: str, name: str) -> dict | None:
     """
     전략 A — 전고점 돌파형 종가배팅
-    강한 종목이 전고점 부근에서 거래량 터지며 강봉 마감
-
-    조건:
-    ① 전고점(20일) 대비 85~100%
-    ② 윗꼬리 20% 이하
-    ③ 거래량 VMA20 × 2배
-    ④ 양봉 마감
-    ⑤ 이격도 98~112
-    ⑥ MA20 위 마감
     """
     try:
         df = _load_df(code)
@@ -615,26 +725,23 @@ def _check_breakout_bet(code: str, name: str) -> dict | None:
             'grade': '완전체' if score == 6 else ('✅A급' if score == 5 else 'B급'),
             'passed': passed,
         }
+
     except Exception as e:
         log_debug(f"[A/{name}] {e}")
         return None
 
 
-# ── 전략 B: Envelope 하한선 반등 종가배팅 ─────────────────────
+# ── 전략 B: 적응형 하단 종가배팅 ───────────────────────────────
 def _check_envelope_bet(code: str, name: str) -> dict | None:
     """
-    전략 B — Envelope 하한선 반등형 종가배팅
-    많이 빠진 바닥 구간에서 반등 초동을 포착.
+    전략 B — 적응형 하단 종가배팅
+    기본:
+      - 코스피200  -> Envelope 하단
+      - 코스닥150 -> BB40 하단
 
-    핵심 조건 (필수):
-    ① Envelope(20,20%) 하한선 2% 이내 → 단기 과매도 바닥
-    ② Envelope(40,40%) 하한선 10% 이내 → 중기 과매도 바닥
-    (①② 중 하나 이상 필수)
-
-    보조 조건 (가점용):
-    + RSI 40 이하 → 과매도 수치 확인
-    + 아랫꼬리 > 윗꼬리 → 하방 지지 신호 (세력이 받쳐줌)
-    + 거래량 감소 추세 → 매도세 소진 중 (반등 임박)
+    예외:
+      - 변동성/거래대금이 크면 BB
+      - 지나치게 안정적이면 ENV
     """
     try:
         df = _load_df(code)
@@ -652,11 +759,13 @@ def _check_envelope_bet(code: str, name: str) -> dict | None:
             return None
 
         env = _check_envelope_bottom(row, df)
+        bb = _check_bb_bottom(row, df)
+        band_meta = _choose_lower_band_type(code, df, row)
+
+        band_type = band_meta['selected']
+        band_reason = band_meta['reason']
+
         rsi = float(row.get('RSI', 50) or 50)
-
-        if not (env['env20_near'] or env['env40_near']):
-            return None
-
         close = info['_close']
         open_p = info['_open']
         high = float(row.get('High', close))
@@ -671,6 +780,7 @@ def _check_envelope_bet(code: str, name: str) -> dict | None:
         lower_wick = body_bot - low
         upper_wick_len = high - body_top
         lower_wick_long = lower_wick > upper_wick_len
+        close_to_high = (close / high * 100) if high > 0 else 0
 
         vma3 = float(df['Volume'].tail(3).mean())
         vma10 = float(df['Volume'].tail(10).mean())
@@ -693,12 +803,27 @@ def _check_envelope_bet(code: str, name: str) -> dict | None:
 
         lower_wick_comment = '아랫꼬리↑' if lower_wick_long else '아랫꼬리↓'
 
+        if band_type == 'ENV':
+            lower_band_near = env['env20_near'] or env['env40_near']
+            lower_band_label = '①ENV하단근접'
+            band_pct_text = f"Env20:{env['env20_pct']:+.1f}% | Env40:{env['env40_pct']:+.1f}%"
+            target_price = round(float(_calc_envelope(df, 20, 20)['ma'].iloc[-1]))
+        else:
+            lower_band_near = bb['bb40_near']
+            lower_band_label = '①BB40하단근접'
+            band_pct_text = f"BB40:{bb['bb40_pct']:+.1f}% | BB폭:{bb['bb40_width']:.1f}%"
+            target_price = bb['mid40']
+
+        if not lower_band_near:
+            return None
+
         bonus = {
-            '①Env20하한2%이내': env['env20_near'],
-            '②Env40하한10%이내': env['env40_near'],
-            '③RSI40이하': rsi <= 40,
-            '④OBV매수세유입': obv_rising,
-            '⑤5일내매집봉1회↑': maejip_5d >= 1,
+            lower_band_label: lower_band_near,
+            '②RSI40이하': rsi <= 40,
+            '③OBV매수세유입': obv_rising,
+            '④5일내매집봉1회↑': maejip_5d >= 1,
+            '⑤윗꼬리25%이하': info['_upper_wick_body'] <= 0.25,
+            '⑥종가강도양호': (close >= open_p) or (close_to_high >= 95),
         }
         passed = [k for k, v in bonus.items() if v]
         score = len(passed)
@@ -706,15 +831,13 @@ def _check_envelope_bet(code: str, name: str) -> dict | None:
         if score < 3:
             return None
 
-        if env['env20_near'] and env['env40_near'] and score >= 4:
+        if score >= 5:
             grade = '완전체'
-        elif score >= 4:
+        elif score == 4:
             grade = '✅A급'
         else:
             grade = 'B급'
 
-        env20_ma = float(_calc_envelope(df, 20, 20)['ma'].iloc[-1])
-        target_env = round(env20_ma)
         maejip_chart = _build_maejip_chart(df)
 
         return {
@@ -722,12 +845,20 @@ def _check_envelope_bet(code: str, name: str) -> dict | None:
             'code': code,
             'name': name,
             'mode': 'B',
-            'mode_label': '반등형',
+            'mode_label': '하단형',
             'index_label': INDEX_MAP.get(code, ''),
+            'band_type': band_type,
+            'band_reason': band_reason,
+            'band_pct_text': band_pct_text,
             'env20_pct': env['env20_pct'],
             'env40_pct': env['env40_pct'],
             'lower20': env['lower20'],
             'lower40': env['lower40'],
+            'bb40_pct': bb['bb40_pct'],
+            'bb40_width': bb['bb40_width'],
+            'bb40_lower': bb['lower40'],
+            'atr_pct': band_meta['atr_pct'],
+            'amount20_b': band_meta['amount20_b'],
             'rsi': round(rsi, 1),
             'obv_rising': obv_rising,
             'maejip_5d': maejip_5d,
@@ -735,21 +866,20 @@ def _check_envelope_bet(code: str, name: str) -> dict | None:
             'lower_wick_comment': lower_wick_comment,
             'lower_wick_pct': round(lower_wick / body_size * 100, 1),
             'upper_wick_pct': round(upper_wick_len / body_size * 100, 1),
-            'target1': target_env,
+            'target1': target_price,
             'score': score,
             'grade': grade,
             'passed': passed,
             'maejip_chart': maejip_chart,
             '_vol_drying': vol_drying,
         }
+
     except Exception as e:
         log_debug(f"[B/{name}] {e}")
         return None
 
 
-
 def _check_closing_bet(code: str, name: str) -> dict | None:
-    """두 전략 모두 체크, 점수 높은 것 반환"""
     a = _check_breakout_bet(code, name)
     b = _check_envelope_bet(code, name)
     if a and b:
@@ -757,19 +887,7 @@ def _check_closing_bet(code: str, name: str) -> dict | None:
     return a or b
 
 
-
 def _build_maejip_chart(df: pd.DataFrame) -> str:
-    """
-    최근 5거래일 매집 현황을 텍스트 차트로 표현.
-
-    예시:
-    최근 5일 매집 현황
-    D-4 +2.1% | 거래량 1.8배 | 매집✅
-    D-3 -0.5% | 거래량 0.7배 |
-    D-2 +1.3% | 거래량 2.1배 | 매집✅
-    D-1 +0.8% | 거래량 1.5배 | 매집✅
-    D-0 0.0% | 거래량 0.9배 | (오늘)
-    """
     if df is None or len(df) < 6:
         return ''
 
@@ -813,6 +931,7 @@ def _format_hit(hit: dict, rank: int, mins_left: int) -> str:
     extra = ''
     if hit.get('mode') == 'A':
         extra = f"전고점:{hit.get('near20', 0)}% | 이격:{hit.get('disp', 0)}"
+
     elif hit.get('mode') == 'B':
         vol3d = hit.get('vol_vs_3d', 0)
         vol3d_comment = (
@@ -821,14 +940,17 @@ def _format_hit(hit: dict, rank: int, mins_left: int) -> str:
             else f"거래량증가({vol3d:.0f}%)"
         )
         extra = (
-            f"Env20:{hit.get('env20_pct', 0):+.1f}% | "
-            f"Env40:{hit.get('env40_pct', 0):+.1f}% | "
+            f"밴드:{hit.get('band_type', '')} | "
+            f"{hit.get('band_pct_text', '')} | "
             f"RSI:{hit.get('rsi', 0)} | "
             f"5일매집:{hit.get('maejip_5d', 0)}회 | "
             f"{'OBV↑' if hit.get('obv_rising') else 'OBV↓'} | "
+            f"ATR:{hit.get('atr_pct', 0)}% | "
+            f"20일평균거래대금:{hit.get('amount20_b', 0)}억 | "
             f"{vol3d_comment} | "
             f"{hit.get('lower_wick_comment', '')} "
-            f"(아랫:{hit.get('lower_wick_pct', 0):.0f}% 윗:{hit.get('upper_wick_pct', 0):.0f}%)"
+            f"(아랫:{hit.get('lower_wick_pct', 0):.0f}% 윗:{hit.get('upper_wick_pct', 0):.0f}%) | "
+            f"{hit.get('band_reason', '')}"
         )
 
     chart_str = ''
@@ -854,12 +976,7 @@ def _format_hit(hit: dict, rank: int, mins_left: int) -> str:
     )
 
 
-
 def _send_results(hits: list, mins_left: int):
-    """
-    결과 텔레그램 전송.
-    전략별 상위 5개씩 선별 → AI 분석 포함해서 전송.
-    """
     log_info(f"_send_results 호출: {len(hits)}개 | TOKEN={'✅' if TELEGRAM_TOKEN else '❌'}")
 
     if not hits:
@@ -887,12 +1004,12 @@ def _send_results(hits: list, mins_left: int):
     total = len(hits_a) + len(hits_b)
 
     log_info(f"돌파형 {len(hits_a)}개 (완전체:{sum(1 for h in hits_a if '완전체' in h.get('grade', ''))}개)")
-    log_info(f"반등형 {len(hits_b)}개 (완전체:{sum(1 for h in hits_b if '완전체' in h.get('grade', ''))}개)")
+    log_info(f"하단형 {len(hits_b)}개 (완전체:{sum(1 for h in hits_b if '완전체' in h.get('grade', ''))}개)")
 
     header = (
         f"종가배팅 선별 TOP {total} ({TODAY_STR})\n"
         f"⏰ 마감까지 {mins_left}분\n"
-        f"돌파형(A): {len(hits_a)}개 | 반등형(B): {len(hits_b)}개\n"
+        f"돌파형(A): {len(hits_a)}개 | 하단형(B): {len(hits_b)}개\n"
     )
     send_telegram_photo(header, [])
 
@@ -911,7 +1028,7 @@ def _send_results(hits: list, mins_left: int):
             send_telegram_photo(current_msg, [])
 
     if hits_b:
-        send_telegram_photo("── 반등형(B) TOP5 ──", [])
+        send_telegram_photo("── 하단형(B) TOP5 ──", [])
         current_msg = ''
         max_char = 3800
         for hit in hits_b:
@@ -931,11 +1048,9 @@ def _send_results(hits: list, mins_left: int):
             _send_ai_comment(hits_b, mins_left, strategy='B')
 
 
-
 def _send_ai_comment(hits: list, mins_left: int, strategy: str = 'A'):
-    """전략별 AI 종가배팅 분석 (각각 전송)"""
     try:
-        strategy_name = '돌파형(A)' if strategy == 'A' else '반등형(B)'
+        strategy_name = '돌파형(A)' if strategy == 'A' else '하단형(B)'
 
         if strategy == 'A':
             data_lines = '\n'.join([
@@ -954,18 +1069,22 @@ def _send_ai_comment(hits: list, mins_left: int, strategy: str = 'A'):
         else:
             data_lines = '\n'.join([
                 f"- {h['name']}({h['code']}): 현재가={h['close']:,}원 | "
-                f"Env20={h.get('env20_pct', 0):+.1f}% | Env40={h.get('env40_pct', 0):+.1f}% | "
-                f"RSI={h.get('rsi', 0)} | 5일매집={h.get('maejip_5d', 0)}회 | "
+                f"밴드={h.get('band_type', '')} | "
+                f"{h.get('band_pct_text', '')} | "
+                f"RSI={h.get('rsi', 0)} | "
+                f"5일매집={h.get('maejip_5d', 0)}회 | "
                 f"OBV={'↑' if h.get('obv_rising') else '↓'} | "
-                f"거래량vs3일평균={h.get('vol_vs_3d', 0):.0f}% | "
-                f"목표={h['target1']:,}(MA20) 손절={h['stoploss']:,} | "
+                f"ATR={h.get('atr_pct', 0)}% | "
+                f"20일평균거래대금={h.get('amount20_b', 0)}억 | "
+                f"목표={h['target1']:,} 손절={h['stoploss']:,} | "
                 f"지수={h.get('index_label', '')}"
                 for h in hits
             ])
             strategy_context = (
-                "전략 B는 Envelope 하한선 반등형이야. "
-                "많이 빠진 바닥 구간에서 OBV 매수세 유입 + 세력 매집 징후 포착. "
-                "오늘 종가에 진입하면 Envelope 중심선(MA20) 회귀 기대."
+                "전략 B는 적응형 하단 종가배팅이야. "
+                "코스피200은 엔벨로프, 코스닥150은 볼린저밴드40 하단을 기본으로 보고, "
+                "변동성이 크면 BB, 안정적이면 ENV로 자동 전환한다. "
+                "오늘 종가에 진입하면 하단 반등 후 중심선 회귀 또는 재상승을 노리는 전략이야."
             )
 
         system_msg = (
@@ -1031,6 +1150,7 @@ def _send_ai_comment(hits: list, mins_left: int, strategy: str = 'A'):
                 f"{emoji} {strategy_name} AI 분석\n\n{comment}",
                 max_len=3500,
             )
+
     except Exception as e:
         log_error(f"⚠️ AI 코멘트 실패: {e}")
 
@@ -1039,7 +1159,6 @@ def _send_ai_comment(hits: list, mins_left: int, strategy: str = 'A'):
 # 메인 스캔
 # =============================================================
 def run_closing_bet_scan(force: bool = False) -> list:
-    """종가배팅 스캔 실행"""
     now = datetime.now(KST)
     now_str = now.strftime('%H:%M')
     mins_left = _time_to_close()
@@ -1107,7 +1226,7 @@ def run_closing_bet_scan(force: bool = False) -> list:
     hits = hits_a + hits_b
 
     log_info(f"\n종가배팅 후보: {len(hits)}개")
-    log_info(f"돌파형(A): {len(hits_a)}개 | 반등형(B): {len(hits_b)}개")
+    log_info(f"돌파형(A): {len(hits_a)}개 | 하단형(B): {len(hits_b)}개")
     log_info(f"완전체: {sum(1 for h in hits if h['score'] >= 5)}개")
     log_info(f"✅A급: {sum(1 for h in hits if h['score'] == 4)}개")
     log_info(f"B급: {sum(1 for h in hits if h['score'] == 3)}개")
