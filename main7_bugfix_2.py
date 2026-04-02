@@ -2754,7 +2754,13 @@ def get_indicators(df):
 
     cond_inverse_mid = curr['MA112'] < curr['MA224']
     cond_below_448   = curr['Close'] < curr['MA448']
-    cond_ma224_range = -3 <= ((curr['Close'] - curr['MA224']) / curr['MA224']) * 100 <= 5
+    ma224 = curr.get('MA224', np.nan)
+    if pd.isna(ma224) or float(ma224) <= 0:
+        cond_ma224_range = False
+    else:
+        ma224_gap_pct = ((float(curr['Close']) - float(ma224)) / float(ma224)) * 100
+        cond_ma224_range = -3 <= ma224_gap_pct <= 5
+        
     cond_bb40_range  = -7 <= ((curr['Close'] - curr['BB40_Upper']) / curr['BB40_Upper']) * 100 <= 3
 
     vol_ratio      = df['Volume'] / df['Volume'].shift(1).replace(0, np.nan)
