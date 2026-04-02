@@ -836,13 +836,58 @@ def _evaluate_trade_window(df: pd.DataFrame, entry_idx: int, entry_price: float)
 # =============================================================
 # 단일 종목 백테스트
 # =============================================================
+def _build_signal_record(df: pd.DataFrame, i: int, code: str, cond: dict, entry_price=None, trade_eval=None, forward_returns=None) -> dict:
+    row_dt = pd.to_datetime(df.iloc[i][df.columns[0] if df.columns[0] == "Date" else 'Date']) if 'Date' in df.columns else pd.to_datetime(df.iloc[i][df.columns[0]])
+    record = {
+        '스캔일': row_dt.strftime('%Y-%m-%d'),
+        'code': str(code).zfill(6),
+        'name': _get_ticker_name(code),
+        '전략': cond['mode'],
+        '전략명': cond['mode_label'],
+        '지수구분': cond['index_label'],
+        '유니버스태그': cond['universe_tag'],
+        '추천밴드': cond['recommended_band'],
+        '변동성성격': cond['volatility_type'],
+        '밴드코멘트': cond['band_comment'],
+        '밴드추천사유': cond['band_recommend_reason'],
+        '시총상위여부': cond['is_top_mcap'],
+        '밴드구분': cond['band_type'],
+        '밴드상태': cond['band_pct_text'],
+        '충족조건': ' '.join(cond['passed']),
+        '총점수': cond['score'],
+        'A점수': cond['a_score'],
+        'B1점수': cond['b1_score'],
+        'B2점수': cond['b2_score'],
+        '종가': int(cond['close']),
+        '진입가': int(entry_price) if entry_price is not None and _safe_float(entry_price) > 0 else None,
+        '거래량배율': cond['vol_ratio'],
+        '전고점%': cond['near20'],
+        '이격도': cond['disp'],
+        '윗꼬리%': cond['upper_wick_pct'],
+        'RSI': cond['rsi'],
+        'Env20%': cond['env20_pct'],
+        'Env40%': cond['env40_pct'],
+        'BB40%': cond['bb40_pct'],
+        'BB폭40%': cond['bb40_width'],
+        'ATR%': cond['atr_pct'],
+        '5일매집수': cond['maejip_5d'],
+        'OBV상승': 'Y' if cond['obv_rising'] else 'N',
+        '거래대금억': cond['amount_b'],
+    }
+    if trade_eval:
+        record.update(trade_eval)
+    if forward_returns:
+        record.update(forward_returns)
+    return record
+
+
 def backtest_ticker(code: str, start: str, end: str) -> list:
-    """종목 코드의 기간 내 종가배팅 신호 발생일 + 결과 계산"""
+    """성과 백테스트: 신호 다음날 시가 진입 + 최대 15일 평가"""
     records = []
     try:
-        load_start = (datetime.strptime(start, '%Y-%m-%d') - timedelta(days=120)).strftime('%Y-%m-%d')
+        load_start = (datetime.strptime(start, '%Y-%m-%d') - timedelta(days=700)).strftime('%Y-%m-%d')
         df_raw = fdr.DataReader(code, start=load_start, end=end)
-        if df_raw is None or len(df_raw) < 80:
+        if df_raw is None or len(df_raw) < 260:
             return []
 
         df = get_indicators(df_raw.copy())
@@ -870,7 +915,6 @@ def backtest_ticker(code: str, start: str, end: str) -> list:
             if entry_price <= 0:
                 continue
 
-            # 기존 보유기간별 종가 수익률 (진입당일 포함 hold거래일째 종가 기준)
             forward_returns = {}
             for hold in HOLD_DAYS_LIST:
                 future_idx = entry_idx + hold - 1
@@ -887,50 +931,141 @@ def backtest_ticker(code: str, start: str, end: str) -> list:
                 )
 
             trade_eval = _evaluate_trade_window(df, entry_idx, entry_price)
-
-            records.append({
-                '스캔일': row_dt.strftime('%Y-%m-%d'),
-                'code': str(code).zfill(6),
-                'name': _get_ticker_name(code),
-                '전략': cond['mode'],
-                '전략명': cond['mode_label'],
-                '지수구분': cond['index_label'],
-                '유니버스태그': cond['universe_tag'],
-                '추천밴드': cond['recommended_band'],
-                '변동성성격': cond['volatility_type'],
-                '밴드코멘트': cond['band_comment'],
-                '밴드추천사유': cond['band_recommend_reason'],
-                '시총상위여부': cond['is_top_mcap'],
-                '밴드구분': cond['band_type'],
-                '밴드상태': cond['band_pct_text'],
-                '충족조건': ' '.join(cond['passed']),
-                '총점수': cond['score'],
-                'A점수': cond['a_score'],
-                'B1점수': cond['b1_score'],
-                'B2점수': cond['b2_score'],
-                '종가': int(cond['close']),
-                '진입가': int(entry_price),
-                '거래량배율': cond['vol_ratio'],
-                '전고점%': cond['near20'],
-                '이격도': cond['disp'],
-                '윗꼬리%': cond['upper_wick_pct'],
-                'RSI': cond['rsi'],
-                'Env20%': cond['env20_pct'],
-                'Env40%': cond['env40_pct'],
-                'BB40%': cond['bb40_pct'],
-                'BB폭40%': cond['bb40_width'],
-                'ATR%': cond['atr_pct'],
-                '5일매집수': cond['maejip_5d'],
-                'OBV상승': 'Y' if cond['obv_rising'] else 'N',
-                '거래대금억': cond['amount_b'],
-                **trade_eval,
-                **forward_returns,
-            })
+            records.append(_build_signal_record(df, i, code, cond, entry_price, trade_eval, forward_returns))
 
     except Exception as e:
         log_debug(f"[{code}] 오류: {e}")
 
     return records
+
+
+def replay_ticker(code: str, start: str, end: str) -> list:
+    """신호 재현 모드: 해당 날짜 종가 기준으로 어떤 종목이 떴는지만 재현"""
+    records = []
+    try:
+        load_start = (datetime.strptime(start, '%Y-%m-%d') - timedelta(days=700)).strftime('%Y-%m-%d')
+        # end 다음 영업일까지 보지 않고, 지정 end 종가 봉까지만 사용
+        df_raw = fdr.DataReader(code, start=load_start, end=(datetime.strptime(end, '%Y-%m-%d') + timedelta(days=1)).strftime('%Y-%m-%d'))
+        if df_raw is None or len(df_raw) < 260:
+            return []
+
+        df = get_indicators(df_raw.copy())
+        if df is None or df.empty:
+            return []
+
+        df = df.reset_index()
+        date_col = 'Date' if 'Date' in df.columns else df.columns[0]
+        start_dt = datetime.strptime(start, '%Y-%m-%d')
+        end_dt = datetime.strptime(end, '%Y-%m-%d')
+
+        for i in range(60, len(df)):
+            row_date = pd.to_datetime(df[date_col].iloc[i])
+            row_dt = row_date.to_pydatetime().replace(tzinfo=None)
+            if not (start_dt <= row_dt <= end_dt):
+                continue
+
+            cond = _check_conditions_on_date(df, i, code=code)
+            if cond is None:
+                continue
+
+            # 재현 모드에서는 성과평가 없이 신호만 저장
+            # 참고용 익일시가가 있으면 넣고, 없으면 None
+            entry_price = None
+            if i + 1 < len(df):
+                nxt = _safe_float(df['Open'].iloc[i + 1])
+                entry_price = nxt if nxt > 0 else None
+
+            record = _build_signal_record(df, i, code, cond, entry_price=entry_price)
+            record.update({
+                '모드': 'replay',
+                '15일판정': '재현전용',
+                '15일내2%도달': '',
+                '2%도달일': '',
+                '15일내2%도달_고가기준': '',
+                '2%도달일_고가기준': '',
+                '15일내2%도달_종가기준': '',
+                '2%도달일_종가기준': '',
+                '15일내손절터치': '',
+                '손절터치일': '',
+                '15일종가수익률%': None,
+                '15일최고수익률%': None,
+                '15일최저수익률%': None,
+                '실전청산일': None,
+                '실전청산사유': '신호재현',
+            })
+            for hold in HOLD_DAYS_LIST:
+                record[f'수익률_{hold}일'] = None
+                record[f'승패_{hold}일'] = 'N/A'
+            records.append(record)
+
+    except Exception as e:
+        log_debug(f"[replay/{code}] 오류: {e}")
+
+    return records
+
+
+def summarize_replay(df: pd.DataFrame) -> dict:
+    results = {}
+    if df.empty:
+        return {
+            '전략별': pd.DataFrame(),
+            '월별': pd.DataFrame(),
+            '밴드별': pd.DataFrame(),
+            '추천밴드별': pd.DataFrame(),
+            '유니버스태그별': pd.DataFrame(),
+            '보유기간별': pd.DataFrame(),
+        }
+
+    # 전략별 신호 건수/평균점수
+    rows = []
+    name_map = {'A': '돌파형(A)', 'B1': 'ENV엄격형(B1)', 'B2': 'BB확장형(B2)'}
+    for strategy in ['A', 'B1', 'B2']:
+        grp = df[df['전략'] == strategy]
+        if grp.empty:
+            continue
+        rows.append({
+            '전략': name_map.get(strategy, strategy),
+            '총건수': len(grp),
+            '평균총점': round(pd.to_numeric(grp['총점수'], errors='coerce').mean(), 1),
+            '평균A점수': round(pd.to_numeric(grp['A점수'], errors='coerce').mean(), 1),
+            '평균B1점수': round(pd.to_numeric(grp['B1점수'], errors='coerce').mean(), 1),
+            '평균B2점수': round(pd.to_numeric(grp['B2점수'], errors='coerce').mean(), 1),
+        })
+    results['전략별'] = pd.DataFrame(rows)
+
+    df2 = df.copy()
+    df2['년월'] = df2['스캔일'].astype(str).str[:7]
+    monthly = []
+    for ym, grp in df2.groupby('년월'):
+        monthly.append({
+            '년월': ym,
+            '총건수': len(grp),
+            'A건수': int((grp['전략'] == 'A').sum()),
+            'B1건수': int((grp['전략'] == 'B1').sum()),
+            'B2건수': int((grp['전략'] == 'B2').sum()),
+        })
+    results['월별'] = pd.DataFrame(monthly)
+
+    band_rows = []
+    if '밴드구분' in df.columns:
+        for (strategy, band), grp in df.groupby(['전략', '밴드구분']):
+            band_rows.append({'전략': strategy, '밴드': band, '건수': len(grp)})
+    results['밴드별'] = pd.DataFrame(band_rows)
+
+    rec_band_rows = []
+    if '추천밴드' in df.columns:
+        for rec_band, grp in df.groupby('추천밴드'):
+            rec_band_rows.append({'추천밴드': rec_band, '건수': len(grp)})
+    results['추천밴드별'] = pd.DataFrame(rec_band_rows)
+
+    univ_rows = []
+    if '유니버스태그' in df.columns:
+        for tag, grp in df.groupby('유니버스태그'):
+            univ_rows.append({'유니버스태그': tag, '건수': len(grp)})
+    results['유니버스태그별'] = pd.DataFrame(univ_rows)
+
+    results['보유기간별'] = pd.DataFrame()
+    return results
 
 
 # =============================================================
@@ -1161,7 +1296,7 @@ def save_to_gsheet(raw_df: pd.DataFrame, summary: dict, start: str, end: str):
 # 메인
 # =============================================================
 def main():
-    parser = argparse.ArgumentParser(description='종가배팅 백테스트 (A/B1/B2)')
+    parser = argparse.ArgumentParser(description='종가배팅 백테스트/신호재현 (A/B1/B2)')
     parser.add_argument('--start', required=True, help='시작일 YYYY-MM-DD')
     parser.add_argument('--end', required=True, help='종료일 YYYY-MM-DD')
     parser.add_argument('--top', type=int, default=TOP_N, help='분석 종목 수')
@@ -1172,6 +1307,7 @@ def main():
         help='백테스트 유니버스',
     )
     parser.add_argument('--save-csv', action='store_true', help='원본/요약 CSV 저장')
+    parser.add_argument('--mode', default='performance', choices=['performance', 'replay'], help='performance=성과백테스트, replay=신호재현')
     args = parser.parse_args()
 
     codes = _get_ticker_list(args.top, universe=args.universe)
@@ -1179,11 +1315,12 @@ def main():
         log_error('분석할 종목이 없습니다.')
         sys.exit(1)
 
-    log_info(f"백테스트 시작: {args.start} ~ {args.end} | {len(codes)}개")
+    log_info(f"실행 시작: {args.start} ~ {args.end} | {len(codes)}개 | mode={args.mode}")
 
     all_records = []
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
-        futures = {ex.submit(backtest_ticker, code, args.start, args.end): code for code in codes}
+        worker = backtest_ticker if args.mode == 'performance' else replay_ticker
+        futures = {ex.submit(worker, code, args.start, args.end): code for code in codes}
         done = 0
         for future in as_completed(futures):
             done += 1
@@ -1204,7 +1341,7 @@ def main():
 
     raw_df = pd.DataFrame(all_records)
     raw_df = raw_df.sort_values(['스캔일', '전략', 'code']).reset_index(drop=True)
-    summary = summarize(raw_df)
+    summary = summarize(raw_df) if args.mode == 'performance' else summarize_replay(raw_df)
 
     log_info(f"총 레코드: {len(raw_df)}")
     for name, df in summary.items():
@@ -1215,11 +1352,11 @@ def main():
 
     stamp = f"{args.start}_{args.end}".replace('-', '')
     if args.save_csv:
-        raw_path = f"Closing_bet_backtest_raw_{stamp}.csv"
+        raw_path = f"Closing_bet_{args.mode}_raw_{stamp}.csv"
         raw_df.to_csv(raw_path, index=False, encoding='utf-8-sig')
         log_info(f"원본 CSV 저장: {raw_path}")
         for name, df in summary.items():
-            out = f"Closing_bet_backtest_{name}_{stamp}.csv"
+            out = f"Closing_bet_{args.mode}_{name}_{stamp}.csv"
             df.to_csv(out, index=False, encoding='utf-8-sig')
             log_info(f"요약 CSV 저장: {out}")
 
