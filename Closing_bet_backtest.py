@@ -805,19 +805,38 @@ def _evaluate_trade_window(df: pd.DataFrame, signal_idx: int, entry_price: float
             result['실전청산사유'] = '손절터치'
             break
 
-    if target_hit_day_high is not None:
+    # 무결성 재검증: MFE/MFE 플래그와 2% 도달 플래그가 절대 어긋나지 않도록 마지막에 벡터 기준으로 다시 계산
+    high_hit_mask = (window['High'] >= target_price).fillna(False)
+    close_hit_mask = (window['Close'] >= target_price).fillna(False)
+    stop_hit_mask = (window['Low'] <= stop_price).fillna(False)
+
+    if bool(high_hit_mask.any()):
+        first_high_day = int(high_hit_mask.to_numpy().argmax()) + 1
         result['15일내2%도달'] = 'Y'
-        result['2%도달일'] = target_hit_day_high
+        result['2%도달일'] = first_high_day
         result['15일내2%도달_고가기준'] = 'Y'
-        result['2%도달일_고가기준'] = target_hit_day_high
+        result['2%도달일_고가기준'] = first_high_day
+    else:
+        result['15일내2%도달'] = 'N'
+        result['2%도달일'] = None
+        result['15일내2%도달_고가기준'] = 'N'
+        result['2%도달일_고가기준'] = None
 
-    if target_hit_day_close is not None:
+    if bool(close_hit_mask.any()):
+        first_close_day = int(close_hit_mask.to_numpy().argmax()) + 1
         result['15일내2%도달_종가기준'] = 'Y'
-        result['2%도달일_종가기준'] = target_hit_day_close
+        result['2%도달일_종가기준'] = first_close_day
+    else:
+        result['15일내2%도달_종가기준'] = 'N'
+        result['2%도달일_종가기준'] = None
 
-    if stop_hit_day is not None:
+    if bool(stop_hit_mask.any()):
+        first_stop_day = int(stop_hit_mask.to_numpy().argmax()) + 1
         result['15일내손절터치'] = 'Y'
-        result['손절터치일'] = stop_hit_day
+        result['손절터치일'] = first_stop_day
+    else:
+        result['15일내손절터치'] = 'N'
+        result['손절터치일'] = None
 
     if result['15일판정'] == 'N/A':
         if final_close > entry_price:
