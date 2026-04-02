@@ -81,7 +81,9 @@ TOP_N = 400
 # 'kospi200+kosdaq150' : 코스피200 + 코스닥150
 # 'amount_top400'      : 거래대금 상위 400개
 # 'kospi200'           : 코스피200만
-SCAN_UNIVERSE = 'kospi200+kosdaq150'
+# 'hybrid_union'       : 코스피200 + 코스닥150 + 시총상위 합집합
+# 'hybrid_intersection': 지수유니버스 ∩ 시총상위 교집합
+SCAN_UNIVERSE = 'hybrid_union'
 
 MAX_WORKERS = 20
 
@@ -118,20 +120,32 @@ SUMMARY_REPORT_TXT = LOG_DIR / "closing_bet_summary.txt"
 EVAL_READY_HOUR = 16
 EVAL_READY_MIN = 10
 
-# 전역 지수 소속 맵
+# 전역 지수 소속 맵 / 시총상위 맵
 INDEX_MAP: dict = {}
+TOP_MCAP_SET: set = set()
 
 
 # =============================================================
 # 유틸
 # =============================================================
-def _safe_float(v, default=0.0) -> float:
+def _build_universe_tag(index_label: str = '', is_top_mcap: bool = False) -> str:
+    tags = []
+    if index_label == '코스피200':
+        tags.append('K200')
+    elif index_label == '코스닥150':
+        tags.append('KQ150')
+    if is_top_mcap:
+        tags.append('MCAP')
+    return '+'.join(tags) if tags else 'OTHER'
+
+
+def _refresh_top_mcap_set(top_n: int = TOP_N):
+    global TOP_MCAP_SET
     try:
-        if pd.isna(v):
-            return default
-        return float(v)
+        codes, _ = _load_amount_top_universe(top_n)
+        TOP_MCAP_SET = set(codes)
     except Exception:
-        return default
+        TOP_MCAP_SET = set()
 
 
 def _ensure_log_dir():
@@ -355,6 +369,69 @@ def _choose_lower_band_type(code: str, df: pd.DataFrame, row: pd.Series) -> dict
     }
 
 
+def _get_band_recommendation(
+    code: str,
+    df: pd.DataFrame,
+    row: pd.Series,
+    index_label: str = '',
+    is_top_mcap: bool = False,
+) -> dict:
+    close = float(row.get('Close', 0) or 0)
+    atr = float(row.get('ATR', 0) or 0)
+    atr_pct = (atr / close * 100) if close > 0 else 0.0
+
+    bb = _check_bb_bottom(row, df)
+    bb_width = float(bb.get('bb40_width', 0) or 0)
+    amount_b_series = (df['Close'] * df['Volume']) / 1e8
+    amount20_b = float(amount_b_series.rolling(20).mean().iloc[-1]) if len(amount_b_series) >= 20 else 0.0
+
+    if index_label == '코스피200':
+        recommended_band = 'ENV'
+        base_reason = '코스피200 기본값'
+    elif index_label == '코스닥150':
+        recommended_band = 'BB'
+        base_reason = '코스닥150 기본값'
+    else:
+        recommended_band = 'BB'
+        base_reason = '비지수/확장형 기본값'
+
+    if bb_width >= 18 or atr_pct >= 4.0 or amount20_b >= 500:
+        volatility_type = '변동형'
+    elif bb_width <= 10 and atr_pct <= 2.2 and amount20_b <= 150:
+        volatility_type = '안정형'
+    else:
+        volatility_type = '중간형'
+
+    reason_parts = [base_reason]
+    if volatility_type == '변동형':
+        recommended_band = 'BB'
+        if bb_width >= 18:
+            reason_parts.append(f'BB폭 큼({bb_width:.1f})')
+        if atr_pct >= 4.0:
+            reason_parts.append(f'ATR 큼({atr_pct:.1f}%)')
+        if amount20_b >= 500:
+            reason_parts.append(f'거래대금 큼({amount20_b:.1f}억)')
+    elif volatility_type == '안정형':
+        recommended_band = 'ENV'
+        reason_parts.append(f'안정형(BB폭 {bb_width:.1f}, ATR {atr_pct:.1f}%)')
+    else:
+        reason_parts.append('중간형')
+
+    universe_tag = _build_universe_tag(index_label=index_label, is_top_mcap=is_top_mcap)
+    comment = f"추천밴드 {recommended_band} | {volatility_type} | {universe_tag} | " + ", ".join(reason_parts)
+
+    return {
+        'recommended_band': recommended_band,
+        'volatility_type': volatility_type,
+        'universe_tag': universe_tag,
+        'reason': ', '.join(reason_parts),
+        'comment': comment,
+        'bb40_width': round(bb_width, 1),
+        'atr_pct': round(atr_pct, 1),
+        'amount20_b': round(amount20_b, 1),
+    }
+
+
 # =============================================================
 # 유니버스 로딩
 # =============================================================
@@ -544,32 +621,34 @@ def _load_amount_top_universe(top_n: int = TOP_N) -> tuple[list, list]:
     return codes, names
 
 
-def _load_universe(mode: str = 'kospi200+kosdaq150') -> list:
+def _load_universe(mode: str = 'hybrid_union') -> list:
     global INDEX_MAP
     INDEX_MAP = {}
 
     log_info(f"유니버스 로딩: {mode}")
 
+    kospi = _get_kospi200()
+    kosdaq = _get_kosdaq150()
+    top_codes, _ = _load_amount_top_universe(TOP_N)
+
+    for c in kospi:
+        INDEX_MAP[c] = '코스피200'
+    for c in kosdaq:
+        if c not in INDEX_MAP:
+            INDEX_MAP[c] = '코스닥150'
+
     if mode == 'kospi200':
-        codes = _get_kospi200()
-        for c in codes:
-            INDEX_MAP[c] = '코스피200'
-
+        codes = kospi
     elif mode == 'kospi200+kosdaq150':
-        kospi = _get_kospi200()
-        kosdaq = _get_kosdaq150()
-
-        for c in kospi:
-            INDEX_MAP[c] = '코스피200'
-        for c in kosdaq:
-            if c not in INDEX_MAP:
-                INDEX_MAP[c] = '코스닥150'
-
         codes = list(dict.fromkeys(kospi + kosdaq))
-
     elif mode == 'amount_top400':
-        codes, _ = _load_amount_top_universe(TOP_N)
-
+        codes = top_codes
+    elif mode == 'hybrid_union':
+        codes = list(dict.fromkeys(kospi + kosdaq + top_codes))
+    elif mode == 'hybrid_intersection':
+        idx_codes = list(dict.fromkeys(kospi + kosdaq))
+        top_set = set(top_codes)
+        codes = [c for c in idx_codes if c in top_set]
     else:
         log_error(f"⚠️ 알 수 없는 유니버스 모드: {mode}")
         return []
@@ -740,6 +819,14 @@ def _check_breakout_bet(code: str, name: str) -> dict | None:
         if score < 4:
             return None
 
+        band_rec = _get_band_recommendation(
+            code=code,
+            df=df,
+            row=row,
+            index_label=INDEX_MAP.get(code, ''),
+            is_top_mcap=(code in TOP_MCAP_SET),
+        )
+
         return {
             **info,
             'code': code,
@@ -747,6 +834,12 @@ def _check_breakout_bet(code: str, name: str) -> dict | None:
             'mode': 'A',
             'mode_label': '돌파형',
             'index_label': INDEX_MAP.get(code, ''),
+            'recommended_band': band_rec['recommended_band'],
+            'volatility_type': band_rec['volatility_type'],
+            'universe_tag': band_rec['universe_tag'],
+            'band_comment': band_rec['comment'],
+            'band_recommend_reason': band_rec['reason'],
+            'is_top_mcap': int(code in TOP_MCAP_SET),
             'near20': round(info['_near20'], 1),
             'disp': round(info['_disp'], 1),
             'score': score,
@@ -848,6 +941,13 @@ def _check_env_strict_bet(code: str, name: str) -> dict | None:
         env20_ma = float(_calc_envelope(df, 20, 20)['ma'].iloc[-1])
         target_env = round(env20_ma)
         maejip_chart = _build_maejip_chart(df)
+        band_rec = _get_band_recommendation(
+            code=code,
+            df=df,
+            row=row,
+            index_label=INDEX_MAP.get(code, ''),
+            is_top_mcap=(code in TOP_MCAP_SET),
+        )
 
         return {
             **info,
@@ -856,6 +956,12 @@ def _check_env_strict_bet(code: str, name: str) -> dict | None:
             'mode': 'B1',
             'mode_label': 'ENV엄격형',
             'index_label': INDEX_MAP.get(code, ''),
+            'recommended_band': band_rec['recommended_band'],
+            'volatility_type': band_rec['volatility_type'],
+            'universe_tag': band_rec['universe_tag'],
+            'band_comment': band_rec['comment'],
+            'band_recommend_reason': band_rec['reason'],
+            'is_top_mcap': int(code in TOP_MCAP_SET),
             'band_type': 'ENV',
             'band_reason': 'HTS엄격형(Env20&Env40 동시만족)',
             'band_pct_text': f"Env20:{env['env20_pct']:+.1f}% | Env40:{env['env40_pct']:+.1f}%",
@@ -966,6 +1072,13 @@ def _check_bb_expand_bet(code: str, name: str) -> dict | None:
             grade = 'B급'
 
         maejip_chart = _build_maejip_chart(df)
+        band_rec = _get_band_recommendation(
+            code=code,
+            df=df,
+            row=row,
+            index_label=INDEX_MAP.get(code, ''),
+            is_top_mcap=(code in TOP_MCAP_SET),
+        )
 
         return {
             **info,
@@ -974,6 +1087,12 @@ def _check_bb_expand_bet(code: str, name: str) -> dict | None:
             'mode': 'B2',
             'mode_label': 'BB확장형',
             'index_label': INDEX_MAP.get(code, ''),
+            'recommended_band': band_rec['recommended_band'],
+            'volatility_type': band_rec['volatility_type'],
+            'universe_tag': band_rec['universe_tag'],
+            'band_comment': band_rec['comment'],
+            'band_recommend_reason': band_rec['reason'],
+            'is_top_mcap': int(code in TOP_MCAP_SET),
             'band_type': 'BB',
             'band_reason': band_meta.get('reason', 'BB40하단재안착'),
             'band_pct_text': f"BB40:{bb['bb40_pct']:+.1f}% | BB폭:{bb['bb40_width']:.1f}%",
@@ -1083,6 +1202,10 @@ def _append_hits_to_validation_log(hits: list, scan_dt: datetime):
             'grade': h.get('grade', ''),
             'score': h.get('score', 0),
             'index_label': h.get('index_label', ''),
+            'universe_tag': h.get('universe_tag', ''),
+            'recommended_band': h.get('recommended_band', ''),
+            'volatility_type': h.get('volatility_type', ''),
+            'band_comment': h.get('band_comment', ''),
             'band_type': h.get('band_type', ''),
             'band_reason': h.get('band_reason', ''),
             'close_entry': _safe_float(h.get('close', 0)),
@@ -1392,6 +1515,8 @@ def _format_hit(hit: dict, rank: int, mins_left: int) -> str:
     return (
         f"{'─' * 28}\n"
         f"{mode_label} {hit['grade']} [{hit['name']}({hit['code']})] {hit['close']:,}원{idx_str}\n"
+        f"유형:{hit.get('universe_tag', '')} | 추천:{hit.get('recommended_band', '')} | {hit.get('volatility_type', '')}\n"
+        f"코멘트:{hit.get('band_comment', '')}\n"
         f"✅ {passed_str}\n"
         f"거래량:{hit['vol_ratio']}배 | 윗꼬리(몸통):{hit['wick_pct']}% | {extra}\n"
         f"거래대금:{hit['amount_b']}억 | ATR:{hit['atr']:,}원\n"
@@ -1606,6 +1731,8 @@ def run_closing_bet_scan(force: bool = False) -> list:
     log_info(f"\n{'=' * 55}")
     log_info(f"종가배팅 스캔 시작: {now_str} (마감 {mins_left}분 전)")
     log_info(f"{'=' * 55}")
+
+    _refresh_top_mcap_set(TOP_N)
 
     if SCAN_UNIVERSE == 'amount_top400':
         codes, names = _load_amount_top_universe(TOP_N)
