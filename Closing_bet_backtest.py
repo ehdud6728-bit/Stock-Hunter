@@ -164,13 +164,109 @@ JSON_KEY_PATH = str(Path(__file__).resolve().with_name('stock-key.json'))
 SHEET_NAME = '주식자동매매일지'
 MAIN_TAB_NAME = '종가배팅'
 SUMMARY_TAB_PREFIX = '종가배팅_'
+
+
+PRETTY_RAW_COLUMNS = {
+    'code': '종목코드',
+    '전략': '전략코드',
+    '전략명': '전략명',
+    '지수구분': '지수구분',
+    '유니버스태그': '유니버스태그',
+    '추천밴드': '추천밴드',
+    '변동성성격': '변동성성격',
+    '밴드코멘트': '밴드코멘트',
+    '밴드추천사유': '밴드추천사유',
+    '시총상위여부': '시총상위포함',
+    '밴드구분': '적용밴드',
+    '밴드상태': '밴드상태',
+    '충족조건': '충족조건',
+    '총점수': '종합점수',
+    'A점수': '돌파형점수',
+    'B1점수': 'ENV엄격형점수',
+    'B2점수': 'BB확장형점수',
+    '종가': '신호일종가',
+    '진입가': '익일시가진입가',
+    '거래량배율': '거래량배수',
+    '전고점%': '20일전고점대비%',
+    '이격도': '20일이격도',
+    '윗꼬리%': '윗꼬리비율%',
+    'RSI': 'RSI',
+    'Env20%': 'Env20하단거리%',
+    'Env40%': 'Env40하단거리%',
+    'BB40%': 'BB40하단거리%',
+    'BB폭40%': 'BB40폭%',
+    'ATR%': 'ATR%',
+    '5일매집수': '최근5일매집봉수',
+    'OBV상승': 'OBV상승여부',
+    '거래대금억': '신호일거래대금(억)',
+    '15일판정': '15일최종판정',
+    '15일내2%도달': '15일내2%도달(고가기준)',
+    '2%도달일': '2%도달일(고가기준)',
+    '15일내2%도달_고가기준': '15일내2%도달(고가기준_상세)',
+    '2%도달일_고가기준': '2%도달일(고가기준_상세)',
+    '15일내2%도달_종가기준': '15일내2%도달(종가기준)',
+    '2%도달일_종가기준': '2%도달일(종가기준)',
+    '15일내손절터치': '15일내손절터치여부',
+    '손절터치일': '손절터치일',
+    '15일종가수익률%': '15일종가수익률%',
+    '15일최고수익률%': '15일최대수익률%(MFE)',
+    '15일최저수익률%': '15일최대낙폭%(MAE)',
+    '실전청산일': '실전청산일',
+    '실전청산사유': '실전청산사유',
+}
+
+SUMMARY_TAB_NAME_MAP = {
+    '전략별': '전략성과',
+    '월별': '월별성과',
+    '밴드별': '적용밴드별',
+    '추천밴드별': '추천밴드별',
+    '유니버스태그별': '유니버스별',
+    '보유기간별': '보유기간별',
+}
+
+SUMMARY_COLUMN_RENAME_MAP = {
+    '총건수': '신호건수',
+    '건수': '신호건수',
+    '평균총점': '평균종합점수',
+    '평균A점수': '평균돌파형점수',
+    '평균B1점수': '평균ENV엄격형점수',
+    '평균B2점수': '평균BB확장형점수',
+    '15일판정승률%': '15일최종승률%',
+    '15일내2%도달률%(고가기준)': '15일내2%도달률%(고가)',
+    '15일내2%종가도달률%': '15일내2%도달률%(종가)',
+    '15일내손절터치율%': '15일내손절터치율%',
+    '15일평균종가수익%': '15일평균종가수익률%',
+    '15일MFE평균%': '15일평균최대수익률%(MFE)',
+    '15일MAE평균%': '15일평균최대낙폭%(MAE)',
+    '승률%': '승률%',
+    '평균수익%': '평균수익률%',
+    '년월': '스캔년월',
+    'A건수': '돌파형건수',
+    'B1건수': 'ENV엄격형건수',
+    'B2건수': 'BB확장형건수',
+    '밴드': '적용밴드',
+}
+
+def _prettify_raw_df(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+    rename_map = {c: PRETTY_RAW_COLUMNS[c] for c in out.columns if c in PRETTY_RAW_COLUMNS}
+    out = out.rename(columns=rename_map)
+    return out
+
+
+def _prettify_summary_df(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+    rename_map = {c: SUMMARY_COLUMN_RENAME_MAP[c] for c in out.columns if c in SUMMARY_COLUMN_RENAME_MAP}
+    out = out.rename(columns=rename_map)
+    return out
 SCOPE = [
     'https://spreadsheets.google.com/feeds',
     'https://www.googleapis.com/auth/drive',
 ]
 
-DEFAULT_UNIVERSE = 'top_marketcap'
+DEFAULT_UNIVERSE = 'hybrid_union'
 INDEX_MAP: dict[str, str] = {}
+TOP_MCAP_SET: set[str] = set()
 
 
 # =============================================================
@@ -183,31 +279,24 @@ def _get_ticker_list(top_n: int, universe: str = DEFAULT_UNIVERSE) -> list:
       - kospi200+kosdaq150
       - kospi200
       - kosdaq150
+      - hybrid_union
+      - hybrid_intersection
     """
-    global INDEX_MAP
+    global INDEX_MAP, TOP_MCAP_SET
     INDEX_MAP = {}
+    TOP_MCAP_SET = set()
 
-    if universe in ('kospi200+kosdaq150', 'kospi200', 'kosdaq150'):
-        codes: list[str] = []
-        if universe in ('kospi200+kosdaq150', 'kospi200'):
-            kospi = _get_kospi200()
-            for c in kospi:
-                INDEX_MAP[c] = '코스피200'
-            codes.extend(kospi)
-        if universe in ('kospi200+kosdaq150', 'kosdaq150'):
-            kosdaq = _get_kosdaq150()
-            for c in kosdaq:
-                if c not in INDEX_MAP:
-                    INDEX_MAP[c] = '코스닥150'
-            codes.extend(kosdaq)
-        codes = list(dict.fromkeys(codes))
-        if codes:
-            log_info(f"지수 유니버스: {len(codes)}개")
-            return codes
-        log_info("지수 유니버스 로드 실패 → 시총 상위 폴백")
+    kospi = _get_kospi200()
+    kosdaq = _get_kosdaq150()
+    for c in kospi:
+        INDEX_MAP[c] = '코스피200'
+    for c in kosdaq:
+        if c not in INDEX_MAP:
+            INDEX_MAP[c] = '코스닥150'
 
-    log_info("종목 리스트 수집...")
+    top_codes = []
     try:
+        log_info("종목 리스트 수집...")
         df_k = fdr.StockListing('KOSPI')
         df_q = fdr.StockListing('KOSDAQ')
         df = pd.concat([df_k, df_q], ignore_index=True)
@@ -216,16 +305,38 @@ def _get_ticker_list(top_n: int, universe: str = DEFAULT_UNIVERSE) -> list:
             sym_col = next((c for c in df.columns if c in ('Code', 'Symbol', '종목코드')), None)
             if mcap_col and sym_col:
                 df = df.nlargest(top_n, mcap_col)
-                codes = [str(c).zfill(6) for c in df[sym_col].tolist()]
-                log_info(f"FDR 시총상위: {len(codes)}개")
-                return codes
+                top_codes = [str(c).zfill(6) for c in df[sym_col].tolist()]
+                TOP_MCAP_SET = set(top_codes)
+                log_info(f"FDR 시총상위: {len(top_codes)}개")
     except Exception as e:
         log_error(f"FDR 실패: {e}")
+
+    idx_codes = list(dict.fromkeys(kospi + kosdaq))
+
+    if universe == 'kospi200':
+        codes = kospi
+    elif universe == 'kosdaq150':
+        codes = kosdaq
+    elif universe == 'kospi200+kosdaq150':
+        codes = idx_codes
+    elif universe == 'top_marketcap':
+        codes = top_codes
+    elif universe == 'hybrid_union':
+        codes = list(dict.fromkeys(idx_codes + top_codes))
+    elif universe == 'hybrid_intersection':
+        top_set = set(top_codes)
+        codes = [c for c in idx_codes if c in top_set]
+    else:
+        codes = top_codes or idx_codes
+
+    if codes:
+        log_info(f"유니버스 {universe}: {len(codes)}개")
+        return codes
 
     try:
         from pykrx import stock as _pk
         codes = _pk.get_market_ticker_list(market='ALL')
-        log_info(f"pykrx: {len(codes[:top_n])}개")
+        log_info(f"pykrx 폴백: {len(codes[:top_n])}개")
         return list(codes[:top_n])
     except Exception as e:
         log_error(f"pykrx 실패: {e}")
@@ -329,6 +440,80 @@ def _compute_common_state(sub_df: pd.DataFrame) -> dict | None:
 def _pick_index_label(code: str) -> str:
     return INDEX_MAP.get(str(code).zfill(6), '')
 
+def _build_universe_tag(index_label: str = '', is_top_mcap: bool = False) -> str:
+    tags = []
+    if index_label == '코스피200':
+        tags.append('K200')
+    elif index_label == '코스닥150':
+        tags.append('KQ150')
+    if is_top_mcap:
+        tags.append('MCAP')
+    return '+'.join(tags) if tags else 'OTHER'
+
+
+def _get_band_recommendation(
+    code: str,
+    sub_df: pd.DataFrame,
+    row: pd.Series,
+    index_label: str = '',
+    is_top_mcap: bool = False,
+) -> dict:
+    close = _safe_float(row.get('Close', 0), 0.0)
+    atr = _safe_float(row.get('ATR', 0), 0.0)
+    atr_pct = (atr / close * 100) if close > 0 else 0.0
+
+    bb = _check_bb_bottom(row, sub_df)
+    bb_width = float(bb.get('bb40_width', 0) or 0)
+    amount_b_series = (sub_df['Close'] * sub_df['Volume']) / 1e8
+    amount20_b = float(amount_b_series.rolling(20).mean().iloc[-1]) if len(amount_b_series) >= 20 else 0.0
+
+    if index_label == '코스피200':
+        recommended_band = 'ENV'
+        base_reason = '코스피200 기본값'
+    elif index_label == '코스닥150':
+        recommended_band = 'BB'
+        base_reason = '코스닥150 기본값'
+    else:
+        recommended_band = 'BB'
+        base_reason = '비지수/확장형 기본값'
+
+    if bb_width >= 18 or atr_pct >= 4.0 or amount20_b >= 500:
+        volatility_type = '변동형'
+    elif bb_width <= 10 and atr_pct <= 2.2 and amount20_b <= 150:
+        volatility_type = '안정형'
+    else:
+        volatility_type = '중간형'
+
+    reason_parts = [base_reason]
+    if volatility_type == '변동형':
+        recommended_band = 'BB'
+        if bb_width >= 18:
+            reason_parts.append(f'BB폭 큼({bb_width:.1f})')
+        if atr_pct >= 4.0:
+            reason_parts.append(f'ATR 큼({atr_pct:.1f}%)')
+        if amount20_b >= 500:
+            reason_parts.append(f'거래대금 큼({amount20_b:.1f}억)')
+    elif volatility_type == '안정형':
+        recommended_band = 'ENV'
+        reason_parts.append(f'안정형(BB폭 {bb_width:.1f}, ATR {atr_pct:.1f}%)')
+    else:
+        reason_parts.append('중간형')
+
+    universe_tag = _build_universe_tag(index_label=index_label, is_top_mcap=is_top_mcap)
+    comment = f"추천밴드 {recommended_band} | {volatility_type} | {universe_tag} | " + ", ".join(reason_parts)
+
+    return {
+        'recommended_band': recommended_band,
+        'volatility_type': volatility_type,
+        'universe_tag': universe_tag,
+        'band_comment': comment,
+        'band_recommend_reason': ', '.join(reason_parts),
+        'is_top_mcap': int(is_top_mcap),
+        'bb40_width': round(bb_width, 1),
+        'atr_pct': round(atr_pct, 1),
+        'amount20_b': round(amount20_b, 1),
+    }
+
 
 # =============================================================
 # 단일 날짜/종목 종가배팅 조건 체크
@@ -344,6 +529,8 @@ def _check_conditions_on_date(df: pd.DataFrame, date_idx: int, code: str = '') -
         return None
 
     state['index_label'] = _pick_index_label(code)
+    is_top_mcap = str(code).zfill(6) in TOP_MCAP_SET
+    band_rec = _get_band_recommendation(code, sub_df, state['row'], state['index_label'], is_top_mcap)
     close = state['close']
     open_p = state['open']
     rsi = state['rsi']
@@ -436,6 +623,12 @@ def _check_conditions_on_date(df: pd.DataFrame, date_idx: int, code: str = '') -
         'band_type': pick['band_type'],
         'band_pct_text': pick['band_pct_text'],
         'index_label': state['index_label'],
+        'recommended_band': band_rec['recommended_band'],
+        'volatility_type': band_rec['volatility_type'],
+        'universe_tag': band_rec['universe_tag'],
+        'band_comment': band_rec['band_comment'],
+        'band_recommend_reason': band_rec['band_recommend_reason'],
+        'is_top_mcap': band_rec['is_top_mcap'],
         'a_score': a_score,
         'b1_score': b1_score,
         'b2_score': b2_score,
@@ -464,17 +657,26 @@ def _evaluate_trade_window(df: pd.DataFrame, entry_idx: int, entry_price: float)
     entry_idx의 시가에 진입했다고 가정하고 최대 15거래일을 추적.
 
     판정 우선순위
-    1) +2% 먼저 도달 -> 승
+    1) +2% 먼저 도달(고가 기준) -> 승
     2) -3% 먼저 도달 -> 손절
     3) 둘 다 없으면 마지막 종가가 진입가보다 높으면 승(종가), 낮으면 패(종가)
+
+    추가 기록
+    - 15일 내 +2% 도달(고가 기준)
+    - 15일 내 +2% 도달(종가 기준)
+    - 15일 내 손절 터치 여부
 
     같은 날 고가와 저가가 동시에 익절/손절 범위를 터치하면 SAME_DAY_EXIT_POLICY를 따른다.
     기본은 보수적으로 stop_first.
     """
     result = {
         '15일판정': 'N/A',
-        '15일내2%도달': 'N',
-        '2%도달일': None,
+        '15일내2%도달': 'N',                 # 하위 호환용 = 고가 기준
+        '2%도달일': None,                    # 하위 호환용 = 고가 기준
+        '15일내2%도달_고가기준': 'N',
+        '2%도달일_고가기준': None,
+        '15일내2%도달_종가기준': 'N',
+        '2%도달일_종가기준': None,
         '15일내손절터치': 'N',
         '손절터치일': None,
         '15일종가수익률%': None,
@@ -502,21 +704,28 @@ def _evaluate_trade_window(df: pd.DataFrame, entry_idx: int, entry_price: float)
     result['15일최저수익률%'] = round((min_low - entry_price) / entry_price * 100, 2) if entry_price > 0 else None
     result['15일종가수익률%'] = round((final_close - entry_price) / entry_price * 100, 2) if entry_price > 0 else None
 
-    target_hit_day = None
+    target_hit_day_high = None
+    target_hit_day_close = None
     stop_hit_day = None
 
     for day_no, (_, r) in enumerate(window.iterrows(), start=1):
         high = _safe_float(r.get('High', 0))
         low = _safe_float(r.get('Low', 0))
-        hit_target = high >= target_price
+        close = _safe_float(r.get('Close', 0))
+
+        hit_target_high = high >= target_price
+        hit_target_close = close >= target_price
         hit_stop = low <= stop_price
 
-        if target_hit_day is None and hit_target:
-            target_hit_day = day_no
+        if target_hit_day_high is None and hit_target_high:
+            target_hit_day_high = day_no
+        if target_hit_day_close is None and hit_target_close:
+            target_hit_day_close = day_no
         if stop_hit_day is None and hit_stop:
             stop_hit_day = day_no
 
-        if hit_target and hit_stop:
+        # 실전 판정은 기존대로 고가 기준 익절 / 저가 기준 손절
+        if hit_target_high and hit_stop:
             if SAME_DAY_EXIT_POLICY == 'target_first':
                 result['15일판정'] = '승'
                 result['실전청산일'] = day_no
@@ -526,10 +735,10 @@ def _evaluate_trade_window(df: pd.DataFrame, entry_idx: int, entry_price: float)
                 result['실전청산일'] = day_no
                 result['실전청산사유'] = '동일봉_손절우선'
             break
-        elif hit_target:
+        elif hit_target_high:
             result['15일판정'] = '승'
             result['실전청산일'] = day_no
-            result['실전청산사유'] = '2%도달'
+            result['실전청산사유'] = '2%도달(고가기준)'
             break
         elif hit_stop:
             result['15일판정'] = '손절'
@@ -537,9 +746,16 @@ def _evaluate_trade_window(df: pd.DataFrame, entry_idx: int, entry_price: float)
             result['실전청산사유'] = '손절터치'
             break
 
-    if target_hit_day is not None:
+    if target_hit_day_high is not None:
         result['15일내2%도달'] = 'Y'
-        result['2%도달일'] = target_hit_day
+        result['2%도달일'] = target_hit_day_high
+        result['15일내2%도달_고가기준'] = 'Y'
+        result['2%도달일_고가기준'] = target_hit_day_high
+
+    if target_hit_day_close is not None:
+        result['15일내2%도달_종가기준'] = 'Y'
+        result['2%도달일_종가기준'] = target_hit_day_close
+
     if stop_hit_day is not None:
         result['15일내손절터치'] = 'Y'
         result['손절터치일'] = stop_hit_day
@@ -620,6 +836,12 @@ def backtest_ticker(code: str, start: str, end: str) -> list:
                 '전략': cond['mode'],
                 '전략명': cond['mode_label'],
                 '지수구분': cond['index_label'],
+                '유니버스태그': cond['universe_tag'],
+                '추천밴드': cond['recommended_band'],
+                '변동성성격': cond['volatility_type'],
+                '밴드코멘트': cond['band_comment'],
+                '밴드추천사유': cond['band_recommend_reason'],
+                '시총상위여부': cond['is_top_mcap'],
                 '밴드구분': cond['band_type'],
                 '밴드상태': cond['band_pct_text'],
                 '충족조건': ' '.join(cond['passed']),
@@ -682,7 +904,8 @@ def summarize(df: pd.DataFrame) -> dict:
             '평균B1점수': round(grp['B1점수'].mean(), 1),
             '평균B2점수': round(grp['B2점수'].mean(), 1),
             '15일판정승률%': round(판정승, 1),
-            '15일내2%도달률%': round(타겟도달, 1),
+            '15일내2%도달률%(고가기준)': round(타겟도달, 1),
+            '15일내2%종가도달률%': round((grp['15일내2%도달_종가기준'] == 'Y').mean() * 100, 1) if '15일내2%도달_종가기준' in grp.columns else 0,
             '15일내손절터치율%': round(손절터치, 1),
             '15일평균종가수익%': round(pd.to_numeric(grp['15일종가수익률%'], errors='coerce').dropna().mean(), 2),
             '15일MFE평균%': round(pd.to_numeric(grp['15일최고수익률%'], errors='coerce').dropna().mean(), 2),
@@ -739,7 +962,8 @@ def summarize(df: pd.DataFrame) -> dict:
             'B1건수': (grp['전략'] == 'B1').sum(),
             'B2건수': (grp['전략'] == 'B2').sum(),
             '15일판정승률%': round(grp['15일판정'].isin(['승', '승(종가)']).mean() * 100, 1),
-            '15일내2%도달률%': round((grp['15일내2%도달'] == 'Y').mean() * 100, 1),
+            '15일내2%도달률%(고가기준)': round((grp['15일내2%도달'] == 'Y').mean() * 100, 1),
+            '15일내2%종가도달률%': round((grp['15일내2%도달_종가기준'] == 'Y').mean() * 100, 1) if '15일내2%도달_종가기준' in grp.columns else 0,
         }
         monthly.append(row)
     results['월별'] = pd.DataFrame(monthly)
@@ -754,12 +978,43 @@ def summarize(df: pd.DataFrame) -> dict:
                 '밴드': band,
                 '건수': len(grp),
                 '15일판정승률%': round(grp['15일판정'].isin(['승', '승(종가)']).mean() * 100, 1),
-                '15일내2%도달률%': round((grp['15일내2%도달'] == 'Y').mean() * 100, 1),
+                '15일내2%도달률%(고가기준)': round((grp['15일내2%도달'] == 'Y').mean() * 100, 1),
+            '15일내2%종가도달률%': round((grp['15일내2%도달_종가기준'] == 'Y').mean() * 100, 1) if '15일내2%도달_종가기준' in grp.columns else 0,
                 '15일평균종가수익%': round(pd.to_numeric(grp['15일종가수익률%'], errors='coerce').dropna().mean(), 2),
                 '15일MFE평균%': round(pd.to_numeric(grp['15일최고수익률%'], errors='coerce').dropna().mean(), 2),
                 '15일MAE평균%': round(pd.to_numeric(grp['15일최저수익률%'], errors='coerce').dropna().mean(), 2),
             })
     results['밴드별'] = pd.DataFrame(band_rows)
+
+    rec_band_rows = []
+    if '추천밴드' in df.columns:
+        for rec_band, grp in df.groupby('추천밴드'):
+            if grp.empty:
+                continue
+            rec_band_rows.append({
+                '추천밴드': rec_band,
+                '건수': len(grp),
+                '15일판정승률%': round(grp['15일판정'].isin(['승', '승(종가)']).mean() * 100, 1),
+                '15일내2%도달률%(고가기준)': round((grp['15일내2%도달'] == 'Y').mean() * 100, 1),
+            '15일내2%종가도달률%': round((grp['15일내2%도달_종가기준'] == 'Y').mean() * 100, 1) if '15일내2%도달_종가기준' in grp.columns else 0,
+                '15일평균종가수익%': round(pd.to_numeric(grp['15일종가수익률%'], errors='coerce').dropna().mean(), 2),
+            })
+    results['추천밴드별'] = pd.DataFrame(rec_band_rows)
+
+    tag_rows = []
+    if '유니버스태그' in df.columns:
+        for tag, grp in df.groupby('유니버스태그'):
+            if grp.empty:
+                continue
+            tag_rows.append({
+                '유니버스태그': tag,
+                '건수': len(grp),
+                '15일판정승률%': round(grp['15일판정'].isin(['승', '승(종가)']).mean() * 100, 1),
+                '15일내2%도달률%(고가기준)': round((grp['15일내2%도달'] == 'Y').mean() * 100, 1),
+            '15일내2%종가도달률%': round((grp['15일내2%도달_종가기준'] == 'Y').mean() * 100, 1) if '15일내2%도달_종가기준' in grp.columns else 0,
+                '15일평균종가수익%': round(pd.to_numeric(grp['15일종가수익률%'], errors='coerce').dropna().mean(), 2),
+            })
+    results['유니버스태그별'] = pd.DataFrame(tag_rows)
 
     return results
 
@@ -815,6 +1070,7 @@ def _upsert_tab(doc, tab_name: str, df: pd.DataFrame):
         log_error(f"❌ [{tab_name}] 저장 실패: {e}")
 
 
+
 def save_to_gsheet(raw_df: pd.DataFrame, summary: dict, start: str, end: str):
     gc, doc = _get_gspread_client()
     if doc is None:
@@ -824,27 +1080,22 @@ def save_to_gsheet(raw_df: pd.DataFrame, summary: dict, start: str, end: str):
     log_info(f"구글시트 저장 시작... [{SHEET_NAME}]")
     saved_at = datetime.now().strftime('%Y-%m-%d %H:%M')
 
-    raw_out = raw_df.copy()
+    raw_out = _prettify_raw_df(raw_df)
     raw_out.insert(0, '분석기간', f"{start}~{end}")
     raw_out.insert(1, '저장시각', saved_at)
     _upsert_tab(doc, MAIN_TAB_NAME, raw_out.head(5000))
 
-    tab_map = {
-        '전략별': f'{SUMMARY_TAB_PREFIX}전략별',
-        '월별': f'{SUMMARY_TAB_PREFIX}월별',
-        '밴드별': f'{SUMMARY_TAB_PREFIX}밴드별',
-        '보유기간별': f'{SUMMARY_TAB_PREFIX}보유기간별',
-    }
-    for key, tab_name in tab_map.items():
-        df = summary.get(key)
+    for key, df in summary.items():
         if df is None or df.empty:
             continue
-        out = df.copy()
+        out = _prettify_summary_df(df)
         out.insert(0, '분석기간', f"{start}~{end}")
         out.insert(1, '저장시각', saved_at)
-        _upsert_tab(doc, tab_name, out)
+        pretty_tab = SUMMARY_TAB_NAME_MAP.get(key, key)
+        _upsert_tab(doc, f'{SUMMARY_TAB_PREFIX}{pretty_tab}', out)
 
-    log_info("✅ 구글시트 저장 완료")
+    log_info('✅ 구글시트 저장 완료')
+
 
 
 # =============================================================
@@ -858,7 +1109,7 @@ def main():
     parser.add_argument(
         '--universe',
         default=DEFAULT_UNIVERSE,
-        choices=['top_marketcap', 'kospi200+kosdaq150', 'kospi200', 'kosdaq150'],
+        choices=['top_marketcap', 'kospi200+kosdaq150', 'kospi200', 'kosdaq150', 'hybrid_union', 'hybrid_intersection'],
         help='백테스트 유니버스',
     )
     parser.add_argument('--save-csv', action='store_true', help='원본/요약 CSV 저장')
