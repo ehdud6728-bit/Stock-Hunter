@@ -13,8 +13,8 @@
 #
 # 방법
 # - 과거 날짜의 일봉 데이터에 조건을 적용
-# - 다음 거래일 시가 진입
-# - 1/3/5/10일 후 수익률 및 MFE/MAE 측정
+# - 신호 당일 종가 진입
+# - 다음 거래일부터 1/3/5/10/15일 성과 측정
 #
 # 실행 예시
 # python Closing_bet_backtest_A_B1_B2.py --start 2024-01-01 --end 2024-12-31
@@ -226,7 +226,7 @@ PRETTY_RAW_COLUMNS = {
     'B1점수': 'ENV엄격형점수',
     'B2점수': 'BB확장형점수',
     '종가': '신호일종가',
-    '진입가': '익일시가진입가',
+    '진입가': '당일종가진입가',
     '거래량배율': '거래량배수',
     '전고점%': '20일전고점대비%',
     '이격도': '20일이격도',
@@ -710,9 +710,9 @@ def _check_conditions_on_date(df: pd.DataFrame, date_idx: int, code: str = '') -
 # =============================================================
 # 실전형 판정 유틸 (최대 15일 / +2% 선도달 / -3% 손절)
 # =============================================================
-def _evaluate_trade_window(df: pd.DataFrame, entry_idx: int, entry_price: float) -> dict:
+def _evaluate_trade_window(df: pd.DataFrame, signal_idx: int, entry_price: float) -> dict:
     """
-    entry_idx의 시가에 진입했다고 가정하고 최대 15거래일을 추적.
+    signal_idx 당일 종가에 진입하고, 다음 거래일부터 최대 15거래일을 추적.
 
     판정 우선순위
     1) +2% 먼저 도달(고가 기준) -> 승
@@ -744,10 +744,11 @@ def _evaluate_trade_window(df: pd.DataFrame, entry_idx: int, entry_price: float)
         '실전청산사유': '',
     }
 
-    if entry_price <= 0 or entry_idx >= len(df):
+    if entry_price <= 0 or signal_idx + 1 >= len(df):
         return result
 
-    window = df.iloc[entry_idx:entry_idx + MAX_HOLD_DAYS].copy()
+    eval_start_idx = signal_idx + 1
+    window = df.iloc[eval_start_idx:eval_start_idx + MAX_HOLD_DAYS].copy()
     if window.empty:
         return result
 
@@ -882,7 +883,7 @@ def _build_signal_record(df: pd.DataFrame, i: int, code: str, cond: dict, entry_
 
 
 def backtest_ticker(code: str, start: str, end: str) -> list:
-    """성과 백테스트: 신호 다음날 시가 진입 + 최대 15일 평가"""
+    """성과 백테스트: 신호 당일 종가 진입 + 다음 거래일부터 최대 15일 평가"""
     records = []
     try:
         load_start = (datetime.strptime(start, '%Y-%m-%d') - timedelta(days=700)).strftime('%Y-%m-%d')
@@ -910,14 +911,13 @@ def backtest_ticker(code: str, start: str, end: str) -> list:
             if cond is None:
                 continue
 
-            entry_idx = i + 1
-            entry_price = _safe_float(df['Open'].iloc[entry_idx])
+            entry_price = _safe_float(df['Close'].iloc[i])
             if entry_price <= 0:
                 continue
 
             forward_returns = {}
             for hold in HOLD_DAYS_LIST:
-                future_idx = entry_idx + hold - 1
+                future_idx = i + hold
                 if future_idx >= len(df):
                     forward_returns[f'수익률_{hold}일'] = None
                     forward_returns[f'승패_{hold}일'] = 'N/A'
@@ -930,7 +930,7 @@ def backtest_ticker(code: str, start: str, end: str) -> list:
                     '승' if ret >= PROFIT_TARGET else ('손절' if ret <= STOP_LOSS else '보합')
                 )
 
-            trade_eval = _evaluate_trade_window(df, entry_idx, entry_price)
+            trade_eval = _evaluate_trade_window(df, i, entry_price)
             records.append(_build_signal_record(df, i, code, cond, entry_price, trade_eval, forward_returns))
 
     except Exception as e:
@@ -968,12 +968,10 @@ def replay_ticker(code: str, start: str, end: str) -> list:
             if cond is None:
                 continue
 
-            # 재현 모드에서는 성과평가 없이 신호만 저장
-            # 참고용 익일시가가 있으면 넣고, 없으면 None
-            entry_price = None
-            if i + 1 < len(df):
-                nxt = _safe_float(df['Open'].iloc[i + 1])
-                entry_price = nxt if nxt > 0 else None
+            # 재현 모드에서는 신호 당일 종가 기준 진입가만 표기
+            entry_price = _safe_float(df['Close'].iloc[i])
+            if entry_price <= 0:
+                entry_price = None
 
             record = _build_signal_record(df, i, code, cond, entry_price=entry_price)
             record.update({
