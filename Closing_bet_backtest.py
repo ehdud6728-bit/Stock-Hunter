@@ -148,6 +148,45 @@ except ImportError:
         return []
 
 
+# HTS 설정 기준 강제 적용: 엔벨로프(20,10), 엔벨로프(40,10)
+# 백테스트가 외부 스캐너 구현과 달라지는 것을 막기 위해 여기서 재정의한다.
+def _calc_envelope(df: pd.DataFrame, period: int, pct: float) -> dict:
+    ma = df['Close'].rolling(period).mean()
+    upper = ma * (1 + pct / 100)
+    lower = ma * (1 - pct / 100)
+    return {'ma': ma, 'upper': upper, 'lower': lower}
+
+
+def _check_envelope_bottom(row: pd.Series, df: pd.DataFrame) -> dict:
+    close = float(row.get('Close', 0))
+    if close <= 0:
+        return {
+            'env20_near': False,
+            'env40_near': False,
+            'env20_pct': 0.0,
+            'env40_pct': 0.0,
+            'lower20': 0,
+            'lower40': 0,
+        }
+
+    env20 = _calc_envelope(df, 20, 10)
+    lower20 = float(env20['lower'].iloc[-1]) if not pd.isna(env20['lower'].iloc[-1]) else 0.0
+    env20_pct = ((close - lower20) / lower20 * 100) if lower20 > 0 else 999.0
+
+    env40 = _calc_envelope(df, 40, 10)
+    lower40 = float(env40['lower'].iloc[-1]) if not pd.isna(env40['lower'].iloc[-1]) else 0.0
+    env40_pct = ((close - lower40) / lower40 * 100) if lower40 > 0 else 999.0
+
+    return {
+        'env20_near': -2.0 <= env20_pct <= 2.0,
+        'env40_near': -10.0 <= env40_pct <= 10.0,
+        'env20_pct': round(env20_pct, 1),
+        'env40_pct': round(env40_pct, 1),
+        'lower20': round(lower20) if lower20 > 0 else 0,
+        'lower40': round(lower40) if lower40 > 0 else 0,
+    }
+
+
 # =============================================================
 # 설정
 # =============================================================
@@ -167,7 +206,9 @@ SUMMARY_TAB_PREFIX = '종가배팅_'
 
 
 PRETTY_RAW_COLUMNS = {
+    '스캔일': '신호일',
     'code': '종목코드',
+    'name': '종목명',
     '전략': '전략코드',
     '전략명': '전략명',
     '지수구분': '지수구분',
@@ -176,7 +217,7 @@ PRETTY_RAW_COLUMNS = {
     '변동성성격': '변동성성격',
     '밴드코멘트': '밴드코멘트',
     '밴드추천사유': '밴드추천사유',
-    '시총상위여부': '시총상위포함',
+    '시총상위여부': '시총상위포함여부',
     '밴드구분': '적용밴드',
     '밴드상태': '밴드상태',
     '충족조건': '충족조건',
@@ -267,6 +308,7 @@ SCOPE = [
 DEFAULT_UNIVERSE = 'hybrid_union'
 INDEX_MAP: dict[str, str] = {}
 TOP_MCAP_SET: set[str] = set()
+NAME_MAP: dict[str, str] = {}
 
 
 # =============================================================
@@ -282,9 +324,10 @@ def _get_ticker_list(top_n: int, universe: str = DEFAULT_UNIVERSE) -> list:
       - hybrid_union
       - hybrid_intersection
     """
-    global INDEX_MAP, TOP_MCAP_SET
+    global INDEX_MAP, TOP_MCAP_SET, NAME_MAP
     INDEX_MAP = {}
     TOP_MCAP_SET = set()
+    NAME_MAP = {}
 
     kospi = _get_kospi200()
     kosdaq = _get_kosdaq150()
@@ -301,6 +344,10 @@ def _get_ticker_list(top_n: int, universe: str = DEFAULT_UNIVERSE) -> list:
         df_q = fdr.StockListing('KOSDAQ')
         df = pd.concat([df_k, df_q], ignore_index=True)
         if df is not None and not df.empty:
+            name_col = next((c for c in df.columns if c in ('Name', 'name', '종목명')), None)
+            sym_name_col = next((c for c in df.columns if c in ('Code', 'Symbol', '종목코드')), None)
+            if name_col and sym_name_col:
+                NAME_MAP = {str(c).zfill(6): str(n) for c, n in zip(df[sym_name_col], df[name_col])}
             mcap_col = next((c for c in df.columns if 'cap' in c.lower()), None)
             sym_col = next((c for c in df.columns if c in ('Code', 'Symbol', '종목코드')), None)
             if mcap_col and sym_col:
@@ -440,15 +487,26 @@ def _compute_common_state(sub_df: pd.DataFrame) -> dict | None:
 def _pick_index_label(code: str) -> str:
     return INDEX_MAP.get(str(code).zfill(6), '')
 
+def _get_ticker_name(code: str) -> str:
+    code = str(code).zfill(6)
+    if code in NAME_MAP:
+        return NAME_MAP[code]
+    try:
+        from pykrx import stock as _pk
+        name = _pk.get_market_ticker_name(code)
+        return name or code
+    except Exception:
+        return code
+
 def _build_universe_tag(index_label: str = '', is_top_mcap: bool = False) -> str:
     tags = []
     if index_label == '코스피200':
-        tags.append('K200')
+        tags.append('코스피200')
     elif index_label == '코스닥150':
-        tags.append('KQ150')
+        tags.append('코스닥150')
     if is_top_mcap:
-        tags.append('MCAP')
-    return '+'.join(tags) if tags else 'OTHER'
+        tags.append('시총상위')
+    return '+'.join(tags) if tags else '기타'
 
 
 def _get_band_recommendation(
@@ -833,6 +891,7 @@ def backtest_ticker(code: str, start: str, end: str) -> list:
             records.append({
                 '스캔일': row_dt.strftime('%Y-%m-%d'),
                 'code': str(code).zfill(6),
+                'name': _get_ticker_name(code),
                 '전략': cond['mode'],
                 '전략명': cond['mode_label'],
                 '지수구분': cond['index_label'],
