@@ -115,6 +115,7 @@ ALERTED_FILE = '/tmp/closing_bet_alerted.json'
 LOG_DIR = Path(os.environ.get("CLOSING_BET_LOG_DIR", "./closing_bet_logs"))
 SIGNAL_LOG_CSV = LOG_DIR / "closing_bet_signals.csv"
 SUMMARY_REPORT_TXT = LOG_DIR / "closing_bet_summary.txt"
+FLOW_SNAPSHOT_CSV = LOG_DIR / "closing_bet_flow_snapshots.csv"
 
 # 다음날 성과 평가 가능 시간
 EVAL_READY_HOUR = 16
@@ -1183,6 +1184,191 @@ def _save_signal_log(df: pd.DataFrame):
         log_error(f"⚠️ 검증 로그 저장 실패: {e}")
 
 
+def _read_html_first_table(text: str) -> pd.DataFrame:
+    try:
+        tables = pd.read_html(text, match='날짜')
+        if tables:
+            return tables[0]
+    except Exception:
+        pass
+    return pd.DataFrame()
+
+
+def _get_intraday_flow_estimate(code: str, price: float = 0.0) -> dict:
+    """
+    네이버 종목별 외국인/기관 매매 페이지에서
+    당일 시점 기준 추정 외인/기관 수급 스냅샷을 가져온다.
+    주의: 공식 '최종치'가 아니라 장중/장마감 직후 기준 추정치일 수 있음.
+    """
+    try:
+        headers = {
+            'User-Agent': 'Mozilla/5.0',
+            'Referer': 'https://finance.naver.com/',
+        }
+        url = f"https://finance.naver.com/item/frgn.naver?code={code}"
+        res = requests.get(url, headers=headers, timeout=8)
+        res.encoding = 'euc-kr'
+        raw = _read_html_first_table(res.text)
+        if raw is None or raw.empty:
+            return {
+                'flow_snapshot_ok': False,
+                'flow_date': '',
+                'inst_qty_est': 0,
+                'frgn_qty_est': 0,
+                'inst_amt_est_b': 0.0,
+                'frgn_amt_est_b': 0.0,
+                'fi_amt_est_b': 0.0,
+                'flow_comment': '추정수급조회실패',
+            }
+
+        df = raw.dropna(how='all').copy()
+        new_cols = ['_'.join(col) if isinstance(col, tuple) else str(col) for col in df.columns]
+        df.columns = new_cols
+
+        date_col = next((c for c in df.columns if '날짜' in c), None)
+        inst_col = next((c for c in df.columns if '기관' in c and '순매매' in c), None)
+        frgn_col = next((c for c in df.columns if '외국인' in c and '순매매' in c), None)
+
+        if not inst_col or not frgn_col:
+            return {
+                'flow_snapshot_ok': False,
+                'flow_date': '',
+                'inst_qty_est': 0,
+                'frgn_qty_est': 0,
+                'inst_amt_est_b': 0.0,
+                'frgn_amt_est_b': 0.0,
+                'fi_amt_est_b': 0.0,
+                'flow_comment': '추정수급컬럼없음',
+            }
+
+        latest = df.iloc[0]
+
+        def _to_int(v):
+            try:
+                s = str(v).replace(',', '').replace('+', '').strip()
+                if s in ('', 'nan', 'None'):
+                    return 0
+                return int(float(s))
+            except Exception:
+                return 0
+
+        inst_qty = _to_int(latest.get(inst_col, 0))
+        frgn_qty = _to_int(latest.get(frgn_col, 0))
+        flow_date = str(latest.get(date_col, '')) if date_col else ''
+
+        price_f = float(price or 0)
+        inst_amt_b = round(inst_qty * price_f / 1e8, 1) if price_f > 0 else 0.0
+        frgn_amt_b = round(frgn_qty * price_f / 1e8, 1) if price_f > 0 else 0.0
+        fi_amt_b = round(inst_amt_b + frgn_amt_b, 1)
+
+        parts = []
+        if inst_qty > 0:
+            parts.append('기관유입')
+        elif inst_qty < 0:
+            parts.append('기관유출')
+
+        if frgn_qty > 0:
+            parts.append('외인유입')
+        elif frgn_qty < 0:
+            parts.append('외인유출')
+
+        if inst_qty > 0 and frgn_qty > 0:
+            parts.append('쌍끌')
+        elif inst_qty < 0 and frgn_qty < 0:
+            parts.append('동반이탈')
+
+        flow_comment = '/'.join(parts) if parts else '중립'
+
+        return {
+            'flow_snapshot_ok': True,
+            'flow_date': flow_date,
+            'inst_qty_est': inst_qty,
+            'frgn_qty_est': frgn_qty,
+            'inst_amt_est_b': inst_amt_b,
+            'frgn_amt_est_b': frgn_amt_b,
+            'fi_amt_est_b': fi_amt_b,
+            'flow_comment': flow_comment,
+        }
+
+    except Exception as e:
+        return {
+            'flow_snapshot_ok': False,
+            'flow_date': '',
+            'inst_qty_est': 0,
+            'frgn_qty_est': 0,
+            'inst_amt_est_b': 0.0,
+            'frgn_amt_est_b': 0.0,
+            'fi_amt_est_b': 0.0,
+            'flow_comment': f'추정수급오류:{e}',
+        }
+
+
+def _save_estimated_flow_snapshots(hits: list, scan_dt: datetime):
+    """
+    종가배팅 후보(hits)에 대해 15:20 전후 추정 외인/기관 수급 스냅샷을 CSV로 누적 저장.
+    나중에 실전형 수급 백테스트용 원본으로 활용 가능.
+    """
+    if not hits:
+        return
+
+    _ensure_log_dir()
+    rows = []
+    scan_date = scan_dt.strftime('%Y-%m-%d')
+    scan_time = scan_dt.strftime('%H:%M:%S')
+
+    for h in hits:
+        code = str(h.get('code', '')).zfill(6)
+        close_price = float(h.get('close', 0) or 0)
+        flow = _get_intraday_flow_estimate(code, close_price)
+        rows.append({
+            'key': f"{scan_date}|{code}|{h.get('mode','')}",
+            'scan_date': scan_date,
+            'scan_time': scan_time,
+            'code': code,
+            'name': h.get('name', ''),
+            'mode': h.get('mode', ''),
+            'mode_label': h.get('mode_label', ''),
+            'grade': h.get('grade', ''),
+            'score': h.get('score', 0),
+            'close': close_price,
+            'index_label': h.get('index_label', ''),
+            'universe_tag': h.get('universe_tag', ''),
+            'recommended_band': h.get('recommended_band', ''),
+            'volatility_type': h.get('volatility_type', ''),
+            'band_comment': h.get('band_comment', ''),
+            'flow_snapshot_ok': int(bool(flow.get('flow_snapshot_ok', False))),
+            'flow_date': flow.get('flow_date', ''),
+            'inst_qty_est': flow.get('inst_qty_est', 0),
+            'frgn_qty_est': flow.get('frgn_qty_est', 0),
+            'inst_amt_est_b': flow.get('inst_amt_est_b', 0.0),
+            'frgn_amt_est_b': flow.get('frgn_amt_est_b', 0.0),
+            'fi_amt_est_b': flow.get('fi_amt_est_b', 0.0),
+            'flow_comment': flow.get('flow_comment', ''),
+        })
+
+    new_df = pd.DataFrame(rows)
+    if FLOW_SNAPSHOT_CSV.exists():
+        try:
+            old_df = pd.read_csv(FLOW_SNAPSHOT_CSV, dtype={'code': str, 'key': str}, encoding='utf-8-sig')
+        except Exception:
+            old_df = pd.DataFrame()
+    else:
+        old_df = pd.DataFrame()
+
+    if old_df.empty:
+        merged = new_df
+    else:
+        merged = pd.concat([old_df, new_df], ignore_index=True)
+        merged = merged.drop_duplicates(subset=['key'], keep='last')
+
+    merged = merged.sort_values(['scan_date', 'scan_time', 'code']).reset_index(drop=True)
+    try:
+        merged.to_csv(FLOW_SNAPSHOT_CSV, index=False, encoding='utf-8-sig')
+        log_info(f"✅ 추정 수급 스냅샷 저장: {len(new_df)}건 -> {FLOW_SNAPSHOT_CSV.name}")
+    except Exception as e:
+        log_error(f"⚠️ 추정 수급 스냅샷 저장 실패: {e}")
+
+
 def _append_hits_to_validation_log(hits: list, scan_dt: datetime):
     if not hits:
         return
@@ -1796,6 +1982,7 @@ def run_closing_bet_scan(force: bool = False) -> list:
 
     _send_results(hits, mins_left)
     _append_hits_to_validation_log(hits, now)
+    _save_estimated_flow_snapshots(hits, now)
     return hits
 
 
