@@ -55,6 +55,9 @@ CHAT_ID_LIST = [
     if c.strip()
 ]
 
+GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
+CLOSING_BET_DEBATE_TOP_N = int(os.environ.get('CLOSING_BET_DEBATE_TOP_N', '7'))
+
 try:
     from scan_logger import set_log_level, log_info, log_error, log_debug
     set_log_level('NORMAL')
@@ -1712,6 +1715,252 @@ def _format_hit(hit: dict, rank: int, mins_left: int) -> str:
     )
 
 
+
+
+def _call_anthropic_text(system_msg: str, user_msg: str, max_tokens: int = 900) -> str:
+    if not ANTHROPIC_API_KEY:
+        return ''
+    res = requests.post(
+        'https://api.anthropic.com/v1/messages',
+        headers={
+            'Content-Type': 'application/json',
+            'x-api-key': ANTHROPIC_API_KEY,
+            'anthropic-version': '2023-06-01',
+        },
+        json={
+            'model': os.environ.get('CLOSING_BET_ANTHROPIC_MODEL', 'claude-sonnet-4-20250514'),
+            'max_tokens': max_tokens,
+            'system': system_msg,
+            'messages': [{'role': 'user', 'content': user_msg}],
+        },
+        timeout=40,
+    )
+    data = res.json()
+    if 'content' in data and data['content']:
+        return data['content'][0].get('text', '').strip()
+    return ''
+
+
+def _call_openai_text(system_msg: str, user_msg: str, max_tokens: int = 900) -> str:
+    if not OPENAI_API_KEY:
+        return ''
+    from openai import OpenAI as _OAI
+    client = _OAI(api_key=OPENAI_API_KEY)
+    res = client.chat.completions.create(
+        model=os.environ.get('CLOSING_BET_OPENAI_MODEL', 'gpt-4o-mini'),
+        messages=[
+            {'role': 'system', 'content': system_msg},
+            {'role': 'user', 'content': user_msg},
+        ],
+        max_tokens=max_tokens,
+    )
+    return (res.choices[0].message.content or '').strip()
+
+
+def _call_groq_text(system_msg: str, user_msg: str, max_tokens: int = 900) -> str:
+    if not GROQ_API_KEY:
+        return ''
+    res = requests.post(
+        'https://api.groq.com/openai/v1/chat/completions',
+        headers={
+            'Authorization': f'Bearer {GROQ_API_KEY}',
+            'Content-Type': 'application/json',
+        },
+        json={
+            'model': os.environ.get('CLOSING_BET_GROQ_MODEL', 'llama-3.3-70b-versatile'),
+            'messages': [
+                {'role': 'system', 'content': system_msg},
+                {'role': 'user', 'content': user_msg},
+            ],
+            'max_tokens': max_tokens,
+            'temperature': 0.2,
+        },
+        timeout=40,
+    )
+    data = res.json()
+    return (((data.get('choices') or [{}])[0].get('message') or {}).get('content') or '').strip()
+
+
+def _call_gemini_text(system_msg: str, user_msg: str, max_tokens: int = 900) -> str:
+    if not GEMINI_API_KEY:
+        return ''
+    model = os.environ.get('CLOSING_BET_GEMINI_MODEL', 'gemini-2.0-flash')
+    url = f'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={GEMINI_API_KEY}'
+    res = requests.post(
+        url,
+        headers={'Content-Type': 'application/json'},
+        json={
+            'systemInstruction': {'parts': [{'text': system_msg}]},
+            'contents': [{'parts': [{'text': user_msg}]}],
+            'generationConfig': {'temperature': 0.2, 'maxOutputTokens': max_tokens},
+        },
+        timeout=40,
+    )
+    data = res.json()
+    candidates = data.get('candidates') or []
+    if candidates:
+        parts = ((candidates[0].get('content') or {}).get('parts') or [])
+        texts = [p.get('text', '') for p in parts if p.get('text')]
+        return '\n'.join(texts).strip()
+    return ''
+
+
+def _call_llm_with_fallback(system_msg: str, user_msg: str, role_label: str = '', max_tokens: int = 900, provider_order=None):
+    if provider_order is None:
+        provider_order = ['anthropic', 'openai', 'gemini', 'groq']
+
+    providers = {
+        'anthropic': _call_anthropic_text,
+        'openai': _call_openai_text,
+        'gemini': _call_gemini_text,
+        'groq': _call_groq_text,
+    }
+
+    errors = []
+    for provider in provider_order:
+        fn = providers.get(provider)
+        if not fn:
+            continue
+        try:
+            text = fn(system_msg, user_msg, max_tokens=max_tokens)
+            if text:
+                log_info(f"✅ {role_label} LLM 성공: {provider}")
+                return text, provider
+        except Exception as e:
+            errors.append(f'{provider}:{e}')
+            log_error(f"⚠️ {role_label} {provider} 실패: {e}")
+
+    if errors:
+        log_error(f"⚠️ {role_label} 전체 실패: {' | '.join(errors)}")
+    return '', 'none'
+
+
+def _debate_sort_key(hit: dict):
+    grade = hit.get('grade', '')
+    g_rank = 0 if '완전체' in grade else (1 if 'A급' in grade else 2)
+    mode = hit.get('mode', '')
+    mode_rank = {'A': 0, 'B1': 1, 'B2': 2}.get(mode, 9)
+    return (g_rank, mode_rank, -hit.get('score', 0), -hit.get('amount_b', 0), -hit.get('vol_ratio', 0))
+
+
+def _select_debate_candidates(hits: list, top_n: int = None) -> list:
+    if top_n is None:
+        top_n = CLOSING_BET_DEBATE_TOP_N
+    pool = sorted(hits, key=_debate_sort_key)
+    return pool[:top_n]
+
+
+def _build_debate_candidate_lines(candidates: list) -> str:
+    lines = []
+    for idx, h in enumerate(candidates, 1):
+        flow_bits = []
+        if h.get('inst_amt_est_b', 0):
+            flow_bits.append(f"기관추정:{h.get('inst_amt_est_b', 0):+.1f}억")
+        if h.get('frgn_amt_est_b', 0):
+            flow_bits.append(f"외인추정:{h.get('frgn_amt_est_b', 0):+.1f}억")
+        if h.get('flow_comment'):
+            flow_bits.append(h.get('flow_comment'))
+        flow_text = ' | '.join(flow_bits) if flow_bits else '수급추정정보없음'
+
+        lines.append(
+            f"{idx}. {h['name']}({h['code']}) | 전략:{h.get('mode_label','')} | 등급:{h.get('grade','')} | 점수:{h.get('score',0)} | "
+            f"가격:{h['close']:,}원 | 거래대금:{h.get('amount_b',0)}억 | 거래량:{h.get('vol_ratio',0)}배 | "
+            f"추천밴드:{h.get('recommended_band','')} | 유형:{h.get('volatility_type','')} | 유니버스:{h.get('universe_tag','')}\n"
+            f"   종가강도/캔들: 윗꼬리(몸통){h.get('wick_pct',0)}% | 목표:{h.get('target1',0):,} | 손절:{h.get('stoploss',0):,} | RR:{h.get('rr',0)}\n"
+            f"   밴드/전략세부: {h.get('band_pct_text','')} | {h.get('band_comment','')}\n"
+            f"   수급추정: {flow_text}"
+        )
+    return '\n'.join(lines)
+
+
+def _run_role_brief(role_name: str, system_msg: str, user_msg: str, provider_order=None) -> tuple[str, str]:
+    return _call_llm_with_fallback(system_msg, user_msg, role_label=role_name, max_tokens=1200, provider_order=provider_order)
+
+
+def _send_closing_bet_debate(hits: list, mins_left: int, top_n: int = None):
+    if top_n is None:
+        top_n = CLOSING_BET_DEBATE_TOP_N
+    if not hits:
+        return
+
+    candidates = _select_debate_candidates(hits, top_n=top_n)
+    if not candidates:
+        return
+
+    candidate_text = _build_debate_candidate_lines(candidates)
+    base_context = (
+        f"[종가배팅 상위 {len(candidates)}개 후보 | 마감까지 {mins_left}분]\n"
+        "아래 후보들은 당일 종가 진입을 검토하는 후보들이다. \n"
+        "전략 A는 전고점 돌파형, B1은 ENV 엄격형 바닥 반등, B2는 BB 확장형 하단 재안착이다. \n"
+        "Env/BB는 절대적으로 해석하지 말고, 재안착/시황/수급/리스크를 함께 종합판단하라.\n\n"
+        f"후보 목록:\n{candidate_text}"
+    )
+
+    role_specs = [
+        (
+            '기술분석가',
+            "너는 종가배팅 전용 기술분석가다. 차트/캔들/종가강도/ENV/BB/전고점 이격만 중심으로 본다. "
+            "양수 재안착을 무조건 늦었다고 단정하지 말고, 하단선 근처 재안착은 긍정 가능성도 열어둬라. "
+            "후보별로 [추천/조건부추천/보류/제외] 중 하나와 핵심 이유 2개를 적어라.",
+            ['anthropic','openai','gemini','groq'],
+        ),
+        (
+            '수급분석가',
+            "너는 외인/기관/OBV/매집흔적 중심의 수급분석가다. 최근 3~5일 흐름과 당일 추정 수급을 같이 보고, "
+            "들어온 흔적은 있는데 크게 나간 흔적이 없는지에 집중하라. 후보별로 [추천/조건부추천/보류/제외]와 수급 근거를 적어라.",
+            ['openai','anthropic','groq','gemini'],
+        ),
+        (
+            '시황테마분석가',
+            "너는 업종/섹터/대장주/뉴스 맥락을 보는 시황 분석가다. 주어진 정보로 추론하되 과장하지 말고, "
+            "단순 눌림인지 재료 소멸인지, 종가배팅에 우호적인 시장 흐름인지 평가하라. 후보별로 [추천/조건부추천/보류/제외]와 이유를 적어라.",
+            ['anthropic','gemini','openai','groq'],
+        ),
+        (
+            '리스크관리자',
+            "너는 가장 보수적인 리스크 관리자다. 늦은 자리인지, 다음날 갭리스크가 큰지, 손절/목표가 실전적으로 유효한지 본다. "
+            "후보별로 [추천/조건부추천/보류/제외]와 리스크 2개를 적어라.",
+            ['openai','groq','anthropic','gemini'],
+        ),
+    ]
+
+    role_outputs = []
+    providers_used = []
+    for role_name, role_system, provider_order in role_specs:
+        user_msg = base_context + "\n\n출력 형식: 후보번호별 판정과 이유를 간단명료하게 정리하라."
+        text, provider = _run_role_brief(role_name, role_system, user_msg, provider_order=provider_order)
+        if text:
+            role_outputs.append(f"[{role_name}/{provider}]\n{text}")
+            providers_used.append(f"{role_name}:{provider}")
+        else:
+            fallback_text = f"[{role_name}/none]\n모델 응답 실패. 이 역할 의견은 제공되지 않음."
+            role_outputs.append(fallback_text)
+            providers_used.append(f"{role_name}:none")
+
+    judge_system = (
+        "너는 종가배팅 최종 심판이다. 기술/수급/시황/리스크 의견을 읽고 각 후보에 대해 최종판정 [진입/조건부진입/보류/제외], "
+        "확신도(0~100), 한줄핵심, 손절/목표 유의사항을 정리하라. 단일 의견을 맹신하지 말고 충돌하는 의견은 조정해라. "
+        "출력은 후보번호별로 깔끔하게 정리하고, 마지막에 최종 우선순위 TOP3를 적어라."
+    )
+    judge_user = base_context + "\n\n아래는 역할별 의견이다.\n\n" + "\n\n".join(role_outputs)
+    judge_text, judge_provider = _call_llm_with_fallback(
+        judge_system, judge_user, role_label='최종심판', max_tokens=1800, provider_order=['anthropic','openai','gemini','groq']
+    )
+
+    if not judge_text:
+        log_error('⚠️ 종가배팅 토론 최종심판 실패')
+        return
+
+    provider_line = ' | '.join(providers_used + [f'심판:{judge_provider}'])
+    message = (
+        f"🧠 종가배팅 AI 토론 TOP{len(candidates)}\n"
+        f"⏰ 마감까지 {mins_left}분\n"
+        f"모델사용: {provider_line}\n\n"
+        f"{judge_text}"
+    )
+    send_telegram_chunks(message, max_len=3500)
+
+
 def _send_ai_comment(hits: list, mins_left: int, strategy: str = 'A'):
     try:
         if strategy == 'A':
@@ -1891,13 +2140,8 @@ def _send_results(hits: list, mins_left: int):
         if current_msg.strip():
             send_telegram_photo(current_msg, [])
 
-    if ANTHROPIC_API_KEY or OPENAI_API_KEY:
-        if hits_a:
-            _send_ai_comment(hits_a, mins_left, strategy='A')
-        if hits_b1:
-            _send_ai_comment(hits_b1, mins_left, strategy='B1')
-        if hits_b2:
-            _send_ai_comment(hits_b2, mins_left, strategy='B2')
+    if ANTHROPIC_API_KEY or OPENAI_API_KEY or GROQ_API_KEY or GEMINI_API_KEY:
+        _send_closing_bet_debate(hits, mins_left, top_n=CLOSING_BET_DEBATE_TOP_N)
 
 
 # =============================================================
