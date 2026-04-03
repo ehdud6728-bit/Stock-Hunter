@@ -291,7 +291,7 @@ MAX_WORKERS = 15
 TOP_N = 300
 
 JSON_KEY_PATH = str(Path(__file__).resolve().with_name('stock-key.json'))
-SHEET_NAME = '주식자동매매일지'
+SHEET_NAME = '사령부_통합_상황판'
 MAIN_TAB_NAME = '종가배팅'
 SUMMARY_TAB_PREFIX = '종가배팅_'
 FLOW_SNAPSHOT_CSV = Path(os.environ.get('CLOSING_BET_FLOW_SNAPSHOT_CSV', './closing_bet_logs/closing_bet_flow_snapshots.csv'))
