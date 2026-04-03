@@ -296,6 +296,7 @@ MAIN_TAB_NAME = '종가배팅'
 SUMMARY_TAB_PREFIX = '종가배팅_'
 FLOW_SNAPSHOT_CSV = Path(os.environ.get('CLOSING_BET_FLOW_SNAPSHOT_CSV', './closing_bet_logs/closing_bet_flow_snapshots.csv'))
 FLOW_SNAPSHOT_LOOKUP: dict[str, dict] = {}
+INVESTOR_FLOW_CACHE: dict = {}
 AI_GSHEET_NAME = '사령부_통합_상황판'
 AI_JUDGMENT_TAB_NAME = '종가배팅_AI판정'
 AI_BACKFILL_TAB_NAME = '종가배팅_AI판정_백필'
