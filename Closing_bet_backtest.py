@@ -33,6 +33,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import numpy as np
 import pandas as pd
 import FinanceDataReader as fdr
+import requests
 
 try:
     import gspread
@@ -62,94 +63,177 @@ try:
 except ImportError:
     from main7_bugfix import get_indicators
 
-# 우선순위:
-# 1) repo 안에 최종 통합 scanner 가 있으면 그걸 사용
-# 2) 기존 Closing_bet_scanner 가 있으면 거기서 일부 사용
-try:
-    from Closing_bet_scanner_v2 import (
-        _calc_envelope,
-        _check_envelope_bottom,
-        _calc_bollinger,
-        _check_bb_bottom,
-        _calc_upper_wick_ratio,
-        _get_kospi200,
-        _get_kosdaq150,
-        MIN_PRICE,
-        MIN_AMOUNT,
-        NEAR_HIGH20_MIN,
-        NEAR_HIGH20_MAX,
-        UPPER_WICK_MAX,
-        VOL_MULT,
-        DISPARITY_MIN,
-        DISPARITY_MAX,
-    )
-except ImportError:
-    from Closing_bet_scanner import (  # type: ignore
-        _calc_envelope,
-        _check_envelope_bottom,
-        _calc_upper_wick_ratio,
-        MIN_PRICE,
-        MIN_AMOUNT,
-        NEAR_HIGH20_MIN,
-        NEAR_HIGH20_MAX,
-        UPPER_WICK_MAX,
-        VOL_MULT,
-        DISPARITY_MIN,
-        DISPARITY_MAX,
-    )
 
-    # 기존 스캐너에 BB 함수가 없을 수 있으므로 로컬 구현
-    def _calc_bollinger(df: pd.DataFrame, period: int = 40, std_mult: float = 2.0) -> dict:
-        mid = df['Close'].rolling(period).mean()
-        std = df['Close'].rolling(period).std()
-        upper = mid + std * std_mult
-        lower = mid - std * std_mult
-        width = pd.Series(
-            np.where(mid > 0, (upper - lower) / mid * 100, np.nan),
-            index=df.index,
-        )
-        return {'mid': mid, 'upper': upper, 'lower': lower, 'width': width}
+# 검색기와 백테스트 종목 불일치를 막기 위해,
+# 신호 판정에 필요한 함수/상수는 이 파일 안에 직접 고정한다.
+# (외부 Closing_bet_scanner_v2 / Closing_bet_scanner import에 의존하지 않음)
 
-    def _check_bb_bottom(row: pd.Series, df: pd.DataFrame) -> dict:
-        close = float(row.get('Close', 0))
-        if close <= 0:
-            return {
-                'bb40_near': False,
-                'bb40_pct': 0.0,
-                'bb40_width': 0.0,
-                'lower40': 0,
-                'mid40': 0,
-            }
-        bb40 = _calc_bollinger(df, 40, 2.0)
-        lower40 = float(bb40['lower'].iloc[-1]) if not pd.isna(bb40['lower'].iloc[-1]) else 0.0
-        mid40 = float(bb40['mid'].iloc[-1]) if not pd.isna(bb40['mid'].iloc[-1]) else 0.0
-        width40 = float(bb40['width'].iloc[-1]) if not pd.isna(bb40['width'].iloc[-1]) else 0.0
-        if lower40 <= 0:
-            return {
-                'bb40_near': False,
-                'bb40_pct': 999.0,
-                'bb40_width': round(width40, 1),
-                'lower40': 0,
-                'mid40': round(mid40) if mid40 > 0 else 0,
-            }
-        bb40_pct = (close - lower40) / lower40 * 100
+MIN_PRICE = 5_000
+MIN_AMOUNT = 3_000_000_000
+NEAR_HIGH20_MIN = 85.0
+NEAR_HIGH20_MAX = 100.0
+UPPER_WICK_MAX = 0.20
+VOL_MULT = 2.0
+DISPARITY_MIN = 98.0
+DISPARITY_MAX = 112.0
+
+BB40_NEAR_PCT = 2.5
+
+
+def _calc_upper_wick_ratio(row) -> float:
+    high_p = float(row.get('High', 0))
+    open_p = float(row.get('Open', 0))
+    close_p = float(row.get('Close', 0))
+    body_top = max(open_p, close_p)
+    body_size = max(abs(close_p - open_p), 1e-9)
+    upper_wick = max(0.0, high_p - body_top)
+    return upper_wick / body_size
+
+
+def _calc_bollinger(df: pd.DataFrame, period: int = 40, std_mult: float = 2.0) -> dict:
+    mid = df['Close'].rolling(period).mean()
+    std = df['Close'].rolling(period).std()
+    upper = mid + std * std_mult
+    lower = mid - std * std_mult
+    width = pd.Series(
+        np.where(mid > 0, (upper - lower) / mid * 100, np.nan),
+        index=df.index,
+    )
+    return {'mid': mid, 'upper': upper, 'lower': lower, 'width': width}
+
+
+def _check_bb_bottom(row: pd.Series, df: pd.DataFrame) -> dict:
+    close = float(row.get('Close', 0))
+    if close <= 0:
         return {
-            'bb40_near': -2.5 <= bb40_pct <= 2.5,
-            'bb40_pct': round(bb40_pct, 1),
+            'bb40_near': False,
+            'bb40_pct': 0.0,
+            'bb40_width': 0.0,
+            'lower40': 0,
+            'mid40': 0,
+        }
+
+    bb40 = _calc_bollinger(df, 40, 2.0)
+    lower40 = float(bb40['lower'].iloc[-1]) if not pd.isna(bb40['lower'].iloc[-1]) else 0.0
+    mid40 = float(bb40['mid'].iloc[-1]) if not pd.isna(bb40['mid'].iloc[-1]) else 0.0
+    width40 = float(bb40['width'].iloc[-1]) if not pd.isna(bb40['width'].iloc[-1]) else 0.0
+
+    if lower40 <= 0:
+        return {
+            'bb40_near': False,
+            'bb40_pct': 999.0,
             'bb40_width': round(width40, 1),
-            'lower40': round(lower40),
+            'lower40': 0,
             'mid40': round(mid40) if mid40 > 0 else 0,
         }
 
-    def _get_kospi200() -> list:
+    bb40_pct = (close - lower40) / lower40 * 100
+    return {
+        'bb40_near': -BB40_NEAR_PCT <= bb40_pct <= BB40_NEAR_PCT,
+        'bb40_pct': round(bb40_pct, 1),
+        'bb40_width': round(width40, 1),
+        'lower40': round(lower40),
+        'mid40': round(mid40) if mid40 > 0 else 0,
+    }
+
+
+def _get_index_tickers_naver(index_code: str) -> list:
+    try:
+        from bs4 import BeautifulSoup
+
+        headers = {
+            'User-Agent': 'Mozilla/5.0',
+            'Referer': 'https://finance.naver.com/',
+        }
+        url_map = {
+            'KOSPI200': 'https://finance.naver.com/sise/entryJongmok.naver?kospiCode=KOSPI200',
+            'KQ150': 'https://finance.naver.com/sise/entryJongmok.naver?kospiCode=KQ150',
+        }
+        url = url_map.get(index_code, '')
+        if not url:
+            return []
+
+        tickers = []
+        for page in range(1, 30):
+            res = requests.get(f"{url}&page={page}", headers=headers, timeout=10)
+            res.encoding = 'euc-kr'
+            soup = BeautifulSoup(res.text, 'html.parser')
+            links = soup.select('td.ctg a[href*="code="]')
+            if not links:
+                break
+            for a in links:
+                href = a.get('href', '')
+                code = href.split('code=')[-1].strip()
+                if code and len(code) == 6 and code.isdigit():
+                    tickers.append(code)
+
+        tickers = list(dict.fromkeys(tickers))
+        if tickers:
+            log_info(f"네이버 {index_code}: {len(tickers)}개 ✅")
+        return tickers
+    except Exception as e:
+        log_error(f"⚠️ 네이버 {index_code} 실패: {e}")
         return []
 
-    def _get_kosdaq150() -> list:
-        return []
+
+def _get_index_tickers_krx(market: str, top_n: int) -> list:
+    try:
+        from pykrx import stock as _pk
+
+        target_name = '코스피 200' if market == 'KOSPI' else '코스닥 150'
+        idx_codes = _pk.get_index_ticker_list(market=market)
+
+        target_code = None
+        for idx_code in idx_codes:
+            try:
+                idx_name = _pk.get_index_ticker_name(idx_code)
+                if idx_name == target_name:
+                    target_code = idx_code
+                    break
+            except Exception:
+                continue
+
+        if target_code:
+            tickers = _pk.get_index_portfolio_deposit_file(target_code)
+            if tickers and len(tickers) > 50:
+                log_info(f"pykrx {target_name}: {len(tickers)}개 ✅")
+                return list(tickers)[:top_n]
+    except Exception as e:
+        log_error(f"⚠️ pykrx {market} 실패: {e}")
+
+    try:
+        df = fdr.StockListing(market)
+        if df is not None and not df.empty:
+            mcap_col = next((c for c in df.columns if 'cap' in c.lower()), None)
+            sym_col = next((c for c in df.columns if c in ('Code', 'Symbol', '코드', '종목코드')), None)
+            if mcap_col and sym_col:
+                df = df.nlargest(top_n, mcap_col)
+                tickers = [str(c).zfill(6) for c in df[sym_col].tolist()]
+                log_info(f"FDR {market} 시총상위{top_n}: {len(tickers)}개 ✅")
+                return tickers
+    except Exception as e:
+        log_error(f"⚠️ FDR {market} 실패: {e}")
+
+    return []
 
 
-# HTS 설정 기준 강제 적용: 엔벨로프(20,10), 엔벨로프(40,10)
-# 백테스트가 외부 스캐너 구현과 달라지는 것을 막기 위해 여기서 재정의한다.
+def _get_kospi200() -> list:
+    tickers = _get_index_tickers_naver('KOSPI200')
+    if len(tickers) >= 150:
+        return tickers
+    log_info("코스피200 네이버 실패 → pykrx/FDR 폴백")
+    return _get_index_tickers_krx('KOSPI', 200)
+
+
+def _get_kosdaq150() -> list:
+    tickers = _get_index_tickers_naver('KQ150')
+    if len(tickers) >= 100:
+        return tickers
+    log_info("코스닥150 네이버 실패 → pykrx/FDR 폴백")
+    return _get_index_tickers_krx('KOSDAQ', 150)
+
+
+# HTS 설정 기준 고정: 엔벨로프(20,10), 엔벨로프(40,10)
 def _calc_envelope(df: pd.DataFrame, period: int, pct: float) -> dict:
     ma = df['Close'].rolling(period).mean()
     upper = ma * (1 + pct / 100)
