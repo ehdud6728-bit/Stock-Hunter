@@ -2546,7 +2546,7 @@ def get_indicators(df):
     df['Below_MA112']     = (df['Close'] < df['MA112']).astype(int)
     df['Below_MA112_60d'] = df['Below_MA112'].rolling(60).sum()
 
-    df['MA224'] = df['MA224'].ffill().fillna(0)
+    df['MA224'] = df['MA224'].ffill()
 
     is_above_series       = close > df['MA224']
     df['Trend_Group']     = is_above_series.astype(int).diff().fillna(0).ne(0).cumsum()
@@ -2556,7 +2556,7 @@ def get_indicators(df):
     vol_power_series = df['Volume'] / vol_avg20
     is_above_ma224   = close > df['MA224']
 
-    near_band_low = (low - df['MA224']).abs() / df['MA224'] < 0.03
+    near_band_low = ((low - df['MA224']).abs() / df['MA224'].replace(0, np.nan)) < 0.03
     local_min     = low == low.rolling(5, center=True, min_periods=1).min()
     double_bottom_series = (near_band_low & local_min).rolling(30).sum() >= 2
 
@@ -3826,41 +3826,32 @@ def parse_ai_summary_to_map(ai_result_text: str) -> dict:
 def _call_ai(system_prompt: str, user_prompt: str,
              max_tokens: int = 3000, prefer_claude: bool = True) -> str:
     """
-    AI API 호출 — Claude/OpenAI 우선, 실패 시 Gemini/Groq까지 폴백.
+    AI API 호출 — Claude/OpenAI/Gemini/Groq 순차 폴백.
+    성공한 첫 결과를 반환하고, 전부 실패할 때만 실패 문구 반환.
     """
-    if prefer_claude and ANTHROPIC_API_KEY:
-        result = _call_claude_api(system_prompt, user_prompt, max_tokens)
-        if result:
-            log_debug("✅ Claude API 사용")
-            return result
+    providers = []
+    if prefer_claude:
+        providers.append(("claude", lambda: _call_claude_api(system_prompt, user_prompt, max_tokens)))
+    providers.extend([
+        ("openai", lambda: _call_openai_api_generic(system_prompt, user_prompt, max_tokens=max_tokens)),
+        ("gemini", lambda: _call_gemini_api_generic(system_prompt, user_prompt, max_tokens=max_tokens)),
+        ("groq", lambda: _call_groq_api_generic(system_prompt, user_prompt, max_tokens=min(max_tokens, 4000))),
+    ])
 
-    if OPENAI_API_KEY:
+    errors = []
+    for provider_name, fn in providers:
         try:
-            client = OpenAI(api_key=OPENAI_API_KEY)
-            res = client.chat.completions.create(
-                model='gpt-4o',
-                messages=[
-                    {'role': 'system', 'content': system_prompt},
-                    {'role': 'user',   'content': user_prompt},
-                ],
-                max_tokens=max_tokens,
-                temperature=0.5
-            )
-            out = (res.choices[0].message.content or '').strip()
-            if out:
-                log_debug("✅ OpenAI API 사용 (폴백)")
+            out = fn()
+            out = (out or "").strip()
+            if out and out not in ("브리핑 생성 실패", "AI 분석 불가 (API 키 없음 또는 호출 실패)"):
+                log_info(f"✅ AI 코멘트 생성 성공: {provider_name}")
                 return out
+            errors.append(f"{provider_name}: empty")
         except Exception as e:
-            log_error(f"[OpenAI 폴백 실패] {e}")
+            errors.append(f"{provider_name}: {e}")
+            log_error(f"[{provider_name} AI 실패] {e}")
 
-    result = _call_gemini_api_generic(system_prompt, user_prompt, max_tokens=max_tokens)
-    if result:
-        return result
-
-    result = _call_groq_api_generic(system_prompt, user_prompt, max_tokens=min(max_tokens, 4000))
-    if result:
-        return result
-
+    log_error("⚠️ AI 코멘트 전부 실패: " + " | ".join(errors))
     return "AI 분석 불가 (API 키 없음 또는 호출 실패)"
 
 def get_ai_summary_batch(ai_candidates_df, issues=None, market_news=None):
@@ -6570,6 +6561,65 @@ def analyze_weekly_trend(ticker, name):
     except Exception as e:
         return []
 
+def _get_single_stock_ai_tip(row, issues=None, market_news=None):
+    """
+    배치 AI 결과가 비었을 때 종목 1개만 다시 AI로 재시도.
+    전부 실패하면 빈 문자열 반환하고, 최종 하드코딩 fallback은 호출부에서 처리.
+    """
+    try:
+        comments = "특이 이슈 없음"
+        if issues:
+            comments = " | ".join([str(i.get("comment", "분석 필요")) for i in issues])
+
+        market_news_block = ""
+        if market_news and isinstance(market_news, list):
+            top_news = [str(n) for n in market_news[:5] if n]
+            if top_news:
+                market_news_block = "\n".join(f"- {n}" for n in top_news)
+
+        system_prompt = (
+            "당신은 대한민국 주식 단기/스윙 트레이딩 전문가다. "
+            "주어진 종목의 현재 위치를 2~3문장으로 간결하게 정리하라. "
+            "과장 금지, 핵심만 설명하고 추격/눌림/관망 중 하나의 뉘앙스를 포함하라."
+        )
+
+        user_prompt = f"""
+[종목]
+- 종목명: {row.get('종목명', '')}
+- 코드: {row.get('code', '')}
+- 현재가: {row.get('현재가', row.get('Close', ''))}
+- N점수: {row.get('N점수', '')}
+- 안전점수: {row.get('안전점수', '')}
+- N조합: {row.get('N조합', '')}
+- 구분: {row.get('구분', '')}
+- 단계상태: {row.get('단계상태', '')}
+- 단계태그: {row.get('단계태그', '')}
+- RSI: {row.get('RSI', '')}
+- OBV기울기: {row.get('OBV기울기', '')}
+- 거래대금(억): {row.get('거래대금', row.get('거래대금(억)', row.get('AmountB', '')))}
+- 뉴스요약: {row.get('news_sentiment', '')}
+
+[시장 이슈]
+{comments}
+
+[시장 뉴스]
+{market_news_block if market_news_block else '없음'}
+
+요청:
+- 이 종목의 현재 위치를 2~3문장으로 간결하게 설명
+- 왜 지금 볼 만한지 또는 왜 조심해야 하는지 포함
+- 불필요한 숫자 반복 금지
+""".strip()
+
+        result = _call_ai(system_prompt, user_prompt, max_tokens=350, prefer_claude=True)
+        result = (result or "").strip()
+        if result and result not in ("브리핑 생성 실패", "AI 분석 불가 (API 키 없음 또는 호출 실패)"):
+            return result
+        return ""
+    except Exception as e:
+        log_error(f"⚠️ 단일 종목 AI 재시도 실패: {row.get('종목명', '')}({row.get('code', '')}) | {e}")
+        return ""
+
 def generate_stage_ai_tip(row):
     try:
         stage = str(row.get('단계상태', '') or '')
@@ -7143,6 +7193,7 @@ if __name__ == "__main__":
     ai_map = parse_ai_summary_to_map(ai_result_text)
     log_info(f"🧠 AI 코멘트 파싱 성공 수: {len(ai_map)} / 후보 {len(ai_candidates)}")
 
+
     # ✅ ai_tip 주입
     for idx, item in ai_candidates.iterrows():
         key = f"{item['종목명']}({item['code']})"
@@ -7155,7 +7206,13 @@ if __name__ == "__main__":
                     ai_tip_text = str(v).strip()
                     break
 
+        # ✅ 배치 결과가 비면 종목 1개 단위로 다시 AI 재시도
         if not ai_tip_text or ai_tip_text in ("브리핑 생성 실패", "AI 분석 불가 (API 키 없음 또는 호출 실패)"):
+            ai_tip_text = _get_single_stock_ai_tip(item, issues=issues, market_news=market_news_titles)
+
+        # ✅ 모든 AI 실패 시에만 하드코딩 fallback
+        if not ai_tip_text or ai_tip_text in ("브리핑 생성 실패", "AI 분석 불가 (API 키 없음 또는 호출 실패)"):
+            log_error(f"⚠️ AI 코멘트 전부 실패 → 하드코딩 사용: {item.get('종목명', '')}({item.get('code', '')})")
             ai_tip_text = generate_stage_ai_tip(item)
 
         if not ai_tip_text:
