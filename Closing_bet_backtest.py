@@ -298,6 +298,7 @@ FLOW_SNAPSHOT_CSV = Path(os.environ.get('CLOSING_BET_FLOW_SNAPSHOT_CSV', './clos
 FLOW_SNAPSHOT_LOOKUP: dict[str, dict] = {}
 AI_GSHEET_NAME = '사령부_통합_상황판'
 AI_JUDGMENT_TAB_NAME = '종가배팅_AI판정'
+AI_BACKFILL_TAB_NAME = '종가배팅_AI판정_백필'
 
 
 PRETTY_RAW_COLUMNS = {
@@ -373,7 +374,9 @@ PRETTY_RAW_COLUMNS = {
     'AI수급의견': 'AI수급의견',
     'AI시황의견': 'AI시황의견',
     'AI리스크의견': 'AI리스크의견',
+    'AI판정출처': 'AI판정출처',
 }
+
 
 SUMMARY_TAB_NAME_MAP = {
     '전략별': '전략성과',
@@ -553,7 +556,7 @@ def _merge_ai_judgments(raw_df: pd.DataFrame) -> pd.DataFrame:
     keep_cols = merge_cols_right + [
         'final_verdict','final_confidence','judge_summary','positive_votes','negative_votes',
         'tech_provider','flow_provider','theme_provider','risk_provider','judge_provider',
-        'tech_view','flow_view','theme_view','risk_view'
+        'tech_view','flow_view','theme_view','risk_view','source','AI판정출처'
     ]
     keep_cols = [c for c in keep_cols if c in right.columns]
     right = right[keep_cols].copy()
@@ -573,6 +576,8 @@ def _merge_ai_judgments(raw_df: pd.DataFrame) -> pd.DataFrame:
         'flow_view': 'AI수급의견',
         'theme_view': 'AI시황의견',
         'risk_view': 'AI리스크의견',
+        'AI판정출처': 'AI판정출처',
+        'source': 'AI판정출처',
     }
     merged = merged.rename(columns=rename_map)
     drop_cols = [c for c in ['scan_date','mode'] if c in merged.columns]
@@ -608,6 +613,8 @@ def _append_ai_summaries(summary: dict, raw_df: pd.DataFrame, mode: str) -> dict
         summary['AI심판모델별'] = df.groupby('AI심판모델', dropna=False).agg(건수=('code','count'), 평균확신도=('AI확신도','mean')).reset_index()
     if 'AI기술모델' in df.columns:
         summary['AI기술모델별'] = df.groupby('AI기술모델', dropna=False).agg(건수=('code','count'), 평균확신도=('AI확신도','mean')).reset_index()
+    if 'AI판정출처' in df.columns:
+        summary['AI판정출처별'] = df.groupby('AI판정출처', dropna=False).agg(건수=('code','count'), 평균확신도=('AI확신도','mean')).reset_index()
     return summary
 
 # =============================================================
@@ -1811,6 +1818,385 @@ def save_to_gsheet(raw_df: pd.DataFrame, summary: dict, start: str, end: str):
 
 
 
+
+# =============================================================
+# AI 백필 판정 (과거 데이터용)
+# =============================================================
+def _read_sheet_df(doc, tab_name: str) -> pd.DataFrame:
+    try:
+        ws = doc.worksheet(tab_name)
+        values = ws.get_all_values()
+        if not values or len(values) < 2:
+            return pd.DataFrame()
+        return pd.DataFrame(values[1:], columns=values[0])
+    except Exception:
+        return pd.DataFrame()
+
+
+def _load_ai_judgment_df() -> pd.DataFrame:
+    gc, doc = _get_gspread_client()
+    if doc is None:
+        return pd.DataFrame()
+
+    frames = []
+    for tab_name, source_label, priority in [
+        (AI_JUDGMENT_TAB_NAME, '실전', 0),
+        (AI_BACKFILL_TAB_NAME, '백필', 1),
+    ]:
+        df = _read_sheet_df(doc, tab_name)
+        if df.empty:
+            continue
+        df['AI판정출처'] = df.get('source', source_label)
+        df['_source_priority'] = priority
+        if 'code' in df.columns:
+            df['code'] = df['code'].astype(str).str.zfill(6)
+        for c in ['final_confidence','positive_votes','negative_votes','score']:
+            if c in df.columns:
+                df[c] = pd.to_numeric(df[c], errors='coerce')
+        frames.append(df)
+
+    if not frames:
+        return pd.DataFrame()
+
+    out = pd.concat(frames, ignore_index=True)
+    sort_cols = [c for c in ['_source_priority', 'scan_date', 'scan_time', 'code', 'mode'] if c in out.columns]
+    if sort_cols:
+        out = out.sort_values(sort_cols, ascending=[True]*len(sort_cols))
+    dedupe_cols = [c for c in ['scan_date', 'code', 'mode'] if c in out.columns]
+    if dedupe_cols:
+        out = out.drop_duplicates(subset=dedupe_cols, keep='first')
+    return out.reset_index(drop=True)
+
+
+def _call_openai_backfill(system_msg: str, user_msg: str) -> str:
+    api_key = os.environ.get('OPENAI_API_KEY', '')
+    if not api_key:
+        return ''
+    from openai import OpenAI
+    client = OpenAI(api_key=api_key)
+    res = client.chat.completions.create(
+        model='gpt-4o-mini',
+        messages=[{'role':'system','content':system_msg},{'role':'user','content':user_msg}],
+        max_tokens=900,
+        temperature=0.2,
+        response_format={'type': 'json_object'},
+    )
+    return (res.choices[0].message.content or '').strip()
+
+
+def _call_anthropic_backfill(system_msg: str, user_msg: str) -> str:
+    api_key = os.environ.get('ANTHROPIC_API_KEY', '')
+    if not api_key:
+        return ''
+    payload = {
+        'model': 'claude-3-5-haiku-latest',
+        'max_tokens': 900,
+        'system': system_msg,
+        'messages': [{'role':'user','content':user_msg}],
+        'temperature': 0.2,
+    }
+    r = requests.post(
+        'https://api.anthropic.com/v1/messages',
+        headers={
+            'Content-Type': 'application/json',
+            'x-api-key': api_key,
+            'anthropic-version': '2023-06-01',
+        },
+        json=payload,
+        timeout=45,
+    )
+    r.raise_for_status()
+    data = r.json()
+    parts = data.get('content', [])
+    return '\n'.join([p.get('text', '') for p in parts if isinstance(p, dict)]).strip()
+
+
+def _call_gemini_backfill(system_msg: str, user_msg: str) -> str:
+    api_key = os.environ.get('GEMINI_API_KEY', '')
+    if not api_key:
+        return ''
+    prompt = system_msg + "\n\n" + user_msg
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+    payload = {'contents': [{'parts': [{'text': prompt}]}], 'generationConfig': {'temperature': 0.2}}
+    r = requests.post(url, json=payload, timeout=45)
+    r.raise_for_status()
+    data = r.json()
+    cands = data.get('candidates', [])
+    if not cands:
+        return ''
+    parts = cands[0].get('content', {}).get('parts', [])
+    return '\n'.join([p.get('text', '') for p in parts if isinstance(p, dict)]).strip()
+
+
+def _call_groq_backfill(system_msg: str, user_msg: str) -> str:
+    api_key = os.environ.get('GROQ_API_KEY', '')
+    if not api_key:
+        return ''
+    payload = {
+        'model': 'llama-3.1-8b-instant',
+        'messages': [{'role':'system','content':system_msg},{'role':'user','content':user_msg}],
+        'temperature': 0.2,
+        'max_tokens': 900,
+        'response_format': {'type': 'json_object'},
+    }
+    r = requests.post(
+        'https://api.groq.com/openai/v1/chat/completions',
+        headers={'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'},
+        json=payload,
+        timeout=45,
+    )
+    r.raise_for_status()
+    data = r.json()
+    return (((data.get('choices') or [{}])[0].get('message') or {}).get('content') or '').strip()
+
+
+def _call_backfill_llm(system_msg: str, user_msg: str) -> tuple[str, str]:
+    providers = [
+        ('anthropic', _call_anthropic_backfill),
+        ('openai', _call_openai_backfill),
+        ('gemini', _call_gemini_backfill),
+        ('groq', _call_groq_backfill),
+    ]
+    errors = []
+    for name, fn in providers:
+        try:
+            txt = fn(system_msg, user_msg)
+            if txt and txt.strip():
+                log_info(f'✅ AI 백필 LLM 성공: {name}')
+                return txt.strip(), name
+        except Exception as e:
+            errors.append(f'{name}:{e}')
+            log_debug(f'AI 백필 실패 {name}: {e}')
+    if errors:
+        log_error('⚠️ AI 백필 전부 실패: ' + ' | '.join(errors))
+    return '', 'none'
+
+
+def _extract_json_object(text: str) -> dict:
+    import json, re
+    if not text:
+        return {}
+    text = text.strip()
+    try:
+        obj = json.loads(text)
+        if isinstance(obj, dict):
+            return obj
+    except Exception:
+        pass
+    m = re.search(r'\{.*\}', text, re.DOTALL)
+    if not m:
+        return {}
+    try:
+        obj = json.loads(m.group(0))
+        return obj if isinstance(obj, dict) else {}
+    except Exception:
+        return {}
+
+
+def _build_backfill_payload(row: pd.Series) -> str:
+    payload = {
+        'signal_date': row.get('스캔일', ''),
+        'code': row.get('code', ''),
+        'name': row.get('name', ''),
+        'mode': row.get('전략', ''),
+        'mode_label': row.get('전략명', ''),
+        'index_label': row.get('지수구분', ''),
+        'universe_tag': row.get('유니버스태그', ''),
+        'recommended_band': row.get('추천밴드', ''),
+        'volatility_type': row.get('변동성성격', ''),
+        'band_comment': row.get('밴드코멘트', ''),
+        'band_reason': row.get('밴드추천사유', ''),
+        'score_total': row.get('총점수', ''),
+        'a_score': row.get('A점수', ''),
+        'b1_score': row.get('B1점수', ''),
+        'b2_score': row.get('B2점수', ''),
+        'close': row.get('종가', ''),
+        'amount_b': row.get('거래대금억', ''),
+        'vol_ratio': row.get('거래량배율', ''),
+        'near20_pct': row.get('전고점%', ''),
+        'disparity': row.get('이격도', ''),
+        'upper_wick_pct': row.get('윗꼬리%', ''),
+        'rsi': row.get('RSI', ''),
+        'env20_pct': row.get('Env20%', ''),
+        'env40_pct': row.get('Env40%', ''),
+        'bb40_pct': row.get('BB40%', ''),
+        'bb40_width': row.get('BB폭40%', ''),
+        'atr_pct': row.get('ATR%', ''),
+        'maejip_5d': row.get('5일매집수', ''),
+        'obv_up': row.get('OBV상승', ''),
+        'flow_sum_3d_b': row.get('외인기관3일합(억)', ''),
+        'frgn_sum_3d_b': row.get('외인3일합(억)', ''),
+        'inst_sum_3d_b': row.get('기관3일합(억)', ''),
+        'flow_score': row.get('수급점수', ''),
+        'flow_grade': row.get('수급등급', ''),
+        'flow_comment': row.get('수급코멘트', ''),
+    }
+    import json
+    return json.dumps(payload, ensure_ascii=False)
+
+
+def _build_backfill_system_prompt() -> str:
+    return (
+        '당신은 한국 주식 종가배팅 전략의 심판 AI다. '\
+        '입력된 정보는 신호 당일 종가 시점까지만 알 수 있는 데이터다. 미래 가격이나 이후 뉴스를 절대 가정하지 마라. '\
+        '반드시 JSON 객체 하나만 출력하라. 설명문 금지. '\
+        '필수 키: final_verdict, final_confidence, judge_summary, strong_point, risk_point, plan, stop, target, '\
+        'tech_view, flow_view, theme_view, risk_view, positive_votes, negative_votes. '\
+        'final_verdict는 진입/조건부진입/보류/제외 중 하나. final_confidence는 0~100 정수. '\
+        'tech_view/flow_view/theme_view/risk_view는 각각 한두 문장. '\
+        '시황 근거가 부족하면 theme_view에 "시황 근거 부족"을 명시하라.'
+    )
+
+
+def _normalize_backfill_judgment(obj: dict, provider: str, row: pd.Series) -> dict:
+    verdict = str(obj.get('final_verdict') or obj.get('verdict') or '보류').strip()
+    if verdict not in ['진입','조건부진입','보류','제외']:
+        verdict = '보류'
+    confidence = int(_safe_float(obj.get('final_confidence', obj.get('confidence', 50)), 50))
+    confidence = max(0, min(100, confidence))
+    positive_votes = int(_safe_float(obj.get('positive_votes', 0), 0))
+    negative_votes = int(_safe_float(obj.get('negative_votes', 0), 0))
+    return {
+        'scan_date': row.get('스캔일', ''),
+        'scan_time': '백필',
+        'code': str(row.get('code', '')).zfill(6),
+        'name': row.get('name', ''),
+        'mode': row.get('전략', ''),
+        'mode_label': row.get('전략명', ''),
+        'final_verdict': verdict,
+        'final_confidence': confidence,
+        'judge_summary': str(obj.get('judge_summary') or obj.get('summary') or ''),
+        'positive_votes': positive_votes,
+        'negative_votes': negative_votes,
+        'tech_provider': f'[{provider.upper()}]',
+        'flow_provider': f'[{provider.upper()}]',
+        'theme_provider': f'[{provider.upper()}]',
+        'risk_provider': f'[{provider.upper()}]',
+        'judge_provider': f'[{provider.upper()}]',
+        'tech_view': str(obj.get('tech_view') or ''),
+        'flow_view': str(obj.get('flow_view') or ''),
+        'theme_view': str(obj.get('theme_view') or ''),
+        'risk_view': str(obj.get('risk_view') or ''),
+        'strong_point': str(obj.get('strong_point') or ''),
+        'risk_point': str(obj.get('risk_point') or ''),
+        'plan': str(obj.get('plan') or ''),
+        'stop': str(obj.get('stop') or ''),
+        'target': str(obj.get('target') or ''),
+        'source': '백필',
+    }
+
+
+def _build_default_backfill_judgment(row: pd.Series) -> dict:
+    base_score = _safe_int(row.get('총점수', 0), 0)
+    if base_score >= 6:
+        verdict, conf = '진입', 72
+    elif base_score >= 5:
+        verdict, conf = '조건부진입', 62
+    elif base_score >= 4:
+        verdict, conf = '보류', 48
+    else:
+        verdict, conf = '제외', 30
+    return {
+        'scan_date': row.get('스캔일', ''),
+        'scan_time': '백필',
+        'code': str(row.get('code', '')).zfill(6),
+        'name': row.get('name', ''),
+        'mode': row.get('전략', ''),
+        'mode_label': row.get('전략명', ''),
+        'final_verdict': verdict,
+        'final_confidence': conf,
+        'judge_summary': 'AI 응답 불완전으로 정량 정보 기반 기본 판정',
+        'positive_votes': 0,
+        'negative_votes': 0,
+        'tech_provider': '[RULE]',
+        'flow_provider': '[RULE]',
+        'theme_provider': '[RULE]',
+        'risk_provider': '[RULE]',
+        'judge_provider': '[RULE]',
+        'tech_view': f"전략점수 {base_score} 기준 기본판정",
+        'flow_view': str(row.get('수급코멘트', '수급 정보 요약 없음')),
+        'theme_view': '시황 근거 부족',
+        'risk_view': '백필 기본판정이므로 실전 AI 의견보다 보수적 해석 필요',
+        'strong_point': str(row.get('충족조건', '')),
+        'risk_point': '미래 정보 미사용 원칙으로 판단',
+        'plan': '실전 저장판정 우선, 백필판정은 비교 참고용',
+        'stop': '',
+        'target': '',
+        'source': '백필',
+    }
+
+
+def _judge_backfill_row(row: pd.Series) -> dict:
+    system_msg = _build_backfill_system_prompt()
+    user_msg = _build_backfill_payload(row)
+    txt, provider = _call_backfill_llm(system_msg, user_msg)
+    obj = _extract_json_object(txt)
+    if not obj:
+        return _build_default_backfill_judgment(row)
+    return _normalize_backfill_judgment(obj, provider, row)
+
+
+def _save_ai_backfill_to_gsheet(rows: list[dict]):
+    if not rows:
+        return
+    gc, doc = _get_gspread_client()
+    if doc is None:
+        log_info('⚠️ AI 백필 저장 생략 (구글시트 연결 실패)')
+        return
+    new_df = pd.DataFrame(rows)
+    old_df = _read_sheet_df(doc, AI_BACKFILL_TAB_NAME)
+    if not old_df.empty and 'code' in old_df.columns:
+        old_df['code'] = old_df['code'].astype(str).str.zfill(6)
+    merged = pd.concat([old_df, new_df], ignore_index=True) if not old_df.empty else new_df
+    key_cols = [c for c in ['scan_date','code','mode'] if c in merged.columns]
+    if key_cols:
+        merged = merged.sort_values([c for c in ['scan_date','scan_time','code','mode'] if c in merged.columns]).drop_duplicates(subset=key_cols, keep='last')
+    _upsert_tab(doc, AI_BACKFILL_TAB_NAME, merged)
+
+
+def _run_ai_backfill(raw_df: pd.DataFrame, per_day: int = 7, mode: str = 'missing') -> pd.DataFrame:
+    if raw_df.empty:
+        return pd.DataFrame()
+    if not any(os.environ.get(k) for k in ['OPENAI_API_KEY','ANTHROPIC_API_KEY','GEMINI_API_KEY','GROQ_API_KEY']):
+        log_info('⚠️ AI 백필 스킵: 사용 가능한 AI 키 없음')
+        return pd.DataFrame()
+
+    existing = _load_ai_judgment_df()
+    existing_keys = set()
+    if not existing.empty and set(['scan_date','code','mode']).issubset(existing.columns):
+        for _, r in existing.iterrows():
+            existing_keys.add((str(r.get('scan_date','')), str(r.get('code','')).zfill(6), str(r.get('mode',''))))
+
+    work = raw_df.copy()
+    if mode == 'missing':
+        mask = []
+        for _, r in work.iterrows():
+            key = (str(r.get('스캔일','')), str(r.get('code','')).zfill(6), str(r.get('전략','')))
+            mask.append(key not in existing_keys)
+        work = work[pd.Series(mask, index=work.index)]
+    if work.empty:
+        log_info('AI 백필 대상 없음')
+        return pd.DataFrame()
+
+    sort_cols = [c for c in ['스캔일','총점수','거래대금억'] if c in work.columns]
+    ascending = [True, False, False][:len(sort_cols)] if sort_cols else True
+    work = work.sort_values(sort_cols, ascending=ascending) if sort_cols else work
+    selected = work.groupby('스캔일', group_keys=False).head(per_day).reset_index(drop=True)
+    log_info(f'AI 백필 대상: {len(selected)}건 (하루당 최대 {per_day}건)')
+
+    rows = []
+    for idx, (_, r) in enumerate(selected.iterrows(), 1):
+        try:
+            rows.append(_judge_backfill_row(r))
+        except Exception as e:
+            log_error(f"AI 백필 실패 {r.get('name','')}({r.get('code','')}): {e}")
+            rows.append(_build_default_backfill_judgment(r))
+        if idx % 20 == 0:
+            log_info(f'AI 백필 진행: {idx}/{len(selected)}')
+
+    _save_ai_backfill_to_gsheet(rows)
+    return pd.DataFrame(rows)
+
 # =============================================================
 # 메인
 # =============================================================
@@ -1828,6 +2214,8 @@ def main():
     parser.add_argument('--save-csv', action='store_true', help='원본/요약 CSV 저장')
     parser.add_argument('--mode', default='performance', choices=['performance', 'replay'], help='performance=성과백테스트, replay=신호재현')
     parser.add_argument('--flow-filter', default='off', choices=['off', 'soft', 'strict'], help='최근3일 외인/기관 수급 필터: off=미적용, soft=점수2이상, strict=점수3이상')
+    parser.add_argument('--ai-backfill', default='off', choices=['off', 'missing', 'all'], help='과거 신호에 AI 백필판정 부여: off=미사용, missing=없는 것만, all=강제 재생성')
+    parser.add_argument('--ai-backfill-per-day', type=int, default=7, help='AI 백필 시 하루당 최대 판정 종목 수')
     args = parser.parse_args()
 
     _load_flow_snapshot_lookup()
@@ -1836,7 +2224,7 @@ def main():
         log_error('분석할 종목이 없습니다.')
         sys.exit(1)
 
-    log_info(f"실행 시작: {args.start} ~ {args.end} | {len(codes)}개 | mode={args.mode} | flow_filter={args.flow_filter}")
+    log_info(f"실행 시작: {args.start} ~ {args.end} | {len(codes)}개 | mode={args.mode} | flow_filter={args.flow_filter} | ai_backfill={args.ai_backfill}")
 
     all_records = []
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
@@ -1862,6 +2250,10 @@ def main():
 
     raw_df = pd.DataFrame(all_records)
     raw_df = raw_df.sort_values(['스캔일', '전략', 'code']).reset_index(drop=True)
+
+    if args.ai_backfill != 'off':
+        _run_ai_backfill(raw_df, per_day=args.ai_backfill_per_day, mode=args.ai_backfill)
+
     raw_df = _merge_ai_judgments(raw_df)
     summary = summarize(raw_df) if args.mode == 'performance' else summarize_replay(raw_df)
     summary = _append_ai_summaries(summary, raw_df, args.mode)
