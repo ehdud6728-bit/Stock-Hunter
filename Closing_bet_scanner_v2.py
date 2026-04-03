@@ -2090,14 +2090,36 @@ def _coerce_judge_json(parsed, count: int) -> dict:
 
 
 def _build_role_json_prompt(base_context: str, role_name: str) -> str:
+    role_guides = {
+        '기술분석가': (
+            '차트/캔들/종가강도/ENV/BB/전고점 이격만 중심으로 본다. '
+            '핵심 수치(거래량배수, 윗꼬리%, 전고점%, Env/BB 거리)를 최소 1개 이상 직접 언급하라. '
+            '지금 자리가 재안착인지 추격인지 명확히 구분하라.'
+        ),
+        '수급분석가': (
+            '외인/기관/OBV/매집흔적 중심으로 본다. '
+            '수급추정 수치(기관추정, 외인추정, 외인기관합)와 흐름 해석을 연결하라. '
+            '들어온 흔적은 있는데 크게 나간 흔적은 없는지 판단하라.'
+        ),
+        '시황테마분석가': (
+            '업종/섹터/대장주/뉴스 맥락을 본다. '
+            '후보 정보만으로 확실한 시황 근거가 부족하면 반드시 "시황 근거 부족"을 명시하라. '
+            '억지 확신을 만들지 말고, 단순 눌림인지 관심 이탈인지 구분하라.'
+        ),
+        '리스크관리자': (
+            '가장 보수적으로 본다. '
+            '다음날 갭리스크, 손절 명확성, 늦은 자리 여부를 판단하라. '
+            '실행계획에는 반드시 손절/축소/관망 중 하나가 드러나야 한다.'
+        ),
+    }
+    role_rule = role_guides.get(role_name, '후보를 평가하라.')
     return (
         base_context + "\n\n"
-        + f"너의 역할은 {role_name}이다. 모든 후보를 빠짐없이 평가하라. "
-        + "반드시 JSON 배열만 출력하라. 다른 설명, 마크다운, 코드블록 금지. "
+        + f"너의 역할은 {role_name}이다. {role_rule} "
+        + "모든 후보를 빠짐없이 평가하라. 반드시 JSON 배열만 출력하라. 다른 설명, 마크다운, 코드블록 금지. "
         + "각 원소 형식: "
-        + '[{"candidate":1,"stance":"추천|조건부추천|보류|제외","score":0,"core_reason":"핵심 근거 1문장","risk":"핵심 리스크 1문장","plan":"실행 포인트 1문장"}]'
+        + '[{"candidate":1,"stance":"추천|조건부추천|보류|제외","score":0,"core_reason":"핵심 근거 1문장(가능하면 수치 포함)","risk":"핵심 리스크 1문장","plan":"실행 포인트 1문장"}]'
     )
-
 
 def _build_judge_json_prompt(base_context: str, role_payloads: dict, count: int) -> str:
     role_json = json.dumps(role_payloads, ensure_ascii=False)
@@ -2106,11 +2128,12 @@ def _build_judge_json_prompt(base_context: str, role_payloads: dict, count: int)
         + "\n\n아래는 역할별 구조화 의견(JSON)이다.\n"
         + role_json
         + "\n\n모든 후보를 빠짐없이 최종 판정하라. "
-        + "반드시 JSON 배열만 출력하라. 다른 설명, 마크다운, 코드블록 금지. "
+        + "기술/수급/시황/리스크 의견을 함께 읽고, 가장 강한 근거와 가장 큰 위험을 분리해서 써라. "
+        + "실행계획은 종가배팅 관점에서 진입/관망/손절 기준이 드러나야 한다. "
+        + "시황 근거가 약하면 그 사실을 요약에 명시하라. 반드시 JSON 배열만 출력하라. 다른 설명, 마크다운, 코드블록 금지. "
         + "각 원소 형식: "
-        + '[{"candidate":1,"final_verdict":"진입|조건부진입|보류|제외","confidence":0,"strong_point":"가장 강한 근거","risk_point":"가장 큰 위험","action_plan":"실행계획 1문장","stop":"손절가/조건","target":"목표가/조건","summary":"최종 한줄 요약"}]'
+        + '[{"candidate":1,"final_verdict":"진입|조건부진입|보류|제외","confidence":0,"strong_point":"가장 강한 근거 1문장","risk_point":"가장 큰 위험 1문장","action_plan":"진입/관망/손절 계획 1문장","stop":"손절가/조건","target":"목표가/조건","summary":"최종 한줄 요약"}]'
     )
-
 
 def _run_role_json(role_name: str, role_system: str, base_context: str, candidates: list, provider_order=None) -> tuple[dict, str]:
     if provider_order is None:
@@ -2205,24 +2228,32 @@ def _build_debate_candidate_lines(candidates: list) -> str:
     lines = []
     for idx, h in enumerate(candidates, 1):
         flow_bits = []
-        if h.get('inst_amt_est_b', 0):
-            flow_bits.append(f"기관추정:{h.get('inst_amt_est_b', 0):+.1f}억")
-        if h.get('frgn_amt_est_b', 0):
-            flow_bits.append(f"외인추정:{h.get('frgn_amt_est_b', 0):+.1f}억")
+        if h.get('inst_amt_est_b', 0) or h.get('frgn_amt_est_b', 0) or h.get('fi_amt_est_b', 0):
+            flow_bits.append(
+                f"기관추정:{h.get('inst_amt_est_b', 0):+.1f}억 | 외인추정:{h.get('frgn_amt_est_b', 0):+.1f}억 | 합산:{h.get('fi_amt_est_b', 0):+.1f}억"
+            )
         if h.get('flow_comment'):
             flow_bits.append(h.get('flow_comment'))
         flow_text = ' | '.join(flow_bits) if flow_bits else '수급추정정보없음'
 
+        if h.get('mode') == 'A':
+            setup_text = (
+                f"돌파세부: 전고점근접 {h.get('near20', 0):.1f}% | 이격 {h.get('disp', 0):.1f} | 거래량 {h.get('vol_ratio', 0)}배 | 윗꼬리(몸통) {h.get('wick_pct', 0)}%"
+            )
+        else:
+            setup_text = (
+                f"하단세부: {h.get('band_pct_text', '')} | RSI {h.get('rsi', 0)} | 5일매집 {h.get('maejip_5d', 0)}회 | OBV {'상승' if h.get('obv_rising') else '중립/약세'}"
+            )
+
         lines.append(
-            f"후보 {idx}: {h['name']}({h['code']}) | 전략:{h.get('mode_label','')} | 등급:{h.get('grade','')} | 점수:{h.get('score',0)} | "
-            f"가격:{h['close']:,}원 | 거래대금:{h.get('amount_b',0)}억 | 거래량:{h.get('vol_ratio',0)}배 | "
-            f"추천밴드:{h.get('recommended_band','')} | 유형:{h.get('volatility_type','')} | 유니버스:{h.get('universe_tag','')}\n"
-            f"종가강도/캔들: 윗꼬리(몸통){h.get('wick_pct',0)}% | 목표:{h.get('target1',0):,} | 손절:{h.get('stoploss',0):,} | RR:{h.get('rr',0)}\n"
-            f"밴드/전략세부: {h.get('band_pct_text','')} | {h.get('band_comment','')}\n"
-            f"수급추정: {flow_text}"
+            f"후보 {idx}: {h['name']}({h['code']}) | 전략:{h.get('mode_label','')} | 등급:{h.get('grade','')} | 점수:{h.get('score',0)} | 가격:{h['close']:,}원 | 거래대금:{h.get('amount_b',0)}억 | 추천밴드:{h.get('recommended_band','')} | 유형:{h.get('volatility_type','')} | 유니버스:{h.get('universe_tag','')}\n"
+            f"기술세부: {setup_text}\n"
+            f"공통세부: 목표:{h.get('target1',0):,} | 손절:{h.get('stoploss',0):,} | RR:{h.get('rr',0)} | ATR:{h.get('atr',0):,}\n"
+            f"밴드/전략코멘트: {h.get('band_comment','')}\n"
+            f"수급추정: {flow_text}\n"
+            f"통과조건: {' '.join(h.get('passed', [])) if h.get('passed') else '없음'}"
         )
     return '\n\n'.join(lines)
-
 
 def _run_role_brief(role_name: str, system_msg: str, user_msg: str, provider_order=None) -> tuple[str, str]:
     return _call_llm_with_fallback(system_msg, user_msg, role_label=role_name, max_tokens=1200, provider_order=provider_order)
@@ -2326,17 +2357,20 @@ def _send_closing_bet_debate(hits: list, mins_left: int, top_n: int = None):
             f"━━━━━━━━━━━━━━━━━━\n"
             f"{idx}) {hit.get('name','')}({hit.get('code','')}) | {hit.get('mode','')}/{hit.get('grade','')}\n"
             f"최종판정: {final_verdict} ({confidence}점)\n"
-            f"추천밴드: {hit.get('recommended_band','')} | 유형: {hit.get('universe_tag','')}\n\n"
-            f"핵심근거\n"
-            f"- 기술{_provider_tag(provider_map.get('기술분석가','none'))}: {tech.get('summary','데이터 부족')}\n"
-            f"- 수급{_provider_tag(provider_map.get('수급분석가','none'))}: {flow.get('summary','데이터 부족')}\n"
-            f"- 시황{_provider_tag(provider_map.get('시황테마분석가','none'))}: {theme.get('summary','근거 부족 또는 보류')}\n"
-            f"- 리스크{_provider_tag(provider_map.get('리스크관리자','none'))}: {risk.get('summary','리스크 점검 필요')}\n\n"
-            f"심판{_provider_tag(judge_provider)}\n"
-            f"- 요약: {summary or '판단 유보'}\n"
-            f"- 강한근거: {strong_point or '추가 확인 필요'}\n"
+            f"추천밴드: {hit.get('recommended_band','')} | 유형: {hit.get('universe_tag','')} | 가격: {hit.get('close',0):,}원\n\n"
+            f"핵심판단\n"
+            f"- 강한근거: {strong_point or summary or '추가 확인 필요'}\n"
             f"- 위험요인: {risk_point or '변동성 주의'}\n"
-            f"- 실행계획: {action_plan or '분할 진입/보수적 대응'}\n\n"
+            f"- 실행계획: {action_plan or '분할 접근 / 보수 대응'}\n\n"
+            f"역할별 의견\n"
+            f"- 기술{_provider_tag(provider_map.get('기술분석가','none'))} | {tech.get('verdict','보류')}({tech.get('score',0)}) | {tech.get('summary','데이터 부족')}\n"
+            f"  · 리스크: {tech.get('risk','추가 확인 필요')}\n"
+            f"- 수급{_provider_tag(provider_map.get('수급분석가','none'))} | {flow.get('verdict','보류')}({flow.get('score',0)}) | {flow.get('summary','데이터 부족')}\n"
+            f"  · 리스크: {flow.get('risk','추가 확인 필요')}\n"
+            f"- 시황{_provider_tag(provider_map.get('시황테마분석가','none'))} | {theme.get('verdict','보류')}({theme.get('score',0)}) | {theme.get('summary','시황 근거 부족 또는 보류')}\n"
+            f"  · 리스크: {theme.get('risk','시황 추가 확인 필요')}\n"
+            f"- 리스크{_provider_tag(provider_map.get('리스크관리자','none'))} | {risk.get('verdict','보류')}({risk.get('score',0)}) | {risk.get('summary','리스크 점검 필요')}\n"
+            f"  · 리스크: {risk.get('risk','추가 확인 필요')}\n\n"
             f"실행레벨\n"
             f"- 손절: {stop_note}\n"
             f"- 목표: {target_note}"
