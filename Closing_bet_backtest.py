@@ -338,6 +338,8 @@ PRETTY_RAW_COLUMNS = {
     '15일최저수익률%': '15일최대낙폭%(MAE)',
     '실전청산일': '실전청산일',
     '실전청산사유': '실전청산사유',
+    '평가완료일수': '평가완료일수',
+    '진행상태': '진행상태',
 }
 
 SUMMARY_TAB_NAME_MAP = {
@@ -370,6 +372,8 @@ SUMMARY_COLUMN_RENAME_MAP = {
     'B1건수': 'ENV엄격형건수',
     'B2건수': 'BB확장형건수',
     '밴드': '적용밴드',
+    '완료건수': '완료건수',
+    '부분평가건수': '부분평가건수',
 }
 
 def _prettify_raw_df(df: pd.DataFrame) -> pd.DataFrame:
@@ -794,24 +798,24 @@ def _check_conditions_on_date(df: pd.DataFrame, date_idx: int, code: str = '') -
 # =============================================================
 # 실전형 판정 유틸 (최대 15일 / +2% 선도달 / -3% 손절)
 # =============================================================
+
 def _evaluate_trade_window(df: pd.DataFrame, signal_idx: int, entry_price: float) -> dict:
     """
     signal_idx 당일 종가에 진입하고, 다음 거래일부터 최대 15거래일을 추적.
 
+    최근 구간도 제외하지 않고, 가능한 구간까지만 부분 평가한다.
+    - 15거래일이 모두 있으면 진행상태='완료'
+    - 부족하면 진행상태='부분평가'
+    - 0거래일이면 진행상태='미평가'
+
     판정 우선순위
     1) +2% 먼저 도달(고가 기준) -> 승
     2) -3% 먼저 도달 -> 손절
-    3) 둘 다 없으면 마지막 종가가 진입가보다 높으면 승(종가), 낮으면 패(종가)
-
-    추가 기록
-    - 15일 내 +2% 도달(고가 기준)
-    - 15일 내 +2% 도달(종가 기준)
-    - 15일 내 손절 터치 여부
-
-    같은 날 고가와 저가가 동시에 익절/손절 범위를 터치하면 SAME_DAY_EXIT_POLICY를 따른다.
-    기본은 보수적으로 stop_first.
+    3) 둘 다 없으면 현재 확보 가능한 마지막 종가가 진입가보다 높으면 승(종가), 낮으면 패(종가)
     """
     result = {
+        '평가완료일수': 0,
+        '진행상태': '미평가',
         '15일판정': 'N/A',
         '15일내2%도달': 'N',                 # 하위 호환용 = 고가 기준
         '2%도달일': None,                    # 하위 호환용 = 고가 기준
@@ -833,8 +837,13 @@ def _evaluate_trade_window(df: pd.DataFrame, signal_idx: int, entry_price: float
 
     eval_start_idx = signal_idx + 1
     window = df.iloc[eval_start_idx:eval_start_idx + MAX_HOLD_DAYS].copy()
-    if window.empty:
+    days_available = len(window)
+    result['평가완료일수'] = int(days_available)
+
+    if days_available <= 0:
         return result
+
+    result['진행상태'] = '완료' if days_available >= MAX_HOLD_DAYS else '부분평가'
 
     target_price = entry_price * (1 + TARGET_HIT_PCT / 100.0)
     stop_price = entry_price * (1 + STOP_LOSS / 100.0)
@@ -847,25 +856,13 @@ def _evaluate_trade_window(df: pd.DataFrame, signal_idx: int, entry_price: float
     result['15일최저수익률%'] = round((min_low - entry_price) / entry_price * 100, 2) if entry_price > 0 else None
     result['15일종가수익률%'] = round((final_close - entry_price) / entry_price * 100, 2) if entry_price > 0 else None
 
-    target_hit_day_high = None
-    target_hit_day_close = None
-    stop_hit_day = None
-
     for day_no, (_, r) in enumerate(window.iterrows(), start=1):
         high = _safe_float(r.get('High', 0))
         low = _safe_float(r.get('Low', 0))
         close = _safe_float(r.get('Close', 0))
 
         hit_target_high = high >= target_price
-        hit_target_close = close >= target_price
         hit_stop = low <= stop_price
-
-        if target_hit_day_high is None and hit_target_high:
-            target_hit_day_high = day_no
-        if target_hit_day_close is None and hit_target_close:
-            target_hit_day_close = day_no
-        if stop_hit_day is None and hit_stop:
-            stop_hit_day = day_no
 
         # 실전 판정은 기존대로 고가 기준 익절 / 저가 기준 손절
         if hit_target_high and hit_stop:
@@ -889,7 +886,7 @@ def _evaluate_trade_window(df: pd.DataFrame, signal_idx: int, entry_price: float
             result['실전청산사유'] = '손절터치'
             break
 
-    # 무결성 재검증: MFE/MFE 플래그와 2% 도달 플래그가 절대 어긋나지 않도록 마지막에 벡터 기준으로 다시 계산
+    # 무결성 재검증
     high_hit_mask = (window['High'] >= target_price).fillna(False)
     close_hit_mask = (window['Close'] >= target_price).fillna(False)
     stop_hit_mask = (window['Low'] <= stop_price).fillna(False)
@@ -922,17 +919,20 @@ def _evaluate_trade_window(df: pd.DataFrame, signal_idx: int, entry_price: float
         result['15일내손절터치'] = 'N'
         result['손절터치일'] = None
 
+    # 아직 청산 판정이 안 났다면, 현재 확보 가능한 마지막 종가 기준으로 임시 판정
     if result['15일판정'] == 'N/A':
         if final_close > entry_price:
             result['15일판정'] = '승(종가)'
-            result['실전청산사유'] = '15일종가상승'
+            result['실전청산일'] = days_available
+            result['실전청산사유'] = '현재구간종가상승'
         elif final_close < entry_price:
             result['15일판정'] = '패(종가)'
-            result['실전청산사유'] = '15일종가하락'
+            result['실전청산일'] = days_available
+            result['실전청산사유'] = '현재구간종가하락'
         else:
             result['15일판정'] = '보합'
-            result['실전청산사유'] = '15일종가보합'
-        result['실전청산일'] = len(window)
+            result['실전청산일'] = days_available
+            result['실전청산사유'] = '현재구간종가보합'
 
     return result
 
@@ -1004,7 +1004,7 @@ def backtest_ticker(code: str, start: str, end: str) -> list:
         start_dt = datetime.strptime(start, '%Y-%m-%d')
         end_dt = datetime.strptime(end, '%Y-%m-%d')
 
-        for i in range(60, len(df) - MAX_HOLD_DAYS - 1):
+        for i in range(60, len(df)):
             row_date = pd.to_datetime(df[date_col].iloc[i])
             row_dt = row_date.to_pydatetime().replace(tzinfo=None)
             if not (start_dt <= row_dt <= end_dt):
@@ -1079,6 +1079,8 @@ def replay_ticker(code: str, start: str, end: str) -> list:
             record = _build_signal_record(df, i, code, cond, entry_price=entry_price)
             record.update({
                 '모드': 'replay',
+                '평가완료일수': '',
+                '진행상태': '재현전용',
                 '15일판정': '재현전용',
                 '15일내2%도달': '',
                 '2%도달일': '',
