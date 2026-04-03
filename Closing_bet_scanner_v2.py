@@ -155,6 +155,23 @@ def _refresh_top_mcap_set(top_n: int = TOP_N):
 def _ensure_log_dir():
     LOG_DIR.mkdir(parents=True, exist_ok=True)
 
+def _safe_float(v, default=0.0) -> float:
+    try:
+        if pd.isna(v):
+            return default
+        return float(v)
+    except Exception:
+        return default
+
+
+def _safe_int(v, default=0) -> int:
+    try:
+        if pd.isna(v):
+            return default
+        return int(float(v))
+    except Exception:
+        return default
+
 
 def _calc_upper_wick_body_ratio(row) -> float:
     """윗꼬리 비율 — 몸통 기준"""
