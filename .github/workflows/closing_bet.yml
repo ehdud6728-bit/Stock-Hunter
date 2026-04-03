@@ -13,7 +13,7 @@ on:
       force:
         description: '강제 실행 (시간 무관 테스트)'
         required: false
-        default: 'false'
+        default: 'true'
 
 jobs:
   closing-bet:
