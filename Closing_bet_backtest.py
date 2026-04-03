@@ -1285,7 +1285,15 @@ def backtest_ticker(code: str, start: str, end: str) -> list:
                 )
 
             trade_eval = _evaluate_trade_window(df, i, entry_price)
-            records.append(_build_signal_record(df, i, code, cond, entry_price, trade_eval, forward_returns))
+            snapshot_info = _get_flow_snapshot_info(row_dt.strftime('%Y-%m-%d'), code, cond.get('mode', ''))
+            records.append(_build_signal_record(
+                df, i, code, cond,
+                entry_price=entry_price,
+                trade_eval=trade_eval,
+                forward_returns=forward_returns,
+                flow_info=flow_info,
+                snapshot_info=snapshot_info,
+            ))
 
     except Exception as e:
         log_debug(f"[{code}] 오류: {e}")
@@ -1327,7 +1335,14 @@ def replay_ticker(code: str, start: str, end: str) -> list:
             if entry_price <= 0:
                 entry_price = None
 
-            record = _build_signal_record(df, i, code, cond, entry_price=entry_price)
+            flow_info = _calc_investor_flow_features(code, row_dt, lookback_days=3, avg_amount20_b=cond.get('amount_b', 0))
+            snapshot_info = _get_flow_snapshot_info(row_dt.strftime('%Y-%m-%d'), code, cond.get('mode', ''))
+            record = _build_signal_record(
+                df, i, code, cond,
+                entry_price=entry_price,
+                flow_info=flow_info,
+                snapshot_info=snapshot_info,
+            )
             record.update({
                 '모드': 'replay',
                 '평가완료일수': '',
@@ -1681,6 +1696,7 @@ def main():
     parser.add_argument('--flow-filter', default='off', choices=['off', 'soft', 'strict'], help='최근3일 외인/기관 수급 필터: off=미적용, soft=점수2이상, strict=점수3이상')
     args = parser.parse_args()
 
+    _load_flow_snapshot_lookup()
     codes = _get_ticker_list(args.top, universe=args.universe)
     if not codes:
         log_error('분석할 종목이 없습니다.')
