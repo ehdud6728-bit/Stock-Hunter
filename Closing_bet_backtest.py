@@ -36,6 +36,13 @@ import FinanceDataReader as fdr
 import requests
 
 try:
+    from pykrx import stock as pk_stock
+    HAS_PYKRX = True
+except Exception:
+    HAS_PYKRX = False
+    pk_stock = None
+
+try:
     import gspread
     from oauth2client.service_account import ServiceAccountCredentials
     HAS_GSPREAD = True
@@ -287,6 +294,8 @@ JSON_KEY_PATH = str(Path(__file__).resolve().with_name('stock-key.json'))
 SHEET_NAME = '주식자동매매일지'
 MAIN_TAB_NAME = '종가배팅'
 SUMMARY_TAB_PREFIX = '종가배팅_'
+FLOW_SNAPSHOT_CSV = Path(os.environ.get('CLOSING_BET_FLOW_SNAPSHOT_CSV', './closing_bet_logs/closing_bet_flow_snapshots.csv'))
+FLOW_SNAPSHOT_LOOKUP: dict[str, dict] = {}
 
 
 PRETTY_RAW_COLUMNS = {
@@ -340,6 +349,14 @@ PRETTY_RAW_COLUMNS = {
     '실전청산사유': '실전청산사유',
     '평가완료일수': '평가완료일수',
     '진행상태': '진행상태',
+    '추정수급스냅샷': '추정수급스냅샷',
+    '추정수급시각': '추정수급시각',
+    '추정기관수량': '추정기관수량',
+    '추정외인수량': '추정외인수량',
+    '추정기관금액(억)': '추정기관금액(억)',
+    '추정외인금액(억)': '추정외인금액(억)',
+    '추정외인기관합(억)': '추정외인기관합(억)',
+    '추정수급코멘트': '추정수급코멘트',
 }
 
 SUMMARY_TAB_NAME_MAP = {
@@ -349,6 +366,7 @@ SUMMARY_TAB_NAME_MAP = {
     '추천밴드별': '추천밴드별',
     '유니버스태그별': '유니버스별',
     '보유기간별': '보유기간별',
+    '추정수급스냅샷별': '추정수급스냅샷별',
 }
 
 SUMMARY_COLUMN_RENAME_MAP = {
@@ -397,6 +415,65 @@ DEFAULT_UNIVERSE = 'hybrid_union'
 INDEX_MAP: dict[str, str] = {}
 TOP_MCAP_SET: set[str] = set()
 NAME_MAP: dict[str, str] = {}
+
+
+def _load_flow_snapshot_lookup():
+    global FLOW_SNAPSHOT_LOOKUP
+    FLOW_SNAPSHOT_LOOKUP = {}
+
+    if not FLOW_SNAPSHOT_CSV.exists():
+        log_info(f"추정 수급 스냅샷 파일 없음: {FLOW_SNAPSHOT_CSV}")
+        return
+
+    try:
+        snap = pd.read_csv(FLOW_SNAPSHOT_CSV, dtype={'code': str}, encoding='utf-8-sig')
+        if snap is None or snap.empty:
+            return
+        snap['code'] = snap['code'].astype(str).str.zfill(6)
+        if 'scan_time' not in snap.columns:
+            snap['scan_time'] = ''
+        if 'mode' not in snap.columns:
+            snap['mode'] = ''
+        snap = snap.sort_values(['scan_date', 'scan_time', 'code']).copy()
+        # scan_date + code + mode 우선, 없으면 scan_date + code 보조로 조회 가능하게 둘 다 생성
+        for _, r in snap.iterrows():
+            row = r.to_dict()
+            key_mode = f"{row.get('scan_date','')}|{str(row.get('code','')).zfill(6)}|{row.get('mode','')}"
+            key_fallback = f"{row.get('scan_date','')}|{str(row.get('code','')).zfill(6)}"
+            FLOW_SNAPSHOT_LOOKUP[key_mode] = row
+            FLOW_SNAPSHOT_LOOKUP[key_fallback] = row
+        log_info(f"✅ 추정 수급 스냅샷 로드: {len(snap)}행")
+    except Exception as e:
+        log_error(f"⚠️ 추정 수급 스냅샷 로드 실패: {e}")
+        FLOW_SNAPSHOT_LOOKUP = {}
+
+
+def _get_flow_snapshot_info(scan_date: str, code: str, mode: str) -> dict:
+    code = str(code).zfill(6)
+    key_mode = f"{scan_date}|{code}|{mode}"
+    key_fallback = f"{scan_date}|{code}"
+    row = FLOW_SNAPSHOT_LOOKUP.get(key_mode) or FLOW_SNAPSHOT_LOOKUP.get(key_fallback) or {}
+    if not row:
+        return {
+            'snapshot_ok': 'N',
+            'snapshot_time': '',
+            'inst_qty_est': np.nan,
+            'frgn_qty_est': np.nan,
+            'inst_amt_est_b': np.nan,
+            'frgn_amt_est_b': np.nan,
+            'fi_amt_est_b': np.nan,
+            'flow_comment_est': '',
+        }
+    return {
+        'snapshot_ok': 'Y' if int(row.get('flow_snapshot_ok', 0) or 0) == 1 else 'N',
+        'snapshot_time': row.get('scan_time', ''),
+        'inst_qty_est': _safe_float(row.get('inst_qty_est', np.nan), np.nan),
+        'frgn_qty_est': _safe_float(row.get('frgn_qty_est', np.nan), np.nan),
+        'inst_amt_est_b': _safe_float(row.get('inst_amt_est_b', np.nan), np.nan),
+        'frgn_amt_est_b': _safe_float(row.get('frgn_amt_est_b', np.nan), np.nan),
+        'fi_amt_est_b': _safe_float(row.get('fi_amt_est_b', np.nan), np.nan),
+        'flow_comment_est': row.get('flow_comment', ''),
+    }
 
 
 # =============================================================
@@ -662,6 +739,151 @@ def _get_band_recommendation(
 
 
 # =============================================================
+# 최근 3일 외인/기관 수급 유틸
+# =============================================================
+def _get_investor_flow_df(code: str, start: str, end: str) -> pd.DataFrame:
+    """
+    pykrx 일자별 투자자 거래대금(순매수) 조회 캐시.
+    columns 예시: 기관합계, 외국인합계, 개인, 전체
+    """
+    code = str(code).zfill(6)
+    cache_key = f"{code}|{start}|{end}"
+    if cache_key in INVESTOR_FLOW_CACHE:
+        return INVESTOR_FLOW_CACHE[cache_key]
+
+    if not HAS_PYKRX or pk_stock is None:
+        INVESTOR_FLOW_CACHE[cache_key] = pd.DataFrame()
+        return INVESTOR_FLOW_CACHE[cache_key]
+
+    try:
+        df = pk_stock.get_market_trading_value_by_date(start.replace('-', ''), end.replace('-', ''), code)
+        if df is None or df.empty:
+            INVESTOR_FLOW_CACHE[cache_key] = pd.DataFrame()
+            return INVESTOR_FLOW_CACHE[cache_key]
+        df = df.copy()
+        df.index = pd.to_datetime(df.index)
+        INVESTOR_FLOW_CACHE[cache_key] = df
+        return df
+    except Exception as e:
+        log_debug(f"수급조회 실패 {code}: {e}")
+        INVESTOR_FLOW_CACHE[cache_key] = pd.DataFrame()
+        return INVESTOR_FLOW_CACHE[cache_key]
+
+
+def _pick_flow_col(df: pd.DataFrame, candidates: list[str]) -> str | None:
+    for c in candidates:
+        if c in df.columns:
+            return c
+    return None
+
+
+def _calc_investor_flow_features(code: str, signal_date, lookback_days: int = 3, avg_amount20_b: float = 0.0) -> dict:
+    """
+    최근 3거래일 외인/기관 순매수 흔적을 점수화.
+
+    - flow_3d_sum_b: 외인+기관 최근 3일 합(억원)
+    - flow_pos_days: 외인+기관 합 기준 양수 일수
+    - flow_min_ratio: 최근 3일 중 최저 일별순매수 / 최근20일평균거래대금
+    - flow_score: 0~4
+    """
+    neutral = {
+        'flow_inst_3d_b': 0.0,
+        'flow_foreign_3d_b': 0.0,
+        'flow_3d_sum_b': 0.0,
+        'flow_pos_days': 0,
+        'flow_neg_days': 0,
+        'flow_min_ratio': np.nan,
+        'flow_score': 0,
+        'flow_grade': '중립',
+        'flow_support': 'N',
+        'flow_comment': '수급데이터없음',
+    }
+
+    signal_ts = pd.to_datetime(signal_date)
+    start = (signal_ts - pd.Timedelta(days=20)).strftime('%Y-%m-%d')
+    end = signal_ts.strftime('%Y-%m-%d')
+    flow_df = _get_investor_flow_df(code, start, end)
+    if flow_df is None or flow_df.empty:
+        return neutral
+
+    inst_col = _pick_flow_col(flow_df, ['기관합계', '기관'])
+    foreign_col = _pick_flow_col(flow_df, ['외국인합계', '외국인'])
+    if not inst_col or not foreign_col:
+        return neutral
+
+    window = flow_df.loc[flow_df.index <= signal_ts, [inst_col, foreign_col]].tail(lookback_days).copy()
+    if window.empty:
+        return neutral
+
+    window[inst_col] = pd.to_numeric(window[inst_col], errors='coerce').fillna(0)
+    window[foreign_col] = pd.to_numeric(window[foreign_col], errors='coerce').fillna(0)
+    fi_daily = window[inst_col] + window[foreign_col]
+
+    inst_3d_b = float(window[inst_col].sum() / 1e8)
+    foreign_3d_b = float(window[foreign_col].sum() / 1e8)
+    flow_3d_sum_b = float(fi_daily.sum() / 1e8)
+    pos_days = int((fi_daily > 0).sum())
+    neg_days = int((fi_daily < 0).sum())
+
+    avg_amount20_krw = float(avg_amount20_b) * 1e8
+    if avg_amount20_krw > 0:
+        min_ratio = float((fi_daily / avg_amount20_krw).min())
+    else:
+        min_ratio = np.nan
+
+    score = 0
+    if flow_3d_sum_b > 0:
+        score += 1
+    if pos_days >= 2:
+        score += 1
+    if pd.notna(min_ratio) and min_ratio > -0.03:
+        score += 1
+    if inst_3d_b > 0 or foreign_3d_b > 0:
+        score += 1
+
+    if score >= 4:
+        grade = '강함'
+    elif score >= 2:
+        grade = '양호'
+    elif score >= 1:
+        grade = '보통'
+    else:
+        grade = '약함'
+
+    support = 'Y' if score >= 2 else 'N'
+    comment = (
+        f"수급3일합 {flow_3d_sum_b:+.1f}억 | 외인 {foreign_3d_b:+.1f}억 | 기관 {inst_3d_b:+.1f}억 | "
+        f"양수일수 {pos_days}/{len(window)} | 최대이탈비율 {min_ratio:.3f}" if pd.notna(min_ratio) else
+        f"수급3일합 {flow_3d_sum_b:+.1f}억 | 외인 {foreign_3d_b:+.1f}억 | 기관 {inst_3d_b:+.1f}억 | 양수일수 {pos_days}/{len(window)}"
+    )
+
+    return {
+        'flow_inst_3d_b': round(inst_3d_b, 1),
+        'flow_foreign_3d_b': round(foreign_3d_b, 1),
+        'flow_3d_sum_b': round(flow_3d_sum_b, 1),
+        'flow_pos_days': pos_days,
+        'flow_neg_days': neg_days,
+        'flow_min_ratio': round(min_ratio, 4) if pd.notna(min_ratio) else np.nan,
+        'flow_score': score,
+        'flow_grade': grade,
+        'flow_support': support,
+        'flow_comment': comment,
+    }
+
+
+def _pass_flow_filter(flow_info: dict, mode: str = 'off') -> bool:
+    mode = (mode or 'off').lower()
+    if mode == 'off':
+        return True
+    score = int(flow_info.get('flow_score', 0) or 0)
+    if mode == 'soft':
+        return score >= 2
+    if mode == 'strict':
+        return score >= 3
+    return True
+
+
+# =============================================================
 # 단일 날짜/종목 종가배팅 조건 체크
 # =============================================================
 def _check_conditions_on_date(df: pd.DataFrame, date_idx: int, code: str = '') -> dict | None:
@@ -789,6 +1011,7 @@ def _check_conditions_on_date(df: pd.DataFrame, date_idx: int, code: str = '') -
         'bb40_pct': bb.get('bb40_pct', 0),
         'bb40_width': bb.get('bb40_width', 0),
         'amount_b': state['amount_b'],
+        'amount20_b': band_rec['amount20_b'],
         'atr_pct': state['atr_pct'],
         'maejip_5d': state['maejip_5d'],
         'obv_rising': state['obv_rising'],
@@ -940,7 +1163,7 @@ def _evaluate_trade_window(df: pd.DataFrame, signal_idx: int, entry_price: float
 # =============================================================
 # 단일 종목 백테스트
 # =============================================================
-def _build_signal_record(df: pd.DataFrame, i: int, code: str, cond: dict, entry_price=None, trade_eval=None, forward_returns=None) -> dict:
+def _build_signal_record(df: pd.DataFrame, i: int, code: str, cond: dict, entry_price=None, trade_eval=None, forward_returns=None, flow_info=None, snapshot_info=None) -> dict:
     row_dt = pd.to_datetime(df.iloc[i][df.columns[0] if df.columns[0] == "Date" else 'Date']) if 'Date' in df.columns else pd.to_datetime(df.iloc[i][df.columns[0]])
     record = {
         '스캔일': row_dt.strftime('%Y-%m-%d'),
@@ -978,6 +1201,30 @@ def _build_signal_record(df: pd.DataFrame, i: int, code: str, cond: dict, entry_
         'OBV상승': 'Y' if cond['obv_rising'] else 'N',
         '거래대금억': cond['amount_b'],
     }
+    if flow_info:
+        record.update({
+            '수급점수': flow_info.get('flow_score', 0),
+            '수급등급': flow_info.get('flow_grade', ''),
+            '수급지지': flow_info.get('flow_support', 'N'),
+            '수급코멘트': flow_info.get('flow_comment', ''),
+            '외인3일합(억)': flow_info.get('flow_foreign_3d_b', 0.0),
+            '기관3일합(억)': flow_info.get('flow_inst_3d_b', 0.0),
+            '외인기관3일합(억)': flow_info.get('flow_3d_sum_b', 0.0),
+            '수급양수일수(3일)': flow_info.get('flow_pos_days', 0),
+            '수급음수일수(3일)': flow_info.get('flow_neg_days', 0),
+            '수급최대이탈비율': flow_info.get('flow_min_ratio', np.nan),
+        })
+    if snapshot_info:
+        record.update({
+            '추정수급스냅샷': snapshot_info.get('snapshot_ok', 'N'),
+            '추정수급시각': snapshot_info.get('snapshot_time', ''),
+            '추정기관수량': snapshot_info.get('inst_qty_est', np.nan),
+            '추정외인수량': snapshot_info.get('frgn_qty_est', np.nan),
+            '추정기관금액(억)': snapshot_info.get('inst_amt_est_b', np.nan),
+            '추정외인금액(억)': snapshot_info.get('frgn_amt_est_b', np.nan),
+            '추정외인기관합(억)': snapshot_info.get('fi_amt_est_b', np.nan),
+            '추정수급코멘트': snapshot_info.get('flow_comment_est', ''),
+        })
     if trade_eval:
         record.update(trade_eval)
     if forward_returns:
@@ -1012,6 +1259,10 @@ def backtest_ticker(code: str, start: str, end: str) -> list:
 
             cond = _check_conditions_on_date(df, i, code=code)
             if cond is None:
+                continue
+
+            flow_info = _calc_investor_flow_features(code, row_dt, lookback_days=3, avg_amount20_b=cond.get('amount20_b', 0))
+            if not _pass_flow_filter(flow_info, FLOW_FILTER_MODE):
                 continue
 
             entry_price = _safe_float(df['Close'].iloc[i])
@@ -1313,6 +1564,22 @@ def summarize(df: pd.DataFrame) -> dict:
             })
     results['유니버스태그별'] = pd.DataFrame(tag_rows)
 
+    flow_rows = []
+    if '수급등급' in df.columns:
+        for flow_grade, grp in df.groupby('수급등급'):
+            if grp.empty:
+                continue
+            flow_rows.append({
+                '수급등급': flow_grade,
+                '건수': len(grp),
+                '평균수급점수': round(pd.to_numeric(grp['수급점수'], errors='coerce').dropna().mean(), 2) if '수급점수' in grp.columns else np.nan,
+                '15일판정승률%': round(grp['15일판정'].isin(['승', '승(종가)']).mean() * 100, 1),
+                '15일내2%도달률%(고가기준)': round((grp['15일내2%도달'] == 'Y').mean() * 100, 1),
+                '15일내2%종가도달률%': round((grp['15일내2%도달_종가기준'] == 'Y').mean() * 100, 1) if '15일내2%도달_종가기준' in grp.columns else 0,
+                '15일평균종가수익%': round(pd.to_numeric(grp['15일종가수익률%'], errors='coerce').dropna().mean(), 2),
+            })
+    results['수급등급별'] = pd.DataFrame(flow_rows)
+
     return results
 
 
@@ -1411,6 +1678,7 @@ def main():
     )
     parser.add_argument('--save-csv', action='store_true', help='원본/요약 CSV 저장')
     parser.add_argument('--mode', default='performance', choices=['performance', 'replay'], help='performance=성과백테스트, replay=신호재현')
+    parser.add_argument('--flow-filter', default='off', choices=['off', 'soft', 'strict'], help='최근3일 외인/기관 수급 필터: off=미적용, soft=점수2이상, strict=점수3이상')
     args = parser.parse_args()
 
     codes = _get_ticker_list(args.top, universe=args.universe)
@@ -1418,7 +1686,7 @@ def main():
         log_error('분석할 종목이 없습니다.')
         sys.exit(1)
 
-    log_info(f"실행 시작: {args.start} ~ {args.end} | {len(codes)}개 | mode={args.mode}")
+    log_info(f"실행 시작: {args.start} ~ {args.end} | {len(codes)}개 | mode={args.mode} | flow_filter={args.flow_filter}")
 
     all_records = []
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
