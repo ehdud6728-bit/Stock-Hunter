@@ -1900,33 +1900,87 @@ def _normalize_debate_label(text: str, kind: str = 'role') -> str:
 
 
 def _parse_pipe_kv_lines(text: str, kind: str = 'role') -> dict:
+    """
+    LLM 출력 파서.
+    허용 예시:
+      후보1|판정=추천|한줄=...
+      후보 1 | 판정=추천 | 한줄=...
+      1|판정=추천|한줄=...
+      1. 판정=추천 | 한줄=...
+      - 후보 1|최종판정=진입|확신도=78|한줄=...|손절=...|목표=...
+    """
     parsed = {}
     if not text:
         return parsed
+
     for raw in str(text).splitlines():
-        line = raw.strip().strip('-•')
-        if not line or '후보' not in line:
+        line = str(raw).strip()
+        if not line:
             continue
+
+        # 불필요한 마크다운/목록 기호 제거
+        line = line.strip('`').strip()
+        line = re.sub(r'^[-•*\s]+', '', line)
+        line = line.replace('**', '').strip()
+        if not line:
+            continue
+
+        # 후보 번호 추출: 후보 1 / 후보1 / 1| / 1. / 1) 모두 허용
+        idx = None
         m = re.search(r'후보\s*(\d+)', line)
-        if not m:
+        if m:
+            idx = int(m.group(1))
+            line = re.sub(r'^.*?후보\s*\d+\s*[:.)\-]*\s*', '', line).strip()
+        else:
+            m = re.match(r'^(\d+)\s*(?:[|:.)\-]|\s)', line)
+            if m:
+                idx = int(m.group(1))
+                line = re.sub(r'^(\d+)\s*[:.)\-]*\s*', '', line).strip()
+
+        if idx is None:
             continue
-        idx = int(m.group(1))
-        parts = [p.strip() for p in line.split('|') if p.strip()]
+
+        # 구분자가 없으면 key=value 패턴을 강제로 | 기준으로 보정
+        normalized = line
+        normalized = normalized.replace('｜', '|')
+        normalized = re.sub(r'\s+\|\s+', '|', normalized)
+        if '|' not in normalized and '=' in normalized:
+            normalized = re.sub(r'\s+(?=[가-힣A-Za-z_]+\s*=)', '|', normalized)
+
+        parts = [p.strip() for p in normalized.split('|') if p.strip()]
         row = {}
-        for part in parts[1:]:
+        for part in parts:
             if '=' in part:
                 k, v = part.split('=', 1)
-                row[k.strip()] = v.strip()
+                row[k.strip()] = v.strip().strip('"').strip("'")
+
+        # 혹시 key=value가 하나도 없으면 문장형으로라도 저장
+        if not row and normalized:
+            if kind == 'role':
+                parsed[idx] = {
+                    'verdict': '미출력',
+                    'summary': normalized[:80].strip(),
+                }
+            else:
+                parsed[idx] = {
+                    'final_verdict': '미출력',
+                    'confidence': 0,
+                    'summary': normalized[:80].strip(),
+                    'stop_note': '',
+                    'target_note': '',
+                }
+            continue
+
         if kind == 'role':
             parsed[idx] = {
                 'verdict': _normalize_debate_label(row.get('판정', ''), kind='role'),
-                'summary': row.get('한줄', '').strip(),
+                'summary': row.get('한줄', row.get('요약', '')).strip(),
             }
         else:
             parsed[idx] = {
-                'final_verdict': _normalize_debate_label(row.get('최종판정', ''), kind='judge'),
+                'final_verdict': _normalize_debate_label(row.get('최종판정', row.get('판정', '')), kind='judge'),
                 'confidence': _safe_int(row.get('확신도', 0), 0),
-                'summary': row.get('한줄', '').strip(),
+                'summary': row.get('한줄', row.get('요약', '')).strip(),
                 'stop_note': row.get('손절', '').strip(),
                 'target_note': row.get('목표', '').strip(),
             }
@@ -2078,7 +2132,7 @@ def _send_closing_bet_debate(hits: list, mins_left: int, top_n: int = None):
         user_msg = (
             base_context + "\n\n"
             + f"반드시 후보 1번부터 {len(candidates)}번까지 모든 후보를 한 줄씩 평가하라. "
-            + "출력 형식만 지켜라: 후보번호|판정=추천/조건부추천/보류/제외|한줄=20자 내외 핵심 이유. 다른 설명이나 머리말/번호목록/마크다운을 쓰지 마라."
+            + "출력 형식만 지켜라: 후보1|판정=추천/조건부추천/보류/제외|한줄=20자 내외 핵심 이유. 후보2|... 식으로 이어서 작성하라. 다른 설명이나 머리말/번호목록/마크다운을 쓰지 마라."
         )
         text, provider = _run_role_brief(role_name, role_system, user_msg, provider_order=provider_order)
         provider_map[role_name] = provider
@@ -2091,7 +2145,7 @@ def _send_closing_bet_debate(hits: list, mins_left: int, top_n: int = None):
     judge_user = (
         base_context + "\n\n아래는 역할별 의견이다.\n\n" + "\n\n".join(role_outputs)
         + f"\n\n반드시 후보 1번부터 {len(candidates)}번까지 모든 후보를 한 줄씩 출력하라. "
-        + "출력 형식만 지켜라: 후보번호|최종판정=진입/조건부진입/보류/제외|확신도=0~100 정수|한줄=핵심판단 25자 내외|손절=짧게|목표=짧게. 다른 설명/머리말/마크다운 금지."
+        + "출력 형식만 지켜라: 후보1|최종판정=진입/조건부진입/보류/제외|확신도=0~100 정수|한줄=핵심판단 25자 내외|손절=짧게|목표=짧게. 후보2|... 식으로 이어서 작성하라. 다른 설명/머리말/마크다운 금지."
     )
     judge_text, judge_provider = _call_llm_with_fallback(judge_system, judge_user, role_label='최종심판', max_tokens=1800, provider_order=['anthropic','openai','gemini','groq'])
     if not judge_text:
