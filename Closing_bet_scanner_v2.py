@@ -197,6 +197,103 @@ def _calc_upper_wick_body_ratio(row) -> float:
 
 
 # =============================================================
+# Google Sheets 저장 (AI 판정)
+# =============================================================
+def _get_gspread_client():
+    if not HAS_GSPREAD:
+        log_info("⚠️ gspread 미설치 → AI 판정 시트 저장 생략")
+        return None, None
+
+    log_info(f"JSON exists={os.path.exists(JSON_KEY_PATH)}")
+    log_info(f"GOOGLE_JSON_KEY exists={'YES' if os.environ.get('GOOGLE_JSON_KEY') else 'NO'}")
+
+    key_path = JSON_KEY_PATH
+    if not os.path.exists(key_path):
+        json_key = os.environ.get('GOOGLE_JSON_KEY', '')
+        if json_key:
+            try:
+                Path(key_path).write_text(json_key, encoding='utf-8')
+            except Exception as e:
+                log_error(f"⚠️ GOOGLE_JSON_KEY 파일화 실패: {e}")
+
+    if not os.path.exists(key_path):
+        log_info("⚠️ 구글시트 인증 없음")
+        return None, None
+
+    try:
+        scope = [
+            'https://spreadsheets.google.com/feeds',
+            'https://www.googleapis.com/auth/drive',
+        ]
+        creds = ServiceAccountCredentials.from_json_keyfile_name(key_path, scope)
+        gc = gspread.authorize(creds)
+        doc = gc.open(AI_GSHEET_NAME)
+        log_info(f"✅ 구글시트 문서 연결 성공: {AI_GSHEET_NAME}")
+        return gc, doc
+    except Exception as e:
+        log_error(f"⚠️ 구글시트 연결 실패: {e}")
+        return None, None
+
+
+def _upsert_tab(doc, tab_name: str, df: pd.DataFrame):
+    if df is None or df.empty:
+        log_info(f"⚠️ [{tab_name}] 저장할 데이터 없음")
+        return
+
+    values = [df.columns.tolist()] + df.astype(object).fillna('').values.tolist()
+    rows = max(len(values), 2)
+    cols = max(len(df.columns), 2)
+
+    try:
+        try:
+            ws = doc.worksheet(tab_name)
+            ws.clear()
+        except Exception:
+            ws = doc.add_worksheet(title=tab_name, rows=rows, cols=cols)
+
+        ws.update(values, value_input_option='USER_ENTERED')
+        log_info(f"✅ [{tab_name}] {len(df)}행 저장")
+    except Exception as e:
+        log_error(f"❌ [{tab_name}] 저장 실패: {e}")
+
+
+def _save_ai_judgments_to_gsheet(judgment_rows: list):
+    if not judgment_rows:
+        log_info("⚠️ 저장할 AI 판정 없음")
+        return
+
+    gc, doc = _get_gspread_client()
+    if doc is None:
+        log_info("⚠️ AI 판정 구글시트 저장 생략")
+        return
+
+    try:
+        df = pd.DataFrame(judgment_rows).copy()
+        if df.empty:
+            log_info("⚠️ 저장할 AI 판정 DataFrame 비어있음")
+            return
+
+        now_str = datetime.now(KST).strftime('%Y-%m-%d %H:%M')
+        if 'saved_at' not in df.columns:
+            df.insert(0, 'saved_at', now_str)
+
+        preferred = [
+            'saved_at', 'scan_date', 'scan_time', 'code', 'name', 'mode', 'mode_label', 'grade',
+            'final_verdict', 'final_confidence', 'judge_provider', 'judge_summary',
+            'tech_provider', 'tech_view', 'flow_provider', 'flow_view',
+            'theme_provider', 'theme_view', 'risk_provider', 'risk_view',
+            'positive_votes', 'negative_votes',
+            'recommended_band', 'volatility_type', 'universe_tag',
+            'index_label', 'band_comment', 'band_recommend_reason'
+        ]
+        cols = [c for c in preferred if c in df.columns] + [c for c in df.columns if c not in preferred]
+        df = df[cols]
+        _upsert_tab(doc, AI_JUDGMENT_TAB_NAME, df)
+    except Exception as e:
+        log_error(f"⚠️ AI 판정 시트 저장 실패: {e}")
+
+
+# =============================================================
 # 텔레그램 전송
 # =============================================================
 def send_telegram_photo(message: str, image_paths: list = None):
