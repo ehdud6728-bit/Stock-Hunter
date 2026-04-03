@@ -300,6 +300,7 @@ INVESTOR_FLOW_CACHE: dict = {}
 AI_GSHEET_NAME = '사령부_통합_상황판'
 AI_JUDGMENT_TAB_NAME = '종가배팅_AI판정'
 AI_BACKFILL_TAB_NAME = '종가배팅_AI판정_백필'
+FLOW_FILTER_MODE = 'off'
 
 
 PRETTY_RAW_COLUMNS = {
@@ -2230,6 +2231,9 @@ def main():
     parser.add_argument('--ai-backfill', default='off', choices=['off', 'missing', 'all'], help='과거 신호에 AI 백필판정 부여: off=미사용, missing=없는 것만, all=강제 재생성')
     parser.add_argument('--ai-backfill-per-day', type=int, default=7, help='AI 백필 시 하루당 최대 판정 종목 수')
     args = parser.parse_args()
+
+    global FLOW_FILTER_MODE
+    FLOW_FILTER_MODE = args.flow_filter
 
     _load_flow_snapshot_lookup()
     codes = _get_ticker_list(args.top, universe=args.universe)
