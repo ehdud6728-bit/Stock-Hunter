@@ -1876,6 +1876,7 @@ def _provider_tag(provider: str) -> str:
     return mapping.get(str(provider).lower(), f"[{provider}]")
 
 
+
 def _normalize_debate_label(text: str, kind: str = 'role') -> str:
     t = str(text or '').strip().replace(' ', '')
     if kind == 'role':
@@ -1899,109 +1900,193 @@ def _normalize_debate_label(text: str, kind: str = 'role') -> str:
     return t or '미출력'
 
 
-def _parse_pipe_kv_lines(text: str, kind: str = 'role') -> dict:
-    parsed = {}
+def _extract_json_payload(text: str):
     if not text:
-        return parsed
-    for raw in str(text).splitlines():
-        line = raw.strip().strip('-•')
-        if not line or '후보' not in line:
+        return None
+    raw = str(text).strip()
+
+    fenced = re.findall(r"```(?:json)?\s*(.*?)```", raw, flags=re.DOTALL | re.IGNORECASE)
+    candidates = []
+    if fenced:
+        candidates.extend([c.strip() for c in fenced if c.strip()])
+
+    candidates.append(raw)
+
+    # first array/object slice
+    first_arr = raw.find('[')
+    last_arr = raw.rfind(']')
+    if first_arr != -1 and last_arr != -1 and last_arr > first_arr:
+        candidates.append(raw[first_arr:last_arr + 1])
+
+    first_obj = raw.find('{')
+    last_obj = raw.rfind('}')
+    if first_obj != -1 and last_obj != -1 and last_obj > first_obj:
+        candidates.append(raw[first_obj:last_obj + 1])
+
+    seen = set()
+    for cand in candidates:
+        cand = cand.strip()
+        if not cand or cand in seen:
             continue
-        m = re.search(r'후보\s*(\d+)', line)
-        if not m:
+        seen.add(cand)
+        try:
+            return json.loads(cand)
+        except Exception:
             continue
-        idx = int(m.group(1))
-        parts = [p.strip() for p in line.split('|') if p.strip()]
-        row = {}
-        for part in parts[1:]:
-            if '=' in part:
-                k, v = part.split('=', 1)
-                row[k.strip()] = v.strip()
-        if kind == 'role':
-            parsed[idx] = {
-                'verdict': _normalize_debate_label(row.get('판정', ''), kind='role'),
-                'summary': row.get('한줄', '').strip(),
-            }
+    return None
+
+
+def _coerce_role_json(parsed, count: int) -> dict:
+    rows = {}
+    if isinstance(parsed, dict):
+        if isinstance(parsed.get('items'), list):
+            parsed = parsed.get('items')
         else:
-            parsed[idx] = {
-                'final_verdict': _normalize_debate_label(row.get('최종판정', ''), kind='judge'),
-                'confidence': _safe_int(row.get('확신도', 0), 0),
-                'summary': row.get('한줄', '').strip(),
-                'stop_note': row.get('손절', '').strip(),
-                'target_note': row.get('목표', '').strip(),
-            }
-    return parsed
+            parsed = [parsed]
+    if not isinstance(parsed, list):
+        return rows
+
+    for item in parsed:
+        if not isinstance(item, dict):
+            continue
+        idx = _safe_int(item.get('candidate') or item.get('idx') or item.get('후보') or item.get('번호'), 0)
+        if idx <= 0 or idx > count:
+            continue
+        rows[idx] = {
+            'verdict': _normalize_debate_label(item.get('stance') or item.get('판정') or item.get('verdict') or '', kind='role'),
+            'score': _safe_int(item.get('score') or item.get('점수') or 0, 0),
+            'summary': str(item.get('core_reason') or item.get('요약') or item.get('summary') or item.get('근거') or '').strip(),
+            'risk': str(item.get('risk') or item.get('리스크') or '').strip(),
+            'plan': str(item.get('plan') or item.get('실행계획') or item.get('action_plan') or '').strip(),
+        }
+    return rows
 
 
-def _get_gspread_client_for_ai():
-    if not HAS_GSPREAD:
-        return None, None
-    try:
-        creds_json = os.environ.get('GOOGLE_JSON_KEY', '')
-        if creds_json:
-            import json, tempfile
-            data = json.loads(creds_json)
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False, encoding='utf-8') as f:
-                json.dump(data, f)
-                json_path = f.name
-        elif os.path.exists(JSON_KEY_PATH):
-            json_path = JSON_KEY_PATH
+def _coerce_judge_json(parsed, count: int) -> dict:
+    rows = {}
+    if isinstance(parsed, dict):
+        if isinstance(parsed.get('items'), list):
+            parsed = parsed.get('items')
         else:
-            log_info('⚠️ AI 판정 구글시트 인증 없음')
-            return None, None
+            parsed = [parsed]
+    if not isinstance(parsed, list):
+        return rows
 
-        scope = [
-            'https://spreadsheets.google.com/feeds',
-            'https://www.googleapis.com/auth/drive',
-        ]
-        creds = ServiceAccountCredentials.from_json_keyfile_name(json_path, scope)
-        gc = gspread.authorize(creds)
-        doc = gc.open(AI_GSHEET_NAME)
-        return gc, doc
-    except Exception as e:
-        log_error(f'⚠️ AI 판정 구글시트 연결 실패: {e}')
-        return None, None
-
-
-def _upsert_ai_judgment_tab(doc, df: pd.DataFrame):
-    if doc is None or df is None or df.empty:
-        return
-    try:
-        try:
-            ws = doc.worksheet(AI_JUDGMENT_TAB_NAME)
-        except Exception:
-            ws = doc.add_worksheet(title=AI_JUDGMENT_TAB_NAME, rows=max(1000, len(df)+100), cols=max(40, len(df.columns)+10))
-        existing = pd.DataFrame()
-        try:
-            values = ws.get_all_values()
-            if values and len(values) >= 2:
-                existing = pd.DataFrame(values[1:], columns=values[0])
-        except Exception:
-            pass
-        if not existing.empty:
-            if 'code' in existing.columns:
-                existing['code'] = existing['code'].astype(str).str.zfill(6)
-            if 'ai_key' not in existing.columns and {'scan_date','code','mode'}.issubset(existing.columns):
-                existing['ai_key'] = existing['scan_date'].astype(str) + '|' + existing['code'].astype(str).str.zfill(6) + '|' + existing['mode'].astype(str)
-        out = df.copy()
-        out['code'] = out['code'].astype(str).str.zfill(6)
-        out['ai_key'] = out['scan_date'].astype(str) + '|' + out['code'].astype(str).str.zfill(6) + '|' + out['mode'].astype(str)
-        merged = out if existing.empty else pd.concat([existing, out], ignore_index=True).drop_duplicates(subset=['ai_key'], keep='last')
-        merged = merged.sort_values(['scan_date','scan_time','code']).reset_index(drop=True).fillna('')
-        ws.clear()
-        ws.update([list(merged.columns)] + merged.astype(str).values.tolist())
-        log_info(f'✅ [{AI_GSHEET_NAME}/{AI_JUDGMENT_TAB_NAME}] {len(out)}건 저장')
-    except Exception as e:
-        log_error(f'⚠️ AI 판정 저장 실패: {e}')
+    for item in parsed:
+        if not isinstance(item, dict):
+            continue
+        idx = _safe_int(item.get('candidate') or item.get('idx') or item.get('후보') or item.get('번호'), 0)
+        if idx <= 0 or idx > count:
+            continue
+        rows[idx] = {
+            'final_verdict': _normalize_debate_label(item.get('final_verdict') or item.get('최종판정') or item.get('verdict') or '', kind='judge'),
+            'confidence': _safe_int(item.get('confidence') or item.get('확신도') or item.get('score') or 0, 0),
+            'summary': str(item.get('summary') or item.get('한줄') or item.get('strong_point') or '').strip(),
+            'strong_point': str(item.get('strong_point') or item.get('핵심근거') or '').strip(),
+            'risk_point': str(item.get('risk_point') or item.get('위험요인') or '').strip(),
+            'action_plan': str(item.get('action_plan') or item.get('실행계획') or item.get('plan') or '').strip(),
+            'stop_note': str(item.get('stop') or item.get('손절') or '').strip(),
+            'target_note': str(item.get('target') or item.get('목표') or '').strip(),
+        }
+    return rows
 
 
-def _save_ai_judgments_to_gsheet(rows: list):
-    if not rows:
-        return
-    gc, doc = _get_gspread_client_for_ai()
-    if doc is None:
-        return
-    _upsert_ai_judgment_tab(doc, pd.DataFrame(rows))
+def _build_role_json_prompt(base_context: str, role_name: str) -> str:
+    return (
+        base_context + "\n\n"
+        + f"너의 역할은 {role_name}이다. 모든 후보를 빠짐없이 평가하라. "
+        + "반드시 JSON 배열만 출력하라. 다른 설명, 마크다운, 코드블록 금지. "
+        + "각 원소 형식: "
+        + '[{"candidate":1,"stance":"추천|조건부추천|보류|제외","score":0,"core_reason":"핵심 근거 1문장","risk":"핵심 리스크 1문장","plan":"실행 포인트 1문장"}]'
+    )
+
+
+def _build_judge_json_prompt(base_context: str, role_payloads: dict, count: int) -> str:
+    role_json = json.dumps(role_payloads, ensure_ascii=False)
+    return (
+        base_context
+        + "\n\n아래는 역할별 구조화 의견(JSON)이다.\n"
+        + role_json
+        + "\n\n모든 후보를 빠짐없이 최종 판정하라. "
+        + "반드시 JSON 배열만 출력하라. 다른 설명, 마크다운, 코드블록 금지. "
+        + "각 원소 형식: "
+        + '[{"candidate":1,"final_verdict":"진입|조건부진입|보류|제외","confidence":0,"strong_point":"가장 강한 근거","risk_point":"가장 큰 위험","action_plan":"실행계획 1문장","stop":"손절가/조건","target":"목표가/조건","summary":"최종 한줄 요약"}]'
+    )
+
+
+def _run_role_json(role_name: str, role_system: str, base_context: str, candidates: list, provider_order=None) -> tuple[dict, str]:
+    if provider_order is None:
+        provider_order = ['anthropic', 'openai', 'gemini', 'groq']
+    user_msg = _build_role_json_prompt(base_context, role_name)
+    text, provider = _call_llm_with_fallback(role_system, user_msg, role_label=role_name, max_tokens=2200, provider_order=provider_order)
+    parsed = _coerce_role_json(_extract_json_payload(text), len(candidates))
+
+    missing = [idx for idx in range(1, len(candidates) + 1) if idx not in parsed]
+    for idx in missing:
+        h = candidates[idx - 1]
+        single_context = (
+            f"[종가배팅 단일 후보 검토]\n"
+            f"후보 {idx}: {h['name']}({h['code']}) | 전략:{h.get('mode_label','')} | 등급:{h.get('grade','')} | 점수:{h.get('score',0)} | "
+            f"가격:{h['close']:,}원 | 거래대금:{h.get('amount_b',0)}억 | 거래량:{h.get('vol_ratio',0)}배 | 추천밴드:{h.get('recommended_band','')} | 유형:{h.get('volatility_type','')} | 유니버스:{h.get('universe_tag','')}\n"
+            f"종가강도/캔들: 윗꼬리(몸통){h.get('wick_pct',0)}% | 목표:{h.get('target1',0):,} | 손절:{h.get('stoploss',0):,} | RR:{h.get('rr',0)}\n"
+            f"밴드/전략세부: {h.get('band_pct_text','')} | {h.get('band_comment','')}\n"
+            f"수급추정: {h.get('flow_comment','수급추정정보없음')}"
+        )
+        single_user = (
+            single_context
+            + "\n\n반드시 JSON 배열만 출력하라. 다른 설명 금지. "
+            + '[{"candidate":1,"stance":"추천|조건부추천|보류|제외","score":0,"core_reason":"핵심 근거 1문장","risk":"핵심 리스크 1문장","plan":"실행 포인트 1문장"}]'
+        )
+        text2, provider2 = _call_llm_with_fallback(role_system, single_user, role_label=f'{role_name}-단일재시도', max_tokens=600, provider_order=provider_order)
+        parsed2 = _coerce_role_json(_extract_json_payload(text2), 1)
+        if 1 in parsed2:
+            item = parsed2[1]
+            parsed[idx] = item
+            provider = provider2 or provider
+
+    for idx in range(1, len(candidates) + 1):
+        parsed.setdefault(idx, {
+            'verdict': '보류',
+            'score': 0,
+            'summary': '데이터 부족 또는 응답 불완전',
+            'risk': '판단 유보',
+            'plan': '추가 확인 필요',
+        })
+    return parsed, provider
+
+
+def _run_judge_json(judge_system: str, base_context: str, role_payloads: dict, candidates: list) -> tuple[dict, str]:
+    judge_user = _build_judge_json_prompt(base_context, role_payloads, len(candidates))
+    text, provider = _call_llm_with_fallback(judge_system, judge_user, role_label='최종심판', max_tokens=2600, provider_order=['anthropic', 'openai', 'gemini', 'groq'])
+    parsed = _coerce_judge_json(_extract_json_payload(text), len(candidates))
+
+    missing = [idx for idx in range(1, len(candidates) + 1) if idx not in parsed]
+    for idx in missing:
+        role_subset = {k: v.get(idx, {}) for k, v in role_payloads.items()}
+        single_user = (
+            f"[종가배팅 최종심판 단일 후보]\n후보:{idx}\n역할의견(JSON):\n" + json.dumps(role_subset, ensure_ascii=False) +
+            "\n\n반드시 JSON 배열만 출력하라. 다른 설명 금지. "
+            + '[{"candidate":1,"final_verdict":"진입|조건부진입|보류|제외","confidence":0,"strong_point":"가장 강한 근거","risk_point":"가장 큰 위험","action_plan":"실행계획 1문장","stop":"손절가/조건","target":"목표가/조건","summary":"최종 한줄 요약"}]'
+        )
+        text2, provider2 = _call_llm_with_fallback(judge_system, single_user, role_label='최종심판-단일재시도', max_tokens=800, provider_order=['anthropic', 'openai', 'gemini', 'groq'])
+        parsed2 = _coerce_judge_json(_extract_json_payload(text2), 1)
+        if 1 in parsed2:
+            parsed[idx] = parsed2[1]
+            provider = provider2 or provider
+
+    for idx in range(1, len(candidates) + 1):
+        parsed.setdefault(idx, {
+            'final_verdict': '보류',
+            'confidence': 0,
+            'summary': '데이터 부족 또는 응답 불완전',
+            'strong_point': '',
+            'risk_point': '판단 유보',
+            'action_plan': '추가 확인 필요',
+            'stop_note': '',
+            'target_note': '',
+        })
+    return parsed, provider
+
 
 def _debate_sort_key(hit: dict):
     grade = hit.get('grade', '')
@@ -2031,14 +2116,14 @@ def _build_debate_candidate_lines(candidates: list) -> str:
         flow_text = ' | '.join(flow_bits) if flow_bits else '수급추정정보없음'
 
         lines.append(
-            f"{idx}. {h['name']}({h['code']}) | 전략:{h.get('mode_label','')} | 등급:{h.get('grade','')} | 점수:{h.get('score',0)} | "
+            f"후보 {idx}: {h['name']}({h['code']}) | 전략:{h.get('mode_label','')} | 등급:{h.get('grade','')} | 점수:{h.get('score',0)} | "
             f"가격:{h['close']:,}원 | 거래대금:{h.get('amount_b',0)}억 | 거래량:{h.get('vol_ratio',0)}배 | "
             f"추천밴드:{h.get('recommended_band','')} | 유형:{h.get('volatility_type','')} | 유니버스:{h.get('universe_tag','')}\n"
-            f"   종가강도/캔들: 윗꼬리(몸통){h.get('wick_pct',0)}% | 목표:{h.get('target1',0):,} | 손절:{h.get('stoploss',0):,} | RR:{h.get('rr',0)}\n"
-            f"   밴드/전략세부: {h.get('band_pct_text','')} | {h.get('band_comment','')}\n"
-            f"   수급추정: {flow_text}"
+            f"종가강도/캔들: 윗꼬리(몸통){h.get('wick_pct',0)}% | 목표:{h.get('target1',0):,} | 손절:{h.get('stoploss',0):,} | RR:{h.get('rr',0)}\n"
+            f"밴드/전략세부: {h.get('band_pct_text','')} | {h.get('band_comment','')}\n"
+            f"수급추정: {flow_text}"
         )
-    return '\n'.join(lines)
+    return '\n\n'.join(lines)
 
 
 def _run_role_brief(role_name: str, system_msg: str, user_msg: str, provider_order=None) -> tuple[str, str]:
@@ -2065,57 +2150,45 @@ def _send_closing_bet_debate(hits: list, mins_left: int, top_n: int = None):
     )
 
     role_specs = [
-        ('기술분석가', "너는 종가배팅 전용 기술분석가다. 차트/캔들/종가강도/ENV/BB/전고점 이격만 중심으로 본다. 양수 재안착을 무조건 늦었다고 단정하지 말고, 하단선 근처 재안착은 긍정 가능성도 열어둬라.", ['anthropic','openai','gemini','groq']),
-        ('수급분석가', "너는 외인/기관/OBV/매집흔적 중심의 수급분석가다. 최근 3~5일 흐름과 당일 추정 수급을 같이 보고, 들어온 흔적은 있는데 크게 나간 흔적이 없는지에 집중하라.", ['openai','anthropic','groq','gemini']),
-        ('시황테마분석가', "너는 업종/섹터/대장주/뉴스 맥락을 보는 시황 분석가다. 주어진 정보로 추론하되 과장하지 말고, 단순 눌림인지 재료 소멸인지, 종가배팅에 우호적인 시장 흐름인지 평가하라.", ['anthropic','gemini','openai','groq']),
-        ('리스크관리자', "너는 가장 보수적인 리스크 관리자다. 늦은 자리인지, 다음날 갭리스크가 큰지, 손절/목표가 실전적으로 유효한지 본다.", ['openai','groq','anthropic','gemini']),
+        ('기술분석가', "너는 종가배팅 전용 기술분석가다. 차트/캔들/종가강도/ENV/BB/전고점 이격만 중심으로 본다. 하단 재안착을 긍정 가능성으로 열어두되, 추격과 과열은 구분하라. 답변은 반드시 JSON 배열만 출력하라.", ['anthropic','openai','gemini','groq']),
+        ('수급분석가', "너는 외인/기관/OBV/매집흔적 중심의 수급분석가다. 최근 3~5일 흐름과 당일 추정 수급을 같이 보고, 들어온 흔적은 있는데 크게 나간 흔적이 없는지에 집중하라. 답변은 반드시 JSON 배열만 출력하라.", ['openai','anthropic','groq','gemini']),
+        ('시황테마분석가', "너는 업종/섹터/대장주/뉴스 맥락을 보는 시황 분석가다. 근거가 부족하면 부족하다고 명시하고 과장하지 마라. 단순 눌림인지 재료 소멸인지, 종가배팅에 우호적인 시장 흐름인지 평가하라. 답변은 반드시 JSON 배열만 출력하라.", ['anthropic','gemini','openai','groq']),
+        ('리스크관리자', "너는 가장 보수적인 리스크 관리자다. 늦은 자리인지, 다음날 갭리스크가 큰지, 손절/목표가 실전적으로 유효한지 본다. 답변은 반드시 JSON 배열만 출력하라.", ['openai','groq','anthropic','gemini']),
     ]
 
-    role_outputs = []
-    role_parsed = {}
+    role_payloads = {}
     provider_map = {}
     for role_name, role_system, provider_order in role_specs:
-        user_msg = (
-            base_context + "\n\n"
-            + f"반드시 후보 1번부터 {len(candidates)}번까지 모든 후보를 한 줄씩 평가하라. "
-            + "출력 형식만 지켜라: 후보번호|판정=추천/조건부추천/보류/제외|한줄=20자 내외 핵심 이유. 다른 설명이나 머리말/번호목록/마크다운을 쓰지 마라."
-        )
-        text, provider = _run_role_brief(role_name, role_system, user_msg, provider_order=provider_order)
+        parsed, provider = _run_role_json(role_name, role_system, base_context, candidates, provider_order=provider_order)
         provider_map[role_name] = provider
-        role_parsed[role_name] = _parse_pipe_kv_lines(text, kind='role')
-        role_outputs.append(f"[{role_name}/{provider}]\n{text}" if text else f"[{role_name}/none]\n응답없음")
+        role_payloads[role_name] = parsed
 
     judge_system = (
-        "너는 종가배팅 최종 심판이다. 기술/수급/시황/리스크 의견을 읽고 후보별 최종판정을 내려라. 단일 의견을 맹신하지 말고 충돌하는 의견은 조정하라."
+        "너는 종가배팅 최종 심판이다. 기술/수급/시황/리스크 의견을 읽고 후보별 최종판정을 내려라. "
+        "단일 의견을 맹신하지 말고 충돌하는 의견은 조정하라. 답변은 반드시 JSON 배열만 출력하라."
     )
-    judge_user = (
-        base_context + "\n\n아래는 역할별 의견이다.\n\n" + "\n\n".join(role_outputs)
-        + f"\n\n반드시 후보 1번부터 {len(candidates)}번까지 모든 후보를 한 줄씩 출력하라. "
-        + "출력 형식만 지켜라: 후보번호|최종판정=진입/조건부진입/보류/제외|확신도=0~100 정수|한줄=핵심판단 25자 내외|손절=짧게|목표=짧게. 다른 설명/머리말/마크다운 금지."
-    )
-    judge_text, judge_provider = _call_llm_with_fallback(judge_system, judge_user, role_label='최종심판', max_tokens=1800, provider_order=['anthropic','openai','gemini','groq'])
-    if not judge_text:
-        log_error('⚠️ 종가배팅 토론 최종심판 실패')
-        return
+    judge_parsed, judge_provider = _run_judge_json(judge_system, base_context, role_payloads, candidates)
 
-    judge_parsed = _parse_pipe_kv_lines(judge_text, kind='judge')
     now = datetime.now(KST)
     judgment_rows = []
     pretty_lines = []
     for idx, hit in enumerate(candidates, 1):
         j = judge_parsed.get(idx, {})
-        tech = role_parsed.get('기술분석가', {}).get(idx, {})
-        flow = role_parsed.get('수급분석가', {}).get(idx, {})
-        theme = role_parsed.get('시황테마분석가', {}).get(idx, {})
-        risk = role_parsed.get('리스크관리자', {}).get(idx, {})
+        tech = role_payloads.get('기술분석가', {}).get(idx, {})
+        flow = role_payloads.get('수급분석가', {}).get(idx, {})
+        theme = role_payloads.get('시황테마분석가', {}).get(idx, {})
+        risk = role_payloads.get('리스크관리자', {}).get(idx, {})
         opinions = [tech.get('verdict',''), flow.get('verdict',''), theme.get('verdict',''), risk.get('verdict','')]
         positive_votes = sum(1 for v in opinions if v in ['추천','조건부추천'])
         negative_votes = sum(1 for v in opinions if v in ['보류','제외'])
-        final_verdict = j.get('final_verdict', '미출력')
+        final_verdict = j.get('final_verdict', '보류')
         confidence = j.get('confidence', 0)
         summary = j.get('summary', '')
-        stop_note = j.get('stop_note', '')
-        target_note = j.get('target_note', '')
+        strong_point = j.get('strong_point', '')
+        risk_point = j.get('risk_point', '')
+        action_plan = j.get('action_plan', '')
+        stop_note = j.get('stop_note', '') or str(hit.get('stoploss',''))
+        target_note = j.get('target_note', '') or str(hit.get('target1',''))
 
         judgment_rows.append({
             'scan_date': now.strftime('%Y-%m-%d'),
@@ -2133,6 +2206,9 @@ def _send_closing_bet_debate(hits: list, mins_left: int, top_n: int = None):
             'final_verdict': final_verdict,
             'final_confidence': confidence,
             'judge_summary': summary,
+            'strong_point': strong_point,
+            'risk_point': risk_point,
+            'action_plan': action_plan,
             'stop_note': stop_note,
             'target_note': target_note,
             'tech_provider': _provider_tag(provider_map.get('기술분석가','none')),
@@ -2140,22 +2216,32 @@ def _send_closing_bet_debate(hits: list, mins_left: int, top_n: int = None):
             'theme_provider': _provider_tag(provider_map.get('시황테마분석가','none')),
             'risk_provider': _provider_tag(provider_map.get('리스크관리자','none')),
             'judge_provider': _provider_tag(judge_provider),
-            'tech_view': f"{_provider_tag(provider_map.get('기술분석가','none'))} {tech.get('verdict','미출력')} | {tech.get('summary','')}".strip(),
-            'flow_view': f"{_provider_tag(provider_map.get('수급분석가','none'))} {flow.get('verdict','미출력')} | {flow.get('summary','')}".strip(),
-            'theme_view': f"{_provider_tag(provider_map.get('시황테마분석가','none'))} {theme.get('verdict','미출력')} | {theme.get('summary','')}".strip(),
-            'risk_view': f"{_provider_tag(provider_map.get('리스크관리자','none'))} {risk.get('verdict','미출력')} | {risk.get('summary','')}".strip(),
+            'tech_view': f"{_provider_tag(provider_map.get('기술분석가','none'))} {tech.get('verdict','보류')} | {tech.get('summary','')} | 리스크:{tech.get('risk','')} | 실행:{tech.get('plan','')}",
+            'flow_view': f"{_provider_tag(provider_map.get('수급분석가','none'))} {flow.get('verdict','보류')} | {flow.get('summary','')} | 리스크:{flow.get('risk','')} | 실행:{flow.get('plan','')}",
+            'theme_view': f"{_provider_tag(provider_map.get('시황테마분석가','none'))} {theme.get('verdict','보류')} | {theme.get('summary','')} | 리스크:{theme.get('risk','')} | 실행:{theme.get('plan','')}",
+            'risk_view': f"{_provider_tag(provider_map.get('리스크관리자','none'))} {risk.get('verdict','보류')} | {risk.get('summary','')} | 리스크:{risk.get('risk','')} | 실행:{risk.get('plan','')}",
             'positive_votes': positive_votes,
             'negative_votes': negative_votes,
         })
 
         pretty_lines.append(
-            f"{idx}. {hit.get('name','')}({hit.get('code','')}) [{hit.get('mode','')}/{hit.get('grade','')}] → {final_verdict} {confidence}점\n"
-            f"   심판:{_provider_tag(judge_provider)} {summary}\n"
-            f"   기술:{_provider_tag(provider_map.get('기술분석가','none'))} {tech.get('verdict','미출력')} | {tech.get('summary','')}\n"
-            f"   수급:{_provider_tag(provider_map.get('수급분석가','none'))} {flow.get('verdict','미출력')} | {flow.get('summary','')}\n"
-            f"   시황:{_provider_tag(provider_map.get('시황테마분석가','none'))} {theme.get('verdict','미출력')} | {theme.get('summary','')}\n"
-            f"   리스크:{_provider_tag(provider_map.get('리스크관리자','none'))} {risk.get('verdict','미출력')} | {risk.get('summary','')}\n"
-            f"   손절:{stop_note} | 목표:{target_note}"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"{idx}) {hit.get('name','')}({hit.get('code','')}) | {hit.get('mode','')}/{hit.get('grade','')}\n"
+            f"최종판정: {final_verdict} ({confidence}점)\n"
+            f"추천밴드: {hit.get('recommended_band','')} | 유형: {hit.get('universe_tag','')}\n\n"
+            f"핵심근거\n"
+            f"- 기술{_provider_tag(provider_map.get('기술분석가','none'))}: {tech.get('summary','데이터 부족')}\n"
+            f"- 수급{_provider_tag(provider_map.get('수급분석가','none'))}: {flow.get('summary','데이터 부족')}\n"
+            f"- 시황{_provider_tag(provider_map.get('시황테마분석가','none'))}: {theme.get('summary','근거 부족 또는 보류')}\n"
+            f"- 리스크{_provider_tag(provider_map.get('리스크관리자','none'))}: {risk.get('summary','리스크 점검 필요')}\n\n"
+            f"심판{_provider_tag(judge_provider)}\n"
+            f"- 요약: {summary or '판단 유보'}\n"
+            f"- 강한근거: {strong_point or '추가 확인 필요'}\n"
+            f"- 위험요인: {risk_point or '변동성 주의'}\n"
+            f"- 실행계획: {action_plan or '분할 진입/보수적 대응'}\n\n"
+            f"실행레벨\n"
+            f"- 손절: {stop_note}\n"
+            f"- 목표: {target_note}"
         )
 
     _save_ai_judgments_to_gsheet(judgment_rows)
@@ -2173,8 +2259,6 @@ def _send_closing_bet_debate(hits: list, mins_left: int, top_n: int = None):
         f"모델사용: {provider_line}\n\n" + "\n\n".join(pretty_lines)
     )
     send_telegram_chunks(message, max_len=3500)
-
-
 
 def _send_ai_comment(hits: list, mins_left: int, strategy: str = 'A'):
     try:
