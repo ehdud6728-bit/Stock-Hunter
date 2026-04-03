@@ -1392,19 +1392,23 @@ def backtest_ticker(code: str, start: str, end: str) -> list:
         start_dt = datetime.strptime(start, '%Y-%m-%d')
         end_dt = datetime.strptime(end, '%Y-%m-%d')
 
+        stage = {"date_in_range": 0, "cond_hit": 0, "flow_pass": 0, "record_appended": 0}
         for i in range(60, len(df)):
             row_date = pd.to_datetime(df[date_col].iloc[i])
             row_dt = row_date.to_pydatetime().replace(tzinfo=None)
             if not (start_dt <= row_dt <= end_dt):
                 continue
+            stage["date_in_range"] += 1
 
             cond = _check_conditions_on_date(df, i, code=code)
             if cond is None:
                 continue
+            stage["cond_hit"] += 1
 
             flow_info = _calc_investor_flow_features(code, row_dt, lookback_days=3, avg_amount20_b=cond.get('amount20_b', 0))
             if not _pass_flow_filter(flow_info, FLOW_FILTER_MODE):
                 continue
+            stage["flow_pass"] += 1
 
             entry_price = _safe_float(df['Close'].iloc[i])
             if entry_price <= 0:
@@ -1436,8 +1440,10 @@ def backtest_ticker(code: str, start: str, end: str) -> list:
                 snapshot_info=snapshot_info,
             ))
 
+        if stage.get("date_in_range", 0) > 0:
+            log_info(f"[{code}] stage={stage}")
     except Exception as e:
-        log_debug(f"[{code}] 오류: {e}")
+        log_error(f"[{code}] 오류: {e}")
 
     return records
 
@@ -1461,15 +1467,18 @@ def replay_ticker(code: str, start: str, end: str) -> list:
         start_dt = datetime.strptime(start, '%Y-%m-%d')
         end_dt = datetime.strptime(end, '%Y-%m-%d')
 
+        stage = {"date_in_range": 0, "cond_hit": 0, "flow_pass": 0, "record_appended": 0}
         for i in range(60, len(df)):
             row_date = pd.to_datetime(df[date_col].iloc[i])
             row_dt = row_date.to_pydatetime().replace(tzinfo=None)
             if not (start_dt <= row_dt <= end_dt):
                 continue
+            stage["date_in_range"] += 1
 
             cond = _check_conditions_on_date(df, i, code=code)
             if cond is None:
                 continue
+            stage["cond_hit"] += 1
 
             # 재현 모드에서는 신호 당일 종가 기준 진입가만 표기
             entry_price = _safe_float(df['Close'].iloc[i])
@@ -1506,10 +1515,13 @@ def replay_ticker(code: str, start: str, end: str) -> list:
             for hold in HOLD_DAYS_LIST:
                 record[f'수익률_{hold}일'] = None
                 record[f'승패_{hold}일'] = 'N/A'
+            stage["record_appended"] += 1
             records.append(record)
 
+        if stage.get("date_in_range", 0) > 0:
+            log_info(f"[replay/{code}] stage={stage}")
     except Exception as e:
-        log_debug(f"[replay/{code}] 오류: {e}")
+        log_error(f"[replay/{code}] 오류: {e}")
 
     return records
 
