@@ -21,6 +21,7 @@
 import os
 import sys
 import argparse
+import re
 from pathlib import Path
 from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -29,6 +30,13 @@ import numpy as np
 import pandas as pd
 import requests
 import FinanceDataReader as fdr
+
+try:
+    import gspread
+    from oauth2client.service_account import ServiceAccountCredentials
+    HAS_GSPREAD = True
+except ImportError:
+    HAS_GSPREAD = False
 
 from main7_bugfix_2 import (
     get_indicators,
@@ -119,6 +127,9 @@ LOG_DIR = Path(os.environ.get("CLOSING_BET_LOG_DIR", "./closing_bet_logs"))
 SIGNAL_LOG_CSV = LOG_DIR / "closing_bet_signals.csv"
 SUMMARY_REPORT_TXT = LOG_DIR / "closing_bet_summary.txt"
 FLOW_SNAPSHOT_CSV = LOG_DIR / "closing_bet_flow_snapshots.csv"
+JSON_KEY_PATH = str(Path(__file__).resolve().parent / 'stock-key.json')
+AI_GSHEET_NAME = '사령부_통합_상황판'
+AI_JUDGMENT_TAB_NAME = '종가배팅_AI판정'
 
 # 다음날 성과 평가 가능 시간
 EVAL_READY_HOUR = 16
@@ -1852,6 +1863,146 @@ def _call_llm_with_fallback(system_msg: str, user_msg: str, role_label: str = ''
     return '', 'none'
 
 
+
+
+def _provider_tag(provider: str) -> str:
+    mapping = {
+        'openai': '[GPT]',
+        'anthropic': '[Claude]',
+        'gemini': '[Gemini]',
+        'groq': '[Groq]',
+        'none': '[None]',
+    }
+    return mapping.get(str(provider).lower(), f"[{provider}]")
+
+
+def _normalize_debate_label(text: str, kind: str = 'role') -> str:
+    t = str(text or '').strip().replace(' ', '')
+    if kind == 'role':
+        if '조건부' in t and '추천' in t:
+            return '조건부추천'
+        if '추천' in t:
+            return '추천'
+        if '보류' in t:
+            return '보류'
+        if '제외' in t:
+            return '제외'
+        return t or '미출력'
+    if '조건부' in t and '진입' in t:
+        return '조건부진입'
+    if '진입' in t:
+        return '진입'
+    if '보류' in t:
+        return '보류'
+    if '제외' in t:
+        return '제외'
+    return t or '미출력'
+
+
+def _parse_pipe_kv_lines(text: str, kind: str = 'role') -> dict:
+    parsed = {}
+    if not text:
+        return parsed
+    for raw in str(text).splitlines():
+        line = raw.strip().strip('-•')
+        if not line or '후보' not in line:
+            continue
+        m = re.search(r'후보\s*(\d+)', line)
+        if not m:
+            continue
+        idx = int(m.group(1))
+        parts = [p.strip() for p in line.split('|') if p.strip()]
+        row = {}
+        for part in parts[1:]:
+            if '=' in part:
+                k, v = part.split('=', 1)
+                row[k.strip()] = v.strip()
+        if kind == 'role':
+            parsed[idx] = {
+                'verdict': _normalize_debate_label(row.get('판정', ''), kind='role'),
+                'summary': row.get('한줄', '').strip(),
+            }
+        else:
+            parsed[idx] = {
+                'final_verdict': _normalize_debate_label(row.get('최종판정', ''), kind='judge'),
+                'confidence': _safe_int(row.get('확신도', 0), 0),
+                'summary': row.get('한줄', '').strip(),
+                'stop_note': row.get('손절', '').strip(),
+                'target_note': row.get('목표', '').strip(),
+            }
+    return parsed
+
+
+def _get_gspread_client_for_ai():
+    if not HAS_GSPREAD:
+        return None, None
+    try:
+        creds_json = os.environ.get('GOOGLE_JSON_KEY', '')
+        if creds_json:
+            import json, tempfile
+            data = json.loads(creds_json)
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False, encoding='utf-8') as f:
+                json.dump(data, f)
+                json_path = f.name
+        elif os.path.exists(JSON_KEY_PATH):
+            json_path = JSON_KEY_PATH
+        else:
+            log_info('⚠️ AI 판정 구글시트 인증 없음')
+            return None, None
+
+        scope = [
+            'https://spreadsheets.google.com/feeds',
+            'https://www.googleapis.com/auth/drive',
+        ]
+        creds = ServiceAccountCredentials.from_json_keyfile_name(json_path, scope)
+        gc = gspread.authorize(creds)
+        doc = gc.open(AI_GSHEET_NAME)
+        return gc, doc
+    except Exception as e:
+        log_error(f'⚠️ AI 판정 구글시트 연결 실패: {e}')
+        return None, None
+
+
+def _upsert_ai_judgment_tab(doc, df: pd.DataFrame):
+    if doc is None or df is None or df.empty:
+        return
+    try:
+        try:
+            ws = doc.worksheet(AI_JUDGMENT_TAB_NAME)
+        except Exception:
+            ws = doc.add_worksheet(title=AI_JUDGMENT_TAB_NAME, rows=max(1000, len(df)+100), cols=max(40, len(df.columns)+10))
+        existing = pd.DataFrame()
+        try:
+            values = ws.get_all_values()
+            if values and len(values) >= 2:
+                existing = pd.DataFrame(values[1:], columns=values[0])
+        except Exception:
+            pass
+        if not existing.empty:
+            if 'code' in existing.columns:
+                existing['code'] = existing['code'].astype(str).str.zfill(6)
+            if 'ai_key' not in existing.columns and {'scan_date','code','mode'}.issubset(existing.columns):
+                existing['ai_key'] = existing['scan_date'].astype(str) + '|' + existing['code'].astype(str).str.zfill(6) + '|' + existing['mode'].astype(str)
+        out = df.copy()
+        out['code'] = out['code'].astype(str).str.zfill(6)
+        out['ai_key'] = out['scan_date'].astype(str) + '|' + out['code'].astype(str).str.zfill(6) + '|' + out['mode'].astype(str)
+        merged = out if existing.empty else pd.concat([existing, out], ignore_index=True).drop_duplicates(subset=['ai_key'], keep='last')
+        merged = merged.sort_values(['scan_date','scan_time','code']).reset_index(drop=True).fillna('')
+        ws.clear()
+        ws.update([list(merged.columns)] + merged.astype(str).values.tolist())
+        log_info(f'✅ [{AI_GSHEET_NAME}/{AI_JUDGMENT_TAB_NAME}] {len(out)}건 저장')
+    except Exception as e:
+        log_error(f'⚠️ AI 판정 저장 실패: {e}')
+
+
+def _save_ai_judgments_to_gsheet(rows: list):
+    if not rows:
+        return
+    gc, doc = _get_gspread_client_for_ai()
+    if doc is None:
+        return
+    _upsert_ai_judgment_tab(doc, pd.DataFrame(rows))
+
 def _debate_sort_key(hit: dict):
     grade = hit.get('grade', '')
     g_rank = 0 if '완전체' in grade else (1 if 'A급' in grade else 2)
@@ -1907,75 +2058,122 @@ def _send_closing_bet_debate(hits: list, mins_left: int, top_n: int = None):
     candidate_text = _build_debate_candidate_lines(candidates)
     base_context = (
         f"[종가배팅 상위 {len(candidates)}개 후보 | 마감까지 {mins_left}분]\n"
-        "아래 후보들은 당일 종가 진입을 검토하는 후보들이다. \n"
-        "전략 A는 전고점 돌파형, B1은 ENV 엄격형 바닥 반등, B2는 BB 확장형 하단 재안착이다. \n"
+        "아래 후보들은 당일 종가 진입을 검토하는 후보들이다.\n"
+        "전략 A는 전고점 돌파형, B1은 ENV 엄격형 바닥 반등, B2는 BB 확장형 하단 재안착이다.\n"
         "Env/BB는 절대적으로 해석하지 말고, 재안착/시황/수급/리스크를 함께 종합판단하라.\n\n"
         f"후보 목록:\n{candidate_text}"
     )
 
     role_specs = [
-        (
-            '기술분석가',
-            "너는 종가배팅 전용 기술분석가다. 차트/캔들/종가강도/ENV/BB/전고점 이격만 중심으로 본다. "
-            "양수 재안착을 무조건 늦었다고 단정하지 말고, 하단선 근처 재안착은 긍정 가능성도 열어둬라. "
-            "후보별로 [추천/조건부추천/보류/제외] 중 하나와 핵심 이유 2개를 적어라.",
-            ['anthropic','openai','gemini','groq'],
-        ),
-        (
-            '수급분석가',
-            "너는 외인/기관/OBV/매집흔적 중심의 수급분석가다. 최근 3~5일 흐름과 당일 추정 수급을 같이 보고, "
-            "들어온 흔적은 있는데 크게 나간 흔적이 없는지에 집중하라. 후보별로 [추천/조건부추천/보류/제외]와 수급 근거를 적어라.",
-            ['openai','anthropic','groq','gemini'],
-        ),
-        (
-            '시황테마분석가',
-            "너는 업종/섹터/대장주/뉴스 맥락을 보는 시황 분석가다. 주어진 정보로 추론하되 과장하지 말고, "
-            "단순 눌림인지 재료 소멸인지, 종가배팅에 우호적인 시장 흐름인지 평가하라. 후보별로 [추천/조건부추천/보류/제외]와 이유를 적어라.",
-            ['anthropic','gemini','openai','groq'],
-        ),
-        (
-            '리스크관리자',
-            "너는 가장 보수적인 리스크 관리자다. 늦은 자리인지, 다음날 갭리스크가 큰지, 손절/목표가 실전적으로 유효한지 본다. "
-            "후보별로 [추천/조건부추천/보류/제외]와 리스크 2개를 적어라.",
-            ['openai','groq','anthropic','gemini'],
-        ),
+        ('기술분석가', "너는 종가배팅 전용 기술분석가다. 차트/캔들/종가강도/ENV/BB/전고점 이격만 중심으로 본다. 양수 재안착을 무조건 늦었다고 단정하지 말고, 하단선 근처 재안착은 긍정 가능성도 열어둬라.", ['anthropic','openai','gemini','groq']),
+        ('수급분석가', "너는 외인/기관/OBV/매집흔적 중심의 수급분석가다. 최근 3~5일 흐름과 당일 추정 수급을 같이 보고, 들어온 흔적은 있는데 크게 나간 흔적이 없는지에 집중하라.", ['openai','anthropic','groq','gemini']),
+        ('시황테마분석가', "너는 업종/섹터/대장주/뉴스 맥락을 보는 시황 분석가다. 주어진 정보로 추론하되 과장하지 말고, 단순 눌림인지 재료 소멸인지, 종가배팅에 우호적인 시장 흐름인지 평가하라.", ['anthropic','gemini','openai','groq']),
+        ('리스크관리자', "너는 가장 보수적인 리스크 관리자다. 늦은 자리인지, 다음날 갭리스크가 큰지, 손절/목표가 실전적으로 유효한지 본다.", ['openai','groq','anthropic','gemini']),
     ]
 
     role_outputs = []
-    providers_used = []
+    role_parsed = {}
+    provider_map = {}
     for role_name, role_system, provider_order in role_specs:
-        user_msg = base_context + "\n\n출력 형식: 후보번호별 판정과 이유를 간단명료하게 정리하라."
+        user_msg = (
+            base_context + "\n\n"
+            + f"반드시 후보 1번부터 {len(candidates)}번까지 모든 후보를 한 줄씩 평가하라. "
+            + "출력 형식만 지켜라: 후보번호|판정=추천/조건부추천/보류/제외|한줄=20자 내외 핵심 이유. 다른 설명이나 머리말/번호목록/마크다운을 쓰지 마라."
+        )
         text, provider = _run_role_brief(role_name, role_system, user_msg, provider_order=provider_order)
-        if text:
-            role_outputs.append(f"[{role_name}/{provider}]\n{text}")
-            providers_used.append(f"{role_name}:{provider}")
-        else:
-            fallback_text = f"[{role_name}/none]\n모델 응답 실패. 이 역할 의견은 제공되지 않음."
-            role_outputs.append(fallback_text)
-            providers_used.append(f"{role_name}:none")
+        provider_map[role_name] = provider
+        role_parsed[role_name] = _parse_pipe_kv_lines(text, kind='role')
+        role_outputs.append(f"[{role_name}/{provider}]\n{text}" if text else f"[{role_name}/none]\n응답없음")
 
     judge_system = (
-        "너는 종가배팅 최종 심판이다. 기술/수급/시황/리스크 의견을 읽고 각 후보에 대해 최종판정 [진입/조건부진입/보류/제외], "
-        "확신도(0~100), 한줄핵심, 손절/목표 유의사항을 정리하라. 단일 의견을 맹신하지 말고 충돌하는 의견은 조정해라. "
-        "출력은 후보번호별로 깔끔하게 정리하고, 마지막에 최종 우선순위 TOP3를 적어라."
+        "너는 종가배팅 최종 심판이다. 기술/수급/시황/리스크 의견을 읽고 후보별 최종판정을 내려라. 단일 의견을 맹신하지 말고 충돌하는 의견은 조정하라."
     )
-    judge_user = base_context + "\n\n아래는 역할별 의견이다.\n\n" + "\n\n".join(role_outputs)
-    judge_text, judge_provider = _call_llm_with_fallback(
-        judge_system, judge_user, role_label='최종심판', max_tokens=1800, provider_order=['anthropic','openai','gemini','groq']
+    judge_user = (
+        base_context + "\n\n아래는 역할별 의견이다.\n\n" + "\n\n".join(role_outputs)
+        + f"\n\n반드시 후보 1번부터 {len(candidates)}번까지 모든 후보를 한 줄씩 출력하라. "
+        + "출력 형식만 지켜라: 후보번호|최종판정=진입/조건부진입/보류/제외|확신도=0~100 정수|한줄=핵심판단 25자 내외|손절=짧게|목표=짧게. 다른 설명/머리말/마크다운 금지."
     )
-
+    judge_text, judge_provider = _call_llm_with_fallback(judge_system, judge_user, role_label='최종심판', max_tokens=1800, provider_order=['anthropic','openai','gemini','groq'])
     if not judge_text:
         log_error('⚠️ 종가배팅 토론 최종심판 실패')
         return
 
-    provider_line = ' | '.join(providers_used + [f'심판:{judge_provider}'])
+    judge_parsed = _parse_pipe_kv_lines(judge_text, kind='judge')
+    now = datetime.now(KST)
+    judgment_rows = []
+    pretty_lines = []
+    for idx, hit in enumerate(candidates, 1):
+        j = judge_parsed.get(idx, {})
+        tech = role_parsed.get('기술분석가', {}).get(idx, {})
+        flow = role_parsed.get('수급분석가', {}).get(idx, {})
+        theme = role_parsed.get('시황테마분석가', {}).get(idx, {})
+        risk = role_parsed.get('리스크관리자', {}).get(idx, {})
+        opinions = [tech.get('verdict',''), flow.get('verdict',''), theme.get('verdict',''), risk.get('verdict','')]
+        positive_votes = sum(1 for v in opinions if v in ['추천','조건부추천'])
+        negative_votes = sum(1 for v in opinions if v in ['보류','제외'])
+        final_verdict = j.get('final_verdict', '미출력')
+        confidence = j.get('confidence', 0)
+        summary = j.get('summary', '')
+        stop_note = j.get('stop_note', '')
+        target_note = j.get('target_note', '')
+
+        judgment_rows.append({
+            'scan_date': now.strftime('%Y-%m-%d'),
+            'scan_time': now.strftime('%H:%M'),
+            'code': str(hit.get('code','')).zfill(6),
+            'name': hit.get('name',''),
+            'mode': hit.get('mode',''),
+            'mode_label': hit.get('mode_label',''),
+            'grade': hit.get('grade',''),
+            'score': hit.get('score',0),
+            'index_label': hit.get('index_label',''),
+            'universe_tag': hit.get('universe_tag',''),
+            'recommended_band': hit.get('recommended_band',''),
+            'volatility_type': hit.get('volatility_type',''),
+            'final_verdict': final_verdict,
+            'final_confidence': confidence,
+            'judge_summary': summary,
+            'stop_note': stop_note,
+            'target_note': target_note,
+            'tech_provider': _provider_tag(provider_map.get('기술분석가','none')),
+            'flow_provider': _provider_tag(provider_map.get('수급분석가','none')),
+            'theme_provider': _provider_tag(provider_map.get('시황테마분석가','none')),
+            'risk_provider': _provider_tag(provider_map.get('리스크관리자','none')),
+            'judge_provider': _provider_tag(judge_provider),
+            'tech_view': f"{_provider_tag(provider_map.get('기술분석가','none'))} {tech.get('verdict','미출력')} | {tech.get('summary','')}".strip(),
+            'flow_view': f"{_provider_tag(provider_map.get('수급분석가','none'))} {flow.get('verdict','미출력')} | {flow.get('summary','')}".strip(),
+            'theme_view': f"{_provider_tag(provider_map.get('시황테마분석가','none'))} {theme.get('verdict','미출력')} | {theme.get('summary','')}".strip(),
+            'risk_view': f"{_provider_tag(provider_map.get('리스크관리자','none'))} {risk.get('verdict','미출력')} | {risk.get('summary','')}".strip(),
+            'positive_votes': positive_votes,
+            'negative_votes': negative_votes,
+        })
+
+        pretty_lines.append(
+            f"{idx}. {hit.get('name','')}({hit.get('code','')}) [{hit.get('mode','')}/{hit.get('grade','')}] → {final_verdict} {confidence}점\n"
+            f"   심판:{_provider_tag(judge_provider)} {summary}\n"
+            f"   기술:{_provider_tag(provider_map.get('기술분석가','none'))} {tech.get('verdict','미출력')} | {tech.get('summary','')}\n"
+            f"   수급:{_provider_tag(provider_map.get('수급분석가','none'))} {flow.get('verdict','미출력')} | {flow.get('summary','')}\n"
+            f"   시황:{_provider_tag(provider_map.get('시황테마분석가','none'))} {theme.get('verdict','미출력')} | {theme.get('summary','')}\n"
+            f"   리스크:{_provider_tag(provider_map.get('리스크관리자','none'))} {risk.get('verdict','미출력')} | {risk.get('summary','')}\n"
+            f"   손절:{stop_note} | 목표:{target_note}"
+        )
+
+    _save_ai_judgments_to_gsheet(judgment_rows)
+
+    provider_line = ' | '.join([
+        f"기술{_provider_tag(provider_map.get('기술분석가','none'))}",
+        f"수급{_provider_tag(provider_map.get('수급분석가','none'))}",
+        f"시황{_provider_tag(provider_map.get('시황테마분석가','none'))}",
+        f"리스크{_provider_tag(provider_map.get('리스크관리자','none'))}",
+        f"심판{_provider_tag(judge_provider)}",
+    ])
     message = (
         f"🧠 종가배팅 AI 토론 TOP{len(candidates)}\n"
         f"⏰ 마감까지 {mins_left}분\n"
-        f"모델사용: {provider_line}\n\n"
-        f"{judge_text}"
+        f"모델사용: {provider_line}\n\n" + "\n\n".join(pretty_lines)
     )
     send_telegram_chunks(message, max_len=3500)
+
 
 
 def _send_ai_comment(hits: list, mins_left: int, strategy: str = 'A'):
