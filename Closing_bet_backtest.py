@@ -296,6 +296,8 @@ MAIN_TAB_NAME = '종가배팅'
 SUMMARY_TAB_PREFIX = '종가배팅_'
 FLOW_SNAPSHOT_CSV = Path(os.environ.get('CLOSING_BET_FLOW_SNAPSHOT_CSV', './closing_bet_logs/closing_bet_flow_snapshots.csv'))
 FLOW_SNAPSHOT_LOOKUP: dict[str, dict] = {}
+AI_GSHEET_NAME = '사령부_통합_상황판'
+AI_JUDGMENT_TAB_NAME = '종가배팅_AI판정'
 
 
 PRETTY_RAW_COLUMNS = {
@@ -357,6 +359,20 @@ PRETTY_RAW_COLUMNS = {
     '추정외인금액(억)': '추정외인금액(억)',
     '추정외인기관합(억)': '추정외인기관합(억)',
     '추정수급코멘트': '추정수급코멘트',
+    'AI최종판정': 'AI최종판정',
+    'AI확신도': 'AI확신도',
+    'AI심판요약': 'AI심판요약',
+    'AI긍정표수': 'AI긍정표수',
+    'AI부정표수': 'AI부정표수',
+    'AI기술모델': 'AI기술모델',
+    'AI수급모델': 'AI수급모델',
+    'AI시황모델': 'AI시황모델',
+    'AI리스크모델': 'AI리스크모델',
+    'AI심판모델': 'AI심판모델',
+    'AI기술의견': 'AI기술의견',
+    'AI수급의견': 'AI수급의견',
+    'AI시황의견': 'AI시황의견',
+    'AI리스크의견': 'AI리스크의견',
 }
 
 SUMMARY_TAB_NAME_MAP = {
@@ -475,6 +491,124 @@ def _get_flow_snapshot_info(scan_date: str, code: str, mode: str) -> dict:
         'flow_comment_est': row.get('flow_comment', ''),
     }
 
+
+
+
+def _load_ai_judgment_df() -> pd.DataFrame:
+    if not HAS_GSPREAD:
+        return pd.DataFrame()
+    try:
+        creds_json = os.environ.get('GOOGLE_JSON_KEY', '')
+        if creds_json:
+            import json, tempfile
+            data = json.loads(creds_json)
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False, encoding='utf-8') as f:
+                json.dump(data, f)
+                json_path = f.name
+        elif os.path.exists(JSON_KEY_PATH):
+            json_path = JSON_KEY_PATH
+        else:
+            return pd.DataFrame()
+
+        scope = [
+            'https://spreadsheets.google.com/feeds',
+            'https://www.googleapis.com/auth/drive',
+        ]
+        creds = ServiceAccountCredentials.from_json_keyfile_name(json_path, scope)
+        gc = gspread.authorize(creds)
+        doc = gc.open(AI_GSHEET_NAME)
+        ws = doc.worksheet(AI_JUDGMENT_TAB_NAME)
+        values = ws.get_all_values()
+        if not values or len(values) < 2:
+            return pd.DataFrame()
+        df = pd.DataFrame(values[1:], columns=values[0])
+        if df.empty:
+            return df
+        if 'code' in df.columns:
+            df['code'] = df['code'].astype(str).str.zfill(6)
+        for c in ['final_confidence','positive_votes','negative_votes','score']:
+            if c in df.columns:
+                df[c] = pd.to_numeric(df[c], errors='coerce')
+        # 같은 날짜/종목/전략은 최신 scan_time 우선
+        sort_cols = [c for c in ['scan_date','scan_time','code','mode'] if c in df.columns]
+        if sort_cols:
+            df = df.sort_values(sort_cols).drop_duplicates(subset=[c for c in ['scan_date','code','mode'] if c in df.columns], keep='last')
+        log_info(f"✅ AI 판정 로드: {len(df)}행")
+        return df
+    except Exception as e:
+        log_error(f"⚠️ AI 판정 로드 실패: {e}")
+        return pd.DataFrame()
+
+
+def _merge_ai_judgments(raw_df: pd.DataFrame) -> pd.DataFrame:
+    ai_df = _load_ai_judgment_df()
+    if ai_df.empty or raw_df.empty:
+        return raw_df
+    left = raw_df.copy()
+    right = ai_df.copy()
+    merge_cols_left = ['스캔일', 'code', '전략']
+    merge_cols_right = ['scan_date', 'code', 'mode']
+    if not set(merge_cols_right).issubset(right.columns):
+        return left
+    keep_cols = merge_cols_right + [
+        'final_verdict','final_confidence','judge_summary','positive_votes','negative_votes',
+        'tech_provider','flow_provider','theme_provider','risk_provider','judge_provider',
+        'tech_view','flow_view','theme_view','risk_view'
+    ]
+    keep_cols = [c for c in keep_cols if c in right.columns]
+    right = right[keep_cols].copy()
+    merged = left.merge(right, how='left', left_on=merge_cols_left, right_on=merge_cols_right)
+    rename_map = {
+        'final_verdict': 'AI최종판정',
+        'final_confidence': 'AI확신도',
+        'judge_summary': 'AI심판요약',
+        'positive_votes': 'AI긍정표수',
+        'negative_votes': 'AI부정표수',
+        'tech_provider': 'AI기술모델',
+        'flow_provider': 'AI수급모델',
+        'theme_provider': 'AI시황모델',
+        'risk_provider': 'AI리스크모델',
+        'judge_provider': 'AI심판모델',
+        'tech_view': 'AI기술의견',
+        'flow_view': 'AI수급의견',
+        'theme_view': 'AI시황의견',
+        'risk_view': 'AI리스크의견',
+    }
+    merged = merged.rename(columns=rename_map)
+    drop_cols = [c for c in ['scan_date','mode'] if c in merged.columns]
+    merged = merged.drop(columns=drop_cols, errors='ignore')
+    return merged
+
+
+def _append_ai_summaries(summary: dict, raw_df: pd.DataFrame, mode: str) -> dict:
+    if raw_df.empty or 'AI최종판정' not in raw_df.columns:
+        return summary
+    df = raw_df.copy()
+    df = df[df['AI최종판정'].astype(str).str.len() > 0]
+    if df.empty:
+        return summary
+    if mode == 'performance':
+        rows = []
+        for verdict, grp in df.groupby('AI최종판정'):
+            rows.append({
+                'AI판정': verdict,
+                '건수': len(grp),
+                '평균확신도': round(pd.to_numeric(grp['AI확신도'], errors='coerce').mean(), 1),
+                '15일판정승률%': round(grp['15일판정'].isin(['승', '승(종가)']).mean() * 100, 1) if '15일판정' in grp.columns else np.nan,
+                '15일내2%도달률%(고가기준)': round((grp['15일내2%도달'] == 'Y').mean() * 100, 1) if '15일내2%도달' in grp.columns else np.nan,
+                '15일내2%종가도달률%': round((grp['15일내2%도달_종가기준'] == 'Y').mean() * 100, 1) if '15일내2%도달_종가기준' in grp.columns else np.nan,
+                '15일내손절터치율%': round((grp['15일내손절터치'] == 'Y').mean() * 100, 1) if '15일내손절터치' in grp.columns else np.nan,
+                '15일평균종가수익%': round(pd.to_numeric(grp['15일종가수익률%'], errors='coerce').mean(), 2) if '15일종가수익률%' in grp.columns else np.nan,
+            })
+        summary['AI판정별'] = pd.DataFrame(rows)
+    else:
+        summary['AI판정별'] = df.groupby('AI최종판정', dropna=False).size().reset_index(name='건수')
+
+    if 'AI심판모델' in df.columns:
+        summary['AI심판모델별'] = df.groupby('AI심판모델', dropna=False).agg(건수=('code','count'), 평균확신도=('AI확신도','mean')).reset_index()
+    if 'AI기술모델' in df.columns:
+        summary['AI기술모델별'] = df.groupby('AI기술모델', dropna=False).agg(건수=('code','count'), 평균확신도=('AI확신도','mean')).reset_index()
+    return summary
 
 # =============================================================
 # 유니버스
@@ -1728,7 +1862,9 @@ def main():
 
     raw_df = pd.DataFrame(all_records)
     raw_df = raw_df.sort_values(['스캔일', '전략', 'code']).reset_index(drop=True)
+    raw_df = _merge_ai_judgments(raw_df)
     summary = summarize(raw_df) if args.mode == 'performance' else summarize_replay(raw_df)
+    summary = _append_ai_summaries(summary, raw_df, args.mode)
 
     log_info(f"총 레코드: {len(raw_df)}")
     for name, df in summary.items():
