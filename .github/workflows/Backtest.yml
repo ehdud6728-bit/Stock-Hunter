@@ -22,24 +22,53 @@ on:
           - replay
 
       start_date:
-        description: '시작일 (예: 2024-01-01)'
+        description: '시작일 (예: 2026-03-05)'
         required: true
         default: '2026-03-05'
+        type: string
 
       end_date:
-        description: '종료일 (예: 2024-12-31)'
-        required: true
-        default: '2026-03-20'
+        description: '종료일 (비우면 오늘 날짜 사용, 예: 2026-04-03)'
+        required: false
+        default: ''
+        type: string
 
       top_n:
         description: '분석 종목 수'
         required: false
         default: '2000'
+        type: string
+
+      flow_filter:
+        description: '수급 필터'
+        required: true
+        default: 'off'
+        type: choice
+        options:
+          - off
+          - soft
+          - strict
+
+      ai_backfill:
+        description: 'AI 백필'
+        required: true
+        default: 'off'
+        type: choice
+        options:
+          - off
+          - missing
+          - all
+
+      ai_backfill_per_day:
+        description: '일자별 AI 백필 개수'
+        required: false
+        default: '7'
+        type: string
 
 jobs:
   backtest:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 120
 
     steps:
       - name: 코드 체크아웃
@@ -53,18 +82,38 @@ jobs:
       - name: 의존성 설치
         run: |
           pip install --upgrade pip
-          pip install pandas numpy yfinance pykrx finance-datareader beautifulsoup4 requests mplfinance ta openai anthropic gspread oauth2client scipy feedparser
+          pip install pandas numpy yfinance pykrx finance-datareader beautifulsoup4 requests mplfinance ta openai anthropic gspread oauth2client scipy feedparser google-generativeai
+
+      - name: 실행 변수 준비
+        id: prep
+        shell: bash
+        run: |
+          if [ -n "${{ github.event.inputs.end_date }}" ]; then
+            END_DATE="${{ github.event.inputs.end_date }}"
+          else
+            END_DATE="$(date +%F)"
+          fi
+
+          echo "END_DATE=$END_DATE" >> $GITHUB_ENV
+          echo "선택된 종료일: $END_DATE"
 
       - name: 종가배팅 백테스트
         if: ${{ github.event.inputs.backtest_type == 'closing_bet' }}
         env:
           GOOGLE_JSON_KEY: ${{ secrets.GOOGLE_JSON_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
           python Closing_bet_backtest.py \
-            --start ${{ github.event.inputs.start_date }} \
-            --end ${{ github.event.inputs.end_date }} \
-            --top ${{ github.event.inputs.top_n }} \
-            --mode ${{ github.event.inputs.mode }}
+            --start "${{ github.event.inputs.start_date }}" \
+            --end "$END_DATE" \
+            --top "${{ github.event.inputs.top_n }}" \
+            --mode "${{ github.event.inputs.mode }}" \
+            --flow-filter "${{ github.event.inputs.flow_filter }}" \
+            --ai-backfill "${{ github.event.inputs.ai_backfill }}" \
+            --ai-backfill-per-day "${{ github.event.inputs.ai_backfill_per_day }}"
 
       - name: 메인 스캐너 백테스트
         if: ${{ github.event.inputs.backtest_type == 'main_scanner' }}
@@ -72,9 +121,9 @@ jobs:
           GOOGLE_JSON_KEY: ${{ secrets.GOOGLE_JSON_KEY }}
         run: |
           python nextrade_backtest.py \
-            --start ${{ github.event.inputs.start_date }} \
-            --end ${{ github.event.inputs.end_date }} \
-            --top ${{ github.event.inputs.top_n }}
+            --start "${{ github.event.inputs.start_date }}" \
+            --end "$END_DATE" \
+            --top "${{ github.event.inputs.top_n }}"
 
       - name: 결과 파일 업로드
         if: always()
@@ -82,10 +131,5 @@ jobs:
         with:
           name: backtest-result
           path: |
-            Closing_bet_performance_raw_*.csv
-            Closing_bet_replay_raw_*.csv
-            Closing_bet_performance_*.csv
-            Closing_bet_replay_*.csv
-            closing_bet_bt.csv
-            nextrade_backtest_result.csv
-            summary_nextrade_backtest_result.csv
+            *.csv
+            *.log
