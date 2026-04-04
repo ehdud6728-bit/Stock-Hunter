@@ -578,10 +578,24 @@ def _merge_ai_judgments(raw_df: pd.DataFrame) -> pd.DataFrame:
         'flow_view': 'AI수급의견',
         'theme_view': 'AI시황의견',
         'risk_view': 'AI리스크의견',
-        'AI판정출처': 'AI판정출처',
-        'source': 'AI판정출처',
     }
     merged = merged.rename(columns=rename_map)
+
+    # source 와 AI판정출처가 동시에 있으면 하나로 합치고, 중복 컬럼명은 제거
+    ai_source_cols = [c for c in ['AI판정출처', 'source'] if c in merged.columns]
+    if ai_source_cols:
+        src = merged[ai_source_cols[0]].copy()
+        for c in ai_source_cols[1:]:
+            src = src.where(src.astype(str).str.len() > 0, merged[c])
+        merged['AI판정출처'] = src
+        drop_extra = [c for c in ai_source_cols if c != 'AI판정출처']
+        if drop_extra:
+            merged = merged.drop(columns=drop_extra, errors='ignore')
+
+    # 혹시 이전 단계에서 같은 이름 컬럼이 중복 생성됐으면 첫 번째만 유지
+    if merged.columns.duplicated().any():
+        merged = merged.loc[:, ~merged.columns.duplicated()]
+
     drop_cols = [c for c in ['scan_date','mode'] if c in merged.columns]
     merged = merged.drop(columns=drop_cols, errors='ignore')
     return merged
@@ -616,7 +630,12 @@ def _append_ai_summaries(summary: dict, raw_df: pd.DataFrame, mode: str) -> dict
     if 'AI기술모델' in df.columns:
         summary['AI기술모델별'] = df.groupby('AI기술모델', dropna=False).agg(건수=('code','count'), 평균확신도=('AI확신도','mean')).reset_index()
     if 'AI판정출처' in df.columns:
-        summary['AI판정출처별'] = df.groupby('AI판정출처', dropna=False).agg(건수=('code','count'), 평균확신도=('AI확신도','mean')).reset_index()
+        src_col = df['AI판정출처']
+        if isinstance(src_col, pd.DataFrame):
+            src_col = src_col.iloc[:, 0]
+        src_df = df.copy()
+        src_df['AI판정출처_단일'] = src_col
+        summary['AI판정출처별'] = src_df.groupby('AI판정출처_단일', dropna=False).agg(건수=('code','count'), 평균확신도=('AI확신도','mean')).reset_index().rename(columns={'AI판정출처_단일':'AI판정출처'})
     return summary
 
 # =============================================================
