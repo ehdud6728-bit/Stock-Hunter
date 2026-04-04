@@ -928,6 +928,8 @@ def _calc_investor_flow_features(code: str, signal_date, lookback_days: int = 3,
     - flow_pos_days: 외인+기관 합 기준 양수 일수
     - flow_min_ratio: 최근 3일 중 최저 일별순매수 / 최근20일평균거래대금
     - flow_score: 0~4
+
+    수급 데이터를 가져오지 못한 경우 missing=True 로 반환한다.
     """
     neutral = {
         'flow_inst_3d_b': 0.0,
@@ -940,6 +942,8 @@ def _calc_investor_flow_features(code: str, signal_date, lookback_days: int = 3,
         'flow_grade': '중립',
         'flow_support': 'N',
         'flow_comment': '수급데이터없음',
+        'flow_missing': True,
+        'flow_source_rows': 0,
     }
 
     signal_ts = pd.to_datetime(signal_date)
@@ -1011,18 +1015,31 @@ def _calc_investor_flow_features(code: str, signal_date, lookback_days: int = 3,
         'flow_grade': grade,
         'flow_support': support,
         'flow_comment': comment,
+        'flow_missing': False,
+        'flow_source_rows': int(len(window)),
     }
 
 
 def _pass_flow_filter(flow_info: dict, mode: str = 'off') -> bool:
+    """수급 필터 통과 여부.
+
+    원칙:
+    - off  : 수급 무시, 항상 통과
+    - soft : 수급은 보조 판단용. 데이터가 없거나 점수가 낮아도 기록은 통과
+    - strict: 수급이 명확히 약한 경우만 탈락. 데이터 없음(missing)은 중립 통과
+    """
     mode = (mode or 'off').lower()
     if mode == 'off':
         return True
+
+    if flow_info.get('flow_missing'):
+        return True
+
     score = int(flow_info.get('flow_score', 0) or 0)
     if mode == 'soft':
-        return score >= 2
+        return True
     if mode == 'strict':
-        return score >= 3
+        return score >= 2
     return True
 
 
@@ -1345,7 +1362,9 @@ def _build_signal_record(df: pd.DataFrame, i: int, code: str, cond: dict, entry_
         '거래대금억': cond['amount_b'],
     }
     if flow_info:
+        flow_status = 'missing' if flow_info.get('flow_missing') else ('positive' if flow_info.get('flow_score', 0) >= 2 else ('weak' if flow_info.get('flow_score', 0) >= 1 else 'negative'))
         record.update({
+            '수급상태': flow_status,
             '수급점수': flow_info.get('flow_score', 0),
             '수급등급': flow_info.get('flow_grade', ''),
             '수급지지': flow_info.get('flow_support', 'N'),
@@ -1409,6 +1428,8 @@ def backtest_ticker(code: str, start: str, end: str) -> list:
 
             flow_info = _calc_investor_flow_features(code, row_dt, lookback_days=3, avg_amount20_b=cond.get('amount20_b', 0))
             if not _pass_flow_filter(flow_info, FLOW_FILTER_MODE):
+                if stage["flow_pass"] == 0:
+                    log_info(f"[flow/{code}/{row_dt.date()}] mode={FLOW_FILTER_MODE} info={flow_info}")
                 continue
             stage["flow_pass"] += 1
 
