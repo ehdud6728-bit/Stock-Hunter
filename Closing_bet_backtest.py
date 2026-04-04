@@ -300,6 +300,7 @@ INVESTOR_FLOW_CACHE: dict = {}
 AI_GSHEET_NAME = '사령부_통합_상황판'
 AI_JUDGMENT_TAB_NAME = '종가배팅_AI판정'
 AI_BACKFILL_TAB_NAME = '종가배팅_AI판정_백필'
+BACKTEST_BASELINE_VERSION = 'validated_integrated_v2_optional_flow'
 FLOW_FILTER_MODE = 'off'
 
 
@@ -1481,6 +1482,7 @@ def backtest_ticker(code: str, start: str, end: str) -> list:
                 flow_info=flow_info,
                 snapshot_info=snapshot_info,
             ))
+            stage["record_appended"] += 1
 
         if stage.get("date_in_range", 0) > 0:
             log_info(f"[{code}] stage={stage}")
@@ -1559,6 +1561,7 @@ def replay_ticker(code: str, start: str, end: str) -> list:
                 record[f'승패_{hold}일'] = 'N/A'
             stage["record_appended"] += 1
             records.append(record)
+            stage["record_appended"] += 1
 
         if stage.get("date_in_range", 0) > 0:
             log_info(f"[replay/{code}] stage={stage}")
@@ -2275,6 +2278,7 @@ def main():
     global FLOW_FILTER_MODE
     FLOW_FILTER_MODE = args.flow_filter
 
+    log_info(f"백테스트 기준본 버전: {BACKTEST_BASELINE_VERSION}")
     _load_flow_snapshot_lookup()
     codes = _get_ticker_list(args.top, universe=args.universe)
     if not codes:
