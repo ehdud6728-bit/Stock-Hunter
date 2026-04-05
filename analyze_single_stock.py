@@ -72,11 +72,18 @@ try:
         analyze_single_stock_with_main7_engine,
     )
 except Exception:
-    main7_get_indicators = None
-    main7_build_ma_convergence_comment_from_row = None
+    try:
+        from main7_bugfix_2_engine_consistent_final import (
+            get_indicators as main7_get_indicators,
+            build_ma_convergence_comment_from_row as main7_build_ma_convergence_comment_from_row,
+            analyze_single_stock_with_main7_engine,
+        )
+    except Exception:
+        main7_get_indicators = None
+        main7_build_ma_convergence_comment_from_row = None
 
-    def analyze_single_stock_with_main7_engine(ticker: str, name: str, end_date: str = "", context=None):
-        return []
+        def analyze_single_stock_with_main7_engine(ticker: str, name: str, end_date: str = "", context=None):
+            return []
 
 KST = pytz.timezone("Asia/Seoul")
 
@@ -110,6 +117,8 @@ MODE_CHOICES = {
     "envelope_bet",
     "dolbanji",
     "watermelon",
+    "watermelon_state",
+    "watermelon_blue",
     "pre_dolbanji",
     "pre_dolbanji_lite",
     "pre_dolbanji_hts_exact",
@@ -203,8 +212,8 @@ def detect_name(code: str, given_name: str = "") -> str:
 def resolve_analysis_window(
     start_date: str = "",
     end_date: str = "",
-    days: int = 450,
-    warmup_days: int = 320,
+    days: int = 900,
+    warmup_days: int = 520,
 ) -> Dict[str, str]:
     """
     target_start/target_end:
@@ -233,14 +242,14 @@ def load_price_history(
     code: str,
     start_date: str = "",
     end_date: str = "",
-    days: int = 450,
+    days: int = 900,
     min_bars: int = 40,
 ) -> tuple[pd.DataFrame, Dict[str, str]]:
     window = resolve_analysis_window(
         start_date=start_date,
         end_date=end_date,
         days=days,
-        warmup_days=320,
+        warmup_days=520,
     )
 
     df = fdr.DataReader(code, window["fetch_start"], window["fetch_end"])
@@ -1332,6 +1341,85 @@ def build_double_bottom(price: Dict[str, Any]) -> PatternResult:
     return PatternResult("double_bottom", s, status, score, len(rows), subtitle, comment, rows)
 
 
+
+def build_watermelon_state(price: Dict[str, Any], df: pd.DataFrame) -> PatternResult:
+    rows: List[CheckRow] = []
+    s = "수박상태"
+
+    green = bool(price.get("wm_state_green", False))
+    red = bool(price.get("wm_state_red", False))
+    state_name = str(price.get("wm_state_name", "") or "없음")
+    grade = str(price.get("wm_state_grade", "없음"))
+    base_score = safe_int(price.get("wm_base_score", 0))
+    pocket_score = safe_int(price.get("wm_pocket_score", 0))
+    attack_score = safe_int(price.get("wm_attack_score", 0))
+
+    c1 = base_score >= 3
+    add_check(rows, s, "기반 점수", str(base_score), ">= 3", c1, "체력 종목 기반 있음" if c1 else "기반 약함")
+    c2 = pocket_score >= 2
+    add_check(rows, s, "포켓 점수", str(pocket_score), ">= 2", c2, "재정비 포켓 존재" if c2 else "포켓 약함")
+    c3 = attack_score >= 3
+    add_check(rows, s, "공격 점수", str(attack_score), ">= 3", c3, "재점화 공격 준비" if c3 else "공격 점수 부족")
+    c4 = green
+    add_check(rows, s, "초록 상태", "켜짐" if c4 else "꺼짐", "켜짐", c4, "재점화 준비 상태" if c4 else "준비 상태 아님")
+    c5 = red
+    add_check(rows, s, "빨강 상태", "켜짐" if c5 else "꺼짐", "켜짐", c5, "재점화 공격 상태" if c5 else "공격 상태 아님")
+
+    score = sum(1 for r in rows if r.ok)
+    if red:
+        status = "해당"
+        comment = "수박상태 기준으로는 공격 상태가 살아 있는 자리입니다."
+    elif green:
+        status = "유사"
+        comment = "수박상태 기준으로는 재점화 준비 구간에 가깝습니다."
+    elif score >= 3:
+        status = "유사"
+        comment = "수박상태 점수는 있으나 초록/빨강 상태까지는 선명하지 않습니다."
+    else:
+        status = "미해당"
+        comment = "현재는 수박상태 기준으로 뚜렷한 준비/공격 상태가 아닙니다."
+
+    subtitle = f"상태 {state_name} · 등급 {grade} · 기반 {base_score} / 포켓 {pocket_score} / 공격 {attack_score}"
+    return PatternResult("watermelon_state", s, status, score, len(rows), subtitle, comment, rows)
+
+
+def build_watermelon_blue(price: Dict[str, Any], df: pd.DataFrame) -> PatternResult:
+    rows: List[CheckRow] = []
+    s = "파란점선타점"
+
+    blue = bool(price.get("wm_state_blue", False))
+    red = bool(price.get("wm_state_red", False))
+    blue_score = safe_int(price.get("wm_blue_score", 0))
+    close = safe_int(price.get("close", 0))
+    ma20 = safe_float(price.get("ma20", 0))
+    vol_ratio = safe_float(price.get("vol_ratio", 0))
+
+    c1 = red
+    add_check(rows, s, "수박 빨강 상태", "예" if c1 else "아니오", "예", c1, "공격 상태 위 후행 타점" if c1 else "공격 상태 아님")
+    c2 = blue_score >= 5
+    add_check(rows, s, "파란점선 점수", str(blue_score), ">= 5", c2, "타점 점수 양호" if c2 else "타점 점수 부족")
+    c3 = blue
+    add_check(rows, s, "파란점선 상태", "켜짐" if c3 else "꺼짐", "켜짐", c3, "후행 타점 발생" if c3 else "미발생")
+    c4 = close >= ma20 if ma20 > 0 else False
+    add_check(rows, s, "MA20 위 종가", f"{fmt_int(close)} / {fmt_float(ma20)}", "종가 >= MA20", c4, "20일선 위 안착" if c4 else "20일선 아래")
+    c5 = vol_ratio >= 1.2
+    add_check(rows, s, "거래량 배수", f"{fmt_float(vol_ratio,1)}배", ">= 1.2배", c5, "타점 거래량 동반" if c5 else "거래량 약함")
+
+    score = sum(1 for r in rows if r.ok)
+    if blue:
+        status = "해당"
+        comment = "수박 빨강 상태 안에서 파란점선 후행 타점이 발생했습니다."
+    elif red and blue_score >= 4:
+        status = "유사"
+        comment = "공격 상태는 맞지만 파란점선은 아직 완전히 닫히지 않았습니다."
+    else:
+        status = "미해당"
+        comment = "현재는 파란점선 타점으로 보기 어렵습니다."
+
+    subtitle = f"파란점선 {('ON' if blue else 'OFF')} · 점수 {blue_score}"
+    return PatternResult("watermelon_blue", s, status, score, len(rows), subtitle, comment, rows)
+
+
 def build_patterns(price: Dict[str, Any], df: pd.DataFrame) -> List[PatternResult]:
     patterns = [
         build_closing_bet(price),
@@ -1341,6 +1429,8 @@ def build_patterns(price: Dict[str, Any], df: pd.DataFrame) -> List[PatternResul
         build_pre_dolbanji_lite(price, df),
         build_pre_dolbanji_hts_exact(price, df),
         build_watermelon(price, df),
+        build_watermelon_state(price, df),
+        build_watermelon_blue(price, df),
         build_viper(price, df),
         build_yeokmae(price, df),
         build_double_bottom(price),
@@ -1421,6 +1511,10 @@ def build_smart_comment(price: Dict[str, Any], patterns: List[PatternResult], na
         comments.append(f"신규예비돌반지 Lite가 감지되었고 대표 변형은 {price.get('pre_dolbanji_lite_best', '') or '없음'} 입니다. 구조전환 점수는 {price.get('pre_dolbanji_lite_trend_score', 0)}/4 입니다.")
     if price.get("pre_dolbanji_lite_confirmed"):
         comments.append("신규예비돌반지 Lite 확인형이면 장기이평이 형성되기 전의 대체 감시 패턴으로 우선순위를 높일 수 있습니다.")
+    if price.get("wm_state_blue"):
+        comments.append("수박상태 빨강 안에서 파란점선 후행 타점이 발생해 실제 진입 타이밍 관점의 우선순위를 높게 볼 수 있습니다.")
+    elif price.get("wm_state_red"):
+        comments.append("수박상태는 공격 구간이지만 파란점선 타점이 아직 없어 한 박자 더 확인하는 접근이 좋습니다.")
     if price.get("pre_dolbanji_hts_exact"):
         comments.append("HTS 정확복제형까지 동시에 통과하면 기존 예비돌반지보다 더 엄격한 교차검증을 통과한 상태로 볼 수 있습니다.")
     if price.get("dante_v4_prep"):
@@ -1539,6 +1633,8 @@ PATTERN_VIZ = {
     "pre_dolbanji": {"abbr": "예", "color": "#8b5cf6", "name": "예비돌반지"},
     "pre_dolbanji_lite": {"abbr": "라", "color": "#06b6d4", "name": "신규예비Lite"},
     "watermelon": {"abbr": "수", "color": "#f43f5e", "name": "수박"},
+    "watermelon_state": {"abbr": "상", "color": "#22c55e", "name": "수박상태"},
+    "watermelon_blue": {"abbr": "파", "color": "#3b82f6", "name": "파란점선"},
     "viper": {"abbr": "독", "color": "#22c55e", "name": "독사"},
     "yeokmae": {"abbr": "역", "color": "#38bdf8", "name": "역매공파"},
     "double_bottom": {"abbr": "쌍", "color": "#f97316", "name": "쌍바닥"},
@@ -1549,7 +1645,7 @@ def get_pattern_viz(pattern_key: str) -> Dict[str, str]:
     return PATTERN_VIZ.get(pattern_key, {"abbr": "?", "color": "#94a3b8", "name": pattern_key})
 
 
-DISPLAY_PATTERN_KEYS = ("watermelon", "pre_dolbanji", "pre_dolbanji_lite", "envelope_bet", "dolbanji", "closing_bet")
+DISPLAY_PATTERN_KEYS = ("watermelon", "watermelon_state", "watermelon_blue", "pre_dolbanji", "pre_dolbanji_lite", "envelope_bet", "dolbanji", "closing_bet")
 DISPLAY_PATTERN_SET = set(DISPLAY_PATTERN_KEYS)
 STATUS_PRIORITY = {"해당": 3, "유사": 2, "미해당": 1, "데이터부족": 0}
 
@@ -1847,7 +1943,7 @@ def render_html(result: Dict[str, Any]) -> str:
       </div>
 
       <div class="research-grid">
-        <input id="reCode" placeholder="종목코드 예: 005930" inputmode="numeric" />
+        <input id="reCode" placeholder="종목코드 또는 종목명 예: 005930 / 삼성전자" />
         <input id="reName" placeholder="종목명 예: 삼성전자" />
       </div>
 
@@ -1860,6 +1956,8 @@ def render_html(result: Dict[str, Any]) -> str:
         <option value="pre_dolbanji_lite">pre_dolbanji_lite</option>
         <option value="pre_dolbanji_hts_exact">pre_dolbanji_hts_exact</option>
         <option value="watermelon">watermelon</option>
+        <option value="watermelon_state">watermelon_state</option>
+        <option value="watermelon_blue">watermelon_blue</option>
         <option value="viper">viper</option>
         <option value="yeokmae">yeokmae</option>
         <option value="double_bottom">double_bottom</option>
@@ -1900,6 +1998,9 @@ def render_html(result: Dict[str, Any]) -> str:
         ("신규예비Lite 대표형", f'{price.get("pre_dolbanji_lite_best", "") or "없음"}'),
         ("신규예비Lite 구조전환", f'{price.get("pre_dolbanji_lite_trend_score", 0)}/4'),
         ("예비돌반지 HTS정확복제", "통과" if price.get("pre_dolbanji_hts_exact", False) else "미통과"),
+        ("수박상태", f'초록 {"ON" if price.get("wm_state_green", False) else "OFF"} / 빨강 {"ON" if price.get("wm_state_red", False) else "OFF"} / 파란 {"ON" if price.get("wm_state_blue", False) else "OFF"}'),
+        ("수박상태점수", f'기반 {price.get("wm_base_score", 0)} / 포켓 {price.get("wm_pocket_score", 0)} / 공격 {price.get("wm_attack_score", 0)} / 파란 {price.get("wm_blue_score", 0)}'),
+        ("수박상태해석", f'{price.get("wm_state_name", "") or "없음"} / {price.get("wm_state_grade", "없음")}'),
         ("예비돌반지 HTS점수", f'{price.get("pre_dolbanji_hts_exact_score", 0)}/{price.get("pre_dolbanji_hts_exact_max_score", 10)}'),
         ("예비돌반지 HTS태그", f'{price.get("pre_dolbanji_hts_exact_tags", "") or "없음"}'),
         ("main7 엔진 N등급", f'{price.get("main7_engine_grade", "-")}'),
@@ -2223,6 +2324,17 @@ if engine_hit:
     price["main7_engine_safe_score"] = safe_int(engine_hit.get("안전점수", 0))
     price["main7_engine_stage"] = str(engine_hit.get("단계상태", ""))
     price["main7_engine_tags"] = str(engine_hit.get("N구분", ""))
+
+    price["wm_state_green"] = bool(engine_hit.get("수박상태초록", False))
+    price["wm_state_red"] = bool(engine_hit.get("수박상태빨강", False))
+    price["wm_state_blue"] = bool(engine_hit.get("수박파란점선", False))
+    price["wm_base_score"] = safe_int(engine_hit.get("수박기반점수", 0))
+    price["wm_pocket_score"] = safe_int(engine_hit.get("수박포켓점수", 0))
+    price["wm_attack_score"] = safe_int(engine_hit.get("수박공격점수", 0))
+    price["wm_blue_score"] = safe_int(engine_hit.get("수박파란점선점수", 0))
+    price["wm_state_name"] = str(engine_hit.get("수박상태명", ""))
+    price["wm_state_grade"] = str(engine_hit.get("수박상태등급", "없음"))
+    price["wm_state_tags"] = str(engine_hit.get("수박상태태그", ""))
     patterns = build_patterns(price, df)
     selected = patterns_for_mode(patterns, args.mode)
 
