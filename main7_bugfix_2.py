@@ -1,3 +1,4 @@
+# 수박상태 + 파란점선 후행 타점 신호 통합본
 # 기준본 단일 파일: main7_bugfix_2_canonical_base_final.py
 # AI 코멘트 안정화 + 토너먼트 리포트형 강화본
 # 신규예비돌반지 Lite 별도 TOP5 분리본
@@ -84,6 +85,392 @@ def coerce_numeric_columns(df: pd.DataFrame, columns):
             )
     return out
 
+
+# ─────────────────────────────────────────────────────────────
+# 수박상태 파이썬 검색 엔진 (HTS 실험판을 Python 스캔용으로 이식)
+# 주의: 원본 수박지표 1:1 복제가 아니라 "하락정지/재정비/재점화" 상태 검색용
+# ─────────────────────────────────────────────────────────────
+def _wm_bool(x) -> bool:
+    try:
+        if isinstance(x, str):
+            return x.strip().lower() in ("1", "true", "y", "yes", "t")
+        return bool(x)
+    except Exception:
+        return False
+
+def _wm_series_bool(s: pd.Series) -> pd.Series:
+    return s.fillna(False).astype(bool)
+
+def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
+    """
+    Python에서 수박상태를 검색하기 위한 상태 번들.
+    출력:
+      - wm_base_score
+      - wm_pocket_score
+      - wm_attack_score
+      - wm_pocket_raw / hold
+      - wm_attack_raw / hold
+      - wm_state_green / red
+      - wm_state_name / grade / tags
+    """
+    if df is None or df.empty or len(df) < 60:
+        return {
+            "wm_base_score": 0,
+            "wm_pocket_score": 0,
+            "wm_attack_score": 0,
+            "wm_blue_score": 0,
+            "wm_pocket_raw": False,
+            "wm_pocket_hold": False,
+            "wm_attack_raw": False,
+            "wm_attack_hold": False,
+            "wm_blue_raw": False,
+            "wm_blue_hold": False,
+            "wm_state_green": False,
+            "wm_state_red": False,
+            "wm_state_blue": False,
+            "wm_state_name": "",
+            "wm_state_grade": "없음",
+            "wm_state_tags": [],
+            "wm_state_detail": {"ok": False, "error": "봉수 부족"},
+        }
+
+    row = df.iloc[-1]
+    close = safe_float(row.get("Close", 0))
+    high = safe_float(row.get("High", 0))
+    low = safe_float(row.get("Low", 0))
+    volume = safe_float(row.get("Volume", 0))
+    ma5 = safe_float(row.get("MA5", 0))
+    ma20 = safe_float(row.get("MA20", 0))
+    ma60 = safe_float(row.get("MA60", 0))
+    bb40u = safe_float(row.get("BB40_Upper", 0))
+    bb40l = safe_float(row.get("BB40_Lower", 0))
+    obv = safe_float(row.get("OBV", 0))
+    obv_ma10 = safe_float(row.get("OBV_MA10", 0))
+
+    recent120 = df.tail(120).copy()
+    recent40 = df.tail(40).copy()
+    recent30 = df.tail(30).copy()
+    recent20 = df.tail(20).copy()
+    recent15 = df.tail(15).copy()
+    recent10 = df.tail(10).copy()
+    recent5 = df.tail(5).copy()
+
+    # ---- BaseScore: 한 번 크게 간 종목 + 체력 유지 ----
+    cond_base_1 = bool((((recent120["High"] / recent120["Close"].shift(1)) - 1.0) * 100 >= 10).fillna(False).any()) if {"High", "Close"} <= set(recent120.columns) else False
+    vol_ma20 = safe_float(recent20["Volume"].mean(), 0)
+    cond_base_2 = bool(((recent120["Volume"] > (recent120["Volume"].rolling(20, min_periods=5).mean() * 2)).fillna(False)).any()) if "Volume" in recent120.columns else False
+    cond_base_3 = close > ma60 if ma60 > 0 else False
+    cond_base_4 = ma20 >= ma60 * 0.97 if ma20 > 0 and ma60 > 0 else False
+    cond_base_5 = obv > obv_ma10 if obv_ma10 != 0 else False
+
+    wm_base_score = int(cond_base_1) + int(cond_base_2) + int(cond_base_3) + int(cond_base_4) + int(cond_base_5)
+
+    # ---- PocketScore: 눌림/재정비 포켓 ----
+    range30 = ((safe_float(recent30["High"].max(), 0) - safe_float(recent30["Low"].min(), 0)) / close * 100.0) if close > 0 and len(recent30) else 999.0
+    cond_pocket_1 = range30 <= 28.0
+    cond_pocket_2 = (ma20 > 0 and 96 <= (close / ma20 * 100.0) <= 102)
+    cond_pocket_3 = (len(recent5) >= 3 and safe_float(recent5["Volume"].mean(), 0) <= safe_float(recent20["Volume"].mean(), 0) * 0.9) if "Volume" in df.columns else False
+    cond_pocket_4 = (len(recent15) >= 5 and close >= safe_float(recent15["Low"].min(), 0) * 1.02)
+    cond_pocket_5 = (len(recent15) >= 5 and close < safe_float(recent15["High"].max(), 0) * 0.97)
+
+    wm_pocket_score = int(cond_pocket_1) + int(cond_pocket_2) + int(cond_pocket_3) + int(cond_pocket_4) + int(cond_pocket_5)
+
+    # ---- AttackScore: 재가동/공격 준비 ----
+    cond_attack_1 = close > ma20 * 1.01 if ma20 > 0 else False
+    cond_attack_2 = ma5 > ma20 if ma5 > 0 and ma20 > 0 else False
+    cond_attack_3 = volume > safe_float(recent20["Volume"].mean(), 0) * 1.5 if vol_ma20 > 0 else False
+    cond_attack_4 = close >= safe_float(recent5["High"].max(), 0) if len(recent5) else False
+    cond_attack_5 = obv > obv_ma10 if obv_ma10 != 0 else False
+
+    wm_attack_score = int(cond_attack_1) + int(cond_attack_2) + int(cond_attack_3) + int(cond_attack_4) + int(cond_attack_5)
+
+    # ---- Raw / Hold 상태 ----
+    wm_pocket_raw = (wm_base_score >= 3 and wm_pocket_score >= 3 and wm_attack_score <= 2)
+
+    # pocket raw 발생 히스토리 근사 계산
+    pocket_hist = []
+    for i in range(max(20, len(df) - 12), len(df)):
+        sub = df.iloc[:i+1]
+        r = sub.iloc[-1]
+        c = safe_float(r.get("Close", 0))
+        m20 = safe_float(r.get("MA20", 0))
+        m60 = safe_float(r.get("MA60", 0))
+        recent30i = sub.tail(30)
+        recent20i = sub.tail(20)
+        recent15i = sub.tail(15)
+        recent5i = sub.tail(5)
+        obvi = safe_float(r.get("OBV", 0))
+        obvma = safe_float(r.get("OBV_MA10", 0))
+        base_i = int(bool((((sub.tail(120)["High"] / sub.tail(120)["Close"].shift(1)) - 1.0) * 100 >= 10).fillna(False).any())) \
+                 + int(bool((sub.tail(120)["Volume"] > (sub.tail(120)["Volume"].rolling(20, min_periods=5).mean() * 2)).fillna(False).any())) \
+                 + int(c > m60 if m60 > 0 else False) \
+                 + int(m20 >= m60 * 0.97 if m20 > 0 and m60 > 0 else False) \
+                 + int(obvi > obvma if obvma != 0 else False)
+        range30i = ((safe_float(recent30i["High"].max(), 0) - safe_float(recent30i["Low"].min(), 0)) / c * 100.0) if c > 0 and len(recent30i) else 999.0
+        pocket_i = int(range30i <= 28.0) \
+                   + int(m20 > 0 and 96 <= (c / m20 * 100.0) <= 102) \
+                   + int(safe_float(recent5i["Volume"].mean(), 0) <= safe_float(recent20i["Volume"].mean(), 0) * 0.9 if "Volume" in sub.columns else False) \
+                   + int(c >= safe_float(recent15i["Low"].min(), 0) * 1.02 if len(recent15i) else False) \
+                   + int(c < safe_float(recent15i["High"].max(), 0) * 0.97 if len(recent15i) else False)
+        # attack i
+        a1 = c > m20 * 1.01 if m20 > 0 else False
+        a2 = safe_float(r.get("MA5",0),0) > m20 if m20 > 0 else False
+        a3 = safe_float(r.get("Volume",0),0) > safe_float(recent20i["Volume"].mean(),0) * 1.5 if len(recent20i) else False
+        a4 = c >= safe_float(recent5i["High"].max(), 0) if len(recent5i) else False
+        a5 = obvi > obvma if obvma != 0 else False
+        attack_i = int(a1)+int(a2)+int(a3)+int(a4)+int(a5)
+        pocket_hist.append(base_i >= 3 and pocket_i >= 3 and attack_i <= 2)
+
+    recent_pocket_count = sum(bool(x) for x in pocket_hist[-5:])
+    recent_attack_suppress = 0
+
+    wm_pocket_hold = (recent_pocket_count >= 1 and recent_attack_suppress == 0)
+
+    wm_attack_raw = (
+        wm_base_score >= 3 and
+        wm_pocket_score >= 2 and
+        wm_attack_score >= 4 and
+        sum(bool(x) for x in pocket_hist[-6:]) >= 1
+    )
+
+    attack_hist = []
+    # recompute last 5 bars raw attacks for hold
+    for i in range(max(20, len(df) - 6), len(df)):
+        sub = df.iloc[:i+1]
+        r = sub.iloc[-1]
+        c = safe_float(r.get("Close", 0))
+        m20 = safe_float(r.get("MA20", 0))
+        m60 = safe_float(r.get("MA60", 0))
+        ma5i = safe_float(r.get("MA5",0))
+        recent30i = sub.tail(30); recent20i = sub.tail(20); recent15i = sub.tail(15); recent5i = sub.tail(5)
+        obvi = safe_float(r.get("OBV", 0)); obvma = safe_float(r.get("OBV_MA10", 0))
+        base_i = int(bool((((sub.tail(120)["High"] / sub.tail(120)["Close"].shift(1)) - 1.0) * 100 >= 10).fillna(False).any())) \
+                 + int(bool((sub.tail(120)["Volume"] > (sub.tail(120)["Volume"].rolling(20, min_periods=5).mean() * 2)).fillna(False).any())) \
+                 + int(c > m60 if m60 > 0 else False) \
+                 + int(m20 >= m60 * 0.97 if m20 > 0 and m60 > 0 else False) \
+                 + int(obvi > obvma if obvma != 0 else False)
+        range30i = ((safe_float(recent30i["High"].max(), 0) - safe_float(recent30i["Low"].min(), 0)) / c * 100.0) if c > 0 and len(recent30i) else 999.0
+        pocket_i = int(range30i <= 28.0) \
+                   + int(m20 > 0 and 96 <= (c / m20 * 100.0) <= 102) \
+                   + int(safe_float(recent5i["Volume"].mean(), 0) <= safe_float(recent20i["Volume"].mean(), 0) * 0.9 if "Volume" in sub.columns else False) \
+                   + int(c >= safe_float(recent15i["Low"].min(), 0) * 1.02 if len(recent15i) else False) \
+                   + int(c < safe_float(recent15i["High"].max(), 0) * 0.97 if len(recent15i) else False)
+        pocket_hist_i = []
+        for j in range(max(20, len(sub)-6), len(sub)):
+            # rough reuse based on recent rows; enough for hold
+            pocket_hist_i.append(True if pocket_i >= 3 and base_i >= 3 else False)
+        attack_i = int(c > m20 * 1.01 if m20 > 0 else False) + int(ma5i > m20 if m20 > 0 else False) \
+                 + int(safe_float(r.get("Volume",0)) > safe_float(recent20i["Volume"].mean(),0) * 1.5 if len(recent20i) else False) \
+                 + int(c >= safe_float(recent5i["High"].max(),0) if len(recent5i) else False) \
+                 + int(obvi > obvma if obvma != 0 else False)
+        attack_hist.append(base_i >= 3 and pocket_i >= 2 and attack_i >= 4 and sum(bool(x) for x in pocket_hist_i[-6:]) >= 1)
+
+    wm_attack_hold = (
+        sum(bool(x) for x in attack_hist[-5:]) >= 1 and
+        close >= ma20 if ma20 > 0 else False and
+        ma5 >= ma20 if ma5 > 0 and ma20 > 0 else False and
+        volume >= vol_ma20 * 0.9 if vol_ma20 > 0 else False
+    )
+
+    # ---- BlueScore / Blue state: 수박 빨강 상태 이후 타점 신호 ----
+    rsi14 = safe_float(row.get("RSI", 50), 50)
+    recent8_green = sum(bool(x) for x in pocket_hist[-8:]) >= 1
+    recent5_high = safe_float(recent5["High"].max(), 0) if len(recent5) else 0
+    recent20_high = safe_float(recent20["High"].max(), 0) if len(recent20) else 0
+
+    cond_blue_1 = recent8_green
+    cond_blue_2 = bool(wm_attack_hold)
+    cond_blue_3 = close > ma20 if ma20 > 0 else False
+    cond_blue_4 = ma5 >= ma20 if ma5 > 0 and ma20 > 0 else False
+    cond_blue_5 = volume > vol_ma20 * 1.3 if vol_ma20 > 0 else False
+    cond_blue_6 = close >= recent5_high if recent5_high > 0 else False
+    cond_blue_7 = (close < recent20_high * 1.06) if recent20_high > 0 else True
+    cond_blue_8 = rsi14 < 78
+
+    wm_blue_score = (
+        int(cond_blue_1) + int(cond_blue_2) + int(cond_blue_3) + int(cond_blue_4)
+        + int(cond_blue_5) + int(cond_blue_6) + int(cond_blue_7) + int(cond_blue_8)
+    )
+
+    wm_blue_raw = (
+        recent8_green
+        and wm_attack_hold
+        and cond_blue_3
+        and cond_blue_4
+        and cond_blue_5
+        and cond_blue_6
+        and cond_blue_8
+    )
+
+    blue_hist = []
+    for i in range(max(30, len(df) - 4), len(df)):
+        sub = df.iloc[:i+1]
+        if len(sub) < 20:
+            blue_hist.append(False)
+            continue
+        rr = sub.iloc[-1]
+        cc = safe_float(rr.get("Close", 0))
+        mm20 = safe_float(rr.get("MA20", 0))
+        mm5 = safe_float(rr.get("MA5", 0))
+        vv = safe_float(rr.get("Volume", 0))
+        rsii = safe_float(rr.get("RSI", 50), 50)
+        recent20i = sub.tail(20)
+        recent5i = sub.tail(5)
+        vol20i = safe_float(recent20i["Volume"].mean(), 0) if "Volume" in sub.columns else 0
+        hi5 = safe_float(recent5i["High"].max(), 0) if len(recent5i) else 0
+        # 최근 8봉 이내 pocket 흔적 근사
+        recent_sub = sub.tail(8)
+        green_i = False
+        if "Close" in recent_sub.columns:
+            for _, pr in recent_sub.iterrows():
+                if bool(pr.get("Close", 0) >= pr.get("MA60", 0) * 0.94 if pr.get("MA60", 0) else False):
+                    green_i = True
+                    break
+        blue_i = (
+            green_i
+            and (cc >= mm20 if mm20 > 0 else False)
+            and (mm5 >= mm20 if mm5 > 0 and mm20 > 0 else False)
+            and (vv > vol20i * 1.3 if vol20i > 0 else False)
+            and (cc >= hi5 if hi5 > 0 else False)
+            and (rsii < 78)
+        )
+        blue_hist.append(bool(blue_i))
+
+    wm_blue_hold = (
+        (sum(bool(x) for x in blue_hist[-3:]) >= 1)
+        and (close >= ma20 * 0.99 if ma20 > 0 else False)
+        and (ma5 >= ma20 * 0.98 if ma5 > 0 and ma20 > 0 else False)
+    )
+
+    wm_state_green = bool(wm_pocket_hold and not wm_attack_hold)
+    wm_state_red = bool(wm_attack_hold)
+    wm_state_blue = bool(wm_blue_hold)
+
+    state_name = "없음"
+    grade = "없음"
+    tags = []
+    if wm_state_green:
+        state_name = "재점화준비"
+        tags.append("🍉재점화준비")
+    if wm_state_red:
+        state_name = "재점화공격"
+        tags.append("🍉재점화공격")
+    if wm_state_blue:
+        state_name = "파란점선타점"
+        tags.append("🔵파란점선타점")
+    if wm_state_green and wm_attack_score >= 3:
+        tags.append("🟢공격직전")
+    if wm_state_red and cond_attack_3:
+        tags.append("🔵거래량재유입")
+    if wm_state_red and cond_attack_4:
+        tags.append("📈고점재돌파")
+    if wm_state_blue and cond_blue_6:
+        tags.append("🔹단기고점정렬")
+    if wm_state_blue and cond_blue_5:
+        tags.append("🔹타점거래량")
+
+    score_sum = wm_base_score + wm_pocket_score + wm_attack_score
+    if wm_state_blue and (score_sum + wm_blue_score) >= 14:
+        grade = "A+"
+    elif wm_state_red and score_sum >= 10:
+        grade = "A"
+    elif (wm_state_green or wm_state_red or wm_state_blue) and score_sum >= 8:
+        grade = "B"
+    elif wm_state_green or wm_state_red or wm_state_blue:
+        grade = "C"
+
+    return {
+        "wm_base_score": int(wm_base_score),
+        "wm_pocket_score": int(wm_pocket_score),
+        "wm_attack_score": int(wm_attack_score),
+        "wm_blue_score": int(wm_blue_score),
+        "wm_pocket_raw": bool(wm_pocket_raw),
+        "wm_pocket_hold": bool(wm_pocket_hold),
+        "wm_attack_raw": bool(wm_attack_raw),
+        "wm_attack_hold": bool(wm_attack_hold),
+        "wm_blue_raw": bool(wm_blue_raw),
+        "wm_blue_hold": bool(wm_blue_hold),
+        "wm_state_green": bool(wm_state_green),
+        "wm_state_red": bool(wm_state_red),
+        "wm_state_blue": bool(wm_state_blue),
+        "wm_state_name": state_name,
+        "wm_state_grade": grade,
+        "wm_state_tags": tags,
+        "wm_state_detail": {
+            "ok": True,
+            "base_conds": [cond_base_1, cond_base_2, cond_base_3, cond_base_4, cond_base_5],
+            "pocket_conds": [cond_pocket_1, cond_pocket_2, cond_pocket_3, cond_pocket_4, cond_pocket_5],
+            "attack_conds": [cond_attack_1, cond_attack_2, cond_attack_3, cond_attack_4, cond_attack_5],
+            "score_sum": int(score_sum),
+        },
+    }
+
+def build_watermelon_state_top5(df: pd.DataFrame):
+    """
+    전종목 스캔 결과에서 수박상태 TOP5를 별도 추출
+    반환:
+      - green_df
+      - red_df
+      - blue_df
+    """
+    if df is None or df.empty:
+        empty = pd.DataFrame()
+        return empty, empty, empty
+
+    work = df.copy()
+    green_mask = pd.Series(False, index=work.index)
+    red_mask = pd.Series(False, index=work.index)
+    blue_mask = pd.Series(False, index=work.index)
+
+    if "수박상태초록" in work.columns:
+        green_mask = green_mask | work["수박상태초록"].apply(_wm_bool)
+    if "수박상태빨강" in work.columns:
+        red_mask = red_mask | work["수박상태빨강"].apply(_wm_bool)
+    if "수박파란점선" in work.columns:
+        blue_mask = blue_mask | work["수박파란점선"].apply(_wm_bool)
+    if "wm_state_green" in work.columns:
+        green_mask = green_mask | work["wm_state_green"].apply(_wm_bool)
+    if "wm_state_red" in work.columns:
+        red_mask = red_mask | work["wm_state_red"].apply(_wm_bool)
+    if "wm_state_blue" in work.columns:
+        blue_mask = blue_mask | work["wm_state_blue"].apply(_wm_bool)
+
+    green_df = work[green_mask].copy()
+    red_df = work[red_mask].copy()
+    blue_df = work[blue_mask].copy()
+
+    base_sort = [c for c in ["수박파란점선점수", "수박공격점수", "수박포켓점수", "수박기반점수", "안전점수", "N점수"] if c in work.columns]
+    if not green_df.empty and base_sort:
+        green_df = green_df.sort_values(by=base_sort, ascending=[False]*len(base_sort)).head(5).reset_index(drop=True)
+    if not red_df.empty and base_sort:
+        red_df = red_df.sort_values(by=base_sort, ascending=[False]*len(base_sort)).head(5).reset_index(drop=True)
+    if not blue_df.empty and base_sort:
+        blue_df = blue_df.sort_values(by=base_sort, ascending=[False]*len(base_sort)).head(5).reset_index(drop=True)
+    return green_df, red_df, blue_df
+
+def build_watermelon_state_block(title: str, df: pd.DataFrame) -> str:
+    if df is None or df.empty:
+        return f"🍉 [{title}]\n- 해당 종목 없음\n"
+    lines = [f"🍉 [{title}]\n"]
+    for rank, (_, row) in enumerate(df.iterrows(), 1):
+        name = row.get('종목명', '')
+        code = row.get('code', '')
+        state = row.get('수박상태명', row.get('wm_state_name', ''))
+        grade = row.get('수박상태등급', row.get('wm_state_grade', ''))
+        b = row.get('수박기반점수', row.get('wm_base_score', 0))
+        p = row.get('수박포켓점수', row.get('wm_pocket_score', 0))
+        a = row.get('수박공격점수', row.get('wm_attack_score', 0))
+        blue = row.get('수박파란점선점수', row.get('wm_blue_score', 0))
+        tags = row.get('수박상태태그', row.get('wm_state_tags', ''))
+        if isinstance(tags, list):
+            tags = " ".join(tags)
+        lines.append(
+            f"{rank}) {name}({code})\n"
+            f"- 상태: {state} | 등급:{grade}\n"
+            f"- 점수: 기반{b} / 포켓{p} / 공격{a}\n"
+            f"- 태그: {tags}\n"
+        )
+    return "\n".join(lines)
 
 # scan_logger 없으면 print로 폴백
 # ✅ 오류/에러 로그만 남기도록 강제
@@ -2546,7 +2933,7 @@ def get_indicators(df):
     df['Below_MA112']     = (df['Close'] < df['MA112']).astype(int)
     df['Below_MA112_60d'] = df['Below_MA112'].rolling(60).sum()
 
-    df['MA224'] = df['MA224'].ffill()
+    df['MA224'] = df['MA224'].ffill().fillna(0)
 
     is_above_series       = close > df['MA224']
     df['Trend_Group']     = is_above_series.astype(int).diff().fillna(0).ne(0).cumsum()
@@ -2556,7 +2943,7 @@ def get_indicators(df):
     vol_power_series = df['Volume'] / vol_avg20
     is_above_ma224   = close > df['MA224']
 
-    near_band_low = ((low - df['MA224']).abs() / df['MA224'].replace(0, np.nan)) < 0.03
+    near_band_low = (low - df['MA224']).abs() / df['MA224'] < 0.03
     local_min     = low == low.rolling(5, center=True, min_periods=1).min()
     double_bottom_series = (near_band_low & local_min).rolling(30).sum() >= 2
 
@@ -2754,13 +3141,7 @@ def get_indicators(df):
 
     cond_inverse_mid = curr['MA112'] < curr['MA224']
     cond_below_448   = curr['Close'] < curr['MA448']
-    ma224 = curr.get('MA224', np.nan)
-    if pd.isna(ma224) or float(ma224) <= 0:
-        cond_ma224_range = False
-    else:
-        ma224_gap_pct = ((float(curr['Close']) - float(ma224)) / float(ma224)) * 100
-        cond_ma224_range = -3 <= ma224_gap_pct <= 5
-        
+    cond_ma224_range = -3 <= ((curr['Close'] - curr['MA224']) / curr['MA224']) * 100 <= 5
     cond_bb40_range  = -7 <= ((curr['Close'] - curr['BB40_Upper']) / curr['BB40_Upper']) * 100 <= 3
 
     vol_ratio      = df['Volume'] / df['Volume'].shift(1).replace(0, np.nan)
@@ -3826,32 +4207,41 @@ def parse_ai_summary_to_map(ai_result_text: str) -> dict:
 def _call_ai(system_prompt: str, user_prompt: str,
              max_tokens: int = 3000, prefer_claude: bool = True) -> str:
     """
-    AI API 호출 — Claude/OpenAI/Gemini/Groq 순차 폴백.
-    성공한 첫 결과를 반환하고, 전부 실패할 때만 실패 문구 반환.
+    AI API 호출 — Claude/OpenAI 우선, 실패 시 Gemini/Groq까지 폴백.
     """
-    providers = []
-    if prefer_claude:
-        providers.append(("claude", lambda: _call_claude_api(system_prompt, user_prompt, max_tokens)))
-    providers.extend([
-        ("openai", lambda: _call_openai_api_generic(system_prompt, user_prompt, max_tokens=max_tokens)),
-        ("gemini", lambda: _call_gemini_api_generic(system_prompt, user_prompt, max_tokens=max_tokens)),
-        ("groq", lambda: _call_groq_api_generic(system_prompt, user_prompt, max_tokens=min(max_tokens, 4000))),
-    ])
+    if prefer_claude and ANTHROPIC_API_KEY:
+        result = _call_claude_api(system_prompt, user_prompt, max_tokens)
+        if result:
+            log_debug("✅ Claude API 사용")
+            return result
 
-    errors = []
-    for provider_name, fn in providers:
+    if OPENAI_API_KEY:
         try:
-            out = fn()
-            out = (out or "").strip()
-            if out and out not in ("브리핑 생성 실패", "AI 분석 불가 (API 키 없음 또는 호출 실패)"):
-                log_info(f"✅ AI 코멘트 생성 성공: {provider_name}")
+            client = OpenAI(api_key=OPENAI_API_KEY)
+            res = client.chat.completions.create(
+                model='gpt-4o',
+                messages=[
+                    {'role': 'system', 'content': system_prompt},
+                    {'role': 'user',   'content': user_prompt},
+                ],
+                max_tokens=max_tokens,
+                temperature=0.5
+            )
+            out = (res.choices[0].message.content or '').strip()
+            if out:
+                log_debug("✅ OpenAI API 사용 (폴백)")
                 return out
-            errors.append(f"{provider_name}: empty")
         except Exception as e:
-            errors.append(f"{provider_name}: {e}")
-            log_error(f"[{provider_name} AI 실패] {e}")
+            log_error(f"[OpenAI 폴백 실패] {e}")
 
-    log_error("⚠️ AI 코멘트 전부 실패: " + " | ".join(errors))
+    result = _call_gemini_api_generic(system_prompt, user_prompt, max_tokens=max_tokens)
+    if result:
+        return result
+
+    result = _call_groq_api_generic(system_prompt, user_prompt, max_tokens=min(max_tokens, 4000))
+    if result:
+        return result
+
     return "AI 분석 불가 (API 키 없음 또는 호출 실패)"
 
 def get_ai_summary_batch(ai_candidates_df, issues=None, market_news=None):
@@ -5359,6 +5749,31 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
                     'pre_dolbanji_hts_exact_detail': {'error': str(_pred_hts_e)},
                 }
 
+        # 수박상태 Python 검색 엔진
+        try:
+            wm_bundle = build_watermelon_state_bundle(temp_df)
+        except Exception as _wm_e:
+            log_debug(f"수박상태 번들 계산 실패: {_wm_e}")
+            wm_bundle = {
+                'wm_base_score': 0,
+                'wm_pocket_score': 0,
+                'wm_attack_score': 0,
+                'wm_blue_score': 0,
+                'wm_pocket_raw': False,
+                'wm_pocket_hold': False,
+                'wm_attack_raw': False,
+                'wm_attack_hold': False,
+                'wm_blue_raw': False,
+                'wm_blue_hold': False,
+                'wm_state_green': False,
+                'wm_state_red': False,
+                'wm_state_blue': False,
+                'wm_state_name': '',
+                'wm_state_grade': '없음',
+                'wm_state_tags': [],
+                'wm_state_detail': {'ok': False, 'error': str(_wm_e)},
+            }
+
         recent_avg_amount = (df['Close'] * df['Volume']).tail(5).mean() / 100000000
         # ✅ FIX-B: 트랙B 판별 (iloc로 안전하게)
         _is_track_b = bool(df['_is_track_b'].iloc[-1]) if '_is_track_b' in df.columns else False
@@ -5492,6 +5907,10 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         signals['pre_dolbanji_lite'] = bool(pre_lite_bundle.get('pre_dolbanji_lite', False))
         signals['pre_dolbanji_lite_confirmed'] = bool(pre_lite_bundle.get('pre_dolbanji_lite_confirmed', False))
         signals['pre_dolbanji_hts_exact'] = bool(pre_hts_bundle.get('pre_dolbanji_hts_exact', False))
+        signals['wm_state_green'] = bool(wm_bundle.get('wm_state_green', False))
+        signals['wm_state_red'] = bool(wm_bundle.get('wm_state_red', False))
+        signals['wm_pocket_hold'] = bool(wm_bundle.get('wm_pocket_hold', False))
+        signals['wm_attack_hold'] = bool(wm_bundle.get('wm_attack_hold', False))
         try:
             signals.update(build_v4_signal_map(row))
         except Exception as _v4sig_e:
@@ -6204,6 +6623,18 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             '신규예비돌반지Lite등급': str(pre_lite_bundle.get('pre_dolbanji_lite_grade', '없음')),
             '신규예비돌반지Lite최상': str(pre_lite_bundle.get('pre_dolbanji_lite_best', '')),
             '신규예비돌반지Lite태그': " ".join(pre_lite_bundle.get('pre_dolbanji_lite_tags', [])),
+
+            '수박상태초록': bool(wm_bundle.get('wm_state_green', False)),
+            '수박상태빨강': bool(wm_bundle.get('wm_state_red', False)),
+            '수박파란점선': bool(wm_bundle.get('wm_state_blue', False)),
+            '수박기반점수': int(wm_bundle.get('wm_base_score', 0)),
+            '수박포켓점수': int(wm_bundle.get('wm_pocket_score', 0)),
+            '수박공격점수': int(wm_bundle.get('wm_attack_score', 0)),
+            '수박파란점선점수': int(wm_bundle.get('wm_blue_score', 0)),
+            '수박상태명': str(wm_bundle.get('wm_state_name', '')),
+            '수박상태등급': str(wm_bundle.get('wm_state_grade', '없음')),
+            '수박상태태그': " ".join(wm_bundle.get('wm_state_tags', [])),
+
             '예비돌반지HTS정확복제': bool(pre_hts_bundle.get('pre_dolbanji_hts_exact', False)),
             '예비돌반지HTS정확점수': int(pre_hts_bundle.get('pre_dolbanji_hts_exact_score', 0)),
             '예비돌반지HTS정확최대': int(pre_hts_bundle.get('pre_dolbanji_hts_exact_max_score', 10)),
@@ -6560,65 +6991,6 @@ def analyze_weekly_trend(ticker, name):
         }]
     except Exception as e:
         return []
-
-def _get_single_stock_ai_tip(row, issues=None, market_news=None):
-    """
-    배치 AI 결과가 비었을 때 종목 1개만 다시 AI로 재시도.
-    전부 실패하면 빈 문자열 반환하고, 최종 하드코딩 fallback은 호출부에서 처리.
-    """
-    try:
-        comments = "특이 이슈 없음"
-        if issues:
-            comments = " | ".join([str(i.get("comment", "분석 필요")) for i in issues])
-
-        market_news_block = ""
-        if market_news and isinstance(market_news, list):
-            top_news = [str(n) for n in market_news[:5] if n]
-            if top_news:
-                market_news_block = "\n".join(f"- {n}" for n in top_news)
-
-        system_prompt = (
-            "당신은 대한민국 주식 단기/스윙 트레이딩 전문가다. "
-            "주어진 종목의 현재 위치를 2~3문장으로 간결하게 정리하라. "
-            "과장 금지, 핵심만 설명하고 추격/눌림/관망 중 하나의 뉘앙스를 포함하라."
-        )
-
-        user_prompt = f"""
-[종목]
-- 종목명: {row.get('종목명', '')}
-- 코드: {row.get('code', '')}
-- 현재가: {row.get('현재가', row.get('Close', ''))}
-- N점수: {row.get('N점수', '')}
-- 안전점수: {row.get('안전점수', '')}
-- N조합: {row.get('N조합', '')}
-- 구분: {row.get('구분', '')}
-- 단계상태: {row.get('단계상태', '')}
-- 단계태그: {row.get('단계태그', '')}
-- RSI: {row.get('RSI', '')}
-- OBV기울기: {row.get('OBV기울기', '')}
-- 거래대금(억): {row.get('거래대금', row.get('거래대금(억)', row.get('AmountB', '')))}
-- 뉴스요약: {row.get('news_sentiment', '')}
-
-[시장 이슈]
-{comments}
-
-[시장 뉴스]
-{market_news_block if market_news_block else '없음'}
-
-요청:
-- 이 종목의 현재 위치를 2~3문장으로 간결하게 설명
-- 왜 지금 볼 만한지 또는 왜 조심해야 하는지 포함
-- 불필요한 숫자 반복 금지
-""".strip()
-
-        result = _call_ai(system_prompt, user_prompt, max_tokens=350, prefer_claude=True)
-        result = (result or "").strip()
-        if result and result not in ("브리핑 생성 실패", "AI 분석 불가 (API 키 없음 또는 호출 실패)"):
-            return result
-        return ""
-    except Exception as e:
-        log_error(f"⚠️ 단일 종목 AI 재시도 실패: {row.get('종목명', '')}({row.get('code', '')}) | {e}")
-        return ""
 
 def generate_stage_ai_tip(row):
     try:
@@ -7103,10 +7475,13 @@ if __name__ == "__main__":
 
     all_hits_df_for_pre = pd.DataFrame(all_hits_sorted) if all_hits_sorted else pd.DataFrame()
     pre_top5, exact_top5, broad_only_top5, lite_top5 = build_pre_dolbanji_top5(all_hits_df_for_pre)
+    wm_green_top5, wm_red_top5 = build_watermelon_state_top5(all_hits_df_for_pre)
     log_info(f"💍 예비돌반지 전체 TOP5 수: {len(pre_top5)}")
     log_info(f"💍 HTS 정확복제형 TOP5 수: {len(exact_top5)}")
     log_info(f"💍 기존 예비돌반지 TOP5 수: {len(broad_only_top5)}")
     log_info(f"💎 신규예비돌반지 Lite TOP5 수: {len(lite_top5)}")
+    log_info(f"🍉 수박상태 초록 TOP5 수: {len(wm_green_top5)}")
+    log_info(f"🍉 수박상태 빨강 TOP5 수: {len(wm_red_top5)}")
 
     log_info("🌍 시장 + 후보종목 통합 AI 브리핑 생성 중...")
     macro_briefing_result = run_macro_candidate_briefing(
@@ -7193,7 +7568,6 @@ if __name__ == "__main__":
     ai_map = parse_ai_summary_to_map(ai_result_text)
     log_info(f"🧠 AI 코멘트 파싱 성공 수: {len(ai_map)} / 후보 {len(ai_candidates)}")
 
-
     # ✅ ai_tip 주입
     for idx, item in ai_candidates.iterrows():
         key = f"{item['종목명']}({item['code']})"
@@ -7206,13 +7580,7 @@ if __name__ == "__main__":
                     ai_tip_text = str(v).strip()
                     break
 
-        # ✅ 배치 결과가 비면 종목 1개 단위로 다시 AI 재시도
         if not ai_tip_text or ai_tip_text in ("브리핑 생성 실패", "AI 분석 불가 (API 키 없음 또는 호출 실패)"):
-            ai_tip_text = _get_single_stock_ai_tip(item, issues=issues, market_news=market_news_titles)
-
-        # ✅ 모든 AI 실패 시에만 하드코딩 fallback
-        if not ai_tip_text or ai_tip_text in ("브리핑 생성 실패", "AI 분석 불가 (API 키 없음 또는 호출 실패)"):
-            log_error(f"⚠️ AI 코멘트 전부 실패 → 하드코딩 사용: {item.get('종목명', '')}({item.get('code', '')})")
             ai_tip_text = generate_stage_ai_tip(item)
 
         if not ai_tip_text:
@@ -7257,6 +7625,9 @@ if __name__ == "__main__":
     pre_block = build_pre_dolbanji_block("예비돌반지 TOP 5", pre_top5, exact_mode=False)
     exact_block = build_pre_dolbanji_block("HTS 정확복제형 예비돌반지 TOP 5", exact_top5, exact_mode=True)
     lite_block = build_pre_dolbanji_block("신규예비돌반지 Lite TOP 5", lite_top5, exact_mode=False)
+    wm_green_block = build_watermelon_state_block("수박상태 초록 TOP 5", wm_green_top5)
+    wm_red_block = build_watermelon_state_block("수박상태 빨강 TOP 5", wm_red_top5)
+    wm_blue_block = build_watermelon_state_block("파란점선 타점 TOP 5", wm_blue_top5)
 
     if not stage_candidates_top5.empty:
         stage_block = "\n🚀 [단계 기반 급등 후보 TOP 5]\n\n"
@@ -7461,7 +7832,7 @@ if __name__ == "__main__":
             current_msg += entry
 
     # 마지막 블록은 급등후보 + 예비돌반지 별도 TOP5
-    final_block = (stage_block or "") + "\n" + pre_block + "\n" + exact_block + "\n" + lite_block
+    final_block = (stage_block or "") + "\n" + pre_block + "\n" + exact_block + "\n" + lite_block + "\n" + wm_green_block + "\n" + wm_red_block
 
     # ✅ FIX: stage_block 이 있을 때도 메인 TOP15 메시지가 누락되지 않도록 전송 순서 보정
     if final_block:
