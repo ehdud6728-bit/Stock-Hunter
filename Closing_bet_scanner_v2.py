@@ -39,6 +39,7 @@ try:
 except ImportError:
     HAS_GSPREAD = False
 
+from closing_bet_ai_debate_integration import run_closing_bet_debate_pipeline
 from main7_bugfix_2 import (
     get_indicators,
     _calc_upper_wick_ratio,
@@ -2259,138 +2260,54 @@ def _run_role_brief(role_name: str, system_msg: str, user_msg: str, provider_ord
     return _call_llm_with_fallback(system_msg, user_msg, role_label=role_name, max_tokens=1200, provider_order=provider_order)
 
 
+
+def _debate_llm_runner(system_prompt: str, user_prompt: str, preferred_models=None, role_name: str = ''):
+    max_tokens = 2600 if '심판' in str(role_name) else 2200
+    text, provider = _call_llm_with_fallback(
+        system_prompt,
+        user_prompt,
+        role_label=role_name,
+        max_tokens=max_tokens,
+        provider_order=list(preferred_models) if preferred_models else None,
+    )
+    return text, provider
+
+
 def _send_closing_bet_debate(hits: list, mins_left: int, top_n: int = None):
     if top_n is None:
         top_n = CLOSING_BET_DEBATE_TOP_N
     if not hits:
         return
 
-    candidates = _select_debate_candidates(hits, top_n=top_n)
-    if not candidates:
-        return
-
-    candidate_text = _build_debate_candidate_lines(candidates)
-    base_context = (
-        f"[종가배팅 상위 {len(candidates)}개 후보 | 마감까지 {mins_left}분]\n"
-        "아래 후보들은 당일 종가 진입을 검토하는 후보들이다.\n"
-        "전략 A는 전고점 돌파형, B1은 ENV 엄격형 바닥 반등, B2는 BB 확장형 하단 재안착이다.\n"
-        "Env/BB는 절대적으로 해석하지 말고, 재안착/시황/수급/리스크를 함께 종합판단하라.\n\n"
-        f"후보 목록:\n{candidate_text}"
-    )
-
-    role_specs = [
-        ('기술분석가', "너는 종가배팅 전용 기술분석가다. 차트/캔들/종가강도/ENV/BB/전고점 이격만 중심으로 본다. 하단 재안착을 긍정 가능성으로 열어두되, 추격과 과열은 구분하라. 답변은 반드시 JSON 배열만 출력하라.", ['anthropic','openai','gemini','groq']),
-        ('수급분석가', "너는 외인/기관/OBV/매집흔적 중심의 수급분석가다. 최근 3~5일 흐름과 당일 추정 수급을 같이 보고, 들어온 흔적은 있는데 크게 나간 흔적이 없는지에 집중하라. 답변은 반드시 JSON 배열만 출력하라.", ['openai','anthropic','groq','gemini']),
-        ('시황테마분석가', "너는 업종/섹터/대장주/뉴스 맥락을 보는 시황 분석가다. 근거가 부족하면 부족하다고 명시하고 과장하지 마라. 단순 눌림인지 재료 소멸인지, 종가배팅에 우호적인 시장 흐름인지 평가하라. 답변은 반드시 JSON 배열만 출력하라.", ['anthropic','gemini','openai','groq']),
-        ('리스크관리자', "너는 가장 보수적인 리스크 관리자다. 늦은 자리인지, 다음날 갭리스크가 큰지, 손절/목표가 실전적으로 유효한지 본다. 답변은 반드시 JSON 배열만 출력하라.", ['openai','groq','anthropic','gemini']),
-    ]
-
-    role_payloads = {}
-    provider_map = {}
-    for role_name, role_system, provider_order in role_specs:
-        parsed, provider = _run_role_json(role_name, role_system, base_context, candidates, provider_order=provider_order)
-        provider_map[role_name] = provider
-        role_payloads[role_name] = parsed
-
-    judge_system = (
-        "너는 종가배팅 최종 심판이다. 기술/수급/시황/리스크 의견을 읽고 후보별 최종판정을 내려라. "
-        "단일 의견을 맹신하지 말고 충돌하는 의견은 조정하라. 답변은 반드시 JSON 배열만 출력하라."
-    )
-    judge_parsed, judge_provider = _run_judge_json(judge_system, base_context, role_payloads, candidates)
-
-    now = datetime.now(KST)
-    judgment_rows = []
-    pretty_lines = []
-    for idx, hit in enumerate(candidates, 1):
-        j = judge_parsed.get(idx, {})
-        tech = role_payloads.get('기술분석가', {}).get(idx, {})
-        flow = role_payloads.get('수급분석가', {}).get(idx, {})
-        theme = role_payloads.get('시황테마분석가', {}).get(idx, {})
-        risk = role_payloads.get('리스크관리자', {}).get(idx, {})
-        opinions = [tech.get('verdict',''), flow.get('verdict',''), theme.get('verdict',''), risk.get('verdict','')]
-        positive_votes = sum(1 for v in opinions if v in ['추천','조건부추천'])
-        negative_votes = sum(1 for v in opinions if v in ['보류','제외'])
-        final_verdict = j.get('final_verdict', '보류')
-        confidence = j.get('confidence', 0)
-        summary = j.get('summary', '')
-        strong_point = j.get('strong_point', '')
-        risk_point = j.get('risk_point', '')
-        action_plan = j.get('action_plan', '')
-        stop_note = j.get('stop_note', '') or str(hit.get('stoploss',''))
-        target_note = j.get('target_note', '') or str(hit.get('target1',''))
-
-        judgment_rows.append({
-            'scan_date': now.strftime('%Y-%m-%d'),
-            'scan_time': now.strftime('%H:%M'),
-            'code': str(hit.get('code','')).zfill(6),
-            'name': hit.get('name',''),
-            'mode': hit.get('mode',''),
-            'mode_label': hit.get('mode_label',''),
-            'grade': hit.get('grade',''),
-            'score': hit.get('score',0),
-            'index_label': hit.get('index_label',''),
-            'universe_tag': hit.get('universe_tag',''),
-            'recommended_band': hit.get('recommended_band',''),
-            'volatility_type': hit.get('volatility_type',''),
-            'final_verdict': final_verdict,
-            'final_confidence': confidence,
-            'judge_summary': summary,
-            'strong_point': strong_point,
-            'risk_point': risk_point,
-            'action_plan': action_plan,
-            'stop_note': stop_note,
-            'target_note': target_note,
-            'tech_provider': _provider_tag(provider_map.get('기술분석가','none')),
-            'flow_provider': _provider_tag(provider_map.get('수급분석가','none')),
-            'theme_provider': _provider_tag(provider_map.get('시황테마분석가','none')),
-            'risk_provider': _provider_tag(provider_map.get('리스크관리자','none')),
-            'judge_provider': _provider_tag(judge_provider),
-            'tech_view': f"{_provider_tag(provider_map.get('기술분석가','none'))} {tech.get('verdict','보류')} | {tech.get('summary','')} | 리스크:{tech.get('risk','')} | 실행:{tech.get('plan','')}",
-            'flow_view': f"{_provider_tag(provider_map.get('수급분석가','none'))} {flow.get('verdict','보류')} | {flow.get('summary','')} | 리스크:{flow.get('risk','')} | 실행:{flow.get('plan','')}",
-            'theme_view': f"{_provider_tag(provider_map.get('시황테마분석가','none'))} {theme.get('verdict','보류')} | {theme.get('summary','')} | 리스크:{theme.get('risk','')} | 실행:{theme.get('plan','')}",
-            'risk_view': f"{_provider_tag(provider_map.get('리스크관리자','none'))} {risk.get('verdict','보류')} | {risk.get('summary','')} | 리스크:{risk.get('risk','')} | 실행:{risk.get('plan','')}",
-            'positive_votes': positive_votes,
-            'negative_votes': negative_votes,
-        })
-
-        pretty_lines.append(
-            f"━━━━━━━━━━━━━━━━━━\n"
-            f"{idx}) {hit.get('name','')}({hit.get('code','')}) | {hit.get('mode','')}/{hit.get('grade','')}\n"
-            f"최종판정: {final_verdict} ({confidence}점)\n"
-            f"추천밴드: {hit.get('recommended_band','')} | 유형: {hit.get('universe_tag','')} | 가격: {hit.get('close',0):,}원\n\n"
-            f"핵심판단\n"
-            f"- 강한근거: {strong_point or summary or '추가 확인 필요'}\n"
-            f"- 위험요인: {risk_point or '변동성 주의'}\n"
-            f"- 실행계획: {action_plan or '분할 접근 / 보수 대응'}\n\n"
-            f"역할별 의견\n"
-            f"- 기술{_provider_tag(provider_map.get('기술분석가','none'))} | {tech.get('verdict','보류')}({tech.get('score',0)}) | {tech.get('summary','데이터 부족')}\n"
-            f"  · 리스크: {tech.get('risk','추가 확인 필요')}\n"
-            f"- 수급{_provider_tag(provider_map.get('수급분석가','none'))} | {flow.get('verdict','보류')}({flow.get('score',0)}) | {flow.get('summary','데이터 부족')}\n"
-            f"  · 리스크: {flow.get('risk','추가 확인 필요')}\n"
-            f"- 시황{_provider_tag(provider_map.get('시황테마분석가','none'))} | {theme.get('verdict','보류')}({theme.get('score',0)}) | {theme.get('summary','시황 근거 부족 또는 보류')}\n"
-            f"  · 리스크: {theme.get('risk','시황 추가 확인 필요')}\n"
-            f"- 리스크{_provider_tag(provider_map.get('리스크관리자','none'))} | {risk.get('verdict','보류')}({risk.get('score',0)}) | {risk.get('summary','리스크 점검 필요')}\n"
-            f"  · 리스크: {risk.get('risk','추가 확인 필요')}\n\n"
-            f"실행레벨\n"
-            f"- 손절: {stop_note}\n"
-            f"- 목표: {target_note}"
+    try:
+        now = datetime.now(KST)
+        market_context = os.environ.get('CLOSING_BET_MARKET_CONTEXT', '').strip()
+        result = run_closing_bet_debate_pipeline(
+            hits=hits,
+            llm_runner=_debate_llm_runner,
+            now_dt=now,
+            mins_left=mins_left,
+            top_n=top_n,
+            extra_market_context=market_context,
+            role_model_prefs={
+                'tech': ['anthropic', 'openai', 'gemini', 'groq'],
+                'flow': ['openai', 'anthropic', 'groq', 'gemini'],
+                'theme': ['anthropic', 'gemini', 'openai', 'groq'],
+                'risk': ['openai', 'groq', 'anthropic', 'gemini'],
+                'judge': ['anthropic', 'openai', 'gemini', 'groq'],
+            },
         )
 
-    _save_ai_judgments_to_gsheet(judgment_rows)
+        judgment_rows = result.get('judgment_rows', []) or []
+        telegram_text = result.get('telegram_text', '') or ''
 
-    provider_line = ' | '.join([
-        f"기술{_provider_tag(provider_map.get('기술분석가','none'))}",
-        f"수급{_provider_tag(provider_map.get('수급분석가','none'))}",
-        f"시황{_provider_tag(provider_map.get('시황테마분석가','none'))}",
-        f"리스크{_provider_tag(provider_map.get('리스크관리자','none'))}",
-        f"심판{_provider_tag(judge_provider)}",
-    ])
-    message = (
-        f"🧠 종가배팅 AI 토론 TOP{len(candidates)}\n"
-        f"⏰ 마감까지 {mins_left}분\n"
-        f"모델사용: {provider_line}\n\n" + "\n\n".join(pretty_lines)
-    )
-    send_telegram_chunks(message, max_len=3500)
+        if judgment_rows:
+            _save_ai_judgments_to_gsheet(judgment_rows)
+        if telegram_text.strip():
+            send_telegram_chunks(telegram_text, max_len=3500)
+    except Exception as e:
+        log_error(f"⚠️ 종가배팅 AI 토론 실패: {e}")
+
 
 def _send_ai_comment(hits: list, mins_left: int, strategy: str = 'A'):
     try:
