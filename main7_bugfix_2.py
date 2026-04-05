@@ -85,6 +85,28 @@ def coerce_numeric_columns(df: pd.DataFrame, columns):
             )
     return out
 
+def normalize_leader_scanner_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """대장주 스캐너가 한글 컬럼을 기대하더라도 영문 컬럼 입력을 최대한 호환시킴"""
+    if df is None or len(df) == 0:
+        return df
+    out = df.copy()
+    rename_map = {}
+    if 'Close' in out.columns and '종가' not in out.columns:
+        rename_map['Close'] = '종가'
+    if 'Marcap' in out.columns and '시가총액' not in out.columns:
+        rename_map['Marcap'] = '시가총액'
+    elif 'MarCap' in out.columns and '시가총액' not in out.columns:
+        rename_map['MarCap'] = '시가총액'
+    if 'Volume' in out.columns and '거래량' not in out.columns:
+        rename_map['Volume'] = '거래량'
+    if 'Amount' in out.columns and '거래대금' not in out.columns:
+        rename_map['Amount'] = '거래대금'
+    elif 'Value' in out.columns and '거래대금' not in out.columns:
+        rename_map['Value'] = '거래대금'
+    if rename_map:
+        out = out.rename(columns=rename_map)
+    return out
+
 
 # ─────────────────────────────────────────────────────────────
 # 수박상태 파이썬 검색 엔진 (HTS 실험판을 Python 스캔용으로 이식)
@@ -7350,6 +7372,7 @@ if __name__ == "__main__":
 
     oil_briefing = get_oil_sector_briefing(m_wti, m_brent, sector_results, issues)
 
+    df_krx = normalize_leader_scanner_columns(df_krx)
     df_clean = df_krx[df_krx['Market'].isin(['KOSPI', 'KOSDAQ','코스닥','유가'])].copy()
     df_clean['Name'] = df_clean['Name'].astype(str)
     df_clean = df_clean[~df_clean['Name'].str.contains('ETF|ETN|스팩|제[0-9]+호|우$|우A|우B|우C', regex=True)].copy()
@@ -7475,13 +7498,14 @@ if __name__ == "__main__":
 
     all_hits_df_for_pre = pd.DataFrame(all_hits_sorted) if all_hits_sorted else pd.DataFrame()
     pre_top5, exact_top5, broad_only_top5, lite_top5 = build_pre_dolbanji_top5(all_hits_df_for_pre)
-    wm_green_top5, wm_red_top5 = build_watermelon_state_top5(all_hits_df_for_pre)
+    wm_green_top5, wm_red_top5, wm_blue_top5 = build_watermelon_state_top5(all_hits_df_for_pre)
     log_info(f"💍 예비돌반지 전체 TOP5 수: {len(pre_top5)}")
     log_info(f"💍 HTS 정확복제형 TOP5 수: {len(exact_top5)}")
     log_info(f"💍 기존 예비돌반지 TOP5 수: {len(broad_only_top5)}")
     log_info(f"💎 신규예비돌반지 Lite TOP5 수: {len(lite_top5)}")
     log_info(f"🍉 수박상태 초록 TOP5 수: {len(wm_green_top5)}")
     log_info(f"🍉 수박상태 빨강 TOP5 수: {len(wm_red_top5)}")
+    log_info(f"🔵 파란점선 타점 TOP5 수: {len(wm_blue_top5)}")
 
     log_info("🌍 시장 + 후보종목 통합 AI 브리핑 생성 중...")
     macro_briefing_result = run_macro_candidate_briefing(
@@ -7832,7 +7856,7 @@ if __name__ == "__main__":
             current_msg += entry
 
     # 마지막 블록은 급등후보 + 예비돌반지 별도 TOP5
-    final_block = (stage_block or "") + "\n" + pre_block + "\n" + exact_block + "\n" + lite_block + "\n" + wm_green_block + "\n" + wm_red_block
+    final_block = (stage_block or "") + "\n" + pre_block + "\n" + exact_block + "\n" + lite_block + "\n" + wm_green_block + "\n" + wm_red_block + "\n" + wm_blue_block
 
     # ✅ FIX: stage_block 이 있을 때도 메인 TOP15 메시지가 누락되지 않도록 전송 순서 보정
     if final_block:
@@ -7856,7 +7880,7 @@ if __name__ == "__main__":
         log_error("⚠️ 토너먼트 결과 없어서 전송 생략")
 
     try:
-        update_google_sheet(all_hits_sorted, TODAY_STR, tournament_report + stage_block + "\n" + pre_block + "\n" + exact_block)
+        update_google_sheet(all_hits_sorted, TODAY_STR, tournament_report + stage_block + "\n" + pre_block + "\n" + exact_block + "\n" + lite_block + "\n" + wm_green_block + "\n" + wm_red_block + "\n" + wm_blue_block)
         log_info(f"💾 총 {len(all_hits_sorted)}개 종목 전수 기록 완료!")
     except Exception as e:
         log_error(f"🚨 시트 업데이트 실패: {e}")
