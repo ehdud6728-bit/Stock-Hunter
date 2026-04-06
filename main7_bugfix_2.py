@@ -1,3 +1,4 @@
+# 수박/파란점 재정의 기준표 반영 튜닝본
 # 수박상태 완성형: 초입/눌림/후행 + Blue-1/Blue-2 분리본
 # 수박상태 + 파란점선 후행 타점 신호 통합본
 # 기준본 단일 파일: main7_bugfix_2_canonical_base_final.py
@@ -190,6 +191,8 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
         recent5 = sub.tail(5)
 
         prev_high5 = safe_float(recent5["High"].iloc[:-1].max(), 0) if len(recent5) >= 2 else safe_float(recent5["High"].max(), 0)
+        prev_high10 = safe_float(recent10["High"].iloc[:-1].max(), 0) if len(recent10) >= 2 else safe_float(recent10["High"].max(), 0)
+        prev_high20 = safe_float(recent20["High"].iloc[:-1].max(), 0) if len(recent20) >= 2 else safe_float(recent20["High"].max(), 0)
         vol_ma20 = safe_float(recent20["Volume"].mean(), 0)
 
         cond_base_1 = bool((((recent120["High"] / recent120["Close"].shift(1)) - 1.0) * 100 >= 10).fillna(False).any()) if {"High", "Close"} <= set(recent120.columns) else False
@@ -229,6 +232,8 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
             "ma60": ma60,
             "vol_ma20": vol_ma20,
             "prev_high5": prev_high5,
+            "prev_high10": prev_high10,
+            "prev_high20": prev_high20,
             "base_score": base_score,
             "pocket_score": pocket_score,
             "attack_score": attack_score,
@@ -268,54 +273,60 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
 
         intro = (
             attack_hold
-            and m["ret7"] <= 12.0
-            and m["ret15"] <= 18.0
-            and m["max_day_up10"] <= 12.0
-            and m["pullback_pct20"] <= 6.0
+            and m["ret7"] <= 8.0
+            and m["ret15"] <= 12.0
+            and m["max_day_up10"] <= 8.5
+            and m["pullback_pct20"] <= 4.5
+            and (m["close"] <= m["prev_high20"] * 1.03 if m["prev_high20"] > 0 else True)
             and not blue1_recent_prev
-            and sum(1 for x in attack_raw_hist[-10:] if x) <= 2
+            and sum(1 for x in attack_raw_hist[-8:] if x) <= 2
         )
 
         late = (
             attack_hold and (
-                m["ret15"] >= 20.0
-                or m["max_day_up10"] >= 14.0
-                or sum(1 for x in blue1_raw_hist[-20:] if x) >= 2
+                m["ret15"] >= 15.0
+                or m["max_day_up10"] >= 10.0
+                or (m["close"] >= m["prev_high20"] * 0.98 if m["prev_high20"] > 0 else False)
+                or sum(1 for x in blue1_raw_hist[-25:] if x) >= 2
                 or blue2_recent_prev
             )
         )
 
         pullback = (
-            blue1_recent_short
+            (blue1_recent_short or sum(1 for x in blue1_raw_hist[-20:] if x) >= 1)
             and not late
-            and (3.0 <= m["pullback_pct20"] <= 12.0)
-            and (m["close"] >= m["ma20"] * 0.98 if m["ma20"] > 0 else False)
-            and (safe_float(sub.tail(5)["Volume"].mean(), 0) <= m["vol_ma20"] * 0.95 if m["vol_ma20"] > 0 else False)
-            and (m["close"] < m["high20"] * 0.98 if m["high20"] > 0 else False)
-            and (m["ret15"] <= 18.0)
+            and (2.5 <= m["pullback_pct20"] <= 15.0)
+            and (m["close"] >= m["ma20"] * 0.97 if m["ma20"] > 0 else False)
+            and (safe_float(sub.tail(5)["Volume"].mean(), 0) <= m["vol_ma20"] * 1.00 if m["vol_ma20"] > 0 else False)
+            and (m["close"] < m["high20"] * 0.985 if m["high20"] > 0 else False)
+            and (m["ret15"] <= 16.0)
         )
 
         blue1_raw = (
             intro
-            and sum(1 for x in (attack_raw_hist + [attack_raw])[-3:] if x) >= 1
-            and (m["volume"] > m["vol_ma20"] * 1.25 if m["vol_ma20"] > 0 else False)
+            and sum(1 for x in (attack_raw_hist + [attack_raw])[-2:] if x) >= 1
+            and (m["volume"] > m["vol_ma20"] * 1.40 if m["vol_ma20"] > 0 else False)
             and (m["close"] > m["prev_high5"] if m["prev_high5"] > 0 else False)
-            and (safe_float(sub.iloc[-1].get("RSI", 50), 50) < 76)
+            and (m["close"] > m["ma20"] * 1.01 if m["ma20"] > 0 else False)
+            and (m["ret7"] <= 7.0)
+            and (m["ret15"] <= 12.0)
+            and (m["close"] <= m["prev_high20"] * 1.03 if m["prev_high20"] > 0 else True)
+            and (safe_float(sub.iloc[-1].get("RSI", 50), 50) < 72)
         )
         blue1_hold = (
-            sum(1 for x in (blue1_raw_hist + [blue1_raw])[-3:] if x) >= 1
-            and (m["close"] >= m["ma20"] * 0.99 if m["ma20"] > 0 else False)
+            sum(1 for x in (blue1_raw_hist + [blue1_raw])[-2:] if x) >= 1
+            and (m["close"] >= m["ma20"] * 0.995 if m["ma20"] > 0 else False)
         )
 
         blue2_raw = (
             pullback
-            and (m["volume"] > m["vol_ma20"] * 1.20 if m["vol_ma20"] > 0 else False)
+            and (m["volume"] > m["vol_ma20"] * 1.12 if m["vol_ma20"] > 0 else False)
             and (m["close"] > m["prev_high5"] if m["prev_high5"] > 0 else False)
-            and (m["ma5"] >= m["ma20"] if m["ma20"] > 0 and m["ma5"] > 0 else False)
-            and (safe_float(sub.iloc[-1].get("RSI", 50), 50) < 74)
+            and (m["ma5"] >= m["ma20"] * 0.995 if m["ma20"] > 0 and m["ma5"] > 0 else False)
+            and (safe_float(sub.iloc[-1].get("RSI", 50), 50) < 72)
         )
         blue2_hold = (
-            sum(1 for x in (blue2_raw_hist + [blue2_raw])[-3:] if x) >= 1
+            sum(1 for x in (blue2_raw_hist + [blue2_raw])[-4:] if x) >= 1
             and (m["close"] >= m["ma20"] * 0.99 if m["ma20"] > 0 else False)
         )
 
@@ -369,24 +380,24 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
     wm_blue1_score = int(
         int(cur["intro"]) +
         int(cur["attack_hold"]) +
-        int(cur["close"] > cur["ma20"] if cur["ma20"] > 0 else False) +
+        int(cur["close"] > cur["ma20"] * 1.01 if cur["ma20"] > 0 else False) +
         int(cur["ma5"] >= cur["ma20"] if cur["ma20"] > 0 and cur["ma5"] > 0 else False) +
-        int(cur["volume"] > cur["vol_ma20"] * 1.25 if cur["vol_ma20"] > 0 else False) +
+        int(cur["volume"] > cur["vol_ma20"] * 1.40 if cur["vol_ma20"] > 0 else False) +
         int(cur["close"] > cur["prev_high5"] if cur["prev_high5"] > 0 else False)
     )
     wm_blue2_score = int(
         int(cur["pullback"]) +
-        int(cur["volume"] > cur["vol_ma20"] * 1.20 if cur["vol_ma20"] > 0 else False) +
+        int(cur["volume"] > cur["vol_ma20"] * 1.12 if cur["vol_ma20"] > 0 else False) +
         int(cur["close"] > cur["prev_high5"] if cur["prev_high5"] > 0 else False) +
-        int(cur["ma5"] >= cur["ma20"] if cur["ma20"] > 0 and cur["ma5"] > 0 else False) +
-        int(cur["pullback_pct20"] >= 3.0) +
-        int(cur["pullback_pct20"] <= 12.0)
+        int(cur["ma5"] >= cur["ma20"] * 0.995 if cur["ma20"] > 0 and cur["ma5"] > 0 else False) +
+        int(cur["pullback_pct20"] >= 2.5) +
+        int(cur["pullback_pct20"] <= 15.0)
     )
     wm_blue_score = max(wm_blue1_score, wm_blue2_score)
 
-    if cur["blue1_hold"] and score_sum + wm_blue1_score >= 14:
+    if cur["blue1_hold"] and score_sum + wm_blue1_score >= 15:
         grade = "A+"
-    elif cur["blue2_hold"] and score_sum + wm_blue2_score >= 13:
+    elif cur["blue2_hold"] and score_sum + wm_blue2_score >= 12:
         grade = "A"
     elif cur["attack_hold"] and score_sum >= 10:
         grade = "B"
