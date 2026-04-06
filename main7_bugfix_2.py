@@ -1,3 +1,4 @@
+# red onset 기반 미세완화 튜닝본
 # red onset(빨강 시작점) 기반 수박/파란점 반영본
 # 수박 하드 필터 + 최종 상태 1개 강제 반영본
 # 박스권 + 변화 + 돌파 엔진 반영본
@@ -312,14 +313,14 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
 
         intro_box_ready = (
             m["box_ready"]
-            and (7.0 <= m["box_range_pct25"] <= 18.0)
+            and (6.0 <= m["box_range_pct25"] <= 20.0)
             and (m["attack_score"] >= 2 and m["attack_score"] <= 4)
-            and (m["ret7"] <= 6.0)
-            and (m["ret15"] <= 10.0)
-            and (m["ret20"] <= 12.0)
-            and (m["max_day_up10"] <= 8.0)
-            and ((m["close"] <= m["prev_box_high25"] * 0.975) if m["prev_box_high25"] > 0 else True)
-            and ((m["volume"] <= m["vol_ma20"] * 1.10) if m["vol_ma20"] > 0 else True)
+            and (m["ret7"] <= 8.0)
+            and (m["ret15"] <= 12.0)
+            and (m["ret20"] <= 15.0)
+            and (m["max_day_up10"] <= 9.0)
+            and ((m["close"] <= m["prev_box_high25"] * 0.985) if m["prev_box_high25"] > 0 else True)
+            and ((m["volume"] <= m["vol_ma20"] * 1.20) if m["vol_ma20"] > 0 else True)
             and not had_blue1_recent
             and not had_blue2_recent
             and not late
@@ -329,8 +330,8 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
             intro_box_ready
             and m["change_ready"]
             and ((m["close"] >= m["ma20"] * 0.99) if m["ma20"] > 0 else False)
-            and ((m["ma5"] >= m["ma20"] * 0.995) if m["ma5"] > 0 and m["ma20"] > 0 else False)
-            and ((m["close"] >= m["prev_box_high10"] * 0.985) if m["prev_box_high10"] > 0 else False)
+            and ((m["ma5"] >= m["ma20"] * 0.99) if m["ma5"] > 0 and m["ma20"] > 0 else False)
+            and ((m["close"] >= m["prev_box_high10"] * 0.98) if m["prev_box_high10"] > 0 else False)
             and not late
         )
         prev_red_state = red_state_hist[-1] if red_state_hist else False
@@ -343,19 +344,19 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
             and (m["ret7"] <= 7.0)
             and (m["ret15"] <= 12.0)
             and (m["ret20"] <= 14.0)
-            and ((m["close"] <= m["prev_box_high25"] * 1.01) if m["prev_box_high25"] > 0 else True)
-            and ((m["volume"] >= m["vol_ma20"] * 1.10) if m["vol_ma20"] > 0 else False)
+            and ((m["close"] <= m["prev_box_high25"] * 1.02) if m["prev_box_high25"] > 0 else True)
+            and ((m["volume"] >= m["vol_ma20"] * 1.00) if m["vol_ma20"] > 0 else False)
             and not late
         )
 
         pullback_box = (
             had_blue1_recent
             and not late
-            and (3.0 <= m["pullback_pct25"] <= 14.0)
+            and (2.5 <= m["pullback_pct25"] <= 15.0)
             and (((m["close"] >= m["ma20"] * 0.97) if m["ma20"] > 0 else False) or ((m["close"] >= m["ma60"] * 0.98) if m["ma60"] > 0 else False))
-            and ((m["vol_ma5"] <= m["vol_ma20"] * 1.00) if m["vol_ma20"] > 0 else False)
-            and ((m["close"] < m["box_high25"] * 0.985) if m["box_high25"] > 0 else False)
-            and (m["low5"] > m["low20"] * 1.03 if m["low20"] > 0 else False)
+            and ((m["vol_ma5"] <= m["vol_ma20"] * 1.05) if m["vol_ma20"] > 0 else False)
+            and ((m["close"] < m["box_high25"] * 0.99) if m["box_high25"] > 0 else False)
+            and (m["low5"] > m["low20"] * 1.01 if m["low20"] > 0 else False)
             and not red_state_raw
         )
 
@@ -364,7 +365,7 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
             and m["change_ready"]
             and ((m["close"] >= m["ma20"] * 0.99) if m["ma20"] > 0 else False)
             and ((m["ma5"] >= m["ma20"] * 0.995) if m["ma20"] > 0 and m["ma5"] > 0 else False)
-            and ((m["close"] >= m["prev_box_high10"] * 0.99) if m["prev_box_high10"] > 0 else False)
+            and ((m["close"] >= m["prev_box_high10"] * 0.985) if m["prev_box_high10"] > 0 else False)
             and not late
         )
         blue2_onset = (
@@ -372,7 +373,7 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
             and (not prev_red_state)
             and had_blue1_recent
             and had_pullback_recent
-            and ((m["volume"] >= m["vol_ma20"] * 1.08) if m["vol_ma20"] > 0 else False)
+            and ((m["volume"] >= m["vol_ma20"] * 1.00) if m["vol_ma20"] > 0 else False)
             and not late
         )
 
