@@ -1,3 +1,4 @@
+# 수박/파란점 게이트 디버그 출력본
 # red onset 기반 미세완화 튜닝본
 # red onset(빨강 시작점) 기반 수박/파란점 반영본
 # 수박 하드 필터 + 최종 상태 1개 강제 반영본
@@ -472,9 +473,15 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
         "pullback_pct25": round(cur["pullback_pct25"], 2),
         "box_range_pct25": round(cur["box_range_pct25"], 2),
         "max_day_up10": round(cur["max_day_up10"], 2),
+        "intro_box_ready": bool(cur["intro_box_ready"]),
+        "change_ready": bool(cur["change_ready"]),
+        "red_state_raw": bool(cur["red_state_raw"]),
         "red_onset": bool(cur["red_onset"]),
         "blue1_onset": bool(cur["blue1_onset"]),
+        "pullback_box": bool(cur["pullback_box"]),
+        "red_state_raw_2": bool(cur["red_state_raw_2"]),
         "blue2_onset": bool(cur["blue2_onset"]),
+        "late": bool(cur["late"]),
     }
 
     return {
@@ -503,6 +510,15 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
         "wm_state_blue": bool(wm_state_blue),
         "wm_state_name": state_name,
         "wm_state_grade": grade,
+        "wm_debug_intro_box_ready": bool(cur["intro_box_ready"]),
+        "wm_debug_change_ready": bool(cur["change_ready"]),
+        "wm_debug_red_state_raw": bool(cur["red_state_raw"]),
+        "wm_debug_red_onset": bool(cur["red_onset"]),
+        "wm_debug_blue1_onset": bool(cur["blue1_onset"]),
+        "wm_debug_pullback_box": bool(cur["pullback_box"]),
+        "wm_debug_red_state_raw_2": bool(cur["red_state_raw_2"]),
+        "wm_debug_blue2_onset": bool(cur["blue2_onset"]),
+        "wm_debug_late": bool(cur["late"]),
         "wm_state_tags": tags,
         "wm_state_detail": detail,
     }
@@ -542,6 +558,31 @@ def build_watermelon_state_top5(df: pd.DataFrame):
 
     return green_df, red_df, blue_df, intro_df, pullback_df, late_df, blue1_df, blue2_df
 
+
+
+def build_watermelon_debug_block(title: str, df: pd.DataFrame) -> str:
+    if df is None or df.empty:
+        return f"🔬 [{title}]\n- 해당 종목 없음\n"
+    lines = [f"🔬 [{title}]\n"]
+    for rank, (_, row) in enumerate(df.iterrows(), 1):
+        name = row.get('종목명', '')
+        code = row.get('code', '')
+        state = row.get('수박최종상태', row.get('수박상태명', ''))
+        intro_box = 1 if bool(row.get('수박디버그_intro_box', False)) else 0
+        change = 1 if bool(row.get('수박디버그_change', False)) else 0
+        red_raw = 1 if bool(row.get('수박디버그_red_raw', False)) else 0
+        red_onset = 1 if bool(row.get('수박디버그_red_onset', False)) else 0
+        blue1_onset = 1 if bool(row.get('수박디버그_blue1_onset', False)) else 0
+        pullback_box = 1 if bool(row.get('수박디버그_pullback_box', False)) else 0
+        red2_raw = 1 if bool(row.get('수박디버그_red2_raw', False)) else 0
+        blue2_onset = 1 if bool(row.get('수박디버그_blue2_onset', False)) else 0
+        late = 1 if bool(row.get('수박디버그_late', False)) else 0
+        lines.append(
+            f"{rank}) {name}({code})\n"
+            f"- 최종상태: {state}\n"
+            f"- gate: intro_box={intro_box} / change={change} / red_raw={red_raw} / red_onset={red_onset} / blue1_onset={blue1_onset} / pullback_box={pullback_box} / red2_raw={red2_raw} / blue2_onset={blue2_onset} / late={late}\n"
+        )
+    return "\n".join(lines)
 
 def build_watermelon_state_block(title: str, df: pd.DataFrame) -> str:
     if df is None or df.empty:
@@ -6746,6 +6787,15 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             '파란점선1단기점수': int(wm_bundle.get('wm_blue1_score', 0)),
             '파란점선2스윙점수': int(wm_bundle.get('wm_blue2_score', 0)),
             '수박최종상태': str(wm_bundle.get('wm_final_state', '')),
+            '수박디버그_intro_box': bool(wm_bundle.get('wm_debug_intro_box_ready', False)),
+            '수박디버그_change': bool(wm_bundle.get('wm_debug_change_ready', False)),
+            '수박디버그_red_raw': bool(wm_bundle.get('wm_debug_red_state_raw', False)),
+            '수박디버그_red_onset': bool(wm_bundle.get('wm_debug_red_onset', False)),
+            '수박디버그_blue1_onset': bool(wm_bundle.get('wm_debug_blue1_onset', False)),
+            '수박디버그_pullback_box': bool(wm_bundle.get('wm_debug_pullback_box', False)),
+            '수박디버그_red2_raw': bool(wm_bundle.get('wm_debug_red_state_raw_2', False)),
+            '수박디버그_blue2_onset': bool(wm_bundle.get('wm_debug_blue2_onset', False)),
+            '수박디버그_late': bool(wm_bundle.get('wm_debug_late', False)),
             '수박상태명': str(wm_bundle.get('wm_state_name', '')),
             '수박상태등급': str(wm_bundle.get('wm_state_grade', '없음')),
             '수박상태태그': " ".join(wm_bundle.get('wm_state_tags', [])),
@@ -7592,6 +7642,12 @@ if __name__ == "__main__":
     all_hits_df_for_pre = pd.DataFrame(all_hits_sorted) if all_hits_sorted else pd.DataFrame()
     pre_top5, exact_top5, broad_only_top5, lite_top5 = build_pre_dolbanji_top5(all_hits_df_for_pre)
     wm_green_top5, wm_red_top5, wm_blue_top5, wm_intro_top5, wm_pullback_top5, wm_late_top5, wm_blue1_top5, wm_blue2_top5 = build_watermelon_state_top5(all_hits_df_for_pre)
+    wm_debug_top5 = all_hits_df_for_pre.copy()
+    debug_sort_cols = [c for c in ["수박파란점선점수", "수박공격점수", "수박포켓점수", "안전점수", "N점수"] if c in wm_debug_top5.columns]
+    if debug_sort_cols:
+        wm_debug_top5 = wm_debug_top5.sort_values(by=debug_sort_cols, ascending=[False] * len(debug_sort_cols)).head(5).reset_index(drop=True)
+    else:
+        wm_debug_top5 = wm_debug_top5.head(5).reset_index(drop=True)
     log_info(f"💍 예비돌반지 전체 TOP5 수: {len(pre_top5)}")
     log_info(f"💍 HTS 정확복제형 TOP5 수: {len(exact_top5)}")
     log_info(f"💍 기존 예비돌반지 TOP5 수: {len(broad_only_top5)}")
@@ -7750,6 +7806,7 @@ if __name__ == "__main__":
     wm_green_block = build_watermelon_state_block("수박상태 초록 TOP 5", wm_green_top5)
     wm_red_block = build_watermelon_state_block("수박상태 빨강 TOP 5", wm_red_top5)
     wm_blue_block = build_watermelon_state_block("파란점선 타점 TOP 5", wm_blue_top5)
+    wm_debug_block = build_watermelon_debug_block("수박/파란점 디버그 TOP 5", wm_debug_top5)
     wm_intro_block = build_watermelon_state_block("초입수박 TOP 5", wm_intro_top5)
     wm_pullback_block = build_watermelon_state_block("눌림수박 TOP 5", wm_pullback_top5)
     wm_late_block = build_watermelon_state_block("후행수박 TOP 5", wm_late_top5)
@@ -7959,7 +8016,7 @@ if __name__ == "__main__":
             current_msg += entry
 
     # 마지막 블록은 급등후보 + 예비돌반지 별도 TOP5
-    final_block = (stage_block or "") + "\n" + pre_block + "\n" + exact_block + "\n" + lite_block + "\n" + wm_green_block + "\n" + wm_red_block + "\n" + wm_blue_block + "\n" + wm_intro_block + "\n" + wm_pullback_block + "\n" + wm_late_block + "\n" + wm_blue1_block + "\n" + wm_blue2_block
+    final_block = (stage_block or "") + "\n" + pre_block + "\n" + exact_block + "\n" + lite_block + "\n" + wm_green_block + "\n" + wm_red_block + "\n" + wm_blue_block + "\n" + wm_debug_block + "\n" + wm_intro_block + "\n" + wm_pullback_block + "\n" + wm_late_block + "\n" + wm_blue1_block + "\n" + wm_blue2_block
 
     # ✅ FIX: stage_block 이 있을 때도 메인 TOP15 메시지가 누락되지 않도록 전송 순서 보정
     if final_block:
