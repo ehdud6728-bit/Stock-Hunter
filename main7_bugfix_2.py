@@ -1,3 +1,4 @@
+# 수박 하드 필터 + 최종 상태 1개 강제 반영본
 # 박스권 + 변화 + 돌파 엔진 반영본
 # 수박/파란점 재정의 기준표 반영 튜닝본
 # 수박상태 완성형: 초입/눌림/후행 + Blue-1/Blue-2 분리본
@@ -304,15 +305,7 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
         blue1_recent_12 = sum(1 for x in blue1_raw_hist[-12:] if x) >= 1
         blue2_recent_20 = sum(1 for x in blue2_raw_hist[-20:] if x) >= 1
 
-        intro = (
-            m["box_ready"]
-            and m["attack_score"] >= 3
-            and m["not_extended"]
-            and m["near_box_top_not_late"]
-            and not blue1_recent_20
-        )
-
-        # 후행: 이미 많이 갔거나 전고점 재도전형
+        # 후행: 이미 많이 갔거나 전고점 재도전형은 수박 후보군에서 우선 제외
         late = (
             (m["ret20"] >= 18.0)
             or (m["max_day_up10"] >= 11.0)
@@ -320,15 +313,36 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
             or blue2_recent_20
         )
 
-        # Blue-1: 초입 박스 상단 첫 돌파
-        blue1_raw = (
-            intro
+        # 초입수박 하드 필터: 박스가 실제로 있어야 하고, 과열/전고점 재도전형/이전 돌파 이력이 있으면 탈락
+        intro_gate = (
+            m["box_ready"]
+            and (7.0 <= m["box_range_pct20"] <= 18.0)
+            and (m["attack_score"] >= 2)
+            and (m["attack_score"] <= 4)
+            and (m["ret7"] <= 6.0)
+            and (m["ret15"] <= 10.0)
+            and (m["ret20"] <= 12.0)
+            and (m["max_day_up10"] <= 8.0)
+            and ((m["close"] <= m["prev_box_high20"] * 0.97) if m["prev_box_high20"] > 0 else True)
+            and ((m["volume"] <= m["vol_ma20"] * 1.10) if m["vol_ma20"] > 0 else True)
+            and not blue1_recent_20
+            and not blue2_recent_20
             and not late
+        )
+
+        intro = bool(intro_gate)
+
+        # Blue-1: 초입 박스 상단 첫 돌파. 이미 많이 간/전고점 재도전형은 금지
+        blue1_raw = (
+            intro_gate
             and m["breakout"]
             and (m["volume"] >= m["vol_ma20"] * 1.35 if m["vol_ma20"] > 0 else False)
             and (m["close"] > m["prev_box_high5"] if m["prev_box_high5"] > 0 else False)
-            and (m["ret7"] <= 8.0)
-            and (m["ret15"] <= 14.0)
+            and (m["ret7"] <= 7.0)
+            and (m["ret15"] <= 12.0)
+            and (m["ret20"] <= 14.0)
+            and ((m["close"] <= m["prev_box_high20"] * 1.015) if m["prev_box_high20"] > 0 else True)
+            and not late
         )
         blue1_hold = (
             sum(1 for x in (blue1_raw_hist + [blue1_raw])[-3:] if x) >= 1
@@ -336,8 +350,8 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
             and not late
         )
 
-        # 눌림수박: Blue-1 이후 건강한 눌림 박스
-        pullback = (
+        # 눌림수박 하드 필터: 반드시 Blue-1 이력이 먼저 있어야 하고, 건강한 눌림 박스여야 함
+        pullback_gate = (
             blue1_recent_12
             and not late
             and (3.0 <= m["pullback_pct20"] <= 14.0)
@@ -346,14 +360,16 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
             and ((m["close"] < m["box_high20"] * 0.985) if m["box_high20"] > 0 else False)
             and (m["low5"] > m["low20"] * 1.04 if m["low20"] > 0 else False)
         )
+        pullback = bool(pullback_gate)
 
         # Blue-2: 눌림 박스 상단 재돌파
         blue2_raw = (
-            pullback
+            pullback_gate
             and ((m["close"] > m["prev_box_high5"]) if m["prev_box_high5"] > 0 else False)
             and ((m["volume"] >= m["vol_ma20"] * 1.15) if m["vol_ma20"] > 0 else False)
             and ((m["ma5"] >= m["ma20"] * 0.995) if m["ma20"] > 0 and m["ma5"] > 0 else False)
             and (m["rsi"] < 71.0)
+            and not late
         )
         blue2_hold = (
             sum(1 for x in (blue2_raw_hist + [blue2_raw])[-4:] if x) >= 1
@@ -361,10 +377,23 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
             and not late
         )
 
-        pocket_raw = intro or pullback
-        pocket_hold = (intro or pullback) and not (blue1_hold or blue2_hold)
-        attack_raw = blue1_raw or blue2_raw
-        attack_hold = (blue1_hold or blue2_hold) and not late
+        # 최종 상태는 하나만 갖게 함
+        final_state = ""
+        if late:
+            final_state = "후행수박"
+        elif blue2_hold:
+            final_state = "Blue-2스윙"
+        elif pullback:
+            final_state = "눌림수박"
+        elif blue1_hold:
+            final_state = "Blue-1단기"
+        elif intro:
+            final_state = "초입수박"
+
+        pocket_raw = final_state in ("초입수박", "눌림수박")
+        pocket_hold = pocket_raw
+        attack_raw = final_state in ("Blue-1단기", "Blue-2스윙")
+        attack_hold = attack_raw
 
         hist.append({
             **m,
@@ -379,38 +408,35 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
             "blue1_hold": blue1_hold,
             "blue2_raw": blue2_raw,
             "blue2_hold": blue2_hold,
+            "final_state": final_state,
         })
         blue1_raw_hist.append(bool(blue1_raw))
         blue2_raw_hist.append(bool(blue2_raw))
 
     cur = hist[-1]
 
-    wm_state_green = bool((cur["intro"] or cur["pullback"]) and not (cur["blue1_hold"] or cur["blue2_hold"]) and not cur["late"])
-    wm_state_red = bool((cur["blue1_hold"] or cur["blue2_hold"]) and not cur["late"])
-    wm_state_blue = bool(cur["blue1_hold"] or cur["blue2_hold"])
+    final_state = cur.get("final_state", "")
+    wm_state_green = final_state in ("초입수박", "눌림수박")
+    wm_state_red = final_state in ("Blue-1단기", "Blue-2스윙")
+    wm_state_blue = wm_state_red
 
     tags = []
     state_name = "없음"
-    if cur["intro"]:
-        tags.append("🟢초입수박")
+    if final_state == "초입수박":
+        tags = ["🟢초입수박"]
         state_name = "초입수박"
-    if cur["pullback"]:
-        tags.append("🟩눌림수박")
+    elif final_state == "눌림수박":
+        tags = ["🟩눌림수박"]
         state_name = "눌림수박"
-    if cur["late"]:
-        tags.append("🟠후행수박")
+    elif final_state == "후행수박":
+        tags = ["🟠후행수박"]
         state_name = "후행수박"
-    if cur["blue1_hold"]:
-        tags.append("🔵Blue-1단기")
+    elif final_state == "Blue-1단기":
+        tags = ["🔵Blue-1단기", "🍉재점화공격"]
         state_name = "Blue-1단기"
-    if cur["blue2_hold"]:
-        tags.append("🔷Blue-2스윙")
+    elif final_state == "Blue-2스윙":
+        tags = ["🔷Blue-2스윙", "🍉재점화공격"]
         state_name = "Blue-2스윙"
-    if wm_state_green and state_name == "없음":
-        tags.append("🍉재점화준비")
-        state_name = "재점화준비"
-    if wm_state_red and ("🍉재점화공격" not in tags):
-        tags.append("🍉재점화공격")
 
     wm_blue1_score = int(
         int(cur["intro"])
@@ -470,13 +496,14 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
         "wm_attack_hold": bool(cur["attack_hold"]),
         "wm_blue_raw": bool(cur["blue1_raw"] or cur["blue2_raw"]),
         "wm_blue_hold": bool(cur["blue1_hold"] or cur["blue2_hold"]),
-        "wm_intro": bool(cur["intro"]),
-        "wm_pullback": bool(cur["pullback"]),
-        "wm_late": bool(cur["late"]),
+        "wm_final_state": final_state,
+        "wm_intro": bool(final_state == "초입수박"),
+        "wm_pullback": bool(final_state == "눌림수박"),
+        "wm_late": bool(final_state == "후행수박"),
         "wm_blue1_raw": bool(cur["blue1_raw"]),
-        "wm_blue1_hold": bool(cur["blue1_hold"]),
+        "wm_blue1_hold": bool(final_state == "Blue-1단기"),
         "wm_blue2_raw": bool(cur["blue2_raw"]),
-        "wm_blue2_hold": bool(cur["blue2_hold"]),
+        "wm_blue2_hold": bool(final_state == "Blue-2스윙"),
         "wm_state_green": bool(wm_state_green),
         "wm_state_red": bool(wm_state_red),
         "wm_state_blue": bool(wm_state_blue),
@@ -485,6 +512,7 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
         "wm_state_tags": tags,
         "wm_state_detail": detail,
     }
+
 
 
 def build_watermelon_state_top5(df: pd.DataFrame):
@@ -498,18 +526,8 @@ def build_watermelon_state_top5(df: pd.DataFrame):
         return empty, empty, empty, empty, empty, empty, empty, empty
 
     work = df.copy()
-
-    def _mask(col: str):
-        return work[col].apply(_wm_bool) if col in work.columns else pd.Series(False, index=work.index)
-
-    green_mask = _mask("수박상태초록") | _mask("wm_state_green")
-    red_mask = _mask("수박상태빨강") | _mask("wm_state_red")
-    blue_mask = _mask("수박파란점선") | _mask("wm_state_blue")
-    intro_mask = _mask("수박초입형") | _mask("wm_intro")
-    pullback_mask = _mask("수박눌림형") | _mask("wm_pullback")
-    late_mask = _mask("수박후행형") | _mask("wm_late")
-    blue1_mask = _mask("파란점선1단기") | _mask("wm_blue1_hold")
-    blue2_mask = _mask("파란점선2스윙") | _mask("wm_blue2_hold")
+    if "수박최종상태" not in work.columns:
+        work["수박최종상태"] = work.get("수박상태명", "")
 
     def _sort(df_in: pd.DataFrame, cols: list) -> pd.DataFrame:
         if df_in is None or df_in.empty:
@@ -519,14 +537,15 @@ def build_watermelon_state_top5(df: pd.DataFrame):
             return df_in.head(5).reset_index(drop=True)
         return df_in.sort_values(by=sort_cols, ascending=[False] * len(sort_cols)).head(5).reset_index(drop=True)
 
-    green_df = _sort(work[green_mask].copy(), ["수박파란점선점수", "수박공격점수", "수박포켓점수", "안전점수", "N점수"])
-    red_df = _sort(work[red_mask].copy(), ["수박파란점선점수", "수박공격점수", "수박포켓점수", "안전점수", "N점수"])
-    blue_df = _sort(work[blue_mask].copy(), ["수박파란점선점수", "수박공격점수", "안전점수", "N점수"])
-    intro_df = _sort(work[intro_mask].copy(), ["파란점선1단기점수", "수박공격점수", "안전점수", "N점수"])
-    pullback_df = _sort(work[pullback_mask].copy(), ["파란점선2스윙점수", "수박포켓점수", "안전점수", "N점수"])
-    late_df = _sort(work[late_mask].copy(), ["수박공격점수", "수박기반점수", "N점수"])
-    blue1_df = _sort(work[blue1_mask].copy(), ["파란점선1단기점수", "수박공격점수", "안전점수", "N점수"])
-    blue2_df = _sort(work[blue2_mask].copy(), ["파란점선2스윙점수", "수박포켓점수", "안전점수", "N점수"])
+    intro_df = _sort(work[work["수박최종상태"] == "초입수박"].copy(), ["수박포켓점수", "수박기반점수", "안전점수", "N점수"])
+    pullback_df = _sort(work[work["수박최종상태"] == "눌림수박"].copy(), ["수박포켓점수", "수박기반점수", "안전점수", "N점수"])
+    late_df = _sort(work[work["수박최종상태"] == "후행수박"].copy(), ["수박공격점수", "수박기반점수", "N점수"])
+    blue1_df = _sort(work[work["수박최종상태"] == "Blue-1단기"].copy(), ["파란점선1단기점수", "수박공격점수", "안전점수", "N점수"])
+    blue2_df = _sort(work[work["수박최종상태"] == "Blue-2스윙"].copy(), ["파란점선2스윙점수", "수박포켓점수", "안전점수", "N점수"])
+
+    green_df = _sort(work[work["수박최종상태"].isin(["초입수박", "눌림수박"])].copy(), ["수박포켓점수", "수박기반점수", "안전점수", "N점수"])
+    red_df = _sort(work[work["수박최종상태"].isin(["Blue-1단기", "Blue-2스윙"])].copy(), ["수박파란점선점수", "수박공격점수", "안전점수", "N점수"])
+    blue_df = _sort(work[work["수박최종상태"].isin(["Blue-1단기", "Blue-2스윙"])].copy(), ["수박파란점선점수", "수박공격점수", "안전점수", "N점수"])
 
     return green_df, red_df, blue_df, intro_df, pullback_df, late_df, blue1_df, blue2_df
 
@@ -538,7 +557,7 @@ def build_watermelon_state_block(title: str, df: pd.DataFrame) -> str:
     for rank, (_, row) in enumerate(df.iterrows(), 1):
         name = row.get('종목명', '')
         code = row.get('code', '')
-        state = row.get('수박상태명', row.get('wm_state_name', ''))
+        state = row.get('수박최종상태', row.get('수박상태명', row.get('wm_state_name', '')))
         grade = row.get('수박상태등급', row.get('wm_state_grade', ''))
         b = row.get('수박기반점수', row.get('wm_base_score', 0))
         p = row.get('수박포켓점수', row.get('wm_pocket_score', 0))
@@ -6733,6 +6752,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             '수박파란점선점수': int(wm_bundle.get('wm_blue_score', 0)),
             '파란점선1단기점수': int(wm_bundle.get('wm_blue1_score', 0)),
             '파란점선2스윙점수': int(wm_bundle.get('wm_blue2_score', 0)),
+            '수박최종상태': str(wm_bundle.get('wm_final_state', '')),
             '수박상태명': str(wm_bundle.get('wm_state_name', '')),
             '수박상태등급': str(wm_bundle.get('wm_state_grade', '없음')),
             '수박상태태그': " ".join(wm_bundle.get('wm_state_tags', [])),
