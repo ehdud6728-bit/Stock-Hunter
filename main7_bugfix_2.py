@@ -1,3 +1,4 @@
+# 수박/파란점 intro_box 세부조건 디버그 완성본
 # 수박/파란점 게이트 디버그 출력본
 # red onset 기반 미세완화 튜닝본
 # red onset(빨강 시작점) 기반 수박/파란점 반영본
@@ -312,19 +313,31 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
             or had_blue2_recent
         )
 
+        intro_box_range_ok = bool(6.0 <= m["box_range_pct25"] <= 20.0)
+        intro_attack_band_ok = bool(m["attack_score"] >= 2 and m["attack_score"] <= 4)
+        intro_ret7_ok = bool(m["ret7"] <= 8.0)
+        intro_ret15_ok = bool(m["ret15"] <= 12.0)
+        intro_ret20_ok = bool(m["ret20"] <= 15.0)
+        intro_dayup_ok = bool(m["max_day_up10"] <= 9.0)
+        intro_top_near_ok = bool((m["close"] <= m["prev_box_high25"] * 0.985) if m["prev_box_high25"] > 0 else True)
+        intro_vol_calm_ok = bool((m["volume"] <= m["vol_ma20"] * 1.20) if m["vol_ma20"] > 0 else True)
+        intro_no_prior_blue1_ok = bool(not had_blue1_recent)
+        intro_no_prior_blue2_ok = bool(not had_blue2_recent)
+        intro_not_late_ok = bool(not late)
+
         intro_box_ready = (
             m["box_ready"]
-            and (6.0 <= m["box_range_pct25"] <= 20.0)
-            and (m["attack_score"] >= 2 and m["attack_score"] <= 4)
-            and (m["ret7"] <= 8.0)
-            and (m["ret15"] <= 12.0)
-            and (m["ret20"] <= 15.0)
-            and (m["max_day_up10"] <= 9.0)
-            and ((m["close"] <= m["prev_box_high25"] * 0.985) if m["prev_box_high25"] > 0 else True)
-            and ((m["volume"] <= m["vol_ma20"] * 1.20) if m["vol_ma20"] > 0 else True)
-            and not had_blue1_recent
-            and not had_blue2_recent
-            and not late
+            and intro_box_range_ok
+            and intro_attack_band_ok
+            and intro_ret7_ok
+            and intro_ret15_ok
+            and intro_ret20_ok
+            and intro_dayup_ok
+            and intro_top_near_ok
+            and intro_vol_calm_ok
+            and intro_no_prior_blue1_ok
+            and intro_no_prior_blue2_ok
+            and intro_not_late_ok
         )
 
         red_state_raw = (
@@ -404,6 +417,17 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
             "red_state_raw_2": red_state_raw_2,
             "blue2_onset": blue2_onset,
             "late": late,
+            "intro_box_range_ok": intro_box_range_ok,
+            "intro_attack_band_ok": intro_attack_band_ok,
+            "intro_ret7_ok": intro_ret7_ok,
+            "intro_ret15_ok": intro_ret15_ok,
+            "intro_ret20_ok": intro_ret20_ok,
+            "intro_dayup_ok": intro_dayup_ok,
+            "intro_top_near_ok": intro_top_near_ok,
+            "intro_vol_calm_ok": intro_vol_calm_ok,
+            "intro_no_prior_blue1_ok": intro_no_prior_blue1_ok,
+            "intro_no_prior_blue2_ok": intro_no_prior_blue2_ok,
+            "intro_not_late_ok": intro_not_late_ok,
             "pocket_raw": pocket_raw,
             "pocket_hold": pocket_raw,
             "attack_raw": attack_raw,
@@ -482,6 +506,17 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
         "red_state_raw_2": bool(cur["red_state_raw_2"]),
         "blue2_onset": bool(cur["blue2_onset"]),
         "late": bool(cur["late"]),
+        "intro_box_range_ok": bool(cur.get("intro_box_range_ok", False)),
+        "intro_attack_band_ok": bool(cur.get("intro_attack_band_ok", False)),
+        "intro_ret7_ok": bool(cur.get("intro_ret7_ok", False)),
+        "intro_ret15_ok": bool(cur.get("intro_ret15_ok", False)),
+        "intro_ret20_ok": bool(cur.get("intro_ret20_ok", False)),
+        "intro_dayup_ok": bool(cur.get("intro_dayup_ok", False)),
+        "intro_top_near_ok": bool(cur.get("intro_top_near_ok", False)),
+        "intro_vol_calm_ok": bool(cur.get("intro_vol_calm_ok", False)),
+        "intro_no_prior_blue1_ok": bool(cur.get("intro_no_prior_blue1_ok", False)),
+        "intro_no_prior_blue2_ok": bool(cur.get("intro_no_prior_blue2_ok", False)),
+        "intro_not_late_ok": bool(cur.get("intro_not_late_ok", False)),
     }
 
     return {
@@ -519,6 +554,17 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
         "wm_debug_red_state_raw_2": bool(cur["red_state_raw_2"]),
         "wm_debug_blue2_onset": bool(cur["blue2_onset"]),
         "wm_debug_late": bool(cur["late"]),
+        "wm_debug_intro_box_range_ok": bool(cur.get("intro_box_range_ok", False)),
+        "wm_debug_intro_attack_band_ok": bool(cur.get("intro_attack_band_ok", False)),
+        "wm_debug_intro_ret7_ok": bool(cur.get("intro_ret7_ok", False)),
+        "wm_debug_intro_ret15_ok": bool(cur.get("intro_ret15_ok", False)),
+        "wm_debug_intro_ret20_ok": bool(cur.get("intro_ret20_ok", False)),
+        "wm_debug_intro_dayup_ok": bool(cur.get("intro_dayup_ok", False)),
+        "wm_debug_intro_top_near_ok": bool(cur.get("intro_top_near_ok", False)),
+        "wm_debug_intro_vol_calm_ok": bool(cur.get("intro_vol_calm_ok", False)),
+        "wm_debug_intro_no_prior_blue1_ok": bool(cur.get("intro_no_prior_blue1_ok", False)),
+        "wm_debug_intro_no_prior_blue2_ok": bool(cur.get("intro_no_prior_blue2_ok", False)),
+        "wm_debug_intro_not_late_ok": bool(cur.get("intro_not_late_ok", False)),
         "wm_state_tags": tags,
         "wm_state_detail": detail,
     }
@@ -577,10 +623,22 @@ def build_watermelon_debug_block(title: str, df: pd.DataFrame) -> str:
         red2_raw = 1 if bool(row.get('수박디버그_red2_raw', False)) else 0
         blue2_onset = 1 if bool(row.get('수박디버그_blue2_onset', False)) else 0
         late = 1 if bool(row.get('수박디버그_late', False)) else 0
+        box_range_ok = 1 if bool(row.get('수박디버그_box_range_ok', False)) else 0
+        attack_band_ok = 1 if bool(row.get('수박디버그_attack_band_ok', False)) else 0
+        ret7_ok = 1 if bool(row.get('수박디버그_ret7_ok', False)) else 0
+        ret15_ok = 1 if bool(row.get('수박디버그_ret15_ok', False)) else 0
+        ret20_ok = 1 if bool(row.get('수박디버그_ret20_ok', False)) else 0
+        dayup_ok = 1 if bool(row.get('수박디버그_dayup_ok', False)) else 0
+        top_near_ok = 1 if bool(row.get('수박디버그_top_near_ok', False)) else 0
+        vol_calm_ok = 1 if bool(row.get('수박디버그_vol_calm_ok', False)) else 0
+        no_blue1_ok = 1 if bool(row.get('수박디버그_no_blue1_ok', False)) else 0
+        no_blue2_ok = 1 if bool(row.get('수박디버그_no_blue2_ok', False)) else 0
+        not_late_ok = 1 if bool(row.get('수박디버그_not_late_ok', False)) else 0
         lines.append(
             f"{rank}) {name}({code})\n"
             f"- 최종상태: {state}\n"
             f"- gate: intro_box={intro_box} / change={change} / red_raw={red_raw} / red_onset={red_onset} / blue1_onset={blue1_onset} / pullback_box={pullback_box} / red2_raw={red2_raw} / blue2_onset={blue2_onset} / late={late}\n"
+            f"- intro_sub: range={box_range_ok} / attack_band={attack_band_ok} / ret7={ret7_ok} / ret15={ret15_ok} / ret20={ret20_ok} / dayup={dayup_ok} / top_near={top_near_ok} / vol_calm={vol_calm_ok} / no_blue1={no_blue1_ok} / no_blue2={no_blue2_ok} / not_late={not_late_ok}\n"
         )
     return "\n".join(lines)
 
@@ -6796,6 +6854,17 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             '수박디버그_red2_raw': bool(wm_bundle.get('wm_debug_red_state_raw_2', False)),
             '수박디버그_blue2_onset': bool(wm_bundle.get('wm_debug_blue2_onset', False)),
             '수박디버그_late': bool(wm_bundle.get('wm_debug_late', False)),
+            '수박디버그_box_range_ok': bool(wm_bundle.get('wm_debug_intro_box_range_ok', False)),
+            '수박디버그_attack_band_ok': bool(wm_bundle.get('wm_debug_intro_attack_band_ok', False)),
+            '수박디버그_ret7_ok': bool(wm_bundle.get('wm_debug_intro_ret7_ok', False)),
+            '수박디버그_ret15_ok': bool(wm_bundle.get('wm_debug_intro_ret15_ok', False)),
+            '수박디버그_ret20_ok': bool(wm_bundle.get('wm_debug_intro_ret20_ok', False)),
+            '수박디버그_dayup_ok': bool(wm_bundle.get('wm_debug_intro_dayup_ok', False)),
+            '수박디버그_top_near_ok': bool(wm_bundle.get('wm_debug_intro_top_near_ok', False)),
+            '수박디버그_vol_calm_ok': bool(wm_bundle.get('wm_debug_intro_vol_calm_ok', False)),
+            '수박디버그_no_blue1_ok': bool(wm_bundle.get('wm_debug_intro_no_prior_blue1_ok', False)),
+            '수박디버그_no_blue2_ok': bool(wm_bundle.get('wm_debug_intro_no_prior_blue2_ok', False)),
+            '수박디버그_not_late_ok': bool(wm_bundle.get('wm_debug_intro_not_late_ok', False)),
             '수박상태명': str(wm_bundle.get('wm_state_name', '')),
             '수박상태등급': str(wm_bundle.get('wm_state_grade', '없음')),
             '수박상태태그': " ".join(wm_bundle.get('wm_state_tags', [])),
