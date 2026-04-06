@@ -1,3 +1,4 @@
+# red onset(빨강 시작점) 기반 수박/파란점 반영본
 # 수박 하드 필터 + 최종 상태 1개 강제 반영본
 # 박스권 + 변화 + 돌파 엔진 반영본
 # 수박/파란점 재정의 기준표 반영 튜닝본
@@ -129,15 +130,16 @@ def _wm_series_bool(s: pd.Series) -> pd.Series:
 
 
 
+
 def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
     """
-    박스권 + 변화 + 돌파 엔진 기반 수박/파란점 번들.
-    개념:
-      - 초입수박: 하락/횡보 이후 박스 형성 + 변화 축적 상태
-      - Blue-1: 초입 박스 상단 첫 돌파(단기)
-      - 눌림수박: Blue-1 이후 건강한 눌림 박스 재형성
-      - Blue-2: 눌림 박스 상단 재돌파(스윙)
-      - 후행수박: 이미 많이 진행된 뒤의 늦은 상태 (신규매수보다 경계/관리)
+    red onset(붉은 보조지표 시작점) 기반 수박/파란점 엔진.
+    핵심:
+      - 초입수박: 실제 박스권이 있고, 아직 과열되지 않았으며, 아직 빨강이 시작되기 전 준비 상태
+      - Blue-1: 초입 박스에서 '첫 red onset'이 발생하는 순간(단기)
+      - 눌림수박: Blue-1 이후 건강한 눌림 박스가 다시 만들어진 상태
+      - Blue-2: 눌림 박스 이후 '두 번째 red onset'이 발생하는 순간(스윙)
+      - 후행수박: 이미 많이 진행된 뒤의 늦은 상태(신규매수보다 경계/관리)
     """
     empty_bundle = {
         "wm_base_score": 0,
@@ -162,6 +164,7 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
         "wm_state_green": False,
         "wm_state_red": False,
         "wm_state_blue": False,
+        "wm_final_state": "",
         "wm_state_name": "",
         "wm_state_grade": "없음",
         "wm_state_tags": [],
@@ -169,12 +172,6 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
     }
     if df is None or df.empty or len(df) < 80:
         return empty_bundle
-
-    def _safe_col_mean(sub: pd.DataFrame, col: str) -> float:
-        try:
-            return safe_float(sub[col].mean(), 0)
-        except Exception:
-            return 0.0
 
     def _upper_wick_ratio(row) -> float:
         try:
@@ -206,14 +203,16 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
 
         recent120 = sub.tail(120)
         recent30 = sub.tail(30)
+        recent25 = sub.tail(25)
         recent20 = sub.tail(20)
         recent15 = sub.tail(15)
         recent10 = sub.tail(10)
         recent5 = sub.tail(5)
 
-        box_high20 = safe_float(recent20["High"].max(), 0) if len(recent20) else 0
-        box_low20 = safe_float(recent20["Low"].min(), 0) if len(recent20) else 0
-        prev_box_high20 = safe_float(recent20["High"].iloc[:-1].max(), 0) if len(recent20) >= 2 else box_high20
+        box_high25 = safe_float(recent25["High"].max(), 0) if len(recent25) else 0
+        box_low25 = safe_float(recent25["Low"].min(), 0) if len(recent25) else 0
+        prev_box_high25 = safe_float(recent25["High"].iloc[:-1].max(), 0) if len(recent25) >= 2 else box_high25
+        prev_box_high20 = safe_float(recent20["High"].iloc[:-1].max(), 0) if len(recent20) >= 2 else safe_float(recent20["High"].max(), 0)
         prev_box_high10 = safe_float(recent10["High"].iloc[:-1].max(), 0) if len(recent10) >= 2 else safe_float(recent10["High"].max(), 0)
         prev_box_high5 = safe_float(recent5["High"].iloc[:-1].max(), 0) if len(recent5) >= 2 else safe_float(recent5["High"].max(), 0)
 
@@ -222,13 +221,14 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
         low15 = safe_float(recent15["Low"].min(), 0) if len(recent15) else 0
         low20 = safe_float(recent20["Low"].min(), 0) if len(recent20) else 0
 
-        vol_ma20 = _safe_col_mean(recent20, "Volume")
-        vol_ma5 = _safe_col_mean(recent5, "Volume")
+        vol_ma20 = safe_float(recent20["Volume"].mean(), 0) if len(recent20) else 0
+        vol_ma5 = safe_float(recent5["Volume"].mean(), 0) if len(recent5) else 0
         amount = close * volume
         amount_ma20 = safe_float((recent20["Close"] * recent20["Volume"]).mean(), 0) if len(recent20) else 0
 
-        box_range_pct20 = ((box_high20 - box_low20) / close * 100.0) if close > 0 and box_high20 > 0 else 999.0
-        pullback_pct20 = ((box_high20 - close) / box_high20 * 100.0) if box_high20 > 0 else 0.0
+        box_range_pct25 = ((box_high25 - box_low25) / close * 100.0) if close > 0 and box_high25 > 0 else 999.0
+        pullback_pct25 = ((box_high25 - close) / box_high25 * 100.0) if box_high25 > 0 else 0.0
+
         ret7 = ((close / safe_float(sub["Close"].iloc[-8], 0)) - 1.0) * 100.0 if len(sub) >= 8 and safe_float(sub["Close"].iloc[-8], 0) > 0 else 0.0
         ret15 = ((close / safe_float(sub["Close"].iloc[-16], 0)) - 1.0) * 100.0 if len(sub) >= 16 and safe_float(sub["Close"].iloc[-16], 0) > 0 else 0.0
         ret20 = ((close / safe_float(sub["Close"].iloc[-21], 0)) - 1.0) * 100.0 if len(sub) >= 21 and safe_float(sub["Close"].iloc[-21], 0) > 0 else 0.0
@@ -236,7 +236,6 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
         daychg10 = (((recent10["Close"] / recent10["Close"].shift(1)) - 1.0) * 100.0).replace([np.inf, -np.inf], np.nan).fillna(0) if len(recent10) else pd.Series(dtype=float)
         max_day_up10 = safe_float(daychg10.max(), 0) if len(daychg10) else 0
 
-        # 기반 점수: 이전 급등/활동 이력 + 구조 악화 중단
         cond_base_1 = bool((((recent120["High"] / recent120["Close"].shift(1)) - 1.0) * 100 >= 8).fillna(False).any()) if {"High", "Close"} <= set(recent120.columns) else False
         cond_base_2 = bool((recent120["Volume"] > recent120["Volume"].rolling(20, min_periods=5).mean() * 1.8).fillna(False).any()) if "Volume" in recent120.columns else False
         cond_base_3 = (close >= ma60 * 0.98) if ma60 > 0 else False
@@ -244,33 +243,29 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
         cond_base_5 = (obv >= obv_ma10) if obv_ma10 != 0 else False
         base_score = int(cond_base_1) + int(cond_base_2) + int(cond_base_3) + int(cond_base_4) + int(cond_base_5)
 
-        # 박스/포켓 점수: 박스 범위, 지지, 과열 아님
-        cond_pocket_1 = 6.0 <= box_range_pct20 <= 22.0
-        cond_pocket_2 = (close >= box_low20 * 1.03 and close <= prev_box_high20 * 1.02) if box_low20 > 0 and prev_box_high20 > 0 else False
-        cond_pocket_3 = (low5 >= low10 * 0.98) if low10 > 0 else False
+        cond_pocket_1 = 6.0 <= box_range_pct25 <= 18.0
+        cond_pocket_2 = (close >= box_low25 * 1.03 and close <= prev_box_high25 * 1.01) if box_low25 > 0 and prev_box_high25 > 0 else False
+        cond_pocket_3 = (low5 >= low10 * 0.985) if low10 > 0 else False
         cond_pocket_4 = (vol_ma5 <= vol_ma20 * 1.05) if vol_ma20 > 0 else False
         cond_pocket_5 = ((close >= ma20 * 0.97) if ma20 > 0 else False) or ((close >= ma60 * 0.98) if ma60 > 0 else False)
         pocket_score = int(cond_pocket_1) + int(cond_pocket_2) + int(cond_pocket_3) + int(cond_pocket_4) + int(cond_pocket_5)
 
-        # 변화/공격 점수: 수급, 거래대금, 구조 회복
         cond_attack_1 = (obv >= obv_ma10) if obv_ma10 != 0 else False
         cond_attack_2 = (close >= ma20 * 0.99) if ma20 > 0 else False
         cond_attack_3 = (ma5 >= ma20 * 0.995) if ma5 > 0 and ma20 > 0 else False
-        cond_attack_4 = (volume >= vol_ma20 * 1.15) if vol_ma20 > 0 else False
-        cond_attack_5 = (amount >= amount_ma20 * 1.15) if amount_ma20 > 0 else False
+        cond_attack_4 = (volume >= vol_ma20 * 1.05) if vol_ma20 > 0 else False
+        cond_attack_5 = (amount >= amount_ma20 * 1.05) if amount_ma20 > 0 else False
         attack_score = int(cond_attack_1) + int(cond_attack_2) + int(cond_attack_3) + int(cond_attack_4) + int(cond_attack_5)
 
-        # 박스 돌파 조건
-        cond_break_1 = (close > prev_box_high20 * 1.003) if prev_box_high20 > 0 else False
-        cond_break_2 = (volume >= vol_ma20 * 1.25) if vol_ma20 > 0 else False
-        cond_break_3 = _upper_wick_ratio(r) <= 35.0
-        cond_break_4 = (close >= ma20) if ma20 > 0 else False
-        cond_break_5 = rsi < 72.0
-        breakout = cond_break_1 and cond_break_2 and cond_break_3 and cond_break_4 and cond_break_5
+        change_ready = (
+            (attack_score >= 3)
+            and ((volume >= vol_ma20 * 1.05) if vol_ma20 > 0 else False)
+            and ((amount >= amount_ma20 * 1.05) if amount_ma20 > 0 else False)
+            and (_upper_wick_ratio(r) <= 40.0)
+            and (rsi < 72.0)
+        )
 
         box_ready = (base_score >= 2) and (pocket_score >= 4)
-        not_extended = (ret15 <= 14.0) and (ret20 <= 18.0) and (max_day_up10 <= 9.5)
-        near_box_top_not_late = (close <= prev_box_high20 * 1.04) if prev_box_high20 > 0 else True
 
         return {
             "close": close, "open": open_, "high": high, "low": low, "volume": volume,
@@ -278,150 +273,160 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
             "obv": obv, "obv_ma10": obv_ma10, "rsi": rsi,
             "vol_ma20": vol_ma20, "vol_ma5": vol_ma5,
             "amount": amount, "amount_ma20": amount_ma20,
-            "box_high20": box_high20, "box_low20": box_low20,
-            "prev_box_high20": prev_box_high20, "prev_box_high10": prev_box_high10, "prev_box_high5": prev_box_high5,
+            "box_high25": box_high25, "box_low25": box_low25,
+            "prev_box_high25": prev_box_high25, "prev_box_high20": prev_box_high20,
+            "prev_box_high10": prev_box_high10, "prev_box_high5": prev_box_high5,
             "low5": low5, "low10": low10, "low15": low15, "low20": low20,
-            "box_range_pct20": box_range_pct20, "pullback_pct20": pullback_pct20,
+            "box_range_pct25": box_range_pct25, "pullback_pct25": pullback_pct25,
             "ret7": ret7, "ret15": ret15, "ret20": ret20, "max_day_up10": max_day_up10,
             "base_score": base_score, "pocket_score": pocket_score, "attack_score": attack_score,
-            "box_ready": box_ready, "breakout": breakout,
-            "not_extended": not_extended, "near_box_top_not_late": near_box_top_not_late,
+            "box_ready": box_ready, "change_ready": change_ready,
             "cond_base": [cond_base_1, cond_base_2, cond_base_3, cond_base_4, cond_base_5],
             "cond_pocket": [cond_pocket_1, cond_pocket_2, cond_pocket_3, cond_pocket_4, cond_pocket_5],
             "cond_attack": [cond_attack_1, cond_attack_2, cond_attack_3, cond_attack_4, cond_attack_5],
-            "cond_break": [cond_break_1, cond_break_2, cond_break_3, cond_break_4, cond_break_5],
         }
 
-    start_idx = max(80, len(df) - 40)
+    start_idx = max(80, len(df) - 60)
     hist = []
-    blue1_raw_hist = []
-    blue2_raw_hist = []
+    red_state_hist = []
+    red_onset_hist = []
+    blue1_onset_hist = []
+    pullback_hist = []
+    blue2_onset_hist = []
 
     for i in range(start_idx, len(df)):
         sub = df.iloc[:i+1]
         m = _metrics(sub)
 
-        blue1_recent_20 = sum(1 for x in blue1_raw_hist[-20:] if x) >= 1
-        blue1_recent_12 = sum(1 for x in blue1_raw_hist[-12:] if x) >= 1
-        blue2_recent_20 = sum(1 for x in blue2_raw_hist[-20:] if x) >= 1
+        had_red_onset_recent = sum(1 for x in red_onset_hist[-20:] if x) >= 1
+        had_blue1_recent = sum(1 for x in blue1_onset_hist[-20:] if x) >= 1
+        had_pullback_recent = sum(1 for x in pullback_hist[-12:] if x) >= 1
+        had_blue2_recent = sum(1 for x in blue2_onset_hist[-25:] if x) >= 1
 
-        # 후행: 이미 많이 갔거나 전고점 재도전형은 수박 후보군에서 우선 제외
         late = (
             (m["ret20"] >= 18.0)
             or (m["max_day_up10"] >= 11.0)
-            or ((m["close"] >= m["prev_box_high20"] * 0.98) if m["prev_box_high20"] > 0 else False)
-            or blue2_recent_20
+            or ((m["close"] >= m["prev_box_high25"] * 0.985) if m["prev_box_high25"] > 0 else False)
+            or had_blue2_recent
         )
 
-        # 초입수박 하드 필터: 박스가 실제로 있어야 하고, 과열/전고점 재도전형/이전 돌파 이력이 있으면 탈락
-        intro_gate = (
+        intro_box_ready = (
             m["box_ready"]
-            and (7.0 <= m["box_range_pct20"] <= 18.0)
-            and (m["attack_score"] >= 2)
-            and (m["attack_score"] <= 4)
+            and (7.0 <= m["box_range_pct25"] <= 18.0)
+            and (m["attack_score"] >= 2 and m["attack_score"] <= 4)
             and (m["ret7"] <= 6.0)
             and (m["ret15"] <= 10.0)
             and (m["ret20"] <= 12.0)
             and (m["max_day_up10"] <= 8.0)
-            and ((m["close"] <= m["prev_box_high20"] * 0.97) if m["prev_box_high20"] > 0 else True)
+            and ((m["close"] <= m["prev_box_high25"] * 0.975) if m["prev_box_high25"] > 0 else True)
             and ((m["volume"] <= m["vol_ma20"] * 1.10) if m["vol_ma20"] > 0 else True)
-            and not blue1_recent_20
-            and not blue2_recent_20
+            and not had_blue1_recent
+            and not had_blue2_recent
             and not late
         )
 
-        intro = bool(intro_gate)
+        red_state_raw = (
+            intro_box_ready
+            and m["change_ready"]
+            and ((m["close"] >= m["ma20"] * 0.99) if m["ma20"] > 0 else False)
+            and ((m["ma5"] >= m["ma20"] * 0.995) if m["ma5"] > 0 and m["ma20"] > 0 else False)
+            and ((m["close"] >= m["prev_box_high10"] * 0.985) if m["prev_box_high10"] > 0 else False)
+            and not late
+        )
+        prev_red_state = red_state_hist[-1] if red_state_hist else False
+        red_onset = bool(red_state_raw and (not prev_red_state))
 
-        # Blue-1: 초입 박스 상단 첫 돌파. 이미 많이 간/전고점 재도전형은 금지
-        blue1_raw = (
-            intro_gate
-            and m["breakout"]
-            and (m["volume"] >= m["vol_ma20"] * 1.35 if m["vol_ma20"] > 0 else False)
-            and (m["close"] > m["prev_box_high5"] if m["prev_box_high5"] > 0 else False)
+        blue1_onset = (
+            red_onset
+            and intro_box_ready
+            and (not had_red_onset_recent)
             and (m["ret7"] <= 7.0)
             and (m["ret15"] <= 12.0)
             and (m["ret20"] <= 14.0)
-            and ((m["close"] <= m["prev_box_high20"] * 1.015) if m["prev_box_high20"] > 0 else True)
-            and not late
-        )
-        blue1_hold = (
-            sum(1 for x in (blue1_raw_hist + [blue1_raw])[-3:] if x) >= 1
-            and (m["close"] >= m["ma20"] * 0.99 if m["ma20"] > 0 else False)
+            and ((m["close"] <= m["prev_box_high25"] * 1.01) if m["prev_box_high25"] > 0 else True)
+            and ((m["volume"] >= m["vol_ma20"] * 1.10) if m["vol_ma20"] > 0 else False)
             and not late
         )
 
-        # 눌림수박 하드 필터: 반드시 Blue-1 이력이 먼저 있어야 하고, 건강한 눌림 박스여야 함
-        pullback_gate = (
-            blue1_recent_12
+        pullback_box = (
+            had_blue1_recent
             and not late
-            and (3.0 <= m["pullback_pct20"] <= 14.0)
+            and (3.0 <= m["pullback_pct25"] <= 14.0)
             and (((m["close"] >= m["ma20"] * 0.97) if m["ma20"] > 0 else False) or ((m["close"] >= m["ma60"] * 0.98) if m["ma60"] > 0 else False))
             and ((m["vol_ma5"] <= m["vol_ma20"] * 1.00) if m["vol_ma20"] > 0 else False)
-            and ((m["close"] < m["box_high20"] * 0.985) if m["box_high20"] > 0 else False)
-            and (m["low5"] > m["low20"] * 1.04 if m["low20"] > 0 else False)
+            and ((m["close"] < m["box_high25"] * 0.985) if m["box_high25"] > 0 else False)
+            and (m["low5"] > m["low20"] * 1.03 if m["low20"] > 0 else False)
+            and not red_state_raw
         )
-        pullback = bool(pullback_gate)
 
-        # Blue-2: 눌림 박스 상단 재돌파
-        blue2_raw = (
-            pullback_gate
-            and ((m["close"] > m["prev_box_high5"]) if m["prev_box_high5"] > 0 else False)
-            and ((m["volume"] >= m["vol_ma20"] * 1.15) if m["vol_ma20"] > 0 else False)
+        red_state_raw_2 = (
+            pullback_box
+            and m["change_ready"]
+            and ((m["close"] >= m["ma20"] * 0.99) if m["ma20"] > 0 else False)
             and ((m["ma5"] >= m["ma20"] * 0.995) if m["ma20"] > 0 and m["ma5"] > 0 else False)
-            and (m["rsi"] < 71.0)
+            and ((m["close"] >= m["prev_box_high10"] * 0.99) if m["prev_box_high10"] > 0 else False)
             and not late
         )
-        blue2_hold = (
-            sum(1 for x in (blue2_raw_hist + [blue2_raw])[-4:] if x) >= 1
-            and (m["close"] >= m["ma20"] * 0.99 if m["ma20"] > 0 else False)
+        blue2_onset = (
+            red_state_raw_2
+            and (not prev_red_state)
+            and had_blue1_recent
+            and had_pullback_recent
+            and ((m["volume"] >= m["vol_ma20"] * 1.08) if m["vol_ma20"] > 0 else False)
             and not late
         )
 
-        # 최종 상태는 하나만 갖게 함
+        # final state: onset를 우선, 그 다음 박스 준비 상태
         final_state = ""
         if late:
             final_state = "후행수박"
-        elif blue2_hold:
+        elif blue2_onset:
             final_state = "Blue-2스윙"
-        elif pullback:
+        elif pullback_box:
             final_state = "눌림수박"
-        elif blue1_hold:
+        elif blue1_onset:
             final_state = "Blue-1단기"
-        elif intro:
+        elif intro_box_ready:
             final_state = "초입수박"
 
         pocket_raw = final_state in ("초입수박", "눌림수박")
-        pocket_hold = pocket_raw
         attack_raw = final_state in ("Blue-1단기", "Blue-2스윙")
-        attack_hold = attack_raw
 
         hist.append({
             **m,
-            "pocket_raw": pocket_raw,
-            "pocket_hold": pocket_hold,
-            "attack_raw": attack_raw,
-            "attack_hold": attack_hold,
-            "intro": intro,
-            "pullback": pullback,
+            "intro_box_ready": intro_box_ready,
+            "red_state_raw": red_state_raw,
+            "red_onset": red_onset,
+            "blue1_onset": blue1_onset,
+            "pullback_box": pullback_box,
+            "red_state_raw_2": red_state_raw_2,
+            "blue2_onset": blue2_onset,
             "late": late,
-            "blue1_raw": blue1_raw,
-            "blue1_hold": blue1_hold,
-            "blue2_raw": blue2_raw,
-            "blue2_hold": blue2_hold,
+            "pocket_raw": pocket_raw,
+            "pocket_hold": pocket_raw,
+            "attack_raw": attack_raw,
+            "attack_hold": attack_raw,
+            "intro": final_state == "초입수박",
+            "pullback": final_state == "눌림수박",
+            "blue1_raw": blue1_onset,
+            "blue1_hold": final_state == "Blue-1단기",
+            "blue2_raw": blue2_onset,
+            "blue2_hold": final_state == "Blue-2스윙",
             "final_state": final_state,
         })
-        blue1_raw_hist.append(bool(blue1_raw))
-        blue2_raw_hist.append(bool(blue2_raw))
+        red_state_hist.append(bool(red_state_raw or red_state_raw_2))
+        red_onset_hist.append(bool(red_onset or blue2_onset))
+        blue1_onset_hist.append(bool(blue1_onset))
+        pullback_hist.append(bool(pullback_box))
+        blue2_onset_hist.append(bool(blue2_onset))
 
     cur = hist[-1]
-
     final_state = cur.get("final_state", "")
+
     wm_state_green = final_state in ("초입수박", "눌림수박")
     wm_state_red = final_state in ("Blue-1단기", "Blue-2스윙")
     wm_state_blue = wm_state_red
 
-    tags = []
-    state_name = "없음"
     if final_state == "초입수박":
         tags = ["🟢초입수박"]
         state_name = "초입수박"
@@ -437,50 +442,38 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
     elif final_state == "Blue-2스윙":
         tags = ["🔷Blue-2스윙", "🍉재점화공격"]
         state_name = "Blue-2스윙"
+    else:
+        tags = []
+        state_name = "없음"
 
-    wm_blue1_score = int(
-        int(cur["intro"])
-        + int(cur["breakout"])
-        + int(cur["volume"] >= cur["vol_ma20"] * 1.35 if cur["vol_ma20"] > 0 else False)
-        + int(cur["close"] > cur["prev_box_high5"] if cur["prev_box_high5"] > 0 else False)
-        + int(cur["ret7"] <= 8.0)
-        + int(cur["ret15"] <= 14.0)
-    )
-    wm_blue2_score = int(
-        int(cur["pullback"])
-        + int(cur["close"] > cur["prev_box_high5"] if cur["prev_box_high5"] > 0 else False)
-        + int(cur["volume"] >= cur["vol_ma20"] * 1.15 if cur["vol_ma20"] > 0 else False)
-        + int(cur["ma5"] >= cur["ma20"] * 0.995 if cur["ma20"] > 0 and cur["ma5"] > 0 else False)
-        + int(3.0 <= cur["pullback_pct20"] <= 14.0)
-        + int(cur["rsi"] < 71.0)
-    )
+    wm_blue1_score = int(cur["intro_box_ready"]) + int(cur["change_ready"]) + int(cur["red_onset"]) + int(cur["blue1_onset"]) + int(cur["ret7"] <= 7.0) + int(cur["ret15"] <= 12.0)
+    wm_blue2_score = int(cur["pullback_box"]) + int(cur["change_ready"]) + int(cur["blue2_onset"]) + int(3.0 <= cur["pullback_pct25"] <= 14.0) + int(cur["rsi"] < 71.0) + int(cur["volume"] >= cur["vol_ma20"] * 1.08 if cur["vol_ma20"] > 0 else False)
     wm_blue_score = max(wm_blue1_score, wm_blue2_score)
 
     score_sum = int(cur["base_score"] + cur["pocket_score"] + cur["attack_score"])
-    if cur["blue1_hold"] and score_sum + wm_blue1_score >= 14:
+    if final_state == "Blue-1단기" and score_sum + wm_blue1_score >= 13:
         grade = "A+"
-    elif cur["blue2_hold"] and score_sum + wm_blue2_score >= 12:
+    elif final_state == "Blue-2스윙" and score_sum + wm_blue2_score >= 11:
         grade = "A"
-    elif cur["late"]:
+    elif final_state == "후행수박":
         grade = "B"
-    elif cur["intro"] or cur["pullback"]:
+    elif final_state in ("초입수박", "눌림수박"):
         grade = "C"
     else:
         grade = "없음"
 
     detail = {
         "ok": True,
-        "base_conds": cur["cond_base"],
-        "pocket_conds": cur["cond_pocket"],
-        "attack_conds": cur["cond_attack"],
-        "break_conds": cur["cond_break"],
         "score_sum": score_sum,
         "ret7": round(cur["ret7"], 2),
         "ret15": round(cur["ret15"], 2),
         "ret20": round(cur["ret20"], 2),
-        "pullback_pct20": round(cur["pullback_pct20"], 2),
-        "box_range_pct20": round(cur["box_range_pct20"], 2),
+        "pullback_pct25": round(cur["pullback_pct25"], 2),
+        "box_range_pct25": round(cur["box_range_pct25"], 2),
         "max_day_up10": round(cur["max_day_up10"], 2),
+        "red_onset": bool(cur["red_onset"]),
+        "blue1_onset": bool(cur["blue1_onset"]),
+        "blue2_onset": bool(cur["blue2_onset"]),
     }
 
     return {
@@ -512,7 +505,6 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
         "wm_state_tags": tags,
         "wm_state_detail": detail,
     }
-
 
 
 def build_watermelon_state_top5(df: pd.DataFrame):
