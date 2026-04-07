@@ -427,7 +427,7 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
             "intro_box_ready": intro_box_ready,
             "red_state_raw": red_state_raw,
             "red_onset": red_onset,
-            "blue1_onset": blue1_onset
+            "blue1_onset": blue1_onset,
             "pullback_box": (pullback_box or pre_pullback_box),
             "red_state_raw_2": red_state_raw_2,
             "blue2_onset": blue2_onset,
