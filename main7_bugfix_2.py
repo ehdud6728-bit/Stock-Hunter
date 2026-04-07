@@ -141,6 +141,57 @@ def _wm_series_bool(s: pd.Series) -> pd.Series:
 
 
 
+
+
+def _grade_rank_map():
+    return {
+        "S+": 9, "S": 8,
+        "A+": 7, "A": 6, "A-": 5,
+        "B+": 4, "B": 3,
+        "C": 2, "D": 1,
+    }
+
+def _clamp_grade_down(current_grade: str, target_grade: str) -> str:
+    rank = _grade_rank_map()
+    cur = str(current_grade or "C").strip()
+    tgt = str(target_grade or "C").strip()
+    if rank.get(cur, 0) > rank.get(tgt, 0):
+        return tgt
+    return cur
+
+def _is_largecap_blue_guard_target(cur: dict, row: dict) -> bool:
+    idx_label = str(row.get("index_label", "") or row.get("유니버스태그", "") or row.get("universe_tag", "") or "")
+    marcap = 0.0
+    try:
+        marcap = float(row.get("marcap") or row.get("market_cap") or row.get("시가총액") or 0)
+    except Exception:
+        marcap = 0.0
+    return ("코스피200" in idx_label) or ("KOSPI200" in idx_label) or (marcap >= 5_000_000_000_000)
+
+def _largecap_blue_confirm_score(cur: dict) -> int:
+    score = 0
+    close = float(cur.get("close", 0) or 0)
+    prev_box_high10 = float(cur.get("prev_box_high10", 0) or 0)
+    volume = float(cur.get("volume", 0) or 0)
+    vol_ma20 = float(cur.get("vol_ma20", 0) or 0)
+    rsi = float(cur.get("rsi", 0) or 0)
+    adx = float(cur.get("adx", 0) or 0)
+    adx_prev = float(cur.get("adx_prev", 0) or 0)
+    obv_slope5 = float(cur.get("obv_slope5", 0) or 0)
+    obv_rising = bool(cur.get("obv_rising", False))
+
+    if prev_box_high10 > 0 and close >= prev_box_high10 * 0.99:
+        score += 1
+    if vol_ma20 > 0 and volume >= vol_ma20 * 1.05:
+        score += 1
+    if rsi >= 54.0:
+        score += 1
+    if obv_slope5 > 0 or obv_rising:
+        score += 1
+    if adx >= 16.0 or adx > adx_prev:
+        score += 1
+    return score
+
 def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
     """
     red onset(붉은 보조지표 시작점) 기반 수박/파란점 엔진.
@@ -531,6 +582,19 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
         tags = []
         state_name = "없음"
 
+    if final_state == "Blue-1단기" and _is_largecap_blue_guard_target(cur, row):
+        if blue_confirm >= 4:
+            if "🧢대형주확정" not in tags:
+                tags.append("🧢대형주확정")
+        elif blue_confirm >= 2:
+            tags = [t for t in tags if "🍉재점화공격" not in t]
+            if "🔵Blue-1확인중" not in tags:
+                tags.append("🔵Blue-1확인중")
+        else:
+            tags = [t for t in tags if "🍉재점화공격" not in t]
+            if "🔵Blue-1예비" not in tags:
+                tags.append("🔵Blue-1예비")
+
     wm_blue1_score = int(cur["intro_box_ready"]) + int(cur["change_ready"]) + int(cur["red_onset"]) + int(cur["blue1_onset"]) + int(cur["ret7"] <= 7.0) + int(cur["ret15"] <= 12.0)
     wm_blue2_score = int(cur["pullback_box"]) + int(cur["change_ready"]) + int(cur["blue2_onset"]) + int(3.0 <= cur["pullback_pct25"] <= 14.0) + int(cur["rsi"] < 71.0) + int(cur["volume"] >= cur["vol_ma20"] * 1.08 if cur["vol_ma20"] > 0 else False)
     wm_blue_score = max(wm_blue1_score, wm_blue2_score)
@@ -546,6 +610,17 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
         grade = "C"
     else:
         grade = "없음"
+
+    # ✅ 대형주 Blue-1 과열 보정
+    blue_confirm = -1
+    if final_state == "Blue-1단기" and _is_largecap_blue_guard_target(cur, row):
+        blue_confirm = _largecap_blue_confirm_score(cur)
+        if blue_confirm >= 4:
+            pass
+        elif blue_confirm >= 2:
+            grade = _clamp_grade_down(grade, "A")
+        else:
+            grade = _clamp_grade_down(grade, "B+")
 
     detail = {
         "ok": True,
@@ -564,6 +639,7 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
         "pullback_box": bool(cur["pullback_box"]),
         "red_state_raw_2": bool(cur["red_state_raw_2"]),
         "blue2_onset": bool(cur["blue2_onset"]),
+        "blue_confirm": int(blue_confirm),
         "late": bool(cur["late"]),
         "intro_box_range_ok": bool(cur.get("intro_box_range_ok", False)),
         "intro_attack_band_ok": bool(cur.get("intro_attack_band_ok", False)),
@@ -696,7 +772,7 @@ def build_watermelon_debug_block(title: str, df: pd.DataFrame) -> str:
         lines.append(
             f"{rank}) {name}({code})\n"
             f"- 최종상태: {state}\n"
-            f"- gate: intro_box={intro_box} / change={change} / red_raw={red_raw} / red_onset={red_onset} / blue1_onset={blue1_onset} / pullback_box={pullback_box} / red2_raw={red2_raw} / blue2_onset={blue2_onset} / late={late}\n"
+            f"- gate: intro_box={intro_box} / change={change} / red_raw={red_raw} / red_onset={red_onset} / blue1_onset={blue1_onset} / pullback_box={pullback_box} / red2_raw={red2_raw} / blue2_onset={blue2_onset} / late={late} / blue_confirm={int(row.get('수박디버그_blue_confirm', -1))}\n"
             f"- intro_sub: range={box_range_ok} / attack_band={attack_band_ok} / ret7={ret7_ok} / ret15={ret15_ok} / ret20={ret20_ok} / dayup={dayup_ok} / top_near={top_near_ok} / vol_calm={vol_calm_ok} / no_blue1={no_blue1_ok} / no_blue2={no_blue2_ok} / not_late={not_late_ok}\n"
         )
     return "\n".join(lines)
@@ -4742,7 +4818,7 @@ def _clean_main7_ai_text(text: str, max_len: int = 30) -> str:
     return s
 
 
-MAIN7_AI_TELEGRAM_LAYOUT_VERSION = 'split_v1 | wm_tune_v3'
+MAIN7_AI_TELEGRAM_LAYOUT_VERSION = 'split_v1 | wm_tune_v4_lgcap_guard'
 
 def _format_main7_ai_debate_text(rows):
     if not rows:
