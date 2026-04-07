@@ -1,3 +1,5 @@
+# range/vol_calm 최소 수정안
+# 초입/눌림/제외 기준 반영 실사용 버전
 # intro_box 원인 5개 완화 튜닝본
 # 수박/파란점 intro_box 세부조건 디버그 완성본
 # 수박/파란점 게이트 디버그 출력본
@@ -314,14 +316,14 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
             or had_blue2_recent
         )
 
-        intro_box_range_ok = bool(6.0 <= m["box_range_pct25"] <= 26.0)
+        intro_box_range_ok = bool(6.0 <= m["box_range_pct25"] <= 30.0)
         intro_attack_band_ok = bool(m["attack_score"] >= 2 and m["attack_score"] <= 5)
         intro_ret7_ok = bool(m["ret7"] <= 10.0)
         intro_ret15_ok = bool(m["ret15"] <= 16.0)
         intro_ret20_ok = bool(m["ret20"] <= 15.0)
         intro_dayup_ok = bool(m["max_day_up10"] <= 9.0)
         intro_top_near_ok = bool((m["close"] <= m["prev_box_high25"] * 0.985) if m["prev_box_high25"] > 0 else True)
-        intro_vol_calm_ok = bool((m["volume"] <= m["vol_ma20"] * 1.35) if m["vol_ma20"] > 0 else True)
+        intro_vol_calm_ok = bool((m["volume"] <= m["vol_ma20"] * 1.55) if m["vol_ma20"] > 0 else True)
         intro_no_prior_blue1_ok = bool(not had_blue1_recent)
         intro_no_prior_blue2_ok = bool(not had_blue2_recent)
         intro_not_late_ok = bool(not late)
@@ -387,7 +389,8 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
             and ((m["vol_ma5"] <= m["vol_ma20"] * 1.10) if m["vol_ma20"] > 0 else False)
             and ((m["close"] < m["box_high25"] * 0.992) if m["box_high25"] > 0 else False)
             and (m["low5"] > m["low20"] * 1.00 if m["low20"] > 0 else False)
-            and not red_state_raw)
+            and not red_state_raw
+        )
 
         red_state_raw_2 = (
             (pullback_box or pre_pullback_box)
@@ -395,8 +398,8 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
             and ((m["close"] >= m["ma20"] * 0.99) if m["ma20"] > 0 else False)
             and ((m["ma5"] >= m["ma20"] * 0.995) if m["ma20"] > 0 and m["ma5"] > 0 else False)
             and ((m["close"] >= m["prev_box_high10"] * 0.985) if m["prev_box_high10"] > 0 else False)
-            and not late)
-
+            and not late
+        )
         blue2_onset = (
             red_state_raw_2
             and (not prev_red_state)
@@ -619,17 +622,16 @@ def build_watermelon_state_top5(df: pd.DataFrame):
 
     return green_df, red_df, blue_df, intro_df, pullback_df, late_df, blue1_df, blue2_df
 
+
+
 def build_watermelon_debug_block(title: str, df: pd.DataFrame) -> str:
     if df is None or df.empty:
         return f"🔬 [{title}]\n- 해당 종목 없음\n"
-
     lines = [f"🔬 [{title}]\n"]
-
     for rank, (_, row) in enumerate(df.iterrows(), 1):
         name = row.get('종목명', '')
         code = row.get('code', '')
         state = row.get('수박최종상태', row.get('수박상태명', ''))
-
         intro_box = 1 if bool(row.get('수박디버그_intro_box', False)) else 0
         change = 1 if bool(row.get('수박디버그_change', False)) else 0
         red_raw = 1 if bool(row.get('수박디버그_red_raw', False)) else 0
@@ -639,7 +641,6 @@ def build_watermelon_debug_block(title: str, df: pd.DataFrame) -> str:
         red2_raw = 1 if bool(row.get('수박디버그_red2_raw', False)) else 0
         blue2_onset = 1 if bool(row.get('수박디버그_blue2_onset', False)) else 0
         late = 1 if bool(row.get('수박디버그_late', False)) else 0
-
         box_range_ok = 1 if bool(row.get('수박디버그_box_range_ok', False)) else 0
         attack_band_ok = 1 if bool(row.get('수박디버그_attack_band_ok', False)) else 0
         ret7_ok = 1 if bool(row.get('수박디버그_ret7_ok', False)) else 0
@@ -651,14 +652,12 @@ def build_watermelon_debug_block(title: str, df: pd.DataFrame) -> str:
         no_blue1_ok = 1 if bool(row.get('수박디버그_no_blue1_ok', False)) else 0
         no_blue2_ok = 1 if bool(row.get('수박디버그_no_blue2_ok', False)) else 0
         not_late_ok = 1 if bool(row.get('수박디버그_not_late_ok', False)) else 0
-
         lines.append(
             f"{rank}) {name}({code})\n"
             f"- 최종상태: {state}\n"
             f"- gate: intro_box={intro_box} / change={change} / red_raw={red_raw} / red_onset={red_onset} / blue1_onset={blue1_onset} / pullback_box={pullback_box} / red2_raw={red2_raw} / blue2_onset={blue2_onset} / late={late}\n"
             f"- intro_sub: range={box_range_ok} / attack_band={attack_band_ok} / ret7={ret7_ok} / ret15={ret15_ok} / ret20={ret20_ok} / dayup={dayup_ok} / top_near={top_near_ok} / vol_calm={vol_calm_ok} / no_blue1={no_blue1_ok} / no_blue2={no_blue2_ok} / not_late={not_late_ok}\n"
         )
-
     return "\n".join(lines)
 
 def build_watermelon_state_block(title: str, df: pd.DataFrame) -> str:
