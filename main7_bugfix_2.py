@@ -349,16 +349,35 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
             intro_not_late_ok,
         ])
 
-        intro_box_ready = (
+        intro_box_base_ok = bool(
             m["box_ready"]
+            or (
+                intro_box_range_ok
+                and intro_top_near_ok
+                and intro_vol_calm_ok
+                and intro_optional_score >= 8
+            )
+        )
+
+        intro_box_ready = (
+            intro_box_base_ok
             and intro_box_range_ok
             and intro_attack_band_ok
             and intro_optional_score >= 6
         )
 
+        change_relaxed_1 = bool(
+            m["change_ready"]
+            or (
+                intro_box_ready
+                and ((m["close"] >= m["ma20"] * 0.992) if m["ma20"] > 0 else False)
+                and ((m["ma5"] >= m["ma20"] * 0.995) if m["ma5"] > 0 and m["ma20"] > 0 else False)
+            )
+        )
+
         red_state_raw = (
             intro_box_ready
-            and m["change_ready"]
+            and change_relaxed_1
             and ((m["close"] >= m["ma20"] * 0.985) if m["ma20"] > 0 else False)
             and ((m["ma5"] >= m["ma20"] * 0.985) if m["ma5"] > 0 and m["ma20"] > 0 else False)
             and ((m["close"] >= m["prev_box_high10"] * 0.970) if m["prev_box_high10"] > 0 else False)
@@ -405,9 +424,17 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
             and not red_state_raw
         )
 
+        change_relaxed_2 = bool(
+            m["change_ready"]
+            or (
+                ((m["close"] >= m["ma20"] * 0.992) if m["ma20"] > 0 else False)
+                and ((m["ma5"] >= m["ma20"] * 0.995) if m["ma20"] > 0 and m["ma5"] > 0 else False)
+            )
+        )
+
         red_state_raw_2 = (
             (pullback_box or pre_pullback_box)
-            and m["change_ready"]
+            and change_relaxed_2
             and ((m["close"] >= m["ma20"] * 0.985) if m["ma20"] > 0 else False)
             and ((m["ma5"] >= m["ma20"] * 0.992) if m["ma20"] > 0 and m["ma5"] > 0 else False)
             and ((m["close"] >= m["prev_box_high10"] * 0.975) if m["prev_box_high10"] > 0 else False)
@@ -4715,7 +4742,7 @@ def _clean_main7_ai_text(text: str, max_len: int = 30) -> str:
     return s
 
 
-MAIN7_AI_TELEGRAM_LAYOUT_VERSION = 'split_v1 | wm_tune_v2'
+MAIN7_AI_TELEGRAM_LAYOUT_VERSION = 'split_v1 | wm_tune_v3'
 
 def _format_main7_ai_debate_text(rows):
     if not rows:
