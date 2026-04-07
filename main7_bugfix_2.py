@@ -4669,6 +4669,93 @@ def _merge_debate_rows_into_candidates(ai_candidates_df: pd.DataFrame, debate_ro
     return out
 
 
+
+def _clean_main7_ai_text(text: str, max_len: int = 30) -> str:
+    s = str(text or '').strip()
+    if not s:
+        return '근거 부족'
+    # 불필요한 서두 정리
+    replace_pairs = [
+        ('시황 근거 부족', '근거 부족'),
+        ('수급 근거 부족', '근거 부족'),
+        ('리스크 정보 부족', '리스크 확인 필요'),
+        ('강한 근거 부족', '근거 부족'),
+        ('상승 이유 정보 부족', '이유 확인 필요'),
+        ('정보 부족', '근거 부족'),
+        ('다음 날 ', '내일 '),
+        ('종가배팅', ''),
+        ('확인되어', ''),
+        ('가능성이 있음', '가능성'),
+        ('리스크가 존재', '리스크'),
+        ('확신은 제한적', '확신 약함'),
+    ]
+    for a, b in replace_pairs:
+        s = s.replace(a, b)
+    s = re.sub(r'\s+', ' ', s).strip(' |,-')
+    # 뻔한 표현 최소화
+    bland = {
+        '거래량 증가 긍정적': '거래량은 좋지만 위치가 더 중요',
+        '추세가 좋아 보임': '추세 유지지만 눌림 깊이 확인',
+        '리스크 존재': '갭·윗꼬리 리스크 점검',
+        '근거 부족': '근거 부족',
+    }
+    s = bland.get(s, s)
+    if len(s) > max_len:
+        s = s[:max_len].rstrip() + '…'
+    return s
+
+
+def _format_main7_ai_debate_text(rows):
+    if not rows:
+        return ''
+
+    top_rows = list(rows)[:5]
+    first = top_rows[0]
+    lines = [
+        f"🧠 메인 후보 AI 심판 TOP{len(top_rows)}",
+        "모델사용: 기술{} | 수급{} | 시황{} | 리스크{} | 심판{}".format(
+            str(first.get('AI기술모델', '[Unknown]')),
+            str(first.get('AI수급모델', '[Unknown]')),
+            str(first.get('AI시황모델', '[Unknown]')),
+            str(first.get('AI리스크모델', '[Unknown]')),
+            str(first.get('AI심판모델', '[Unknown]')),
+        ),
+        "",
+    ]
+
+    for i, r in enumerate(top_rows, start=1):
+        name = str(r.get('name', '') or '')
+        code = str(r.get('code', '') or '')
+        mode = str(r.get('구분', '') or r.get('mode', '') or '')
+        grade = str(r.get('grade', '') or r.get('구분', '') or '')
+        verdict = str(r.get('AI최종판정', '') or '관찰')
+        conf = safe_int(r.get('AI확신도', 0))
+
+        judge = _clean_main7_ai_text(r.get('AI심판요약', ''), 30)
+        strong = _clean_main7_ai_text(r.get('AI강한근거', ''), 30)
+        riskp = _clean_main7_ai_text(r.get('AI위험요인', ''), 30)
+        plan = _clean_main7_ai_text(r.get('AI실행계획', ''), 30)
+
+        tech = _clean_main7_ai_text(r.get('AI기술의견', ''), 28)
+        flow = _clean_main7_ai_text(r.get('AI수급의견', ''), 28)
+        theme = _clean_main7_ai_text(r.get('AI시황의견', ''), 28)
+        risk = _clean_main7_ai_text(r.get('AI리스크의견', ''), 28)
+
+        lines.extend([
+            f"{i}. {name}({code}) [{mode}/{grade}] → {verdict} {conf}점",
+            f"   심판{r.get('AI심판모델', '')}: {judge}",
+            f"   근거: {strong}",
+            f"   위험: {riskp}",
+            f"   계획: {plan}",
+            f"   기술{r.get('AI기술모델', '')}: {tech}",
+            f"   수급{r.get('AI수급모델', '')}: {flow}",
+            f"   시황{r.get('AI시황모델', '')}: {theme}",
+            f"   리스크{r.get('AI리스크모델', '')}: {risk}",
+            "",
+        ])
+
+    return "\n".join(lines).strip()
+
 def _run_main7_ai_debate(ai_candidates_df: pd.DataFrame, issues=None, market_news=None):
     if run_closing_bet_debate_pipeline is None:
         return ai_candidates_df, '', []
@@ -4718,7 +4805,8 @@ def _run_main7_ai_debate(ai_candidates_df: pd.DataFrame, issues=None, market_new
             role_model_prefs=role_model_prefs,
         )
         debate_rows = result.get('rows', []) or []
-        telegram_text = result.get('telegram_text', '') or ''
+        _unused_telegram_text = result.get('telegram_text', '') or ''
+        telegram_text = _format_main7_ai_debate_text(debate_rows)
         merged_df = _merge_debate_rows_into_candidates(ai_candidates_df, debate_rows)
         log_info(f"🧠 메인후보 AI 토론 완료: {len(debate_rows)}개")
         return merged_df, telegram_text, debate_rows
