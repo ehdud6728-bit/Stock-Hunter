@@ -315,18 +315,18 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
 
         # ✅ late 완화: 단순히 박스 고점 근처라는 이유만으로 후행수박으로 밀어내지 않음
         late = (
-            (m["ret20"] >= 24.0)
-            or (m["max_day_up10"] >= 13.0)
+            (m["ret20"] >= 26.0)
+            or (m["max_day_up10"] >= 14.0)
             or (
-                ((m["close"] >= m["prev_box_high25"] * 1.01) if m["prev_box_high25"] > 0 else False)
-                and (m["ret15"] >= 10.0)
+                ((m["close"] >= m["prev_box_high25"] * 1.015) if m["prev_box_high25"] > 0 else False)
+                and (m["ret15"] >= 12.0)
             )
             or had_blue2_recent
         )
 
         intro_box_range_ok = bool(5.0 <= m["box_range_pct25"] <= 32.0)
         intro_attack_band_ok = bool(2 <= m["attack_score"] <= 5)
-        intro_ret7_ok = bool(m["ret7"] <= 12.0)
+        intro_ret7_ok = bool(m["ret7"] <= 14.0)
         intro_ret15_ok = bool(m["ret15"] <= 18.0)
         intro_ret20_ok = bool(m["ret20"] <= 17.0)
         intro_dayup_ok = bool(m["max_day_up10"] <= 10.0)
@@ -361,7 +361,7 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
             and m["change_ready"]
             and ((m["close"] >= m["ma20"] * 0.985) if m["ma20"] > 0 else False)
             and ((m["ma5"] >= m["ma20"] * 0.985) if m["ma5"] > 0 and m["ma20"] > 0 else False)
-            and ((m["close"] >= m["prev_box_high10"] * 0.975) if m["prev_box_high10"] > 0 else False)
+            and ((m["close"] >= m["prev_box_high10"] * 0.970) if m["prev_box_high10"] > 0 else False)
             and not late
         )
         prev_red_state = red_state_hist[-1] if red_state_hist else False
@@ -371,9 +371,9 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
         blue1_onset = (
             red_onset
             and intro_box_ready
-            and (m["ret7"] <= 9.0)
-            and (m["ret15"] <= 14.0)
-            and (m["ret20"] <= 16.0)
+            and (m["ret7"] <= 11.0)
+            and (m["ret15"] <= 15.0)
+            and (m["ret20"] <= 17.0)
             and ((m["close"] <= m["prev_box_high25"] * 1.03) if m["prev_box_high25"] > 0 else True)
             and ((m["volume"] >= m["vol_ma20"] * 0.90) if m["vol_ma20"] > 0 else True)
             and not late
@@ -396,7 +396,7 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
             and not late
             and (2.0 <= m["pullback_pct25"] <= 15.0)
             and (m["box_range_pct25"] <= 26.0)
-            and (m["ret20"] <= 16.0)
+            and (m["ret20"] <= 17.0)
             and (m["max_day_up10"] <= 10.0)
             and (((m["close"] >= m["ma20"] * 0.98) if m["ma20"] > 0 else False) or ((m["close"] >= m["ma60"] * 0.99) if m["ma60"] > 0 else False))
             and ((m["vol_ma5"] <= m["vol_ma20"] * 1.15) if m["vol_ma20"] > 0 else False)
@@ -410,7 +410,7 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
             and m["change_ready"]
             and ((m["close"] >= m["ma20"] * 0.985) if m["ma20"] > 0 else False)
             and ((m["ma5"] >= m["ma20"] * 0.992) if m["ma20"] > 0 and m["ma5"] > 0 else False)
-            and ((m["close"] >= m["prev_box_high10"] * 0.980) if m["prev_box_high10"] > 0 else False)
+            and ((m["close"] >= m["prev_box_high10"] * 0.975) if m["prev_box_high10"] > 0 else False)
             and not late
         )
 
@@ -4715,7 +4715,7 @@ def _clean_main7_ai_text(text: str, max_len: int = 30) -> str:
     return s
 
 
-MAIN7_AI_TELEGRAM_LAYOUT_VERSION = 'split_v1'
+MAIN7_AI_TELEGRAM_LAYOUT_VERSION = 'split_v1 | wm_tune_v2'
 
 def _format_main7_ai_debate_text(rows):
     if not rows:
