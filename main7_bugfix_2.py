@@ -4896,18 +4896,83 @@ def _merge_debate_rows_into_candidates(ai_candidates_df: pd.DataFrame, debate_ro
 
 
 
-def _clean_main7_ai_text(text: str, max_len: int = 30) -> str:
-    s = str(text or '').strip()
+def _main7_ai_first_clause(s: str, max_len: int = 52) -> str:
+    s = re.sub(r'\s+', ' ', str(s or '')).strip(' |,-')
     if not s:
-        return '근거 부족'
-    # 불필요한 서두 정리
+        return ''
+    chunks = re.split(r'[|;/]|(?:\.|,)|(?: 하지만 )|(?: 그러나 )|(?: 다만 )', s)
+    for c in chunks:
+        c = re.sub(r'\s+', ' ', c).strip(' |,-')
+        if 8 <= len(c) <= max_len:
+            return c
+    if len(s) <= max_len:
+        return s
+    return s[:max_len].rstrip(' |,-')
+
+def _fallback_main7_role_text(row, role: str) -> str:
+    vol_ratio = safe_float(row.get('vol_ratio', row.get('거래량배수', 0)), 0.0)
+    wick = safe_float(row.get('wick_pct', row.get('윗꼬리비율', 0)), 0.0)
+    rsi = safe_float(row.get('rsi', row.get('RSI', 0)), 0.0)
+    rr = safe_float(row.get('rr', row.get('RR비율', 0)), 0.0)
+    flow_status = str(row.get('flow_status', row.get('수급', ''))).strip()
+    fr = safe_float(row.get('frgn3_sum_b', 0), 0.0)
+    inst = safe_float(row.get('inst3_sum_b', 0), 0.0)
+    sector = str(row.get('sector', row.get('구분', ''))).strip()
+    theme = str(row.get('theme', row.get('N조합', ''))).strip()
+    verdict = str(row.get('AI최종판정', '')).strip()
+
+    if role == 'tech':
+        parts = []
+        if vol_ratio > 0:
+            parts.append(f"거래량 {vol_ratio:.1f}배")
+        if rsi > 0:
+            parts.append(f"RSI {rsi:.0f}")
+        if theme:
+            parts.append(theme[:18])
+        return " / ".join(parts[:3]) or "차트 재점검 필요"
+
+    if role == 'flow':
+        if fr > 0 or inst > 0:
+            return f"외인 {fr:.0f}억 / 기관 {inst:.0f}억 흐름"
+        if 'positive' in flow_status or '외인' in flow_status or '기관' in flow_status:
+            return "수급은 우호적이나 강도 확인 필요"
+        if 'negative' in flow_status or '이탈' in flow_status or '매도' in flow_status:
+            return "이탈 흔적 있어 수급 재확인 필요"
+        return "수급은 약하지만 거래 흐름은 확인"
+
+    if role == 'theme':
+        if sector and theme:
+            return f"{sector} / {theme[:20]} 맥락 확인"
+        if sector:
+            return f"{sector} 섹터 동행성 확인 필요"
+        return "개별 재료 중심으로 해석 필요"
+
+    if role == 'risk':
+        parts = []
+        if wick > 0:
+            parts.append(f"윗꼬리 {wick:.1f}%")
+        if rsi >= 70:
+            parts.append(f"RSI {rsi:.0f} 과열")
+        if rr > 0:
+            parts.append(f"RR {rr:.1f}")
+        return " / ".join(parts[:3]) or "손절 기준과 갭 리스크 점검"
+
+    if role == 'judge':
+        if verdict:
+            return f"{verdict} 판단이지만 추격 여부는 분리"
+        return "종합 판단은 가능하나 확인 신호 더 필요"
+
+    return "추가 확인 필요"
+
+def _clean_main7_ai_text(text: str, max_len: int = 52, row=None, role: str = '') -> str:
+    s = str(text or '').strip()
     replace_pairs = [
-        ('시황 근거 부족', '근거 부족'),
-        ('수급 근거 부족', '근거 부족'),
-        ('리스크 정보 부족', '리스크 확인 필요'),
-        ('강한 근거 부족', '근거 부족'),
-        ('상승 이유 정보 부족', '이유 확인 필요'),
-        ('정보 부족', '근거 부족'),
+        ('시황 근거 부족', ''),
+        ('수급 근거 부족', ''),
+        ('리스크 정보 부족', ''),
+        ('강한 근거 부족', ''),
+        ('상승 이유 정보 부족', ''),
+        ('정보 부족', ''),
         ('다음 날 ', '내일 '),
         ('종가배팅', ''),
         ('확인되어', ''),
@@ -4918,20 +4983,23 @@ def _clean_main7_ai_text(text: str, max_len: int = 30) -> str:
     for a, b in replace_pairs:
         s = s.replace(a, b)
     s = re.sub(r'\s+', ' ', s).strip(' |,-')
-    # 뻔한 표현 최소화
+
     bland = {
         '거래량 증가 긍정적': '거래량은 좋지만 위치가 더 중요',
         '추세가 좋아 보임': '추세 유지지만 눌림 깊이 확인',
         '리스크 존재': '갭·윗꼬리 리스크 점검',
-        '근거 부족': '근거 부족',
+        '근거 부족': '',
     }
     s = bland.get(s, s)
-    if len(s) > max_len:
-        s = s[:max_len].rstrip() + '…'
+
+    if not s:
+        return _fallback_main7_role_text(row or {}, role)
+
+    s = _main7_ai_first_clause(s, max_len=max_len)
+    if not s:
+        return _fallback_main7_role_text(row or {}, role)
     return s
-
-
-MAIN7_AI_TELEGRAM_LAYOUT_VERSION = 'split_v1 | wm_tune_v5_time_sym'
+MAIN7_AI_TELEGRAM_LAYOUT_VERSION = 'split_v1 | wm_tune_v7_ai_textfix'
 
 def _format_main7_ai_debate_text(rows):
     if not rows:
@@ -4959,15 +5027,18 @@ def _format_main7_ai_debate_text(rows):
         verdict = str(r.get('AI최종판정', '') or '관찰')
         conf = safe_int(r.get('AI확신도', 0))
 
-        judge = _clean_main7_ai_text(r.get('AI심판요약', ''), 30)
-        strong = _clean_main7_ai_text(r.get('AI강한근거', ''), 30)
-        riskp = _clean_main7_ai_text(r.get('AI위험요인', ''), 30)
-        plan = _clean_main7_ai_text(r.get('AI실행계획', ''), 30)
+        judge = _clean_main7_ai_text(r.get('AI심판요약', ''), 56, r, 'judge')
+        strong = _clean_main7_ai_text(r.get('AI강한근거', ''), 56, r, 'judge')
+        riskp = _clean_main7_ai_text(r.get('AI위험요인', ''), 56, r, 'risk')
+        plan = _clean_main7_ai_text(r.get('AI실행계획', ''), 56, r, 'judge')
 
-        tech = _clean_main7_ai_text(r.get('AI기술의견', ''), 28)
-        flow = _clean_main7_ai_text(r.get('AI수급의견', ''), 28)
-        theme = _clean_main7_ai_text(r.get('AI시황의견', ''), 28)
-        risk = _clean_main7_ai_text(r.get('AI리스크의견', ''), 28)
+        tech = _clean_main7_ai_text(r.get('AI기술의견', ''), 52, r, 'tech')
+        flow = _clean_main7_ai_text(r.get('AI수급의견', ''), 52, r, 'flow')
+        theme = _clean_main7_ai_text(r.get('AI시황의견', ''), 52, r, 'theme')
+        risk = _clean_main7_ai_text(r.get('AI리스크의견', ''), 52, r, 'risk')
+
+        _time_tag = str(r.get('time_sym_tag', '')).strip()
+        _time_comment = str(r.get('time_sym_comment', '')).strip()
 
         lines.extend([
             f"{i}. {name}({code}) [{mode}/{grade}] → {verdict} {conf}점",
@@ -4979,8 +5050,10 @@ def _format_main7_ai_debate_text(rows):
             f"   수급{r.get('AI수급모델', '')}: {flow}",
             f"   시황{r.get('AI시황모델', '')}: {theme}",
             f"   리스크{r.get('AI리스크모델', '')}: {risk}",
-            "",
         ])
+        if _time_tag:
+            lines.append(f"   시간창: {_time_tag}" + (f" | {_time_comment}" if _time_comment else ""))
+        lines.append("")
 
     return "\n".join(lines).strip()
 
@@ -8512,7 +8585,6 @@ if __name__ == "__main__":
             f"S2:{item.get('S2날짜', '-')}, "
             f"S3:{item.get('S3날짜', '-')}\n"
             f"- N조합: {item.get('N조합', '')}" + (f" | {item.get('time_sym_tag', '')}" if str(item.get('time_sym_tag', '')).strip() else "") + "\n"
-            + (f"- 기간대칭: {item.get('time_sym_comment', '')}\n" if str(item.get('time_sym_comment', '')).strip() else "")
             + f"- 재무: {item.get('재무', '미계산')} | 수급: {item.get('수급', '미계산')}\n"
             f"- 안전:{item.get('안전점수', 0)} | N점수:{item.get('N점수', 0)}\n"
             f"----------------------------\n"
