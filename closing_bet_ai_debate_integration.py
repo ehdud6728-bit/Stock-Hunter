@@ -105,7 +105,7 @@ def _provider_tag(name: str) -> str:
     if "anthropic" in s or "claude" in s:
         return "[Claude]"
     if "openai" in s or "gpt" in s:
-        return "[OPENAI]"
+        return "[GPT]"
     if "gemini" in s or "google" in s:
         return "[Gemini]"
     if "groq" in s:
