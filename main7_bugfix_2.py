@@ -313,71 +313,80 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
         had_pullback_recent = sum(1 for x in pullback_hist[-12:] if x) >= 1
         had_blue2_recent = sum(1 for x in blue2_onset_hist[-25:] if x) >= 1
 
+        # ✅ late 완화: 단순히 박스 고점 근처라는 이유만으로 후행수박으로 밀어내지 않음
         late = (
-            (m["ret20"] >= 18.0)
-            or (m["max_day_up10"] >= 11.0)
-            or ((m["close"] >= m["prev_box_high25"] * 0.985) if m["prev_box_high25"] > 0 else False)
+            (m["ret20"] >= 24.0)
+            or (m["max_day_up10"] >= 13.0)
+            or (
+                ((m["close"] >= m["prev_box_high25"] * 1.01) if m["prev_box_high25"] > 0 else False)
+                and (m["ret15"] >= 10.0)
+            )
             or had_blue2_recent
         )
 
-        intro_box_range_ok = bool(6.0 <= m["box_range_pct25"] <= 30.0)
-        intro_attack_band_ok = bool(m["attack_score"] >= 2 and m["attack_score"] <= 5)
-        intro_ret7_ok = bool(m["ret7"] <= 10.0)
-        intro_ret15_ok = bool(m["ret15"] <= 16.0)
-        intro_ret20_ok = bool(m["ret20"] <= 15.0)
-        intro_dayup_ok = bool(m["max_day_up10"] <= 9.0)
-        intro_top_near_ok = bool((m["close"] <= m["prev_box_high25"] * 0.985) if m["prev_box_high25"] > 0 else True)
-        intro_vol_calm_ok = bool((m["volume"] <= m["vol_ma20"] * 1.55) if m["vol_ma20"] > 0 else True)
+        intro_box_range_ok = bool(5.0 <= m["box_range_pct25"] <= 32.0)
+        intro_attack_band_ok = bool(2 <= m["attack_score"] <= 5)
+        intro_ret7_ok = bool(m["ret7"] <= 12.0)
+        intro_ret15_ok = bool(m["ret15"] <= 18.0)
+        intro_ret20_ok = bool(m["ret20"] <= 17.0)
+        intro_dayup_ok = bool(m["max_day_up10"] <= 10.0)
+        intro_top_near_ok = bool((m["close"] <= m["prev_box_high25"] * 1.00) if m["prev_box_high25"] > 0 else True)
+        intro_vol_calm_ok = bool((m["volume"] <= m["vol_ma20"] * 1.80) if m["vol_ma20"] > 0 else True)
         intro_no_prior_blue1_ok = bool(not had_blue1_recent)
         intro_no_prior_blue2_ok = bool(not had_blue2_recent)
         intro_not_late_ok = bool(not late)
+
+        # ✅ intro_box를 전부 AND가 아니라 점수형으로 완화
+        intro_optional_score = sum([
+            intro_ret7_ok,
+            intro_ret15_ok,
+            intro_ret20_ok,
+            intro_dayup_ok,
+            intro_top_near_ok,
+            intro_vol_calm_ok,
+            intro_no_prior_blue1_ok,
+            intro_no_prior_blue2_ok,
+            intro_not_late_ok,
+        ])
 
         intro_box_ready = (
             m["box_ready"]
             and intro_box_range_ok
             and intro_attack_band_ok
-            and intro_ret7_ok
-            and intro_ret15_ok
-            and intro_ret20_ok
-            and intro_dayup_ok
-            and intro_top_near_ok
-            and intro_vol_calm_ok
-            and intro_no_prior_blue1_ok
-            and intro_no_prior_blue2_ok
-            and intro_not_late_ok
+            and intro_optional_score >= 6
         )
 
         red_state_raw = (
             intro_box_ready
             and m["change_ready"]
-            and ((m["close"] >= m["ma20"] * 0.99) if m["ma20"] > 0 else False)
-            and ((m["ma5"] >= m["ma20"] * 0.99) if m["ma5"] > 0 and m["ma20"] > 0 else False)
-            and ((m["close"] >= m["prev_box_high10"] * 0.98) if m["prev_box_high10"] > 0 else False)
+            and ((m["close"] >= m["ma20"] * 0.985) if m["ma20"] > 0 else False)
+            and ((m["ma5"] >= m["ma20"] * 0.985) if m["ma5"] > 0 and m["ma20"] > 0 else False)
+            and ((m["close"] >= m["prev_box_high10"] * 0.975) if m["prev_box_high10"] > 0 else False)
             and not late
         )
         prev_red_state = red_state_hist[-1] if red_state_hist else False
         red_onset = bool(red_state_raw and (not prev_red_state))
 
+        # ✅ Blue-1 완화: 초기 신호가 아예 안 뜨는 문제를 줄임
         blue1_onset = (
             red_onset
             and intro_box_ready
-            and (not had_red_onset_recent)
-            and (m["ret7"] <= 7.0)
-            and (m["ret15"] <= 12.0)
-            and (m["ret20"] <= 14.0)
-            and ((m["close"] <= m["prev_box_high25"] * 1.02) if m["prev_box_high25"] > 0 else True)
-            and ((m["volume"] >= m["vol_ma20"] * 1.00) if m["vol_ma20"] > 0 else False)
+            and (m["ret7"] <= 9.0)
+            and (m["ret15"] <= 14.0)
+            and (m["ret20"] <= 16.0)
+            and ((m["close"] <= m["prev_box_high25"] * 1.03) if m["prev_box_high25"] > 0 else True)
+            and ((m["volume"] >= m["vol_ma20"] * 0.90) if m["vol_ma20"] > 0 else True)
             and not late
         )
 
         pullback_box = (
             had_blue1_recent
             and not late
-            and (2.5 <= m["pullback_pct25"] <= 15.0)
+            and (2.0 <= m["pullback_pct25"] <= 15.0)
             and (((m["close"] >= m["ma20"] * 0.97) if m["ma20"] > 0 else False) or ((m["close"] >= m["ma60"] * 0.98) if m["ma60"] > 0 else False))
-            and ((m["vol_ma5"] <= m["vol_ma20"] * 1.05) if m["vol_ma20"] > 0 else False)
-            and ((m["close"] < m["box_high25"] * 0.99) if m["box_high25"] > 0 else False)
-            and (m["low5"] > m["low20"] * 1.01 if m["low20"] > 0 else False)
+            and ((m["vol_ma5"] <= m["vol_ma20"] * 1.10) if m["vol_ma20"] > 0 else False)
+            and ((m["close"] < m["box_high25"] * 0.995) if m["box_high25"] > 0 else False)
+            and (m["low5"] > m["low20"] * 1.00 if m["low20"] > 0 else False)
             and not red_state_raw
         )
 
@@ -385,31 +394,32 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
         pre_pullback_box = (
             (not had_blue1_recent)
             and not late
-            and (2.5 <= m["pullback_pct25"] <= 15.0)
-            and (m["box_range_pct25"] <= 24.0)
-            and (m["ret20"] <= 14.0)
-            and (m["max_day_up10"] <= 9.0)
+            and (2.0 <= m["pullback_pct25"] <= 15.0)
+            and (m["box_range_pct25"] <= 26.0)
+            and (m["ret20"] <= 16.0)
+            and (m["max_day_up10"] <= 10.0)
             and (((m["close"] >= m["ma20"] * 0.98) if m["ma20"] > 0 else False) or ((m["close"] >= m["ma60"] * 0.99) if m["ma60"] > 0 else False))
-            and ((m["vol_ma5"] <= m["vol_ma20"] * 1.10) if m["vol_ma20"] > 0 else False)
-            and ((m["close"] < m["box_high25"] * 0.992) if m["box_high25"] > 0 else False)
-            and (m["low5"] > m["low20"] * 1.00 if m["low20"] > 0 else False)
+            and ((m["vol_ma5"] <= m["vol_ma20"] * 1.15) if m["vol_ma20"] > 0 else False)
+            and ((m["close"] < m["box_high25"] * 0.996) if m["box_high25"] > 0 else False)
+            and (m["low5"] > m["low20"] * 0.995 if m["low20"] > 0 else False)
             and not red_state_raw
         )
 
         red_state_raw_2 = (
             (pullback_box or pre_pullback_box)
             and m["change_ready"]
-            and ((m["close"] >= m["ma20"] * 0.99) if m["ma20"] > 0 else False)
-            and ((m["ma5"] >= m["ma20"] * 0.995) if m["ma20"] > 0 and m["ma5"] > 0 else False)
-            and ((m["close"] >= m["prev_box_high10"] * 0.985) if m["prev_box_high10"] > 0 else False)
+            and ((m["close"] >= m["ma20"] * 0.985) if m["ma20"] > 0 else False)
+            and ((m["ma5"] >= m["ma20"] * 0.992) if m["ma20"] > 0 and m["ma5"] > 0 else False)
+            and ((m["close"] >= m["prev_box_high10"] * 0.980) if m["prev_box_high10"] > 0 else False)
             and not late
         )
+
+        # ✅ Blue-2가 Blue-1 실발생 여부에만 묶이지 않도록 완화
         blue2_onset = (
             red_state_raw_2
             and (not prev_red_state)
-            and had_blue1_recent
-            and had_pullback_recent
-            and ((m["volume"] >= m["vol_ma20"] * 1.00) if m["vol_ma20"] > 0 else False)
+            and ((had_blue1_recent and had_pullback_recent) or pre_pullback_box)
+            and ((m["volume"] >= m["vol_ma20"] * 0.90) if m["vol_ma20"] > 0 else True)
             and not late
         )
 
@@ -4705,6 +4715,8 @@ def _clean_main7_ai_text(text: str, max_len: int = 30) -> str:
     return s
 
 
+MAIN7_AI_TELEGRAM_LAYOUT_VERSION = 'split_v1'
+
 def _format_main7_ai_debate_text(rows):
     if not rows:
         return ''
@@ -4808,7 +4820,7 @@ def _run_main7_ai_debate(ai_candidates_df: pd.DataFrame, issues=None, market_new
         _unused_telegram_text = result.get('telegram_text', '') or ''
         telegram_text = _format_main7_ai_debate_text(debate_rows)
         merged_df = _merge_debate_rows_into_candidates(ai_candidates_df, debate_rows)
-        log_info(f"🧠 메인후보 AI 토론 완료: {len(debate_rows)}개")
+        log_info(f"🧠 메인후보 AI 토론 완료: {len(debate_rows)}개 | 레이아웃 {MAIN7_AI_TELEGRAM_LAYOUT_VERSION}")
         return merged_df, telegram_text, debate_rows
     except Exception as e:
         log_error(f"⚠️ 메인후보 AI 토론 실패: {e}")
@@ -8235,16 +8247,24 @@ if __name__ == "__main__":
     log_info(f"📌 HTS 정확복제형 예비돌반지 TOP5 전송 수: {len(exact_top5)}")
     
     MAX_CHAR = 3800
-    current_msg = (
+
+    # ✅ 브리핑 / AI심판 / TOP15 / 최종블록을 분리 전송해서 텔레그램 잘림 방지
+    pre_briefing_msg = (
         f"{briefing}\n\n"
-        f"{sector_report}\n\n"      
+        f"{sector_report}\n\n"
         f"{oil_briefing}\n\n"
         f"{news_theme_text}\n\n"
         f"{us_mapping_text}\n\n"
-        f"{macro_briefing_text}\n\n"
-        + (f"{ai_debate_text}\n\n" if ai_debate_text else "")
-        + f"📢 [오늘의 실시간 TOP 15]\n\n"
-    )
+        f"{macro_briefing_text}"
+    ).strip()
+
+    if pre_briefing_msg:
+        send_telegram_chunks(pre_briefing_msg, max_len=3500)
+
+    if ai_debate_text:
+        send_telegram_chunks(ai_debate_text, max_len=3200)
+
+    current_msg = f"📢 [오늘의 실시간 TOP 15]\n\n"
     
     stage_block = ""
     pre_block = build_pre_dolbanji_block("예비돌반지 TOP 5", pre_top5, exact_mode=False)
@@ -8479,17 +8499,14 @@ if __name__ == "__main__":
     # 마지막 블록은 급등후보 + 예비돌반지 별도 TOP5
     final_block = (stage_block or "") + "\n" + pre_block + "\n" + exact_block + "\n" + lite_block + "\n" + wm_green_block + "\n" + wm_red_block + "\n" + wm_blue_block + "\n" + wm_debug_block + "\n" + wm_intro_block + "\n" + wm_pullback_block + "\n" + wm_late_block + "\n" + wm_blue1_block + "\n" + wm_blue2_block
 
-    # ✅ FIX: stage_block 이 있을 때도 메인 TOP15 메시지가 누락되지 않도록 전송 순서 보정
-    if final_block:
-        if len(current_msg) + len(final_block) <= MAX_CHAR:
-            current_msg += final_block
-            send_telegram_photo(current_msg, imgs if imgs else [])
-        else:
-            send_telegram_photo(current_msg, imgs if imgs else [])
-            imgs = []
-            send_telegram_photo(final_block, [])
-    else:
+    # ✅ TOP15는 이미지 포함 메시지로 먼저 전송
+    if current_msg.strip():
         send_telegram_photo(current_msg, imgs if imgs else [])
+    imgs = []
+
+    # ✅ final_block은 절대 한 번에 보내지 않고 청크 분할 전송
+    if final_block.strip():
+        send_telegram_chunks(final_block, max_len=3500)
 
     imgs = []
     # AI 토너먼트는 맨 마지막
