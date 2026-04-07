@@ -1,3 +1,4 @@
+# intro_box 원인 5개 완화 튜닝본
 # 수박/파란점 intro_box 세부조건 디버그 완성본
 # 수박/파란점 게이트 디버그 출력본
 # red onset 기반 미세완화 튜닝본
@@ -313,14 +314,14 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
             or had_blue2_recent
         )
 
-        intro_box_range_ok = bool(6.0 <= m["box_range_pct25"] <= 20.0)
-        intro_attack_band_ok = bool(m["attack_score"] >= 2 and m["attack_score"] <= 4)
-        intro_ret7_ok = bool(m["ret7"] <= 8.0)
-        intro_ret15_ok = bool(m["ret15"] <= 12.0)
+        intro_box_range_ok = bool(6.0 <= m["box_range_pct25"] <= 26.0)
+        intro_attack_band_ok = bool(m["attack_score"] >= 2 and m["attack_score"] <= 5)
+        intro_ret7_ok = bool(m["ret7"] <= 10.0)
+        intro_ret15_ok = bool(m["ret15"] <= 16.0)
         intro_ret20_ok = bool(m["ret20"] <= 15.0)
         intro_dayup_ok = bool(m["max_day_up10"] <= 9.0)
         intro_top_near_ok = bool((m["close"] <= m["prev_box_high25"] * 0.985) if m["prev_box_high25"] > 0 else True)
-        intro_vol_calm_ok = bool((m["volume"] <= m["vol_ma20"] * 1.20) if m["vol_ma20"] > 0 else True)
+        intro_vol_calm_ok = bool((m["volume"] <= m["vol_ma20"] * 1.35) if m["vol_ma20"] > 0 else True)
         intro_no_prior_blue1_ok = bool(not had_blue1_recent)
         intro_no_prior_blue2_ok = bool(not had_blue2_recent)
         intro_not_late_ok = bool(not late)
