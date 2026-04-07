@@ -741,6 +741,114 @@ def build_watermelon_state_top5(df: pd.DataFrame):
 
 
 
+def _nearest_time_symmetry(days: int):
+    periods = [9, 17, 26, 33, 42]
+    if days is None:
+        return None, None
+    try:
+        d = int(days)
+    except Exception:
+        return None, None
+    nearest = min(periods, key=lambda x: abs(d - x))
+    gap = abs(d - nearest)
+    return nearest, gap
+
+def _time_symmetry_tag(days: int) -> str:
+    if days is None:
+        return ""
+    try:
+        d = int(days)
+    except Exception:
+        return ""
+    if d < 0:
+        return ""
+    nearest, gap = _nearest_time_symmetry(d)
+    if nearest is None:
+        return ""
+    if gap <= 1:
+        return f"⏱{nearest}근접"
+    elif gap <= 2:
+        return f"⏱{nearest}예비"
+    return ""
+
+def _time_symmetry_comment(days: int, label: str = "기준봉") -> str:
+    if days is None:
+        return ""
+    try:
+        d = int(days)
+    except Exception:
+        return ""
+    if d < 0:
+        return ""
+    nearest, gap = _nearest_time_symmetry(d)
+    if nearest is None:
+        return ""
+    if gap <= 1:
+        return f"⏱ 기간대칭: {label} 후 {nearest}일 변곡창 근접"
+    elif gap <= 2:
+        return f"⏱ 기간대칭: {label} 후 {nearest}일 예비창 접근"
+    elif gap <= 4:
+        return f"⏱ 기간대칭: {label} 후 {nearest}일 대칭권 근처"
+    return ""
+
+def _safe_parse_dt_local(v):
+    try:
+        if v is None:
+            return None
+        x = pd.to_datetime(v, errors="coerce")
+        if pd.isna(x):
+            return None
+        return x.normalize()
+    except Exception:
+        return None
+
+def _business_days_since_anchor(anchor_date, ref_date=None) -> int:
+    a = _safe_parse_dt_local(anchor_date)
+    if a is None:
+        return -1
+    if ref_date is None:
+        ref_date = globals().get("TODAY_STR", None)
+    r = _safe_parse_dt_local(ref_date)
+    if r is None or r < a:
+        return -1
+    try:
+        bdays = pd.bdate_range(a, r)
+        return max(len(bdays) - 1, 0)
+    except Exception:
+        return -1
+
+def _pick_time_sym_anchor(row) -> tuple:
+    candidates = [
+        ("Blue-1", row.get("blue1_date")),
+        ("최근저점", row.get("recent_low_date")),
+        ("박스시작", row.get("box_start_date")),
+        ("S1", row.get("S1날짜")),
+        ("S1", row.get("S1")),
+        ("S1", row.get("s1_date")),
+    ]
+    for label, val in candidates:
+        if _safe_parse_dt_local(val) is not None:
+            return label, val
+    return "", None
+
+def annotate_time_symmetry_df(df: pd.DataFrame) -> pd.DataFrame:
+    if df is None or df.empty:
+        return df
+    work = df.copy()
+    days_list, tag_list, comment_list, label_list = [], [], [], []
+    for _, row in work.iterrows():
+        label, anchor = _pick_time_sym_anchor(row)
+        days = _business_days_since_anchor(anchor, globals().get("TODAY_STR", None))
+        days_list.append(days)
+        label_list.append(label)
+        tag_list.append(_time_symmetry_tag(days))
+        comment_list.append(_time_symmetry_comment(days, label or "기준봉"))
+    work["time_sym_days"] = days_list
+    work["time_sym_label"] = label_list
+    work["time_sym_tag"] = tag_list
+    work["time_sym_comment"] = comment_list
+    return work
+
 def build_watermelon_debug_block(title: str, df: pd.DataFrame) -> str:
     if df is None or df.empty:
         return f"🔬 [{title}]\n- 해당 종목 없음\n"
@@ -769,11 +877,14 @@ def build_watermelon_debug_block(title: str, df: pd.DataFrame) -> str:
         no_blue1_ok = 1 if bool(row.get('수박디버그_no_blue1_ok', False)) else 0
         no_blue2_ok = 1 if bool(row.get('수박디버그_no_blue2_ok', False)) else 0
         not_late_ok = 1 if bool(row.get('수박디버그_not_late_ok', False)) else 0
+        time_days = int(row.get('time_sym_days', -1)) if str(row.get('time_sym_days', '')).strip() not in ('', 'nan', 'None') else -1
+        time_tag = row.get('time_sym_tag', '')
         lines.append(
             f"{rank}) {name}({code})\n"
             f"- 최종상태: {state}\n"
             f"- gate: intro_box={intro_box} / change={change} / red_raw={red_raw} / red_onset={red_onset} / blue1_onset={blue1_onset} / pullback_box={pullback_box} / red2_raw={red2_raw} / blue2_onset={blue2_onset} / late={late} / blue_confirm={int(row.get('수박디버그_blue_confirm', -1))}\n"
             f"- intro_sub: range={box_range_ok} / attack_band={attack_band_ok} / ret7={ret7_ok} / ret15={ret15_ok} / ret20={ret20_ok} / dayup={dayup_ok} / top_near={top_near_ok} / vol_calm={vol_calm_ok} / no_blue1={no_blue1_ok} / no_blue2={no_blue2_ok} / not_late={not_late_ok}\n"
+            + (f"- 시간대칭: days={time_days} / tag={time_tag}\n" if time_days >= 0 and time_tag else "")
         )
     return "\n".join(lines)
 
@@ -795,11 +906,13 @@ def build_watermelon_state_block(title: str, df: pd.DataFrame) -> str:
         tags = row.get('수박상태태그', row.get('wm_state_tags', ''))
         if isinstance(tags, list):
             tags = " ".join(tags)
+        time_comment = row.get('time_sym_comment', '')
         lines.append(
             f"{rank}) {name}({code})\n"
             f"- 상태: {state} | 등급:{grade}\n"
             f"- 점수: 기반{b} / 포켓{p} / 공격{a} / 파란{blue} (B1:{blue1}, B2:{blue2})\n"
             f"- 태그: {tags}\n"
+            + (f"- 기간대칭: {time_comment}\n" if time_comment else "")
         )
     return "\n".join(lines)
 
@@ -4818,7 +4931,7 @@ def _clean_main7_ai_text(text: str, max_len: int = 30) -> str:
     return s
 
 
-MAIN7_AI_TELEGRAM_LAYOUT_VERSION = 'split_v1 | wm_tune_v4_lgcap_guard'
+MAIN7_AI_TELEGRAM_LAYOUT_VERSION = 'split_v1 | wm_tune_v5_time_sym'
 
 def _format_main7_ai_debate_text(rows):
     if not rows:
@@ -8196,7 +8309,12 @@ if __name__ == "__main__":
     ai_candidates = apply_news_theme_bonus(ai_candidates, news_theme_analysis)
     ai_candidates = apply_us_theme_bonus(ai_candidates, us_merged_events)
 
+    ai_candidates = annotate_time_symmetry_df(ai_candidates)
+    stage_candidates_top5 = annotate_time_symmetry_df(stage_candidates_top5)
+
     all_hits_df_for_pre = pd.DataFrame(all_hits_sorted) if all_hits_sorted else pd.DataFrame()
+    all_hits_df_for_pre = annotate_time_symmetry_df(all_hits_df_for_pre)
+
     pre_top5, exact_top5, broad_only_top5, lite_top5 = build_pre_dolbanji_top5(all_hits_df_for_pre)
     wm_green_top5, wm_red_top5, wm_blue_top5, wm_intro_top5, wm_pullback_top5, wm_late_top5, wm_blue1_top5, wm_blue2_top5 = build_watermelon_state_top5(all_hits_df_for_pre)
     wm_debug_top5 = all_hits_df_for_pre.copy()
@@ -8393,8 +8511,9 @@ if __name__ == "__main__":
             f"- S1:{item.get('S1날짜', '-')}, "
             f"S2:{item.get('S2날짜', '-')}, "
             f"S3:{item.get('S3날짜', '-')}\n"
-            f"- N조합: {item.get('N조합', '')}\n"
-            f"- 재무: {item.get('재무', '미계산')} | 수급: {item.get('수급', '미계산')}\n"
+            f"- N조합: {item.get('N조합', '')}" + (f" | {item.get('time_sym_tag', '')}" if str(item.get('time_sym_tag', '')).strip() else "") + "\n"
+            + (f"- 기간대칭: {item.get('time_sym_comment', '')}\n" if str(item.get('time_sym_comment', '')).strip() else "")
+            + f"- 재무: {item.get('재무', '미계산')} | 수급: {item.get('수급', '미계산')}\n"
             f"- 안전:{item.get('안전점수', 0)} | N점수:{item.get('N점수', 0)}\n"
             f"----------------------------\n"
         )
@@ -8561,6 +8680,14 @@ if __name__ == "__main__":
             entry += f"🪄 근거: {ai_reason[:52]}\n"
         if ai_short:
             entry += f"{ai_short}\n"
+
+        _time_tag = str(item.get('time_sym_tag', '')).strip()
+        _time_comment = str(item.get('time_sym_comment', '')).strip()
+        if _time_tag:
+            entry += f"⏱ 시간창:{_time_tag}"
+            if _time_comment:
+                entry += f" | {_time_comment[:28]}"
+            entry += "\n"
 
         # 타점 (2단계 목표 + 지지저항)
         target2_p = _si(item.get('🎯목표2차', 0))
