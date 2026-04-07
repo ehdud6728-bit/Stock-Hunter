@@ -784,11 +784,11 @@ def _time_symmetry_comment(days: int, label: str = "기준봉") -> str:
     if nearest is None:
         return ""
     if gap <= 1:
-        return f"⏱ 기간대칭: {label} 후 {nearest}일 변곡창 근접"
+        return f"{label} 후 {nearest}일 변곡창 근접"
     elif gap <= 2:
-        return f"⏱ 기간대칭: {label} 후 {nearest}일 예비창 접근"
+        return f"{label} 후 {nearest}일 예비창 접근"
     elif gap <= 4:
-        return f"⏱ 기간대칭: {label} 후 {nearest}일 대칭권 근처"
+        return f"{label} 후 {nearest}일 대칭권 근처"
     return ""
 
 def _safe_parse_dt_local(v):
@@ -912,7 +912,7 @@ def build_watermelon_state_block(title: str, df: pd.DataFrame) -> str:
             f"- 상태: {state} | 등급:{grade}\n"
             f"- 점수: 기반{b} / 포켓{p} / 공격{a} / 파란{blue} (B1:{blue1}, B2:{blue2})\n"
             f"- 태그: {tags}\n"
-            + (f"- 기간대칭: {time_comment}\n" if time_comment else "")
+            + (f"- 시간창: {time_comment}\n" if time_comment else "")
         )
     return "\n".join(lines)
 
@@ -4999,7 +4999,7 @@ def _clean_main7_ai_text(text: str, max_len: int = 52, row=None, role: str = '')
     if not s:
         return _fallback_main7_role_text(row or {}, role)
     return s
-MAIN7_AI_TELEGRAM_LAYOUT_VERSION = 'split_v1 | wm_tune_v7_ai_textfix'
+MAIN7_AI_TELEGRAM_LAYOUT_VERSION = 'split_v1 | wm_tune_v8_timeprefix_fix'
 
 def _format_main7_ai_debate_text(rows):
     if not rows:
