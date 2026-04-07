@@ -57,6 +57,10 @@ try: from openai import OpenAI
 except: OpenAI = None
 
 from google_sheet_manager import update_google_sheet, update_ai_briefing_sheet
+try:
+    from closing_bet_ai_debate_integration import run_closing_bet_debate_pipeline
+except Exception:
+    run_closing_bet_debate_pipeline = None
 import io
 import warnings
 warnings.filterwarnings('ignore', category=FutureWarning)
@@ -4459,6 +4463,269 @@ def _call_ai(system_prompt: str, user_prompt: str,
 
     return "AI 분석 불가 (API 키 없음 또는 호출 실패)"
 
+
+
+def _call_openai_api_generic(system_prompt: str, user_prompt: str, max_tokens: int = 3000) -> str:
+    if not OPENAI_API_KEY or OpenAI is None:
+        return ''
+    try:
+        client = OpenAI(api_key=OPENAI_API_KEY)
+        res = client.chat.completions.create(
+            model='gpt-4o-mini',
+            messages=[
+                {'role': 'system', 'content': system_prompt},
+                {'role': 'user',   'content': user_prompt},
+            ],
+            max_tokens=max_tokens,
+            temperature=0.4
+        )
+        out = (res.choices[0].message.content or '').strip()
+        return out
+    except Exception as e:
+        log_error(f"[OpenAI JSON 호출 실패] {e}")
+        return ''
+
+
+def _main7_llm_runner(system_prompt: str, user_prompt: str,
+                      preferred_models=None, role_name: str = ''):
+    model_order = list(preferred_models or ['anthropic', 'openai', 'gemini', 'groq'])
+    tried = []
+
+    for model_name in model_order:
+        m = str(model_name).strip().lower()
+        if m in tried:
+            continue
+        tried.append(m)
+
+        try:
+            if m in ('anthropic', 'claude'):
+                out = _call_claude_api(system_prompt, user_prompt, max_tokens=2400)
+                if out and 'AI 분석 불가' not in out:
+                    log_info(f"✅ {role_name} LLM 성공: anthropic")
+                    return out, 'anthropic'
+
+            elif m in ('openai', 'gpt'):
+                out = _call_openai_api_generic(system_prompt, user_prompt, max_tokens=2200)
+                if out and 'AI 분석 불가' not in out:
+                    log_info(f"✅ {role_name} LLM 성공: openai")
+                    return out, 'openai'
+
+            elif m in ('gemini', 'google'):
+                out = _call_gemini_api_generic(system_prompt, user_prompt, max_tokens=2200)
+                if out and 'AI 분석 불가' not in out:
+                    log_info(f"✅ {role_name} LLM 성공: gemini")
+                    return out, 'gemini'
+
+            elif m == 'groq':
+                out = _call_groq_api_generic(system_prompt, user_prompt, max_tokens=2200)
+                if out and 'AI 분석 불가' not in out:
+                    log_info(f"✅ {role_name} LLM 성공: groq")
+                    return out, 'groq'
+        except Exception as e:
+            log_error(f"⚠️ {role_name} LLM 실패({m}): {e}")
+
+    fallback = _call_ai(system_prompt, user_prompt, max_tokens=2200)
+    return fallback, 'fallback'
+
+
+def _coerce_news_headlines(news_text: str):
+    txt = str(news_text or '').strip()
+    if not txt:
+        return []
+    parts = [x.strip("-• 	") for x in re.split(r'\n+|\|', txt) if str(x).strip()]
+    return parts[:3]
+
+
+def _build_main7_debate_hits(ai_candidates_df: pd.DataFrame, top_k: int = 15):
+    if ai_candidates_df is None or ai_candidates_df.empty:
+        return []
+
+    work = ai_candidates_df.head(top_k).copy()
+    hits = []
+
+    for _, row in work.iterrows():
+        code = str(row.get('code', '')).strip()
+        if code and code.isdigit():
+            code = code.zfill(6)
+
+        amount_b = safe_float(row.get('거래대금B', row.get('거래대금(억)', row.get('amount_b', 0))), 0.0)
+        if amount_b <= 0:
+            amount_raw = safe_float(row.get('거래대금', row.get('Amount', 0)), 0.0)
+            if amount_raw > 0:
+                amount_b = round(amount_raw / 100000000.0, 1)
+
+        vol_ratio = safe_float(
+            row.get('거래량배수',
+                    row.get('매집거래량배율',
+                            row.get('거래대금배수', 0))), 0.0
+        )
+
+        wick_pct = safe_float(row.get('윗꼬리비율', row.get('상꼬리비율', 0)), 0.0)
+
+        nscore = safe_float(row.get('N점수', 0), 0.0)
+        safe_score = safe_float(row.get('안전점수', 0), 0.0)
+        merged_score = round((nscore * 0.6) + (safe_score * 0.4), 1)
+
+        flow_grade = str(row.get('수급', '중립'))
+        flow_status = 'missing'
+        flow_grade_l = flow_grade.lower()
+        if any(k in flow_grade for k in ['외인', '기관', '연기금', '프로그램']) or 'positive' in flow_grade_l:
+            flow_status = 'positive'
+        elif any(k in flow_grade for k in ['이탈', '매도']) or 'negative' in flow_grade_l:
+            flow_status = 'negative'
+        elif flow_grade.strip():
+            flow_status = 'weak'
+
+        mode = str(row.get('단계상태', '') or '').strip()
+        if not mode:
+            mode = 'MAIN'
+        grade = str(row.get('N등급', row.get('grade', ''))).strip()
+        rec_band = 'ENV' if 'ENV' in str(row.get('N구분', '')) else ('BB' if safe_float(row.get('BB40', 0), 0) > 0 else '')
+
+        hits.append({
+            'name': row.get('종목명', ''),
+            'code': code,
+            'mode': mode,
+            'mode_label': str(row.get('N조합', mode)),
+            'grade': grade,
+            'recommended_band': rec_band,
+            'universe_tag': str(row.get('구분', '')),
+            'index_label': str(row.get('코스피200', '') or row.get('코스닥150', '') or ''),
+            'close': safe_int(row.get('현재가', 0)),
+            'open': safe_int(row.get('시가', row.get('Open', 0))),
+            'high': safe_int(row.get('고가', row.get('High', 0))),
+            'amount_b': amount_b,
+            'vol_ratio': vol_ratio,
+            'wick_pct': wick_pct,
+            'target1': safe_int(row.get('🎯목표타점', 0)),
+            'stoploss': safe_int(row.get('🚨손절가', 0)),
+            'rr': safe_float(row.get('RR비율', 0), 0.0),
+            'score': merged_score,
+            'near20': safe_float(row.get('이격', 0), 0.0),
+            'disp': safe_float(row.get('이격', 0), 0.0),
+            'env20_pct': safe_float(row.get('Env20Pct', row.get('env20_pct', 0)), 0.0),
+            'env40_pct': safe_float(row.get('Env40Pct', row.get('env40_pct', 0)), 0.0),
+            'rsi': safe_float(row.get('RSI', 0), 0.0),
+            'obv_rising': safe_float(row.get('OBV기울기', 0), 0.0) > 0,
+            'maejip_5d': safe_int(row.get('매집일수_10일', row.get('매집일수_5일', 0))),
+            'flow_status': flow_status,
+            'flow_grade': flow_grade,
+            'frgn3_sum_b': safe_float(row.get('외인3일합(억)', 0), 0.0),
+            'inst3_sum_b': safe_float(row.get('기관3일합(억)', 0), 0.0),
+            'fi3_sum_b': safe_float(row.get('외인기관3일합(억)', 0), 0.0),
+            'flow_positive_days': safe_int(row.get('수급양수일수(3일)', 0)),
+            'flow_min_ratio': safe_float(row.get('수급최대이탈비율', 0), 0.0),
+            'sector': str(row.get('구분', '')),
+            'theme': str(row.get('N조합', '')),
+            'leader_name': str(row.get('대표종목', '')),
+            'news_headlines': _coerce_news_headlines(row.get('news_sentiment', '')),
+        })
+
+    return hits
+
+
+def _merge_debate_rows_into_candidates(ai_candidates_df: pd.DataFrame, debate_rows):
+    if ai_candidates_df is None or ai_candidates_df.empty or not debate_rows:
+        return ai_candidates_df
+
+    out = ai_candidates_df.copy()
+    if 'AI최종판정' not in out.columns:
+        out['AI최종판정'] = ''
+    if 'AI확신도' not in out.columns:
+        out['AI확신도'] = 0
+    if 'AI심판요약' not in out.columns:
+        out['AI심판요약'] = ''
+    if 'AI강한근거' not in out.columns:
+        out['AI강한근거'] = ''
+    if 'AI위험요인' not in out.columns:
+        out['AI위험요인'] = ''
+    if 'AI심판모델' not in out.columns:
+        out['AI심판모델'] = ''
+    if 'AI재료분류' not in out.columns:
+        out['AI재료분류'] = ''
+
+    row_map = {}
+    for r in debate_rows:
+        code = str(r.get('code', '')).strip()
+        if code and code.isdigit():
+            code = code.zfill(6)
+        row_map[code] = r
+
+    for idx, row in out.iterrows():
+        code = str(row.get('code', '')).strip()
+        if code and code.isdigit():
+            code = code.zfill(6)
+        r = row_map.get(code)
+        if not r:
+            continue
+        out.at[idx, 'AI최종판정'] = str(r.get('AI최종판정', ''))
+        out.at[idx, 'AI확신도'] = safe_int(r.get('AI확신도', 0))
+        out.at[idx, 'AI심판요약'] = str(r.get('AI심판요약', ''))
+        out.at[idx, 'AI강한근거'] = str(r.get('AI강한근거', ''))
+        out.at[idx, 'AI위험요인'] = str(r.get('AI위험요인', ''))
+        out.at[idx, 'AI심판모델'] = str(r.get('AI심판모델', ''))
+        out.at[idx, 'AI재료분류'] = str(r.get('AI재료분류', ''))
+
+    return out
+
+
+def _run_main7_ai_debate(ai_candidates_df: pd.DataFrame, issues=None, market_news=None):
+    if run_closing_bet_debate_pipeline is None:
+        return ai_candidates_df, '', []
+
+    if ai_candidates_df is None or ai_candidates_df.empty:
+        return ai_candidates_df, '', []
+
+    hits = _build_main7_debate_hits(ai_candidates_df, top_k=15)
+    if not hits:
+        return ai_candidates_df, '', []
+
+    comments = "특이 이슈 없음"
+    if issues:
+        comments = " | ".join([str(i.get("comment", "분석 필요")) for i in issues[:5]])
+
+    news_block = ""
+    if market_news and isinstance(market_news, list):
+        top_news = [str(n).strip() for n in market_news[:5] if str(n).strip()]
+        if top_news:
+            news_block = " | ".join(top_news)
+
+    extra_context = f"메인 전략 사령부 후보 토론. 시장이슈: {comments}"
+    if news_block:
+        extra_context += f" | 주요뉴스: {news_block}"
+
+    role_model_prefs = {
+        'tech': ['anthropic', 'openai'],
+        'flow': ['openai', 'groq', 'anthropic'],
+        'theme': ['anthropic', 'gemini', 'openai'],
+        'risk': ['openai', 'groq', 'anthropic'],
+        'judge': ['anthropic', 'openai', 'gemini'],
+    }
+
+    try:
+        now_dt = datetime.now(KST)
+    except Exception:
+        now_dt = datetime.now()
+
+    try:
+        result = run_closing_bet_debate_pipeline(
+            hits=hits,
+            llm_runner=_main7_llm_runner,
+            now_dt=now_dt,
+            mins_left=0,
+            top_n=7,
+            extra_market_context=extra_context,
+            role_model_prefs=role_model_prefs,
+        )
+        debate_rows = result.get('rows', []) or []
+        telegram_text = result.get('telegram_text', '') or ''
+        merged_df = _merge_debate_rows_into_candidates(ai_candidates_df, debate_rows)
+        log_info(f"🧠 메인후보 AI 토론 완료: {len(debate_rows)}개")
+        return merged_df, telegram_text, debate_rows
+    except Exception as e:
+        log_error(f"⚠️ 메인후보 AI 토론 실패: {e}")
+        return ai_candidates_df, '', []
+
 def get_ai_summary_batch(ai_candidates_df, issues=None, market_news=None):
     """
     판단형 종목 코멘트 생성.
@@ -7853,6 +8120,10 @@ if __name__ == "__main__":
 
         ai_candidates.loc[idx, "ai_tip"] = ai_tip_text
 
+    ai_debate_text = ""
+    ai_debate_rows = []
+    ai_candidates, ai_debate_text, ai_debate_rows = _run_main7_ai_debate(ai_candidates, issues, market_news_titles)
+
     # ✅ PASS 후보는 전체 후보와 분리 유지 (TOP15 본문과 섞지 않음)
     if '단계상태' in ai_candidates.columns:
         pass_ai_candidates = ai_candidates[
@@ -7883,7 +8154,8 @@ if __name__ == "__main__":
         f"{news_theme_text}\n\n"
         f"{us_mapping_text}\n\n"
         f"{macro_briefing_text}\n\n"
-        f"📢 [오늘의 실시간 TOP 15]\n\n"
+        + (f"{ai_debate_text}\n\n" if ai_debate_text else "")
+        + f"📢 [오늘의 실시간 TOP 15]\n\n"
     )
     
     stage_block = ""
@@ -8061,7 +8333,21 @@ if __name__ == "__main__":
         if _news_sent:
             entry += f"📰 {_news_sent[:60]}\n"
 
-        # AI 코멘트
+        # AI 심판 / AI 코멘트
+        ai_verdict = str(item.get('AI최종판정', '') or '').strip()
+        ai_conf    = safe_int(item.get('AI확신도', 0))
+        ai_judge   = str(item.get('AI심판요약', '') or '').strip()
+        ai_reason  = str(item.get('AI강한근거', '') or '').strip()
+
+        if ai_verdict:
+            entry += f"🧠 심판:{ai_verdict}"
+            if ai_conf > 0:
+                entry += f" {ai_conf}점"
+            if ai_judge:
+                entry += f" | {ai_judge[:42]}"
+            entry += "\n"
+        if ai_reason:
+            entry += f"🪄 근거: {ai_reason[:52]}\n"
         if ai_short:
             entry += f"{ai_short}\n"
 
@@ -8127,7 +8413,7 @@ if __name__ == "__main__":
         log_error("⚠️ 토너먼트 결과 없어서 전송 생략")
 
     try:
-        update_google_sheet(all_hits_sorted, TODAY_STR, tournament_report + stage_block + "\n" + pre_block + "\n" + exact_block + "\n" + lite_block + "\n" + wm_green_block + "\n" + wm_red_block + "\n" + wm_blue_block + "\n" + wm_intro_block + "\n" + wm_pullback_block + "\n" + wm_late_block + "\n" + wm_blue1_block + "\n" + wm_blue2_block)
+        update_google_sheet(all_hits_sorted, TODAY_STR, tournament_report + "\n\n" + (ai_debate_text or "") + "\n" + stage_block + "\n" + pre_block + "\n" + exact_block + "\n" + lite_block + "\n" + wm_green_block + "\n" + wm_red_block + "\n" + wm_blue_block + "\n" + wm_intro_block + "\n" + wm_pullback_block + "\n" + wm_late_block + "\n" + wm_blue1_block + "\n" + wm_blue2_block)
         log_info(f"💾 총 {len(all_hits_sorted)}개 종목 전수 기록 완료!")
     except Exception as e:
         log_error(f"🚨 시트 업데이트 실패: {e}")
