@@ -917,6 +917,119 @@ def annotate_time_symmetry_df(df: pd.DataFrame) -> pd.DataFrame:
     work["time_sym_bonus"] = bonus_list
     return work
 
+def _ma5r_float(x, default=0.0):
+    try:
+        return float(x)
+    except Exception:
+        return default
+
+
+def _ma5r_upper_wick_pct(open_p, high_p, low_p, close_p):
+    try:
+        body_high = max(open_p, close_p)
+        body = max(abs(close_p - open_p), 1e-6)
+        upper = max(high_p - body_high, 0.0)
+        return (upper / body) * 100.0
+    except Exception:
+        return 999.0
+
+
+def detect_ma5_reclaim_signal(df: pd.DataFrame, i: int) -> dict:
+    """
+    하락 후 5일선 재안착 탐지
+    - 전일 5일선 아래, 당일 5일선 위 재안착
+    - 거래량/20일선/양봉/윗꼬리/최근 낙폭을 함께 확인
+    """
+    empty = {
+        "ok": False,
+        "score": 0,
+        "tag": "",
+        "comment": "",
+        "reclaim": False,
+        "vol_ok": False,
+        "near_ma20": False,
+        "candle_ok": False,
+        "wick_ok": False,
+        "drop_ok": False,
+        "ma5_rising": False,
+    }
+    try:
+        if df is None or i <= 0 or i >= len(df):
+            return empty.copy()
+
+        row = df.iloc[i]
+        prev = df.iloc[i - 1]
+
+        close_p = _ma5r_float(row.get("Close", row.get("close", 0)))
+        open_p  = _ma5r_float(row.get("Open", row.get("open", 0)))
+        high_p  = _ma5r_float(row.get("High", row.get("high", 0)))
+        low_p   = _ma5r_float(row.get("Low", row.get("low", 0)))
+        vol     = _ma5r_float(row.get("Volume", row.get("volume", 0)))
+
+        prev_close = _ma5r_float(prev.get("Close", prev.get("close", 0)))
+
+        ma5 = _ma5r_float(row.get("MA5", row.get("ma5", 0)))
+        ma20 = _ma5r_float(row.get("MA20", row.get("ma20", 0)))
+        prev_ma5 = _ma5r_float(prev.get("MA5", prev.get("ma5", 0)))
+
+        vma5 = _ma5r_float(row.get("VMA5", row.get("vol_ma5", 0)))
+        vma20 = _ma5r_float(row.get("VMA20", row.get("vol_ma20", 0)))
+
+        if "ret5" in row.index:
+            ret5 = _ma5r_float(row.get("ret5", 0))
+        elif i >= 5:
+            ref_close = _ma5r_float(df.iloc[i - 5].get("Close", 0))
+            ret5 = ((close_p / ref_close) - 1.0) * 100.0 if ref_close > 0 else 0.0
+        else:
+            ret5 = 0.0
+
+        wick_pct = _ma5r_upper_wick_pct(open_p, high_p, low_p, close_p)
+
+        reclaim = (prev_close < prev_ma5 * 0.995) and (close_p >= ma5)
+        vol_ok = ((vma5 > 0 and vol >= vma5 * 1.10) or (vma20 > 0 and vol >= vma20 * 0.95))
+        near_ma20 = (ma20 > 0 and close_p >= ma20 * 0.98)
+        candle_ok = close_p >= open_p
+        wick_ok = wick_pct <= 35.0
+        drop_ok = (-12.0 <= ret5 <= 3.0)
+        ma5_rising = ma5 >= prev_ma5
+
+        score = sum([
+            1 if reclaim else 0,
+            1 if vol_ok else 0,
+            1 if near_ma20 else 0,
+            1 if candle_ok else 0,
+            1 if wick_ok else 0,
+            1 if drop_ok else 0,
+            1 if ma5_rising else 0,
+        ])
+
+        ok = reclaim and score >= 5
+
+        tag = ""
+        comment = ""
+        if ok:
+            tag = "🔁5일재안착"
+            comment = "하락 후 5일선 재안착 + 거래량/캔들 조건 통과"
+        elif reclaim:
+            tag = "🔁5일재안착예비"
+            comment = "5일선은 재안착했지만 거래량·캔들·20일선 확인 필요"
+
+        return {
+            "ok": ok,
+            "score": int(score),
+            "tag": tag,
+            "comment": comment,
+            "reclaim": bool(reclaim),
+            "vol_ok": bool(vol_ok),
+            "near_ma20": bool(near_ma20),
+            "candle_ok": bool(candle_ok),
+            "wick_ok": bool(wick_ok),
+            "drop_ok": bool(drop_ok),
+            "ma5_rising": bool(ma5_rising),
+        }
+    except Exception:
+        return empty.copy()
+
 def build_watermelon_debug_block(title: str, df: pd.DataFrame) -> str:
     if df is None or df.empty:
         return f"🔬 [{title}]\n- 해당 종목 없음\n"
@@ -975,12 +1088,15 @@ def build_watermelon_state_block(title: str, df: pd.DataFrame) -> str:
         if isinstance(tags, list):
             tags = " ".join(tags)
         time_comment = row.get('time_sym_comment', '')
+        ma5_tag = str(row.get('5일재안착태그', '')).strip()
+        ma5_comment = str(row.get('5일재안착코멘트', '')).strip()
         lines.append(
             f"{rank}) {name}({code})\n"
             f"- 상태: {state} | 등급:{grade}\n"
             f"- 점수: 기반{b} / 포켓{p} / 공격{a} / 파란{blue} (B1:{blue1}, B2:{blue2})\n"
             f"- 태그: {tags}\n"
             + (f"- 시간창: {time_comment}\n" if time_comment and ("근접" in time_comment or "예비" in time_comment) else "")
+            + (f"- 재안착: {ma5_tag} | {ma5_comment}\n" if ma5_tag else "")
         )
     return "\n".join(lines)
 
@@ -5067,7 +5183,7 @@ def _clean_main7_ai_text(text: str, max_len: int = 52, row=None, role: str = '')
     if not s:
         return _fallback_main7_role_text(row or {}, role)
     return s
-MAIN7_AI_TELEGRAM_LAYOUT_VERSION = 'split_v1 | wm_tune_v10_final'
+MAIN7_AI_TELEGRAM_LAYOUT_VERSION = 'split_v1 | wm_tune_v11_ma5_reclaim'
 
 def _format_main7_ai_debate_text(rows):
     if not rows:
@@ -6723,6 +6839,18 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
                 'wm_state_detail': {'ok': False, 'error': str(_wm_e)},
             }
 
+        # 5일선 재안착 보조 신호
+        try:
+            ma5_reclaim_bundle = detect_ma5_reclaim_signal(temp_df, len(temp_df) - 1)
+        except Exception as _ma5r_e:
+            log_debug(f"5일선 재안착 계산 실패: {_ma5r_e}")
+            ma5_reclaim_bundle = {
+                "ok": False, "score": 0, "tag": "", "comment": "",
+                "reclaim": False, "vol_ok": False, "near_ma20": False,
+                "candle_ok": False, "wick_ok": False, "drop_ok": False,
+                "ma5_rising": False,
+            }
+
         recent_avg_amount = (df['Close'] * df['Volume']).tail(5).mean() / 100000000
         # ✅ FIX-B: 트랙B 판별 (iloc로 안전하게)
         _is_track_b = bool(df['_is_track_b'].iloc[-1]) if '_is_track_b' in df.columns else False
@@ -6860,6 +6988,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         signals['wm_state_red'] = bool(wm_bundle.get('wm_state_red', False))
         signals['wm_pocket_hold'] = bool(wm_bundle.get('wm_pocket_hold', False))
         signals['wm_attack_hold'] = bool(wm_bundle.get('wm_attack_hold', False))
+        signals['ma5_reclaim'] = bool(ma5_reclaim_bundle.get('ok', False))
         try:
             signals.update(build_v4_signal_map(row))
         except Exception as _v4sig_e:
@@ -6963,6 +7092,9 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
                 new_tags.append(f"⚡에너지{int(row.get('ENERGY_TOTAL', 0))}")
         except Exception as _v4tag_e:
             log_debug(f"V4 tag 생성 실패: {_v4tag_e}")
+
+        if ma5_reclaim_bundle.get('tag'):
+            new_tags.append(ma5_reclaim_bundle.get('tag'))
 
         # ✅ TUNE-2: 로그 스팸 제거 (히트 종목 포착 시에만 출력)
         result = judge_trade_with_sequence(temp_df, signals)
@@ -7445,6 +7577,21 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         if row.get('OBV_Acc_Breakout', False):
             s_score += 30
 
+        _ma5r_good_context = (
+            stage_eval.get('stage_status') in ('PASS_A', 'PASS_B')
+            or bool(wm_bundle.get('wm_intro', False))
+            or bool(wm_bundle.get('wm_pullback', False))
+            or bool(wm_bundle.get('wm_blue1_hold', False))
+        )
+        if ma5_reclaim_bundle.get('ok', False):
+            if _ma5r_good_context:
+                s_score += 20
+            else:
+                s_score += 8
+            tags.append(ma5_reclaim_bundle.get('tag', '🔁5일재안착'))
+        elif ma5_reclaim_bundle.get('reclaim', False):
+            tags.append(ma5_reclaim_bundle.get('tag', '🔁5일재안착예비'))
+
         if row.get('Good_MA_Convergence', False):
             s_score += min(20, int(row.get('Good_MA_Convergence_Score', 0) * 0.25))
 
@@ -7611,6 +7758,12 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             '수박상태명': str(wm_bundle.get('wm_state_name', '')),
             '수박상태등급': str(wm_bundle.get('wm_state_grade', '없음')),
             '수박상태태그': " ".join(wm_bundle.get('wm_state_tags', [])),
+
+            '5일재안착': bool(ma5_reclaim_bundle.get('ok', False)),
+            '5일재안착예비': bool(ma5_reclaim_bundle.get('reclaim', False) and not ma5_reclaim_bundle.get('ok', False)),
+            '5일재안착점수': int(ma5_reclaim_bundle.get('score', 0)),
+            '5일재안착태그': str(ma5_reclaim_bundle.get('tag', '')),
+            '5일재안착코멘트': str(ma5_reclaim_bundle.get('comment', '')),
 
             '예비돌반지HTS정확복제': bool(pre_hts_bundle.get('pre_dolbanji_hts_exact', False)),
             '예비돌반지HTS정확점수': int(pre_hts_bundle.get('pre_dolbanji_hts_exact_score', 0)),
@@ -8682,6 +8835,7 @@ if __name__ == "__main__":
             f"S2:{item.get('S2날짜', '-')}, "
             f"S3:{item.get('S3날짜', '-')}\n"
             f"- N조합: {item.get('N조합', '')}" + (f" | {item.get('time_sym_tag', '')}" if str(item.get('time_sym_tag', '')).strip() else "") + "\n"
+            + (f"- 재안착: {item.get('5일재안착태그', '')} | {item.get('5일재안착코멘트', '')}\n" if str(item.get('5일재안착태그', '')).strip() else "")
             + f"- 재무: {item.get('재무', '미계산')} | 수급: {item.get('수급', '미계산')}\n"
             f"- 안전:{item.get('안전점수', 0)} | N점수:{item.get('N점수', 0)}\n"
             f"----------------------------\n"
@@ -8856,6 +9010,14 @@ if __name__ == "__main__":
             entry += f"⏱ 시간창:{_time_tag}"
             if _time_comment:
                 entry += f" | {_time_comment[:28]}"
+            entry += "\n"
+
+        _ma5_tag = str(item.get('5일재안착태그', '')).strip()
+        _ma5_comment = str(item.get('5일재안착코멘트', '')).strip()
+        if _ma5_tag:
+            entry += f"🔁 재안착:{_ma5_tag}"
+            if _ma5_comment:
+                entry += f" | {_ma5_comment[:30]}"
             entry += "\n"
 
         # 타점 (2단계 목표 + 지지저항)
