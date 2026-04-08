@@ -502,14 +502,15 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
         red_state_raw_2 = (
             (pullback_box or pre_pullback_box)
             and change_relaxed_2
-            and ((m["close"] >= m["ma20"] * 0.980) if m["ma20"] > 0 else False)
-            and ((m["ma5"] >= m["ma20"] * 0.990) if m["ma20"] > 0 and m["ma5"] > 0 else False)
-            and ((m["close"] >= m["prev_box_high10"] * 0.970) if m["prev_box_high10"] > 0 else False)
-            and ((m["volume"] >= m["vol_ma20"] * 0.82) if m["vol_ma20"] > 0 else True)
+            and ((m["close"] >= m["ma20"] * 0.975) if m["ma20"] > 0 else False)
+            and ((m["ma5"] >= m["ma20"] * 0.988) if m["ma20"] > 0 and m["ma5"] > 0 else False)
+            and ((m["close"] >= m["prev_box_high10"] * 0.965) if m["prev_box_high10"] > 0 else False)
+            and ((m["volume"] >= m["vol_ma20"] * 0.78) if m["vol_ma20"] > 0 else True)
+            and ((m["close"] >= m["open"]) if m.get("open", 0) > 0 else True)
             and not late
         )
 
-        # ✅ Blue-2는 '건강한 눌림 후 재점화'를 조금 더 넓게 인정
+        # ✅ Blue-2는 '건강한 눌림 후 재점화'를 한 단계 더 넓게 인정
         blue2_onset = (
             red_state_raw_2
             and (not prev_red_state)
@@ -517,8 +518,9 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
                 (had_blue1_recent and had_pullback_recent)
                 or pre_pullback_box
                 or (pullback_box and (3.0 <= m["pullback_pct25"] <= 15.0))
+                or (pullback_box and (m["close"] >= m["ma5"] if m["ma5"] > 0 else False))
             )
-            and ((m["volume"] >= m["vol_ma20"] * 0.82) if m["vol_ma20"] > 0 else True)
+            and ((m["volume"] >= m["vol_ma20"] * 0.78) if m["vol_ma20"] > 0 else True)
             and not late
         )
 
@@ -1098,14 +1100,14 @@ def build_watermelon_guide_block() -> str:
         "- 빨강수박: 재점화 직전 경계 구간 | 대응: 확인매수 대기",
         "- 파란점선: 실행 타점 | 대응: 분할 진입, 손절 명확화",
         "- 후행수박: 한 박자 늦은 자리 | 대응: 원칙적 관망",
-        "- 참고: '수박상태 초록'은 독립 상태가 아니라 초입/눌림 관찰군 요약입니다",
+        "- 참고: 초록은 독립 상태가 아니라 초입/눌림 관찰군 요약입니다",
     ]
-    return "\\n".join(lines) + "\\n"
+    return "\n".join(lines) + "\n"
 
 
 def build_watermelon_summary_block(df: pd.DataFrame) -> str:
     if df is None or df.empty:
-        return "🍉 [수박 상태 요약]\\n- 집계 대상 없음\\n"
+        return "🍉 [수박 상태 요약]\n- 집계 대상 없음\n"
     work = df.copy()
     if "수박최종상태" not in work.columns:
         work["수박최종상태"] = work.get("수박상태명", "")
@@ -1128,7 +1130,7 @@ def build_watermelon_summary_block(df: pd.DataFrame) -> str:
         lines.append("- 해석: 관찰군은 있으나 재점화 확정은 아직 적음")
     elif red_n > 0:
         lines.append("- 해석: 재점화/실행 타점 후보가 실제로 발생 중")
-    return "\\n".join(lines) + "\\n"
+    return "\n".join(lines) + "\n"
 
 def build_watermelon_state_block(title: str, df: pd.DataFrame) -> str:
     if df is None or df.empty:
@@ -5277,7 +5279,7 @@ def _clean_main7_ai_text(text: str, max_len: int = 52, row=None, role: str = '')
     if not s:
         return _fallback_main7_role_text(row or {}, role)
     return s
-MAIN7_AI_TELEGRAM_LAYOUT_VERSION = 'split_v1 | wm_tune_v14_complete_blue2'
+MAIN7_AI_TELEGRAM_LAYOUT_VERSION = 'split_v1 | wm_tune_v15_cleanup'
 
 def _format_main7_ai_debate_text(rows):
     if not rows:
@@ -8916,6 +8918,13 @@ if __name__ == "__main__":
     pre_block = build_pre_dolbanji_block("예비돌반지 TOP 5", pre_top5, exact_mode=False)
     exact_block = build_pre_dolbanji_block("HTS 정확복제형 예비돌반지 TOP 5", exact_top5, exact_mode=True)
     lite_block = build_pre_dolbanji_block("신규예비돌반지 Lite TOP 5", lite_top5, exact_mode=False)
+
+    show_pre_dolbanji = bool(TEST_MODE or len(pre_top5) > 0 or len(exact_top5) > 0 or len(lite_top5) > 0)
+    if not show_pre_dolbanji:
+        pre_block = ""
+        exact_block = ""
+        lite_block = ""
+
     wm_guide_block = build_watermelon_guide_block()
     wm_green_block = build_watermelon_summary_block(all_hits_df_for_pre)
     wm_red_block = build_watermelon_state_block("수박상태 빨강 TOP 5", wm_red_top5)
