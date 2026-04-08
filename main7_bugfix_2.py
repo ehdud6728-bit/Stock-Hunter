@@ -552,12 +552,28 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
             and not late
         )
 
+        blue2_strong = bool(
+            blue2_onset
+            and red2_structure_ok
+            and (
+                red2_prevbox_ok
+                or red2_ma5_ma20_ok
+            )
+        )
+        blue2_preview = bool(
+            blue2_onset
+            and (not blue2_strong)
+            and red2_soft_ok
+        )
+
         # final state: onset를 우선, 그 다음 박스 준비 상태
         final_state = ""
         if late:
             final_state = "후행수박"
-        elif blue2_onset:
+        elif blue2_strong:
             final_state = "Blue-2스윙"
+        elif blue2_preview:
+            final_state = "Blue-2예비"
         elif (pullback_box or pre_pullback_box):
             final_state = "눌림수박"
         elif blue1_onset:
@@ -566,7 +582,7 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
             final_state = "초입수박"
 
         pocket_raw = final_state in ("초입수박", "눌림수박")
-        attack_raw = final_state in ("Blue-1단기", "Blue-2스윙")
+        attack_raw = final_state in ("Blue-1단기", "Blue-2스윙", "Blue-2예비")
 
         hist.append({
             **m,
@@ -577,6 +593,8 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
             "pullback_box": (pullback_box or pre_pullback_box),
             "red_state_raw_2": red_state_raw_2,
             "blue2_onset": blue2_onset,
+            "blue2_strong": blue2_strong,
+            "blue2_preview": blue2_preview,
             "late": late,
             "red2_pullback_ok": red2_pullback_ok,
             "red2_change_ok": red2_change_ok,
@@ -642,6 +660,9 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
     elif final_state == "Blue-2스윙":
         tags = ["🔷Blue-2스윙", "🍉재점화공격"]
         state_name = "Blue-2스윙"
+    elif final_state == "Blue-2예비":
+        tags = ["🔹Blue-2예비", "🍉재점화예비"]
+        state_name = "Blue-2예비"
     else:
         tags = []
         state_name = "없음"
@@ -668,6 +689,8 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
         grade = "A+"
     elif final_state == "Blue-2스윙" and score_sum + wm_blue2_score >= 11:
         grade = "A"
+    elif final_state == "Blue-2예비":
+        grade = "B+"
     elif final_state == "후행수박":
         grade = "B"
     elif final_state in ("초입수박", "눌림수박"):
@@ -703,6 +726,8 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
         "pullback_box": bool(cur["pullback_box"]),
         "red_state_raw_2": bool(cur["red_state_raw_2"]),
         "blue2_onset": bool(cur["blue2_onset"]),
+        "blue2_strong": bool(cur.get("blue2_strong", False)),
+        "blue2_preview": bool(cur.get("blue2_preview", False)),
         "blue_confirm": int(blue_confirm),
         "late": bool(cur["late"]),
         "intro_box_range_ok": bool(cur.get("intro_box_range_ok", False)),
@@ -739,6 +764,7 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
         "wm_blue1_hold": bool(final_state == "Blue-1단기"),
         "wm_blue2_raw": bool(cur["blue2_raw"]),
         "wm_blue2_hold": bool(final_state == "Blue-2스윙"),
+        "wm_blue2_preview_hold": bool(final_state == "Blue-2예비"),
         "wm_state_green": bool(wm_state_green),
         "wm_state_red": bool(wm_state_red),
         "wm_state_blue": bool(wm_state_blue),
@@ -752,6 +778,8 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
         "wm_debug_pullback_box": bool(cur["pullback_box"]),
         "wm_debug_red_state_raw_2": bool(cur["red_state_raw_2"]),
         "wm_debug_blue2_onset": bool(cur["blue2_onset"]),
+        "wm_debug_blue2_strong": bool(cur.get("blue2_strong", False)),
+        "wm_debug_blue2_preview": bool(cur.get("blue2_preview", False)),
         "wm_debug_late": bool(cur["late"]),
         "wm_debug_red2_pullback_ok": bool(cur.get("red2_pullback_ok", False)),
         "wm_debug_red2_change_ok": bool(cur.get("red2_change_ok", False)),
@@ -811,7 +839,7 @@ def build_watermelon_state_top5(df: pd.DataFrame):
     blue2_df = _sort(work[work["수박최종상태"] == "Blue-2스윙"].copy(), ["파란점선2스윙점수", "수박포켓점수", "안전점수", "N점수"])
 
     green_df = _sort(work[work["수박최종상태"].isin(["초입수박", "눌림수박"])].copy(), ["수박포켓점수", "수박기반점수", "안전점수", "N점수"])
-    red_df = _sort(work[work["수박최종상태"].isin(["Blue-1단기", "Blue-2스윙"])].copy(), ["수박파란점선점수", "수박공격점수", "안전점수", "N점수"])
+    red_df = _sort(work[work["수박최종상태"].isin(["Blue-1단기", "Blue-2스윙", "Blue-2예비"])].copy(), ["수박파란점선점수", "수박공격점수", "안전점수", "N점수"])
     blue_df = _sort(work[work["수박최종상태"].isin(["Blue-1단기", "Blue-2스윙"])].copy(), ["수박파란점선점수", "수박공격점수", "안전점수", "N점수"])
 
     return green_df, red_df, blue_df, intro_df, pullback_df, late_df, blue1_df, blue2_df
@@ -1145,6 +1173,8 @@ def build_watermelon_debug_block(title: str, df: pd.DataFrame) -> str:
         red2_not_late_ok = 1 if bool(row.get('수박디버그_red2_not_late_ok', False)) else 0
         red2_structure_ok = 1 if bool(row.get('수박디버그_red2_structure_ok', False)) else 0
         red2_soft_ok = 1 if bool(row.get('수박디버그_red2_soft_ok', False)) else 0
+        blue2_strong = 1 if bool(row.get('수박디버그_blue2_strong', False)) else 0
+        blue2_preview = 1 if bool(row.get('수박디버그_blue2_preview', False)) else 0
         blue2_prev_clear_ok = 1 if bool(row.get('수박디버그_blue2_prev_clear_ok', False)) else 0
         blue2_context_ok = 1 if bool(row.get('수박디버그_blue2_context_ok', False)) else 0
         blue2_vol2_ok = 1 if bool(row.get('수박디버그_blue2_vol2_ok', False)) else 0
@@ -1155,7 +1185,7 @@ def build_watermelon_debug_block(title: str, df: pd.DataFrame) -> str:
             f"- 최종상태: {state}\n"
             f"- gate: intro_box={intro_box} / change={change} / red_raw={red_raw} / red_onset={red_onset} / blue1_onset={blue1_onset} / pullback_box={pullback_box} / red2_raw={red2_raw} / blue2_onset={blue2_onset} / late={late} / blue_confirm={int(row.get('수박디버그_blue_confirm', -1))}\n"
             f"- intro_sub: range={box_range_ok} / attack_band={attack_band_ok} / ret7={ret7_ok} / ret15={ret15_ok} / ret20={ret20_ok} / dayup={dayup_ok} / top_near={top_near_ok} / vol_calm={vol_calm_ok} / no_blue1={no_blue1_ok} / no_blue2={no_blue2_ok} / not_late={not_late_ok}\n"
-            f"- red2_sub: pb={red2_pullback_ok} / chg={red2_change_ok} / c20={red2_close_ma20_ok} / m520={red2_ma5_ma20_ok} / pbox={red2_prevbox_ok} / vol={red2_vol_ok} / candle={red2_candle_ok} / not_late={red2_not_late_ok} / struct={red2_structure_ok} / soft={red2_soft_ok} / prev_clear={blue2_prev_clear_ok} / ctx={blue2_context_ok} / vol2={blue2_vol2_ok}\n"
+            f"- red2_sub: pb={red2_pullback_ok} / chg={red2_change_ok} / c20={red2_close_ma20_ok} / m520={red2_ma5_ma20_ok} / pbox={red2_prevbox_ok} / vol={red2_vol_ok} / candle={red2_candle_ok} / not_late={red2_not_late_ok} / struct={red2_structure_ok} / soft={red2_soft_ok} / strong={blue2_strong} / preview={blue2_preview} / prev_clear={blue2_prev_clear_ok} / ctx={blue2_context_ok} / vol2={blue2_vol2_ok}\n"
             + (f"- 시간대칭: days={time_days} / tag={time_tag}\n" if time_days >= 0 and time_tag else "")
         )
     return "\n".join(lines)
@@ -1184,14 +1214,15 @@ def build_watermelon_summary_block(df: pd.DataFrame) -> str:
     pull_n = int(counts.get("눌림수박", 0))
     blue1_n = int(counts.get("Blue-1단기", 0))
     blue2_n = int(counts.get("Blue-2스윙", 0))
+    blue2_preview_n = int(counts.get("Blue-2예비", 0))
     late_n = int(counts.get("후행수박", 0))
     green_n = intro_n + pull_n
-    red_n = blue1_n + blue2_n
+    red_n = blue1_n + blue2_n + blue2_preview_n
 
     lines = [
         "🍉 [수박 상태 요약]",
         f"- 관찰군(초록): {green_n}개 = 초입 {intro_n} / 눌림 {pull_n}",
-        f"- 재점화군(빨강): {red_n}개 = Blue-1 {blue1_n} / Blue-2 {blue2_n}",
+        f"- 재점화군(빨강): {red_n}개 = Blue-1 {blue1_n} / Blue-2 {blue2_n} / 예비 {blue2_preview_n}",
         f"- 후행수박: {late_n}개",
     ]
     if red_n == 0 and green_n > 0:
@@ -5347,7 +5378,7 @@ def _clean_main7_ai_text(text: str, max_len: int = 52, row=None, role: str = '')
     if not s:
         return _fallback_main7_role_text(row or {}, role)
     return s
-MAIN7_AI_TELEGRAM_LAYOUT_VERSION = 'split_v1 | wm_tune_v18_blue2_precision'
+MAIN7_AI_TELEGRAM_LAYOUT_VERSION = 'split_v1 | wm_tune_v19_blue2_split'
 
 def _format_main7_ai_debate_text(rows):
     if not rows:
@@ -7907,6 +7938,8 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             '수박디버그_pullback_box': bool(wm_bundle.get('wm_debug_pullback_box', False)),
             '수박디버그_red2_raw': bool(wm_bundle.get('wm_debug_red_state_raw_2', False)),
             '수박디버그_blue2_onset': bool(wm_bundle.get('wm_debug_blue2_onset', False)),
+            '수박디버그_blue2_strong': bool(wm_bundle.get('wm_debug_blue2_strong', False)),
+            '수박디버그_blue2_preview': bool(wm_bundle.get('wm_debug_blue2_preview', False)),
             '수박디버그_late': bool(wm_bundle.get('wm_debug_late', False)),
             '수박디버그_red2_pullback_ok': bool(wm_bundle.get('wm_debug_red2_pullback_ok', False)),
             '수박디버그_red2_change_ok': bool(wm_bundle.get('wm_debug_red2_change_ok', False)),
@@ -9043,6 +9076,16 @@ if __name__ == "__main__":
     wm_pullback_block = build_watermelon_state_block("눌림수박 TOP 5", wm_pullback_top5)
     wm_late_block = build_watermelon_state_block("후행수박 TOP 5", wm_late_top5)
     wm_blue1_block = build_watermelon_state_block("Blue-1 단기 TOP 5", wm_blue1_top5)
+    wm_blue2_preview_top5 = pd.DataFrame()
+    if all_hits_df_for_pre is not None and (not all_hits_df_for_pre.empty) and "수박최종상태" in all_hits_df_for_pre.columns:
+        wm_blue2_preview_top5 = all_hits_df_for_pre[all_hits_df_for_pre["수박최종상태"] == "Blue-2예비"].copy()
+        if not wm_blue2_preview_top5.empty:
+            _sort_cols = [c for c in ["파란점선2스윙점수", "수박포켓점수", "안전점수", "N점수"] if c in wm_blue2_preview_top5.columns]
+            if _sort_cols:
+                wm_blue2_preview_top5 = wm_blue2_preview_top5.sort_values(by=_sort_cols, ascending=[False]*len(_sort_cols)).head(5).reset_index(drop=True)
+            else:
+                wm_blue2_preview_top5 = wm_blue2_preview_top5.head(5).reset_index(drop=True)
+    wm_blue2_preview_block = build_watermelon_state_block("Blue-2 예비 TOP 5", wm_blue2_preview_top5)
     wm_blue2_block = build_watermelon_state_block("Blue-2 스윙 TOP 5", wm_blue2_top5)
 
     if not stage_candidates_top5.empty:
@@ -9279,7 +9322,7 @@ if __name__ == "__main__":
             current_msg += entry
 
     # 마지막 블록은 급등후보 + 예비돌반지 별도 TOP5
-    final_block = (stage_block or "") + "\n" + pre_block + "\n" + exact_block + "\n" + lite_block + "\n" + wm_guide_block + "\n" + wm_green_block + "\n" + wm_red_block + "\n" + wm_blue_block + "\n" + wm_debug_block + "\n" + wm_intro_block + "\n" + wm_pullback_block + "\n" + wm_late_block + "\n" + wm_blue1_block + "\n" + wm_blue2_block
+    final_block = (stage_block or "") + "\n" + pre_block + "\n" + exact_block + "\n" + lite_block + "\n" + wm_guide_block + "\n" + wm_green_block + "\n" + wm_red_block + "\n" + wm_blue_block + "\n" + wm_debug_block + "\n" + wm_intro_block + "\n" + wm_pullback_block + "\n" + wm_late_block + "\n" + wm_blue1_block + "\n" + wm_blue2_preview_block + "\n" + wm_blue2_block
 
     # ✅ TOP15는 이미지 포함 메시지로 먼저 전송
     if current_msg.strip():
