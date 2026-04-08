@@ -499,28 +499,40 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
             )
         )
 
-        red_state_raw_2 = (
-            (pullback_box or pre_pullback_box)
-            and change_relaxed_2
-            and ((m["close"] >= m["ma20"] * 0.975) if m["ma20"] > 0 else False)
-            and ((m["ma5"] >= m["ma20"] * 0.988) if m["ma20"] > 0 and m["ma5"] > 0 else False)
-            and ((m["close"] >= m["prev_box_high10"] * 0.965) if m["prev_box_high10"] > 0 else False)
-            and ((m["volume"] >= m["vol_ma20"] * 0.78) if m["vol_ma20"] > 0 else True)
-            and ((m["close"] >= m["open"]) if m.get("open", 0) > 0 else True)
-            and not late
+        blue2_soft_reclaim = bool(
+            pullback_box
+            and (not late)
+            and ((m["close"] >= m["ma5"]) if m["ma5"] > 0 else False)
+            and ((m["close"] >= m["open"] * 0.995) if m.get("open", 0) > 0 else True)
+            and ((m["volume"] >= m["vol_ma20"] * 0.72) if m["vol_ma20"] > 0 else True)
+            and (2.0 <= m["pullback_pct25"] <= 18.0)
+            and (m["ret20"] <= 18.0)
         )
+
+        red_state_raw_2 = (
+            (
+                (pullback_box or pre_pullback_box)
+                and change_relaxed_2
+                and ((m["close"] >= m["ma20"] * 0.972) if m["ma20"] > 0 else False)
+                and ((m["ma5"] >= m["ma20"] * 0.985) if m["ma20"] > 0 and m["ma5"] > 0 else False)
+                and ((m["close"] >= m["prev_box_high10"] * 0.960) if m["prev_box_high10"] > 0 else False)
+                and ((m["volume"] >= m["vol_ma20"] * 0.72) if m["vol_ma20"] > 0 else True)
+                and ((m["close"] >= m["open"] * 0.995) if m.get("open", 0) > 0 else True)
+            )
+            or blue2_soft_reclaim
+        ) and not late
 
         # ✅ Blue-2는 '건강한 눌림 후 재점화'를 한 단계 더 넓게 인정
         blue2_onset = (
             red_state_raw_2
-            and (not prev_red_state)
+            and ((not prev_red_state) or blue2_soft_reclaim)
             and (
                 (had_blue1_recent and had_pullback_recent)
                 or pre_pullback_box
-                or (pullback_box and (3.0 <= m["pullback_pct25"] <= 15.0))
+                or (pullback_box and (2.0 <= m["pullback_pct25"] <= 18.0))
                 or (pullback_box and (m["close"] >= m["ma5"] if m["ma5"] > 0 else False))
             )
-            and ((m["volume"] >= m["vol_ma20"] * 0.78) if m["vol_ma20"] > 0 else True)
+            and ((m["volume"] >= m["vol_ma20"] * 0.72) if m["vol_ma20"] > 0 else True)
             and not late
         )
 
@@ -619,7 +631,7 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
                 tags.append("🔵Blue-1예비")
 
     wm_blue1_score = int(cur["intro_box_ready"]) + int(cur["change_ready"]) + int(cur["red_onset"]) + int(cur["blue1_onset"]) + int(cur["ret7"] <= 7.0) + int(cur["ret15"] <= 12.0)
-    wm_blue2_score = int(cur["pullback_box"]) + int(cur["change_ready"]) + int(cur["blue2_onset"]) + int(3.0 <= cur["pullback_pct25"] <= 14.0) + int(cur["rsi"] < 71.0) + int(cur["volume"] >= cur["vol_ma20"] * 1.08 if cur["vol_ma20"] > 0 else False)
+    wm_blue2_score = int(cur["pullback_box"]) + int(cur["change_ready"]) + int(cur["blue2_onset"]) + int(2.0 <= cur["pullback_pct25"] <= 18.0) + int(cur["rsi"] < 72.0) + int(cur["close"] >= cur["ma5"] if cur["ma5"] > 0 else False) + int(cur["volume"] >= cur["vol_ma20"] * 0.95 if cur["vol_ma20"] > 0 else False)
     wm_blue_score = max(wm_blue1_score, wm_blue2_score)
 
     score_sum = int(cur["base_score"] + cur["pocket_score"] + cur["attack_score"])
@@ -5279,7 +5291,7 @@ def _clean_main7_ai_text(text: str, max_len: int = 52, row=None, role: str = '')
     if not s:
         return _fallback_main7_role_text(row or {}, role)
     return s
-MAIN7_AI_TELEGRAM_LAYOUT_VERSION = 'split_v1 | wm_tune_v15_cleanup'
+MAIN7_AI_TELEGRAM_LAYOUT_VERSION = 'split_v1 | wm_tune_v16_blue2_focus'
 
 def _format_main7_ai_debate_text(rows):
     if not rows:
