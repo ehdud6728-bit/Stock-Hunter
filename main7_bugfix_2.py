@@ -741,6 +741,68 @@ def build_watermelon_state_top5(df: pd.DataFrame):
 
 
 
+def should_show_wm_debug_alert(
+    wm_intro_top5=None,
+    wm_pullback_top5=None,
+    wm_blue1_top5=None,
+    wm_blue2_top5=None,
+    wm_late_top5=None,
+) -> bool:
+    intro_n = len(wm_intro_top5) if wm_intro_top5 is not None else 0
+    pullback_n = len(wm_pullback_top5) if wm_pullback_top5 is not None else 0
+    blue1_n = len(wm_blue1_top5) if wm_blue1_top5 is not None else 0
+    blue2_n = len(wm_blue2_top5) if wm_blue2_top5 is not None else 0
+    late_n = len(wm_late_top5) if wm_late_top5 is not None else 0
+
+    if intro_n == 0 and pullback_n == 0:
+        return True
+    if blue1_n == 0 and blue2_n == 0 and intro_n <= 1:
+        return True
+    if late_n >= 5 and blue1_n == 0:
+        return True
+    return False
+
+
+def build_wm_alert_summary(
+    wm_intro_top5=None,
+    wm_pullback_top5=None,
+    wm_blue1_top5=None,
+    wm_blue2_top5=None,
+    wm_late_top5=None,
+) -> str:
+    intro_n = len(wm_intro_top5) if wm_intro_top5 is not None else 0
+    pullback_n = len(wm_pullback_top5) if wm_pullback_top5 is not None else 0
+    blue1_n = len(wm_blue1_top5) if wm_blue1_top5 is not None else 0
+    blue2_n = len(wm_blue2_top5) if wm_blue2_top5 is not None else 0
+    late_n = len(wm_late_top5) if wm_late_top5 is not None else 0
+
+    if intro_n == 0 and pullback_n == 0:
+        return "⚠ 수박 이상징후: 초입/눌림 후보가 거의 없음"
+    if blue1_n == 0 and blue2_n == 0 and intro_n <= 1:
+        return "⚠ 수박 이상징후: Blue-1/Blue-2 후보가 비정상적으로 적음"
+    if late_n >= 5 and blue1_n == 0:
+        return "⚠ 수박 이상징후: 후행 판정 비중이 높고 재점화 후보가 없음"
+    return ""
+
+
+def time_symmetry_bonus_by_state(state: str, time_tag: str) -> float:
+    state = str(state or "").strip()
+    time_tag = str(time_tag or "").strip()
+
+    strong_states = {"PASS_A", "초입수박", "눌림수박", "Blue-1단기", "Blue-2스윙", "돌파직전"}
+    weak_states = {"후행수박", "DROP", "late"}
+
+    if state in weak_states:
+        return 0.0
+    if state not in strong_states:
+        return 0.0
+
+    if "근접" in time_tag:
+        return 2.0
+    if "예비" in time_tag:
+        return 1.0
+    return 0.0
+
 def _nearest_time_symmetry(days: int):
     periods = [9, 17, 26, 33, 42]
     if days is None:
@@ -847,6 +909,12 @@ def annotate_time_symmetry_df(df: pd.DataFrame) -> pd.DataFrame:
     work["time_sym_label"] = label_list
     work["time_sym_tag"] = tag_list
     work["time_sym_comment"] = comment_list
+
+    bonus_list = []
+    for _, row in work.iterrows():
+        state_name = str(row.get("상태") or row.get("단계") or row.get("final_state") or "").strip()
+        bonus_list.append(time_symmetry_bonus_by_state(state_name, row.get("time_sym_tag", "")))
+    work["time_sym_bonus"] = bonus_list
     return work
 
 def build_watermelon_debug_block(title: str, df: pd.DataFrame) -> str:
@@ -912,7 +980,7 @@ def build_watermelon_state_block(title: str, df: pd.DataFrame) -> str:
             f"- 상태: {state} | 등급:{grade}\n"
             f"- 점수: 기반{b} / 포켓{p} / 공격{a} / 파란{blue} (B1:{blue1}, B2:{blue2})\n"
             f"- 태그: {tags}\n"
-            + (f"- 시간창: {time_comment}\n" if time_comment else "")
+            + (f"- 시간창: {time_comment}\n" if time_comment and ("근접" in time_comment or "예비" in time_comment) else "")
         )
     return "\n".join(lines)
 
@@ -4999,7 +5067,7 @@ def _clean_main7_ai_text(text: str, max_len: int = 52, row=None, role: str = '')
     if not s:
         return _fallback_main7_role_text(row or {}, role)
     return s
-MAIN7_AI_TELEGRAM_LAYOUT_VERSION = 'split_v1 | wm_tune_v8_timeprefix_fix'
+MAIN7_AI_TELEGRAM_LAYOUT_VERSION = 'split_v1 | wm_tune_v10_final'
 
 def _format_main7_ai_debate_text(rows):
     if not rows:
@@ -5009,6 +5077,7 @@ def _format_main7_ai_debate_text(rows):
     first = top_rows[0]
     lines = [
         f"🧠 메인 후보 AI 심판 TOP{len(top_rows)}",
+        f"버전: {MAIN7_AI_TELEGRAM_LAYOUT_VERSION}",
         "모델사용: 기술{} | 수급{} | 시황{} | 리스크{} | 심판{}".format(
             str(first.get('AI기술모델', '[Unknown]')),
             str(first.get('AI수급모델', '[Unknown]')),
@@ -8567,7 +8636,35 @@ if __name__ == "__main__":
     wm_green_block = build_watermelon_state_block("수박상태 초록 TOP 5", wm_green_top5)
     wm_red_block = build_watermelon_state_block("수박상태 빨강 TOP 5", wm_red_top5)
     wm_blue_block = build_watermelon_state_block("파란점선 타점 TOP 5", wm_blue_top5)
-    wm_debug_block = build_watermelon_debug_block("수박/파란점 디버그 TOP 5", wm_debug_top5)
+
+    wm_debug_block_raw = build_watermelon_debug_block("수박/파란점 디버그 TOP 5", wm_debug_top5)
+    wm_debug_block = ""
+
+    show_debug_now = False
+    if SHOW_WM_DEBUG:
+        show_debug_now = True
+    elif SHOW_WM_DEBUG_ON_ALERT and should_show_wm_debug_alert(
+        wm_intro_top5=wm_intro_top5,
+        wm_pullback_top5=wm_pullback_top5,
+        wm_blue1_top5=wm_blue1_top5,
+        wm_blue2_top5=wm_blue2_top5,
+        wm_late_top5=wm_late_top5,
+    ):
+        show_debug_now = True
+
+    if show_debug_now and wm_debug_block_raw:
+        wm_debug_block = wm_debug_block_raw
+    elif not TEST_MODE:
+        wm_alert = build_wm_alert_summary(
+            wm_intro_top5=wm_intro_top5,
+            wm_pullback_top5=wm_pullback_top5,
+            wm_blue1_top5=wm_blue1_top5,
+            wm_blue2_top5=wm_blue2_top5,
+            wm_late_top5=wm_late_top5,
+        )
+        if wm_alert:
+            wm_debug_block = wm_alert
+
     wm_intro_block = build_watermelon_state_block("초입수박 TOP 5", wm_intro_top5)
     wm_pullback_block = build_watermelon_state_block("눌림수박 TOP 5", wm_pullback_top5)
     wm_late_block = build_watermelon_state_block("후행수박 TOP 5", wm_late_top5)
