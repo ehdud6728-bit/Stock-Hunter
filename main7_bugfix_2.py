@@ -505,21 +505,36 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
         red2_ma5_ma20_ok = bool((m["ma5"] >= m["ma20"] * 0.988) if m["ma20"] > 0 and m["ma5"] > 0 else False)
         red2_prevbox_ok = bool((m["close"] >= m["prev_box_high10"] * 0.965) if m["prev_box_high10"] > 0 else False)
         red2_vol_ok = bool((m["volume"] >= m["vol_ma20"] * 0.78) if m["vol_ma20"] > 0 else True)
-        red2_candle_ok = bool((m["close"] >= m["open"]) if m.get("open", 0) > 0 else True)
+        red2_candle_ok = bool(
+            ((m["close"] >= m["open"] * 0.995) if m.get("open", 0) > 0 else True)
+            or (m["close"] >= m.get("prev_close", 0))
+        )
         red2_not_late_ok = bool(not late)
+
+        # 핵심 구조: m520 또는 pbox 중 하나만 살아도 재점화 예비로 인정
+        red2_structure_ok = bool(
+            red2_close_ma20_ok
+            and red2_vol_ok
+            and red2_not_late_ok
+            and (red2_ma5_ma20_ok or red2_prevbox_ok)
+        )
+
+        # 완화 구조: 5일선 회복 + 준양봉이면 pbox 부족도 예비 인정
+        red2_soft_ok = bool(
+            red2_close_ma20_ok
+            and red2_vol_ok
+            and red2_not_late_ok
+            and red2_candle_ok
+            and ((m["close"] >= m["ma5"]) if m["ma5"] > 0 else False)
+        )
 
         red_state_raw_2 = (
             red2_pullback_ok
             and red2_change_ok
-            and red2_close_ma20_ok
-            and red2_ma5_ma20_ok
-            and red2_prevbox_ok
-            and red2_vol_ok
-            and red2_candle_ok
-            and red2_not_late_ok
+            and (red2_structure_ok or red2_soft_ok)
         )
 
-        blue2_prev_clear_ok = bool(not prev_red_state)
+        blue2_prev_clear_ok = bool((not prev_red_state) or red2_soft_ok)
         blue2_context_ok = bool(
             (had_blue1_recent and had_pullback_recent)
             or pre_pullback_box
@@ -528,7 +543,7 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
         )
         blue2_vol2_ok = bool((m["volume"] >= m["vol_ma20"] * 0.78) if m["vol_ma20"] > 0 else True)
 
-        # ✅ Blue-2는 '건강한 눌림 후 재점화'를 한 단계 더 넓게 인정
+        # ✅ Blue-2 정밀 보정: m520/pbox/candle 병목을 완화해 예비 재점화까지는 통과 허용
         blue2_onset = (
             red_state_raw_2
             and blue2_prev_clear_ok
@@ -571,6 +586,8 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
             "red2_vol_ok": red2_vol_ok,
             "red2_candle_ok": red2_candle_ok,
             "red2_not_late_ok": red2_not_late_ok,
+            "red2_structure_ok": red2_structure_ok,
+            "red2_soft_ok": red2_soft_ok,
             "blue2_prev_clear_ok": blue2_prev_clear_ok,
             "blue2_context_ok": blue2_context_ok,
             "blue2_vol2_ok": blue2_vol2_ok,
@@ -744,6 +761,8 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
         "wm_debug_red2_vol_ok": bool(cur.get("red2_vol_ok", False)),
         "wm_debug_red2_candle_ok": bool(cur.get("red2_candle_ok", False)),
         "wm_debug_red2_not_late_ok": bool(cur.get("red2_not_late_ok", False)),
+        "wm_debug_red2_structure_ok": bool(cur.get("red2_structure_ok", False)),
+        "wm_debug_red2_soft_ok": bool(cur.get("red2_soft_ok", False)),
         "wm_debug_blue2_prev_clear_ok": bool(cur.get("blue2_prev_clear_ok", False)),
         "wm_debug_blue2_context_ok": bool(cur.get("blue2_context_ok", False)),
         "wm_debug_blue2_vol2_ok": bool(cur.get("blue2_vol2_ok", False)),
@@ -1124,6 +1143,8 @@ def build_watermelon_debug_block(title: str, df: pd.DataFrame) -> str:
         red2_vol_ok = 1 if bool(row.get('수박디버그_red2_vol_ok', False)) else 0
         red2_candle_ok = 1 if bool(row.get('수박디버그_red2_candle_ok', False)) else 0
         red2_not_late_ok = 1 if bool(row.get('수박디버그_red2_not_late_ok', False)) else 0
+        red2_structure_ok = 1 if bool(row.get('수박디버그_red2_structure_ok', False)) else 0
+        red2_soft_ok = 1 if bool(row.get('수박디버그_red2_soft_ok', False)) else 0
         blue2_prev_clear_ok = 1 if bool(row.get('수박디버그_blue2_prev_clear_ok', False)) else 0
         blue2_context_ok = 1 if bool(row.get('수박디버그_blue2_context_ok', False)) else 0
         blue2_vol2_ok = 1 if bool(row.get('수박디버그_blue2_vol2_ok', False)) else 0
@@ -1134,7 +1155,7 @@ def build_watermelon_debug_block(title: str, df: pd.DataFrame) -> str:
             f"- 최종상태: {state}\n"
             f"- gate: intro_box={intro_box} / change={change} / red_raw={red_raw} / red_onset={red_onset} / blue1_onset={blue1_onset} / pullback_box={pullback_box} / red2_raw={red2_raw} / blue2_onset={blue2_onset} / late={late} / blue_confirm={int(row.get('수박디버그_blue_confirm', -1))}\n"
             f"- intro_sub: range={box_range_ok} / attack_band={attack_band_ok} / ret7={ret7_ok} / ret15={ret15_ok} / ret20={ret20_ok} / dayup={dayup_ok} / top_near={top_near_ok} / vol_calm={vol_calm_ok} / no_blue1={no_blue1_ok} / no_blue2={no_blue2_ok} / not_late={not_late_ok}\n"
-            f"- red2_sub: pb={red2_pullback_ok} / chg={red2_change_ok} / c20={red2_close_ma20_ok} / m520={red2_ma5_ma20_ok} / pbox={red2_prevbox_ok} / vol={red2_vol_ok} / candle={red2_candle_ok} / not_late={red2_not_late_ok} / prev_clear={blue2_prev_clear_ok} / ctx={blue2_context_ok} / vol2={blue2_vol2_ok}\n"
+            f"- red2_sub: pb={red2_pullback_ok} / chg={red2_change_ok} / c20={red2_close_ma20_ok} / m520={red2_ma5_ma20_ok} / pbox={red2_prevbox_ok} / vol={red2_vol_ok} / candle={red2_candle_ok} / not_late={red2_not_late_ok} / struct={red2_structure_ok} / soft={red2_soft_ok} / prev_clear={blue2_prev_clear_ok} / ctx={blue2_context_ok} / vol2={blue2_vol2_ok}\n"
             + (f"- 시간대칭: days={time_days} / tag={time_tag}\n" if time_days >= 0 and time_tag else "")
         )
     return "\n".join(lines)
@@ -5326,7 +5347,7 @@ def _clean_main7_ai_text(text: str, max_len: int = 52, row=None, role: str = '')
     if not s:
         return _fallback_main7_role_text(row or {}, role)
     return s
-MAIN7_AI_TELEGRAM_LAYOUT_VERSION = 'split_v1 | wm_tune_v17_blue2_debug'
+MAIN7_AI_TELEGRAM_LAYOUT_VERSION = 'split_v1 | wm_tune_v18_blue2_precision'
 
 def _format_main7_ai_debate_text(rows):
     if not rows:
@@ -7895,6 +7916,8 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             '수박디버그_red2_vol_ok': bool(wm_bundle.get('wm_debug_red2_vol_ok', False)),
             '수박디버그_red2_candle_ok': bool(wm_bundle.get('wm_debug_red2_candle_ok', False)),
             '수박디버그_red2_not_late_ok': bool(wm_bundle.get('wm_debug_red2_not_late_ok', False)),
+            '수박디버그_red2_structure_ok': bool(wm_bundle.get('wm_debug_red2_structure_ok', False)),
+            '수박디버그_red2_soft_ok': bool(wm_bundle.get('wm_debug_red2_soft_ok', False)),
             '수박디버그_blue2_prev_clear_ok': bool(wm_bundle.get('wm_debug_blue2_prev_clear_ok', False)),
             '수박디버그_blue2_context_ok': bool(wm_bundle.get('wm_debug_blue2_context_ok', False)),
             '수박디버그_blue2_vol2_ok': bool(wm_bundle.get('wm_debug_blue2_vol2_ok', False)),
