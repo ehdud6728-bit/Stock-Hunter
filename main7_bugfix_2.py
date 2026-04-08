@@ -499,40 +499,41 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
             )
         )
 
-        blue2_soft_reclaim = bool(
-            pullback_box
-            and (not late)
-            and ((m["close"] >= m["ma5"]) if m["ma5"] > 0 else False)
-            and ((m["close"] >= m["open"] * 0.995) if m.get("open", 0) > 0 else True)
-            and ((m["volume"] >= m["vol_ma20"] * 0.72) if m["vol_ma20"] > 0 else True)
-            and (2.0 <= m["pullback_pct25"] <= 18.0)
-            and (m["ret20"] <= 18.0)
-        )
+        red2_pullback_ok = bool(pullback_box or pre_pullback_box)
+        red2_change_ok = bool(change_relaxed_2)
+        red2_close_ma20_ok = bool((m["close"] >= m["ma20"] * 0.975) if m["ma20"] > 0 else False)
+        red2_ma5_ma20_ok = bool((m["ma5"] >= m["ma20"] * 0.988) if m["ma20"] > 0 and m["ma5"] > 0 else False)
+        red2_prevbox_ok = bool((m["close"] >= m["prev_box_high10"] * 0.965) if m["prev_box_high10"] > 0 else False)
+        red2_vol_ok = bool((m["volume"] >= m["vol_ma20"] * 0.78) if m["vol_ma20"] > 0 else True)
+        red2_candle_ok = bool((m["close"] >= m["open"]) if m.get("open", 0) > 0 else True)
+        red2_not_late_ok = bool(not late)
 
         red_state_raw_2 = (
-            (
-                (pullback_box or pre_pullback_box)
-                and change_relaxed_2
-                and ((m["close"] >= m["ma20"] * 0.972) if m["ma20"] > 0 else False)
-                and ((m["ma5"] >= m["ma20"] * 0.985) if m["ma20"] > 0 and m["ma5"] > 0 else False)
-                and ((m["close"] >= m["prev_box_high10"] * 0.960) if m["prev_box_high10"] > 0 else False)
-                and ((m["volume"] >= m["vol_ma20"] * 0.72) if m["vol_ma20"] > 0 else True)
-                and ((m["close"] >= m["open"] * 0.995) if m.get("open", 0) > 0 else True)
-            )
-            or blue2_soft_reclaim
-        ) and not late
+            red2_pullback_ok
+            and red2_change_ok
+            and red2_close_ma20_ok
+            and red2_ma5_ma20_ok
+            and red2_prevbox_ok
+            and red2_vol_ok
+            and red2_candle_ok
+            and red2_not_late_ok
+        )
+
+        blue2_prev_clear_ok = bool(not prev_red_state)
+        blue2_context_ok = bool(
+            (had_blue1_recent and had_pullback_recent)
+            or pre_pullback_box
+            or (pullback_box and (3.0 <= m["pullback_pct25"] <= 15.0))
+            or (pullback_box and (m["close"] >= m["ma5"] if m["ma5"] > 0 else False))
+        )
+        blue2_vol2_ok = bool((m["volume"] >= m["vol_ma20"] * 0.78) if m["vol_ma20"] > 0 else True)
 
         # ✅ Blue-2는 '건강한 눌림 후 재점화'를 한 단계 더 넓게 인정
         blue2_onset = (
             red_state_raw_2
-            and ((not prev_red_state) or blue2_soft_reclaim)
-            and (
-                (had_blue1_recent and had_pullback_recent)
-                or pre_pullback_box
-                or (pullback_box and (2.0 <= m["pullback_pct25"] <= 18.0))
-                or (pullback_box and (m["close"] >= m["ma5"] if m["ma5"] > 0 else False))
-            )
-            and ((m["volume"] >= m["vol_ma20"] * 0.72) if m["vol_ma20"] > 0 else True)
+            and blue2_prev_clear_ok
+            and blue2_context_ok
+            and blue2_vol2_ok
             and not late
         )
 
@@ -562,6 +563,17 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
             "red_state_raw_2": red_state_raw_2,
             "blue2_onset": blue2_onset,
             "late": late,
+            "red2_pullback_ok": red2_pullback_ok,
+            "red2_change_ok": red2_change_ok,
+            "red2_close_ma20_ok": red2_close_ma20_ok,
+            "red2_ma5_ma20_ok": red2_ma5_ma20_ok,
+            "red2_prevbox_ok": red2_prevbox_ok,
+            "red2_vol_ok": red2_vol_ok,
+            "red2_candle_ok": red2_candle_ok,
+            "red2_not_late_ok": red2_not_late_ok,
+            "blue2_prev_clear_ok": blue2_prev_clear_ok,
+            "blue2_context_ok": blue2_context_ok,
+            "blue2_vol2_ok": blue2_vol2_ok,
             "intro_box_range_ok": intro_box_range_ok,
             "intro_attack_band_ok": intro_attack_band_ok,
             "intro_ret7_ok": intro_ret7_ok,
@@ -631,7 +643,7 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
                 tags.append("🔵Blue-1예비")
 
     wm_blue1_score = int(cur["intro_box_ready"]) + int(cur["change_ready"]) + int(cur["red_onset"]) + int(cur["blue1_onset"]) + int(cur["ret7"] <= 7.0) + int(cur["ret15"] <= 12.0)
-    wm_blue2_score = int(cur["pullback_box"]) + int(cur["change_ready"]) + int(cur["blue2_onset"]) + int(2.0 <= cur["pullback_pct25"] <= 18.0) + int(cur["rsi"] < 72.0) + int(cur["close"] >= cur["ma5"] if cur["ma5"] > 0 else False) + int(cur["volume"] >= cur["vol_ma20"] * 0.95 if cur["vol_ma20"] > 0 else False)
+    wm_blue2_score = int(cur["pullback_box"]) + int(cur["change_ready"]) + int(cur["blue2_onset"]) + int(3.0 <= cur["pullback_pct25"] <= 14.0) + int(cur["rsi"] < 71.0) + int(cur["volume"] >= cur["vol_ma20"] * 1.08 if cur["vol_ma20"] > 0 else False)
     wm_blue_score = max(wm_blue1_score, wm_blue2_score)
 
     score_sum = int(cur["base_score"] + cur["pocket_score"] + cur["attack_score"])
@@ -724,6 +736,17 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
         "wm_debug_red_state_raw_2": bool(cur["red_state_raw_2"]),
         "wm_debug_blue2_onset": bool(cur["blue2_onset"]),
         "wm_debug_late": bool(cur["late"]),
+        "wm_debug_red2_pullback_ok": bool(cur.get("red2_pullback_ok", False)),
+        "wm_debug_red2_change_ok": bool(cur.get("red2_change_ok", False)),
+        "wm_debug_red2_close_ma20_ok": bool(cur.get("red2_close_ma20_ok", False)),
+        "wm_debug_red2_ma5_ma20_ok": bool(cur.get("red2_ma5_ma20_ok", False)),
+        "wm_debug_red2_prevbox_ok": bool(cur.get("red2_prevbox_ok", False)),
+        "wm_debug_red2_vol_ok": bool(cur.get("red2_vol_ok", False)),
+        "wm_debug_red2_candle_ok": bool(cur.get("red2_candle_ok", False)),
+        "wm_debug_red2_not_late_ok": bool(cur.get("red2_not_late_ok", False)),
+        "wm_debug_blue2_prev_clear_ok": bool(cur.get("blue2_prev_clear_ok", False)),
+        "wm_debug_blue2_context_ok": bool(cur.get("blue2_context_ok", False)),
+        "wm_debug_blue2_vol2_ok": bool(cur.get("blue2_vol2_ok", False)),
         "wm_debug_intro_box_range_ok": bool(cur.get("intro_box_range_ok", False)),
         "wm_debug_intro_attack_band_ok": bool(cur.get("intro_attack_band_ok", False)),
         "wm_debug_intro_ret7_ok": bool(cur.get("intro_ret7_ok", False)),
@@ -1093,6 +1116,17 @@ def build_watermelon_debug_block(title: str, df: pd.DataFrame) -> str:
         no_blue1_ok = 1 if bool(row.get('수박디버그_no_blue1_ok', False)) else 0
         no_blue2_ok = 1 if bool(row.get('수박디버그_no_blue2_ok', False)) else 0
         not_late_ok = 1 if bool(row.get('수박디버그_not_late_ok', False)) else 0
+        red2_pullback_ok = 1 if bool(row.get('수박디버그_red2_pullback_ok', False)) else 0
+        red2_change_ok = 1 if bool(row.get('수박디버그_red2_change_ok', False)) else 0
+        red2_close_ma20_ok = 1 if bool(row.get('수박디버그_red2_close_ma20_ok', False)) else 0
+        red2_ma5_ma20_ok = 1 if bool(row.get('수박디버그_red2_ma5_ma20_ok', False)) else 0
+        red2_prevbox_ok = 1 if bool(row.get('수박디버그_red2_prevbox_ok', False)) else 0
+        red2_vol_ok = 1 if bool(row.get('수박디버그_red2_vol_ok', False)) else 0
+        red2_candle_ok = 1 if bool(row.get('수박디버그_red2_candle_ok', False)) else 0
+        red2_not_late_ok = 1 if bool(row.get('수박디버그_red2_not_late_ok', False)) else 0
+        blue2_prev_clear_ok = 1 if bool(row.get('수박디버그_blue2_prev_clear_ok', False)) else 0
+        blue2_context_ok = 1 if bool(row.get('수박디버그_blue2_context_ok', False)) else 0
+        blue2_vol2_ok = 1 if bool(row.get('수박디버그_blue2_vol2_ok', False)) else 0
         time_days = int(row.get('time_sym_days', -1)) if str(row.get('time_sym_days', '')).strip() not in ('', 'nan', 'None') else -1
         time_tag = row.get('time_sym_tag', '')
         lines.append(
@@ -1100,6 +1134,7 @@ def build_watermelon_debug_block(title: str, df: pd.DataFrame) -> str:
             f"- 최종상태: {state}\n"
             f"- gate: intro_box={intro_box} / change={change} / red_raw={red_raw} / red_onset={red_onset} / blue1_onset={blue1_onset} / pullback_box={pullback_box} / red2_raw={red2_raw} / blue2_onset={blue2_onset} / late={late} / blue_confirm={int(row.get('수박디버그_blue_confirm', -1))}\n"
             f"- intro_sub: range={box_range_ok} / attack_band={attack_band_ok} / ret7={ret7_ok} / ret15={ret15_ok} / ret20={ret20_ok} / dayup={dayup_ok} / top_near={top_near_ok} / vol_calm={vol_calm_ok} / no_blue1={no_blue1_ok} / no_blue2={no_blue2_ok} / not_late={not_late_ok}\n"
+            f"- red2_sub: pb={red2_pullback_ok} / chg={red2_change_ok} / c20={red2_close_ma20_ok} / m520={red2_ma5_ma20_ok} / pbox={red2_prevbox_ok} / vol={red2_vol_ok} / candle={red2_candle_ok} / not_late={red2_not_late_ok} / prev_clear={blue2_prev_clear_ok} / ctx={blue2_context_ok} / vol2={blue2_vol2_ok}\n"
             + (f"- 시간대칭: days={time_days} / tag={time_tag}\n" if time_days >= 0 and time_tag else "")
         )
     return "\n".join(lines)
@@ -5291,7 +5326,7 @@ def _clean_main7_ai_text(text: str, max_len: int = 52, row=None, role: str = '')
     if not s:
         return _fallback_main7_role_text(row or {}, role)
     return s
-MAIN7_AI_TELEGRAM_LAYOUT_VERSION = 'split_v1 | wm_tune_v16_blue2_focus'
+MAIN7_AI_TELEGRAM_LAYOUT_VERSION = 'split_v1 | wm_tune_v17_blue2_debug'
 
 def _format_main7_ai_debate_text(rows):
     if not rows:
@@ -7852,6 +7887,17 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             '수박디버그_red2_raw': bool(wm_bundle.get('wm_debug_red_state_raw_2', False)),
             '수박디버그_blue2_onset': bool(wm_bundle.get('wm_debug_blue2_onset', False)),
             '수박디버그_late': bool(wm_bundle.get('wm_debug_late', False)),
+            '수박디버그_red2_pullback_ok': bool(wm_bundle.get('wm_debug_red2_pullback_ok', False)),
+            '수박디버그_red2_change_ok': bool(wm_bundle.get('wm_debug_red2_change_ok', False)),
+            '수박디버그_red2_close_ma20_ok': bool(wm_bundle.get('wm_debug_red2_close_ma20_ok', False)),
+            '수박디버그_red2_ma5_ma20_ok': bool(wm_bundle.get('wm_debug_red2_ma5_ma20_ok', False)),
+            '수박디버그_red2_prevbox_ok': bool(wm_bundle.get('wm_debug_red2_prevbox_ok', False)),
+            '수박디버그_red2_vol_ok': bool(wm_bundle.get('wm_debug_red2_vol_ok', False)),
+            '수박디버그_red2_candle_ok': bool(wm_bundle.get('wm_debug_red2_candle_ok', False)),
+            '수박디버그_red2_not_late_ok': bool(wm_bundle.get('wm_debug_red2_not_late_ok', False)),
+            '수박디버그_blue2_prev_clear_ok': bool(wm_bundle.get('wm_debug_blue2_prev_clear_ok', False)),
+            '수박디버그_blue2_context_ok': bool(wm_bundle.get('wm_debug_blue2_context_ok', False)),
+            '수박디버그_blue2_vol2_ok': bool(wm_bundle.get('wm_debug_blue2_vol2_ok', False)),
             '수박디버그_box_range_ok': bool(wm_bundle.get('wm_debug_intro_box_range_ok', False)),
             '수박디버그_attack_band_ok': bool(wm_bundle.get('wm_debug_intro_attack_band_ok', False)),
             '수박디버그_ret7_ok': bool(wm_bundle.get('wm_debug_intro_ret7_ok', False)),
