@@ -502,18 +502,23 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
         red_state_raw_2 = (
             (pullback_box or pre_pullback_box)
             and change_relaxed_2
-            and ((m["close"] >= m["ma20"] * 0.985) if m["ma20"] > 0 else False)
-            and ((m["ma5"] >= m["ma20"] * 0.992) if m["ma20"] > 0 and m["ma5"] > 0 else False)
-            and ((m["close"] >= m["prev_box_high10"] * 0.975) if m["prev_box_high10"] > 0 else False)
+            and ((m["close"] >= m["ma20"] * 0.980) if m["ma20"] > 0 else False)
+            and ((m["ma5"] >= m["ma20"] * 0.990) if m["ma20"] > 0 and m["ma5"] > 0 else False)
+            and ((m["close"] >= m["prev_box_high10"] * 0.970) if m["prev_box_high10"] > 0 else False)
+            and ((m["volume"] >= m["vol_ma20"] * 0.82) if m["vol_ma20"] > 0 else True)
             and not late
         )
 
-        # ✅ Blue-2가 Blue-1 실발생 여부에만 묶이지 않도록 완화
+        # ✅ Blue-2는 '건강한 눌림 후 재점화'를 조금 더 넓게 인정
         blue2_onset = (
             red_state_raw_2
             and (not prev_red_state)
-            and ((had_blue1_recent and had_pullback_recent) or pre_pullback_box)
-            and ((m["volume"] >= m["vol_ma20"] * 0.90) if m["vol_ma20"] > 0 else True)
+            and (
+                (had_blue1_recent and had_pullback_recent)
+                or pre_pullback_box
+                or (pullback_box and (3.0 <= m["pullback_pct25"] <= 15.0))
+            )
+            and ((m["volume"] >= m["vol_ma20"] * 0.82) if m["vol_ma20"] > 0 else True)
             and not late
         )
 
@@ -1084,6 +1089,46 @@ def build_watermelon_debug_block(title: str, df: pd.DataFrame) -> str:
             + (f"- 시간대칭: days={time_days} / tag={time_tag}\n" if time_days >= 0 and time_tag else "")
         )
     return "\n".join(lines)
+
+def build_watermelon_guide_block() -> str:
+    lines = [
+        "🍉 [수박 상태 가이드]",
+        "- 초입수박: 구조가 막 살아나는 초동 회복형 | 대응: 소액 탐색, 거래량·5일재안착 확인",
+        "- 눌림수박: 가장 실전적인 눌림 재진입형 | 대응: 주력 관찰, 재안착/양봉 우대",
+        "- 빨강수박: 재점화 직전 경계 구간 | 대응: 확인매수 대기",
+        "- 파란점선: 실행 타점 | 대응: 분할 진입, 손절 명확화",
+        "- 후행수박: 한 박자 늦은 자리 | 대응: 원칙적 관망",
+        "- 참고: '수박상태 초록'은 독립 상태가 아니라 초입/눌림 관찰군 요약입니다",
+    ]
+    return "\\n".join(lines) + "\\n"
+
+
+def build_watermelon_summary_block(df: pd.DataFrame) -> str:
+    if df is None or df.empty:
+        return "🍉 [수박 상태 요약]\\n- 집계 대상 없음\\n"
+    work = df.copy()
+    if "수박최종상태" not in work.columns:
+        work["수박최종상태"] = work.get("수박상태명", "")
+    counts = work["수박최종상태"].fillna("").astype(str).value_counts().to_dict()
+    intro_n = int(counts.get("초입수박", 0))
+    pull_n = int(counts.get("눌림수박", 0))
+    blue1_n = int(counts.get("Blue-1단기", 0))
+    blue2_n = int(counts.get("Blue-2스윙", 0))
+    late_n = int(counts.get("후행수박", 0))
+    green_n = intro_n + pull_n
+    red_n = blue1_n + blue2_n
+
+    lines = [
+        "🍉 [수박 상태 요약]",
+        f"- 관찰군(초록): {green_n}개 = 초입 {intro_n} / 눌림 {pull_n}",
+        f"- 재점화군(빨강): {red_n}개 = Blue-1 {blue1_n} / Blue-2 {blue2_n}",
+        f"- 후행수박: {late_n}개",
+    ]
+    if red_n == 0 and green_n > 0:
+        lines.append("- 해석: 관찰군은 있으나 재점화 확정은 아직 적음")
+    elif red_n > 0:
+        lines.append("- 해석: 재점화/실행 타점 후보가 실제로 발생 중")
+    return "\\n".join(lines) + "\\n"
 
 def build_watermelon_state_block(title: str, df: pd.DataFrame) -> str:
     if df is None or df.empty:
@@ -5232,7 +5277,7 @@ def _clean_main7_ai_text(text: str, max_len: int = 52, row=None, role: str = '')
     if not s:
         return _fallback_main7_role_text(row or {}, role)
     return s
-MAIN7_AI_TELEGRAM_LAYOUT_VERSION = 'split_v1 | wm_tune_v13_claude_off'
+MAIN7_AI_TELEGRAM_LAYOUT_VERSION = 'split_v1 | wm_tune_v14_complete_blue2'
 
 def _format_main7_ai_debate_text(rows):
     if not rows:
@@ -5352,7 +5397,7 @@ def _run_main7_ai_debate(ai_candidates_df: pd.DataFrame, issues=None, market_new
 def get_ai_summary_batch(ai_candidates_df, issues=None, market_news=None):
     """
     판단형 종목 코멘트 생성.
-    안정성을 위해 후보를 5개까지만 보고, 2~3개씩 나눠서 배치 호출한다.
+    안정성을 위해 후보를 15개까지 보고, 3개씩 나눠서 배치 호출한다.
     """
     comments = "특이 이슈 없음"
     if issues:
@@ -5364,7 +5409,7 @@ def get_ai_summary_batch(ai_candidates_df, issues=None, market_news=None):
         if top_news:
             market_news_block = "\n\n## 오늘 시장 주요 뉴스\n" + "\n".join(f"- {n}" for n in top_news)
 
-    work_df = ai_candidates_df.head(5).copy()
+    work_df = ai_candidates_df.head(15).copy()
     if work_df is None or work_df.empty:
         return "브리핑 생성 중 오류가 발생했습니다."
 
@@ -8232,6 +8277,42 @@ def generate_stage_ai_tip(row):
 # =========================================================
 # 🔗 main7 원본 검색 엔진을 단일종목 분석기에서 그대로 재사용하기 위한 브리지
 # =========================================================
+def generate_top15_ai_fallback(row):
+    try:
+        parts = []
+        vol_ratio = safe_float(row.get('거래량배수', row.get('매집거래량배율', 0)), 0.0)
+        rsi = safe_float(row.get('RSI', 0), 0.0)
+        wick = safe_float(row.get('윗꼬리비율', row.get('상꼬리비율', 0)), 0.0)
+        stage = str(row.get('단계상태', '') or '').strip()
+        wm_state = str(row.get('수박최종상태', row.get('수박상태명', '')) or '').strip()
+        ma5_tag = str(row.get('5일재안착태그', '') or '').strip()
+        time_tag = str(row.get('time_sym_tag', '') or '').strip()
+        flow = str(row.get('수급', '') or '').strip()
+
+        if stage:
+            parts.append(stage)
+        elif wm_state:
+            parts.append(wm_state)
+
+        if vol_ratio > 0:
+            parts.append(f"거래량 {vol_ratio:.1f}배")
+        if rsi > 0:
+            parts.append(f"RSI {rsi:.0f}")
+        if wick > 0:
+            parts.append(f"윗꼬리 {wick:.1f}%")
+        if ma5_tag:
+            parts.append(ma5_tag)
+        if time_tag:
+            parts.append(time_tag)
+        if flow:
+            parts.append(flow[:12])
+
+        if not parts:
+            return "구조는 있으나 추가 확인이 필요한 자리"
+        return " / ".join(parts[:4])
+    except Exception:
+        return "구조는 있으나 추가 확인이 필요한 자리"
+
 def build_single_stock_context():
     global_env, leader_env = get_global_and_leader_status()
     try:
@@ -8671,7 +8752,7 @@ if __name__ == "__main__":
     log_info(f"💍 HTS 정확복제형 TOP5 수: {len(exact_top5)}")
     log_info(f"💍 기존 예비돌반지 TOP5 수: {len(broad_only_top5)}")
     log_info(f"💎 신규예비돌반지 Lite TOP5 수: {len(lite_top5)}")
-    log_info(f"🍉 수박상태 초록 TOP5 수: {len(wm_green_top5)}")
+    log_info(f"🍉 수박 관찰군(초록) 수: {len(wm_green_top5)}")
     log_info(f"🍉 수박상태 빨강 TOP5 수: {len(wm_red_top5)}")
     log_info(f"🔵 파란점선 타점 TOP5 수: {len(wm_blue_top5)}")
     log_info(f"🟢 초입수박 TOP5 수: {len(wm_intro_top5)}")
@@ -8835,7 +8916,8 @@ if __name__ == "__main__":
     pre_block = build_pre_dolbanji_block("예비돌반지 TOP 5", pre_top5, exact_mode=False)
     exact_block = build_pre_dolbanji_block("HTS 정확복제형 예비돌반지 TOP 5", exact_top5, exact_mode=True)
     lite_block = build_pre_dolbanji_block("신규예비돌반지 Lite TOP 5", lite_top5, exact_mode=False)
-    wm_green_block = build_watermelon_state_block("수박상태 초록 TOP 5", wm_green_top5)
+    wm_guide_block = build_watermelon_guide_block()
+    wm_green_block = build_watermelon_summary_block(all_hits_df_for_pre)
     wm_red_block = build_watermelon_state_block("수박상태 빨강 TOP 5", wm_red_top5)
     wm_blue_block = build_watermelon_state_block("파란점선 타점 TOP 5", wm_blue_top5)
 
@@ -9107,7 +9189,7 @@ if __name__ == "__main__":
             current_msg += entry
 
     # 마지막 블록은 급등후보 + 예비돌반지 별도 TOP5
-    final_block = (stage_block or "") + "\n" + pre_block + "\n" + exact_block + "\n" + lite_block + "\n" + wm_green_block + "\n" + wm_red_block + "\n" + wm_blue_block + "\n" + wm_debug_block + "\n" + wm_intro_block + "\n" + wm_pullback_block + "\n" + wm_late_block + "\n" + wm_blue1_block + "\n" + wm_blue2_block
+    final_block = (stage_block or "") + "\n" + pre_block + "\n" + exact_block + "\n" + lite_block + "\n" + wm_guide_block + "\n" + wm_green_block + "\n" + wm_red_block + "\n" + wm_blue_block + "\n" + wm_debug_block + "\n" + wm_intro_block + "\n" + wm_pullback_block + "\n" + wm_late_block + "\n" + wm_blue1_block + "\n" + wm_blue2_block
 
     # ✅ TOP15는 이미지 포함 메시지로 먼저 전송
     if current_msg.strip():
