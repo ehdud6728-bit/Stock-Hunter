@@ -101,26 +101,42 @@ def coerce_numeric_columns(df: pd.DataFrame, columns):
     return out
 
 def normalize_leader_scanner_columns(df: pd.DataFrame) -> pd.DataFrame:
-    """대장주 스캐너가 한글 컬럼을 기대하더라도 영문 컬럼 입력을 최대한 호환시킴"""
+    """대장주 스캐너/내부 로직이 한글·영문 컬럼을 모두 쓰도록 별칭을 같이 만든다."""
     if df is None or len(df) == 0:
         return df
     out = df.copy()
-    rename_map = {}
-    if 'Close' in out.columns and '종가' not in out.columns:
-        rename_map['Close'] = '종가'
-    if 'Marcap' in out.columns and '시가총액' not in out.columns:
-        rename_map['Marcap'] = '시가총액'
-    elif 'MarCap' in out.columns and '시가총액' not in out.columns:
-        rename_map['MarCap'] = '시가총액'
-    if 'Volume' in out.columns and '거래량' not in out.columns:
-        rename_map['Volume'] = '거래량'
-    if 'Amount' in out.columns and '거래대금' not in out.columns:
-        rename_map['Amount'] = '거래대금'
-    elif 'Value' in out.columns and '거래대금' not in out.columns:
-        rename_map['Value'] = '거래대금'
-    if rename_map:
-        out = out.rename(columns=rename_map)
+
+    alias_groups = {
+        '종가': ['종가', 'Close', 'close', 'Price', 'price'],
+        '시가총액': ['시가총액', 'Marcap', 'MarCap', 'marcap', 'market_cap'],
+        '거래량': ['거래량', 'Volume', 'volume'],
+        '거래대금': ['거래대금', 'Amount', 'Value', 'Turnover', 'amount', 'value'],
+        '종목명': ['종목명', 'Name', 'name'],
+        '종목코드': ['종목코드', 'Code', 'code'],
+    }
+
+    for target, candidates in alias_groups.items():
+        if target not in out.columns:
+            for cand in candidates:
+                if cand in out.columns:
+                    out[target] = out[cand]
+                    break
+
+    # 내부 기존 영문 로직도 유지되게 역방향 별칭도 보장
+    reverse_alias = {
+        'Close': '종가',
+        'Marcap': '시가총액',
+        'Volume': '거래량',
+        'Amount': '거래대금',
+        'Name': '종목명',
+        'Code': '종목코드',
+    }
+    for eng, kor in reverse_alias.items():
+        if eng not in out.columns and kor in out.columns:
+            out[eng] = out[kor]
+
     return out
+
 
 
 # ─────────────────────────────────────────────────────────────
@@ -1174,6 +1190,9 @@ TEST_CHAT_ID_OVERRIDE = os.environ.get('TEST_CHAT_ID_OVERRIDE', '')
 OPENAI_API_KEY    = os.environ.get('OPENAI_API_KEY')
 GROQ_API_KEY      = os.environ.get('GROQ_API_KEY')
 ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY', '')
+DISABLE_CLAUDE = True  # Claude 크레딧 소진으로 강제 비활성화
+if DISABLE_CLAUDE:
+    ANTHROPIC_API_KEY = ''
 GEMINI_API_KEY    = os.environ.get('GEMINI_API_KEY', '')
 DART_API_KEY   = os.environ.get('DART_API_KEY', '')
 
@@ -1211,6 +1230,8 @@ def get_target_chat_ids():
 
 
 TEST_MODE = _env_flag('TEST_MODE', False)
+SHOW_WM_DEBUG = TEST_MODE
+SHOW_WM_DEBUG_ON_ALERT = True
 
 KST = pytz.timezone('Asia/Seoul')
 current_time = datetime.now(KST)
@@ -2844,6 +2865,34 @@ def _apply_style_bonus(best, style, W):
         if any(k in best['combination'] for k in ['바닥', '매집완성']):
             score -= 20
     return score
+
+def check_force_pullback(curr: pd.Series, past: pd.DataFrame):
+    """
+    세력 눌림목 (선행 정의용)
+    - 최근 강봉/거래량 흔적
+    - 현재는 눌림 구간
+    - 거래량 감소
+    - OBV 훼손 적음
+    - 20일/40일 근처 지지
+    """
+    if past is None or past.empty or len(past) < 10:
+        return False, "데이터 부족"
+    try:
+        strong_candle = (
+            ((past['Close'] > past['Open']) &
+             (((past['Close'] - past['Open']) / (past['Open'] + 1e-9)) * 100 >= 8)) &
+            (past['Volume'] > past['Vol_Avg'] * 1.8)
+        ).any()
+        volume_cooling = curr['Volume'] < (curr['Vol_Avg'] * 0.8)
+        near_ma20 = abs(curr['Close'] - curr['MA20']) / (curr['MA20'] + 1e-9) <= 0.03
+        near_bb_mid = abs(curr['Close'] - curr['MA40']) / (curr['MA40'] + 1e-9) <= 0.04
+        obv_safe = curr['OBV'] >= past['OBV'].tail(5).min()
+        candle_not_broken = curr['Close'] >= curr['MA20'] * 0.97
+        passed = strong_candle and volume_cooling and (near_ma20 or near_bb_mid) and obv_safe and candle_not_broken
+        return passed, f"강봉흔적:{strong_candle}, 거래량감소:{volume_cooling}, 이평근접:{near_ma20 or near_bb_mid}, OBV방어:{obv_safe}"
+    except Exception as e:
+        return False, f"계산실패:{e}"
+
 
 def check_ross(curr: pd.Series, past: pd.DataFrame):
     if past.empty or past['BB_LOW'].isna().all():
@@ -4542,7 +4591,7 @@ def run_ai_tournament(candidate_list, issues):
         except Exception as e:
             log_error(f"⚠️ Claude 토너먼트 실패: {e}")
     else:
-        log_info("⚠️ ANTHROPIC_API_KEY 없음 — Claude 생략")
+        log_info("⚠️ Claude 비활성화 또는 ANTHROPIC_API_KEY 없음 — Claude 생략")
 
     # ── Gemini 호출 (실패해도 계속)
     gemini_text = ''
@@ -5183,7 +5232,7 @@ def _clean_main7_ai_text(text: str, max_len: int = 52, row=None, role: str = '')
     if not s:
         return _fallback_main7_role_text(row or {}, role)
     return s
-MAIN7_AI_TELEGRAM_LAYOUT_VERSION = 'split_v1 | wm_tune_v11_ma5_reclaim'
+MAIN7_AI_TELEGRAM_LAYOUT_VERSION = 'split_v1 | wm_tune_v13_claude_off'
 
 def _format_main7_ai_debate_text(rows):
     if not rows:
@@ -5227,14 +5276,14 @@ def _format_main7_ai_debate_text(rows):
 
         lines.extend([
             f"{i}. {name}({code}) [{mode}/{grade}] → {verdict} {conf}점",
-            f"   심판{r.get('AI심판모델', '')}: {judge}",
+            f"   심판{(r.get('AI심판모델', '') if str(r.get('AI심판모델', '')).strip() else '[자동선택]')}: {judge}",
             f"   근거: {strong}",
             f"   위험: {riskp}",
             f"   계획: {plan}",
-            f"   기술{r.get('AI기술모델', '')}: {tech}",
-            f"   수급{r.get('AI수급모델', '')}: {flow}",
-            f"   시황{r.get('AI시황모델', '')}: {theme}",
-            f"   리스크{r.get('AI리스크모델', '')}: {risk}",
+            f"   기술{(r.get('AI기술모델', '') if str(r.get('AI기술모델', '')).strip() else '[자동선택]')}: {tech}",
+            f"   수급{(r.get('AI수급모델', '') if str(r.get('AI수급모델', '')).strip() else '[자동선택]')}: {flow}",
+            f"   시황{(r.get('AI시황모델', '') if str(r.get('AI시황모델', '')).strip() else '[자동선택]')}: {theme}",
+            f"   리스크{(r.get('AI리스크모델', '') if str(r.get('AI리스크모델', '')).strip() else '[자동선택]')}: {risk}",
         ])
         if _time_tag:
             lines.append(f"   시간창: {_time_tag}" + (f" | {_time_comment}" if _time_comment else ""))
@@ -8676,7 +8725,7 @@ if __name__ == "__main__":
 
     log_info("🧠 상위 30개 종목 AI 심층 분석 중...")
     log_info(f"  OPENAI_API_KEY:    {'✅' if OPENAI_API_KEY else '❌ 없음'}")
-    log_info(f"  ANTHROPIC_API_KEY: {'✅' if ANTHROPIC_API_KEY else '❌ 없음'}")
+    log_info(f"  ANTHROPIC_API_KEY: {'🚫 비활성화' if DISABLE_CLAUDE else ('✅' if ANTHROPIC_API_KEY else '❌ 없음')}")
     log_info(f"  GEMINI_API_KEY:    {'✅' if GEMINI_API_KEY else '❌ 없음'}")
     log_info(f"  GROQ_API_KEY:      {'✅' if GROQ_API_KEY else '❌ 없음'}")
     tournament_report = run_ai_tournament(ai_candidates, issues)
