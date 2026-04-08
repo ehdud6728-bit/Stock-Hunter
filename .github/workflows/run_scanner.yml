@@ -41,6 +41,7 @@ jobs:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       DART_API_KEY: ${{ secrets.DART_API_KEY }}
+      GOOGLE_JSON_KEY: ${{ secrets.GOOGLE_JSON_KEY }}
 
       TEST_MODE: ${{ inputs.test_mode }}
       TELEGRAM_CHAT_ID_EFFECTIVE: ${{ inputs.test_chat_id_override }}
