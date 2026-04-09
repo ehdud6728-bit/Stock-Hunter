@@ -839,6 +839,11 @@ def build_watermelon_state_top5(df: pd.DataFrame):
     blue1_df = _sort(work[work["수박최종상태"] == "Blue-1단기"].copy(), ["파란점선1단기점수", "수박공격점수", "안전점수", "N점수"])
     blue2_df = _sort(work[work["수박최종상태"] == "Blue-2스윙"].copy(), ["파란점선2스윙점수", "수박포켓점수", "안전점수", "N점수"])
 
+    dante_work = compute_dante_mode_fields(work)
+    dante_pick_df = _sort(dante_work[dante_work["단테상태"] == "단테선취형"].copy(), ["단테점수", "수박포켓점수", "안전점수", "N점수"])
+    dante_watch_df = _sort(dante_work[dante_work["단테상태"] == "단테관찰형"].copy(), ["단테점수", "수박포켓점수", "안전점수", "N점수"])
+    dante_ex_df = _sort(dante_work[dante_work["단테상태"] == "단테제외형"].copy(), ["단테점수", "수박포켓점수", "안전점수", "N점수"], ascending=[True, False, False, False])
+
     green_df = _sort(work[work["수박최종상태"].isin(["초입수박", "눌림수박"])].copy(), ["수박포켓점수", "수박기반점수", "안전점수", "N점수"])
     red_df = _sort(work[work["수박최종상태"].isin(["Blue-1단기", "Blue-2스윙", "Blue-2예비"])].copy(), ["수박파란점선점수", "수박공격점수", "안전점수", "N점수"])
     blue_df = _sort(work[work["수박최종상태"].isin(["Blue-1단기", "Blue-2스윙"])].copy(), ["수박파란점선점수", "수박공격점수", "안전점수", "N점수"])
@@ -1457,6 +1462,225 @@ def detect_refined_watermelon_filter(
         }
     except Exception:
         return empty.copy()
+
+
+def compute_dante_mode_fields(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    단테 모드 전용 후처리:
+    - 일반 모드는 유지
+    - 단테형은 장기이평/흰구름/수박상태를 우선시한 별도 랭킹
+    """
+    if df is None or df.empty:
+        return df
+
+    work = df.copy()
+
+    def _b(x):
+        try:
+            return bool(x)
+        except Exception:
+            return False
+
+    def _i(x, default=0):
+        try:
+            return int(float(x))
+        except Exception:
+            return default
+
+    def _f(x, default=0.0):
+        try:
+            return float(x)
+        except Exception:
+            return default
+
+    dante_scores = []
+    dante_states = []
+    dante_comments = []
+    dante_reasons = []
+
+    for _, row in work.iterrows():
+        wc_state = str(row.get('흰구름상태', '') or '').strip()
+        wm_state = str(row.get('수박최종상태', '') or '').strip()
+
+        ma112 = _f(row.get('MA112', row.get('ma112', 0)))
+        ma224 = _f(row.get('MA224', row.get('ma224', 0)))
+        ma448 = _f(row.get('MA448', row.get('ma448', 0)))
+        close_p = _f(row.get('현재가', row.get('Close', row.get('close', 0))))
+
+        d_score = 0
+        reasons = []
+
+        # 장기이평 구조
+        long_bear_stack = bool(ma112 > 0 and ma224 > 0 and ma448 > 0 and ma112 < ma224 < ma448)
+        below_long_major = bool(ma224 > 0 and close_p <= ma224 * 1.05)
+        below_long_soft = bool(ma224 > 0 and close_p <= ma224 * 1.10)
+
+        if long_bear_stack:
+            d_score += 20
+            reasons.append("장기역배열")
+        elif below_long_major:
+            d_score += 14
+            reasons.append("장기저항아래")
+        elif below_long_soft:
+            d_score += 6
+            reasons.append("장기저항근처")
+        else:
+            d_score -= 18
+            reasons.append("장기저항위")
+
+        # 흰구름 위치
+        if wc_state == 'below':
+            if _i(row.get('흰구름근접투표', 0)) >= 2:
+                d_score += 25
+                reasons.append("흰구름아래근접")
+            else:
+                d_score += 18
+                reasons.append("흰구름아래")
+        elif wc_state == 'inside':
+            d_score += 10
+            reasons.append("흰구름안")
+        elif wc_state == 'mixed':
+            d_score += 4
+            reasons.append("흰구름혼합")
+        elif wc_state == 'above':
+            d_score -= 28
+            reasons.append("흰구름위")
+
+        # 수박 상태
+        if wm_state == '눌림수박':
+            d_score += 22
+            reasons.append("눌림수박")
+        elif wm_state == '초입수박':
+            d_score += 18
+            reasons.append("초입수박")
+        elif wm_state == 'Blue-2예비':
+            d_score += 16
+            reasons.append("Blue-2예비")
+        elif wm_state == 'Blue-2스윙':
+            d_score += 8
+            reasons.append("Blue-2스윙")
+        elif wm_state == 'Blue-1단기':
+            d_score -= 10
+            reasons.append("Blue-1진행")
+        elif wm_state == '후행수박':
+            d_score -= 30
+            reasons.append("후행수박")
+
+        # 보조 패턴
+        if _b(row.get('5일재안착', False)):
+            d_score += 15
+            reasons.append("5일재안착")
+        elif _b(row.get('5일재안착예비', False)):
+            d_score += 7
+            reasons.append("5일재안착예비")
+
+        if _b(row.get('수박정제통과', False)):
+            d_score += 12
+            reasons.append("정제통과")
+        elif _b(row.get('수박정제관찰', False)):
+            d_score += 4
+            reasons.append("정제관찰")
+        elif _b(row.get('수박정제주의', False)):
+            d_score -= 12
+            reasons.append("정제주의")
+
+        tag_text = " ".join([
+            str(row.get('N조합', '') or ''),
+            str(row.get('태그', '') or ''),
+            str(row.get('수박태그', '') or ''),
+        ])
+        if ('독사' in tag_text) or ('독사수급전환' in tag_text):
+            d_score += 8
+            reasons.append("독사계열")
+        if '돌반지' in tag_text:
+            d_score += 8
+            reasons.append("돌반지계열")
+        if ('BB40' in tag_text) or ('BB30' in tag_text):
+            d_score += 8
+            reasons.append("BB응축")
+        if ('⏱9근접' in tag_text) or ('⏱9예비' in tag_text):
+            d_score += 5
+            reasons.append("시간창")
+
+        if _b(row.get('수박정제_vol_ok', False)):
+            d_score += 6
+        if _b(row.get('수박정제_obv_ok', False)):
+            d_score += 4
+        if _b(row.get('수박정제_wick_ok', False)):
+            d_score += 3
+        if _b(row.get('수박정제_candle_ok', False)):
+            d_score += 4
+
+        late_flag = _b(row.get('수박디버그_late', False))
+        if late_flag:
+            d_score -= 24
+            reasons.append("late")
+
+        disparity = _f(row.get('이격', row.get('Disparity', 0)))
+        if disparity >= 118:
+            d_score -= 10
+            reasons.append("이격과열")
+        elif disparity >= 112:
+            d_score -= 4
+
+        if (
+            d_score >= 55
+            and wc_state in ('below', 'inside', 'mixed')
+            and wm_state in ('눌림수박', '초입수박', 'Blue-2예비')
+            and not late_flag
+        ):
+            d_state = '단테선취형'
+            d_comment = '장기저항 아래/근처에서 수박 초기 선취에 가까움'
+        elif (
+            d_score >= 40
+            and wc_state in ('below', 'inside', 'mixed')
+            and wm_state in ('눌림수박', '초입수박', 'Blue-2예비', 'Blue-2스윙')
+            and not late_flag
+        ):
+            d_state = '단테관찰형'
+            d_comment = '좋은 구조지만 한두 가지 확인 후 접근이 유리'
+        else:
+            d_state = '단테제외형'
+            d_comment = '단테식 선취보다 진행/후행/과열 또는 구조 미흡 가능성'
+
+        dante_scores.append(int(d_score))
+        dante_states.append(d_state)
+        dante_comments.append(d_comment)
+        dante_reasons.append(" | ".join(reasons[:6]))
+
+    work['단테점수'] = dante_scores
+    work['단테상태'] = dante_states
+    work['단테코멘트'] = dante_comments
+    work['단테이유'] = dante_reasons
+    return work
+
+
+def build_dante_state_block(title: str, df: pd.DataFrame) -> str:
+    if df is None or df.empty:
+        return f"🧭 [{title}]\n- 해당 종목 없음\n"
+
+    lines = [f"🧭 [{title}]\n"]
+    for rank, (_, row) in enumerate(df.head(5).iterrows(), start=1):
+        name = str(row.get('종목명', row.get('name', '')) or '').strip()
+        code = str(row.get('code', row.get('종목코드', '')) or '').strip()
+        state = str(row.get('수박최종상태', '') or '').strip()
+        d_score = int(float(row.get('단테점수', 0) or 0))
+        comment = str(row.get('단테코멘트', '') or '').strip()
+        reason = str(row.get('단테이유', '') or '').strip()
+        cloud_tag = str(row.get('흰구름태그', '') or '').strip()
+        refine_tag = str(row.get('수박정제태그', '') or '').strip()
+        ma5_tag = str(row.get('5일재안착태그', '') or '').strip()
+
+        lines.append(
+            f"{rank}) {name}({code})\n"
+            f"- 상태: {state} | 단테점수:{d_score}\n"
+            + (f"- 흰구름: {cloud_tag}\n" if cloud_tag else "")
+            + (f"- 재안착: {ma5_tag}\n" if ma5_tag else "")
+            + (f"- 정제: {refine_tag}\n" if refine_tag else "")
+            + (f"- 해석: {comment}\n" if comment else "")
+            + (f"- 이유: {reason}\n" if reason else "")
+        )
+    return "\n".join(lines).strip() + "\n"
 
 def build_watermelon_debug_block(title: str, df: pd.DataFrame) -> str:
     if df is None or df.empty:
@@ -5728,7 +5952,7 @@ def _clean_main7_ai_text(text: str, max_len: int = 52, row=None, role: str = '')
     if not s:
         return _fallback_main7_role_text(row or {}, role)
     return s
-MAIN7_AI_TELEGRAM_LAYOUT_VERSION = 'split_v1 | wm_tune_v23_refined_watermelon'
+MAIN7_AI_TELEGRAM_LAYOUT_VERSION = 'split_v1 | wm_tune_v24_dante_mode'
 
 
 def _format_ai_multilist(text, max_len=46):
@@ -9547,6 +9771,10 @@ if __name__ == "__main__":
     wm_intro_block = build_watermelon_state_block("초입수박 TOP 5", wm_intro_top5)
     wm_pullback_block = build_watermelon_state_block("눌림수박 TOP 5", wm_pullback_top5)
     wm_late_block = build_watermelon_state_block("후행수박 TOP 5", wm_late_top5)
+    dante_pick_block = build_dante_state_block("단테 선취 후보 TOP 5", dante_pick_df)
+    dante_watch_block = build_dante_state_block("단테 관찰 후보 TOP 5", dante_watch_df)
+    dante_ex_block = build_dante_state_block("단테 제외 후보 TOP 5", dante_ex_df)
+
     wm_blue1_block = build_watermelon_state_block("Blue-1 단기 TOP 5", wm_blue1_top5)
     wm_blue2_preview_top5 = pd.DataFrame()
     if all_hits_df_for_pre is not None and (not all_hits_df_for_pre.empty) and "수박최종상태" in all_hits_df_for_pre.columns:
@@ -9812,7 +10040,7 @@ if __name__ == "__main__":
             current_msg += entry
 
     # 마지막 블록은 급등후보 + 예비돌반지 별도 TOP5
-    final_block = (stage_block or "") + "\n" + pre_block + "\n" + exact_block + "\n" + lite_block + "\n" + wm_guide_block + "\n" + wm_green_block + "\n" + wm_red_block + "\n" + wm_blue_block + "\n" + wm_debug_block + "\n" + wm_intro_block + "\n" + wm_pullback_block + "\n" + wm_late_block + "\n" + wm_blue1_block + "\n" + wm_blue2_preview_block + "\n" + wm_blue2_block
+    final_block = (stage_block or "") + "\n" + pre_block + "\n" + exact_block + "\n" + lite_block + "\n" + wm_guide_block + "\n" + wm_green_block + "\n" + wm_red_block + "\n" + wm_blue_block + "\n" + wm_debug_block + "\n" + dante_pick_block + "\n" + dante_watch_block + "\n" + dante_ex_block + "\n" + wm_intro_block + "\n" + wm_pullback_block + "\n" + wm_late_block + "\n" + wm_blue1_block + "\n" + wm_blue2_preview_block + "\n" + wm_blue2_block
 
     # ✅ TOP15는 이미지 포함 메시지로 먼저 전송
     if current_msg.strip():
