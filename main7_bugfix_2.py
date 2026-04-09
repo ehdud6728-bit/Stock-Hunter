@@ -1,3 +1,4 @@
+from typing import Optional
 # range/vol_calm 최소 수정안
 # 초입/눌림/제외 기준 반영 실사용 버전
 # intro_box 원인 5개 완화 튜닝본
