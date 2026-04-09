@@ -1135,6 +1135,174 @@ def detect_ma5_reclaim_signal(df: pd.DataFrame, i: int) -> dict:
     except Exception:
         return empty.copy()
 
+def _wc_safe_float(x, default=0.0):
+    try:
+        return float(x)
+    except Exception:
+        return default
+
+
+def _wc_ema(series, span=5):
+    try:
+        return series.ewm(span=span, adjust=False).mean()
+    except Exception:
+        return series
+
+
+def add_white_cloud_candidates(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    흰색 배경 대체 후보 3종 생성
+    A: 중간합성선형  (MA224 ~ EMA((MA112+MA224)/2))
+    B: 112 상단밴드형 (MA224 ~ MA112*1.02)
+    C: 빠른 리드형    (MA224 ~ EMA(MA112,5)*1.01)
+    """
+    if df is None or df.empty:
+        return df
+
+    work = df.copy()
+
+    if 'MA112' not in work.columns and 'Close' in work.columns:
+        work['MA112'] = work['Close'].rolling(112).mean()
+    if 'MA224' not in work.columns and 'Close' in work.columns:
+        work['MA224'] = work['Close'].rolling(224).mean()
+
+    if 'MA112' not in work.columns or 'MA224' not in work.columns:
+        return work
+
+    ma112 = work['MA112']
+    ma224 = work['MA224']
+
+    wc_a_mid = (ma112 + ma224) / 2.0
+    work['WC_A_TOP'] = _wc_ema(wc_a_mid, span=5)
+    work['WC_A_BOT'] = ma224
+
+    work['WC_B_TOP'] = ma112 * 1.02
+    work['WC_B_BOT'] = ma224
+
+    work['WC_C_TOP'] = _wc_ema(ma112, span=5) * 1.01
+    work['WC_C_BOT'] = ma224
+
+    return work
+
+
+def detect_white_cloud_state(df: pd.DataFrame, i: int, mode: str = "A") -> dict:
+    empty = {
+        'below': False,
+        'inside': False,
+        'above': False,
+        'near_lower': False,
+        'top': 0.0,
+        'bottom': 0.0,
+        'tag': '',
+        'comment': '',
+    }
+    try:
+        if df is None or i < 0 or i >= len(df):
+            return empty.copy()
+
+        row = df.iloc[i]
+        close_p = _wc_safe_float(row.get('Close', 0))
+        mode = str(mode or 'A').upper().strip()
+
+        if mode == 'A':
+            top = _wc_safe_float(row.get('WC_A_TOP', 0))
+            bottom = _wc_safe_float(row.get('WC_A_BOT', 0))
+        elif mode == 'B':
+            top = _wc_safe_float(row.get('WC_B_TOP', 0))
+            bottom = _wc_safe_float(row.get('WC_B_BOT', 0))
+        else:
+            top = _wc_safe_float(row.get('WC_C_TOP', 0))
+            bottom = _wc_safe_float(row.get('WC_C_BOT', 0))
+
+        if top <= 0 or bottom <= 0:
+            return empty.copy()
+
+        upper = max(top, bottom)
+        lower = min(top, bottom)
+
+        below = close_p < lower
+        inside = lower <= close_p <= upper
+        above = close_p > upper
+        near_lower = below and (close_p >= lower * 0.90)
+
+        tag = ''
+        comment = ''
+        if near_lower:
+            tag = f'☁{mode}-아래근접'
+            comment = '흰배경 아래 선취 가능 구간'
+        elif below:
+            tag = f'☁{mode}-아래'
+            comment = '장기 저항 아래 구간'
+        elif inside:
+            tag = f'☁{mode}-안'
+            comment = '구름 내부 저항 확인 구간'
+        elif above:
+            tag = f'☁{mode}-위'
+            comment = '이미 장기 저항 위, 추격 주의'
+
+        return {
+            'below': bool(below),
+            'inside': bool(inside),
+            'above': bool(above),
+            'near_lower': bool(near_lower),
+            'top': round(upper, 2),
+            'bottom': round(lower, 2),
+            'tag': tag,
+            'comment': comment,
+        }
+    except Exception:
+        return empty.copy()
+
+
+def detect_white_cloud_vote(df: pd.DataFrame, i: int) -> dict:
+    a = detect_white_cloud_state(df, i, 'A')
+    b = detect_white_cloud_state(df, i, 'B')
+    c = detect_white_cloud_state(df, i, 'C')
+
+    below_n = int(a['below']) + int(b['below']) + int(c['below'])
+    inside_n = int(a['inside']) + int(b['inside']) + int(c['inside'])
+    above_n = int(a['above']) + int(b['above']) + int(c['above'])
+    near_n = int(a['near_lower']) + int(b['near_lower']) + int(c['near_lower'])
+
+    state = 'mixed'
+    if below_n >= 2:
+        state = 'below'
+    elif inside_n >= 2:
+        state = 'inside'
+    elif above_n >= 2:
+        state = 'above'
+
+    tag = ''
+    comment = ''
+    if near_n >= 2:
+        tag = '☁아래근접'
+        comment = '흰배경 아래 선취 후보'
+    elif state == 'below':
+        tag = '☁아래'
+        comment = '장기 저항 아래 구간'
+    elif state == 'inside':
+        tag = '☁안'
+        comment = '구름 내부 저항 확인 구간'
+    elif state == 'above':
+        tag = '☁위'
+        comment = '이미 장기 저항 위, 추격 주의'
+    else:
+        tag = '☁혼합'
+        comment = '후보별 판정이 엇갈림'
+
+    return {
+        'A': a,
+        'B': b,
+        'C': c,
+        'state': state,
+        'tag': tag,
+        'comment': comment,
+        'below_n': below_n,
+        'inside_n': inside_n,
+        'above_n': above_n,
+        'near_n': near_n,
+    }
+
 def build_watermelon_debug_block(title: str, df: pd.DataFrame) -> str:
     if df is None or df.empty:
         return f"🔬 [{title}]\n- 해당 종목 없음\n"
@@ -1198,7 +1366,8 @@ def build_watermelon_guide_block() -> str:
         "- 빨강수박: 재점화 직전 경계 구간 | 대응: 확인매수 대기",
         "- 파란점선: 실행 타점 | 대응: 분할 진입, 손절 명확화",
         "- 후행수박: 한 박자 늦은 자리 | 대응: 원칙적 관망",
-        "- 참고: 초록은 독립 상태가 아니라 초입/눌림 관찰군 요약입니다",
+        "- 참고: 초록은 독립 상태가 아니라 초입/눌림 관찰군 요약입니다
+- 흰구름: 장기 저항 배경의 대체 필터로 아래/안/위만 보조 참고",
     ]
     return "\n".join(lines) + "\n"
 
@@ -1252,6 +1421,8 @@ def build_watermelon_state_block(title: str, df: pd.DataFrame) -> str:
         time_comment = row.get('time_sym_comment', '')
         ma5_tag = str(row.get('5일재안착태그', '')).strip()
         ma5_comment = str(row.get('5일재안착코멘트', '')).strip()
+        cloud_tag = str(row.get('흰구름태그', '')).strip()
+        cloud_comment = str(row.get('흰구름코멘트', '')).strip()
         lines.append(
             f"{rank}) {name}({code})\n"
             f"- 상태: {state} | 등급:{grade}\n"
@@ -1259,6 +1430,7 @@ def build_watermelon_state_block(title: str, df: pd.DataFrame) -> str:
             f"- 태그: {tags}\n"
             + (f"- 시간창: {time_comment}\n" if time_comment and ("근접" in time_comment or "예비" in time_comment) else "")
             + (f"- 재안착: {ma5_tag} | {ma5_comment}\n" if ma5_tag else "")
+            + (f"- 흰구름: {cloud_tag} | {cloud_comment}\n" if cloud_tag else "")
         )
     return "\n".join(lines)
 
@@ -5378,7 +5550,7 @@ def _clean_main7_ai_text(text: str, max_len: int = 52, row=None, role: str = '')
     if not s:
         return _fallback_main7_role_text(row or {}, role)
     return s
-MAIN7_AI_TELEGRAM_LAYOUT_VERSION = 'split_v1 | wm_tune_v19_blue2_split'
+MAIN7_AI_TELEGRAM_LAYOUT_VERSION = 'split_v1 | wm_tune_v20_white_cloud_final'
 
 def _format_main7_ai_debate_text(rows):
     if not rows:
@@ -6929,7 +7101,8 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         low_p = row['Low']
 
         raw_idx = len(df) - 1
-        temp_df = df.iloc[:raw_idx + 1]
+        temp_df = df.iloc[:raw_idx + 1].copy()
+        temp_df = add_white_cloud_candidates(temp_df)
 
         # HTS 정합성 확보:
         # 224/448 장기이평이 실제로 계산 가능한 구간이 아니면
@@ -7044,6 +7217,24 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
                 "reclaim": False, "vol_ok": False, "near_ma20": False,
                 "candle_ok": False, "wick_ok": False, "drop_ok": False,
                 "ma5_rising": False,
+            }
+
+        # 흰색 배경(장기 저항 구름) 대체 필터
+        try:
+            white_cloud_bundle = detect_white_cloud_vote(temp_df, len(temp_df) - 1)
+        except Exception as _wc_e:
+            log_debug(f"흰구름 대체 필터 계산 실패: {_wc_e}")
+            white_cloud_bundle = {
+                'A': {'tag': '', 'comment': ''},
+                'B': {'tag': '', 'comment': ''},
+                'C': {'tag': '', 'comment': ''},
+                'state': '',
+                'tag': '',
+                'comment': '',
+                'below_n': 0,
+                'inside_n': 0,
+                'above_n': 0,
+                'near_n': 0,
             }
 
         recent_avg_amount = (df['Close'] * df['Volume']).tail(5).mean() / 100000000
@@ -7787,6 +7978,25 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         elif ma5_reclaim_bundle.get('reclaim', False):
             tags.append(ma5_reclaim_bundle.get('tag', '🔁5일재안착예비'))
 
+        wc_state = str(white_cloud_bundle.get('state', '') or '').strip()
+        wc_tag = str(white_cloud_bundle.get('tag', '') or '').strip()
+        _wc_good_context = (
+            bool(wm_bundle.get('wm_intro', False))
+            or bool(wm_bundle.get('wm_pullback', False))
+            or bool(wm_bundle.get('wm_blue2_preview_hold', False))
+            or stage_eval.get('stage_status') in ('PASS_A', 'PASS_B')
+        )
+        if _wc_good_context:
+            if wc_state == 'below' and int(white_cloud_bundle.get('near_n', 0)) >= 2:
+                s_score += 12
+            elif wc_state == 'below':
+                s_score += 6
+            elif wc_state == 'inside':
+                s_score += 2
+
+        if wc_tag:
+            tags.append(wc_tag)
+
         if row.get('Good_MA_Convergence', False):
             s_score += min(20, int(row.get('Good_MA_Convergence_Score', 0) * 0.25))
 
@@ -7974,6 +8184,17 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             '5일재안착점수': int(ma5_reclaim_bundle.get('score', 0)),
             '5일재안착태그': str(ma5_reclaim_bundle.get('tag', '')),
             '5일재안착코멘트': str(ma5_reclaim_bundle.get('comment', '')),
+
+            '흰구름상태': str(white_cloud_bundle.get('state', '')),
+            '흰구름태그': str(white_cloud_bundle.get('tag', '')),
+            '흰구름코멘트': str(white_cloud_bundle.get('comment', '')),
+            '흰구름아래투표': int(white_cloud_bundle.get('below_n', 0)),
+            '흰구름안투표': int(white_cloud_bundle.get('inside_n', 0)),
+            '흰구름위투표': int(white_cloud_bundle.get('above_n', 0)),
+            '흰구름근접투표': int(white_cloud_bundle.get('near_n', 0)),
+            '흰구름A태그': str(white_cloud_bundle.get('A', {}).get('tag', '')),
+            '흰구름B태그': str(white_cloud_bundle.get('B', {}).get('tag', '')),
+            '흰구름C태그': str(white_cloud_bundle.get('C', {}).get('tag', '')),
 
             '예비돌반지HTS정확복제': bool(pre_hts_bundle.get('pre_dolbanji_hts_exact', False)),
             '예비돌반지HTS정확점수': int(pre_hts_bundle.get('pre_dolbanji_hts_exact_score', 0)),
@@ -9100,6 +9321,7 @@ if __name__ == "__main__":
             f"S3:{item.get('S3날짜', '-')}\n"
             f"- N조합: {item.get('N조합', '')}" + (f" | {item.get('time_sym_tag', '')}" if str(item.get('time_sym_tag', '')).strip() else "") + "\n"
             + (f"- 재안착: {item.get('5일재안착태그', '')} | {item.get('5일재안착코멘트', '')}\n" if str(item.get('5일재안착태그', '')).strip() else "")
+            + (f"- 흰구름: {item.get('흰구름태그', '')} | {item.get('흰구름코멘트', '')}\n" if str(item.get('흰구름태그', '')).strip() else "")
             + f"- 재무: {item.get('재무', '미계산')} | 수급: {item.get('수급', '미계산')}\n"
             f"- 안전:{item.get('안전점수', 0)} | N점수:{item.get('N점수', 0)}\n"
             f"----------------------------\n"
@@ -9282,6 +9504,14 @@ if __name__ == "__main__":
             entry += f"🔁 재안착:{_ma5_tag}"
             if _ma5_comment:
                 entry += f" | {_ma5_comment[:30]}"
+            entry += "\n"
+
+        _wc_tag = str(item.get('흰구름태그', '')).strip()
+        _wc_comment = str(item.get('흰구름코멘트', '')).strip()
+        if _wc_tag:
+            entry += f"☁ 흰구름:{_wc_tag}"
+            if _wc_comment:
+                entry += f" | {_wc_comment[:24]}"
             entry += "\n"
 
         # 타점 (2단계 목표 + 지지저항)
