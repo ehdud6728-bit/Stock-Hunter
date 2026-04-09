@@ -1303,6 +1303,160 @@ def detect_white_cloud_vote(df: pd.DataFrame, i: int) -> dict:
         'near_n': near_n,
     }
 
+def detect_refined_watermelon_filter(
+    df: pd.DataFrame,
+    i: int,
+    white_cloud_bundle: Optional[dict] = None,
+    ma5_reclaim_bundle: Optional[dict] = None,
+) -> dict:
+    """
+    좋은 수박 / 가짜 수박을 가르는 보조 필터
+    핵심:
+    - 장기이평에서 너무 멀리 이탈하지 않았는가
+    - 거래량/재안착/캔들 질이 받쳐주는가
+    - 흰구름(장기 저항대) 위치가 과열 구간은 아닌가
+    """
+    empty = {
+        "ok": False,
+        "weak": False,
+        "caution": False,
+        "score": 0,
+        "tag": "",
+        "comment": "",
+        "vol_ok": False,
+        "reclaim_ok": False,
+        "candle_ok": False,
+        "wick_ok": False,
+        "long_ok": False,
+        "cloud_ok": False,
+        "obv_ok": False,
+        "hard_fail": False,
+    }
+    try:
+        if df is None or df.empty or i < 0 or i >= len(df):
+            return empty.copy()
+
+        row = df.iloc[i]
+        prev = df.iloc[i - 1] if i >= 1 else row
+
+        close_p = _ma5r_float(row.get("Close", row.get("close", 0)))
+        open_p = _ma5r_float(row.get("Open", row.get("open", 0)))
+        high_p = _ma5r_float(row.get("High", row.get("high", 0)))
+        vol = _ma5r_float(row.get("Volume", row.get("volume", 0)))
+        prev_close = _ma5r_float(prev.get("Close", prev.get("close", 0)))
+        prev_vol = _ma5r_float(prev.get("Volume", prev.get("volume", 0)))
+
+        ma5 = _ma5r_float(row.get("MA5", row.get("ma5", 0)))
+        ma20 = _ma5r_float(row.get("MA20", row.get("ma20", 0)))
+        ma112 = _ma5r_float(row.get("MA112", row.get("ma112", 0)))
+        ma224 = _ma5r_float(row.get("MA224", row.get("ma224", 0)))
+        vma20 = _ma5r_float(row.get("VMA20", row.get("vol_ma20", 0)))
+
+        wick_pct = _ma5r_upper_wick_pct(open_p, high_p, _ma5r_float(row.get("Low", row.get("low", 0))), close_p)
+
+        obv = _ma5r_float(row.get("OBV", row.get("obv", 0)))
+        prev_obv = _ma5r_float(prev.get("OBV", prev.get("obv", 0)))
+        obv_slope = _ma5r_float(
+            row.get(
+                "OBV_Slope",
+                row.get(
+                    "OBV_SLOPE_5",
+                    row.get("obv_slope", row.get("OBV_SLOPE_10", 0)),
+                ),
+            ),
+            0.0,
+        )
+
+        long_refs = [x for x in [ma112, ma224] if x > 0]
+        long_floor = min(long_refs) if long_refs else 0.0
+        long_ceiling = max(long_refs) if long_refs else 0.0
+
+        near_long_ok = True if long_floor <= 0 else (close_p >= long_floor * 0.84)
+        not_too_high = True if long_ceiling <= 0 else (close_p <= long_ceiling * 1.10)
+        long_ok = bool(near_long_ok and not_too_high)
+
+        vol_ok = bool(
+            (vma20 > 0 and vol >= vma20 * 0.85)
+            or (prev_vol > 0 and vol >= prev_vol * 0.90)
+        )
+
+        reclaim_ok = bool(
+            (ma5_reclaim_bundle or {}).get("ok", False)
+            or (ma5_reclaim_bundle or {}).get("reclaim", False)
+            or ((ma5 > 0) and (close_p >= ma5 * 0.995))
+            or ((ma20 > 0) and (close_p >= ma20 * 0.985))
+        )
+
+        candle_ok = bool((close_p >= open_p * 0.992) or (close_p >= prev_close))
+        wick_ok = bool(wick_pct <= 65.0)
+        obv_ok = bool((obv_slope >= -3.0) or (prev_obv <= 0) or (obv >= prev_obv * 0.995))
+
+        wc = white_cloud_bundle or {}
+        wc_state = str(wc.get("state", "") or "").strip()
+        wc_near_n = int(wc.get("near_n", 0) or 0)
+        cloud_ok = bool(
+            (wc_state == "below" and wc_near_n >= 1)
+            or (wc_state == "inside")
+            or (wc_state == "mixed" and int(wc.get("below_n", 0) or 0) >= 1 and int(wc.get("inside_n", 0) or 0) >= 1)
+        )
+
+        hard_fail = bool(
+            (long_floor > 0 and close_p < long_floor * 0.75)
+            or (vma20 > 0 and vol < vma20 * 0.45)
+            or (wick_pct >= 140.0)
+            or (ma20 > 0 and close_p < ma20 * 0.88)
+        )
+
+        score = sum([
+            1 if vol_ok else 0,
+            1 if reclaim_ok else 0,
+            1 if candle_ok else 0,
+            1 if wick_ok else 0,
+            1 if long_ok else 0,
+            1 if cloud_ok else 0,
+            1 if obv_ok else 0,
+        ])
+
+        ok = bool((not hard_fail) and score >= 5 and vol_ok and long_ok)
+        weak = bool((not ok) and (not hard_fail) and score >= 3)
+        caution = bool(
+            hard_fail
+            or score <= 2
+            or ((not vol_ok) and (not reclaim_ok))
+            or (wc_state == "above" and score < 6)
+        )
+
+        tag = ""
+        comment = ""
+        if ok:
+            tag = "✅정제수박"
+            comment = "거래량·재안착·장기저항 위치가 양호"
+        elif weak:
+            tag = "🟨관찰수박"
+            comment = "수박 구조는 있으나 한두 가지 확인이 필요"
+        elif caution:
+            tag = "⚠️가짜수박주의"
+            comment = "거래량·윗꼬리·장기이평 위치 중 약한 요소 존재"
+
+        return {
+            "ok": ok,
+            "weak": weak,
+            "caution": caution,
+            "score": int(score),
+            "tag": tag,
+            "comment": comment,
+            "vol_ok": bool(vol_ok),
+            "reclaim_ok": bool(reclaim_ok),
+            "candle_ok": bool(candle_ok),
+            "wick_ok": bool(wick_ok),
+            "long_ok": bool(long_ok),
+            "cloud_ok": bool(cloud_ok),
+            "obv_ok": bool(obv_ok),
+            "hard_fail": bool(hard_fail),
+        }
+    except Exception:
+        return empty.copy()
+
 def build_watermelon_debug_block(title: str, df: pd.DataFrame) -> str:
     if df is None or df.empty:
         return f"🔬 [{title}]\n- 해당 종목 없음\n"
@@ -1346,6 +1500,16 @@ def build_watermelon_debug_block(title: str, df: pd.DataFrame) -> str:
         blue2_prev_clear_ok = 1 if bool(row.get('수박디버그_blue2_prev_clear_ok', False)) else 0
         blue2_context_ok = 1 if bool(row.get('수박디버그_blue2_context_ok', False)) else 0
         blue2_vol2_ok = 1 if bool(row.get('수박디버그_blue2_vol2_ok', False)) else 0
+        refine_ok = 1 if bool(row.get('수박정제통과', False)) else 0
+        refine_weak = 1 if bool(row.get('수박정제관찰', False)) else 0
+        refine_caution = 1 if bool(row.get('수박정제주의', False)) else 0
+        refine_vol_ok = 1 if bool(row.get('수박정제_vol_ok', False)) else 0
+        refine_reclaim_ok = 1 if bool(row.get('수박정제_reclaim_ok', False)) else 0
+        refine_candle_ok = 1 if bool(row.get('수박정제_candle_ok', False)) else 0
+        refine_wick_ok = 1 if bool(row.get('수박정제_wick_ok', False)) else 0
+        refine_long_ok = 1 if bool(row.get('수박정제_long_ok', False)) else 0
+        refine_cloud_ok = 1 if bool(row.get('수박정제_cloud_ok', False)) else 0
+        refine_obv_ok = 1 if bool(row.get('수박정제_obv_ok', False)) else 0
         time_days = int(row.get('time_sym_days', -1)) if str(row.get('time_sym_days', '')).strip() not in ('', 'nan', 'None') else -1
         time_tag = row.get('time_sym_tag', '')
         lines.append(
@@ -1368,6 +1532,7 @@ def build_watermelon_guide_block() -> str:
         "- 후행수박: 한 박자 늦은 자리 | 대응: 원칙적 관망",
         "- 참고: 초록은 독립 상태가 아니라 초입/눌림 관찰군 요약입니다",
         "- 흰구름: 장기 저항 배경의 대체 필터로 아래/안/위만 보조 참고",
+        "- 정제수박: 좋은 수박/관찰수박/가짜수박주의를 구분하는 보조 필터",
     ]
     return "\n".join(lines) + "\n"
 
@@ -1423,6 +1588,8 @@ def build_watermelon_state_block(title: str, df: pd.DataFrame) -> str:
         ma5_comment = str(row.get('5일재안착코멘트', '')).strip()
         cloud_tag = str(row.get('흰구름태그', '')).strip()
         cloud_comment = str(row.get('흰구름코멘트', '')).strip()
+        refine_tag = str(row.get('수박정제태그', '')).strip()
+        refine_comment = str(row.get('수박정제코멘트', '')).strip()
         lines.append(
             f"{rank}) {name}({code})\n"
             f"- 상태: {state} | 등급:{grade}\n"
@@ -1431,6 +1598,7 @@ def build_watermelon_state_block(title: str, df: pd.DataFrame) -> str:
             + (f"- 시간창: {time_comment}\n" if time_comment and ("근접" in time_comment or "예비" in time_comment) else "")
             + (f"- 재안착: {ma5_tag} | {ma5_comment}\n" if ma5_tag else "")
             + (f"- 흰구름: {cloud_tag} | {cloud_comment}\n" if cloud_tag else "")
+            + (f"- 정제: {refine_tag} | {refine_comment}\n" if refine_tag else "")
         )
     return "\n".join(lines)
 
@@ -5559,7 +5727,7 @@ def _clean_main7_ai_text(text: str, max_len: int = 52, row=None, role: str = '')
     if not s:
         return _fallback_main7_role_text(row or {}, role)
     return s
-MAIN7_AI_TELEGRAM_LAYOUT_VERSION = 'split_v1 | wm_tune_v22_tournament_visible'
+MAIN7_AI_TELEGRAM_LAYOUT_VERSION = 'split_v1 | wm_tune_v23_refined_watermelon'
 
 
 def _format_ai_multilist(text, max_len=46):
@@ -7266,6 +7434,24 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
                 'near_n': 0,
             }
 
+        # 좋은 수박 / 가짜 수박 보조 필터
+        try:
+            wm_refine_bundle = detect_refined_watermelon_filter(
+                temp_df,
+                len(temp_df) - 1,
+                white_cloud_bundle=white_cloud_bundle,
+                ma5_reclaim_bundle=ma5_reclaim_bundle,
+            )
+        except Exception as _wmrf_e:
+            log_debug(f"정제수박 필터 계산 실패: {_wmrf_e}")
+            wm_refine_bundle = {
+                "ok": False, "weak": False, "caution": False, "score": 0,
+                "tag": "", "comment": "",
+                "vol_ok": False, "reclaim_ok": False, "candle_ok": False,
+                "wick_ok": False, "long_ok": False, "cloud_ok": False,
+                "obv_ok": False, "hard_fail": False,
+            }
+
         recent_avg_amount = (df['Close'] * df['Volume']).tail(5).mean() / 100000000
         # ✅ FIX-B: 트랙B 판별 (iloc로 안전하게)
         _is_track_b = bool(df['_is_track_b'].iloc[-1]) if '_is_track_b' in df.columns else False
@@ -8026,6 +8212,27 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         if wc_tag:
             tags.append(wc_tag)
 
+        _wm_refine_context = (
+            bool(wm_bundle.get('wm_intro', False))
+            or bool(wm_bundle.get('wm_pullback', False))
+            or bool(wm_bundle.get('wm_blue2_preview_hold', False))
+            or bool(wm_bundle.get('wm_blue2_hold', False))
+            or stage_eval.get('stage_status') in ('PASS_A', 'PASS_B')
+        )
+        if _wm_refine_context:
+            if wm_refine_bundle.get('ok', False):
+                s_score += 14
+                if wm_refine_bundle.get('tag'):
+                    tags.append(wm_refine_bundle.get('tag'))
+            elif wm_refine_bundle.get('weak', False):
+                s_score += 4
+                if wm_refine_bundle.get('tag'):
+                    tags.append(wm_refine_bundle.get('tag'))
+            elif wm_refine_bundle.get('caution', False):
+                s_score -= 10
+                if wm_refine_bundle.get('tag'):
+                    tags.append(wm_refine_bundle.get('tag'))
+
         if row.get('Good_MA_Convergence', False):
             s_score += min(20, int(row.get('Good_MA_Convergence_Score', 0) * 0.25))
 
@@ -8224,6 +8431,20 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             '흰구름A태그': str(white_cloud_bundle.get('A', {}).get('tag', '')),
             '흰구름B태그': str(white_cloud_bundle.get('B', {}).get('tag', '')),
             '흰구름C태그': str(white_cloud_bundle.get('C', {}).get('tag', '')),
+
+            '수박정제통과': bool(wm_refine_bundle.get('ok', False)),
+            '수박정제관찰': bool(wm_refine_bundle.get('weak', False)),
+            '수박정제주의': bool(wm_refine_bundle.get('caution', False)),
+            '수박정제점수': int(wm_refine_bundle.get('score', 0)),
+            '수박정제태그': str(wm_refine_bundle.get('tag', '')),
+            '수박정제코멘트': str(wm_refine_bundle.get('comment', '')),
+            '수박정제_vol_ok': bool(wm_refine_bundle.get('vol_ok', False)),
+            '수박정제_reclaim_ok': bool(wm_refine_bundle.get('reclaim_ok', False)),
+            '수박정제_candle_ok': bool(wm_refine_bundle.get('candle_ok', False)),
+            '수박정제_wick_ok': bool(wm_refine_bundle.get('wick_ok', False)),
+            '수박정제_long_ok': bool(wm_refine_bundle.get('long_ok', False)),
+            '수박정제_cloud_ok': bool(wm_refine_bundle.get('cloud_ok', False)),
+            '수박정제_obv_ok': bool(wm_refine_bundle.get('obv_ok', False)),
 
             '예비돌반지HTS정확복제': bool(pre_hts_bundle.get('pre_dolbanji_hts_exact', False)),
             '예비돌반지HTS정확점수': int(pre_hts_bundle.get('pre_dolbanji_hts_exact_score', 0)),
@@ -9351,6 +9572,7 @@ if __name__ == "__main__":
             f"- N조합: {item.get('N조합', '')}" + (f" | {item.get('time_sym_tag', '')}" if str(item.get('time_sym_tag', '')).strip() else "") + "\n"
             + (f"- 재안착: {item.get('5일재안착태그', '')} | {item.get('5일재안착코멘트', '')}\n" if str(item.get('5일재안착태그', '')).strip() else "")
             + (f"- 흰구름: {item.get('흰구름태그', '')} | {item.get('흰구름코멘트', '')}\n" if str(item.get('흰구름태그', '')).strip() else "")
+            + (f"- 정제: {item.get('수박정제태그', '')} | {item.get('수박정제코멘트', '')}\n" if str(item.get('수박정제태그', '')).strip() else "")
             + f"- 재무: {item.get('재무', '미계산')} | 수급: {item.get('수급', '미계산')}\n"
             f"- 안전:{item.get('안전점수', 0)} | N점수:{item.get('N점수', 0)}\n"
             f"----------------------------\n"
@@ -9541,6 +9763,14 @@ if __name__ == "__main__":
             entry += f"☁ 흰구름:{_wc_tag}"
             if _wc_comment:
                 entry += f" | {_wc_comment[:24]}"
+            entry += "\n"
+
+        _refine_tag = str(item.get('수박정제태그', '')).strip()
+        _refine_comment = str(item.get('수박정제코멘트', '')).strip()
+        if _refine_tag:
+            entry += f"🧪 정제:{_refine_tag}"
+            if _refine_comment:
+                entry += f" | {_refine_comment[:24]}"
             entry += "\n"
 
         # 타점 (2단계 목표 + 지지저항)
