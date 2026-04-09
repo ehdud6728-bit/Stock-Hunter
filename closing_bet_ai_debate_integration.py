@@ -186,6 +186,154 @@ def _run_judge_json(
     return build_role_payload_block(provider_name=provider, raw_text=raw_text, kind="judge")
 
 
+def _run_role_json_single_provider(
+    role_name: str,
+    system_prompt: str,
+    base_context: str,
+    candidates: Sequence[Mapping[str, Any]],
+    llm_runner: LlmRunner,
+    provider_name: str,
+) -> Dict[str, Any]:
+    return _run_role_json(
+        role_name=role_name,
+        system_prompt=system_prompt,
+        base_context=base_context,
+        candidates=candidates,
+        llm_runner=llm_runner,
+        preferred_models=[provider_name],
+    )
+
+
+def _run_judge_json_single_provider(
+    base_context: str,
+    candidates: Sequence[Mapping[str, Any]],
+    role_payloads: Mapping[str, Any],
+    llm_runner: LlmRunner,
+    provider_name: str,
+) -> Dict[str, Any]:
+    return _run_judge_json(
+        base_context=base_context,
+        candidates=candidates,
+        role_payloads=role_payloads,
+        llm_runner=llm_runner,
+        preferred_models=[provider_name],
+    )
+
+
+def _pick_representative_payload(
+    payloads: Sequence[Tuple[str, Dict[str, Any]]],
+    preferred_order: Sequence[str],
+) -> Dict[str, Any]:
+    for wanted in preferred_order:
+        for provider_name, payload in payloads:
+            if wanted == provider_name and payload.get("items"):
+                return payload
+    for provider_name, payload in payloads:
+        if payload.get("items"):
+            return payload
+    return payloads[0][1] if payloads else {"provider": "[Unknown]", "items": []}
+
+
+def _run_role_json_multi(
+    role_name: str,
+    system_prompt: str,
+    base_context: str,
+    candidates: Sequence[Mapping[str, Any]],
+    llm_runner: LlmRunner,
+    provider_order: Sequence[str],
+    rep_order: Sequence[str],
+) -> Dict[str, Any]:
+    results: List[Tuple[str, Dict[str, Any]]] = []
+    provider_map: Dict[str, Dict[str, Any]] = {}
+
+    for provider_name in provider_order:
+        payload = _run_role_json_single_provider(
+            role_name=role_name,
+            system_prompt=system_prompt,
+            base_context=base_context,
+            candidates=candidates,
+            llm_runner=llm_runner,
+            provider_name=provider_name,
+        )
+        provider_map[provider_name] = payload
+        results.append((provider_name, payload))
+
+    rep_payload = _pick_representative_payload(results, rep_order)
+    merged_provider = "/".join(_provider_tag(x[0]) for x in results)
+
+    return {
+        "provider": merged_provider,
+        "provider_map": provider_map,
+        "items": rep_payload.get("items", []),
+        "rep_provider": rep_payload.get("provider", "[Unknown]"),
+        "items_multi": {k: v.get("items", []) for k, v in provider_map.items()},
+    }
+
+
+def _run_judge_json_multi(
+    base_context: str,
+    candidates: Sequence[Mapping[str, Any]],
+    role_payloads: Mapping[str, Any],
+    llm_runner: LlmRunner,
+    provider_order: Sequence[str],
+    rep_order: Sequence[str],
+) -> Dict[str, Any]:
+    results: List[Tuple[str, Dict[str, Any]]] = []
+    provider_map: Dict[str, Dict[str, Any]] = {}
+
+    for provider_name in provider_order:
+        payload = _run_judge_json_single_provider(
+            base_context=base_context,
+            candidates=candidates,
+            role_payloads=role_payloads,
+            llm_runner=llm_runner,
+            provider_name=provider_name,
+        )
+        provider_map[provider_name] = payload
+        results.append((provider_name, payload))
+
+    rep_payload = _pick_representative_payload(results, rep_order)
+    merged_provider = "/".join(_provider_tag(x[0]) for x in results)
+
+    return {
+        "provider": merged_provider,
+        "provider_map": provider_map,
+        "items": rep_payload.get("items", []),
+        "rep_provider": rep_payload.get("provider", "[Unknown]"),
+        "items_multi": {k: v.get("items", []) for k, v in provider_map.items()},
+    }
+
+
+def _join_provider_opinions(parts: Sequence[str]) -> str:
+    cleaned = [ _safe_str(x) for x in parts if _safe_str(x) ]
+    return "\n".join(cleaned).strip()
+
+
+def _majority_verdict(values: Sequence[str]) -> str:
+    vals = [_safe_str(v) for v in values if _safe_str(v)]
+    if not vals:
+        return "관찰"
+    counts: Dict[str, int] = {}
+    for v in vals:
+        counts[v] = counts.get(v, 0) + 1
+    return sorted(counts.items(), key=lambda x: (x[1], len(x[0])), reverse=True)[0][0]
+
+
+def _pick_judge_item_for_summary(judge_items_by_provider: Mapping[str, Mapping[str, Any]]) -> Mapping[str, Any]:
+    # Prefer OpenAI -> Gemini -> Groq among available detailed items
+    for provider_name in ("openai", "gemini", "groq", "anthropic"):
+        item = judge_items_by_provider.get(provider_name)
+        if item:
+            return item
+    for _provider_name, item in judge_items_by_provider.items():
+        return item
+    return {}
+
+
+def _safe_multiline_bullets(lines: Sequence[str], indent: str = "   - ") -> str:
+    cleaned = [re.sub(r'\s+', ' ', str(x or '')).strip() for x in lines if str(x or '').strip()]
+    return "\n".join(f"{indent}{x}" for x in cleaned)
+
 def run_all_roles(
     base_context: str,
     candidates: Sequence[Mapping[str, Any]],
@@ -194,14 +342,17 @@ def run_all_roles(
 ) -> Dict[str, Any]:
     role_model_prefs = dict(role_model_prefs or {})
 
-    tech = _run_role_json(
+    # 멀티 토론 역할: 기술/시황/심판은 3개 모델이 모두 의견 제출
+    tech = _run_role_json_multi(
         role_name="기술분석가",
         system_prompt=TECH_SYSTEM_PROMPT,
         base_context=base_context,
         candidates=candidates,
         llm_runner=llm_runner,
-        preferred_models=role_model_prefs.get("tech"),
+        provider_order=["openai", "gemini", "groq"],
+        rep_order=list(role_model_prefs.get("tech", ["openai", "gemini", "groq"])),
     )
+
     flow = _run_role_json(
         role_name="수급분석가",
         system_prompt=FLOW_SYSTEM_PROMPT,
@@ -210,14 +361,17 @@ def run_all_roles(
         llm_runner=llm_runner,
         preferred_models=role_model_prefs.get("flow"),
     )
-    theme = _run_role_json(
+
+    theme = _run_role_json_multi(
         role_name="시황테마분석가",
         system_prompt=THEME_SYSTEM_PROMPT,
         base_context=base_context,
         candidates=candidates,
         llm_runner=llm_runner,
-        preferred_models=role_model_prefs.get("theme"),
+        provider_order=["openai", "gemini", "groq"],
+        rep_order=list(role_model_prefs.get("theme", ["gemini", "openai", "groq"])),
     )
+
     risk = _run_role_json(
         role_name="리스크관리자",
         system_prompt=RISK_SYSTEM_PROMPT,
@@ -234,12 +388,13 @@ def run_all_roles(
         "risk": risk,
     }
 
-    judge = _run_judge_json(
+    judge = _run_judge_json_multi(
         base_context=base_context,
         candidates=candidates,
         role_payloads=role_payloads,
         llm_runner=llm_runner,
-        preferred_models=role_model_prefs.get("judge"),
+        provider_order=["openai", "gemini", "groq"],
+        rep_order=list(role_model_prefs.get("judge", ["openai", "gemini", "groq"])),
     )
 
     role_payloads["judge"] = judge
@@ -273,6 +428,10 @@ def merge_debate_results(
     risk_provider = role_payloads.get("risk", {}).get("provider", "[Unknown]")
     judge_provider = role_payloads.get("judge", {}).get("provider", "[Unknown]")
 
+    tech_multi = role_payloads.get("tech", {}).get("items_multi", {}) or {}
+    theme_multi = role_payloads.get("theme", {}).get("items_multi", {}) or {}
+    judge_multi = role_payloads.get("judge", {}).get("items_multi", {}) or {}
+
     rows: List[Dict[str, Any]] = []
 
     for idx, cand in enumerate(candidates, start=1):
@@ -282,39 +441,65 @@ def merge_debate_results(
         risk = find_item_by_idx(risk_items, idx)
         judge = find_item_by_idx(judge_items, idx)
 
+        tech_items_by_provider = {p: find_item_by_idx(items or [], idx) for p, items in tech_multi.items()}
+        theme_items_by_provider = {p: find_item_by_idx(items or [], idx) for p, items in theme_multi.items()}
+        judge_items_by_provider = {p: find_item_by_idx(items or [], idx) for p, items in judge_multi.items()}
+
         positive_votes = sum(
-            1 for s in [
-                tech.get("stance"),
-                flow.get("stance"),
-                theme.get("stance"),
-                risk.get("stance"),
-            ]
+            1 for s in [tech.get("stance"), flow.get("stance"), theme.get("stance"), risk.get("stance")]
             if _stance_to_vote(s) > 0
         )
         negative_votes = sum(
-            1 for s in [
-                tech.get("stance"),
-                flow.get("stance"),
-                theme.get("stance"),
-                risk.get("stance"),
-            ]
+            1 for s in [tech.get("stance"), flow.get("stance"), theme.get("stance"), risk.get("stance")]
             if _stance_to_vote(s) < 0
         )
+
+        judge_verdicts = [
+            _safe_str(judge_items_by_provider.get("openai", {}).get("verdict")),
+            _safe_str(judge_items_by_provider.get("gemini", {}).get("verdict")),
+            _safe_str(judge_items_by_provider.get("groq", {}).get("verdict")),
+        ]
+        final_verdict = _majority_verdict(judge_verdicts)
+        judge_conf_list = [
+            _safe_int(judge_items_by_provider.get("openai", {}).get("confidence"), 0),
+            _safe_int(judge_items_by_provider.get("gemini", {}).get("confidence"), 0),
+            _safe_int(judge_items_by_provider.get("groq", {}).get("confidence"), 0),
+        ]
+        conf_values = [x for x in judge_conf_list if x > 0]
+        final_conf = int(round(sum(conf_values) / len(conf_values))) if conf_values else _safe_int(judge.get("confidence"), 0)
+
+        judge_summary_src = _pick_judge_item_for_summary(judge_items_by_provider)
+
+        tech_opinion_lines = [
+            f"{_provider_tag('openai')} {_safe_str(tech_items_by_provider.get('openai', {}).get('core_reason'), '근거 부족')}",
+            f"{_provider_tag('gemini')} {_safe_str(tech_items_by_provider.get('gemini', {}).get('core_reason'), '근거 부족')}",
+            f"{_provider_tag('groq')} {_safe_str(tech_items_by_provider.get('groq', {}).get('core_reason'), '근거 부족')}",
+        ]
+        theme_opinion_lines = [
+            f"{_provider_tag('openai')} {_safe_str(theme_items_by_provider.get('openai', {}).get('core_reason'), '시황 근거 부족')}",
+            f"{_provider_tag('gemini')} {_safe_str(theme_items_by_provider.get('gemini', {}).get('core_reason'), '시황 근거 부족')}",
+            f"{_provider_tag('groq')} {_safe_str(theme_items_by_provider.get('groq', {}).get('core_reason'), '시황 근거 부족')}",
+        ]
+        judge_opinion_lines = [
+            f"{_provider_tag('openai')} {_safe_str(judge_items_by_provider.get('openai', {}).get('summary'), '요약 없음')}",
+            f"{_provider_tag('gemini')} {_safe_str(judge_items_by_provider.get('gemini', {}).get('summary'), '요약 없음')}",
+            f"{_provider_tag('groq')} {_safe_str(judge_items_by_provider.get('groq', {}).get('summary'), '요약 없음')}",
+        ]
 
         row = dict(cand)
         row.update({
             "idx": idx,
-            "AI최종판정": _safe_str(judge.get("verdict"), "관찰"),
-            "AI확신도": _safe_int(judge.get("confidence"), 0),
-            "AI재료분류": _safe_str(judge.get("material_type"), "단순 눌림"),
-            "AI상승이유": _safe_str(judge.get("rise_reason"), "정보 부족"),
-            "AI내일유효성": _safe_str(judge.get("next_day_validity"), "애매"),
-            "AI섹터동행": _safe_str(judge.get("sector_sync"), "개별주"),
-            "AI종가강도": _safe_str(judge.get("close_strength"), "보통"),
-            "AI강한근거": _safe_str(judge.get("strong_point"), "근거 부족"),
-            "AI위험요인": _safe_str(judge.get("risk_point"), "리스크 정보 부족"),
-            "AI실행계획": _safe_str(judge.get("execution_plan"), "손절 기준 우선"),
-            "AI심판요약": _safe_str(judge.get("summary"), "요약 없음"),
+            "AI최종판정": final_verdict,
+            "AI확신도": final_conf,
+            "AI재료분류": _safe_str(judge_summary_src.get("material_type"), _safe_str(judge.get("material_type"), "단순 눌림")),
+            "AI상승이유": _safe_str(judge_summary_src.get("rise_reason"), _safe_str(judge.get("rise_reason"), "정보 부족")),
+            "AI내일유효성": _safe_str(judge_summary_src.get("next_day_validity"), _safe_str(judge.get("next_day_validity"), "애매")),
+            "AI섹터동행": _safe_str(judge_summary_src.get("sector_sync"), _safe_str(judge.get("sector_sync"), "개별주")),
+            "AI종가강도": _safe_str(judge_summary_src.get("close_strength"), _safe_str(judge.get("close_strength"), "보통")),
+            "AI강한근거": _safe_str(judge_summary_src.get("strong_point"), _safe_str(judge.get("strong_point"), "근거 부족")),
+            "AI위험요인": _safe_str(judge_summary_src.get("risk_point"), _safe_str(judge.get("risk_point"), "리스크 정보 부족")),
+            "AI실행계획": _safe_str(judge_summary_src.get("execution_plan"), _safe_str(judge.get("execution_plan"), "손절 기준 우선")),
+            "AI심판요약": _safe_str(judge_summary_src.get("summary"), _safe_str(judge.get("summary"), "요약 없음")),
             "AI기술모델": tech_provider,
             "AI수급모델": flow_provider,
             "AI시황모델": theme_provider,
@@ -332,6 +517,12 @@ def merge_debate_results(
             "AI수급플랜": _safe_str(flow.get("plan"), ""),
             "AI시황플랜": _safe_str(theme.get("plan"), ""),
             "AI리스크플랜": _safe_str(risk.get("plan"), ""),
+            "AI기술의견목록": _join_provider_opinions(tech_opinion_lines),
+            "AI시황의견목록": _join_provider_opinions(theme_opinion_lines),
+            "AI심판의견목록": _join_provider_opinions(judge_opinion_lines),
+            "AI심판대표모델": _safe_str(role_payloads.get("judge", {}).get("rep_provider", judge_provider)),
+            "AI기술대표모델": _safe_str(role_payloads.get("tech", {}).get("rep_provider", tech_provider)),
+            "AI시황대표모델": _safe_str(role_payloads.get("theme", {}).get("rep_provider", theme_provider)),
             "positive_votes": positive_votes,
             "negative_votes": negative_votes,
         })
@@ -370,14 +561,18 @@ def format_telegram_cards(rows: Sequence[Mapping[str, Any]], mins_left: int) -> 
 
         lines.extend([
             f"{i}. {name}({code}) [{mode}/{grade}] → {verdict} {conf}점",
-            f"   심판:{_safe_str(r.get('AI심판모델'))} {_safe_str(r.get('AI심판요약'))}",
+            f"   심판대표:{_safe_str(r.get('AI심판대표모델'))} {_safe_str(r.get('AI심판요약'))}",
             f"   강한근거: {_safe_str(r.get('AI강한근거'))}",
             f"   위험요인: {_safe_str(r.get('AI위험요인'))}",
             f"   실행계획: {_safe_str(r.get('AI실행계획'))}",
-            f"   기술:{_safe_str(r.get('AI기술모델'))} {_safe_str(r.get('AI기술의견'))}",
-            f"   수급:{_safe_str(r.get('AI수급모델'))} {_safe_str(r.get('AI수급의견'))}",
-            f"   시황:{_safe_str(r.get('AI시황모델'))} {_safe_str(r.get('AI시황의견'))}",
-            f"   리스크:{_safe_str(r.get('AI리스크모델'))} {_safe_str(r.get('AI리스크의견'))}",
+            "   심판의견:",
+            _safe_multiline_bullets(_safe_str(r.get("AI심판의견목록")).splitlines(), indent="      "),
+            "   기술의견:",
+            _safe_multiline_bullets(_safe_str(r.get("AI기술의견목록")).splitlines(), indent="      "),
+            f"   수급{_safe_str(r.get('AI수급모델'))}: {_safe_str(r.get('AI수급의견'))}",
+            "   시황의견:",
+            _safe_multiline_bullets(_safe_str(r.get("AI시황의견목록")).splitlines(), indent="      "),
+            f"   리스크{_safe_str(r.get('AI리스크모델'))}: {_safe_str(r.get('AI리스크의견'))}",
             f"   손절:{_safe_str(r.get('stoploss'))} | 목표:{_safe_str(r.get('target1'))}",
             "",
         ])
