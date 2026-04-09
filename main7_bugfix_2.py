@@ -101,42 +101,26 @@ def coerce_numeric_columns(df: pd.DataFrame, columns):
     return out
 
 def normalize_leader_scanner_columns(df: pd.DataFrame) -> pd.DataFrame:
-    """대장주 스캐너/내부 로직이 한글·영문 컬럼을 모두 쓰도록 별칭을 같이 만든다."""
+    """대장주 스캐너가 한글 컬럼을 기대하더라도 영문 컬럼 입력을 최대한 호환시킴"""
     if df is None or len(df) == 0:
         return df
     out = df.copy()
-
-    alias_groups = {
-        '종가': ['종가', 'Close', 'close', 'Price', 'price'],
-        '시가총액': ['시가총액', 'Marcap', 'MarCap', 'marcap', 'market_cap'],
-        '거래량': ['거래량', 'Volume', 'volume'],
-        '거래대금': ['거래대금', 'Amount', 'Value', 'Turnover', 'amount', 'value'],
-        '종목명': ['종목명', 'Name', 'name'],
-        '종목코드': ['종목코드', 'Code', 'code'],
-    }
-
-    for target, candidates in alias_groups.items():
-        if target not in out.columns:
-            for cand in candidates:
-                if cand in out.columns:
-                    out[target] = out[cand]
-                    break
-
-    # 내부 기존 영문 로직도 유지되게 역방향 별칭도 보장
-    reverse_alias = {
-        'Close': '종가',
-        'Marcap': '시가총액',
-        'Volume': '거래량',
-        'Amount': '거래대금',
-        'Name': '종목명',
-        'Code': '종목코드',
-    }
-    for eng, kor in reverse_alias.items():
-        if eng not in out.columns and kor in out.columns:
-            out[eng] = out[kor]
-
+    rename_map = {}
+    if 'Close' in out.columns and '종가' not in out.columns:
+        rename_map['Close'] = '종가'
+    if 'Marcap' in out.columns and '시가총액' not in out.columns:
+        rename_map['Marcap'] = '시가총액'
+    elif 'MarCap' in out.columns and '시가총액' not in out.columns:
+        rename_map['MarCap'] = '시가총액'
+    if 'Volume' in out.columns and '거래량' not in out.columns:
+        rename_map['Volume'] = '거래량'
+    if 'Amount' in out.columns and '거래대금' not in out.columns:
+        rename_map['Amount'] = '거래대금'
+    elif 'Value' in out.columns and '거래대금' not in out.columns:
+        rename_map['Value'] = '거래대금'
+    if rename_map:
+        out = out.rename(columns=rename_map)
     return out
-
 
 
 # ─────────────────────────────────────────────────────────────
@@ -499,81 +483,30 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
             )
         )
 
-        red2_pullback_ok = bool(pullback_box or pre_pullback_box)
-        red2_change_ok = bool(change_relaxed_2)
-        red2_close_ma20_ok = bool((m["close"] >= m["ma20"] * 0.975) if m["ma20"] > 0 else False)
-        red2_ma5_ma20_ok = bool((m["ma5"] >= m["ma20"] * 0.988) if m["ma20"] > 0 and m["ma5"] > 0 else False)
-        red2_prevbox_ok = bool((m["close"] >= m["prev_box_high10"] * 0.965) if m["prev_box_high10"] > 0 else False)
-        red2_vol_ok = bool((m["volume"] >= m["vol_ma20"] * 0.78) if m["vol_ma20"] > 0 else True)
-        red2_candle_ok = bool(
-            ((m["close"] >= m["open"] * 0.995) if m.get("open", 0) > 0 else True)
-            or (m["close"] >= m.get("prev_close", 0))
-        )
-        red2_not_late_ok = bool(not late)
-
-        # 핵심 구조: m520 또는 pbox 중 하나만 살아도 재점화 예비로 인정
-        red2_structure_ok = bool(
-            red2_close_ma20_ok
-            and red2_vol_ok
-            and red2_not_late_ok
-            and (red2_ma5_ma20_ok or red2_prevbox_ok)
-        )
-
-        # 완화 구조: 5일선 회복 + 준양봉이면 pbox 부족도 예비 인정
-        red2_soft_ok = bool(
-            red2_close_ma20_ok
-            and red2_vol_ok
-            and red2_not_late_ok
-            and red2_candle_ok
-            and ((m["close"] >= m["ma5"]) if m["ma5"] > 0 else False)
-        )
-
         red_state_raw_2 = (
-            red2_pullback_ok
-            and red2_change_ok
-            and (red2_structure_ok or red2_soft_ok)
-        )
-
-        blue2_prev_clear_ok = bool((not prev_red_state) or red2_soft_ok)
-        blue2_context_ok = bool(
-            (had_blue1_recent and had_pullback_recent)
-            or pre_pullback_box
-            or (pullback_box and (3.0 <= m["pullback_pct25"] <= 15.0))
-            or (pullback_box and (m["close"] >= m["ma5"] if m["ma5"] > 0 else False))
-        )
-        blue2_vol2_ok = bool((m["volume"] >= m["vol_ma20"] * 0.78) if m["vol_ma20"] > 0 else True)
-
-        # ✅ Blue-2 정밀 보정: m520/pbox/candle 병목을 완화해 예비 재점화까지는 통과 허용
-        blue2_onset = (
-            red_state_raw_2
-            and blue2_prev_clear_ok
-            and blue2_context_ok
-            and blue2_vol2_ok
+            (pullback_box or pre_pullback_box)
+            and change_relaxed_2
+            and ((m["close"] >= m["ma20"] * 0.985) if m["ma20"] > 0 else False)
+            and ((m["ma5"] >= m["ma20"] * 0.992) if m["ma20"] > 0 and m["ma5"] > 0 else False)
+            and ((m["close"] >= m["prev_box_high10"] * 0.975) if m["prev_box_high10"] > 0 else False)
             and not late
         )
 
-        blue2_strong = bool(
-            blue2_onset
-            and red2_structure_ok
-            and (
-                red2_prevbox_ok
-                or red2_ma5_ma20_ok
-            )
-        )
-        blue2_preview = bool(
-            blue2_onset
-            and (not blue2_strong)
-            and red2_soft_ok
+        # ✅ Blue-2가 Blue-1 실발생 여부에만 묶이지 않도록 완화
+        blue2_onset = (
+            red_state_raw_2
+            and (not prev_red_state)
+            and ((had_blue1_recent and had_pullback_recent) or pre_pullback_box)
+            and ((m["volume"] >= m["vol_ma20"] * 0.90) if m["vol_ma20"] > 0 else True)
+            and not late
         )
 
         # final state: onset를 우선, 그 다음 박스 준비 상태
         final_state = ""
         if late:
             final_state = "후행수박"
-        elif blue2_strong:
+        elif blue2_onset:
             final_state = "Blue-2스윙"
-        elif blue2_preview:
-            final_state = "Blue-2예비"
         elif (pullback_box or pre_pullback_box):
             final_state = "눌림수박"
         elif blue1_onset:
@@ -582,7 +515,7 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
             final_state = "초입수박"
 
         pocket_raw = final_state in ("초입수박", "눌림수박")
-        attack_raw = final_state in ("Blue-1단기", "Blue-2스윙", "Blue-2예비")
+        attack_raw = final_state in ("Blue-1단기", "Blue-2스윙")
 
         hist.append({
             **m,
@@ -593,22 +526,7 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
             "pullback_box": (pullback_box or pre_pullback_box),
             "red_state_raw_2": red_state_raw_2,
             "blue2_onset": blue2_onset,
-            "blue2_strong": blue2_strong,
-            "blue2_preview": blue2_preview,
             "late": late,
-            "red2_pullback_ok": red2_pullback_ok,
-            "red2_change_ok": red2_change_ok,
-            "red2_close_ma20_ok": red2_close_ma20_ok,
-            "red2_ma5_ma20_ok": red2_ma5_ma20_ok,
-            "red2_prevbox_ok": red2_prevbox_ok,
-            "red2_vol_ok": red2_vol_ok,
-            "red2_candle_ok": red2_candle_ok,
-            "red2_not_late_ok": red2_not_late_ok,
-            "red2_structure_ok": red2_structure_ok,
-            "red2_soft_ok": red2_soft_ok,
-            "blue2_prev_clear_ok": blue2_prev_clear_ok,
-            "blue2_context_ok": blue2_context_ok,
-            "blue2_vol2_ok": blue2_vol2_ok,
             "intro_box_range_ok": intro_box_range_ok,
             "intro_attack_band_ok": intro_attack_band_ok,
             "intro_ret7_ok": intro_ret7_ok,
@@ -660,9 +578,6 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
     elif final_state == "Blue-2스윙":
         tags = ["🔷Blue-2스윙", "🍉재점화공격"]
         state_name = "Blue-2스윙"
-    elif final_state == "Blue-2예비":
-        tags = ["🔹Blue-2예비", "🍉재점화예비"]
-        state_name = "Blue-2예비"
     else:
         tags = []
         state_name = "없음"
@@ -689,8 +604,6 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
         grade = "A+"
     elif final_state == "Blue-2스윙" and score_sum + wm_blue2_score >= 11:
         grade = "A"
-    elif final_state == "Blue-2예비":
-        grade = "B+"
     elif final_state == "후행수박":
         grade = "B"
     elif final_state in ("초입수박", "눌림수박"):
@@ -726,8 +639,6 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
         "pullback_box": bool(cur["pullback_box"]),
         "red_state_raw_2": bool(cur["red_state_raw_2"]),
         "blue2_onset": bool(cur["blue2_onset"]),
-        "blue2_strong": bool(cur.get("blue2_strong", False)),
-        "blue2_preview": bool(cur.get("blue2_preview", False)),
         "blue_confirm": int(blue_confirm),
         "late": bool(cur["late"]),
         "intro_box_range_ok": bool(cur.get("intro_box_range_ok", False)),
@@ -764,7 +675,6 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
         "wm_blue1_hold": bool(final_state == "Blue-1단기"),
         "wm_blue2_raw": bool(cur["blue2_raw"]),
         "wm_blue2_hold": bool(final_state == "Blue-2스윙"),
-        "wm_blue2_preview_hold": bool(final_state == "Blue-2예비"),
         "wm_state_green": bool(wm_state_green),
         "wm_state_red": bool(wm_state_red),
         "wm_state_blue": bool(wm_state_blue),
@@ -778,22 +688,7 @@ def build_watermelon_state_bundle(df: pd.DataFrame) -> dict:
         "wm_debug_pullback_box": bool(cur["pullback_box"]),
         "wm_debug_red_state_raw_2": bool(cur["red_state_raw_2"]),
         "wm_debug_blue2_onset": bool(cur["blue2_onset"]),
-        "wm_debug_blue2_strong": bool(cur.get("blue2_strong", False)),
-        "wm_debug_blue2_preview": bool(cur.get("blue2_preview", False)),
         "wm_debug_late": bool(cur["late"]),
-        "wm_debug_red2_pullback_ok": bool(cur.get("red2_pullback_ok", False)),
-        "wm_debug_red2_change_ok": bool(cur.get("red2_change_ok", False)),
-        "wm_debug_red2_close_ma20_ok": bool(cur.get("red2_close_ma20_ok", False)),
-        "wm_debug_red2_ma5_ma20_ok": bool(cur.get("red2_ma5_ma20_ok", False)),
-        "wm_debug_red2_prevbox_ok": bool(cur.get("red2_prevbox_ok", False)),
-        "wm_debug_red2_vol_ok": bool(cur.get("red2_vol_ok", False)),
-        "wm_debug_red2_candle_ok": bool(cur.get("red2_candle_ok", False)),
-        "wm_debug_red2_not_late_ok": bool(cur.get("red2_not_late_ok", False)),
-        "wm_debug_red2_structure_ok": bool(cur.get("red2_structure_ok", False)),
-        "wm_debug_red2_soft_ok": bool(cur.get("red2_soft_ok", False)),
-        "wm_debug_blue2_prev_clear_ok": bool(cur.get("blue2_prev_clear_ok", False)),
-        "wm_debug_blue2_context_ok": bool(cur.get("blue2_context_ok", False)),
-        "wm_debug_blue2_vol2_ok": bool(cur.get("blue2_vol2_ok", False)),
         "wm_debug_intro_box_range_ok": bool(cur.get("intro_box_range_ok", False)),
         "wm_debug_intro_attack_band_ok": bool(cur.get("intro_attack_band_ok", False)),
         "wm_debug_intro_ret7_ok": bool(cur.get("intro_ret7_ok", False)),
@@ -839,74 +734,12 @@ def build_watermelon_state_top5(df: pd.DataFrame):
     blue2_df = _sort(work[work["수박최종상태"] == "Blue-2스윙"].copy(), ["파란점선2스윙점수", "수박포켓점수", "안전점수", "N점수"])
 
     green_df = _sort(work[work["수박최종상태"].isin(["초입수박", "눌림수박"])].copy(), ["수박포켓점수", "수박기반점수", "안전점수", "N점수"])
-    red_df = _sort(work[work["수박최종상태"].isin(["Blue-1단기", "Blue-2스윙", "Blue-2예비"])].copy(), ["수박파란점선점수", "수박공격점수", "안전점수", "N점수"])
+    red_df = _sort(work[work["수박최종상태"].isin(["Blue-1단기", "Blue-2스윙"])].copy(), ["수박파란점선점수", "수박공격점수", "안전점수", "N점수"])
     blue_df = _sort(work[work["수박최종상태"].isin(["Blue-1단기", "Blue-2스윙"])].copy(), ["수박파란점선점수", "수박공격점수", "안전점수", "N점수"])
 
     return green_df, red_df, blue_df, intro_df, pullback_df, late_df, blue1_df, blue2_df
 
 
-
-def should_show_wm_debug_alert(
-    wm_intro_top5=None,
-    wm_pullback_top5=None,
-    wm_blue1_top5=None,
-    wm_blue2_top5=None,
-    wm_late_top5=None,
-) -> bool:
-    intro_n = len(wm_intro_top5) if wm_intro_top5 is not None else 0
-    pullback_n = len(wm_pullback_top5) if wm_pullback_top5 is not None else 0
-    blue1_n = len(wm_blue1_top5) if wm_blue1_top5 is not None else 0
-    blue2_n = len(wm_blue2_top5) if wm_blue2_top5 is not None else 0
-    late_n = len(wm_late_top5) if wm_late_top5 is not None else 0
-
-    if intro_n == 0 and pullback_n == 0:
-        return True
-    if blue1_n == 0 and blue2_n == 0 and intro_n <= 1:
-        return True
-    if late_n >= 5 and blue1_n == 0:
-        return True
-    return False
-
-
-def build_wm_alert_summary(
-    wm_intro_top5=None,
-    wm_pullback_top5=None,
-    wm_blue1_top5=None,
-    wm_blue2_top5=None,
-    wm_late_top5=None,
-) -> str:
-    intro_n = len(wm_intro_top5) if wm_intro_top5 is not None else 0
-    pullback_n = len(wm_pullback_top5) if wm_pullback_top5 is not None else 0
-    blue1_n = len(wm_blue1_top5) if wm_blue1_top5 is not None else 0
-    blue2_n = len(wm_blue2_top5) if wm_blue2_top5 is not None else 0
-    late_n = len(wm_late_top5) if wm_late_top5 is not None else 0
-
-    if intro_n == 0 and pullback_n == 0:
-        return "⚠ 수박 이상징후: 초입/눌림 후보가 거의 없음"
-    if blue1_n == 0 and blue2_n == 0 and intro_n <= 1:
-        return "⚠ 수박 이상징후: Blue-1/Blue-2 후보가 비정상적으로 적음"
-    if late_n >= 5 and blue1_n == 0:
-        return "⚠ 수박 이상징후: 후행 판정 비중이 높고 재점화 후보가 없음"
-    return ""
-
-
-def time_symmetry_bonus_by_state(state: str, time_tag: str) -> float:
-    state = str(state or "").strip()
-    time_tag = str(time_tag or "").strip()
-
-    strong_states = {"PASS_A", "초입수박", "눌림수박", "Blue-1단기", "Blue-2스윙", "돌파직전"}
-    weak_states = {"후행수박", "DROP", "late"}
-
-    if state in weak_states:
-        return 0.0
-    if state not in strong_states:
-        return 0.0
-
-    if "근접" in time_tag:
-        return 2.0
-    if "예비" in time_tag:
-        return 1.0
-    return 0.0
 
 def _nearest_time_symmetry(days: int):
     periods = [9, 17, 26, 33, 42]
@@ -951,11 +784,11 @@ def _time_symmetry_comment(days: int, label: str = "기준봉") -> str:
     if nearest is None:
         return ""
     if gap <= 1:
-        return f"{label} 후 {nearest}일 변곡창 근접"
+        return f"⏱ 기간대칭: {label} 후 {nearest}일 변곡창 근접"
     elif gap <= 2:
-        return f"{label} 후 {nearest}일 예비창 접근"
+        return f"⏱ 기간대칭: {label} 후 {nearest}일 예비창 접근"
     elif gap <= 4:
-        return f"{label} 후 {nearest}일 대칭권 근처"
+        return f"⏱ 기간대칭: {label} 후 {nearest}일 대칭권 근처"
     return ""
 
 def _safe_parse_dt_local(v):
@@ -1014,294 +847,7 @@ def annotate_time_symmetry_df(df: pd.DataFrame) -> pd.DataFrame:
     work["time_sym_label"] = label_list
     work["time_sym_tag"] = tag_list
     work["time_sym_comment"] = comment_list
-
-    bonus_list = []
-    for _, row in work.iterrows():
-        state_name = str(row.get("상태") or row.get("단계") or row.get("final_state") or "").strip()
-        bonus_list.append(time_symmetry_bonus_by_state(state_name, row.get("time_sym_tag", "")))
-    work["time_sym_bonus"] = bonus_list
     return work
-
-def _ma5r_float(x, default=0.0):
-    try:
-        return float(x)
-    except Exception:
-        return default
-
-
-def _ma5r_upper_wick_pct(open_p, high_p, low_p, close_p):
-    try:
-        body_high = max(open_p, close_p)
-        body = max(abs(close_p - open_p), 1e-6)
-        upper = max(high_p - body_high, 0.0)
-        return (upper / body) * 100.0
-    except Exception:
-        return 999.0
-
-
-def detect_ma5_reclaim_signal(df: pd.DataFrame, i: int) -> dict:
-    """
-    하락 후 5일선 재안착 탐지
-    - 전일 5일선 아래, 당일 5일선 위 재안착
-    - 거래량/20일선/양봉/윗꼬리/최근 낙폭을 함께 확인
-    """
-    empty = {
-        "ok": False,
-        "score": 0,
-        "tag": "",
-        "comment": "",
-        "reclaim": False,
-        "vol_ok": False,
-        "near_ma20": False,
-        "candle_ok": False,
-        "wick_ok": False,
-        "drop_ok": False,
-        "ma5_rising": False,
-    }
-    try:
-        if df is None or i <= 0 or i >= len(df):
-            return empty.copy()
-
-        row = df.iloc[i]
-        prev = df.iloc[i - 1]
-
-        close_p = _ma5r_float(row.get("Close", row.get("close", 0)))
-        open_p  = _ma5r_float(row.get("Open", row.get("open", 0)))
-        high_p  = _ma5r_float(row.get("High", row.get("high", 0)))
-        low_p   = _ma5r_float(row.get("Low", row.get("low", 0)))
-        vol     = _ma5r_float(row.get("Volume", row.get("volume", 0)))
-
-        prev_close = _ma5r_float(prev.get("Close", prev.get("close", 0)))
-
-        ma5 = _ma5r_float(row.get("MA5", row.get("ma5", 0)))
-        ma20 = _ma5r_float(row.get("MA20", row.get("ma20", 0)))
-        prev_ma5 = _ma5r_float(prev.get("MA5", prev.get("ma5", 0)))
-
-        vma5 = _ma5r_float(row.get("VMA5", row.get("vol_ma5", 0)))
-        vma20 = _ma5r_float(row.get("VMA20", row.get("vol_ma20", 0)))
-
-        if "ret5" in row.index:
-            ret5 = _ma5r_float(row.get("ret5", 0))
-        elif i >= 5:
-            ref_close = _ma5r_float(df.iloc[i - 5].get("Close", 0))
-            ret5 = ((close_p / ref_close) - 1.0) * 100.0 if ref_close > 0 else 0.0
-        else:
-            ret5 = 0.0
-
-        wick_pct = _ma5r_upper_wick_pct(open_p, high_p, low_p, close_p)
-
-        reclaim = (prev_close < prev_ma5 * 0.995) and (close_p >= ma5)
-        vol_ok = ((vma5 > 0 and vol >= vma5 * 1.10) or (vma20 > 0 and vol >= vma20 * 0.95))
-        near_ma20 = (ma20 > 0 and close_p >= ma20 * 0.98)
-        candle_ok = close_p >= open_p
-        wick_ok = wick_pct <= 35.0
-        drop_ok = (-12.0 <= ret5 <= 3.0)
-        ma5_rising = ma5 >= prev_ma5
-
-        score = sum([
-            1 if reclaim else 0,
-            1 if vol_ok else 0,
-            1 if near_ma20 else 0,
-            1 if candle_ok else 0,
-            1 if wick_ok else 0,
-            1 if drop_ok else 0,
-            1 if ma5_rising else 0,
-        ])
-
-        ok = reclaim and score >= 5
-
-        tag = ""
-        comment = ""
-        if ok:
-            tag = "🔁5일재안착"
-            comment = "하락 후 5일선 재안착 + 거래량/캔들 조건 통과"
-        elif reclaim:
-            tag = "🔁5일재안착예비"
-            comment = "5일선은 재안착했지만 거래량·캔들·20일선 확인 필요"
-
-        return {
-            "ok": ok,
-            "score": int(score),
-            "tag": tag,
-            "comment": comment,
-            "reclaim": bool(reclaim),
-            "vol_ok": bool(vol_ok),
-            "near_ma20": bool(near_ma20),
-            "candle_ok": bool(candle_ok),
-            "wick_ok": bool(wick_ok),
-            "drop_ok": bool(drop_ok),
-            "ma5_rising": bool(ma5_rising),
-        }
-    except Exception:
-        return empty.copy()
-
-def _wc_safe_float(x, default=0.0):
-    try:
-        return float(x)
-    except Exception:
-        return default
-
-
-def _wc_ema(series, span=5):
-    try:
-        return series.ewm(span=span, adjust=False).mean()
-    except Exception:
-        return series
-
-
-def add_white_cloud_candidates(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    흰색 배경 대체 후보 3종 생성
-    A: 중간합성선형  (MA224 ~ EMA((MA112+MA224)/2))
-    B: 112 상단밴드형 (MA224 ~ MA112*1.02)
-    C: 빠른 리드형    (MA224 ~ EMA(MA112,5)*1.01)
-    """
-    if df is None or df.empty:
-        return df
-
-    work = df.copy()
-
-    if 'MA112' not in work.columns and 'Close' in work.columns:
-        work['MA112'] = work['Close'].rolling(112).mean()
-    if 'MA224' not in work.columns and 'Close' in work.columns:
-        work['MA224'] = work['Close'].rolling(224).mean()
-
-    if 'MA112' not in work.columns or 'MA224' not in work.columns:
-        return work
-
-    ma112 = work['MA112']
-    ma224 = work['MA224']
-
-    wc_a_mid = (ma112 + ma224) / 2.0
-    work['WC_A_TOP'] = _wc_ema(wc_a_mid, span=5)
-    work['WC_A_BOT'] = ma224
-
-    work['WC_B_TOP'] = ma112 * 1.02
-    work['WC_B_BOT'] = ma224
-
-    work['WC_C_TOP'] = _wc_ema(ma112, span=5) * 1.01
-    work['WC_C_BOT'] = ma224
-
-    return work
-
-
-def detect_white_cloud_state(df: pd.DataFrame, i: int, mode: str = "A") -> dict:
-    empty = {
-        'below': False,
-        'inside': False,
-        'above': False,
-        'near_lower': False,
-        'top': 0.0,
-        'bottom': 0.0,
-        'tag': '',
-        'comment': '',
-    }
-    try:
-        if df is None or i < 0 or i >= len(df):
-            return empty.copy()
-
-        row = df.iloc[i]
-        close_p = _wc_safe_float(row.get('Close', 0))
-        mode = str(mode or 'A').upper().strip()
-
-        if mode == 'A':
-            top = _wc_safe_float(row.get('WC_A_TOP', 0))
-            bottom = _wc_safe_float(row.get('WC_A_BOT', 0))
-        elif mode == 'B':
-            top = _wc_safe_float(row.get('WC_B_TOP', 0))
-            bottom = _wc_safe_float(row.get('WC_B_BOT', 0))
-        else:
-            top = _wc_safe_float(row.get('WC_C_TOP', 0))
-            bottom = _wc_safe_float(row.get('WC_C_BOT', 0))
-
-        if top <= 0 or bottom <= 0:
-            return empty.copy()
-
-        upper = max(top, bottom)
-        lower = min(top, bottom)
-
-        below = close_p < lower
-        inside = lower <= close_p <= upper
-        above = close_p > upper
-        near_lower = below and (close_p >= lower * 0.90)
-
-        tag = ''
-        comment = ''
-        if near_lower:
-            tag = f'☁{mode}-아래근접'
-            comment = '흰배경 아래 선취 가능 구간'
-        elif below:
-            tag = f'☁{mode}-아래'
-            comment = '장기 저항 아래 구간'
-        elif inside:
-            tag = f'☁{mode}-안'
-            comment = '구름 내부 저항 확인 구간'
-        elif above:
-            tag = f'☁{mode}-위'
-            comment = '이미 장기 저항 위, 추격 주의'
-
-        return {
-            'below': bool(below),
-            'inside': bool(inside),
-            'above': bool(above),
-            'near_lower': bool(near_lower),
-            'top': round(upper, 2),
-            'bottom': round(lower, 2),
-            'tag': tag,
-            'comment': comment,
-        }
-    except Exception:
-        return empty.copy()
-
-
-def detect_white_cloud_vote(df: pd.DataFrame, i: int) -> dict:
-    a = detect_white_cloud_state(df, i, 'A')
-    b = detect_white_cloud_state(df, i, 'B')
-    c = detect_white_cloud_state(df, i, 'C')
-
-    below_n = int(a['below']) + int(b['below']) + int(c['below'])
-    inside_n = int(a['inside']) + int(b['inside']) + int(c['inside'])
-    above_n = int(a['above']) + int(b['above']) + int(c['above'])
-    near_n = int(a['near_lower']) + int(b['near_lower']) + int(c['near_lower'])
-
-    state = 'mixed'
-    if below_n >= 2:
-        state = 'below'
-    elif inside_n >= 2:
-        state = 'inside'
-    elif above_n >= 2:
-        state = 'above'
-
-    tag = ''
-    comment = ''
-    if near_n >= 2:
-        tag = '☁아래근접'
-        comment = '흰배경 아래 선취 후보'
-    elif state == 'below':
-        tag = '☁아래'
-        comment = '장기 저항 아래 구간'
-    elif state == 'inside':
-        tag = '☁안'
-        comment = '구름 내부 저항 확인 구간'
-    elif state == 'above':
-        tag = '☁위'
-        comment = '이미 장기 저항 위, 추격 주의'
-    else:
-        tag = '☁혼합'
-        comment = '후보별 판정이 엇갈림'
-
-    return {
-        'A': a,
-        'B': b,
-        'C': c,
-        'state': state,
-        'tag': tag,
-        'comment': comment,
-        'below_n': below_n,
-        'inside_n': inside_n,
-        'above_n': above_n,
-        'near_n': near_n,
-    }
 
 def build_watermelon_debug_block(title: str, df: pd.DataFrame) -> str:
     if df is None or df.empty:
@@ -1331,21 +877,6 @@ def build_watermelon_debug_block(title: str, df: pd.DataFrame) -> str:
         no_blue1_ok = 1 if bool(row.get('수박디버그_no_blue1_ok', False)) else 0
         no_blue2_ok = 1 if bool(row.get('수박디버그_no_blue2_ok', False)) else 0
         not_late_ok = 1 if bool(row.get('수박디버그_not_late_ok', False)) else 0
-        red2_pullback_ok = 1 if bool(row.get('수박디버그_red2_pullback_ok', False)) else 0
-        red2_change_ok = 1 if bool(row.get('수박디버그_red2_change_ok', False)) else 0
-        red2_close_ma20_ok = 1 if bool(row.get('수박디버그_red2_close_ma20_ok', False)) else 0
-        red2_ma5_ma20_ok = 1 if bool(row.get('수박디버그_red2_ma5_ma20_ok', False)) else 0
-        red2_prevbox_ok = 1 if bool(row.get('수박디버그_red2_prevbox_ok', False)) else 0
-        red2_vol_ok = 1 if bool(row.get('수박디버그_red2_vol_ok', False)) else 0
-        red2_candle_ok = 1 if bool(row.get('수박디버그_red2_candle_ok', False)) else 0
-        red2_not_late_ok = 1 if bool(row.get('수박디버그_red2_not_late_ok', False)) else 0
-        red2_structure_ok = 1 if bool(row.get('수박디버그_red2_structure_ok', False)) else 0
-        red2_soft_ok = 1 if bool(row.get('수박디버그_red2_soft_ok', False)) else 0
-        blue2_strong = 1 if bool(row.get('수박디버그_blue2_strong', False)) else 0
-        blue2_preview = 1 if bool(row.get('수박디버그_blue2_preview', False)) else 0
-        blue2_prev_clear_ok = 1 if bool(row.get('수박디버그_blue2_prev_clear_ok', False)) else 0
-        blue2_context_ok = 1 if bool(row.get('수박디버그_blue2_context_ok', False)) else 0
-        blue2_vol2_ok = 1 if bool(row.get('수박디버그_blue2_vol2_ok', False)) else 0
         time_days = int(row.get('time_sym_days', -1)) if str(row.get('time_sym_days', '')).strip() not in ('', 'nan', 'None') else -1
         time_tag = row.get('time_sym_tag', '')
         lines.append(
@@ -1353,52 +884,9 @@ def build_watermelon_debug_block(title: str, df: pd.DataFrame) -> str:
             f"- 최종상태: {state}\n"
             f"- gate: intro_box={intro_box} / change={change} / red_raw={red_raw} / red_onset={red_onset} / blue1_onset={blue1_onset} / pullback_box={pullback_box} / red2_raw={red2_raw} / blue2_onset={blue2_onset} / late={late} / blue_confirm={int(row.get('수박디버그_blue_confirm', -1))}\n"
             f"- intro_sub: range={box_range_ok} / attack_band={attack_band_ok} / ret7={ret7_ok} / ret15={ret15_ok} / ret20={ret20_ok} / dayup={dayup_ok} / top_near={top_near_ok} / vol_calm={vol_calm_ok} / no_blue1={no_blue1_ok} / no_blue2={no_blue2_ok} / not_late={not_late_ok}\n"
-            f"- red2_sub: pb={red2_pullback_ok} / chg={red2_change_ok} / c20={red2_close_ma20_ok} / m520={red2_ma5_ma20_ok} / pbox={red2_prevbox_ok} / vol={red2_vol_ok} / candle={red2_candle_ok} / not_late={red2_not_late_ok} / struct={red2_structure_ok} / soft={red2_soft_ok} / strong={blue2_strong} / preview={blue2_preview} / prev_clear={blue2_prev_clear_ok} / ctx={blue2_context_ok} / vol2={blue2_vol2_ok}\n"
             + (f"- 시간대칭: days={time_days} / tag={time_tag}\n" if time_days >= 0 and time_tag else "")
         )
     return "\n".join(lines)
-
-def build_watermelon_guide_block() -> str:
-    lines = [
-        "🍉 [수박 상태 가이드]",
-        "- 초입수박: 구조가 막 살아나는 초동 회복형 | 대응: 소액 탐색, 거래량·5일재안착 확인",
-        "- 눌림수박: 가장 실전적인 눌림 재진입형 | 대응: 주력 관찰, 재안착/양봉 우대",
-        "- 빨강수박: 재점화 직전 경계 구간 | 대응: 확인매수 대기",
-        "- 파란점선: 실행 타점 | 대응: 분할 진입, 손절 명확화",
-        "- 후행수박: 한 박자 늦은 자리 | 대응: 원칙적 관망",
-        "- 참고: 초록은 독립 상태가 아니라 초입/눌림 관찰군 요약입니다
-- 흰구름: 장기 저항 배경의 대체 필터로 아래/안/위만 보조 참고",
-    ]
-    return "\n".join(lines) + "\n"
-
-
-def build_watermelon_summary_block(df: pd.DataFrame) -> str:
-    if df is None or df.empty:
-        return "🍉 [수박 상태 요약]\n- 집계 대상 없음\n"
-    work = df.copy()
-    if "수박최종상태" not in work.columns:
-        work["수박최종상태"] = work.get("수박상태명", "")
-    counts = work["수박최종상태"].fillna("").astype(str).value_counts().to_dict()
-    intro_n = int(counts.get("초입수박", 0))
-    pull_n = int(counts.get("눌림수박", 0))
-    blue1_n = int(counts.get("Blue-1단기", 0))
-    blue2_n = int(counts.get("Blue-2스윙", 0))
-    blue2_preview_n = int(counts.get("Blue-2예비", 0))
-    late_n = int(counts.get("후행수박", 0))
-    green_n = intro_n + pull_n
-    red_n = blue1_n + blue2_n + blue2_preview_n
-
-    lines = [
-        "🍉 [수박 상태 요약]",
-        f"- 관찰군(초록): {green_n}개 = 초입 {intro_n} / 눌림 {pull_n}",
-        f"- 재점화군(빨강): {red_n}개 = Blue-1 {blue1_n} / Blue-2 {blue2_n} / 예비 {blue2_preview_n}",
-        f"- 후행수박: {late_n}개",
-    ]
-    if red_n == 0 and green_n > 0:
-        lines.append("- 해석: 관찰군은 있으나 재점화 확정은 아직 적음")
-    elif red_n > 0:
-        lines.append("- 해석: 재점화/실행 타점 후보가 실제로 발생 중")
-    return "\n".join(lines) + "\n"
 
 def build_watermelon_state_block(title: str, df: pd.DataFrame) -> str:
     if df is None or df.empty:
@@ -1419,18 +907,12 @@ def build_watermelon_state_block(title: str, df: pd.DataFrame) -> str:
         if isinstance(tags, list):
             tags = " ".join(tags)
         time_comment = row.get('time_sym_comment', '')
-        ma5_tag = str(row.get('5일재안착태그', '')).strip()
-        ma5_comment = str(row.get('5일재안착코멘트', '')).strip()
-        cloud_tag = str(row.get('흰구름태그', '')).strip()
-        cloud_comment = str(row.get('흰구름코멘트', '')).strip()
         lines.append(
             f"{rank}) {name}({code})\n"
             f"- 상태: {state} | 등급:{grade}\n"
             f"- 점수: 기반{b} / 포켓{p} / 공격{a} / 파란{blue} (B1:{blue1}, B2:{blue2})\n"
             f"- 태그: {tags}\n"
-            + (f"- 시간창: {time_comment}\n" if time_comment and ("근접" in time_comment or "예비" in time_comment) else "")
-            + (f"- 재안착: {ma5_tag} | {ma5_comment}\n" if ma5_tag else "")
-            + (f"- 흰구름: {cloud_tag} | {cloud_comment}\n" if cloud_tag else "")
+            + (f"- 기간대칭: {time_comment}\n" if time_comment else "")
         )
     return "\n".join(lines)
 
@@ -1508,9 +990,6 @@ TEST_CHAT_ID_OVERRIDE = os.environ.get('TEST_CHAT_ID_OVERRIDE', '')
 OPENAI_API_KEY    = os.environ.get('OPENAI_API_KEY')
 GROQ_API_KEY      = os.environ.get('GROQ_API_KEY')
 ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY', '')
-DISABLE_CLAUDE = True  # Claude 크레딧 소진으로 강제 비활성화
-if DISABLE_CLAUDE:
-    ANTHROPIC_API_KEY = ''
 GEMINI_API_KEY    = os.environ.get('GEMINI_API_KEY', '')
 DART_API_KEY   = os.environ.get('DART_API_KEY', '')
 
@@ -1548,8 +1027,6 @@ def get_target_chat_ids():
 
 
 TEST_MODE = _env_flag('TEST_MODE', False)
-SHOW_WM_DEBUG = TEST_MODE
-SHOW_WM_DEBUG_ON_ALERT = True
 
 KST = pytz.timezone('Asia/Seoul')
 current_time = datetime.now(KST)
@@ -3183,34 +2660,6 @@ def _apply_style_bonus(best, style, W):
         if any(k in best['combination'] for k in ['바닥', '매집완성']):
             score -= 20
     return score
-
-def check_force_pullback(curr: pd.Series, past: pd.DataFrame):
-    """
-    세력 눌림목 (선행 정의용)
-    - 최근 강봉/거래량 흔적
-    - 현재는 눌림 구간
-    - 거래량 감소
-    - OBV 훼손 적음
-    - 20일/40일 근처 지지
-    """
-    if past is None or past.empty or len(past) < 10:
-        return False, "데이터 부족"
-    try:
-        strong_candle = (
-            ((past['Close'] > past['Open']) &
-             (((past['Close'] - past['Open']) / (past['Open'] + 1e-9)) * 100 >= 8)) &
-            (past['Volume'] > past['Vol_Avg'] * 1.8)
-        ).any()
-        volume_cooling = curr['Volume'] < (curr['Vol_Avg'] * 0.8)
-        near_ma20 = abs(curr['Close'] - curr['MA20']) / (curr['MA20'] + 1e-9) <= 0.03
-        near_bb_mid = abs(curr['Close'] - curr['MA40']) / (curr['MA40'] + 1e-9) <= 0.04
-        obv_safe = curr['OBV'] >= past['OBV'].tail(5).min()
-        candle_not_broken = curr['Close'] >= curr['MA20'] * 0.97
-        passed = strong_candle and volume_cooling and (near_ma20 or near_bb_mid) and obv_safe and candle_not_broken
-        return passed, f"강봉흔적:{strong_candle}, 거래량감소:{volume_cooling}, 이평근접:{near_ma20 or near_bb_mid}, OBV방어:{obv_safe}"
-    except Exception as e:
-        return False, f"계산실패:{e}"
-
 
 def check_ross(curr: pd.Series, past: pd.DataFrame):
     if past.empty or past['BB_LOW'].isna().all():
@@ -4909,7 +4358,7 @@ def run_ai_tournament(candidate_list, issues):
         except Exception as e:
             log_error(f"⚠️ Claude 토너먼트 실패: {e}")
     else:
-        log_info("⚠️ Claude 비활성화 또는 ANTHROPIC_API_KEY 없음 — Claude 생략")
+        log_info("⚠️ ANTHROPIC_API_KEY 없음 — Claude 생략")
 
     # ── Gemini 호출 (실패해도 계속)
     gemini_text = ''
@@ -5550,7 +4999,7 @@ def _clean_main7_ai_text(text: str, max_len: int = 52, row=None, role: str = '')
     if not s:
         return _fallback_main7_role_text(row or {}, role)
     return s
-MAIN7_AI_TELEGRAM_LAYOUT_VERSION = 'split_v1 | wm_tune_v20_white_cloud_final'
+MAIN7_AI_TELEGRAM_LAYOUT_VERSION = 'split_v1 | wm_tune_v7_ai_textfix'
 
 def _format_main7_ai_debate_text(rows):
     if not rows:
@@ -5560,7 +5009,6 @@ def _format_main7_ai_debate_text(rows):
     first = top_rows[0]
     lines = [
         f"🧠 메인 후보 AI 심판 TOP{len(top_rows)}",
-        f"버전: {MAIN7_AI_TELEGRAM_LAYOUT_VERSION}",
         "모델사용: 기술{} | 수급{} | 시황{} | 리스크{} | 심판{}".format(
             str(first.get('AI기술모델', '[Unknown]')),
             str(first.get('AI수급모델', '[Unknown]')),
@@ -5594,14 +5042,14 @@ def _format_main7_ai_debate_text(rows):
 
         lines.extend([
             f"{i}. {name}({code}) [{mode}/{grade}] → {verdict} {conf}점",
-            f"   심판{(r.get('AI심판모델', '') if str(r.get('AI심판모델', '')).strip() else '[자동선택]')}: {judge}",
+            f"   심판{r.get('AI심판모델', '')}: {judge}",
             f"   근거: {strong}",
             f"   위험: {riskp}",
             f"   계획: {plan}",
-            f"   기술{(r.get('AI기술모델', '') if str(r.get('AI기술모델', '')).strip() else '[자동선택]')}: {tech}",
-            f"   수급{(r.get('AI수급모델', '') if str(r.get('AI수급모델', '')).strip() else '[자동선택]')}: {flow}",
-            f"   시황{(r.get('AI시황모델', '') if str(r.get('AI시황모델', '')).strip() else '[자동선택]')}: {theme}",
-            f"   리스크{(r.get('AI리스크모델', '') if str(r.get('AI리스크모델', '')).strip() else '[자동선택]')}: {risk}",
+            f"   기술{r.get('AI기술모델', '')}: {tech}",
+            f"   수급{r.get('AI수급모델', '')}: {flow}",
+            f"   시황{r.get('AI시황모델', '')}: {theme}",
+            f"   리스크{r.get('AI리스크모델', '')}: {risk}",
         ])
         if _time_tag:
             lines.append(f"   시간창: {_time_tag}" + (f" | {_time_comment}" if _time_comment else ""))
@@ -5670,7 +5118,7 @@ def _run_main7_ai_debate(ai_candidates_df: pd.DataFrame, issues=None, market_new
 def get_ai_summary_batch(ai_candidates_df, issues=None, market_news=None):
     """
     판단형 종목 코멘트 생성.
-    안정성을 위해 후보를 15개까지 보고, 3개씩 나눠서 배치 호출한다.
+    안정성을 위해 후보를 5개까지만 보고, 2~3개씩 나눠서 배치 호출한다.
     """
     comments = "특이 이슈 없음"
     if issues:
@@ -5682,7 +5130,7 @@ def get_ai_summary_batch(ai_candidates_df, issues=None, market_news=None):
         if top_news:
             market_news_block = "\n\n## 오늘 시장 주요 뉴스\n" + "\n".join(f"- {n}" for n in top_news)
 
-    work_df = ai_candidates_df.head(15).copy()
+    work_df = ai_candidates_df.head(5).copy()
     if work_df is None or work_df.empty:
         return "브리핑 생성 중 오류가 발생했습니다."
 
@@ -7101,8 +6549,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         low_p = row['Low']
 
         raw_idx = len(df) - 1
-        temp_df = df.iloc[:raw_idx + 1].copy()
-        temp_df = add_white_cloud_candidates(temp_df)
+        temp_df = df.iloc[:raw_idx + 1]
 
         # HTS 정합성 확보:
         # 224/448 장기이평이 실제로 계산 가능한 구간이 아니면
@@ -7205,36 +6652,6 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
                 'wm_state_grade': '없음',
                 'wm_state_tags': [],
                 'wm_state_detail': {'ok': False, 'error': str(_wm_e)},
-            }
-
-        # 5일선 재안착 보조 신호
-        try:
-            ma5_reclaim_bundle = detect_ma5_reclaim_signal(temp_df, len(temp_df) - 1)
-        except Exception as _ma5r_e:
-            log_debug(f"5일선 재안착 계산 실패: {_ma5r_e}")
-            ma5_reclaim_bundle = {
-                "ok": False, "score": 0, "tag": "", "comment": "",
-                "reclaim": False, "vol_ok": False, "near_ma20": False,
-                "candle_ok": False, "wick_ok": False, "drop_ok": False,
-                "ma5_rising": False,
-            }
-
-        # 흰색 배경(장기 저항 구름) 대체 필터
-        try:
-            white_cloud_bundle = detect_white_cloud_vote(temp_df, len(temp_df) - 1)
-        except Exception as _wc_e:
-            log_debug(f"흰구름 대체 필터 계산 실패: {_wc_e}")
-            white_cloud_bundle = {
-                'A': {'tag': '', 'comment': ''},
-                'B': {'tag': '', 'comment': ''},
-                'C': {'tag': '', 'comment': ''},
-                'state': '',
-                'tag': '',
-                'comment': '',
-                'below_n': 0,
-                'inside_n': 0,
-                'above_n': 0,
-                'near_n': 0,
             }
 
         recent_avg_amount = (df['Close'] * df['Volume']).tail(5).mean() / 100000000
@@ -7374,7 +6791,6 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         signals['wm_state_red'] = bool(wm_bundle.get('wm_state_red', False))
         signals['wm_pocket_hold'] = bool(wm_bundle.get('wm_pocket_hold', False))
         signals['wm_attack_hold'] = bool(wm_bundle.get('wm_attack_hold', False))
-        signals['ma5_reclaim'] = bool(ma5_reclaim_bundle.get('ok', False))
         try:
             signals.update(build_v4_signal_map(row))
         except Exception as _v4sig_e:
@@ -7478,9 +6894,6 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
                 new_tags.append(f"⚡에너지{int(row.get('ENERGY_TOTAL', 0))}")
         except Exception as _v4tag_e:
             log_debug(f"V4 tag 생성 실패: {_v4tag_e}")
-
-        if ma5_reclaim_bundle.get('tag'):
-            new_tags.append(ma5_reclaim_bundle.get('tag'))
 
         # ✅ TUNE-2: 로그 스팸 제거 (히트 종목 포착 시에만 출력)
         result = judge_trade_with_sequence(temp_df, signals)
@@ -7963,40 +7376,6 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         if row.get('OBV_Acc_Breakout', False):
             s_score += 30
 
-        _ma5r_good_context = (
-            stage_eval.get('stage_status') in ('PASS_A', 'PASS_B')
-            or bool(wm_bundle.get('wm_intro', False))
-            or bool(wm_bundle.get('wm_pullback', False))
-            or bool(wm_bundle.get('wm_blue1_hold', False))
-        )
-        if ma5_reclaim_bundle.get('ok', False):
-            if _ma5r_good_context:
-                s_score += 20
-            else:
-                s_score += 8
-            tags.append(ma5_reclaim_bundle.get('tag', '🔁5일재안착'))
-        elif ma5_reclaim_bundle.get('reclaim', False):
-            tags.append(ma5_reclaim_bundle.get('tag', '🔁5일재안착예비'))
-
-        wc_state = str(white_cloud_bundle.get('state', '') or '').strip()
-        wc_tag = str(white_cloud_bundle.get('tag', '') or '').strip()
-        _wc_good_context = (
-            bool(wm_bundle.get('wm_intro', False))
-            or bool(wm_bundle.get('wm_pullback', False))
-            or bool(wm_bundle.get('wm_blue2_preview_hold', False))
-            or stage_eval.get('stage_status') in ('PASS_A', 'PASS_B')
-        )
-        if _wc_good_context:
-            if wc_state == 'below' and int(white_cloud_bundle.get('near_n', 0)) >= 2:
-                s_score += 12
-            elif wc_state == 'below':
-                s_score += 6
-            elif wc_state == 'inside':
-                s_score += 2
-
-        if wc_tag:
-            tags.append(wc_tag)
-
         if row.get('Good_MA_Convergence', False):
             s_score += min(20, int(row.get('Good_MA_Convergence_Score', 0) * 0.25))
 
@@ -8148,22 +7527,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             '수박디버그_pullback_box': bool(wm_bundle.get('wm_debug_pullback_box', False)),
             '수박디버그_red2_raw': bool(wm_bundle.get('wm_debug_red_state_raw_2', False)),
             '수박디버그_blue2_onset': bool(wm_bundle.get('wm_debug_blue2_onset', False)),
-            '수박디버그_blue2_strong': bool(wm_bundle.get('wm_debug_blue2_strong', False)),
-            '수박디버그_blue2_preview': bool(wm_bundle.get('wm_debug_blue2_preview', False)),
             '수박디버그_late': bool(wm_bundle.get('wm_debug_late', False)),
-            '수박디버그_red2_pullback_ok': bool(wm_bundle.get('wm_debug_red2_pullback_ok', False)),
-            '수박디버그_red2_change_ok': bool(wm_bundle.get('wm_debug_red2_change_ok', False)),
-            '수박디버그_red2_close_ma20_ok': bool(wm_bundle.get('wm_debug_red2_close_ma20_ok', False)),
-            '수박디버그_red2_ma5_ma20_ok': bool(wm_bundle.get('wm_debug_red2_ma5_ma20_ok', False)),
-            '수박디버그_red2_prevbox_ok': bool(wm_bundle.get('wm_debug_red2_prevbox_ok', False)),
-            '수박디버그_red2_vol_ok': bool(wm_bundle.get('wm_debug_red2_vol_ok', False)),
-            '수박디버그_red2_candle_ok': bool(wm_bundle.get('wm_debug_red2_candle_ok', False)),
-            '수박디버그_red2_not_late_ok': bool(wm_bundle.get('wm_debug_red2_not_late_ok', False)),
-            '수박디버그_red2_structure_ok': bool(wm_bundle.get('wm_debug_red2_structure_ok', False)),
-            '수박디버그_red2_soft_ok': bool(wm_bundle.get('wm_debug_red2_soft_ok', False)),
-            '수박디버그_blue2_prev_clear_ok': bool(wm_bundle.get('wm_debug_blue2_prev_clear_ok', False)),
-            '수박디버그_blue2_context_ok': bool(wm_bundle.get('wm_debug_blue2_context_ok', False)),
-            '수박디버그_blue2_vol2_ok': bool(wm_bundle.get('wm_debug_blue2_vol2_ok', False)),
             '수박디버그_box_range_ok': bool(wm_bundle.get('wm_debug_intro_box_range_ok', False)),
             '수박디버그_attack_band_ok': bool(wm_bundle.get('wm_debug_intro_attack_band_ok', False)),
             '수박디버그_ret7_ok': bool(wm_bundle.get('wm_debug_intro_ret7_ok', False)),
@@ -8178,23 +7542,6 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             '수박상태명': str(wm_bundle.get('wm_state_name', '')),
             '수박상태등급': str(wm_bundle.get('wm_state_grade', '없음')),
             '수박상태태그': " ".join(wm_bundle.get('wm_state_tags', [])),
-
-            '5일재안착': bool(ma5_reclaim_bundle.get('ok', False)),
-            '5일재안착예비': bool(ma5_reclaim_bundle.get('reclaim', False) and not ma5_reclaim_bundle.get('ok', False)),
-            '5일재안착점수': int(ma5_reclaim_bundle.get('score', 0)),
-            '5일재안착태그': str(ma5_reclaim_bundle.get('tag', '')),
-            '5일재안착코멘트': str(ma5_reclaim_bundle.get('comment', '')),
-
-            '흰구름상태': str(white_cloud_bundle.get('state', '')),
-            '흰구름태그': str(white_cloud_bundle.get('tag', '')),
-            '흰구름코멘트': str(white_cloud_bundle.get('comment', '')),
-            '흰구름아래투표': int(white_cloud_bundle.get('below_n', 0)),
-            '흰구름안투표': int(white_cloud_bundle.get('inside_n', 0)),
-            '흰구름위투표': int(white_cloud_bundle.get('above_n', 0)),
-            '흰구름근접투표': int(white_cloud_bundle.get('near_n', 0)),
-            '흰구름A태그': str(white_cloud_bundle.get('A', {}).get('tag', '')),
-            '흰구름B태그': str(white_cloud_bundle.get('B', {}).get('tag', '')),
-            '흰구름C태그': str(white_cloud_bundle.get('C', {}).get('tag', '')),
 
             '예비돌반지HTS정확복제': bool(pre_hts_bundle.get('pre_dolbanji_hts_exact', False)),
             '예비돌반지HTS정확점수': int(pre_hts_bundle.get('pre_dolbanji_hts_exact_score', 0)),
@@ -8614,42 +7961,6 @@ def generate_stage_ai_tip(row):
 # =========================================================
 # 🔗 main7 원본 검색 엔진을 단일종목 분석기에서 그대로 재사용하기 위한 브리지
 # =========================================================
-def generate_top15_ai_fallback(row):
-    try:
-        parts = []
-        vol_ratio = safe_float(row.get('거래량배수', row.get('매집거래량배율', 0)), 0.0)
-        rsi = safe_float(row.get('RSI', 0), 0.0)
-        wick = safe_float(row.get('윗꼬리비율', row.get('상꼬리비율', 0)), 0.0)
-        stage = str(row.get('단계상태', '') or '').strip()
-        wm_state = str(row.get('수박최종상태', row.get('수박상태명', '')) or '').strip()
-        ma5_tag = str(row.get('5일재안착태그', '') or '').strip()
-        time_tag = str(row.get('time_sym_tag', '') or '').strip()
-        flow = str(row.get('수급', '') or '').strip()
-
-        if stage:
-            parts.append(stage)
-        elif wm_state:
-            parts.append(wm_state)
-
-        if vol_ratio > 0:
-            parts.append(f"거래량 {vol_ratio:.1f}배")
-        if rsi > 0:
-            parts.append(f"RSI {rsi:.0f}")
-        if wick > 0:
-            parts.append(f"윗꼬리 {wick:.1f}%")
-        if ma5_tag:
-            parts.append(ma5_tag)
-        if time_tag:
-            parts.append(time_tag)
-        if flow:
-            parts.append(flow[:12])
-
-        if not parts:
-            return "구조는 있으나 추가 확인이 필요한 자리"
-        return " / ".join(parts[:4])
-    except Exception:
-        return "구조는 있으나 추가 확인이 필요한 자리"
-
 def build_single_stock_context():
     global_env, leader_env = get_global_and_leader_status()
     try:
@@ -9089,7 +8400,7 @@ if __name__ == "__main__":
     log_info(f"💍 HTS 정확복제형 TOP5 수: {len(exact_top5)}")
     log_info(f"💍 기존 예비돌반지 TOP5 수: {len(broad_only_top5)}")
     log_info(f"💎 신규예비돌반지 Lite TOP5 수: {len(lite_top5)}")
-    log_info(f"🍉 수박 관찰군(초록) 수: {len(wm_green_top5)}")
+    log_info(f"🍉 수박상태 초록 TOP5 수: {len(wm_green_top5)}")
     log_info(f"🍉 수박상태 빨강 TOP5 수: {len(wm_red_top5)}")
     log_info(f"🔵 파란점선 타점 TOP5 수: {len(wm_blue_top5)}")
     log_info(f"🟢 초입수박 TOP5 수: {len(wm_intro_top5)}")
@@ -9143,7 +8454,7 @@ if __name__ == "__main__":
 
     log_info("🧠 상위 30개 종목 AI 심층 분석 중...")
     log_info(f"  OPENAI_API_KEY:    {'✅' if OPENAI_API_KEY else '❌ 없음'}")
-    log_info(f"  ANTHROPIC_API_KEY: {'🚫 비활성화' if DISABLE_CLAUDE else ('✅' if ANTHROPIC_API_KEY else '❌ 없음')}")
+    log_info(f"  ANTHROPIC_API_KEY: {'✅' if ANTHROPIC_API_KEY else '❌ 없음'}")
     log_info(f"  GEMINI_API_KEY:    {'✅' if GEMINI_API_KEY else '❌ 없음'}")
     log_info(f"  GROQ_API_KEY:      {'✅' if GROQ_API_KEY else '❌ 없음'}")
     tournament_report = run_ai_tournament(ai_candidates, issues)
@@ -9253,60 +8564,14 @@ if __name__ == "__main__":
     pre_block = build_pre_dolbanji_block("예비돌반지 TOP 5", pre_top5, exact_mode=False)
     exact_block = build_pre_dolbanji_block("HTS 정확복제형 예비돌반지 TOP 5", exact_top5, exact_mode=True)
     lite_block = build_pre_dolbanji_block("신규예비돌반지 Lite TOP 5", lite_top5, exact_mode=False)
-
-    show_pre_dolbanji = bool(TEST_MODE or len(pre_top5) > 0 or len(exact_top5) > 0 or len(lite_top5) > 0)
-    if not show_pre_dolbanji:
-        pre_block = ""
-        exact_block = ""
-        lite_block = ""
-
-    wm_guide_block = build_watermelon_guide_block()
-    wm_green_block = build_watermelon_summary_block(all_hits_df_for_pre)
+    wm_green_block = build_watermelon_state_block("수박상태 초록 TOP 5", wm_green_top5)
     wm_red_block = build_watermelon_state_block("수박상태 빨강 TOP 5", wm_red_top5)
     wm_blue_block = build_watermelon_state_block("파란점선 타점 TOP 5", wm_blue_top5)
-
-    wm_debug_block_raw = build_watermelon_debug_block("수박/파란점 디버그 TOP 5", wm_debug_top5)
-    wm_debug_block = ""
-
-    show_debug_now = False
-    if SHOW_WM_DEBUG:
-        show_debug_now = True
-    elif SHOW_WM_DEBUG_ON_ALERT and should_show_wm_debug_alert(
-        wm_intro_top5=wm_intro_top5,
-        wm_pullback_top5=wm_pullback_top5,
-        wm_blue1_top5=wm_blue1_top5,
-        wm_blue2_top5=wm_blue2_top5,
-        wm_late_top5=wm_late_top5,
-    ):
-        show_debug_now = True
-
-    if show_debug_now and wm_debug_block_raw:
-        wm_debug_block = wm_debug_block_raw
-    elif not TEST_MODE:
-        wm_alert = build_wm_alert_summary(
-            wm_intro_top5=wm_intro_top5,
-            wm_pullback_top5=wm_pullback_top5,
-            wm_blue1_top5=wm_blue1_top5,
-            wm_blue2_top5=wm_blue2_top5,
-            wm_late_top5=wm_late_top5,
-        )
-        if wm_alert:
-            wm_debug_block = wm_alert
-
+    wm_debug_block = build_watermelon_debug_block("수박/파란점 디버그 TOP 5", wm_debug_top5)
     wm_intro_block = build_watermelon_state_block("초입수박 TOP 5", wm_intro_top5)
     wm_pullback_block = build_watermelon_state_block("눌림수박 TOP 5", wm_pullback_top5)
     wm_late_block = build_watermelon_state_block("후행수박 TOP 5", wm_late_top5)
     wm_blue1_block = build_watermelon_state_block("Blue-1 단기 TOP 5", wm_blue1_top5)
-    wm_blue2_preview_top5 = pd.DataFrame()
-    if all_hits_df_for_pre is not None and (not all_hits_df_for_pre.empty) and "수박최종상태" in all_hits_df_for_pre.columns:
-        wm_blue2_preview_top5 = all_hits_df_for_pre[all_hits_df_for_pre["수박최종상태"] == "Blue-2예비"].copy()
-        if not wm_blue2_preview_top5.empty:
-            _sort_cols = [c for c in ["파란점선2스윙점수", "수박포켓점수", "안전점수", "N점수"] if c in wm_blue2_preview_top5.columns]
-            if _sort_cols:
-                wm_blue2_preview_top5 = wm_blue2_preview_top5.sort_values(by=_sort_cols, ascending=[False]*len(_sort_cols)).head(5).reset_index(drop=True)
-            else:
-                wm_blue2_preview_top5 = wm_blue2_preview_top5.head(5).reset_index(drop=True)
-    wm_blue2_preview_block = build_watermelon_state_block("Blue-2 예비 TOP 5", wm_blue2_preview_top5)
     wm_blue2_block = build_watermelon_state_block("Blue-2 스윙 TOP 5", wm_blue2_top5)
 
     if not stage_candidates_top5.empty:
@@ -9320,8 +8585,6 @@ if __name__ == "__main__":
             f"S2:{item.get('S2날짜', '-')}, "
             f"S3:{item.get('S3날짜', '-')}\n"
             f"- N조합: {item.get('N조합', '')}" + (f" | {item.get('time_sym_tag', '')}" if str(item.get('time_sym_tag', '')).strip() else "") + "\n"
-            + (f"- 재안착: {item.get('5일재안착태그', '')} | {item.get('5일재안착코멘트', '')}\n" if str(item.get('5일재안착태그', '')).strip() else "")
-            + (f"- 흰구름: {item.get('흰구름태그', '')} | {item.get('흰구름코멘트', '')}\n" if str(item.get('흰구름태그', '')).strip() else "")
             + f"- 재무: {item.get('재무', '미계산')} | 수급: {item.get('수급', '미계산')}\n"
             f"- 안전:{item.get('안전점수', 0)} | N점수:{item.get('N점수', 0)}\n"
             f"----------------------------\n"
@@ -9498,22 +8761,6 @@ if __name__ == "__main__":
                 entry += f" | {_time_comment[:28]}"
             entry += "\n"
 
-        _ma5_tag = str(item.get('5일재안착태그', '')).strip()
-        _ma5_comment = str(item.get('5일재안착코멘트', '')).strip()
-        if _ma5_tag:
-            entry += f"🔁 재안착:{_ma5_tag}"
-            if _ma5_comment:
-                entry += f" | {_ma5_comment[:30]}"
-            entry += "\n"
-
-        _wc_tag = str(item.get('흰구름태그', '')).strip()
-        _wc_comment = str(item.get('흰구름코멘트', '')).strip()
-        if _wc_tag:
-            entry += f"☁ 흰구름:{_wc_tag}"
-            if _wc_comment:
-                entry += f" | {_wc_comment[:24]}"
-            entry += "\n"
-
         # 타점 (2단계 목표 + 지지저항)
         target2_p = _si(item.get('🎯목표2차', 0))
         rr_ratio  = float(item.get('RR비율', 0))
@@ -9552,7 +8799,7 @@ if __name__ == "__main__":
             current_msg += entry
 
     # 마지막 블록은 급등후보 + 예비돌반지 별도 TOP5
-    final_block = (stage_block or "") + "\n" + pre_block + "\n" + exact_block + "\n" + lite_block + "\n" + wm_guide_block + "\n" + wm_green_block + "\n" + wm_red_block + "\n" + wm_blue_block + "\n" + wm_debug_block + "\n" + wm_intro_block + "\n" + wm_pullback_block + "\n" + wm_late_block + "\n" + wm_blue1_block + "\n" + wm_blue2_preview_block + "\n" + wm_blue2_block
+    final_block = (stage_block or "") + "\n" + pre_block + "\n" + exact_block + "\n" + lite_block + "\n" + wm_green_block + "\n" + wm_red_block + "\n" + wm_blue_block + "\n" + wm_debug_block + "\n" + wm_intro_block + "\n" + wm_pullback_block + "\n" + wm_late_block + "\n" + wm_blue1_block + "\n" + wm_blue2_block
 
     # ✅ TOP15는 이미지 포함 메시지로 먼저 전송
     if current_msg.strip():
