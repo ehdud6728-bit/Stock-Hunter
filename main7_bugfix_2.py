@@ -5054,9 +5054,18 @@ def run_ai_tournament(candidate_list, issues):
         return "⚠️ 모든 AI 호출 실패 (API 키 확인 필요)"
 
     result = "🏆 [AI 토너먼트 결승]\n"
+    result += "모델상태: GPT={} | Claude={} | Gemini={} | Groq={}\n".format(
+        "응답" if bool(gpt_text) else "없음",
+        "응답" if bool(claude_text) else "없음",
+        "응답" if bool(gemini_text) else "없음",
+        "응답" if bool(groq_text) else "없음",
+    )
+
     for label, text in results_map.items():
-        if text:
-            result += f"\n{label}:\n{text}\n"
+        body = (text or "").strip()
+        if not body:
+            body = "⚙️ 응답 없음 또는 호출 실패"
+        result += f"\n{label}:\n{body}\n"
 
     return result
 
@@ -5550,7 +5559,7 @@ def _clean_main7_ai_text(text: str, max_len: int = 52, row=None, role: str = '')
     if not s:
         return _fallback_main7_role_text(row or {}, role)
     return s
-MAIN7_AI_TELEGRAM_LAYOUT_VERSION = 'split_v1 | wm_tune_v21_multi_debate'
+MAIN7_AI_TELEGRAM_LAYOUT_VERSION = 'split_v1 | wm_tune_v22_tournament_visible'
 
 
 def _format_ai_multilist(text, max_len=46):
