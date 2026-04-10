@@ -1753,6 +1753,162 @@ def _resolve_track_display_state(row: pd.Series, track: str = "preempt") -> str:
     return '중립관찰'
 
 
+def _recommendation_phase(row: pd.Series) -> str:
+    phase = str(row.get('추천단계', '') or '').strip()
+    if phase:
+        return phase
+
+    stage_track = str(row.get('단계트랙', '') or '').strip()
+    if stage_track:
+        return stage_track
+
+    wm_state = str(row.get('수박최종상태', '') or '').strip()
+    rc_state = str(row.get('저항구름상태', '') or '').strip()
+    refine_state = _stage_refine_state(row)
+    late_flag = bool(row.get('수박디버그_late', False)) or wm_state == '후행수박'
+    reanchor = bool(row.get('5일재안착', False)) or str(row.get('5일재안착태그', '') or '').strip() != ''
+    clean_candle = _stage_is_clean_power_candle(row)
+    disparity = 0.0
+    try:
+        disparity = float(row.get('이격', row.get('Disparity', 0)) or 0)
+    except Exception:
+        disparity = 0.0
+
+    if late_flag or wm_state == '후행수박':
+        return '후행형'
+
+    if rc_state == '저항돌파':
+        if clean_candle and refine_state != 'bad' and disparity < 118:
+            return '초동발생형'
+        return '돌파관찰형'
+
+    if rc_state in ('저항전', '저항테스트'):
+        if clean_candle and refine_state != 'bad' and (reanchor or wm_state in ('초입수박', '눌림수박', 'Blue-2예비')):
+            return '돌파직전형'
+        if refine_state in ('pass', 'watch') and (reanchor or wm_state in ('초입수박', '눌림수박', 'Blue-2예비')):
+            return '선취형'
+        if rc_state == '저항테스트':
+            return '구름테스트관찰'
+        return '구조관찰'
+
+    return '중립관찰'
+
+
+def _recommendation_priority_score(row: pd.Series) -> float:
+    phase = _recommendation_phase(row)
+    safe_score = 0.0
+    n_score = 0.0
+    stage_rank = 0.0
+    disparity = 0.0
+    try:
+        safe_score = float(row.get('안전점수', 0) or 0)
+        n_score = float(row.get('N점수', 0) or 0)
+        stage_rank = float(row.get('단계랭크', 0) or 0)
+        disparity = float(row.get('이격', row.get('Disparity', 0)) or 0)
+    except Exception:
+        pass
+
+    phase_weight = {
+        '선취형': 500,
+        '돌파직전형': 430,
+        '초동발생형': 320,
+        '돌파관찰형': 240,
+        '구름테스트관찰': 230,
+        '구조관찰': 220,
+        '중립관찰': 180,
+        '후행형': 40,
+    }.get(phase, 150)
+
+    score = phase_weight + stage_rank * 35 + safe_score * 0.22 + n_score * 0.05
+
+    if _stage_refine_state(row) == 'bad':
+        score -= 80
+    elif _stage_refine_state(row) == 'watch':
+        score -= 15
+
+    if bool(row.get('수박디버그_late', False)) or str(row.get('수박최종상태', '') or '').strip() == '후행수박':
+        score -= 120
+
+    if disparity >= 120:
+        score -= 90
+    elif disparity >= 115:
+        score -= 55
+    elif disparity >= 112:
+        score -= 25
+
+    if str(row.get('저항구름상태', '') or '').strip() == '저항돌파' and phase not in ('초동발생형',):
+        score -= 18
+
+    return float(score)
+
+
+def _extract_grade_core(grade_text: str) -> str:
+    grade_text = str(grade_text or '').strip()
+    for g in ['SSS+', 'SSS', 'SS', 'S', 'A', 'B', 'C']:
+        if grade_text.endswith(g):
+            return g
+    return grade_text
+
+
+def _cap_grade_label(grade_text: str, max_grade: str = 'SSS+') -> str:
+    order = {'SSS+': 7, 'SSS': 6, 'SS': 5, 'S': 4, 'A': 3, 'B': 2, 'C': 1}
+    txt = str(grade_text or '').strip()
+    cur = _extract_grade_core(txt)
+    if cur not in order or max_grade not in order:
+        return txt
+    if order[cur] <= order[max_grade]:
+        return txt
+    prefix = txt[:len(txt) - len(cur)]
+    return f"{prefix}{max_grade}"
+
+
+def _recommendation_max_grade(row: pd.Series) -> str:
+    phase = _recommendation_phase(row)
+    disparity = 0.0
+    try:
+        disparity = float(row.get('이격', row.get('Disparity', 0)) or 0)
+    except Exception:
+        disparity = 0.0
+
+    if phase == '후행형':
+        return 'S'
+    if phase in ('초동발생형', '돌파관찰형', '구름테스트관찰'):
+        return 'SS'
+    if _stage_refine_state(row) == 'bad':
+        return 'SS'
+    if disparity >= 118:
+        return 'SS'
+    return 'SSS+'
+
+
+def _recommendation_summary_line(row: pd.Series) -> str:
+    phase = _recommendation_phase(row)
+    if phase == '선취형':
+        return '선취 구간으로, 5일선 또는 구름 하단 기준 분할 접근을 검토한다.'
+    if phase == '돌파직전형':
+        return '돌파 직전 구간으로, 종가 강도와 윗꼬리 여부를 확인해 종가베팅 여부를 판단한다.'
+    if phase == '초동발생형':
+        return '초동 발생 구간으로, 추격보다 다음 눌림 지지 확인이 우선이다.'
+    if phase in ('돌파관찰형', '구름테스트관찰'):
+        return '중간 구간으로 진입보다는 구름 상단 안착과 재돌파 확인이 필요하다.'
+    if phase == '후행형':
+        return '후행 구간으로, 신규 추격보다 보유자 대응과 눌림 재확인이 중요하다.'
+    return '구조는 있으나 확인 신호가 더 필요하다.'
+
+
+def _apply_recommendation_alignment(df: pd.DataFrame) -> pd.DataFrame:
+    if df is None or df.empty:
+        return df
+    out = df.copy()
+    out['추천단계'] = out.apply(_recommendation_phase, axis=1)
+    out['추천정렬점수'] = out.apply(_recommendation_priority_score, axis=1)
+    out = out.sort_values(
+        by=['추천정렬점수', '단계랭크', '안전점수', 'N점수'],
+        ascending=False
+    ).reset_index(drop=True)
+    return out
+
+
 def _build_candidate_explain_lines(row: pd.Series, track: str = "preempt") -> tuple[str, str, str]:
     def _b(x):
         try:
@@ -1964,7 +2120,7 @@ def _build_stage_track_frames(pass_df: pd.DataFrame):
 
     for _, row in work.iterrows():
         rc_state = str(row.get('저항구름상태', '') or '').strip()
-        wm_state = str(row.get('수박최종상태', '') or '').strip()
+        wm_state = _resolve_track_display_state(row, track='breakout')
         refine_state = _stage_refine_state(row)
         late_flag = bool(row.get('수박디버그_late', False)) or wm_state == '후행수박'
         reanchor = bool(row.get('5일재안착', False)) or str(row.get('5일재안착태그', '') or '').strip() != ''
@@ -10514,6 +10670,7 @@ if __name__ == "__main__":
             stage_ready_top5 = pd.DataFrame()
             stage_burst_top5 = pd.DataFrame()
 
+    ai_candidates = _apply_recommendation_alignment(ai_candidates)
     telegram_targets = ai_candidates.head(15)
     log_info(f"📌 전체 추천 후보 수: {len(ai_candidates)}")
     log_info(f"📌 PASS_A/PASS_B 후보 수: {len(pass_ai_candidates)}")
@@ -10635,7 +10792,8 @@ if __name__ == "__main__":
         name_str    = item['종목명']
         code_str    = item.get('code', '')
         price       = _si(item.get('현재가', 0))
-        n_grade     = item.get('N등급', '')
+        n_grade_raw = item.get('N등급', '')
+        n_grade     = _cap_grade_label(n_grade_raw, _recommendation_max_grade(item))
         n_combo     = item.get('N조합', '')
         safe_score  = _si(item.get('안전점수', 0))
         n_score     = _si(item.get('N점수', 0))
@@ -10715,13 +10873,7 @@ if __name__ == "__main__":
             disc_str = f"{_disc_icon} 공시: {disc_tag}{_disc_detail}" 
 
         # ─── AI 코멘트 핵심만 (첫 줄만)
-        ai_short = ''
-        if ai_tip:
-            first_line = [l.strip() for l in ai_tip.splitlines() if l.strip()]
-            if first_line:
-                # ✅핵심: 이후 텍스트만 추출
-                line = first_line[0].replace('✅ 핵심:', '').replace('✅핵심:', '').strip()
-                ai_short = f"💡 {line[:60]}" if line else ''
+        ai_short = f"💡 한 줄 결론: {_recommendation_summary_line(item)}"
 
         # ════════════════════════════════════
         # 최종 메시지 포맷 (간결 + 구조적)
@@ -10731,6 +10883,7 @@ if __name__ == "__main__":
             f"⭐ {n_grade}  [{name_str}]  {price:,}원\n"
             f"🎯 {n_combo}\n"
             f"🏷️ {key_tags}\n"
+            f"🪜 유형:{str(item.get('추천단계','') or '').strip()}\n"
         )
 
         # 단계 (PASS만)
