@@ -2236,7 +2236,7 @@ def build_stage_track_block(title: str, df: pd.DataFrame) -> str:
         comment = str(item.get('단계트랙코멘트', '') or '').strip()
         lines.append(
             f"{rank}) [{item.get('종목명', '')}]\n"
-            f"- 단계: {item.get('단계상태', 'N/A')} | {item.get('단계태그', '')}\n"
+            f"- 단계: {describe_stage_status(str(item.get('단계상태', 'N/A')))} | {item.get('단계태그', '')}\n"
             f"- S1:{item.get('S1날짜', '-')}, S2:{item.get('S2날짜', '-')}, S3:{item.get('S3날짜', '-')}\n"
             f"- N조합: {item.get('N조합', '')}" + (f" | {item.get('time_sym_tag', '')}" if str(item.get('time_sym_tag', '')).strip() else '') + "\n"
             + (f"- 재안착: {item.get('5일재안착태그', '')} | {item.get('5일재안착코멘트', '')}\n" if str(item.get('5일재안착태그', '')).strip() else '')
@@ -2244,6 +2244,9 @@ def build_stage_track_block(title: str, df: pd.DataFrame) -> str:
             + (f"- 정제: {item.get('수박정제태그', '')} | {item.get('수박정제코멘트', '')}\n" if str(item.get('수박정제태그', '')).strip() else '')
             + (f"- 해석: {comment}\n" if comment else '')
             + f"- 재무: {item.get('재무', '미계산')} | 수급: {item.get('수급', '미계산')}\n"
+            + (f"- 수급요약: {item.get('수급요약', '')}\n" if str(item.get('수급요약', '')).strip() else '')
+            + (f"- 오늘수급: {item.get('수급당일', '')}\n" if str(item.get('수급당일', '')).strip() else '')
+            + (f"- 외인보유: {item.get('외인보유요약', '')}\n" if str(item.get('외인보유요약', '')).strip() and str(item.get('외인보유요약', '')).strip() != '미확인' else '')
             + f"- 안전:{item.get('안전점수', 0)} | N점수:{item.get('N점수', 0)} | 단계점수:{item.get('단계트랙점수', 0)}\n"
             + f"----------------------------\n"
         )
@@ -3848,6 +3851,169 @@ def get_supply_and_money(code, price):
     except: 
         result = "⚠️오류", 0, 0, 0, False
         _supply_cache[code] = result
+        return result
+
+
+
+def _parse_float_list(series) -> list[float]:
+    out = []
+    for v in list(series):
+        try:
+            out.append(float(str(v).replace(',', '').replace('%', '').strip()))
+        except Exception:
+            out.append(0.0)
+    return out
+
+
+def _fmt_eok(v: float) -> str:
+    try:
+        v = float(v)
+    except Exception:
+        v = 0.0
+    sign = '+' if v >= 0 else '-'
+    return f"{sign}{abs(v):.1f}억"
+
+
+def get_supply_profile(code, price):
+    cache_key = f"profile::{code}"
+    cached = _supply_cache.get(cache_key)
+    if isinstance(cached, dict):
+        return cached
+
+    result = {
+        'tag': '미계산',
+        'total_m': 0,
+        'whale_streak': 0,
+        'whale_score': 0,
+        'twin_b': False,
+        'today_text': '',
+        'cum3_text': '',
+        'cum5_text': '',
+        'streak_text': '',
+        'summary': '',
+        'personal_judgement': '',
+        'foreign_hold_text': '미확인',
+    }
+
+    try:
+        url = f"https://finance.naver.com/item/frgn.naver?code={code}"
+        res = requests.get(url, headers=REAL_HEADERS, timeout=5)
+        res.encoding = 'euc-kr'
+        df = pd.read_html(res.text, match='날짜')[0].dropna().head(10)
+        df.columns = ['_'.join(col) if isinstance(col, tuple) else col for col in df.columns]
+
+        def _find_col(include):
+            for c in df.columns:
+                s = str(c)
+                if all(k in s for k in include):
+                    return c
+            return None
+
+        personal_col = _find_col(['개인', '순매매'])
+        inst_col = _find_col(['기관', '순매매'])
+        frgn_col = _find_col(['외국인', '순매매'])
+        ratio_col = next((c for c in df.columns if '외국인' in str(c) and any(k in str(c) for k in ['보유', '소진율', '지분율'])), None)
+        if not personal_col or not inst_col or not frgn_col:
+            _supply_cache[cache_key] = result
+            return result
+
+        def _int_list(series):
+            out = []
+            for v in list(series):
+                try:
+                    out.append(int(float(str(v).replace(',', '').replace('%', '').strip())))
+                except Exception:
+                    out.append(0)
+            return out
+
+        personal_qty = _int_list(df[personal_col].values)
+        inst_qty = _int_list(df[inst_col].values)
+        frgn_qty = _int_list(df[frgn_col].values)
+
+        def _streak(data):
+            c = 0
+            for v in data:
+                if v > 0:
+                    c += 1
+                else:
+                    break
+            return c
+
+        p_s = _streak(personal_qty)
+        i_s = _streak(inst_qty)
+        f_s = _streak(frgn_qty)
+        pe = [round(v * price / 100000000, 1) for v in personal_qty]
+        ie = [round(v * price / 100000000, 1) for v in inst_qty]
+        fe = [round(v * price / 100000000, 1) for v in frgn_qty]
+
+        tp, ti, tf = (pe[0] if pe else 0.0), (ie[0] if ie else 0.0), (fe[0] if fe else 0.0)
+        s3p, s3i, s3f = round(sum(pe[:3]), 1), round(sum(ie[:3]), 1), round(sum(fe[:3]), 1)
+        s5p, s5i, s5f = round(sum(pe[:5]), 1), round(sum(ie[:5]), 1), round(sum(fe[:5]), 1)
+        twin_b = ti > 0 and tf > 0
+        total_m = round(abs(ti) + abs(tf))
+        leader = '🤝쌍끌' if twin_b else ('🔴기관' if ti > tf else '🔵외인')
+        whale_streak = 0
+        for k in range(min(len(df), 10)):
+            if abs(ie[k]) + abs(fe[k]) >= 10:
+                whale_streak += 1
+            else:
+                break
+        whale_score = int(total_m // 2) + (3 if whale_streak >= 3 else 0)
+
+        summary_parts = []
+        personal_judgement = ''
+        if tf > 0 and ti > 0:
+            summary_parts.append('외인·기관 동반매수')
+        elif tf > 0 and abs(tf) >= abs(ti):
+            summary_parts.append('외인매수 우세')
+        elif ti > 0 and abs(ti) > abs(tf):
+            summary_parts.append('기관매수 우세')
+        elif tf < 0 and abs(tf) >= max(abs(ti), 0.1):
+            summary_parts.append('외인매도 우세')
+        elif ti < 0 and abs(ti) > abs(tf):
+            summary_parts.append('기관매도 우세')
+        if tp > 0 and tf < 0 and abs(tp) >= abs(tf) * 0.7:
+            personal_judgement = '개인흡수'
+        elif tp > 0 and tf < 0 and ti <= 0:
+            personal_judgement = '개인추격주의'
+        elif tp < 0 and (tf > 0 or ti > 0):
+            personal_judgement = '개인투매흡수'
+        if personal_judgement:
+            summary_parts.append(personal_judgement)
+        if s3f > 0 and s3i > 0:
+            summary_parts.append('3일누적 양호')
+        elif s3f < 0 and tf < 0:
+            summary_parts.append('외인분배주의')
+        if not summary_parts:
+            summary_parts.append('수급 혼조')
+        summary = ' / '.join(summary_parts)
+
+        foreign_hold_text = '미확인'
+        if ratio_col is not None:
+            ratios = _parse_float_list(df[ratio_col].values)
+            if ratios:
+                foreign_hold_text = f"{ratios[0]:.2f}%"
+                if len(ratios) >= 5:
+                    foreign_hold_text = f"{ratios[0]:.2f}% ({ratios[0]-ratios[4]:+.2f}%p/5일)"
+
+        result = {
+            'tag': f"{leader}({i_s}/{f_s})",
+            'total_m': total_m,
+            'whale_streak': whale_streak,
+            'whale_score': whale_score,
+            'twin_b': twin_b,
+            'today_text': f"개인 {_fmt_eok(tp)} | 외인 {_fmt_eok(tf)} | 기관 {_fmt_eok(ti)}",
+            'cum3_text': f"개인 {_fmt_eok(s3p)} | 외인 {_fmt_eok(s3f)} | 기관 {_fmt_eok(s3i)}",
+            'cum5_text': f"개인 {_fmt_eok(s5p)} | 외인 {_fmt_eok(s5f)} | 기관 {_fmt_eok(s5i)}",
+            'streak_text': f"기관 {i_s}일 / 외인 {f_s}일 / 개인 {p_s}일",
+            'summary': summary,
+            'personal_judgement': personal_judgement,
+            'foreign_hold_text': foreign_hold_text,
+        }
+        _supply_cache[cache_key] = result
+        return result
+    except Exception:
+        _supply_cache[cache_key] = result
         return result
 
 def get_financial_health(code):
@@ -8183,7 +8349,25 @@ def stage_rank_value(stage_status: str) -> int:
         return 2
     if stage_status == "PASS_B":
         return 1
-    return 0     
+    return 0
+
+
+def describe_stage_status(stage_status: str) -> str:
+    if stage_status == 'PASS_A':
+        return '✅ PASS_A | 매집→응축→돌파준비 3단계 통과'
+    if stage_status == 'PASS_B':
+        return '🟣 PASS_B | 응축→재파동 2단계 통과'
+    if stage_status == 'DROP':
+        return '⛔ DROP | 단계 시퀀스 미성립'
+    return '👀 관찰 | 단계 확인 필요'
+
+
+def describe_dolbanji_label(exact_mode: bool = False, lite_mode: bool = False) -> tuple[str, str]:
+    if exact_mode:
+        return 'HTS정확복제형', '원형 조건과 거의 일치하는 엄격형'
+    if lite_mode:
+        return '신규 Lite형', '신규상장·짧은 이력 구간용 대체형'
+    return '예비돌반지형', '장기 눌림 뒤 재돌파 준비형'
 
 # =============================================================
 # 🏷️ 보조 분류 시스템 (Ver 27.5)
@@ -9719,13 +9903,20 @@ def enrich_hits_with_supply_and_financial(all_hits_sorted, top_k_supply=80, top_
         # 상위 후보만 수급 조회
         if idx < top_k_supply:
             try:
-                s_tag, total_m, w_streak, whale_score, twin_b = get_supply_and_money(code, price)
-                item['수급'] = s_tag
+                supply_prof = get_supply_profile(code, price)
+                item['수급'] = supply_prof.get('tag', '미계산')
+                item['수급요약'] = supply_prof.get('summary', '')
+                item['수급당일'] = supply_prof.get('today_text', '')
+                item['수급3일누적'] = supply_prof.get('cum3_text', '')
+                item['수급5일누적'] = supply_prof.get('cum5_text', '')
+                item['수급연속'] = supply_prof.get('streak_text', '')
+                item['외인보유요약'] = supply_prof.get('foreign_hold_text', '미확인')
+                item['개인수급판정'] = supply_prof.get('personal_judgement', '')
 
-                # 안전점수에 고래점수 반영
+                whale_score = supply_prof.get('whale_score', 0)
+                twin_b = bool(supply_prof.get('twin_b', False))
                 item['안전점수'] = int(item.get('안전점수', 0)) + int(whale_score)
 
-                # twin_b 있으면 태그 강화
                 current_n = str(item.get('N구분', ''))
                 current_g = str(item.get('구분', ''))
 
@@ -9736,7 +9927,6 @@ def enrich_hits_with_supply_and_financial(all_hits_sorted, top_k_supply=80, top_
                         item['구분'] = (current_g + " 🍉쌍끌수급").strip()
                     item['안전점수'] += 20
 
-                # ✅ 수급 enrich 후 보조분류 업데이트
                 item['수급상태'] = classify_supply_state(item)
 
             except Exception as e:
@@ -10343,20 +10533,21 @@ def build_pre_dolbanji_block(title: str, df: pd.DataFrame, exact_mode: bool = Fa
         if exact_mode:
             p_score = safe_int(row.get('예비돌반지HTS정확점수', 0))
             p_tag = str(row.get('예비돌반지HTS정확태그', ''))
-            label = 'HTS정확'
+            label, label_comment = describe_dolbanji_label(exact_mode=True, lite_mode=False)
         elif bool(row.get('신규예비돌반지Lite', False)) and not bool(row.get('예비돌반지', False)):
             p_score = safe_int(row.get('신규예비돌반지Lite점수', 0))
             p_tag = str(row.get('신규예비돌반지Lite태그', ''))
-            label = '신규Lite'
+            label, label_comment = describe_dolbanji_label(exact_mode=False, lite_mode=True)
         else:
             p_score = safe_int(row.get('예비돌반지점수', 0))
             p_tag = str(row.get('예비돌반지태그', ''))
-            label = '예비돌반지'
+            label, label_comment = describe_dolbanji_label(exact_mode=False, lite_mode=False)
 
         lines.append(
             f"{rank}) [{name}]({code})\n"
             f"- 조합: {combo}\n"
-            f"- 단계: {stage} | {stage_tag}\n"
+            f"- 단계: {describe_stage_status(stage)} | {stage_tag}\n"
+            f"- 패턴: {label} | {label_comment}\n"
             f"- {label}점수: {p_score} | 안전:{safe_score} | N점수:{n_score}\n"
             + (f"- 라운드가격: {rn_tag} | {rn_comment}\n" if rn_tag else "")
             + f"- 태그: {p_tag}\n"
@@ -10985,12 +11176,12 @@ if __name__ == "__main__":
         bb30_gc  = bool(item.get('BB30시프트GC', False))
         bb30_val = _si(item.get('BB30시프트선', 0))
 
-        # ─── 단계 표시 (PASS_A/B만 표시, DROP은 생략)
+        # ─── 단계 표시 (PASS_A/B를 사람이 읽기 쉽게)
         stage_str = ''
         if stage == 'PASS_A':
-            stage_str = f"🧬PASS_A({item.get('S1날짜','?')[:5]}→{item.get('S3날짜','?')[:5]})"
+            stage_str = f"{describe_stage_status(stage)} ({item.get('S1날짜','?')[:5]}→{item.get('S3날짜','?')[:5]})"
         elif stage == 'PASS_B':
-            stage_str = f"🟣PASS_B({item.get('S2날짜','?')[:5]}→{item.get('S3날짜','?')[:5]})"
+            stage_str = f"{describe_stage_status(stage)} ({item.get('S2날짜','?')[:5]}→{item.get('S3날짜','?')[:5]})"
 
         # ─── 이격도 경고
         disp_warn = ''
@@ -11036,6 +11227,12 @@ if __name__ == "__main__":
         if bb30_str:
             entry += f"🎯 {bb30_str}\n"
 
+        supply_summary = str(item.get('수급요약', '') or '').strip()
+        supply_today = str(item.get('수급당일', '') or '').strip()
+        supply_3d = str(item.get('수급3일누적', '') or '').strip()
+        supply_streak = str(item.get('수급연속', '') or '').strip()
+        foreign_hold = str(item.get('외인보유요약', '') or '').strip()
+
         entry += (
             f"\n"
             f"💰 현재가:{price:,} | 이격:{disparity}{disp_warn} | RSI:{rsi}\n"
@@ -11043,8 +11240,19 @@ if __name__ == "__main__":
             f"🧭 {ma_comment[:42]}\n"
             f"🏦 수급:{supply} | 재무:{finance} | {energy}\n"
         )
+        if supply_summary:
+            entry += f"📌 수급요약:{supply_summary}\n"
+        if supply_today:
+            entry += f"💵 오늘수급:{supply_today}\n"
+        if supply_3d:
+            entry += f"📦 3일누적:{supply_3d}\n"
+        if supply_streak:
+            entry += f"🔁 연속:{supply_streak}\n"
+        if foreign_hold and foreign_hold != '미확인':
+            entry += f"🌍 외인보유:{foreign_hold}\n"
 
         # 세력 평단 (0이 아닐 때만)
+
         if sv60 > 0:
             entry += f"💎 평단:{sv60:,}원 | 이격:{gap_pct:+.1f}% | 매집:{maejip_days}일({vol_ratio:.1f}배)\n"
 
@@ -11151,7 +11359,12 @@ if __name__ == "__main__":
         if len(current_msg) + len(entry) > MAX_CHAR:
             send_telegram_photo(current_msg, imgs if imgs else [])
             imgs = []
-            current_msg = "📢 [오늘의 추천주 - 이어서]\n\n" + entry
+            entry_body = entry.lstrip('\n')
+            split_header = _section_title if _section_title else '📢 [오늘의 추천주 - 이어서]'
+            if split_header and not entry_body.startswith(split_header):
+                current_msg = f"{split_header}\n\n" + entry_body
+            else:
+                current_msg = entry_body
             log_debug(f"[메시지 분할] {len(current_msg)}자")
         else:
             current_msg += entry
