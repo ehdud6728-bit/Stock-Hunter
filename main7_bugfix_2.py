@@ -1719,6 +1719,111 @@ def compute_breakout_mode_fields(df: pd.DataFrame) -> pd.DataFrame:
     return work
 
 
+def _build_candidate_explain_lines(row: pd.Series, track: str = "preempt") -> tuple[str, str, str]:
+    def _b(x):
+        try:
+            return bool(x)
+        except Exception:
+            return False
+
+    def _f(x, default=0.0):
+        try:
+            return float(x)
+        except Exception:
+            return default
+
+    wm_state = str(row.get('수박최종상태', '') or '').strip()
+    rc_state = str(row.get('저항구름상태', '') or '').strip()
+    refine = '정제통과' if _b(row.get('수박정제통과', False)) else ('정제관찰' if _b(row.get('수박정제관찰', False)) else ('정제주의' if _b(row.get('수박정제주의', False)) else ''))
+    has_reanchor = _b(row.get('5일재안착', False))
+    has_reanchor_preview = _b(row.get('5일재안착예비', False))
+    breakout_priority = _is_breakout_priority_type(row)
+    late_flag = _b(row.get('수박디버그_late', False)) or (wm_state == '후행수박')
+    disparity = _f(row.get('이격', row.get('Disparity', 0)))
+    strong_energy = _b(row.get('저항구름강에너지', False))
+    reasons = []
+    lacks = []
+
+    if track == 'preempt':
+        if wm_state in ('초입수박', '눌림수박', 'Blue-2예비'):
+            reasons.append(wm_state)
+        elif wm_state:
+            reasons.append(wm_state)
+        if rc_state in ('저항전', '저항테스트'):
+            reasons.append(rc_state)
+        if has_reanchor:
+            reasons.append('5일재안착')
+        elif has_reanchor_preview:
+            lacks.append('5일재안착 확인')
+        if refine:
+            reasons.append(refine)
+
+        if rc_state == '저항혼합':
+            lacks.append('저항 위치 추가 확인')
+        elif rc_state == '저항돌파':
+            lacks.append('선취보다는 눌림 확인')
+        if breakout_priority:
+            lacks.append('돌파우선형 여부 확인')
+        if late_flag:
+            lacks.append('후행 구간 주의')
+        if disparity >= 118:
+            lacks.append('이격 과열')
+        elif disparity >= 112:
+            lacks.append('이격 부담')
+
+        if rc_state == '저항전' and not late_flag:
+            action = '소액 선진입보다 분할관찰이 유리하며, 5일선 재안착과 양봉 유지 시 대응합니다.' if not has_reanchor else '소액 분할 접근 가능하나, 5일선 이탈 시 보수적으로 대응합니다.'
+        else:
+            action = '바로 추격보다 한 번 더 확인이 유리하며, 재안착이나 거래량 보강 후 대응합니다.'
+    else:
+        if rc_state in ('저항돌파', '저항테스트'):
+            reasons.append(rc_state)
+        if strong_energy:
+            reasons.append('강에너지')
+        if breakout_priority:
+            reasons.append('돌파우선형')
+        if has_reanchor:
+            reasons.append('재안착')
+        if refine:
+            reasons.append(refine)
+        if wm_state:
+            reasons.append(wm_state)
+
+        if rc_state == '저항테스트':
+            lacks.append('구름 상단 안착 확인')
+        if not strong_energy and rc_state == '저항돌파':
+            lacks.append('거래량/힘 유지 확인')
+        if late_flag:
+            lacks.append('후행 구간 주의')
+        if disparity >= 118:
+            lacks.append('이격 과열')
+        elif disparity >= 112:
+            lacks.append('추격 부담')
+        if _b(row.get('수박정제주의', False)):
+            lacks.append('정제 미흡')
+
+        if rc_state == '저항돌파':
+            action = '돌파 추격보다 구름 상단 또는 5일선 눌림 확인 후 대응하는 편이 유리합니다.'
+        else:
+            action = '돌파 테스트 구간으로, 거래량 유지와 구름 상단 안착을 확인한 뒤 대응합니다.'
+
+    # dedupe keep order
+    def _uniq(items):
+        out = []
+        seen = set()
+        for x in items:
+            if x and x not in seen:
+                seen.add(x)
+                out.append(x)
+        return out
+
+    reasons = _uniq(reasons)
+    lacks = _uniq(lacks)
+    selected = ' + '.join(reasons[:4]) if reasons else '핵심 근거 집계 중'
+    lacking = ' / '.join(lacks[:3]) if lacks else '큰 부족 요인은 없지만 추격 여부는 별도 확인'
+    return selected, lacking, action
+
+
 def build_breakout_state_block(title: str, df: pd.DataFrame) -> str:
     if df is None or df.empty:
         return f"🚀 [{title}]\n- 해당 종목 없음\n"
@@ -1733,6 +1838,7 @@ def build_breakout_state_block(title: str, df: pd.DataFrame) -> str:
         reason = str(row.get('돌파이유', '') or '').strip()
         rc_tag = str(row.get('저항구름태그', '') or '').strip()
         refine_tag = str(row.get('수박정제태그', '') or '').strip()
+        selected, lacking, action = _build_candidate_explain_lines(row, track='breakout')
 
         lines.append(
             f"{rank}) {name}({code})\n"
@@ -1741,6 +1847,9 @@ def build_breakout_state_block(title: str, df: pd.DataFrame) -> str:
             + (f"- 정제: {refine_tag}\n" if refine_tag else "")
             + (f"- 해석: {comment}\n" if comment else "")
             + (f"- 이유: {reason}\n" if reason else "")
+            + (f"- 선정 이유: {selected}\n" if selected else "")
+            + (f"- 부족한 점: {lacking}\n" if lacking else "")
+            + (f"- 추천 대응: {action}\n" if action else "")
         )
     return "\n".join(lines).strip() + "\n"
 
@@ -1967,6 +2076,7 @@ def build_dante_state_block(title: str, df: pd.DataFrame) -> str:
         ma5_tag = str(row.get('5일재안착태그', '') or '').strip()
         rn_tag = str(row.get('라운드넘버태그', '') or '').strip()
         rn_comment = str(row.get('라운드넘버코멘트', '') or '').strip()
+        selected, lacking, action = _build_candidate_explain_lines(row, track='preempt')
 
         lines.append(
             f"{rank}) {name}({code})\n"
@@ -1977,6 +2087,9 @@ def build_dante_state_block(title: str, df: pd.DataFrame) -> str:
             + (f"- 정제: {refine_tag}\n" if refine_tag else "")
             + (f"- 해석: {comment}\n" if comment else "")
             + (f"- 이유: {reason}\n" if reason else "")
+            + (f"- 선정 이유: {selected}\n" if selected else "")
+            + (f"- 부족한 점: {lacking}\n" if lacking else "")
+            + (f"- 추천 대응: {action}\n" if action else "")
         )
     return "\n".join(lines).strip() + "\n"
 
