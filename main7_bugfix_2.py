@@ -1575,7 +1575,7 @@ def _is_breakout_priority_type(row) -> bool:
             return default
 
     wc_state = str(row.get('저항구름상태', '') or '').strip()
-    wm_state = str(row.get('수박최종상태', '') or '').strip()
+    wm_state = _resolve_track_display_state(row, track='breakout')
     strong_energy = _b(row.get('저항구름강에너지', False))
     late_flag = _b(row.get('수박디버그_late', False))
 
@@ -1720,7 +1720,7 @@ def compute_breakout_mode_fields(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _resolve_track_display_state(row: pd.Series, track: str = "preempt") -> str:
-    wm_state = str(row.get('수박최종상태', '') or '').strip()
+    wm_state = _resolve_track_display_state(row, track='breakout')
     if wm_state:
         return wm_state
 
@@ -1762,7 +1762,7 @@ def _recommendation_phase(row: pd.Series) -> str:
     if stage_track:
         return stage_track
 
-    wm_state = str(row.get('수박최종상태', '') or '').strip()
+    wm_state = _resolve_track_display_state(row, track='breakout')
     rc_state = str(row.get('저항구름상태', '') or '').strip()
     refine_state = _stage_refine_state(row)
     late_flag = bool(row.get('수박디버그_late', False)) or wm_state == '후행수박'
@@ -1844,14 +1844,14 @@ def _recommendation_priority_score(row: pd.Series) -> float:
 
 def _extract_grade_core(grade_text: str) -> str:
     grade_text = str(grade_text or '').strip()
-    for g in ['SSS+', 'SSS', 'SS', 'S', 'A', 'B', 'C']:
+    for g in ['SSS+', 'SSS', 'SS+', 'SS', 'S+', 'S', 'A', 'B', 'C']:
         if grade_text.endswith(g):
             return g
     return grade_text
 
 
 def _cap_grade_label(grade_text: str, max_grade: str = 'SSS+') -> str:
-    order = {'SSS+': 7, 'SSS': 6, 'SS': 5, 'S': 4, 'A': 3, 'B': 2, 'C': 1}
+    order = {'SSS+': 9, 'SSS': 8, 'SS+': 7, 'SS': 6, 'S+': 5, 'S': 4, 'A': 3, 'B': 2, 'C': 1}
     txt = str(grade_text or '').strip()
     cur = _extract_grade_core(txt)
     if cur not in order or max_grade not in order:
@@ -1871,11 +1871,13 @@ def _recommendation_max_grade(row: pd.Series) -> str:
         disparity = 0.0
 
     if phase == '후행형':
-        return 'S'
-    if phase in ('초동발생형', '돌파관찰형', '구름테스트관찰'):
+        return 'S+'
+    if phase in ('구조관찰', '돌파관찰형', '구름테스트관찰'):
+        return 'SS'
+    if phase == '초동발생형':
         return 'SS'
     if _stage_refine_state(row) == 'bad':
-        return 'SS'
+        return 'S+'
     if disparity >= 118:
         return 'SS'
     return 'SSS+'
@@ -1894,6 +1896,21 @@ def _recommendation_summary_line(row: pd.Series) -> str:
     if phase == '후행형':
         return '후행 구간으로, 신규 추격보다 보유자 대응과 눌림 재확인이 중요하다.'
     return '구조는 있으나 확인 신호가 더 필요하다.'
+
+
+def _recommendation_section_title(phase: str) -> str:
+    phase = str(phase or '').strip()
+    if phase == '선취형':
+        return '📌 [오늘의 선취형 추천]'
+    if phase == '돌파직전형':
+        return '🚀 [오늘의 돌파직전형 추천]'
+    if phase == '초동발생형':
+        return '🔥 [오늘의 초동발생형 추천]'
+    if phase in ('돌파관찰형', '구름테스트관찰', '구조관찰', '중립관찰'):
+        return '👀 [오늘의 관찰형 참고]'
+    if phase == '후행형':
+        return '🛡️ [오늘의 후행형 참고]'
+    return '📢 [오늘의 추천주]'
 
 
 def _apply_recommendation_alignment(df: pd.DataFrame) -> pd.DataFrame:
@@ -1922,7 +1939,7 @@ def _build_candidate_explain_lines(row: pd.Series, track: str = "preempt") -> tu
         except Exception:
             return default
 
-    wm_state = str(row.get('수박최종상태', '') or '').strip()
+    wm_state = _resolve_track_display_state(row, track='breakout')
     rc_state = str(row.get('저항구름상태', '') or '').strip()
     refine = '정제통과' if _b(row.get('수박정제통과', False)) else ('정제관찰' if _b(row.get('수박정제관찰', False)) else ('정제주의' if _b(row.get('수박정제주의', False)) else ''))
     has_reanchor = _b(row.get('5일재안착', False))
@@ -2231,7 +2248,7 @@ def build_breakout_state_block(title: str, df: pd.DataFrame) -> str:
     for rank, (_, row) in enumerate(df.head(5).iterrows(), start=1):
         name = str(row.get('종목명', row.get('name', '')) or '').strip()
         code = str(row.get('code', row.get('종목코드', '')) or '').strip()
-        wm_state = str(row.get('수박최종상태', '') or '').strip()
+        wm_state = _resolve_track_display_state(row, track='breakout')
         score = int(float(row.get('돌파점수', 0) or 0))
         comment = str(row.get('돌파코멘트', '') or '').strip()
         reason = str(row.get('돌파이유', '') or '').strip()
@@ -2289,7 +2306,7 @@ def compute_dante_mode_fields(df: pd.DataFrame) -> pd.DataFrame:
 
     for _, row in work.iterrows():
         wc_state = str(row.get('저항구름상태', '') or '').strip()
-        wm_state = str(row.get('수박최종상태', '') or '').strip()
+        wm_state = _resolve_track_display_state(row, track='breakout')
 
         ma112 = _f(row.get('MA112', row.get('ma112', 0)))
         ma224 = _f(row.get('MA224', row.get('ma224', 0)))
@@ -2315,7 +2332,7 @@ def compute_dante_mode_fields(df: pd.DataFrame) -> pd.DataFrame:
             reasons.append("장기저항근처")
         else:
             d_score -= 18
-            reasons.append("장기저항상회")
+            reasons.append("장기저항근접")
 
         if wc_state == '저항전':
             if _i(row.get('흰구름근접투표', 0)) >= 2:
@@ -10779,6 +10796,7 @@ if __name__ == "__main__":
     stage_block += build_stage_track_block("단계 기반 초동발생형 TOP 5", stage_burst_top5)
     log_debug(f"🚀 stage_block 길이: {len(stage_block)}")
  
+    _last_rec_section = None
     for _, item in telegram_targets.iterrows():
         # ─── 헬퍼
         def _si(v, d=0):
@@ -10873,17 +10891,24 @@ if __name__ == "__main__":
             disc_str = f"{_disc_icon} 공시: {disc_tag}{_disc_detail}" 
 
         # ─── AI 코멘트 핵심만 (첫 줄만)
+        rec_phase = str(item.get('추천단계','') or '').strip()
         ai_short = f"💡 한 줄 결론: {_recommendation_summary_line(item)}"
 
         # ════════════════════════════════════
         # 최종 메시지 포맷 (간결 + 구조적)
         # ════════════════════════════════════
-        entry = (
+        entry = ""
+        _section_title = _recommendation_section_title(rec_phase)
+        if _section_title != _last_rec_section:
+            entry += f"\n{_section_title}\n\n"
+            _last_rec_section = _section_title
+
+        entry += (
             f"{'─'*28}\n"
             f"⭐ {n_grade}  [{name_str}]  {price:,}원\n"
             f"🎯 {n_combo}\n"
             f"🏷️ {key_tags}\n"
-            f"🪜 유형:{str(item.get('추천단계','') or '').strip()}\n"
+            f"🪜 유형:{rec_phase}\n"
         )
 
         # 단계 (PASS만)
