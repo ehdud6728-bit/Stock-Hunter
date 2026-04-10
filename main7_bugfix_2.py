@@ -2061,6 +2061,90 @@ def build_watermelon_state_block(title: str, df: pd.DataFrame) -> str:
         )
     return "\n".join(lines)
 
+
+def build_watermelon_debug_block(title: str, df: pd.DataFrame) -> str:
+    """
+    수박/파란점 상태 분류가 왜 통과/실패했는지 디버그용으로 보여준다.
+    누락 컬럼이 있어도 죽지 않도록 안전하게 0/빈값으로 처리한다.
+    """
+    if df is None or df.empty:
+        return f"🔬 [{title}]\n- 해당 종목 없음\n"
+
+    def _b(row, col: str, default: int = 0) -> int:
+        try:
+            v = row.get(col, default)
+            if pd.isna(v):
+                return default
+            if isinstance(v, (bool, np.bool_)):
+                return int(bool(v))
+            return int(v)
+        except Exception:
+            try:
+                return int(bool(row.get(col, default)))
+            except Exception:
+                return default
+
+    lines = [f"🔬 [{title}]\n"]
+    for rank, (_, row) in enumerate(df.iterrows(), 1):
+        name = str(row.get('종목명', ''))
+        code = str(row.get('code', ''))
+        state = str(row.get('수박최종상태', row.get('수박상태명', '')))
+
+        gate_parts = [
+            f"intro_box={_b(row, '수박디버그_intro_box')}",
+            f"change={_b(row, '수박디버그_change')}",
+            f"red_raw={_b(row, '수박디버그_red_raw')}",
+            f"red_onset={_b(row, '수박디버그_red_onset')}",
+            f"blue1_onset={_b(row, '수박디버그_blue1_onset')}",
+            f"pullback_box={_b(row, '수박디버그_pullback_box')}",
+            f"red2_raw={_b(row, '수박디버그_red2_raw')}",
+            f"blue2_onset={_b(row, '수박디버그_blue2_onset')}",
+            f"late={_b(row, '수박디버그_late')}",
+            f"blue_confirm={_b(row, 'blue_confirm', -1)}",
+        ]
+
+        intro_sub_parts = [
+            f"range={_b(row, '수박디버그_box_range_ok')}",
+            f"attack_band={_b(row, '수박디버그_attack_band_ok')}",
+            f"ret7={_b(row, '수박디버그_ret7_ok')}",
+            f"ret15={_b(row, '수박디버그_ret15_ok')}",
+            f"ret20={_b(row, '수박디버그_ret20_ok')}",
+            f"dayup={_b(row, '수박디버그_dayup_ok')}",
+            f"top_near={_b(row, '수박디버그_top_near_ok')}",
+            f"vol_calm={_b(row, '수박디버그_vol_calm_ok')}",
+            f"no_blue1={_b(row, '수박디버그_no_blue1_ok')}",
+            f"no_blue2={_b(row, '수박디버그_no_blue2_ok')}",
+            f"not_late={_b(row, '수박디버그_not_late_ok')}",
+        ]
+
+        red2_sub_parts = [
+            f"pb={_b(row, '수박디버그_red2_pullback_ok')}",
+            f"chg={_b(row, '수박디버그_red2_change_ok')}",
+            f"c20={_b(row, '수박디버그_red2_close_ma20_ok')}",
+            f"m520={_b(row, '수박디버그_red2_ma5_ma20_ok')}",
+            f"pbox={_b(row, '수박디버그_red2_prevbox_ok')}",
+            f"vol={_b(row, '수박디버그_red2_vol_ok')}",
+            f"candle={_b(row, '수박디버그_red2_candle_ok')}",
+            f"not_late={_b(row, '수박디버그_red2_not_late_ok')}",
+            f"struct={_b(row, '수박디버그_red2_structure_ok')}",
+            f"soft={_b(row, '수박디버그_red2_soft_ok')}",
+            f"strong={_b(row, '수박디버그_blue2_strong')}",
+            f"preview={_b(row, '수박디버그_blue2_preview')}",
+            f"prev_clear={_b(row, '수박디버그_blue2_prev_clear_ok')}",
+            f"ctx={_b(row, '수박디버그_blue2_context_ok')}",
+            f"vol2={_b(row, '수박디버그_blue2_vol2_ok')}",
+        ]
+
+        lines.append(
+            f"{rank}) {name}({code})\n"
+            f"- 최종상태: {state}\n"
+            f"- gate: {' / '.join(gate_parts)}\n"
+            f"- intro_sub: {' / '.join(intro_sub_parts)}\n"
+            f"- red2_sub: {' / '.join(red2_sub_parts)}\n"
+        )
+
+    return "\n".join(lines)
+
 # scan_logger 없으면 print로 폴백
 
 # ✅ 오류/에러 로그만 남기도록 강제
