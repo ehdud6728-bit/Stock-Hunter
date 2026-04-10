@@ -252,6 +252,95 @@ def check_ma_convergence_break_ready(curr: pd.Series, past: pd.DataFrame):
 # ---------------------------------------------------------
 # 📈 [4] 기술적 분석 지표
 # ---------------------------------------------------------
+
+def check_force_pullback(curr: pd.Series, past: pd.DataFrame):
+    """
+    세력 눌림목:
+    - 최근 구간 강한 양봉/거래량 폭증 흔적
+    - 현재는 과열보다 눌림 구간
+    - 거래량 감소 + OBV 훼손 제한 + 이평 재근접
+    """
+    if past is None or past.empty or len(past) < 10:
+        return False, "데이터 부족"
+
+    try:
+        strong_candle = (
+            ((past['Close'] > past['Open']) & (((past['Close'] - past['Open']) / (past['Open'] + 1e-9)) * 100 >= 8))
+            & (past['Volume'] > past['Vol_Avg'] * 1.8)
+        ).any()
+
+        volume_cooling = curr['Volume'] < (curr['Vol_Avg'] * 0.8)
+        near_ma20 = abs(curr['Close'] - curr['MA20']) / (curr['MA20'] + 1e-9) <= 0.03
+        near_ma40 = abs(curr['Close'] - curr['MA40']) / (curr['MA40'] + 1e-9) <= 0.04
+        obv_safe = curr['OBV'] >= past['OBV'].tail(5).min()
+        candle_not_broken = curr['Close'] >= curr['MA20'] * 0.97
+
+        passed = bool(strong_candle and volume_cooling and (near_ma20 or near_ma40) and obv_safe and candle_not_broken)
+        return passed, f"강봉흔적:{strong_candle}, 거래량감소:{volume_cooling}, 이평근접:{near_ma20 or near_ma40}, OBV방어:{obv_safe}"
+    except Exception as e:
+        return False, f"계산실패:{e}"
+
+
+def check_bb40_second_wave(curr: pd.Series, past: pd.DataFrame):
+    """BB40 재안착 후 2차 파동"""
+    if past is None or past.empty or len(past) < 15:
+        return False, "데이터 부족"
+
+    try:
+        bb40_break = (past['Low'] < past['BB40_Lower']).any()
+        bb40_reclaim = (past['Close'] > past['BB40_Lower']).any()
+        above_mid = curr['Close'] > curr['MA40']
+        bb_expand = curr['BB40_Width'] > past['BB40_Width'].tail(5).mean()
+        obv_up = curr['OBV'] > past['OBV'].tail(5).max()
+        rsi_up = curr['RSI'] > past['RSI'].tail(5).max()
+
+        passed = bool(bb40_break and bb40_reclaim and above_mid and (obv_up or rsi_up) and bb_expand)
+        return passed, f"BB40이탈:{bb40_break}, 복귀:{bb40_reclaim}, 중심선위:{above_mid}, OBV상승:{obv_up}, RSI상승:{rsi_up}"
+    except Exception as e:
+        return False, f"계산실패:{e}"
+
+
+def check_watermelon_relaunch(curr: pd.Series, past: pd.DataFrame):
+    """수박 눌림 후 재시동"""
+    if past is None or past.empty or len(past) < 15:
+        return False, "데이터 부족"
+
+    try:
+        had_watermelon = past['Watermelon_Signal'].tail(15).any()
+        pullback_happened = (
+            (past['Close'] < past['MA20']).tail(10).any()
+            or (past['Volume'] < past['Vol_Avg']).tail(10).any()
+        )
+        relaunch = (
+            (curr['Watermelon_Color'] == 'red')
+            and (curr['Volume'] > curr['Vol_Avg'] * 1.2)
+            and (curr['Close'] >= curr['Open'])
+        )
+        obv_hold = bool(curr.get('OBV_Rising', False))
+
+        passed = bool(had_watermelon and pullback_happened and relaunch and obv_hold)
+        return passed, f"기존수박:{had_watermelon}, 눌림:{pullback_happened}, 재시동:{relaunch}, OBV유지:{obv_hold}"
+    except Exception as e:
+        return False, f"계산실패:{e}"
+
+
+def check_obv_acc_breakout(curr: pd.Series, past: pd.DataFrame):
+    """OBV 매집 후 돌파"""
+    if past is None or past.empty or len(past) < 20:
+        return False, "데이터 부족"
+
+    try:
+        box_range = (past['High'].max() / (past['Low'].min() + 1e-9)) <= 1.18
+        obv_acc = curr['OBV'] > past['OBV'].tail(10).max()
+        price_break = curr['Close'] > past['High'].tail(10).max()
+        vol_break = curr['Volume'] > curr['Vol_Avg'] * 1.5
+
+        passed = bool(box_range and obv_acc and price_break and vol_break)
+        return passed, f"박스권:{box_range}, OBV매집:{obv_acc}, 가격돌파:{price_break}, 거래량:{vol_break}"
+    except Exception as e:
+        return False, f"계산실패:{e}"
+
+
 def get_indicators(df):
     df = df.copy()
     count = len(df)
