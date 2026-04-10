@@ -113,3 +113,118 @@ jobs:
       - name: Run scanner
         run: |
           python main7_bugfix_2.py
+name: Run Main Scanner
+
+on:
+  schedule:
+    # 한국시간 평일 오전 8:52
+    - cron: '52 21 * * 0-4'
+    # 한국시간 평일 오후 2:52
+    - cron: '52 05 * * 1-5'
+  workflow_dispatch:
+    inputs:
+      run_profile:
+        description: "실행 프로필 선택"
+        required: true
+        default: TEST_FAST
+        type: choice
+        options:
+          - REAL_FULL
+          - TEST_FULL
+          - TEST_FAST
+      test_chat_id_override:
+        description: "테스트 채널 ID 직접 입력 (선택)"
+        required: false
+        default: "8325973023"
+        type: string
+
+jobs:
+  run-scanner:
+    runs-on: ubuntu-latest
+    env:
+      TZ: Asia/Seoul
+      TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      TELEGRAM_TEST_CHAT_ID: ${{ secrets.TELEGRAM_TEST_CHAT_ID }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      DART_API_KEY: ${{ secrets.DART_API_KEY }}
+      GOOGLE_JSON_KEY: ${{ secrets.GOOGLE_JSON_KEY }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve run profile
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            PROFILE="${{ inputs.run_profile }}"
+            TEST_CHAT_OVERRIDE="${{ inputs.test_chat_id_override }}"
+          else
+            PROFILE="REAL_FULL"
+            TEST_CHAT_OVERRIDE=""
+          fi
+
+          echo "TEST_PROFILE=${PROFILE}" >> $GITHUB_ENV
+          echo "TELEGRAM_CHAT_ID_EFFECTIVE=${TEST_CHAT_OVERRIDE}" >> $GITHUB_ENV
+
+          case "${PROFILE}" in
+            REAL_FULL)
+              echo "TEST_MODE=0" >> $GITHUB_ENV
+              echo "SKIP_AI_IN_TEST=0" >> $GITHUB_ENV
+              echo "SKIP_CHART_IN_TEST=0" >> $GITHUB_ENV
+              echo "SKIP_GOOGLE_IN_TEST=0" >> $GITHUB_ENV
+              ;;
+            TEST_FULL)
+              echo "TEST_MODE=1" >> $GITHUB_ENV
+              echo "SKIP_AI_IN_TEST=1" >> $GITHUB_ENV
+              echo "SKIP_CHART_IN_TEST=0" >> $GITHUB_ENV
+              echo "SKIP_GOOGLE_IN_TEST=0" >> $GITHUB_ENV
+              ;;
+            TEST_FAST)
+              echo "TEST_MODE=1" >> $GITHUB_ENV
+              echo "SKIP_AI_IN_TEST=1" >> $GITHUB_ENV
+              echo "SKIP_CHART_IN_TEST=1" >> $GITHUB_ENV
+              echo "SKIP_GOOGLE_IN_TEST=1" >> $GITHUB_ENV
+              ;;
+            *)
+              echo "TEST_PROFILE=REAL_FULL" >> $GITHUB_ENV
+              echo "TEST_MODE=0" >> $GITHUB_ENV
+              echo "SKIP_AI_IN_TEST=0" >> $GITHUB_ENV
+              echo "SKIP_CHART_IN_TEST=0" >> $GITHUB_ENV
+              echo "SKIP_GOOGLE_IN_TEST=0" >> $GITHUB_ENV
+              ;;
+          esac
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Upgrade pip
+        run: python -m pip install --upgrade pip
+
+      - name: Install dependencies
+        run: |
+          pip install pandas
+          pip install requests beautifulsoup4 pytz scipy ta
+          pip install finance-datareader pykrx mplfinance
+          pip install openai google-generativeai
+          pip install gspread gspread-formatting gspread-dataframe google-auth oauth2client
+          pip install -r requirements.txt
+
+      - name: Show run mode
+        run: |
+          echo "TEST_PROFILE=${TEST_PROFILE}"
+          echo "TEST_MODE=${TEST_MODE}"
+          echo "SKIP_AI_IN_TEST=${SKIP_AI_IN_TEST}"
+          echo "SKIP_CHART_IN_TEST=${SKIP_CHART_IN_TEST}"
+          echo "SKIP_GOOGLE_IN_TEST=${SKIP_GOOGLE_IN_TEST}"
+          echo "TELEGRAM_CHAT_ID_EFFECTIVE=${TELEGRAM_CHAT_ID_EFFECTIVE}"
+
+      - name: Run scanner
+        run: |
+          python main7_bugfix_2.py
