@@ -1575,7 +1575,14 @@ def _is_breakout_priority_type(row) -> bool:
             return default
 
     wc_state = str(row.get('저항구름상태', '') or '').strip()
-    wm_state = _resolve_track_display_state(row, track='breakout')
+    # 주의: 여기서 _resolve_track_display_state()를 다시 부르면
+    # _resolve_track_display_state -> _is_breakout_priority_type -> _resolve_track_display_state
+    # 순환 참조가 생길 수 있으므로, 원본 상태 컬럼만 직접 읽는다.
+    wm_state = str(
+        row.get('수박최종상태', row.get('최종상태', row.get('상태', ''))) or ''
+    ).strip()
+    if not wm_state:
+        wm_state = str(row.get('돌파상태', row.get('선취상태', '')) or '').strip()
     strong_energy = _b(row.get('저항구름강에너지', False))
     late_flag = _b(row.get('수박디버그_late', False))
 
