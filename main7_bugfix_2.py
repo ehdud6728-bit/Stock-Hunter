@@ -1720,7 +1720,10 @@ def compute_breakout_mode_fields(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _resolve_track_display_state(row: pd.Series, track: str = "preempt") -> str:
-    wm_state = _resolve_track_display_state(row, track='breakout')
+    # 이미 계산된 상태가 있으면 우선 사용한다.
+    wm_state = str(
+        row.get('수박최종상태', row.get('최종상태', row.get('상태', ''))) or ''
+    ).strip()
     if wm_state:
         return wm_state
 
@@ -2768,6 +2771,28 @@ def _env_flag(name: str, default: bool = False) -> bool:
     return raw in ('1', 'true', 't', 'yes', 'y', 'on')
 
 
+def _env_str(name: str, default: str = '') -> str:
+    return str(os.environ.get(name, default)).strip()
+
+
+def _normalize_test_profile(raw: str) -> str:
+    profile = str(raw or '').strip().upper()
+    alias = {
+        'REAL': 'REAL_FULL',
+        'REAL_FULL': 'REAL_FULL',
+        'LIVE': 'REAL_FULL',
+        'PROD': 'REAL_FULL',
+        'PRODUCTION': 'REAL_FULL',
+        'TEST': 'TEST_FULL',
+        'TEST_FULL': 'TEST_FULL',
+        'FULL': 'TEST_FULL',
+        'TEST_FAST': 'TEST_FAST',
+        'FAST': 'TEST_FAST',
+        'QUICK': 'TEST_FAST',
+    }
+    return alias.get(profile, '')
+
+
 def _parse_chat_ids(raw: str):
     return [x.strip() for x in str(raw or '').split(',') if x.strip()]
 
@@ -2787,7 +2812,48 @@ def get_target_chat_ids():
     return real_ids, 'real'
 
 
-TEST_MODE = _env_flag('TEST_MODE', False)
+TEST_PROFILE = _normalize_test_profile(_env_str('TEST_PROFILE', ''))
+if not TEST_PROFILE:
+    if _env_flag('TEST_MODE', False):
+        TEST_PROFILE = 'TEST_FAST' if _env_flag('SKIP_CHART_IN_TEST', False) or _env_flag('SKIP_GOOGLE_IN_TEST', False) else 'TEST_FULL'
+    else:
+        TEST_PROFILE = 'REAL_FULL'
+
+TEST_MODE = TEST_PROFILE.startswith('TEST')
+SKIP_AI_IN_TEST = _env_flag('SKIP_AI_IN_TEST', TEST_PROFILE in ('TEST_FULL', 'TEST_FAST'))
+SKIP_CHART_IN_TEST = _env_flag('SKIP_CHART_IN_TEST', TEST_PROFILE == 'TEST_FAST')
+SKIP_GOOGLE_IN_TEST = _env_flag('SKIP_GOOGLE_IN_TEST', TEST_PROFILE == 'TEST_FAST')
+
+def should_skip_ai() -> bool:
+    return TEST_MODE and SKIP_AI_IN_TEST
+
+
+def should_skip_chart() -> bool:
+    return TEST_MODE and SKIP_CHART_IN_TEST
+
+
+def should_skip_google_update() -> bool:
+    return TEST_MODE and SKIP_GOOGLE_IN_TEST
+
+def get_test_mode_ai_placeholder(title: str) -> str:
+    return f"🤖 [TEST MODE] {title} 생략"
+
+def build_test_mode_macro_briefing_result() -> dict:
+    return {
+        'market_briefing': {
+            'market_risk_score': 'TEST',
+            'market_state': 'AI 생략',
+            'korea_bias': '중립',
+            'trading_stance': '핵심 스캔 결과 우선 확인',
+            'oil_impact': 'AI 생략',
+            'summary': 'TEST 모드에서는 시장 통합 AI 브리핑을 생략합니다.',
+        },
+        'sector_view': {'favorable_sectors': [], 'unfavorable_sectors': []},
+        'top_pick': {'name': '', 'code': '', 'reason': 'AI 생략'},
+        'avoid_first': {'name': '', 'code': '', 'reason': 'AI 생략'},
+        'today_checkpoints': ['AI 생략', '수급/차트/단계 결과 우선 확인'],
+    }
+
 SHOW_WM_DEBUG = TEST_MODE
 SHOW_WM_DEBUG_ON_ALERT = True
 
@@ -10296,20 +10362,32 @@ def build_pre_dolbanji_block(title: str, df: pd.DataFrame, exact_mode: bool = Fa
 if __name__ == "__main__":
     log_info("🚀 전략 사령부 가동 시작...")
 
+    if TEST_MODE:
+        log_info(f"🧪 [TEST MODE] 프로필: {TEST_PROFILE}")
+    if should_skip_ai():
+        log_info("🧪 [TEST MODE] AI 토너먼트 / AI 코멘트 / AI 브리핑 생략")
+    if should_skip_chart():
+        log_info("🧪 [TEST MODE] 차트 생성 생략")
+    if should_skip_google_update():
+        log_info("🧪 [TEST MODE] 구글시트 업데이트 생략")
+
     _tg_ids, _tg_mode = get_target_chat_ids()
     if TEST_MODE:
         _override_preview = ','.join(_parse_chat_ids(TELEGRAM_CHAT_ID_EFFECTIVE or TEST_CHAT_ID_OVERRIDE))
         if _override_preview:
-            log_info(f"🧪 TEST_MODE 활성화 | 대상방 수: {len(_tg_ids)} | 모드: {_tg_mode} | override: {_override_preview}")
+            log_info(f"🧪 TEST_MODE 활성화 | 프로필: {TEST_PROFILE} | 대상방 수: {len(_tg_ids)} | 모드: {_tg_mode} | override: {_override_preview}")
         else:
-            log_info(f"🧪 TEST_MODE 활성화 | 대상방 수: {len(_tg_ids)} | 모드: {_tg_mode}")
+            log_info(f"🧪 TEST_MODE 활성화 | 프로필: {TEST_PROFILE} | 대상방 수: {len(_tg_ids)} | 모드: {_tg_mode}")
     else:
         log_info(f"📨 실전 전송 모드 | 대상방 수: {len(_tg_ids)}")
     
-    client = OpenAI()
-    models = client.models.list()
-    for m in models.data:
-        log_debug(m.id)
+    if should_skip_ai():
+        log_info("🧪 [TEST MODE] OpenAI 모델 조회 생략")
+    else:
+        client = OpenAI()
+        models = client.models.list()
+        for m in models.data:
+            log_debug(m.id)
      
     global_env, leader_env = get_global_and_leader_status()
 
@@ -10355,7 +10433,10 @@ if __name__ == "__main__":
     log_info(f"🧢 {extended_macro_pack.get('russell', {}).get('text', '러셀2000: 연결실패')} | {extended_macro_pack.get('us10y', {}).get('text', '미10년금리: 연결실패')} | {extended_macro_pack.get('sp500_fut', {}).get('text', 'S&P500선물: 연결실패')} | {extended_macro_pack.get('nasdaq_fut', {}).get('text', '나스닥100선물: 연결실패')}")
     log_info("=" * 60)
 
-    imgs = [create_index_chart('KS11', 'KOSPI'), create_index_chart('IXIC', 'NASDAQ')]
+    if should_skip_chart():
+        imgs = []
+    else:
+        imgs = [create_index_chart('KS11', 'KOSPI'), create_index_chart('IXIC', 'NASDAQ')]
 
     sector_results, directions = detect_leading_sectors(
         m_ndx, m_sp5, m_vix, m_wti, m_fx, extended_market_pack=extended_macro_pack
@@ -10365,7 +10446,10 @@ if __name__ == "__main__":
     log_debug(sector_report)
 
     issues = analyze_market_issues()
-    briefing = get_market_briefing(issues)
+    if should_skip_ai():
+        briefing = get_test_mode_ai_placeholder('시황 브리핑')
+    else:
+        briefing = get_market_briefing(issues)
 
     # ✅ 뉴스 수집
     market_news_map = collect_market_news()
@@ -10393,7 +10477,10 @@ if __name__ == "__main__":
 
     log_debug(us_mapping_text)
 
-    oil_briefing = get_oil_sector_briefing(m_wti, m_brent, sector_results, issues)
+    if should_skip_ai():
+        oil_briefing = get_test_mode_ai_placeholder('유가 섹터 브리핑')
+    else:
+        oil_briefing = get_oil_sector_briefing(m_wti, m_brent, sector_results, issues)
 
     df_krx = normalize_leader_scanner_columns(df_krx)
     df_clean = df_krx[df_krx['Market'].isin(['KOSPI', 'KOSDAQ','코스닥','유가'])].copy()
@@ -10562,24 +10649,31 @@ if __name__ == "__main__":
     log_info(f"🚀 흰구름 돌파 후보 TOP5 수: {len(breakout_pick_df)}")
     log_info(f"👀 흰구름 돌파 관찰 TOP5 수: {len(breakout_watch_df)}")
 
-    log_info("🌍 시장 + 후보종목 통합 AI 브리핑 생성 중...")
-    macro_briefing_result = run_macro_candidate_briefing(
-        ai_candidates=ai_candidates,
-        m_ndx=m_ndx, m_sp5=m_sp5, m_vix=m_vix, m_fx=m_fx,
-        m_wti=m_wti,
-        sector_results=sector_results,
-        issues=issues,
-        extended_macro_pack=extended_macro_pack,
-    )
+    if should_skip_ai():
+        log_info("🧪 [TEST MODE] 시장 + 후보종목 통합 AI 브리핑 생략")
+        macro_briefing_result = build_test_mode_macro_briefing_result()
+    else:
+        log_info("🌍 시장 + 후보종목 통합 AI 브리핑 생성 중...")
+        macro_briefing_result = run_macro_candidate_briefing(
+            ai_candidates=ai_candidates,
+            m_ndx=m_ndx, m_sp5=m_sp5, m_vix=m_vix, m_fx=m_fx,
+            m_wti=m_wti,
+            sector_results=sector_results,
+            issues=issues,
+            extended_macro_pack=extended_macro_pack,
+        )
 
-    log_debug("✅ 통합 AI 브리핑 결과:")
-    log_debug(json.dumps(macro_briefing_result, ensure_ascii=False, indent=2))
+        log_debug("✅ 통합 AI 브리핑 결과:")
+        log_debug(json.dumps(macro_briefing_result, ensure_ascii=False, indent=2))
 
-    try:
-        update_ai_briefing_sheet(macro_briefing_result, TODAY_STR)
-        log_info("💾 AI_Briefing 시트 저장 완료")
-    except Exception as e:
-        log_error(f"🚨 AI_Briefing 저장 실패: {e}")
+        if should_skip_google_update():
+            log_info("🧪 [TEST MODE] AI_Briefing 시트 업데이트 생략")
+        else:
+            try:
+                update_ai_briefing_sheet(macro_briefing_result, TODAY_STR)
+                log_info("💾 AI_Briefing 시트 저장 완료")
+            except Exception as e:
+                log_error(f"🚨 AI_Briefing 저장 실패: {e}")
 
     macro_briefing_text = format_macro_briefing_for_telegram(macro_briefing_result)
 
@@ -10605,15 +10699,19 @@ if __name__ == "__main__":
             except: pass
         ai_candidates.at[idx, 'news_sentiment'] = news_str
 
-    log_info("🧠 상위 30개 종목 AI 심층 분석 중...")
-    log_info(f"  OPENAI_API_KEY:    {'✅' if OPENAI_API_KEY else '❌ 없음'}")
-    log_info(f"  ANTHROPIC_API_KEY: {'🚫 비활성화' if DISABLE_CLAUDE else ('✅' if ANTHROPIC_API_KEY else '❌ 없음')}")
-    log_info(f"  GEMINI_API_KEY:    {'✅' if GEMINI_API_KEY else '❌ 없음'}")
-    log_info(f"  GROQ_API_KEY:      {'✅' if GROQ_API_KEY else '❌ 없음'}")
-    tournament_report = run_ai_tournament(ai_candidates, issues)
-    log_info(f"  토너먼트 결과 길이: {len(tournament_report)}자")
-    if not tournament_report or len(tournament_report) < 10:
-        log_error("⚠️ 토너먼트 결과 없음 — API 키 또는 네트워크 문제")
+    if should_skip_ai():
+        log_info("🧪 [TEST MODE] 상위 30개 종목 AI 심층 분석 생략")
+        tournament_report = ""
+    else:
+        log_info("🧠 상위 30개 종목 AI 심층 분석 중...")
+        log_info(f"  OPENAI_API_KEY:    {'✅' if OPENAI_API_KEY else '❌ 없음'}")
+        log_info(f"  ANTHROPIC_API_KEY: {'🚫 비활성화' if DISABLE_CLAUDE else ('✅' if ANTHROPIC_API_KEY else '❌ 없음')}")
+        log_info(f"  GEMINI_API_KEY:    {'✅' if GEMINI_API_KEY else '❌ 없음'}")
+        log_info(f"  GROQ_API_KEY:      {'✅' if GROQ_API_KEY else '❌ 없음'}")
+        tournament_report = run_ai_tournament(ai_candidates, issues)
+        log_info(f"  토너먼트 결과 길이: {len(tournament_report)}자")
+        if not tournament_report or len(tournament_report) < 10:
+            log_error("⚠️ 토너먼트 결과 없음 — API 키 또는 네트워크 문제")
  
     log_info("📊 수박지표 차트 생성 중...")
     # ✅ BUGFIX: Watermelonchart.py가 기대하는 컬럼 누락 시 빈값으로 보완
@@ -10625,7 +10723,11 @@ if __name__ == "__main__":
             ai_candidates[_col] = ''
 
     try:
-        chart_paths = create_watermelon_charts_for_hits(ai_candidates, top_n=5)
+        if should_skip_chart():
+            chart_paths = []
+            log_info("🧪 [TEST MODE] 종목 차트 생성 생략")
+        else:
+            chart_paths = create_watermelon_charts_for_hits(ai_candidates, top_n=5)
     except Exception as e:
         log_error(f"⚠️ 차트 생성 실패 (무시하고 계속): {e}")
         chart_paths = []
@@ -10641,11 +10743,16 @@ if __name__ == "__main__":
         except: return default
     
     # market_news_titles를 issues와 함께 전달 (시장 맥락 제공)
-    ai_result_text = get_ai_summary_batch(ai_candidates, issues, market_news_titles)
+    if should_skip_ai():
+        log_info("🧪 [TEST MODE] AI 코멘트 생성 생략")
+        ai_result_text = ""
+        ai_map = {}
+    else:
+        ai_result_text = get_ai_summary_batch(ai_candidates, issues, market_news_titles)
 
-    # ✅ 파싱 복구 (유연 파서 + 규칙기반 fallback)
-    ai_map = parse_ai_summary_to_map(ai_result_text)
-    log_info(f"🧠 AI 코멘트 파싱 성공 수: {len(ai_map)} / 후보 {len(ai_candidates)}")
+        # ✅ 파싱 복구 (유연 파서 + 규칙기반 fallback)
+        ai_map = parse_ai_summary_to_map(ai_result_text)
+        log_info(f"🧠 AI 코멘트 파싱 성공 수: {len(ai_map)} / 후보 {len(ai_candidates)}")
 
     # ✅ ai_tip 주입
     for idx, item in ai_candidates.iterrows():
@@ -10669,7 +10776,10 @@ if __name__ == "__main__":
 
     ai_debate_text = ""
     ai_debate_rows = []
-    ai_candidates, ai_debate_text, ai_debate_rows = _run_main7_ai_debate(ai_candidates, issues, market_news_titles)
+    if should_skip_ai():
+        log_info("🧪 [TEST MODE] AI 심판 코멘트 생략")
+    else:
+        ai_candidates, ai_debate_text, ai_debate_rows = _run_main7_ai_debate(ai_candidates, issues, market_news_titles)
 
     # ✅ PASS 후보는 전체 후보와 분리 유지 (TOP15 본문과 섞지 않음)
     if '단계상태' in ai_candidates.columns:
@@ -11060,11 +11170,14 @@ if __name__ == "__main__":
     else:
         log_error("⚠️ 토너먼트 결과 없어서 전송 생략")
 
-    try:
-        update_google_sheet(all_hits_sorted, TODAY_STR, tournament_report + "\n\n" + (ai_debate_text or "") + "\n" + stage_block + "\n" + pre_block + "\n" + exact_block + "\n" + lite_block + "\n" + wm_green_block + "\n" + wm_red_block + "\n" + wm_blue_block + "\n" + wm_intro_block + "\n" + wm_pullback_block + "\n" + wm_late_block + "\n" + wm_blue1_block + "\n" + wm_blue2_block)
-        log_info(f"💾 총 {len(all_hits_sorted)}개 종목 전수 기록 완료!")
-    except Exception as e:
-        log_error(f"🚨 시트 업데이트 실패: {e}")
+    if should_skip_google_update():
+        log_info("🧪 [TEST MODE] Google 시트 업데이트 생략")
+    else:
+        try:
+            update_google_sheet(all_hits_sorted, TODAY_STR, tournament_report + "\n\n" + (ai_debate_text or "") + "\n" + stage_block + "\n" + pre_block + "\n" + exact_block + "\n" + lite_block + "\n" + wm_green_block + "\n" + wm_red_block + "\n" + wm_blue_block + "\n" + wm_intro_block + "\n" + wm_pullback_block + "\n" + wm_late_block + "\n" + wm_blue1_block + "\n" + wm_blue2_block)
+            log_info(f"💾 총 {len(all_hits_sorted)}개 종목 전수 기록 완료!")
+        except Exception as e:
+            log_error(f"🚨 시트 업데이트 실패: {e}")
 
     log_info("✅ 작전 종료: 전수 기록 완료 및 정예 15건 보고 완료!")
     graceful_shutdown(exit_code=0)
