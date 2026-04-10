@@ -1878,6 +1878,195 @@ def _build_candidate_explain_lines(row: pd.Series, track: str = "preempt") -> tu
     return selected, lacking, action
 
 
+def _stage_wick_pct(row: pd.Series) -> float:
+    for key in ['윗꼬리비율', '상꼬리비율', 'wick_pct']:
+        try:
+            v = row.get(key, None)
+            if v is not None and str(v) != '' and not pd.isna(v):
+                return float(v)
+        except Exception:
+            pass
+    try:
+        return float(_calc_upper_wick_ratio(row) * 100.0)
+    except Exception:
+        return 999.0
+
+
+def _stage_body_pct(row: pd.Series) -> float:
+    for key in ['몸통비율', 'body_pct', 'Body_Pct']:
+        try:
+            v = row.get(key, None)
+            if v is not None and str(v) != '' and not pd.isna(v):
+                return float(v)
+        except Exception:
+            pass
+    try:
+        return float(_calc_body_ratio(row) * 100.0)
+    except Exception:
+        return 0.0
+
+
+def _stage_close_high_ratio(row: pd.Series) -> float:
+    try:
+        high_p = float(row.get('High', 0) or 0)
+        close_p = float(row.get('Close', row.get('현재가', 0)) or 0)
+        if high_p <= 0:
+            return 0.0
+        return close_p / high_p
+    except Exception:
+        return 0.0
+
+
+def _stage_is_clean_power_candle(row: pd.Series) -> bool:
+    try:
+        open_p = float(row.get('Open', 0) or 0)
+        close_p = float(row.get('Close', row.get('현재가', 0)) or 0)
+    except Exception:
+        return False
+    if close_p <= open_p or open_p <= 0:
+        return False
+    wick_pct = _stage_wick_pct(row)
+    body_pct = _stage_body_pct(row)
+    close_high = _stage_close_high_ratio(row)
+    return body_pct >= 2.0 and wick_pct <= 30.0 and close_high >= 0.965
+
+
+def _stage_refine_state(row: pd.Series) -> str:
+    if bool(row.get('수박정제통과', False)):
+        return 'pass'
+    if bool(row.get('수박정제관찰', False)):
+        return 'watch'
+    if bool(row.get('수박정제주의', False)):
+        return 'bad'
+    tag = str(row.get('수박정제태그', '') or '').strip()
+    if '✅' in tag or '정제수박' in tag:
+        return 'pass'
+    if '관찰수박' in tag:
+        return 'watch'
+    if '가짜수박주의' in tag:
+        return 'bad'
+    return 'none'
+
+
+def _build_stage_track_frames(pass_df: pd.DataFrame):
+    empty = pd.DataFrame()
+    if pass_df is None or pass_df.empty:
+        return empty, empty, empty
+
+    work = pass_df.copy()
+    for col in ['단계트랙', '단계트랙점수', '단계트랙코멘트']:
+        if col not in work.columns:
+            work[col] = '' if col != '단계트랙점수' else 0
+
+    tracks = []
+    scores = []
+    comments = []
+
+    for _, row in work.iterrows():
+        rc_state = str(row.get('저항구름상태', '') or '').strip()
+        wm_state = str(row.get('수박최종상태', '') or '').strip()
+        refine_state = _stage_refine_state(row)
+        late_flag = bool(row.get('수박디버그_late', False)) or wm_state == '후행수박'
+        reanchor = bool(row.get('5일재안착', False)) or str(row.get('5일재안착태그', '') or '').strip() != ''
+        clean_candle = _stage_is_clean_power_candle(row)
+        wick_pct = _stage_wick_pct(row)
+        body_pct = _stage_body_pct(row)
+        close_high = _stage_close_high_ratio(row)
+        stage_status = str(row.get('단계상태', '') or '').strip()
+        n_score = float(row.get('N점수', 0) or 0)
+        safe_score = float(row.get('안전점수', 0) or 0)
+
+        score = safe_score + (n_score * 0.15)
+        if clean_candle:
+            score += 80
+        if reanchor:
+            score += 25
+        if refine_state == 'pass':
+            score += 35
+        elif refine_state == 'watch':
+            score += 12
+        elif refine_state == 'bad':
+            score -= 70
+        if late_flag:
+            score -= 80
+        if wick_pct > 35:
+            score -= 40
+        if body_pct >= 5.0:
+            score += 10
+        if stage_status == 'PASS_A':
+            score += 20
+
+        track = ''
+        comment = ''
+
+        if rc_state == '저항돌파' and clean_candle and not late_flag and refine_state != 'bad':
+            track = '초동발생형'
+            comment = '이미 강한 양봉과 함께 돌파가 발생한 진행형으로, 추격보다 눌림 대응이 유리'
+            score += 40
+        elif rc_state in ('저항전', '저항테스트') and clean_candle and not late_flag and refine_state != 'bad':
+            if reanchor or wm_state in ('초입수박', '눌림수박', 'Blue-2예비'):
+                track = '돌파직전형'
+                comment = '장대양봉이 깔끔하고 윗꼬리가 짧은 편이라 종가베팅/돌파직전 대응 후보'
+                score += 35
+        elif rc_state in ('저항전', '저항테스트') and not late_flag and refine_state in ('pass', 'watch'):
+            if wm_state in ('초입수박', '눌림수박', 'Blue-2예비') or reanchor:
+                track = '선취형'
+                comment = '저항 아래 또는 테스트 구간에서 구조를 먼저 보는 초기 선취 후보'
+                score += 20
+
+        # 돌파 직전형/선취형은 윗꼬리 긴 종목 제거
+        if track in ('선취형', '돌파직전형') and not clean_candle:
+            track = ''
+            comment = ''
+        if track == '돌파직전형' and (wick_pct > 28 or close_high < 0.965):
+            track = ''
+            comment = ''
+        if track == '초동발생형' and (wick_pct > 35 or close_high < 0.955):
+            track = ''
+            comment = ''
+
+        tracks.append(track)
+        scores.append(int(score))
+        comments.append(comment)
+
+    work['단계트랙'] = tracks
+    work['단계트랙점수'] = scores
+    work['단계트랙코멘트'] = comments
+
+    def _top(df_in: pd.DataFrame) -> pd.DataFrame:
+        if df_in is None or df_in.empty:
+            return pd.DataFrame()
+        return df_in.sort_values(by=['단계트랙점수', '안전점수', 'N점수'], ascending=False).head(5).reset_index(drop=True)
+
+    preempt_df = _top(work[work['단계트랙'] == '선취형'].copy())
+    ready_df = _top(work[work['단계트랙'] == '돌파직전형'].copy())
+    burst_df = _top(work[work['단계트랙'] == '초동발생형'].copy())
+    return preempt_df, ready_df, burst_df
+
+
+def build_stage_track_block(title: str, df: pd.DataFrame) -> str:
+    if df is None or df.empty:
+        return ''
+
+    lines = [f"🚀 [{title}]\n\n"]
+    for rank, (_, item) in enumerate(df.head(5).iterrows(), 1):
+        comment = str(item.get('단계트랙코멘트', '') or '').strip()
+        lines.append(
+            f"{rank}) [{item.get('종목명', '')}]\n"
+            f"- 단계: {item.get('단계상태', 'N/A')} | {item.get('단계태그', '')}\n"
+            f"- S1:{item.get('S1날짜', '-')}, S2:{item.get('S2날짜', '-')}, S3:{item.get('S3날짜', '-')}\n"
+            f"- N조합: {item.get('N조합', '')}" + (f" | {item.get('time_sym_tag', '')}" if str(item.get('time_sym_tag', '')).strip() else '') + "\n"
+            + (f"- 재안착: {item.get('5일재안착태그', '')} | {item.get('5일재안착코멘트', '')}\n" if str(item.get('5일재안착태그', '')).strip() else '')
+            + (f"- 저항구름: {item.get('저항구름태그', '')} | {item.get('저항구름코멘트', '')}\n" if str(item.get('저항구름태그', '')).strip() else '')
+            + (f"- 정제: {item.get('수박정제태그', '')} | {item.get('수박정제코멘트', '')}\n" if str(item.get('수박정제태그', '')).strip() else '')
+            + (f"- 해석: {comment}\n" if comment else '')
+            + f"- 재무: {item.get('재무', '미계산')} | 수급: {item.get('수급', '미계산')}\n"
+            + f"- 안전:{item.get('안전점수', 0)} | N점수:{item.get('N점수', 0)} | 단계점수:{item.get('단계트랙점수', 0)}\n"
+            + f"----------------------------\n"
+        )
+    return ''.join(lines)
+
+
 def build_breakout_state_block(title: str, df: pd.DataFrame) -> str:
     if df is None or df.empty:
         return f"🚀 [{title}]\n- 해당 종목 없음\n"
@@ -10133,7 +10322,9 @@ if __name__ == "__main__":
         graceful_shutdown(exit_code=0)
 
     pass_ai_candidates = pd.DataFrame()
-    stage_candidates_top5 = pd.DataFrame()
+    stage_preempt_top5 = pd.DataFrame()
+    stage_ready_top5 = pd.DataFrame()
+    stage_burst_top5 = pd.DataFrame()
 
     if '단계상태' in ai_candidates.columns:
         pass_ai_candidates = ai_candidates[
@@ -10146,11 +10337,13 @@ if __name__ == "__main__":
                 ascending=False
             ).reset_index(drop=True)
 
-            stage_candidates_top5 = pass_ai_candidates.head(5)
+            stage_preempt_top5, stage_ready_top5, stage_burst_top5 = _build_stage_track_frames(pass_ai_candidates)
             log_info(f"✅ 단계 시퀀스 PASS_A/PASS_B 종목 정렬 완료: {len(pass_ai_candidates)}개")
-            log_info(f"🚀 단계 기반 급등 후보 TOP5 구성 완료: {len(stage_candidates_top5)}개")
+            log_info(f"🧭 단계 기반 선취형 TOP5 구성 완료: {len(stage_preempt_top5)}개")
+            log_info(f"🚀 단계 기반 돌파직전형 TOP5 구성 완료: {len(stage_ready_top5)}개")
+            log_info(f"💥 단계 기반 초동발생형 TOP5 구성 완료: {len(stage_burst_top5)}개")
         else:
-            log_info("⚠️ 단계 시퀀스 PASS_A/PASS_B 종목 없음 — 종가베팅 별도 블록 생략")
+            log_info("⚠️ 단계 시퀀스 PASS_A/PASS_B 종목 없음 — 단계형 별도 블록 생략")
     else:
         log_info("⚠️ '단계상태' 컬럼 없음 — PASS 후보 분리 생략")
     # 3) 뉴스 테마 보너스 적용
@@ -10158,7 +10351,9 @@ if __name__ == "__main__":
     ai_candidates = apply_us_theme_bonus(ai_candidates, us_merged_events)
 
     ai_candidates = annotate_time_symmetry_df(ai_candidates)
-    stage_candidates_top5 = annotate_time_symmetry_df(stage_candidates_top5)
+    stage_preempt_top5 = annotate_time_symmetry_df(stage_preempt_top5)
+    stage_ready_top5 = annotate_time_symmetry_df(stage_ready_top5)
+    stage_burst_top5 = annotate_time_symmetry_df(stage_burst_top5)
 
     all_hits_df_for_pre = pd.DataFrame(all_hits_sorted) if all_hits_sorted else pd.DataFrame()
     all_hits_df_for_pre = annotate_time_symmetry_df(all_hits_df_for_pre)
@@ -10313,15 +10508,19 @@ if __name__ == "__main__":
                 by=['단계랭크', '안전점수', 'N점수'],
                 ascending=False
             ).reset_index(drop=True)
-            stage_candidates_top5 = pass_ai_candidates.head(5)
+            stage_preempt_top5, stage_ready_top5, stage_burst_top5 = _build_stage_track_frames(pass_ai_candidates)
         else:
-            stage_candidates_top5 = pd.DataFrame()
+            stage_preempt_top5 = pd.DataFrame()
+            stage_ready_top5 = pd.DataFrame()
+            stage_burst_top5 = pd.DataFrame()
 
     telegram_targets = ai_candidates.head(15)
     log_info(f"📌 전체 추천 후보 수: {len(ai_candidates)}")
     log_info(f"📌 PASS_A/PASS_B 후보 수: {len(pass_ai_candidates)}")
     log_info(f"📌 텔레그램 TOP15 전송 수: {len(telegram_targets)}")
-    log_info(f"📌 종가베팅/단계형 TOP5 전송 수: {len(stage_candidates_top5)}")
+    log_info(f"📌 단계형 선취 TOP5 전송 수: {len(stage_preempt_top5)}")
+    log_info(f"📌 단계형 돌파직전 TOP5 전송 수: {len(stage_ready_top5)}")
+    log_info(f"📌 단계형 초동발생 TOP5 전송 수: {len(stage_burst_top5)}")
     log_info(f"📌 예비돌반지 TOP5 전송 수: {len(pre_top5)}")
     log_info(f"📌 HTS 정확복제형 예비돌반지 TOP5 전송 수: {len(exact_top5)}")
     
@@ -10417,24 +10616,10 @@ if __name__ == "__main__":
     wm_blue2_preview_block = build_watermelon_state_block("Blue-2 예비 TOP 5", wm_blue2_preview_top5)
     wm_blue2_block = build_watermelon_state_block("Blue-2 스윙 TOP 5", wm_blue2_top5)
 
-    if not stage_candidates_top5.empty:
-        stage_block = "\n🚀 [단계 기반 급등 후보 TOP 5]\n\n"
-
-    for _rank, (_, item) in enumerate(stage_candidates_top5.iterrows(), 1):  # ✅ BUG-3 FIX
-        stage_block += (
-            f"{_rank}) [{item['종목명']}]\n"
-            f"- 단계: {item.get('단계상태', 'N/A')} | {item.get('단계태그', '')}\n"
-            f"- S1:{item.get('S1날짜', '-')}, "
-            f"S2:{item.get('S2날짜', '-')}, "
-            f"S3:{item.get('S3날짜', '-')}\n"
-            f"- N조합: {item.get('N조합', '')}" + (f" | {item.get('time_sym_tag', '')}" if str(item.get('time_sym_tag', '')).strip() else "") + "\n"
-            + (f"- 재안착: {item.get('5일재안착태그', '')} | {item.get('5일재안착코멘트', '')}\n" if str(item.get('5일재안착태그', '')).strip() else "")
-            + (f"- 저항구름: {item.get('저항구름태그', '')} | {item.get('저항구름코멘트', '')}\n" if str(item.get('저항구름태그', '')).strip() else "")
-            + (f"- 정제: {item.get('수박정제태그', '')} | {item.get('수박정제코멘트', '')}\n" if str(item.get('수박정제태그', '')).strip() else "")
-            + f"- 재무: {item.get('재무', '미계산')} | 수급: {item.get('수급', '미계산')}\n"
-            f"- 안전:{item.get('안전점수', 0)} | N점수:{item.get('N점수', 0)}\n"
-            f"----------------------------\n"
-        )
+    stage_block = ""
+    stage_block += build_stage_track_block("단계 기반 선취형 TOP 5", stage_preempt_top5)
+    stage_block += build_stage_track_block("단계 기반 돌파직전형 TOP 5", stage_ready_top5)
+    stage_block += build_stage_track_block("단계 기반 초동발생형 TOP 5", stage_burst_top5)
     log_debug(f"🚀 stage_block 길이: {len(stage_block)}")
  
     for _, item in telegram_targets.iterrows():
