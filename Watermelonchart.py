@@ -196,10 +196,14 @@ def create_watermelon_charts_for_hits(ai_candidates_df, top_n=5):
     chart_paths = []
 
     # ✅ 수박 관련 종목만 필터링
+    for _col in ['N구분', 'N조합', '구분', '종목명', 'code']:
+        if _col not in ai_candidates_df.columns:
+            ai_candidates_df[_col] = ''
+
     melon_df = ai_candidates_df[
-        ai_candidates_df['N구분'].str.contains('🍉', na=False) |      # 수박 태그
-        ai_candidates_df['N조합'].str.contains('수박', na=False) |    # 수박 조합
-        ai_candidates_df['구분'].str.contains('수박', na=False)       # 수박 구분
+        ai_candidates_df['N구분'].astype(str).str.contains('🍉', na=False) |      # 수박 태그
+        ai_candidates_df['N조합'].astype(str).str.contains('수박', na=False) |    # 수박 조합
+        ai_candidates_df['구분'].astype(str).str.contains('수박', na=False)       # 수박 구분
     ]
 
     if melon_df.empty:
