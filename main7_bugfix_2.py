@@ -1629,7 +1629,7 @@ def compute_breakout_mode_fields(df: pd.DataFrame) -> pd.DataFrame:
 
     for _, row in work.iterrows():
         rc_state = str(row.get('저항구름상태', '') or '').strip()
-        wm_state = str(row.get('수박최종상태', '') or '').strip()
+        wm_state = _resolve_track_display_state(row, track='breakout')
         late = _b(row.get('수박디버그_late', False))
         breakout_priority = _is_breakout_priority_type(row)
 
@@ -1719,6 +1719,40 @@ def compute_breakout_mode_fields(df: pd.DataFrame) -> pd.DataFrame:
     return work
 
 
+def _resolve_track_display_state(row: pd.Series, track: str = "preempt") -> str:
+    wm_state = str(row.get('수박최종상태', '') or '').strip()
+    if wm_state:
+        return wm_state
+
+    rc_state = str(row.get('저항구름상태', '') or '').strip()
+    breakout_priority = _is_breakout_priority_type(row)
+
+    if track == 'preempt':
+        pre_state = str(row.get('선취상태', row.get('단테상태', '')) or '').strip()
+        if pre_state == '선취형':
+            return '선취형'
+        if pre_state == '선취관찰형':
+            return '구조관찰'
+        if pre_state == '선취제외형':
+            return '선취제외'
+        if rc_state == '저항전':
+            return '저항전관찰'
+        if rc_state == '저항테스트':
+            return '저항테스트관찰'
+        return '중립관찰'
+
+    breakout_state = str(row.get('돌파상태', '') or '').strip()
+    if breakout_state == '흰구름돌파형':
+        return '돌파우선형' if breakout_priority else '구름돌파형'
+    if breakout_state == '돌파관찰형':
+        return '구름테스트관찰' if rc_state == '저항테스트' else '돌파관찰형'
+    if rc_state == '저항돌파':
+        return '돌파관찰형'
+    if rc_state == '저항테스트':
+        return '구름테스트관찰'
+    return '중립관찰'
+
+
 def _build_candidate_explain_lines(row: pd.Series, track: str = "preempt") -> tuple[str, str, str]:
     def _b(x):
         try:
@@ -1749,19 +1783,31 @@ def _build_candidate_explain_lines(row: pd.Series, track: str = "preempt") -> tu
             reasons.append(wm_state)
         elif wm_state:
             reasons.append(wm_state)
-        if rc_state in ('저항전', '저항테스트'):
-            reasons.append(rc_state)
-        if has_reanchor:
-            reasons.append('5일재안착')
-        elif has_reanchor_preview:
-            lacks.append('5일재안착 확인')
-        if refine:
-            reasons.append(refine)
 
-        if rc_state == '저항혼합':
+        if rc_state == '저항전':
+            reasons.append('저항전')
+        elif rc_state == '저항테스트':
+            reasons.append('저항테스트')
+        elif rc_state == '저항혼합':
             lacks.append('저항 위치 추가 확인')
         elif rc_state == '저항돌파':
-            lacks.append('선취보다는 눌림 확인')
+            lacks.append('선취보다 눌림 확인')
+
+        if has_reanchor:
+            reasons.append('5일재안착')
+        else:
+            lacks.append('5일재안착 미확인')
+            if has_reanchor_preview:
+                lacks.append('5일재안착 예비 확인')
+
+        if refine == '정제통과':
+            reasons.append('정제통과')
+        elif refine == '정제관찰':
+            reasons.append('정제관찰')
+            lacks.append('정제 추가 확인')
+        elif refine == '정제주의':
+            lacks.append('정제 보완 필요')
+
         if breakout_priority:
             lacks.append('돌파우선형 여부 확인')
         if late_flag:
@@ -1784,30 +1830,38 @@ def _build_candidate_explain_lines(row: pd.Series, track: str = "preempt") -> tu
             reasons.append('돌파우선형')
         if has_reanchor:
             reasons.append('재안착')
-        if refine:
-            reasons.append(refine)
-        if wm_state:
+        elif has_reanchor_preview:
+            lacks.append('재안착 예비 확인')
+
+        if refine == '정제통과':
+            reasons.append('정제통과')
+        elif refine == '정제관찰':
+            reasons.append('정제관찰')
+            lacks.append('정제 추가 확인')
+        elif refine == '정제주의':
+            lacks.append('정제 보완 필요')
+
+        if wm_state in ('초입수박', '눌림수박', 'Blue-2예비'):
             reasons.append(wm_state)
+        elif wm_state == '후행수박':
+            lacks.append('후행 구간 주의')
 
         if rc_state == '저항테스트':
             lacks.append('구름 상단 안착 확인')
         if not strong_energy and rc_state == '저항돌파':
             lacks.append('거래량/힘 유지 확인')
-        if late_flag:
-            lacks.append('후행 구간 주의')
         if disparity >= 118:
             lacks.append('이격 과열')
         elif disparity >= 112:
             lacks.append('추격 부담')
-        if _b(row.get('수박정제주의', False)):
-            lacks.append('정제 미흡')
+        if late_flag:
+            lacks.append('후행 구간 주의')
 
         if rc_state == '저항돌파':
             action = '돌파 추격보다 구름 상단 또는 5일선 눌림 확인 후 대응하는 편이 유리합니다.'
         else:
             action = '돌파 테스트 구간으로, 거래량 유지와 구름 상단 안착을 확인한 뒤 대응합니다.'
 
-    # dedupe keep order
     def _uniq(items):
         out = []
         seen = set()
@@ -1820,7 +1874,7 @@ def _build_candidate_explain_lines(row: pd.Series, track: str = "preempt") -> tu
     reasons = _uniq(reasons)
     lacks = _uniq(lacks)
     selected = ' + '.join(reasons[:4]) if reasons else '핵심 근거 집계 중'
-    lacking = ' / '.join(lacks[:3]) if lacks else '큰 부족 요인은 없지만 추격 여부는 별도 확인'
+    lacking = ' / '.join(lacks[:3]) if lacks else ('구조는 양호하나 추격 여부는 별도 확인' if track == 'breakout' else '큰 부족은 없지만 위치 확인 후 대응')
     return selected, lacking, action
 
 
@@ -1916,7 +1970,7 @@ def compute_dante_mode_fields(df: pd.DataFrame) -> pd.DataFrame:
             reasons.append("장기저항근처")
         else:
             d_score -= 18
-            reasons.append("장기저항위")
+            reasons.append("장기저항상회")
 
         if wc_state == '저항전':
             if _i(row.get('흰구름근접투표', 0)) >= 2:
@@ -2067,7 +2121,7 @@ def build_dante_state_block(title: str, df: pd.DataFrame) -> str:
     for rank, (_, row) in enumerate(df.head(5).iterrows(), start=1):
         name = str(row.get('종목명', row.get('name', '')) or '').strip()
         code = str(row.get('code', row.get('종목코드', '')) or '').strip()
-        state = str(row.get('수박최종상태', '') or '').strip()
+        state = _resolve_track_display_state(row, track='preempt')
         d_score = int(float(row.get('선취점수', row.get('단테점수', 0)) or 0))
         comment = str(row.get('선취코멘트', row.get('단테코멘트', '')) or '').strip()
         reason = str(row.get('선취이유', row.get('단테이유', '')) or '').strip()
@@ -10296,7 +10350,13 @@ if __name__ == "__main__":
     exact_block = build_pre_dolbanji_block("HTS 정확복제형 예비돌반지 TOP 5", exact_top5, exact_mode=True)
     lite_block = build_pre_dolbanji_block("신규예비돌반지 Lite TOP 5", lite_top5, exact_mode=False)
 
-    show_pre_dolbanji = bool(TEST_MODE or len(pre_top5) > 0 or len(exact_top5) > 0 or len(lite_top5) > 0)
+    if len(pre_top5) == 0:
+        pre_block = ""
+    if len(exact_top5) == 0:
+        exact_block = ""
+    if len(lite_top5) == 0:
+        lite_block = ""
+    show_pre_dolbanji = bool(len(pre_top5) > 0 or len(exact_top5) > 0 or len(lite_top5) > 0)
     if not show_pre_dolbanji:
         pre_block = ""
         exact_block = ""
