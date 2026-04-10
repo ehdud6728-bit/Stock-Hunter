@@ -860,9 +860,11 @@ def build_watermelon_state_top5(df: pd.DataFrame):
 
     dante_work = compute_dante_mode_fields(work)
     breakout_work = compute_breakout_mode_fields(dante_work)
-    dante_pick_df = _sort(dante_work[dante_work["단테상태"] == "단테선취형"].copy(), ["단테점수", "수박포켓점수", "안전점수", "N점수"])
-    dante_watch_df = _sort(dante_work[dante_work["단테상태"] == "단테관찰형"].copy(), ["단테점수", "수박포켓점수", "안전점수", "N점수"])
-    dante_ex_df = _sort(dante_work[dante_work["단테상태"] == "단테제외형"].copy(), ["단테점수", "수박포켓점수", "안전점수", "N점수"], ascending=[True, False, False, False])
+    preempt_state_col = "선취상태" if "선취상태" in dante_work.columns else "단테상태"
+    preempt_score_col = "선취점수" if "선취점수" in dante_work.columns else "단테점수"
+    dante_pick_df = _sort(dante_work[dante_work[preempt_state_col] == "선취형"].copy(), [preempt_score_col, "수박포켓점수", "안전점수", "N점수"])
+    dante_watch_df = _sort(dante_work[dante_work[preempt_state_col] == "선취관찰형"].copy(), [preempt_score_col, "수박포켓점수", "안전점수", "N점수"])
+    dante_ex_df = _sort(dante_work[dante_work[preempt_state_col] == "선취제외형"].copy(), [preempt_score_col, "수박포켓점수", "안전점수", "N점수"], ascending=[True, False, False, False])
     breakout_pick_df = _sort(breakout_work[breakout_work["돌파상태"] == "흰구름돌파형"].copy(), ["돌파점수", "수박공격점수", "안전점수", "N점수"])
     breakout_watch_df = _sort(breakout_work[breakout_work["돌파상태"] == "돌파관찰형"].copy(), ["돌파점수", "수박공격점수", "안전점수", "N점수"])
 
@@ -1555,7 +1557,7 @@ def classify_resistance_cloud_phase_from_bundle(
 
 def _is_breakout_priority_type(row) -> bool:
     """
-    DL이앤씨류처럼 단테 선취형보다 흰구름 돌파형으로 해석하는 케이스
+    특정 종목명 대신 '돌파우선형'으로 해석하는 케이스
     - 미래 저항 구름을 이미 상향 돌파했거나
     - 강한 에너지를 동반한 테스트/돌파 진행형이며
     - 수박 초기 선취보다 진행형 성격이 더 강한 경우
@@ -1697,7 +1699,7 @@ def compute_breakout_mode_fields(df: pd.DataFrame) -> pd.DataFrame:
 
         if rc_state == '저항돌파' and (_b(row.get('저항구름강에너지', False)) or breakout_priority) and not late and score >= 45:
             b_state = '흰구름돌파형'
-            b_comment = '미래 저항 구름을 강하게 돌파한 진행형 후보' if not breakout_priority else 'DL이앤씨류 돌파우선형: 단테보다 흰구름 돌파 대응 우선'
+            b_comment = '미래 저항 구름을 강하게 돌파한 진행형 후보' if not breakout_priority else '돌파우선형: 선취 대응보다 저항구름 돌파 대응 우선'
         elif rc_state in ('저항돌파', '저항테스트') and score >= 28 and not late:
             b_state = '돌파관찰형'
             b_comment = '구름 돌파 또는 테스트 구간, 힘 확인 후 대응'
@@ -1744,9 +1746,9 @@ def build_breakout_state_block(title: str, df: pd.DataFrame) -> str:
 
 def compute_dante_mode_fields(df: pd.DataFrame) -> pd.DataFrame:
     """
-    단테 모드 전용 후처리:
+    선취 모드 전용 후처리:
     - 일반 모드는 유지
-    - 단테형은 장기이평/흰구름/수박상태를 우선시한 별도 랭킹
+    - 선취형은 장기이평/저항구름/수박상태를 우선시한 별도 랭킹
     """
     if df is None or df.empty:
         return df
@@ -1775,6 +1777,7 @@ def compute_dante_mode_fields(df: pd.DataFrame) -> pd.DataFrame:
     dante_states = []
     dante_comments = []
     dante_reasons = []
+    alias_states = []
 
     for _, row in work.iterrows():
         wc_state = str(row.get('저항구름상태', '') or '').strip()
@@ -1789,7 +1792,6 @@ def compute_dante_mode_fields(df: pd.DataFrame) -> pd.DataFrame:
         d_score = 0
         reasons = []
 
-        # 장기이평 구조
         long_bear_stack = bool(ma112 > 0 and ma224 > 0 and ma448 > 0 and ma112 < ma224 < ma448)
         below_long_major = bool(ma224 > 0 and close_p <= ma224 * 1.05)
         below_long_soft = bool(ma224 > 0 and close_p <= ma224 * 1.10)
@@ -1807,25 +1809,23 @@ def compute_dante_mode_fields(df: pd.DataFrame) -> pd.DataFrame:
             d_score -= 18
             reasons.append("장기저항위")
 
-        # 흰구름 위치
         if wc_state == '저항전':
             if _i(row.get('흰구름근접투표', 0)) >= 2:
                 d_score += 25
-                reasons.append("흰구름아래근접")
+                reasons.append("저항전근접")
             else:
                 d_score += 18
-                reasons.append("흰구름아래")
+                reasons.append("저항전")
         elif wc_state == '저항테스트':
             d_score += 10
-            reasons.append("흰구름안")
+            reasons.append("저항테스트")
         elif wc_state == '저항혼합':
             d_score += 4
-            reasons.append("흰구름혼합")
+            reasons.append("저항혼합")
         elif wc_state == '저항돌파':
             d_score -= 28
-            reasons.append("흰구름위")
+            reasons.append("저항돌파")
 
-        # 수박 상태
         if wm_state == '눌림수박':
             d_score += 22
             reasons.append("눌림수박")
@@ -1845,7 +1845,6 @@ def compute_dante_mode_fields(df: pd.DataFrame) -> pd.DataFrame:
             d_score -= 30
             reasons.append("후행수박")
 
-        # 보조 패턴
         if _b(row.get('5일재안착', False)):
             d_score += 15
             reasons.append("5일재안착")
@@ -1880,6 +1879,9 @@ def compute_dante_mode_fields(df: pd.DataFrame) -> pd.DataFrame:
         if ('⏱9근접' in tag_text) or ('⏱9예비' in tag_text):
             d_score += 5
             reasons.append("시간창")
+        if ('삼각' in tag_text) or ('triangle' in tag_text.lower()):
+            d_score += 6
+            reasons.append("삼각수렴")
 
         if _b(row.get('수박정제_vol_ok', False)):
             d_score += 6
@@ -1913,8 +1915,9 @@ def compute_dante_mode_fields(df: pd.DataFrame) -> pd.DataFrame:
             and not late_flag
             and not breakout_priority
         ):
-            d_state = '단테선취형'
-            d_comment = '장기저항 아래/근처에서 수박 초기 선취에 가까움'
+            legacy_state = '단테선취형'
+            alias_state = '선취형'
+            d_comment = '장기저항 아래/근처에서 초기 선취에 가까운 구조'
         elif (
             d_score >= 40
             and wc_state in ('저항전', '저항테스트', '저항혼합')
@@ -1922,14 +1925,17 @@ def compute_dante_mode_fields(df: pd.DataFrame) -> pd.DataFrame:
             and not late_flag
             and not breakout_priority
         ):
-            d_state = '단테관찰형'
+            legacy_state = '단테관찰형'
+            alias_state = '선취관찰형'
             d_comment = '좋은 구조지만 한두 가지 확인 후 접근이 유리'
         else:
-            d_state = '단테제외형'
-            d_comment = '단테식 선취보다 진행/후행/과열 또는 구조 미흡 가능성' if not breakout_priority else 'DL이앤씨류 돌파우선형: 단테 선취보다 흰구름 돌파 대응 우선'
+            legacy_state = '단테제외형'
+            alias_state = '선취제외형'
+            d_comment = '선취 대응보다 진행/후행/과열 또는 구조 미흡 가능성' if not breakout_priority else '돌파우선형: 선취 대응보다 저항구름 돌파 대응 우선'
 
         dante_scores.append(int(d_score))
-        dante_states.append(d_state)
+        dante_states.append(legacy_state)
+        alias_states.append(alias_state)
         dante_comments.append(d_comment)
         dante_reasons.append(" | ".join(reasons[:6]))
 
@@ -1937,6 +1943,10 @@ def compute_dante_mode_fields(df: pd.DataFrame) -> pd.DataFrame:
     work['단테상태'] = dante_states
     work['단테코멘트'] = dante_comments
     work['단테이유'] = dante_reasons
+    work['선취점수'] = dante_scores
+    work['선취상태'] = alias_states
+    work['선취코멘트'] = dante_comments
+    work['선취이유'] = dante_reasons
     return work
 
 
@@ -1949,88 +1959,27 @@ def build_dante_state_block(title: str, df: pd.DataFrame) -> str:
         name = str(row.get('종목명', row.get('name', '')) or '').strip()
         code = str(row.get('code', row.get('종목코드', '')) or '').strip()
         state = str(row.get('수박최종상태', '') or '').strip()
-        d_score = int(float(row.get('단테점수', 0) or 0))
-        comment = str(row.get('단테코멘트', '') or '').strip()
-        reason = str(row.get('단테이유', '') or '').strip()
+        d_score = int(float(row.get('선취점수', row.get('단테점수', 0)) or 0))
+        comment = str(row.get('선취코멘트', row.get('단테코멘트', '')) or '').strip()
+        reason = str(row.get('선취이유', row.get('단테이유', '')) or '').strip()
         cloud_tag = str(row.get('저항구름태그', '') or '').strip()
         refine_tag = str(row.get('수박정제태그', '') or '').strip()
         ma5_tag = str(row.get('5일재안착태그', '') or '').strip()
+        rn_tag = str(row.get('라운드넘버태그', '') or '').strip()
+        rn_comment = str(row.get('라운드넘버코멘트', '') or '').strip()
 
         lines.append(
             f"{rank}) {name}({code})\n"
-            f"- 상태: {state} | 단테점수:{d_score}\n"
+            f"- 상태: {state} | 선취점수:{d_score}\n"
             + (f"- 저항구름: {cloud_tag}\n" if cloud_tag else "")
             + (f"- 재안착: {ma5_tag}\n" if ma5_tag else "")
+            + (f"- 라운드가격: {rn_tag} | {rn_comment}\n" if rn_tag else "")
             + (f"- 정제: {refine_tag}\n" if refine_tag else "")
             + (f"- 해석: {comment}\n" if comment else "")
             + (f"- 이유: {reason}\n" if reason else "")
         )
     return "\n".join(lines).strip() + "\n"
 
-def build_watermelon_debug_block(title: str, df: pd.DataFrame) -> str:
-    if df is None or df.empty:
-        return f"🔬 [{title}]\n- 해당 종목 없음\n"
-    lines = [f"🔬 [{title}]\n"]
-    for rank, (_, row) in enumerate(df.iterrows(), 1):
-        name = row.get('종목명', '')
-        code = row.get('code', '')
-        state = row.get('수박최종상태', row.get('수박상태명', ''))
-        intro_box = 1 if bool(row.get('수박디버그_intro_box', False)) else 0
-        change = 1 if bool(row.get('수박디버그_change', False)) else 0
-        red_raw = 1 if bool(row.get('수박디버그_red_raw', False)) else 0
-        red_onset = 1 if bool(row.get('수박디버그_red_onset', False)) else 0
-        blue1_onset = 1 if bool(row.get('수박디버그_blue1_onset', False)) else 0
-        pullback_box = 1 if bool(row.get('수박디버그_pullback_box', False)) else 0
-        red2_raw = 1 if bool(row.get('수박디버그_red2_raw', False)) else 0
-        blue2_onset = 1 if bool(row.get('수박디버그_blue2_onset', False)) else 0
-        late = 1 if bool(row.get('수박디버그_late', False)) else 0
-        box_range_ok = 1 if bool(row.get('수박디버그_box_range_ok', False)) else 0
-        attack_band_ok = 1 if bool(row.get('수박디버그_attack_band_ok', False)) else 0
-        ret7_ok = 1 if bool(row.get('수박디버그_ret7_ok', False)) else 0
-        ret15_ok = 1 if bool(row.get('수박디버그_ret15_ok', False)) else 0
-        ret20_ok = 1 if bool(row.get('수박디버그_ret20_ok', False)) else 0
-        dayup_ok = 1 if bool(row.get('수박디버그_dayup_ok', False)) else 0
-        top_near_ok = 1 if bool(row.get('수박디버그_top_near_ok', False)) else 0
-        vol_calm_ok = 1 if bool(row.get('수박디버그_vol_calm_ok', False)) else 0
-        no_blue1_ok = 1 if bool(row.get('수박디버그_no_blue1_ok', False)) else 0
-        no_blue2_ok = 1 if bool(row.get('수박디버그_no_blue2_ok', False)) else 0
-        not_late_ok = 1 if bool(row.get('수박디버그_not_late_ok', False)) else 0
-        red2_pullback_ok = 1 if bool(row.get('수박디버그_red2_pullback_ok', False)) else 0
-        red2_change_ok = 1 if bool(row.get('수박디버그_red2_change_ok', False)) else 0
-        red2_close_ma20_ok = 1 if bool(row.get('수박디버그_red2_close_ma20_ok', False)) else 0
-        red2_ma5_ma20_ok = 1 if bool(row.get('수박디버그_red2_ma5_ma20_ok', False)) else 0
-        red2_prevbox_ok = 1 if bool(row.get('수박디버그_red2_prevbox_ok', False)) else 0
-        red2_vol_ok = 1 if bool(row.get('수박디버그_red2_vol_ok', False)) else 0
-        red2_candle_ok = 1 if bool(row.get('수박디버그_red2_candle_ok', False)) else 0
-        red2_not_late_ok = 1 if bool(row.get('수박디버그_red2_not_late_ok', False)) else 0
-        red2_structure_ok = 1 if bool(row.get('수박디버그_red2_structure_ok', False)) else 0
-        red2_soft_ok = 1 if bool(row.get('수박디버그_red2_soft_ok', False)) else 0
-        blue2_strong = 1 if bool(row.get('수박디버그_blue2_strong', False)) else 0
-        blue2_preview = 1 if bool(row.get('수박디버그_blue2_preview', False)) else 0
-        blue2_prev_clear_ok = 1 if bool(row.get('수박디버그_blue2_prev_clear_ok', False)) else 0
-        blue2_context_ok = 1 if bool(row.get('수박디버그_blue2_context_ok', False)) else 0
-        blue2_vol2_ok = 1 if bool(row.get('수박디버그_blue2_vol2_ok', False)) else 0
-        refine_ok = 1 if bool(row.get('수박정제통과', False)) else 0
-        refine_weak = 1 if bool(row.get('수박정제관찰', False)) else 0
-        refine_caution = 1 if bool(row.get('수박정제주의', False)) else 0
-        refine_vol_ok = 1 if bool(row.get('수박정제_vol_ok', False)) else 0
-        refine_reclaim_ok = 1 if bool(row.get('수박정제_reclaim_ok', False)) else 0
-        refine_candle_ok = 1 if bool(row.get('수박정제_candle_ok', False)) else 0
-        refine_wick_ok = 1 if bool(row.get('수박정제_wick_ok', False)) else 0
-        refine_long_ok = 1 if bool(row.get('수박정제_long_ok', False)) else 0
-        refine_cloud_ok = 1 if bool(row.get('수박정제_cloud_ok', False)) else 0
-        refine_obv_ok = 1 if bool(row.get('수박정제_obv_ok', False)) else 0
-        time_days = int(row.get('time_sym_days', -1)) if str(row.get('time_sym_days', '')).strip() not in ('', 'nan', 'None') else -1
-        time_tag = row.get('time_sym_tag', '')
-        lines.append(
-            f"{rank}) {name}({code})\n"
-            f"- 최종상태: {state}\n"
-            f"- gate: intro_box={intro_box} / change={change} / red_raw={red_raw} / red_onset={red_onset} / blue1_onset={blue1_onset} / pullback_box={pullback_box} / red2_raw={red2_raw} / blue2_onset={blue2_onset} / late={late} / blue_confirm={int(row.get('수박디버그_blue_confirm', -1))}\n"
-            f"- intro_sub: range={box_range_ok} / attack_band={attack_band_ok} / ret7={ret7_ok} / ret15={ret15_ok} / ret20={ret20_ok} / dayup={dayup_ok} / top_near={top_near_ok} / vol_calm={vol_calm_ok} / no_blue1={no_blue1_ok} / no_blue2={no_blue2_ok} / not_late={not_late_ok}\n"
-            f"- red2_sub: pb={red2_pullback_ok} / chg={red2_change_ok} / c20={red2_close_ma20_ok} / m520={red2_ma5_ma20_ok} / pbox={red2_prevbox_ok} / vol={red2_vol_ok} / candle={red2_candle_ok} / not_late={red2_not_late_ok} / struct={red2_structure_ok} / soft={red2_soft_ok} / strong={blue2_strong} / preview={blue2_preview} / prev_clear={blue2_prev_clear_ok} / ctx={blue2_context_ok} / vol2={blue2_vol2_ok}\n"
-            + (f"- 시간대칭: days={time_days} / tag={time_tag}\n" if time_days >= 0 and time_tag else "")
-        )
-    return "\n".join(lines)
 
 def build_watermelon_guide_block() -> str:
     lines = [
@@ -8421,6 +8370,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         if atr_stop > 0:
             stop = max(stop_5pct, atr_stop)   # 더 빡빡한 (높은) 손절
 
+        rn_signal_data = {}
         lower_rn, upper_rn = get_target_levels(row['Close'])
         avg_money = (row['Close'] * row['Volume'])
         is_leader = avg_money >= 100000000000
@@ -8873,6 +8823,17 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             '공포매물흡수': bool(fear_info.get('fear_absorb', False)),
             '공포흡수점수': int(fear_info.get('score', 0)),
             '공포흡수태그': str(fear_info.get('tag', '')),
+            '라운드넘버신호': bool(is_rn_signal),
+            '라운드1차타점': bool(is_1st_buy),
+            '라운드2차타점': bool(is_2nd_buy),
+            '라운드하단': int(lower_rn) if lower_rn else 0,
+            '라운드상단': int(upper_rn) if upper_rn else 0,
+            '라운드넘버태그': '🚉라운드넘버' if is_rn_signal else ('🚀급등_1차타점' if is_1st_buy else ('🚀급등_2차타점' if is_2nd_buy else '')),
+            '라운드넘버코멘트': (
+                f"{int(lower_rn):,}원 정거장 가격대 재접근" if is_rn_signal and lower_rn else
+                f"{int(lower_rn):,}원 1차 라운드 되돌림" if is_1st_buy and lower_rn else
+                f"{int(lower_rn):,}원 2차 라운드 되돌림" if is_2nd_buy and lower_rn else ''
+            ),
             '예비돌반지': bool(pre_bundle.get('pre_dolbanji', False)),
             '예비돌반지확인': bool(pre_bundle.get('pre_dolbanji_confirmed', False)),
             '예비돌반지점수': int(pre_bundle.get('pre_dolbanji_score', 0)),
@@ -9500,9 +9461,106 @@ def _to_bool_value(v):
         return False
 
 
+def _pre_dolbanji_quality_score(row: pd.Series, mode: str = "broad") -> int:
+    score = 0
+
+    def _b(v):
+        try:
+            if isinstance(v, str):
+                return v.strip().lower() in ("1", "true", "t", "y", "yes")
+            return bool(v)
+        except Exception:
+            return False
+
+    def _i(v, d=0):
+        try:
+            return int(float(v))
+        except Exception:
+            return d
+
+    wm_state = str(row.get('수박최종상태', '') or row.get('수박상태명', '') or '').strip()
+    cloud_state = str(row.get('저항구름상태', '') or '').strip()
+    stage = str(row.get('단계상태', '') or '').strip()
+    combo = " ".join([
+        str(row.get('N조합', '') or ''),
+        str(row.get('예비돌반지태그', '') or ''),
+        str(row.get('신규예비돌반지Lite태그', '') or ''),
+        str(row.get('예비돌반지HTS정확태그', '') or ''),
+    ])
+
+    if _b(row.get('예비돌반지확인', False)):
+        score += 4
+    if _b(row.get('신규예비돌반지Lite확인', False)):
+        score += 3
+    if _b(row.get('예비돌반지HTS정확복제', False)):
+        score += 5
+    if _b(row.get('5일재안착', False)):
+        score += 2
+    elif _b(row.get('5일재안착예비', False)):
+        score += 1
+    if _b(row.get('수박정제통과', False)):
+        score += 2
+    elif _b(row.get('수박정제관찰', False)):
+        score += 1
+    elif _b(row.get('수박정제주의', False)):
+        score -= 2
+    if stage in ('PASS_A', 'PASS_B'):
+        score += 1
+    if '돌반지' in combo:
+        score += 1
+    if '삼각' in combo:
+        score += 1
+    if '종베' in combo:
+        score += 1
+    if _i(row.get('안전점수', 0)) >= 60:
+        score += 1
+    if _i(row.get('N점수', 0)) >= 80:
+        score += 1
+    if wm_state == '후행수박':
+        score -= 3
+    elif wm_state == 'Blue-1단기':
+        score -= 2
+    elif wm_state in ('초입수박', '눌림수박', 'Blue-2예비'):
+        score += 1
+    if cloud_state == '저항돌파' and mode != 'exact':
+        score -= 2
+    elif cloud_state in ('저항전', '저항테스트'):
+        score += 1
+    if _b(row.get('수박디버그_late', False)):
+        score -= 2
+    return score
+
+
+def _filter_pre_dolbanji_candidates(df: pd.DataFrame, mode: str = "broad") -> pd.DataFrame:
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    work = df.copy()
+    work['_pred_q'] = work.apply(lambda r: _pre_dolbanji_quality_score(r, mode=mode), axis=1)
+
+    if mode == 'exact':
+        score_series = pd.to_numeric(work.get('예비돌반지HTS정확점수', 0), errors='coerce').fillna(0)
+        mask = (score_series >= 7) & (work['_pred_q'] >= 4)
+    elif mode == 'lite':
+        score_series = pd.to_numeric(work.get('신규예비돌반지Lite점수', 0), errors='coerce').fillna(0)
+        confirmed = work['신규예비돌반지Lite확인'].apply(_to_bool_value) if '신규예비돌반지Lite확인' in work.columns else False
+        mask = ((score_series >= 4) & (work['_pred_q'] >= 2)) | confirmed
+    else:
+        score_series = pd.to_numeric(work.get('예비돌반지점수', 0), errors='coerce').fillna(0)
+        confirmed = work['예비돌반지확인'].apply(_to_bool_value) if '예비돌반지확인' in work.columns else False
+        mask = ((score_series >= 5) & (work['_pred_q'] >= 3)) | confirmed
+
+    filtered = work[mask].copy()
+    if filtered.empty:
+        return filtered
+    return filtered.drop(columns=['_pred_q'], errors='ignore')
+
+
 def build_pre_dolbanji_top5(df: pd.DataFrame):
     """
     예비돌반지 계열을 메인 TOP15와 별도로 추리기
+    - 너무 이상적이거나 현재 구조와 맞지 않는 신호는 과감히 제외
+    - 대신 확인형/정제통과/재안착 등 맥락이 맞는 후보는 살린다
     반환:
       pre_top5         : 전체 예비돌반지(기존 + Lite + HTS정확복제)
       exact_top5       : HTS 정확복제형 TOP5
@@ -9534,54 +9592,48 @@ def build_pre_dolbanji_top5(df: pd.DataFrame):
         if c in work.columns:
             exact_mask = exact_mask | work[c].apply(_to_bool_value)
 
-    all_mask = broad_mask | lite_mask | exact_mask
-
     base_sort_cols = [c for c in ['단계랭크', '안전점수', 'N점수'] if c in work.columns]
     base_ascending = [False] * len(base_sort_cols)
 
-    pre_top5 = work[all_mask].copy()
-    if not pre_top5.empty and base_sort_cols:
+    broad_only_top5 = _filter_pre_dolbanji_candidates(work[broad_mask & ~exact_mask & ~lite_mask].copy(), mode='broad')
+    if not broad_only_top5.empty:
+        if '예비돌반지점수' in broad_only_top5.columns and base_sort_cols:
+            broad_only_top5 = broad_only_top5.sort_values(by=['예비돌반지점수'] + base_sort_cols, ascending=[False] + base_ascending).head(5).reset_index(drop=True)
+        elif base_sort_cols:
+            broad_only_top5 = broad_only_top5.sort_values(by=base_sort_cols, ascending=base_ascending).head(5).reset_index(drop=True)
+
+    exact_top5 = _filter_pre_dolbanji_candidates(work[exact_mask].copy(), mode='exact')
+    if not exact_top5.empty:
+        if '예비돌반지HTS정확점수' in exact_top5.columns and base_sort_cols:
+            exact_top5 = exact_top5.sort_values(by=['예비돌반지HTS정확점수'] + base_sort_cols, ascending=[False] + base_ascending).head(5).reset_index(drop=True)
+        elif base_sort_cols:
+            exact_top5 = exact_top5.sort_values(by=base_sort_cols, ascending=base_ascending).head(5).reset_index(drop=True)
+
+    lite_top5 = _filter_pre_dolbanji_candidates(work[lite_mask].copy(), mode='lite')
+    if not lite_top5.empty:
+        if '신규예비돌반지Lite점수' in lite_top5.columns and base_sort_cols:
+            lite_top5 = lite_top5.sort_values(by=['신규예비돌반지Lite점수'] + base_sort_cols, ascending=[False] + base_ascending).head(5).reset_index(drop=True)
+        elif base_sort_cols:
+            lite_top5 = lite_top5.sort_values(by=base_sort_cols, ascending=base_ascending).head(5).reset_index(drop=True)
+
+    pre_top5 = pd.concat([exact_top5, broad_only_top5, lite_top5], ignore_index=True, sort=False)
+    if not pre_top5.empty:
         pre_sort_cols = []
         pre_asc = []
         if '예비돌반지HTS정확점수' in pre_top5.columns:
             pre_sort_cols.append('예비돌반지HTS정확점수'); pre_asc.append(False)
-        if '신규예비돌반지Lite점수' in pre_top5.columns:
-            pre_sort_cols.append('신규예비돌반지Lite점수'); pre_asc.append(False)
         if '예비돌반지점수' in pre_top5.columns:
             pre_sort_cols.append('예비돌반지점수'); pre_asc.append(False)
+        if '신규예비돌반지Lite점수' in pre_top5.columns:
+            pre_sort_cols.append('신규예비돌반지Lite점수'); pre_asc.append(False)
         pre_sort_cols += base_sort_cols
         pre_asc += base_ascending
-        pre_top5 = pre_top5.sort_values(by=pre_sort_cols, ascending=pre_asc).head(5).reset_index(drop=True)
-
-    exact_top5 = work[exact_mask].copy()
-    if not exact_top5.empty:
-        if '예비돌반지HTS정확점수' in exact_top5.columns and base_sort_cols:
-            exact_top5 = exact_top5.sort_values(
-                by=['예비돌반지HTS정확점수'] + base_sort_cols,
-                ascending=[False] + base_ascending
-            ).head(5).reset_index(drop=True)
-        elif base_sort_cols:
-            exact_top5 = exact_top5.sort_values(by=base_sort_cols, ascending=base_ascending).head(5).reset_index(drop=True)
-
-    broad_only_top5 = work[broad_mask & ~exact_mask & ~lite_mask].copy()
-    if not broad_only_top5.empty:
-        if '예비돌반지점수' in broad_only_top5.columns and base_sort_cols:
-            broad_only_top5 = broad_only_top5.sort_values(
-                by=['예비돌반지점수'] + base_sort_cols,
-                ascending=[False] + base_ascending
-            ).head(5).reset_index(drop=True)
-        elif base_sort_cols:
-            broad_only_top5 = broad_only_top5.sort_values(by=base_sort_cols, ascending=base_ascending).head(5).reset_index(drop=True)
-
-    lite_top5 = work[lite_mask].copy()
-    if not lite_top5.empty:
-        if '신규예비돌반지Lite점수' in lite_top5.columns and base_sort_cols:
-            lite_top5 = lite_top5.sort_values(
-                by=['신규예비돌반지Lite점수'] + base_sort_cols,
-                ascending=[False] + base_ascending
-            ).head(5).reset_index(drop=True)
-        elif base_sort_cols:
-            lite_top5 = lite_top5.sort_values(by=base_sort_cols, ascending=base_ascending).head(5).reset_index(drop=True)
+        if pre_sort_cols:
+            pre_top5 = pre_top5.sort_values(by=pre_sort_cols, ascending=pre_asc)
+        subset_cols = [c for c in ['code', '종목명'] if c in pre_top5.columns]
+        if subset_cols:
+            pre_top5 = pre_top5.drop_duplicates(subset=subset_cols, keep='first')
+        pre_top5 = pre_top5.head(5).reset_index(drop=True)
 
     return pre_top5, exact_top5, broad_only_top5, lite_top5
 
@@ -9599,6 +9651,8 @@ def build_pre_dolbanji_block(title: str, df: pd.DataFrame, exact_mode: bool = Fa
         n_score = safe_int(row.get('N점수', 0))
         stage = str(row.get('단계상태', ''))
         stage_tag = str(row.get('단계태그', ''))
+        rn_tag = str(row.get('라운드넘버태그', '') or '').strip()
+        rn_comment = str(row.get('라운드넘버코멘트', '') or '').strip()
 
         if exact_mode:
             p_score = safe_int(row.get('예비돌반지HTS정확점수', 0))
@@ -9618,7 +9672,8 @@ def build_pre_dolbanji_block(title: str, df: pd.DataFrame, exact_mode: bool = Fa
             f"- 조합: {combo}\n"
             f"- 단계: {stage} | {stage_tag}\n"
             f"- {label}점수: {p_score} | 안전:{safe_score} | N점수:{n_score}\n"
-            f"- 태그: {p_tag}\n"
+            + (f"- 라운드가격: {rn_tag} | {rn_comment}\n" if rn_tag else "")
+            + f"- 태그: {p_tag}\n"
             f"----------------------------"
         )
 
@@ -9882,9 +9937,9 @@ if __name__ == "__main__":
     log_info(f"🟠 후행수박 TOP5 수: {len(wm_late_top5)}")
     log_info(f"🔵 Blue-1 단기 TOP5 수: {len(wm_blue1_top5)}")
     log_info(f"🔷 Blue-2 스윙 TOP5 수: {len(wm_blue2_top5)}")
-    log_info(f"🧭 단테 선취 후보 TOP5 수: {len(dante_pick_df)}")
-    log_info(f"🧭 단테 관찰 후보 TOP5 수: {len(dante_watch_df)}")
-    log_info(f"⛔ 단테 제외 후보 TOP5 수: {len(dante_ex_df)}")
+    log_info(f"🧭 선취 후보 TOP5 수: {len(dante_pick_df)}")
+    log_info(f"🧭 선취 관찰 후보 TOP5 수: {len(dante_watch_df)}")
+    log_info(f"⛔ 선취 제외 후보 TOP5 수: {len(dante_ex_df)}")
     log_info(f"🚀 흰구름 돌파 후보 TOP5 수: {len(breakout_pick_df)}")
     log_info(f"👀 흰구름 돌파 관찰 TOP5 수: {len(breakout_watch_df)}")
 
@@ -10086,9 +10141,9 @@ if __name__ == "__main__":
     wm_intro_block = build_watermelon_state_block("초입수박 TOP 5", wm_intro_top5)
     wm_pullback_block = build_watermelon_state_block("눌림수박 TOP 5", wm_pullback_top5)
     wm_late_block = build_watermelon_state_block("후행수박 TOP 5", wm_late_top5)
-    dante_pick_block = build_dante_state_block("단테 선취 후보 TOP 5", dante_pick_df)
-    dante_watch_block = build_dante_state_block("단테 관찰 후보 TOP 5", dante_watch_df)
-    dante_ex_block = build_dante_state_block("단테 제외 후보 TOP 5", dante_ex_df)
+    dante_pick_block = build_dante_state_block("선취 후보 TOP 5", dante_pick_df)
+    dante_watch_block = build_dante_state_block("선취 관찰 후보 TOP 5", dante_watch_df)
+    dante_ex_block = build_dante_state_block("선취 제외 후보 TOP 5", dante_ex_df)
     breakout_pick_block = build_breakout_state_block("흰구름 돌파 후보 TOP 5", breakout_pick_df)
     breakout_watch_block = build_breakout_state_block("흰구름 돌파 관찰 TOP 5", breakout_watch_df)
 
@@ -10301,6 +10356,14 @@ if __name__ == "__main__":
             entry += f"🔁 재안착:{_ma5_tag}"
             if _ma5_comment:
                 entry += f" | {_ma5_comment[:30]}"
+            entry += "\n"
+
+        _rn_tag = str(item.get('라운드넘버태그', '')).strip()
+        _rn_comment = str(item.get('라운드넘버코멘트', '')).strip()
+        if _rn_tag:
+            entry += f"🚉 라운드:{_rn_tag}"
+            if _rn_comment:
+                entry += f" | {_rn_comment[:28]}"
             entry += "\n"
 
         _wc_tag = str(item.get('저항구름태그', '')).strip()
