@@ -3908,17 +3908,42 @@ def get_supply_profile(code, price):
         df = pd.read_html(res.text, match='날짜')[0].dropna().head(10)
         df.columns = ['_'.join(col) if isinstance(col, tuple) else col for col in df.columns]
 
-        def _find_col(include):
-            for c in df.columns:
-                s = str(c)
-                if all(k in s for k in include):
+        def _norm_col_name(col):
+            return str(col).replace(' ', '').replace('\n', '').replace('\t', '')
+
+        norm_cols = {c: _norm_col_name(c) for c in df.columns}
+
+        def _find_col(primary_terms, secondary_terms=None, exclude_terms=None):
+            secondary_terms = secondary_terms or []
+            exclude_terms = exclude_terms or []
+            # 1차: 핵심 + 보조 용어까지 같이 있는 컬럼 우선
+            for c, s in norm_cols.items():
+                if all(term in s for term in primary_terms) and all(term in s for term in secondary_terms) and not any(term in s for term in exclude_terms):
+                    return c
+            # 2차: 핵심 용어만 있는 컬럼 허용
+            for c, s in norm_cols.items():
+                if all(term in s for term in primary_terms) and not any(term in s for term in exclude_terms):
                     return c
             return None
 
-        personal_col = _find_col(['개인', '순매매'])
-        inst_col = _find_col(['기관', '순매매'])
-        frgn_col = _find_col(['외국인', '순매매'])
-        ratio_col = next((c for c in df.columns if '외국인' in str(c) and any(k in str(c) for k in ['보유', '소진율', '지분율'])), None)
+        personal_col = _find_col(['개인'], ['순매매'], ['누적', '비중']) or _find_col(['개인'], exclude_terms=['누적', '비중'])
+        inst_col = _find_col(['기관'], ['순매매'], ['누적', '비중']) or _find_col(['기관'], exclude_terms=['누적', '비중'])
+        frgn_col = _find_col(['외국인'], ['순매매'], ['보유', '소진', '지분', '비중']) or _find_col(['외국인'], exclude_terms=['보유', '소진', '지분', '비중'])
+        ratio_col = _find_col(['외국인'], exclude_terms=['순매매'])
+        if ratio_col is not None and not any(k in norm_cols[ratio_col] for k in ['보유', '소진', '지분', '비중']):
+            ratio_col = None
+
+        # 컬럼명이 바뀌어도 개인/기관/외국인 3개 열이 뒤쪽에 나오는 경우를 위한 위치 기반 보조 fallback
+        if not personal_col or not inst_col or not frgn_col:
+            qty_like_cols = [c for c, s in norm_cols.items() if any(k in s for k in ['개인', '기관', '외국인']) and not any(k in s for k in ['보유', '소진', '지분', '비중'])]
+            if len(qty_like_cols) >= 3:
+                if not personal_col:
+                    personal_col = next((c for c in qty_like_cols if '개인' in norm_cols[c]), personal_col)
+                if not inst_col:
+                    inst_col = next((c for c in qty_like_cols if '기관' in norm_cols[c]), inst_col)
+                if not frgn_col:
+                    frgn_col = next((c for c in qty_like_cols if '외국인' in norm_cols[c]), frgn_col)
+
         if not personal_col or not inst_col or not frgn_col:
             _supply_cache[cache_key] = result
             return result
@@ -8628,6 +8653,17 @@ def decide_final_label(row) -> str:
     return '관망'
 
 
+def _sentence(text: str) -> str:
+    text = str(text or '').strip()
+    if not text:
+        return ''
+    if text[-1] not in '.!?…' and text[-1] not in '다요죠니다':
+        text += '.'
+    elif text[-1] in '다요죠니다':
+        text += '.'
+    return text
+
+
 def build_easy_interpretation(row) -> dict:
     inp = infer_pass_inputs_from_row(row)
     final_label = decide_final_label(row)
@@ -8639,55 +8675,92 @@ def build_easy_interpretation(row) -> dict:
     has_reanchor = bool(inp['ma5_tag'])
 
     state_desc = {
-        '초입수박': '바닥을 정리한 뒤 처음 살아나는 초입 구간',
-        '눌림수박': '한 번 살아난 뒤 눌림을 주는 재진입 구간',
-        '후행수박': '이미 한 박자 진행된 뒤라 신규 접근이 불리한 구간',
-        '구름테스트관찰': '저항구름을 막 시험하는 중간 확인 구간',
-        '돌파관찰형': '저항을 넘으려는 시도는 나왔지만 안착 확인이 더 필요한 구간',
-        '돌파우선형': '선취보다 돌파 확인과 지지 전환이 더 중요한 진행 구간',
-        '구조관찰': '기본 구조는 있지만 실행형으로 보기엔 한 단계 부족한 관찰 구간',
-        '': '구조는 일부 보이지만 해석은 아직 조심해야 하는 구간',
-    }.get(wm_state or phase, '구조는 일부 보이지만 해석은 아직 조심해야 하는 구간')
+        '초입수박': '바닥을 정리한 뒤 처음 살아나는 초입 구간입니다',
+        '눌림수박': '한 번 살아난 뒤 눌림을 주는 재진입 구간입니다',
+        '후행수박': '이미 한 박자 진행된 뒤라 신규 접근이 불리한 구간입니다',
+        '구름테스트관찰': '저항구름을 막 시험하는 중간 확인 구간입니다',
+        '돌파관찰형': '저항을 넘으려는 시도는 나왔지만 안착 확인이 더 필요한 구간입니다',
+        '돌파우선형': '선취보다 돌파 확인과 지지 전환이 더 중요한 진행 구간입니다',
+        '구조관찰': '기본 구조는 있지만 실행형으로 보기엔 한 단계 부족한 관찰 구간입니다',
+        '': '구조는 일부 보이지만 해석은 아직 조심해야 하는 구간입니다',
+    }.get(wm_state or phase, '구조는 일부 보이지만 해석은 아직 조심해야 하는 구간입니다')
 
     cloud_desc = {
-        '저항전': '아직 저항구름 아래라 미리 볼 수 있는 여지가 있습니다.',
-        '저항테스트': '지금은 저항구름을 시험하는 중이라 확인이 먼저입니다.',
-        '저항돌파': '이미 저항 위로 올라온 자리라 추격보다 눌림 확인이 더 중요합니다.',
-        '': '저항 위치는 중립적으로 보되 상태와 정제를 더 우선해 해석합니다.',
-    }.get(cloud, '저항 위치는 중립적으로 보되 상태와 정제를 더 우선해 해석합니다.')
+        '저항전': '아직 저항구름 아래라 미리 볼 수 있는 여지가 있습니다',
+        '저항테스트': '지금은 저항구름을 시험하는 중이라 확인이 먼저입니다',
+        '저항돌파': '이미 저항 위로 올라온 자리라 추격보다 눌림 확인이 더 중요합니다',
+        '': '저항 위치는 중립적으로 보되 상태와 정제를 더 우선해 해석합니다',
+    }.get(cloud, '저항 위치는 중립적으로 보되 상태와 정제를 더 우선해 해석합니다')
 
-    refine_desc = '정제수박이라 구조 품질은 비교적 양호합니다.' if good_refine else ('가짜수박주의가 있어 신호를 보수적으로 읽는 편이 낫습니다.' if fake else '관찰수박 단계라 한두 가지 확인 요소가 더 필요합니다.')
+    refine_desc = '정제수박이라 구조 품질은 비교적 양호합니다' if good_refine else ('가짜수박주의가 있어 신호를 보수적으로 읽는 편이 낫습니다' if fake else '관찰수박 단계라 한두 가지 확인 요소가 더 필요합니다')
 
     if final_label == '선취 가능':
-        easy = f'{state_desc} {cloud_desc} {refine_desc} 아직 완전 돌파 전이라 선취 관찰이나 선취 접근이 맞는 자리입니다.'
+        sentences = [
+            state_desc,
+            cloud_desc,
+            refine_desc,
+            '아직 완전 돌파 전이라 선취 관찰이나 선취 접근이 맞는 자리입니다',
+        ]
         if has_reanchor:
-            easy += ' 5일선 재안착까지 확인되어 선취 완성도가 더 높습니다.'
+            sentences.append('5일선 재안착까지 확인되어 선취 완성도가 더 높습니다')
         action = '신규는 소액 분할 접근 가능, 보유자는 5일선 또는 직전 지지 이탈 여부를 확인합니다.'
         caution = '저항을 넘기기 전까지는 하루 반짝 후 되밀릴 가능성을 열어둬야 합니다.'
     elif final_label == '선취 관찰':
-        easy = f'{state_desc} {cloud_desc} {refine_desc} 아직 선취로 확신하기엔 재안착·거래량·양봉 유지 중 한두 가지가 더 확인되어야 합니다.'
+        sentences = [
+            state_desc,
+            cloud_desc,
+            refine_desc,
+            '아직 선취로 확신하기엔 재안착·거래량·양봉 유지 중 한두 가지가 더 확인되어야 합니다',
+        ]
         action = '소액 선진입보다 분할 관찰이 유리하며, 5일선 재안착과 거래량 보강을 먼저 확인합니다.'
         caution = '좋아 보이더라도 확인 전 진입은 실패 확률이 높을 수 있습니다.'
     elif final_label == '눌림 대기':
-        easy = f'{state_desc} {cloud_desc} {refine_desc} 이미 한 번 살아난 뒤라 지금은 새 추격보다 눌림이 지지로 바뀌는지 보는 자리에 가깝습니다.'
+        sentences = [
+            state_desc,
+            cloud_desc,
+            refine_desc,
+            '이미 한 번 살아난 뒤라 지금은 새 추격보다 눌림이 지지로 바뀌는지 보는 자리에 가깝습니다',
+        ]
         action = '구름 상단·5일선·직전 돌파선 부근에서 버티는지 보고 눌림 후 반등 때 대응합니다.'
         caution = '눌림이 깊어져 구조가 무너지면 단순 조정이 아니라 실패 구간이 될 수 있습니다.'
     elif final_label == '돌파 확인':
-        easy = f'{state_desc} {cloud_desc} {refine_desc} 즉시 추격보다 구름 상단 안착과 재돌파 확인이 더 중요한 자리입니다.'
+        sentences = [
+            state_desc,
+            cloud_desc,
+            refine_desc,
+            '즉시 추격보다 구름 상단 안착과 재돌파 확인이 더 중요한 자리입니다',
+        ]
         action = '거래량 유지와 구름 상단 안착을 먼저 확인하고, 재돌파 또는 눌림 반등 때 대응합니다.'
         caution = '돌파처럼 보여도 안착이 없으면 하루 반짝 후 다시 밀릴 수 있습니다.'
     elif final_label == '보유자 대응':
-        easy = f'{state_desc} {cloud_desc} {refine_desc} 지금은 신규 진입보다 보유자 관리가 더 중요한 자리입니다.'
+        sentences = [
+            state_desc,
+            cloud_desc,
+            refine_desc,
+            '지금은 신규 진입보다 보유자 관리가 더 중요한 자리입니다',
+        ]
         action = '신규 추격보다 눌림 재확인, 기존 보유분은 이탈 기준과 분할 대응 기준을 먼저 정합니다.'
         caution = '후행 구간은 좋은 종목이어도 진입 타점이 늦어질 수 있습니다.'
     elif final_label == '추격 금지':
-        easy = f'{state_desc} {cloud_desc} {refine_desc} 겉으로 강해 보여도 현재 위치와 품질상 추격매수는 불리한 자리입니다.'
+        sentences = [
+            state_desc,
+            cloud_desc,
+            refine_desc,
+            '겉으로 강해 보여도 현재 위치와 품질상 추격매수는 불리한 자리입니다',
+        ]
         action = '당장 진입보다 눌림과 재정비가 나온 뒤 다시 보는 편이 낫습니다.'
         caution = '가짜수박주의·과열·저항돌파 후 진행형은 상단 추격 리스크가 큽니다.'
     else:
-        easy = f'{state_desc} {cloud_desc} {refine_desc} 구조는 일부 보이지만 아직 확신 구간은 아니라 관찰이 더 자연스럽습니다.'
+        sentences = [
+            state_desc,
+            cloud_desc,
+            refine_desc,
+            '구조는 일부 보이지만 아직 확신 구간은 아니라 관찰이 더 자연스럽습니다',
+        ]
         action = '구름 상단 안착, 거래량 재유입, 재안착 신호가 나오는지 더 지켜봅니다.'
         caution = '상태·저항구름·정제 중 하나라도 약하면 해석을 보수적으로 해야 합니다.'
+
+    easy = ' '.join(_sentence(s) for s in sentences if str(s).strip())
 
     return {
         'easy_interpretation': easy,
