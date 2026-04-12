@@ -3890,46 +3890,60 @@ def _parse_supply_tag_counts(tag: str) -> tuple[int, int]:
         return 0, 0
 
 
+def _pick_supply_strength_label(today_val: float, cum3_val: float, streak: int) -> str:
+    today_val = safe_float(today_val, 0.0)
+    cum3_val = safe_float(cum3_val, 0.0)
+    streak = safe_int(streak, 0)
+
+    if today_val >= 8.0 or cum3_val >= 15.0 or streak >= 5:
+        return 'strong'
+    if today_val >= 3.0 or cum3_val >= 5.0 or streak >= 2:
+        return 'medium'
+    if today_val > 0 or cum3_val > 0 or streak >= 1:
+        return 'weak'
+    return 'none'
+
+
 def _summarize_supply_strength(today_p: float, today_f: float, today_i: float,
                                cum3_p: float, cum3_f: float, cum3_i: float,
                                p_s: int = 0, f_s: int = 0, i_s: int = 0) -> tuple[str, str]:
-    total_today = abs(float(today_f)) + abs(float(today_i))
-    total_cum3 = abs(float(cum3_f)) + abs(float(cum3_i))
-
-    if total_today < 1.0 and total_cum3 < 3.0 and max(i_s, f_s, p_s) == 0:
-        return '수급 중립', ''
-
     summary_parts = []
     personal_judgement = ''
 
-    strong_f = today_f >= 3.0 or cum3_f >= 5.0 or f_s >= 2
-    strong_i = today_i >= 3.0 or cum3_i >= 5.0 or i_s >= 2
-    weak_f = today_f > 0 or cum3_f > 0 or f_s > 0
-    weak_i = today_i > 0 or cum3_i > 0 or i_s > 0
+    f_lv = _pick_supply_strength_label(today_f, cum3_f, f_s)
+    i_lv = _pick_supply_strength_label(today_i, cum3_i, i_s)
 
-    if strong_f and strong_i:
+    if f_lv == 'none' and i_lv == 'none':
+        summary_parts.append('수급 중립')
+    elif f_lv in ('medium', 'strong') and i_lv in ('medium', 'strong'):
         summary_parts.append('외인·기관 동반매수')
-    elif weak_f and weak_i:
+    elif f_lv != 'none' and i_lv != 'none':
         summary_parts.append('외인·기관 동반매수(약)')
-    elif strong_f:
-        summary_parts.append('외인매수 우세')
-    elif strong_i:
+    elif i_lv == 'strong':
+        summary_parts.append('기관매수 강함')
+    elif f_lv == 'strong':
+        summary_parts.append('외인매수 강함')
+    elif i_lv == 'medium':
         summary_parts.append('기관매수 우세')
-    elif weak_f:
-        summary_parts.append('외인매수 유입')
-    elif weak_i:
+    elif f_lv == 'medium':
+        summary_parts.append('외인매수 우세')
+    elif i_lv == 'weak':
         summary_parts.append('기관매수 유입')
+    elif f_lv == 'weak':
+        summary_parts.append('외인매수 유입')
     elif today_f < -3.0 or cum3_f < -5.0:
         summary_parts.append('외인매도 우세')
     elif today_i < -3.0 or cum3_i < -5.0:
         summary_parts.append('기관매도 우세')
 
-    if today_p < -3.0 and (today_f > 0 or today_i > 0):
+    if today_p <= -3.0 and (today_f > 0 or today_i > 0):
         personal_judgement = '개인투매흡수'
-    elif today_p > 3.0 and today_f < 0 and today_i <= 0:
+    elif cum3_p <= -5.0 and (cum3_f > 0 or cum3_i > 0):
+        personal_judgement = '개인매도흡수'
+    elif today_p >= 3.0 and today_f < 0 and today_i <= 0:
         personal_judgement = '개인추격주의'
-    elif cum3_p > 5.0 and cum3_f < 0 and cum3_i <= 0:
-        personal_judgement = '개인흡수'
+    elif cum3_p >= 5.0 and cum3_f < 0 and cum3_i <= 0:
+        personal_judgement = '개인과열주의'
 
     if not summary_parts:
         summary_parts.append('수급 혼조')
@@ -3941,19 +3955,21 @@ def _summarize_supply_strength(today_p: float, today_f: float, today_i: float,
 
 def _select_supply_tag(today_f: float, today_i: float, cum3_f: float, cum3_i: float,
                        i_s: int, f_s: int) -> str:
-    if abs(today_f) + abs(today_i) < 1.0 and abs(cum3_f) + abs(cum3_i) < 3.0 and i_s == 0 and f_s == 0:
+    f_lv = _pick_supply_strength_label(today_f, cum3_f, f_s)
+    i_lv = _pick_supply_strength_label(today_i, cum3_i, i_s)
+
+    has_f = f_lv != 'none'
+    has_i = i_lv != 'none'
+
+    if not has_f and not has_i:
         leader = '➖중립'
-    elif today_f > 0 and today_i > 0:
+    elif f_lv in ('medium', 'strong') and i_lv in ('medium', 'strong'):
         leader = '🤝쌍끌'
-    elif today_i > 0 and abs(today_i) >= abs(today_f):
-        leader = '🔴기관'
-    elif today_f > 0 and abs(today_f) > abs(today_i):
-        leader = '🔵외인'
-    elif cum3_f > 0 and cum3_i > 0:
+    elif has_f and has_i:
         leader = '🤝쌍끌'
-    elif cum3_i > 0 and abs(cum3_i) >= abs(cum3_f):
+    elif has_i:
         leader = '🔴기관'
-    elif cum3_f > 0 and abs(cum3_f) > abs(cum3_i):
+    elif has_f:
         leader = '🔵외인'
     else:
         leader = '➖중립'
@@ -10660,6 +10676,15 @@ def enrich_hits_with_supply_and_financial(all_hits_sorted, top_k_supply=80, top_
             except Exception as e:
                 item['재무'] = f"⚠️재무오류"
 
+        try:
+            item['안전점수'] = max(0, min(999, safe_int(item.get('안전점수', 0), 0)))
+        except Exception:
+            item['안전점수'] = 0
+        try:
+            item['N점수'] = max(0, min(999, safe_int(item.get('N점수', 0), 0)))
+        except Exception:
+            item['N점수'] = 0
+
         enriched.append(item)
 
     # 후처리 후 안전점수 기준으로 한 번 더 정렬
@@ -11840,8 +11865,8 @@ if __name__ == "__main__":
         n_grade_raw = item.get('N등급', '')
         n_grade     = _cap_grade_label(n_grade_raw, _recommendation_max_grade(item))
         n_combo     = item.get('N조합', '')
-        safe_score  = _si(item.get('안전점수', 0))
-        n_score     = _si(item.get('N점수', 0))
+        safe_score  = max(0, min(999, _si(item.get('안전점수', 0))))
+        n_score     = max(0, min(999, _si(item.get('N점수', 0))))
         rsi         = _si(item.get('RSI', 0))
         disparity   = _si(item.get('이격', 0))
         ma_conv     = _sf(item.get('MA수렴', 0))
