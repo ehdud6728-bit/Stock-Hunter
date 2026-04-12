@@ -3879,16 +3879,186 @@ def _fmt_eok(v: float) -> str:
     sign = '+' if v >= 0 else '-'
     return f"{sign}{abs(v):.1f}억"
 
+def _parse_supply_tag_counts(tag: str) -> tuple[int, int]:
+    s = str(tag or '').strip()
+    m = re.search(r'\((\d+)\s*/\s*(\d+)\)', s)
+    if not m:
+        return 0, 0
+    try:
+        return int(m.group(1)), int(m.group(2))
+    except Exception:
+        return 0, 0
+
+
+def _summarize_supply_strength(today_p: float, today_f: float, today_i: float,
+                               cum3_p: float, cum3_f: float, cum3_i: float,
+                               p_s: int = 0, f_s: int = 0, i_s: int = 0) -> tuple[str, str]:
+    total_today = abs(float(today_f)) + abs(float(today_i))
+    total_cum3 = abs(float(cum3_f)) + abs(float(cum3_i))
+
+    if total_today < 1.0 and total_cum3 < 3.0 and max(i_s, f_s, p_s) == 0:
+        return '수급 중립', ''
+
+    summary_parts = []
+    personal_judgement = ''
+
+    strong_f = today_f >= 3.0 or cum3_f >= 5.0 or f_s >= 2
+    strong_i = today_i >= 3.0 or cum3_i >= 5.0 or i_s >= 2
+    weak_f = today_f > 0 or cum3_f > 0 or f_s > 0
+    weak_i = today_i > 0 or cum3_i > 0 or i_s > 0
+
+    if strong_f and strong_i:
+        summary_parts.append('외인·기관 동반매수')
+    elif weak_f and weak_i:
+        summary_parts.append('외인·기관 동반매수(약)')
+    elif strong_f:
+        summary_parts.append('외인매수 우세')
+    elif strong_i:
+        summary_parts.append('기관매수 우세')
+    elif weak_f:
+        summary_parts.append('외인매수 유입')
+    elif weak_i:
+        summary_parts.append('기관매수 유입')
+    elif today_f < -3.0 or cum3_f < -5.0:
+        summary_parts.append('외인매도 우세')
+    elif today_i < -3.0 or cum3_i < -5.0:
+        summary_parts.append('기관매도 우세')
+
+    if today_p < -3.0 and (today_f > 0 or today_i > 0):
+        personal_judgement = '개인투매흡수'
+    elif today_p > 3.0 and today_f < 0 and today_i <= 0:
+        personal_judgement = '개인추격주의'
+    elif cum3_p > 5.0 and cum3_f < 0 and cum3_i <= 0:
+        personal_judgement = '개인흡수'
+
+    if not summary_parts:
+        summary_parts.append('수급 혼조')
+    if personal_judgement:
+        summary_parts.append(personal_judgement)
+
+    return ' / '.join(summary_parts), personal_judgement
+
+
+def _select_supply_tag(today_f: float, today_i: float, cum3_f: float, cum3_i: float,
+                       i_s: int, f_s: int) -> str:
+    if abs(today_f) + abs(today_i) < 1.0 and abs(cum3_f) + abs(cum3_i) < 3.0 and i_s == 0 and f_s == 0:
+        leader = '➖중립'
+    elif today_f > 0 and today_i > 0:
+        leader = '🤝쌍끌'
+    elif today_i > 0 and abs(today_i) >= abs(today_f):
+        leader = '🔴기관'
+    elif today_f > 0 and abs(today_f) > abs(today_i):
+        leader = '🔵외인'
+    elif cum3_f > 0 and cum3_i > 0:
+        leader = '🤝쌍끌'
+    elif cum3_i > 0 and abs(cum3_i) >= abs(cum3_f):
+        leader = '🔴기관'
+    elif cum3_f > 0 and abs(cum3_f) > abs(cum3_i):
+        leader = '🔵외인'
+    else:
+        leader = '➖중립'
+    return f"{leader}({i_s}/{f_s})"
+
+
+def _build_supply_profile_from_pykrx(code, price):
+    try:
+        end = datetime.now().strftime('%Y%m%d')
+        start = (datetime.now() - timedelta(days=10)).strftime('%Y%m%d')
+        df_inv = stock.get_market_trading_value_by_investor(start, end, code)
+        if df_inv is None or df_inv.empty:
+            return None
+
+        def _pick_col(df, candidates):
+            for c in candidates:
+                if c in df.columns:
+                    return c
+            for c in df.columns:
+                s = str(c)
+                if any(k in s for k in candidates):
+                    return c
+            return None
+
+        p_col = _pick_col(df_inv, ['개인'])
+        f_col = _pick_col(df_inv, ['외국인합계', '외국인', '외인'])
+        i_col = _pick_col(df_inv, ['기관합계', '기관'])
+        if not p_col or not f_col or not i_col:
+            return None
+
+        p_vals = [safe_float(v, 0.0) / 100000000 for v in list(df_inv[p_col].fillna(0))]
+        f_vals = [safe_float(v, 0.0) / 100000000 for v in list(df_inv[f_col].fillna(0))]
+        i_vals = [safe_float(v, 0.0) / 100000000 for v in list(df_inv[i_col].fillna(0))]
+
+        def _streak(data):
+            c = 0
+            for v in reversed(data):
+                if v > 0:
+                    c += 1
+                else:
+                    break
+            return c
+
+        p_s = _streak(p_vals)
+        f_s = _streak(f_vals)
+        i_s = _streak(i_vals)
+        tp = p_vals[-1] if p_vals else 0.0
+        tf = f_vals[-1] if f_vals else 0.0
+        ti = i_vals[-1] if i_vals else 0.0
+        s3p = round(sum(p_vals[-3:]), 1)
+        s3f = round(sum(f_vals[-3:]), 1)
+        s3i = round(sum(i_vals[-3:]), 1)
+        s5p = round(sum(p_vals[-5:]), 1)
+        s5f = round(sum(f_vals[-5:]), 1)
+        s5i = round(sum(i_vals[-5:]), 1)
+        summary, personal_judgement = _summarize_supply_strength(tp, tf, ti, s3p, s3f, s3i, p_s, f_s, i_s)
+        tag = _select_supply_tag(tf, ti, s3f, s3i, i_s, f_s)
+        twin_b = '🤝쌍끌' in tag
+        total_m = round(abs(tf) + abs(ti))
+        whale_streak = 0
+        for fv, iv in zip(reversed(f_vals), reversed(i_vals)):
+            if abs(fv) + abs(iv) >= 10.0:
+                whale_streak += 1
+            else:
+                break
+        whale_score = int(total_m // 2) + (3 if whale_streak >= 3 else 0)
+
+        foreign_hold_text = '미확인'
+        try:
+            df_hold = stock.get_exhaustion_rates_of_foreign_investment(start, end, code)
+            if df_hold is not None and not df_hold.empty:
+                hold_cols = [c for c in df_hold.columns if any(k in str(c) for k in ['지분율', '보유비중', '소진율'])]
+                if hold_cols:
+                    hold_vals = [safe_float(v, 0.0) for v in list(df_hold[hold_cols[0]].fillna(0))]
+                    if hold_vals:
+                        foreign_hold_text = f"{hold_vals[-1]:.2f}%"
+                        if len(hold_vals) >= 5:
+                            foreign_hold_text = f"{hold_vals[-1]:.2f}% ({hold_vals[-1]-hold_vals[-5]:+.2f}%p/5일)"
+        except Exception:
+            pass
+
+        return {
+            'tag': tag,
+            'total_m': total_m,
+            'whale_streak': whale_streak,
+            'whale_score': whale_score,
+            'twin_b': twin_b,
+            'today_text': f"개인 {_fmt_eok(tp)} | 외인 {_fmt_eok(tf)} | 기관 {_fmt_eok(ti)}",
+            'cum3_text': f"개인 {_fmt_eok(s3p)} | 외인 {_fmt_eok(s3f)} | 기관 {_fmt_eok(s3i)}",
+            'cum5_text': f"개인 {_fmt_eok(s5p)} | 외인 {_fmt_eok(s5f)} | 기관 {_fmt_eok(s5i)}",
+            'streak_text': f"기관 {i_s}일 / 외인 {f_s}일 / 개인 {p_s}일",
+            'summary': summary,
+            'personal_judgement': personal_judgement,
+            'foreign_hold_text': foreign_hold_text,
+        }
+    except Exception:
+        return None
+
+
 def _build_supply_profile_from_legacy(code, price):
     try:
         tag, total_m, whale_streak, whale_score, twin_b = get_supply_and_money(code, price)
-        summary = ''
-        if '🤝쌍끌' in str(tag):
-            summary = '외인·기관 동반매수'
-        elif '🔴기관' in str(tag):
-            summary = '기관매수 우세'
-        elif '🔵외인' in str(tag):
-            summary = '외인매수 우세'
+        i_s, f_s = _parse_supply_tag_counts(tag)
+        tag = _select_supply_tag(0.0, 0.0, 0.0, 0.0, i_s, f_s)
+        summary, personal_judgement = _summarize_supply_strength(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0, f_s, i_s)
         return {
             'tag': tag,
             'total_m': total_m,
@@ -3898,9 +4068,9 @@ def _build_supply_profile_from_legacy(code, price):
             'today_text': '',
             'cum3_text': '',
             'cum5_text': '',
-            'streak_text': '',
+            'streak_text': f"기관 {i_s}일 / 외인 {f_s}일 / 개인 0일" if (i_s or f_s) else '',
             'summary': summary,
-            'personal_judgement': '',
+            'personal_judgement': personal_judgement,
             'foreign_hold_text': '미확인',
         }
     except Exception:
@@ -3909,29 +4079,58 @@ def _build_supply_profile_from_legacy(code, price):
 
 def _fallback_supply_profile_from_item(item):
     supply = str(item.get('수급', '') or '').strip()
-    if not supply or supply == '미계산':
+    inst3 = safe_float(item.get('기관3일합(억)', item.get('inst3_sum_b', 0)), 0.0)
+    frgn3 = safe_float(item.get('외인3일합(억)', item.get('frgn3_sum_b', 0)), 0.0)
+    fi3 = safe_float(item.get('외인기관3일합(억)', item.get('fi3_sum_b', 0)), 0.0)
+    if abs(fi3) < 0.01:
+        fi3 = inst3 + frgn3
+    p3 = round(-(inst3 + frgn3), 1)
+
+    today_f = safe_float(item.get('외인순매수금액', 0), 0.0)
+    today_i = safe_float(item.get('기관순매수금액', 0), 0.0)
+    today_p = -safe_float(item.get('개인순매도', 0), 0.0)
+    if abs(today_f) > 10000 or abs(today_i) > 10000 or abs(today_p) > 10000:
+        today_f /= 100000000
+        today_i /= 100000000
+        today_p /= 100000000
+
+    i_s, f_s = _parse_supply_tag_counts(supply)
+    flow_days = safe_int(item.get('수급양수일수(3일)', item.get('flow_positive_days', 0)), 0)
+    p_s = 0 if flow_days <= max(i_s, f_s) else max(0, flow_days - max(i_s, f_s))
+
+    supply = _select_supply_tag(today_f, today_i, frgn3, inst3, i_s, f_s)
+    summary, personal_judgement = _summarize_supply_strength(today_p, today_f, today_i, p3, frgn3, inst3, p_s, f_s, i_s)
+
+    today_text = str(item.get('수급당일', '') or '').strip()
+    if not today_text and (abs(today_p) >= 0.1 or abs(today_f) >= 0.1 or abs(today_i) >= 0.1):
+        today_text = f"개인 {_fmt_eok(today_p)} | 외인 {_fmt_eok(today_f)} | 기관 {_fmt_eok(today_i)}"
+
+    cum3_text = str(item.get('수급3일누적', '') or '').strip()
+    if not cum3_text and (abs(p3) >= 0.1 or abs(frgn3) >= 0.1 or abs(inst3) >= 0.1):
+        cum3_text = f"개인 {_fmt_eok(p3)} | 외인 {_fmt_eok(frgn3)} | 기관 {_fmt_eok(inst3)}"
+
+    streak_text = str(item.get('수급연속', '') or '').strip()
+    if not streak_text and (i_s or f_s or p_s):
+        streak_text = f"기관 {i_s}일 / 외인 {f_s}일 / 개인 {p_s}일"
+
+    foreign_hold_text = str(item.get('외인보유요약', '미확인') or '미확인').strip()
+
+    if supply == '➖중립(0/0)' and not today_text and not cum3_text and not streak_text:
         return None
-    summary = str(item.get('수급요약', '') or '').strip()
-    if not summary:
-        if '🤝쌍끌' in supply:
-            summary = '외인·기관 동반매수'
-        elif '🔴기관' in supply:
-            summary = '기관매수 우세'
-        elif '🔵외인' in supply:
-            summary = '외인매수 우세'
+
     return {
         'tag': supply,
         'total_m': 0,
         'whale_streak': 0,
         'whale_score': 0,
         'twin_b': '🤝쌍끌' in supply,
-        'today_text': str(item.get('수급당일', '') or '').strip(),
-        'cum3_text': str(item.get('수급3일누적', '') or '').strip(),
+        'today_text': today_text,
+        'cum3_text': cum3_text,
         'cum5_text': str(item.get('수급5일누적', '') or '').strip(),
-        'streak_text': str(item.get('수급연속', '') or '').strip(),
+        'streak_text': streak_text,
         'summary': summary,
-        'personal_judgement': str(item.get('개인수급판정', '') or '').strip(),
-        'foreign_hold_text': str(item.get('외인보유요약', '미확인') or '미확인').strip(),
+        'personal_judgement': personal_judgement or str(item.get('개인수급판정', '') or '').strip(),
+        'foreign_hold_text': foreign_hold_text,
     }
 
 
@@ -4000,6 +4199,10 @@ def get_supply_profile(code, price):
                     frgn_col = next((c for c in qty_like_cols if '외국인' in norm_cols[c]), frgn_col)
 
         if not personal_col or not inst_col or not frgn_col:
+            pykrx_prof = _build_supply_profile_from_pykrx(code, price)
+            if pykrx_prof:
+                _supply_cache[cache_key] = pykrx_prof
+                return pykrx_prof
             legacy = _build_supply_profile_from_legacy(code, price)
             if legacy:
                 _supply_cache[cache_key] = legacy
@@ -4041,7 +4244,6 @@ def get_supply_profile(code, price):
         s5p, s5i, s5f = round(sum(pe[:5]), 1), round(sum(ie[:5]), 1), round(sum(fe[:5]), 1)
         twin_b = ti > 0 and tf > 0
         total_m = round(abs(ti) + abs(tf))
-        leader = '🤝쌍끌' if twin_b else ('🔴기관' if ti > tf else '🔵외인')
         whale_streak = 0
         for k in range(min(len(df), 10)):
             if abs(ie[k]) + abs(fe[k]) >= 10:
@@ -4050,33 +4252,8 @@ def get_supply_profile(code, price):
                 break
         whale_score = int(total_m // 2) + (3 if whale_streak >= 3 else 0)
 
-        summary_parts = []
-        personal_judgement = ''
-        if tf > 0 and ti > 0:
-            summary_parts.append('외인·기관 동반매수')
-        elif tf > 0 and abs(tf) >= abs(ti):
-            summary_parts.append('외인매수 우세')
-        elif ti > 0 and abs(ti) > abs(tf):
-            summary_parts.append('기관매수 우세')
-        elif tf < 0 and abs(tf) >= max(abs(ti), 0.1):
-            summary_parts.append('외인매도 우세')
-        elif ti < 0 and abs(ti) > abs(tf):
-            summary_parts.append('기관매도 우세')
-        if tp > 0 and tf < 0 and abs(tp) >= abs(tf) * 0.7:
-            personal_judgement = '개인흡수'
-        elif tp > 0 and tf < 0 and ti <= 0:
-            personal_judgement = '개인추격주의'
-        elif tp < 0 and (tf > 0 or ti > 0):
-            personal_judgement = '개인투매흡수'
-        if personal_judgement:
-            summary_parts.append(personal_judgement)
-        if s3f > 0 and s3i > 0:
-            summary_parts.append('3일누적 양호')
-        elif s3f < 0 and tf < 0:
-            summary_parts.append('외인분배주의')
-        if not summary_parts:
-            summary_parts.append('수급 혼조')
-        summary = ' / '.join(summary_parts)
+        summary, personal_judgement = _summarize_supply_strength(tp, tf, ti, s3p, s3f, s3i, p_s, f_s, i_s)
+        tag = _select_supply_tag(tf, ti, s3f, s3i, i_s, f_s)
 
         foreign_hold_text = '미확인'
         if ratio_col is not None:
@@ -4087,7 +4264,7 @@ def get_supply_profile(code, price):
                     foreign_hold_text = f"{ratios[0]:.2f}% ({ratios[0]-ratios[4]:+.2f}%p/5일)"
 
         result = {
-            'tag': f"{leader}({i_s}/{f_s})",
+            'tag': tag,
             'total_m': total_m,
             'whale_streak': whale_streak,
             'whale_score': whale_score,
@@ -4103,6 +4280,10 @@ def get_supply_profile(code, price):
         _supply_cache[cache_key] = result
         return result
     except Exception:
+        pykrx_prof = _build_supply_profile_from_pykrx(code, price)
+        if pykrx_prof:
+            _supply_cache[cache_key] = pykrx_prof
+            return pykrx_prof
         legacy = _build_supply_profile_from_legacy(code, price)
         if legacy:
             _supply_cache[cache_key] = legacy
@@ -10432,14 +10613,16 @@ def enrich_hits_with_supply_and_financial(all_hits_sorted, top_k_supply=80, top_
                 if not supply_prof or str(supply_prof.get('tag', '미계산')) == '미계산':
                     supply_prof = _fallback_supply_profile_from_item(item) or supply_prof
 
-                item['수급'] = supply_prof.get('tag', item.get('수급', '미계산'))
-                item['수급요약'] = supply_prof.get('summary', item.get('수급요약', ''))
-                item['수급당일'] = supply_prof.get('today_text', item.get('수급당일', ''))
-                item['수급3일누적'] = supply_prof.get('cum3_text', item.get('수급3일누적', ''))
-                item['수급5일누적'] = supply_prof.get('cum5_text', item.get('수급5일누적', ''))
-                item['수급연속'] = supply_prof.get('streak_text', item.get('수급연속', ''))
-                item['외인보유요약'] = supply_prof.get('foreign_hold_text', item.get('외인보유요약', '미확인'))
-                item['개인수급판정'] = supply_prof.get('personal_judgement', item.get('개인수급판정', ''))
+                fb_prof = _fallback_supply_profile_from_item(item) or {}
+
+                item['수급'] = supply_prof.get('tag') or fb_prof.get('tag', item.get('수급', '미계산'))
+                item['수급요약'] = supply_prof.get('summary') or fb_prof.get('summary', item.get('수급요약', ''))
+                item['수급당일'] = supply_prof.get('today_text') or fb_prof.get('today_text', item.get('수급당일', ''))
+                item['수급3일누적'] = supply_prof.get('cum3_text') or fb_prof.get('cum3_text', item.get('수급3일누적', ''))
+                item['수급5일누적'] = supply_prof.get('cum5_text') or fb_prof.get('cum5_text', item.get('수급5일누적', ''))
+                item['수급연속'] = supply_prof.get('streak_text') or fb_prof.get('streak_text', item.get('수급연속', ''))
+                item['외인보유요약'] = supply_prof.get('foreign_hold_text') or fb_prof.get('foreign_hold_text', item.get('외인보유요약', '미확인'))
+                item['개인수급판정'] = supply_prof.get('personal_judgement') or fb_prof.get('personal_judgement', item.get('개인수급판정', ''))
 
                 whale_score = int(supply_prof.get('whale_score', 0) or 0)
                 twin_b = bool(supply_prof.get('twin_b', False))
