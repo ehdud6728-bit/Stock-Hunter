@@ -1911,7 +1911,7 @@ def _recommendation_summary_line(row: pd.Series) -> str:
 def _recommendation_section_title(phase: str) -> str:
     phase = str(phase or '').strip()
     if phase == '선취형':
-        return '📌 [오늘의 선취형 추천]'
+        return '📌 [오늘의 선취형 후보]'
     if phase == '돌파직전형':
         return '🚀 [오늘의 돌파직전형 추천]'
     if phase == '초동발생형':
@@ -3879,6 +3879,61 @@ def _fmt_eok(v: float) -> str:
     sign = '+' if v >= 0 else '-'
     return f"{sign}{abs(v):.1f}억"
 
+def _build_supply_profile_from_legacy(code, price):
+    try:
+        tag, total_m, whale_streak, whale_score, twin_b = get_supply_and_money(code, price)
+        summary = ''
+        if '🤝쌍끌' in str(tag):
+            summary = '외인·기관 동반매수'
+        elif '🔴기관' in str(tag):
+            summary = '기관매수 우세'
+        elif '🔵외인' in str(tag):
+            summary = '외인매수 우세'
+        return {
+            'tag': tag,
+            'total_m': total_m,
+            'whale_streak': whale_streak,
+            'whale_score': whale_score,
+            'twin_b': twin_b,
+            'today_text': '',
+            'cum3_text': '',
+            'cum5_text': '',
+            'streak_text': '',
+            'summary': summary,
+            'personal_judgement': '',
+            'foreign_hold_text': '미확인',
+        }
+    except Exception:
+        return None
+
+
+def _fallback_supply_profile_from_item(item):
+    supply = str(item.get('수급', '') or '').strip()
+    if not supply or supply == '미계산':
+        return None
+    summary = str(item.get('수급요약', '') or '').strip()
+    if not summary:
+        if '🤝쌍끌' in supply:
+            summary = '외인·기관 동반매수'
+        elif '🔴기관' in supply:
+            summary = '기관매수 우세'
+        elif '🔵외인' in supply:
+            summary = '외인매수 우세'
+    return {
+        'tag': supply,
+        'total_m': 0,
+        'whale_streak': 0,
+        'whale_score': 0,
+        'twin_b': '🤝쌍끌' in supply,
+        'today_text': str(item.get('수급당일', '') or '').strip(),
+        'cum3_text': str(item.get('수급3일누적', '') or '').strip(),
+        'cum5_text': str(item.get('수급5일누적', '') or '').strip(),
+        'streak_text': str(item.get('수급연속', '') or '').strip(),
+        'summary': summary,
+        'personal_judgement': str(item.get('개인수급판정', '') or '').strip(),
+        'foreign_hold_text': str(item.get('외인보유요약', '미확인') or '미확인').strip(),
+    }
+
 
 def get_supply_profile(code, price):
     cache_key = f"profile::{code}"
@@ -3945,6 +4000,10 @@ def get_supply_profile(code, price):
                     frgn_col = next((c for c in qty_like_cols if '외국인' in norm_cols[c]), frgn_col)
 
         if not personal_col or not inst_col or not frgn_col:
+            legacy = _build_supply_profile_from_legacy(code, price)
+            if legacy:
+                _supply_cache[cache_key] = legacy
+                return legacy
             _supply_cache[cache_key] = result
             return result
 
@@ -4044,6 +4103,10 @@ def get_supply_profile(code, price):
         _supply_cache[cache_key] = result
         return result
     except Exception:
+        legacy = _build_supply_profile_from_legacy(code, price)
+        if legacy:
+            _supply_cache[cache_key] = legacy
+            return legacy
         _supply_cache[cache_key] = result
         return result
 
@@ -8516,6 +8579,9 @@ def infer_pass_inputs_from_row(row) -> dict:
 
 def calc_pass_stage(row) -> str:
     inp = infer_pass_inputs_from_row(row)
+    # 기존 단계 시퀀스 판정이 이미 있으면 그것을 우선 존중해 출력 충돌을 막는다.
+    if inp['stage_status'] in ('PASS_A', 'PASS_B'):
+        return inp['stage_status']
     if inp['has_accumulation'] and inp['has_squeeze'] and inp['has_ready']:
         if inp['reinforce_count'] >= 3 and not inp['late_flag'] and not inp['fake_flag']:
             return 'PASS_B'
@@ -8768,6 +8834,15 @@ def build_easy_interpretation(row) -> dict:
         'caution': caution,
         'final_label': final_label,
     }
+
+
+def _short_stage_date(v):
+    s = str(v or '').strip()
+    if not s or s in ('?', 'nan', 'None'):
+        return ''
+    if len(s) >= 10 and s[4] == '-' and s[7] == '-':
+        return s[5:10]
+    return s[:5]
 
 
 def enrich_row_with_human_commentary(row):
@@ -10354,18 +10429,21 @@ def enrich_hits_with_supply_and_financial(all_hits_sorted, top_k_supply=80, top_
         if idx < top_k_supply:
             try:
                 supply_prof = get_supply_profile(code, price)
-                item['수급'] = supply_prof.get('tag', '미계산')
-                item['수급요약'] = supply_prof.get('summary', '')
-                item['수급당일'] = supply_prof.get('today_text', '')
-                item['수급3일누적'] = supply_prof.get('cum3_text', '')
-                item['수급5일누적'] = supply_prof.get('cum5_text', '')
-                item['수급연속'] = supply_prof.get('streak_text', '')
-                item['외인보유요약'] = supply_prof.get('foreign_hold_text', '미확인')
-                item['개인수급판정'] = supply_prof.get('personal_judgement', '')
+                if not supply_prof or str(supply_prof.get('tag', '미계산')) == '미계산':
+                    supply_prof = _fallback_supply_profile_from_item(item) or supply_prof
 
-                whale_score = supply_prof.get('whale_score', 0)
+                item['수급'] = supply_prof.get('tag', item.get('수급', '미계산'))
+                item['수급요약'] = supply_prof.get('summary', item.get('수급요약', ''))
+                item['수급당일'] = supply_prof.get('today_text', item.get('수급당일', ''))
+                item['수급3일누적'] = supply_prof.get('cum3_text', item.get('수급3일누적', ''))
+                item['수급5일누적'] = supply_prof.get('cum5_text', item.get('수급5일누적', ''))
+                item['수급연속'] = supply_prof.get('streak_text', item.get('수급연속', ''))
+                item['외인보유요약'] = supply_prof.get('foreign_hold_text', item.get('외인보유요약', '미확인'))
+                item['개인수급판정'] = supply_prof.get('personal_judgement', item.get('개인수급판정', ''))
+
+                whale_score = int(supply_prof.get('whale_score', 0) or 0)
                 twin_b = bool(supply_prof.get('twin_b', False))
-                item['안전점수'] = int(item.get('안전점수', 0)) + int(whale_score)
+                item['안전점수'] = int(item.get('안전점수', 0)) + whale_score
 
                 current_n = str(item.get('N구분', ''))
                 current_g = str(item.get('구분', ''))
@@ -10379,8 +10457,16 @@ def enrich_hits_with_supply_and_financial(all_hits_sorted, top_k_supply=80, top_
 
                 item['수급상태'] = classify_supply_state(item)
 
-            except Exception as e:
-                item['수급'] = f"⚠️수급오류"
+            except Exception:
+                fallback_prof = _fallback_supply_profile_from_item(item)
+                if fallback_prof:
+                    item['수급'] = fallback_prof.get('tag', '미계산')
+                    item['수급요약'] = fallback_prof.get('summary', '')
+                    item['수급당일'] = fallback_prof.get('today_text', '')
+                    item['수급3일누적'] = fallback_prof.get('cum3_text', '')
+                    item['수급연속'] = fallback_prof.get('streak_text', '')
+                else:
+                    item['수급'] = f"⚠️수급오류"
 
         # 더 상위권만 재무 조회
         if idx < top_k_financial:
@@ -11629,9 +11715,17 @@ if __name__ == "__main__":
         # ─── 단계 표시 (PASS_A/B를 사람이 읽기 쉽게)
         stage_str = ''
         if stage == 'PASS_A':
-            stage_str = f"{describe_stage_status(stage)} ({item.get('S1날짜','?')[:5]}→{item.get('S3날짜','?')[:5]})"
+            s_from = _short_stage_date(item.get('S1날짜', ''))
+            s_to = _short_stage_date(item.get('S3날짜', ''))
+            stage_str = describe_stage_status(stage)
+            if s_from and s_to:
+                stage_str += f" ({s_from}→{s_to})"
         elif stage == 'PASS_B':
-            stage_str = f"{describe_stage_status(stage)} ({item.get('S2날짜','?')[:5]}→{item.get('S3날짜','?')[:5]})"
+            s_from = _short_stage_date(item.get('S2날짜', ''))
+            s_to = _short_stage_date(item.get('S3날짜', ''))
+            stage_str = describe_stage_status(stage)
+            if s_from and s_to:
+                stage_str += f" ({s_from}→{s_to})"
 
         # ─── 이격도 경고
         disp_warn = ''
