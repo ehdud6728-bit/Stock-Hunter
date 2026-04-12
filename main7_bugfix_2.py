@@ -3890,28 +3890,108 @@ def _parse_supply_tag_counts(tag: str) -> tuple[int, int]:
         return 0, 0
 
 
-def _pick_supply_strength_label(today_val: float, cum3_val: float, streak: int) -> str:
+def _pick_supply_strength_label(today_val: float, cum3_val: float, cum5_val: float, streak: int) -> str:
     today_val = safe_float(today_val, 0.0)
     cum3_val = safe_float(cum3_val, 0.0)
+    cum5_val = safe_float(cum5_val, 0.0)
     streak = safe_int(streak, 0)
 
-    if today_val >= 8.0 or cum3_val >= 15.0 or streak >= 5:
+    if today_val >= 15.0 or cum3_val >= 30.0 or cum5_val >= 45.0 or streak >= 7:
         return 'strong'
-    if today_val >= 3.0 or cum3_val >= 5.0 or streak >= 2:
+    if today_val >= 5.0 or cum3_val >= 10.0 or cum5_val >= 18.0 or streak >= 3:
         return 'medium'
-    if today_val > 0 or cum3_val > 0 or streak >= 1:
+    if today_val > 0 or cum3_val > 0 or cum5_val > 0 or streak >= 1:
         return 'weak'
     return 'none'
 
 
+def _pick_supply_flow_state(today_val: float, cum3_val: float, cum5_val: float, streak: int) -> str:
+    today_val = safe_float(today_val, 0.0)
+    cum3_val = safe_float(cum3_val, 0.0)
+    cum5_val = safe_float(cum5_val, 0.0)
+    streak = safe_int(streak, 0)
+
+    if cum5_val >= 45.0 or (cum5_val >= 25.0 and streak >= 3) or (today_val >= 12.0 and cum3_val >= 20.0):
+        return 'strong_buy'
+    if cum5_val >= 10.0 or cum3_val >= 5.0 or today_val >= 3.0 or streak >= 2:
+        return 'buy'
+    if cum5_val <= -45.0 or (cum5_val <= -25.0 and today_val <= -5.0) or (today_val <= -12.0 and cum3_val <= -20.0):
+        return 'strong_sell'
+    if cum5_val <= -10.0 or cum3_val <= -5.0 or today_val <= -3.0:
+        return 'sell'
+    return 'neutral'
+
+
+def _build_actor_flow_label(actor_name: str, today_val: float, cum3_val: float, cum5_val: float, streak: int) -> str:
+    state = _pick_supply_flow_state(today_val, cum3_val, cum5_val, streak)
+    if state == 'strong_buy':
+        return f'{actor_name} 강매집중'
+    if state == 'buy':
+        return f'{actor_name} 매집중'
+    if state == 'strong_sell':
+        return f'{actor_name} 강매도중'
+    if state == 'sell':
+        return f'{actor_name} 매도우세'
+    return f'{actor_name} 중립'
+
+
+def _build_supply_flow_text(today_p: float, today_f: float, today_i: float,
+                            cum3_p: float, cum3_f: float, cum3_i: float,
+                            cum5_p: float, cum5_f: float, cum5_i: float,
+                            p_s: int = 0, f_s: int = 0, i_s: int = 0) -> str:
+    f_state = _pick_supply_flow_state(today_f, cum3_f, cum5_f, f_s)
+    i_state = _pick_supply_flow_state(today_i, cum3_i, cum5_i, i_s)
+
+    if f_state in ('strong_buy', 'buy') and i_state in ('strong_buy', 'buy'):
+        if f_state == 'strong_buy' or i_state == 'strong_buy' or (cum5_f + cum5_i) >= 40.0:
+            base = '외인·기관 동반 강매집중'
+        else:
+            base = '외인·기관 동반 매집중'
+    elif i_state == 'strong_buy':
+        base = '기관 강매집중'
+    elif f_state == 'strong_buy':
+        base = '외인 강매집중'
+    elif i_state == 'buy':
+        base = '기관 매집중'
+    elif f_state == 'buy':
+        base = '외인 매집중'
+    elif f_state in ('strong_sell', 'sell') and i_state in ('strong_sell', 'sell'):
+        if f_state == 'strong_sell' or i_state == 'strong_sell':
+            base = '외인·기관 동반 강매도중'
+        else:
+            base = '외인·기관 동반 매도우세'
+    elif i_state == 'strong_sell':
+        base = '기관 강매도중'
+    elif f_state == 'strong_sell':
+        base = '외인 강매도중'
+    elif i_state == 'sell':
+        base = '기관 매도우세'
+    elif f_state == 'sell':
+        base = '외인 매도우세'
+    else:
+        base = '수급 혼조'
+
+    if today_p <= -5.0 and (today_f > 0 or today_i > 0):
+        base += ' | 개인투매흡수'
+    elif cum5_p <= -15.0 and (cum5_f > 0 or cum5_i > 0):
+        base += ' | 개인매도흡수'
+    elif today_p >= 5.0 and today_f <= 0 and today_i <= 0:
+        base += ' | 개인추격주의'
+    elif cum5_p >= 15.0 and cum5_f <= 0 and cum5_i <= 0:
+        base += ' | 개인과열주의'
+
+    return base
+
+
 def _summarize_supply_strength(today_p: float, today_f: float, today_i: float,
                                cum3_p: float, cum3_f: float, cum3_i: float,
+                               cum5_p: float, cum5_f: float, cum5_i: float,
                                p_s: int = 0, f_s: int = 0, i_s: int = 0) -> tuple[str, str]:
     summary_parts = []
     personal_judgement = ''
 
-    f_lv = _pick_supply_strength_label(today_f, cum3_f, f_s)
-    i_lv = _pick_supply_strength_label(today_i, cum3_i, i_s)
+    f_lv = _pick_supply_strength_label(today_f, cum3_f, cum5_f, f_s)
+    i_lv = _pick_supply_strength_label(today_i, cum3_i, cum5_i, i_s)
 
     if f_lv == 'none' and i_lv == 'none':
         summary_parts.append('수급 중립')
@@ -3931,9 +4011,9 @@ def _summarize_supply_strength(today_p: float, today_f: float, today_i: float,
         summary_parts.append('기관매수 유입')
     elif f_lv == 'weak':
         summary_parts.append('외인매수 유입')
-    elif today_f < -3.0 or cum3_f < -5.0:
+    elif today_f < -3.0 or cum3_f < -5.0 or cum5_f < -10.0:
         summary_parts.append('외인매도 우세')
-    elif today_i < -3.0 or cum3_i < -5.0:
+    elif today_i < -3.0 or cum3_i < -5.0 or cum5_i < -10.0:
         summary_parts.append('기관매도 우세')
 
     if today_p <= -3.0 and (today_f > 0 or today_i > 0):
@@ -3942,7 +4022,7 @@ def _summarize_supply_strength(today_p: float, today_f: float, today_i: float,
         personal_judgement = '개인매도흡수'
     elif today_p >= 3.0 and today_f < 0 and today_i <= 0:
         personal_judgement = '개인추격주의'
-    elif cum3_p >= 5.0 and cum3_f < 0 and cum3_i <= 0:
+    elif cum5_p >= 10.0 and cum5_f <= 0 and cum5_i <= 0:
         personal_judgement = '개인과열주의'
 
     if not summary_parts:
@@ -3954,9 +4034,9 @@ def _summarize_supply_strength(today_p: float, today_f: float, today_i: float,
 
 
 def _select_supply_tag(today_f: float, today_i: float, cum3_f: float, cum3_i: float,
-                       i_s: int, f_s: int) -> str:
-    f_lv = _pick_supply_strength_label(today_f, cum3_f, f_s)
-    i_lv = _pick_supply_strength_label(today_i, cum3_i, i_s)
+                       cum5_f: float, cum5_i: float, i_s: int, f_s: int) -> str:
+    f_lv = _pick_supply_strength_label(today_f, cum3_f, cum5_f, f_s)
+    i_lv = _pick_supply_strength_label(today_i, cum3_i, cum5_i, i_s)
 
     has_f = f_lv != 'none'
     has_i = i_lv != 'none'
@@ -4025,8 +4105,9 @@ def _build_supply_profile_from_pykrx(code, price):
         s5p = round(sum(p_vals[-5:]), 1)
         s5f = round(sum(f_vals[-5:]), 1)
         s5i = round(sum(i_vals[-5:]), 1)
-        summary, personal_judgement = _summarize_supply_strength(tp, tf, ti, s3p, s3f, s3i, p_s, f_s, i_s)
-        tag = _select_supply_tag(tf, ti, s3f, s3i, i_s, f_s)
+        summary, personal_judgement = _summarize_supply_strength(tp, tf, ti, s3p, s3f, s3i, s5p, s5f, s5i, p_s, f_s, i_s)
+        flow_text = _build_supply_flow_text(tp, tf, ti, s3p, s3f, s3i, s5p, s5f, s5i, p_s, f_s, i_s)
+        tag = _select_supply_tag(tf, ti, s3f, s3i, s5f, s5i, i_s, f_s)
         twin_b = '🤝쌍끌' in tag
         total_m = round(abs(tf) + abs(ti))
         whale_streak = 0
@@ -4062,8 +4143,12 @@ def _build_supply_profile_from_pykrx(code, price):
             'cum5_text': f"개인 {_fmt_eok(s5p)} | 외인 {_fmt_eok(s5f)} | 기관 {_fmt_eok(s5i)}",
             'streak_text': f"기관 {i_s}일 / 외인 {f_s}일 / 개인 {p_s}일",
             'summary': summary,
+            'flow_text': flow_text,
             'personal_judgement': personal_judgement,
             'foreign_hold_text': foreign_hold_text,
+            'today_f': tf, 'today_i': ti, 'today_p': tp,
+            'cum3_f': s3f, 'cum3_i': s3i, 'cum3_p': s3p,
+            'cum5_f': s5f, 'cum5_i': s5i, 'cum5_p': s5p,
         }
     except Exception:
         return None
@@ -4073,8 +4158,9 @@ def _build_supply_profile_from_legacy(code, price):
     try:
         tag, total_m, whale_streak, whale_score, twin_b = get_supply_and_money(code, price)
         i_s, f_s = _parse_supply_tag_counts(tag)
-        tag = _select_supply_tag(0.0, 0.0, 0.0, 0.0, i_s, f_s)
-        summary, personal_judgement = _summarize_supply_strength(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0, f_s, i_s)
+        tag = _select_supply_tag(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, i_s, f_s)
+        summary, personal_judgement = _summarize_supply_strength(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0, f_s, i_s)
+        flow_text = _build_supply_flow_text(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0, f_s, i_s)
         return {
             'tag': tag,
             'total_m': total_m,
@@ -4086,6 +4172,7 @@ def _build_supply_profile_from_legacy(code, price):
             'cum5_text': '',
             'streak_text': f"기관 {i_s}일 / 외인 {f_s}일 / 개인 0일" if (i_s or f_s) else '',
             'summary': summary,
+            'flow_text': flow_text,
             'personal_judgement': personal_judgement,
             'foreign_hold_text': '미확인',
         }
@@ -4114,8 +4201,13 @@ def _fallback_supply_profile_from_item(item):
     flow_days = safe_int(item.get('수급양수일수(3일)', item.get('flow_positive_days', 0)), 0)
     p_s = 0 if flow_days <= max(i_s, f_s) else max(0, flow_days - max(i_s, f_s))
 
-    supply = _select_supply_tag(today_f, today_i, frgn3, inst3, i_s, f_s)
-    summary, personal_judgement = _summarize_supply_strength(today_p, today_f, today_i, p3, frgn3, inst3, p_s, f_s, i_s)
+    cum5_text = str(item.get('수급5일누적', '') or '').strip()
+    frgn5 = safe_float(item.get('외인5일합(억)', item.get('frgn5_sum_b', 0)), 0.0)
+    inst5 = safe_float(item.get('기관5일합(억)', item.get('inst5_sum_b', 0)), 0.0)
+    p5 = safe_float(item.get('개인5일합(억)', item.get('personal5_sum_b', -(frgn5 + inst5))), -(frgn5 + inst5))
+    supply = _select_supply_tag(today_f, today_i, frgn3, inst3, frgn5, inst5, i_s, f_s)
+    summary, personal_judgement = _summarize_supply_strength(today_p, today_f, today_i, p3, frgn3, inst3, p5, frgn5, inst5, p_s, f_s, i_s)
+    flow_text = _build_supply_flow_text(today_p, today_f, today_i, p3, frgn3, inst3, p5, frgn5, inst5, p_s, f_s, i_s)
 
     today_text = str(item.get('수급당일', '') or '').strip()
     if not today_text and (abs(today_p) >= 0.1 or abs(today_f) >= 0.1 or abs(today_i) >= 0.1):
@@ -4124,6 +4216,9 @@ def _fallback_supply_profile_from_item(item):
     cum3_text = str(item.get('수급3일누적', '') or '').strip()
     if not cum3_text and (abs(p3) >= 0.1 or abs(frgn3) >= 0.1 or abs(inst3) >= 0.1):
         cum3_text = f"개인 {_fmt_eok(p3)} | 외인 {_fmt_eok(frgn3)} | 기관 {_fmt_eok(inst3)}"
+
+    if not cum5_text and (abs(p5) >= 0.1 or abs(frgn5) >= 0.1 or abs(inst5) >= 0.1):
+        cum5_text = f"개인 {_fmt_eok(p5)} | 외인 {_fmt_eok(frgn5)} | 기관 {_fmt_eok(inst5)}"
 
     streak_text = str(item.get('수급연속', '') or '').strip()
     if not streak_text and (i_s or f_s or p_s):
@@ -4142,11 +4237,15 @@ def _fallback_supply_profile_from_item(item):
         'twin_b': '🤝쌍끌' in supply,
         'today_text': today_text,
         'cum3_text': cum3_text,
-        'cum5_text': str(item.get('수급5일누적', '') or '').strip(),
+        'cum5_text': cum5_text,
         'streak_text': streak_text,
         'summary': summary,
+        'flow_text': flow_text,
         'personal_judgement': personal_judgement or str(item.get('개인수급판정', '') or '').strip(),
         'foreign_hold_text': foreign_hold_text,
+        'today_f': today_f, 'today_i': today_i, 'today_p': today_p,
+        'cum3_f': frgn3, 'cum3_i': inst3, 'cum3_p': p3,
+        'cum5_f': frgn5, 'cum5_i': inst5, 'cum5_p': p5,
     }
 
 
@@ -4167,9 +4266,22 @@ def get_supply_profile(code, price):
         'cum5_text': '',
         'streak_text': '',
         'summary': '',
+        'flow_text': '',
         'personal_judgement': '',
         'foreign_hold_text': '미확인',
     }
+
+    try:
+        pykrx_prof = _build_supply_profile_from_pykrx(code, price)
+        if pykrx_prof and (
+            str(pykrx_prof.get('today_text', '')).strip() or
+            str(pykrx_prof.get('cum5_text', '')).strip() or
+            str(pykrx_prof.get('streak_text', '')).strip()
+        ):
+            _supply_cache[cache_key] = pykrx_prof
+            return pykrx_prof
+    except Exception:
+        pass
 
     try:
         url = f"https://finance.naver.com/item/frgn.naver?code={code}"
@@ -4268,8 +4380,9 @@ def get_supply_profile(code, price):
                 break
         whale_score = int(total_m // 2) + (3 if whale_streak >= 3 else 0)
 
-        summary, personal_judgement = _summarize_supply_strength(tp, tf, ti, s3p, s3f, s3i, p_s, f_s, i_s)
-        tag = _select_supply_tag(tf, ti, s3f, s3i, i_s, f_s)
+        summary, personal_judgement = _summarize_supply_strength(tp, tf, ti, s3p, s3f, s3i, s5p, s5f, s5i, p_s, f_s, i_s)
+        flow_text = _build_supply_flow_text(tp, tf, ti, s3p, s3f, s3i, s5p, s5f, s5i, p_s, f_s, i_s)
+        tag = _select_supply_tag(tf, ti, s3f, s3i, s5f, s5i, i_s, f_s)
 
         foreign_hold_text = '미확인'
         if ratio_col is not None:
@@ -4290,8 +4403,12 @@ def get_supply_profile(code, price):
             'cum5_text': f"개인 {_fmt_eok(s5p)} | 외인 {_fmt_eok(s5f)} | 기관 {_fmt_eok(s5i)}",
             'streak_text': f"기관 {i_s}일 / 외인 {f_s}일 / 개인 {p_s}일",
             'summary': summary,
+            'flow_text': flow_text,
             'personal_judgement': personal_judgement,
             'foreign_hold_text': foreign_hold_text,
+            'today_f': tf, 'today_i': ti, 'today_p': tp,
+            'cum3_f': s3f, 'cum3_i': s3i, 'cum3_p': s3p,
+            'cum5_f': s5f, 'cum5_i': s5i, 'cum5_p': s5p,
         }
         _supply_cache[cache_key] = result
         return result
@@ -10637,6 +10754,7 @@ def enrich_hits_with_supply_and_financial(all_hits_sorted, top_k_supply=80, top_
                 item['수급3일누적'] = supply_prof.get('cum3_text') or fb_prof.get('cum3_text', item.get('수급3일누적', ''))
                 item['수급5일누적'] = supply_prof.get('cum5_text') or fb_prof.get('cum5_text', item.get('수급5일누적', ''))
                 item['수급연속'] = supply_prof.get('streak_text') or fb_prof.get('streak_text', item.get('수급연속', ''))
+                item['수급판정'] = supply_prof.get('flow_text') or fb_prof.get('flow_text', item.get('수급판정', ''))
                 item['외인보유요약'] = supply_prof.get('foreign_hold_text') or fb_prof.get('foreign_hold_text', item.get('외인보유요약', '미확인'))
                 item['개인수급판정'] = supply_prof.get('personal_judgement') or fb_prof.get('personal_judgement', item.get('개인수급판정', ''))
 
@@ -10663,7 +10781,9 @@ def enrich_hits_with_supply_and_financial(all_hits_sorted, top_k_supply=80, top_
                     item['수급요약'] = fallback_prof.get('summary', '')
                     item['수급당일'] = fallback_prof.get('today_text', '')
                     item['수급3일누적'] = fallback_prof.get('cum3_text', '')
+                    item['수급5일누적'] = fallback_prof.get('cum5_text', '')
                     item['수급연속'] = fallback_prof.get('streak_text', '')
+                    item['수급판정'] = fallback_prof.get('flow_text', '')
                 else:
                     item['수급'] = f"⚠️수급오류"
 
@@ -11982,6 +12102,8 @@ if __name__ == "__main__":
         supply_summary = str(item.get('수급요약', '') or '').strip()
         supply_today = str(item.get('수급당일', '') or '').strip()
         supply_3d = str(item.get('수급3일누적', '') or '').strip()
+        supply_5d = str(item.get('수급5일누적', '') or '').strip()
+        supply_flow = str(item.get('수급판정', '') or '').strip()
         supply_streak = str(item.get('수급연속', '') or '').strip()
         foreign_hold = str(item.get('외인보유요약', '') or '').strip()
 
@@ -11995,9 +12117,13 @@ if __name__ == "__main__":
         if supply_summary:
             entry += f"📌 수급요약:{supply_summary}\n"
         if supply_today:
-            entry += f"💵 오늘수급:{supply_today}\n"
+            entry += f"💵 최근1일:{supply_today}\n"
         if supply_3d:
-            entry += f"📦 3일누적:{supply_3d}\n"
+            entry += f"📦 최근3일:{supply_3d}\n"
+        if supply_5d:
+            entry += f"🧲 최근5일:{supply_5d}\n"
+        if supply_flow:
+            entry += f"📍 수급판정:{supply_flow}\n"
         if supply_streak:
             entry += f"🔁 연속:{supply_streak}\n"
         if foreign_hold and foreign_hold != '미확인':
