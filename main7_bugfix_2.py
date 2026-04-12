@@ -8503,20 +8503,60 @@ def get_pass_stage_bundle(row) -> dict:
     if pass_stage == 'PASS_B':
         return {
             'pass_stage': pass_stage,
-            'pass_title': '🟣 PASS_B | 강화 확인 구조 통과',
-            'pass_desc': '기본 3단계 구조 위에 재안착·거래량·정제·OBV·저항 위치 같은 강화 조건이 추가로 맞는 상태입니다.',
+            'pass_title': '📶 PASS_B | 강화 확인 구조 통과',
+            'pass_desc': '기본 3단계 통과 후 재안착·거래량·저항 위치까지 추가 확인된 실전 우선 구조입니다.',
         }
     if pass_stage == 'PASS_A':
         return {
             'pass_stage': pass_stage,
-            'pass_title': '✅ PASS_A | 매집→응축→돌파준비 구조 통과',
-            'pass_desc': '매집 + 응축 + 돌파준비 흐름이 기본적으로 맞는 종목입니다.',
+            'pass_title': '✅ PASS_A | 매집→응축→돌파준비 3단계 통과',
+            'pass_desc': '매집 + 응축 + 돌파준비 흐름이 순서대로 맞는 기본 구조 통과 상태입니다.',
         }
     return {
         'pass_stage': 'DROP',
         'pass_title': '⛔ DROP | 단계 시퀀스 미성립',
-        'pass_desc': '현재는 단계형 구조가 부족하거나, 후행/품질 미달로 해석상 우선순위가 낮습니다.',
+        'pass_desc': '단계 시퀀스 자체는 부족하지만, 상태·저항구름·정제 조합에 따라 실전 해석은 별도로 판단합니다.',
     }
+
+
+def _score_band_preempt(v: int) -> str:
+    if v >= 60:
+        return '선취 가능 우수'
+    if v >= 35:
+        return '선취 관찰 우수'
+    if v >= 10:
+        return '선취 참고'
+    return '선취 낮음'
+
+
+def _score_band_breakout(v: int) -> str:
+    if v >= 90:
+        return '돌파 확인 우수'
+    if v >= 60:
+        return '돌파 대응 양호'
+    if v >= 40:
+        return '돌파 참고'
+    return '돌파 낮음'
+
+
+def _score_band_safe(v: int) -> str:
+    if v >= 450:
+        return '매우 양호'
+    if v >= 300:
+        return '양호'
+    if v >= 180:
+        return '보통'
+    return '주의'
+
+
+def _score_band_n(v: int) -> str:
+    if v >= 700:
+        return '매우 양호'
+    if v >= 500:
+        return '양호'
+    if v >= 300:
+        return '보통'
+    return '낮음'
 
 
 def build_score_summary(row) -> str:
@@ -8525,15 +8565,12 @@ def build_score_summary(row) -> str:
     safe = _rc_int(row, '안전점수', 0)
     n_score = _rc_int(row, 'N점수', 0)
     parts = []
-    if preempt:
-        parts.append(f'선취 {preempt}=미리 잡을 가치')
+    parts.append(f'선취:{_score_band_preempt(preempt)}')
     if breakout:
-        parts.append(f'돌파 {breakout}=돌파 대응 가치')
-    if safe:
-        parts.append(f'안전 {safe}=자리 편안함')
-    if n_score:
-        parts.append(f'N {n_score}=종목 화력')
-    return ' / '.join(parts)
+        parts.append(f'돌파:{_score_band_breakout(breakout)}')
+    parts.append(f'안전:{_score_band_safe(safe)}')
+    parts.append(f'N:{_score_band_n(n_score)}')
+    return ' | '.join(parts)
 
 
 def decide_final_label(row) -> str:
@@ -8545,19 +8582,49 @@ def decide_final_label(row) -> str:
     good_refine = inp['good_refine']
     has_reanchor = bool(inp['ma5_tag'])
     disparity = _rc_float(row, '이격', 0)
+    breakout = _rc_int(row, '돌파점수', 0)
+    preempt = _rc_int(row, '선취점수', _rc_int(row, '단테점수', 0))
 
-    if fake and (phase in ('후행형', '돌파관찰형', '돌파우선형') or cloud == '저항돌파') and disparity >= 108:
-        return '추격 금지'
+    # 1) 상태 우선
     if phase == '후행형' or wm_state == '후행수박':
-        return '보유자 대응'
+        return '추격 금지' if (fake and disparity >= 108) else '보유자 대응'
     if wm_state == '눌림수박':
         return '눌림 대기'
-    if phase in ('선취형', '선취관찰형') or (cloud == '저항전' and wm_state in ('초입수박', '눌림수박', 'Blue-2예비')):
+    if wm_state in ('초입수박', 'Blue-2예비') and cloud == '저항전':
         return '선취 가능' if (good_refine and has_reanchor) else '선취 관찰'
-    if phase in ('돌파직전형', '초동발생형'):
+
+    # 2) 저항구름 중심 판정
+    if cloud == '저항전':
+        if good_refine and (has_reanchor or preempt >= 35) and not fake:
+            return '선취 가능'
+        if wm_state in ('초입수박', '눌림수박', 'Blue-2예비') or phase in ('선취형', '선취관찰형', '구조관찰'):
+            return '선취 관찰'
+    if cloud == '저항테스트':
+        if wm_state in ('구름테스트관찰', '돌파관찰형') or phase in ('구름테스트관찰', '돌파관찰형', '돌파우선형'):
+            return '돌파 확인'
+        if good_refine or breakout >= 55:
+            return '돌파 확인'
+    if cloud == '저항돌파':
+        if fake:
+            return '눌림 대기' if phase != '후행형' else '보유자 대응'
+        if phase in ('돌파직전형', '초동발생형', '돌파관찰형', '돌파우선형'):
+            return '돌파 확인' if good_refine else '눌림 대기'
+        if breakout >= 60:
+            return '돌파 확인' if good_refine else '눌림 대기'
+
+    # 3) 정제
+    if good_refine and wm_state in ('초입수박', '눌림수박'):
+        return '선취 가능' if has_reanchor else '선취 관찰'
+    if fake and disparity >= 110:
+        return '추격 금지'
+
+    # 4) 점수 보조
+    if breakout >= 70:
         return '돌파 확인'
-    if phase in ('돌파관찰형', '구름테스트관찰', '돌파우선형') or cloud in ('저항테스트', '저항돌파'):
-        return '돌파 확인' if (cloud == '저항돌파' and good_refine and not fake) else '관망'
+    if breakout >= 55:
+        return '눌림 대기'
+    if preempt >= 35:
+        return '선취 관찰'
     return '관망'
 
 
@@ -8571,43 +8638,56 @@ def build_easy_interpretation(row) -> dict:
     good_refine = inp['good_refine']
     has_reanchor = bool(inp['ma5_tag'])
 
+    state_desc = {
+        '초입수박': '바닥을 정리한 뒤 처음 살아나는 초입 구간',
+        '눌림수박': '한 번 살아난 뒤 눌림을 주는 재진입 구간',
+        '후행수박': '이미 한 박자 진행된 뒤라 신규 접근이 불리한 구간',
+        '구름테스트관찰': '저항구름을 막 시험하는 중간 확인 구간',
+        '돌파관찰형': '저항을 넘으려는 시도는 나왔지만 안착 확인이 더 필요한 구간',
+        '돌파우선형': '선취보다 돌파 확인과 지지 전환이 더 중요한 진행 구간',
+        '구조관찰': '기본 구조는 있지만 실행형으로 보기엔 한 단계 부족한 관찰 구간',
+        '': '구조는 일부 보이지만 해석은 아직 조심해야 하는 구간',
+    }.get(wm_state or phase, '구조는 일부 보이지만 해석은 아직 조심해야 하는 구간')
+
+    cloud_desc = {
+        '저항전': '아직 저항구름 아래라 미리 볼 수 있는 여지가 있습니다.',
+        '저항테스트': '지금은 저항구름을 시험하는 중이라 확인이 먼저입니다.',
+        '저항돌파': '이미 저항 위로 올라온 자리라 추격보다 눌림 확인이 더 중요합니다.',
+        '': '저항 위치는 중립적으로 보되 상태와 정제를 더 우선해 해석합니다.',
+    }.get(cloud, '저항 위치는 중립적으로 보되 상태와 정제를 더 우선해 해석합니다.')
+
+    refine_desc = '정제수박이라 구조 품질은 비교적 양호합니다.' if good_refine else ('가짜수박주의가 있어 신호를 보수적으로 읽는 편이 낫습니다.' if fake else '관찰수박 단계라 한두 가지 확인 요소가 더 필요합니다.')
+
     if final_label == '선취 가능':
-        easy = '초입/눌림 구조에서 저항 전 구간이라 먼저 볼 수 있는 자리입니다.'
-        action = '소액 분할로 접근하고, 5일선과 거래량 유지 여부를 같이 확인합니다.'
-        caution = '저항 전 구간이라도 윗꼬리 확대나 재안착 실패가 나오면 보수적으로 봅니다.'
+        easy = f'{state_desc} {cloud_desc} {refine_desc} 아직 완전 돌파 전이라 선취 관찰이나 선취 접근이 맞는 자리입니다.'
+        if has_reanchor:
+            easy += ' 5일선 재안착까지 확인되어 선취 완성도가 더 높습니다.'
+        action = '신규는 소액 분할 접근 가능, 보유자는 5일선 또는 직전 지지 이탈 여부를 확인합니다.'
+        caution = '저항을 넘기기 전까지는 하루 반짝 후 되밀릴 가능성을 열어둬야 합니다.'
     elif final_label == '선취 관찰':
-        easy = '구조는 살아 있으나 선취로 확신하기엔 확인 신호가 한두 가지 더 필요합니다.'
-        action = '바로 추격하기보다 5일재안착, 양봉 유지, 거래량 보강을 확인한 뒤 대응합니다.'
+        easy = f'{state_desc} {cloud_desc} {refine_desc} 아직 선취로 확신하기엔 재안착·거래량·양봉 유지 중 한두 가지가 더 확인되어야 합니다.'
+        action = '소액 선진입보다 분할 관찰이 유리하며, 5일선 재안착과 거래량 보강을 먼저 확인합니다.'
         caution = '좋아 보이더라도 확인 전 진입은 실패 확률이 높을 수 있습니다.'
     elif final_label == '눌림 대기':
-        easy = '이미 살아난 구조 안에서 눌림을 주는 구간이라 재진입 타점을 기다리는 자리입니다.'
-        action = '지지선과 5일/20일선 반응을 보고 눌림 후 반등 시점을 기다립니다.'
-        caution = '눌림이 깊어져 구조가 무너지면 단순 눌림이 아니라 실패일 수 있습니다.'
+        easy = f'{state_desc} {cloud_desc} {refine_desc} 이미 한 번 살아난 뒤라 지금은 새 추격보다 눌림이 지지로 바뀌는지 보는 자리에 가깝습니다.'
+        action = '구름 상단·5일선·직전 돌파선 부근에서 버티는지 보고 눌림 후 반등 때 대응합니다.'
+        caution = '눌림이 깊어져 구조가 무너지면 단순 조정이 아니라 실패 구간이 될 수 있습니다.'
     elif final_label == '돌파 확인':
-        easy = '중간 저항을 넘거나 시험하는 구간으로, 돌파가 실제 안착되는지 확인이 필요합니다.'
-        action = '구름 상단·전고점 지지 여부를 확인하고, 재돌파 또는 눌림 반등 때 대응합니다.'
-        caution = '돌파 직후 추격은 윗꼬리와 되밀림 리스크가 큽니다.'
+        easy = f'{state_desc} {cloud_desc} {refine_desc} 즉시 추격보다 구름 상단 안착과 재돌파 확인이 더 중요한 자리입니다.'
+        action = '거래량 유지와 구름 상단 안착을 먼저 확인하고, 재돌파 또는 눌림 반등 때 대응합니다.'
+        caution = '돌파처럼 보여도 안착이 없으면 하루 반짝 후 다시 밀릴 수 있습니다.'
     elif final_label == '보유자 대응':
-        easy = '이미 한 박자 진행된 뒤라 신규 진입보다 보유자 관리가 더 중요한 자리입니다.'
-        action = '신규 추격보다 눌림 재확인, 기존 보유분은 이탈 기준을 먼저 정합니다.'
-        caution = '후행 구간은 좋은 종목이어도 진입 타점이 나쁠 수 있습니다.'
+        easy = f'{state_desc} {cloud_desc} {refine_desc} 지금은 신규 진입보다 보유자 관리가 더 중요한 자리입니다.'
+        action = '신규 추격보다 눌림 재확인, 기존 보유분은 이탈 기준과 분할 대응 기준을 먼저 정합니다.'
+        caution = '후행 구간은 좋은 종목이어도 진입 타점이 늦어질 수 있습니다.'
     elif final_label == '추격 금지':
-        easy = '신호는 있어 보여도 현재 위치와 품질상 추격매수는 불리한 자리입니다.'
+        easy = f'{state_desc} {cloud_desc} {refine_desc} 겉으로 강해 보여도 현재 위치와 품질상 추격매수는 불리한 자리입니다.'
         action = '당장 진입보다 눌림과 재정비가 나온 뒤 다시 보는 편이 낫습니다.'
         caution = '가짜수박주의·과열·저항돌파 후 진행형은 상단 추격 리스크가 큽니다.'
     else:
-        easy = '구조는 일부 보이지만 아직 확신 구간은 아니라 관망이 더 자연스럽습니다.'
+        easy = f'{state_desc} {cloud_desc} {refine_desc} 구조는 일부 보이지만 아직 확신 구간은 아니라 관찰이 더 자연스럽습니다.'
         action = '구름 상단 안착, 거래량 재유입, 재안착 신호가 나오는지 더 지켜봅니다.'
         caution = '상태·저항구름·정제 중 하나라도 약하면 해석을 보수적으로 해야 합니다.'
-
-    if wm_state == '후행수박' and final_label not in ('보유자 대응', '추격 금지'):
-        caution += ' 후행수박은 한 박자 늦은 자리일 수 있습니다.'
-    if fake:
-        caution += ' 정제 품질이 약해 보수적 해석이 필요합니다.'
-    if phase == '구조관찰':
-        easy = '기본 구조는 있지만 실행형으로 보기엔 아직 한 단계 부족한 관찰 구간입니다.'
-    if cloud == '저항전' and final_label in ('선취 관찰', '관망') and good_refine and has_reanchor:
-        easy = '저항 전 구간에서 구조와 정제가 맞아, 선취 관점으로 먼저 체크할 수 있습니다.'
 
     return {
         'easy_interpretation': easy,
@@ -8635,6 +8715,8 @@ def enrich_row_with_human_commentary(row):
     block_lines = []
     if base['pass_title']:
         block_lines.append(f"🧩 PASS 해석: {base['pass_title']}")
+    if base['pass_desc']:
+        block_lines.append(f"→ {base['pass_desc']}")
     if base['easy_interpretation']:
         block_lines.append(f"🧠 쉬운 해석: {base['easy_interpretation']}")
     if base['action_summary']:
