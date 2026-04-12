@@ -2233,23 +2233,25 @@ def build_stage_track_block(title: str, df: pd.DataFrame) -> str:
 
     lines = [f"🚀 [{title}]\n\n"]
     for rank, (_, item) in enumerate(df.head(5).iterrows(), 1):
-        comment = str(item.get('단계트랙코멘트', '') or '').strip()
-        lines.append(
-            f"{rank}) [{item.get('종목명', '')}]\n"
-            f"- 단계: {describe_stage_status(str(item.get('단계상태', 'N/A')))} | {item.get('단계태그', '')}\n"
-            f"- S1:{item.get('S1날짜', '-')}, S2:{item.get('S2날짜', '-')}, S3:{item.get('S3날짜', '-')}\n"
-            f"- N조합: {item.get('N조합', '')}" + (f" | {item.get('time_sym_tag', '')}" if str(item.get('time_sym_tag', '')).strip() else '') + "\n"
-            + (f"- 재안착: {item.get('5일재안착태그', '')} | {item.get('5일재안착코멘트', '')}\n" if str(item.get('5일재안착태그', '')).strip() else '')
-            + (f"- 저항구름: {item.get('저항구름태그', '')} | {item.get('저항구름코멘트', '')}\n" if str(item.get('저항구름태그', '')).strip() else '')
-            + (f"- 정제: {item.get('수박정제태그', '')} | {item.get('수박정제코멘트', '')}\n" if str(item.get('수박정제태그', '')).strip() else '')
+        item2 = enrich_row_with_human_commentary(item)
+        comment = str(item2.get('단계트랙코멘트', '') or '').strip()
+        block = (
+            f"{rank}) [{item2.get('종목명', '')}]\n"
+            f"- 단계: {describe_stage_status(str(item2.get('단계상태', 'N/A')))} | {item2.get('단계태그', '')}\n"
+            f"- S1:{item2.get('S1날짜', '-')}, S2:{item2.get('S2날짜', '-')}, S3:{item2.get('S3날짜', '-')}\n"
+            f"- N조합: {item2.get('N조합', '')}" + (f" | {item2.get('time_sym_tag', '')}" if str(item2.get('time_sym_tag', '')).strip() else '') + "\n"
+            + (f"- 재안착: {item2.get('5일재안착태그', '')} | {item2.get('5일재안착코멘트', '')}\n" if str(item2.get('5일재안착태그', '')).strip() else '')
+            + (f"- 저항구름: {item2.get('저항구름태그', '')} | {item2.get('저항구름코멘트', '')}\n" if str(item2.get('저항구름태그', '')).strip() else '')
+            + (f"- 정제: {item2.get('수박정제태그', '')} | {item2.get('수박정제코멘트', '')}\n" if str(item2.get('수박정제태그', '')).strip() else '')
             + (f"- 해석: {comment}\n" if comment else '')
-            + f"- 재무: {item.get('재무', '미계산')} | 수급: {item.get('수급', '미계산')}\n"
-            + (f"- 수급요약: {item.get('수급요약', '')}\n" if str(item.get('수급요약', '')).strip() else '')
-            + (f"- 오늘수급: {item.get('수급당일', '')}\n" if str(item.get('수급당일', '')).strip() else '')
-            + (f"- 외인보유: {item.get('외인보유요약', '')}\n" if str(item.get('외인보유요약', '')).strip() and str(item.get('외인보유요약', '')).strip() != '미확인' else '')
-            + f"- 안전:{item.get('안전점수', 0)} | N점수:{item.get('N점수', 0)} | 단계점수:{item.get('단계트랙점수', 0)}\n"
+            + f"- 재무: {item2.get('재무', '미계산')} | 수급: {item2.get('수급', '미계산')}\n"
+            + (f"- 수급요약: {item2.get('수급요약', '')}\n" if str(item2.get('수급요약', '')).strip() else '')
+            + (f"- 오늘수급: {item2.get('수급당일', '')}\n" if str(item2.get('수급당일', '')).strip() else '')
+            + (f"- 외인보유: {item2.get('외인보유요약', '')}\n" if str(item2.get('외인보유요약', '')).strip() and str(item2.get('외인보유요약', '')).strip() != '미확인' else '')
+            + f"- 안전:{item2.get('안전점수', 0)} | N점수:{item2.get('N점수', 0)} | 단계점수:{item2.get('단계트랙점수', 0)}\n"
             + f"----------------------------\n"
         )
+        lines.append(append_interpretation_to_block(block, item2))
     return ''.join(lines)
 
 
@@ -2259,17 +2261,18 @@ def build_breakout_state_block(title: str, df: pd.DataFrame) -> str:
 
     lines = [f"🚀 [{title}]\n"]
     for rank, (_, row) in enumerate(df.head(5).iterrows(), start=1):
-        name = str(row.get('종목명', row.get('name', '')) or '').strip()
-        code = str(row.get('code', row.get('종목코드', '')) or '').strip()
-        wm_state = _resolve_track_display_state(row, track='breakout')
-        score = int(float(row.get('돌파점수', 0) or 0))
-        comment = str(row.get('돌파코멘트', '') or '').strip()
-        reason = str(row.get('돌파이유', '') or '').strip()
-        rc_tag = str(row.get('저항구름태그', '') or '').strip()
-        refine_tag = str(row.get('수박정제태그', '') or '').strip()
-        selected, lacking, action = _build_candidate_explain_lines(row, track='breakout')
+        item2 = enrich_row_with_human_commentary(row)
+        name = str(item2.get('종목명', item2.get('name', '')) or '').strip()
+        code = str(item2.get('code', item2.get('종목코드', '')) or '').strip()
+        wm_state = _resolve_track_display_state(item2, track='breakout')
+        score = int(float(item2.get('돌파점수', 0) or 0))
+        comment = str(item2.get('돌파코멘트', '') or '').strip()
+        reason = str(item2.get('돌파이유', '') or '').strip()
+        rc_tag = str(item2.get('저항구름태그', '') or '').strip()
+        refine_tag = str(item2.get('수박정제태그', '') or '').strip()
+        selected, lacking, action = _build_candidate_explain_lines(item2, track='breakout')
 
-        lines.append(
+        block = (
             f"{rank}) {name}({code})\n"
             f"- 상태: {wm_state} | 돌파점수:{score}\n"
             + (f"- 저항구름: {rc_tag}\n" if rc_tag else "")
@@ -2280,6 +2283,7 @@ def build_breakout_state_block(title: str, df: pd.DataFrame) -> str:
             + (f"- 부족한 점: {lacking}\n" if lacking else "")
             + (f"- 추천 대응: {action}\n" if action else "")
         )
+        lines.append(append_interpretation_to_block(block, item2).rstrip())
     return "\n".join(lines).strip() + "\n"
 
 def compute_dante_mode_fields(df: pd.DataFrame) -> pd.DataFrame:
@@ -2494,20 +2498,21 @@ def build_dante_state_block(title: str, df: pd.DataFrame) -> str:
 
     lines = [f"🧭 [{title}]\n"]
     for rank, (_, row) in enumerate(df.head(5).iterrows(), start=1):
-        name = str(row.get('종목명', row.get('name', '')) or '').strip()
-        code = str(row.get('code', row.get('종목코드', '')) or '').strip()
-        state = _resolve_track_display_state(row, track='preempt')
-        d_score = int(float(row.get('선취점수', row.get('단테점수', 0)) or 0))
-        comment = str(row.get('선취코멘트', row.get('단테코멘트', '')) or '').strip()
-        reason = str(row.get('선취이유', row.get('단테이유', '')) or '').strip()
-        cloud_tag = str(row.get('저항구름태그', '') or '').strip()
-        refine_tag = str(row.get('수박정제태그', '') or '').strip()
-        ma5_tag = str(row.get('5일재안착태그', '') or '').strip()
-        rn_tag = str(row.get('라운드넘버태그', '') or '').strip()
-        rn_comment = str(row.get('라운드넘버코멘트', '') or '').strip()
-        selected, lacking, action = _build_candidate_explain_lines(row, track='preempt')
+        item2 = enrich_row_with_human_commentary(row)
+        name = str(item2.get('종목명', item2.get('name', '')) or '').strip()
+        code = str(item2.get('code', item2.get('종목코드', '')) or '').strip()
+        state = _resolve_track_display_state(item2, track='preempt')
+        d_score = int(float(item2.get('선취점수', item2.get('단테점수', 0)) or 0))
+        comment = str(item2.get('선취코멘트', item2.get('단테코멘트', '')) or '').strip()
+        reason = str(item2.get('선취이유', item2.get('단테이유', '')) or '').strip()
+        cloud_tag = str(item2.get('저항구름태그', '') or '').strip()
+        refine_tag = str(item2.get('수박정제태그', '') or '').strip()
+        ma5_tag = str(item2.get('5일재안착태그', '') or '').strip()
+        rn_tag = str(item2.get('라운드넘버태그', '') or '').strip()
+        rn_comment = str(item2.get('라운드넘버코멘트', '') or '').strip()
+        selected, lacking, action = _build_candidate_explain_lines(item2, track='preempt')
 
-        lines.append(
+        block = (
             f"{rank}) {name}({code})\n"
             f"- 상태: {state} | 선취점수:{d_score}\n"
             + (f"- 저항구름: {cloud_tag}\n" if cloud_tag else "")
@@ -2520,6 +2525,7 @@ def build_dante_state_block(title: str, df: pd.DataFrame) -> str:
             + (f"- 부족한 점: {lacking}\n" if lacking else "")
             + (f"- 추천 대응: {action}\n" if action else "")
         )
+        lines.append(append_interpretation_to_block(block, item2).rstrip())
     return "\n".join(lines).strip() + "\n"
 
 
@@ -8369,6 +8375,295 @@ def describe_dolbanji_label(exact_mode: bool = False, lite_mode: bool = False) -
         return '신규 Lite형', '신규상장·짧은 이력 구간용 대체형'
     return '예비돌반지형', '장기 눌림 뒤 재돌파 준비형'
 
+
+
+# =============================================================
+# 🧠 사람말 해석 통합 (PASS / 점수 / 최종판정)
+# =============================================================
+def _rc_get(row, key, default=None):
+    try:
+        if isinstance(row, dict):
+            return row.get(key, default)
+        return row.get(key, default)
+    except Exception:
+        try:
+            return row[key]
+        except Exception:
+            return default
+
+
+def _rc_str(row, key, default='') -> str:
+    v = _rc_get(row, key, default)
+    try:
+        if v is None:
+            return default
+        return str(v)
+    except Exception:
+        return default
+
+
+def _rc_int(row, key, default=0) -> int:
+    try:
+        return int(float(_rc_get(row, key, default) or default))
+    except Exception:
+        return default
+
+
+def _rc_float(row, key, default=0.0) -> float:
+    try:
+        return float(_rc_get(row, key, default) or default)
+    except Exception:
+        return default
+
+
+def infer_pass_inputs_from_row(row) -> dict:
+    stage_status = _rc_str(row, '단계상태', '').strip()
+    stage_tag = _rc_str(row, '단계태그', '').strip()
+    n_combo = _rc_str(row, 'N조합', '').strip()
+    ma_comment = _rc_str(row, 'MA수렴코멘트', '').strip()
+    refine_tag = _rc_str(row, '수박정제태그', '').strip()
+    ma5_tag = _rc_str(row, '5일재안착태그', '').strip()
+    rec_phase = _rc_str(row, '추천단계', '').strip()
+    wm_state = _resolve_track_display_state(row, track='preempt')
+
+    cloud_state = _rc_str(row, '저항구름상태', '').strip()
+    if not cloud_state:
+        cloud_tag = _rc_str(row, '저항구름태그', '').strip()
+        if '저항전' in cloud_tag:
+            cloud_state = '저항전'
+        elif '저항테스트' in cloud_tag:
+            cloud_state = '저항테스트'
+        elif '저항돌파' in cloud_tag:
+            cloud_state = '저항돌파'
+
+    obv_slope = _rc_float(row, 'OBV기울기', 0)
+    disparity = _rc_float(row, '이격', 0)
+    vol_ratio = max(
+        _rc_float(row, '매집거래량배율', 0),
+        _rc_float(row, 'volume_ratio', 0),
+        _rc_float(row, '거래량배율', 0),
+    )
+
+    has_accumulation = stage_status == 'PASS_A' or '매집' in stage_tag or '매집' in n_combo
+    has_squeeze = (
+        stage_status in ('PASS_A', 'PASS_B')
+        or '응축' in stage_tag
+        or '수렴' in stage_tag
+        or '수렴' in ma_comment
+        or 'BB40' in n_combo
+    )
+    has_ready = (
+        '돌파준비' in stage_tag
+        or '돌파직전' in stage_tag
+        or '초동' in n_combo
+        or cloud_state in ('저항전', '저항테스트', '저항돌파')
+        or rec_phase in ('돌파직전형', '초동발생형', '돌파관찰형', '돌파우선형')
+    )
+
+    late_flag = wm_state == '후행수박' or rec_phase == '후행형'
+    fake_flag = '가짜수박' in refine_tag
+    good_refine = '정제수박' in refine_tag or '정제통과' in _rc_str(row, '선취이유', '') or '정제통과' in _rc_str(row, '돌파이유', '')
+
+    reinforce_count = 0
+    reinforce_count += 1 if ma5_tag else 0
+    reinforce_count += 1 if good_refine else 0
+    reinforce_count += 1 if obv_slope > 0 else 0
+    reinforce_count += 1 if 98 <= disparity <= 112 else 0
+    reinforce_count += 1 if cloud_state in ('저항전', '저항테스트', '저항돌파') else 0
+    reinforce_count += 1 if vol_ratio >= 1.2 or '거래량' in n_combo else 0
+
+    return {
+        'stage_status': stage_status,
+        'wm_state': wm_state,
+        'cloud_state': cloud_state,
+        'refine_tag': refine_tag,
+        'ma5_tag': ma5_tag,
+        'rec_phase': rec_phase,
+        'has_accumulation': has_accumulation,
+        'has_squeeze': has_squeeze,
+        'has_ready': has_ready,
+        'late_flag': late_flag,
+        'fake_flag': fake_flag,
+        'good_refine': good_refine,
+        'reinforce_count': reinforce_count,
+    }
+
+
+def calc_pass_stage(row) -> str:
+    inp = infer_pass_inputs_from_row(row)
+    if inp['has_accumulation'] and inp['has_squeeze'] and inp['has_ready']:
+        if inp['reinforce_count'] >= 3 and not inp['late_flag'] and not inp['fake_flag']:
+            return 'PASS_B'
+        return 'PASS_A'
+    return 'DROP'
+
+
+def get_pass_stage_bundle(row) -> dict:
+    pass_stage = calc_pass_stage(row)
+    if pass_stage == 'PASS_B':
+        return {
+            'pass_stage': pass_stage,
+            'pass_title': '🟣 PASS_B | 강화 확인 구조 통과',
+            'pass_desc': '기본 3단계 구조 위에 재안착·거래량·정제·OBV·저항 위치 같은 강화 조건이 추가로 맞는 상태입니다.',
+        }
+    if pass_stage == 'PASS_A':
+        return {
+            'pass_stage': pass_stage,
+            'pass_title': '✅ PASS_A | 매집→응축→돌파준비 구조 통과',
+            'pass_desc': '매집 + 응축 + 돌파준비 흐름이 기본적으로 맞는 종목입니다.',
+        }
+    return {
+        'pass_stage': 'DROP',
+        'pass_title': '⛔ DROP | 단계 시퀀스 미성립',
+        'pass_desc': '현재는 단계형 구조가 부족하거나, 후행/품질 미달로 해석상 우선순위가 낮습니다.',
+    }
+
+
+def build_score_summary(row) -> str:
+    preempt = _rc_int(row, '선취점수', _rc_int(row, '단테점수', 0))
+    breakout = _rc_int(row, '돌파점수', 0)
+    safe = _rc_int(row, '안전점수', 0)
+    n_score = _rc_int(row, 'N점수', 0)
+    parts = []
+    if preempt:
+        parts.append(f'선취 {preempt}=미리 잡을 가치')
+    if breakout:
+        parts.append(f'돌파 {breakout}=돌파 대응 가치')
+    if safe:
+        parts.append(f'안전 {safe}=자리 편안함')
+    if n_score:
+        parts.append(f'N {n_score}=종목 화력')
+    return ' / '.join(parts)
+
+
+def decide_final_label(row) -> str:
+    inp = infer_pass_inputs_from_row(row)
+    cloud = inp['cloud_state']
+    wm_state = inp['wm_state']
+    phase = inp['rec_phase']
+    fake = inp['fake_flag']
+    good_refine = inp['good_refine']
+    has_reanchor = bool(inp['ma5_tag'])
+    disparity = _rc_float(row, '이격', 0)
+
+    if fake and (phase in ('후행형', '돌파관찰형', '돌파우선형') or cloud == '저항돌파') and disparity >= 108:
+        return '추격 금지'
+    if phase == '후행형' or wm_state == '후행수박':
+        return '보유자 대응'
+    if wm_state == '눌림수박':
+        return '눌림 대기'
+    if phase in ('선취형', '선취관찰형') or (cloud == '저항전' and wm_state in ('초입수박', '눌림수박', 'Blue-2예비')):
+        return '선취 가능' if (good_refine and has_reanchor) else '선취 관찰'
+    if phase in ('돌파직전형', '초동발생형'):
+        return '돌파 확인'
+    if phase in ('돌파관찰형', '구름테스트관찰', '돌파우선형') or cloud in ('저항테스트', '저항돌파'):
+        return '돌파 확인' if (cloud == '저항돌파' and good_refine and not fake) else '관망'
+    return '관망'
+
+
+def build_easy_interpretation(row) -> dict:
+    inp = infer_pass_inputs_from_row(row)
+    final_label = decide_final_label(row)
+    cloud = inp['cloud_state']
+    wm_state = inp['wm_state']
+    phase = inp['rec_phase']
+    fake = inp['fake_flag']
+    good_refine = inp['good_refine']
+    has_reanchor = bool(inp['ma5_tag'])
+
+    if final_label == '선취 가능':
+        easy = '초입/눌림 구조에서 저항 전 구간이라 먼저 볼 수 있는 자리입니다.'
+        action = '소액 분할로 접근하고, 5일선과 거래량 유지 여부를 같이 확인합니다.'
+        caution = '저항 전 구간이라도 윗꼬리 확대나 재안착 실패가 나오면 보수적으로 봅니다.'
+    elif final_label == '선취 관찰':
+        easy = '구조는 살아 있으나 선취로 확신하기엔 확인 신호가 한두 가지 더 필요합니다.'
+        action = '바로 추격하기보다 5일재안착, 양봉 유지, 거래량 보강을 확인한 뒤 대응합니다.'
+        caution = '좋아 보이더라도 확인 전 진입은 실패 확률이 높을 수 있습니다.'
+    elif final_label == '눌림 대기':
+        easy = '이미 살아난 구조 안에서 눌림을 주는 구간이라 재진입 타점을 기다리는 자리입니다.'
+        action = '지지선과 5일/20일선 반응을 보고 눌림 후 반등 시점을 기다립니다.'
+        caution = '눌림이 깊어져 구조가 무너지면 단순 눌림이 아니라 실패일 수 있습니다.'
+    elif final_label == '돌파 확인':
+        easy = '중간 저항을 넘거나 시험하는 구간으로, 돌파가 실제 안착되는지 확인이 필요합니다.'
+        action = '구름 상단·전고점 지지 여부를 확인하고, 재돌파 또는 눌림 반등 때 대응합니다.'
+        caution = '돌파 직후 추격은 윗꼬리와 되밀림 리스크가 큽니다.'
+    elif final_label == '보유자 대응':
+        easy = '이미 한 박자 진행된 뒤라 신규 진입보다 보유자 관리가 더 중요한 자리입니다.'
+        action = '신규 추격보다 눌림 재확인, 기존 보유분은 이탈 기준을 먼저 정합니다.'
+        caution = '후행 구간은 좋은 종목이어도 진입 타점이 나쁠 수 있습니다.'
+    elif final_label == '추격 금지':
+        easy = '신호는 있어 보여도 현재 위치와 품질상 추격매수는 불리한 자리입니다.'
+        action = '당장 진입보다 눌림과 재정비가 나온 뒤 다시 보는 편이 낫습니다.'
+        caution = '가짜수박주의·과열·저항돌파 후 진행형은 상단 추격 리스크가 큽니다.'
+    else:
+        easy = '구조는 일부 보이지만 아직 확신 구간은 아니라 관망이 더 자연스럽습니다.'
+        action = '구름 상단 안착, 거래량 재유입, 재안착 신호가 나오는지 더 지켜봅니다.'
+        caution = '상태·저항구름·정제 중 하나라도 약하면 해석을 보수적으로 해야 합니다.'
+
+    if wm_state == '후행수박' and final_label not in ('보유자 대응', '추격 금지'):
+        caution += ' 후행수박은 한 박자 늦은 자리일 수 있습니다.'
+    if fake:
+        caution += ' 정제 품질이 약해 보수적 해석이 필요합니다.'
+    if phase == '구조관찰':
+        easy = '기본 구조는 있지만 실행형으로 보기엔 아직 한 단계 부족한 관찰 구간입니다.'
+    if cloud == '저항전' and final_label in ('선취 관찰', '관망') and good_refine and has_reanchor:
+        easy = '저항 전 구간에서 구조와 정제가 맞아, 선취 관점으로 먼저 체크할 수 있습니다.'
+
+    return {
+        'easy_interpretation': easy,
+        'action_summary': action,
+        'caution': caution,
+        'final_label': final_label,
+    }
+
+
+def enrich_row_with_human_commentary(row):
+    base = dict(row) if isinstance(row, dict) else row.to_dict()
+    pass_bundle = get_pass_stage_bundle(base)
+    easy = build_easy_interpretation(base)
+    score_summary = build_score_summary(base)
+
+    base['pass_stage'] = pass_bundle['pass_stage']
+    base['pass_title'] = pass_bundle['pass_title']
+    base['pass_desc'] = pass_bundle['pass_desc']
+    base['easy_interpretation'] = easy['easy_interpretation']
+    base['action_summary'] = easy['action_summary']
+    base['caution'] = easy['caution']
+    base['final_label'] = easy['final_label']
+    base['score_summary'] = score_summary
+
+    block_lines = []
+    if base['pass_title']:
+        block_lines.append(f"🧩 PASS 해석: {base['pass_title']}")
+    if base['easy_interpretation']:
+        block_lines.append(f"🧠 쉬운 해석: {base['easy_interpretation']}")
+    if base['action_summary']:
+        block_lines.append(f"🎯 대응 요약: {base['action_summary']}")
+    if base['caution']:
+        block_lines.append(f"⚠️ 주의 포인트: {base['caution']}")
+    if base['final_label']:
+        block_lines.append(f"✅ 최종 판정: {base['final_label']}")
+    if base['score_summary']:
+        block_lines.append(f"🧮 점수 해석: {base['score_summary']}")
+    base['interpretation_block'] = "\n".join(block_lines)
+    return base
+
+
+def append_interpretation_to_block(block: str, row) -> str:
+    if not isinstance(block, str):
+        block = str(block or '')
+    if '🧠 쉬운 해석:' in block:
+        return block
+    enriched = enrich_row_with_human_commentary(row)
+    extra = enriched.get('interpretation_block', '') or ''
+    if not extra:
+        return block
+    return block.rstrip() + '\n' + extra + '\n'
+
+
+def build_integrated_stock_block(block: str, row) -> str:
+    return append_interpretation_to_block(block, row)
+
 # =============================================================
 # 🏷️ 보조 분류 시스템 (Ver 27.5)
 # N태그 외 추가 분류 레이블을 생성
@@ -11286,6 +11581,11 @@ if __name__ == "__main__":
             entry += f"🪄 근거: {ai_reason[:52]}\n"
         if ai_short:
             entry += f"{ai_short}\n"
+
+        item2 = enrich_row_with_human_commentary(item)
+        _interp = str(item2.get('interpretation_block', '') or '').strip()
+        if _interp:
+            entry += f"{_interp}\n"
 
         _time_tag = str(item.get('time_sym_tag', '')).strip()
         _time_comment = str(item.get('time_sym_comment', '')).strip()
