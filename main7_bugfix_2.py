@@ -2606,7 +2606,12 @@ def build_watermelon_state_block(title: str, df: pd.DataFrame) -> str:
         cloud_comment = str(row.get('저항구름코멘트', '')).strip()
         refine_tag = str(row.get('수박정제태그', '')).strip()
         refine_comment = str(row.get('수박정제코멘트', '')).strip()
-        lines.append(
+        human = enrich_row_with_human_commentary(row)
+        easy = str(human.get('easy_interpretation', '')).strip()
+        need_check = str(human.get('need_check', '')).strip()
+        final_label = str(human.get('final_label', '')).strip()
+
+        entry = (
             f"{rank}) {name}({code})\n"
             f"- 상태: {state} | 등급:{grade}\n"
             f"- 점수: 기반{b} / 포켓{p} / 공격{a} / 파란{blue} (B1:{blue1}, B2:{blue2})\n"
@@ -2616,6 +2621,15 @@ def build_watermelon_state_block(title: str, df: pd.DataFrame) -> str:
             + (f"- 저항구름: {cloud_tag} | {cloud_comment}\n" if cloud_tag else "")
             + (f"- 정제: {refine_tag} | {refine_comment}\n" if refine_tag else "")
         )
+
+        if easy:
+            entry += f"- 쉬운 해설: {easy}\n"
+        if need_check and ('관찰수박' in refine_tag or '가짜수박주의' in refine_tag or state in ('초입수박', '눌림수박')):
+            entry += f"- 확인 필요: {need_check}\n"
+        if final_label:
+            entry += f"- 최종 판정: {final_label}\n"
+
+        lines.append(entry)
     return "\n".join(lines)
 
 
@@ -9627,6 +9641,61 @@ def _sentence(text: str) -> str:
     return text
 
 
+def _join_unique_texts(items, limit=4):
+    out = []
+    seen = set()
+    for item in items:
+        s = str(item or '').strip()
+        if not s or s in seen:
+            continue
+        seen.add(s)
+        out.append(s)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def build_check_needed_text(row) -> str:
+    try:
+        cloud = str(row.get('저항구름상태', '') or row.get('흰구름상태', '')).strip()
+        refine_tag = str(row.get('수박정제태그', '')).strip()
+        parts = []
+
+        if not bool(row.get('수박정제_vol_ok', True)):
+            parts.append('거래량 보강')
+        if not bool(row.get('수박정제_reclaim_ok', True)):
+            parts.append('5일선 재안착')
+        elif str(row.get('5일재안착태그', '')).strip().endswith('예비'):
+            parts.append('5일선 재안착 확정')
+        if not bool(row.get('수박정제_candle_ok', True)):
+            parts.append('양봉/캔들 유지')
+        if not bool(row.get('수박정제_wick_ok', True)):
+            parts.append('윗꼬리 안정')
+        if not bool(row.get('수박정제_long_ok', True)):
+            parts.append('장기이평/장기저항 위치')
+        if not bool(row.get('수박정제_cloud_ok', True)):
+            if cloud == '저항테스트':
+                parts.append('구름 상단 안착')
+            elif cloud == '저항돌파':
+                parts.append('돌파 후 지지 전환')
+            else:
+                parts.append('저항구름 위치 확인')
+        if not bool(row.get('수박정제_obv_ok', True)):
+            parts.append('OBV/매집 흐름')
+
+        parts = _join_unique_texts(parts, limit=4)
+
+        if not parts:
+            if refine_tag == '🟨관찰수박':
+                return '재안착·거래량·양봉 유지 중 약한 요소 보강'
+            if refine_tag == '⚠️가짜수박주의':
+                return '거래량·윗꼬리·장기이평 위치 재점검'
+            return ''
+        return ' / '.join(parts)
+    except Exception:
+        return ''
+
+
 def build_easy_interpretation(row) -> dict:
     inp = infer_pass_inputs_from_row(row)
     final_label = decide_final_label(row)
@@ -9636,6 +9705,7 @@ def build_easy_interpretation(row) -> dict:
     fake = inp['fake_flag']
     good_refine = inp['good_refine']
     has_reanchor = bool(inp['ma5_tag'])
+    need_check = build_check_needed_text(row)
 
     state_desc = {
         '초입수박': '바닥을 정리한 뒤 처음 살아나는 초입 구간입니다',
@@ -9730,6 +9800,7 @@ def build_easy_interpretation(row) -> dict:
         'action_summary': action,
         'caution': caution,
         'final_label': final_label,
+        'need_check': need_check,
     }
 
 
@@ -9755,6 +9826,7 @@ def enrich_row_with_human_commentary(row):
     base['action_summary'] = easy['action_summary']
     base['caution'] = easy['caution']
     base['final_label'] = easy['final_label']
+    base['need_check'] = easy.get('need_check', '')
     base['score_summary'] = score_summary
 
     block_lines = []
@@ -9764,6 +9836,8 @@ def enrich_row_with_human_commentary(row):
         block_lines.append(f"→ {base['pass_desc']}")
     if base['easy_interpretation']:
         block_lines.append(f"🧠 쉬운 해석: {base['easy_interpretation']}")
+    if base.get('need_check'):
+        block_lines.append(f"🔍 확인 필요: {base['need_check']}")
     if base['action_summary']:
         block_lines.append(f"🎯 대응 요약: {base['action_summary']}")
     if base['caution']:
