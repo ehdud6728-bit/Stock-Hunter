@@ -2262,6 +2262,7 @@ def build_breakout_state_block(title: str, df: pd.DataFrame) -> str:
     lines = [f"🚀 [{title}]\n"]
     for rank, (_, row) in enumerate(df.head(5).iterrows(), start=1):
         item2 = enrich_row_with_human_commentary(row)
+        sep = "────────────────────────────\n" if rank > 1 else ""
         name = str(item2.get('종목명', item2.get('name', '')) or '').strip()
         code = str(item2.get('code', item2.get('종목코드', '')) or '').strip()
         wm_state = _resolve_track_display_state(item2, track='breakout')
@@ -2283,7 +2284,7 @@ def build_breakout_state_block(title: str, df: pd.DataFrame) -> str:
             + (f"- 부족한 점: {lacking}\n" if lacking else "")
             + (f"- 추천 대응: {action}\n" if action else "")
         )
-        lines.append(append_interpretation_to_block(block, item2).rstrip())
+        lines.append((sep + append_interpretation_to_block(block, item2).rstrip()).rstrip())
     return "\n".join(lines).strip() + "\n"
 
 def compute_dante_mode_fields(df: pd.DataFrame) -> pd.DataFrame:
@@ -11692,6 +11693,9 @@ def enrich_hits_with_supply_and_financial(all_hits_sorted, top_k_supply=80, top_
                 item['수급매수매도5일'] = supply_prof.get('gross_5d_text') or fb_prof.get('gross_5d_text', item.get('수급매수매도5일', ''))
                 item['외인보유요약'] = supply_prof.get('foreign_hold_text') or fb_prof.get('foreign_hold_text', item.get('외인보유요약', '미확인'))
                 item['개인수급판정'] = supply_prof.get('personal_judgement') or fb_prof.get('personal_judgement', item.get('개인수급판정', ''))
+                item['수급매수매도1일'] = supply_prof.get('gross_today_text') or fb_prof.get('gross_today_text', item.get('수급매수매도1일', ''))
+                item['수급매수매도5일'] = supply_prof.get('gross_5d_text') or fb_prof.get('gross_5d_text', item.get('수급매수매도5일', ''))
+                item['수급경고'] = supply_prof.get('warning_text') or fb_prof.get('warning_text', item.get('수급경고', ''))
                 item['수급신뢰도'] = supply_prof.get('confidence') or fb_prof.get('confidence', item.get('수급신뢰도', '추정'))
                 item['수급기준일'] = supply_prof.get('last_date') or fb_prof.get('last_date', item.get('수급기준일', '미확인'))
                 item['수급원시성공'] = bool(supply_prof.get('raw_ok', False))
@@ -15457,6 +15461,7 @@ def build_breakout_state_block(title: str, df: pd.DataFrame) -> str:
     lines = [f"🚀 [{title}]\n"]
     for rank, (_, row) in enumerate(df.head(5).iterrows(), start=1):
         item2 = enrich_row_with_human_commentary(row)
+        sep = "────────────────────────────\n" if rank > 1 else ""
         name = str(item2.get('종목명', item2.get('name', '')) or '').strip()
         code = str(item2.get('code', item2.get('종목코드', '')) or '').strip()
         wm_state = _resolve_track_display_state(item2, track='breakout')
@@ -15478,7 +15483,7 @@ def build_breakout_state_block(title: str, df: pd.DataFrame) -> str:
             + (f"- 부족한 점: {lacking}\n" if lacking else "")
             + (f"- 추천 대응: {action}\n" if action else "")
         )
-        lines.append(append_interpretation_to_block(block, item2).rstrip())
+        lines.append((sep + append_interpretation_to_block(block, item2).rstrip()).rstrip())
     return "\n".join(lines).strip() + "\n"
 
 def compute_dante_mode_fields(df: pd.DataFrame) -> pd.DataFrame:
@@ -15781,6 +15786,7 @@ def build_watermelon_state_block(title: str, df: pd.DataFrame) -> str:
         return f"🍉 [{title}]\n- 해당 종목 없음\n"
     lines = [f"🍉 [{title}]\n"]
     for rank, (_, row) in enumerate(df.iterrows(), 1):
+        sep = "────────────────────────────\n" if rank > 1 else ""
         name = row.get('종목명', '')
         code = row.get('code', '')
         state = row.get('수박최종상태', row.get('수박상태명', row.get('wm_state_name', '')))
@@ -15824,7 +15830,7 @@ def build_watermelon_state_block(title: str, df: pd.DataFrame) -> str:
         if final_label:
             entry += f"- 최종 판정: {final_label}\n"
 
-        lines.append(entry)
+        lines.append((sep + entry).rstrip())
     return "\n".join(lines)
 
 
@@ -18060,39 +18066,178 @@ def _positive_streak_v2(series: pd.Series) -> int:
     return cnt
 
 
-def _fetch_supply_snapshot_v2(code: str, end_ymd: str = None, calendar_back: int = 20) -> dict:
+def _drop_trailing_zero_supply_rows_v2(net_df: pd.DataFrame, buy_df: pd.DataFrame, sell_df: pd.DataFrame, ohlcv: pd.DataFrame):
+    try:
+        net_df = net_df.copy()
+        buy_df = buy_df.copy()
+        sell_df = sell_df.copy()
+        ohlcv = ohlcv.copy() if ohlcv is not None else pd.DataFrame()
+        while len(net_df) > 1:
+            idx = net_df.index[-1]
+            net_abs = float(net_df.loc[idx, ['개인', '외인', '기관']].abs().sum()) if idx in net_df.index else 0.0
+            buy_abs = float(buy_df.loc[idx, ['개인', '외인', '기관']].abs().sum()) if idx in buy_df.index else 0.0
+            sell_abs = float(sell_df.loc[idx, ['개인', '외인', '기관']].abs().sum()) if idx in sell_df.index else 0.0
+            if (net_abs + buy_abs + sell_abs) > 0:
+                break
+            net_df = net_df.iloc[:-1]
+            if not buy_df.empty:
+                buy_df = buy_df.loc[buy_df.index.intersection(net_df.index)]
+            if not sell_df.empty:
+                sell_df = sell_df.loc[sell_df.index.intersection(net_df.index)]
+            if not ohlcv.empty:
+                ohlcv = ohlcv.loc[ohlcv.index.intersection(net_df.index)]
+        return net_df, buy_df, sell_df, ohlcv
+    except Exception:
+        return net_df, buy_df, sell_df, ohlcv
+
+
+def _maybe_scale_investor_value_frames_by_amount_v2(net_df: pd.DataFrame, buy_df: pd.DataFrame, sell_df: pd.DataFrame, ohlcv: pd.DataFrame):
+    scale = 1.0
+    scale_reason = ''
+    try:
+        if net_df is None or net_df.empty or buy_df is None or buy_df.empty or sell_df is None or sell_df.empty:
+            return net_df, buy_df, sell_df, scale, scale_reason
+        if ohlcv is None or ohlcv.empty or '거래대금' not in ohlcv.columns:
+            return net_df, buy_df, sell_df, scale, scale_reason
+
+        common_idx = net_df.index.intersection(buy_df.index).intersection(sell_df.index).intersection(ohlcv.index)
+        if len(common_idx) == 0:
+            return net_df, buy_df, sell_df, scale, scale_reason
+
+        amount = pd.to_numeric(ohlcv.loc[common_idx, '거래대금'], errors='coerce').fillna(0.0)
+        gross = (
+            buy_df.loc[common_idx, ['외인', '기관']].abs().sum(axis=1) +
+            sell_df.loc[common_idx, ['외인', '기관']].abs().sum(axis=1)
+        )
+        ratio = (gross / amount.replace(0, np.nan)).replace([np.inf, -np.inf], np.nan).dropna()
+        max_abs = float(max(
+            net_df.loc[common_idx, ['외인', '기관']].abs().max().max(),
+            buy_df.loc[common_idx, ['외인', '기관']].abs().max().max(),
+            sell_df.loc[common_idx, ['외인', '기관']].abs().max().max(),
+        )) if len(common_idx) else 0.0
+        amt_med = float(amount[amount > 0].median()) if (amount > 0).any() else 0.0
+        ratio_med = float(ratio.median()) if not ratio.empty else 0.0
+
+        # pykrx 투자자별 거래대금이 천원 단위로 내려오는 환경 방어
+        if amt_med >= 1e8 and max_abs > 0 and (ratio_med == 0.0 or ratio_med < 0.02):
+            scale = 1000.0
+            scale_reason = 'pykrx_investor_value_thousand_won_scaled'
+            net_df = net_df * scale
+            buy_df = buy_df * scale
+            sell_df = sell_df * scale
+    except Exception:
+        pass
+    return net_df, buy_df, sell_df, scale, scale_reason
+
+
+def _fetch_supply_snapshot_v2(code: str, end_ymd: str = None, calendar_back: int = 35) -> dict:
     end_dt = datetime.strptime(end_ymd, '%Y%m%d') if end_ymd else datetime.now()
     start_dt = end_dt - timedelta(days=calendar_back)
+
+    base = {
+        'ok': False,
+        'reason': 'unknown',
+        'rows': 0,
+        'last_date': None,
+        'p1': None, 'f1': None, 'i1': None,
+        'p3': None, 'f3': None, 'i3': None,
+        'p5': None, 'f5': None, 'i5': None,
+        'fs': 0, 'is': 0, 'ps': 0, 'pds': 0,
+        'fb1': None, 'fs1': None, 'ib1': None, 'is1': None,
+        'fb3': None, 'fs3': None, 'ib3': None, 'is3': None,
+        'fb5': None, 'fs5': None, 'ib5': None, 'is5': None,
+        'amount1': None, 'amount3': None, 'amount5': None,
+        'close3_pct': 0.0, 'close5_pct': 0.0,
+        'gross_today_text': '',
+        'gross_5d_text': '',
+        'distribution_trace': '',
+        'total5': None,
+        'scale': 1.0,
+        'scale_reason': '',
+    }
+
     try:
-        raw = stock.get_market_trading_value_by_date(
+        net_raw = stock.get_market_trading_value_by_date(
             start_dt.strftime('%Y%m%d'),
             end_dt.strftime('%Y%m%d'),
             code,
             on='순매수',
         )
+        buy_raw = stock.get_market_trading_value_by_date(
+            start_dt.strftime('%Y%m%d'),
+            end_dt.strftime('%Y%m%d'),
+            code,
+            on='매수',
+        )
+        sell_raw = stock.get_market_trading_value_by_date(
+            start_dt.strftime('%Y%m%d'),
+            end_dt.strftime('%Y%m%d'),
+            code,
+            on='매도',
+        )
     except Exception as e:
-        return {'ok': False, 'reason': f'pykrx_error:{e}', 'rows': 0, 'last_date': None, 'p1': None, 'f1': None, 'i1': None, 'p3': None, 'f3': None, 'i3': None, 'p5': None, 'f5': None, 'i5': None, 'fs': 0, 'is': 0, 'ps': 0, 'total5': None}
-    if raw is None or raw.empty:
-        return {'ok': False, 'reason': 'empty_dataframe', 'rows': 0, 'last_date': None, 'p1': None, 'f1': None, 'i1': None, 'p3': None, 'f3': None, 'i3': None, 'p5': None, 'f5': None, 'i5': None, 'fs': 0, 'is': 0, 'ps': 0, 'total5': None}
-    df = _normalize_investor_value_df_v2(raw)
-    if df is None or df.empty:
-        return {'ok': False, 'reason': 'normalized_empty', 'rows': 0, 'last_date': None, 'p1': None, 'f1': None, 'i1': None, 'p3': None, 'f3': None, 'i3': None, 'p5': None, 'f5': None, 'i5': None, 'fs': 0, 'is': 0, 'ps': 0, 'total5': None}
-    df = df.tail(5)
-    if df.empty:
-        return {'ok': False, 'reason': 'tail5_empty', 'rows': 0, 'last_date': None, 'p1': None, 'f1': None, 'i1': None, 'p3': None, 'f3': None, 'i3': None, 'p5': None, 'f5': None, 'i5': None, 'fs': 0, 'is': 0, 'ps': 0, 'total5': None}
-    last1 = df.tail(1)
-    last3 = df.tail(min(3, len(df)))
-    last5 = df.tail(min(5, len(df)))
+        base['reason'] = f'pykrx_error:{e}'
+        return base
+
+    net_df = _normalize_investor_value_df_v2(net_raw)
+    buy_df = _normalize_investor_value_df_v2(buy_raw)
+    sell_df = _normalize_investor_value_df_v2(sell_raw)
+
+    if net_df.empty:
+        base['reason'] = 'empty_net'
+        return base
+
+    common_idx = net_df.index
+    if not buy_df.empty:
+        common_idx = common_idx.intersection(buy_df.index)
+    if not sell_df.empty:
+        common_idx = common_idx.intersection(sell_df.index)
+
+    if len(common_idx) == 0:
+        base['reason'] = 'no_common_dates'
+        return base
+
+    net_df = net_df.loc[common_idx].sort_index().tail(7)
+    buy_df = buy_df.loc[common_idx].sort_index().tail(7)
+    sell_df = sell_df.loc[common_idx].sort_index().tail(7)
+
+    ohlcv = _fetch_ohlcv_for_supply_v2(code, start_dt, end_dt)
+    if not ohlcv.empty:
+        ohlcv = ohlcv.loc[ohlcv.index.intersection(net_df.index)].sort_index().tail(7)
+
+    net_df, buy_df, sell_df, ohlcv = _drop_trailing_zero_supply_rows_v2(net_df, buy_df, sell_df, ohlcv)
+    if net_df.empty:
+        base['reason'] = 'trimmed_empty'
+        return base
+
+    net_df, buy_df, sell_df, scale, scale_reason = _maybe_scale_investor_value_frames_by_amount_v2(net_df, buy_df, sell_df, ohlcv)
+
+    if (net_df[['개인', '외인', '기관']].fillna(0).abs().sum().sum() == 0 and
+        buy_df[['개인', '외인', '기관']].fillna(0).abs().sum().sum() == 0 and
+        sell_df[['개인', '외인', '기관']].fillna(0).abs().sum().sum() == 0):
+        base['reason'] = 'all_zero_snapshot'
+        return base
+
+    net_df = net_df.sort_index().tail(5)
+    buy_df = buy_df.loc[buy_df.index.intersection(net_df.index)].sort_index().tail(5)
+    sell_df = sell_df.loc[sell_df.index.intersection(net_df.index)].sort_index().tail(5)
+    if not ohlcv.empty:
+        ohlcv = ohlcv.loc[ohlcv.index.intersection(net_df.index)].sort_index().tail(5)
+
+    last1 = net_df.tail(1)
+    last3 = net_df.tail(min(3, len(net_df)))
+    last5 = net_df.tail(min(5, len(net_df)))
+
     try:
         last_date = str(last5.index[-1].date())
     except Exception:
-        try:
-            last_date = str(last5.index[-1])
-        except Exception:
-            last_date = None
+        last_date = str(last5.index[-1]) if len(last5.index) else None
+
     fs = _positive_streak_v2(last5['외인'])
     is_ = _positive_streak_v2(last5['기관'])
-    ps = _positive_streak_v2((-last5['개인']).clip(lower=0))
+    ps = _positive_streak_v2(last5['개인'])
+    pds = _negative_streak_v2(last5['개인'])
+
     p1 = float(last1['개인'].sum())
     f1 = float(last1['외인'].sum())
     i1 = float(last1['기관'].sum())
@@ -18102,46 +18247,178 @@ def _fetch_supply_snapshot_v2(code: str, end_ymd: str = None, calendar_back: int
     p5 = float(last5['개인'].sum())
     f5 = float(last5['외인'].sum())
     i5 = float(last5['기관'].sum())
-    return {'ok': True, 'reason': 'ok', 'rows': len(df), 'last_date': last_date, 'p1': p1, 'f1': f1, 'i1': i1, 'p3': p3, 'f3': f3, 'i3': i3, 'p5': p5, 'f5': f5, 'i5': i5, 'fs': fs, 'is': is_, 'ps': ps, 'total5': f5 + i5}
 
+    fb1 = _sum_actor_window(buy_df, '외인', 1)
+    fs1 = _sum_actor_window(sell_df, '외인', 1)
+    ib1 = _sum_actor_window(buy_df, '기관', 1)
+    is1 = _sum_actor_window(sell_df, '기관', 1)
+    fb3 = _sum_actor_window(buy_df, '외인', 3)
+    fs3 = _sum_actor_window(sell_df, '외인', 3)
+    ib3 = _sum_actor_window(buy_df, '기관', 3)
+    is3 = _sum_actor_window(sell_df, '기관', 3)
+    fb5 = _sum_actor_window(buy_df, '외인', 5)
+    fs5 = _sum_actor_window(sell_df, '외인', 5)
+    ib5 = _sum_actor_window(buy_df, '기관', 5)
+    is5 = _sum_actor_window(sell_df, '기관', 5)
 
-def _legacy_profile_has_meaningful_amount(profile: dict) -> bool:
-    if not isinstance(profile, dict):
-        return False
-    for k in ['today_f', 'today_i', 'today_p', 'cum3_f', 'cum3_i', 'cum3_p', 'cum5_f', 'cum5_i', 'cum5_p']:
-        try:
-            if abs(float(profile.get(k, 0) or 0)) >= 0.1:
-                return True
-        except Exception:
-            pass
-    return False
+    if not ohlcv.empty:
+        close = pd.to_numeric(ohlcv['종가'], errors='coerce').fillna(0.0)
+        amount = pd.to_numeric(ohlcv['거래대금'], errors='coerce').fillna(0.0)
+        amount1 = float(amount.tail(1).sum())
+        amount3 = float(amount.tail(min(3, len(amount))).sum())
+        amount5 = float(amount.tail(min(5, len(amount))).sum())
+        if len(close) >= 4 and float(close.iloc[-4]) > 0:
+            close3_pct = round((float(close.iloc[-1]) / float(close.iloc[-4]) - 1.0) * 100.0, 2)
+        else:
+            close3_pct = 0.0
+        if len(close) >= 5 and float(close.iloc[-5]) > 0:
+            close5_pct = round((float(close.iloc[-1]) / float(close.iloc[-5]) - 1.0) * 100.0, 2)
+        else:
+            close5_pct = 0.0
+    else:
+        amount1 = amount3 = amount5 = 0.0
+        close3_pct = close5_pct = 0.0
+
+    gross_today_text = _build_gross_line('최근1일', buy_df, sell_df, net_df, 1)
+    gross_5d_text = _build_gross_line('최근5일', buy_df, sell_df, net_df, 5)
+
+    distribution_trace = ''
+    combined_net_5 = f5 + i5
+    combined_sell_5 = fs5 + is5
+    combined_buy_5 = fb5 + ib5
+    combined_net_ratio_5 = (combined_net_5 / amount5 * 100.0) if amount5 > 0 else 0.0
+    combined_sell_ratio_5 = (combined_sell_5 / amount5 * 100.0) if amount5 > 0 else 0.0
+
+    if combined_net_5 < 0 and p5 > 0 and close3_pct >= 0.5 and combined_sell_ratio_5 >= 0.7:
+        distribution_trace = '세력 이탈 흔적: 상승 구간에서 외인·기관 순매도 / 개인 순매수'
+    elif combined_sell_5 > combined_buy_5 * 1.10 and close3_pct >= 1.0:
+        distribution_trace = '단기 차익실현 흔적: 외인·기관 매도 우위 확대'
+    elif (f5 > 0 or i5 > 0) and p5 < 0 and (fs >= 2 or is_ >= 2):
+        distribution_trace = '재매집 흔적: 개인 매도 물량을 외인·기관이 흡수하는 흐름'
+    elif p5 > 0 and (f5 + i5) <= 0:
+        distribution_trace = '개인 추격 흔적: 외인·기관 동행 없는 개인 매수 우세'
+
+    base.update({
+        'ok': True,
+        'reason': 'ok',
+        'rows': len(net_df),
+        'last_date': last_date,
+        'p1': p1, 'f1': f1, 'i1': i1,
+        'p3': p3, 'f3': f3, 'i3': i3,
+        'p5': p5, 'f5': f5, 'i5': i5,
+        'fs': fs, 'is': is_, 'ps': ps, 'pds': pds,
+        'fb1': fb1, 'fs1': fs1, 'ib1': ib1, 'is1': is1,
+        'fb3': fb3, 'fs3': fs3, 'ib3': ib3, 'is3': is3,
+        'fb5': fb5, 'fs5': fs5, 'ib5': ib5, 'is5': is5,
+        'amount1': amount1, 'amount3': amount3, 'amount5': amount5,
+        'close3_pct': close3_pct, 'close5_pct': close5_pct,
+        'gross_today_text': gross_today_text,
+        'gross_5d_text': gross_5d_text,
+        'distribution_trace': distribution_trace,
+        'total5': combined_net_5,
+        'combined_net_ratio_5': combined_net_ratio_5,
+        'combined_sell_ratio_5': combined_sell_ratio_5,
+        'scale': scale,
+        'scale_reason': scale_reason,
+    })
+    return base
 
 
 def _resolve_supply_grade_v2(snap: dict) -> dict:
     if not snap.get('ok'):
-        return {'tag': '➖중립', 'summary': '실금액 미확인', 'flow_text': '최근 5일 실금액 기준 수급 미확인', 'confidence': '추정', 'twin_b': False, 'whale_score': 0}
+        return {
+            'tag': '➖중립',
+            'summary': '실금액 미확인',
+            'flow_text': '최근 5일 실금액 기준 수급 미확인',
+            'confidence': '추정',
+            'twin_b': False,
+            'whale_score': 0,
+            'warning_text': '',
+        }
+
     f5 = safe_float(snap.get('f5'), 0.0)
     i5 = safe_float(snap.get('i5'), 0.0)
-    total5 = safe_float(snap.get('total5'), 0.0)
+    p5 = safe_float(snap.get('p5'), 0.0)
     fs = safe_int(snap.get('fs'), 0)
     is_ = safe_int(snap.get('is'), 0)
-    joint_strong = (f5 >= 15e8 and i5 >= 15e8)
-    joint_ok = (f5 > 0 and i5 > 0)
-    inst_strong = (i5 >= 20e8)
-    foreign_strong = (f5 >= 20e8)
-    inst_ok = (i5 > 0)
-    foreign_ok = (f5 > 0)
+    amount5 = safe_float(snap.get('amount5'), 0.0)
+    net_ratio_5 = safe_float(snap.get('combined_net_ratio_5'), 0.0)
+    distribution_trace = str(snap.get('distribution_trace', '') or '').strip()
+
+    joint_strong = (f5 > 0 and i5 > 0 and net_ratio_5 >= 1.2)
+    joint_ok = (f5 > 0 and i5 > 0 and net_ratio_5 >= 0.2)
+    inst_strong = (i5 > 0 and amount5 > 0 and (i5 / amount5 * 100.0) >= 0.8)
+    foreign_strong = (f5 > 0 and amount5 > 0 and (f5 / amount5 * 100.0) >= 0.8)
+
+    warning_text = distribution_trace
+
+    if distribution_trace.startswith('세력 이탈 흔적'):
+        return {
+            'tag': f'⚠️분산({is_}/{fs})',
+            'summary': '외인·기관 차익실현',
+            'flow_text': '최근 5일 기준 외인·기관 분산 진행형',
+            'confidence': '확정',
+            'twin_b': False,
+            'whale_score': -6,
+            'warning_text': warning_text,
+        }
+
     if joint_strong or (joint_ok and fs >= 2 and is_ >= 2):
-        return {'tag': f'🤝쌍끌({is_}/{fs})', 'summary': '외인·기관 동반매수 강함' if joint_strong else '외인·기관 동반매수', 'flow_text': '최근 5일 기준 외인·기관 동반 매집 진행형', 'confidence': '확정', 'twin_b': True, 'whale_score': 30 if joint_strong else 20}
-    if inst_strong or (inst_ok and is_ >= 2 and f5 <= 0):
-        return {'tag': f'🔴기관({is_}/{fs})', 'summary': '기관매수 강함' if inst_strong else '기관매수 우세', 'flow_text': '최근 5일 기준 기관 중심 매집 진행형', 'confidence': '확정', 'twin_b': False, 'whale_score': 18 if inst_strong else 10}
-    if foreign_strong or (foreign_ok and fs >= 2 and i5 <= 0):
-        return {'tag': f'🔵외인({is_}/{fs})', 'summary': '외인매수 강함' if foreign_strong else '외인매수 우세', 'flow_text': '최근 5일 기준 외인 중심 매집 진행형', 'confidence': '확정', 'twin_b': False, 'whale_score': 18 if foreign_strong else 10}
-    if total5 > 0 and (is_ >= 1 or fs >= 1):
-        return {'tag': f'➖중립({is_}/{fs})', 'summary': '완만한 순매수 유입', 'flow_text': '최근 5일 기준 완만한 매집 유입', 'confidence': '확정', 'twin_b': False, 'whale_score': 4}
-    if total5 < 0:
-        return {'tag': f'➖중립({is_}/{fs})', 'summary': '순매수 우위 없음', 'flow_text': '최근 5일 기준 뚜렷한 매집 방향성 없음', 'confidence': '확정', 'twin_b': False, 'whale_score': 0}
-    return {'tag': f'➖중립({is_}/{fs})', 'summary': '수급 중립', 'flow_text': '최근 5일 기준 뚜렷한 매집 방향성 없음', 'confidence': '확정', 'twin_b': False, 'whale_score': 0}
+        return {
+            'tag': f'🤝쌍끌({is_}/{fs})',
+            'summary': '외인·기관 동반매수 강함' if joint_strong else '외인·기관 동반매수',
+            'flow_text': '최근 5일 기준 외인·기관 동반 매집 진행형',
+            'confidence': '확정',
+            'twin_b': True,
+            'whale_score': 30 if joint_strong else 20,
+            'warning_text': warning_text,
+        }
+
+    if inst_strong or (i5 > 0 and is_ >= 2 and f5 <= 0):
+        return {
+            'tag': f'🔴기관({is_}/{fs})',
+            'summary': '기관매수 강함' if inst_strong else '기관매수 우세',
+            'flow_text': '최근 5일 기준 기관 중심 매집 진행형',
+            'confidence': '확정',
+            'twin_b': False,
+            'whale_score': 18 if inst_strong else 10,
+            'warning_text': warning_text,
+        }
+
+    if foreign_strong or (f5 > 0 and fs >= 2 and i5 <= 0):
+        return {
+            'tag': f'🔵외인({is_}/{fs})',
+            'summary': '외인매수 강함' if foreign_strong else '외인매수 우세',
+            'flow_text': '최근 5일 기준 외인 중심 매집 진행형',
+            'confidence': '확정',
+            'twin_b': False,
+            'whale_score': 18 if foreign_strong else 10,
+            'warning_text': warning_text,
+        }
+
+    if (f5 + i5) > 0 and (fs >= 1 or is_ >= 1):
+        return {
+            'tag': f'➖중립({is_}/{fs})',
+            'summary': '완만한 순매수 유입',
+            'flow_text': '최근 5일 기준 완만한 매집 유입',
+            'confidence': '확정',
+            'twin_b': False,
+            'whale_score': 4,
+            'warning_text': warning_text,
+        }
+
+    if p5 > 0 and (f5 + i5) <= 0:
+        warning_text = warning_text or '개인 추격 흔적: 외인·기관 동행 없는 개인 매수 우세'
+
+    return {
+        'tag': f'➖중립({is_}/{fs})',
+        'summary': '수급 중립',
+        'flow_text': '최근 5일 기준 뚜렷한 매집 방향성 없음',
+        'confidence': '확정',
+        'twin_b': False,
+        'whale_score': 0,
+        'warning_text': warning_text,
+    }
 
 
 def get_supply_profile(code, price):
@@ -18149,8 +18426,10 @@ def get_supply_profile(code, price):
     cached = _supply_cache.get(cache_key)
     if isinstance(cached, dict):
         return cached
+
     snap = _fetch_supply_snapshot_v2(str(code).zfill(6))
     grade = _resolve_supply_grade_v2(snap)
+
     if snap.get('ok'):
         prof = {
             'tag': grade['tag'],
@@ -18161,10 +18440,13 @@ def get_supply_profile(code, price):
             'today_text': f"개인 {_fmt_eok_or_unknown_won(snap.get('p1'))} | 외인 {_fmt_eok_or_unknown_won(snap.get('f1'))} | 기관 {_fmt_eok_or_unknown_won(snap.get('i1'))}",
             'cum3_text': f"개인 {_fmt_eok_or_unknown_won(snap.get('p3'))} | 외인 {_fmt_eok_or_unknown_won(snap.get('f3'))} | 기관 {_fmt_eok_or_unknown_won(snap.get('i3'))}",
             'cum5_text': f"개인 {_fmt_eok_or_unknown_won(snap.get('p5'))} | 외인 {_fmt_eok_or_unknown_won(snap.get('f5'))} | 기관 {_fmt_eok_or_unknown_won(snap.get('i5'))}",
-            'streak_text': f"기관 {safe_int(snap.get('is'), 0)}일 / 외인 {safe_int(snap.get('fs'), 0)}일 / 개인매도 {safe_int(snap.get('ps'), 0)}일",
+            'streak_text': f"기관 {safe_int(snap.get('is'), 0)}일 / 외인 {safe_int(snap.get('fs'), 0)}일 / 개인 {safe_int(snap.get('ps'), 0)}일",
             'summary': grade['summary'],
             'flow_text': grade['flow_text'],
-            'personal_judgement': '개인 차익실현성 매도' if safe_float(snap.get('p5'), 0.0) < 0 else '개인 방향성 중립',
+            'warning_text': grade.get('warning_text', ''),
+            'gross_today_text': snap.get('gross_today_text', ''),
+            'gross_5d_text': snap.get('gross_5d_text', ''),
+            'personal_judgement': '개인 추격성 매수' if safe_float(snap.get('p5'), 0.0) > 0 and safe_float(snap.get('f5'), 0.0) + safe_float(snap.get('i5'), 0.0) <= 0 else ('개인 차익실현성 매도' if safe_float(snap.get('p5'), 0.0) < 0 else '개인 방향성 중립'),
             'foreign_hold_text': '미확인',
             'today_f': round(safe_float(snap.get('f1'), 0.0) / 100000000, 1),
             'today_i': round(safe_float(snap.get('i1'), 0.0) / 100000000, 1),
@@ -18181,15 +18463,17 @@ def get_supply_profile(code, price):
             'confidence': grade['confidence'],
             'last_date': snap.get('last_date') or '미확인',
             'raw_ok': True,
-            'raw_reason': snap.get('reason', 'ok'),
+            'raw_reason': snap.get('scale_reason') or snap.get('reason', 'ok'),
         }
         prof = _finalize_supply_profile_dict(prof)
         _supply_cache[cache_key] = prof
         return prof
+
     try:
         legacy = _legacy_get_supply_profile(code, price)
     except Exception:
         legacy = None
+
     if _legacy_profile_has_meaningful_amount(legacy):
         legacy = dict(legacy)
         legacy['confidence'] = '추정'
@@ -18198,15 +18482,20 @@ def get_supply_profile(code, price):
         legacy['raw_reason'] = snap.get('reason', 'legacy_fallback')
         legacy['summary'] = (str(legacy.get('summary', '')).strip() + ' (추정)').strip() if str(legacy.get('summary', '')).strip() else '실금액 미확인 / 보조추정'
         legacy['flow_text'] = (str(legacy.get('flow_text', '')).strip() + ' [추정]').strip() if str(legacy.get('flow_text', '')).strip() else '최근 5일 기준 수급 보조추정'
+        legacy.setdefault('warning_text', '')
+        legacy.setdefault('gross_today_text', '')
+        legacy.setdefault('gross_5d_text', '')
         legacy = _finalize_supply_profile_dict(legacy)
         _supply_cache[cache_key] = legacy
         return legacy
+
     prof = {
         'tag': '➖중립', 'total_m': 0, 'whale_streak': 0, 'whale_score': 0, 'twin_b': False,
         'today_text': '개인 미확인 | 외인 미확인 | 기관 미확인',
         'cum3_text': '개인 미확인 | 외인 미확인 | 기관 미확인',
         'cum5_text': '개인 미확인 | 외인 미확인 | 기관 미확인',
         'streak_text': '', 'summary': '실금액 미확인', 'flow_text': '최근 5일 실금액 기준 수급 미확인',
+        'warning_text': '', 'gross_today_text': '', 'gross_5d_text': '',
         'personal_judgement': '미확인', 'foreign_hold_text': '미확인',
         'today_f': 0.0, 'today_i': 0.0, 'today_p': 0.0, 'cum3_f': 0.0, 'cum3_i': 0.0, 'cum3_p': 0.0,
         'cum5_f': 0.0, 'cum5_i': 0.0, 'cum5_p': 0.0, 'inst_streak': 0, 'frgn_streak': 0, 'personal_streak': 0,
@@ -18216,7 +18505,9 @@ def get_supply_profile(code, price):
     _supply_cache[cache_key] = prof
     return prof
 
+
 def get_financial_health(code):
+
     if code in _financial_cache:
         return _financial_cache[code]
     try:
@@ -24638,6 +24929,9 @@ def enrich_hits_with_supply_and_financial(all_hits_sorted, top_k_supply=80, top_
                     item['수급연속'] = fallback_prof.get('streak_text', '')
                     item['수급판정'] = fallback_prof.get('flow_text', '')
                     item['외인보유요약'] = fallback_prof.get('foreign_hold_text', '미확인')
+                    item['수급매수매도1일'] = fallback_prof.get('gross_today_text', '')
+                    item['수급매수매도5일'] = fallback_prof.get('gross_5d_text', '')
+                    item['수급경고'] = fallback_prof.get('warning_text', '')
                     item['수급신뢰도'] = fallback_prof.get('confidence', '추정')
                     item['수급기준일'] = fallback_prof.get('last_date', '미확인')
                     item['수급원시성공'] = bool(fallback_prof.get('raw_ok', False))
@@ -25955,6 +26249,9 @@ if __name__ == "__main__":
         supply_5d = str(item.get('수급5일누적', '') or '').strip()
         supply_flow = str(item.get('수급판정', '') or '').strip()
         supply_streak = str(item.get('수급연속', '') or '').strip()
+        supply_gross1 = str(item.get('수급매수매도1일', '') or '').strip()
+        supply_gross5 = str(item.get('수급매수매도5일', '') or '').strip()
+        supply_warn = str(item.get('수급경고', '') or '').strip()
         supply_conf = str(item.get('수급신뢰도', '') or '').strip()
         supply_date = str(item.get('수급기준일', '') or '').strip()
         foreign_hold = str(item.get('외인보유요약', '') or '').strip()
