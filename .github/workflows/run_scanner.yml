@@ -37,7 +37,9 @@ jobs:
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       DART_API_KEY: ${{ secrets.DART_API_KEY }}
       GOOGLE_JSON_KEY: ${{ secrets.GOOGLE_JSON_KEY }}
-
+      KRX_DATA_ID: ${{ secrets.KRX_DATA_ID }}
+      KRX_DATA_PW: ${{ secrets.KRX_DATA_PW }}
+      
     steps:
       - name: Checkout
         uses: actions/checkout@v4
