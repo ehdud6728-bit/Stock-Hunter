@@ -40,7 +40,8 @@ jobs:
       KRX_ID: ${{ secrets.KRX_DATA_ID }}
       KRX_PW: ${{ secrets.KRX_DATA_PW }}
       REPORT_PUBLIC_DIR: docs
-      REPORT_BASE_URL: https://ehdud6728-bit.github.io/Stock-Hunter  
+      REPORT_BASE_URL: https://ehdud6728-bit.github.io/Stock-Hunter
+      STRICT_FAKE_FILTER: "1"  
       
     steps:
       - name: Checkout
