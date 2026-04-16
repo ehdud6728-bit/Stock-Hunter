@@ -44,6 +44,12 @@ jobs:
           GROQ_API_KEY:      ${{ secrets.GROQ_API_KEY }}
           GOOGLE_JSON_KEY:   ${{ secrets.GOOGLE_JSON_KEY }}
           GEMINI_API_KEY:    ${{ secrets.GEMINI_API_KEY }}
+          DART_API_KEY: ${{ secrets.DART_API_KEY }}
+          KRX_ID: ${{ secrets.KRX_DATA_ID }}
+          KRX_PW: ${{ secrets.KRX_DATA_PW }}
+          REPORT_PUBLIC_DIR: docs
+          REPORT_BASE_URL: https://ehdud6728-bit.github.io/Stock-Hunter
+          STRICT_FAKE_FILTER: "1"  
         run: |
           if [ "${{ github.event.inputs.force }}" = "true" ]; then
             python Closing_bet_scanner_v2.py --force
