@@ -36,6 +36,16 @@ jobs:
           TELEGRAM_TOKEN:   ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           DART_API_KEY:     ${{ secrets.DART_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GOOGLE_JSON_KEY: ${{ secrets.GOOGLE_JSON_KEY }}
+          KRX_ID: ${{ secrets.KRX_DATA_ID }}
+          KRX_PW: ${{ secrets.KRX_DATA_PW }}
+          REPORT_PUBLIC_DIR: docs
+          REPORT_BASE_URL: https://ehdud6728-bit.github.io/Stock-Hunter
+          STRICT_FAKE_FILTER: "1"  
           SCAN_LOG_LEVEL:   NORMAL
         run: |
           if [ "${{ github.event.inputs.test_mode }}" = "true" ]; then
