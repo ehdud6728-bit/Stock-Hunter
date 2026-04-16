@@ -39,6 +39,8 @@ jobs:
       GOOGLE_JSON_KEY: ${{ secrets.GOOGLE_JSON_KEY }}
       KRX_ID: ${{ secrets.KRX_DATA_ID }}
       KRX_PW: ${{ secrets.KRX_DATA_PW }}
+      REPORT_PUBLIC_DIR: docs
+      REPORT_BASE_URL: https://ehdud6728-bit.github.io/Stock-Hunter  
       
     steps:
       - name: Checkout
