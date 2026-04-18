@@ -45,24 +45,35 @@ def _render_kki_lines(item: dict) -> str:
     score = int(item.get('kki_score', 0) or 0)
     if SHOW_KKI_ONLY_WHEN_CONFIDENT and score < KKI_SHOW_MIN:
         return ''
+
     parts = []
     tag = str(item.get('kki_tag', '') or '').strip()
     absorb_tag = str(item.get('absorb_tag', '') or '').strip()
     absorb_score = int(item.get('absorb_score', 0) or 0)
-    recurrence = str(item.get('kki_recurrence', '') or '').strip()
+
+    habit = str(item.get('kki_habit_comment', item.get('kki_habit', '')) or '').strip()
     current_state = str(item.get('kki_current_state', '') or '').strip()
-    explain = str(item.get('kki_reason', '') or '').strip()
-    if tag or score:
-        line = f'- 🎭 끼점수: {tag} {score}'.rstrip()
-        if absorb_tag:
-            line += f' | {absorb_tag} {absorb_score}'
-        parts.append(line)
-    if recurrence:
-        parts.append(f'- 🧬 끼 재현이력: {recurrence}')
+    integrated = str(item.get('kki_reason', item.get('kki_comment', '')) or '').strip()
+    best_band = str(item.get('kki_best_band', item.get('recommended_band', '')) or '').strip()
+    support_band = str(item.get('kki_support_band', item.get('support_band', '')) or '').strip()
+
+    line = f'- 🎭 끼점수: {tag} {score}'.rstrip()
+    if absorb_tag:
+        line += f' | {absorb_tag} {absorb_score}'
+    parts.append(line)
+
+    if habit:
+        parts.append(f'- 🧬 과거 습성: {habit}')
     if current_state:
-        parts.append(f'- 📍 현재 끼 위치: {current_state}')
-    if explain:
-        parts.append(f'- 🧲 끼/흡수 해설: {explain}')
+        parts.append(f'- 📍 현재 상태: {current_state}')
+    if best_band:
+        if support_band and support_band != best_band:
+            parts.append(f'- 📐 밴드 적합성: 주밴드 {best_band} / 보조밴드 {support_band}')
+        else:
+            parts.append(f'- 📐 밴드 적합성: 주밴드 {best_band}')
+    if integrated:
+        parts.append(f'- 🧲 끼/흡수 해설: {integrated}')
+
     return '\n'.join(parts) + ('\n' if parts else '')
 
 
