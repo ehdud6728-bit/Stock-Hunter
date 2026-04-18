@@ -25,15 +25,12 @@ def build_kki_block(kki: KkiProfile, show_threshold: int = 55) -> str:
     if not kki.show_block or kki.kki_score < show_threshold:
         return ""
 
-    strengths = " / ".join(kki.strengths) if kki.strengths else "기반"
-    cautions = " / ".join(kki.cautions) if kki.cautions else "특이사항 없음"
     return (
         f"🎭 끼점수: {_kki_grade(kki.kki_score)} {kki.kki_score} | {_absorb_grade(kki.absorb_score)} {kki.absorb_score}\n"
-        f"🧬 끼 패턴: 재현형:{kki.pattern_name} / 적합밴드:{kki.best_band} / 보조밴드:{kki.support_band} / "
-        f"재현점수:{kki.recurrence_score} / 재발사이력:{kki.rebound_count}회 / 횡보후재발사:{kki.range_relaunch_count}회 / 현재위치:{kki.current_position}\n"
-        f"🧲 끼/흡수 해설: 패턴축:재현형:{kki.pattern_name} / 적합밴드:{kki.best_band} / 재현점수:{kki.recurrence_score} / "
-        f"재발사이력:{kki.rebound_count}회 / 현재위치:{kki.current_position} | 강점:{strengths} | 수급축:{kki.supply_axis} | "
-        f"흡수판정:{kki.absorb_comment} | 주의:{cautions} | 대응축:{kki.action_axis}"
+        f"🧬 과거 습성: {kki.habit_comment}\n"
+        f"📍 현재 상태: {kki.position_comment or kki.current_state_comment}\n"
+        f"📐 밴드 해석: 주밴드 {kki.best_band} / 보조밴드 {kki.support_band} | {kki.band_comment}\n"
+        f"🧲 종합 해석: {kki.integrated_comment or kki.current_state_comment}"
     )
 
 
@@ -42,12 +39,13 @@ def build_wave_block(wave: WaveProfile) -> str:
         return ""
     return (
         "🌊 파동분석:\n"
-        f"- 소파동: {wave.small_zone}\n"
+        f"- 소파동: {wave.small_zone} | {wave.small_zone_comment}\n"
         f"- 소파동 박스: 하단 {wave.small_box_low:,.0f} / 중단 {wave.small_box_mid:,.0f} / 상단 {wave.small_box_high:,.0f}\n"
-        f"- 중파동: {wave.medium_zone}\n"
+        f"- 중파동: {wave.medium_zone} | {wave.medium_zone_comment}\n"
         f"- 중파동 박스: 하단 {wave.medium_box_low:,.0f} / 중단 {wave.medium_box_mid:,.0f} / 상단 {wave.medium_box_high:,.0f}\n"
         f"- 상승각도: 소파동 {wave.small_angle_label}({wave.small_angle:+.2f}) / 중파동 {wave.medium_angle_label}({wave.medium_angle:+.2f})\n"
-        f"- 현재 해석: {wave.wave_comment}"
+        f"- 각도 해석: {wave.angle_comment}\n"
+        f"- 파동 종합: {wave.combo_comment}"
     )
 
 
