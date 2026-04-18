@@ -501,6 +501,7 @@ def _choose_lower_band_type(code: str, df: pd.DataFrame, row: pd.Series) -> dict
     }
 
 
+
 def _get_band_recommendation(
     code: str,
     df: pd.DataFrame,
@@ -513,415 +514,210 @@ def _get_band_recommendation(
     atr_pct = (atr / close * 100) if close > 0 else 0.0
 
     bb = _check_bb_bottom(row, df)
-    bb_width = float(bb.get('bb40_width', 0) or 0)
+    env = _check_envelope_bottom(row, df)
+
+    bb40_width = float(bb.get('bb40_width', 0) or 0)
+    bb40_pct = float(bb.get('bb40_pct', 999) or 999)
+    env20_pct = float(env.get('env20_pct', 999) or 999)
+    env40_pct = float(env.get('env40_pct', 999) or 999)
+
     amount_b_series = (df['Close'] * df['Volume']) / 1e8
     amount20_b = float(amount_b_series.rolling(20).mean().iloc[-1]) if len(amount_b_series) >= 20 else 0.0
 
-    if index_label == '코스피200':
-        recommended_band = 'ENV'
-        base_reason = '코스피200 기본값'
-    elif index_label == '코스닥150':
-        recommended_band = 'BB'
-        base_reason = '코스닥150 기본값'
-    else:
-        recommended_band = 'BB'
-        base_reason = '비지수/확장형 기본값'
+    candidates = []
 
-    if bb_width >= 18 or atr_pct >= 4.0 or amount20_b >= 500:
-        volatility_type = '변동형'
-    elif bb_width <= 10 and atr_pct <= 2.2 and amount20_b <= 150:
-        volatility_type = '안정형'
-    else:
-        volatility_type = '중간형'
+    try:
+        bb20 = _calc_bollinger(df, 20, 2.0)
+        lower20 = float(bb20['lower'].iloc[-1]) if not pd.isna(bb20['lower'].iloc[-1]) else 0.0
+        width20 = float(bb20['width'].iloc[-1]) if not pd.isna(bb20['width'].iloc[-1]) else 999.0
+        bb20_pct = ((close - lower20) / lower20 * 100) if lower20 > 0 else 999.0
+    except Exception:
+        width20 = 999.0
+        bb20_pct = 999.0
 
-    reason_parts = [base_reason]
-    if volatility_type == '변동형':
-        recommended_band = 'BB'
-        if bb_width >= 18:
-            reason_parts.append(f'BB폭 큼({bb_width:.1f})')
-        if atr_pct >= 4.0:
-            reason_parts.append(f'ATR 큼({atr_pct:.1f}%)')
-        if amount20_b >= 500:
-            reason_parts.append(f'거래대금 큼({amount20_b:.1f}억)')
-    elif volatility_type == '안정형':
-        recommended_band = 'ENV'
-        reason_parts.append(f'안정형(BB폭 {bb_width:.1f}, ATR {atr_pct:.1f}%)')
-    else:
-        reason_parts.append('중간형')
+    if abs(env20_pct) <= 2.0:
+        score = 65
+        if atr_pct <= 2.5:
+            score += 8
+        if bb40_width <= 12:
+            score += 6
+        candidates.append(('ENV20', score, f'Env20 하단 근접({env20_pct:.1f}%)'))
+
+    if abs(env40_pct) <= 10.0:
+        score = 60
+        if atr_pct <= 2.8:
+            score += 6
+        if amount20_b <= 200:
+            score += 4
+        candidates.append(('ENV40', score, f'Env40 하단권({env40_pct:.1f}%)'))
+
+    if bb40_pct <= 6.0:
+        score = 62
+        if bb40_width >= 14:
+            score += 8
+        if atr_pct >= 3.0:
+            score += 6
+        candidates.append(('BB40', score, f'BB40 하단 근접({bb40_pct:.1f}%)'))
+
+    if bb20_pct <= 4.0:
+        score = 58
+        if width20 <= 12:
+            score += 8
+        candidates.append(('BB20', score, f'BB20 하단 근접({bb20_pct:.1f}%)'))
+
+    if not candidates:
+        if index_label == '코스피200':
+            candidates.append(('ENV40', 50, '코스피200 기본값'))
+            candidates.append(('BB40', 44, '보조 밴드'))
+        elif index_label == '코스닥150':
+            candidates.append(('BB40', 50, '코스닥150 기본값'))
+            candidates.append(('ENV40', 44, '보조 밴드'))
+        else:
+            candidates.append(('BB40', 48, '비지수 기본값'))
+            candidates.append(('ENV40', 42, '보조 밴드'))
+
+    candidates.sort(key=lambda x: x[1], reverse=True)
+
+    recommended_band = candidates[0][0]
+    support_band = candidates[1][0] if len(candidates) >= 2 and candidates[1][0] != recommended_band else recommended_band
+
+    volatility_type = '변동형' if (bb40_width >= 18 or atr_pct >= 4.0 or amount20_b >= 500) else (
+        '안정형' if (bb40_width <= 10 and atr_pct <= 2.2 and amount20_b <= 150) else '중간형'
+    )
 
     universe_tag = _build_universe_tag(index_label=index_label, is_top_mcap=is_top_mcap)
-    comment = f"추천밴드 {recommended_band} | {volatility_type} | {universe_tag} | " + ", ".join(reason_parts)
+    reason_parts = [x[2] for x in candidates[:3]]
+    comment = f"주밴드 {recommended_band} / 보조밴드 {support_band} | {volatility_type} | {universe_tag} | " + ", ".join(reason_parts)
 
     return {
         'recommended_band': recommended_band,
+        'support_band': support_band,
         'volatility_type': volatility_type,
         'universe_tag': universe_tag,
         'reason': ', '.join(reason_parts),
         'comment': comment,
-        'bb40_width': round(bb_width, 1),
+        'bb40_width': round(bb40_width, 1),
         'atr_pct': round(atr_pct, 1),
         'amount20_b': round(amount20_b, 1),
+        'env20_pct': round(env20_pct, 1),
+        'env40_pct': round(env40_pct, 1),
+        'bb40_pct': round(bb40_pct, 1),
+        'bb20_pct': round(bb20_pct, 1) if bb20_pct < 900 else 999.0,
     }
 
 
-# =============================================================
-# 유니버스 로딩
-# =============================================================
-def _get_index_tickers_naver(index_code: str) -> list:
-    """
-    네이버 금융에서 지수 구성 종목 코드 수집.
-    index_code:
-        'KOSPI200' -> 코스피200
-        'KQ150'    -> 코스닥150
-    """
-    try:
-        from bs4 import BeautifulSoup
-
-        headers = {
-            'User-Agent': 'Mozilla/5.0',
-            'Referer': 'https://finance.naver.com/',
+def _analyze_kki_pattern_for_closing(df: pd.DataFrame, row: pd.Series, info: dict, band_rec: dict) -> dict:
+    if df is None or len(df) < 80:
+        return {
+            'kki_score': 0,
+            'absorb_score': 0,
+            'kki_pattern': '',
+            'kki_comment': '',
+            'kki_habit': '',
         }
-        url_map = {
-            'KOSPI200': 'https://finance.naver.com/sise/entryJongmok.naver?kospiCode=KOSPI200',
-            'KQ150': 'https://finance.naver.com/sise/entryJongmok.naver?kospiCode=KQ150',
-        }
-        url = url_map.get(index_code, '')
-        if not url:
-            return []
 
-        tickers = []
-        for page in range(1, 30):
-            res = requests.get(f"{url}&page={page}", headers=headers, timeout=10)
-            res.encoding = 'euc-kr'
-            soup = BeautifulSoup(res.text, 'html.parser')
-            links = soup.select('td.ctg a[href*="code="]')
-            if not links:
-                break
-            for a in links:
-                href = a.get('href', '')
-                code = href.split('code=')[-1].strip()
-                if code and len(code) == 6 and code.isdigit():
-                    tickers.append(code)
-
-        tickers = list(dict.fromkeys(tickers))
-        if tickers:
-            log_info(f"네이버 {index_code}: {len(tickers)}개 ✅")
-        return tickers
-    except Exception as e:
-        log_error(f"⚠️ 네이버 {index_code} 실패: {e}")
-        return []
-
-
-def _get_index_tickers_krx(market: str, top_n: int) -> list:
-    """
-    pykrx에서 지수명으로 구성종목 가져오기.
-    market:
-        'KOSPI'  -> 코스피200
-        'KOSDAQ' -> 코스닥150
-    """
-    try:
-        from pykrx import stock as _pk
-
-        target_name = '코스피 200' if market == 'KOSPI' else '코스닥 150'
-        idx_codes = _pk.get_index_ticker_list(market=market)
-
-        target_code = None
-        for idx_code in idx_codes:
-            try:
-                idx_name = _pk.get_index_ticker_name(idx_code)
-                if idx_name == target_name:
-                    target_code = idx_code
-                    break
-            except Exception:
-                continue
-
-        if target_code:
-            tickers = _pk.get_index_portfolio_deposit_file(target_code)
-            if tickers and len(tickers) > 50:
-                log_info(f"pykrx {target_name}: {len(tickers)}개 ✅")
-                return list(tickers)[:top_n]
-    except Exception as e:
-        log_error(f"⚠️ pykrx {market} 실패: {e}")
-
-    try:
-        df = fdr.StockListing(market)
-        if df is not None and not df.empty:
-            mcap_col = next((c for c in df.columns if 'cap' in c.lower()), None)
-            sym_col = next((c for c in df.columns if c in ('Code', 'Symbol', '코드', '종목코드')), None)
-            if mcap_col and sym_col:
-                df = df.nlargest(top_n, mcap_col)
-                tickers = [str(c).zfill(6) for c in df[sym_col].tolist()]
-                log_info(f"FDR {market} 시총상위{top_n}: {len(tickers)}개 ✅")
-                return tickers
-    except Exception as e:
-        log_error(f"⚠️ FDR {market} 실패: {e}")
-
-    return []
-
-
-def _get_kospi200() -> list:
-    tickers = _get_index_tickers_naver('KOSPI200')
-    if len(tickers) >= 150:
-        return tickers
-
-    log_info("코스피200 네이버 실패 → pykrx/FDR 폴백")
-    return _get_index_tickers_krx('KOSPI', 200)
-
-
-def _get_kosdaq150() -> list:
-    tickers = _get_index_tickers_naver('KQ150')
-    if len(tickers) >= 100:
-        return tickers
-
-    log_info("코스닥150 네이버 실패 → pykrx/FDR 폴백")
-    return _get_index_tickers_krx('KOSDAQ', 150)
-
-
-def _normalize_listing_df(df_krx: pd.DataFrame) -> pd.DataFrame:
-    if df_krx is None or df_krx.empty:
-        return pd.DataFrame()
-
-    col_map = {}
-    for c in df_krx.columns:
-        cs = str(c).strip()
-        if cs in ('Code', 'code', '티커', '종목코드'):
-            col_map[c] = 'Code'
-        elif cs in ('Name', 'name', '종목명'):
-            col_map[c] = 'Name'
-        elif cs in ('Amount', 'amount', '거래대금'):
-            col_map[c] = 'Amount'
-        elif cs in ('Market', 'market', '시장구분'):
-            col_map[c] = 'Market'
-        elif cs in ('Marcap', 'marcap', '시가총액', '시총'):
-            col_map[c] = 'Marcap'
-
-    df_krx = df_krx.rename(columns=col_map).copy()
-    if 'Code' not in df_krx.columns:
-        return pd.DataFrame()
-
-    df_krx['Code'] = df_krx['Code'].astype(str).str.zfill(6)
-
-    if 'Amount' in df_krx.columns:
-        df_krx['Amount'] = pd.to_numeric(df_krx['Amount'], errors='coerce').fillna(0)
-    else:
-        df_krx['Amount'] = 0
-
-    if 'Marcap' in df_krx.columns:
-        df_krx['Marcap'] = pd.to_numeric(df_krx['Marcap'], errors='coerce').fillna(0)
-    else:
-        df_krx['Marcap'] = 0
-
-    if 'Name' not in df_krx.columns:
-        df_krx['Name'] = df_krx['Code']
-
-    if 'Market' not in df_krx.columns:
-        df_krx['Market'] = ''
-
-    return df_krx
-
-
-def _load_amount_top_universe(top_n: int = TOP_N) -> tuple[list, list]:
-    df_krx = _normalize_listing_df(load_krx_listing_safe())
-    if df_krx.empty:
-        return [], []
-
-    if 'Market' in df_krx.columns:
-        df_krx = df_krx[
-            df_krx['Market'].astype(str).isin(['KOSPI', 'KOSDAQ', '코스피', '코스닥', '유가'])
-        ]
-
-    if 'Name' in df_krx.columns:
-        df_krx = df_krx[
-            ~df_krx['Name'].astype(str).str.contains(
-                r'ETF|ETN|스팩|제[0-9]+호|우$|우A|우B',
-                na=False,
-                regex=True,
-            )
-        ]
-
-    df_krx = df_krx[
-        (df_krx['Amount'] >= MIN_AMOUNT)
-        & ((df_krx['Marcap'] >= MIN_MARCAP) | (df_krx['Marcap'] == 0))
-    ].copy()
-
-    if df_krx.empty:
-        return [], []
-
-    df_krx = df_krx.sort_values('Amount', ascending=False).head(top_n)
-    codes = df_krx['Code'].astype(str).tolist()
-    names = df_krx['Name'].astype(str).tolist()
-    return codes, names
-
-
-def _load_universe(mode: str = 'hybrid_union') -> list:
-    global INDEX_MAP
-    INDEX_MAP = {}
-
-    log_info(f"유니버스 로딩: {mode}")
-
-    kospi = _get_kospi200()
-    kosdaq = _get_kosdaq150()
-    top_codes, _ = _load_amount_top_universe(TOP_N)
-
-    for c in kospi:
-        INDEX_MAP[c] = '코스피200'
-    for c in kosdaq:
-        if c not in INDEX_MAP:
-            INDEX_MAP[c] = '코스닥150'
-
-    if mode == 'kospi200':
-        codes = kospi
-    elif mode == 'kospi200+kosdaq150':
-        codes = list(dict.fromkeys(kospi + kosdaq))
-    elif mode == 'amount_top400':
-        codes = top_codes
-    elif mode == 'hybrid_union':
-        codes = list(dict.fromkeys(kospi + kosdaq + top_codes))
-    elif mode == 'hybrid_intersection':
-        idx_codes = list(dict.fromkeys(kospi + kosdaq))
-        top_set = set(top_codes)
-        codes = [c for c in idx_codes if c in top_set]
-    else:
-        log_error(f"⚠️ 알 수 없는 유니버스 모드: {mode}")
-        return []
-
-    log_info(f"✅ 유니버스: {len(codes)}개 종목")
-    return codes
-
-
-# =============================================================
-# 시간 체크
-# =============================================================
-def _is_closing_time(force: bool = False) -> bool:
-    if force:
-        return True
-    now = datetime.now(KST)
-    if now.weekday() >= 5:
-        return False
-    t = now.hour * 60 + now.minute
-    start = SCAN_START_HOUR * 60 + SCAN_START_MIN
-    end = SCAN_END_HOUR * 60 + SCAN_END_MIN
-    return start <= t <= end
-
-
-def _time_to_close() -> int:
-    now = datetime.now(KST)
-    close = now.replace(hour=15, minute=30, second=0, microsecond=0)
-    return max(0, int((close - now).total_seconds() / 60))
-
-
-# =============================================================
-# 데이터 로딩 / 공통 정보
-# =============================================================
-def _load_df(code: str) -> pd.DataFrame | None:
-    try:
-        start = (datetime.now() - timedelta(days=300)).strftime('%Y-%m-%d')
-        df = fdr.DataReader(code, start=start)
-        if df is None or len(df) < 60:
-            return None
-
-        df = get_indicators(df)
-        if df is None or df.empty:
-            return None
-
-        if 'NearHigh20_Pct' not in df.columns:
-            df['High20'] = df['High'].rolling(20).max()
-            df['NearHigh20_Pct'] = df['Close'] / df['High20'] * 100
-
-        return df
-    except Exception as e:
-        log_debug(f"_load_df 실패 {code}: {e}")
-        return None
-
-
-def _base_info(row, df) -> dict:
-    close = float(row['Close'])
-    open_p = float(row['Open'])
-    high = float(row['High'])
-    low = float(row.get('Low', close))
-    vol = float(row['Volume'])
+    close = float(row.get('Close', 0) or 0)
+    high = float(row.get('High', 0) or 0)
+    low = float(row.get('Low', 0) or 0)
+    ma20 = float(row.get('MA20', 0) or 0)
+    vol = float(row.get('Volume', 0) or 0)
     vma20 = float(row.get('VMA20', row.get('Vol_Avg', 0)) or 0)
-    atr = float(row.get('ATR', 0) or 0)
+    vol_ratio = vol / vma20 if vma20 > 0 else 0.0
 
-    target1 = round(close + atr * 2) if atr > 0 else round(close * 1.05)
-    stoploss = round(close - atr * 1.5) if atr > 0 else round(close * 0.97)
-    rr = round((target1 - close) / (close - stoploss), 1) if close > stoploss else 0
+    try:
+        obv = float(row.get('OBV', 0) or 0)
+        obv_prev = float(df['OBV'].iloc[-2]) if 'OBV' in df.columns and len(df) >= 2 else obv
+    except Exception:
+        obv = 0.0
+        obv_prev = 0.0
 
-    total = max(high - low, 1e-9)
-    body_top = max(open_p, close)
-    body_bot = min(open_p, close)
-    body_size = max(abs(close - open_p), 1e-9)
-    upper_wick_len = max(0.0, high - body_top)
-    lower_wick_len = max(0.0, body_bot - low)
+    recent20 = df.tail(20)
+    recent_high20 = float(recent20['High'].max()) if not recent20.empty else high
+    recent_low20 = float(recent20['Low'].min()) if not recent20.empty else low
+    pullback_pct = ((recent_high20 - close) / recent_high20 * 100.0) if recent_high20 > 0 else 0.0
+    near_low_pct = ((close - recent_low20) / recent_low20 * 100.0) if recent_low20 > 0 else 999.0
 
-    upper_wick_body_pct = upper_wick_len / body_size * 100.0
-    upper_wick_total_pct = upper_wick_len / total * 100.0
-    lower_wick_body_pct = lower_wick_len / body_size * 100.0
+    impulse_days = 0
+    start_i = max(1, len(df) - 60)
+    vol_ma = df['Volume'].rolling(20).mean()
+    for i in range(start_i, len(df)):
+        try:
+            prev_close = float(df['Close'].iloc[i - 1])
+            c = float(df['Close'].iloc[i])
+            v = float(df['Volume'].iloc[i])
+            vv = float(vol_ma.iloc[i]) if i < len(vol_ma) else 0.0
+            if prev_close > 0 and ((c / prev_close - 1.0) * 100 >= 8.0) and (vv > 0 and v >= vv * 1.8):
+                impulse_days += 1
+        except Exception:
+            pass
+
+    pattern = '혼합형'
+    habit = '특정 재현 패턴이 강하게 우세하지는 않습니다.'
+
+    if impulse_days >= 1 and 3.0 <= pullback_pct <= 15.0 and (ma20 <= 0 or close >= ma20 * 0.98):
+        pattern = '장대양봉→눌림→재발사형'
+        habit = '한 번 튄 뒤 눌림을 주고 다시 시세를 붙이는 성향이 있는 종목입니다.'
+    elif high >= recent_high20 * 0.995 and 2.0 <= pullback_pct <= 10.0:
+        pattern = '상단터치→눌림→2차상승형'
+        habit = '상단 첫 반응 뒤 바로 끝나기보다, 한 번 밀렸다가 다시 상단을 재타진하는 타입에 가깝습니다.'
+    elif near_low_pct <= 6.0:
+        pattern = '하단터치반등형'
+        habit = '하단을 건드린 뒤 복원력이 나오는 편이라, 밀리면 받치는 습성이 있습니다.'
+    elif band_rec.get('recommended_band') in ('BB20', 'BB40') and band_rec.get('bb40_width', 0) <= 12:
+        pattern = '횡보후재발사형'
+        habit = '바로 쏘기보다 박스권에서 힘을 모은 뒤 다시 확장되는 흐름에 더 가깝습니다.'
+
+    kki_score = 0
+    if pattern == '장대양봉→눌림→재발사형':
+        kki_score += 35
+    elif pattern == '상단터치→눌림→2차상승형':
+        kki_score += 30
+    elif pattern == '하단터치반등형':
+        kki_score += 24
+    elif pattern == '횡보후재발사형':
+        kki_score += 28
+
+    if vol_ratio >= 2.0:
+        kki_score += 18
+    elif vol_ratio >= 1.3:
+        kki_score += 10
+    if ma20 > 0 and close >= ma20:
+        kki_score += 10
+    if obv >= obv_prev:
+        kki_score += 8
+    if info.get('_close', 0) >= info.get('_open', 0):
+        kki_score += 6
+
+    absorb_score = 0
+    if near_low_pct <= 6.0:
+        absorb_score += 18
+    if 2.0 <= pullback_pct <= 12.0:
+        absorb_score += 20
+    if ma20 > 0 and close >= ma20 * 0.99:
+        absorb_score += 14
+    if obv >= obv_prev:
+        absorb_score += 10
+    if vol_ratio >= 1.0:
+        absorb_score += 8
+
+    if kki_score >= 75 and absorb_score >= 50:
+        comment = '끼와 흡수가 함께 살아 있어 종가배팅 후 다음 파동 연결 가능성을 열어둘 수 있습니다.'
+    elif kki_score >= 60:
+        comment = '끼는 살아 있으나 흡수는 보통 수준이라, 다음 날 시가 추격보다 눌림 확인이 더 좋습니다.'
+    elif absorb_score >= 50:
+        comment = '급등형보다는 매물 소화형 반등에 가까운 구조입니다.'
+    else:
+        comment = '끼와 흡수가 압도적이지 않아 종가배팅 이후 추격 대응은 보수적으로 보는 편이 좋습니다.'
 
     return {
-        'close': int(close),
-        'open': int(open_p),
-        'high': int(high),
-        'vol_ratio': round(vol / vma20, 1) if vma20 > 0 else 0,
-        'wick_pct': round(upper_wick_body_pct, 1),
-        'wick_pct_body': round(upper_wick_body_pct, 1),
-        'wick_pct_total': round(upper_wick_total_pct, 1),
-        'amount_b': round(close * vol / 1e8, 1),
-        'atr': int(atr),
-        'target1': target1,
-        'stoploss': stoploss,
-        'rr': rr,
-        '_close': close,
-        '_open': open_p,
-        '_vol': vol,
-        '_vma20': vma20,
-        '_ma20': float(row.get('MA20', 0) or 0),
-        '_disp': float(row.get('Disparity', 100) or 100),
-        '_near20': float(row.get('NearHigh20_Pct', 0) or 0),
-        '_upper_wick': _calc_upper_wick_ratio(row),
-        '_upper_wick_body': upper_wick_len / body_size,
-        '_upper_wick_total': upper_wick_len / total,
-        '_lower_wick_body_pct': lower_wick_body_pct,
+        'kki_score': int(kki_score),
+        'absorb_score': int(absorb_score),
+        'kki_pattern': pattern,
+        'kki_habit': habit,
+        'kki_comment': comment,
     }
 
 
-def _build_maejip_chart(df: pd.DataFrame) -> str:
-    if df is None or len(df) < 6:
-        return ''
-
-    recent = df.tail(6).copy()
-    vma10 = float(df['Volume'].rolling(10).mean().iloc[-1]) or 1
-    lines = ['최근 5일 매집 현황']
-
-    rows = list(recent.iterrows())
-    for idx, (_, row) in enumerate(rows[-5:], start=1):
-        label = f"D-{5 - idx}" if idx < 5 else 'D-0(오늘)'
-        close = float(row['Close'])
-        open_p = float(row['Open'])
-        vol = float(row['Volume'])
-        pct = (close - open_p) / open_p * 100 if open_p > 0 else 0
-        v_ratio = vol / vma10
-
-        if pct > 0.3:
-            candle = '양봉'
-        elif pct < -0.3:
-            candle = '음봉'
-        else:
-            candle = '도지'
-
-        is_maejip = v_ratio > 1.0 and close > open_p
-        maejip_mark = ' | 매집✅' if is_maejip else ''
-
-        lines.append(
-            f"{label:<9} {candle} {pct:+.1f}% | 거래량{v_ratio:.1f}배{maejip_mark}"
-        )
-
-    return '\n'.join(lines)
-
-
-# =============================================================
-# 전략 A / B1 / B2
-# =============================================================
 def _check_breakout_bet(code: str, name: str) -> dict | None:
     """
     전략 A — 전고점 돌파형 종가배팅
@@ -958,6 +754,7 @@ def _check_breakout_bet(code: str, name: str) -> dict | None:
             index_label=INDEX_MAP.get(code, ''),
             is_top_mcap=(code in TOP_MCAP_SET),
         )
+        kki_rec = _analyze_kki_pattern_for_closing(df, row, info, band_rec)
 
         return {
             **info,
@@ -967,10 +764,16 @@ def _check_breakout_bet(code: str, name: str) -> dict | None:
             'mode_label': '돌파형',
             'index_label': INDEX_MAP.get(code, ''),
             'recommended_band': band_rec['recommended_band'],
+            'support_band': band_rec['support_band'],
             'volatility_type': band_rec['volatility_type'],
             'universe_tag': band_rec['universe_tag'],
             'band_comment': band_rec['comment'],
             'band_recommend_reason': band_rec['reason'],
+            'kki_score': kki_rec['kki_score'],
+            'absorb_score': kki_rec['absorb_score'],
+            'kki_pattern': kki_rec['kki_pattern'],
+            'kki_habit': kki_rec['kki_habit'],
+            'kki_comment': kki_rec['kki_comment'],
             'is_top_mcap': int(code in TOP_MCAP_SET),
             'near20': round(info['_near20'], 1),
             'disp': round(info['_disp'], 1),
@@ -1080,6 +883,7 @@ def _check_env_strict_bet(code: str, name: str) -> dict | None:
             index_label=INDEX_MAP.get(code, ''),
             is_top_mcap=(code in TOP_MCAP_SET),
         )
+        kki_rec = _analyze_kki_pattern_for_closing(df, row, info, band_rec)
 
         return {
             **info,
@@ -1089,10 +893,16 @@ def _check_env_strict_bet(code: str, name: str) -> dict | None:
             'mode_label': 'ENV엄격형',
             'index_label': INDEX_MAP.get(code, ''),
             'recommended_band': band_rec['recommended_band'],
+            'support_band': band_rec['support_band'],
             'volatility_type': band_rec['volatility_type'],
             'universe_tag': band_rec['universe_tag'],
             'band_comment': band_rec['comment'],
             'band_recommend_reason': band_rec['reason'],
+            'kki_score': kki_rec['kki_score'],
+            'absorb_score': kki_rec['absorb_score'],
+            'kki_pattern': kki_rec['kki_pattern'],
+            'kki_habit': kki_rec['kki_habit'],
+            'kki_comment': kki_rec['kki_comment'],
             'is_top_mcap': int(code in TOP_MCAP_SET),
             'band_type': 'ENV',
             'band_reason': 'HTS엄격형(Env20&Env40 동시만족)',
@@ -1211,6 +1021,7 @@ def _check_bb_expand_bet(code: str, name: str) -> dict | None:
             index_label=INDEX_MAP.get(code, ''),
             is_top_mcap=(code in TOP_MCAP_SET),
         )
+        kki_rec = _analyze_kki_pattern_for_closing(df, row, info, band_rec)
 
         return {
             **info,
@@ -1220,10 +1031,16 @@ def _check_bb_expand_bet(code: str, name: str) -> dict | None:
             'mode_label': 'BB확장형',
             'index_label': INDEX_MAP.get(code, ''),
             'recommended_band': band_rec['recommended_band'],
+            'support_band': band_rec['support_band'],
             'volatility_type': band_rec['volatility_type'],
             'universe_tag': band_rec['universe_tag'],
             'band_comment': band_rec['comment'],
             'band_recommend_reason': band_rec['reason'],
+            'kki_score': kki_rec['kki_score'],
+            'absorb_score': kki_rec['absorb_score'],
+            'kki_pattern': kki_rec['kki_pattern'],
+            'kki_habit': kki_rec['kki_habit'],
+            'kki_comment': kki_rec['kki_comment'],
             'is_top_mcap': int(code in TOP_MCAP_SET),
             'band_type': 'BB',
             'band_reason': band_meta.get('reason', 'BB40하단재안착'),
@@ -1832,8 +1649,9 @@ def _format_hit(hit: dict, rank: int, mins_left: int) -> str:
     return (
         f"{'─' * 28}\n"
         f"{mode_label} {hit['grade']} [{hit['name']}({hit['code']})] {hit['close']:,}원{idx_str}\n"
-        f"유형:{hit.get('universe_tag', '')} | 추천:{hit.get('recommended_band', '')} | {hit.get('volatility_type', '')}\n"
+        f"유형:{hit.get('universe_tag', '')} | 주밴드:{hit.get('recommended_band', '')} | 보조:{hit.get('support_band', '')} | {hit.get('volatility_type', '')}\n"
         f"코멘트:{hit.get('band_comment', '')}\n"
+        f"끼:{hit.get('kki_pattern', '')} | 끼점수:{hit.get('kki_score', 0)} | 흡수:{hit.get('absorb_score', 0)}\n"
         f"✅ {passed_str}\n"
         f"거래량:{hit['vol_ratio']}배 | 윗꼬리(몸통):{hit['wick_pct']}% | {extra}\n"
         f"거래대금:{hit['amount_b']}억 | ATR:{hit['atr']:,}원\n"
@@ -2149,9 +1967,9 @@ def _run_role_json(role_name: str, role_system: str, base_context: str, candidat
         single_context = (
             f"[종가배팅 단일 후보 검토]\n"
             f"후보 {idx}: {h['name']}({h['code']}) | 전략:{h.get('mode_label','')} | 등급:{h.get('grade','')} | 점수:{h.get('score',0)} | "
-            f"가격:{h['close']:,}원 | 거래대금:{h.get('amount_b',0)}억 | 거래량:{h.get('vol_ratio',0)}배 | 추천밴드:{h.get('recommended_band','')} | 유형:{h.get('volatility_type','')} | 유니버스:{h.get('universe_tag','')}\n"
+            f"가격:{h['close']:,}원 | 거래대금:{h.get('amount_b',0)}억 | 거래량:{h.get('vol_ratio',0)}배 | 주밴드:{h.get('recommended_band','')} | 보조:{h.get('support_band','')} | 유형:{h.get('volatility_type','')} | 유니버스:{h.get('universe_tag','')}\n"
             f"종가강도/캔들: 윗꼬리(몸통){h.get('wick_pct',0)}% | 목표:{h.get('target1',0):,} | 손절:{h.get('stoploss',0):,} | RR:{h.get('rr',0)}\n"
-            f"밴드/전략세부: {h.get('band_pct_text','')} | {h.get('band_comment','')}\n"
+            f"밴드/전략세부: {h.get('band_pct_text','')} | {h.get('band_comment','')}\n끼/습성: {h.get('kki_pattern','')} | 끼점수:{h.get('kki_score',0)} | 흡수점수:{h.get('absorb_score',0)} | {h.get('kki_comment','')}\n"
             f"수급추정: {h.get('flow_comment','수급추정정보없음')}"
         )
         single_user = (
@@ -2247,10 +2065,10 @@ def _build_debate_candidate_lines(candidates: list) -> str:
             )
 
         lines.append(
-            f"후보 {idx}: {h['name']}({h['code']}) | 전략:{h.get('mode_label','')} | 등급:{h.get('grade','')} | 점수:{h.get('score',0)} | 가격:{h['close']:,}원 | 거래대금:{h.get('amount_b',0)}억 | 추천밴드:{h.get('recommended_band','')} | 유형:{h.get('volatility_type','')} | 유니버스:{h.get('universe_tag','')}\n"
+            f"후보 {idx}: {h['name']}({h['code']}) | 전략:{h.get('mode_label','')} | 등급:{h.get('grade','')} | 점수:{h.get('score',0)} | 가격:{h['close']:,}원 | 거래대금:{h.get('amount_b',0)}억 | 주밴드:{h.get('recommended_band','')} | 보조:{h.get('support_band','')} | 유형:{h.get('volatility_type','')} | 유니버스:{h.get('universe_tag','')}\n"
             f"기술세부: {setup_text}\n"
             f"공통세부: 목표:{h.get('target1',0):,} | 손절:{h.get('stoploss',0):,} | RR:{h.get('rr',0)} | ATR:{h.get('atr',0):,}\n"
-            f"밴드/전략코멘트: {h.get('band_comment','')}\n"
+            f"밴드/전략코멘트: {h.get('band_comment','')}\n끼/습성: {h.get('kki_pattern','')} | 끼점수:{h.get('kki_score',0)} | 흡수점수:{h.get('absorb_score',0)} | {h.get('kki_comment','')}\n"
             f"수급추정: {flow_text}\n"
             f"통과조건: {' '.join(h.get('passed', [])) if h.get('passed') else '없음'}"
         )
