@@ -44,6 +44,10 @@ class KkiProfile:
     absorb_comment: str
     action_axis: str
     show_block: bool
+    habit_comment: str = ""
+    band_comment: str = ""
+    position_comment: str = ""
+    integrated_comment: str = ""
 
 
 @dataclass
@@ -61,6 +65,10 @@ class WaveProfile:
     small_angle_label: str
     medium_angle_label: str
     wave_comment: str
+    small_zone_comment: str = ""
+    medium_zone_comment: str = ""
+    angle_comment: str = ""
+    combo_comment: str = ""
 
 
 @dataclass
@@ -330,6 +338,10 @@ def analyze_kki_profile(price_df: pd.DataFrame, meta: Optional[Dict] = None, sho
             absorb_comment="흡수 분석 불가",
             action_axis="분석보류",
             show_block=False,
+            habit_comment="",
+            band_comment="",
+            position_comment="",
+            integrated_comment="",
         )
 
     meta = dict(meta or {})
@@ -379,8 +391,109 @@ def analyze_kki_profile(price_df: pd.DataFrame, meta: Optional[Dict] = None, sho
         absorb_comment=absorb_comment,
         action_axis=action_axis,
         show_block=kki_score >= show_threshold,
+        habit_comment=_habit_comment(pattern_name, recurrence_count, rebound_count, range_relaunch_count),
+        band_comment=_band_comment(best_band, support_band),
+        position_comment=pos_comment,
+        integrated_comment="",  # wave 결합 후 analyze_kki_and_wave에서 보강
     )
 
+
+
+def _zone_comment(zone: str, wave_name: str) -> str:
+    zone = str(zone or "").strip()
+    if zone.endswith("하단"):
+        return f"{wave_name}이 박스 하단이라 가격 부담이 상대적으로 덜하고, 지지 확인 시 선취 접근이 가능한 자리입니다."
+    if zone.endswith("중단"):
+        return f"{wave_name}이 박스 중단이라 상하 어느 방향으로도 열려 있는 중립 구간입니다."
+    if zone.endswith("상단"):
+        return f"{wave_name}이 박스 상단이라 추격 부담이 있으며, 강하면 더 가지만 일반적으로는 눌림 재확인이 유리합니다."
+    return f"{wave_name} 위치 해석에 필요한 데이터가 충분하지 않습니다."
+
+
+def _wave_combo_comment(small_zone: str, medium_zone: str) -> str:
+    s = str(small_zone or "").replace("소파동 ", "").strip()
+    m = str(medium_zone or "").replace("중파동 ", "").strip()
+    combo = (s, m)
+    table = {
+        ("하단", "하단"): "소파동과 중파동이 모두 하단권이라 전체적으로 바닥권 탐색 성격이 강합니다. 반등 초입을 노리는 선취형 관점이 유리합니다.",
+        ("하단", "중단"): "소파동은 눌림 저점권이고 중파동은 중립이라, 단기 선취와 눌림 대응이 가장 무난한 구조입니다.",
+        ("하단", "상단"): "단기 눌림은 깊지만 중파동은 높은 자리라 기술적 반등은 가능하나 상위 파동 부담을 함께 고려해야 합니다.",
+        ("중단", "하단"): "소파동은 중립이나 중파동은 아직 낮아 상위 과열 부담은 크지 않습니다. 방향만 잡히면 위 공간이 남아 있습니다.",
+        ("중단", "중단"): "소파동과 중파동 모두 중립이라 명확한 우위 구간은 아닙니다. 돌파 또는 눌림 확인이 먼저입니다.",
+        ("중단", "상단"): "중파동이 높은 자리라 상단 부담이 존재합니다. 추격보다 눌림 재확인이 유리합니다.",
+        ("상단", "하단"): "단기적으로는 빠르게 올라온 자리지만 중파동은 아직 낮아, 강한 종목이면 한 단계 더 뻗을 여지도 남아 있습니다.",
+        ("상단", "중단"): "소파동은 상단 부담이 있으나 중파동은 과열이 아니라 강한 종목이라면 눌림 후 재상승 연결이 가능합니다.",
+        ("상단", "상단"): "소파동과 중파동이 모두 상단권이라 추격 부담이 큽니다. 신규 접근보다 눌림 재확인 대응이 더 적절합니다.",
+    }
+    return table.get(combo, "파동 조합 해석을 위해 추가 확인이 필요합니다.")
+
+
+def _angle_comment(small_label: str, medium_label: str) -> str:
+    s = str(small_label or "").strip()
+    m = str(medium_label or "").strip()
+
+    if "상승" in s and "상승" in m:
+        return "소파동과 중파동이 함께 우상향이라 추세 진행력은 양호합니다. 다만 위치가 상단이면 추격보다 눌림 대응이 좋습니다."
+    if "상승" in s and ("횡보" in m or "전환" in m):
+        return "단기 각도는 먼저 살아나고 있으나 중파동은 아직 방향 확정 전입니다. 첫 반응 뒤 유지력이 중요합니다."
+    if ("횡보" in s or "전환" in s) and "상승" in m:
+        return "중파동은 나쁘지 않은데 소파동이 방향을 잡는 중입니다. 단기 눌림 후 재상승 연결 여부를 보면 됩니다."
+    if "하락" in s and "상승" in m:
+        return "상위 흐름은 아직 살아 있지만 단기 조정이 남아 있습니다. 성급한 추격보다 눌림 확인이 유리합니다."
+    if "상승" in s and "하락" in m:
+        return "단기 반등은 나오고 있으나 중파동이 아직 꺾여 있어 되밀림 가능성을 함께 봐야 합니다."
+    if "하락" in s and "하락" in m:
+        return "소파동과 중파동이 모두 아래를 향해 있어 아직은 방어보다 확인이 우선입니다."
+    return "각도는 방향 전환 여부를 확인하는 구간으로 보면 됩니다."
+
+
+def _band_comment(best_band: str, support_band: str) -> str:
+    desc = {
+        "BB20": "단기 반응과 재점화 해석에 유리한 밴드입니다.",
+        "BB40": "조금 더 넓은 호흡의 구조와 2차 파동 해석에 유리한 밴드입니다.",
+        "Env20": "짧은 복원과 빠른 반등 체크에 잘 맞는 밴드입니다.",
+        "Env40": "중간 호흡의 눌림과 지지 확인에 유리한 밴드입니다.",
+    }
+    main = desc.get(best_band, "주 반응 밴드입니다.")
+    if support_band and support_band != best_band:
+        sub = desc.get(support_band, "보조 확인용 밴드입니다.")
+        return f"주 반응은 {best_band}로 보는 편이 맞고, 보조로는 {support_band}도 함께 보면 좋습니다. {main} 보조로는 {sub}"
+    return f"주 반응은 {best_band}입니다. {main}"
+
+
+def _habit_comment(pattern_name: str, recurrence_count: int, rebound_count: int, range_relaunch_count: int) -> str:
+    p = str(pattern_name or "").strip()
+    if "장대양봉→눌림→재발사형" in p:
+        return f"과거에 장대양봉 뒤 눌림을 거쳐 다시 시세를 붙이는 흐름이 자주 나왔습니다. 재발사 이력 {rebound_count}회를 감안하면 한 번에 끝나는 타입보다는 2차 시세 가능성을 함께 보는 종목입니다."
+    if "상단터치→눌림→2차상승형" in p:
+        return f"상단 첫 반응보다 한 번 밀린 뒤 재차 상단을 공략하는 성향이 보입니다. 비슷한 재현 흔적은 {recurrence_count}회 수준입니다."
+    if "하단터치반등형" in p:
+        return "하단을 건드린 뒤 복원력이 나오는 습성이 비교적 뚜렷합니다. 밀리면 받치는 유형에 가깝습니다."
+    if "수축후확장형" in p or "횡보" in p:
+        return f"바로 치고 가기보다 시간을 먹고 박스를 만든 뒤 다시 확장되는 편입니다. 횡보 후 재발사 이력은 {range_relaunch_count}회입니다."
+    return f"과거 재현 패턴은 {p or '혼합형'}에 가깝습니다. 비슷한 재현 카운트는 {recurrence_count}회 수준입니다."
+
+
+def _integrated_comment(state_comment: str, kki_score: int, absorb_score: int, small_zone: str, medium_zone: str, best_band: str) -> str:
+    parts = [str(state_comment or "").strip()]
+
+    if kki_score >= 75 and absorb_score >= 65:
+        parts.append("끼와 흡수가 함께 강한 편이라 눌림 뒤 재시세 연결 가능성을 적극적으로 열어둘 수 있습니다.")
+    elif kki_score >= 60 and absorb_score >= 50:
+        parts.append("끼는 살아 있고 흡수도 무너지지 않아, 눌림 확인 후 재상승 연결 가능성을 볼 수 있습니다.")
+    elif kki_score >= 60 and absorb_score < 50:
+        parts.append("끼는 살아 있지만 흡수는 강하지 않아, 한 번에 치고 가기보다 흔들림 후 재도전 흐름으로 보는 편이 좋습니다.")
+    elif kki_score < 45 and absorb_score >= 60:
+        parts.append("시세 성향 자체는 강하지 않아도 매물 소화는 양호해 급등형보다 안정형 반등 패턴에 가깝습니다.")
+    else:
+        parts.append("끼와 흡수가 모두 압도적이지는 않아 추격보다 자리 선별이 더 중요합니다.")
+
+    parts.append(_wave_combo_comment(small_zone, medium_zone))
+    if best_band in ("BB20", "BB40"):
+        parts.append("볼린저 밴드 해석이 잘 맞는 구조라 밴드 수축·확장과 중심선 회복을 함께 보면 좋습니다.")
+    elif best_band in ("Env20", "Env40"):
+        parts.append("엔벨로프 해석이 잘 맞는 구조라 하단 복원과 하단 근접 반등 여부가 중요합니다.")
+    return " ".join(p for p in parts if p)
 
 def _zone_from_ratio(ratio: float) -> str:
     if ratio <= 0.33:
@@ -417,6 +530,10 @@ def analyze_wave_profile(price_df: pd.DataFrame) -> WaveProfile:
             small_angle_label="중립",
             medium_angle_label="중립",
             wave_comment="파동 분석에 필요한 최소 데이터가 부족합니다.",
+            small_zone_comment="",
+            medium_zone_comment="",
+            angle_comment="",
+            combo_comment="",
         )
 
     close = float(df.iloc[-1]["Close"])
@@ -456,6 +573,10 @@ def analyze_wave_profile(price_df: pd.DataFrame) -> WaveProfile:
         small_angle_label=small_angle_label,
         medium_angle_label=medium_angle_label,
         wave_comment=comment,
+        small_zone_comment=_zone_comment(small_zone, "소파동"),
+        medium_zone_comment=_zone_comment(medium_zone, "중파동"),
+        angle_comment=_angle_comment(small_angle_label, medium_angle_label),
+        combo_comment=_wave_combo_comment(small_zone, medium_zone),
     )
 
 
@@ -467,10 +588,21 @@ def analyze_kki_and_wave(price_df: pd.DataFrame, meta: Optional[Dict] = None, sh
     final_action = decide_action(norm, kki.kki_score, wave.small_zone)
     easy = build_easy_context(norm)
 
+    kki.integrated_comment = _integrated_comment(
+        kki.current_state_comment,
+        kki.kki_score,
+        kki.absorb_score,
+        wave.small_zone,
+        wave.medium_zone,
+        kki.best_band,
+    )
+
     parts = [easy["phase"], easy["location"], easy["quality"]]
     if kki.current_position and kki.current_position != "중립":
         parts.append(f"끼 관점으로는 현재 {kki.current_position}에 가깝습니다")
     parts.append(wave.wave_comment)
+    if kki.integrated_comment:
+        parts.append(kki.integrated_comment)
     easy_commentary = ". ".join(part.strip().rstrip(".") for part in parts if part).strip() + "."
 
     return CombinedAnalysis(
