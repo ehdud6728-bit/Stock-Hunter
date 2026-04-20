@@ -1,0 +1,24 @@
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Debug grep
+        run: |
+          echo "== send_telegram_chunks =="
+          grep -n "def send_telegram_chunks" scanner/legacy_main_patched.py || true
+
+          echo "== join_stock_cards usage =="
+          grep -n "_join_stock_cards(cards)" scanner/legacy_main_patched.py scanner/render_blocks.py || true
+
+          echo "== old join pattern =="
+          grep -n "return ''.join(lines)" scanner/legacy_main_patched.py scanner/render_blocks.py || true
+          grep -n 'return "".join(lines)' scanner/legacy_main_patched.py scanner/render_blocks.py || true
+
+          echo "== indicators import =="
+          grep -n "from scanner.indicators import (" scanner/legacy_main_patched.py || true
+
+      - name: Run bot
+        run: python main7_bugfix_2.py
