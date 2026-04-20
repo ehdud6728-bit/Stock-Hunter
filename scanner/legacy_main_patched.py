@@ -16545,12 +16545,12 @@ def compute_dante_mode_fields(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def build_dante_state_block(title: str, df: pd.DataFrame) -> str:
-    df = _filter_fake_rows_for_actionable_block(df, title)
     if df is None or df.empty:
         return f"🧭 [{title}]\n- 해당 종목 없음\n"
 
-    header = _text_block_header("🧭", title).rstrip()
+    header = f"🧭 [{title}]"
     cards = []
+
     for rank, (_, row) in enumerate(df.head(5).iterrows(), start=1):
         item2 = enrich_row_with_human_commentary(row)
         name = str(item2.get('종목명', item2.get('name', '')) or '').strip()
@@ -16561,13 +16561,14 @@ def build_dante_state_block(title: str, df: pd.DataFrame) -> str:
         reason = str(item2.get('선취이유', item2.get('단테이유', '')) or '').strip()
         cloud_tag = str(item2.get('저항구름태그', '') or '').strip()
         refine_tag = str(item2.get('수박정제태그', '') or '').strip()
+        refine_check = build_refine_validation_text(item2)
         ma5_tag = str(item2.get('5일재안착태그', '') or '').strip()
         rn_tag = str(item2.get('라운드넘버태그', '') or '').strip()
         rn_comment = str(item2.get('라운드넘버코멘트', '') or '').strip()
         preempt_track = str(item2.get('선취트랙', '') or '').strip()
         selected, lacking, action = _build_candidate_explain_lines(item2, track='preempt')
 
-        card = (
+        block = (
             f"{rank}) {name}({code})\n"
             f"- 상태: {state} | 선취점수:{d_score}\n"
             + (f"- 선취트랙: {preempt_track}\n" if preempt_track else "")
@@ -16575,13 +16576,14 @@ def build_dante_state_block(title: str, df: pd.DataFrame) -> str:
             + (f"- 재안착: {ma5_tag}\n" if ma5_tag else "")
             + (f"- 라운드가격: {rn_tag} | {rn_comment}\n" if rn_tag else "")
             + (f"- 정제: {refine_tag}\n" if refine_tag else "")
+            + (f"- 정제검증: {refine_check}\n" if refine_check else "")
             + (f"- 해석: {comment}\n" if comment else "")
             + (f"- 이유: {reason}\n" if reason else "")
             + (f"- 선정 이유: {selected}\n" if selected else "")
             + (f"- 부족한 점: {lacking}\n" if lacking else "")
             + (f"- 추천 대응: {action}\n" if action else "")
         )
-        cards.append(_wrap_stock_card(append_interpretation_to_block(card, item2), rank=rank))
+        cards.append(append_interpretation_to_block(block, item2).rstrip())
 
     return header + "\n\n" + _join_stock_cards(cards)
 
@@ -16629,48 +16631,43 @@ def build_watermelon_summary_block(df: pd.DataFrame) -> str:
     return "\n".join(lines) + "\n"
 
 def build_watermelon_state_block(title: str, df: pd.DataFrame) -> str:
-    df = _filter_fake_rows_for_actionable_block(df, title)
     if df is None or df.empty:
         return f"🍉 [{title}]\n- 해당 종목 없음\n"
 
-    header = _text_block_header("🍉", title).rstrip()
+    header = f"🍉 [{title}]"
     cards = []
-    for rank, (_, row) in enumerate(df.head(5).iterrows(), 1):
-        name = row.get('종목명', '')
-        code = row.get('code', '')
-        state = row.get('수박최종상태', row.get('수박상태명', row.get('wm_state_name', '')))
-        grade = row.get('수박상태등급', row.get('wm_state_grade', ''))
-        base_score = row.get('수박기반점수', row.get('wm_base_score', 0))
-        pocket_score = row.get('수박포켓점수', row.get('wm_pocket_score', 0))
-        attack_score = row.get('수박공격점수', row.get('wm_attack_score', 0))
-        blue_score = row.get('수박파란점선점수', row.get('wm_blue_score', 0))
-        time_comment = str(row.get('time_sym_comment', '') or '').strip()
-        ma5_tag = str(row.get('5일재안착태그', '')).strip()
-        ma5_comment = str(row.get('5일재안착코멘트', '')).strip()
-        cloud_tag = str(row.get('저항구름태그', '')).strip()
-        cloud_comment = str(row.get('저항구름코멘트', '')).strip()
-        refine_tag = str(row.get('수박정제태그', '')).strip()
-        refine_comment = str(row.get('수박정제코멘트', '')).strip()
-        refine_check = build_refine_validation_text(row)
 
-        human = enrich_row_with_human_commentary(row)
-        easy = str(human.get('easy_interpretation', '')).strip()
-        need_check = str(human.get('need_check', '')).strip()
-        final_label = str(human.get('final_label', '')).strip()
+    for rank, (_, row) in enumerate(df.head(5).iterrows(), 1):
+        item = enrich_row_with_human_commentary(row)
+        name = str(item.get('종목명', item.get('name', '')) or '').strip()
+        code = str(item.get('code', item.get('종목코드', '')) or '').strip()
+        state = str(item.get('수박최종상태', item.get('수박상태명', '')) or '').strip()
+        grade = str(item.get('수박상태등급', item.get('wm_state_grade', '')) or '').strip()
+        cloud_tag = str(item.get('저항구름태그', '') or '').strip()
+        refine_tag = str(item.get('수박정제태그', '') or '').strip()
+        refine_check = build_refine_validation_text(item)
+        easy = str(item.get('easy_interpretation', '') or '').strip()
+        need_check = str(item.get('need_check', '') or '').strip()
+        action = str(item.get('action_summary', '') or '').strip()
+        caution = str(item.get('caution', '') or '').strip()
+        final_label = str(item.get('final_label', '') or '').strip()
+        score_summary = str(item.get('score_summary', '') or '').strip()
 
         card = (
             f"{rank}) {name}({code})\n"
-            f"- 상태: {state} | 등급:{grade} | 기반:{base_score} 포켓:{pocket_score} 공격:{attack_score} 파란:{blue_score}\n"
-            + (f"- 시간창: {time_comment}\n" if time_comment and ('근접' in time_comment or '예비' in time_comment) else '')
-            + (f"- 재안착: {ma5_tag} | {ma5_comment}\n" if ma5_tag else '')
-            + (f"- 저항구름: {cloud_tag} | {cloud_comment}\n" if cloud_tag else '')
-            + (f"- 정제: {refine_tag} | {refine_comment}\n" if refine_tag else '')
-            + (f"- 정제검증: {refine_check}\n" if refine_check else '')
-            + (f"- 해설: {easy}\n" if easy else '')
-            + (f"- 부족한 점: {need_check}\n" if need_check else '')
-            + (f"- 판정: {final_label}\n" if final_label else '')
+            f"- 상태: {state} | 등급:{grade}\n"
+            + (f"- 저항구름: {cloud_tag}\n" if cloud_tag else "")
+            + (f"- 정제: {refine_tag}\n" if refine_tag else "")
+            + (f"- 정제검증: {refine_check}\n" if refine_check else "")
+            + _render_kki_lines(item)
+            + (f"- 쉬운 해설: {easy}\n" if easy else "")
+            + (f"- 확인 필요: {need_check}\n" if need_check else "")
+            + (f"- 대응 요약: {action}\n" if action else "")
+            + (f"- 최종 판정: {final_label}\n" if final_label else "")
+            + (f"- 주의 포인트: {caution}\n" if caution else "")
+            + (f"- 점수 해석: {score_summary}\n" if score_summary else "")
         )
-        cards.append(_wrap_stock_card(card, rank=rank))
+        cards.append(card.rstrip())
 
     return header + "\n\n" + _join_stock_cards(cards)
 
