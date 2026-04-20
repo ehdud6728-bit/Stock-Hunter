@@ -23,6 +23,11 @@ from typing import Optional
 # Ver 27.3 패치: FIX-1(TOP_N 700) FIX-2(거래대금이원화) FIX-3(소형주필터완화)
 #               FIX-4(S3상단1.15) FIX-5(급등초동COMBO) FIX-6(소형주추가스캔)
 # ------------------------------------------------------------------
+from scanner.render_blocks import (
+    build_watermelon_guide_block,
+    build_watermelon_summary_block,
+    build_watermelon_state_block,
+)
 import json
 import FinanceDataReader as fdr
 import pandas as pd
