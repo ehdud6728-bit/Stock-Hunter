@@ -7321,9 +7321,72 @@ def send_telegram_photo(message, image_paths=[]):
             except Exception:
                 pass
 
+def send_telegram_chunks(message: str, title: str = '', max_len: int = 3800):
+    """
+    긴 메시지를 카드 단위로 나눠서 텔레그램 전송.
+    - 구분선(━━━━━━━━)이 있으면 카드 단위 우선 분할
+    - 없으면 문단(\n\n) 기준 분할
+    """
+    raw = str(message or '').strip()
+    if not raw:
+        return
 
+    divider = '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
 
-    def send_telegram_document(file_path: str, caption: str = ''):
+    def _send_chunk_list(chunks: list[str]):
+        total = len(chunks)
+        for idx, chunk in enumerate(chunks, 1):
+            chunk = chunk.strip()
+            if not chunk:
+                continue
+            if total > 1:
+                chunk = f'({idx}/{total})\n' + chunk
+            send_telegram_photo(chunk, [])
+
+    if divider in raw:
+        parts = [p.strip() for p in raw.split(divider) if p.strip()]
+        header = title.strip() if title else ''
+        chunks = []
+        current = (header + '\n\n') if header else ''
+
+        for part in parts:
+            card = divider + '\n' + part.strip()
+            candidate = current + (('\n\n' if current.strip() else '') + card)
+            if len(candidate) > max_len and current.strip():
+                chunks.append(current.strip())
+                current = (header + '\n\n' if header else '') + card
+            else:
+                current = candidate
+
+        if current.strip():
+            chunks.append(current.strip())
+
+        _send_chunk_list(chunks)
+        return
+
+    paragraphs = [p.strip() for p in raw.split('\n\n') if p.strip()]
+    if not paragraphs:
+        _send_chunk_list([raw])
+        return
+
+    header = title.strip() if title else ''
+    chunks = []
+    current = (header + '\n\n') if header else ''
+
+    for para in paragraphs:
+        candidate = current + para + '\n\n'
+        if len(candidate) > max_len and current.strip():
+            chunks.append(current.strip())
+            current = para + '\n\n'
+        else:
+            current = candidate
+
+    if current.strip():
+        chunks.append(current.strip())
+
+    _send_chunk_list(chunks)
+
+def send_telegram_document(file_path: str, caption: str = ''):
         target_chat_ids, mode_label = get_target_chat_ids()
 
         if not TELEGRAM_TOKEN:
