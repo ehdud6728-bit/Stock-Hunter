@@ -13267,10 +13267,6 @@ def build_pre_dolbanji_block(title: str, df: pd.DataFrame, exact_mode: bool = Fa
 
 # === split override block (generated) ===
 from scanner.indicators import (
-    _env_flag,
-    _env_str,
-    check_bb40_second_wave,
-    check_obv_acc_breakout,
     classify_bb_state,
     classify_obv_trend,
     classify_supply_state,
