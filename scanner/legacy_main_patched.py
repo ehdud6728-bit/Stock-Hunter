@@ -7261,6 +7261,9 @@ def prepare_historical_weather():
 # ---------------------------------------------------------
 # 📸 [5] 시각화 및 텔레그램
 # ---------------------------------------------------------
+# ---------------------------------------------------------
+# 📸 [5] 시각화 및 텔레그램
+# ---------------------------------------------------------
 def create_index_chart(ticker, name):
     try:
         df = fdr.DataReader(ticker, start=(datetime.now() - timedelta(days=100)))
@@ -7270,6 +7273,122 @@ def create_index_chart(ticker, name):
         mpf.plot(df, type='candle', style=s, title=f"\n{name} Index", savefig=fname, figsize=(8, 4))
         return fname
     except: return None
+
+def send_telegram_photo(message, image_paths=[]):
+    target_chat_ids, mode_label = get_target_chat_ids()
+
+    if not TELEGRAM_TOKEN:
+        log_error('⚠️ TELEGRAM_TOKEN 없음 — 텔레그램 전송 생략')
+        return
+
+    if mode_label == 'test_missing':
+        log_error('⚠️ TEST_MODE=True 이지만 TELEGRAM_TEST_CHAT_ID가 없어 테스트방 전송을 생략합니다.')
+        return
+
+    if not target_chat_ids:
+        log_error('⚠️ 전송 대상 chat_id 없음 — TELEGRAM_CHAT_ID / TELEGRAM_TEST_CHAT_ID를 확인하세요.')
+        return
+
+    url_p = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
+    url_t = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+
+    text_to_send = message or ''
+    if TEST_MODE:
+        text_to_send = '[TEST]\n' + text_to_send if text_to_send else '[TEST]'
+
+    for chat_id in target_chat_ids:
+        try:
+            if text_to_send:
+                requests.post(
+                    url_t,
+                    data={'chat_id': chat_id, 'text': text_to_send[:4000]},
+                    timeout=15,
+                )
+
+            for img in image_paths:
+                if img and os.path.exists(img):
+                    with open(img, 'rb') as f:
+                        requests.post(
+                            url_p,
+                            data={'chat_id': chat_id},
+                            files={'photo': f},
+                            timeout=30,
+                        )
+        except Exception as e:
+            log_error(f'⚠️ 텔레그램 전송 실패 ({chat_id}): {e}')
+
+    for img in image_paths:
+        if img and os.path.exists(img):
+            try:
+                os.remove(img)
+            except Exception:
+                pass
+
+
+def send_telegram_chunks(message: str, title: str = '', max_len: int = 3800):
+    """
+    긴 메시지를 카드 단위로 나눠서 텔레그램 전송.
+    - 구분선(━━━━━━━━)이 있으면 카드 단위 우선 분할
+    - 없으면 문단(\n\n) 기준 분할
+    """
+    raw = str(message or '').strip()
+    if not raw:
+        return
+
+    divider = '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
+
+    def _send_chunk_list(chunks: list[str]):
+        total = len(chunks)
+        for idx, chunk in enumerate(chunks, 1):
+            chunk = chunk.strip()
+            if not chunk:
+                continue
+            if total > 1:
+                chunk = f'({idx}/{total})\n' + chunk
+            send_telegram_photo(chunk, [])
+
+    if divider in raw:
+        parts = [p.strip() for p in raw.split(divider) if p.strip()]
+        header = title.strip() if title else ''
+        chunks = []
+        current = (header + '\n\n') if header else ''
+
+        for part in parts:
+            card = divider + '\n' + part.strip()
+            candidate = current + (('\n\n' if current.strip() else '') + card)
+            if len(candidate) > max_len and current.strip():
+                chunks.append(current.strip())
+                current = (header + '\n\n' if header else '') + card
+            else:
+                current = candidate
+
+        if current.strip():
+            chunks.append(current.strip())
+
+        _send_chunk_list(chunks)
+        return
+
+    paragraphs = [p.strip() for p in raw.split('\n\n') if p.strip()]
+    if not paragraphs:
+        _send_chunk_list([raw])
+        return
+
+    header = title.strip() if title else ''
+    chunks = []
+    current = (header + '\n\n') if header else ''
+
+    for para in paragraphs:
+        candidate = current + para + '\n\n'
+        if len(candidate) > max_len and current.strip():
+            chunks.append(current.strip())
+            current = para + '\n\n'
+        else:
+            current = candidate
+
+    if current.strip():
+        chunks.append(current.strip())
+
+    _send_chunk_list(chunks)
 
 def send_telegram_document(file_path: str, caption: str = ''):
         target_chat_ids, mode_label = get_target_chat_ids()
@@ -21294,134 +21413,7 @@ def prepare_historical_weather():
     _weather_cache[cache_key] = weather_df
     return weather_df
 
-# ---------------------------------------------------------
-# 📸 [5] 시각화 및 텔레그램
-# ---------------------------------------------------------
-def create_index_chart(ticker, name):
-    try:
-        df = fdr.DataReader(ticker, start=(datetime.now() - timedelta(days=100)))
-        mc = mpf.make_marketcolors(up='r', down='b', inherit=True)
-        s  = mpf.make_mpf_style(marketcolors=mc, gridstyle=':', y_on_right=False)
-        fname = f"{name}.png"
-        mpf.plot(df, type='candle', style=s, title=f"\n{name} Index", savefig=fname, figsize=(8, 4))
-        return fname
-    except: return None
 
-def send_telegram_photo(message, image_paths=[]):
-    target_chat_ids, mode_label = get_target_chat_ids()
-
-    if not TELEGRAM_TOKEN:
-        log_error('⚠️ TELEGRAM_TOKEN 없음 — 텔레그램 전송 생략')
-        return
-
-    if mode_label == 'test_missing':
-        log_error('⚠️ TEST_MODE=True 이지만 TELEGRAM_TEST_CHAT_ID가 없어 테스트방 전송을 생략합니다.')
-        return
-
-    if not target_chat_ids:
-        log_error('⚠️ 전송 대상 chat_id 없음 — TELEGRAM_CHAT_ID / TELEGRAM_TEST_CHAT_ID를 확인하세요.')
-        return
-
-    url_p = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
-    url_t = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-
-    text_to_send = message or ''
-    if TEST_MODE:
-        text_to_send = '[TEST]\n' + text_to_send if text_to_send else '[TEST]'
-
-    for chat_id in target_chat_ids:
-        try:
-            if text_to_send:
-                requests.post(
-                    url_t,
-                    data={'chat_id': chat_id, 'text': text_to_send[:4000]},
-                    timeout=15,
-                )
-
-            for img in image_paths:
-                if img and os.path.exists(img):
-                    with open(img, 'rb') as f:
-                        requests.post(
-                            url_p,
-                            data={'chat_id': chat_id},
-                            files={'photo': f},
-                            timeout=30,
-                        )
-        except Exception as e:
-            log_error(f'⚠️ 텔레그램 전송 실패 ({chat_id}): {e}')
-
-    for img in image_paths:
-        if img and os.path.exists(img):
-            try:
-                os.remove(img)
-            except Exception:
-                pass
-
-
-def send_telegram_chunks(message: str, title: str = '', max_len: int = 3800):
-    """
-    긴 메시지를 카드 단위로 나눠서 텔레그램 전송.
-    - 구분선(━━━━━━━━)이 있으면 카드 단위 우선 분할
-    - 없으면 문단(\n\n) 기준 분할
-    """
-    raw = str(message or '').strip()
-    if not raw:
-        return
-
-    divider = '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
-
-    def _send_chunk_list(chunks: list[str]):
-        total = len(chunks)
-        for idx, chunk in enumerate(chunks, 1):
-            chunk = chunk.strip()
-            if not chunk:
-                continue
-            if total > 1:
-                chunk = f'({idx}/{total})\n' + chunk
-            send_telegram_photo(chunk, [])
-
-    if divider in raw:
-        parts = [p.strip() for p in raw.split(divider) if p.strip()]
-        header = title.strip() if title else ''
-        chunks = []
-        current = (header + '\n\n') if header else ''
-
-        for part in parts:
-            card = divider + '\n' + part.strip()
-            candidate = current + (('\n\n' if current.strip() else '') + card)
-            if len(candidate) > max_len and current.strip():
-                chunks.append(current.strip())
-                current = (header + '\n\n' if header else '') + card
-            else:
-                current = candidate
-
-        if current.strip():
-            chunks.append(current.strip())
-
-        _send_chunk_list(chunks)
-        return
-
-    paragraphs = [p.strip() for p in raw.split('\n\n') if p.strip()]
-    if not paragraphs:
-        _send_chunk_list([raw])
-        return
-
-    header = title.strip() if title else ''
-    chunks = []
-    current = (header + '\n\n') if header else ''
-
-    for para in paragraphs:
-        candidate = current + para + '\n\n'
-        if len(candidate) > max_len and current.strip():
-            chunks.append(current.strip())
-            current = para + '\n\n'
-        else:
-            current = candidate
-
-    if current.strip():
-        chunks.append(current.strip())
-
-    _send_chunk_list(chunks)
 
 def send_tournament_results(tournament_report: str):
     """
