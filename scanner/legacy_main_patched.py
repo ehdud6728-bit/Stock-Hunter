@@ -2398,47 +2398,6 @@ def build_breakout_state_block(title: str, df: pd.DataFrame) -> str:
     return ''.join(lines).rstrip() + "\n"
 
 
-def build_dante_state_block(title: str, df: pd.DataFrame) -> str:
-    df = _filter_fake_rows_for_actionable_block(df, title)
-    if df is None or df.empty:
-        return f"🧭 [{title}]\n- 해당 종목 없음\n"
-
-    header = _text_block_header("🧭", title).rstrip()
-    cards = []
-    for rank, (_, row) in enumerate(df.head(5).iterrows(), start=1):
-        item2 = enrich_row_with_human_commentary(row)
-        name = str(item2.get('종목명', item2.get('name', '')) or '').strip()
-        code = str(item2.get('code', item2.get('종목코드', '')) or '').strip()
-        state = _resolve_track_display_state(item2, track='preempt')
-        d_score = int(float(item2.get('선취점수', item2.get('단테점수', 0)) or 0))
-        comment = str(item2.get('선취코멘트', item2.get('단테코멘트', '')) or '').strip()
-        reason = str(item2.get('선취이유', item2.get('단테이유', '')) or '').strip()
-        cloud_tag = str(item2.get('저항구름태그', '') or '').strip()
-        refine_tag = str(item2.get('수박정제태그', '') or '').strip()
-        ma5_tag = str(item2.get('5일재안착태그', '') or '').strip()
-        rn_tag = str(item2.get('라운드넘버태그', '') or '').strip()
-        rn_comment = str(item2.get('라운드넘버코멘트', '') or '').strip()
-        preempt_track = str(item2.get('선취트랙', '') or '').strip()
-        selected, lacking, action = _build_candidate_explain_lines(item2, track='preempt')
-
-        card = (
-            f"{rank}) {name}({code})\n"
-            f"- 상태: {state} | 선취점수:{d_score}\n"
-            + (f"- 선취트랙: {preempt_track}\n" if preempt_track else "")
-            + (f"- 저항구름: {cloud_tag}\n" if cloud_tag else "")
-            + (f"- 재안착: {ma5_tag}\n" if ma5_tag else "")
-            + (f"- 라운드가격: {rn_tag} | {rn_comment}\n" if rn_tag else "")
-            + (f"- 정제: {refine_tag}\n" if refine_tag else "")
-            + (f"- 해석: {comment}\n" if comment else "")
-            + (f"- 이유: {reason}\n" if reason else "")
-            + (f"- 선정 이유: {selected}\n" if selected else "")
-            + (f"- 부족한 점: {lacking}\n" if lacking else "")
-            + (f"- 추천 대응: {action}\n" if action else "")
-        )
-        cards.append(_wrap_stock_card(append_interpretation_to_block(card, item2), rank=rank))
-
-    return header + "\n\n" + _join_stock_cards(cards)
-
 def build_watermelon_guide_block() -> str:
     lines = [
         "🍉 [수박 상태 가이드]",
@@ -2483,52 +2442,6 @@ def build_watermelon_summary_block(df: pd.DataFrame) -> str:
         lines.append("- 해석: 재점화/실행 타점 후보가 실제로 발생 중")
     return "\n".join(lines) + "\n"
 
-
-def build_watermelon_state_block(title: str, df: pd.DataFrame) -> str:
-    df = _filter_fake_rows_for_actionable_block(df, title)
-    if df is None or df.empty:
-        return f"🍉 [{title}]\n- 해당 종목 없음\n"
-
-    header = _text_block_header("🍉", title).rstrip()
-    cards = []
-    for rank, (_, row) in enumerate(df.head(5).iterrows(), 1):
-        name = row.get('종목명', '')
-        code = row.get('code', '')
-        state = row.get('수박최종상태', row.get('수박상태명', row.get('wm_state_name', '')))
-        grade = row.get('수박상태등급', row.get('wm_state_grade', ''))
-        base_score = row.get('수박기반점수', row.get('wm_base_score', 0))
-        pocket_score = row.get('수박포켓점수', row.get('wm_pocket_score', 0))
-        attack_score = row.get('수박공격점수', row.get('wm_attack_score', 0))
-        blue_score = row.get('수박파란점선점수', row.get('wm_blue_score', 0))
-        time_comment = str(row.get('time_sym_comment', '') or '').strip()
-        ma5_tag = str(row.get('5일재안착태그', '')).strip()
-        ma5_comment = str(row.get('5일재안착코멘트', '')).strip()
-        cloud_tag = str(row.get('저항구름태그', '')).strip()
-        cloud_comment = str(row.get('저항구름코멘트', '')).strip()
-        refine_tag = str(row.get('수박정제태그', '')).strip()
-        refine_comment = str(row.get('수박정제코멘트', '')).strip()
-        refine_check = build_refine_validation_text(row)
-
-        human = enrich_row_with_human_commentary(row)
-        easy = str(human.get('easy_interpretation', '')).strip()
-        need_check = str(human.get('need_check', '')).strip()
-        final_label = str(human.get('final_label', '')).strip()
-
-        card = (
-            f"{rank}) {name}({code})\n"
-            f"- 상태: {state} | 등급:{grade} | 기반:{base_score} 포켓:{pocket_score} 공격:{attack_score} 파란:{blue_score}\n"
-            + (f"- 시간창: {time_comment}\n" if time_comment and ('근접' in time_comment or '예비' in time_comment) else '')
-            + (f"- 재안착: {ma5_tag} | {ma5_comment}\n" if ma5_tag else '')
-            + (f"- 저항구름: {cloud_tag} | {cloud_comment}\n" if cloud_tag else '')
-            + (f"- 정제: {refine_tag} | {refine_comment}\n" if refine_tag else '')
-            + (f"- 정제검증: {refine_check}\n" if refine_check else '')
-            + (f"- 해설: {easy}\n" if easy else '')
-            + (f"- 부족한 점: {need_check}\n" if need_check else '')
-            + (f"- 판정: {final_label}\n" if final_label else '')
-        )
-        cards.append(_wrap_stock_card(card, rank=rank))
-
-    return header + "\n\n" + _join_stock_cards(cards)
 
 def build_watermelon_debug_block(title: str, df: pd.DataFrame) -> str:
     if df is None or df.empty:
@@ -2775,47 +2688,6 @@ def compute_dante_mode_fields(df: pd.DataFrame) -> pd.DataFrame:
     return work
 
 
-def build_dante_state_block(title: str, df: pd.DataFrame) -> str:
-    df = _filter_fake_rows_for_actionable_block(df, title)
-    if df is None or df.empty:
-        return f"🧭 [{title}]\n- 해당 종목 없음\n"
-
-    header = _text_block_header("🧭", title).rstrip()
-    cards = []
-    for rank, (_, row) in enumerate(df.head(5).iterrows(), start=1):
-        item2 = enrich_row_with_human_commentary(row)
-        name = str(item2.get('종목명', item2.get('name', '')) or '').strip()
-        code = str(item2.get('code', item2.get('종목코드', '')) or '').strip()
-        state = _resolve_track_display_state(item2, track='preempt')
-        d_score = int(float(item2.get('선취점수', item2.get('단테점수', 0)) or 0))
-        comment = str(item2.get('선취코멘트', item2.get('단테코멘트', '')) or '').strip()
-        reason = str(item2.get('선취이유', item2.get('단테이유', '')) or '').strip()
-        cloud_tag = str(item2.get('저항구름태그', '') or '').strip()
-        refine_tag = str(item2.get('수박정제태그', '') or '').strip()
-        ma5_tag = str(item2.get('5일재안착태그', '') or '').strip()
-        rn_tag = str(item2.get('라운드넘버태그', '') or '').strip()
-        rn_comment = str(item2.get('라운드넘버코멘트', '') or '').strip()
-        preempt_track = str(item2.get('선취트랙', '') or '').strip()
-        selected, lacking, action = _build_candidate_explain_lines(item2, track='preempt')
-
-        card = (
-            f"{rank}) {name}({code})\n"
-            f"- 상태: {state} | 선취점수:{d_score}\n"
-            + (f"- 선취트랙: {preempt_track}\n" if preempt_track else "")
-            + (f"- 저항구름: {cloud_tag}\n" if cloud_tag else "")
-            + (f"- 재안착: {ma5_tag}\n" if ma5_tag else "")
-            + (f"- 라운드가격: {rn_tag} | {rn_comment}\n" if rn_tag else "")
-            + (f"- 정제: {refine_tag}\n" if refine_tag else "")
-            + (f"- 해석: {comment}\n" if comment else "")
-            + (f"- 이유: {reason}\n" if reason else "")
-            + (f"- 선정 이유: {selected}\n" if selected else "")
-            + (f"- 부족한 점: {lacking}\n" if lacking else "")
-            + (f"- 추천 대응: {action}\n" if action else "")
-        )
-        cards.append(_wrap_stock_card(append_interpretation_to_block(card, item2), rank=rank))
-
-    return header + "\n\n" + _join_stock_cards(cards)
-
 def build_watermelon_guide_block() -> str:
     lines = [
         "🍉 [수박 상태 가이드]",
@@ -2860,51 +2732,6 @@ def build_watermelon_summary_block(df: pd.DataFrame) -> str:
         lines.append("- 해석: 재점화/실행 타점 후보가 실제로 발생 중")
     return "\n".join(lines) + "\n"
 
-def build_watermelon_state_block(title: str, df: pd.DataFrame) -> str:
-    df = _filter_fake_rows_for_actionable_block(df, title)
-    if df is None or df.empty:
-        return f"🍉 [{title}]\n- 해당 종목 없음\n"
-
-    header = _text_block_header("🍉", title).rstrip()
-    cards = []
-    for rank, (_, row) in enumerate(df.head(5).iterrows(), 1):
-        name = row.get('종목명', '')
-        code = row.get('code', '')
-        state = row.get('수박최종상태', row.get('수박상태명', row.get('wm_state_name', '')))
-        grade = row.get('수박상태등급', row.get('wm_state_grade', ''))
-        base_score = row.get('수박기반점수', row.get('wm_base_score', 0))
-        pocket_score = row.get('수박포켓점수', row.get('wm_pocket_score', 0))
-        attack_score = row.get('수박공격점수', row.get('wm_attack_score', 0))
-        blue_score = row.get('수박파란점선점수', row.get('wm_blue_score', 0))
-        time_comment = str(row.get('time_sym_comment', '') or '').strip()
-        ma5_tag = str(row.get('5일재안착태그', '')).strip()
-        ma5_comment = str(row.get('5일재안착코멘트', '')).strip()
-        cloud_tag = str(row.get('저항구름태그', '')).strip()
-        cloud_comment = str(row.get('저항구름코멘트', '')).strip()
-        refine_tag = str(row.get('수박정제태그', '')).strip()
-        refine_comment = str(row.get('수박정제코멘트', '')).strip()
-        refine_check = build_refine_validation_text(row)
-
-        human = enrich_row_with_human_commentary(row)
-        easy = str(human.get('easy_interpretation', '')).strip()
-        need_check = str(human.get('need_check', '')).strip()
-        final_label = str(human.get('final_label', '')).strip()
-
-        card = (
-            f"{rank}) {name}({code})\n"
-            f"- 상태: {state} | 등급:{grade} | 기반:{base_score} 포켓:{pocket_score} 공격:{attack_score} 파란:{blue_score}\n"
-            + (f"- 시간창: {time_comment}\n" if time_comment and ('근접' in time_comment or '예비' in time_comment) else '')
-            + (f"- 재안착: {ma5_tag} | {ma5_comment}\n" if ma5_tag else '')
-            + (f"- 저항구름: {cloud_tag} | {cloud_comment}\n" if cloud_tag else '')
-            + (f"- 정제: {refine_tag} | {refine_comment}\n" if refine_tag else '')
-            + (f"- 정제검증: {refine_check}\n" if refine_check else '')
-            + (f"- 해설: {easy}\n" if easy else '')
-            + (f"- 부족한 점: {need_check}\n" if need_check else '')
-            + (f"- 판정: {final_label}\n" if final_label else '')
-        )
-        cards.append(_wrap_stock_card(card, rank=rank))
-
-    return header + "\n\n" + _join_stock_cards(cards)
 
 def build_watermelon_debug_block(title: str, df: pd.DataFrame) -> str:
     """
@@ -7532,79 +7359,6 @@ def send_telegram_photo(message, image_paths=[]):
             except Exception as e:
                 log_error(f'⚠️ HTML 리포트 문서 전송 실패 ({chat_id}): {e}')
 
-
-def send_telegram_chunks(message: str, title: str = '', max_len: int = 3800):
-    """
-    긴 메시지를 카드 단위로 나눠서 텔레그램 전송.
-    - 구분선(━━━━━━━━)이 있으면 카드 단위 우선 분할
-    - 없으면 문단(\n\n) 기준 분할
-    """
-    raw = str(message or '').strip()
-    if not raw:
-        return
-
-    divider = '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
-
-    def _send_chunk_list(chunks: list[str]):
-        total = len(chunks)
-        for idx, chunk in enumerate(chunks, 1):
-            chunk = chunk.strip()
-            if not chunk:
-                continue
-            if total > 1:
-                chunk = f'({idx}/{total})\n' + chunk
-            send_telegram_photo(chunk, [])
-
-    if divider in raw:
-        pieces = raw.split(divider)
-        cards = []
-        prefix = []
-        started = False
-        for piece in pieces:
-            s = piece.strip()
-            if not s:
-                continue
-            if not started and not re.match(r'^(\d+\)|[🍉🧭🚀🔬])', s):
-                prefix.append(s)
-                continue
-            started = True
-            cards.append(divider + '\n' + s)
-
-        if not cards:
-            cards = [raw]
-
-        header = title.strip() if title else ''
-        if prefix:
-            prefix_text = '\n\n'.join(prefix).strip()
-            header = (header + '\n\n' + prefix_text).strip() if header else prefix_text
-
-        chunks = []
-        current = (header + '\n\n') if header else ''
-        for card in cards:
-            add = card.strip() + '\n\n'
-            if len(current) + len(add) > max_len and current.strip():
-                chunks.append(current.strip())
-                current = (header + '\n\n' if header else '') + add
-            else:
-                current += add
-        if current.strip():
-            chunks.append(current.strip())
-        _send_chunk_list(chunks)
-        return
-
-    paragraphs = [p.strip() for p in raw.split('\n\n') if p.strip()]
-    chunks = []
-    current = (title + '\n\n') if title else ''
-    for para in paragraphs:
-        candidate = current + para + '\n\n'
-        if len(candidate) > max_len and current.strip():
-            chunks.append(current.strip())
-            current = para + '\n\n'
-        else:
-            current = candidate
-    if current.strip():
-        chunks.append(current.strip())
-    _send_chunk_list(chunks)
 
 def send_tournament_results(tournament_report: str):
     """
