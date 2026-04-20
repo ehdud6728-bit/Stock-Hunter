@@ -13009,57 +13009,6 @@ def build_pre_dolbanji_block(title: str, df: pd.DataFrame, exact_mode: bool = Fa
 
         return str(latest_path)
 
-
-
-
-# === split override block (generated) ===
-from scanner.indicators import (
-    _env_flag,
-    _env_str,
-    check_bb40_second_wave,
-    check_obv_acc_breakout,
-    classify_bb_state,
-    classify_obv_trend,
-    classify_supply_state,
-    calc_atr_targets,
-)
-from scanner.supply import (
-    get_supply_and_money,
-    get_supply_profile,
-)
-from scanner.watermelon_core import (
-    build_watermelon_state_bundle,
-    build_watermelon_state_top5,
-    detect_refined_watermelon_filter,
-    integrate_watermelon_v2_columns,
-    watermelon_signal_snapshot,
-    check_watermelon_relaunch,
-    build_watermelon_debug_block,
-)
-from scanner.kki_profile import build_kki_profile
-from scanner.watermelon_refine import build_refine_validation_text
-from scanner.narrative import (
-    build_score_summary,
-    decide_final_label,
-    build_check_needed_text,
-    build_easy_interpretation,
-    enrich_row_with_human_commentary,
-)
-from scanner.breakout_logic import (
-    add_white_cloud_candidates,
-    detect_white_cloud_state,
-    detect_white_cloud_vote,
-    classify_resistance_cloud_phase_from_bundle,
-    compute_breakout_mode_fields,
-    build_breakout_state_block,
-)
-from scanner.render_blocks import (
-    build_watermelon_guide_block,
-    build_watermelon_summary_block,
-    build_watermelon_state_block,
-)
-# === end split override block ===
-
 if __name__ == "__main__":
     log_info("🚀 전략 사령부 가동 시작...")
 
