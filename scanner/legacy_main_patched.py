@@ -13265,13 +13265,7 @@ def build_pre_dolbanji_block(title: str, df: pd.DataFrame, exact_mode: bool = Fa
 
 
 
-# === split override block (generated) ===
-from scanner.indicators import (
-    classify_bb_state,
-    classify_obv_trend,
-    classify_supply_state,
-    calc_atr_targets,
-)
+# === split override block (generated) ==
 from scanner.supply import (
     get_supply_and_money,
     get_supply_profile,
