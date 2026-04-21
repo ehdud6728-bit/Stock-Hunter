@@ -9,6 +9,17 @@ import pandas as pd
 
 REQUIRED_OHLCV = ("Open", "High", "Low", "Close", "Volume")
 
+def _env_flag(value, low=None, high=None):
+    try:
+        v = float(value)
+    except Exception:
+        return False
+
+    if low is not None and v < float(low):
+        return False
+    if high is not None and v > float(high):
+        return False
+    return True
 
 def _pick_col(df: pd.DataFrame, *candidates: str) -> Optional[str]:
     for col in candidates:
