@@ -2488,6 +2488,56 @@ def build_watermelon_summary_block(df: pd.DataFrame) -> str:
         lines.append("- 해석: 재점화/실행 타점 후보가 실제로 발생 중")
     return "\n".join(lines) + "\n"
 
+def _render_kki_lines(item: dict) -> str:
+    """
+    끼점수/흡수점수/해설을 텍스트 블록으로 렌더링
+    누락 시에도 안전하게 빈 문자열 반환
+    """
+    try:
+        score = int(item.get('kki_score', 0) or 0)
+    except Exception:
+        score = 0
+
+    try:
+        show_only_confident = bool(globals().get('SHOW_KKI_ONLY_WHEN_CONFIDENT', False))
+        show_min = int(globals().get('KKI_SHOW_MIN', 0) or 0)
+    except Exception:
+        show_only_confident = False
+        show_min = 0
+
+    if show_only_confident and score < show_min:
+        return ''
+
+    parts = []
+
+    tag = str(item.get('kki_tag', '') or '').strip()
+    absorb_tag = str(item.get('absorb_tag', '') or '').strip()
+
+    try:
+        absorb_score = int(item.get('absorb_score', 0) or 0)
+    except Exception:
+        absorb_score = 0
+
+    recurrence = str(item.get('kki_recurrence', '') or '').strip()
+    current_state = str(item.get('kki_current_state', '') or '').strip()
+    explain = str(item.get('kki_reason', '') or '').strip()
+
+    if tag or score:
+        line = f"- 🎭 끼점수: {tag} {score}".rstrip()
+        if absorb_tag:
+            line += f" | {absorb_tag} {absorb_score}"
+        parts.append(line)
+
+    if recurrence:
+        parts.append(f"- 🧬 끼 재현이력: {recurrence}")
+
+    if current_state:
+        parts.append(f"- 📍 현재 끼 위치: {current_state}")
+
+    if explain:
+        parts.append(f"- 🧲 끼/흡수 해설: {explain}")
+
+    return "\n".join(parts) + ("\n" if parts else "")
 
 def build_watermelon_state_block(title: str, df: pd.DataFrame) -> str:
     df = _filter_fake_rows_for_actionable_block(df, title)
