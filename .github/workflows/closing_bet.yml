@@ -37,7 +37,7 @@ jobs:
 
       - name: 🕯️ 종가배팅 스캔
         env:
-          TELEGRAM_TOKEN:    ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_TOKEN:    ${{ secrets.TELEGRAM_CLOSEBET_TOKEN }}
           TELEGRAM_CHAT_ID:  ${{ secrets.TELEGRAM_DYUL_CHAT_ID }}
           OPENAI_API_KEY:    ${{ secrets.OPENAI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
