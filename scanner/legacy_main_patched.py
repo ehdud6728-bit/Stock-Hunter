@@ -81,6 +81,13 @@ warnings.filterwarnings('ignore', category=FutureWarning)
 DEBUG_WAVE_VERIFY = os.environ.get("DEBUG_WAVE_VERIFY", "1") == "1"
 DEBUG_BUILD_TAG = os.environ.get("DEBUG_BUILD_TAG", "WAVE_DIAG_VERIFY_V2")
 _BASE_DIR = Path(__file__).resolve().parent
+DEBUG_LOG_PATH = Path("wave_diag_debug.log").resolve()
+
+with open(DEBUG_LOG_PATH, "a", encoding="utf-8") as f:
+    f.write(f"[BOOT] {datetime.now()} | cwd={os.getcwd()} | file={__file__}\n")
+
+print(f"DEBUG_LOG_PATH={DEBUG_LOG_PATH}")
+
 DEBUG_LOG_PATH = Path(os.environ.get("DEBUG_LOG_PATH", str(_BASE_DIR / "wave_diag_debug.log")))
 
 def debug_log(msg):
