@@ -471,7 +471,7 @@ def _load_df(code: str, lookback_days: int = 730) -> pd.DataFrame:
         else:
             df['Amount'] = pd.to_numeric(df['Amount'], errors='coerce').fillna(df['Close'] * df['Volume'])
 
-                df['MA5'] = df['Close'].rolling(5).mean()
+        df['MA5'] = df['Close'].rolling(5).mean()
         df['MA20'] = df['Close'].rolling(20).mean()
         df['MA112'] = df['Close'].rolling(112).mean()
         df['MA224'] = df['Close'].rolling(224).mean()
@@ -1172,6 +1172,7 @@ def _check_breakout_bet(code: str, name: str) -> dict | None:
             'is_top_mcap': int(code in TOP_MCAP_SET),
             'marcap': marcap,
             'is_mcap_or': int(is_mcap_or),
+            'close': info['_close'],
             'near20': round(info['_near20'], 1),
             'disp': round(info['_disp'], 1),
             'score': score,
@@ -1320,6 +1321,7 @@ def _check_env_strict_bet(code: str, name: str) -> dict | None:
             'is_top_mcap': int(code in TOP_MCAP_SET),
             'marcap': marcap,
             'is_mcap_or': int(is_mcap_or),
+            'close': info['_close'],
             'band_type': 'ENV',
             'band_reason': 'HTS엄격형(Env20&Env40 동시만족)',
             'band_pct_text': f"Env20:{env['env20_pct']:+.1f}% | Env40:{env['env40_pct']:+.1f}%",
@@ -1477,6 +1479,7 @@ def _check_bb_expand_bet(code: str, name: str) -> dict | None:
             'is_top_mcap': int(code in TOP_MCAP_SET),
             'marcap': marcap,
             'is_mcap_or': int(is_mcap_or),
+            'close': info['_close'],
             'band_type': 'BB',
             'band_reason': band_meta.get('reason', 'BB40하단재안착'),
             'band_pct_text': f"BB40:{bb['bb40_pct']:+.1f}% | BB폭:{bb['bb40_width']:.1f}%",
@@ -1524,7 +1527,7 @@ def _check_closing_bet(code: str, name: str) -> dict | None:
         with DIAG_LOCK:
             STRATEGY_DIAG['B1_hit'] += 1
 
-        with DIAG_LOCK:
+    with DIAG_LOCK:
         STRATEGY_DIAG['B2_try'] += 1
     b2 = _check_bb_expand_bet(code, name)
     if b2 is not None:
@@ -1967,6 +1970,7 @@ def _check_ymgp_bet(code: str, name: str) -> dict | None:
             'is_top_mcap': int(code in TOP_MCAP_SET),
             'marcap': marcap,
             'score': 7,
+            'close': info['_close'],
             'grade': '완전체',
             'kki_pattern': '바닥탈출대시세형',
             'kki_habit': '매집 완료 후 장기 저항 돌파',
@@ -2720,10 +2724,10 @@ def _send_ai_comment(hits: list, mins_left: int, strategy: str = 'A'):
 
         if strategy == 'A':
             data_lines = '\n'.join([
-                f"- {h['name']}({h['code']}): 현재가={h['close']:,}원 | "
-                f"거래량={h['vol_ratio']}배 | 전고점={h.get('near20', 0)}% | "
-                f"이격={h.get('disp', 0)} | 윗꼬리={h['wick_pct']}% | "
-                f"목표={h['target1']:,} 손절={h['stoploss']:,} | "
+                f"- {h['name']}({h['code']}): 현재가={h.get('close', h.get('_close', 0)):,}원 | "
+                f"거래량={h.get('vol_ratio', round(h.get('_vol', 0) / h.get('_vma20', 1), 2) if h.get('_vma20', 0) > 0 else 0)}배 | 전고점={h.get('near20', 0)}% | "
+                f"이격={h.get('disp', 0)} | 윗꼬리={h.get('wick_pct', round(h.get('_upper_wick_body', 0) * 100, 1))}% | "
+                f"목표={h.get('target1', 0):,} 손절={h.get('stoploss', 0):,} | "
                 f"지수={h.get('index_label', '')}"
                 for h in hits
             ])
@@ -2733,11 +2737,11 @@ def _send_ai_comment(hits: list, mins_left: int, strategy: str = 'A'):
             )
         elif strategy == 'B1':
             data_lines = '\n'.join([
-                f"- {h['name']}({h['code']}): 현재가={h['close']:,}원 | "
+                f"- {h['name']}({h['code']}): 현재가={h.get('close', h.get('_close', 0)):,}원 | "
                 f"Env20={h.get('env20_pct', 0):+.1f}% | Env40={h.get('env40_pct', 0):+.1f}% | "
                 f"RSI={h.get('rsi', 0)} | 5일매집={h.get('maejip_5d', 0)}회 | "
                 f"OBV={'↑' if h.get('obv_rising') else '↓'} | "
-                f"목표={h['target1']:,} 손절={h['stoploss']:,} | "
+                f"목표={h.get('target1', 0):,} 손절={h.get('stoploss', 0):,} | "
                 f"지수={h.get('index_label', '')}"
                 for h in hits
             ])
@@ -2747,12 +2751,12 @@ def _send_ai_comment(hits: list, mins_left: int, strategy: str = 'A'):
             )
         else:
             data_lines = '\n'.join([
-                f"- {h['name']}({h['code']}): 현재가={h['close']:,}원 | "
+                f"- {h['name']}({h['code']}): 현재가={h.get('close', h.get('_close', 0)):,}원 | "
                 f"BB40={h.get('bb40_pct', 0):+.1f}% | BB폭={h.get('bb40_width', 0):.1f}% | "
                 f"RSI={h.get('rsi', 0)} | 5일매집={h.get('maejip_5d', 0)}회 | "
                 f"OBV={'↑' if h.get('obv_rising') else '↓'} | "
                 f"ATR={h.get('atr_pct', 0)}% | "
-                f"목표={h['target1']:,} 손절={h['stoploss']:,} | "
+                f"목표={h.get('target1', 0):,} 손절={h.get('stoploss', 0):,} | "
                 f"지수={h.get('index_label', '')}"
                 for h in hits
             ])
