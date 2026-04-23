@@ -68,8 +68,10 @@ try:
 except Exception:
     run_closing_bet_debate_pipeline = None
 import io
+import os
 import html
 from pathlib import Path
+from datetime import datetime
 import warnings
 warnings.filterwarnings('ignore', category=FutureWarning)
 
@@ -77,19 +79,23 @@ warnings.filterwarnings('ignore', category=FutureWarning)
 # ✅ GitHub Actions / 로컬 공용 진단 로그
 # =================================================
 DEBUG_WAVE_VERIFY = os.environ.get("DEBUG_WAVE_VERIFY", "1") == "1"
-DEBUG_LOG_PATH = os.environ.get("DEBUG_LOG_PATH", "wave_diag_debug.log")
 DEBUG_BUILD_TAG = os.environ.get("DEBUG_BUILD_TAG", "WAVE_DIAG_VERIFY_V2")
+_BASE_DIR = Path(__file__).resolve().parent
+DEBUG_LOG_PATH = Path(os.environ.get("DEBUG_LOG_PATH", str(_BASE_DIR / "wave_diag_debug.log")))
 
 def debug_log(msg):
     if not DEBUG_WAVE_VERIFY:
         return
+    line = f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}"
+    print(line, flush=True)
     try:
-        line = f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}"
-        print(line)
+        DEBUG_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
         with open(DEBUG_LOG_PATH, "a", encoding="utf-8") as f:
             f.write(line + "\n")
+            f.flush()
+            os.fsync(f.fileno())
     except Exception as e:
-        print(f"[DEBUG_LOG_ERROR] {e}")
+        print(f"[DEBUG_LOG_ERROR] {e}", flush=True)
 
 def _debug_df_tail_info(df, label="df"):
     try:
@@ -104,7 +110,7 @@ def _debug_df_tail_info(df, label="df"):
 debug_log(f"RUN_FILE={__file__}")
 debug_log(f"CWD={os.getcwd()}")
 debug_log(f"BUILD_TAG={DEBUG_BUILD_TAG}")
-
+debug_log(f"DEBUG_LOG_PATH={DEBUG_LOG_PATH}")
 
 # =================================================
 # ✅ 전역 공용 숫자 변환 헬퍼
