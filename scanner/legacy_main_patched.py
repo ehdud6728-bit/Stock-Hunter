@@ -15339,6 +15339,604 @@ def build_trading_view_compressed(report_text: str) -> str:
 # ✅ END TRADE_CLARITY_REPORT_RESTORE_V5_ACTIVE
 # =============================================================
 
+
+
+# =============================================================
+# ✅ TRADE_CLARITY_NEWS_ACTION_RESTORE_V6_ACTIVE
+#    1) 매매관점 압축 블록 공백 방지
+#    2) 흰구름 돌파/선취 블록에도 구조판정 강제 삽입
+#    3) 종목별 뉴스 오염 강력 차단
+# =============================================================
+print("✅ TRADE_CLARITY_NEWS_ACTION_RESTORE_V6_ACTIVE LOADED")
+print("✅ EXPECT_V6 = 압축블록복구 / 흰구름구조판정복구 / 종목뉴스강화필터")
+
+try:
+    _V6_BASE_FETCH_STOCK_NEWS = _fetch_stock_news
+except Exception:
+    _V6_BASE_FETCH_STOCK_NEWS = None
+try:
+    _V6_BASE_BUILD_TRADING_VIEW_COMPRESSED = build_trading_view_compressed
+except Exception:
+    _V6_BASE_BUILD_TRADING_VIEW_COMPRESSED = None
+try:
+    _V6_BASE_BUILD_BREAKOUT_STATE_BLOCK = build_breakout_state_block
+except Exception:
+    _V6_BASE_BUILD_BREAKOUT_STATE_BLOCK = None
+try:
+    _V6_BASE_BUILD_DANTE_STATE_BLOCK = build_dante_state_block
+except Exception:
+    _V6_BASE_BUILD_DANTE_STATE_BLOCK = None
+try:
+    _V6_BASE_BUILD_STAGE_TRACK_BLOCK = build_stage_track_block
+except Exception:
+    _V6_BASE_BUILD_STAGE_TRACK_BLOCK = None
+
+
+def _v6_s(x, default=''):
+    try:
+        if x is None:
+            return default
+        return str(x).strip()
+    except Exception:
+        return default
+
+
+def _v6_f(x, default=0.0):
+    try:
+        if x is None:
+            return default
+        txt = str(x).replace(',', '').replace('%', '').replace('원', '').replace('억', '').replace('⚠️', '').strip()
+        m = _sh_re.search(r'[-+]?\d+(?:\.\d+)?', txt)
+        return float(m.group(0)) if m else default
+    except Exception:
+        return default
+
+
+def _v6_compact_text(x):
+    try:
+        return _sh_re.sub(r'\s+', '', str(x or '')).lower()
+    except Exception:
+        return ''
+
+
+def _v6_contains_any(text, words):
+    t = str(text or '')
+    return any(str(w) and str(w) in t for w in words)
+
+
+def _v6_news_aliases_for_stock(name: str, code: str = ''):
+    name_s = str(name or '').strip()
+    code_s = str(code or '').zfill(6) if str(code or '').strip() else ''
+    aliases = [name_s]
+    if name_s.endswith('홀딩스'):
+        aliases.append(name_s.replace('홀딩스', '').strip())
+    if '아모레' in name_s or code_s in ('090430', '002790'):
+        aliases += ['아모레퍼시픽', '아모레퍼시픽홀딩스', '아모레G', '아모레', 'K뷰티', '케이뷰티', '화장품', '뷰티', 'ODM', '면세']
+    if '도이치' in name_s or code_s == '067990':
+        aliases += ['도이치모터스', '도이치']
+    if name_s.upper() == 'SIMPAC' or '심팩' in name_s:
+        aliases += ['SIMPAC', '심팩']
+    if 'LX홀딩스' in name_s:
+        aliases += ['LX홀딩스', '구본준', 'LX']
+    if '에이치엔에스' in name_s:
+        aliases += ['에이치엔에스하이텍', 'HNS하이텍', 'ACF']
+    # 빈값 제거 + 중복 제거
+    out = []
+    for a in aliases:
+        a = str(a or '').strip()
+        if a and a not in out:
+            out.append(a)
+    return out
+
+
+def _v6_news_blacklist_for_stock(name: str, code: str = ''):
+    name_s = str(name or '')
+    code_s = str(code or '').zfill(6) if str(code or '').strip() else ''
+    common = [
+        '뉴스프레소', '장동혁', '국민대', '교육부', '논문', '김건희', '의혹',
+        '고유가 지원', '지원금 접수', '대통령', '국회', '선거',
+        '삼전 다음', '외국인 1조', '하이닉스', 'HBM', 'SOXX', 'SMH', '엔비디아',
+    ]
+    if '아모레' in name_s or code_s in ('090430', '002790'):
+        common += [
+            '변압기', '전력기기', '전력설비', 'AI전력', '전선', '중전기', '구리', '효성중공업',
+            'HD현대일렉트릭', 'LS ELECTRIC', '일진전기', '제룡전기', '대한전선',
+            '삼성전자', 'SK하이닉스', '삼전', '반도체 ETF', '조선', '방산', '정유', '원유', '해운',
+        ]
+    if '도이치' in name_s or code_s == '067990':
+        common += ['김건희', '도이치모터스 의혹', '주가조작', '논문', '교육부', '국민대', '장동혁', '고유가 지원']
+    return list(dict.fromkeys(common))
+
+
+def _v6_is_stock_news_usable(name: str, code: str, title: str, source: str = 'unknown', require_alias: bool = False):
+    title_s = str(title or '').strip()
+    if not title_s:
+        return False
+    compact = _v6_compact_text(title_s)
+    for bad in _v6_news_blacklist_for_stock(name, code):
+        if _v6_compact_text(bad) and _v6_compact_text(bad) in compact:
+            try:
+                log_debug(f"📰 뉴스 오매칭 V6 차단({name}): {title_s[:55]} | block={bad}")
+            except Exception:
+                pass
+            return False
+    aliases = _v6_news_aliases_for_stock(name, code)
+    has_alias = any(_v6_compact_text(a) and _v6_compact_text(a) in compact for a in aliases)
+    if require_alias and not has_alias:
+        return False
+    # 검색 결과는 이름/테마 별칭이 있어야 안전하다.
+    if source in ('search', 'legacy') and not has_alias:
+        return False
+    return True
+
+
+def _v6_split_news_titles(raw: str):
+    txt = str(raw or '').replace('\r', '\n')
+    parts = []
+    for chunk in _sh_re.split(r'\s*/\s*|\n+|\s*\|\s*', txt):
+        c = str(chunk or '').strip(' -\t')
+        if c and c not in parts:
+            parts.append(c)
+    return parts
+
+
+def _v6_format_news_titles(titles, limit=3):
+    out = []
+    for t in titles:
+        t = str(t or '').strip()
+        if t and t not in out:
+            out.append(t)
+        if len(out) >= limit:
+            break
+    return ' / '.join(out)
+
+
+def _v6_collect_naver_finance_news(code: str, name: str, limit=3):
+    titles = []
+    try:
+        url = f"https://finance.naver.com/item/news_news.naver?code={str(code).zfill(6)}&page=1"
+        headers = globals().get('REAL_HEADERS', {'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.naver.com/'})
+        res = requests.get(url, headers=headers, timeout=4)
+        res.encoding = 'euc-kr'
+        soup = BeautifulSoup(res.text, 'html.parser')
+        for sel in ['td.title a', '.articleSubject a', '.news_tit', 'a.tit']:
+            for a in soup.select(sel):
+                title = a.get_text(' ', strip=True)
+                if _v6_is_stock_news_usable(name, code, title, source='finance', require_alias=False):
+                    if title not in titles:
+                        titles.append(title)
+                if len(titles) >= limit:
+                    return titles
+    except Exception as e:
+        try:
+            log_debug(f"📰 V6 네이버금융 뉴스 실패({name}): {e}")
+        except Exception:
+            pass
+    return titles
+
+
+def _v6_collect_naver_search_news(code: str, name: str, limit=3):
+    titles = []
+    try:
+        headers = globals().get('REAL_HEADERS', {'User-Agent': 'Mozilla/5.0', 'Referer': 'https://search.naver.com/'})
+        query = f"{name} 주식 뉴스"
+        res = requests.get('https://search.naver.com/search.naver', params={'where': 'news', 'query': query}, headers=headers, timeout=4)
+        soup = BeautifulSoup(res.text, 'html.parser')
+        for sel in ['.news_tit', 'a.news_tit', '.api_txt_lines', '.title_link']:
+            for a in soup.select(sel):
+                title = a.get_text(' ', strip=True)
+                if _v6_is_stock_news_usable(name, code, title, source='search', require_alias=True):
+                    if title not in titles:
+                        titles.append(title)
+                if len(titles) >= limit:
+                    return titles
+    except Exception as e:
+        try:
+            log_debug(f"📰 V6 네이버검색 뉴스 실패({name}): {e}")
+        except Exception:
+            pass
+    return titles
+
+
+def _fetch_stock_news(code: str, name: str) -> str:
+    """V6: 종목별 뉴스만 통과. 시장뉴스/정치뉴스/타종목뉴스는 차단한다."""
+    code_s = str(code or '').zfill(6)
+    name_s = str(name or '').strip()
+
+    # 1) 기존 get_news_sentiment 결과는 오염 가능성이 있어 강하게 재필터링한다.
+    legacy_titles = []
+    if _V6_BASE_FETCH_STOCK_NEWS:
+        try:
+            raw = _V6_BASE_FETCH_STOCK_NEWS(code_s, name_s)
+            for t in _v6_split_news_titles(raw):
+                if _v6_is_stock_news_usable(name_s, code_s, t, source='legacy', require_alias=True):
+                    legacy_titles.append(t)
+        except Exception:
+            legacy_titles = []
+    if len(legacy_titles) >= 2:
+        return _v6_format_news_titles(legacy_titles, limit=3)
+
+    # 2) 코드 기반 네이버 금융 뉴스 우선. 종목 페이지라 별칭 없어도 허용하되 블랙리스트는 차단.
+    finance_titles = _v6_collect_naver_finance_news(code_s, name_s, limit=3)
+    if finance_titles:
+        return _v6_format_news_titles(finance_titles, limit=3)
+
+    # 3) 검색 뉴스는 반드시 종목명/허용 테마 별칭이 들어간 것만 통과.
+    search_titles = _v6_collect_naver_search_news(code_s, name_s, limit=3)
+    if search_titles:
+        return _v6_format_news_titles(search_titles, limit=3)
+
+    return ''
+
+
+def _v6_row_get(row, *keys, default=''):
+    try:
+        if hasattr(row, 'get'):
+            for k in keys:
+                v = row.get(k, None)
+                if v is not None and str(v).strip() != '':
+                    try:
+                        if pd.isna(v):
+                            continue
+                    except Exception:
+                        pass
+                    return v
+    except Exception:
+        pass
+    return default
+
+
+def _v6_refine_validation(row):
+    try:
+        return str(build_refine_validation_text(row) or '').strip()
+    except Exception:
+        return ''
+
+
+def _v6_text_header(icon, title):
+    return f"{icon} [{title}]\n\n"
+
+
+def _v6_wrap_card(card_text, rank=1):
+    body = str(card_text or '').strip()
+    if not body:
+        return ''
+    div = '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
+    return f"{div}\n{body}\n{div}\n\n"
+
+
+def _v6_append_trade(card, row):
+    try:
+        return append_interpretation_to_block(card, row)
+    except Exception:
+        try:
+            tb = build_trade_clarity_block(row, compact=True)
+            if tb and '✅ 구조판정' not in str(card):
+                return str(card).rstrip() + '\n\n' + tb.strip() + '\n'
+        except Exception:
+            pass
+    return str(card).rstrip() + '\n'
+
+
+def build_breakout_state_block(title: str, df: pd.DataFrame) -> str:
+    """V6: 흰구름 돌파 후보/관찰 카드에도 구조판정을 강제 표시."""
+    try:
+        df = _filter_fake_rows_for_actionable_block(df, title)
+    except Exception:
+        pass
+    if df is None or getattr(df, 'empty', False):
+        return f"🚀 [{title}]\n- 해당 종목 없음\n"
+    lines = [_v6_text_header('🚀', title)]
+    for rank, (_, row) in enumerate(df.head(5).iterrows(), 1):
+        try:
+            item = enrich_row_with_human_commentary(row)
+        except Exception:
+            item = row
+        name = _v6_s(_v6_row_get(item, '종목명', 'name'))
+        code = _v6_s(_v6_row_get(item, 'code', '종목코드'))
+        try:
+            state = _resolve_track_display_state(item, track='breakout')
+        except Exception:
+            state = _v6_s(_v6_row_get(item, '돌파상태', '수박최종상태', '상태'))
+        score = int(_v6_f(_v6_row_get(item, '돌파점수', default=0), 0))
+        comment = _v6_s(_v6_row_get(item, '돌파코멘트'))
+        reason = _v6_s(_v6_row_get(item, '돌파이유'))
+        rc_tag = _v6_s(_v6_row_get(item, '저항구름태그'))
+        rc_comment = _v6_s(_v6_row_get(item, '저항구름코멘트'))
+        refine_tag = _v6_s(_v6_row_get(item, '수박정제태그'))
+        refine_comment = _v6_s(_v6_row_get(item, '수박정제코멘트'))
+        refine_check = _v6_refine_validation(item)
+        try:
+            selected, lacking, action = _build_candidate_explain_lines(item, track='breakout')
+        except Exception:
+            selected, lacking, action = '', '', '구름 상단 또는 5일선 눌림 확인 후 대응합니다.'
+        card = (
+            f"{rank}) {name}" + (f"({code})" if code else '') + "\n"
+            f"- 상태: {state} | 돌파점수:{score}\n"
+            + (f"- 저항구름: {rc_tag}" + (f" | {rc_comment}" if rc_comment else '') + "\n" if rc_tag else '')
+            + (f"- 정제: {refine_tag}" + (f" | {refine_comment}" if refine_comment else '') + "\n" if refine_tag else '')
+            + (f"- 정제검증: {refine_check}\n" if refine_check else '')
+            + (f"- 해석: {comment}\n" if comment else '')
+            + (f"- 이유: {reason}\n" if reason else '')
+            + (f"- 선정 이유: {selected}\n" if selected else '')
+            + (f"- 부족한 점: {lacking}\n" if lacking else '')
+            + (f"- 추천 대응: {action}\n" if action else '')
+        )
+        card = _v6_append_trade(card, item)
+        lines.append(_v6_wrap_card(card, rank=rank))
+    return ''.join(lines).rstrip() + '\n'
+
+
+def build_dante_state_block(title: str, df: pd.DataFrame) -> str:
+    """V6: 선취 후보 카드에도 구조판정 누락 방지."""
+    try:
+        df = _filter_fake_rows_for_actionable_block(df, title)
+    except Exception:
+        pass
+    if df is None or getattr(df, 'empty', False):
+        return f"🧭 [{title}]\n- 해당 종목 없음\n"
+    lines = [_v6_text_header('🧭', title)]
+    for rank, (_, row) in enumerate(df.head(5).iterrows(), 1):
+        try:
+            item = enrich_row_with_human_commentary(row)
+        except Exception:
+            item = row
+        name = _v6_s(_v6_row_get(item, '종목명', 'name'))
+        code = _v6_s(_v6_row_get(item, 'code', '종목코드'))
+        try:
+            state = _resolve_track_display_state(item, track='preempt')
+        except Exception:
+            state = _v6_s(_v6_row_get(item, '선취상태', '수박최종상태', '상태'))
+        score = int(_v6_f(_v6_row_get(item, '선취점수', '단테점수', default=0), 0))
+        comment = _v6_s(_v6_row_get(item, '선취코멘트', '단테코멘트'))
+        reason = _v6_s(_v6_row_get(item, '선취이유', '단테이유'))
+        track = _v6_s(_v6_row_get(item, '선취트랙'))
+        cloud_tag = _v6_s(_v6_row_get(item, '저항구름태그'))
+        cloud_comment = _v6_s(_v6_row_get(item, '저항구름코멘트'))
+        ma5_tag = _v6_s(_v6_row_get(item, '5일재안착태그'))
+        ma5_comment = _v6_s(_v6_row_get(item, '5일재안착코멘트'))
+        refine_tag = _v6_s(_v6_row_get(item, '수박정제태그'))
+        refine_comment = _v6_s(_v6_row_get(item, '수박정제코멘트'))
+        refine_check = _v6_refine_validation(item)
+        try:
+            selected, lacking, action = _build_candidate_explain_lines(item, track='preempt')
+        except Exception:
+            selected, lacking, action = '', '', '거래량·양봉·5일선 재안착 확인 후 대응합니다.'
+        card = (
+            f"{rank}) {name}" + (f"({code})" if code else '') + "\n"
+            f"- 상태: {state} | 선취점수:{score}\n"
+            + (f"- 선취트랙: {track}\n" if track else '')
+            + (f"- 저항구름: {cloud_tag}" + (f" | {cloud_comment}" if cloud_comment else '') + "\n" if cloud_tag else '')
+            + (f"- 재안착: {ma5_tag}" + (f" | {ma5_comment}" if ma5_comment else '') + "\n" if ma5_tag else '')
+            + (f"- 정제: {refine_tag}" + (f" | {refine_comment}" if refine_comment else '') + "\n" if refine_tag else '')
+            + (f"- 정제검증: {refine_check}\n" if refine_check else '')
+            + (f"- 해석: {comment}\n" if comment else '')
+            + (f"- 이유: {reason}\n" if reason else '')
+            + (f"- 선정 이유: {selected}\n" if selected else '')
+            + (f"- 부족한 점: {lacking}\n" if lacking else '')
+            + (f"- 추천 대응: {action}\n" if action else '')
+        )
+        card = _v6_append_trade(card, item)
+        lines.append(_v6_wrap_card(card, rank=rank))
+    return ''.join(lines).rstrip() + '\n'
+
+
+def build_stage_track_block(title: str, df: pd.DataFrame) -> str:
+    if _V6_BASE_BUILD_STAGE_TRACK_BLOCK:
+        try:
+            out = _V6_BASE_BUILD_STAGE_TRACK_BLOCK(title, df)
+            if '✅ 구조판정' in str(out) or df is None or getattr(df, 'empty', False):
+                return out
+        except Exception:
+            pass
+    if df is None or getattr(df, 'empty', False):
+        return ''
+    lines = [_v6_text_header('🚀', title)]
+    for rank, (_, row) in enumerate(df.head(5).iterrows(), 1):
+        try:
+            item = enrich_row_with_human_commentary(row)
+        except Exception:
+            item = row
+        name = _v6_s(_v6_row_get(item, '종목명', 'name'))
+        comment = _v6_s(_v6_row_get(item, '단계트랙코멘트'))
+        card = (
+            f"{rank}) [{name}]\n"
+            f"- 단계: {describe_stage_status(str(_v6_row_get(item, '단계상태', default='N/A')))} | {_v6_row_get(item, '단계태그', default='')}\n"
+            + (f"- 해석: {comment}\n" if comment else '')
+            + f"- 안전:{_v6_row_get(item, '안전점수', default=0)} | N점수:{_v6_row_get(item, 'N점수', default=0)}"
+        )
+        card = _v6_append_trade(card, item)
+        lines.append(_v6_wrap_card(card, rank=rank))
+    return ''.join(lines).rstrip() + '\n'
+
+
+def _v6_parse_report_items(report_text: str):
+    text = str(report_text or '')
+    items = []
+    current_section = ''
+    lines = text.splitlines()
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        sec_m = _sh_re.search(r'([가-힣A-Za-z0-9\- /]+ TOP 5|오늘의 관찰형 참고|오늘의 후행형 참고|오늘의 실시간 TOP 15)', line)
+        if '[' in line and ']' in line:
+            current_section = line.strip('━').strip()
+        m = _sh_re.match(r'\s*(\d+)\)\s+\[?([^\]\(\n]+)\]?\((\d{6})\)', line)
+        if not m:
+            m = _sh_re.match(r'\s*(\d+)\)\s+([^\(\n]+)\((\d{6})\)', line)
+        if m:
+            rank, name, code = m.group(1), m.group(2).strip(), m.group(3).strip()
+            chunk_lines = [line]
+            j = i + 1
+            while j < len(lines):
+                nxt = lines[j]
+                if _sh_re.match(r'\s*\d+\)\s+', nxt) or ('━━━━' in nxt and len(chunk_lines) > 3):
+                    break
+                if '[' in nxt and 'TOP 5' in nxt and len(chunk_lines) > 3:
+                    break
+                chunk_lines.append(nxt)
+                j += 1
+            chunk = '\n'.join(chunk_lines)
+            status = ''
+            mm = _sh_re.search(r'- 상태:\s*([^|\n]+)', chunk)
+            if mm:
+                status = mm.group(1).strip()
+            judge = ''
+            for pat in [r'⏳ 매매판정:\s*([^\n]+)', r'- 최종 판정:\s*([^\n]+)', r'/ 판정:([^/\n]+)']:
+                mm = _sh_re.search(pat, chunk)
+                if mm:
+                    judge = mm.group(1).strip()
+                    break
+            score = ''
+            for pat in [r'돌파점수:\s*([-\d]+)', r'선취점수:\s*([-\d]+)', r'등급:\s*([A-Z+]+)']:
+                mm = _sh_re.search(pat, chunk)
+                if mm:
+                    score = mm.group(1).strip()
+                    break
+            reason = ''
+            for pat in [r'- 이유:\s*([^\n]+)', r'- 선정 이유:\s*([^\n]+)', r'🧠 의미:\s*([^\n]+)', r'- 대응 요약:\s*([^\n]+)']:
+                mm = _sh_re.search(pat, chunk)
+                if mm:
+                    reason = mm.group(1).strip()
+                    break
+            refine_bad = '가짜수박주의' in chunk
+            items.append({'name': name, 'code': code, 'status': status, 'judge': judge, 'score': score, 'reason': reason, 'section': current_section, 'chunk': chunk, 'bad': refine_bad})
+            i = j
+            continue
+        i += 1
+    return items
+
+
+def _v6_norm_judge(item):
+    txt = f"{item.get('judge','')} {item.get('chunk','')}"
+    if '추격 금지' in txt:
+        return '추격 금지'
+    if '조건부 실행' in txt or '즉시 대응' in txt:
+        return '조건부 실행'
+    if '보유자 대응' in txt:
+        return '보유자 대응'
+    if '선취 관찰' in txt:
+        return '선취 관찰'
+    if '돌파확인 대기' in txt or '돌파 확인' in txt:
+        return '돌파확인 대기'
+    if '눌림 대기' in txt:
+        return '눌림 대기'
+    return item.get('judge','관찰') or '관찰'
+
+
+def _v6_take_unique(items, predicate, limit=3, used=None):
+    used = used if used is not None else set()
+    out = []
+    for it in items:
+        key = it.get('code') or it.get('name')
+        if key in used:
+            continue
+        try:
+            ok = predicate(it)
+        except Exception:
+            ok = False
+        if ok:
+            used.add(key)
+            out.append(it)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _v6_format_summary_items(items, used=None):
+    lines = []
+    for idx, it in enumerate(items, 1):
+        judge = _v6_norm_judge(it)
+        status = it.get('status') or '-'
+        score = it.get('score') or ''
+        score_txt = f" | 점수:{score}" if score else ''
+        reason = it.get('reason') or '구조·정제·저항구름 조합 기준'
+        lines.append(f"{idx}) {it['name']}({it['code']}) / 매매:{judge} / 상태:{status}{score_txt}\n   → {reason}")
+    return '\n'.join(lines) if lines else '- 해당 종목 없음'
+
+
+def _v6_build_compressed_fallback(report_text: str):
+    items = _v6_parse_report_items(report_text)
+    used = set()
+    run = _v6_take_unique(items, lambda it: _v6_norm_judge(it) == '조건부 실행', 3, used)
+    if len(run) < 3:
+        run += _v6_take_unique(items, lambda it: ('Blue-2' in it.get('status','') or '재점화' in it.get('chunk','')) and _v6_norm_judge(it) not in ('추격 금지','보유자 대응'), 3-len(run), used)
+    pre = _v6_take_unique(items, lambda it: _v6_norm_judge(it) == '선취 관찰' or '선취' in it.get('section',''), 3, used)
+    pull = _v6_take_unique(items, lambda it: _v6_norm_judge(it) in ('눌림 대기','돌파확인 대기'), 3, used)
+    hold = _v6_take_unique(items, lambda it: _v6_norm_judge(it) == '보유자 대응', 4, used)
+    avoid = _v6_take_unique(items, lambda it: _v6_norm_judge(it) == '추격 금지', 4, used)
+    conclusion_run = run[0]['name'] if run else '없음'
+    conclusion_pre = pre[0]['name'] if pre else '없음'
+    block = f"""━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🎯 [오늘의 매매관점 압축]
+
+✅ 1순위 실행 후보
+{_v6_format_summary_items(run)}
+
+🧭 2순위 선취 후보
+{_v6_format_summary_items(pre)}
+
+👀 3순위 눌림/돌파확인 관찰
+{_v6_format_summary_items(pull)}
+
+🛡️ 보유자 대응
+{_v6_format_summary_items(hold)}
+
+⛔ 추격 금지
+{_v6_format_summary_items(avoid)}
+
+📌 오늘 결론
+- 실행 우선: {conclusion_run}
+- 선취 관찰: {conclusion_pre}
+- 돌파확인형은 구조명이고, 실제 매매는 눌림·안착·재양봉 확인 뒤 대응
+- 후행형/과열형은 신규보다 보유관리 또는 추격금지
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"""
+    return block
+
+
+def _v6_compressed_invalid(out: str):
+    s = str(out or '').strip()
+    if not s:
+        return True
+    if '🎯 [오늘의 매매관점 압축]' not in s:
+        return True
+    # 헤더만 있고 실제 종목 라인이 없으면 무효
+    head_part = s.split('🍉 [수박 상태 가이드]')[0]
+    if not _sh_re.search(r'\d+\)\s+[^\n]+\(\d{6}\)', head_part):
+        return True
+    return False
+
+
+def build_trading_view_compressed(report_text: str) -> str:
+    try:
+        base = _V6_BASE_BUILD_TRADING_VIEW_COMPRESSED(report_text) if _V6_BASE_BUILD_TRADING_VIEW_COMPRESSED else ''
+    except Exception as e:
+        base = f"- 기존 압축 생성 실패: {e}"
+    try:
+        if _v6_compressed_invalid(base):
+            out = _v6_build_compressed_fallback(report_text)
+        else:
+            out = base
+    except Exception as e:
+        out = f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n🎯 [오늘의 매매관점 압축]\n- 생성 실패: {e}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    try:
+        out = _v5_trade_replace_ambiguous(out) if '_v5_trade_replace_ambiguous' in globals() else replace_ambiguous_trade_words(out)
+    except Exception:
+        pass
+    guide = (
+        "\n\n📘 용어정리\n"
+        "- 구조판정: 차트가 어디까지 왔는지입니다. 예: 돌파확인형, 저항테스트형.\n"
+        "- 매매판정: 지금 행동입니다. 예: 조건부 실행, 눌림 대기, 보유자 대응, 추격 금지.\n"
+        "- 돌파확인형 + 눌림대기 = 이미 저항은 넘었지만 현재가 추격은 피하고, 구름상단/5일선 지지 후 재양봉을 기다린다는 뜻입니다."
+    )
+    if '📘 용어정리' not in out:
+        out = out.rstrip() + guide
+    return out.rstrip() + '\n'
+
+# =============================================================
+# ✅ END TRADE_CLARITY_NEWS_ACTION_RESTORE_V6_ACTIVE
+# =============================================================
+
 if __name__ == "__main__":
     log_info("🚀 전략 사령부 가동 시작...")
 
