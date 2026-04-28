@@ -1,0 +1,10 @@
+﻿{
+  "generated_at": "2026-04-28 12:36:50",
+  "date": "2026-04-28",
+  "purpose": "quick_open_checker.py input",
+  "rules": "V9.1 seed. 본 스캔 완료 시 거래대금TOP60 + 전략후보로 자동 덮어씀",
+  "quick_candidates": [],
+  "amount_top60": [],
+  "strategy_candidates": [],
+  "seed": true
+}
