@@ -1,0 +1,87 @@
+name: StockHunter Daily Candidates
+
+on:
+  workflow_dispatch:
+  schedule:
+    # KST 08:40, Monday-Friday. UTC is previous day 23:40.
+    - cron: "40 23 * * 0-4"
+
+permissions:
+  contents: write
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  full-scan-and-save-candidates:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      DART_API_KEY: ${{ secrets.DART_API_KEY }}
+      QUICK_CANDIDATE_LIMIT: "40"
+      QUICK_MERGED_LIMIT: "90"
+      AMOUNT_TOP_N: "60"
+      QUICK_AMOUNT_TOP_JSON: "amount_top60.json"
+      QUICK_CANDIDATE_JSON: "today_candidates.json"
+      QUICK_CANDIDATE_FULL_JSON: "today_candidates_full.json"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas numpy requests beautifulsoup4 lxml pytz finance-datareader pykrx openai matplotlib mplfinance
+
+      - name: Run StockHunter full scan and create today_candidates.json
+        run: |
+          python main7_bugfix_2.py
+
+      - name: Verify candidate JSON
+        if: always()
+        run: |
+          if [ ! -f today_candidates.json ]; then
+            echo "❌ today_candidates.json was not created"
+            exit 1
+          fi
+          if [ ! -f amount_top60.json ]; then
+            echo "❌ amount_top60.json was not created"
+            exit 1
+          fi
+          python -c "import json,pathlib; data=json.loads(pathlib.Path('today_candidates.json').read_text(encoding='utf-8-sig')); items=data.get('quick_candidates', []); amt=data.get('amount_top60', []); print('quick candidate count=', len(items)); print('amount_top60 count=', len(amt)); assert isinstance(items, list); assert isinstance(amt, list)"
+
+      - name: Commit candidate JSON for quick schedule
+        if: success()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add today_candidates.json today_candidates_full.json amount_top60.json quick_candidates/*.json || true
+          git commit -m "Update StockHunter quick candidates [skip ci]" || echo "No candidate changes to commit"
+          git push || echo "Push skipped or failed"
+
+      - name: Upload candidate JSON
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: today-candidates
+          path: |
+            today_candidates.json
+            today_candidates_full.json
+            amount_top60.json
+            quick_candidates/*.json
+          if-no-files-found: ignore

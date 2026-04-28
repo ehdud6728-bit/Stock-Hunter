@@ -1,0 +1,75 @@
+name: StockHunter Quick Open Checker
+
+on:
+  workflow_dispatch:
+  schedule:
+    # KST 09:03 / 09:10 / 09:20, Monday-Friday
+    - cron: "3,10,20 0 * * 1-5"
+
+permissions:
+  contents: read
+
+jobs:
+  quick-open:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      QUICK_LIMIT: "60"
+      QUICK_MIN_AMOUNT_B: "3.0"
+      QUICK_MIN_EARLY_AMOUNT_B: "1.0"
+      QUICK_MIN_EARLY_VRATIO: "0.04"
+      QUICK_MIN_DAILY_VRATIO: "0.06"
+      TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      CLOSING_BET_TOKEN: ${{ secrets.CLOSING_BET_TOKEN }}
+      CLOSING_BET_CHAT_ID: ${{ secrets.CLOSING_BET_CHAT_ID }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas requests beautifulsoup4 lxml pytz finance-datareader
+
+      - name: Show candidate file
+        run: |
+          pwd
+          ls -la
+          if [ -f today_candidates.json ]; then
+            echo "✅ today_candidates.json found"
+            python -c "import json,pathlib; data=json.loads(pathlib.Path('today_candidates.json').read_text(encoding='utf-8-sig')); items=data.get('quick_candidates', data if isinstance(data,list) else []); amt=data.get('amount_top60', []); print('candidate_count=', len(items)); print('amount_top60_count=', len(amt))"
+          else
+            echo "⚠️ today_candidates.json not found. amount_top60.json fallback will be tried."
+          fi
+          if [ -f amount_top60.json ]; then
+            echo "✅ amount_top60.json found"
+          fi
+
+      - name: Run quick open checker
+        run: |
+          python quick_open_checker.py \
+            --candidate-file today_candidates.json \
+            --limit "$QUICK_LIMIT" \
+            --window-min 5 \
+            --send-telegram \
+            --quiet
+
+      - name: Upload quick results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: quick-open-result
+          path: |
+            quick_open_result.txt
+            quick_open_result.json
+            today_candidates.json
+            today_candidates_full.json
+            amount_top60.json
+          if-no-files-found: ignore
