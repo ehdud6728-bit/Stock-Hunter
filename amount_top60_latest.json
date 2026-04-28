@@ -1,0 +1,8 @@
+﻿{
+  "generated_at": "2026-04-28 12:36:50",
+  "date": "2026-04-28",
+  "purpose": "amount_top60 quick universe",
+  "rules": "V9.1 seed. 본 스캔 완료 시 거래대금 상위 60개로 자동 덮어씀",
+  "amount_top60": [],
+  "seed": true
+}
