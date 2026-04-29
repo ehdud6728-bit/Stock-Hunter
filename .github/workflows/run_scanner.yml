@@ -23,6 +23,11 @@ on:
         default: "8325973023"
         type: string
 
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+  
 jobs:
   run-scanner:
     runs-on: ubuntu-latest
