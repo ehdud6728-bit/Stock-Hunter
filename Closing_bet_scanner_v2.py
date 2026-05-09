@@ -1,6 +1,6 @@
 
 # =============================================================
-# closing_bet_scanner.py — 종가배팅 타점 스캐너 (G Morales v2.6 HIGH REACCUM 완성형)
+# closing_bet_scanner.py — 종가배팅 타점 스캐너 (G Morales v2.7 S FILTER/RR COMPACT 완성형)
 # =============================================================
 # 전략 구성
 # A  : 돌파형 종가배팅
@@ -37,7 +37,7 @@ import pandas as pd
 import requests
 import FinanceDataReader as fdr
 
-CLOSING_BET_SCANNER_VERSION = 'G_MORALES_V2_6_HIGH_REACCUM_20260509'
+CLOSING_BET_SCANNER_VERSION = 'G_MORALES_V2_7_S_FILTER_RR_COMPACT_20260509'
 
 
 try:
@@ -168,6 +168,13 @@ HIGH_REACCUM_TODAY_VOL_MIN = float(os.environ.get('CLOSING_BET_HIGH_REACCUM_TODA
 HIGH_REACCUM_DISPARITY20_MAX = float(os.environ.get('CLOSING_BET_HIGH_REACCUM_DISPARITY20_MAX', '125.0'))
 HIGH_REACCUM_RUNUP20_MAX = float(os.environ.get('CLOSING_BET_HIGH_REACCUM_RUNUP20_MAX', '60.0'))
 HIGH_REACCUM_SCORE_MIN = float(os.environ.get('CLOSING_BET_HIGH_REACCUM_SCORE_MIN', '75.0'))
+# v2.7: S전략 실전 필터 — 목표 공간/RR/유동성/거래량 상태 보정
+HIGH_REACCUM_RR_EXCLUDE_MIN = float(os.environ.get('CLOSING_BET_HIGH_REACCUM_RR_EXCLUDE_MIN', '0.30'))
+HIGH_REACCUM_RR_GOOD_MIN = float(os.environ.get('CLOSING_BET_HIGH_REACCUM_RR_GOOD_MIN', '0.70'))
+HIGH_REACCUM_AMOUNT_GOOD_B = float(os.environ.get('CLOSING_BET_HIGH_REACCUM_AMOUNT_GOOD_B', '100.0'))
+HIGH_REACCUM_TODAY_VOL_GOOD = float(os.environ.get('CLOSING_BET_HIGH_REACCUM_TODAY_VOL_GOOD', '1.50'))
+HIGH_REACCUM_VOLUME_DRY_MAX = float(os.environ.get('CLOSING_BET_HIGH_REACCUM_VOLUME_DRY_MAX', '0.85'))
+HIGH_REACCUM_VOLUME_NORMAL_MAX = float(os.environ.get('CLOSING_BET_HIGH_REACCUM_VOLUME_NORMAL_MAX', '1.20'))
 
 # B2용 BB 기준
 BB40_NEAR_PCT = 2.5
@@ -1498,6 +1505,7 @@ def _evaluate_high_reaccum_signal(df: pd.DataFrame) -> dict:
 
         row = df.iloc[-1]
         info = _base_info(row, df)
+        amount_b = _safe_float(info.get('amount_b', 0), 0.0)
         close = info['_close']
         open_p = info['_open']
         high = info['_high']
@@ -1561,6 +1569,12 @@ def _evaluate_high_reaccum_signal(df: pd.DataFrame) -> dict:
             and ma50_slope10 >= -1.5
         )
         cooling = HIGH_REACCUM_RSI_MIN <= rsi <= HIGH_REACCUM_RSI_MAX
+        if vma5_20_ratio <= HIGH_REACCUM_VOLUME_DRY_MAX:
+            volume_state = '응축'
+        elif vma5_20_ratio <= HIGH_REACCUM_VOLUME_NORMAL_MAX:
+            volume_state = '보통'
+        else:
+            volume_state = '재증가'
         volume_compression = bool(vma20 > 0 and vma5_20_ratio <= HIGH_REACCUM_VMA5_20_MAX and today_vol_ratio >= HIGH_REACCUM_TODAY_VOL_MIN)
         high_close = bool(
             close_loc_pct >= HIGH_REACCUM_CLOSE_LOC_MIN
@@ -1597,7 +1611,7 @@ def _evaluate_high_reaccum_signal(df: pd.DataFrame) -> dict:
         if cooling:
             score += 10; passed.append(f'⑤RSI식힘{rsi:.1f}')
         if volume_compression:
-            score += 10; passed.append(f'⑥거래량응축{vma5_20_ratio:.2f}')
+            score += 8; passed.append(f'⑥거래량상태:{volume_state}{vma5_20_ratio:.2f}')
         if obv_alive:
             score += 10; passed.append('⑦OBV유지')
         if high_close:
@@ -1606,11 +1620,7 @@ def _evaluate_high_reaccum_signal(df: pd.DataFrame) -> dict:
             score += 10; passed.append('⑨전고점재도전권')
         if not_climax:
             score += 10; passed.append('⑩클라이맥스제외')
-        score = min(score, 100)
-
-        passed_gate = (fail == '') and score >= HIGH_REACCUM_SCORE_MIN
-        if not passed_gate and fail == '':
-            fail = 'score'
+        score_raw = score
 
         recent15_low = _safe_float(df['Low'].tail(15).min(), 0.0)
         stop_candidates = [x for x in [recent15_low, ma20] if x > 0]
@@ -1627,11 +1637,61 @@ def _evaluate_high_reaccum_signal(df: pd.DataFrame) -> dict:
         risk = close - stoploss
         rr = (target1 - close) / risk if risk > 0 and target1 > close else 0.0
 
+        # v2.7: S전략은 전고점이 너무 가까우면 실제 매매 기대값이 낮다.
+        # 그래서 RR/거래대금/당일 거래량/종가 위치로 최종 점수를 다시 보정한다.
+        score_adjust = 0
+        rr_flag = '양호'
+        if rr < HIGH_REACCUM_RR_EXCLUDE_MIN:
+            rr_flag = '제외권'
+            score_adjust -= 35
+        elif rr < 0.50:
+            rr_flag = '낮음'
+            score_adjust -= 18
+        elif rr < HIGH_REACCUM_RR_GOOD_MIN:
+            rr_flag = '보통하단'
+            score_adjust -= 8
+        elif rr >= 1.00:
+            rr_flag = '우수'
+            score_adjust += 8
+        else:
+            score_adjust += 3
+
+        if amount_b >= HIGH_REACCUM_AMOUNT_GOOD_B:
+            score_adjust += 4
+        elif amount_b < 50:
+            score_adjust -= 8
+        else:
+            score_adjust -= 3
+
+        if today_vol_ratio >= HIGH_REACCUM_TODAY_VOL_GOOD:
+            score_adjust += 4
+        elif today_vol_ratio < 1.0:
+            score_adjust -= 4
+
+        if close_loc_pct >= 85:
+            score_adjust += 4
+        if upper_wick_range_pct <= 15:
+            score_adjust += 3
+
+        # 고점에 거의 붙어 있는데 1차 목표가가 너무 가까우면 TOP5에서 후순위/제외되도록 감점
+        if near_high120 >= 98.0 and rr < 0.50:
+            score_adjust -= 12
+
+        final_score = max(0, min(100, score_raw + score_adjust))
+        if fail == '' and rr < HIGH_REACCUM_RR_EXCLUDE_MIN:
+            fail = 'rr'
+
+        passed_gate = (fail == '') and final_score >= HIGH_REACCUM_SCORE_MIN
+        if not passed_gate and fail == '':
+            fail = 'score'
+
         return {
             'pass': bool(passed_gate),
             'fail': fail,
-            'score': round(score, 1),
-            'grade': '완전체' if score >= 90 else ('✅A급' if score >= 80 else 'B급'),
+            'score': round(final_score, 1),
+            'score_raw': round(score_raw, 1),
+            'score_adjust': round(score_adjust, 1),
+            'grade': '완전체' if final_score >= 90 else ('✅A급' if final_score >= 80 else 'B급'),
             'passed': passed,
             'runup120': round(runup120, 1),
             'near_high120': round(near_high120, 1),
@@ -1640,6 +1700,7 @@ def _evaluate_high_reaccum_signal(df: pd.DataFrame) -> dict:
             'ma50_slope10': round(ma50_slope10, 2),
             'rsi': round(rsi, 1),
             'vma5_20_ratio': round(vma5_20_ratio, 2),
+            'volume_state': volume_state,
             'today_vol_ratio': round(today_vol_ratio, 2),
             'obv_alive': int(bool(obv_alive)),
             'close_loc_pct': round(close_loc_pct, 1),
@@ -1650,6 +1711,7 @@ def _evaluate_high_reaccum_signal(df: pd.DataFrame) -> dict:
             'target1': round(target1),
             'target2': round(target2),
             'rr': round(rr, 2),
+            'rr_flag': rr_flag,
             'high120': round(high120),
             'past_high20': round(past_high20),
             'high_close_rule': f'종가위치 {close_loc_pct:.0f}% / 윗꼬리 {upper_wick_range_pct:.0f}%',
@@ -1700,6 +1762,7 @@ def _check_high_reaccum_shooting_bet(code: str, name: str) -> dict | None:
                 'close_strength': 'S_close_strength',
                 'climax': 'S_climax',
                 'score': 'S_score',
+                'rr': 'S_score',
                 'no_df': 'S_no_df',
             }.get(fail, 'S_score')
             with DIAG_LOCK:
@@ -1751,6 +1814,7 @@ def _check_high_reaccum_shooting_bet(code: str, name: str) -> dict | None:
             'close_loc_pct': sig.get('close_loc_pct', 0),
             'upper_wick_range_pct': sig.get('upper_wick_range_pct', 0),
             'vma5_20_ratio': sig.get('vma5_20_ratio', 0),
+            'volume_state': sig.get('volume_state', ''),
             'today_vol_ratio': sig.get('today_vol_ratio', 0),
             'obv_alive': sig.get('obv_alive', 0),
             'rsi': sig.get('rsi', 0),
@@ -1760,6 +1824,9 @@ def _check_high_reaccum_shooting_bet(code: str, name: str) -> dict | None:
             'target1': sig.get('target1', 0),
             'target2': sig.get('target2', 0),
             'rr': sig.get('rr', 0),
+            'rr_flag': sig.get('rr_flag', ''),
+            'score_raw': sig.get('score_raw', 0),
+            'score_adjust': sig.get('score_adjust', 0),
             'stop_logic': sig.get('stop_logic', ''),
             'initial_stop_rule': sig.get('initial_stop_rule', ''),
             'high_close_rule': sig.get('high_close_rule', ''),
@@ -2924,7 +2991,16 @@ def _format_hit(hit: dict, rank: int = 0, mins_left: int = 0) -> str:
     close_loc_pct = _safe_float(_g("close_loc_pct", default=0), 0.0)
     upper_wick_range_pct = _safe_float(_g("upper_wick_range_pct", default=0), 0.0)
     vma5_20_ratio = _safe_float(_g("vma5_20_ratio", default=0), 0.0)
+    volume_state = str(_g("volume_state", default="")).strip()
+    if not volume_state:
+        if vma5_20_ratio <= HIGH_REACCUM_VOLUME_DRY_MAX:
+            volume_state = '응축'
+        elif vma5_20_ratio <= HIGH_REACCUM_VOLUME_NORMAL_MAX:
+            volume_state = '보통'
+        else:
+            volume_state = '재증가'
     today_vol_ratio = _safe_float(_g("today_vol_ratio", default=0), 0.0)
+    rr_flag = str(_g("rr_flag", default="")).strip()
     target2 = _safe_float(_g("target2", default=0), 0.0)
     stop_logic = str(_g("stop_logic", default="")).strip()
     high_close_rule = str(_g("high_close_rule", default="")).strip()
@@ -2993,6 +3069,25 @@ def _format_hit(hit: dict, rank: int = 0, mins_left: int = 0) -> str:
     lines.append(head)
     lines.append(f"   현재가 {int(close):,}원 | 점수 {score:.1f} | 거래량비 {vol_ratio_text} | 거래대금 {amount_text}")
 
+    # v2.7: 고점재응축(S)은 텔레그램 길이를 줄이고, RR/진입조건 중심으로 압축 출력
+    if mode_label == "고점재응축":
+        ref_bits = []
+        if recommended_band:
+            ref_bits.append(f"참고 {recommended_band}")
+        if support_band and support_band != recommended_band:
+            ref_bits.append(f"보조 {support_band}")
+        ref_text = " · ".join(ref_bits)
+        basis = "고점권 재응축+종가고점마감" + (f" / {ref_text}" if ref_text else "")
+        lines.append(f"   기준: {basis}")
+        lines.append(f"   핵심: 120일 {runup120:+.1f}% 상승 후 고점대비 -{pullback_from_high:.1f}% | 고점근접 {near_high120:.1f}%")
+        lines.append(f"   종가: 캔들상단 {close_loc_pct:.0f}% 마감 / 윗꼬리 {upper_wick_range_pct:.0f}% | 거래량상태 {volume_state}(VMA5/VMA20 {vma5_20_ratio:.2f})")
+        if stoploss > 0:
+            rr_txt = f"RR {rr:.2f}" + (f"({rr_flag})" if rr_flag else "")
+            lines.append(f"   진입/손절: 종가상단 유지·전고점 재돌파 확인 | 손절 {int(stoploss):,}원 종가이탈 | {rr_txt}")
+        caution = "RR 낮음 — 전고점 돌파 확인 전 신규진입 보수" if rr < HIGH_REACCUM_RR_GOOD_MIN else "고점권 2차 슈팅 후보 — 실패 시 손절선 엄수"
+        lines.append(f"   주의: {caution}")
+        return "\n".join(lines)
+
     if recommended_band:
         if mode_label == "ENV엄격형":
             band_line = "   밴드: 전략밴드 ENV20&ENV40"
@@ -3044,7 +3139,7 @@ def _format_hit(hit: dict, rank: int = 0, mins_left: int = 0) -> str:
     elif mode_label == "고점재응축":
         lines.append("   쉬운설명: 이미 크게 오른 뒤에도 고점 부근에서 무너지지 않고, 종가가 캔들 위쪽에서 잠긴 2차 슈팅 후보입니다.")
         lines.append(f"   2차슈팅조건: 120일상승 {runup120:+.1f}% | 고점근접 {near_high120:.1f}% | 고점대비하락 {pullback_from_high:.1f}%")
-        lines.append(f"   종가확인: 종가위치 {close_loc_pct:.0f}% | 윗꼬리 {upper_wick_range_pct:.0f}% | 거래량응축 VMA5/VMA20 {vma5_20_ratio:.2f} | 당일거래량 {today_vol_ratio:.2f}배")
+        lines.append(f"   종가확인: 종가위치 {close_loc_pct:.0f}% | 윗꼬리 {upper_wick_range_pct:.0f}% | 거래량상태 {volume_state}(VMA5/VMA20 {vma5_20_ratio:.2f}) | 당일거래량 {today_vol_ratio:.2f}배")
         if stoploss > 0:
             lines.append(f"   손절/목표: 손절 {int(stoploss):,}원 | 1차목표 {int(target1):,}원 | 2차목표 {int(target2):,}원 | RR {rr:.2f}")
         if stop_logic:
@@ -3726,6 +3821,17 @@ def _send_results(hits: list, mins_left: int):
             -_safe_float(h.get("amount_b", 0), 0.0),
         )
 
+    def _priority_s(h):
+        gc = _grade_core(h)
+        g_rank = 0 if gc == "COMPLETE" else (1 if gc == "A" else 2)
+        return (
+            g_rank,
+            -_safe_score(h),
+            -_safe_float(h.get("rr", 0), 0.0),
+            -_safe_float(h.get("amount_b", 0), 0.0),
+            -_safe_float(h.get("vol_ratio", h.get("volume_ratio", 0)), 0.0),
+        )
+
     hits_g = [x for x in hits if _pick_strategy(x) == "G"]
     hits_s = [x for x in hits if _pick_strategy(x) == "S"]
     hits_a = [x for x in hits if _pick_strategy(x) == "A"]
@@ -3734,7 +3840,7 @@ def _send_results(hits: list, mins_left: int):
     hits_c = [x for x in hits if _pick_strategy(x) == "C"]
 
     hits_g.sort(key=_priority)
-    hits_s.sort(key=_priority)
+    hits_s.sort(key=_priority_s)
     hits_a.sort(key=_priority)
     hits_b1.sort(key=_priority)
     hits_b2.sort(key=_priority)
