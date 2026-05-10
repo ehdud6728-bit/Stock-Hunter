@@ -30,11 +30,11 @@ name: 종가배팅 스캐너
       backtest_months:
         description: 'backtest 모드: 최근 몇 개월 검증. 주 단위 검증을 쓸 때는 0으로 둬도 됩니다'
         required: false
-        default: '6'
+        default: '0'
       backtest_weeks:
         description: 'backtest 모드: 최근 몇 주 검증. 0이면 개월 단위 사용, 1이면 최근 1주만 빠른 검증'
         required: false
-        default: '0'
+        default: '1'
       backtest_hold_days:
         description: 'backtest 모드: 보유/검증 거래일 수'
         required: false
@@ -62,7 +62,7 @@ name: 종가배팅 스캐너
       backtest_core_only:
         description: 'backtest 모드: 핵심군(S2+S1우수+A강한)만 검증'
         required: false
-        default: 'false'
+        default: 'true'
         type: choice
         options:
           - 'true'
