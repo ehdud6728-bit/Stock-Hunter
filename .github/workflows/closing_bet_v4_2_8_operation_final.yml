@@ -1,0 +1,354 @@
+name: 종가배팅 스캐너 v4.2.8 OperationFinal S/G/H
+
+"on":
+  schedule:
+    # KST 14:50, 15:00, 15:10, 15:20 = UTC 05:50, 06:00, 06:10, 06:20
+    - cron: '50 5 * * 1-5'   # KST 14:50
+    - cron: '0 6 * * 1-5'    # KST 15:00
+    - cron: '10 6 * * 1-5'   # KST 15:10
+    - cron: '20 6 * * 1-5'   # KST 15:20
+
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: '실행 모드: scan=종가배팅 스캔, backtest=성과검증, eval=기존 후보 평가/요약'
+        required: true
+        default: 'scan'
+        type: choice
+        options:
+          - scan
+          - backtest
+          - eval
+      force:
+        description: 'scan 모드에서 시간 무관 강제 실행'
+        required: false
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+      backtest_months:
+        description: 'backtest 모드: 최근 몇 개월 검증. 주 단위 검증을 쓸 때는 0으로 둬도 됩니다'
+        required: false
+        default: '6'
+      backtest_weeks:
+        description: 'backtest 모드: 최근 몇 주 검증. 0이면 개월 단위 사용, 1이면 최근 1주만 빠른 검증'
+        required: false
+        default: '0'
+      backtest_hold_days:
+        description: 'backtest 모드: 보유/검증 거래일 수'
+        required: false
+        default: '10'
+      backtest_top_per_strategy:
+        description: 'backtest 모드: 날짜별 전략별 TOP N'
+        required: false
+        default: '5'
+      backtest_all_candidates:
+        description: 'backtest 모드: TOP 제한 없이 전체 후보 검증. H v4.2.8 매트릭스 테스트는 true 권장'
+        required: false
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+      backtest_weekly:
+        description: 'backtest 모드: 주차별 요약 포함'
+        required: false
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+      backtest_debug:
+        description: 'backtest 모드: 0건 원인 진단 출력'
+        required: false
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+      backtest_core_only:
+        description: 'backtest 모드: S-CORE(S1우수응축+S2)만 검증'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+      backtest_safe_only:
+        description: 'backtest 모드: S-CORE SAFE(RR 1.0~1.5·거래량비<1.5·종가위치70%+)만 검증'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+      backtest_neutral_only:
+        description: 'backtest 모드: S-CORE NEUTRAL(SAFE/RISK 제외 중립군)만 검증'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+      backtest_risk_only:
+        description: 'backtest 모드: S-CORE RISK(위험태그 후보)만 검증'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+      backtest_g_only:
+        description: 'backtest 모드: G 모랄레스갭만 검증'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+      backtest_h_only:
+        description: 'backtest 모드: H 신고가거자름 TRIANGLE/CORE/VOL분류만 검증'
+        required: false
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+      backtest_c_only:
+        description: 'backtest 모드: C 역매공파만 검증'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+      backtest_c_swing_only:
+        description: 'backtest 모드: C-SWING 전체만 검증'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+      backtest_c_strict_only:
+        description: 'backtest 모드: C 엄격형만 검증'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+      backtest_c_pullback_only:
+        description: 'backtest 모드: C 눌림재상승형만 검증'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+      send_backtest_summary:
+        description: 'backtest 모드: 텔레그램 요약 전송'
+        required: false
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+      show_risk_details:
+        description: 'scan 모드: RISK 후보 상세 표시. 기본 false면 RISK는 개수/사유만 표시'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+      show_h_diag:
+        description: 'scan 모드: H 일반/과열/구조부족 후보 상세 표시. 기본 false면 H 핵심 후보만 표시'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+jobs:
+  closing-bet:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: 코드 체크아웃
+        uses: actions/checkout@v4
+
+      - name: Python 설정
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 의존성 설치
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas numpy yfinance pykrx finance-datareader beautifulsoup4 requests lxml html5lib mplfinance ta openai anthropic gspread oauth2client scipy feedparser
+
+      - name: 종가배팅 스캔 / 성과검증
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_CLOSEBET_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_DYUL_CHAT_ID }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GOOGLE_JSON_KEY: ${{ secrets.GOOGLE_JSON_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          DART_API_KEY: ${{ secrets.DART_API_KEY }}
+          KRX_ID: ${{ secrets.KRX_DATA_ID }}
+          KRX_PW: ${{ secrets.KRX_DATA_PW }}
+          REPORT_PUBLIC_DIR: docs
+          REPORT_BASE_URL: https://ehdud6728-bit.github.io/Stock-Hunter
+          STRICT_FAKE_FILTER: "1"
+          CLOSING_BET_SHOW_RISK_DETAILS: ${{ github.event.inputs.show_risk_details }}
+          CLOSING_BET_SHOW_H_DIAG: ${{ github.event.inputs.show_h_diag }}
+          CLOSING_BET_SHOW_H_FAST: "1"
+
+          # v2.4+ 안정화 옵션
+          CLOSING_BET_MAX_WORKERS: "12"
+          CLOSING_BET_FUTURES_TIMEOUT: "540"
+
+          # v3.0 백테스트 데이터 안정화
+          # auto = FDR 실패 시 pykrx → Naver 순서로 fallback
+          CLOSING_BET_BACKTEST_DATA_SOURCE: "auto"
+          # 주 단위 성과검증은 다음 N거래일 데이터가 필요하므로 평가 가능한 과거 주간으로 자동 보정
+          CLOSING_BET_BACKTEST_AUTO_EVALUABLE_END: "1"
+
+          # v4.2.8 S/G/H 통합 실시간 출력 + H 진단 표시 여부는 workflow_dispatch 입력으로 제어
+
+        run: |
+          MODE="${{ github.event.inputs.mode }}"
+          FORCE="${{ github.event.inputs.force }}"
+          BACKTEST_MONTHS="${{ github.event.inputs.backtest_months }}"
+          BACKTEST_WEEKS="${{ github.event.inputs.backtest_weeks }}"
+          BACKTEST_HOLD_DAYS="${{ github.event.inputs.backtest_hold_days }}"
+          BACKTEST_TOP_PER_STRATEGY="${{ github.event.inputs.backtest_top_per_strategy }}"
+          BACKTEST_ALL_CANDIDATES="${{ github.event.inputs.backtest_all_candidates }}"
+          BACKTEST_WEEKLY="${{ github.event.inputs.backtest_weekly }}"
+          BACKTEST_DEBUG="${{ github.event.inputs.backtest_debug }}"
+          BACKTEST_CORE_ONLY="${{ github.event.inputs.backtest_core_only }}"
+          BACKTEST_SAFE_ONLY="${{ github.event.inputs.backtest_safe_only }}"
+          BACKTEST_NEUTRAL_ONLY="${{ github.event.inputs.backtest_neutral_only }}"
+          BACKTEST_RISK_ONLY="${{ github.event.inputs.backtest_risk_only }}"
+          BACKTEST_G_ONLY="${{ github.event.inputs.backtest_g_only }}"
+          BACKTEST_H_ONLY="${{ github.event.inputs.backtest_h_only }}"
+          BACKTEST_C_ONLY="${{ github.event.inputs.backtest_c_only }}"
+          BACKTEST_C_SWING_ONLY="${{ github.event.inputs.backtest_c_swing_only }}"
+          BACKTEST_C_STRICT_ONLY="${{ github.event.inputs.backtest_c_strict_only }}"
+          BACKTEST_C_PULLBACK_ONLY="${{ github.event.inputs.backtest_c_pullback_only }}"
+          SEND_BACKTEST_SUMMARY="${{ github.event.inputs.send_backtest_summary }}"
+
+          # schedule 실행은 github.event.inputs 값이 비어 있으므로 기본값 보정
+          if [ -z "$MODE" ]; then MODE="scan"; fi
+          if [ -z "$FORCE" ]; then FORCE="false"; fi
+          if [ -z "$BACKTEST_MONTHS" ]; then BACKTEST_MONTHS="6"; fi
+          if [ -z "$BACKTEST_WEEKS" ]; then BACKTEST_WEEKS="0"; fi
+          if [ -z "$BACKTEST_HOLD_DAYS" ]; then BACKTEST_HOLD_DAYS="5"; fi
+          if [ -z "$BACKTEST_TOP_PER_STRATEGY" ]; then BACKTEST_TOP_PER_STRATEGY="5"; fi
+          if [ -z "$BACKTEST_ALL_CANDIDATES" ]; then BACKTEST_ALL_CANDIDATES="false"; fi
+          if [ -z "$BACKTEST_WEEKLY" ]; then BACKTEST_WEEKLY="true"; fi
+          if [ -z "$BACKTEST_DEBUG" ]; then BACKTEST_DEBUG="true"; fi
+          if [ -z "$BACKTEST_CORE_ONLY" ]; then BACKTEST_CORE_ONLY="false"; fi
+          if [ -z "$BACKTEST_SAFE_ONLY" ]; then BACKTEST_SAFE_ONLY="false"; fi
+          if [ -z "$BACKTEST_NEUTRAL_ONLY" ]; then BACKTEST_NEUTRAL_ONLY="false"; fi
+          if [ -z "$BACKTEST_RISK_ONLY" ]; then BACKTEST_RISK_ONLY="false"; fi
+          if [ -z "$BACKTEST_G_ONLY" ]; then BACKTEST_G_ONLY="false"; fi
+          if [ -z "$BACKTEST_H_ONLY" ]; then BACKTEST_H_ONLY="false"; fi
+          if [ -z "$BACKTEST_C_ONLY" ]; then BACKTEST_C_ONLY="false"; fi
+          if [ -z "$BACKTEST_C_SWING_ONLY" ]; then BACKTEST_C_SWING_ONLY="false"; fi
+          if [ -z "$BACKTEST_C_STRICT_ONLY" ]; then BACKTEST_C_STRICT_ONLY="false"; fi
+          if [ -z "$BACKTEST_C_PULLBACK_ONLY" ]; then BACKTEST_C_PULLBACK_ONLY="false"; fi
+          if [ -z "$SEND_BACKTEST_SUMMARY" ]; then SEND_BACKTEST_SUMMARY="true"; fi
+
+          echo "MODE=$MODE"
+          echo "FORCE=$FORCE"
+          echo "BACKTEST_MONTHS=$BACKTEST_MONTHS"
+          echo "BACKTEST_WEEKS=$BACKTEST_WEEKS"
+          echo "BACKTEST_HOLD_DAYS=$BACKTEST_HOLD_DAYS"
+          echo "BACKTEST_TOP_PER_STRATEGY=$BACKTEST_TOP_PER_STRATEGY"
+          echo "BACKTEST_ALL_CANDIDATES=$BACKTEST_ALL_CANDIDATES"
+          echo "BACKTEST_WEEKLY=$BACKTEST_WEEKLY"
+          echo "BACKTEST_DEBUG=$BACKTEST_DEBUG"
+          echo "BACKTEST_CORE_ONLY=$BACKTEST_CORE_ONLY"
+          echo "BACKTEST_SAFE_ONLY=$BACKTEST_SAFE_ONLY"
+          echo "BACKTEST_NEUTRAL_ONLY=$BACKTEST_NEUTRAL_ONLY"
+          echo "BACKTEST_RISK_ONLY=$BACKTEST_RISK_ONLY"
+          echo "BACKTEST_G_ONLY=$BACKTEST_G_ONLY"
+          echo "BACKTEST_H_ONLY=$BACKTEST_H_ONLY"
+          echo "BACKTEST_C_ONLY=$BACKTEST_C_ONLY"
+          echo "BACKTEST_C_SWING_ONLY=$BACKTEST_C_SWING_ONLY"
+          echo "BACKTEST_C_STRICT_ONLY=$BACKTEST_C_STRICT_ONLY"
+          echo "BACKTEST_C_PULLBACK_ONLY=$BACKTEST_C_PULLBACK_ONLY"
+          echo "SEND_BACKTEST_SUMMARY=$SEND_BACKTEST_SUMMARY"
+
+          if [ "$MODE" = "backtest" ]; then
+            if [ "$BACKTEST_WEEKS" != "0" ] && [ -n "$BACKTEST_WEEKS" ]; then
+              CMD="python Closing_bet_scanner_v2.py --backtest-weeks $BACKTEST_WEEKS --backtest-hold-days $BACKTEST_HOLD_DAYS --backtest-top-per-strategy $BACKTEST_TOP_PER_STRATEGY"
+            else
+              CMD="python Closing_bet_scanner_v2.py --backtest-months $BACKTEST_MONTHS --backtest-hold-days $BACKTEST_HOLD_DAYS --backtest-top-per-strategy $BACKTEST_TOP_PER_STRATEGY"
+            fi
+            if [ "$BACKTEST_ALL_CANDIDATES" = "true" ]; then
+              CMD="$CMD --backtest-all-candidates"
+            fi
+            if [ "$BACKTEST_WEEKLY" = "true" ]; then
+              CMD="$CMD --backtest-weekly"
+            fi
+            if [ "$BACKTEST_DEBUG" = "true" ]; then
+              CMD="$CMD --backtest-debug"
+            fi
+            # 전략별 단독 검증 옵션은 한 번에 하나만 적용됩니다. 위쪽 옵션일수록 우선순위가 높습니다.
+            if [ "$BACKTEST_H_ONLY" = "true" ]; then
+              CMD="$CMD --backtest-h-only"
+            elif [ "$BACKTEST_G_ONLY" = "true" ]; then
+              CMD="$CMD --backtest-g-only"
+            elif [ "$BACKTEST_C_PULLBACK_ONLY" = "true" ]; then
+              CMD="$CMD --backtest-c-pullback-only"
+            elif [ "$BACKTEST_C_STRICT_ONLY" = "true" ]; then
+              CMD="$CMD --backtest-c-strict-only"
+            elif [ "$BACKTEST_C_SWING_ONLY" = "true" ]; then
+              CMD="$CMD --backtest-c-swing-only"
+            elif [ "$BACKTEST_C_ONLY" = "true" ]; then
+              CMD="$CMD --backtest-c-only"
+            elif [ "$BACKTEST_SAFE_ONLY" = "true" ]; then
+              CMD="$CMD --backtest-safe-only"
+            elif [ "$BACKTEST_NEUTRAL_ONLY" = "true" ]; then
+              CMD="$CMD --backtest-neutral-only"
+            elif [ "$BACKTEST_RISK_ONLY" = "true" ]; then
+              CMD="$CMD --backtest-risk-only"
+            elif [ "$BACKTEST_CORE_ONLY" = "true" ]; then
+              CMD="$CMD --backtest-core-only"
+            fi
+            if [ "$SEND_BACKTEST_SUMMARY" = "true" ]; then
+              CMD="$CMD --send-backtest-summary"
+            fi
+            echo "RUN: $CMD"
+            eval "$CMD"
+
+          elif [ "$MODE" = "eval" ]; then
+            CMD="python Closing_bet_scanner_v2.py --eval-pending --summary --send-summary --force"
+            echo "RUN: $CMD"
+            eval "$CMD"
+
+          else
+            if [ "$FORCE" = "true" ]; then
+              CMD="python Closing_bet_scanner_v2.py --force"
+            else
+              CMD="python Closing_bet_scanner_v2.py"
+            fi
+            echo "RUN: $CMD"
+            eval "$CMD"
+          fi
+
+      - name: 백테스트 결과 파일 업로드
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: closing-bet-logs
+          path: closing_bet_logs/
+          if-no-files-found: ignore
