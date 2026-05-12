@@ -1,0 +1,393 @@
+name: Run Main Scanner
+
+on:
+  schedule:
+    # 한국시간 평일 오전 8:52
+    - cron: '52 21 * * 0-4'
+    # 한국시간 평일 오후 2:52
+    - cron: '52 05 * * 1-5'
+  workflow_dispatch:
+    inputs:
+      run_profile:
+        description: "실행 프로필 선택"
+        required: true
+        default: TEST_FAST
+        type: choice
+        options:
+          - REAL_FULL
+          - TEST_FULL
+          - TEST_FAST
+          - WEEKLY_BACKTEST
+      backtest_source:
+        description: "성과검증 방식 선택"
+        required: false
+        default: DIRECT_REPLAY
+        type: choice
+        options:
+          - DIRECT_REPLAY
+          - CSV_CACHE
+      direct_top_n:
+        description: "직접 재현검증 universe 크기"
+        required: false
+        default: "150"
+        type: string
+      direct_limit_per_date:
+        description: "직접 재현검증 기준일별 TOP 후보 수"
+        required: false
+        default: "15"
+        type: string
+      test_chat_id_override:
+        description: "테스트 채널 ID 직접 입력 (선택)"
+        required: false
+        default: "8325973023"
+        type: string
+      backtest_weeks:
+        description: "V1080 성과검증 주차 수"
+        required: false
+        default: "8"
+        type: string
+      backtest_hold_days:
+        description: "성과검증 보유 평가일(추천 10: 1/3/5/10일 분석)"
+        required: false
+        default: "10"
+        type: string
+      backtest_stop_pct:
+        description: "고정 손절 기준(%), fallback 또는 비교용"
+        required: false
+        default: "-5"
+        type: string
+      backtest_stop_mode:
+        description: "V1082 성과검증 손절 기준 선택"
+        required: false
+        default: SIGNAL_STOP_WITH_FALLBACK
+        type: choice
+        options:
+          - FIXED_PCT
+          - SIGNAL_STOP
+          - SIGNAL_STOP_WITH_FALLBACK
+          - BOTH_COMPARE
+      signal_csv_path:
+        description: "V1080 신호 누적 CSV 경로"
+        required: false
+        default: "reports/v1080_stockhunter_signals.csv"
+        type: string
+      backtest_output_mode:
+        description: "V1080 성과검증 결과 출력 방식"
+        required: false
+        default: BOTH
+        type: choice
+        options:
+          - FILE
+          - TELEGRAM
+          - BOTH
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  run-scanner:
+    runs-on: ubuntu-latest
+    env:
+      TZ: Asia/Seoul
+      TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+      TELEGRAM_BACKTEST_TOKEN: ${{ secrets.TELEGRAM_BACKTEST_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      TELEGRAM_TEST_CHAT_ID: ${{ secrets.TELEGRAM_TEST_CHAT_ID }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      DART_API_KEY: ${{ secrets.DART_API_KEY }}
+      GOOGLE_JSON_KEY: ${{ secrets.GOOGLE_JSON_KEY }}
+      KRX_ID: ${{ secrets.KRX_DATA_ID }}
+      KRX_PW: ${{ secrets.KRX_DATA_PW }}
+      REPORT_PUBLIC_DIR: docs
+      REPORT_BASE_URL: https://ehdud6728-bit.github.io/Stock-Hunter
+      STRICT_FAKE_FILTER: "1"
+      V1080_SIGNAL_CSV: reports/v1080_stockhunter_signals.csv
+      V1080_BACKTEST_WEEKS: "8"
+      V1080_BACKTEST_HOLD_DAYS: "10"
+      V1080_BACKTEST_STOP_PCT: "-5"
+      V1082_BACKTEST_STOP_MODE: SIGNAL_STOP_WITH_FALLBACK
+      V1083_BACKTEST_QUALITY_FIX: "1"
+      V1083_CALC_STRUCTURE_STOP: "1"
+      V1083_MIN_SAMPLE_WARN: "3"
+      V1084_DIRECT_REPORT_HOOK_FIX: "1"
+      V1084_FORCE_QUALITY_BLOCK: "1"
+      V1085_FINAL_DECISION_MAPPING_FIX: "1"
+      V1085_HIDE_LEGACY_QUALITY_BLOCKS: "1"
+      V1085_DROP_DEFAULT_AS_RAW: "1"
+      V1086_HOLD10_PATTERN_PERIOD: "1"
+      V1086_MAX_HOLD_DAYS: "10"
+      V1086_PATTERN_PERIOD_ANALYSIS: "1"
+      V1087_LIQUIDITY_COMPRESSION_PRIORITY: "1"
+      V1087_VOLUME_COMPRESSION_FIRST: "1"
+      V1087_LIQUIDITY_AS_FILTER_ONLY: "1"
+      V1088_REAL_OUTPUT_PRIORITY_APPLY: "1"
+      V1088_SORT_TOP15_BY_PRIORITY: "1"
+      V1088_LABEL_TOP15_LINES: "1"
+      V1088_LABEL_TODAY_ACTION: "1"
+      V1088_HIDE_LIQUIDITY_AS_STRENGTH: "1"
+      V1089_EXECUTION_GATE_PRIORITY_FIX: "1"
+      V1089_EXECUTION_GATE_FIRST: "1"
+      V1089_DEDUP_PRIORITY_LABELS: "1"
+      V1089_SORT_EXECUTABLE_FIRST: "1"
+      V1093_REAL_CANDIDATE_FILTER: "1"
+      V1093_FILTER_TOP15_CANDIDATES: "1"
+      V1093_FILTER_DIRECT_REPLAY: "1"
+      V1093_ALLOW_RECOVERY_IN_TOP15: "1"
+      V1093_ALLOW_OBSERVE_FILL: "0"
+      V1093_BACKTEST_REPORT_BLOCK: "1"
+      V1080_BACKTEST_OUTPUT_MODE: BOTH
+      V1080_BACKTEST_SAVE_FILE: "1"
+      V1080_BACKTEST_SEND_TELEGRAM: "1"
+      V1081_BACKTEST_SOURCE: DIRECT_REPLAY
+      V1081_DIRECT_TOP_N: "150"
+      V1081_DIRECT_LIMIT_PER_DATE: "15"
+      STOCKHUNTER_WEEKLY_BACKTEST_ONLY: "0"
+      PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/scanner
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve run profile
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            PROFILE="${{ inputs.run_profile }}"
+            TEST_CHAT_OVERRIDE="${{ inputs.test_chat_id_override }}"
+            BACKTEST_SOURCE="${{ inputs.backtest_source }}"
+            DIRECT_TOP_N="${{ inputs.direct_top_n }}"
+            DIRECT_LIMIT_PER_DATE="${{ inputs.direct_limit_per_date }}"
+            BACKTEST_WEEKS="${{ inputs.backtest_weeks }}"
+            BACKTEST_HOLD_DAYS="${{ inputs.backtest_hold_days }}"
+            BACKTEST_STOP_PCT="${{ inputs.backtest_stop_pct }}"
+            BACKTEST_STOP_MODE="${{ inputs.backtest_stop_mode }}"
+            SIGNAL_CSV_PATH="${{ inputs.signal_csv_path }}"
+            BACKTEST_OUTPUT_MODE="${{ inputs.backtest_output_mode }}"
+          else
+            PROFILE="REAL_FULL"
+            TEST_CHAT_OVERRIDE=""
+            BACKTEST_SOURCE="DIRECT_REPLAY"
+            DIRECT_TOP_N="150"
+            DIRECT_LIMIT_PER_DATE="15"
+            BACKTEST_WEEKS="8"
+            BACKTEST_HOLD_DAYS="10"
+            BACKTEST_STOP_PCT="-5"
+            BACKTEST_STOP_MODE="SIGNAL_STOP_WITH_FALLBACK"
+            SIGNAL_CSV_PATH="reports/v1080_stockhunter_signals.csv"
+            BACKTEST_OUTPUT_MODE="BOTH"
+          fi
+
+          if [ -z "${BACKTEST_SOURCE}" ]; then BACKTEST_SOURCE="DIRECT_REPLAY"; fi
+          BACKTEST_SOURCE="$(echo "${BACKTEST_SOURCE}" | tr '[:lower:]' '[:upper:]')"
+          case "${BACKTEST_SOURCE}" in
+            DIRECT_REPLAY|CSV_CACHE) ;;
+            *) BACKTEST_SOURCE="DIRECT_REPLAY" ;;
+          esac
+          if [ -z "${DIRECT_TOP_N}" ]; then DIRECT_TOP_N="150"; fi
+          if [ -z "${DIRECT_LIMIT_PER_DATE}" ]; then DIRECT_LIMIT_PER_DATE="15"; fi
+          if [ -z "${BACKTEST_WEEKS}" ]; then BACKTEST_WEEKS="8"; fi
+          if [ -z "${BACKTEST_HOLD_DAYS}" ]; then BACKTEST_HOLD_DAYS="10"; fi
+          if [ -z "${BACKTEST_STOP_PCT}" ]; then BACKTEST_STOP_PCT="-5"; fi
+          if [ -z "${BACKTEST_STOP_MODE}" ]; then BACKTEST_STOP_MODE="SIGNAL_STOP_WITH_FALLBACK"; fi
+          BACKTEST_STOP_MODE="$(echo "${BACKTEST_STOP_MODE}" | tr '[:lower:]' '[:upper:]')"
+          case "${BACKTEST_STOP_MODE}" in
+            FIXED_PCT|SIGNAL_STOP|SIGNAL_STOP_WITH_FALLBACK|BOTH_COMPARE) ;;
+            *) BACKTEST_STOP_MODE="SIGNAL_STOP_WITH_FALLBACK" ;;
+          esac
+          if [ -z "${SIGNAL_CSV_PATH}" ]; then SIGNAL_CSV_PATH="reports/v1080_stockhunter_signals.csv"; fi
+          if [ -z "${BACKTEST_OUTPUT_MODE}" ]; then BACKTEST_OUTPUT_MODE="BOTH"; fi
+          BACKTEST_OUTPUT_MODE="$(echo "${BACKTEST_OUTPUT_MODE}" | tr '[:lower:]' '[:upper:]')"
+          case "${BACKTEST_OUTPUT_MODE}" in
+            FILE|TELEGRAM|BOTH) ;;
+            *) BACKTEST_OUTPUT_MODE="BOTH" ;;
+          esac
+
+          echo "TEST_PROFILE=${PROFILE}" >> $GITHUB_ENV
+          echo "TELEGRAM_CHAT_ID_EFFECTIVE=${TEST_CHAT_OVERRIDE}" >> $GITHUB_ENV
+          echo "V1080_SIGNAL_CSV=${SIGNAL_CSV_PATH}" >> $GITHUB_ENV
+          echo "V1081_BACKTEST_SOURCE=${BACKTEST_SOURCE}" >> $GITHUB_ENV
+          echo "V1081_DIRECT_TOP_N=${DIRECT_TOP_N}" >> $GITHUB_ENV
+          echo "V1081_DIRECT_LIMIT_PER_DATE=${DIRECT_LIMIT_PER_DATE}" >> $GITHUB_ENV
+          echo "V1080_BACKTEST_WEEKS=${BACKTEST_WEEKS}" >> $GITHUB_ENV
+          echo "V1080_BACKTEST_HOLD_DAYS=${BACKTEST_HOLD_DAYS}" >> $GITHUB_ENV
+          echo "V1080_BACKTEST_STOP_PCT=${BACKTEST_STOP_PCT}" >> $GITHUB_ENV
+          echo "V1082_BACKTEST_STOP_MODE=${BACKTEST_STOP_MODE}" >> $GITHUB_ENV
+          echo "V1080_BACKTEST_OUTPUT_MODE=${BACKTEST_OUTPUT_MODE}" >> $GITHUB_ENV
+          echo "V1084_DIRECT_REPORT_HOOK_FIX=1" >> $GITHUB_ENV
+          echo "V1084_FORCE_QUALITY_BLOCK=1" >> $GITHUB_ENV
+          echo "V1088_REAL_OUTPUT_PRIORITY_APPLY=1" >> $GITHUB_ENV
+          echo "V1088_SORT_TOP15_BY_PRIORITY=1" >> $GITHUB_ENV
+          echo "V1088_LABEL_TOP15_LINES=1" >> $GITHUB_ENV
+          echo "V1088_LABEL_TODAY_ACTION=1" >> $GITHUB_ENV
+          echo "V1088_HIDE_LIQUIDITY_AS_STRENGTH=1" >> $GITHUB_ENV
+          echo "V1093_REAL_CANDIDATE_FILTER=1" >> $GITHUB_ENV
+          echo "V1093_FILTER_TOP15_CANDIDATES=1" >> $GITHUB_ENV
+          echo "V1093_FILTER_DIRECT_REPLAY=1" >> $GITHUB_ENV
+          echo "V1093_ALLOW_RECOVERY_IN_TOP15=1" >> $GITHUB_ENV
+          echo "V1093_ALLOW_OBSERVE_FILL=0" >> $GITHUB_ENV
+          echo "V1093_BACKTEST_REPORT_BLOCK=1" >> $GITHUB_ENV
+          case "${BACKTEST_OUTPUT_MODE}" in
+            FILE)
+              echo "V1080_BACKTEST_SAVE_FILE=1" >> $GITHUB_ENV
+              echo "V1080_BACKTEST_SEND_TELEGRAM=0" >> $GITHUB_ENV
+              ;;
+            TELEGRAM)
+              echo "V1080_BACKTEST_SAVE_FILE=0" >> $GITHUB_ENV
+              echo "V1080_BACKTEST_SEND_TELEGRAM=1" >> $GITHUB_ENV
+              ;;
+            BOTH)
+              echo "V1080_BACKTEST_SAVE_FILE=1" >> $GITHUB_ENV
+              echo "V1080_BACKTEST_SEND_TELEGRAM=1" >> $GITHUB_ENV
+              ;;
+          esac
+
+          case "${PROFILE}" in
+            REAL_FULL)
+              echo "TEST_MODE=0" >> $GITHUB_ENV
+              echo "SKIP_AI_IN_TEST=0" >> $GITHUB_ENV
+              echo "SKIP_CHART_IN_TEST=0" >> $GITHUB_ENV
+              echo "SKIP_GOOGLE_IN_TEST=0" >> $GITHUB_ENV
+              echo "STOCKHUNTER_WEEKLY_BACKTEST_ONLY=0" >> $GITHUB_ENV
+              ;;
+            TEST_FULL)
+              echo "TEST_MODE=1" >> $GITHUB_ENV
+              echo "SKIP_AI_IN_TEST=1" >> $GITHUB_ENV
+              echo "SKIP_CHART_IN_TEST=0" >> $GITHUB_ENV
+              echo "SKIP_GOOGLE_IN_TEST=0" >> $GITHUB_ENV
+              echo "STOCKHUNTER_WEEKLY_BACKTEST_ONLY=0" >> $GITHUB_ENV
+              ;;
+            TEST_FAST)
+              echo "TEST_MODE=1" >> $GITHUB_ENV
+              echo "SKIP_AI_IN_TEST=1" >> $GITHUB_ENV
+              echo "SKIP_CHART_IN_TEST=1" >> $GITHUB_ENV
+              echo "SKIP_GOOGLE_IN_TEST=1" >> $GITHUB_ENV
+              echo "STOCKHUNTER_WEEKLY_BACKTEST_ONLY=0" >> $GITHUB_ENV
+              ;;
+            WEEKLY_BACKTEST)
+              echo "TEST_MODE=1" >> $GITHUB_ENV
+              echo "SKIP_AI_IN_TEST=1" >> $GITHUB_ENV
+              echo "SKIP_CHART_IN_TEST=1" >> $GITHUB_ENV
+              echo "SKIP_GOOGLE_IN_TEST=1" >> $GITHUB_ENV
+              echo "STOCKHUNTER_WEEKLY_BACKTEST_ONLY=1" >> $GITHUB_ENV
+              ;;
+            *)
+              echo "TEST_PROFILE=REAL_FULL" >> $GITHUB_ENV
+              echo "TEST_MODE=0" >> $GITHUB_ENV
+              echo "SKIP_AI_IN_TEST=0" >> $GITHUB_ENV
+              echo "SKIP_CHART_IN_TEST=0" >> $GITHUB_ENV
+              echo "SKIP_GOOGLE_IN_TEST=0" >> $GITHUB_ENV
+              echo "STOCKHUNTER_WEEKLY_BACKTEST_ONLY=0" >> $GITHUB_ENV
+              ;;
+          esac
+
+      - name: Prepare report directories
+        run: |
+          mkdir -p reports docs
+
+      - name: Restore V1080 signal cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            reports/v1080_stockhunter_signals.csv
+          key: stockhunter-v1080-signals-${{ github.run_id }}
+          restore-keys: |
+            stockhunter-v1080-signals-
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Upgrade pip
+        run: python -m pip install --upgrade pip
+
+      - name: Install dependencies
+        run: |
+          pip install pandas
+          pip install requests beautifulsoup4 pytz scipy ta
+          pip install finance-datareader pykrx mplfinance
+          pip install openai google-generativeai
+          pip install gspread gspread-formatting gspread-dataframe google-auth oauth2client
+          pip install -r requirements.txt
+
+      - name: Show run mode
+        run: |
+          echo "TEST_PROFILE=${TEST_PROFILE}"
+          echo "TEST_MODE=${TEST_MODE}"
+          echo "SKIP_AI_IN_TEST=${SKIP_AI_IN_TEST}"
+          echo "SKIP_CHART_IN_TEST=${SKIP_CHART_IN_TEST}"
+          echo "SKIP_GOOGLE_IN_TEST=${SKIP_GOOGLE_IN_TEST}"
+          echo "TELEGRAM_CHAT_ID_EFFECTIVE=${TELEGRAM_CHAT_ID_EFFECTIVE}"
+          echo "STOCKHUNTER_WEEKLY_BACKTEST_ONLY=${STOCKHUNTER_WEEKLY_BACKTEST_ONLY}"
+          echo "V1080_SIGNAL_CSV=${V1080_SIGNAL_CSV}"
+          echo "V1080_BACKTEST_WEEKS=${V1080_BACKTEST_WEEKS}"
+          echo "V1080_BACKTEST_HOLD_DAYS=${V1080_BACKTEST_HOLD_DAYS}"
+          echo "V1080_BACKTEST_STOP_PCT=${V1080_BACKTEST_STOP_PCT}"
+          echo "V1082_BACKTEST_STOP_MODE=${V1082_BACKTEST_STOP_MODE}"
+          echo "V1083_BACKTEST_QUALITY_FIX=${V1083_BACKTEST_QUALITY_FIX}"
+          echo "V1083_CALC_STRUCTURE_STOP=${V1083_CALC_STRUCTURE_STOP}"
+          echo "V1083_MIN_SAMPLE_WARN=${V1083_MIN_SAMPLE_WARN}"
+          echo "V1084_DIRECT_REPORT_HOOK_FIX=${V1084_DIRECT_REPORT_HOOK_FIX}"
+          echo "V1084_FORCE_QUALITY_BLOCK=${V1084_FORCE_QUALITY_BLOCK}"
+          echo "V1085_FINAL_DECISION_MAPPING_FIX=${V1085_FINAL_DECISION_MAPPING_FIX}"
+          echo "V1085_HIDE_LEGACY_QUALITY_BLOCKS=${V1085_HIDE_LEGACY_QUALITY_BLOCKS}"
+          echo "V1085_DROP_DEFAULT_AS_RAW=${V1085_DROP_DEFAULT_AS_RAW}"
+          echo "V1086_HOLD10_PATTERN_PERIOD=${V1086_HOLD10_PATTERN_PERIOD}"
+          echo "V1086_MAX_HOLD_DAYS=${V1086_MAX_HOLD_DAYS}"
+          echo "V1086_PATTERN_PERIOD_ANALYSIS=${V1086_PATTERN_PERIOD_ANALYSIS}"
+          echo "V1087_LIQUIDITY_COMPRESSION_PRIORITY=${V1087_LIQUIDITY_COMPRESSION_PRIORITY}"
+          echo "V1087_VOLUME_COMPRESSION_FIRST=${V1087_VOLUME_COMPRESSION_FIRST}"
+          echo "V1087_LIQUIDITY_AS_FILTER_ONLY=${V1087_LIQUIDITY_AS_FILTER_ONLY}"
+          echo "V1089_EXECUTION_GATE_PRIORITY_FIX=${V1089_EXECUTION_GATE_PRIORITY_FIX}"
+          echo "V1089_EXECUTION_GATE_FIRST=${V1089_EXECUTION_GATE_FIRST}"
+          echo "V1089_DEDUP_PRIORITY_LABELS=${V1089_DEDUP_PRIORITY_LABELS}"
+          echo "V1089_SORT_EXECUTABLE_FIRST=${V1089_SORT_EXECUTABLE_FIRST}"
+          echo "V1093_REAL_CANDIDATE_FILTER=${V1093_REAL_CANDIDATE_FILTER}"
+          echo "V1093_FILTER_TOP15_CANDIDATES=${V1093_FILTER_TOP15_CANDIDATES}"
+          echo "V1093_FILTER_DIRECT_REPLAY=${V1093_FILTER_DIRECT_REPLAY}"
+          echo "V1093_ALLOW_RECOVERY_IN_TOP15=${V1093_ALLOW_RECOVERY_IN_TOP15}"
+          echo "V1093_ALLOW_OBSERVE_FILL=${V1093_ALLOW_OBSERVE_FILL}"
+          echo "V1081_BACKTEST_SOURCE=${V1081_BACKTEST_SOURCE}"
+          echo "V1081_DIRECT_TOP_N=${V1081_DIRECT_TOP_N}"
+          echo "V1081_DIRECT_LIMIT_PER_DATE=${V1081_DIRECT_LIMIT_PER_DATE}"
+          echo "V1080_BACKTEST_OUTPUT_MODE=${V1080_BACKTEST_OUTPUT_MODE}"
+          echo "V1080_BACKTEST_SAVE_FILE=${V1080_BACKTEST_SAVE_FILE}"
+          echo "V1080_BACKTEST_SEND_TELEGRAM=${V1080_BACKTEST_SEND_TELEGRAM}"
+          if [ -n "${TELEGRAM_BACKTEST_TOKEN}" ]; then echo "TELEGRAM_BACKTEST_TOKEN_SET=1"; else echo "TELEGRAM_BACKTEST_TOKEN_SET=0"; fi
+
+      - name: Run scanner or weekly backtest
+        shell: bash
+        run: |
+          export PYTHONPATH="${GITHUB_WORKSPACE}:${GITHUB_WORKSPACE}/scanner:${PYTHONPATH}"
+          echo "PYTHONPATH=${PYTHONPATH}"
+          if [ "${STOCKHUNTER_WEEKLY_BACKTEST_ONLY}" = "1" ]; then
+            echo "🧪 V1093/V1089/V1088/V1087/V1086/V1085/V1084/V1083/V1082/V1081 weekly backtest mode | source=${V1081_BACKTEST_SOURCE}"
+            python scanner/legacy_main_patched.py --weekly-backtest
+          else
+            echo "🚀 Stock-Hunter scanner mode"
+            python main7_bugfix_2.py
+          fi
+
+      - name: Show generated report files
+        if: always()
+        run: |
+          echo "reports/"
+          find reports -maxdepth 2 -type f -print 2>/dev/null || true
+          echo "docs/"
+          find docs -maxdepth 2 -type f -print 2>/dev/null || true
+
+      - name: Upload V1080 reports artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-v1093-reports-${{ github.run_number }}
+          path: |
+            reports/**
+            docs/**
+          if-no-files-found: warn
+          retention-days: 30
