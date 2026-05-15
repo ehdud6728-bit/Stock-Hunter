@@ -1,0 +1,366 @@
+name: 종가배팅 스캐너 v4.3.6 I-MAIN Operation Output Validate 25 Inputs
+
+"on":
+  schedule:
+    # KST 14:50, 15:00, 15:10, 15:20 = UTC 05:50, 06:00, 06:10, 06:20
+    - cron: '50 5 * * 1-5'
+    - cron: '0 6 * * 1-5'
+    - cron: '10 6 * * 1-5'
+    - cron: '20 6 * * 1-5'
+
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: '실행 모드: scan=종가배팅 스캔, backtest=성과검증, eval=기존 후보 평가/요약'
+        required: true
+        default: 'scan'
+        type: choice
+        options:
+          - scan
+          - backtest
+          - eval
+      force:
+        description: 'scan 모드에서 시간 무관 강제 실행'
+        required: false
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+      backtest_months:
+        description: 'backtest 모드: 최근 몇 개월 검증. I-CORE는 18 권장'
+        required: false
+        default: '18'
+      backtest_weeks:
+        description: 'backtest 모드: 최근 몇 주 검증. 0이면 개월 단위 사용'
+        required: false
+        default: '0'
+      backtest_hold_days:
+        description: 'backtest 모드: 보유/검증 거래일 수. I-CORE는 60 권장'
+        required: false
+        default: '60'
+      backtest_top_per_strategy:
+        description: 'backtest 모드: 날짜별 전략별 TOP N'
+        required: false
+        default: '5'
+      backtest_all_candidates:
+        description: 'backtest 모드: TOP 제한 없이 전체 후보 검증'
+        required: false
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+      backtest_weekly:
+        description: 'backtest 모드: 주차별 요약 포함'
+        required: false
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+      backtest_debug:
+        description: 'backtest 모드: 0건 원인 진단 출력'
+        required: false
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+      strategy_only:
+        description: 'backtest 단독검증 전략 선택. 앞 코드는 내부값, 뒤 설명은 사람이 읽는 이름'
+        required: false
+        default: 'i_core__I-CORE_150/200일_시세분출'
+        type: choice
+        options:
+          - 'none__전체/일반실행'
+          - 'i_core__I-CORE_150/200일_시세분출'
+          - 'leader_gap__L-CORE_대형주_리더갭'
+          - 'h_watch__H-WATCH_신고가_눌림관찰'
+          - 'h__H-CORE_신고가거자름'
+          - 'g__G-SAFE_모랄레스갭'
+          - 'c_pullback__C_역매공파_눌림재진입'
+          - 'c_strict__C_역매공파_엄격형'
+          - 'c_swing__C_역매공파_스윙'
+          - 'c__C_역매공파_전체'
+          - 'safe__S-CORE_SAFE'
+          - 'neutral__S-CORE_NEUTRAL'
+          - 'risk__S-CORE_RISK'
+          - 'core__S-CORE_전체'
+      send_backtest_summary:
+        description: 'backtest 모드: 텔레그램 요약 전송'
+        required: false
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+      show_risk_details:
+        description: 'scan 모드: RISK 후보 상세 표시'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+      show_h_diag:
+        description: 'scan 모드: H 진단 후보 상세 표시'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+      i_core_fetch_krx_flow:
+        description: 'I-CORE: 외국인/기관 20일 수급 조회. 느릴 수 있어 false 권장'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+      i_core_min_score:
+        description: 'I-CORE: STRICT 최소 점수'
+        required: false
+        default: '78'
+      i_core_min_amount_b:
+        description: 'I-CORE: 최소 거래대금(억)'
+        required: false
+        default: '50'
+      i_core_main_only:
+        description: 'I-CORE MAIN: true면 MAIN 후보만 검증'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+      i_core_main_min_material:
+        description: 'I-CORE MAIN: 재료/거래대금 프록시 최소 점수'
+        required: false
+        default: '3'
+      i_core_main_long_min:
+        description: 'I-CORE MAIN: 장기선 이격 최소값(%)'
+        required: false
+        default: '-3'
+      i_core_main_long_max:
+        description: 'I-CORE MAIN: 장기선 이격 최대값(%)'
+        required: false
+        default: '18'
+      i_core_main_require_obv_amount:
+        description: 'I-CORE MAIN: OBV20 상승 + 20일 거래대금 재증가 필수 여부'
+        required: false
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+      i_core_regime_validate:
+        description: 'I-CORE: KOSPI/KOSDAQ 시장국면/초과수익 검증 포함'
+        required: false
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+      i_core_compare_kosdaq:
+        description: 'I-CORE: KOSDAQ 초과수익/선택벤치 보정도 함께 계산'
+        required: false
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  closing_bet:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+
+    steps:
+      - name: 코드 체크아웃
+        uses: actions/checkout@v4
+
+      - name: Python 설정
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 의존성 설치
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas numpy yfinance pykrx finance-datareader beautifulsoup4 requests lxml html5lib mplfinance ta openai anthropic gspread oauth2client scipy feedparser
+
+      - name: 종가배팅 스캔 / 성과검증
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_CLOSEBET_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_DYUL_CHAT_ID }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GOOGLE_JSON_KEY: ${{ secrets.GOOGLE_JSON_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          DART_API_KEY: ${{ secrets.DART_API_KEY }}
+          KRX_ID: ${{ secrets.KRX_DATA_ID }}
+          KRX_PW: ${{ secrets.KRX_DATA_PW }}
+          REPORT_PUBLIC_DIR: docs
+          REPORT_BASE_URL: https://ehdud6728-bit.github.io/Stock-Hunter
+          STRICT_FAKE_FILTER: '1'
+          CLOSING_BET_SHOW_H_FAST: '1'
+          CLOSING_BET_SHOW_I_MAIN: '1'
+          CLOSING_BET_SHOW_L_WATCH: '1'
+          CLOSING_BET_LEADER_GAP_WICK_REPORT: '1'
+          CLOSING_BET_LEADER_GAP_TAIL_ABSORB: '1'
+          CLOSING_BET_LEADER_GAP_MIN_AMOUNT_B: '3000'
+          CLOSING_BET_LEADER_GAP_CORE_AMOUNT_B: '5000'
+          CLOSING_BET_MAX_WORKERS: '12'
+          CLOSING_BET_FUTURES_TIMEOUT: '900'
+          CLOSING_BET_BACKTEST_DATA_SOURCE: auto
+          CLOSING_BET_BACKTEST_AUTO_EVALUABLE_END: '1'
+          I_CORE_MARKET_INDEX: KS11
+          I_CORE_KOSDAQ_INDEX: KQ11
+          I_CORE_MARKET_START: '2018-01-01'
+        run: |
+          MODE="${{ github.event.inputs.mode }}"
+          FORCE="${{ github.event.inputs.force }}"
+          BACKTEST_MONTHS="${{ github.event.inputs.backtest_months }}"
+          BACKTEST_WEEKS="${{ github.event.inputs.backtest_weeks }}"
+          BACKTEST_HOLD_DAYS="${{ github.event.inputs.backtest_hold_days }}"
+          BACKTEST_TOP_PER_STRATEGY="${{ github.event.inputs.backtest_top_per_strategy }}"
+          BACKTEST_ALL_CANDIDATES="${{ github.event.inputs.backtest_all_candidates }}"
+          BACKTEST_WEEKLY="${{ github.event.inputs.backtest_weekly }}"
+          BACKTEST_DEBUG="${{ github.event.inputs.backtest_debug }}"
+          STRATEGY_ONLY="${{ github.event.inputs.strategy_only }}"
+          SEND_BACKTEST_SUMMARY="${{ github.event.inputs.send_backtest_summary }}"
+          SHOW_RISK_DETAILS="${{ github.event.inputs.show_risk_details }}"
+          SHOW_H_DIAG="${{ github.event.inputs.show_h_diag }}"
+          I_CORE_FETCH_KRX_FLOW="${{ github.event.inputs.i_core_fetch_krx_flow }}"
+          I_CORE_MIN_SCORE="${{ github.event.inputs.i_core_min_score }}"
+          I_CORE_MIN_AMOUNT_B="${{ github.event.inputs.i_core_min_amount_b }}"
+          I_CORE_MAIN_ONLY="${{ github.event.inputs.i_core_main_only }}"
+          I_CORE_MAIN_MIN_MATERIAL="${{ github.event.inputs.i_core_main_min_material }}"
+          I_CORE_MAIN_LONG_MIN="${{ github.event.inputs.i_core_main_long_min }}"
+          I_CORE_MAIN_LONG_MAX="${{ github.event.inputs.i_core_main_long_max }}"
+          I_CORE_MAIN_REQUIRE_OBV_AMOUNT="${{ github.event.inputs.i_core_main_require_obv_amount }}"
+          I_CORE_REGIME_VALIDATE="${{ github.event.inputs.i_core_regime_validate }}"
+          I_CORE_COMPARE_KOSDAQ="${{ github.event.inputs.i_core_compare_kosdaq }}"
+
+          # schedule 실행 또는 빈 입력값 기본 보정
+          MODE="${MODE:-scan}"
+          FORCE="${FORCE:-false}"
+          BACKTEST_MONTHS="${BACKTEST_MONTHS:-18}"
+          BACKTEST_WEEKS="${BACKTEST_WEEKS:-0}"
+          BACKTEST_HOLD_DAYS="${BACKTEST_HOLD_DAYS:-60}"
+          BACKTEST_TOP_PER_STRATEGY="${BACKTEST_TOP_PER_STRATEGY:-5}"
+          BACKTEST_ALL_CANDIDATES="${BACKTEST_ALL_CANDIDATES:-true}"
+          BACKTEST_WEEKLY="${BACKTEST_WEEKLY:-true}"
+          BACKTEST_DEBUG="${BACKTEST_DEBUG:-true}"
+          STRATEGY_ONLY="${STRATEGY_ONLY:-i_core__I-CORE_150/200일_시세분출}"
+          STRATEGY_ONLY_RAW="$STRATEGY_ONLY"
+          STRATEGY_ONLY="${STRATEGY_ONLY%%__*}"
+          SEND_BACKTEST_SUMMARY="${SEND_BACKTEST_SUMMARY:-true}"
+          SHOW_RISK_DETAILS="${SHOW_RISK_DETAILS:-false}"
+          SHOW_H_DIAG="${SHOW_H_DIAG:-false}"
+          I_CORE_FETCH_KRX_FLOW="${I_CORE_FETCH_KRX_FLOW:-false}"
+          I_CORE_MIN_SCORE="${I_CORE_MIN_SCORE:-78}"
+          I_CORE_MIN_AMOUNT_B="${I_CORE_MIN_AMOUNT_B:-50}"
+          I_CORE_MAIN_ONLY="${I_CORE_MAIN_ONLY:-false}"
+          I_CORE_MAIN_MIN_MATERIAL="${I_CORE_MAIN_MIN_MATERIAL:-3}"
+          I_CORE_MAIN_LONG_MIN="${I_CORE_MAIN_LONG_MIN:--3}"
+          I_CORE_MAIN_LONG_MAX="${I_CORE_MAIN_LONG_MAX:-18}"
+          I_CORE_MAIN_REQUIRE_OBV_AMOUNT="${I_CORE_MAIN_REQUIRE_OBV_AMOUNT:-true}"
+          I_CORE_REGIME_VALIDATE="${I_CORE_REGIME_VALIDATE:-true}"
+          I_CORE_COMPARE_KOSDAQ="${I_CORE_COMPARE_KOSDAQ:-true}"
+
+          export CLOSING_BET_SHOW_RISK_DETAILS="$SHOW_RISK_DETAILS"
+          export CLOSING_BET_SHOW_H_DIAG="$SHOW_H_DIAG"
+          export I_CORE_FETCH_KRX_FLOW
+          export I_CORE_MIN_SCORE
+          export I_CORE_MIN_AMOUNT_B
+          export I_CORE_MAIN_ONLY
+          export I_CORE_MAIN_MIN_MATERIAL
+          export I_CORE_MAIN_LONG_MIN
+          export I_CORE_MAIN_LONG_MAX
+          export I_CORE_MAIN_REQUIRE_OBV_AMOUNT
+          export I_CORE_REGIME_VALIDATE
+          export I_CORE_COMPARE_KOSDAQ
+
+          echo "MODE=$MODE"
+          echo "FORCE=$FORCE"
+          echo "BACKTEST_MONTHS=$BACKTEST_MONTHS"
+          echo "BACKTEST_WEEKS=$BACKTEST_WEEKS"
+          echo "BACKTEST_HOLD_DAYS=$BACKTEST_HOLD_DAYS"
+          echo "BACKTEST_TOP_PER_STRATEGY=$BACKTEST_TOP_PER_STRATEGY"
+          echo "BACKTEST_ALL_CANDIDATES=$BACKTEST_ALL_CANDIDATES"
+          echo "BACKTEST_WEEKLY=$BACKTEST_WEEKLY"
+          echo "BACKTEST_DEBUG=$BACKTEST_DEBUG"
+          echo "STRATEGY_ONLY_RAW=$STRATEGY_ONLY_RAW"
+          echo "STRATEGY_ONLY=$STRATEGY_ONLY"
+          echo "I_CORE_FETCH_KRX_FLOW=$I_CORE_FETCH_KRX_FLOW"
+          echo "I_CORE_MAIN_ONLY=$I_CORE_MAIN_ONLY"
+          echo "I_CORE_MAIN_MIN_MATERIAL=$I_CORE_MAIN_MIN_MATERIAL"
+          echo "I_CORE_MAIN_LONG_MIN=$I_CORE_MAIN_LONG_MIN"
+          echo "I_CORE_MAIN_LONG_MAX=$I_CORE_MAIN_LONG_MAX"
+          echo "I_CORE_MAIN_REQUIRE_OBV_AMOUNT=$I_CORE_MAIN_REQUIRE_OBV_AMOUNT"
+          echo "I_CORE_REGIME_VALIDATE=$I_CORE_REGIME_VALIDATE"
+          echo "I_CORE_COMPARE_KOSDAQ=$I_CORE_COMPARE_KOSDAQ"
+
+          if [ "$MODE" = "backtest" ]; then
+            if [ "$BACKTEST_WEEKS" != "0" ] && [ -n "$BACKTEST_WEEKS" ]; then
+              CMD="python Closing_bet_scanner_v2.py --backtest-weeks $BACKTEST_WEEKS --backtest-hold-days $BACKTEST_HOLD_DAYS --backtest-top-per-strategy $BACKTEST_TOP_PER_STRATEGY"
+            else
+              CMD="python Closing_bet_scanner_v2.py --backtest-months $BACKTEST_MONTHS --backtest-hold-days $BACKTEST_HOLD_DAYS --backtest-top-per-strategy $BACKTEST_TOP_PER_STRATEGY"
+            fi
+
+            if [ "$BACKTEST_ALL_CANDIDATES" = "true" ]; then CMD="$CMD --backtest-all-candidates"; fi
+            if [ "$BACKTEST_WEEKLY" = "true" ]; then CMD="$CMD --backtest-weekly"; fi
+            if [ "$BACKTEST_DEBUG" = "true" ]; then CMD="$CMD --backtest-debug"; fi
+
+            case "$STRATEGY_ONLY" in
+              i_core) CMD="$CMD --backtest-i-core-only" ;;
+              leader_gap) CMD="$CMD --backtest-leader-gap-only" ;;
+              h_watch) CMD="$CMD --backtest-h-watch-only" ;;
+              h) CMD="$CMD --backtest-h-only" ;;
+              g) CMD="$CMD --backtest-g-only" ;;
+              c_pullback) CMD="$CMD --backtest-c-pullback-only" ;;
+              c_strict) CMD="$CMD --backtest-c-strict-only" ;;
+              c_swing) CMD="$CMD --backtest-c-swing-only" ;;
+              c) CMD="$CMD --backtest-c-only" ;;
+              safe) CMD="$CMD --backtest-safe-only" ;;
+              neutral) CMD="$CMD --backtest-neutral-only" ;;
+              risk) CMD="$CMD --backtest-risk-only" ;;
+              core) CMD="$CMD --backtest-core-only" ;;
+              none|*) ;;
+            esac
+
+            if [ "$SEND_BACKTEST_SUMMARY" = "true" ]; then CMD="$CMD --send-backtest-summary"; fi
+            echo "RUN: $CMD"
+            eval "$CMD"
+          elif [ "$MODE" = "eval" ]; then
+            CMD="python Closing_bet_scanner_v2.py --eval-pending --summary --send-summary --force"
+            echo "RUN: $CMD"
+            eval "$CMD"
+          else
+            if [ "$FORCE" = "true" ]; then
+              CMD="python Closing_bet_scanner_v2.py --force"
+            else
+              CMD="python Closing_bet_scanner_v2.py"
+            fi
+            echo "RUN: $CMD"
+            eval "$CMD"
+          fi
+
+      - name: 백테스트 결과 파일 업로드
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: closing-bet-logs
+          path: closing_bet_logs/
+          if-no-files-found: ignore
