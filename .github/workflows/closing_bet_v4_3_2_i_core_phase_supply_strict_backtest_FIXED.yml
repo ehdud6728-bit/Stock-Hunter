@@ -1,0 +1,164 @@
+name: I-CORE 150/200 Phase Supply Strict Backtest v4.3.2
+
+"on":
+  workflow_dispatch:
+    inputs:
+      backtest_months:
+        description: 'I-CORE 검증 기간(개월). 18 권장'
+        required: false
+        default: '18'
+      backtest_weeks:
+        description: '최근 N주만 빠른 검증. 0이면 개월 단위 사용'
+        required: false
+        default: '0'
+      backtest_hold_days:
+        description: 'I-CORE 보유/검증 거래일 수. 60 권장'
+        required: false
+        default: '60'
+      backtest_all_candidates:
+        description: 'TOP 제한 없이 전체 I-CORE 후보 검증'
+        required: false
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+      backtest_weekly:
+        description: '주차별 요약 포함'
+        required: false
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+      backtest_debug:
+        description: '0건/필터 원인 진단 출력'
+        required: false
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+      i_core_fetch_krx_flow:
+        description: '외국인/기관 20일 수급 조회. 느릴 수 있으니 처음은 false 권장'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+      send_backtest_summary:
+        description: '텔레그램 백테스트 요약 전송'
+        required: false
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+permissions:
+  contents: read
+
+jobs:
+  i_core_backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: 코드 체크아웃
+        uses: actions/checkout@v4
+
+      - name: Python 설정
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 의존성 설치
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas numpy yfinance pykrx finance-datareader beautifulsoup4 requests lxml html5lib mplfinance ta openai anthropic gspread oauth2client scipy feedparser
+
+      - name: I-CORE 150/200 타점·수급 엄격 백테스트
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_CLOSEBET_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_DYUL_CHAT_ID }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GOOGLE_JSON_KEY: ${{ secrets.GOOGLE_JSON_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          DART_API_KEY: ${{ secrets.DART_API_KEY }}
+          KRX_ID: ${{ secrets.KRX_DATA_ID }}
+          KRX_PW: ${{ secrets.KRX_DATA_PW }}
+          REPORT_PUBLIC_DIR: docs
+          REPORT_BASE_URL: https://ehdud6728-bit.github.io/Stock-Hunter
+          STRICT_FAKE_FILTER: '1'
+
+          # 백테스트 데이터 안정화
+          CLOSING_BET_BACKTEST_DATA_SOURCE: auto
+          CLOSING_BET_BACKTEST_AUTO_EVALUABLE_END: '1'
+          CLOSING_BET_MAX_WORKERS: '8'
+          CLOSING_BET_FUTURES_TIMEOUT: '900'
+
+          # v4.3.2 I-CORE: 타점별 엄격화 + OBV/거래대금 수급프록시 + 선택적 외국인/기관 수급
+          I_CORE_FETCH_KRX_FLOW: ${{ github.event.inputs.i_core_fetch_krx_flow || 'false' }}
+          I_CORE_MIN_SCORE: '78'
+          I_CORE_MIN_AMOUNT_B: '50'
+
+          # 기존 실전 출력 옵션은 안전 기본값
+          CLOSING_BET_SHOW_RISK_DETAILS: 'false'
+          CLOSING_BET_SHOW_H_DIAG: 'false'
+          CLOSING_BET_SHOW_H_FAST: '1'
+          CLOSING_BET_SHOW_L_WATCH: '1'
+          CLOSING_BET_LEADER_GAP_WICK_REPORT: '1'
+          CLOSING_BET_LEADER_GAP_TAIL_ABSORB: '1'
+          CLOSING_BET_LEADER_GAP_MIN_AMOUNT_B: '3000'
+          CLOSING_BET_LEADER_GAP_CORE_AMOUNT_B: '5000'
+
+        run: |
+          BACKTEST_MONTHS='${{ github.event.inputs.backtest_months }}'
+          BACKTEST_WEEKS='${{ github.event.inputs.backtest_weeks }}'
+          BACKTEST_HOLD_DAYS='${{ github.event.inputs.backtest_hold_days }}'
+          BACKTEST_ALL_CANDIDATES='${{ github.event.inputs.backtest_all_candidates }}'
+          BACKTEST_WEEKLY='${{ github.event.inputs.backtest_weekly }}'
+          BACKTEST_DEBUG='${{ github.event.inputs.backtest_debug }}'
+          SEND_BACKTEST_SUMMARY='${{ github.event.inputs.send_backtest_summary }}'
+
+          if [ -z "$BACKTEST_MONTHS" ]; then BACKTEST_MONTHS='18'; fi
+          if [ -z "$BACKTEST_WEEKS" ]; then BACKTEST_WEEKS='0'; fi
+          if [ -z "$BACKTEST_HOLD_DAYS" ]; then BACKTEST_HOLD_DAYS='60'; fi
+          if [ -z "$BACKTEST_ALL_CANDIDATES" ]; then BACKTEST_ALL_CANDIDATES='true'; fi
+          if [ -z "$BACKTEST_WEEKLY" ]; then BACKTEST_WEEKLY='true'; fi
+          if [ -z "$BACKTEST_DEBUG" ]; then BACKTEST_DEBUG='true'; fi
+          if [ -z "$SEND_BACKTEST_SUMMARY" ]; then SEND_BACKTEST_SUMMARY='true'; fi
+
+          if [ "$BACKTEST_WEEKS" != '0' ] && [ -n "$BACKTEST_WEEKS" ]; then
+            CMD="python Closing_bet_scanner_v2.py --backtest-weeks $BACKTEST_WEEKS --backtest-hold-days $BACKTEST_HOLD_DAYS --backtest-top-per-strategy 5"
+          else
+            CMD="python Closing_bet_scanner_v2.py --backtest-months $BACKTEST_MONTHS --backtest-hold-days $BACKTEST_HOLD_DAYS --backtest-top-per-strategy 5"
+          fi
+
+          if [ "$BACKTEST_ALL_CANDIDATES" = 'true' ]; then
+            CMD="$CMD --backtest-all-candidates"
+          fi
+          if [ "$BACKTEST_WEEKLY" = 'true' ]; then
+            CMD="$CMD --backtest-weekly"
+          fi
+          if [ "$BACKTEST_DEBUG" = 'true' ]; then
+            CMD="$CMD --backtest-debug"
+          fi
+          CMD="$CMD --backtest-i-core-only"
+          if [ "$SEND_BACKTEST_SUMMARY" = 'true' ]; then
+            CMD="$CMD --send-backtest-summary"
+          fi
+
+          echo "RUN: $CMD"
+          eval "$CMD"
+
+      - name: 백테스트 결과 파일 업로드
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: i-core-backtest-logs
+          path: closing_bet_logs/
+          if-no-files-found: ignore
