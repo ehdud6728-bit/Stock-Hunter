@@ -1,6 +1,9 @@
 name: closing-bet-v4-4-8-1-text-polish
 
 on:
+  schedule:
+    # 한국시간 평일 오후 2:40
+    - cron: '40 05 * * 1-5'
   workflow_dispatch:
     inputs:
       action_mode:
