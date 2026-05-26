@@ -1,0 +1,75 @@
+name: V1107.4.3 TopDown Backtest
+
+on:
+  workflow_dispatch:
+    inputs:
+      send_telegram:
+        description: 'Telegram 전송 여부'
+        required: true
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+      weeks:
+        description: '백테스트 기준 주 수'
+        required: true
+        default: '52'
+      universe_top:
+        description: '시가총액 상위 유니버스 수'
+        required: true
+        default: '150'
+      ref_dates:
+        description: '특정 기준일만 실행, 예: 2026-05-08,2026-05-15 / 비우면 최근 금요일 기준'
+        required: false
+        default: ''
+      max_per_day:
+        description: '운용형 날짜별 최대 후보 수'
+        required: true
+        default: '10'
+
+jobs:
+  topdown-v1107-4-3-backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    env:
+      TELEGRAM_BACKTEST_TOKEN: ${{ secrets.TELEGRAM_BACKTEST_TOKEN }}
+      TELEGRAM_BACKTEST_CHAT_ID: ${{ secrets.TELEGRAM_BACKTEST_CHAT_ID }}
+      TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      TOPDOWN_WEEKS: ${{ github.event.inputs.weeks }}
+      TOPDOWN_UNIVERSE_TOP: ${{ github.event.inputs.universe_top }}
+      TOPDOWN_REF_DATES: ${{ github.event.inputs.ref_dates }}
+      TOPDOWN_MAX_PER_DAY: ${{ github.event.inputs.max_per_day }}
+      TOPDOWN_OUT_DIR: topdown_v1107_4_3_logs
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas numpy requests finance-datareader pytz lxml html5lib beautifulsoup4
+
+      - name: Run V1107.4.3 TopDown Backtest
+        run: |
+          if [ "${{ github.event.inputs.send_telegram }}" = "true" ]; then
+            python topdown_v1107_4_3_backtest.py --send-telegram
+          else
+            python topdown_v1107_4_3_backtest.py
+          fi
+
+      - name: Upload backtest artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: topdown-v1107-4-3-logs
+          path: topdown_v1107_4_3_logs/
+          if-no-files-found: ignore
