@@ -1,0 +1,488 @@
+name: closing-bet-v4-4-9-53-8-19-k200-lower-real-exit-overlap-audit-10inputs
+
+on:
+  schedule:
+    # 한국시간 평일 오후 2:40 = UTC 05:40, 메인 후보 발굴
+    - cron: '40 05 * * 1-5'
+    # 한국시간 평일 오후 3:03 = UTC 06:03, 동시호가 직전 최종킥
+    - cron: '03 06 * * 1-5'
+  workflow_dispatch:
+    inputs:
+      action_mode:
+        description: 실행 모드
+        required: true
+        default: backtest__성과검증
+        type: choice
+        options:
+          - backtest__성과검증
+          - live__실시간스캔
+          - eval__미평가후보_평가
+          - summary__검증요약
+          - final_kick__동시호가_최종킥
+      strategy_only:
+        description: 전략 선택
+        required: true
+        default: none__전체/일반실행
+        type: choice
+        options:
+          - none__전체/일반실행
+          - i_core__I-MAIN_150/200일_시세분출
+          - leader_gap__L-CORE_대형주_리더갭
+          - h_watch__H-WATCH_신고가_눌림관찰
+          - h__H-CORE_신고가거자름
+          - g__G-SAFE_모랄레스갭
+          - c_pullback__C_역매공파_눌림재진입
+          - c_strict__C_역매공파_엄격형
+          - c_swing__C_역매공파_스윙
+          - c__C_역매공파_전체
+          - safe__S-CORE_SAFE
+          - neutral__S-CORE_NEUTRAL
+          - risk__S-CORE_RISK
+          - core__S-CORE_전체
+      backtest_months:
+        description: 백테스트 개월수, start/end 미사용 시 적용
+        required: true
+        default: '18'
+      backtest_start:
+        description: 시작일 YYYY-MM-DD, 비우면 자동
+        required: false
+        default: ''
+      backtest_end:
+        description: 종료일 YYYY-MM-DD, 비우면 자동
+        required: false
+        default: ''
+      hold_days:
+        description: 보유평가 거래일수
+        required: true
+        default: '60'
+      backtest_min_eval_days:
+        description: 부분검증 최소 미래 거래일수
+        required: true
+        default: '1'
+      all_candidates:
+        description: 전체후보 검증 여부
+        required: true
+        default: 'true'
+        type: choice
+        options: ['true', 'false']
+      send_telegram:
+        description: 텔레그램 전송 여부
+        required: true
+        default: 'true'
+        type: choice
+        options: ['true', 'false']
+      closing_bet_chat_id_manual:
+        description: 종가배팅 전용 CHAT_ID 수동입력, 비워도 됨
+        required: false
+        default: ''
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+
+    env:
+      TZ: Asia/Seoul
+      PYTHONUNBUFFERED: '1'
+      # Telegram route priority / forced close-bet room routing
+      # 1) CLOSING_BET_* secrets first
+      # 2) legacy CLOSE_BET_* secrets second
+      # 3) default TELEGRAM_* only if close-bet secrets are empty
+      # v4.4.9.4 A-RETEST material confirm route/new pattern performance: workflow 수동입력을 최우선, TELEGRAM_CLOSEBET/CLOSING_BET 전용 값을 다음, TELEGRAM_DYUL_CHAT_ID는 legacy 후순위로 사용한다.
+      # chat not found 방지를 위해 어떤 source가 잡혔는지 Verify 단계에서 표시한다.
+      CLOSING_BET_TOKEN: ${{ secrets.TELEGRAM_CLOSEBET_TOKEN || secrets.TELEGRAM_CLOSE_BET_TOKEN || secrets.CLOSING_BET_TOKEN || secrets.CLOSE_BET_TOKEN || secrets.CLOSING_BET_TELEGRAM_TOKEN || secrets.CLOSE_BET_TELEGRAM_TOKEN || vars.TELEGRAM_CLOSEBET_TOKEN || vars.TELEGRAM_CLOSE_BET_TOKEN }}
+      CLOSING_BET_CHAT_ID: ${{ inputs.closing_bet_chat_id_manual || secrets.TELEGRAM_CLOSEBET_CHAT_ID || secrets.TELEGRAM_CLOSE_BET_CHAT_ID || secrets.CLOSING_BET_CHAT_ID || secrets.CLOSE_BET_CHAT_ID || secrets.CLOSING_BET_TELEGRAM_CHAT_ID || secrets.CLOSE_BET_TELEGRAM_CHAT_ID || secrets.TELEGRAM_CLOSEBET_ROOM_ID || secrets.TELEGRAM_CLOSE_BET_ROOM_ID || secrets.CLOSING_BET_ROOM_ID || secrets.CLOSE_BET_ROOM_ID || vars.TELEGRAM_CLOSEBET_CHAT_ID || vars.TELEGRAM_CLOSE_BET_CHAT_ID || vars.CLOSING_BET_CHAT_ID || vars.CLOSE_BET_CHAT_ID || vars.CLOSING_BET_TELEGRAM_CHAT_ID || vars.CLOSE_BET_TELEGRAM_CHAT_ID || vars.TELEGRAM_CLOSEBET_ROOM_ID || vars.TELEGRAM_CLOSE_BET_ROOM_ID || vars.CLOSING_BET_ROOM_ID || vars.CLOSE_BET_ROOM_ID || secrets.TELEGRAM_DYUL_CHAT_ID || vars.TELEGRAM_DYUL_CHAT_ID }}
+      CLOSING_BET_CHAT_ID_SOURCE: ${{ inputs.closing_bet_chat_id_manual && 'workflow_input.closing_bet_chat_id_manual' || secrets.TELEGRAM_CLOSEBET_CHAT_ID && 'secrets.TELEGRAM_CLOSEBET_CHAT_ID' || secrets.TELEGRAM_CLOSE_BET_CHAT_ID && 'secrets.TELEGRAM_CLOSE_BET_CHAT_ID' || secrets.CLOSING_BET_CHAT_ID && 'secrets.CLOSING_BET_CHAT_ID' || secrets.CLOSE_BET_CHAT_ID && 'secrets.CLOSE_BET_CHAT_ID' || secrets.CLOSING_BET_TELEGRAM_CHAT_ID && 'secrets.CLOSING_BET_TELEGRAM_CHAT_ID' || secrets.CLOSE_BET_TELEGRAM_CHAT_ID && 'secrets.CLOSE_BET_TELEGRAM_CHAT_ID' || secrets.TELEGRAM_CLOSEBET_ROOM_ID && 'secrets.TELEGRAM_CLOSEBET_ROOM_ID' || secrets.TELEGRAM_CLOSE_BET_ROOM_ID && 'secrets.TELEGRAM_CLOSE_BET_ROOM_ID' || secrets.CLOSING_BET_ROOM_ID && 'secrets.CLOSING_BET_ROOM_ID' || secrets.CLOSE_BET_ROOM_ID && 'secrets.CLOSE_BET_ROOM_ID' || vars.TELEGRAM_CLOSEBET_CHAT_ID && 'vars.TELEGRAM_CLOSEBET_CHAT_ID' || vars.TELEGRAM_CLOSE_BET_CHAT_ID && 'vars.TELEGRAM_CLOSE_BET_CHAT_ID' || vars.CLOSING_BET_CHAT_ID && 'vars.CLOSING_BET_CHAT_ID' || vars.CLOSE_BET_CHAT_ID && 'vars.CLOSE_BET_CHAT_ID' || vars.CLOSING_BET_TELEGRAM_CHAT_ID && 'vars.CLOSING_BET_TELEGRAM_CHAT_ID' || vars.CLOSE_BET_TELEGRAM_CHAT_ID && 'vars.CLOSE_BET_TELEGRAM_CHAT_ID' || vars.TELEGRAM_CLOSEBET_ROOM_ID && 'vars.TELEGRAM_CLOSEBET_ROOM_ID' || vars.TELEGRAM_CLOSE_BET_ROOM_ID && 'vars.TELEGRAM_CLOSE_BET_ROOM_ID' || vars.CLOSING_BET_ROOM_ID && 'vars.CLOSING_BET_ROOM_ID' || vars.CLOSE_BET_ROOM_ID && 'vars.CLOSE_BET_ROOM_ID' || secrets.TELEGRAM_DYUL_CHAT_ID && 'secrets.TELEGRAM_DYUL_CHAT_ID_LEGACY_LAST' || vars.TELEGRAM_DYUL_CHAT_ID && 'vars.TELEGRAM_DYUL_CHAT_ID_LEGACY_LAST' || 'EMPTY' }}
+      CLOSING_BET_REQUIRE_DEDICATED_CHAT: '1'
+      INPUT_SEND_TELEGRAM: ${{ inputs.send_telegram || 'true' }}
+      TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_CLOSEBET_TOKEN || secrets.TELEGRAM_CLOSE_BET_TOKEN || secrets.CLOSING_BET_TOKEN || secrets.CLOSE_BET_TOKEN || secrets.CLOSING_BET_TELEGRAM_TOKEN || secrets.CLOSE_BET_TELEGRAM_TOKEN || vars.TELEGRAM_CLOSEBET_TOKEN || vars.TELEGRAM_CLOSE_BET_TOKEN || secrets.TELEGRAM_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ inputs.closing_bet_chat_id_manual || secrets.TELEGRAM_CLOSEBET_CHAT_ID || secrets.TELEGRAM_CLOSE_BET_CHAT_ID || secrets.CLOSING_BET_CHAT_ID || secrets.CLOSE_BET_CHAT_ID || secrets.CLOSING_BET_TELEGRAM_CHAT_ID || secrets.CLOSE_BET_TELEGRAM_CHAT_ID || secrets.TELEGRAM_CLOSEBET_ROOM_ID || secrets.TELEGRAM_CLOSE_BET_ROOM_ID || secrets.CLOSING_BET_ROOM_ID || secrets.CLOSE_BET_ROOM_ID || vars.TELEGRAM_CLOSEBET_CHAT_ID || vars.TELEGRAM_CLOSE_BET_CHAT_ID || vars.CLOSING_BET_CHAT_ID || vars.CLOSE_BET_CHAT_ID || vars.CLOSING_BET_TELEGRAM_CHAT_ID || vars.CLOSE_BET_TELEGRAM_CHAT_ID || vars.TELEGRAM_CLOSEBET_ROOM_ID || vars.TELEGRAM_CLOSE_BET_ROOM_ID || vars.CLOSING_BET_ROOM_ID || vars.CLOSE_BET_ROOM_ID || secrets.TELEGRAM_DYUL_CHAT_ID || vars.TELEGRAM_DYUL_CHAT_ID }}
+      TELEGRAM_CLOSEBET_TOKEN: ${{ secrets.TELEGRAM_CLOSEBET_TOKEN || secrets.TELEGRAM_CLOSE_BET_TOKEN || vars.TELEGRAM_CLOSEBET_TOKEN || vars.TELEGRAM_CLOSE_BET_TOKEN }}
+      TELEGRAM_DYUL_CHAT_ID: ${{ secrets.TELEGRAM_DYUL_CHAT_ID || vars.TELEGRAM_DYUL_CHAT_ID }}
+      # v53.7.2 pair resolver용 raw fallback. TELEGRAM_TOKEN이 closebet token으로 덮여도 legacy token을 별도 보존한다.
+      TELEGRAM_LEGACY_TOKEN: ${{ secrets.TELEGRAM_TOKEN || vars.TELEGRAM_TOKEN }}
+      TELEGRAM_DEFAULT_CHAT_ID_RAW: ${{ secrets.TELEGRAM_CHAT_ID || vars.TELEGRAM_CHAT_ID }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      DART_API_KEY: ${{ secrets.DART_API_KEY }}
+      KRX_DATA_ID: ${{ secrets.KRX_DATA_ID || secrets.KRX_ID }}
+      KRX_DATA_PW: ${{ secrets.KRX_DATA_PW || secrets.KRX_PW }}
+      KRX_ID: ${{ secrets.KRX_ID || secrets.KRX_DATA_ID }}
+      KRX_PW: ${{ secrets.KRX_PW || secrets.KRX_DATA_PW }}
+
+      CLOSING_BET_COMPACT_OPERATION_SUMMARY: '1'
+      CLOSING_BET_BACKTEST_REPORT_COMPACT_CORE: '1'
+      CLOSING_BET_BACKTEST_REPORT_LIVE_READY: '1'
+      CLOSING_BET_COMPACT_SHOW_I_SAMPLES: '1'
+      CLOSING_BET_COMPACT_I_MAIN_SAMPLE_TOP_N: '5'
+      CLOSING_BET_BACKTEST_DETAIL_TOP_N: '5'
+      CLOSING_BET_COMPACT_I_MAIN_PRIORITY_CLASS: '1'
+      CLOSING_BET_COMPACT_HIDE_MISSING_EXCESS: '1'
+      CLOSING_BET_COMPACT_OUTLIER_TAG: '1'
+      CLOSING_BET_STOCK_FEATURE_MIN_N: '5'
+      CLOSING_BET_SHOW_FULL_I_CORE_REPORT: '0'
+      CLOSING_BET_SHOW_FULL_STOCK_FEATURE_REPORT: '0'
+      CLOSING_BET_SHOW_FULL_BROAD_DIAG: '0'
+      CLOSING_BET_SHOW_LEGACY_SECTIONS: '0'
+      CLOSING_BET_SHOW_RISK_DETAILS: '0'
+      CLOSING_BET_SHOW_C_DIAG: '0'
+      CLOSING_BET_SHOW_H_DIAG: '0'
+      CLOSING_BET_SHOW_NEW_PATTERNS: '1'
+      CLOSING_BET_PATTERN_PATH_PROFILE: '1'
+      CLOSING_BET_PATTERN_TUNING_BACKTEST: '1'
+      CLOSING_BET_TUNING_MASK_DIAGNOSTIC: '1'
+      CLOSING_BET_CLOSE_LOC_FALLBACK: '1'
+      CLOSING_BET_A_RETEST_REFINEMENT: '1'
+      CLOSING_BET_A_RETEST_MATERIAL_CHECK: '1'
+      CLOSING_BET_A_CONFIRM_ENTRY_TEST: '1'
+      CLOSING_BET_A_CONFIRM_ENTRY_MAX: '80'
+      CLOSING_BET_A_CONFIRM_LIVE: '1'
+      CLOSING_BET_A_ENTRY_PRICE_COMMENT: '1'
+      CLOSING_BET_A_CONFIRM_VC_TAG: '1'
+      CLOSING_BET_LIVE_OPERATION_GUARD: '1'
+      CLOSING_BET_WORKER_MODE: '1'
+      CLOSING_BET_CARD_SPLIT_GUARD: '1'
+      CLOSING_BET_TELEGRAM_MAX_LEN: '3400'
+      CLOSING_BET_RUN_MODE: 'main'
+      CLOSING_BET_FINAL_KICK_ONLY: '0'
+      CLOSING_BET_MAX_FINAL_KICK_CARDS: '3'
+      CLOSING_BET_FINAL_KICK_COMPACT: '1'
+      CLOSING_BET_LP_FINALKICK_GAP_VOL_MAX: '0.85'
+      CLOSING_BET_LP_RECENT_RISK_DOWNGRADE: '1'
+      CLOSING_BET_SHAKE_ENTRY_AUDIT: '1'
+      CLOSING_BET_LP_RISK_RAW_VOL_MIN: '2.50'
+      CLOSING_BET_LP_RISK_PULLBACK_MIN: '8.0'
+      CLOSING_BET_LP_RISK_DISPARITY20_MIN: '112.0'
+      CLOSING_BET_BACKTEST_SYMBOL: ${{ vars.CLOSING_BET_BACKTEST_SYMBOL }}
+      CLOSING_BET_LIVE_ULTRA_READABLE: '1'
+      CLOSING_BET_FINAL_KICK_SUPPRESS_HEADER: '1'
+      CLOSING_BET_PRACTICAL_CARD_ULTRA_COMPACT: '1'
+      CLOSING_BET_AFTER_CLOSE_REVIEW_GUARD: '1'
+      CLOSING_BET_LIVE_FOLLOWUP_COMPACT: '1'
+      CLOSING_BET_MACCUM_SUPPLY_BACKTEST: '1'
+      CLOSING_BET_MACCUM_REQUIRE_PRICE_STRUCTURE: '1'
+      CLOSING_BET_I_LEADER_GROWTH_PULLBACK_GUIDE: ${{ vars.CLOSING_BET_I_LEADER_GROWTH_PULLBACK_GUIDE || '1' }}
+      I_CORE_FETCH_KRX_FLOW: ${{ vars.I_CORE_FETCH_KRX_FLOW || '1' }}
+      I_CORE_KRX_FLOW_HARD_CHECK: ${{ vars.I_CORE_KRX_FLOW_HARD_CHECK || '1' }}
+      I_CORE_KRX_FLOW_CACHE: ${{ vars.I_CORE_KRX_FLOW_CACHE || '1' }}
+      I_CORE_KRX_FLOW_LOOKBACK_DAYS: ${{ vars.I_CORE_KRX_FLOW_LOOKBACK_DAYS || '220' }}
+      I_CORE_KRX_FLOW_RETRY_COUNT: ${{ vars.I_CORE_KRX_FLOW_RETRY_COUNT || vars.I_CORE_KRX_FLOW_RETRY || '3' }}
+      I_CORE_KRX_FLOW_RETRY_SLEEP_SEC: ${{ vars.I_CORE_KRX_FLOW_RETRY_SLEEP_SEC || '0.35' }}
+      I_CORE_KRX_FLOW_NEGATIVE_CACHE: ${{ vars.I_CORE_KRX_FLOW_NEGATIVE_CACHE || '1' }}
+      CLOSING_BET_MACCUM_DATA_QUALITY_GATE: ${{ vars.CLOSING_BET_MACCUM_DATA_QUALITY_GATE || '1' }}
+      CLOSING_BET_MACCUM_I_COVERAGE_MIN_PCT: ${{ vars.CLOSING_BET_MACCUM_I_COVERAGE_MIN_PCT || '80' }}
+      CLOSING_BET_MACCUM_KRX_ERROR_MAX: ${{ vars.CLOSING_BET_MACCUM_KRX_ERROR_MAX || '0' }}
+      CLOSING_BET_MACCUM_KRX_EMPTY_WARN_PCT: ${{ vars.CLOSING_BET_MACCUM_KRX_EMPTY_WARN_PCT || '25' }}
+      CLOSING_BET_MACCUM_UNSTABLE_DEMOTE_PRIME: ${{ vars.CLOSING_BET_MACCUM_UNSTABLE_DEMOTE_PRIME || '1' }}
+      CLOSING_BET_MACCUM_ENTRY_AUDIT: ${{ vars.CLOSING_BET_MACCUM_ENTRY_AUDIT || '1' }}
+      CLOSING_BET_MACCUM_ISSUE_AUDIT: ${{ vars.CLOSING_BET_MACCUM_ISSUE_AUDIT || '1' }}
+      CLOSING_BET_MACCUM_SECTOR_LEADLAG_AUDIT: ${{ vars.CLOSING_BET_MACCUM_SECTOR_LEADLAG_AUDIT || '1' }}
+      CLOSING_BET_MACCUM_PRIME_RULE_AUDIT: ${{ vars.CLOSING_BET_MACCUM_PRIME_RULE_AUDIT || '1' }}
+      CLOSING_BET_MACCUM_SECTOR_LEADLAG_FIX: ${{ vars.CLOSING_BET_MACCUM_SECTOR_LEADLAG_FIX || '1' }}
+      CLOSING_BET_MACCUM_PRIME_MATERIAL_MIN: ${{ vars.CLOSING_BET_MACCUM_PRIME_MATERIAL_MIN || '4' }}
+      CLOSING_BET_MARKET_REGIME_AUDIT: ${{ vars.CLOSING_BET_MARKET_REGIME_AUDIT || '1' }}
+      CLOSING_BET_MARKET_REGIME_MIN_N: ${{ vars.CLOSING_BET_MARKET_REGIME_MIN_N || '3' }}
+      CLOSING_BET_MARKET_REGIME_FORCE_MAP: ${{ vars.CLOSING_BET_MARKET_REGIME_FORCE_MAP || '1' }}
+      CLOSING_BET_MARKET_REGIME_UNKNOWN_FAIL_PCT: ${{ vars.CLOSING_BET_MARKET_REGIME_UNKNOWN_FAIL_PCT || '20' }}
+      CLOSING_BET_MARKET_REGIME_LIVE_APPLY: ${{ vars.CLOSING_BET_MARKET_REGIME_LIVE_APPLY || '1' }}
+      CLOSING_BET_MACCUM_PRIME_SECTOR_DEMOTE: ${{ vars.CLOSING_BET_MACCUM_PRIME_SECTOR_DEMOTE || '1' }}
+      CLOSING_BET_COUNT_DRIFT_AUDIT: ${{ vars.CLOSING_BET_COUNT_DRIFT_AUDIT || '1' }}
+      CLOSING_BET_COUNT_DRIFT_WARN_PCT: ${{ vars.CLOSING_BET_COUNT_DRIFT_WARN_PCT || '15' }}
+      CLOSING_BET_COUNT_DRIFT_WARN_N: ${{ vars.CLOSING_BET_COUNT_DRIFT_WARN_N || '500' }}
+      CLOSING_BET_COUNT_DRIFT_BASELINE_RAW_COUNT: ${{ vars.CLOSING_BET_COUNT_DRIFT_BASELINE_RAW_COUNT || vars.CLOSING_BET_PREV_RAW_COUNT || '' }}
+      CLOSING_BET_COUNT_DRIFT_BASELINE_LABEL: ${{ vars.CLOSING_BET_COUNT_DRIFT_BASELINE_LABEL || 'v53.7.7 내장기준' }}
+      CLOSING_BET_COUNT_DRIFT_DETAILED_AUDIT: ${{ vars.CLOSING_BET_COUNT_DRIFT_DETAILED_AUDIT || '1' }}
+      CLOSING_BET_COUNT_DRIFT_BASELINE_PROFILE: ${{ vars.CLOSING_BET_COUNT_DRIFT_BASELINE_PROFILE || 'v53.7.7' }}
+      CLOSING_BET_COUNT_DRIFT_BASELINE_MODE_COUNTS: ${{ vars.CLOSING_BET_COUNT_DRIFT_BASELINE_MODE_COUNTS || '' }}
+      CLOSING_BET_COUNT_DRIFT_BASELINE_CP6_COUNT: ${{ vars.CLOSING_BET_COUNT_DRIFT_BASELINE_CP6_COUNT || '91' }}
+      CLOSING_BET_MACCUM_LIVE_COMPACT: ${{ vars.CLOSING_BET_MACCUM_LIVE_COMPACT || '1' }}
+      CLOSING_BET_MACCUM_LIVE_TOP_N: ${{ vars.CLOSING_BET_MACCUM_LIVE_TOP_N || '3' }}
+      CLOSING_BET_CP6_PRIOR_HIGH_RECLAIM: ${{ vars.CLOSING_BET_CP6_PRIOR_HIGH_RECLAIM || '1' }}
+      CLOSING_BET_CP6_MIN_AMOUNT_B: ${{ vars.CLOSING_BET_CP6_MIN_AMOUNT_B || '300' }}
+      CLOSING_BET_CP6_MIN_VOL20_RATIO: ${{ vars.CLOSING_BET_CP6_MIN_VOL20_RATIO || '1.30' }}
+      CLOSING_BET_CP6_ADJUST_MIN_DAYS: ${{ vars.CLOSING_BET_CP6_ADJUST_MIN_DAYS || '20' }}
+      CLOSING_BET_CP6_ADJUST_MAX_DAYS: ${{ vars.CLOSING_BET_CP6_ADJUST_MAX_DAYS || '180' }}
+      CLOSING_BET_CP6_PRIOR_HIGH_GAP_MIN: ${{ vars.CLOSING_BET_CP6_PRIOR_HIGH_GAP_MIN || '-8.0' }}
+      CLOSING_BET_CP6_PRIOR_HIGH_GAP_MAX: ${{ vars.CLOSING_BET_CP6_PRIOR_HIGH_GAP_MAX || '3.0' }}
+      CLOSING_BET_CP6_STRICT_GAP_FILTER: ${{ vars.CLOSING_BET_CP6_STRICT_GAP_FILTER || '1' }}
+      CLOSING_BET_CP6_INTRADAY_GAP_MAX: ${{ vars.CLOSING_BET_CP6_INTRADAY_GAP_MAX || '5.0' }}
+      CLOSING_BET_CP6_OVEREXTEND_GAP_MAX: ${{ vars.CLOSING_BET_CP6_OVEREXTEND_GAP_MAX || '6.0' }}
+      CLOSING_BET_CP6_PRIME_ADJUST_MIN_DAYS: ${{ vars.CLOSING_BET_CP6_PRIME_ADJUST_MIN_DAYS || '40' }}
+      CLOSING_BET_CP6_PRIME_ADJUST_MAX_DAYS: ${{ vars.CLOSING_BET_CP6_PRIME_ADJUST_MAX_DAYS || '140' }}
+      CLOSING_BET_CP6_PRIME_MIN_AMOUNT_B: ${{ vars.CLOSING_BET_CP6_PRIME_MIN_AMOUNT_B || '1000' }}
+      CLOSING_BET_CP6_PULLBACK_MIN_PCT: ${{ vars.CLOSING_BET_CP6_PULLBACK_MIN_PCT || '8.0' }}
+      CLOSING_BET_CP6_PULLBACK_MAX_PCT: ${{ vars.CLOSING_BET_CP6_PULLBACK_MAX_PCT || '45.0' }}
+      CLOSING_BET_CP6_AUDIT: ${{ vars.CLOSING_BET_CP6_AUDIT || '1' }}
+      CLOSING_BET_CP6_LIVE_APPLY: ${{ vars.CLOSING_BET_CP6_LIVE_APPLY || '1' }}
+      CLOSING_BET_CP6_LIVE_TOP_N: ${{ vars.CLOSING_BET_CP6_LIVE_TOP_N || '3' }}
+      CLOSING_BET_CP6_SYMBOL_AUDIT: ${{ vars.CLOSING_BET_CP6_SYMBOL_AUDIT || '1' }}
+      CLOSING_BET_CP6_SYMBOL_AUDIT_CODE: ${{ vars.CLOSING_BET_CP6_SYMBOL_AUDIT_CODE || '204320' }}
+      CLOSING_BET_CP6_SYMBOL_AUDIT_NAME: ${{ vars.CLOSING_BET_CP6_SYMBOL_AUDIT_NAME || 'HL만도' }}
+      CLOSING_BET_CP6_SYMBOL_AUDIT_TOP_N: ${{ vars.CLOSING_BET_CP6_SYMBOL_AUDIT_TOP_N || '5' }}
+      CLOSING_BET_CP6_SYMBOL_AUDIT_DATE_RESTORE: ${{ vars.CLOSING_BET_CP6_SYMBOL_AUDIT_DATE_RESTORE || '1' }}
+      CLOSING_BET_CP6_SYMBOL_AUDIT_DATE_SOURCE: ${{ vars.CLOSING_BET_CP6_SYMBOL_AUDIT_DATE_SOURCE || 'auto' }}
+      CLOSING_BET_H_CORE_PROMOTION_AUDIT: '1'
+      CLOSING_BET_H_FAST_TIMING_AUDIT: '1'
+      CLOSING_BET_I_LEADER_LIFECYCLE_LABEL: '1'
+      CLOSING_BET_LIVE_TRACKING_LOG: '1'
+      CLOSING_BET_LIVE_PROMOTION_MIN_N: '10'
+      CLOSING_BET_SHOW_EMPTY_LIVE_SECTIONS: '1'
+      CLOSING_BET_FAST_LIVE_MODE: '0'
+      CLOSING_BET_SHOW_SLOCK_LIVE: '0'
+      I_CORE_MAIN_ONLY: '1'
+      CLOSING_BET_MAX_WORKERS: '12'
+      CLOSING_BET_BACKTEST_WORKERS: '8'
+      CLOSING_BET_LOG_DIR: closing_bet_logs
+      CLOSING_BET_SCAN_UNIVERSE: hybrid_union
+      CLOSING_BET_ALLOW_UNIVERSE_FALLBACK: '1'
+      CLOSING_BET_STATIC_CORE_MAX: '260'
+      CLOSING_BET_US_SECTOR_AUTO_FETCH: '1'
+      CLOSING_BET_US_SECTOR_EVAL_ACTIVE: '1'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          fi
+          pip install pandas numpy requests finance-datareader pykrx beautifulsoup4 lxml pytz python-dateutil openpyxl
+          python - <<'FDR_CHECK'
+          import FinanceDataReader as fdr
+          print("FinanceDataReader import OK")
+          FDR_CHECK
+          python - <<'PYKRX_CHECK'
+          try:
+              from pykrx import stock as pykrx_stock
+              print("pykrx import OK")
+          except Exception as e:
+              raise SystemExit(f"pykrx import FAILED: {type(e).__name__}: {e}")
+          PYKRX_CHECK
+
+      - name: Prepare KRX flow cache directory
+        run: mkdir -p closing_bet_logs
+
+      - name: Restore KRX flow cache
+        uses: actions/cache@v4
+        with:
+          path: closing_bet_logs
+          key: krx-flow-cache-${{ github.ref_name }}-${{ github.run_id }}
+          restore-keys: |
+            krx-flow-cache-${{ github.ref_name }}-
+            krx-flow-cache-
+
+      - name: Verify Telegram route for Closing Bet
+        run: |
+          python - <<'PY'
+          import os
+          import requests
+
+          def state(name):
+              v = os.environ.get(name, '')
+              if not v:
+                  return 'EMPTY'
+              return f'SET(len={len(v)})'
+
+          def split_ids(v):
+              return [c.strip() for c in str(v or '').split(',') if c.strip()]
+
+          def add_pair(pairs, token_name, token, chat_name, chats):
+              token = str(token or '').strip()
+              if not token:
+                  return
+              for chat_id in split_ids(chats):
+                  key = (token, chat_id)
+                  if key not in seen:
+                      seen.add(key)
+                      pairs.append((token_name, token, chat_name, chat_id))
+
+          def mask_chat(chat_id):
+              c = str(chat_id or '').strip()
+              if len(c) <= 6:
+                  return '*' * len(c)
+              return c[:3] + '***' + c[-3:]
+
+          def write_env(name, value):
+              with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as f:
+                  f.write(f'{name}={value}\n')
+
+          print('CLOSING_BET_TOKEN    =', state('CLOSING_BET_TOKEN'))
+          print('CLOSING_BET_CHAT_ID  =', state('CLOSING_BET_CHAT_ID'))
+          print('CLOSING_BET_CHAT_SRC =', os.environ.get('CLOSING_BET_CHAT_ID_SOURCE', 'EMPTY'))
+          print('TELEGRAM_TOKEN       =', state('TELEGRAM_TOKEN'))
+          print('TELEGRAM_LEGACY_TOKEN=', state('TELEGRAM_LEGACY_TOKEN'))
+          print('TELEGRAM_CHAT_ID     =', state('TELEGRAM_CHAT_ID'))
+          print('TELEGRAM_DYUL_CHAT_ID=', state('TELEGRAM_DYUL_CHAT_ID'))
+
+          send_flag = str(os.environ.get('INPUT_SEND_TELEGRAM', 'true') or 'true').lower()
+          if send_flag not in ('1', 'true', 'yes', 'y', 'on'):
+              print('TELEGRAM_ROUTE_CHECK = SKIP(send_telegram=false)')
+              raise SystemExit(0)
+
+          candidate_chats_primary = os.environ.get('CLOSING_BET_CHAT_ID', '')
+          candidate_chats_legacy = os.environ.get('TELEGRAM_DYUL_CHAT_ID', '')
+          candidate_chats_default = os.environ.get('TELEGRAM_DEFAULT_CHAT_ID_RAW', '')
+
+          seen = set()
+          pairs = []
+          # v53.7.2: token/chat을 따로 고르지 말고, 실제 getChat이 성공하는 pair를 고른다.
+          # 1) manual/closebet chat + closebet token
+          add_pair(pairs, 'CLOSING_BET_TOKEN', os.environ.get('CLOSING_BET_TOKEN'), 'CLOSING_BET_CHAT_ID', candidate_chats_primary)
+          add_pair(pairs, 'TELEGRAM_CLOSEBET_TOKEN', os.environ.get('TELEGRAM_CLOSEBET_TOKEN'), 'CLOSING_BET_CHAT_ID', candidate_chats_primary)
+          # 2) same chat + legacy/default token. 과거 TELEGRAM_DYUL_CHAT_ID가 TELEGRAM_TOKEN bot 방이던 경우 복구.
+          add_pair(pairs, 'TELEGRAM_LEGACY_TOKEN', os.environ.get('TELEGRAM_LEGACY_TOKEN'), 'CLOSING_BET_CHAT_ID', candidate_chats_primary)
+          add_pair(pairs, 'TELEGRAM_TOKEN', os.environ.get('TELEGRAM_TOKEN'), 'CLOSING_BET_CHAT_ID', candidate_chats_primary)
+          # 3) explicit legacy DYUL chat pair. 전용방 alias로 인정하되 getChat 성공 시에만 사용.
+          add_pair(pairs, 'TELEGRAM_LEGACY_TOKEN', os.environ.get('TELEGRAM_LEGACY_TOKEN'), 'TELEGRAM_DYUL_CHAT_ID', candidate_chats_legacy)
+          add_pair(pairs, 'TELEGRAM_TOKEN', os.environ.get('TELEGRAM_TOKEN'), 'TELEGRAM_DYUL_CHAT_ID', candidate_chats_legacy)
+          add_pair(pairs, 'CLOSING_BET_TOKEN', os.environ.get('CLOSING_BET_TOKEN'), 'TELEGRAM_DYUL_CHAT_ID', candidate_chats_legacy)
+          # 4) 마지막 진단용. 기본방 fallback은 금지 원칙이므로 source에 DEFAULT_DIAG_ONLY를 명확히 표시.
+          add_pair(pairs, 'TELEGRAM_LEGACY_TOKEN', os.environ.get('TELEGRAM_LEGACY_TOKEN'), 'TELEGRAM_CHAT_ID_DEFAULT_DIAG_ONLY', candidate_chats_default)
+
+          if not pairs:
+              raise SystemExit('TELEGRAM ROUTE INVALID: no token/chat candidates. Set TELEGRAM_CLOSEBET_TOKEN + TELEGRAM_CLOSEBET_CHAT_ID, or workflow input closing_bet_chat_id_manual.')
+
+          failures = []
+          selected = None
+          for token_name, token, chat_name, chat_id in pairs:
+              try:
+                  r = requests.get(f'https://api.telegram.org/bot{token}/getChat', params={'chat_id': chat_id}, timeout=8)
+                  if r.status_code < 400:
+                      selected = (token_name, token, chat_name, chat_id)
+                      break
+                  failures.append(f'{token_name}+{chat_name}:{r.status_code}:{(r.text or "")[:90]}')
+              except Exception as e:
+                  failures.append(f'{token_name}+{chat_name}:{type(e).__name__}:{str(e)[:90]}')
+
+          if selected is None:
+              print('TELEGRAM_ROUTE_CANDIDATES_FAILED =')
+              for f in failures[:8]:
+                  print(' -', f)
+              raise SystemExit('TELEGRAM ROUTE INVALID: no valid TOKEN/CHAT_ID pair. Check bot invite, -100 prefix, stale TELEGRAM_DYUL_CHAT_ID, or mismatched closebet/default bot token.')
+
+          token_name, token, chat_name, chat_id = selected
+          pair_source = f'validated:{token_name}+{chat_name}'
+          print('TELEGRAM_ROUTE_CHECK = PASS | pair=' + pair_source + ' | chat=' + mask_chat(chat_id))
+          write_env('CLOSING_BET_TOKEN', token)
+          write_env('TELEGRAM_TOKEN', token)
+          write_env('CLOSING_BET_CHAT_ID', chat_id)
+          write_env('TELEGRAM_CHAT_ID', chat_id)
+          write_env('CLOSING_BET_CHAT_ID_SOURCE', pair_source)
+          write_env('TELEGRAM_ROUTE_PAIR_SOURCE', pair_source)
+          PY
+
+      - name: Show v4.4.9.53.8.19 files
+        run: |
+          echo "Python file check"
+          ls -la Closing_bet_scanner_v2.py
+          python -m py_compile Closing_bet_scanner_v2.py
+
+      - name: Decide v4.4.9.53.8.19 run mode
+        shell: bash
+        run: |
+          ACTION_RAW="${{ inputs.action_mode || '' }}"
+          ACTION="${ACTION_RAW%%__*}"
+          RUN_MODE="main"
+
+          if [ "${{ github.event_name }}" = "schedule" ] && [ "${{ github.event.schedule }}" = "03 06 * * 1-5" ]; then
+            RUN_MODE="final_kick"
+          fi
+
+          if [ "$ACTION" = "final_kick" ]; then
+            RUN_MODE="final_kick"
+          fi
+
+          if [ "$RUN_MODE" = "final_kick" ]; then
+            echo "CLOSING_BET_RUN_MODE=final_kick" >> "$GITHUB_ENV"
+            echo "CLOSING_BET_FINAL_KICK_ONLY=1" >> "$GITHUB_ENV"
+            echo "CLOSING_BET_MAX_FINAL_KICK_CARDS=3" >> "$GITHUB_ENV"
+            echo "CLOSING_BET_WORKER_MODE=1" >> "$GITHUB_ENV"
+            echo "CLOSING_BET_SHOW_RISK_DETAILS=0" >> "$GITHUB_ENV"
+            echo "CLOSING_BET_SHOW_LEGACY_SECTIONS=0" >> "$GITHUB_ENV"
+            echo "CLOSING_BET_SHOW_C_DIAG=0" >> "$GITHUB_ENV"
+            echo "CLOSING_BET_SHOW_H_DIAG=0" >> "$GITHUB_ENV"
+            echo "CLOSING_BET_TELEGRAM_MAX_LEN=3000" >> "$GITHUB_ENV"
+            echo "CLOSING_BET_FINAL_KICK_COMPACT=1" >> "$GITHUB_ENV"
+          else
+            echo "CLOSING_BET_RUN_MODE=main" >> "$GITHUB_ENV"
+            echo "CLOSING_BET_FINAL_KICK_ONLY=0" >> "$GITHUB_ENV"
+          fi
+
+          echo "RUN_MODE=$RUN_MODE"
+
+      - name: Run v4.4.9.53.8.19 scanner/backtest
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p closing_bet_logs
+
+          ACTION_RAW="${{ inputs.action_mode || '' }}"
+          ACTION="${ACTION_RAW%%__*}"
+          STRATEGY_RAW="${{ inputs.strategy_only || 'none__전체/일반실행' }}"
+          STRATEGY="${STRATEGY_RAW%%__*}"
+
+          FLAGS=""
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            FLAGS="$FLAGS --force"
+          else
+            FLAGS="$FLAGS --force"
+          fi
+
+          STRAT_FLAGS=""
+          case "$STRATEGY" in
+            none) STRAT_FLAGS="" ;;
+            i_core) STRAT_FLAGS="--backtest-i-core-only" ;;
+            leader_gap) STRAT_FLAGS="--backtest-leader-gap-only" ;;
+            h_watch) STRAT_FLAGS="--backtest-h-watch-only" ;;
+            h) STRAT_FLAGS="--backtest-h-only" ;;
+            g) STRAT_FLAGS="--backtest-g-only" ;;
+            c_pullback) STRAT_FLAGS="--backtest-c-pullback-only" ;;
+            c_strict) STRAT_FLAGS="--backtest-c-strict-only" ;;
+            c_swing) STRAT_FLAGS="--backtest-c-swing-only" ;;
+            c) STRAT_FLAGS="--backtest-c-only" ;;
+            safe) STRAT_FLAGS="--backtest-safe-only" ;;
+            neutral) STRAT_FLAGS="--backtest-neutral-only" ;;
+            risk) STRAT_FLAGS="--backtest-risk-only" ;;
+            core) STRAT_FLAGS="--backtest-core-only" ;;
+            *) STRAT_FLAGS="" ;;
+          esac
+
+          if [ "$ACTION" = "backtest" ]; then
+            BT_FLAGS="--backtest-hold-days ${{ inputs.hold_days || '60' }} --backtest-min-eval-days ${{ inputs.backtest_min_eval_days || '3' }} --backtest-top-per-strategy 5 $STRAT_FLAGS"
+            if [ -n "${{ inputs.backtest_start || '' }}" ] || [ -n "${{ inputs.backtest_end || '' }}" ]; then
+              [ -n "${{ inputs.backtest_start || '' }}" ] && BT_FLAGS="$BT_FLAGS --backtest-start ${{ inputs.backtest_start }}"
+              [ -n "${{ inputs.backtest_end || '' }}" ] && BT_FLAGS="$BT_FLAGS --backtest-end ${{ inputs.backtest_end }}"
+            else
+              BT_FLAGS="$BT_FLAGS --backtest-months ${{ inputs.backtest_months || '18' }}"
+            fi
+            if [ "${{ inputs.all_candidates || 'true' }}" = "true" ]; then
+              BT_FLAGS="$BT_FLAGS --backtest-all-candidates"
+            fi
+            if [ "${{ inputs.send_telegram || 'true' }}" = "true" ]; then
+              BT_FLAGS="$BT_FLAGS --send-backtest-summary"
+            fi
+            echo "RUN v4.4.9.53.8.19: python Closing_bet_scanner_v2.py $BT_FLAGS $FLAGS --compact-summary"
+            python Closing_bet_scanner_v2.py $BT_FLAGS $FLAGS --compact-summary
+          elif [ "$ACTION" = "eval" ]; then
+            EXTRA="--eval-pending"
+            if [ "${{ inputs.send_telegram || 'true' }}" = "true" ]; then EXTRA="$EXTRA --send-summary"; fi
+            python Closing_bet_scanner_v2.py $EXTRA $FLAGS --compact-summary
+          elif [ "$ACTION" = "summary" ]; then
+            EXTRA="--summary"
+            if [ "${{ inputs.send_telegram || 'true' }}" = "true" ]; then EXTRA="$EXTRA --send-summary"; fi
+            python Closing_bet_scanner_v2.py $EXTRA $FLAGS --compact-summary
+          elif [ "$ACTION" = "final_kick" ]; then
+            python Closing_bet_scanner_v2.py $FLAGS --compact-summary
+          else
+            python Closing_bet_scanner_v2.py $FLAGS --compact-summary
+          fi
