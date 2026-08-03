@@ -1,7 +1,7 @@
 {
-  "version": "V73.3.6.6.5",
+  "version": "V73.3.6.6.6",
   "source_file": "main7_bugfix_2.py",
-  "source_sha256": "8da1c36cbdad1221ee48b9a1aa2d914c1dcb46b22c3eed2c2ff81846a7be3e00",
+  "source_sha256": "df4382dc2a5f9f7bf849d435be373118cf5d021b8d86b13a3799a1e4d442eed6",
   "combo_count": 66,
   "aux_count": 6,
   "combos": [
@@ -1182,7 +1182,7 @@
       },
       {
         "kind": "OVERRIDE",
-        "line": 11681,
+        "line": 11695,
         "source": "bool(fear_info.get('fear_absorb', False))"
       }
     ],
@@ -1208,7 +1208,7 @@
       },
       {
         "kind": "OVERRIDE",
-        "line": 11905,
+        "line": 11919,
         "source": "abs(close_p - _fib382_val) / _fib382_val <= _tol"
       }
     ],
@@ -1220,7 +1220,7 @@
       },
       {
         "kind": "OVERRIDE",
-        "line": 11907,
+        "line": 11921,
         "source": "abs(close_p - _fib618_val) / _fib618_val <= _tol"
       }
     ],
@@ -1232,7 +1232,7 @@
       },
       {
         "kind": "OVERRIDE",
-        "line": 11909,
+        "line": 11923,
         "source": "abs(close_p - _pivot_s1)   / _pivot_s1   <= _tol"
       }
     ],
@@ -1244,7 +1244,7 @@
       },
       {
         "kind": "OVERRIDE",
-        "line": 11911,
+        "line": 11925,
         "source": "abs(close_p - _pivot_r1)   / _pivot_r1   <= _tol"
       }
     ],
@@ -1333,7 +1333,7 @@
       },
       {
         "kind": "OVERRIDE",
-        "line": 9751,
+        "line": 9765,
         "source": "signals['explosion_ready'] or tri_result.get('pass', False)"
       }
     ],
@@ -1497,7 +1497,7 @@
       },
       {
         "kind": "OVERRIDE",
-        "line": 9750,
+        "line": 9764,
         "source": "tri_result.get('jongbe', False)"
       }
     ],
@@ -1509,7 +1509,7 @@
       },
       {
         "kind": "OVERRIDE",
-        "line": 9747,
+        "line": 9761,
         "source": "tri_result.get('pass', False)"
       }
     ],
@@ -1521,7 +1521,7 @@
       },
       {
         "kind": "OVERRIDE",
-        "line": 9748,
+        "line": 9762,
         "source": "tri_result.get('apex_remain', None)"
       }
     ],
@@ -1533,7 +1533,7 @@
       },
       {
         "kind": "OVERRIDE",
-        "line": 9749,
+        "line": 9763,
         "source": "tri_result.get('triangle_pattern', 'None')"
       }
     ],
@@ -1545,7 +1545,7 @@
       },
       {
         "kind": "OVERRIDE",
-        "line": 9754,
+        "line": 9768,
         "source": "tri_inner.get('dmi_cross', False)"
       }
     ],
@@ -1557,7 +1557,7 @@
       },
       {
         "kind": "OVERRIDE",
-        "line": 9755,
+        "line": 9769,
         "source": "tri_inner.get('dmi_ok', False)"
       }
     ],
@@ -1569,7 +1569,7 @@
       },
       {
         "kind": "OVERRIDE",
-        "line": 11704,
+        "line": 11718,
         "source": "_vol_ratio >= 3.0 and\n            _is_bigbull and\n            _obv_up and\n            (_near_ma20 or _bb_touch)"
       }
     ],
@@ -1714,17 +1714,17 @@
       },
       {
         "kind": "OVERRIDE",
-        "line": 11972,
+        "line": 11986,
         "source": "True"
       },
       {
         "kind": "OVERRIDE",
-        "line": 11975,
+        "line": 11989,
         "source": "True"
       },
       {
         "kind": "OVERRIDE",
-        "line": 11978,
+        "line": 11992,
         "source": "True"
       }
     ],
@@ -1736,97 +1736,97 @@
       },
       {
         "kind": "OVERRIDE",
-        "line": 11973,
+        "line": 11987,
         "source": "'A'"
       },
       {
         "kind": "OVERRIDE",
-        "line": 11976,
+        "line": 11990,
         "source": "'B'"
       },
       {
         "kind": "OVERRIDE",
-        "line": 11979,
+        "line": 11993,
         "source": "'C'"
       }
     ],
     "pre_dolbanji": [
       {
         "kind": "OVERRIDE",
-        "line": 11682,
+        "line": 11696,
         "source": "bool(pre_bundle.get('pre_dolbanji', False))"
       }
     ],
     "pre_dolbanji_confirmed": [
       {
         "kind": "OVERRIDE",
-        "line": 11683,
+        "line": 11697,
         "source": "bool(pre_bundle.get('pre_dolbanji_confirmed', False))"
       }
     ],
     "pre_dolbanji_lite": [
       {
         "kind": "OVERRIDE",
-        "line": 11684,
+        "line": 11698,
         "source": "bool(pre_lite_bundle.get('pre_dolbanji_lite', False))"
       }
     ],
     "pre_dolbanji_lite_confirmed": [
       {
         "kind": "OVERRIDE",
-        "line": 11685,
+        "line": 11699,
         "source": "bool(pre_lite_bundle.get('pre_dolbanji_lite_confirmed', False))"
       }
     ],
     "pre_dolbanji_hts_exact": [
       {
         "kind": "OVERRIDE",
-        "line": 11686,
+        "line": 11700,
         "source": "bool(pre_hts_bundle.get('pre_dolbanji_hts_exact', False))"
       }
     ],
     "wm_state_green": [
       {
         "kind": "OVERRIDE",
-        "line": 11687,
+        "line": 11701,
         "source": "bool(wm_bundle.get('wm_state_green', False))"
       }
     ],
     "wm_state_red": [
       {
         "kind": "OVERRIDE",
-        "line": 11688,
+        "line": 11702,
         "source": "bool(wm_bundle.get('wm_state_red', False))"
       }
     ],
     "wm_pocket_hold": [
       {
         "kind": "OVERRIDE",
-        "line": 11689,
+        "line": 11703,
         "source": "bool(wm_bundle.get('wm_pocket_hold', False))"
       }
     ],
     "wm_attack_hold": [
       {
         "kind": "OVERRIDE",
-        "line": 11690,
+        "line": 11704,
         "source": "bool(wm_bundle.get('wm_attack_hold', False))"
       }
     ],
     "ma5_reclaim": [
       {
         "kind": "OVERRIDE",
-        "line": 11691,
+        "line": 11705,
         "source": "bool(ma5_reclaim_bundle.get('ok', False))"
       }
     ]
   },
-  "evaluation_line": 11800,
+  "evaluation_line": 11814,
   "producer_timing": [
     {
       "formula": "🚀거래량폭발초동돌파",
       "formula_index": 0,
-      "evaluation_line": 11800,
+      "evaluation_line": 11814,
       "post_evaluation_overrides": [],
       "post_evaluation_override_keys": [],
       "status": "OK"
@@ -1834,7 +1834,7 @@
     {
       "formula": "🌌🔺💍독사삼각돌반지",
       "formula_index": 1,
-      "evaluation_line": 11800,
+      "evaluation_line": 11814,
       "post_evaluation_overrides": [],
       "post_evaluation_override_keys": [],
       "status": "OK"
@@ -1842,7 +1842,7 @@
     {
       "formula": "🌌🔄💍독사수급전환돌반지",
       "formula_index": 2,
-      "evaluation_line": 11800,
+      "evaluation_line": 11814,
       "post_evaluation_overrides": [],
       "post_evaluation_override_keys": [],
       "status": "OK"
@@ -1850,7 +1850,7 @@
     {
       "formula": "👑🔄🐍독사발사형(각성)",
       "formula_index": 3,
-      "evaluation_line": 11800,
+      "evaluation_line": 11814,
       "post_evaluation_overrides": [],
       "post_evaluation_override_keys": [],
       "status": "OK"
@@ -1858,7 +1858,7 @@
     {
       "formula": "🧲세력눌림목",
       "formula_index": 4,
-      "evaluation_line": 11800,
+      "evaluation_line": 11814,
       "post_evaluation_overrides": [],
       "post_evaluation_override_keys": [],
       "status": "OK"
@@ -1866,7 +1866,7 @@
     {
       "formula": "🟣BB40 2차파동",
       "formula_index": 5,
-      "evaluation_line": 11800,
+      "evaluation_line": 11814,
       "post_evaluation_overrides": [],
       "post_evaluation_override_keys": [],
       "status": "OK"
@@ -1874,7 +1874,7 @@
     {
       "formula": "🍉수박재폭발",
       "formula_index": 6,
-      "evaluation_line": 11800,
+      "evaluation_line": 11814,
       "post_evaluation_overrides": [],
       "post_evaluation_override_keys": [],
       "status": "OK"
@@ -1882,7 +1882,7 @@
     {
       "formula": "📊OBV매집돌파",
       "formula_index": 7,
-      "evaluation_line": 11800,
+      "evaluation_line": 11814,
       "post_evaluation_overrides": [],
       "post_evaluation_override_keys": [],
       "status": "OK"
@@ -1890,7 +1890,7 @@
     {
       "formula": "🚀📐🍉수렴돌파발사형",
       "formula_index": 8,
-      "evaluation_line": 11800,
+      "evaluation_line": 11814,
       "post_evaluation_overrides": [],
       "post_evaluation_override_keys": [],
       "status": "OK"
@@ -1898,7 +1898,7 @@
     {
       "formula": "🟣🍉BB40발사형재안착",
       "formula_index": 9,
-      "evaluation_line": 11800,
+      "evaluation_line": 11814,
       "post_evaluation_overrides": [],
       "post_evaluation_override_keys": [],
       "status": "OK"
@@ -1906,7 +1906,7 @@
     {
       "formula": "🚀📐🔺응축완성",
       "formula_index": 10,
-      "evaluation_line": 11800,
+      "evaluation_line": 11814,
       "post_evaluation_overrides": [],
       "post_evaluation_override_keys": [],
       "status": "OK"
@@ -1914,7 +1914,7 @@
     {
       "formula": "👑💍발사형돌반지",
       "formula_index": 11,
-      "evaluation_line": 11800,
+      "evaluation_line": 11814,
       "post_evaluation_overrides": [],
       "post_evaluation_override_keys": [],
       "status": "OK"
@@ -1922,7 +1922,7 @@
     {
       "formula": "📐🟣수렴재안착",
       "formula_index": 12,
-      "evaluation_line": 11800,
+      "evaluation_line": 11814,
       "post_evaluation_overrides": [],
       "post_evaluation_override_keys": [],
       "status": "OK"
@@ -1930,7 +1930,7 @@
     {
       "formula": "🔺💍삼각꼭지돌반지",
       "formula_index": 13,
-      "evaluation_line": 11800,
+      "evaluation_line": 11814,
       "post_evaluation_overrides": [],
       "post_evaluation_override_keys": [],
       "status": "OK"
@@ -1938,7 +1938,7 @@
     {
       "formula": "💛🔺🍉종베삼각발사형",
       "formula_index": 14,
-      "evaluation_line": 11800,
+      "evaluation_line": 11814,
       "post_evaluation_overrides": [],
       "post_evaluation_override_keys": [],
       "status": "OK"
@@ -1946,7 +1946,7 @@
     {
       "formula": "🐍🍉독사발사형",
       "formula_index": 15,
-      "evaluation_line": 11800,
+      "evaluation_line": 11814,
       "post_evaluation_overrides": [],
       "post_evaluation_override_keys": [],
       "status": "OK"
@@ -1954,7 +1954,7 @@
     {
       "formula": "💛🐍🔺종베독사삼각",
       "formula_index": 16,
-      "evaluation_line": 11800,
+      "evaluation_line": 11814,
       "post_evaluation_overrides": [],
       "post_evaluation_override_keys": [],
       "status": "OK"
@@ -1962,7 +1962,7 @@
     {
       "formula": "🕳️💛🔺골파기종베삼각",
       "formula_index": 17,
-      "evaluation_line": 11800,
+      "evaluation_line": 11814,
       "post_evaluation_overrides": [],
       "post_evaluation_override_keys": [],
       "status": "OK"
@@ -1970,7 +1970,7 @@
     {
       "formula": "💍돌반지단독",
       "formula_index": 18,
-      "evaluation_line": 11800,
+      "evaluation_line": 11814,
       "post_evaluation_overrides": [],
       "post_evaluation_override_keys": [],
       "status": "OK"
@@ -1978,7 +1978,7 @@
     {
       "formula": "🚀📐폭발직전수렴",
       "formula_index": 19,
-      "evaluation_line": 11800,
+      "evaluation_line": 11814,
       "post_evaluation_overrides": [],
       "post_evaluation_override_keys": [],
       "status": "OK"
@@ -1986,7 +1986,7 @@
     {
       "formula": "🕳️🚀수급전환골파기",
       "formula_index": 20,
-      "evaluation_line": 11800,
+      "evaluation_line": 11814,
       "post_evaluation_overrides": [],
       "post_evaluation_override_keys": [],
       "status": "OK"
@@ -1994,7 +1994,7 @@
     {
       "formula": "🐍5-20독사훅",
       "formula_index": 21,
-      "evaluation_line": 11800,
+      "evaluation_line": 11814,
       "post_evaluation_overrides": [],
       "post_evaluation_override_keys": [],
       "status": "OK"
@@ -2002,7 +2002,7 @@
     {
       "formula": "💎BB하단눌림목",
       "formula_index": 22,
-      "evaluation_line": 11800,
+      "evaluation_line": 11814,
       "post_evaluation_overrides": [],
       "post_evaluation_override_keys": [],
       "status": "OK"
@@ -2010,7 +2010,7 @@
     {
       "formula": "🟣BB40재안착눌림목",
       "formula_index": 23,
-      "evaluation_line": 11800,
+      "evaluation_line": 11814,
       "post_evaluation_overrides": [],
       "post_evaluation_override_keys": [],
       "status": "OK"
@@ -2018,7 +2018,7 @@
     {
       "formula": "🟣BB40재안착",
       "formula_index": 24,
-      "evaluation_line": 11800,
+      "evaluation_line": 11814,
       "post_evaluation_overrides": [],
       "post_evaluation_override_keys": [],
       "status": "OK"
@@ -2026,7 +2026,7 @@
     {
       "formula": "🟣BB40 RSI-DIV",
       "formula_index": 25,
-      "evaluation_line": 11800,
+      "evaluation_line": 11814,
       "post_evaluation_overrides": [],
       "post_evaluation_override_keys": [],
       "status": "OK"
@@ -2034,7 +2034,7 @@
     {
       "formula": "💎전설조합",
       "formula_index": 26,
-      "evaluation_line": 11800,
+      "evaluation_line": 11814,
       "post_evaluation_overrides": [],
       "post_evaluation_override_keys": [],
       "status": "OK"
@@ -2042,7 +2042,7 @@
     {
       "formula": "🔺💎🍉삼각발사형",
       "formula_index": 27,
-      "evaluation_line": 11800,
+      "evaluation_line": 11814,
       "post_evaluation_overrides": [],
       "post_evaluation_override_keys": [],
       "status": "OK"
@@ -2050,7 +2050,7 @@
     {
       "formula": "💛📍🔺종베바닥삼각",
       "formula_index": 28,
-      "evaluation_line": 11800,
+      "evaluation_line": 11814,
       "post_evaluation_overrides": [],
       "post_evaluation_override_keys": [],
       "status": "OK"
@@ -2058,7 +2058,7 @@
     {
       "formula": "💎돌파골드",
       "formula_index": 29,
-      "evaluation_line": 11800,
+      "evaluation_line": 11814,
       "post_evaluation_overrides": [],
       "post_evaluation_override_keys": [],
       "status": "OK"
@@ -2066,7 +2066,7 @@
     {
       "formula": "🤫💛🔺침묵종베삼각",
       "formula_index": 30,
-      "evaluation_line": 11800,
+      "evaluation_line": 11814,
       "post_evaluation_overrides": [],
       "post_evaluation_override_keys": [],
       "status": "OK"
@@ -2074,7 +2074,7 @@
     {
       "formula": "💎매집완성",
       "formula_index": 31,
-      "evaluation_line": 11800,
+      "evaluation_line": 11814,
       "post_evaluation_overrides": [],
       "post_evaluation_override_keys": [],
       "status": "OK"
@@ -2082,7 +2082,7 @@
     {
       "formula": "💎바닥폭발",
       "formula_index": 32,
-      "evaluation_line": 11800,
+      "evaluation_line": 11814,
       "post_evaluation_overrides": [],
       "post_evaluation_override_keys": [],
       "status": "OK"
@@ -2090,7 +2090,7 @@
     {
       "formula": "📐좋은수렴",
       "formula_index": 33,
-      "evaluation_line": 11800,
+      "evaluation_line": 11814,
       "post_evaluation_overrides": [],
       "post_evaluation_override_keys": [],
       "status": "OK"
@@ -2098,7 +2098,7 @@
     {
       "formula": "🔥수급전환폭발",
       "formula_index": 34,
-      "evaluation_line": 11800,
+      "evaluation_line": 11814,
       "post_evaluation_overrides": [],
       "post_evaluation_override_keys": [],
       "status": "OK"
@@ -2106,7 +2106,7 @@
     {
       "formula": "💛🔺종베삼각",
       "formula_index": 35,
-      "evaluation_line": 11800,
+      "evaluation_line": 11814,
       "post_evaluation_overrides": [],
       "post_evaluation_override_keys": [],
       "status": "OK"
@@ -2114,7 +2114,7 @@
     {
       "formula": "💛종베단독(MA골크)",
       "formula_index": 36,
-      "evaluation_line": 11800,
+      "evaluation_line": 11814,
       "post_evaluation_overrides": [],
       "post_evaluation_override_keys": [],
       "status": "OK"
@@ -2122,7 +2122,7 @@
     {
       "formula": "🔺🏆삼각역매공파",
       "formula_index": 37,
-      "evaluation_line": 11800,
+      "evaluation_line": 11814,
       "post_evaluation_overrides": [],
       "post_evaluation_override_keys": [],
       "status": "OK"
@@ -2130,7 +2130,7 @@
     {
       "formula": "🔥돌파확인",
       "formula_index": 38,
-      "evaluation_line": 11800,
+      "evaluation_line": 11814,
       "post_evaluation_overrides": [],
       "post_evaluation_override_keys": [],
       "status": "OK"
@@ -2138,7 +2138,7 @@
     {
       "formula": "🔥조용폭발",
       "formula_index": 39,
-      "evaluation_line": 11800,
+      "evaluation_line": 11814,
       "post_evaluation_overrides": [],
       "post_evaluation_override_keys": [],
       "status": "OK"
@@ -2146,7 +2146,7 @@
     {
       "formula": "💎🍉초강력매집발사형",
       "formula_index": 40,
-      "evaluation_line": 11800,
+      "evaluation_line": 11814,
       "post_evaluation_overrides": [],
       "post_evaluation_override_keys": [],
       "status": "OK"
@@ -2154,7 +2154,7 @@
     {
       "formula": "💎🍉진짜매집발사형",
       "formula_index": 41,
-      "evaluation_line": 11800,
+      "evaluation_line": 11814,
       "post_evaluation_overrides": [],
       "post_evaluation_override_keys": [],
       "status": "OK"
@@ -2162,7 +2162,7 @@
     {
       "formula": "💎🍉양호매집발사형",
       "formula_index": 42,
-      "evaluation_line": 11800,
+      "evaluation_line": 11814,
       "post_evaluation_overrides": [],
       "post_evaluation_override_keys": [],
       "status": "OK"
@@ -2170,7 +2170,7 @@
     {
       "formula": "💎매집진행중(발사대기)",
       "formula_index": 43,
-      "evaluation_line": 11800,
+      "evaluation_line": 11814,
       "post_evaluation_overrides": [],
       "post_evaluation_override_keys": [],
       "status": "OK"
@@ -2178,7 +2178,7 @@
     {
       "formula": "🎯🍉BB30시프트GC발사형",
       "formula_index": 44,
-      "evaluation_line": 11800,
+      "evaluation_line": 11814,
       "post_evaluation_overrides": [],
       "post_evaluation_override_keys": [],
       "status": "OK"
@@ -2186,7 +2186,7 @@
     {
       "formula": "🎯🍉BB30시프트근접발사형",
       "formula_index": 45,
-      "evaluation_line": 11800,
+      "evaluation_line": 11814,
       "post_evaluation_overrides": [],
       "post_evaluation_override_keys": [],
       "status": "OK"
@@ -2194,7 +2194,7 @@
     {
       "formula": "🎯BB30시프트GC단독",
       "formula_index": 46,
-      "evaluation_line": 11800,
+      "evaluation_line": 11814,
       "post_evaluation_overrides": [],
       "post_evaluation_override_keys": [],
       "status": "OK"
@@ -2202,7 +2202,7 @@
     {
       "formula": "📍수급전환단독",
       "formula_index": 47,
-      "evaluation_line": 11800,
+      "evaluation_line": 11814,
       "post_evaluation_overrides": [],
       "post_evaluation_override_keys": [],
       "status": "OK"
@@ -2210,7 +2210,7 @@
     {
       "formula": "📍바닥단독",
       "formula_index": 48,
-      "evaluation_line": 11800,
+      "evaluation_line": 11814,
       "post_evaluation_overrides": [],
       "post_evaluation_override_keys": [],
       "status": "OK"
@@ -2218,7 +2218,7 @@
     {
       "formula": "🍉초록축적(수급전환직전)",
       "formula_index": 49,
-      "evaluation_line": 11800,
+      "evaluation_line": 11814,
       "post_evaluation_overrides": [],
       "post_evaluation_override_keys": [],
       "status": "OK"
@@ -2226,7 +2226,7 @@
     {
       "formula": "🕯️🍉종가배팅발사형",
       "formula_index": 50,
-      "evaluation_line": 11800,
+      "evaluation_line": 11814,
       "post_evaluation_overrides": [],
       "post_evaluation_override_keys": [],
       "status": "OK"
@@ -2234,7 +2234,7 @@
     {
       "formula": "🕯️종가배팅완전체",
       "formula_index": 51,
-      "evaluation_line": 11800,
+      "evaluation_line": 11814,
       "post_evaluation_overrides": [],
       "post_evaluation_override_keys": [],
       "status": "OK"
@@ -2242,7 +2242,7 @@
     {
       "formula": "🕯️종가배팅기본",
       "formula_index": 52,
-      "evaluation_line": 11800,
+      "evaluation_line": 11814,
       "post_evaluation_overrides": [],
       "post_evaluation_override_keys": [],
       "status": "OK"
@@ -2250,7 +2250,7 @@
     {
       "formula": "🕯️🧲종가배팅세력눌림",
       "formula_index": 53,
-      "evaluation_line": 11800,
+      "evaluation_line": 11814,
       "post_evaluation_overrides": [],
       "post_evaluation_override_keys": [],
       "status": "OK"
@@ -2258,12 +2258,12 @@
     {
       "formula": "🔢🍉피보38.2발사형",
       "formula_index": 54,
-      "evaluation_line": 11800,
+      "evaluation_line": 11814,
       "post_evaluation_overrides": [
         {
           "key": "fib_support_382",
           "kind": "OVERRIDE",
-          "line": 11905,
+          "line": 11919,
           "source": "abs(close_p - _fib382_val) / _fib382_val <= _tol"
         }
       ],
@@ -2275,12 +2275,12 @@
     {
       "formula": "🔢🍉피보61.8발사형",
       "formula_index": 55,
-      "evaluation_line": 11800,
+      "evaluation_line": 11814,
       "post_evaluation_overrides": [
         {
           "key": "fib_support_618",
           "kind": "OVERRIDE",
-          "line": 11907,
+          "line": 11921,
           "source": "abs(close_p - _fib618_val) / _fib618_val <= _tol"
         }
       ],
@@ -2292,12 +2292,12 @@
     {
       "formula": "🔢피봇S1발사형",
       "formula_index": 56,
-      "evaluation_line": 11800,
+      "evaluation_line": 11814,
       "post_evaluation_overrides": [
         {
           "key": "pivot_support",
           "kind": "OVERRIDE",
-          "line": 11909,
+          "line": 11923,
           "source": "abs(close_p - _pivot_s1)   / _pivot_s1   <= _tol"
         }
       ],
@@ -2309,12 +2309,12 @@
     {
       "formula": "🔢피보나치38.2눌림",
       "formula_index": 57,
-      "evaluation_line": 11800,
+      "evaluation_line": 11814,
       "post_evaluation_overrides": [
         {
           "key": "fib_support_382",
           "kind": "OVERRIDE",
-          "line": 11905,
+          "line": 11919,
           "source": "abs(close_p - _fib382_val) / _fib382_val <= _tol"
         }
       ],
@@ -2326,12 +2326,12 @@
     {
       "formula": "🔢피보나치61.8강지지",
       "formula_index": 58,
-      "evaluation_line": 11800,
+      "evaluation_line": 11814,
       "post_evaluation_overrides": [
         {
           "key": "fib_support_618",
           "kind": "OVERRIDE",
-          "line": 11907,
+          "line": 11921,
           "source": "abs(close_p - _fib618_val) / _fib618_val <= _tol"
         }
       ],
@@ -2343,7 +2343,7 @@
     {
       "formula": "😱🍉공포흡수1차발사",
       "formula_index": 59,
-      "evaluation_line": 11800,
+      "evaluation_line": 11814,
       "post_evaluation_overrides": [],
       "post_evaluation_override_keys": [],
       "status": "OK"
@@ -2351,7 +2351,7 @@
     {
       "formula": "😱🍉공포흡수재발사",
       "formula_index": 60,
-      "evaluation_line": 11800,
+      "evaluation_line": 11814,
       "post_evaluation_overrides": [],
       "post_evaluation_override_keys": [],
       "status": "OK"
@@ -2359,7 +2359,7 @@
     {
       "formula": "📊OBV+MFI",
       "formula_index": 61,
-      "evaluation_line": 11800,
+      "evaluation_line": 11814,
       "post_evaluation_overrides": [],
       "post_evaluation_override_keys": [],
       "status": "OK"
@@ -2367,7 +2367,7 @@
     {
       "formula": "⚡거래량+OBV",
       "formula_index": 62,
-      "evaluation_line": 11800,
+      "evaluation_line": 11814,
       "post_evaluation_overrides": [],
       "post_evaluation_override_keys": [],
       "status": "OK"
@@ -2375,42 +2375,42 @@
     {
       "formula": "🕯️🍉종가배팅A급(발사형동반)",
       "formula_index": 63,
-      "evaluation_line": 11800,
+      "evaluation_line": 11814,
       "post_evaluation_overrides": [
         {
           "key": "closing_bet",
           "kind": "OVERRIDE",
-          "line": 11972,
+          "line": 11986,
           "source": "True"
         },
         {
           "key": "closing_bet",
           "kind": "OVERRIDE",
-          "line": 11975,
+          "line": 11989,
           "source": "True"
         },
         {
           "key": "closing_bet",
           "kind": "OVERRIDE",
-          "line": 11978,
+          "line": 11992,
           "source": "True"
         },
         {
           "key": "closing_bet_grade",
           "kind": "OVERRIDE",
-          "line": 11973,
+          "line": 11987,
           "source": "'A'"
         },
         {
           "key": "closing_bet_grade",
           "kind": "OVERRIDE",
-          "line": 11976,
+          "line": 11990,
           "source": "'B'"
         },
         {
           "key": "closing_bet_grade",
           "kind": "OVERRIDE",
-          "line": 11979,
+          "line": 11993,
           "source": "'C'"
         }
       ],
@@ -2423,42 +2423,42 @@
     {
       "formula": "🕯️종가배팅B급(OBV확인)",
       "formula_index": 64,
-      "evaluation_line": 11800,
+      "evaluation_line": 11814,
       "post_evaluation_overrides": [
         {
           "key": "closing_bet",
           "kind": "OVERRIDE",
-          "line": 11972,
+          "line": 11986,
           "source": "True"
         },
         {
           "key": "closing_bet",
           "kind": "OVERRIDE",
-          "line": 11975,
+          "line": 11989,
           "source": "True"
         },
         {
           "key": "closing_bet",
           "kind": "OVERRIDE",
-          "line": 11978,
+          "line": 11992,
           "source": "True"
         },
         {
           "key": "closing_bet_grade",
           "kind": "OVERRIDE",
-          "line": 11973,
+          "line": 11987,
           "source": "'A'"
         },
         {
           "key": "closing_bet_grade",
           "kind": "OVERRIDE",
-          "line": 11976,
+          "line": 11990,
           "source": "'B'"
         },
         {
           "key": "closing_bet_grade",
           "kind": "OVERRIDE",
-          "line": 11979,
+          "line": 11993,
           "source": "'C'"
         }
       ],
@@ -2471,42 +2471,42 @@
     {
       "formula": "🕯️종가배팅C급(기본충족)",
       "formula_index": 65,
-      "evaluation_line": 11800,
+      "evaluation_line": 11814,
       "post_evaluation_overrides": [
         {
           "key": "closing_bet",
           "kind": "OVERRIDE",
-          "line": 11972,
+          "line": 11986,
           "source": "True"
         },
         {
           "key": "closing_bet",
           "kind": "OVERRIDE",
-          "line": 11975,
+          "line": 11989,
           "source": "True"
         },
         {
           "key": "closing_bet",
           "kind": "OVERRIDE",
-          "line": 11978,
+          "line": 11992,
           "source": "True"
         },
         {
           "key": "closing_bet_grade",
           "kind": "OVERRIDE",
-          "line": 11973,
+          "line": 11987,
           "source": "'A'"
         },
         {
           "key": "closing_bet_grade",
           "kind": "OVERRIDE",
-          "line": 11976,
+          "line": 11990,
           "source": "'B'"
         },
         {
           "key": "closing_bet_grade",
           "kind": "OVERRIDE",
-          "line": 11979,
+          "line": 11993,
           "source": "'C'"
         }
       ],
@@ -2545,7 +2545,7 @@
       "source_kind": "LIVE_SELECTOR",
       "native_anchor_required": true,
       "function_found": true,
-      "source_line": 34117,
+      "source_line": 34141,
       "source_sha256": "9d5806b7f957a29f33cb4478897409a8d7d1a3ba4e0fc89fa4aaf610e582f64e",
       "source_excerpt": "def _v1046_build_ymgp_bb40_top5_df(df, limit: int = 5):\n    \"\"\"역매공파/BB40 재정의 후보 별도 TOP5.\"\"\"\n    try:\n        import pandas as _pd\n        if df is None or not hasattr(df, 'empty') or df.empty:\n            return _pd.DataFrame()\n        out = df.copy()\n        if 'code' not in out.columns:\n            for c in ['Code', '종목코드', '티커']:\n                if c in out.columns:\n                    out['code'] = out[c]\n                    break\n        if '종목명' not in out.columns:\n            for c in ['Name', 'name', '종목']:\n                if c in out.columns:\n                    out['종목명'] = out[c]\n                    break\n        if '현재가' not in out.columns:\n            for c in ['Close', 'close', '종가']:\n                if c in out.columns:\n                    out['현재가'] = out[c]\n                    break\n        if '역매공파BB40맥락' not in out.columns:\n            return _pd.DataFrame()\n        mask = out['역매공파BB40맥락'].fillna(False).astype(bool)\n        out = out[mask].copy()\n        if out.empty:\n            return _pd.DataFrame()\n        for c in ['역매공파BB40점수', '안전점수', 'N점수', '현재가', 'RSI', '이격', 'BB40']:\n            if c not in out.columns:\n                out[c] = 0\n            out[c] = _pd.to_numeric(out[c], errors='coerce').fillna(0)\n        for c in ['역매공파BB40상태', '역매공파BB40태그', '역매공파BB40코멘트', '역매공파BB40역할']:\n            if c not in out.columns:\n                out[c] = ''\n        out['_v1046_overheat'] = ((out['RSI'] >= 70) | (out['이격'] >= 115)).astype(int)\n        if 'code' in out.columns:\n            out['_v1046_code'] = out['code'].map(_v1046_norm_code)\n        else:\n            out['_v1046_code'] = ''\n        out = out.sort_values(\n            by=['_v1046_overheat', '역매공파BB40점수', '안전점수', 'N점수'],\n            ascending=[True, False, False, False]\n        )\n        out = out.drop_duplicates(subset=['_v1046_code'], keep='first')\n        return out.head(limit).reset_index(drop=True)\n    except Exception as e:\n        try: log_error(f'⚠️ V1046 역매공파 TOP5 구성 실패: {e}')\n        except Exception: pass\n        try:\n            import pandas as _pd\n            return _pd.DataFrame()\n        except Exception:\n            return df"
     },
@@ -2662,5 +2662,5 @@
       "source_excerpt": ""
     }
   ],
-  "registry_sha256": "d9c5da10448e4ef459768fb37f917bd47b71b680f085e594d0cb211d54d0e8bb"
+  "registry_sha256": "e6afed371a582714fff8a73ca4d918c9d77044cc84162dc9215c803c7c7fbb57"
 }
