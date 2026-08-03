@@ -1077,14 +1077,14 @@ jobs:
               exit 65
             fi
             if [ ! -f "module_contract_preflight.py" ]; then
-              echo "❌ module_contract_preflight.py missing from repository root. V73.3.6.6.6 deployment incomplete."
+              echo "❌ module_contract_preflight.py missing from repository root. V73.3.6.6.7 deployment incomplete."
               exit 105
             fi
             # Historical verifier compatibility markers; execution is delegated to module_contract_preflight.py.
             # FAMILIAR_PREFLIGHT getattr(m,'VERSION','')=='V73.3.6.6'
             # PATTERN_AI_CROSS_PREFLIGHT getattr(m,'VERSION','')=='V73.3.6.6.2'
             # MARKET_EXCESS_PREFLIGHT V73.3.6.6.3
-            # FORMULA_TRUTH_PREFLIGHT V73.3.6.6.6
+            # FORMULA_TRUTH_PREFLIGHT V73.3.6.6.7
             # artifact families: strict-ai-exact-policy-route-guard-reports | market-index-sector-excess-causal-audit-reports
             echo "🧭 [V73.3.6.6.4 exact-root module source guard]"
             find "${GITHUB_WORKSPACE}" -maxdepth 4 -type f \
