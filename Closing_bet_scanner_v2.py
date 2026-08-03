@@ -75,7 +75,7 @@ def _env_float(name: str, default: float = 0.0) -> float:
         except Exception:
             return 0.0
 
-CLOSING_BET_SCANNER_VERSION = 'G_MORALES_V4_4_9_53_8_49_54_CACHE_CONTEXT_DECOUPLING_STRONG_OHLCV_FINGERPRINT_MISMATCH_AUDIT_20260803'
+CLOSING_BET_SCANNER_VERSION = 'G_MORALES_V4_4_9_53_8_49_55_UNIVERSE_SNAPSHOT_LOCK_MULTI_CONTEXT_LIFECYCLE_CACHE_20260804'
 CLOSING_BET_LIVE_PRICE_SANITY_FIX = str(os.environ.get('CLOSING_BET_LIVE_PRICE_SANITY_FIX', '1')).lower() in ('1', 'true', 'yes', 'y', 'on')
 CLOSING_BET_LIVE_READABILITY_COMPACT = str(os.environ.get('CLOSING_BET_LIVE_READABILITY_COMPACT', '1')).lower() in ('1', 'true', 'yes', 'y', 'on')
 # v53.8.42: M5R TRUE60 검증용 장기 월봉 확보. 60개월 월선 계산에는 약 7년 일봉이 필요하다.
@@ -304,7 +304,7 @@ _V4936_LAST_LIVE_SCAN_STATUS = {
 }
 
 
-# v49.54: 전체 유니버스를 DISCOVERY→TRACKING→ENTRY→FORWARD로 연결하는 단일 레지스트리.
+# v49.55: 전체 유니버스를 DISCOVERY→TRACKING→ENTRY→FORWARD로 연결하는 단일 레지스트리.
 # 기존 전략은 보조태그로 유지하되, 공식 행동판/Forward는 이 레지스트리의 최종 상태만 사용한다.
 CLOSING_BET_V4938_LIFECYCLE_ENABLE = str(os.environ.get('CLOSING_BET_V4938_LIFECYCLE_ENABLE', '1')).lower() in ('1','true','yes','y','on')
 CLOSING_BET_V4938_UNIVERSE_MAX_CODES = max(100, min(1200, _env_int('CLOSING_BET_V4938_UNIVERSE_MAX_CODES', '900')))
@@ -332,7 +332,7 @@ _V4938_LAST_REGISTRY = pd.DataFrame()
 _V4938_LAST_HEALTH = {'state':'NOT_RUN','requested':0,'processed':0,'failed':0,'short':0,'done_pct':0.0}
 
 
-# v49.54: Lifecycle 상태 전이 하드게이트 + 과거 Funnel/known-case 감사 + Forward 정책손익 표시.
+# v49.55: Lifecycle 상태 전이 하드게이트 + 과거 Funnel/known-case 감사 + Forward 정책손익 표시.
 # ENTRY 조건 자체를 완화하지 않고, 앞 단계 미완료·지지선 이탈의 잘못된 승격만 차단한다.
 CLOSING_BET_V4939_SUPPORT_CLOSE_TOL_PCT = max(0.0, min(2.0, _env_float('CLOSING_BET_V4939_SUPPORT_CLOSE_TOL_PCT', '0.5')))
 CLOSING_BET_V4939_EXTREME_IGNITION_RET_PCT = max(7.0, min(30.0, _env_float('CLOSING_BET_V4939_EXTREME_IGNITION_RET_PCT', '12.0')))
@@ -347,7 +347,7 @@ CLOSING_BET_V4939_FORWARD_POLICY_LABEL = 'P1 50/30/D3'
 CLOSING_BET_V4939_FORWARD_COST_BPS = 20
 _V4939_LIFECYCLE_BT_CACHE = {}
 
-# v49.54: Lifecycle 역사검증 배선/동적 로드/에피소드 Funnel/전용 포트폴리오/시장구간 감사.
+# v49.55: Lifecycle 역사검증 배선/동적 로드/에피소드 Funnel/전용 포트폴리오/시장구간 감사.
 # 기존 v49.39 상태조건은 변경하지 않고 검증·보고 경로만 fail-closed로 정합화한다.
 CLOSING_BET_V4940_LIFECYCLE_BT_ENABLE = str(os.environ.get('CLOSING_BET_V4940_LIFECYCLE_BT_ENABLE', os.environ.get('CLOSING_BET_V4939_LIFECYCLE_BT_ENABLE', '1'))).lower() in ('1','true','yes','y','on')
 CLOSING_BET_V4940_LIFECYCLE_BT_MAX_WORKERS = max(1, min(12, _env_int('CLOSING_BET_V4940_LIFECYCLE_BT_MAX_WORKERS', '8')))
@@ -364,7 +364,7 @@ _V4940_LAST_PIPELINE_DIAG = {}
 _V4940_BT_PRICE_CACHE = {}
 
 
-# v49.54: 공통 OHLCV 단일 로더 + 청크 실행 + 구조화 감사 + 최상위 FAIL-CLOSED.
+# v49.55: 공통 OHLCV 단일 로더 + 청크 실행 + 구조화 감사 + 최상위 FAIL-CLOSED.
 # 전략/ENTRY 조건은 변경하지 않고 데이터 수집·검증 배선만 안정화한다.
 CLOSING_BET_V4941_SHARED_CACHE_ENABLE = str(os.environ.get('CLOSING_BET_V4941_SHARED_CACHE_ENABLE', '1')).lower() in ('1','true','yes','y','on')
 CLOSING_BET_V4941_LOAD_CHUNK_SIZE = max(20, min(250, _env_int('CLOSING_BET_V4941_LOAD_CHUNK_SIZE', '100')))
@@ -386,7 +386,7 @@ _V4941_AUDIT_RESULT = {
 }
 
 
-# v49.54: 최종판단 + 동일 점화 episode 단조 상태 + 중복 ENTRY 차단.
+# v49.55: 최종판단 + 동일 점화 episode 단조 상태 + 중복 ENTRY 차단.
 # 전략 조건은 유지하고, LIVE 출력 직전에 신규/대기/기존관리/제외를 하나의 episode registry로 확정한다.
 CLOSING_BET_V4942_FINAL_DECISION_ENABLE = str(os.environ.get('CLOSING_BET_V4942_FINAL_DECISION_ENABLE', '1')).lower() in ('1','true','yes','y','on')
 CLOSING_BET_V4942_FINAL_TOP_N = max(3, min(10, _env_int('CLOSING_BET_V4942_FINAL_TOP_N', '6')))
@@ -395,7 +395,7 @@ CLOSING_BET_V4942_REQUIRE_SUPPORT_ABOVE = str(os.environ.get('CLOSING_BET_V4942_
 CLOSING_BET_V4942_MARKET_ADVERSE_TOKENS = ('비우호','약세','위험','하락우위','매도우위')
 _V4942_LAST_DECISION = {'state':'NOT_RUN','items':[],'counts':{}}
 
-# v49.54: Google Sheet append-only actual recommendation provenance ledger.
+# v49.55: Google Sheet append-only actual recommendation provenance ledger.
 CLOSING_BET_V4943_RECOMMENDATION_LEDGER_ENABLE = str(os.environ.get('CLOSING_BET_V4943_RECOMMENDATION_LEDGER_ENABLE', '1')).lower() in ('1','true','yes','y','on')
 CLOSING_BET_V4943_GSHEET_NAME = str(os.environ.get('CLOSING_BET_V4943_GSHEET_NAME', '사령부_통합_상황판')).strip() or '사령부_통합_상황판'
 CLOSING_BET_V4943_LEDGER_TAB = str(os.environ.get('CLOSING_BET_V4943_LEDGER_TAB', 'LIVE_추천원장')).strip() or 'LIVE_추천원장'
@@ -410,7 +410,7 @@ _V4943_LAST_SHEET_STATUS = {'state':'NOT_RUN','generated':0,'delivered':0,'faile
 _V4943_CURRENT_RECOMMENDATIONS = []
 _V4943_LAST_MARKET_STATE = ''
 
-# v49.54: Google Sheet health proof + actual recommendation KPI + temporal/failure evidence.
+# v49.55: Google Sheet health proof + actual recommendation KPI + temporal/failure evidence.
 CLOSING_BET_V4944_SHEET_HEALTH_ENABLE = str(os.environ.get('CLOSING_BET_V4944_SHEET_HEALTH_ENABLE', '1')).lower() in ('1','true','yes','y','on')
 CLOSING_BET_V4944_HEALTH_TAB = str(os.environ.get('CLOSING_BET_V4944_HEALTH_TAB', 'SYSTEM_HEALTH')).strip() or 'SYSTEM_HEALTH'
 CLOSING_BET_V4944_DELIVERY_CONFIRM_TELEGRAM = str(os.environ.get('CLOSING_BET_V4944_DELIVERY_CONFIRM_TELEGRAM', '1')).lower() in ('1','true','yes','y','on')
@@ -423,7 +423,7 @@ _V4944_TIME_CONTEXT = {}
 _V4944_FORWARD_SHEET_CACHE = {'loaded':False,'rows':[],'error':'','ts':0.0}
 
 
-# v49.54: BIG-WINNER anatomy + profit concentration + TRAIN→OOS feature audit.
+# v49.55: BIG-WINNER anatomy + profit concentration + TRAIN→OOS feature audit.
 # 전략조건은 변경하지 않고 Lifecycle STRICT-ENTRY의 사후 연구/감사만 수행한다.
 CLOSING_BET_V4945_BIG_WINNER_ENABLE = str(os.environ.get('CLOSING_BET_V4945_BIG_WINNER_ENABLE', '1')).lower() in ('1','true','yes','y','on')
 CLOSING_BET_V4945_BIG_THRESHOLD_PCT = max(5.0, min(30.0, _env_float('CLOSING_BET_V4945_BIG_THRESHOLD_PCT', '10.0')))
@@ -436,7 +436,7 @@ CLOSING_BET_V4945_FAIL_THRESHOLDS = (0.0, 0.5, 1.0, 2.0, 3.0, 5.0)
 _V4945_BIG_WINNER_AUDIT = {'status':'NOT_RUN','lines':[],'detail':{}}
 
 
-# v49.54: LEGACY 전략 백테스트와 Lifecycle Research를 독립 건강성 레인으로 분리한다.
+# v49.55: LEGACY 전략 백테스트와 Lifecycle Research를 독립 건강성 레인으로 분리한다.
 # 공통 OHLCV가 정상이라면 LEGACY CPU timeout이 발생해도 Lifecycle Funnel/BIG-WINNER 연구는 별도 VALID 판정을 유지한다.
 CLOSING_BET_V4946_DUAL_LANE_ENABLE = str(os.environ.get('CLOSING_BET_V4946_DUAL_LANE_ENABLE', '1')).lower() in ('1','true','yes','y','on')
 CLOSING_BET_V4946_RESEARCH_CHUNK_SIZE = max(5, min(60, _env_int('CLOSING_BET_V4946_RESEARCH_CHUNK_SIZE', '20')))
@@ -445,7 +445,7 @@ CLOSING_BET_V4946_RESEARCH_MIN_LOAD_PCT = max(50.0, min(100.0, _env_float('CLOSI
 _V4946_RESEARCH_LANE = {'status':'NOT_RUN','elapsed_sec':0.0,'lines':[],'error':''}
 
 
-# v49.54: canonical population bridge + BIG-WINNER pattern-cluster OOS + known-case predicate diagnostics.
+# v49.55: canonical population bridge + BIG-WINNER pattern-cluster OOS + known-case predicate diagnostics.
 # LIVE 전략조건은 변경하지 않는다. 모든 cluster/threshold 결과는 RESEARCH ONLY다.
 CLOSING_BET_V4947_CLUSTER_ENABLE = str(os.environ.get('CLOSING_BET_V4947_CLUSTER_ENABLE', '1')).lower() in ('1','true','yes','y','on')
 CLOSING_BET_V4947_CLUSTER_K_MIN = max(2, min(3, _env_int('CLOSING_BET_V4947_CLUSTER_K_MIN', '2')))
@@ -456,7 +456,7 @@ CLOSING_BET_V4947_CLUSTER_RADIUS_Q = max(0.55, min(0.95, _env_float('CLOSING_BET
 CLOSING_BET_V4947_CLUSTER_MIN_OOS_ZONE = max(5, min(100, _env_int('CLOSING_BET_V4947_CLUSTER_MIN_OOS_ZONE', '15')))
 _V4947_POPULATION_BRIDGE = {'status':'NOT_RUN','line':''}
 
-# v49.54: BACKTEST universe regression/fingerprint lock.
+# v49.55: BACKTEST universe regression/fingerprint lock.
 # FDR listing이 STATIC fallback으로 축소되더라도 150개 안팎의 표본을 정상 연구로 오인하지 않는다.
 CLOSING_BET_V4948_UNIVERSE_LOCK_ENABLE = str(os.environ.get('CLOSING_BET_V4948_UNIVERSE_LOCK_ENABLE', '1')).lower() in ('1','true','yes','y','on')
 CLOSING_BET_V4948_HYBRID_MIN_CODES = max(300, min(900, _env_int('CLOSING_BET_V4948_HYBRID_MIN_CODES', '500')))
@@ -465,7 +465,7 @@ CLOSING_BET_V4948_CLUSTER_EXPLORATORY_MIN_CELL = max(4, min(20, _env_int('CLOSIN
 _V4948_LAST_UNIVERSE_META = {'status':'NOT_RUN','source':'','count':0,'fingerprint':'','asof':'','reason':''}
 _V4947_CLUSTER_AUDIT = {'status':'NOT_RUN','lines':[],'detail':{}}
 
-# v49.54: 실제로 '먹을 수 있었던 대박'을 path/policy 기준으로 상호배타 분해한다.
+# v49.55: 실제로 '먹을 수 있었던 대박'을 path/policy 기준으로 상호배타 분해한다.
 # 연구 결과는 LIVE ENTRY/Runner 조건에 자동 반영하지 않는다.
 CLOSING_BET_V4949_CAPTURABLE_BIG_ENABLE = str(os.environ.get('CLOSING_BET_V4949_CAPTURABLE_BIG_ENABLE', '1')).lower() in ('1','true','yes','y','on')
 CLOSING_BET_V4949_BIG_PCT = max(5.0, min(30.0, _env_float('CLOSING_BET_V4949_BIG_PCT', '10.0')))
@@ -476,7 +476,7 @@ CLOSING_BET_V4949_M5_FAIL_CLOSED = str(os.environ.get('CLOSING_BET_V4949_M5_FAIL
 CLOSING_BET_V4949_FAIL_PORTFOLIO_ENABLE = str(os.environ.get('CLOSING_BET_V4949_FAIL_PORTFOLIO_ENABLE', '1')).lower() in ('1','true','yes','y','on')
 _V4949_CAPTURABLE_AUDIT = {'status':'NOT_RUN','lines':[],'detail':{}}
 
-# v49.54: FAIL cutoff는 최종 signal 지지선을 과거에 소급하는 방식이 아니라,
+# v49.55: FAIL cutoff는 최종 signal 지지선을 과거에 소급하는 방식이 아니라,
 # 각 날짜 당시 관측된 dynamic support gap의 ENTRY 이전 최소값으로 causal 검증한다.
 # TRAIN에서 cutoff를 1회 고정하고 OOS에서는 재튜닝하지 않는다. Runner 역시 RESEARCH ONLY.
 CLOSING_BET_V4950_FAIL_LOCK_ENABLE = str(os.environ.get('CLOSING_BET_V4950_FAIL_LOCK_ENABLE', '1')).lower() in ('1','true','yes','y','on')
@@ -488,7 +488,7 @@ CLOSING_BET_V4950_RUNNER_MIN_LIFT_PCT = max(1.0, min(20.0, _env_float('CLOSING_B
 _V4950_FAIL_LOCK_AUDIT = {'status':'NOT_RUN','lines':[],'detail':{}}
 _V4950_RUNNER_AUDIT = {'status':'NOT_RUN','lines':[],'detail':{}}
 
-# v49.54: META key normalization, repeated walk-forward, and universal residual Runner policy.
+# v49.55: META key normalization, repeated walk-forward, and universal residual Runner policy.
 # These are research-only post-processors over the already-built Lifecycle ENTRY table.
 CLOSING_BET_V4951_META_RECONCILE_ENABLE = str(os.environ.get('CLOSING_BET_V4951_META_RECONCILE_ENABLE', '1')).lower() in ('1','true','yes','y','on')
 CLOSING_BET_V4951_META_AUDIT_SAMPLE_N = max(1, min(20, _env_int('CLOSING_BET_V4951_META_AUDIT_SAMPLE_N', '5')))
@@ -507,7 +507,7 @@ _V4951_FAIL_WALK_AUDIT = {'status':'NOT_RUN','lines':[],'detail':{}}
 _V4951_RUNNER_POLICY_AUDIT = {'status':'NOT_RUN','lines':[],'detail':{}}
 
 
-# v49.54: fold date authority, full breach first-date audit, persistent Lifecycle cache,
+# v49.55: fold date authority, full breach first-date audit, persistent Lifecycle cache,
 # strict absolute 50bp Runner gate. All outputs remain RESEARCH ONLY/PAPER.
 CLOSING_BET_V4953_FOLD_MIN_COVERAGE_PCT = max(50.0, min(100.0, _env_float('CLOSING_BET_V4953_FOLD_MIN_COVERAGE_PCT', os.environ.get('CLOSING_BET_V4952_FOLD_MIN_COVERAGE_PCT', '80.0'))))
 CLOSING_BET_V4953_BREACH_AUDIT_ENABLE = str(os.environ.get('CLOSING_BET_V4953_BREACH_AUDIT_ENABLE', os.environ.get('CLOSING_BET_V4952_BREACH_AUDIT_ENABLE', '1'))).lower() in ('1','true','yes','y','on')
@@ -521,17 +521,27 @@ CLOSING_BET_V4953_RUNNER_MIN_PF50_POS_RATE = max(0.5, min(1.0, _env_float('CLOSI
 CLOSING_BET_V4953_RUNNER_MIN_POSITIVE_MONTH_PCT = max(0.0, min(100.0, _env_float('CLOSING_BET_V4953_RUNNER_MIN_POSITIVE_MONTH_PCT', '50.0')))
 CLOSING_BET_V4953_RESEARCH_CACHE_ENABLE = str(os.environ.get('CLOSING_BET_V4953_RESEARCH_CACHE_ENABLE', os.environ.get('CLOSING_BET_V4952_RESEARCH_CACHE_ENABLE', '1'))).lower() in ('1','true','yes','y','on')
 
-# v49.54 raw Lifecycle cache: report/Telegram changes are deliberately excluded from the cache key.
-# The calculation engine is unchanged from v49.53, therefore ENGINE_VERSION remains engine-1.
-# Bump ENGINE_VERSION only when _v4938/_v4940 state-transition semantics or raw-frame schema changes.
-CLOSING_BET_V4954_LIFECYCLE_CACHE_ENABLE = str(os.environ.get('CLOSING_BET_V4954_LIFECYCLE_CACHE_ENABLE', os.environ.get('CLOSING_BET_V4953_LIFECYCLE_CACHE_ENABLE', '1'))).lower() in ('1','true','yes','y','on')
-CLOSING_BET_V4954_LIFECYCLE_CACHE_READ = str(os.environ.get('CLOSING_BET_V4954_LIFECYCLE_CACHE_READ', os.environ.get('CLOSING_BET_V4953_LIFECYCLE_CACHE_READ', '1'))).lower() in ('1','true','yes','y','on')
-CLOSING_BET_V4954_LIFECYCLE_CACHE_WRITE = str(os.environ.get('CLOSING_BET_V4954_LIFECYCLE_CACHE_WRITE', os.environ.get('CLOSING_BET_V4953_LIFECYCLE_CACHE_WRITE', '1'))).lower() in ('1','true','yes','y','on')
-CLOSING_BET_V4954_LIFECYCLE_CACHE_DIR = str(os.environ.get('CLOSING_BET_V4954_LIFECYCLE_CACHE_DIR', 'closing_bet_logs/v49_54_lifecycle_cache')).strip() or 'closing_bet_logs/v49_54_lifecycle_cache'
-CLOSING_BET_V4954_LIFECYCLE_CACHE_SCHEMA = 4
-CLOSING_BET_V4954_LIFECYCLE_ENGINE_VERSION = str(os.environ.get('CLOSING_BET_V4954_LIFECYCLE_ENGINE_VERSION', 'lifecycle-engine-1')).strip() or 'lifecycle-engine-1'
-CLOSING_BET_V4954_LIFECYCLE_LOGIC_SHA256 = 'b793b3854a3608b49f6f0fcf2e6c4e85cc8683811fcfaaa6f794f023554be08b'
-CLOSING_BET_V4954_OHLCV_FINGERPRINT_SCHEMA = 2
+# v49.55 persistent research inputs: Universe Snapshot Lock + multi-context Lifecycle cache.
+# Telegram/report-only changes are deliberately excluded from calculation cache keys.
+# Bump ENGINE_VERSION only when raw Lifecycle state-transition semantics or frame schema changes.
+CLOSING_BET_V4955_UNIVERSE_SNAPSHOT_ENABLE = str(os.environ.get('CLOSING_BET_V4955_UNIVERSE_SNAPSHOT_ENABLE', '1')).lower() in ('1','true','yes','y','on')
+CLOSING_BET_V4955_UNIVERSE_SNAPSHOT_READ = str(os.environ.get('CLOSING_BET_V4955_UNIVERSE_SNAPSHOT_READ', '1')).lower() in ('1','true','yes','y','on')
+CLOSING_BET_V4955_UNIVERSE_SNAPSHOT_WRITE = str(os.environ.get('CLOSING_BET_V4955_UNIVERSE_SNAPSHOT_WRITE', '1')).lower() in ('1','true','yes','y','on')
+CLOSING_BET_V4955_UNIVERSE_SNAPSHOT_FORCE_REFRESH = str(os.environ.get('CLOSING_BET_V4955_UNIVERSE_SNAPSHOT_FORCE_REFRESH', '0')).lower() in ('1','true','yes','y','on')
+CLOSING_BET_V4955_UNIVERSE_SNAPSHOT_DIR = str(os.environ.get('CLOSING_BET_V4955_UNIVERSE_SNAPSHOT_DIR', 'closing_bet_logs/v49_55_universe_snapshots')).strip() or 'closing_bet_logs/v49_55_universe_snapshots'
+CLOSING_BET_V4955_UNIVERSE_SNAPSHOT_SCHEMA = 1
+CLOSING_BET_V4955_UNIVERSE_SNAPSHOT_MAX_CONTEXTS = max(4, min(100, _env_int('CLOSING_BET_V4955_UNIVERSE_SNAPSHOT_MAX_CONTEXTS', '24')))
+
+CLOSING_BET_V4955_LIFECYCLE_CACHE_ENABLE = str(os.environ.get('CLOSING_BET_V4955_LIFECYCLE_CACHE_ENABLE', os.environ.get('CLOSING_BET_V4954_LIFECYCLE_CACHE_ENABLE', '1'))).lower() in ('1','true','yes','y','on')
+CLOSING_BET_V4955_LIFECYCLE_CACHE_READ = str(os.environ.get('CLOSING_BET_V4955_LIFECYCLE_CACHE_READ', os.environ.get('CLOSING_BET_V4954_LIFECYCLE_CACHE_READ', '1'))).lower() in ('1','true','yes','y','on')
+CLOSING_BET_V4955_LIFECYCLE_CACHE_WRITE = str(os.environ.get('CLOSING_BET_V4955_LIFECYCLE_CACHE_WRITE', os.environ.get('CLOSING_BET_V4954_LIFECYCLE_CACHE_WRITE', '1'))).lower() in ('1','true','yes','y','on')
+CLOSING_BET_V4955_LIFECYCLE_CACHE_DIR = str(os.environ.get('CLOSING_BET_V4955_LIFECYCLE_CACHE_DIR', 'closing_bet_logs/v49_55_lifecycle_cache')).strip() or 'closing_bet_logs/v49_55_lifecycle_cache'
+CLOSING_BET_V4955_LIFECYCLE_CACHE_SCHEMA = 5
+CLOSING_BET_V4955_LIFECYCLE_CACHE_MAX_CONTEXTS = max(4, min(100, _env_int('CLOSING_BET_V4955_LIFECYCLE_CACHE_MAX_CONTEXTS', '24')))
+CLOSING_BET_V4955_LIFECYCLE_ENGINE_VERSION = str(os.environ.get('CLOSING_BET_V4955_LIFECYCLE_ENGINE_VERSION', 'lifecycle-engine-1')).strip() or 'lifecycle-engine-1'
+CLOSING_BET_V4955_LIFECYCLE_LOGIC_SHA256 = 'b793b3854a3608b49f6f0fcf2e6c4e85cc8683811fcfaaa6f794f023554be08b'
+CLOSING_BET_V4955_OHLCV_FINGERPRINT_SCHEMA = 2
+_V4955_UNIVERSE_SNAPSHOT_AUDIT = {'status':'NOT_RUN','lines':[],'detail':{}}
 _V4953_BREACH_CLOCK_AUDIT = {'status':'NOT_RUN','lines':[],'detail':{}}
 _V4953_RUNNER_WALK_AUDIT = {'status':'NOT_RUN','lines':[],'detail':{}}
 _V4953_RESEARCH_CACHE_AUDIT = {'status':'NOT_RUN','lines':[],'detail':{}}
@@ -1683,46 +1693,182 @@ def _v4948_pykrx_hybrid_universe(asof_date: str) -> tuple[list[str],dict]:
     return codes,meta
 
 
+
+def _v4955_atomic_write_text(path: Path, text: str, encoding: str='utf-8'):
+    path.parent.mkdir(parents=True,exist_ok=True)
+    tmp=path.with_name(path.name+'.tmp')
+    tmp.write_text(text,encoding=encoding)
+    os.replace(tmp,path)
+
+
+def _v4955_normalize_asof(value) -> str:
+    t=pd.to_datetime(value,errors='coerce')
+    if pd.isna(t): return str(value)
+    return pd.Timestamp(t).tz_localize(None).normalize().strftime('%Y-%m-%d')
+
+
+def _v4955_universe_snapshot_context(end_date: str, universe_name: str) -> dict:
+    params={
+        'schema':int(CLOSING_BET_V4955_UNIVERSE_SNAPSHOT_SCHEMA),
+        'requested_asof':_v4955_normalize_asof(end_date),
+        'universe_name':str(universe_name or 'hybrid_union'),
+        'mcap_or_min':float(MCAP_OR_MIN),
+        'hybrid_min_codes':int(CLOSING_BET_V4948_HYBRID_MIN_CODES),
+        'repair_lookback_days':int(CLOSING_BET_V4948_REPAIR_LOOKBACK_DAYS),
+        'allow_universe_fallback':bool(CLOSING_BET_ALLOW_UNIVERSE_FALLBACK),
+    }
+    key=hashlib.sha256(json.dumps(params,ensure_ascii=False,sort_keys=True,separators=(',',':')).encode('utf-8')).hexdigest()
+    return {**params,'snapshot_key':key}
+
+
+def _v4955_universe_snapshot_paths(context: dict) -> dict:
+    base=Path(CLOSING_BET_V4955_UNIVERSE_SNAPSHOT_DIR)
+    d=base/str(context.get('snapshot_key','UNKNOWN'))
+    return {'base':base,'dir':d,'manifest':d/'manifest.json','codes':d/'codes.csv','index':base/'index.json'}
+
+
+def _v4955_context_index_update(base: Path, key: str, item: dict, max_contexts: int, context_kind: str):
+    base.mkdir(parents=True,exist_ok=True); ip=base/'index.json'
+    try:
+        current=json.loads(ip.read_text(encoding='utf-8')) if ip.exists() else {}
+    except Exception:
+        current={}
+    entries=dict(current.get('contexts') or {})
+    entries[str(key)]={**dict(entries.get(str(key)) or {}),**dict(item or {}),'last_seen_at':pd.Timestamp.now().isoformat()}
+    # Keep the newest contexts. Exact-key directories are never overwritten by another context.
+    ordered=sorted(entries.items(),key=lambda kv:str((kv[1] or {}).get('last_seen_at','')),reverse=True)
+    keep=dict(ordered[:max(1,int(max_contexts))]); removed=[k for k,_ in ordered[max(1,int(max_contexts)):]]
+    for old in removed:
+        od=base/old
+        try:
+            if od.exists():
+                import shutil; shutil.rmtree(od)
+        except Exception:
+            pass
+    payload={'schema':1,'kind':context_kind,'updated_at':pd.Timestamp.now().isoformat(),'contexts':keep}
+    _v4955_atomic_write_text(ip,json.dumps(payload,ensure_ascii=False,indent=2,default=str))
+
+
+def _v4955_load_universe_snapshot(context: dict) -> tuple[list[str]|None,dict,list[str]]:
+    detail={'status':'DISABLED'}; lines=[]
+    if not bool(CLOSING_BET_V4955_UNIVERSE_SNAPSHOT_ENABLE) or not bool(CLOSING_BET_V4955_UNIVERSE_SNAPSHOT_READ):
+        return None,detail,['- UNIVERSE SNAPSHOT: DISABLED · LIVE loader 사용']
+    if bool(CLOSING_BET_V4955_UNIVERSE_SNAPSHOT_FORCE_REFRESH):
+        return None,{'status':'REFRESH','reason':'force refresh'},['- UNIVERSE SNAPSHOT: REFRESH 요청 · LIVE loader 재생성']
+    q=_v4955_universe_snapshot_paths(context)
+    try:
+        if not q['manifest'].exists(): raise FileNotFoundError('context manifest 없음')
+        m=json.loads(q['manifest'].read_text(encoding='utf-8'))
+        for key in ('schema','requested_asof','universe_name','mcap_or_min','hybrid_min_codes','repair_lookback_days','allow_universe_fallback','snapshot_key'):
+            if m.get(key)!=context.get(key): raise ValueError(f'context mismatch [{key}]')
+        if not q['codes'].exists(): raise FileNotFoundError('codes.csv 없음')
+        digest=hashlib.sha256(q['codes'].read_bytes()).hexdigest()
+        if digest!=str((m.get('files') or {}).get('codes_sha256','')): raise ValueError('codes.csv sha256 mismatch')
+        frame=pd.read_csv(q['codes'],dtype=str)
+        if 'code' not in frame.columns: raise ValueError('code column missing')
+        codes=sorted(set(_normalize_code(c) for c in frame['code'].tolist() if _normalize_code(c)))
+        if len(codes)!=int(m.get('count',-1)): raise ValueError(f'count mismatch {len(codes)}!={m.get("count")}')
+        fp=_v4948_universe_fingerprint(codes)
+        if fp!=str(m.get('fingerprint','')): raise ValueError('fingerprint mismatch')
+        if str(context.get('universe_name'))=='hybrid_union' and len(codes)<int(CLOSING_BET_V4948_HYBRID_MIN_CODES):
+            raise ValueError(f'hybrid snapshot shrink {len(codes)}')
+        detail={'status':'HIT','manifest':m,'snapshot_key':context.get('snapshot_key'),'count':len(codes),'fingerprint':fp,'path':str(q['dir'])}
+        _v4955_context_index_update(q['base'],context['snapshot_key'],{'count':len(codes),'fingerprint':fp,'requested_asof':context.get('requested_asof'),'path':str(q['dir'])},CLOSING_BET_V4955_UNIVERSE_SNAPSHOT_MAX_CONTEXTS,'universe-snapshot')
+        lines.append(f"- UNIVERSE SNAPSHOT: HIT ✅ · asof {context.get('requested_asof')} · n {len(codes)} · fp {fp} · origin {m.get('origin_source','?')} · LIVE loader 재호출 생략 · key {str(context.get('snapshot_key'))[:16]}…")
+        return codes,detail,lines
+    except Exception as e:
+        available=0
+        try: available=sum(1 for x in q['base'].iterdir() if x.is_dir() and (x/'manifest.json').exists()) if q['base'].exists() else 0
+        except Exception: pass
+        reason=f'{type(e).__name__}: {e}'
+        detail={'status':'MISS','reason':reason,'snapshot_key':context.get('snapshot_key'),'available_contexts':available}
+        lines.append(f"- UNIVERSE SNAPSHOT: MISS · {reason} · available {available} context · LIVE loader 실행 · key {str(context.get('snapshot_key'))[:16]}…")
+        return None,detail,lines
+
+
+def _v4955_write_universe_snapshot(context: dict, codes: list[str], meta: dict) -> tuple[list[str],dict]:
+    if not bool(CLOSING_BET_V4955_UNIVERSE_SNAPSHOT_ENABLE) or not bool(CLOSING_BET_V4955_UNIVERSE_SNAPSHOT_WRITE):
+        return ['- UNIVERSE SNAPSHOT WRITE: 비활성화'],{}
+    codes=sorted(set(_normalize_code(c) for c in (codes or []) if _normalize_code(c)))
+    if not codes or str((meta or {}).get('status','')).upper()!='VALID':
+        return ['- UNIVERSE SNAPSHOT WRITE: INVALID universe 저장 금지'],{}
+    if str(context.get('universe_name'))=='hybrid_union' and len(codes)<int(CLOSING_BET_V4948_HYBRID_MIN_CODES):
+        return [f'- UNIVERSE SNAPSHOT WRITE: hybrid n {len(codes)} < 최소 {int(CLOSING_BET_V4948_HYBRID_MIN_CODES)} · 저장 금지'],{}
+    q=_v4955_universe_snapshot_paths(context); q['dir'].mkdir(parents=True,exist_ok=True)
+    try:
+        frame=pd.DataFrame({'code':codes})
+        tmp=q['dir']/'codes.csv.tmp'; frame.to_csv(tmp,index=False,encoding='utf-8'); os.replace(tmp,q['codes'])
+        digest=hashlib.sha256(q['codes'].read_bytes()).hexdigest(); fp=_v4948_universe_fingerprint(codes)
+        m={**context,'created_at':pd.Timestamp.now().isoformat(),'count':len(codes),'fingerprint':fp,
+           'origin_source':str((meta or {}).get('source','')),'origin_asof':str((meta or {}).get('asof','')),
+           'origin_reason':str((meta or {}).get('reason','')),'files':{'codes':str(q['codes']),'codes_sha256':digest}}
+        _v4955_atomic_write_text(q['manifest'],json.dumps(m,ensure_ascii=False,indent=2,default=str))
+        _v4955_context_index_update(q['base'],context['snapshot_key'],{'count':len(codes),'fingerprint':fp,'requested_asof':context.get('requested_asof'),'origin_source':m['origin_source'],'path':str(q['dir'])},CLOSING_BET_V4955_UNIVERSE_SNAPSHOT_MAX_CONTEXTS,'universe-snapshot')
+        return [f"- UNIVERSE SNAPSHOT WRITE: 완료 ✅ · asof {context.get('requested_asof')} · n {len(codes)} · fp {fp} · key {str(context.get('snapshot_key'))[:16]}…"],m
+    except Exception as e:
+        return [f'- UNIVERSE SNAPSHOT WRITE 실패: {type(e).__name__}: {e}'],{}
+
+
 def _v4948_build_backtest_universe(end_date: str) -> tuple[list[str],dict]:
-    """BACKTEST 전용 universe source를 결정하고 축소 drift를 fail-closed 한다."""
-    global _V4948_LAST_UNIVERSE_META
+    """BACKTEST universe with deterministic snapshot-first resolution.
+
+    A valid snapshot for the same as-of/selection context is authoritative and prevents transient
+    LIVE_UNIVERSE_LOADER_FALLBACK drift. Invalid/corrupt snapshots fail open to the existing loader,
+    but only a VALID, minimum-size universe is written back.
+    """
+    global _V4948_LAST_UNIVERSE_META, _V4955_UNIVERSE_SNAPSHOT_AUDIT, CURRENT_UNIVERSE_SET
     uni=str(globals().get('SCAN_UNIVERSE','hybrid_union') or 'hybrid_union')
+    snap_ctx=_v4955_universe_snapshot_context(end_date,uni)
+    snap_codes,snap_detail,snap_lines=_v4955_load_universe_snapshot(snap_ctx)
+    _V4955_UNIVERSE_SNAPSHOT_AUDIT={'status':str(snap_detail.get('status','NOT_RUN')),'lines':list(snap_lines),'detail':dict(snap_detail)}
+    if snap_codes is not None:
+        m=dict((snap_detail.get('manifest') or {}))
+        meta={'status':'VALID','source':'UNIVERSE_SNAPSHOT_HIT','asof':str(m.get('origin_asof') or snap_ctx.get('requested_asof')),
+              'normal_count':len(snap_codes),'repair_count':0,'count':len(snap_codes),'fingerprint':_v4948_universe_fingerprint(snap_codes),
+              'reason':f"snapshot key {str(snap_ctx.get('snapshot_key'))[:16]}… · origin {m.get('origin_source','?')} · LIVE loader 재호출 생략",
+              'universe_name':uni,'snapshot_status':'HIT','snapshot_key':snap_ctx.get('snapshot_key'),'snapshot_path':snap_detail.get('path',''),
+              'snapshot_origin_source':m.get('origin_source',''),'snapshot_lines':snap_lines}
+        CURRENT_UNIVERSE_SET=set(snap_codes)
+        _V4948_LAST_UNIVERSE_META=dict(meta); return list(snap_codes),meta
+
     normal=[]; normal_err=''
     try: normal=sorted(set(_normalize_code(c) for c in (_load_universe(uni) or []) if _normalize_code(c)))
     except Exception as e: normal_err=f'{type(e).__name__}: {e}'
     meta={'status':'VALID','source':'LIVE_UNIVERSE_LOADER','asof':str(end_date),'normal_count':len(normal),'repair_count':0,
-          'count':len(normal),'fingerprint':_v4948_universe_fingerprint(normal),'reason':'','universe_name':uni,'normal_error':normal_err}
+          'count':len(normal),'fingerprint':_v4948_universe_fingerprint(normal),'reason':'','universe_name':uni,'normal_error':normal_err,
+          'snapshot_status':str(snap_detail.get('status','MISS')),'snapshot_key':snap_ctx.get('snapshot_key'),'snapshot_lines':snap_lines}
     if not bool(CLOSING_BET_V4948_UNIVERSE_LOCK_ENABLE):
-        meta['source']='LOCK_DISABLED'; _V4948_LAST_UNIVERSE_META=dict(meta); return normal,meta
-    # Default hybrid backtest must not silently accept STATIC_CORE-size fallback.
-    if uni=='hybrid_union':
+        codes=normal; meta['source']='LOCK_DISABLED'
+    elif uni=='hybrid_union':
         repaired,rmeta=_v4948_pykrx_hybrid_universe(end_date)
         meta['repair_count']=len(repaired); meta['repair_asof']=rmeta.get('asof',''); meta['repair_error']=rmeta.get('error','')
         if len(repaired)>=int(CLOSING_BET_V4948_HYBRID_MIN_CODES):
             codes=repaired; meta.update({'source':'PYKRX_ASOF_HYBRID','asof':rmeta.get('asof') or str(end_date),'count':len(codes),'fingerprint':_v4948_universe_fingerprint(codes)})
-            if len(normal)<int(CLOSING_BET_V4948_HYBRID_MIN_CODES):
-                meta['reason']=f'primary shrink {len(normal)}→pykrx repair {len(codes)}'
-            else:
-                meta['reason']=f'as-of reproducible universe; primary {len(normal)}'
+            meta['reason']=f'primary shrink {len(normal)}→pykrx repair {len(codes)}' if len(normal)<int(CLOSING_BET_V4948_HYBRID_MIN_CODES) else f'as-of reproducible universe; primary {len(normal)}'
         elif len(normal)>=int(CLOSING_BET_V4948_HYBRID_MIN_CODES):
             codes=normal; meta['source']='LIVE_UNIVERSE_LOADER_FALLBACK'; meta['reason']=f'pykrx repair unavailable({len(repaired)}), primary healthy'
         else:
-            codes=normal
-            meta.update({'status':'INVALID','reason':f'hybrid universe shrink: primary {len(normal)} / repair {len(repaired)} < min {int(CLOSING_BET_V4948_HYBRID_MIN_CODES)}'})
+            codes=normal; meta.update({'status':'INVALID','reason':f'hybrid universe shrink: primary {len(normal)} / repair {len(repaired)} < min {int(CLOSING_BET_V4948_HYBRID_MIN_CODES)}'})
     else:
         codes=normal
-        if not codes:
-            meta.update({'status':'INVALID','reason':f'{uni} universe empty'})
+        if not codes: meta.update({'status':'INVALID','reason':f'{uni} universe empty'})
     meta['count']=len(codes); meta['fingerprint']=_v4948_universe_fingerprint(codes)
+    write_lines,write_detail=_v4955_write_universe_snapshot(snap_ctx,codes,meta)
+    meta['snapshot_write_lines']=write_lines; meta['snapshot_write_status']='WRITE' if write_detail else 'NO_WRITE'
+    if write_detail:
+        meta['snapshot_path']=str(_v4955_universe_snapshot_paths(snap_ctx)['dir'])
+        _V4955_UNIVERSE_SNAPSHOT_AUDIT={'status':'MISS-WRITE','lines':list(snap_lines)+list(write_lines),'detail':{'load':snap_detail,'write':write_detail}}
+    else:
+        _V4955_UNIVERSE_SNAPSHOT_AUDIT={'status':str(snap_detail.get('status','MISS')),'lines':list(snap_lines)+list(write_lines),'detail':{'load':snap_detail}}
     _V4948_LAST_UNIVERSE_META=dict(meta)
     return codes,meta
-
 
 def _v4948_universe_lock_line(meta: dict|None=None) -> str:
     m=dict(meta or globals().get('_V4948_LAST_UNIVERSE_META',{}) or {})
     icon='✅' if str(m.get('status','')).upper()=='VALID' else '⛔'
     base=f"- UNIVERSE LOCK: {icon} {m.get('status','NOT_RUN')} · {m.get('source','?')} · n {int(m.get('count',0) or 0)} · fp {m.get('fingerprint') or '-'}"
     if m.get('asof'): base+=f" · asof {m.get('asof')}"
+    if m.get('snapshot_status') and str(m.get('source'))!='UNIVERSE_SNAPSHOT_HIT': base+=f" · snapshot {m.get('snapshot_status')}"
     if m.get('reason'): base+=f" · {m.get('reason')}"
     return base
 
@@ -2198,7 +2344,7 @@ def _calc_upper_wick_body_ratio(row) -> float:
 # Google Sheets 저장 (AI 판정)
 # =============================================================
 def _get_gspread_client():
-    """Google Sheet client. v49.54은 Secret JSON을 디스크에 쓰지 않고 메모리 인증한다."""
+    """Google Sheet client. v49.55은 Secret JSON을 디스크에 쓰지 않고 메모리 인증한다."""
     global _V4943_GSHEET_CACHE
     if not HAS_GSPREAD:
         log_info("⚠️ gspread 미설치 → 구글시트 저장 생략")
@@ -2308,7 +2454,7 @@ def _save_ai_judgments_to_gsheet(judgment_rows: list):
 
 
 # =============================================================
-# v49.54 Google Sheet append-only LIVE recommendation provenance
+# v49.55 Google Sheet append-only LIVE recommendation provenance
 # =============================================================
 _V4943_LEDGER_HEADERS = [
     'event_id','recommendation_id','event_type','event_time_kst','run_date','data_date','scan_time','version',
@@ -2681,7 +2827,7 @@ def _v4943_write_forward_snapshot(df=None) -> dict:
 # 텔레그램 전송
 # =============================================================
 def send_telegram_photo(message: str, image_paths: list = None):
-    """Telegram sendMessage. v49.54은 전달 성공/메시지ID를 반환해 실제추천 증거로 사용한다."""
+    """Telegram sendMessage. v49.55은 전달 성공/메시지ID를 반환해 실제추천 증거로 사용한다."""
     result={'attempted':0,'success_count':0,'message_ids':[],'chat_ids_masked':[],'errors':[]}
     if image_paths is None:
         image_paths = []
@@ -12769,7 +12915,7 @@ def _send_results(hits: list, mins_left: int):
 
     def _v4934_pattern_board(ranked: list[dict], live_health: dict | None = None) -> tuple[list[str],dict,set[str],dict]:
         health=dict(live_health or {})
-        lines=['📊 패턴별 근접 상위 | v49.54','──────────',f'📚 고정 기준 · {CLOSING_BET_V4935_FIXED_BASELINE_VERSION} · 비용 {int(CLOSING_BET_V4932_TRACK_COST_BPS)}bp']
+        lines=['📊 패턴별 근접 상위 | v49.55','──────────',f'📚 고정 기준 · {CLOSING_BET_V4935_FIXED_BASELINE_VERSION} · 비용 {int(CLOSING_BET_V4932_TRACK_COST_BPS)}bp']
         for pat in ['PRIME-RECOVERY','CORE-MAIN-UN']:
             b=CLOSING_BET_V4935_FIXED_BASELINES.get(pat,{})
             short='PRIME' if pat=='PRIME-RECOVERY' else 'CORE'
@@ -12961,7 +13107,7 @@ def _send_results(hits: list, mins_left: int):
         blocked_codes={str(x['candidate'].get('code','')).zfill(6) for x in execution_block}
         risk_count=len(pattern_risk_codes|blocked_codes)
 
-        p1=[f'📌 오늘 결론 | {TODAY_STR} · v49.54','──────────']
+        p1=[f'📌 오늘 결론 | {TODAY_STR} · v49.55','──────────']
         if live_state=='INVALID':
             p1.extend(['⛔ LIVE SCAN INVALID','신규 판단 보류 · 자동주문 0건','','[왜 보류했나]'])
             for r in reasons[:3]: p1.append(f'- {r}')
@@ -13042,7 +13188,7 @@ def _send_results(hits: list, mins_left: int):
             sections.append(_build_block("🔎 C-SWING 눌림재상승형 진단 TOP3", hits_c_pullback_reentry[:PRACTICAL_C_PULLBACK_TOP_N], "C"))
             sections.append(_build_block("🔎 역매공파(C) 진단 TOP5", hits_c, "C"))
 
-    # v49.54: 최종판단 ENTER를 Google Sheet append-only 원장에 GENERATED로 먼저 기록한다.
+    # v49.55: 최종판단 ENTER를 Google Sheet append-only 원장에 GENERATED로 먼저 기록한다.
     _v4943_recs = _v4943_prepare_live_recommendations()
     if _v4943_recs and bool(CLOSING_BET_V4943_WRITE_GENERATED_EVENT):
         _v4943_gen = _v4943_write_recommendation_event(_v4943_recs, 'GENERATED')
@@ -13091,7 +13237,7 @@ def _send_results(hits: list, mins_left: int):
                 log_info(f"✅ LIVE 추천원장 DELIVERED 증거검증: {_v4943_verified}/{len(_v4943_recs)}개")
                 if bool(CLOSING_BET_V4944_DELIVERY_CONFIRM_TELEGRAM):
                     _v4943_ids=','.join(str(x) for x in (_v4943_agg.get('message_ids') or [])) or '확인됨'
-                    send_telegram_photo(f"🧾 실제추천 증거 확정 | v49.54\n- DELIVERED {_v4943_verified}/{len(_v4943_recs)}개 · Google Sheet 검증 완료\n- Telegram message_id {_v4943_ids}\n- 자동주문 0건",[])
+                    send_telegram_photo(f"🧾 실제추천 증거 확정 | v49.55\n- DELIVERED {_v4943_verified}/{len(_v4943_recs)}개 · Google Sheet 검증 완료\n- Telegram message_id {_v4943_ids}\n- 자동주문 0건",[])
             else:
                 log_error(f"⚠️ Telegram 전달 성공·Sheet DELIVERED 증거 불완전: {_v4943_verified}/{len(_v4943_recs)} | {_v4943_deliver_st}")
         else:
@@ -20523,7 +20669,7 @@ def _v538430_candidate_manifest_path():
 
 def _v538430_candidate_baseline_drift_lines(df: pd.DataFrame) -> list[str]:
     if bool(globals().get('CLOSING_BET_V4932_NO_STATE_FILES', False)):
-        return ['[🧾 CANDIDATE BASELINE MANIFEST — STATELESS MODE]', '- v49.54은 manifest 파일을 저장하지 않고 현재 실행 내부 지문만 사용합니다.']
+        return ['[🧾 CANDIDATE BASELINE MANIFEST — STATELESS MODE]', '- v49.55은 manifest 파일을 저장하지 않고 현재 실행 내부 지문만 사용합니다.']
     lines = ['[🧬 BASELINE CODE/STRATEGY DRIFT MANIFEST — 후보 93→54 원인 추적 가드]']
     try:
         if not bool(CLOSING_BET_BASELINE_MANIFEST_ENABLE):
@@ -21019,7 +21165,7 @@ def _v538430_lcz_audit_lines(df=None, compact: bool=True) -> list[str]:
         lines.extend(_v538431_semiauto_readiness_lines(df,perf,ep,split,compact=compact))
         lines.append('[LCZ v49.31 운용상태]')
         lines.append('- RESEARCH_ONLY / 기존 후보식·점수·랭킹 불변 / LCZ 후보주입 OFF / 자동주문 OFF / 실제주문 0건.')
-        lines.append('- 반자동은 v49.31 게이트 전부 통과 후 별도 승인형 버전에서만 검토합니다. v49.54 LIFECYCLE STATE-MACHINE 모드에서는 snapshot·ledger 파일을 저장하지 않습니다.')
+        lines.append('- 반자동은 v49.31 게이트 전부 통과 후 별도 승인형 버전에서만 검토합니다. v49.55 LIFECYCLE STATE-MACHINE 모드에서는 snapshot·ledger 파일을 저장하지 않습니다.')
         return lines
     except Exception as e:return lines+[f'- 생성 실패: {type(e).__name__}: {e}']
 
@@ -21137,7 +21283,7 @@ def _v4938_risk_at(h: pd.DataFrame, pos: int) -> tuple[str,str]:
 def _v4938_detect_state_at(h: pd.DataFrame, pos: int, code: str='', name: str='') -> dict:
     """점화→눌림→재출발 상태를 앞 단계 하드게이트 순서로 복원한다.
 
-    v49.54 핵심:
+    v49.55 핵심:
     - 첫 눌림이 확인되지 않으면 RESTART-NEAR/ENTRY 승격 금지
     - 현재 종가가 점화 지지선 아래면 PULLBACK-FAIL 또는 SUPPORT-TEST
     - 일반 점화와 극단 점화를 분리
@@ -21517,7 +21663,7 @@ def _v4942_reconcile_registry(reg: pd.DataFrame, df=None) -> tuple[pd.DataFrame,
     z=reg.copy(); fmap=_v4942_forward_first_map(events); live_map=_v4943_delivered_episode_map()
     z['_episode_key']=z.apply(_v4942_episode_key,axis=1)
     z['effective_stage']=z.get('stage',pd.Series('',index=z.index)).astype(str)
-    # v49.54 report/state consistency: confirmed pullback + exactly one missing trigger is always RESTART-NEAR.
+    # v49.55 report/state consistency: confirmed pullback + exactly one missing trigger is always RESTART-NEAR.
     for _i,_r in z.iterrows():
         _mv=_r.get('missing',[])
         _ml=list(_mv) if isinstance(_mv,(list,tuple,set)) else []
@@ -21822,7 +21968,7 @@ def _v4944_live_kpi_lines(k: dict) -> list[str]:
 
 
 def _v4938_tracker_lines(df=None) -> list[str]:
-    lines=['📍 추천 출처 분리 Forward | v49.54','──────────']
+    lines=['📍 추천 출처 분리 Forward | v49.55','──────────']
     events=_v4938_recent_events(df)
     forward=events[events.get('v4938_track_class',pd.Series('',index=events.index)).eq('FORWARD')].copy() if not events.empty else pd.DataFrame()
     blocked=events[events.get('v4938_track_class',pd.Series('',index=events.index)).eq('BLOCKED')].copy() if not events.empty else pd.DataFrame()
@@ -21896,14 +22042,14 @@ def _v4938_build_live_parts(df, legacy_execution: list[dict], market_short: str,
         try: data_date=pd.Timestamp(health.get('latest_data_date')).normalize()
         except Exception: pass
     run_date=pd.Timestamp(TODAY_STR).normalize(); stale=data_date!=run_date
-    title=(f'📌 다음 거래일 최종판단 · 기회 지도 | 실행 {run_date.strftime("%Y-%m-%d")} · 데이터 {data_date.strftime("%Y-%m-%d")} · v49.54'
-           if stale else f'📌 오늘 최종판단 · 기회 지도 | {data_date.strftime("%Y-%m-%d")} · v49.54')
+    title=(f'📌 다음 거래일 최종판단 · 기회 지도 | 실행 {run_date.strftime("%Y-%m-%d")} · 데이터 {data_date.strftime("%Y-%m-%d")} · v49.55'
+           if stale else f'📌 오늘 최종판단 · 기회 지도 | {data_date.strftime("%Y-%m-%d")} · v49.55')
     p1=[title,'──────────']
     if invalid:
         _tc=_v4944_time_context(data_date); _sh=_v4944_sheet_health_probe(data_date,0)
         p1.extend(['[⏱ 판단 기준]',f"- 실행시각: {_tc.get('run_time_kst')}",f"- 일봉·지표 기준: {_tc.get('data_date')} · 판단가격: {_tc.get('price_basis')}",f"- 판정유형: {_tc.get('decision_type')} · {_tc.get('bar_state')}",'',
                    '⚫ 최종판단: 데이터 정합성 오류로 판단보류','전체 유니버스 상태 복원 실패 · 신규 진입 금지',f"요청 {health.get('requested',0)} · 로드 {health.get('processed',0)} · 부족 {health.get('short',0)} · 실패 {health.get('failed',0)}",'후보 0개로 판정하지 않았습니다. · 자동주문 0건','']+_v4944_sheet_health_lines(_sh,0))
-        return ['\n'.join(p1),'\n'.join(['📊 단계별 추적 | v49.54','──────────','- 데이터 정상화 전 표시 보류']),'\n'.join(_v4938_tracker_lines(df))]
+        return ['\n'.join(p1),'\n'.join(['📊 단계별 추적 | v49.55','──────────','- 데이터 정상화 전 표시 보류']),'\n'.join(_v4938_tracker_lines(df))]
 
     eff=reg.get('effective_stage',reg.get('stage',pd.Series('',index=reg.index))).astype(str) if not reg.empty else pd.Series(dtype=str)
     risk=reg.get('risk_status',pd.Series('',index=reg.index)).astype(str) if not reg.empty else pd.Series(dtype=str)
@@ -21975,7 +22121,7 @@ def _v4938_build_live_parts(df, legacy_execution: list[dict], market_short: str,
             if _age in (0,1,2): fail_buckets[_age]+=1
             else: fail_buckets['older_recent']+=1
     archive_n=max(0,len(failed)-len(recent_failed_df))
-    p2=['📊 단계별 상위 추적 | v49.54','──────────',f'[🚀 DISCOVERY · 일반 점화 {len(ign)}개]']
+    p2=['📊 단계별 상위 추적 | v49.55','──────────',f'[🚀 DISCOVERY · 일반 점화 {len(ign)}개]']
     if ign.empty:p2.append('- 신규 일반 점화 없음')
     else:
         show=min(int(CLOSING_BET_V4938_DISCOVERY_TOP_N),len(ign))
@@ -22348,7 +22494,7 @@ def _v4932_tracker_row_status(r) -> tuple[int, float, float, float, str]:
 
 
 def _v4932_stateless_tracker_lines(df=None, next_checks=None) -> list[str]:
-    lines=['📍 신호 추적 | v49.54','──────────']
+    lines=['📍 신호 추적 | v49.55','──────────']
     try:
         recent=_v4932_recent_vrec_stateless_df(df)
         if recent is None or recent.empty:
@@ -22859,7 +23005,7 @@ def _v538431_two_route_portfolio(lcz_oos: pd.DataFrame, prime_oos: pd.DataFrame,
 
 def _v538431_semiauto_readiness_lines(df, lcz_perf: pd.DataFrame, lcz_ep: pd.DataFrame, split, compact=True) -> list[str]:
     if bool(globals().get('CLOSING_BET_V4932_NO_STATE_FILES', False)):
-        return ['[🟣 v49.54 LIFECYCLE STATE-MACHINE READINESS]', '- 기존 v49.31 persistence/causal-ledger 게이트는 비활성. PRIME-RECOVERY·CORE-MAIN-UN·TEST-ENTRY를 매 실행 재구성해 PAPER 추적만 수행합니다.']
+        return ['[🟣 v49.55 LIFECYCLE STATE-MACHINE READINESS]', '- 기존 v49.31 persistence/causal-ledger 게이트는 비활성. PRIME-RECOVERY·CORE-MAIN-UN·TEST-ENTRY를 매 실행 재구성해 PAPER 추적만 수행합니다.']
     lines=['[🟣 v49.31 SEMIAUTO READINESS — LCZ-RESTART-THEME + PRIME-RECOVERY ONLY]']
     try:
         if not bool(CLOSING_BET_SEMIAUTO_AUDIT_ENABLE):return lines+['- 비활성화: CLOSING_BET_SEMIAUTO_AUDIT_ENABLE=0']
@@ -28424,7 +28570,7 @@ def _v4940_canonical_df(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _v4939_raw_final_breakdown_lines(raw_df: pd.DataFrame, final_df: pd.DataFrame, top_per_strategy: int=5, all_candidates: bool=False) -> list[str]:
-    """v49.54 exact pipeline counters. 추정치 문구를 사용하지 않는다."""
+    """v49.55 exact pipeline counters. 추정치 문구를 사용하지 않는다."""
     lines=['[🔍 RAW→FINAL 정확한 파이프라인]']
     try:
         raw=raw_df.copy() if isinstance(raw_df,pd.DataFrame) else pd.DataFrame()
@@ -28484,7 +28630,7 @@ def _v4940_perf_row(h: pd.DataFrame, pos: int, state: dict, stage: str, episode_
     r.update({'audit_stage':stage,'episode_key':episode_key,'cohort':cohort,'entry_price':entry,
               '_sig_dt':pd.Timestamp(h.iloc[pos].get('Date')).normalize(),'signal_date':pd.Timestamp(h.iloc[pos].get('Date')).strftime('%Y-%m-%d')})
 
-    # v49.54 BIG-WINNER anatomy: 미래정보를 쓰지 않고 ignition~signal 구간에서만 feature를 만든다.
+    # v49.55 BIG-WINNER anatomy: 미래정보를 쓰지 않고 ignition~signal 구간에서만 feature를 만든다.
     try:
         ign_date=str((state or {}).get('ignition_date','') or '')
         dates=pd.to_datetime(h.get('Date'),errors='coerce')
@@ -28507,7 +28653,7 @@ def _v4940_perf_row(h: pd.DataFrame, pos: int, state: dict, stage: str, episode_
         r['bw_entry_ma20_gap']=_safe_float((state or {}).get('ma20_gap'),np.nan)
         r['bw_entry_mfi']=_safe_float((state or {}).get('mfi'),np.nan)
         r['bw_entry_stoch']=_safe_float((state or {}).get('stoch'),np.nan)
-        # v49.54 FAIL-threshold 포트폴리오용 causal 값: ENTRY 시점까지의 최저 종가/고정 점화지지선 괴리.
+        # v49.55 FAIL-threshold 포트폴리오용 causal 값: ENTRY 시점까지의 최저 종가/고정 점화지지선 괴리.
         _support=_safe_float((state or {}).get('support_price'),np.nan)
         _seg_pre=h.iloc[ip:pos+1] if pos>=ip else pd.DataFrame()
         if pd.notna(_support) and _support>0 and not _seg_pre.empty:
@@ -28592,7 +28738,7 @@ def _v4940_audit_one_code(code: str, name: str, start_date: str, end_date: str, 
             if pd.notna(_sg):
                 _old=_safe_float(ep.get('min_support_gap_pct',np.nan),np.nan)
                 ep['min_support_gap_pct']=_sg if pd.isna(_old) else min(_old,_sg)
-                # v49.54 causal FAIL metric: raw ENTRY가 생기기 전까지만, 그 날짜에 실제로 알려진
+                # v49.55 causal FAIL metric: raw ENTRY가 생기기 전까지만, 그 날짜에 실제로 알려진
                 # dynamic support gap을 누적한다. 최종 signal support를 과거 종가에 소급하지 않는다.
                 if not str(ep.get('entry_raw_date','') or ''):
                     _pre=_safe_float(ep.get('preentry_dynamic_min_support_gap_pct',np.nan),np.nan)
@@ -28606,7 +28752,7 @@ def _v4940_audit_one_code(code: str, name: str, start_date: str, end_date: str, 
                             if not str(ep.get(_pk,'') or ''): ep[_pk]=dt.strftime('%Y-%m-%d')
             if dt>=s: ep['activity_in_period']=True
             st=str(state.get('stage','NONE'))
-            # v49.54 known-case predicate evidence: 최초 눌림 후보와 가장 강한 재출발 시점을 episode에 저장한다.
+            # v49.55 known-case predicate evidence: 최초 눌림 후보와 가장 강한 재출발 시점을 episode에 저장한다.
             if age := int(_safe_float(state.get('ignition_age',0),0)):
                 if bool(state.get('pullback_seen')):
                     _pbscore=int(bool(state.get('volume_contraction')))+int(bool(state.get('structural_support_ok',False)))+int(bool(state.get('current_support_ok',False)))
@@ -28980,7 +29126,7 @@ def _v4945_enrich_outcomes(entry_events: pd.DataFrame) -> pd.DataFrame:
     x['_bw_max_high']=maxs; x['_bw_min_low']=mins; x['_bw_last_close']=lasts; x['_bw_path']=paths; x['_bw_policy_pnl']=pnls
     x['_bw_big']=pd.to_numeric(x['_bw_max_high'],errors='coerce').ge(float(CLOSING_BET_V4945_BIG_THRESHOLD_PCT))
     x['_bw_super']=pd.to_numeric(x['_bw_max_high'],errors='coerce').ge(float(CLOSING_BET_V4945_SUPER_THRESHOLD_PCT))
-    # v49.54 mutually-exclusive BIG path labels.
+    # v49.55 mutually-exclusive BIG path labels.
     classes=[]; big_days=[]; stop_days=[]; policy_days=[]
     for _,r in x.iterrows():
         c,bd,sd,pd0=_v4949_big_path_classify(r)
@@ -29234,8 +29380,8 @@ def _v4951_reconcile_entry_meta(episodes: pd.DataFrame, all_ent: pd.DataFrame, s
     try:
         Path('reports').mkdir(parents=True,exist_ok=True)
         cols=['_event_episode_key','_join_key','_event_code','_event_ignition_date','_event_signal_date','_event_native_cohort','_meta_join_method','cohort','matured']
-        x.loc[pre_idx,[c for c in cols if c in x.columns]].to_csv('reports/v49_54_meta_join_audit.csv',index=False,encoding='utf-8-sig')
-        diag['csv']='reports/v49_54_meta_join_audit.csv'
+        x.loc[pre_idx,[c for c in cols if c in x.columns]].to_csv('reports/v49_55_meta_join_audit.csv',index=False,encoding='utf-8-sig')
+        diag['csv']='reports/v49_55_meta_join_audit.csv'
     except Exception as e:diag['csv_error']=f'{type(e).__name__}: {e}'
     return x,audit,diag
 
@@ -29824,7 +29970,7 @@ def _v4953_breach_clock_reconciliation_lines(all_meta: pd.DataFrame) -> tuple[li
     sample=audit.loc[union_mask].copy()
     out=''
     try:
-        Path('reports').mkdir(parents=True,exist_ok=True); out='reports/v49_54_breach_clock_audit.csv'
+        Path('reports').mkdir(parents=True,exist_ok=True); out='reports/v49_55_breach_clock_audit.csv'
         sample.to_csv(out,index=False,encoding='utf-8-sig')
         lines.append(f'- BREACH-CLOCK CSV: {out} · 0%/0.5% 분류변경 또는 최초일 불일치 합집합 {len(sample)}건 · 전수저장')
     except Exception as e:lines.append(f'- BREACH-CLOCK CSV 실패: {type(e).__name__}: {e}')
@@ -29837,7 +29983,7 @@ def _v4953_breach_clock_reconciliation_lines(all_meta: pd.DataFrame) -> tuple[li
 
 def _v4953_source_sha256() -> str:
     """Stable Lifecycle engine fingerprint. Telegram/report-only patches do not change it."""
-    return str(CLOSING_BET_V4954_LIFECYCLE_LOGIC_SHA256)
+    return str(CLOSING_BET_V4955_LIFECYCLE_LOGIC_SHA256)
 
 
 def _v4954_lifecycle_parameter_snapshot() -> dict:
@@ -29902,14 +30048,14 @@ def _v4953_lifecycle_cache_context(codes: list[str], start_date: str, end_date: 
     params=_v4954_lifecycle_parameter_snapshot()
     param_fp=hashlib.sha256(json.dumps(params,ensure_ascii=False,sort_keys=True,separators=(',',':'),default=str).encode('utf-8')).hexdigest()
     core={
-        'schema':int(CLOSING_BET_V4954_LIFECYCLE_CACHE_SCHEMA),
-        'engine_version':str(CLOSING_BET_V4954_LIFECYCLE_ENGINE_VERSION),
+        'schema':int(CLOSING_BET_V4955_LIFECYCLE_CACHE_SCHEMA),
+        'engine_version':str(CLOSING_BET_V4955_LIFECYCLE_ENGINE_VERSION),
         'logic_sha256':_v4953_source_sha256(),
         'start_date':str(start_date),'end_date':str(end_date),
         'universe_fingerprint':_v4948_universe_fingerprint(codes_norm),
         'codes_sha256':hashlib.sha256('|'.join(codes_norm).encode()).hexdigest(),
         'code_count':len(codes_norm),'target_bars':int(plan.get('target_bars',0) or 0),
-        'ohlcv_fingerprint_schema':int(CLOSING_BET_V4954_OHLCV_FINGERPRINT_SCHEMA),
+        'ohlcv_fingerprint_schema':int(CLOSING_BET_V4955_OHLCV_FINGERPRINT_SCHEMA),
         'ohlcv_fingerprint':_v4953_shared_ohlcv_fingerprint(codes_norm,start_date,end_date),
         'parameter_fingerprint':param_fp,
     }
@@ -29918,9 +30064,11 @@ def _v4953_lifecycle_cache_context(codes: list[str], start_date: str, end_date: 
     return {**core,'cache_key':cache_key,'report_version':str(CLOSING_BET_SCANNER_VERSION),'parameter_snapshot':params}
 
 
-def _v4953_cache_paths() -> dict:
-    d=Path(CLOSING_BET_V4954_LIFECYCLE_CACHE_DIR)
-    return {'dir':d,'manifest':d/'manifest.json','episodes':d/'raw_episodes.pkl.gz','events':d/'raw_events.pkl.gz'}
+def _v4953_cache_paths(context: dict|None=None) -> dict:
+    base=Path(CLOSING_BET_V4955_LIFECYCLE_CACHE_DIR)
+    key=str((context or {}).get('cache_key','UNKNOWN'))
+    d=base/key
+    return {'base':base,'dir':d,'manifest':d/'manifest.json','episodes':d/'raw_episodes.pkl.gz','events':d/'raw_events.pkl.gz','index':base/'index.json'}
 
 
 def _v4953_publish_cache_manifest(manifest: dict, status: str, reason: str='', diagnostics: dict|None=None):
@@ -29928,7 +30076,7 @@ def _v4953_publish_cache_manifest(manifest: dict, status: str, reason: str='', d
         Path('reports').mkdir(parents=True,exist_ok=True)
         z=dict(manifest or {}); z['runtime_status']=status; z['runtime_reason']=reason
         z['runtime_diagnostics']=dict(diagnostics or {}); z['checked_at']=pd.Timestamp.now().isoformat()
-        Path('reports/v49_54_lifecycle_cache_manifest.json').write_text(json.dumps(z,ensure_ascii=False,indent=2,default=str),encoding='utf-8')
+        Path('reports/v49_55_lifecycle_cache_manifest.json').write_text(json.dumps(z,ensure_ascii=False,indent=2,default=str),encoding='utf-8')
     except Exception:pass
 
 
@@ -29944,20 +30092,39 @@ def _v4954_context_mismatches(stored: dict, current: dict) -> list[dict]:
         'codes_sha256','code_count','target_bars','ohlcv_fingerprint_schema','ohlcv_fingerprint',
         'parameter_fingerprint',
     )
+    return [{'field':key,'stored':stored.get(key),'current':current.get(key)} for key in keys if stored.get(key)!=current.get(key)]
+
+
+def _v4955_available_lifecycle_manifests(base: Path) -> list[dict]:
     out=[]
-    for key in keys:
-        if stored.get(key)!=current.get(key):
-            out.append({'field':key,'stored':stored.get(key),'current':current.get(key)})
+    if not base.exists(): return out
+    for d in base.iterdir():
+        mp=d/'manifest.json'
+        if not d.is_dir() or not mp.exists(): continue
+        try:
+            m=json.loads(mp.read_text(encoding='utf-8')); m['_path']=str(d); out.append(m)
+        except Exception: pass
     return out
+
+
+def _v4955_nearest_lifecycle_context(current: dict, manifests: list[dict]) -> tuple[dict|None,list[dict]]:
+    if not manifests:return None,[]
+    keys=('schema','engine_version','logic_sha256','start_date','end_date','target_bars','parameter_fingerprint','universe_fingerprint','ohlcv_fingerprint')
+    best=max(manifests,key=lambda m:sum(m.get(k)==current.get(k) for k in keys))
+    return best,_v4954_context_mismatches(best,current)
 
 
 def _v4953_load_lifecycle_cache(context: dict) -> tuple[dict|None,list[str],dict]:
     lines=[]; detail={'status':'DISABLED'}
-    if not bool(CLOSING_BET_V4954_LIFECYCLE_CACHE_ENABLE) or not bool(CLOSING_BET_V4954_LIFECYCLE_CACHE_READ):
+    if not bool(CLOSING_BET_V4955_LIFECYCLE_CACHE_ENABLE) or not bool(CLOSING_BET_V4955_LIFECYCLE_CACHE_READ):
         return None,['- LIFECYCLE CACHE: DISABLED · full scan'],detail
-    q=_v4953_cache_paths(); reason='manifest 없음'; diagnostics={}
+    q=_v4953_cache_paths(context); reason='context manifest 없음'; diagnostics={}
     try:
-        if not q['manifest'].exists():raise FileNotFoundError(reason)
+        if not q['manifest'].exists():
+            manifests=_v4955_available_lifecycle_manifests(q['base']); near,mm=_v4955_nearest_lifecycle_context(context,manifests)
+            fields=','.join(x['field'] for x in mm) if mm else '-'
+            diagnostics={'available_contexts':len(manifests),'nearest_cache_key':str((near or {}).get('cache_key','')),'nearest_mismatches':mm}
+            raise FileNotFoundError(f'context directory 없음 · available {len(manifests)} · nearest mismatch [{fields}]')
         m=json.loads(q['manifest'].read_text(encoding='utf-8'))
         mismatches=_v4954_context_mismatches(m,context)
         if mismatches:
@@ -29965,8 +30132,7 @@ def _v4953_load_lifecycle_cache(context: dict) -> tuple[dict|None,list[str],dict
             fields=','.join(str(x['field']) for x in mismatches)
             preview='; '.join(f"{x['field']} {_v4954_short_value(x['stored'])}→{_v4954_short_value(x['current'])}" for x in mismatches[:3])
             raise ValueError(f'context mismatch [{fields}] · {preview}')
-        if str(m.get('cache_key',''))!=str(context.get('cache_key','')):
-            raise ValueError('cache_key mismatch despite equal components')
+        if str(m.get('cache_key',''))!=str(context.get('cache_key','')): raise ValueError('cache_key mismatch despite equal components')
         for name in ('episodes','events'):
             fp=q[name]
             if not fp.exists():raise FileNotFoundError(f'{name} 파일 없음')
@@ -29974,29 +30140,33 @@ def _v4953_load_lifecycle_cache(context: dict) -> tuple[dict|None,list[str],dict
             if dig!=str((m.get('files') or {}).get(name,{}).get('sha256','')):raise ValueError(f'{name} sha256 mismatch')
         raw_eps=pd.read_pickle(q['episodes'],compression='gzip'); raw_ev=pd.read_pickle(q['events'],compression='gzip')
         if not isinstance(raw_eps,pd.DataFrame) or not isinstance(raw_ev,pd.DataFrame):raise TypeError('cached object is not DataFrame')
-        stats=dict(m.get('stats') or {}); detail={'status':'HIT','manifest':m,'stats':stats,'cache_key':context.get('cache_key')}
-        lines.append(f"- LIFECYCLE CACHE: HIT ✅ · engine {context.get('engine_version')} · raw episode {len(raw_eps)} · event {len(raw_ev)} · 종목별 상태전이 재계산 생략 · key {str(context.get('cache_key',''))[:16]}…")
+        stats=dict(m.get('stats') or {}); m['last_accessed_at']=pd.Timestamp.now().isoformat()
+        _v4955_atomic_write_text(q['manifest'],json.dumps(m,ensure_ascii=False,indent=2,default=str))
+        _v4955_context_index_update(q['base'],context['cache_key'],{'created_at':m.get('created_at'),'last_accessed_at':m['last_accessed_at'],'code_count':m.get('code_count'),'universe_fingerprint':m.get('universe_fingerprint'),'ohlcv_fingerprint':m.get('ohlcv_fingerprint'),'path':str(q['dir'])},CLOSING_BET_V4955_LIFECYCLE_CACHE_MAX_CONTEXTS,'lifecycle-cache')
+        detail={'status':'HIT','manifest':m,'stats':stats,'cache_key':context.get('cache_key'),'context_path':str(q['dir'])}
+        lines.append(f"- LIFECYCLE CACHE: HIT ✅ · engine {context.get('engine_version')} · context {str(context.get('cache_key',''))[:16]}… · raw episode {len(raw_eps)} · event {len(raw_ev)} · 종목별 상태전이 재계산 생략 · stored contexts {len(_v4955_available_lifecycle_manifests(q['base']))}")
         _v4953_publish_cache_manifest(m,'HIT',diagnostics=detail)
         return {'raw_episodes':raw_eps,'raw_events':raw_ev,'stats':stats},lines,detail
     except Exception as e:
-        reason=f'{type(e).__name__}: {e}'; detail={'status':'MISS','reason':reason,'cache_key':context.get('cache_key'),'diagnostics':diagnostics}
-        lines.append(f"- LIFECYCLE CACHE: MISS · {reason} · full scan 실행 · engine {context.get('engine_version')} · key {str(context.get('cache_key',''))[:16]}…")
+        reason=f'{type(e).__name__}: {e}'; detail={'status':'MISS','reason':reason,'cache_key':context.get('cache_key'),'diagnostics':diagnostics,'context_path':str(q['dir'])}
+        lines.append(f"- LIFECYCLE CACHE: MISS · {reason} · full scan 실행 · engine {context.get('engine_version')} · context {str(context.get('cache_key',''))[:16]}…")
         _v4953_publish_cache_manifest(context,'MISS',reason,detail)
         return None,lines,detail
 
 
 def _v4953_write_lifecycle_cache(context: dict, raw_eps: pd.DataFrame, raw_ev: pd.DataFrame, stats: dict) -> tuple[list[str],dict]:
-    if not bool(CLOSING_BET_V4954_LIFECYCLE_CACHE_ENABLE) or not bool(CLOSING_BET_V4954_LIFECYCLE_CACHE_WRITE):return ['- LIFECYCLE CACHE WRITE: 비활성화'],{}
-    q=_v4953_cache_paths(); q['dir'].mkdir(parents=True,exist_ok=True)
+    if not bool(CLOSING_BET_V4955_LIFECYCLE_CACHE_ENABLE) or not bool(CLOSING_BET_V4955_LIFECYCLE_CACHE_WRITE):return ['- LIFECYCLE CACHE WRITE: 비활성화'],{}
+    q=_v4953_cache_paths(context); q['dir'].mkdir(parents=True,exist_ok=True)
     try:
         for name,df in (('episodes',raw_eps),('events',raw_ev)):
             tmp=q['dir']/(q[name].name+'.tmp'); df.to_pickle(tmp,compression='gzip'); os.replace(tmp,q[name])
-        files={name:{'path':str(q[name]),'sha256':hashlib.sha256(q[name].read_bytes()).hexdigest(),'rows':int(len(df))}
-               for name,df in (('episodes',raw_eps),('events',raw_ev))}
-        m=dict(context); m.update({'created_at':pd.Timestamp.now().isoformat(),'files':files,'stats':dict(stats or {})})
-        tmp=q['dir']/'manifest.json.tmp'; tmp.write_text(json.dumps(m,ensure_ascii=False,indent=2,default=str),encoding='utf-8'); os.replace(tmp,q['manifest'])
-        _v4953_publish_cache_manifest(m,'MISS-WRITE')
-        return [f"- LIFECYCLE CACHE WRITE: 완료 ✅ · engine {context.get('engine_version')} · episode {len(raw_eps)} · event {len(raw_ev)} · 다음 동일 계산 context 실행 HIT 대상"],m
+        files={name:{'path':str(q[name]),'sha256':hashlib.sha256(q[name].read_bytes()).hexdigest(),'rows':int(len(df))} for name,df in (('episodes',raw_eps),('events',raw_ev))}
+        m=dict(context); m.update({'created_at':pd.Timestamp.now().isoformat(),'last_accessed_at':pd.Timestamp.now().isoformat(),'files':files,'stats':dict(stats or {}),'context_path':str(q['dir'])})
+        _v4955_atomic_write_text(q['manifest'],json.dumps(m,ensure_ascii=False,indent=2,default=str))
+        _v4955_context_index_update(q['base'],context['cache_key'],{'created_at':m['created_at'],'last_accessed_at':m['last_accessed_at'],'code_count':m.get('code_count'),'universe_fingerprint':m.get('universe_fingerprint'),'ohlcv_fingerprint':m.get('ohlcv_fingerprint'),'path':str(q['dir'])},CLOSING_BET_V4955_LIFECYCLE_CACHE_MAX_CONTEXTS,'lifecycle-cache')
+        total=len(_v4955_available_lifecycle_manifests(q['base']))
+        _v4953_publish_cache_manifest(m,'MISS-WRITE',diagnostics={'stored_contexts':total})
+        return [f"- LIFECYCLE CACHE WRITE: 완료 ✅ · engine {context.get('engine_version')} · context {str(context.get('cache_key',''))[:16]}… · episode {len(raw_eps)} · event {len(raw_ev)} · stored contexts {total} · 다음 동일 계산 context 실행 HIT 대상"],m
     except Exception as e:
         return [f'- LIFECYCLE CACHE WRITE 실패: {type(e).__name__}: {e}'],{}
 
@@ -30013,7 +30183,7 @@ def _v4953_write_research_cache(entry_policy: pd.DataFrame, start_date: str, end
     cols=[]
     for c in core+feats+paths:
         if c in x.columns and c not in cols:cols.append(c)
-    outdir=Path('reports'); outdir.mkdir(parents=True,exist_ok=True); csv_path=outdir/'v49_54_entry_d10_research_table.csv'; manifest_path=outdir/'v49_54_research_cache_manifest.json'
+    outdir=Path('reports'); outdir.mkdir(parents=True,exist_ok=True); csv_path=outdir/'v49_55_entry_d10_research_table.csv'; manifest_path=outdir/'v49_55_research_cache_manifest.json'
     try:
         x[cols].to_csv(csv_path,index=False,encoding='utf-8-sig'); digest=hashlib.sha256(csv_path.read_bytes()).hexdigest()
         manifest={'version':CLOSING_BET_SCANNER_VERSION,'start_date':str(start_date),'end_date':str(end_date),'rows':int(len(x)),'columns':int(len(cols)),
@@ -30325,9 +30495,9 @@ def _v4939_known_case_lines(start_date: str, end_date: str) -> list[str]:
 
 
 def _v4939_lifecycle_backtest_lines(start_date: str, end_date: str, df=None) -> list[str]:
-    """v49.54 fail-closed Lifecycle historical audit. 원본 보고서와 Telegram이 동일 lines를 사용한다."""
+    """v49.55 fail-closed Lifecycle historical audit. 원본 보고서와 Telegram이 동일 lines를 사용한다."""
     global _V4940_LAST_LIFECYCLE_AUDIT
-    lines=['[🚀 LIFECYCLE FUNNEL AUDIT — v49.54 COMPLETE]']
+    lines=['[🚀 LIFECYCLE FUNNEL AUDIT — v49.55 COMPLETE]']
     if not bool(CLOSING_BET_V4940_LIFECYCLE_BT_ENABLE):
         lines.append('- ⛔ LIFECYCLE AUDIT FAILED: 비활성화')
         _V4940_LAST_LIFECYCLE_AUDIT={'status':'FAILED','lines':list(lines),'episodes':pd.DataFrame(),'events':pd.DataFrame()}; return lines
@@ -30343,7 +30513,7 @@ def _v4939_lifecycle_backtest_lines(start_date: str, end_date: str, df=None) -> 
             for cd in shared_codes:
                 cd=str(cd).zfill(6)
                 if cd not in seen: seen.add(cd); codes.append(cd)
-            meta={'source':'v49.54_shared_ohlcv_universe','scan_codes':len(codes)}
+            meta={'source':'v49.55_shared_ohlcv_universe','scan_codes':len(codes)}
         else:
             codes,meta=_v4938_collect_codes(df)
         known=str(CLOSING_BET_V4939_KNOWN_CASE_CODE).zfill(6)
@@ -30467,7 +30637,7 @@ def _v4939_lifecycle_backtest_lines(start_date: str, end_date: str, df=None) -> 
         lines.extend(kc_lines)
         lines.append('- LIFECYCLE AUDIT STATUS: ✅ VALID · 원본/Telegram 동일 감사 레지스트리')
         audit={'status':'VALID','lines':list(lines),'episodes':eps,'events':ev,'raw_events':raw_ev,'entry_events':ent_policy_mkt,'entry_big_events':ent_big_mkt,'plan':plan,
-               'population_bridge':dict(globals().get('_V4947_POPULATION_BRIDGE',{}) or {}),'big_winner':dict(globals().get('_V4945_BIG_WINNER_AUDIT',{}) or {}),'capturable_big':dict(globals().get('_V4949_CAPTURABLE_AUDIT',{}) or {}),'runner':dict(globals().get('_V4950_RUNNER_AUDIT',{}) or {}),'runner_policy':dict(globals().get('_V4951_RUNNER_POLICY_AUDIT',{}) or {}),'lifecycle_cache':dict(globals().get('_V4953_LIFECYCLE_CACHE_AUDIT',{}) or {}),'breach_clock':dict(globals().get('_V4953_BREACH_CLOCK_AUDIT',{}) or {}),'runner_walk':dict(globals().get('_V4953_RUNNER_WALK_AUDIT',{}) or {}),'fail_lock':dict(globals().get('_V4950_FAIL_LOCK_AUDIT',{}) or {}),'fail_walk':dict(globals().get('_V4951_FAIL_WALK_AUDIT',{}) or {}),'clusters':dict(globals().get('_V4947_CLUSTER_AUDIT',{}) or {})}
+               'population_bridge':dict(globals().get('_V4947_POPULATION_BRIDGE',{}) or {}),'big_winner':dict(globals().get('_V4945_BIG_WINNER_AUDIT',{}) or {}),'capturable_big':dict(globals().get('_V4949_CAPTURABLE_AUDIT',{}) or {}),'runner':dict(globals().get('_V4950_RUNNER_AUDIT',{}) or {}),'runner_policy':dict(globals().get('_V4951_RUNNER_POLICY_AUDIT',{}) or {}),'universe_snapshot':dict(globals().get('_V4955_UNIVERSE_SNAPSHOT_AUDIT',{}) or {}),'lifecycle_cache':dict(globals().get('_V4953_LIFECYCLE_CACHE_AUDIT',{}) or {}),'breach_clock':dict(globals().get('_V4953_BREACH_CLOCK_AUDIT',{}) or {}),'runner_walk':dict(globals().get('_V4953_RUNNER_WALK_AUDIT',{}) or {}),'fail_lock':dict(globals().get('_V4950_FAIL_LOCK_AUDIT',{}) or {}),'fail_walk':dict(globals().get('_V4951_FAIL_WALK_AUDIT',{}) or {}),'clusters':dict(globals().get('_V4947_CLUSTER_AUDIT',{}) or {})}
     except Exception as e:
         lines.append(f'- ⛔ LIFECYCLE AUDIT FAILED: {type(e).__name__}: {e}')
         audit={'status':'FAILED','lines':list(lines),'episodes':pd.DataFrame(),'events':pd.DataFrame()}
@@ -30993,7 +31163,7 @@ def _v4941_preload_shared_ohlcv(source_codes: list[str], names: list[str], start
         return {
             'requested':len(pairs),'loaded':0,'short':len(pairs),'failed':0,'timed_out':0,'load_pct':0.0,
             'source_counts':{},'median_rows':0,'cache_entries':0,'chunks_total':0,'chunks_done':0,
-            'error_samples':['CLOSING_BET_V4941_SHARED_CACHE_ENABLE=0: v49.54 공통 캐시 계약 비활성'],
+            'error_samples':['CLOSING_BET_V4941_SHARED_CACHE_ENABLE=0: v49.55 공통 캐시 계약 비활성'],
         }
     def load_one(cn):
         code,name=cn
@@ -31040,7 +31210,7 @@ def _v4941_preload_shared_ohlcv(source_codes: list[str], names: list[str], start
 
 
 def _v4941_set_invalid_audit(diag: dict, reason: str):
-    """v49.54 fail-closed 분리.
+    """v49.55 fail-closed 분리.
     공통 OHLCV 자체가 INVALID면 전체 차단한다.
     공통 OHLCV는 정상이고 LEGACY 전략평가만 INVALID면 이미 VALID인 Lifecycle Research는 보존한다.
     """
@@ -31092,7 +31262,7 @@ def _v4941_refresh_structured_audit():
         'population_account_line':next((str(x) for x in ll if 'CANONICAL→NEW 회계:' in str(x)),''),
         'population_other_line':next((str(x) for x in ll if '기타cohort 상세:' in str(x)),''),
         'meta_audit_lines':[str(x) for x in ll if str(x).startswith('- META-JOIN')],
-        'cache_lines':[str(x) for x in ll if (str(x).startswith('- LIFECYCLE CACHE:') or str(x).startswith('- LIFECYCLE CACHE WRITE:') or str(x).startswith('- RESEARCH CACHE:') or str(x).startswith('- CACHE MANIFEST:') or str(x).startswith('- RESEARCH CACHE 실패:'))],
+        'cache_lines':[str(x) for x in (list((globals().get('_V4955_UNIVERSE_SNAPSHOT_AUDIT',{}) or {}).get('lines',[]) or [])+ll) if (str(x).startswith('- UNIVERSE SNAPSHOT:') or str(x).startswith('- UNIVERSE SNAPSHOT WRITE:') or str(x).startswith('- LIFECYCLE CACHE:') or str(x).startswith('- LIFECYCLE CACHE WRITE:') or str(x).startswith('- RESEARCH CACHE:') or str(x).startswith('- CACHE MANIFEST:') or str(x).startswith('- RESEARCH CACHE 실패:'))],
         'breach_clock_lines':[str(x) for x in ll if (str(x).startswith('- gap source:') or re.match(r'^- (0|0\.5)% 분류:',str(x)) or str(x).startswith('- 연속값 불일치:') or str(x).startswith('- BREACH-CLOCK CSV:') or str(x).startswith('- clock 표본') or str(x).startswith('- 0% 방향/최초일:') or str(x).startswith('- 0.5% 방향/최초일:'))],
         'population_rule_line':next((str(x) for x in ll if '연구 모집단 규칙:' in str(x)),''),
         'conversion_line':next((str(x) for x in ll if '전환율(동일' in str(x)),''),
@@ -31264,7 +31434,7 @@ def run_closing_bet_backtest(
     _refresh_marcap_map()
     _refresh_index_map()
 
-    # v49.54: historical backtest는 LIVE 후보수/STATIC fallback에 휘둘리지 않는 universe lock을 사용한다.
+    # v49.55: historical backtest는 LIVE 후보수/STATIC fallback에 휘둘리지 않는 universe lock을 사용한다.
     codes, universe_meta = _v4948_build_backtest_universe(end_date)
     codes = sorted(set(_normalize_code(c) for c in codes if str(c).strip()))
     source_codes = list(codes)
@@ -31274,7 +31444,7 @@ def run_closing_bet_backtest(
     invalid_codes = [c for c in source_codes if not _v4934_valid_stock_code(c, name_map)]
     source_codes = [c for c in source_codes if _v4934_valid_stock_code(c, name_map)]
     if invalid_codes:
-        log_info(f'v49.54 비활성/비정상 코드 제외: {len(invalid_codes)}개 | 샘플 {invalid_codes[:5]}')
+        log_info(f'v49.55 비활성/비정상 코드 제외: {len(invalid_codes)}개 | 샘플 {invalid_codes[:5]}')
     # v4.4.9.53.5.2: 후성 같은 특정 종목 리플레이용 심볼/종목명 필터.
     # CLI --symbol 093370 또는 --symbol 후성, 환경변수 CLOSING_BET_BACKTEST_SYMBOL 로 사용한다.
     symbol_raw = str(symbols_filter or os.environ.get('CLOSING_BET_BACKTEST_SYMBOL', '') or '').strip()
@@ -31364,7 +31534,7 @@ def run_closing_bet_backtest(
         stamp=now.strftime('%Y%m%d_%H%M%S'); raw_path=LOG_DIR/f'closing_bet_backtest_raw_{stamp}.csv'; selected_path=LOG_DIR/f'closing_bet_backtest_selected_{stamp}.csv'
         return report,str(selected_path),str(raw_path)
 
-    # v49.54: 네트워크 OHLCV는 여기서 한 번만 로드하고 이후 기존전략/Lifecycle이 동일 캐시를 공유한다.
+    # v49.55: 네트워크 OHLCV는 여기서 한 번만 로드하고 이후 기존전략/Lifecycle이 동일 캐시를 공유한다.
     shared_warmup=max(int(globals().get('CLOSING_BET_M5R_TRUE60_WARMUP_DAYS',2600)),int(_v4940_dynamic_load_plan(start_date,end_date).get('warmup_calendar',120)))
     shared=_v4941_preload_shared_ohlcv(source_codes,names,start_date,end_date,shared_warmup,workers)
     diag['data_loaded']=int(shared.get('loaded',0)); diag['no_data']=int(shared.get('short',0)); diag['cache_entries']=int(shared.get('cache_entries',0))
@@ -31385,7 +31555,7 @@ def run_closing_bet_backtest(
         except Exception: pass
         return report,str(selected_path),str(raw_path)
 
-    # v49.54 DUAL-LANE: 공통 OHLCV가 건강하면 Lifecycle 연구를 LEGACY 전략평가보다 먼저 독립 실행한다.
+    # v49.55 DUAL-LANE: 공통 OHLCV가 건강하면 Lifecycle 연구를 LEGACY 전략평가보다 먼저 독립 실행한다.
     research_lane=_v4946_run_lifecycle_research_lane(start_date,end_date,shared,diag)
     diag['lifecycle_research_status']=str(research_lane.get('status','NOT_RUN'))
     diag['lifecycle_research_elapsed_sec']=float(research_lane.get('elapsed_sec',0.0) or 0.0)
@@ -42843,7 +43013,7 @@ def _v53849_auto_trade_readiness_lines(df: pd.DataFrame, top_n: int = 8) -> list
                 nm = str(name.loc[ix] or cd)
                 lines.append(f' · 👀 {nm}({cd}) | K200 BB/ENV 하단 관찰 | ACTIVE·구조생존·회복/BOX방어 수동확인 전 자동매수 금지')
 
-        lines.append('운용반영: v49.54도 실주문 금지입니다. 최소 4~8주 동안 최신 READY·CONFLICT·차단 후보와 가상체결/익절/기간컷 결과를 누적한 뒤 v50 PAPER TRADING으로 넘어갑니다.')
+        lines.append('운용반영: v49.55도 실주문 금지입니다. 최소 4~8주 동안 최신 READY·CONFLICT·차단 후보와 가상체결/익절/기간컷 결과를 누적한 뒤 v50 PAPER TRADING으로 넘어갑니다.')
         return lines
     except Exception as e:
         lines.append(f'- AUTO BUY READINESS 생성 실패: {type(e).__name__}: {e}')
@@ -43451,7 +43621,7 @@ def _v439_build_compact_backtest_report(original_report: str, selected_csv: str 
 
 
 def _v4936_backtest_telegram_parts(audit_report: str, compact_report: str='') -> list[str]:
-    """v49.54: structured audit Telegram output with six fixed sections and lossless overflow continuation."""
+    """v49.55: structured audit Telegram output with six fixed sections and lossless overflow continuation."""
     audit_rows=[str(x).strip() for x in str(audit_report or '').splitlines() if str(x).strip()]
     compact_rows=[str(x).strip() for x in str(compact_report or '').splitlines() if str(x).strip()]
 
@@ -43495,7 +43665,7 @@ def _v4936_backtest_telegram_parts(audit_report: str, compact_report: str='') ->
         lifecycle=dict(root.get('lifecycle',{}) or {})
         elapsed=float((root.get('research_lane') or {}).get('elapsed_sec',0.0) or 0.0)
 
-        p1=['(1/6)','⚠️ LEGACY INVALID · Lifecycle Research VALID | v49.54','──────────',version,period,
+        p1=['(1/6)','⚠️ LEGACY INVALID · Lifecycle Research VALID | v49.55','──────────',version,period,
             '[📡 공통 OHLCV / LEGACY 레인]']+pipe+[
             f'- Lifecycle Research: ✅ VALID · 독립 실행 {elapsed:.1f}s' if elapsed>0 else '- Lifecycle Research: ✅ VALID · LEGACY와 독립',
             '', '[🚀 Lifecycle 에피소드 감사]',
@@ -43513,7 +43683,7 @@ def _v4936_backtest_telegram_parts(audit_report: str, compact_report: str='') ->
             lifecycle.get('policy_line') or '- ENTRY 정책성과 없음',
         ]+list((root.get('known_case') or {}).get('lines',[]) or [])+[
             '', '[해석 제한]','- PRIME/CORE/LCZ/기존 포트폴리오는 LEGACY INVALID로 전면 제외','- Lifecycle Research만 독립 VALID 표본으로 연구 해석','- PAPER 유지 · 실제주문 0건']
-        p2=['(2/6)','🎯 먹을 수 있는 BIG / Pattern 연구 | v49.54','──────────',
+        p2=['(2/6)','🎯 먹을 수 있는 BIG / Pattern 연구 | v49.55','──────────',
             '[🚀 BIG-WINNER ANATOMY]',
             lifecycle.get('big_count_line') or '- BIG-WINNER 표본 없음',
             lifecycle.get('big_concentration_line') or '- 집중도 평가없음',
@@ -43521,18 +43691,18 @@ def _v4936_backtest_telegram_parts(audit_report: str, compact_report: str='') ->
             '', '[🎯 CAPTURABLE-BIG PATH ANATOMY]']+list(lifecycle.get('capturable_lines',[]) or ['- 평가없음'])+[
             '', '[🏃 POST-POLICY RUNNER ANATOMY]']+list(lifecycle.get('runner_lines',[]) or ['- 평가없음'])+[
             '', '[🧬 BIG-WINNER PATTERN CLUSTER]']+list(lifecycle.get('cluster_lines',[]) or ['- cluster 평가없음'])
-        p3=['(3/6)','🏃 Runner 정책 다중검증 | v49.54','──────────',
+        p3=['(3/6)','🏃 Runner 정책 다중검증 | v49.55','──────────',
             '[🏃 UNIVERSAL RESIDUAL RUNNER 정책]']+list(lifecycle.get('runner_policy_lines',[]) or ['- 평가없음'])+[
             '', '[🚶 RUNNER MULTI WALK-FORWARD · 20%/30% D10]']+list(lifecycle.get('runner_walk_lines',[]) or ['- 평가없음'])
-        p4=['(4/6)','🧯 Breach clock / FAIL causal | v49.54','──────────',
+        p4=['(4/6)','🧯 Breach clock / FAIL causal | v49.55','──────────',
             '[🕰 BREACH-CLOCK RECONCILIATION]']+list(lifecycle.get('breach_clock_lines',[]) or ['- 평가없음'])+[
             '', '[🧪 FAIL 임계값 감사 · episode 전체 경로]']+list(lifecycle.get('fail_sensitivity_lines',[]) or ['- 평가없음'])+[
             '', '[🧯 signal-support 소급형 참고]']+list(lifecycle.get('fail_portfolio_lines',[]) or ['- 평가없음'])+[
             '', '[🔒 TRAIN→OOS LOCK · event-snapshot causal]']+list(lifecycle.get('fail_lock_lines',[]) or ['- 평가없음'])
-        p5=['(5/6)','🚶 FAIL cutoff Multi Walk-Forward | v49.54','──────────',
+        p5=['(5/6)','🚶 FAIL cutoff Multi Walk-Forward | v49.55','──────────',
             '[🚶 MULTI WALK-FORWARD · 0%/0.5%]']+list(lifecycle.get('fail_walk_lines',[]) or ['- 평가없음'])+[
             '', '[해석 제한]','- CAPPED Fold는 보고만 하고 승격분모 제외','- signal-support 소급형은 LIVE cutoff 승격 근거로 사용 금지','- LIVE cutoff 자동변경 금지']
-        p6=['(6/6)','📊 포트폴리오 / 승격판단 | v49.54','──────────',
+        p6=['(6/6)','📊 포트폴리오 / 승격판단 | v49.55','──────────',
             '[Lifecycle 전용 포트폴리오]',lifecycle.get('portfolio1_line') or '- 하루1종목 평가없음',lifecycle.get('portfolio2_line') or '- 하루2종목 평가없음',
             '', '[Lifecycle 승격 판단]',lifecycle.get('gate_null_line') or '- canonical/NULL FAIL-CLOSED',lifecycle.get('gate_oos_line') or '- OOS/지수초과 FAIL-CLOSED',lifecycle.get('gate_port_line') or '- 비용후 포트폴리오 FAIL-CLOSED',lifecycle.get('gate_final_line') or '- Lifecycle 승격 FAIL-CLOSED',
             '', '[운용 결론]','- CAPTURABLE/Runner/FAIL 연구 결과도 자동 LIVE/Runner 반영 금지','- causal FAIL cutoff도 별도 승격 전 LIVE 변경 금지','- PAPER 유지 · 실제주문 0건']
@@ -43541,7 +43711,7 @@ def _v4936_backtest_telegram_parts(audit_report: str, compact_report: str='') ->
     if str(root.get('status','')).upper()=='INVALID' or any('BACKTEST INVALID' in x for x in audit_rows):
         pipe=list((root.get('pipeline') or {}).get('lines',[]) or [])
         diag_lines=[x for x in audit_rows if ('처리 완료율' in x or '데이터 로드율' in x or '데이터소스:' in x or '오류샘플:' in x)]
-        p=['(1/1)','⛔ 백테스트 INVALID | v49.54','──────────',version,period]+pipe+diag_lines[:4]+['','[운용 차단]','- 전략 성과·PRIME·CORE·LCZ·Lifecycle·포트폴리오 집계 금지','- PAPER 유지 · 실제주문 0건']
+        p=['(1/1)','⛔ 백테스트 INVALID | v49.55','──────────',version,period]+pipe+diag_lines[:4]+['','[운용 차단]','- 전략 성과·PRIME·CORE·LCZ·Lifecycle·포트폴리오 집계 금지','- PAPER 유지 · 실제주문 0건']
         return render_parts((p,))
 
     pipeline=dict(root.get('pipeline',{}) or {}); lifecycle=dict(root.get('lifecycle',{}) or {})
@@ -43569,8 +43739,8 @@ def _v4936_backtest_telegram_parts(audit_report: str, compact_report: str='') ->
     m5=find(both,'커버리지율',default='- M5 커버리지 확인 필요')
     existing1=find(both,'하루최대 1종목:',default='- 기존 하루1종목 포트폴리오 확인 필요')
     existing2=find(both,'하루최대 2종목:',default='- 기존 하루2종목 포트폴리오 확인 필요')
-    p1=['(1/2)','🧪 백테스트 핵심 결론 | v49.54','──────────',version,period,counts,'','[📡 공통 OHLCV 파이프라인]',data,cache_line,pipeline_counts,exclusions,'','[🚀 Lifecycle 에피소드 감사]']+lifecycle_section+['','[기존 핵심 경로]',prime,core,'- LCZ는 RESEARCH ONLY: '+lcz.lstrip('- ')]
-    p2=['(2/2)','📊 백테스트 주요 진단 | v49.54','──────────','[현재 LIVE 시장·커버리지]',market,m5,'','[역사 Lifecycle 시장구간]',lifecycle.get('market_line') or '- 평가없음','','[🚀 BIG-WINNER ANATOMY · 연구]',lifecycle.get('big_count_line') or '- BIG-WINNER 표본 없음',lifecycle.get('big_concentration_line') or '- 집중도 평가없음',lifecycle.get('big_stress_line') or '- 대박 제거 스트레스 평가없음','','[🎯 CAPTURABLE-BIG]']+list(lifecycle.get('capturable_lines',[]) or ['- 평가없음'])+['','[🏃 POST-POLICY RUNNER]']+list(lifecycle.get('runner_lines',[]) or ['- 평가없음'])+['','[🧬 BIG-WINNER PATTERN CLUSTER]']+list(lifecycle.get('cluster_lines',[]) or ['- cluster 평가없음'])+['','[🧪 FAIL 임계값 감사]']+list(lifecycle.get('fail_sensitivity_lines',[]) or ['- 평가없음'])+['','[🔒 FAIL TRAIN→OOS LOCK]']+list(lifecycle.get('fail_lock_lines',[]) or ['- 평가없음'])+['','[Lifecycle 전용 포트폴리오]',lifecycle.get('portfolio1_line') or '- 하루1종목 평가없음',lifecycle.get('portfolio2_line') or '- 하루2종목 평가없음','','[Lifecycle 승격 판단]',lifecycle.get('gate_null_line') or '- canonical/NULL FAIL-CLOSED',lifecycle.get('gate_oos_line') or '- OOS/지수초과 FAIL-CLOSED',lifecycle.get('gate_port_line') or '- 비용후 포트폴리오 FAIL-CLOSED',lifecycle.get('gate_final_line') or '- Lifecycle 승격 FAIL-CLOSED','','[기존 포트폴리오]',existing1,existing2,'','[운용 결론]','- Lifecycle 게이트 통과 전 PAPER 유지','- 실제주문 0건 유지']
+    p1=['(1/2)','🧪 백테스트 핵심 결론 | v49.55','──────────',version,period,counts,'','[📡 공통 OHLCV 파이프라인]',data,cache_line,pipeline_counts,exclusions,'','[🚀 Lifecycle 에피소드 감사]']+lifecycle_section+['','[기존 핵심 경로]',prime,core,'- LCZ는 RESEARCH ONLY: '+lcz.lstrip('- ')]
+    p2=['(2/2)','📊 백테스트 주요 진단 | v49.55','──────────','[현재 LIVE 시장·커버리지]',market,m5,'','[역사 Lifecycle 시장구간]',lifecycle.get('market_line') or '- 평가없음','','[🚀 BIG-WINNER ANATOMY · 연구]',lifecycle.get('big_count_line') or '- BIG-WINNER 표본 없음',lifecycle.get('big_concentration_line') or '- 집중도 평가없음',lifecycle.get('big_stress_line') or '- 대박 제거 스트레스 평가없음','','[🎯 CAPTURABLE-BIG]']+list(lifecycle.get('capturable_lines',[]) or ['- 평가없음'])+['','[🏃 POST-POLICY RUNNER]']+list(lifecycle.get('runner_lines',[]) or ['- 평가없음'])+['','[🧬 BIG-WINNER PATTERN CLUSTER]']+list(lifecycle.get('cluster_lines',[]) or ['- cluster 평가없음'])+['','[🧪 FAIL 임계값 감사]']+list(lifecycle.get('fail_sensitivity_lines',[]) or ['- 평가없음'])+['','[🔒 FAIL TRAIN→OOS LOCK]']+list(lifecycle.get('fail_lock_lines',[]) or ['- 평가없음'])+['','[Lifecycle 전용 포트폴리오]',lifecycle.get('portfolio1_line') or '- 하루1종목 평가없음',lifecycle.get('portfolio2_line') or '- 하루2종목 평가없음','','[Lifecycle 승격 판단]',lifecycle.get('gate_null_line') or '- canonical/NULL FAIL-CLOSED',lifecycle.get('gate_oos_line') or '- OOS/지수초과 FAIL-CLOSED',lifecycle.get('gate_port_line') or '- 비용후 포트폴리오 FAIL-CLOSED',lifecycle.get('gate_final_line') or '- Lifecycle 승격 FAIL-CLOSED','','[기존 포트폴리오]',existing1,existing2,'','[운용 결론]','- Lifecycle 게이트 통과 전 PAPER 유지','- 실제주문 0건 유지']
     return render_parts((p1,p2))
 
 
@@ -43696,7 +43866,7 @@ if __name__ == '__main__':
         hits = run_closing_bet_scan(force=args.force)
         if not hits:
             if bool(CLOSING_BET_V4938_LIFECYCLE_ENABLE):
-                log_info("✅ 기존 후보 0개 · v49.54 Lifecycle 전체유니버스 보고서는 이미 전송됨")
+                log_info("✅ 기존 후보 0개 · v49.55 Lifecycle 전체유니버스 보고서는 이미 전송됨")
             else:
                 log_info("✅ 종가배팅 후보 없음")
                 if _telegram_route_ready():
