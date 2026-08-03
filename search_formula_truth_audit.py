@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any
 import pandas as pd
 
-VERSION='V73.3.6.6.6'
+VERSION='V73.3.6.6.7'
 RESEARCH_ONLY=True
 HEADER='🧾 [전체 검색식 계산 진실성 전수감사 · RESEARCH_ONLY]'
 REGISTRY_FILE='search_formula_contract_registry.json'
@@ -218,6 +218,9 @@ def run_backtest(eval_df:pd.DataFrame|None,output_dir:str='reports'):
     pecol=_col(df,'검색식사후오류JSON','formula_post_truth_errors_json')
     picol=_col(df,'검색식사후원천값JSON','formula_post_truth_inputs_json')
     prcol=_col(df,'formula_post_truth_registry_sha256','검색식사후진실레지스트리')
+    transport_col=_col(df,'formula_truth_transport_status','검색식진실전달상태')
+    runtime_status_col=_col(df,'formula_truth_runtime_status','검색식진실런타임상태')
+    attach_error_col=_col(df,'formula_truth_attach_error','검색식진실부착오류')
     datecol=_col(df,'signal_date','날짜','replay_asof_date')
     codecol=_col(df,'code','Code','종목코드')
     runtime=[];recon=[];types=[];manual=[];temporal=[]
@@ -245,7 +248,7 @@ def run_backtest(eval_df:pd.DataFrame|None,output_dir:str='reports'):
             if status=='T':true_names.append(c['combination'])
             missing=[k for k in c['referenced_keys'] if inputs.get(k,'__MISSING__')=='__MISSING__']
             post_status=post_bitmap[i] if i<len(post_bitmap) else 'U'
-            runtime.append({'row_id':ridx,'signal_date':r.get(datecol,'') if datecol else '','code':r.get(codecol,'') if codecol else '', 'formula_index':i,'formula':c['combination'],'pre_bitmap_complete':len(bitmap)==len(_REG['combos']),'post_bitmap_complete':len(post_bitmap)==len(_REG['combos']),'truth_status':status,'post_truth_status':post_status,'post_eval_changed':status!=post_status and post_status!='U','became_true_after_evaluation':status!='T' and post_status=='T','recorded_match':c['combination'] in rec,'representative':c['combination']==primary,'missing_keys':'|'.join(missing),'condition_error':next((e.get('error','') for e in errors if e.get('formula')==c['combination']),''),'post_condition_error':next((e.get('error','') for e in post_errors if e.get('formula')==c['combination']),''),'base_score_runtime':scoremap.get(c['combination']), 'next3_close_ret':r.get('next3_close_ret'), 'market_regime':r.get('market_regime',r.get('v733663_market_regime',''))})
+            runtime.append({'row_id':ridx,'signal_date':r.get(datecol,'') if datecol else '','code':r.get(codecol,'') if codecol else '', 'formula_index':i,'formula':c['combination'],'pre_bitmap_complete':len(bitmap)==len(_REG['combos']),'post_bitmap_complete':len(post_bitmap)==len(_REG['combos']),'truth_status':status,'post_truth_status':post_status,'post_eval_changed':status!=post_status and post_status!='U','became_true_after_evaluation':status!='T' and post_status=='T','recorded_match':c['combination'] in rec,'representative':c['combination']==primary,'missing_keys':'|'.join(missing),'condition_error':next((e.get('error','') for e in errors if e.get('formula')==c['combination']),''),'post_condition_error':next((e.get('error','') for e in post_errors if e.get('formula')==c['combination']),''),'base_score_runtime':scoremap.get(c['combination']), 'transport_status':str(r.get(transport_col,'') or '') if transport_col else '', 'capture_runtime_status':str(r.get(runtime_status_col,'') or '') if runtime_status_col else '', 'attach_error':str(r.get(attach_error_col,'') or '') if attach_error_col else '', 'next3_close_ret':r.get('next3_close_ret'), 'market_regime':r.get('market_regime',r.get('v733663_market_regime',''))})
             for k in c['referenced_keys']:
                 v=inputs.get(k,'__MISSING__'); expected='NONBOOL_ALLOWED' if k in BOOL_EXCEPTIONS else 'BOOL'
                 actual='MISSING' if v=='__MISSING__' else type(v).__name__
@@ -299,17 +302,25 @@ def run_backtest(eval_df:pd.DataFrame|None,output_dir:str='reports'):
     helper_no_order=[x for x in helper_found if not x.get('uses_date_order')]
     anchors_ok=int(tempdf['status'].eq('AVAILABLE').sum()) if not tempdf.empty else 0
     min_required=math.ceil(len(df)*0.95) if len(df) else 0
-    audit_valid=bool(len(df)>0 and full_coverage>=min_required and registry_mismatch==0)
+    transport_complete=0
+    transport_source_missing=0
+    if transport_col and len(df):
+        _ts=df[transport_col].fillna('').astype(str)
+        transport_complete=int(_ts.eq('COPIED_COMPLETE').sum())
+        transport_source_missing=int(_ts.str.startswith('SOURCE_PRE_LEN_').sum())
+    audit_valid=bool(len(df)>0 and full_coverage>=min_required and registry_mismatch==0 and transport_complete>=min_required)
     invalid_reasons=[]
     if len(df)==0: invalid_reasons.append('NO_EVAL_ROWS')
     if full_coverage<min_required: invalid_reasons.append(f'PRE_BITMAP_COVERAGE_{full_coverage}/{len(df)}')
     if registry_mismatch: invalid_reasons.append(f'PRE_REGISTRY_MISMATCH_{registry_mismatch}')
+    if transport_complete<min_required: invalid_reasons.append(f'TRANSPORT_COMPLETE_{transport_complete}/{len(df)}')
     lines=[HEADER,
            f'📌 {VERSION} · FULL_SEARCH_FORMULA_TRUTH_TEMPORAL_PROVENANCE_AUDIT · RESEARCH_ONLY=True',
            f"- AUDIT STATUS: {'✅ VALID' if audit_valid else '⛔ INVALID'} · reason {','.join(invalid_reasons) if invalid_reasons else 'OK'}",
            f'- 전수 범위: COMBO_TABLE {combo_n}개 + AUX/LIVE selector {aux_n}개 = 총 {combo_n+aux_n}개 · registry {REGISTRY_SHA[:16]}…',
            f'- Runtime truth PRE: 분석 {len(df)}행 · 완전 비트맵 {full_coverage}행 · registry mismatch {registry_mismatch}행',
            f'- Runtime truth POST: 완전 비트맵 {post_full_coverage}행 · registry mismatch {post_registry_mismatch}행',
+           f'- Direct Replay 전달계약: COPIED_COMPLETE {transport_complete}/{len(df)} · source-missing {transport_source_missing}행',
            f'- 공식 상태: 실제 점등 0회 식 {never}/{combo_n} · condition error {errors_n}건 · 입력누락 formula-row {missing_n}건',
            f'- 매칭 회계: 대표/기록 불일치 행 {recon_bad} · 원천 anchor AVAILABLE {anchors_ok}/{len(tempdf)}',
            f'- 계산순서 감사: 정적 post-eval override 식 {len(static_late)}개 · runtime 판정변경 {post_change_rows} formula-row · 뒤늦게 TRUE {post_became_true}건',
@@ -326,7 +337,7 @@ def run_backtest(eval_df:pd.DataFrame|None,output_dir:str='reports'):
     lines += ['🧭 [전수검사 판정 규칙]','- FAIL-CALC: condition error·원천키 누락·기록은 TRUE인데 재계산 FALSE·시간순서 위반','- REVIEW: 점등 0회·비정상 고빈도·다른 상위식에 계속 가려짐·native anchor 미저장','- PERFORMANCE_FAIL: 계산진실성 PASS 이후 OOS 중앙/절사/상위2개 제외/비용후 초과수익이 모두 열위','- LIVE 변경 금지 · selector/점수/진입/익절/손절 자동변경 0', '- Actions CSV: v72_search_formula_contract_inventory.csv · producer_timing_audit.csv · runtime_truth_audit.csv · formula_summary.csv · reconciliation_audit.csv · input_type_audit.csv · temporal_anchor_audit.csv · manual_chart_sample_manifest.csv']
     report='\n'.join(lines)
     (out/REPORT_FILE).write_text(report,encoding='utf-8')
-    return report,{'inventory':pd.DataFrame(_REG['combos']),'runtime':rdf,'summary':sdf,'reconciliation':rcf,'types':tdf,'temporal':tempdf,'manual':mdf,'audit_valid':audit_valid,'pre_full_coverage':full_coverage,'post_full_coverage':post_full_coverage}
+    return report,{'inventory':pd.DataFrame(_REG['combos']),'runtime':rdf,'summary':sdf,'reconciliation':rcf,'types':tdf,'temporal':tempdf,'manual':mdf,'audit_valid':audit_valid,'pre_full_coverage':full_coverage,'post_full_coverage':post_full_coverage,'transport_complete':transport_complete,'transport_source_missing':transport_source_missing}
 
 
 def force_report(text:str,output_dir:str='reports',eval_df:pd.DataFrame|None=None):

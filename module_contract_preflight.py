@@ -8,7 +8,7 @@ import shutil
 import sys
 from pathlib import Path
 
-RELEASE_VERSION = "V73.3.6.6.6"
+RELEASE_VERSION = "V73.3.6.6.7"
 
 CONTRACTS = [
     {
@@ -47,7 +47,7 @@ CONTRACTS = [
         "label": "FORMULA_TRUTH",
         "filename": "search_formula_truth_audit.py",
         "module": "search_formula_truth_audit",
-        "version": "V73.3.6.6.6",
+        "version": "V73.3.6.6.7",
         "callables": ("capture_truth", "attach_result", "attach_post_result", "run_backtest", "force_report", "load_registry"),
         "exit_code": 115,
     },

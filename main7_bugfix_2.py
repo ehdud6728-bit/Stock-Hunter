@@ -9709,8 +9709,12 @@ def calculate_combination_score(signals):
         try:
             if globals().get('_V733666_TRUTH_OK', False):
                 best = _v733666_truth.attach_result(best, _v733666_truth_meta)
-        except Exception:
-            pass
+                best['formula_truth_runtime_status'] = 'CAPTURE_ATTACHED'
+            else:
+                best['formula_truth_runtime_status'] = 'AUDIT_MODULE_INACTIVE'
+        except Exception as _v733667_attach_e:
+            best['formula_truth_runtime_status'] = 'ATTACH_ERROR'
+            best['formula_truth_attach_error'] = f'{type(_v733667_attach_e).__name__}:{_v733667_attach_e}'
         return best
 
     # 기본 점수 (아무 조합도 없을 때)
@@ -9728,8 +9732,12 @@ def calculate_combination_score(signals):
     try:
         if globals().get('_V733666_TRUTH_OK', False):
             _v733666_base_result = _v733666_truth.attach_result(_v733666_base_result, _v733666_truth_meta)
-    except Exception:
-        pass
+            _v733666_base_result['formula_truth_runtime_status'] = 'CAPTURE_ATTACHED'
+        else:
+            _v733666_base_result['formula_truth_runtime_status'] = 'AUDIT_MODULE_INACTIVE'
+    except Exception as _v733667_base_attach_e:
+        _v733666_base_result['formula_truth_runtime_status'] = 'ATTACH_ERROR'
+        _v733666_base_result['formula_truth_attach_error'] = f'{type(_v733667_base_attach_e).__name__}:{_v733667_base_attach_e}'
     return _v733666_base_result
 
 
@@ -12432,6 +12440,8 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             '검색식태그': ' / '.join(dict.fromkeys([str(x) for x in (result.get('tags', []) or []) if str(x).strip()])),
             # V73.3.6.6.6 full formula truth/provenance metadata (research only)
             '검색식진실레지스트리': str(result.get('formula_truth_registry_sha256', '') or ''),
+            '검색식진실런타임상태': str(result.get('formula_truth_runtime_status', '') or ''),
+            '검색식진실부착오류': str(result.get('formula_truth_attach_error', '') or ''),
             '검색식진실비트맵': str(result.get('formula_truth_bitmap', '') or ''),
             '검색식진실매칭': str(result.get('formula_truth_true', '') or ''),
             '검색식진실점수JSON': str(result.get('formula_truth_scores_json', '[]') or '[]'),
@@ -12439,6 +12449,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
             '검색식누락JSON': str(result.get('formula_truth_missing_json', '{}') or '{}'),
             '검색식원천값JSON': str(result.get('formula_truth_inputs_json', '{}') or '{}'),
             '검색식삼각원천JSON': json.dumps(tri_result or {}, ensure_ascii=False, default=str, separators=(',', ':')),
+            '검색식사후진실레지스트리': str(result.get('formula_post_truth_registry_sha256', '') or ''),
             '검색식사후진실비트맵': str(result.get('formula_post_truth_bitmap', '') or ''),
             '검색식사후진실매칭': str(result.get('formula_post_truth_true', '') or ''),
             '검색식사후진실점수JSON': str(result.get('formula_post_truth_scores_json', '[]') or '[]'),
@@ -92066,28 +92077,107 @@ def _v732_load_engine():
 
 
 # ============================================================
-# ✅ V73.3.6.6.6 FULL SEARCH-FORMULA TRUTH × TEMPORAL × PROVENANCE AUDIT
+# ✅ V73.3.6.6.7 FULL SEARCH-FORMULA TRUTH × TEMPORAL × PROVENANCE AUDIT
 # - Every COMBO_TABLE formula and every AUX/LIVE selector contract is inventoried.
 # - Runtime truth bitmap is captured before winner selection; no score/rank/LIVE mutation.
 # - Formula calculation truth is audited before performance-based changes are considered.
 # ============================================================
-_V733666_VERSION='V73.3.6.6.6'
+_V733666_VERSION='V73.3.6.6.7'
 _V733666_TRUTH_OK=False
 try:
     import search_formula_truth_audit as _v733666_truth
     _V733666_TRUTH_OK=(getattr(_v733666_truth,'VERSION','')==_V733666_VERSION and getattr(_v733666_truth,'RESEARCH_ONLY',False) is True)
-    print(f"✅ V73.3.6.6.6 SEARCH_FORMULA_TRUTH_AUDIT loaded={int(_V733666_TRUTH_OK)} registry={getattr(_v733666_truth,'REGISTRY_SHA','')[:16]}")
+    print(f"✅ V73.3.6.6.7 SEARCH_FORMULA_TRUTH_AUDIT loaded={int(_V733666_TRUTH_OK)} registry={getattr(_v733666_truth,'REGISTRY_SHA','')[:16]}")
 except Exception as _v733666_import_e:
     _v733666_truth=None
-    try: print(f"⚠️ V73.3.6.6.6 search_formula_truth_audit import fail: {type(_v733666_import_e).__name__}: {_v733666_import_e}")
+    try: print(f"⚠️ V73.3.6.6.7 search_formula_truth_audit import fail: {type(_v733666_import_e).__name__}: {_v733666_import_e}")
     except Exception: pass
+
+
+
+# V73.3.6.6.7: preserve truth/provenance columns across the fixed Direct Replay signal-row projection.
+# analyze_final -> candidate DataFrame already contains these columns. The legacy mapper intentionally
+# returns a compact schema, so this read-only wrapper copies only audit metadata after that mapper.
+_V733667_TRUTH_TRANSPORT_FIELDS = (
+    '검색식진실레지스트리', '검색식진실런타임상태', '검색식진실부착오류',
+    '검색식진실비트맵', '검색식진실매칭', '검색식진실점수JSON',
+    '검색식오류JSON', '검색식누락JSON', '검색식원천값JSON', '검색식삼각원천JSON',
+    '검색식사후진실레지스트리', '검색식사후진실비트맵', '검색식사후진실매칭',
+    '검색식사후진실점수JSON', '검색식사후오류JSON', '검색식사후원천값JSON',
+)
+
+
+def _v733667_row_dict(row):
+    try:
+        return row.to_dict() if hasattr(row, 'to_dict') else dict(row or {})
+    except Exception:
+        return {}
+
+
+def _v733667_scalar_text(v, default=''):
+    if v is None:
+        return default
+    try:
+        if pd.isna(v):
+            return default
+    except Exception:
+        pass
+    return str(v)
+
+
+_V733667_PREV_SIGNAL_ROW = globals().get('_v1080_signal_row_from_series')
+def _v1080_signal_row_from_series(row, rank: int = 0, source: str = 'TOP15') -> dict:
+    prev = globals().get('_V733667_PREV_SIGNAL_ROW')
+    rec = prev(row, rank=rank, source=source) if callable(prev) and prev is not _v1080_signal_row_from_series else {}
+    rec = dict(rec or {})
+    data = _v733667_row_dict(row)
+    for key in _V733667_TRUTH_TRANSPORT_FIELDS:
+        rec[key] = _v733667_scalar_text(data.get(key, ''), '')
+
+    # English aliases make CSV/API consumers independent of localized column names.
+    alias = {
+        'formula_truth_registry_sha256': '검색식진실레지스트리',
+        'formula_truth_runtime_status': '검색식진실런타임상태',
+        'formula_truth_attach_error': '검색식진실부착오류',
+        'formula_truth_bitmap': '검색식진실비트맵',
+        'formula_truth_true': '검색식진실매칭',
+        'formula_truth_scores_json': '검색식진실점수JSON',
+        'formula_truth_errors_json': '검색식오류JSON',
+        'formula_truth_missing_json': '검색식누락JSON',
+        'formula_truth_inputs_json': '검색식원천값JSON',
+        'formula_triangle_native_json': '검색식삼각원천JSON',
+        'formula_post_truth_registry_sha256': '검색식사후진실레지스트리',
+        'formula_post_truth_bitmap': '검색식사후진실비트맵',
+        'formula_post_truth_true': '검색식사후진실매칭',
+        'formula_post_truth_scores_json': '검색식사후진실점수JSON',
+        'formula_post_truth_errors_json': '검색식사후오류JSON',
+        'formula_post_truth_inputs_json': '검색식사후원천값JSON',
+    }
+    for dst, src in alias.items():
+        rec[dst] = rec.get(src, '')
+
+    expected = len(COMBO_TABLE) if 'COMBO_TABLE' in globals() else 66
+    pre_len = len(rec.get('formula_truth_bitmap', '') or '')
+    post_len = len(rec.get('formula_post_truth_bitmap', '') or '')
+    if pre_len == expected and post_len == expected:
+        status = 'COPIED_COMPLETE'
+    elif pre_len == expected:
+        status = f'PRE_COMPLETE_POST_LEN_{post_len}'
+    else:
+        status = f'SOURCE_PRE_LEN_{pre_len}_POST_LEN_{post_len}'
+    rec['formula_truth_transport_status'] = status
+    rec['검색식진실전달상태'] = status
+    rec['formula_truth_transport_expected'] = int(expected)
+    rec['formula_truth_transport_pre_len'] = int(pre_len)
+    rec['formula_truth_transport_post_len'] = int(post_len)
+    return rec
 
 
 def _v733666_force_report(text, output_dir='reports', eval_df=None):
     if not _V733666_TRUTH_OK:return str(text or '')
     try:return _v733666_truth.force_report(str(text or ''), output_dir or 'reports', eval_df=eval_df)
     except Exception as e:
-        try: log_error(f'⚠️ V73.3.6.6.6 truth report fail: {type(e).__name__}: {e}')
+        try: log_error(f'⚠️ V73.3.6.6.7 truth report fail: {type(e).__name__}: {e}')
         except Exception: pass
         return str(text or '')
 
@@ -92133,7 +92223,7 @@ def _v1080_send_backtest_telegram(report: str,max_len: int=3500,*args,**kwargs):
         except Exception:return False
     return False
 
-# ✅ END V73.3.6.6.6 FULL SEARCH-FORMULA TRUTH AUDIT
+# ✅ END V73.3.6.6.7 FULL SEARCH-FORMULA TRUTH AUDIT
 
 if __name__ == "__main__":
     # V73.3.6.5 dedicated HAM 15:03 RESEARCH_ONLY capture. Must exit before any LIVE scanner code.
@@ -93629,4 +93719,4 @@ except Exception:
 
 
 # ✅ V73.3.6.6.6 FULL_SEARCH_FORMULA_TRUTH_TEMPORAL_PROVENANCE_AUDIT_MARKER
-_V733666_RELEASE_MARKER={'version':'V73.3.6.6.6','research_only':True,'combo_formulas':66,'aux_selectors':6,'live_logic_changed':False,'active_score_function_count':1,'audit_fail_closed':True}
+_V733666_RELEASE_MARKER={'version':'V73.3.6.6.7','research_only':True,'combo_formulas':66,'aux_selectors':6,'live_logic_changed':False,'active_score_function_count':1,'audit_fail_closed':True}

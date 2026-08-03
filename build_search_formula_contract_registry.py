@@ -2,7 +2,7 @@ from __future__ import annotations
 import ast, hashlib, json, re
 from pathlib import Path
 
-VERSION = "V73.3.6.6.6"
+VERSION = "V73.3.6.6.7"
 AUX_SELECTORS = [
     {"group":"PRE_TRIANGLE","function":"build_triangle_pre_squeeze_top3_df","source_kind":"GLOBAL_OR_TRIANGLE_MODULE","native_anchor_required":True},
     {"group":"TRIANGLE_PULLBACK","function":"build_triangle_squeeze_top5_df","source_kind":"GLOBAL_OR_TRIANGLE_MODULE","native_anchor_required":True},
