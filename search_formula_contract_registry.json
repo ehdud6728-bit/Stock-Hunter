@@ -1,0 +1,2666 @@
+{
+  "version": "V73.3.6.6.5",
+  "source_file": "main7_bugfix_2.py",
+  "source_sha256": "8da1c36cbdad1221ee48b9a1aa2d914c1dcb46b22c3eed2c2ff81846a7be3e00",
+  "combo_count": 66,
+  "aux_count": 6,
+  "combos": [
+    {
+      "index": 0,
+      "combination": "🚀거래량폭발초동돌파",
+      "grade": "SSS",
+      "base_score": 580,
+      "type": "🚀",
+      "condition_source": "lambda e: e.get('surge_breakout', False)",
+      "condition_normalized": "lambdae:e.get('surge_breakout',False)",
+      "referenced_keys": [
+        "surge_breakout"
+      ],
+      "source_line": 6060,
+      "score_fn_source": "",
+      "tag_fn_source": ""
+    },
+    {
+      "index": 1,
+      "combination": "🌌🔺💍독사삼각돌반지",
+      "grade": "GOD+",
+      "base_score": 10001,
+      "type": "🌌",
+      "condition_source": "lambda e: (\n            e.get('triangle_signal') and\n            isinstance(e.get('triangle_apex'), (int,float)) and 0 <= e['triangle_apex'] <= 3 and\n            e.get('viper_hook') and e.get('Real_Viper_Hook') and e.get('watermelon_signal') and e.get('dolbanzi')\n        )",
+      "condition_normalized": "lambdae:(e.get('triangle_signal')andisinstance(e.get('triangle_apex'),(int,float))and0<=e['triangle_apex']<=3ande.get('viper_hook')ande.get('Real_Viper_Hook')ande.get('watermelon_signal')ande.get('dolbanzi'))",
+      "referenced_keys": [
+        "Real_Viper_Hook",
+        "dolbanzi",
+        "triangle_apex",
+        "triangle_signal",
+        "viper_hook",
+        "watermelon_signal"
+      ],
+      "source_line": 6066,
+      "score_fn_source": "",
+      "tag_fn_source": ""
+    },
+    {
+      "index": 2,
+      "combination": "🌌🔄💍독사수급전환돌반지",
+      "grade": "GOD",
+      "base_score": 10000,
+      "type": "🌌",
+      "condition_source": "lambda e: e.get('viper_hook') and e.get('dolbanzi') and e.get('watermelon_signal')",
+      "condition_normalized": "lambdae:e.get('viper_hook')ande.get('dolbanzi')ande.get('watermelon_signal')",
+      "referenced_keys": [
+        "dolbanzi",
+        "viper_hook",
+        "watermelon_signal"
+      ],
+      "source_line": 6076,
+      "score_fn_source": "",
+      "tag_fn_source": ""
+    },
+    {
+      "index": 3,
+      "combination": "👑🔄🐍독사발사형(각성)",
+      "grade": "SSS+",
+      "base_score": 999,
+      "type": "👑",
+      "condition_source": "lambda e: (\n            e.get('viper_hook') and e.get('watermelon_signal') and\n            e.get('watermelon_red') and e.get('obv_bullish') and\n            e.get('explosion_ready') and e.get('Real_Viper_Hook')\n        )",
+      "condition_normalized": "lambdae:(e.get('viper_hook')ande.get('watermelon_signal')ande.get('watermelon_red')ande.get('obv_bullish')ande.get('explosion_ready')ande.get('Real_Viper_Hook'))",
+      "referenced_keys": [
+        "Real_Viper_Hook",
+        "explosion_ready",
+        "obv_bullish",
+        "viper_hook",
+        "watermelon_red",
+        "watermelon_signal"
+      ],
+      "source_line": 6082,
+      "score_fn_source": "",
+      "tag_fn_source": ""
+    },
+    {
+      "index": 4,
+      "combination": "🧲세력눌림목",
+      "grade": "SS",
+      "base_score": 460,
+      "type": "👑",
+      "condition_source": "lambda e: e.get('force_pullback')",
+      "condition_normalized": "lambdae:e.get('force_pullback')",
+      "referenced_keys": [
+        "force_pullback"
+      ],
+      "source_line": 6092,
+      "score_fn_source": "",
+      "tag_fn_source": ""
+    },
+    {
+      "index": 5,
+      "combination": "🟣BB40 2차파동",
+      "grade": "SSS",
+      "base_score": 520,
+      "type": "👑",
+      "condition_source": "lambda e: e.get('bb40_second_wave')",
+      "condition_normalized": "lambdae:e.get('bb40_second_wave')",
+      "referenced_keys": [
+        "bb40_second_wave"
+      ],
+      "source_line": 6098,
+      "score_fn_source": "",
+      "tag_fn_source": ""
+    },
+    {
+      "index": 6,
+      "combination": "🍉수박재폭발",
+      "grade": "SSS",
+      "base_score": 560,
+      "type": "👑",
+      "condition_source": "lambda e: e.get('watermelon_relaunch')",
+      "condition_normalized": "lambdae:e.get('watermelon_relaunch')",
+      "referenced_keys": [
+        "watermelon_relaunch"
+      ],
+      "source_line": 6104,
+      "score_fn_source": "",
+      "tag_fn_source": ""
+    },
+    {
+      "index": 7,
+      "combination": "📊OBV매집돌파",
+      "grade": "SS",
+      "base_score": 470,
+      "type": "👑",
+      "condition_source": "lambda e: e.get('obv_acc_breakout')",
+      "condition_normalized": "lambdae:e.get('obv_acc_breakout')",
+      "referenced_keys": [
+        "obv_acc_breakout"
+      ],
+      "source_line": 6110,
+      "score_fn_source": "",
+      "tag_fn_source": ""
+    },
+    {
+      "index": 8,
+      "combination": "🚀📐🍉수렴돌파발사형",
+      "grade": "SSS",
+      "base_score": 560,
+      "type": "👑",
+      "condition_source": "lambda e: e.get('ma_break_ready') and e.get('watermelon_signal')",
+      "condition_normalized": "lambdae:e.get('ma_break_ready')ande.get('watermelon_signal')",
+      "referenced_keys": [
+        "ma_break_ready",
+        "watermelon_signal"
+      ],
+      "source_line": 6116,
+      "score_fn_source": "",
+      "tag_fn_source": ""
+    },
+    {
+      "index": 9,
+      "combination": "🟣🍉BB40발사형재안착",
+      "grade": "SS",
+      "base_score": 500,
+      "type": "👑",
+      "condition_source": "lambda e: e.get('bb40_reclaim_rsi_div') and e.get('watermelon_signal')",
+      "condition_normalized": "lambdae:e.get('bb40_reclaim_rsi_div')ande.get('watermelon_signal')",
+      "referenced_keys": [
+        "bb40_reclaim_rsi_div",
+        "watermelon_signal"
+      ],
+      "source_line": 6122,
+      "score_fn_source": "",
+      "tag_fn_source": ""
+    },
+    {
+      "index": 10,
+      "combination": "🚀📐🔺응축완성",
+      "grade": "SS",
+      "base_score": 500,
+      "type": "👑",
+      "condition_source": "lambda e: e.get('ma_break_ready') and e.get('triangle_signal')",
+      "condition_normalized": "lambdae:e.get('ma_break_ready')ande.get('triangle_signal')",
+      "referenced_keys": [
+        "ma_break_ready",
+        "triangle_signal"
+      ],
+      "source_line": 6128,
+      "score_fn_source": "",
+      "tag_fn_source": ""
+    },
+    {
+      "index": 11,
+      "combination": "👑💍발사형돌반지",
+      "grade": "SSS",
+      "base_score": 500,
+      "type": "👑",
+      "condition_source": "lambda e: e.get('watermelon_signal') and e.get('dolbanzi')",
+      "condition_normalized": "lambdae:e.get('watermelon_signal')ande.get('dolbanzi')",
+      "referenced_keys": [
+        "dolbanzi",
+        "watermelon_signal"
+      ],
+      "source_line": 6134,
+      "score_fn_source": "lambda e: 500 if e.get('dolbanzi_Count', 0) == 1 else 450",
+      "tag_fn_source": "lambda e: ['🥇최초의반지'] if e.get('dolbanzi_Count', 0) == 1 else [f\"💍{e.get('dolbanzi_Count',0)}회차반지\"]"
+    },
+    {
+      "index": 12,
+      "combination": "📐🟣수렴재안착",
+      "grade": "SS",
+      "base_score": 490,
+      "type": "👑",
+      "condition_source": "lambda e: e.get('good_ma_convergence') and e.get('bb40_reclaim_rsi_div')",
+      "condition_normalized": "lambdae:e.get('good_ma_convergence')ande.get('bb40_reclaim_rsi_div')",
+      "referenced_keys": [
+        "bb40_reclaim_rsi_div",
+        "good_ma_convergence"
+      ],
+      "source_line": 6142,
+      "score_fn_source": "",
+      "tag_fn_source": ""
+    },
+    {
+      "index": 13,
+      "combination": "🔺💍삼각꼭지돌반지",
+      "grade": "SSS",
+      "base_score": 480,
+      "type": "👑",
+      "condition_source": "lambda e: (\n            e.get('triangle_signal') and\n            isinstance(e.get('triangle_apex'), (int,float)) and 0 <= e['triangle_apex'] <= 5 and\n            e.get('dolbanzi')\n        )",
+      "condition_normalized": "lambdae:(e.get('triangle_signal')andisinstance(e.get('triangle_apex'),(int,float))and0<=e['triangle_apex']<=5ande.get('dolbanzi'))",
+      "referenced_keys": [
+        "dolbanzi",
+        "triangle_apex",
+        "triangle_signal"
+      ],
+      "source_line": 6148,
+      "score_fn_source": "",
+      "tag_fn_source": "lambda e: [f\"💍{e.get('dolbanzi_Count',0)}회차반지\"]"
+    },
+    {
+      "index": 14,
+      "combination": "💛🔺🍉종베삼각발사형",
+      "grade": "SSS",
+      "base_score": 460,
+      "type": "👑",
+      "condition_source": "lambda e: e.get('jongbe_ok') and e.get('triangle_signal') and e.get('watermelon_signal')",
+      "condition_normalized": "lambdae:e.get('jongbe_ok')ande.get('triangle_signal')ande.get('watermelon_signal')",
+      "referenced_keys": [
+        "jongbe_ok",
+        "triangle_signal",
+        "watermelon_signal"
+      ],
+      "source_line": 6159,
+      "score_fn_source": "",
+      "tag_fn_source": ""
+    },
+    {
+      "index": 15,
+      "combination": "🐍🍉독사발사형",
+      "grade": "SS+",
+      "base_score": 480,
+      "type": "👑",
+      "condition_source": "lambda e: e.get('viper_hook') and e.get('watermelon_signal') and e.get('obv_bullish') and e.get('Real_Viper_Hook')",
+      "condition_normalized": "lambdae:e.get('viper_hook')ande.get('watermelon_signal')ande.get('obv_bullish')ande.get('Real_Viper_Hook')",
+      "referenced_keys": [
+        "Real_Viper_Hook",
+        "obv_bullish",
+        "viper_hook",
+        "watermelon_signal"
+      ],
+      "source_line": 6165,
+      "score_fn_source": "",
+      "tag_fn_source": ""
+    },
+    {
+      "index": 16,
+      "combination": "💛🐍🔺종베독사삼각",
+      "grade": "SS+",
+      "base_score": 480,
+      "type": "👑",
+      "condition_source": "lambda e: e.get('jongbe_ok') and e.get('viper_hook') and e.get('triangle_signal')",
+      "condition_normalized": "lambdae:e.get('jongbe_ok')ande.get('viper_hook')ande.get('triangle_signal')",
+      "referenced_keys": [
+        "jongbe_ok",
+        "triangle_signal",
+        "viper_hook"
+      ],
+      "source_line": 6171,
+      "score_fn_source": "",
+      "tag_fn_source": ""
+    },
+    {
+      "index": 17,
+      "combination": "🕳️💛🔺골파기종베삼각",
+      "grade": "SS+",
+      "base_score": 480,
+      "type": "👑",
+      "condition_source": "lambda e: e.get('Golpagi_Trap') and e.get('jongbe_ok') and e.get('triangle_signal')",
+      "condition_normalized": "lambdae:e.get('Golpagi_Trap')ande.get('jongbe_ok')ande.get('triangle_signal')",
+      "referenced_keys": [
+        "Golpagi_Trap",
+        "jongbe_ok",
+        "triangle_signal"
+      ],
+      "source_line": 6177,
+      "score_fn_source": "",
+      "tag_fn_source": ""
+    },
+    {
+      "index": 18,
+      "combination": "💍돌반지단독",
+      "grade": "SS",
+      "base_score": 480,
+      "type": "👑",
+      "condition_source": "lambda e: e.get('dolbanzi')",
+      "condition_normalized": "lambdae:e.get('dolbanzi')",
+      "referenced_keys": [
+        "dolbanzi"
+      ],
+      "source_line": 6183,
+      "score_fn_source": "lambda e: {1: 510, 2: 480}.get(e.get('dolbanzi_Count', 0), 430)",
+      "tag_fn_source": "lambda e: (['🔥GoldenEntry'] if e.get('dolbanzi_Count',0) == 1\n                               else ['📈추세지속'] if e.get('dolbanzi_Count',0) == 2\n                               else ['⚠️과열주의'])"
+    },
+    {
+      "index": 19,
+      "combination": "🚀📐폭발직전수렴",
+      "grade": "SS",
+      "base_score": 480,
+      "type": "👑",
+      "condition_source": "lambda e: e.get('ma_break_ready')",
+      "condition_normalized": "lambdae:e.get('ma_break_ready')",
+      "referenced_keys": [
+        "ma_break_ready"
+      ],
+      "source_line": 6193,
+      "score_fn_source": "",
+      "tag_fn_source": ""
+    },
+    {
+      "index": 20,
+      "combination": "🕳️🚀수급전환골파기",
+      "grade": "SS",
+      "base_score": 470,
+      "type": "👑",
+      "condition_source": "lambda e: e.get('Golpagi_Trap') and e.get('watermelon_signal')",
+      "condition_normalized": "lambdae:e.get('Golpagi_Trap')ande.get('watermelon_signal')",
+      "referenced_keys": [
+        "Golpagi_Trap",
+        "watermelon_signal"
+      ],
+      "source_line": 6199,
+      "score_fn_source": "",
+      "tag_fn_source": ""
+    },
+    {
+      "index": 21,
+      "combination": "🐍5-20독사훅",
+      "grade": "S+",
+      "base_score": 440,
+      "type": "👑",
+      "condition_source": "lambda e: e.get('viper_hook') and e.get('Real_Viper_Hook')",
+      "condition_normalized": "lambdae:e.get('viper_hook')ande.get('Real_Viper_Hook')",
+      "referenced_keys": [
+        "Real_Viper_Hook",
+        "viper_hook"
+      ],
+      "source_line": 6205,
+      "score_fn_source": "",
+      "tag_fn_source": ""
+    },
+    {
+      "index": 22,
+      "combination": "💎BB하단눌림목",
+      "grade": "S+",
+      "base_score": 440,
+      "type": "👑",
+      "condition_source": "lambda e: e.get('bb_ross') and e.get('ris_div')",
+      "condition_normalized": "lambdae:e.get('bb_ross')ande.get('ris_div')",
+      "referenced_keys": [
+        "bb_ross",
+        "ris_div"
+      ],
+      "source_line": 6211,
+      "score_fn_source": "",
+      "tag_fn_source": ""
+    },
+    {
+      "index": 23,
+      "combination": "🟣BB40재안착눌림목",
+      "grade": "SS",
+      "base_score": 470,
+      "type": "👑",
+      "condition_source": "lambda e: e.get('bb40_reclaim_rsi_div')",
+      "condition_normalized": "lambdae:e.get('bb40_reclaim_rsi_div')",
+      "referenced_keys": [
+        "bb40_reclaim_rsi_div"
+      ],
+      "source_line": 6217,
+      "score_fn_source": "",
+      "tag_fn_source": ""
+    },
+    {
+      "index": 24,
+      "combination": "🟣BB40재안착",
+      "grade": "S+",
+      "base_score": 445,
+      "type": "👑",
+      "condition_source": "lambda e: e.get('bb40_ross')",
+      "condition_normalized": "lambdae:e.get('bb40_ross')",
+      "referenced_keys": [
+        "bb40_ross"
+      ],
+      "source_line": 6223,
+      "score_fn_source": "",
+      "tag_fn_source": ""
+    },
+    {
+      "index": 25,
+      "combination": "🟣BB40 RSI-DIV",
+      "grade": "S+",
+      "base_score": 435,
+      "type": "👑",
+      "condition_source": "lambda e: e.get('bb40_rsi_div')",
+      "condition_normalized": "lambdae:e.get('bb40_rsi_div')",
+      "referenced_keys": [
+        "bb40_rsi_div"
+      ],
+      "source_line": 6229,
+      "score_fn_source": "",
+      "tag_fn_source": ""
+    },
+    {
+      "index": 26,
+      "combination": "💎전설조합",
+      "grade": "S",
+      "base_score": 350,
+      "type": "🗡",
+      "condition_source": "lambda e: e.get('watermelon_signal') and e.get('explosion_ready') and e.get('bottom_area') and e.get('silent_perfect')",
+      "condition_normalized": "lambdae:e.get('watermelon_signal')ande.get('explosion_ready')ande.get('bottom_area')ande.get('silent_perfect')",
+      "referenced_keys": [
+        "bottom_area",
+        "explosion_ready",
+        "silent_perfect",
+        "watermelon_signal"
+      ],
+      "source_line": 6235,
+      "score_fn_source": "",
+      "tag_fn_source": ""
+    },
+    {
+      "index": 27,
+      "combination": "🔺💎🍉삼각발사형",
+      "grade": "S",
+      "base_score": 340,
+      "type": "🗡",
+      "condition_source": "lambda e: e.get('triangle_signal') and e.get('explosion_ready') and e.get('watermelon_signal')",
+      "condition_normalized": "lambdae:e.get('triangle_signal')ande.get('explosion_ready')ande.get('watermelon_signal')",
+      "referenced_keys": [
+        "explosion_ready",
+        "triangle_signal",
+        "watermelon_signal"
+      ],
+      "source_line": 6241,
+      "score_fn_source": "",
+      "tag_fn_source": ""
+    },
+    {
+      "index": 28,
+      "combination": "💛📍🔺종베바닥삼각",
+      "grade": "S",
+      "base_score": 330,
+      "type": "🗡",
+      "condition_source": "lambda e: e.get('jongbe_ok') and e.get('bottom_area') and e.get('triangle_signal')",
+      "condition_normalized": "lambdae:e.get('jongbe_ok')ande.get('bottom_area')ande.get('triangle_signal')",
+      "referenced_keys": [
+        "bottom_area",
+        "jongbe_ok",
+        "triangle_signal"
+      ],
+      "source_line": 6247,
+      "score_fn_source": "",
+      "tag_fn_source": ""
+    },
+    {
+      "index": 29,
+      "combination": "💎돌파골드",
+      "grade": "S",
+      "base_score": 320,
+      "type": "🛡",
+      "condition_source": "lambda e: e.get('yeok_break') and e.get('watermelon_signal') and e.get('volume_surge')",
+      "condition_normalized": "lambdae:e.get('yeok_break')ande.get('watermelon_signal')ande.get('volume_surge')",
+      "referenced_keys": [
+        "volume_surge",
+        "watermelon_signal",
+        "yeok_break"
+      ],
+      "source_line": 6253,
+      "score_fn_source": "",
+      "tag_fn_source": ""
+    },
+    {
+      "index": 30,
+      "combination": "🤫💛🔺침묵종베삼각",
+      "grade": "S",
+      "base_score": 320,
+      "type": "🛡",
+      "condition_source": "lambda e: e.get('silent_perfect') and e.get('jongbe_ok') and e.get('triangle_signal')",
+      "condition_normalized": "lambdae:e.get('silent_perfect')ande.get('jongbe_ok')ande.get('triangle_signal')",
+      "referenced_keys": [
+        "jongbe_ok",
+        "silent_perfect",
+        "triangle_signal"
+      ],
+      "source_line": 6259,
+      "score_fn_source": "",
+      "tag_fn_source": ""
+    },
+    {
+      "index": 31,
+      "combination": "💎매집완성",
+      "grade": "S",
+      "base_score": 310,
+      "type": "🛡",
+      "condition_source": "lambda e: e.get('silent_perfect') and e.get('watermelon_signal') and e.get('explosion_ready')",
+      "condition_normalized": "lambdae:e.get('silent_perfect')ande.get('watermelon_signal')ande.get('explosion_ready')",
+      "referenced_keys": [
+        "explosion_ready",
+        "silent_perfect",
+        "watermelon_signal"
+      ],
+      "source_line": 6265,
+      "score_fn_source": "",
+      "tag_fn_source": ""
+    },
+    {
+      "index": 32,
+      "combination": "💎바닥폭발",
+      "grade": "S",
+      "base_score": 300,
+      "type": "🗡",
+      "condition_source": "lambda e: e.get('bottom_area') and e.get('explosion_ready') and e.get('watermelon_signal')",
+      "condition_normalized": "lambdae:e.get('bottom_area')ande.get('explosion_ready')ande.get('watermelon_signal')",
+      "referenced_keys": [
+        "bottom_area",
+        "explosion_ready",
+        "watermelon_signal"
+      ],
+      "source_line": 6271,
+      "score_fn_source": "",
+      "tag_fn_source": ""
+    },
+    {
+      "index": 33,
+      "combination": "📐좋은수렴",
+      "grade": "A",
+      "base_score": 280,
+      "type": "🛡",
+      "condition_source": "lambda e: e.get('good_ma_convergence')",
+      "condition_normalized": "lambdae:e.get('good_ma_convergence')",
+      "referenced_keys": [
+        "good_ma_convergence"
+      ],
+      "source_line": 6277,
+      "score_fn_source": "",
+      "tag_fn_source": ""
+    },
+    {
+      "index": 34,
+      "combination": "🔥수급전환폭발",
+      "grade": "A",
+      "base_score": 280,
+      "type": "🗡",
+      "condition_source": "lambda e: e.get('watermelon_signal') and e.get('watermelon_red') and e.get('explosion_ready')",
+      "condition_normalized": "lambdae:e.get('watermelon_signal')ande.get('watermelon_red')ande.get('explosion_ready')",
+      "referenced_keys": [
+        "explosion_ready",
+        "watermelon_red",
+        "watermelon_signal"
+      ],
+      "source_line": 6283,
+      "score_fn_source": "",
+      "tag_fn_source": ""
+    },
+    {
+      "index": 35,
+      "combination": "💛🔺종베삼각",
+      "grade": "A",
+      "base_score": 275,
+      "type": "🛡",
+      "condition_source": "lambda e: e.get('jongbe_ok') and e.get('triangle_signal')",
+      "condition_normalized": "lambdae:e.get('jongbe_ok')ande.get('triangle_signal')",
+      "referenced_keys": [
+        "jongbe_ok",
+        "triangle_signal"
+      ],
+      "source_line": 6289,
+      "score_fn_source": "",
+      "tag_fn_source": ""
+    },
+    {
+      "index": 36,
+      "combination": "💛종베단독(MA골크)",
+      "grade": "B",
+      "base_score": 240,
+      "type": "🛡",
+      "condition_source": "lambda e: e.get('jongbe_break', False)",
+      "condition_normalized": "lambdae:e.get('jongbe_break',False)",
+      "referenced_keys": [
+        "jongbe_break"
+      ],
+      "source_line": 6296,
+      "score_fn_source": "",
+      "tag_fn_source": ""
+    },
+    {
+      "index": 37,
+      "combination": "🔺🏆삼각역매공파",
+      "grade": "A",
+      "base_score": 265,
+      "type": "🛡",
+      "condition_source": "lambda e: e.get('triangle_signal') and e.get('yeok_break')",
+      "condition_normalized": "lambdae:e.get('triangle_signal')ande.get('yeok_break')",
+      "referenced_keys": [
+        "triangle_signal",
+        "yeok_break"
+      ],
+      "source_line": 6302,
+      "score_fn_source": "",
+      "tag_fn_source": ""
+    },
+    {
+      "index": 38,
+      "combination": "🔥돌파확인",
+      "grade": "A",
+      "base_score": 260,
+      "type": "🛡",
+      "condition_source": "lambda e: e.get('yeok_break') and e.get('volume_surge')",
+      "condition_normalized": "lambdae:e.get('yeok_break')ande.get('volume_surge')",
+      "referenced_keys": [
+        "volume_surge",
+        "yeok_break"
+      ],
+      "source_line": 6308,
+      "score_fn_source": "",
+      "tag_fn_source": ""
+    },
+    {
+      "index": 39,
+      "combination": "🔥조용폭발",
+      "grade": "A",
+      "base_score": 250,
+      "type": "🛡",
+      "condition_source": "lambda e: e.get('silent_strong') and e.get('explosion_ready')",
+      "condition_normalized": "lambdae:e.get('silent_strong')ande.get('explosion_ready')",
+      "referenced_keys": [
+        "explosion_ready",
+        "silent_strong"
+      ],
+      "source_line": 6314,
+      "score_fn_source": "",
+      "tag_fn_source": ""
+    },
+    {
+      "index": 40,
+      "combination": "💎🍉초강력매집발사형",
+      "grade": "SSS",
+      "base_score": 610,
+      "type": "💎",
+      "condition_source": "lambda e: e.get('maejip_power_a') and e.get('watermelon_signal')",
+      "condition_normalized": "lambdae:e.get('maejip_power_a')ande.get('watermelon_signal')",
+      "referenced_keys": [
+        "maejip_power_a",
+        "watermelon_signal"
+      ],
+      "source_line": 6321,
+      "score_fn_source": "",
+      "tag_fn_source": ""
+    },
+    {
+      "index": 41,
+      "combination": "💎🍉진짜매집발사형",
+      "grade": "SSS",
+      "base_score": 590,
+      "type": "💎",
+      "condition_source": "lambda e: e.get('maejip_quality_a') and e.get('watermelon_signal')",
+      "condition_normalized": "lambdae:e.get('maejip_quality_a')ande.get('watermelon_signal')",
+      "referenced_keys": [
+        "maejip_quality_a",
+        "watermelon_signal"
+      ],
+      "source_line": 6328,
+      "score_fn_source": "",
+      "tag_fn_source": ""
+    },
+    {
+      "index": 42,
+      "combination": "💎🍉양호매집발사형",
+      "grade": "SS+",
+      "base_score": 510,
+      "type": "💎",
+      "condition_source": "lambda e: e.get('maejip_quality_b') and e.get('watermelon_signal') and not e.get('maejip_quality_a')",
+      "condition_normalized": "lambdae:e.get('maejip_quality_b')ande.get('watermelon_signal')andnote.get('maejip_quality_a')",
+      "referenced_keys": [
+        "maejip_quality_a",
+        "maejip_quality_b",
+        "watermelon_signal"
+      ],
+      "source_line": 6334,
+      "score_fn_source": "",
+      "tag_fn_source": ""
+    },
+    {
+      "index": 43,
+      "combination": "💎매집진행중(발사대기)",
+      "grade": "SS",
+      "base_score": 470,
+      "type": "💎",
+      "condition_source": "lambda e: (e.get('maejip_score_now') == 60\n                          and e.get('maejip_recent3', 0) >= 2\n                          and e.get('watermelon_green_7d')\n                          and not e.get('watermelon_signal'))",
+      "condition_normalized": "lambdae:(e.get('maejip_score_now')==60ande.get('maejip_recent3',0)>=2ande.get('watermelon_green_7d')andnote.get('watermelon_signal'))",
+      "referenced_keys": [
+        "maejip_recent3",
+        "maejip_score_now",
+        "watermelon_green_7d",
+        "watermelon_signal"
+      ],
+      "source_line": 6340,
+      "score_fn_source": "",
+      "tag_fn_source": ""
+    },
+    {
+      "index": 44,
+      "combination": "🎯🍉BB30시프트GC발사형",
+      "grade": "SSS",
+      "base_score": 600,
+      "type": "🎯",
+      "condition_source": "lambda e: e.get('bb30_shift_gc') and e.get('watermelon_signal')",
+      "condition_normalized": "lambdae:e.get('bb30_shift_gc')ande.get('watermelon_signal')",
+      "referenced_keys": [
+        "bb30_shift_gc",
+        "watermelon_signal"
+      ],
+      "source_line": 6351,
+      "score_fn_source": "",
+      "tag_fn_source": ""
+    },
+    {
+      "index": 45,
+      "combination": "🎯🍉BB30시프트근접발사형",
+      "grade": "SS+",
+      "base_score": 520,
+      "type": "🎯",
+      "condition_source": "lambda e: e.get('bb30_shift_near') and e.get('watermelon_signal')",
+      "condition_normalized": "lambdae:e.get('bb30_shift_near')ande.get('watermelon_signal')",
+      "referenced_keys": [
+        "bb30_shift_near",
+        "watermelon_signal"
+      ],
+      "source_line": 6357,
+      "score_fn_source": "",
+      "tag_fn_source": ""
+    },
+    {
+      "index": 46,
+      "combination": "🎯BB30시프트GC단독",
+      "grade": "SS",
+      "base_score": 480,
+      "type": "🎯",
+      "condition_source": "lambda e: e.get('bb30_shift_gc') and e.get('watermelon_red')",
+      "condition_normalized": "lambdae:e.get('bb30_shift_gc')ande.get('watermelon_red')",
+      "referenced_keys": [
+        "bb30_shift_gc",
+        "watermelon_red"
+      ],
+      "source_line": 6363,
+      "score_fn_source": "",
+      "tag_fn_source": ""
+    },
+    {
+      "index": 47,
+      "combination": "📍수급전환단독",
+      "grade": "B",
+      "base_score": 230,
+      "type": "🔍",
+      "condition_source": "lambda e: e.get('watermelon_signal') and e.get('watermelon_red')",
+      "condition_normalized": "lambdae:e.get('watermelon_signal')ande.get('watermelon_red')",
+      "referenced_keys": [
+        "watermelon_red",
+        "watermelon_signal"
+      ],
+      "source_line": 6369,
+      "score_fn_source": "",
+      "tag_fn_source": ""
+    },
+    {
+      "index": 48,
+      "combination": "📍바닥단독",
+      "grade": "B",
+      "base_score": 210,
+      "type": "🔍",
+      "condition_source": "lambda e: e.get('bottom_area')",
+      "condition_normalized": "lambdae:e.get('bottom_area')",
+      "referenced_keys": [
+        "bottom_area"
+      ],
+      "source_line": 6375,
+      "score_fn_source": "",
+      "tag_fn_source": ""
+    },
+    {
+      "index": 49,
+      "combination": "🍉초록축적(수급전환직전)",
+      "grade": "B",
+      "base_score": 200,
+      "type": "🔍",
+      "condition_source": "lambda e: e.get('watermelon_green_7d') and not e.get('watermelon_signal')",
+      "condition_normalized": "lambdae:e.get('watermelon_green_7d')andnote.get('watermelon_signal')",
+      "referenced_keys": [
+        "watermelon_green_7d",
+        "watermelon_signal"
+      ],
+      "source_line": 6382,
+      "score_fn_source": "",
+      "tag_fn_source": ""
+    },
+    {
+      "index": 50,
+      "combination": "🕯️🍉종가배팅발사형",
+      "grade": "SSS",
+      "base_score": 640,
+      "type": "🕯️",
+      "condition_source": "lambda e: (\n            e.get('near_high20') and e.get('low_upper_wick') and\n            e.get('vol_2x') and e.get('bullish_close') and\n            e.get('watermelon_signal')\n        )",
+      "condition_normalized": "lambdae:(e.get('near_high20')ande.get('low_upper_wick')ande.get('vol_2x')ande.get('bullish_close')ande.get('watermelon_signal'))",
+      "referenced_keys": [
+        "bullish_close",
+        "low_upper_wick",
+        "near_high20",
+        "vol_2x",
+        "watermelon_signal"
+      ],
+      "source_line": 6389,
+      "score_fn_source": "",
+      "tag_fn_source": ""
+    },
+    {
+      "index": 51,
+      "combination": "🕯️종가배팅완전체",
+      "grade": "SS+",
+      "base_score": 520,
+      "type": "🕯️",
+      "condition_source": "lambda e: (\n            e.get('near_high20') and e.get('low_upper_wick') and\n            e.get('vol_2x') and e.get('bullish_close') and\n            e.get('disparity_ok') and e.get('above_ma20')\n        )",
+      "condition_normalized": "lambdae:(e.get('near_high20')ande.get('low_upper_wick')ande.get('vol_2x')ande.get('bullish_close')ande.get('disparity_ok')ande.get('above_ma20'))",
+      "referenced_keys": [
+        "above_ma20",
+        "bullish_close",
+        "disparity_ok",
+        "low_upper_wick",
+        "near_high20",
+        "vol_2x"
+      ],
+      "source_line": 6399,
+      "score_fn_source": "",
+      "tag_fn_source": ""
+    },
+    {
+      "index": 52,
+      "combination": "🕯️종가배팅기본",
+      "grade": "SS",
+      "base_score": 460,
+      "type": "🕯️",
+      "condition_source": "lambda e: (\n            e.get('near_high20') and e.get('low_upper_wick') and\n            e.get('vol_2x') and e.get('bullish_close') and\n            not e.get('watermelon_signal')\n        )",
+      "condition_normalized": "lambdae:(e.get('near_high20')ande.get('low_upper_wick')ande.get('vol_2x')ande.get('bullish_close')andnote.get('watermelon_signal'))",
+      "referenced_keys": [
+        "bullish_close",
+        "low_upper_wick",
+        "near_high20",
+        "vol_2x",
+        "watermelon_signal"
+      ],
+      "source_line": 6409,
+      "score_fn_source": "",
+      "tag_fn_source": ""
+    },
+    {
+      "index": 53,
+      "combination": "🕯️🧲종가배팅세력눌림",
+      "grade": "SS",
+      "base_score": 480,
+      "type": "🕯️",
+      "condition_source": "lambda e: (\n            e.get('near_high20') and e.get('low_upper_wick') and\n            e.get('vol_2x') and e.get('force_pullback')\n        )",
+      "condition_normalized": "lambdae:(e.get('near_high20')ande.get('low_upper_wick')ande.get('vol_2x')ande.get('force_pullback'))",
+      "referenced_keys": [
+        "force_pullback",
+        "low_upper_wick",
+        "near_high20",
+        "vol_2x"
+      ],
+      "source_line": 6419,
+      "score_fn_source": "",
+      "tag_fn_source": ""
+    },
+    {
+      "index": 54,
+      "combination": "🔢🍉피보38.2발사형",
+      "grade": "SSS",
+      "base_score": 620,
+      "type": "🔢",
+      "condition_source": "lambda e: e.get('fib_support_382') and e.get('watermelon_signal')",
+      "condition_normalized": "lambdae:e.get('fib_support_382')ande.get('watermelon_signal')",
+      "referenced_keys": [
+        "fib_support_382",
+        "watermelon_signal"
+      ],
+      "source_line": 6429,
+      "score_fn_source": "",
+      "tag_fn_source": ""
+    },
+    {
+      "index": 55,
+      "combination": "🔢🍉피보61.8발사형",
+      "grade": "SSS+",
+      "base_score": 650,
+      "type": "🔢",
+      "condition_source": "lambda e: e.get('fib_support_618') and e.get('watermelon_signal')",
+      "condition_normalized": "lambdae:e.get('fib_support_618')ande.get('watermelon_signal')",
+      "referenced_keys": [
+        "fib_support_618",
+        "watermelon_signal"
+      ],
+      "source_line": 6435,
+      "score_fn_source": "",
+      "tag_fn_source": ""
+    },
+    {
+      "index": 56,
+      "combination": "🔢피봇S1발사형",
+      "grade": "SS+",
+      "base_score": 500,
+      "type": "🔢",
+      "condition_source": "lambda e: e.get('pivot_support') and e.get('watermelon_signal')",
+      "condition_normalized": "lambdae:e.get('pivot_support')ande.get('watermelon_signal')",
+      "referenced_keys": [
+        "pivot_support",
+        "watermelon_signal"
+      ],
+      "source_line": 6441,
+      "score_fn_source": "",
+      "tag_fn_source": ""
+    },
+    {
+      "index": 57,
+      "combination": "🔢피보나치38.2눌림",
+      "grade": "SS",
+      "base_score": 460,
+      "type": "🔢",
+      "condition_source": "lambda e: e.get('fib_support_382') and e.get('obv_rising') and not e.get('watermelon_signal')",
+      "condition_normalized": "lambdae:e.get('fib_support_382')ande.get('obv_rising')andnote.get('watermelon_signal')",
+      "referenced_keys": [
+        "fib_support_382",
+        "obv_rising",
+        "watermelon_signal"
+      ],
+      "source_line": 6447,
+      "score_fn_source": "",
+      "tag_fn_source": ""
+    },
+    {
+      "index": 58,
+      "combination": "🔢피보나치61.8강지지",
+      "grade": "SS",
+      "base_score": 480,
+      "type": "🔢",
+      "condition_source": "lambda e: e.get('fib_support_618') and e.get('obv_rising')",
+      "condition_normalized": "lambdae:e.get('fib_support_618')ande.get('obv_rising')",
+      "referenced_keys": [
+        "fib_support_618",
+        "obv_rising"
+      ],
+      "source_line": 6453,
+      "score_fn_source": "",
+      "tag_fn_source": ""
+    },
+    {
+      "index": 59,
+      "combination": "😱🍉공포흡수1차발사",
+      "grade": "SSS+",
+      "base_score": 660,
+      "type": "😱",
+      "condition_source": "lambda e: e.get('fear_absorb', False) and e.get('watermelon_first_launch', False)",
+      "condition_normalized": "lambdae:e.get('fear_absorb',False)ande.get('watermelon_first_launch',False)",
+      "referenced_keys": [
+        "fear_absorb",
+        "watermelon_first_launch"
+      ],
+      "source_line": 6459,
+      "score_fn_source": "",
+      "tag_fn_source": ""
+    },
+    {
+      "index": 60,
+      "combination": "😱🍉공포흡수재발사",
+      "grade": "SSS",
+      "base_score": 590,
+      "type": "😱",
+      "condition_source": "lambda e: e.get('fear_absorb', False) and e.get('watermelon_relaunch', False)",
+      "condition_normalized": "lambdae:e.get('fear_absorb',False)ande.get('watermelon_relaunch',False)",
+      "referenced_keys": [
+        "fear_absorb",
+        "watermelon_relaunch"
+      ],
+      "source_line": 6465,
+      "score_fn_source": "",
+      "tag_fn_source": ""
+    },
+    {
+      "index": 61,
+      "combination": "📊OBV+MFI",
+      "grade": "C",
+      "base_score": 170,
+      "type": null,
+      "condition_source": "lambda e: e.get('obv_rising') and e.get('mfi_strong')",
+      "condition_normalized": "lambdae:e.get('obv_rising')ande.get('mfi_strong')",
+      "referenced_keys": [
+        "mfi_strong",
+        "obv_rising"
+      ],
+      "source_line": 6471,
+      "score_fn_source": "",
+      "tag_fn_source": ""
+    },
+    {
+      "index": 62,
+      "combination": "⚡거래량+OBV",
+      "grade": "C",
+      "base_score": 155,
+      "type": null,
+      "condition_source": "lambda e: e.get('volume_surge') and e.get('obv_rising')",
+      "condition_normalized": "lambdae:e.get('volume_surge')ande.get('obv_rising')",
+      "referenced_keys": [
+        "obv_rising",
+        "volume_surge"
+      ],
+      "source_line": 6477,
+      "score_fn_source": "",
+      "tag_fn_source": ""
+    },
+    {
+      "index": 63,
+      "combination": "🕯️🍉종가배팅A급(발사형동반)",
+      "grade": "SSS",
+      "base_score": 630,
+      "type": "🕯️",
+      "condition_source": "lambda e: e.get('closing_bet') and e.get('closing_bet_grade') == 'A'",
+      "condition_normalized": "lambdae:e.get('closing_bet')ande.get('closing_bet_grade')=='A'",
+      "referenced_keys": [
+        "closing_bet",
+        "closing_bet_grade"
+      ],
+      "source_line": 6487,
+      "score_fn_source": "",
+      "tag_fn_source": ""
+    },
+    {
+      "index": 64,
+      "combination": "🕯️종가배팅B급(OBV확인)",
+      "grade": "SS+",
+      "base_score": 530,
+      "type": "🕯️",
+      "condition_source": "lambda e: e.get('closing_bet') and e.get('closing_bet_grade') == 'B'",
+      "condition_normalized": "lambdae:e.get('closing_bet')ande.get('closing_bet_grade')=='B'",
+      "referenced_keys": [
+        "closing_bet",
+        "closing_bet_grade"
+      ],
+      "source_line": 6493,
+      "score_fn_source": "",
+      "tag_fn_source": ""
+    },
+    {
+      "index": 65,
+      "combination": "🕯️종가배팅C급(기본충족)",
+      "grade": "SS",
+      "base_score": 440,
+      "type": "🕯️",
+      "condition_source": "lambda e: e.get('closing_bet') and e.get('closing_bet_grade') == 'C'",
+      "condition_normalized": "lambdae:e.get('closing_bet')ande.get('closing_bet_grade')=='C'",
+      "referenced_keys": [
+        "closing_bet",
+        "closing_bet_grade"
+      ],
+      "source_line": 6499,
+      "score_fn_source": "",
+      "tag_fn_source": ""
+    }
+  ],
+  "signal_producers": {
+    "watermelon_signal": [
+      {
+        "kind": "DEFAULT",
+        "line": 9486,
+        "source": "bool(row.get('Watermelon_Launch', row.get('Watermelon_Signal_Refined', row.get('Watermelon_Signal', False))))"
+      }
+    ],
+    "supply_turn_signal": [
+      {
+        "kind": "DEFAULT",
+        "line": 9487,
+        "source": "bool(row.get('Supply_Turn_Signal', row.get('Watermelon_Launch', row.get('Watermelon_Signal', False))))"
+      }
+    ],
+    "supply_turn_prepare": [
+      {
+        "kind": "DEFAULT",
+        "line": 9488,
+        "source": "bool(row.get('Supply_Turn_Prepare', row.get('Watermelon_Prepare_Recent', False)))"
+      }
+    ],
+    "watermelon_prepare": [
+      {
+        "kind": "DEFAULT",
+        "line": 9489,
+        "source": "bool(row.get('Watermelon_Prepare', False))"
+      }
+    ],
+    "watermelon_launch": [
+      {
+        "kind": "DEFAULT",
+        "line": 9490,
+        "source": "bool(row.get('Watermelon_Launch', False))"
+      }
+    ],
+    "watermelon_first_launch": [
+      {
+        "kind": "DEFAULT",
+        "line": 9491,
+        "source": "bool(row.get('Watermelon_First_Launch', False))"
+      }
+    ],
+    "watermelon_relaunch": [
+      {
+        "kind": "DEFAULT",
+        "line": 9492,
+        "source": "bool(row.get('Watermelon_Relaunch', False))"
+      }
+    ],
+    "watermelon_red": [
+      {
+        "kind": "DEFAULT",
+        "line": 9493,
+        "source": "bool(row.get('Watermelon_Red', False))"
+      }
+    ],
+    "watermelon_green_7d": [
+      {
+        "kind": "DEFAULT",
+        "line": 9494,
+        "source": "int(row.get('Green_Days_10', 0)) >= 7"
+      }
+    ],
+    "watermelon_quality": [
+      {
+        "kind": "DEFAULT",
+        "line": 9495,
+        "source": "float(row.get('WATERMELON_QUALITY', 0))"
+      }
+    ],
+    "watermelon_green_score": [
+      {
+        "kind": "DEFAULT",
+        "line": 9496,
+        "source": "float(row.get('WATERMELON_GREEN_SCORE', 0))"
+      }
+    ],
+    "watermelon_red_score": [
+      {
+        "kind": "DEFAULT",
+        "line": 9497,
+        "source": "float(row.get('WATERMELON_RED_SCORE', 0))"
+      }
+    ],
+    "fear_absorb": [
+      {
+        "kind": "DEFAULT",
+        "line": 9498,
+        "source": "bool(row.get('공포매물흡수', False))"
+      },
+      {
+        "kind": "OVERRIDE",
+        "line": 11681,
+        "source": "bool(fear_info.get('fear_absorb', False))"
+      }
+    ],
+    "bb30_shift_gc": [
+      {
+        "kind": "DEFAULT",
+        "line": 9501,
+        "source": "bool(row.get('BB30_Shift_GC',   False))"
+      }
+    ],
+    "bb30_shift_near": [
+      {
+        "kind": "DEFAULT",
+        "line": 9502,
+        "source": "bool(row.get('BB30_Shift_Near',  False))"
+      }
+    ],
+    "fib_support_382": [
+      {
+        "kind": "DEFAULT",
+        "line": 9507,
+        "source": "False"
+      },
+      {
+        "kind": "OVERRIDE",
+        "line": 11905,
+        "source": "abs(close_p - _fib382_val) / _fib382_val <= _tol"
+      }
+    ],
+    "fib_support_618": [
+      {
+        "kind": "DEFAULT",
+        "line": 9508,
+        "source": "False"
+      },
+      {
+        "kind": "OVERRIDE",
+        "line": 11907,
+        "source": "abs(close_p - _fib618_val) / _fib618_val <= _tol"
+      }
+    ],
+    "pivot_support": [
+      {
+        "kind": "DEFAULT",
+        "line": 9509,
+        "source": "False"
+      },
+      {
+        "kind": "OVERRIDE",
+        "line": 11909,
+        "source": "abs(close_p - _pivot_s1)   / _pivot_s1   <= _tol"
+      }
+    ],
+    "pivot_resist": [
+      {
+        "kind": "DEFAULT",
+        "line": 9510,
+        "source": "False"
+      },
+      {
+        "kind": "OVERRIDE",
+        "line": 11911,
+        "source": "abs(close_p - _pivot_r1)   / _pivot_r1   <= _tol"
+      }
+    ],
+    "maejip_quality_a": [
+      {
+        "kind": "DEFAULT",
+        "line": 9513,
+        "source": "row.get('Maejip_Quality', '') == 'A(강한매집)'"
+      }
+    ],
+    "maejip_quality_b": [
+      {
+        "kind": "DEFAULT",
+        "line": 9514,
+        "source": "row.get('Maejip_Quality', '') in ('A(강한매집)', 'B(매집중)')"
+      }
+    ],
+    "maejip_score_now": [
+      {
+        "kind": "DEFAULT",
+        "line": 9515,
+        "source": "int(row.get('Maejip_Score', 0))"
+      }
+    ],
+    "maejip_days_10": [
+      {
+        "kind": "DEFAULT",
+        "line": 9516,
+        "source": "int(row.get('Maejip_Days_10', 0))"
+      }
+    ],
+    "maejip_recent3": [
+      {
+        "kind": "DEFAULT",
+        "line": 9517,
+        "source": "int(row.get('Maejip_Recent3', 0))"
+      }
+    ],
+    "pre_signal_maejip": [
+      {
+        "kind": "DEFAULT",
+        "line": 9518,
+        "source": "int(row.get('Pre_Signal_Maejip', 0))"
+      }
+    ],
+    "green_maejip_days": [
+      {
+        "kind": "DEFAULT",
+        "line": 9519,
+        "source": "int(row.get('Green_Maejip_Days', 0))"
+      }
+    ],
+    "maejip_power": [
+      {
+        "kind": "DEFAULT",
+        "line": 9521,
+        "source": "float(row.get('Maejip_Power', 0))"
+      }
+    ],
+    "maejip_power_a": [
+      {
+        "kind": "DEFAULT",
+        "line": 9522,
+        "source": "row.get('Maejip_Power_Grade', '') == 'A(강한매집)'"
+      }
+    ],
+    "maejip_power_b": [
+      {
+        "kind": "DEFAULT",
+        "line": 9523,
+        "source": "row.get('Maejip_Power_Grade', '') in ('A(강한매집)', 'B(보통매집)')"
+      }
+    ],
+    "maejip_vol_ratio": [
+      {
+        "kind": "DEFAULT",
+        "line": 9524,
+        "source": "float(row.get('Maejip_Vol_Ratio', 0))"
+      }
+    ],
+    "explosion_ready": [
+      {
+        "kind": "DEFAULT",
+        "line": 9529,
+        "source": "float(row.get('BB40_Width', 99)) <= 5.0 and\n            row['OBV_Rising'] and\n            row['MFI_Strong']"
+      },
+      {
+        "kind": "OVERRIDE",
+        "line": 9751,
+        "source": "signals['explosion_ready'] or tri_result.get('pass', False)"
+      }
+    ],
+    "bottom_area": [
+      {
+        "kind": "DEFAULT",
+        "line": 9535,
+        "source": "row['Near_MA112'] <= 2.0 and\n            row['Below_MA112_60d'] >= 40"
+      }
+    ],
+    "silent_perfect": [
+      {
+        "kind": "DEFAULT",
+        "line": 9539,
+        "source": "row['ATR_Below_Days'] >= 7 and\n            row['MFI_Strong_Days'] >= 7 and\n            # ✅ FIX-검색식2a: MFI>50 중복 제거 (MFI_Strong_Days>=7이 포함)\n            row['MFI'] > row['MFI_10d_ago'] and\n            row['OBV_Rising'] and\n            row['Box_Range'] <= 1.10"
+      }
+    ],
+    "silent_strong": [
+      {
+        "kind": "DEFAULT",
+        "line": 9547,
+        "source": "row['ATR_Below_Days'] >= 5 and\n            row['MFI_Strong_Days'] >= 5 and\n            row['OBV_Rising']"
+      }
+    ],
+    "yeok_break": [
+      {
+        "kind": "DEFAULT",
+        "line": 9554,
+        "source": "close_p > row['MA112'] and\n            prev['Close'] <= row['MA112']"
+      },
+      {
+        "kind": "OVERRIDE",
+        "line": 6048,
+        "source": "seq_ok"
+      }
+    ],
+    "volume_surge": [
+      {
+        "kind": "DEFAULT",
+        "line": 9557,
+        "source": "row['Volume'] >= row['VMA20'] * 1.5"
+      }
+    ],
+    "near_high20": [
+      {
+        "kind": "DEFAULT",
+        "line": 9561,
+        "source": "85.0 <= float(row.get('NearHigh20_Pct', 0)) <= 100.0"
+      }
+    ],
+    "low_upper_wick": [
+      {
+        "kind": "DEFAULT",
+        "line": 9563,
+        "source": "_calc_upper_wick_ratio(row) <= 0.20"
+      }
+    ],
+    "vol_2x": [
+      {
+        "kind": "DEFAULT",
+        "line": 9565,
+        "source": "float(row.get('Volume', 0)) >= float(row.get('VMA20', 0)) * 2.0"
+      }
+    ],
+    "bullish_close": [
+      {
+        "kind": "DEFAULT",
+        "line": 9567,
+        "source": "float(row.get('Close', 0)) >= float(row.get('Open', 0))"
+      }
+    ],
+    "disparity_ok": [
+      {
+        "kind": "DEFAULT",
+        "line": 9569,
+        "source": "98.0 <= float(row.get('Disparity', 100)) <= 112.0"
+      }
+    ],
+    "above_ma20": [
+      {
+        "kind": "DEFAULT",
+        "line": 9571,
+        "source": "float(row.get('Close', 0)) >= float(row.get('MA20', 0))"
+      }
+    ],
+    "obv_rising": [
+      {
+        "kind": "DEFAULT",
+        "line": 9572,
+        "source": "row['OBV_Rising']"
+      }
+    ],
+    "mfi_strong": [
+      {
+        "kind": "DEFAULT",
+        "line": 9573,
+        "source": "row['MFI_Strong']"
+      }
+    ],
+    "dolbanzi": [
+      {
+        "kind": "DEFAULT",
+        "line": 9576,
+        "source": "row['Dolbanzi']"
+      }
+    ],
+    "dolbanzi_Trend_Group": [
+      {
+        "kind": "DEFAULT",
+        "line": 9577,
+        "source": "row['Trend_Group']"
+      }
+    ],
+    "dolbanzi_Count": [
+      {
+        "kind": "DEFAULT",
+        "line": 9578,
+        "source": "row['Dolbanzi_Count']"
+      }
+    ],
+    "viper_hook": [
+      {
+        "kind": "DEFAULT",
+        "line": 9581,
+        "source": "row['Viper_Hook']"
+      }
+    ],
+    "obv_bullish": [
+      {
+        "kind": "DEFAULT",
+        "line": 9582,
+        "source": "row['OBV_Bullish']"
+      }
+    ],
+    "Real_Viper_Hook": [
+      {
+        "kind": "DEFAULT",
+        "line": 9583,
+        "source": "row['Real_Viper_Hook']"
+      }
+    ],
+    "Golpagi_Trap": [
+      {
+        "kind": "DEFAULT",
+        "line": 9584,
+        "source": "row['Golpagi_Trap']"
+      }
+    ],
+    "jongbe_break": [
+      {
+        "kind": "DEFAULT",
+        "line": 9585,
+        "source": "row.get('Jongbe_Break', False)"
+      }
+    ],
+    "jongbe_ok": [
+      {
+        "kind": "DEFAULT",
+        "line": 9588,
+        "source": "False"
+      },
+      {
+        "kind": "OVERRIDE",
+        "line": 9750,
+        "source": "tri_result.get('jongbe', False)"
+      }
+    ],
+    "triangle_signal": [
+      {
+        "kind": "DEFAULT",
+        "line": 9589,
+        "source": "False"
+      },
+      {
+        "kind": "OVERRIDE",
+        "line": 9747,
+        "source": "tri_result.get('pass', False)"
+      }
+    ],
+    "triangle_apex": [
+      {
+        "kind": "DEFAULT",
+        "line": 9590,
+        "source": "None"
+      },
+      {
+        "kind": "OVERRIDE",
+        "line": 9748,
+        "source": "tri_result.get('apex_remain', None)"
+      }
+    ],
+    "triangle_pattern": [
+      {
+        "kind": "DEFAULT",
+        "line": 9591,
+        "source": "'None'"
+      },
+      {
+        "kind": "OVERRIDE",
+        "line": 9749,
+        "source": "tri_result.get('triangle_pattern', 'None')"
+      }
+    ],
+    "dmi_cross": [
+      {
+        "kind": "DEFAULT",
+        "line": 9592,
+        "source": "False"
+      },
+      {
+        "kind": "OVERRIDE",
+        "line": 9754,
+        "source": "tri_inner.get('dmi_cross', False)"
+      }
+    ],
+    "dmi_ok": [
+      {
+        "kind": "DEFAULT",
+        "line": 9593,
+        "source": "False"
+      },
+      {
+        "kind": "OVERRIDE",
+        "line": 9755,
+        "source": "tri_inner.get('dmi_ok', False)"
+      }
+    ],
+    "surge_breakout": [
+      {
+        "kind": "DEFAULT",
+        "line": 9596,
+        "source": "False"
+      },
+      {
+        "kind": "OVERRIDE",
+        "line": 11704,
+        "source": "_vol_ratio >= 3.0 and\n            _is_bigbull and\n            _obv_up and\n            (_near_ma20 or _bb_touch)"
+      }
+    ],
+    "MA_Convergence": [
+      {
+        "kind": "DEFAULT",
+        "line": 9599,
+        "source": "row['MA_Convergence']"
+      }
+    ],
+    "ultra_short_ma_conv": [
+      {
+        "kind": "DEFAULT",
+        "line": 9600,
+        "source": "bool(row.get('Is_UltraShort_MA_Conv', False))"
+      }
+    ],
+    "short_ma_conv": [
+      {
+        "kind": "DEFAULT",
+        "line": 9601,
+        "source": "bool(row.get('Is_Short_MA_Conv', False))"
+      }
+    ],
+    "structure_ma_conv": [
+      {
+        "kind": "DEFAULT",
+        "line": 9602,
+        "source": "bool(row.get('Is_Structure_MA_Conv', False))"
+      }
+    ],
+    "bridge_ma_conv": [
+      {
+        "kind": "DEFAULT",
+        "line": 9603,
+        "source": "bool(row.get('Is_Bridge_MA_Conv', False))"
+      }
+    ],
+    "structure_link_ma_conv": [
+      {
+        "kind": "DEFAULT",
+        "line": 9604,
+        "source": "bool(row.get('Is_Structure_Link_MA_Conv', False))"
+      }
+    ],
+    "super_ma_conv": [
+      {
+        "kind": "DEFAULT",
+        "line": 9605,
+        "source": "bool(row.get('Is_Super_MA_Conv', False))"
+      }
+    ],
+    "bb_ross": [
+      {
+        "kind": "DEFAULT",
+        "line": 9608,
+        "source": "row.get('BB_Ross', False)"
+      }
+    ],
+    "ris_div": [
+      {
+        "kind": "DEFAULT",
+        "line": 9609,
+        "source": "row.get('RSI_DIV', False)"
+      }
+    ],
+    "bb40_ross": [
+      {
+        "kind": "DEFAULT",
+        "line": 9610,
+        "source": "row.get('BB40_Ross', False)"
+      }
+    ],
+    "bb40_rsi_div": [
+      {
+        "kind": "DEFAULT",
+        "line": 9611,
+        "source": "row.get('BB40_RSI_DIV', False)"
+      }
+    ],
+    "bb40_reclaim_rsi_div": [
+      {
+        "kind": "DEFAULT",
+        "line": 9612,
+        "source": "row.get('BB40_Reclaim_RSI_DIV', False)"
+      }
+    ],
+    "force_pullback": [
+      {
+        "kind": "DEFAULT",
+        "line": 9615,
+        "source": "row.get('Force_Pullback', False)"
+      }
+    ],
+    "bb40_second_wave": [
+      {
+        "kind": "DEFAULT",
+        "line": 9616,
+        "source": "row.get('BB40_Second_Wave', False)"
+      }
+    ],
+    "obv_acc_breakout": [
+      {
+        "kind": "DEFAULT",
+        "line": 9617,
+        "source": "row.get('OBV_Acc_Breakout', False)"
+      }
+    ],
+    "good_ma_convergence": [
+      {
+        "kind": "DEFAULT",
+        "line": 9618,
+        "source": "row.get('Good_MA_Convergence', False)"
+      }
+    ],
+    "good_ma_convergence_score": [
+      {
+        "kind": "DEFAULT",
+        "line": 9619,
+        "source": "int(row.get('Good_MA_Convergence_Score', 0))"
+      }
+    ],
+    "ma_break_ready": [
+      {
+        "kind": "DEFAULT",
+        "line": 9620,
+        "source": "row.get('MA_Convergence_Break_Ready', False)"
+      }
+    ],
+    "ma_break_ready_score": [
+      {
+        "kind": "DEFAULT",
+        "line": 9621,
+        "source": "int(row.get('MA_Convergence_Break_Ready_Score', 0))"
+      }
+    ],
+    "closing_bet": [
+      {
+        "kind": "DEFAULT",
+        "line": 9624,
+        "source": "False"
+      },
+      {
+        "kind": "OVERRIDE",
+        "line": 11972,
+        "source": "True"
+      },
+      {
+        "kind": "OVERRIDE",
+        "line": 11975,
+        "source": "True"
+      },
+      {
+        "kind": "OVERRIDE",
+        "line": 11978,
+        "source": "True"
+      }
+    ],
+    "closing_bet_grade": [
+      {
+        "kind": "DEFAULT",
+        "line": 9625,
+        "source": "''"
+      },
+      {
+        "kind": "OVERRIDE",
+        "line": 11973,
+        "source": "'A'"
+      },
+      {
+        "kind": "OVERRIDE",
+        "line": 11976,
+        "source": "'B'"
+      },
+      {
+        "kind": "OVERRIDE",
+        "line": 11979,
+        "source": "'C'"
+      }
+    ],
+    "pre_dolbanji": [
+      {
+        "kind": "OVERRIDE",
+        "line": 11682,
+        "source": "bool(pre_bundle.get('pre_dolbanji', False))"
+      }
+    ],
+    "pre_dolbanji_confirmed": [
+      {
+        "kind": "OVERRIDE",
+        "line": 11683,
+        "source": "bool(pre_bundle.get('pre_dolbanji_confirmed', False))"
+      }
+    ],
+    "pre_dolbanji_lite": [
+      {
+        "kind": "OVERRIDE",
+        "line": 11684,
+        "source": "bool(pre_lite_bundle.get('pre_dolbanji_lite', False))"
+      }
+    ],
+    "pre_dolbanji_lite_confirmed": [
+      {
+        "kind": "OVERRIDE",
+        "line": 11685,
+        "source": "bool(pre_lite_bundle.get('pre_dolbanji_lite_confirmed', False))"
+      }
+    ],
+    "pre_dolbanji_hts_exact": [
+      {
+        "kind": "OVERRIDE",
+        "line": 11686,
+        "source": "bool(pre_hts_bundle.get('pre_dolbanji_hts_exact', False))"
+      }
+    ],
+    "wm_state_green": [
+      {
+        "kind": "OVERRIDE",
+        "line": 11687,
+        "source": "bool(wm_bundle.get('wm_state_green', False))"
+      }
+    ],
+    "wm_state_red": [
+      {
+        "kind": "OVERRIDE",
+        "line": 11688,
+        "source": "bool(wm_bundle.get('wm_state_red', False))"
+      }
+    ],
+    "wm_pocket_hold": [
+      {
+        "kind": "OVERRIDE",
+        "line": 11689,
+        "source": "bool(wm_bundle.get('wm_pocket_hold', False))"
+      }
+    ],
+    "wm_attack_hold": [
+      {
+        "kind": "OVERRIDE",
+        "line": 11690,
+        "source": "bool(wm_bundle.get('wm_attack_hold', False))"
+      }
+    ],
+    "ma5_reclaim": [
+      {
+        "kind": "OVERRIDE",
+        "line": 11691,
+        "source": "bool(ma5_reclaim_bundle.get('ok', False))"
+      }
+    ]
+  },
+  "evaluation_line": 11800,
+  "producer_timing": [
+    {
+      "formula": "🚀거래량폭발초동돌파",
+      "formula_index": 0,
+      "evaluation_line": 11800,
+      "post_evaluation_overrides": [],
+      "post_evaluation_override_keys": [],
+      "status": "OK"
+    },
+    {
+      "formula": "🌌🔺💍독사삼각돌반지",
+      "formula_index": 1,
+      "evaluation_line": 11800,
+      "post_evaluation_overrides": [],
+      "post_evaluation_override_keys": [],
+      "status": "OK"
+    },
+    {
+      "formula": "🌌🔄💍독사수급전환돌반지",
+      "formula_index": 2,
+      "evaluation_line": 11800,
+      "post_evaluation_overrides": [],
+      "post_evaluation_override_keys": [],
+      "status": "OK"
+    },
+    {
+      "formula": "👑🔄🐍독사발사형(각성)",
+      "formula_index": 3,
+      "evaluation_line": 11800,
+      "post_evaluation_overrides": [],
+      "post_evaluation_override_keys": [],
+      "status": "OK"
+    },
+    {
+      "formula": "🧲세력눌림목",
+      "formula_index": 4,
+      "evaluation_line": 11800,
+      "post_evaluation_overrides": [],
+      "post_evaluation_override_keys": [],
+      "status": "OK"
+    },
+    {
+      "formula": "🟣BB40 2차파동",
+      "formula_index": 5,
+      "evaluation_line": 11800,
+      "post_evaluation_overrides": [],
+      "post_evaluation_override_keys": [],
+      "status": "OK"
+    },
+    {
+      "formula": "🍉수박재폭발",
+      "formula_index": 6,
+      "evaluation_line": 11800,
+      "post_evaluation_overrides": [],
+      "post_evaluation_override_keys": [],
+      "status": "OK"
+    },
+    {
+      "formula": "📊OBV매집돌파",
+      "formula_index": 7,
+      "evaluation_line": 11800,
+      "post_evaluation_overrides": [],
+      "post_evaluation_override_keys": [],
+      "status": "OK"
+    },
+    {
+      "formula": "🚀📐🍉수렴돌파발사형",
+      "formula_index": 8,
+      "evaluation_line": 11800,
+      "post_evaluation_overrides": [],
+      "post_evaluation_override_keys": [],
+      "status": "OK"
+    },
+    {
+      "formula": "🟣🍉BB40발사형재안착",
+      "formula_index": 9,
+      "evaluation_line": 11800,
+      "post_evaluation_overrides": [],
+      "post_evaluation_override_keys": [],
+      "status": "OK"
+    },
+    {
+      "formula": "🚀📐🔺응축완성",
+      "formula_index": 10,
+      "evaluation_line": 11800,
+      "post_evaluation_overrides": [],
+      "post_evaluation_override_keys": [],
+      "status": "OK"
+    },
+    {
+      "formula": "👑💍발사형돌반지",
+      "formula_index": 11,
+      "evaluation_line": 11800,
+      "post_evaluation_overrides": [],
+      "post_evaluation_override_keys": [],
+      "status": "OK"
+    },
+    {
+      "formula": "📐🟣수렴재안착",
+      "formula_index": 12,
+      "evaluation_line": 11800,
+      "post_evaluation_overrides": [],
+      "post_evaluation_override_keys": [],
+      "status": "OK"
+    },
+    {
+      "formula": "🔺💍삼각꼭지돌반지",
+      "formula_index": 13,
+      "evaluation_line": 11800,
+      "post_evaluation_overrides": [],
+      "post_evaluation_override_keys": [],
+      "status": "OK"
+    },
+    {
+      "formula": "💛🔺🍉종베삼각발사형",
+      "formula_index": 14,
+      "evaluation_line": 11800,
+      "post_evaluation_overrides": [],
+      "post_evaluation_override_keys": [],
+      "status": "OK"
+    },
+    {
+      "formula": "🐍🍉독사발사형",
+      "formula_index": 15,
+      "evaluation_line": 11800,
+      "post_evaluation_overrides": [],
+      "post_evaluation_override_keys": [],
+      "status": "OK"
+    },
+    {
+      "formula": "💛🐍🔺종베독사삼각",
+      "formula_index": 16,
+      "evaluation_line": 11800,
+      "post_evaluation_overrides": [],
+      "post_evaluation_override_keys": [],
+      "status": "OK"
+    },
+    {
+      "formula": "🕳️💛🔺골파기종베삼각",
+      "formula_index": 17,
+      "evaluation_line": 11800,
+      "post_evaluation_overrides": [],
+      "post_evaluation_override_keys": [],
+      "status": "OK"
+    },
+    {
+      "formula": "💍돌반지단독",
+      "formula_index": 18,
+      "evaluation_line": 11800,
+      "post_evaluation_overrides": [],
+      "post_evaluation_override_keys": [],
+      "status": "OK"
+    },
+    {
+      "formula": "🚀📐폭발직전수렴",
+      "formula_index": 19,
+      "evaluation_line": 11800,
+      "post_evaluation_overrides": [],
+      "post_evaluation_override_keys": [],
+      "status": "OK"
+    },
+    {
+      "formula": "🕳️🚀수급전환골파기",
+      "formula_index": 20,
+      "evaluation_line": 11800,
+      "post_evaluation_overrides": [],
+      "post_evaluation_override_keys": [],
+      "status": "OK"
+    },
+    {
+      "formula": "🐍5-20독사훅",
+      "formula_index": 21,
+      "evaluation_line": 11800,
+      "post_evaluation_overrides": [],
+      "post_evaluation_override_keys": [],
+      "status": "OK"
+    },
+    {
+      "formula": "💎BB하단눌림목",
+      "formula_index": 22,
+      "evaluation_line": 11800,
+      "post_evaluation_overrides": [],
+      "post_evaluation_override_keys": [],
+      "status": "OK"
+    },
+    {
+      "formula": "🟣BB40재안착눌림목",
+      "formula_index": 23,
+      "evaluation_line": 11800,
+      "post_evaluation_overrides": [],
+      "post_evaluation_override_keys": [],
+      "status": "OK"
+    },
+    {
+      "formula": "🟣BB40재안착",
+      "formula_index": 24,
+      "evaluation_line": 11800,
+      "post_evaluation_overrides": [],
+      "post_evaluation_override_keys": [],
+      "status": "OK"
+    },
+    {
+      "formula": "🟣BB40 RSI-DIV",
+      "formula_index": 25,
+      "evaluation_line": 11800,
+      "post_evaluation_overrides": [],
+      "post_evaluation_override_keys": [],
+      "status": "OK"
+    },
+    {
+      "formula": "💎전설조합",
+      "formula_index": 26,
+      "evaluation_line": 11800,
+      "post_evaluation_overrides": [],
+      "post_evaluation_override_keys": [],
+      "status": "OK"
+    },
+    {
+      "formula": "🔺💎🍉삼각발사형",
+      "formula_index": 27,
+      "evaluation_line": 11800,
+      "post_evaluation_overrides": [],
+      "post_evaluation_override_keys": [],
+      "status": "OK"
+    },
+    {
+      "formula": "💛📍🔺종베바닥삼각",
+      "formula_index": 28,
+      "evaluation_line": 11800,
+      "post_evaluation_overrides": [],
+      "post_evaluation_override_keys": [],
+      "status": "OK"
+    },
+    {
+      "formula": "💎돌파골드",
+      "formula_index": 29,
+      "evaluation_line": 11800,
+      "post_evaluation_overrides": [],
+      "post_evaluation_override_keys": [],
+      "status": "OK"
+    },
+    {
+      "formula": "🤫💛🔺침묵종베삼각",
+      "formula_index": 30,
+      "evaluation_line": 11800,
+      "post_evaluation_overrides": [],
+      "post_evaluation_override_keys": [],
+      "status": "OK"
+    },
+    {
+      "formula": "💎매집완성",
+      "formula_index": 31,
+      "evaluation_line": 11800,
+      "post_evaluation_overrides": [],
+      "post_evaluation_override_keys": [],
+      "status": "OK"
+    },
+    {
+      "formula": "💎바닥폭발",
+      "formula_index": 32,
+      "evaluation_line": 11800,
+      "post_evaluation_overrides": [],
+      "post_evaluation_override_keys": [],
+      "status": "OK"
+    },
+    {
+      "formula": "📐좋은수렴",
+      "formula_index": 33,
+      "evaluation_line": 11800,
+      "post_evaluation_overrides": [],
+      "post_evaluation_override_keys": [],
+      "status": "OK"
+    },
+    {
+      "formula": "🔥수급전환폭발",
+      "formula_index": 34,
+      "evaluation_line": 11800,
+      "post_evaluation_overrides": [],
+      "post_evaluation_override_keys": [],
+      "status": "OK"
+    },
+    {
+      "formula": "💛🔺종베삼각",
+      "formula_index": 35,
+      "evaluation_line": 11800,
+      "post_evaluation_overrides": [],
+      "post_evaluation_override_keys": [],
+      "status": "OK"
+    },
+    {
+      "formula": "💛종베단독(MA골크)",
+      "formula_index": 36,
+      "evaluation_line": 11800,
+      "post_evaluation_overrides": [],
+      "post_evaluation_override_keys": [],
+      "status": "OK"
+    },
+    {
+      "formula": "🔺🏆삼각역매공파",
+      "formula_index": 37,
+      "evaluation_line": 11800,
+      "post_evaluation_overrides": [],
+      "post_evaluation_override_keys": [],
+      "status": "OK"
+    },
+    {
+      "formula": "🔥돌파확인",
+      "formula_index": 38,
+      "evaluation_line": 11800,
+      "post_evaluation_overrides": [],
+      "post_evaluation_override_keys": [],
+      "status": "OK"
+    },
+    {
+      "formula": "🔥조용폭발",
+      "formula_index": 39,
+      "evaluation_line": 11800,
+      "post_evaluation_overrides": [],
+      "post_evaluation_override_keys": [],
+      "status": "OK"
+    },
+    {
+      "formula": "💎🍉초강력매집발사형",
+      "formula_index": 40,
+      "evaluation_line": 11800,
+      "post_evaluation_overrides": [],
+      "post_evaluation_override_keys": [],
+      "status": "OK"
+    },
+    {
+      "formula": "💎🍉진짜매집발사형",
+      "formula_index": 41,
+      "evaluation_line": 11800,
+      "post_evaluation_overrides": [],
+      "post_evaluation_override_keys": [],
+      "status": "OK"
+    },
+    {
+      "formula": "💎🍉양호매집발사형",
+      "formula_index": 42,
+      "evaluation_line": 11800,
+      "post_evaluation_overrides": [],
+      "post_evaluation_override_keys": [],
+      "status": "OK"
+    },
+    {
+      "formula": "💎매집진행중(발사대기)",
+      "formula_index": 43,
+      "evaluation_line": 11800,
+      "post_evaluation_overrides": [],
+      "post_evaluation_override_keys": [],
+      "status": "OK"
+    },
+    {
+      "formula": "🎯🍉BB30시프트GC발사형",
+      "formula_index": 44,
+      "evaluation_line": 11800,
+      "post_evaluation_overrides": [],
+      "post_evaluation_override_keys": [],
+      "status": "OK"
+    },
+    {
+      "formula": "🎯🍉BB30시프트근접발사형",
+      "formula_index": 45,
+      "evaluation_line": 11800,
+      "post_evaluation_overrides": [],
+      "post_evaluation_override_keys": [],
+      "status": "OK"
+    },
+    {
+      "formula": "🎯BB30시프트GC단독",
+      "formula_index": 46,
+      "evaluation_line": 11800,
+      "post_evaluation_overrides": [],
+      "post_evaluation_override_keys": [],
+      "status": "OK"
+    },
+    {
+      "formula": "📍수급전환단독",
+      "formula_index": 47,
+      "evaluation_line": 11800,
+      "post_evaluation_overrides": [],
+      "post_evaluation_override_keys": [],
+      "status": "OK"
+    },
+    {
+      "formula": "📍바닥단독",
+      "formula_index": 48,
+      "evaluation_line": 11800,
+      "post_evaluation_overrides": [],
+      "post_evaluation_override_keys": [],
+      "status": "OK"
+    },
+    {
+      "formula": "🍉초록축적(수급전환직전)",
+      "formula_index": 49,
+      "evaluation_line": 11800,
+      "post_evaluation_overrides": [],
+      "post_evaluation_override_keys": [],
+      "status": "OK"
+    },
+    {
+      "formula": "🕯️🍉종가배팅발사형",
+      "formula_index": 50,
+      "evaluation_line": 11800,
+      "post_evaluation_overrides": [],
+      "post_evaluation_override_keys": [],
+      "status": "OK"
+    },
+    {
+      "formula": "🕯️종가배팅완전체",
+      "formula_index": 51,
+      "evaluation_line": 11800,
+      "post_evaluation_overrides": [],
+      "post_evaluation_override_keys": [],
+      "status": "OK"
+    },
+    {
+      "formula": "🕯️종가배팅기본",
+      "formula_index": 52,
+      "evaluation_line": 11800,
+      "post_evaluation_overrides": [],
+      "post_evaluation_override_keys": [],
+      "status": "OK"
+    },
+    {
+      "formula": "🕯️🧲종가배팅세력눌림",
+      "formula_index": 53,
+      "evaluation_line": 11800,
+      "post_evaluation_overrides": [],
+      "post_evaluation_override_keys": [],
+      "status": "OK"
+    },
+    {
+      "formula": "🔢🍉피보38.2발사형",
+      "formula_index": 54,
+      "evaluation_line": 11800,
+      "post_evaluation_overrides": [
+        {
+          "key": "fib_support_382",
+          "kind": "OVERRIDE",
+          "line": 11905,
+          "source": "abs(close_p - _fib382_val) / _fib382_val <= _tol"
+        }
+      ],
+      "post_evaluation_override_keys": [
+        "fib_support_382"
+      ],
+      "status": "REVIEW_POST_EVAL_OVERRIDE"
+    },
+    {
+      "formula": "🔢🍉피보61.8발사형",
+      "formula_index": 55,
+      "evaluation_line": 11800,
+      "post_evaluation_overrides": [
+        {
+          "key": "fib_support_618",
+          "kind": "OVERRIDE",
+          "line": 11907,
+          "source": "abs(close_p - _fib618_val) / _fib618_val <= _tol"
+        }
+      ],
+      "post_evaluation_override_keys": [
+        "fib_support_618"
+      ],
+      "status": "REVIEW_POST_EVAL_OVERRIDE"
+    },
+    {
+      "formula": "🔢피봇S1발사형",
+      "formula_index": 56,
+      "evaluation_line": 11800,
+      "post_evaluation_overrides": [
+        {
+          "key": "pivot_support",
+          "kind": "OVERRIDE",
+          "line": 11909,
+          "source": "abs(close_p - _pivot_s1)   / _pivot_s1   <= _tol"
+        }
+      ],
+      "post_evaluation_override_keys": [
+        "pivot_support"
+      ],
+      "status": "REVIEW_POST_EVAL_OVERRIDE"
+    },
+    {
+      "formula": "🔢피보나치38.2눌림",
+      "formula_index": 57,
+      "evaluation_line": 11800,
+      "post_evaluation_overrides": [
+        {
+          "key": "fib_support_382",
+          "kind": "OVERRIDE",
+          "line": 11905,
+          "source": "abs(close_p - _fib382_val) / _fib382_val <= _tol"
+        }
+      ],
+      "post_evaluation_override_keys": [
+        "fib_support_382"
+      ],
+      "status": "REVIEW_POST_EVAL_OVERRIDE"
+    },
+    {
+      "formula": "🔢피보나치61.8강지지",
+      "formula_index": 58,
+      "evaluation_line": 11800,
+      "post_evaluation_overrides": [
+        {
+          "key": "fib_support_618",
+          "kind": "OVERRIDE",
+          "line": 11907,
+          "source": "abs(close_p - _fib618_val) / _fib618_val <= _tol"
+        }
+      ],
+      "post_evaluation_override_keys": [
+        "fib_support_618"
+      ],
+      "status": "REVIEW_POST_EVAL_OVERRIDE"
+    },
+    {
+      "formula": "😱🍉공포흡수1차발사",
+      "formula_index": 59,
+      "evaluation_line": 11800,
+      "post_evaluation_overrides": [],
+      "post_evaluation_override_keys": [],
+      "status": "OK"
+    },
+    {
+      "formula": "😱🍉공포흡수재발사",
+      "formula_index": 60,
+      "evaluation_line": 11800,
+      "post_evaluation_overrides": [],
+      "post_evaluation_override_keys": [],
+      "status": "OK"
+    },
+    {
+      "formula": "📊OBV+MFI",
+      "formula_index": 61,
+      "evaluation_line": 11800,
+      "post_evaluation_overrides": [],
+      "post_evaluation_override_keys": [],
+      "status": "OK"
+    },
+    {
+      "formula": "⚡거래량+OBV",
+      "formula_index": 62,
+      "evaluation_line": 11800,
+      "post_evaluation_overrides": [],
+      "post_evaluation_override_keys": [],
+      "status": "OK"
+    },
+    {
+      "formula": "🕯️🍉종가배팅A급(발사형동반)",
+      "formula_index": 63,
+      "evaluation_line": 11800,
+      "post_evaluation_overrides": [
+        {
+          "key": "closing_bet",
+          "kind": "OVERRIDE",
+          "line": 11972,
+          "source": "True"
+        },
+        {
+          "key": "closing_bet",
+          "kind": "OVERRIDE",
+          "line": 11975,
+          "source": "True"
+        },
+        {
+          "key": "closing_bet",
+          "kind": "OVERRIDE",
+          "line": 11978,
+          "source": "True"
+        },
+        {
+          "key": "closing_bet_grade",
+          "kind": "OVERRIDE",
+          "line": 11973,
+          "source": "'A'"
+        },
+        {
+          "key": "closing_bet_grade",
+          "kind": "OVERRIDE",
+          "line": 11976,
+          "source": "'B'"
+        },
+        {
+          "key": "closing_bet_grade",
+          "kind": "OVERRIDE",
+          "line": 11979,
+          "source": "'C'"
+        }
+      ],
+      "post_evaluation_override_keys": [
+        "closing_bet",
+        "closing_bet_grade"
+      ],
+      "status": "REVIEW_POST_EVAL_OVERRIDE"
+    },
+    {
+      "formula": "🕯️종가배팅B급(OBV확인)",
+      "formula_index": 64,
+      "evaluation_line": 11800,
+      "post_evaluation_overrides": [
+        {
+          "key": "closing_bet",
+          "kind": "OVERRIDE",
+          "line": 11972,
+          "source": "True"
+        },
+        {
+          "key": "closing_bet",
+          "kind": "OVERRIDE",
+          "line": 11975,
+          "source": "True"
+        },
+        {
+          "key": "closing_bet",
+          "kind": "OVERRIDE",
+          "line": 11978,
+          "source": "True"
+        },
+        {
+          "key": "closing_bet_grade",
+          "kind": "OVERRIDE",
+          "line": 11973,
+          "source": "'A'"
+        },
+        {
+          "key": "closing_bet_grade",
+          "kind": "OVERRIDE",
+          "line": 11976,
+          "source": "'B'"
+        },
+        {
+          "key": "closing_bet_grade",
+          "kind": "OVERRIDE",
+          "line": 11979,
+          "source": "'C'"
+        }
+      ],
+      "post_evaluation_override_keys": [
+        "closing_bet",
+        "closing_bet_grade"
+      ],
+      "status": "REVIEW_POST_EVAL_OVERRIDE"
+    },
+    {
+      "formula": "🕯️종가배팅C급(기본충족)",
+      "formula_index": 65,
+      "evaluation_line": 11800,
+      "post_evaluation_overrides": [
+        {
+          "key": "closing_bet",
+          "kind": "OVERRIDE",
+          "line": 11972,
+          "source": "True"
+        },
+        {
+          "key": "closing_bet",
+          "kind": "OVERRIDE",
+          "line": 11975,
+          "source": "True"
+        },
+        {
+          "key": "closing_bet",
+          "kind": "OVERRIDE",
+          "line": 11978,
+          "source": "True"
+        },
+        {
+          "key": "closing_bet_grade",
+          "kind": "OVERRIDE",
+          "line": 11973,
+          "source": "'A'"
+        },
+        {
+          "key": "closing_bet_grade",
+          "kind": "OVERRIDE",
+          "line": 11976,
+          "source": "'B'"
+        },
+        {
+          "key": "closing_bet_grade",
+          "kind": "OVERRIDE",
+          "line": 11979,
+          "source": "'C'"
+        }
+      ],
+      "post_evaluation_override_keys": [
+        "closing_bet",
+        "closing_bet_grade"
+      ],
+      "status": "REVIEW_POST_EVAL_OVERRIDE"
+    }
+  ],
+  "duplicates": [],
+  "aux_selectors": [
+    {
+      "group": "PRE_TRIANGLE",
+      "function": "build_triangle_pre_squeeze_top3_df",
+      "source_kind": "GLOBAL_OR_TRIANGLE_MODULE",
+      "native_anchor_required": true,
+      "function_found": false,
+      "source_line": null,
+      "source_sha256": "",
+      "source_excerpt": ""
+    },
+    {
+      "group": "TRIANGLE_PULLBACK",
+      "function": "build_triangle_squeeze_top5_df",
+      "source_kind": "GLOBAL_OR_TRIANGLE_MODULE",
+      "native_anchor_required": true,
+      "function_found": false,
+      "source_line": null,
+      "source_sha256": "",
+      "source_excerpt": ""
+    },
+    {
+      "group": "VALUE_WAVE_BB40",
+      "function": "_v1046_build_ymgp_bb40_top5_df",
+      "source_kind": "LIVE_SELECTOR",
+      "native_anchor_required": true,
+      "function_found": true,
+      "source_line": 34117,
+      "source_sha256": "9d5806b7f957a29f33cb4478897409a8d7d1a3ba4e0fc89fa4aaf610e582f64e",
+      "source_excerpt": "def _v1046_build_ymgp_bb40_top5_df(df, limit: int = 5):\n    \"\"\"역매공파/BB40 재정의 후보 별도 TOP5.\"\"\"\n    try:\n        import pandas as _pd\n        if df is None or not hasattr(df, 'empty') or df.empty:\n            return _pd.DataFrame()\n        out = df.copy()\n        if 'code' not in out.columns:\n            for c in ['Code', '종목코드', '티커']:\n                if c in out.columns:\n                    out['code'] = out[c]\n                    break\n        if '종목명' not in out.columns:\n            for c in ['Name', 'name', '종목']:\n                if c in out.columns:\n                    out['종목명'] = out[c]\n                    break\n        if '현재가' not in out.columns:\n            for c in ['Close', 'close', '종가']:\n                if c in out.columns:\n                    out['현재가'] = out[c]\n                    break\n        if '역매공파BB40맥락' not in out.columns:\n            return _pd.DataFrame()\n        mask = out['역매공파BB40맥락'].fillna(False).astype(bool)\n        out = out[mask].copy()\n        if out.empty:\n            return _pd.DataFrame()\n        for c in ['역매공파BB40점수', '안전점수', 'N점수', '현재가', 'RSI', '이격', 'BB40']:\n            if c not in out.columns:\n                out[c] = 0\n            out[c] = _pd.to_numeric(out[c], errors='coerce').fillna(0)\n        for c in ['역매공파BB40상태', '역매공파BB40태그', '역매공파BB40코멘트', '역매공파BB40역할']:\n            if c not in out.columns:\n                out[c] = ''\n        out['_v1046_overheat'] = ((out['RSI'] >= 70) | (out['이격'] >= 115)).astype(int)\n        if 'code' in out.columns:\n            out['_v1046_code'] = out['code'].map(_v1046_norm_code)\n        else:\n            out['_v1046_code'] = ''\n        out = out.sort_values(\n            by=['_v1046_overheat', '역매공파BB40점수', '안전점수', 'N점수'],\n            ascending=[True, False, False, False]\n        )\n        out = out.drop_duplicates(subset=['_v1046_code'], keep='first')\n        return out.head(limit).reset_index(drop=True)\n    except Exception as e:\n        try: log_error(f'⚠️ V1046 역매공파 TOP5 구성 실패: {e}')\n        except Exception: pass\n        try:\n            import pandas as _pd\n            return _pd.DataFrame()\n        except Exception:\n            return df"
+    },
+    {
+      "group": "WATERMELON_PULLBACK",
+      "function": "build_watermelon_state_top5[4]",
+      "source_kind": "LIVE_SELECTOR_TUPLE",
+      "native_anchor_required": true,
+      "function_found": true,
+      "source_line": 1011,
+      "source_sha256": "56cc38a2a6940fa767b78c3849e9aad3c83643900794b41c7a0e63ab9f6a2df9",
+      "source_excerpt": "def build_watermelon_state_top5(df: pd.DataFrame):\n    \"\"\"\n    전종목 스캔 결과에서 수박상태 / 단계 분류 / Blue-1 / Blue-2 / 단테 / 돌파 TOP5 추출\n    반환:\n      - green_df, red_df, blue_df\n      - intro_df, pullback_df, late_df, blue1_df, blue2_df\n      - dante_pick_df, dante_watch_df, dante_ex_df\n      - breakout_pick_df, breakout_watch_df\n    \"\"\"\n    if df is None or df.empty:\n        empty = pd.DataFrame()\n        return (\n            empty, empty, empty,\n            empty, empty, empty, empty, empty,\n            empty, empty, empty,\n            empty, empty,\n        )\n\n    work = df.copy()\n    if \"수박최종상태\" not in work.columns:\n        work[\"수박최종상태\"] = work.get(\"수박상태명\", \"\")\n\n    def _sort(df_in: pd.DataFrame, cols: list, ascending=None) -> pd.DataFrame:\n        if df_in is None or df_in.empty:\n            return pd.DataFrame()\n        sort_cols = [c for c in cols if c in df_in.columns]\n        if not sort_cols:\n            return df_in.head(5).reset_index(drop=True)\n        if ascending is None:\n            ascending = [False] * len(sort_cols)\n        else:\n            try:\n                ascending = list(ascending)\n            except Exception:\n                ascending = [False] * len(sort_cols)\n            if len(ascending) < len(sort_cols):\n                ascending = ascending + [False] * (len(sort_cols) - len(ascending))\n            elif len(ascending) > len(sort_cols):\n                ascending = ascending[:len(sort_cols)]\n        return df_in.sort_values(by=sort_cols, ascending=ascending).head(5).reset_index(drop=True)\n\n    intro_df = _sort(work[work[\"수박최종상태\"] == \"초입수박\"].copy(), [\"수박포켓점수\", \"수박기반점수\", \"안전점수\", \"N점수\"])\n    pullback_df = _sort(work[work[\"수박최종상태\"] == \"눌림수박\"].copy(), [\"수박포켓점수\", \"수박기반점수\", \"안전점수\", \"N점수\"])\n    late_df = _sort(work[work[\"수박최종상태\"] == \"후행수박\"].copy(), [\"수박공격점수\", \"수박기반점수\", \"N점수\"])\n    blue1_df = _sort(work[work[\"수박최종상태\"] == \"Blue-1단기\"].copy(), [\"파란점선1단기점수\", \"수박공격점수\", \"안전점수\", \"N점수\"])\n    blue2_df = _sort(work[work[\"수박최종상태\"] == \"Blue-2스윙\"].copy(), [\"파란점선2스윙점수\", \"수박포켓점수\", \"안전점수\", \"N점수\"])\n\n    dante_work = compute_dante_mode_fields(work)\n    breakout_work = compute_breakout_mode_fields(dante_work)\n    preempt_state_col = \"선취상태\" if \"선취상태\" in dante_work.columns else \"단테상태\"\n    preempt_score_col = \"선취점수\" if \"선취점수\" in dante_work.columns else \"단테점수\"\n    dante_pick_df = _sort(dante_work[dante_work[preempt_state_col] == \"선취형\"].copy(), [preempt_score_col, \"수박포켓점수\", \"안전점수\", \"N점수\"])\n    dante_watch_df = _sort(dante_work[dante_work[preempt_state_col] == \"선취관찰형\"].copy(), [preempt_score_col, \"수박포켓점수\", \"안전점수\", \"N점수\"])\n    dante_ex_df = _sort(dante_work[dante_work[preempt_state_col] == \"선취제외형\"].copy(), [preempt_score_col, \"수박포켓점수\", \"안전점수\", \"N점수\"], ascending=[True, False, False, False])\n    breakout_pick_df = _sort(breakout_work[breakout_work[\"돌파상태\"] == \"흰구름돌파형\"].copy(), [\"돌파점수\", \"수박공격점수\", \"안전점수\", \"N점수\"])\n    breakout_watch_df = _sort(breakout_work[breakout_work[\"돌파상태\"] == \"돌파관찰형\"].copy(), [\"돌파점수\", \"수박공격점수\", \"안전점수\", \"N점수\"])\n\n    green_df = _sort(work[work[\"수박최종상태\"].isin([\"초입수박\", \"눌림수박\"])].copy(), [\"수박포켓점수\", \"수박기반점수\", \"안전점수\", \"N점수\"])\n    red_df = _sort(work[work[\"수박최종상태\"].isin([\"Blue-1단기\", \"Blue-2스윙\", \"Blue-2예비\"])].copy(), [\"수박파란점선점수\", \"수박공격점수\", \"안전점수\", \"N점수\"])\n    blue_df = _sort(work[work[\"수박최종상태\"].isin([\"Blue-1단기\", \"Blue-2스윙\"])].copy(), [\"수박파란점선점수\", \"수박공격점수\", \"안전점수\", \"N점수\"])\n\n    return (\n        green_df, red_df, blue_df,\n        intro_df, pullback_df, late_df, blue1_df, blue2_df,\n        dante_pick_df, dante_watch_df, dante_ex_df,\n        breakout_pick_df, breakout_watch_df,\n    )"
+    },
+    {
+      "group": "DANTE_WATCH",
+      "function": "build_watermelon_state_top5[9]",
+      "source_kind": "LIVE_SELECTOR_TUPLE",
+      "native_anchor_required": false,
+      "function_found": true,
+      "source_line": 1011,
+      "source_sha256": "56cc38a2a6940fa767b78c3849e9aad3c83643900794b41c7a0e63ab9f6a2df9",
+      "source_excerpt": "def build_watermelon_state_top5(df: pd.DataFrame):\n    \"\"\"\n    전종목 스캔 결과에서 수박상태 / 단계 분류 / Blue-1 / Blue-2 / 단테 / 돌파 TOP5 추출\n    반환:\n      - green_df, red_df, blue_df\n      - intro_df, pullback_df, late_df, blue1_df, blue2_df\n      - dante_pick_df, dante_watch_df, dante_ex_df\n      - breakout_pick_df, breakout_watch_df\n    \"\"\"\n    if df is None or df.empty:\n        empty = pd.DataFrame()\n        return (\n            empty, empty, empty,\n            empty, empty, empty, empty, empty,\n            empty, empty, empty,\n            empty, empty,\n        )\n\n    work = df.copy()\n    if \"수박최종상태\" not in work.columns:\n        work[\"수박최종상태\"] = work.get(\"수박상태명\", \"\")\n\n    def _sort(df_in: pd.DataFrame, cols: list, ascending=None) -> pd.DataFrame:\n        if df_in is None or df_in.empty:\n            return pd.DataFrame()\n        sort_cols = [c for c in cols if c in df_in.columns]\n        if not sort_cols:\n            return df_in.head(5).reset_index(drop=True)\n        if ascending is None:\n            ascending = [False] * len(sort_cols)\n        else:\n            try:\n                ascending = list(ascending)\n            except Exception:\n                ascending = [False] * len(sort_cols)\n            if len(ascending) < len(sort_cols):\n                ascending = ascending + [False] * (len(sort_cols) - len(ascending))\n            elif len(ascending) > len(sort_cols):\n                ascending = ascending[:len(sort_cols)]\n        return df_in.sort_values(by=sort_cols, ascending=ascending).head(5).reset_index(drop=True)\n\n    intro_df = _sort(work[work[\"수박최종상태\"] == \"초입수박\"].copy(), [\"수박포켓점수\", \"수박기반점수\", \"안전점수\", \"N점수\"])\n    pullback_df = _sort(work[work[\"수박최종상태\"] == \"눌림수박\"].copy(), [\"수박포켓점수\", \"수박기반점수\", \"안전점수\", \"N점수\"])\n    late_df = _sort(work[work[\"수박최종상태\"] == \"후행수박\"].copy(), [\"수박공격점수\", \"수박기반점수\", \"N점수\"])\n    blue1_df = _sort(work[work[\"수박최종상태\"] == \"Blue-1단기\"].copy(), [\"파란점선1단기점수\", \"수박공격점수\", \"안전점수\", \"N점수\"])\n    blue2_df = _sort(work[work[\"수박최종상태\"] == \"Blue-2스윙\"].copy(), [\"파란점선2스윙점수\", \"수박포켓점수\", \"안전점수\", \"N점수\"])\n\n    dante_work = compute_dante_mode_fields(work)\n    breakout_work = compute_breakout_mode_fields(dante_work)\n    preempt_state_col = \"선취상태\" if \"선취상태\" in dante_work.columns else \"단테상태\"\n    preempt_score_col = \"선취점수\" if \"선취점수\" in dante_work.columns else \"단테점수\"\n    dante_pick_df = _sort(dante_work[dante_work[preempt_state_col] == \"선취형\"].copy(), [preempt_score_col, \"수박포켓점수\", \"안전점수\", \"N점수\"])\n    dante_watch_df = _sort(dante_work[dante_work[preempt_state_col] == \"선취관찰형\"].copy(), [preempt_score_col, \"수박포켓점수\", \"안전점수\", \"N점수\"])\n    dante_ex_df = _sort(dante_work[dante_work[preempt_state_col] == \"선취제외형\"].copy(), [preempt_score_col, \"수박포켓점수\", \"안전점수\", \"N점수\"], ascending=[True, False, False, False])\n    breakout_pick_df = _sort(breakout_work[breakout_work[\"돌파상태\"] == \"흰구름돌파형\"].copy(), [\"돌파점수\", \"수박공격점수\", \"안전점수\", \"N점수\"])\n    breakout_watch_df = _sort(breakout_work[breakout_work[\"돌파상태\"] == \"돌파관찰형\"].copy(), [\"돌파점수\", \"수박공격점수\", \"안전점수\", \"N점수\"])\n\n    green_df = _sort(work[work[\"수박최종상태\"].isin([\"초입수박\", \"눌림수박\"])].copy(), [\"수박포켓점수\", \"수박기반점수\", \"안전점수\", \"N점수\"])\n    red_df = _sort(work[work[\"수박최종상태\"].isin([\"Blue-1단기\", \"Blue-2스윙\", \"Blue-2예비\"])].copy(), [\"수박파란점선점수\", \"수박공격점수\", \"안전점수\", \"N점수\"])\n    blue_df = _sort(work[work[\"수박최종상태\"].isin([\"Blue-1단기\", \"Blue-2스윙\"])].copy(), [\"수박파란점선점수\", \"수박공격점수\", \"안전점수\", \"N점수\"])\n\n    return (\n        green_df, red_df, blue_df,\n        intro_df, pullback_df, late_df, blue1_df, blue2_df,\n        dante_pick_df, dante_watch_df, dante_ex_df,\n        breakout_pick_df, breakout_watch_df,\n    )"
+    },
+    {
+      "group": "BREAKOUT_WATCH",
+      "function": "build_watermelon_state_top5[11]",
+      "source_kind": "LIVE_SELECTOR_TUPLE",
+      "native_anchor_required": true,
+      "function_found": true,
+      "source_line": 1011,
+      "source_sha256": "56cc38a2a6940fa767b78c3849e9aad3c83643900794b41c7a0e63ab9f6a2df9",
+      "source_excerpt": "def build_watermelon_state_top5(df: pd.DataFrame):\n    \"\"\"\n    전종목 스캔 결과에서 수박상태 / 단계 분류 / Blue-1 / Blue-2 / 단테 / 돌파 TOP5 추출\n    반환:\n      - green_df, red_df, blue_df\n      - intro_df, pullback_df, late_df, blue1_df, blue2_df\n      - dante_pick_df, dante_watch_df, dante_ex_df\n      - breakout_pick_df, breakout_watch_df\n    \"\"\"\n    if df is None or df.empty:\n        empty = pd.DataFrame()\n        return (\n            empty, empty, empty,\n            empty, empty, empty, empty, empty,\n            empty, empty, empty,\n            empty, empty,\n        )\n\n    work = df.copy()\n    if \"수박최종상태\" not in work.columns:\n        work[\"수박최종상태\"] = work.get(\"수박상태명\", \"\")\n\n    def _sort(df_in: pd.DataFrame, cols: list, ascending=None) -> pd.DataFrame:\n        if df_in is None or df_in.empty:\n            return pd.DataFrame()\n        sort_cols = [c for c in cols if c in df_in.columns]\n        if not sort_cols:\n            return df_in.head(5).reset_index(drop=True)\n        if ascending is None:\n            ascending = [False] * len(sort_cols)\n        else:\n            try:\n                ascending = list(ascending)\n            except Exception:\n                ascending = [False] * len(sort_cols)\n            if len(ascending) < len(sort_cols):\n                ascending = ascending + [False] * (len(sort_cols) - len(ascending))\n            elif len(ascending) > len(sort_cols):\n                ascending = ascending[:len(sort_cols)]\n        return df_in.sort_values(by=sort_cols, ascending=ascending).head(5).reset_index(drop=True)\n\n    intro_df = _sort(work[work[\"수박최종상태\"] == \"초입수박\"].copy(), [\"수박포켓점수\", \"수박기반점수\", \"안전점수\", \"N점수\"])\n    pullback_df = _sort(work[work[\"수박최종상태\"] == \"눌림수박\"].copy(), [\"수박포켓점수\", \"수박기반점수\", \"안전점수\", \"N점수\"])\n    late_df = _sort(work[work[\"수박최종상태\"] == \"후행수박\"].copy(), [\"수박공격점수\", \"수박기반점수\", \"N점수\"])\n    blue1_df = _sort(work[work[\"수박최종상태\"] == \"Blue-1단기\"].copy(), [\"파란점선1단기점수\", \"수박공격점수\", \"안전점수\", \"N점수\"])\n    blue2_df = _sort(work[work[\"수박최종상태\"] == \"Blue-2스윙\"].copy(), [\"파란점선2스윙점수\", \"수박포켓점수\", \"안전점수\", \"N점수\"])\n\n    dante_work = compute_dante_mode_fields(work)\n    breakout_work = compute_breakout_mode_fields(dante_work)\n    preempt_state_col = \"선취상태\" if \"선취상태\" in dante_work.columns else \"단테상태\"\n    preempt_score_col = \"선취점수\" if \"선취점수\" in dante_work.columns else \"단테점수\"\n    dante_pick_df = _sort(dante_work[dante_work[preempt_state_col] == \"선취형\"].copy(), [preempt_score_col, \"수박포켓점수\", \"안전점수\", \"N점수\"])\n    dante_watch_df = _sort(dante_work[dante_work[preempt_state_col] == \"선취관찰형\"].copy(), [preempt_score_col, \"수박포켓점수\", \"안전점수\", \"N점수\"])\n    dante_ex_df = _sort(dante_work[dante_work[preempt_state_col] == \"선취제외형\"].copy(), [preempt_score_col, \"수박포켓점수\", \"안전점수\", \"N점수\"], ascending=[True, False, False, False])\n    breakout_pick_df = _sort(breakout_work[breakout_work[\"돌파상태\"] == \"흰구름돌파형\"].copy(), [\"돌파점수\", \"수박공격점수\", \"안전점수\", \"N점수\"])\n    breakout_watch_df = _sort(breakout_work[breakout_work[\"돌파상태\"] == \"돌파관찰형\"].copy(), [\"돌파점수\", \"수박공격점수\", \"안전점수\", \"N점수\"])\n\n    green_df = _sort(work[work[\"수박최종상태\"].isin([\"초입수박\", \"눌림수박\"])].copy(), [\"수박포켓점수\", \"수박기반점수\", \"안전점수\", \"N점수\"])\n    red_df = _sort(work[work[\"수박최종상태\"].isin([\"Blue-1단기\", \"Blue-2스윙\", \"Blue-2예비\"])].copy(), [\"수박파란점선점수\", \"수박공격점수\", \"안전점수\", \"N점수\"])\n    blue_df = _sort(work[work[\"수박최종상태\"].isin([\"Blue-1단기\", \"Blue-2스윙\"])].copy(), [\"수박파란점선점수\", \"수박공격점수\", \"안전점수\", \"N점수\"])\n\n    return (\n        green_df, red_df, blue_df,\n        intro_df, pullback_df, late_df, blue1_df, blue2_df,\n        dante_pick_df, dante_watch_df, dante_ex_df,\n        breakout_pick_df, breakout_watch_df,\n    )"
+    }
+  ],
+  "semantic_helpers": [
+    {
+      "helper": "check_force_pullback",
+      "found": true,
+      "source_line": 6567,
+      "source_sha256": "66264a8e82532191ae8e34bbac0a3a44a7289c3c2444d1760c17c82f382b4e9d",
+      "uses_any": true,
+      "uses_shift": false,
+      "uses_date_order": false,
+      "source_excerpt": "def check_force_pullback(curr: pd.Series, past: pd.DataFrame):\n    \"\"\"\n    세력 눌림목 (선행 정의용)\n    - 최근 강봉/거래량 흔적\n    - 현재는 눌림 구간\n    - 거래량 감소\n    - OBV 훼손 적음\n    - 20일/40일 근처 지지\n    \"\"\"\n    if past is None or past.empty or len(past) < 10:\n        return False, \"데이터 부족\"\n    try:\n        strong_candle = (\n            ((past['Close'] > past['Open']) &\n             (((past['Close'] - past['Open']) / (past['Open'] + 1e-9)) * 100 >= 8)) &\n            (past['Volume'] > past['Vol_Avg'] * 1.8)\n        ).any()\n        volume_cooling = curr['Volume'] < (curr['Vol_Avg'] * 0.8)\n        near_ma20 = abs(curr['Close'] - curr['MA20']) / (curr['MA20'] + 1e-9) <= 0.03\n        near_bb_mid = abs(curr['Close'] - curr['MA40']) / (curr['MA40'] + 1e-9) <= 0.04\n        obv_safe = curr['OBV'] >= past['OBV'].tail(5).min()\n        candle_not_broken = curr['Close'] >= curr['MA20'] * 0.97\n        passed = strong_candle and volume_cooling and (near_ma20 or near_bb_mid) and obv_safe and candle_not_broken\n        return passed, f\"강봉흔적:{strong_candle}, 거래량감소:{volume_cooling}, 이평근접:{near_ma20 or near_bb_mid}, OBV방어:{obv_safe}\"\n    except Exception as e:\n        return False, f\"계산실패:{e}\""
+    },
+    {
+      "helper": "check_bb40_second_wave",
+      "found": true,
+      "source_line": 7656,
+      "source_sha256": "061f7dc12db2aeb513c21d64b53b0189643b6075351d51835d823b05554325ef",
+      "uses_any": true,
+      "uses_shift": false,
+      "uses_date_order": false,
+      "source_excerpt": "def check_bb40_second_wave(curr: pd.Series, past: pd.DataFrame):\n    \"\"\"\n    BB40 재안착 후 2차 파동:\n    - 과거 BB40 하단 이탈 후 복귀 이력\n    - 현재 BB40 중심선 위 or 상단밴드 방향\n    - OBV/RSI가 1차 반등보다 강해짐\n    \"\"\"\n    if past.empty or len(past) < 15:\n        return False, \"데이터 부족\"\n\n    bb40_break = (past['Low'] < past['BB40_Lower']).any()\n    bb40_reclaim = (past['Close'] > past['BB40_Lower']).any()\n\n    above_mid = curr['Close'] > curr['MA40']\n    bb_expand = curr['BB40_Width'] > past['BB40_Width'].tail(5).mean()\n    obv_up = curr['OBV'] > past['OBV'].tail(5).max()\n    rsi_up = curr['RSI'] > past['RSI'].tail(5).max()\n\n    passed = bb40_break and bb40_reclaim and above_mid and (obv_up or rsi_up) and bb_expand\n    return passed, f\"BB40이탈:{bb40_break}, 복귀:{bb40_reclaim}, 중심선위:{above_mid}, OBV상승:{obv_up}, RSI상승:{rsi_up}\""
+    },
+    {
+      "helper": "check_watermelon_relaunch",
+      "found": true,
+      "source_line": 7677,
+      "source_sha256": "8954a6572131b06e894ef861de12b3d8620d1320414ff4cb9499251c596454cf",
+      "uses_any": true,
+      "uses_shift": false,
+      "uses_date_order": false,
+      "source_excerpt": "def check_watermelon_relaunch(curr: pd.Series, past: pd.DataFrame):\n    \"\"\"\n    수박 눌림 재폭발:\n    - 최근 수박 시그널 이력 존재\n    - 중간 눌림 구간 존재\n    - 현재 다시 빨강/거래량/상승 압력 재개\n    \"\"\"\n    if past.empty or len(past) < 15:\n        return False, \"데이터 부족\"\n\n    had_watermelon = past['Watermelon_Signal'].tail(15).any()\n\n    pullback_happened = (\n        (past['Close'] < past['MA20']).tail(10).any() or\n        (past['Volume'] < past['Vol_Avg']).tail(10).any()\n    )\n\n    relaunch = (\n        (curr['Watermelon_Color'] == 'red') and\n        (curr['Volume'] > curr['Vol_Avg'] * 1.2) and\n        (curr['Close'] >= curr['Open'])\n    )\n\n    obv_hold = curr['OBV_Rising']\n    passed = had_watermelon and pullback_happened and relaunch and obv_hold\n    return passed, f\"기존수박:{had_watermelon}, 눌림:{pullback_happened}, 재시동:{relaunch}, OBV유지:{obv_hold}\""
+    },
+    {
+      "helper": "check_obv_acc_breakout",
+      "found": true,
+      "source_line": 7704,
+      "source_sha256": "53afcb42182b8185303aa253d7e235f7cb06c2cfea4ba3f1b5f6d5601dadf309",
+      "uses_any": false,
+      "uses_shift": false,
+      "uses_date_order": false,
+      "source_excerpt": "def check_obv_acc_breakout(curr: pd.Series, past: pd.DataFrame):\n    \"\"\"\n    OBV 매집 후 돌파:\n    - 최근 박스권/수렴\n    - OBV는 미리 상승\n    - 현재 가격/거래량 돌파\n    \"\"\"\n    if past.empty or len(past) < 20:\n        return False, \"데이터 부족\"\n\n    box_range = (past['High'].max() / (past['Low'].min() + 1e-9)) <= 1.18\n    obv_acc = curr['OBV'] > past['OBV'].tail(10).max()\n    price_break = curr['Close'] > past['High'].tail(10).max()\n    vol_break = curr['Volume'] > curr['Vol_Avg'] * 1.5\n\n    passed = box_range and obv_acc and price_break and vol_break\n    return passed, f\"박스권:{box_range}, OBV매집:{obv_acc}, 가격돌파:{price_break}, 거래량:{vol_break}\""
+    },
+    {
+      "helper": "check_bb40_ross",
+      "found": true,
+      "source_line": 6619,
+      "source_sha256": "6e293534e94f55b56953de143957095b295446fccc6a239a4328ff62106cf85b",
+      "uses_any": true,
+      "uses_shift": false,
+      "uses_date_order": false,
+      "source_excerpt": "def check_bb40_ross(curr: pd.Series, past: pd.DataFrame):\n    \"\"\"\n    BB40 하단 이탈 후 재안착 판단\n    - 과거 구간에서 BB40_Lower 하향 이탈이 있었는지\n    - 이후 다시 BB40_Lower 위로 복귀한 적이 있는지\n    - 현재봉이 BB40_Lower 근처에서 종가 기준 위에 안착했는지\n    \"\"\"\n    if past.empty or 'BB40_Lower' not in past.columns or past['BB40_Lower'].isna().all():\n        return False, \"BB40 데이터 부족\"\n\n    bb40_low = past['BB40_Lower']\n    outside_mask = past['Low'] < bb40_low\n\n    if not outside_mask.any():\n        return False, \"BB40 1차 저점 없음\"\n\n    first_idx = outside_mask.values.argmax()\n    after_first = past.iloc[first_idx + 1:]\n\n    if after_first.empty:\n        return False, \"BB40 반등 확인 구간 부족\"\n\n    rebound = (after_first['Close'] > after_first['BB40_Lower']).any()\n    near_band = curr['Low'] <= curr['BB40_Lower'] * ROSS_BAND_TOLERANCE\n    close_above = curr['Close'] > curr['BB40_Lower']\n\n    passed = rebound and near_band and close_above\n    return passed, f\"BB40반등:{rebound}, 저가밴드근접:{near_band}, 종가밴드위:{close_above}\""
+    },
+    {
+      "helper": "check_bb40_rsi_div",
+      "found": true,
+      "source_line": 6649,
+      "source_sha256": "63612ba28fb883ac43f017689846426ddf6fba109dad461aeb822e395077420f",
+      "uses_any": false,
+      "uses_shift": false,
+      "uses_date_order": true,
+      "source_excerpt": "def check_bb40_rsi_div(curr: pd.Series, past: pd.DataFrame):\n    \"\"\"\n    BB40 관점 RSI 다이버전스\n    - 과거 BB40 하단 이탈 봉들만 후보로 봄\n    - 현재 저점이 과거 저점 부근이거나 더 낮고\n    - RSI는 과거보다 높으면 다이버전스로 판단\n    \"\"\"\n    if past.empty or 'BB40_Lower' not in past.columns or past['RSI'].isna().all() or pd.isna(curr['RSI']):\n        return False, \"RSI 데이터 부족\"\n\n    bb40_break_df = past[past['Low'] < past['BB40_Lower']].copy()\n\n    if bb40_break_df.empty:\n        return False, \"BB40 하단 이탈 이력 없음\"\n\n    min_price_idx = bb40_break_df['Low'].idxmin()\n    min_price_past = bb40_break_df.loc[min_price_idx, 'Low']\n    min_rsi_past = bb40_break_df.loc[min_price_idx, 'RSI']\n\n    if pd.isna(min_rsi_past):\n        min_rsi_past = bb40_break_df['RSI'].min()\n\n    price_similar = curr['Low'] <= min_price_past * RSI_LOW_TOLERANCE\n    rsi_higher = curr['RSI'] > min_rsi_past\n\n    passed = price_similar and rsi_higher\n    return passed, f\"BB40저점:{curr['Low']:.0f}(과거:{min_price_past:.0f}), RSI:{curr['RSI']:.1f}(과거:{min_rsi_past:.1f})\""
+    },
+    {
+      "helper": "check_bb40_reclaim_rsi_div",
+      "found": true,
+      "source_line": 6678,
+      "source_sha256": "953a096f3d95030ba39fc7e4f9b06938b6ad02413f891fb620230ef47604cd03",
+      "uses_any": false,
+      "uses_shift": false,
+      "uses_date_order": false,
+      "source_excerpt": "def check_bb40_reclaim_rsi_div(curr: pd.Series, past: pd.DataFrame):\n    \"\"\"\n    최종 결합형:\n    BB40 하단 이탈 후 재안착 + RSI DIV\n    \"\"\"\n    bb40_ross, ross_msg = check_bb40_ross(curr, past)\n    bb40_div, div_msg = check_bb40_rsi_div(curr, past)\n\n    passed = bb40_ross and bb40_div\n    return passed, f\"[BB40_Ross] {ross_msg} | [BB40_RSI_DIV] {div_msg}\""
+    },
+    {
+      "helper": "jongbe_triangle_combo_v3",
+      "found": false,
+      "source_line": null,
+      "source_sha256": "",
+      "uses_any": false,
+      "uses_shift": false,
+      "uses_date_order": false,
+      "source_excerpt": ""
+    }
+  ],
+  "registry_sha256": "d9c5da10448e4ef459768fb37f917bd47b71b680f085e594d0cb211d54d0e8bb"
+}
