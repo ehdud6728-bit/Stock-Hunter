@@ -93452,6 +93452,18 @@ if __name__ == "__main__":
     graceful_shutdown(exit_code=0)
 
 
+
+
+# ✅ V73.3.6.6.4 MODULE SOURCE PATH × DEPLOYMENT CONTRACT GUARD
+# Research deployment-only marker. LIVE candidates/scores/entry/exit logic unchanged.
+_V733664_DEPLOYMENT_GUARD = {
+    "version": "V73.3.6.6.4",
+    "research_only": True,
+    "root_module_source_required": True,
+    "stale_pycache_rejected": True,
+}
+# ✅ END V73.3.6.6.4 MODULE SOURCE PATH × DEPLOYMENT CONTRACT GUARD
+
 # ✅ V1107_4_5_71_4_INPUTS_10_LIMIT_FIX_MARKER
 try:
     import os as _v1107_4_5_71_4_os

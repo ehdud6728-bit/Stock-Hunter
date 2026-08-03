@@ -14,11 +14,11 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 import numpy as np
 import pandas as pd
 
-VERSION = "V73.3.6.6.1"
+VERSION = "V73.3.6.6.2"
 FACTOR_NAME = "PATTERN_COMBINATION_SCORE_AI_PICK_CROSS_AUDIT"
 RESEARCH_ONLY = True
 REPORT_HEADER = "🧬 [검색패턴 조합 × 점수 × AI Pick 교차감사 · RESEARCH_ONLY]"
-SHADOW_HEADER = "🧬 [15:03 검색패턴 중복 × 점수 × AI Pick SHADOW · 순위영향 없음]"
+SHADOW_HEADER = "🧬 [장마감 후보 검색패턴 중복 × 점수 × AI Pick SHADOW · 순위영향 없음]"
 
 ROW_AUDIT = "v72_pattern_ai_cross_signal_audit.csv"
 PATTERN_SUMMARY = "v72_pattern_ai_cross_pattern_summary.csv"
@@ -372,11 +372,17 @@ def _normalise(eval_df: pd.DataFrame, out: Path) -> pd.DataFrame:
         x["ai_pick_tier_recorded"] = ""
         x["ai_pick_reason_recorded"] = ""
         x["ai_ledger_source"] = ""
+    # Causal AI comparison is ledger-only. A value merely present in the replay/eval
+    # DataFrame is display metadata, not proof that AI actually ran on that historical date.
     local_ai = _str_series(x, ["ai_pick_tier", "ai_pick_tier_main"], "")
     recorded = x["ai_pick_tier_recorded"].fillna("").astype(str)
-    chosen = np.where(recorded.str.strip().ne(""), recorded, local_ai)
-    chosen = pd.Series(chosen, index=x.index).fillna("").astype(str)
-    unavailable = chosen.str.contains("과거 AI 미실행|직접검증", na=False) | chosen.str.strip().eq("")
+    ledger_source = x["ai_ledger_source"].fillna("").astype(str)
+    chosen = recorded.copy()
+    unavailable = (
+        chosen.str.contains("과거 AI 미실행|직접검증", na=False)
+        | chosen.str.strip().eq("")
+        | ledger_source.str.strip().eq("")
+    )
     x["ai_pick_label"] = "AI_NONE"
     for raw, lab in TRUE_AI_LABELS.items():
         x.loc[chosen.eq(raw), "ai_pick_label"] = lab
@@ -388,6 +394,7 @@ def _normalise(eval_df: pd.DataFrame, out: Path) -> pd.DataFrame:
     x["ai_observed"] = x["ai_pick_label"].ne("AI_UNAVAILABLE_HISTORICAL").astype(int)
     x["ai_selected"] = x["ai_pick_label"].isin(["AI_STRONG", "AI_WATCH", "AI_CONSERVATIVE"]).astype(int)
     x["ai_pick_tier_raw"] = chosen
+    x["ai_pick_tier_local_untrusted"] = local_ai
 
     # Repeat/high-location diagnostic: use causal familiar audit when available.
     ffp = out / "v72_familiar_signal_causal_audit.csv"
@@ -575,8 +582,9 @@ def _rule_mask(x: pd.DataFrame, rule: dict) -> pd.Series:
     elif rule["ai_mode"] == "AI_OBSERVED_ANY":
         m &= x["ai_observed"].eq(1)
     if rule["pattern_rule"] != "ANY":
-        wanted = set(rule["pattern_rule"].split(" + "))
-        m &= x["pattern_tokens"].map(lambda z: wanted.issubset(set(z)))
+        # Policy candidates are sourced from exact-combination labels, so selection must
+        # remain exact. A 2-pattern rule must not silently absorb 3+ pattern supersets.
+        m &= x["pattern_combo"].eq(rule["pattern_rule"])
     return m
 
 
@@ -798,7 +806,8 @@ def build_report(x: pd.DataFrame, tables: Dict[str, pd.DataFrame], policy: Optio
             lines.append(f"- {r.get('cluster')}: clusters {_int(r.get('clusters'))} · mean {_fmt(r.get('mean'))}% · 90%CI [{_fmt(r.get('ci05'))},{_fmt(r.get('ci95'))}] · 양수확률 {_fmt(r.get('positive_prob'),1,False)}%")
     lines.extend([
         "- 점수구간은 원본 N점수 우선, 없으면 안전점수를 사용하며 날짜 내 백분위 점수를 원점수로 위장하지 않습니다.",
-        "- AI 표본이 없을 때 AI_SELECTED 정책은 탐색하지 않습니다. 과거 AI를 비용 절감용 규칙으로 재구성하거나 가짜 AI Pick을 만들지 않습니다.",
+        "- AI 표본이 없을 때 AI_SELECTED 정책은 탐색하지 않습니다. AI 효과는 저장 원장과 날짜·종목이 일치한 행만 인정하며 replay DataFrame의 AI 문자열은 증거로 사용하지 않습니다.",
+        "- TRAIN 정책의 패턴 규칙은 정확 조합 일치로 고정하며 2개 조합이 3개 이상 상위조합을 흡수하지 않습니다.",
         "- 20bp·50bp 비용, 종목 중복 제거, 상위2개 수익집중, 날짜·종목·테마 클러스터 부트스트랩, 실제 PAPER/체결 원장 가용분을 별도 저장합니다.",
         f"- Actions CSV: {ROW_AUDIT} · {PATTERN_SUMMARY} · {COMBO_SUMMARY} · {OVERLAP_SUMMARY} · {SCORE_SUMMARY} · {AI_SUMMARY} · {CROSS_SUMMARY} · {DEDUP_SUMMARY} · {TRAIN_OOS_SUMMARY} · {LOCKED_OOS} · {BOOTSTRAP_SUMMARY} · {CONCENTRATION_SUMMARY} · {EXECUTION_SUMMARY} · {LATE_WAVE_SUMMARY} · {AI_PROVENANCE_AUDIT} · {DATA_AUDIT}",
     ])
