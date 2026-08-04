@@ -92704,49 +92704,49 @@ _V7336610_RELEASE_MARKER = {
 
 
 # ============================================================
-# ✅ V73.3.6.6.11.2 SEQUENCE × MARKET/SECTOR × CATALYST LIFECYCLE PIPELINE
+# ✅ V73.3.6.6.12 FORWARD CAUSAL CAPTURE + SEQUENCE × MARKET/SECTOR × CATALYST PIPELINE
 # - Strict chronological pattern state machine.
 # - Official/news/AI provenance, first-event/repost/material-update cross validation.
 # - Latent global catalyst is retained and may be reactivated only by causal linkage/price activation.
 # - RESEARCH_ONLY: LIVE score/rank/candidate/AI/entry/exit/order mutation = 0.
 # ============================================================
-_V7336611_VERSION = 'V73.3.6.6.11.2'
-_V7336611_HEADER = '🧬 [패턴 시퀀스 × 시장·섹터 × 재료 생명주기 완성형 · RESEARCH_ONLY]'
+_V7336612_VERSION = 'V73.3.6.6.12'
+_V7336612_HEADER = '🧬 [패턴 시퀀스 × 시장·섹터 × 재료 생명주기 완성형 · RESEARCH_ONLY]'
 try:
-    import catalyst_source_adapters as _v7336611_sources
-    import pattern_catalyst_context_pipeline as _v7336611_pipeline
-    _V7336611_OK = (
-        str(getattr(_v7336611_sources, 'VERSION', '')) == _V7336611_VERSION
-        and str(getattr(_v7336611_pipeline, 'VERSION', '')) == _V7336611_VERSION
-        and bool(getattr(_v7336611_sources, 'RESEARCH_ONLY', False))
-        and bool(getattr(_v7336611_pipeline, 'RESEARCH_ONLY', False))
-        and all(callable(getattr(_v7336611_sources, n, None)) for n in ('capture_forward','ensure_templates','normalize_rows'))
-        and all(callable(getattr(_v7336611_pipeline, n, None)) for n in ('run_backtest','force_report','sequence_state_v1'))
+    import catalyst_source_adapters as _v7336612_sources
+    import pattern_catalyst_context_pipeline as _v7336612_pipeline
+    _V7336612_OK = (
+        str(getattr(_v7336612_sources, 'VERSION', '')) == _V7336612_VERSION
+        and str(getattr(_v7336612_pipeline, 'VERSION', '')) == _V7336612_VERSION
+        and bool(getattr(_v7336612_sources, 'RESEARCH_ONLY', False))
+        and bool(getattr(_v7336612_pipeline, 'RESEARCH_ONLY', False))
+        and all(callable(getattr(_v7336612_sources, n, None)) for n in ('capture_forward','ensure_templates','normalize_rows','build_query_universe','merge_append_only','capture_market_sector_context'))
+        and all(callable(getattr(_v7336612_pipeline, n, None)) for n in ('run_backtest','force_report','sequence_state_v1'))
     )
-    print(f"{'✅' if _V7336611_OK else '🚨'} {_V7336611_VERSION} SEQUENCE_CONTEXT_CATALYST_PIPELINE {'LOADED' if _V7336611_OK else 'CONTRACT_FAIL'} | RESEARCH_ONLY=True")
-except Exception as _v7336611_import_e:
-    _v7336611_sources = None
-    _v7336611_pipeline = None
-    _V7336611_OK = False
-    try: print(f'🚨 {_V7336611_VERSION} sequence/context/catalyst import fail: {type(_v7336611_import_e).__name__}: {_v7336611_import_e}')
+    print(f"{'✅' if _V7336612_OK else '🚨'} {_V7336612_VERSION} SEQUENCE_CONTEXT_CATALYST_PIPELINE {'LOADED' if _V7336612_OK else 'CONTRACT_FAIL'} | RESEARCH_ONLY=True")
+except Exception as _v7336612_import_e:
+    _v7336612_sources = None
+    _v7336612_pipeline = None
+    _V7336612_OK = False
+    try: print(f'🚨 {_V7336612_VERSION} sequence/context/catalyst import fail: {type(_v7336612_import_e).__name__}: {_v7336612_import_e}')
     except Exception: pass
 
 
-_V7336611_PREV_DIRECT = globals().get('v1081_run_direct_weekly_backtest')
+_V7336612_PREV_DIRECT = globals().get('v1081_run_direct_weekly_backtest')
 def v1081_run_direct_weekly_backtest(output_dir: str='') -> tuple:
-    prev = globals().get('_V7336611_PREV_DIRECT')
+    prev = globals().get('_V7336612_PREV_DIRECT')
     report, df = prev(output_dir=output_dir) if callable(prev) and prev is not v1081_run_direct_weekly_backtest else ('🧪 [직접재현 백테스트]\n- 원본 함수 없음', pd.DataFrame())
-    if not _V7336611_OK:
+    if not _V7336612_OK:
         return report, df
     out = output_dir or os.environ.get('V1080_BACKTEST_OUTPUT_DIR', 'reports')
     try:
         # Historical backtest never performs a current web search by default.
         # Forward capture is explicit and timestamped; retrospective source rows stay quarantined.
-        _v7336611_sources.ensure_templates(Path(out))
+        _v7336612_sources.ensure_templates(Path(out))
         if _v1080_env_on('CATALYST_FORWARD_CAPTURE_ENABLE','0'):
-            _v7336611_sources.capture_forward(out, os.environ.get('CATALYST_QUERY_PATH',''))
-    except Exception as _v7336611_source_e:
-        try: log_error(f'⚠️ V73.3.6.6.11.2 catalyst source capture 준비 실패: {type(_v7336611_source_e).__name__}: {_v7336611_source_e}')
+            _v7336612_sources.capture_forward(out, os.environ.get('CATALYST_QUERY_PATH',''))
+    except Exception as _v7336612_source_e:
+        try: log_error(f'⚠️ V73.3.6.6.12 catalyst source capture 준비 실패: {type(_v7336612_source_e).__name__}: {_v7336612_source_e}')
         except Exception: pass
     try:
         listing = load_krx_listing_safe() if callable(globals().get('load_krx_listing_safe')) else pd.DataFrame()
@@ -92757,7 +92757,7 @@ def v1081_run_direct_weekly_backtest(output_dir: str='') -> tuple:
     def evaluator(q):
         return _v1080_eval_signals(q, hold_days=hold, stop_pct=stop) if callable(globals().get('_v1080_eval_signals')) else pd.DataFrame()
     try:
-        fixed, _tables = _v7336611_pipeline.run_backtest(
+        fixed, _tables = _v7336612_pipeline.run_backtest(
             globals().get('_V733669_CAPTURE_ROWS', []),
             globals().get('_V733669_ATTEMPT_ROWS', []),
             globals().get('_V7336610_HISTORY_MAP', {}),
@@ -92768,38 +92768,38 @@ def v1081_run_direct_weekly_backtest(output_dir: str='') -> tuple:
         )
         return fixed, df
     except Exception as exc:
-        try: log_error(f'⚠️ V73.3.6.6.11.2 sequence/context/catalyst pipeline 실패: {type(exc).__name__}: {exc}')
+        try: log_error(f'⚠️ V73.3.6.6.12 sequence/context/catalyst pipeline 실패: {type(exc).__name__}: {exc}')
         except Exception: pass
-        return str(report or '') + '\n\n' + _V7336611_HEADER + f'\n- 생성 실패: {type(exc).__name__}: {exc}', df
+        return str(report or '') + '\n\n' + _V7336612_HEADER + f'\n- 생성 실패: {type(exc).__name__}: {exc}', df
 
 
-_V7336611_PREV_DIGEST = globals().get('_v1107_4_5_61_backtest_digest')
+_V7336612_PREV_DIGEST = globals().get('_v1107_4_5_61_backtest_digest')
 def _v1107_4_5_61_backtest_digest(text: str) -> str:
-    prev = globals().get('_V7336611_PREV_DIGEST'); raw = str(text or '')
+    prev = globals().get('_V7336612_PREV_DIGEST'); raw = str(text or '')
     try: d = prev(raw) if callable(prev) and prev is not _v1107_4_5_61_backtest_digest else raw
     except Exception: d = raw
-    if _V7336611_OK:
-        try: return _v7336611_pipeline.force_report(d, os.environ.get('V1080_BACKTEST_OUTPUT_DIR','reports'))
+    if _V7336612_OK:
+        try: return _v7336612_pipeline.force_report(d, os.environ.get('V1080_BACKTEST_OUTPUT_DIR','reports'))
         except Exception: return d
     return d
 
 
-_V7336611_PREV_CLEAN = globals().get('_v1107_4_5_62_clean_for_send')
+_V7336612_PREV_CLEAN = globals().get('_v1107_4_5_62_clean_for_send')
 def _v1107_4_5_62_clean_for_send(text: str) -> str:
-    prev = globals().get('_V7336611_PREV_CLEAN'); raw = str(text or '')
+    prev = globals().get('_V7336612_PREV_CLEAN'); raw = str(text or '')
     try: d = prev(raw) if callable(prev) and prev is not _v1107_4_5_62_clean_for_send else raw
     except Exception: d = raw
-    if _V7336611_OK:
-        try: return _v7336611_pipeline.force_report(d, os.environ.get('V1080_BACKTEST_OUTPUT_DIR','reports'))
+    if _V7336612_OK:
+        try: return _v7336612_pipeline.force_report(d, os.environ.get('V1080_BACKTEST_OUTPUT_DIR','reports'))
         except Exception: return d
     return d
 
 
-_V7336611_PREV_SEND = globals().get('_v1080_send_backtest_telegram')
+_V7336612_PREV_SEND = globals().get('_v1080_send_backtest_telegram')
 def _v1080_send_backtest_telegram(report: str, max_len: int=3500, *args, **kwargs):
-    prev = globals().get('_V7336611_PREV_SEND'); fixed = str(report or '')
-    if _V7336611_OK:
-        try: fixed = _v7336611_pipeline.force_report(fixed, os.environ.get('V1080_BACKTEST_OUTPUT_DIR','reports'))
+    prev = globals().get('_V7336612_PREV_SEND'); fixed = str(report or '')
+    if _V7336612_OK:
+        try: fixed = _v7336612_pipeline.force_report(fixed, os.environ.get('V1080_BACKTEST_OUTPUT_DIR','reports'))
         except Exception: pass
     if callable(prev) and prev is not _v1080_send_backtest_telegram:
         try: return prev(fixed, max_len=max_len, *args, **kwargs)
@@ -92810,8 +92810,8 @@ def _v1080_send_backtest_telegram(report: str, max_len: int=3500, *args, **kwarg
     return False
 
 
-_V7336611_RELEASE_MARKER = {
-    'version': _V7336611_VERSION,
+_V7336612_RELEASE_MARKER = {
+    'version': _V7336612_VERSION,
     'research_only': True,
     'pattern_sequence_state_machine': True,
     'market_sector_context': True,
@@ -92819,10 +92819,13 @@ _V7336611_RELEASE_MARKER = {
     'latent_catalyst_reactivation': True,
     'retrospective_quarantine': True,
     'snapshot_reproducibility_lock': True,
+    'forward_capture_append_only': True,
+    'first_seen_immutable': True,
+    'persistent_cache_contract': True,
     'live_logic_changed': False,
     'real_order_changed': False,
 }
-# ✅ END V73.3.6.6.11.2 SEQUENCE × MARKET/SECTOR × CATALYST LIFECYCLE PIPELINE
+# ✅ END V73.3.6.6.12 SEQUENCE × MARKET/SECTOR × CATALYST LIFECYCLE PIPELINE
 
 if __name__ == "__main__":
     # V73.3.6.5 dedicated HAM 15:03 RESEARCH_ONLY capture. Must exit before any LIVE scanner code.

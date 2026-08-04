@@ -8,7 +8,7 @@ import shutil
 import sys
 from pathlib import Path
 
-RELEASE_VERSION = "V73.3.6.6.11.2"
+RELEASE_VERSION = "V73.3.6.6.12"
 
 CONTRACTS = [
     {
@@ -71,15 +71,15 @@ CONTRACTS = [
         "label": "CATALYST_SOURCES",
         "filename": "catalyst_source_adapters.py",
         "module": "catalyst_source_adapters",
-        "version": "V73.3.6.6.11.2",
-        "callables": ("capture_forward", "ensure_templates", "normalize_rows"),
+        "version": "V73.3.6.6.12",
+        "callables": ("capture_forward", "ensure_templates", "normalize_rows", "build_query_universe", "merge_append_only", "capture_market_sector_context"),
         "exit_code": 133,
     },
     {
         "label": "SEQUENCE_CONTEXT_CATALYST",
         "filename": "pattern_catalyst_context_pipeline.py",
         "module": "pattern_catalyst_context_pipeline",
-        "version": "V73.3.6.6.11.2",
+        "version": "V73.3.6.6.12",
         "callables": ("run_backtest", "force_report", "sequence_state_v1"),
         "exit_code": 134,
     },

@@ -12,7 +12,7 @@ import pandas as pd
 
 import catalyst_source_adapters as adapters
 
-VERSION = "V73.3.6.6.11.2"
+VERSION = "V73.3.6.6.12"
 BASE_VERSION = "V73.3.6.6.11"
 RESEARCH_ONLY = True
 HEADER = "🧬 [패턴 시퀀스 × 시장·섹터 × 재료 생명주기 완성형 · RESEARCH_ONLY]"
@@ -410,6 +410,13 @@ def _load_sources(output_dir: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
     raw = pd.concat([explicit, ai], ignore_index=True) if len(ai) or len(explicit) else adapters.empty_ledger()
     if raw.empty:
         return raw, pd.DataFrame()
+    # V73.3.6.6.12: source ledgers are append-only and may be present both in the
+    # canonical master and a component ledger.  Collapse them by the stable source_key
+    # before event clustering so repeated cache restores never inflate source counts.
+    if "source_key" in raw.columns:
+        raw = raw.sort_values(["first_seen_at", "retrieved_at"], kind="stable").drop_duplicates("source_key", keep="last")
+    else:
+        raw = raw.drop_duplicates([c for c in ("source_id", "source_url", "code", "title", "published_at") if c in raw.columns], keep="last")
     for c in ("published_at", "updated_at", "first_seen_at", "event_occurred_at", "official_at", "retrieved_at"):
         raw[c + "_ts"] = pd.to_datetime(raw[c], errors="coerce", utc=True).dt.tz_convert("Asia/Seoul").dt.tz_localize(None)
     raw["code"] = raw["code"].map(_norm_code)
@@ -448,7 +455,7 @@ def _load_sources(output_dir: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
                 best_id, best_score = cl["id"], score
         if not best_id:
             best_id = "EVT-" + _sha_obj({"seed": r.get("canonical_seed"), "n": len(clusters)})[:16]
-            clusters.append({"id": best_id, "code": r.get("code", ""), "family": r.get("event_family"), "tokens": rt, "numbers": str(r.get("event_numbers", "")), "global_scope": bool(r.get("global_scope"))})
+            clusters.append({"id": best_id, "code": r.get("code", ""), "family": r.get("event_family"), "tokens": rt, "numbers": str(r.get("event_numbers", "")), "global_scope": bool(r.get("global_scope")), "sector": str(r.get("sector", "") or ""), "theme": str(r.get("theme", "") or "")})
         else:
             cl = next(x for x in clusters if x["id"] == best_id)
             cl["tokens"] |= rt
@@ -471,7 +478,10 @@ def _load_sources(output_dir: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
             "earliest_event_at": earliest, "latest_event_at": latest, "source_count": len(g),
             "source_domain_count": len(domains), "independent_source_count": len(independents),
             "official_confirmation": official, "cross_validated": confirmed,
-            "global_scope": bool(g["global_scope"].any()), "number_version_count": number_versions,
+            "global_scope": bool(g["global_scope"].any()),
+            "sector": next((str(x) for x in g.get("sector", pd.Series(dtype=str)) if str(x).strip()), ""),
+            "theme": next((str(x) for x in g.get("theme", pd.Series(dtype=str)) if str(x).strip()), ""),
+            "number_version_count": number_versions,
             "material_update_detected": number_versions >= 2,
             "representative_title": str(g.iloc[0].get("title", "")),
             "source_names": "|".join(sorted(set(g["source_name"].astype(str)))),
@@ -637,7 +647,17 @@ def _event_at_signal(seq_row: pd.Series, clusters: pd.DataFrame, raw: pd.DataFra
     }
     if clusters.empty or raw.empty:
         return base
-    candidates = clusters[(clusters["code"].eq(code)) | clusters["global_scope"].astype(bool)].copy()
+    direct_mask = clusters["code"].eq(code)
+    global_mask = clusters["global_scope"].astype(bool)
+    seq_sector = _clean_text(seq_row.get("sector", "")).lower()
+    if "sector" in clusters.columns and seq_sector:
+        cluster_sector = clusters["sector"].fillna("").astype(str).map(_clean_text).str.lower()
+        scoped = cluster_sector.eq("") | cluster_sector.eq(seq_sector) | cluster_sector.map(lambda x: bool(x and (x in seq_sector or seq_sector in x)))
+        global_mask = global_mask & scoped
+    elif "sector" in clusters.columns and not seq_sector:
+        # A sector-scoped global thesis must not be attached to a stock whose sector is unknown.
+        global_mask = global_mask & clusters["sector"].fillna("").astype(str).map(_clean_text).eq("")
+    candidates = clusters[direct_mask | global_mask].copy()
     if candidates.empty:
         return base
 
@@ -737,8 +757,16 @@ def _join(seq: pd.DataFrame, clusters: pd.DataFrame, raw: pd.DataFrame, history_
     market = _market_regime_map(output_dir)
     sector = _sector_context(seq, history_map, listing_df, output_dir)
     rows = []
+    sector_lookup = {}
+    if isinstance(sector, pd.DataFrame) and not sector.empty:
+        for _, sr in sector.iterrows():
+            sector_lookup[(pd.Timestamp(sr.get("signal_date")).normalize(), _norm_code(sr.get("code")))] = sr.to_dict()
     for _, r in seq.iterrows():
-        event = _event_at_signal(r, clusters, raw)
+        key = (pd.Timestamp(r["signal_date"]).normalize(), _norm_code(r["code"]))
+        sr = sector_lookup.get(key, {})
+        event_row = r.copy()
+        event_row["sector"] = str(sr.get("sector", "") or "")
+        event = _event_at_signal(event_row, clusters, raw)
         z = r.to_dict()
         z.update(event)
         z["market_regime"] = market.get(pd.Timestamp(r["signal_date"]).normalize(), "UNKNOWN")
