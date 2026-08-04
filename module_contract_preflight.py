@@ -8,7 +8,7 @@ import shutil
 import sys
 from pathlib import Path
 
-RELEASE_VERSION = "V73.3.6.6.8"
+RELEASE_VERSION = "V73.3.6.6.9"
 
 CONTRACTS = [
     {
@@ -50,6 +50,14 @@ CONTRACTS = [
         "version": "V73.3.6.6.8",
         "callables": ("capture_truth", "attach_result", "attach_post_result", "run_backtest", "force_report", "load_registry"),
         "exit_code": 115,
+    },
+    {
+        "label": "FORMULA_UNIVERSE",
+        "filename": "search_formula_universe_audit.py",
+        "module": "search_formula_universe_audit",
+        "version": "V73.3.6.6.9",
+        "callables": ("run_backtest", "force_report"),
+        "exit_code": 116,
     },
 ]
 
@@ -162,7 +170,7 @@ def main() -> int:
             )
             return int(contract["exit_code"])
 
-    print("✅ HAM/FAMILIAR/PATTERN-AI-CROSS/MARKET-EXCESS/FORMULA-TRUTH exact-root source preflight PASS")
+    print("✅ HAM/FAMILIAR/PATTERN-AI-CROSS/MARKET-EXCESS/FORMULA-TRUTH/FORMULA-UNIVERSE exact-root source preflight PASS")
     return 0
 
 

@@ -92225,6 +92225,269 @@ def _v1080_send_backtest_telegram(report: str,max_len: int=3500,*args,**kwargs):
 
 # ✅ END V73.3.6.6.8 FULL SEARCH-FORMULA TRUTH AUDIT
 
+
+
+# ============================================================
+# ✅ V73.3.6.6.9 FULL-UNIVERSE FORMULA TRUTH × PERFORMANCE × REGIME AUDIT
+# - Capture every active calculate_combination_score invocation reached by the existing
+#   Direct Replay universe pass, including rows that never become final candidates.
+# - PRE truth is the causal score-time signal. POST-only truth is timing diagnostics only.
+# - RESEARCH_ONLY: no LIVE score/rank/candidate/AI/entry/exit mutation.
+# ============================================================
+_V733669_VERSION = 'V73.3.6.6.9'
+_V733669_HEADER = '🌐 [전체 유니버스 검색식 Truth × 성과 × 시장국면 전수감사 · RESEARCH_ONLY]'
+_V733669_CAPTURE_ROWS = []
+_V733669_ATTEMPT_ROWS = []
+_V733669_CONTEXT = None
+try:
+    import search_formula_universe_audit as _v733669_universe
+    _V733669_OK = (
+        str(getattr(_v733669_universe, 'VERSION', '')) == _V733669_VERSION
+        and bool(getattr(_v733669_universe, 'RESEARCH_ONLY', False))
+        and all(callable(getattr(_v733669_universe, n, None)) for n in ('run_backtest', 'force_report'))
+    )
+    print(f"{'✅' if _V733669_OK else '🚨'} {_V733669_VERSION} FULL_UNIVERSE_FORMULA_AUDIT {'LOADED' if _V733669_OK else 'CONTRACT_FAIL'} | RESEARCH_ONLY=True")
+except Exception as _v733669_import_e:
+    _v733669_universe = None
+    _V733669_OK = False
+    try: print(f'🚨 {_V733669_VERSION} full-universe formula audit import fail: {type(_v733669_import_e).__name__}: {_v733669_import_e}')
+    except Exception: pass
+
+
+def _v733669_copy_truth_fields(dst, src):
+    if not isinstance(dst, dict) or not isinstance(src, dict):
+        return dst
+    for k in (
+        'formula_truth_registry_sha256','formula_truth_bitmap','formula_truth_true',
+        'formula_truth_scores_json','formula_truth_errors_json','formula_truth_missing_json','formula_truth_inputs_json',
+        'formula_truth_runtime_status','formula_truth_attach_error',
+        'formula_post_truth_registry_sha256','formula_post_truth_bitmap','formula_post_truth_true',
+        'formula_post_truth_scores_json','formula_post_truth_errors_json','formula_post_truth_missing_json','formula_post_truth_inputs_json',
+        'formula_post_truth_attach_error',
+    ):
+        if k in src:
+            dst[k] = src.get(k)
+    return dst
+
+
+_V733669_PREV_MAKE_SIGNAL_ROWS = globals().get('_v1081_make_signal_rows_for_asof')
+def _v1081_make_signal_rows_for_asof(asof_date, universe_df: pd.DataFrame, weather_data=None, sector_master_map=None, limit: int=15):
+    """V73.3.6.6.9 metadata wrapper around the existing exact Direct Replay pass.
+    It never starts a second stock scan and never changes analyze_final's return value.
+    """
+    global _V733669_CONTEXT, _V733669_CAPTURE_ROWS, _V733669_ATTEMPT_ROWS
+    base = globals().get('_V733669_PREV_MAKE_SIGNAL_ROWS')
+    if not callable(base) or base is _v1081_make_signal_rows_for_asof:
+        return []
+    if not _V733669_OK:
+        return base(asof_date, universe_df, weather_data=weather_data, sector_master_map=sector_master_map, limit=limit)
+
+    asof_ts = pd.Timestamp(asof_date).normalize()
+    orig_analyze = globals().get('analyze_final')
+    orig_calc = globals().get('calculate_combination_score')
+    truth_mod = globals().get('_v733666_truth')
+    orig_post_attach = getattr(truth_mod, 'attach_post_result', None) if truth_mod is not None else None
+    local_records = []
+    object_to_idx = {}
+    attempt_counter = {'n': 0}
+
+    def calc_wrapper(signals):
+        out = orig_calc(signals)
+        ctx = globals().get('_V733669_CONTEXT')
+        if isinstance(ctx, dict) and isinstance(out, dict):
+            ctx['combo_seq'] = int(ctx.get('combo_seq', 0)) + 1
+            rec = {
+                'version': _V733669_VERSION,
+                'signal_date': ctx.get('signal_date'),
+                'code': ctx.get('code', ''),
+                'name': ctx.get('name', ''),
+                'attempt_rank': ctx.get('attempt_rank', 0),
+                'combo_invocation': ctx.get('combo_seq', 0),
+                'analyze_returned': False,
+                'analyze_return_count': 0,
+                'analyze_error': '',
+                'selected_in_return': False,
+                'active_combination': out.get('combination', ''),
+                'active_grade': out.get('grade', ''),
+                'active_score': out.get('score', None),
+                'active_combo_count': out.get('combo_count', None),
+            }
+            _v733669_copy_truth_fields(rec, out)
+            local_records.append(rec)
+            object_to_idx[id(out)] = len(local_records) - 1
+        return out
+
+    def post_attach_wrapper(result, truth):
+        out = orig_post_attach(result, truth)
+        ctx = globals().get('_V733669_CONTEXT')
+        idx = object_to_idx.get(id(result))
+        if idx is None and isinstance(ctx, dict):
+            # Fallback to the latest invocation for this exact stock/date only.
+            for j in range(len(local_records) - 1, -1, -1):
+                r = local_records[j]
+                if r.get('code') == ctx.get('code') and str(r.get('signal_date')) == str(ctx.get('signal_date')):
+                    idx = j
+                    break
+        if idx is not None and 0 <= idx < len(local_records):
+            _v733669_copy_truth_fields(local_records[idx], out if isinstance(out, dict) else {})
+        return out
+
+    def analyze_wrapper(code, name, *args, **kwargs):
+        global _V733669_CONTEXT
+        attempt_counter['n'] += 1
+        ctx = {
+            'signal_date': asof_ts.strftime('%Y-%m-%d'),
+            'code': _v1080_norm_code(code) if callable(globals().get('_v1080_norm_code')) else str(code).zfill(6),
+            'name': str(name or ''),
+            'attempt_rank': attempt_counter['n'],
+            'combo_seq': 0,
+        }
+        _V733669_CONTEXT = ctx
+        start = len(local_records)
+        returned = False
+        return_count = 0
+        selected_codes = set()
+        err = ''
+        try:
+            res = orig_analyze(code, name, *args, **kwargs)
+            if isinstance(res, list):
+                return_count = len(res)
+                returned = return_count > 0
+                for z in res:
+                    if isinstance(z, dict):
+                        c = z.get('code', z.get('Code', z.get('종목코드', '')))
+                        if c:
+                            selected_codes.add(_v1080_norm_code(c) if callable(globals().get('_v1080_norm_code')) else str(c).zfill(6))
+            elif res:
+                return_count = 1
+                returned = True
+            return res
+        except Exception as exc:
+            err = f'{type(exc).__name__}:{exc}'
+            raise
+        finally:
+            end = len(local_records)
+            for j in range(start, end):
+                local_records[j]['analyze_returned'] = bool(returned)
+                local_records[j]['analyze_return_count'] = int(return_count)
+                local_records[j]['analyze_error'] = err
+                local_records[j]['selected_in_return'] = bool(ctx['code'] in selected_codes) if selected_codes else bool(returned)
+            _V733669_ATTEMPT_ROWS.append({
+                'version': _V733669_VERSION,
+                'signal_date': ctx['signal_date'],
+                'code': ctx['code'],
+                'name': ctx['name'],
+                'attempt_rank': ctx['attempt_rank'],
+                'combo_calls': int(end - start),
+                'analyze_returned': bool(returned),
+                'analyze_return_count': int(return_count),
+                'analyze_error': err,
+                'status': 'COMBO_REACHED' if end > start else ('ANALYZE_ERROR' if err else 'PRE_COMBO_EXIT'),
+            })
+            _V733669_CONTEXT = None
+
+    if callable(orig_calc):
+        globals()['calculate_combination_score'] = calc_wrapper
+    if truth_mod is not None and callable(orig_post_attach):
+        truth_mod.attach_post_result = post_attach_wrapper
+    if callable(orig_analyze):
+        globals()['analyze_final'] = analyze_wrapper
+    rows = []
+    try:
+        rows = base(asof_date, universe_df, weather_data=weather_data, sector_master_map=sector_master_map, limit=limit)
+        return rows
+    finally:
+        if callable(orig_analyze): globals()['analyze_final'] = orig_analyze
+        if callable(orig_calc): globals()['calculate_combination_score'] = orig_calc
+        if truth_mod is not None and callable(orig_post_attach): truth_mod.attach_post_result = orig_post_attach
+        _V733669_CONTEXT = None
+        _V733669_CAPTURE_ROWS.extend([dict(r) for r in local_records])
+        try:
+            log_info(f'🌐 V73.3.6.6.9 universe truth capture {asof_ts.strftime("%Y-%m-%d")} | attempts {attempt_counter["n"]} | combo rows {len(local_records)} | candidates {len(rows) if isinstance(rows,list) else 0}')
+        except Exception:
+            pass
+
+
+_V733669_PREV_DIRECT = globals().get('v1081_run_direct_weekly_backtest')
+def v1081_run_direct_weekly_backtest(output_dir: str='') -> tuple:
+    global _V733669_CAPTURE_ROWS, _V733669_ATTEMPT_ROWS
+    _V733669_CAPTURE_ROWS = []
+    _V733669_ATTEMPT_ROWS = []
+    prev = globals().get('_V733669_PREV_DIRECT')
+    report, df = prev(output_dir=output_dir) if callable(prev) and prev is not v1081_run_direct_weekly_backtest else ('🧪 [직접재현 백테스트]\n- 원본 함수 없음', pd.DataFrame())
+    if not _V733669_OK:
+        return report, df
+    out = output_dir or os.environ.get('V1080_BACKTEST_OUTPUT_DIR', 'reports')
+    try:
+        listing = load_krx_listing_safe() if callable(globals().get('load_krx_listing_safe')) else pd.DataFrame()
+    except Exception:
+        listing = pd.DataFrame()
+    hold = max(5, _v1080_env_int('V1080_BACKTEST_HOLD_DAYS', 5) if callable(globals().get('_v1080_env_int')) else 5)
+    stop = _v1080_env_float('V1080_BACKTEST_STOP_PCT', -5.0) if callable(globals().get('_v1080_env_float')) else -5.0
+    def evaluator(q):
+        return _v1080_eval_signals(q, hold_days=hold, stop_pct=stop) if callable(globals().get('_v1080_eval_signals')) else pd.DataFrame()
+    try:
+        fixed, _tables = _v733669_universe.run_backtest(
+            _V733669_CAPTURE_ROWS,
+            _V733669_ATTEMPT_ROWS,
+            output_dir=out,
+            base_report=report,
+            evaluator=evaluator,
+            listing_df=listing,
+        )
+        return fixed, df
+    except Exception as exc:
+        try: log_error(f'⚠️ V73.3.6.6.9 full-universe formula audit 실패: {type(exc).__name__}: {exc}')
+        except Exception: pass
+        return str(report or '') + '\n\n' + _V733669_HEADER + f'\n- 생성 실패: {type(exc).__name__}: {exc}', df
+
+
+_V733669_PREV_DIGEST = globals().get('_v1107_4_5_61_backtest_digest')
+def _v1107_4_5_61_backtest_digest(text: str) -> str:
+    prev = globals().get('_V733669_PREV_DIGEST'); raw = str(text or '')
+    try: d = prev(raw) if callable(prev) and prev is not _v1107_4_5_61_backtest_digest else raw
+    except Exception: d = raw
+    if _V733669_OK:
+        try: return _v733669_universe.force_report(d, os.environ.get('V1080_BACKTEST_OUTPUT_DIR','reports'))
+        except Exception: return d
+    return d
+
+
+_V733669_PREV_CLEAN = globals().get('_v1107_4_5_62_clean_for_send')
+def _v1107_4_5_62_clean_for_send(text: str) -> str:
+    prev = globals().get('_V733669_PREV_CLEAN'); raw = str(text or '')
+    try: d = prev(raw) if callable(prev) and prev is not _v1107_4_5_62_clean_for_send else raw
+    except Exception: d = raw
+    if _V733669_OK:
+        try: return _v733669_universe.force_report(d, os.environ.get('V1080_BACKTEST_OUTPUT_DIR','reports'))
+        except Exception: return d
+    return d
+
+
+_V733669_PREV_SEND = globals().get('_v1080_send_backtest_telegram')
+def _v1080_send_backtest_telegram(report: str, max_len: int=3500, *args, **kwargs):
+    prev = globals().get('_V733669_PREV_SEND'); fixed = str(report or '')
+    if _V733669_OK:
+        try: fixed = _v733669_universe.force_report(fixed, os.environ.get('V1080_BACKTEST_OUTPUT_DIR','reports'))
+        except Exception: pass
+    if callable(prev) and prev is not _v1080_send_backtest_telegram:
+        try: return prev(fixed, max_len=max_len, *args, **kwargs)
+        except TypeError:
+            try: return prev(fixed, max_len)
+            except TypeError: return prev(fixed)
+        except Exception: return False
+    return False
+
+
+_V733669_RELEASE_MARKER = {
+    'version': _V733669_VERSION,
+    'research_only': True,
+    'capture_scope': 'DIRECT_REPLAY_ANALYZED_UNIVERSE_PRE_CANDIDATE',
+    'live_logic_changed': False,
+    'post_only_used_for_performance': False,
+}
+# ✅ END V73.3.6.6.9 FULL-UNIVERSE FORMULA TRUTH × PERFORMANCE × REGIME AUDIT
+
 if __name__ == "__main__":
     # V73.3.6.5 dedicated HAM 15:03 RESEARCH_ONLY capture. Must exit before any LIVE scanner code.
     _v73365_ham_only = _v7224_on('STOCKHUNTER_HAM_1503_ONLY','0') or '--ham-1503-research' in sys.argv
