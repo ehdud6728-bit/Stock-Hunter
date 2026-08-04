@@ -4,13 +4,40 @@ from pathlib import Path
 from typing import Any
 import pandas as pd
 
-VERSION='V73.3.6.6.7'
+VERSION='V73.3.6.6.8'
 RESEARCH_ONLY=True
 HEADER='🧾 [전체 검색식 계산 진실성 전수감사 · RESEARCH_ONLY]'
 REGISTRY_FILE='search_formula_contract_registry.json'
 REPORT_FILE='v72_search_formula_truth_report_block.txt'
 BOOL_EXCEPTIONS={'triangle_apex','dolbanzi_Count','maejip_score_now','maejip_recent3','closing_bet_grade','style'}
 ANCHOR_COLUMNS=['triangle_start_date','triangle_end_date','wave1_low_date','wave1_high_date','pullback_low_date','restart_signal_date','bb40_lower_break_date','bb40_reclaim_date','ma5_break_date','ma5_reclaim_date']
+
+PRC_SCOPE_TOKENS=('PULLBACK_RESTART_CLOSE','PRC-SHADOW','V72-PRC','첫눌림재양봉')
+
+
+def _boolish(v:Any)->bool:
+    if isinstance(v,bool): return v
+    if v is None: return False
+    try:
+        if pd.isna(v): return False
+    except Exception: pass
+    return str(v).strip().lower() in {'1','true','t','y','yes','on'}
+
+
+def _scope_reason(row:pd.Series|dict)->tuple[bool,str]:
+    """Classify whether an eval row was produced by the COMBO_TABLE path.
+    PRC-SHADOW is an isolated V72 strategy and never calls COMBO_TABLE, so it is
+    deliberately excluded from the formula-truth transport denominator.
+    """
+    try:
+        get=row.get
+        fields=('candidate_scope','strategy','pattern','source','검색패턴','N구분','구분','단계상태','추천단계','v72_pullback_restart_reason')
+        blob=' '.join(str(get(k,'') or '') for k in fields)
+        if _boolish(get('v72_pullback_restart',False)) or any(tok in blob for tok in PRC_SCOPE_TOKENS):
+            return False,'EXCLUDED_PRC_SHADOW_NON_COMBO'
+        return True,'COMBO_TABLE_ELIGIBLE'
+    except Exception as e:
+        return True,f'COMBO_TABLE_ELIGIBLE_SCOPE_ERROR:{type(e).__name__}'
 
 
 def _root(): return Path(__file__).resolve().parent
@@ -206,7 +233,35 @@ def run_backtest(eval_df:pd.DataFrame|None,output_dir:str='reports'):
     out=Path(output_dir or 'reports');out.mkdir(parents=True,exist_ok=True);_serialize_inventory(out)
     aux_source_df=_runtime_aux_source_contract(out)
     aux_membership_df=_aux_runtime_membership(out)
-    df=eval_df.copy() if isinstance(eval_df,pd.DataFrame) else pd.DataFrame()
+    all_df=eval_df.copy() if isinstance(eval_df,pd.DataFrame) else pd.DataFrame()
+
+    # V73.3.6.6.8: denominator is the actual COMBO_TABLE path only.
+    # PRC-SHADOW is intentionally isolated and never has a COMBO bitmap.
+    scope_rows=[]; eligible_indices=[]
+    all_datecol=_col(all_df,'signal_date','날짜','replay_asof_date')
+    all_codecol=_col(all_df,'code','Code','종목코드')
+    for ridx,row in all_df.iterrows():
+        eligible,reason=_scope_reason(row)
+        if eligible: eligible_indices.append(ridx)
+        scope_rows.append({
+            'row_id':ridx,
+            'signal_date':row.get(all_datecol,'') if all_datecol else '',
+            'code':row.get(all_codecol,'') if all_codecol else '',
+            'formula_truth_scope':'ELIGIBLE' if eligible else 'EXCLUDED',
+            'scope_reason':reason,
+            'v72_pullback_restart':row.get('v72_pullback_restart',''),
+            'pattern':row.get('pattern',row.get('검색패턴','')),
+            'candidate_scope':row.get('candidate_scope',''),
+            'transport_status':row.get('formula_truth_transport_status',row.get('검색식진실전달상태','')),
+            'pre_bitmap_len':len(str(row.get('formula_truth_bitmap',row.get('검색식진실비트맵','')) or '')),
+            'post_bitmap_len':len(str(row.get('formula_post_truth_bitmap',row.get('검색식사후진실비트맵','')) or '')),
+        })
+    scope_df=pd.DataFrame(scope_rows)
+    scope_df.to_csv(out/'v72_search_formula_scope_audit.csv',index=False,encoding='utf-8-sig')
+    df=all_df.loc[eligible_indices].copy() if eligible_indices else all_df.iloc[0:0].copy()
+    excluded_prc=int(scope_df['scope_reason'].eq('EXCLUDED_PRC_SHADOW_NON_COMBO').sum()) if not scope_df.empty else 0
+    excluded_other=int((scope_df['formula_truth_scope'].eq('EXCLUDED') & ~scope_df['scope_reason'].eq('EXCLUDED_PRC_SHADOW_NON_COMBO')).sum()) if not scope_df.empty else 0
+
     bcol=_col(df,'검색식진실비트맵','formula_truth_bitmap')
     icol=_col(df,'검색식원천값JSON','formula_truth_inputs_json')
     ecol=_col(df,'검색식오류JSON','formula_truth_errors_json')
@@ -254,41 +309,30 @@ def run_backtest(eval_df:pd.DataFrame|None,output_dir:str='reports'):
                 actual='MISSING' if v=='__MISSING__' else type(v).__name__
                 bad=expected=='BOOL' and v!='__MISSING__' and not isinstance(v,bool)
                 types.append({'row_id':ridx,'formula':c['combination'],'signal_key':k,'expected_type':expected,'actual_type':actual,'value':v,'type_anomaly':bad})
-        true_set=set(true_names)
-        omitted=true_set-rec
-        false_recorded=rec-true_set
-        expected_primary=''
-        scored=[(float(scoremap.get(n,-1e18) or -1e18),n) for n in true_names]
+        true_set=set(true_names);omitted=true_set-rec;false_recorded=rec-true_set
+        expected_primary='';scored=[(float(scoremap.get(n,-1e18) or -1e18),n) for n in true_names]
         if scored:expected_primary=max(scored,key=lambda x:x[0])[1]
         recon.append({'row_id':ridx,'signal_date':r.get(datecol,'') if datecol else '','code':r.get(codecol,'') if codecol else '', 'true_count':len(true_set),'recorded_count':len(rec),'true_not_recorded':'|'.join(sorted(omitted)),'recorded_but_false':'|'.join(sorted(false_recorded)),'primary':primary,'expected_highest_base_score':expected_primary,'primary_base_score_mismatch':bool(expected_primary and primary and expected_primary!=primary),'registry_sha256':regsha})
-        # temporal native evidence: do not invent absent anchors.
-        tri=_loads(r.get(tcol,'{}') if tcol else '{}',{})
-        anchor={k:tri.get(k) for k in ANCHOR_COLUMNS if k in tri}
+        tri=_loads(r.get(tcol,'{}') if tcol else '{}',{});anchor={k:tri.get(k) for k in ANCHOR_COLUMNS if k in tri}
         temporal.append({'row_id':ridx,'signal_date':r.get(datecol,'') if datecol else '','code':r.get(codecol,'') if codecol else '', 'native_anchor_keys':'|'.join(anchor.keys()),'native_anchor_count':len(anchor),'status':'AVAILABLE' if anchor else 'NATIVE_ANCHOR_MISSING','native_anchor_json':json.dumps(anchor,ensure_ascii=False)})
     rdf=pd.DataFrame(runtime);rcf=pd.DataFrame(recon);tdf=pd.DataFrame(types);tempdf=pd.DataFrame(temporal)
     summary=[]
     if not rdf.empty:
         for c in _REG['combos']:
-            q=rdf[rdf['formula'].eq(c['combination'])]
-            tq=q[q['truth_status'].eq('T')]
+            q=rdf[rdf['formula'].eq(c['combination'])];tq=q[q['truth_status'].eq('T')]
             z={'formula_index':c['index'],'formula':c['combination'],'grade':c['grade'],'base_score':c['base_score'],'evaluated_rows':len(q),'true_rows':len(tq),'post_true_rows':int(q['post_truth_status'].eq('T').sum()),'post_eval_change_rows':int(q['post_eval_changed'].sum()),'became_true_after_evaluation_rows':int(q['became_true_after_evaluation'].sum()),'hit_rate_pct':len(tq)/len(q)*100 if len(q) else float('nan'),'condition_error_rows':int(q['truth_status'].eq('E').sum()),'missing_input_rows':int(q['missing_keys'].astype(str).ne('').sum()),'recorded_true_rows':int((q['truth_status'].eq('T')&q['recorded_match']).sum()),'truth_record_mismatch_rows':int((q['truth_status'].eq('T')&~q['recorded_match']).sum()+(q['truth_status'].ne('T')&q['recorded_match']).sum())}
-            z.update(_perf(tq.rename(columns={'next3_close_ret':'next3_close_ret'})))
-            summary.append(z)
+            z.update(_perf(tq.rename(columns={'next3_close_ret':'next3_close_ret'})));summary.append(z)
     sdf=pd.DataFrame(summary)
-    # Manual chart sample manifest from every formula that fired.
     if not rdf.empty:
         for formula,q in rdf[rdf['truth_status'].eq('T')].groupby('formula'):
-            q=q.copy();q['_r']=_num(q['next3_close_ret'])
-            picks=[]
+            q=q.copy();q['_r']=_num(q['next3_close_ret']);picks=[]
             for label,qq in [('BEST',q.sort_values('_r',ascending=False)),('WORST',q.sort_values('_r')),('NEUTRAL',q.assign(_abs=q['_r'].abs()).sort_values('_abs'))]:
                 if not qq.empty:
                     x=qq.iloc[0];key=(x.get('signal_date',''),x.get('code',''))
                     if key not in [(p[1].get('signal_date',''),p[1].get('code','')) for p in picks]:picks.append((label,x))
-            for label,x in picks:
-                manual.append({'formula':formula,'sample_role':label,'signal_date':x.get('signal_date',''),'code':x.get('code',''),'next3_close_ret':x.get('next3_close_ret'),'review_items':'formula visual match|source values|anchor order|market regime|resistance space|volume contraction'})
+            for label,x in picks:manual.append({'formula':formula,'sample_role':label,'signal_date':x.get('signal_date',''),'code':x.get('code',''),'next3_close_ret':x.get('next3_close_ret'),'review_items':'formula visual match|source values|anchor order|market regime|resistance space|volume contraction'})
     mdf=pd.DataFrame(manual)
-    for name,d in [('v72_search_formula_runtime_truth_audit.csv',rdf),('v72_search_formula_formula_summary.csv',sdf),('v72_search_formula_reconciliation_audit.csv',rcf),('v72_search_formula_input_type_audit.csv',tdf),('v72_search_formula_temporal_anchor_audit.csv',tempdf),('v72_search_formula_manual_chart_sample_manifest.csv',mdf)]:
-        d.to_csv(out/name,index=False,encoding='utf-8-sig')
+    for name,d in [('v72_search_formula_runtime_truth_audit.csv',rdf),('v72_search_formula_formula_summary.csv',sdf),('v72_search_formula_reconciliation_audit.csv',rcf),('v72_search_formula_input_type_audit.csv',tdf),('v72_search_formula_temporal_anchor_audit.csv',tempdf),('v72_search_formula_manual_chart_sample_manifest.csv',mdf)]:d.to_csv(out/name,index=False,encoding='utf-8-sig')
     combo_n=len(_REG['combos']);aux_n=len(_REG.get('aux_selectors',[]))
     aux_source_missing=aux_source_df.loc[~aux_source_df['runtime_found'].astype(bool),'group'].astype(str).tolist() if not aux_source_df.empty else [x.get('group','') for x in _REG.get('aux_selectors',[]) if not x.get('function_found')]
     never=int((sdf['true_rows'].eq(0)).sum()) if not sdf.empty else combo_n
@@ -298,47 +342,49 @@ def run_backtest(eval_df:pd.DataFrame|None,output_dir:str='reports'):
     post_change_rows=int(rdf['post_eval_changed'].sum()) if not rdf.empty else 0
     post_became_true=int(rdf['became_true_after_evaluation'].sum()) if not rdf.empty else 0
     static_late=[x for x in _REG.get('producer_timing',[]) if x.get('status')!='OK']
-    helper_found=[x for x in _REG.get('semantic_helpers',[]) if x.get('found')]
-    helper_no_order=[x for x in helper_found if not x.get('uses_date_order')]
+    helper_found=[x for x in _REG.get('semantic_helpers',[]) if x.get('found')];helper_no_order=[x for x in helper_found if not x.get('uses_date_order')]
     anchors_ok=int(tempdf['status'].eq('AVAILABLE').sum()) if not tempdf.empty else 0
-    min_required=math.ceil(len(df)*0.95) if len(df) else 0
-    transport_complete=0
-    transport_source_missing=0
-    if transport_col and len(df):
-        _ts=df[transport_col].fillna('').astype(str)
-        transport_complete=int(_ts.eq('COPIED_COMPLETE').sum())
-        transport_source_missing=int(_ts.str.startswith('SOURCE_PRE_LEN_').sum())
-    audit_valid=bool(len(df)>0 and full_coverage>=min_required and registry_mismatch==0 and transport_complete>=min_required)
+    eligible_n=len(df);total_n=len(all_df);min_required=math.ceil(eligible_n*0.95) if eligible_n else 0
+    transport_complete=0;transport_source_missing=0
+    if transport_col and eligible_n:
+        _ts=df[transport_col].fillna('').astype(str);transport_complete=int(_ts.eq('COPIED_COMPLETE').sum());transport_source_missing=int(_ts.str.startswith('SOURCE_PRE_LEN_').sum())
+    audit_valid=bool(eligible_n>0 and full_coverage>=min_required and post_full_coverage>=min_required and registry_mismatch==0 and post_registry_mismatch==0 and transport_complete>=min_required)
+    independent_dates=int(df[datecol].astype(str).str[:10].nunique()) if datecol and eligible_n else 0
+    performance_ready=bool(audit_valid and eligible_n>=30 and independent_dates>=10)
     invalid_reasons=[]
-    if len(df)==0: invalid_reasons.append('NO_EVAL_ROWS')
-    if full_coverage<min_required: invalid_reasons.append(f'PRE_BITMAP_COVERAGE_{full_coverage}/{len(df)}')
-    if registry_mismatch: invalid_reasons.append(f'PRE_REGISTRY_MISMATCH_{registry_mismatch}')
-    if transport_complete<min_required: invalid_reasons.append(f'TRANSPORT_COMPLETE_{transport_complete}/{len(df)}')
+    if eligible_n==0:invalid_reasons.append('NO_FORMULA_ELIGIBLE_ROWS')
+    if full_coverage<min_required:invalid_reasons.append(f'PRE_BITMAP_COVERAGE_{full_coverage}/{eligible_n}')
+    if post_full_coverage<min_required:invalid_reasons.append(f'POST_BITMAP_COVERAGE_{post_full_coverage}/{eligible_n}')
+    if registry_mismatch:invalid_reasons.append(f'PRE_REGISTRY_MISMATCH_{registry_mismatch}')
+    if post_registry_mismatch:invalid_reasons.append(f'POST_REGISTRY_MISMATCH_{post_registry_mismatch}')
+    if transport_complete<min_required:invalid_reasons.append(f'TRANSPORT_COMPLETE_{transport_complete}/{eligible_n}')
     lines=[HEADER,
            f'📌 {VERSION} · FULL_SEARCH_FORMULA_TRUTH_TEMPORAL_PROVENANCE_AUDIT · RESEARCH_ONLY=True',
            f"- AUDIT STATUS: {'✅ VALID' if audit_valid else '⛔ INVALID'} · reason {','.join(invalid_reasons) if invalid_reasons else 'OK'}",
+           f'- 감사 범위 회계: eval 전체 {total_n}행 · COMBO_TABLE 대상 {eligible_n}행 · PRC-SHADOW 제외 {excluded_prc}행 · 기타 제외 {excluded_other}행',
+           f"- 성과판정 준비: {'✅ READY' if performance_ready else '⏳ NOT_READY'} · COMBO 대상 {eligible_n}행 / 독립 신호일 {independent_dates}일 · 최소 30행·10일 전 PERFORMANCE_FAIL 금지",
            f'- 전수 범위: COMBO_TABLE {combo_n}개 + AUX/LIVE selector {aux_n}개 = 총 {combo_n+aux_n}개 · registry {REGISTRY_SHA[:16]}…',
-           f'- Runtime truth PRE: 분석 {len(df)}행 · 완전 비트맵 {full_coverage}행 · registry mismatch {registry_mismatch}행',
-           f'- Runtime truth POST: 완전 비트맵 {post_full_coverage}행 · registry mismatch {post_registry_mismatch}행',
-           f'- Direct Replay 전달계약: COPIED_COMPLETE {transport_complete}/{len(df)} · source-missing {transport_source_missing}행',
+           f'- Runtime truth PRE: 대상 {eligible_n}행 · 완전 비트맵 {full_coverage}행 · registry mismatch {registry_mismatch}행',
+           f'- Runtime truth POST: 대상 {eligible_n}행 · 완전 비트맵 {post_full_coverage}행 · registry mismatch {post_registry_mismatch}행',
+           f'- Direct Replay 전달계약: COPIED_COMPLETE {transport_complete}/{eligible_n} · source-missing {transport_source_missing}행',
            f'- 공식 상태: 실제 점등 0회 식 {never}/{combo_n} · condition error {errors_n}건 · 입력누락 formula-row {missing_n}건',
            f'- 매칭 회계: 대표/기록 불일치 행 {recon_bad} · 원천 anchor AVAILABLE {anchors_ok}/{len(tempdf)}',
            f'- 계산순서 감사: 정적 post-eval override 식 {len(static_late)}개 · runtime 판정변경 {post_change_rows} formula-row · 뒤늦게 TRUE {post_became_true}건',
            f"- 시간순서 helper 감사: 원문확보 {len(helper_found)}개 · 명시적 날짜/순서 확인 불가 {len(helper_no_order)}개(자동 오류판정 아님, 수동검토 대상)",
            f"- AUX 소스계약: runtime 원문 미확인 {','.join(aux_source_missing) if aux_source_missing else '-'} · 외부 triangle_combo_analyzer가 있으면 함수 원문 SHA까지 고정",
-           f"- AUX runtime membership: 평가가능 그룹 {len(aux_membership_df)}개 · 원장 v72_aux_candidate_group_shadow_eval.csv 연동",
-           '- 원칙: 성과가 나쁘다는 이유로 식을 즉시 수정하지 않고, 조건 원문→원천값→판정→기록매칭→시간순서가 일치하는지 먼저 확인합니다.']
-    if not audit_valid:
-        lines += ['⛔ [해석 차단]','- 전수감사 입력계약이 충족되지 않았으므로 검색식별 TRUE/FALSE·FAIL-CALC·PERFORMANCE_FAIL 판정을 금지합니다.','- 다른 독립 연구 블록은 유지하되 이 감사의 검색식 성과표는 근거로 사용하지 않습니다.']
+           f'- AUX runtime membership: 평가가능 그룹 {len(aux_membership_df)}개 · 원장 v72_aux_candidate_group_shadow_eval.csv 연동',
+           '- 원칙: PRC-SHADOW는 COMBO_TABLE을 호출하지 않는 별도 전략이므로 진실 비트맵 분모에서 제외합니다. 조건 원문→원천값→판정→기록매칭→시간순서를 먼저 검증합니다.']
+    if not audit_valid:lines += ['⛔ [해석 차단]','- COMBO_TABLE 대상 행의 입력계약이 충족되지 않았으므로 검색식별 TRUE/FALSE·FAIL-CALC·PERFORMANCE_FAIL 판정을 금지합니다.','- PRC-SHADOW 제외행의 빈 비트맵은 오류로 세지 않습니다.']
+    elif not performance_ready:lines += ['⏳ [성과판정 대기]','- 계산·전달 계약은 유효하지만 표본이 부족하므로 PERFORMANCE_FAIL과 LIVE 승격 판정을 금지합니다.','- 현재 결과는 어떤 식이 실제로 점등됐고 평가 전후에 바뀌었는지 확인하는 계산 감사로만 사용합니다.']
     if audit_valid and not sdf.empty:
-        active=sdf.sort_values(['true_rows','truth_record_mismatch_rows'],ascending=[False,False]).head(8)
-        lines.append('🔍 [점등빈도 상위 식]')
+        active=sdf.sort_values(['true_rows','truth_record_mismatch_rows'],ascending=[False,False]).head(8);lines.append('🔍 [점등빈도 상위 식 · COMBO 대상만]')
         for _,x in active.iterrows():lines.append(f"- {x['formula']}: true {int(x['true_rows'])}/{int(x['evaluated_rows'])} · mismatch {int(x['truth_record_mismatch_rows'])} · D3중앙 {x['d3_median']:+.2f}%" if not pd.isna(x['d3_median']) else f"- {x['formula']}: true {int(x['true_rows'])}/{int(x['evaluated_rows'])} · mismatch {int(x['truth_record_mismatch_rows'])}")
-    lines += ['🧭 [전수검사 판정 규칙]','- FAIL-CALC: condition error·원천키 누락·기록은 TRUE인데 재계산 FALSE·시간순서 위반','- REVIEW: 점등 0회·비정상 고빈도·다른 상위식에 계속 가려짐·native anchor 미저장','- PERFORMANCE_FAIL: 계산진실성 PASS 이후 OOS 중앙/절사/상위2개 제외/비용후 초과수익이 모두 열위','- LIVE 변경 금지 · selector/점수/진입/익절/손절 자동변경 0', '- Actions CSV: v72_search_formula_contract_inventory.csv · producer_timing_audit.csv · runtime_truth_audit.csv · formula_summary.csv · reconciliation_audit.csv · input_type_audit.csv · temporal_anchor_audit.csv · manual_chart_sample_manifest.csv']
-    report='\n'.join(lines)
-    (out/REPORT_FILE).write_text(report,encoding='utf-8')
-    return report,{'inventory':pd.DataFrame(_REG['combos']),'runtime':rdf,'summary':sdf,'reconciliation':rcf,'types':tdf,'temporal':tempdf,'manual':mdf,'audit_valid':audit_valid,'pre_full_coverage':full_coverage,'post_full_coverage':post_full_coverage,'transport_complete':transport_complete,'transport_source_missing':transport_source_missing}
-
+    if audit_valid and post_became_true and not rdf.empty:
+        changed=rdf[rdf['became_true_after_evaluation']].drop_duplicates(['row_id','formula']).head(12);lines.append('⏱️ [평가 후 뒤늦게 TRUE가 된 식]')
+        for _,x in changed.iterrows():lines.append(f"- {x.get('formula')}: {x.get('signal_date','')} {x.get('code','')} | PRE {x.get('truth_status')} → POST {x.get('post_truth_status')}")
+    lines += ['🧭 [전수검사 판정 규칙]','- FAIL-CALC: COMBO 대상 행의 condition error·원천키 누락·기록은 TRUE인데 재계산 FALSE·시간순서 위반','- REVIEW: 점등 0회·비정상 고빈도·다른 상위식에 계속 가려짐·native anchor 미저장','- PERFORMANCE_FAIL: 계산진실성 PASS + 최소 30행·10독립일 이후 OOS 중앙/절사/상위2개 제외/비용후 초과수익이 모두 열위','- LIVE 변경 금지 · selector/점수/진입/익절/손절 자동변경 0','- Actions CSV: v72_search_formula_scope_audit.csv · contract_inventory.csv · producer_timing_audit.csv · runtime_truth_audit.csv · formula_summary.csv · reconciliation_audit.csv · input_type_audit.csv · temporal_anchor_audit.csv · manual_chart_sample_manifest.csv']
+    report='\n'.join(lines);(out/REPORT_FILE).write_text(report,encoding='utf-8')
+    return report,{'inventory':pd.DataFrame(_REG['combos']),'scope':scope_df,'runtime':rdf,'summary':sdf,'reconciliation':rcf,'types':tdf,'temporal':tempdf,'manual':mdf,'audit_valid':audit_valid,'performance_ready':performance_ready,'eligible_rows':eligible_n,'excluded_prc_rows':excluded_prc,'pre_full_coverage':full_coverage,'post_full_coverage':post_full_coverage,'transport_complete':transport_complete,'transport_source_missing':transport_source_missing}
 
 def force_report(text:str,output_dir:str='reports',eval_df:pd.DataFrame|None=None):
     s=str(text or '')

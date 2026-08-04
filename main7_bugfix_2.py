@@ -92077,25 +92077,25 @@ def _v732_load_engine():
 
 
 # ============================================================
-# ✅ V73.3.6.6.7 FULL SEARCH-FORMULA TRUTH × TEMPORAL × PROVENANCE AUDIT
+# ✅ V73.3.6.6.8 FULL SEARCH-FORMULA TRUTH × TEMPORAL × PROVENANCE AUDIT
 # - Every COMBO_TABLE formula and every AUX/LIVE selector contract is inventoried.
 # - Runtime truth bitmap is captured before winner selection; no score/rank/LIVE mutation.
 # - Formula calculation truth is audited before performance-based changes are considered.
 # ============================================================
-_V733666_VERSION='V73.3.6.6.7'
+_V733666_VERSION='V73.3.6.6.8'
 _V733666_TRUTH_OK=False
 try:
     import search_formula_truth_audit as _v733666_truth
     _V733666_TRUTH_OK=(getattr(_v733666_truth,'VERSION','')==_V733666_VERSION and getattr(_v733666_truth,'RESEARCH_ONLY',False) is True)
-    print(f"✅ V73.3.6.6.7 SEARCH_FORMULA_TRUTH_AUDIT loaded={int(_V733666_TRUTH_OK)} registry={getattr(_v733666_truth,'REGISTRY_SHA','')[:16]}")
+    print(f"✅ V73.3.6.6.8 SEARCH_FORMULA_TRUTH_AUDIT loaded={int(_V733666_TRUTH_OK)} registry={getattr(_v733666_truth,'REGISTRY_SHA','')[:16]}")
 except Exception as _v733666_import_e:
     _v733666_truth=None
-    try: print(f"⚠️ V73.3.6.6.7 search_formula_truth_audit import fail: {type(_v733666_import_e).__name__}: {_v733666_import_e}")
+    try: print(f"⚠️ V73.3.6.6.8 search_formula_truth_audit import fail: {type(_v733666_import_e).__name__}: {_v733666_import_e}")
     except Exception: pass
 
 
 
-# V73.3.6.6.7: preserve truth/provenance columns across the fixed Direct Replay signal-row projection.
+# V73.3.6.6.8: preserve truth/provenance columns across the fixed Direct Replay signal-row projection.
 # analyze_final -> candidate DataFrame already contains these columns. The legacy mapper intentionally
 # returns a compact schema, so this read-only wrapper copies only audit metadata after that mapper.
 _V733667_TRUTH_TRANSPORT_FIELDS = (
@@ -92177,7 +92177,7 @@ def _v733666_force_report(text, output_dir='reports', eval_df=None):
     if not _V733666_TRUTH_OK:return str(text or '')
     try:return _v733666_truth.force_report(str(text or ''), output_dir or 'reports', eval_df=eval_df)
     except Exception as e:
-        try: log_error(f'⚠️ V73.3.6.6.7 truth report fail: {type(e).__name__}: {e}')
+        try: log_error(f'⚠️ V73.3.6.6.8 truth report fail: {type(e).__name__}: {e}')
         except Exception: pass
         return str(text or '')
 
@@ -92223,7 +92223,7 @@ def _v1080_send_backtest_telegram(report: str,max_len: int=3500,*args,**kwargs):
         except Exception:return False
     return False
 
-# ✅ END V73.3.6.6.7 FULL SEARCH-FORMULA TRUTH AUDIT
+# ✅ END V73.3.6.6.8 FULL SEARCH-FORMULA TRUTH AUDIT
 
 if __name__ == "__main__":
     # V73.3.6.5 dedicated HAM 15:03 RESEARCH_ONLY capture. Must exit before any LIVE scanner code.
@@ -93719,4 +93719,4 @@ except Exception:
 
 
 # ✅ V73.3.6.6.6 FULL_SEARCH_FORMULA_TRUTH_TEMPORAL_PROVENANCE_AUDIT_MARKER
-_V733666_RELEASE_MARKER={'version':'V73.3.6.6.7','research_only':True,'combo_formulas':66,'aux_selectors':6,'live_logic_changed':False,'active_score_function_count':1,'audit_fail_closed':True}
+_V733666_RELEASE_MARKER={'version':'V73.3.6.6.8','research_only':True,'combo_formulas':66,'aux_selectors':6,'live_logic_changed':False,'active_score_function_count':1,'audit_fail_closed':True}
