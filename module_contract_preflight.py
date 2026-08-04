@@ -8,7 +8,7 @@ import shutil
 import sys
 from pathlib import Path
 
-RELEASE_VERSION = "V73.3.6.6.10.1"
+RELEASE_VERSION = "V73.3.6.6.11"
 
 CONTRACTS = [
     {
@@ -66,6 +66,22 @@ CONTRACTS = [
         "version": "V73.3.6.6.10.1",
         "callables": ("run_backtest", "force_report", "causal_anchor_v1"),
         "exit_code": 117,
+    },
+    {
+        "label": "CATALYST_SOURCES",
+        "filename": "catalyst_source_adapters.py",
+        "module": "catalyst_source_adapters",
+        "version": "V73.3.6.6.11",
+        "callables": ("capture_forward", "ensure_templates", "normalize_rows"),
+        "exit_code": 133,
+    },
+    {
+        "label": "SEQUENCE_CONTEXT_CATALYST",
+        "filename": "pattern_catalyst_context_pipeline.py",
+        "module": "pattern_catalyst_context_pipeline",
+        "version": "V73.3.6.6.11",
+        "callables": ("run_backtest", "force_report", "sequence_state_v1"),
+        "exit_code": 134,
     },
 ]
 
@@ -178,7 +194,7 @@ def main() -> int:
             )
             return int(contract["exit_code"])
 
-    print("✅ HAM/FAMILIAR/PATTERN-AI-CROSS/MARKET-EXCESS/FORMULA-TRUTH/FORMULA-UNIVERSE/FORMULA-COMPLETE exact-root source preflight PASS")
+    print("✅ HAM/FAMILIAR/PATTERN-AI-CROSS/MARKET-EXCESS/FORMULA-TRUTH/FORMULA-UNIVERSE/FORMULA-COMPLETE/CATALYST-SOURCES/SEQUENCE-CONTEXT-CATALYST exact-root source preflight PASS")
     return 0
 
 
