@@ -12,7 +12,8 @@ import pandas as pd
 
 import catalyst_source_adapters as adapters
 
-VERSION = "V73.3.6.6.11"
+VERSION = "V73.3.6.6.11.1"
+BASE_VERSION = "V73.3.6.6.11"
 RESEARCH_ONLY = True
 HEADER = "🧬 [패턴 시퀀스 × 시장·섹터 × 재료 생명주기 완성형 · RESEARCH_ONLY]"
 REPORT_FILE = "v73_sequence_context_catalyst_report_block.txt"
@@ -31,6 +32,7 @@ MANUAL_FILE = "v73_sequence_context_manual_chart_manifest.csv"
 QUERY_FILE = "v73_catalyst_query_universe.csv"
 MARKET_SECTOR_LEDGER_FILE = "v73_market_sector_context_ledger.csv"
 MARKET_SECTOR_COVERAGE_FILE = "v73_market_sector_context_coverage.csv"
+DENOMINATOR_AUDIT_FILE = "v73_sequence_zero_denominator_guard_audit.csv"
 MARKET_SECTOR_COLUMNS = [
     "signal_date", "signal_cutoff_at", "code", "name", "sector", "market_regime",
     "market_return_5d", "market_turnover_ratio", "market_investor_flow",
@@ -66,6 +68,20 @@ def _num(v: Any) -> float:
         return x if math.isfinite(x) else float("nan")
     except Exception:
         return float("nan")
+
+
+def _safe_div(numerator: Any, denominator: Any, default: float = float("nan"), min_abs: float = 1e-12) -> float:
+    """Finite fail-closed division used for all price/volume ratios.
+
+    Market data occasionally contains zero placeholders.  A single malformed
+    historical bar must never abort the whole RESEARCH_ONLY report block.
+    """
+    n = _num(numerator)
+    d = _num(denominator)
+    if not math.isfinite(n) or not math.isfinite(d) or abs(d) <= min_abs:
+        return default
+    value = n / d
+    return value if math.isfinite(value) else default
 
 
 def _fmt(v: Any, d: int = 2) -> str:
@@ -134,13 +150,25 @@ def _normalize_history(df: pd.DataFrame) -> pd.DataFrame:
     for target, choices in aliases.items():
         c = next((x for x in choices if x in q.columns), None)
         out[target] = pd.to_numeric(q[c], errors="coerce") if c else np.nan
+    raw_rows = len(out)
     out = out.dropna(subset=["High", "Low", "Close"])
-    out["Volume"] = out["Volume"].fillna(0.0)
-    return out.tail(160)
+    numeric_price = out["High"].gt(0) & out["Low"].gt(0) & out["Close"].gt(0)
+    coherent_bar = out["High"].ge(out["Low"])
+    invalid_price_rows = int((~(numeric_price & coherent_bar)).sum())
+    out = out[numeric_price & coherent_bar].copy()
+    out["Volume"] = out["Volume"].fillna(0.0).clip(lower=0.0)
+    out = out[~out.index.duplicated(keep="last")].tail(160)
+    out.attrs["raw_price_rows"] = raw_rows
+    out.attrs["valid_price_rows"] = len(out)
+    out.attrs["invalid_nonpositive_or_incoherent_price_rows"] = invalid_price_rows
+    return out
 
 
 def sequence_state_v1(history: pd.DataFrame, signal_date: Any) -> dict:
     h = _normalize_history(history)
+    raw_price_rows = int(h.attrs.get("raw_price_rows", len(h)))
+    valid_price_rows = int(h.attrs.get("valid_price_rows", len(h)))
+    invalid_price_rows = int(h.attrs.get("invalid_nonpositive_or_incoherent_price_rows", 0))
     sd = pd.Timestamp(signal_date).normalize()
     h = h[h.index.normalize() <= sd].tail(100)
     base = {
@@ -153,6 +181,8 @@ def sequence_state_v1(history: pd.DataFrame, signal_date: Any) -> dict:
         "impulse_ok": False, "accepted_breakout": False, "first_pullback": False, "supply_drying": False,
         "price_compression": False, "restart_trigger": False, "temporal_invariant": "UNKNOWN",
         "sequence_key": "NONE", "sequence_quality_score": 0.0,
+        "raw_price_rows": raw_price_rows, "valid_price_rows": valid_price_rows,
+        "invalid_price_rows_excluded": invalid_price_rows, "sequence_error": "",
     }
     if len(h) < 25:
         return base
@@ -192,18 +222,25 @@ def sequence_state_v1(history: pd.DataFrame, signal_date: Any) -> dict:
         return base
     pb_date = pull_phase["Low"].idxmin()
     pb_low = float(pull_phase.loc[pb_date, "Low"])
-    retrace = (impulse_high - pb_low) / wave * 100.0
-    impulse_ret = (impulse_close / impulse_low - 1.0) * 100.0
+    retrace = _safe_div(impulse_high - pb_low, wave) * 100.0
+    impulse_ratio = _safe_div(impulse_close, impulse_low)
+    if not math.isfinite(impulse_ratio):
+        base.update({
+            "sequence_status": "INPUT_INVALID_ZERO_DENOMINATOR",
+            "sequence_error": "impulse_low_nonpositive_or_nonfinite",
+        })
+        return base
+    impulse_ret = (impulse_ratio - 1.0) * 100.0
     close_loc = _num(h.loc[impulse_date, "close_loc"])
     breakout = bool(impulse_close >= _num(h.loc[impulse_date, "prior20_high"]) * 0.995) if math.isfinite(_num(h.loc[impulse_date, "prior20_high"])) else bool(impulse_ret >= 6.0)
     accepted = bool(breakout and close_loc >= 0.55)
     pull = pull_phase.loc[:sd]
     impulse_vol = max(float(h.loc[impulse_date, "Volume"]), 1.0)
-    pb_vol_ratio = float(pull["Volume"].mean() / impulse_vol) if len(pull) else np.nan
+    pb_vol_ratio = _safe_div(pull["Volume"].mean(), impulse_vol) if len(pull) else np.nan
     if len(pull) >= 2:
         x = np.arange(len(pull), dtype=float)
         v = pull["Volume"].to_numpy(dtype=float)
-        slope = float(np.polyfit(x, v, 1)[0] / max(np.mean(v), 1.0))
+        slope = _safe_div(np.polyfit(x, v, 1)[0], max(np.mean(v), 1.0))
     else:
         slope = np.nan
     down = pull[pull["Close"].pct_change().fillna(0) < 0]
@@ -212,11 +249,11 @@ def sequence_state_v1(history: pd.DataFrame, signal_date: Any) -> dict:
     early3 = pull.head(3)
     range_recent = float(((recent3["High"] - recent3["Low"]) / recent3["Close"].replace(0, np.nan)).mean()) if len(recent3) else np.nan
     range_early = float(((early3["High"] - early3["Low"]) / early3["Close"].replace(0, np.nan)).mean()) if len(early3) else np.nan
-    range_contract = range_recent / range_early if math.isfinite(range_recent) and math.isfinite(range_early) and range_early > 0 else np.nan
+    range_contract = _safe_div(range_recent, range_early) if math.isfinite(range_recent) and math.isfinite(range_early) else np.nan
     last = h.iloc[-1]
     prior = h.iloc[:-1].tail(5)
-    restart_vol = float(last["Volume"] / max(prior["Volume"].mean(), 1.0)) if len(prior) else np.nan
-    restart_loc = float((last["Close"] - last["Low"]) / max(last["High"] - last["Low"], 1e-9))
+    restart_vol = _safe_div(last["Volume"], max(prior["Volume"].mean(), 1.0)) if len(prior) else np.nan
+    restart_loc = _safe_div(last["Close"] - last["Low"], max(last["High"] - last["Low"], 1e-9))
     restart = bool(last["Close"] > prior["High"].tail(3).max() and last["Close"] > last["Open"] and restart_vol >= 1.10 and restart_loc >= 0.60) if len(prior) else False
     support_line = impulse_low + wave * 0.382
     support_hold = bool(pb_low >= impulse_low * 0.98 and float(last["Close"]) >= support_line * 0.97)
@@ -236,9 +273,11 @@ def sequence_state_v1(history: pd.DataFrame, signal_date: Any) -> dict:
             break
     # Also retain non-contiguous diagnostic count, but sequence_key is strict order.
     total_true = sum(bool(x) for x in flags)
-    quality = min(100.0, total_true / 7 * 70 + max(0.0, min(15.0, impulse_ret / 2)) + max(0.0, min(15.0, (1 - min(pb_vol_ratio, 1.0)) * 20)))
+    supply_quality = max(0.0, min(15.0, (1 - min(pb_vol_ratio, 1.0)) * 20)) if math.isfinite(pb_vol_ratio) else 0.0
+    quality = min(100.0, total_true / 7 * 70 + max(0.0, min(15.0, impulse_ret / 2)) + supply_quality)
     resistance = h.iloc[:-1]["High"].tail(60).max()
-    room = (float(resistance) / float(last["Close"]) - 1) * 100 if float(last["Close"]) > 0 else np.nan
+    resistance_ratio = _safe_div(resistance, last["Close"])
+    room = (resistance_ratio - 1) * 100 if math.isfinite(resistance_ratio) else np.nan
     temporal = "PASS" if pd.Timestamp(low_date) < pd.Timestamp(impulse_date) < pd.Timestamp(pb_date) <= sd else "FAIL"
     base.update({
         "sequence_status": "OK" if temporal == "PASS" else "TEMPORAL_FAIL",
@@ -282,7 +321,23 @@ def _sequence_table(capture_rows: Iterable[dict], history_map: dict) -> pd.DataF
         ds = pd.Timestamp(r["signal_date"]).normalize()
         code = _norm_code(r["code"])
         h = (history_map or {}).get((ds.strftime("%Y-%m-%d"), code), pd.DataFrame())
-        seq = sequence_state_v1(h, ds)
+        try:
+            seq = sequence_state_v1(h, ds)
+        except Exception as exc:
+            seq = {
+                "sequence_status": "ROW_ERROR_FAIL_CLOSED", "sequence_stage": "NONE", "stage_count": 0,
+                "impulse_date": "", "impulse_low_date": "", "pullback_low_date": "", "restart_date": "",
+                "impulse_return_pct": np.nan, "impulse_volume_ratio": np.nan, "impulse_close_location": np.nan,
+                "pullback_retrace_pct": np.nan, "pullback_volume_ratio": np.nan, "pullback_volume_slope": np.nan,
+                "down_volume_expansion": False, "range_contraction_ratio": np.nan, "support_hold": False,
+                "restart_volume_ratio": np.nan, "restart_close_location": np.nan, "resistance_room_pct": np.nan,
+                "impulse_ok": False, "accepted_breakout": False, "first_pullback": False, "supply_drying": False,
+                "price_compression": False, "restart_trigger": False, "temporal_invariant": "UNKNOWN",
+                "sequence_key": "NONE", "sequence_quality_score": 0.0,
+                "raw_price_rows": len(h) if isinstance(h, pd.DataFrame) else 0, "valid_price_rows": 0,
+                "invalid_price_rows_excluded": 0,
+                "sequence_error": f"{type(exc).__name__}:{exc}",
+            }
         seq.update({
             "signal_date": ds, "signal_cutoff_at": ds + pd.Timedelta(hours=15, minutes=30),
             "code": code, "name": str(r.get("name", "") or ""),
@@ -489,14 +544,21 @@ def _sector_proxy(seq: pd.DataFrame, history_map: dict, listing_df: pd.DataFrame
         sec = smap.get(code, "UNKNOWN")
         peer_returns = []
         peer_vol = []
+        invalid_denominator_rows = 0
         for (d, c), h0 in (history_map or {}).items():
             if str(d) != ds.strftime("%Y-%m-%d") or smap.get(_norm_code(c), "UNKNOWN") != sec:
                 continue
             h = _normalize_history(h0)
             if len(h) >= 6:
-                peer_returns.append((float(h["Close"].iloc[-1]) / float(h["Close"].iloc[-6]) - 1) * 100)
+                close_ratio = _safe_div(h["Close"].iloc[-1], h["Close"].iloc[-6])
+                if not math.isfinite(close_ratio):
+                    invalid_denominator_rows += 1
+                    continue
+                peer_returns.append((close_ratio - 1) * 100)
                 prev = max(float(h["Volume"].iloc[-6:-1].mean()), 1.0)
-                peer_vol.append(float(h["Volume"].iloc[-1]) / prev)
+                vol_ratio_one = _safe_div(h["Volume"].iloc[-1], prev)
+                if math.isfinite(vol_ratio_one):
+                    peer_vol.append(vol_ratio_one)
         median_ret = float(np.median(peer_returns)) if peer_returns else np.nan
         up_ratio = float(np.mean(np.array(peer_returns) > 0) * 100) if peer_returns else np.nan
         vol_ratio = float(np.median(peer_vol)) if peer_vol else np.nan
@@ -505,6 +567,7 @@ def _sector_proxy(seq: pd.DataFrame, history_map: dict, listing_df: pd.DataFrame
             "signal_date": ds, "code": code, "sector": sec, "sector_context_source": "INTERNAL_PEER_PROXY",
             "true_sector_index": False, "sector_peer_n": len(peer_returns), "sector_5d_median_pct": median_ret,
             "sector_up_ratio_pct": up_ratio, "sector_volume_ratio": vol_ratio, "sector_positive": strong,
+            "sector_invalid_denominator_rows": invalid_denominator_rows,
         })
     return pd.DataFrame(rows)
 
@@ -804,6 +867,18 @@ def run_backtest(capture_rows: Iterable[dict], attempt_rows: Iterable[dict], his
         "internal_peer_proxy_rows": int(joined.get("sector_context_source", pd.Series(dtype=str)).eq("INTERNAL_PEER_PROXY").sum()) if not joined.empty else 0,
     }])
     coverage.to_csv(out / MARKET_SECTOR_COVERAGE_FILE, index=False, encoding="utf-8-sig")
+
+    denominator_audit = pd.DataFrame([{
+        "version": VERSION,
+        "sequence_rows": len(seq),
+        "invalid_price_rows_excluded": int(pd.to_numeric(seq.get("invalid_price_rows_excluded", pd.Series(dtype=float)), errors="coerce").fillna(0).sum()) if not seq.empty else 0,
+        "sequence_zero_denominator_rows": int(seq.get("sequence_status", pd.Series(dtype=str)).eq("INPUT_INVALID_ZERO_DENOMINATOR").sum()) if not seq.empty else 0,
+        "sequence_row_error_rows": int(seq.get("sequence_status", pd.Series(dtype=str)).eq("ROW_ERROR_FAIL_CLOSED").sum()) if not seq.empty else 0,
+        "sector_invalid_denominator_rows": int(pd.to_numeric(joined.get("sector_invalid_denominator_rows", pd.Series(dtype=float)), errors="coerce").fillna(0).sum()) if not joined.empty else 0,
+        "pipeline_aborted": False,
+        "live_logic_changed": False,
+    }])
+    denominator_audit.to_csv(out / DENOMINATOR_AUDIT_FILE, index=False, encoding="utf-8-sig")
     ev = _evaluate(joined, evaluator)
     perf = _perf(ev, ["research_bucket", "catalyst_state"])
     regime = _perf(ev, ["research_bucket", "market_regime"])
@@ -831,19 +906,25 @@ def run_backtest(capture_rows: Iterable[dict], attempt_rows: Iterable[dict], his
 
     seq_valid = int(seq["sequence_status"].eq("OK").sum()) if not seq.empty else 0
     temporal_fail = int(seq["temporal_invariant"].eq("FAIL").sum()) if not seq.empty else 0
+    sequence_unavailable = int(seq["sequence_status"].isin(["HISTORY_UNAVAILABLE", "INPUT_INVALID_ZERO_DENOMINATOR"]).sum()) if not seq.empty else 0
+    sequence_row_errors = int(seq["sequence_status"].eq("ROW_ERROR_FAIL_CLOSED").sum()) if not seq.empty else 0
+    invalid_price_rows = int(pd.to_numeric(seq.get("invalid_price_rows_excluded", pd.Series(dtype=float)), errors="coerce").fillna(0).sum()) if not seq.empty else 0
     sequence_ready = int(joined["pattern_sequence_ready"].sum()) if not joined.empty else 0
     catalyst_usable = int(joined["catalyst_usable"].sum()) if not joined.empty else 0
     full = int(joined["full_alignment"].sum()) if not joined.empty else 0
     reactivated = int(joined["catalyst_state"].eq("LATENT_CATALYST_REACTIVATED").sum()) if not joined.empty else 0
     eval_ok = int(ev.get("eval_status", pd.Series(dtype=str)).eq("OK").sum()) if not ev.empty else 0
     eval_days = int(ev["signal_date"].nunique()) if not ev.empty and "signal_date" in ev.columns else 0
-    contract_valid = bool(len(seq) > 0 and seq_valid + int(seq["sequence_status"].isin(["NO_VOLUME_IMPULSE", "IMPULSE_ONLY"]).sum()) == len(seq) and temporal_fail == 0)
-    source_warmup = len(raw) == 0 or catalyst_usable == 0
+    known_statuses = ["OK", "NO_VOLUME_IMPULSE", "IMPULSE_ONLY", "HISTORY_UNAVAILABLE", "INPUT_INVALID_ZERO_DENOMINATOR"]
+    contract_valid = bool(len(seq) > 0 and int(seq["sequence_status"].isin(known_statuses).sum()) == len(seq) and temporal_fail == 0 and sequence_row_errors == 0)
+    source_warmup = len(raw) == 0 or catalyst_usable == 0 or sequence_unavailable > 0
     policy_ready = bool(eval_ok >= MIN_POLICY_ROWS and eval_days >= MIN_POLICY_DATES and full >= 10)
     status = "VALID_SHADOW_DATA_WARMUP" if contract_valid and source_warmup else ("VALID_SHADOW" if contract_valid else "INVALID")
     ready = pd.DataFrame([{
         "version": VERSION, "sequence_rows": len(seq), "sequence_valid_rows": seq_valid,
         "sequence_ready_rows": sequence_ready, "temporal_fail_rows": temporal_fail,
+        "sequence_unavailable_rows": sequence_unavailable, "sequence_row_error_rows": sequence_row_errors,
+        "invalid_price_rows_excluded": invalid_price_rows,
         "source_rows": len(raw), "event_clusters": len(clusters), "catalyst_usable_rows": catalyst_usable,
         "full_alignment_rows": full, "latent_reactivated_rows": reactivated,
         "evaluated_rows": eval_ok, "evaluated_signal_days": eval_days,
@@ -864,7 +945,8 @@ def run_backtest(capture_rows: Iterable[dict], attempt_rows: Iterable[dict], his
         "- 목적: 단일 패턴이 아니라 거래량 확장→돌파수용→첫눌림→공급감소→가격수렴→지지→재시동의 시간순서와, 신호일 당시 확인 가능한 시장·섹터·재료를 결합합니다.",
         "- 오래된 세계적 재료는 폐기하지 않고 LATENT_CATALYST로 보존하며, 직접수혜·섹터자금·가격 활성화가 생기면 LATENT_CATALYST_REACTIVATED로 승격합니다.",
         "- 오늘 검색해 복원한 과거 뉴스는 RETROSPECTIVE_RESEARCH로 격리하고 성과·LIVE 근거에 사용하지 않습니다.",
-        f"🧾 계약: sequence {len(seq)}행 | 정상계산 {seq_valid} | temporal fail {temporal_fail} | source {len(raw)} | event cluster {len(clusters)} | 상태 {'✅ '+status if contract_valid else '⛔ INVALID'}",
+        f"🧾 계약: sequence {len(seq)}행 | 정상계산 {seq_valid} | data-warmup {sequence_unavailable} | row-error {sequence_row_errors} | temporal fail {temporal_fail} | source {len(raw)} | event cluster {len(clusters)} | 상태 {'✅ '+status if contract_valid else '⛔ INVALID'}",
+        f"🛡️ 0분모 가드: 비정상 가격행 제외 {invalid_price_rows} | 시퀀스 0분모 fail-closed {int(denominator_audit.iloc[0]['sequence_zero_denominator_rows'])} | 섹터 0분모 제외 {int(denominator_audit.iloc[0]['sector_invalid_denominator_rows'])} | 블록 중단 0",
         f"🧬 시퀀스: 5단계 이상 {sequence_ready}행 | 재료 사용가능 {catalyst_usable}행 | FULL_ALIGNMENT {full}행 | 잠재재료 재활성화 {reactivated}행",
         f"🔒 영향: LIVE 점수·순위·후보·AI Pick·진입·익절·손절·주문 변경 0 | snapshot {manifest['snapshot_id']}",
         f"🌐 시장·섹터 원장 {len(market_sector_ledger)}행 | TRUE 섹터지수 {int(joined.get('true_sector_index', pd.Series(dtype=bool)).fillna(False).astype(bool).sum()) if not joined.empty else 0}행 | 없으면 INTERNAL_PEER_PROXY",
@@ -899,11 +981,15 @@ def run_backtest(capture_rows: Iterable[dict], attempt_rows: Iterable[dict], his
         "🔐 [승격 규칙]",
         f"- 현재 정책: {'READY' if policy_ready else 'NOT_READY'} · 최소 {MIN_POLICY_ROWS}행·{MIN_POLICY_DATES}독립일·FULL_ALIGNMENT 10행 전 LIVE 승격 금지",
         "- TRUE 섹터지수가 없으면 INTERNAL_PEER_PROXY를 섹터 초과수익으로 위장하지 않습니다.",
-        f"- Actions: {SEQUENCE_FILE} · {EVENT_RAW_FILE} · {EVENT_CLUSTER_FILE} · {JOIN_FILE} · {PERF_FILE} · {REGIME_FILE} · {SOURCE_AUDIT_FILE} · {MARKET_SECTOR_LEDGER_FILE} · {MARKET_SECTOR_COVERAGE_FILE} · {REPRO_FILE} · {READINESS_FILE} · {MANUAL_FILE}",
+        f"- Actions: {SEQUENCE_FILE} · {EVENT_RAW_FILE} · {EVENT_CLUSTER_FILE} · {JOIN_FILE} · {PERF_FILE} · {REGIME_FILE} · {SOURCE_AUDIT_FILE} · {MARKET_SECTOR_LEDGER_FILE} · {MARKET_SECTOR_COVERAGE_FILE} · {DENOMINATOR_AUDIT_FILE} · {REPRO_FILE} · {READINESS_FILE} · {MANUAL_FILE}",
     ]
     block = "\n".join(lines)
     (out / REPORT_FILE).write_text(block, encoding="utf-8")
-    return _insert_block(base_report, block), {"sequence": seq, "raw_events": raw, "clusters": clusters, "joined": joined, "performance": perf, "regime": regime, "readiness": ready, "manifest": manifest}
+    return _insert_block(base_report, block), {
+        "sequence": seq, "raw_events": raw, "clusters": clusters, "joined": joined,
+        "performance": perf, "regime": regime, "readiness": ready,
+        "denominator_audit": denominator_audit, "manifest": manifest,
+    }
 
 
 def force_report(text: str, output_dir: str = "reports") -> str:

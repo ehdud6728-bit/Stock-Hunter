@@ -17,7 +17,7 @@ from typing import Any, Iterable
 
 import pandas as pd
 
-VERSION = "V73.3.6.6.11"
+VERSION = "V73.3.6.6.11.1"
 RESEARCH_ONLY = True
 
 UNIFIED_COLUMNS = [
