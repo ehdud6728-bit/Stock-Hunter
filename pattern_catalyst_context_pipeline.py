@@ -12,7 +12,7 @@ import pandas as pd
 
 import catalyst_source_adapters as adapters
 
-VERSION = "V73.3.6.6.11.1"
+VERSION = "V73.3.6.6.11.2"
 BASE_VERSION = "V73.3.6.6.11"
 RESEARCH_ONLY = True
 HEADER = "🧬 [패턴 시퀀스 × 시장·섹터 × 재료 생명주기 완성형 · RESEARCH_ONLY]"
@@ -180,7 +180,7 @@ def sequence_state_v1(history: pd.DataFrame, signal_date: Any) -> dict:
         "restart_volume_ratio": np.nan, "restart_close_location": np.nan, "resistance_room_pct": np.nan,
         "impulse_ok": False, "accepted_breakout": False, "first_pullback": False, "supply_drying": False,
         "price_compression": False, "restart_trigger": False, "temporal_invariant": "UNKNOWN",
-        "sequence_key": "NONE", "sequence_quality_score": 0.0,
+        "temporal_reason": "HISTORY_UNAVAILABLE", "sequence_key": "NONE", "sequence_quality_score": 0.0,
         "raw_price_rows": raw_price_rows, "valid_price_rows": valid_price_rows,
         "invalid_price_rows_excluded": invalid_price_rows, "sequence_error": "",
     }
@@ -278,9 +278,26 @@ def sequence_state_v1(history: pd.DataFrame, signal_date: Any) -> dict:
     resistance = h.iloc[:-1]["High"].tail(60).max()
     resistance_ratio = _safe_div(resistance, last["Close"])
     room = (resistance_ratio - 1) * 100 if math.isfinite(resistance_ratio) else np.nan
-    temporal = "PASS" if pd.Timestamp(low_date) < pd.Timestamp(impulse_date) < pd.Timestamp(pb_date) <= sd else "FAIL"
+    low_ts = pd.Timestamp(low_date).normalize()
+    impulse_ts = pd.Timestamp(impulse_date).normalize()
+    pullback_ts = pd.Timestamp(pb_date).normalize()
+    if low_ts < impulse_ts < pullback_ts <= sd:
+        temporal = "PASS"
+        temporal_reason = "STRICT_DAILY_LOW_BEFORE_IMPULSE_BEFORE_PULLBACK"
+        sequence_status = "OK"
+    elif low_ts == impulse_ts and impulse_ts < pullback_ts <= sd:
+        # Daily OHLC cannot establish whether the low or high occurred first inside
+        # the impulse candle. Fail closed for strategy eligibility, but do not
+        # classify this data-resolution limit as a causal/temporal violation.
+        temporal = "UNKNOWN"
+        temporal_reason = "SAME_DAY_IMPULSE_LOW_HIGH_INTRADAY_ORDER_UNRESOLVED"
+        sequence_status = "TEMPORAL_UNKNOWN_INTRADAY"
+    else:
+        temporal = "FAIL"
+        temporal_reason = "CHRONOLOGICAL_ORDER_VIOLATION"
+        sequence_status = "TEMPORAL_FAIL"
     base.update({
-        "sequence_status": "OK" if temporal == "PASS" else "TEMPORAL_FAIL",
+        "sequence_status": sequence_status,
         "sequence_stage": current, "stage_count": count, "diagnostic_true_count": total_true,
         "impulse_date": str(pd.Timestamp(impulse_date).date()), "impulse_low_date": str(pd.Timestamp(low_date).date()),
         "pullback_low_date": str(pd.Timestamp(pb_date).date()), "restart_date": str(sd.date()) if restart else "",
@@ -292,7 +309,8 @@ def sequence_state_v1(history: pd.DataFrame, signal_date: Any) -> dict:
         "restart_close_location": restart_loc, "resistance_room_pct": room,
         "impulse_ok": impulse_ok, "accepted_breakout": accepted, "first_pullback": first_pull,
         "supply_drying": supply, "price_compression": compression, "restart_trigger": restart,
-        "temporal_invariant": temporal, "sequence_key": "→".join(stages[:count]) if count else "NONE",
+        "temporal_invariant": temporal, "temporal_reason": temporal_reason,
+        "sequence_key": "→".join(stages[:count]) if count else "NONE",
         "sequence_quality_score": quality,
     })
     return base
@@ -333,7 +351,7 @@ def _sequence_table(capture_rows: Iterable[dict], history_map: dict) -> pd.DataF
                 "restart_volume_ratio": np.nan, "restart_close_location": np.nan, "resistance_room_pct": np.nan,
                 "impulse_ok": False, "accepted_breakout": False, "first_pullback": False, "supply_drying": False,
                 "price_compression": False, "restart_trigger": False, "temporal_invariant": "UNKNOWN",
-                "sequence_key": "NONE", "sequence_quality_score": 0.0,
+                "temporal_reason": "ROW_ERROR_FAIL_CLOSED", "sequence_key": "NONE", "sequence_quality_score": 0.0,
                 "raw_price_rows": len(h) if isinstance(h, pd.DataFrame) else 0, "valid_price_rows": 0,
                 "invalid_price_rows_excluded": 0,
                 "sequence_error": f"{type(exc).__name__}:{exc}",
@@ -786,14 +804,21 @@ def _perf(eval_df: pd.DataFrame, group_cols: list[str]) -> pd.DataFrame:
         if not isinstance(key, tuple): key = (key,)
         r = dict(zip(group_cols, key))
         r.update({"n": len(g), "stocks": g["code"].nunique(), "signal_days": g["signal_date"].nunique()})
-        for horizon in ("d1", "d3", "d5", "d10"):
-            col = next((c for c in (f"{horizon}_ret", f"{horizon}_return", horizon, horizon.upper()) if c in g.columns), None)
+        return_aliases = {
+            "d1": ("next1_close_ret", "ret_1d", "return_1d", "day1_ret", "ret1", "d1_ret", "d1_return", "d1", "D1"),
+            "d3": ("next3_close_ret", "v7219_d3_close_ret", "ret_3d", "return_3d", "day3_ret", "ret3", "d3_ret", "d3_return", "d3", "D3"),
+            "d5": ("next5_close_ret", "ret_5d", "return_5d", "day5_ret", "ret5", "d5_ret", "d5_return", "d5", "D5"),
+            "d10": ("next10_close_ret", "ret_10d", "return_10d", "day10_ret", "ret10", "d10_ret", "d10_return", "d10", "D10"),
+        }
+        for horizon, aliases in return_aliases.items():
+            col = next((c for c in aliases if c in g.columns), None)
             if col:
-                s = pd.to_numeric(g[col], errors="coerce")
-                r[f"{horizon}_mean"] = float(s.mean())
-                r[f"{horizon}_median"] = float(s.median())
-                r[f"{horizon}_trim10"] = _trim(s)
-                r[f"{horizon}_ex_top2"] = _ex2(s)
+                values = pd.to_numeric(g[col], errors="coerce")
+                r[f"{horizon}_mean"] = float(values.mean())
+                r[f"{horizon}_median"] = float(values.median())
+                r[f"{horizon}_trim10"] = _trim(values)
+                r[f"{horizon}_ex_top2"] = _ex2(values)
+                r[f"{horizon}_source_col"] = col
         plus_col = next((c for c in ("plus3_first", "plus3_before_stop", "+3먼저") if c in g.columns), None)
         stop_col = next((c for c in ("stop_first", "stop_before_plus3", "손절먼저") if c in g.columns), None)
         r["plus3_first_rate"] = float(g[plus_col].astype(bool).mean()*100) if plus_col else np.nan
@@ -906,6 +931,8 @@ def run_backtest(capture_rows: Iterable[dict], attempt_rows: Iterable[dict], his
 
     seq_valid = int(seq["sequence_status"].eq("OK").sum()) if not seq.empty else 0
     temporal_fail = int(seq["temporal_invariant"].eq("FAIL").sum()) if not seq.empty else 0
+    temporal_unknown = int(seq["temporal_invariant"].eq("UNKNOWN").sum()) if not seq.empty else 0
+    temporal_same_day_unknown = int(seq.get("temporal_reason", pd.Series(dtype=str)).eq("SAME_DAY_IMPULSE_LOW_HIGH_INTRADAY_ORDER_UNRESOLVED").sum()) if not seq.empty else 0
     sequence_unavailable = int(seq["sequence_status"].isin(["HISTORY_UNAVAILABLE", "INPUT_INVALID_ZERO_DENOMINATOR"]).sum()) if not seq.empty else 0
     sequence_row_errors = int(seq["sequence_status"].eq("ROW_ERROR_FAIL_CLOSED").sum()) if not seq.empty else 0
     invalid_price_rows = int(pd.to_numeric(seq.get("invalid_price_rows_excluded", pd.Series(dtype=float)), errors="coerce").fillna(0).sum()) if not seq.empty else 0
@@ -915,7 +942,7 @@ def run_backtest(capture_rows: Iterable[dict], attempt_rows: Iterable[dict], his
     reactivated = int(joined["catalyst_state"].eq("LATENT_CATALYST_REACTIVATED").sum()) if not joined.empty else 0
     eval_ok = int(ev.get("eval_status", pd.Series(dtype=str)).eq("OK").sum()) if not ev.empty else 0
     eval_days = int(ev["signal_date"].nunique()) if not ev.empty and "signal_date" in ev.columns else 0
-    known_statuses = ["OK", "NO_VOLUME_IMPULSE", "IMPULSE_ONLY", "HISTORY_UNAVAILABLE", "INPUT_INVALID_ZERO_DENOMINATOR"]
+    known_statuses = ["OK", "NO_VOLUME_IMPULSE", "IMPULSE_ONLY", "TEMPORAL_UNKNOWN_INTRADAY", "HISTORY_UNAVAILABLE", "INPUT_INVALID_ZERO_DENOMINATOR"]
     contract_valid = bool(len(seq) > 0 and int(seq["sequence_status"].isin(known_statuses).sum()) == len(seq) and temporal_fail == 0 and sequence_row_errors == 0)
     source_warmup = len(raw) == 0 or catalyst_usable == 0 or sequence_unavailable > 0
     policy_ready = bool(eval_ok >= MIN_POLICY_ROWS and eval_days >= MIN_POLICY_DATES and full >= 10)
@@ -923,6 +950,7 @@ def run_backtest(capture_rows: Iterable[dict], attempt_rows: Iterable[dict], his
     ready = pd.DataFrame([{
         "version": VERSION, "sequence_rows": len(seq), "sequence_valid_rows": seq_valid,
         "sequence_ready_rows": sequence_ready, "temporal_fail_rows": temporal_fail,
+        "temporal_unknown_rows": temporal_unknown, "temporal_same_day_intraday_unknown_rows": temporal_same_day_unknown,
         "sequence_unavailable_rows": sequence_unavailable, "sequence_row_error_rows": sequence_row_errors,
         "invalid_price_rows_excluded": invalid_price_rows,
         "source_rows": len(raw), "event_clusters": len(clusters), "catalyst_usable_rows": catalyst_usable,
@@ -945,7 +973,8 @@ def run_backtest(capture_rows: Iterable[dict], attempt_rows: Iterable[dict], his
         "- 목적: 단일 패턴이 아니라 거래량 확장→돌파수용→첫눌림→공급감소→가격수렴→지지→재시동의 시간순서와, 신호일 당시 확인 가능한 시장·섹터·재료를 결합합니다.",
         "- 오래된 세계적 재료는 폐기하지 않고 LATENT_CATALYST로 보존하며, 직접수혜·섹터자금·가격 활성화가 생기면 LATENT_CATALYST_REACTIVATED로 승격합니다.",
         "- 오늘 검색해 복원한 과거 뉴스는 RETROSPECTIVE_RESEARCH로 격리하고 성과·LIVE 근거에 사용하지 않습니다.",
-        f"🧾 계약: sequence {len(seq)}행 | 정상계산 {seq_valid} | data-warmup {sequence_unavailable} | row-error {sequence_row_errors} | temporal fail {temporal_fail} | source {len(raw)} | event cluster {len(clusters)} | 상태 {'✅ '+status if contract_valid else '⛔ INVALID'}",
+        f"🧾 계약: sequence {len(seq)}행 | strict-pass {seq_valid} | intraday-unknown {temporal_same_day_unknown} | data-warmup {sequence_unavailable} | row-error {sequence_row_errors} | temporal fail {temporal_fail} | source {len(raw)} | event cluster {len(clusters)} | 상태 {'✅ '+status if contract_valid else '⛔ INVALID'}",
+        f"⏱️ 일봉 시간해상도: 같은 봉 저점↔고점 순서 미확인 {temporal_same_day_unknown}행은 UNKNOWN으로 전략 표본 제외·계약 INVALID 비전파",
         f"🛡️ 0분모 가드: 비정상 가격행 제외 {invalid_price_rows} | 시퀀스 0분모 fail-closed {int(denominator_audit.iloc[0]['sequence_zero_denominator_rows'])} | 섹터 0분모 제외 {int(denominator_audit.iloc[0]['sector_invalid_denominator_rows'])} | 블록 중단 0",
         f"🧬 시퀀스: 5단계 이상 {sequence_ready}행 | 재료 사용가능 {catalyst_usable}행 | FULL_ALIGNMENT {full}행 | 잠재재료 재활성화 {reactivated}행",
         f"🔒 영향: LIVE 점수·순위·후보·AI Pick·진입·익절·손절·주문 변경 0 | snapshot {manifest['snapshot_id']}",
