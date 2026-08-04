@@ -1,4 +1,4 @@
-name: Run Main Scanner V1107.4.5.73.3.6.6.2 Strict AI Exact Policy Route Guard
+name: Run Main Scanner V1107.4.5.73.3.6.6.12 Forward Causal Capture Persistence Guard
 
 on:
   schedule:
@@ -93,6 +93,15 @@ on:
         required: false
         default: "2026-06-29,2026-07-08"
         type: string
+      catalyst_forward_capture:
+        description: "재료·뉴스·AI·시장/섹터 전진수집"
+        required: false
+        default: AUTO
+        type: choice
+        options:
+          - AUTO
+          - ON
+          - OFF
 
 permissions:
   contents: read
@@ -514,6 +523,7 @@ jobs:
           INPUT_V73_UNIVERSE_LIMIT: ${{ inputs.v73_universe_limit }}
           INPUT_V73_CASE_CODES: ${{ inputs.v73_case_codes }}
           INPUT_V73_CASE_DATES: ${{ inputs.v73_case_dates }}
+          INPUT_CATALYST_FORWARD_CAPTURE: ${{ inputs.catalyst_forward_capture }}
         run: |
           set -euo pipefail
           event="${GH_EVENT_NAME:-}"
@@ -523,6 +533,8 @@ jobs:
           ham1503=0
           v73_discovery=0
           v73_case_audit=0
+          catalyst_capture=0
+          catalyst_mode="AUTO"
           if [ "$event" = "schedule" ] && [ "$schedule_expr" = "30 00 * * 1-5" ]; then
             open0930=1
           fi
@@ -531,6 +543,10 @@ jobs:
           fi
           if [ "$event" = "schedule" ] && [ "$schedule_expr" = "35 06 * * 1-5" ]; then
             v73_discovery=1
+          fi
+          # Forward-causal source capture runs twice daily: pre-market and after the 15:07 close scan.
+          if [ "$event" = "schedule" ] && { [ "$schedule_expr" = "37 23 * * 0-4" ] || [ "$schedule_expr" = "07 06 * * 1-5" ]; }; then
+            catalyst_capture=1
           fi
 
           if [ "$event" = "workflow_dispatch" ]; then
@@ -546,6 +562,7 @@ jobs:
             v73_universe_limit="${INPUT_V73_UNIVERSE_LIMIT:-900}"
             v73_case_codes="${INPUT_V73_CASE_CODES:-119850}"
             v73_case_dates="${INPUT_V73_CASE_DATES:-2026-06-29,2026-07-08}"
+            catalyst_mode="${INPUT_CATALYST_FORWARD_CAPTURE:-AUTO}"
           else
             profile="REAL_FULL"
             test_chat="$legacy_chat"
@@ -559,6 +576,7 @@ jobs:
             v73_universe_limit="900"
             v73_case_codes="119850"
             v73_case_dates="2026-06-29,2026-07-08"
+            catalyst_mode="AUTO"
             if [ "$ham1503" = "1" ]; then profile="HAM_1503_RESEARCH"; fi
             if [ "$v73_discovery" = "1" ]; then profile="V73_DISCOVERY"; fi
           fi
@@ -606,6 +624,18 @@ jobs:
             skip_google=1
             weekly=0
           fi
+
+          catalyst_mode="$(echo "${catalyst_mode:-AUTO}" | tr '[:lower:]' '[:upper:]')"
+          if [ "$event" = "workflow_dispatch" ]; then
+            case "$catalyst_mode" in
+              ON) catalyst_capture=1 ;;
+              OFF) catalyst_capture=0 ;;
+              AUTO|*)
+                if [ "$profile" = "REAL_FULL" ] || [ "$profile" = "V73_DISCOVERY" ]; then catalyst_capture=1; else catalyst_capture=0; fi ;;
+            esac
+          fi
+          # Backtests and historical research never issue current web searches.
+          if [ "$weekly" = "1" ] || [ "$ham1503" = "1" ] || [ "$v73_case_audit" = "1" ]; then catalyst_capture=0; fi
 
           save_file=1
           send_bt=1
@@ -661,6 +691,13 @@ jobs:
             echo "V73_MIN_PRICE=3000"
             echo "V73_MIN_MARCAP_EOK=300"
             echo "V73_OUTPUT_DIR=reports"
+            echo "CATALYST_FORWARD_CAPTURE_ENABLE=$catalyst_capture"
+            echo "CATALYST_NETWORK_ENABLE=$catalyst_capture"
+            echo "CATALYST_CAPTURE_MAX_CODES=30"
+            echo "CATALYST_CAPTURE_MAX_GLOBAL_QUERIES=8"
+            echo "CATALYST_DART_MAX_CODES=30"
+            echo "CATALYST_GOOGLE_MAX_QUERIES=10"
+            echo "CATALYST_KAKAO_MAX_QUERIES=30"
             echo "V7224_TOP_SECTORS=2"
             echo "V7225_SECOND_MAX_SCORE_GAP=6.0"
             echo "V7225_SECOND_MAX_MEDIAN_GAP=0.50"
@@ -701,7 +738,7 @@ jobs:
             echo "V1107_4_5_70_DISABLE_PRICE_SCALE_WATCH=1"
           } >> "$GITHUB_ENV"
 
-          echo "✅ profile resolved: profile=$profile open0930=$open0930 ham1503=$ham1503 v73_discovery=$v73_discovery v73_case=$v73_case_audit source=$bt_source weeks=$bt_weeks hold=$bt_hold_days stop=$bt_stop_pct mode=$bt_stop_mode"
+          echo "✅ profile resolved: profile=$profile open0930=$open0930 ham1503=$ham1503 v73_discovery=$v73_discovery v73_case=$v73_case_audit catalyst_capture=$catalyst_capture source=$bt_source weeks=$bt_weeks hold=$bt_hold_days stop=$bt_stop_pct mode=$bt_stop_mode"
       - name: Prepare report directories
         run: |
           mkdir -p reports docs
@@ -821,6 +858,11 @@ jobs:
             reports/v73_catalyst_query_universe.csv
             reports/v73_market_sector_context_ledger.csv
             reports/v73_market_sector_context_coverage.csv
+            reports/v73_global_catalyst_query_ledger.csv
+            reports/v73_catalyst_first_seen_integrity_audit.csv
+            reports/v73_market_sector_forward_capture_audit.csv
+            reports/catalyst_raw
+            reports/.cache/dart_corp_code_map.json
           key: stockhunter-v73-state-${{ github.ref_name }}-${{ github.run_id }}
           restore-keys: |
             stockhunter-v73-state-${{ github.ref_name }}-
@@ -1092,7 +1134,7 @@ jobs:
               exit 65
             fi
             if [ ! -f "module_contract_preflight.py" ]; then
-              echo "❌ module_contract_preflight.py missing from repository root. V73.3.6.6.11.2 deployment incomplete."
+              echo "❌ module_contract_preflight.py missing from repository root. V73.3.6.6.12 deployment incomplete."
               exit 105
             fi
             # Historical verifier compatibility markers; execution is delegated to module_contract_preflight.py.
@@ -1102,8 +1144,8 @@ jobs:
             # FORMULA_TRUTH_PREFLIGHT V73.3.6.6.8
             # FORMULA_UNIVERSE_PREFLIGHT V73.3.6.6.9
             # FORMULA_COMPLETE_PREFLIGHT V73.3.6.6.10.1
-            # CATALYST_SOURCES_PREFLIGHT V73.3.6.6.11.2
-            # SEQUENCE_CONTEXT_CATALYST_PREFLIGHT V73.3.6.6.11.2
+            # CATALYST_SOURCES_PREFLIGHT V73.3.6.6.12
+            # SEQUENCE_CONTEXT_CATALYST_PREFLIGHT V73.3.6.6.12
             # artifact families: strict-ai-exact-policy-route-guard-reports | market-index-sector-excess-causal-audit-reports
             echo "🧭 [V73.3.6.6.4 exact-root module source guard]"
             find "${GITHUB_WORKSPACE}" -maxdepth 4 -type f \
@@ -1139,7 +1181,7 @@ jobs:
             echo "⏰ V72.29 09:30 NAVER realtime batch strong-sector / leader radar | script=${SCRIPT}"
             python "${SCRIPT}" --open-0930
           elif [ "${STOCKHUNTER_WEEKLY_BACKTEST_ONLY}" = "1" ]; then
-            echo "🧪 WEEKLY_BACKTEST + V73.3.6.6.11.2 sequence/context/catalyst + V73.3.6.6.10.1 complete formula pipeline + V73.3.6.6.9 universe truth + market/pattern/familiar audits | source=${V1081_BACKTEST_SOURCE} | script=${SCRIPT}"
+            echo "🧪 WEEKLY_BACKTEST + V73.3.6.6.12 sequence/context/catalyst + V73.3.6.6.10.1 complete formula pipeline + V73.3.6.6.9 universe truth + market/pattern/familiar audits | source=${V1081_BACKTEST_SOURCE} | script=${SCRIPT}"
             mkdir -p reports
             HAM_RUN_LOG="reports/v72_weekly_backtest_stdout.log"
             set -o pipefail
@@ -1201,6 +1243,28 @@ jobs:
             python "${SCRIPT}"
           fi
 
+      - name: Forward-causal catalyst and market-sector capture
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${CATALYST_FORWARD_CAPTURE_ENABLE:-0}" != "1" ]; then
+            echo "CATALYST_FORWARD_CAPTURE skipped profile=${TEST_PROFILE:-UNKNOWN}"
+            exit 0
+          fi
+          echo "📰 FORWARD_CAUSAL capture start profile=${TEST_PROFILE:-UNKNOWN} run_id=${GITHUB_RUN_ID:-LOCAL}"
+          python catalyst_source_adapters.py --capture --output-dir reports
+          python - <<'PY'
+          import pandas as pd, sys
+          p='reports/v73_catalyst_source_capture_audit.csv'
+          q=pd.read_csv(p, dtype=str).fillna('') if __import__('pathlib').Path(p).exists() else pd.DataFrame()
+          o=q[q.get('source_name','').eq('OVERALL')].tail(1) if not q.empty and 'source_name' in q else pd.DataFrame()
+          r=o.iloc[0].to_dict() if len(o) else {}
+          st=str(r.get('status','MISSING'))
+          print('CATALYST_FORWARD_CAPTURE_AUDIT', st, 'rows', r.get('rows'), 'new', r.get('new_unique_rows'), 'first_seen_regressions', r.get('first_seen_regressions'))
+          sys.exit(0 if st in ('CAPTURED','LEDGER_READY','TEMPLATE_READY','PARTIAL') and str(r.get('first_seen_regressions','0')) in ('0','0.0','') else 146)
+          PY
+
       - name: Show generated report files
         if: always()
         run: |
@@ -1223,7 +1287,7 @@ jobs:
           done
 
       - name: Save V73 persistent lifecycle state explicitly
-        if: always() && hashFiles('reports/v73_active_cycle_state.csv') != ''
+        if: always() && (hashFiles('reports/v73_active_cycle_state.csv') != '' || hashFiles('reports/v73_catalyst_source_ledger.csv') != '')
         uses: actions/cache/save@v4
         with:
           path: |
@@ -1245,6 +1309,20 @@ jobs:
             reports/v73_overnight_preopen_snapshot.csv
             reports/v73_open0930_response_snapshot.csv
             reports/v73_external_night_futures_history.csv
+            reports/v73_catalyst_source_ledger.csv
+            reports/v73_ai_comment_source_ledger.csv
+            reports/v73_official_disclosure_ledger.csv
+            reports/v73_news_source_ledger.csv
+            reports/v73_global_catalyst_ledger.csv
+            reports/v73_catalyst_source_capture_audit.csv
+            reports/v73_catalyst_first_seen_integrity_audit.csv
+            reports/v73_catalyst_query_universe.csv
+            reports/v73_global_catalyst_query_ledger.csv
+            reports/v73_market_sector_context_ledger.csv
+            reports/v73_market_sector_context_coverage.csv
+            reports/v73_market_sector_forward_capture_audit.csv
+            reports/catalyst_raw
+            reports/.cache/dart_corp_code_map.json
           key: stockhunter-v73-state-${{ github.ref_name }}-${{ github.run_id }}
 
       - name: V57 final status log only
@@ -1260,7 +1338,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: stockhunter-v1107-4-5-73-3-6-6-3-market-index-sector-excess-causal-audit-reports-${{ github.run_number }}
+          name: stockhunter-v1107-4-5-73-3-6-6-12-forward-causal-capture-persistence-reports-${{ github.run_number }}
           path: |
             reports/**
             docs/**
