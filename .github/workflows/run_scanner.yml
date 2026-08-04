@@ -1092,7 +1092,7 @@ jobs:
               exit 65
             fi
             if [ ! -f "module_contract_preflight.py" ]; then
-              echo "❌ module_contract_preflight.py missing from repository root. V73.3.6.6.11.1 deployment incomplete."
+              echo "❌ module_contract_preflight.py missing from repository root. V73.3.6.6.11.2 deployment incomplete."
               exit 105
             fi
             # Historical verifier compatibility markers; execution is delegated to module_contract_preflight.py.
@@ -1102,8 +1102,8 @@ jobs:
             # FORMULA_TRUTH_PREFLIGHT V73.3.6.6.8
             # FORMULA_UNIVERSE_PREFLIGHT V73.3.6.6.9
             # FORMULA_COMPLETE_PREFLIGHT V73.3.6.6.10.1
-            # CATALYST_SOURCES_PREFLIGHT V73.3.6.6.11.1
-            # SEQUENCE_CONTEXT_CATALYST_PREFLIGHT V73.3.6.6.11.1
+            # CATALYST_SOURCES_PREFLIGHT V73.3.6.6.11.2
+            # SEQUENCE_CONTEXT_CATALYST_PREFLIGHT V73.3.6.6.11.2
             # artifact families: strict-ai-exact-policy-route-guard-reports | market-index-sector-excess-causal-audit-reports
             echo "🧭 [V73.3.6.6.4 exact-root module source guard]"
             find "${GITHUB_WORKSPACE}" -maxdepth 4 -type f \
@@ -1139,7 +1139,7 @@ jobs:
             echo "⏰ V72.29 09:30 NAVER realtime batch strong-sector / leader radar | script=${SCRIPT}"
             python "${SCRIPT}" --open-0930
           elif [ "${STOCKHUNTER_WEEKLY_BACKTEST_ONLY}" = "1" ]; then
-            echo "🧪 WEEKLY_BACKTEST + V73.3.6.6.11.1 sequence/context/catalyst + V73.3.6.6.10.1 complete formula pipeline + V73.3.6.6.9 universe truth + market/pattern/familiar audits | source=${V1081_BACKTEST_SOURCE} | script=${SCRIPT}"
+            echo "🧪 WEEKLY_BACKTEST + V73.3.6.6.11.2 sequence/context/catalyst + V73.3.6.6.10.1 complete formula pipeline + V73.3.6.6.9 universe truth + market/pattern/familiar audits | source=${V1081_BACKTEST_SOURCE} | script=${SCRIPT}"
             mkdir -p reports
             HAM_RUN_LOG="reports/v72_weekly_backtest_stdout.log"
             set -o pipefail
