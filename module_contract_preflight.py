@@ -8,7 +8,7 @@ import shutil
 import sys
 from pathlib import Path
 
-RELEASE_VERSION = "V73.3.6.6.10"
+RELEASE_VERSION = "V73.3.6.6.10.1"
 
 CONTRACTS = [
     {
@@ -63,7 +63,7 @@ CONTRACTS = [
         "label": "FORMULA_COMPLETE",
         "filename": "search_formula_complete_pipeline.py",
         "module": "search_formula_complete_pipeline",
-        "version": "V73.3.6.6.10",
+        "version": "V73.3.6.6.10.1",
         "callables": ("run_backtest", "force_report", "causal_anchor_v1"),
         "exit_code": 117,
     },

@@ -92491,13 +92491,13 @@ _V733669_RELEASE_MARKER = {
 
 
 # ============================================================
-# ✅ V73.3.6.6.10 COMPLETE FORMULA PIPELINE
+# ✅ V73.3.6.6.10.1 COMPLETE FORMULA PIPELINE TEMPORAL/ANCHOR HOTFIX
 # - PRE-OLD is immutable. Only proven late producer inputs are moved into PRE-FIX SHADOW.
 # - Semantic overrides (notably sequence-confirmed yeok_break) remain PRE-authoritative.
 # - Exact as-of OHLC is captured for chronological anchor serialization.
 # - RESEARCH_ONLY: LIVE score/rank/candidate/AI/entry/exit/order mutation = 0.
 # ============================================================
-_V7336610_VERSION = 'V73.3.6.6.10'
+_V7336610_VERSION = 'V73.3.6.6.10.1'
 _V7336610_HEADER = '🧱 [검색식 완성형 계산파이프라인 · PRE-FIX SHADOW · RESEARCH_ONLY]'
 _V7336610_HISTORY_MAP = {}
 try:
@@ -92564,6 +92564,54 @@ def _v1081_make_signal_rows_for_asof(asof_date, universe_df: pd.DataFrame, weath
             globals()['fdr_cached'] = orig_fdr
 
 
+def _v7336610_backfill_history_map(capture_rows, history_map):
+    """Fill missing exact-as-of OHLC after Direct Replay without future leakage.
+
+    The primary in-call capture remains preferred. Missing keys are rebuilt from the same
+    fdr_cached source, sliced strictly to signal_date. This is RESEARCH_ONLY and does not
+    alter analyze_final, candidates, scores, or orders.
+    """
+    out = dict(history_map or {})
+    source_cache = {}
+    requested = 0
+    resolved = 0
+    failed = 0
+    for rec in capture_rows or []:
+        try:
+            ds = pd.Timestamp(rec.get('signal_date')).normalize()
+            code = _v1080_norm_code(rec.get('code', '')) if callable(globals().get('_v1080_norm_code')) else str(rec.get('code', '')).zfill(6)[-6:]
+            if not code or pd.isna(ds):
+                continue
+            key = (ds.strftime('%Y-%m-%d'), str(code).zfill(6)[-6:])
+            if key in out and isinstance(out.get(key), pd.DataFrame) and not out[key].empty:
+                continue
+            requested += 1
+            if code not in source_cache:
+                src = fdr_cached(code, days=900) if callable(globals().get('fdr_cached')) else pd.DataFrame()
+                source_cache[code] = src.copy() if isinstance(src, pd.DataFrame) else pd.DataFrame()
+            h = source_cache.get(code, pd.DataFrame()).copy()
+            if h.empty:
+                failed += 1
+                continue
+            if not isinstance(h.index, pd.DatetimeIndex):
+                dcol = next((c for c in ('Date','date','날짜') if c in h.columns), None)
+                h.index = pd.to_datetime(h[dcol] if dcol else h.index, errors='coerce')
+            h = h[h.index.notna()].sort_index()
+            h = h[h.index.normalize() <= ds].tail(120).copy()
+            if len(h) >= 8 and {'High','Low','Close'}.issubset(h.columns):
+                out[key] = h
+                resolved += 1
+            else:
+                failed += 1
+        except Exception:
+            failed += 1
+    try:
+        log_info(f'🧱 V73.3.6.6.10.1 anchor history backfill | requested {requested} | resolved {resolved} | failed {failed} | final {len(out)}')
+    except Exception:
+        pass
+    return out
+
+
 _V7336610_PREV_DIRECT = globals().get('v1081_run_direct_weekly_backtest')
 def v1081_run_direct_weekly_backtest(output_dir: str='') -> tuple:
     global _V7336610_HISTORY_MAP
@@ -92583,6 +92631,10 @@ def v1081_run_direct_weekly_backtest(output_dir: str='') -> tuple:
         return _v1080_eval_signals(q, hold_days=hold, stop_pct=stop) if callable(globals().get('_v1080_eval_signals')) else pd.DataFrame()
     capture_truth_fn = getattr(globals().get('_v733666_truth'), 'capture_truth', None)
     try:
+        _V7336610_HISTORY_MAP = _v7336610_backfill_history_map(
+            globals().get('_V733669_CAPTURE_ROWS', []),
+            _V7336610_HISTORY_MAP,
+        )
         fixed, _tables = _v7336610_complete.run_backtest(
             globals().get('_V733669_CAPTURE_ROWS', []),
             globals().get('_V733669_ATTEMPT_ROWS', []),
@@ -92596,7 +92648,7 @@ def v1081_run_direct_weekly_backtest(output_dir: str='') -> tuple:
         )
         return fixed, df
     except Exception as exc:
-        try: log_error(f'⚠️ V73.3.6.6.10 complete formula pipeline 실패: {type(exc).__name__}: {exc}')
+        try: log_error(f'⚠️ V73.3.6.6.10.1 complete formula pipeline 실패: {type(exc).__name__}: {exc}')
         except Exception: pass
         return str(report or '') + '\n\n' + _V7336610_HEADER + f'\n- 생성 실패: {type(exc).__name__}: {exc}', df
 
@@ -92647,7 +92699,7 @@ _V7336610_RELEASE_MARKER = {
     'live_logic_changed': False,
     'real_order_changed': False,
 }
-# ✅ END V73.3.6.6.10 COMPLETE FORMULA PIPELINE
+# ✅ END V73.3.6.6.10.1 COMPLETE FORMULA PIPELINE TEMPORAL/ANCHOR HOTFIX
 
 if __name__ == "__main__":
     # V73.3.6.5 dedicated HAM 15:03 RESEARCH_ONLY capture. Must exit before any LIVE scanner code.

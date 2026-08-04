@@ -9,7 +9,7 @@ from typing import Any, Callable, Iterable
 import numpy as np
 import pandas as pd
 
-VERSION = "V73.3.6.6.10"
+VERSION = "V73.3.6.6.10.1"
 RESEARCH_ONLY = True
 HEADER = "🧱 [검색식 완성형 계산파이프라인 · PRE-FIX SHADOW · RESEARCH_ONLY]"
 REPORT_FILE = "v72_search_formula_complete_pipeline_report_block.txt"
@@ -302,16 +302,23 @@ def _explode(eval_df: pd.DataFrame, formulas: list[dict], bitmap_col: str = "pre
 
 
 def _perf(g: pd.DataFrame, formula: str, regime: str = "ALL") -> dict:
-    d1 = pd.to_numeric(g.get("next1_close_ret"), errors="coerce")
-    d3 = pd.to_numeric(g.get("next3_close_ret"), errors="coerce")
-    d5 = pd.to_numeric(g.get("next5_close_ret"), errors="coerce")
+    def nums(col: str) -> pd.Series:
+        if isinstance(g, pd.DataFrame) and col in g.columns:
+            return pd.to_numeric(g[col], errors="coerce")
+        return pd.Series(dtype=float)
+
+    d1 = nums("next1_close_ret")
+    d3 = nums("next3_close_ret")
+    d5 = nums("next5_close_ret")
+    selected = g["candidate_selected"] if isinstance(g, pd.DataFrame) and "candidate_selected" in g.columns else pd.Series(dtype=bool)
+    mex = nums("market_excess3")
     return {
         "formula": formula,
         "regime": regime,
         "n": int(len(g)),
         "stocks": int(g["code"].nunique()) if "code" in g.columns else 0,
         "signal_days": int(g["signal_date"].nunique()) if "signal_date" in g.columns else 0,
-        "selected_rows": int(pd.Series(g.get("candidate_selected", False)).fillna(False).astype(bool).sum()),
+        "selected_rows": int(selected.fillna(False).astype(bool).sum()) if len(selected) else 0,
         "d1_mean": d1.mean(),
         "d3_mean": d3.mean(),
         "d3_median": d3.median(),
@@ -322,8 +329,8 @@ def _perf(g: pd.DataFrame, formula: str, regime: str = "ALL") -> dict:
         "d3_cost50bp": d3.mean() - 0.50 if d3.notna().any() else np.nan,
         "plus3_first_rate": _bool_rate(g["plus3_first"] if "plus3_first" in g.columns else pd.Series(dtype=bool)),
         "stop_first_rate": _bool_rate(g["stop_first"] if "stop_first" in g.columns else pd.Series(dtype=bool)),
-        "market_excess3_mean": pd.to_numeric(g.get("market_excess3"), errors="coerce").mean() if "market_excess3" in g.columns else np.nan,
-        "market_excess3_median": pd.to_numeric(g.get("market_excess3"), errors="coerce").median() if "market_excess3" in g.columns else np.nan,
+        "market_excess3_mean": mex.mean(),
+        "market_excess3_median": mex.median(),
     }
 
 
@@ -383,7 +390,13 @@ def causal_anchor_v1(history: pd.DataFrame, signal_date: Any) -> dict:
     h = _history_frame(history, sd)
     required = {"High", "Low", "Close"}
     if h.empty or not required.issubset(h.columns) or len(h) < 8:
-        return {"anchor_status": "HISTORY_UNAVAILABLE", "signal_date": sd.strftime("%Y-%m-%d")}
+        return {
+            "anchor_status": "HISTORY_UNAVAILABLE",
+            "anchor_method": "CAUSAL_LOW_HIGH_PULLBACK_V1",
+            "signal_date": sd.strftime("%Y-%m-%d"),
+            "temporal_invariant": "UNKNOWN",
+            "anchor_reason": "OHLC_HISTORY_MISSING_OR_TOO_SHORT",
+        }
     w = h.tail(60).copy()
     highs = pd.to_numeric(w["High"], errors="coerce")
     lows = pd.to_numeric(w["Low"], errors="coerce")
@@ -405,7 +418,13 @@ def causal_anchor_v1(history: pd.DataFrame, signal_date: Any) -> dict:
             if best is None or key > best[0]:
                 best = (key, i, j, float(low), float(high))
     if best is None:
-        return {"anchor_status": "NO_CHRONOLOGICAL_IMPULSE", "signal_date": sd.strftime("%Y-%m-%d")}
+        return {
+            "anchor_status": "NO_CHRONOLOGICAL_IMPULSE",
+            "anchor_method": "CAUSAL_LOW_HIGH_PULLBACK_V1",
+            "signal_date": sd.strftime("%Y-%m-%d"),
+            "temporal_invariant": "UNKNOWN",
+            "anchor_reason": "NO_LOW_HIGH_PULLBACK_SEQUENCE",
+        }
     _, i, j, low_price, high_price = best
     after = w.iloc[j + 1:]
     if after.empty:
@@ -423,7 +442,7 @@ def causal_anchor_v1(history: pd.DataFrame, signal_date: Any) -> dict:
     retrace_pct = ((high_price - pull_price) / (high_price - low_price) * 100.0) if high_price > low_price else np.nan
     low_distance = ((close_now / float(lows.min())) - 1.0) * 100.0 if _num(lows.min()) > 0 else np.nan
     upper_space = ((float(highs.max()) / close_now) - 1.0) * 100.0 if close_now > 0 else np.nan
-    valid = bool(base_dt < peak_dt <= pull_dt <= sd)
+    valid = bool(base_dt < peak_dt < pull_dt <= sd)
     return {
         "anchor_status": "AVAILABLE" if valid else "TEMPORAL_INVALID",
         "anchor_method": "CAUSAL_LOW_HIGH_PULLBACK_V1",
@@ -480,6 +499,18 @@ def _anchor_tables(causal: pd.DataFrame, history_map: dict, out: Path) -> tuple[
         })
         rows.append(a)
     ad = pd.DataFrame(rows)
+    required_cols = {
+        "anchor_status": "HISTORY_UNAVAILABLE",
+        "anchor_method": "CAUSAL_LOW_HIGH_PULLBACK_V1",
+        "signal_date": "",
+        "temporal_invariant": "UNKNOWN",
+        "anchor_reason": "",
+    }
+    for col, default in required_cols.items():
+        if col not in ad.columns:
+            ad[col] = default
+        else:
+            ad[col] = ad[col].fillna(default)
     if ad.empty:
         td = pd.DataFrame(columns=["temporal_invariant", "n", "rate_pct"])
     else:
@@ -647,6 +678,7 @@ def run_backtest(
     overlay_complete = int(row_df["late_overlay_complete"].sum()) if not row_df.empty and "late_overlay_complete" in row_df.columns else 0
     winner_changed = int(row_df["winner_changed"].sum()) if not row_df.empty else 0
     anchor_available = int(anchors["anchor_status"].eq("AVAILABLE").sum()) if not anchors.empty and "anchor_status" in anchors.columns else 0
+    anchor_unknown = int(anchors["temporal_invariant"].eq("UNKNOWN").sum()) if not anchors.empty and "temporal_invariant" in anchors.columns else 0
     temporal_fail = int(anchors["temporal_invariant"].eq("FAIL").sum()) if not anchors.empty and "temporal_invariant" in anchors.columns else 0
     eval_ok = int(eval_df.get("eval_status", pd.Series(dtype=str)).eq("OK").sum()) if not eval_df.empty else 0
     eval_days = int(exploded["signal_date"].nunique()) if not exploded.empty else 0
@@ -673,6 +705,7 @@ def run_backtest(
         "anchor_available_rows": anchor_available,
         "anchor_coverage_pct": anchor_available / combo_rows * 100.0 if combo_rows else np.nan,
         "temporal_invariant_fail_rows": temporal_fail,
+        "temporal_invariant_unknown_rows": anchor_unknown,
         "evaluated_rows": eval_ok,
         "evaluated_signal_days": eval_days,
         "contract_valid": contract_valid,
@@ -703,7 +736,7 @@ def run_backtest(
         f"📌 {VERSION} · COMPLETE_FORMULA_INPUT_ORDER_ANCHOR_REGIME_PIPELINE · RESEARCH_ONLY=True",
         "- 목적: 실제 PRE 입력을 보존한 채, 늦게 생성되던 피보나치·피봇·종가배팅 원천값만 PRE-FIX SHADOW에 옮겨 동일 모집단에서 재계산합니다.",
         "- yeok_break처럼 PRE에서 시퀀스 의미가 확정되는 값은 POST로 덮지 않습니다. 계산순서 수정과 조건정의 변경을 분리합니다.",
-        f"🧾 계약: COMBO {combo_rows}행·{combo_days}일 | FIXED bitmap {fixed_complete}/{combo_rows} | late-input {overlay_complete}/{combo_rows} | condition error {fixed_errors} | anchor {anchor_available}/{combo_rows} | temporal fail {temporal_fail} | {'✅ VALID_SHADOW' if contract_valid else '⛔ INVALID'}",
+        f"🧾 계약: COMBO {combo_rows}행·{combo_days}일 | FIXED bitmap {fixed_complete}/{combo_rows} | late-input {overlay_complete}/{combo_rows} | condition error {fixed_errors} | anchor {anchor_available}/{combo_rows} | temporal fail {temporal_fail}·unknown {anchor_unknown} | {'✅ VALID_SHADOW' if contract_valid else '⛔ INVALID'}",
         f"🔄 영향: timing 변경 {changed_rows}행 | 최고식 변경 {winner_changed}행 | LIVE 점수·순위·후보·주문 변경 0",
     ]
     lines.append("⏱️ [PRE-OLD → PRE-FIX 실제 점등 변화]")
@@ -717,7 +750,7 @@ def run_backtest(
         for _, r in score_df[score_df["winner_changed"].astype(bool)].head(8).iterrows():
             lines.append(f"- {pd.Timestamp(r['signal_date']).strftime('%Y-%m-%d')} {r['code']} {r.get('name','')} | {r.get('pre_old_best','')} → {r.get('pre_fixed_best','')} | LIVE 미반영")
     lines.append("🧬 [Selector membership 시점 anchor 직렬화]")
-    lines.append(f"- exact as-of OHLC 기반 chronological low→high→pullback anchor {anchor_available}/{combo_rows} · 시간순서 위반 {temporal_fail}건")
+    lines.append(f"- exact as-of OHLC 기반 chronological low→high→pullback anchor {anchor_available}/{combo_rows} · 시간순서 위반 {temporal_fail}건 · 미확인 {anchor_unknown}건")
     lines.append("- 기존 selector가 날짜를 저장하지 않았던 문제를 보완하기 위한 SHADOW 증거이며, 점수에서 날짜를 역추정하지 않습니다.")
     lines.append("📊 [PRE-FIX 성과판정 준비]")
     lines.append(f"- 평가 OK {eval_ok}행·독립일 {eval_days}일 | {'READY' if policy_ready else 'NOT_READY'} · 최소 {MIN_POLICY_ROWS}행·{MIN_POLICY_DATES}일 전 삭제/승격 금지")
