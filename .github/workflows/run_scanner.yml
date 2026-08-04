@@ -1077,7 +1077,7 @@ jobs:
               exit 65
             fi
             if [ ! -f "module_contract_preflight.py" ]; then
-              echo "❌ module_contract_preflight.py missing from repository root. V73.3.6.6.9 deployment incomplete."
+              echo "❌ module_contract_preflight.py missing from repository root. V73.3.6.6.10 deployment incomplete."
               exit 105
             fi
             # Historical verifier compatibility markers; execution is delegated to module_contract_preflight.py.
@@ -1086,13 +1086,14 @@ jobs:
             # MARKET_EXCESS_PREFLIGHT V73.3.6.6.3
             # FORMULA_TRUTH_PREFLIGHT V73.3.6.6.8
             # FORMULA_UNIVERSE_PREFLIGHT V73.3.6.6.9
+            # FORMULA_COMPLETE_PREFLIGHT V73.3.6.6.10
             # artifact families: strict-ai-exact-policy-route-guard-reports | market-index-sector-excess-causal-audit-reports
             echo "🧭 [V73.3.6.6.4 exact-root module source guard]"
             find "${GITHUB_WORKSPACE}" -maxdepth 4 -type f \
-              \( -name 'ham_restart_research.py' -o -name 'familiar_research.py' -o -name 'pattern_ai_cross_research.py' -o -name 'market_regime_excess_research.py' -o -name 'search_formula_truth_audit.py' -o -name 'search_formula_universe_audit.py' \) \
+              \( -name 'ham_restart_research.py' -o -name 'familiar_research.py' -o -name 'pattern_ai_cross_research.py' -o -name 'market_regime_excess_research.py' -o -name 'search_formula_truth_audit.py' -o -name 'search_formula_universe_audit.py' -o -name 'search_formula_complete_pipeline.py' \) \
               -print | sort
             python -B module_contract_preflight.py
-            echo "✅ exact-root module source hashes | main=$(sha256sum "${SCRIPT}" | awk '{print $1}') | ham=$(sha256sum ham_restart_research.py | awk '{print $1}') | familiar=$(sha256sum familiar_research.py | awk '{print $1}') | cross=$(sha256sum pattern_ai_cross_research.py | awk '{print $1}') | market=$(sha256sum market_regime_excess_research.py | awk '{print $1}') | truth=$(sha256sum search_formula_truth_audit.py | awk '{print $1}') | universe=$(sha256sum search_formula_universe_audit.py | awk '{print $1}')"
+            echo "✅ exact-root module source hashes | main=$(sha256sum "${SCRIPT}" | awk '{print $1}') | ham=$(sha256sum ham_restart_research.py | awk '{print $1}') | familiar=$(sha256sum familiar_research.py | awk '{print $1}') | cross=$(sha256sum pattern_ai_cross_research.py | awk '{print $1}') | market=$(sha256sum market_regime_excess_research.py | awk '{print $1}') | truth=$(sha256sum search_formula_truth_audit.py | awk '{print $1}') | universe=$(sha256sum search_formula_universe_audit.py | awk '{print $1}') | complete=$(sha256sum search_formula_complete_pipeline.py | awk '{print $1}')"
           fi
           if [ "${STOCKHUNTER_HAM_1503_ONLY:-0}" = "1" ]; then
             echo "🍔 V73.3.6.5.3 listing/bootstrap guard + V73.3.6.5.2 data-path guard + V73.3.6.5 HAM→SURVIVE→RESTART→15:03 CLOSE RESEARCH_ONLY | script=${SCRIPT}"
@@ -1121,7 +1122,7 @@ jobs:
             echo "⏰ V72.29 09:30 NAVER realtime batch strong-sector / leader radar | script=${SCRIPT}"
             python "${SCRIPT}" --open-0930
           elif [ "${STOCKHUNTER_WEEKLY_BACKTEST_ONLY}" = "1" ]; then
-            echo "🧪 WEEKLY_BACKTEST + V73.3.6.6.3 market/index/sector excess causal audit + V73.3.6.6.2 strict AI cross + V73.3.6.6 familiar | source=${V1081_BACKTEST_SOURCE} | script=${SCRIPT}"
+            echo "🧪 WEEKLY_BACKTEST + V73.3.6.6.10 complete formula pipeline + V73.3.6.6.9 universe truth + market/pattern/familiar audits | source=${V1081_BACKTEST_SOURCE} | script=${SCRIPT}"
             mkdir -p reports
             HAM_RUN_LOG="reports/v72_weekly_backtest_stdout.log"
             set -o pipefail
@@ -1158,8 +1159,16 @@ jobs:
           test -f reports/v72_search_formula_universe_formula_performance.csv || { echo "❌ full-universe formula performance missing"; exit 122; }
           test -f reports/v72_search_formula_universe_post_only_timing_breach.csv || { echo "❌ full-universe post-only timing audit missing"; exit 123; }
           python -c "import pandas as pd,sys; p='reports/v72_search_formula_universe_coverage_summary.csv'; q=pd.read_csv(p); r=q.iloc[-1] if len(q) else {}; print('FORMULA_UNIVERSE_COVERAGE',r.get('attempted_rows'),r.get('combo_reached_rows'),r.get('pre_complete_rows'),r.get('post_complete_rows'),'valid',r.get('contract_valid'),'policy_ready',r.get('policy_ready')); ok=str(r.get('contract_valid')).strip().lower() in ('true','1'); sys.exit(0 if ok else 124)"
+          grep -Fq "🧱 [검색식 완성형 계산파이프라인 · PRE-FIX SHADOW · RESEARCH_ONLY]" "${HAM_RUN_LOG}" || { echo "❌ complete formula pipeline block missing"; exit 125; }
+          test "$(grep -Fc "🧱 [검색식 완성형 계산파이프라인 · PRE-FIX SHADOW · RESEARCH_ONLY]" "${HAM_RUN_LOG}")" -eq 1 || { echo "❌ complete formula pipeline header count must be exactly 1"; exit 126; }
+          test -f reports/v72_formula_pre_old_vs_fixed_truth.csv || { echo "❌ PRE old-vs-fixed truth audit missing"; exit 127; }
+          test -f reports/v72_formula_timing_provenance.csv || { echo "❌ formula timing provenance missing"; exit 128; }
+          test -f reports/v72_formula_selector_anchor_serialization.csv || { echo "❌ selector anchor serialization missing"; exit 129; }
+          test -f reports/v72_formula_temporal_invariant_audit.csv || { echo "❌ temporal invariant audit missing"; exit 130; }
+          test -f reports/v72_formula_complete_readiness.csv || { echo "❌ complete readiness audit missing"; exit 131; }
+          python -c "import pandas as pd,sys; p='reports/v72_formula_complete_readiness.csv'; q=pd.read_csv(p); r=q.iloc[-1] if len(q) else {}; print('FORMULA_COMPLETE_READINESS',r.get('status'),'combo',r.get('combo_rows'),'fixed',r.get('pre_fixed_complete_rows'),'anchors',r.get('anchor_available_rows'),'temporal_fail',r.get('temporal_invariant_fail_rows'),'policy_ready',r.get('policy_ready')); sys.exit(0 if str(r.get('status'))=='VALID_SHADOW' else 132)"
             python -c "import csv,sys; p='reports/v72_backtest_data_path_audit.csv'; rows=list(csv.DictReader(open(p,encoding='utf-8-sig',newline=''))); last=(rows[-1] if rows else {}); print('DATA_PATH_AUDIT_LAST',last.get('status'),last.get('reason'),'eval',last.get('final_eval_rows')); sys.exit(0 if last.get('status')=='PASS' else 80)"
-            echo "✅ WEEKLY_BACKTEST data-path + HAM + FAMILIAR + PATTERN-AI-CROSS + MARKET-EXCESS + FULL-UNIVERSE-FORMULA research guard PASS"
+            echo "✅ WEEKLY_BACKTEST data-path + HAM + FAMILIAR + PATTERN-AI-CROSS + MARKET-EXCESS + FULL-UNIVERSE-FORMULA + COMPLETE-FORMULA research guard PASS"
           else
             echo "🚀 Stock-Hunter scanner mode | script=${SCRIPT}"
             python "${SCRIPT}"
