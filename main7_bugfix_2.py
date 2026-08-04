@@ -92488,6 +92488,167 @@ _V733669_RELEASE_MARKER = {
 }
 # ✅ END V73.3.6.6.9 FULL-UNIVERSE FORMULA TRUTH × PERFORMANCE × REGIME AUDIT
 
+
+
+# ============================================================
+# ✅ V73.3.6.6.10 COMPLETE FORMULA PIPELINE
+# - PRE-OLD is immutable. Only proven late producer inputs are moved into PRE-FIX SHADOW.
+# - Semantic overrides (notably sequence-confirmed yeok_break) remain PRE-authoritative.
+# - Exact as-of OHLC is captured for chronological anchor serialization.
+# - RESEARCH_ONLY: LIVE score/rank/candidate/AI/entry/exit/order mutation = 0.
+# ============================================================
+_V7336610_VERSION = 'V73.3.6.6.10'
+_V7336610_HEADER = '🧱 [검색식 완성형 계산파이프라인 · PRE-FIX SHADOW · RESEARCH_ONLY]'
+_V7336610_HISTORY_MAP = {}
+try:
+    import search_formula_complete_pipeline as _v7336610_complete
+    _V7336610_OK = (
+        str(getattr(_v7336610_complete, 'VERSION', '')) == _V7336610_VERSION
+        and bool(getattr(_v7336610_complete, 'RESEARCH_ONLY', False))
+        and all(callable(getattr(_v7336610_complete, n, None)) for n in ('run_backtest', 'force_report', 'causal_anchor_v1'))
+    )
+    print(f"{'✅' if _V7336610_OK else '🚨'} {_V7336610_VERSION} COMPLETE_FORMULA_PIPELINE {'LOADED' if _V7336610_OK else 'CONTRACT_FAIL'} | RESEARCH_ONLY=True")
+except Exception as _v7336610_import_e:
+    _v7336610_complete = None
+    _V7336610_OK = False
+    try: print(f'🚨 {_V7336610_VERSION} complete formula pipeline import fail: {type(_v7336610_import_e).__name__}: {_v7336610_import_e}')
+    except Exception: pass
+
+
+_V7336610_PREV_MAKE_SIGNAL_ROWS = globals().get('_v1081_make_signal_rows_for_asof')
+def _v1081_make_signal_rows_for_asof(asof_date, universe_df: pd.DataFrame, weather_data=None, sector_master_map=None, limit: int=15):
+    """Capture the exact Direct Replay as-of OHLC used by analyze_final.
+
+    The previous V73.3.6.6.9 wrapper remains authoritative for universe truth capture.
+    This wrapper only records causal history for anchor serialization and restores every
+    runtime function before returning.
+    """
+    global _V7336610_HISTORY_MAP
+    prev = globals().get('_V7336610_PREV_MAKE_SIGNAL_ROWS')
+    if not callable(prev) or prev is _v1081_make_signal_rows_for_asof:
+        return []
+    if not _V7336610_OK:
+        return prev(asof_date, universe_df, weather_data=weather_data, sector_master_map=sector_master_map, limit=limit)
+    orig_fdr = globals().get('fdr_cached')
+    asof_ts = pd.Timestamp(asof_date).normalize()
+
+    def history_fdr_wrapper(ticker: str, days: int = 900):
+        df = orig_fdr(ticker, days=days) if callable(orig_fdr) else pd.DataFrame()
+        try:
+            ctx = globals().get('_V733669_CONTEXT')
+            code = ''
+            if isinstance(ctx, dict):
+                code = str(ctx.get('code', '') or '')
+            if not code:
+                code = _v1080_norm_code(ticker) if callable(globals().get('_v1080_norm_code')) else str(ticker).zfill(6)
+            if isinstance(df, pd.DataFrame) and not df.empty:
+                h = df.copy()
+                try:
+                    if not isinstance(h.index, pd.DatetimeIndex):
+                        h.index = pd.to_datetime(h.index, errors='coerce')
+                    h = h[h.index.notna()].sort_index()
+                    h = h[h.index.normalize() <= asof_ts].tail(120).copy()
+                except Exception:
+                    h = df.tail(120).copy()
+                _V7336610_HISTORY_MAP[(asof_ts.strftime('%Y-%m-%d'), str(code).zfill(6)[-6:])] = h
+        except Exception:
+            pass
+        return df
+
+    if callable(orig_fdr):
+        globals()['fdr_cached'] = history_fdr_wrapper
+    try:
+        return prev(asof_date, universe_df, weather_data=weather_data, sector_master_map=sector_master_map, limit=limit)
+    finally:
+        if callable(orig_fdr):
+            globals()['fdr_cached'] = orig_fdr
+
+
+_V7336610_PREV_DIRECT = globals().get('v1081_run_direct_weekly_backtest')
+def v1081_run_direct_weekly_backtest(output_dir: str='') -> tuple:
+    global _V7336610_HISTORY_MAP
+    _V7336610_HISTORY_MAP = {}
+    prev = globals().get('_V7336610_PREV_DIRECT')
+    report, df = prev(output_dir=output_dir) if callable(prev) and prev is not v1081_run_direct_weekly_backtest else ('🧪 [직접재현 백테스트]\n- 원본 함수 없음', pd.DataFrame())
+    if not _V7336610_OK:
+        return report, df
+    out = output_dir or os.environ.get('V1080_BACKTEST_OUTPUT_DIR', 'reports')
+    try:
+        listing = load_krx_listing_safe() if callable(globals().get('load_krx_listing_safe')) else pd.DataFrame()
+    except Exception:
+        listing = pd.DataFrame()
+    hold = max(5, _v1080_env_int('V1080_BACKTEST_HOLD_DAYS', 5) if callable(globals().get('_v1080_env_int')) else 5)
+    stop = _v1080_env_float('V1080_BACKTEST_STOP_PCT', -5.0) if callable(globals().get('_v1080_env_float')) else -5.0
+    def evaluator(q):
+        return _v1080_eval_signals(q, hold_days=hold, stop_pct=stop) if callable(globals().get('_v1080_eval_signals')) else pd.DataFrame()
+    capture_truth_fn = getattr(globals().get('_v733666_truth'), 'capture_truth', None)
+    try:
+        fixed, _tables = _v7336610_complete.run_backtest(
+            globals().get('_V733669_CAPTURE_ROWS', []),
+            globals().get('_V733669_ATTEMPT_ROWS', []),
+            _V7336610_HISTORY_MAP,
+            output_dir=out,
+            base_report=report,
+            evaluator=evaluator,
+            listing_df=listing,
+            combo_table=COMBO_TABLE,
+            capture_truth_fn=capture_truth_fn,
+        )
+        return fixed, df
+    except Exception as exc:
+        try: log_error(f'⚠️ V73.3.6.6.10 complete formula pipeline 실패: {type(exc).__name__}: {exc}')
+        except Exception: pass
+        return str(report or '') + '\n\n' + _V7336610_HEADER + f'\n- 생성 실패: {type(exc).__name__}: {exc}', df
+
+
+_V7336610_PREV_DIGEST = globals().get('_v1107_4_5_61_backtest_digest')
+def _v1107_4_5_61_backtest_digest(text: str) -> str:
+    prev = globals().get('_V7336610_PREV_DIGEST'); raw = str(text or '')
+    try: d = prev(raw) if callable(prev) and prev is not _v1107_4_5_61_backtest_digest else raw
+    except Exception: d = raw
+    if _V7336610_OK:
+        try: return _v7336610_complete.force_report(d, os.environ.get('V1080_BACKTEST_OUTPUT_DIR','reports'))
+        except Exception: return d
+    return d
+
+
+_V7336610_PREV_CLEAN = globals().get('_v1107_4_5_62_clean_for_send')
+def _v1107_4_5_62_clean_for_send(text: str) -> str:
+    prev = globals().get('_V7336610_PREV_CLEAN'); raw = str(text or '')
+    try: d = prev(raw) if callable(prev) and prev is not _v1107_4_5_62_clean_for_send else raw
+    except Exception: d = raw
+    if _V7336610_OK:
+        try: return _v7336610_complete.force_report(d, os.environ.get('V1080_BACKTEST_OUTPUT_DIR','reports'))
+        except Exception: return d
+    return d
+
+
+_V7336610_PREV_SEND = globals().get('_v1080_send_backtest_telegram')
+def _v1080_send_backtest_telegram(report: str, max_len: int=3500, *args, **kwargs):
+    prev = globals().get('_V7336610_PREV_SEND'); fixed = str(report or '')
+    if _V7336610_OK:
+        try: fixed = _v7336610_complete.force_report(fixed, os.environ.get('V1080_BACKTEST_OUTPUT_DIR','reports'))
+        except Exception: pass
+    if callable(prev) and prev is not _v1080_send_backtest_telegram:
+        try: return prev(fixed, max_len=max_len, *args, **kwargs)
+        except TypeError:
+            try: return prev(fixed, max_len)
+            except TypeError: return prev(fixed)
+        except Exception: return False
+    return False
+
+
+_V7336610_RELEASE_MARKER = {
+    'version': _V7336610_VERSION,
+    'research_only': True,
+    'pre_old_immutable': True,
+    'late_producer_keys': list(getattr(_v7336610_complete, 'LATE_PRODUCER_KEYS', ())) if _V7336610_OK else [],
+    'semantic_override_keys': list(getattr(_v7336610_complete, 'SEMANTIC_OVERRIDE_KEYS', ())) if _V7336610_OK else [],
+    'live_logic_changed': False,
+    'real_order_changed': False,
+}
+# ✅ END V73.3.6.6.10 COMPLETE FORMULA PIPELINE
+
 if __name__ == "__main__":
     # V73.3.6.5 dedicated HAM 15:03 RESEARCH_ONLY capture. Must exit before any LIVE scanner code.
     _v73365_ham_only = _v7224_on('STOCKHUNTER_HAM_1503_ONLY','0') or '--ham-1503-research' in sys.argv
