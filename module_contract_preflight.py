@@ -8,7 +8,7 @@ import shutil
 import sys
 from pathlib import Path
 
-RELEASE_VERSION = "V73.3.6.6.13"
+RELEASE_VERSION = "V73.3.6.6.14"
 
 CONTRACTS = [
     {
@@ -87,9 +87,17 @@ CONTRACTS = [
         "label": "GOOGLE_SHEET_FORWARD_LEDGER",
         "filename": "google_sheet_forward_ledger.py",
         "module": "google_sheet_forward_ledger",
-        "version": "V73.3.6.6.13",
+        "version": "V73.3.6.6.14",
         "callables": ("run_storage", "load_service_account_info", "create_google_client", "main"),
         "exit_code": 149,
+    },
+    {
+        "label": "CONTEXT_OUTCOME_DIAGNOSTIC",
+        "filename": "context_outcome_diagnostic.py",
+        "module": "context_outcome_diagnostic",
+        "version": "V73.3.6.6.14",
+        "callables": ("run_backtest", "force_report"),
+        "exit_code": 151,
     },
 ]
 
@@ -202,7 +210,7 @@ def main() -> int:
             )
             return int(contract["exit_code"])
 
-    print("✅ HAM/FAMILIAR/PATTERN-AI-CROSS/MARKET-EXCESS/FORMULA-TRUTH/FORMULA-UNIVERSE/FORMULA-COMPLETE/CATALYST-SOURCES/SEQUENCE-CONTEXT-CATALYST/GOOGLE-SHEET-FORWARD-LEDGER exact-root source preflight PASS")
+    print("✅ HAM/FAMILIAR/PATTERN-AI-CROSS/MARKET-EXCESS/FORMULA-TRUTH/FORMULA-UNIVERSE/FORMULA-COMPLETE/CATALYST-SOURCES/SEQUENCE-CONTEXT-CATALYST/GOOGLE-SHEET-FORWARD-LEDGER/CONTEXT-OUTCOME-DIAGNOSTIC exact-root source preflight PASS")
     return 0
 
 

@@ -92827,6 +92827,129 @@ _V7336612_RELEASE_MARKER = {
 }
 # ✅ END V73.3.6.6.12 SEQUENCE × MARKET/SECTOR × CATALYST LIFECYCLE PIPELINE
 
+
+# ============================================================
+# ✅ V73.3.6.6.14 MARKET × BROAD-SECTOR × SEQUENCE × RETURN-PATH DIAGNOSTIC
+# - Winner/loser commonality, MFE/MAE, giveback, failure attribution.
+# - Context feature lift, condition ablation, regime performance, formula scorecard.
+# - RESEARCH_ONLY: no LIVE score/rank/candidate/AI/entry/exit/order mutation.
+# ============================================================
+_V7336614_VERSION = 'V73.3.6.6.14'
+_V7336614_HEADER = '🧭 [시장 × 단체섹터 × 종목시퀀스 × 수익경로 진단 · RESEARCH_ONLY]'
+_V7336614_LAST_FP = ''
+try:
+    import context_outcome_diagnostic as _v7336614_diag
+    _V7336614_OK = (
+        str(getattr(_v7336614_diag, 'VERSION', '')) == _V7336614_VERSION
+        and bool(getattr(_v7336614_diag, 'RESEARCH_ONLY', False))
+        and all(callable(getattr(_v7336614_diag, n, None)) for n in ('run_backtest', 'force_report'))
+    )
+    print(f"{'✅' if _V7336614_OK else '🚨'} {_V7336614_VERSION} CONTEXT_OUTCOME_DIAGNOSTIC {'LOADED' if _V7336614_OK else 'CONTRACT_FAIL'} | RESEARCH_ONLY=True")
+except Exception as _v7336614_import_e:
+    _v7336614_diag = None
+    _V7336614_OK = False
+    try: print(f'🚨 {_V7336614_VERSION} context outcome diagnostic import fail: {type(_v7336614_import_e).__name__}: {_v7336614_import_e}')
+    except Exception: pass
+
+
+def _v7336614_df_fp(df):
+    try:
+        if df is None or getattr(df, 'empty', True): return 'EMPTY'
+        cols = [c for c in ['signal_date','code','source','next3_close_ret','ret3'] if c in df.columns]
+        if not cols: return f'ROWS_{len(df)}'
+        z = df[cols].astype(str).sort_values(cols[:2] if len(cols) >= 2 else cols, kind='stable').to_csv(index=False)
+        import hashlib
+        return hashlib.sha256(z.encode()).hexdigest()[:16]
+    except Exception:
+        return f'ROWS_{0 if df is None else len(df)}'
+
+
+def _v7336614_apply(report, df, output_dir=''):
+    global _V7336614_LAST_FP
+    if not _V7336614_OK:
+        return str(report or ''), df
+    out = output_dir or os.environ.get('V1080_BACKTEST_OUTPUT_DIR', 'reports')
+    fp = _v7336614_df_fp(df)
+    try:
+        if fp == _V7336614_LAST_FP and fp != 'EMPTY':
+            return _v7336614_diag.force_report(report, out), df
+        fixed, _tables = _v7336614_diag.run_backtest(df, output_dir=out, base_report=report)
+        _V7336614_LAST_FP = fp
+        return fixed, df
+    except Exception as exc:
+        try: log_error(f'⚠️ V73.3.6.6.14 context outcome diagnostic 실패: {type(exc).__name__}: {exc}')
+        except Exception: pass
+        return str(report or '') + '\n\n' + _V7336614_HEADER + f'\n- 생성 실패: {type(exc).__name__}: {exc}', df
+
+
+_V7336614_PREV_DIRECT = globals().get('v1081_run_direct_weekly_backtest')
+def v1081_run_direct_weekly_backtest(output_dir: str='') -> tuple:
+    prev = globals().get('_V7336614_PREV_DIRECT')
+    report, df = prev(output_dir=output_dir) if callable(prev) and prev is not v1081_run_direct_weekly_backtest else ('🧪 [직접재현 백테스트]\n- 원본 함수 없음', pd.DataFrame())
+    return _v7336614_apply(report, df, output_dir)
+
+
+_V7336614_PREV_WEEKLY = globals().get('v1080_run_weekly_backtest')
+def v1080_run_weekly_backtest(signal_path: str='', output_dir: str='') -> tuple:
+    prev = globals().get('_V7336614_PREV_WEEKLY')
+    report, df = prev(signal_path=signal_path, output_dir=output_dir) if callable(prev) and prev is not v1080_run_weekly_backtest else ('🧪 [CSV 백테스트]\n- 원본 함수 없음', pd.DataFrame())
+    return _v7336614_apply(report, df, output_dir)
+
+
+_V7336614_PREV_DIGEST = globals().get('_v1107_4_5_61_backtest_digest')
+def _v1107_4_5_61_backtest_digest(text: str) -> str:
+    prev = globals().get('_V7336614_PREV_DIGEST'); raw = str(text or '')
+    try: d = prev(raw) if callable(prev) and prev is not _v1107_4_5_61_backtest_digest else raw
+    except Exception: d = raw
+    if _V7336614_OK:
+        try: return _v7336614_diag.force_report(d, os.environ.get('V1080_BACKTEST_OUTPUT_DIR','reports'))
+        except Exception: return d
+    return d
+
+
+_V7336614_PREV_CLEAN = globals().get('_v1107_4_5_62_clean_for_send')
+def _v1107_4_5_62_clean_for_send(text: str) -> str:
+    prev = globals().get('_V7336614_PREV_CLEAN'); raw = str(text or '')
+    try: d = prev(raw) if callable(prev) and prev is not _v1107_4_5_62_clean_for_send else raw
+    except Exception: d = raw
+    if _V7336614_OK:
+        try: return _v7336614_diag.force_report(d, os.environ.get('V1080_BACKTEST_OUTPUT_DIR','reports'))
+        except Exception: return d
+    return d
+
+
+_V7336614_PREV_SEND = globals().get('_v1080_send_backtest_telegram')
+def _v1080_send_backtest_telegram(report: str, max_len: int=3500, *args, **kwargs):
+    prev = globals().get('_V7336614_PREV_SEND'); fixed = str(report or '')
+    if _V7336614_OK:
+        try: fixed = _v7336614_diag.force_report(fixed, os.environ.get('V1080_BACKTEST_OUTPUT_DIR','reports'))
+        except Exception: pass
+    if callable(prev) and prev is not _v1080_send_backtest_telegram:
+        try: return prev(fixed, max_len=max_len, *args, **kwargs)
+        except TypeError:
+            try: return prev(fixed, max_len)
+            except TypeError: return prev(fixed)
+        except Exception: return False
+    return False
+
+
+_V7336614_RELEASE_MARKER = {
+    'version': _V7336614_VERSION,
+    'research_only': True,
+    'winner_loser_commonality': True,
+    'return_path_cluster': True,
+    'failure_attribution': True,
+    'market_breadth_context': True,
+    'broad_sector_context': True,
+    'feature_lift': True,
+    'rule_ablation': True,
+    'formula_scorecard': True,
+    'google_sheet_diagnostic_tabs': True,
+    'live_logic_changed': False,
+    'real_order_changed': False,
+}
+# ✅ END V73.3.6.6.14 CONTEXT OUTCOME DIAGNOSTIC
+
 if __name__ == "__main__":
     # V73.3.6.5 dedicated HAM 15:03 RESEARCH_ONLY capture. Must exit before any LIVE scanner code.
     _v73365_ham_only = _v7224_on('STOCKHUNTER_HAM_1503_ONLY','0') or '--ham-1503-research' in sys.argv
@@ -94337,3 +94460,13 @@ _V7336613_GOOGLE_SHEET_FORWARD_LEDGER_GUARD = {
     "real_order_changed": False,
 }
 # ✅ END V73.3.6.6.13 GOOGLE SHEET FORWARD LEDGER PERSISTENCE GUARD MARKER
+
+# ✅ V73.3.6.6.14 CONTEXT OUTCOME DIAGNOSTIC + GOOGLE SHEET MARKER
+_V73366131_GOOGLE_SHEET_FAIL_CLOSED_GUARD = {
+    "version": "V73.3.6.6.14",
+    "research_only": True,
+    "live_logic_changed": False,
+    "real_order_changed": False,
+    "purpose": "workflow persistence failure must return non-zero and expose exact audit status",
+}
+# ✅ END V73.3.6.6.14 CONTEXT OUTCOME DIAGNOSTIC + GOOGLE SHEET MARKER

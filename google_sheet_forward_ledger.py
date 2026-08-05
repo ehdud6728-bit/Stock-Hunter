@@ -15,7 +15,7 @@ from typing import Any, Iterable
 
 import pandas as pd
 
-VERSION = "V73.3.6.6.13"
+VERSION = "V73.3.6.6.14"
 RESEARCH_ONLY = True
 LIVE_LOGIC_CHANGED = False
 REAL_ORDER_CHANGED = False
@@ -78,6 +78,18 @@ TAB_SPECS: tuple[TabSpec, ...] = (
         "v73_market_sector_forward_capture_audit.csv",
         ("version", "captured_at", "status"),
     ),
+    TabSpec("BACKTEST_EVENT_MASTER", "v73_backtest_event_master.csv", ("event_id", "snapshot_id")),
+    TabSpec("MARKET_CONTEXT", "v73_market_context_diagnostic.csv", ("dimension", "label", "snapshot_id")),
+    TabSpec("SECTOR_CONTEXT", "v73_sector_context_diagnostic.csv", ("dimension", "label", "snapshot_id")),
+    TabSpec("RETURN_PATH_CLUSTER", "v73_return_path_cluster.csv", ("dimension", "label", "snapshot_id")),
+    TabSpec("WINNER_LOSER_COMMONALITY", "v73_winner_loser_commonality.csv", ("feature", "snapshot_id")),
+    TabSpec("FAILURE_REASON", "v73_failure_reason.csv", ("reason", "snapshot_id")),
+    TabSpec("CONTEXT_FEATURE_LIFT", "v73_context_feature_lift.csv", ("dimension", "label", "snapshot_id")),
+    TabSpec("CONTEXT_ABLATION", "v73_context_ablation.csv", ("dimension", "label", "snapshot_id")),
+    TabSpec("REGIME_PERFORMANCE", "v73_context_regime_performance.csv", ("market_state", "sector_state", "context_alignment", "snapshot_id")),
+    TabSpec("SEARCH_FORMULA_SCORECARD", "v73_search_formula_scorecard.csv", ("label", "snapshot_id")),
+    TabSpec("MISSED_FEATURE_AUDIT", "v73_missed_feature_audit.csv", ("field", "snapshot_id")),
+    TabSpec("DIAGNOSTIC_READINESS", "v73_context_diagnostic_readiness.csv", ("snapshot_id", "version")),
 )
 
 RUN_AUDIT_COLUMNS = [
@@ -720,12 +732,23 @@ def main() -> int:
     if not any(selected):
         args.bootstrap = True
 
+    # GitHub REAL_FULL/forward-capture runs must fail closed.  V73.3.6.6.13
+    # created a local failure audit but still returned exit code 0 unless --strict
+    # was supplied, allowing the scanner to finish while Sheet persistence failed.
+    env_fail_closed = str(os.environ.get("GOOGLE_SHEET_FAIL_CLOSED", "")).strip().lower() in {
+        "1", "true", "yes", "on"
+    }
+    sync_enabled = str(os.environ.get("CATALYST_GOOGLE_SHEET_SYNC_ENABLE", "0")).strip().lower() in {
+        "1", "true", "yes", "on"
+    }
+    effective_strict = bool(args.strict or env_fail_closed or sync_enabled)
+
     if args.bootstrap:
-        run_storage("BOOTSTRAP", args.output_dir, strict=args.strict)
+        run_storage("BOOTSTRAP", args.output_dir, strict=effective_strict)
     if args.hydrate:
-        run_storage("HYDRATE", args.output_dir, strict=args.strict)
+        run_storage("HYDRATE", args.output_dir, strict=effective_strict)
     if args.sync:
-        run_storage("SYNC", args.output_dir, strict=args.strict)
+        run_storage("SYNC", args.output_dir, strict=effective_strict)
     return 0
 
 
