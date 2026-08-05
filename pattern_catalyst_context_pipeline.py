@@ -12,7 +12,7 @@ import pandas as pd
 
 import catalyst_source_adapters as adapters
 
-VERSION = "V73.3.6.6.13"
+VERSION = "V73.3.6.6.12"
 BASE_VERSION = "V73.3.6.6.11"
 RESEARCH_ONLY = True
 HEADER = "🧬 [패턴 시퀀스 × 시장·섹터 × 재료 생명주기 완성형 · RESEARCH_ONLY]"
@@ -410,7 +410,7 @@ def _load_sources(output_dir: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
     raw = pd.concat([explicit, ai], ignore_index=True) if len(ai) or len(explicit) else adapters.empty_ledger()
     if raw.empty:
         return raw, pd.DataFrame()
-    # V73.3.6.6.13: source ledgers are append-only and may be present both in the
+    # V73.3.6.6.12: source ledgers are append-only and may be present both in the
     # canonical master and a component ledger.  Collapse them by the stable source_key
     # before event clustering so repeated cache restores never inflate source counts.
     if "source_key" in raw.columns:

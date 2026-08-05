@@ -16,12 +16,7 @@ from typing import Any, Iterable
 
 import pandas as pd
 
-try:
-    import catalyst_google_sheet_store as _sheet_store
-except Exception:
-    _sheet_store = None
-
-VERSION = "V73.3.6.6.13"
+VERSION = "V73.3.6.6.12"
 RESEARCH_ONLY = True
 
 UNIFIED_COLUMNS = [
@@ -131,13 +126,13 @@ def _source_key(row: dict[str, Any]) -> str:
 
 
 def _request_json(url: str, headers: dict[str, str] | None = None, timeout: int = 15) -> dict:
-    req = urllib.request.Request(url, headers=headers or {"User-Agent": "StockHunter/73.3.6.6.13"})
+    req = urllib.request.Request(url, headers=headers or {"User-Agent": "StockHunter/73.3.6.6.12"})
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         return json.loads(resp.read().decode("utf-8", errors="replace"))
 
 
 def _request_bytes(url: str, headers: dict[str, str] | None = None, timeout: int = 20) -> bytes:
-    req = urllib.request.Request(url, headers=headers or {"User-Agent": "StockHunter/73.3.6.6.13"})
+    req = urllib.request.Request(url, headers=headers or {"User-Agent": "StockHunter/73.3.6.6.12"})
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         return resp.read()
 
@@ -386,7 +381,7 @@ def fetch_kakao_web(queries: Iterable[dict]) -> pd.DataFrame:
     if not key:
         q = empty_ledger(); q.attrs["capture_stats"] = stats; return q
     rows: list[dict] = []
-    headers = {"Authorization": f"KakaoAK {key}", "User-Agent": "StockHunter/73.3.6.6.13"}
+    headers = {"Authorization": f"KakaoAK {key}", "User-Agent": "StockHunter/73.3.6.6.12"}
     for qy in queries:
         query = str(qy.get("query") or "").strip()
         if not query:
@@ -634,126 +629,10 @@ def capture_market_sector_context(output_dir: str | Path) -> pd.DataFrame:
     return combined
 
 
-
-def _read_local_frame(path: Path) -> pd.DataFrame:
-    return _read_csv(path)
-
-
-def _merge_plain_frames(local: pd.DataFrame, remote: pd.DataFrame, key_cols: Iterable[str] = ()) -> pd.DataFrame:
-    if (local is None or local.empty) and (remote is None or remote.empty):
-        return pd.DataFrame(columns=list(local.columns) if isinstance(local, pd.DataFrame) else [])
-    q = pd.concat([
-        local if isinstance(local, pd.DataFrame) else pd.DataFrame(),
-        remote if isinstance(remote, pd.DataFrame) else pd.DataFrame(),
-    ], ignore_index=True, sort=False).fillna("")
-    keys = [c for c in key_cols if c in q.columns]
-    if keys:
-        q = q.drop_duplicates(keys, keep="last")
-    else:
-        q = q.drop_duplicates(keep="last")
-    return q.reset_index(drop=True)
-
-
-def _restore_sheet_primary(out: Path, store: Any, pulled: dict[str, pd.DataFrame]) -> dict[str, int]:
-    audit = {"tabs": 0, "rows": 0, "master_rows": 0, "plain_rows": 0}
-    if not pulled:
-        return audit
-    unified_files = set(COMPONENT_LEDGER_FILES.values())
-    audit_files = {CAPTURE_AUDIT_FILE, FIRST_SEEN_AUDIT_FILE, MARKET_CAPTURE_AUDIT_FILE}
-    for filename, remote in pulled.items():
-        if not isinstance(remote, pd.DataFrame) or remote.empty:
-            continue
-        path = out / filename
-        local = _read_local_frame(path)
-        if filename in unified_files:
-            merged, _ = merge_append_only(local, remote)
-            merged.to_csv(path, index=False, encoding="utf-8-sig")
-            audit["master_rows"] += len(merged)
-        elif filename == GLOBAL_QUERY_FILE:
-            # User-editable sheet tab is primary for global query definitions.
-            remote.to_csv(path, index=False, encoding="utf-8-sig")
-            audit["plain_rows"] += len(remote)
-        elif filename == MARKET_LEDGER_FILE:
-            merged = _merge_plain_frames(local, remote, ("signal_date", "code", "sector", "source_name", "captured_at"))
-            merged.to_csv(path, index=False, encoding="utf-8-sig")
-            audit["plain_rows"] += len(merged)
-        elif filename in audit_files or filename.endswith("_audit.csv"):
-            merged = _merge_plain_frames(local, remote)
-            merged.to_csv(path, index=False, encoding="utf-8-sig")
-            audit["plain_rows"] += len(merged)
-        elif filename == QUERY_FILE:
-            # Ephemeral query universe is rebuilt from current candidates after restore.
-            continue
-        else:
-            merged = _merge_plain_frames(local, remote)
-            merged.to_csv(path, index=False, encoding="utf-8-sig")
-            audit["plain_rows"] += len(merged)
-        audit["tabs"] += 1
-        audit["rows"] += len(remote)
-    return audit
-
-
-def _sheet_frames_from_local(out: Path) -> dict[str, pd.DataFrame]:
-    if _sheet_store is None:
-        return {}
-    frames: dict[str, pd.DataFrame] = {}
-    for filename in set(_sheet_store.TAB_FILE_MAP.values()):
-        path = out / filename
-        if path.exists() and path.stat().st_size:
-            frames[filename] = _read_csv(path)
-    return frames
-
-
-def restore_sheet_primary(output_dir: str | Path) -> dict[str, Any]:
-    out = Path(output_dir or "reports")
-    out.mkdir(parents=True, exist_ok=True)
-    result = {"requested": False, "available": False, "status": "CSV_ONLY_MODULE_MISSING", "tabs": 0, "rows": 0}
-    if _sheet_store is None:
-        return result
-    store = _sheet_store.CatalystGoogleSheetStore()
-    audit = {"tabs": 0, "rows": 0, "master_rows": 0, "plain_rows": 0}
-    templates = ensure_templates(out)
-    try:
-        store.connect()
-        pulled = store.pull() if store.status.available else {}
-        audit = _restore_sheet_primary(out, store, pulled) if pulled else audit
-    except Exception as exc:
-        store.status.available = False
-        store.status.status = "SHEET_READ_FALLBACK"
-        store.status.error_type = type(exc).__name__
-        store.status.error_message = str(exc)[:500]
-    _sheet_store.append_storage_audit(out, [{
-        **store.status.row("RESTORE_ONLY"),
-        "restore_tabs": audit.get("tabs", 0),
-        "restore_rows": audit.get("rows", 0),
-        "csv_fallback_preserved": True,
-    }])
-    result.update({
-        "requested": store.status.requested,
-        "available": store.status.available,
-        "status": store.status.status,
-        "spreadsheet_id": store.status.spreadsheet_id,
-        "spreadsheet_title": store.status.spreadsheet_title,
-        "tabs": audit.get("tabs", 0),
-        "rows": audit.get("rows", 0),
-        "templates": len(templates),
-    })
-    return result
-
-
 def capture_forward(output_dir: str, queries_path: str = "") -> pd.DataFrame:
     out = Path(output_dir or "reports")
-    out.mkdir(parents=True, exist_ok=True)
-    now = _now_iso()
-    sheet = _sheet_store.CatalystGoogleSheetStore() if _sheet_store is not None else None
-    sheet_pull: dict[str, pd.DataFrame] = {}
-    sheet_restore_audit = {"tabs": 0, "rows": 0, "master_rows": 0, "plain_rows": 0}
-    if sheet is not None:
-        sheet.connect()
-        sheet_pull = sheet.pull() if sheet.status.available else {}
     templates = ensure_templates(out)
-    if sheet is not None and sheet_pull:
-        sheet_restore_audit = _restore_sheet_primary(out, sheet, sheet_pull)
+    now = _now_iso()
     network = _as_bool(os.environ.get("CATALYST_NETWORK_ENABLE", "0"))
     queries = build_query_universe(out)
     if queries_path:
@@ -821,31 +700,6 @@ def capture_forward(output_dir: str, queries_path: str = "") -> pd.DataFrame:
     capture_market_sector_context(out)
 
     overall = "PARTIAL" if any_error and any_new else ("CAPTURED" if any_new else ("PARTIAL" if any_error else ("LEDGER_READY" if len(merged) else "TEMPLATE_READY")))
-
-    sheet_status = "CSV_ONLY_MODULE_MISSING" if sheet is None else sheet.status.status
-    if sheet is not None:
-        pre_push_frames = _sheet_frames_from_local(out)
-        sheet.push(pre_push_frames)
-        sheet_status = sheet.status.status
-        _sheet_store.append_storage_audit(out, [
-            {**sheet.status.row("SYNC"),
-             "restore_tabs": sheet_restore_audit.get("tabs", 0),
-             "restore_rows": sheet_restore_audit.get("rows", 0),
-             "csv_fallback_preserved": True}
-        ])
-
-    run_audit_path = out / "v73_catalyst_google_sheet_run_audit.csv"
-    _append_audit(run_audit_path, [{
-        "version": VERSION, "captured_at": now, "run_id": os.environ.get("GITHUB_RUN_ID", "LOCAL"),
-        "run_profile": os.environ.get("TEST_PROFILE", "UNKNOWN"), "capture_enabled": True,
-        "query_count": len(query_rows), "source_rows": len(merged),
-        "new_events": merge_audit["new_unique_rows"], "first_seen_regressions": merge_audit["first_seen_regressions"],
-        "sheet_storage_status": sheet_status,
-        "spreadsheet_id": "" if sheet is None else sheet.status.spreadsheet_id,
-        "spreadsheet_title": "" if sheet is None else sheet.status.spreadsheet_title,
-        "status": overall, "live_logic_changed": False, "real_order_changed": False,
-    }])
-
     _append_audit(out / CAPTURE_AUDIT_FILE, [{
         "version": VERSION, "captured_at": now, "source_name": "OVERALL", "network_enabled": network,
         "queries": len(query_rows), "rows": len(merged), "new_unique_rows": merge_audit["new_unique_rows"],
@@ -853,22 +707,8 @@ def capture_forward(output_dir: str, queries_path: str = "") -> pd.DataFrame:
         "google_enabled": bool(os.environ.get("GOOGLE_CSE_API_KEY") and os.environ.get("GOOGLE_CSE_ID")),
         "kakao_enabled": bool(os.environ.get("KAKAO_REST_API_KEY")),
         "status": overall, "first_seen_regressions": merge_audit["first_seen_regressions"],
-        "sheet_primary_requested": bool(sheet is not None and sheet.status.requested),
-        "sheet_storage_status": sheet_status,
-        "sheet_spreadsheet_id": "" if sheet is None else sheet.status.spreadsheet_id,
-        "sheet_spreadsheet_title": "" if sheet is None else sheet.status.spreadsheet_title,
-        "sheet_read_rows": 0 if sheet is None else sheet.status.read_rows,
-        "sheet_write_rows": 0 if sheet is None else sheet.status.write_rows,
-        "csv_fallback_preserved": True,
         "live_logic_changed": False, "real_order_changed": False,
     }])
-    # Push final audit rows after OVERALL and RUN_AUDIT were appended. Failure remains CSV/artifact fallback.
-    if sheet is not None and sheet.status.available:
-        sheet.push({
-            CAPTURE_AUDIT_FILE: _read_csv(out / CAPTURE_AUDIT_FILE),
-            "v73_catalyst_google_sheet_run_audit.csv": _read_csv(run_audit_path),
-            _sheet_store.SHEET_AUDIT_FILE: _read_csv(out / _sheet_store.SHEET_AUDIT_FILE),
-        })
     return merged
 
 
@@ -877,13 +717,9 @@ def main() -> int:
     ap.add_argument("--capture", action="store_true")
     ap.add_argument("--build-queries", action="store_true")
     ap.add_argument("--capture-market", action="store_true")
-    ap.add_argument("--restore-sheet", action="store_true")
     ap.add_argument("--output-dir", default="reports")
     ap.add_argument("--queries", default="")
     args = ap.parse_args()
-    if args.restore_sheet:
-        r = restore_sheet_primary(args.output_dir)
-        print(f"CATALYST_SHEET_RESTORE version={VERSION} status={r.get('status')} tabs={r.get('tabs')} rows={r.get('rows')} title={r.get('spreadsheet_title','')}")
     if args.build_queries:
         q = build_query_universe(args.output_dir)
         print(f"CATALYST_QUERY_UNIVERSE version={VERSION} rows={len(q)} output={args.output_dir}")
@@ -893,7 +729,7 @@ def main() -> int:
     if args.capture:
         q = capture_forward(args.output_dir, args.queries)
         print(f"CATALYST_SOURCE_CAPTURE version={VERSION} rows={len(q)} output={args.output_dir}")
-    if not (args.capture or args.build_queries or args.capture_market or args.restore_sheet):
+    if not (args.capture or args.build_queries or args.capture_market):
         ensure_templates(Path(args.output_dir))
         print(f"CATALYST_SOURCE_TEMPLATES version={VERSION} output={args.output_dir}")
     return 0

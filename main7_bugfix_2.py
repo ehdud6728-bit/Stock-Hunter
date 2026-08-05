@@ -92704,13 +92704,13 @@ _V7336610_RELEASE_MARKER = {
 
 
 # ============================================================
-# ✅ V73.3.6.6.13 GOOGLE SHEETS PRIMARY CAUSAL LEDGER + SEQUENCE × MARKET/SECTOR × CATALYST PIPELINE
+# ✅ V73.3.6.6.12 FORWARD CAUSAL CAPTURE + SEQUENCE × MARKET/SECTOR × CATALYST PIPELINE
 # - Strict chronological pattern state machine.
 # - Official/news/AI provenance, first-event/repost/material-update cross validation.
 # - Latent global catalyst is retained and may be reactivated only by causal linkage/price activation.
 # - RESEARCH_ONLY: LIVE score/rank/candidate/AI/entry/exit/order mutation = 0.
 # ============================================================
-_V7336612_VERSION = 'V73.3.6.6.13'
+_V7336612_VERSION = 'V73.3.6.6.12'
 _V7336612_HEADER = '🧬 [패턴 시퀀스 × 시장·섹터 × 재료 생명주기 완성형 · RESEARCH_ONLY]'
 try:
     import catalyst_source_adapters as _v7336612_sources
@@ -92746,7 +92746,7 @@ def v1081_run_direct_weekly_backtest(output_dir: str='') -> tuple:
         if _v1080_env_on('CATALYST_FORWARD_CAPTURE_ENABLE','0'):
             _v7336612_sources.capture_forward(out, os.environ.get('CATALYST_QUERY_PATH',''))
     except Exception as _v7336612_source_e:
-        try: log_error(f'⚠️ V73.3.6.6.13 catalyst source capture 준비 실패: {type(_v7336612_source_e).__name__}: {_v7336612_source_e}')
+        try: log_error(f'⚠️ V73.3.6.6.12 catalyst source capture 준비 실패: {type(_v7336612_source_e).__name__}: {_v7336612_source_e}')
         except Exception: pass
     try:
         listing = load_krx_listing_safe() if callable(globals().get('load_krx_listing_safe')) else pd.DataFrame()
@@ -92768,7 +92768,7 @@ def v1081_run_direct_weekly_backtest(output_dir: str='') -> tuple:
         )
         return fixed, df
     except Exception as exc:
-        try: log_error(f'⚠️ V73.3.6.6.13 sequence/context/catalyst pipeline 실패: {type(exc).__name__}: {exc}')
+        try: log_error(f'⚠️ V73.3.6.6.12 sequence/context/catalyst pipeline 실패: {type(exc).__name__}: {exc}')
         except Exception: pass
         return str(report or '') + '\n\n' + _V7336612_HEADER + f'\n- 생성 실패: {type(exc).__name__}: {exc}', df
 
@@ -92825,7 +92825,7 @@ _V7336612_RELEASE_MARKER = {
     'live_logic_changed': False,
     'real_order_changed': False,
 }
-# ✅ END V73.3.6.6.13 GOOGLE SHEETS PRIMARY SEQUENCE × MARKET/SECTOR × CATALYST PIPELINE
+# ✅ END V73.3.6.6.12 SEQUENCE × MARKET/SECTOR × CATALYST LIFECYCLE PIPELINE
 
 if __name__ == "__main__":
     # V73.3.6.5 dedicated HAM 15:03 RESEARCH_ONLY capture. Must exit before any LIVE scanner code.
@@ -94322,3 +94322,18 @@ except Exception:
 
 # ✅ V73.3.6.6.6 FULL_SEARCH_FORMULA_TRUTH_TEMPORAL_PROVENANCE_AUDIT_MARKER
 _V733666_RELEASE_MARKER={'version':'V73.3.6.6.8','research_only':True,'combo_formulas':66,'aux_selectors':6,'live_logic_changed':False,'active_score_function_count':1,'audit_fail_closed':True}
+
+# ✅ V73.3.6.6.13 GOOGLE SHEET FORWARD LEDGER PERSISTENCE GUARD MARKER
+# Dedicated RESEARCH_ONLY persistence is executed by google_sheet_forward_ledger.py
+# and the GitHub Actions workflow. LIVE scoring/ranking/orders are unchanged.
+_V7336613_GOOGLE_SHEET_FORWARD_LEDGER_GUARD = {
+    "version": "V73.3.6.6.13",
+    "research_only": True,
+    "spreadsheet_open_mode": "OPEN_BY_KEY_ONLY",
+    "zero_row_bootstrap": True,
+    "bidirectional_hydrate": True,
+    "append_only_sheet_sync": True,
+    "live_logic_changed": False,
+    "real_order_changed": False,
+}
+# ✅ END V73.3.6.6.13 GOOGLE SHEET FORWARD LEDGER PERSISTENCE GUARD MARKER

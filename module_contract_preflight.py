@@ -68,28 +68,28 @@ CONTRACTS = [
         "exit_code": 117,
     },
     {
-        "label": "CATALYST_GOOGLE_SHEET_STORE",
-        "filename": "catalyst_google_sheet_store.py",
-        "module": "catalyst_google_sheet_store",
-        "version": "V73.3.6.6.13",
-        "callables": ("sheet_primary_requested", "append_storage_audit"),
-        "exit_code": 132,
-    },
-    {
         "label": "CATALYST_SOURCES",
         "filename": "catalyst_source_adapters.py",
         "module": "catalyst_source_adapters",
-        "version": "V73.3.6.6.13",
-        "callables": ("capture_forward", "restore_sheet_primary", "ensure_templates", "normalize_rows", "build_query_universe", "merge_append_only", "capture_market_sector_context"),
+        "version": "V73.3.6.6.12",
+        "callables": ("capture_forward", "ensure_templates", "normalize_rows", "build_query_universe", "merge_append_only", "capture_market_sector_context"),
         "exit_code": 133,
     },
     {
         "label": "SEQUENCE_CONTEXT_CATALYST",
         "filename": "pattern_catalyst_context_pipeline.py",
         "module": "pattern_catalyst_context_pipeline",
-        "version": "V73.3.6.6.13",
+        "version": "V73.3.6.6.12",
         "callables": ("run_backtest", "force_report", "sequence_state_v1"),
         "exit_code": 134,
+    },
+    {
+        "label": "GOOGLE_SHEET_FORWARD_LEDGER",
+        "filename": "google_sheet_forward_ledger.py",
+        "module": "google_sheet_forward_ledger",
+        "version": "V73.3.6.6.13",
+        "callables": ("run_storage", "load_service_account_info", "create_google_client", "main"),
+        "exit_code": 149,
     },
 ]
 
@@ -202,7 +202,7 @@ def main() -> int:
             )
             return int(contract["exit_code"])
 
-    print("✅ HAM/FAMILIAR/PATTERN-AI-CROSS/MARKET-EXCESS/FORMULA-TRUTH/FORMULA-UNIVERSE/FORMULA-COMPLETE/CATALYST-GOOGLE-SHEET-STORE/CATALYST-SOURCES/SEQUENCE-CONTEXT-CATALYST exact-root source preflight PASS")
+    print("✅ HAM/FAMILIAR/PATTERN-AI-CROSS/MARKET-EXCESS/FORMULA-TRUTH/FORMULA-UNIVERSE/FORMULA-COMPLETE/CATALYST-SOURCES/SEQUENCE-CONTEXT-CATALYST/GOOGLE-SHEET-FORWARD-LEDGER exact-root source preflight PASS")
     return 0
 
 
