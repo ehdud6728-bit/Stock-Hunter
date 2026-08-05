@@ -412,6 +412,10 @@ jobs:
       CATALYST_NETWORK_ENABLE: "0"
       CATALYST_FORWARD_CAPTURE_ENABLE: "0"
       GOOGLE_JSON_KEY: ${{ secrets.GOOGLE_JSON_KEY }}
+      CATALYST_GOOGLE_SHEET_ID: ${{ secrets.CATALYST_GOOGLE_SHEET_ID }}
+      CATALYST_GOOGLE_SHEET_NAME: ${{ vars.CATALYST_GOOGLE_SHEET_NAME }}
+      CATALYST_SHEET_PRIMARY_ENABLE: "1"
+      CATALYST_SHEET_CREATE_TABS: "1"
       KRX_ID: ${{ secrets.KRX_DATA_ID }}
       KRX_PW: ${{ secrets.KRX_DATA_PW }}
       REPORT_PUBLIC_DIR: docs
@@ -861,6 +865,8 @@ jobs:
             reports/v73_global_catalyst_query_ledger.csv
             reports/v73_catalyst_first_seen_integrity_audit.csv
             reports/v73_market_sector_forward_capture_audit.csv
+            reports/v73_catalyst_google_sheet_storage_audit.csv
+            reports/v73_catalyst_google_sheet_run_audit.csv
             reports/catalyst_raw
             reports/.cache/dart_corp_code_map.json
           key: stockhunter-v73-state-${{ github.ref_name }}-${{ github.run_id }}
@@ -1100,6 +1106,22 @@ jobs:
           echo "V1107_4_5_35_CONTEXT_SECTOR_SYNC_FIX=${V1107_4_5_35_CONTEXT_SECTOR_SYNC_FIX}"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
+
+      - name: Restore causal ledgers from Google Sheets primary storage
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          python catalyst_source_adapters.py --restore-sheet --output-dir reports
+          python - <<'PY'
+          import pandas as pd
+          from pathlib import Path
+          p=Path('reports/v73_catalyst_google_sheet_storage_audit.csv')
+          q=pd.read_csv(p,dtype=str).fillna('') if p.exists() else pd.DataFrame()
+          r=q.tail(1).iloc[0].to_dict() if len(q) else {}
+          print('CATALYST_SHEET_RESTORE_AUDIT',r.get('status','MISSING'),'tabs',r.get('restore_tabs','0'),'rows',r.get('restore_rows','0'),'title',r.get('spreadsheet_title',''),'fallback',r.get('csv_fallback_preserved',''))
+          PY
+
       - name: Run scanner or weekly backtest
         shell: bash
         run: |
@@ -1134,7 +1156,7 @@ jobs:
               exit 65
             fi
             if [ ! -f "module_contract_preflight.py" ]; then
-              echo "❌ module_contract_preflight.py missing from repository root. V73.3.6.6.12 deployment incomplete."
+              echo "❌ module_contract_preflight.py missing from repository root. V73.3.6.6.13 deployment incomplete."
               exit 105
             fi
             # Historical verifier compatibility markers; execution is delegated to module_contract_preflight.py.
@@ -1144,8 +1166,8 @@ jobs:
             # FORMULA_TRUTH_PREFLIGHT V73.3.6.6.8
             # FORMULA_UNIVERSE_PREFLIGHT V73.3.6.6.9
             # FORMULA_COMPLETE_PREFLIGHT V73.3.6.6.10.1
-            # CATALYST_SOURCES_PREFLIGHT V73.3.6.6.12
-            # SEQUENCE_CONTEXT_CATALYST_PREFLIGHT V73.3.6.6.12
+            # CATALYST_SOURCES_PREFLIGHT V73.3.6.6.13
+            # SEQUENCE_CONTEXT_CATALYST_PREFLIGHT V73.3.6.6.13
             # artifact families: strict-ai-exact-policy-route-guard-reports | market-index-sector-excess-causal-audit-reports
             echo "🧭 [V73.3.6.6.4 exact-root module source guard]"
             find "${GITHUB_WORKSPACE}" -maxdepth 4 -type f \
@@ -1181,7 +1203,7 @@ jobs:
             echo "⏰ V72.29 09:30 NAVER realtime batch strong-sector / leader radar | script=${SCRIPT}"
             python "${SCRIPT}" --open-0930
           elif [ "${STOCKHUNTER_WEEKLY_BACKTEST_ONLY}" = "1" ]; then
-            echo "🧪 WEEKLY_BACKTEST + V73.3.6.6.12 sequence/context/catalyst + V73.3.6.6.10.1 complete formula pipeline + V73.3.6.6.9 universe truth + market/pattern/familiar audits | source=${V1081_BACKTEST_SOURCE} | script=${SCRIPT}"
+            echo "🧪 WEEKLY_BACKTEST + V73.3.6.6.13 sequence/context/catalyst + V73.3.6.6.10.1 complete formula pipeline + V73.3.6.6.9 universe truth + market/pattern/familiar audits | source=${V1081_BACKTEST_SOURCE} | script=${SCRIPT}"
             mkdir -p reports
             HAM_RUN_LOG="reports/v72_weekly_backtest_stdout.log"
             set -o pipefail
@@ -1261,7 +1283,8 @@ jobs:
           o=q[q.get('source_name','').eq('OVERALL')].tail(1) if not q.empty and 'source_name' in q else pd.DataFrame()
           r=o.iloc[0].to_dict() if len(o) else {}
           st=str(r.get('status','MISSING'))
-          print('CATALYST_FORWARD_CAPTURE_AUDIT', st, 'rows', r.get('rows'), 'new', r.get('new_unique_rows'), 'first_seen_regressions', r.get('first_seen_regressions'))
+          sheet_status=str(r.get('sheet_storage_status','MISSING'))
+          print('CATALYST_FORWARD_CAPTURE_AUDIT', st, 'rows', r.get('rows'), 'new', r.get('new_unique_rows'), 'first_seen_regressions', r.get('first_seen_regressions'), 'sheet', sheet_status, 'sheet_title', r.get('sheet_spreadsheet_title'))
           sys.exit(0 if st in ('CAPTURED','LEDGER_READY','TEMPLATE_READY','PARTIAL') and str(r.get('first_seen_regressions','0')) in ('0','0.0','') else 146)
           PY
 
@@ -1321,6 +1344,8 @@ jobs:
             reports/v73_market_sector_context_ledger.csv
             reports/v73_market_sector_context_coverage.csv
             reports/v73_market_sector_forward_capture_audit.csv
+            reports/v73_catalyst_google_sheet_storage_audit.csv
+            reports/v73_catalyst_google_sheet_run_audit.csv
             reports/catalyst_raw
             reports/.cache/dart_corp_code_map.json
           key: stockhunter-v73-state-${{ github.ref_name }}-${{ github.run_id }}
