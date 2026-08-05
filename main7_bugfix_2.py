@@ -45329,8 +45329,10 @@ def _v1080_evaluate_one_signal(row, hold_days: int = 5, stop_pct: float = -5.0) 
         if future.empty:
             return {'eval_status': '미래데이터부족'}
         closes = future['Close'] if 'Close' in future.columns else future.iloc[:, 0]
+        opens = future['Open'] if 'Open' in future.columns else closes
         highs = future['High'] if 'High' in future.columns else closes
         lows = future['Low'] if 'Low' in future.columns else closes
+        volumes = future['Volume'] if 'Volume' in future.columns else pd.Series(np.nan, index=future.index)
         def ret(v):
             return (float(v) / entry - 1.0) * 100.0 if entry > 0 else 0.0
         close1 = ret(closes.iloc[min(0, len(closes)-1)]) if len(closes) >= 1 else np.nan
@@ -45344,30 +45346,64 @@ def _v1080_evaluate_one_signal(row, hold_days: int = 5, stop_pct: float = -5.0) 
         stop_hit = bool(max_down <= stop_pct)
         first_event = 'none'
         first_target = ''
-        for _, r in future.iterrows():
+        first_event_causal = 'none'
+        first_event_day = 0
+        first_plus2_day = 0
+        path_conflict_3 = False
+        path_conflict_5 = False
+        for _day_no, (_, r) in enumerate(future.iterrows(), start=1):
             low_ret = ret(r.get('Low', r.get('Close', 0)))
             high_ret = ret(r.get('High', r.get('Close', 0)))
-            # 보수 평가: 같은 날 목표와 손절이 모두 터지면 손절 우선으로 본다.
-            if low_ret <= stop_pct:
+            hit_stop = low_ret <= stop_pct
+            hit3 = high_ret >= 3.0
+            hit5 = high_ret >= 5.0
+            if hit_stop and hit3:
+                path_conflict_3 = True
+                if hit5:
+                    path_conflict_5 = True
+                first_event = 'stop'  # backward-compatible conservative field
+                first_target = 'stop'
+                first_event_causal = 'path_conflict'
+                first_event_day = _day_no
+                break
+            if hit_stop:
                 first_event = 'stop'
                 first_target = 'stop'
+                first_event_causal = 'stop'
+                first_event_day = _day_no
                 break
-            if high_ret >= 5.0:
+            if hit5:
                 first_event = 'plus5'
                 first_target = '+5'
+                first_event_causal = 'plus5'
+                first_event_day = _day_no
                 break
-            if high_ret >= 3.0:
+            if hit3:
                 first_event = 'plus3'
                 first_target = '+3'
+                first_event_causal = 'plus3'
+                first_event_day = _day_no
                 break
-            if high_ret >= 2.0:
-                first_event = 'plus2'
-                first_target = '+2'
-                break
-        plus3_first = first_event in ('plus3', 'plus5')
+            if high_ret >= 2.0 and first_plus2_day == 0:
+                # +2 관찰은 +3/손절 선후 판정을 중단시키지 않습니다.
+                first_plus2_day = _day_no
+        if first_event_causal == 'none' and first_plus2_day:
+            first_event = 'plus2'
+            first_target = '+2'
+            first_event_causal = 'plus2'
+            first_event_day = first_plus2_day
+        plus3_first = first_event_causal in ('plus3', 'plus5')
         plus5_first = first_event == 'plus5'
         stop_first = first_event == 'stop'
-        return {
+        daily_fields = {}
+        for _i, (_idx, _r) in enumerate(future.head(5).iterrows(), start=1):
+            daily_fields[f'next{_i}_date'] = pd.Timestamp(_idx).strftime('%Y-%m-%d')
+            daily_fields[f'next{_i}_open_ret'] = round(ret(_r.get('Open', _r.get('Close', 0))), 4)
+            daily_fields[f'next{_i}_high_ret'] = round(ret(_r.get('High', _r.get('Close', 0))), 4)
+            daily_fields[f'next{_i}_low_ret'] = round(ret(_r.get('Low', _r.get('Close', 0))), 4)
+            daily_fields[f'next{_i}_close_ret'] = round(ret(_r.get('Close', 0)), 4)
+            daily_fields[f'next{_i}_volume'] = _v1080_num(_r.get('Volume', np.nan), np.nan)
+        result = {
             'eval_status': 'OK',
             'entry_price_eval': round(entry, 4),
             'next1_close_ret': round(close1, 4),
@@ -45384,8 +45420,15 @@ def _v1080_evaluate_one_signal(row, hold_days: int = 5, stop_pct: float = -5.0) 
             'stop_first': stop_first,
             'first_event': first_event,
             'first_target': first_target,
+            'first_event_causal': first_event_causal,
+            'first_event_day': first_event_day,
+            'path_conflict_3': path_conflict_3,
+            'path_conflict_5': path_conflict_5,
+            'signal_stop_pct_eval': round(float(stop_pct), 4),
             'last_eval_date': future.index[-1].strftime('%Y-%m-%d'),
         }
+        result.update(daily_fields)
+        return result
     except Exception as e:
         return {'eval_status': f'평가오류:{e}'}
 
@@ -92829,12 +92872,12 @@ _V7336612_RELEASE_MARKER = {
 
 
 # ============================================================
-# ✅ V73.3.6.6.14 MARKET × BROAD-SECTOR × SEQUENCE × RETURN-PATH DIAGNOSTIC
+# ✅ V73.3.6.6.15 CONTEXT OUTCOME + RISK-PARITY SCALE-IN DIAGNOSTIC
 # - Winner/loser commonality, MFE/MAE, giveback, failure attribution.
 # - Context feature lift, condition ablation, regime performance, formula scorecard.
 # - RESEARCH_ONLY: no LIVE score/rank/candidate/AI/entry/exit/order mutation.
 # ============================================================
-_V7336614_VERSION = 'V73.3.6.6.14'
+_V7336614_VERSION = 'V73.3.6.6.15'
 _V7336614_HEADER = '🧭 [시장 × 단체섹터 × 종목시퀀스 × 수익경로 진단 · RESEARCH_ONLY]'
 _V7336614_LAST_FP = ''
 try:
@@ -92844,9 +92887,18 @@ try:
         and bool(getattr(_v7336614_diag, 'RESEARCH_ONLY', False))
         and all(callable(getattr(_v7336614_diag, n, None)) for n in ('run_backtest', 'force_report'))
     )
-    print(f"{'✅' if _V7336614_OK else '🚨'} {_V7336614_VERSION} CONTEXT_OUTCOME_DIAGNOSTIC {'LOADED' if _V7336614_OK else 'CONTRACT_FAIL'} | RESEARCH_ONLY=True")
+    import scale_in_policy_diagnostic as _v7336615_scale
+    _V7336615_SCALE_OK = (
+        str(getattr(_v7336615_scale, 'VERSION', '')) == _V7336614_VERSION
+        and bool(getattr(_v7336615_scale, 'RESEARCH_ONLY', False))
+        and all(callable(getattr(_v7336615_scale, n, None)) for n in ('run_backtest', 'force_report'))
+    )
+    _V7336614_OK = _V7336614_OK and _V7336615_SCALE_OK
+    print(f"{'✅' if _V7336614_OK else '🚨'} {_V7336614_VERSION} CONTEXT_OUTCOME+SCALE_IN_DIAGNOSTIC {'LOADED' if _V7336614_OK else 'CONTRACT_FAIL'} | RESEARCH_ONLY=True")
 except Exception as _v7336614_import_e:
     _v7336614_diag = None
+    _v7336615_scale = None
+    _V7336615_SCALE_OK = False
     _V7336614_OK = False
     try: print(f'🚨 {_V7336614_VERSION} context outcome diagnostic import fail: {type(_v7336614_import_e).__name__}: {_v7336614_import_e}')
     except Exception: pass
@@ -92872,12 +92924,17 @@ def _v7336614_apply(report, df, output_dir=''):
     fp = _v7336614_df_fp(df)
     try:
         if fp == _V7336614_LAST_FP and fp != 'EMPTY':
-            return _v7336614_diag.force_report(report, out), df
+            fixed = _v7336614_diag.force_report(report, out)
+            fixed = _v7336615_scale.force_report(fixed, out)
+            return fixed, df
         fixed, _tables = _v7336614_diag.run_backtest(df, output_dir=out, base_report=report)
+        fixed, _scale_tables = _v7336615_scale.run_backtest(
+            df, output_dir=out, base_report=fixed, price_fetcher=globals().get('_v1080_fetch_price_after')
+        )
         _V7336614_LAST_FP = fp
         return fixed, df
     except Exception as exc:
-        try: log_error(f'⚠️ V73.3.6.6.14 context outcome diagnostic 실패: {type(exc).__name__}: {exc}')
+        try: log_error(f'⚠️ V73.3.6.6.15 context/scale-in diagnostic 실패: {type(exc).__name__}: {exc}')
         except Exception: pass
         return str(report or '') + '\n\n' + _V7336614_HEADER + f'\n- 생성 실패: {type(exc).__name__}: {exc}', df
 
@@ -92902,7 +92959,9 @@ def _v1107_4_5_61_backtest_digest(text: str) -> str:
     try: d = prev(raw) if callable(prev) and prev is not _v1107_4_5_61_backtest_digest else raw
     except Exception: d = raw
     if _V7336614_OK:
-        try: return _v7336614_diag.force_report(d, os.environ.get('V1080_BACKTEST_OUTPUT_DIR','reports'))
+        try:
+            d = _v7336614_diag.force_report(d, os.environ.get('V1080_BACKTEST_OUTPUT_DIR','reports'))
+            return _v7336615_scale.force_report(d, os.environ.get('V1080_BACKTEST_OUTPUT_DIR','reports'))
         except Exception: return d
     return d
 
@@ -92913,7 +92972,9 @@ def _v1107_4_5_62_clean_for_send(text: str) -> str:
     try: d = prev(raw) if callable(prev) and prev is not _v1107_4_5_62_clean_for_send else raw
     except Exception: d = raw
     if _V7336614_OK:
-        try: return _v7336614_diag.force_report(d, os.environ.get('V1080_BACKTEST_OUTPUT_DIR','reports'))
+        try:
+            d = _v7336614_diag.force_report(d, os.environ.get('V1080_BACKTEST_OUTPUT_DIR','reports'))
+            return _v7336615_scale.force_report(d, os.environ.get('V1080_BACKTEST_OUTPUT_DIR','reports'))
         except Exception: return d
     return d
 
@@ -92922,7 +92983,9 @@ _V7336614_PREV_SEND = globals().get('_v1080_send_backtest_telegram')
 def _v1080_send_backtest_telegram(report: str, max_len: int=3500, *args, **kwargs):
     prev = globals().get('_V7336614_PREV_SEND'); fixed = str(report or '')
     if _V7336614_OK:
-        try: fixed = _v7336614_diag.force_report(fixed, os.environ.get('V1080_BACKTEST_OUTPUT_DIR','reports'))
+        try:
+            fixed = _v7336614_diag.force_report(fixed, os.environ.get('V1080_BACKTEST_OUTPUT_DIR','reports'))
+            fixed = _v7336615_scale.force_report(fixed, os.environ.get('V1080_BACKTEST_OUTPUT_DIR','reports'))
         except Exception: pass
     if callable(prev) and prev is not _v1080_send_backtest_telegram:
         try: return prev(fixed, max_len=max_len, *args, **kwargs)
@@ -92945,10 +93008,15 @@ _V7336614_RELEASE_MARKER = {
     'rule_ablation': True,
     'formula_scorecard': True,
     'google_sheet_diagnostic_tabs': True,
+    'risk_parity_scale_in': True,
+    'fixed_stop_no_widen': True,
+    'weighted_avg_tp3': True,
+    'daily_path_conflict_quarantine': True,
+    'unknown_not_failure': True,
     'live_logic_changed': False,
     'real_order_changed': False,
 }
-# ✅ END V73.3.6.6.14 CONTEXT OUTCOME DIAGNOSTIC
+# ✅ END V73.3.6.6.15 CONTEXT OUTCOME + SCALE-IN DIAGNOSTIC
 
 if __name__ == "__main__":
     # V73.3.6.5 dedicated HAM 15:03 RESEARCH_ONLY capture. Must exit before any LIVE scanner code.

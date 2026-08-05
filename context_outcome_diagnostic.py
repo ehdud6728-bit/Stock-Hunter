@@ -12,7 +12,7 @@ from typing import Any, Iterable
 import numpy as np
 import pandas as pd
 
-VERSION = "V73.3.6.6.14"
+VERSION = "V73.3.6.6.15"
 RESEARCH_ONLY = True
 LIVE_LOGIC_CHANGED = False
 REAL_ORDER_CHANGED = False
@@ -241,8 +241,22 @@ def _coalesce_bool(x: pd.DataFrame, names: list[str], default: bool = False) -> 
     return out
 
 
+def _availability(x: pd.DataFrame, names: list[str]) -> pd.Series:
+    seen = pd.Series(False, index=x.index, dtype=bool)
+    for c in names:
+        if c in x.columns:
+            raw = x[c]
+            seen |= raw.notna() & raw.astype(str).str.strip().ne("") & ~raw.astype(str).str.lower().isin({"nan", "none", "unknown"})
+    return seen
+
+
 def _derive_features(x: pd.DataFrame) -> pd.DataFrame:
     q = x.copy()
+    _supply_known_raw = _availability(q, ["supply_drying_s", "supply_drying_m", "supply_drying"])
+    _compression_known_raw = _availability(q, ["price_compression_s", "price_compression_m", "price_compression"])
+    _restart_known_raw = _availability(q, ["restart_trigger_s", "restart_trigger_m", "restart_trigger", "restart_volume_ratio_s", "restart_volume_ratio_m", "restart_volume_ratio"])
+    _sequence_known_raw = _availability(q, ["stage_count_s", "stage_count_m", "stage_count", "accepted_breakout_s", "accepted_breakout_m", "accepted_breakout", "first_pullback_s", "first_pullback_m", "first_pullback"])
+    _catalyst_known_raw = _availability(q, ["catalyst_state_s", "catalyst_state_m", "catalyst_state", "catalyst_usable_s", "catalyst_usable_m", "catalyst_usable"])
     q["market_regime_raw"] = _coalesce_text(q, ["market_regime_causal_m", "market_regime_m", "market_regime_s", "market_regime", "regime_m"], "UNKNOWN").str.upper()
     q["market_return_5d"] = _coalesce_num(q, ["market_return_5d_s", "market_return_5d_m", "market_past_ret5_m"])
     q["market_turnover_ratio"] = _coalesce_num(q, ["market_turnover_ratio_s", "market_turnover_ratio_m", "market_turnover_change_m"])
@@ -276,6 +290,14 @@ def _derive_features(x: pd.DataFrame) -> pd.DataFrame:
     q["catalyst_usable"] = _coalesce_bool(q, ["catalyst_usable_s", "catalyst_usable_m", "catalyst_usable"], False)
     q["full_alignment_existing"] = _coalesce_bool(q, ["full_alignment_s", "full_alignment_m", "full_alignment"], False)
     q["foreign_inst_flow"] = _coalesce_num(q, ["foreign_inst_flow_s", "foreign_inst_flow_m", "foreign_inst_flow", "net_foreign_institution"])
+
+    q["supply_drying_known"] = _supply_known_raw
+    q["price_compression_known"] = _compression_known_raw
+    q["restart_trigger_known"] = _restart_known_raw
+    q["sequence_known"] = _sequence_known_raw
+    q["catalyst_known"] = _catalyst_known_raw
+    q["market_context_known"] = q["market_regime_raw"].ne("UNKNOWN") | q["market_return_5d"].notna() | q["market_breadth"].notna()
+    q["sector_context_known"] = q["sector_return_5d"].notna() | q["sector_breadth"].notna() | q["sector_rank"].notna() | q["true_sector_index"]
 
     # Market state: breadth takes precedence when present, otherwise use locked causal regime.
     b = q["market_breadth"]
@@ -312,11 +334,13 @@ def _derive_features(x: pd.DataFrame) -> pd.DataFrame:
     q["catalyst_ok"] = q["catalyst_usable"] | q["catalyst_state"].isin(["ACTIVE_CATALYST", "LATENT_CATALYST_REACTIVATED", "OFFICIAL_CAUSAL"])
 
     q["context_alignment"] = "STOCK_ONLY"
+    q.loc[~q["market_context_known"] & ~q["sector_context_known"], "context_alignment"] = "CONTEXT_UNKNOWN"
     q.loc[q["market_ok"] & q["sector_ok"], "context_alignment"] = "FULL_ALIGNMENT"
     q.loc[~q["market_ok"] & q["sector_ok"], "context_alignment"] = "SECTOR_ONLY"
     q.loc[q["market_ok"] & ~q["sector_ok"] & ~q["sector_conflict"], "context_alignment"] = "MARKET_ONLY"
     q.loc[~q["market_ok"] & q["sector_conflict"], "context_alignment"] = "FULL_CONFLICT"
     q.loc[q["market_ok"] & q["sector_conflict"], "context_alignment"] = "SECTOR_CONFLICT"
+    q.loc[~q["market_context_known"] & ~q["sector_context_known"], "context_alignment"] = "CONTEXT_UNKNOWN"
     q["full_alignment"] = q["context_alignment"].eq("FULL_ALIGNMENT") & q["sequence_ok"] & q["supply_drying"] & q["restart_trigger"]
 
     # Causal availability is an explicit audit state, never silently imputed as PASS.
@@ -332,13 +356,19 @@ def _classify_path(q: pd.DataFrame, cost_bp: float = 20.0) -> pd.DataFrame:
     x["net_ret20"] = end - cost_bp / 100.0
     x["net_ret50"] = end - 0.50
     x["giveback"] = x["mfe"] - end
+    causal = _coalesce_text(x, ["first_event_causal", "first_event_causal_event"], "").str.lower()
+    conflict = _coalesce_bool(x, ["path_conflict_3", "path_conflict_5"], False) | causal.eq("path_conflict")
+    stop_first = causal.eq("stop") | (causal.eq("") & x["stop_first"])
+    target_first = causal.isin(["plus3", "plus5"]) | (causal.eq("") & x["plus3_first"] & ~x["stop_first"])
+    x["path_conflict"] = conflict
     x["return_path"] = "NO_EDGE"
-    x.loc[(x["mfe"] >= 10) | (end >= 8), "return_path"] = "BIG_WIN"
-    x.loc[~x["return_path"].eq("BIG_WIN") & (x["plus3_first"] | (x["ret3"] >= 3)), "return_path"] = "FAST_WIN"
-    x.loc[x["return_path"].eq("NO_EDGE") & (x["net_ret20"] > 0.5), "return_path"] = "NORMAL_WIN"
-    x.loc[(x["mfe"] >= 3) & (x["giveback"] >= 3) & (end <= 1), "return_path"] = "GIVEBACK"
-    x.loc[x["stop_first"] | (x["mae"] <= -5), "return_path"] = "FAST_LOSS"
-    x.loc[x["return_path"].eq("NO_EDGE") & (end < -0.2) & ((x["mfe"] < 1) | x["mfe"].isna()), "return_path"] = "GRIND_LOSS"
+    x.loc[conflict, "return_path"] = "PATH_CONFLICT"
+    x.loc[~conflict & stop_first, "return_path"] = "FAST_LOSS"
+    x.loc[~conflict & ~stop_first & ((x["mfe"] >= 10) | (end >= 8)), "return_path"] = "BIG_WIN"
+    x.loc[~conflict & ~stop_first & ~x["return_path"].eq("BIG_WIN") & target_first, "return_path"] = "FAST_WIN"
+    x.loc[~conflict & ~stop_first & x["return_path"].eq("NO_EDGE") & (x["mfe"] >= 3) & (x["giveback"] >= 3) & (end <= 1), "return_path"] = "GIVEBACK"
+    x.loc[~conflict & ~stop_first & x["return_path"].eq("NO_EDGE") & (x["net_ret20"] > 0.5), "return_path"] = "NORMAL_WIN"
+    x.loc[~conflict & ~stop_first & x["return_path"].eq("NO_EDGE") & (end < -0.2) & ((x["mfe"] < 1) | x["mfe"].isna()), "return_path"] = "GRIND_LOSS"
     x["winner_group"] = x["return_path"].isin(["BIG_WIN", "FAST_WIN", "NORMAL_WIN"])
     x["loser_group"] = x["return_path"].isin(["FAST_LOSS", "GRIND_LOSS"])
     return x
@@ -349,14 +379,14 @@ def _failure_reasons(x: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     reason_map: dict[str, pd.Series] = {
         "MARKET_CONFLICT": ~q["market_ok"],
         "SECTOR_CONFLICT": q["sector_conflict"],
-        "STOCK_ONLY": q["context_alignment"].eq("STOCK_ONLY"),
+        "STOCK_ONLY": q["context_alignment"].eq("STOCK_ONLY") & q["market_context_known"] & q["sector_context_known"],
         "LATE_ENTRY": q["late_wave"] | (q["ma_gap"] >= 115) | (q["rsi"] >= 70) | ((q["distance_low60"] > 30) & (q["resistance_room_pct"] < 12)),
-        "NO_SUPPLY_DRYING": ~q["supply_drying"],
-        "NO_PRICE_COMPRESSION": ~q["price_compression"],
-        "FAKE_RESTART": ~q["restart_trigger"] | (q["restart_volume_ratio"].notna() & (q["restart_volume_ratio"] < 1.05)),
+        "NO_SUPPLY_DRYING": q["supply_drying_known"] & ~q["supply_drying"],
+        "NO_PRICE_COMPRESSION": q["price_compression_known"] & ~q["price_compression"],
+        "FAKE_RESTART": (q["restart_trigger_known"] & ~q["restart_trigger"]) | (q["restart_volume_ratio"].notna() & (q["restart_volume_ratio"] < 1.05)),
         "OVERHEAD_RESISTANCE": (q["resistance_room_pct"].notna() & (q["resistance_room_pct"] < 8)),
         "INSTITUTIONAL_DISTRIBUTION": q["foreign_inst_flow"].notna() & (q["foreign_inst_flow"] < 0),
-        "CATALYST_WEAK": ~q["catalyst_ok"],
+        "CATALYST_WEAK": q["catalyst_known"] & ~q["catalyst_ok"],
         "LIQUIDITY_WEAK": q["turnover"].notna() & (q["turnover"] < 5_000_000_000),
         "HOLD_TOO_LONG": (q["ret3"] > 0) & (q["ret5"] < q["ret3"] - 2),
     }
@@ -601,10 +631,16 @@ def _missed_feature_audit(x: pd.DataFrame) -> pd.DataFrame:
     }
     rows = []
     for field, purpose in fields.items():
-        s = x[field] if field in x.columns else pd.Series(dtype=float)
-        if s.dtype == bool:
-            available = int(s.notna().sum())
+        availability_field = {
+            "supply_drying": "supply_drying_known",
+            "price_compression": "price_compression_known",
+            "restart_trigger": "restart_trigger_known",
+            "catalyst_ok": "catalyst_known",
+        }.get(field)
+        if availability_field and availability_field in x.columns:
+            available = int(x[availability_field].fillna(False).astype(bool).sum())
         else:
+            s = x[field] if field in x.columns else pd.Series(dtype=float)
             available = int(s.notna().sum())
         coverage = available / max(1, len(x)) * 100
         rows.append({
@@ -633,7 +669,7 @@ def _report(x: pd.DataFrame, scorecard: pd.DataFrame, failure: pd.DataFrame, abl
         f"📌 {VERSION} · CONTEXT_OUTCOME_DIAGNOSTIC · RESEARCH_ONLY=True",
         "- 검색식 승률만 보지 않고 수익경로·MFE·MAE·비용후 기대값·시장국면·섹터 breadth·거래대금 확산·시퀀스 실패원인을 함께 분석합니다.",
         f"🧾 입력: {source} | 사건 {len(x)}행 | 종목 {x['code'].nunique() if len(x) else 0} | 독립일 {x['signal_date'].nunique() if len(x) else 0} | 상태 {status}",
-        f"📈 경로: BIG_WIN {int(x['return_path'].eq('BIG_WIN').sum()) if len(x) else 0} | FAST_WIN {int(x['return_path'].eq('FAST_WIN').sum()) if len(x) else 0} | GIVEBACK {int(x['return_path'].eq('GIVEBACK').sum()) if len(x) else 0} | FAST_LOSS {int(x['return_path'].eq('FAST_LOSS').sum()) if len(x) else 0} | GRIND_LOSS {int(x['return_path'].eq('GRIND_LOSS').sum()) if len(x) else 0}",
+        f"📈 경로: BIG_WIN {int(x['return_path'].eq('BIG_WIN').sum()) if len(x) else 0} | FAST_WIN {int(x['return_path'].eq('FAST_WIN').sum()) if len(x) else 0} | NORMAL_WIN {int(x['return_path'].eq('NORMAL_WIN').sum()) if len(x) else 0} | GIVEBACK {int(x['return_path'].eq('GIVEBACK').sum()) if len(x) else 0} | FAST_LOSS {int(x['return_path'].eq('FAST_LOSS').sum()) if len(x) else 0} | GRIND_LOSS {int(x['return_path'].eq('GRIND_LOSS').sum()) if len(x) else 0} | NO_EDGE {int(x['return_path'].eq('NO_EDGE').sum()) if len(x) else 0} | PATH_CONFLICT {int(x['return_path'].eq('PATH_CONFLICT').sum()) if len(x) else 0}",
         f"🌍 정렬: FULL_ALIGNMENT {int(x['context_alignment'].eq('FULL_ALIGNMENT').sum()) if len(x) else 0} | SECTOR_CONFLICT {int(x['context_alignment'].eq('SECTOR_CONFLICT').sum()) if len(x) else 0} | FULL_CONFLICT {int(x['context_alignment'].eq('FULL_CONFLICT').sum()) if len(x) else 0}",
         "🏆 [검색식 기대값 상위 · 표본/독립일/상위종목제거 견고성 동시 확인]",
     ]

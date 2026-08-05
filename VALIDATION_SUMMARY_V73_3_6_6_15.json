@@ -1,0 +1,34 @@
+{
+  "version": "V73.3.6.6.15",
+  "status": "PASS",
+  "checks": {
+    "v15_integrated_contract": {
+      "passed": 29,
+      "total": 29
+    },
+    "python_compile": {
+      "passed": 45,
+      "total": 45
+    },
+    "workflow_yaml": true,
+    "workflow_twins": true,
+    "module_preflight": true,
+    "google_sheet_fake_workbook": {
+      "status": "PASS",
+      "new_scale_in_tabs_written": 7,
+      "bootstrap_status": "SHEET_BOOTSTRAP_OK",
+      "sync_status": "SHEET_PRIMARY_OK"
+    },
+    "fixed_stop_violation_count": 0,
+    "averaging_after_stop_count": 0,
+    "daily_path_conflict_quarantine": true,
+    "unknown_not_failure": true,
+    "plus2_does_not_abort_plus3_stop_scan": true
+  },
+  "research_only": true,
+  "live_logic_changed": false,
+  "real_order_changed": false,
+  "actual_22_week_v15_backtest_run_here": false,
+  "actual_google_network_write_tested_here": false,
+  "note": "Synthetic and fake-workbook validation checks calculation, risk, persistence, and workflow contracts only; it is not a profitability claim."
+}

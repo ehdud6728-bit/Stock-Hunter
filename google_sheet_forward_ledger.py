@@ -15,7 +15,7 @@ from typing import Any, Iterable
 
 import pandas as pd
 
-VERSION = "V73.3.6.6.14"
+VERSION = "V73.3.6.6.15"
 RESEARCH_ONLY = True
 LIVE_LOGIC_CHANGED = False
 REAL_ORDER_CHANGED = False
@@ -90,6 +90,13 @@ TAB_SPECS: tuple[TabSpec, ...] = (
     TabSpec("SEARCH_FORMULA_SCORECARD", "v73_search_formula_scorecard.csv", ("label", "snapshot_id")),
     TabSpec("MISSED_FEATURE_AUDIT", "v73_missed_feature_audit.csv", ("field", "snapshot_id")),
     TabSpec("DIAGNOSTIC_READINESS", "v73_context_diagnostic_readiness.csv", ("snapshot_id", "version")),
+    TabSpec("SCALE_IN_EVENT_POLICY", "v73_scale_in_event_policy.csv", ("event_policy_id", "snapshot_id")),
+    TabSpec("SCALE_IN_POLICY_SUMMARY", "v73_scale_in_policy_summary.csv", ("dimension", "label", "snapshot_id")),
+    TabSpec("SCALE_IN_FORMULA_POLICY", "v73_scale_in_formula_policy_summary.csv", ("formula", "policy", "snapshot_id")),
+    TabSpec("SCALE_IN_ADD_TRIGGER", "v73_scale_in_add_trigger_audit.csv", ("formula", "policy", "add_block_reason", "snapshot_id")),
+    TabSpec("SCALE_IN_CONFLICT", "v73_scale_in_conflict_audit.csv", ("event_policy_id", "snapshot_id")),
+    TabSpec("SCALE_IN_RISK_AUDIT", "v73_scale_in_risk_parity_audit.csv", ("policy", "stop_source", "snapshot_id")),
+    TabSpec("SCALE_IN_READINESS", "v73_scale_in_readiness.csv", ("snapshot_id", "version")),
 )
 
 RUN_AUDIT_COLUMNS = [
