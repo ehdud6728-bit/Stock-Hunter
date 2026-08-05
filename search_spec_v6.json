@@ -1,0 +1,460 @@
+{
+  "spec_version": "search-spec-v6",
+  "evaluator_version": "single-search-evaluator-5-sharded-performance",
+  "title": "Closing Bet Search Contract v6",
+  "authority": "LIVE and BACKTEST share explicit-hist predicates. Historical performance uses one prepared immutable universe, deterministic shards, performance-only workers, and a global raw-signal merge before TOP selection.",
+  "primary_strategy_priority": [
+    "L",
+    "LP",
+    "SLOCK",
+    "S",
+    "G",
+    "IT",
+    "H",
+    "I",
+    "A",
+    "B1",
+    "B2",
+    "C"
+  ],
+  "strategy_count": 12,
+  "strategies": {
+    "L": {
+      "mode": "L",
+      "functions": [
+        "_check_leader_gap_bet"
+      ],
+      "source_sha256": "7cd9bf184ce48fad1eefc02bf1678bdc75ff128a39712a22ee3368376070a2d4",
+      "condition_authority": "source-locked explicit-hist shared predicate implementation",
+      "intent_conditions": [
+        "대형주·주도주 또는 초대형 거래대금",
+        "리더 갭 범위",
+        "50일 평균 대비 거래량",
+        "갭 구간·시가 지지",
+        "종가 위치",
+        "120/252일 고점 또는 박스 돌파"
+      ],
+      "referenced_runtime_constants": [
+        "GAP_BOX_LOOKBACK",
+        "GAP_DISPARITY20_MAX",
+        "GAP_HIGH_LOOKBACK",
+        "GAP_LARGE_CAP_MARCAP",
+        "GAP_RUNUP20_MAX",
+        "INDEX_MAP",
+        "LEADER_GAP_CLOSE_LOC_MIN",
+        "LEADER_GAP_CORE_AMOUNT_B",
+        "LEADER_GAP_MAX_PCT",
+        "LEADER_GAP_MIN_AMOUNT_B",
+        "LEADER_GAP_MIN_PCT",
+        "LEADER_GAP_VOL50_MIN",
+        "MARCAP_MAP"
+      ],
+      "live_enabled": true,
+      "backtest_enabled": true,
+      "automatic_order_enabled": false,
+      "explicit_hist_required": true,
+      "thread_safe_required": true,
+      "performance_engine": "common-strategy-engine-3-sharded-performance",
+      "current_performance_population": "global merge of prepared-universe shards; legacy duplicated evaluator excluded"
+    },
+    "LP": {
+      "mode": "LP",
+      "functions": [
+        "_check_leader_gap_pullback_bet"
+      ],
+      "source_sha256": "36cc9561b19696bc8bcf6cac59f9ad6106b114b6c83180be9b0fb489cffbfa4e",
+      "condition_authority": "source-locked explicit-hist shared predicate implementation",
+      "intent_conditions": [
+        "최근 1~5일 L 리더갭",
+        "갭봉 거래대금·거래량·종가품질",
+        "갭 하단 또는 전일종가 지지",
+        "5·10일선 재지지",
+        "갭봉 대비 거래량 냉각",
+        "과도한 눌림·절벽 하락 제외"
+      ],
+      "referenced_runtime_constants": [
+        "INDEX_MAP",
+        "LEADER_GAP_CORE_AMOUNT_B",
+        "LEADER_GAP_VOL50_MIN",
+        "MARCAP_MAP",
+        "MCAP_OR_MIN",
+        "MIN_PRICE"
+      ],
+      "live_enabled": true,
+      "backtest_enabled": true,
+      "automatic_order_enabled": false,
+      "explicit_hist_required": true,
+      "thread_safe_required": true,
+      "performance_engine": "common-strategy-engine-3-sharded-performance",
+      "current_performance_population": "global merge of prepared-universe shards; legacy duplicated evaluator excluded"
+    },
+    "SLOCK": {
+      "mode": "SLOCK",
+      "functions": [
+        "_check_high_reaccum_shooting_bet",
+        "_make_s2_lock_candidate"
+      ],
+      "source_sha256": "a96d9377f82d6e6c2d83a3ed738b2cfedf08fc048d7186a5d286311d6bd2eebb",
+      "condition_authority": "source-locked explicit-hist shared predicate implementation",
+      "intent_conditions": [
+        "S 후보 선행 충족",
+        "상단 잠김·종가 위치",
+        "재료/거래대금·거래량",
+        "S2 구조 중 잠김 파생 조건"
+      ],
+      "referenced_runtime_constants": [
+        "DIAG_LOCK",
+        "GAP_LARGE_CAP_MARCAP",
+        "HIGH_REACCUM_LOOKBACK",
+        "INDEX_MAP",
+        "MARCAP_MAP",
+        "MCAP_OR_MIN",
+        "MIN_AMOUNT",
+        "MIN_PRICE",
+        "STRATEGY_FAIL",
+        "TOP_MCAP_SET"
+      ],
+      "live_enabled": true,
+      "backtest_enabled": true,
+      "automatic_order_enabled": false,
+      "explicit_hist_required": true,
+      "thread_safe_required": true,
+      "performance_engine": "common-strategy-engine-3-sharded-performance",
+      "current_performance_population": "global merge of prepared-universe shards; legacy duplicated evaluator excluded"
+    },
+    "S": {
+      "mode": "S",
+      "functions": [
+        "_check_high_reaccum_shooting_bet"
+      ],
+      "source_sha256": "c923d7e21a717d35d7d63a6b9946f81b2a47cc8f17846933d4d76b0a7764cfca",
+      "condition_authority": "source-locked explicit-hist shared predicate implementation",
+      "intent_conditions": [
+        "고점권 거래량 재유입",
+        "종가 강도·윗꼬리 제한",
+        "박스/전고점 위치",
+        "거래대금·유동성",
+        "과열·실패 구조 제외"
+      ],
+      "referenced_runtime_constants": [
+        "DIAG_LOCK",
+        "HIGH_REACCUM_LOOKBACK",
+        "INDEX_MAP",
+        "MARCAP_MAP",
+        "MCAP_OR_MIN",
+        "MIN_AMOUNT",
+        "MIN_PRICE",
+        "STRATEGY_FAIL",
+        "TOP_MCAP_SET"
+      ],
+      "live_enabled": true,
+      "backtest_enabled": true,
+      "automatic_order_enabled": false,
+      "explicit_hist_required": true,
+      "thread_safe_required": true,
+      "performance_engine": "common-strategy-engine-3-sharded-performance",
+      "current_performance_population": "global merge of prepared-universe shards; legacy duplicated evaluator excluded"
+    },
+    "G": {
+      "mode": "G",
+      "functions": [
+        "_check_morales_gap_bet"
+      ],
+      "source_sha256": "e7f0b16f1e14ff65939552475ef38ee049e10b4d6660e33b09a47bd85362384f",
+      "condition_authority": "source-locked explicit-hist shared predicate implementation",
+      "intent_conditions": [
+        "2~12% 모랄레스 갭",
+        "Vol50 1.5배 이상",
+        "갭 미메움·시가 지지",
+        "캔들 중간 이상 마감",
+        "60일 박스 또는 120일 신고가 돌파",
+        "20일 이격·상승률·윗꼬리 클라이맥스 제외"
+      ],
+      "referenced_runtime_constants": [
+        "DIAG_LOCK",
+        "GAP_BOX_LOOKBACK",
+        "GAP_CLOSE_OPEN_KEEP",
+        "GAP_DISPARITY20_MAX",
+        "GAP_HIGH_LOOKBACK",
+        "GAP_LOW_KEEP_PCT",
+        "GAP_MAX_PCT",
+        "GAP_MIN_PCT",
+        "GAP_RUNUP20_MAX",
+        "GAP_UPPER_WICK_MAX",
+        "GAP_VOL50_MULT",
+        "INDEX_MAP",
+        "MARCAP_MAP",
+        "MCAP_OR_MIN",
+        "MIN_AMOUNT",
+        "MIN_PRICE",
+        "STRATEGY_FAIL",
+        "TOP_MCAP_SET"
+      ],
+      "live_enabled": true,
+      "backtest_enabled": true,
+      "automatic_order_enabled": false,
+      "explicit_hist_required": true,
+      "thread_safe_required": true,
+      "performance_engine": "common-strategy-engine-3-sharded-performance",
+      "current_performance_population": "global merge of prepared-universe shards; legacy duplicated evaluator excluded"
+    },
+    "IT": {
+      "mode": "IT",
+      "functions": [
+        "_check_i_core_bet",
+        "_make_i_trigger_candidate"
+      ],
+      "source_sha256": "3496800bcb7446ab3b5497eda65459f6c74bcdf8e2ca868877efb0dbb1e6879e",
+      "condition_authority": "source-locked explicit-hist shared predicate implementation",
+      "intent_conditions": [
+        "I-MAIN 후보 선행 충족",
+        "I-4/I-6 촉발 국면",
+        "장기선 이격 범위",
+        "재료대금·종가 위치",
+        "최소 거래대금·점수"
+      ],
+      "referenced_runtime_constants": [
+        "INDEX_MAP",
+        "MARCAP_MAP"
+      ],
+      "live_enabled": true,
+      "backtest_enabled": true,
+      "automatic_order_enabled": false,
+      "explicit_hist_required": true,
+      "thread_safe_required": true,
+      "performance_engine": "common-strategy-engine-3-sharded-performance",
+      "current_performance_population": "global merge of prepared-universe shards; legacy duplicated evaluator excluded"
+    },
+    "H": {
+      "mode": "H",
+      "functions": [
+        "_check_high_dryup_bet",
+        "_check_cp6_prior_high_reclaim_bet"
+      ],
+      "source_sha256": "77a1307f4e818e1e54020a0d6bc5dd9d7d4ebd9383c090428f9ec2c8b9f2c5ec",
+      "condition_authority": "source-locked explicit-hist shared predicate implementation",
+      "intent_conditions": [
+        "신고가권 또는 전고점 회복",
+        "거래량 건조 후 재확대",
+        "가격·거래대금·유니버스",
+        "삼각수렴/CORE 또는 CP6 회복 변형",
+        "윗꼬리·종가 품질"
+      ],
+      "referenced_runtime_constants": [
+        "INDEX_MAP",
+        "MARCAP_MAP",
+        "MCAP_OR_MIN",
+        "MIN_AMOUNT",
+        "MIN_PRICE"
+      ],
+      "live_enabled": true,
+      "backtest_enabled": true,
+      "automatic_order_enabled": false,
+      "explicit_hist_required": true,
+      "thread_safe_required": true,
+      "performance_engine": "common-strategy-engine-3-sharded-performance",
+      "current_performance_population": "global merge of prepared-universe shards; legacy duplicated evaluator excluded"
+    },
+    "I": {
+      "mode": "I",
+      "functions": [
+        "_check_i_core_bet"
+      ],
+      "source_sha256": "c284328abe93274e25a1f3b2d1ad1934d184ce8d45cf0d1162f592f900fe070e",
+      "condition_authority": "source-locked explicit-hist shared predicate implementation",
+      "intent_conditions": [
+        "150/200일 시대중심주",
+        "I-MAIN 국면 및 장기선 구조",
+        "수급·OBV·거래대금",
+        "재료 점수·가속/코어 분류",
+        "장기선 이격 및 종가 위치"
+      ],
+      "referenced_runtime_constants": [
+        "INDEX_MAP",
+        "MARCAP_MAP"
+      ],
+      "live_enabled": true,
+      "backtest_enabled": true,
+      "automatic_order_enabled": false,
+      "explicit_hist_required": true,
+      "thread_safe_required": true,
+      "performance_engine": "common-strategy-engine-3-sharded-performance",
+      "current_performance_population": "global merge of prepared-universe shards; legacy duplicated evaluator excluded"
+    },
+    "A": {
+      "mode": "A",
+      "functions": [
+        "_check_breakout_bet"
+      ],
+      "source_sha256": "f20579e8a644b928aa10f12947f407da68c6b9fc3825dd736ac5750fe783d3e3",
+      "condition_authority": "source-locked explicit-hist shared predicate implementation",
+      "intent_conditions": [
+        "돌파형 가격 구조",
+        "거래량·거래대금 확대",
+        "종가 강도",
+        "이동평균·박스/고점 돌파",
+        "과열·윗꼬리 제한"
+      ],
+      "referenced_runtime_constants": [
+        "DIAG_LOCK",
+        "DISPARITY_MAX",
+        "DISPARITY_MIN",
+        "INDEX_MAP",
+        "MARCAP_MAP",
+        "MCAP_OR_MIN",
+        "MIN_AMOUNT",
+        "MIN_PRICE",
+        "NEAR_HIGH20_MAX",
+        "NEAR_HIGH20_MIN",
+        "STRATEGY_FAIL",
+        "TOP_MCAP_SET",
+        "UPPER_WICK_MAX",
+        "VOL_MULT"
+      ],
+      "live_enabled": true,
+      "backtest_enabled": true,
+      "automatic_order_enabled": false,
+      "explicit_hist_required": true,
+      "thread_safe_required": true,
+      "performance_engine": "common-strategy-engine-3-sharded-performance",
+      "current_performance_population": "global merge of prepared-universe shards; legacy duplicated evaluator excluded"
+    },
+    "B1": {
+      "mode": "B1",
+      "functions": [
+        "_check_env_strict_bet"
+      ],
+      "source_sha256": "bef0f6c875cd0e234fe35e8d31e90f02f1f506a8ac81645e82f222cef6d6e336",
+      "condition_authority": "source-locked explicit-hist shared predicate implementation",
+      "intent_conditions": [
+        "엔벨로프 하단/재안착 엄격형",
+        "거래량·거래대금",
+        "지지선과 종가 위치",
+        "추세·이격·캔들 품질",
+        "유니버스·가격"
+      ],
+      "referenced_runtime_constants": [
+        "DIAG_LOCK",
+        "INDEX_MAP",
+        "MARCAP_MAP",
+        "MCAP_OR_MIN",
+        "MIN_AMOUNT",
+        "MIN_PRICE",
+        "STRATEGY_FAIL",
+        "TOP_MCAP_SET"
+      ],
+      "live_enabled": true,
+      "backtest_enabled": true,
+      "automatic_order_enabled": false,
+      "explicit_hist_required": true,
+      "thread_safe_required": true,
+      "performance_engine": "common-strategy-engine-3-sharded-performance",
+      "current_performance_population": "global merge of prepared-universe shards; legacy duplicated evaluator excluded"
+    },
+    "B2": {
+      "mode": "B2",
+      "functions": [
+        "_check_bb_expand_bet"
+      ],
+      "source_sha256": "a4c9f2eb93ec1ee53c61d7eb87771858d58f1bbf16c25cbd28098d9aad3f829e",
+      "condition_authority": "source-locked explicit-hist shared predicate implementation",
+      "intent_conditions": [
+        "볼린저밴드 확장/재돌파",
+        "밴드 폭·거래량 확대",
+        "종가 위치·윗꼬리",
+        "이동평균·추세",
+        "거래대금·유니버스"
+      ],
+      "referenced_runtime_constants": [
+        "DIAG_LOCK",
+        "INDEX_MAP",
+        "MARCAP_MAP",
+        "MCAP_OR_MIN",
+        "MIN_AMOUNT",
+        "MIN_PRICE",
+        "STRATEGY_FAIL",
+        "TOP_MCAP_SET"
+      ],
+      "live_enabled": true,
+      "backtest_enabled": true,
+      "automatic_order_enabled": false,
+      "explicit_hist_required": true,
+      "thread_safe_required": true,
+      "performance_engine": "common-strategy-engine-3-sharded-performance",
+      "current_performance_population": "global merge of prepared-universe shards; legacy duplicated evaluator excluded"
+    },
+    "C": {
+      "mode": "C",
+      "functions": [
+        "_check_ymgp_bet"
+      ],
+      "source_sha256": "8d6d16a1820b6a556324c7fc62932f57a17c32d36a7a574864d6b56413b244bd",
+      "condition_authority": "source-locked explicit-hist shared predicate implementation",
+      "intent_conditions": [
+        "YMGP 눌림·재상승 구조",
+        "C1/C2/C3 단계",
+        "거래량 수축 후 재유입",
+        "지지선·이동평균",
+        "종가 품질·거래대금",
+        "과도한 추격·구조 실패 제외"
+      ],
+      "referenced_runtime_constants": [
+        "INDEX_MAP",
+        "MARCAP_MAP",
+        "MCAP_OR_MIN",
+        "MIN_AMOUNT",
+        "MIN_PRICE",
+        "TOP_MCAP_SET"
+      ],
+      "live_enabled": true,
+      "backtest_enabled": true,
+      "automatic_order_enabled": false,
+      "explicit_hist_required": true,
+      "thread_safe_required": true,
+      "performance_engine": "common-strategy-engine-3-sharded-performance",
+      "current_performance_population": "global merge of prepared-universe shards; legacy duplicated evaluator excluded"
+    }
+  },
+  "behavior_tests": {
+    "actual_ohlcv_execution": [
+      "G.gap_min",
+      "G.gap_max",
+      "G.vol50",
+      "L.amount",
+      "L.close_loc"
+    ],
+    "system_contract": [
+      "primary_priority",
+      "IT_I_unique"
+    ],
+    "note": "Complex strategies are audited on deterministic positive/negative historical samples. Boundary OHLCV synthesis is currently provided for simple G/L families."
+  },
+  "operation_lock": {
+    "mode": "PAPER",
+    "real_orders": 0,
+    "auto_live_change": false,
+    "auto_runner": false,
+    "auto_fail_cutoff": false,
+    "auto_big_cluster": false
+  },
+  "legacy_policy": "The prior duplicated backtest evaluator is retained only for migration delta diagnostics and is excluded from current performance population.",
+  "thread_safety_contract": {
+    "explicit_hist_parameter_required": true,
+    "global_load_df_monkeypatch_forbidden": true,
+    "input_frame_mutation_forbidden": true,
+    "concurrent_cross_frame_mismatch_allowed": 0,
+    "determinism_mismatch_allowed": 0
+  },
+  "performance_engine_contract": {
+    "engine_version": "common-strategy-engine-3-sharded-performance",
+    "prepared_universe_required": true,
+    "deterministic_shard_partition": "sorted code position modulo shard_count",
+    "lifecycle_research_in_shards": false,
+    "runtime_search_audit_in_shards": false,
+    "global_merge_before_top_selection": true,
+    "per_shard_raw_sha256_required": true,
+    "global_universe_fingerprint_consensus_required": true,
+    "paper_only": true,
+    "real_orders": 0
+  }
+}
