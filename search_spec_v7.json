@@ -457,5 +457,5 @@
     "paper_only": true,
     "real_orders": 0
   },
-  "audit_extension": "v49.64 strategy funnel + zero-mode full-predicate audit; predicates unchanged"
+  "audit_extension": "v49.65 strategy funnel + zero-mode full-predicate audit; predicates unchanged"
 }
