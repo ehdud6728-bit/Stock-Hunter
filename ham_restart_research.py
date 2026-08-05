@@ -1104,7 +1104,13 @@ def build_backtest_report(ev: pd.DataFrame, existing_eval_df: Optional[pd.DataFr
     lines.append("🧪 [A/B/C 거래대금 baseline 비교]")
     if mtab is None or mtab.empty: lines.append("- 표본 없음")
     else:
-        q=mtab[mtab["n"]>=3].sort_values(["d3_median","n"],ascending=[False,False]).head(8)
+        # Empty/partial baseline schemas must render N/A instead of terminating the research block.
+        mtab = mtab.copy()
+        if "n" not in mtab.columns: mtab["n"] = 0
+        if "d3_median" not in mtab.columns: mtab["d3_median"] = np.nan
+        if "d3_mean" not in mtab.columns: mtab["d3_mean"] = np.nan
+        if "d3_ex_top2" not in mtab.columns: mtab["d3_ex_top2"] = np.nan
+        q=mtab[pd.to_numeric(mtab["n"],errors="coerce").fillna(0)>=3].sort_values(["d3_median","n"],ascending=[False,False],na_position="last").head(8)
         if q.empty: lines.append("- n≥3 baseline 셀이 아직 없습니다.")
         for _,r in q.iterrows(): lines.append(f"- {r['baseline_method']} ≥{r['ratio_threshold']}x: n{int(r['n'])} | D3 {_fmt(r.get('d3_mean'))}·중앙 {_fmt(r.get('d3_median'))}·상2제외 {_fmt(r.get('d3_ex_top2'))}")
     lines.append("⚠️ [고점 분배형 HAM]")

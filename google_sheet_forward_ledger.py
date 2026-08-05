@@ -15,7 +15,7 @@ from typing import Any, Iterable
 
 import pandas as pd
 
-VERSION = "V73.3.6.6.15"
+VERSION = "V73.3.6.6.16"
 RESEARCH_ONLY = True
 LIVE_LOGIC_CHANGED = False
 REAL_ORDER_CHANGED = False
@@ -97,6 +97,18 @@ TAB_SPECS: tuple[TabSpec, ...] = (
     TabSpec("SCALE_IN_CONFLICT", "v73_scale_in_conflict_audit.csv", ("event_policy_id", "snapshot_id")),
     TabSpec("SCALE_IN_RISK_AUDIT", "v73_scale_in_risk_parity_audit.csv", ("policy", "stop_source", "snapshot_id")),
     TabSpec("SCALE_IN_READINESS", "v73_scale_in_readiness.csv", ("snapshot_id", "version")),
+    TabSpec("GEO_EVENT_LEDGER", "v73_geo_event_ledger.csv", ("geo_event_id", "source_key", "snapshot_id")),
+    TabSpec("GEO_STAGE_MACHINE", "v73_geo_event_stage_machine.csv", ("event_family", "event_stage", "snapshot_id")),
+    TabSpec("GEO_EVENT_SECTOR_MAP", "v73_geo_event_to_sector_map.csv", ("event_family", "sector_keyword", "impact", "snapshot_id")),
+    TabSpec("GEO_BENEFICIARY_DIRECTNESS", "v73_geo_beneficiary_directness.csv", ("code", "event_family", "directness", "snapshot_id")),
+    TabSpec("BEAR_GEO_WINNER_MASTER", "v73_bear_geo_winner_event_master.csv", ("signal_date", "code", "formula", "snapshot_id")),
+    TabSpec("BEAR_GEO_MATCHED_CONTROL", "v73_bear_geo_matched_control.csv", ("match_id", "snapshot_id")),
+    TabSpec("BEAR_GEO_COMMONALITY", "v73_bear_geo_commonality.csv", ("feature", "comparison", "snapshot_id")),
+    TabSpec("GEO_FORMULA_SCORECARD", "v73_geo_formula_scorecard.csv", ("dimension", "label", "snapshot_id")),
+    TabSpec("GEO_SCALE_IN_POLICY", "v73_geo_scale_in_policy.csv", ("bear_geo_bucket", "policy", "snapshot_id")),
+    TabSpec("GEO_DEESCALATION_RISK", "v73_geo_deescalation_risk.csv", ("event_family", "snapshot_id")),
+    TabSpec("GEO_DATA_AVAILABILITY", "v73_geo_data_availability.csv", ("field", "snapshot_id")),
+    TabSpec("GEO_READINESS", "v73_geo_readiness.csv", ("snapshot_id", "version")),
 )
 
 RUN_AUDIT_COLUMNS = [
