@@ -15,7 +15,7 @@ from typing import Any, Iterable
 
 import pandas as pd
 
-VERSION = "V73.3.6.6.17"
+VERSION = "V73.3.6.6.18"
 RESEARCH_ONLY = True
 LIVE_LOGIC_CHANGED = False
 REAL_ORDER_CHANGED = False
@@ -117,6 +117,13 @@ TAB_SPECS: tuple[TabSpec, ...] = (
     TabSpec("ZERO_PATTERN_FEATURE", "v73_zero_pattern_feature_commonality.csv", ("feature", "snapshot_id")),
     TabSpec("FORMULA_STABILITY", "v73_formula_stability_matrix.csv", ("formula", "window_requested", "snapshot_id")),
     TabSpec("FORMULA_STABILITY_POLICY", "v73_formula_stability_policy.csv", ("formula", "snapshot_id")),
+    TabSpec("FORMULA_STABILITY_INPUT", "v73_formula_stability_input_audit.csv", ("selected_source_file", "snapshot_id")),
+    TabSpec("FORMULA_STABILITY_RECON", "v73_formula_stability_reconciliation.csv", ("formula", "metric", "snapshot_id")),
+    TabSpec("REPLAY_DATE_LOCK", "v73_replay_date_lock.csv", ("replay_index", "replay_date", "snapshot_id")),
+    TabSpec("DUPLICATE_COMBO_AUDIT", "v73_duplicate_combo_call_audit.csv", ("duplicate_key", "snapshot_id")),
+    TabSpec("LOCKED_POLICY_FAILURE", "v73_locked_policy_failure_audit.csv", ("policy_family", "snapshot_id")),
+    TabSpec("PATTERN_ONLY_EVENTS", "v73_pattern_only_sequence_event_audit.csv", ("signal_date", "code", "snapshot_id")),
+    TabSpec("PATTERN_ONLY_COMMON", "v73_pattern_only_sequence_commonality.csv", ("feature", "snapshot_id")),
     TabSpec("GEO_OFFICIAL_ARCHIVE", "v73_geo_official_archive_ledger.csv", ("source_key", "published_at", "snapshot_id")),
     TabSpec("SECTOR_BREADTH_HISTORY", "v73_sector_breadth_history.csv", ("signal_date", "sector", "source_name", "snapshot_id")),
     TabSpec("SECTOR_BREADTH_JOIN", "v73_sector_breadth_join_audit.csv", ("event_id", "snapshot_id")),

@@ -8,7 +8,7 @@ import shutil
 import sys
 from pathlib import Path
 
-RELEASE_VERSION = "V73.3.6.6.17"
+RELEASE_VERSION = "V73.3.6.6.18"
 
 CONTRACTS = [
     {
@@ -55,7 +55,7 @@ CONTRACTS = [
         "label": "FORMULA_UNIVERSE",
         "filename": "search_formula_universe_audit.py",
         "module": "search_formula_universe_audit",
-        "version": "V73.3.6.6.9",
+        "version": "V73.3.6.6.9.1",
         "callables": ("run_backtest", "force_report"),
         "exit_code": 116,
     },
@@ -87,7 +87,7 @@ CONTRACTS = [
         "label": "GOOGLE_SHEET_FORWARD_LEDGER",
         "filename": "google_sheet_forward_ledger.py",
         "module": "google_sheet_forward_ledger",
-        "version": "V73.3.6.6.17",
+        "version": "V73.3.6.6.18",
         "callables": ("run_storage", "load_service_account_info", "create_google_client", "main"),
         "exit_code": 149,
     },
@@ -95,7 +95,7 @@ CONTRACTS = [
         "label": "CONTEXT_OUTCOME_DIAGNOSTIC",
         "filename": "context_outcome_diagnostic.py",
         "module": "context_outcome_diagnostic",
-        "version": "V73.3.6.6.17",
+        "version": "V73.3.6.6.18",
         "callables": ("run_backtest", "force_report"),
         "exit_code": 151,
     },
@@ -103,7 +103,7 @@ CONTRACTS = [
         "label": "SCALE_IN_POLICY_DIAGNOSTIC",
         "filename": "scale_in_policy_diagnostic.py",
         "module": "scale_in_policy_diagnostic",
-        "version": "V73.3.6.6.17",
+        "version": "V73.3.6.6.18",
         "callables": ("run_backtest", "force_report"),
         "exit_code": 159,
     },
@@ -111,7 +111,7 @@ CONTRACTS = [
         "label": "GEOPOLITICAL_BEAR_WINNER_DIAGNOSTIC",
         "filename": "geopolitical_bear_winner_diagnostic.py",
         "module": "geopolitical_bear_winner_diagnostic",
-        "version": "V73.3.6.6.17",
+        "version": "V73.3.6.6.18",
         "callables": ("run_backtest", "force_report"),
         "exit_code": 163,
     },
@@ -119,7 +119,7 @@ CONTRACTS = [
         "label": "BEAR_WINNER_STABILITY_DIAGNOSTIC",
         "filename": "bear_winner_stability_diagnostic.py",
         "module": "bear_winner_stability_diagnostic",
-        "version": "V73.3.6.6.17",
+        "version": "V73.3.6.6.18",
         "callables": ("run_backtest", "force_report"),
         "exit_code": 169,
     },

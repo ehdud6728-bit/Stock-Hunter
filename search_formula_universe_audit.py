@@ -10,7 +10,7 @@ from typing import Any, Callable, Iterable
 import numpy as np
 import pandas as pd
 
-VERSION = "V73.3.6.6.9"
+VERSION = "V73.3.6.6.9.1"
 RESEARCH_ONLY = True
 HEADER = "🌐 [전체 유니버스 검색식 Truth × 성과 × 시장국면 전수감사 · RESEARCH_ONLY]"
 REGISTRY_FILE = "search_formula_contract_registry.json"
@@ -404,6 +404,15 @@ def run_backtest(
     no_combo = attempted_n - int(reached_attempts) if attempted_n else 0
     selected_attempts = attempts["analyze_returned"].fillna(False).astype(bool).sum() if "analyze_returned" in attempts.columns else 0
     duplicate_invocations = int(len(raw) - combo_rows)
+    duplicate_conflict_keys = 0
+    duplicate_compare_cols = [c for c in ["formula_truth_bitmap", "formula_post_truth_bitmap", "formula_truth_registry_sha256", "formula_post_truth_registry_sha256", "analyze_returned"] if c in raw.columns]
+    if duplicate_invocations > 0:
+        for _, dg in raw.groupby(["signal_date", "code"], dropna=False):
+            if len(dg) <= 1:
+                continue
+            if any(dg[c].fillna("").astype(str).nunique() > 1 for c in duplicate_compare_cols):
+                duplicate_conflict_keys += 1
+    duplicate_contract_status = "INVALID_DUPLICATE_CALL" if duplicate_conflict_keys else ("DEDUPED_VALID" if duplicate_invocations else "NO_DUPLICATE_CALL")
     pre_complete = int(causal["pre_contract_ok"].sum())
     post_complete = int(causal["post_contract_ok"].sum())
     true_rows = int(causal["formula_truth_bitmap"].map(lambda s: "T" in str(s)).sum())
@@ -413,7 +422,7 @@ def run_backtest(
     # PRE is the actual score-time contract. POST is a later diagnostic stage and may be
     # unreachable for rows that legitimately exit after scoring; its coverage is reported,
     # but it must not invalidate the causal PRE formula ledger.
-    contract_valid = combo_rows > 0 and pre_complete == combo_rows and pre_errors.empty
+    contract_valid = combo_rows > 0 and pre_complete == combo_rows and pre_errors.empty and duplicate_conflict_keys == 0
 
     coverage = pd.DataFrame([{
         "version": VERSION,
@@ -427,6 +436,8 @@ def run_backtest(
         "pre_combo_filtered_rows": no_combo,
         "selected_candidate_attempts": int(selected_attempts),
         "duplicate_combo_invocations": duplicate_invocations,
+        "duplicate_combo_conflict_keys": duplicate_conflict_keys,
+        "duplicate_combo_contract_status": duplicate_contract_status,
         "pre_complete_rows": pre_complete,
         "post_complete_rows": post_complete,
         "rows_with_pre_true": true_rows,
@@ -459,7 +470,7 @@ def run_backtest(
         "- 목적: 최종 후보만 보지 않고 Direct Replay가 실제로 분석한 전 종목에서 66개 COMBO_TABLE 식의 PRE/POST 진실값과 이후 성과를 분리합니다.",
         "- LIVE 점수·순위·후보·AI 호출·진입·익절·손절 변경 0. POST-only 점등은 성과 신호에서 제외하고 계산순서 위반 후보로만 집계합니다.",
         f"📁 분석시도 {attempted_n}행·{attempted_days}일 | COMBO 도달 {combo_rows}행·{combo_codes}종목·{combo_days}일 | COMBO 이전 종료 {no_combo}행 | 최종후보 반환 {int(selected_attempts)}행",
-        f"🧾 계약: PRE {pre_complete}/{combo_rows} · PRE error {len(pre_errors)} | POST 진단도달 {post_complete}/{combo_rows} · POST error {len(post_errors)} · 중복호출 {duplicate_invocations} | {'✅ VALID' if contract_valid else '⛔ INVALID'}",
+        f"🧾 계약: PRE {pre_complete}/{combo_rows} · PRE error {len(pre_errors)} | POST 진단도달 {post_complete}/{combo_rows} · POST error {len(post_errors)} · 중복호출 {duplicate_invocations}({duplicate_contract_status}) | {'✅ VALID' if contract_valid else '⛔ INVALID'}",
         f"📈 PRE 실제점등 종목행 {true_rows} · 성과평가 OK {evaluated_rows} · formula explode {len(exploded)}행 | 정책판정 {'✅ READY' if policy_ready else '⏳ NOT_READY'} ({evaluated_rows}행·{signal_days}일 / 최소 {MIN_POLICY_ROWS}행·{MIN_POLICY_DATES}일)",
     ]
 
