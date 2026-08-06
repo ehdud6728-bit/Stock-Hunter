@@ -1,6 +1,6 @@
 spec_version: search-spec-v7
-evaluator_version: single-search-evaluator-6-funnel-audited
-title: Closing Bet Search Contract v6
+evaluator_version: single-search-evaluator-7-anatomy-context
+title: v49.66 shared search contract with winner/loser causal anatomy audit
 authority: LIVE and BACKTEST share explicit-hist predicates. Historical performance
   uses one prepared immutable universe, deterministic shards, performance-only workers,
   and a global raw-signal merge before TOP selection.
@@ -51,7 +51,7 @@ strategies:
     automatic_order_enabled: false
     explicit_hist_required: true
     thread_safe_required: true
-    performance_engine: common-strategy-engine-4-funnel-audited
+    performance_engine: common-strategy-engine-5-entry-context
     current_performance_population: global merge of prepared-universe shards; legacy
       duplicated evaluator excluded
   LP:
@@ -79,7 +79,7 @@ strategies:
     automatic_order_enabled: false
     explicit_hist_required: true
     thread_safe_required: true
-    performance_engine: common-strategy-engine-4-funnel-audited
+    performance_engine: common-strategy-engine-5-entry-context
     current_performance_population: global merge of prepared-universe shards; legacy
       duplicated evaluator excluded
   SLOCK:
@@ -110,7 +110,7 @@ strategies:
     automatic_order_enabled: false
     explicit_hist_required: true
     thread_safe_required: true
-    performance_engine: common-strategy-engine-4-funnel-audited
+    performance_engine: common-strategy-engine-5-entry-context
     current_performance_population: global merge of prepared-universe shards; legacy
       duplicated evaluator excluded
   S:
@@ -140,7 +140,7 @@ strategies:
     automatic_order_enabled: false
     explicit_hist_required: true
     thread_safe_required: true
-    performance_engine: common-strategy-engine-4-funnel-audited
+    performance_engine: common-strategy-engine-5-entry-context
     current_performance_population: global merge of prepared-universe shards; legacy
       duplicated evaluator excluded
   G:
@@ -180,7 +180,7 @@ strategies:
     automatic_order_enabled: false
     explicit_hist_required: true
     thread_safe_required: true
-    performance_engine: common-strategy-engine-4-funnel-audited
+    performance_engine: common-strategy-engine-5-entry-context
     current_performance_population: global merge of prepared-universe shards; legacy
       duplicated evaluator excluded
   IT:
@@ -204,7 +204,7 @@ strategies:
     automatic_order_enabled: false
     explicit_hist_required: true
     thread_safe_required: true
-    performance_engine: common-strategy-engine-4-funnel-audited
+    performance_engine: common-strategy-engine-5-entry-context
     current_performance_population: global merge of prepared-universe shards; legacy
       duplicated evaluator excluded
   H:
@@ -231,7 +231,7 @@ strategies:
     automatic_order_enabled: false
     explicit_hist_required: true
     thread_safe_required: true
-    performance_engine: common-strategy-engine-4-funnel-audited
+    performance_engine: common-strategy-engine-5-entry-context
     current_performance_population: global merge of prepared-universe shards; legacy
       duplicated evaluator excluded
   I:
@@ -254,7 +254,7 @@ strategies:
     automatic_order_enabled: false
     explicit_hist_required: true
     thread_safe_required: true
-    performance_engine: common-strategy-engine-4-funnel-audited
+    performance_engine: common-strategy-engine-5-entry-context
     current_performance_population: global merge of prepared-universe shards; legacy
       duplicated evaluator excluded
   A:
@@ -289,7 +289,7 @@ strategies:
     automatic_order_enabled: false
     explicit_hist_required: true
     thread_safe_required: true
-    performance_engine: common-strategy-engine-4-funnel-audited
+    performance_engine: common-strategy-engine-5-entry-context
     current_performance_population: global merge of prepared-universe shards; legacy
       duplicated evaluator excluded
   B1:
@@ -318,7 +318,7 @@ strategies:
     automatic_order_enabled: false
     explicit_hist_required: true
     thread_safe_required: true
-    performance_engine: common-strategy-engine-4-funnel-audited
+    performance_engine: common-strategy-engine-5-entry-context
     current_performance_population: global merge of prepared-universe shards; legacy
       duplicated evaluator excluded
   B2:
@@ -347,7 +347,7 @@ strategies:
     automatic_order_enabled: false
     explicit_hist_required: true
     thread_safe_required: true
-    performance_engine: common-strategy-engine-4-funnel-audited
+    performance_engine: common-strategy-engine-5-entry-context
     current_performance_population: global merge of prepared-universe shards; legacy
       duplicated evaluator excluded
   C:
@@ -375,7 +375,7 @@ strategies:
     automatic_order_enabled: false
     explicit_hist_required: true
     thread_safe_required: true
-    performance_engine: common-strategy-engine-4-funnel-audited
+    performance_engine: common-strategy-engine-5-entry-context
     current_performance_population: global merge of prepared-universe shards; legacy
       duplicated evaluator excluded
 behavior_tests:
@@ -406,7 +406,7 @@ thread_safety_contract:
   concurrent_cross_frame_mismatch_allowed: 0
   determinism_mismatch_allowed: 0
 performance_engine_contract:
-  engine_version: common-strategy-engine-4-funnel-audited
+  engine_version: common-strategy-engine-5-entry-context
   prepared_universe_required: true
   deterministic_shard_partition: sorted code position modulo shard_count
   lifecycle_research_in_shards: false
@@ -416,3 +416,24 @@ performance_engine_contract:
   global_universe_fingerprint_consensus_required: true
   paper_only: true
   real_orders: 0
+  winner_loser_anatomy: TRAIN_ONLY_THRESHOLDS_FROZEN_TO_OOS
+  market_context: T1_AND_CLOSE_BENCHMARK_CONTEXT
+  sector_context: SIGNAL_CANDIDATE_PROXY_RESEARCH_ONLY
+  auto_apply_improvements: false
+  outcome_classes:
+  - BIG_CAPTURABLE
+  - SHAKEOUT_WIN
+  - QUICK_WIN
+  - SLOW_WIN
+  - STOP_FIRST
+  - POLICY_WIN
+  - WEAK_OR_LOSS
+  feature_whitelist: ENTRY_BAR_OR_EARLIER_ONLY
+  oos_stability: TRAIN_THRESHOLD_FROZEN; EARLY_AND_LATE_OOS_HALVES_NO_RETUNE
+  top_winner_stress:
+  - 1
+  - 3
+  - 10
+  automatic_application: false
+audit_extension: v49.66 entry-time winner/loser path anatomy, market-regime and down-market
+  independent-winner research; predicates unchanged
