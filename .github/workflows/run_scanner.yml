@@ -1,4 +1,4 @@
-name: Run Main Scanner V1107.4.5.73.3.6.6.16 Geopolitical Bear-Winner Diagnostic Complete
+name: Run Main Scanner V1107.4.5.73.3.6.6.17 Bear-Winner Stability Geo-Causal Complete
 
 on:
   schedule:
@@ -56,7 +56,7 @@ on:
       backtest_weeks:
         description: "V1080 성과검증 주차 수"
         required: false
-        default: "8"
+        default: "24"
         type: string
       backtest_hold_days:
         description: "성과검증 보유 평가일(추천 10: 1/3/5/10일 분석)"
@@ -414,7 +414,7 @@ jobs:
       CATALYST_GOOGLE_SHEET_SYNC_ENABLE: "0"
       CONTEXT_DIAGNOSTIC_SHEET_SYNC_ENABLE: "0"
       GOOGLE_SHEET_FAIL_CLOSED: "1"
-      GOOGLE_SHEET_STORAGE_GUARD_VERSION: "V73.3.6.6.16"
+      GOOGLE_SHEET_STORAGE_GUARD_VERSION: "V73.3.6.6.17"
       STOCKHUNTER_GOOGLE_SHEET_ID: "16OXJmYNnwWMjEp2UAhNxLPbRiTEYC29-6S7StvJxYt0"
       GOOGLE_SERVICE_ACCOUNT_EMAIL_EXPECTED: "stock-call@gen-lang-client-0419376661.iam.gserviceaccount.com"
       GOOGLE_JSON_KEY: ${{ secrets.GOOGLE_JSON_KEY }}
@@ -424,7 +424,7 @@ jobs:
       REPORT_BASE_URL: https://ehdud6728-bit.github.io/Stock-Hunter
       STRICT_FAKE_FILTER: "1"
       V1080_SIGNAL_CSV: reports/v1080_stockhunter_signals.csv
-      V1080_BACKTEST_WEEKS: "8"
+      V1080_BACKTEST_WEEKS: "24"
       V1080_BACKTEST_HOLD_DAYS: "10"
       V1080_BACKTEST_STOP_PCT: "-5"
       V1082_BACKTEST_STOP_MODE: SIGNAL_STOP_WITH_FALLBACK
@@ -562,7 +562,7 @@ jobs:
             bt_source="${INPUT_BACKTEST_SOURCE:-DIRECT_REPLAY}"
             direct_top_n="${INPUT_DIRECT_TOP_N:-150}"
             direct_limit="${INPUT_DIRECT_LIMIT_PER_DATE:-15}"
-            bt_weeks="${INPUT_BACKTEST_WEEKS:-8}"
+            bt_weeks="${INPUT_BACKTEST_WEEKS:-24}"
             bt_hold_days="${INPUT_BACKTEST_HOLD_DAYS:-10}"
             bt_stop_pct="${INPUT_BACKTEST_STOP_PCT:--5}"
             bt_stop_mode="${INPUT_BACKTEST_STOP_MODE:-SIGNAL_STOP_WITH_FALLBACK}"
@@ -1195,10 +1195,10 @@ jobs:
             # artifact families: strict-ai-exact-policy-route-guard-reports | market-index-sector-excess-causal-audit-reports
             echo "🧭 [V73.3.6.6.4 exact-root module source guard]"
             find "${GITHUB_WORKSPACE}" -maxdepth 4 -type f \
-              \( -name 'ham_restart_research.py' -o -name 'familiar_research.py' -o -name 'pattern_ai_cross_research.py' -o -name 'market_regime_excess_research.py' -o -name 'search_formula_truth_audit.py' -o -name 'search_formula_universe_audit.py' -o -name 'search_formula_complete_pipeline.py' -o -name 'catalyst_source_adapters.py' -o -name 'pattern_catalyst_context_pipeline.py' -o -name 'context_outcome_diagnostic.py' -o -name 'scale_in_policy_diagnostic.py' -o -name 'geopolitical_bear_winner_diagnostic.py' \) \
+              \( -name 'ham_restart_research.py' -o -name 'familiar_research.py' -o -name 'pattern_ai_cross_research.py' -o -name 'market_regime_excess_research.py' -o -name 'search_formula_truth_audit.py' -o -name 'search_formula_universe_audit.py' -o -name 'search_formula_complete_pipeline.py' -o -name 'catalyst_source_adapters.py' -o -name 'pattern_catalyst_context_pipeline.py' -o -name 'context_outcome_diagnostic.py' -o -name 'scale_in_policy_diagnostic.py' -o -name 'geopolitical_bear_winner_diagnostic.py' -o -name 'bear_winner_stability_diagnostic.py' \) \
               -print | sort
             python -B module_contract_preflight.py
-            echo "✅ exact-root module source hashes | main=$(sha256sum "${SCRIPT}" | awk '{print $1}') | ham=$(sha256sum ham_restart_research.py | awk '{print $1}') | familiar=$(sha256sum familiar_research.py | awk '{print $1}') | cross=$(sha256sum pattern_ai_cross_research.py | awk '{print $1}') | market=$(sha256sum market_regime_excess_research.py | awk '{print $1}') | truth=$(sha256sum search_formula_truth_audit.py | awk '{print $1}') | universe=$(sha256sum search_formula_universe_audit.py | awk '{print $1}') | complete=$(sha256sum search_formula_complete_pipeline.py | awk '{print $1}') | sources=$(sha256sum catalyst_source_adapters.py | awk '{print $1}') | seqctx=$(sha256sum pattern_catalyst_context_pipeline.py | awk '{print $1}') | contextdiag=$(sha256sum context_outcome_diagnostic.py | awk '{print $1}') | scalein=$(sha256sum scale_in_policy_diagnostic.py | awk '{print $1}') | geo=$(sha256sum geopolitical_bear_winner_diagnostic.py | awk '{print $1}')"
+            echo "✅ exact-root module source hashes | main=$(sha256sum "${SCRIPT}" | awk '{print $1}') | ham=$(sha256sum ham_restart_research.py | awk '{print $1}') | familiar=$(sha256sum familiar_research.py | awk '{print $1}') | cross=$(sha256sum pattern_ai_cross_research.py | awk '{print $1}') | market=$(sha256sum market_regime_excess_research.py | awk '{print $1}') | truth=$(sha256sum search_formula_truth_audit.py | awk '{print $1}') | universe=$(sha256sum search_formula_universe_audit.py | awk '{print $1}') | complete=$(sha256sum search_formula_complete_pipeline.py | awk '{print $1}') | sources=$(sha256sum catalyst_source_adapters.py | awk '{print $1}') | seqctx=$(sha256sum pattern_catalyst_context_pipeline.py | awk '{print $1}') | contextdiag=$(sha256sum context_outcome_diagnostic.py | awk '{print $1}') | scalein=$(sha256sum scale_in_policy_diagnostic.py | awk '{print $1}') | geo=$(sha256sum geopolitical_bear_winner_diagnostic.py | awk '{print $1}') | stability=$(sha256sum bear_winner_stability_diagnostic.py | awk '{print $1}')"
           fi
           if [ "${STOCKHUNTER_HAM_1503_ONLY:-0}" = "1" ]; then
             echo "🍔 V73.3.6.5.3 listing/bootstrap guard + V73.3.6.5.2 data-path guard + V73.3.6.5 HAM→SURVIVE→RESTART→15:03 CLOSE RESEARCH_ONLY | script=${SCRIPT}"
@@ -1300,8 +1300,14 @@ jobs:
             test -f "reports/$f" || { echo "❌ geopolitical diagnostic artifact missing: $f"; exit 162; }
           done
           python -c "import pandas as pd,sys; p='reports/v73_geo_readiness.csv'; q=pd.read_csv(p); r=q.iloc[-1] if len(q) else {}; st=str(r.get('status')); print('GEO_READINESS',st,'signals',r.get('signal_rows'),'bear',r.get('bear_signal_rows'),'days',r.get('bear_signal_days'),'events',r.get('causal_geo_event_rows'),'linked',r.get('geo_linked_signal_rows'),'winners',r.get('true_bear_winner_rows'),'matches',r.get('matched_control_rows'),'policy_ready',r.get('policy_ready')); sys.exit(0 if st in ('VALID_SHADOW','VALID_SHADOW_DATA_WARMUP','NO_SIGNAL_INPUT') else 164)"
+          grep -Fq "🧭🐻 [하락장 고유승자 × 0패턴 × 24·12·8·4주 안정성 진단 · RESEARCH_ONLY]" "${HAM_RUN_LOG}" || { echo "❌ bear-winner unique/stability diagnostic block missing"; exit 165; }
+          test "$(grep -Fc "🧭🐻 [하락장 고유승자 × 0패턴 × 24·12·8·4주 안정성 진단 · RESEARCH_ONLY]" "${HAM_RUN_LOG}")" -eq 1 || { echo "❌ bear-winner stability header count must be exactly 1"; exit 166; }
+          for f in v73_bear_winner_event_master_unique.csv v73_bear_winner_formula_membership.csv v73_bear_winner_matched_control_unique.csv v73_bear_winner_commonality_unique.csv v73_zero_pattern_winner_audit.csv v73_zero_pattern_feature_commonality.csv v73_formula_stability_matrix.csv v73_formula_stability_policy.csv v73_geo_official_archive_ledger.csv v73_sector_breadth_history.csv v73_sector_breadth_join_audit.csv v73_minute_scale_in_readiness.csv v73_bear_winner_stability_readiness.csv; do
+            test -f "reports/$f" || { echo "❌ bear-winner stability artifact missing: $f"; exit 167; }
+          done
+          python -c "import pandas as pd,sys; p='reports/v73_bear_winner_stability_readiness.csv'; q=pd.read_csv(p); r=q.iloc[-1] if len(q) else {}; st=str(r.get('status')); print('BEAR_STABILITY_READINESS',st,'formula_rows',r.get('formula_rows'),'unique',r.get('unique_event_rows'),'removed',r.get('duplicate_formula_votes_removed'),'replay_dates',r.get('replay_date_count'),'signal_days',r.get('unique_signal_days'),'stable',r.get('stable_policy_candidate_count'),'weeks',r.get('recommended_backtest_weeks')); sys.exit(0 if st in ('VALID_SHADOW','VALID_SHADOW_DATA_WARMUP','VALID_SHADOW_WINDOW_WARMUP','NO_SIGNAL_INPUT') else 168)"
             python -c "import csv,sys; p='reports/v72_backtest_data_path_audit.csv'; rows=list(csv.DictReader(open(p,encoding='utf-8-sig',newline=''))); last=(rows[-1] if rows else {}); print('DATA_PATH_AUDIT_LAST',last.get('status'),last.get('reason'),'eval',last.get('final_eval_rows')); sys.exit(0 if last.get('status')=='PASS' else 80)"
-            echo "✅ WEEKLY_BACKTEST data-path + HAM + FAMILIAR + PATTERN-AI-CROSS + MARKET-EXCESS + FULL-UNIVERSE-FORMULA + COMPLETE-FORMULA + SEQUENCE-CONTEXT-CATALYST + CONTEXT-OUTCOME + SCALE-IN-RISK-PARITY + GEOPOLITICAL-BEAR-WINNER research guard PASS"
+            echo "✅ WEEKLY_BACKTEST data-path + HAM + FAMILIAR + PATTERN-AI-CROSS + MARKET-EXCESS + FULL-UNIVERSE-FORMULA + COMPLETE-FORMULA + SEQUENCE-CONTEXT-CATALYST + CONTEXT-OUTCOME + SCALE-IN-RISK-PARITY + GEOPOLITICAL-BEAR-WINNER + UNIQUE-STABILITY-24W research guard PASS"
           else
             echo "🚀 Stock-Hunter scanner mode | script=${SCRIPT}"
             python "${SCRIPT}"
@@ -1447,7 +1453,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: stockhunter-v1107-4-5-73-3-6-6-16-geopolitical-bear-winner-reports-${{ github.run_number }}
+          name: stockhunter-v1107-4-5-73-3-6-6-17-bear-winner-stability-reports-${{ github.run_number }}
           path: |
             reports/**
             docs/**
