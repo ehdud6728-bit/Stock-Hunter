@@ -1,7 +1,7 @@
 {
   "spec_version": "search-spec-v7",
   "evaluator_version": "single-search-evaluator-7-anatomy-context",
-  "title": "v49.66 shared search contract with winner/loser causal anatomy audit",
+  "title": "v49.67 shared search contract with triple-split locked-test research audit",
   "authority": "LIVE and BACKTEST share explicit-hist predicates. Historical performance uses one prepared immutable universe, deterministic shards, performance-only workers, and a global raw-signal merge before TOP selection.",
   "primary_strategy_priority": [
     "L",
@@ -478,5 +478,5 @@
     ],
     "automatic_application": false
   },
-  "audit_extension": "v49.66 entry-time winner/loser path anatomy, market-regime and down-market independent-winner research; predicates unchanged"
+  "audit_extension": "v49.67 entry-time winner/loser anatomy plus TRAIN/VALIDATION/LOCKED_TEST LP-exit and L/G/S/down-market research; predicates unchanged"
 }
