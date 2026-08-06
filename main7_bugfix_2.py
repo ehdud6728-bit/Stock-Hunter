@@ -92872,12 +92872,12 @@ _V7336612_RELEASE_MARKER = {
 
 
 # ============================================================
-# ✅ V73.3.6.6.16 CONTEXT OUTCOME + RISK-PARITY SCALE-IN + GEOPOLITICAL BEAR WINNER DIAGNOSTIC
+# ✅ V73.3.6.6.17 CONTEXT + SCALE-IN + GEO BEAR WINNER + UNIQUE/STABILITY DIAGNOSTIC
 # - Winner/loser commonality, MFE/MAE, giveback, failure attribution.
 # - Context feature lift, condition ablation, regime performance, formula scorecard.
 # - RESEARCH_ONLY: no LIVE score/rank/candidate/AI/entry/exit/order mutation.
 # ============================================================
-_V7336614_VERSION = 'V73.3.6.6.16'
+_V7336614_VERSION = 'V73.3.6.6.17'
 _V7336614_HEADER = '🧭 [시장 × 단체섹터 × 종목시퀀스 × 수익경로 진단 · RESEARCH_ONLY]'
 _V7336614_LAST_FP = ''
 try:
@@ -92899,14 +92899,22 @@ try:
         and bool(getattr(_v7336616_geo, 'RESEARCH_ONLY', False))
         and all(callable(getattr(_v7336616_geo, n, None)) for n in ('run_backtest', 'force_report'))
     )
-    _V7336614_OK = _V7336614_OK and _V7336615_SCALE_OK and _V7336616_GEO_OK
-    print(f"{'✅' if _V7336614_OK else '🚨'} {_V7336614_VERSION} CONTEXT_OUTCOME+SCALE_IN+GEO_BEAR_WINNER_DIAGNOSTIC {'LOADED' if _V7336614_OK else 'CONTRACT_FAIL'} | RESEARCH_ONLY=True")
+    import bear_winner_stability_diagnostic as _v7336617_stability
+    _V7336617_STABILITY_OK = (
+        str(getattr(_v7336617_stability, 'VERSION', '')) == _V7336614_VERSION
+        and bool(getattr(_v7336617_stability, 'RESEARCH_ONLY', False))
+        and all(callable(getattr(_v7336617_stability, n, None)) for n in ('run_backtest', 'force_report'))
+    )
+    _V7336614_OK = _V7336614_OK and _V7336615_SCALE_OK and _V7336616_GEO_OK and _V7336617_STABILITY_OK
+    print(f"{'✅' if _V7336614_OK else '🚨'} {_V7336614_VERSION} CONTEXT+SCALE_IN+GEO_BEAR_WINNER+UNIQUE_STABILITY_DIAGNOSTIC {'LOADED' if _V7336614_OK else 'CONTRACT_FAIL'} | RESEARCH_ONLY=True")
 except Exception as _v7336614_import_e:
     _v7336614_diag = None
     _v7336615_scale = None
     _v7336616_geo = None
+    _v7336617_stability = None
     _V7336615_SCALE_OK = False
     _V7336616_GEO_OK = False
+    _V7336617_STABILITY_OK = False
     _V7336614_OK = False
     try: print(f'🚨 {_V7336614_VERSION} context outcome diagnostic import fail: {type(_v7336614_import_e).__name__}: {_v7336614_import_e}')
     except Exception: pass
@@ -92935,16 +92943,18 @@ def _v7336614_apply(report, df, output_dir=''):
             fixed = _v7336614_diag.force_report(report, out)
             fixed = _v7336615_scale.force_report(fixed, out)
             fixed = _v7336616_geo.force_report(fixed, out)
+            fixed = _v7336617_stability.force_report(fixed, out)
             return fixed, df
         fixed, _tables = _v7336614_diag.run_backtest(df, output_dir=out, base_report=report)
         fixed, _scale_tables = _v7336615_scale.run_backtest(
             df, output_dir=out, base_report=fixed, price_fetcher=globals().get('_v1080_fetch_price_after')
         )
         fixed, _geo_tables = _v7336616_geo.run_backtest(df, output_dir=out, base_report=fixed)
+        fixed, _stability_tables = _v7336617_stability.run_backtest(df, output_dir=out, base_report=fixed)
         _V7336614_LAST_FP = fp
         return fixed, df
     except Exception as exc:
-        try: log_error(f'⚠️ V73.3.6.6.16 context/scale-in/geo diagnostic 실패: {type(exc).__name__}: {exc}')
+        try: log_error(f'⚠️ V73.3.6.6.17 context/scale-in/geo/stability diagnostic 실패: {type(exc).__name__}: {exc}')
         except Exception: pass
         return str(report or '') + '\n\n' + _V7336614_HEADER + f'\n- 생성 실패: {type(exc).__name__}: {exc}', df
 
@@ -92972,7 +92982,8 @@ def _v1107_4_5_61_backtest_digest(text: str) -> str:
         try:
             d = _v7336614_diag.force_report(d, os.environ.get('V1080_BACKTEST_OUTPUT_DIR','reports'))
             d = _v7336615_scale.force_report(d, os.environ.get('V1080_BACKTEST_OUTPUT_DIR','reports'))
-            return _v7336616_geo.force_report(d, os.environ.get('V1080_BACKTEST_OUTPUT_DIR','reports'))
+            d = _v7336616_geo.force_report(d, os.environ.get('V1080_BACKTEST_OUTPUT_DIR','reports'))
+            return _v7336617_stability.force_report(d, os.environ.get('V1080_BACKTEST_OUTPUT_DIR','reports'))
         except Exception: return d
     return d
 
@@ -92986,7 +92997,8 @@ def _v1107_4_5_62_clean_for_send(text: str) -> str:
         try:
             d = _v7336614_diag.force_report(d, os.environ.get('V1080_BACKTEST_OUTPUT_DIR','reports'))
             d = _v7336615_scale.force_report(d, os.environ.get('V1080_BACKTEST_OUTPUT_DIR','reports'))
-            return _v7336616_geo.force_report(d, os.environ.get('V1080_BACKTEST_OUTPUT_DIR','reports'))
+            d = _v7336616_geo.force_report(d, os.environ.get('V1080_BACKTEST_OUTPUT_DIR','reports'))
+            return _v7336617_stability.force_report(d, os.environ.get('V1080_BACKTEST_OUTPUT_DIR','reports'))
         except Exception: return d
     return d
 
@@ -92999,6 +93011,7 @@ def _v1080_send_backtest_telegram(report: str, max_len: int=3500, *args, **kwarg
             fixed = _v7336614_diag.force_report(fixed, os.environ.get('V1080_BACKTEST_OUTPUT_DIR','reports'))
             fixed = _v7336615_scale.force_report(fixed, os.environ.get('V1080_BACKTEST_OUTPUT_DIR','reports'))
             fixed = _v7336616_geo.force_report(fixed, os.environ.get('V1080_BACKTEST_OUTPUT_DIR','reports'))
+            fixed = _v7336617_stability.force_report(fixed, os.environ.get('V1080_BACKTEST_OUTPUT_DIR','reports'))
         except Exception: pass
     if callable(prev) and prev is not _v1080_send_backtest_telegram:
         try: return prev(fixed, max_len=max_len, *args, **kwargs)
@@ -93032,10 +93045,18 @@ _V7336614_RELEASE_MARKER = {
     'matched_control_same_day': True,
     'retrospective_geo_quarantine': True,
     'geo_scale_in_policy': True,
+    'unique_bear_event_one_vote': True,
+    'formula_membership_separation': True,
+    'zero_pattern_winner_audit': True,
+    'stability_24_12_8_4': True,
+    'walk_forward_stability_gate': True,
+    'official_geo_archive_contract': True,
+    'sector_breadth_history_contract': True,
+    'minute_scale_in_readiness': True,
     'live_logic_changed': False,
     'real_order_changed': False,
 }
-# ✅ END V73.3.6.6.16 CONTEXT OUTCOME + SCALE-IN + GEOPOLITICAL BEAR WINNER DIAGNOSTIC
+# ✅ END V73.3.6.6.17 CONTEXT + SCALE-IN + GEO BEAR WINNER + UNIQUE/STABILITY DIAGNOSTIC
 
 if __name__ == "__main__":
     # V73.3.6.5 dedicated HAM 15:03 RESEARCH_ONLY capture. Must exit before any LIVE scanner code.

@@ -15,7 +15,7 @@ from typing import Any, Iterable
 
 import pandas as pd
 
-VERSION = "V73.3.6.6.16"
+VERSION = "V73.3.6.6.17"
 RESEARCH_ONLY = True
 LIVE_LOGIC_CHANGED = False
 REAL_ORDER_CHANGED = False
@@ -109,6 +109,19 @@ TAB_SPECS: tuple[TabSpec, ...] = (
     TabSpec("GEO_DEESCALATION_RISK", "v73_geo_deescalation_risk.csv", ("event_family", "snapshot_id")),
     TabSpec("GEO_DATA_AVAILABILITY", "v73_geo_data_availability.csv", ("field", "snapshot_id")),
     TabSpec("GEO_READINESS", "v73_geo_readiness.csv", ("snapshot_id", "version")),
+    TabSpec("BEAR_WINNER_UNIQUE", "v73_bear_winner_event_master_unique.csv", ("event_id", "snapshot_id")),
+    TabSpec("BEAR_FORMULA_MEMBERSHIP", "v73_bear_winner_formula_membership.csv", ("event_id", "formula", "snapshot_id")),
+    TabSpec("BEAR_MATCHED_UNIQUE", "v73_bear_winner_matched_control_unique.csv", ("match_id", "snapshot_id")),
+    TabSpec("BEAR_COMMONALITY_UNIQUE", "v73_bear_winner_commonality_unique.csv", ("feature", "comparison", "snapshot_id")),
+    TabSpec("ZERO_PATTERN_AUDIT", "v73_zero_pattern_winner_audit.csv", ("dimension", "label", "snapshot_id")),
+    TabSpec("ZERO_PATTERN_FEATURE", "v73_zero_pattern_feature_commonality.csv", ("feature", "snapshot_id")),
+    TabSpec("FORMULA_STABILITY", "v73_formula_stability_matrix.csv", ("formula", "window_requested", "snapshot_id")),
+    TabSpec("FORMULA_STABILITY_POLICY", "v73_formula_stability_policy.csv", ("formula", "snapshot_id")),
+    TabSpec("GEO_OFFICIAL_ARCHIVE", "v73_geo_official_archive_ledger.csv", ("source_key", "published_at", "snapshot_id")),
+    TabSpec("SECTOR_BREADTH_HISTORY", "v73_sector_breadth_history.csv", ("signal_date", "sector", "source_name", "snapshot_id")),
+    TabSpec("SECTOR_BREADTH_JOIN", "v73_sector_breadth_join_audit.csv", ("event_id", "snapshot_id")),
+    TabSpec("MINUTE_SCALE_READINESS", "v73_minute_scale_in_readiness.csv", ("source", "snapshot_id")),
+    TabSpec("BEAR_STABILITY_READINESS", "v73_bear_winner_stability_readiness.csv", ("snapshot_id", "version")),
 )
 
 RUN_AUDIT_COLUMNS = [

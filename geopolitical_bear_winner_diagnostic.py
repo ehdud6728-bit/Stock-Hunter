@@ -12,7 +12,7 @@ from typing import Any, Iterable
 import numpy as np
 import pandas as pd
 
-VERSION = "V73.3.6.6.16"
+VERSION = "V73.3.6.6.17"
 RESEARCH_ONLY = True
 LIVE_LOGIC_CHANGED = False
 REAL_ORDER_CHANGED = False
@@ -283,7 +283,7 @@ def _source_quality(row: pd.Series) -> tuple[str, int]:
 def _load_source_ledger(out: Path) -> pd.DataFrame:
     names = [
         "v73_catalyst_source_ledger.csv", "v73_catalyst_event_raw_normalized.csv",
-        "v73_official_disclosure_ledger.csv", "v73_news_source_ledger.csv", "v73_global_catalyst_ledger.csv",
+        "v73_official_disclosure_ledger.csv", "v73_geo_official_archive_ledger.csv", "v73_news_source_ledger.csv", "v73_global_catalyst_ledger.csv",
     ]
     frames: list[pd.DataFrame] = []
     for n in names:
