@@ -12,7 +12,7 @@ from typing import Any, Iterable
 import numpy as np
 import pandas as pd
 
-VERSION = "V73.3.6.6.18"
+VERSION = "V73.3.6.6.19"
 RESEARCH_ONLY = True
 LIVE_LOGIC_CHANGED = False
 REAL_ORDER_CHANGED = False
@@ -349,23 +349,33 @@ def _build_event_ledger(raw: pd.DataFrame) -> pd.DataFrame:
 
 
 def _prepare_signals(eval_df: pd.DataFrame | None, out: Path) -> tuple[pd.DataFrame, str]:
-    sources = [
-        ("FORMULA_EXPLODED", out / "v72_search_formula_universe_exploded_eval.csv"),
-        ("CONTEXT_EVENT", out / "v73_backtest_event_master.csv"),
-        ("MARKET_EXCESS", out / "v72_market_excess_signal_audit.csv"),
-    ]
-    base = pd.DataFrame()
-    source = "CALLER_DF"
-    for label, p in sources:
-        q = _read(p, dtype={"code": str})
-        if not q.empty:
-            base = q
-            source = label
-            break
-    if base.empty and isinstance(eval_df, pd.DataFrame):
-        base = eval_df.copy()
-    if base.empty:
-        return base, "NO_INPUT"
+    formula_fp = out / "v72_search_formula_universe_exploded_eval.csv"
+    direct_mode = str(os.environ.get("V1081_BACKTEST_SOURCE", "DIRECT_REPLAY")).strip().upper() in {"DIRECT_REPLAY", "DIRECT", "REPLAY", "LIVE_REPLAY"}
+    if direct_mode:
+        if not formula_fp.exists():
+            return pd.DataFrame(), "INVALID_UPSTREAM_DEPENDENCY:FORMULA_EXPLODED_MISSING"
+        base = _read(formula_fp, dtype={"code": str})
+        if base.empty:
+            return pd.DataFrame(), "INVALID_UPSTREAM_DEPENDENCY:FORMULA_EXPLODED_EMPTY"
+        source = "FORMULA_EXPLODED"
+    else:
+        sources = [
+            ("FORMULA_EXPLODED", formula_fp),
+            ("CONTEXT_EVENT", out / "v73_backtest_event_master.csv"),
+            ("MARKET_EXCESS", out / "v72_market_excess_signal_audit.csv"),
+        ]
+        base = pd.DataFrame()
+        source = "CALLER_DF"
+        for label, p in sources:
+            q = _read(p, dtype={"code": str})
+            if not q.empty:
+                base = q
+                source = label
+                break
+        if base.empty and isinstance(eval_df, pd.DataFrame):
+            base = eval_df.copy()
+        if base.empty:
+            return base, "NO_INPUT"
 
     q = base.copy()
     dc = _pick(q, ["signal_date", "date", "신호일"])

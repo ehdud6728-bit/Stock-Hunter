@@ -8,7 +8,7 @@ import shutil
 import sys
 from pathlib import Path
 
-RELEASE_VERSION = "V73.3.6.6.18"
+RELEASE_VERSION = "V73.3.6.6.19"
 
 CONTRACTS = [
     {
@@ -87,7 +87,7 @@ CONTRACTS = [
         "label": "GOOGLE_SHEET_FORWARD_LEDGER",
         "filename": "google_sheet_forward_ledger.py",
         "module": "google_sheet_forward_ledger",
-        "version": "V73.3.6.6.18",
+        "version": "V73.3.6.6.19",
         "callables": ("run_storage", "load_service_account_info", "create_google_client", "main"),
         "exit_code": 149,
     },
@@ -95,7 +95,7 @@ CONTRACTS = [
         "label": "CONTEXT_OUTCOME_DIAGNOSTIC",
         "filename": "context_outcome_diagnostic.py",
         "module": "context_outcome_diagnostic",
-        "version": "V73.3.6.6.18",
+        "version": "V73.3.6.6.19",
         "callables": ("run_backtest", "force_report"),
         "exit_code": 151,
     },
@@ -103,7 +103,7 @@ CONTRACTS = [
         "label": "SCALE_IN_POLICY_DIAGNOSTIC",
         "filename": "scale_in_policy_diagnostic.py",
         "module": "scale_in_policy_diagnostic",
-        "version": "V73.3.6.6.18",
+        "version": "V73.3.6.6.19",
         "callables": ("run_backtest", "force_report"),
         "exit_code": 159,
     },
@@ -111,7 +111,7 @@ CONTRACTS = [
         "label": "GEOPOLITICAL_BEAR_WINNER_DIAGNOSTIC",
         "filename": "geopolitical_bear_winner_diagnostic.py",
         "module": "geopolitical_bear_winner_diagnostic",
-        "version": "V73.3.6.6.18",
+        "version": "V73.3.6.6.19",
         "callables": ("run_backtest", "force_report"),
         "exit_code": 163,
     },
@@ -119,9 +119,17 @@ CONTRACTS = [
         "label": "BEAR_WINNER_STABILITY_DIAGNOSTIC",
         "filename": "bear_winner_stability_diagnostic.py",
         "module": "bear_winner_stability_diagnostic",
-        "version": "V73.3.6.6.18",
+        "version": "V73.3.6.6.19",
         "callables": ("run_backtest", "force_report"),
         "exit_code": 169,
+    },
+    {
+        "label": "HISTORICAL_ASOF_UNIVERSE",
+        "filename": "historical_asof_universe.py",
+        "module": "historical_asof_universe",
+        "version": "V73.3.6.6.19",
+        "callables": ("build_asof_universe_from_snapshots", "HistoricalUniverseRuntime", "append_runtime_rows", "finalize_audit"),
+        "exit_code": 173,
     },
 ]
 
@@ -234,7 +242,7 @@ def main() -> int:
             )
             return int(contract["exit_code"])
 
-    print("✅ HAM/FAMILIAR/PATTERN-AI-CROSS/MARKET-EXCESS/FORMULA-TRUTH/FORMULA-UNIVERSE/FORMULA-COMPLETE/CATALYST-SOURCES/SEQUENCE-CONTEXT-CATALYST/GOOGLE-SHEET-FORWARD-LEDGER/CONTEXT-OUTCOME-DIAGNOSTIC/SCALE-IN-POLICY-DIAGNOSTIC/GEOPOLITICAL-BEAR-WINNER-DIAGNOSTIC/BEAR-WINNER-STABILITY-DIAGNOSTIC exact-root source preflight PASS")
+    print("✅ HAM/FAMILIAR/PATTERN-AI-CROSS/MARKET-EXCESS/FORMULA-TRUTH/FORMULA-UNIVERSE/FORMULA-COMPLETE/CATALYST-SOURCES/SEQUENCE-CONTEXT-CATALYST/GOOGLE-SHEET-FORWARD-LEDGER/CONTEXT-OUTCOME-DIAGNOSTIC/SCALE-IN-POLICY-DIAGNOSTIC/GEOPOLITICAL-BEAR-WINNER-DIAGNOSTIC/BEAR-WINNER-STABILITY-DIAGNOSTIC/HISTORICAL-ASOF-UNIVERSE exact-root source preflight PASS")
     return 0
 
 

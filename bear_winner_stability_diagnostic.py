@@ -12,7 +12,7 @@ from typing import Any, Iterable
 import numpy as np
 import pandas as pd
 
-VERSION = "V73.3.6.6.18"
+VERSION = "V73.3.6.6.19"
 RESEARCH_ONLY = True
 LIVE_LOGIC_CHANGED = False
 REAL_ORDER_CHANGED = False

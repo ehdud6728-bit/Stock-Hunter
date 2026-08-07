@@ -12,7 +12,7 @@ from typing import Any, Callable, Iterable
 import numpy as np
 import pandas as pd
 
-VERSION = "V73.3.6.6.18"
+VERSION = "V73.3.6.6.19"
 RESEARCH_ONLY = True
 LIVE_LOGIC_CHANGED = False
 REAL_ORDER_CHANGED = False
@@ -107,8 +107,15 @@ def _top_removed(s: pd.Series, n: int = 5) -> float:
 
 
 def _source(output_dir: Path, fallback_df: pd.DataFrame | None) -> tuple[pd.DataFrame, str]:
+    formula_fp = output_dir / "v72_search_formula_universe_exploded_eval.csv"
+    direct_mode = str(os.environ.get("V1081_BACKTEST_SOURCE", "DIRECT_REPLAY")).strip().upper() in {"DIRECT_REPLAY", "DIRECT", "REPLAY", "LIVE_REPLAY"}
+    if direct_mode:
+        if not formula_fp.exists():
+            return pd.DataFrame(), "INVALID_UPSTREAM_DEPENDENCY:FORMULA_EXPLODED_MISSING"
+        q = _read(formula_fp)
+        return (q, "FORMULA_EXPLODED") if not q.empty else (pd.DataFrame(), "INVALID_UPSTREAM_DEPENDENCY:FORMULA_EXPLODED_EMPTY")
     for name, fp in [
-        ("FORMULA_EXPLODED", output_dir / "v72_search_formula_universe_exploded_eval.csv"),
+        ("FORMULA_EXPLODED", formula_fp),
         ("CONTEXT_EVENT", output_dir / "v73_backtest_event_master.csv"),
     ]:
         q = _read(fp)

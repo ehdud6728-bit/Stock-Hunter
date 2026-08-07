@@ -44939,7 +44939,7 @@ print("✅ V1080_WEEKLY_BACKTEST_BACKTEST_TOKEN_ACTIVE LOADED")
 try:
     os.environ.setdefault('V1080_RECORD_TOP15_SIGNALS', '1')
     os.environ.setdefault('V1080_SIGNAL_CSV', 'reports/v1080_stockhunter_signals.csv')
-    os.environ.setdefault('V1080_BACKTEST_WEEKS', '8')
+    os.environ.setdefault('V1080_BACKTEST_WEEKS', '24')
     os.environ.setdefault('V1080_BACKTEST_HOLD_DAYS', '5')
     os.environ.setdefault('V1080_BACKTEST_STOP_PCT', '-5')
     os.environ.setdefault('V1080_BACKTEST_OUTPUT_MODE', 'BOTH')
@@ -45612,7 +45612,7 @@ def v1080_run_weekly_backtest(signal_path: str = '', output_dir: str = '') -> tu
     """외부에서 직접 호출 가능한 V1080 주간 성과검증 엔진."""
     hold_days = _v1080_env_int('V1080_BACKTEST_HOLD_DAYS', 5)
     stop_pct = _v1080_env_float('V1080_BACKTEST_STOP_PCT', -5.0)
-    weeks = _v1080_env_int('V1080_BACKTEST_WEEKS', 8)
+    weeks = _v1080_env_int('V1080_BACKTEST_WEEKS', 24)
     raw = _v1080_read_signal_file(signal_path)
     if raw.empty:
         report = '🧪 [V1080 주간 성과검증]\n- 신호 CSV가 없거나 비어 있습니다. 먼저 일반 실행으로 TOP15 신호를 누적 저장하세요.'
@@ -45785,7 +45785,7 @@ print("✅ V1081_DIRECT_REPLAY_WEEKLY_BACKTEST_ACTIVE LOADED")
 
 try:
     os.environ.setdefault('V1081_BACKTEST_SOURCE', 'DIRECT_REPLAY')   # DIRECT_REPLAY / CSV_CACHE
-    os.environ.setdefault('V1081_DIRECT_TOP_N', '150')                # 과거 기준일별 분석 universe 크기
+    os.environ.setdefault('V1081_DIRECT_TOP_N', '500')                # 과거 기준일별 분석 universe 크기
     os.environ.setdefault('V1081_DIRECT_LIMIT_PER_DATE', '15')        # 기준일별 TOP N 저장
     os.environ.setdefault('V1081_DIRECT_MAX_DATES', '0')              # 0이면 weeks 기준 자동
     os.environ.setdefault('V1081_DIRECT_DATE_MODE', 'WEEK_LAST')      # WEEK_LAST / ALL_DAYS
@@ -46100,8 +46100,8 @@ def v1081_run_direct_weekly_backtest(output_dir: str = '') -> tuple:
     """CSV 없이 과거 날짜별 후보를 직접 재현해 주간 성과검증한다."""
     hold_days = _v1080_env_int('V1080_BACKTEST_HOLD_DAYS', 5) if '_v1080_env_int' in globals() else 5
     stop_pct = _v1080_env_float('V1080_BACKTEST_STOP_PCT', -5.0) if '_v1080_env_float' in globals() else -5.0
-    weeks = _v1080_env_int('V1080_BACKTEST_WEEKS', 8) if '_v1080_env_int' in globals() else 8
-    top_n = _v1080_env_int('V1081_DIRECT_TOP_N', 150) if '_v1080_env_int' in globals() else 150
+    weeks = _v1080_env_int('V1080_BACKTEST_WEEKS', 24) if '_v1080_env_int' in globals() else 24
+    top_n = _v1080_env_int('V1081_DIRECT_TOP_N', 500) if '_v1080_env_int' in globals() else 500
     per_date = _v1080_env_int('V1081_DIRECT_LIMIT_PER_DATE', 15) if '_v1080_env_int' in globals() else 15
     try:
         replay_dates = _v1081_latest_trading_calendar(weeks=weeks, hold_days=hold_days)
@@ -81137,7 +81137,7 @@ def _v1107_4_5_72_5_rebuild_report(report: str, eval_df: pd.DataFrame) -> str:
                 '- V72.8 적용확인: V72.6 stable-path restore + direct replay input guard + PRC source-field preserve active / 전체 후보값 대체 금지',
                 '- PULLBACK_RESTART_CLOSE: 판정불가 | V72 조건 0개가 아니라 상위 direct replay eval_df 0행',
                 f'- V72.8 입력진단: {reason}',
-                f'- 실행환경: source={os.environ.get("V1081_BACKTEST_SOURCE","DIRECT_REPLAY")} / weeks={os.environ.get("V1080_BACKTEST_WEEKS","8")} / topN={os.environ.get("V1081_DIRECT_TOP_N","150")} / dateLimit={os.environ.get("V1081_DIRECT_LIMIT_PER_DATE","15")}',
+                f'- 실행환경: source={os.environ.get("V1081_BACKTEST_SOURCE","DIRECT_REPLAY")} / weeks={os.environ.get("V1080_BACKTEST_WEEKS","24")} / topN={os.environ.get("V1081_DIRECT_TOP_N","500")} / dateLimit={os.environ.get("V1081_DIRECT_LIMIT_PER_DATE","15")}',
                 '- 조치: 이 실행값은 전략 성과에 합산하지 않습니다. Actions 로그의 기준일·universe·날짜별 후보 생성행을 확인합니다.',
             ]
             body = '\n'.join(lines)
@@ -92277,7 +92277,7 @@ def _v1080_send_backtest_telegram(report: str,max_len: int=3500,*args,**kwargs):
 # - PRE truth is the causal score-time signal. POST-only truth is timing diagnostics only.
 # - RESEARCH_ONLY: no LIVE score/rank/candidate/AI/entry/exit mutation.
 # ============================================================
-_V733669_VERSION = 'V73.3.6.6.9'
+_V733669_VERSION = 'V73.3.6.6.9.1'
 _V733669_HEADER = '🌐 [전체 유니버스 검색식 Truth × 성과 × 시장국면 전수감사 · RESEARCH_ONLY]'
 _V733669_CAPTURE_ROWS = []
 _V733669_ATTEMPT_ROWS = []
@@ -92872,12 +92872,12 @@ _V7336612_RELEASE_MARKER = {
 
 
 # ============================================================
-# ✅ V73.3.6.6.18 CONTEXT + SCALE-IN + GEO BEAR WINNER + UNIQUE/STABILITY DIAGNOSTIC
+# ✅ V73.3.6.6.19 CONTEXT + SCALE-IN + GEO BEAR WINNER + UNIQUE/STABILITY DIAGNOSTIC
 # - Winner/loser commonality, MFE/MAE, giveback, failure attribution.
 # - Context feature lift, condition ablation, regime performance, formula scorecard.
 # - RESEARCH_ONLY: no LIVE score/rank/candidate/AI/entry/exit/order mutation.
 # ============================================================
-_V7336614_VERSION = 'V73.3.6.6.18'
+_V7336614_VERSION = 'V73.3.6.6.19'
 _V7336614_HEADER = '🧭 [시장 × 단체섹터 × 종목시퀀스 × 수익경로 진단 · RESEARCH_ONLY]'
 _V7336614_LAST_FP = ''
 try:
@@ -92954,7 +92954,7 @@ def _v7336614_apply(report, df, output_dir=''):
         _V7336614_LAST_FP = fp
         return fixed, df
     except Exception as exc:
-        try: log_error(f'⚠️ V73.3.6.6.18 context/scale-in/geo/stability diagnostic 실패: {type(exc).__name__}: {exc}')
+        try: log_error(f'⚠️ V73.3.6.6.19 context/scale-in/geo/stability diagnostic 실패: {type(exc).__name__}: {exc}')
         except Exception: pass
         return str(report or '') + '\n\n' + _V7336614_HEADER + f'\n- 생성 실패: {type(exc).__name__}: {exc}', df
 
@@ -93063,7 +93063,168 @@ _V7336614_RELEASE_MARKER = {
     'live_logic_changed': False,
     'real_order_changed': False,
 }
-# ✅ END V73.3.6.6.18 CONTEXT + SCALE-IN + GEO BEAR WINNER + UNIQUE/STABILITY DIAGNOSTIC
+# ✅ END V73.3.6.6.19 CONTEXT + SCALE-IN + GEO BEAR WINNER + UNIQUE/STABILITY DIAGNOSTIC
+
+
+
+# ============================================================
+# ✅ V73.3.6.6.19 HISTORICAL AS-OF TOP500 + CAUSAL EVENT EXPANSION UNIVERSE
+# - Direct Replay only: rebuilds the analysis universe for every signal date.
+# - Core rank uses D-1 and earlier 20-day average trading value; signal-day EOD data is not used.
+# - Causal event expansion can add names outside TOP500 using D-1 anomalies and timestamped official geo events.
+# - LIVE scanner universe/score/rank/entry/exit/order logic is unchanged.
+# ============================================================
+_V7336619_VERSION = 'V73.3.6.6.19'
+_V7336619_HEADER = '📦 [과거시점 TOP500 × 이벤트 확장 Universe 감사 · RESEARCH_ONLY]'
+try:
+    os.environ.setdefault('V1081_DIRECT_TOP_N', '500')
+    os.environ.setdefault('V1081_UNIVERSE_MODE', 'HISTORICAL_ASOF_TOP500_EVENT_EXPANSION')
+    os.environ.setdefault('V1081_ASOF_LIQUIDITY_DAYS', '20')
+    os.environ.setdefault('V1081_ASOF_MIN_PRICE', '3000')
+    os.environ.setdefault('V1081_ASOF_MIN_MARCAP', '30000000000')
+    os.environ.setdefault('V1081_EVENT_EXPANSION_MAX', '100')
+    os.environ.setdefault('V1081_EVENT_AMOUNT_RATIO', '3.0')
+    os.environ.setdefault('V1081_EVENT_VOLUME_RATIO', '3.0')
+    os.environ.setdefault('V1081_EVENT_PREV_RET_PCT', '5.0')
+    os.environ.setdefault('V1081_EVENT_MIN_AMOUNT', '10000000000')
+except Exception:
+    pass
+
+try:
+    import historical_asof_universe as _v7336619_universe
+    _V7336619_OK = (
+        str(getattr(_v7336619_universe, 'VERSION', '')) == _V7336619_VERSION
+        and bool(getattr(_v7336619_universe, 'RESEARCH_ONLY', False))
+        and all(callable(getattr(_v7336619_universe, n, None)) for n in (
+            'HistoricalUniverseRuntime', 'append_runtime_rows', 'reset_runtime_files', 'finalize_audit', 'force_report'
+        ))
+    )
+    print(f"{'✅' if _V7336619_OK else '🚨'} {_V7336619_VERSION} HISTORICAL_ASOF_TOP500_EVENT_EXPANSION {'LOADED' if _V7336619_OK else 'CONTRACT_FAIL'} | RESEARCH_ONLY=True")
+except Exception as _v7336619_import_e:
+    _v7336619_universe = None
+    _V7336619_OK = False
+    try: print(f'🚨 {_V7336619_VERSION} historical universe import fail: {type(_v7336619_import_e).__name__}: {_v7336619_import_e}')
+    except Exception: pass
+
+_V7336619_PREV_SIGNAL_ROWS = globals().get('_v1081_make_signal_rows_for_asof')
+def _v1081_make_signal_rows_for_asof(asof_date, universe_df: pd.DataFrame, weather_data=None, sector_master_map=None, limit: int=15):
+    prev = globals().get('_V7336619_PREV_SIGNAL_ROWS')
+    if not callable(prev) or prev is _v1081_make_signal_rows_for_asof or not _V7336619_OK:
+        return prev(asof_date, universe_df, weather_data=weather_data, sector_master_map=sector_master_map, limit=limit) if callable(prev) else []
+    out = os.environ.get('V1080_BACKTEST_OUTPUT_DIR', 'reports')
+    use_df = universe_df
+    meta = pd.DataFrame()
+    try:
+        runtime = _v7336619_universe.HistoricalUniverseRuntime(
+            stock_module=globals().get('stock'),
+            listing_loader=globals().get('load_krx_listing_safe'),
+            fdr_reader=getattr(globals().get('fdr'), 'DataReader', None),
+        )
+        meta, summary, availability = runtime.build(asof_date, output_dir=out, fallback_df=universe_df)
+        if isinstance(meta, pd.DataFrame) and not meta.empty:
+            use_df = meta.rename(columns={'code':'Code','name':'Name','market':'Market'}).copy()
+            if 'Code' not in use_df.columns and 'code' in meta.columns: use_df['Code'] = meta['code']
+            if 'Name' not in use_df.columns and 'name' in meta.columns: use_df['Name'] = meta['name']
+            _v7336619_universe.append_runtime_rows(out, meta, summary, availability)
+            try:
+                st = str(availability.iloc[0].get('status','')) if isinstance(availability,pd.DataFrame) and not availability.empty else 'UNKNOWN'
+                log_info(f'📦 V19 as-of universe {pd.Timestamp(asof_date).strftime("%Y-%m-%d")} | final {len(meta)} | core {int(meta.get("is_core", pd.Series(dtype=bool)).astype(str).str.lower().isin(["true","1"]).sum()) if "is_core" in meta.columns else 0} | event {int(meta.get("is_event_expansion", pd.Series(dtype=bool)).astype(str).str.lower().isin(["true","1"]).sum()) if "is_event_expansion" in meta.columns else 0} | {st}')
+            except Exception: pass
+    except Exception as exc:
+        try: log_error(f'⚠️ V19 as-of universe build 실패 {asof_date}: {type(exc).__name__}: {exc} | legacy passed universe 사용')
+        except Exception: pass
+        meta = pd.DataFrame()
+        use_df = universe_df
+
+    rows = prev(asof_date, use_df, weather_data=weather_data, sector_master_map=sector_master_map, limit=limit)
+    # Candidate rows receive universe provenance without changing candidate ranking or score.
+    try:
+        if isinstance(rows, list) and rows and isinstance(meta, pd.DataFrame) and not meta.empty:
+            mm = meta.set_index('code', drop=False).to_dict('index') if 'code' in meta.columns else {}
+            for r in rows:
+                if not isinstance(r, dict):
+                    continue
+                c = _v1080_norm_code(r.get('code', r.get('Code', r.get('종목코드','')))) if callable(globals().get('_v1080_norm_code')) else str(r.get('code','')).zfill(6)
+                m = mm.get(c, {})
+                for src, dst in [
+                    ('universe_rank','universe_rank'), ('universe_bucket','universe_bucket'),
+                    ('universe_source','universe_source'), ('event_reason','universe_event_reason'),
+                    ('avg_amount20','universe_avg_amount20'), ('amount_ratio_prev_vs20','universe_amount_ratio_prev_vs20'),
+                    ('volume_ratio_prev_vs20','universe_volume_ratio_prev_vs20'), ('universe_status','universe_status'),
+                ]:
+                    if src in m: r[dst] = m.get(src)
+    except Exception:
+        pass
+    return rows
+
+_V7336619_PREV_DIRECT = globals().get('v1081_run_direct_weekly_backtest')
+def v1081_run_direct_weekly_backtest(output_dir: str='') -> tuple:
+    prev = globals().get('_V7336619_PREV_DIRECT')
+    out = output_dir or os.environ.get('V1080_BACKTEST_OUTPUT_DIR', 'reports')
+    if _V7336619_OK:
+        try: _v7336619_universe.reset_runtime_files(out)
+        except Exception: pass
+    report, df = prev(output_dir=output_dir) if callable(prev) and prev is not v1081_run_direct_weekly_backtest else ('🧪 [직접재현 백테스트]\n- 원본 함수 없음', pd.DataFrame())
+    if _V7336619_OK:
+        try:
+            report, _tables = _v7336619_universe.finalize_audit(out, base_report=report)
+        except Exception as exc:
+            try: log_error(f'⚠️ V19 universe finalize 실패: {type(exc).__name__}: {exc}')
+            except Exception: pass
+            report = str(report or '') + '\n\n' + _V7336619_HEADER + f'\n- 생성 실패: {type(exc).__name__}: {exc}'
+    return report, df
+
+_V7336619_PREV_DIGEST = globals().get('_v1107_4_5_61_backtest_digest')
+def _v1107_4_5_61_backtest_digest(text: str) -> str:
+    prev = globals().get('_V7336619_PREV_DIGEST'); raw = str(text or '')
+    try: d = prev(raw) if callable(prev) and prev is not _v1107_4_5_61_backtest_digest else raw
+    except Exception: d = raw
+    if _V7336619_OK:
+        try: return _v7336619_universe.force_report(d, os.environ.get('V1080_BACKTEST_OUTPUT_DIR','reports'))
+        except Exception: return d
+    return d
+
+_V7336619_PREV_CLEAN = globals().get('_v1107_4_5_62_clean_for_send')
+def _v1107_4_5_62_clean_for_send(text: str) -> str:
+    prev = globals().get('_V7336619_PREV_CLEAN'); raw = str(text or '')
+    try: d = prev(raw) if callable(prev) and prev is not _v1107_4_5_62_clean_for_send else raw
+    except Exception: d = raw
+    if _V7336619_OK:
+        try: return _v7336619_universe.force_report(d, os.environ.get('V1080_BACKTEST_OUTPUT_DIR','reports'))
+        except Exception: return d
+    return d
+
+_V7336619_PREV_SEND = globals().get('_v1080_send_backtest_telegram')
+def _v1080_send_backtest_telegram(report: str, max_len: int=3500, *args, **kwargs):
+    prev = globals().get('_V7336619_PREV_SEND'); fixed = str(report or '')
+    if _V7336619_OK:
+        try: fixed = _v7336619_universe.force_report(fixed, os.environ.get('V1080_BACKTEST_OUTPUT_DIR','reports'))
+        except Exception: pass
+    if callable(prev) and prev is not _v1080_send_backtest_telegram:
+        try: return prev(fixed, max_len=max_len, *args, **kwargs)
+        except TypeError:
+            try: return prev(fixed, max_len)
+            except TypeError: return prev(fixed)
+        except Exception: return False
+    return False
+
+_V7336619_RELEASE_MARKER = {
+    'version': _V7336619_VERSION,
+    'research_only': True,
+    'historical_asof_universe': True,
+    'core_liquid_n': 500,
+    'liquidity_rank_d_minus_1': True,
+    'liquidity_avg_days': 20,
+    'event_expansion_causal': True,
+    'official_geo_before_1503_only': True,
+    'same_day_eod_universe_leakage': False,
+    'universe_rank_bucket_audit': True,
+    'full_universe_version_contract_fixed': True,
+    'context_upstream_fail_closed': True,
+    'live_logic_changed': False,
+    'real_order_changed': False,
+}
+# ✅ END V73.3.6.6.19 HISTORICAL AS-OF TOP500 + CAUSAL EVENT EXPANSION UNIVERSE
 
 if __name__ == "__main__":
     # V73.3.6.5 dedicated HAM 15:03 RESEARCH_ONLY capture. Must exit before any LIVE scanner code.

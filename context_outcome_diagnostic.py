@@ -12,7 +12,7 @@ from typing import Any, Iterable
 import numpy as np
 import pandas as pd
 
-VERSION = "V73.3.6.6.18"
+VERSION = "V73.3.6.6.19"
 RESEARCH_ONLY = True
 LIVE_LOGIC_CHANGED = False
 REAL_ORDER_CHANGED = False
@@ -104,22 +104,36 @@ def _sha_frame(df: pd.DataFrame) -> str:
 
 
 def _canonical_base(output_dir: Path, fallback_df: pd.DataFrame | None = None) -> tuple[pd.DataFrame, str]:
-    candidates = [
-        ("FORMULA_EXPLODED", output_dir / "v72_search_formula_universe_exploded_eval.csv"),
-        ("MARKET_EXCESS", output_dir / "v72_market_excess_signal_audit.csv"),
-        ("SEQUENCE_JOIN", output_dir / "v73_sequence_context_catalyst_join.csv"),
-    ]
-    source = "CALLER_DF"
-    base = pd.DataFrame()
-    for name, fp in candidates:
-        q = _read(fp)
-        if not q.empty:
-            base, source = q, name
-            break
-    if base.empty and isinstance(fallback_df, pd.DataFrame):
-        base = fallback_df.copy()
-    if base.empty:
-        return base, source
+    # V19 fail-closed contract: Direct Replay context diagnostics are downstream of the
+    # full-universe PRE formula ledger. Never silently substitute MARKET_EXCESS/CALLER_DF
+    # when that authoritative upstream is missing, because that changes the population.
+    formula_fp = output_dir / "v72_search_formula_universe_exploded_eval.csv"
+    direct_mode = str(os.environ.get("V1081_BACKTEST_SOURCE", "DIRECT_REPLAY")).strip().upper() in {"DIRECT_REPLAY", "DIRECT", "REPLAY", "LIVE_REPLAY"}
+    formula_exists = formula_fp.exists()
+    formula = _read(formula_fp) if formula_exists else pd.DataFrame()
+    if direct_mode:
+        if not formula_exists:
+            return pd.DataFrame(), "INVALID_UPSTREAM_DEPENDENCY:FORMULA_EXPLODED_MISSING"
+        if formula.empty:
+            return pd.DataFrame(), "INVALID_UPSTREAM_DEPENDENCY:FORMULA_EXPLODED_EMPTY"
+        base, source = formula, "FORMULA_EXPLODED"
+    else:
+        candidates = [
+            ("FORMULA_EXPLODED", formula_fp),
+            ("MARKET_EXCESS", output_dir / "v72_market_excess_signal_audit.csv"),
+            ("SEQUENCE_JOIN", output_dir / "v73_sequence_context_catalyst_join.csv"),
+        ]
+        source = "CALLER_DF"
+        base = pd.DataFrame()
+        for name, fp in candidates:
+            q = _read(fp)
+            if not q.empty:
+                base, source = q, name
+                break
+        if base.empty and isinstance(fallback_df, pd.DataFrame):
+            base = fallback_df.copy()
+        if base.empty:
+            return base, source
 
     x = base.copy()
     x["signal_date"] = pd.to_datetime(_text(x, ["signal_date", "date", "신호일", "Date"]), errors="coerce").dt.normalize()
@@ -703,9 +717,10 @@ def run_backtest(eval_df: pd.DataFrame | None = None, output_dir: str | Path = "
         empty = pd.DataFrame()
         for f in [EVENT_MASTER_FILE, MARKET_CONTEXT_FILE, SECTOR_CONTEXT_FILE, RETURN_PATH_FILE, COMMONALITY_FILE, FAILURE_FILE, FEATURE_LIFT_FILE, ABLATION_FILE, REGIME_PERF_FILE, SCORECARD_FILE, MISSED_FEATURE_FILE]:
             _write(out / f, empty)
-        ready = pd.DataFrame([{"version": VERSION, "status": "NO_INPUT", "event_rows": 0, "policy_ready": False, "research_only": True, "live_logic_changed": False, "real_order_changed": False}])
+        ready_status = "INVALID_UPSTREAM_DEPENDENCY" if str(source).startswith("INVALID_UPSTREAM_DEPENDENCY") else "NO_INPUT"
+        ready = pd.DataFrame([{"version": VERSION, "status": ready_status, "source": source, "event_rows": 0, "policy_ready": False, "research_only": True, "live_logic_changed": False, "real_order_changed": False}])
         _write(out / READINESS_FILE, ready)
-        block = _report(pd.DataFrame(columns=["code","signal_date","return_path","context_alignment"]), empty, empty, empty, empty, source, "NO_INPUT")
+        block = _report(pd.DataFrame(columns=["code","signal_date","return_path","context_alignment"]), empty, empty, empty, empty, source, ready_status)
         (out / REPORT_FILE).write_text(block, encoding="utf-8")
         return _insert(base_report, block), {"readiness": ready}
 

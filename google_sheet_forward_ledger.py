@@ -15,7 +15,7 @@ from typing import Any, Iterable
 
 import pandas as pd
 
-VERSION = "V73.3.6.6.18"
+VERSION = "V73.3.6.6.19"
 RESEARCH_ONLY = True
 LIVE_LOGIC_CHANGED = False
 REAL_ORDER_CHANGED = False
@@ -129,6 +129,10 @@ TAB_SPECS: tuple[TabSpec, ...] = (
     TabSpec("SECTOR_BREADTH_JOIN", "v73_sector_breadth_join_audit.csv", ("event_id", "snapshot_id")),
     TabSpec("MINUTE_SCALE_READINESS", "v73_minute_scale_in_readiness.csv", ("source", "snapshot_id")),
     TabSpec("BEAR_STABILITY_READINESS", "v73_bear_winner_stability_readiness.csv", ("snapshot_id", "version")),
+    TabSpec("UNIVERSE_ASOF_MEMBERSHIP", "v73_universe_asof_membership.csv", ("signal_date", "code", "snapshot_id")),
+    TabSpec("UNIVERSE_ASOF_SUMMARY", "v73_universe_asof_summary.csv", ("signal_date", "snapshot_id")),
+    TabSpec("UNIVERSE_RANK_COVERAGE", "v73_universe_rank_bucket_coverage.csv", ("scope", "snapshot_id")),
+    TabSpec("UNIVERSE_DATA_AVAIL", "v73_universe_data_availability.csv", ("signal_date", "snapshot_id")),
 )
 
 RUN_AUDIT_COLUMNS = [
