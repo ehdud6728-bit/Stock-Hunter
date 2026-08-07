@@ -1,6 +1,6 @@
 spec_version: search-spec-v7
 evaluator_version: single-search-evaluator-9-a-gate-zero-body-parity-forensic-path-audit
-title: v49.70 shared search contract with A-gate zero-body parity, technical-FN forensics and missed-winner path audit
+title: v49.71 shared search contract with A-gate zero-body parity, technical-FN forensics and missed-winner path audit
 authority: LIVE and BACKTEST share explicit-hist predicates. Historical performance uses one prepared immutable universe,
   deterministic shards, performance-only workers, and a global raw-signal merge before TOP selection.
 primary_strategy_priority:
@@ -431,7 +431,7 @@ performance_engine_contract:
   auto_apply_search_quality_findings: false
 audit_extension:
   prior: v49.68 continuous search-quality, missed-winner, ranking and drift audit; authoritative predicates unchanged
-  v49_70_gate_forensic_path:
+  v49_71_gate_forensic_path:
     status: enabled
     authoritative_predicates_changed: false
     a_gate_zero_body_denominator: max(abs(close-open), 1e-9)
