@@ -1,10 +1,8 @@
 spec_version: search-spec-v7
-evaluator_version: single-search-evaluator-8-search-quality-opportunity-census
-title: v49.68 shared search contract with continuous search-quality, missed-winner, ranking and drift
-  audit
-authority: LIVE and BACKTEST share explicit-hist predicates. Historical performance uses one prepared
-  immutable universe, deterministic shards, performance-only workers, and a global raw-signal merge before
-  TOP selection.
+evaluator_version: single-search-evaluator-9-a-gate-zero-body-parity-forensic-path-audit
+title: v49.69 shared search contract with A-gate zero-body parity, technical-FN forensics and missed-winner path audit
+authority: LIVE and BACKTEST share explicit-hist predicates. Historical performance uses one prepared immutable universe,
+  deterministic shards, performance-only workers, and a global raw-signal merge before TOP selection.
 primary_strategy_priority:
 - L
 - LP
@@ -53,8 +51,7 @@ strategies:
     explicit_hist_required: true
     thread_safe_required: true
     performance_engine: common-strategy-engine-5-entry-context
-    current_performance_population: global merge of prepared-universe shards; legacy duplicated evaluator
-      excluded
+    current_performance_population: global merge of prepared-universe shards; legacy duplicated evaluator excluded
   LP:
     mode: LP
     functions:
@@ -81,8 +78,7 @@ strategies:
     explicit_hist_required: true
     thread_safe_required: true
     performance_engine: common-strategy-engine-5-entry-context
-    current_performance_population: global merge of prepared-universe shards; legacy duplicated evaluator
-      excluded
+    current_performance_population: global merge of prepared-universe shards; legacy duplicated evaluator excluded
   SLOCK:
     mode: SLOCK
     functions:
@@ -112,8 +108,7 @@ strategies:
     explicit_hist_required: true
     thread_safe_required: true
     performance_engine: common-strategy-engine-5-entry-context
-    current_performance_population: global merge of prepared-universe shards; legacy duplicated evaluator
-      excluded
+    current_performance_population: global merge of prepared-universe shards; legacy duplicated evaluator excluded
   S:
     mode: S
     functions:
@@ -142,8 +137,7 @@ strategies:
     explicit_hist_required: true
     thread_safe_required: true
     performance_engine: common-strategy-engine-5-entry-context
-    current_performance_population: global merge of prepared-universe shards; legacy duplicated evaluator
-      excluded
+    current_performance_population: global merge of prepared-universe shards; legacy duplicated evaluator excluded
   G:
     mode: G
     functions:
@@ -182,8 +176,7 @@ strategies:
     explicit_hist_required: true
     thread_safe_required: true
     performance_engine: common-strategy-engine-5-entry-context
-    current_performance_population: global merge of prepared-universe shards; legacy duplicated evaluator
-      excluded
+    current_performance_population: global merge of prepared-universe shards; legacy duplicated evaluator excluded
   IT:
     mode: IT
     functions:
@@ -206,8 +199,7 @@ strategies:
     explicit_hist_required: true
     thread_safe_required: true
     performance_engine: common-strategy-engine-5-entry-context
-    current_performance_population: global merge of prepared-universe shards; legacy duplicated evaluator
-      excluded
+    current_performance_population: global merge of prepared-universe shards; legacy duplicated evaluator excluded
   H:
     mode: H
     functions:
@@ -233,8 +225,7 @@ strategies:
     explicit_hist_required: true
     thread_safe_required: true
     performance_engine: common-strategy-engine-5-entry-context
-    current_performance_population: global merge of prepared-universe shards; legacy duplicated evaluator
-      excluded
+    current_performance_population: global merge of prepared-universe shards; legacy duplicated evaluator excluded
   I:
     mode: I
     functions:
@@ -256,8 +247,7 @@ strategies:
     explicit_hist_required: true
     thread_safe_required: true
     performance_engine: common-strategy-engine-5-entry-context
-    current_performance_population: global merge of prepared-universe shards; legacy duplicated evaluator
-      excluded
+    current_performance_population: global merge of prepared-universe shards; legacy duplicated evaluator excluded
   A:
     mode: A
     functions:
@@ -291,8 +281,7 @@ strategies:
     explicit_hist_required: true
     thread_safe_required: true
     performance_engine: common-strategy-engine-5-entry-context
-    current_performance_population: global merge of prepared-universe shards; legacy duplicated evaluator
-      excluded
+    current_performance_population: global merge of prepared-universe shards; legacy duplicated evaluator excluded
   B1:
     mode: B1
     functions:
@@ -320,8 +309,7 @@ strategies:
     explicit_hist_required: true
     thread_safe_required: true
     performance_engine: common-strategy-engine-5-entry-context
-    current_performance_population: global merge of prepared-universe shards; legacy duplicated evaluator
-      excluded
+    current_performance_population: global merge of prepared-universe shards; legacy duplicated evaluator excluded
   B2:
     mode: B2
     functions:
@@ -349,8 +337,7 @@ strategies:
     explicit_hist_required: true
     thread_safe_required: true
     performance_engine: common-strategy-engine-5-entry-context
-    current_performance_population: global merge of prepared-universe shards; legacy duplicated evaluator
-      excluded
+    current_performance_population: global merge of prepared-universe shards; legacy duplicated evaluator excluded
   C:
     mode: C
     functions:
@@ -377,8 +364,7 @@ strategies:
     explicit_hist_required: true
     thread_safe_required: true
     performance_engine: common-strategy-engine-5-entry-context
-    current_performance_population: global merge of prepared-universe shards; legacy duplicated evaluator
-      excluded
+    current_performance_population: global merge of prepared-universe shards; legacy duplicated evaluator excluded
 behavior_tests:
   actual_ohlcv_execution:
   - G.gap_min
@@ -389,8 +375,8 @@ behavior_tests:
   system_contract:
   - primary_priority
   - IT_I_unique
-  note: Complex strategies are audited on deterministic positive/negative historical samples. Boundary
-    OHLCV synthesis is currently provided for simple G/L families.
+  note: Complex strategies are audited on deterministic positive/negative historical samples. Boundary OHLCV synthesis is
+    currently provided for simple G/L families.
 operation_lock:
   mode: PAPER
   real_orders: 0
@@ -398,8 +384,8 @@ operation_lock:
   auto_runner: false
   auto_fail_cutoff: false
   auto_big_cluster: false
-legacy_policy: The prior duplicated backtest evaluator is retained only for migration delta diagnostics
-  and is excluded from current performance population.
+legacy_policy: The prior duplicated backtest evaluator is retained only for migration delta diagnostics and is excluded from
+  current performance population.
 thread_safety_contract:
   explicit_hist_parameter_required: true
   global_load_df_monkeypatch_forbidden: true
@@ -436,28 +422,30 @@ performance_engine_contract:
   - 3
   - 10
   automatic_application: false
-  search_quality_audit: independent machine intent proxy + material opportunity census + rank-stage attribution
-    + drift
-  opportunity_census: all material opportunities; deterministic strongest missed subset full-predicate
-    replay per code
+  search_quality_audit: independent machine intent proxy + material opportunity census + rank-stage attribution + drift
+  opportunity_census: all material opportunities; deterministic strongest missed subset full-predicate replay per code
   technical_false_negative_policy: fail closed when full predicate hits a normal-search miss
   intent_proxy_policy: audit-only; never replaces authoritative predicates or human chart review
   manual_casebook: top winners, top losers, stop-first, intent-mismatch winners, intent-match losses
   distribution_drift: recent 28d vs prior 84d standardized median shift
   auto_apply_search_quality_findings: false
 audit_extension:
-  prior: v49.68 entry-time winner/loser anatomy plus TRAIN/VALIDATION/LOCKED_TEST LP-exit and L/G/S/down-market
-    research; predicates unchanged
-  v49_68_search_quality:
+  prior: v49.68 continuous search-quality, missed-winner, ranking and drift audit; authoritative predicates unchanged
+  v49_69_gate_forensic_path:
     status: enabled
-    machine_intent_proxy: true
-    missed_winner_census: true
-    ranking_stage_audit: true
-    winner_loser_effect_size: true
-    manual_casebook: true
-    distribution_drift: true
-    deep_audit_per_code_default: 8
-    deep_audit_is_exhaustive: false
+    authoritative_predicates_changed: false
+    a_gate_zero_body_denominator: max(abs(close-open), 1e-9)
+    a_gate_matches_authoritative_a: true
+    technical_false_negative_dedicated_csv_json: true
+    technical_false_negative_actions_log_and_telegram: true
+    technical_false_negative_fail_closed: true
+    opportunity_path_classes:
+    - IMMEDIATE_MISS
+    - SHAKEOUT_RECOVERY_MISS
+    - DELAYED_REVERSAL_MISS
+    - UNTRADEABLE_FUTURE_WINNER
+    fixed_35_opportunity_audit: TP3_HALF_TP5_REST_STOP_MINUS5_D10_CLOSE
+    casebook_keeps_all_technical_false_negatives: true
     auto_apply: false
     paper_only: true
     real_orders: 0

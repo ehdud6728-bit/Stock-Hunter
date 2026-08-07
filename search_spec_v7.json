@@ -1,7 +1,7 @@
 {
   "spec_version": "search-spec-v7",
-  "evaluator_version": "single-search-evaluator-8-search-quality-opportunity-census",
-  "title": "v49.68 shared search contract with continuous search-quality, missed-winner, ranking and drift audit",
+  "evaluator_version": "single-search-evaluator-9-a-gate-zero-body-parity-forensic-path-audit",
+  "title": "v49.69 shared search contract with A-gate zero-body parity, technical-FN forensics and missed-winner path audit",
   "authority": "LIVE and BACKTEST share explicit-hist predicates. Historical performance uses one prepared immutable universe, deterministic shards, performance-only workers, and a global raw-signal merge before TOP selection.",
   "primary_strategy_priority": [
     "L",
@@ -486,17 +486,23 @@
     "auto_apply_search_quality_findings": false
   },
   "audit_extension": {
-    "prior": "v49.68 entry-time winner/loser anatomy plus TRAIN/VALIDATION/LOCKED_TEST LP-exit and L/G/S/down-market research; predicates unchanged",
-    "v49_68_search_quality": {
+    "prior": "v49.68 continuous search-quality, missed-winner, ranking and drift audit; authoritative predicates unchanged",
+    "v49_69_gate_forensic_path": {
       "status": "enabled",
-      "machine_intent_proxy": true,
-      "missed_winner_census": true,
-      "ranking_stage_audit": true,
-      "winner_loser_effect_size": true,
-      "manual_casebook": true,
-      "distribution_drift": true,
-      "deep_audit_per_code_default": 8,
-      "deep_audit_is_exhaustive": false,
+      "authoritative_predicates_changed": false,
+      "a_gate_zero_body_denominator": "max(abs(close-open), 1e-9)",
+      "a_gate_matches_authoritative_a": true,
+      "technical_false_negative_dedicated_csv_json": true,
+      "technical_false_negative_actions_log_and_telegram": true,
+      "technical_false_negative_fail_closed": true,
+      "opportunity_path_classes": [
+        "IMMEDIATE_MISS",
+        "SHAKEOUT_RECOVERY_MISS",
+        "DELAYED_REVERSAL_MISS",
+        "UNTRADEABLE_FUTURE_WINNER"
+      ],
+      "fixed_35_opportunity_audit": "TP3_HALF_TP5_REST_STOP_MINUS5_D10_CLOSE",
+      "casebook_keeps_all_technical_false_negatives": true,
       "auto_apply": false,
       "paper_only": true,
       "real_orders": 0
