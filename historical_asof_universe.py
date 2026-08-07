@@ -13,7 +13,7 @@ from typing import Any, Callable, Iterable
 import numpy as np
 import pandas as pd
 
-VERSION = "V73.3.6.6.19"
+VERSION = "V73.3.6.6.20"
 RESEARCH_ONLY = True
 LIVE_LOGIC_CHANGED = False
 REAL_ORDER_CHANGED = False
@@ -26,6 +26,53 @@ AVAILABILITY_FILE = "v73_universe_data_availability.csv"
 REPORT_FILE = "v73_universe_asof_report.txt"
 
 CAUSAL_GEO_MODES = {"FORWARD_CAUSAL", "OFFICIAL_ARCHIVE_CAUSAL"}
+
+# V20 persistent raw-data cache. These files are causal source snapshots only; they do not
+# contain strategy outcomes and are safe to reuse across repeated Direct Replay runs.
+_CACHE_ROOT = Path(os.getenv("V20_ASOF_CACHE_DIR", "reports/.cache/v20_asof_snapshots"))
+_CACHE_STATS = {"listing_hit":0,"listing_miss":0,"market_hit":0,"market_miss":0,"cap_hit":0,"cap_miss":0,"name_hit":0,"name_miss":0}
+_TICKER_NAME_MEM: dict[str,str] = {}
+_NAME_MAP_LOADED = False
+
+def _set_cache_root(output_dir: str | Path) -> Path:
+    global _CACHE_ROOT
+    _CACHE_ROOT = Path(os.getenv("V20_ASOF_CACHE_DIR", str(Path(output_dir or "reports") / ".cache/v20_asof_snapshots")))
+    _CACHE_ROOT.mkdir(parents=True, exist_ok=True)
+    return _CACHE_ROOT
+
+def _cache_csv(kind: str, ymd: str) -> Path:
+    _CACHE_ROOT.mkdir(parents=True, exist_ok=True)
+    return _CACHE_ROOT / kind / f"{ymd}.csv.gz"
+
+def _read_cache(kind: str, ymd: str) -> pd.DataFrame:
+    p = _cache_csv(kind, ymd)
+    if not p.exists(): return pd.DataFrame()
+    try: return pd.read_csv(p, dtype={"Code":str,"code":str})
+    except Exception: return pd.DataFrame()
+
+def _write_cache(kind: str, ymd: str, df: pd.DataFrame) -> None:
+    if df is None or df.empty: return
+    p = _cache_csv(kind, ymd); p.parent.mkdir(parents=True, exist_ok=True)
+    tmp = p.with_name(p.name + f".{os.getpid()}.tmp")
+    df.to_csv(tmp, index=False, compression="gzip")
+    os.replace(tmp, p)
+
+def _load_name_map() -> None:
+    global _NAME_MAP_LOADED, _TICKER_NAME_MEM
+    if _NAME_MAP_LOADED: return
+    _NAME_MAP_LOADED = True
+    p = _CACHE_ROOT / "ticker_name_map.json"
+    try:
+        if p.exists():
+            q=json.loads(p.read_text(encoding="utf-8"))
+            if isinstance(q,dict): _TICKER_NAME_MEM.update({str(k):str(v) for k,v in q.items()})
+    except Exception: pass
+
+def _save_name_map() -> None:
+    try:
+        p=_CACHE_ROOT / "ticker_name_map.json"; p.parent.mkdir(parents=True,exist_ok=True)
+        tmp=p.with_suffix('.json.tmp'); tmp.write_text(json.dumps(_TICKER_NAME_MEM,ensure_ascii=False),encoding='utf-8'); os.replace(tmp,p)
+    except Exception: pass
 
 
 def _env_int(name: str, default: int) -> int:
@@ -137,10 +184,17 @@ def _normalize_cap_snapshot(raw: pd.DataFrame) -> pd.DataFrame:
 
 
 def _ticker_names_pykrx(stock_module: Any, ymd: str) -> tuple[pd.DataFrame, list[str]]:
+    cached = _read_cache("listing", ymd)
+    if not cached.empty:
+        _CACHE_STATS["listing_hit"] += 1
+        return cached, []
+    _CACHE_STATS["listing_miss"] += 1
     rows: list[dict[str, Any]] = []
     errors: list[str] = []
     if stock_module is None:
         return pd.DataFrame(), ["pykrx_stock_module_missing"]
+    _load_name_map()
+    name_changed = False
     for market in ["KOSPI", "KOSDAQ"]:
         tickers: list[str] = []
         try:
@@ -153,14 +207,24 @@ def _ticker_names_pykrx(stock_module: Any, ymd: str) -> tuple[pd.DataFrame, list
             continue
         for t in tickers:
             code = _norm_code(t)
-            name = ""
-            try:
-                name = str(stock_module.get_market_ticker_name(code) or "")
-            except Exception:
-                name = ""
+            name = _TICKER_NAME_MEM.get(code, "")
+            if name:
+                _CACHE_STATS["name_hit"] += 1
+            else:
+                _CACHE_STATS["name_miss"] += 1
+                try:
+                    name = str(stock_module.get_market_ticker_name(code) or "")
+                except Exception:
+                    name = ""
+                if name:
+                    _TICKER_NAME_MEM[code] = name; name_changed = True
             rows.append({"Code": code, "Name": name, "Market": market})
-    return pd.DataFrame(rows).drop_duplicates("Code", keep="last") if rows else pd.DataFrame(), errors
-
+    out = pd.DataFrame(rows).drop_duplicates("Code", keep="last") if rows else pd.DataFrame()
+    if not out.empty:
+        try: _write_cache("listing", ymd, out)
+        except Exception: pass
+    if name_changed: _save_name_map()
+    return out, errors
 
 def _filter_security_names(df: pd.DataFrame) -> pd.DataFrame:
     if df is None or df.empty:
@@ -188,6 +252,11 @@ def _filter_security_names(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _get_market_snapshot(stock_module: Any, ymd: str) -> tuple[pd.DataFrame, str]:
+    cached = _read_cache("market", ymd)
+    if not cached.empty:
+        _CACHE_STATS["market_hit"] += 1
+        return cached, "V20_DISK_CACHE:PYKRX_DAILY_CROSS_SECTION"
+    _CACHE_STATS["market_miss"] += 1
     if stock_module is None:
         return pd.DataFrame(), "PYKRX_UNAVAILABLE"
     frames: list[pd.DataFrame] = []
@@ -199,16 +268,22 @@ def _get_market_snapshot(stock_module: Any, ymd: str) -> tuple[pd.DataFrame, str
             except TypeError:
                 raw = stock_module.get_market_ohlcv_by_ticker(date=ymd, market=market)
             z = _normalize_market_snapshot(raw, market)
-            if not z.empty:
-                frames.append(z)
+            if not z.empty: frames.append(z)
         except Exception as exc:
             errors.append(f"{market}:{type(exc).__name__}:{exc}")
     if not frames:
         return pd.DataFrame(), "PYKRX_EMPTY" + (":" + "|".join(errors[:2]) if errors else "")
-    return pd.concat(frames, ignore_index=True).drop_duplicates("code", keep="last"), "PYKRX_DAILY_CROSS_SECTION"
-
+    out = pd.concat(frames, ignore_index=True).drop_duplicates("code", keep="last")
+    try: _write_cache("market", ymd, out)
+    except Exception: pass
+    return out, "PYKRX_DAILY_CROSS_SECTION"
 
 def _get_cap_snapshot(stock_module: Any, ymd: str) -> tuple[pd.DataFrame, str]:
+    cached = _read_cache("cap", ymd)
+    if not cached.empty:
+        _CACHE_STATS["cap_hit"] += 1
+        return cached, "V20_DISK_CACHE:PYKRX_MARKET_CAP"
+    _CACHE_STATS["cap_miss"] += 1
     if stock_module is None:
         return pd.DataFrame(), "PYKRX_UNAVAILABLE"
     frames: list[pd.DataFrame] = []
@@ -220,14 +295,15 @@ def _get_cap_snapshot(stock_module: Any, ymd: str) -> tuple[pd.DataFrame, str]:
             except TypeError:
                 raw = stock_module.get_market_cap_by_ticker(date=ymd, market=market)
             z = _normalize_cap_snapshot(raw)
-            if not z.empty:
-                frames.append(z)
+            if not z.empty: frames.append(z)
         except Exception as exc:
             errors.append(f"{market}:{type(exc).__name__}:{exc}")
     if not frames:
         return pd.DataFrame(), "PYKRX_CAP_EMPTY" + (":" + "|".join(errors[:2]) if errors else "")
-    return pd.concat(frames, ignore_index=True).drop_duplicates("code", keep="last"), "PYKRX_MARKET_CAP"
-
+    out = pd.concat(frames, ignore_index=True).drop_duplicates("code", keep="last")
+    try: _write_cache("cap", ymd, out)
+    except Exception: pass
+    return out, "PYKRX_MARKET_CAP"
 
 def _calendar_before(asof_date: Any, n: int, fdr_reader: Callable[..., pd.DataFrame] | None = None) -> list[pd.Timestamp]:
     d = pd.Timestamp(asof_date).normalize()
@@ -442,6 +518,8 @@ class HistoricalUniverseRuntime:
 
     def build(self, asof_date: Any, output_dir: str | Path = "reports", fallback_df: pd.DataFrame | None = None) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         out = _out_dir(output_dir)
+        _set_cache_root(out)
+        cache_before = dict(_CACHE_STATS)
         asof = pd.Timestamp(asof_date).normalize()
         core_n = _env_int("V1081_DIRECT_TOP_N", 500)
         event_max = _env_int("V1081_EVENT_EXPANSION_MAX", 100)
@@ -528,6 +606,13 @@ class HistoricalUniverseRuntime:
             "official_geo_codes": len(geo_codes),
             "fallback_used": status != "VALID_CAUSAL_ASOF",
             "errors": "|".join(listing_errors[:5]),
+            "v20_listing_cache_hit": int(_CACHE_STATS["listing_hit"] - cache_before.get("listing_hit",0)),
+            "v20_market_cache_hit": int(_CACHE_STATS["market_hit"] - cache_before.get("market_hit",0)),
+            "v20_market_cache_miss": int(_CACHE_STATS["market_miss"] - cache_before.get("market_miss",0)),
+            "v20_cap_cache_hit": int(_CACHE_STATS["cap_hit"] - cache_before.get("cap_hit",0)),
+            "v20_cap_cache_miss": int(_CACHE_STATS["cap_miss"] - cache_before.get("cap_miss",0)),
+            "v20_name_cache_hit": int(_CACHE_STATS["name_hit"] - cache_before.get("name_hit",0)),
+            "v20_name_cache_miss": int(_CACHE_STATS["name_miss"] - cache_before.get("name_miss",0)),
             "research_only": True,
             "live_logic_changed": False,
             "real_order_changed": False,

@@ -38,6 +38,7 @@ import requests
 import mplfinance as mpf
 import matplotlib.pyplot as plt
 import os, re, time, pytz
+import time
 import sys
 
 
@@ -45971,6 +45972,7 @@ def _v1081_make_signal_rows_for_asof(asof_date, universe_df: pd.DataFrame, weath
         s_map = sector_master_map or {}
         hist = weather_data if weather_data is not None else pd.DataFrame()
         total = len(target_pairs)
+        _v20_stock_loop_t0 = time.monotonic()
         for idx, (code, name) in enumerate(target_pairs, start=1):
             try:
                 res = analyze_final(code, name, hist, g_env, l_env, s_map)
@@ -45981,9 +45983,12 @@ def _v1081_make_signal_rows_for_asof(asof_date, universe_df: pd.DataFrame, weath
                     log_debug(f'V1081 직접검증 개별 오류 {asof_ts.date()} {name}: {one_e}')
                 except Exception:
                     pass
-            if idx % 25 == 0:
+            if idx % 25 == 0 or idx == total:
                 try:
-                    log_info(f'🧪 V1081 직접검증 {asof_ts.strftime("%Y-%m-%d")} 진행 {idx}/{total} | 후보 {len(all_hits)}')
+                    _v20_elapsed = max(0.001, time.monotonic() - _v20_stock_loop_t0)
+                    _v20_rate = idx / _v20_elapsed
+                    _v20_eta = (total - idx) / _v20_rate if _v20_rate > 0 else 0.0
+                    log_info(f'⚡ [V20 STOCK] {asof_ts.strftime("%Y-%m-%d")} {idx}/{total} | 후보 {len(all_hits)} | date-elapsed {_v20_elapsed/60:.1f}m | ETA {_v20_eta/60:.1f}m')
                 except Exception:
                     pass
         if not all_hits:
@@ -93074,7 +93079,7 @@ _V7336614_RELEASE_MARKER = {
 # - Causal event expansion can add names outside TOP500 using D-1 anomalies and timestamped official geo events.
 # - LIVE scanner universe/score/rank/entry/exit/order logic is unchanged.
 # ============================================================
-_V7336619_VERSION = 'V73.3.6.6.19'
+_V7336619_VERSION = 'V73.3.6.6.20'
 _V7336619_HEADER = '📦 [과거시점 TOP500 × 이벤트 확장 Universe 감사 · RESEARCH_ONLY]'
 try:
     os.environ.setdefault('V1081_DIRECT_TOP_N', '500')
@@ -93128,14 +93133,23 @@ def _v1081_make_signal_rows_for_asof(asof_date, universe_df: pd.DataFrame, weath
             _v7336619_universe.append_runtime_rows(out, meta, summary, availability)
             try:
                 st = str(availability.iloc[0].get('status','')) if isinstance(availability,pd.DataFrame) and not availability.empty else 'UNKNOWN'
-                log_info(f'📦 V19 as-of universe {pd.Timestamp(asof_date).strftime("%Y-%m-%d")} | final {len(meta)} | core {int(meta.get("is_core", pd.Series(dtype=bool)).astype(str).str.lower().isin(["true","1"]).sum()) if "is_core" in meta.columns else 0} | event {int(meta.get("is_event_expansion", pd.Series(dtype=bool)).astype(str).str.lower().isin(["true","1"]).sum()) if "is_event_expansion" in meta.columns else 0} | {st}')
+                log_info(f'📦 V20 as-of universe {pd.Timestamp(asof_date).strftime("%Y-%m-%d")} | final {len(meta)} | core {int(meta.get("is_core", pd.Series(dtype=bool)).astype(str).str.lower().isin(["true","1"]).sum()) if "is_core" in meta.columns else 0} | event {int(meta.get("is_event_expansion", pd.Series(dtype=bool)).astype(str).str.lower().isin(["true","1"]).sum()) if "is_event_expansion" in meta.columns else 0} | {st}')
             except Exception: pass
     except Exception as exc:
-        try: log_error(f'⚠️ V19 as-of universe build 실패 {asof_date}: {type(exc).__name__}: {exc} | legacy passed universe 사용')
+        try: log_error(f'⚠️ V20 as-of universe build 실패 {asof_date}: {type(exc).__name__}: {exc} | legacy passed universe 사용')
         except Exception: pass
         meta = pd.DataFrame()
         use_df = universe_df
 
+    # V20: prefetch the exact as-of universe price histories concurrently into a persistent cache.
+    # analyze_final remains single-threaded because several legacy research wrappers use process globals.
+    try:
+        if bool(globals().get('_V7336620_OK', False)) and isinstance(use_df, pd.DataFrame) and not use_df.empty:
+            _codes = use_df['Code'].astype(str).tolist() if 'Code' in use_df.columns else (use_df['code'].astype(str).tolist() if 'code' in use_df.columns else [])
+            _v7336620_perf.prefetch_codes(_codes, asof_date=asof_date, days=900, log_fn=globals().get('log_info'))
+    except Exception as _v20_pf_e:
+        try: log_error(f'⚠️ V20 price prefetch 실패 {asof_date}: {type(_v20_pf_e).__name__}: {_v20_pf_e} | sequential cached path 계속')
+        except Exception: pass
     rows = prev(asof_date, use_df, weather_data=weather_data, sector_master_map=sector_master_map, limit=limit)
     # Candidate rows receive universe provenance without changing candidate ranking or score.
     try:
@@ -93169,7 +93183,7 @@ def v1081_run_direct_weekly_backtest(output_dir: str='') -> tuple:
         try:
             report, _tables = _v7336619_universe.finalize_audit(out, base_report=report)
         except Exception as exc:
-            try: log_error(f'⚠️ V19 universe finalize 실패: {type(exc).__name__}: {exc}')
+            try: log_error(f'⚠️ V20 universe finalize 실패: {type(exc).__name__}: {exc}')
             except Exception: pass
             report = str(report or '') + '\n\n' + _V7336619_HEADER + f'\n- 생성 실패: {type(exc).__name__}: {exc}'
     return report, df
@@ -93224,7 +93238,219 @@ _V7336619_RELEASE_MARKER = {
     'live_logic_changed': False,
     'real_order_changed': False,
 }
-# ✅ END V73.3.6.6.19 HISTORICAL AS-OF TOP500 + CAUSAL EVENT EXPANSION UNIVERSE
+# ✅ END V73.3.6.6.20 HISTORICAL AS-OF TOP500 + CAUSAL EVENT EXPANSION UNIVERSE
+
+
+# ============================================================
+# ✅ V73.3.6.6.20 TOP500 DIRECT REPLAY CACHE + RESUME + PROGRESS/ETA
+# - Weekly Direct Replay only. LIVE scanner path is untouched.
+# - Persistent raw price cache; concurrent prefetch only, analyze_final remains single-threaded.
+# - Per-date checkpoint rehydrates full-universe truth sidecars and universe provenance.
+# - Progress heartbeat/ETA makes long-running GitHub Actions observable.
+# ============================================================
+_V7336620_VERSION = 'V73.3.6.6.20'
+_V7336620_HEADER = '⚡ [TOP500 Direct Replay 캐시·재개·진행률 진단 · RESEARCH_ONLY]'
+try:
+    import direct_replay_performance_v20 as _v7336620_perf
+    _V7336620_OK = (
+        str(getattr(_v7336620_perf, 'VERSION', '')) == _V7336620_VERSION
+        and bool(getattr(_v7336620_perf, 'RESEARCH_ONLY', False))
+        and all(callable(getattr(_v7336620_perf, n, None)) for n in (
+            'configure','cached_price_reader','prefetch_codes','load_checkpoint','save_checkpoint',
+            'read_universe_rows','progress_start','progress_done','reset_run_stats','finalize','force_report'
+        ))
+    )
+    if _V7336620_OK and _v1080_env_on('V20_REPLAY_ACCEL_ENABLE','1') and _v1080_env_on('STOCKHUNTER_WEEKLY_BACKTEST_ONLY','0') and _v1081_source_mode() == 'DIRECT_REPLAY':
+        import hashlib as _v20_hashlib
+        _v20_source_fp = str(os.environ.get('GITHUB_SHA','')).strip()
+        if not _v20_source_fp:
+            try: _v20_source_fp = _v20_hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+            except Exception: _v20_source_fp = _V7336620_VERSION
+        _v20_original_price_provider = globals().get('fdr_cached')
+        _v20_provider = _v7336620_perf.configure(
+            _v20_original_price_provider,
+            output_dir=os.environ.get('V1080_BACKTEST_OUTPUT_DIR','reports'),
+            source_fingerprint=_v20_source_fp,
+        )
+        # Both the as-of adapter and the later anchor-history backfill use the same persistent provider.
+        globals()['_V1081_BASE_FDR_CACHED'] = _v20_provider
+        globals()['fdr_cached'] = _v20_provider
+    print(f"{'✅' if _V7336620_OK else '🚨'} {_V7336620_VERSION} DIRECT_REPLAY_PERFORMANCE {'LOADED' if _V7336620_OK else 'CONTRACT_FAIL'} | RESEARCH_ONLY=True")
+except Exception as _v7336620_import_e:
+    _v7336620_perf = None
+    _V7336620_OK = False
+    try: print(f'🚨 {_V7336620_VERSION} direct replay performance import fail: {type(_v7336620_import_e).__name__}: {_v7336620_import_e}')
+    except Exception: pass
+
+
+def _v7336620_total_dates_hint():
+    try:
+        mx = _v1080_env_int('V1081_DIRECT_MAX_DATES', 0)
+        if mx > 0: return mx
+        return max(1, _v1080_env_int('V1080_BACKTEST_WEEKS', 24))
+    except Exception:
+        return 24
+
+
+def _v7336620_extend_unique(global_name, rows):
+    if not isinstance(rows, list) or not rows: return
+    target = globals().get(global_name)
+    if not isinstance(target, list): return
+    seen = set()
+    for r in target:
+        if isinstance(r, dict):
+            seen.add((str(r.get('signal_date','')),str(r.get('code','')),str(r.get('attempt_rank','')),str(r.get('combo_invocation',''))))
+    for r in rows:
+        if not isinstance(r, dict): continue
+        k=(str(r.get('signal_date','')),str(r.get('code','')),str(r.get('attempt_rank','')),str(r.get('combo_invocation','')))
+        if k not in seen:
+            target.append(dict(r)); seen.add(k)
+
+
+def _v7336620_extend_sidecar(global_name, rows):
+    """Restore small wrapper sidecars on checkpoint HIT without double counting."""
+    if not isinstance(rows, list) or not rows: return
+    target = globals().get(global_name)
+    if not isinstance(target, list): return
+    try:
+        import json as _v20_json
+        def _key(r):
+            if not isinstance(r, dict): return str(r)
+            return _v20_json.dumps(r, sort_keys=True, ensure_ascii=False, default=str)
+        seen = {_key(r) for r in target}
+        for r in rows:
+            k = _key(r)
+            if k not in seen:
+                target.append(dict(r) if isinstance(r, dict) else r); seen.add(k)
+    except Exception:
+        target.extend([dict(r) if isinstance(r, dict) else r for r in rows])
+
+
+_V7336620_PREV_SIGNAL_ROWS = globals().get('_v1081_make_signal_rows_for_asof')
+def _v1081_make_signal_rows_for_asof(asof_date, universe_df: pd.DataFrame, weather_data=None, sector_master_map=None, limit: int=15):
+    prev = globals().get('_V7336620_PREV_SIGNAL_ROWS')
+    if not callable(prev) or prev is _v1081_make_signal_rows_for_asof or not _V7336620_OK or not _v1080_env_on('V20_REPLAY_ACCEL_ENABLE','1') or not _v1080_env_on('STOCKHUNTER_WEEKLY_BACKTEST_ONLY','0'):
+        return prev(asof_date, universe_df, weather_data=weather_data, sector_master_map=sector_master_map, limit=limit) if callable(prev) else []
+    total = _v7336620_total_dates_hint()
+    t0 = time.monotonic()
+    cp = _v7336620_perf.load_checkpoint(asof_date)
+    hit = isinstance(cp, dict)
+    idx = _v7336620_perf.progress_start(asof_date, total, hit, log_fn=globals().get('log_info'))
+    if hit:
+        _v7336620_extend_unique('_V733669_CAPTURE_ROWS', cp.get('capture_rows', []))
+        _v7336620_extend_unique('_V733669_ATTEMPT_ROWS', cp.get('attempt_rows', []))
+        _v20_sidecars = cp.get('runtime_sidecars', {}) if isinstance(cp.get('runtime_sidecars', {}), dict) else {}
+        _v7336620_extend_sidecar('_V7337_AUX_RAW_ROWS', _v20_sidecars.get('V7337_AUX_RAW_ROWS', []))
+        _v7336620_extend_sidecar('_V7337_AUX_DIAG_ROWS', _v20_sidecars.get('V7337_AUX_DIAG_ROWS', []))
+        try:
+            if _V7336619_OK:
+                _v7336619_universe.append_runtime_rows(
+                    os.environ.get('V1080_BACKTEST_OUTPUT_DIR','reports'),
+                    cp.get('universe_membership', pd.DataFrame()),
+                    cp.get('universe_summary', pd.DataFrame()),
+                    cp.get('universe_availability', pd.DataFrame()),
+                )
+        except Exception as _cp_u_e:
+            try: log_error(f'⚠️ V20 checkpoint universe rehydrate 실패 {asof_date}: {_cp_u_e}')
+            except Exception: pass
+        rows = list(cp.get('candidate_rows', []))
+        _v7336620_perf.progress_done(asof_date, idx, total, len(rows), True, t0, log_fn=globals().get('log_info'))
+        return rows
+
+    c0 = len(globals().get('_V733669_CAPTURE_ROWS', [])) if isinstance(globals().get('_V733669_CAPTURE_ROWS'), list) else 0
+    a0 = len(globals().get('_V733669_ATTEMPT_ROWS', [])) if isinstance(globals().get('_V733669_ATTEMPT_ROWS'), list) else 0
+    x0 = len(globals().get('_V7337_AUX_RAW_ROWS', [])) if isinstance(globals().get('_V7337_AUX_RAW_ROWS'), list) else 0
+    xd0 = len(globals().get('_V7337_AUX_DIAG_ROWS', [])) if isinstance(globals().get('_V7337_AUX_DIAG_ROWS'), list) else 0
+    rows = prev(asof_date, universe_df, weather_data=weather_data, sector_master_map=sector_master_map, limit=limit)
+    captures = globals().get('_V733669_CAPTURE_ROWS', [])[c0:] if isinstance(globals().get('_V733669_CAPTURE_ROWS'), list) else []
+    attempts = globals().get('_V733669_ATTEMPT_ROWS', [])[a0:] if isinstance(globals().get('_V733669_ATTEMPT_ROWS'), list) else []
+    aux_rows = globals().get('_V7337_AUX_RAW_ROWS', [])[x0:] if isinstance(globals().get('_V7337_AUX_RAW_ROWS'), list) else []
+    aux_diag = globals().get('_V7337_AUX_DIAG_ROWS', [])[xd0:] if isinstance(globals().get('_V7337_AUX_DIAG_ROWS'), list) else []
+    try:
+        out = os.environ.get('V1080_BACKTEST_OUTPUT_DIR','reports')
+        um, us, ua = _v7336620_perf.read_universe_rows(out, asof_date)
+        _v7336620_perf.save_checkpoint(
+            asof_date, list(rows or []), captures, attempts, um, us, ua,
+            runtime_sidecars={
+                'V7337_AUX_RAW_ROWS': list(aux_rows or []),
+                'V7337_AUX_DIAG_ROWS': list(aux_diag or []),
+            },
+        )
+    except Exception as _cp_s_e:
+        try: log_error(f'⚠️ V20 checkpoint save 실패 {asof_date}: {_cp_s_e}')
+        except Exception: pass
+    _v7336620_perf.progress_done(asof_date, idx, total, len(rows) if isinstance(rows,list) else 0, False, t0, log_fn=globals().get('log_info'))
+    return rows
+
+
+_V7336620_PREV_DIRECT = globals().get('v1081_run_direct_weekly_backtest')
+def v1081_run_direct_weekly_backtest(output_dir: str='') -> tuple:
+    prev = globals().get('_V7336620_PREV_DIRECT')
+    out = output_dir or os.environ.get('V1080_BACKTEST_OUTPUT_DIR','reports')
+    if _V7336620_OK: _v7336620_perf.reset_run_stats()
+    report, df = prev(output_dir=output_dir) if callable(prev) and prev is not v1081_run_direct_weekly_backtest else ('🧪 [직접재현 백테스트]\n- 원본 함수 없음',pd.DataFrame())
+    if _V7336620_OK:
+        try: report, _perf = _v7336620_perf.finalize(out, base_report=report)
+        except Exception as exc:
+            try: log_error(f'⚠️ V20 performance finalize 실패: {type(exc).__name__}: {exc}')
+            except Exception: pass
+    return report, df
+
+
+_V7336620_PREV_DIGEST = globals().get('_v1107_4_5_61_backtest_digest')
+def _v1107_4_5_61_backtest_digest(text: str) -> str:
+    prev=globals().get('_V7336620_PREV_DIGEST'); raw=str(text or '')
+    try: d=prev(raw) if callable(prev) and prev is not _v1107_4_5_61_backtest_digest else raw
+    except Exception: d=raw
+    if _V7336620_OK:
+        try: return _v7336620_perf.force_report(d, os.environ.get('V1080_BACKTEST_OUTPUT_DIR','reports'))
+        except Exception: return d
+    return d
+
+
+_V7336620_PREV_CLEAN = globals().get('_v1107_4_5_62_clean_for_send')
+def _v1107_4_5_62_clean_for_send(text: str) -> str:
+    prev=globals().get('_V7336620_PREV_CLEAN'); raw=str(text or '')
+    try: d=prev(raw) if callable(prev) and prev is not _v1107_4_5_62_clean_for_send else raw
+    except Exception: d=raw
+    if _V7336620_OK:
+        try: return _v7336620_perf.force_report(d, os.environ.get('V1080_BACKTEST_OUTPUT_DIR','reports'))
+        except Exception: return d
+    return d
+
+
+_V7336620_PREV_SEND = globals().get('_v1080_send_backtest_telegram')
+def _v1080_send_backtest_telegram(report: str, max_len: int=3500, *args, **kwargs):
+    prev=globals().get('_V7336620_PREV_SEND'); fixed=str(report or '')
+    if _V7336620_OK:
+        try: fixed=_v7336620_perf.force_report(fixed, os.environ.get('V1080_BACKTEST_OUTPUT_DIR','reports'))
+        except Exception: pass
+    if callable(prev) and prev is not _v1080_send_backtest_telegram:
+        try: return prev(fixed,max_len=max_len,*args,**kwargs)
+        except TypeError:
+            try: return prev(fixed,max_len)
+            except TypeError: return prev(fixed)
+        except Exception: return False
+    return False
+
+
+_V7336620_RELEASE_MARKER = {
+    'version': _V7336620_VERSION,
+    'research_only': True,
+    'top500_kept': True,
+    'persistent_price_cache': True,
+    'asof_snapshot_cache': True,
+    'concurrent_price_prefetch': True,
+    'analysis_loop_single_thread_safe': True,
+    'per_date_resumable_checkpoint': True,
+    'full_universe_truth_rehydrate': True,
+    'universe_provenance_rehydrate': True,
+    'aux_research_sidecar_rehydrate': True,
+    'progress_eta_heartbeat': True,
+    'live_logic_changed': False,
+    'real_order_changed': False,
+}
+# ✅ END V73.3.6.6.20 TOP500 DIRECT REPLAY CACHE + RESUME + PROGRESS/ETA
 
 if __name__ == "__main__":
     # V73.3.6.5 dedicated HAM 15:03 RESEARCH_ONLY capture. Must exit before any LIVE scanner code.

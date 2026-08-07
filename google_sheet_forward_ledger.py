@@ -131,6 +131,7 @@ TAB_SPECS: tuple[TabSpec, ...] = (
     TabSpec("BEAR_STABILITY_READINESS", "v73_bear_winner_stability_readiness.csv", ("snapshot_id", "version")),
     TabSpec("UNIVERSE_ASOF_MEMBERSHIP", "v73_universe_asof_membership.csv", ("signal_date", "code", "snapshot_id")),
     TabSpec("UNIVERSE_ASOF_SUMMARY", "v73_universe_asof_summary.csv", ("signal_date", "snapshot_id")),
+    TabSpec("DIRECT_REPLAY_PERF", "v73_direct_replay_performance_audit.csv", ("ts_utc", "source_fingerprint")),
     TabSpec("UNIVERSE_RANK_COVERAGE", "v73_universe_rank_bucket_coverage.csv", ("scope", "snapshot_id")),
     TabSpec("UNIVERSE_DATA_AVAIL", "v73_universe_data_availability.csv", ("signal_date", "snapshot_id")),
 )

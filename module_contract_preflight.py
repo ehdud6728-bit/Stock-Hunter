@@ -8,7 +8,7 @@ import shutil
 import sys
 from pathlib import Path
 
-RELEASE_VERSION = "V73.3.6.6.19"
+RELEASE_VERSION = "V73.3.6.6.20"
 
 CONTRACTS = [
     {
@@ -127,9 +127,17 @@ CONTRACTS = [
         "label": "HISTORICAL_ASOF_UNIVERSE",
         "filename": "historical_asof_universe.py",
         "module": "historical_asof_universe",
-        "version": "V73.3.6.6.19",
+        "version": "V73.3.6.6.20",
         "callables": ("build_asof_universe_from_snapshots", "HistoricalUniverseRuntime", "append_runtime_rows", "finalize_audit"),
         "exit_code": 173,
+    },
+    {
+        "label": "DIRECT_REPLAY_PERFORMANCE_V20",
+        "filename": "direct_replay_performance_v20.py",
+        "module": "direct_replay_performance_v20",
+        "version": "V73.3.6.6.20",
+        "callables": ("configure", "cached_price_reader", "prefetch_codes", "load_checkpoint", "save_checkpoint", "progress_start", "progress_done", "finalize"),
+        "exit_code": 176,
     },
 ]
 
@@ -242,7 +250,7 @@ def main() -> int:
             )
             return int(contract["exit_code"])
 
-    print("✅ HAM/FAMILIAR/PATTERN-AI-CROSS/MARKET-EXCESS/FORMULA-TRUTH/FORMULA-UNIVERSE/FORMULA-COMPLETE/CATALYST-SOURCES/SEQUENCE-CONTEXT-CATALYST/GOOGLE-SHEET-FORWARD-LEDGER/CONTEXT-OUTCOME-DIAGNOSTIC/SCALE-IN-POLICY-DIAGNOSTIC/GEOPOLITICAL-BEAR-WINNER-DIAGNOSTIC/BEAR-WINNER-STABILITY-DIAGNOSTIC/HISTORICAL-ASOF-UNIVERSE exact-root source preflight PASS")
+    print("✅ HAM/FAMILIAR/PATTERN-AI-CROSS/MARKET-EXCESS/FORMULA-TRUTH/FORMULA-UNIVERSE/FORMULA-COMPLETE/CATALYST-SOURCES/SEQUENCE-CONTEXT-CATALYST/GOOGLE-SHEET-FORWARD-LEDGER/CONTEXT-OUTCOME-DIAGNOSTIC/SCALE-IN-POLICY-DIAGNOSTIC/GEOPOLITICAL-BEAR-WINNER-DIAGNOSTIC/BEAR-WINNER-STABILITY-DIAGNOSTIC/HISTORICAL-ASOF-UNIVERSE/DIRECT-REPLAY-PERFORMANCE-V20 exact-root source preflight PASS")
     return 0
 
 
