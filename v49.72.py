@@ -80,7 +80,7 @@ def _env_float(name: str, default: float = 0.0) -> float:
         except Exception:
             return 0.0
 
-CLOSING_BET_SCANNER_VERSION = 'G_MORALES_V4_4_9_53_8_49_72_INPUT_REPRO_LOCK_POLICY_MISS_SAMPLE_AUTHORITY_20260808'
+CLOSING_BET_SCANNER_VERSION = 'G_MORALES_V4_4_9_53_8_49_72_1_INPUT_REPRO_LOCK_POLICY_MISS_SAMPLE_AUTHORITY_SHARD_MAIN_EXIT_TOKEN_FIX_20260808'
 CLOSING_BET_LIVE_PRICE_SANITY_FIX = str(os.environ.get('CLOSING_BET_LIVE_PRICE_SANITY_FIX', '1')).lower() in ('1', 'true', 'yes', 'y', 'on')
 CLOSING_BET_LIVE_READABILITY_COMPACT = str(os.environ.get('CLOSING_BET_LIVE_READABILITY_COMPACT', '1')).lower() in ('1', 'true', 'yes', 'y', 'on')
 # v53.8.42: M5R TRUE60 검증용 장기 월봉 확보. 60개월 월선 계산에는 약 7년 일봉이 필요하다.
@@ -45338,7 +45338,7 @@ if __name__ == '__main__':
         )
         if CLOSING_BET_V4962_PERFORMANCE_ONLY:
             _shard_result=dict(globals().get('_V4962_SHARD_ONLY_RESULT',{}) or {})
-            if str(_shard_result.get('status','')).upper()!='SHARD_ONLY_COMPLETE' or str(report)!='V49.68_SHARD_ONLY_COMPLETE':
+            if str(_shard_result.get('status','')).upper()!='SHARD_ONLY_COMPLETE' or str(report)!='V49.72_SHARD_ONLY_COMPLETE':
                 raise RuntimeError(f"v49.72 shard-only completion contract failed: {_shard_result}")
             log_info(
                 f"v49.72 SHARD-ONLY MAIN EXIT ✅ · shard {_shard_result.get('shard_index')}/{_shard_result.get('shard_count')} "
