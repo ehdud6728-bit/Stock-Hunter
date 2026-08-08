@@ -80,7 +80,7 @@ def _env_float(name: str, default: float = 0.0) -> float:
         except Exception:
             return 0.0
 
-CLOSING_BET_SCANNER_VERSION = 'G_MORALES_V4_4_9_53_8_49_72_1_INPUT_REPRO_LOCK_POLICY_MISS_SAMPLE_AUTHORITY_SHARD_MAIN_EXIT_TOKEN_FIX_20260808'
+CLOSING_BET_SCANNER_VERSION = 'G_MORALES_V4_4_9_53_8_49_72_2_REPRO_COMPLETENESS_SPLIT_BASELINE_GAP_DIAG_20260808'
 CLOSING_BET_LIVE_PRICE_SANITY_FIX = str(os.environ.get('CLOSING_BET_LIVE_PRICE_SANITY_FIX', '1')).lower() in ('1', 'true', 'yes', 'y', 'on')
 CLOSING_BET_LIVE_READABILITY_COMPACT = str(os.environ.get('CLOSING_BET_LIVE_READABILITY_COMPACT', '1')).lower() in ('1', 'true', 'yes', 'y', 'on')
 # v53.8.42: M5R TRUE60 검증용 장기 월봉 확보. 60개월 월선 계산에는 약 7년 일봉이 필요하다.
@@ -367,6 +367,8 @@ _V4940_LIFECYCLE_AUDIT_CACHE = {}
 _V4940_LAST_LIFECYCLE_AUDIT = {'status':'NOT_RUN','lines':[],'episodes':pd.DataFrame(),'events':pd.DataFrame()}
 _V4940_LAST_PIPELINE_DIAG = {}
 _V4940_BT_PRICE_CACHE = {}
+# v49.72.2: per-code preload outcome is audit metadata only; search predicates do not consume it.
+_V4972_HISTORY_LOAD_STATUS = {}
 
 
 # v49.60: 공통 OHLCV 단일 로더 + 청크 실행 + 구조화 감사 + 최상위 FAIL-CLOSED.
@@ -32423,8 +32425,9 @@ def _v4941_chunked_map(items, worker, max_workers: int, chunk_size: int, timeout
 
 def _v4941_preload_shared_ohlcv(source_codes: list[str], names: list[str], start_date: str, end_date: str, warmup_days: int, workers: int) -> dict:
     """기존 백테스트와 Lifecycle이 공유하는 종목별 OHLCV 캐시를 한 번만 생성한다."""
-    global _V4940_BT_PRICE_CACHE, _V4941_SHARED_UNIVERSE_CODES
+    global _V4940_BT_PRICE_CACHE, _V4941_SHARED_UNIVERSE_CODES, _V4972_HISTORY_LOAD_STATUS
     _V4940_BT_PRICE_CACHE={}
+    _V4972_HISTORY_LOAD_STATUS={}
     _V4941_SHARED_UNIVERSE_CODES=[str(c).zfill(6) for c in list(source_codes or [])]
     pairs=list(zip(source_codes,names))
     if not bool(CLOSING_BET_V4941_SHARED_CACHE_ENABLE):
@@ -32457,16 +32460,39 @@ def _v4941_preload_shared_ohlcv(source_codes: list[str], names: list[str], start
         batch['timed_out']=list(batch.get('timed_out',[]))+list(rb.get('timed_out',[]))
         batch['chunks_total']=int(batch.get('chunks_total',0))+int(rb.get('chunks_total',0))
         batch['chunks_done']=int(batch.get('chunks_done',0))+int(rb.get('chunks_done',0))
+    # v49.72.2: retain why a code did not enter the shared resident cache. This is
+    # completeness metadata only and never changes a search/gate/predicate decision.
+    _error_by_code={}
+    for _item,_err in list(batch.get('errors',[]) or []):
+        try: _ec=str(_item[0] if isinstance(_item,(tuple,list)) else _item).zfill(6)
+        except Exception: _ec=str(_item).zfill(6)
+        _error_by_code[_ec]=str(_err)[:400]
+    _timeout_codes=set()
+    for _item in list(batch.get('timed_out',[]) or []):
+        try: _timeout_codes.add(str(_item[0] if isinstance(_item,(tuple,list)) else _item).zfill(6))
+        except Exception: pass
+    _name_by_code={str(c).zfill(6):str(n or '') for c,n in pairs}
     source_counts={}; row_counts=[]; loaded=0; short=0
     for code in source_codes:
-        rec=records.get(str(code).zfill(6),{})
+        _cc=str(code).zfill(6); rec=records.get(_cc,{})
         if rec.get('ok') and isinstance(rec.get('df'),pd.DataFrame):
-            key=(str(code).zfill(6),str(start_date),str(end_date))
+            key=(_cc,str(start_date),str(end_date))
             _V4940_BT_PRICE_CACHE[key]=rec['df']
             loaded+=1; row_counts.append(int(rec.get('rows',0)))
             src=str(rec.get('source','unknown') or 'unknown'); source_counts[src]=source_counts.get(src,0)+1
+            _V4972_HISTORY_LOAD_STATUS[_cc]={'status':'LOADED','reason':'','observed_rows':int(rec.get('rows',0) or 0),'name':_name_by_code.get(_cc,'')}
         else:
             short+=1
+            _obs=int(rec.get('rows',0) or 0) if isinstance(rec,dict) else 0
+            if _cc in _timeout_codes:
+                _ls='TIMEOUT'; _reason='shared OHLCV preload timeout'
+            elif _cc in _error_by_code:
+                _ls='FETCH_ERROR'; _reason=_error_by_code.get(_cc,'')
+            elif rec:
+                _ls='INSUFFICIENT_HISTORY' if _obs>0 else 'NO_DATA'; _reason=f'rows={_obs} < min_rows={int(CLOSING_BET_V4941_CACHE_MIN_ROWS)}'
+            else:
+                _ls='NO_RESULT'; _reason='loader returned no terminal record'
+            _V4972_HISTORY_LOAD_STATUS[_cc]={'status':_ls,'reason':_reason,'observed_rows':_obs,'name':_name_by_code.get(_cc,'')}
     requested=len(source_codes); load_pct=(loaded/requested*100.0) if requested else 0.0
     return {
         'requested':requested,'loaded':loaded,'short':short,'failed':len(batch.get('errors',[])),
@@ -33234,9 +33260,12 @@ def run_closing_bet_backtest(
             # fingerprint cannot detect.
             _hist_rows=[]
             _cache=globals().get('_V4940_BT_PRICE_CACHE',{}) or {}
+            _load_status=globals().get('_V4972_HISTORY_LOAD_STATUS',{}) or {}
+            _name_by_code={str(c).zfill(6):str(n or '') for c,n in zip(source_codes,names)}
             for _code in source_codes:
-                _df=_cache.get((str(_code).zfill(6),str(start_date),str(end_date)))
-                _hist_rows.append(_v4972_input.history_authority_row(_code,_df,start_date,end_date))
+                _cc=str(_code).zfill(6)
+                _df=_cache.get((_cc,str(start_date),str(end_date)))
+                _hist_rows.append(_v4972_input.history_authority_row(_cc,_df,start_date,end_date,load_meta=_load_status.get(_cc,{}),name=_name_by_code.get(_cc,'')))
             _hist_df=pd.DataFrame(_hist_rows)
             _hist_df.to_csv(_hp,index=False,encoding='utf-8-sig')
             _hist_agg=_v4972_input.aggregate_history_fingerprint(_hist_df)

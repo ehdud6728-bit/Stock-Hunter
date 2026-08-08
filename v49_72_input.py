@@ -69,11 +69,18 @@ def _norm_num(v: Any) -> str:
         return ''
 
 
-def history_authority_row(code: str, df: pd.DataFrame, requested_start: str = '', requested_end: str = '') -> dict[str, Any]:
+def history_authority_row(code: str, df: pd.DataFrame, requested_start: str = '', requested_end: str = '', *, load_meta: dict[str, Any] | None = None, name: str = '') -> dict[str, Any]:
     code=str(code).zfill(6)
+    lm=dict(load_meta or {})
+    load_status=str(lm.get('status') or '').strip().upper() or ('LOADED' if isinstance(df,pd.DataFrame) and not df.empty else 'NO_DATA')
+    load_reason=str(lm.get('reason') or '').strip()
+    observed_rows=int(lm.get('observed_rows',0) or 0)
     if df is None or not isinstance(df,pd.DataFrame) or df.empty:
-        return {'code':code,'history_rows':0,'first_date':'','last_date':'','amount_nonnull_rows':0,'amount_positive_rows':0,
-                'amount_coverage_pct':0.0,'data_sources':'','history_sha256':_sha_text('EMPTY'),'status':'NO_DATA'}
+        return {'code':code,'name':str(name or lm.get('name') or ''),'history_rows':0,'first_date':'','last_date':'','amount_nonnull_rows':0,'amount_positive_rows':0,
+                'amount_coverage_pct':0.0,'amount_positive_pct':0.0,'amount_source':'','data_sources':'','history_sha256':_sha_text('EMPTY'),
+                'requested_start':str(requested_start or ''),'requested_end':str(requested_end or ''),
+                'load_status':load_status,'load_reason':load_reason,'observed_rows_before_min':observed_rows,
+                'status':'NO_DATA'}
     # Normalize the resident cache to a unique positional index before row-level hashing.
     # This avoids ambiguous .loc lookups if an upstream source supplied duplicate/non-unique indices.
     x=df.copy().reset_index(drop=True)
@@ -99,14 +106,16 @@ def history_authority_row(code: str, df: pd.DataFrame, requested_start: str = ''
     amount_positive=int(amount[valid].gt(0).sum())
     sources=','.join(sorted(set(src[valid].replace('', 'unknown').tolist())))
     return {
-        'code':code,'history_rows':rows,
+        'code':code,'name':str(name or lm.get('name') or ''),'history_rows':rows,
         'first_date':dates[valid].min().strftime('%Y-%m-%d') if valid.any() else '',
         'last_date':dates[valid].max().strftime('%Y-%m-%d') if valid.any() else '',
         'amount_nonnull_rows':amount_nonnull,'amount_positive_rows':amount_positive,
         'amount_coverage_pct':(amount_nonnull/rows*100.0 if rows else 0.0),
         'amount_positive_pct':(amount_positive/rows*100.0 if rows else 0.0),
         'amount_source':amount_source,'data_sources':sources,'history_sha256':h.hexdigest(),
-        'requested_start':str(requested_start or ''),'requested_end':str(requested_end or ''),'status':'VALID' if rows else 'NO_DATA',
+        'requested_start':str(requested_start or ''),'requested_end':str(requested_end or ''),
+        'load_status':load_status,'load_reason':load_reason,'observed_rows_before_min':observed_rows or rows,
+        'status':'VALID' if rows else 'NO_DATA',
     }
 
 
@@ -147,6 +156,96 @@ def population_fingerprint(raw: pd.DataFrame, funnel: pd.DataFrame | None = None
     return {'raw_population_rows':raw_n,'raw_population_sha256':raw_sha,'funnel_population_sha256':gate_sha,'gate_counts':gate_counts}
 
 
+
+def assess_history_completeness(history: pd.DataFrame, universe_codes, names: dict[str,Any] | None = None) -> dict[str,Any]:
+    """Separate data completeness from reproducibility.
+
+    DEGRADED gaps are fingerprinted and baseline-eligible. Structural corruption or explicit
+    fetch/timeout failures remain fail-closed and are not accepted as a healthy baseline.
+    """
+    names={str(k).zfill(6):str(v or '') for k,v in dict(names or {}).items()}
+    universe=sorted(set(str(c).zfill(6) for c in universe_codes if str(c).strip()))
+    h=history.copy() if isinstance(history,pd.DataFrame) else pd.DataFrame()
+    if h.empty:
+        h=pd.DataFrame(columns=['code','history_rows','status','load_status','load_reason','name'])
+    h['code']=h.get('code',pd.Series('',index=h.index)).astype(str).str.replace(r'\.0$','',regex=True).str.zfill(6)
+    counts=h['code'].value_counts() if not h.empty else pd.Series(dtype=int)
+    duplicate_codes=sorted(counts[counts.gt(1)].index.tolist())
+    hist_codes=sorted(set(h.code.tolist()))
+    missing_codes=sorted(set(universe)-set(hist_codes))
+    extra_codes=sorted(set(hist_codes)-set(universe))
+    rows=pd.to_numeric(h.get('history_rows',pd.Series(0,index=h.index)),errors='coerce').fillna(0)
+    zero=h.loc[rows.le(0)].copy() if not h.empty else h.copy()
+    if 'load_status' not in zero: zero['load_status']='NO_DATA'
+    if 'load_reason' not in zero: zero['load_reason']=''
+    if 'name' not in zero: zero['name']=''
+    zero['load_status']=zero['load_status'].fillna('NO_DATA').astype(str).str.upper().str.strip().replace('', 'NO_DATA')
+    hard_fetch_status={'FETCH_ERROR','TIMEOUT','NO_RESULT','LOAD_EXCEPTION'}
+    hard_fetch=zero[zero.load_status.isin(hard_fetch_status)].copy()
+    degraded=zero[~zero.load_status.isin(hard_fetch_status)].copy()
+    issues=[]
+    for code in duplicate_codes:
+        issues.append({'code':code,'name':names.get(code,''),'issue_type':'DUPLICATE_HISTORY_AUTHORITY','severity':'INVALID','detail':f'rows={int(counts.get(code,0))}'})
+    for code in missing_codes:
+        issues.append({'code':code,'name':names.get(code,''),'issue_type':'MISSING_HISTORY_AUTHORITY_ROW','severity':'INVALID','detail':'prepared code absent from merged history authority'})
+    for code in extra_codes:
+        issues.append({'code':code,'name':names.get(code,''),'issue_type':'EXTRA_HISTORY_AUTHORITY_ROW','severity':'INVALID','detail':'history authority code absent from prepared universe'})
+    for _,r in zero.sort_values('code').iterrows():
+        code=str(r.get('code','')).zfill(6); ls=str(r.get('load_status','NO_DATA')).upper()
+        sev='INVALID' if ls in hard_fetch_status else 'DEGRADED'
+        issues.append({'code':code,'name':str(r.get('name') or names.get(code,'') or ''),'issue_type':ls,'severity':sev,
+                       'detail':str(r.get('load_reason') or ''),'observed_rows':int(pd.to_numeric(pd.Series([r.get('observed_rows_before_min',0)]),errors='coerce').fillna(0).iloc[0])})
+    if duplicate_codes or missing_codes or extra_codes:
+        status='INVALID_STRUCTURE'
+    elif len(hard_fetch):
+        status='INVALID_FETCH_FAILURE'
+    elif len(degraded):
+        # A clean insufficient-history case is an expected listing/history gap. Plain NO_DATA is
+        # kept semantically separate because absence without an exception is not proof that the gap is expected.
+        _dset=set(degraded.load_status.astype(str).str.upper().tolist())
+        if _dset.issubset({'INSUFFICIENT_HISTORY'}): status='DEGRADED_EXPECTED_GAP'
+        elif _dset.issubset({'NO_DATA'}): status='DEGRADED_NO_DATA'
+        else: status='DEGRADED_MIXED_GAP'
+    else:
+        status='FULL_VALID'
+    issue_rows=pd.DataFrame(issues)
+    issue_text='\n'.join(json.dumps(x,ensure_ascii=False,sort_keys=True,separators=(',',':')) for x in issues)
+    return {
+        'status':status,
+        'hard_invalid':bool(status.startswith('INVALID')),
+        'baseline_eligible':not bool(status.startswith('INVALID')),
+        'universe_codes':len(universe),'history_authority_rows':len(h),'history_unique_codes':len(hist_codes),
+        'duplicate_codes_n':len(duplicate_codes),'missing_codes_n':len(missing_codes),'extra_codes_n':len(extra_codes),
+        'zero_history_codes_n':len(zero),'degraded_gap_codes_n':len(degraded),'fetch_failure_codes_n':len(hard_fetch),
+        'duplicate_code_sample':duplicate_codes[:20],'missing_code_sample':missing_codes[:20],'extra_code_sample':extra_codes[:20],
+        'zero_history_code_sample':zero.code.astype(str).tolist()[:20] if not zero.empty else [],
+        'issue_sha256':_sha_text(issue_text if issue_text else 'NO_ISSUES'),
+        'issues':issues,
+        'issue_rows':issue_rows,
+    }
+
+
+def resolve_authority_status(data_completeness_status: str, baseline_status: str) -> dict[str,Any]:
+    comp=str(data_completeness_status or 'INVALID_STRUCTURE').upper()
+    b=str(baseline_status or 'NO_BASELINE').upper()
+    if b=='REPRODUCIBILITY_MISMATCH': repro='REPRODUCIBILITY_MISMATCH'
+    elif b=='REPRODUCIBLE_MATCH': repro='REPRODUCIBLE_MATCH'
+    elif b=='NO_BASELINE': repro='BASELINE_ESTABLISHED'
+    elif b=='NOT_COMPARABLE_PERIOD': repro='VALID_NEW_PERIOD'
+    else: repro=b or 'BASELINE_UNAVAILABLE'
+    hard_repro=repro in {'REPRODUCIBILITY_MISMATCH','BASELINE_READ_ERROR'}
+    hard_complete=comp.startswith('INVALID')
+    baseline_eligible=not hard_repro and not hard_complete
+    if hard_repro:
+        overall='INVALID_REPRODUCIBILITY_MISMATCH' if repro=='REPRODUCIBILITY_MISMATCH' else 'INVALID_BASELINE_READ_ERROR'
+    elif hard_complete:
+        overall='INVALID_DATA_COMPLETENESS'
+    else:
+        overall=repro
+    return {'status':overall,'reproducibility_status':repro,'data_completeness_status':comp,
+            'hard_reproducibility_invalid':hard_repro,'hard_completeness_invalid':hard_complete,
+            'baseline_eligible':baseline_eligible,'input_authority_valid':baseline_eligible}
+
 def compare_baseline(current: dict[str,Any], baseline_path: str|Path|None) -> dict[str,Any]:
     result={'status':'NO_BASELINE','comparable':False,'mismatches':[],'baseline_path':str(baseline_path or '')}
     if not baseline_path:
@@ -164,8 +263,9 @@ def compare_baseline(current: dict[str,Any], baseline_path: str|Path|None) -> di
     if not same_period:
         result['status']='NOT_COMPARABLE_PERIOD'
         return result
-    keys=['prepared_authority_sha256','codes_sha256','index_map_sha256','marcap_map_sha256','top_mcap_sha256','market_map_sha256','sector_map_sha256',
-          'history_global_sha256','history_codes','history_rows','raw_population_sha256','raw_population_rows','funnel_population_sha256']
+    keys=['authority_schema_version','prepared_authority_sha256','codes_sha256','index_map_sha256','marcap_map_sha256','top_mcap_sha256','market_map_sha256','sector_map_sha256',
+          'history_global_sha256','history_codes','history_rows','history_issue_sha256','data_completeness_status',
+          'raw_population_sha256','raw_population_rows','funnel_population_sha256']
     mm=[]
     for k in keys:
         if str(base.get(k,''))!=str(current.get(k,'')):

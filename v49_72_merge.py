@@ -558,7 +558,7 @@ def _v4967_anatomy_tables(x: pd.DataFrame, out: Path, start_date: str, end_date:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description='v49.72 global merge + identity/pipeline/attribution audit')
+    ap = argparse.ArgumentParser(description='v49.72.2 global merge + input reproducibility/completeness authority audit')
     ap.add_argument('--input-root', default='v49_72_downloads')
     ap.add_argument('--prepare-dir', default='v49_72_prepare_output')
     ap.add_argument('--output-dir', default='reports')
@@ -692,36 +692,45 @@ def main() -> int:
         funnel_raw[col] = pd.to_numeric(funnel_raw[col], errors='coerce').fillna(0).astype(int)
     funnel = funnel_raw.groupby('strategy', as_index=False)[metrics].sum()
 
-    # v49.72 INPUT REPRODUCIBILITY AUTHORITY. The prepare metadata and exact OHLCV/Amount
-    # history used by all shards are reconciled before interpreting any performance change.
+    # v49.72.2 INPUT AUTHORITY: reproducibility and data completeness are independent axes.
+    # A reproducible DEGRADED gap is allowed to establish a baseline; structural/fetch failures
+    # and same-period fingerprint drift remain fail-closed.
     _universe_codes=sorted(str(c).zfill(6) for c in universe.get('codes',[]) if str(c).strip())
+    _universe_names={str(k).zfill(6):str(v or '') for k,v in dict(universe.get('names') or {}).items()}
     history_df['code']=history_df.get('code',pd.Series('',index=history_df.index)).astype(str).str.replace(r'\.0$','',regex=True).str.zfill(6)
-    _hist_dupes=int(history_df.duplicated('code',keep=False).sum()) if not history_df.empty else 0
-    _hist_codes=sorted(history_df.code.unique().tolist()) if not history_df.empty else []
-    _hist_missing=sorted(set(_universe_codes)-set(_hist_codes)); _hist_extra=sorted(set(_hist_codes)-set(_universe_codes))
-    _hist_invalid=int(pd.to_numeric(history_df.get('history_rows',0),errors='coerce').fillna(0).le(0).sum()) if not history_df.empty else len(_universe_codes)
     _hist_agg=ia72.aggregate_history_fingerprint(history_df)
+    _hist_complete=ia72.assess_history_completeness(history_df,_universe_codes,_universe_names)
     _prepared_auth=dict(preflight.get('input_authority') or universe.get('input_authority') or ia72.prepare_component_fingerprints(universe))
     _pop_auth=ia72.population_fingerprint(raw_df,funnel)
     input_authority={
-        'version':'v49.72','run_identity':str(os.environ.get('GITHUB_RUN_ID','LOCAL')),'start_date':str(args.start_date),'end_date':str(args.end_date),
-        'requested_end_date':str(universe.get('requested_end_date','')),'status':'VALID_CURRENT',
+        'version':'v49.72.2','authority_schema_version':'V49_72_2_INPUT_AUTHORITY_SCHEMA_2',
+        'run_identity':str(os.environ.get('GITHUB_RUN_ID','LOCAL')),'start_date':str(args.start_date),'end_date':str(args.end_date),
+        'requested_end_date':str(universe.get('requested_end_date','')),
         **_prepared_auth,**_hist_agg,**_pop_auth,
-        'history_duplicate_rows':_hist_dupes,'history_missing_codes_n':len(_hist_missing),'history_extra_codes_n':len(_hist_extra),'history_invalid_codes_n':_hist_invalid,
-        'history_missing_code_sample':_hist_missing[:20],'history_extra_code_sample':_hist_extra[:20],
+        'data_completeness_status':str(_hist_complete.get('status','INVALID_STRUCTURE')),
+        'data_completeness_hard_invalid':bool(_hist_complete.get('hard_invalid',True)),
+        'baseline_eligible_from_completeness':bool(_hist_complete.get('baseline_eligible',False)),
+        'history_issue_sha256':str(_hist_complete.get('issue_sha256','')),
+        'history_duplicate_codes_n':int(_hist_complete.get('duplicate_codes_n',0)),
+        'history_missing_codes_n':int(_hist_complete.get('missing_codes_n',0)),
+        'history_extra_codes_n':int(_hist_complete.get('extra_codes_n',0)),
+        'history_zero_codes_n':int(_hist_complete.get('zero_history_codes_n',0)),
+        'history_degraded_gap_codes_n':int(_hist_complete.get('degraded_gap_codes_n',0)),
+        'history_fetch_failure_codes_n':int(_hist_complete.get('fetch_failure_codes_n',0)),
+        'history_issue_sample':list(_hist_complete.get('issues',[]) or [])[:30],
         'amount_authority':'Amount column when present, otherwise Close*Volume; fingerprint records source',
-        'comparison_policy':'same start/end period only; mismatch fail-closed',
+        'comparison_policy':'same start/end period only; reproducibility mismatch fail-closed; reproducible degraded history remains baseline-eligible',
     }
-    if _hist_dupes or _hist_missing or _hist_extra or _hist_invalid or int(_hist_agg.get('history_codes',0))!=len(_universe_codes):
-        input_authority['status']='INVALID_CURRENT_HISTORY'
     _baseline_cmp=ia72.compare_baseline(input_authority,args.baseline_input_authority)
     input_authority['baseline_comparison']=_baseline_cmp
-    if _baseline_cmp.get('status')=='REPRODUCIBILITY_MISMATCH': input_authority['status']='INVALID_REPRODUCIBILITY_MISMATCH'
-    elif input_authority['status']=='VALID_CURRENT':
-        input_authority['status']='REPRODUCIBLE_MATCH' if _baseline_cmp.get('status')=='REPRODUCIBLE_MATCH' else ('BASELINE_ESTABLISHED' if _baseline_cmp.get('status')=='NO_BASELINE' else 'VALID_NEW_PERIOD')
+    _resolved=ia72.resolve_authority_status(input_authority.get('data_completeness_status'),_baseline_cmp.get('status'))
+    input_authority.update(_resolved)
     history_df.to_csv(out / 'v49_72_history_authority_global.csv',index=False,encoding='utf-8-sig')
+    _issue_rows=_hist_complete.get('issue_rows',pd.DataFrame())
+    if not isinstance(_issue_rows,pd.DataFrame): _issue_rows=pd.DataFrame(_hist_complete.get('issues',[]) or [])
+    _issue_rows.to_csv(out / 'v49_72_history_completeness_issues.csv',index=False,encoding='utf-8-sig')
     (out / 'v49_72_input_authority_manifest.json').write_text(json.dumps(input_authority,ensure_ascii=False,indent=2,default=str),encoding='utf-8')
-    input_authority_valid=not str(input_authority.get('status','')).startswith('INVALID')
+    input_authority_valid=bool(input_authority.get('input_authority_valid',False))
 
     raw_counts = raw_df['mode'].astype(str).value_counts()
     canonical_counts = canonical.get('mode', pd.Series(dtype=str)).astype(str).value_counts()
@@ -882,12 +891,12 @@ def main() -> int:
 
     technical_status = 'INVALID' if preflight.get('status') != 'VALID' or not input_authority_valid or perf_status != 'VALID' or funnel_status == 'INVALID' or quality_status == 'INVALID' or identity_global_missing > 0 or identity_global_invalid_mode > 0 or (V4970_REQUIRE_SECTOR_CONTEXT and sector_context_status != 'VALID') else ('PARTIAL-VALID' if funnel_status == 'PARTIAL-VALID' else 'FULL-VALID')
     lines1 = [
-        '(1/17)', '⚙️ 공통 검색식 성과검증 | v49.72', '──────────',
+        '(1/17)', '⚙️ 공통 검색식 성과검증 | v49.72.2', '──────────',
         f'버전: {s.CLOSING_BET_SCANNER_VERSION}',
         f'기간: {args.start_date} ~ {args.end_date} | prepared universe {preflight.get("universe_count")} · shards {args.shard_count}',
         '[기술 검증]',
         f'- PREPARED UNIVERSE: VALID ✅ · fp {preflight.get("universe_fingerprint")}',
-        f'- INPUT AUTHORITY: {input_authority.get("status")} {"✅" if input_authority_valid else "⛔"} · history {input_authority.get("history_codes",0)}종목/{input_authority.get("history_rows",0)}행 · amount {float(input_authority.get("amount_coverage_pct",0) or 0):.1f}%',
+        f'- INPUT AUTHORITY: {input_authority.get("reproducibility_status")} {"✅" if input_authority_valid else "⛔"} · completeness {input_authority.get("data_completeness_status")} · history {input_authority.get("history_codes",0)}종목/{input_authority.get("history_rows",0)}행 · amount {float(input_authority.get("amount_coverage_pct",0) or 0):.1f}%',
         f'- SHARD CONSENSUS: {len(manifests)}/{args.shard_count} VALID ✅ · global merge before TOP selection',
         f'- SEARCH CONTRACT: {"VALID ✅" if preflight.get("contract_valid") else "INVALID ⛔"} · explicit {preflight.get("explicit_hist_failures")} · boundary {preflight.get("boundary_failures")} · thread {preflight.get("thread_isolation_failures")} · determinism {preflight.get("determinism_failures")}',
         f'- STRATEGY POPULATION: {technical_status} · funnel {funnel_status} · false-negative {int(strategy_status.zero_audit_hits.sum())} · predicate exceptions {int(strategy_status.exceptions.sum())}',
@@ -905,7 +914,7 @@ def main() -> int:
         f'- 하루1종목 50bp: 누적 {f(p1_50.get("total"))} · MDD {f(p1_50.get("mdd"))} · 양수월 {f(p1_50.get("positive_month"))}', '',
         '[운용 잠금]', '- PAPER 유지 · 실제주문 0건', '- FULL-VALID와 50bp OOS·MDD·대박제거를 함께 통과하기 전 LIVE 자동전환 금지',
     ]
-    lines2 = ['(2/17)', '📊 전략별 OOS · Predicate Mode | v49.72', '──────────']
+    lines2 = ['(2/17)', '📊 전략별 OOS · Predicate Mode | v49.72.2', '──────────']
     if not ptab.empty:
         for _, r in ptab[ptab.strategy.ne('ALL')].sort_values(['oos_net50_mean_pct', 'oos_n'], ascending=[False, False]).iterrows():
             st = strategy_status[strategy_status.strategy.eq(r['strategy'])]
@@ -913,7 +922,7 @@ def main() -> int:
             lines2.append(f'- {r["strategy"]}: {label} · n {int(r["n"])} · OOS {int(r["oos_n"])} · net20/50 {f(r["oos_net20_mean_pct"])}/{f(r["oos_net50_mean_pct"])} · 전체50 {f(r["net50_mean_pct"])}')
     lines2 += ['', '- I/IT는 REAL_OR_CACHE 성과만 승격 검토 · proxy는 별도 표본', '- Lifecycle/Runner/FAIL/BIG/Cluster는 이번 성과 전용 실행과 분리']
 
-    lines3 = ['(3/17)', '🔬 전략 Funnel·Pipeline | v49.72', '──────────']
+    lines3 = ['(3/17)', '🔬 전략 Funnel·Pipeline | v49.72.2', '──────────']
     for _, r in strategy_status.iterrows():
         lines3.append(
             f'- {r.strategy}: {r.status} · gate {int(r.gate_admitted)} → hit {int(r.predicate_hit_records)}({f(r.gate_hit_pct)}) → eval {int(r.eval_success)} '
@@ -921,7 +930,7 @@ def main() -> int:
             f'· zeroAudit {int(r.zero_audit_tested)}/{int(r.zero_audit_hits)} · exc {int(r.exceptions)}'
         )
 
-    lines4 = ['(4/17)', '🧭 전략 귀속·LP·I/IT | v49.72', '──────────']
+    lines4 = ['(4/17)', '🧭 전략 귀속·LP·I/IT | v49.72.2', '──────────']
     for mode in s.CLOSING_BET_V4958_PRIMARY_PRIORITY:
         q = attribution[(attribution.strategy == mode) & (attribution.attribution.isin(['PREDICATE_MODE', 'PRIMARY', 'ALL_MATCHED']))]
         vals = {r.attribution: r for _, r in q.iterrows()}
@@ -939,7 +948,7 @@ def main() -> int:
     lines4.append('- I/IT REAL: ' + (' · '.join(f'{r.strategy} OOS n{int(r.oos_n)} net50 {f(r.oos_net50_mean_pct)}' for _, r in real_iit.iterrows()) or '없음'))
     lines4.append('- I/IT PROXY(승격제외): ' + (' · '.join(f'{r.strategy} n{int(r.n)}' for _, r in proxy_iit.iterrows()) or '없음'))
 
-    lines5 = ['(5/17)', '🧬 상승·하락 경로 해부 | v49.72', '──────────']
+    lines5 = ['(5/17)', '🧬 상승·하락 경로 해부 | v49.72.2', '──────────']
     lines5.append(f'- ANATOMY STATUS: {anatomy_status} · 시장커버리지 {anatomy_diag.get("market_coverage_pct",0):.1f}%')
     lines5.append(f'- SECTOR CONTEXT: {sector_context_status} · 신호후보 프록시 {anatomy_diag.get("sector_coverage_pct",0):.1f}% · VALID 기준 ≥{V4970_SECTOR_VALID_MIN_COVERAGE_PCT:.1f}%')
     lines5.append(f'- EVENT CONTEXT: {event_context_status} · 이벤트매핑 {anatomy_diag.get("event_mapped_rows",0)}건')
@@ -957,7 +966,7 @@ def main() -> int:
         lines5.append(f'- {mode}: OOS {int(q.n.sum())} · 상승경로 {wins} · BIG {big} · 손절선행 {stops}')
     lines5 += ['', '- 경로분류는 진입 후 결과 해부용이며 선별특징은 반드시 TRAIN 발견→OOS 고정검증으로만 평가합니다.']
 
-    lines6 = ['(6/17)', '🌧️ 하락장 독립상승·개선후보 | v49.72', '──────────']
+    lines6 = ['(6/17)', '🌧️ 하락장 독립상승·개선후보 | v49.72.2', '──────────']
     if not down_cases.empty:
         dc=down_cases.copy(); independent=pd.to_numeric(dc.get('down_market_independent_win',0),errors='coerce').fillna(0).eq(1)
         lines6.append(f'- 하락시장 사례 {len(dc)}건 · 시장대비 독립상승 {int(independent.sum())}건')
@@ -980,7 +989,7 @@ def main() -> int:
                 lines6.append(f'- {r.strategy}/{r.event_theme_bucket}: OOS n{int(r.oos_n)} · net50 {f(r.oos_net50_mean_pct)} · 하락장승자 {int(r.down_market_winners)}')
     lines6 += ['', '- 섹터동행은 전체 업종 유니버스가 아닌 신호후보 프록시이므로 자동필터 승격 금지.', '- 위 항목은 2단계 탐색 참고자료이며 v49.72 LOCKED TEST 판정과 분리합니다.']
 
-    lines7 = ['(7/17)', '🏁 LP 청산정책 3단계 검증 | v49.72', '──────────']
+    lines7 = ['(7/17)', '🏁 LP 청산정책 3단계 검증 | v49.72.2', '──────────']
     b = triple['boundaries']
     lines7.append(f'- 분할: TRAIN ~{b["train_end"].strftime("%Y-%m-%d")} · VALIDATION {b["validation_start"].strftime("%Y-%m-%d")}~{b["validation_end"].strftime("%Y-%m-%d")} · LOCKED TEST {b["test_start"].strftime("%Y-%m-%d")}~')
     if not lp_exit_selected.empty:
@@ -994,7 +1003,7 @@ def main() -> int:
             lines7.append(f'- {rr.policy}: n{int(rr.n)} · net50 {f(rr.mean_pct)} · Top3제거 {f(rr.top3_removed_pct)} · MDD {f(rr.portfolio_mdd_pct)}')
     lines7 += ['', '- 청산후보도 PAPER 연구만 허용하며 기존 +3% 우선익절을 자동변경하지 않습니다.']
 
-    lines8 = ['(8/17)', '🧪 L·G·S·하락장 LOCKED TEST | v49.72', '──────────']
+    lines8 = ['(8/17)', '🧪 L·G·S·하락장 LOCKED TEST | v49.72.2', '──────────']
     lines8.append(f'- 3단계 상태: {triple_manifest.get("status")} · TEST 접근 selected model당 1회 · 역사적 순수 미관측은 아님')
     if not triple_locked.empty:
         for _,rr in triple_locked.sort_values(['locked_test_status','test_net50'],ascending=[True,False]).iterrows():
@@ -1009,7 +1018,7 @@ def main() -> int:
         lines8.append('- 하락장 VALIDATION 선택모델 없음')
     lines8 += ['', '- TEST 결과로 기준·조건을 재선택하지 않으며 auto_apply=0 · 검색식/LIVE/자동주문 변경 금지']
 
-    lines9 = ['(9/17)', '🎯 검색 의도 적합성 감사 | v49.72', '──────────']
+    lines9 = ['(9/17)', '🎯 검색 의도 적합성 감사 | v49.72.2', '──────────']
     intent=quality['intent']
     if not intent.empty:
         for mode in s.CLOSING_BET_V4958_PRIMARY_PRIORITY:
@@ -1023,7 +1032,7 @@ def main() -> int:
         lines9.append('- 의도 프록시 평가없음')
     lines9 += ['', '- INTENT는 search_spec의 사람 언어 의도를 독립 수치 프록시로 점검한 것이며 권위 검색식 자체를 대체하지 않습니다.', '- MISMATCH인데 상승한 사례와 MATCH인데 하락한 사례는 manual casebook에서 우선 검토합니다.']
 
-    lines10 = ['(10/17)', '🕵️ 놓친 상승종목·단계별 누락 | v49.72', '──────────']
+    lines10 = ['(10/17)', '🕵️ 놓친 상승종목·단계별 누락 | v49.72.2', '──────────']
     opp=quality['opp_summary']
     if not opp.empty:
         lines10.append(f'- Material opportunity census: {quality_manifest.get("opportunity_rows",0)}건 · TOP5 미포착 {quality_manifest.get("missed_opportunity_rows",0)}건 · full-predicate deep audit {quality_manifest.get("deep_audit_rows",0)}건')
@@ -1039,7 +1048,7 @@ def main() -> int:
             lines10.append(f'- {cls}: {int(n0)}건')
     lines10 += ['', f'- 기술적 false negative: {quality_manifest.get("technical_false_negative_rows",0)}건 · 1건이라도 있으면 SEARCH QUALITY INVALID', '- 미감사 Gate 누락은 VECTOR_GATE_REJECTED_UNVERIFIED로 표시하며 전략적 누락으로 단정하지 않습니다.']
 
-    lines11 = ['(11/17)', '📐 랭킹·분포변화·상시감사 | v49.72', '──────────']
+    lines11 = ['(11/17)', '📐 랭킹·분포변화·상시감사 | v49.72.2', '──────────']
     rank=quality['rank_summary']
     if not rank.empty:
         for mode in ['LP','L','G','S','SLOCK']:
@@ -1057,7 +1066,7 @@ def main() -> int:
         lines11.append('- 분포변화 평가 표본 부족')
     lines11 += ['', '- 검색식 변경은 하지 않으며 사례→반복성→가설등록→별도 검증→미래 PAPER 순서를 유지합니다.', '- auto_apply=0 · PAPER 유지 · 실제주문 0건']
 
-    lines12 = ['(12/17)', '🚨 기술적 누락 포렌식 | v49.72', '──────────']
+    lines12 = ['(12/17)', '🚨 기술적 누락 포렌식 | v49.72.2', '──────────']
     tech_fn = quality.get('technical_fn', pd.DataFrame())
     lines12.append('- A Gate: SAFE SUPERSET · 공통자격 통과 시 A 권위식을 항상 호출 · 6조건/4점 판정은 권위식 단일 소스')
     if tech_fn is None or tech_fn.empty:
@@ -1079,7 +1088,7 @@ def main() -> int:
             lines12.append(f'- 나머지 {len(tech_fn)-20}건은 v49_72_technical_false_negative.csv에 전부 저장')
     lines12 += ['', '- 권위 검색식 조건은 변경하지 않았으며 A Gate를 권위식보다 넓은 SAFE SUPERSET으로 변경했습니다.', '- A 6조건 trace와 권위 replay score를 함께 저장해 향후 차이를 즉시 진단합니다.', '- 1건이라도 발생하면 종료코드 3 · PAPER/실제주문 0 유지']
 
-    lines13 = ['(13/17)', '🔎 즉시상승 미포착 · 정책제외 vs 진짜 패턴누락 | v49.72', '──────────']
+    lines13 = ['(13/17)', '🔎 즉시상승 미포착 · 정책제외 vs 진짜 패턴누락 | v49.72.2', '──────────']
     ps=insight.get('policy_summary',pd.DataFrame()); ms=insight.get('miss_summary',pd.DataFrame()); mc=insight.get('miss_contrast',pd.DataFrame())
     if ps is not None and not ps.empty:
         total=int(ps.n.sum()); lines13.append(f'- STRATEGIC_MISS_CONFIRMED × IMMEDIATE_MISS: {total}건')
@@ -1098,7 +1107,7 @@ def main() -> int:
         lines13.append('- 즉시상승 전략적 미포착 정밀표본 없음')
     lines13 += ['', '- Opportunity census는 PREPARED UNIVERSE 내부만 관찰하므로 유니버스 밖 급등주는 이 분류에서 보이지 않습니다.', '- 저유동성 정책제외를 새 검색식 누락으로 취급하지 않습니다. threshold selection NONE · auto_apply=0']
 
-    lines14 = ['(14/17)', '🔀 LP·G 랭킹 역전 · STANDARD_OOS 전용 | v49.72', '──────────']
+    lines14 = ['(14/17)', '🔀 LP·G 랭킹 역전 · STANDARD_OOS 전용 | v49.72.2', '──────────']
     rs=insight.get('rank_summary',pd.DataFrame()); rf=insight.get('rank_features',pd.DataFrame())
     if rs is not None and not rs.empty:
         for mode in ['LP','G']:
@@ -1112,7 +1121,7 @@ def main() -> int:
     else: lines14.append('- STANDARD_OOS LP/G 다중후보 비교 표본 없음')
     lines14 += ['', '- VALIDATION/LOCKED_TEST를 OOS로 혼용하지 않습니다. 실현수익은 사후 라벨이며 rank change NONE · auto_apply=0']
 
-    lines15 = ['(15/17)', '⚖️ A BIG_CAPTURABLE vs STOP_FIRST · 상호배타 | v49.72', '──────────']
+    lines15 = ['(15/17)', '⚖️ A BIG_CAPTURABLE vs STOP_FIRST · 상호배타 | v49.72.2', '──────────']
     aas=insight.get('a_summary',pd.DataFrame()); aac=insight.get('a_contrast',pd.DataFrame())
     if aas is not None and not aas.empty:
         for scope in ['STANDARD_OOS','LOCKED_TEST','VALIDATION']:
@@ -1127,7 +1136,7 @@ def main() -> int:
     else: lines15.append('- A 상호배타 BIG/STOP 표본 없음')
     lines15 += ['', '- BIG/STOP은 outcome_class 정확 일치만 사용합니다. big_before_stop/stop_first_flag 중첩 플래그는 이 비교에서 사용하지 않습니다.', '- A 검색식·점수·랭킹 자동변경 없음']
 
-    lines16 = ['(16/17)', '🧭 H 이중프로필 · 표본권위 분리 | v49.72', '──────────']
+    lines16 = ['(16/17)', '🧭 H 이중프로필 · 표본권위 분리 | v49.72.2', '──────────']
     hs=insight.get('h_summary',pd.DataFrame()); hm=insight.get('h_matrix',pd.DataFrame())
     if hs is not None and not hs.empty:
         for scope in ['STANDARD_OOS','LOCKED_TEST']:
@@ -1142,14 +1151,22 @@ def main() -> int:
     else: lines16.append('- H 전용 의도 재감사 표본 없음')
     lines16 += ['', '- H BIG/STOP 비율도 outcome_class 상호배타 기준입니다.', '- HIGH_DRYUP/CP6는 감사 라벨만 분리하며 권위 H 검색식은 변경하지 않습니다.']
 
-    lines17 = ['(17/17)', '🔒 입력 재현성·표본권위·가설 레지스트리 | v49.72', '──────────']
+    lines17 = ['(17/17)', '🔒 입력 재현성·완전성·표본권위 | v49.72.2', '──────────']
     bcmp=input_authority.get('baseline_comparison',{}) or {}
-    lines17.append(f'- INPUT AUTHORITY: {input_authority.get("status")} · prepared {str(input_authority.get("prepared_authority_sha256",""))[:16]} · history {str(input_authority.get("history_global_sha256",""))[:16]}')
+    lines17.append(f'- REPRODUCIBILITY: {input_authority.get("reproducibility_status")} · prepared {str(input_authority.get("prepared_authority_sha256",""))[:16]} · history {str(input_authority.get("history_global_sha256",""))[:16]}')
+    lines17.append(f'- DATA COMPLETENESS: {input_authority.get("data_completeness_status")} · zero {int(input_authority.get("history_zero_codes_n",0))} · degraded {int(input_authority.get("history_degraded_gap_codes_n",0))} · fetchFail {int(input_authority.get("history_fetch_failure_codes_n",0))} · dup {int(input_authority.get("history_duplicate_codes_n",0))} · missing {int(input_authority.get("history_missing_codes_n",0))} · extra {int(input_authority.get("history_extra_codes_n",0))}')
     lines17.append(f'- history: {int(input_authority.get("history_codes",0))}/{len(_universe_codes)}종목 · {int(input_authority.get("history_rows",0))}행 · Amount coverage {float(input_authority.get("amount_coverage_pct",0) or 0):.1f}% · source {input_authority.get("source_set","") or "-"}')
+    _issues=list(input_authority.get('history_issue_sample',[]) or [])
+    if _issues:
+        lines17.append('[History completeness 원인 · 최대 10건]')
+        for it in _issues[:10]:
+            lines17.append(f'- {it.get("code","-")} {it.get("name","") or ""} · {it.get("severity","-")}/{it.get("issue_type","-")} · {str(it.get("detail","") or "-")[:90]}')
+    else:
+        lines17.append('- History completeness issue 0건 ✅')
     lines17.append(f'- population: raw {int(input_authority.get("raw_population_rows",0))} · raw fp {str(input_authority.get("raw_population_sha256",""))[:16]} · funnel fp {str(input_authority.get("funnel_population_sha256",""))[:16]}')
-    lines17.append(f'- same-period baseline: {bcmp.get("status","NO_BASELINE")} · mismatch {len(bcmp.get("mismatches",[]) or [])}')
+    lines17.append(f'- same-period baseline: {bcmp.get("status","NO_BASELINE")} · mismatch {len(bcmp.get("mismatches",[]) or [])} · baselineEligible {1 if input_authority.get("baseline_eligible") else 0}')
     if bcmp.get('mismatches'):
-        for mm in (bcmp.get('mismatches') or [])[:6]: lines17.append(f'  ⛔ {mm.get("field")}: baseline {str(mm.get("baseline"))[:18]} → current {str(mm.get("current"))[:18]}')
+        for mm in (bcmp.get('mismatches') or [])[:8]: lines17.append(f'  ⛔ {mm.get("field")}: baseline {str(mm.get("baseline"))[:18]} → current {str(mm.get("current"))[:18]}')
     sa=insight.get('sample_auth',pd.DataFrame())
     if sa is not None and not sa.empty:
         aq=sa[sa.strategy.eq('A')]; vals={r.sample_authority:int(r.n) for _,r in aq.iterrows()}
@@ -1158,7 +1175,7 @@ def main() -> int:
     if reg is not None and not reg.empty:
         lines17.append('[가설 레지스트리 · 자동적용 없음]')
         for _,rr in reg.iterrows(): lines17.append(f'- {rr.lane}: {rr.status} · evidence {int(rr.evidence_n)} · {rr.next_action}')
-    lines17 += ['', '- 같은 기간 재실행에서 input/history/population fingerprint가 달라지면 INVALID fail-closed.', '- search/rank/exit/LIVE change NONE · auto_apply=0 · PAPER 유지 · 실제주문 0건']
+    lines17 += ['', '- DEGRADED history gap도 fingerprint baseline으로 저장하며 동일 gap 재현 여부를 검증합니다.', '- 같은 기간 input/history/issue/population fingerprint가 달라지면 INVALID fail-closed.', '- search/rank/exit/LIVE change NONE · auto_apply=0 · PAPER 유지 · 실제주문 0건']
 
     report = '\n'.join(lines1 + [''] + lines2 + [''] + lines3 + [''] + lines4 + [''] + lines5 + [''] + lines6 + [''] + lines7 + [''] + lines8 + [''] + lines9 + [''] + lines10 + [''] + lines11 + [''] + lines12 + [''] + lines13 + [''] + lines14 + [''] + lines15 + [''] + lines16 + [''] + lines17)
     (out / 'v49_72_global_summary.txt').write_text(report, encoding='utf-8')
@@ -1183,7 +1200,7 @@ def main() -> int:
         out / 'v49_72_missed_winner_casebook.csv', out / 'v49_72_technical_false_negative.csv',
         out / 'v49_72_technical_false_negative.json', out / 'v49_72_opportunity_path_summary.csv',
         out / 'v49_72_distribution_drift.csv', out / 'v49_72_search_quality_manifest.json',
-        out / 'v49_72_history_authority_global.csv', out / 'v49_72_input_authority_manifest.json', out / 'v49_72_sample_authority_reconciliation.csv',
+        out / 'v49_72_history_authority_global.csv', out / 'v49_72_history_completeness_issues.csv', out / 'v49_72_input_authority_manifest.json', out / 'v49_72_sample_authority_reconciliation.csv',
         out / 'v49_72_immediate_miss_policy_summary.csv', out / 'v49_72_immediate_strategic_miss_summary.csv', out / 'v49_72_immediate_strategic_miss_feature_contrast.csv',
         out / 'v49_72_immediate_strategic_miss_casebook.csv', out / 'v49_72_immediate_strategic_miss_detail.csv',
         out / 'v49_72_rank_inversion_summary.csv', out / 'v49_72_rank_inversion_feature_stability.csv', out / 'v49_72_rank_inversion_cases.csv',
@@ -1198,6 +1215,9 @@ def main() -> int:
         'preflight': preflight,
         'input_authority': input_authority,
         'input_authority_status': input_authority.get('status'),
+        'input_reproducibility_status': input_authority.get('reproducibility_status'),
+        'input_data_completeness_status': input_authority.get('data_completeness_status'),
+        'input_baseline_eligible': bool(input_authority.get('baseline_eligible')),
         'input_authority_valid': bool(input_authority_valid),
         'shards': manifest_docs,
         'shard_completions': complete_docs,
