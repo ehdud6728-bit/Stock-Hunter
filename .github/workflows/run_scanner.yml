@@ -1,4 +1,4 @@
-name: Run Main Scanner V1107.4.5.73.3.6.6.20 TOP500 Cache-Resume-Progress Complete
+name: Run Main Scanner V1107.4.5.73.3.6.6.22 TOP500 Four-Shard Newest-First Gate-Audit Complete
 
 on:
   schedule:
@@ -113,7 +113,148 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  v22-backtest-shard:
+    name: V22 TOP500 shard ${{ matrix.shard }} of 4
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_profile == 'WEEKLY_BACKTEST' && (inputs.backtest_source == 'DIRECT_REPLAY' || inputs.backtest_source == '') }}
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        shard: [0, 1, 2, 3]
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    permissions:
+      contents: read
+    env:
+      TZ: Asia/Seoul
+      PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/scanner
+      STOCKHUNTER_WEEKLY_BACKTEST_ONLY: "1"
+      STOCKHUNTER_HAM_1503_ONLY: "0"
+      V1081_BACKTEST_SOURCE: DIRECT_REPLAY
+      V1081_DIRECT_TOP_N: ${{ inputs.direct_top_n || '500' }}
+      V1081_DIRECT_LIMIT_PER_DATE: ${{ inputs.direct_limit_per_date || '15' }}
+      V1080_BACKTEST_WEEKS: ${{ inputs.backtest_weeks || '24' }}
+      V1080_BACKTEST_HOLD_DAYS: ${{ inputs.backtest_hold_days || '10' }}
+      V1080_BACKTEST_STOP_PCT: ${{ inputs.backtest_stop_pct || '-5' }}
+      V1082_BACKTEST_STOP_MODE: ${{ inputs.backtest_stop_mode || 'SIGNAL_STOP_WITH_FALLBACK' }}
+      V1080_BACKTEST_OUTPUT_DIR: reports
+      V1081_UNIVERSE_MODE: HISTORICAL_ASOF_TOP500_EVENT_EXPANSION
+      V1081_ASOF_LIQUIDITY_DAYS: "20"
+      V1081_ASOF_MIN_PRICE: "3000"
+      V1081_ASOF_MIN_MARCAP: "30000000000"
+      V1081_EVENT_EXPANSION_MAX: "100"
+      V1081_EVENT_AMOUNT_RATIO: "3.0"
+      V1081_EVENT_VOLUME_RATIO: "3.0"
+      V1081_EVENT_PREV_RET_PCT: "5.0"
+      V1081_EVENT_MIN_AMOUNT: "10000000000"
+      V20_REPLAY_ACCEL_ENABLE: "1"
+      V20_PRICE_PREFETCH_ENABLE: "1"
+      V20_PRICE_PREFETCH_WORKERS: "6"
+      V20_PRICE_DISK_CACHE_ENABLE: "1"
+      V20_REPLAY_RESUME_ENABLE: "1"
+      V20_PROGRESS_EVERY: "50"
+      V20_PRICE_CACHE_DIR: reports/.cache/v20_price_history
+      V20_ASOF_CACHE_DIR: reports/.cache/v20_asof_snapshots
+      V20_REPLAY_CHECKPOINT_DIR: reports/.cache/v20_replay_checkpoint
+      V22_SHARD_WORKER_ONLY: "1"
+      V22_SHARD_INDEX: ${{ matrix.shard }}
+      V22_SHARD_COUNT: "4"
+      V22_NEWEST_FIRST_CACHE_PRIME: "1"
+      V22_FAST_GATE_MODE: AUDIT_ONLY
+      HAM_RESEARCH_ONLY: "1"
+      FAMILIAR_RESEARCH_ENABLE: "1"
+      FAMILIAR_RESEARCH_ONLY: "1"
+      PATTERN_AI_CROSS_RESEARCH_ENABLE: "1"
+      MARKET_EXCESS_RESEARCH_ENABLE: "1"
+      KOSCOM_API_KEY: ${{ secrets.KOSCOM_API_KEY }}
+      KOSCOM_APIGW_URL: https://oap.k-mydata.org
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install shard dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas requests beautifulsoup4 pytz scipy ta finance-datareader pykrx mplfinance
+          pip install openai google-generativeai gspread gspread-formatting gspread-dataframe google-auth oauth2client
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; else echo "requirements.txt not found, skip"; fi
+
+      - name: Build V22 shard cache identity
+        id: v22-shard-key
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="$(sha256sum main7_bugfix_2.py direct_replay_performance_v20.py historical_asof_universe.py direct_replay_sharding_v22.py | sha256sum | cut -c1-20)"
+          CFG="$(printf '%s' '${{ inputs.direct_top_n || '500' }}|${{ inputs.backtest_weeks || '24' }}|${{ inputs.backtest_hold_days || '10' }}|${{ inputs.backtest_stop_pct || '-5' }}|${{ inputs.backtest_stop_mode || 'SIGNAL_STOP_WITH_FALLBACK' }}' | sha256sum | cut -c1-16)"
+          PREFIX="stockhunter-v22-shard-${GITHUB_REF_NAME}-${{ matrix.shard }}-${SRC}-${CFG}"
+          KEY="${PREFIX}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "prefix=$PREFIX" >> "$GITHUB_OUTPUT"
+          echo "key=$KEY" >> "$GITHUB_OUTPUT"
+          echo "V22_SHARD_CACHE identity shard=${{ matrix.shard }} prefix=$PREFIX key=$KEY"
+
+      - name: Restore V22 shard cache
+        id: v22-shard-restore
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            reports/.cache/v20_price_history
+            reports/.cache/v20_asof_snapshots
+            reports/.cache/v20_replay_checkpoint
+          key: ${{ steps.v22-shard-key.outputs.key }}
+          restore-keys: |
+            ${{ steps.v22-shard-key.outputs.prefix }}-
+
+      - name: Run V22 checkpoint shard worker
+        id: v22-shard-worker
+        timeout-minutes: 125
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p reports/.cache/v20_price_history reports/.cache/v20_asof_snapshots reports/.cache/v20_replay_checkpoint
+          echo "⚡ V22 shard worker ${{ matrix.shard }}/3 | topN=${V1081_DIRECT_TOP_N} weeks=${V1080_BACKTEST_WEEKS}"
+          python main7_bugfix_2.py 2>&1 | tee "reports/v73_v22_shard_${{ matrix.shard }}_stdout.log"
+
+      - name: Save V22 shard cache explicitly
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            reports/.cache/v20_price_history
+            reports/.cache/v20_asof_snapshots
+            reports/.cache/v20_replay_checkpoint
+          key: ${{ steps.v22-shard-key.outputs.key }}
+
+      - name: Package V22 same-run shard handoff
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          mkdir -p reports/.cache/v20_price_history reports/.cache/v20_asof_snapshots reports/.cache/v20_replay_checkpoint
+          for f in v73_v22_shard_manifest.json v73_v22_shard_manifest.csv v73_v22_shard_manifest_report.txt; do
+            [ -f "reports/$f" ] || echo "missing $f" > "reports/$f"
+          done
+          tar -czf "v22_shard_${{ matrix.shard }}_handoff.tar.gz" -C reports \
+            .cache/v20_price_history .cache/v20_asof_snapshots .cache/v20_replay_checkpoint \
+            v73_v22_shard_manifest.json v73_v22_shard_manifest.csv v73_v22_shard_manifest_report.txt
+          ls -lh "v22_shard_${{ matrix.shard }}_handoff.tar.gz"
+
+      - name: Upload V22 shard handoff
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-v22-shard-${{ matrix.shard }}-${{ github.run_id }}
+          path: v22_shard_${{ matrix.shard }}_handoff.tar.gz
+          if-no-files-found: warn
+          retention-days: 2
+
   run-scanner:
+    needs: [v22-backtest-shard]
+    if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 240
     env:
@@ -471,6 +612,13 @@ jobs:
       V20_PRICE_CACHE_DIR: "reports/.cache/v20_price_history"
       V20_ASOF_CACHE_DIR: "reports/.cache/v20_asof_snapshots"
       V20_REPLAY_CHECKPOINT_DIR: "reports/.cache/v20_replay_checkpoint"
+      V21_FAILSAFE_CACHE_PERSIST: "1"
+      V21_SCANNER_STEP_TIMEOUT_MIN: "205"
+      V21_JOB_TIMEOUT_MIN: "240"
+      V22_SHARD_COUNT: "4"
+      V22_NEWEST_FIRST_CACHE_PRIME: "1"
+      V22_FAST_GATE_MODE: AUDIT_ONLY
+      V22_SHARD_WORKER_ONLY: "0"
       V1081_UNIVERSE_MODE: HISTORICAL_ASOF_TOP500_EVENT_EXPANSION
       V1081_ASOF_LIQUIDITY_DAYS: "20"
       V1081_ASOF_MIN_PRICE: "3000"
@@ -758,6 +906,13 @@ jobs:
             echo "V20_PRICE_CACHE_DIR=reports/.cache/v20_price_history"
             echo "V20_ASOF_CACHE_DIR=reports/.cache/v20_asof_snapshots"
             echo "V20_REPLAY_CHECKPOINT_DIR=reports/.cache/v20_replay_checkpoint"
+            echo "V21_FAILSAFE_CACHE_PERSIST=1"
+            echo "V21_SCANNER_STEP_TIMEOUT_MIN=205"
+            echo "V21_JOB_TIMEOUT_MIN=240"
+            echo "V22_SHARD_COUNT=4"
+            echo "V22_NEWEST_FIRST_CACHE_PRIME=1"
+            echo "V22_FAST_GATE_MODE=AUDIT_ONLY"
+            echo "V22_SHARD_WORKER_ONLY=0"
             echo "V1081_UNIVERSE_MODE=HISTORICAL_ASOF_TOP500_EVENT_EXPANSION"
             echo "V1081_ASOF_LIQUIDITY_DAYS=20"
             echo "V1081_ASOF_MIN_PRICE=3000"
@@ -792,7 +947,97 @@ jobs:
         run: |
           mkdir -p reports docs
 
-      - name: Restore V1080 signal cache
+      - name: Build V21 replay resume cache identity
+        if: env.STOCKHUNTER_WEEKLY_BACKTEST_ONLY == '1' && env.V1081_BACKTEST_SOURCE == 'DIRECT_REPLAY'
+        id: v21-replay-key
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib, json, os, re
+          from pathlib import Path
+          files = [
+              'main7_bugfix_2.py',
+              'historical_asof_universe.py',
+              'direct_replay_performance_v20.py',
+              'search_formula_universe_audit.py',
+              'resume_cache_manifest_v21.py',
+              'direct_replay_sharding_v22.py',
+          ]
+          h = hashlib.sha256()
+          for name in files:
+              p = Path(name)
+              h.update(name.encode()); h.update(b'\\0')
+              h.update(p.read_bytes() if p.exists() else b'MISSING')
+              h.update(b'\\0')
+          source_hash = h.hexdigest()[:20]
+          cfg_keys = [
+              'TEST_PROFILE','V1081_BACKTEST_SOURCE','V1081_DIRECT_TOP_N','V1081_DIRECT_LIMIT_PER_DATE',
+              'V1080_BACKTEST_WEEKS','V1080_BACKTEST_HOLD_DAYS','V1080_BACKTEST_STOP_PCT',
+              'V1082_BACKTEST_STOP_MODE','V1081_UNIVERSE_MODE','V1081_ASOF_LIQUIDITY_DAYS',
+              'V1081_ASOF_MIN_PRICE','V1081_ASOF_MIN_MARCAP','V1081_EVENT_EXPANSION_MAX',
+              'V1081_EVENT_AMOUNT_RATIO','V1081_EVENT_VOLUME_RATIO','V1081_EVENT_PREV_RET_PCT',
+              'V1081_EVENT_MIN_AMOUNT'
+          ]
+          cfg = {k: os.getenv(k,'') for k in cfg_keys}
+          config_hash = hashlib.sha256(json.dumps(cfg,sort_keys=True,separators=(',',':')).encode()).hexdigest()[:16]
+          branch = re.sub(r'[^A-Za-z0-9_.-]+','-',os.getenv('GITHUB_REF_NAME','main')).strip('-') or 'main'
+          prefix = f"stockhunter-v21-replay-{branch}-{source_hash}-{config_hash}"
+          run_id = os.getenv('GITHUB_RUN_ID','local')
+          attempt = os.getenv('GITHUB_RUN_ATTEMPT','1')
+          key = f"{prefix}-{run_id}-{attempt}"
+          print('V21_CACHE_IDENTITY', 'source',source_hash,'config',config_hash,'prefix',prefix,'key',key)
+          with open(os.environ['GITHUB_OUTPUT'],'a',encoding='utf-8') as fh:
+              fh.write(f"source_hash={source_hash}\\nconfig_hash={config_hash}\\nprefix={prefix}\\nkey={key}\\n")
+          PY
+
+      - name: Restore V21 replay partial cache
+        if: env.STOCKHUNTER_WEEKLY_BACKTEST_ONLY == '1' && env.V1081_BACKTEST_SOURCE == 'DIRECT_REPLAY'
+        id: v21-replay-restore
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            reports/.cache/v20_price_history
+            reports/.cache/v20_asof_snapshots
+            reports/.cache/v20_replay_checkpoint
+          key: ${{ steps.v21-replay-key.outputs.key }}
+          restore-keys: |
+            ${{ steps.v21-replay-key.outputs.prefix }}-
+
+      - name: Inspect V21 replay cache restore
+        if: env.STOCKHUNTER_WEEKLY_BACKTEST_ONLY == '1' && env.V1081_BACKTEST_SOURCE == 'DIRECT_REPLAY'
+        shell: bash
+        run: |
+          mkdir -p reports/.cache/v20_price_history reports/.cache/v20_asof_snapshots reports/.cache/v20_replay_checkpoint
+          echo "V21_RESTORE cache-hit=${{ steps.v21-replay-restore.outputs.cache-hit }} matched=${{ steps.v21-replay-restore.outputs.cache-matched-key }}"
+          echo "V21_RESTORE price_files=$(find reports/.cache/v20_price_history -type f 2>/dev/null | wc -l | tr -d ' ')"
+          echo "V21_RESTORE asof_files=$(find reports/.cache/v20_asof_snapshots -type f 2>/dev/null | wc -l | tr -d ' ')"
+          echo "V21_RESTORE checkpoint_files=$(find reports/.cache/v20_replay_checkpoint -type f 2>/dev/null | wc -l | tr -d ' ')"
+
+      - name: Download V22 same-run shard handoffs
+        if: env.STOCKHUNTER_WEEKLY_BACKTEST_ONLY == '1' && env.V1081_BACKTEST_SOURCE == 'DIRECT_REPLAY'
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          pattern: stockhunter-v22-shard-*-${{ github.run_id }}
+          path: v22_handoff_download
+          merge-multiple: false
+
+      - name: Merge V22 shard handoffs into parent cache
+        if: env.STOCKHUNTER_WEEKLY_BACKTEST_ONLY == '1' && env.V1081_BACKTEST_SOURCE == 'DIRECT_REPLAY'
+        shell: bash
+        run: |
+          set +e
+          mkdir -p v22_handoff_download reports/.cache/v20_price_history reports/.cache/v20_asof_snapshots reports/.cache/v20_replay_checkpoint
+          python direct_replay_sharding_v22.py --merge-handoffs v22_handoff_download --output-dir reports
+          rc=$?
+          echo "V22_HANDOFF_MERGE rc=$rc"
+          cat reports/v73_v22_handoff_merge_audit_report.txt 2>/dev/null || true
+          echo "V22_HANDOFF_MERGE checkpoint_files=$(find reports/.cache/v20_replay_checkpoint -type f -name '*.pkl.gz' 2>/dev/null | wc -l | tr -d ' ')"
+          # Fail-open to V21: missing shard handoff means final scanner computes only missing dates.
+          exit 0
+
+      - name: Restore legacy V1080 signal cache
         uses: actions/cache@v4
         with:
           path: |
@@ -871,9 +1116,6 @@ jobs:
             reports/v72_market_excess_source_audit.csv
             reports/v72_market_excess_data_availability_audit.csv
             reports/v72_market_excess_report_block.txt
-            reports/.cache/v20_price_history
-            reports/.cache/v20_asof_snapshots
-            reports/.cache/v20_replay_checkpoint
           key: stockhunter-v1080-signals-${{ github.run_id }}
           restore-keys: |
             stockhunter-v1080-signals-
@@ -1187,6 +1429,8 @@ jobs:
           PY
 
       - name: Run scanner or weekly backtest
+        id: scanner-main
+        timeout-minutes: 205
         shell: bash
         run: |
           export PYTHONPATH="${GITHUB_WORKSPACE}:${GITHUB_WORKSPACE}/scanner:${PYTHONPATH}"
@@ -1235,10 +1479,10 @@ jobs:
             # artifact families: strict-ai-exact-policy-route-guard-reports | market-index-sector-excess-causal-audit-reports
             echo "🧭 [V73.3.6.6.4 exact-root module source guard]"
             find "${GITHUB_WORKSPACE}" -maxdepth 4 -type f \
-              \( -name 'ham_restart_research.py' -o -name 'familiar_research.py' -o -name 'pattern_ai_cross_research.py' -o -name 'market_regime_excess_research.py' -o -name 'search_formula_truth_audit.py' -o -name 'search_formula_universe_audit.py' -o -name 'search_formula_complete_pipeline.py' -o -name 'catalyst_source_adapters.py' -o -name 'pattern_catalyst_context_pipeline.py' -o -name 'context_outcome_diagnostic.py' -o -name 'scale_in_policy_diagnostic.py' -o -name 'geopolitical_bear_winner_diagnostic.py' -o -name 'bear_winner_stability_diagnostic.py' -o -name 'historical_asof_universe.py' -o -name 'direct_replay_performance_v20.py' \) \
+              \( -name 'ham_restart_research.py' -o -name 'familiar_research.py' -o -name 'pattern_ai_cross_research.py' -o -name 'market_regime_excess_research.py' -o -name 'search_formula_truth_audit.py' -o -name 'search_formula_universe_audit.py' -o -name 'search_formula_complete_pipeline.py' -o -name 'catalyst_source_adapters.py' -o -name 'pattern_catalyst_context_pipeline.py' -o -name 'context_outcome_diagnostic.py' -o -name 'scale_in_policy_diagnostic.py' -o -name 'geopolitical_bear_winner_diagnostic.py' -o -name 'bear_winner_stability_diagnostic.py' -o -name 'historical_asof_universe.py' -o -name 'direct_replay_performance_v20.py' -o -name 'resume_cache_manifest_v21.py' -o -name 'direct_replay_sharding_v22.py' \) \
               -print | sort
             python -B module_contract_preflight.py
-            echo "✅ exact-root module source hashes | main=$(sha256sum "${SCRIPT}" | awk '{print $1}') | ham=$(sha256sum ham_restart_research.py | awk '{print $1}') | familiar=$(sha256sum familiar_research.py | awk '{print $1}') | cross=$(sha256sum pattern_ai_cross_research.py | awk '{print $1}') | market=$(sha256sum market_regime_excess_research.py | awk '{print $1}') | truth=$(sha256sum search_formula_truth_audit.py | awk '{print $1}') | universe=$(sha256sum search_formula_universe_audit.py | awk '{print $1}') | complete=$(sha256sum search_formula_complete_pipeline.py | awk '{print $1}') | sources=$(sha256sum catalyst_source_adapters.py | awk '{print $1}') | seqctx=$(sha256sum pattern_catalyst_context_pipeline.py | awk '{print $1}') | contextdiag=$(sha256sum context_outcome_diagnostic.py | awk '{print $1}') | scalein=$(sha256sum scale_in_policy_diagnostic.py | awk '{print $1}') | geo=$(sha256sum geopolitical_bear_winner_diagnostic.py | awk '{print $1}') | stability=$(sha256sum bear_winner_stability_diagnostic.py | awk '{print $1}') | histuniv=$(sha256sum historical_asof_universe.py | awk '{print $1}') | perfv20=$(sha256sum direct_replay_performance_v20.py | awk '{print $1}')"
+            echo "✅ exact-root module source hashes | main=$(sha256sum "${SCRIPT}" | awk '{print $1}') | ham=$(sha256sum ham_restart_research.py | awk '{print $1}') | familiar=$(sha256sum familiar_research.py | awk '{print $1}') | cross=$(sha256sum pattern_ai_cross_research.py | awk '{print $1}') | market=$(sha256sum market_regime_excess_research.py | awk '{print $1}') | truth=$(sha256sum search_formula_truth_audit.py | awk '{print $1}') | universe=$(sha256sum search_formula_universe_audit.py | awk '{print $1}') | complete=$(sha256sum search_formula_complete_pipeline.py | awk '{print $1}') | sources=$(sha256sum catalyst_source_adapters.py | awk '{print $1}') | seqctx=$(sha256sum pattern_catalyst_context_pipeline.py | awk '{print $1}') | contextdiag=$(sha256sum context_outcome_diagnostic.py | awk '{print $1}') | scalein=$(sha256sum scale_in_policy_diagnostic.py | awk '{print $1}') | geo=$(sha256sum geopolitical_bear_winner_diagnostic.py | awk '{print $1}') | stability=$(sha256sum bear_winner_stability_diagnostic.py | awk '{print $1}') | histuniv=$(sha256sum historical_asof_universe.py | awk '{print $1}') | perfv20=$(sha256sum direct_replay_performance_v20.py | awk '{print $1}') | resumev21=$(sha256sum resume_cache_manifest_v21.py | awk '{print $1}') | shardv22=$(sha256sum direct_replay_sharding_v22.py | awk '{print $1}')"
           fi
           if [ "${STOCKHUNTER_HAM_1503_ONLY:-0}" = "1" ]; then
             echo "🍔 V73.3.6.5.3 listing/bootstrap guard + V73.3.6.5.2 data-path guard + V73.3.6.5 HAM→SURVIVE→RESTART→15:03 CLOSE RESEARCH_ONLY | script=${SCRIPT}"
@@ -1267,7 +1511,7 @@ jobs:
             echo "⏰ V72.29 09:30 NAVER realtime batch strong-sector / leader radar | script=${SCRIPT}"
             python "${SCRIPT}" --open-0930
           elif [ "${STOCKHUNTER_WEEKLY_BACKTEST_ONLY}" = "1" ]; then
-            echo "🧪 WEEKLY_BACKTEST + V73.3.6.6.20 TOP500 cache/resume/progress + sequence/context/catalyst + complete formula pipeline + universe truth + market/pattern/familiar audits | source=${V1081_BACKTEST_SOURCE} | script=${SCRIPT}"
+            echo "🧪 WEEKLY_BACKTEST + V73.3.6.6.22 four-shard/newest-first/gate-audit + V21 fail-safe persist + V20 TOP500 cache/resume/progress + sequence/context/catalyst + complete formula pipeline + universe truth + market/pattern/familiar audits | source=${V1081_BACKTEST_SOURCE} | script=${SCRIPT}"
             mkdir -p reports
             HAM_RUN_LOG="reports/v72_weekly_backtest_stdout.log"
             set -o pipefail
@@ -1356,11 +1600,50 @@ jobs:
             grep -Fq "⚡ [TOP500 Direct Replay 캐시·재개·진행률 진단 · RESEARCH_ONLY]" "${HAM_RUN_LOG}" || { echo "❌ V20 performance cache/resume report block missing"; exit 174; }
             test -f reports/v73_direct_replay_performance_audit.csv || { echo "❌ V20 performance audit missing"; exit 175; }
             python -c "import pandas as pd,sys; q=pd.read_csv('reports/v73_direct_replay_performance_audit.csv'); r=q.iloc[-1] if len(q) else {}; print('V20_PERF','checkpoint_hit',r.get('checkpoint_hit'),'miss',r.get('checkpoint_miss'),'network',r.get('network_fetch'),'disk',r.get('disk_hit'),'elapsed_sec',r.get('elapsed_sec')); sys.exit(0 if len(q)>0 else 176)"
-            echo "✅ WEEKLY_BACKTEST data-path + HAM + FAMILIAR + PATTERN-AI-CROSS + MARKET-EXCESS + FULL-UNIVERSE-FORMULA + COMPLETE-FORMULA + SEQUENCE-CONTEXT-CATALYST + CONTEXT-OUTCOME + SCALE-IN-RISK-PARITY + GEOPOLITICAL-BEAR-WINNER + UNIQUE-STABILITY-24W + HISTORICAL-ASOF-TOP500-EVENT-EXPANSION + V20-CACHE-RESUME-PROGRESS research guard PASS"
+            grep -Fq "⚡ [TOP500 4-Shard 병렬 × Newest-First Cache Prime × Fast-Gate Audit · RESEARCH_ONLY]" "${HAM_RUN_LOG}" || { echo "❌ V22 shard/newest-first/gate-audit report block missing"; exit 178; }
+            test -f reports/v73_v22_fast_gate_audit.csv || { echo "❌ V22 fast gate audit missing"; exit 179; }
+            test -f reports/v73_v22_fast_gate_policy.csv || { echo "❌ V22 fast gate policy missing"; exit 180; }
+            python -c "import pandas as pd,sys; q=pd.read_csv('reports/v73_v22_fast_gate_policy.csv'); r=q.iloc[-1] if len(q) else {}; print('V22_GATE',r.get('mode'),'auto_skip',r.get('auto_skip_enabled'),'reason',r.get('reason')); sys.exit(0 if str(r.get('mode'))=='AUDIT_ONLY' and str(r.get('auto_skip_enabled')).lower() in ('false','0') else 181)"
+            echo "✅ WEEKLY_BACKTEST data-path + HAM + FAMILIAR + PATTERN-AI-CROSS + MARKET-EXCESS + FULL-UNIVERSE-FORMULA + COMPLETE-FORMULA + SEQUENCE-CONTEXT-CATALYST + CONTEXT-OUTCOME + SCALE-IN-RISK-PARITY + GEOPOLITICAL-BEAR-WINNER + UNIQUE-STABILITY-24W + HISTORICAL-ASOF-TOP500-EVENT-EXPANSION + V20-CACHE-RESUME-PROGRESS + V21-FAILSAFE-PERSIST + V22-FOUR-SHARD-NEWEST-FIRST-GATE-AUDIT research guard PASS"
           else
             echo "🚀 Stock-Hunter scanner mode | script=${SCRIPT}"
             python "${SCRIPT}"
           fi
+
+      - name: Capture V21 fail-safe resume manifest
+        if: always() && env.STOCKHUNTER_WEEKLY_BACKTEST_ONLY == '1' && env.V1081_BACKTEST_SOURCE == 'DIRECT_REPLAY'
+        shell: bash
+        run: |
+          set +e
+          mkdir -p reports/.cache/v20_price_history reports/.cache/v20_asof_snapshots reports/.cache/v20_replay_checkpoint
+          python resume_cache_manifest_v21.py \
+            --output-dir reports \
+            --scanner-outcome "${{ steps.scanner-main.outcome }}" \
+            --cache-key "${{ steps.v21-replay-key.outputs.key }}" \
+            --restore-hit "${{ steps.v21-replay-restore.outputs.cache-hit }}"
+          rc=$?
+          if [ $rc -ne 0 ]; then
+            echo "⚠️ V21 resume manifest creation failed rc=$rc; cache save will still be attempted"
+          fi
+          exit 0
+
+      - name: Save V21 replay partial cache explicitly
+        if: always() && env.STOCKHUNTER_WEEKLY_BACKTEST_ONLY == '1' && env.V1081_BACKTEST_SOURCE == 'DIRECT_REPLAY'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            reports/.cache/v20_price_history
+            reports/.cache/v20_asof_snapshots
+            reports/.cache/v20_replay_checkpoint
+          key: ${{ steps.v21-replay-key.outputs.key }}
+
+      - name: Show V21 resume save proof
+        if: always() && env.STOCKHUNTER_WEEKLY_BACKTEST_ONLY == '1' && env.V1081_BACKTEST_SOURCE == 'DIRECT_REPLAY'
+        shell: bash
+        run: |
+          echo "V21_SAVE key=${{ steps.v21-replay-key.outputs.key }} scanner_outcome=${{ steps.scanner-main.outcome }}"
+          cat reports/v73_v21_resume_manifest_report.txt 2>/dev/null || true
+          echo "V21_SAVE checkpoint_files=$(find reports/.cache/v20_replay_checkpoint -type f 2>/dev/null | wc -l | tr -d ' ')"
 
       - name: Persist weekly context diagnostics to Google Sheet
         if: success()
@@ -1502,7 +1785,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: stockhunter-v1107-4-5-73-3-6-6-17-bear-winner-stability-reports-${{ github.run_number }}
+          name: stockhunter-v1107-4-5-73-3-6-6-22-four-shard-reports-${{ github.run_number }}
           path: |
             reports/**
             docs/**
