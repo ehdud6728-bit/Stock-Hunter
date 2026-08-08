@@ -8,7 +8,7 @@ import shutil
 import sys
 from pathlib import Path
 
-RELEASE_VERSION = "V73.3.6.6.20"
+RELEASE_VERSION = "V73.3.6.6.22"
 
 CONTRACTS = [
     {
@@ -139,6 +139,22 @@ CONTRACTS = [
         "callables": ("configure", "cached_price_reader", "prefetch_codes", "load_checkpoint", "save_checkpoint", "progress_start", "progress_done", "finalize"),
         "exit_code": 176,
     },
+    {
+        "label": "V21_RESUME_CACHE_MANIFEST",
+        "filename": "resume_cache_manifest_v21.py",
+        "module": "resume_cache_manifest_v21",
+        "version": "V73.3.6.6.21",
+        "callables": ("build_manifest", "write_manifest", "main"),
+        "exit_code": 177,
+    },
+    {
+        "label": "DIRECT_REPLAY_SHARDING_V22",
+        "filename": "direct_replay_sharding_v22.py",
+        "module": "direct_replay_sharding_v22",
+        "version": "V73.3.6.6.22",
+        "callables": ("partition_dates", "write_shard_manifest", "merge_handoff_archives", "build_fast_gate_audit", "finalize_parent", "force_report"),
+        "exit_code": 178,
+    },
 ]
 
 
@@ -250,7 +266,7 @@ def main() -> int:
             )
             return int(contract["exit_code"])
 
-    print("✅ HAM/FAMILIAR/PATTERN-AI-CROSS/MARKET-EXCESS/FORMULA-TRUTH/FORMULA-UNIVERSE/FORMULA-COMPLETE/CATALYST-SOURCES/SEQUENCE-CONTEXT-CATALYST/GOOGLE-SHEET-FORWARD-LEDGER/CONTEXT-OUTCOME-DIAGNOSTIC/SCALE-IN-POLICY-DIAGNOSTIC/GEOPOLITICAL-BEAR-WINNER-DIAGNOSTIC/BEAR-WINNER-STABILITY-DIAGNOSTIC/HISTORICAL-ASOF-UNIVERSE/DIRECT-REPLAY-PERFORMANCE-V20 exact-root source preflight PASS")
+    print("✅ HAM/FAMILIAR/PATTERN-AI-CROSS/MARKET-EXCESS/FORMULA-TRUTH/FORMULA-UNIVERSE/FORMULA-COMPLETE/CATALYST-SOURCES/SEQUENCE-CONTEXT-CATALYST/GOOGLE-SHEET-FORWARD-LEDGER/CONTEXT-OUTCOME-DIAGNOSTIC/SCALE-IN-POLICY-DIAGNOSTIC/GEOPOLITICAL-BEAR-WINNER-DIAGNOSTIC/BEAR-WINNER-STABILITY-DIAGNOSTIC/HISTORICAL-ASOF-UNIVERSE/DIRECT-REPLAY-PERFORMANCE-V20/V21-RESUME-CACHE-MANIFEST/DIRECT-REPLAY-SHARDING-V22 exact-root source preflight PASS")
     return 0
 
 

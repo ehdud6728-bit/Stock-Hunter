@@ -46140,7 +46140,17 @@ def v1081_run_direct_weekly_backtest(output_dir: str = '') -> tuple:
         except Exception:
             sector_master_map = {}
         raw_rows = []
-        for d in replay_dates:
+        # V73.3.6.6.22: Direct Replay generation runs newest→oldest when enabled.
+        # Date membership/report chronology are unchanged; only the expensive generation order changes.
+        # Fetching the latest required as-of date first lets the coverage-aware 900-day cache satisfy
+        # the same stock's older replay dates without a fresh network request.
+        _v22_generation_dates = list(replay_dates)
+        try:
+            if _v1080_env_on('V22_NEWEST_FIRST_CACHE_PRIME','1') and _v1081_source_mode() == 'DIRECT_REPLAY':
+                _v22_generation_dates = sorted(_v22_generation_dates, reverse=True)
+        except Exception:
+            pass
+        for d in _v22_generation_dates:
             try:
                 rows = _v1081_make_signal_rows_for_asof(d, universe_df, weather_data=weather_data, sector_master_map=sector_master_map, limit=per_date)
                 raw_rows.extend(rows)
@@ -46160,6 +46170,12 @@ def v1081_run_direct_weekly_backtest(output_dir: str = '') -> tuple:
         raw['code'] = raw['code'].map(_v1080_norm_code)
         raw['signal_date'] = pd.to_datetime(raw['signal_date'], errors='coerce')
         raw = raw.dropna(subset=['signal_date', 'code']).reset_index(drop=True)
+        # V22 generation may be newest-first for cache coverage, but all downstream causal/eval
+        # consumers receive the legacy chronological event order. Stable sort preserves within-date order.
+        try:
+            raw = raw.sort_values('signal_date', kind='mergesort').reset_index(drop=True)
+        except Exception:
+            pass
         eval_df = _v1080_eval_signals(raw, hold_days=hold_days, stop_pct=stop_pct) if '_v1080_eval_signals' in globals() else pd.DataFrame()
         report = _v1081_build_direct_report(eval_df, weeks=weeks, replay_dates=replay_dates, raw_count=len(raw), universe_count=len(universe_df))
         if _v1080_should_save_backtest_file():
@@ -93452,7 +93468,197 @@ _V7336620_RELEASE_MARKER = {
 }
 # ✅ END V73.3.6.6.20 TOP500 DIRECT REPLAY CACHE + RESUME + PROGRESS/ETA
 
+
+# ============================================================
+# ✅ V73.3.6.6.21 FAIL-SAFE CHECKPOINT PERSIST + STEP TIMEOUT + RESUME COMPLETE
+# - Workflow-level reliability release layered over V20 Direct Replay engine.
+# - Scanner step has a shorter timeout than the job so completed-date checkpoints can be explicitly saved.
+# - Dedicated replay cache uses source/config identity + unique run-attempt key and prefix restore.
+# - No LIVE scanner/search/entry/exit/order logic change.
+# ============================================================
+_V7336621_VERSION = 'V73.3.6.6.21'
+_V7336621_RELEASE_MARKER = {
+    'version': _V7336621_VERSION,
+    'research_only': True,
+    'top500_kept': True,
+    'v20_replay_engine_preserved': True,
+    'scanner_step_timeout_minutes': 205,
+    'job_timeout_minutes': 240,
+    'explicit_partial_cache_save': True,
+    'source_config_cache_identity': True,
+    'run_attempt_unique_save_key': True,
+    'restore_prefix_latest_compatible': True,
+    'resume_manifest': 'v73_v21_resume_manifest.json',
+    'live_logic_changed': False,
+    'real_order_changed': False,
+}
+# ✅ END V73.3.6.6.21 FAIL-SAFE CHECKPOINT PERSIST + STEP TIMEOUT + RESUME COMPLETE
+
+# ============================================================
+# ✅ V73.3.6.6.22 TOP500 FOUR-SHARD + NEWEST-FIRST CACHE PRIME + FAST-GATE AUDIT COMPLETE
+# - WEEKLY_BACKTEST / DIRECT_REPLAY research path only.
+# - Four GitHub matrix workers calculate disjoint replay-date blocks on separate runners.
+# - Each shard processes newest→oldest so the persistent price cache is coverage-first.
+# - Final job imports same-run checkpoint/price/as-of handoffs and executes the unchanged full report chain.
+# - Fast superset gate is AUDIT_ONLY: V22 skips zero stocks until a frozen future OOS zero-miss proof exists.
+# ============================================================
+_V7336622_VERSION = 'V73.3.6.6.22'
+_V7336622_HEADER = '⚡ [TOP500 4-Shard 병렬 × Newest-First Cache Prime × Fast-Gate Audit · RESEARCH_ONLY]'
+try:
+    import direct_replay_sharding_v22 as _v7336622_shard
+    _V7336622_OK = (
+        str(getattr(_v7336622_shard, 'VERSION', '')) == _V7336622_VERSION
+        and bool(getattr(_v7336622_shard, 'RESEARCH_ONLY', False))
+        and all(callable(getattr(_v7336622_shard, n, None)) for n in (
+            'partition_dates','write_shard_manifest','merge_handoff_archives',
+            'build_fast_gate_audit','finalize_parent','force_report'
+        ))
+    )
+    print(f"{'✅' if _V7336622_OK else '🚨'} {_V7336622_VERSION} TOP500_FOUR_SHARD {'LOADED' if _V7336622_OK else 'CONTRACT_FAIL'} | RESEARCH_ONLY=True")
+except Exception as _v7336622_import_e:
+    _v7336622_shard = None
+    _V7336622_OK = False
+    try: print(f'🚨 {_V7336622_VERSION} shard module import fail: {type(_v7336622_import_e).__name__}: {_v7336622_import_e}')
+    except Exception: pass
+
+try:
+    os.environ.setdefault('V22_SHARD_COUNT', '4')
+    os.environ.setdefault('V22_NEWEST_FIRST_CACHE_PRIME', '1')
+    os.environ.setdefault('V22_FAST_GATE_MODE', 'AUDIT_ONLY')
+except Exception:
+    pass
+
+
+def _v7336622_run_shard_worker() -> int:
+    """Generate only this matrix shard's per-date V20 checkpoints, then exit before reporting."""
+    if not _V7336622_OK:
+        try: log_error('🚨 V22 shard worker contract invalid')
+        except Exception: pass
+        return 188
+    out = Path(os.environ.get('V1080_BACKTEST_OUTPUT_DIR', 'reports'))
+    out.mkdir(parents=True, exist_ok=True)
+    hold_days = _v1080_env_int('V1080_BACKTEST_HOLD_DAYS', 10) if callable(globals().get('_v1080_env_int')) else 10
+    weeks = _v1080_env_int('V1080_BACKTEST_WEEKS', 24) if callable(globals().get('_v1080_env_int')) else 24
+    top_n = _v1080_env_int('V1081_DIRECT_TOP_N', 500) if callable(globals().get('_v1080_env_int')) else 500
+    per_date = _v1080_env_int('V1081_DIRECT_LIMIT_PER_DATE', 15) if callable(globals().get('_v1080_env_int')) else 15
+    shard_count = max(1, _v1080_env_int('V22_SHARD_COUNT', 4) if callable(globals().get('_v1080_env_int')) else 4)
+    shard_index = max(0, _v1080_env_int('V22_SHARD_INDEX', 0) if callable(globals().get('_v1080_env_int')) else 0)
+    t0 = time.monotonic(); errors = []; counts = {}
+    try:
+        replay_dates = _v1081_latest_trading_calendar(weeks=weeks, hold_days=hold_days)
+        selected = _v7336622_shard.partition_dates(replay_dates, shard_index, shard_count, contiguous=True, newest_first=True)
+        if not replay_dates: raise RuntimeError('NO_REPLAY_DATES')
+        if not selected: raise RuntimeError(f'EMPTY_SHARD index={shard_index} count={shard_count}')
+        universe_df = _v1081_load_direct_universe(limit=top_n)
+        if universe_df is None or universe_df.empty: raise RuntimeError('NO_DIRECT_UNIVERSE')
+        try: weather_data = prepare_historical_weather() if 'prepare_historical_weather' in globals() else pd.DataFrame()
+        except Exception: weather_data = pd.DataFrame()
+        sector_master_map = {}
+        try:
+            listing = load_krx_listing_safe() if 'load_krx_listing_safe' in globals() else pd.DataFrame()
+            if listing is not None and not listing.empty:
+                code_col = 'Code' if 'Code' in listing.columns else next((c for c in ['Symbol','종목코드'] if c in listing.columns), None)
+                sec_col = next((c for c in ['Sector','Industry','업종'] if c in listing.columns), None)
+                if code_col and sec_col:
+                    tmp = listing[[code_col, sec_col]].copy(); tmp[code_col] = tmp[code_col].map(_v1080_norm_code)
+                    sector_master_map = tmp.set_index(code_col)[sec_col].astype(str).to_dict()
+        except Exception: sector_master_map = {}
+        try: log_info(f'⚡ V22 shard {shard_index+1}/{shard_count} start | dates={len(selected)} | topN={top_n} | newest-first=1 | {selected[0].date()}→{selected[-1].date()}')
+        except Exception: pass
+        for pos, d in enumerate(selected, start=1):
+            try:
+                rows = _v1081_make_signal_rows_for_asof(d, universe_df, weather_data=weather_data, sector_master_map=sector_master_map, limit=per_date)
+                ds = pd.Timestamp(d).strftime('%Y-%m-%d'); counts[ds] = len(rows) if isinstance(rows, list) else 0
+                try: log_info(f'✅ V22 shard {shard_index+1}/{shard_count} date {pos}/{len(selected)} {ds} candidates={counts[ds]}')
+                except Exception: pass
+            except Exception as exc:
+                msg = f'{pd.Timestamp(d).date()}:{type(exc).__name__}:{exc}'; errors.append(msg)
+                try: log_error(f'⚠️ V22 shard date failure {msg}')
+                except Exception: pass
+        manifest = _v7336622_shard.write_shard_manifest(
+            out, shard_index=shard_index, shard_count=shard_count, all_dates=replay_dates,
+            selected_dates=selected, candidate_counts=counts, errors=errors, elapsed_sec=time.monotonic()-t0)
+        try: print((out / _v7336622_shard.SHARD_MANIFEST_REPORT).read_text(encoding='utf-8'))
+        except Exception: pass
+        return 0 if str(manifest.get('status')) == 'COMPLETE' else 189
+    except Exception as exc:
+        errors.append(f'{type(exc).__name__}:{exc}')
+        try:
+            _v7336622_shard.write_shard_manifest(
+                out, shard_index=shard_index, shard_count=shard_count,
+                all_dates=locals().get('replay_dates', []), selected_dates=locals().get('selected', []),
+                candidate_counts=counts, errors=errors, elapsed_sec=time.monotonic()-t0)
+        except Exception: pass
+        try: log_error(f'🚨 V22 shard worker failed: {type(exc).__name__}: {exc}')
+        except Exception: pass
+        return 190
+
+
+_V7336622_PREV_DIRECT = globals().get('v1081_run_direct_weekly_backtest')
+def v1081_run_direct_weekly_backtest(output_dir: str='') -> tuple:
+    prev = globals().get('_V7336622_PREV_DIRECT')
+    report, df = prev(output_dir=output_dir) if callable(prev) and prev is not v1081_run_direct_weekly_backtest else ('🧪 [직접재현 백테스트]\n- 원본 함수 없음', pd.DataFrame())
+    if _V7336622_OK:
+        try: report, _ = _v7336622_shard.finalize_parent(output_dir or os.environ.get('V1080_BACKTEST_OUTPUT_DIR','reports'), base_report=report)
+        except Exception as exc:
+            try: log_error(f'⚠️ V22 shard/gate finalize 실패: {type(exc).__name__}: {exc}')
+            except Exception: pass
+            report = str(report or '') + '\n\n' + _V7336622_HEADER + f'\n- 생성 실패: {type(exc).__name__}: {exc}'
+    return report, df
+
+
+_V7336622_PREV_DIGEST = globals().get('_v1107_4_5_61_backtest_digest')
+def _v1107_4_5_61_backtest_digest(text: str) -> str:
+    prev=globals().get('_V7336622_PREV_DIGEST'); raw=str(text or '')
+    try: d=prev(raw) if callable(prev) and prev is not _v1107_4_5_61_backtest_digest else raw
+    except Exception: d=raw
+    if _V7336622_OK:
+        try: return _v7336622_shard.force_report(d, os.environ.get('V1080_BACKTEST_OUTPUT_DIR','reports'))
+        except Exception: return d
+    return d
+
+
+_V7336622_PREV_CLEAN = globals().get('_v1107_4_5_62_clean_for_send')
+def _v1107_4_5_62_clean_for_send(text: str) -> str:
+    prev=globals().get('_V7336622_PREV_CLEAN'); raw=str(text or '')
+    try: d=prev(raw) if callable(prev) and prev is not _v1107_4_5_62_clean_for_send else raw
+    except Exception: d=raw
+    if _V7336622_OK:
+        try: return _v7336622_shard.force_report(d, os.environ.get('V1080_BACKTEST_OUTPUT_DIR','reports'))
+        except Exception: return d
+    return d
+
+
+_V7336622_PREV_SEND = globals().get('_v1080_send_backtest_telegram')
+def _v1080_send_backtest_telegram(report: str, max_len: int=3500, *args, **kwargs):
+    prev=globals().get('_V7336622_PREV_SEND'); fixed=str(report or '')
+    if _V7336622_OK:
+        try: fixed=_v7336622_shard.force_report(fixed, os.environ.get('V1080_BACKTEST_OUTPUT_DIR','reports'))
+        except Exception: pass
+    if callable(prev) and prev is not _v1080_send_backtest_telegram:
+        try: return prev(fixed,max_len=max_len,*args,**kwargs)
+        except TypeError:
+            try: return prev(fixed,max_len)
+            except TypeError: return prev(fixed)
+        except Exception: return False
+    return False
+
+
+_V7336622_RELEASE_MARKER = {
+    'version': _V7336622_VERSION, 'research_only': True, 'top500_kept': True,
+    'github_matrix_shards': 4, 'date_partition_disjoint': True, 'newest_first_cache_prime': True,
+    'same_run_handoff_merge': True, 'v20_checkpoint_contract_preserved': True,
+    'v21_fail_safe_resume_preserved': True, 'fast_superset_gate_mode': 'AUDIT_ONLY',
+    'fast_gate_skips_in_v22': 0, 'future_safe_skip_requires_frozen_oos_zero_miss': True,
+    'live_logic_changed': False, 'real_order_changed': False,
+}
+# ✅ END V73.3.6.6.22 TOP500 FOUR-SHARD + NEWEST-FIRST CACHE PRIME + FAST-GATE AUDIT COMPLETE
+
 if __name__ == "__main__":
+    # V73.3.6.6.22 matrix shard worker: checkpoint generation only; no Telegram/Sheet/LIVE side effects.
+    if _v1080_env_on('V22_SHARD_WORKER_ONLY','0'):
+        sys.exit(_v7336622_run_shard_worker())
+
     # V73.3.6.5 dedicated HAM 15:03 RESEARCH_ONLY capture. Must exit before any LIVE scanner code.
     _v73365_ham_only = _v7224_on('STOCKHUNTER_HAM_1503_ONLY','0') or '--ham-1503-research' in sys.argv
     if _v73365_ham_only:
