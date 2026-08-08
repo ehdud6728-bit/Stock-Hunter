@@ -1,4 +1,4 @@
-name: closing-bet-v49.72-sharded-performance-global-merge
+name: closing-bet-v49.72.2-sharded-performance-global-merge
 
 on:
   schedule:
@@ -963,21 +963,25 @@ jobs:
           pattern: v49-72-shard-*
           path: v49_72_downloads
           merge-multiple: true
-      - name: Resolve v49.72 input-authority baseline key
+      - name: Resolve v49.72.2 input-authority baseline key
         id: input_authority_key
         shell: bash
         run: |
           END_DATE="${{ inputs.backtest_end || '' }}"
           if [ -z "$END_DATE" ]; then END_DATE="$(TZ=Asia/Seoul date +%F)"; fi
+          START_TOKEN="${{ inputs.backtest_start || '' }}"
+          if [ -z "$START_TOKEN" ]; then START_TOKEN="AUTO-M${{ inputs.backtest_months || '18' }}"; fi
+          PERIOD_KEY="${START_TOKEN}_${END_DATE}"
           echo "end_date=$END_DATE" >> "$GITHUB_OUTPUT"
-      - name: Restore prior same-period v49.72 input authority
+          echo "period_key=$PERIOD_KEY" >> "$GITHUB_OUTPUT"
+      - name: Restore prior same-period v49.72.2 input authority
         id: input_authority_restore
         uses: actions/cache/restore@v4
         with:
           path: .v49_72_input_baseline
-          key: v49-72-input-authority-${{ runner.os }}-${{ github.ref_name }}-${{ steps.input_authority_key.outputs.end_date }}-${{ github.run_id }}
+          key: v49-72-2-input-authority-${{ runner.os }}-${{ github.ref_name }}-${{ steps.input_authority_key.outputs.period_key }}-${{ github.run_id }}
           restore-keys: |
-            v49-72-input-authority-${{ runner.os }}-${{ github.ref_name }}-${{ steps.input_authority_key.outputs.end_date }}-
+            v49-72-2-input-authority-${{ runner.os }}-${{ github.ref_name }}-${{ steps.input_authority_key.outputs.period_key }}-
       - name: Verify Telegram route for Closing Bet merge (unified v49.72)
         run: |
           python v49_72_telegram_route.py --send "${{ inputs.send_telegram || 'true' }}" --json-output reports/v49_72_telegram_route_merge.json
@@ -992,7 +996,7 @@ jobs:
             BASELINE="--baseline-input-authority .v49_72_input_baseline/v49_72_input_authority_manifest.json"
           fi
           python v49_72_merge.py --input-root v49_72_downloads --prepare-dir v49_72_prepare_output --output-dir reports --top-per-strategy 5 --shard-count 8 $SEND $BASELINE
-      - name: Stage valid v49.72 input authority for future same-period reruns
+      - name: Stage baseline-eligible v49.72.2 input authority for future same-period reruns
         if: ${{ always() }}
         shell: bash
         run: |
@@ -1002,33 +1006,33 @@ jobs:
           p=Path('reports/v49_72_input_authority_manifest.json')
           if p.exists():
               d=json.loads(p.read_text(encoding='utf-8'))
-              if not str(d.get('status','')).startswith('INVALID'):
+              if bool(d.get('baseline_eligible', False)):
                   q=Path('.v49_72_input_baseline'); q.mkdir(parents=True,exist_ok=True)
                   shutil.copy2(p,q/p.name)
-                  print('INPUT AUTHORITY BASELINE STAGED',d.get('status'))
+                  print('INPUT AUTHORITY BASELINE STAGED',d.get('reproducibility_status'),d.get('data_completeness_status'))
               else:
-                  print('INVALID INPUT AUTHORITY NOT CACHED',d.get('status'))
+                  print('INPUT AUTHORITY NOT BASELINE-ELIGIBLE',d.get('status'),d.get('data_completeness_status'))
           PY
-      - name: Save v49.72 input authority baseline
+      - name: Save v49.72.2 input authority baseline
         if: ${{ always() && hashFiles('.v49_72_input_baseline/v49_72_input_authority_manifest.json') != '' }}
         uses: actions/cache/save@v4
         with:
           path: .v49_72_input_baseline
-          key: v49-72-input-authority-${{ runner.os }}-${{ github.ref_name }}-${{ steps.input_authority_key.outputs.end_date }}-${{ github.run_id }}
-      - name: Upload v49.72 global performance reports
+          key: v49-72-2-input-authority-${{ runner.os }}-${{ github.ref_name }}-${{ steps.input_authority_key.outputs.period_key }}-${{ github.run_id }}
+      - name: Upload v49.72.2 global performance reports
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: v49.72-global-performance-${{ github.run_number }}
+          name: v49.72.2-global-performance-${{ github.run_number }}
           path: reports/
           if-no-files-found: warn
           retention-days: 14
           compression-level: 6
-      - name: Upload v49.72 technical false negative forensic
+      - name: Upload v49.72.2 technical false negative forensic
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: v49.72-technical-fn-${{ github.run_number }}
+          name: v49.72.2-technical-fn-${{ github.run_number }}
           path: |
             reports/v49_72_technical_false_negative.csv
             reports/v49_72_technical_false_negative.json
@@ -1037,23 +1041,24 @@ jobs:
           if-no-files-found: error
           retention-days: 30
           compression-level: 6
-      - name: Upload v49.72 input reproducibility authority
+      - name: Upload v49.72.2 input reproducibility authority
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: v49.72-input-authority-${{ github.run_number }}
+          name: v49.72.2-input-authority-${{ github.run_number }}
           path: |
             reports/v49_72_input_authority_manifest.json
             reports/v49_72_history_authority_global.csv
+            reports/v49_72_history_completeness_issues.csv
             reports/v49_72_sample_authority_reconciliation.csv
           if-no-files-found: error
           retention-days: 30
           compression-level: 6
-      - name: Upload v49.72 search gap insight audit
+      - name: Upload v49.72.2 search gap insight audit
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: v49.72-search-gap-insight-${{ github.run_number }}
+          name: v49.72.2-search-gap-insight-${{ github.run_number }}
           path: |
             reports/v49_72_sample_authority_reconciliation.csv
             reports/v49_72_immediate_miss_policy_summary.csv
