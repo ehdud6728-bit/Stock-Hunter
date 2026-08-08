@@ -988,7 +988,10 @@ jobs:
           key = f"{prefix}-{run_id}-{attempt}"
           print('V21_CACHE_IDENTITY', 'source',source_hash,'config',config_hash,'prefix',prefix,'key',key)
           with open(os.environ['GITHUB_OUTPUT'],'a',encoding='utf-8') as fh:
-              fh.write(f"source_hash={source_hash}\\nconfig_hash={config_hash}\\nprefix={prefix}\\nkey={key}\\n")
+              print(f"source_hash={source_hash}", file=fh)
+              print(f"config_hash={config_hash}", file=fh)
+              print(f"prefix={prefix}", file=fh)
+              print(f"key={key}", file=fh)
           PY
 
       - name: Restore V21 replay partial cache
