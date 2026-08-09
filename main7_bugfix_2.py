@@ -93654,8 +93654,252 @@ _V7336622_RELEASE_MARKER = {
 }
 # ✅ END V73.3.6.6.22 TOP500 FOUR-SHARD + NEWEST-FIRST CACHE PRIME + FAST-GATE AUDIT COMPLETE
 
+
+# ============================================================
+# ✅ V73.3.6.6.23 SIX-SHARD MATERIALIZED RESULT + MERGE-ONLY PARENT + ZERO-RECOMPUTE
+# - WEEKLY_BACKTEST / DIRECT_REPLAY research path only.
+# - Six matrix workers each materialize disjoint replay dates (normally 4 dates per shard at 24 weeks).
+# - Parent consumes materialized per-date candidate/FULL_UNIVERSE/AUX/universe payloads and MUST NOT
+#   call the expensive TOP500 generation path. Missing/invalid handoff fails closed instead of recomputing.
+# - Existing Eval/Formula/Context/Scale-In/Geo/Stability report wrappers remain in the parent chain.
+# ============================================================
+_V7336623_VERSION = 'V73.3.6.6.23'
+_V7336623_HEADER = '🚄 [TOP500 6-Shard Materialized Result × Merge-Only Parent × Zero-Recompute · RESEARCH_ONLY]'
+try:
+    import direct_replay_materialized_v23 as _v7336623_mat
+    _V7336623_OK = (
+        str(getattr(_v7336623_mat, 'VERSION', '')) == _V7336623_VERSION
+        and bool(getattr(_v7336623_mat, 'RESEARCH_ONLY', False))
+        and all(callable(getattr(_v7336623_mat, n, None)) for n in (
+            'partition_dates','write_materialized_date','load_materialized_date','write_shard_manifest',
+            'create_handoff_archive','merge_handoff_archives','verify_parent_materialized','finalize_parent','force_report'
+        ))
+    )
+    print(f"{'✅' if _V7336623_OK else '🚨'} {_V7336623_VERSION} SIX_SHARD_MATERIALIZED_ZERO_RECOMPUTE {'LOADED' if _V7336623_OK else 'CONTRACT_FAIL'} | RESEARCH_ONLY=True")
+except Exception as _v7336623_import_e:
+    _v7336623_mat = None
+    _V7336623_OK = False
+    try: print(f'🚨 {_V7336623_VERSION} materialized module import fail: {type(_v7336623_import_e).__name__}: {_v7336623_import_e}')
+    except Exception: pass
+
+try:
+    os.environ.setdefault('V23_SHARD_COUNT', '6')
+    os.environ.setdefault('V23_SHARD_WORKER_ONLY', '0')
+    os.environ.setdefault('V23_MERGE_ONLY_PARENT', '0')
+    os.environ.setdefault('V23_ZERO_RECOMPUTE', '1')
+    os.environ.setdefault('V23_MATERIALIZED_DIR', 'reports/v23_materialized')
+except Exception:
+    pass
+
+
+def _v7336623_run_shard_worker() -> int:
+    """Materialize this shard's complete per-date research evidence; no Telegram/Sheet/LIVE side effects."""
+    if not _V7336623_OK or not bool(globals().get('_V7336620_OK', False)):
+        try: log_error('🚨 V23 shard worker contract invalid')
+        except Exception: pass
+        return 191
+    out = Path(os.environ.get('V1080_BACKTEST_OUTPUT_DIR', 'reports'))
+    out.mkdir(parents=True, exist_ok=True)
+    hold_days = _v1080_env_int('V1080_BACKTEST_HOLD_DAYS', 10) if callable(globals().get('_v1080_env_int')) else 10
+    weeks = _v1080_env_int('V1080_BACKTEST_WEEKS', 24) if callable(globals().get('_v1080_env_int')) else 24
+    top_n = _v1080_env_int('V1081_DIRECT_TOP_N', 500) if callable(globals().get('_v1080_env_int')) else 500
+    per_date = _v1080_env_int('V1081_DIRECT_LIMIT_PER_DATE', 15) if callable(globals().get('_v1080_env_int')) else 15
+    shard_count = max(1, _v1080_env_int('V23_SHARD_COUNT', 6) if callable(globals().get('_v1080_env_int')) else 6)
+    shard_index = max(0, _v1080_env_int('V23_SHARD_INDEX', 0) if callable(globals().get('_v1080_env_int')) else 0)
+    t0 = time.monotonic(); errors = []
+    replay_dates = []; selected = []
+    try:
+        replay_dates = _v1081_latest_trading_calendar(weeks=weeks, hold_days=hold_days)
+        selected = _v7336623_mat.partition_dates(replay_dates, shard_index, shard_count, newest_first=True)
+        if not replay_dates: raise RuntimeError('NO_REPLAY_DATES')
+        if not selected: raise RuntimeError(f'EMPTY_SHARD index={shard_index} count={shard_count}')
+        # Persist the plan immediately so an Actions step timeout still leaves an inspectable partial manifest.
+        _v7336623_mat.write_shard_manifest(
+            out, shard_index=shard_index, shard_count=shard_count, all_dates=replay_dates,
+            selected_dates=selected, errors=errors, elapsed_sec=time.monotonic()-t0)
+        universe_df = _v1081_load_direct_universe(limit=top_n)
+        if universe_df is None or universe_df.empty: raise RuntimeError('NO_DIRECT_UNIVERSE')
+        try: weather_data = prepare_historical_weather() if 'prepare_historical_weather' in globals() else pd.DataFrame()
+        except Exception: weather_data = pd.DataFrame()
+        sector_master_map = {}
+        try:
+            listing = load_krx_listing_safe() if 'load_krx_listing_safe' in globals() else pd.DataFrame()
+            if listing is not None and not listing.empty:
+                code_col = 'Code' if 'Code' in listing.columns else next((c for c in ['Symbol','종목코드'] if c in listing.columns), None)
+                sec_col = next((c for c in ['Sector','Industry','업종'] if c in listing.columns), None)
+                if code_col and sec_col:
+                    tmp = listing[[code_col, sec_col]].copy(); tmp[code_col] = tmp[code_col].map(_v1080_norm_code)
+                    sector_master_map = tmp.set_index(code_col)[sec_col].astype(str).to_dict()
+        except Exception: sector_master_map = {}
+        try: log_info(f'🚄 V23 shard {shard_index+1}/{shard_count} start | dates={len(selected)} | topN={top_n} | newest-first=1 | zero-recompute-parent=1')
+        except Exception: pass
+        for pos, d in enumerate(selected, start=1):
+            ds = pd.Timestamp(d).strftime('%Y-%m-%d')
+            try:
+                existing = _v7336623_mat.load_materialized_date(out, d, require_current_identity=True)
+                if isinstance(existing, dict):
+                    try: log_info(f'🚄 [V23 SHARD] {shard_index+1}/{shard_count} date {pos}/{len(selected)} {ds} materialized=HIT candidates={len(existing.get("candidate_rows") or [])}')
+                    except Exception: pass
+                else:
+                    rows = _v1081_make_signal_rows_for_asof(d, universe_df, weather_data=weather_data, sector_master_map=sector_master_map, limit=per_date)
+                    cp = _v7336620_perf.load_checkpoint(d)
+                    if not isinstance(cp, dict):
+                        raise RuntimeError('V20_CHECKPOINT_MISSING_AFTER_DATE_GENERATION')
+                    meta = _v7336623_mat.write_materialized_date(
+                        out, d, cp, shard_index=shard_index, shard_count=shard_count)
+                    try: log_info(f'✅ [V23 SHARD] {shard_index+1}/{shard_count} date {pos}/{len(selected)} {ds} materialized=MISS→SAVED candidates={meta.get("candidate_rows",len(rows) if isinstance(rows,list) else 0)} sha={str(meta.get("sha256",""))[:12]}')
+                    except Exception: pass
+                # Atomic progress manifest after every completed date; survives hard step timeout.
+                _v7336623_mat.write_shard_manifest(
+                    out, shard_index=shard_index, shard_count=shard_count, all_dates=replay_dates,
+                    selected_dates=selected, errors=errors, elapsed_sec=time.monotonic()-t0)
+            except Exception as exc:
+                msg = f'{ds}:{type(exc).__name__}:{exc}'; errors.append(msg)
+                try: log_error(f'⚠️ V23 shard date failure {msg}')
+                except Exception: pass
+                _v7336623_mat.write_shard_manifest(
+                    out, shard_index=shard_index, shard_count=shard_count, all_dates=replay_dates,
+                    selected_dates=selected, errors=errors, elapsed_sec=time.monotonic()-t0)
+        manifest = _v7336623_mat.write_shard_manifest(
+            out, shard_index=shard_index, shard_count=shard_count, all_dates=replay_dates,
+            selected_dates=selected, errors=errors, elapsed_sec=time.monotonic()-t0)
+        try: print((out / _v7336623_mat.SHARD_MANIFEST_REPORT).read_text(encoding='utf-8'), flush=True)
+        except Exception: pass
+        return 0 if str(manifest.get('status')) == 'COMPLETE' else 192
+    except Exception as exc:
+        errors.append(f'{type(exc).__name__}:{exc}')
+        try:
+            _v7336623_mat.write_shard_manifest(
+                out, shard_index=shard_index, shard_count=shard_count, all_dates=replay_dates,
+                selected_dates=selected, errors=errors, elapsed_sec=time.monotonic()-t0)
+        except Exception: pass
+        try: log_error(f'🚨 V23 shard worker failed: {type(exc).__name__}: {exc}')
+        except Exception: pass
+        return 192
+
+
+_V7336623_PREV_SIGNAL_ROWS = globals().get('_v1081_make_signal_rows_for_asof')
+def _v1081_make_signal_rows_for_asof(asof_date, universe_df: pd.DataFrame, weather_data=None, sector_master_map=None, limit: int=15):
+    prev = globals().get('_V7336623_PREV_SIGNAL_ROWS')
+    merge_only = _v1080_env_on('V23_MERGE_ONLY_PARENT','0') and _v1080_env_on('V23_ZERO_RECOMPUTE','1') and _v1080_env_on('STOCKHUNTER_WEEKLY_BACKTEST_ONLY','0') and _v1081_source_mode() == 'DIRECT_REPLAY'
+    if not merge_only:
+        return prev(asof_date, universe_df, weather_data=weather_data, sector_master_map=sector_master_map, limit=limit) if callable(prev) else []
+    if not _V7336623_OK:
+        raise RuntimeError('V23_MATERIALIZED_CONTRACT_INVALID')
+    out = os.environ.get('V1080_BACKTEST_OUTPUT_DIR','reports')
+    z = _v7336623_mat.load_materialized_date(out, asof_date, require_current_identity=True)
+    if not isinstance(z, dict):
+        # Critical invariant: never fall through to the expensive previous generator in parent mode.
+        raise RuntimeError(f'INVALID_INCOMPLETE_SHARD_HANDOFF materialized missing/invalid date={pd.Timestamp(asof_date).date()}')
+    try:
+        _v7336620_extend_unique('_V733669_CAPTURE_ROWS', z.get('capture_rows', []))
+        _v7336620_extend_unique('_V733669_ATTEMPT_ROWS', z.get('attempt_rows', []))
+        side = z.get('runtime_sidecars', {}) if isinstance(z.get('runtime_sidecars', {}), dict) else {}
+        _v7336620_extend_sidecar('_V7337_AUX_RAW_ROWS', side.get('V7337_AUX_RAW_ROWS', []))
+        _v7336620_extend_sidecar('_V7337_AUX_DIAG_ROWS', side.get('V7337_AUX_DIAG_ROWS', []))
+        if _V7336619_OK:
+            _v7336619_universe.append_runtime_rows(
+                out,
+                z.get('universe_membership', pd.DataFrame()),
+                z.get('universe_summary', pd.DataFrame()),
+                z.get('universe_availability', pd.DataFrame()),
+            )
+    except Exception as exc:
+        raise RuntimeError(f'V23_MATERIALIZED_REHYDRATE_FAILED {pd.Timestamp(asof_date).date()} {type(exc).__name__}:{exc}')
+    rows = list(z.get('candidate_rows') or [])
+    try: log_info(f'🚄 [V23 MATERIALIZED HIT] {pd.Timestamp(asof_date).strftime("%Y-%m-%d")} candidates={len(rows)} capture={len(z.get("capture_rows") or [])} attempts={len(z.get("attempt_rows") or [])} recompute=0')
+    except Exception: pass
+    return rows
+
+
+_V7336623_PREV_DIRECT = globals().get('v1081_run_direct_weekly_backtest')
+def v1081_run_direct_weekly_backtest(output_dir: str='') -> tuple:
+    prev = globals().get('_V7336623_PREV_DIRECT')
+    merge_only = _v1080_env_on('V23_MERGE_ONLY_PARENT','0') and _v1080_env_on('V23_ZERO_RECOMPUTE','1') and _v1080_env_on('STOCKHUNTER_WEEKLY_BACKTEST_ONLY','0') and _v1081_source_mode() == 'DIRECT_REPLAY'
+    if not merge_only:
+        return prev(output_dir=output_dir) if callable(prev) and prev is not v1081_run_direct_weekly_backtest else ('🧪 [직접재현 백테스트]\n- 원본 함수 없음', pd.DataFrame())
+    if not _V7336623_OK:
+        raise RuntimeError('V23_MATERIALIZED_CONTRACT_INVALID')
+    out = output_dir or os.environ.get('V1080_BACKTEST_OUTPUT_DIR','reports')
+    hold_days = _v1080_env_int('V1080_BACKTEST_HOLD_DAYS', 10)
+    weeks = _v1080_env_int('V1080_BACKTEST_WEEKS', 24)
+    expected = _v1081_latest_trading_calendar(weeks=weeks, hold_days=hold_days)
+    # Fail closed BEFORE entering the legacy direct-replay chain. Missing one date cannot trigger recompute.
+    preflight = _v7336623_mat.verify_parent_materialized(out, expected, raise_on_error=True)
+    try: log_info(f'✅ V23 parent merge-only preflight | dates={preflight.get("valid_date_count")}/{preflight.get("expected_date_count")} | recompute=0')
+    except Exception: pass
+    report, df = prev(output_dir=output_dir) if callable(prev) and prev is not v1081_run_direct_weekly_backtest else ('🧪 [직접재현 백테스트]\n- 원본 함수 없음', pd.DataFrame())
+    report, _ = _v7336623_mat.finalize_parent(out, base_report=report)
+    return report, df
+
+
+_V7336623_PREV_DIGEST = globals().get('_v1107_4_5_61_backtest_digest')
+def _v1107_4_5_61_backtest_digest(text: str) -> str:
+    prev=globals().get('_V7336623_PREV_DIGEST'); raw=str(text or '')
+    try: d=prev(raw) if callable(prev) and prev is not _v1107_4_5_61_backtest_digest else raw
+    except Exception: d=raw
+    if _V7336623_OK and _v1080_env_on('V23_MERGE_ONLY_PARENT','0'):
+        try: return _v7336623_mat.force_report(d, os.environ.get('V1080_BACKTEST_OUTPUT_DIR','reports'))
+        except Exception: return d
+    return d
+
+
+_V7336623_PREV_CLEAN = globals().get('_v1107_4_5_62_clean_for_send')
+def _v1107_4_5_62_clean_for_send(text: str) -> str:
+    prev=globals().get('_V7336623_PREV_CLEAN'); raw=str(text or '')
+    try: d=prev(raw) if callable(prev) and prev is not _v1107_4_5_62_clean_for_send else raw
+    except Exception: d=raw
+    if _V7336623_OK and _v1080_env_on('V23_MERGE_ONLY_PARENT','0'):
+        try: return _v7336623_mat.force_report(d, os.environ.get('V1080_BACKTEST_OUTPUT_DIR','reports'))
+        except Exception: return d
+    return d
+
+
+_V7336623_PREV_SEND = globals().get('_v1080_send_backtest_telegram')
+def _v1080_send_backtest_telegram(report: str, max_len: int=3500, *args, **kwargs):
+    prev=globals().get('_V7336623_PREV_SEND'); fixed=str(report or '')
+    if _V7336623_OK and _v1080_env_on('V23_MERGE_ONLY_PARENT','0'):
+        try: fixed=_v7336623_mat.force_report(fixed, os.environ.get('V1080_BACKTEST_OUTPUT_DIR','reports'))
+        except Exception: pass
+    if callable(prev) and prev is not _v1080_send_backtest_telegram:
+        try: return prev(fixed,max_len=max_len,*args,**kwargs)
+        except TypeError:
+            try: return prev(fixed,max_len)
+            except TypeError: return prev(fixed)
+        except Exception: return False
+    return False
+
+
+_V7336623_RELEASE_MARKER = {
+    'version': _V7336623_VERSION,
+    'research_only': True,
+    'top500_kept': True,
+    'github_matrix_shards': 6,
+    'typical_dates_per_shard_at_24w': 4,
+    'materialized_per_date_result': True,
+    'same_run_handoff_merge': True,
+    'merge_only_parent': True,
+    'parent_top500_recompute_allowed': False,
+    'incomplete_handoff_fail_closed': True,
+    'full_universe_sidecar_rehydrate': True,
+    'aux_sidecar_rehydrate': True,
+    'universe_provenance_rehydrate': True,
+    'merged_price_cache_for_parent_diagnostics': True,
+    'python_unbuffered_progress': True,
+    'v20_cache_preserved': True,
+    'v21_resume_preserved': True,
+    'v22_fast_gate_audit_preserved': True,
+    'live_logic_changed': False,
+    'real_order_changed': False,
+}
+# ✅ END V73.3.6.6.23 SIX-SHARD MATERIALIZED RESULT + MERGE-ONLY PARENT + ZERO-RECOMPUTE
+
 if __name__ == "__main__":
-    # V73.3.6.6.22 matrix shard worker: checkpoint generation only; no Telegram/Sheet/LIVE side effects.
+    # V73.3.6.6.23 matrix shard worker: materialized per-date results; no Telegram/Sheet/LIVE side effects.
+    if _v1080_env_on('V23_SHARD_WORKER_ONLY','0'):
+        sys.exit(_v7336623_run_shard_worker())
+
+    # Legacy V22 worker remains available for rollback/testing only.
     if _v1080_env_on('V22_SHARD_WORKER_ONLY','0'):
         sys.exit(_v7336622_run_shard_worker())
 

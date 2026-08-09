@@ -8,7 +8,7 @@ import shutil
 import sys
 from pathlib import Path
 
-RELEASE_VERSION = "V73.3.6.6.22"
+RELEASE_VERSION = "V73.3.6.6.23"
 
 CONTRACTS = [
     {
@@ -155,6 +155,14 @@ CONTRACTS = [
         "callables": ("partition_dates", "write_shard_manifest", "merge_handoff_archives", "build_fast_gate_audit", "finalize_parent", "force_report"),
         "exit_code": 178,
     },
+    {
+        "label": "DIRECT_REPLAY_MATERIALIZED_V23",
+        "filename": "direct_replay_materialized_v23.py",
+        "module": "direct_replay_materialized_v23",
+        "version": "V73.3.6.6.23",
+        "callables": ("partition_dates", "write_materialized_date", "load_materialized_date", "write_shard_manifest", "create_handoff_archive", "merge_handoff_archives", "verify_parent_materialized", "finalize_parent", "force_report"),
+        "exit_code": 193,
+    },
 ]
 
 
@@ -266,7 +274,7 @@ def main() -> int:
             )
             return int(contract["exit_code"])
 
-    print("✅ HAM/FAMILIAR/PATTERN-AI-CROSS/MARKET-EXCESS/FORMULA-TRUTH/FORMULA-UNIVERSE/FORMULA-COMPLETE/CATALYST-SOURCES/SEQUENCE-CONTEXT-CATALYST/GOOGLE-SHEET-FORWARD-LEDGER/CONTEXT-OUTCOME-DIAGNOSTIC/SCALE-IN-POLICY-DIAGNOSTIC/GEOPOLITICAL-BEAR-WINNER-DIAGNOSTIC/BEAR-WINNER-STABILITY-DIAGNOSTIC/HISTORICAL-ASOF-UNIVERSE/DIRECT-REPLAY-PERFORMANCE-V20/V21-RESUME-CACHE-MANIFEST/DIRECT-REPLAY-SHARDING-V22 exact-root source preflight PASS")
+    print("✅ HAM/FAMILIAR/PATTERN-AI-CROSS/MARKET-EXCESS/FORMULA-TRUTH/FORMULA-UNIVERSE/FORMULA-COMPLETE/CATALYST-SOURCES/SEQUENCE-CONTEXT-CATALYST/GOOGLE-SHEET-FORWARD-LEDGER/CONTEXT-OUTCOME-DIAGNOSTIC/SCALE-IN-POLICY-DIAGNOSTIC/GEOPOLITICAL-BEAR-WINNER-DIAGNOSTIC/BEAR-WINNER-STABILITY-DIAGNOSTIC/HISTORICAL-ASOF-UNIVERSE/DIRECT-REPLAY-PERFORMANCE-V20/V21-RESUME-CACHE-MANIFEST/DIRECT-REPLAY-SHARDING-V22/DIRECT-REPLAY-MATERIALIZED-V23 exact-root source preflight PASS")
     return 0
 
 
