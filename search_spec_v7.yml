@@ -1,6 +1,6 @@
 spec_version: search-spec-v7
 evaluator_version: single-search-evaluator-9-a-gate-zero-body-parity-forensic-path-audit
-title: v49.73 shared search contract with A SAFE-SUPERSET, technical-FN forensics, missed-winner path audit, and MARCAP snapshot
+title: v49.74 shared search contract with A SAFE-SUPERSET, technical-FN forensics, missed-winner path audit, and MARCAP snapshot
   authority lock
 authority: LIVE and BACKTEST share explicit-hist predicates. Historical performance uses one prepared immutable universe,
   one Prepare-resolved as-of MARCAP snapshot consumed unchanged by all shards/merge, deterministic shards, performance-only
@@ -451,7 +451,7 @@ audit_extension:
     auto_apply: false
     paper_only: true
     real_orders: 0
-  v49_73_marcap_snapshot_authority:
+  v49_74_marcap_snapshot_authority:
     status: enabled
     authoritative_predicates_changed: false
     prepare_single_source: PYKRX_ASOF_MARKET_CAP
