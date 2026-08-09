@@ -1,8 +1,10 @@
 spec_version: search-spec-v7
 evaluator_version: single-search-evaluator-9-a-gate-zero-body-parity-forensic-path-audit
-title: v49.72 shared search contract with A-gate zero-body parity, technical-FN forensics and missed-winner path audit
+title: v49.73 shared search contract with A SAFE-SUPERSET, technical-FN forensics, missed-winner path audit, and MARCAP snapshot
+  authority lock
 authority: LIVE and BACKTEST share explicit-hist predicates. Historical performance uses one prepared immutable universe,
-  deterministic shards, performance-only workers, and a global raw-signal merge before TOP selection.
+  one Prepare-resolved as-of MARCAP snapshot consumed unchanged by all shards/merge, deterministic shards, performance-only
+  workers, and a global raw-signal merge before TOP selection.
 primary_strategy_priority:
 - L
 - LP
@@ -446,6 +448,32 @@ audit_extension:
     - UNTRADEABLE_FUTURE_WINNER
     fixed_35_opportunity_audit: TP3_HALF_TP5_REST_STOP_MINUS5_D10_CLOSE
     casebook_keeps_all_technical_false_negatives: true
+    auto_apply: false
+    paper_only: true
+    real_orders: 0
+  v49_73_marcap_snapshot_authority:
+    status: enabled
+    authoritative_predicates_changed: false
+    prepare_single_source: PYKRX_ASOF_MARKET_CAP
+    requested_end_date_snapshot: true
+    bounded_trading_day_lookback: true
+    fallback_default: DISABLED_FAIL_CLOSED
+    shard_runtime_marcap_refresh: false
+    prepare_shard_merge_sha_consensus_required: true
+    runtime_mutation_fail_closed: true
+    same_period_marcap_parity_forensics: true
+    parity_fields:
+    - changed_codes
+    - zero_to_positive
+    - positive_to_zero
+    - mcap_pass_to_fail
+    - mcap_fail_to_pass
+    - universe_pass_to_fail
+    - universe_fail_to_pass
+    - ratio_ge_10x
+    - ratio_le_0_1x
+    point_in_time_note: MARCAP is frozen as of the backtest end date for reproducibility; this does not reconstruct historical
+      daily market-cap membership.
     auto_apply: false
     paper_only: true
     real_orders: 0
