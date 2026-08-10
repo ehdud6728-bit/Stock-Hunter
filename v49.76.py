@@ -80,8 +80,8 @@ def _env_float(name: str, default: float = 0.0) -> float:
         except Exception:
             return 0.0
 
-CLOSING_BET_SCANNER_VERSION = 'G_MORALES_V4_4_9_53_8_49_76_1_LIVE_DATA_PAPER_WIRING_HOTFIX_20260810'
-CLOSING_BET_RELEASE_TAG = 'v49.76.1'
+CLOSING_BET_SCANNER_VERSION = 'G_MORALES_V4_4_9_53_8_49_76_2_SERIES_ROW_TRUTHVALUE_HOTFIX_20260811'
+CLOSING_BET_RELEASE_TAG = 'v49.76.2'
 CLOSING_BET_LIVE_PRICE_SANITY_FIX = str(os.environ.get('CLOSING_BET_LIVE_PRICE_SANITY_FIX', '1')).lower() in ('1', 'true', 'yes', 'y', 'on')
 CLOSING_BET_LIVE_READABILITY_COMPACT = str(os.environ.get('CLOSING_BET_LIVE_READABILITY_COMPACT', '1')).lower() in ('1', 'true', 'yes', 'y', 'on')
 # v53.8.42: M5R TRUE60 검증용 장기 월봉 확보. 60개월 월선 계산에는 약 7년 일봉이 필요하다.
@@ -1437,7 +1437,7 @@ CLOSING_BET_FINAL_KICK_COMPACT = _bool_env('CLOSING_BET_FINAL_KICK_COMPACT', '1'
 CLOSING_BET_V4976_PRACTICAL_EXEC_TOP_N = max(1, _env_int('CLOSING_BET_V4976_PRACTICAL_EXEC_TOP_N', '2'))
 CLOSING_BET_V4976_FINAL_KICK_LEDGER_ONLY = _bool_env('CLOSING_BET_V4976_FINAL_KICK_LEDGER_ONLY', '1')
 CLOSING_BET_V4976_SHOW_EXECUTION_BOARD = _bool_env('CLOSING_BET_V4976_SHOW_EXECUTION_BOARD', '1')
-# v49.76.1: clean LIVE-DATA PAPER evidence. Only an actual final-kick decision completed inside the live window may enter KPI.
+# v49.76.2: clean LIVE-DATA PAPER evidence. Only an actual final-kick decision completed inside the live window may enter KPI.
 CLOSING_BET_V49761_LIVE_KPI_REQUIRE_FINAL_WINDOW = _bool_env('CLOSING_BET_V49761_LIVE_KPI_REQUIRE_FINAL_WINDOW', '1')
 CLOSING_BET_V49761_FINAL_WINDOW_START_HHMM = str(os.environ.get('CLOSING_BET_V49761_FINAL_WINDOW_START_HHMM','1455')).strip() or '1455'
 CLOSING_BET_V49761_FINAL_WINDOW_END_HHMM = str(os.environ.get('CLOSING_BET_V49761_FINAL_WINDOW_END_HHMM','1525')).strip() or '1525'
@@ -3109,7 +3109,7 @@ def _v49761_hhmm_to_min(text: str, default: int) -> int:
 
 
 def _v49761_final_kick_evidence(data_date=None) -> dict:
-    """v49.76.1 clean PAPER evidence: phase + actual completion time + same-day bar authority."""
+    """v49.76.2 clean PAPER evidence: phase + actual completion time + same-day bar authority."""
     now=_now_kst()
     final=bool(CLOSING_BET_FINAL_KICK_ONLY or str(CLOSING_BET_RUN_MODE).lower() in ('final_kick','final-kick','kick'))
     dd=data_date
@@ -3177,7 +3177,10 @@ def _v4976_execution_board_lines(ans: dict, data_date, market_short: str='') -> 
         if not final: lines.append('- 15:03에 전체 조건을 다시 확인한 뒤 최종 결정')
         return lines
     for i,it in enumerate(picks,1):
-        r=it.get('row',{}) or {}; nm=str(it.get('name',r.get('name',it.get('code','')))); tag=_v4976_item_strategy_tag(it); score=_safe_float(it.get('score',r.get('score',0)),0)
+        r=it.get('row',{}) if isinstance(it,dict) else {}
+        if r is None or not hasattr(r,'get'):
+            r={}
+        nm=str(it.get('name',r.get('name',it.get('code','')))); tag=_v4976_item_strategy_tag(it); score=_safe_float(it.get('score',r.get('score',0)),0)
         px=_safe_float(r.get('price',r.get('entry_price',np.nan)),np.nan); support=_safe_float(r.get('support_price',np.nan),np.nan); ma20=_safe_float(r.get('ma20_price',np.nan),np.nan)
         structure=max([x for x in (support,ma20) if pd.notna(x)],default=np.nan); hard=px*.97 if pd.notna(px) else np.nan
         reason=' · '.join(str(x) for x in (it.get('reasons') or [])[:2]) or 'Lifecycle ENTRY·위험가드 통과'
@@ -3212,7 +3215,7 @@ def _v4943_prepare_live_recommendations() -> list[dict]:
         return []
     _ev=_v49761_final_kick_evidence()
     if not bool(_ev.get('eligible')):
-        log_info(f"v49.76.1 LIVE-PAPER 원장 미확정: {_ev.get('reason')} · {_ev.get('decision_time_kst')} · {_ev.get('data_bar_state')}")
+        log_info(f"v49.76.2 LIVE-PAPER 원장 미확정: {_ev.get('reason')} · {_ev.get('decision_time_kst')} · {_ev.get('data_bar_state')}")
         _V4943_CURRENT_RECOMMENDATIONS=[]
         return []
     now=_now_kst(); rows=[]; rank=0
@@ -3242,7 +3245,7 @@ def _v4943_prepare_live_recommendations() -> list[dict]:
             'target_3':round(px*1.03) if pd.notna(px) else '', 'target_5':round(px*1.05) if pd.notna(px) else '',
             'stop_3':round(px*0.97) if pd.notna(px) else '', 'structure_support':round(structure) if pd.notna(structure) else '',
             'market_state':str(globals().get('_V4943_LAST_MARKET_STATE','') or r.get('market_state','') or ''),'risk_status':str(r.get('risk_status','NORMAL')),
-            'risk_reason':str(r.get('risk_reason','위험가드 통과') or ''),'note':f'v49.76.1 15:03 PAPER 실행보드 {rank}순위 · {strategy_tag} · 자동주문 없음 · Telegram+DELIVERED+FINAL_KICK 증거만 실제추천',
+            'risk_reason':str(r.get('risk_reason','위험가드 통과') or ''),'note':f'v49.76.2 15:03 PAPER 실행보드 {rank}순위 · {strategy_tag} · 자동주문 없음 · Telegram+DELIVERED+FINAL_KICK 증거만 실제추천',
             'decision_phase':str(_ev.get('decision_phase','FINAL_KICK')),'decision_time_kst':str(_ev.get('decision_time_kst','')),
             'data_bar_state':str(_ev.get('data_bar_state','')),'kpi_eligible':'TRUE','kpi_exclusion_reason':''
         }
@@ -45426,7 +45429,7 @@ def _v4936_backtest_telegram_parts(audit_report: str, compact_report: str='') ->
         lifecycle=dict(root.get('lifecycle',{}) or {})
         elapsed=float((root.get('research_lane') or {}).get('elapsed_sec',0.0) or 0.0)
 
-        p1=['(1/7)','⚠️ COMMON STRATEGY INVALID · Lifecycle Research VALID | v49.76.1','──────────',version,period,
+        p1=['(1/7)','⚠️ COMMON STRATEGY INVALID · Lifecycle Research VALID | v49.76.2','──────────',version,period,
             '[📡 공통 OHLCV / LEGACY 레인]']+pipe+[
             f'- Lifecycle Research: ✅ VALID · 독립 실행 {elapsed:.1f}s' if elapsed>0 else '- Lifecycle Research: ✅ VALID · LEGACY와 독립',
             '', '[🚀 Lifecycle 에피소드 감사]',
@@ -45445,7 +45448,7 @@ def _v4936_backtest_telegram_parts(audit_report: str, compact_report: str='') ->
             lifecycle.get('policy_line') or '- ENTRY 정책성과 없음',
         ]+list((root.get('known_case') or {}).get('lines',[]) or [])+[
             '', '[해석 제한]','- PRIME/CORE/LCZ/기존 포트폴리오는 COMMON STRATEGY INVALID로 전면 제외','- Lifecycle Research만 독립 VALID 표본으로 연구 해석','- PAPER 유지 · 실제주문 0건']
-        p2=['(2/7)','🎯 먹을 수 있는 BIG / Pattern 연구 | v49.76.1','──────────',
+        p2=['(2/7)','🎯 먹을 수 있는 BIG / Pattern 연구 | v49.76.2','──────────',
             '[🚀 BIG-WINNER ANATOMY]',
             lifecycle.get('big_count_line') or '- BIG-WINNER 표본 없음',
             lifecycle.get('big_concentration_line') or '- 집중도 평가없음',
@@ -45453,19 +45456,19 @@ def _v4936_backtest_telegram_parts(audit_report: str, compact_report: str='') ->
             '', '[🎯 CAPTURABLE-BIG PATH ANATOMY]']+list(lifecycle.get('capturable_lines',[]) or ['- 평가없음'])+[
             '', '[🏃 POST-POLICY RUNNER ANATOMY]']+list(lifecycle.get('runner_lines',[]) or ['- 평가없음'])+[
             '', '[🧬 BIG-WINNER PATTERN CLUSTER]']+list(lifecycle.get('cluster_lines',[]) or ['- cluster 평가없음'])
-        p3=['(3/7)','🏃 Runner 정책 다중검증 | v49.76.1','──────────',
+        p3=['(3/7)','🏃 Runner 정책 다중검증 | v49.76.2','──────────',
             '[🏃 UNIVERSAL RESIDUAL RUNNER 정책]']+list(lifecycle.get('runner_policy_lines',[]) or ['- 평가없음'])+[
             '', '[🚶 RUNNER MULTI WALK-FORWARD · 20%/30% D10]']+list(lifecycle.get('runner_walk_lines',[]) or ['- 평가없음'])
-        p4=['(4/7)','🧯 Breach clock / FAIL causal | v49.76.1','──────────',
+        p4=['(4/7)','🧯 Breach clock / FAIL causal | v49.76.2','──────────',
             '[🕰 BREACH-CLOCK RECONCILIATION]']+list(lifecycle.get('breach_clock_lines',[]) or ['- 평가없음'])+[
             '', '[🧪 FAIL 임계값 감사 · episode 전체 경로]']+list(lifecycle.get('fail_sensitivity_lines',[]) or ['- 평가없음'])+[
             '', '[🧯 signal-support 소급형 참고]']+list(lifecycle.get('fail_portfolio_lines',[]) or ['- 평가없음'])+[
             '', '[🔒 TRAIN→OOS LOCK · event-snapshot causal]']+list(lifecycle.get('fail_lock_lines',[]) or ['- 평가없음'])
-        p5=['(5/7)','🚶 FAIL cutoff Multi Walk-Forward | v49.76.1','──────────',
+        p5=['(5/7)','🚶 FAIL cutoff Multi Walk-Forward | v49.76.2','──────────',
             '[🚶 MULTI WALK-FORWARD · 0%/0.5%]']+list(lifecycle.get('fail_walk_lines',[]) or ['- 평가없음'])+[
             '', '[해석 제한]','- CAPPED Fold는 보고만 하고 승격분모 제외','- signal-support 소급형은 LIVE cutoff 승격 근거로 사용 금지','- LIVE cutoff 자동변경 금지']
-        p6=['(6/7)','🔎 단일 검색평가기·전체 계약 감사 | v49.76.1','──────────','[SINGLE EVALUATOR / FULL CONTRACT]']+list(lifecycle.get('search_audit_lines',[]) or ['- SEARCH INTENT AUDIT 없음'])+['','[승격 제한]','- 공통 LIVE↔BACKTEST 불일치·계약 source-lock 실패·행동 경계 실패가 1건이라도 있으면 승격 금지','- LEGACY migration delta는 원인 비교자료이며 현재 공통 모집단에 혼합하지 않음','- 음성일은 결정적 표본감사이므로 전수 0건으로 과장하지 않음','- PAPER 유지 · 실제주문 0건']
-        p7=['(7/7)','📊 포트폴리오 / 승격판단 | v49.76.1','──────────',
+        p6=['(6/7)','🔎 단일 검색평가기·전체 계약 감사 | v49.76.2','──────────','[SINGLE EVALUATOR / FULL CONTRACT]']+list(lifecycle.get('search_audit_lines',[]) or ['- SEARCH INTENT AUDIT 없음'])+['','[승격 제한]','- 공통 LIVE↔BACKTEST 불일치·계약 source-lock 실패·행동 경계 실패가 1건이라도 있으면 승격 금지','- LEGACY migration delta는 원인 비교자료이며 현재 공통 모집단에 혼합하지 않음','- 음성일은 결정적 표본감사이므로 전수 0건으로 과장하지 않음','- PAPER 유지 · 실제주문 0건']
+        p7=['(7/7)','📊 포트폴리오 / 승격판단 | v49.76.2','──────────',
             '[Lifecycle 전용 포트폴리오]',lifecycle.get('portfolio1_line') or '- 하루1종목 평가없음',lifecycle.get('portfolio2_line') or '- 하루2종목 평가없음',
             '', '[Lifecycle 승격 판단]',lifecycle.get('gate_null_line') or '- canonical/NULL FAIL-CLOSED',lifecycle.get('gate_oos_line') or '- OOS/지수초과 FAIL-CLOSED',lifecycle.get('gate_port_line') or '- 비용후 포트폴리오 FAIL-CLOSED',lifecycle.get('gate_final_line') or '- Lifecycle 승격 FAIL-CLOSED',
             '', '[운용 결론]','- CAPTURABLE/Runner/FAIL 연구 결과도 자동 LIVE/Runner 반영 금지','- causal FAIL cutoff도 별도 승격 전 LIVE 변경 금지','- COMMON EVALUATOR/FULL CONTRACT가 VALID가 아니면 승격판정 강제 PAPER','- PAPER 유지 · 실제주문 0건']
@@ -45474,7 +45477,7 @@ def _v4936_backtest_telegram_parts(audit_report: str, compact_report: str='') ->
     if str(root.get('status','')).upper()=='INVALID' or any('BACKTEST INVALID' in x for x in audit_rows):
         pipe=list((root.get('pipeline') or {}).get('lines',[]) or [])
         diag_lines=[x for x in audit_rows if ('처리 완료율' in x or '데이터 로드율' in x or '데이터소스:' in x or '오류샘플:' in x)]
-        p=['(1/1)','⛔ 백테스트 INVALID | v49.76.1','──────────',version,period]+pipe+diag_lines[:4]+['','[운용 차단]','- 전략 성과·PRIME·CORE·LCZ·Lifecycle·포트폴리오 집계 금지','- PAPER 유지 · 실제주문 0건']
+        p=['(1/1)','⛔ 백테스트 INVALID | v49.76.2','──────────',version,period]+pipe+diag_lines[:4]+['','[운용 차단]','- 전략 성과·PRIME·CORE·LCZ·Lifecycle·포트폴리오 집계 금지','- PAPER 유지 · 실제주문 0건']
         return render_parts((p,))
 
     pipeline=dict(root.get('pipeline',{}) or {}); lifecycle=dict(root.get('lifecycle',{}) or {})
@@ -45502,9 +45505,9 @@ def _v4936_backtest_telegram_parts(audit_report: str, compact_report: str='') ->
     m5=find(both,'커버리지율',default='- M5 커버리지 확인 필요')
     existing1=find(both,'하루최대 1종목:',default='- 기존 하루1종목 포트폴리오 확인 필요')
     existing2=find(both,'하루최대 2종목:',default='- 기존 하루2종목 포트폴리오 확인 필요')
-    p1=['(1/2)','🧪 백테스트 핵심 결론 | v49.76.1','──────────',version,period,counts,'','[📡 공통 OHLCV 파이프라인]',data,cache_line,pipeline_counts,exclusions,'','[🚀 Lifecycle 에피소드 감사]']+lifecycle_section+['','[기존 핵심 경로]',prime,core,'- LCZ는 RESEARCH ONLY: '+lcz.lstrip('- ')]
-    p2=['(2/2)','📊 백테스트 주요 진단 | v49.76.1','──────────','[현재 LIVE 시장·커버리지]',market,m5,'','[역사 Lifecycle 시장구간]',lifecycle.get('market_line') or '- 평가없음','','[🚀 BIG-WINNER ANATOMY · 연구]',lifecycle.get('big_count_line') or '- BIG-WINNER 표본 없음',lifecycle.get('big_concentration_line') or '- 집중도 평가없음',lifecycle.get('big_stress_line') or '- 대박 제거 스트레스 평가없음','','[🎯 CAPTURABLE-BIG]']+list(lifecycle.get('capturable_lines',[]) or ['- 평가없음'])+['','[🏃 POST-POLICY RUNNER]']+list(lifecycle.get('runner_lines',[]) or ['- 평가없음'])+['','[🧬 BIG-WINNER PATTERN CLUSTER]']+list(lifecycle.get('cluster_lines',[]) or ['- cluster 평가없음'])+['','[🧪 FAIL 임계값 감사]']+list(lifecycle.get('fail_sensitivity_lines',[]) or ['- 평가없음'])+['','[🔒 FAIL TRAIN→OOS LOCK]']+list(lifecycle.get('fail_lock_lines',[]) or ['- 평가없음'])+['','[Lifecycle 전용 포트폴리오]',lifecycle.get('portfolio1_line') or '- 하루1종목 평가없음',lifecycle.get('portfolio2_line') or '- 하루2종목 평가없음','','[Lifecycle 승격 판단]',lifecycle.get('gate_null_line') or '- canonical/NULL FAIL-CLOSED',lifecycle.get('gate_oos_line') or '- OOS/지수초과 FAIL-CLOSED',lifecycle.get('gate_port_line') or '- 비용후 포트폴리오 FAIL-CLOSED',lifecycle.get('gate_final_line') or '- Lifecycle 승격 FAIL-CLOSED','','[기존 포트폴리오]',existing1,existing2,'','[운용 결론]','- Lifecycle 게이트 통과 전 PAPER 유지','- 실제주문 0건 유지']
-    p3=['(3/3)','🔎 검색계약·공통전략 성과 | v49.76.1','──────────','[DENOMINATOR] ',lifecycle.get('denominator_line') or '- DENOMINATOR GUARD 없음','','[SINGLE EVALUATOR / FULL CONTRACT]']+list(lifecycle.get('search_audit_lines',[]) or ['- SEARCH INTENT AUDIT 없음'])+['']+list((globals().get('_V4959_COMMON_PERF_AUDIT',{}) or {}).get('lines',[]) or ['- COMMON STRATEGY PERFORMANCE 없음'])+['','[운용]','- 공통 평가기·전체 계약·50bp OOS 성과 확인 전 자동주문/자동조건변경 금지','- PAPER 유지']
+    p1=['(1/2)','🧪 백테스트 핵심 결론 | v49.76.2','──────────',version,period,counts,'','[📡 공통 OHLCV 파이프라인]',data,cache_line,pipeline_counts,exclusions,'','[🚀 Lifecycle 에피소드 감사]']+lifecycle_section+['','[기존 핵심 경로]',prime,core,'- LCZ는 RESEARCH ONLY: '+lcz.lstrip('- ')]
+    p2=['(2/2)','📊 백테스트 주요 진단 | v49.76.2','──────────','[현재 LIVE 시장·커버리지]',market,m5,'','[역사 Lifecycle 시장구간]',lifecycle.get('market_line') or '- 평가없음','','[🚀 BIG-WINNER ANATOMY · 연구]',lifecycle.get('big_count_line') or '- BIG-WINNER 표본 없음',lifecycle.get('big_concentration_line') or '- 집중도 평가없음',lifecycle.get('big_stress_line') or '- 대박 제거 스트레스 평가없음','','[🎯 CAPTURABLE-BIG]']+list(lifecycle.get('capturable_lines',[]) or ['- 평가없음'])+['','[🏃 POST-POLICY RUNNER]']+list(lifecycle.get('runner_lines',[]) or ['- 평가없음'])+['','[🧬 BIG-WINNER PATTERN CLUSTER]']+list(lifecycle.get('cluster_lines',[]) or ['- cluster 평가없음'])+['','[🧪 FAIL 임계값 감사]']+list(lifecycle.get('fail_sensitivity_lines',[]) or ['- 평가없음'])+['','[🔒 FAIL TRAIN→OOS LOCK]']+list(lifecycle.get('fail_lock_lines',[]) or ['- 평가없음'])+['','[Lifecycle 전용 포트폴리오]',lifecycle.get('portfolio1_line') or '- 하루1종목 평가없음',lifecycle.get('portfolio2_line') or '- 하루2종목 평가없음','','[Lifecycle 승격 판단]',lifecycle.get('gate_null_line') or '- canonical/NULL FAIL-CLOSED',lifecycle.get('gate_oos_line') or '- OOS/지수초과 FAIL-CLOSED',lifecycle.get('gate_port_line') or '- 비용후 포트폴리오 FAIL-CLOSED',lifecycle.get('gate_final_line') or '- Lifecycle 승격 FAIL-CLOSED','','[기존 포트폴리오]',existing1,existing2,'','[운용 결론]','- Lifecycle 게이트 통과 전 PAPER 유지','- 실제주문 0건 유지']
+    p3=['(3/3)','🔎 검색계약·공통전략 성과 | v49.76.2','──────────','[DENOMINATOR] ',lifecycle.get('denominator_line') or '- DENOMINATOR GUARD 없음','','[SINGLE EVALUATOR / FULL CONTRACT]']+list(lifecycle.get('search_audit_lines',[]) or ['- SEARCH INTENT AUDIT 없음'])+['']+list((globals().get('_V4959_COMMON_PERF_AUDIT',{}) or {}).get('lines',[]) or ['- COMMON STRATEGY PERFORMANCE 없음'])+['','[운용]','- 공통 평가기·전체 계약·50bp OOS 성과 확인 전 자동주문/자동조건변경 금지','- PAPER 유지']
     p1[0]='(1/3)';p2[0]='(2/3)'
     return render_parts((p1,p2,p3))
 
@@ -45640,7 +45643,7 @@ if __name__ == '__main__':
         hits = run_closing_bet_scan(force=args.force)
         if not hits:
             if bool(CLOSING_BET_V4938_LIFECYCLE_ENABLE):
-                log_info("✅ 기존 후보 0개 · v49.76.1 Lifecycle 전체유니버스 보고서는 이미 전송됨")
+                log_info("✅ 기존 후보 0개 · v49.76.2 Lifecycle 전체유니버스 보고서는 이미 전송됨")
             else:
                 log_info("✅ 종가배팅 후보 없음")
                 if _telegram_route_ready():

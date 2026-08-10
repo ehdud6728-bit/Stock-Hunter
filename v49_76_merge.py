@@ -82,14 +82,14 @@ def _deliver_telegram(parts: list[list[str]], out: Path, requested: bool) -> dic
     try:
         if requested:
             if delivery['route_validated'] != '1':
-                raise RuntimeError('v49.76.1 Telegram requested but unified route preflight was not validated')
+                raise RuntimeError('v49.76.2 Telegram requested but unified route preflight was not validated')
             if not s._telegram_route_ready():
-                raise RuntimeError('v49.76.1 Telegram requested but scanner route is not ready after validated preflight')
+                raise RuntimeError('v49.76.2 Telegram requested but scanner route is not ready after validated preflight')
             for part_no, part in enumerate(parts, start=1):
                 result = s.send_telegram_photo('\n'.join(part), [])
                 delivery['parts'].append({'part': part_no, **result})
                 if int(result.get('success_count', 0) or 0) < 1:
-                    raise RuntimeError(f'v49.76.1 Telegram delivery failed for part {part_no}: {result.get("errors", [])}')
+                    raise RuntimeError(f'v49.76.2 Telegram delivery failed for part {part_no}: {result.get("errors", [])}')
             delivery['status'] = 'DELIVERED'
             delivery['success_count'] = sum(int(x.get('success_count', 0) or 0) for x in delivery['parts'])
             print(
@@ -972,7 +972,7 @@ def main() -> int:
 
     technical_status = 'INVALID' if preflight.get('status') != 'VALID' or not input_authority_valid or perf_status != 'VALID' or funnel_status == 'INVALID' or quality_status == 'INVALID' or identity_global_missing > 0 or identity_global_invalid_mode > 0 or (V4970_REQUIRE_SECTOR_CONTEXT and sector_context_status != 'VALID') else ('PARTIAL-VALID' if funnel_status == 'PARTIAL-VALID' else 'FULL-VALID')
     lines1 = [
-        '(1/20)', '⚙️ 공통 검색식 성과검증 | v49.76.1', '──────────',
+        '(1/20)', '⚙️ 공통 검색식 성과검증 | v49.76.2', '──────────',
         f'버전: {s.CLOSING_BET_SCANNER_VERSION}',
         f'기간: {args.start_date} ~ {args.end_date} | prepared universe {preflight.get("universe_count")} · shards {args.shard_count}',
         '[기술 검증]',
@@ -996,7 +996,7 @@ def main() -> int:
         f'- 하루1종목 50bp: 누적 {f(p1_50.get("total"))} · MDD {f(p1_50.get("mdd"))} · 양수월 {f(p1_50.get("positive_month"))}', '',
         '[운용 잠금]', '- PAPER 유지 · 실제주문 0건', '- FULL-VALID와 50bp OOS·MDD·대박제거를 함께 통과하기 전 LIVE 자동전환 금지',
     ]
-    lines2 = ['(2/20)', '📊 전략별 OOS · Predicate Mode | v49.76.1', '──────────']
+    lines2 = ['(2/20)', '📊 전략별 OOS · Predicate Mode | v49.76.2', '──────────']
     if not ptab.empty:
         for _, r in ptab[ptab.strategy.ne('ALL')].sort_values(['oos_net50_mean_pct', 'oos_n'], ascending=[False, False]).iterrows():
             st = strategy_status[strategy_status.strategy.eq(r['strategy'])]
@@ -1004,7 +1004,7 @@ def main() -> int:
             lines2.append(f'- {r["strategy"]}: {label} · n {int(r["n"])} · OOS {int(r["oos_n"])} · net20/50 {f(r["oos_net20_mean_pct"])}/{f(r["oos_net50_mean_pct"])} · 전체50 {f(r["net50_mean_pct"])}')
     lines2 += ['', '- I/IT는 REAL_OR_CACHE 성과만 승격 검토 · proxy는 별도 표본', '- Lifecycle/Runner/FAIL/BIG/Cluster는 이번 성과 전용 실행과 분리']
 
-    lines3 = ['(3/20)', '🔬 전략 Funnel·Pipeline | v49.76.1', '──────────']
+    lines3 = ['(3/20)', '🔬 전략 Funnel·Pipeline | v49.76.2', '──────────']
     for _, r in strategy_status.iterrows():
         lines3.append(
             f'- {r.strategy}: {r.status} · gate {int(r.gate_admitted)} → hit {int(r.predicate_hit_records)}({f(r.gate_hit_pct)}) → eval {int(r.eval_success)} '
@@ -1012,7 +1012,7 @@ def main() -> int:
             f'· zeroAudit {int(r.zero_audit_tested)}/{int(r.zero_audit_hits)} · exc {int(r.exceptions)}'
         )
 
-    lines4 = ['(4/20)', '🧭 전략 귀속·LP·I/IT | v49.76.1', '──────────']
+    lines4 = ['(4/20)', '🧭 전략 귀속·LP·I/IT | v49.76.2', '──────────']
     for mode in s.CLOSING_BET_V4958_PRIMARY_PRIORITY:
         q = attribution[(attribution.strategy == mode) & (attribution.attribution.isin(['PREDICATE_MODE', 'PRIMARY', 'ALL_MATCHED']))]
         vals = {r.attribution: r for _, r in q.iterrows()}
@@ -1030,7 +1030,7 @@ def main() -> int:
     lines4.append('- I/IT REAL: ' + (' · '.join(f'{r.strategy} OOS n{int(r.oos_n)} net50 {f(r.oos_net50_mean_pct)}' for _, r in real_iit.iterrows()) or '없음'))
     lines4.append('- I/IT PROXY(승격제외): ' + (' · '.join(f'{r.strategy} n{int(r.n)}' for _, r in proxy_iit.iterrows()) or '없음'))
 
-    lines5 = ['(5/20)', '🧬 상승·하락 경로 해부 | v49.76.1', '──────────']
+    lines5 = ['(5/20)', '🧬 상승·하락 경로 해부 | v49.76.2', '──────────']
     lines5.append(f'- ANATOMY STATUS: {anatomy_status} · 시장커버리지 {anatomy_diag.get("market_coverage_pct",0):.1f}%')
     lines5.append(f'- SECTOR CONTEXT: {sector_context_status} · 신호후보 프록시 {anatomy_diag.get("sector_coverage_pct",0):.1f}% · VALID 기준 ≥{V4970_SECTOR_VALID_MIN_COVERAGE_PCT:.1f}%')
     lines5.append(f'- EVENT CONTEXT: {event_context_status} · 이벤트매핑 {anatomy_diag.get("event_mapped_rows",0)}건')
@@ -1048,7 +1048,7 @@ def main() -> int:
         lines5.append(f'- {mode}: OOS {int(q.n.sum())} · 상승경로 {wins} · BIG {big} · 손절선행 {stops}')
     lines5 += ['', '- 경로분류는 진입 후 결과 해부용이며 선별특징은 반드시 TRAIN 발견→OOS 고정검증으로만 평가합니다.']
 
-    lines6 = ['(6/20)', '🌧️ 하락장 독립상승·개선후보 | v49.76.1', '──────────']
+    lines6 = ['(6/20)', '🌧️ 하락장 독립상승·개선후보 | v49.76.2', '──────────']
     if not down_cases.empty:
         dc=down_cases.copy(); independent=pd.to_numeric(dc.get('down_market_independent_win',0),errors='coerce').fillna(0).eq(1)
         lines6.append(f'- 하락시장 사례 {len(dc)}건 · 시장대비 독립상승 {int(independent.sum())}건')
@@ -1071,7 +1071,7 @@ def main() -> int:
                 lines6.append(f'- {r.strategy}/{r.event_theme_bucket}: OOS n{int(r.oos_n)} · net50 {f(r.oos_net50_mean_pct)} · 하락장승자 {int(r.down_market_winners)}')
     lines6 += ['', '- 섹터동행은 전체 업종 유니버스가 아닌 신호후보 프록시이므로 자동필터 승격 금지.', '- 위 항목은 2단계 탐색 참고자료이며 v49.76 LOCKED TEST 판정과 분리합니다.']
 
-    lines7 = ['(7/20)', '🏁 LP 청산정책 3단계 검증 | v49.76.1', '──────────']
+    lines7 = ['(7/20)', '🏁 LP 청산정책 3단계 검증 | v49.76.2', '──────────']
     b = triple['boundaries']
     lines7.append(f'- 분할: TRAIN ~{b["train_end"].strftime("%Y-%m-%d")} · VALIDATION {b["validation_start"].strftime("%Y-%m-%d")}~{b["validation_end"].strftime("%Y-%m-%d")} · LOCKED TEST {b["test_start"].strftime("%Y-%m-%d")}~')
     if not lp_exit_selected.empty:
@@ -1085,7 +1085,7 @@ def main() -> int:
             lines7.append(f'- {rr.policy}: n{int(rr.n)} · net50 {f(rr.mean_pct)} · Top3제거 {f(rr.top3_removed_pct)} · MDD {f(rr.portfolio_mdd_pct)}')
     lines7 += ['', '- 청산후보도 PAPER 연구만 허용하며 기존 +3% 우선익절을 자동변경하지 않습니다.']
 
-    lines8 = ['(8/20)', '🧪 L·G·S·하락장 LOCKED TEST | v49.76.1', '──────────']
+    lines8 = ['(8/20)', '🧪 L·G·S·하락장 LOCKED TEST | v49.76.2', '──────────']
     lines8.append(f'- 3단계 상태: {triple_manifest.get("status")} · TEST 접근 selected model당 1회 · 역사적 순수 미관측은 아님')
     if not triple_locked.empty:
         for _,rr in triple_locked.sort_values(['locked_test_status','test_net50'],ascending=[True,False]).iterrows():
@@ -1100,7 +1100,7 @@ def main() -> int:
         lines8.append('- 하락장 VALIDATION 선택모델 없음')
     lines8 += ['', '- TEST 결과로 기준·조건을 재선택하지 않으며 auto_apply=0 · 검색식/LIVE/자동주문 변경 금지']
 
-    lines9 = ['(9/20)', '🎯 검색 의도 적합성 감사 | v49.76.1', '──────────']
+    lines9 = ['(9/20)', '🎯 검색 의도 적합성 감사 | v49.76.2', '──────────']
     intent=quality['intent']
     if not intent.empty:
         for mode in s.CLOSING_BET_V4958_PRIMARY_PRIORITY:
@@ -1114,7 +1114,7 @@ def main() -> int:
         lines9.append('- 의도 프록시 평가없음')
     lines9 += ['', '- INTENT는 search_spec의 사람 언어 의도를 독립 수치 프록시로 점검한 것이며 권위 검색식 자체를 대체하지 않습니다.', '- MISMATCH인데 상승한 사례와 MATCH인데 하락한 사례는 manual casebook에서 우선 검토합니다.']
 
-    lines10 = ['(10/20)', '🕵️ 놓친 상승종목·단계별 누락 | v49.76.1', '──────────']
+    lines10 = ['(10/20)', '🕵️ 놓친 상승종목·단계별 누락 | v49.76.2', '──────────']
     opp=quality['opp_summary']
     if not opp.empty:
         lines10.append(f'- Material opportunity census: {quality_manifest.get("opportunity_rows",0)}건 · TOP5 미포착 {quality_manifest.get("missed_opportunity_rows",0)}건 · full-predicate deep audit {quality_manifest.get("deep_audit_rows",0)}건')
@@ -1130,7 +1130,7 @@ def main() -> int:
             lines10.append(f'- {cls}: {int(n0)}건')
     lines10 += ['', f'- 기술적 false negative: {quality_manifest.get("technical_false_negative_rows",0)}건 · 1건이라도 있으면 SEARCH QUALITY INVALID', '- 미감사 Gate 누락은 VECTOR_GATE_REJECTED_UNVERIFIED로 표시하며 전략적 누락으로 단정하지 않습니다.']
 
-    lines11 = ['(11/20)', '📐 랭킹·분포변화·상시감사 | v49.76.1', '──────────']
+    lines11 = ['(11/20)', '📐 랭킹·분포변화·상시감사 | v49.76.2', '──────────']
     rank=quality['rank_summary']
     if not rank.empty:
         for mode in ['LP','L','G','S','SLOCK']:
@@ -1148,7 +1148,7 @@ def main() -> int:
         lines11.append('- 분포변화 평가 표본 부족')
     lines11 += ['', '- 검색식 변경은 하지 않으며 사례→반복성→가설등록→별도 검증→미래 PAPER 순서를 유지합니다.', '- auto_apply=0 · PAPER 유지 · 실제주문 0건']
 
-    lines12 = ['(12/20)', '🚨 기술적 누락 포렌식 | v49.76.1', '──────────']
+    lines12 = ['(12/20)', '🚨 기술적 누락 포렌식 | v49.76.2', '──────────']
     tech_fn = quality.get('technical_fn', pd.DataFrame())
     lines12.append('- A Gate: SAFE SUPERSET · 공통자격 통과 시 A 권위식을 항상 호출 · 6조건/4점 판정은 권위식 단일 소스')
     if tech_fn is None or tech_fn.empty:
@@ -1170,7 +1170,7 @@ def main() -> int:
             lines12.append(f'- 나머지 {len(tech_fn)-20}건은 v49_76_technical_false_negative.csv에 전부 저장')
     lines12 += ['', '- 권위 검색식 조건은 변경하지 않았으며 A Gate를 권위식보다 넓은 SAFE SUPERSET으로 변경했습니다.', '- A 6조건 trace와 권위 replay score를 함께 저장해 향후 차이를 즉시 진단합니다.', '- 1건이라도 발생하면 종료코드 3 · PAPER/실제주문 0 유지']
 
-    lines13 = ['(13/20)', '🔎 즉시상승 미포착 · 정책제외 vs 진짜 패턴누락 | v49.76.1', '──────────']
+    lines13 = ['(13/20)', '🔎 즉시상승 미포착 · 정책제외 vs 진짜 패턴누락 | v49.76.2', '──────────']
     ps=insight.get('policy_summary',pd.DataFrame()); ms=insight.get('miss_summary',pd.DataFrame()); mc=insight.get('miss_contrast',pd.DataFrame())
     if ps is not None and not ps.empty:
         total=int(ps.n.sum()); lines13.append(f'- STRATEGIC_MISS_CONFIRMED × IMMEDIATE_MISS: {total}건')
@@ -1189,7 +1189,7 @@ def main() -> int:
         lines13.append('- 즉시상승 전략적 미포착 정밀표본 없음')
     lines13 += ['', '- Opportunity census는 PREPARED UNIVERSE 내부만 관찰하므로 유니버스 밖 급등주는 이 분류에서 보이지 않습니다.', '- 저유동성 정책제외를 새 검색식 누락으로 취급하지 않습니다. threshold selection NONE · auto_apply=0']
 
-    lines14 = ['(14/20)', '🔀 LP·G 랭킹 역전 · STANDARD_OOS 전용 | v49.76.1', '──────────']
+    lines14 = ['(14/20)', '🔀 LP·G 랭킹 역전 · STANDARD_OOS 전용 | v49.76.2', '──────────']
     rs=insight.get('rank_summary',pd.DataFrame()); rf=insight.get('rank_features',pd.DataFrame())
     if rs is not None and not rs.empty:
         for mode in ['LP','G']:
@@ -1203,7 +1203,7 @@ def main() -> int:
     else: lines14.append('- STANDARD_OOS LP/G 다중후보 비교 표본 없음')
     lines14 += ['', '- VALIDATION/LOCKED_TEST를 OOS로 혼용하지 않습니다. 실현수익은 사후 라벨이며 rank change NONE · auto_apply=0']
 
-    lines15 = ['(15/20)', '⚖️ A BIG_CAPTURABLE vs STOP_FIRST · 상호배타 | v49.76.1', '──────────']
+    lines15 = ['(15/20)', '⚖️ A BIG_CAPTURABLE vs STOP_FIRST · 상호배타 | v49.76.2', '──────────']
     aas=insight.get('a_summary',pd.DataFrame()); aac=insight.get('a_contrast',pd.DataFrame())
     if aas is not None and not aas.empty:
         for scope in ['STANDARD_OOS','LOCKED_TEST','VALIDATION']:
@@ -1218,7 +1218,7 @@ def main() -> int:
     else: lines15.append('- A 상호배타 BIG/STOP 표본 없음')
     lines15 += ['', '- BIG/STOP은 outcome_class 정확 일치만 사용합니다. big_before_stop/stop_first_flag 중첩 플래그는 이 비교에서 사용하지 않습니다.', '- A 검색식·점수·랭킹 자동변경 없음']
 
-    lines16 = ['(16/20)', '🧭 H 이중프로필 · 표본권위 분리 | v49.76.1', '──────────']
+    lines16 = ['(16/20)', '🧭 H 이중프로필 · 표본권위 분리 | v49.76.2', '──────────']
     hs=insight.get('h_summary',pd.DataFrame()); hm=insight.get('h_matrix',pd.DataFrame())
     if hs is not None and not hs.empty:
         for scope in ['STANDARD_OOS','LOCKED_TEST']:
@@ -1233,7 +1233,7 @@ def main() -> int:
     else: lines16.append('- H 전용 의도 재감사 표본 없음')
     lines16 += ['', '- H BIG/STOP 비율도 outcome_class 상호배타 기준입니다.', '- HIGH_DRYUP/CP6는 감사 라벨만 분리하며 권위 H 검색식은 변경하지 않습니다.']
 
-    lines17 = ['(17/20)', '🔒 입력·MARCAP 권위·표본권위 | v49.76.1', '──────────']
+    lines17 = ['(17/20)', '🔒 입력·MARCAP 권위·표본권위 | v49.76.2', '──────────']
     bcmp=input_authority.get('baseline_comparison',{}) or {}
     lines17.append(f'- REPRODUCIBILITY: {input_authority.get("reproducibility_status")} · prepared {str(input_authority.get("prepared_authority_sha256",""))[:16]} · history {str(input_authority.get("history_global_sha256",""))[:16]}')
     lines17.append(f'- MARCAP SNAPSHOT: CONSENSUS VALID ✅ · source {input_authority.get("marcap_snapshot_source","-")} · requested {universe.get("requested_end_date","-")} → trading-asof {input_authority.get("marcap_snapshot_asof_date","-")} · requestedTrading {input_authority.get("marcap_snapshot_requested_is_trading_day")} · unit {input_authority.get("marcap_snapshot_unit","-")} · sha {str(input_authority.get("marcap_map_sha256",""))[:16]}')
@@ -1281,7 +1281,7 @@ def main() -> int:
         for _,rr in reg.iterrows(): lines17.append(f'- {rr.lane}: {rr.status} · evidence {int(rr.evidence_n)} · {rr.next_action}')
     lines17 += ['', '- DEGRADED history gap도 fingerprint baseline으로 저장하며 동일 gap 재현 여부를 검증합니다.', '- 같은 기간 input/history/issue/population fingerprint가 달라지면 INVALID fail-closed.', '- MARCAP은 KRX 실제 거래일을 먼저 확정한 뒤 Prepare 단일 snapshot만 사용하며 shard runtime mutation 1건도 즉시 실패.', '- search/rank/exit/LIVE change NONE · auto_apply=0 · PAPER 유지 · 실제주문 0건']
 
-    lines18=['(18/20)','🕰️ Signal-Date MARCAP · Look-Ahead 감사 | v49.76.1','──────────']
+    lines18=['(18/20)','🕰️ Signal-Date MARCAP · Look-Ahead 감사 | v49.76.2','──────────']
     _pm=pit_manifest or {}
     lines18.append(f'- PIT MARCAP AUDIT: {_pm.get("status","NO-DATA")} · 거래일 {_pm.get("valid_dates",0)}/{_pm.get("requested_dates",0)} ({float(_pm.get("date_coverage_pct",0) or 0):.1f}%) · cache {_pm.get("cache_hits",0)} · fetch {_pm.get("network_fetches",0)}')
     lines18.append(f'- 비교축: END-DATE MARCAP {str(_snap_manifest.get("asof_date",""))} vs 각 signal-date MARCAP · cutoff {float(getattr(s,"MCAP_OR_MIN",200_000_000_000))/1e8:.0f}억')
@@ -1307,7 +1307,7 @@ def main() -> int:
         lines18.append(f'- 감사 오류: {str(_pm.get("error"))[:160]}')
     lines18 += ['', '- 이 감사는 현재 raw에서 미래 END-DATE 시총 때문에 추가된 신호를 제거하는 one-sided shadow입니다.', '- 당시에는 2000억 이상이었지만 END-DATE 기준으로 탈락해 애초에 raw에 없던 신호의 역방향 추가는 full predicate shadow replay 없이는 측정하지 않습니다.', '- 역사적 KOSPI200/KOSDAQ150 편입이력은 아직 재구성하지 않고 현재 INDEX_MAP을 고정하므로 MARCAP look-ahead만 분리해서 봅니다.', '- audit/rank/search/exit/LIVE change NONE · auto_apply=0 · PAPER 유지 · 실제주문 0건']
 
-    lines19=['(19/20)','🧪 A-MA60 고정가설 · H-Dryup · PRE-IGNITION | v49.76.1','──────────']
+    lines19=['(19/20)','🧪 A-MA60 고정가설 · H-Dryup · PRE-IGNITION | v49.76.2','──────────']
     _am=dict((practical_audit.get('a') or {}).get('manifest') or {})
     lines19.append(f'- A MA60 FIXED: {_am.get("status","NO-DATA")} · TRAIN BIG {f(_am.get("train_big_median"))} / STOP {f(_am.get("train_stop_median"))} · 고정 threshold {f(_am.get("threshold"))}')
     _as=(practical_audit.get('a') or {}).get('summary',pd.DataFrame())
@@ -1320,7 +1320,7 @@ def main() -> int:
     lines19.append(f'- PRE-IGNITION casebook: {_pm2.get("status","NO-DATA")} · TRUE miss {_pm2.get("true_pattern_miss_rows",0)}건 · 상위 casebook {_pm2.get("cases",0)}건 · 실시간 후보생성 0')
     lines19 += ['', '- A threshold는 TRAIN에서 1회 고정 후 VALIDATION/LOCKED_TEST에서 재선택하지 않습니다.', '- H/PRE-IGNITION은 PAPER 연구 라벨이며 search/rank/exit 자동변경 없음 · auto_apply=0']
 
-    lines20=['(20/20)','⚡ 실전 PAPER 운용 준비도 | v49.76.1','──────────']
+    lines20=['(20/20)','⚡ 실전 PAPER 운용 준비도 | v49.76.2','──────────']
     _ready=practical_audit.get('readiness',pd.DataFrame())
     if isinstance(_ready,pd.DataFrame) and not _ready.empty:
         for _mode in ['LP','SLOCK','G','A','H','IT','I','L','S','B1','B2','C']:
