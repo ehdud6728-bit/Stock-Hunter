@@ -1,7 +1,7 @@
 {
   "spec_version": "search-spec-v7",
   "evaluator_version": "single-search-evaluator-9-a-gate-zero-body-parity-forensic-path-audit",
-  "title": "v49.74 shared search contract with A SAFE-SUPERSET, technical-FN forensics, missed-winner path audit, and MARCAP snapshot authority lock",
+  "title": "v49.75 shared search contract with A SAFE-SUPERSET, technical-FN forensics, missed-winner path audit, and MARCAP snapshot authority lock",
   "authority": "LIVE and BACKTEST share explicit-hist predicates. Historical performance uses one prepared immutable universe, one Prepare-resolved as-of MARCAP snapshot consumed unchanged by all shards/merge, deterministic shards, performance-only workers, and a global raw-signal merge before TOP selection.",
   "primary_strategy_priority": [
     "L",
@@ -507,29 +507,49 @@
       "paper_only": true,
       "real_orders": 0
     },
-    "v49_74_marcap_snapshot_authority": {
+    "v49_75_marcap_snapshot_authority": {
       "status": "enabled",
       "authoritative_predicates_changed": false,
-      "prepare_single_source": "PYKRX_ASOF_MARKET_CAP",
+      "prepare_single_source": "PYKRX_TRADING_DAY_MARKET_CAP",
       "requested_end_date_snapshot": true,
-      "bounded_trading_day_lookback": true,
+      "verified_trading_day_required": true,
       "fallback_default": "DISABLED_FAIL_CLOSED",
       "shard_runtime_marcap_refresh": false,
       "prepare_shard_merge_sha_consensus_required": true,
       "runtime_mutation_fail_closed": true,
       "same_period_marcap_parity_forensics": true,
-      "parity_fields": [
-        "changed_codes",
-        "zero_to_positive",
-        "positive_to_zero",
-        "mcap_pass_to_fail",
-        "mcap_fail_to_pass",
-        "universe_pass_to_fail",
-        "universe_fail_to_pass",
-        "ratio_ge_10x",
-        "ratio_le_0_1x"
+      "point_in_time_note": "Production MARCAP remains frozen on the verified backtest-end trading day for reproducibility; PIT is audit-only.",
+      "auto_apply": false,
+      "paper_only": true,
+      "real_orders": 0
+    },
+    "v49_75_point_in_time_marcap_lookahead_audit": {
+      "status": "enabled",
+      "authoritative_predicates_changed": false,
+      "source": "PYKRX_SIGNAL_DATE_MARKET_CAP",
+      "cache": "DATE_LEVEL_PERSISTENT_CACHE",
+      "definitive_modes": [
+        "A",
+        "B1",
+        "B2",
+        "S",
+        "SLOCK",
+        "C",
+        "G"
       ],
-      "point_in_time_note": "MARCAP is frozen as of the backtest end date for reproducibility; this does not reconstruct historical daily market-cap membership.",
+      "mixed_modes": [
+        "H",
+        "L"
+      ],
+      "marcap_independent_fast_gate_modes": [
+        "LP",
+        "I",
+        "IT"
+      ],
+      "comparison": "END_DATE_MARCAP_VS_SIGNAL_DATE_MARCAP",
+      "shadow": "ONE_SIDED_REMOVE_ONLY_CURRENT_RAW",
+      "historical_index_membership": "NOT_RECONSTRUCTED_CURRENT_INDEX_OVERRIDE_HELD_CONSTANT",
+      "reverse_additions": "NOT_MEASURED_WITHOUT_FULL_PREDICATE_SHADOW_REPLAY",
       "auto_apply": false,
       "paper_only": true,
       "real_orders": 0
