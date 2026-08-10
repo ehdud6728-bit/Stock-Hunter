@@ -80,7 +80,8 @@ def _env_float(name: str, default: float = 0.0) -> float:
         except Exception:
             return 0.0
 
-CLOSING_BET_SCANNER_VERSION = 'G_MORALES_V4_4_9_53_8_49_76_PRACTICAL_PAPER_EXECUTION_RESEARCH_INTEGRATION_20260810'
+CLOSING_BET_SCANNER_VERSION = 'G_MORALES_V4_4_9_53_8_49_76_1_LIVE_DATA_PAPER_WIRING_HOTFIX_20260810'
+CLOSING_BET_RELEASE_TAG = 'v49.76.1'
 CLOSING_BET_LIVE_PRICE_SANITY_FIX = str(os.environ.get('CLOSING_BET_LIVE_PRICE_SANITY_FIX', '1')).lower() in ('1', 'true', 'yes', 'y', 'on')
 CLOSING_BET_LIVE_READABILITY_COMPACT = str(os.environ.get('CLOSING_BET_LIVE_READABILITY_COMPACT', '1')).lower() in ('1', 'true', 'yes', 'y', 'on')
 # v53.8.42: M5R TRUE60 검증용 장기 월봉 확보. 60개월 월선 계산에는 약 7년 일봉이 필요하다.
@@ -1429,13 +1430,19 @@ CLOSING_BET_TELEGRAM_MAX_LEN = _env_int('CLOSING_BET_TELEGRAM_MAX_LEN', '3400')
 # 14:40은 기존처럼 후보 발굴, 15:03은 동시호가 직전 실행/포기만 빠르게 판단한다.
 CLOSING_BET_RUN_MODE = str(os.environ.get('CLOSING_BET_RUN_MODE', 'main')).strip().lower() or 'main'
 CLOSING_BET_FINAL_KICK_ONLY = _bool_env('CLOSING_BET_FINAL_KICK_ONLY', '1' if CLOSING_BET_RUN_MODE in ('final_kick', 'final-kick', 'kick') else '0')
-CLOSING_BET_MAX_FINAL_KICK_CARDS = _env_int('CLOSING_BET_MAX_FINAL_KICK_CARDS', '3')
+CLOSING_BET_MAX_FINAL_KICK_CARDS = _env_int('CLOSING_BET_MAX_FINAL_KICK_CARDS', '2')
 # v4.4.9.24: 최종킥은 실행/포기만 빠르게 보는 압축 모드가 기본값이다.
 CLOSING_BET_FINAL_KICK_COMPACT = _bool_env('CLOSING_BET_FINAL_KICK_COMPACT', '1')
 # v49.76: 실전 PAPER 실행보드. 14:40은 preview-only, 15:03 final-kick에서만 실제추천 원장을 확정한다.
 CLOSING_BET_V4976_PRACTICAL_EXEC_TOP_N = max(1, _env_int('CLOSING_BET_V4976_PRACTICAL_EXEC_TOP_N', '2'))
 CLOSING_BET_V4976_FINAL_KICK_LEDGER_ONLY = _bool_env('CLOSING_BET_V4976_FINAL_KICK_LEDGER_ONLY', '1')
 CLOSING_BET_V4976_SHOW_EXECUTION_BOARD = _bool_env('CLOSING_BET_V4976_SHOW_EXECUTION_BOARD', '1')
+# v49.76.1: clean LIVE-DATA PAPER evidence. Only an actual final-kick decision completed inside the live window may enter KPI.
+CLOSING_BET_V49761_LIVE_KPI_REQUIRE_FINAL_WINDOW = _bool_env('CLOSING_BET_V49761_LIVE_KPI_REQUIRE_FINAL_WINDOW', '1')
+CLOSING_BET_V49761_FINAL_WINDOW_START_HHMM = str(os.environ.get('CLOSING_BET_V49761_FINAL_WINDOW_START_HHMM','1455')).strip() or '1455'
+CLOSING_BET_V49761_FINAL_WINDOW_END_HHMM = str(os.environ.get('CLOSING_BET_V49761_FINAL_WINDOW_END_HHMM','1525')).strip() or '1525'
+CLOSING_BET_V49761_KPI_STRICT_EVIDENCE = _bool_env('CLOSING_BET_V49761_KPI_STRICT_EVIDENCE', '1')
+CLOSING_BET_V49761_FORWARD_AFTER_DELIVERED = _bool_env('CLOSING_BET_V49761_FORWARD_AFTER_DELIVERED', '1')
 
 # v4.4.9.53.4: 실전 텔레그램은 짧게 읽히는 것을 기본값으로 한다.
 CLOSING_BET_LIVE_ULTRA_READABLE = _bool_env('CLOSING_BET_LIVE_ULTRA_READABLE', '1')
@@ -2892,7 +2899,8 @@ _V4943_LEDGER_HEADERS = [
     'event_id','recommendation_id','event_type','event_time_kst','run_date','data_date','scan_time','version',
     'code','name','ignition_date','episode_id','final_decision','decision_reason','next_action','stage','recommendation_rank','score',
     'recommended_price','target_3','target_5','stop_3','structure_support','market_state','risk_status','risk_reason',
-    'telegram_sent','telegram_chat_id_masked','telegram_message_ids','delivery_error','note'
+    'telegram_sent','telegram_chat_id_masked','telegram_message_ids','delivery_error','note',
+    'decision_phase','decision_time_kst','data_bar_state','kpi_eligible','kpi_exclusion_reason'
 ]
 _V4943_FORWARD_HEADERS = [
     'performance_id','evaluated_at_kst','evaluation_date','recommendation_id','code','name','episode_id',
@@ -2974,7 +2982,7 @@ def _v4944_sheet_health_probe(data_date=None, current_enter_count: int=0, force:
         state['error']=read_err
     else:
         state['ledger_read']='OK'; state['ledger_rows']=len(rows)
-        delivered={str(r.get('recommendation_id','')) for r in rows if str(r.get('event_type','')).upper()=='DELIVERED' and _v4943_bool(r.get('telegram_sent')) and str(r.get('recommendation_id',''))}
+        delivered={str(r.get('recommendation_id','')) for r in rows if str(r.get('event_type','')).upper()=='DELIVERED' and _v4943_bool(r.get('telegram_sent')) and _v49761_is_kpi_eligible_ledger_row(r) and str(r.get('recommendation_id',''))}
         state['delivered_unique']=len(delivered)
         state['latest_generated']=_v4944_latest_ledger_event(rows,'GENERATED')
         state['latest_delivered']=_v4944_latest_ledger_event(rows,'DELIVERED')
@@ -3011,7 +3019,7 @@ def _v4944_sheet_health_lines(state: dict, current_enter_count: int=0) -> list[s
     if int(current_enter_count)<=0:
         lines.append('- 이번 회차 ENTER 0개 · 추천원장 append/DELIVERED 없음')
     else:
-        lines.append(f'- 이번 회차 ENTER {int(current_enter_count)}개 · GENERATED는 전송 직전, DELIVERED는 Telegram 성공 후 기록')
+        lines.append(f'- 이번 회차 ENTER {int(current_enter_count)}개 · LIVE-PAPER 적격일 때만 GENERATED · 추천파트 Telegram 성공 후 DELIVERED')
     if state.get('error'):
         lines.append(f"- 오류: {str(state.get('error'))[:180]}")
     return lines
@@ -3089,6 +3097,57 @@ def _v4943_episode_id(code, ignition_date) -> str:
     return f'{cd}|{ign}' if cd and ign else ''
 
 
+def _v49761_hhmm_to_min(text: str, default: int) -> int:
+    try:
+        t=re.sub(r'[^0-9]','',str(text or ''))
+        if len(t)!=4: return int(default)
+        h=int(t[:2]); m=int(t[2:])
+        if not (0<=h<=23 and 0<=m<=59): return int(default)
+        return h*60+m
+    except Exception:
+        return int(default)
+
+
+def _v49761_final_kick_evidence(data_date=None) -> dict:
+    """v49.76.1 clean PAPER evidence: phase + actual completion time + same-day bar authority."""
+    now=_now_kst()
+    final=bool(CLOSING_BET_FINAL_KICK_ONLY or str(CLOSING_BET_RUN_MODE).lower() in ('final_kick','final-kick','kick'))
+    dd=data_date
+    if dd is None:
+        dd=(globals().get('_V4938_LAST_HEALTH',{}) or {}).get('latest_data_date') or TODAY_STR
+    try: dd_ts=pd.Timestamp(dd).normalize()
+    except Exception: dd_ts=pd.Timestamp(TODAY_STR).normalize()
+    same_day=bool(dd_ts==pd.Timestamp(now.date()).normalize())
+    minute=now.hour*60+now.minute
+    start=_v49761_hhmm_to_min(CLOSING_BET_V49761_FINAL_WINDOW_START_HHMM,14*60+55)
+    end=_v49761_hhmm_to_min(CLOSING_BET_V49761_FINAL_WINDOW_END_HHMM,15*60+25)
+    in_window=bool(start<=minute<=end)
+    time_ctx=_v4944_time_context(dd_ts)
+    if not final: reason='NOT_FINAL_KICK'
+    elif not same_day: reason='DATA_DATE_NOT_TODAY'
+    elif bool(CLOSING_BET_V49761_LIVE_KPI_REQUIRE_FINAL_WINDOW) and not in_window: reason='OUTSIDE_FINAL_KICK_LIVE_WINDOW'
+    else: reason='ELIGIBLE'
+    eligible=bool(final and same_day and (in_window or not bool(CLOSING_BET_V49761_LIVE_KPI_REQUIRE_FINAL_WINDOW)))
+    return {
+        'eligible':eligible,'reason':reason,'decision_phase':'FINAL_KICK' if final else 'PREVIEW',
+        'decision_time_kst':now.strftime('%Y-%m-%d %H:%M:%S'),'data_date':dd_ts.strftime('%Y-%m-%d'),
+        'data_bar_state':str(time_ctx.get('bar_state','')),'decision_type':str(time_ctx.get('decision_type','')),
+        'window_start':f'{start//60:02d}:{start%60:02d}','window_end':f'{end//60:02d}:{end%60:02d}',
+        'in_window':in_window,'same_day':same_day,
+    }
+
+
+def _v49761_is_kpi_eligible_ledger_row(row: dict) -> bool:
+    if not bool(CLOSING_BET_V49761_KPI_STRICT_EVIDENCE):
+        return True
+    return (str((row or {}).get('decision_phase','')).upper()=='FINAL_KICK' and _v4943_bool((row or {}).get('kpi_eligible')))
+
+
+def _v49761_is_forward_section_text(text: str) -> bool:
+    t=str(text or '').lstrip()
+    return t.startswith('📍 추천 출처 분리 Forward')
+
+
 def _v4976_item_strategy_tag(item: dict) -> str:
     r=item.get('row',{}) if isinstance(item,dict) else {}
     vals=[]
@@ -3129,7 +3188,13 @@ def _v4976_execution_board_lines(ans: dict, data_date, market_short: str='') -> 
         lines.append(f'  선정: {reason}')
         lines.append(f'  위험: {risk}' + (f' · 시장 {market_short}' if market_short else ''))
     if final:
-        lines.append('- 위 상위 최대 2종목만 추천원장 후보 · Telegram 성공+DELIVERED일 때만 실제추천 통계 포함')
+        ev=_v49761_final_kick_evidence(data_date)
+        if ev.get('eligible'):
+            lines.append(f"- LIVE-PAPER KPI 적격 · {ev.get('decision_phase')} {ev.get('decision_time_kst')} · 시간창 {ev.get('window_start')}~{ev.get('window_end')}")
+            lines.append('- 위 상위 최대 2종목만 추천원장 후보 · Telegram 성공+DELIVERED일 때만 실제추천 통계 포함')
+        else:
+            lines.append(f"- ⚠️ LIVE-PAPER KPI 미적격: {ev.get('reason')} · 판단 {ev.get('decision_time_kst')} · 시간창 {ev.get('window_start')}~{ev.get('window_end')}")
+            lines.append('- 후보표시는 연구/수동확인용 · 실제추천 원장/실전 KPI에는 기록하지 않음')
     else:
         lines.append('- PREVIEW ONLY · 14:40 결과는 실제추천 성과에서 제외 · 15:03 재검증 필수')
     return lines
@@ -3143,6 +3208,11 @@ def _v4943_prepare_live_recommendations() -> list[dict]:
         _V4943_CURRENT_RECOMMENDATIONS=[]
         return []
     if bool(CLOSING_BET_V4976_FINAL_KICK_LEDGER_ONLY) and not bool(CLOSING_BET_FINAL_KICK_ONLY or str(CLOSING_BET_RUN_MODE).lower() in ('final_kick','final-kick','kick')):
+        _V4943_CURRENT_RECOMMENDATIONS=[]
+        return []
+    _ev=_v49761_final_kick_evidence()
+    if not bool(_ev.get('eligible')):
+        log_info(f"v49.76.1 LIVE-PAPER 원장 미확정: {_ev.get('reason')} · {_ev.get('decision_time_kst')} · {_ev.get('data_bar_state')}")
         _V4943_CURRENT_RECOMMENDATIONS=[]
         return []
     now=_now_kst(); rows=[]; rank=0
@@ -3172,7 +3242,9 @@ def _v4943_prepare_live_recommendations() -> list[dict]:
             'target_3':round(px*1.03) if pd.notna(px) else '', 'target_5':round(px*1.05) if pd.notna(px) else '',
             'stop_3':round(px*0.97) if pd.notna(px) else '', 'structure_support':round(structure) if pd.notna(structure) else '',
             'market_state':str(globals().get('_V4943_LAST_MARKET_STATE','') or r.get('market_state','') or ''),'risk_status':str(r.get('risk_status','NORMAL')),
-            'risk_reason':str(r.get('risk_reason','위험가드 통과') or ''),'note':f'v49.76 15:03 PAPER 실행보드 {rank}순위 · {strategy_tag} · 자동주문 없음 · Telegram+DELIVERED 증거만 실제추천'
+            'risk_reason':str(r.get('risk_reason','위험가드 통과') or ''),'note':f'v49.76.1 15:03 PAPER 실행보드 {rank}순위 · {strategy_tag} · 자동주문 없음 · Telegram+DELIVERED+FINAL_KICK 증거만 실제추천',
+            'decision_phase':str(_ev.get('decision_phase','FINAL_KICK')),'decision_time_kst':str(_ev.get('decision_time_kst','')),
+            'data_bar_state':str(_ev.get('data_bar_state','')),'kpi_eligible':'TRUE','kpi_exclusion_reason':''
         }
         rows.append(base)
     _V4943_CURRENT_RECOMMENDATIONS=rows
@@ -3240,6 +3312,8 @@ def _v4943_delivered_episode_map(force: bool=False) -> dict[str,dict]:
     rows=_v4943_load_ledger_rows(force=force); out={}
     for row in rows:
         if str(row.get('event_type','')).upper()!='DELIVERED' or not _v4943_bool(row.get('telegram_sent')):
+            continue
+        if not _v49761_is_kpi_eligible_ledger_row(row):
             continue
         ep=str(row.get('episode_id','') or _v4943_episode_id(row.get('code'),row.get('ignition_date')))
         if not ep: continue
@@ -13381,7 +13455,7 @@ def _send_results(hits: list, mins_left: int):
 
     def _v4934_pattern_board(ranked: list[dict], live_health: dict | None = None) -> tuple[list[str],dict,set[str],dict]:
         health=dict(live_health or {})
-        lines=['📊 패턴별 근접 상위 | v49.72','──────────',f'📚 고정 기준 · {CLOSING_BET_V4935_FIXED_BASELINE_VERSION} · 비용 {int(CLOSING_BET_V4932_TRACK_COST_BPS)}bp']
+        lines=[f'📊 패턴별 근접 상위 | {CLOSING_BET_RELEASE_TAG}','──────────',f'📚 고정 기준 · {CLOSING_BET_V4935_FIXED_BASELINE_VERSION} · 비용 {int(CLOSING_BET_V4932_TRACK_COST_BPS)}bp']
         for pat in ['PRIME-RECOVERY','CORE-MAIN-UN']:
             b=CLOSING_BET_V4935_FIXED_BASELINES.get(pat,{})
             short='PRIME' if pat=='PRIME-RECOVERY' else 'CORE'
@@ -13573,7 +13647,7 @@ def _send_results(hits: list, mins_left: int):
         blocked_codes={str(x['candidate'].get('code','')).zfill(6) for x in execution_block}
         risk_count=len(pattern_risk_codes|blocked_codes)
 
-        p1=[f'📌 오늘 결론 | {TODAY_STR} · v49.76','──────────']
+        p1=[f'📌 오늘 결론 | {TODAY_STR} · {CLOSING_BET_RELEASE_TAG}','──────────']
         if live_state=='INVALID':
             p1.extend(['⛔ LIVE SCAN INVALID','신규 판단 보류 · 자동주문 0건','','[왜 보류했나]'])
             for r in reasons[:3]: p1.append(f'- {r}')
@@ -13673,47 +13747,99 @@ def _send_results(hits: list, mins_left: int):
                 _v4943_note='[🧾 실제 추천 원장] 신규 ENTER 0개 · 이번 회차 추천행 없음'
         sections[0]=str(sections[0]).rstrip()+'\n\n'+_v4943_note
 
-    if CLOSING_BET_V4932_COMPACT_LIVE_REPORT:
-        chunks = []
-        for sec in sections:
-            sub = _split_telegram_safe(str(sec).strip(), max_len=CLOSING_BET_TELEGRAM_MAX_LEN)
-            chunks.extend(sub if sub else [str(sec).strip()])
-    else:
-        full_message = "\n\n".join([str(sec).strip() for sec in sections if str(sec).strip()])
-        chunks = _split_telegram_safe(full_message, max_len=CLOSING_BET_TELEGRAM_MAX_LEN)
+    def _v49761_split_sections(_sections):
+        _out=[]
+        for _sec in _sections:
+            _sub=_split_telegram_safe(str(_sec).strip(), max_len=CLOSING_BET_TELEGRAM_MAX_LEN)
+            _out.extend(_sub if _sub else [str(_sec).strip()])
+        return _out
 
+    def _v49761_send_logical_section(_sec: str, _idx: int, _total: int):
+        _sub=_split_telegram_safe(str(_sec).strip(), max_len=CLOSING_BET_TELEGRAM_MAX_LEN) or [str(_sec).strip()]
+        _res=[]
+        for _j,_chunk in enumerate(_sub,1):
+            _prefix=f"({_idx}/{_total})" if len(_sub)==1 else f"({_idx}/{_total} · {_j}/{len(_sub)})"
+            _msg=_prefix+'\n'+_chunk
+            log_info(f"텔레그램 전송 {_idx}/{_total}" + (f" sub {_j}/{len(_sub)}" if len(_sub)>1 else '') + f" | 길이={len(_msg)}")
+            _res.append(send_telegram_photo(_msg, []))
+        return _res
+
+    _v49761_staged=bool(CLOSING_BET_V49761_FORWARD_AFTER_DELIVERED and CLOSING_BET_V4932_COMPACT_LIVE_REPORT and _v4943_recs)
     _v4943_send_results=[]
-    for i, chunk in enumerate(chunks, 1):
-        if len(chunks) > 1:
-            chunk = f"({i}/{len(chunks)})\n" + chunk
-        log_info(f"텔레그램 전송 {i}/{len(chunks)} | 길이={len(chunk)}")
-        _v4943_send_results.append(send_telegram_photo(chunk, []))
-
-    _v4943_first = _v4943_send_results[0] if _v4943_send_results else {'success_count':0,'errors':['no chunk sent']}
-    _v4943_agg={
-        'success_count':sum(_safe_int(x.get('success_count',0),0) for x in _v4943_send_results),
-        'message_ids':[mid for x in _v4943_send_results for mid in (x.get('message_ids') or [])],
-        'chat_ids_masked':list(dict.fromkeys(cid for x in _v4943_send_results for cid in (x.get('chat_ids_masked') or []))),
-        'errors':[err for x in _v4943_send_results for err in (x.get('errors') or [])],
-    }
-    # 추천카드는 첫 번째 파트에 있으므로 첫 파트 전송 성공을 실제추천 확정 기준으로 사용한다.
-    if _v4943_recs:
-        if _safe_int(_v4943_first.get('success_count',0),0)>0:
-            _v4943_deliver_st=_v4943_write_recommendation_event(_v4943_recs,'DELIVERED',_v4943_agg)
+    _v4943_delivery_confirm_pending=''
+    if _v49761_staged:
+        # Forward is deliberately withheld until the first recommendation part is Telegram-successful
+        # and the matching DELIVERED rows are re-read from Google Sheet. This removes same-run Replay/LIVE contradiction.
+        _pre_sections=[x for x in sections if not _v49761_is_forward_section_text(x)]
+        _logical_total=len(_pre_sections)+1
+        _v49761_first_logical=[]
+        for _i,_sec in enumerate(_pre_sections,1):
+            _logical_res=_v49761_send_logical_section(_sec,_i,_logical_total)
+            if _i==1: _v49761_first_logical=list(_logical_res)
+            _v4943_send_results.extend(_logical_res)
+        _v4943_first=_v49761_first_logical[0] if _v49761_first_logical else {'success_count':0,'errors':['no recommendation part sent']}
+        _v49761_recommendation_part_ok=bool(_v49761_first_logical) and all(_safe_int(x.get('success_count',0),0)>0 for x in _v49761_first_logical)
+        _pre_agg={
+            'success_count':sum(_safe_int(x.get('success_count',0),0) for x in _v4943_send_results),
+            'message_ids':[mid for x in _v4943_send_results for mid in (x.get('message_ids') or [])],
+            'chat_ids_masked':list(dict.fromkeys(cid for x in _v4943_send_results for cid in (x.get('chat_ids_masked') or []))),
+            'errors':[err for x in _v4943_send_results for err in (x.get('errors') or [])],
+        }
+        if _v49761_recommendation_part_ok:
+            _v4943_deliver_st=_v4943_write_recommendation_event(_v4943_recs,'DELIVERED',_pre_agg)
             _v4943_verified_map=_v4943_delivered_episode_map(force=True)
             _v4943_verified=sum(1 for r in _v4943_recs if str(r.get('episode_id','')) in _v4943_verified_map)
             if _v4943_deliver_st.get('state')=='OK' and _v4943_verified==len(_v4943_recs):
-                log_info(f"✅ LIVE 추천원장 DELIVERED 증거검증: {_v4943_verified}/{len(_v4943_recs)}개")
-                if bool(CLOSING_BET_V4944_DELIVERY_CONFIRM_TELEGRAM):
-                    _v4943_ids=','.join(str(x) for x in (_v4943_agg.get('message_ids') or [])) or '확인됨'
-                    send_telegram_photo(f"🧾 실제추천 증거 확정 | v49.76\n- DELIVERED {_v4943_verified}/{len(_v4943_recs)}개 · Google Sheet 검증 완료\n- Telegram message_id {_v4943_ids}\n- 자동주문 0건",[])
+                log_info(f"✅ LIVE-PAPER 추천원장 DELIVERED 증거검증: {_v4943_verified}/{len(_v4943_recs)}개")
+                _v4943_ids=','.join(str(x) for x in (_pre_agg.get('message_ids') or [])) or '확인됨'
+                _v4943_delivery_confirm_pending=f"🧾 실제추천 증거 확정 | {CLOSING_BET_RELEASE_TAG}\n- FINAL_KICK KPI 적격 + DELIVERED {_v4943_verified}/{len(_v4943_recs)}개 · Google Sheet 검증 완료\n- Telegram message_id {_v4943_ids}\n- 자동주문 0건"
             else:
                 log_error(f"⚠️ Telegram 전달 성공·Sheet DELIVERED 증거 불완전: {_v4943_verified}/{len(_v4943_recs)} | {_v4943_deliver_st}")
         else:
-            _v4943_write_recommendation_event(_v4943_recs,'DELIVERY_FAILED',_v4943_agg,error='첫 추천 파트 Telegram 전송 실패')
-            log_error(f"⚠️ LIVE 추천원장 DELIVERY_FAILED: {len(_v4943_recs)}개")
-    _v4943_fwd=_v4943_write_forward_snapshot(pd.DataFrame(hits))
-    log_info(f"Google Sheet Forward snapshot: {_v4943_fwd}")
+            _v4943_write_recommendation_event(_v4943_recs,'DELIVERY_FAILED',_pre_agg,error='추천 논리파트 Telegram 전체 전송 실패')
+            log_error(f"⚠️ LIVE-PAPER 추천원장 DELIVERY_FAILED: {len(_v4943_recs)}개")
+        # Rebuild provenance only after DELIVERED/DELIVERY_FAILED has been persisted.
+        _v4943_fwd=_v4943_write_forward_snapshot(pd.DataFrame(hits))
+        log_info(f"Google Sheet Forward snapshot (after delivery evidence): {_v4943_fwd}")
+        _fresh_forward='\n'.join(_v4938_tracker_lines(pd.DataFrame(hits)))
+        _v4943_send_results.extend(_v49761_send_logical_section(_fresh_forward,_logical_total,_logical_total))
+        if _v4943_delivery_confirm_pending and bool(CLOSING_BET_V4944_DELIVERY_CONFIRM_TELEGRAM):
+            _v4943_send_results.append(send_telegram_photo(_v4943_delivery_confirm_pending,[]))
+    else:
+        if CLOSING_BET_V4932_COMPACT_LIVE_REPORT:
+            chunks = _v49761_split_sections(sections)
+        else:
+            full_message = "\n\n".join([str(sec).strip() for sec in sections if str(sec).strip()])
+            chunks = _split_telegram_safe(full_message, max_len=CLOSING_BET_TELEGRAM_MAX_LEN)
+        for i, chunk in enumerate(chunks, 1):
+            if len(chunks) > 1:
+                chunk = f"({i}/{len(chunks)})\n" + chunk
+            log_info(f"텔레그램 전송 {i}/{len(chunks)} | 길이={len(chunk)}")
+            _v4943_send_results.append(send_telegram_photo(chunk, []))
+        _v4943_first = _v4943_send_results[0] if _v4943_send_results else {'success_count':0,'errors':['no chunk sent']}
+        _v4943_agg={
+            'success_count':sum(_safe_int(x.get('success_count',0),0) for x in _v4943_send_results),
+            'message_ids':[mid for x in _v4943_send_results for mid in (x.get('message_ids') or [])],
+            'chat_ids_masked':list(dict.fromkeys(cid for x in _v4943_send_results for cid in (x.get('chat_ids_masked') or []))),
+            'errors':[err for x in _v4943_send_results for err in (x.get('errors') or [])],
+        }
+        if _v4943_recs:
+            if _safe_int(_v4943_first.get('success_count',0),0)>0:
+                _v4943_deliver_st=_v4943_write_recommendation_event(_v4943_recs,'DELIVERED',_v4943_agg)
+                _v4943_verified_map=_v4943_delivered_episode_map(force=True)
+                _v4943_verified=sum(1 for r in _v4943_recs if str(r.get('episode_id','')) in _v4943_verified_map)
+                if _v4943_deliver_st.get('state')=='OK' and _v4943_verified==len(_v4943_recs):
+                    log_info(f"✅ LIVE-PAPER 추천원장 DELIVERED 증거검증: {_v4943_verified}/{len(_v4943_recs)}개")
+                    if bool(CLOSING_BET_V4944_DELIVERY_CONFIRM_TELEGRAM):
+                        _v4943_ids=','.join(str(x) for x in (_v4943_agg.get('message_ids') or [])) or '확인됨'
+                        send_telegram_photo(f"🧾 실제추천 증거 확정 | {CLOSING_BET_RELEASE_TAG}\n- FINAL_KICK KPI 적격 + DELIVERED {_v4943_verified}/{len(_v4943_recs)}개 · Google Sheet 검증 완료\n- Telegram message_id {_v4943_ids}\n- 자동주문 0건",[])
+                else:
+                    log_error(f"⚠️ Telegram 전달 성공·Sheet DELIVERED 증거 불완전: {_v4943_verified}/{len(_v4943_recs)} | {_v4943_deliver_st}")
+            else:
+                _v4943_write_recommendation_event(_v4943_recs,'DELIVERY_FAILED',_v4943_agg,error='첫 추천 파트 Telegram 전송 실패')
+                log_error(f"⚠️ LIVE-PAPER 추천원장 DELIVERY_FAILED: {len(_v4943_recs)}개")
+        _v4943_fwd=_v4943_write_forward_snapshot(pd.DataFrame(hits))
+        log_info(f"Google Sheet Forward snapshot: {_v4943_fwd}")
     log_info("✅ 텔레그램 전송 완료")
 
 def run_closing_bet_scan(force: bool = False) -> list:
@@ -22441,7 +22567,7 @@ def _v4944_live_kpi_lines(k: dict) -> list[str]:
 
 
 def _v4938_tracker_lines(df=None) -> list[str]:
-    lines=['📍 추천 출처 분리 Forward | v49.72','──────────']
+    lines=[f'📍 추천 출처 분리 Forward | {CLOSING_BET_RELEASE_TAG}','──────────']
     events=_v4938_recent_events(df)
     forward=events[events.get('v4938_track_class',pd.Series('',index=events.index)).eq('FORWARD')].copy() if not events.empty else pd.DataFrame()
     blocked=events[events.get('v4938_track_class',pd.Series('',index=events.index)).eq('BLOCKED')].copy() if not events.empty else pd.DataFrame()
@@ -22482,7 +22608,7 @@ def _v4938_tracker_lines(df=None) -> list[str]:
 
     ln,la,ld,lc=cnts(live); rn,ra,rd,rc=cnts(replay); bn,ba,bd,bc=cnts(blocked)
     live_kpi=_v4944_live_kpi(live,live_map)
-    lines.extend(['','[📨 실제 추천 Forward]','- LIVE_추천원장 DELIVERED + telegram_sent=TRUE만 포함',f'- 오늘 신규 {ln} · 포지션 진행 {la} · 정책청산 완료 {ld} · D+5 완료 {lc}'])
+    lines.extend(['','[📨 실제 추천 Forward]','- LIVE_PAPER_KPI = FINAL_KICK + kpi_eligible=TRUE + DELIVERED + telegram_sent=TRUE만 포함',f'- 오늘 신규 {ln} · 포지션 진행 {la} · 정책청산 완료 {ld} · D+5 완료 {lc}'])
     lines.extend(_v4944_live_kpi_lines(live_kpi))
     emit_rows(live,'LIVE',int(CLOSING_BET_V4932_TRACK_TOP_N))
     lines.extend(['','[🧪 Historical Replay Forward]','- 시트 전송증거가 없는 과거 재구성 신호 · 실제 추천 승률에서 제외',f'- 오늘 재현 {rn} · 진행 {ra} · 정책평가완료 {rd} · D+5 완료 {rc}'])
@@ -22498,7 +22624,7 @@ def _v4938_tracker_lines(df=None) -> list[str]:
         if len(blocked)>show:lines.append(f'- 외 {len(blocked)-show}종목')
     sh=dict(_V4944_SHEET_HEALTH or {})
     sheet_state=f"문서 {sh.get('connection','NOT_RUN')} · 조회 {sh.get('ledger_read','NOT_RUN')} · 쓰기 {sh.get('health_write','NOT_RUN')}"
-    lines.extend(['','[🧾 추천 증거 원칙]',f'- Google Sheet: {sheet_state}','- 실제추천 = 최종판단 ENTER + Telegram 성공 + DELIVERED 원장행','- Replay와 Blocked는 실제 추천 통계에 합산 금지','- 자동주문 0건'])
+    lines.extend(['','[🧾 추천 증거 원칙]',f'- Google Sheet: {sheet_state}','- 실제추천 KPI = FINAL_KICK 시간증거 + 최종판단 ENTER + Telegram 성공 + DELIVERED 원장행','- Replay와 Blocked는 실제 추천 통계에 합산 금지','- 자동주문 0건'])
     return lines
 
 
@@ -22521,14 +22647,14 @@ def _v4938_build_live_parts(df, legacy_execution: list[dict], market_short: str,
         try: data_date=pd.Timestamp(health.get('latest_data_date')).normalize()
         except Exception: pass
     run_date=pd.Timestamp(TODAY_STR).normalize(); stale=data_date!=run_date
-    title=(f'📌 다음 거래일 최종판단 · 기회 지도 | 실행 {run_date.strftime("%Y-%m-%d")} · 데이터 {data_date.strftime("%Y-%m-%d")} · v49.76'
-           if stale else f'📌 오늘 최종판단 · 기회 지도 | {data_date.strftime("%Y-%m-%d")} · v49.76')
+    title=(f'📌 다음 거래일 최종판단 · 기회 지도 | 실행 {run_date.strftime("%Y-%m-%d")} · 데이터 {data_date.strftime("%Y-%m-%d")} · {CLOSING_BET_RELEASE_TAG}'
+           if stale else f'📌 오늘 최종판단 · 기회 지도 | {data_date.strftime("%Y-%m-%d")} · {CLOSING_BET_RELEASE_TAG}')
     p1=[title,'──────────']
     if invalid:
         _tc=_v4944_time_context(data_date); _sh=_v4944_sheet_health_probe(data_date,0)
         p1.extend(['[⏱ 판단 기준]',f"- 실행시각: {_tc.get('run_time_kst')}",f"- 일봉·지표 기준: {_tc.get('data_date')} · 판단가격: {_tc.get('price_basis')}",f"- 판정유형: {_tc.get('decision_type')} · {_tc.get('bar_state')}",'',
                    '⚫ 최종판단: 데이터 정합성 오류로 판단보류','전체 유니버스 상태 복원 실패 · 신규 진입 금지',f"요청 {health.get('requested',0)} · 로드 {health.get('processed',0)} · 부족 {health.get('short',0)} · 실패 {health.get('failed',0)}",'후보 0개로 판정하지 않았습니다. · 자동주문 0건','']+_v4944_sheet_health_lines(_sh,0))
-        return ['\n'.join(p1),'\n'.join(['📊 단계별 추적 | v49.72','──────────','- 데이터 정상화 전 표시 보류']),'\n'.join(_v4938_tracker_lines(df))]
+        return ['\n'.join(p1),'\n'.join([f'📊 단계별 추적 | {CLOSING_BET_RELEASE_TAG}','──────────','- 데이터 정상화 전 표시 보류']),'\n'.join(_v4938_tracker_lines(df))]
 
     eff=reg.get('effective_stage',reg.get('stage',pd.Series('',index=reg.index))).astype(str) if not reg.empty else pd.Series(dtype=str)
     risk=reg.get('risk_status',pd.Series('',index=reg.index)).astype(str) if not reg.empty else pd.Series(dtype=str)
@@ -22602,7 +22728,7 @@ def _v4938_build_live_parts(df, legacy_execution: list[dict], market_short: str,
             if _age in (0,1,2): fail_buckets[_age]+=1
             else: fail_buckets['older_recent']+=1
     archive_n=max(0,len(failed)-len(recent_failed_df))
-    p2=['📊 단계별 상위 추적 | v49.76','──────────',f'[🚀 DISCOVERY · 일반 점화 {len(ign)}개]']
+    p2=[f'📊 단계별 상위 추적 | {CLOSING_BET_RELEASE_TAG}','──────────',f'[🚀 DISCOVERY · 일반 점화 {len(ign)}개]']
     if ign.empty:p2.append('- 신규 일반 점화 없음')
     else:
         show=min(int(CLOSING_BET_V4938_DISCOVERY_TOP_N),len(ign))
@@ -22975,7 +23101,7 @@ def _v4932_tracker_row_status(r) -> tuple[int, float, float, float, str]:
 
 
 def _v4932_stateless_tracker_lines(df=None, next_checks=None) -> list[str]:
-    lines=['📍 신호 추적 | v49.72','──────────']
+    lines=[f'📍 신호 추적 | {CLOSING_BET_RELEASE_TAG}','──────────']
     try:
         recent=_v4932_recent_vrec_stateless_df(df)
         if recent is None or recent.empty:
@@ -45300,7 +45426,7 @@ def _v4936_backtest_telegram_parts(audit_report: str, compact_report: str='') ->
         lifecycle=dict(root.get('lifecycle',{}) or {})
         elapsed=float((root.get('research_lane') or {}).get('elapsed_sec',0.0) or 0.0)
 
-        p1=['(1/7)','⚠️ COMMON STRATEGY INVALID · Lifecycle Research VALID | v49.72','──────────',version,period,
+        p1=['(1/7)','⚠️ COMMON STRATEGY INVALID · Lifecycle Research VALID | v49.76.1','──────────',version,period,
             '[📡 공통 OHLCV / LEGACY 레인]']+pipe+[
             f'- Lifecycle Research: ✅ VALID · 독립 실행 {elapsed:.1f}s' if elapsed>0 else '- Lifecycle Research: ✅ VALID · LEGACY와 독립',
             '', '[🚀 Lifecycle 에피소드 감사]',
@@ -45319,7 +45445,7 @@ def _v4936_backtest_telegram_parts(audit_report: str, compact_report: str='') ->
             lifecycle.get('policy_line') or '- ENTRY 정책성과 없음',
         ]+list((root.get('known_case') or {}).get('lines',[]) or [])+[
             '', '[해석 제한]','- PRIME/CORE/LCZ/기존 포트폴리오는 COMMON STRATEGY INVALID로 전면 제외','- Lifecycle Research만 독립 VALID 표본으로 연구 해석','- PAPER 유지 · 실제주문 0건']
-        p2=['(2/7)','🎯 먹을 수 있는 BIG / Pattern 연구 | v49.72','──────────',
+        p2=['(2/7)','🎯 먹을 수 있는 BIG / Pattern 연구 | v49.76.1','──────────',
             '[🚀 BIG-WINNER ANATOMY]',
             lifecycle.get('big_count_line') or '- BIG-WINNER 표본 없음',
             lifecycle.get('big_concentration_line') or '- 집중도 평가없음',
@@ -45327,19 +45453,19 @@ def _v4936_backtest_telegram_parts(audit_report: str, compact_report: str='') ->
             '', '[🎯 CAPTURABLE-BIG PATH ANATOMY]']+list(lifecycle.get('capturable_lines',[]) or ['- 평가없음'])+[
             '', '[🏃 POST-POLICY RUNNER ANATOMY]']+list(lifecycle.get('runner_lines',[]) or ['- 평가없음'])+[
             '', '[🧬 BIG-WINNER PATTERN CLUSTER]']+list(lifecycle.get('cluster_lines',[]) or ['- cluster 평가없음'])
-        p3=['(3/7)','🏃 Runner 정책 다중검증 | v49.72','──────────',
+        p3=['(3/7)','🏃 Runner 정책 다중검증 | v49.76.1','──────────',
             '[🏃 UNIVERSAL RESIDUAL RUNNER 정책]']+list(lifecycle.get('runner_policy_lines',[]) or ['- 평가없음'])+[
             '', '[🚶 RUNNER MULTI WALK-FORWARD · 20%/30% D10]']+list(lifecycle.get('runner_walk_lines',[]) or ['- 평가없음'])
-        p4=['(4/7)','🧯 Breach clock / FAIL causal | v49.72','──────────',
+        p4=['(4/7)','🧯 Breach clock / FAIL causal | v49.76.1','──────────',
             '[🕰 BREACH-CLOCK RECONCILIATION]']+list(lifecycle.get('breach_clock_lines',[]) or ['- 평가없음'])+[
             '', '[🧪 FAIL 임계값 감사 · episode 전체 경로]']+list(lifecycle.get('fail_sensitivity_lines',[]) or ['- 평가없음'])+[
             '', '[🧯 signal-support 소급형 참고]']+list(lifecycle.get('fail_portfolio_lines',[]) or ['- 평가없음'])+[
             '', '[🔒 TRAIN→OOS LOCK · event-snapshot causal]']+list(lifecycle.get('fail_lock_lines',[]) or ['- 평가없음'])
-        p5=['(5/7)','🚶 FAIL cutoff Multi Walk-Forward | v49.72','──────────',
+        p5=['(5/7)','🚶 FAIL cutoff Multi Walk-Forward | v49.76.1','──────────',
             '[🚶 MULTI WALK-FORWARD · 0%/0.5%]']+list(lifecycle.get('fail_walk_lines',[]) or ['- 평가없음'])+[
             '', '[해석 제한]','- CAPPED Fold는 보고만 하고 승격분모 제외','- signal-support 소급형은 LIVE cutoff 승격 근거로 사용 금지','- LIVE cutoff 자동변경 금지']
-        p6=['(6/7)','🔎 단일 검색평가기·전체 계약 감사 | v49.72','──────────','[SINGLE EVALUATOR / FULL CONTRACT]']+list(lifecycle.get('search_audit_lines',[]) or ['- SEARCH INTENT AUDIT 없음'])+['','[승격 제한]','- 공통 LIVE↔BACKTEST 불일치·계약 source-lock 실패·행동 경계 실패가 1건이라도 있으면 승격 금지','- LEGACY migration delta는 원인 비교자료이며 현재 공통 모집단에 혼합하지 않음','- 음성일은 결정적 표본감사이므로 전수 0건으로 과장하지 않음','- PAPER 유지 · 실제주문 0건']
-        p7=['(7/7)','📊 포트폴리오 / 승격판단 | v49.72','──────────',
+        p6=['(6/7)','🔎 단일 검색평가기·전체 계약 감사 | v49.76.1','──────────','[SINGLE EVALUATOR / FULL CONTRACT]']+list(lifecycle.get('search_audit_lines',[]) or ['- SEARCH INTENT AUDIT 없음'])+['','[승격 제한]','- 공통 LIVE↔BACKTEST 불일치·계약 source-lock 실패·행동 경계 실패가 1건이라도 있으면 승격 금지','- LEGACY migration delta는 원인 비교자료이며 현재 공통 모집단에 혼합하지 않음','- 음성일은 결정적 표본감사이므로 전수 0건으로 과장하지 않음','- PAPER 유지 · 실제주문 0건']
+        p7=['(7/7)','📊 포트폴리오 / 승격판단 | v49.76.1','──────────',
             '[Lifecycle 전용 포트폴리오]',lifecycle.get('portfolio1_line') or '- 하루1종목 평가없음',lifecycle.get('portfolio2_line') or '- 하루2종목 평가없음',
             '', '[Lifecycle 승격 판단]',lifecycle.get('gate_null_line') or '- canonical/NULL FAIL-CLOSED',lifecycle.get('gate_oos_line') or '- OOS/지수초과 FAIL-CLOSED',lifecycle.get('gate_port_line') or '- 비용후 포트폴리오 FAIL-CLOSED',lifecycle.get('gate_final_line') or '- Lifecycle 승격 FAIL-CLOSED',
             '', '[운용 결론]','- CAPTURABLE/Runner/FAIL 연구 결과도 자동 LIVE/Runner 반영 금지','- causal FAIL cutoff도 별도 승격 전 LIVE 변경 금지','- COMMON EVALUATOR/FULL CONTRACT가 VALID가 아니면 승격판정 강제 PAPER','- PAPER 유지 · 실제주문 0건']
@@ -45348,7 +45474,7 @@ def _v4936_backtest_telegram_parts(audit_report: str, compact_report: str='') ->
     if str(root.get('status','')).upper()=='INVALID' or any('BACKTEST INVALID' in x for x in audit_rows):
         pipe=list((root.get('pipeline') or {}).get('lines',[]) or [])
         diag_lines=[x for x in audit_rows if ('처리 완료율' in x or '데이터 로드율' in x or '데이터소스:' in x or '오류샘플:' in x)]
-        p=['(1/1)','⛔ 백테스트 INVALID | v49.72','──────────',version,period]+pipe+diag_lines[:4]+['','[운용 차단]','- 전략 성과·PRIME·CORE·LCZ·Lifecycle·포트폴리오 집계 금지','- PAPER 유지 · 실제주문 0건']
+        p=['(1/1)','⛔ 백테스트 INVALID | v49.76.1','──────────',version,period]+pipe+diag_lines[:4]+['','[운용 차단]','- 전략 성과·PRIME·CORE·LCZ·Lifecycle·포트폴리오 집계 금지','- PAPER 유지 · 실제주문 0건']
         return render_parts((p,))
 
     pipeline=dict(root.get('pipeline',{}) or {}); lifecycle=dict(root.get('lifecycle',{}) or {})
@@ -45376,9 +45502,9 @@ def _v4936_backtest_telegram_parts(audit_report: str, compact_report: str='') ->
     m5=find(both,'커버리지율',default='- M5 커버리지 확인 필요')
     existing1=find(both,'하루최대 1종목:',default='- 기존 하루1종목 포트폴리오 확인 필요')
     existing2=find(both,'하루최대 2종목:',default='- 기존 하루2종목 포트폴리오 확인 필요')
-    p1=['(1/2)','🧪 백테스트 핵심 결론 | v49.72','──────────',version,period,counts,'','[📡 공통 OHLCV 파이프라인]',data,cache_line,pipeline_counts,exclusions,'','[🚀 Lifecycle 에피소드 감사]']+lifecycle_section+['','[기존 핵심 경로]',prime,core,'- LCZ는 RESEARCH ONLY: '+lcz.lstrip('- ')]
-    p2=['(2/2)','📊 백테스트 주요 진단 | v49.72','──────────','[현재 LIVE 시장·커버리지]',market,m5,'','[역사 Lifecycle 시장구간]',lifecycle.get('market_line') or '- 평가없음','','[🚀 BIG-WINNER ANATOMY · 연구]',lifecycle.get('big_count_line') or '- BIG-WINNER 표본 없음',lifecycle.get('big_concentration_line') or '- 집중도 평가없음',lifecycle.get('big_stress_line') or '- 대박 제거 스트레스 평가없음','','[🎯 CAPTURABLE-BIG]']+list(lifecycle.get('capturable_lines',[]) or ['- 평가없음'])+['','[🏃 POST-POLICY RUNNER]']+list(lifecycle.get('runner_lines',[]) or ['- 평가없음'])+['','[🧬 BIG-WINNER PATTERN CLUSTER]']+list(lifecycle.get('cluster_lines',[]) or ['- cluster 평가없음'])+['','[🧪 FAIL 임계값 감사]']+list(lifecycle.get('fail_sensitivity_lines',[]) or ['- 평가없음'])+['','[🔒 FAIL TRAIN→OOS LOCK]']+list(lifecycle.get('fail_lock_lines',[]) or ['- 평가없음'])+['','[Lifecycle 전용 포트폴리오]',lifecycle.get('portfolio1_line') or '- 하루1종목 평가없음',lifecycle.get('portfolio2_line') or '- 하루2종목 평가없음','','[Lifecycle 승격 판단]',lifecycle.get('gate_null_line') or '- canonical/NULL FAIL-CLOSED',lifecycle.get('gate_oos_line') or '- OOS/지수초과 FAIL-CLOSED',lifecycle.get('gate_port_line') or '- 비용후 포트폴리오 FAIL-CLOSED',lifecycle.get('gate_final_line') or '- Lifecycle 승격 FAIL-CLOSED','','[기존 포트폴리오]',existing1,existing2,'','[운용 결론]','- Lifecycle 게이트 통과 전 PAPER 유지','- 실제주문 0건 유지']
-    p3=['(3/3)','🔎 검색계약·공통전략 성과 | v49.72','──────────','[DENOMINATOR] ',lifecycle.get('denominator_line') or '- DENOMINATOR GUARD 없음','','[SINGLE EVALUATOR / FULL CONTRACT]']+list(lifecycle.get('search_audit_lines',[]) or ['- SEARCH INTENT AUDIT 없음'])+['']+list((globals().get('_V4959_COMMON_PERF_AUDIT',{}) or {}).get('lines',[]) or ['- COMMON STRATEGY PERFORMANCE 없음'])+['','[운용]','- 공통 평가기·전체 계약·50bp OOS 성과 확인 전 자동주문/자동조건변경 금지','- PAPER 유지']
+    p1=['(1/2)','🧪 백테스트 핵심 결론 | v49.76.1','──────────',version,period,counts,'','[📡 공통 OHLCV 파이프라인]',data,cache_line,pipeline_counts,exclusions,'','[🚀 Lifecycle 에피소드 감사]']+lifecycle_section+['','[기존 핵심 경로]',prime,core,'- LCZ는 RESEARCH ONLY: '+lcz.lstrip('- ')]
+    p2=['(2/2)','📊 백테스트 주요 진단 | v49.76.1','──────────','[현재 LIVE 시장·커버리지]',market,m5,'','[역사 Lifecycle 시장구간]',lifecycle.get('market_line') or '- 평가없음','','[🚀 BIG-WINNER ANATOMY · 연구]',lifecycle.get('big_count_line') or '- BIG-WINNER 표본 없음',lifecycle.get('big_concentration_line') or '- 집중도 평가없음',lifecycle.get('big_stress_line') or '- 대박 제거 스트레스 평가없음','','[🎯 CAPTURABLE-BIG]']+list(lifecycle.get('capturable_lines',[]) or ['- 평가없음'])+['','[🏃 POST-POLICY RUNNER]']+list(lifecycle.get('runner_lines',[]) or ['- 평가없음'])+['','[🧬 BIG-WINNER PATTERN CLUSTER]']+list(lifecycle.get('cluster_lines',[]) or ['- cluster 평가없음'])+['','[🧪 FAIL 임계값 감사]']+list(lifecycle.get('fail_sensitivity_lines',[]) or ['- 평가없음'])+['','[🔒 FAIL TRAIN→OOS LOCK]']+list(lifecycle.get('fail_lock_lines',[]) or ['- 평가없음'])+['','[Lifecycle 전용 포트폴리오]',lifecycle.get('portfolio1_line') or '- 하루1종목 평가없음',lifecycle.get('portfolio2_line') or '- 하루2종목 평가없음','','[Lifecycle 승격 판단]',lifecycle.get('gate_null_line') or '- canonical/NULL FAIL-CLOSED',lifecycle.get('gate_oos_line') or '- OOS/지수초과 FAIL-CLOSED',lifecycle.get('gate_port_line') or '- 비용후 포트폴리오 FAIL-CLOSED',lifecycle.get('gate_final_line') or '- Lifecycle 승격 FAIL-CLOSED','','[기존 포트폴리오]',existing1,existing2,'','[운용 결론]','- Lifecycle 게이트 통과 전 PAPER 유지','- 실제주문 0건 유지']
+    p3=['(3/3)','🔎 검색계약·공통전략 성과 | v49.76.1','──────────','[DENOMINATOR] ',lifecycle.get('denominator_line') or '- DENOMINATOR GUARD 없음','','[SINGLE EVALUATOR / FULL CONTRACT]']+list(lifecycle.get('search_audit_lines',[]) or ['- SEARCH INTENT AUDIT 없음'])+['']+list((globals().get('_V4959_COMMON_PERF_AUDIT',{}) or {}).get('lines',[]) or ['- COMMON STRATEGY PERFORMANCE 없음'])+['','[운용]','- 공통 평가기·전체 계약·50bp OOS 성과 확인 전 자동주문/자동조건변경 금지','- PAPER 유지']
     p1[0]='(1/3)';p2[0]='(2/3)'
     return render_parts((p1,p2,p3))
 
@@ -45514,7 +45640,7 @@ if __name__ == '__main__':
         hits = run_closing_bet_scan(force=args.force)
         if not hits:
             if bool(CLOSING_BET_V4938_LIFECYCLE_ENABLE):
-                log_info("✅ 기존 후보 0개 · v49.72 Lifecycle 전체유니버스 보고서는 이미 전송됨")
+                log_info("✅ 기존 후보 0개 · v49.76.1 Lifecycle 전체유니버스 보고서는 이미 전송됨")
             else:
                 log_info("✅ 종가배팅 후보 없음")
                 if _telegram_route_ready():
