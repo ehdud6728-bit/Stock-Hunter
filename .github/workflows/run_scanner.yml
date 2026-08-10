@@ -565,7 +565,14 @@ jobs:
       CATALYST_GOOGLE_SHEET_SYNC_ENABLE: "0"
       CONTEXT_DIAGNOSTIC_SHEET_SYNC_ENABLE: "0"
       GOOGLE_SHEET_FAIL_CLOSED: "1"
-      GOOGLE_SHEET_STORAGE_GUARD_VERSION: "V73.3.6.6.18"
+      GOOGLE_SHEET_STORAGE_GUARD_VERSION: "V73.3.6.6.23.3"
+      GOOGLE_SHEET_BATCH_READ_ENABLE: "1"
+      GOOGLE_SHEET_BATCH_READ_SIZE: "8"
+      GOOGLE_SHEET_RETRY_MAX: "5"
+      GOOGLE_SHEET_RETRY_BASE_SEC: "5"
+      GOOGLE_SHEET_RETRY_MAX_SEC: "65"
+      GOOGLE_SHEET_QUOTA_DEFER_ENABLE: "1"
+      GOOGLE_SHEET_SINGLE_READ_DELAY_SEC: "1.15"
       STOCKHUNTER_GOOGLE_SHEET_ID: "16OXJmYNnwWMjEp2UAhNxLPbRiTEYC29-6S7StvJxYt0"
       GOOGLE_SERVICE_ACCOUNT_EMAIL_EXPECTED: "stock-call@gen-lang-client-0419376661.iam.gserviceaccount.com"
       GOOGLE_JSON_KEY: ${{ secrets.GOOGLE_JSON_KEY }}
@@ -987,7 +994,7 @@ jobs:
           pip install requests beautifulsoup4 pytz scipy ta
           pip install finance-datareader pykrx mplfinance
           pip install openai google-generativeai
-          pip install gspread gspread-formatting gspread-dataframe google-auth oauth2client
+          pip install "gspread>=6.0,<7" gspread-formatting gspread-dataframe google-auth oauth2client
           if [ -f requirements.txt ]; then pip install -r requirements.txt; else echo "requirements.txt not found, skip"; fi
 
       - name: V23.1 parent dependency preflight
@@ -1458,6 +1465,15 @@ jobs:
           echo "🗄️ GOOGLE_SHEET_FORWARD_LEDGER bootstrap/hydrate start"
           echo "profile=${TEST_PROFILE:-UNKNOWN} capture=${CATALYST_FORWARD_CAPTURE_ENABLE:-0} sheet_sync=${CATALYST_GOOGLE_SHEET_SYNC_ENABLE:-0}"
           echo "sheet_id_set=$([ -n "${STOCKHUNTER_GOOGLE_SHEET_ID:-}" ] && echo YES || echo NO) credential_set=$([ -n "${GOOGLE_JSON_KEY:-}" ] && echo YES || echo NO)"
+          echo "quota_guard=${GOOGLE_SHEET_STORAGE_GUARD_VERSION:-UNKNOWN} batch=${GOOGLE_SHEET_BATCH_READ_ENABLE:-0} batch_size=${GOOGLE_SHEET_BATCH_READ_SIZE:-0} retry_max=${GOOGLE_SHEET_RETRY_MAX:-0} defer=${GOOGLE_SHEET_QUOTA_DEFER_ENABLE:-0}"
+          python - <<'PY'
+          import gspread, sys
+          from gspread.spreadsheet import Spreadsheet
+          required = ('values_batch_get','values_batch_update','batch_update')
+          missing = [name for name in required if not hasattr(Spreadsheet, name)]
+          print('V23_3_GOOGLE_SHEET_API_PREFLIGHT', 'gspread='+getattr(gspread,'__version__','?'), 'missing='+(','.join(missing) if missing else 'NONE'))
+          sys.exit(151 if missing else 0)
+          PY
           python google_sheet_forward_ledger.py --bootstrap --hydrate --strict --output-dir reports
           test -f reports/v73_google_sheet_storage_audit.csv || { echo "❌ Google Sheet local storage audit missing"; exit 147; }
           tail -n 3 reports/v73_google_sheet_storage_audit.csv || true
@@ -1467,8 +1483,8 @@ jobs:
           q=pd.read_csv(p, dtype=str).fillna('')
           r=q.iloc[-1].to_dict() if len(q) else {}
           st=str(r.get('status','MISSING'))
-          print('GOOGLE_SHEET_BOOTSTRAP_HYDRATE_STATUS', st, 'error', r.get('error_type',''), r.get('error_message',''))
-          sys.exit(0 if st == 'SHEET_HYDRATE_OK' else 149)
+          print('GOOGLE_SHEET_BOOTSTRAP_HYDRATE_STATUS', st, 'batch_reads', r.get('batch_read_requests',''), 'retries', r.get('quota_retries',''), 'deferred', r.get('quota_deferred',''), 'error', r.get('error_type',''), r.get('error_message',''))
+          sys.exit(0 if st in ('SHEET_HYDRATE_OK','SHEET_DEFERRED_QUOTA') else 149)
           PY
 
       - name: Run scanner or weekly backtest
@@ -1709,8 +1725,8 @@ jobs:
           q=pd.read_csv(p, dtype=str).fillna('')
           r=q.iloc[-1].to_dict() if len(q) else {}
           st=str(r.get('status','MISSING'))
-          print('CONTEXT_DIAGNOSTIC_SHEET_SYNC_STATUS', st, 'rows', r.get('rows_appended',''), 'error', r.get('error_type',''), r.get('error_message',''))
-          sys.exit(0 if st == 'SHEET_PRIMARY_OK' else 155)
+          print('CONTEXT_DIAGNOSTIC_SHEET_SYNC_STATUS', st, 'rows', r.get('rows_appended',''), 'batch_reads', r.get('batch_read_requests',''), 'retries', r.get('quota_retries',''), 'deferred', r.get('quota_deferred',''), 'error', r.get('error_type',''), r.get('error_message',''))
+          sys.exit(0 if st in ('SHEET_PRIMARY_OK','SHEET_DEFERRED_QUOTA') else 155)
           PY
 
       - name: Forward-causal catalyst and market-sector capture + Google Sheet persistence
@@ -1747,8 +1763,8 @@ jobs:
           q=pd.read_csv(p, dtype=str).fillna('')
           r=q.iloc[-1].to_dict() if len(q) else {}
           st=str(r.get('status','MISSING'))
-          print('GOOGLE_SHEET_SYNC_STATUS', st, 'rows', r.get('rows_appended',''), 'error', r.get('error_type',''), r.get('error_message',''))
-          sys.exit(0 if st == 'SHEET_PRIMARY_OK' else 150)
+          print('GOOGLE_SHEET_SYNC_STATUS', st, 'rows', r.get('rows_appended',''), 'batch_reads', r.get('batch_read_requests',''), 'retries', r.get('quota_retries',''), 'deferred', r.get('quota_deferred',''), 'error', r.get('error_type',''), r.get('error_message',''))
+          sys.exit(0 if st in ('SHEET_PRIMARY_OK','SHEET_DEFERRED_QUOTA') else 150)
           PY
           else
             echo "GOOGLE_SHEET_FORWARD_LEDGER sync skipped"
@@ -1832,7 +1848,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: stockhunter-v1107-4-5-73-3-6-6-22-four-shard-reports-${{ github.run_number }}
+          name: stockhunter-v1107-4-5-73-3-6-6-23-3-six-shard-quota-guard-reports-${{ github.run_number }}
           path: |
             reports/**
             docs/**
