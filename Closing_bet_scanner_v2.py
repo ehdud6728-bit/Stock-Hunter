@@ -80,8 +80,8 @@ def _env_float(name: str, default: float = 0.0) -> float:
         except Exception:
             return 0.0
 
-CLOSING_BET_SCANNER_VERSION = 'G_MORALES_V4_4_9_53_8_49_76_2_SERIES_ROW_TRUTHVALUE_HOTFIX_20260811'
-CLOSING_BET_RELEASE_TAG = 'v49.76.2'
+CLOSING_BET_SCANNER_VERSION = 'G_MORALES_V4_4_9_53_8_49_76_4_TOP2_FINAL_ACTION_AUTHORITY_INTEGRATED_20260811'
+CLOSING_BET_RELEASE_TAG = 'v49.76.4'
 CLOSING_BET_LIVE_PRICE_SANITY_FIX = str(os.environ.get('CLOSING_BET_LIVE_PRICE_SANITY_FIX', '1')).lower() in ('1', 'true', 'yes', 'y', 'on')
 CLOSING_BET_LIVE_READABILITY_COMPACT = str(os.environ.get('CLOSING_BET_LIVE_READABILITY_COMPACT', '1')).lower() in ('1', 'true', 'yes', 'y', 'on')
 # v53.8.42: M5R TRUE60 검증용 장기 월봉 확보. 60개월 월선 계산에는 약 7년 일봉이 필요하다.
@@ -3215,7 +3215,7 @@ def _v4943_prepare_live_recommendations() -> list[dict]:
         return []
     _ev=_v49761_final_kick_evidence()
     if not bool(_ev.get('eligible')):
-        log_info(f"v49.76.2 LIVE-PAPER 원장 미확정: {_ev.get('reason')} · {_ev.get('decision_time_kst')} · {_ev.get('data_bar_state')}")
+        log_info(f"v49.76.4 LIVE-PAPER 원장 미확정: {_ev.get('reason')} · {_ev.get('decision_time_kst')} · {_ev.get('data_bar_state')}")
         _V4943_CURRENT_RECOMMENDATIONS=[]
         return []
     now=_now_kst(); rows=[]; rank=0
@@ -3245,7 +3245,7 @@ def _v4943_prepare_live_recommendations() -> list[dict]:
             'target_3':round(px*1.03) if pd.notna(px) else '', 'target_5':round(px*1.05) if pd.notna(px) else '',
             'stop_3':round(px*0.97) if pd.notna(px) else '', 'structure_support':round(structure) if pd.notna(structure) else '',
             'market_state':str(globals().get('_V4943_LAST_MARKET_STATE','') or r.get('market_state','') or ''),'risk_status':str(r.get('risk_status','NORMAL')),
-            'risk_reason':str(r.get('risk_reason','위험가드 통과') or ''),'note':f'v49.76.2 15:03 PAPER 실행보드 {rank}순위 · {strategy_tag} · 자동주문 없음 · Telegram+DELIVERED+FINAL_KICK 증거만 실제추천',
+            'risk_reason':str(r.get('risk_reason','위험가드 통과') or ''),'note':f'v49.76.4 15:03 PAPER 실행보드 {rank}순위 · {strategy_tag} · 자동주문 없음 · Telegram+DELIVERED+FINAL_KICK 증거만 실제추천',
             'decision_phase':str(_ev.get('decision_phase','FINAL_KICK')),'decision_time_kst':str(_ev.get('decision_time_kst','')),
             'data_bar_state':str(_ev.get('data_bar_state','')),'kpi_eligible':'TRUE','kpi_exclusion_reason':''
         }
@@ -45429,7 +45429,7 @@ def _v4936_backtest_telegram_parts(audit_report: str, compact_report: str='') ->
         lifecycle=dict(root.get('lifecycle',{}) or {})
         elapsed=float((root.get('research_lane') or {}).get('elapsed_sec',0.0) or 0.0)
 
-        p1=['(1/7)','⚠️ COMMON STRATEGY INVALID · Lifecycle Research VALID | v49.76.2','──────────',version,period,
+        p1=['(1/7)','⚠️ COMMON STRATEGY INVALID · Lifecycle Research VALID | v49.76.4','──────────',version,period,
             '[📡 공통 OHLCV / LEGACY 레인]']+pipe+[
             f'- Lifecycle Research: ✅ VALID · 독립 실행 {elapsed:.1f}s' if elapsed>0 else '- Lifecycle Research: ✅ VALID · LEGACY와 독립',
             '', '[🚀 Lifecycle 에피소드 감사]',
@@ -45448,7 +45448,7 @@ def _v4936_backtest_telegram_parts(audit_report: str, compact_report: str='') ->
             lifecycle.get('policy_line') or '- ENTRY 정책성과 없음',
         ]+list((root.get('known_case') or {}).get('lines',[]) or [])+[
             '', '[해석 제한]','- PRIME/CORE/LCZ/기존 포트폴리오는 COMMON STRATEGY INVALID로 전면 제외','- Lifecycle Research만 독립 VALID 표본으로 연구 해석','- PAPER 유지 · 실제주문 0건']
-        p2=['(2/7)','🎯 먹을 수 있는 BIG / Pattern 연구 | v49.76.2','──────────',
+        p2=['(2/7)','🎯 먹을 수 있는 BIG / Pattern 연구 | v49.76.4','──────────',
             '[🚀 BIG-WINNER ANATOMY]',
             lifecycle.get('big_count_line') or '- BIG-WINNER 표본 없음',
             lifecycle.get('big_concentration_line') or '- 집중도 평가없음',
@@ -45456,19 +45456,19 @@ def _v4936_backtest_telegram_parts(audit_report: str, compact_report: str='') ->
             '', '[🎯 CAPTURABLE-BIG PATH ANATOMY]']+list(lifecycle.get('capturable_lines',[]) or ['- 평가없음'])+[
             '', '[🏃 POST-POLICY RUNNER ANATOMY]']+list(lifecycle.get('runner_lines',[]) or ['- 평가없음'])+[
             '', '[🧬 BIG-WINNER PATTERN CLUSTER]']+list(lifecycle.get('cluster_lines',[]) or ['- cluster 평가없음'])
-        p3=['(3/7)','🏃 Runner 정책 다중검증 | v49.76.2','──────────',
+        p3=['(3/7)','🏃 Runner 정책 다중검증 | v49.76.4','──────────',
             '[🏃 UNIVERSAL RESIDUAL RUNNER 정책]']+list(lifecycle.get('runner_policy_lines',[]) or ['- 평가없음'])+[
             '', '[🚶 RUNNER MULTI WALK-FORWARD · 20%/30% D10]']+list(lifecycle.get('runner_walk_lines',[]) or ['- 평가없음'])
-        p4=['(4/7)','🧯 Breach clock / FAIL causal | v49.76.2','──────────',
+        p4=['(4/7)','🧯 Breach clock / FAIL causal | v49.76.4','──────────',
             '[🕰 BREACH-CLOCK RECONCILIATION]']+list(lifecycle.get('breach_clock_lines',[]) or ['- 평가없음'])+[
             '', '[🧪 FAIL 임계값 감사 · episode 전체 경로]']+list(lifecycle.get('fail_sensitivity_lines',[]) or ['- 평가없음'])+[
             '', '[🧯 signal-support 소급형 참고]']+list(lifecycle.get('fail_portfolio_lines',[]) or ['- 평가없음'])+[
             '', '[🔒 TRAIN→OOS LOCK · event-snapshot causal]']+list(lifecycle.get('fail_lock_lines',[]) or ['- 평가없음'])
-        p5=['(5/7)','🚶 FAIL cutoff Multi Walk-Forward | v49.76.2','──────────',
+        p5=['(5/7)','🚶 FAIL cutoff Multi Walk-Forward | v49.76.4','──────────',
             '[🚶 MULTI WALK-FORWARD · 0%/0.5%]']+list(lifecycle.get('fail_walk_lines',[]) or ['- 평가없음'])+[
             '', '[해석 제한]','- CAPPED Fold는 보고만 하고 승격분모 제외','- signal-support 소급형은 LIVE cutoff 승격 근거로 사용 금지','- LIVE cutoff 자동변경 금지']
-        p6=['(6/7)','🔎 단일 검색평가기·전체 계약 감사 | v49.76.2','──────────','[SINGLE EVALUATOR / FULL CONTRACT]']+list(lifecycle.get('search_audit_lines',[]) or ['- SEARCH INTENT AUDIT 없음'])+['','[승격 제한]','- 공통 LIVE↔BACKTEST 불일치·계약 source-lock 실패·행동 경계 실패가 1건이라도 있으면 승격 금지','- LEGACY migration delta는 원인 비교자료이며 현재 공통 모집단에 혼합하지 않음','- 음성일은 결정적 표본감사이므로 전수 0건으로 과장하지 않음','- PAPER 유지 · 실제주문 0건']
-        p7=['(7/7)','📊 포트폴리오 / 승격판단 | v49.76.2','──────────',
+        p6=['(6/7)','🔎 단일 검색평가기·전체 계약 감사 | v49.76.4','──────────','[SINGLE EVALUATOR / FULL CONTRACT]']+list(lifecycle.get('search_audit_lines',[]) or ['- SEARCH INTENT AUDIT 없음'])+['','[승격 제한]','- 공통 LIVE↔BACKTEST 불일치·계약 source-lock 실패·행동 경계 실패가 1건이라도 있으면 승격 금지','- LEGACY migration delta는 원인 비교자료이며 현재 공통 모집단에 혼합하지 않음','- 음성일은 결정적 표본감사이므로 전수 0건으로 과장하지 않음','- PAPER 유지 · 실제주문 0건']
+        p7=['(7/7)','📊 포트폴리오 / 승격판단 | v49.76.4','──────────',
             '[Lifecycle 전용 포트폴리오]',lifecycle.get('portfolio1_line') or '- 하루1종목 평가없음',lifecycle.get('portfolio2_line') or '- 하루2종목 평가없음',
             '', '[Lifecycle 승격 판단]',lifecycle.get('gate_null_line') or '- canonical/NULL FAIL-CLOSED',lifecycle.get('gate_oos_line') or '- OOS/지수초과 FAIL-CLOSED',lifecycle.get('gate_port_line') or '- 비용후 포트폴리오 FAIL-CLOSED',lifecycle.get('gate_final_line') or '- Lifecycle 승격 FAIL-CLOSED',
             '', '[운용 결론]','- CAPTURABLE/Runner/FAIL 연구 결과도 자동 LIVE/Runner 반영 금지','- causal FAIL cutoff도 별도 승격 전 LIVE 변경 금지','- COMMON EVALUATOR/FULL CONTRACT가 VALID가 아니면 승격판정 강제 PAPER','- PAPER 유지 · 실제주문 0건']
@@ -45477,7 +45477,7 @@ def _v4936_backtest_telegram_parts(audit_report: str, compact_report: str='') ->
     if str(root.get('status','')).upper()=='INVALID' or any('BACKTEST INVALID' in x for x in audit_rows):
         pipe=list((root.get('pipeline') or {}).get('lines',[]) or [])
         diag_lines=[x for x in audit_rows if ('처리 완료율' in x or '데이터 로드율' in x or '데이터소스:' in x or '오류샘플:' in x)]
-        p=['(1/1)','⛔ 백테스트 INVALID | v49.76.2','──────────',version,period]+pipe+diag_lines[:4]+['','[운용 차단]','- 전략 성과·PRIME·CORE·LCZ·Lifecycle·포트폴리오 집계 금지','- PAPER 유지 · 실제주문 0건']
+        p=['(1/1)','⛔ 백테스트 INVALID | v49.76.4','──────────',version,period]+pipe+diag_lines[:4]+['','[운용 차단]','- 전략 성과·PRIME·CORE·LCZ·Lifecycle·포트폴리오 집계 금지','- PAPER 유지 · 실제주문 0건']
         return render_parts((p,))
 
     pipeline=dict(root.get('pipeline',{}) or {}); lifecycle=dict(root.get('lifecycle',{}) or {})
@@ -45505,9 +45505,9 @@ def _v4936_backtest_telegram_parts(audit_report: str, compact_report: str='') ->
     m5=find(both,'커버리지율',default='- M5 커버리지 확인 필요')
     existing1=find(both,'하루최대 1종목:',default='- 기존 하루1종목 포트폴리오 확인 필요')
     existing2=find(both,'하루최대 2종목:',default='- 기존 하루2종목 포트폴리오 확인 필요')
-    p1=['(1/2)','🧪 백테스트 핵심 결론 | v49.76.2','──────────',version,period,counts,'','[📡 공통 OHLCV 파이프라인]',data,cache_line,pipeline_counts,exclusions,'','[🚀 Lifecycle 에피소드 감사]']+lifecycle_section+['','[기존 핵심 경로]',prime,core,'- LCZ는 RESEARCH ONLY: '+lcz.lstrip('- ')]
-    p2=['(2/2)','📊 백테스트 주요 진단 | v49.76.2','──────────','[현재 LIVE 시장·커버리지]',market,m5,'','[역사 Lifecycle 시장구간]',lifecycle.get('market_line') or '- 평가없음','','[🚀 BIG-WINNER ANATOMY · 연구]',lifecycle.get('big_count_line') or '- BIG-WINNER 표본 없음',lifecycle.get('big_concentration_line') or '- 집중도 평가없음',lifecycle.get('big_stress_line') or '- 대박 제거 스트레스 평가없음','','[🎯 CAPTURABLE-BIG]']+list(lifecycle.get('capturable_lines',[]) or ['- 평가없음'])+['','[🏃 POST-POLICY RUNNER]']+list(lifecycle.get('runner_lines',[]) or ['- 평가없음'])+['','[🧬 BIG-WINNER PATTERN CLUSTER]']+list(lifecycle.get('cluster_lines',[]) or ['- cluster 평가없음'])+['','[🧪 FAIL 임계값 감사]']+list(lifecycle.get('fail_sensitivity_lines',[]) or ['- 평가없음'])+['','[🔒 FAIL TRAIN→OOS LOCK]']+list(lifecycle.get('fail_lock_lines',[]) or ['- 평가없음'])+['','[Lifecycle 전용 포트폴리오]',lifecycle.get('portfolio1_line') or '- 하루1종목 평가없음',lifecycle.get('portfolio2_line') or '- 하루2종목 평가없음','','[Lifecycle 승격 판단]',lifecycle.get('gate_null_line') or '- canonical/NULL FAIL-CLOSED',lifecycle.get('gate_oos_line') or '- OOS/지수초과 FAIL-CLOSED',lifecycle.get('gate_port_line') or '- 비용후 포트폴리오 FAIL-CLOSED',lifecycle.get('gate_final_line') or '- Lifecycle 승격 FAIL-CLOSED','','[기존 포트폴리오]',existing1,existing2,'','[운용 결론]','- Lifecycle 게이트 통과 전 PAPER 유지','- 실제주문 0건 유지']
-    p3=['(3/3)','🔎 검색계약·공통전략 성과 | v49.76.2','──────────','[DENOMINATOR] ',lifecycle.get('denominator_line') or '- DENOMINATOR GUARD 없음','','[SINGLE EVALUATOR / FULL CONTRACT]']+list(lifecycle.get('search_audit_lines',[]) or ['- SEARCH INTENT AUDIT 없음'])+['']+list((globals().get('_V4959_COMMON_PERF_AUDIT',{}) or {}).get('lines',[]) or ['- COMMON STRATEGY PERFORMANCE 없음'])+['','[운용]','- 공통 평가기·전체 계약·50bp OOS 성과 확인 전 자동주문/자동조건변경 금지','- PAPER 유지']
+    p1=['(1/2)','🧪 백테스트 핵심 결론 | v49.76.4','──────────',version,period,counts,'','[📡 공통 OHLCV 파이프라인]',data,cache_line,pipeline_counts,exclusions,'','[🚀 Lifecycle 에피소드 감사]']+lifecycle_section+['','[기존 핵심 경로]',prime,core,'- LCZ는 RESEARCH ONLY: '+lcz.lstrip('- ')]
+    p2=['(2/2)','📊 백테스트 주요 진단 | v49.76.4','──────────','[현재 LIVE 시장·커버리지]',market,m5,'','[역사 Lifecycle 시장구간]',lifecycle.get('market_line') or '- 평가없음','','[🚀 BIG-WINNER ANATOMY · 연구]',lifecycle.get('big_count_line') or '- BIG-WINNER 표본 없음',lifecycle.get('big_concentration_line') or '- 집중도 평가없음',lifecycle.get('big_stress_line') or '- 대박 제거 스트레스 평가없음','','[🎯 CAPTURABLE-BIG]']+list(lifecycle.get('capturable_lines',[]) or ['- 평가없음'])+['','[🏃 POST-POLICY RUNNER]']+list(lifecycle.get('runner_lines',[]) or ['- 평가없음'])+['','[🧬 BIG-WINNER PATTERN CLUSTER]']+list(lifecycle.get('cluster_lines',[]) or ['- cluster 평가없음'])+['','[🧪 FAIL 임계값 감사]']+list(lifecycle.get('fail_sensitivity_lines',[]) or ['- 평가없음'])+['','[🔒 FAIL TRAIN→OOS LOCK]']+list(lifecycle.get('fail_lock_lines',[]) or ['- 평가없음'])+['','[Lifecycle 전용 포트폴리오]',lifecycle.get('portfolio1_line') or '- 하루1종목 평가없음',lifecycle.get('portfolio2_line') or '- 하루2종목 평가없음','','[Lifecycle 승격 판단]',lifecycle.get('gate_null_line') or '- canonical/NULL FAIL-CLOSED',lifecycle.get('gate_oos_line') or '- OOS/지수초과 FAIL-CLOSED',lifecycle.get('gate_port_line') or '- 비용후 포트폴리오 FAIL-CLOSED',lifecycle.get('gate_final_line') or '- Lifecycle 승격 FAIL-CLOSED','','[기존 포트폴리오]',existing1,existing2,'','[운용 결론]','- Lifecycle 게이트 통과 전 PAPER 유지','- 실제주문 0건 유지']
+    p3=['(3/3)','🔎 검색계약·공통전략 성과 | v49.76.4','──────────','[DENOMINATOR] ',lifecycle.get('denominator_line') or '- DENOMINATOR GUARD 없음','','[SINGLE EVALUATOR / FULL CONTRACT]']+list(lifecycle.get('search_audit_lines',[]) or ['- SEARCH INTENT AUDIT 없음'])+['']+list((globals().get('_V4959_COMMON_PERF_AUDIT',{}) or {}).get('lines',[]) or ['- COMMON STRATEGY PERFORMANCE 없음'])+['','[운용]','- 공통 평가기·전체 계약·50bp OOS 성과 확인 전 자동주문/자동조건변경 금지','- PAPER 유지']
     p1[0]='(1/3)';p2[0]='(2/3)'
     return render_parts((p1,p2,p3))
 
@@ -45515,6 +45515,1175 @@ def _v4936_backtest_telegram_parts(audit_report: str, compact_report: str='') ->
 # =============================================================
 # 엔트리포인트
 # =============================================================
+
+# =============================================================
+# ✅ V49.76.3 TOP2 EXECUTION DECISION LAYER — SAFE OVERLAY
+# - Purpose: user-facing execution clarity only
+# - Frozen: search/rank/ENTRY threshold/EXIT/LIVE/PAPER/MARCAP/PIT/KPI authority
+# - Adds: TOP2 execution board + denominator clarity + output consistency audit
+# - Does NOT invent missing prices. Missing trigger => manual buy prohibited.
+# =============================================================
+try:
+    print("✅ V49.76.3 TOP2_EXECUTION_DECISION_LAYER_SAFE_OVERLAY LOADED")
+except Exception:
+    pass
+
+_V49763_BASE_EXECUTION_BOARD_LINES = globals().get('_v4976_execution_board_lines')
+_V49763_BASE_LIVE_PARTS = globals().get('_v4938_build_live_parts')
+
+
+def _v49763_text(v, default=''):
+    try:
+        if v is None:
+            return default
+        if isinstance(v, float) and pd.isna(v):
+            return default
+        s = str(v).strip()
+        return s if s else default
+    except Exception:
+        return default
+
+
+def _v49763_float(v, default=None):
+    try:
+        if v is None or pd.isna(v):
+            return default
+        x = float(str(v).replace(',', '').replace('%', '').strip())
+        return x
+    except Exception:
+        return default
+
+
+def _v49763_to_dict(obj):
+    try:
+        if obj is None:
+            return {}
+        if isinstance(obj, dict):
+            return dict(obj)
+        if isinstance(obj, pd.Series):
+            return obj.to_dict()
+        if hasattr(obj, 'to_dict'):
+            x = obj.to_dict()
+            if isinstance(x, dict):
+                return x
+    except Exception:
+        pass
+    return {}
+
+
+def _v49763_merge_row(item):
+    d = _v49763_to_dict(item)
+    row = d.get('row')
+    rd = _v49763_to_dict(row)
+    # Parent fields have authority when duplicated; nested row fills gaps only.
+    out = dict(rd)
+    out.update(d)
+    out.pop('row', None)
+    return out
+
+
+def _v49763_pick(d, *keys, default=None):
+    try:
+        for k in keys:
+            if k in d:
+                v = d.get(k)
+                if v is None:
+                    continue
+                if isinstance(v, str) and not v.strip():
+                    continue
+                try:
+                    if pd.isna(v):
+                        continue
+                except Exception:
+                    pass
+                return v
+    except Exception:
+        pass
+    return default
+
+
+def _v49763_walk(obj, depth=0, max_depth=5):
+    """Yield mapping-like candidate objects without evaluating Series/DataFrame truth values."""
+    if depth > max_depth or obj is None:
+        return
+    try:
+        if isinstance(obj, pd.DataFrame):
+            for _, row in obj.iterrows():
+                yield row.to_dict()
+            return
+        if isinstance(obj, pd.Series):
+            yield obj.to_dict()
+            return
+        if isinstance(obj, dict):
+            # A mapping that looks row-like is itself a candidate.
+            keys = set(str(k) for k in obj.keys())
+            rowish = bool(keys.intersection({
+                'code','name','종목코드','종목명','stage','state','status','lifecycle_state',
+                'final_decision','action','score','support','support_price','row'
+            }))
+            if rowish:
+                yield obj
+            for v in obj.values():
+                if isinstance(v, (dict, list, tuple, pd.DataFrame, pd.Series)):
+                    yield from _v49763_walk(v, depth + 1, max_depth)
+            return
+        if isinstance(obj, (list, tuple)):
+            for v in obj:
+                yield from _v49763_walk(v, depth + 1, max_depth)
+    except Exception:
+        return
+
+
+def _v49763_stage(d):
+    raw = _v49763_text(_v49763_pick(
+        d, 'stage','lifecycle_state','state','status','phase','entry_state','final_state',
+        '단계','상태','최종판단', default=''
+    )).upper()
+    action = _v49763_text(_v49763_pick(d, 'final_decision','decision','action','행동','판정', default='')).upper()
+    txt = f'{raw} {action}'
+    if 'STRICT-ENTRY' in txt or 'STRICT_ENTRY' in txt:
+        return 'STRICT-ENTRY'
+    if 'RESTART-NEAR' in txt or 'RESTART_NEAR' in txt or '다음 ENTRY 확인'.upper() in txt:
+        return 'RESTART-NEAR'
+    if 'FIRST-PULLBACK' in txt or 'FIRST_PULLBACK' in txt or '첫 눌림 확정'.upper() in txt:
+        return 'FIRST-PULLBACK'
+    if 'PULLBACK-PENDING' in txt or 'PULLBACK_PENDING' in txt or '첫 눌림 확인 대기'.upper() in txt:
+        return 'PULLBACK-PENDING'
+    if 'PULLBACK-FAIL' in txt or 'PULLBACK_FAIL' in txt:
+        return 'PULLBACK-FAIL'
+    if 'IGNITION-EXTREME' in txt:
+        return 'IGNITION-EXTREME'
+    if 'IGNITION' in txt:
+        return 'IGNITION'
+    if 'ENTRY-ACTIVE' in txt or 'ENTRY_ACTIVE' in txt:
+        return 'ENTRY-ACTIVE'
+    if 'ENTRY-COMPLETE' in txt or 'ENTRY_COMPLETE' in txt:
+        return 'ENTRY-COMPLETE'
+    return raw or 'UNKNOWN'
+
+
+def _v49763_source_blocked(d):
+    txt = ' '.join(_v49763_text(_v49763_pick(d, k, default='')) for k in (
+        'source','origin','recommendation_source','forward_type','final_decision','decision','action','risk_state','risk_reason','block_reason'
+    )).upper()
+    if any(x in txt for x in ('REPLAY','BLOCKED-SHADOW','BLOCKED SHADOW','실제 포지션 아님','REPLAY EPISODE')):
+        return True
+    if any(x in txt for x in ('CHASE-WAIT','OVERHEAT-WAIT','신규 진입 제외','신규진입 제외','진입 금지')):
+        return True
+    return False
+
+
+def _v49763_name_code(d):
+    name = _v49763_text(_v49763_pick(d, 'name','종목명','stock_name','Name', default=''))
+    code = _v49763_text(_v49763_pick(d, 'code','종목코드','ticker','Code', default=''))
+    return name, code
+
+
+def _v49763_price_field(d, aliases):
+    for k in aliases:
+        if k in d:
+            x = _v49763_float(d.get(k), None)
+            if x is not None and x > 0:
+                return x, k
+    return None, ''
+
+
+def _v49763_current_price(d):
+    return _v49763_price_field(d, (
+        'current_price','price','close','Close','latest_close','판단가격','현재가','close_entry'
+    ))
+
+
+def _v49763_trigger_price(d):
+    # Only explicit/structural trigger-like fields. Never fabricate from percentages.
+    return _v49763_price_field(d, (
+        'entry_trigger','entry_trigger_price','restart_trigger','restart_trigger_price',
+        'trigger_price','buy_trigger','short_high','short_term_high','recent_high',
+        'restart_high','breakout_trigger','entry_price'
+    ))
+
+
+def _v49763_support_price(d):
+    return _v49763_price_field(d, (
+        'support','support_price','support_line','pullback_support','support_level',
+        '지지','지지선','지지가'
+    ))
+
+
+def _v49763_stop_price(d):
+    return _v49763_price_field(d, (
+        'stoploss','stop_loss','stop_price','hard_stop','risk_stop','손절','손절가'
+    ))
+
+
+def _v49763_chase_price(d):
+    return _v49763_price_field(d, (
+        'chase_limit','max_entry','entry_max','max_buy_price','chase_price','추격금지가','추격금지'
+    ))
+
+
+def _v49763_remaining_text(d):
+    vals = []
+    for k in ('remaining_conditions','missing_conditions','wait_conditions','next_conditions',
+              'restart_missing','remain_reason','remaining','남은조건','대기조건'):
+        if k not in d:
+            continue
+        v = d.get(k)
+        if isinstance(v, (list, tuple, set)):
+            vals.extend([_v49763_text(x) for x in v if _v49763_text(x)])
+        else:
+            s = _v49763_text(v)
+            if s:
+                vals.append(s)
+    # Parse explicit phrases from reason strings when available.
+    for k in ('reason','reason_text','final_reason','summary','comment','근거'):
+        s = _v49763_text(d.get(k))
+        if not s:
+            continue
+        m = re.search(r'(?:남은\s*조건|대기\s*조건)\s*[:：]\s*([^\n·|]+)', s)
+        if m:
+            vals.append(m.group(1).strip())
+    clean=[]
+    seen=set()
+    for x in vals:
+        x=re.sub(r'\s+',' ',x).strip(' ·,|')
+        if x and x not in seen:
+            seen.add(x); clean.append(x)
+    return clean
+
+
+def _v49763_remaining_count(d, stage):
+    vals = _v49763_remaining_text(d)
+    if vals:
+        # Split common joined conditions conservatively.
+        joined=' / '.join(vals)
+        parts=[x.strip() for x in re.split(r'\s*(?:\+|/|,|·|그리고|및)\s*', joined) if x.strip()]
+        return max(1, len(parts)), joined
+    if stage == 'STRICT-ENTRY':
+        return 0, '없음'
+    if stage == 'RESTART-NEAR':
+        return 1, '원천 상세조건 확인'
+    if stage == 'FIRST-PULLBACK':
+        return 2, '재출발 조건 확인 필요'
+    return 9, '아직 단계 미완성'
+
+
+def _v49763_score(d):
+    return _v49763_float(_v49763_pick(d, 'score','entry_score','lifecycle_score','점수', default=0), 0.0) or 0.0
+
+
+def _v49763_candidate(item):
+    d = _v49763_merge_row(item)
+    name, code = _v49763_name_code(d)
+    if not (name or code):
+        return None
+    stage = _v49763_stage(d)
+    if _v49763_source_blocked(d):
+        return None
+    # New-entry execution board excludes research/completed/fail/ignition-only states.
+    if stage in ('PULLBACK-FAIL','IGNITION','IGNITION-EXTREME','ENTRY-ACTIVE','ENTRY-COMPLETE'):
+        return None
+    if stage not in ('STRICT-ENTRY','RESTART-NEAR','FIRST-PULLBACK','PULLBACK-PENDING'):
+        return None
+
+    remain_n, remain_txt = _v49763_remaining_count(d, stage)
+    cur, cur_key = _v49763_current_price(d)
+    trigger, trigger_key = _v49763_trigger_price(d)
+    support, support_key = _v49763_support_price(d)
+    stop, stop_key = _v49763_stop_price(d)
+    chase, chase_key = _v49763_chase_price(d)
+    gap = None
+    if cur and trigger:
+        gap = (trigger / cur - 1.0) * 100.0
+
+    if stage == 'STRICT-ENTRY':
+        tier = 0
+        label = '🟢 BUY READY'
+    elif stage == 'RESTART-NEAR':
+        tier = 1
+        label = '🟡 ONE STEP LEFT'
+    elif stage == 'FIRST-PULLBACK':
+        tier = 2 if remain_n <= 1 else 3
+        label = '🟡 ONE STEP LEFT' if remain_n <= 1 else '⚪ WATCH'
+    else:
+        tier = 5
+        label = '⚪ WATCH'
+
+    return {
+        'd': d, 'name': name or code, 'code': code, 'stage': stage, 'tier': tier,
+        'label': label, 'remain_n': remain_n, 'remain_txt': remain_txt,
+        'score': _v49763_score(d), 'cur': cur, 'cur_key': cur_key,
+        'trigger': trigger, 'trigger_key': trigger_key, 'support': support, 'support_key': support_key,
+        'stop': stop, 'stop_key': stop_key, 'chase': chase, 'chase_key': chase_key, 'gap': gap,
+    }
+
+
+def _v49763_collect(decision):
+    out=[]; seen=set()
+    for item in _v49763_walk(decision):
+        c=_v49763_candidate(item)
+        if not c:
+            continue
+        episode = _v49763_text(_v49763_pick(c['d'], 'episode_id','episode','ignition_date','점화일', default=''))
+        key=(c['code'] or c['name'], episode, c['stage'])
+        if key in seen:
+            continue
+        seen.add(key); out.append(c)
+    def sort_key(c):
+        gap = c['gap']
+        # Prefer trigger close above current, then known distance, then score.
+        gap_bucket = 0 if gap is not None and -0.5 <= gap <= 3.0 else (1 if gap is not None else 2)
+        gap_abs = abs(gap) if gap is not None else 999.0
+        return (c['tier'], c['remain_n'], gap_bucket, gap_abs, -c['score'], c['name'])
+    out.sort(key=sort_key)
+    return out
+
+
+def _v49763_fmt_price(x):
+    if x is None:
+        return 'N/A'
+    try:
+        return f'{float(x):,.0f}원'
+    except Exception:
+        return 'N/A'
+
+
+def _v49763_phase():
+    try:
+        now = _now_kst() if callable(globals().get('_now_kst')) else datetime.now(KST)
+    except Exception:
+        now = datetime.now()
+    hm = now.hour * 100 + now.minute
+    if hm < 1440:
+        return '09:30 관찰판', 3, now
+    if hm < 1503:
+        return '14:40 PAPER 예비판', 2, now
+    if hm < 1530:
+        return '15:03 FINAL KICK', 2, now
+    return '15:30+ 종가확정판', 2, now
+
+
+def _v49763_action_line(c, phase_name):
+    if c['trigger'] is None:
+        return '   행동: ⛔ ENTRY 트리거 가격 미확보 → 가격을 임의 추정하지 말고 매수 금지'
+    if c['stage'] == 'STRICT-ENTRY':
+        explicit = _v49763_text(_v49763_pick(c['d'], 'final_decision','decision','action','판정', default='')).upper()
+        if 'ENTER' in explicit and not any(x in explicit for x in ('NO ENTER','WAIT','제외','금지')):
+            return '   행동: 🟢 기존 FINAL 판정 ENTER 근거가 있을 때만 PAPER 진입 검토'
+        return '   행동: 🟢 STRICT 원신호 · 기존 FINAL_KICK/시장/위험가드 통과 여부 재확인 후만 진입'
+    if c['stage'] == 'RESTART-NEAR' or c['label'].startswith('🟡'):
+        return '   행동: 남은 조건 + ENTRY 트리거를 함께 충족할 때만 다음 단계 승격'
+    return '   행동: 지금 매수 아님 · FIRST-PULLBACK 구조 유지와 재출발 조건을 기다림'
+
+
+def _v49763_build_top2_lines(decision, data_date=None, market_short=''):
+    cands=_v49763_collect(decision)
+    phase_name, limit, now = _v49763_phase()
+    strict_n=sum(1 for c in cands if c['stage']=='STRICT-ENTRY')
+    near_n=sum(1 for c in cands if c['stage']=='RESTART-NEAR' or (c['stage']=='FIRST-PULLBACK' and c['remain_n']<=1))
+    watch_n=sum(1 for c in cands if c['stage'] in ('FIRST-PULLBACK','PULLBACK-PENDING') and c['tier']>=3)
+    top=cands[:limit]
+
+    lines=[
+        f'🎯 [실전 TOP{limit} 실행판 · {phase_name}] | v49.76.4',
+        '──────────',
+        f'- 지금 매수 가능 원신호 {strict_n} · ENTRY 직전 {near_n} · 관찰 {watch_n}',
+        '- 분모 주의: Lifecycle 대기와 RESTART-NEAR는 같은 숫자가 아닙니다.',
+        '- 우선순위: STRICT-ENTRY → RESTART-NEAR → FIRST-PULLBACK(남은 조건 적은 순)',
+    ]
+    if not top:
+        lines += ['- 오늘 실행판 후보 없음 · 신규 매수하지 않음', '']
+        return lines
+
+    for i,c in enumerate(top,1):
+        medal='🥇' if i==1 else ('🥈' if i==2 else '🥉')
+        lines.append(f'{medal} {c["name"]}' + (f' ({c["code"]})' if c['code'] else '') + f' | {c["label"]} | {c["stage"]}')
+        lines.append(f'   현재가: {_v49763_fmt_price(c["cur"])}' + (f' [{c["cur_key"]}]' if c['cur_key'] else ''))
+        trig = _v49763_fmt_price(c['trigger'])
+        gap_txt = f' · 현재가→트리거 {c["gap"]:+.2f}%' if c['gap'] is not None else ''
+        lines.append(f'   ENTRY 트리거: {trig}' + (f' [{c["trigger_key"]}]' if c['trigger_key'] else '') + gap_txt)
+        lines.append(f'   핵심지지: {_v49763_fmt_price(c["support"])}' + (f' [{c["support_key"]}]' if c['support_key'] else ''))
+        if c['stop'] is not None:
+            lines.append(f'   손절기준: {_v49763_fmt_price(c["stop"])} [{c["stop_key"]}]')
+        elif c['support'] is not None:
+            lines.append('   무효화 관찰: 핵심지지 종가 이탈 여부 · 별도 손절가 원천값 없음')
+        else:
+            lines.append('   손절/무효화: N/A · 원천 가격 없음')
+        if c['trigger'] is not None:
+            lines.append(f'   P1 +3 기준: {_v49763_fmt_price(c["trigger"] * 1.03)}')
+        if c['chase'] is not None:
+            lines.append(f'   추격금지 상단: {_v49763_fmt_price(c["chase"])} [{c["chase_key"]}]')
+        else:
+            lines.append('   추격금지 상단: N/A · 임의 퍼센트 생성 안 함')
+        lines.append(f'   남은 조건: {c["remain_txt"]}')
+        lines.append(_v49763_action_line(c, phase_name))
+    lines += ['', '📚 아래 상세판은 연구/추적용입니다. 실제 판단은 위 TOP 실행판부터 봅니다.', '']
+    return lines
+
+
+def _v49763_consistency_audit_text(text):
+    """Audit rendered report without changing search or lifecycle authority."""
+    s=_v49763_text(text)
+    warnings=[]
+    # Impossible-looking displayed metric: threshold says < -18 but displayed '당시' is above threshold.
+    for m in re.finditer(r'점화\s*후\s*최대\s*눌림\s*<\s*([+\-]?[0-9.]+)%[^\n]*당시\s*([+\-]?[0-9.]+)%', s):
+        th=_v49763_float(m.group(1),None); val=_v49763_float(m.group(2),None)
+        if th is not None and val is not None and not (val < th):
+            warnings.append(f'FAIL metric 표시 불일치 가능: threshold {th:.1f}% / displayed {val:+.1f}%')
+    # Same signal_date printed with multiple D+ ages.
+    ages={}
+    for m in re.finditer(r'신호\s*(20\d{2}-\d{2}-\d{2})\s*\|\s*D\+(\d+)', s):
+        ages.setdefault(m.group(1),set()).add(int(m.group(2)))
+    for dt,vals in sorted(ages.items()):
+        if len(vals)>1:
+            warnings.append(f'D+ 일관성 경고: 신호일 {dt}에 D+ {sorted(vals)} 혼재')
+    if not warnings:
+        return ''
+    out=['⚠️ [v49.76.4 출력 일관성 감사]']
+    out += [f'- {w}' for w in warnings[:10]]
+    out.append('- 위 경고는 연구 데이터 표기 감사이며 검색/ENTRY authority를 변경하지 않습니다.')
+    return '\n'.join(out)
+
+
+# 1) Override execution board: prepend user-facing TOP2/TOP3 view, preserve detailed base board.
+def _v4976_execution_board_lines(decision, data_date, market_short):
+    try:
+        base=[]
+        if callable(_V49763_BASE_EXECUTION_BOARD_LINES):
+            base=_V49763_BASE_EXECUTION_BOARD_LINES(decision, data_date, market_short)
+        if base is None:
+            base=[]
+        if isinstance(base,str):
+            base=base.splitlines()
+        elif not isinstance(base,list):
+            base=list(base)
+        return _v49763_build_top2_lines(decision, data_date, market_short) + base
+    except Exception as e:
+        try: log_error(f'⚠️ v49.76.3 TOP2 실행판 생성 실패: {e}')
+        except Exception: pass
+        if callable(_V49763_BASE_EXECUTION_BOARD_LINES):
+            return _V49763_BASE_EXECUTION_BOARD_LINES(decision, data_date, market_short)
+        return []
+
+
+# 2) Override live parts only for wording/audit; do not alter decisions.
+def _v4938_build_live_parts(hits_df, execution_all, market_short, cov_short, raw_health):
+    if not callable(_V49763_BASE_LIVE_PARTS):
+        return []
+    parts=_V49763_BASE_LIVE_PARTS(hits_df, execution_all, market_short, cov_short, raw_health)
+    try:
+        is_tuple=isinstance(parts,tuple)
+        seq=list(parts) if isinstance(parts,(list,tuple)) else [parts]
+        out=[]
+        joined=[]
+        for p in seq:
+            if isinstance(p,str):
+                # Clarify denominator wording only; number itself is untouched.
+                p2=re.sub(r'신규\s*진입\s*없음\s*·\s*다음\s*거래일\s*확인\s*(\d+)개',
+                          r'신규 진입 없음 · Lifecycle 대기 \1개', p)
+                p2=re.sub(r'신규검토\s*(\d+)\s*·\s*대기\s*(\d+)',
+                          r'신규검토 \1 · Lifecycle 대기 \2', p2)
+                out.append(p2); joined.append(p2)
+            else:
+                out.append(p)
+        audit=_v49763_consistency_audit_text('\n'.join(joined))
+        if audit:
+            # Append audit to the final string part, preserving container type.
+            for i in range(len(out)-1,-1,-1):
+                if isinstance(out[i],str):
+                    out[i]=out[i].rstrip()+"\n\n"+audit
+                    break
+        if is_tuple:
+            return tuple(out)
+        if isinstance(parts,list):
+            return out
+        return out[0] if out else parts
+    except Exception as e:
+        try: log_error(f'⚠️ v49.76.3 live-parts wording/audit 실패: {e}')
+        except Exception: pass
+        return parts
+
+# =============================================================
+# ✅ END V49.76.3 TOP2 EXECUTION DECISION LAYER — SAFE OVERLAY
+# =============================================================
+
+# =============================================================
+# ✅ V49.76.4 FINAL ACTION AUTHORITY GUARD — SAFE OVERLAY
+# - Purpose: make the first user-facing block answer only:
+#            buy / do not buy / what to watch next.
+# - Final action authority is separated from post-send KPI evidence.
+# - IMPORTANT: "fail-closed ON" means guard enabled, not automatically tripped.
+# - Frozen: search population, score/rank, STRICT thresholds, EXIT/P1,
+#           MARCAP/PIT, LIVE/PAPER order policy, Google Sheet schema.
+# =============================================================
+try:
+    print("✅ V49.76.4 FINAL_ACTION_AUTHORITY_GUARD LOADED")
+except Exception:
+    pass
+
+_V49764_BASE_LIVE_PARTS = globals().get('_v4938_build_live_parts')
+_V49764_BASE_EXECUTION_BOARD = globals().get('_v4976_execution_board_lines')
+
+
+def _v49764_s(v, default=''):
+    try:
+        if v is None:
+            return default
+        if isinstance(v, float) and pd.isna(v):
+            return default
+        s = str(v).strip()
+        return s if s else default
+    except Exception:
+        return default
+
+
+def _v49764_num(v, default=None):
+    try:
+        if v is None:
+            return default
+        try:
+            if pd.isna(v):
+                return default
+        except Exception:
+            pass
+        return float(str(v).replace(',', '').replace('%', '').strip())
+    except Exception:
+        return default
+
+
+def _v49764_bool(v, default=None):
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        try:
+            if pd.isna(v):
+                return default
+        except Exception:
+            pass
+        return bool(int(v))
+    s = _v49764_s(v).upper()
+    if s in ('1','TRUE','T','YES','Y','ON','PASS','VALID','ALLOW','ALLOWED','OK'):
+        return True
+    if s in ('0','FALSE','F','NO','N','OFF','FAIL','INVALID','BLOCK','BLOCKED','DENY','DENIED','CLOSED'):
+        return False
+    return default
+
+
+def _v49764_dict(obj):
+    try:
+        if obj is None:
+            return {}
+        if isinstance(obj, dict):
+            return dict(obj)
+        if isinstance(obj, pd.Series):
+            return obj.to_dict()
+        if hasattr(obj, 'to_dict'):
+            d = obj.to_dict()
+            if isinstance(d, dict):
+                return d
+    except Exception:
+        pass
+    return {}
+
+
+def _v49764_walk(obj, depth=0, max_depth=6):
+    if obj is None or depth > max_depth:
+        return
+    try:
+        if isinstance(obj, pd.DataFrame):
+            for _, row in obj.iterrows():
+                yield row.to_dict()
+            return
+        if isinstance(obj, pd.Series):
+            yield obj.to_dict(); return
+        if isinstance(obj, dict):
+            yield obj
+            for v in obj.values():
+                if isinstance(v, (dict, list, tuple, pd.DataFrame, pd.Series)):
+                    yield from _v49764_walk(v, depth + 1, max_depth)
+            return
+        if isinstance(obj, (list, tuple)):
+            for v in obj:
+                yield from _v49764_walk(v, depth + 1, max_depth)
+    except Exception:
+        return
+
+
+def _v49764_pick(d, *keys, default=None):
+    for k in keys:
+        try:
+            if k not in d:
+                continue
+            v = d.get(k)
+            if v is None:
+                continue
+            if isinstance(v, str) and not v.strip():
+                continue
+            try:
+                if pd.isna(v):
+                    continue
+            except Exception:
+                pass
+            return v
+        except Exception:
+            continue
+    return default
+
+
+def _v49764_merge(item):
+    d = _v49764_dict(item)
+    rd = _v49764_dict(d.get('row'))
+    out = dict(rd); out.update(d); out.pop('row', None)
+    return out
+
+
+def _v49764_name_code(d):
+    name = _v49764_s(_v49764_pick(d, 'name','stock_name','종목명','Name', default=''))
+    code = _v49764_s(_v49764_pick(d, 'code','ticker','종목코드','Code', default=''))
+    return name or code, code
+
+
+def _v49764_stage(d):
+    txt = ' '.join(_v49764_s(_v49764_pick(d, k, default='')) for k in (
+        'stage','lifecycle_state','state','status','phase','entry_state','final_state',
+        'final_decision','decision','action','단계','상태','최종판단','판정'
+    )).upper()
+    if 'STRICT-ENTRY' in txt or 'STRICT_ENTRY' in txt: return 'STRICT-ENTRY'
+    if 'RESTART-NEAR' in txt or 'RESTART_NEAR' in txt or '다음 ENTRY 확인'.upper() in txt: return 'RESTART-NEAR'
+    if 'FIRST-PULLBACK' in txt or 'FIRST_PULLBACK' in txt or '첫 눌림 확정'.upper() in txt: return 'FIRST-PULLBACK'
+    if 'PULLBACK-PENDING' in txt or 'PULLBACK_PENDING' in txt or 'SUPPORT-TEST' in txt: return 'PULLBACK-PENDING'
+    if 'PULLBACK-FAIL' in txt or 'PULLBACK_FAIL' in txt: return 'PULLBACK-FAIL'
+    if 'ENTRY-ACTIVE' in txt or 'ENTRY_ACTIVE' in txt: return 'ENTRY-ACTIVE'
+    if 'ENTRY-COMPLETE' in txt or 'ENTRY_COMPLETE' in txt: return 'ENTRY-COMPLETE'
+    if 'IGNITION' in txt: return 'IGNITION'
+    return 'UNKNOWN'
+
+
+def _v49764_source_or_risk_block(d):
+    txt = ' '.join(_v49764_s(_v49764_pick(d, k, default='')) for k in (
+        'source','origin','recommendation_source','forward_type','risk_state','risk_reason',
+        'block_reason','final_decision','decision','action','판정'
+    )).upper()
+    if any(x in txt for x in ('REPLAY','BLOCKED-SHADOW','BLOCKED SHADOW','실제 포지션 아님')):
+        return True, 'Replay/Shadow는 실제 신규진입 대상 아님'
+    if any(x in txt for x in ('CHASE-WAIT','OVERHEAT-WAIT','PULLBACK-FAIL','신규 진입 제외','신규진입 제외','진입 금지')):
+        return True, '위험/상태 하드가드 미통과'
+    # Explicit boolean blockers have authority when present.
+    for key in ('risk_blocked','entry_blocked','blocked','hard_block','chase_block','overheat_block'):
+        if key in d and _v49764_bool(d.get(key), None) is True:
+            return True, f'{key}=TRUE'
+    return False, ''
+
+
+def _v49764_price(d, keys):
+    for k in keys:
+        if k in d:
+            x = _v49764_num(d.get(k), None)
+            if x is not None and x > 0:
+                return x, k
+    return None, ''
+
+
+def _v49764_entry_price(d):
+    # Existing designated/entry prices only. No fabricated breakout price.
+    return _v49764_price(d, (
+        'limit_price','designated_price','entry_price','close_entry','buy_price',
+        'entry_trigger','entry_trigger_price','restart_trigger','restart_trigger_price',
+        'trigger_price','buy_trigger','short_high','short_term_high','recent_high',
+        '지정가','진입가','ENTRY가격','매수가'
+    ))
+
+
+def _v49764_current_price(d):
+    return _v49764_price(d, ('current_price','price','close','Close','latest_close','현재가','판단가격'))
+
+
+def _v49764_support(d):
+    return _v49764_price(d, ('support','support_price','support_line','pullback_support','support_level','지지','지지선'))
+
+
+def _v49764_stop(d):
+    return _v49764_price(d, ('stoploss','stop_loss','stop_price','hard_stop','risk_stop','손절','손절가'))
+
+
+def _v49764_score(d):
+    return _v49764_num(_v49764_pick(d, 'score','entry_score','lifecycle_score','점수', default=0), 0.0) or 0.0
+
+
+def _v49764_candidate_rows(execution_all):
+    # Reuse v49.76.3 collector when available, then normalize.
+    fn = globals().get('_v49763_collect')
+    rows=[]
+    if callable(fn):
+        try:
+            for c in fn(execution_all) or []:
+                d = _v49764_dict(c.get('d')) if isinstance(c, dict) else {}
+                if d:
+                    rows.append(d)
+        except Exception:
+            rows=[]
+    if not rows:
+        for it in _v49764_walk(execution_all):
+            d=_v49764_merge(it)
+            name,_=_v49764_name_code(d)
+            if not name: continue
+            st=_v49764_stage(d)
+            if st in ('STRICT-ENTRY','RESTART-NEAR','FIRST-PULLBACK','PULLBACK-PENDING'):
+                rows.append(d)
+    # Deduplicate by code/name + episode + stage.
+    out=[]; seen=set()
+    for d in rows:
+        name,code=_v49764_name_code(d); st=_v49764_stage(d)
+        ep=_v49764_s(_v49764_pick(d,'episode_id','episode','ignition_date','점화일',default=''))
+        key=(code or name,ep,st)
+        if key in seen: continue
+        seen.add(key); out.append(d)
+    return out
+
+
+def _v49764_phase():
+    try:
+        now = _now_kst() if callable(globals().get('_now_kst')) else datetime.now(KST)
+    except Exception:
+        now = datetime.now()
+    hm=now.hour*100+now.minute
+    if hm < 1440: return 'OBSERVE', now
+    if hm < 1503: return 'PREVIEW', now
+    return 'FINAL', now
+
+
+def _v49764_explicit_market_gate(*objs):
+    """Return (allowed|None, reason).
+    Only explicit gate outcome is authoritative.
+    A generic 'fail_closed=ON' / '신규ENTRY fail-closed ON' is guard-enabled state,
+    not a tripped condition and is deliberately NOT treated as BLOCK.
+    """
+    allow_keys=('entry_allowed','new_entry_allowed','m5_entry_allowed','coverage_entry_allowed','final_entry_allowed','can_enter')
+    block_keys=('entry_blocked','new_entry_blocked','m5_entry_blocked','coverage_entry_blocked',
+                'fail_closed_active','fail_closed_triggered','m5_fail_closed_active','coverage_fail_closed_active')
+    status_keys=('entry_gate_status','m5_gate_status','coverage_gate_status','final_gate_status','entry_status')
+    found_allow=[]
+    for obj in objs:
+        for d0 in _v49764_walk(obj):
+            d=_v49764_dict(d0)
+            for k in block_keys:
+                if k in d and _v49764_bool(d.get(k), None) is True:
+                    return False, f'{k}=TRUE'
+            for k in allow_keys:
+                if k in d:
+                    b=_v49764_bool(d.get(k), None)
+                    if b is False: return False, f'{k}=FALSE'
+                    if b is True: found_allow.append(k)
+            for k in status_keys:
+                if k in d:
+                    s=_v49764_s(d.get(k)).upper()
+                    if any(x in s for x in ('BLOCK','FAIL','DENY','CLOSED','INVALID')):
+                        return False, f'{k}={_v49764_s(d.get(k))}'
+                    if any(x in s for x in ('PASS','ALLOW','OPEN','VALID','OK')):
+                        found_allow.append(k)
+    if found_allow:
+        return True, 'explicit gate PASS: '+','.join(sorted(set(found_allow))[:4])
+    return None, 'explicit market/coverage gate outcome not exposed'
+
+
+def _v49764_duplicate_block(d):
+    # Explicit duplicate flags only; do not infer from textual episode history.
+    for k in ('episode_duplicate','duplicate_entry','forward_duplicate','already_recommended','already_entered'):
+        if k in d and _v49764_bool(d.get(k), None) is True:
+            return True, f'{k}=TRUE'
+    txt=' '.join(_v49764_s(_v49764_pick(d,k,default='')) for k in ('duplicate_reason','forward_reason','reason','final_reason')).upper()
+    if any(x in txt for x in ('기존 FORWARD 중복','동일 EPISODE 중복','ALREADY ENTERED','DUPLICATE ENTRY')):
+        return True, '동일 episode/Forward 중복'
+    return False, ''
+
+
+def _v49764_final_authorize(d, phase, gate_allowed, gate_reason):
+    name,code=_v49764_name_code(d); st=_v49764_stage(d)
+    reasons=[]
+    if st != 'STRICT-ENTRY':
+        return False, ['STRICT-ENTRY 아님']
+    blocked, why=_v49764_source_or_risk_block(d)
+    if blocked: reasons.append(why)
+    dup, why2=_v49764_duplicate_block(d)
+    if dup: reasons.append(why2)
+    entry,entry_key=_v49764_entry_price(d)
+    if entry is None: reasons.append('지정가/ENTRY 가격 원천값 없음')
+    if phase == 'OBSERVE': reasons.append('09:30 관찰시간 · 신규진입 권한 없음')
+    elif phase == 'PREVIEW': reasons.append('14:40 PREVIEW · 15:03 이후 재검증 전')
+    if gate_allowed is False: reasons.append('시장/커버리지 하드게이트 BLOCK: '+gate_reason)
+    # gate_allowed None is not invented as PASS or FAIL. In FINAL phase it remains fail-safe for manual action.
+    if phase == 'FINAL' and gate_allowed is None:
+        reasons.append('시장/커버리지 최종게이트 결과 미노출 · fail-safe')
+    # Existing explicit final exclusion always blocks.
+    final_txt=' '.join(_v49764_s(_v49764_pick(d,k,default='')) for k in ('final_decision','decision','action','판정')).upper()
+    if any(x in final_txt for x in ('제외','금지','BLOCK','WAIT','보류')) and 'PAPER 신규 진입검토'.upper() not in final_txt:
+        reasons.append('기존 최종판정이 ENTER가 아님')
+    return (len(reasons)==0), reasons
+
+
+def _v49764_watch_sort_key(d):
+    st=_v49764_stage(d); tier={'RESTART-NEAR':0,'FIRST-PULLBACK':1,'PULLBACK-PENDING':2}.get(st,9)
+    cur,_=_v49764_current_price(d); ent,_=_v49764_entry_price(d)
+    gap=abs((ent/cur-1)*100) if cur and ent else 999.0
+    return (tier,gap,-_v49764_score(d),_v49764_name_code(d)[0])
+
+
+def _v49764_build_action_panel(execution_all, market_short, cov_short, raw_health):
+    phase,now=_v49764_phase()
+    gate_allowed,gate_reason=_v49764_explicit_market_gate(execution_all,market_short,cov_short,raw_health)
+    rows=_v49764_candidate_rows(execution_all)
+    strict=[]; watches=[]
+    for d in rows:
+        if _v49764_stage(d)=='STRICT-ENTRY': strict.append(d)
+        else:
+            b,_=_v49764_source_or_risk_block(d)
+            if not b: watches.append(d)
+    strict.sort(key=lambda d:(-_v49764_score(d),_v49764_name_code(d)[0]))
+    watches.sort(key=_v49764_watch_sort_key)
+
+    authorized=[]; blocked=[]
+    for d in strict:
+        ok,reasons=_v49764_final_authorize(d,phase,gate_allowed,gate_reason)
+        (authorized if ok else blocked).append((d,reasons))
+    authorized=authorized[:2]
+    phase_label={'OBSERVE':'09:30 관찰','PREVIEW':'14:40 PREVIEW','FINAL':'15:03+ FINAL'}[phase]
+    lines=['🚦 [사용자 행동 결론 · '+phase_label+'] | v49.76.4','──────────']
+    if phase!='FINAL':
+        lines.append('- 🔴 지금 신규매수: 0개')
+        lines.append('- 이유: '+('아침 관찰판' if phase=='OBSERVE' else '14:40 예비판 · 15:03 이후 최종 재검증 전'))
+    elif authorized:
+        lines.append(f'- 🟢 PAPER ENTER 검토: {len(authorized)}개 · 지정가만 · 자동주문 0')
+    else:
+        lines.append('- 🔴 오늘 신규매수: 0개')
+
+    if gate_allowed is False:
+        lines.append(f'- ⛔ 시장/커버리지 게이트: BLOCK · {gate_reason}')
+    elif gate_allowed is True:
+        lines.append(f'- ✅ 시장/커버리지 게이트: PASS · {gate_reason}')
+    else:
+        lines.append('- ⚠️ 시장/커버리지 게이트: 최종 결과 필드 미노출')
+        lines.append('- 참고: "fail-closed ON" 문구만으로는 BLOCK으로 해석하지 않습니다.')
+
+    for i,(d,reasons) in enumerate(authorized,1):
+        name,code=_v49764_name_code(d); ent,ek=_v49764_entry_price(d); cur,_=_v49764_current_price(d); sup,_=_v49764_support(d); stop,_=_v49764_stop(d)
+        medal='🥇' if i==1 else '🥈'
+        lines.append(f'{medal} {name}' + (f' ({code})' if code else '') + ' | 🟢 PAPER ENTER')
+        lines.append(f'   지정가: ≤ {ent:,.0f}원' + (f' [{ek}]' if ek else ''))
+        if cur: lines.append(f'   현재가: {cur:,.0f}원')
+        if stop: lines.append(f'   하드손절 원천값: {stop:,.0f}원')
+        elif sup: lines.append(f'   구조지지: {sup:,.0f}원 · 별도 하드손절 원천값 없음')
+        lines.append('   행동: 지정가 미체결 시 추격 금지 · 자동주문 없음')
+        lines.append('   KPI: Telegram 성공 + DELIVERED 후에만 실제추천 통계 편입')
+
+    if blocked:
+        d,reasons=blocked[0]
+        name,code=_v49764_name_code(d)
+        lines.append(f'🎯 STRICT 원신호: {name}' + (f' ({code})' if code else '') + ' · 최종행동 BLOCK')
+        for r in reasons[:4]: lines.append(f'   ⛔ {r}')
+
+    if watches:
+        lines.append('👀 다음 우선관찰')
+        for i,d in enumerate(watches[:2],1):
+            name,code=_v49764_name_code(d); st=_v49764_stage(d); cur,_=_v49764_current_price(d); sup,_=_v49764_support(d); ent,_=_v49764_entry_price(d)
+            tail=[]
+            if cur: tail.append(f'현재 {cur:,.0f}')
+            if ent and cur: tail.append(f'ENTRY까지 {(ent/cur-1)*100:+.2f}%')
+            if sup: tail.append(f'지지 {sup:,.0f}')
+            lines.append(f'   {i}. {name} | {st}' + ((' · '+' · '.join(tail)) if tail else ''))
+    lines.append('- 최우선 규칙: 아래 연구판의 점수/녹색 원신호보다 이 행동 결론이 우선합니다.')
+    return '\n'.join(lines)
+
+
+def _v49764_normalize_green_labels(text, action_panel):
+    """When no authorized PAPER ENTER exists, prevent a research green label from looking executable."""
+    s=_v49764_s(text)
+    if '🟢 PAPER ENTER 검토:' in action_panel:
+        return s
+    # Keep underlying facts but de-escalate user-facing green wording.
+    s=re.sub(r'🟢\s*PAPER\s*신규\s*진입검토', '🎯 STRICT 원신호(최종행동 별도)', s)
+    s=re.sub(r'🟢\s*BUY READY', '🎯 STRICT 원신호', s)
+    return s
+
+
+def _v4938_build_live_parts(hits_df, execution_all, market_short, cov_short, raw_health):
+    if not callable(_V49764_BASE_LIVE_PARTS):
+        return []
+    parts=_V49764_BASE_LIVE_PARTS(hits_df, execution_all, market_short, cov_short, raw_health)
+    try:
+        panel=_v49764_build_action_panel(execution_all,market_short,cov_short,raw_health)
+        is_tuple=isinstance(parts,tuple); is_list=isinstance(parts,list)
+        seq=list(parts) if isinstance(parts,(list,tuple)) else [parts]
+        out=[]; injected=False
+        for p in seq:
+            if isinstance(p,str):
+                p2=_v49764_normalize_green_labels(p,panel)
+                if not injected:
+                    p2=panel+'\n\n'+p2.lstrip(); injected=True
+                out.append(p2)
+            else:
+                out.append(p)
+        if not injected:
+            out.insert(0,panel)
+        if is_tuple: return tuple(out)
+        if is_list: return out
+        return out[0] if len(out)==1 else out
+    except Exception as e:
+        try: log_error(f'⚠️ v49.76.4 FINAL ACTION panel 실패: {e}')
+        except Exception: pass
+        return parts
+
+# =============================================================
+# ✅ END V49.76.4 FINAL ACTION AUTHORITY GUARD — SAFE OVERLAY
+# =============================================================
+
+# =============================================================
+# ✅ V49.76.4 INTEGRATED FINAL-KICK AUTHORITY CORRECTION
+# - Uses the v49.76.2 authoritative FINAL_KICK evidence function.
+# - Uses _V4942_LAST_DECISION (the reconciled Lifecycle final decision),
+#   not the legacy execution list, for the user action panel.
+# - A clock time >=15:03 alone NEVER grants PAPER ENTER authority.
+# - Post-send Telegram/DELIVERED evidence remains KPI evidence, not a precondition.
+# =============================================================
+try:
+    print("✅ V49.76.4 INTEGRATED_FINAL_KICK_AUTHORITY_CORRECTION LOADED")
+except Exception:
+    pass
+
+# v49.76.4's own wrapper captured v49.76.3 here; call that directly so the
+# earlier generic-clock panel is bypassed in the integrated complete build.
+_V49764I_BASE_LIVE_PARTS = globals().get('_V49764_BASE_LIVE_PARTS')
+
+
+def _v49764i_row_dict(obj):
+    try:
+        if obj is None:
+            return {}
+        if isinstance(obj, dict):
+            return dict(obj)
+        if isinstance(obj, pd.Series):
+            return obj.to_dict()
+        if hasattr(obj, 'to_dict'):
+            d=obj.to_dict()
+            return dict(d) if isinstance(d,dict) else {}
+    except Exception:
+        pass
+    return {}
+
+
+def _v49764i_item_row(item):
+    d=_v49764i_row_dict(item)
+    r=_v49764i_row_dict(d.get('row'))
+    return d,r
+
+
+def _v49764i_price(item):
+    d,r=_v49764i_item_row(item)
+    for k in ('price','entry_price','limit_price','designated_price','close_entry','buy_price'):
+        v=r.get(k,d.get(k,np.nan))
+        x=_safe_float(v,np.nan)
+        if pd.notna(x) and float(x)>0:
+            return float(x),k
+    return np.nan,''
+
+
+def _v49764i_name_code(item):
+    d,r=_v49764i_item_row(item)
+    code=str(d.get('code',r.get('code','')) or '').zfill(6)
+    name=str(d.get('name',r.get('name',code)) or code)
+    return name,code
+
+
+def _v49764i_stage(item):
+    d,r=_v49764i_item_row(item)
+    return str(r.get('effective_stage',r.get('stage',d.get('stage',''))) or '').upper()
+
+
+def _v49764i_score(item):
+    d,r=_v49764i_item_row(item)
+    return _safe_float(d.get('score',r.get('score',0)),0.0)
+
+
+def _v49764i_final_evidence(data_date=None):
+    fn=globals().get('_v49761_final_kick_evidence')
+    if callable(fn):
+        try:
+            return dict(fn(data_date) or {})
+        except Exception as e:
+            return {'eligible':False,'reason':f'FINAL_EVIDENCE_ERROR:{type(e).__name__}','decision_phase':'UNKNOWN'}
+    return {'eligible':False,'reason':'FINAL_EVIDENCE_FUNCTION_MISSING','decision_phase':'UNKNOWN'}
+
+
+def _v49764i_watch_items(decision):
+    items=list((decision or {}).get('items',[]) or []) if isinstance(decision,dict) else []
+    stage_rank={'RESTART-NEAR':0,'FIRST-PULLBACK':1,'PULLBACK-PENDING':2,'SUPPORT-TEST':2}
+    rows=[]
+    for it in items:
+        if str((it or {}).get('decision','')).upper()!='WAIT':
+            continue
+        st=_v49764i_stage(it)
+        if st not in stage_rank:
+            continue
+        rows.append(it)
+    rows.sort(key=lambda x:(stage_rank.get(_v49764i_stage(x),9),-_v49764i_score(x),_v49764i_name_code(x)[0]))
+    return rows[:2]
+
+
+def _v49764i_enter_items(decision):
+    # This is the authoritative reconciled ENTER decision from v49.76.2.
+    # It already includes new_entry_allowed, support, risk, M5 evidence and market checks.
+    items=list((decision or {}).get('items',[]) or []) if isinstance(decision,dict) else []
+    rows=[x for x in items if str((x or {}).get('decision','')).upper()=='ENTER']
+    try:
+        fn=globals().get('_v4976_execution_items')
+        if callable(fn):
+            ordered=list(fn(decision) or [])
+            if ordered:
+                return ordered[:2]
+    except Exception:
+        pass
+    rows.sort(key=lambda x:(-_v49764i_score(x),_v49764i_name_code(x)[0]))
+    return rows[:2]
+
+
+def _v49764i_phase_label(ev):
+    try:
+        now=_now_kst()
+    except Exception:
+        now=datetime.now(KST) if 'KST' in globals() else datetime.now()
+    hm=now.hour*100+now.minute
+    phase=str((ev or {}).get('decision_phase','')).upper()
+    eligible=bool((ev or {}).get('eligible'))
+    if phase=='FINAL_KICK' and eligible:
+        return '15:03 FINAL_KICK'
+    if phase=='FINAL_KICK':
+        return 'FINAL_KICK 비적격'
+    if hm < 1440:
+        return '09:30 관찰'
+    if hm < 1503:
+        return '14:40 PREVIEW'
+    if hm < 1530:
+        return '15:03 이후 일반 실행'
+    return '15:30+ 종가 확인'
+
+
+def _v49764i_action_panel(decision, data_date=None):
+    decision=decision if isinstance(decision,dict) else {}
+    ev=_v49764i_final_evidence(data_date)
+    eligible=bool(ev.get('eligible')) and str(decision.get('state','')).upper()=='VALID'
+    enters=_v49764i_enter_items(decision)
+    authorized=[]; blocked=[]
+    for it in enters:
+        px,key=_v49764i_price(it)
+        if eligible and pd.notna(px):
+            authorized.append((it,px,key))
+        else:
+            rs=[]
+            if not eligible:
+                rs.append(f"FINAL_KICK 권한 없음: {ev.get('reason','UNKNOWN')}")
+            if pd.isna(px):
+                rs.append('지정가/ENTRY 가격 원천값 없음')
+            blocked.append((it,rs))
+    authorized=authorized[:2]
+    watches=_v49764i_watch_items(decision)
+    phase=_v49764i_phase_label(ev)
+    lines=[f'🚦 [사용자 행동 결론 · {phase}] | v49.76.4','──────────']
+    if authorized:
+        lines.append(f'- 🟢 PAPER ENTER 검토: {len(authorized)}개 · 지정가만 · 자동주문 0')
+        lines.append(f"- ✅ FINAL_KICK 권한: {ev.get('reason','ELIGIBLE')} · {ev.get('decision_time_kst','')}")
+    else:
+        lines.append('- 🔴 지금 신규매수: 0개')
+        lines.append(f"- ⛔ FINAL_KICK 권한: {ev.get('reason','UNKNOWN')} · {ev.get('decision_time_kst','')}")
+    for i,(it,px,key) in enumerate(authorized,1):
+        name,code=_v49764i_name_code(it); d,r=_v49764i_item_row(it)
+        support=_safe_float(r.get('support_price',np.nan),np.nan)
+        ma20=_safe_float(r.get('ma20_price',np.nan),np.nan)
+        structure=max([x for x in (support,ma20) if pd.notna(x)],default=np.nan)
+        hard=px*0.97
+        medal='🥇' if i==1 else '🥈'
+        lines.append(f'{medal} {name}' + (f' ({code})' if code else '') + ' | 🟢 PAPER ENTER')
+        lines.append(f'   지정가: ≤ {_v4938_price(px)} [{key}] · 미체결 추격 금지')
+        lines.append(f'   +3: {_v4938_price(px*1.03)} · +5: {_v4938_price(px*1.05)} · 하드 -3: {_v4938_price(hard)}')
+        if pd.notna(structure):
+            lines.append(f'   구조지지: {_v4938_price(structure)}')
+        lines.append('   KPI: 추천 Telegram 성공 + DELIVERED 확인 후 실제추천 통계 편입')
+    if blocked:
+        it,reasons=blocked[0]
+        name,code=_v49764i_name_code(it)
+        lines.append(f'🎯 ENTER 원신호: {name}' + (f' ({code})' if code else '') + ' · 최종행동 BLOCK')
+        for r in reasons[:3]:
+            lines.append(f'   ⛔ {r}')
+    if watches:
+        lines.append('👀 다음 우선관찰')
+        for i,it in enumerate(watches,1):
+            name,code=_v49764i_name_code(it); d,r=_v49764i_item_row(it); st=_v49764i_stage(it)
+            cur=_safe_float(r.get('price',r.get('close',np.nan)),np.nan)
+            support=_safe_float(r.get('support_price',np.nan),np.nan)
+            tail=[]
+            if pd.notna(cur): tail.append(f'현재 {_v4938_price(cur)}')
+            if pd.notna(support): tail.append(f'지지 {_v4938_price(support)}')
+            missing=r.get('missing',[])
+            if isinstance(missing,(list,tuple,set)) and missing:
+                tail.append('남은조건 '+ '·'.join(str(x) for x in list(missing)[:2]))
+            lines.append(f'   {i}. {name} | {st}' + ((' · '+' · '.join(tail)) if tail else ''))
+    lines.append('- 최우선 규칙: 아래 연구판의 점수/원신호보다 이 행동 결론이 우선합니다.')
+    return '\n'.join(lines), bool(authorized), ev
+
+
+def _v49764i_normalize_detail(text, has_authorized, ev):
+    s=str(text or '')
+    if has_authorized:
+        return s
+    # Preserve the underlying signal while removing executable-looking green labels.
+    s=re.sub(r'🟢\s*PAPER\s*신규\s*진입검토', '🎯 ENTER 원신호(최종행동 별도)', s)
+    s=re.sub(r'🟢\s*BUY READY', '🎯 STRICT 원신호', s)
+    # A non-final run after 15:03 is not a 14:40 board. Make the authority explicit.
+    reason=str((ev or {}).get('reason','UNKNOWN'))
+    phase=str((ev or {}).get('decision_phase','')).upper()
+    if phase!='FINAL_KICK':
+        s=s.replace('[🧭 14:40 PAPER 예비보드 · 원장 미확정]', '[🧭 일반/PREVIEW 실행보드 · 실제추천 권한 없음]')
+        s=s.replace('- PREVIEW ONLY · 14:40 결과는 실제추천 성과에서 제외 · 15:03 재검증 필수',
+                    f'- PREVIEW/일반 실행 · 실제추천 원장 확정 없음 · FINAL_KICK 별도 실행 필요 ({reason})')
+    return s
+
+
+def _v4938_build_live_parts(hits_df, execution_all, market_short, cov_short, raw_health):
+    if not callable(_V49764I_BASE_LIVE_PARTS):
+        return []
+    # Run v49.76.3 -> v49.76.2 base first. This populates _V4942_LAST_DECISION.
+    parts=_V49764I_BASE_LIVE_PARTS(hits_df,execution_all,market_short,cov_short,raw_health)
+    try:
+        decision=dict(globals().get('_V4942_LAST_DECISION',{}) or {})
+        dd=None
+        try:
+            dd=(globals().get('_V4938_LAST_HEALTH',{}) or {}).get('latest_data_date')
+        except Exception:
+            dd=None
+        panel,has_authorized,ev=_v49764i_action_panel(decision,dd)
+        is_tuple=isinstance(parts,tuple); is_list=isinstance(parts,list)
+        seq=list(parts) if isinstance(parts,(list,tuple)) else [parts]
+        out=[]; injected=False
+        for p in seq:
+            if isinstance(p,str):
+                p2=_v49764i_normalize_detail(p,has_authorized,ev)
+                if not injected:
+                    p2=panel+'\n\n'+p2.lstrip(); injected=True
+                out.append(p2)
+            else:
+                out.append(p)
+        if not injected:
+            out.insert(0,panel)
+        if is_tuple:return tuple(out)
+        if is_list:return out
+        return out[0] if len(out)==1 else out
+    except Exception as e:
+        try: log_error(f'⚠️ v49.76.4 integrated FINAL_KICK authority panel 실패: {e}')
+        except Exception: pass
+        return parts
+
+# =============================================================
+# ✅ END V49.76.4 INTEGRATED FINAL-KICK AUTHORITY CORRECTION
+# =============================================================
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='종가배팅 타점 스캐너')
     parser.add_argument('--force', action='store_true', help='시간 무관 강제 실행')
