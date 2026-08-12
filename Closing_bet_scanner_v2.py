@@ -80,8 +80,8 @@ def _env_float(name: str, default: float = 0.0) -> float:
         except Exception:
             return 0.0
 
-CLOSING_BET_SCANNER_VERSION = 'G_MORALES_V4_4_9_53_8_49_76_5_4_CANONICAL_AUTHORITY_REPLAY_BLOCK_LOCK_20260812'
-CLOSING_BET_RELEASE_TAG = 'v49.76.5.4'
+CLOSING_BET_SCANNER_VERSION = 'G_MORALES_V4_4_9_53_8_49_76_5_5_AUTO_AFTER_FINAL_TRANSIENT_TERMINAL_BLOCK_SPLIT_NAN_GUARD_20260812'
+CLOSING_BET_RELEASE_TAG = 'v49.76.5.5'
 CLOSING_BET_LIVE_PRICE_SANITY_FIX = str(os.environ.get('CLOSING_BET_LIVE_PRICE_SANITY_FIX', '1')).lower() in ('1', 'true', 'yes', 'y', 'on')
 CLOSING_BET_LIVE_READABILITY_COMPACT = str(os.environ.get('CLOSING_BET_LIVE_READABILITY_COMPACT', '1')).lower() in ('1', 'true', 'yes', 'y', 'on')
 # v53.8.42: M5R TRUE60 검증용 장기 월봉 확보. 60개월 월선 계산에는 약 7년 일봉이 필요하다.
@@ -47429,6 +47429,419 @@ def _v49765_normalize_detail(text: str, has_authorized: bool, res: dict) -> str:
     except Exception:
         return s
 
+
+
+# =============================================================
+# ✅ V49.76.5.5 AUTO AFTER-FINAL + TRANSIENT/TERMINAL BLOCK SPLIT + NaN GUARD
+# -------------------------------------------------------------
+# Runtime authority hotfix only:
+# - 15:40~20:00 KST + same-day close + no completed evidence => any normal run
+#   auto-promotes to AFTER FINAL. Run-mode is no longer an additional hard gate.
+# - Existing completed FINAL_KICK_EVIDENCE always wins and is restored; no resend.
+# - 20:00 이후 evidence 없는 신규 추천은 계속 금지.
+# - OVERHEAT-WAIT / CHASE-WAIT are transient research shadow blocks and do NOT
+#   terminal-lock the same episode on the following run/day.
+# - Only terminal structural failure signals may be episode-locked; canonical
+#   PULLBACK-FAIL remains the primary terminal authority.
+# - NaN/NaT text is never surfaced as a block reason/date.
+# Search/rank/ENTRY thresholds, MARCAP/PIT, P1 and automatic-order policy unchanged.
+# =============================================================
+try:
+    print("✅ V49.76.5.5 AUTO_AFTER_FINAL_TRANSIENT_TERMINAL_BLOCK_NAN_GUARD LOADED")
+except Exception:
+    pass
+
+
+def _v497655_clean_text(v, fallback: str='') -> str:
+    try:
+        if v is None:
+            return fallback
+        try:
+            if pd.isna(v):
+                return fallback
+        except Exception:
+            pass
+        s=str(v).strip()
+        if s.lower() in ('', 'nan', 'nat', 'none', '<na>'):
+            return fallback
+        return s
+    except Exception:
+        return fallback
+
+
+def _v497655_is_transient_block(row) -> bool:
+    """OVERHEAT/CHASE are temporary risk gates, not terminal episode failures."""
+    try:
+        vals=[
+            _v497655_clean_text(row.get('risk_status','')),
+            _v497655_clean_text(row.get('risk_reason','')),
+            _v497655_clean_text(row.get('failure_kind','')),
+            _v497655_clean_text(row.get('stage','')),
+        ] if hasattr(row,'get') else []
+        txt=' | '.join(vals).upper()
+        return ('OVERHEAT-WAIT' in txt) or ('CHASE-WAIT' in txt)
+    except Exception:
+        return False
+
+
+def _v497655_is_terminal_block(row) -> bool:
+    """Only explicit structural/failure states can terminal-lock an episode."""
+    try:
+        if row is None or not hasattr(row,'get'):
+            return False
+        if _v497655_is_transient_block(row):
+            return False
+        vals=[
+            _v497655_clean_text(row.get('risk_status','')),
+            _v497655_clean_text(row.get('risk_reason','')),
+            _v497655_clean_text(row.get('failure_kind','')),
+            _v497655_clean_text(row.get('stage','')),
+            _v497655_clean_text(row.get('effective_stage','')),
+        ]
+        txt=' | '.join(vals).upper()
+        terminal_tokens=('PULLBACK-FAIL','PULLBACK_FAIL','STRUCTURE-BLOCK','STRUCTURE-FAIL','STRUCTURE_FAIL','TERMINAL-FAIL')
+        return any(t in txt for t in terminal_tokens)
+    except Exception:
+        return False
+
+
+def _v497654_blocked_episode_map(events: pd.DataFrame, data_date=None) -> dict:
+    """v49.76.5.5: historical BLOCKED shadow locks only explicit terminal failures.
+
+    Typical BLOCKED-SHADOW rows are OVERHEAT-WAIT/CHASE-WAIT and are deliberately
+    excluded so the same episode may be re-evaluated when the transient risk clears.
+    """
+    out={}
+    try:
+        if events is None or events.empty:
+            return out
+        dd=pd.to_datetime(data_date,errors='coerce')
+        dd=dd.normalize() if pd.notna(dd) else pd.Timestamp(_now_kst().date()).normalize()
+        tc=events.get('v4938_track_class',pd.Series('',index=events.index)).astype(str).str.upper()
+        z=events[tc.eq('BLOCKED')].copy()
+        if z.empty:
+            return out
+        if '_episode_key' not in z.columns:
+            z['_episode_key']=z.apply(_v497654_episode_key_from_row,axis=1)
+        for _,r in z.iterrows():
+            if not _v497655_is_terminal_block(r):
+                continue
+            key=_v497655_clean_text(r.get('_episode_key',''))
+            sig=_v497654_sig_date(r)
+            if not key or pd.isna(sig) or sig >= dd:
+                continue
+            prev=out.get(key)
+            prev_sig=_v497654_sig_date(prev) if prev is not None else pd.NaT
+            if prev is None or pd.isna(prev_sig) or sig > prev_sig:
+                out[key]=dict(r)
+    except Exception:
+        return out
+    return out
+
+
+def _v4942_reconcile_registry(reg: pd.DataFrame, df=None):
+    """Rebuild from pre-5.4 canonical reconcile and apply terminal-only episode locks."""
+    z,events,data_date=_V497654_BASE_RECONCILE(reg,df)
+    try:
+        if z is None or z.empty:
+            return z,events,data_date
+        locks=_v497654_blocked_episode_map(events,data_date)
+        if not locks:
+            return z,events,data_date
+        z=z.copy()
+        if '_episode_key' not in z.columns:
+            z['_episode_key']=z.apply(_v497654_episode_key_from_row,axis=1)
+        for i,r in z.iterrows():
+            key=_v497655_clean_text(r.get('_episode_key',''))
+            b=locks.get(key)
+            if b is None:
+                continue
+            if bool(r.get('prior_entry',False)) and _v497655_clean_text(r.get('prior_entry_provenance','')).upper()=='LIVE':
+                continue
+            sig=_v497655_clean_text(b.get('signal_date',''), '확인필요')
+            risk=_v497655_clean_text(b.get('risk_status',''), 'TERMINAL-FAIL')
+            z.at[i,'new_entry_allowed']=False
+            z.at[i,'blocked_episode_lock']=True
+            z.at[i,'blocked_episode_signal_date']=sig
+            z.at[i,'blocked_episode_risk']=risk
+            z.at[i,'effective_stage']='BLOCKED-EPISODE-LOCK'
+            z.at[i,'risk_status']='BLOCKED-EPISODE-LOCK'
+            z.at[i,'risk_reason']=f'동일 episode terminal failure {risk} · 신호 {sig} · 새 점화일 필요'
+        return z,events,data_date
+    except Exception:
+        return z,events,data_date
+
+
+def _v4942_build_decisions(reg: pd.DataFrame, events: pd.DataFrame, market_short: str, health:dict, m5_ctx:dict|None=None) -> dict:
+    """Canonical decision builder with terminal-only historical lock presentation."""
+    ans=_V497654_BASE_BUILD_DECISIONS(reg,events,market_short,health,m5_ctx)
+    try:
+        if not isinstance(ans,dict) or str(ans.get('state','')).upper()!='VALID':
+            return ans
+        changed=False
+        for it in list(ans.get('items',[]) or []):
+            d,r=_v49764i_item_row(it) if callable(globals().get('_v49764i_item_row')) else (it, it.get('row',{}) if isinstance(it,dict) else {})
+            locked=bool((r or {}).get('blocked_episode_lock',False)) or str((r or {}).get('effective_stage','')).upper()=='BLOCKED-EPISODE-LOCK'
+            if not locked:
+                continue
+            if str(it.get('decision','')).upper() in ('MANAGE','REPLAY'):
+                continue
+            sig=_v497655_clean_text((r or {}).get('blocked_episode_signal_date',''), '확인필요')
+            risk=_v497655_clean_text((r or {}).get('blocked_episode_risk',''), 'TERMINAL-FAIL')
+            it['decision']='EXCLUDE'; it['label']='⛔ terminal episode 재승격 금지'; it['rank']=3; it['stage']='BLOCKED-EPISODE-LOCK'
+            it['reasons']=[f'동일 episode terminal failure {risk}', f'차단 신호 {sig} · 새 점화일 없음']
+            it['next']='현재 episode 신규진입 금지 · 새 ignition_date가 생길 때만 재평가'
+            changed=True
+        if changed:
+            counts={k:sum(1 for x in ans.get('items',[]) if str(x.get('decision','')).upper()==k) for k in ('ENTER','WAIT','MANAGE','REPLAY','EXCLUDE','HOLD')}
+            ans['counts']=counts
+            ans['items']=sorted(ans.get('items',[]),key=lambda x:(x.get('rank',9),-float(x.get('score',0) or 0)))
+            globals()['_V4942_LAST_DECISION']=ans
+        return ans
+    except Exception:
+        return ans
+
+
+def _v4938_recent_events(df=None) -> pd.DataFrame:
+    """Same-day Replay stays hidden until 15:40, independent of run-mode.
+
+    After 15:40 the closed-bar research row may exist even in a normal run; actual
+    recommendation authority is still controlled by AFTER FINAL evidence/NXT gates.
+    """
+    out=_V497654_BASE_RECENT_EVENTS(df)
+    try:
+        if out is None or out.empty:
+            return out
+        now=_now_kst(); minute=now.hour*60+now.minute
+        start=_v49765_hhmm_minutes(CLOSING_BET_V49765_AFTER_FINAL_START_HHMM,15*60+40)
+        if minute < start:
+            sig=pd.to_datetime(out.get('_sig_dt',out.get('signal_date')),errors='coerce').dt.normalize()
+            cls=out.get('v4938_track_class',pd.Series('',index=out.index)).astype(str).str.upper()
+            today=pd.Timestamp(now.date()).normalize()
+            out=out[~(cls.eq('FORWARD') & sig.eq(today))].copy().reset_index(drop=True)
+        return out
+    except Exception:
+        return out
+
+
+def _v49761_final_kick_evidence(data_date=None) -> dict:
+    """v49.76.5.5: 15:40~20:00 clock+same-day close grants AFTER FINAL authority.
+
+    Explicit run-mode remains useful provenance, but is not a second hard gate.
+    """
+    st=_v49765_time_state(data_date); now=st['now']
+    # Explicit pre_final is observation-only before the AFTER FINAL window.
+    if st['is_pre_mode'] and st['minute'] < st['start']:
+        ctx=_v4944_time_context(pd.Timestamp(st['data_date']))
+        return {'eligible':False,'reason':'PRE_FINAL_ONLY','decision_phase':'PRE_FINAL','authority_type':'PRE_FINAL',
+                'decision_time_kst':now.strftime('%Y-%m-%d %H:%M:%S'),'data_date':st['data_date'],
+                'data_bar_state':str(ctx.get('bar_state','')),'decision_type':str(ctx.get('decision_type','')),
+                'window_start':f"{st['start']//60:02d}:{st['start']%60:02d}",
+                'window_end':f"{st['end']//60:02d}:{st['end']%60:02d}",
+                'in_window':st['in_after_window'],'same_day':st['same_day']}
+    if not bool(CLOSING_BET_V49765_AFTER_FINAL_ENABLE):
+        reason='AFTER_FINAL_DISABLED'
+    elif not st['same_day']:
+        reason='DATA_DATE_NOT_TODAY'
+    elif not st['in_after_window']:
+        reason='AFTER_FINAL_NOT_RUN_YET' if st['minute'] < st['start'] else 'AFTER_FINAL_EVIDENCE_MISSING_NO_LATE_CREATE'
+    else:
+        reason='AFTER_FINAL_ELIGIBLE' if st['is_after_mode'] else 'AUTO_AFTER_FINAL_ELIGIBLE'
+    eligible=reason in ('AFTER_FINAL_ELIGIBLE','AUTO_AFTER_FINAL_ELIGIBLE')
+    ctx=_v4944_time_context(pd.Timestamp(st['data_date']))
+    return {'eligible':eligible,'reason':reason,'decision_phase':'FINAL_KICK' if eligible else ('PRE_FINAL' if st['minute']<st['start'] else 'AFTER_FINAL_BLOCKED'),
+            'authority_type':'AFTER_FINAL_KICK','decision_time_kst':now.strftime('%Y-%m-%d %H:%M:%S'),
+            'data_date':st['data_date'],'data_bar_state':str(ctx.get('bar_state','')),'decision_type':str(ctx.get('decision_type','')),
+            'window_start':f"{st['start']//60:02d}:{st['start']%60:02d}",
+            'window_end':f"{st['end']//60:02d}:{st['end']%60:02d}",
+            'in_window':st['in_after_window'],'same_day':st['same_day'],
+            'auto_promoted':bool(eligible and not st['is_after_mode']),'source_run_mode':st['mode']}
+
+
+def _v49765_resolve_after_final(decision: dict, data_date=None) -> dict:
+    """Sole user-action authority: evidence restore first, then auto AFTER FINAL in-window."""
+    global _V49765_CURRENT_AUTHORIZED_CODES, _V49765_CURRENT_DECISION, _V49765_RESTORED
+    _V49765_CURRENT_AUTHORIZED_CODES=set(); _V49765_CURRENT_DECISION={}; _V49765_RESTORED=False
+    decision=decision if isinstance(decision,dict) else {}
+    st=_v49765_time_state(data_date); today=st['now'].strftime('%Y-%m-%d')
+    evidence,ev_state=_v49765_load_evidence(today)
+    watches=_v49765_canonical_watch(decision)
+
+    if evidence is not None:
+        recs=_v49765_parse_json_field(evidence,'recommendations_json')
+        saved_watches=_v49765_parse_json_field(evidence,'watch_json') or watches
+        _V49765_RESTORED=True
+        out={'state':'RESTORED','reason':'TODAY_AFTER_FINAL_LOCK_RESTORED','authorized':recs[:2],
+             'watches':saved_watches[:2],'raw_enter_count':int(_safe_float(evidence.get('raw_enter_count',0),0)),
+             'nxt_status':_v497655_clean_text(evidence.get('nxt_fetch_status','')),'nxt_count':int(_safe_float(evidence.get('nxt_code_count',0),0)),
+             'event_time_kst':_v497655_clean_text(evidence.get('event_time_kst','')),
+             'data_date':_v497655_clean_text(evidence.get('data_date','')),'authority_source':'EVIDENCE_RESTORE'}
+        _V49765_CURRENT_DECISION=out; return out
+
+    if ev_state!='OK':
+        out={'state':'BLOCKED','reason':f'EVIDENCE_LEDGER_UNAVAILABLE:{ev_state}','authorized':[],'watches':watches,
+             'raw_enter_count':len(_v49764i_enter_items(decision) or []),'nxt_status':'NOT_RUN','nxt_count':0}
+        _V49765_CURRENT_DECISION=out; return out
+
+    # Before the execution window every mode is observation-only.
+    if st['minute'] < st['start']:
+        state='PRE_FINAL' if st['minute'] >= st['pre'] else 'BLOCKED'
+        reason='PRE_FINAL_ONLY' if state=='PRE_FINAL' else 'AFTER_FINAL_NOT_RUN_YET'
+        out={'state':state,'reason':reason,'authorized':[],'watches':watches,
+             'raw_enter_count':len(_v49764i_enter_items(decision) or []),'nxt_status':'NOT_RUN','nxt_count':0}
+        _V49765_CURRENT_DECISION=out; return out
+
+    if st['minute'] > st['end']:
+        out={'state':'BLOCKED','reason':'AFTER_FINAL_EVIDENCE_MISSING_NO_LATE_CREATE','authorized':[],'watches':watches,
+             'raw_enter_count':len(_v49764i_enter_items(decision) or []),'nxt_status':'NOT_RUN','nxt_count':0}
+        _V49765_CURRENT_DECISION=out; return out
+
+    ev=_v49761_final_kick_evidence(data_date)
+    if not bool(ev.get('eligible')):
+        out={'state':'BLOCKED','reason':str(ev.get('reason','AFTER_FINAL_NOT_ELIGIBLE')),'authorized':[],'watches':watches,
+             'raw_enter_count':len(_v49764i_enter_items(decision) or []),'nxt_status':'NOT_RUN','nxt_count':0}
+        _V49765_CURRENT_DECISION=out; return out
+    if str(decision.get('state','')).upper()!='VALID':
+        out={'state':'BLOCKED','reason':'LIFECYCLE_DECISION_NOT_VALID','authorized':[],'watches':watches,
+             'raw_enter_count':0,'nxt_status':'NOT_RUN','nxt_count':0}
+        _V49765_CURRENT_DECISION=out; return out
+
+    enters=list(_v49764i_enter_items(decision) or [])
+    nxt_codes,nxt_status=_v49765_fetch_nxt_codes(force=True)
+    if str(nxt_status)!='OK':
+        out={'state':'INFRA_BLOCKED','reason':f'NXT_ELIGIBILITY_UNAVAILABLE:{nxt_status}','authorized':[],'watches':watches,
+             'raw_enter_count':len(enters),'nxt_status':nxt_status,'nxt_count':0,
+             'authority_source':'AUTO_AFTER_FINAL' if ev.get('auto_promoted') else 'SCHEDULED_AFTER_FINAL'}
+        _V49765_CURRENT_DECISION=out; return out
+
+    auth=[]
+    for it in enters:
+        snap=_v49765_item_snapshot(it)
+        if not snap['code'] or snap['code'] not in nxt_codes: continue
+        if snap['price'] is None or snap['price']<=0: continue
+        auth.append(snap)
+    auth=auth[:2]
+    _V49765_CURRENT_AUTHORIZED_CODES={str(x.get('code','')).zfill(6) for x in auth}
+    source='AUTO_AFTER_FINAL' if ev.get('auto_promoted') else 'SCHEDULED_AFTER_FINAL'
+    wst=_v49765_write_evidence(st['data_date'],len(enters),auth,watches,'OK',len(nxt_codes),
+                               note=f'{source} · KRX 15:30 close-confirmed canonical ENTER → NXT target gate → limit-only PAPER decision')
+    if str(wst.get('state','')) not in ('OK','NO_ROWS'):
+        _V49765_CURRENT_AUTHORIZED_CODES=set()
+        out={'state':'INFRA_BLOCKED','reason':f'EVIDENCE_WRITE_FAILED:{wst.get("state","FAILED")}:{str(wst.get("error",""))[:80]}',
+             'authorized':[],'watches':watches,'raw_enter_count':len(enters),'nxt_status':'OK','nxt_count':len(nxt_codes),'authority_source':source}
+        _V49765_CURRENT_DECISION=out; return out
+    out={'state':'AFTER_FINAL','reason':'AUTO_AFTER_FINAL_LOCKED' if ev.get('auto_promoted') else 'AFTER_FINAL_LOCKED',
+         'authorized':auth,'watches':watches,'raw_enter_count':len(enters),'nxt_status':'OK','nxt_count':len(nxt_codes),
+         'event_time_kst':st['now'].strftime('%Y-%m-%d %H:%M:%S'),'data_date':st['data_date'],'authority_source':source}
+    _V49765_CURRENT_DECISION=out; return out
+
+
+def _v49765_action_panel(decision: dict, data_date=None) -> tuple[str,bool,dict]:
+    res=_v49765_resolve_after_final(decision,data_date); st=_v49765_time_state(data_date)
+    state=str(res.get('state','')).upper(); auth=list(res.get('authorized',[]) or []); watches=list(res.get('watches',[]) or [])
+    if state=='RESTORED': phase='오늘 AFTER FINAL 복원'
+    elif state=='AFTER_FINAL': phase='15:40+ KRX 종가확정 · NXT AFTER FINAL'
+    elif state=='PRE_FINAL': phase='15:03 PRE-FINAL'
+    elif st['minute'] < 9*60+30: phase='장전 관찰 · 전일 확정종가 기준'
+    elif st['minute'] < 14*60+40: phase='09:30 관찰'
+    elif st['minute'] < 15*60+3: phase='14:40 PREVIEW'
+    elif st['minute'] < st['start']: phase='15:03 PRE-FINAL/종가확정 대기'
+    else: phase='AFTER FINAL 권한 없음'
+    lines=[f'🚦 [사용자 행동 결론 · {phase}] | v49.76.5.5','──────────']
+    if auth:
+        prefix='🔒 오늘 확정추천 복원' if state=='RESTORED' else '🟢 PAPER ENTER 검토'
+        lines.append(f'- {prefix}: {len(auth)}개 · NXT 지정가만 · 자동주문 0')
+        src=_v497655_clean_text(res.get('authority_source',''))
+        if src=='AUTO_AFTER_FINAL': lines.append('- AFTER FINAL 권한: ✅ 일반 실행 자동승격')
+        elif src=='SCHEDULED_AFTER_FINAL': lines.append('- AFTER FINAL 권한: ✅ 예약/명시 실행')
+        elif src=='EVIDENCE_RESTORE': lines.append('- AFTER FINAL 권한: 🔒 당일 evidence 복원')
+        if res.get('event_time_kst'): lines.append(f"- AFTER FINAL 결정시각: {res.get('event_time_kst')}")
+        lines.append(f"- NXT 거래대상 확인: ✅ {int(res.get('nxt_count',0))}종목 · 공개 목록은 대상여부 확인용")
+        for i,x in enumerate(auth[:2],1):
+            medal='🥇' if i==1 else '🥈'; name=str(x.get('name') or x.get('code') or ''); code=str(x.get('code','')).zfill(6)
+            px=_safe_float(x.get('price',np.nan),np.nan); support=_safe_float(x.get('support',np.nan),np.nan)
+            lines.append(f'{medal} {name}' + (f' ({code})' if code else '') + ' | 🟢 KRX CLOSE STRICT → NXT LIMIT')
+            lines.append(f'   KRX 기준 지정가: ≤ {_v49765_fmt_price(px)} · 미체결/상승 시 추격 금지')
+            if pd.notna(px): lines.append(f'   +3 {_v49765_fmt_price(px*1.03)} · +5 {_v49765_fmt_price(px*1.05)} · 하드 -3 {_v49765_fmt_price(px*0.97)}')
+            if pd.notna(support): lines.append(f'   구조지지: {_v49765_fmt_price(support)}')
+            lines.append('   NXT 실시간호가: 미연동 · 실제 NXT 가격이 지정가 이하일 때만 수동 PAPER 진입')
+    else:
+        lines.append('- 🔴 지금 신규매수: 0개')
+        lines.append(f"- ⛔ 사유: {res.get('reason','UNKNOWN')}")
+        raw_n=int(res.get('raw_enter_count',0) or 0)
+        if raw_n>0: lines.append(f'- 🎯 KRX 종가 STRICT 원신호: {raw_n}개 · 실행권한/대상게이트와 별도')
+        if state=='INFRA_BLOCKED': lines.append('- 인프라 차단은 신호 실패가 아님 · 당일 허용시간 내 다음 실행에서 자동 재시도')
+        elif 'EVIDENCE_MISSING_NO_LATE_CREATE' in str(res.get('reason','')): lines.append('- 20:00 이후 뒤늦은 신규추천 생성 금지 · 다음 거래일 재평가')
+    if watches:
+        lines.append('👀 다음 우선관찰')
+        for i,x in enumerate(watches[:2],1):
+            name=str(x.get('name') or x.get('code') or ''); stg=str(x.get('stage','')); tail=[]
+            if x.get('current') is not None: tail.append(f"현재 {_v49765_fmt_price(x.get('current'))}")
+            if x.get('support') is not None: tail.append(f"지지 {_v49765_fmt_price(x.get('support'))}")
+            miss=x.get('missing',[])
+            if isinstance(miss,list) and miss: tail.append('남은조건 '+'·'.join(str(z) for z in miss[:2]))
+            lines.append(f'   {i}. {name} | {stg}' + ((' · '+' · '.join(tail)) if tail else ''))
+    lines.append('- 기준: 신호 계산은 KRX 15:30 확정 일봉 · NXT는 거래대상/실행창만 사용 · 가격 추격 금지')
+    return '\n'.join(lines),bool(auth),res
+
+
+def _v4943_prepare_live_recommendations() -> list[dict]:
+    """Actual ledger rows are driven by resolved AFTER FINAL authority, not the incoming run-mode.
+
+    The captured legacy builder still contains a FINAL_KICK run-mode guard. For an
+    AUTO_AFTER_FINAL main run we temporarily expose the equivalent legacy globals only
+    while building rows, then restore them immediately. This does not alter workflow/env.
+    """
+    if _V49765_RESTORED:
+        globals()['_V4943_CURRENT_RECOMMENDATIONS']=[]; return []
+    if str((_V49765_CURRENT_DECISION or {}).get('state','')).upper()!='AFTER_FINAL':
+        globals()['_V4943_CURRENT_RECOMMENDATIONS']=[]; return []
+    if not callable(_V49765_BASE_PREP_RECS):
+        globals()['_V4943_CURRENT_RECOMMENDATIONS']=[]; return []
+    old_mode=globals().get('CLOSING_BET_RUN_MODE','main')
+    old_final=globals().get('CLOSING_BET_FINAL_KICK_ONLY',False)
+    try:
+        globals()['CLOSING_BET_RUN_MODE']='after_final'
+        globals()['CLOSING_BET_FINAL_KICK_ONLY']=True
+        rows=list(_V49765_BASE_PREP_RECS() or [])
+    finally:
+        globals()['CLOSING_BET_RUN_MODE']=old_mode
+        globals()['CLOSING_BET_FINAL_KICK_ONLY']=old_final
+    auth=set(_V49765_CURRENT_AUTHORIZED_CODES or set()); out=[]
+    for r in rows:
+        code=str((r or {}).get('code','') or '').zfill(6)
+        if code not in auth: continue
+        rr=dict(r)
+        rr['note']=f"v49.76.5.5 KRX CLOSE AFTER FINAL · {(_V49765_CURRENT_DECISION or {}).get('authority_source','')} · NXT eligible · limit-only PAPER · 자동주문 없음 · {str(rr.get('note',''))[:180]}"
+        rr['decision_phase']='FINAL_KICK'; rr['kpi_eligible']='TRUE'; out.append(rr)
+    globals()['_V4943_CURRENT_RECOMMENDATIONS']=out[:2]
+    return out[:2]
+
+
+# Keep report wording/version aligned with the corrected runtime authority.
+_V497655_BASE_NORMALIZE_DETAIL=_v49765_normalize_detail
+
+def _v49765_normalize_detail(text: str, has_authorized: bool, res: dict) -> str:
+    s=_V497655_BASE_NORMALIZE_DETAIL(text,has_authorized,res)
+    s=s.replace('v49.76.5.4','v49.76.5.5')
+    s=s.replace('BLOCKED episode 재승격 금지','terminal episode 재승격 금지')
+    s=s.replace('동일 episode 과거 BLOCKED-SHADOW nan','동일 episode terminal failure 확인필요')
+    s=s.replace('차단 신호 nan','차단 신호 확인필요')
+    state=str((res or {}).get('state','')).upper()
+    if state in ('AFTER_FINAL','RESTORED'):
+        s=s.replace('[🧭 PRE-FINAL/연구 실행보드 · 실제추천 권한 없음]','[🧭 AFTER FINAL 실행근거 · canonical Lifecycle]')
+        s=s.replace('- PRE-FINAL/연구판 · 실제추천은 15:40+ KRX 종가확정 AFTER FINAL에서만 결정',
+                    '- AFTER FINAL 실행 완료 · 실제추천은 상단 NXT 적격/당일 evidence 결과만 authority')
+        s=s.replace('- 15:03 PRE-FINAL에서 후보만 재검증','- AFTER FINAL 시간창 · canonical 종가 신호 재검증 완료')
+        s=s.replace('- 실제 신규추천 최종 권한은 15:40+ KRX 종가확정 AFTER FINAL','- 실제 신규추천 authority는 상단 AFTER FINAL/evidence 결과')
+        s=s.replace('[🧾 실제 추천 원장] PRE-FINAL/일반 실행 · 원장 확정 없음 · 15:40+ AFTER FINAL에서 상위 2개만 최종 재검증',
+                    '[🧾 실제 추천 원장] AFTER FINAL authority 결과만 append/DELIVERED 대상')
+    return s
+
+
+# =============================================================
+# ✅ END V49.76.5.5
+# =============================================================
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='종가배팅 타점 스캐너')
