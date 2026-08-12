@@ -80,8 +80,8 @@ def _env_float(name: str, default: float = 0.0) -> float:
         except Exception:
             return 0.0
 
-CLOSING_BET_SCANNER_VERSION = 'G_MORALES_V4_4_9_53_8_49_76_4_TOP2_FINAL_ACTION_AUTHORITY_INTEGRATED_20260811'
-CLOSING_BET_RELEASE_TAG = 'v49.76.4'
+CLOSING_BET_SCANNER_VERSION = 'G_MORALES_V4_4_9_53_8_49_76_5_2_PREOPEN_PHASE_DEPLOYMENT_HOTFIX_20260812'
+CLOSING_BET_RELEASE_TAG = 'v49.76.5.2'
 CLOSING_BET_LIVE_PRICE_SANITY_FIX = str(os.environ.get('CLOSING_BET_LIVE_PRICE_SANITY_FIX', '1')).lower() in ('1', 'true', 'yes', 'y', 'on')
 CLOSING_BET_LIVE_READABILITY_COMPACT = str(os.environ.get('CLOSING_BET_LIVE_READABILITY_COMPACT', '1')).lower() in ('1', 'true', 'yes', 'y', 'on')
 # v53.8.42: M5R TRUE60 검증용 장기 월봉 확보. 60개월 월선 계산에는 약 7년 일봉이 필요하다.
@@ -3215,7 +3215,7 @@ def _v4943_prepare_live_recommendations() -> list[dict]:
         return []
     _ev=_v49761_final_kick_evidence()
     if not bool(_ev.get('eligible')):
-        log_info(f"v49.76.4 LIVE-PAPER 원장 미확정: {_ev.get('reason')} · {_ev.get('decision_time_kst')} · {_ev.get('data_bar_state')}")
+        log_info(f"v49.76.5.2 LIVE-PAPER 원장 미확정: {_ev.get('reason')} · {_ev.get('decision_time_kst')} · {_ev.get('data_bar_state')}")
         _V4943_CURRENT_RECOMMENDATIONS=[]
         return []
     now=_now_kst(); rows=[]; rank=0
@@ -3245,7 +3245,7 @@ def _v4943_prepare_live_recommendations() -> list[dict]:
             'target_3':round(px*1.03) if pd.notna(px) else '', 'target_5':round(px*1.05) if pd.notna(px) else '',
             'stop_3':round(px*0.97) if pd.notna(px) else '', 'structure_support':round(structure) if pd.notna(structure) else '',
             'market_state':str(globals().get('_V4943_LAST_MARKET_STATE','') or r.get('market_state','') or ''),'risk_status':str(r.get('risk_status','NORMAL')),
-            'risk_reason':str(r.get('risk_reason','위험가드 통과') or ''),'note':f'v49.76.4 15:03 PAPER 실행보드 {rank}순위 · {strategy_tag} · 자동주문 없음 · Telegram+DELIVERED+FINAL_KICK 증거만 실제추천',
+            'risk_reason':str(r.get('risk_reason','위험가드 통과') or ''),'note':f'v49.76.5.2 15:03 PAPER 실행보드 {rank}순위 · {strategy_tag} · 자동주문 없음 · Telegram+DELIVERED+FINAL_KICK 증거만 실제추천',
             'decision_phase':str(_ev.get('decision_phase','FINAL_KICK')),'decision_time_kst':str(_ev.get('decision_time_kst','')),
             'data_bar_state':str(_ev.get('data_bar_state','')),'kpi_eligible':'TRUE','kpi_exclusion_reason':''
         }
@@ -45429,7 +45429,7 @@ def _v4936_backtest_telegram_parts(audit_report: str, compact_report: str='') ->
         lifecycle=dict(root.get('lifecycle',{}) or {})
         elapsed=float((root.get('research_lane') or {}).get('elapsed_sec',0.0) or 0.0)
 
-        p1=['(1/7)','⚠️ COMMON STRATEGY INVALID · Lifecycle Research VALID | v49.76.4','──────────',version,period,
+        p1=['(1/7)','⚠️ COMMON STRATEGY INVALID · Lifecycle Research VALID | v49.76.5.2','──────────',version,period,
             '[📡 공통 OHLCV / LEGACY 레인]']+pipe+[
             f'- Lifecycle Research: ✅ VALID · 독립 실행 {elapsed:.1f}s' if elapsed>0 else '- Lifecycle Research: ✅ VALID · LEGACY와 독립',
             '', '[🚀 Lifecycle 에피소드 감사]',
@@ -45448,7 +45448,7 @@ def _v4936_backtest_telegram_parts(audit_report: str, compact_report: str='') ->
             lifecycle.get('policy_line') or '- ENTRY 정책성과 없음',
         ]+list((root.get('known_case') or {}).get('lines',[]) or [])+[
             '', '[해석 제한]','- PRIME/CORE/LCZ/기존 포트폴리오는 COMMON STRATEGY INVALID로 전면 제외','- Lifecycle Research만 독립 VALID 표본으로 연구 해석','- PAPER 유지 · 실제주문 0건']
-        p2=['(2/7)','🎯 먹을 수 있는 BIG / Pattern 연구 | v49.76.4','──────────',
+        p2=['(2/7)','🎯 먹을 수 있는 BIG / Pattern 연구 | v49.76.5.2','──────────',
             '[🚀 BIG-WINNER ANATOMY]',
             lifecycle.get('big_count_line') or '- BIG-WINNER 표본 없음',
             lifecycle.get('big_concentration_line') or '- 집중도 평가없음',
@@ -45456,19 +45456,19 @@ def _v4936_backtest_telegram_parts(audit_report: str, compact_report: str='') ->
             '', '[🎯 CAPTURABLE-BIG PATH ANATOMY]']+list(lifecycle.get('capturable_lines',[]) or ['- 평가없음'])+[
             '', '[🏃 POST-POLICY RUNNER ANATOMY]']+list(lifecycle.get('runner_lines',[]) or ['- 평가없음'])+[
             '', '[🧬 BIG-WINNER PATTERN CLUSTER]']+list(lifecycle.get('cluster_lines',[]) or ['- cluster 평가없음'])
-        p3=['(3/7)','🏃 Runner 정책 다중검증 | v49.76.4','──────────',
+        p3=['(3/7)','🏃 Runner 정책 다중검증 | v49.76.5.2','──────────',
             '[🏃 UNIVERSAL RESIDUAL RUNNER 정책]']+list(lifecycle.get('runner_policy_lines',[]) or ['- 평가없음'])+[
             '', '[🚶 RUNNER MULTI WALK-FORWARD · 20%/30% D10]']+list(lifecycle.get('runner_walk_lines',[]) or ['- 평가없음'])
-        p4=['(4/7)','🧯 Breach clock / FAIL causal | v49.76.4','──────────',
+        p4=['(4/7)','🧯 Breach clock / FAIL causal | v49.76.5.2','──────────',
             '[🕰 BREACH-CLOCK RECONCILIATION]']+list(lifecycle.get('breach_clock_lines',[]) or ['- 평가없음'])+[
             '', '[🧪 FAIL 임계값 감사 · episode 전체 경로]']+list(lifecycle.get('fail_sensitivity_lines',[]) or ['- 평가없음'])+[
             '', '[🧯 signal-support 소급형 참고]']+list(lifecycle.get('fail_portfolio_lines',[]) or ['- 평가없음'])+[
             '', '[🔒 TRAIN→OOS LOCK · event-snapshot causal]']+list(lifecycle.get('fail_lock_lines',[]) or ['- 평가없음'])
-        p5=['(5/7)','🚶 FAIL cutoff Multi Walk-Forward | v49.76.4','──────────',
+        p5=['(5/7)','🚶 FAIL cutoff Multi Walk-Forward | v49.76.5.2','──────────',
             '[🚶 MULTI WALK-FORWARD · 0%/0.5%]']+list(lifecycle.get('fail_walk_lines',[]) or ['- 평가없음'])+[
             '', '[해석 제한]','- CAPPED Fold는 보고만 하고 승격분모 제외','- signal-support 소급형은 LIVE cutoff 승격 근거로 사용 금지','- LIVE cutoff 자동변경 금지']
-        p6=['(6/7)','🔎 단일 검색평가기·전체 계약 감사 | v49.76.4','──────────','[SINGLE EVALUATOR / FULL CONTRACT]']+list(lifecycle.get('search_audit_lines',[]) or ['- SEARCH INTENT AUDIT 없음'])+['','[승격 제한]','- 공통 LIVE↔BACKTEST 불일치·계약 source-lock 실패·행동 경계 실패가 1건이라도 있으면 승격 금지','- LEGACY migration delta는 원인 비교자료이며 현재 공통 모집단에 혼합하지 않음','- 음성일은 결정적 표본감사이므로 전수 0건으로 과장하지 않음','- PAPER 유지 · 실제주문 0건']
-        p7=['(7/7)','📊 포트폴리오 / 승격판단 | v49.76.4','──────────',
+        p6=['(6/7)','🔎 단일 검색평가기·전체 계약 감사 | v49.76.5.2','──────────','[SINGLE EVALUATOR / FULL CONTRACT]']+list(lifecycle.get('search_audit_lines',[]) or ['- SEARCH INTENT AUDIT 없음'])+['','[승격 제한]','- 공통 LIVE↔BACKTEST 불일치·계약 source-lock 실패·행동 경계 실패가 1건이라도 있으면 승격 금지','- LEGACY migration delta는 원인 비교자료이며 현재 공통 모집단에 혼합하지 않음','- 음성일은 결정적 표본감사이므로 전수 0건으로 과장하지 않음','- PAPER 유지 · 실제주문 0건']
+        p7=['(7/7)','📊 포트폴리오 / 승격판단 | v49.76.5.2','──────────',
             '[Lifecycle 전용 포트폴리오]',lifecycle.get('portfolio1_line') or '- 하루1종목 평가없음',lifecycle.get('portfolio2_line') or '- 하루2종목 평가없음',
             '', '[Lifecycle 승격 판단]',lifecycle.get('gate_null_line') or '- canonical/NULL FAIL-CLOSED',lifecycle.get('gate_oos_line') or '- OOS/지수초과 FAIL-CLOSED',lifecycle.get('gate_port_line') or '- 비용후 포트폴리오 FAIL-CLOSED',lifecycle.get('gate_final_line') or '- Lifecycle 승격 FAIL-CLOSED',
             '', '[운용 결론]','- CAPTURABLE/Runner/FAIL 연구 결과도 자동 LIVE/Runner 반영 금지','- causal FAIL cutoff도 별도 승격 전 LIVE 변경 금지','- COMMON EVALUATOR/FULL CONTRACT가 VALID가 아니면 승격판정 강제 PAPER','- PAPER 유지 · 실제주문 0건']
@@ -45477,7 +45477,7 @@ def _v4936_backtest_telegram_parts(audit_report: str, compact_report: str='') ->
     if str(root.get('status','')).upper()=='INVALID' or any('BACKTEST INVALID' in x for x in audit_rows):
         pipe=list((root.get('pipeline') or {}).get('lines',[]) or [])
         diag_lines=[x for x in audit_rows if ('처리 완료율' in x or '데이터 로드율' in x or '데이터소스:' in x or '오류샘플:' in x)]
-        p=['(1/1)','⛔ 백테스트 INVALID | v49.76.4','──────────',version,period]+pipe+diag_lines[:4]+['','[운용 차단]','- 전략 성과·PRIME·CORE·LCZ·Lifecycle·포트폴리오 집계 금지','- PAPER 유지 · 실제주문 0건']
+        p=['(1/1)','⛔ 백테스트 INVALID | v49.76.5.2','──────────',version,period]+pipe+diag_lines[:4]+['','[운용 차단]','- 전략 성과·PRIME·CORE·LCZ·Lifecycle·포트폴리오 집계 금지','- PAPER 유지 · 실제주문 0건']
         return render_parts((p,))
 
     pipeline=dict(root.get('pipeline',{}) or {}); lifecycle=dict(root.get('lifecycle',{}) or {})
@@ -45505,9 +45505,9 @@ def _v4936_backtest_telegram_parts(audit_report: str, compact_report: str='') ->
     m5=find(both,'커버리지율',default='- M5 커버리지 확인 필요')
     existing1=find(both,'하루최대 1종목:',default='- 기존 하루1종목 포트폴리오 확인 필요')
     existing2=find(both,'하루최대 2종목:',default='- 기존 하루2종목 포트폴리오 확인 필요')
-    p1=['(1/2)','🧪 백테스트 핵심 결론 | v49.76.4','──────────',version,period,counts,'','[📡 공통 OHLCV 파이프라인]',data,cache_line,pipeline_counts,exclusions,'','[🚀 Lifecycle 에피소드 감사]']+lifecycle_section+['','[기존 핵심 경로]',prime,core,'- LCZ는 RESEARCH ONLY: '+lcz.lstrip('- ')]
-    p2=['(2/2)','📊 백테스트 주요 진단 | v49.76.4','──────────','[현재 LIVE 시장·커버리지]',market,m5,'','[역사 Lifecycle 시장구간]',lifecycle.get('market_line') or '- 평가없음','','[🚀 BIG-WINNER ANATOMY · 연구]',lifecycle.get('big_count_line') or '- BIG-WINNER 표본 없음',lifecycle.get('big_concentration_line') or '- 집중도 평가없음',lifecycle.get('big_stress_line') or '- 대박 제거 스트레스 평가없음','','[🎯 CAPTURABLE-BIG]']+list(lifecycle.get('capturable_lines',[]) or ['- 평가없음'])+['','[🏃 POST-POLICY RUNNER]']+list(lifecycle.get('runner_lines',[]) or ['- 평가없음'])+['','[🧬 BIG-WINNER PATTERN CLUSTER]']+list(lifecycle.get('cluster_lines',[]) or ['- cluster 평가없음'])+['','[🧪 FAIL 임계값 감사]']+list(lifecycle.get('fail_sensitivity_lines',[]) or ['- 평가없음'])+['','[🔒 FAIL TRAIN→OOS LOCK]']+list(lifecycle.get('fail_lock_lines',[]) or ['- 평가없음'])+['','[Lifecycle 전용 포트폴리오]',lifecycle.get('portfolio1_line') or '- 하루1종목 평가없음',lifecycle.get('portfolio2_line') or '- 하루2종목 평가없음','','[Lifecycle 승격 판단]',lifecycle.get('gate_null_line') or '- canonical/NULL FAIL-CLOSED',lifecycle.get('gate_oos_line') or '- OOS/지수초과 FAIL-CLOSED',lifecycle.get('gate_port_line') or '- 비용후 포트폴리오 FAIL-CLOSED',lifecycle.get('gate_final_line') or '- Lifecycle 승격 FAIL-CLOSED','','[기존 포트폴리오]',existing1,existing2,'','[운용 결론]','- Lifecycle 게이트 통과 전 PAPER 유지','- 실제주문 0건 유지']
-    p3=['(3/3)','🔎 검색계약·공통전략 성과 | v49.76.4','──────────','[DENOMINATOR] ',lifecycle.get('denominator_line') or '- DENOMINATOR GUARD 없음','','[SINGLE EVALUATOR / FULL CONTRACT]']+list(lifecycle.get('search_audit_lines',[]) or ['- SEARCH INTENT AUDIT 없음'])+['']+list((globals().get('_V4959_COMMON_PERF_AUDIT',{}) or {}).get('lines',[]) or ['- COMMON STRATEGY PERFORMANCE 없음'])+['','[운용]','- 공통 평가기·전체 계약·50bp OOS 성과 확인 전 자동주문/자동조건변경 금지','- PAPER 유지']
+    p1=['(1/2)','🧪 백테스트 핵심 결론 | v49.76.5.2','──────────',version,period,counts,'','[📡 공통 OHLCV 파이프라인]',data,cache_line,pipeline_counts,exclusions,'','[🚀 Lifecycle 에피소드 감사]']+lifecycle_section+['','[기존 핵심 경로]',prime,core,'- LCZ는 RESEARCH ONLY: '+lcz.lstrip('- ')]
+    p2=['(2/2)','📊 백테스트 주요 진단 | v49.76.5.2','──────────','[현재 LIVE 시장·커버리지]',market,m5,'','[역사 Lifecycle 시장구간]',lifecycle.get('market_line') or '- 평가없음','','[🚀 BIG-WINNER ANATOMY · 연구]',lifecycle.get('big_count_line') or '- BIG-WINNER 표본 없음',lifecycle.get('big_concentration_line') or '- 집중도 평가없음',lifecycle.get('big_stress_line') or '- 대박 제거 스트레스 평가없음','','[🎯 CAPTURABLE-BIG]']+list(lifecycle.get('capturable_lines',[]) or ['- 평가없음'])+['','[🏃 POST-POLICY RUNNER]']+list(lifecycle.get('runner_lines',[]) or ['- 평가없음'])+['','[🧬 BIG-WINNER PATTERN CLUSTER]']+list(lifecycle.get('cluster_lines',[]) or ['- cluster 평가없음'])+['','[🧪 FAIL 임계값 감사]']+list(lifecycle.get('fail_sensitivity_lines',[]) or ['- 평가없음'])+['','[🔒 FAIL TRAIN→OOS LOCK]']+list(lifecycle.get('fail_lock_lines',[]) or ['- 평가없음'])+['','[Lifecycle 전용 포트폴리오]',lifecycle.get('portfolio1_line') or '- 하루1종목 평가없음',lifecycle.get('portfolio2_line') or '- 하루2종목 평가없음','','[Lifecycle 승격 판단]',lifecycle.get('gate_null_line') or '- canonical/NULL FAIL-CLOSED',lifecycle.get('gate_oos_line') or '- OOS/지수초과 FAIL-CLOSED',lifecycle.get('gate_port_line') or '- 비용후 포트폴리오 FAIL-CLOSED',lifecycle.get('gate_final_line') or '- Lifecycle 승격 FAIL-CLOSED','','[기존 포트폴리오]',existing1,existing2,'','[운용 결론]','- Lifecycle 게이트 통과 전 PAPER 유지','- 실제주문 0건 유지']
+    p3=['(3/3)','🔎 검색계약·공통전략 성과 | v49.76.5.2','──────────','[DENOMINATOR] ',lifecycle.get('denominator_line') or '- DENOMINATOR GUARD 없음','','[SINGLE EVALUATOR / FULL CONTRACT]']+list(lifecycle.get('search_audit_lines',[]) or ['- SEARCH INTENT AUDIT 없음'])+['']+list((globals().get('_V4959_COMMON_PERF_AUDIT',{}) or {}).get('lines',[]) or ['- COMMON STRATEGY PERFORMANCE 없음'])+['','[운용]','- 공통 평가기·전체 계약·50bp OOS 성과 확인 전 자동주문/자동조건변경 금지','- PAPER 유지']
     p1[0]='(1/3)';p2[0]='(2/3)'
     return render_parts((p1,p2,p3))
 
@@ -45854,13 +45854,15 @@ def _v49763_phase():
     except Exception:
         now = datetime.now()
     hm = now.hour * 100 + now.minute
+    if hm < 930:
+        return '장전 관찰판', 3, now
     if hm < 1440:
         return '09:30 관찰판', 3, now
     if hm < 1503:
         return '14:40 PAPER 예비판', 2, now
-    if hm < 1530:
-        return '15:03 FINAL KICK', 2, now
-    return '15:30+ 종가확정판', 2, now
+    if hm < 1540:
+        return '15:03 PRE-FINAL', 2, now
+    return '15:40+ AFTER FINAL', 2, now
 
 
 def _v49763_action_line(c, phase_name):
@@ -45885,7 +45887,7 @@ def _v49763_build_top2_lines(decision, data_date=None, market_short=''):
     top=cands[:limit]
 
     lines=[
-        f'🎯 [실전 TOP{limit} 실행판 · {phase_name}] | v49.76.4',
+        f'🎯 [실전 TOP{limit} 실행판 · {phase_name}] | v49.76.5.2',
         '──────────',
         f'- 지금 매수 가능 원신호 {strict_n} · ENTRY 직전 {near_n} · 관찰 {watch_n}',
         '- 분모 주의: Lifecycle 대기와 RESTART-NEAR는 같은 숫자가 아닙니다.',
@@ -45939,7 +45941,7 @@ def _v49763_consistency_audit_text(text):
             warnings.append(f'D+ 일관성 경고: 신호일 {dt}에 D+ {sorted(vals)} 혼재')
     if not warnings:
         return ''
-    out=['⚠️ [v49.76.4 출력 일관성 감사]']
+    out=['⚠️ [v49.76.5.2 출력 일관성 감사]']
     out += [f'- {w}' for w in warnings[:10]]
     out.append('- 위 경고는 연구 데이터 표기 감사이며 검색/ENTRY authority를 변경하지 않습니다.')
     return '\n'.join(out)
@@ -46008,7 +46010,7 @@ def _v4938_build_live_parts(hits_df, execution_all, market_short, cov_short, raw
 # =============================================================
 
 # =============================================================
-# ✅ V49.76.4 FINAL ACTION AUTHORITY GUARD — SAFE OVERLAY
+# ✅ V49.76.5.1 FINAL ACTION AUTHORITY GUARD — SAFE OVERLAY
 # - Purpose: make the first user-facing block answer only:
 #            buy / do not buy / what to watch next.
 # - Final action authority is separated from post-send KPI evidence.
@@ -46017,7 +46019,7 @@ def _v4938_build_live_parts(hits_df, execution_all, market_short, cov_short, raw
 #           MARCAP/PIT, LIVE/PAPER order policy, Google Sheet schema.
 # =============================================================
 try:
-    print("✅ V49.76.4 FINAL_ACTION_AUTHORITY_GUARD LOADED")
+    print("✅ V49.76.5.1 FINAL_ACTION_AUTHORITY_GUARD LOADED")
 except Exception:
     pass
 
@@ -46347,7 +46349,7 @@ def _v49764_build_action_panel(execution_all, market_short, cov_short, raw_healt
         (authorized if ok else blocked).append((d,reasons))
     authorized=authorized[:2]
     phase_label={'OBSERVE':'09:30 관찰','PREVIEW':'14:40 PREVIEW','FINAL':'15:03+ FINAL'}[phase]
-    lines=['🚦 [사용자 행동 결론 · '+phase_label+'] | v49.76.4','──────────']
+    lines=['🚦 [사용자 행동 결론 · '+phase_label+'] | v49.76.5.2','──────────']
     if phase!='FINAL':
         lines.append('- 🔴 지금 신규매수: 0개')
         lines.append('- 이유: '+('아침 관찰판' if phase=='OBSERVE' else '14:40 예비판 · 15:03 이후 최종 재검증 전'))
@@ -46428,16 +46430,16 @@ def _v4938_build_live_parts(hits_df, execution_all, market_short, cov_short, raw
         if is_list: return out
         return out[0] if len(out)==1 else out
     except Exception as e:
-        try: log_error(f'⚠️ v49.76.4 FINAL ACTION panel 실패: {e}')
+        try: log_error(f'⚠️ v49.76.5.2 FINAL ACTION panel 실패: {e}')
         except Exception: pass
         return parts
 
 # =============================================================
-# ✅ END V49.76.4 FINAL ACTION AUTHORITY GUARD — SAFE OVERLAY
+# ✅ END V49.76.5.1 FINAL ACTION AUTHORITY GUARD — SAFE OVERLAY
 # =============================================================
 
 # =============================================================
-# ✅ V49.76.4 INTEGRATED FINAL-KICK AUTHORITY CORRECTION
+# ✅ V49.76.5.1 INTEGRATED FINAL-KICK AUTHORITY CORRECTION
 # - Uses the v49.76.2 authoritative FINAL_KICK evidence function.
 # - Uses _V4942_LAST_DECISION (the reconciled Lifecycle final decision),
 #   not the legacy execution list, for the user action panel.
@@ -46445,11 +46447,11 @@ def _v4938_build_live_parts(hits_df, execution_all, market_short, cov_short, raw
 # - Post-send Telegram/DELIVERED evidence remains KPI evidence, not a precondition.
 # =============================================================
 try:
-    print("✅ V49.76.4 INTEGRATED_FINAL_KICK_AUTHORITY_CORRECTION LOADED")
+    print("✅ V49.76.5.1 INTEGRATED_FINAL_KICK_AUTHORITY_CORRECTION LOADED")
 except Exception:
     pass
 
-# v49.76.4's own wrapper captured v49.76.3 here; call that directly so the
+# v49.76.5.2's own wrapper captured v49.76.3 here; call that directly so the
 # earlier generic-clock panel is bypassed in the integrated complete build.
 _V49764I_BASE_LIVE_PARTS = globals().get('_V49764_BASE_LIVE_PARTS')
 
@@ -46557,13 +46559,15 @@ def _v49764i_phase_label(ev):
         return '15:03 FINAL_KICK'
     if phase=='FINAL_KICK':
         return 'FINAL_KICK 비적격'
+    if hm < 930:
+        return '장전 관찰'
     if hm < 1440:
         return '09:30 관찰'
     if hm < 1503:
         return '14:40 PREVIEW'
-    if hm < 1530:
-        return '15:03 이후 일반 실행'
-    return '15:30+ 종가 확인'
+    if hm < 1540:
+        return '15:03 PRE-FINAL/종가확정 대기'
+    return '15:40+ AFTER FINAL 확인'
 
 
 def _v49764i_action_panel(decision, data_date=None):
@@ -46586,7 +46590,7 @@ def _v49764i_action_panel(decision, data_date=None):
     authorized=authorized[:2]
     watches=_v49764i_watch_items(decision)
     phase=_v49764i_phase_label(ev)
-    lines=[f'🚦 [사용자 행동 결론 · {phase}] | v49.76.4','──────────']
+    lines=[f'🚦 [사용자 행동 결론 · {phase}] | v49.76.5.2','──────────']
     if authorized:
         lines.append(f'- 🟢 PAPER ENTER 검토: {len(authorized)}개 · 지정가만 · 자동주문 0')
         lines.append(f"- ✅ FINAL_KICK 권한: {ev.get('reason','ELIGIBLE')} · {ev.get('decision_time_kst','')}")
@@ -46676,13 +46680,468 @@ def _v4938_build_live_parts(hits_df, execution_all, market_short, cov_short, raw
         if is_list:return out
         return out[0] if len(out)==1 else out
     except Exception as e:
-        try: log_error(f'⚠️ v49.76.4 integrated FINAL_KICK authority panel 실패: {e}')
+        try: log_error(f'⚠️ v49.76.5.2 integrated FINAL_KICK authority panel 실패: {e}')
         except Exception: pass
         return parts
 
 # =============================================================
-# ✅ END V49.76.4 INTEGRATED FINAL-KICK AUTHORITY CORRECTION
+# ✅ END V49.76.5.1 INTEGRATED FINAL-KICK AUTHORITY CORRECTION
 # =============================================================
+
+# =============================================================
+# ✅ V49.76.5.1 CLOSE AFTER-FINAL + NXT ELIGIBILITY + DAILY EVIDENCE
+# - Corrected integration build: the previous v49.76.5 package still carried
+#   the v49.76.4 Python authority wrapper. This overlay is the actual runtime.
+# - 15:03 PRE-FINAL: observation only, no recommendation authority.
+# - 15:40~20:00 AFTER-FINAL: KRX close-confirmed canonical ENTER only.
+# - NXT official target-list eligibility is required for after-market execution.
+# - A same-day FINAL_KICK_EVIDENCE row locks the decision; later runs restore it
+#   and never create a late new recommendation.
+# - Search/rank/STRICT thresholds/P1/MARCAP/PIT/order automation remain frozen.
+# =============================================================
+try:
+    print("✅ V49.76.5.1 CLOSE_AFTER_FINAL_NXT_EVIDENCE LOADED")
+except Exception:
+    pass
+
+CLOSING_BET_V49765_AFTER_FINAL_ENABLE = _bool_env('CLOSING_BET_V49765_AFTER_FINAL_ENABLE', '1')
+CLOSING_BET_V49765_PRE_FINAL_HHMM = str(os.environ.get('CLOSING_BET_V49765_PRE_FINAL_HHMM', '1503')).strip() or '1503'
+CLOSING_BET_V49765_AFTER_FINAL_START_HHMM = str(os.environ.get('CLOSING_BET_V49765_AFTER_FINAL_START_HHMM', '1540')).strip() or '1540'
+CLOSING_BET_V49765_AFTER_FINAL_END_HHMM = str(os.environ.get('CLOSING_BET_V49765_AFTER_FINAL_END_HHMM', '2000')).strip() or '2000'
+CLOSING_BET_V49765_EVIDENCE_TAB = str(os.environ.get('CLOSING_BET_V49765_EVIDENCE_TAB', 'FINAL_KICK_EVIDENCE')).strip() or 'FINAL_KICK_EVIDENCE'
+CLOSING_BET_V49765_NXT_ELIGIBILITY_ENABLE = _bool_env('CLOSING_BET_V49765_NXT_ELIGIBILITY_ENABLE', '1')
+CLOSING_BET_V49765_NXT_MIN_CODES = int(os.environ.get('CLOSING_BET_V49765_NXT_MIN_CODES', '100') or 100)
+CLOSING_BET_V49765_NXT_TIMEOUT_SEC = int(os.environ.get('CLOSING_BET_V49765_NXT_TIMEOUT_SEC', '12') or 12)
+CLOSING_BET_V49765_NXT_TARGET_URL = str(os.environ.get('CLOSING_BET_V49765_NXT_TARGET_URL', 'https://www.nextrade.co.kr/menu/marketData/menuList.do')).strip()
+
+_V49765_EVIDENCE_HEADERS = [
+    'evidence_id','run_date','event_time_kst','version','run_mode','status','data_date',
+    'raw_enter_count','authorized_count','nxt_fetch_status','nxt_code_count',
+    'recommendations_json','watch_json','note'
+]
+_V49765_NXT_CACHE = {'loaded': False, 'codes': set(), 'status': 'NOT_RUN', 'error': '', 'count': 0}
+_V49765_CURRENT_AUTHORIZED_CODES = set()
+_V49765_CURRENT_DECISION = {}
+_V49765_RESTORED = False
+
+_V49765_BASE_FINAL_EVIDENCE = globals().get('_v49761_final_kick_evidence')
+_V49765_BASE_PREP_RECS = globals().get('_v4943_prepare_live_recommendations')
+# v49.76.2 compact report builder, captured before v49.76.3 TOP2 and v49.76.4 action overlays.
+_V49765_BASE_LIVE_PARTS = globals().get('_V49763_BASE_LIVE_PARTS') or globals().get('_v4938_build_live_parts')
+
+
+def _v49765_mode() -> str:
+    return str(os.environ.get('CLOSING_BET_RUN_MODE', CLOSING_BET_RUN_MODE) or 'main').strip().lower().replace('-', '_')
+
+
+def _v49765_hhmm_minutes(v: str, default: int) -> int:
+    return _v49761_hhmm_to_min(v, default)
+
+
+def _v49765_time_state(data_date=None) -> dict:
+    now = _now_kst()
+    minute = now.hour * 60 + now.minute
+    start = _v49765_hhmm_minutes(CLOSING_BET_V49765_AFTER_FINAL_START_HHMM, 15 * 60 + 40)
+    end = _v49765_hhmm_minutes(CLOSING_BET_V49765_AFTER_FINAL_END_HHMM, 20 * 60)
+    pre = _v49765_hhmm_minutes(CLOSING_BET_V49765_PRE_FINAL_HHMM, 15 * 60 + 3)
+    dd = data_date
+    if dd is None:
+        dd = (globals().get('_V4938_LAST_HEALTH', {}) or {}).get('latest_data_date') or TODAY_STR
+    try:
+        dd_ts = pd.Timestamp(dd).normalize()
+    except Exception:
+        dd_ts = pd.Timestamp(TODAY_STR).normalize()
+    same_day = bool(dd_ts == pd.Timestamp(now.date()).normalize())
+    mode = _v49765_mode()
+    return {
+        'now': now, 'minute': minute, 'start': start, 'end': end, 'pre': pre,
+        'same_day': same_day, 'data_date': dd_ts.strftime('%Y-%m-%d'), 'mode': mode,
+        'in_after_window': bool(start <= minute <= end),
+        'is_after_mode': mode in ('after_final','final_kick','final_kick_only','kick'),
+        'is_pre_mode': mode == 'pre_final',
+    }
+
+
+def _v49761_final_kick_evidence(data_date=None) -> dict:
+    """v49.76.5.2 authority: actual recommendation window is NXT AFTER FINAL 15:40~20:00."""
+    st = _v49765_time_state(data_date)
+    now = st['now']
+    if st['is_after_mode']:
+        if not bool(CLOSING_BET_V49765_AFTER_FINAL_ENABLE):
+            reason = 'AFTER_FINAL_DISABLED'
+        elif not st['same_day']:
+            reason = 'DATA_DATE_NOT_TODAY'
+        elif not st['in_after_window']:
+            reason = 'OUTSIDE_AFTER_FINAL_WINDOW'
+        else:
+            reason = 'AFTER_FINAL_ELIGIBLE'
+        eligible = bool(reason == 'AFTER_FINAL_ELIGIBLE')
+        ctx = _v4944_time_context(pd.Timestamp(st['data_date']))
+        return {
+            'eligible': eligible, 'reason': reason,
+            # Keep FINAL_KICK for existing KPI provenance compatibility.
+            'decision_phase': 'FINAL_KICK', 'authority_type': 'AFTER_FINAL_KICK',
+            'decision_time_kst': now.strftime('%Y-%m-%d %H:%M:%S'),
+            'data_date': st['data_date'], 'data_bar_state': str(ctx.get('bar_state','')),
+            'decision_type': str(ctx.get('decision_type','')),
+            'window_start': f"{st['start']//60:02d}:{st['start']%60:02d}",
+            'window_end': f"{st['end']//60:02d}:{st['end']%60:02d}",
+            'in_window': st['in_after_window'], 'same_day': st['same_day'],
+        }
+    if callable(_V49765_BASE_FINAL_EVIDENCE):
+        try:
+            ev = dict(_V49765_BASE_FINAL_EVIDENCE(data_date) or {})
+            # 15:03 is PRE-FINAL only in this release, even if legacy aliases leaked in.
+            if st['is_pre_mode']:
+                ev.update({'eligible': False, 'reason': 'PRE_FINAL_ONLY', 'decision_phase': 'PRE_FINAL', 'authority_type': 'PRE_FINAL'})
+            return ev
+        except Exception as e:
+            return {'eligible': False, 'reason': f'FINAL_EVIDENCE_ERROR:{type(e).__name__}', 'decision_phase': 'UNKNOWN'}
+    return {'eligible': False, 'reason': 'FINAL_EVIDENCE_FUNCTION_MISSING', 'decision_phase': 'UNKNOWN'}
+
+
+def _v49765_evidence_id(run_date: str=None) -> str:
+    rd = str(run_date or _now_kst().strftime('%Y-%m-%d'))
+    return f'{rd}|AFTER_FINAL_KICK'
+
+
+def _v49765_load_evidence(run_date: str=None) -> tuple[dict|None, str]:
+    """Load the one authoritative AFTER-FINAL decision row for the day."""
+    if not bool(CLOSING_BET_V4943_RECOMMENDATION_LEDGER_ENABLE):
+        return None, 'LEDGER_DISABLED'
+    _, doc = _get_gspread_client()
+    if doc is None:
+        return None, 'SHEET_UNAVAILABLE'
+    try:
+        ws = _v4943_ws(doc, CLOSING_BET_V49765_EVIDENCE_TAB, _V49765_EVIDENCE_HEADERS)
+        try:
+            rows = list(ws.get_all_records(default_blank='') or [])
+        except TypeError:
+            rows = list(ws.get_all_records() or [])
+        eid = _v49765_evidence_id(run_date)
+        for row in reversed(rows):
+            if str(row.get('evidence_id','')).strip() == eid and str(row.get('status','')).upper() == 'COMPLETED':
+                return dict(row), 'OK'
+        return None, 'OK'
+    except Exception as e:
+        return None, f'{type(e).__name__}:{e}'
+
+
+def _v49765_write_evidence(data_date: str, raw_enter_count: int, authorized: list, watches: list,
+                             nxt_status: str, nxt_count: int, note: str='') -> dict:
+    now = _now_kst()
+    recs=[]
+    for x in authorized[:2]:
+        recs.append({
+            'code': str(x.get('code','')).zfill(6), 'name': str(x.get('name','')),
+            'price': x.get('price'), 'score': x.get('score'), 'stage': x.get('stage','STRICT-ENTRY'),
+            'support': x.get('support'), 'source_key': x.get('source_key','')
+        })
+    watch_rows=[]
+    for x in watches[:2]:
+        watch_rows.append({
+            'code': str(x.get('code','')).zfill(6), 'name': str(x.get('name','')),
+            'stage': x.get('stage',''), 'price': x.get('price'), 'support': x.get('support'),
+            'missing': x.get('missing',[])
+        })
+    row={
+        'evidence_id': _v49765_evidence_id(now.strftime('%Y-%m-%d')),
+        'run_date': now.strftime('%Y-%m-%d'), 'event_time_kst': now.strftime('%Y-%m-%d %H:%M:%S'),
+        'version': CLOSING_BET_SCANNER_VERSION, 'run_mode': _v49765_mode(), 'status': 'COMPLETED',
+        'data_date': str(data_date), 'raw_enter_count': int(raw_enter_count),
+        'authorized_count': int(len(recs)), 'nxt_fetch_status': str(nxt_status),
+        'nxt_code_count': int(nxt_count),
+        'recommendations_json': json.dumps(recs, ensure_ascii=False, separators=(',',':')),
+        'watch_json': json.dumps(watch_rows, ensure_ascii=False, separators=(',',':')),
+        'note': str(note or 'KRX close-confirmed AFTER FINAL decision lock · automatic order 0')[:500],
+    }
+    return _v4943_append_dict_rows(CLOSING_BET_V49765_EVIDENCE_TAB, _V49765_EVIDENCE_HEADERS, [row], 'evidence_id')
+
+
+def _v49765_parse_json_field(row: dict, key: str) -> list:
+    try:
+        v = row.get(key, '[]') if isinstance(row, dict) else '[]'
+        if isinstance(v, list): return v
+        x = json.loads(str(v or '[]'))
+        return x if isinstance(x, list) else []
+    except Exception:
+        return []
+
+
+def _v49765_fetch_nxt_codes(force: bool=False) -> tuple[set, str]:
+    global _V49765_NXT_CACHE
+    if not bool(CLOSING_BET_V49765_NXT_ELIGIBILITY_ENABLE):
+        return set(), 'DISABLED'
+    if _V49765_NXT_CACHE.get('loaded') and not force:
+        return set(_V49765_NXT_CACHE.get('codes', set()) or set()), str(_V49765_NXT_CACHE.get('status','CACHE'))
+    try:
+        headers={'User-Agent':'Mozilla/5.0 (compatible; Stock-Hunter/49.76.5.1; +NXT-target-check)'}
+        resp=requests.get(CLOSING_BET_V49765_NXT_TARGET_URL, headers=headers, timeout=CLOSING_BET_V49765_NXT_TIMEOUT_SEC)
+        resp.raise_for_status()
+        text=resp.text or ''
+        codes={m.group(1) for m in re.finditer(r'(?<![0-9])A(\d{6})(?![0-9])', text, flags=re.I)}
+        # Some renderers omit the leading A; only use the fallback when the page clearly contains target-list wording.
+        if len(codes) < CLOSING_BET_V49765_NXT_MIN_CODES and ('거래대상종목' in text or 'marketData' in str(resp.url)):
+            fallback={m.group(1) for m in re.finditer(r'(?<![0-9])(\d{6})(?![0-9])', text)}
+            if len(fallback) > len(codes):
+                codes=fallback
+        if len(codes) < CLOSING_BET_V49765_NXT_MIN_CODES:
+            raise RuntimeError(f'NXT_TARGET_COUNT_TOO_LOW:{len(codes)}')
+        _V49765_NXT_CACHE={'loaded':True,'codes':set(codes),'status':'OK','error':'','count':len(codes)}
+        return set(codes), 'OK'
+    except Exception as e:
+        _V49765_NXT_CACHE={'loaded':True,'codes':set(),'status':'FAILED','error':f'{type(e).__name__}:{e}','count':0}
+        return set(), f'FAILED:{type(e).__name__}'
+
+
+def _v49765_item_snapshot(item: dict) -> dict:
+    name,code=_v49764i_name_code(item)
+    d,r=_v49764i_item_row(item)
+    px,key=_v49764i_price(item)
+    support=_safe_float(r.get('support_price',np.nan),np.nan)
+    cur=_safe_float(r.get('price',r.get('close',np.nan)),np.nan)
+    missing=r.get('missing',[])
+    if not isinstance(missing,(list,tuple,set)): missing=[]
+    return {
+        'item':item,'name':name,'code':code,'price':float(px) if pd.notna(px) else None,
+        'current':float(cur) if pd.notna(cur) else None,'support':float(support) if pd.notna(support) else None,
+        'score':float(_v49764i_score(item)),'stage':_v49764i_stage(item),'source_key':key,
+        'missing':[str(x) for x in list(missing)[:3]],
+    }
+
+
+def _v49765_canonical_watch(decision: dict) -> list[dict]:
+    return [_v49765_item_snapshot(x) for x in (_v49764i_watch_items(decision) or [])[:2]]
+
+
+def _v49765_resolve_after_final(decision: dict, data_date=None) -> dict:
+    """Return the sole user-action authority object for v49.76.5.2."""
+    global _V49765_CURRENT_AUTHORIZED_CODES, _V49765_CURRENT_DECISION, _V49765_RESTORED
+    _V49765_CURRENT_AUTHORIZED_CODES=set(); _V49765_CURRENT_DECISION={}; _V49765_RESTORED=False
+    decision=decision if isinstance(decision,dict) else {}
+    st=_v49765_time_state(data_date)
+    today=st['now'].strftime('%Y-%m-%d')
+    evidence, ev_state = _v49765_load_evidence(today)
+    watches=_v49765_canonical_watch(decision)
+
+    if evidence is not None:
+        recs=_v49765_parse_json_field(evidence,'recommendations_json')
+        saved_watches=_v49765_parse_json_field(evidence,'watch_json') or watches
+        _V49765_RESTORED=True
+        out={'state':'RESTORED','reason':'TODAY_AFTER_FINAL_LOCK_RESTORED','authorized':recs[:2],
+             'watches':saved_watches[:2],'raw_enter_count':int(_safe_float(evidence.get('raw_enter_count',0),0)),
+             'nxt_status':str(evidence.get('nxt_fetch_status','')),'nxt_count':int(_safe_float(evidence.get('nxt_code_count',0),0)),
+             'event_time_kst':str(evidence.get('event_time_kst','')),'data_date':str(evidence.get('data_date',''))}
+        _V49765_CURRENT_DECISION=out
+        return out
+
+    # Fail safe: if we cannot read the lock ledger, never create a fresh recommendation.
+    if ev_state != 'OK':
+        out={'state':'BLOCKED','reason':f'EVIDENCE_LEDGER_UNAVAILABLE:{ev_state}','authorized':[], 'watches':watches,
+             'raw_enter_count':len(_v49764i_enter_items(decision) or []),'nxt_status':'NOT_RUN','nxt_count':0}
+        _V49765_CURRENT_DECISION=out; return out
+
+    if st['is_pre_mode']:
+        out={'state':'PRE_FINAL','reason':'PRE_FINAL_ONLY','authorized':[], 'watches':watches,
+             'raw_enter_count':len(_v49764i_enter_items(decision) or []),'nxt_status':'NOT_RUN','nxt_count':0}
+        _V49765_CURRENT_DECISION=out; return out
+
+    if not st['is_after_mode']:
+        reason='AFTER_FINAL_NOT_RUN_YET' if st['minute'] < st['start'] else ('AFTER_FINAL_EVIDENCE_MISSING_NO_LATE_CREATE' if st['minute'] > st['end'] else 'NOT_AFTER_FINAL_RUN_MODE')
+        out={'state':'BLOCKED','reason':reason,'authorized':[], 'watches':watches,
+             'raw_enter_count':len(_v49764i_enter_items(decision) or []),'nxt_status':'NOT_RUN','nxt_count':0}
+        _V49765_CURRENT_DECISION=out; return out
+
+    ev=_v49761_final_kick_evidence(data_date)
+    if not bool(ev.get('eligible')):
+        out={'state':'BLOCKED','reason':str(ev.get('reason','AFTER_FINAL_NOT_ELIGIBLE')),'authorized':[], 'watches':watches,
+             'raw_enter_count':len(_v49764i_enter_items(decision) or []),'nxt_status':'NOT_RUN','nxt_count':0}
+        _V49765_CURRENT_DECISION=out; return out
+    if str(decision.get('state','')).upper()!='VALID':
+        out={'state':'BLOCKED','reason':'LIFECYCLE_DECISION_NOT_VALID','authorized':[], 'watches':watches,
+             'raw_enter_count':0,'nxt_status':'NOT_RUN','nxt_count':0}
+        _V49765_CURRENT_DECISION=out; return out
+
+    enters=list(_v49764i_enter_items(decision) or [])
+    nxt_codes,nxt_status=_v49765_fetch_nxt_codes(force=True)
+    if str(nxt_status)!='OK':
+        out={'state':'INFRA_BLOCKED','reason':f'NXT_ELIGIBILITY_UNAVAILABLE:{nxt_status}','authorized':[], 'watches':watches,
+             'raw_enter_count':len(enters),'nxt_status':nxt_status,'nxt_count':0}
+        _V49765_CURRENT_DECISION=out; return out
+
+    auth=[]
+    for it in enters:
+        snap=_v49765_item_snapshot(it)
+        if not snap['code'] or snap['code'] not in nxt_codes:
+            continue
+        if snap['price'] is None or snap['price'] <= 0:
+            continue
+        auth.append(snap)
+    auth=auth[:2]
+    _V49765_CURRENT_AUTHORIZED_CODES={str(x.get('code','')).zfill(6) for x in auth}
+    wst=_v49765_write_evidence(st['data_date'],len(enters),auth,watches,'OK',len(nxt_codes),
+                               note='KRX 15:30 close-confirmed canonical ENTER → NXT target gate → limit-only PAPER decision')
+    if str(wst.get('state','')) not in ('OK','NO_ROWS'):
+        # Do not expose an executable recommendation if same-day decision lock could not be written.
+        _V49765_CURRENT_AUTHORIZED_CODES=set()
+        out={'state':'INFRA_BLOCKED','reason':f'EVIDENCE_WRITE_FAILED:{wst.get("state","FAILED")}:{str(wst.get("error",""))[:80]}',
+             'authorized':[], 'watches':watches,'raw_enter_count':len(enters),'nxt_status':'OK','nxt_count':len(nxt_codes)}
+        _V49765_CURRENT_DECISION=out; return out
+    out={'state':'AFTER_FINAL','reason':'AFTER_FINAL_LOCKED','authorized':auth,'watches':watches,
+         'raw_enter_count':len(enters),'nxt_status':'OK','nxt_count':len(nxt_codes),
+         'event_time_kst':st['now'].strftime('%Y-%m-%d %H:%M:%S'),'data_date':st['data_date']}
+    _V49765_CURRENT_DECISION=out
+    return out
+
+
+def _v49765_fmt_price(v):
+    try:
+        x=float(v)
+        if pd.isna(x) or x<=0:return 'N/A'
+        return _v4938_price(x)
+    except Exception:
+        return 'N/A'
+
+
+def _v49765_action_panel(decision: dict, data_date=None) -> tuple[str,bool,dict]:
+    res=_v49765_resolve_after_final(decision,data_date)
+    st=_v49765_time_state(data_date)
+    state=str(res.get('state','')).upper(); auth=list(res.get('authorized',[]) or []); watches=list(res.get('watches',[]) or [])
+    if state=='RESTORED': phase='오늘 AFTER FINAL 복원'
+    elif state=='AFTER_FINAL': phase='15:40+ KRX 종가확정 · NXT AFTER FINAL'
+    elif state=='PRE_FINAL': phase='15:03 PRE-FINAL'
+    elif st['minute'] < 9*60+30: phase='장전 관찰 · 전일 확정종가 기준'
+    elif st['minute'] < 14*60+40: phase='09:30 관찰'
+    elif st['minute'] < 15*60+3: phase='14:40 PREVIEW'
+    elif st['minute'] < st['start']: phase='15:03 PRE-FINAL/종가확정 대기'
+    else: phase='AFTER FINAL 권한 없음'
+    lines=[f'🚦 [사용자 행동 결론 · {phase}] | v49.76.5.2','──────────']
+    if auth:
+        prefix='🔒 오늘 확정추천 복원' if state=='RESTORED' else '🟢 PAPER ENTER 검토'
+        lines.append(f'- {prefix}: {len(auth)}개 · NXT 지정가만 · 자동주문 0')
+        if res.get('event_time_kst'): lines.append(f"- AFTER FINAL 결정시각: {res.get('event_time_kst')}")
+        lines.append(f"- NXT 거래대상 확인: ✅ {int(res.get('nxt_count',0))}종목 · 공개 목록은 대상여부 확인용")
+        for i,x in enumerate(auth[:2],1):
+            medal='🥇' if i==1 else '🥈'; name=str(x.get('name') or x.get('code') or '') ; code=str(x.get('code','')).zfill(6)
+            px=_safe_float(x.get('price',np.nan),np.nan); support=_safe_float(x.get('support',np.nan),np.nan)
+            lines.append(f'{medal} {name}' + (f' ({code})' if code else '') + ' | 🟢 KRX CLOSE STRICT → NXT LIMIT')
+            lines.append(f'   KRX 기준 지정가: ≤ {_v49765_fmt_price(px)} · 미체결/상승 시 추격 금지')
+            if pd.notna(px): lines.append(f'   +3 {_v49765_fmt_price(px*1.03)} · +5 {_v49765_fmt_price(px*1.05)} · 하드 -3 {_v49765_fmt_price(px*0.97)}')
+            if pd.notna(support): lines.append(f'   구조지지: {_v49765_fmt_price(support)}')
+            lines.append('   NXT 실시간호가: 미연동 · 실제 NXT 가격이 지정가 이하일 때만 수동 PAPER 진입')
+    else:
+        lines.append('- 🔴 지금 신규매수: 0개')
+        lines.append(f"- ⛔ 사유: {res.get('reason','UNKNOWN')}")
+        raw_n=int(res.get('raw_enter_count',0) or 0)
+        if raw_n>0:
+            lines.append(f'- 🎯 KRX 종가 STRICT 원신호: {raw_n}개 · 실행권한/대상게이트와 별도')
+        if state=='INFRA_BLOCKED':
+            lines.append('- 인프라 차단은 신호 실패가 아님 · 당일 허용시간 내 복구 실행에서만 재시도')
+        elif 'EVIDENCE_MISSING_NO_LATE_CREATE' in str(res.get('reason','')):
+            lines.append('- 20:00 이후 뒤늦은 신규추천 생성 금지 · 다음 거래일 재평가')
+    if watches:
+        lines.append('👀 다음 우선관찰')
+        for i,x in enumerate(watches[:2],1):
+            name=str(x.get('name') or x.get('code') or '') ; stg=str(x.get('stage',''))
+            tail=[]
+            if x.get('current') is not None: tail.append(f"현재 {_v49765_fmt_price(x.get('current'))}")
+            if x.get('support') is not None: tail.append(f"지지 {_v49765_fmt_price(x.get('support'))}")
+            miss=x.get('missing',[])
+            if isinstance(miss,list) and miss: tail.append('남은조건 '+'·'.join(str(z) for z in miss[:2]))
+            lines.append(f'   {i}. {name} | {stg}' + ((' · '+' · '.join(tail)) if tail else ''))
+    lines.append('- 기준: 신호 계산은 KRX 15:30 확정 일봉 · NXT는 거래대상/실행창만 사용 · 가격 추격 금지')
+    return '\n'.join(lines), bool(auth), res
+
+
+def _v49765_strip_old_execution_blocks(text: str) -> str:
+    s=str(text or '')
+    # Remove v49.76.3 independent TOP2 block so there is only one canonical user-action board.
+    s=re.sub(r'(?ms)^🎯 \[실전 TOP2 실행판[^\n]*\]\s*\|\s*v49\.76\.[^\n]*\n[-─]+\n.*?(?=^📚 아래 상세판은 연구/추적용입니다\.|^\[🧭 |\Z)', '', s)
+    s=s.replace('📚 아래 상세판은 연구/추적용입니다. 실제 판단은 위 TOP 실행판부터 봅니다.\n\n','')
+    # Old 14:40/15:03 wording is no longer the recommendation authority.
+    s=s.replace('[🧭 14:40 PAPER 예비보드 · 원장 미확정]', '[🧭 PRE-FINAL/연구 실행보드 · 실제추천 권한 없음]')
+    s=s.replace('- PREVIEW ONLY · 14:40 결과는 실제추천 성과에서 제외 · 15:03 재검증 필수',
+                '- PRE-FINAL/연구판 · 실제추천은 15:40+ KRX 종가확정 AFTER FINAL에서만 결정')
+    s=s.replace('[🧾 실제 추천 원장] 14:40 PREVIEW ONLY · 원장 확정 없음 · 15:03 최종킥에서 상위 2개만 재검증',
+                '[🧾 실제 추천 원장] PRE-FINAL/일반 실행 · 실제추천 권한 없음 · 15:40+ AFTER FINAL에서만 확정')
+    return s
+
+
+def _v49765_normalize_detail(text: str, has_authorized: bool, res: dict) -> str:
+    s=_v49765_strip_old_execution_blocks(text)
+    # Under a non-authorized run, preserve raw STRICT evidence but remove green executable wording.
+    if not has_authorized:
+        s=re.sub(r'🟢\s*PAPER\s*신규\s*진입검토', '🎯 ENTER 원신호(실행권한 별도)', s)
+        s=re.sub(r'🟢\s*BUY READY', '🎯 STRICT 원신호', s)
+        s=re.sub(r'- 이번 회차 ENTER (\d+)개 · LIVE-PAPER 적격일 때만 GENERATED · 추천파트 Telegram 성공 후 DELIVERED',
+                 r'- 이번 회차 STRICT/ENTER 원신호 \1개 · 실제 PAPER 추천은 AFTER FINAL 권한에서만 확정', s)
+    return s
+
+
+def _v4943_prepare_live_recommendations() -> list[dict]:
+    """v49.76.5.2: ledger recommendations are exactly the locked NXT-eligible AFTER-FINAL set."""
+    mode=_v49765_mode()
+    if mode in ('after_final','final_kick','kick'):
+        if _V49765_RESTORED:
+            # Later/recovery run must not resend a locked decision.
+            globals()['_V4943_CURRENT_RECOMMENDATIONS']=[]
+            return []
+        if str((_V49765_CURRENT_DECISION or {}).get('state','')).upper()!='AFTER_FINAL':
+            globals()['_V4943_CURRENT_RECOMMENDATIONS']=[]
+            return []
+        if not callable(_V49765_BASE_PREP_RECS):
+            globals()['_V4943_CURRENT_RECOMMENDATIONS']=[]
+            return []
+        rows=list(_V49765_BASE_PREP_RECS() or [])
+        auth=set(_V49765_CURRENT_AUTHORIZED_CODES or set())
+        out=[]
+        for r in rows:
+            code=str((r or {}).get('code','') or '').zfill(6)
+            if code not in auth: continue
+            rr=dict(r)
+            rr['note']=f"v49.76.5.2 KRX CLOSE AFTER FINAL · NXT eligible · limit-only PAPER · 자동주문 없음 · {str(rr.get('note',''))[:220]}"
+            rr['decision_phase']='FINAL_KICK'
+            rr['kpi_eligible']='TRUE'
+            out.append(rr)
+        globals()['_V4943_CURRENT_RECOMMENDATIONS']=out[:2]
+        return out[:2]
+    if callable(_V49765_BASE_PREP_RECS):
+        return _V49765_BASE_PREP_RECS()
+    return []
+
+
+def _v4938_build_live_parts(hits_df, execution_all, market_short, cov_short, raw_health):
+    if not callable(_V49765_BASE_LIVE_PARTS):
+        return []
+    # Use the v49.76.2 canonical report/decision builder directly: no independent v49.76.3 TOP2 ranking.
+    parts=_V49765_BASE_LIVE_PARTS(hits_df,execution_all,market_short,cov_short,raw_health)
+    try:
+        decision=dict(globals().get('_V4942_LAST_DECISION',{}) or {})
+        dd=(globals().get('_V4938_LAST_HEALTH',{}) or {}).get('latest_data_date') or TODAY_STR
+        panel,has_authorized,res=_v49765_action_panel(decision,dd)
+        seq=list(parts) if isinstance(parts,(list,tuple)) else [parts]
+        out=[]; injected=False
+        for p in seq:
+            if isinstance(p,str):
+                p2=_v49765_normalize_detail(p,has_authorized,res)
+                if not injected:
+                    p2=panel+'\n\n'+p2.lstrip(); injected=True
+                out.append(p2)
+            else:
+                out.append(p)
+        if not injected: out.insert(0,panel)
+        if isinstance(parts,tuple): return tuple(out)
+        if isinstance(parts,list): return out
+        return out[0] if len(out)==1 else out
+    except Exception as e:
+        try: log_error(f'⚠️ v49.76.5.2 AFTER FINAL action panel 실패: {e}')
+        except Exception: pass
+        return parts
+
+# =============================================================
+# ✅ END V49.76.5.1 CLOSE AFTER-FINAL + NXT ELIGIBILITY + DAILY EVIDENCE
+# =============================================================
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='종가배팅 타점 스캐너')
