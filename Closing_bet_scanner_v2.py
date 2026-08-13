@@ -80,8 +80,8 @@ def _env_float(name: str, default: float = 0.0) -> float:
         except Exception:
             return 0.0
 
-CLOSING_BET_SCANNER_VERSION = 'G_MORALES_V4_4_9_53_8_49_76_5_5_AUTO_AFTER_FINAL_TRANSIENT_TERMINAL_BLOCK_SPLIT_NAN_GUARD_20260812'
-CLOSING_BET_RELEASE_TAG = 'v49.76.5.5'
+CLOSING_BET_SCANNER_VERSION = 'G_MORALES_V4_4_9_53_8_49_76_5_6_EVIDENCE_GATE_PHASE_ORDER_HOTFIX_20260813'
+CLOSING_BET_RELEASE_TAG = 'v49.76.5.6'
 CLOSING_BET_LIVE_PRICE_SANITY_FIX = str(os.environ.get('CLOSING_BET_LIVE_PRICE_SANITY_FIX', '1')).lower() in ('1', 'true', 'yes', 'y', 'on')
 CLOSING_BET_LIVE_READABILITY_COMPACT = str(os.environ.get('CLOSING_BET_LIVE_READABILITY_COMPACT', '1')).lower() in ('1', 'true', 'yes', 'y', 'on')
 # v53.8.42: M5R TRUE60 검증용 장기 월봉 확보. 60개월 월선 계산에는 약 7년 일봉이 필요하다.
@@ -46930,93 +46930,110 @@ def _v49765_canonical_watch(decision: dict) -> list[dict]:
 
 
 def _v49765_resolve_after_final(decision: dict, data_date=None) -> dict:
-    """Return the sole user-action authority object for v49.76.5.4."""
+    """v49.76.5.6 sole user-action authority with phase-ordered evidence gating.
+
+    Authority order:
+      1) Before 15:40: observation/PRE-FINAL only. Evidence ledger health is advisory,
+         never the top-level user-action block reason.
+      2) 15:40~20:00: evidence ledger becomes a hard gate. Restore today's completed
+         result first; otherwise require a readable/writable ledger before creating a new result.
+      3) After 20:00: restore saved evidence only. Never create a late recommendation.
+    """
     global _V49765_CURRENT_AUTHORIZED_CODES, _V49765_CURRENT_DECISION, _V49765_RESTORED
     _V49765_CURRENT_AUTHORIZED_CODES=set(); _V49765_CURRENT_DECISION={}; _V49765_RESTORED=False
     decision=decision if isinstance(decision,dict) else {}
     st=_v49765_time_state(data_date)
-    today=st['now'].strftime('%Y-%m-%d')
-    evidence, ev_state = _v49765_load_evidence(today)
     watches=_v49765_canonical_watch(decision)
+    raw_enter_count=len(_v49764i_enter_items(decision) or [])
 
+    # Phase 1: before AFTER FINAL, time authority outranks infrastructure state.
+    # Do not let a temporary Sheet 503 become the user's primary action reason at noon.
+    if st['minute'] < st['start']:
+        state='PRE_FINAL' if st['minute'] >= st['pre'] else 'BLOCKED'
+        reason='PRE_FINAL_ONLY' if state=='PRE_FINAL' else 'AFTER_FINAL_NOT_RUN_YET'
+        out={'state':state,'reason':reason,'authorized':[],'watches':watches,
+             'raw_enter_count':raw_enter_count,'nxt_status':'NOT_RUN','nxt_count':0,
+             'evidence_gate_phase':'ADVISORY_BEFORE_AFTER_FINAL'}
+        _V49765_CURRENT_DECISION=out; return out
+
+    today=st['now'].strftime('%Y-%m-%d')
+    evidence,ev_state=_v49765_load_evidence(today)
+
+    # Saved evidence always wins once AFTER FINAL time has started.
     if evidence is not None:
         recs=_v49765_parse_json_field(evidence,'recommendations_json')
         saved_watches=_v49765_parse_json_field(evidence,'watch_json') or watches
         _V49765_RESTORED=True
         out={'state':'RESTORED','reason':'TODAY_AFTER_FINAL_LOCK_RESTORED','authorized':recs[:2],
              'watches':saved_watches[:2],'raw_enter_count':int(_safe_float(evidence.get('raw_enter_count',0),0)),
-             'nxt_status':str(evidence.get('nxt_fetch_status','')),'nxt_count':int(_safe_float(evidence.get('nxt_code_count',0),0)),
-             'event_time_kst':str(evidence.get('event_time_kst','')),'data_date':str(evidence.get('data_date',''))}
-        _V49765_CURRENT_DECISION=out
-        return out
-
-    # Fail safe: if we cannot read the lock ledger, never create a fresh recommendation.
-    if ev_state != 'OK':
-        out={'state':'BLOCKED','reason':f'EVIDENCE_LEDGER_UNAVAILABLE:{ev_state}','authorized':[], 'watches':watches,
-             'raw_enter_count':len(_v49764i_enter_items(decision) or []),'nxt_status':'NOT_RUN','nxt_count':0}
+             'nxt_status':_v497655_clean_text(evidence.get('nxt_fetch_status','')),'nxt_count':int(_safe_float(evidence.get('nxt_code_count',0),0)),
+             'event_time_kst':_v497655_clean_text(evidence.get('event_time_kst','')),
+             'data_date':_v497655_clean_text(evidence.get('data_date','')),'authority_source':'EVIDENCE_RESTORE',
+             'evidence_gate_phase':'HARD_GATE_ACTIVE'}
         _V49765_CURRENT_DECISION=out; return out
 
-    if st['is_pre_mode']:
-        out={'state':'PRE_FINAL','reason':'PRE_FINAL_ONLY','authorized':[], 'watches':watches,
-             'raw_enter_count':len(_v49764i_enter_items(decision) or []),'nxt_status':'NOT_RUN','nxt_count':0}
+    # Phase 3: after the execution window, never create a new recommendation.
+    # If the ledger itself is unavailable we cannot prove a saved result, so fail safe.
+    if st['minute'] > st['end']:
+        if ev_state!='OK':
+            out={'state':'BLOCKED','reason':f'EVIDENCE_LEDGER_UNAVAILABLE_AFTER_WINDOW:{ev_state}',
+                 'authorized':[],'watches':watches,'raw_enter_count':raw_enter_count,
+                 'nxt_status':'NOT_RUN','nxt_count':0,'evidence_gate_phase':'RESTORE_ONLY_AFTER_WINDOW'}
+        else:
+            out={'state':'BLOCKED','reason':'AFTER_FINAL_EVIDENCE_MISSING_NO_LATE_CREATE',
+                 'authorized':[],'watches':watches,'raw_enter_count':raw_enter_count,
+                 'nxt_status':'NOT_RUN','nxt_count':0,'evidence_gate_phase':'RESTORE_ONLY_AFTER_WINDOW'}
         _V49765_CURRENT_DECISION=out; return out
 
-    if not st['is_after_mode']:
-        reason='AFTER_FINAL_NOT_RUN_YET' if st['minute'] < st['start'] else ('AFTER_FINAL_EVIDENCE_MISSING_NO_LATE_CREATE' if st['minute'] > st['end'] else 'NOT_AFTER_FINAL_RUN_MODE')
-        out={'state':'BLOCKED','reason':reason,'authorized':[], 'watches':watches,
-             'raw_enter_count':len(_v49764i_enter_items(decision) or []),'nxt_status':'NOT_RUN','nxt_count':0}
+    # Phase 2: 15:40~20:00. The evidence ledger is now a true hard gate because
+    # duplicate prevention and later restoration depend on it.
+    if ev_state!='OK':
+        out={'state':'INFRA_BLOCKED','reason':f'EVIDENCE_LEDGER_UNAVAILABLE:{ev_state}',
+             'authorized':[],'watches':watches,'raw_enter_count':raw_enter_count,
+             'nxt_status':'NOT_RUN','nxt_count':0,'evidence_gate_phase':'HARD_GATE_ACTIVE'}
         _V49765_CURRENT_DECISION=out; return out
 
     ev=_v49761_final_kick_evidence(data_date)
     if not bool(ev.get('eligible')):
-        out={'state':'BLOCKED','reason':str(ev.get('reason','AFTER_FINAL_NOT_ELIGIBLE')),'authorized':[], 'watches':watches,
-             'raw_enter_count':len(_v49764i_enter_items(decision) or []),'nxt_status':'NOT_RUN','nxt_count':0}
+        out={'state':'BLOCKED','reason':str(ev.get('reason','AFTER_FINAL_NOT_ELIGIBLE')),'authorized':[],'watches':watches,
+             'raw_enter_count':raw_enter_count,'nxt_status':'NOT_RUN','nxt_count':0,'evidence_gate_phase':'HARD_GATE_ACTIVE'}
         _V49765_CURRENT_DECISION=out; return out
     if str(decision.get('state','')).upper()!='VALID':
-        out={'state':'BLOCKED','reason':'LIFECYCLE_DECISION_NOT_VALID','authorized':[], 'watches':watches,
-             'raw_enter_count':0,'nxt_status':'NOT_RUN','nxt_count':0}
+        out={'state':'BLOCKED','reason':'LIFECYCLE_DECISION_NOT_VALID','authorized':[],'watches':watches,
+             'raw_enter_count':0,'nxt_status':'NOT_RUN','nxt_count':0,'evidence_gate_phase':'HARD_GATE_ACTIVE'}
         _V49765_CURRENT_DECISION=out; return out
 
     enters=list(_v49764i_enter_items(decision) or [])
     nxt_codes,nxt_status=_v49765_fetch_nxt_codes(force=True)
     if str(nxt_status)!='OK':
-        out={'state':'INFRA_BLOCKED','reason':f'NXT_ELIGIBILITY_UNAVAILABLE:{nxt_status}','authorized':[], 'watches':watches,
-             'raw_enter_count':len(enters),'nxt_status':nxt_status,'nxt_count':0}
+        out={'state':'INFRA_BLOCKED','reason':f'NXT_ELIGIBILITY_UNAVAILABLE:{nxt_status}','authorized':[],'watches':watches,
+             'raw_enter_count':len(enters),'nxt_status':nxt_status,'nxt_count':0,
+             'authority_source':'AUTO_AFTER_FINAL' if ev.get('auto_promoted') else 'SCHEDULED_AFTER_FINAL',
+             'evidence_gate_phase':'HARD_GATE_ACTIVE'}
         _V49765_CURRENT_DECISION=out; return out
 
     auth=[]
     for it in enters:
         snap=_v49765_item_snapshot(it)
-        if not snap['code'] or snap['code'] not in nxt_codes:
-            continue
-        if snap['price'] is None or snap['price'] <= 0:
-            continue
+        if not snap['code'] or snap['code'] not in nxt_codes: continue
+        if snap['price'] is None or snap['price']<=0: continue
         auth.append(snap)
     auth=auth[:2]
     _V49765_CURRENT_AUTHORIZED_CODES={str(x.get('code','')).zfill(6) for x in auth}
+    source='AUTO_AFTER_FINAL' if ev.get('auto_promoted') else 'SCHEDULED_AFTER_FINAL'
     wst=_v49765_write_evidence(st['data_date'],len(enters),auth,watches,'OK',len(nxt_codes),
-                               note='KRX 15:30 close-confirmed canonical ENTER → NXT target gate → limit-only PAPER decision')
+                               note=f'{source} · KRX 15:30 close-confirmed canonical ENTER → NXT target gate → limit-only PAPER decision')
     if str(wst.get('state','')) not in ('OK','NO_ROWS'):
-        # Do not expose an executable recommendation if same-day decision lock could not be written.
         _V49765_CURRENT_AUTHORIZED_CODES=set()
         out={'state':'INFRA_BLOCKED','reason':f'EVIDENCE_WRITE_FAILED:{wst.get("state","FAILED")}:{str(wst.get("error",""))[:80]}',
-             'authorized':[], 'watches':watches,'raw_enter_count':len(enters),'nxt_status':'OK','nxt_count':len(nxt_codes)}
+             'authorized':[],'watches':watches,'raw_enter_count':len(enters),'nxt_status':'OK','nxt_count':len(nxt_codes),
+             'authority_source':source,'evidence_gate_phase':'HARD_GATE_ACTIVE'}
         _V49765_CURRENT_DECISION=out; return out
-    out={'state':'AFTER_FINAL','reason':'AFTER_FINAL_LOCKED','authorized':auth,'watches':watches,
-         'raw_enter_count':len(enters),'nxt_status':'OK','nxt_count':len(nxt_codes),
-         'event_time_kst':st['now'].strftime('%Y-%m-%d %H:%M:%S'),'data_date':st['data_date']}
-    _V49765_CURRENT_DECISION=out
-    return out
-
-
-def _v49765_fmt_price(v):
-    try:
-        x=float(v)
-        if pd.isna(x) or x<=0:return 'N/A'
-        return _v4938_price(x)
-    except Exception:
-        return 'N/A'
-
+    out={'state':'AFTER_FINAL','reason':'AUTO_AFTER_FINAL_LOCKED' if ev.get('auto_promoted') else 'AFTER_FINAL_LOCKED',
+         'authorized':auth,'watches':watches,'raw_enter_count':len(enters),'nxt_status':'OK','nxt_count':len(nxt_codes),
+         'event_time_kst':st['now'].strftime('%Y-%m-%d %H:%M:%S'),'data_date':st['data_date'],'authority_source':source,
+         'evidence_gate_phase':'HARD_GATE_ACTIVE'}
+    _V49765_CURRENT_DECISION=out; return out
 
 def _v49765_action_panel(decision: dict, data_date=None) -> tuple[str,bool,dict]:
     res=_v49765_resolve_after_final(decision,data_date)
@@ -47026,7 +47043,7 @@ def _v49765_action_panel(decision: dict, data_date=None) -> tuple[str,bool,dict]
     elif state=='AFTER_FINAL': phase='15:40+ KRX 종가확정 · NXT AFTER FINAL'
     elif state=='PRE_FINAL': phase='15:03 PRE-FINAL'
     elif st['minute'] < 9*60+30: phase='장전 관찰 · 전일 확정종가 기준'
-    elif st['minute'] < 14*60+40: phase='09:30 관찰'
+    elif st['minute'] < 14*60+40: phase='09:30~14:39 장중 관찰'
     elif st['minute'] < 15*60+3: phase='14:40 PREVIEW'
     elif st['minute'] < st['start']: phase='15:03 PRE-FINAL/종가확정 대기'
     else: phase='AFTER FINAL 권한 없음'
@@ -47447,7 +47464,7 @@ def _v49765_normalize_detail(text: str, has_authorized: bool, res: dict) -> str:
 # Search/rank/ENTRY thresholds, MARCAP/PIT, P1 and automatic-order policy unchanged.
 # =============================================================
 try:
-    print("✅ V49.76.5.5 AUTO_AFTER_FINAL_TRANSIENT_TERMINAL_BLOCK_NAN_GUARD LOADED")
+    print("✅ V49.76.5.6 EVIDENCE_GATE_PHASE_ORDER LOADED")
 except Exception:
     pass
 
@@ -47506,7 +47523,7 @@ def _v497655_is_terminal_block(row) -> bool:
 
 
 def _v497654_blocked_episode_map(events: pd.DataFrame, data_date=None) -> dict:
-    """v49.76.5.5: historical BLOCKED shadow locks only explicit terminal failures.
+    """v49.76.5.6: historical BLOCKED shadow locks only explicit terminal failures.
 
     Typical BLOCKED-SHADOW rows are OVERHEAT-WAIT/CHASE-WAIT and are deliberately
     excluded so the same episode may be re-evaluated when the transient risk clears.
@@ -47625,7 +47642,7 @@ def _v4938_recent_events(df=None) -> pd.DataFrame:
 
 
 def _v49761_final_kick_evidence(data_date=None) -> dict:
-    """v49.76.5.5: 15:40~20:00 clock+same-day close grants AFTER FINAL authority.
+    """v49.76.5.6: 15:40~20:00 clock+same-day close grants AFTER FINAL authority.
 
     Explicit run-mode remains useful provenance, but is not a second hard gate.
     """
@@ -47659,14 +47676,34 @@ def _v49761_final_kick_evidence(data_date=None) -> dict:
 
 
 def _v49765_resolve_after_final(decision: dict, data_date=None) -> dict:
-    """Sole user-action authority: evidence restore first, then auto AFTER FINAL in-window."""
+    """v49.76.5.6 active authority: phase first, evidence hard-gate only when needed.
+
+    - Before 15:40: observation/PRE-FINAL. Sheet/evidence outages are advisory only.
+    - 15:40~20:00: evidence ledger is a hard gate; restore first, otherwise create once.
+    - After 20:00: restore-only. Never create a late recommendation.
+    """
     global _V49765_CURRENT_AUTHORIZED_CODES, _V49765_CURRENT_DECISION, _V49765_RESTORED
     _V49765_CURRENT_AUTHORIZED_CODES=set(); _V49765_CURRENT_DECISION={}; _V49765_RESTORED=False
     decision=decision if isinstance(decision,dict) else {}
-    st=_v49765_time_state(data_date); today=st['now'].strftime('%Y-%m-%d')
-    evidence,ev_state=_v49765_load_evidence(today)
+    st=_v49765_time_state(data_date)
     watches=_v49765_canonical_watch(decision)
+    raw_enter_count=len(_v49764i_enter_items(decision) or [])
 
+    # 1) Before AFTER FINAL: time/phase is the authority. Do not even query the
+    # evidence ledger for the user-action decision, so a noon Sheet 503 cannot
+    # become the primary block reason. The separate Sheet health section still reports it.
+    if st['minute'] < st['start']:
+        state='PRE_FINAL' if st['minute'] >= st['pre'] else 'BLOCKED'
+        reason='PRE_FINAL_ONLY' if state=='PRE_FINAL' else 'AFTER_FINAL_NOT_RUN_YET'
+        out={'state':state,'reason':reason,'authorized':[],'watches':watches,
+             'raw_enter_count':raw_enter_count,'nxt_status':'NOT_RUN','nxt_count':0,
+             'evidence_gate_phase':'ADVISORY_BEFORE_AFTER_FINAL'}
+        _V49765_CURRENT_DECISION=out; return out
+
+    today=st['now'].strftime('%Y-%m-%d')
+    evidence,ev_state=_v49765_load_evidence(today)
+
+    # Saved result has highest authority from 15:40 onward.
     if evidence is not None:
         recs=_v49765_parse_json_field(evidence,'recommendations_json')
         saved_watches=_v49765_parse_json_field(evidence,'watch_json') or watches
@@ -47675,35 +47712,38 @@ def _v49765_resolve_after_final(decision: dict, data_date=None) -> dict:
              'watches':saved_watches[:2],'raw_enter_count':int(_safe_float(evidence.get('raw_enter_count',0),0)),
              'nxt_status':_v497655_clean_text(evidence.get('nxt_fetch_status','')),'nxt_count':int(_safe_float(evidence.get('nxt_code_count',0),0)),
              'event_time_kst':_v497655_clean_text(evidence.get('event_time_kst','')),
-             'data_date':_v497655_clean_text(evidence.get('data_date','')),'authority_source':'EVIDENCE_RESTORE'}
+             'data_date':_v497655_clean_text(evidence.get('data_date','')),'authority_source':'EVIDENCE_RESTORE',
+             'evidence_gate_phase':'HARD_GATE_ACTIVE'}
         _V49765_CURRENT_DECISION=out; return out
 
-    if ev_state!='OK':
-        out={'state':'BLOCKED','reason':f'EVIDENCE_LEDGER_UNAVAILABLE:{ev_state}','authorized':[],'watches':watches,
-             'raw_enter_count':len(_v49764i_enter_items(decision) or []),'nxt_status':'NOT_RUN','nxt_count':0}
-        _V49765_CURRENT_DECISION=out; return out
-
-    # Before the execution window every mode is observation-only.
-    if st['minute'] < st['start']:
-        state='PRE_FINAL' if st['minute'] >= st['pre'] else 'BLOCKED'
-        reason='PRE_FINAL_ONLY' if state=='PRE_FINAL' else 'AFTER_FINAL_NOT_RUN_YET'
-        out={'state':state,'reason':reason,'authorized':[],'watches':watches,
-             'raw_enter_count':len(_v49764i_enter_items(decision) or []),'nxt_status':'NOT_RUN','nxt_count':0}
-        _V49765_CURRENT_DECISION=out; return out
-
+    # 3) After 20:00: restore-only. If the ledger is unavailable, fail safe because
+    # we cannot prove whether an earlier result exists; never create a late result.
     if st['minute'] > st['end']:
-        out={'state':'BLOCKED','reason':'AFTER_FINAL_EVIDENCE_MISSING_NO_LATE_CREATE','authorized':[],'watches':watches,
-             'raw_enter_count':len(_v49764i_enter_items(decision) or []),'nxt_status':'NOT_RUN','nxt_count':0}
+        if ev_state!='OK':
+            out={'state':'BLOCKED','reason':f'EVIDENCE_LEDGER_UNAVAILABLE_AFTER_WINDOW:{ev_state}',
+                 'authorized':[],'watches':watches,'raw_enter_count':raw_enter_count,
+                 'nxt_status':'NOT_RUN','nxt_count':0,'evidence_gate_phase':'RESTORE_ONLY_AFTER_WINDOW'}
+        else:
+            out={'state':'BLOCKED','reason':'AFTER_FINAL_EVIDENCE_MISSING_NO_LATE_CREATE',
+                 'authorized':[],'watches':watches,'raw_enter_count':raw_enter_count,
+                 'nxt_status':'NOT_RUN','nxt_count':0,'evidence_gate_phase':'RESTORE_ONLY_AFTER_WINDOW'}
+        _V49765_CURRENT_DECISION=out; return out
+
+    # 2) 15:40~20:00: evidence ledger is now a real hard gate.
+    if ev_state!='OK':
+        out={'state':'INFRA_BLOCKED','reason':f'EVIDENCE_LEDGER_UNAVAILABLE:{ev_state}',
+             'authorized':[],'watches':watches,'raw_enter_count':raw_enter_count,
+             'nxt_status':'NOT_RUN','nxt_count':0,'evidence_gate_phase':'HARD_GATE_ACTIVE'}
         _V49765_CURRENT_DECISION=out; return out
 
     ev=_v49761_final_kick_evidence(data_date)
     if not bool(ev.get('eligible')):
         out={'state':'BLOCKED','reason':str(ev.get('reason','AFTER_FINAL_NOT_ELIGIBLE')),'authorized':[],'watches':watches,
-             'raw_enter_count':len(_v49764i_enter_items(decision) or []),'nxt_status':'NOT_RUN','nxt_count':0}
+             'raw_enter_count':raw_enter_count,'nxt_status':'NOT_RUN','nxt_count':0,'evidence_gate_phase':'HARD_GATE_ACTIVE'}
         _V49765_CURRENT_DECISION=out; return out
     if str(decision.get('state','')).upper()!='VALID':
         out={'state':'BLOCKED','reason':'LIFECYCLE_DECISION_NOT_VALID','authorized':[],'watches':watches,
-             'raw_enter_count':0,'nxt_status':'NOT_RUN','nxt_count':0}
+             'raw_enter_count':0,'nxt_status':'NOT_RUN','nxt_count':0,'evidence_gate_phase':'HARD_GATE_ACTIVE'}
         _V49765_CURRENT_DECISION=out; return out
 
     enters=list(_v49764i_enter_items(decision) or [])
@@ -47711,7 +47751,8 @@ def _v49765_resolve_after_final(decision: dict, data_date=None) -> dict:
     if str(nxt_status)!='OK':
         out={'state':'INFRA_BLOCKED','reason':f'NXT_ELIGIBILITY_UNAVAILABLE:{nxt_status}','authorized':[],'watches':watches,
              'raw_enter_count':len(enters),'nxt_status':nxt_status,'nxt_count':0,
-             'authority_source':'AUTO_AFTER_FINAL' if ev.get('auto_promoted') else 'SCHEDULED_AFTER_FINAL'}
+             'authority_source':'AUTO_AFTER_FINAL' if ev.get('auto_promoted') else 'SCHEDULED_AFTER_FINAL',
+             'evidence_gate_phase':'HARD_GATE_ACTIVE'}
         _V49765_CURRENT_DECISION=out; return out
 
     auth=[]
@@ -47728,13 +47769,14 @@ def _v49765_resolve_after_final(decision: dict, data_date=None) -> dict:
     if str(wst.get('state','')) not in ('OK','NO_ROWS'):
         _V49765_CURRENT_AUTHORIZED_CODES=set()
         out={'state':'INFRA_BLOCKED','reason':f'EVIDENCE_WRITE_FAILED:{wst.get("state","FAILED")}:{str(wst.get("error",""))[:80]}',
-             'authorized':[],'watches':watches,'raw_enter_count':len(enters),'nxt_status':'OK','nxt_count':len(nxt_codes),'authority_source':source}
+             'authorized':[],'watches':watches,'raw_enter_count':len(enters),'nxt_status':'OK','nxt_count':len(nxt_codes),
+             'authority_source':source,'evidence_gate_phase':'HARD_GATE_ACTIVE'}
         _V49765_CURRENT_DECISION=out; return out
     out={'state':'AFTER_FINAL','reason':'AUTO_AFTER_FINAL_LOCKED' if ev.get('auto_promoted') else 'AFTER_FINAL_LOCKED',
          'authorized':auth,'watches':watches,'raw_enter_count':len(enters),'nxt_status':'OK','nxt_count':len(nxt_codes),
-         'event_time_kst':st['now'].strftime('%Y-%m-%d %H:%M:%S'),'data_date':st['data_date'],'authority_source':source}
+         'event_time_kst':st['now'].strftime('%Y-%m-%d %H:%M:%S'),'data_date':st['data_date'],'authority_source':source,
+         'evidence_gate_phase':'HARD_GATE_ACTIVE'}
     _V49765_CURRENT_DECISION=out; return out
-
 
 def _v49765_action_panel(decision: dict, data_date=None) -> tuple[str,bool,dict]:
     res=_v49765_resolve_after_final(decision,data_date); st=_v49765_time_state(data_date)
@@ -47743,11 +47785,11 @@ def _v49765_action_panel(decision: dict, data_date=None) -> tuple[str,bool,dict]
     elif state=='AFTER_FINAL': phase='15:40+ KRX 종가확정 · NXT AFTER FINAL'
     elif state=='PRE_FINAL': phase='15:03 PRE-FINAL'
     elif st['minute'] < 9*60+30: phase='장전 관찰 · 전일 확정종가 기준'
-    elif st['minute'] < 14*60+40: phase='09:30 관찰'
+    elif st['minute'] < 14*60+40: phase='09:30~14:39 장중 관찰'
     elif st['minute'] < 15*60+3: phase='14:40 PREVIEW'
     elif st['minute'] < st['start']: phase='15:03 PRE-FINAL/종가확정 대기'
     else: phase='AFTER FINAL 권한 없음'
-    lines=[f'🚦 [사용자 행동 결론 · {phase}] | v49.76.5.5','──────────']
+    lines=[f'🚦 [사용자 행동 결론 · {phase}] | v49.76.5.6','──────────']
     if auth:
         prefix='🔒 오늘 확정추천 복원' if state=='RESTORED' else '🟢 PAPER ENTER 검토'
         lines.append(f'- {prefix}: {len(auth)}개 · NXT 지정가만 · 자동주문 0')
@@ -47770,7 +47812,7 @@ def _v49765_action_panel(decision: dict, data_date=None) -> tuple[str,bool,dict]
         lines.append(f"- ⛔ 사유: {res.get('reason','UNKNOWN')}")
         raw_n=int(res.get('raw_enter_count',0) or 0)
         if raw_n>0: lines.append(f'- 🎯 KRX 종가 STRICT 원신호: {raw_n}개 · 실행권한/대상게이트와 별도')
-        if state=='INFRA_BLOCKED': lines.append('- 인프라 차단은 신호 실패가 아님 · 당일 허용시간 내 다음 실행에서 자동 재시도')
+        if state=='INFRA_BLOCKED': lines.append('- 인프라 차단은 신호 실패가 아님 · AFTER FINAL 시간창 안에서 복구 시 다음 실행이 자동 재시도')
         elif 'EVIDENCE_MISSING_NO_LATE_CREATE' in str(res.get('reason','')): lines.append('- 20:00 이후 뒤늦은 신규추천 생성 금지 · 다음 거래일 재평가')
     if watches:
         lines.append('👀 다음 우선관찰')
@@ -47812,7 +47854,7 @@ def _v4943_prepare_live_recommendations() -> list[dict]:
         code=str((r or {}).get('code','') or '').zfill(6)
         if code not in auth: continue
         rr=dict(r)
-        rr['note']=f"v49.76.5.5 KRX CLOSE AFTER FINAL · {(_V49765_CURRENT_DECISION or {}).get('authority_source','')} · NXT eligible · limit-only PAPER · 자동주문 없음 · {str(rr.get('note',''))[:180]}"
+        rr['note']=f"v49.76.5.6 KRX CLOSE AFTER FINAL · {(_V49765_CURRENT_DECISION or {}).get('authority_source','')} · NXT eligible · limit-only PAPER · 자동주문 없음 · {str(rr.get('note',''))[:180]}"
         rr['decision_phase']='FINAL_KICK'; rr['kpi_eligible']='TRUE'; out.append(rr)
     globals()['_V4943_CURRENT_RECOMMENDATIONS']=out[:2]
     return out[:2]
@@ -47823,7 +47865,7 @@ _V497655_BASE_NORMALIZE_DETAIL=_v49765_normalize_detail
 
 def _v49765_normalize_detail(text: str, has_authorized: bool, res: dict) -> str:
     s=_V497655_BASE_NORMALIZE_DETAIL(text,has_authorized,res)
-    s=s.replace('v49.76.5.4','v49.76.5.5')
+    s=s.replace('v49.76.5.4','v49.76.5.6')
     s=s.replace('BLOCKED episode 재승격 금지','terminal episode 재승격 금지')
     s=s.replace('동일 episode 과거 BLOCKED-SHADOW nan','동일 episode terminal failure 확인필요')
     s=s.replace('차단 신호 nan','차단 신호 확인필요')
