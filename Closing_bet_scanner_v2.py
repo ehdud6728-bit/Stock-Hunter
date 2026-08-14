@@ -80,8 +80,8 @@ def _env_float(name: str, default: float = 0.0) -> float:
         except Exception:
             return 0.0
 
-CLOSING_BET_SCANNER_VERSION = 'G_MORALES_V4_4_9_53_8_49_76_5_7_AFTER_FINAL_FAILSAFE_IO_M5_GATE_20260814'
-CLOSING_BET_RELEASE_TAG = 'v49.76.5.7'
+CLOSING_BET_SCANNER_VERSION = 'G_MORALES_V4_4_9_53_8_49_76_5_8_AFTER_FINAL_DISPLAY_AUTHORITY_FINALIZATION_20260814'
+CLOSING_BET_RELEASE_TAG = 'v49.76.5.8'
 CLOSING_BET_LIVE_PRICE_SANITY_FIX = str(os.environ.get('CLOSING_BET_LIVE_PRICE_SANITY_FIX', '1')).lower() in ('1', 'true', 'yes', 'y', 'on')
 CLOSING_BET_LIVE_READABILITY_COMPACT = str(os.environ.get('CLOSING_BET_LIVE_READABILITY_COMPACT', '1')).lower() in ('1', 'true', 'yes', 'y', 'on')
 # v53.8.42: M5R TRUE60 검증용 장기 월봉 확보. 60개월 월선 계산에는 약 7년 일봉이 필요하다.
@@ -48349,6 +48349,256 @@ def _v4943_prepare_live_recommendations() -> list[dict]:
 
 # =============================================================
 # ✅ END V49.76.5.7
+# =============================================================
+
+
+# =============================================================
+# ✅ V49.76.5.8 AFTER-FINAL DISPLAY / AUTHORITY FINALIZATION HOTFIX
+# -------------------------------------------------------------
+# Scope only:
+# - Fix missing _v49765_fmt_price display helper (v49.76.5.7 NameError).
+# - After 20:00, show canonical same-day STRICT/ENTER raw signals for context,
+#   but NEVER create a late recommendation/evidence/Telegram action.
+# - Replace PRE-FINAL wording with explicit AFTER FINAL window-closed wording.
+# - Same-day Replay without actual LIVE evidence is labelled REPLAY-NO-LIVE-EVIDENCE.
+# - Search/rank/STRICT thresholds, MARCAP/PIT, P1 and automatic-order policy unchanged.
+# =============================================================
+try:
+    print("✅ V49.76.5.8 AFTER_FINAL_DISPLAY_AUTHORITY_FINALIZATION LOADED")
+except Exception:
+    pass
+
+
+def _v49765_fmt_price(x):
+    """Single safe display formatter for AFTER FINAL overlays.
+
+    v49.76.5.7 referenced this helper but did not define it. Reuse the already
+    established v49.76.3 formatter so no price/rounding policy changes here.
+    """
+    try:
+        fn=globals().get('_v49763_fmt_price')
+        if callable(fn):
+            return fn(x)
+    except Exception:
+        pass
+    try:
+        fn=globals().get('_v4938_price')
+        if callable(fn):
+            return fn(x)
+    except Exception:
+        pass
+    try:
+        v=float(x)
+        if not np.isfinite(v) or v<=0:
+            return 'N/A'
+        return f'{v:,.0f}원'
+    except Exception:
+        return 'N/A'
+
+
+def _v497658_canonical_strict_items(decision: dict) -> list[dict]:
+    """All canonical raw STRICT/ENTRY signals for display only.
+
+    ENTER rows are the reconciled authority when M5 is valid. HOLD+ENTRY rows
+    are included only when the existing 5.7 M5 gate identified them as raw
+    STRICT blocked by M5. This helper does not authorize or rank a new signal.
+    """
+    rows=[]
+    try:
+        rows.extend(list(_v49764i_enter_items(decision) or []))
+    except Exception:
+        pass
+    try:
+        rows.extend(list(_v497657_m5_blocked_strict_items(decision) or []))
+    except Exception:
+        pass
+    out=[]; seen=set()
+    for it in rows:
+        try:
+            name,code=_v49764i_name_code(it)
+            d,r=_v49764i_item_row(it)
+            ignition=str(r.get('ignition_date',d.get('ignition_date','')) or '')
+            key=(str(code or ''),ignition)
+            if key in seen:
+                continue
+            seen.add(key); out.append(it)
+        except Exception:
+            continue
+    try:
+        out.sort(key=lambda x:(-_v49764i_score(x),_v49764i_name_code(x)[0]))
+    except Exception:
+        pass
+    return out
+
+
+_V497658_BASE_RESOLVE = _v49765_resolve_after_final
+
+def _v49765_resolve_after_final(decision: dict, data_date=None) -> dict:
+    """Preserve v5.7 authority; enrich restore-only results with raw STRICT context."""
+    try:
+        res=dict(_V497658_BASE_RESOLVE(decision,data_date) or {})
+    except Exception as e:
+        err=_v497657_clean_error(e) if '_v497657_clean_error' in globals() else f'{type(e).__name__}:{e}'
+        res={'state':'INTERNAL_FAILSAFE','reason':f'INTERNAL_FAILSAFE:{err}','authorized':[],
+             'watches':[],'raw_enter_count':0,'raw_strict_items':[],'nxt_status':'NOT_RUN','nxt_count':0}
+    try:
+        st=_v49765_time_state(data_date)
+        if st['minute'] > st['end']:
+            raw=_v497658_canonical_strict_items(decision)
+            res['raw_enter_count']=len(raw)
+            res['raw_strict_items']=raw[:2]
+            res['evidence_gate_phase']='RESTORE_ONLY_AFTER_WINDOW'
+            # Never mutate state to AFTER_FINAL here; this is display context only.
+            if str(res.get('state','')).upper() not in ('RESTORED',):
+                res['authorized']=[]
+    except Exception:
+        pass
+    globals()['_V49765_CURRENT_DECISION']=res
+    if str(res.get('state','')).upper()!='RESTORED':
+        globals()['_V49765_CURRENT_AUTHORIZED_CODES']=set()
+    return res
+
+
+_V497658_BASE_ACTION_PANEL = _v49765_action_panel
+
+def _v49765_action_panel(decision: dict, data_date=None) -> tuple[str,bool,dict]:
+    """v5.8 visible action board with explicit post-window semantics."""
+    try:
+        panel,has_authorized,res=_V497658_BASE_ACTION_PANEL(decision,data_date)
+    except Exception as e:
+        err=_v497657_clean_error(e) if '_v497657_clean_error' in globals() else f'{type(e).__name__}:{e}'
+        res={'state':'INTERNAL_FAILSAFE','reason':f'INTERNAL_FAILSAFE:{err}','authorized':[],
+             'watches':[],'raw_enter_count':0,'raw_strict_items':[]}
+        panel=(f'🚦 [사용자 행동 결론 · AFTER FINAL FAIL-SAFE] | v49.76.5.8\n──────────\n'
+               f'- 🔴 지금 신규매수: 0개\n- ⛔ 사유: ACTION_PANEL_FAILSAFE:{err}\n'
+               '- 내부 표시 오류와 무관하게 신규추천/자동주문 0')
+        return panel,False,res
+    s=str(panel or '')
+    s=s.replace('v49.76.5.7','v49.76.5.8').replace('v49.76.5.6','v49.76.5.8').replace('v49.76.5.4','v49.76.5.8')
+    try:
+        st=_v49765_time_state(data_date)
+        if st['minute'] > st['end'] and str((res or {}).get('state','')).upper()!='RESTORED':
+            s=re.sub(r'🚦 \[사용자 행동 결론 · [^\]]+\] \| v49\.76\.5\.8',
+                     '🚦 [사용자 행동 결론 · AFTER FINAL 실행창 종료] | v49.76.5.8',s,count=1)
+            reason=str((res or {}).get('reason',''))
+            if 'EVIDENCE_MISSING_NO_LATE_CREATE' in reason:
+                # Base 5.7 already prints raw STRICT rows; add an explicit authority line.
+                add='- ⏰ 20:00 마감 이후 · 오늘 COMPLETED evidence 없음 · 뒤늦은 PAPER 추천/Telegram/원장 신규생성 금지'
+                if add not in s:
+                    lines=s.splitlines()
+                    pos=3 if len(lines)>=3 else len(lines)
+                    lines.insert(pos,add); s='\n'.join(lines)
+    except Exception:
+        pass
+    return s,bool(has_authorized),res
+
+
+_V497658_BASE_NORMALIZE = _v49765_normalize_detail
+
+def _v49765_normalize_detail(text: str, has_authorized: bool, res: dict) -> str:
+    try:
+        s=_V497658_BASE_NORMALIZE(text,has_authorized,res)
+    except Exception:
+        s=str(text or '')
+    try:
+        s=_v497657_strip_legacy_execution(s)
+    except Exception:
+        pass
+    s=s.replace('v49.76.5.7','v49.76.5.8').replace('v49.76.5.6','v49.76.5.8').replace('v49.76.5.4','v49.76.5.8')
+    reason=str((res or {}).get('reason',''))
+    phase=str((res or {}).get('evidence_gate_phase',''))
+    after_closed=(phase=='RESTORE_ONLY_AFTER_WINDOW' or 'AFTER_WINDOW' in reason or 'EVIDENCE_MISSING_NO_LATE_CREATE' in reason)
+    if after_closed and str((res or {}).get('state','')).upper()!='RESTORED':
+        for old in (
+            '[🧭 PRE-FINAL/연구 실행보드 · 실제추천 권한 없음]',
+            '[🧭 AFTER FINAL 연구보드 · 최종 gate 차단]',
+            '[🧭 AFTER FINAL 실행근거 · canonical Lifecycle]'):
+            s=s.replace(old,'[🧭 AFTER FINAL 연구보드 · 실행창 종료]')
+        s=s.replace('- PRE-FINAL/연구판 · 실제추천은 15:40+ KRX 종가확정 AFTER FINAL에서만 결정',
+                    '- AFTER FINAL 실행창 종료 · canonical STRICT는 연구/원신호로만 표시 · 신규추천 생성 금지')
+        s=s.replace('- 15:03 PRE-FINAL에서 후보만 재검증',
+                    '- AFTER FINAL 실행창 종료 · 당일 evidence 복원 외 신규 authority 없음')
+        s=s.replace('- 실제 신규추천 최종 권한은 15:40+ KRX 종가확정 AFTER FINAL',
+                    '- 20:00 이후 신규추천/Telegram/원장 신규생성 금지 · 다음 거래일 재평가')
+        ledger_repls={
+            '[🧾 실제 추천 원장] PRE-FINAL/일반 실행 · 원장 확정 없음 · 15:40+ AFTER FINAL에서 상위 2개만 최종 재검증':
+                '[🧾 실제 추천 원장] AFTER FINAL 실행창 종료 · 오늘 COMPLETED evidence 없음 · 뒤늦은 신규추천 생성 금지',
+            '[🧾 실제 추천 원장] PRE-FINAL/일반 실행 · 실제추천 권한 없음 · 15:40+ AFTER FINAL에서만 확정':
+                '[🧾 실제 추천 원장] AFTER FINAL 실행창 종료 · 오늘 COMPLETED evidence 없음 · 뒤늦은 신규추천 생성 금지',
+            '[🧾 실제 추천 원장] 신규 ENTER 0개 · 이번 회차 추천행 없음':
+                '[🧾 실제 추천 원장] AFTER FINAL 실행창 종료 · 신규 추천행 없음 · 뒤늦은 신규생성 금지',
+        }
+        for a,b in ledger_repls.items():
+            s=s.replace(a,b)
+    return s
+
+
+_V497658_BASE_TRACKER_LINES = _v4938_tracker_lines
+
+def _v4938_tracker_lines(df=None) -> list[str]:
+    """Same-day raw Replay without a LIVE evidence lock is visibly non-LIVE."""
+    try:
+        lines=list(_V497658_BASE_TRACKER_LINES(df) or [])
+    except Exception as e:
+        err=_v497657_clean_error(e) if '_v497657_clean_error' in globals() else f'{type(e).__name__}:{e}'
+        return ['📍 추천 출처 분리 Forward | v49.76.5.8','──────────',f'- tracker 생성 실패: {err}']
+    out=[str(x).replace('v49.76.5.7','v49.76.5.8').replace('v49.76.5.6','v49.76.5.8') for x in lines]
+    cur=dict(globals().get('_V49765_CURRENT_DECISION',{}) or {})
+    reason=str(cur.get('reason',''))
+    state=str(cur.get('state','')).upper()
+    # M5-blocked rows are already labelled by v5.7. For a post-window day with no
+    # completed LIVE evidence, mark same-day Replay as research-only no-live-evidence.
+    no_live=(state!='RESTORED' and ('EVIDENCE_MISSING_NO_LATE_CREATE' in reason or 'EVIDENCE_LEDGER_UNAVAILABLE_AFTER_WINDOW' in reason))
+    if not no_live:
+        return out
+    try:
+        today=_now_kst().strftime('%Y-%m-%d')
+    except Exception:
+        today=str(globals().get('TODAY_STR',''))
+    final=[]; active=False
+    for line in out:
+        s=str(line)
+        matched=False
+        if '🧪 REPLAY-RECOMMENDED' in s and f'신호 {today}' in s:
+            s=s.replace('🧪 REPLAY-RECOMMENDED','🧪 REPLAY-NO-LIVE-EVIDENCE')
+            matched=True
+        if matched:
+            active=True; final.append(s); continue
+        if active and s.startswith('  실제추천 증거 없음'):
+            final.append('  원시 STRICT/Replay 연구신호 · 당일 LIVE COMPLETED evidence 없음 · 실제추천 성과로 해석 금지')
+            continue
+        if active and s.startswith('  정책 '):
+            final.append(s+' · [NO LIVE EVIDENCE]'); active=False; continue
+        if active and s.startswith('- ') and not s.startswith('  '):
+            active=False
+        final.append(s)
+    for i,s in enumerate(final):
+        if s=='[🧪 Historical Replay Forward]':
+            note='- 당일 LIVE evidence 없이 재구성된 D0 신호는 REPLAY-NO-LIVE-EVIDENCE · 실제추천 KPI 제외'
+            if note not in final:
+                final.insert(i+2,note)
+            break
+    return final
+
+
+# Keep ledger bridge notes visibly aligned with this release; authority stays unchanged.
+_V497658_BASE_PREP_RECS = _v4943_prepare_live_recommendations
+
+def _v4943_prepare_live_recommendations() -> list[dict]:
+    try:
+        rows=list(_V497658_BASE_PREP_RECS() or [])
+    except Exception:
+        rows=[]
+    out=[]
+    for r in rows:
+        rr=dict(r or {})
+        rr['note']=str(rr.get('note','')).replace('v49.76.5.7','v49.76.5.8').replace('v49.76.5.6','v49.76.5.8')
+        out.append(rr)
+    globals()['_V4943_CURRENT_RECOMMENDATIONS']=out[:2]
+    return out[:2]
+
+# =============================================================
+# ✅ END V49.76.5.8
 # =============================================================
 
 if __name__ == '__main__':
