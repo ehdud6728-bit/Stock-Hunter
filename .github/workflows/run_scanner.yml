@@ -114,7 +114,7 @@ concurrency:
 
 jobs:
   v23-backtest-shard:
-    name: V23 TOP500 materialized shard ${{ matrix.shard }} of 6
+    name: V24 TOP500 materialized+formula-shadow shard ${{ matrix.shard }} of 6
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_profile == 'WEEKLY_BACKTEST' && (inputs.backtest_source == 'DIRECT_REPLAY' || inputs.backtest_source == '') }}
     strategy:
       fail-fast: false
@@ -122,7 +122,7 @@ jobs:
       matrix:
         shard: [0, 1, 2, 3, 4, 5]
     runs-on: ubuntu-latest
-    timeout-minutes: 150
+    timeout-minutes: 180
     permissions:
       contents: read
     env:
@@ -167,6 +167,8 @@ jobs:
       V23_MERGE_ONLY_PARENT: "0"
       V23_ZERO_RECOMPUTE: "1"
       V23_MATERIALIZED_DIR: reports/v23_materialized
+      V24_FORMULA_SHADOW_ENABLE: "1"
+      V24_SHADOW_BYPASS_PRECOMBO: "0"
       HAM_RESEARCH_ONLY: "1"
       FAMILIAR_RESEARCH_ENABLE: "1"
       FAMILIAR_RESEARCH_ONLY: "1"
@@ -195,8 +197,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          SRC="$(sha256sum main7_bugfix_2.py direct_replay_performance_v20.py historical_asof_universe.py direct_replay_sharding_v22.py direct_replay_materialized_v23.py | sha256sum | cut -c1-20)"
-          CFG="$(printf '%s' '${{ inputs.direct_top_n || '500' }}|${{ inputs.backtest_weeks || '24' }}|${{ inputs.backtest_hold_days || '10' }}|${{ inputs.backtest_stop_pct || '-5' }}|${{ inputs.backtest_stop_mode || 'SIGNAL_STOP_WITH_FALLBACK' }}|6' | sha256sum | cut -c1-16)"
+          SRC="$(sha256sum main7_bugfix_2.py direct_replay_performance_v20.py historical_asof_universe.py direct_replay_sharding_v22.py direct_replay_materialized_v23.py pattern_catalyst_context_pipeline.py bear_winner_stability_diagnostic.py research_readiness_v24.py | sha256sum | cut -c1-20)"
+          CFG="$(printf '%s' '${{ inputs.direct_top_n || '500' }}|${{ inputs.backtest_weeks || '24' }}|${{ inputs.backtest_hold_days || '10' }}|${{ inputs.backtest_stop_pct || '-5' }}|${{ inputs.backtest_stop_mode || 'SIGNAL_STOP_WITH_FALLBACK' }}|6|V24_SHADOW_1' | sha256sum | cut -c1-16)"
           PREFIX="stockhunter-v23-shard-${GITHUB_REF_NAME}-${{ matrix.shard }}-${SRC}-${CFG}"
           KEY="${PREFIX}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           echo "prefix=$PREFIX" >> "$GITHUB_OUTPUT"
@@ -218,7 +220,7 @@ jobs:
 
       - name: Run V23 materialized shard worker
         id: v23-shard-worker
-        timeout-minutes: 125
+        timeout-minutes: 155
         shell: bash
         run: |
           set -o pipefail
@@ -641,6 +643,8 @@ jobs:
       V23_MERGE_ONLY_PARENT: ${{ github.event_name == 'workflow_dispatch' && inputs.run_profile == 'WEEKLY_BACKTEST' && (inputs.backtest_source == 'DIRECT_REPLAY' || inputs.backtest_source == '') && '1' || '0' }}
       V23_ZERO_RECOMPUTE: "1"
       V23_MATERIALIZED_DIR: "reports/v23_materialized"
+      V24_FORMULA_SHADOW_ENABLE: "1"
+      V24_SHADOW_BYPASS_PRECOMBO: "0"
       PYTHONUNBUFFERED: "1"
       V1081_UNIVERSE_MODE: HISTORICAL_ASOF_TOP500_EVENT_EXPANSION
       V1081_ASOF_LIQUIDITY_DAYS: "20"
@@ -945,6 +949,8 @@ jobs:
             fi
             echo "V23_ZERO_RECOMPUTE=1"
             echo "V23_MATERIALIZED_DIR=reports/v23_materialized"
+            echo "V24_FORMULA_SHADOW_ENABLE=1"
+            echo "V24_SHADOW_BYPASS_PRECOMBO=0"
             echo "PYTHONUNBUFFERED=1"
             echo "V1081_UNIVERSE_MODE=HISTORICAL_ASOF_TOP500_EVENT_EXPANSION"
             echo "V1081_ASOF_LIQUIDITY_DAYS=20"
@@ -1025,6 +1031,9 @@ jobs:
               'resume_cache_manifest_v21.py',
               'direct_replay_sharding_v22.py',
               'direct_replay_materialized_v23.py',
+              'pattern_catalyst_context_pipeline.py',
+              'bear_winner_stability_diagnostic.py',
+              'research_readiness_v24.py',
           ]
           h = hashlib.sha256()
           for name in files:
@@ -1039,7 +1048,7 @@ jobs:
               'V1082_BACKTEST_STOP_MODE','V1081_UNIVERSE_MODE','V1081_ASOF_LIQUIDITY_DAYS',
               'V1081_ASOF_MIN_PRICE','V1081_ASOF_MIN_MARCAP','V1081_EVENT_EXPANSION_MAX',
               'V1081_EVENT_AMOUNT_RATIO','V1081_EVENT_VOLUME_RATIO','V1081_EVENT_PREV_RET_PCT',
-              'V1081_EVENT_MIN_AMOUNT'
+              'V1081_EVENT_MIN_AMOUNT','V24_FORMULA_SHADOW_ENABLE'
           ]
           cfg = {k: os.getenv(k,'') for k in cfg_keys}
           config_hash = hashlib.sha256(json.dumps(cfg,sort_keys=True,separators=(',',':')).encode()).hexdigest()[:16]
@@ -1538,10 +1547,10 @@ jobs:
             # artifact families: strict-ai-exact-policy-route-guard-reports | market-index-sector-excess-causal-audit-reports
             echo "🧭 [V73.3.6.6.4 exact-root module source guard]"
             find "${GITHUB_WORKSPACE}" -maxdepth 4 -type f \
-              \( -name 'ham_restart_research.py' -o -name 'familiar_research.py' -o -name 'pattern_ai_cross_research.py' -o -name 'market_regime_excess_research.py' -o -name 'search_formula_truth_audit.py' -o -name 'search_formula_universe_audit.py' -o -name 'search_formula_complete_pipeline.py' -o -name 'catalyst_source_adapters.py' -o -name 'pattern_catalyst_context_pipeline.py' -o -name 'context_outcome_diagnostic.py' -o -name 'scale_in_policy_diagnostic.py' -o -name 'geopolitical_bear_winner_diagnostic.py' -o -name 'bear_winner_stability_diagnostic.py' -o -name 'historical_asof_universe.py' -o -name 'direct_replay_performance_v20.py' -o -name 'resume_cache_manifest_v21.py' -o -name 'direct_replay_sharding_v22.py' -o -name 'direct_replay_materialized_v23.py' \) \
+              \( -name 'ham_restart_research.py' -o -name 'familiar_research.py' -o -name 'pattern_ai_cross_research.py' -o -name 'market_regime_excess_research.py' -o -name 'search_formula_truth_audit.py' -o -name 'search_formula_universe_audit.py' -o -name 'search_formula_complete_pipeline.py' -o -name 'catalyst_source_adapters.py' -o -name 'pattern_catalyst_context_pipeline.py' -o -name 'context_outcome_diagnostic.py' -o -name 'scale_in_policy_diagnostic.py' -o -name 'geopolitical_bear_winner_diagnostic.py' -o -name 'bear_winner_stability_diagnostic.py' -o -name 'historical_asof_universe.py' -o -name 'direct_replay_performance_v20.py' -o -name 'resume_cache_manifest_v21.py' -o -name 'direct_replay_sharding_v22.py' -o -name 'direct_replay_materialized_v23.py' -o -name 'research_readiness_v24.py' \) \
               -print | sort
             python -B module_contract_preflight.py
-            echo "✅ exact-root module source hashes | main=$(sha256sum "${SCRIPT}" | awk '{print $1}') | ham=$(sha256sum ham_restart_research.py | awk '{print $1}') | familiar=$(sha256sum familiar_research.py | awk '{print $1}') | cross=$(sha256sum pattern_ai_cross_research.py | awk '{print $1}') | market=$(sha256sum market_regime_excess_research.py | awk '{print $1}') | truth=$(sha256sum search_formula_truth_audit.py | awk '{print $1}') | universe=$(sha256sum search_formula_universe_audit.py | awk '{print $1}') | complete=$(sha256sum search_formula_complete_pipeline.py | awk '{print $1}') | sources=$(sha256sum catalyst_source_adapters.py | awk '{print $1}') | seqctx=$(sha256sum pattern_catalyst_context_pipeline.py | awk '{print $1}') | contextdiag=$(sha256sum context_outcome_diagnostic.py | awk '{print $1}') | scalein=$(sha256sum scale_in_policy_diagnostic.py | awk '{print $1}') | geo=$(sha256sum geopolitical_bear_winner_diagnostic.py | awk '{print $1}') | stability=$(sha256sum bear_winner_stability_diagnostic.py | awk '{print $1}') | histuniv=$(sha256sum historical_asof_universe.py | awk '{print $1}') | perfv20=$(sha256sum direct_replay_performance_v20.py | awk '{print $1}') | resumev21=$(sha256sum resume_cache_manifest_v21.py | awk '{print $1}') | shardv22=$(sha256sum direct_replay_sharding_v22.py | awk '{print $1}') | matv23=$(sha256sum direct_replay_materialized_v23.py | awk '{print $1}')"
+            echo "✅ exact-root module source hashes | main=$(sha256sum "${SCRIPT}" | awk '{print $1}') | ham=$(sha256sum ham_restart_research.py | awk '{print $1}') | familiar=$(sha256sum familiar_research.py | awk '{print $1}') | cross=$(sha256sum pattern_ai_cross_research.py | awk '{print $1}') | market=$(sha256sum market_regime_excess_research.py | awk '{print $1}') | truth=$(sha256sum search_formula_truth_audit.py | awk '{print $1}') | universe=$(sha256sum search_formula_universe_audit.py | awk '{print $1}') | complete=$(sha256sum search_formula_complete_pipeline.py | awk '{print $1}') | sources=$(sha256sum catalyst_source_adapters.py | awk '{print $1}') | seqctx=$(sha256sum pattern_catalyst_context_pipeline.py | awk '{print $1}') | contextdiag=$(sha256sum context_outcome_diagnostic.py | awk '{print $1}') | scalein=$(sha256sum scale_in_policy_diagnostic.py | awk '{print $1}') | geo=$(sha256sum geopolitical_bear_winner_diagnostic.py | awk '{print $1}') | stability=$(sha256sum bear_winner_stability_diagnostic.py | awk '{print $1}') | histuniv=$(sha256sum historical_asof_universe.py | awk '{print $1}') | perfv20=$(sha256sum direct_replay_performance_v20.py | awk '{print $1}') | resumev21=$(sha256sum resume_cache_manifest_v21.py | awk '{print $1}') | shardv22=$(sha256sum direct_replay_sharding_v22.py | awk '{print $1}') | matv23=$(sha256sum direct_replay_materialized_v23.py | awk '{print $1}') | readyv24=$(sha256sum research_readiness_v24.py | awk '{print $1}')"
           fi
           if [ "${STOCKHUNTER_HAM_1503_ONLY:-0}" = "1" ]; then
             echo "🍔 V73.3.6.5.3 listing/bootstrap guard + V73.3.6.5.2 data-path guard + V73.3.6.5 HAM→SURVIVE→RESTART→15:03 CLOSE RESEARCH_ONLY | script=${SCRIPT}"
@@ -1659,15 +1668,21 @@ jobs:
             grep -Fq "⚡ [TOP500 Direct Replay 캐시·재개·진행률 진단 · RESEARCH_ONLY]" "${HAM_RUN_LOG}" || { echo "❌ V20 performance cache/resume report block missing"; exit 174; }
             test -f reports/v73_direct_replay_performance_audit.csv || { echo "❌ V20 performance audit missing"; exit 175; }
             python -c "import pandas as pd,sys; q=pd.read_csv('reports/v73_direct_replay_performance_audit.csv'); r=q.iloc[-1] if len(q) else {}; print('V20_PERF','checkpoint_hit',r.get('checkpoint_hit'),'miss',r.get('checkpoint_miss'),'network',r.get('network_fetch'),'disk',r.get('disk_hit'),'elapsed_sec',r.get('elapsed_sec')); sys.exit(0 if len(q)>0 else 176)"
-            grep -Fq "⚡ [TOP500 4-Shard 병렬 × Newest-First Cache Prime × Fast-Gate Audit · RESEARCH_ONLY]" "${HAM_RUN_LOG}" || { echo "❌ V22 shard/newest-first/gate-audit report block missing"; exit 178; }
-            test -f reports/v73_v22_fast_gate_audit.csv || { echo "❌ V22 fast gate audit missing"; exit 179; }
-            test -f reports/v73_v22_fast_gate_policy.csv || { echo "❌ V22 fast gate policy missing"; exit 180; }
-            python -c "import pandas as pd,sys; q=pd.read_csv('reports/v73_v22_fast_gate_policy.csv'); r=q.iloc[-1] if len(q) else {}; print('V22_GATE',r.get('mode'),'auto_skip',r.get('auto_skip_enabled'),'reason',r.get('reason')); sys.exit(0 if str(r.get('mode'))=='AUDIT_ONLY' and str(r.get('auto_skip_enabled')).lower() in ('false','0') else 181)"
+            grep -Fq "⚡ [V22 병렬진단] SUPERSEDED_BY_V23_V24" "${HAM_RUN_LOG}" || { echo "❌ V22 superseded marker missing"; exit 178; }
+            test -f reports/v73_v22_fast_gate_audit.csv || { echo "❌ V22 historical fast gate audit missing"; exit 179; }
+            test -f reports/v73_v22_fast_gate_policy.csv || { echo "❌ V22 historical fast gate policy missing"; exit 180; }
+            python -c "import pandas as pd,sys; q=pd.read_csv('reports/v73_v22_fast_gate_policy.csv'); r=q.iloc[-1] if len(q) else {}; print('V22_GATE_HISTORICAL',r.get('mode'),'auto_skip',r.get('auto_skip_enabled')); sys.exit(0 if str(r.get('mode'))=='AUDIT_ONLY' and str(r.get('auto_skip_enabled')).lower() in ('false','0') else 181)"
             grep -Fq "🚄 [TOP500 6-Shard Materialized Result × Merge-Only Parent × Zero-Recompute · RESEARCH_ONLY]" "${HAM_RUN_LOG}" || { echo "❌ V23 materialized merge-only report block missing"; exit 193; }
             test -f reports/v73_v23_handoff_merge_audit.json || { echo "❌ V23 handoff merge audit missing"; exit 194; }
             test -f reports/v73_v23_parent_preflight.json || { echo "❌ V23 parent preflight missing"; exit 195; }
             python -c "import json,sys; m=json.load(open('reports/v73_v23_handoff_merge_audit.json',encoding='utf-8')); p=json.load(open('reports/v73_v23_parent_preflight.json',encoding='utf-8')); print('V23_ZERO_RECOMPUTE',m.get('status'),'shards',len(m.get('complete_shards') or []),'dates',m.get('materialized_expected_count'),'parent',p.get('status'),'fallback',p.get('fallback_recompute_allowed')); sys.exit(0 if m.get('status')=='COMPLETE_HANDOFF' and p.get('status')=='PASS' and p.get('fallback_recompute_allowed') is False else 196)"
-            echo "✅ WEEKLY_BACKTEST data-path + HAM + FAMILIAR + PATTERN-AI-CROSS + MARKET-EXCESS + FULL-UNIVERSE-FORMULA + COMPLETE-FORMULA + SEQUENCE-CONTEXT-CATALYST + CONTEXT-OUTCOME + SCALE-IN-RISK-PARITY + GEOPOLITICAL-BEAR-WINNER + UNIQUE-STABILITY-24W + HISTORICAL-ASOF-TOP500-EVENT-EXPANSION + V20-CACHE-RESUME-PROGRESS + V21-FAILSAFE-PERSIST + V22-GATE-AUDIT + V23-SIX-SHARD-MATERIALIZED-MERGE-ONLY-ZERO-RECOMPUTE research guard PASS"
+            grep -Fq "🧪 [V24 인과 Universe × 전체분모 Formula Shadow × PATTERN_ONLY OOS × 청산기간 연구 · RESEARCH_ONLY]" "${HAM_RUN_LOG}" || { echo "❌ V24 research-readiness block missing"; exit 197; }
+            test "$(grep -Fc "🧪 [V24 인과 Universe × 전체분모 Formula Shadow × PATTERN_ONLY OOS × 청산기간 연구 · RESEARCH_ONLY]" "${HAM_RUN_LOG}")" -eq 1 || { echo "❌ V24 research header count must be exactly 1"; exit 198; }
+            for f in v73_v24_universe_materialized_reconciliation.csv v73_v24_universe_daily_authority.csv v73_v24_full_denominator_formula_summary.csv v73_v24_full_denominator_coverage.csv v73_v24_full_universe_attempt_outcomes.csv v73_v24_pattern_only_stability.csv v73_v24_pattern_only_walkforward.csv v73_v24_volume_breakout_exit_policy.csv v73_v24_volume_breakout_exit_train_oos.csv v73_v24_ma_gc_continuation_policy.csv v73_v24_ma_gc_continuation_train_oos.csv v73_v24_paper_promotion_readiness.csv v73_v24_data_availability.csv v73_v24_research_readiness_report.txt; do
+              test -f "reports/$f" || { echo "❌ V24 artifact missing: $f"; exit 199; }
+            done
+            python -c "import pandas as pd,sys; c=pd.read_csv('reports/v73_v24_full_denominator_coverage.csv'); r=c.iloc[-1] if len(c) else {}; a=int(float(r.get('attempt_rows',0) or 0)); f=int(float(r.get('formula_count',0) or 0)); cells=int(float(r.get('truth_cells',0) or 0)); u=pd.read_csv('reports/v73_v24_universe_materialized_reconciliation.csv'); d=pd.read_csv('reports/v73_v24_universe_daily_authority.csv'); p=pd.read_csv('reports/v73_v24_paper_promotion_readiness.csv'); auto=(p.get('live_auto_promotion_allowed',pd.Series(dtype=object)).astype(str).str.lower().isin(['true','1']).any()) if len(p) else False; days=pd.to_datetime(d.get('signal_date'),errors='coerce').nunique(); print('V24_GUARD','attempts',a,'formulas',f,'cells',cells,'shadow',r.get('shadow_bypass_attempts'),'unknown',r.get('unresolved_attempts'),'universe_recon',len(u),'universe_days',days,'live_auto',auto); sys.exit(0 if a>0 and f==66 and cells==a*f and len(u)==24 and days==24 and not auto else 200)"
+            echo "✅ WEEKLY_BACKTEST data-path + HAM + FAMILIAR + PATTERN-AI-CROSS + MARKET-EXCESS + FULL-UNIVERSE-FORMULA + COMPLETE-FORMULA + SEQUENCE-CONTEXT-CATALYST + CONTEXT-OUTCOME + SCALE-IN-RISK-PARITY + GEOPOLITICAL-BEAR-WINNER + UNIQUE-STABILITY-24W + HISTORICAL-ASOF-TOP500-EVENT-EXPANSION + V20-CACHE-RESUME-PROGRESS + V21-FAILSAFE-PERSIST + V22-GATE-AUDIT + V23-SIX-SHARD-MATERIALIZED-MERGE-ONLY-ZERO-RECOMPUTE + V24-CAUSAL-UNIVERSE-FULL-DENOM-PATTERN-OOS-EXIT-HORIZON research guard PASS"
           else
             echo "🚀 Stock-Hunter scanner mode | script=${SCRIPT}"
             python -u "${SCRIPT}"
@@ -1848,7 +1863,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: stockhunter-v1107-4-5-73-3-6-6-23-3-six-shard-quota-guard-reports-${{ github.run_number }}
+          name: stockhunter-v1107-4-5-73-3-6-6-24-causal-universe-full-denom-pattern-oos-exit-reports-${{ github.run_number }}
           path: |
             reports/**
             docs/**
