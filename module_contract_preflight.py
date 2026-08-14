@@ -8,7 +8,7 @@ import shutil
 import sys
 from pathlib import Path
 
-RELEASE_VERSION = "V73.3.6.6.23"
+RELEASE_VERSION = "V73.3.6.6.24"
 
 CONTRACTS = [
     {
@@ -127,9 +127,17 @@ CONTRACTS = [
         "label": "HISTORICAL_ASOF_UNIVERSE",
         "filename": "historical_asof_universe.py",
         "module": "historical_asof_universe",
-        "version": "V73.3.6.6.20",
+        "version": "V73.3.6.6.24",
         "callables": ("build_asof_universe_from_snapshots", "HistoricalUniverseRuntime", "append_runtime_rows", "finalize_audit"),
         "exit_code": 173,
+    },
+    {
+        "label": "V24_RESEARCH_READINESS",
+        "filename": "research_readiness_v24.py",
+        "module": "research_readiness_v24",
+        "version": "V73.3.6.6.24",
+        "callables": ("build_full_denominator_truth", "pattern_only_stability", "volume_breakout_exit_lab", "ma_gc_continuation_lab", "promotion_readiness", "run_backtest", "force_report"),
+        "exit_code": 200,
     },
     {
         "label": "DIRECT_REPLAY_PERFORMANCE_V20",
@@ -274,7 +282,7 @@ def main() -> int:
             )
             return int(contract["exit_code"])
 
-    print("✅ HAM/FAMILIAR/PATTERN-AI-CROSS/MARKET-EXCESS/FORMULA-TRUTH/FORMULA-UNIVERSE/FORMULA-COMPLETE/CATALYST-SOURCES/SEQUENCE-CONTEXT-CATALYST/GOOGLE-SHEET-FORWARD-LEDGER/CONTEXT-OUTCOME-DIAGNOSTIC/SCALE-IN-POLICY-DIAGNOSTIC/GEOPOLITICAL-BEAR-WINNER-DIAGNOSTIC/BEAR-WINNER-STABILITY-DIAGNOSTIC/HISTORICAL-ASOF-UNIVERSE/DIRECT-REPLAY-PERFORMANCE-V20/V21-RESUME-CACHE-MANIFEST/DIRECT-REPLAY-SHARDING-V22/DIRECT-REPLAY-MATERIALIZED-V23 exact-root source preflight PASS")
+    print("✅ HAM/FAMILIAR/PATTERN-AI-CROSS/MARKET-EXCESS/FORMULA-TRUTH/FORMULA-UNIVERSE/FORMULA-COMPLETE/CATALYST-SOURCES/SEQUENCE-CONTEXT-CATALYST/GOOGLE-SHEET-FORWARD-LEDGER/CONTEXT-OUTCOME-DIAGNOSTIC/SCALE-IN-POLICY-DIAGNOSTIC/GEOPOLITICAL-BEAR-WINNER-DIAGNOSTIC/BEAR-WINNER-STABILITY-DIAGNOSTIC/HISTORICAL-ASOF-UNIVERSE/DIRECT-REPLAY-PERFORMANCE-V20/V21-RESUME-CACHE-MANIFEST/DIRECT-REPLAY-SHARDING-V22/DIRECT-REPLAY-MATERIALIZED-V23/V24-RESEARCH-READINESS exact-root source preflight PASS")
     return 0
 
 

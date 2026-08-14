@@ -23,6 +23,7 @@ EVENT_RAW_FILE = "v73_catalyst_event_raw_normalized.csv"
 EVENT_CLUSTER_FILE = "v73_catalyst_event_cluster_audit.csv"
 EVENT_LIFECYCLE_FILE = "v73_catalyst_lifecycle_ledger.csv"
 JOIN_FILE = "v73_sequence_context_catalyst_join.csv"
+EVENT_EVAL_FILE = "v73_sequence_context_catalyst_event_eval.csv"
 PERF_FILE = "v73_sequence_context_catalyst_performance.csv"
 REGIME_FILE = "v73_sequence_context_catalyst_regime_performance.csv"
 SOURCE_AUDIT_FILE = "v73_catalyst_source_provenance_audit.csv"
@@ -933,6 +934,9 @@ def run_backtest(capture_rows: Iterable[dict], attempt_rows: Iterable[dict], his
     }])
     denominator_audit.to_csv(out / DENOMINATOR_AUDIT_FILE, index=False, encoding="utf-8-sig")
     ev = _evaluate(joined, evaluator)
+    # V24: persist the event-level evaluated sequence ledger so downstream stability/OOS
+    # uses the same PATTERN_ONLY rows and actual forward returns instead of an empty aggregate.
+    ev.to_csv(out / EVENT_EVAL_FILE, index=False, encoding="utf-8-sig")
     perf = _perf(ev, ["research_bucket", "catalyst_state"])
     regime = _perf(ev, ["research_bucket", "market_regime"])
     perf.to_csv(out / PERF_FILE, index=False, encoding="utf-8-sig")
@@ -1038,7 +1042,7 @@ def run_backtest(capture_rows: Iterable[dict], attempt_rows: Iterable[dict], his
         "🔐 [승격 규칙]",
         f"- 현재 정책: {'READY' if policy_ready else 'NOT_READY'} · 최소 {MIN_POLICY_ROWS}행·{MIN_POLICY_DATES}독립일·FULL_ALIGNMENT 10행 전 LIVE 승격 금지",
         "- TRUE 섹터지수가 없으면 INTERNAL_PEER_PROXY를 섹터 초과수익으로 위장하지 않습니다.",
-        f"- Actions: {SEQUENCE_FILE} · {EVENT_RAW_FILE} · {EVENT_CLUSTER_FILE} · {JOIN_FILE} · {PERF_FILE} · {REGIME_FILE} · {SOURCE_AUDIT_FILE} · {MARKET_SECTOR_LEDGER_FILE} · {MARKET_SECTOR_COVERAGE_FILE} · {DENOMINATOR_AUDIT_FILE} · {REPRO_FILE} · {READINESS_FILE} · {MANUAL_FILE}",
+        f"- Actions: {SEQUENCE_FILE} · {EVENT_RAW_FILE} · {EVENT_CLUSTER_FILE} · {JOIN_FILE} · {EVENT_EVAL_FILE} · {PERF_FILE} · {REGIME_FILE} · {SOURCE_AUDIT_FILE} · {MARKET_SECTOR_LEDGER_FILE} · {MARKET_SECTOR_COVERAGE_FILE} · {DENOMINATOR_AUDIT_FILE} · {REPRO_FILE} · {READINESS_FILE} · {MANUAL_FILE}",
     ]
     block = "\n".join(lines)
     (out / REPORT_FILE).write_text(block, encoding="utf-8")

@@ -13,7 +13,7 @@ from typing import Any, Callable, Iterable
 import numpy as np
 import pandas as pd
 
-VERSION = "V73.3.6.6.20"
+VERSION = "V73.3.6.6.24"
 RESEARCH_ONLY = True
 LIVE_LOGIC_CHANGED = False
 REAL_ORDER_CHANGED = False
@@ -531,24 +531,9 @@ class HistoricalUniverseRuntime:
         ret_pct = _env_float("V1081_EVENT_PREV_RET_PCT", 5.0)
         event_min_amount = _env_float("V1081_EVENT_MIN_AMOUNT", 10_000_000_000)
 
-        listing, listing_source, listing_errors = pd.DataFrame(), "", []
-        ymd = asof.strftime("%Y%m%d")
-        py_listing, errs = _ticker_names_pykrx(self.stock_module, ymd)
-        if not py_listing.empty:
-            listing, listing_source = py_listing, "PYKRX_HISTORICAL_TICKER_LIST"
-        else:
-            listing_errors.extend(errs)
-            if callable(self.listing_loader):
-                try:
-                    listing = self.listing_loader()
-                    listing_source = "CURRENT_LISTING_FALLBACK"
-                except Exception as exc:
-                    listing_errors.append(f"listing_loader:{type(exc).__name__}:{exc}")
-            if (listing is None or listing.empty) and isinstance(fallback_df, pd.DataFrame):
-                listing = fallback_df.copy()
-                listing_source = "PASSED_UNIVERSE_FALLBACK"
-        listing = _filter_security_names(listing)
-
+        # V24 causal membership authority: derive the security universe from D-1 historical
+        # market membership whenever the historical ticker-list endpoint is unavailable.
+        # Current listing is used only as a NAME LABEL map in that path, never as membership.
         dates = _calendar_before(asof, liq_days, self.fdr_reader)
         snapshots: dict[pd.Timestamp, pd.DataFrame] = {}
         snapshot_sources: list[str] = []
@@ -561,6 +546,51 @@ class HistoricalUniverseRuntime:
         if dates:
             cap, cap_source = _get_cap_snapshot(self.stock_module, pd.Timestamp(dates[-1]).strftime("%Y%m%d"))
 
+        listing, listing_source, listing_errors = pd.DataFrame(), "", []
+        listing_ymd = pd.Timestamp(dates[-1]).strftime("%Y%m%d") if dates else asof.strftime("%Y%m%d")
+        py_listing, errs = _ticker_names_pykrx(self.stock_module, listing_ymd)
+        if not py_listing.empty:
+            listing, listing_source = py_listing, "PYKRX_D1_HISTORICAL_TICKER_LIST"
+        else:
+            listing_errors.extend(errs)
+            d1 = snapshots.get(pd.Timestamp(dates[-1]).normalize()) if dates else None
+            if isinstance(d1, pd.DataFrame) and not d1.empty and "code" in d1.columns:
+                # Build causal MEMBERSHIP from the D-1 cross-section. A present-day listing may
+                # fill names only; it must not add/remove historical codes.
+                name_map: dict[str, str] = {}
+                if callable(self.listing_loader):
+                    try:
+                        # Labels only: keep preferred/SPAC names here so the historical D-1 membership
+                        # can subsequently exclude them by name. These current rows NEVER define membership.
+                        labels = self.listing_loader()
+                        if isinstance(labels, pd.DataFrame) and not labels.empty:
+                            cc = _pick_col(labels, ["Code","code","Symbol","종목코드"])
+                            nc = _pick_col(labels, ["Name","name","종목명"])
+                            if cc:
+                                vals = labels[nc].fillna("").astype(str) if nc else pd.Series("", index=labels.index)
+                                name_map.update(dict(zip(labels[cc].map(_norm_code), vals)))
+                    except Exception as exc:
+                        listing_errors.append(f"name_label_loader:{type(exc).__name__}:{exc}")
+                _load_name_map()
+                name_map.update({str(k): str(v) for k, v in _TICKER_NAME_MEM.items() if v})
+                listing = pd.DataFrame({
+                    "Code": d1["code"].map(_norm_code),
+                    "Name": d1["code"].map(_norm_code).map(name_map).fillna(""),
+                    "Market": d1.get("market", pd.Series("UNKNOWN", index=d1.index)).astype(str),
+                }).drop_duplicates("Code", keep="last")
+                listing_source = "PYKRX_D1_MARKET_MEMBERSHIP"
+            else:
+                if callable(self.listing_loader):
+                    try:
+                        listing = self.listing_loader()
+                        listing_source = "CURRENT_LISTING_FALLBACK"
+                    except Exception as exc:
+                        listing_errors.append(f"listing_loader:{type(exc).__name__}:{exc}")
+                if (listing is None or listing.empty) and isinstance(fallback_df, pd.DataFrame):
+                    listing = fallback_df.copy()
+                    listing_source = "PASSED_UNIVERSE_FALLBACK"
+        listing = _filter_security_names(listing)
+
         geo_codes = _official_geo_codes(out, _asof_1503(asof))
         final, stats = build_asof_universe_from_snapshots(
             asof, listing, snapshots, cap_snapshot=cap,
@@ -571,7 +601,10 @@ class HistoricalUniverseRuntime:
         )
 
         mode = "HISTORICAL_ASOF_TOP500_EVENT_EXPANSION"
-        status = "VALID_CAUSAL_ASOF" if not final.empty and listing_source == "PYKRX_HISTORICAL_TICKER_LIST" and len(snapshots) >= max(10, liq_days // 2) else "FALLBACK_ASOF_APPROX"
+        historical_membership = listing_source in {"PYKRX_D1_HISTORICAL_TICKER_LIST", "PYKRX_D1_MARKET_MEMBERSHIP"}
+        _unknown_names = int(listing.get("Name", pd.Series(dtype=str)).fillna("").astype(str).str.len().eq(0).sum()) if not listing.empty else 0
+        _core_causal = bool(not final.empty and historical_membership and len(snapshots) >= max(10, liq_days // 2) and not cap.empty)
+        status = "VALID_CAUSAL_ASOF" if _core_causal and _unknown_names == 0 else ("VALID_CAUSAL_ASOF_SECURITY_FILTER_PARTIAL" if _core_causal else "FALLBACK_ASOF_APPROX")
         if final.empty and isinstance(fallback_df, pd.DataFrame) and not fallback_df.empty:
             # Fail-open only for keeping legacy research executable. The fallback is explicitly
             # marked and must never be used as historical-universe promotion evidence.
@@ -600,6 +633,10 @@ class HistoricalUniverseRuntime:
             "mode": mode,
             "listing_source": listing_source or "MISSING",
             "listing_rows": len(listing),
+            "membership_asof_date": pd.Timestamp(dates[-1]).normalize() if dates else pd.NaT,
+            "security_name_known_rows": int(listing.get("Name", pd.Series(dtype=str)).fillna("").astype(str).str.len().gt(0).sum()) if not listing.empty else 0,
+            "security_name_unknown_rows": int(listing.get("Name", pd.Series(dtype=str)).fillna("").astype(str).str.len().eq(0).sum()) if not listing.empty else 0,
+            "security_filter_quality": "FULL" if (not listing.empty and listing.get("Name", pd.Series(dtype=str)).fillna("").astype(str).str.len().gt(0).all()) else "PARTIAL_NAME_COVERAGE",
             "liquidity_snapshot_days": len(snapshots),
             "liquidity_snapshot_source": "PYKRX_DAILY_CROSS_SECTION" if snapshot_sources else "MISSING",
             "market_cap_source": cap_source,
@@ -746,7 +783,7 @@ def finalize_audit(output_dir: str | Path = "reports", base_report: str = "") ->
     _write_csv(out / COVERAGE_FILE, coverage)
 
     valid_days = 0 if avail.empty else int(avail["status"].astype(str).eq("VALID_CAUSAL_ASOF").sum())
-    fallback_days = 0 if avail.empty else int(~avail["status"].astype(str).eq("VALID_CAUSAL_ASOF").sum())
+    fallback_days = 0 if avail.empty else int((~avail["status"].astype(str).eq("VALID_CAUSAL_ASOF")).sum())
     total_days = int(mem["signal_date"].nunique()) if not mem.empty else 0
     event_rows = int(mem["is_event_expansion"].astype(str).str.lower().isin(["true", "1"]).sum()) if (not mem.empty and "is_event_expansion" in mem.columns) else 0
     final_rows_mean = float(pd.to_numeric(summary.get("final_universe_rows"), errors="coerce").mean()) if not summary.empty and "final_universe_rows" in summary.columns else np.nan
@@ -768,7 +805,7 @@ def finalize_audit(output_dir: str | Path = "reports", base_report: str = "") ->
                 f"formula평가 {int(r.get('formula_evaluated_events',0) or 0)} · D3+ {int(r.get('d3_positive_events',0) or 0)} · D3≥+3 {int(r.get('d3_plus3_events',0) or 0)} · MFE≥+10 {int(r.get('big_mfe10_events',0) or 0)}"
             )
     lines += [
-        "🛡️ [주의] historical pykrx snapshot이 실패한 날짜는 CURRENT_LISTING fallback을 명시하고 정책 승격 근거에서 제외합니다.",
+        "🛡️ [주의] historical D-1 market membership까지 실패한 날짜만 CURRENT_LISTING fallback을 명시하고 정책 승격 근거에서 제외합니다.",
         "🔒 LIVE 점수·순위·후보·진입·청산·주문 변경 0. Universe 확대는 Direct Replay 연구경로에만 적용합니다.",
         f"- Actions CSV: {MEMBERSHIP_FILE} · {SUMMARY_FILE} · {COVERAGE_FILE} · {AVAILABILITY_FILE}",
     ]

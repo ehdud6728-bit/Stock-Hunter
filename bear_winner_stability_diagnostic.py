@@ -723,9 +723,11 @@ def _locked_policy_failure_audit(out: Path) -> pd.DataFrame:
 
 
 def _pattern_only_sequence_audit(out: Path) -> tuple[pd.DataFrame,pd.DataFrame]:
-    q=_read(out/"v73_sequence_context_catalyst_join.csv",dtype={"code":str})
+    q=_read(out/"v73_sequence_context_catalyst_event_eval.csv",dtype={"code":str})
+    if q.empty:
+        q=_read(out/"v73_sequence_context_catalyst_join.csv",dtype={"code":str})
     if q.empty: return pd.DataFrame(),pd.DataFrame()
-    dc=_pick(q,["signal_date","date"]); cc=_pick(q,["code","Code"]); ac=_pick(q,["alignment_level","context_alignment","alignment"])
+    dc=_pick(q,["signal_date","date"]); cc=_pick(q,["code","Code"]); ac=_pick(q,["research_bucket","alignment_level","context_alignment","alignment"])
     if not dc or not cc or not ac: return pd.DataFrame(),pd.DataFrame()
     q=q.copy(); q["signal_date"]=pd.to_datetime(q[dc],errors="coerce").dt.normalize(); q["code"]=q[cc].map(_norm_code)
     q=q[q[ac].fillna("").astype(str).str.upper().eq("PATTERN_ONLY")].copy()

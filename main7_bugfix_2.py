@@ -11322,7 +11322,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         _pre_track_a = (_pre_amount >= 50)
 
         # ✅ FIX-5: 동전주 조기 탈락 (5,000원 미만)
-        if _last_close < MIN_PRICE:
+        if _last_close < MIN_PRICE and str(os.environ.get('V24_SHADOW_BYPASS_PRECOMBO','0')).strip().lower() not in ('1','true','yes','on'):
             return []
 
         # ✅ V1045: 기존 거래대금/거래량 필터는 유지하되,
@@ -11334,7 +11334,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         except Exception:
             _pre_ymgp_bb40 = False
 
-        if not (_pre_track_a or _pre_track_b or _pre_ymgp_bb40):
+        if not (_pre_track_a or _pre_track_b or _pre_ymgp_bb40) and str(os.environ.get('V24_SHADOW_BYPASS_PRECOMBO','0')).strip().lower() not in ('1','true','yes','on'):
             return []
 
         df = get_indicators(df)
@@ -11562,7 +11562,7 @@ def analyze_final(ticker, name, historical_indices, g_env, l_env, s_map):
         # ✅ FIX-B: 트랙B 판별 (iloc로 안전하게)
         _is_track_b = bool(df['_is_track_b'].iloc[-1]) if '_is_track_b' in df.columns else False
         min_amount = 5 if _is_track_b else 50   # 트랙B: 5억 (소형주 초동 커버)
-        if recent_avg_amount < min_amount:
+        if recent_avg_amount < min_amount and str(os.environ.get('V24_SHADOW_BYPASS_PRECOMBO','0')).strip().lower() not in ('1','true','yes','on'):
             return []
 
         # ✅ 후처리 단계에서 채울 예정
@@ -93095,7 +93095,7 @@ _V7336614_RELEASE_MARKER = {
 # - Causal event expansion can add names outside TOP500 using D-1 anomalies and timestamped official geo events.
 # - LIVE scanner universe/score/rank/entry/exit/order logic is unchanged.
 # ============================================================
-_V7336619_VERSION = 'V73.3.6.6.20'
+_V7336619_VERSION = 'V73.3.6.6.24'
 _V7336619_HEADER = '📦 [과거시점 TOP500 × 이벤트 확장 Universe 감사 · RESEARCH_ONLY]'
 try:
     os.environ.setdefault('V1081_DIRECT_TOP_N', '500')
@@ -93692,6 +93692,135 @@ except Exception:
     pass
 
 
+# ============================================================
+# ✅ V73.3.6.6.24 RESEARCH-ONLY FULL-DENOMINATOR PRE-COMBO SHADOW
+# - Only legacy pre-COMBO price/liquidity gates are bypassed under an explicit env switch.
+# - The calculation aborts immediately after calculate_combination_score returns the 66-formula
+#   PRE truth bitmap. Shadow results NEVER enter candidate ranking/LIVE/order paths.
+# ============================================================
+_V7336624_VERSION = 'V73.3.6.6.24'
+try:
+    import research_readiness_v24 as _v7336624_ready
+    _V7336624_OK = (
+        str(getattr(_v7336624_ready, 'VERSION', '')) == _V7336624_VERSION
+        and bool(getattr(_v7336624_ready, 'RESEARCH_ONLY', False))
+        and not bool(getattr(_v7336624_ready, 'LIVE_LOGIC_CHANGED', True))
+        and not bool(getattr(_v7336624_ready, 'REAL_ORDER_CHANGED', True))
+    )
+    print(f"{'✅' if _V7336624_OK else '🚨'} {_V7336624_VERSION} CAUSAL_UNIVERSE_FULL_DENOM_PATTERN_OOS_EXIT_HORIZON {'LOADED' if _V7336624_OK else 'CONTRACT_FAIL'} | RESEARCH_ONLY=True")
+except Exception as _v7336624_import_e:
+    _v7336624_ready = None
+    _V7336624_OK = False
+    try: print(f'🚨 {_V7336624_VERSION} module import fail: {type(_v7336624_import_e).__name__}: {_v7336624_import_e}')
+    except Exception: pass
+
+try:
+    os.environ.setdefault('V24_FORMULA_SHADOW_ENABLE', '1')
+    os.environ.setdefault('V24_SHADOW_BYPASS_PRECOMBO', '0')
+except Exception:
+    pass
+
+
+class _V7336624StopAfterCombo(BaseException):
+    """Control-flow sentinel deliberately outside Exception so analyze_final does not log it as an error."""
+    pass
+
+
+def _v7336624_shadow_precombo_for_date(asof_date, checkpoint: dict, weather_data=None, sector_master_map=None) -> list[dict]:
+    """Recover 66-formula PRE truth for legacy PRE_COMBO_EXIT rows without changing production selection."""
+    if not _V7336624_OK or not _v1080_env_on('V24_FORMULA_SHADOW_ENABLE', '1'):
+        return []
+    if not isinstance(checkpoint, dict):
+        return []
+    attempts = [dict(x) for x in (checkpoint.get('attempt_rows') or []) if isinstance(x, dict) and str(x.get('status','')) == 'PRE_COMBO_EXIT']
+    if not attempts:
+        return []
+    base_analyze = globals().get('_V1107_4_5_72_BASE_ANALYZE_FINAL')
+    orig_calc = globals().get('calculate_combination_score')
+    if not callable(base_analyze) or not callable(orig_calc):
+        return []
+
+    asof_ts = pd.Timestamp(asof_date).normalize()
+    old_today = globals().get('TODAY_STR', '')
+    old_asof = globals().get('_V1081_CURRENT_ASOF_DATE', None)
+    old_fdr = globals().get('fdr_cached', None)
+    old_bypass = os.environ.get('V24_SHADOW_BYPASS_PRECOMBO')
+    rows: list[dict] = []
+    try:
+        globals()['_V1081_CURRENT_ASOF_DATE'] = asof_ts
+        globals()['TODAY_STR'] = asof_ts.strftime('%Y-%m-%d')
+        globals()['fdr_cached'] = _v1081_fdr_cached_asof
+        os.environ['V24_SHADOW_BYPASS_PRECOMBO'] = '1'
+        hist = weather_data if weather_data is not None else pd.DataFrame()
+        s_map = sector_master_map or {}
+        total = len(attempts); t0 = time.monotonic()
+        for pos, a in enumerate(attempts, start=1):
+            code = _v1080_norm_code(a.get('code','')) if callable(globals().get('_v1080_norm_code')) else str(a.get('code','')).zfill(6)
+            name = str(a.get('name','') or '')
+            captured: list[dict] = []
+
+            def _calc_shadow(signals):
+                out = orig_calc(signals)
+                if isinstance(out, dict):
+                    rec = {
+                        'version': _V7336624_VERSION,
+                        'signal_date': asof_ts.strftime('%Y-%m-%d'),
+                        'code': code,
+                        'name': name,
+                        'attempt_rank': int(a.get('attempt_rank', a.get('attempt_order', 0)) or 0),
+                        'truth_source': 'SHADOW_BYPASS_PRECOMBO',
+                        'shadow_status': 'COMBO_REACHED_SHADOW',
+                        'research_only': True,
+                        'live_logic_changed': False,
+                        'real_order_changed': False,
+                    }
+                    _v733669_copy_truth_fields(rec, out)
+                    rec['active_combination'] = out.get('combination','')
+                    rec['active_grade'] = out.get('grade','')
+                    rec['active_score'] = out.get('score',None)
+                    captured.append(rec)
+                raise _V7336624StopAfterCombo()
+
+            globals()['calculate_combination_score'] = _calc_shadow
+            status = 'PRECOMBO_STILL_UNRESOLVED'
+            try:
+                base_analyze(code, name, hist, {}, {}, s_map)
+            except _V7336624StopAfterCombo:
+                status = 'COMBO_REACHED_SHADOW'
+            except BaseException as exc:
+                # Do not convert unexpected failures into FALSE truth; preserve UNKNOWN with provenance.
+                status = f'SHADOW_EXCEPTION:{type(exc).__name__}'
+            finally:
+                globals()['calculate_combination_score'] = orig_calc
+            if captured:
+                rows.extend(captured)
+            else:
+                rows.append({
+                    'version': _V7336624_VERSION, 'signal_date': asof_ts.strftime('%Y-%m-%d'),
+                    'code': code, 'name': name, 'attempt_rank': int(a.get('attempt_rank',0) or 0),
+                    'truth_source': 'SHADOW_BYPASS_PRECOMBO', 'shadow_status': status,
+                    'formula_truth_bitmap': '', 'research_only': True,
+                    'live_logic_changed': False, 'real_order_changed': False,
+                })
+            if pos % 50 == 0 or pos == total:
+                try:
+                    elapsed=max(0.001,time.monotonic()-t0); rate=pos/elapsed; eta=(total-pos)/rate if rate>0 else 0.0
+                    known=sum(1 for r in rows if str(r.get('formula_truth_bitmap','')))
+                    log_info(f'🧪 [V24 SHADOW] {asof_ts.strftime("%Y-%m-%d")} {pos}/{total} | truth={known} unresolved={len(rows)-known} | elapsed={elapsed/60:.1f}m ETA={eta/60:.1f}m')
+                except Exception: pass
+        return rows
+    finally:
+        try:
+            globals()['calculate_combination_score'] = orig_calc
+            globals()['TODAY_STR'] = old_today
+            globals()['_V1081_CURRENT_ASOF_DATE'] = old_asof
+            if old_fdr is not None: globals()['fdr_cached'] = old_fdr
+            if old_bypass is None: os.environ.pop('V24_SHADOW_BYPASS_PRECOMBO', None)
+            else: os.environ['V24_SHADOW_BYPASS_PRECOMBO'] = old_bypass
+        except Exception:
+            pass
+
+
 def _v7336623_run_shard_worker() -> int:
     """Materialize this shard's complete per-date research evidence; no Telegram/Sheet/LIVE side effects."""
     if not _V7336623_OK or not bool(globals().get('_V7336620_OK', False)):
@@ -93745,6 +93874,23 @@ def _v7336623_run_shard_worker() -> int:
                     cp = _v7336620_perf.load_checkpoint(d)
                     if not isinstance(cp, dict):
                         raise RuntimeError('V20_CHECKPOINT_MISSING_AFTER_DATE_GENERATION')
+                    # V24: materialize a separate RESEARCH_ONLY truth bitmap for rows that exited
+                    # before COMBO in the active strategy. It is sidecar evidence only.
+                    _v24_shadow = _v7336624_shadow_precombo_for_date(d, cp, weather_data=weather_data, sector_master_map=sector_master_map)
+                    _v24_side = cp.get('runtime_sidecars', {}) if isinstance(cp.get('runtime_sidecars', {}), dict) else {}
+                    _v24_side['V24_PRECOMBO_SHADOW_ROWS'] = _v24_shadow
+                    cp['runtime_sidecars'] = _v24_side
+                    try:
+                        _v7336620_perf.save_checkpoint(
+                            d, cp.get('candidate_rows', []), cp.get('capture_rows', []), cp.get('attempt_rows', []),
+                            cp.get('universe_membership', pd.DataFrame()), cp.get('universe_summary', pd.DataFrame()),
+                            cp.get('universe_availability', pd.DataFrame()), runtime_sidecars=_v24_side)
+                    except Exception:
+                        pass
+                    try:
+                        _known=sum(1 for _r in _v24_shadow if str(_r.get('formula_truth_bitmap','')))
+                        log_info(f'🧪 [V24 SHADOW DATE] {ds} precombo={len(_v24_shadow)} truth={_known} unresolved={len(_v24_shadow)-_known}')
+                    except Exception: pass
                     meta = _v7336623_mat.write_materialized_date(
                         out, d, cp, shard_index=shard_index, shard_count=shard_count)
                     try: log_info(f'✅ [V23 SHARD] {shard_index+1}/{shard_count} date {pos}/{len(selected)} {ds} materialized=MISS→SAVED candidates={meta.get("candidate_rows",len(rows) if isinstance(rows,list) else 0)} sha={str(meta.get("sha256",""))[:12]}')
@@ -93893,6 +94039,100 @@ _V7336623_RELEASE_MARKER = {
     'real_order_changed': False,
 }
 # ✅ END V73.3.6.6.23 SIX-SHARD MATERIALIZED RESULT + MERGE-ONLY PARENT + ZERO-RECOMPUTE
+
+
+# ============================================================
+# ✅ V73.3.6.6.24 CAUSAL UNIVERSE + FULL-DENOMINATOR FORMULA SHADOW
+#    + PATTERN_ONLY OOS + EXIT-HORIZON PAPER READINESS
+# - Research-only. No LIVE score/rank/entry/exit/order mutation.
+# - Parent consumes already-materialized V23 payloads; TOP500 recompute remains forbidden.
+# - PAPER_TRIAL_ELIGIBLE is an evidence label only and never auto-promotes LIVE/real orders.
+# ============================================================
+_V7336624_HEADER = '🧪 [V24 인과 Universe × 전체분모 Formula Shadow × PATTERN_ONLY OOS × 청산기간 연구 · RESEARCH_ONLY]'
+
+_V7336624_PREV_DIRECT = globals().get('v1081_run_direct_weekly_backtest')
+def v1081_run_direct_weekly_backtest(output_dir: str='') -> tuple:
+    prev = globals().get('_V7336624_PREV_DIRECT')
+    report, df = prev(output_dir=output_dir) if callable(prev) and prev is not v1081_run_direct_weekly_backtest else ('🧪 [직접재현 백테스트]\n- 원본 함수 없음', pd.DataFrame())
+    merge_only = _v1080_env_on('V23_MERGE_ONLY_PARENT','0') and _v1080_env_on('V23_ZERO_RECOMPUTE','1') and _v1080_env_on('STOCKHUNTER_WEEKLY_BACKTEST_ONLY','0') and _v1081_source_mode() == 'DIRECT_REPLAY'
+    if not merge_only or not _V7336624_OK:
+        return report, df
+    out = output_dir or os.environ.get('V1080_BACKTEST_OUTPUT_DIR','reports')
+    try:
+        _reader = globals().get('_V1081_BASE_FDR_CACHED')
+        if not callable(_reader): _reader = globals().get('fdr_cached')
+        report, _v24_tables = _v7336624_ready.run_backtest(
+            out, base_report=report, materialized_module=_v7336623_mat,
+            historical_universe_module=globals().get('_v7336619_universe'),
+            price_reader=_reader, combo_table=globals().get('COMBO_TABLE', []))
+        try:
+            _cov = _v24_tables.get('formula_coverage', pd.DataFrame()) if isinstance(_v24_tables, dict) else pd.DataFrame()
+            _r = _cov.iloc[0] if isinstance(_cov,pd.DataFrame) and not _cov.empty else pd.Series(dtype=object)
+            log_info(f'✅ V24 parent research finalized | attempts={int(float(_r.get("attempt_rows",0) or 0))} formulas={int(float(_r.get("formula_count",0) or 0))} known={int(float(_r.get("known_cells",0) or 0))} unknown={int(float(_r.get("unknown_cells",0) or 0))} | LIVE=0 ORDER=0')
+        except Exception: pass
+    except Exception as exc:
+        # V24 is research-only but its requested audit is authoritative for this package: surface a visible
+        # failure block while preserving existing backtest output. Never silently claim readiness.
+        try: log_error(f'🚨 V24 research finalization failed: {type(exc).__name__}: {exc}')
+        except Exception: pass
+        fail = f'{_V7336624_HEADER}\n📌 {_V7336624_VERSION} · status=INVALID_V24_RESEARCH_PIPELINE · {type(exc).__name__}: {exc}\n🔒 LIVE/실주문 변경 0'
+        report = str(report or '').rstrip() + '\n\n' + fail
+    return report, df
+
+
+_V7336624_PREV_DIGEST = globals().get('_v1107_4_5_61_backtest_digest')
+def _v1107_4_5_61_backtest_digest(text: str) -> str:
+    prev=globals().get('_V7336624_PREV_DIGEST'); raw=str(text or '')
+    try: d=prev(raw) if callable(prev) and prev is not _v1107_4_5_61_backtest_digest else raw
+    except Exception: d=raw
+    if _V7336624_OK:
+        try: return _v7336624_ready.force_report(d, os.environ.get('V1080_BACKTEST_OUTPUT_DIR','reports'))
+        except Exception: return d
+    return d
+
+
+_V7336624_PREV_CLEAN = globals().get('_v1107_4_5_62_clean_for_send')
+def _v1107_4_5_62_clean_for_send(text: str) -> str:
+    prev=globals().get('_V7336624_PREV_CLEAN'); raw=str(text or '')
+    try: d=prev(raw) if callable(prev) and prev is not _v1107_4_5_62_clean_for_send else raw
+    except Exception: d=raw
+    if _V7336624_OK:
+        try: return _v7336624_ready.force_report(d, os.environ.get('V1080_BACKTEST_OUTPUT_DIR','reports'))
+        except Exception: return d
+    return d
+
+
+_V7336624_PREV_SEND = globals().get('_v1080_send_backtest_telegram')
+def _v1080_send_backtest_telegram(report: str, max_len: int=3500, *args, **kwargs):
+    prev=globals().get('_V7336624_PREV_SEND'); fixed=str(report or '')
+    if _V7336624_OK:
+        try: fixed=_v7336624_ready.force_report(fixed, os.environ.get('V1080_BACKTEST_OUTPUT_DIR','reports'))
+        except Exception: pass
+    if callable(prev) and prev is not _v1080_send_backtest_telegram:
+        try: return prev(fixed,max_len=max_len,*args,**kwargs)
+        except TypeError:
+            try: return prev(fixed,max_len)
+            except TypeError: return prev(fixed)
+        except Exception: return False
+    return False
+
+
+_V7336624_RELEASE_MARKER = {
+    'version': _V7336624_VERSION,
+    'research_only': True,
+    'historical_d1_membership_authority': True,
+    'full_denominator_formula_shadow': True,
+    'unknown_never_false': True,
+    'pattern_only_stability_oos': True,
+    'volume_breakout_exit_lab': True,
+    'ma_gc_continuation_lab': True,
+    'paper_trial_gate_only': True,
+    'live_auto_promotion_allowed': False,
+    'parent_top500_recompute_allowed': False,
+    'live_logic_changed': False,
+    'real_order_changed': False,
+}
+# ✅ END V73.3.6.6.24 CAUSAL UNIVERSE + FULL-DENOMINATOR + PATTERN OOS + EXIT-HORIZON
 
 if __name__ == "__main__":
     # V73.3.6.6.23 matrix shard worker: materialized per-date results; no Telegram/Sheet/LIVE side effects.
