@@ -90,6 +90,8 @@ def _source_fingerprint() -> str:
         "direct_replay_performance_v20.py",
         "search_formula_universe_audit.py",
         "direct_replay_materialized_v23.py",
+        "research_readiness_v24.py",
+        "original_thesis_reconstruction.py",
     ):
         p = Path(name)
         h.update(name.encode("utf-8")); h.update(b"\0")
@@ -121,6 +123,9 @@ def _config_payload() -> dict[str, str]:
         "V1081_EVENT_PREV_RET_PCT",
         "V1081_EVENT_MIN_AMOUNT",
         "V23_SHARD_COUNT",
+        "V24_FORMULA_SHADOW_ENABLE",
+        "V25_ORIGINAL_THESIS_ENABLE",
+        "V25_ORIGINAL_THESIS_REV",
     )
     return {k: str(os.getenv(k, "")) for k in keys}
 

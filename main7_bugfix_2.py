@@ -93721,6 +93721,75 @@ except Exception:
     pass
 
 
+# ============================================================
+# ✅ V73.3.6.6.25.1 ORIGINAL THESIS RECONSTRUCTION + CORE224 SHADOW
+# - Original search philosophy audit only; no return tuning.
+# - Shard materializes CORE224 evidence; merge-only parent consumes sidecars only.
+# - Existing LIVE/score/rank/entry/exit/order logic remains untouched.
+# ============================================================
+_V7336625_VERSION = 'V73.3.6.6.25.1'
+_V7336625_HEADER = '🧭 [V25 ORIGINAL THESIS RECONSTRUCTION · CORE224 SHADOW · RESEARCH_ONLY]'
+_V7336625_IMPORT_ERROR = ''
+try:
+    import original_thesis_reconstruction as _v7336625_thesis
+    _V7336625_OK = (
+        str(getattr(_v7336625_thesis, 'VERSION', '')) == _V7336625_VERSION
+        and bool(getattr(_v7336625_thesis, 'RESEARCH_ONLY', False))
+        and not bool(getattr(_v7336625_thesis, 'LIVE_LOGIC_CHANGED', True))
+        and not bool(getattr(_v7336625_thesis, 'REAL_ORDER_CHANGED', True))
+        and all(callable(getattr(_v7336625_thesis, n, None)) for n in (
+            'build_date_sidecar','evaluate_core224','finalize','force_report','audit_source','build_formula_audit'
+        ))
+    )
+    os.environ.setdefault('V25_ORIGINAL_THESIS_ENABLE', '1')
+    if not _V7336625_OK:
+        _V7336625_IMPORT_ERROR = 'CONTRACT_FAIL:VERSION_OR_CALLABLE_OR_SAFETY_FLAG'
+    print(f"{'✅' if _V7336625_OK else '🚨'} {_V7336625_VERSION} ORIGINAL_THESIS_RECONSTRUCTION {'LOADED' if _V7336625_OK else 'CONTRACT_FAIL'} | RESEARCH_ONLY=True")
+except Exception as _v7336625_import_e:
+    _v7336625_thesis = None
+    _V7336625_OK = False
+    _V7336625_IMPORT_ERROR = f'{type(_v7336625_import_e).__name__}:{_v7336625_import_e}'
+    try: print(f'🚨 {_V7336625_VERSION} module import fail: {_V7336625_IMPORT_ERROR}')
+    except Exception: pass
+
+
+def _v7336625_inline_strip_stale(text):
+    s=str(text or '')
+    marker='⚡ [V22 병렬진단] SUPERSEDED_BY_V23_V24'
+    while marker in s:
+        st=s.find(marker); en=s.find('\n',st)
+        s=(s[:st].rstrip()+'\n'+(s[en+1:] if en>=0 else '')).strip()
+    old='⚡ [TOP500 4-Shard 병렬 × Newest-First Cache Prime × Fast-Gate Audit · RESEARCH_ONLY]'
+    if old in s:
+        st=s.find(old)
+        bounds=[s.find(x,st+len(old)) for x in (
+            '🚄 [TOP500 6-Shard Materialized Result × Merge-Only Parent × Zero-Recompute · RESEARCH_ONLY]',
+            '🧪 [V24 인과 Universe × 전체분모 Formula Shadow × PATTERN_ONLY OOS × 청산기간 연구 · RESEARCH_ONLY]',
+            _V7336625_HEADER,
+        )]
+        bounds=[x for x in bounds if x>=0]
+        if bounds: s=(s[:st].rstrip()+'\n\n'+s[min(bounds):].lstrip()).strip()
+    return s
+
+
+def _v7336625_activation_fail_block(reason='UNKNOWN'):
+    return (f'{_V7336625_HEADER}\n'
+            f'📌 {_V7336625_VERSION} · status=INVALID_V25_ACTIVATION · reason={str(reason)[:500]}\n'
+            '🚫 V25 CORE224 결과는 생성되지 않았으므로 기존 V24 수익률/검색식 결과를 V25 검증으로 해석 금지\n'
+            '🔒 LIVE/점수/랭크/진입/청산/주문 변경 0')
+
+
+def _v7336625_force_or_fail(text):
+    raw=_v7336625_inline_strip_stale(text)
+    if _V7336625_OK and _v1080_env_on('V25_ORIGINAL_THESIS_ENABLE','1'):
+        try: return _v7336625_thesis.force_report(raw, os.environ.get('V1080_BACKTEST_OUTPUT_DIR','reports'))
+        except Exception as exc:
+            return raw.rstrip()+'\n\n'+_v7336625_activation_fail_block(f'FORCE_REPORT:{type(exc).__name__}:{exc}')
+    if _v1080_env_on('V25_ORIGINAL_THESIS_ENABLE','1'):
+        return raw.rstrip()+'\n\n'+_v7336625_activation_fail_block(_V7336625_IMPORT_ERROR or 'MODULE_CONTRACT_NOT_READY')
+    return raw
+
+
 class _V7336624StopAfterCombo(BaseException):
     """Control-flow sentinel deliberately outside Exception so analyze_final does not log it as an error."""
     pass
@@ -93823,6 +93892,10 @@ def _v7336624_shadow_precombo_for_date(asof_date, checkpoint: dict, weather_data
 
 def _v7336623_run_shard_worker() -> int:
     """Materialize this shard's complete per-date research evidence; no Telegram/Sheet/LIVE side effects."""
+    if _v1080_env_on('V25_ORIGINAL_THESIS_ENABLE','1') and not _V7336625_OK:
+        try: log_error(f'🚨 V25 shard activation contract invalid: {_V7336625_IMPORT_ERROR or "MODULE_CONTRACT_NOT_READY"}')
+        except Exception: pass
+        return 206
     if not _V7336623_OK or not bool(globals().get('_V7336620_OK', False)):
         try: log_error('🚨 V23 shard worker contract invalid')
         except Exception: pass
@@ -93866,6 +93939,12 @@ def _v7336623_run_shard_worker() -> int:
             ds = pd.Timestamp(d).strftime('%Y-%m-%d')
             try:
                 existing = _v7336623_mat.load_materialized_date(out, d, require_current_identity=True)
+                if isinstance(existing, dict) and _v1080_env_on('V25_ORIGINAL_THESIS_ENABLE','1'):
+                    _es = existing.get('runtime_sidecars', {}) if isinstance(existing.get('runtime_sidecars', {}), dict) else {}
+                    if 'V25_CORE224_ROWS' not in _es:
+                        try: log_info(f'🧭 [V25 CACHE AUTHORITY] {ds} old materialized payload lacks V25 sidecar → shard recompute required')
+                        except Exception: pass
+                        existing = None
                 if isinstance(existing, dict):
                     try: log_info(f'🚄 [V23 SHARD] {shard_index+1}/{shard_count} date {pos}/{len(selected)} {ds} materialized=HIT candidates={len(existing.get("candidate_rows") or [])}')
                     except Exception: pass
@@ -93879,6 +93958,41 @@ def _v7336623_run_shard_worker() -> int:
                     _v24_shadow = _v7336624_shadow_precombo_for_date(d, cp, weather_data=weather_data, sector_master_map=sector_master_map)
                     _v24_side = cp.get('runtime_sidecars', {}) if isinstance(cp.get('runtime_sidecars', {}), dict) else {}
                     _v24_side['V24_PRECOMBO_SHADOW_ROWS'] = _v24_shadow
+                    # V25: capture actual signal-day trading value into the already-existing Historical-AsOf
+                    # raw snapshot cache AFTER the D-1 universe has been fixed. This cannot affect membership.
+                    if _V7336625_OK and _v1080_env_on('V25_ORIGINAL_THESIS_ENABLE','1'):
+                        try:
+                            if _V7336619_OK and callable(getattr(_v7336619_universe, '_get_market_snapshot', None)):
+                                try: _v7336619_universe._set_cache_root(out)
+                                except Exception: pass
+                                _v7336619_universe._get_market_snapshot(stock, pd.Timestamp(d).strftime('%Y%m%d'))
+                        except Exception as _v25_amt_e:
+                            try: log_info(f'⚠️ [V25 Amount snapshot] {ds} actual signal-day amount unavailable: {type(_v25_amt_e).__name__}')
+                            except Exception: pass
+                        try:
+                            _v25_reader = globals().get('_V1081_BASE_FDR_CACHED')
+                            if not callable(_v25_reader): _v25_reader = globals().get('fdr_cached')
+                            _v25_market_reader = getattr(globals().get('fdr', None), 'DataReader', None)
+                            _v25_sidecar = _v7336625_thesis.build_date_sidecar(
+                                d, cp.get('universe_membership', pd.DataFrame()), _v25_reader,
+                                output_dir=out, sector_map=sector_master_map,
+                                market_index_reader=_v25_market_reader, log_fn=globals().get('log_info'))
+                            for _k, _vals in (_v25_sidecar or {}).items():
+                                _v24_side[_k] = _vals
+                            try:
+                                _v25_rows=len(_v25_sidecar.get('V25_CORE224_ROWS',[]) or [])
+                                _v25_ev=len(_v25_sidecar.get('V25_CORE224_EVENTS',[]) or [])
+                                _v25_inv=len(_v25_sidecar.get('V25_CORE224_INVARIANTS',[]) or [])
+                                log_info(f'🧭 [V25 CORE224 DATE] {ds} rows={_v25_rows} transitions={_v25_ev} invariant_fail={_v25_inv} | LIVE=0 ORDER=0')
+                            except Exception: pass
+                        except Exception as _v25_core_e:
+                            _v24_side['V25_CORE224_ROWS'] = []
+                            _v24_side['V25_CORE224_EVENTS'] = []
+                            _v24_side['V25_CORE224_INVARIANTS'] = []
+                            _v24_side['V25_CORE224_DATE_ERROR'] = [f'{type(_v25_core_e).__name__}:{_v25_core_e}']
+                            try: log_error(f'🚨 V25 CORE224 date sidecar failed {ds}: {type(_v25_core_e).__name__}: {_v25_core_e}')
+                            except Exception: pass
+                            raise RuntimeError(f'V25_CORE224_SIDECAR_FAILED:{ds}:{type(_v25_core_e).__name__}:{_v25_core_e}')
                     cp['runtime_sidecars'] = _v24_side
                     try:
                         _v7336620_perf.save_checkpoint(
@@ -94133,6 +94247,96 @@ _V7336624_RELEASE_MARKER = {
     'real_order_changed': False,
 }
 # ✅ END V73.3.6.6.24 CAUSAL UNIVERSE + FULL-DENOMINATOR + PATTERN OOS + EXIT-HORIZON
+
+
+# ============================================================
+# ✅ V73.3.6.6.25.1 PARENT FINALIZATION · ORIGINAL THESIS AUTHORITY
+# - Runs strictly after the V24 parent research finalizer.
+# - Reads V23 materialized sidecars only; parent recompute remains forbidden.
+# ============================================================
+_V7336625_PREV_DIRECT = globals().get('v1081_run_direct_weekly_backtest')
+def v1081_run_direct_weekly_backtest(output_dir: str='') -> tuple:
+    prev = globals().get('_V7336625_PREV_DIRECT')
+    report, df = prev(output_dir=output_dir) if callable(prev) and prev is not v1081_run_direct_weekly_backtest else ('🧪 [직접재현 백테스트]\n- 원본 함수 없음', pd.DataFrame())
+    merge_only = _v1080_env_on('V23_MERGE_ONLY_PARENT','0') and _v1080_env_on('V23_ZERO_RECOMPUTE','1') and _v1080_env_on('STOCKHUNTER_WEEKLY_BACKTEST_ONLY','0') and _v1081_source_mode() == 'DIRECT_REPLAY'
+    if not merge_only or not _v1080_env_on('V25_ORIGINAL_THESIS_ENABLE','1'):
+        return report, df
+    if not _V7336625_OK:
+        return _v7336625_force_or_fail(report), df
+    out = output_dir or os.environ.get('V1080_BACKTEST_OUTPUT_DIR','reports')
+    try:
+        _payloads = _v7336624_ready.collect_materialized_payloads(out, materialized_module=_v7336623_mat) if _V7336624_OK else []
+        report, _v25_tables = _v7336625_thesis.finalize(
+            out, payloads=_payloads, source_file=Path(__file__),
+            registry_path=Path(__file__).with_name('search_formula_contract_registry.json'), base_report=report)
+        try:
+            _a=_v25_tables.get('activation',pd.DataFrame()) if isinstance(_v25_tables,dict) else pd.DataFrame()
+            _r=_a.iloc[-1] if isinstance(_a,pd.DataFrame) and not _a.empty else pd.Series(dtype=object)
+            log_info(f'✅ V25 original thesis finalized | dates={int(float(_r.get("materialized_dates",0) or 0))} rows={int(float(_r.get("core224_rows",0) or 0))} formulas={int(float(_r.get("formula_audit_rows",0) or 0))} invariant_fail={int(float(_r.get("invariant_fail_rows",0) or 0))} | LIVE=0 ORDER=0')
+        except Exception: pass
+    except Exception as exc:
+        try: log_error(f'🚨 V25 original-thesis finalization failed: {type(exc).__name__}: {exc}')
+        except Exception: pass
+        fail=f'{_V7336625_HEADER}\n📌 {_V7336625_VERSION} · status=INVALID_V25_ORIGINAL_THESIS_PIPELINE · {type(exc).__name__}: {exc}\n🔒 LIVE/실주문 변경 0'
+        report=_v7336625_thesis.strip_stale_blocks(str(report or '')).rstrip()+'\n\n'+fail
+    return report, df
+
+
+_V7336625_PREV_DIGEST = globals().get('_v1107_4_5_61_backtest_digest')
+def _v1107_4_5_61_backtest_digest(text: str) -> str:
+    prev=globals().get('_V7336625_PREV_DIGEST'); raw=str(text or '')
+    try: d=prev(raw) if callable(prev) and prev is not _v1107_4_5_61_backtest_digest else raw
+    except Exception: d=raw
+    if _v1080_env_on('V25_ORIGINAL_THESIS_ENABLE','1'):
+        return _v7336625_force_or_fail(d)
+    return d
+
+
+_V7336625_PREV_CLEAN = globals().get('_v1107_4_5_62_clean_for_send')
+def _v1107_4_5_62_clean_for_send(text: str) -> str:
+    prev=globals().get('_V7336625_PREV_CLEAN'); raw=str(text or '')
+    try: d=prev(raw) if callable(prev) and prev is not _v1107_4_5_62_clean_for_send else raw
+    except Exception: d=raw
+    if _v1080_env_on('V25_ORIGINAL_THESIS_ENABLE','1'):
+        return _v7336625_force_or_fail(d)
+    return d
+
+
+_V7336625_PREV_SEND = globals().get('_v1080_send_backtest_telegram')
+def _v1080_send_backtest_telegram(report: str, max_len: int=3500, *args, **kwargs):
+    prev=globals().get('_V7336625_PREV_SEND'); fixed=str(report or '')
+    if _v1080_env_on('V25_ORIGINAL_THESIS_ENABLE','1'):
+        fixed=_v7336625_force_or_fail(fixed)
+    if callable(prev) and prev is not _v1080_send_backtest_telegram:
+        try: return prev(fixed,max_len=max_len,*args,**kwargs)
+        except TypeError:
+            try: return prev(fixed,max_len)
+            except TypeError: return prev(fixed)
+        except Exception: return False
+    return False
+
+
+_V7336625_RELEASE_MARKER = {
+    'version': _V7336625_VERSION,
+    'research_only': True,
+    'original_thesis_reconstruction': True,
+    'core224_shadow_fsm': True,
+    'accumulation_mandatory_before_wave1': True,
+    'activation_fail_closed_visible': True,
+    'market_context_non_gating': True,
+    'sector_confirmation_non_gating': True,
+    'top_risk_non_gating': True,
+    'actual_turnover_primary_evidence': True,
+    'close_times_volume_not_admission_substitute': True,
+    'formula_01_to_07_audit_gate': True,
+    'formula_oos_blocked_until_01_06_pass': True,
+    'pattern_only_sequence_to_stability_reconciliation': True,
+    'stale_v22_visible_block_removed': True,
+    'parent_top500_recompute_allowed': False,
+    'live_logic_changed': False,
+    'real_order_changed': False,
+}
+# ✅ END V73.3.6.6.25.1 ORIGINAL THESIS RECONSTRUCTION
 
 if __name__ == "__main__":
     # V73.3.6.6.23 matrix shard worker: materialized per-date results; no Telegram/Sheet/LIVE side effects.

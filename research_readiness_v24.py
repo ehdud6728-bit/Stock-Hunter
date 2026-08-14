@@ -203,6 +203,10 @@ def rebuild_universe_from_materialized(output_dir: str | Path, payloads: list[di
     if not avail.empty:
         avail["signal_date"] = pd.to_datetime(avail["signal_date"], errors="coerce").dt.normalize()
         avail = avail.drop_duplicates(["signal_date"], keep="last").sort_values("signal_date")
+        _st = avail.get("status", pd.Series("", index=avail.index)).fillna("").astype(str)
+        _valid = _st.eq("VALID_CAUSAL_ASOF")
+        avail["complete"] = _valid.astype(int)
+        avail["fallback_used"] = (~_valid).astype(int)
     # Rewrite legacy filenames so downstream diagnostics see the complete 24-date authority.
     mem.to_csv(out / "v73_universe_asof_membership.csv", index=False, encoding="utf-8-sig")
     summ.to_csv(out / "v73_universe_asof_summary.csv", index=False, encoding="utf-8-sig")
@@ -214,6 +218,8 @@ def rebuild_universe_from_materialized(output_dir: str | Path, payloads: list[di
         daily = avail.copy()
         daily["is_valid_causal_asof"] = daily.get("status", "").astype(str).eq("VALID_CAUSAL_ASOF")
         daily["is_fallback"] = ~daily["is_valid_causal_asof"]
+        daily["complete"] = daily["is_valid_causal_asof"].astype(int)
+        daily["fallback_used"] = daily["is_fallback"].astype(int)
         if not summ.empty:
             cols = [c for c in ["signal_date", "final_universe_rows", "core_rows", "event_expansion_rows", "history_days", "eligible_rows"] if c in summ.columns]
             daily = daily.merge(summ[cols], on="signal_date", how="left")
@@ -461,7 +467,9 @@ def _window_stats(events: pd.DataFrame, dates: list[pd.Timestamp], label: str) -
 
 def pattern_only_stability(output_dir: str | Path, outcomes: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     out = _out(output_dir)
-    join = _read_csv(out / "v73_sequence_context_catalyst_join.csv", dtype={"code": str})
+    join = _read_csv(out / "v73_sequence_context_catalyst_event_eval.csv", dtype={"code": str})
+    if join.empty:
+        join = _read_csv(out / "v73_sequence_context_catalyst_join.csv", dtype={"code": str})
     if join.empty or outcomes.empty:
         pd.DataFrame().to_csv(out / PATTERN_STABILITY_FILE, index=False); pd.DataFrame().to_csv(out / PATTERN_WF_FILE, index=False)
         return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
@@ -588,15 +596,22 @@ def promotion_readiness(output_dir: str | Path, pattern_stab: pd.DataFrame, patt
 
 
 def strip_stale_blocks(text: str) -> str:
-    """Hide V22 runtime block after V23/V24 authority is present; do not delete its CSV artifacts."""
+    """V25 compatibility: hide visible V22 block/marker; keep its CSV audit artifacts."""
     s=str(text or "")
     old="⚡ [TOP500 4-Shard 병렬 × Newest-First Cache Prime × Fast-Gate Audit · RESEARCH_ONLY]"
     if old in s:
         start=s.find(old)
-        # V23 block is the next authority boundary in current report order.
-        nxt=s.find("🚄 [TOP500 6-Shard Materialized Result × Merge-Only Parent × Zero-Recompute · RESEARCH_ONLY]",start)
-        if nxt>start:
-            s=(s[:start]+"⚡ [V22 병렬진단] SUPERSEDED_BY_V23_V24 · CSV 감사원장은 유지, 최종판정에서는 제외\n\n"+s[nxt:])
+        boundaries=[
+            s.find("🚄 [TOP500 6-Shard Materialized Result × Merge-Only Parent × Zero-Recompute · RESEARCH_ONLY]", start),
+            s.find(HEADER, start),
+        ]
+        boundaries=[x for x in boundaries if x>start]
+        if boundaries:
+            s=(s[:start].rstrip()+"\n\n"+s[min(boundaries):].lstrip())
+    marker="⚡ [V22 병렬진단] SUPERSEDED_BY_V23_V24"
+    while marker in s:
+        start=s.find(marker); end=s.find("\n",start)
+        s=(s[:start].rstrip()+"\n"+(s[end+1:] if end>=0 else "")).strip()
     return s
 
 

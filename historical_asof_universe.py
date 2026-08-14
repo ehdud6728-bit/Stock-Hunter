@@ -134,6 +134,22 @@ def _write_csv(path: Path, df: pd.DataFrame) -> None:
     (df if isinstance(df, pd.DataFrame) else pd.DataFrame()).to_csv(path, index=False, encoding="utf-8-sig")
 
 
+def _canonicalize_availability(df: pd.DataFrame) -> pd.DataFrame:
+    """V25 accounting contract: complete/fallback_used are always explicit 0/1.
+
+    Historical data quality is never fabricated. VALID_CAUSAL_ASOF is complete=1; every
+    other status is complete=0/fallback_used=1. Negative sentinels are forbidden.
+    """
+    if df is None or df.empty:
+        return pd.DataFrame() if df is None else df.copy()
+    q=df.copy()
+    st=q.get("status",pd.Series("",index=q.index)).fillna("").astype(str)
+    valid=st.eq("VALID_CAUSAL_ASOF")
+    q["complete"]=valid.astype(int)
+    q["fallback_used"]=(~valid).astype(int)
+    return q
+
+
 def _asof_1503(asof_date: Any) -> pd.Timestamp:
     d = pd.Timestamp(asof_date).normalize()
     # Timestamp is intentionally timezone-naive here because upstream ledgers are usually naive KST.
@@ -159,9 +175,16 @@ def _normalize_market_snapshot(raw: pd.DataFrame, market: str = "ALL") -> pd.Dat
     ret_c = _pick_col(q, ["등락률", "Change", "change", "수익률"])
     out["close"] = pd.to_numeric(q[close_c], errors="coerce") if close_c else np.nan
     out["volume"] = pd.to_numeric(q[vol_c], errors="coerce") if vol_c else np.nan
-    out["amount"] = pd.to_numeric(q[amt_c], errors="coerce") if amt_c else np.nan
-    if out["amount"].isna().all() and out["close"].notna().any() and out["volume"].notna().any():
-        out["amount"] = out["close"] * out["volume"]
+    if amt_c:
+        out["amount"] = pd.to_numeric(q[amt_c], errors="coerce")
+        out["amount_source"] = "PYKRX_ACTUAL"
+        out["amount_is_actual"] = out["amount"].notna().astype(int)
+    else:
+        # Legacy universe ranking may still use the proxy as an explicit approximation, but V25
+        # CORE224 must never treat it as actual trading-value evidence. Provenance is preserved.
+        out["amount"] = out["close"] * out["volume"] if out["close"].notna().any() and out["volume"].notna().any() else np.nan
+        out["amount_source"] = "PROXY_CLOSE_X_VOLUME"
+        out["amount_is_actual"] = 0
     out["ret_pct"] = pd.to_numeric(q[ret_c], errors="coerce") if ret_c else np.nan
     out["market"] = str(market or "ALL").upper()
     return out[out["code"].ne("")].drop_duplicates("code", keep="last").reset_index(drop=True)
@@ -253,11 +276,18 @@ def _filter_security_names(df: pd.DataFrame) -> pd.DataFrame:
 
 def _get_market_snapshot(stock_module: Any, ymd: str) -> tuple[pd.DataFrame, str]:
     cached = _read_cache("market", ymd)
-    if not cached.empty:
+    if not cached.empty and "amount_is_actual" in cached.columns and "amount_source" in cached.columns:
         _CACHE_STATS["market_hit"] += 1
         return cached, "V20_DISK_CACHE:PYKRX_DAILY_CROSS_SECTION"
+    # V25 provenance migration: a legacy cache without amount provenance remains usable only if
+    # live pykrx is unavailable. Otherwise refetch once and overwrite with explicit provenance.
+    legacy_cached = cached.copy() if not cached.empty else pd.DataFrame()
     _CACHE_STATS["market_miss"] += 1
     if stock_module is None:
+        if not legacy_cached.empty:
+            legacy_cached["amount_source"] = "LEGACY_CACHE_UNKNOWN"
+            legacy_cached["amount_is_actual"] = 0
+            return legacy_cached, "V20_LEGACY_CACHE_AMOUNT_PROVENANCE_UNKNOWN"
         return pd.DataFrame(), "PYKRX_UNAVAILABLE"
     frames: list[pd.DataFrame] = []
     errors: list[str] = []
@@ -272,6 +302,10 @@ def _get_market_snapshot(stock_module: Any, ymd: str) -> tuple[pd.DataFrame, str
         except Exception as exc:
             errors.append(f"{market}:{type(exc).__name__}:{exc}")
     if not frames:
+        if not legacy_cached.empty:
+            legacy_cached["amount_source"] = "LEGACY_CACHE_UNKNOWN"
+            legacy_cached["amount_is_actual"] = 0
+            return legacy_cached, "V20_LEGACY_CACHE_AMOUNT_PROVENANCE_UNKNOWN"
         return pd.DataFrame(), "PYKRX_EMPTY" + (":" + "|".join(errors[:2]) if errors else "")
     out = pd.concat(frames, ignore_index=True).drop_duplicates("code", keep="last")
     try: _write_cache("market", ymd, out)
@@ -641,7 +675,8 @@ class HistoricalUniverseRuntime:
             "liquidity_snapshot_source": "PYKRX_DAILY_CROSS_SECTION" if snapshot_sources else "MISSING",
             "market_cap_source": cap_source,
             "official_geo_codes": len(geo_codes),
-            "fallback_used": status != "VALID_CAUSAL_ASOF",
+            "complete": int(status == "VALID_CAUSAL_ASOF"),
+            "fallback_used": int(status != "VALID_CAUSAL_ASOF"),
             "errors": "|".join(listing_errors[:5]),
             "v20_listing_cache_hit": int(_CACHE_STATS["listing_hit"] - cache_before.get("listing_hit",0)),
             "v20_market_cache_hit": int(_CACHE_STATS["market_hit"] - cache_before.get("market_hit",0)),
@@ -682,6 +717,8 @@ def append_runtime_rows(output_dir: str | Path, membership: pd.DataFrame, summar
         except Exception:
             old = pd.DataFrame()
         q = pd.concat([old, z], ignore_index=True, sort=False)
+        if file_name == AVAILABILITY_FILE:
+            q = _canonicalize_availability(q)
         present = [k for k in keys if k in q.columns]
         if present:
             q = q.drop_duplicates(present, keep="last")
@@ -732,6 +769,7 @@ def finalize_audit(output_dir: str | Path = "reports", base_report: str = "") ->
         avail = pd.read_csv(out / AVAILABILITY_FILE) if (out / AVAILABILITY_FILE).exists() else pd.DataFrame()
     except Exception:
         avail = pd.DataFrame()
+    avail = _canonicalize_availability(avail)
     if not mem.empty:
         mem["signal_date"] = pd.to_datetime(mem["signal_date"], errors="coerce").dt.normalize()
         mem["code"] = mem["code"].map(_norm_code)
