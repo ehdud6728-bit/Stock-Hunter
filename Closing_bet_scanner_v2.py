@@ -80,8 +80,8 @@ def _env_float(name: str, default: float = 0.0) -> float:
         except Exception:
             return 0.0
 
-CLOSING_BET_SCANNER_VERSION = 'G_MORALES_V4_4_9_53_8_49_76_5_6_EVIDENCE_GATE_PHASE_ORDER_HOTFIX_20260813'
-CLOSING_BET_RELEASE_TAG = 'v49.76.5.6'
+CLOSING_BET_SCANNER_VERSION = 'G_MORALES_V4_4_9_53_8_49_76_5_7_AFTER_FINAL_FAILSAFE_IO_M5_GATE_20260814'
+CLOSING_BET_RELEASE_TAG = 'v49.76.5.7'
 CLOSING_BET_LIVE_PRICE_SANITY_FIX = str(os.environ.get('CLOSING_BET_LIVE_PRICE_SANITY_FIX', '1')).lower() in ('1', 'true', 'yes', 'y', 'on')
 CLOSING_BET_LIVE_READABILITY_COMPACT = str(os.environ.get('CLOSING_BET_LIVE_READABILITY_COMPACT', '1')).lower() in ('1', 'true', 'yes', 'y', 'on')
 # v53.8.42: M5R TRUE60 검증용 장기 월봉 확보. 60개월 월선 계산에는 약 7년 일봉이 필요하다.
@@ -47883,6 +47883,472 @@ def _v49765_normalize_detail(text: str, has_authorized: bool, res: dict) -> str:
 
 # =============================================================
 # ✅ END V49.76.5.5
+# =============================================================
+
+
+# =============================================================
+# ✅ V49.76.5.7 AFTER-FINAL FAILSAFE I/O + M5 FINAL-GATE GUARD
+# -------------------------------------------------------------
+# Scope only:
+# - AFTER FINAL action board must never disappear because an evidence/NXT I/O path failed.
+# - Evidence read/write uses bounded retry and returns an explicit fail-safe state.
+# - If a raw Lifecycle ENTRY exists but M5 final evidence is missing, do NOT lock a zero-pick
+#   completed evidence row. Keep the window retryable until M5 recovers or 20:00 passes.
+# - Legacy independent TOP2/TOP3 execution boards are stripped even when the action path fails.
+# - Same-day Replay generated from a raw STRICT that failed the M5 final gate is labelled
+#   REPLAY-BLOCKED-M5, never as a normal REPLAY-RECOMMENDED row.
+# - Search/rank/STRICT thresholds, MARCAP/PIT, P1 and automatic-order policy are unchanged.
+# =============================================================
+try:
+    print("✅ V49.76.5.7 AFTER_FINAL_FAILSAFE_IO_M5_GATE LOADED")
+except Exception:
+    pass
+
+CLOSING_BET_V497657_IO_RETRY_COUNT = max(1, int(os.environ.get('CLOSING_BET_V497657_IO_RETRY_COUNT', '3') or 3))
+CLOSING_BET_V497657_IO_RETRY_SLEEP_SEC = max(0.0, float(os.environ.get('CLOSING_BET_V497657_IO_RETRY_SLEEP_SEC', '0.35') or 0.35))
+
+
+def _v497657_clean_error(e) -> str:
+    try:
+        s=f'{type(e).__name__}:{e}' if isinstance(e,BaseException) else str(e or '')
+    except Exception:
+        s='UNKNOWN_IO_ERROR'
+    s=re.sub(r'\s+',' ',s).strip()
+    return s[:180] or 'UNKNOWN_IO_ERROR'
+
+
+def _v497657_reset_failed_sheet_cache() -> None:
+    """Retry only a failed connection cache; never throw away a healthy open document."""
+    global _V4943_GSHEET_CACHE
+    try:
+        c=dict(_V4943_GSHEET_CACHE or {})
+        if c.get('doc') is None:
+            _V4943_GSHEET_CACHE={}
+    except Exception:
+        _V4943_GSHEET_CACHE={}
+
+
+def _v497657_retry_pause(attempt: int) -> None:
+    if attempt >= int(CLOSING_BET_V497657_IO_RETRY_COUNT):
+        return
+    try:
+        time.sleep(float(CLOSING_BET_V497657_IO_RETRY_SLEEP_SEC) * float(attempt))
+    except Exception:
+        pass
+
+
+def _v49765_load_evidence(run_date: str=None) -> tuple[dict|None, str]:
+    """v49.76.5.7 bounded-retry evidence read. Never raises to the report wrapper."""
+    if not bool(CLOSING_BET_V4943_RECOMMENDATION_LEDGER_ENABLE):
+        return None, 'LEDGER_DISABLED'
+    last='SHEET_UNAVAILABLE'
+    for attempt in range(1, int(CLOSING_BET_V497657_IO_RETRY_COUNT)+1):
+        try:
+            _,doc=_get_gspread_client()
+            if doc is None:
+                last=str((_V4943_GSHEET_CACHE or {}).get('error','SHEET_UNAVAILABLE') or 'SHEET_UNAVAILABLE')
+                _v497657_reset_failed_sheet_cache()
+                _v497657_retry_pause(attempt)
+                continue
+            ws=_v4943_ws(doc,CLOSING_BET_V49765_EVIDENCE_TAB,_V49765_EVIDENCE_HEADERS)
+            try:
+                rows=list(ws.get_all_records(default_blank='') or [])
+            except TypeError:
+                rows=list(ws.get_all_records() or [])
+            eid=_v49765_evidence_id(run_date)
+            for row in reversed(rows):
+                if str(row.get('evidence_id','')).strip()==eid and str(row.get('status','')).upper()=='COMPLETED':
+                    return dict(row),'OK'
+            return None,'OK'
+        except Exception as e:
+            last=_v497657_clean_error(e)
+            try: log_error(f'⚠️ v49.76.5.7 evidence read retry {attempt}/{CLOSING_BET_V497657_IO_RETRY_COUNT}: {last}')
+            except Exception: pass
+            _v497657_reset_failed_sheet_cache()
+            _v497657_retry_pause(attempt)
+    return None,f'RETRY_EXHAUSTED:{last}'
+
+
+_V497657_BASE_WRITE_EVIDENCE = _v49765_write_evidence
+
+def _v49765_write_evidence(data_date: str, raw_enter_count: int, authorized: list, watches: list,
+                             nxt_status: str, nxt_count: int, note: str='') -> dict:
+    """v49.76.5.7 bounded-retry evidence write. evidence_id de-dup makes retries idempotent."""
+    last={'state':'FAILED','appended':0,'error':'UNKNOWN_WRITE_ERROR'}
+    for attempt in range(1, int(CLOSING_BET_V497657_IO_RETRY_COUNT)+1):
+        try:
+            st=dict(_V497657_BASE_WRITE_EVIDENCE(data_date,raw_enter_count,authorized,watches,nxt_status,nxt_count,note) or {})
+            last=st
+            if str(st.get('state','')).upper() in ('OK','NO_ROWS'):
+                return st
+            err=str(st.get('error','') or st.get('state','FAILED'))
+            try: log_error(f'⚠️ v49.76.5.7 evidence write retry {attempt}/{CLOSING_BET_V497657_IO_RETRY_COUNT}: {err[:160]}')
+            except Exception: pass
+        except Exception as e:
+            last={'state':'FAILED','appended':0,'error':_v497657_clean_error(e)}
+        _v497657_reset_failed_sheet_cache()
+        _v497657_retry_pause(attempt)
+    last['state']='FAILED_RETRY_EXHAUSTED'
+    return last
+
+
+_V497657_BASE_FETCH_NXT = _v49765_fetch_nxt_codes
+
+def _v49765_fetch_nxt_codes(force: bool=False) -> tuple[set,str]:
+    """NXT target-list lookup gets the same bounded retry; failures remain fail-closed."""
+    last='FAILED:UNKNOWN'
+    for attempt in range(1, int(CLOSING_BET_V497657_IO_RETRY_COUNT)+1):
+        try:
+            # Force a real retry after a failed cache result.
+            if attempt>1:
+                globals()['_V49765_NXT_CACHE']={'loaded':False,'codes':set(),'status':'NOT_RUN','error':'','count':0}
+            codes,st=_V497657_BASE_FETCH_NXT(force=True if force or attempt>1 else False)
+            if str(st)=='OK':
+                return set(codes or set()),'OK'
+            last=str(st or 'FAILED:UNKNOWN')
+        except Exception as e:
+            last=f'FAILED:{type(e).__name__}'
+        _v497657_retry_pause(attempt)
+    return set(),f'RETRY_EXHAUSTED:{last}'
+
+
+def _v497657_m5_blocked_strict_items(decision: dict) -> list[dict]:
+    """Raw Lifecycle ENTRY rows held only because final M5 evidence is unavailable."""
+    out=[]
+    for it in list((decision or {}).get('items',[]) or []):
+        try:
+            if str((it or {}).get('decision','')).upper()!='HOLD':
+                continue
+            if _v49764i_stage(it)!='ENTRY':
+                continue
+            txt=' '.join([
+                str((it or {}).get('label','') or ''),
+                ' '.join(str(x) for x in ((it or {}).get('reasons',[]) or [])),
+                str((it or {}).get('next','') or '')
+            ]).upper()
+            if 'M5' in txt:
+                out.append(it)
+        except Exception:
+            continue
+    out.sort(key=lambda x:(-_v49764i_score(x),_v49764i_name_code(x)[0]))
+    return out
+
+
+_V497657_BASE_RESOLVE = _v49765_resolve_after_final
+
+def _v49765_resolve_after_final(decision: dict, data_date=None) -> dict:
+    """v49.76.5.7 authority wrapper: M5 fail-closed is retryable and all failures are explicit."""
+    global _V49765_CURRENT_AUTHORIZED_CODES, _V49765_CURRENT_DECISION, _V49765_RESTORED
+    decision=decision if isinstance(decision,dict) else {}
+    st=_v49765_time_state(data_date)
+    # Before AFTER FINAL retain 5.6 phase ordering exactly.
+    if st['minute'] < st['start']:
+        return _V497657_BASE_RESOLVE(decision,data_date)
+    try:
+        today=st['now'].strftime('%Y-%m-%d')
+        evidence,ev_state=_v49765_load_evidence(today)
+        # An already-completed daily lock always wins, including a legitimate zero-pick lock.
+        if evidence is not None:
+            recs=_v49765_parse_json_field(evidence,'recommendations_json')
+            watches=_v49765_parse_json_field(evidence,'watch_json') or _v49765_canonical_watch(decision)
+            _V49765_CURRENT_AUTHORIZED_CODES={str(x.get('code','')).zfill(6) for x in recs[:2] if str(x.get('code','')).strip()}
+            _V49765_RESTORED=True
+            out={'state':'RESTORED','reason':'TODAY_AFTER_FINAL_LOCK_RESTORED','authorized':recs[:2],
+                 'watches':watches[:2],'raw_enter_count':int(_safe_float(evidence.get('raw_enter_count',0),0)),
+                 'nxt_status':_v497655_clean_text(evidence.get('nxt_fetch_status','')),
+                 'nxt_count':int(_safe_float(evidence.get('nxt_code_count',0),0)),
+                 'event_time_kst':_v497655_clean_text(evidence.get('event_time_kst','')),
+                 'data_date':_v497655_clean_text(evidence.get('data_date','')),
+                 'authority_source':'EVIDENCE_RESTORE','evidence_gate_phase':'HARD_GATE_ACTIVE'}
+            _V49765_CURRENT_DECISION=out
+            return out
+
+        watches=_v49765_canonical_watch(decision)
+        raw_enters=_v497657_m5_blocked_strict_items(decision)
+        # After 20:00 remains restore-only regardless of signal/M5 state.
+        if st['minute'] > st['end']:
+            if ev_state!='OK':
+                out={'state':'INFRA_BLOCKED','reason':f'EVIDENCE_LEDGER_UNAVAILABLE_AFTER_WINDOW:{ev_state}',
+                     'authorized':[],'watches':watches,'raw_enter_count':len(raw_enters),
+                     'raw_strict_items':raw_enters[:2],'nxt_status':'NOT_RUN','nxt_count':0,
+                     'evidence_gate_phase':'RESTORE_ONLY_AFTER_WINDOW'}
+            else:
+                out={'state':'BLOCKED','reason':'AFTER_FINAL_EVIDENCE_MISSING_NO_LATE_CREATE',
+                     'authorized':[],'watches':watches,'raw_enter_count':len(raw_enters),
+                     'raw_strict_items':raw_enters[:2],'nxt_status':'NOT_RUN','nxt_count':0,
+                     'evidence_gate_phase':'RESTORE_ONLY_AFTER_WINDOW'}
+            _V49765_CURRENT_AUTHORIZED_CODES=set(); _V49765_CURRENT_DECISION=out; _V49765_RESTORED=False
+            return out
+
+        # 15:40~20:00 evidence availability is a hard gate.
+        if ev_state!='OK':
+            out={'state':'INFRA_BLOCKED','reason':f'EVIDENCE_LEDGER_UNAVAILABLE:{ev_state}',
+                 'authorized':[],'watches':watches,'raw_enter_count':len(raw_enters),
+                 'raw_strict_items':raw_enters[:2],'nxt_status':'NOT_RUN','nxt_count':0,
+                 'evidence_gate_phase':'HARD_GATE_ACTIVE'}
+            _V49765_CURRENT_AUTHORIZED_CODES=set(); _V49765_CURRENT_DECISION=out; _V49765_RESTORED=False
+            return out
+
+        # Critical 5.7 guard: raw ENTRY + M5 missing is NOT a legitimate zero-pick final decision.
+        # Do not write COMPLETED evidence, because M5 may recover later inside the same window.
+        if raw_enters:
+            out={'state':'DATA_BLOCKED','reason':'M5_FINAL_EVIDENCE_MISSING',
+                 'authorized':[],'watches':watches,'raw_enter_count':len(raw_enters),
+                 'raw_strict_items':raw_enters[:2],'nxt_status':'NOT_RUN','nxt_count':0,
+                 'authority_source':'AUTO_AFTER_FINAL' if not st.get('is_after_mode') else 'SCHEDULED_AFTER_FINAL',
+                 'evidence_gate_phase':'M5_RETRYABLE_FINAL_GATE'}
+            _V49765_CURRENT_AUTHORIZED_CODES=set(); _V49765_CURRENT_DECISION=out; _V49765_RESTORED=False
+            return out
+
+        # No M5-blocked raw STRICT: use the 5.6 canonical AFTER FINAL path.
+        return _V497657_BASE_RESOLVE(decision,data_date)
+    except Exception as e:
+        err=_v497657_clean_error(e)
+        try: log_error(f'⚠️ v49.76.5.7 resolve fail-safe: {err}')
+        except Exception: pass
+        watches=[]
+        try: watches=_v49765_canonical_watch(decision)
+        except Exception: pass
+        raw=[]
+        try: raw=_v497657_m5_blocked_strict_items(decision)
+        except Exception: pass
+        out={'state':'INTERNAL_FAILSAFE','reason':f'INTERNAL_FAILSAFE:{err}',
+             'authorized':[],'watches':watches,'raw_enter_count':len(raw),'raw_strict_items':raw[:2],
+             'nxt_status':'NOT_RUN','nxt_count':0,'evidence_gate_phase':'FAILSAFE_NO_RECOMMENDATION'}
+        _V49765_CURRENT_AUTHORIZED_CODES=set(); _V49765_CURRENT_DECISION=out; _V49765_RESTORED=False
+        return out
+
+
+def _v497657_raw_strict_lines(res: dict) -> list[str]:
+    rows=[]
+    for i,it in enumerate(list((res or {}).get('raw_strict_items',[]) or [])[:2],1):
+        try:
+            name,code=_v49764i_name_code(it); px,key=_v49764i_price(it); score=_v49764i_score(it)
+            rows.append(f"   {i}. {name}" + (f" ({code})" if code else '') + f" · STRICT 원신호 · {score:.0f}점" + (f" · {_v49765_fmt_price(px)}" if pd.notna(px) else ''))
+        except Exception:
+            continue
+    return rows
+
+
+def _v49765_action_panel(decision: dict, data_date=None) -> tuple[str,bool,dict]:
+    """v49.76.5.7 action board is total/fail-safe: it always returns a visible board."""
+    try:
+        res=_v49765_resolve_after_final(decision,data_date)
+    except Exception as e:
+        res={'state':'INTERNAL_FAILSAFE','reason':f'INTERNAL_FAILSAFE:{_v497657_clean_error(e)}','authorized':[],
+             'watches':[],'raw_enter_count':0,'nxt_status':'NOT_RUN','nxt_count':0}
+    try:
+        st=_v49765_time_state(data_date)
+        state=str(res.get('state','')).upper(); auth=list(res.get('authorized',[]) or []); watches=list(res.get('watches',[]) or [])
+        if state=='RESTORED': phase='오늘 AFTER FINAL 복원'
+        elif state=='AFTER_FINAL': phase='15:40+ KRX 종가확정 · NXT AFTER FINAL'
+        elif state=='PRE_FINAL': phase='15:03 PRE-FINAL'
+        elif state in ('DATA_BLOCKED','INFRA_BLOCKED','INTERNAL_FAILSAFE'): phase='15:40+ AFTER FINAL · FAIL-SAFE'
+        elif st['minute'] < 9*60+30: phase='장전 관찰 · 전일 확정종가 기준'
+        elif st['minute'] < 14*60+40: phase='09:30~14:39 장중 관찰'
+        elif st['minute'] < 15*60+3: phase='14:40 PREVIEW'
+        elif st['minute'] < st['start']: phase='15:03 PRE-FINAL/종가확정 대기'
+        else: phase='AFTER FINAL 권한 없음'
+        lines=[f'🚦 [사용자 행동 결론 · {phase}] | v49.76.5.7','──────────']
+        if auth:
+            prefix='🔒 오늘 확정추천 복원' if state=='RESTORED' else '🟢 PAPER ENTER 검토'
+            lines.append(f'- {prefix}: {len(auth)}개 · NXT 지정가만 · 자동주문 0')
+            src=_v497655_clean_text(res.get('authority_source',''))
+            if src=='AUTO_AFTER_FINAL': lines.append('- AFTER FINAL 권한: ✅ 일반 실행 자동승격')
+            elif src=='SCHEDULED_AFTER_FINAL': lines.append('- AFTER FINAL 권한: ✅ 예약/명시 실행')
+            elif src=='EVIDENCE_RESTORE': lines.append('- AFTER FINAL 권한: 🔒 당일 evidence 복원')
+            if res.get('event_time_kst'): lines.append(f"- AFTER FINAL 결정시각: {res.get('event_time_kst')}")
+            lines.append(f"- NXT 거래대상 확인: ✅ {int(res.get('nxt_count',0))}종목 · 공개 목록은 대상여부 확인용")
+            for i,x in enumerate(auth[:2],1):
+                medal='🥇' if i==1 else '🥈'; name=str(x.get('name') or x.get('code') or ''); code=str(x.get('code','')).zfill(6)
+                px=_safe_float(x.get('price',np.nan),np.nan); support=_safe_float(x.get('support',np.nan),np.nan)
+                lines.append(f'{medal} {name}' + (f' ({code})' if code else '') + ' | 🟢 KRX CLOSE STRICT → NXT LIMIT')
+                lines.append(f'   KRX 기준 지정가: ≤ {_v49765_fmt_price(px)} · 미체결/상승 시 추격 금지')
+                if pd.notna(px): lines.append(f'   +3 {_v49765_fmt_price(px*1.03)} · +5 {_v49765_fmt_price(px*1.05)} · 하드 -3 {_v49765_fmt_price(px*0.97)}')
+                if pd.notna(support): lines.append(f'   구조지지: {_v49765_fmt_price(support)}')
+                lines.append('   NXT 실시간호가: 미연동 · 실제 NXT 가격이 지정가 이하일 때만 수동 PAPER 진입')
+        else:
+            lines.append('- 🔴 지금 신규매수: 0개')
+            lines.append(f"- ⛔ 사유: {res.get('reason','UNKNOWN')}")
+            raw_n=int(res.get('raw_enter_count',0) or 0)
+            if raw_n>0:
+                lines.append(f'- 🎯 KRX 종가 STRICT 원신호: {raw_n}개 · 최종 gate와 별도')
+                lines.extend(_v497657_raw_strict_lines(res))
+            if state=='DATA_BLOCKED':
+                lines.append('- M5 final evidence 정상화 전 evidence COMPLETED 잠금 금지 · 20:00 전 다음 실행에서 자동 재검증')
+                lines.append('- NXT 신규조회/추천원장 생성/Telegram 추천 모두 실행하지 않음')
+            elif state=='INFRA_BLOCKED':
+                lines.append('- 인프라 차단은 신호 실패가 아님 · AFTER FINAL 시간창 안에서 복구 시 다음 실행이 자동 재시도')
+            elif state=='INTERNAL_FAILSAFE':
+                lines.append('- 내부 오류가 행동판 밖으로 전파되지 않도록 fail-safe 차단 · 신규추천/자동주문 없음')
+            elif 'EVIDENCE_MISSING_NO_LATE_CREATE' in str(res.get('reason','')):
+                lines.append('- 20:00 이후 뒤늦은 신규추천 생성 금지 · 다음 거래일 재평가')
+        if watches:
+            lines.append('👀 다음 우선관찰')
+            for i,x in enumerate(watches[:2],1):
+                name=str(x.get('name') or x.get('code') or ''); stg=str(x.get('stage','')); tail=[]
+                if x.get('current') is not None: tail.append(f"현재 {_v49765_fmt_price(x.get('current'))}")
+                if x.get('support') is not None: tail.append(f"지지 {_v49765_fmt_price(x.get('support'))}")
+                miss=x.get('missing',[])
+                if isinstance(miss,list) and miss: tail.append('남은조건 '+'·'.join(str(z) for z in miss[:2]))
+                lines.append(f'   {i}. {name} | {stg}' + ((' · '+' · '.join(tail)) if tail else ''))
+        lines.append('- 기준: 신호 계산은 KRX 15:30 확정 일봉 · NXT는 거래대상/실행창만 사용 · 가격 추격 금지')
+        return '\n'.join(lines),bool(auth),res
+    except Exception as e:
+        err=_v497657_clean_error(e)
+        panel=(f'🚦 [사용자 행동 결론 · AFTER FINAL FAIL-SAFE] | v49.76.5.7\n──────────\n'
+               f'- 🔴 지금 신규매수: 0개\n- ⛔ 사유: ACTION_PANEL_FAILSAFE:{err}\n'
+               '- 내부 표시 오류와 무관하게 신규추천/자동주문 0 · 다음 정상 실행에서 재검증')
+        return panel,False,res
+
+
+_V497657_BASE_STRIP = _v49765_strip_old_execution_blocks
+
+def _v497657_strip_legacy_execution(text: str) -> str:
+    s=str(text or '')
+    try:
+        s=_V497657_BASE_STRIP(s)
+    except Exception:
+        pass
+    # Defense in depth: strip any leaked legacy independent TOP execution board.
+    s=re.sub(r'(?ms)^🎯 \[실전 TOP(?:2|3) 실행판[^\n]*\][^\n]*\n[-─]+\n.*?(?=^📚 아래 상세판은 연구/추적용입니다\.|^\[🧭 |\Z)','',s)
+    s=re.sub(r'(?m)^📚 아래 상세판은 연구/추적용입니다\. 실제 판단은 위 TOP 실행판부터 봅니다\.\s*\n?','',s)
+    return s
+
+
+_V497657_BASE_NORMALIZE = _v49765_normalize_detail
+
+def _v49765_normalize_detail(text: str, has_authorized: bool, res: dict) -> str:
+    try:
+        s=_V497657_BASE_NORMALIZE(text,has_authorized,res)
+    except Exception:
+        s=str(text or '')
+    s=_v497657_strip_legacy_execution(s)
+    s=s.replace('v49.76.5.4','v49.76.5.7').replace('v49.76.5.6','v49.76.5.7')
+    state=str((res or {}).get('state','')).upper()
+    if state in ('AFTER_FINAL','RESTORED'):
+        s=s.replace('[🧭 PRE-FINAL/연구 실행보드 · 실제추천 권한 없음]','[🧭 AFTER FINAL 실행근거 · canonical Lifecycle]')
+        s=s.replace('- 15:03 PRE-FINAL에서 후보만 재검증','- AFTER FINAL 시간창 · canonical 종가 신호 재검증 완료')
+        s=s.replace('- 실제 신규추천 최종 권한은 15:40+ KRX 종가확정 AFTER FINAL','- 실제 신규추천 authority는 상단 AFTER FINAL/evidence 결과')
+        s=s.replace('[🧾 실제 추천 원장] PRE-FINAL/일반 실행 · 원장 확정 없음 · 15:40+ AFTER FINAL에서 상위 2개만 최종 재검증',
+                    '[🧾 실제 추천 원장] AFTER FINAL authority 결과만 append/DELIVERED 대상')
+    elif state in ('DATA_BLOCKED','INFRA_BLOCKED','INTERNAL_FAILSAFE'):
+        s=s.replace('[🧭 PRE-FINAL/연구 실행보드 · 실제추천 권한 없음]','[🧭 AFTER FINAL 연구보드 · 최종 gate 차단]')
+        s=s.replace('- 15:03 PRE-FINAL에서 후보만 재검증','- AFTER FINAL 시간대이나 상단 final gate 차단으로 실제추천 없음')
+        s=s.replace('- 실제 신규추천 최종 권한은 15:40+ KRX 종가확정 AFTER FINAL','- 상단 fail-safe 해소 전 실제추천 원장/Telegram 신규추천 금지')
+    return s
+
+
+_V497657_BASE_TRACKER_LINES = _v4938_tracker_lines
+
+def _v4938_tracker_lines(df=None) -> list[str]:
+    """Label same-day raw STRICT/M5-blocked replay separately from normal historical replay."""
+    try:
+        lines=list(_V497657_BASE_TRACKER_LINES(df) or [])
+    except Exception as e:
+        return [f'📍 추천 출처 분리 Forward | v49.76.5.7','──────────',f'- tracker 생성 실패: {_v497657_clean_error(e)}']
+    decision=dict(globals().get('_V4942_LAST_DECISION',{}) or {})
+    blocked=_v497657_m5_blocked_strict_items(decision)
+    if not blocked:
+        return [str(x).replace('v49.76.5.6','v49.76.5.7') for x in lines]
+    today=_now_kst().strftime('%Y-%m-%d')
+    names={_v49764i_name_code(x)[0] for x in blocked}
+    out=[]; active_block=False
+    for line in lines:
+        s=str(line).replace('v49.76.5.6','v49.76.5.7')
+        matched=False
+        if '🧪 REPLAY-RECOMMENDED' in s and f'신호 {today}' in s:
+            for nm in names:
+                if s.startswith(f'- {nm} |'):
+                    s=s.replace('🧪 REPLAY-RECOMMENDED','🧪 REPLAY-BLOCKED-M5')
+                    matched=True; break
+        if matched:
+            active_block=True
+            out.append(s); continue
+        if active_block and s.startswith('  실제추천 증거 없음'):
+            out.append('  원시 STRICT 연구신호 · M5 final gate 미통과 · 실제추천/정상 Replay 성과로 해석 금지')
+            continue
+        if active_block and s.startswith('  정책 '):
+            out.append(s + ' · [FINAL-GATE BLOCKED]')
+            active_block=False
+            continue
+        if s.startswith('- ') and not s.startswith('  ') and active_block:
+            active_block=False
+        out.append(s)
+    # Make section semantics explicit even if a blocked row is below the visible top-N.
+    for i,s in enumerate(out):
+        if s=='[🧪 Historical Replay Forward]':
+            out.insert(i+2,f'- M5 final-gate 차단 원시 STRICT {len(blocked)}개는 REPLAY-BLOCKED-M5로 별도 표기 · 실제추천/정상 Replay 해석 제외')
+            break
+    return out
+
+
+# Build directly from the canonical v49.76.2 report source and make cleanup/panel insertion total.
+def _v4938_build_live_parts(hits_df, execution_all, market_short, cov_short, raw_health):
+    if not callable(_V49765_BASE_LIVE_PARTS):
+        return []
+    parts=_V49765_BASE_LIVE_PARTS(hits_df,execution_all,market_short,cov_short,raw_health)
+    decision={}
+    dd=TODAY_STR
+    try:
+        decision=dict(globals().get('_V4942_LAST_DECISION',{}) or {})
+        dd=(globals().get('_V4938_LAST_HEALTH',{}) or {}).get('latest_data_date') or TODAY_STR
+    except Exception:
+        pass
+    try:
+        panel,has_authorized,res=_v49765_action_panel(decision,dd)
+    except Exception as e:
+        err=_v497657_clean_error(e)
+        panel=(f'🚦 [사용자 행동 결론 · AFTER FINAL FAIL-SAFE] | v49.76.5.7\n──────────\n'
+               f'- 🔴 지금 신규매수: 0개\n- ⛔ 사유: ACTION_WRAPPER_FAILSAFE:{err}\n- 자동주문 0건')
+        has_authorized=False
+        res={'state':'INTERNAL_FAILSAFE','reason':f'ACTION_WRAPPER_FAILSAFE:{err}'}
+    seq=list(parts) if isinstance(parts,(list,tuple)) else [parts]
+    out=[]; injected=False
+    for p in seq:
+        if isinstance(p,str):
+            try: p2=_v49765_normalize_detail(p,has_authorized,res)
+            except Exception: p2=_v497657_strip_legacy_execution(str(p or ''))
+            if not injected:
+                p2=panel+'\n\n'+p2.lstrip(); injected=True
+            out.append(p2)
+        else:
+            out.append(p)
+    if not injected:
+        out.insert(0,panel)
+    if isinstance(parts,tuple): return tuple(out)
+    if isinstance(parts,list): return out
+    return out[0] if len(out)==1 else out
+
+
+# Ledger rows remain driven only by successful AFTER FINAL authority.
+_V497657_BASE_PREP_RECS = _v4943_prepare_live_recommendations
+
+def _v4943_prepare_live_recommendations() -> list[dict]:
+    try:
+        if _V49765_RESTORED:
+            globals()['_V4943_CURRENT_RECOMMENDATIONS']=[]; return []
+        if str((_V49765_CURRENT_DECISION or {}).get('state','')).upper()!='AFTER_FINAL':
+            globals()['_V4943_CURRENT_RECOMMENDATIONS']=[]; return []
+        rows=list(_V497657_BASE_PREP_RECS() or [])
+        out=[]
+        auth=set(_V49765_CURRENT_AUTHORIZED_CODES or set())
+        for r in rows:
+            code=str((r or {}).get('code','') or '').zfill(6)
+            if code not in auth: continue
+            rr=dict(r)
+            rr['note']=str(rr.get('note','')).replace('v49.76.5.6','v49.76.5.7').replace('v49.76.5.5','v49.76.5.7')
+            out.append(rr)
+        globals()['_V4943_CURRENT_RECOMMENDATIONS']=out[:2]
+        return out[:2]
+    except Exception as e:
+        try: log_error(f'⚠️ v49.76.5.7 recommendation bridge fail-safe: {_v497657_clean_error(e)}')
+        except Exception: pass
+        globals()['_V4943_CURRENT_RECOMMENDATIONS']=[]
+        return []
+
+# =============================================================
+# ✅ END V49.76.5.7
 # =============================================================
 
 if __name__ == '__main__':
