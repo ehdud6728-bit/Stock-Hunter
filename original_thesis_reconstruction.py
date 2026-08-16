@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 
 VERSION = "V73.3.6.6.25.2.1"
+HOTFIX = "HF1_ASOF_EMPTY_FRAME_SCALAR_SAFE"
 RESEARCH_ONLY = True
 LIVE_LOGIC_CHANGED = False
 REAL_ORDER_CHANGED = False
@@ -770,6 +771,28 @@ def _pick_col(df: pd.DataFrame, names: Iterable[str]) -> Optional[str]:
     return None
 
 
+def _col_series(df: pd.DataFrame, name: str, default: Any = np.nan) -> pd.Series:
+    """Always return an index-aligned Series; never leak scalar DataFrame.get defaults.
+
+    V25.2.1 HF1: pandas DataFrame.get(name, 0) returns the scalar integer 0 when the
+    column is absent. Chaining .fillna/.eq/.any on that scalar crashed a whole shard.
+    Research-side missing columns must remain row-local evidence gaps, not shard-fatal.
+    """
+    if isinstance(df, pd.DataFrame):
+        if name in df.columns:
+            obj = df[name]
+            if isinstance(obj, pd.Series):
+                return obj
+            # Duplicate column names can return a DataFrame; fail closed to a default Series.
+            return pd.Series(default, index=df.index)
+        return pd.Series(default, index=df.index)
+    return pd.Series(dtype=float)
+
+
+def _num_col(df: pd.DataFrame, name: str, default: float = 0.0) -> pd.Series:
+    return pd.to_numeric(_col_series(df, name, default), errors="coerce").fillna(default)
+
+
 def _write_csv(path: Path, df: pd.DataFrame) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     (df if isinstance(df, pd.DataFrame) else pd.DataFrame()).to_csv(path, index=False, encoding="utf-8-sig")
@@ -880,7 +903,7 @@ def _read_ticker_amount_cache(output_dir: str | Path, code: str) -> pd.DataFrame
         q["date"]=pd.to_datetime(q.get("date"),errors="coerce").dt.normalize()
         q["code"]=q.get("code",pd.Series(_norm_code(code),index=q.index)).map(_norm_code)
         q["actual_amount"]=pd.to_numeric(q.get("actual_amount"),errors="coerce")
-        q["amount_is_actual"]=pd.to_numeric(q.get("amount_is_actual",1),errors="coerce").fillna(0).astype(int)
+        q["amount_is_actual"]=_num_col(q,"amount_is_actual",1).astype(int)
         return q[q["date"].notna() & q["amount_is_actual"].eq(1)].drop_duplicates(["date","code"],keep="last")
     except Exception:
         return pd.DataFrame(columns=["date","code","actual_amount","actual_volume_snapshot","amount_source","amount_is_actual"])
@@ -1065,25 +1088,40 @@ def build_date_sidecar(
             continue
         q = raw.copy(); q.index = pd.to_datetime(q.index, errors="coerce")
         q = q[q.index.notna() & (q.index <= asof)].sort_index().tail(900)
+        # V25.2.1 HF1: a provider can return a non-empty frame whose entire history is
+        # newer than this historical as-of date (e.g. later listing). That is a valid
+        # row-level evidence gap, not a shard failure. Never pass an empty frame into
+        # scalar-default DataFrame.get chains.
+        if q.empty:
+            state_rows.append({
+                "version": VERSION, "signal_date": asof.strftime("%Y-%m-%d"), "code": code, "name": name,
+                "market": market, "sector": sector, "core224_state": "NONE",
+                "evidence_status": "NO_PRICE_HISTORY_ASOF", "amount_is_actual": 0,
+                "actual_amount_observation_days": 0, "actual_amount_history_ready20": 0,
+                "amount_authority_fetch_status": "NOT_APPLICABLE_NO_PRICE_ASOF",
+                "amount_authority_fetch_rows": 0, "amount_authority_source": "MISSING",
+                "research_only": True, "live_logic_changed": False, "real_order_changed": False,
+            })
+            continue
         q = _overlay_actual_amount(q, code, amount_panel)
-        amount_fetch_meta={"fetch_status":"NOT_NEEDED","fetch_rows":0,"authority_rows":int(pd.to_numeric(q.get("amount_is_actual",0),errors="coerce").fillna(0).eq(1).sum()),"source":"CROSS_SECTION_OR_INPUT"}
+        amount_fetch_meta={"fetch_status":"NOT_NEEDED","fetch_rows":0,"authority_rows":int(_num_col(q,"amount_is_actual",0).eq(1).sum()),"source":"CROSS_SECTION_OR_INPUT"}
         try:
             daily, events, inv = evaluate_core224(q)
             # V25.2 two-pass authority recovery: only names that ever satisfy the price/MA224 base
             # lens are allowed to trigger a per-ticker turnover request. This avoids thousands of
             # unnecessary calls while still recovering names that could progress once actual flow
             # evidence exists.
-            actual_days=int(pd.to_numeric(q.get("amount_is_actual",0),errors="coerce").fillna(0).eq(1).sum())
+            actual_days=int(_num_col(q,"amount_is_actual",0).eq(1).sum())
             potential_base=bool(
                 (not daily.empty) and (
                     daily.get("core224_state",pd.Series(dtype=str)).astype(str).eq("CORE224_BASE").any()
-                    or pd.to_numeric(daily.get("base_lens_strict224",0),errors="coerce").fillna(0).eq(1).any()
-                    or pd.to_numeric(daily.get("base_lens_structural",0),errors="coerce").fillna(0).eq(1).any()
+                    or _num_col(daily,"base_lens_strict224",0).eq(1).any()
+                    or _num_col(daily,"base_lens_structural",0).eq(1).any()
                 )
             )
             if actual_days < Core224Config().actual_amount_min_history_days and potential_base and callable(actual_amount_history_reader):
                 lookback=max(40,int(Core224Config().actual_amount_fetch_lookback_sessions))
-                _dates=pd.to_datetime(daily.get("date"),errors="coerce").dropna()
+                _dates=pd.to_datetime(_col_series(daily,"date",pd.NaT),errors="coerce").dropna()
                 _start=_dates.iloc[max(0,len(_dates)-lookback)] if len(_dates) else max(q.index.min(),asof-pd.Timedelta(days=500))
                 recovered,amount_fetch_meta=recover_ticker_actual_amount_history(
                     output_dir,code,_start,asof,actual_amount_history_reader,
@@ -1110,8 +1148,8 @@ def build_date_sidecar(
             "amount_ratio_prev_vs20": meta.get("amount_ratio_prev_vs20", np.nan),
             "latest_price_date": latest_price_date.strftime("%Y-%m-%d") if pd.notna(latest_price_date) else "",
             "signal_date_price_present": int(pd.notna(latest_price_date) and latest_price_date.normalize() == asof),
-            "actual_amount_observation_days": int(pd.to_numeric(q.get("amount_is_actual",0),errors="coerce").fillna(0).eq(1).sum()),
-            "actual_amount_history_ready20": int(pd.to_numeric(q.get("amount_is_actual",0),errors="coerce").fillna(0).eq(1).sum() >= Core224Config().actual_amount_min_history_days),
+            "actual_amount_observation_days": int(_num_col(q,"amount_is_actual",0).eq(1).sum()),
+            "actual_amount_history_ready20": int(_num_col(q,"amount_is_actual",0).eq(1).sum() >= Core224Config().actual_amount_min_history_days),
             "amount_authority_fetch_status": amount_fetch_meta.get("fetch_status","UNKNOWN"),
             "amount_authority_fetch_rows": amount_fetch_meta.get("fetch_rows",0),
             "amount_authority_source": amount_fetch_meta.get("source","MISSING"),
@@ -1146,17 +1184,17 @@ def build_date_sidecar(
     if state_rows:
         s = pd.DataFrame(state_rows)
         if "sector" in s.columns:
-            ret = pd.to_numeric(s.get("day_return_pct"), errors="coerce")
+            ret = _num_col(s,"day_return_pct",np.nan)
             s["_up"] = ret.gt(0)
             stats = s[s["sector"].fillna("").astype(str).str.len().gt(0)].groupby("sector", dropna=False).agg(
                 sector_peer_count=("code","nunique"), sector_peer_up_count=("_up","sum")
             ).reset_index()
             stats["sector_peer_up_ratio"] = stats["sector_peer_up_count"] / stats["sector_peer_count"].replace(0,np.nan)
             s = s.merge(stats, on="sector", how="left")
-            s["sector_context_known"] = (pd.to_numeric(s.get("sector_peer_count"),errors="coerce").fillna(0) >= 3).astype(int)
+            s["sector_context_known"] = (_num_col(s,"sector_peer_count",0) >= 3).astype(int)
             s["sector_confirmation_heuristic60"] = np.where(
                 s["sector_context_known"].eq(1),
-                (pd.to_numeric(s.get("sector_peer_up_ratio"),errors="coerce") >= 0.60).astype(int),
+                (_num_col(s,"sector_peer_up_ratio",np.nan) >= 0.60).astype(int),
                 np.nan,
             )
             s["sector_confirmation_role"] = "AUX_OBSERVATION_NON_GATING"
@@ -1263,8 +1301,8 @@ def _manual_ledger(state: pd.DataFrame, false_per_date: int = 5) -> pd.DataFrame
     q = state.copy()
     active = q.get("core224_state", pd.Series("NONE", index=q.index)).astype(str).ne("NONE")
     boundary = (~active) & (
-        pd.to_numeric(q.get("base_lens_structural",0),errors="coerce").fillna(0).eq(1)
-        | pd.to_numeric(q.get("base_lens_near224",0),errors="coerce").fillna(0).eq(1)
+        _num_col(q,"base_lens_structural",0).eq(1)
+        | _num_col(q,"base_lens_near224",0).eq(1)
     )
     q["audit_bucket"] = np.where(active, "TRUE_CANDIDATE", np.where(boundary, "BOUNDARY", "FALSE_POOL"))
     keep_mask = active | boundary
@@ -1321,8 +1359,8 @@ def _amount_authority_coverage(state: pd.DataFrame) -> pd.DataFrame:
     q=state.copy()
     rows=[]
     for d,g in q.groupby("signal_date",dropna=False):
-        actual=pd.to_numeric(g.get("amount_valid"),errors="coerce").fillna(0).eq(1)
-        ready=pd.to_numeric(g.get("actual_amount_history_ready20"),errors="coerce").fillna(0).eq(1)
+        actual=_num_col(g,"amount_valid",0).eq(1)
+        ready=_num_col(g,"actual_amount_history_ready20",0).eq(1)
         st=g.get("amount_authority_fetch_status",pd.Series("",index=g.index)).fillna("").astype(str)
         rows.append({
             "signal_date":d,"rows":len(g),"actual_today_rows":int(actual.sum()),
@@ -1448,8 +1486,8 @@ def strip_stale_blocks(text: str) -> str:
 
 def build_report(out: Path, state: pd.DataFrame, events: pd.DataFrame, inv: pd.DataFrame, activation: pd.DataFrame, universe: pd.DataFrame, formula: pd.DataFrame, transfer: pd.DataFrame) -> str:
     a=activation.iloc[-1] if not activation.empty else pd.Series(dtype=object)
-    complete=int(pd.to_numeric(universe.get("complete"),errors="coerce").fillna(0).sum()) if not universe.empty else 0
-    fallback=int(pd.to_numeric(universe.get("fallback_used"),errors="coerce").fillna(0).sum()) if not universe.empty else 0
+    complete=int(_num_col(universe,"complete",0).sum()) if not universe.empty else 0
+    fallback=int(_num_col(universe,"fallback_used",0).sum()) if not universe.empty else 0
     tr=transfer.iloc[-1] if not transfer.empty else pd.Series(dtype=object)
     counts=state.get("core224_state",pd.Series(dtype=str)).astype(str).value_counts().to_dict() if not state.empty else {}
     pipeline_status=str(a.get("pipeline_status","UNKNOWN"))
@@ -1498,9 +1536,9 @@ def finalize(
     source=audit_source(source_file)
     universe=_reconcile_universe(payloads)
     transfer=_pattern_only_transfer(out)
-    actual_known=int(pd.to_numeric(state.get("amount_valid"),errors="coerce").fillna(0).eq(1).sum()) if not state.empty else 0
-    market_known=int(pd.to_numeric(state.get("market_context_known"),errors="coerce").fillna(0).eq(1).sum()) if not state.empty else 0
-    sector_known=int(pd.to_numeric(state.get("sector_context_known"),errors="coerce").fillna(0).eq(1).sum()) if not state.empty else 0
+    actual_known=int(_num_col(state,"amount_valid",0).eq(1).sum()) if not state.empty else 0
+    market_known=int(_num_col(state,"market_context_known",0).eq(1).sum()) if not state.empty else 0
+    sector_known=int(_num_col(state,"sector_context_known",0).eq(1).sum()) if not state.empty else 0
     _sidecar_dates=sum(1 for z in payloads if isinstance(z.get("runtime_sidecars",{}),dict) and "V25_CORE224_ROWS" in z.get("runtime_sidecars",{}))
     _pipeline_ok = bool(len(payloads) > 0 and _sidecar_dates == len(payloads) and len(state) > 0 and len(formula) == 66 and len(universe) == len(payloads))
     activation=pd.DataFrame([{
@@ -1509,12 +1547,12 @@ def finalize(
         "core224_rows":len(state),"transition_rows":len(event),"invariant_fail_rows":len(inv),"restart_rows":int(state.get("core224_state",pd.Series(dtype=str)).astype(str).eq("CORE224_RESTART").sum()) if not state.empty else 0,
         "manual_audit_rows":len(manual),"manual_sample_rows":len(manual_sample),
         "actual_amount_known_rows":actual_known,
-        "actual_amount_history20_ready_rows":int(pd.to_numeric(state.get("actual_amount_history_ready20"),errors="coerce").fillna(0).eq(1).sum()) if not state.empty else 0,
+        "actual_amount_history20_ready_rows":int(_num_col(state,"actual_amount_history_ready20",0).eq(1).sum()) if not state.empty else 0,
         "actual_amount_fetch_rows":int(state.get("amount_authority_fetch_status",pd.Series(dtype=str)).astype(str).eq("FETCHED").sum()) if not state.empty else 0,
         "market_context_known_rows":market_known,"sector_context_known_rows":sector_known,
         "formula_audit_rows":len(formula),"formula_expected":66,"formula_count_ok":int(len(formula)==66),
-        "historical_asof_days":len(universe),"historical_complete_days":int(pd.to_numeric(universe.get("complete"),errors="coerce").fillna(0).sum()) if not universe.empty else 0,
-        "historical_fallback_days":int(pd.to_numeric(universe.get("fallback_used"),errors="coerce").fillna(0).sum()) if not universe.empty else 0,
+        "historical_asof_days":len(universe),"historical_complete_days":int(_num_col(universe,"complete",0).sum()) if not universe.empty else 0,
+        "historical_fallback_days":int(_num_col(universe,"fallback_used",0).sum()) if not universe.empty else 0,
         "pattern_only_transfer_match":int(transfer.iloc[-1].get("transfer_match",0)) if not transfer.empty else 0,
         "live_logic_changed":False,"real_order_changed":False,"parent_top500_recompute_allowed":False,
         "generated_at":datetime.now(timezone.utc).isoformat(timespec="seconds"),

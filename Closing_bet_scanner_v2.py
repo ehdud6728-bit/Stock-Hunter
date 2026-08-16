@@ -80,8 +80,8 @@ def _env_float(name: str, default: float = 0.0) -> float:
         except Exception:
             return 0.0
 
-CLOSING_BET_SCANNER_VERSION = 'G_MORALES_V4_4_9_53_8_49_76_5_11_AUDIT_METRIC_BASELINE_PROVENANCE_FINALIZATION_20260816'
-CLOSING_BET_RELEASE_TAG = 'v49.76.5.11'
+CLOSING_BET_SCANNER_VERSION = 'G_MORALES_V4_4_9_53_8_49_76_5_12_PAST_SESSION_M5_PROVENANCE_DISPLAY_FINALIZATION_20260816'
+CLOSING_BET_RELEASE_TAG = 'v49.76.5.12'
 CLOSING_BET_LIVE_PRICE_SANITY_FIX = str(os.environ.get('CLOSING_BET_LIVE_PRICE_SANITY_FIX', '1')).lower() in ('1', 'true', 'yes', 'y', 'on')
 CLOSING_BET_LIVE_READABILITY_COMPACT = str(os.environ.get('CLOSING_BET_LIVE_READABILITY_COMPACT', '1')).lower() in ('1', 'true', 'yes', 'y', 'on')
 # v53.8.42: M5R TRUE60 검증용 장기 월봉 확보. 60개월 월선 계산에는 약 7년 일봉이 필요하다.
@@ -49538,6 +49538,212 @@ def _v4976510_finalize_ledger_note(note: str) -> str:
 
 # =============================================================
 # ✅ END V49.76.5.11
+# =============================================================
+
+
+# =============================================================
+# ✅ V49.76.5.12 PAST-SESSION M5 PROVENANCE DISPLAY FINALIZATION
+# -------------------------------------------------------------
+# Display/provenance-only scope:
+# - A current rerun M5 MISSING/low-coverage state may make a PAST_SESSION audit
+#   NOT_COMPARABLE, but it must NEVER be back-projected as the historical LIVE
+#   final-gate failure reason for that closed session.
+# - PAST_SESSION + no LIVE completed evidence keeps same-session replay rows as
+#   REPLAY-NO-LIVE-EVIDENCE, regardless of the current rerun M5 fetch state.
+# - REPLAY-BLOCKED-M5 wording remains valid only for SAME_SESSION_DAY where the
+#   actual final-gate decision itself is M5-blocked.
+# - Replace wall-clock "today evidence" wording with canonical session wording.
+# - Search/rank/STRICT thresholds, M5 minimum coverage, MARCAP/PIT, P1, NXT,
+#   AFTER FINAL recommendation authority, PAPER-only and auto-order policy unchanged.
+# =============================================================
+try:
+    print("✅ V49.76.5.12 PAST_SESSION_M5_PROVENANCE_DISPLAY_FINALIZATION LOADED")
+except Exception:
+    pass
+
+
+def _v4976512_is_past_session(res: dict | None = None, data_date=None) -> tuple[bool,str]:
+    """Return canonical past-session relation without consulting current M5 state."""
+    r=dict(res or {})
+    relation=str(r.get('session_relation','') or '')
+    sess=str(r.get('session_date') or r.get('data_date') or '')
+    if relation=='PAST_SESSION':
+        return True,sess
+    try:
+        st=_v497659_session_state(data_date or sess or None)
+        return bool(st.get('relation')=='PAST_SESSION'),str(st.get('session_date') or sess)
+    except Exception:
+        return False,sess
+
+
+_V4976512_BASE_ACTION_PANEL = _v49765_action_panel
+
+def _v49765_action_panel(decision: dict, data_date=None) -> tuple[str,bool,dict]:
+    """Past-session wording is keyed to canonical session_date, not wall-clock today."""
+    try:
+        panel,has_authorized,res=_V4976512_BASE_ACTION_PANEL(decision,data_date)
+    except Exception as e:
+        err=_v497657_clean_error(e) if '_v497657_clean_error' in globals() else f'{type(e).__name__}:{e}'
+        res={'state':'INTERNAL_FAILSAFE','reason':f'INTERNAL_FAILSAFE:{err}','authorized':[],
+             'watches':[],'raw_enter_count':0,'raw_strict_items':[]}
+        panel=(f'🚦 [사용자 행동 결론 · SESSION AUTHORITY FAIL-SAFE] | v49.76.5.12\n──────────\n'
+               f'- 🔴 지금 신규매수: 0개\n- ⛔ 사유: ACTION_PANEL_FAILSAFE:{err}\n- 자동주문 0건')
+        return panel,False,res
+    s=str(panel or '')
+    for old in ('v49.76.5.11','v49.76.5.10','v49.76.5.9','v49.76.5.8','v49.76.5.7','v49.76.5.4'):
+        s=s.replace(old,'v49.76.5.12')
+    is_past,sess=_v4976512_is_past_session(res,data_date)
+    if is_past and sess:
+        s=s.replace('- ⏰ 20:00 마감 이후 · 오늘 COMPLETED evidence 없음 · 뒤늦은 PAPER 추천/Telegram/원장 신규생성 금지',
+                    f'- ⏰ {sess} 세션 20:00 마감 이후 · 해당 세션 COMPLETED evidence 없음 · 뒤늦은 PAPER 추천/Telegram/원장 신규생성 금지')
+        s=s.replace('- ⏰ AFTER FINAL 실행창 종료 · 오늘 COMPLETED evidence 없음',
+                    f'- ⏰ {sess} AFTER FINAL 실행창 종료 · 해당 세션 COMPLETED evidence 없음')
+    return s,bool(has_authorized),res
+
+
+_V4976512_BASE_NORMALIZE = _v49765_normalize_detail
+
+def _v49765_normalize_detail(text: str, has_authorized: bool, res: dict) -> str:
+    """Normalize past-session research text without back-projecting rerun M5 failures."""
+    try:
+        s=_V4976512_BASE_NORMALIZE(text,has_authorized,res)
+    except Exception:
+        s=str(text or '')
+    for old in ('v49.76.5.11','v49.76.5.10','v49.76.5.9','v49.76.5.8','v49.76.5.7','v49.76.5.4'):
+        s=s.replace(old,'v49.76.5.12')
+    is_past,sess=_v4976512_is_past_session(res,None)
+    if not is_past:
+        return s
+
+    # Current rerun M5 health is advisory only for a closed historical session.
+    s=s.replace('- ⚫ 판단보류 · 정합성 확인 필요',
+                '- 📚 과거세션 연구판 · 현재 재수집 데이터 정합성 확인 필요 · 실행권한 영향 없음')
+    s=s.replace('- 🌐 시장: 확인 필요 · M5 미확인 · 자동주문 0건',
+                '- 🌐 현재 재수집 M5: 미확인 · 과거세션 실행 authority 영향 없음 · 자동주문 0건')
+    s=s.replace(' | ⚫ M5 확인 실패·신규 ENTRY 보류',
+                ' | 🎯 과거 STRICT 원신호 · 현재 M5 재수집 미확인')
+    s=s.replace('근거: Lifecycle ENTRY·위험가드 통과 · M5 MISSING ·',
+                '근거: Lifecycle ENTRY·위험가드 통과 · 현재 재수집 M5 MISSING · 과거세션 final-gate provenance로 소급하지 않음 ·')
+    s=s.replace('행동: M5 evidence 정상화 전 신규 PAPER ENTRY 금지',
+                '행동: 과거세션 실행권한 종료 · 뒤늦은 진입 금지 · 현재 M5 상태는 재현성 감사에만 사용')
+    if sess:
+        s=s.replace('오늘 COMPLETED evidence 없음','해당 세션 COMPLETED evidence 없음')
+        s=s.replace('오늘 매수 후보 0','과거세션 실행 후보 0')
+    return s
+
+
+_V4976512_BASE_TRACKER_LINES = _v4938_tracker_lines
+
+def _v4938_tracker_lines(df=None) -> list[str]:
+    """Finalize Replay provenance: current rerun M5 cannot rewrite a past session."""
+    try:
+        lines=list(_V4976512_BASE_TRACKER_LINES(df) or [])
+    except Exception as e:
+        return ['📍 추천 출처 분리 Forward | v49.76.5.12','──────────',f'- tracker 생성 실패: {type(e).__name__}:{e}']
+    out=[]
+    for x in lines:
+        s=str(x)
+        for old in ('v49.76.5.11','v49.76.5.10','v49.76.5.9','v49.76.5.8','v49.76.5.7','v49.76.5.4'):
+            s=s.replace(old,'v49.76.5.12')
+        out.append(s)
+
+    cur=dict(globals().get('_V49765_CURRENT_DECISION',{}) or {})
+    is_past,sess=_v4976512_is_past_session(cur,None)
+    if not is_past or not sess:
+        return out
+
+    state=str(cur.get('state','') or '').upper()
+    reason=str(cur.get('reason','') or '')
+    no_live=(state!='RESTORED' and (
+        'EVIDENCE_MISSING_NO_LATE_CREATE' in reason or
+        'SESSION_EVIDENCE_LEDGER_UNAVAILABLE_RESTORE_ONLY' in reason or
+        'NO_LATE_CREATE' in reason
+    ))
+
+    # Remove stale v5.7 explanatory note. On a PAST_SESSION rerun the current M5
+    # fetch says only whether this rerun is comparable; it is not historical gate evidence.
+    filtered=[s for s in out if 'M5 final-gate 차단 원시 STRICT' not in s]
+    if not no_live:
+        return filtered
+
+    final=[]; active=False
+    for line in filtered:
+        s=str(line)
+        matched=False
+        if f'신호 {sess}' in s and any(tag in s for tag in (
+            '🧪 REPLAY-RECOMMENDED','🧪 REPLAY-BLOCKED-M5','🧪 REPLAY-NO-LIVE-EVIDENCE')):
+            s=s.replace('🧪 REPLAY-RECOMMENDED','🧪 REPLAY-NO-LIVE-EVIDENCE')
+            s=s.replace('🧪 REPLAY-BLOCKED-M5','🧪 REPLAY-NO-LIVE-EVIDENCE')
+            matched=True
+        if matched:
+            active=True; final.append(s); continue
+        if active and (s.startswith('  실제추천 증거 없음') or s.startswith('  원시 STRICT 연구신호') or s.startswith('  원시 STRICT/Replay 연구신호')):
+            final.append(f'  {sess} 원시 STRICT/Replay 연구신호 · LIVE COMPLETED evidence 없음 · 현재 재수집 M5 상태를 과거 gate 사유로 소급하지 않음 · 실제추천 성과로 해석 금지')
+            continue
+        if active and s.startswith('  정책 '):
+            s=s.replace(' · [FINAL-GATE BLOCKED]','').replace('[FINAL-GATE BLOCKED]','')
+            if '[NO LIVE EVIDENCE]' not in s:
+                s=s.rstrip()+' · [NO LIVE EVIDENCE]'
+            final.append(s); active=False; continue
+        if active and s.startswith('- ') and not s.startswith('  '):
+            active=False
+        final.append(s)
+
+    # Ensure the section explains the correct priority once, without current-M5 back projection.
+    try:
+        idx=final.index('[🧪 Historical Replay Forward]')
+        note=f'- 기준 세션 {sess} · LIVE evidence 없는 동일 세션 신호는 REPLAY-NO-LIVE-EVIDENCE · 현재 재수집 M5는 재현성 비교 가능 여부에만 사용'
+        if note not in final:
+            final.insert(idx+2,note)
+    except Exception:
+        pass
+    return final
+
+
+_V4976512_BASE_BUILD_LIVE_PARTS = _v4938_build_live_parts
+
+def _v4938_build_live_parts(hits_df, execution_all, market_short, cov_short, raw_health):
+    parts=_V4976512_BASE_BUILD_LIVE_PARTS(hits_df,execution_all,market_short,cov_short,raw_health)
+    seq=list(parts) if isinstance(parts,(list,tuple)) else [parts]
+    out=[]
+    for x in seq:
+        if not isinstance(x,str):
+            out.append(x); continue
+        s=x
+        for old in ('v49.76.5.11','v49.76.5.10','v49.76.5.9','v49.76.5.8','v49.76.5.7','v49.76.5.4'):
+            s=s.replace(old,'v49.76.5.12')
+        out.append(s)
+    if isinstance(parts,tuple): return tuple(out)
+    if isinstance(parts,list): return out
+    return out[0] if len(out)==1 else out
+
+
+_V4976512_BASE_PREP_RECS = _v4943_prepare_live_recommendations
+
+def _v4943_prepare_live_recommendations() -> list[dict]:
+    try: rows=list(_V4976512_BASE_PREP_RECS() or [])
+    except Exception: rows=[]
+    out=[]
+    for r in rows:
+        rr=dict(r or {})
+        for old in ('v49.76.5.11','v49.76.5.10','v49.76.5.9','v49.76.5.8','v49.76.5.7'):
+            rr['note']=str(rr.get('note','')).replace(old,'v49.76.5.12')
+        out.append(rr)
+    globals()['_V4943_CURRENT_RECOMMENDATIONS']=out[:2]
+    return out[:2]
+
+
+_V4976512_BASE_LEDGER_NOTE = _v4976510_finalize_ledger_note
+
+def _v4976510_finalize_ledger_note(note: str) -> str:
+    try: s=_V4976512_BASE_LEDGER_NOTE(note)
+    except Exception: s=str(note or '')
+    for old in ('v49.76.5.11','v49.76.5.10','v49.76.5.9','v49.76.5.8','v49.76.5.7'):
+        s=str(s).replace(old,'v49.76.5.12')
+    return s
+
+# =============================================================
+# ✅ END V49.76.5.12
 # =============================================================
 
 if __name__ == '__main__':
