@@ -5934,8 +5934,33 @@ def load_krx_listing_safe():
     except Exception as e:
         log_info(f"⚠️ FDR 실패: {type(e).__name__}: {e}")
 
+    # V25.1.1 shard universe outage guard:
+    # Matrix shard workers run before the parent job and must not depend on a fresh KRX/pykrx
+    # response just to reconstruct the same broad scan seed.  If the branch-persistent V73
+    # listing cache was restored by the workflow, prefer that read-only seed first.  This does
+    # NOT make a historical-as-of membership claim; historical_asof_universe keeps its own
+    # provenance/fallback accounting.  Normal LIVE/non-shard execution keeps the old order.
+    try:
+        _is_v23_shard = str(os.environ.get('V23_SHARD_WORKER_ONLY', '0')).strip().lower() in ('1','true','yes','on')
+    except Exception:
+        _is_v23_shard = False
+    if _is_v23_shard:
+        try:
+            cached, source = _v7321_load_listing_cache()
+            if _v7321_listing_valid(cached, 500):
+                _V7321_LISTING_SOURCE = f'{source}_SHARD_SEED'
+                os.environ['V73_LISTING_SOURCE'] = _V7321_LISTING_SOURCE
+                log_info(f"♻️ V25.1.1 shard listing seed 우선복구: {len(cached)}개 | source={_V7321_LISTING_SOURCE}")
+                return cached
+            elif cached is not None and not cached.empty:
+                log_info(f"⚠️ V25.1.1 shard listing seed 부족: {len(cached)}개 < 500 | live provider fallback 시도")
+        except Exception as _seed_e:
+            log_info(f"⚠️ V25.1.1 shard listing seed 복구 실패: {type(_seed_e).__name__}: {_seed_e}")
+
     # 2) pykrx.  Today can be empty after close, on holidays, or during an outage;
     # retry recent calendar days and accept only broad KOSPI+KOSDAQ coverage.
+    # pykrx may print provider/JSON errors internally; keep the scanner log concise and
+    # report only our summarized failure lines.
     log_info("📡 pykrx 최근 거래일 시세로 종목 리스트 구성 중...")
     for back in range(0, 12):
         query_dt = datetime.now() - timedelta(days=back)
@@ -5943,7 +5968,13 @@ def load_krx_listing_safe():
         dfs = []
         for market in ('KOSPI', 'KOSDAQ'):
             try:
-                df_m = stock.get_market_ohlcv(ymd, market=market)
+                try:
+                    import io as _io2, contextlib as _contextlib2
+                    _pykrx_capture = _io2.StringIO()
+                    with _contextlib2.redirect_stdout(_pykrx_capture), _contextlib2.redirect_stderr(_pykrx_capture):
+                        df_m = stock.get_market_ohlcv(ymd, market=market)
+                except Exception:
+                    raise
                 if df_m is None or df_m.empty:
                     continue
                 df_m = df_m.reset_index()
@@ -5998,6 +6029,13 @@ def load_krx_listing_safe():
         'Close': pd.Series(dtype='float64'), 'Amount': pd.Series(dtype='float64'),
         'Marcap': pd.Series(dtype='float64'), 'ChangeRate': pd.Series(dtype='float64'),
     })
+
+
+# V73.3.6.6.25.1.1 SHARD UNIVERSE OUTAGE RECOVERY
+# - shard-first branch-persistent listing seed restore
+# - pykrx internal JSON/provider spam suppression
+# - LIVE/non-shard listing order unchanged
+_V733662511_SHARD_UNIVERSE_GUARD = True
 
 
 def get_stock_sector(ticker, sector_map):
