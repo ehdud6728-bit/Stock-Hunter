@@ -80,8 +80,8 @@ def _env_float(name: str, default: float = 0.0) -> float:
         except Exception:
             return 0.0
 
-CLOSING_BET_SCANNER_VERSION = 'G_MORALES_V4_4_9_53_8_49_76_5_9_CANONICAL_SESSION_DATE_AUTHORITY_20260815'
-CLOSING_BET_RELEASE_TAG = 'v49.76.5.9'
+CLOSING_BET_SCANNER_VERSION = 'G_MORALES_V4_4_9_53_8_49_76_5_10_SESSION_AUTHORITY_FULL_PROPAGATION_REPLAY_AUDIT_20260816'
+CLOSING_BET_RELEASE_TAG = 'v49.76.5.10'
 CLOSING_BET_LIVE_PRICE_SANITY_FIX = str(os.environ.get('CLOSING_BET_LIVE_PRICE_SANITY_FIX', '1')).lower() in ('1', 'true', 'yes', 'y', 'on')
 CLOSING_BET_LIVE_READABILITY_COMPACT = str(os.environ.get('CLOSING_BET_LIVE_READABILITY_COMPACT', '1')).lower() in ('1', 'true', 'yes', 'y', 'on')
 # v53.8.42: M5R TRUE60 검증용 장기 월봉 확보. 60개월 월선 계산에는 약 7년 일봉이 필요하다.
@@ -13752,6 +13752,10 @@ def _send_results(hits: list, mins_left: int):
                 _v4943_note='[🧾 실제 추천 원장] PRE-FINAL/일반 실행 · 원장 확정 없음 · 15:40+ AFTER FINAL에서 상위 2개만 최종 재검증'
             else:
                 _v4943_note='[🧾 실제 추천 원장] 신규 ENTER 0개 · 이번 회차 추천행 없음'
+        _v4976510_ledger_fn=globals().get('_v4976510_finalize_ledger_note')
+        if callable(_v4976510_ledger_fn):
+            try: _v4943_note=_v4976510_ledger_fn(_v4943_note)
+            except Exception: pass
         sections[0]=str(sections[0]).rstrip()+'\n\n'+_v4943_note
 
     def _v49761_split_sections(_sections):
@@ -48888,6 +48892,360 @@ def _v4943_prepare_live_recommendations() -> list[dict]:
 
 # =============================================================
 # ✅ END V49.76.5.9
+# =============================================================
+
+
+# =============================================================
+# ✅ V49.76.5.10 SESSION AUTHORITY FULL PROPAGATION + SAME-SESSION REPLAY AUDIT
+# -------------------------------------------------------------
+# Scope only:
+# - canonical_session_date propagates through Action Panel, Forward/Replay and ledger summary.
+# - Forward/Replay is rebuilt AFTER action authority has resolved, fixing one-call-late session state.
+# - Existing M5 coverage warning threshold becomes the production final-gate minimum; low coverage fails closed.
+# - Add advisory SESSION_STRICT_AUDIT snapshots so later same-session reruns can be compared to the closed-session baseline.
+# - Incomplete universe reruns are explicitly NOT_COMPARABLE instead of silently changing the historical STRICT population.
+# - Search/rank/STRICT thresholds, MARCAP/PIT, P1 and automatic-order policy remain unchanged.
+# =============================================================
+try:
+    print("✅ V49.76.5.10 SESSION_AUTHORITY_FULL_PROPAGATION_REPLAY_AUDIT LOADED")
+except Exception:
+    pass
+
+CLOSING_BET_V4976510_M5_MIN_COVERAGE_PCT = max(
+    0.0, min(100.0, float(os.environ.get(
+        'CLOSING_BET_V4976510_M5_MIN_COVERAGE_PCT',
+        str(globals().get('CLOSING_BET_HTS_M5_COVERAGE_WARN_PCT', 90.0))
+    ) or 90.0)))
+CLOSING_BET_V4976510_SESSION_REPLAY_MIN_UNIVERSE_PCT = max(
+    0.0, min(100.0, float(os.environ.get('CLOSING_BET_V4976510_SESSION_REPLAY_MIN_UNIVERSE_PCT','80.0') or 80.0)))
+CLOSING_BET_V4976510_SESSION_AUDIT_ENABLE = str(os.environ.get('CLOSING_BET_V4976510_SESSION_AUDIT_ENABLE','1')).lower() in ('1','true','yes','y','on')
+CLOSING_BET_V4976510_SESSION_AUDIT_TAB = str(os.environ.get('CLOSING_BET_V4976510_SESSION_AUDIT_TAB','SESSION_STRICT_AUDIT')).strip() or 'SESSION_STRICT_AUDIT'
+
+_V4976510_AUDIT_HEADERS = [
+    'audit_id','checked_at_kst','run_date','session_date','version','run_mode','phase','relation',
+    'requested','processed','universe_target','request_pct','load_pct','m5_coverage_pct','m5_status',
+    'raw_strict_count','raw_strict_codes_json','raw_strict_names_json','comparable','comparison_status',
+    'baseline_audit_id','baseline_strict_count','missing_codes_json','added_codes_json','note'
+]
+_V4976510_LAST_SESSION_AUDIT = {}
+
+
+# ----- M5 production coverage hard gate -----
+_V4976510_BASE_M5_CONTEXT = _v4949_live_m5_context
+
+def _v4949_live_m5_context(cov_short: str, data_date=None) -> dict:
+    """M5 fetch existence alone is not enough for production AFTER FINAL authority.
+
+    Reuse the already-existing M5 coverage warning threshold as the minimum final-gate
+    coverage. This changes only data-health authority, not the strategy/search threshold.
+    """
+    try:
+        ctx=dict(_V4976510_BASE_M5_CONTEXT(cov_short,data_date) or {})
+    except Exception:
+        ctx={'status':'UNKNOWN','coverage_pct':np.nan,'source':'LIVE_REPORT_COVERAGE_SNAPSHOT',
+             'data_date':str(data_date or TODAY_STR),'fetch_status':'MISSING'}
+    cov=_safe_float(ctx.get('coverage_pct',np.nan),np.nan)
+    min_cov=float(CLOSING_BET_V4976510_M5_MIN_COVERAGE_PCT)
+    if pd.isna(cov):
+        ctx['status']='UNKNOWN'; ctx['production_gate_ok']=False
+        ctx['coverage_gate_status']='MISSING'
+    elif cov + 1e-9 < min_cov:
+        ctx['status']='INSUFFICIENT_COVERAGE'; ctx['production_gate_ok']=False
+        ctx['coverage_gate_status']='INSUFFICIENT'
+        ctx['fetch_status']=f'COVERAGE_BELOW_MIN:{cov:.1f}<{min_cov:.1f}'
+    else:
+        ctx['status']='VALID'; ctx['production_gate_ok']=True
+        ctx['coverage_gate_status']='VALID'
+    ctx['min_coverage_pct']=min_cov
+    return ctx
+
+
+
+# ----- Explicit M5 low-coverage final-gate reason -----
+_V4976510_BASE_RESOLVE = _v49765_resolve_after_final
+
+def _v49765_resolve_after_final(decision: dict, data_date=None) -> dict:
+    res=dict(_V4976510_BASE_RESOLVE(decision,data_date) or {})
+    try:
+        if str(res.get('state','')).upper()=='DATA_BLOCKED' and str(res.get('reason',''))=='M5_FINAL_EVIDENCE_MISSING':
+            low=False
+            for it in list(res.get('raw_strict_items',[]) or []):
+                txt=' '.join([
+                    str((it or {}).get('label','') or ''),
+                    ' '.join(str(x) for x in ((it or {}).get('reasons',[]) or [])),
+                    str((it or {}).get('next','') or '')
+                ]).upper()
+                if 'COVERAGE_BELOW_MIN' in txt or 'INSUFFICIENT_COVERAGE' in txt:
+                    low=True; break
+            if low:
+                res['reason']='M5_FINAL_COVERAGE_INSUFFICIENT'
+                res['evidence_gate_phase']='M5_COVERAGE_RETRYABLE_FINAL_GATE'
+    except Exception:
+        pass
+    globals()['_V49765_CURRENT_DECISION']=res
+    return res
+
+
+# ----- Session audit persistence (advisory only; never recommendation authority) -----
+def _v4976510_phase(st: dict) -> str:
+    if str(st.get('relation',''))=='PAST_SESSION': return 'PAST_REPLAY'
+    if str(st.get('relation',''))=='FUTURE_SESSION_DATA': return 'FUTURE_FAILSAFE'
+    minute=int(st.get('minute',0) or 0); start=int(st.get('start',15*60+40) or 15*60+40); end=int(st.get('end',20*60) or 20*60)
+    if minute < 15*60+30: return 'INTRADAY'
+    if minute < start: return 'PRE_FINAL'
+    if minute <= end: return 'AFTER_FINAL'
+    return 'AFTER_WINDOW'
+
+
+def _v4976510_strict_rows(decision: dict) -> list[dict]:
+    try: items=list(_v497658_canonical_strict_items(decision) or [])
+    except Exception: items=[]
+    rows=[]; seen=set()
+    for it in items:
+        try:
+            name,code=_v49764i_name_code(it); code=str(code or '').zfill(6)
+            d,r=_v49764i_item_row(it)
+            ign=str(r.get('ignition_date',d.get('ignition_date','')) or '')
+            key=f'{code}|{ign}'
+            if key in seen: continue
+            seen.add(key)
+            rows.append({'code':code,'name':str(name or code),'ignition_date':ign,'score':float(_v49764i_score(it))})
+        except Exception:
+            continue
+    rows.sort(key=lambda x:(-float(x.get('score',0)),x.get('name','')))
+    return rows
+
+
+def _v4976510_read_audit_rows() -> tuple[list[dict],str]:
+    if not CLOSING_BET_V4976510_SESSION_AUDIT_ENABLE or not bool(CLOSING_BET_V4943_RECOMMENDATION_LEDGER_ENABLE):
+        return [],'DISABLED'
+    last='SHEET_UNAVAILABLE'
+    for attempt in range(1,int(globals().get('CLOSING_BET_V497657_IO_RETRY_COUNT',3))+1):
+        try:
+            _,doc=_get_gspread_client()
+            if doc is None:
+                last=str((_V4943_GSHEET_CACHE or {}).get('error','SHEET_UNAVAILABLE') or 'SHEET_UNAVAILABLE')
+                _v497657_reset_failed_sheet_cache(); _v497657_retry_pause(attempt); continue
+            ws=_v4943_ws(doc,CLOSING_BET_V4976510_SESSION_AUDIT_TAB,_V4976510_AUDIT_HEADERS)
+            try: rows=list(ws.get_all_records(default_blank='') or [])
+            except TypeError: rows=list(ws.get_all_records() or [])
+            return rows,'OK'
+        except Exception as e:
+            last=_v497657_clean_error(e) if '_v497657_clean_error' in globals() else f'{type(e).__name__}:{e}'
+            _v497657_reset_failed_sheet_cache(); _v497657_retry_pause(attempt)
+    return [],f'RETRY_EXHAUSTED:{last}'
+
+
+def _v4976510_json_codes(v) -> set[str]:
+    try:
+        x=json.loads(str(v or '[]')) if not isinstance(v,list) else v
+        return {str(c).zfill(6) for c in x if str(c).strip()}
+    except Exception:
+        return set()
+
+
+def _v4976510_session_audit(decision: dict, data_date, raw_health: dict, cov_short: str) -> dict:
+    global _V4976510_LAST_SESSION_AUDIT
+    st=_v497659_session_state(data_date); sess=str(st.get('session_date',''))
+    phase=_v4976510_phase(st)
+    h=dict(raw_health or {})
+    try:
+        lh=dict(globals().get('_V4938_LAST_HEALTH',{}) or {})
+        for k in ('requested','processed','failed','short'):
+            if _safe_int(h.get(k,0),0)<=0 and _safe_int(lh.get(k,0),0)>0: h[k]=lh.get(k)
+    except Exception: pass
+    requested=max(0,_safe_int(h.get('requested',0),0)); processed=max(0,_safe_int(h.get('processed',0),0))
+    target=max(1,int(globals().get('CLOSING_BET_V4938_UNIVERSE_MAX_CODES',900) or 900))
+    request_pct=100.0*requested/target if target>0 else 0.0
+    load_pct=100.0*processed/requested if requested>0 else 0.0
+    m5=_v4949_live_m5_context(cov_short,data_date); m5_cov=_safe_float(m5.get('coverage_pct',np.nan),np.nan)
+    strict=_v4976510_strict_rows(decision); codes={x['code'] for x in strict}
+    comparable=(request_pct+1e-9>=float(CLOSING_BET_V4976510_SESSION_REPLAY_MIN_UNIVERSE_PCT)
+                and load_pct+1e-9>=95.0
+                and pd.notna(m5_cov) and m5_cov+1e-9>=float(CLOSING_BET_V4976510_M5_MIN_COVERAGE_PCT))
+
+    prior_rows,read_state=_v4976510_read_audit_rows()
+    baseline=None
+    for r in reversed(prior_rows):
+        if str(r.get('session_date',''))!=sess: continue
+        if str(r.get('phase','')).upper()!='AFTER_FINAL': continue
+        if str(r.get('comparable','')).upper() not in ('TRUE','1','YES'): continue
+        baseline=dict(r); break
+    prior_codes=_v4976510_json_codes((baseline or {}).get('raw_strict_codes_json','')) if baseline else set()
+    missing=sorted(prior_codes-codes); added=sorted(codes-prior_codes)
+    if not comparable:
+        comp='NOT_COMPARABLE_CURRENT_COVERAGE'
+    elif baseline is None:
+        comp='BASELINE_MISSING'
+    elif not missing and not added:
+        comp='MATCH'
+    else:
+        comp='DRIFT'
+    now=_now_kst(); run_id=str(os.environ.get('GITHUB_RUN_ID','') or now.strftime('%Y%m%d%H%M%S')); attempt=str(os.environ.get('GITHUB_RUN_ATTEMPT','1') or '1')
+    audit_id=f'{sess}|{phase}|{run_id}|{attempt}'
+    names=[x['name'] for x in strict]
+    note='audit-only · recommendation/search/rank authority unchanged'
+    row={
+        'audit_id':audit_id,'checked_at_kst':now.strftime('%Y-%m-%d %H:%M:%S'),'run_date':now.strftime('%Y-%m-%d'),
+        'session_date':sess,'version':CLOSING_BET_SCANNER_VERSION,'run_mode':_v49765_mode(),'phase':phase,'relation':st.get('relation',''),
+        'requested':requested,'processed':processed,'universe_target':target,'request_pct':round(request_pct,2),'load_pct':round(load_pct,2),
+        'm5_coverage_pct':None if pd.isna(m5_cov) else round(float(m5_cov),2),'m5_status':m5.get('status','UNKNOWN'),
+        'raw_strict_count':len(strict),'raw_strict_codes_json':json.dumps(sorted(codes),ensure_ascii=False,separators=(',',':')),
+        'raw_strict_names_json':json.dumps(names,ensure_ascii=False,separators=(',',':')),'comparable':'TRUE' if comparable else 'FALSE',
+        'comparison_status':comp,'baseline_audit_id':str((baseline or {}).get('audit_id','')),
+        'baseline_strict_count':int(_safe_float((baseline or {}).get('raw_strict_count',0),0)) if baseline else 0,
+        'missing_codes_json':json.dumps(missing,ensure_ascii=False,separators=(',',':')),
+        'added_codes_json':json.dumps(added,ensure_ascii=False,separators=(',',':')),'note':note,
+    }
+    write_state='DISABLED'
+    if CLOSING_BET_V4976510_SESSION_AUDIT_ENABLE:
+        try:
+            ws=_v4943_append_dict_rows(CLOSING_BET_V4976510_SESSION_AUDIT_TAB,_V4976510_AUDIT_HEADERS,[row],'audit_id')
+            write_state=str((ws or {}).get('state','UNKNOWN'))
+        except Exception as e:
+            write_state=f'FAILED:{type(e).__name__}'
+    out={**row,'strict_rows':strict,'missing_codes':missing,'added_codes':added,'read_state':read_state,'write_state':write_state,
+         'baseline_present':baseline is not None,'min_universe_pct':float(CLOSING_BET_V4976510_SESSION_REPLAY_MIN_UNIVERSE_PCT),
+         'min_m5_pct':float(CLOSING_BET_V4976510_M5_MIN_COVERAGE_PCT)}
+    _V4976510_LAST_SESSION_AUDIT=out
+    return out
+
+
+def _v4976510_audit_lines(a: dict) -> list[str]:
+    if not a: return []
+    strict=list(a.get('strict_rows',[]) or [])
+    names=', '.join(str(x.get('name','')) for x in strict[:5]) or '없음'
+    _m5v=a.get('m5_coverage_pct')
+    _m5txt='N/A' if _m5v in (None,'') else f'{float(_m5v):.1f}%'
+    lines=['[🧪 SAME-SESSION 재현성 감사]',
+           f"- 기준 세션 {a.get('session_date','')} · phase {a.get('phase','')} · {a.get('comparison_status','UNKNOWN')}",
+           f"- Universe 요청 {a.get('requested',0)}/{a.get('universe_target',0)} ({float(a.get('request_pct',0)):.1f}%) · 로드 {a.get('processed',0)}/{a.get('requested',0)} ({float(a.get('load_pct',0)):.1f}%)",
+           f"- M5 coverage {_m5txt} · production 최소 {float(a.get('min_m5_pct',0)):.1f}% · 상태 {a.get('m5_status','UNKNOWN')}",
+           f"- 현재 raw STRICT {a.get('raw_strict_count',0)}개: {names}"]
+    st=str(a.get('comparison_status',''))
+    if st=='NOT_COMPARABLE_CURRENT_COVERAGE':
+        lines.append(f"- 판정: 현재 재실행 분모/coverage가 production 비교기준 미달 · 과거 STRICT population과 직접 비교 금지")
+    elif st=='BASELINE_MISSING':
+        lines.append('- 판정: 같은 세션의 비교가능 AFTER FINAL snapshot이 아직 없어 기준 population 확정 불가 · 이번부터 audit snapshot 저장')
+    elif st=='MATCH':
+        lines.append('- 판정: AFTER FINAL 기준 STRICT population 재현 일치 ✅')
+    elif st=='DRIFT':
+        lines.append(f"- 판정: STRICT population drift ⚠️ · 누락 {len(a.get('missing_codes',[]))} · 추가 {len(a.get('added_codes',[]))}")
+        if a.get('missing_codes'): lines.append('- 누락 코드: '+', '.join(a.get('missing_codes',[])[:10]))
+        if a.get('added_codes'): lines.append('- 추가 코드: '+', '.join(a.get('added_codes',[])[:10]))
+    lines.append(f"- 감사원장: read {a.get('read_state','')} · write {a.get('write_state','')} · 추천 authority와 분리")
+    return lines
+
+
+# ----- Tracker/Forward: regenerate only after action/session authority is known -----
+_V4976510_BASE_TRACKER_LINES = _v4938_tracker_lines
+
+def _v4938_tracker_lines(df=None) -> list[str]:
+    try: lines=list(_V4976510_BASE_TRACKER_LINES(df) or [])
+    except Exception as e:
+        return [f'📍 추천 출처 분리 Forward | v49.76.5.10','──────────',f'- tracker 생성 실패: {type(e).__name__}:{e}']
+    cur=dict(globals().get('_V49765_CURRENT_DECISION',{}) or {})
+    sess=str(cur.get('session_date') or cur.get('data_date') or '')
+    relation=str(cur.get('session_relation',''))
+    reason=str(cur.get('reason',''))
+    state=str(cur.get('state','')).upper()
+    out=[str(x).replace('v49.76.5.9','v49.76.5.10').replace('v49.76.5.8','v49.76.5.10') for x in lines]
+    # Defensive session classification even if an older tracker wrapper ran before authority was resolved.
+    no_live=bool(sess and state!='RESTORED' and ('EVIDENCE_MISSING_NO_LATE_CREATE' in reason or 'SESSION_EVIDENCE_LEDGER_UNAVAILABLE_RESTORE_ONLY' in reason))
+    final=[]; active=False
+    for line in out:
+        s=str(line)
+        if no_live and ('🧪 REPLAY-RECOMMENDED' in s or '🧪 REPLAY-NO-LIVE-EVIDENCE' in s) and f'신호 {sess}' in s:
+            s=s.replace('🧪 REPLAY-RECOMMENDED','🧪 REPLAY-NO-LIVE-EVIDENCE'); active=True; final.append(s); continue
+        if active and s.startswith('  실제추천 증거 없음'):
+            final.append(f'  {sess} 원시 STRICT/Replay 연구신호 · LIVE COMPLETED evidence 없음 · 실제추천 성과로 해석 금지'); continue
+        if active and s.startswith('  정책 '):
+            if '[NO LIVE EVIDENCE]' not in s: s=s+' · [NO LIVE EVIDENCE]'
+            final.append(s); active=False; continue
+        if active and s.startswith('- ') and not s.startswith('  '): active=False
+        final.append(s)
+    if relation=='PAST_SESSION':
+        final=[x.replace('- 오늘 신규 ','- 기준세션 신규 ').replace('- 오늘 재현 ','- 기준세션 재현 ') for x in final]
+    # Make the session authority explicit once in Forward KPI.
+    for i,x in enumerate(final):
+        if x.startswith('- LIVE_PAPER_KPI =') and 'session_date authority' not in x:
+            final[i]=x+' · canonical_session_date authority'
+            break
+    return final
+
+
+_V4976510_BASE_BUILD_LIVE_PARTS = _v4938_build_live_parts
+
+def _v4938_build_live_parts(hits_df, execution_all, market_short, cov_short, raw_health):
+    """Run the existing report first, then rebuild Forward after Action Panel resolved session authority."""
+    parts=_V4976510_BASE_BUILD_LIVE_PARTS(hits_df,execution_all,market_short,cov_short,raw_health)
+    seq=list(parts) if isinstance(parts,(list,tuple)) else [parts]
+    # Action panel in the base wrapper has now populated _V49765_CURRENT_DECISION.
+    try:
+        fresh='\n'.join(_v4938_tracker_lines(hits_df))
+        replaced=False
+        for i,p in enumerate(seq):
+            if isinstance(p,str) and '📍 추천 출처 분리 Forward' in p:
+                seq[i]=fresh; replaced=True
+        if not replaced: seq.append(fresh)
+    except Exception:
+        pass
+    # Same-session reproducibility audit is advisory and inserted into the main detail board.
+    try:
+        decision=dict(globals().get('_V4942_LAST_DECISION',{}) or {})
+        dd=(globals().get('_V4938_LAST_HEALTH',{}) or {}).get('latest_data_date') or TODAY_STR
+        a=_v4976510_session_audit(decision,dd,raw_health,cov_short)
+        al='\n'.join(_v4976510_audit_lines(a))
+        if al:
+            for i,p in enumerate(seq):
+                if not isinstance(p,str) or '📌 ' not in p: continue
+                if '[📡 Lifecycle 건강성]' in p:
+                    seq[i]=p.replace('[📡 Lifecycle 건강성]',al+'\n\n[📡 Lifecycle 건강성]',1)
+                else:
+                    seq[i]=p.rstrip()+'\n\n'+al
+                break
+    except Exception as e:
+        try: log_error(f'⚠️ v49.76.5.10 session audit advisory fail: {type(e).__name__}:{e}')
+        except Exception: pass
+    # Final visible version normalization.
+    seq=[x.replace('v49.76.5.9','v49.76.5.10') if isinstance(x,str) else x for x in seq]
+    if isinstance(parts,tuple): return tuple(seq)
+    if isinstance(parts,list): return seq
+    return seq[0] if len(seq)==1 else seq
+
+
+# ----- Ledger summary gets the same canonical_session_date authority -----
+def _v4976510_finalize_ledger_note(note: str) -> str:
+    s=str(note or '').replace('v49.76.5.9','v49.76.5.10')
+    cur=dict(globals().get('_V49765_CURRENT_DECISION',{}) or {})
+    sess=str(cur.get('session_date') or cur.get('data_date') or '')
+    relation=str(cur.get('session_relation',''))
+    state=str(cur.get('state','')).upper(); reason=str(cur.get('reason',''))
+    if relation=='PAST_SESSION' and sess:
+        if state=='RESTORED':
+            return f'[🧾 실제 추천 원장] {sess} AFTER FINAL evidence 기록 복원 · 현재 신규생성/재전송 금지'
+        return f'[🧾 실제 추천 원장] {sess} AFTER FINAL 세션 종료 · COMPLETED evidence 없음 · 실제추천 0개 · SESSION_NO_LATE_CREATE'
+    if 'EVIDENCE_MISSING_NO_LATE_CREATE' in reason and sess:
+        return f'[🧾 실제 추천 원장] {sess} AFTER FINAL 실행창 종료 · COMPLETED evidence 없음 · NO_LATE_CREATE'
+    return s
+
+
+# Keep recommendation bridge release identity aligned; authority unchanged.
+_V4976510_BASE_PREP_RECS = _v4943_prepare_live_recommendations
+
+def _v4943_prepare_live_recommendations() -> list[dict]:
+    try: rows=list(_V4976510_BASE_PREP_RECS() or [])
+    except Exception: rows=[]
+    out=[]
+    for r in rows:
+        rr=dict(r or {})
+        rr['note']=str(rr.get('note','')).replace('v49.76.5.9','v49.76.5.10').replace('v49.76.5.8','v49.76.5.10')
+        out.append(rr)
+    globals()['_V4943_CURRENT_RECOMMENDATIONS']=out[:2]
+    return out[:2]
+
+# =============================================================
+# ✅ END V49.76.5.10
 # =============================================================
 
 if __name__ == '__main__':
