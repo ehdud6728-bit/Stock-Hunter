@@ -47957,6 +47957,24 @@ def _v1080_evaluate_one_signal(row, hold_days: int = 5, stop_pct: float = -5.0) 
         metrics = _v1086_period_metrics(merged_row, hold_days=max(10, int(hold_days or 10)))
         if metrics:
             base.update(metrics)
+        # V25.2.1 DATA IDENTITY GUARD: evaluation-only fail-closed.
+        # KRX ticker identity/cache corruption or unadjusted corporate-action discontinuity
+        # must never be counted as strategy return. Candidate generation/LIVE logic is untouched.
+        if str(base.get('eval_status', '')) == 'OK':
+            _d1_checks = {}
+            for _k in ('next1_close_ret', 'max_up_1d', 'max_down_1d'):
+                try:
+                    _v = float(base.get(_k))
+                    if pd.notna(_v):
+                        _d1_checks[_k] = _v
+                except Exception:
+                    pass
+            if any(abs(_v) > 35.0 for _v in _d1_checks.values()):
+                base['eval_status'] = 'DATA_INTEGRITY_INVALID_D1_RETURN'
+                base['data_identity_guard'] = 'FAIL_D1_GT35'
+                base['data_identity_guard_values'] = json.dumps(_d1_checks, ensure_ascii=False, sort_keys=True)
+            else:
+                base['data_identity_guard'] = 'PASS'
     except Exception as e:
         try:
             base['v1086_metric_error'] = str(e)[:120]
@@ -93760,12 +93778,12 @@ except Exception:
 
 
 # ============================================================
-# ✅ V73.3.6.6.25.2 ORIGINAL THESIS RECONSTRUCTION + CORE224 SHADOW + DATA AUTHORITY RECOVERY
+# ✅ V73.3.6.6.25.2.1 ORIGINAL THESIS RECONSTRUCTION + CORE224 SHADOW + DATA IDENTITY/HANDOFF GUARD
 # - Original search philosophy audit only; no return tuning.
 # - Shard materializes CORE224 evidence; merge-only parent consumes sidecars only.
 # - Existing LIVE/score/rank/entry/exit/order logic remains untouched.
 # ============================================================
-_V7336625_VERSION = 'V73.3.6.6.25.2'
+_V7336625_VERSION = 'V73.3.6.6.25.2.1'
 _V7336625_HEADER = '🧭 [V25 ORIGINAL THESIS RECONSTRUCTION · CORE224 SHADOW · RESEARCH_ONLY]'
 _V7336625_IMPORT_ERROR = ''
 try:
@@ -93793,7 +93811,7 @@ except Exception as _v7336625_import_e:
 
 
 # ============================================================
-# ✅ V73.3.6.6.25.2 DATA AUTHORITY RECOVERY
+# ✅ V73.3.6.6.25.2.1 DATA AUTHORITY + TICKER IDENTITY RECOVERY
 # - pykrx all-market OHLCV outage -> reported market-cap/turnover cross-section fallback
 # - potential CORE224 names only: per-ticker reported turnover history fallback
 # - Historical-AsOf complete remains fail-closed unless all-market causal denominator is proven
@@ -94075,6 +94093,9 @@ def _v7336623_run_shard_worker() -> int:
                                 _v25_ev=len(_v25_sidecar.get('V25_CORE224_EVENTS',[]) or [])
                                 _v25_inv=len(_v25_sidecar.get('V25_CORE224_INVARIANTS',[]) or [])
                                 log_info(f'🧭 [V25 CORE224 DATE] {ds} rows={_v25_rows} transitions={_v25_ev} invariant_fail={_v25_inv} | LIVE=0 ORDER=0')
+                                _v25_membership_rows=len(cp.get('universe_membership', pd.DataFrame())) if isinstance(cp.get('universe_membership', pd.DataFrame()), pd.DataFrame) else 0
+                                if _v25_membership_rows > 0 and _v25_rows == 0:
+                                    raise RuntimeError(f'V25_EMPTY_SIDECAR_WITH_MEMBERSHIP:{ds}:membership={_v25_membership_rows}')
                             except Exception: pass
                         except Exception as _v25_core_e:
                             _v24_side['V25_CORE224_ROWS'] = []
@@ -94427,7 +94448,7 @@ _V7336625_RELEASE_MARKER = {
     'live_logic_changed': False,
     'real_order_changed': False,
 }
-# ✅ END V73.3.6.6.25.1 ORIGINAL THESIS RECONSTRUCTION
+# ✅ END V73.3.6.6.25.2.1 ORIGINAL THESIS RECONSTRUCTION + DATA IDENTITY/HANDOFF GUARD
 
 if __name__ == "__main__":
     # V73.3.6.6.23 matrix shard worker: materialized per-date results; no Telegram/Sheet/LIVE side effects.

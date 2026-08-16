@@ -13,7 +13,7 @@ import re
 import numpy as np
 import pandas as pd
 
-VERSION = "V73.3.6.6.25.2"
+VERSION = "V73.3.6.6.25.2.1"
 RESEARCH_ONLY = True
 LIVE_LOGIC_CHANGED = False
 REAL_ORDER_CHANGED = False
@@ -746,9 +746,22 @@ def _out_dir(output_dir: str | Path) -> Path:
 
 
 def _norm_code(v: Any) -> str:
-    s = re.sub(r"\D", "", str(v or ""))
-    return s[-6:].zfill(6) if s else ""
-
+    """Canonical KRX ticker identity; preserves 6-char alphanumeric tickers (e.g. 0126Z0)."""
+    raw = str(v or "").strip().upper()
+    if raw.endswith(".0") and raw[:-2].isdigit():
+        raw = raw[:-2]
+    for suffix in (".KS", ".KQ", ".KRX"):
+        if raw.endswith(suffix):
+            raw = raw[:-len(suffix)]
+            break
+    s = "".join(ch for ch in raw if ch in "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+    if len(s) == 7 and s.startswith("A"):
+        s = s[1:]
+    if s.isdigit() and len(s) <= 6:
+        return s.zfill(6)
+    if len(s) >= 6:
+        return s[-6:]
+    return s
 
 def _pick_col(df: pd.DataFrame, names: Iterable[str]) -> Optional[str]:
     for n in names:

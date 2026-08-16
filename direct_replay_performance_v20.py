@@ -40,6 +40,7 @@ _STATS: dict[str, float] = {
     "network_fetch": 0,
     "network_error": 0,
     "disk_invalid": 0,
+    "code_identity_reject": 0,
     "prefetch_codes": 0,
     "prefetch_completed": 0,
     "checkpoint_hit": 0,
@@ -62,9 +63,22 @@ def _env_int(name: str, default: int) -> int:
 
 
 def _norm_code(v: Any) -> str:
-    s = re.sub(r"\D", "", str(v or ""))
-    return s[-6:].zfill(6) if s else str(v or "").strip()
-
+    """Canonical KRX ticker identity; preserves 6-char alphanumeric tickers (e.g. 0126Z0)."""
+    raw = str(v or "").strip().upper()
+    if raw.endswith(".0") and raw[:-2].isdigit():
+        raw = raw[:-2]
+    for suffix in (".KS", ".KQ", ".KRX"):
+        if raw.endswith(suffix):
+            raw = raw[:-len(suffix)]
+            break
+    s = "".join(ch for ch in raw if ch in "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+    if len(s) == 7 and s.startswith("A"):
+        s = s[1:]
+    if s.isdigit() and len(s) <= 6:
+        return s.zfill(6)
+    if len(s) >= 6:
+        return s[-6:]
+    return s
 
 def _log(msg: str, log_fn: Callable[[str], Any] | None = None) -> None:
     try:
@@ -163,6 +177,13 @@ def cached_price_reader(ticker: str, days: int = 900) -> pd.DataFrame:
     if _env_bool("V20_PRICE_DISK_CACHE_ENABLE", True) and path.exists():
         try:
             payload = _load_dump(path)
+            if isinstance(payload, dict) and payload.get("code") not in (None, ""):
+                cached_code = _norm_code(payload.get("code"))
+                if cached_code != code:
+                    with _LOCK:
+                        _STATS["code_identity_reject"] += 1
+                        _STATS["disk_invalid"] += 1
+                    payload = None
             df = payload.get("frame") if isinstance(payload, dict) else payload
             if isinstance(df, pd.DataFrame) and _frame_covers_required(df):
                 with _LOCK:
@@ -433,7 +454,7 @@ def finalize(output_dir: str | Path = "reports", base_report: str = "") -> tuple
         HEADER,
         f"📌 {VERSION} · persistent price cache + as-of snapshot cache + per-date resumable checkpoint + progress/ETA",
         f"- 실행시간: {st['elapsed_sec']/60:.1f}분 | checkpoint hit {int(st['checkpoint_hit'])} / miss {int(st['checkpoint_miss'])} / saved {int(st['checkpoint_saved'])}",
-        f"- 가격캐시: memory hit {int(st['memory_hit'])} | disk hit {int(st['disk_hit'])} | network {int(st['network_fetch'])} | error {int(st['network_error'])} | files {int(st['price_cache_files'])}",
+        f"- 가격캐시: memory hit {int(st['memory_hit'])} | disk hit {int(st['disk_hit'])} | network {int(st['network_fetch'])} | error {int(st['network_error'])} | identity reject {int(st.get('code_identity_reject', 0))} | files {int(st['price_cache_files'])}",
         asof_line,
         f"- Prefetch: requested {int(st['prefetch_codes'])} | completed {int(st['prefetch_completed'])} | workers {os.getenv('V20_PRICE_PREFETCH_WORKERS','6')}",
         f"- 재개 체크포인트 파일: {int(st['checkpoint_files'])} | 소스 fingerprint {str(_SOURCE_FINGERPRINT)[:16]}",

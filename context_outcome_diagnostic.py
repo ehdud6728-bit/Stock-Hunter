@@ -43,12 +43,22 @@ def _out(output_dir: str | Path) -> Path:
 
 
 def _norm_code(v: Any) -> str:
-    s = str(v or "").strip()
-    if s.endswith(".0"):
-        s = s[:-2]
-    d = re.sub(r"\D", "", s)
-    return d.zfill(6)[-6:] if d else ""
-
+    """Canonical KRX ticker identity; preserves 6-char alphanumeric tickers (e.g. 0126Z0)."""
+    raw = str(v or "").strip().upper()
+    if raw.endswith(".0") and raw[:-2].isdigit():
+        raw = raw[:-2]
+    for suffix in (".KS", ".KQ", ".KRX"):
+        if raw.endswith(suffix):
+            raw = raw[:-len(suffix)]
+            break
+    s = "".join(ch for ch in raw if ch in "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+    if len(s) == 7 and s.startswith("A"):
+        s = s[1:]
+    if s.isdigit() and len(s) <= 6:
+        return s.zfill(6)
+    if len(s) >= 6:
+        return s[-6:]
+    return s
 
 def _read(path: Path) -> pd.DataFrame:
     if not path.exists() or path.stat().st_size == 0:

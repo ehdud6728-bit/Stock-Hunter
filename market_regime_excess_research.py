@@ -64,10 +64,23 @@ def _fmt(v, digits=2, sign=True) -> str:
     return format(x, ("+" if sign else "") + f".{digits}f")
 
 
-def _code(v) -> str:
-    d = "".join(ch for ch in str(v or "") if ch.isdigit())
-    return d[-6:].zfill(6) if d else ""
-
+def _code(v: Any) -> str:
+    """Canonical KRX ticker identity; preserves 6-char alphanumeric tickers (e.g. 0126Z0)."""
+    raw = str(v or "").strip().upper()
+    if raw.endswith(".0") and raw[:-2].isdigit():
+        raw = raw[:-2]
+    for suffix in (".KS", ".KQ", ".KRX"):
+        if raw.endswith(suffix):
+            raw = raw[:-len(suffix)]
+            break
+    s = "".join(ch for ch in raw if ch in "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+    if len(s) == 7 and s.startswith("A"):
+        s = s[1:]
+    if s.isdigit() and len(s) <= 6:
+        return s.zfill(6)
+    if len(s) >= 6:
+        return s[-6:]
+    return s
 
 def _pick_col(df: pd.DataFrame, names: Sequence[str]) -> Optional[str]:
     return next((c for c in names if c in df.columns), None)
