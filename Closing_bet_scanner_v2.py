@@ -80,8 +80,8 @@ def _env_float(name: str, default: float = 0.0) -> float:
         except Exception:
             return 0.0
 
-CLOSING_BET_SCANNER_VERSION = 'G_MORALES_V4_4_9_53_8_49_76_5_10_SESSION_AUTHORITY_FULL_PROPAGATION_REPLAY_AUDIT_20260816'
-CLOSING_BET_RELEASE_TAG = 'v49.76.5.10'
+CLOSING_BET_SCANNER_VERSION = 'G_MORALES_V4_4_9_53_8_49_76_5_11_AUDIT_METRIC_BASELINE_PROVENANCE_FINALIZATION_20260816'
+CLOSING_BET_RELEASE_TAG = 'v49.76.5.11'
 CLOSING_BET_LIVE_PRICE_SANITY_FIX = str(os.environ.get('CLOSING_BET_LIVE_PRICE_SANITY_FIX', '1')).lower() in ('1', 'true', 'yes', 'y', 'on')
 CLOSING_BET_LIVE_READABILITY_COMPACT = str(os.environ.get('CLOSING_BET_LIVE_READABILITY_COMPACT', '1')).lower() in ('1', 'true', 'yes', 'y', 'on')
 # v53.8.42: M5R TRUE60 검증용 장기 월봉 확보. 60개월 월선 계산에는 약 7년 일봉이 필요하다.
@@ -49094,6 +49094,9 @@ def _v4976510_session_audit(decision: dict, data_date, raw_health: dict, cov_sho
         'raw_strict_names_json':json.dumps(names,ensure_ascii=False,separators=(',',':')),'comparable':'TRUE' if comparable else 'FALSE',
         'comparison_status':comp,'baseline_audit_id':str((baseline or {}).get('audit_id','')),
         'baseline_strict_count':int(_safe_float((baseline or {}).get('raw_strict_count',0),0)) if baseline else 0,
+        'comparison_reference_audit_id':str((reference or {}).get('audit_id','')),
+        'comparison_reference_provenance':reference_provenance,
+        'comparison_reference_strict_count':int(_safe_float((reference or {}).get('raw_strict_count',0),0)) if reference else 0,
         'missing_codes_json':json.dumps(missing,ensure_ascii=False,separators=(',',':')),
         'added_codes_json':json.dumps(added,ensure_ascii=False,separators=(',',':')),'note':note,
     }
@@ -49246,6 +49249,295 @@ def _v4943_prepare_live_recommendations() -> list[dict]:
 
 # =============================================================
 # ✅ END V49.76.5.10
+# =============================================================
+
+
+# =============================================================
+# ✅ V49.76.5.11 AUDIT METRIC + BASELINE PROVENANCE FINALIZATION
+# -------------------------------------------------------------
+# Audit-only scope:
+# - Separate raw audit population from production Lifecycle request/load metrics.
+# - Never display >100% as a production coverage percentage.
+# - Distinguish LIVE_AFTER_FINAL_BASELINE from RECON_SNAPSHOT and other advisory snapshots.
+# - Only a comparable same-session LIVE AFTER FINAL snapshot can become a true baseline.
+# - Search/rank/STRICT thresholds, MARCAP/PIT, P1, AFTER FINAL recommendation authority,
+#   PAPER-only and automatic-order policy remain unchanged.
+# =============================================================
+try:
+    print("✅ V49.76.5.11 AUDIT_METRIC_BASELINE_PROVENANCE_FINALIZATION LOADED")
+except Exception:
+    pass
+
+# Extend the audit schema in-place. _v4943_ws preserves existing rows and appends missing headers.
+_V4976511_EXTRA_AUDIT_HEADERS = [
+    'snapshot_provenance','baseline_eligible','baseline_provenance',
+    'audit_raw_population','audit_raw_processed',
+    'lifecycle_requested','lifecycle_loaded','production_request_coverage_pct','lifecycle_load_pct',
+    'comparison_reference_audit_id','comparison_reference_provenance','comparison_reference_strict_count'
+]
+_V4976510_AUDIT_HEADERS = list(dict.fromkeys(list(_V4976510_AUDIT_HEADERS) + _V4976511_EXTRA_AUDIT_HEADERS))
+
+
+def _v4976511_snapshot_provenance(st: dict, phase: str, comparable: bool) -> tuple[str,bool]:
+    relation=str((st or {}).get('relation',''))
+    ph=str(phase or '').upper()
+    if ph=='AFTER_FINAL' and relation=='SAME_SESSION_DAY' and bool(comparable):
+        return 'LIVE_AFTER_FINAL_BASELINE', True
+    if relation=='PAST_SESSION' or ph=='PAST_REPLAY':
+        return 'RECON_SNAPSHOT', False
+    if ph=='PRE_FINAL':
+        return 'PRE_FINAL_SNAPSHOT', False
+    if ph=='INTRADAY':
+        return 'INTRADAY_SNAPSHOT', False
+    if ph=='AFTER_WINDOW':
+        return 'AFTER_WINDOW_SNAPSHOT', False
+    if ph=='FUTURE_FAILSAFE':
+        return 'FUTURE_FAILSAFE_SNAPSHOT', False
+    return 'ADVISORY_SNAPSHOT', False
+
+
+def _v4976511_truthy(v) -> bool:
+    return str(v or '').strip().upper() in ('TRUE','1','YES','Y','ON')
+
+
+def _v4976511_baseline_eligible_row(r: dict) -> bool:
+    """Backward-compatible baseline eligibility.
+
+    New rows require explicit baseline_eligible + LIVE_AFTER_FINAL_BASELINE.
+    Legacy rows may qualify only if they were comparable same-session AFTER_FINAL rows.
+    """
+    r=dict(r or {})
+    prov=str(r.get('snapshot_provenance','') or '').strip().upper()
+    if prov:
+        return bool(
+            _v4976511_truthy(r.get('baseline_eligible')) and
+            prov=='LIVE_AFTER_FINAL_BASELINE' and
+            str(r.get('phase','')).upper()=='AFTER_FINAL' and
+            str(r.get('relation','')).upper()=='SAME_SESSION_DAY' and
+            _v4976511_truthy(r.get('comparable'))
+        )
+    return bool(
+        str(r.get('phase','')).upper()=='AFTER_FINAL' and
+        str(r.get('relation','')).upper()=='SAME_SESSION_DAY' and
+        _v4976511_truthy(r.get('comparable'))
+    )
+
+
+def _v4976510_session_audit(decision: dict, data_date, raw_health: dict, cov_short: str) -> dict:
+    """v5.11 advisory same-session audit.
+
+    Important: raw scan/audit population is descriptive only. Production comparability is
+    based on the canonical Lifecycle request/load metrics plus M5 final coverage.
+    """
+    global _V4976510_LAST_SESSION_AUDIT
+    st=_v497659_session_state(data_date); sess=str(st.get('session_date',''))
+    phase=_v4976510_phase(st)
+
+    # Raw scan/audit population may exceed the production target because auxiliary/union
+    # inputs can be present. Keep it separate; never call it production request coverage.
+    rh=dict(raw_health or {})
+    audit_raw_population=max(0,_safe_int(rh.get('requested',0),0))
+    audit_raw_processed=max(0,_safe_int(rh.get('processed',0),0))
+
+    # Canonical Lifecycle health is what the detail board reports as 요청/로드 성공.
+    lh=dict(globals().get('_V4938_LAST_HEALTH',{}) or {})
+    lifecycle_requested=max(0,_safe_int(lh.get('requested',0),0))
+    lifecycle_loaded=max(0,_safe_int(lh.get('processed',0),0))
+    if lifecycle_requested<=0:
+        lifecycle_requested=audit_raw_population
+    if lifecycle_loaded<=0:
+        lifecycle_loaded=audit_raw_processed
+
+    target=max(1,int(globals().get('CLOSING_BET_V4938_UNIVERSE_MAX_CODES',900) or 900))
+    # Coverage is a bounded coverage metric, not a raw population ratio.
+    production_request_coverage_pct=(100.0*min(lifecycle_requested,target)/target) if target>0 else 0.0
+    lifecycle_load_pct=(100.0*min(lifecycle_loaded,lifecycle_requested)/lifecycle_requested) if lifecycle_requested>0 else 0.0
+
+    m5=_v4949_live_m5_context(cov_short,data_date)
+    m5_cov=_safe_float(m5.get('coverage_pct',np.nan),np.nan)
+    strict=_v4976510_strict_rows(decision); codes={x['code'] for x in strict}
+    comparable=(
+        production_request_coverage_pct+1e-9>=float(CLOSING_BET_V4976510_SESSION_REPLAY_MIN_UNIVERSE_PCT)
+        and lifecycle_load_pct+1e-9>=95.0
+        and pd.notna(m5_cov)
+        and m5_cov+1e-9>=float(CLOSING_BET_V4976510_M5_MIN_COVERAGE_PCT)
+    )
+    snapshot_provenance,baseline_eligible=_v4976511_snapshot_provenance(st,phase,comparable)
+
+    prior_rows,read_state=_v4976510_read_audit_rows()
+    baseline=None
+    recon_reference=None
+    for r in reversed(prior_rows):
+        if str(r.get('session_date',''))!=sess: continue
+        if baseline is None and _v4976511_baseline_eligible_row(r):
+            baseline=dict(r)
+        # RECON may be compared to RECON for advisory reproducibility, but never becomes LIVE baseline.
+        rprov=str(r.get('snapshot_provenance','') or '').upper()
+        legacy_recon=(str(r.get('phase','')).upper()=='PAST_REPLAY' and str(r.get('relation','')).upper()=='PAST_SESSION')
+        if recon_reference is None and (rprov=='RECON_SNAPSHOT' or legacy_recon) and _v4976511_truthy(r.get('comparable')):
+            recon_reference=dict(r)
+        if baseline is not None and recon_reference is not None:
+            break
+
+    baseline_provenance=str((baseline or {}).get('snapshot_provenance','') or '')
+    if baseline and not baseline_provenance:
+        baseline_provenance='LEGACY_LIVE_AFTER_FINAL_BASELINE'
+
+    # Reference priority: authoritative LIVE baseline first; RECON reference only when no LIVE baseline exists.
+    reference=baseline
+    reference_provenance=baseline_provenance
+    if reference is None and snapshot_provenance=='RECON_SNAPSHOT' and recon_reference is not None:
+        reference=recon_reference
+        reference_provenance=str(recon_reference.get('snapshot_provenance','') or 'LEGACY_RECON_SNAPSHOT')
+    prior_codes=_v4976510_json_codes((reference or {}).get('raw_strict_codes_json','')) if reference else set()
+    missing=sorted(prior_codes-codes); added=sorted(codes-prior_codes)
+
+    if not comparable:
+        comp='NOT_COMPARABLE_CURRENT_COVERAGE'
+    elif baseline is not None:
+        comp='MATCH' if (not missing and not added) else 'DRIFT'
+    elif snapshot_provenance=='LIVE_AFTER_FINAL_BASELINE':
+        comp='LIVE_BASELINE_CAPTURED'
+    elif snapshot_provenance=='RECON_SNAPSHOT' and recon_reference is not None:
+        comp='RECON_MATCH' if (not missing and not added) else 'RECON_DRIFT'
+    elif snapshot_provenance=='RECON_SNAPSHOT':
+        comp='RECON_BASELINE_MISSING'
+    else:
+        comp='BASELINE_MISSING'
+
+    now=_now_kst(); run_id=str(os.environ.get('GITHUB_RUN_ID','') or now.strftime('%Y%m%d%H%M%S')); attempt=str(os.environ.get('GITHUB_RUN_ATTEMPT','1') or '1')
+    audit_id=f'{sess}|{phase}|{run_id}|{attempt}'
+    names=[x['name'] for x in strict]
+    note='audit-only · recommendation/search/rank authority unchanged · provenance-separated'
+    row={
+        'audit_id':audit_id,'checked_at_kst':now.strftime('%Y-%m-%d %H:%M:%S'),'run_date':now.strftime('%Y-%m-%d'),
+        'session_date':sess,'version':CLOSING_BET_SCANNER_VERSION,'run_mode':_v49765_mode(),'phase':phase,'relation':st.get('relation',''),
+        # legacy columns now carry canonical Lifecycle metrics, never raw union counts
+        'requested':lifecycle_requested,'processed':lifecycle_loaded,'universe_target':target,
+        'request_pct':round(production_request_coverage_pct,2),'load_pct':round(lifecycle_load_pct,2),
+        'm5_coverage_pct':None if pd.isna(m5_cov) else round(float(m5_cov),2),'m5_status':m5.get('status','UNKNOWN'),
+        'raw_strict_count':len(strict),'raw_strict_codes_json':json.dumps(sorted(codes),ensure_ascii=False,separators=(',',':')),
+        'raw_strict_names_json':json.dumps(names,ensure_ascii=False,separators=(',',':')),'comparable':'TRUE' if comparable else 'FALSE',
+        'comparison_status':comp,'baseline_audit_id':str((baseline or {}).get('audit_id','')),
+        'baseline_strict_count':int(_safe_float((baseline or {}).get('raw_strict_count',0),0)) if baseline else 0,
+        'comparison_reference_audit_id':str((reference or {}).get('audit_id','')),
+        'comparison_reference_provenance':reference_provenance,
+        'comparison_reference_strict_count':int(_safe_float((reference or {}).get('raw_strict_count',0),0)) if reference else 0,
+        'missing_codes_json':json.dumps(missing,ensure_ascii=False,separators=(',',':')),
+        'added_codes_json':json.dumps(added,ensure_ascii=False,separators=(',',':')),'note':note,
+        'snapshot_provenance':snapshot_provenance,'baseline_eligible':'TRUE' if baseline_eligible else 'FALSE',
+        'baseline_provenance':baseline_provenance,
+        'audit_raw_population':audit_raw_population,'audit_raw_processed':audit_raw_processed,
+        'lifecycle_requested':lifecycle_requested,'lifecycle_loaded':lifecycle_loaded,
+        'production_request_coverage_pct':round(production_request_coverage_pct,2),
+        'lifecycle_load_pct':round(lifecycle_load_pct,2),
+    }
+    write_state='DISABLED'
+    if CLOSING_BET_V4976510_SESSION_AUDIT_ENABLE:
+        try:
+            ws=_v4943_append_dict_rows(CLOSING_BET_V4976510_SESSION_AUDIT_TAB,_V4976510_AUDIT_HEADERS,[row],'audit_id')
+            write_state=str((ws or {}).get('state','UNKNOWN'))
+        except Exception as e:
+            write_state=f'FAILED:{type(e).__name__}'
+    out={
+        **row,'strict_rows':strict,'missing_codes':missing,'added_codes':added,
+        'read_state':read_state,'write_state':write_state,'baseline_present':baseline is not None,
+        'min_universe_pct':float(CLOSING_BET_V4976510_SESSION_REPLAY_MIN_UNIVERSE_PCT),
+        'min_m5_pct':float(CLOSING_BET_V4976510_M5_MIN_COVERAGE_PCT)
+    }
+    _V4976510_LAST_SESSION_AUDIT=out
+    return out
+
+
+def _v4976510_audit_lines(a: dict) -> list[str]:
+    if not a: return []
+    strict=list(a.get('strict_rows',[]) or [])
+    names=', '.join(str(x.get('name','')) for x in strict[:5]) or '없음'
+    _m5v=a.get('m5_coverage_pct')
+    _m5txt='N/A' if _m5v in (None,'') else f'{float(_m5v):.1f}%'
+    prov=str(a.get('snapshot_provenance','ADVISORY_SNAPSHOT') or 'ADVISORY_SNAPSHOT')
+    baseline_prov=str(a.get('baseline_provenance','') or '')
+    lines=[
+        '[🧪 SAME-SESSION 재현성 감사]',
+        f"- 기준 세션 {a.get('session_date','')} · phase {a.get('phase','')} · {a.get('comparison_status','UNKNOWN')}",
+        f"- Snapshot provenance: {prov} · baseline eligible {'YES' if _v4976511_truthy(a.get('baseline_eligible')) else 'NO'}",
+        f"- Production Lifecycle: 요청 {a.get('lifecycle_requested',a.get('requested',0))}/{a.get('universe_target',0)} · 요청 coverage {float(a.get('production_request_coverage_pct',a.get('request_pct',0))):.1f}% · 로드 {a.get('lifecycle_loaded',a.get('processed',0))}/{a.get('lifecycle_requested',a.get('requested',0))} ({float(a.get('lifecycle_load_pct',a.get('load_pct',0))):.1f}%)",
+        f"- Audit raw population: {a.get('audit_raw_population',0)} · raw processed {a.get('audit_raw_processed',0)} · production coverage 분모로 사용하지 않음",
+        f"- M5 coverage {_m5txt} · production 최소 {float(a.get('min_m5_pct',0)):.1f}% · 상태 {a.get('m5_status','UNKNOWN')}",
+        f"- 현재 raw STRICT {a.get('raw_strict_count',0)}개: {names}"
+    ]
+    st=str(a.get('comparison_status',''))
+    if st=='NOT_COMPARABLE_CURRENT_COVERAGE':
+        lines.append('- 판정: 현재 production Lifecycle/M5 coverage가 비교기준 미달 · 과거 STRICT population과 직접 비교 금지')
+    elif st=='LIVE_BASELINE_CAPTURED':
+        lines.append('- 판정: 최초 비교가능 LIVE AFTER FINAL snapshot · 이번 행을 이후 SAME-SESSION 감사의 authoritative LIVE baseline으로 저장')
+    elif st=='RECON_BASELINE_MISSING':
+        lines.append('- 판정: 비교가능 LIVE baseline도 이전 RECON reference도 없음 · 이번 값은 RECON_SNAPSHOT으로만 저장 · LIVE baseline 승격 금지')
+    elif st=='RECON_MATCH':
+        rp=str(a.get('comparison_reference_provenance','') or 'RECON_SNAPSHOT')
+        lines.append(f'- 판정: {rp} 대비 RECON STRICT population 재현 일치 ✅ · 참고감사 전용, LIVE baseline 아님')
+    elif st=='RECON_DRIFT':
+        rp=str(a.get('comparison_reference_provenance','') or 'RECON_SNAPSHOT')
+        lines.append(f"- 판정: {rp} 대비 RECON drift ⚠️ · 누락 {len(a.get('missing_codes',[]))} · 추가 {len(a.get('added_codes',[]))} · LIVE recommendation authority 영향 없음")
+        if a.get('missing_codes'): lines.append('- RECON 누락 코드: '+', '.join(a.get('missing_codes',[])[:10]))
+        if a.get('added_codes'): lines.append('- RECON 추가 코드: '+', '.join(a.get('added_codes',[])[:10]))
+    elif st=='BASELINE_MISSING':
+        lines.append(f'- 판정: 비교가능 LIVE AFTER FINAL baseline 없음 · 현재 {prov}는 advisory snapshot이며 baseline으로 사용하지 않음')
+    elif st=='MATCH':
+        bp=baseline_prov or 'LIVE_AFTER_FINAL_BASELINE'
+        lines.append(f'- 판정: {bp} 대비 STRICT population 재현 일치 ✅')
+    elif st=='DRIFT':
+        bp=baseline_prov or 'LIVE_AFTER_FINAL_BASELINE'
+        lines.append(f"- 판정: {bp} 대비 STRICT population drift ⚠️ · 누락 {len(a.get('missing_codes',[]))} · 추가 {len(a.get('added_codes',[]))}")
+        if a.get('missing_codes'): lines.append('- 누락 코드: '+', '.join(a.get('missing_codes',[])[:10]))
+        if a.get('added_codes'): lines.append('- 추가 코드: '+', '.join(a.get('added_codes',[])[:10]))
+    lines.append(f"- 감사원장: read {a.get('read_state','')} · write {a.get('write_state','')} · 추천 authority와 분리")
+    return lines
+
+
+# Visible release identity normalization only; the v5.10 logic underneath remains frozen.
+_V4976511_BASE_TRACKER_LINES = _v4938_tracker_lines
+
+def _v4938_tracker_lines(df=None) -> list[str]:
+    try: lines=list(_V4976511_BASE_TRACKER_LINES(df) or [])
+    except Exception as e: return ['📍 추천 출처 분리 Forward | v49.76.5.11','──────────',f'- tracker 생성 실패: {type(e).__name__}:{e}']
+    return [str(x).replace('v49.76.5.10','v49.76.5.11') for x in lines]
+
+
+_V4976511_BASE_BUILD_LIVE_PARTS = _v4938_build_live_parts
+
+def _v4938_build_live_parts(hits_df, execution_all, market_short, cov_short, raw_health):
+    parts=_V4976511_BASE_BUILD_LIVE_PARTS(hits_df,execution_all,market_short,cov_short,raw_health)
+    seq=list(parts) if isinstance(parts,(list,tuple)) else [parts]
+    seq=[x.replace('v49.76.5.10','v49.76.5.11') if isinstance(x,str) else x for x in seq]
+    if isinstance(parts,tuple): return tuple(seq)
+    if isinstance(parts,list): return seq
+    return seq[0] if len(seq)==1 else seq
+
+
+_V4976511_BASE_PREP_RECS = _v4943_prepare_live_recommendations
+
+def _v4943_prepare_live_recommendations() -> list[dict]:
+    try: rows=list(_V4976511_BASE_PREP_RECS() or [])
+    except Exception: rows=[]
+    out=[]
+    for r in rows:
+        rr=dict(r or {})
+        rr['note']=str(rr.get('note','')).replace('v49.76.5.10','v49.76.5.11')
+        out.append(rr)
+    globals()['_V4943_CURRENT_RECOMMENDATIONS']=out[:2]
+    return out[:2]
+
+
+_V4976511_BASE_LEDGER_NOTE = _v4976510_finalize_ledger_note
+
+def _v4976510_finalize_ledger_note(note: str) -> str:
+    try: s=_V4976511_BASE_LEDGER_NOTE(note)
+    except Exception: s=str(note or '')
+    return str(s).replace('v49.76.5.10','v49.76.5.11')
+
+# =============================================================
+# ✅ END V49.76.5.11
 # =============================================================
 
 if __name__ == '__main__':
