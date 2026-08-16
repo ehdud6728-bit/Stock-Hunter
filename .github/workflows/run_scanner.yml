@@ -200,7 +200,7 @@ jobs:
         run: |
           set -euo pipefail
           SRC="$(sha256sum main7_bugfix_2.py direct_replay_performance_v20.py historical_asof_universe.py direct_replay_sharding_v22.py direct_replay_materialized_v23.py pattern_catalyst_context_pipeline.py bear_winner_stability_diagnostic.py research_readiness_v24.py original_thesis_reconstruction.py | sha256sum | cut -c1-20)"
-          CFG="$(printf '%s' '${{ inputs.direct_top_n || '500' }}|${{ inputs.backtest_weeks || '24' }}|${{ inputs.backtest_hold_days || '10' }}|${{ inputs.backtest_stop_pct || '-5' }}|${{ inputs.backtest_stop_mode || 'SIGNAL_STOP_WITH_FALLBACK' }}|6|V24_SHADOW_1|V25_ORIGINAL_THESIS_25_1' | sha256sum | cut -c1-16)"
+          CFG="$(printf '%s' '${{ inputs.direct_top_n || '500' }}|${{ inputs.backtest_weeks || '24' }}|${{ inputs.backtest_hold_days || '10' }}|${{ inputs.backtest_stop_pct || '-5' }}|${{ inputs.backtest_stop_mode || 'SIGNAL_STOP_WITH_FALLBACK' }}|6|V24_SHADOW_1|V25_ORIGINAL_THESIS_25_1|SHARD_UNIVERSE_RECOVERY_25_1_1' | sha256sum | cut -c1-16)"
           PREFIX="stockhunter-v23-shard-${GITHUB_REF_NAME}-${{ matrix.shard }}-${SRC}-${CFG}"
           KEY="${PREFIX}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           echo "prefix=$PREFIX" >> "$GITHUB_OUTPUT"
@@ -219,6 +219,39 @@ jobs:
           key: ${{ steps.v23-shard-key.outputs.key }}
           restore-keys: |
             ${{ steps.v23-shard-key.outputs.prefix }}-
+            stockhunter-v23-shard-${{ github.ref_name }}-${{ matrix.shard }}-
+
+      - name: Restore V73 listing seed for shard universe
+        id: v25-shard-listing-seed
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            reports/v73_listing_cache.csv
+            reports/v73_filter_rejection_ledger.csv
+            reports/v73_discovery_stage_ledger.csv
+          key: stockhunter-v73-state-${{ github.ref_name }}-${{ github.run_id }}-shard-${{ matrix.shard }}
+          restore-keys: |
+            stockhunter-v73-state-${{ github.ref_name }}-
+            stockhunter-v73-state-
+
+      - name: Inspect V25 shard universe seed
+        shell: bash
+        run: |
+          set +e
+          echo "V25_SHARD_SEED cache-hit=${{ steps.v25-shard-listing-seed.outputs.cache-hit }} matched=${{ steps.v25-shard-listing-seed.outputs.cache-matched-key }}"
+          python - <<'PYSEED'
+          from pathlib import Path
+          import pandas as pd
+          p=Path('reports/v73_listing_cache.csv')
+          if p.exists():
+              try:
+                  d=pd.read_csv(p,dtype={'Code':str},low_memory=False)
+                  print('V25_SHARD_SEED listing_rows',len(d),'codes',d.get('Code',pd.Series(dtype=str)).astype(str).nunique())
+              except Exception as e:
+                  print('V25_SHARD_SEED listing_read_error',type(e).__name__,e)
+          else:
+              print('V25_SHARD_SEED listing_rows 0 (cache file missing; provider fallback remains enabled)')
+          PYSEED
 
       - name: Run V23 materialized shard worker
         id: v23-shard-worker
@@ -235,6 +268,7 @@ jobs:
           print("✅ V25.1 shard activation source contract PASS", m.VERSION)
           PYV25
           grep -Fq "V73.3.6.6.25.1 ORIGINAL THESIS RECONSTRUCTION + CORE224 SHADOW" main7_bugfix_2.py || { echo "❌ V25 main activation marker missing"; exit 206; }
+          grep -Fq "V73.3.6.6.25.1.1 SHARD UNIVERSE OUTAGE RECOVERY" main7_bugfix_2.py || { echo "❌ V25.1.1 shard universe guard marker missing"; exit 207; }
           python -u main7_bugfix_2.py 2>&1 | tee "reports/v73_v23_shard_${{ matrix.shard }}_stdout.log"
 
       - name: Save V23 shard cache explicitly
