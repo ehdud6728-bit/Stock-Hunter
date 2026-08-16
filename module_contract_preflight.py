@@ -8,7 +8,7 @@ import shutil
 import sys
 from pathlib import Path
 
-RELEASE_VERSION = "V73.3.6.6.25.1"
+RELEASE_VERSION = "V73.3.6.6.25.2"
 
 CONTRACTS = [
     {
@@ -127,7 +127,7 @@ CONTRACTS = [
         "label": "HISTORICAL_ASOF_UNIVERSE",
         "filename": "historical_asof_universe.py",
         "module": "historical_asof_universe",
-        "version": "V73.3.6.6.24",
+        "version": "V73.3.6.6.25.2",
         "callables": ("build_asof_universe_from_snapshots", "HistoricalUniverseRuntime", "append_runtime_rows", "finalize_audit"),
         "exit_code": 173,
     },
@@ -143,7 +143,7 @@ CONTRACTS = [
         "label": "V25_ORIGINAL_THESIS_RECONSTRUCTION",
         "filename": "original_thesis_reconstruction.py",
         "module": "original_thesis_reconstruction",
-        "version": "V73.3.6.6.25.1",
+        "version": "V73.3.6.6.25.2",
         "callables": ("evaluate_core224", "build_date_sidecar", "audit_source", "build_formula_audit", "finalize", "force_report"),
         "exit_code": 201,
     },

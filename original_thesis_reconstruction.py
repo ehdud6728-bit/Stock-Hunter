@@ -13,7 +13,7 @@ import re
 import numpy as np
 import pandas as pd
 
-VERSION = "V73.3.6.6.25.1"
+VERSION = "V73.3.6.6.25.2"
 RESEARCH_ONLY = True
 LIVE_LOGIC_CHANGED = False
 REAL_ORDER_CHANGED = False
@@ -23,6 +23,8 @@ STATE_LEDGER_FILE = "v73_v25_core224_state_ledger.csv"
 TRANSITION_FILE = "v73_v25_core224_transition_ledger.csv"
 INVARIANT_FILE = "v73_v25_core224_invariant_audit.csv"
 MANUAL_AUDIT_FILE = "v73_v25_manual_chart_audit_ledger.csv"
+MANUAL_SAMPLE_FILE = "v73_v25_manual_chart_review_sample.csv"
+AMOUNT_AUTHORITY_FILE = "v73_v25_amount_authority_coverage.csv"
 FORMULA_AUDIT_FILE = "v73_v25_formula_audit_01_to_07.csv"
 SOURCE_AUDIT_FILE = "v73_v25_current_code_audit.csv"
 ACTIVATION_FILE = "v73_v25_activation_status.csv"
@@ -70,6 +72,10 @@ class Core224Config:
     accumulation_breadth_lookback: int = 10
     accumulation_breadth_min_days: int = 3
     accumulation_explosion_cap: float = 3.00
+
+    # V25.2 data-authority recovery. These values govern evidence availability, not returns.
+    actual_amount_min_history_days: int = 20
+    actual_amount_fetch_lookback_sessions: int = 320
 
     wave1_min_gain_pct: float = 0.12
     wave1_min_bars: int = 3
@@ -822,6 +828,94 @@ def load_cached_amount_panel(output_dir: str | Path, asof_date: Any, codes: Iter
     return x.sort_values(["code", "date"], kind="stable")
 
 
+def _ticker_amount_cache_path(output_dir: str | Path, code: str) -> Path:
+    root = Path(output_dir or "reports") / ".cache" / "v25_actual_amount_history"
+    root.mkdir(parents=True, exist_ok=True)
+    return root / f"{_norm_code(code)}.csv.gz"
+
+
+def _normalize_ticker_amount_history(raw: pd.DataFrame, code: str, source: str = "PYKRX_TICKER_HISTORY_REPORTED") -> pd.DataFrame:
+    cols = ["date","code","actual_amount","actual_volume_snapshot","amount_source","amount_is_actual"]
+    if raw is None or raw.empty:
+        return pd.DataFrame(columns=cols)
+    q=raw.copy()
+    if q.index.name is not None or not isinstance(q.index,pd.RangeIndex):
+        q=q.reset_index()
+    dc=_pick_col(q,["날짜","Date","date","일자","index"])
+    ac=_pick_col(q,["거래대금","Amount","amount","거래대금(원)"])
+    vc=_pick_col(q,["거래량","Volume","volume"])
+    if not dc or not ac:
+        return pd.DataFrame(columns=cols)
+    out=pd.DataFrame({
+        "date":pd.to_datetime(q[dc],errors="coerce").dt.normalize(),
+        "code":_norm_code(code),
+        "actual_amount":pd.to_numeric(q[ac],errors="coerce"),
+        "actual_volume_snapshot":pd.to_numeric(q[vc],errors="coerce") if vc else np.nan,
+    })
+    out=out[out["date"].notna() & out["actual_amount"].notna() & out["actual_amount"].ge(0)].copy()
+    out["amount_source"]=str(source or "PYKRX_TICKER_HISTORY_REPORTED")
+    out["amount_is_actual"]=1
+    return out.drop_duplicates(["date","code"],keep="last").sort_values("date",kind="stable")
+
+
+def _read_ticker_amount_cache(output_dir: str | Path, code: str) -> pd.DataFrame:
+    p=_ticker_amount_cache_path(output_dir,code)
+    if not p.exists():
+        return pd.DataFrame(columns=["date","code","actual_amount","actual_volume_snapshot","amount_source","amount_is_actual"])
+    try:
+        q=pd.read_csv(p,dtype={"code":str})
+        q["date"]=pd.to_datetime(q.get("date"),errors="coerce").dt.normalize()
+        q["code"]=q.get("code",pd.Series(_norm_code(code),index=q.index)).map(_norm_code)
+        q["actual_amount"]=pd.to_numeric(q.get("actual_amount"),errors="coerce")
+        q["amount_is_actual"]=pd.to_numeric(q.get("amount_is_actual",1),errors="coerce").fillna(0).astype(int)
+        return q[q["date"].notna() & q["amount_is_actual"].eq(1)].drop_duplicates(["date","code"],keep="last")
+    except Exception:
+        return pd.DataFrame(columns=["date","code","actual_amount","actual_volume_snapshot","amount_source","amount_is_actual"])
+
+
+def _write_ticker_amount_cache(output_dir: str | Path, code: str, df: pd.DataFrame) -> None:
+    if df is None or df.empty:
+        return
+    p=_ticker_amount_cache_path(output_dir,code); p.parent.mkdir(parents=True,exist_ok=True)
+    old=_read_ticker_amount_cache(output_dir,code)
+    q=df.copy() if old is None or old.empty else pd.concat([old,df],ignore_index=True,sort=False)
+    q["date"]=pd.to_datetime(q["date"],errors="coerce").dt.normalize()
+    q=q[q["date"].notna()].drop_duplicates(["date","code"],keep="last").sort_values("date",kind="stable")
+    tmp=p.with_name(p.name+f".{os.getpid()}.tmp")
+    q.to_csv(tmp,index=False,compression="gzip")
+    os.replace(tmp,p)
+
+
+def recover_ticker_actual_amount_history(
+    output_dir: str | Path, code: str, start_date: Any, end_date: Any,
+    reader: Optional[Callable[..., pd.DataFrame]], min_days: int = 20,
+) -> Tuple[pd.DataFrame, Dict[str, Any]]:
+    """Recover actual reported turnover for one potential CORE224 name only.
+
+    This is a secondary authority lane used when all-market daily snapshots are missing. It can
+    unlock CORE224 accumulation evidence but never upgrades Historical-AsOf TOP500 membership,
+    because a per-ticker history cannot prove the all-market denominator.
+    """
+    code=_norm_code(code); st=pd.Timestamp(start_date).normalize(); en=pd.Timestamp(end_date).normalize()
+    cached=_read_ticker_amount_cache(output_dir,code)
+    use=cached[(cached["date"].ge(st)) & (cached["date"].le(en))].copy() if not cached.empty else cached
+    if len(use)>=int(min_days):
+        return use,{"fetch_status":"CACHE_HIT","fetch_rows":0,"authority_rows":len(use),"source":"V25_TICKER_AMOUNT_CACHE"}
+    if not callable(reader):
+        return use,{"fetch_status":"NO_READER","fetch_rows":0,"authority_rows":len(use),"source":"MISSING"}
+    try:
+        raw=reader(code,st,en)
+        got=_normalize_ticker_amount_history(raw,code)
+    except Exception as exc:
+        return use,{"fetch_status":f"FETCH_ERROR:{type(exc).__name__}","fetch_rows":0,"authority_rows":len(use),"source":"MISSING"}
+    if not got.empty:
+        _write_ticker_amount_cache(output_dir,code,got)
+        cached=_read_ticker_amount_cache(output_dir,code)
+        use=cached[(cached["date"].ge(st)) & (cached["date"].le(en))].copy()
+        return use,{"fetch_status":"FETCHED","fetch_rows":len(got),"authority_rows":len(use),"source":"PYKRX_TICKER_HISTORY_REPORTED"}
+    return use,{"fetch_status":"FETCH_EMPTY","fetch_rows":0,"authority_rows":len(use),"source":"MISSING"}
+
+
 def _overlay_actual_amount(price_df: pd.DataFrame, code: str, amount_panel: pd.DataFrame) -> pd.DataFrame:
     """Overlay only provenance-verified actual trading value for CORE224.
 
@@ -912,6 +1006,7 @@ def build_date_sidecar(
     output_dir: str | Path = "reports",
     sector_map: Optional[Dict[str, str]] = None,
     market_index_reader: Optional[Callable[..., pd.DataFrame]] = None,
+    actual_amount_history_reader: Optional[Callable[..., pd.DataFrame]] = None,
     log_fn: Optional[Callable[[str], Any]] = None,
 ) -> Dict[str, List[Dict[str, Any]]]:
     """Evaluate the reconstructed thesis for the authoritative materialized universe.
@@ -958,8 +1053,31 @@ def build_date_sidecar(
         q = raw.copy(); q.index = pd.to_datetime(q.index, errors="coerce")
         q = q[q.index.notna() & (q.index <= asof)].sort_index().tail(900)
         q = _overlay_actual_amount(q, code, amount_panel)
+        amount_fetch_meta={"fetch_status":"NOT_NEEDED","fetch_rows":0,"authority_rows":int(pd.to_numeric(q.get("amount_is_actual",0),errors="coerce").fillna(0).eq(1).sum()),"source":"CROSS_SECTION_OR_INPUT"}
         try:
             daily, events, inv = evaluate_core224(q)
+            # V25.2 two-pass authority recovery: only names that ever satisfy the price/MA224 base
+            # lens are allowed to trigger a per-ticker turnover request. This avoids thousands of
+            # unnecessary calls while still recovering names that could progress once actual flow
+            # evidence exists.
+            actual_days=int(pd.to_numeric(q.get("amount_is_actual",0),errors="coerce").fillna(0).eq(1).sum())
+            potential_base=bool(
+                (not daily.empty) and (
+                    daily.get("core224_state",pd.Series(dtype=str)).astype(str).eq("CORE224_BASE").any()
+                    or pd.to_numeric(daily.get("base_lens_strict224",0),errors="coerce").fillna(0).eq(1).any()
+                    or pd.to_numeric(daily.get("base_lens_structural",0),errors="coerce").fillna(0).eq(1).any()
+                )
+            )
+            if actual_days < Core224Config().actual_amount_min_history_days and potential_base and callable(actual_amount_history_reader):
+                lookback=max(40,int(Core224Config().actual_amount_fetch_lookback_sessions))
+                _dates=pd.to_datetime(daily.get("date"),errors="coerce").dropna()
+                _start=_dates.iloc[max(0,len(_dates)-lookback)] if len(_dates) else max(q.index.min(),asof-pd.Timedelta(days=500))
+                recovered,amount_fetch_meta=recover_ticker_actual_amount_history(
+                    output_dir,code,_start,asof,actual_amount_history_reader,
+                    min_days=Core224Config().actual_amount_min_history_days)
+                if recovered is not None and not recovered.empty:
+                    q=_overlay_actual_amount(q,code,recovered)
+                    daily,events,inv=evaluate_core224(q)
         except Exception as exc:
             state_rows.append({
                 "version": VERSION, "signal_date": asof.strftime("%Y-%m-%d"), "code": code, "name": name,
@@ -979,7 +1097,11 @@ def build_date_sidecar(
             "amount_ratio_prev_vs20": meta.get("amount_ratio_prev_vs20", np.nan),
             "latest_price_date": latest_price_date.strftime("%Y-%m-%d") if pd.notna(latest_price_date) else "",
             "signal_date_price_present": int(pd.notna(latest_price_date) and latest_price_date.normalize() == asof),
-            "actual_amount_observation_days": int((amount_panel["code"].eq(code) & amount_panel["actual_amount"].notna()).sum()) if not amount_panel.empty else 0,
+            "actual_amount_observation_days": int(pd.to_numeric(q.get("amount_is_actual",0),errors="coerce").fillna(0).eq(1).sum()),
+            "actual_amount_history_ready20": int(pd.to_numeric(q.get("amount_is_actual",0),errors="coerce").fillna(0).eq(1).sum() >= Core224Config().actual_amount_min_history_days),
+            "amount_authority_fetch_status": amount_fetch_meta.get("fetch_status","UNKNOWN"),
+            "amount_authority_fetch_rows": amount_fetch_meta.get("fetch_rows",0),
+            "amount_authority_source": amount_fetch_meta.get("source","MISSING"),
             "evidence_status": "CORE224_SHADOW_VALID" if int(r.get("ma224_valid",0) or 0) else "MA224_HISTORY_INCOMPLETE",
             "research_only": True, "live_logic_changed": False, "real_order_changed": False,
         })
@@ -1145,7 +1267,7 @@ def _manual_ledger(state: pd.DataFrame, false_per_date: int = 5) -> pd.DataFrame
     keep = [c for c in [
         "signal_date","code","name","market","sector","universe_rank","audit_bucket","core224_state","core224_transition",
         "ma224","close_vs_ma224_pct","base_lens_strict224","base_lens_near224","base_lens_structural",
-        "structural_range_pct","structural_location","amount_source","actual_amount_observation_days",
+        "structural_range_pct","structural_location","amount_source","actual_amount_observation_days","actual_amount_history_ready20","amount_authority_fetch_status","amount_authority_source",
         "amount_ratio5_20","amount_inflow_breadth10","l0_date","l0_low","accum_date","h1_date","h1_high","pullback_date",
         "healthy_date","restart_date","wave1_day_return_pct","wave1_turnover_200bn","wave1_big_money_confirmation",
         "pullback_retrace","pullback_volume_dry_ratio","pullback_amount_dry_ratio","pullback_support_ok",
@@ -1162,6 +1284,40 @@ def _manual_ledger(state: pd.DataFrame, false_per_date: int = 5) -> pd.DataFrame
     q["reviewer_notes"] = ""
     q["formula_admission_after_01_06"] = "BLOCKED"
     return q.sort_values([c for c in ["signal_date","audit_bucket","code"] if c in q.columns], kind="stable")
+
+
+def _manual_review_sample(manual: pd.DataFrame, per_bucket: int = 15) -> pd.DataFrame:
+    """Small human-first sample; the full ledger remains untouched for provenance."""
+    if manual is None or manual.empty:
+        return pd.DataFrame()
+    q=manual.copy()
+    q["_h"]=q.apply(lambda r: hashlib.sha256(f"{r.get('audit_bucket','')}|{r.get('signal_date','')}|{r.get('code','')}".encode()).hexdigest(),axis=1)
+    rows=[]
+    for bucket in ["TRUE_CANDIDATE","BOUNDARY","FALSE_CONTROL"]:
+        g=q[q.get("audit_bucket",pd.Series(dtype=str)).astype(str).eq(bucket)].sort_values("_h",kind="stable")
+        if not g.empty:
+            rows.append(g.head(max(1,int(per_bucket))))
+    if not rows:
+        return pd.DataFrame(columns=[c for c in q.columns if c!="_h"])
+    return pd.concat(rows,ignore_index=True).drop(columns=["_h"],errors="ignore")
+
+
+def _amount_authority_coverage(state: pd.DataFrame) -> pd.DataFrame:
+    if state is None or state.empty:
+        return pd.DataFrame(columns=["signal_date","rows","actual_today_rows","history20_ready_rows","history20_ready_codes","fetched_rows","cache_hit_rows","missing_rows"])
+    q=state.copy()
+    rows=[]
+    for d,g in q.groupby("signal_date",dropna=False):
+        actual=pd.to_numeric(g.get("amount_valid"),errors="coerce").fillna(0).eq(1)
+        ready=pd.to_numeric(g.get("actual_amount_history_ready20"),errors="coerce").fillna(0).eq(1)
+        st=g.get("amount_authority_fetch_status",pd.Series("",index=g.index)).fillna("").astype(str)
+        rows.append({
+            "signal_date":d,"rows":len(g),"actual_today_rows":int(actual.sum()),
+            "history20_ready_rows":int(ready.sum()),"history20_ready_codes":int(g.loc[ready,"code"].nunique()) if "code" in g.columns else int(ready.sum()),
+            "fetched_rows":int(st.eq("FETCHED").sum()),"cache_hit_rows":int(st.eq("CACHE_HIT").sum()),
+            "missing_rows":int((~ready).sum()),
+        })
+    return pd.DataFrame(rows).sort_values("signal_date",kind="stable")
 
 
 def _reconcile_universe(payloads: List[Dict[str, Any]]) -> pd.DataFrame:
@@ -1289,16 +1445,16 @@ def build_report(out: Path, state: pd.DataFrame, events: pd.DataFrame, inv: pd.D
         f"📌 {VERSION} · status={pipeline_status} · 수익률 튜닝 금지 · LIVE/점수/랭크/진입/청산/주문 변경 0",
         f"✅ activation={int(a.get('activation_executed',0) or 0)} · materialized {int(a.get('materialized_dates',0) or 0)}일 · sidecar {int(a.get('sidecar_dates',0) or 0)}일 · CORE224 rows {int(a.get('core224_rows',0) or 0)} · transitions {int(a.get('transition_rows',0) or 0)} · invariant fail {int(a.get('invariant_fail_rows',0) or 0)}",
         f"🧭 [상태] BASE {counts.get('CORE224_BASE',0)} · ACCUM {counts.get('CORE224_ACCUMULATION',0)} · WAVE1 {counts.get('CORE224_WAVE1',0)} · FIRST_PB {counts.get('CORE224_FIRST_PULLBACK',0)} · HEALTHY {counts.get('CORE224_HEALTHY_PULLBACK',0)} · RESTART {counts.get('CORE224_RESTART',0)}",
-        f"💰 actual Amount 현재증거 {int(a.get('actual_amount_known_rows',0) or 0)}/{int(a.get('core224_rows',0) or 0)} · 없으면 Close×Volume으로 통과시키지 않음",
+        f"💰 actual Amount 현재증거 {int(a.get('actual_amount_known_rows',0) or 0)}/{int(a.get('core224_rows',0) or 0)} · 20일 history-ready {int(a.get('actual_amount_history20_ready_rows',0) or 0)}행 · ticker-history fetch {int(a.get('actual_amount_fetch_rows',0) or 0)}행 · Close×Volume 대체 금지",
         f"📦 Historical-AsOf authority {len(universe)}일 · complete {complete} · fallback {fallback} · fallback 음수 금지",
         f"🧬 PATTERN_ONLY Sequence→Stability {int(tr.get('sequence_pattern_only_rows',0) or 0)}→{int(tr.get('stability_pattern_only_rows',0) or 0)} · missing {int(tr.get('missing_in_stability',0) or 0)} · {tr.get('status','UNKNOWN')}",
         f"🧾 기존 검색식 전수감사 {len(formula)}식 · ①~⑥ 미통과 식은 ⑦ 백테스트/OOS BLOCKED",
-        f"🖼️ 수동차트 감사원장 {int(a.get('manual_audit_rows',0) or 0)}행 · TRUE/FALSE/BOUNDARY 동시 포함",
+        f"🖼️ 수동차트 감사원장 {int(a.get('manual_audit_rows',0) or 0)}행 · 사람이 먼저 볼 축소표본 {int(a.get('manual_sample_rows',0) or 0)}행 · TRUE/FALSE/BOUNDARY",
         "- CORE224: 장기바닥/224 위치 → 거래대금 매집(필수 선행) → L0<H1 1파 → H1 이후 첫 눌림 → 거래량·거래대금 감소 → 지지보존 → 재시동",
         "- 5~10% 장대양봉·2,000억 거래대금, 시장위치, 섹터동반, TOP_RISK는 SHADOW 관측값이며 하드게이트가 아닙니다.",
         "- 돌반지·파란점선·BB40·수박·삼각·OBV·5일 재안착·세력눌림목은 CORE224 이후 AUX 역할부터 검증합니다.",
         "- 🚀거래량폭발초동돌파의 +3%/D+1 청산 연구는 CORE224 수동감사 완료 전 보류합니다.",
-        f"- CSV: {STATE_LEDGER_FILE} · {TRANSITION_FILE} · {MANUAL_AUDIT_FILE} · {FORMULA_AUDIT_FILE} · {SOURCE_AUDIT_FILE} · {ACTIVATION_FILE}",
+        f"- CSV: {STATE_LEDGER_FILE} · {TRANSITION_FILE} · {MANUAL_AUDIT_FILE} · {MANUAL_SAMPLE_FILE} · {AMOUNT_AUTHORITY_FILE} · {FORMULA_AUDIT_FILE} · {SOURCE_AUDIT_FILE} · {ACTIVATION_FILE}",
     ]
     return "\n".join(lines)
 
@@ -1323,6 +1479,8 @@ def finalize(
         if not q.empty and "signal_date" in q.columns:
             q["signal_date"]=pd.to_datetime(q["signal_date"],errors="coerce").dt.strftime("%Y-%m-%d")
     manual=_manual_ledger(state)
+    manual_sample=_manual_review_sample(manual, per_bucket=int(os.getenv("V25_MANUAL_SAMPLE_PER_BUCKET","15") or 15))
+    amount_authority=_amount_authority_coverage(state)
     formula=build_formula_audit(registry_path)
     source=audit_source(source_file)
     universe=_reconcile_universe(payloads)
@@ -1336,8 +1494,11 @@ def finalize(
         "version":VERSION,"activation_executed":1,"pipeline_status":"VALID_SHADOW" if _pipeline_ok else "INVALID_INCOMPLETE_V25_HANDOFF",
         "materialized_dates":len(payloads),"sidecar_dates":_sidecar_dates,
         "core224_rows":len(state),"transition_rows":len(event),"invariant_fail_rows":len(inv),"restart_rows":int(state.get("core224_state",pd.Series(dtype=str)).astype(str).eq("CORE224_RESTART").sum()) if not state.empty else 0,
-        "manual_audit_rows":len(manual),
-        "actual_amount_known_rows":actual_known,"market_context_known_rows":market_known,"sector_context_known_rows":sector_known,
+        "manual_audit_rows":len(manual),"manual_sample_rows":len(manual_sample),
+        "actual_amount_known_rows":actual_known,
+        "actual_amount_history20_ready_rows":int(pd.to_numeric(state.get("actual_amount_history_ready20"),errors="coerce").fillna(0).eq(1).sum()) if not state.empty else 0,
+        "actual_amount_fetch_rows":int(state.get("amount_authority_fetch_status",pd.Series(dtype=str)).astype(str).eq("FETCHED").sum()) if not state.empty else 0,
+        "market_context_known_rows":market_known,"sector_context_known_rows":sector_known,
         "formula_audit_rows":len(formula),"formula_expected":66,"formula_count_ok":int(len(formula)==66),
         "historical_asof_days":len(universe),"historical_complete_days":int(pd.to_numeric(universe.get("complete"),errors="coerce").fillna(0).sum()) if not universe.empty else 0,
         "historical_fallback_days":int(pd.to_numeric(universe.get("fallback_used"),errors="coerce").fillna(0).sum()) if not universe.empty else 0,
@@ -1346,7 +1507,7 @@ def finalize(
         "generated_at":datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }])
     _write_csv(out/STATE_LEDGER_FILE,state); _write_csv(out/TRANSITION_FILE,event); _write_csv(out/INVARIANT_FILE,inv)
-    _write_csv(out/MANUAL_AUDIT_FILE,manual); _write_csv(out/FORMULA_AUDIT_FILE,formula); _write_csv(out/SOURCE_AUDIT_FILE,source)
+    _write_csv(out/MANUAL_AUDIT_FILE,manual); _write_csv(out/MANUAL_SAMPLE_FILE,manual_sample); _write_csv(out/AMOUNT_AUTHORITY_FILE,amount_authority); _write_csv(out/FORMULA_AUDIT_FILE,formula); _write_csv(out/SOURCE_AUDIT_FILE,source)
     _write_csv(out/UNIVERSE_RECON_FILE,universe); _write_csv(out/PATTERN_TRANSFER_FILE,transfer); _write_csv(out/ACTIVATION_FILE,activation)
     block=build_report(out,state,event,inv,activation,universe,formula,transfer)
     (out/REPORT_FILE).write_text(block,encoding="utf-8")
@@ -1354,7 +1515,7 @@ def finalize(
     if HEADER in raw:
         raw=raw.split(HEADER)[0].rstrip()
     fixed=(raw.rstrip()+"\n\n"+block).strip() if raw.strip() else block
-    return fixed,{"state":state,"events":event,"invariants":inv,"manual":manual,"formula_audit":formula,"source_audit":source,"universe":universe,"pattern_transfer":transfer,"activation":activation}
+    return fixed,{"state":state,"events":event,"invariants":inv,"manual":manual,"manual_sample":manual_sample,"amount_authority":amount_authority,"formula_audit":formula,"source_audit":source,"universe":universe,"pattern_transfer":transfer,"activation":activation}
 
 
 def force_report(text: str, output_dir: str | Path = "reports") -> str:

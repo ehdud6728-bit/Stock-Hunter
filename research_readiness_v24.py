@@ -177,7 +177,14 @@ def rebuild_universe_from_materialized(output_dir: str | Path, payloads: list[di
         if not a.empty:
             if pd.notna(ds) and "signal_date" in a.columns:
                 a = a[a["signal_date"].eq(ds)].copy()
-            avs.append(a)
+        else:
+            # V25.2 accounting: a materialized replay date with no universe sidecar must still
+            # occupy one denominator row.  Missing is UNKNOWN/FALLBACK, never silently dropped.
+            a = pd.DataFrame([{
+                "signal_date": ds, "status":"MISSING_SIDECAR", "complete":0,
+                "fallback_used":1, "authority_reason":"MATERIALIZED_DATE_WITHOUT_UNIVERSE_SIDECAR",
+            }])
+        avs.append(a)
         recon_rows.append({
             "signal_date": ds,
             "materialized_file_date": ds,
@@ -207,7 +214,7 @@ def rebuild_universe_from_materialized(output_dir: str | Path, payloads: list[di
         _valid = _st.eq("VALID_CAUSAL_ASOF")
         avail["complete"] = _valid.astype(int)
         avail["fallback_used"] = (~_valid).astype(int)
-    # Rewrite legacy filenames so downstream diagnostics see the complete 24-date authority.
+    # Rewrite legacy filenames so downstream diagnostics see the complete materialized-date authority.
     mem.to_csv(out / "v73_universe_asof_membership.csv", index=False, encoding="utf-8-sig")
     summ.to_csv(out / "v73_universe_asof_summary.csv", index=False, encoding="utf-8-sig")
     avail.to_csv(out / "v73_universe_data_availability.csv", index=False, encoding="utf-8-sig")
@@ -486,9 +493,16 @@ def pattern_only_stability(output_dir: str | Path, outcomes: pd.DataFrame) -> tu
     dates = sorted(pd.to_datetime(outcomes["signal_date"], errors="coerce").dropna().dt.normalize().unique())
     dts = [pd.Timestamp(x) for x in dates]
     rows = []
-    for n in [24, 12, 8, 4]:
+    requested=[]
+    if dts:
+        requested.append(min(24,len(dts)))
+    requested.extend([n for n in [24,12,8,4] if n <= len(dts)])
+    requested=list(dict.fromkeys(requested or [4]))
+    for n in requested:
         use = dts[-min(n, len(dts)):]
-        rows.append(_window_stats(e, use, f"{n}W"))
+        r=_window_stats(e, use, f"{n}W")
+        r["is_effective_full_window"]=int(n==max(requested))
+        rows.append(r)
     stab = pd.DataFrame(rows)
     stab.to_csv(out / PATTERN_STABILITY_FILE, index=False, encoding="utf-8-sig")
     cut = max(1, int(len(dts) * 2 / 3)) if dts else 0
@@ -573,7 +587,14 @@ def promotion_readiness(output_dir: str | Path, pattern_stab: pd.DataFrame, patt
     known_pct=float(denom_cov.iloc[0].get("known_cell_coverage_pct",np.nan)) if not denom_cov.empty else np.nan
     rows=[]
     # PAPER-only gate. It deliberately cannot mutate LIVE.
-    p24=pattern_stab[pattern_stab["window"].eq("24W")].iloc[0] if not pattern_stab.empty and pattern_stab["window"].eq("24W").any() else pd.Series(dtype=object)
+    if not pattern_stab.empty:
+        full=pattern_stab[pd.to_numeric(pattern_stab.get("is_effective_full_window"),errors="coerce").fillna(0).eq(1)]
+        if full.empty:
+            _wn=pd.to_numeric(pattern_stab["window"].astype(str).str.replace("W","",regex=False),errors="coerce")
+            full=pattern_stab.loc[[_wn.idxmax()]] if _wn.notna().any() else pd.DataFrame()
+        p24=full.iloc[0] if not full.empty else pd.Series(dtype=object)
+    else:
+        p24=pd.Series(dtype=object)
     poos=pattern_wf[pattern_wf["window"].eq("OOS_LAST_1_3")].iloc[0] if not pattern_wf.empty and pattern_wf["window"].eq("OOS_LAST_1_3").any() else pd.Series(dtype=object)
     def positive(v): return math.isfinite(_num(v)) and _num(v)>0
     pattern_checks={
@@ -636,19 +657,24 @@ def build_report(
     out=_out(output_dir)
     valid=int(universe_avail.get("status",pd.Series(dtype=str)).astype(str).eq("VALID_CAUSAL_ASOF").sum()) if not universe_avail.empty else 0
     total=int(universe_avail["signal_date"].nunique()) if not universe_avail.empty and "signal_date" in universe_avail.columns else 0
-    fallback=max(0,total-valid)
+    materialized_days=int(universe_recon["signal_date"].nunique()) if not universe_recon.empty and "signal_date" in universe_recon.columns else len(universe_recon)
+    authority_days=max(total,materialized_days)
+    fallback=max(0,authority_days-valid)
     cov=denom_cov.iloc[0] if not denom_cov.empty else pd.Series(dtype=object)
     lines=[HEADER,
            f"📌 {VERSION} · LIVE/실주문 변경 0 · PAPER 승격도 자동주입 금지",
-           f"📦 [Universe 권한복원] materialized 날짜 {len(universe_recon)}/{total or len(universe_recon)} · causal-asof {valid}일 · fallback {fallback}일",
+           f"📦 [Universe 권한복원] materialized 날짜 {materialized_days}/{authority_days or materialized_days} · causal-asof {valid}일 · fallback {fallback}일",
            f"🧾 [전체분모 66식] stock-date {int(_num(cov.get('attempt_rows'),0))} · 공식식 {int(_num(cov.get('formula_count'),0))} · truth-cell {int(_num(cov.get('truth_cells'),0))} · known {int(_num(cov.get('known_cells'),0))} · unknown {int(_num(cov.get('unknown_cells'),0))}",
            f"- ACTIVE PRE {int(_num(cov.get('active_pre_attempts'),0))} · pre-COMBO shadow 복원 {int(_num(cov.get('shadow_bypass_attempts'),0))} · 끝까지 미해결 {int(_num(cov.get('unresolved_attempts'),0))} · UNKNOWN을 FALSE로 위장하지 않음",
            "- Shadow는 기존 저가/유동성 prefilter만 RESEARCH_ONLY로 우회해 COMBO 직전 truth를 기록합니다. LIVE 후보·점수·순위에는 반영하지 않습니다."]
     if not pattern_stab.empty:
-        p24=pattern_stab[pattern_stab["window"].eq("24W")]
+        p24=pattern_stab[pd.to_numeric(pattern_stab.get("is_effective_full_window"),errors="coerce").fillna(0).eq(1)]
+        if p24.empty:
+            _wn=pd.to_numeric(pattern_stab["window"].astype(str).str.replace("W","",regex=False),errors="coerce")
+            p24=pattern_stab.loc[[_wn.idxmax()]] if _wn.notna().any() else pd.DataFrame()
         po=pattern_wf[pattern_wf["window"].eq("OOS_LAST_1_3")] if not pattern_wf.empty else pd.DataFrame()
         if not p24.empty:
-            r=p24.iloc[0]; lines += ["🧬 [PATTERN_ONLY 안정성]",f"- 24W n{int(_num(r.get('n'),0))}/일{int(_num(r.get('signal_days'),0))} | D3 평균 {_fmt(r.get('mean'))} · 중앙 {_fmt(r.get('median'))} · 절사 {_fmt(r.get('trim10'))} · 상5제거 {_fmt(r.get('top5_removed'))} · 50bp후 {_fmt(r.get('cost50_mean'))}"]
+            r=p24.iloc[0]; _label=str(r.get("window",f"{authority_days}W")); lines += ["🧬 [PATTERN_ONLY 안정성]",f"- {_label} n{int(_num(r.get('n'),0))}/일{int(_num(r.get('signal_days'),0))} | D3 평균 {_fmt(r.get('mean'))} · 중앙 {_fmt(r.get('median'))} · 절사 {_fmt(r.get('trim10'))} · 상5제거 {_fmt(r.get('top5_removed'))} · 50bp후 {_fmt(r.get('cost50_mean'))}"]
         if not po.empty:
             r=po.iloc[0]; lines.append(f"- OOS 뒤 1/3 n{int(_num(r.get('n'),0))}/일{int(_num(r.get('signal_days'),0))} | 중앙 {_fmt(r.get('median'))} · 절사 {_fmt(r.get('trim10'))} · 상5제거 {_fmt(r.get('top5_removed'))}")
     if not vol_pol.empty:
@@ -711,7 +737,7 @@ def run_backtest(
         "attempt_outcomes_ok":int(outcomes.get("outcome_status",pd.Series(dtype=str)).eq("OK").sum()) if not outcomes.empty else 0,
         "pattern_only_events":len(pevents),"research_only":True,"live_logic_changed":False,"real_order_changed":False,
     }]); da.to_csv(out/DATA_AVAIL_FILE,index=False,encoding="utf-8-sig")
-    # Rebuild the legacy Historical-AsOf report block from all 24 materialized sidecars without
+    # Rebuild the legacy Historical-AsOf report block from all materialized sidecars without
     # truncating the V20/V23 blocks that follow it in the legacy report order.
     report=strip_stale_blocks(str(base_report or ""))
     if historical_universe_module is not None and callable(getattr(historical_universe_module,"finalize_audit",None)):

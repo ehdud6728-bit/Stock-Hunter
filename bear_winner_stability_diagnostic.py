@@ -575,7 +575,11 @@ def _stability(membership: pd.DataFrame, replay_dates: list[pd.Timestamp] | None
     dates = list(replay_dates or [])
     if not dates:
         dates = sorted({pd.Timestamp(x).normalize() for x in pd.to_datetime(membership["signal_date"], errors="coerce").dropna()})
-    windows = _window_list()
+    configured_windows = _window_list()
+    windows = [w for w in configured_windows if w <= len(dates)]
+    if dates and len(dates) not in windows:
+        windows.append(len(dates))
+    windows = sorted(set(windows or [len(dates) or 1]), reverse=True)
     matrix_rows = []
     for formula, g in membership.groupby("formula"):
         for w in windows:
@@ -822,13 +826,16 @@ def _report(master: pd.DataFrame, membership: pd.DataFrame, matched: pd.DataFram
     else:
         for _, r in zshow.sort_values(["dimension", "label"]).head(8).iterrows():
             lines.append(f"- {r['dimension']} · {r['label']}: n{int(r['n'])}/일{int(r['signal_days'])} | D3 중앙 {_fmt(r['d3_median'])}·절사 {_fmt(r['d3_trim10'])}·상5제거 {_fmt(r['d3_top5_removed'])} | 승자 {_fmt(r['winner_rate'],1,False)}")
-    lines.append("📊 [24·12·8·4주 검색식 안정성 · authoritative PRE]")
+    _actual_windows=sorted({int(_num(x,0)) for x in policy.get("base_window",pd.Series(dtype=float)).dropna().tolist() if int(_num(x,0))>0},reverse=True) if not policy.empty else []
+    _full_label=f"{_actual_windows[0]}W" if _actual_windows else f"{len(replay_lock)}W"
+    lines.append(f"📊 [{_full_label} 기준 검색식 안정성 · authoritative PRE]")
     pshow = policy.head(10) if not policy.empty else pd.DataFrame()
     if pshow.empty:
         lines.append("- 안정성 표본 없음")
     else:
         for _, r in pshow.iterrows():
-            lines.append(f"- {r['formula']}: 24W n{int(_num(r.get('full_n'),0))}/일{int(_num(r.get('full_signal_days'),0))} 중앙 {_fmt(r.get('full_d3_median'))}·상5 {_fmt(r.get('full_d3_top5_removed'))} | 12W n{int(_num(r.get('recent12_n'),0))} {_fmt(r.get('recent12_median'))} | 8W n{int(_num(r.get('recent8_n'),0))} {_fmt(r.get('recent8_median'))} ({r.get('recent8_status','')}) | OOS {_fmt(r.get('wf_oos_median'))} | {r['policy_status']}")
+            _bw=int(_num(r.get('base_window'),len(replay_lock)) or len(replay_lock))
+            lines.append(f"- {r['formula']}: {_bw}W n{int(_num(r.get('full_n'),0))}/일{int(_num(r.get('full_signal_days'),0))} 중앙 {_fmt(r.get('full_d3_median'))}·상5 {_fmt(r.get('full_d3_top5_removed'))} | 12W n{int(_num(r.get('recent12_n'),0))} {_fmt(r.get('recent12_median'))} | 8W n{int(_num(r.get('recent8_n'),0))} {_fmt(r.get('recent8_median'))} ({r.get('recent8_status','')}) | OOS {_fmt(r.get('wf_oos_median'))} | {r['policy_status']}")
     lines.append("🧬 [PATTERN_ONLY 완성 시퀀스]")
     if pattern_only.empty:
         lines.append("- 원장 없음 또는 표본 0")
@@ -847,10 +854,15 @@ def _report(master: pd.DataFrame, membership: pd.DataFrame, matched: pd.DataFram
     lines.append("🪜 [분봉 확인형 분할매수 준비]")
     for _, r in minute.iterrows():
         lines.append(f"- {r['source']}: {int(r['unique_stock_days'])} 종목일 · {r['status']}")
+    _rd=len(replay_lock)
+    _wins=[w for w in _window_list() if w <= _rd]
+    if _rd and _rd not in _wins: _wins.append(_rd)
+    _wins=sorted(set(_wins),reverse=True)
+    _wlabel="·".join(map(str,_wins)) if _wins else str(_rd)
     lines += [
         "🔒 [검증 운용]",
-        "- 24개 replay 날짜를 파일로 잠그고 같은 날짜 집합에서 24·12·8·4주와 앞 2/3→뒤 1/3 Walk-forward를 계산합니다.",
-        "- 안정성 24W는 v72_search_formula_universe_formula_performance.csv와 n·신호일·평균·중앙·절사·상2제거가 일치해야 합니다.",
+        f"- {_rd}개 replay 날짜를 파일로 잠그고 같은 날짜 집합에서 {_wlabel}주와 앞 2/3→뒤 1/3 Walk-forward를 계산합니다.",
+        f"- 안정성 FULL({_rd}W)는 v72_search_formula_universe_formula_performance.csv와 n·신호일·평균·중앙·절사·상2제거가 일치해야 합니다.",
         "- 8W에 점등이 없으면 NaN만 표시하지 않고 NO_HITS_IN_WINDOW와 해당 n=0을 함께 기록합니다.",
         "- 중복 COMBO 호출은 결과가 같으면 DEDUPED_VALID, 하나라도 다르면 INVALID_DUPLICATE_CALL입니다.",
         "- 실제 섹터 breadth·지정학 인과원장·분봉 원장이 없으면 UNKNOWN/WARMUP으로 유지합니다.",
@@ -923,14 +935,19 @@ def run_backtest(eval_df: pd.DataFrame | None = None, output_dir: str | Path = "
         status = "INVALID_DUPLICATE_CALL"
     elif recon_mismatch:
         status = "INVALID_STABILITY_RECONCILIATION"
-    elif replay_day_count < 24:
-        status = "VALID_SHADOW_WINDOW_WARMUP"
-    elif recon_missing:
-        status = "VALID_SHADOW_RECONCILIATION_WARMUP"
-    elif official.empty or sector_cov < 70 or minute_ready == 0:
-        status = "VALID_SHADOW_DATA_WARMUP"
     else:
-        status = "VALID_SHADOW"
+        try: _requested_weeks=max(1,int(float(os.environ.get("V1080_BACKTEST_WEEKS",24))))
+        except Exception: _requested_weeks=24
+        if replay_day_count < _requested_weeks:
+            status = "VALID_SHADOW_WINDOW_WARMUP"
+        elif _requested_weeks < 24:
+            status = "VALID_SHADOW_SHORT_REQUESTED_WINDOW"
+        elif recon_missing:
+            status = "VALID_SHADOW_RECONCILIATION_WARMUP"
+        elif official.empty or sector_cov < 70 or minute_ready == 0:
+            status = "VALID_SHADOW_DATA_WARMUP"
+        else:
+            status = "VALID_SHADOW"
     policy_ready = bool(status == "VALID_SHADOW" and stable_count > 0)
     readiness = pd.DataFrame([{
         "version": VERSION, "status": status, "unique_event_source": source, "stability_source": stability_source,
@@ -940,7 +957,9 @@ def run_backtest(eval_df: pd.DataFrame | None = None, output_dir: str | Path = "
         "stability_reconciliation_evaluable_metrics": len(recon_eval), "stability_reconciliation_mismatch_metrics": recon_mismatch,
         "duplicate_combo_conflict_rows": duplicate_invalid, "official_archive_rows": len(official), "sector_breadth_coverage_pct": sector_cov,
         "minute_ready_source_count": minute_ready, "stable_policy_candidate_count": stable_count, "locked_failed_oos_policy_count": int(locked_failure["status"].eq("LOCKED_FAILED_OOS").sum()) if not locked_failure.empty else 0,
-        "pattern_only_event_rows": len(pattern_only), "policy_ready": policy_ready, "recommended_backtest_weeks": 24, "stability_windows": ",".join(map(str, _window_list())),
+        "pattern_only_event_rows": len(pattern_only), "policy_ready": policy_ready, "recommended_backtest_weeks": 24,
+        "requested_backtest_weeks": int(float(os.environ.get("V1080_BACKTEST_WEEKS",24))) if str(os.environ.get("V1080_BACKTEST_WEEKS",24)).replace(".","",1).isdigit() else 24,
+        "stability_windows": ",".join(map(str, sorted(set(([replay_day_count] if replay_day_count else []) + [w for w in _window_list() if w <= replay_day_count]), reverse=True))),
         "snapshot_id": snapshot, "generated_at": generated_at, "research_only": True, "live_logic_changed": False, "real_order_changed": False,
     }])
 

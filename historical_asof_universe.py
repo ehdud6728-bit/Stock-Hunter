@@ -13,7 +13,7 @@ from typing import Any, Callable, Iterable
 import numpy as np
 import pandas as pd
 
-VERSION = "V73.3.6.6.24"
+VERSION = "V73.3.6.6.25.2"
 RESEARCH_ONLY = True
 LIVE_LOGIC_CHANGED = False
 REAL_ORDER_CHANGED = False
@@ -157,33 +157,49 @@ def _asof_1503(asof_date: Any) -> pd.Timestamp:
 
 
 def _normalize_market_snapshot(raw: pd.DataFrame, market: str = "ALL") -> pd.DataFrame:
+    """Normalize an all-market daily cross-section with explicit trading-value provenance.
+
+    V25.2 accepts both pykrx OHLCV-by-ticker and market-cap cross-sections.  pykrx's
+    market-cap endpoints can carry 거래대금 directly; this is authoritative reported turnover
+    and is never replaced by Close×Volume for causal-universe/CORE224 evidence.
+    """
+    base_cols = ["code", "close", "volume", "amount", "ret_pct", "market", "marcap", "shares", "amount_source", "amount_is_actual", "close_source"]
     if raw is None or raw.empty:
-        return pd.DataFrame(columns=["code", "close", "volume", "amount", "ret_pct", "market"])
+        return pd.DataFrame(columns=base_cols)
     q = raw.copy()
     if q.index.name is not None or not isinstance(q.index, pd.RangeIndex):
         q = q.reset_index()
     cc = _pick_col(q, ["티커", "ticker", "Code", "code", "종목코드", "index"])
     if not cc:
-        # reset_index usually yields the first column with ticker values.
         cc = q.columns[0] if len(q.columns) else None
     if not cc:
-        return pd.DataFrame(columns=["code", "close", "volume", "amount", "ret_pct", "market"])
+        return pd.DataFrame(columns=base_cols)
     out = pd.DataFrame({"code": q[cc].map(_norm_code)})
     close_c = _pick_col(q, ["종가", "Close", "close", "현재가"])
     vol_c = _pick_col(q, ["거래량", "Volume", "volume"])
     amt_c = _pick_col(q, ["거래대금", "Amount", "amount", "거래대금(원)"])
     ret_c = _pick_col(q, ["등락률", "Change", "change", "수익률"])
+    marcap_c = _pick_col(q, ["시가총액", "Marcap", "MarCap", "marcap", "market_cap"])
+    shares_c = _pick_col(q, ["상장주식수", "Shares", "shares", "listed_shares"])
     out["close"] = pd.to_numeric(q[close_c], errors="coerce") if close_c else np.nan
     out["volume"] = pd.to_numeric(q[vol_c], errors="coerce") if vol_c else np.nan
+    out["marcap"] = pd.to_numeric(q[marcap_c], errors="coerce") if marcap_c else np.nan
+    out["shares"] = pd.to_numeric(q[shares_c], errors="coerce") if shares_c else np.nan
+    # Some pykrx get_market_cap variants do not expose close but do expose marcap/shares.
+    # Deriving close from those same-day reported fields is allowed only for the price floor;
+    # it is never used to synthesize trading value.
+    derived_close = out["marcap"] / out["shares"].replace(0, np.nan)
+    need_close = out["close"].isna() | out["close"].le(0)
+    out.loc[need_close, "close"] = derived_close.loc[need_close]
+    out["close_source"] = np.where(need_close & derived_close.notna(), "MARCAP_DIV_SHARES", "REPORTED_CLOSE" if close_c else "MISSING")
     if amt_c:
         out["amount"] = pd.to_numeric(q[amt_c], errors="coerce")
-        out["amount_source"] = "PYKRX_ACTUAL"
-        out["amount_is_actual"] = out["amount"].notna().astype(int)
+        out["amount_source"] = "PYKRX_REPORTED_TRADING_VALUE"
+        out["amount_is_actual"] = (out["amount"].notna() & out["amount"].ge(0)).astype(int)
     else:
-        # Legacy universe ranking may still use the proxy as an explicit approximation, but V25
-        # CORE224 must never treat it as actual trading-value evidence. Provenance is preserved.
-        out["amount"] = out["close"] * out["volume"] if out["close"].notna().any() and out["volume"].notna().any() else np.nan
-        out["amount_source"] = "PROXY_CLOSE_X_VOLUME"
+        # No proxy admission: missing trading value remains UNKNOWN.
+        out["amount"] = np.nan
+        out["amount_source"] = "MISSING_REPORTED_TRADING_VALUE"
         out["amount_is_actual"] = 0
     out["ret_pct"] = pd.to_numeric(q[ret_c], errors="coerce") if ret_c else np.nan
     out["market"] = str(market or "ALL").upper()
@@ -192,7 +208,7 @@ def _normalize_market_snapshot(raw: pd.DataFrame, market: str = "ALL") -> pd.Dat
 
 def _normalize_cap_snapshot(raw: pd.DataFrame) -> pd.DataFrame:
     if raw is None or raw.empty:
-        return pd.DataFrame(columns=["code", "marcap"])
+        return pd.DataFrame(columns=["code", "marcap", "volume", "amount", "shares", "close"])
     q = raw.copy()
     if q.index.name is not None or not isinstance(q.index, pd.RangeIndex):
         q = q.reset_index()
@@ -201,8 +217,15 @@ def _normalize_cap_snapshot(raw: pd.DataFrame) -> pd.DataFrame:
         cc = q.columns[0] if len(q.columns) else None
     mc = _pick_col(q, ["시가총액", "Marcap", "MarCap", "marcap", "market_cap"])
     if not cc or not mc:
-        return pd.DataFrame(columns=["code", "marcap"])
+        return pd.DataFrame(columns=["code", "marcap", "volume", "amount", "shares", "close"])
     out = pd.DataFrame({"code": q[cc].map(_norm_code), "marcap": pd.to_numeric(q[mc], errors="coerce")})
+    for outc, aliases in {
+        "volume":["거래량","Volume","volume"],
+        "amount":["거래대금","Amount","amount","거래대금(원)"],
+        "shares":["상장주식수","Shares","shares","listed_shares"],
+        "close":["종가","Close","close","현재가"],
+    }.items():
+        c=_pick_col(q, aliases); out[outc]=pd.to_numeric(q[c],errors="coerce") if c else np.nan
     return out[out["code"].ne("")].drop_duplicates("code", keep="last").reset_index(drop=True)
 
 
@@ -274,13 +297,17 @@ def _filter_security_names(df: pd.DataFrame) -> pd.DataFrame:
     return q[q["Code"].ne("")].drop_duplicates("Code", keep="last")
 
 
+def _actual_snapshot_rows(df: pd.DataFrame) -> int:
+    if df is None or df.empty or "amount_is_actual" not in df.columns:
+        return 0
+    return int(pd.to_numeric(df["amount_is_actual"], errors="coerce").fillna(0).eq(1).sum())
+
+
 def _get_market_snapshot(stock_module: Any, ymd: str) -> tuple[pd.DataFrame, str]:
     cached = _read_cache("market", ymd)
-    if not cached.empty and "amount_is_actual" in cached.columns and "amount_source" in cached.columns:
+    if not cached.empty and "amount_is_actual" in cached.columns and "amount_source" in cached.columns and _actual_snapshot_rows(cached) > 0:
         _CACHE_STATS["market_hit"] += 1
-        return cached, "V20_DISK_CACHE:PYKRX_DAILY_CROSS_SECTION"
-    # V25 provenance migration: a legacy cache without amount provenance remains usable only if
-    # live pykrx is unavailable. Otherwise refetch once and overwrite with explicit provenance.
+        return cached, "V25_DISK_CACHE:REPORTED_TRADING_VALUE"
     legacy_cached = cached.copy() if not cached.empty else pd.DataFrame()
     _CACHE_STATS["market_miss"] += 1
     if stock_module is None:
@@ -289,8 +316,10 @@ def _get_market_snapshot(stock_module: Any, ymd: str) -> tuple[pd.DataFrame, str
             legacy_cached["amount_is_actual"] = 0
             return legacy_cached, "V20_LEGACY_CACHE_AMOUNT_PROVENANCE_UNKNOWN"
         return pd.DataFrame(), "PYKRX_UNAVAILABLE"
-    frames: list[pd.DataFrame] = []
+
     errors: list[str] = []
+    # Authority 1: OHLCV cross-section.
+    frames: list[pd.DataFrame] = []
     for market in ["KOSPI", "KOSDAQ"]:
         try:
             try:
@@ -298,19 +327,54 @@ def _get_market_snapshot(stock_module: Any, ymd: str) -> tuple[pd.DataFrame, str
             except TypeError:
                 raw = stock_module.get_market_ohlcv_by_ticker(date=ymd, market=market)
             z = _normalize_market_snapshot(raw, market)
-            if not z.empty: frames.append(z)
+            if not z.empty and _actual_snapshot_rows(z) > 0:
+                frames.append(z)
         except Exception as exc:
-            errors.append(f"{market}:{type(exc).__name__}:{exc}")
-    if not frames:
-        if not legacy_cached.empty:
-            legacy_cached["amount_source"] = "LEGACY_CACHE_UNKNOWN"
-            legacy_cached["amount_is_actual"] = 0
-            return legacy_cached, "V20_LEGACY_CACHE_AMOUNT_PROVENANCE_UNKNOWN"
-        return pd.DataFrame(), "PYKRX_EMPTY" + (":" + "|".join(errors[:2]) if errors else "")
-    out = pd.concat(frames, ignore_index=True).drop_duplicates("code", keep="last")
-    try: _write_cache("market", ymd, out)
-    except Exception: pass
-    return out, "PYKRX_DAILY_CROSS_SECTION"
+            errors.append(f"ohlcv_{market}:{type(exc).__name__}:{exc}")
+    if frames:
+        out = pd.concat(frames, ignore_index=True).drop_duplicates("code", keep="last")
+        _write_cache("market", ymd, out)
+        return out, "PYKRX_OHLCV_CROSS_SECTION_ACTUAL"
+
+    # Authority 2: market-cap cross-section. pykrx exposes 거래대금 here too and it often
+    # remains available when the OHLCV endpoint is unstable.
+    frames = []
+    for market in ["KOSPI", "KOSDAQ"]:
+        try:
+            try:
+                raw = stock_module.get_market_cap_by_ticker(ymd, market=market)
+            except TypeError:
+                raw = stock_module.get_market_cap_by_ticker(date=ymd, market=market)
+            z = _normalize_market_snapshot(raw, market)
+            if not z.empty and _actual_snapshot_rows(z) > 0:
+                frames.append(z)
+        except Exception as exc:
+            errors.append(f"cap_by_ticker_{market}:{type(exc).__name__}:{exc}")
+    if frames:
+        out = pd.concat(frames, ignore_index=True).drop_duplicates("code", keep="last")
+        _write_cache("market", ymd, out)
+        return out, "PYKRX_MARKET_CAP_BY_TICKER_ACTUAL"
+
+    # Authority 3: older/newer pykrx releases expose get_market_cap(date) for all tickers.
+    # It carries reported 거래대금 and 시가총액; market may be UNKNOWN but causal membership
+    # and liquidity ranking remain valid.
+    getter = getattr(stock_module, "get_market_cap", None)
+    if callable(getter):
+        try:
+            raw = getter(ymd)
+            z = _normalize_market_snapshot(raw, "ALL")
+            if not z.empty and _actual_snapshot_rows(z) > 0:
+                _write_cache("market", ymd, z)
+                return z, "PYKRX_GET_MARKET_CAP_ALL_ACTUAL"
+        except Exception as exc:
+            errors.append(f"get_market_cap_all:{type(exc).__name__}:{exc}")
+
+    if not legacy_cached.empty:
+        legacy_cached["amount_source"] = "LEGACY_CACHE_UNKNOWN"
+        legacy_cached["amount_is_actual"] = 0
+        return legacy_cached, "V20_LEGACY_CACHE_AMOUNT_PROVENANCE_UNKNOWN"
+    return pd.DataFrame(), "PYKRX_ACTUAL_AMOUNT_EMPTY" + (":" + "|".join(errors[:3]) if errors else "")
+
 
 def _get_cap_snapshot(stock_module: Any, ymd: str) -> tuple[pd.DataFrame, str]:
     cached = _read_cache("cap", ymd)
@@ -332,12 +396,21 @@ def _get_cap_snapshot(stock_module: Any, ymd: str) -> tuple[pd.DataFrame, str]:
             if not z.empty: frames.append(z)
         except Exception as exc:
             errors.append(f"{market}:{type(exc).__name__}:{exc}")
-    if not frames:
-        return pd.DataFrame(), "PYKRX_CAP_EMPTY" + (":" + "|".join(errors[:2]) if errors else "")
-    out = pd.concat(frames, ignore_index=True).drop_duplicates("code", keep="last")
-    try: _write_cache("cap", ymd, out)
-    except Exception: pass
-    return out, "PYKRX_MARKET_CAP"
+    if frames:
+        out = pd.concat(frames, ignore_index=True).drop_duplicates("code", keep="last")
+        _write_cache("cap", ymd, out)
+        return out, "PYKRX_MARKET_CAP_BY_TICKER"
+    getter=getattr(stock_module,"get_market_cap",None)
+    if callable(getter):
+        try:
+            raw=getter(ymd); out=_normalize_cap_snapshot(raw)
+            if not out.empty:
+                _write_cache("cap",ymd,out)
+                return out,"PYKRX_GET_MARKET_CAP_ALL"
+        except Exception as exc:
+            errors.append(f"get_market_cap_all:{type(exc).__name__}:{exc}")
+    return pd.DataFrame(), "PYKRX_CAP_EMPTY" + (":" + "|".join(errors[:3]) if errors else "")
+
 
 def _calendar_before(asof_date: Any, n: int, fdr_reader: Callable[..., pd.DataFrame] | None = None) -> list[pd.Timestamp]:
     d = pd.Timestamp(asof_date).normalize()
@@ -576,9 +649,24 @@ class HistoricalUniverseRuntime:
             if not z.empty:
                 snapshots[pd.Timestamp(dt).normalize()] = z
                 snapshot_sources.append(src)
+        actual_snapshot_days = 0
+        proxy_snapshot_days = 0
+        for _dt, _snap in snapshots.items():
+            _actual = _actual_snapshot_rows(_snap)
+            if _actual > 0:
+                actual_snapshot_days += 1
+            else:
+                proxy_snapshot_days += 1
+
         cap = pd.DataFrame(); cap_source = "MISSING"
+        # Reuse same-day market snapshot when the market-cap endpoint already supplied marcap.
         if dates:
-            cap, cap_source = _get_cap_snapshot(self.stock_module, pd.Timestamp(dates[-1]).strftime("%Y%m%d"))
+            _last = snapshots.get(pd.Timestamp(dates[-1]).normalize(), pd.DataFrame())
+            if isinstance(_last, pd.DataFrame) and not _last.empty and "marcap" in _last.columns and pd.to_numeric(_last["marcap"], errors="coerce").notna().any():
+                cap = _last[["code","marcap"]].copy()
+                cap_source = "COLOCATED_MARKET_SNAPSHOT_MARCAP"
+            else:
+                cap, cap_source = _get_cap_snapshot(self.stock_module, pd.Timestamp(dates[-1]).strftime("%Y%m%d"))
 
         listing, listing_source, listing_errors = pd.DataFrame(), "", []
         listing_ymd = pd.Timestamp(dates[-1]).strftime("%Y%m%d") if dates else asof.strftime("%Y%m%d")
@@ -637,8 +725,24 @@ class HistoricalUniverseRuntime:
         mode = "HISTORICAL_ASOF_TOP500_EVENT_EXPANSION"
         historical_membership = listing_source in {"PYKRX_D1_HISTORICAL_TICKER_LIST", "PYKRX_D1_MARKET_MEMBERSHIP"}
         _unknown_names = int(listing.get("Name", pd.Series(dtype=str)).fillna("").astype(str).str.len().eq(0).sum()) if not listing.empty else 0
-        _core_causal = bool(not final.empty and historical_membership and len(snapshots) >= max(10, liq_days // 2) and not cap.empty)
-        status = "VALID_CAUSAL_ASOF" if _core_causal and _unknown_names == 0 else ("VALID_CAUSAL_ASOF_SECURITY_FILTER_PARTIAL" if _core_causal else "FALLBACK_ASOF_APPROX")
+        _min_authority_days = max(10, liq_days // 2)
+        _core_causal = bool(
+            not final.empty and historical_membership
+            and actual_snapshot_days >= _min_authority_days
+            and not cap.empty
+        )
+        if _core_causal and _unknown_names == 0:
+            status = "VALID_CAUSAL_ASOF"
+            authority_reason = "ACTUAL_TRADING_VALUE_AND_MARCAP_CAUSAL"
+        elif _core_causal:
+            status = "VALID_CAUSAL_ASOF_SECURITY_FILTER_PARTIAL"
+            authority_reason = "ACTUAL_TRADING_VALUE_OK_SECURITY_NAME_PARTIAL"
+        else:
+            status = "FALLBACK_ASOF_APPROX"
+            authority_reason = (
+                f"NEED_ACTUAL_SNAPSHOT_DAYS_{_min_authority_days}:have={actual_snapshot_days};"
+                f"historical_membership={int(historical_membership)};cap_rows={len(cap)}"
+            )
         if final.empty and isinstance(fallback_df, pd.DataFrame) and not fallback_df.empty:
             # Fail-open only for keeping legacy research executable. The fallback is explicitly
             # marked and must never be used as historical-universe promotion evidence.
@@ -672,8 +776,11 @@ class HistoricalUniverseRuntime:
             "security_name_unknown_rows": int(listing.get("Name", pd.Series(dtype=str)).fillna("").astype(str).str.len().eq(0).sum()) if not listing.empty else 0,
             "security_filter_quality": "FULL" if (not listing.empty and listing.get("Name", pd.Series(dtype=str)).fillna("").astype(str).str.len().gt(0).all()) else "PARTIAL_NAME_COVERAGE",
             "liquidity_snapshot_days": len(snapshots),
-            "liquidity_snapshot_source": "PYKRX_DAILY_CROSS_SECTION" if snapshot_sources else "MISSING",
+            "actual_liquidity_snapshot_days": actual_snapshot_days,
+            "proxy_or_unknown_snapshot_days": proxy_snapshot_days,
+            "liquidity_snapshot_source": "|".join(sorted(set(snapshot_sources))) if snapshot_sources else "MISSING",
             "market_cap_source": cap_source,
+            "authority_reason": authority_reason,
             "official_geo_codes": len(geo_codes),
             "complete": int(status == "VALID_CAUSAL_ASOF"),
             "fallback_used": int(status != "VALID_CAUSAL_ASOF"),

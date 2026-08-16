@@ -93760,12 +93760,12 @@ except Exception:
 
 
 # ============================================================
-# ✅ V73.3.6.6.25.1 ORIGINAL THESIS RECONSTRUCTION + CORE224 SHADOW
+# ✅ V73.3.6.6.25.2 ORIGINAL THESIS RECONSTRUCTION + CORE224 SHADOW + DATA AUTHORITY RECOVERY
 # - Original search philosophy audit only; no return tuning.
 # - Shard materializes CORE224 evidence; merge-only parent consumes sidecars only.
 # - Existing LIVE/score/rank/entry/exit/order logic remains untouched.
 # ============================================================
-_V7336625_VERSION = 'V73.3.6.6.25.1'
+_V7336625_VERSION = 'V73.3.6.6.25.2'
 _V7336625_HEADER = '🧭 [V25 ORIGINAL THESIS RECONSTRUCTION · CORE224 SHADOW · RESEARCH_ONLY]'
 _V7336625_IMPORT_ERROR = ''
 try:
@@ -93789,6 +93789,57 @@ except Exception as _v7336625_import_e:
     _V7336625_IMPORT_ERROR = f'{type(_v7336625_import_e).__name__}:{_v7336625_import_e}'
     try: print(f'🚨 {_V7336625_VERSION} module import fail: {_V7336625_IMPORT_ERROR}')
     except Exception: pass
+
+
+
+# ============================================================
+# ✅ V73.3.6.6.25.2 DATA AUTHORITY RECOVERY
+# - pykrx all-market OHLCV outage -> reported market-cap/turnover cross-section fallback
+# - potential CORE224 names only: per-ticker reported turnover history fallback
+# - Historical-AsOf complete remains fail-closed unless all-market causal denominator is proven
+# - LIVE/score/rank/entry/exit/order changes: 0
+# ============================================================
+def _v73366252_actual_amount_history_reader(code, start_date, end_date):
+    """V25.2 secondary actual-turnover authority for potential CORE224 names only.
+
+    Primary historical-universe authority remains the all-market daily cross-section.  This
+    ticker history is allowed to fill CORE224 Amount evidence only and cannot make a fallback
+    universe causal/complete.
+    """
+    mod=globals().get('stock')
+    if mod is None:
+        return pd.DataFrame()
+    code=_v1080_norm_code(code) if callable(globals().get('_v1080_norm_code')) else str(code).zfill(6)
+    st=pd.Timestamp(start_date).strftime('%Y%m%d'); en=pd.Timestamp(end_date).strftime('%Y%m%d')
+    # Prefer get_market_cap(start,end,ticker): pykrx documents that it returns reported
+    # 거래대금 together with market cap/volume.  It is independent from the failing
+    # get_market_ohlcv_by_ticker all-market path seen in Actions.
+    getter=getattr(mod,'get_market_cap',None)
+    if callable(getter):
+        try:
+            q=getter(st,en,code)
+            if isinstance(q,pd.DataFrame) and not q.empty and any(c in q.columns for c in ['거래대금','Amount','amount']):
+                return q
+        except TypeError:
+            try:
+                q=getter(st,en,code,'d')
+                if isinstance(q,pd.DataFrame) and not q.empty and any(c in q.columns for c in ['거래대금','Amount','amount']):
+                    return q
+            except Exception:
+                pass
+        except Exception:
+            pass
+    # Secondary pykrx route. Default get_market_ohlcv_by_date may use a different backend
+    # than the all-market by_ticker request; accept it only when a reported 거래대금 column exists.
+    getter=getattr(mod,'get_market_ohlcv_by_date',None)
+    if callable(getter):
+        try:
+            q=getter(st,en,code)
+            if isinstance(q,pd.DataFrame) and not q.empty and any(c in q.columns for c in ['거래대금','Amount','amount']):
+                return q
+        except Exception:
+            pass
+    return pd.DataFrame()
 
 
 def _v7336625_inline_strip_stale(text):
@@ -94014,7 +94065,9 @@ def _v7336623_run_shard_worker() -> int:
                             _v25_sidecar = _v7336625_thesis.build_date_sidecar(
                                 d, cp.get('universe_membership', pd.DataFrame()), _v25_reader,
                                 output_dir=out, sector_map=sector_master_map,
-                                market_index_reader=_v25_market_reader, log_fn=globals().get('log_info'))
+                                market_index_reader=_v25_market_reader,
+                                actual_amount_history_reader=_v73366252_actual_amount_history_reader,
+                                log_fn=globals().get('log_info'))
                             for _k, _vals in (_v25_sidecar or {}).items():
                                 _v24_side[_k] = _vals
                             try:
