@@ -1,4 +1,4 @@
-name: closing-bet-v49.76.5.9-canonical-session-date-authority
+name: closing-bet-v49.76.5.10-session-authority-full-propagation-replay-audit
 
 on:
   schedule:
@@ -111,10 +111,15 @@ jobs:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       DART_API_KEY: ${{ secrets.DART_API_KEY }}
-      # v49.76.5.9 Google Sheet service-account JSON. 저장소/ZIP에 키 파일을 넣지 않는다.
+      # v49.76.5.10 Google Sheet service-account JSON. 저장소/ZIP에 키 파일을 넣지 않는다.
       GOOGLE_JSON_KEY: ${{ secrets.GOOGLE_JSON_KEY }}
       CLOSING_BET_V4944_HEALTH_TAB: ${{ vars.CLOSING_BET_V4944_HEALTH_TAB || 'SYSTEM_HEALTH' }}
       CLOSING_BET_V4944_SHEET_HEALTH_ENABLE: '1'
+      # v49.76.5.10 session replay audit / production M5 coverage authority
+      CLOSING_BET_V4976510_M5_MIN_COVERAGE_PCT: '90'
+      CLOSING_BET_V4976510_SESSION_REPLAY_MIN_UNIVERSE_PCT: '80'
+      CLOSING_BET_V4976510_SESSION_AUDIT_ENABLE: '1'
+      CLOSING_BET_V4976510_SESSION_AUDIT_TAB: 'SESSION_STRICT_AUDIT'
       CLOSING_BET_V4944_DELIVERY_CONFIRM_TELEGRAM: '1'
       # v53.8.32: KRX credentials alias matrix + data mode live final. 기존 정상버전과 기본명은 같지만, Secret 이름이 달라도 받도록 확장.
       KRX_DATA_ID: ${{ secrets.KRX_DATA_ID || secrets.KRX_ID || secrets.KRX_USER_ID || secrets.KRX_USERNAME || secrets.KRX_LOGIN_ID || vars.KRX_DATA_ID || vars.KRX_ID || vars.KRX_USER_ID || vars.KRX_USERNAME || vars.KRX_LOGIN_ID }}
@@ -151,7 +156,7 @@ jobs:
       CLOSING_BET_V4960_PROGRESS_SECONDS: '60'
       CLOSING_BET_V4960_SLOW_CODE_SECONDS: '300'
       CLOSING_BET_V4960_ENGINE_WATCHDOG_SECONDS: '5400'
-      # v49.76.5.9 TRAIN -> VALIDATION -> LOCKED TEST research only. No auto-apply.
+      # v49.76.5.10 TRAIN -> VALIDATION -> LOCKED TEST research only. No auto-apply.
       CLOSING_BET_V4967_TRAIN_RATIO: '0.50'
       CLOSING_BET_V4967_VALIDATION_RATIO: '0.25'
       CLOSING_BET_V4967_FEATURE_MIN_TRAIN_N: '40'
@@ -388,13 +393,13 @@ jobs:
       CLOSING_BET_V4976_PRACTICAL_EXEC_TOP_N: '2'
       CLOSING_BET_V4976_FINAL_KICK_LEDGER_ONLY: '1'
       CLOSING_BET_V4976_SHOW_EXECUTION_BOARD: '1'
-      # v49.76.5.8 clean LIVE-DATA PAPER evidence gate
+      # v49.76.5.10 clean LIVE-DATA PAPER evidence gate
       CLOSING_BET_V49761_LIVE_KPI_REQUIRE_FINAL_WINDOW: '1'
       CLOSING_BET_V49761_FINAL_WINDOW_START_HHMM: '1540'
       CLOSING_BET_V49761_FINAL_WINDOW_END_HHMM: '2000'
       CLOSING_BET_V49761_KPI_STRICT_EVIDENCE: '1'
       CLOSING_BET_V49761_FORWARD_AFTER_DELIVERED: '1'
-      # v49.76.5.8 KRX close-confirmed AFTER FINAL + NXT target eligibility + daily evidence ledger
+      # v49.76.5.10 KRX close-confirmed AFTER FINAL + NXT target eligibility + daily evidence ledger
       CLOSING_BET_V49765_AFTER_FINAL_ENABLE: '1'
       CLOSING_BET_V49765_PRE_FINAL_HHMM: '1503'
       CLOSING_BET_V49765_AFTER_FINAL_START_HHMM: '1540'
@@ -597,17 +602,17 @@ jobs:
             v49-76-research-contexts-${{ runner.os }}-${{ github.ref_name }}-engine2-
             v49-76-research-contexts-${{ runner.os }}-${{ github.ref_name }}-
 
-      - name: Verify Telegram route for Closing Bet (unified v49.76.5.8)
+      - name: Verify Telegram route for Closing Bet (unified v49.76.5.10)
         run: |
           python v49_76_telegram_route.py --send "${{ inputs.send_telegram || 'true' }}" --json-output reports/v49_76_telegram_route_run.json
 
-      - name: Show v4.4.9.53.8.49.76.5.7 files
+      - name: Show v4.4.9.53.8.49.76.5.10 files
         run: |
           echo "Python file check"
           ls -la Closing_bet_scanner_v2.py
           python -m py_compile Closing_bet_scanner_v2.py v49.76.2.py
 
-      - name: Decide v4.4.9.53.8.49.76.5.7 run mode
+      - name: Decide v4.4.9.53.8.49.76.5.10 run mode
         shell: bash
         run: |
           ACTION_RAW="${{ inputs.action_mode || '' }}"
@@ -651,7 +656,7 @@ jobs:
 
           echo "RUN_MODE=$RUN_MODE"
 
-      - name: Run v4.4.9.53.8.49.76.5.7 scanner/backtest
+      - name: Run v4.4.9.53.8.49.76.5.10 scanner/backtest
         shell: bash
         run: |
           set -euo pipefail
@@ -702,7 +707,7 @@ jobs:
             if [ "${{ inputs.send_telegram || 'true' }}" = "true" ]; then
               BT_FLAGS="$BT_FLAGS --send-backtest-summary"
             fi
-            echo "RUN v4.4.9.53.8.49.76.5.7: python Closing_bet_scanner_v2.py $BT_FLAGS $FLAGS --compact-summary"
+            echo "RUN v4.4.9.53.8.49.76.5.10: python Closing_bet_scanner_v2.py $BT_FLAGS $FLAGS --compact-summary"
             python Closing_bet_scanner_v2.py $BT_FLAGS $FLAGS --compact-summary
           elif [ "$ACTION" = "eval" ]; then
             EXTRA="--eval-pending"
@@ -718,11 +723,11 @@ jobs:
             python Closing_bet_scanner_v2.py $FLAGS --compact-summary
           fi
 
-      - name: Upload v49.76.5.8 complete research reports
+      - name: Upload v49.76.5.10 complete research reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: v49.76.5.8-research-reports-${{ github.run_number }}
+          name: v49.76.5.10-research-reports-${{ github.run_number }}
           path: reports/
           if-no-files-found: ignore
           retention-days: 14
@@ -1039,7 +1044,7 @@ jobs:
           key: v49-76-pit-marcap-${{ runner.os }}-${{ github.ref_name }}-${{ github.run_id }}
           restore-keys: |
             v49-76-pit-marcap-${{ runner.os }}-${{ github.ref_name }}-
-      - name: Verify Telegram route for Closing Bet merge (unified v49.76.5.8)
+      - name: Verify Telegram route for Closing Bet merge (unified v49.76.5.10)
         run: |
           python v49_76_telegram_route.py --send "${{ inputs.send_telegram || 'true' }}" --json-output reports/v49_76_telegram_route_merge.json
       - name: Merge global population and build final performance report
@@ -1099,7 +1104,7 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: v49.76.5.8-pit-marcap-audit-${{ github.run_number }}
+          name: v49.76.5.10-pit-marcap-audit-${{ github.run_number }}
           path: |
             reports/v49_76_pit_marcap_audit_manifest.json
             reports/v49_76_pit_marcap_date_coverage.csv
@@ -1118,7 +1123,7 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: v49.76.5.8-practical-paper-${{ github.run_number }}
+          name: v49.76.5.10-practical-paper-${{ github.run_number }}
           path: |
             reports/v49_76_practical_manifest.json
             reports/v49_76_practical_readiness.csv
@@ -1136,7 +1141,7 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: v49.76.5.8-global-performance-${{ github.run_number }}
+          name: v49.76.5.10-global-performance-${{ github.run_number }}
           path: reports/
           if-no-files-found: warn
           retention-days: 14
@@ -1145,7 +1150,7 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: v49.76.5.8-technical-fn-${{ github.run_number }}
+          name: v49.76.5.10-technical-fn-${{ github.run_number }}
           path: |
             reports/v49_76_technical_false_negative.csv
             reports/v49_76_technical_false_negative.json
@@ -1158,7 +1163,7 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: v49.76.5.8-input-authority-${{ github.run_number }}
+          name: v49.76.5.10-input-authority-${{ github.run_number }}
           path: |
             reports/v49_76_input_authority_manifest.json
             reports/v49_76_history_authority_global.csv
@@ -1177,7 +1182,7 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: v49.76.5.8-marcap-authority-${{ github.run_number }}
+          name: v49.76.5.10-marcap-authority-${{ github.run_number }}
           path: |
             reports/v49_76_prepared_authority_snapshot.csv
             reports/v49_76_prepared_authority_snapshot.json
@@ -1193,7 +1198,7 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: v49.76.5.8-search-gap-insight-${{ github.run_number }}
+          name: v49.76.5.10-search-gap-insight-${{ github.run_number }}
           path: |
             reports/v49_76_sample_authority_reconciliation.csv
             reports/v49_76_immediate_miss_policy_summary.csv
