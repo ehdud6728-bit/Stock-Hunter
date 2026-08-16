@@ -80,8 +80,8 @@ def _env_float(name: str, default: float = 0.0) -> float:
         except Exception:
             return 0.0
 
-CLOSING_BET_SCANNER_VERSION = 'G_MORALES_V4_4_9_53_8_49_76_5_8_AFTER_FINAL_DISPLAY_AUTHORITY_FINALIZATION_20260814'
-CLOSING_BET_RELEASE_TAG = 'v49.76.5.8'
+CLOSING_BET_SCANNER_VERSION = 'G_MORALES_V4_4_9_53_8_49_76_5_9_CANONICAL_SESSION_DATE_AUTHORITY_20260815'
+CLOSING_BET_RELEASE_TAG = 'v49.76.5.9'
 CLOSING_BET_LIVE_PRICE_SANITY_FIX = str(os.environ.get('CLOSING_BET_LIVE_PRICE_SANITY_FIX', '1')).lower() in ('1', 'true', 'yes', 'y', 'on')
 CLOSING_BET_LIVE_READABILITY_COMPACT = str(os.environ.get('CLOSING_BET_LIVE_READABILITY_COMPACT', '1')).lower() in ('1', 'true', 'yes', 'y', 'on')
 # v53.8.42: M5R TRUE60 검증용 장기 월봉 확보. 60개월 월선 계산에는 약 7년 일봉이 필요하다.
@@ -48599,6 +48599,295 @@ def _v4943_prepare_live_recommendations() -> list[dict]:
 
 # =============================================================
 # ✅ END V49.76.5.8
+# =============================================================
+
+
+# =============================================================
+# ✅ V49.76.5.9 CANONICAL SESSION-DATE AUTHORITY
+# -------------------------------------------------------------
+# Scope only:
+# - Separate wall-clock date/time from canonical KRX session date (data_date).
+# - Same-session day keeps the existing 15:40~20:00 AFTER FINAL authority.
+# - Once wall-clock date is later than the canonical session date, that session
+#   is restore-only forever: restore its evidence by session-date key or NO_LATE_CREATE.
+# - Weekend / next-day / after-midnight reports use session-aware wording.
+# - Replay no-live-evidence matching is keyed to canonical session_date, never now.date().
+# - Search/rank/STRICT thresholds, MARCAP/PIT, P1 and automatic-order policy unchanged.
+# =============================================================
+try:
+    print("✅ V49.76.5.9 CANONICAL_SESSION_DATE_AUTHORITY LOADED")
+except Exception:
+    pass
+
+
+def _v497659_session_state(data_date=None) -> dict:
+    """Return one authoritative relation between wall clock and KRX data session.
+
+    wall-clock date/time is used only to locate the current phase. data_date is the
+    identity of the market session whose STRICT/evidence/Replay state is being shown.
+    """
+    base=dict(_v49765_time_state(data_date) or {})
+    now=base.get('now') or _now_kst()
+    try:
+        sess=pd.Timestamp(base.get('data_date') or data_date).normalize()
+    except Exception:
+        sess=pd.Timestamp(data_date if data_date is not None else TODAY_STR).normalize()
+    wall=pd.Timestamp(now.date()).normalize()
+    if wall < sess:
+        relation='FUTURE_SESSION_DATA'
+    elif wall == sess:
+        relation='SAME_SESSION_DAY'
+    else:
+        relation='PAST_SESSION'
+    base.update({
+        'session_date':sess.strftime('%Y-%m-%d'),
+        'wall_date':wall.strftime('%Y-%m-%d'),
+        'relation':relation,
+        'is_session_day':relation=='SAME_SESSION_DAY',
+        'is_past_session':relation=='PAST_SESSION',
+        'is_future_session':relation=='FUTURE_SESSION_DATA',
+        'is_wall_weekend':bool(getattr(now,'weekday',lambda:0)() >= 5),
+    })
+    return base
+
+
+def _v497659_restore_session_evidence(session_date: str, decision: dict, st: dict) -> dict:
+    """Past session = evidence restore only. Never create a recommendation."""
+    global _V49765_CURRENT_AUTHORIZED_CODES, _V49765_CURRENT_DECISION, _V49765_RESTORED
+    watches=[]
+    try: watches=_v49765_canonical_watch(decision)
+    except Exception: pass
+    raw=[]
+    try: raw=_v497658_canonical_strict_items(decision)
+    except Exception: pass
+    try:
+        evidence,ev_state=_v49765_load_evidence(session_date)
+    except Exception as e:
+        evidence=None
+        ev_state=f'LOAD_ERROR:{type(e).__name__}'
+    if evidence is not None:
+        recs=_v49765_parse_json_field(evidence,'recommendations_json')
+        saved_watches=_v49765_parse_json_field(evidence,'watch_json') or watches
+        _V49765_CURRENT_AUTHORIZED_CODES={str(x.get('code','')).zfill(6) for x in recs[:2] if str(x.get('code','')).strip()}
+        _V49765_RESTORED=True
+        out={
+            'state':'RESTORED','reason':'SESSION_AFTER_FINAL_LOCK_RESTORED','authorized':recs[:2],
+            'watches':saved_watches[:2],
+            'raw_enter_count':int(_safe_float(evidence.get('raw_enter_count',len(raw)),len(raw))),
+            'raw_strict_items':raw[:2],
+            'nxt_status':_v497655_clean_text(evidence.get('nxt_fetch_status','')),
+            'nxt_count':int(_safe_float(evidence.get('nxt_code_count',0),0)),
+            'event_time_kst':_v497655_clean_text(evidence.get('event_time_kst','')),
+            'data_date':_v497655_clean_text(evidence.get('data_date',''),session_date),
+            'session_date':session_date,'wall_date':st.get('wall_date',''),
+            'session_relation':'PAST_SESSION','authority_source':'EVIDENCE_RESTORE',
+            'evidence_gate_phase':'PAST_SESSION_RESTORE_ONLY'
+        }
+        _V49765_CURRENT_DECISION=out
+        return out
+    _V49765_CURRENT_AUTHORIZED_CODES=set(); _V49765_RESTORED=False
+    if ev_state!='OK':
+        state='INFRA_BLOCKED'
+        reason=f'SESSION_EVIDENCE_LEDGER_UNAVAILABLE_RESTORE_ONLY:{ev_state}'
+    else:
+        state='BLOCKED'
+        reason='SESSION_AFTER_FINAL_EVIDENCE_MISSING_NO_LATE_CREATE'
+    out={
+        'state':state,'reason':reason,'authorized':[],'watches':watches,
+        'raw_enter_count':len(raw),'raw_strict_items':raw[:2],
+        'nxt_status':'NOT_RUN','nxt_count':0,
+        'session_date':session_date,'wall_date':st.get('wall_date',''),
+        'session_relation':'PAST_SESSION','authority_source':'SESSION_RESTORE_ONLY',
+        'evidence_gate_phase':'PAST_SESSION_RESTORE_ONLY'
+    }
+    _V49765_CURRENT_DECISION=out
+    return out
+
+
+_V497659_BASE_RESOLVE = _v49765_resolve_after_final
+
+def _v49765_resolve_after_final(decision: dict, data_date=None) -> dict:
+    """v5.9 canonical session-date authority.
+
+    Same session date delegates unchanged to v5.8. Past sessions are immutable:
+    session-date evidence restore only, otherwise no-late-create. Future data fails closed.
+    """
+    global _V49765_CURRENT_AUTHORIZED_CODES, _V49765_CURRENT_DECISION, _V49765_RESTORED
+    decision=decision if isinstance(decision,dict) else {}
+    st=_v497659_session_state(data_date)
+    if st.get('is_past_session'):
+        return _v497659_restore_session_evidence(st['session_date'],decision,st)
+    if st.get('is_future_session'):
+        raw=[]
+        try: raw=_v497658_canonical_strict_items(decision)
+        except Exception: pass
+        out={
+            'state':'INTERNAL_FAILSAFE','reason':'CANONICAL_SESSION_DATE_IN_FUTURE',
+            'authorized':[],'watches':_v49765_canonical_watch(decision),
+            'raw_enter_count':len(raw),'raw_strict_items':raw[:2],
+            'nxt_status':'NOT_RUN','nxt_count':0,
+            'session_date':st['session_date'],'wall_date':st['wall_date'],
+            'session_relation':'FUTURE_SESSION_DATA','evidence_gate_phase':'SESSION_DATE_FAILSAFE'
+        }
+        _V49765_CURRENT_AUTHORIZED_CODES=set(); _V49765_CURRENT_DECISION=out; _V49765_RESTORED=False
+        return out
+    res=dict(_V497659_BASE_RESOLVE(decision,data_date) or {})
+    res.setdefault('session_date',st['session_date'])
+    res.setdefault('wall_date',st['wall_date'])
+    res.setdefault('session_relation','SAME_SESSION_DAY')
+    _V49765_CURRENT_DECISION=res
+    return res
+
+
+_V497659_BASE_ACTION_PANEL = _v49765_action_panel
+
+def _v49765_action_panel(decision: dict, data_date=None) -> tuple[str,bool,dict]:
+    """Session-aware top action board; no past session can say AFTER_FINAL_NOT_RUN_YET."""
+    try:
+        panel,has_authorized,res=_V497659_BASE_ACTION_PANEL(decision,data_date)
+    except Exception as e:
+        err=_v497657_clean_error(e) if '_v497657_clean_error' in globals() else f'{type(e).__name__}:{e}'
+        res={'state':'INTERNAL_FAILSAFE','reason':f'INTERNAL_FAILSAFE:{err}','authorized':[],
+             'watches':[],'raw_enter_count':0,'raw_strict_items':[]}
+        panel=(f'🚦 [사용자 행동 결론 · SESSION AUTHORITY FAIL-SAFE] | v49.76.5.9\n──────────\n'
+               f'- 🔴 지금 신규매수: 0개\n- ⛔ 사유: ACTION_PANEL_FAILSAFE:{err}\n- 자동주문 0건')
+        return panel,False,res
+    s=str(panel or '')
+    s=s.replace('v49.76.5.8','v49.76.5.9').replace('v49.76.5.7','v49.76.5.9')
+    st=_v497659_session_state(data_date)
+    state=str((res or {}).get('state','')).upper()
+    if st.get('is_past_session'):
+        sess=st['session_date']
+        if state=='RESTORED':
+            title=f'🚦 [사용자 행동 결론 · 최근 확정세션 AFTER FINAL evidence 복원 · {sess}] | v49.76.5.9'
+            s=s.replace('🔒 오늘 확정추천 복원','🔒 해당 세션 확정추천 기록 복원')
+            s=re.sub(r'- 🔒 해당 세션 확정추천 기록 복원: (\d+)개 · NXT 지정가만 · 자동주문 0',
+                     r'- 🔒 해당 세션 확정추천 기록 복원: \1개 · 현재 신규진입/재전송 없음 · 자동주문 0',s)
+            s=s.replace('NXT 실시간호가: 미연동 · 실제 NXT 가격이 지정가 이하일 때만 수동 PAPER 진입',
+                        '해당 세션 확정추천 기록 복원 · 현재 시점 신규진입 권한 없음')
+        else:
+            phase='비거래일 관찰' if st.get('is_wall_weekend') else '장전/다음세션 관찰'
+            title=f'🚦 [사용자 행동 결론 · {phase} · 최근 확정세션 {sess}] | v49.76.5.9'
+        s=re.sub(r'🚦 \[사용자 행동 결론 · [^\]]+\] \| v49\.76\.5\.9',title,s,count=1)
+        # Remove phase wording that implies the old session is still waiting to run.
+        s=s.replace('AFTER_FINAL_NOT_RUN_YET','SESSION_AFTER_FINAL_EVIDENCE_MISSING_NO_LATE_CREATE')
+        basis=f'- 🗓 세션 authority: {sess} KRX 확정세션 · 실행권한 종료 · evidence 복원 외 신규추천 금지'
+        if basis not in s:
+            lines=s.splitlines(); pos=3 if len(lines)>=3 else len(lines); lines.insert(pos,basis); s='\n'.join(lines)
+        s=s.replace('- 20:00 이후 뒤늦은 신규추천 생성 금지 · 다음 거래일 재평가',
+                    f'- {sess} 세션 뒤늦은 신규추천 생성 금지 · 새로운 KRX 세션에서 재평가')
+        s=s.replace('- 기준: 신호 계산은 KRX 15:30 확정 일봉 · NXT는 거래대상/실행창만 사용 · 가격 추격 금지',
+                    f'- 기준: {sess} KRX 확정 일봉 · 과거 세션 NXT 신규실행 없음 · 가격 추격/뒤늦은 진입 금지')
+    return s,bool(has_authorized),res
+
+
+_V497659_BASE_NORMALIZE = _v49765_normalize_detail
+
+def _v49765_normalize_detail(text: str, has_authorized: bool, res: dict) -> str:
+    try:
+        s=_V497659_BASE_NORMALIZE(text,has_authorized,res)
+    except Exception:
+        s=str(text or '')
+    try: s=_v497657_strip_legacy_execution(s)
+    except Exception: pass
+    s=s.replace('v49.76.5.8','v49.76.5.9').replace('v49.76.5.7','v49.76.5.9').replace('v49.76.5.4','v49.76.5.9')
+    relation=str((res or {}).get('session_relation',''))
+    sess=str((res or {}).get('session_date') or (res or {}).get('data_date') or '')
+    state=str((res or {}).get('state','')).upper()
+    if relation=='PAST_SESSION':
+        # Main report identity is the canonical session, not wall-clock "today".
+        if sess:
+            s=re.sub(rf'📌 오늘 최종판단 · 기회 지도 \| {re.escape(sess)} · v49\.76\.5\.9',
+                     f'📌 최근 확정세션 판단 · 기회 지도 | 기준 {sess} · v49.76.5.9',s)
+        if state=='RESTORED':
+            new_head=f'[🧭 최근 확정세션 AFTER FINAL evidence 복원 · {sess}]'
+            ledger=f'[🧾 실제 추천 원장] {sess} AFTER FINAL evidence 복원 · 신규 재생성/재전송 금지'
+        else:
+            new_head=f'[🧭 최근 확정세션 연구보드 · 실행권한 종료 · {sess}]'
+            ledger=f'[🧾 실제 추천 원장] {sess} AFTER FINAL 종료 · COMPLETED evidence 없음 · NO_LATE_CREATE'
+        for old in (
+            '[🧭 PRE-FINAL/연구 실행보드 · 실제추천 권한 없음]',
+            '[🧭 AFTER FINAL 연구보드 · 실행창 종료]',
+            '[🧭 AFTER FINAL 연구보드 · 최종 gate 차단]',
+            '[🧭 AFTER FINAL 실행근거 · canonical Lifecycle]'):
+            s=s.replace(old,new_head)
+        s=s.replace('- PRE-FINAL/연구판 · 실제추천은 15:40+ KRX 종가확정 AFTER FINAL에서만 결정',
+                    f'- {sess} 세션 실행권한 종료 · 아래 STRICT는 연구 원신호 · 뒤늦은 실제추천 금지')
+        s=s.replace('- AFTER FINAL 실행창 종료 · canonical STRICT는 연구/원신호로만 표시 · 신규추천 생성 금지',
+                    f'- {sess} 세션 실행권한 종료 · canonical STRICT는 연구/원신호로만 표시 · 신규추천 생성 금지')
+        s=s.replace('- 15:03 PRE-FINAL에서 후보만 재검증',
+                    f'- {sess} 세션 종료 · evidence 복원 외 신규 authority 없음')
+        s=s.replace('- 실제 신규추천 최종 권한은 15:40+ KRX 종가확정 AFTER FINAL',
+                    f'- {sess} 세션 AFTER FINAL 종료 · 새로운 KRX 세션에서만 신규판정')
+        # Replace any legacy/current ledger one-liner with session-closed semantics.
+        s=re.sub(r'\[🧾 실제 추천 원장\][^\n]*',ledger,s)
+    return s
+
+
+_V497659_BASE_TRACKER_LINES = _v4938_tracker_lines
+
+def _v4938_tracker_lines(df=None) -> list[str]:
+    """Replay classification follows canonical session_date, not wall-clock today."""
+    try:
+        lines=list(_V497659_BASE_TRACKER_LINES(df) or [])
+    except Exception as e:
+        err=_v497657_clean_error(e) if '_v497657_clean_error' in globals() else f'{type(e).__name__}:{e}'
+        return ['📍 추천 출처 분리 Forward | v49.76.5.9','──────────',f'- tracker 생성 실패: {err}']
+    out=[str(x).replace('v49.76.5.8','v49.76.5.9').replace('v49.76.5.7','v49.76.5.9') for x in lines]
+    cur=dict(globals().get('_V49765_CURRENT_DECISION',{}) or {})
+    reason=str(cur.get('reason',''))
+    state=str(cur.get('state','')).upper()
+    sess=str(cur.get('session_date') or cur.get('data_date') or '')
+    no_live=(state!='RESTORED' and (
+        'EVIDENCE_MISSING_NO_LATE_CREATE' in reason or
+        'SESSION_EVIDENCE_LEDGER_UNAVAILABLE_RESTORE_ONLY' in reason
+    ))
+    if not no_live or not sess:
+        return out
+    final=[]; active=False
+    for line in out:
+        s=str(line)
+        matched=False
+        if ('🧪 REPLAY-RECOMMENDED' in s or '🧪 REPLAY-NO-LIVE-EVIDENCE' in s) and f'신호 {sess}' in s:
+            s=s.replace('🧪 REPLAY-RECOMMENDED','🧪 REPLAY-NO-LIVE-EVIDENCE')
+            matched=True
+        if matched:
+            active=True; final.append(s); continue
+        if active and (s.startswith('  실제추천 증거 없음') or s.startswith('  원시 STRICT/Replay 연구신호')):
+            final.append(f'  {sess} 원시 STRICT/Replay 연구신호 · LIVE COMPLETED evidence 없음 · 실제추천 성과로 해석 금지')
+            continue
+        if active and s.startswith('  정책 '):
+            if '[NO LIVE EVIDENCE]' not in s: s=s+' · [NO LIVE EVIDENCE]'
+            final.append(s); active=False; continue
+        if active and s.startswith('- ') and not s.startswith('  '): active=False
+        final.append(s)
+    for i,s in enumerate(final):
+        if s=='[🧪 Historical Replay Forward]':
+            note=f'- 기준 세션 {sess} · LIVE evidence 없는 동일 세션 신호는 REPLAY-NO-LIVE-EVIDENCE · 실제추천 KPI 제외'
+            # Remove stale "today" explanatory note from v5.8 and insert session-keyed note.
+            final=[x for x in final if '당일 LIVE evidence 없이 재구성된 D0 신호는 REPLAY-NO-LIVE-EVIDENCE' not in x]
+            try: idx=final.index('[🧪 Historical Replay Forward]'); final.insert(idx+2,note)
+            except Exception: pass
+            break
+    return final
+
+
+# Keep recommendation bridge identity aligned; authority remains unchanged.
+_V497659_BASE_PREP_RECS = _v4943_prepare_live_recommendations
+
+def _v4943_prepare_live_recommendations() -> list[dict]:
+    try: rows=list(_V497659_BASE_PREP_RECS() or [])
+    except Exception: rows=[]
+    out=[]
+    for r in rows:
+        rr=dict(r or {})
+        rr['note']=str(rr.get('note','')).replace('v49.76.5.8','v49.76.5.9').replace('v49.76.5.7','v49.76.5.9')
+        out.append(rr)
+    globals()['_V4943_CURRENT_RECOMMENDATIONS']=out[:2]
+    return out[:2]
+
+# =============================================================
+# ✅ END V49.76.5.9
 # =============================================================
 
 if __name__ == '__main__':
