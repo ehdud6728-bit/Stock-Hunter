@@ -80,8 +80,8 @@ def _env_float(name: str, default: float = 0.0) -> float:
         except Exception:
             return 0.0
 
-CLOSING_BET_SCANNER_VERSION = 'G_MORALES_V4_4_9_53_8_49_76_6_0_FIVE_AXIS_SHADOW_BACKTEST_20260817'
-CLOSING_BET_RELEASE_TAG = 'v49.76.6.0'
+CLOSING_BET_SCANNER_VERSION = 'G_MORALES_V4_4_9_53_8_49_76_6_1_FIVE_AXIS_DIRECT_RESEARCH_LANE_TIMEOUT_FIX_20260817'
+CLOSING_BET_RELEASE_TAG = 'v49.76.6.1'
 CLOSING_BET_LIVE_PRICE_SANITY_FIX = str(os.environ.get('CLOSING_BET_LIVE_PRICE_SANITY_FIX', '1')).lower() in ('1', 'true', 'yes', 'y', 'on')
 CLOSING_BET_LIVE_READABILITY_COMPACT = str(os.environ.get('CLOSING_BET_LIVE_READABILITY_COMPACT', '1')).lower() in ('1', 'true', 'yes', 'y', 'on')
 # v53.8.42: M5R TRUE60 검증용 장기 월봉 확보. 60개월 월선 계산에는 약 7년 일봉이 필요하다.
@@ -33126,6 +33126,50 @@ def run_closing_bet_backtest(
     diag['lifecycle_research_status']=str(research_lane.get('status','NOT_RUN'))
     diag['lifecycle_research_elapsed_sec']=float(research_lane.get('elapsed_sec',0.0) or 0.0)
 
+    # v49.76.6.1 DIRECT FIVE-AXIS lane:
+    # 공통 OHLCV + Lifecycle causal registry가 준비되는 즉시 5축을 계산하고,
+    # 시간이 오래 걸리는 v49.72 COMMON STRATEGY 성과 레인은 의도적으로 건너뛴다.
+    # Production/search/rank/STRICT/exit/LIVE authority에는 영향이 없다.
+    if bool(globals().get('_V497661_FIVE_AXIS_ONLY_ACTIVE', False)):
+        try:
+            if str(research_lane.get('status','')).upper()!='VALID':
+                raise RuntimeError(f"Lifecycle Research lane not VALID: {research_lane.get('status','NOT_RUN')}")
+            _fa_report,_fa_paths=_v497660_run_five_axis_backtest()
+            _fa_status=str((globals().get('_V497660_LAST_RESULT',{}) or {}).get('status','UNKNOWN'))
+            _direct_lines=[
+                '[⚙️ FIVE-AXIS DIRECT RESEARCH LANE · v49.76.6.1]',
+                f'- 기간: {start_date} ~ {end_date} · STRICT causal registry 기반',
+                f"- 공통 OHLCV: requested {int(shared.get('requested',len(source_codes)) or len(source_codes))} · loaded {int(shared.get('loaded',0) or 0)} · load {float(shared.get('load_pct',0.0) or 0.0):.1f}%",
+                f"- Lifecycle Research: {str(research_lane.get('status','NOT_RUN')).upper()} · {float(research_lane.get('elapsed_sec',0.0) or 0.0):.1f}s",
+                '- COMMON STRATEGY/PIT/기존 전체성과 레인: BYPASSED INTENTIONALLY · 5축 연구 완료를 150분 job timeout보다 우선',
+                '- Production search/rank/STRICT/MARCAP/P1/AFTER FINAL/PAPER authority 변경 없음',
+                f'- FIVE-AXIS RESULT: {_fa_status}',
+                '',
+                str(_fa_report or '').strip(),
+            ]
+            _direct_report='\n'.join(_direct_lines).strip()
+            Path('reports').mkdir(parents=True,exist_ok=True)
+            _direct_stamp=f'{str(start_date).replace("-","")}_{str(end_date).replace("-","")}'
+            _direct_path=Path('reports')/f'five_axis_direct_research_{_direct_stamp}.txt'
+            _direct_path.write_text(_direct_report,encoding='utf-8')
+            _fa_paths=dict(_fa_paths or {}); _fa_paths['direct_report']=str(_direct_path)
+            globals()['_V497661_FIVE_AXIS_ONLY_RESULT']={'status':_fa_status,'report':_direct_report,'paths':_fa_paths}
+            log_info(f"v49.76.6.1 FIVE-AXIS DIRECT COMPLETE · status {_fa_status} · COMMON STRATEGY bypass")
+            return _direct_report,str(_fa_paths.get('signals','')),str(_fa_paths.get('groups',''))
+        except Exception as _fa_direct_e:
+            _direct_report=(
+                '[⚙️ FIVE-AXIS DIRECT RESEARCH LANE · v49.76.6.1]\n'
+                f'- ⛔ FAIL-CLOSED: {type(_fa_direct_e).__name__}: {_fa_direct_e}\n'
+                '- COMMON STRATEGY로 fallback하지 않음 · 불완전 5축 결과 생성 금지'
+            )
+            Path('reports').mkdir(parents=True,exist_ok=True)
+            _direct_path=Path('reports')/'five_axis_direct_research_FAILED.txt'
+            try:_direct_path.write_text(_direct_report,encoding='utf-8')
+            except Exception:pass
+            globals()['_V497661_FIVE_AXIS_ONLY_RESULT']={'status':'FAILED','report':_direct_report,'paths':{'direct_report':str(_direct_path)}}
+            log_info(_direct_report)
+            return _direct_report,'',''
+
     diag['v4964_funnel']=_v4964_empty_funnel()
     diag['v4964_zero_audit_rows']=[]
     diag['v4964_predicate_exception_rows']=[]
@@ -49586,12 +49630,12 @@ def _v49765_action_panel(decision: dict, data_date=None) -> tuple[str,bool,dict]
         err=_v497657_clean_error(e) if '_v497657_clean_error' in globals() else f'{type(e).__name__}:{e}'
         res={'state':'INTERNAL_FAILSAFE','reason':f'INTERNAL_FAILSAFE:{err}','authorized':[],
              'watches':[],'raw_enter_count':0,'raw_strict_items':[]}
-        panel=(f'🚦 [사용자 행동 결론 · SESSION AUTHORITY FAIL-SAFE] | v49.76.6.0\n──────────\n'
+        panel=(f'🚦 [사용자 행동 결론 · SESSION AUTHORITY FAIL-SAFE] | v49.76.6.1\n──────────\n'
                f'- 🔴 지금 신규매수: 0개\n- ⛔ 사유: ACTION_PANEL_FAILSAFE:{err}\n- 자동주문 0건')
         return panel,False,res
     s=str(panel or '')
     for old in ('v49.76.5.11','v49.76.5.10','v49.76.5.9','v49.76.5.8','v49.76.5.7','v49.76.5.4'):
-        s=s.replace(old,'v49.76.6.0')
+        s=s.replace(old,'v49.76.6.1')
     is_past,sess=_v4976512_is_past_session(res,data_date)
     if is_past and sess:
         s=s.replace('- ⏰ 20:00 마감 이후 · 오늘 COMPLETED evidence 없음 · 뒤늦은 PAPER 추천/Telegram/원장 신규생성 금지',
@@ -49610,7 +49654,7 @@ def _v49765_normalize_detail(text: str, has_authorized: bool, res: dict) -> str:
     except Exception:
         s=str(text or '')
     for old in ('v49.76.5.11','v49.76.5.10','v49.76.5.9','v49.76.5.8','v49.76.5.7','v49.76.5.4'):
-        s=s.replace(old,'v49.76.6.0')
+        s=s.replace(old,'v49.76.6.1')
     is_past,sess=_v4976512_is_past_session(res,None)
     if not is_past:
         return s
@@ -49639,12 +49683,12 @@ def _v4938_tracker_lines(df=None) -> list[str]:
     try:
         lines=list(_V4976512_BASE_TRACKER_LINES(df) or [])
     except Exception as e:
-        return ['📍 추천 출처 분리 Forward | v49.76.6.0','──────────',f'- tracker 생성 실패: {type(e).__name__}:{e}']
+        return ['📍 추천 출처 분리 Forward | v49.76.6.1','──────────',f'- tracker 생성 실패: {type(e).__name__}:{e}']
     out=[]
     for x in lines:
         s=str(x)
         for old in ('v49.76.5.11','v49.76.5.10','v49.76.5.9','v49.76.5.8','v49.76.5.7','v49.76.5.4'):
-            s=s.replace(old,'v49.76.6.0')
+            s=s.replace(old,'v49.76.6.1')
         out.append(s)
 
     cur=dict(globals().get('_V49765_CURRENT_DECISION',{}) or {})
@@ -49711,7 +49755,7 @@ def _v4938_build_live_parts(hits_df, execution_all, market_short, cov_short, raw
             out.append(x); continue
         s=x
         for old in ('v49.76.5.11','v49.76.5.10','v49.76.5.9','v49.76.5.8','v49.76.5.7','v49.76.5.4'):
-            s=s.replace(old,'v49.76.6.0')
+            s=s.replace(old,'v49.76.6.1')
         out.append(s)
     if isinstance(parts,tuple): return tuple(out)
     if isinstance(parts,list): return out
@@ -49727,7 +49771,7 @@ def _v4943_prepare_live_recommendations() -> list[dict]:
     for r in rows:
         rr=dict(r or {})
         for old in ('v49.76.5.11','v49.76.5.10','v49.76.5.9','v49.76.5.8','v49.76.5.7'):
-            rr['note']=str(rr.get('note','')).replace(old,'v49.76.6.0')
+            rr['note']=str(rr.get('note','')).replace(old,'v49.76.6.1')
         out.append(rr)
     globals()['_V4943_CURRENT_RECOMMENDATIONS']=out[:2]
     return out[:2]
@@ -49739,7 +49783,7 @@ def _v4976510_finalize_ledger_note(note: str) -> str:
     try: s=_V4976512_BASE_LEDGER_NOTE(note)
     except Exception: s=str(note or '')
     for old in ('v49.76.5.11','v49.76.5.10','v49.76.5.9','v49.76.5.8','v49.76.5.7'):
-        s=str(s).replace(old,'v49.76.6.0')
+        s=str(s).replace(old,'v49.76.6.1')
     return s
 
 # =============================================================
@@ -49747,7 +49791,7 @@ def _v4976510_finalize_ledger_note(note: str) -> str:
 # =============================================================
 
 # =============================================================
-# v49.76.6.0 FIVE-AXIS SHADOW + CAUSAL BACKTEST
+# v49.76.6.1 FIVE-AXIS SHADOW + CAUSAL BACKTEST
 # RESEARCH ONLY / PRODUCTION SEARCH-RANK-ENTRY-FINAL AUTHORITY FROZEN
 # =============================================================
 
@@ -50164,7 +50208,7 @@ def _v497660_split_labels(df: pd.DataFrame) -> pd.Series:
 
 
 def _v497660_backtest_report(df: pd.DataFrame,start_date: str,end_date: str):
-    lines=['[🧭 FIVE-AXIS SHADOW BACKTEST · v49.76.6.0 · RESEARCH ONLY]',
+    lines=['[🧭 FIVE-AXIS SHADOW BACKTEST · v49.76.6.1 · RESEARCH ONLY]',
            '- Production 검색/랭킹/STRICT/AFTER FINAL/P1 변경 없음 · 5축은 Shadow 성과분해만 수행',
            f'- 기간 {start_date} ~ {end_date} · HIGH 고정기준 {float(CLOSING_BET_V497660_HIGH_SCORE):.0f}점 · 임계값 사후튜닝 없음']
     if df is None or df.empty:return lines,pd.DataFrame(),pd.DataFrame()
@@ -50242,7 +50286,8 @@ if __name__ == '__main__':
     parser.add_argument('--backtest-all-candidates', action='store_true', help='TOP 제한 없이 모든 후보 검증')
     parser.add_argument('--backtest-weekly', action='store_true', help='백테스트 결과에 주차별 성과 요약 포함')
     parser.add_argument('--backtest-debug', action='store_true', help='백테스트 0건/진단 로그를 함께 출력')
-    parser.add_argument('--backtest-five-axis', action='store_true', help='v49.76.6.0 재료·거래대금·224전환·대장·테마 5축 Shadow 백테스트 추가')
+    parser.add_argument('--backtest-five-axis', action='store_true', help='v49.76.6.1 재료·거래대금·224전환·대장·테마 5축 Shadow 백테스트 추가(기존 전체 백테스트 후 실행)')
+    parser.add_argument('--backtest-five-axis-only', action='store_true', help='v49.76.6.1 5축 전용 DIRECT 연구 lane: 공통 OHLCV→Lifecycle→5축 후 즉시 종료, COMMON STRATEGY 장시간 레인 생략')
     parser.add_argument('--symbol', '--backtest-symbol', dest='backtest_symbol', type=str, default='', help='특정 종목 코드/종목명만 백테스트. 예: --symbol 093370 또는 --symbol 후성')
     parser.add_argument('--backtest-core-only', action='store_true', help='백테스트 결과를 S-CORE(S1우수응축+S2)만 필터링')
     parser.add_argument('--backtest-safe-only', action='store_true', help='백테스트 결과를 S-CORE SAFE(RR 1.0~1.5·거래량비<1.5·종가위치70%+)만 필터링')
@@ -50265,6 +50310,9 @@ if __name__ == '__main__':
         os.environ['CLOSING_BET_COMPACT_OPERATION_SUMMARY'] = '1'
     if getattr(args, 'full_backtest_summary', False):
         os.environ['CLOSING_BET_SHOW_FULL_BACKTEST_REPORT'] = '1'
+    # v49.76.6.1: five-axis 전용 연구 lane은 COMMON STRATEGY 전에 조기 종료한다.
+    globals()['_V497661_FIVE_AXIS_ONLY_ACTIVE'] = bool(getattr(args, 'backtest_five_axis_only', False))
+    globals()['_V497661_FIVE_AXIS_ONLY_RESULT'] = {'status':'NOT_RUN','report':'','paths':{}}
 
     now = _now_kst()
     log_info(f"✅ BOOTCHECK: {CLOSING_BET_SCANNER_VERSION}")
@@ -50311,6 +50359,21 @@ if __name__ == '__main__':
                 f"· raw {_shard_result.get('raw_path')}"
             )
             sys.exit(0)
+        # v49.76.6.1 DIRECT research lane은 공통 백테스트 compact formatter를 통과시키지 않는다.
+        # 5축 원문이 곧 사용자/Telegram 권위 리포트이며, 기존 20-part COMMON report와 분리한다.
+        if getattr(args, 'backtest_five_axis_only', False):
+            original_report = str(report or '')
+            report = original_report
+            log_info("\n" + report)
+            _fa_direct_paths=dict((globals().get('_V497661_FIVE_AXIS_ONLY_RESULT',{}) or {}).get('paths',{}) or {})
+            log_info(f"5축 DIRECT signals CSV: {_fa_direct_paths.get('signals','-')}")
+            log_info(f"5축 DIRECT group stats CSV: {_fa_direct_paths.get('groups','-')}")
+            log_info(f"5축 DIRECT split stats CSV: {_fa_direct_paths.get('splits','-')}")
+            log_info(f"5축 DIRECT report: {_fa_direct_paths.get('direct_report',_fa_direct_paths.get('report','-'))}")
+            if (args.send_backtest_summary or args.send_summary) and _telegram_route_ready():
+                send_telegram_chunks(report, max_len=3400)
+            sys.exit(0)
+
         original_report = report
         if getattr(args, 'backtest_five_axis', False):
             try:
