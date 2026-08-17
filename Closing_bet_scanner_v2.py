@@ -80,8 +80,8 @@ def _env_float(name: str, default: float = 0.0) -> float:
         except Exception:
             return 0.0
 
-CLOSING_BET_SCANNER_VERSION = 'G_MORALES_V4_4_9_53_8_49_76_6_1_FIVE_AXIS_DIRECT_RESEARCH_LANE_TIMEOUT_FIX_20260817'
-CLOSING_BET_RELEASE_TAG = 'v49.76.6.1'
+CLOSING_BET_SCANNER_VERSION = 'G_MORALES_V4_4_9_53_8_49_76_6_2_FULL_MARKET_MONEY_SEQUENCE_QUANTILE_EXIT_SHADOW_20260817'
+CLOSING_BET_RELEASE_TAG = 'v49.76.6.2'
 CLOSING_BET_LIVE_PRICE_SANITY_FIX = str(os.environ.get('CLOSING_BET_LIVE_PRICE_SANITY_FIX', '1')).lower() in ('1', 'true', 'yes', 'y', 'on')
 CLOSING_BET_LIVE_READABILITY_COMPACT = str(os.environ.get('CLOSING_BET_LIVE_READABILITY_COMPACT', '1')).lower() in ('1', 'true', 'yes', 'y', 'on')
 # v53.8.42: M5R TRUE60 검증용 장기 월봉 확보. 60개월 월선 계산에는 약 7년 일봉이 필요하다.
@@ -33126,7 +33126,7 @@ def run_closing_bet_backtest(
     diag['lifecycle_research_status']=str(research_lane.get('status','NOT_RUN'))
     diag['lifecycle_research_elapsed_sec']=float(research_lane.get('elapsed_sec',0.0) or 0.0)
 
-    # v49.76.6.1 DIRECT FIVE-AXIS lane:
+    # v49.76.6.2 DIRECT FIVE-AXIS lane:
     # 공통 OHLCV + Lifecycle causal registry가 준비되는 즉시 5축을 계산하고,
     # 시간이 오래 걸리는 v49.72 COMMON STRATEGY 성과 레인은 의도적으로 건너뛴다.
     # Production/search/rank/STRICT/exit/LIVE authority에는 영향이 없다.
@@ -33134,10 +33134,10 @@ def run_closing_bet_backtest(
         try:
             if str(research_lane.get('status','')).upper()!='VALID':
                 raise RuntimeError(f"Lifecycle Research lane not VALID: {research_lane.get('status','NOT_RUN')}")
-            _fa_report,_fa_paths=_v497660_run_five_axis_backtest()
+            _fa_report,_fa_paths=_v497662_run_five_axis_backtest()
             _fa_status=str((globals().get('_V497660_LAST_RESULT',{}) or {}).get('status','UNKNOWN'))
             _direct_lines=[
-                '[⚙️ FIVE-AXIS DIRECT RESEARCH LANE · v49.76.6.1]',
+                '[⚙️ FIVE-AXIS DIRECT RESEARCH LANE · v49.76.6.2]',
                 f'- 기간: {start_date} ~ {end_date} · STRICT causal registry 기반',
                 f"- 공통 OHLCV: requested {int(shared.get('requested',len(source_codes)) or len(source_codes))} · loaded {int(shared.get('loaded',0) or 0)} · load {float(shared.get('load_pct',0.0) or 0.0):.1f}%",
                 f"- Lifecycle Research: {str(research_lane.get('status','NOT_RUN')).upper()} · {float(research_lane.get('elapsed_sec',0.0) or 0.0):.1f}s",
@@ -33154,11 +33154,11 @@ def run_closing_bet_backtest(
             _direct_path.write_text(_direct_report,encoding='utf-8')
             _fa_paths=dict(_fa_paths or {}); _fa_paths['direct_report']=str(_direct_path)
             globals()['_V497661_FIVE_AXIS_ONLY_RESULT']={'status':_fa_status,'report':_direct_report,'paths':_fa_paths}
-            log_info(f"v49.76.6.1 FIVE-AXIS DIRECT COMPLETE · status {_fa_status} · COMMON STRATEGY bypass")
+            log_info(f"v49.76.6.2 FIVE-AXIS DIRECT COMPLETE · status {_fa_status} · COMMON STRATEGY bypass")
             return _direct_report,str(_fa_paths.get('signals','')),str(_fa_paths.get('groups',''))
         except Exception as _fa_direct_e:
             _direct_report=(
-                '[⚙️ FIVE-AXIS DIRECT RESEARCH LANE · v49.76.6.1]\n'
+                '[⚙️ FIVE-AXIS DIRECT RESEARCH LANE · v49.76.6.2]\n'
                 f'- ⛔ FAIL-CLOSED: {type(_fa_direct_e).__name__}: {_fa_direct_e}\n'
                 '- COMMON STRATEGY로 fallback하지 않음 · 불완전 5축 결과 생성 금지'
             )
@@ -49630,12 +49630,12 @@ def _v49765_action_panel(decision: dict, data_date=None) -> tuple[str,bool,dict]
         err=_v497657_clean_error(e) if '_v497657_clean_error' in globals() else f'{type(e).__name__}:{e}'
         res={'state':'INTERNAL_FAILSAFE','reason':f'INTERNAL_FAILSAFE:{err}','authorized':[],
              'watches':[],'raw_enter_count':0,'raw_strict_items':[]}
-        panel=(f'🚦 [사용자 행동 결론 · SESSION AUTHORITY FAIL-SAFE] | v49.76.6.1\n──────────\n'
+        panel=(f'🚦 [사용자 행동 결론 · SESSION AUTHORITY FAIL-SAFE] | v49.76.6.2\n──────────\n'
                f'- 🔴 지금 신규매수: 0개\n- ⛔ 사유: ACTION_PANEL_FAILSAFE:{err}\n- 자동주문 0건')
         return panel,False,res
     s=str(panel or '')
     for old in ('v49.76.5.11','v49.76.5.10','v49.76.5.9','v49.76.5.8','v49.76.5.7','v49.76.5.4'):
-        s=s.replace(old,'v49.76.6.1')
+        s=s.replace(old,'v49.76.6.2')
     is_past,sess=_v4976512_is_past_session(res,data_date)
     if is_past and sess:
         s=s.replace('- ⏰ 20:00 마감 이후 · 오늘 COMPLETED evidence 없음 · 뒤늦은 PAPER 추천/Telegram/원장 신규생성 금지',
@@ -49654,7 +49654,7 @@ def _v49765_normalize_detail(text: str, has_authorized: bool, res: dict) -> str:
     except Exception:
         s=str(text or '')
     for old in ('v49.76.5.11','v49.76.5.10','v49.76.5.9','v49.76.5.8','v49.76.5.7','v49.76.5.4'):
-        s=s.replace(old,'v49.76.6.1')
+        s=s.replace(old,'v49.76.6.2')
     is_past,sess=_v4976512_is_past_session(res,None)
     if not is_past:
         return s
@@ -49683,12 +49683,12 @@ def _v4938_tracker_lines(df=None) -> list[str]:
     try:
         lines=list(_V4976512_BASE_TRACKER_LINES(df) or [])
     except Exception as e:
-        return ['📍 추천 출처 분리 Forward | v49.76.6.1','──────────',f'- tracker 생성 실패: {type(e).__name__}:{e}']
+        return ['📍 추천 출처 분리 Forward | v49.76.6.2','──────────',f'- tracker 생성 실패: {type(e).__name__}:{e}']
     out=[]
     for x in lines:
         s=str(x)
         for old in ('v49.76.5.11','v49.76.5.10','v49.76.5.9','v49.76.5.8','v49.76.5.7','v49.76.5.4'):
-            s=s.replace(old,'v49.76.6.1')
+            s=s.replace(old,'v49.76.6.2')
         out.append(s)
 
     cur=dict(globals().get('_V49765_CURRENT_DECISION',{}) or {})
@@ -49755,7 +49755,7 @@ def _v4938_build_live_parts(hits_df, execution_all, market_short, cov_short, raw
             out.append(x); continue
         s=x
         for old in ('v49.76.5.11','v49.76.5.10','v49.76.5.9','v49.76.5.8','v49.76.5.7','v49.76.5.4'):
-            s=s.replace(old,'v49.76.6.1')
+            s=s.replace(old,'v49.76.6.2')
         out.append(s)
     if isinstance(parts,tuple): return tuple(out)
     if isinstance(parts,list): return out
@@ -49771,7 +49771,7 @@ def _v4943_prepare_live_recommendations() -> list[dict]:
     for r in rows:
         rr=dict(r or {})
         for old in ('v49.76.5.11','v49.76.5.10','v49.76.5.9','v49.76.5.8','v49.76.5.7'):
-            rr['note']=str(rr.get('note','')).replace(old,'v49.76.6.1')
+            rr['note']=str(rr.get('note','')).replace(old,'v49.76.6.2')
         out.append(rr)
     globals()['_V4943_CURRENT_RECOMMENDATIONS']=out[:2]
     return out[:2]
@@ -49783,7 +49783,7 @@ def _v4976510_finalize_ledger_note(note: str) -> str:
     try: s=_V4976512_BASE_LEDGER_NOTE(note)
     except Exception: s=str(note or '')
     for old in ('v49.76.5.11','v49.76.5.10','v49.76.5.9','v49.76.5.8','v49.76.5.7'):
-        s=str(s).replace(old,'v49.76.6.1')
+        s=str(s).replace(old,'v49.76.6.2')
     return s
 
 # =============================================================
@@ -49791,7 +49791,7 @@ def _v4976510_finalize_ledger_note(note: str) -> str:
 # =============================================================
 
 # =============================================================
-# v49.76.6.1 FIVE-AXIS SHADOW + CAUSAL BACKTEST
+# v49.76.6.2 FIVE-AXIS SHADOW + CAUSAL BACKTEST
 # RESEARCH ONLY / PRODUCTION SEARCH-RANK-ENTRY-FINAL AUTHORITY FROZEN
 # =============================================================
 
@@ -50208,7 +50208,7 @@ def _v497660_split_labels(df: pd.DataFrame) -> pd.Series:
 
 
 def _v497660_backtest_report(df: pd.DataFrame,start_date: str,end_date: str):
-    lines=['[🧭 FIVE-AXIS SHADOW BACKTEST · v49.76.6.1 · RESEARCH ONLY]',
+    lines=['[🧭 FIVE-AXIS SHADOW BACKTEST · v49.76.6.2 · RESEARCH ONLY]',
            '- Production 검색/랭킹/STRICT/AFTER FINAL/P1 변경 없음 · 5축은 Shadow 성과분해만 수행',
            f'- 기간 {start_date} ~ {end_date} · HIGH 고정기준 {float(CLOSING_BET_V497660_HIGH_SCORE):.0f}점 · 임계값 사후튜닝 없음']
     if df is None or df.empty:return lines,pd.DataFrame(),pd.DataFrame()
@@ -50270,6 +50270,398 @@ def _v497660_run_five_axis_backtest() -> tuple[str,dict]:
 # =============================================================
 
 
+# =============================================================
+# v49.76.6.2 FIVE-AXIS RESEARCH V2
+# FULL-MARKET MAPPED-UNIVERSE LEADER/THEME + MONEY SEQUENCE
+# TRAIN-FIXED COMPOSITE QUANTILES + EXIT SHADOW
+# RESEARCH ONLY / PRODUCTION AUTHORITY FROZEN
+# =============================================================
+
+CLOSING_BET_V497662_MIN_FULLMARKET_PEERS = max(3,_env_int('CLOSING_BET_V497662_MIN_FULLMARKET_PEERS','3'))
+CLOSING_BET_V497662_COMPOSITE_MIN_KNOWN = max(2,min(5,_env_int('CLOSING_BET_V497662_COMPOSITE_MIN_KNOWN','3')))
+CLOSING_BET_V497662_EXIT_COST_BPS = max(0,_env_int('CLOSING_BET_V497662_EXIT_COST_BPS','20'))
+_V497662_FULL_MARKET_PANEL_CACHE = {}
+_V497662_PREP_HIST_CACHE = {}
+_V497662_LAST_RESULT = {'status':'NOT_RUN','paths':{}}
+
+
+# Research-only prepared-history memoization. The original v6.1 five-axis helper recalculated
+# indicators for every STRICT row; v6.2 reuses one prepared frame per code/date range.
+def _v497660_hist_for_signal(code: str, signal_date: str, start_date: str, end_date: str):
+    cd=_v497660_norm_code(code); ck=(cd,str(start_date),str(end_date))
+    h=_V497662_PREP_HIST_CACHE.get(ck)
+    if h is None:
+        raw=(globals().get('_V4940_BT_PRICE_CACHE',{}) or {}).get(ck)
+        if not isinstance(raw,pd.DataFrame) or raw.empty:return pd.DataFrame(),-1
+        try:h=_v4938_prepare_hist(raw)
+        except Exception:h=pd.DataFrame()
+        _V497662_PREP_HIST_CACHE[ck]=h
+    if not isinstance(h,pd.DataFrame) or h.empty:return pd.DataFrame(),-1
+    try:
+        dt=pd.to_datetime(h['Date'],errors='coerce').dt.strftime('%Y-%m-%d');hits=np.flatnonzero(dt.eq(str(signal_date)).to_numpy())
+        return h,int(hits[-1]) if len(hits) else -1
+    except Exception:return h,-1
+
+
+def _v497662_pct_rank(v, s):
+    try:
+        a=pd.to_numeric(pd.Series(s),errors='coerce').dropna().to_numpy(dtype=float)
+        if pd.isna(v) or len(a)==0:return np.nan
+        # mid-rank percentile, 0~100. No future price is used; cross-section is same signal date only.
+        less=float((a<float(v)).sum()); eq=float((a==float(v)).sum())
+        return _v497660_clip((less+0.5*eq)/len(a)*100.0)
+    except Exception:return np.nan
+
+
+def _v497662_money_sequence_axis(row: dict, h: pd.DataFrame, pos: int) -> dict:
+    """Pre-ignition accumulation -> ignition spike -> pullback dry-up -> restart re-inflow.
+    Uses only bars at or before signal_date. Absolute money level stays in v6.1 money_score; this is sequence quality.
+    """
+    out={
+        'money_sequence_score':np.nan,'money_sequence_status':'UNKNOWN',
+        'money_seq_pre_late_vs_early':np.nan,'money_seq_pre_upstep_ratio':np.nan,
+        'money_seq_ign_vs_pre':np.nan,'money_seq_pullback_vs_ign':np.nan,
+        'money_seq_restart_vs_pullback':np.nan,
+    }
+    try:
+        if h is None or h.empty or pos<0:return out
+        ip=_v497660_ign_pos(h,pos,str(row.get('ignition_date','') or ''))
+        amt=pd.to_numeric(h.get('Amount'),errors='coerce')
+        if amt is None or len(amt)==0:return out
+        pre=amt.iloc[max(0,ip-20):ip].dropna()
+        ign=_safe_float(amt.iloc[ip],np.nan) if ip<len(amt) else np.nan
+        pb=amt.iloc[ip+1:pos].dropna() if pos>ip+1 else pd.Series(dtype=float)
+        sig=_safe_float(amt.iloc[pos],np.nan)
+        late_early=np.nan; up_ratio=np.nan; ign_pre=np.nan; pb_ign=np.nan; restart_pb=np.nan
+        if len(pre)>=8:
+            k=max(3,min(5,len(pre)//3)); early=pre.iloc[:max(k,len(pre)//2)].median(); late=pre.iloc[-k:].median()
+            if pd.notna(early) and early>0:late_early=float(late/early)
+            roll=pre.rolling(3,min_periods=2).median().dropna();
+            if len(roll)>=3:up_ratio=float((roll.diff().dropna()>0).mean())
+            med=float(pre.median())
+            if pd.notna(ign) and med>0:ign_pre=float(ign/med)
+        if pd.notna(ign) and ign>0 and len(pb):pb_ign=float(pb.median()/ign)
+        if len(pb) and pd.notna(sig) and pb.median()>0:restart_pb=float(sig/pb.median())
+
+        score=0.0; possible=0.0
+        if pd.notna(late_early):
+            possible+=20
+            if 1.15<=late_early<=2.8:score+=20
+            elif 1.05<=late_early<1.15 or 2.8<late_early<=4.0:score+=12
+            elif late_early>4.0:score+=5
+        if pd.notna(up_ratio):
+            possible+=15
+            if up_ratio>=0.65:score+=15
+            elif up_ratio>=0.50:score+=10
+            elif up_ratio>=0.35:score+=5
+        if pd.notna(ign_pre):
+            possible+=25
+            if 2.0<=ign_pre<=10.0:score+=25
+            elif 1.5<=ign_pre<2.0 or 10.0<ign_pre<=15.0:score+=17
+            elif ign_pre>15.0:score+=8
+            elif ign_pre>=1.15:score+=7
+        if pd.notna(pb_ign):
+            possible+=25
+            if pb_ign<=0.30:score+=25
+            elif pb_ign<=0.45:score+=20
+            elif pb_ign<=0.60:score+=13
+            elif pb_ign<=0.80:score+=6
+        if pd.notna(restart_pb):
+            possible+=15
+            if 1.20<=restart_pb<=4.0:score+=15
+            elif 1.05<=restart_pb<1.20:score+=9
+            elif restart_pb>4.0:score+=6
+        if possible>0:
+            out.update({
+                'money_sequence_score':_v497660_clip(score/possible*100.0),'money_sequence_status':'VALID',
+                'money_seq_pre_late_vs_early':late_early,'money_seq_pre_upstep_ratio':up_ratio,
+                'money_seq_ign_vs_pre':ign_pre,'money_seq_pullback_vs_ign':pb_ign,
+                'money_seq_restart_vs_pullback':restart_pb,
+            })
+    except Exception as e:out['money_sequence_status']=f'ERROR:{type(e).__name__}'
+    return out
+
+
+def _v497662_money_sequence_enrich(df: pd.DataFrame,start_date: str,end_date: str)->pd.DataFrame:
+    if df is None or df.empty:return pd.DataFrame()
+    out=df.copy().reset_index(drop=True); rows=[]
+    for _,r in out.iterrows():
+        h,pos=_v497660_hist_for_signal(_v497660_norm_code(r.get('code',r.get('five_axis_code',''))),str(r.get('signal_date','') or ''),start_date,end_date)
+        rows.append(_v497662_money_sequence_axis(dict(r),h,pos))
+    return pd.concat([out,pd.DataFrame(rows)],axis=1)
+
+
+def _v497662_full_market_panel(start_date: str,end_date: str,signal_dates:set)->pd.DataFrame:
+    """Full prepared-universe, theme-mapped same-day cross-section.
+    Theme membership uses existing deterministic name-theme mapping only. It is therefore a mapped-universe proxy,
+    not a full-market semantic-theme oracle. Price/amount values are point-in-time same-day values.
+    """
+    key=(str(start_date),str(end_date),tuple(sorted(signal_dates)))
+    if key in _V497662_FULL_MARKET_PANEL_CACHE:return _V497662_FULL_MARKET_PANEL_CACHE[key]
+    cache=globals().get('_V4940_BT_PRICE_CACHE',{}) or {}; names=globals().get('STOCK_NAME_MAP',{}) or {}
+    recs=[]
+    for ck,raw in cache.items():
+        try:
+            code=str(ck[0]).zfill(6) if isinstance(ck,tuple) else str(ck).zfill(6)
+            name=str(names.get(code,code) or code)
+            tags=_v44950_multi_themes_from_text(name) if '_v44950_multi_themes_from_text' in globals() else tuple()
+            if not tags or not isinstance(raw,pd.DataFrame) or raw.empty:continue
+            d=raw.copy(deep=False)
+            if 'Date' not in d.columns or 'Close' not in d.columns:continue
+            dates=pd.to_datetime(d['Date'],errors='coerce').dt.strftime('%Y-%m-%d')
+            close=pd.to_numeric(d['Close'],errors='coerce'); prev=close.shift(1); dret=(close/prev-1.0)*100.0
+            amount=pd.to_numeric(d.get('Amount',pd.Series(np.nan,index=d.index)),errors='coerce')
+            prior20=amount.shift(1).rolling(20,min_periods=5).mean(); ar=amount/prior20
+            mask=dates.isin(signal_dates)
+            if not mask.any():continue
+            for idx in list(d.index[mask]):
+                ymd=str(dates.loc[idx]); rv=_safe_float(dret.loc[idx],np.nan); av=_safe_float(amount.loc[idx],np.nan); arv=_safe_float(ar.loc[idx],np.nan)
+                for t in tags:
+                    recs.append({'signal_date':ymd,'theme':t,'peer_code':code,'peer_name':name,'peer_day_ret':rv,'peer_amount_b':av/1e9 if pd.notna(av) else np.nan,'peer_amtr20':arv})
+        except Exception:continue
+    panel=pd.DataFrame(recs)
+    if not panel.empty:
+        panel=panel.drop_duplicates(['signal_date','theme','peer_code']).reset_index(drop=True)
+        panel['peer_strength']=np.nan;panel['peer_rank']=np.nan
+        for (_, _),idxs in panel.groupby(['signal_date','theme']).groups.items():
+            idx=list(idxs); g=panel.loc[idx]
+            rp=g['peer_day_ret'].apply(lambda v:_v497662_pct_rank(v,g['peer_day_ret']))
+            ap=g['peer_amount_b'].apply(lambda v:_v497662_pct_rank(v,g['peer_amount_b']))
+            xp=g['peer_amtr20'].apply(lambda v:_v497662_pct_rank(v,g['peer_amtr20']))
+            strength=rp.fillna(50)*0.45+ap.fillna(50)*0.35+xp.fillna(50)*0.20
+            panel.loc[idx,'peer_strength']=strength.values
+            panel.loc[idx,'peer_rank']=strength.rank(ascending=False,method='min').values
+    _V497662_FULL_MARKET_PANEL_CACHE[key]=panel
+    return panel
+
+
+def _v497662_full_market_enrich(df:pd.DataFrame,start_date:str,end_date:str)->pd.DataFrame:
+    if df is None or df.empty:return pd.DataFrame()
+    out=df.copy().reset_index(drop=True); dates=set(out.get('signal_date',pd.Series(dtype=str)).astype(str).tolist())
+    panel=_v497662_full_market_panel(start_date,end_date,dates)
+    fields=['full_market_leader_score','full_market_theme_score','full_market_theme_status','full_market_peer_count','full_market_rank','full_market_theme_label']
+    for c in fields:out[c]=np.nan if c not in ('full_market_theme_status','full_market_theme_label') else ''
+    if panel.empty:
+        out['full_market_theme_status']='NO_MAPPED_FULL_MARKET_PEERS';return out
+    for i,r in out.iterrows():
+        sig=str(r.get('signal_date','') or ''); tags=[t for t in str(r.get('theme_tags','') or '').split('|') if t]
+        if not tags:continue
+        sig_ret=_safe_float(r.get('bw_entry_ret'),np.nan); sig_amt=_safe_float(r.get('money_signal_amount_b'),np.nan); sig_ar=_safe_float(r.get('money_signal_amtr20'),np.nan)
+        best=None
+        for t in tags:
+            g=panel[(panel['signal_date'].eq(sig)) & (panel['theme'].eq(t))].copy()
+            n=len(g)
+            if n<int(CLOSING_BET_V497662_MIN_FULLMARKET_PEERS):continue
+            # If the signal code is name-mapped into the same theme, use its exact peer strength/rank.
+            code=_v497660_norm_code(r.get('five_axis_code',r.get('code',''))); me=g[g['peer_code'].eq(code)]
+            if len(me):
+                leader=_safe_float(me.iloc[0].get('peer_strength'),np.nan); rank=int(_safe_float(me.iloc[0].get('peer_rank'),n))
+            else:
+                rp=_v497662_pct_rank(sig_ret,g['peer_day_ret']);ap=_v497662_pct_rank(sig_amt,g['peer_amount_b']);xp=_v497662_pct_rank(sig_ar,g['peer_amtr20'])
+                vals=[v for v in (rp,ap,xp) if pd.notna(v)]
+                leader=( (50 if pd.isna(rp) else rp)*0.45 + (50 if pd.isna(ap) else ap)*0.35 + (50 if pd.isna(xp) else xp)*0.20 ) if vals else np.nan
+                rank=int((pd.to_numeric(g['peer_strength'],errors='coerce')>leader).sum()+1) if pd.notna(leader) else n
+            rr=pd.to_numeric(g['peer_day_ret'],errors='coerce').dropna(); aa=pd.to_numeric(g['peer_amount_b'],errors='coerce').dropna(); ar=pd.to_numeric(g['peer_amtr20'],errors='coerce').dropna()
+            mom=np.nan
+            if len(rr):
+                meanret=float(rr.mean()); pos=float((rr>0).mean()); breadth=min(1.0,n/8.0)
+                amt_imp=float((ar>=1.2).mean()) if len(ar) else 0.5
+                mom=_v497660_clip(35.0+np.clip(meanret,-3,6)/9*35.0+pos*20.0+breadth*5.0+amt_imp*5.0)
+            cand=(mom if pd.notna(mom) else -1,leader if pd.notna(leader) else -1,t,n,rank,mom)
+            if best is None or cand[:2]>best[:2]:best=cand
+        if best:
+            _,leader,t,n,rank,mom=best
+            out.at[i,'full_market_leader_score']=leader;out.at[i,'full_market_theme_score']=mom
+            out.at[i,'full_market_theme_status']='FULL_MARKET_MAPPED_UNIVERSE_PROXY';out.at[i,'full_market_peer_count']=n;out.at[i,'full_market_rank']=rank
+            out.at[i,'full_market_theme_label']=_V44950_THEME_LABEL.get(t,t) if '_V44950_THEME_LABEL' in globals() else t
+    return out
+
+
+def _v497662_finalize_v2(df:pd.DataFrame)->pd.DataFrame:
+    if df is None or df.empty:return pd.DataFrame()
+    out=df.copy(); hi=float(CLOSING_BET_V497660_HIGH_SCORE)
+    cols=['material_score','money_sequence_score','ma224_score','full_market_leader_score','full_market_theme_score']
+    for c in cols:out[c]=pd.to_numeric(out.get(c,pd.Series(np.nan,index=out.index)),errors='coerce')
+    out['five_axis_v2_known_count']=out[cols].notna().sum(axis=1)
+    out['five_axis_v2_total_score']=out[cols].mean(axis=1,skipna=True).where(out['five_axis_v2_known_count']>=int(CLOSING_BET_V497662_COMPOSITE_MIN_KNOWN),np.nan)
+    out['fa2_material_high']=out['material_score'].ge(hi);out['fa2_money_sequence_high']=out['money_sequence_score'].ge(hi);out['fa2_ma224_high']=out['ma224_score'].ge(hi)
+    out['fa2_leader_high']=out['full_market_leader_score'].ge(hi);out['fa2_theme_high']=out['full_market_theme_score'].ge(hi)
+    out['_fa_split']=_v497660_split_labels(out)
+    tr=pd.to_numeric(out.loc[out['_fa_split'].eq('TRAIN'),'five_axis_v2_total_score'],errors='coerce').dropna()
+    qs={}
+    for q in (20,40,60,80,90):qs[q]=float(tr.quantile(q/100.0)) if len(tr)>=20 else np.nan
+    out['fa2_train_quantile_band']='UNKNOWN'
+    s=pd.to_numeric(out['five_axis_v2_total_score'],errors='coerce')
+    if pd.notna(qs.get(20)):
+        out.loc[s.lt(qs[20]),'fa2_train_quantile_band']='Q00_20'
+        out.loc[s.ge(qs[20]) & s.lt(qs[40]),'fa2_train_quantile_band']='Q20_40'
+        out.loc[s.ge(qs[40]) & s.lt(qs[60]),'fa2_train_quantile_band']='Q40_60'
+        out.loc[s.ge(qs[60]) & s.lt(qs[80]),'fa2_train_quantile_band']='Q60_80'
+        out.loc[s.ge(qs[80]) & s.lt(qs[90]),'fa2_train_quantile_band']='Q80_90'
+        out.loc[s.ge(qs[90]),'fa2_train_quantile_band']='Q90_100'
+    out['fa2_train_p80']=s.ge(qs.get(80,np.nan)) if pd.notna(qs.get(80)) else False
+    out['fa2_train_p90']=s.ge(qs.get(90,np.nan)) if pd.notna(qs.get(90)) else False
+    out.attrs['train_quantiles']=qs
+    return out
+
+
+def _v497662_groups(df:pd.DataFrame):
+    if df is None:return []
+    return [
+        ('BASELINE_STRICT',pd.Series(True,index=df.index)),
+        ('MATERIAL_HIGH',df.get('fa2_material_high',False)),
+        ('MONEY_SEQUENCE_HIGH',df.get('fa2_money_sequence_high',False)),
+        ('MA224_TRANSITION_HIGH',df.get('fa2_ma224_high',False)),
+        ('FULLMARKET_LEADER_HIGH',df.get('fa2_leader_high',False)),
+        ('FULLMARKET_THEME_HIGH',df.get('fa2_theme_high',False)),
+        ('COMPOSITE_TRAIN_P80',df.get('fa2_train_p80',False)),
+        ('COMPOSITE_TRAIN_P90',df.get('fa2_train_p90',False)),
+    ]
+
+
+def _v497662_net(v,cost_bps=None):
+    try:return float(v)-float(CLOSING_BET_V497662_EXIT_COST_BPS if cost_bps is None else cost_bps)/100.0 if pd.notna(v) else np.nan
+    except Exception:return np.nan
+
+
+def _v497662_exit_one(r,policy:str)->float:
+    """Five-day exit shadow. Same-day stop/target collision is conservative (stop first). All figures net one-way round-trip proxy cost once."""
+    cost=float(CLOSING_BET_V497662_EXIT_COST_BPS)/100.0
+    try:
+        if policy=='CURRENT_P1':return _safe_float(_v4940_policy_result(r,int(CLOSING_BET_V497662_EXIT_COST_BPS)).get('exec_pnl'),np.nan)
+        if policy=='D3_CLOSE':return _v497662_net(_safe_float(r.get('d3_close_ret'),np.nan))
+        if policy=='D5_CLOSE':return _v497662_net(_safe_float(r.get('d5_close_ret'),np.nan))
+        entry=_safe_float(r.get('entry_price'),np.nan); support=_safe_float(r.get('support_price'),np.nan)
+        remain=1.0;real=0.0;hit3=False
+        for d in range(1,6):
+            hi=_safe_float(r.get(f'd{d}_high_ret'),np.nan);lo=_safe_float(r.get(f'd{d}_low_ret'),np.nan);cl=_safe_float(r.get(f'd{d}_close_ret'),np.nan)
+            if policy in ('HARD3_D5','RULE35_D5') and pd.notna(lo) and lo<=-3.0:return -3.0-cost if policy=='HARD3_D5' else real+remain*(-3.0)-cost
+            if policy=='RULE35_D5':
+                if (not hit3) and pd.notna(hi) and hi>=3.0:
+                    real+=0.5*3.0;remain-=0.5;hit3=True
+                if hit3 and remain>0 and pd.notna(hi) and hi>=5.0:
+                    real+=remain*5.0;remain=0.0;return real-cost
+            if policy=='STRUCTURE_D5' and pd.notna(entry) and entry>0 and pd.notna(support) and 0<support<entry and pd.notna(cl):
+                support_ret=(support/entry-1.0)*100.0
+                # explicit structure support is treated as close-confirmed. hard -3 intraday still protects catastrophic slippage proxy.
+                if pd.notna(lo) and lo<=-3.0:return -3.0-cost
+                if cl<support_ret:return cl-cost
+        d5=_safe_float(r.get('d5_close_ret'),np.nan)
+        if policy=='RULE35_D5':return real+remain*(d5 if pd.notna(d5) else 0.0)-cost
+        if policy in ('HARD3_D5','STRUCTURE_D5'):return d5-cost if pd.notna(d5) else np.nan
+    except Exception:return np.nan
+    return np.nan
+
+
+def _v497662_exit_stats(df:pd.DataFrame)->pd.DataFrame:
+    rows=[]
+    policies=['CURRENT_P1','D3_CLOSE','D5_CLOSE','HARD3_D5','RULE35_D5','STRUCTURE_D5']
+    if df is None or df.empty:return pd.DataFrame()
+    for sp in ('ALL','TRAIN','VALIDATION','TEST'):
+        base=df if sp=='ALL' else df[df['_fa_split'].eq(sp)]
+        for gl,mask in _v497662_groups(base):
+            sub=base[pd.Series(mask,index=base.index).fillna(False).astype(bool)]
+            for p in policies:
+                vals=pd.Series([_v497662_exit_one(r,p) for _,r in sub.iterrows()],dtype=float).dropna()
+                rows.append({'split':sp,'group':gl,'exit_policy':p,'n':len(vals),'avg_net20':float(vals.mean()) if len(vals) else np.nan,'win_rate':float((vals>0).mean()*100) if len(vals) else np.nan,'median_net20':float(vals.median()) if len(vals) else np.nan})
+    return pd.DataFrame(rows)
+
+
+def _v497662_report(df:pd.DataFrame,start_date:str,end_date:str):
+    lines=['[🧭 FIVE-AXIS SHADOW BACKTEST · v49.76.6.2 · RESEARCH ONLY]',
+           '- Production 검색/랭킹/STRICT/MARCAP/M5/NXT/AFTER FINAL/P1 변경 없음 · 모든 신규 축/청산은 Shadow',
+           f'- 기간 {start_date} ~ {end_date} · HIGH 고정 {float(CLOSING_BET_V497660_HIGH_SCORE):.0f}점 · composite 분위수 cutoff는 TRAIN에서만 고정 후 VALIDATION/TEST 재사용']
+    if df is None or df.empty:return lines,pd.DataFrame(),pd.DataFrame(),pd.DataFrame(),pd.DataFrame()
+    cov={c:float(pd.to_numeric(df[c],errors='coerce').notna().mean()*100) for c in ['material_score','money_sequence_score','ma224_score','full_market_leader_score','full_market_theme_score']}
+    mapped_codes=0; total_codes=len(globals().get('_V4941_SHARED_UNIVERSE_CODES',[]) or [])
+    try:
+        names=globals().get('STOCK_NAME_MAP',{}) or {}; mapped_codes=sum(1 for c in (globals().get('_V4941_SHARED_UNIVERSE_CODES',[]) or []) if _v44950_multi_themes_from_text(str(names.get(str(c).zfill(6),''))))
+    except Exception:pass
+    lines.append('- V2 축 coverage: MATERIAL {material_score:.1f}% · MONEY_SEQUENCE {money_sequence_score:.1f}% · MA224 {ma224_score:.1f}% · FULLMARKET_LEADER {full_market_leader_score:.1f}% · FULLMARKET_THEME {full_market_theme_score:.1f}%'.format(**cov))
+    lines.append(f'- FULL-MARKET proxy universe: prepared {total_codes}종목 중 name-theme mapped {mapped_codes}종목 · same-day 가격/거래대금만 사용 · semantic theme oracle 아님')
+    lines.append('- MATERIAL은 OpenDART 확인분만 · MONEY_SEQUENCE는 신호일까지의 accumulation→ignition→dry-up→restart 순서만 사용')
+    stats=[]
+    for gl,mask in _v497662_groups(df):stats.append(_v497660_stat(df[pd.Series(mask,index=df.index).fillna(False).astype(bool)],gl,'ALL'))
+    gs=pd.DataFrame(stats);base=gs[gs['group'].eq('BASELINE_STRICT')].iloc[0]
+    lines.append('[전체 STRICT 대비 V2 Shadow]')
+    for _,r in gs.iterrows():
+        lift=(r.get('plus3_first_rate')-base.get('plus3_first_rate')) if pd.notna(r.get('plus3_first_rate')) and pd.notna(base.get('plus3_first_rate')) else np.nan
+        lines.append(f"- {r['group']}: n {int(r.get('n',0))}" + (f" · +3먼저 {r.get('plus3_first_rate',np.nan):.1f}% · D3 {r.get('d3_close_avg',np.nan):+.2f}% · D5 {r.get('d5_close_avg',np.nan):+.2f}% · P1 {r.get('p1_20bp_avg',np.nan):+.2f}% · lift {lift:+.1f}%p" if int(r.get('n',0)) else ''))
+    # Full split matrix, no winner-only cherry-pick.
+    srows=[];lines.append('[TRAIN / VALIDATION / TEST 전체 행렬]')
+    for sp in ('TRAIN','VALIDATION','TEST'):
+        sub=df[df['_fa_split'].eq(sp)]; lines.append(f'- {sp}')
+        for gl,mask in _v497662_groups(sub):
+            st=_v497660_stat(sub[pd.Series(mask,index=sub.index).fillna(False).astype(bool)],gl,sp);srows.append(st)
+            if int(st.get('n',0)):
+                lines.append(f"  · {gl}: n {int(st['n'])} · +3먼저 {st.get('plus3_first_rate',np.nan):.1f}% · D3 {st.get('d3_close_avg',np.nan):+.2f}% · D5 {st.get('d5_close_avg',np.nan):+.2f}% · P1 {st.get('p1_20bp_avg',np.nan):+.2f}%")
+            else:lines.append(f'  · {gl}: n 0')
+    ss=pd.DataFrame(srows)
+    # TRAIN-fixed composite quantile bands.
+    qrows=[];lines.append('[5축 Composite · TRAIN 고정 분위수]')
+    qs=dict(df.attrs.get('train_quantiles',{}) or {})
+    lines.append('- TRAIN cutoff: '+ ' · '.join(f'P{q} {qs.get(q,np.nan):.1f}' for q in (20,40,60,80,90) if pd.notna(qs.get(q))))
+    for sp in ('ALL','TRAIN','VALIDATION','TEST'):
+        sub=df if sp=='ALL' else df[df['_fa_split'].eq(sp)]
+        vals=[]
+        for band in ('Q00_20','Q20_40','Q40_60','Q60_80','Q80_90','Q90_100'):
+            st=_v497660_stat(sub[sub['fa2_train_quantile_band'].eq(band)],band,sp);qrows.append(st)
+            if int(st.get('n',0)):vals.append(f"{band} n{int(st['n'])}/+3 {st.get('plus3_first_rate',np.nan):.1f}%/D5 {st.get('d5_close_avg',np.nan):+.2f}%")
+        lines.append(f"- {sp}: "+(' · '.join(vals) if vals else '평가표본 없음'))
+    qdf=pd.DataFrame(qrows)
+    exits=_v497662_exit_stats(df)
+    lines.append('[EXIT SHADOW · selection과 exit 분리]')
+    lines.append('- CURRENT_P1 / D3_CLOSE / D5_CLOSE / HARD3_D5 / RULE35_D5(+3절반,+5잔량,-3) / STRUCTURE_D5(구조 종가이탈+hard-3) · 모두 연구용')
+    for gl in ('BASELINE_STRICT','MA224_TRANSITION_HIGH','FULLMARKET_THEME_HIGH','FULLMARKET_LEADER_HIGH','COMPOSITE_TRAIN_P80'):
+        sub=exits[(exits['split'].eq('ALL'))&(exits['group'].eq(gl))]
+        if sub.empty:continue
+        vals=[]
+        for _,r in sub.iterrows():
+            if int(r.get('n',0)):vals.append(f"{r['exit_policy']} {r.get('avg_net20',np.nan):+.2f}% n{int(r['n'])}")
+        lines.append(f'- {gl}: '+(' · '.join(vals) if vals else '평가없음'))
+    lines.append('- 승격판정: SHADOW ONLY · TEST에서 반복성·표본·coverage가 확보되기 전 production 필터/랭킹/P1 자동변경 금지')
+    return lines,gs,ss,qdf,exits
+
+
+def _v497662_run_five_axis_backtest()->tuple[str,dict]:
+    global _V497662_LAST_RESULT
+    audit=dict(globals().get('_V4940_LAST_LIFECYCLE_AUDIT',{}) or {})
+    if str(audit.get('status','')).upper()!='VALID':
+        txt='[🧭 FIVE-AXIS SHADOW BACKTEST · v49.76.6.2]\n- ⛔ LIFECYCLE audit가 VALID가 아니므로 fail-closed';_V497662_LAST_RESULT={'status':'FAILED','paths':{}};return txt,{}
+    ent=audit.get('entry_events');plan=dict(audit.get('plan') or {})
+    if not isinstance(ent,pd.DataFrame) or ent.empty:
+        txt='[🧭 FIVE-AXIS SHADOW BACKTEST · v49.76.6.2]\n- 평가 가능한 STRICT causal 표본 없음';_V497662_LAST_RESULT={'status':'NO_SAMPLE','paths':{}};return txt,{}
+    start=pd.Timestamp(plan.get('start',pd.to_datetime(ent['signal_date']).min())).strftime('%Y-%m-%d');end=pd.Timestamp(plan.get('end',pd.to_datetime(ent['signal_date']).max())).strftime('%Y-%m-%d')
+    # Keep v6.1 axes for backward comparison, then add v6.2 independent axes.
+    x=_v497660_individual_enrich(ent,start,end);x=_v497660_material_enrich(x,start,end);x=_v497660_theme_cross_section(x);x=_v497660_finalize_scores(x)
+    x=_v497662_money_sequence_enrich(x,start,end);x=_v497662_full_market_enrich(x,start,end);x=_v497662_finalize_v2(x)
+    lines,gs,ss,qdf,exits=_v497662_report(x,start,end)
+    outdir=Path(CLOSING_BET_V497660_OUT_DIR);outdir.mkdir(parents=True,exist_ok=True);Path('reports').mkdir(parents=True,exist_ok=True)
+    stamp=f'{start.replace("-","")}_{end.replace("-","")}'
+    paths={
+        'signals':str(outdir/f'five_axis_v2_strict_signals_{stamp}.csv'),
+        'groups':str(outdir/f'five_axis_v2_group_stats_{stamp}.csv'),
+        'splits':str(outdir/f'five_axis_v2_split_matrix_{stamp}.csv'),
+        'quantiles':str(outdir/f'five_axis_v2_train_fixed_quantiles_{stamp}.csv'),
+        'exit_shadow':str(outdir/f'five_axis_v2_exit_shadow_{stamp}.csv'),
+        'full_market_panel':str(outdir/f'five_axis_v2_full_market_mapped_panel_{stamp}.csv'),
+        'report':str(Path('reports')/f'five_axis_v2_shadow_backtest_{stamp}.txt'),
+    }
+    x.to_csv(paths['signals'],index=False,encoding='utf-8-sig');gs.to_csv(paths['groups'],index=False,encoding='utf-8-sig');ss.to_csv(paths['splits'],index=False,encoding='utf-8-sig');qdf.to_csv(paths['quantiles'],index=False,encoding='utf-8-sig');exits.to_csv(paths['exit_shadow'],index=False,encoding='utf-8-sig')
+    # panel is audit-only and may be sizable; still store to make leader/theme provenance reviewable.
+    panel=_v497662_full_market_panel(start,end,set(x['signal_date'].astype(str)))
+    panel.to_csv(paths['full_market_panel'],index=False,encoding='utf-8-sig')
+    txt='\n'.join(lines);Path(paths['report']).write_text(txt,encoding='utf-8')
+    _V497662_LAST_RESULT={'status':'VALID','paths':paths,'signals':x,'groups':gs,'splits':ss,'quantiles':qdf,'exit_shadow':exits,'start':start,'end':end}
+    # Compatibility with existing direct lane status reader.
+    globals()['_V497660_LAST_RESULT']={'status':'VALID','paths':paths,'signals':x,'group_stats':gs,'split_stats':ss,'start':start,'end':end}
+    return txt,paths
+
+# =============================================================
+# ✅ END v49.76.6.2 FIVE-AXIS RESEARCH V2
+# =============================================================
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='종가배팅 타점 스캐너')
     parser.add_argument('--force', action='store_true', help='시간 무관 강제 실행')
@@ -50286,8 +50678,8 @@ if __name__ == '__main__':
     parser.add_argument('--backtest-all-candidates', action='store_true', help='TOP 제한 없이 모든 후보 검증')
     parser.add_argument('--backtest-weekly', action='store_true', help='백테스트 결과에 주차별 성과 요약 포함')
     parser.add_argument('--backtest-debug', action='store_true', help='백테스트 0건/진단 로그를 함께 출력')
-    parser.add_argument('--backtest-five-axis', action='store_true', help='v49.76.6.1 재료·거래대금·224전환·대장·테마 5축 Shadow 백테스트 추가(기존 전체 백테스트 후 실행)')
-    parser.add_argument('--backtest-five-axis-only', action='store_true', help='v49.76.6.1 5축 전용 DIRECT 연구 lane: 공통 OHLCV→Lifecycle→5축 후 즉시 종료, COMMON STRATEGY 장시간 레인 생략')
+    parser.add_argument('--backtest-five-axis', action='store_true', help='v49.76.6.2 재료·거래대금·224전환·대장·테마 5축 Shadow 백테스트 추가(기존 전체 백테스트 후 실행)')
+    parser.add_argument('--backtest-five-axis-only', action='store_true', help='v49.76.6.2 5축 전용 DIRECT 연구 lane: 공통 OHLCV→Lifecycle→5축 후 즉시 종료, COMMON STRATEGY 장시간 레인 생략')
     parser.add_argument('--symbol', '--backtest-symbol', dest='backtest_symbol', type=str, default='', help='특정 종목 코드/종목명만 백테스트. 예: --symbol 093370 또는 --symbol 후성')
     parser.add_argument('--backtest-core-only', action='store_true', help='백테스트 결과를 S-CORE(S1우수응축+S2)만 필터링')
     parser.add_argument('--backtest-safe-only', action='store_true', help='백테스트 결과를 S-CORE SAFE(RR 1.0~1.5·거래량비<1.5·종가위치70%+)만 필터링')
@@ -50310,7 +50702,7 @@ if __name__ == '__main__':
         os.environ['CLOSING_BET_COMPACT_OPERATION_SUMMARY'] = '1'
     if getattr(args, 'full_backtest_summary', False):
         os.environ['CLOSING_BET_SHOW_FULL_BACKTEST_REPORT'] = '1'
-    # v49.76.6.1: five-axis 전용 연구 lane은 COMMON STRATEGY 전에 조기 종료한다.
+    # v49.76.6.2: five-axis 전용 연구 lane은 COMMON STRATEGY 전에 조기 종료한다.
     globals()['_V497661_FIVE_AXIS_ONLY_ACTIVE'] = bool(getattr(args, 'backtest_five_axis_only', False))
     globals()['_V497661_FIVE_AXIS_ONLY_RESULT'] = {'status':'NOT_RUN','report':'','paths':{}}
 
@@ -50359,7 +50751,7 @@ if __name__ == '__main__':
                 f"· raw {_shard_result.get('raw_path')}"
             )
             sys.exit(0)
-        # v49.76.6.1 DIRECT research lane은 공통 백테스트 compact formatter를 통과시키지 않는다.
+        # v49.76.6.2 DIRECT research lane은 공통 백테스트 compact formatter를 통과시키지 않는다.
         # 5축 원문이 곧 사용자/Telegram 권위 리포트이며, 기존 20-part COMMON report와 분리한다.
         if getattr(args, 'backtest_five_axis_only', False):
             original_report = str(report or '')
@@ -50368,7 +50760,10 @@ if __name__ == '__main__':
             _fa_direct_paths=dict((globals().get('_V497661_FIVE_AXIS_ONLY_RESULT',{}) or {}).get('paths',{}) or {})
             log_info(f"5축 DIRECT signals CSV: {_fa_direct_paths.get('signals','-')}")
             log_info(f"5축 DIRECT group stats CSV: {_fa_direct_paths.get('groups','-')}")
-            log_info(f"5축 DIRECT split stats CSV: {_fa_direct_paths.get('splits','-')}")
+            log_info(f"5축 DIRECT split matrix CSV: {_fa_direct_paths.get('splits','-')}")
+            log_info(f"5축 DIRECT quantiles CSV: {_fa_direct_paths.get('quantiles','-')}")
+            log_info(f"5축 DIRECT exit shadow CSV: {_fa_direct_paths.get('exit_shadow','-')}")
+            log_info(f"5축 DIRECT full-market panel CSV: {_fa_direct_paths.get('full_market_panel','-')}")
             log_info(f"5축 DIRECT report: {_fa_direct_paths.get('direct_report',_fa_direct_paths.get('report','-'))}")
             if (args.send_backtest_summary or args.send_summary) and _telegram_route_ready():
                 send_telegram_chunks(report, max_len=3400)
@@ -50377,7 +50772,7 @@ if __name__ == '__main__':
         original_report = report
         if getattr(args, 'backtest_five_axis', False):
             try:
-                _fa_report, _fa_paths = _v497660_run_five_axis_backtest()
+                _fa_report, _fa_paths = _v497662_run_five_axis_backtest()
                 original_report = str(original_report).rstrip() + "\n\n" + str(_fa_report)
                 log_info("\n" + str(_fa_report))
                 log_info(f"5축 Shadow signals CSV: {_fa_paths.get('signals','-')}")
