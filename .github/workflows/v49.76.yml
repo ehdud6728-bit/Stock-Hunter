@@ -1,4 +1,4 @@
-name: closing-bet-v49.76.6.3-five-axis-leader-theme-exit-forensic
+name: closing-bet-v49.76.6.4-profile-regime-ma224-exit-shadow
 
 on:
   schedule:
@@ -112,14 +112,14 @@ jobs:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       DART_API_KEY: ${{ secrets.DART_API_KEY }}
-      # v49.76.6.3 Google Sheet service-account JSON. 저장소/ZIP에 키 파일을 넣지 않는다.
+      # v49.76.6.4 Google Sheet service-account JSON. 저장소/ZIP에 키 파일을 넣지 않는다.
       GOOGLE_JSON_KEY: ${{ secrets.GOOGLE_JSON_KEY }}
       CLOSING_BET_V4944_HEALTH_TAB: ${{ vars.CLOSING_BET_V4944_HEALTH_TAB || 'SYSTEM_HEALTH' }}
       CLOSING_BET_V4944_SHEET_HEALTH_ENABLE: '1'
-      # v49.76.6.3 session replay audit / production M5 coverage authority
+      # v49.76.6.4 session replay audit / production M5 coverage authority
       CLOSING_BET_V4976510_M5_MIN_COVERAGE_PCT: '90'
       CLOSING_BET_V4976510_SESSION_REPLAY_MIN_UNIVERSE_PCT: '80'
-      # v49.76.6.3 five-axis research-only shadow/backtest
+      # v49.76.6.4 five-axis research-only shadow/backtest
       CLOSING_BET_V497660_FIVE_AXIS_ENABLE: '1'
       CLOSING_BET_V497660_HIGH_SCORE: '70'
       CLOSING_BET_V497660_DART_ENABLE: '1'
@@ -131,6 +131,10 @@ jobs:
       CLOSING_BET_V497663_WF_MIN_N: '5'
       CLOSING_BET_V497663_TRIM_PCT: '10'
       CLOSING_BET_V497663_RULE_TOL: '0.000001'
+      CLOSING_BET_V497664_REGIME_MIN_N: '5'
+      CLOSING_BET_V497664_MONTH_MIN_N: '3'
+      CLOSING_BET_V497664_MA_FEATURE_MIN_N: '5'
+      CLOSING_BET_V497664_MA_CLIFF_DISCOVER: '0.15'
       CLOSING_BET_V4976510_SESSION_AUDIT_ENABLE: '1'
       CLOSING_BET_V4976510_SESSION_AUDIT_TAB: 'SESSION_STRICT_AUDIT'
       CLOSING_BET_V4944_DELIVERY_CONFIRM_TELEGRAM: '1'
@@ -169,7 +173,7 @@ jobs:
       CLOSING_BET_V4960_PROGRESS_SECONDS: '60'
       CLOSING_BET_V4960_SLOW_CODE_SECONDS: '300'
       CLOSING_BET_V4960_ENGINE_WATCHDOG_SECONDS: '5400'
-      # v49.76.6.3 TRAIN -> VALIDATION -> LOCKED TEST research only. No auto-apply.
+      # v49.76.6.4 TRAIN -> VALIDATION -> LOCKED TEST research only. No auto-apply.
       CLOSING_BET_V4967_TRAIN_RATIO: '0.50'
       CLOSING_BET_V4967_VALIDATION_RATIO: '0.25'
       CLOSING_BET_V4967_FEATURE_MIN_TRAIN_N: '40'
@@ -406,13 +410,13 @@ jobs:
       CLOSING_BET_V4976_PRACTICAL_EXEC_TOP_N: '2'
       CLOSING_BET_V4976_FINAL_KICK_LEDGER_ONLY: '1'
       CLOSING_BET_V4976_SHOW_EXECUTION_BOARD: '1'
-      # v49.76.6.3 clean LIVE-DATA PAPER evidence gate
+      # v49.76.6.4 clean LIVE-DATA PAPER evidence gate
       CLOSING_BET_V49761_LIVE_KPI_REQUIRE_FINAL_WINDOW: '1'
       CLOSING_BET_V49761_FINAL_WINDOW_START_HHMM: '1540'
       CLOSING_BET_V49761_FINAL_WINDOW_END_HHMM: '2000'
       CLOSING_BET_V49761_KPI_STRICT_EVIDENCE: '1'
       CLOSING_BET_V49761_FORWARD_AFTER_DELIVERED: '1'
-      # v49.76.6.3 KRX close-confirmed AFTER FINAL + NXT target eligibility + daily evidence ledger
+      # v49.76.6.4 KRX close-confirmed AFTER FINAL + NXT target eligibility + daily evidence ledger
       CLOSING_BET_V49765_AFTER_FINAL_ENABLE: '1'
       CLOSING_BET_V49765_PRE_FINAL_HHMM: '1503'
       CLOSING_BET_V49765_AFTER_FINAL_START_HHMM: '1540'
@@ -615,7 +619,7 @@ jobs:
             v49-76-research-contexts-${{ runner.os }}-${{ github.ref_name }}-engine2-
             v49-76-research-contexts-${{ runner.os }}-${{ github.ref_name }}-
 
-      - name: Verify Telegram route for Closing Bet (unified v49.76.6.3)
+      - name: Verify Telegram route for Closing Bet (unified v49.76.6.4)
         run: |
           python v49_76_telegram_route.py --send "${{ inputs.send_telegram || 'true' }}" --json-output reports/v49_76_telegram_route_run.json
 
@@ -719,7 +723,7 @@ jobs:
             if [ "${{ inputs.send_telegram || 'true' }}" = "true" ]; then
               BT_FLAGS="$BT_FLAGS --send-backtest-summary"
             fi
-            echo "RUN v49.76.6.3 FIVE-AXIS LEADER+THEME+MA224+6FOLD+EXIT FORENSIC: python Closing_bet_scanner_v2.py $BT_FLAGS $FLAGS"
+            echo "RUN v49.76.6.4 PROFILE VALIDATION THEME+LEADER REGIME + MA224 FEATURE + EXIT E0-E4: python Closing_bet_scanner_v2.py $BT_FLAGS $FLAGS"
             python Closing_bet_scanner_v2.py $BT_FLAGS $FLAGS
           elif [ "$ACTION" = "backtest" ]; then
             BT_FLAGS="--backtest-hold-days ${{ inputs.hold_days || '60' }} --backtest-min-eval-days ${{ inputs.backtest_min_eval_days || '3' }} --backtest-top-per-strategy 5 $STRAT_FLAGS"
@@ -751,11 +755,11 @@ jobs:
             python Closing_bet_scanner_v2.py $FLAGS --compact-summary
           fi
 
-      - name: Upload v49.76.6.3 complete research reports
+      - name: Upload v49.76.6.4 complete research reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: v49.76.6.3-research-reports-${{ github.run_number }}
+          name: v49.76.6.4-research-reports-${{ github.run_number }}
           path: |
             reports/
             closing_bet_logs/five_axis/
@@ -1074,7 +1078,7 @@ jobs:
           key: v49-76-pit-marcap-${{ runner.os }}-${{ github.ref_name }}-${{ github.run_id }}
           restore-keys: |
             v49-76-pit-marcap-${{ runner.os }}-${{ github.ref_name }}-
-      - name: Verify Telegram route for Closing Bet merge (unified v49.76.6.3)
+      - name: Verify Telegram route for Closing Bet merge (unified v49.76.6.4)
         run: |
           python v49_76_telegram_route.py --send "${{ inputs.send_telegram || 'true' }}" --json-output reports/v49_76_telegram_route_merge.json
       - name: Merge global population and build final performance report
@@ -1134,7 +1138,7 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: v49.76.6.3-pit-marcap-audit-${{ github.run_number }}
+          name: v49.76.6.4-pit-marcap-audit-${{ github.run_number }}
           path: |
             reports/v49_76_pit_marcap_audit_manifest.json
             reports/v49_76_pit_marcap_date_coverage.csv
@@ -1153,7 +1157,7 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: v49.76.6.3-practical-paper-${{ github.run_number }}
+          name: v49.76.6.4-practical-paper-${{ github.run_number }}
           path: |
             reports/v49_76_practical_manifest.json
             reports/v49_76_practical_readiness.csv
@@ -1171,7 +1175,7 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: v49.76.6.3-global-performance-${{ github.run_number }}
+          name: v49.76.6.4-global-performance-${{ github.run_number }}
           path: reports/
           if-no-files-found: warn
           retention-days: 14
@@ -1180,7 +1184,7 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: v49.76.6.3-technical-fn-${{ github.run_number }}
+          name: v49.76.6.4-technical-fn-${{ github.run_number }}
           path: |
             reports/v49_76_technical_false_negative.csv
             reports/v49_76_technical_false_negative.json
@@ -1193,7 +1197,7 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: v49.76.6.3-input-authority-${{ github.run_number }}
+          name: v49.76.6.4-input-authority-${{ github.run_number }}
           path: |
             reports/v49_76_input_authority_manifest.json
             reports/v49_76_history_authority_global.csv
@@ -1212,7 +1216,7 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: v49.76.6.3-marcap-authority-${{ github.run_number }}
+          name: v49.76.6.4-marcap-authority-${{ github.run_number }}
           path: |
             reports/v49_76_prepared_authority_snapshot.csv
             reports/v49_76_prepared_authority_snapshot.json
@@ -1228,7 +1232,7 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: v49.76.6.3-search-gap-insight-${{ github.run_number }}
+          name: v49.76.6.4-search-gap-insight-${{ github.run_number }}
           path: |
             reports/v49_76_sample_authority_reconciliation.csv
             reports/v49_76_immediate_miss_policy_summary.csv
