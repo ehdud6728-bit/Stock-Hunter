@@ -1,4 +1,4 @@
-name: closing-bet-v49.76.6.5-prospective-lock-forward-validation
+name: closing-bet-v49.76.6.6-prospective-integrity-finalization
 
 on:
   schedule:
@@ -20,7 +20,7 @@ on:
         options:
           - backtest__성과검증
           - research_five_axis__5축_SHADOW_백테스트
-          - research_prospective__6.5_미래검증_LOCK
+          - research_prospective__6.6_미래검증_LOCK
           - live__실시간스캔
           - eval__미평가후보_평가
           - summary__검증요약
@@ -113,14 +113,14 @@ jobs:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       DART_API_KEY: ${{ secrets.DART_API_KEY }}
-      # v49.76.6.5 Google Sheet service-account JSON. 저장소/ZIP에 키 파일을 넣지 않는다.
+      # v49.76.6.6 Google Sheet service-account JSON. 저장소/ZIP에 키 파일을 넣지 않는다.
       GOOGLE_JSON_KEY: ${{ secrets.GOOGLE_JSON_KEY }}
       CLOSING_BET_V4944_HEALTH_TAB: ${{ vars.CLOSING_BET_V4944_HEALTH_TAB || 'SYSTEM_HEALTH' }}
       CLOSING_BET_V4944_SHEET_HEALTH_ENABLE: '1'
-      # v49.76.6.5 session replay audit / production M5 coverage authority
+      # v49.76.6.6 session replay audit / production M5 coverage authority
       CLOSING_BET_V4976510_M5_MIN_COVERAGE_PCT: '90'
       CLOSING_BET_V4976510_SESSION_REPLAY_MIN_UNIVERSE_PCT: '80'
-      # v49.76.6.5 five-axis research-only shadow/backtest
+      # v49.76.6.6 five-axis research-only shadow/backtest
       CLOSING_BET_V497660_FIVE_AXIS_ENABLE: '1'
       CLOSING_BET_V497660_HIGH_SCORE: '70'
       CLOSING_BET_V497660_DART_ENABLE: '1'
@@ -136,7 +136,7 @@ jobs:
       CLOSING_BET_V497664_MONTH_MIN_N: '3'
       CLOSING_BET_V497664_MA_FEATURE_MIN_N: '5'
       CLOSING_BET_V497664_MA_CLIFF_DISCOVER: '0.15'
-      # v49.76.6.5 forward-only prospective lock
+      # v49.76.6.6 forward-only prospective lock
       CLOSING_BET_V497665_LOCK_DATE: '2026-08-18'
       CLOSING_BET_V497665_DISCOVERY_END: '2026-08-17'
       CLOSING_BET_V497665_CAPTURE_START_HHMM: '1540'
@@ -184,7 +184,7 @@ jobs:
       CLOSING_BET_V4960_PROGRESS_SECONDS: '60'
       CLOSING_BET_V4960_SLOW_CODE_SECONDS: '300'
       CLOSING_BET_V4960_ENGINE_WATCHDOG_SECONDS: '5400'
-      # v49.76.6.5 TRAIN -> VALIDATION -> LOCKED TEST research only. No auto-apply.
+      # v49.76.6.6 TRAIN -> VALIDATION -> LOCKED TEST research only. No auto-apply.
       CLOSING_BET_V4967_TRAIN_RATIO: '0.50'
       CLOSING_BET_V4967_VALIDATION_RATIO: '0.25'
       CLOSING_BET_V4967_FEATURE_MIN_TRAIN_N: '40'
@@ -421,13 +421,13 @@ jobs:
       CLOSING_BET_V4976_PRACTICAL_EXEC_TOP_N: '2'
       CLOSING_BET_V4976_FINAL_KICK_LEDGER_ONLY: '1'
       CLOSING_BET_V4976_SHOW_EXECUTION_BOARD: '1'
-      # v49.76.6.5 clean LIVE-DATA PAPER evidence gate
+      # v49.76.6.6 clean LIVE-DATA PAPER evidence gate
       CLOSING_BET_V49761_LIVE_KPI_REQUIRE_FINAL_WINDOW: '1'
       CLOSING_BET_V49761_FINAL_WINDOW_START_HHMM: '1540'
       CLOSING_BET_V49761_FINAL_WINDOW_END_HHMM: '2000'
       CLOSING_BET_V49761_KPI_STRICT_EVIDENCE: '1'
       CLOSING_BET_V49761_FORWARD_AFTER_DELIVERED: '1'
-      # v49.76.6.5 KRX close-confirmed AFTER FINAL + NXT target eligibility + daily evidence ledger
+      # v49.76.6.6 KRX close-confirmed AFTER FINAL + NXT target eligibility + daily evidence ledger
       CLOSING_BET_V49765_AFTER_FINAL_ENABLE: '1'
       CLOSING_BET_V49765_PRE_FINAL_HHMM: '1503'
       CLOSING_BET_V49765_AFTER_FINAL_START_HHMM: '1540'
@@ -630,17 +630,17 @@ jobs:
             v49-76-research-contexts-${{ runner.os }}-${{ github.ref_name }}-engine2-
             v49-76-research-contexts-${{ runner.os }}-${{ github.ref_name }}-
 
-      - name: Verify Telegram route for Closing Bet (unified v49.76.6.5)
+      - name: Verify Telegram route for Closing Bet (unified v49.76.6.6)
         run: |
           python v49_76_telegram_route.py --send "${{ inputs.send_telegram || 'true' }}" --json-output reports/v49_76_telegram_route_run.json
 
-      - name: Show v4.4.9.53.8.49.76.6.1 files
+      - name: Show v4.4.9.53.8.49.76.6.6 files
         run: |
           echo "Python file check"
           ls -la Closing_bet_scanner_v2.py
           python -m py_compile Closing_bet_scanner_v2.py v49.76.2.py
 
-      - name: Decide v4.4.9.53.8.49.76.6.1 run mode
+      - name: Decide v4.4.9.53.8.49.76.6.6 run mode
         shell: bash
         run: |
           ACTION_RAW="${{ inputs.action_mode || '' }}"
@@ -684,7 +684,7 @@ jobs:
 
           echo "RUN_MODE=$RUN_MODE"
 
-      - name: Run v4.4.9.53.8.49.76.6.1 scanner/backtest
+      - name: Run v4.4.9.53.8.49.76.6.6 scanner/backtest
         shell: bash
         run: |
           set -euo pipefail
@@ -722,25 +722,20 @@ jobs:
           esac
 
           if [ "$ACTION" = "research_five_axis" ]; then
-            # Research-only single-process lane: lifecycle causal registry must remain enabled.
-            # Deliberately does NOT use the production sharded backtest lane, whose workers disable lifecycle audit.
-            BT_FLAGS="--backtest-hold-days ${{ inputs.hold_days || '60' }} --backtest-min-eval-days ${{ inputs.backtest_min_eval_days || '3' }} --backtest-top-per-strategy 5 --backtest-all-candidates --backtest-debug --backtest-five-axis-only"
-            if [ -n "${{ inputs.backtest_start || '' }}" ] || [ -n "${{ inputs.backtest_end || '' }}" ]; then
-              [ -n "${{ inputs.backtest_start || '' }}" ] && BT_FLAGS="$BT_FLAGS --backtest-start ${{ inputs.backtest_start }}"
-              [ -n "${{ inputs.backtest_end || '' }}" ] && BT_FLAGS="$BT_FLAGS --backtest-end ${{ inputs.backtest_end }}"
-            else
-              BT_FLAGS="$BT_FLAGS --backtest-months ${{ inputs.backtest_months || '18' }}"
-            fi
+            # v6.6 immutable discovery rerun. User-supplied dates are intentionally ignored for this research authority.
+            # The discovery sample is permanently frozen at 2025-02-17..2026-08-17.
+            BT_FLAGS="--backtest-start 2025-02-17 --backtest-end 2026-08-17 --backtest-hold-days ${{ inputs.hold_days || '60' }} --backtest-min-eval-days ${{ inputs.backtest_min_eval_days || '3' }} --backtest-top-per-strategy 5 --backtest-all-candidates --backtest-debug --backtest-five-axis-only"
             if [ "${{ inputs.send_telegram || 'true' }}" = "true" ]; then
               BT_FLAGS="$BT_FLAGS --send-backtest-summary"
             fi
-            echo "RUN v49.76.6.5 FROZEN RESEARCH + PROSPECTIVE LOCK: python Closing_bet_scanner_v2.py $BT_FLAGS $FLAGS"
+            echo "RUN v49.76.6.6 FROZEN RESEARCH + PROSPECTIVE LOCK: python Closing_bet_scanner_v2.py $BT_FLAGS $FLAGS"
             python Closing_bet_scanner_v2.py $BT_FLAGS $FLAGS
           elif [ "$ACTION" = "research_prospective" ]; then
-            # v49.76.6.5 forward-only lock. DART proxy is rejected and disabled for this daily prospective path.
-            BT_FLAGS="--backtest-months ${{ inputs.backtest_months || '18' }} --backtest-hold-days 60 --backtest-min-eval-days 0 --backtest-top-per-strategy 5 --backtest-all-candidates --backtest-debug --backtest-five-axis-only --prospective-lock-only"
+            # v49.76.6.6 forward-only lock. DART proxy is rejected and disabled for this daily prospective path.
+            TODAY_KST="$(TZ=Asia/Seoul date +%F)"
+            BT_FLAGS="--backtest-start 2025-02-17 --backtest-end $TODAY_KST --backtest-hold-days 60 --backtest-min-eval-days 0 --backtest-top-per-strategy 5 --backtest-all-candidates --backtest-debug --backtest-five-axis-only --prospective-lock-only"
             if [ "${{ inputs.send_telegram || 'true' }}" = "true" ]; then BT_FLAGS="$BT_FLAGS --send-backtest-summary"; fi
-            echo "RUN v49.76.6.5 PROSPECTIVE LOCK: python Closing_bet_scanner_v2.py $BT_FLAGS $FLAGS"
+            echo "RUN v49.76.6.6 PROSPECTIVE LOCK: python Closing_bet_scanner_v2.py $BT_FLAGS $FLAGS"
             CLOSING_BET_V497660_DART_ENABLE=0 python Closing_bet_scanner_v2.py $BT_FLAGS $FLAGS
           elif [ "$ACTION" = "backtest" ]; then
             BT_FLAGS="--backtest-hold-days ${{ inputs.hold_days || '60' }} --backtest-min-eval-days ${{ inputs.backtest_min_eval_days || '3' }} --backtest-top-per-strategy 5 $STRAT_FLAGS"
@@ -756,7 +751,7 @@ jobs:
             if [ "${{ inputs.send_telegram || 'true' }}" = "true" ]; then
               BT_FLAGS="$BT_FLAGS --send-backtest-summary"
             fi
-            echo "RUN v4.4.9.53.8.49.76.6.3: python Closing_bet_scanner_v2.py $BT_FLAGS $FLAGS --compact-summary"
+            echo "RUN v4.4.9.53.8.49.76.6.6: python Closing_bet_scanner_v2.py $BT_FLAGS $FLAGS --compact-summary"
             python Closing_bet_scanner_v2.py $BT_FLAGS $FLAGS --compact-summary
           elif [ "$ACTION" = "eval" ]; then
             EXTRA="--eval-pending"
@@ -772,18 +767,19 @@ jobs:
             python Closing_bet_scanner_v2.py $FLAGS --compact-summary
           fi
 
-          # 16:00 KST recovery schedule: production run above remains authoritative; then run a separate
-          # research-only prospective capture. Failure here must never change/undo production delivery.
-          if [ "${{ github.event_name }}" = "schedule" ] && [ "${{ github.event.schedule }}" = "00 07 * * 1-5" ]; then
-            echo "RUN v49.76.6.5 AUTOMATIC PROSPECTIVE LOCK (research-only, no Telegram)"
-            CLOSING_BET_V497660_DART_ENABLE=0 python Closing_bet_scanner_v2.py --backtest-months 18 --backtest-hold-days 60 --backtest-min-eval-days 0 --backtest-top-per-strategy 5 --backtest-all-candidates --backtest-debug --backtest-five-axis-only --prospective-lock-only --force || echo "::warning::v49.76.6.5 prospective capture failed; production authority unaffected"
+          # 15:40 primary + 16:00 recovery: production run above remains authoritative; prospective capture is research-only.
+          # Both attempts use the same prospective_id/session_id, so the second run is idempotent and appends nothing when the first succeeded.
+          if [ "${{ github.event_name }}" = "schedule" ] && { [ "${{ github.event.schedule }}" = "40 06 * * 1-5" ] || [ "${{ github.event.schedule }}" = "00 07 * * 1-5" ]; }; then
+            TODAY_KST="$(TZ=Asia/Seoul date +%F)"
+            echo "RUN v49.76.6.6 AUTOMATIC PROSPECTIVE LOCK · current KST date $TODAY_KST (research-only, no Telegram)"
+            CLOSING_BET_V497660_DART_ENABLE=0 python Closing_bet_scanner_v2.py --backtest-start 2025-02-17 --backtest-end "$TODAY_KST" --backtest-hold-days 60 --backtest-min-eval-days 0 --backtest-top-per-strategy 5 --backtest-all-candidates --backtest-debug --backtest-five-axis-only --prospective-lock-only --force || echo "::warning::v49.76.6.6 prospective capture failed; production authority unaffected"
           fi
 
-      - name: Upload v49.76.6.5 complete research reports
+      - name: Upload v49.76.6.6 complete research reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: v49.76.6.5-research-reports-${{ github.run_number }}
+          name: v49.76.6.6-research-reports-${{ github.run_number }}
           path: |
             reports/
             closing_bet_logs/five_axis/
@@ -1102,7 +1098,7 @@ jobs:
           key: v49-76-pit-marcap-${{ runner.os }}-${{ github.ref_name }}-${{ github.run_id }}
           restore-keys: |
             v49-76-pit-marcap-${{ runner.os }}-${{ github.ref_name }}-
-      - name: Verify Telegram route for Closing Bet merge (unified v49.76.6.5)
+      - name: Verify Telegram route for Closing Bet merge (unified v49.76.6.6)
         run: |
           python v49_76_telegram_route.py --send "${{ inputs.send_telegram || 'true' }}" --json-output reports/v49_76_telegram_route_merge.json
       - name: Merge global population and build final performance report
@@ -1162,7 +1158,7 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: v49.76.6.5-pit-marcap-audit-${{ github.run_number }}
+          name: v49.76.6.6-pit-marcap-audit-${{ github.run_number }}
           path: |
             reports/v49_76_pit_marcap_audit_manifest.json
             reports/v49_76_pit_marcap_date_coverage.csv
@@ -1181,7 +1177,7 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: v49.76.6.5-practical-paper-${{ github.run_number }}
+          name: v49.76.6.6-practical-paper-${{ github.run_number }}
           path: |
             reports/v49_76_practical_manifest.json
             reports/v49_76_practical_readiness.csv
@@ -1199,7 +1195,7 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: v49.76.6.5-global-performance-${{ github.run_number }}
+          name: v49.76.6.6-global-performance-${{ github.run_number }}
           path: reports/
           if-no-files-found: warn
           retention-days: 14
@@ -1208,7 +1204,7 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: v49.76.6.5-technical-fn-${{ github.run_number }}
+          name: v49.76.6.6-technical-fn-${{ github.run_number }}
           path: |
             reports/v49_76_technical_false_negative.csv
             reports/v49_76_technical_false_negative.json
@@ -1221,7 +1217,7 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: v49.76.6.5-input-authority-${{ github.run_number }}
+          name: v49.76.6.6-input-authority-${{ github.run_number }}
           path: |
             reports/v49_76_input_authority_manifest.json
             reports/v49_76_history_authority_global.csv
@@ -1240,7 +1236,7 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: v49.76.6.5-marcap-authority-${{ github.run_number }}
+          name: v49.76.6.6-marcap-authority-${{ github.run_number }}
           path: |
             reports/v49_76_prepared_authority_snapshot.csv
             reports/v49_76_prepared_authority_snapshot.json
@@ -1256,7 +1252,7 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: v49.76.6.5-search-gap-insight-${{ github.run_number }}
+          name: v49.76.6.6-search-gap-insight-${{ github.run_number }}
           path: |
             reports/v49_76_sample_authority_reconciliation.csv
             reports/v49_76_immediate_miss_policy_summary.csv
