@@ -13,8 +13,8 @@ import re
 import numpy as np
 import pandas as pd
 
-VERSION = "V73.3.6.6.25.2.1"
-HOTFIX = "HF1_ASOF_EMPTY_FRAME_SCALAR_SAFE"
+VERSION = "V73.3.6.6.25.2.2"
+HOTFIX = "KRX_SHARD_AUTHORITY_AND_SINGLE_CALL_PRIORITY"
 RESEARCH_ONLY = True
 LIVE_LOGIC_CHANGED = False
 REAL_ORDER_CHANGED = False
@@ -1354,21 +1354,28 @@ def _manual_review_sample(manual: pd.DataFrame, per_bucket: int = 15) -> pd.Data
 
 
 def _amount_authority_coverage(state: pd.DataFrame) -> pd.DataFrame:
+    cols=["signal_date","rows","actual_today_rows","history20_ready_rows","history20_ready_codes",
+          "fetch_attempt_rows","fetched_rows","cache_hit_rows","fetch_empty_rows","fetch_error_rows","no_reader_rows","missing_rows"]
     if state is None or state.empty:
-        return pd.DataFrame(columns=["signal_date","rows","actual_today_rows","history20_ready_rows","history20_ready_codes","fetched_rows","cache_hit_rows","missing_rows"])
+        return pd.DataFrame(columns=cols)
     q=state.copy()
     rows=[]
     for d,g in q.groupby("signal_date",dropna=False):
         actual=_num_col(g,"amount_valid",0).eq(1)
         ready=_num_col(g,"actual_amount_history_ready20",0).eq(1)
         st=g.get("amount_authority_fetch_status",pd.Series("",index=g.index)).fillna("").astype(str)
+        attempted=~st.isin(["","NOT_NEEDED","NOT_APPLICABLE_NO_PRICE_ASOF"])
         rows.append({
             "signal_date":d,"rows":len(g),"actual_today_rows":int(actual.sum()),
             "history20_ready_rows":int(ready.sum()),"history20_ready_codes":int(g.loc[ready,"code"].nunique()) if "code" in g.columns else int(ready.sum()),
+            "fetch_attempt_rows":int(attempted.sum()),
             "fetched_rows":int(st.eq("FETCHED").sum()),"cache_hit_rows":int(st.eq("CACHE_HIT").sum()),
+            "fetch_empty_rows":int(st.eq("FETCH_EMPTY").sum()),
+            "fetch_error_rows":int(st.str.startswith("FETCH_ERROR:").sum()),
+            "no_reader_rows":int(st.eq("NO_READER").sum()),
             "missing_rows":int((~ready).sum()),
         })
-    return pd.DataFrame(rows).sort_values("signal_date",kind="stable")
+    return pd.DataFrame(rows,columns=cols).sort_values("signal_date",kind="stable")
 
 
 def _reconcile_universe(payloads: List[Dict[str, Any]]) -> pd.DataFrame:
@@ -1496,7 +1503,7 @@ def build_report(out: Path, state: pd.DataFrame, events: pd.DataFrame, inv: pd.D
         f"📌 {VERSION} · status={pipeline_status} · 수익률 튜닝 금지 · LIVE/점수/랭크/진입/청산/주문 변경 0",
         f"✅ activation={int(a.get('activation_executed',0) or 0)} · materialized {int(a.get('materialized_dates',0) or 0)}일 · sidecar {int(a.get('sidecar_dates',0) or 0)}일 · CORE224 rows {int(a.get('core224_rows',0) or 0)} · transitions {int(a.get('transition_rows',0) or 0)} · invariant fail {int(a.get('invariant_fail_rows',0) or 0)}",
         f"🧭 [상태] BASE {counts.get('CORE224_BASE',0)} · ACCUM {counts.get('CORE224_ACCUMULATION',0)} · WAVE1 {counts.get('CORE224_WAVE1',0)} · FIRST_PB {counts.get('CORE224_FIRST_PULLBACK',0)} · HEALTHY {counts.get('CORE224_HEALTHY_PULLBACK',0)} · RESTART {counts.get('CORE224_RESTART',0)}",
-        f"💰 actual Amount 현재증거 {int(a.get('actual_amount_known_rows',0) or 0)}/{int(a.get('core224_rows',0) or 0)} · 20일 history-ready {int(a.get('actual_amount_history20_ready_rows',0) or 0)}행 · ticker-history fetch {int(a.get('actual_amount_fetch_rows',0) or 0)}행 · Close×Volume 대체 금지",
+        f"💰 actual Amount 현재증거 {int(a.get('actual_amount_known_rows',0) or 0)}/{int(a.get('core224_rows',0) or 0)} · 20일 history-ready {int(a.get('actual_amount_history20_ready_rows',0) or 0)}행 · ticker-history 시도 {int(a.get('actual_amount_fetch_attempt_rows',0) or 0)} / 성공 {int(a.get('actual_amount_fetch_rows',0) or 0)} / cache {int(a.get('actual_amount_cache_hit_rows',0) or 0)} / empty {int(a.get('actual_amount_fetch_empty_rows',0) or 0)} / error {int(a.get('actual_amount_fetch_error_rows',0) or 0)} · Close×Volume 대체 금지",
         f"📦 Historical-AsOf authority {len(universe)}일 · complete {complete} · fallback {fallback} · fallback 음수 금지",
         f"🧬 PATTERN_ONLY Sequence→Stability {int(tr.get('sequence_pattern_only_rows',0) or 0)}→{int(tr.get('stability_pattern_only_rows',0) or 0)} · missing {int(tr.get('missing_in_stability',0) or 0)} · {tr.get('status','UNKNOWN')}",
         f"🧾 기존 검색식 전수감사 {len(formula)}식 · ①~⑥ 미통과 식은 ⑦ 백테스트/OOS BLOCKED",
@@ -1537,6 +1544,12 @@ def finalize(
     universe=_reconcile_universe(payloads)
     transfer=_pattern_only_transfer(out)
     actual_known=int(_num_col(state,"amount_valid",0).eq(1).sum()) if not state.empty else 0
+    _fetch_status=state.get("amount_authority_fetch_status",pd.Series(dtype=str)).fillna("").astype(str) if not state.empty else pd.Series(dtype=str)
+    _fetch_attempts=int((~_fetch_status.isin(["","NOT_NEEDED","NOT_APPLICABLE_NO_PRICE_ASOF"])).sum()) if not _fetch_status.empty else 0
+    _fetch_success=int(_fetch_status.eq("FETCHED").sum()) if not _fetch_status.empty else 0
+    _fetch_cache=int(_fetch_status.eq("CACHE_HIT").sum()) if not _fetch_status.empty else 0
+    _fetch_empty=int(_fetch_status.eq("FETCH_EMPTY").sum()) if not _fetch_status.empty else 0
+    _fetch_error=int(_fetch_status.str.startswith("FETCH_ERROR:").sum()) if not _fetch_status.empty else 0
     market_known=int(_num_col(state,"market_context_known",0).eq(1).sum()) if not state.empty else 0
     sector_known=int(_num_col(state,"sector_context_known",0).eq(1).sum()) if not state.empty else 0
     _sidecar_dates=sum(1 for z in payloads if isinstance(z.get("runtime_sidecars",{}),dict) and "V25_CORE224_ROWS" in z.get("runtime_sidecars",{}))
@@ -1548,7 +1561,8 @@ def finalize(
         "manual_audit_rows":len(manual),"manual_sample_rows":len(manual_sample),
         "actual_amount_known_rows":actual_known,
         "actual_amount_history20_ready_rows":int(_num_col(state,"actual_amount_history_ready20",0).eq(1).sum()) if not state.empty else 0,
-        "actual_amount_fetch_rows":int(state.get("amount_authority_fetch_status",pd.Series(dtype=str)).astype(str).eq("FETCHED").sum()) if not state.empty else 0,
+        "actual_amount_fetch_attempt_rows":_fetch_attempts,"actual_amount_fetch_rows":_fetch_success,
+        "actual_amount_cache_hit_rows":_fetch_cache,"actual_amount_fetch_empty_rows":_fetch_empty,"actual_amount_fetch_error_rows":_fetch_error,
         "market_context_known_rows":market_known,"sector_context_known_rows":sector_known,
         "formula_audit_rows":len(formula),"formula_expected":66,"formula_count_ok":int(len(formula)==66),
         "historical_asof_days":len(universe),"historical_complete_days":int(_num_col(universe,"complete",0).sum()) if not universe.empty else 0,

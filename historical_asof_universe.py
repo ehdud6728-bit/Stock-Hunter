@@ -332,46 +332,9 @@ def _get_market_snapshot(stock_module: Any, ymd: str) -> tuple[pd.DataFrame, str
         return pd.DataFrame(), "PYKRX_UNAVAILABLE"
 
     errors: list[str] = []
-    # Authority 1: OHLCV cross-section.
-    frames: list[pd.DataFrame] = []
-    for market in ["KOSPI", "KOSDAQ"]:
-        try:
-            try:
-                raw = stock_module.get_market_ohlcv_by_ticker(ymd, market=market)
-            except TypeError:
-                raw = stock_module.get_market_ohlcv_by_ticker(date=ymd, market=market)
-            z = _normalize_market_snapshot(raw, market)
-            if not z.empty and _actual_snapshot_rows(z) > 0:
-                frames.append(z)
-        except Exception as exc:
-            errors.append(f"ohlcv_{market}:{type(exc).__name__}:{exc}")
-    if frames:
-        out = pd.concat(frames, ignore_index=True).drop_duplicates("code", keep="last")
-        _write_cache("market", ymd, out)
-        return out, "PYKRX_OHLCV_CROSS_SECTION_ACTUAL"
-
-    # Authority 2: market-cap cross-section. pykrx exposes 거래대금 here too and it often
-    # remains available when the OHLCV endpoint is unstable.
-    frames = []
-    for market in ["KOSPI", "KOSDAQ"]:
-        try:
-            try:
-                raw = stock_module.get_market_cap_by_ticker(ymd, market=market)
-            except TypeError:
-                raw = stock_module.get_market_cap_by_ticker(date=ymd, market=market)
-            z = _normalize_market_snapshot(raw, market)
-            if not z.empty and _actual_snapshot_rows(z) > 0:
-                frames.append(z)
-        except Exception as exc:
-            errors.append(f"cap_by_ticker_{market}:{type(exc).__name__}:{exc}")
-    if frames:
-        out = pd.concat(frames, ignore_index=True).drop_duplicates("code", keep="last")
-        _write_cache("market", ymd, out)
-        return out, "PYKRX_MARKET_CAP_BY_TICKER_ACTUAL"
-
-    # Authority 3: older/newer pykrx releases expose get_market_cap(date) for all tickers.
-    # It carries reported 거래대금 and 시가총액; market may be UNKNOWN but causal membership
-    # and liquidity ranking remain valid.
+    # V25.2.2 Authority 1: current pykrx get_market_cap(date) is the preferred single-call
+    # all-market authority. It carries reported 거래대금 + 시가총액 in one response and avoids
+    # two market-specific OHLCV calls followed by two cap calls.
     getter = getattr(stock_module, "get_market_cap", None)
     if callable(getter):
         try:
@@ -379,16 +342,71 @@ def _get_market_snapshot(stock_module: Any, ymd: str) -> tuple[pd.DataFrame, str
             z = _normalize_market_snapshot(raw, "ALL")
             if not z.empty and _actual_snapshot_rows(z) > 0:
                 _write_cache("market", ymd, z)
-                return z, "PYKRX_GET_MARKET_CAP_ALL_ACTUAL"
+                return z, "PYKRX_GET_MARKET_CAP_ALL_ACTUAL_PRIMARY"
         except Exception as exc:
             errors.append(f"get_market_cap_all:{type(exc).__name__}:{exc}")
+
+    # Authority 2: current pykrx all-market OHLCV API.
+    getter_ohlcv = getattr(stock_module, "get_market_ohlcv", None)
+    if callable(getter_ohlcv):
+        try:
+            try:
+                raw = getter_ohlcv(ymd, market="ALL")
+            except TypeError:
+                raw = getter_ohlcv(ymd, "ALL")
+            z = _normalize_market_snapshot(raw, "ALL")
+            if not z.empty and _actual_snapshot_rows(z) > 0:
+                _write_cache("market", ymd, z)
+                return z, "PYKRX_GET_MARKET_OHLCV_ALL_ACTUAL"
+        except Exception as exc:
+            errors.append(f"get_market_ohlcv_all:{type(exc).__name__}:{exc}")
+
+    # Authority 3: legacy market-specific aliases retained only as compatibility fallbacks.
+    frames: list[pd.DataFrame] = []
+    for market in ["KOSPI", "KOSDAQ"]:
+        try:
+            legacy = getattr(stock_module, "get_market_ohlcv_by_ticker", None)
+            if not callable(legacy):
+                continue
+            try:
+                raw = legacy(ymd, market=market)
+            except TypeError:
+                raw = legacy(date=ymd, market=market)
+            z = _normalize_market_snapshot(raw, market)
+            if not z.empty and _actual_snapshot_rows(z) > 0:
+                frames.append(z)
+        except Exception as exc:
+            errors.append(f"ohlcv_legacy_{market}:{type(exc).__name__}:{exc}")
+    if frames:
+        out = pd.concat(frames, ignore_index=True).drop_duplicates("code", keep="last")
+        _write_cache("market", ymd, out)
+        return out, "PYKRX_OHLCV_CROSS_SECTION_ACTUAL_LEGACY"
+
+    frames = []
+    for market in ["KOSPI", "KOSDAQ"]:
+        try:
+            legacy = getattr(stock_module, "get_market_cap_by_ticker", None)
+            if not callable(legacy):
+                continue
+            try:
+                raw = legacy(ymd, market=market)
+            except TypeError:
+                raw = legacy(date=ymd, market=market)
+            z = _normalize_market_snapshot(raw, market)
+            if not z.empty and _actual_snapshot_rows(z) > 0:
+                frames.append(z)
+        except Exception as exc:
+            errors.append(f"cap_by_ticker_legacy_{market}:{type(exc).__name__}:{exc}")
+    if frames:
+        out = pd.concat(frames, ignore_index=True).drop_duplicates("code", keep="last")
+        _write_cache("market", ymd, out)
+        return out, "PYKRX_MARKET_CAP_BY_TICKER_ACTUAL_LEGACY"
 
     if not legacy_cached.empty:
         legacy_cached["amount_source"] = "LEGACY_CACHE_UNKNOWN"
         legacy_cached["amount_is_actual"] = 0
         return legacy_cached, "V20_LEGACY_CACHE_AMOUNT_PROVENANCE_UNKNOWN"
-    return pd.DataFrame(), "PYKRX_ACTUAL_AMOUNT_EMPTY" + (":" + "|".join(errors[:3]) if errors else "")
-
+    return pd.DataFrame(), "PYKRX_ACTUAL_AMOUNT_EMPTY" + (":" + "|".join(errors[:4]) if errors else "")
 
 def _get_cap_snapshot(stock_module: Any, ymd: str) -> tuple[pd.DataFrame, str]:
     cached = _read_cache("cap", ymd)
@@ -398,33 +416,35 @@ def _get_cap_snapshot(stock_module: Any, ymd: str) -> tuple[pd.DataFrame, str]:
     _CACHE_STATS["cap_miss"] += 1
     if stock_module is None:
         return pd.DataFrame(), "PYKRX_UNAVAILABLE"
-    frames: list[pd.DataFrame] = []
     errors: list[str] = []
-    for market in ["KOSPI", "KOSDAQ"]:
-        try:
-            try:
-                raw = stock_module.get_market_cap_by_ticker(ymd, market=market)
-            except TypeError:
-                raw = stock_module.get_market_cap_by_ticker(date=ymd, market=market)
-            z = _normalize_cap_snapshot(raw)
-            if not z.empty: frames.append(z)
-        except Exception as exc:
-            errors.append(f"{market}:{type(exc).__name__}:{exc}")
-    if frames:
-        out = pd.concat(frames, ignore_index=True).drop_duplicates("code", keep="last")
-        _write_cache("cap", ymd, out)
-        return out, "PYKRX_MARKET_CAP_BY_TICKER"
+    # V25.2.2: one all-market authenticated call first.
     getter=getattr(stock_module,"get_market_cap",None)
     if callable(getter):
         try:
             raw=getter(ymd); out=_normalize_cap_snapshot(raw)
             if not out.empty:
                 _write_cache("cap",ymd,out)
-                return out,"PYKRX_GET_MARKET_CAP_ALL"
+                return out,"PYKRX_GET_MARKET_CAP_ALL_PRIMARY"
         except Exception as exc:
             errors.append(f"get_market_cap_all:{type(exc).__name__}:{exc}")
+    frames: list[pd.DataFrame] = []
+    legacy=getattr(stock_module,"get_market_cap_by_ticker",None)
+    if callable(legacy):
+        for market in ["KOSPI", "KOSDAQ"]:
+            try:
+                try:
+                    raw = legacy(ymd, market=market)
+                except TypeError:
+                    raw = legacy(date=ymd, market=market)
+                z = _normalize_cap_snapshot(raw)
+                if not z.empty: frames.append(z)
+            except Exception as exc:
+                errors.append(f"{market}:{type(exc).__name__}:{exc}")
+    if frames:
+        out = pd.concat(frames, ignore_index=True).drop_duplicates("code", keep="last")
+        _write_cache("cap", ymd, out)
+        return out, "PYKRX_MARKET_CAP_BY_TICKER_LEGACY"
     return pd.DataFrame(), "PYKRX_CAP_EMPTY" + (":" + "|".join(errors[:3]) if errors else "")
-
 
 def _calendar_before(asof_date: Any, n: int, fdr_reader: Callable[..., pd.DataFrame] | None = None) -> list[pd.Timestamp]:
     d = pd.Timestamp(asof_date).normalize()
@@ -943,7 +963,9 @@ def finalize_audit(output_dir: str | Path = "reports", base_report: str = "") ->
 
     valid_days = 0 if avail.empty else int(avail["status"].astype(str).eq("VALID_CAUSAL_ASOF").sum())
     fallback_days = 0 if avail.empty else int((~avail["status"].astype(str).eq("VALID_CAUSAL_ASOF")).sum())
-    total_days = int(mem["signal_date"].nunique()) if not mem.empty else 0
+    membership_days = int(mem["signal_date"].nunique()) if not mem.empty else 0
+    availability_days = int(pd.to_datetime(avail.get("signal_date"), errors="coerce").dt.normalize().nunique()) if (not avail.empty and "signal_date" in avail.columns) else len(avail)
+    total_days = max(membership_days, availability_days)
     event_rows = int(mem["is_event_expansion"].astype(str).str.lower().isin(["true", "1"]).sum()) if (not mem.empty and "is_event_expansion" in mem.columns) else 0
     final_rows_mean = float(pd.to_numeric(summary.get("final_universe_rows"), errors="coerce").mean()) if not summary.empty and "final_universe_rows" in summary.columns else np.nan
 
@@ -952,7 +974,7 @@ def finalize_audit(output_dir: str | Path = "reports", base_report: str = "") ->
         f"📌 {VERSION} · HISTORICAL_ASOF_TOP500_EVENT_EXPANSION · RESEARCH_ONLY=True",
         "- 목적: 현재 거래대금 TOP150 고정집합 대신, 각 신호일의 D-1까지 확인 가능한 20일 평균 거래대금으로 TOP500을 다시 만들고 인과적 이벤트 확장 종목을 추가합니다.",
         "- 인과계약: Universe 순위에는 신호일 당일 종가/거래대금/미래수익을 사용하지 않습니다. 기본 순위는 D-1까지이며, 공식 지정학 사건도 15:03 이전 시각이 확인된 경우만 확장에 사용합니다.",
-        f"🧾 신호일 {total_days}일 | historical-asof 완전일 {valid_days} | fallback일 {fallback_days} | 일평균 최종 Universe {final_rows_mean:.1f}개" if math.isfinite(final_rows_mean) else f"🧾 신호일 {total_days}일 | historical-asof 완전일 {valid_days} | fallback일 {fallback_days}",
+        f"🧾 authority 대상 {total_days}일 | membership-ledger {membership_days}일 | historical-asof 완전일 {valid_days} | fallback일 {fallback_days} | 일평균 최종 Universe {final_rows_mean:.1f}개" if math.isfinite(final_rows_mean) else f"🧾 authority 대상 {total_days}일 | membership-ledger {membership_days}일 | historical-asof 완전일 {valid_days} | fallback일 {fallback_days}",
         f"⚡ 이벤트 확장 membership {event_rows}행",
     ]
     if not coverage.empty:

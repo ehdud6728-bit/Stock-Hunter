@@ -93778,12 +93778,12 @@ except Exception:
 
 
 # ============================================================
-# ✅ V73.3.6.6.25.2.1 ORIGINAL THESIS RECONSTRUCTION + CORE224 SHADOW + DATA IDENTITY/HANDOFF GUARD
+# ✅ V73.3.6.6.25.2.2 ORIGINAL THESIS RECONSTRUCTION + CORE224 SHADOW + KRX SHARD AUTHORITY GUARD
 # - Original search philosophy audit only; no return tuning.
 # - Shard materializes CORE224 evidence; merge-only parent consumes sidecars only.
 # - Existing LIVE/score/rank/entry/exit/order logic remains untouched.
 # ============================================================
-_V7336625_VERSION = 'V73.3.6.6.25.2.1'
+_V7336625_VERSION = 'V73.3.6.6.25.2.2'
 _V7336625_HEADER = '🧭 [V25 ORIGINAL THESIS RECONSTRUCTION · CORE224 SHADOW · RESEARCH_ONLY]'
 _V7336625_IMPORT_ERROR = ''
 try:
@@ -93811,7 +93811,7 @@ except Exception as _v7336625_import_e:
 
 
 # ============================================================
-# ✅ V73.3.6.6.25.2.1 DATA AUTHORITY + TICKER IDENTITY RECOVERY
+# ✅ V73.3.6.6.25.2.2 DATA AUTHORITY + AUTHENTICATED SHARD RECOVERY
 # - pykrx all-market OHLCV outage -> reported market-cap/turnover cross-section fallback
 # - potential CORE224 names only: per-ticker reported turnover history fallback
 # - Historical-AsOf complete remains fail-closed unless all-market causal denominator is proven
@@ -93847,8 +93847,16 @@ def _v73366252_actual_amount_history_reader(code, start_date, end_date):
                 pass
         except Exception:
             pass
-    # Secondary pykrx route. Default get_market_ohlcv_by_date may use a different backend
-    # than the all-market by_ticker request; accept it only when a reported 거래대금 column exists.
+    # Secondary current pykrx OHLCV route. It also carries reported 거래대금.
+    getter=getattr(mod,'get_market_ohlcv',None)
+    if callable(getter):
+        try:
+            q=getter(st,en,code)
+            if isinstance(q,pd.DataFrame) and not q.empty and any(c in q.columns for c in ['거래대금','Amount','amount']):
+                return q
+        except Exception:
+            pass
+    # Legacy alias retained for old pykrx compatibility only.
     getter=getattr(mod,'get_market_ohlcv_by_date',None)
     if callable(getter):
         try:
@@ -94448,7 +94456,7 @@ _V7336625_RELEASE_MARKER = {
     'live_logic_changed': False,
     'real_order_changed': False,
 }
-# ✅ END V73.3.6.6.25.2.1 ORIGINAL THESIS RECONSTRUCTION + DATA IDENTITY/HANDOFF GUARD
+# ✅ END V73.3.6.6.25.2.2 ORIGINAL THESIS RECONSTRUCTION + KRX SHARD AUTHORITY GUARD
 
 if __name__ == "__main__":
     # V73.3.6.6.23 matrix shard worker: materialized per-date results; no Telegram/Sheet/LIVE side effects.
