@@ -1,4 +1,4 @@
-name: closing-bet-v49.76.6.7.1-fast-after-final-parity-series-hotfix
+name: closing-bet-v49.76.6.7.2-continuous-after-final-runner
 
 on:
   schedule:
@@ -113,14 +113,14 @@ jobs:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       DART_API_KEY: ${{ secrets.DART_API_KEY }}
-      # v49.76.6.7.1 Google Sheet service-account JSON. 저장소/ZIP에 키 파일을 넣지 않는다.
+      # v49.76.6.7.2 Google Sheet service-account JSON. 저장소/ZIP에 키 파일을 넣지 않는다.
       GOOGLE_JSON_KEY: ${{ secrets.GOOGLE_JSON_KEY }}
       CLOSING_BET_V4944_HEALTH_TAB: ${{ vars.CLOSING_BET_V4944_HEALTH_TAB || 'SYSTEM_HEALTH' }}
       CLOSING_BET_V4944_SHEET_HEALTH_ENABLE: '1'
-      # v49.76.6.7.1 session replay audit / production M5 coverage authority
+      # v49.76.6.7.2 session replay audit / production M5 coverage authority
       CLOSING_BET_V4976510_M5_MIN_COVERAGE_PCT: '90'
       CLOSING_BET_V4976510_SESSION_REPLAY_MIN_UNIVERSE_PCT: '80'
-      # v49.76.6.7.1 five-axis research-only shadow/backtest
+      # v49.76.6.7.2 five-axis research-only shadow/backtest
       CLOSING_BET_V497660_FIVE_AXIS_ENABLE: '1'
       CLOSING_BET_V497660_HIGH_SCORE: '70'
       CLOSING_BET_V497660_DART_ENABLE: '1'
@@ -136,7 +136,7 @@ jobs:
       CLOSING_BET_V497664_MONTH_MIN_N: '3'
       CLOSING_BET_V497664_MA_FEATURE_MIN_N: '5'
       CLOSING_BET_V497664_MA_CLIFF_DISCOVER: '0.15'
-      # v49.76.6.7.1 forward-only prospective lock
+      # v49.76.6.7.2 forward-only prospective lock
       CLOSING_BET_V497665_LOCK_DATE: '2026-08-18'
       CLOSING_BET_V497665_DISCOVERY_END: '2026-08-17'
       CLOSING_BET_V497665_CAPTURE_START_HHMM: '1540'
@@ -146,10 +146,13 @@ jobs:
       CLOSING_BET_V497665_SIGNAL_TAB: 'FIVE_AXIS_PROSPECTIVE_SIGNALS'
       CLOSING_BET_V497665_EVAL_TAB: 'FIVE_AXIS_PROSPECTIVE_EVAL'
       CLOSING_BET_V497665_SESSION_TAB: 'FIVE_AXIS_PROSPECTIVE_SESSIONS'
-      # v49.76.6.7.1 FAST AFTER-FINAL execution-only cache/parity
+      # v49.76.6.7.2 FAST AFTER-FINAL execution-only cache/parity
       CLOSING_BET_V497667_FAST_CACHE_DIR: 'closing_bet_logs/v49_76_fast_final'
       CLOSING_BET_V497667_FAST_MIN_CACHE_COVERAGE_PCT: '98.0'
       CLOSING_BET_V497667_FAST_MIN_FINAL_COVERAGE_PCT: '98.0'
+      # v49.76.6.7.2 canonical denominator: never accept 249/250 as a full-universe FAST cache.
+      CLOSING_BET_V497672_CANONICAL_UNIVERSE_TARGET: '900'
+      CLOSING_BET_V497672_CONTINUOUS_PRIMARY: '0'
       CLOSING_BET_V4976510_SESSION_AUDIT_ENABLE: '1'
       CLOSING_BET_V4976510_SESSION_AUDIT_TAB: 'SESSION_STRICT_AUDIT'
       CLOSING_BET_V4944_DELIVERY_CONFIRM_TELEGRAM: '1'
@@ -188,7 +191,7 @@ jobs:
       CLOSING_BET_V4960_PROGRESS_SECONDS: '60'
       CLOSING_BET_V4960_SLOW_CODE_SECONDS: '300'
       CLOSING_BET_V4960_ENGINE_WATCHDOG_SECONDS: '5400'
-      # v49.76.6.7.1 TRAIN -> VALIDATION -> LOCKED TEST research only. No auto-apply.
+      # v49.76.6.7.2 TRAIN -> VALIDATION -> LOCKED TEST research only. No auto-apply.
       CLOSING_BET_V4967_TRAIN_RATIO: '0.50'
       CLOSING_BET_V4967_VALIDATION_RATIO: '0.25'
       CLOSING_BET_V4967_FEATURE_MIN_TRAIN_N: '40'
@@ -425,13 +428,13 @@ jobs:
       CLOSING_BET_V4976_PRACTICAL_EXEC_TOP_N: '2'
       CLOSING_BET_V4976_FINAL_KICK_LEDGER_ONLY: '1'
       CLOSING_BET_V4976_SHOW_EXECUTION_BOARD: '1'
-      # v49.76.6.7.1 clean LIVE-DATA PAPER evidence gate
+      # v49.76.6.7.2 clean LIVE-DATA PAPER evidence gate
       CLOSING_BET_V49761_LIVE_KPI_REQUIRE_FINAL_WINDOW: '1'
       CLOSING_BET_V49761_FINAL_WINDOW_START_HHMM: '1540'
       CLOSING_BET_V49761_FINAL_WINDOW_END_HHMM: '2000'
       CLOSING_BET_V49761_KPI_STRICT_EVIDENCE: '1'
       CLOSING_BET_V49761_FORWARD_AFTER_DELIVERED: '1'
-      # v49.76.6.7.1 KRX close-confirmed AFTER FINAL + NXT target eligibility + daily evidence ledger
+      # v49.76.6.7.2 KRX close-confirmed AFTER FINAL + NXT target eligibility + daily evidence ledger
       CLOSING_BET_V49765_AFTER_FINAL_ENABLE: '1'
       CLOSING_BET_V49765_PRE_FINAL_HHMM: '1503'
       CLOSING_BET_V49765_AFTER_FINAL_START_HHMM: '1540'
@@ -635,17 +638,17 @@ jobs:
             v49-76-research-contexts-${{ runner.os }}-${{ github.ref_name }}-engine2-
             v49-76-research-contexts-${{ runner.os }}-${{ github.ref_name }}-
 
-      - name: Verify Telegram route for Closing Bet (unified v49.76.6.7.1)
+      - name: Verify Telegram route for Closing Bet (unified v49.76.6.7.2)
         run: |
           python v49_76_telegram_route.py --send "${{ inputs.send_telegram || 'true' }}" --json-output reports/v49_76_telegram_route_run.json
 
-      - name: Show v4.4.9.53.8.49.76.6.6 files
+      - name: Show v4.4.9.53.8.49.76.6.7.2 files
         run: |
           echo "Python file check"
           ls -la Closing_bet_scanner_v2.py
           python -m py_compile Closing_bet_scanner_v2.py v49.76.2.py
 
-      - name: Decide v4.4.9.53.8.49.76.6.6 run mode
+      - name: Decide v4.4.9.53.8.49.76.6.7.2 run mode
         shell: bash
         run: |
           ACTION_RAW="${{ inputs.action_mode || '' }}"
@@ -703,7 +706,7 @@ jobs:
 
           echo "RUN_MODE=$RUN_MODE"
 
-      - name: Run v4.4.9.53.8.49.76.6.6 scanner/backtest
+      - name: Run v4.4.9.53.8.49.76.6.7.2 scanner/backtest
         shell: bash
         run: |
           set -euo pipefail
@@ -740,21 +743,45 @@ jobs:
             *) STRAT_FLAGS="" ;;
           esac
 
-          if [ "$ACTION" = "research_five_axis" ]; then
+          # v49.76.6.7.2 15:40 scheduled job is emergency fallback, not a competitor to the 15:03 continuous primary.
+          # Give primary several minutes, then perform a lightweight authoritative evidence-lock check.
+          SKIP_PRODUCTION=0
+          if [ "${{ github.event_name }}" = "schedule" ] && [ "${{ github.event.schedule }}" = "40 06 * * 1-5" ]; then
+            FALLBACK_EPOCH="$(TZ=Asia/Seoul date -d "$(TZ=Asia/Seoul date +%F) 15:47:00" +%s)"
+            NOW_EPOCH="$(date +%s)"
+            if [ "$NOW_EPOCH" -lt "$FALLBACK_EPOCH" ]; then
+              sleep $((FALLBACK_EPOCH-NOW_EPOCH))
+            fi
+            echo "15:40 emergency fallback precheck · $(TZ=Asia/Seoul date '+%F %T KST')"
+            set +e
+            python -c "import sys; import Closing_bet_scanner_v2 as m; day=m._now_kst().strftime('%Y-%m-%d'); row,state=m._v49765_load_evidence(day); print(f'AFTER_FINAL_LOCK_PRECHECK state={state} completed={bool(row)} day={day}'); sys.exit(0 if row is not None else 1)"
+            PRECHECK_RC=$?
+            set -e
+            if [ "$PRECHECK_RC" -eq 0 ]; then
+              SKIP_PRODUCTION=1
+              echo "Primary AFTER FINAL lock already COMPLETED · scheduled fallback production scan skipped"
+            else
+              echo "No completed primary lock (rc=${PRECHECK_RC}) · emergency fallback production scan proceeds"
+            fi
+          fi
+
+          if [ "$SKIP_PRODUCTION" = "1" ]; then
+            echo "v49.76.6.7.2 fallback: production already locked by continuous primary"
+          elif [ "$ACTION" = "research_five_axis" ]; then
             # v6.6 immutable discovery rerun. User-supplied dates are intentionally ignored for this research authority.
             # The discovery sample is permanently frozen at 2025-02-17..2026-08-17.
             BT_FLAGS="--backtest-start 2025-02-17 --backtest-end 2026-08-17 --backtest-hold-days ${{ inputs.hold_days || '60' }} --backtest-min-eval-days ${{ inputs.backtest_min_eval_days || '3' }} --backtest-top-per-strategy 5 --backtest-all-candidates --backtest-debug --backtest-five-axis-only"
             if [ "${{ inputs.send_telegram || 'true' }}" = "true" ]; then
               BT_FLAGS="$BT_FLAGS --send-backtest-summary"
             fi
-            echo "RUN v49.76.6.7.1 FROZEN RESEARCH + PROSPECTIVE LOCK: python Closing_bet_scanner_v2.py $BT_FLAGS $FLAGS"
+            echo "RUN v49.76.6.7.2 FROZEN RESEARCH + PROSPECTIVE LOCK: python Closing_bet_scanner_v2.py $BT_FLAGS $FLAGS"
             python Closing_bet_scanner_v2.py $BT_FLAGS $FLAGS
           elif [ "$ACTION" = "research_prospective" ]; then
-            # v49.76.6.7.1 forward-only lock. DART proxy is rejected and disabled for this daily prospective path.
+            # v49.76.6.7.2 forward-only lock. DART proxy is rejected and disabled for this daily prospective path.
             TODAY_KST="$(TZ=Asia/Seoul date +%F)"
             BT_FLAGS="--backtest-start 2025-02-17 --backtest-end $TODAY_KST --backtest-hold-days 60 --backtest-min-eval-days 0 --backtest-top-per-strategy 5 --backtest-all-candidates --backtest-debug --backtest-five-axis-only --prospective-lock-only"
             if [ "${{ inputs.send_telegram || 'true' }}" = "true" ]; then BT_FLAGS="$BT_FLAGS --send-backtest-summary"; fi
-            echo "RUN v49.76.6.7.1 PROSPECTIVE LOCK: python Closing_bet_scanner_v2.py $BT_FLAGS $FLAGS"
+            echo "RUN v49.76.6.7.2 PROSPECTIVE LOCK: python Closing_bet_scanner_v2.py $BT_FLAGS $FLAGS"
             CLOSING_BET_V497660_DART_ENABLE=0 python Closing_bet_scanner_v2.py $BT_FLAGS $FLAGS
           elif [ "$ACTION" = "backtest" ]; then
             BT_FLAGS="--backtest-hold-days ${{ inputs.hold_days || '60' }} --backtest-min-eval-days ${{ inputs.backtest_min_eval_days || '3' }} --backtest-top-per-strategy 5 $STRAT_FLAGS"
@@ -770,7 +797,7 @@ jobs:
             if [ "${{ inputs.send_telegram || 'true' }}" = "true" ]; then
               BT_FLAGS="$BT_FLAGS --send-backtest-summary"
             fi
-            echo "RUN v4.4.9.53.8.49.76.6.6: python Closing_bet_scanner_v2.py $BT_FLAGS $FLAGS --compact-summary"
+            echo "RUN v4.4.9.53.8.49.76.6.7.2: python Closing_bet_scanner_v2.py $BT_FLAGS $FLAGS --compact-summary"
             python Closing_bet_scanner_v2.py $BT_FLAGS $FLAGS --compact-summary
           elif [ "$ACTION" = "eval" ]; then
             EXTRA="--eval-pending"
@@ -786,19 +813,72 @@ jobs:
             python Closing_bet_scanner_v2.py $FLAGS --compact-summary
           fi
 
+          # v49.76.6.7.2 CONTINUOUS PRIMARY: the scheduled 15:03 job stays alive on the SAME runner.
+          # PRE-FINAL already wrote the local full-history cache. We wait until AFTER FINAL authority opens,
+          # then run the same scanner from that cache + confirmed KRX daily snapshot. Strategy thresholds are unchanged.
+          if [ "${{ github.event_name }}" = "schedule" ] && [ "${{ github.event.schedule }}" = "03 06 * * 1-5" ]; then
+            echo "CONTINUOUS v49.76.6.7.2 PRIMARY armed on same runner"
+            TARGET_EPOCH="$(TZ=Asia/Seoul date -d "$(TZ=Asia/Seoul date +%F) 15:40:00" +%s)"
+            NOW_EPOCH="$(date +%s)"
+            if [ "$NOW_EPOCH" -lt "$TARGET_EPOCH" ]; then
+              WAIT_SEC=$((TARGET_EPOCH-NOW_EPOCH))
+              echo "Waiting ${WAIT_SEC}s for 15:40 KST AFTER FINAL authority; runner/cache retained"
+              sleep "$WAIT_SEC"
+            fi
+
+            # Retry only retryable infrastructure/data gates. A completed recommendation/zero-pick lock is never retried.
+            for ATTEMPT in 1 2 3; do
+              mkdir -p reports
+              LOG_PATH="reports/v497672_continuous_after_final_attempt_${ATTEMPT}.log"
+              echo "CONTINUOUS AFTER FINAL attempt ${ATTEMPT}/3 · $(TZ=Asia/Seoul date '+%F %T KST')"
+              set +e
+              CLOSING_BET_RUN_MODE=after_final \
+              CLOSING_BET_V497667_FAST_ENABLE=1 \
+              CLOSING_BET_V497667_FULL_PARITY_AUDIT=0 \
+              CLOSING_BET_V497672_CONTINUOUS_PRIMARY=1 \
+              CLOSING_BET_FINAL_KICK_ONLY=1 \
+              CLOSING_BET_MAX_FINAL_KICK_CARDS=2 \
+              CLOSING_BET_WORKER_MODE=1 \
+              CLOSING_BET_SHOW_RISK_DETAILS=0 \
+              CLOSING_BET_SHOW_LEGACY_SECTIONS=0 \
+              CLOSING_BET_SHOW_C_DIAG=0 \
+              CLOSING_BET_SHOW_H_DIAG=0 \
+              CLOSING_BET_TELEGRAM_MAX_LEN=3000 \
+              CLOSING_BET_FINAL_KICK_COMPACT=1 \
+              python Closing_bet_scanner_v2.py --force --compact-summary 2>&1 | tee "$LOG_PATH"
+              RC=${PIPESTATUS[0]}
+              set -e
+              if [ "$RC" -ne 0 ]; then
+                echo "::warning::continuous AFTER FINAL attempt ${ATTEMPT} process rc=${RC}"
+              fi
+
+              if ! grep -Eq 'M5_FINAL_EVIDENCE_MISSING|M5_FINAL_COVERAGE_INSUFFICIENT|NXT_ELIGIBILITY_UNAVAILABLE|EVIDENCE_LEDGER_UNAVAILABLE' "$LOG_PATH"; then
+                echo "CONTINUOUS AFTER FINAL terminal/non-retryable result on attempt ${ATTEMPT}"
+                break
+              fi
+              HHMM="$(TZ=Asia/Seoul date +%H%M)"
+              if [ "$ATTEMPT" -ge 3 ] || [ "$HHMM" -ge 1600 ]; then
+                echo "CONTINUOUS AFTER FINAL retry window ended · 16:00 FULL recovery remains authoritative"
+                break
+              fi
+              echo "Retryable final gate detected; retain same runner/cache and retry in 90s"
+              sleep 90
+            done
+          fi
+
           # 15:40 primary + 16:00 recovery: production run above remains authoritative; prospective capture is research-only.
           # Both attempts use the same prospective_id/session_id, so the second run is idempotent and appends nothing when the first succeeded.
           if [ "${{ github.event_name }}" = "schedule" ] && { [ "${{ github.event.schedule }}" = "40 06 * * 1-5" ] || [ "${{ github.event.schedule }}" = "00 07 * * 1-5" ]; }; then
             TODAY_KST="$(TZ=Asia/Seoul date +%F)"
-            echo "RUN v49.76.6.7.1 AUTOMATIC PROSPECTIVE LOCK · current KST date $TODAY_KST (research-only, no Telegram)"
-            CLOSING_BET_V497660_DART_ENABLE=0 python Closing_bet_scanner_v2.py --backtest-start 2025-02-17 --backtest-end "$TODAY_KST" --backtest-hold-days 60 --backtest-min-eval-days 0 --backtest-top-per-strategy 5 --backtest-all-candidates --backtest-debug --backtest-five-axis-only --prospective-lock-only --force || echo "::warning::v49.76.6.7.1 prospective capture failed; production authority unaffected"
+            echo "RUN v49.76.6.7.2 AUTOMATIC PROSPECTIVE LOCK · current KST date $TODAY_KST (research-only, no Telegram)"
+            CLOSING_BET_V497660_DART_ENABLE=0 python Closing_bet_scanner_v2.py --backtest-start 2025-02-17 --backtest-end "$TODAY_KST" --backtest-hold-days 60 --backtest-min-eval-days 0 --backtest-top-per-strategy 5 --backtest-all-candidates --backtest-debug --backtest-five-axis-only --prospective-lock-only --force || echo "::warning::v49.76.6.7.2 prospective capture failed; production authority unaffected"
           fi
 
-      - name: Upload v49.76.6.7.1 complete research reports
+      - name: Upload v49.76.6.7.2 complete research reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: v49.76.6.7.1-research-reports-${{ github.run_number }}
+          name: v49.76.6.7.2-research-reports-${{ github.run_number }}
           path: |
             reports/
             closing_bet_logs/five_axis/
@@ -1117,7 +1197,7 @@ jobs:
           key: v49-76-pit-marcap-${{ runner.os }}-${{ github.ref_name }}-${{ github.run_id }}
           restore-keys: |
             v49-76-pit-marcap-${{ runner.os }}-${{ github.ref_name }}-
-      - name: Verify Telegram route for Closing Bet merge (unified v49.76.6.7.1)
+      - name: Verify Telegram route for Closing Bet merge (unified v49.76.6.7.2)
         run: |
           python v49_76_telegram_route.py --send "${{ inputs.send_telegram || 'true' }}" --json-output reports/v49_76_telegram_route_merge.json
       - name: Merge global population and build final performance report
@@ -1177,7 +1257,7 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: v49.76.6.7.1-pit-marcap-audit-${{ github.run_number }}
+          name: v49.76.6.7.2-pit-marcap-audit-${{ github.run_number }}
           path: |
             reports/v49_76_pit_marcap_audit_manifest.json
             reports/v49_76_pit_marcap_date_coverage.csv
@@ -1196,7 +1276,7 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: v49.76.6.7.1-practical-paper-${{ github.run_number }}
+          name: v49.76.6.7.2-practical-paper-${{ github.run_number }}
           path: |
             reports/v49_76_practical_manifest.json
             reports/v49_76_practical_readiness.csv
@@ -1214,7 +1294,7 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: v49.76.6.7.1-global-performance-${{ github.run_number }}
+          name: v49.76.6.7.2-global-performance-${{ github.run_number }}
           path: reports/
           if-no-files-found: warn
           retention-days: 14
@@ -1223,7 +1303,7 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: v49.76.6.7.1-technical-fn-${{ github.run_number }}
+          name: v49.76.6.7.2-technical-fn-${{ github.run_number }}
           path: |
             reports/v49_76_technical_false_negative.csv
             reports/v49_76_technical_false_negative.json
@@ -1236,7 +1316,7 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: v49.76.6.7.1-input-authority-${{ github.run_number }}
+          name: v49.76.6.7.2-input-authority-${{ github.run_number }}
           path: |
             reports/v49_76_input_authority_manifest.json
             reports/v49_76_history_authority_global.csv
@@ -1255,7 +1335,7 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: v49.76.6.7.1-marcap-authority-${{ github.run_number }}
+          name: v49.76.6.7.2-marcap-authority-${{ github.run_number }}
           path: |
             reports/v49_76_prepared_authority_snapshot.csv
             reports/v49_76_prepared_authority_snapshot.json
@@ -1271,7 +1351,7 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: v49.76.6.7.1-search-gap-insight-${{ github.run_number }}
+          name: v49.76.6.7.2-search-gap-insight-${{ github.run_number }}
           path: |
             reports/v49_76_sample_authority_reconciliation.csv
             reports/v49_76_immediate_miss_policy_summary.csv
