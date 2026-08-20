@@ -1,4 +1,4 @@
-name: Run Main Scanner V1107.4.5.73.3.6.6.23 TOP500 Six-Shard Materialized Merge-Only Zero-Recompute Complete
+name: Run Main Scanner V1107.4.5.73.3.6.6.25.3 CORE224 Cohort Lifecycle Complete
 
 on:
   schedule:
@@ -78,6 +78,33 @@ on:
           - SIGNAL_STOP
           - SIGNAL_STOP_WITH_FALLBACK
           - BOTH_COMPARE
+      v25_cohort_mode:
+        description: "CORE224 신호 코호트: 경계는 신호 소속만 결정하며 강제청산하지 않음"
+        required: false
+        default: ROLLING
+        type: choice
+        options:
+          - ROLLING
+          - A
+          - B
+          - C
+          - D
+          - CUSTOM
+      v25_two_year_end_date:
+        description: "A~D 분할의 2년 종료 기준일(YYYY-MM-DD, 비우면 실행일)"
+        required: false
+        default: ""
+        type: string
+      v25_cohort_start_date:
+        description: "CUSTOM 신호 코호트 시작일(YYYY-MM-DD)"
+        required: false
+        default: ""
+        type: string
+      v25_cohort_end_date:
+        description: "CUSTOM 신호 코호트 종료일(YYYY-MM-DD)"
+        required: false
+        default: ""
+        type: string
       v73_universe_limit:
         description: "V73 동적 발견 유니버스 최대 종목 수"
         required: false
@@ -170,8 +197,15 @@ jobs:
       V24_FORMULA_SHADOW_ENABLE: "1"
       V24_SHADOW_BYPASS_PRECOMBO: "0"
       V25_ORIGINAL_THESIS_ENABLE: "1"
-      V25_ORIGINAL_THESIS_REV: "25_2_2"
+      V25_ORIGINAL_THESIS_REV: "25_3"
       V25_MANUAL_SAMPLE_PER_BUCKET: "15"
+      V25_COHORT_MODE: ${{ inputs.v25_cohort_mode || 'ROLLING' }}
+      V25_TWO_YEAR_END_DATE: ${{ inputs.v25_two_year_end_date || '' }}
+      V25_COHORT_START_DATE: ${{ inputs.v25_cohort_start_date || '' }}
+      V25_COHORT_END_DATE: ${{ inputs.v25_cohort_end_date || '' }}
+      V25_COHORT_DATE_MODE: WEEK_LAST
+      V25_LIFECYCLE_ENABLE: "1"
+      V25_LIFECYCLE_MAX_DAYS: "60"
       HAM_RESEARCH_ONLY: "1"
       FAMILIAR_RESEARCH_ENABLE: "1"
       FAMILIAR_RESEARCH_ONLY: "1"
@@ -179,7 +213,7 @@ jobs:
       MARKET_EXCESS_RESEARCH_ENABLE: "1"
       KOSCOM_API_KEY: ${{ secrets.KOSCOM_API_KEY }}
       KOSCOM_APIGW_URL: https://oap.k-mydata.org
-      # V25.2.2: pykrx 2026 KRX-login policy. These secrets already existed in the parent job;
+      # V25.3: pykrx authority retained; cohort/lifecycle remains RESEARCH_ONLY. These secrets already existed in the parent job;
       # shard workers also need them because Historical-AsOf/CORE224 Amount authority is built inside shards.
       KRX_ID: ${{ secrets.KRX_DATA_ID }}
       KRX_PW: ${{ secrets.KRX_DATA_PW }}
@@ -217,7 +251,7 @@ jobs:
         run: |
           set -euo pipefail
           SRC="$(sha256sum main7_bugfix_2.py direct_replay_performance_v20.py historical_asof_universe.py direct_replay_sharding_v22.py direct_replay_materialized_v23.py pattern_catalyst_context_pipeline.py bear_winner_stability_diagnostic.py research_readiness_v24.py original_thesis_reconstruction.py | sha256sum | cut -c1-20)"
-          CFG="$(printf '%s' '${{ inputs.direct_top_n || '500' }}|${{ inputs.backtest_weeks || '24' }}|${{ inputs.backtest_hold_days || '10' }}|${{ inputs.backtest_stop_pct || '-5' }}|${{ inputs.backtest_stop_mode || 'SIGNAL_STOP_WITH_FALLBACK' }}|6|V24_SHADOW_1|V25_ORIGINAL_THESIS_25_2_2|SHARD_UNIVERSE_RECOVERY_25_1_1|DATA_AUTHORITY_25_2_2_KRX_AUTH|ALNUM_TICKER_IDENTITY' | sha256sum | cut -c1-16)"
+          CFG="$(printf '%s' '${{ inputs.direct_top_n || '500' }}|${{ inputs.backtest_weeks || '24' }}|${{ inputs.backtest_hold_days || '10' }}|${{ inputs.backtest_stop_pct || '-5' }}|${{ inputs.backtest_stop_mode || 'SIGNAL_STOP_WITH_FALLBACK' }}|${{ inputs.v25_cohort_mode || 'ROLLING' }}|${{ inputs.v25_two_year_end_date || '' }}|${{ inputs.v25_cohort_start_date || '' }}|${{ inputs.v25_cohort_end_date || '' }}|6|V24_SHADOW_1|V25_ORIGINAL_THESIS_25_3|COHORT_BOUNDARY_NOT_EXIT|STRUCTURAL_SCALEIN_60D|DATA_AUTHORITY_25_2_2_KRX_AUTH|ALNUM_TICKER_IDENTITY' | sha256sum | cut -c1-16)"
           PREFIX="stockhunter-v23-shard-${GITHUB_REF_NAME}-${{ matrix.shard }}-${SRC}-${CFG}"
           KEY="${PREFIX}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           echo "prefix=$PREFIX" >> "$GITHUB_OUTPUT"
@@ -281,13 +315,13 @@ jobs:
           echo "🚄 V23 shard worker ${{ matrix.shard }}/5 | topN=${V1081_DIRECT_TOP_N} weeks=${V1080_BACKTEST_WEEKS} materialized=1"
           python -B - <<'PYV25'
           import original_thesis_reconstruction as m
-          assert m.VERSION == "V73.3.6.6.25.2.2", m.VERSION
+          assert m.VERSION == "V73.3.6.6.25.3", m.VERSION
           assert m.RESEARCH_ONLY and not m.LIVE_LOGIC_CHANGED and not m.REAL_ORDER_CHANGED
-          print("✅ V25.2.2 shard activation source contract PASS", m.VERSION)
+          print("✅ V25.3 shard activation + cohort lifecycle source contract PASS", m.VERSION)
           PYV25
-          grep -Fq "V73.3.6.6.25.2.2 ORIGINAL THESIS RECONSTRUCTION + CORE224 SHADOW + KRX SHARD AUTHORITY GUARD" main7_bugfix_2.py || { echo "❌ V25.2 main activation marker missing"; exit 206; }
+          grep -Fq "V73.3.6.6.25.3 ORIGINAL THESIS RECONSTRUCTION + CORE224 SHADOW + COHORT LIFECYCLE" main7_bugfix_2.py || { echo "❌ V25.3 main activation marker missing"; exit 206; }
           grep -Fq "V73.3.6.6.25.1.1 SHARD UNIVERSE OUTAGE RECOVERY" main7_bugfix_2.py || { echo "❌ V25.1.1 shard universe guard marker missing"; exit 207; }
-          grep -Fq "V73.3.6.6.25.2.2 DATA AUTHORITY + AUTHENTICATED SHARD RECOVERY" main7_bugfix_2.py || { echo "❌ V25.2 data authority marker missing"; exit 208; }
+          grep -Fq "V73.3.6.6.25.3 DATA AUTHORITY + COHORT LIFECYCLE" main7_bugfix_2.py || { echo "❌ V25.3 data/lifecycle marker missing"; exit 208; }
           python -u main7_bugfix_2.py 2>&1 | tee "reports/v73_v23_shard_${{ matrix.shard }}_stdout.log"
 
       - name: Save V23 shard cache explicitly
@@ -709,7 +743,14 @@ jobs:
       V24_FORMULA_SHADOW_ENABLE: "1"
       V24_SHADOW_BYPASS_PRECOMBO: "0"
       V25_ORIGINAL_THESIS_ENABLE: "1"
-      V25_ORIGINAL_THESIS_REV: "25_2_2"
+      V25_ORIGINAL_THESIS_REV: "25_3"
+      V25_COHORT_MODE: ${{ inputs.v25_cohort_mode || 'ROLLING' }}
+      V25_TWO_YEAR_END_DATE: ${{ inputs.v25_two_year_end_date || '' }}
+      V25_COHORT_START_DATE: ${{ inputs.v25_cohort_start_date || '' }}
+      V25_COHORT_END_DATE: ${{ inputs.v25_cohort_end_date || '' }}
+      V25_COHORT_DATE_MODE: WEEK_LAST
+      V25_LIFECYCLE_ENABLE: "1"
+      V25_LIFECYCLE_MAX_DAYS: "60"
       PYTHONUNBUFFERED: "1"
       V1081_UNIVERSE_MODE: HISTORICAL_ASOF_TOP500_EVENT_EXPANSION
       V1081_ASOF_LIQUIDITY_DAYS: "20"
@@ -785,6 +826,10 @@ jobs:
           INPUT_BACKTEST_HOLD_DAYS: ${{ inputs.backtest_hold_days }}
           INPUT_BACKTEST_STOP_PCT: ${{ inputs.backtest_stop_pct }}
           INPUT_BACKTEST_STOP_MODE: ${{ inputs.backtest_stop_mode }}
+          INPUT_V25_COHORT_MODE: ${{ inputs.v25_cohort_mode }}
+          INPUT_V25_TWO_YEAR_END_DATE: ${{ inputs.v25_two_year_end_date }}
+          INPUT_V25_COHORT_START_DATE: ${{ inputs.v25_cohort_start_date }}
+          INPUT_V25_COHORT_END_DATE: ${{ inputs.v25_cohort_end_date }}
           INPUT_V73_UNIVERSE_LIMIT: ${{ inputs.v73_universe_limit }}
           INPUT_V73_CASE_CODES: ${{ inputs.v73_case_codes }}
           INPUT_V73_CASE_DATES: ${{ inputs.v73_case_dates }}
@@ -825,6 +870,10 @@ jobs:
             bt_hold_days="${INPUT_BACKTEST_HOLD_DAYS:-10}"
             bt_stop_pct="${INPUT_BACKTEST_STOP_PCT:--5}"
             bt_stop_mode="${INPUT_BACKTEST_STOP_MODE:-SIGNAL_STOP_WITH_FALLBACK}"
+            v25_cohort_mode="${INPUT_V25_COHORT_MODE:-ROLLING}"
+            v25_two_year_end_date="${INPUT_V25_TWO_YEAR_END_DATE:-}"
+            v25_cohort_start_date="${INPUT_V25_COHORT_START_DATE:-}"
+            v25_cohort_end_date="${INPUT_V25_COHORT_END_DATE:-}"
             v73_universe_limit="${INPUT_V73_UNIVERSE_LIMIT:-900}"
             v73_case_codes="${INPUT_V73_CASE_CODES:-119850}"
             v73_case_dates="${INPUT_V73_CASE_DATES:-2026-06-29,2026-07-08}"
@@ -839,6 +888,10 @@ jobs:
             bt_hold_days="10"
             bt_stop_pct="-5"
             bt_stop_mode="SIGNAL_STOP_WITH_FALLBACK"
+            v25_cohort_mode="ROLLING"
+            v25_two_year_end_date=""
+            v25_cohort_start_date=""
+            v25_cohort_end_date=""
             v73_universe_limit="900"
             v73_case_codes="119850"
             v73_case_dates="2026-06-29,2026-07-08"
@@ -851,6 +904,8 @@ jobs:
           case "$bt_source" in DIRECT_REPLAY|CSV_CACHE) ;; *) bt_source="DIRECT_REPLAY" ;; esac
           bt_stop_mode="$(echo "$bt_stop_mode" | tr '[:lower:]' '[:upper:]')"
           case "$bt_stop_mode" in FIXED_PCT|SIGNAL_STOP|SIGNAL_STOP_WITH_FALLBACK|BOTH_COMPARE) ;; *) bt_stop_mode="SIGNAL_STOP_WITH_FALLBACK" ;; esac
+          v25_cohort_mode="$(echo "$v25_cohort_mode" | tr '[:lower:]' '[:upper:]')"
+          case "$v25_cohort_mode" in ROLLING|A|B|C|D|CUSTOM) ;; *) v25_cohort_mode="ROLLING" ;; esac
 
           case "$profile" in
             REAL_FULL)
@@ -1017,7 +1072,14 @@ jobs:
             echo "V24_FORMULA_SHADOW_ENABLE=1"
             echo "V24_SHADOW_BYPASS_PRECOMBO=0"
             echo "V25_ORIGINAL_THESIS_ENABLE=1"
-            echo "V25_ORIGINAL_THESIS_REV=25_2_2"
+            echo "V25_ORIGINAL_THESIS_REV=25_3"
+            echo "V25_COHORT_MODE=$v25_cohort_mode"
+            echo "V25_TWO_YEAR_END_DATE=$v25_two_year_end_date"
+            echo "V25_COHORT_START_DATE=$v25_cohort_start_date"
+            echo "V25_COHORT_END_DATE=$v25_cohort_end_date"
+            echo "V25_COHORT_DATE_MODE=WEEK_LAST"
+            echo "V25_LIFECYCLE_ENABLE=1"
+            echo "V25_LIFECYCLE_MAX_DAYS=60"
             echo "PYTHONUNBUFFERED=1"
             echo "V1081_UNIVERSE_MODE=HISTORICAL_ASOF_TOP500_EVENT_EXPANSION"
             echo "V1081_ASOF_LIQUIDITY_DAYS=20"
@@ -1048,7 +1110,7 @@ jobs:
             echo "V1107_4_5_70_DISABLE_PRICE_SCALE_WATCH=1"
           } >> "$GITHUB_ENV"
 
-          echo "✅ profile resolved: profile=$profile open0930=$open0930 ham1503=$ham1503 v73_discovery=$v73_discovery v73_case=$v73_case_audit catalyst_capture=$catalyst_capture source=$bt_source weeks=$bt_weeks hold=$bt_hold_days stop=$bt_stop_pct mode=$bt_stop_mode"
+          echo "✅ profile resolved: profile=$profile open0930=$open0930 ham1503=$ham1503 v73_discovery=$v73_discovery v73_case=$v73_case_audit catalyst_capture=$catalyst_capture source=$bt_source weeks=$bt_weeks hold=$bt_hold_days stop=$bt_stop_pct mode=$bt_stop_mode cohort=$v25_cohort_mode cohort_start=$v25_cohort_start_date cohort_end=$v25_cohort_end_date anchor=$v25_two_year_end_date"
       - name: Prepare report directories
         run: |
           mkdir -p reports docs
@@ -1116,7 +1178,8 @@ jobs:
               'V1082_BACKTEST_STOP_MODE','V1081_UNIVERSE_MODE','V1081_ASOF_LIQUIDITY_DAYS',
               'V1081_ASOF_MIN_PRICE','V1081_ASOF_MIN_MARCAP','V1081_EVENT_EXPANSION_MAX',
               'V1081_EVENT_AMOUNT_RATIO','V1081_EVENT_VOLUME_RATIO','V1081_EVENT_PREV_RET_PCT',
-              'V1081_EVENT_MIN_AMOUNT','V24_FORMULA_SHADOW_ENABLE','V25_ORIGINAL_THESIS_ENABLE','V25_ORIGINAL_THESIS_REV'
+              'V1081_EVENT_MIN_AMOUNT','V24_FORMULA_SHADOW_ENABLE','V25_ORIGINAL_THESIS_ENABLE','V25_ORIGINAL_THESIS_REV',
+              'V25_COHORT_MODE','V25_TWO_YEAR_END_DATE','V25_COHORT_START_DATE','V25_COHORT_END_DATE','V25_COHORT_DATE_MODE','V25_LIFECYCLE_MAX_DAYS'
           ]
           cfg = {k: os.getenv(k,'') for k in cfg_keys}
           config_hash = hashlib.sha256(json.dumps(cfg,sort_keys=True,separators=(',',':')).encode()).hexdigest()[:16]
@@ -1749,15 +1812,26 @@ jobs:
             for f in v73_v24_universe_materialized_reconciliation.csv v73_v24_universe_daily_authority.csv v73_v24_full_denominator_formula_summary.csv v73_v24_full_denominator_coverage.csv v73_v24_full_universe_attempt_outcomes.csv v73_v24_pattern_only_stability.csv v73_v24_pattern_only_walkforward.csv v73_v24_volume_breakout_exit_policy.csv v73_v24_volume_breakout_exit_train_oos.csv v73_v24_ma_gc_continuation_policy.csv v73_v24_ma_gc_continuation_train_oos.csv v73_v24_paper_promotion_readiness.csv v73_v24_data_availability.csv v73_v24_research_readiness_report.txt; do
               test -f "reports/$f" || { echo "❌ V24 artifact missing: $f"; exit 199; }
             done
-            python -c "import pandas as pd,sys; c=pd.read_csv('reports/v73_v24_full_denominator_coverage.csv'); r=c.iloc[-1] if len(c) else {}; a=int(float(r.get('attempt_rows',0) or 0)); f=int(float(r.get('formula_count',0) or 0)); cells=int(float(r.get('truth_cells',0) or 0)); u=pd.read_csv('reports/v73_v24_universe_materialized_reconciliation.csv'); d=pd.read_csv('reports/v73_v24_universe_daily_authority.csv'); p=pd.read_csv('reports/v73_v24_paper_promotion_readiness.csv'); auto=(p.get('live_auto_promotion_allowed',pd.Series(dtype=object)).astype(str).str.lower().isin(['true','1']).any()) if len(p) else False; days=pd.to_datetime(d.get('signal_date'),errors='coerce').nunique(); print('V24_GUARD','attempts',a,'formulas',f,'cells',cells,'shadow',r.get('shadow_bypass_attempts'),'unknown',r.get('unresolved_attempts'),'universe_recon',len(u),'universe_days',days,'live_auto',auto); sys.exit(0 if a>0 and f==66 and cells==a*f and len(u)==24 and days==24 and not auto else 200)"
+            python -c "import json,pandas as pd,sys; c=pd.read_csv('reports/v73_v24_full_denominator_coverage.csv'); r=c.iloc[-1] if len(c) else {}; a=int(float(r.get('attempt_rows',0) or 0)); f=int(float(r.get('formula_count',0) or 0)); cells=int(float(r.get('truth_cells',0) or 0)); u=pd.read_csv('reports/v73_v24_universe_materialized_reconciliation.csv'); d=pd.read_csv('reports/v73_v24_universe_daily_authority.csv'); p=pd.read_csv('reports/v73_v24_paper_promotion_readiness.csv'); auto=(p.get('live_auto_promotion_allowed',pd.Series(dtype=object)).astype(str).str.lower().isin(['true','1']).any()) if len(p) else False; days=pd.to_datetime(d.get('signal_date'),errors='coerce').nunique(); pf=json.load(open('reports/v73_v23_parent_preflight.json',encoding='utf-8')); expected=int(pf.get('expected_date_count') or pf.get('valid_date_count') or 0); print('V24_GUARD','expected',expected,'attempts',a,'formulas',f,'cells',cells,'shadow',r.get('shadow_bypass_attempts'),'unknown',r.get('unresolved_attempts'),'universe_recon',len(u),'universe_days',days,'live_auto',auto); sys.exit(0 if expected>0 and a>0 and f==66 and cells==a*f and len(u)==expected and days==expected and not auto else 200)"
             grep -Fq "🧭 [V25 ORIGINAL THESIS RECONSTRUCTION · CORE224 SHADOW · RESEARCH_ONLY]" "${HAM_RUN_LOG}" || { echo "❌ V25 ORIGINAL THESIS block missing"; exit 201; }
             test "$(grep -Fc "🧭 [V25 ORIGINAL THESIS RECONSTRUCTION · CORE224 SHADOW · RESEARCH_ONLY]" "${HAM_RUN_LOG}")" -eq 1 || { echo "❌ V25 ORIGINAL THESIS header count must be exactly 1"; exit 202; }
-            for f in v73_v25_core224_state_ledger.csv v73_v25_core224_transition_ledger.csv v73_v25_core224_invariant_audit.csv v73_v25_manual_chart_audit_ledger.csv v73_v25_manual_chart_review_sample.csv v73_v25_amount_authority_coverage.csv v73_v25_formula_audit_01_to_07.csv v73_v25_current_code_audit.csv v73_v25_activation_status.csv v73_v25_historical_asof_reconciliation.csv v73_v25_pattern_only_transfer_audit.csv v73_v25_original_thesis_report.txt; do
+            for f in v73_v25_core224_state_ledger.csv v73_v25_core224_transition_ledger.csv v73_v25_core224_invariant_audit.csv v73_v25_manual_chart_audit_ledger.csv v73_v25_manual_chart_review_sample.csv v73_v25_amount_authority_coverage.csv v73_v25_formula_audit_01_to_07.csv v73_v25_current_code_audit.csv v73_v25_activation_status.csv v73_v25_historical_asof_reconciliation.csv v73_v25_pattern_only_transfer_audit.csv v73_v25_original_thesis_report.txt v73_v25_core224_lifecycle_signal_ledger.csv v73_v25_core224_lifecycle_fill_ledger.csv v73_v25_core224_lifecycle_stop_lens_comparison.csv v73_v25_core224_lifecycle_cohort_summary.csv v73_v25_core224_lifecycle_horizon_summary.csv v73_v25_core224_lifecycle_censoring_audit.csv v73_v25_core224_lifecycle_readiness.csv v73_v25_core224_lifecycle_report.txt; do
               test -f "reports/$f" || { echo "❌ V25 artifact missing: $f"; exit 203; }
             done
-            python -c "import os,pandas as pd,sys; expected=max(1,int(float(os.getenv('V1080_BACKTEST_WEEKS','24')))); a=pd.read_csv('reports/v73_v25_activation_status.csv'); r=a.iloc[-1] if len(a) else {}; u=pd.read_csv('reports/v73_v25_historical_asof_reconciliation.csv'); f=pd.read_csv('reports/v73_v25_formula_audit_01_to_07.csv'); t=pd.read_csv('reports/v73_v25_pattern_only_transfer_audit.csv'); amt=pd.read_csv('reports/v73_v25_amount_authority_coverage.csv'); fallback=pd.to_numeric(u.get('fallback_used'),errors='coerce'); complete=pd.to_numeric(u.get('complete'),errors='coerce'); badneg=int((fallback<0).sum()) if len(u) else 0; tr=t.iloc[-1] if len(t) else {}; print('V25_GUARD','expected',expected,'activation',r.get('activation_executed'),'dates',r.get('materialized_dates'),'sidecar_dates',r.get('sidecar_dates'),'rows',r.get('core224_rows'),'transitions',r.get('transition_rows'),'inv_fail',r.get('invariant_fail_rows'),'formulas',len(f),'universe_days',len(u),'complete',complete.fillna(0).sum() if len(u) else 0,'fallback',fallback.fillna(0).sum() if len(u) else 0,'amount_history20_ready',pd.to_numeric(amt.get('history20_ready_rows'),errors='coerce').fillna(0).sum() if len(amt) else 0,'fallback_negative',badneg,'pattern_transfer',tr.get('status'),'live',r.get('live_logic_changed')); ok=(str(r.get('pipeline_status',''))=='VALID_SHADOW' and int(float(r.get('activation_executed',0) or 0))==1 and int(float(r.get('materialized_dates',0) or 0))==expected and int(float(r.get('sidecar_dates',0) or 0))==expected and int(float(r.get('core224_rows',0) or 0))>0 and len(f)==66 and len(u)==expected and badneg==0 and str(tr.get('status','')).startswith('PASS') and str(r.get('live_logic_changed')).lower() in ('false','0')); sys.exit(0 if ok else 204)"
+            python - <<'PYV25GUARD'
+            import json, pandas as pd, sys
+            a=pd.read_csv('reports/v73_v25_activation_status.csv'); r=a.iloc[-1] if len(a) else {}
+            u=pd.read_csv('reports/v73_v25_historical_asof_reconciliation.csv'); f=pd.read_csv('reports/v73_v25_formula_audit_01_to_07.csv')
+            t=pd.read_csv('reports/v73_v25_pattern_only_transfer_audit.csv'); amt=pd.read_csv('reports/v73_v25_amount_authority_coverage.csv')
+            life=pd.read_csv('reports/v73_v25_core224_lifecycle_readiness.csv'); lr=life.iloc[-1] if len(life) else {}
+            pf=json.load(open('reports/v73_v23_parent_preflight.json',encoding='utf-8')); expected=int(pf.get('expected_date_count') or pf.get('valid_date_count') or 0)
+            fallback=pd.to_numeric(u.get('fallback_used'),errors='coerce'); complete=pd.to_numeric(u.get('complete'),errors='coerce'); badneg=int((fallback<0).sum()) if len(u) else 0; tr=t.iloc[-1] if len(t) else {}
+            print('V25_GUARD','expected',expected,'activation',r.get('activation_executed'),'dates',r.get('materialized_dates'),'sidecar_dates',r.get('sidecar_dates'),'rows',r.get('core224_rows'),'transitions',r.get('transition_rows'),'inv_fail',r.get('invariant_fail_rows'),'formulas',len(f),'universe_days',len(u),'complete',complete.fillna(0).sum() if len(u) else 0,'fallback',fallback.fillna(0).sum() if len(u) else 0,'amount_history20_ready',pd.to_numeric(amt.get('history20_ready_rows'),errors='coerce').fillna(0).sum() if len(amt) else 0,'fallback_negative',badneg,'pattern_transfer',tr.get('status'),'cohort',r.get('cohort_id'),'lifecycle',lr.get('status'),'boundary_exit',lr.get('boundary_forced_exit'),'live',r.get('live_logic_changed'))
+            ok=(expected>0 and str(r.get('pipeline_status',''))=='VALID_SHADOW' and int(float(r.get('activation_executed',0) or 0))==1 and int(float(r.get('materialized_dates',0) or 0))==expected and int(float(r.get('sidecar_dates',0) or 0))==expected and int(float(r.get('core224_rows',0) or 0))>0 and len(f)==66 and len(u)==expected and badneg==0 and str(tr.get('status','')).startswith('PASS') and int(float(lr.get('boundary_forced_exit',0) or 0))==0 and str(lr.get('status','')) not in ('','INVALID') and str(r.get('live_logic_changed')).lower() in ('false','0'))
+            sys.exit(0 if ok else 204)
+            PYV25GUARD
             ! grep -Fq "⚡ [V22 병렬진단] SUPERSEDED_BY_V23_V24" "${HAM_RUN_LOG}" || { echo "❌ stale V22 visible marker must be removed in V25"; exit 205; }
-            echo "✅ WEEKLY_BACKTEST data-path + HAM + FAMILIAR + PATTERN-AI-CROSS + MARKET-EXCESS + FULL-UNIVERSE-FORMULA + COMPLETE-FORMULA + SEQUENCE-CONTEXT-CATALYST + CONTEXT-OUTCOME + SCALE-IN-RISK-PARITY + GEOPOLITICAL-BEAR-WINNER + UNIQUE-STABILITY-24W + HISTORICAL-ASOF-TOP500-EVENT-EXPANSION + V20-CACHE-RESUME-PROGRESS + V21-FAILSAFE-PERSIST + V22-GATE-AUDIT + V23-SIX-SHARD-MATERIALIZED-MERGE-ONLY-ZERO-RECOMPUTE + V24-CAUSAL-UNIVERSE-FULL-DENOM-PATTERN-OOS-EXIT-HORIZON + V25-ORIGINAL-THESIS-CORE224-AUDIT research guard PASS"
+            echo "✅ WEEKLY_BACKTEST data-path + HAM + FAMILIAR + PATTERN-AI-CROSS + MARKET-EXCESS + FULL-UNIVERSE-FORMULA + COMPLETE-FORMULA + SEQUENCE-CONTEXT-CATALYST + CONTEXT-OUTCOME + SCALE-IN-RISK-PARITY + GEOPOLITICAL-BEAR-WINNER + UNIQUE-STABILITY-WINDOW + HISTORICAL-ASOF-TOP500-EVENT-EXPANSION + V20-CACHE-RESUME-PROGRESS + V21-FAILSAFE-PERSIST + V22-GATE-AUDIT + V23-SIX-SHARD-MATERIALIZED-MERGE-ONLY-ZERO-RECOMPUTE + V24-CAUSAL-UNIVERSE-FULL-DENOM-PATTERN-OOS-EXIT-HORIZON + V25-ORIGINAL-THESIS-CORE224-COHORT-LIFECYCLE research guard PASS"
           else
             echo "🚀 Stock-Hunter scanner mode | script=${SCRIPT}"
             python -u "${SCRIPT}"
