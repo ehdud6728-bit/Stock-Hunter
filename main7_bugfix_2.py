@@ -93778,12 +93778,12 @@ except Exception:
 
 
 # ============================================================
-# ✅ V73.3.6.6.25.3 ORIGINAL THESIS RECONSTRUCTION + CORE224 SHADOW + COHORT LIFECYCLE
+# ✅ V73.3.6.6.25.3.1 ORIGINAL THESIS RECONSTRUCTION + CORE224 SHADOW + ALL COHORT AUTO CHAIN
 # - Original search philosophy audit only; no return tuning.
 # - Shard materializes CORE224 evidence; merge-only parent consumes sidecars only.
 # - Existing LIVE/score/rank/entry/exit/order logic remains untouched.
 # ============================================================
-_V7336625_VERSION = 'V73.3.6.6.25.3'
+_V7336625_VERSION = 'V73.3.6.6.25.3.1'
 _V7336625_HEADER = '🧭 [V25 ORIGINAL THESIS RECONSTRUCTION · CORE224 SHADOW · RESEARCH_ONLY]'
 _V7336625_IMPORT_ERROR = ''
 try:
@@ -93812,10 +93812,10 @@ except Exception as _v7336625_import_e:
 
 
 # ============================================================
-# ✅ V73.3.6.6.25.3 SIGNAL COHORT CALENDAR OVERRIDE · RESEARCH_ONLY
+# ✅ V73.3.6.6.25.3.1 SIGNAL COHORT CALENDAR OVERRIDE · ALL AUTO CHAIN · RESEARCH_ONLY
 # - A/B/C/D are signal-membership windows only; cohort end NEVER liquidates a position.
-# - Default ROLLING keeps the legacy calendar byte-for-byte behavior.
-# - Explicit cohort dates are reproducible and can be run one six-month window at a time.
+# - ALL resolves the full 2-year parent calendar; workflow workers calculate A→B→C→D as four automatic batches.
+# - Default/single cohort behavior remains available for targeted reruns and rollback diagnostics.
 # ============================================================
 _V73366253_BASE_TRADING_CALENDAR = globals().get('_v1081_latest_trading_calendar')
 def _v1081_latest_trading_calendar(weeks: int, hold_days: int) -> list:
@@ -93875,7 +93875,7 @@ def _v1081_latest_trading_calendar(weeks: int, hold_days: int) -> list:
         raise
 
 # ============================================================
-# ✅ V73.3.6.6.25.3 DATA AUTHORITY + COHORT LIFECYCLE
+# ✅ V73.3.6.6.25.3.1 DATA AUTHORITY + ALL COHORT LIFECYCLE
 # - pykrx all-market OHLCV outage -> reported market-cap/turnover cross-section fallback
 # - potential CORE224 names only: per-ticker reported turnover history fallback
 # - Historical-AsOf complete remains fail-closed unless all-market causal denominator is proven
@@ -94506,6 +94506,8 @@ _V7336625_RELEASE_MARKER = {
     'original_thesis_reconstruction': True,
     'core224_shadow_fsm': True,
     'signal_cohort_boundary_not_exit': True,
+    'all_cohort_auto_chain': True,
+    'all_cohort_parent_aggregate': True,
     'structural_scale_in_lifecycle_research': True,
     'right_censoring_explicit': True,
     'pb_low_fib_stop_lens_comparison': True,
@@ -94524,7 +94526,7 @@ _V7336625_RELEASE_MARKER = {
     'live_logic_changed': False,
     'real_order_changed': False,
 }
-# ✅ END V73.3.6.6.25.3 ORIGINAL THESIS + SIGNAL COHORT + STRUCTURAL SCALE-IN LIFECYCLE
+# ✅ END V73.3.6.6.25.3.1 ORIGINAL THESIS + ALL AUTO COHORT + STRUCTURAL SCALE-IN LIFECYCLE
 
 if __name__ == "__main__":
     # V73.3.6.6.23 matrix shard worker: materialized per-date results; no Telegram/Sheet/LIVE side effects.

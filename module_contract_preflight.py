@@ -8,7 +8,7 @@ import shutil
 import sys
 from pathlib import Path
 
-RELEASE_VERSION = "V73.3.6.6.25.3"
+RELEASE_VERSION = "V73.3.6.6.25.3.1"
 
 CONTRACTS = [
     {
@@ -143,7 +143,7 @@ CONTRACTS = [
         "label": "V25_ORIGINAL_THESIS_RECONSTRUCTION",
         "filename": "original_thesis_reconstruction.py",
         "module": "original_thesis_reconstruction",
-        "version": "V73.3.6.6.25.3",
+        "version": "V73.3.6.6.25.3.1",
         "callables": ("evaluate_core224", "build_date_sidecar", "audit_source", "build_formula_audit", "resolve_cohort_window", "run_core224_lifecycle", "finalize", "force_report"),
         "exit_code": 201,
     },

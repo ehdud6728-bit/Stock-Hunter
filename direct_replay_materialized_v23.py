@@ -57,6 +57,46 @@ def _env_bool(name: str, default: bool = False) -> bool:
     return v in {"1", "true", "yes", "y", "on"}
 
 
+def _handoff_cohort_id() -> str:
+    raw = str(os.getenv("V23_HANDOFF_COHORT_ID", os.getenv("V25_COHORT_MODE", "ROLLING"))).strip().upper()
+    aliases = {"": "ROLLING", "COHORT_A": "A", "COHORT_B": "B", "COHORT_C": "C", "COHORT_D": "D"}
+    return aliases.get(raw, raw)
+
+
+def _manifest_shard_key(manifest: dict[str, Any]) -> str:
+    cohort = str(manifest.get("cohort_id", "ROLLING") or "ROLLING").strip().upper()
+    try:
+        idx = int(manifest.get("shard_index", -1))
+    except Exception:
+        idx = -1
+    return f"{cohort}:{idx}"
+
+
+def _expected_handoff_shape(manifests: list[dict[str, Any]]) -> tuple[int, int, list[str], dict[str, int]]:
+    """Resolve shard/date denominator without pretending every explicit 6-month cohort is exactly 24 weeks."""
+    local_shards = _env_int("V23_SHARD_COUNT", 6)
+    mode = str(os.getenv("V25_COHORT_MODE", "ROLLING")).strip().upper()
+    cohort_counts: dict[str, int] = {}
+    for m in manifests:
+        cohort = str(m.get("cohort_id", "ROLLING") or "ROLLING").strip().upper()
+        try:
+            n = int(m.get("all_date_count", 0) or 0)
+        except Exception:
+            n = 0
+        cohort_counts[cohort] = max(cohort_counts.get(cohort, 0), n)
+    if mode == "ALL":
+        expected_cohorts = ["A", "B", "C", "D"]
+        expected_shards = local_shards * len(expected_cohorts)
+        expected_dates = sum(cohort_counts.get(c, 0) for c in expected_cohorts)
+        return expected_shards, expected_dates, expected_cohorts, cohort_counts
+    explicit = mode in {"A", "B", "C", "D", "CUSTOM"}
+    if explicit and cohort_counts:
+        expected_dates = max(cohort_counts.values())
+    else:
+        expected_dates = _env_int("V1080_BACKTEST_WEEKS", 24)
+    return local_shards, expected_dates, [mode or "ROLLING"], cohort_counts
+
+
 def _norm_date(v: Any) -> pd.Timestamp:
     return pd.Timestamp(v).normalize()
 
@@ -286,6 +326,7 @@ def write_shard_manifest(
         "real_order_changed": False,
         "created_at": _utc_now(),
         "status": status,
+        "cohort_id": _handoff_cohort_id(),
         "shard_index": int(shard_index),
         "shard_count": int(shard_count),
         "all_date_count": len(all_ds),
@@ -307,6 +348,7 @@ def write_shard_manifest(
     pd.DataFrame([{
         "version": VERSION,
         "status": status,
+        "cohort_id": manifest.get("cohort_id", _handoff_cohort_id()),
         "shard_index": int(shard_index),
         "shard_count": int(shard_count),
         "all_date_count": len(all_ds),
@@ -324,7 +366,7 @@ def write_shard_manifest(
         "elapsed_sec": float(elapsed_sec or 0.0),
     }]).to_csv(out / SHARD_MANIFEST_CSV, index=False, encoding="utf-8-sig")
     lines = [
-        f"V23_SHARD status={status} shard={int(shard_index)+1}/{int(shard_count)}",
+        f"V23_SHARD status={status} cohort={manifest.get('cohort_id','ROLLING')} shard={int(shard_index)+1}/{int(shard_count)}",
         f"dates={len(sel)} materialized={len(date_rows)} missing={len(missing)} candidates={manifest['candidate_total']}",
         f"source={ident['source_fingerprint'][:12]} config={ident['config_fingerprint']}",
         f"elapsed_min={manifest['elapsed_sec']/60:.1f} newest_first=1 zero_recompute_parent=1",
@@ -439,7 +481,8 @@ def merge_handoff_archives(download_root: str | Path, output_dir: str | Path) ->
                 try:
                     man = json.loads(mp.read_text(encoding="utf-8")); manifests.append(man)
                     idx = int(man.get("shard_index", ai))
-                    shutil.copy2(mp, shard_manifest_root / f"shard_{idx}.json")
+                    cohort = re.sub(r"[^A-Za-z0-9_.-]+", "-", str(man.get("cohort_id", "ROLLING") or "ROLLING")).strip("-") or "ROLLING"
+                    shutil.copy2(mp, shard_manifest_root / f"shard_{cohort}_{idx}.json")
                 except Exception as exc:
                     errors += 1
                     file_rows.append({"archive": arc.name, "kind": "MANIFEST", "file": mp.name, "status": "ERROR", "detail": f"{type(exc).__name__}:{exc}"})
@@ -473,10 +516,9 @@ def merge_handoff_archives(download_root: str | Path, output_dir: str | Path) ->
                         errors += 1
                         file_rows.append({"archive": arc.name, "kind": rel, "file": str(src), "status": "ERROR", "detail": f"{type(exc).__name__}:{exc}"})
 
-    expected_shards = _env_int("V23_SHARD_COUNT", 6)
-    expected_dates = _env_int("V1080_BACKTEST_WEEKS", 24)
-    unique_shards = sorted({int(m.get("shard_index", -1)) for m in manifests if int(m.get("shard_index", -1)) >= 0})
-    complete_shards = sorted({int(m.get("shard_index", -1)) for m in manifests if str(m.get("status")) == "COMPLETE" and int(m.get("shard_index", -1)) >= 0})
+    expected_shards, expected_dates, expected_cohorts, cohort_date_counts = _expected_handoff_shape(manifests)
+    unique_shards = sorted({_manifest_shard_key(m) for m in manifests if _manifest_shard_key(m).split(":")[-1] != "-1"})
+    complete_shards = sorted({_manifest_shard_key(m) for m in manifests if str(m.get("status")) == "COMPLETE" and _manifest_shard_key(m).split(":")[-1] != "-1"})
     selected_lists = [[str(x) for x in (m.get("selected_dates") or [])] for m in manifests]
     selected_flat = [x for xs in selected_lists for x in xs]
     selected_unique = sorted(set(selected_flat))
@@ -485,6 +527,9 @@ def merge_handoff_archives(download_root: str | Path, output_dir: str | Path) ->
     config_set = sorted({str(m.get("config_fingerprint", "")) for m in manifests if str(m.get("config_fingerprint", ""))})
     ident = current_identity()
     current_identity_match = source_set == [ident["source_fingerprint"]] and config_set == [ident["config_fingerprint"]]
+    mode = str(os.getenv("V25_COHORT_MODE", "ROLLING")).strip().upper()
+    manifest_cohorts = sorted({str(m.get("cohort_id", "ROLLING") or "ROLLING").strip().upper() for m in manifests})
+    cohort_set_ok = (manifest_cohorts == sorted(expected_cohorts)) if mode == "ALL" else True
     materialized_expected = []
     missing_materialized = []
     invalid_materialized = []
@@ -506,6 +551,7 @@ def merge_handoff_archives(download_root: str | Path, output_dir: str | Path) ->
         and len(source_set) == 1
         and len(config_set) == 1
         and current_identity_match
+        and cohort_set_ok
         and errors == 0
         and conflicts == 0
     )
@@ -520,6 +566,11 @@ def merge_handoff_archives(download_root: str | Path, output_dir: str | Path) ->
         "expected_shards": expected_shards,
         "unique_shards": unique_shards,
         "complete_shards": complete_shards,
+        "cohort_mode": mode,
+        "expected_cohorts": expected_cohorts,
+        "manifest_cohorts": manifest_cohorts,
+        "cohort_set_ok": cohort_set_ok,
+        "cohort_date_counts": cohort_date_counts,
         "expected_date_count": expected_dates,
         "selected_date_count": len(selected_unique),
         "selected_dates": selected_unique,
@@ -544,6 +595,7 @@ def merge_handoff_archives(download_root: str | Path, output_dir: str | Path) ->
     lines = [
         f"V23_HANDOFF status={status} archives={len(archives)} shards={len(complete_shards)}/{expected_shards}",
         f"dates={len(selected_unique)}/{expected_dates} materialized={len(materialized_expected)} duplicate_dates={duplicate_selected}",
+        f"cohorts mode={mode} expected={','.join(expected_cohorts)} manifest={','.join(manifest_cohorts)} set_ok={cohort_set_ok}",
         f"identity source_consensus={len(source_set)==1} config_consensus={len(config_set)==1} current_match={current_identity_match}",
         f"copy={copied} replace={replaced} keep={kept} errors={errors} conflicts={conflicts}",
     ]
@@ -623,10 +675,10 @@ def finalize_parent(output_dir: str | Path, base_report: str = "") -> tuple[str,
     except Exception: pass
     lines = [
         HEADER,
-        f"📌 {VERSION} · TOP500 유지 · 24주를 6개 날짜 shard로 물질화 · parent는 TOP500 원천 재계산 금지",
+        f"📌 {VERSION} · TOP500 유지 · {merge.get('cohort_mode', str(os.getenv('V25_COHORT_MODE','ROLLING')).upper())} 코호트를 6-shard 단위로 물질화 · parent는 TOP500 원천 재계산 금지",
         f"🧩 handoff={merge.get('status','MISSING')} | shards={len(merge.get('complete_shards') or [])}/{merge.get('expected_shards',_env_int('V23_SHARD_COUNT',6))} | materialized={merge.get('materialized_expected_count',0)}/{merge.get('expected_date_count',_env_int('V1080_BACKTEST_WEEKS',24))}",
         f"🛡️ parent preflight={pre.get('status','MISSING')} | date-set-match={pre.get('date_set_match',False)} | fallback recompute=DISABLED",
-        "⚡ [실행구조] 각 shard는 4개 기준일×TOP500을 독립 runner에서 newest→oldest로 계산하고 후보/FULL_UNIVERSE/AUX/Universe provenance를 날짜별 materialized payload로 고정합니다.",
+        "⚡ [실행구조] 각 코호트는 6개 shard로 독립 계산하며, ALL은 A→B→C→D 배치를 자동 연결합니다. 각 shard는 자신의 기준일을 newest→oldest로 계산해 후보/FULL_UNIVERSE/AUX/Universe provenance를 날짜별 materialized payload로 고정합니다.",
         "🚫 [Zero-Recompute] parent의 _v1081_make_signal_rows_for_asof는 materialized payload만 반환합니다. 날짜 누락·identity 불일치·handoff 불완전 시 전체/누락 TOP500을 대신 계산하지 않고 INVALID_INCOMPLETE_SHARD_HANDOFF로 실패합니다.",
         "🧠 [후속연구] parent는 materialized candidate/full-universe sidecar와 합쳐진 price cache를 사용해 기존 Eval/Formula/Context/Scale-In/Geo/Stability/보고서 체인을 그대로 수행합니다.",
         f"- Actions: {SHARD_MANIFEST_JSON} · {MERGE_AUDIT_JSON} · {PARENT_PREFLIGHT_JSON}",

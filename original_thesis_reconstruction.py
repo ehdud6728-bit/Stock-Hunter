@@ -13,8 +13,8 @@ import re
 import numpy as np
 import pandas as pd
 
-VERSION = "V73.3.6.6.25.3"
-HOTFIX = "CORE224_SIGNAL_COHORT_STRUCTURAL_SCALEIN_LIFECYCLE"
+VERSION = "V73.3.6.6.25.3.1"
+HOTFIX = "CORE224_ALL_COHORT_AUTO_CHAIN_AGGREGATE"
 RESEARCH_ONLY = True
 LIVE_LOGIC_CHANGED = False
 REAL_ORDER_CHANGED = False
@@ -1418,62 +1418,105 @@ def _env_int_local(name: str, default: int) -> int:
         return int(default)
 
 
+def _two_year_cohort_windows(anchor: Any) -> List[Dict[str, str]]:
+    """Return exact, non-overlapping A/B/C/D signal-membership windows for one 2-year anchor."""
+    a = pd.to_datetime(anchor, errors="coerce")
+    if pd.isna(a):
+        raise ValueError("INVALID_V25_TWO_YEAR_END_DATE")
+    a = pd.Timestamp(a).normalize()
+    two_year_start = a - pd.DateOffset(months=24) + pd.Timedelta(days=1)
+    out: List[Dict[str, str]] = []
+    for slot, cid in enumerate(("A", "B", "C", "D")):
+        st = two_year_start + pd.DateOffset(months=6 * slot)
+        en = (two_year_start + pd.DateOffset(months=6 * (slot + 1)) - pd.Timedelta(days=1)) if slot < 3 else a
+        out.append({
+            "mode": cid,
+            "cohort_id": f"COHORT_{cid}",
+            "requested_start": pd.Timestamp(st).strftime("%Y-%m-%d"),
+            "requested_end": pd.Timestamp(en).strftime("%Y-%m-%d"),
+        })
+    return out
+
+
+def _signal_cohort_meta(signal_date: Any, aggregate: Dict[str, Any]) -> Dict[str, str]:
+    """Resolve the owning A/B/C/D bucket for a signal. Boundary only determines membership."""
+    d = pd.to_datetime(signal_date, errors="coerce")
+    if pd.isna(d):
+        return {"cohort_id": str(aggregate.get("cohort_id", "ROLLING")),
+                "requested_start": str(aggregate.get("requested_start", "")),
+                "requested_end": str(aggregate.get("requested_end", ""))}
+    d = pd.Timestamp(d).normalize()
+    if str(aggregate.get("mode", "")).upper() == "ALL":
+        windows = _two_year_cohort_windows(aggregate.get("anchor_end"))
+        for w in windows:
+            if pd.Timestamp(w["requested_start"]) <= d <= pd.Timestamp(w["requested_end"]):
+                return dict(w)
+    return {"cohort_id": str(aggregate.get("cohort_id", "ROLLING")),
+            "requested_start": str(aggregate.get("requested_start", "")),
+            "requested_end": str(aggregate.get("requested_end", ""))}
+
+
 def resolve_cohort_window(now: Any = None) -> Dict[str, Any]:
     """Resolve a signal-cohort window without implying a position exit at the boundary.
 
     Modes:
       ROLLING/OFF       -> legacy calendar behavior; no explicit cohort window.
       A/B/C/D           -> trailing two-year window split into four exact six-month signal cohorts.
+      ALL               -> one-click aggregate window. Workflow workers still execute A→B→C→D
+                           as four independent cohort batches; parent merges them into one 2-year audit.
       CUSTOM            -> explicit V25_COHORT_START_DATE/V25_COHORT_END_DATE.
 
-    For A-D, V25_TWO_YEAR_END_DATE is the reproducibility anchor. If omitted, today's date is
-    used and the resolved dates are emitted to audit artifacts so a later rerun can pin them.
+    For A-D/ALL, V25_TWO_YEAR_END_DATE is the reproducibility anchor. Cohort end is NEVER an
+    exit instruction. An already opened lifecycle keeps following structure beyond its cohort
+    boundary and is right-censored only when follow-up data genuinely ends.
     """
     raw_mode = str(os.getenv("V25_COHORT_MODE", "ROLLING")).strip().upper()
     aliases = {
         "": "ROLLING", "OFF": "ROLLING", "NONE": "ROLLING", "ROLLING_24W": "ROLLING",
         "COHORT_A": "A", "COHORT_B": "B", "COHORT_C": "C", "COHORT_D": "D",
+        "AUTO": "ALL", "A_B_C_D": "ALL", "ABCD": "ALL", "ALL_COHORTS": "ALL",
     }
     mode = aliases.get(raw_mode, raw_mode)
     if mode == "ROLLING":
         return {
             "enabled": 0, "mode": "ROLLING", "cohort_id": "ROLLING",
             "requested_start": "", "requested_end": "", "anchor_end": "",
-            "boundary_exit_allowed": 0,
+            "boundary_exit_allowed": 0, "aggregate": 0, "cohort_sequence": "",
         }
     if mode == "CUSTOM":
-        s = pd.to_datetime(os.getenv("V25_COHORT_START_DATE", ""), errors="coerce")
-        e = pd.to_datetime(os.getenv("V25_COHORT_END_DATE", ""), errors="coerce")
-        if pd.isna(s) or pd.isna(e) or pd.Timestamp(s).normalize() > pd.Timestamp(e).normalize():
+        st = pd.to_datetime(os.getenv("V25_COHORT_START_DATE", ""), errors="coerce")
+        en = pd.to_datetime(os.getenv("V25_COHORT_END_DATE", ""), errors="coerce")
+        if pd.isna(st) or pd.isna(en) or pd.Timestamp(st).normalize() > pd.Timestamp(en).normalize():
             raise ValueError("INVALID_V25_CUSTOM_COHORT_WINDOW")
-        s = pd.Timestamp(s).normalize(); e = pd.Timestamp(e).normalize()
+        st = pd.Timestamp(st).normalize(); en = pd.Timestamp(en).normalize()
         return {
             "enabled": 1, "mode": "CUSTOM", "cohort_id": str(os.getenv("V25_COHORT_ID", "CUSTOM") or "CUSTOM"),
-            "requested_start": s.strftime("%Y-%m-%d"), "requested_end": e.strftime("%Y-%m-%d"),
-            "anchor_end": e.strftime("%Y-%m-%d"), "boundary_exit_allowed": 0,
+            "requested_start": st.strftime("%Y-%m-%d"), "requested_end": en.strftime("%Y-%m-%d"),
+            "anchor_end": en.strftime("%Y-%m-%d"), "boundary_exit_allowed": 0,
+            "aggregate": 0, "cohort_sequence": "CUSTOM",
         }
-    if mode not in {"A", "B", "C", "D"}:
+    if mode not in {"A", "B", "C", "D", "ALL"}:
         raise ValueError(f"UNKNOWN_V25_COHORT_MODE:{mode}")
     anchor_raw = str(os.getenv("V25_TWO_YEAR_END_DATE", "")).strip()
     anchor = pd.to_datetime(anchor_raw, errors="coerce") if anchor_raw else pd.Timestamp(now or datetime.now()).normalize()
     if pd.isna(anchor):
         raise ValueError("INVALID_V25_TWO_YEAR_END_DATE")
     anchor = pd.Timestamp(anchor).normalize()
-    slot = {"A": 0, "B": 1, "C": 2, "D": 3}[mode]
-    two_year_start = anchor - pd.DateOffset(months=24) + pd.Timedelta(days=1)
-    s = two_year_start + pd.DateOffset(months=6 * slot)
-    if slot < 3:
-        e = two_year_start + pd.DateOffset(months=6 * (slot + 1)) - pd.Timedelta(days=1)
-    else:
-        e = anchor
+    windows = _two_year_cohort_windows(anchor)
+    if mode == "ALL":
+        return {
+            "enabled": 1, "mode": "ALL", "cohort_id": "COHORT_ALL",
+            "requested_start": windows[0]["requested_start"], "requested_end": windows[-1]["requested_end"],
+            "anchor_end": anchor.strftime("%Y-%m-%d"), "boundary_exit_allowed": 0,
+            "aggregate": 1, "cohort_sequence": "A,B,C,D", "cohort_windows": windows,
+        }
+    w = next(x for x in windows if x["mode"] == mode)
     return {
-        "enabled": 1, "mode": mode, "cohort_id": f"COHORT_{mode}",
-        "requested_start": pd.Timestamp(s).strftime("%Y-%m-%d"),
-        "requested_end": pd.Timestamp(e).strftime("%Y-%m-%d"),
-        "anchor_end": anchor.strftime("%Y-%m-%d"),
-        "boundary_exit_allowed": 0,
+        "enabled": 1, "mode": mode, "cohort_id": w["cohort_id"],
+        "requested_start": w["requested_start"], "requested_end": w["requested_end"],
+        "anchor_end": anchor.strftime("%Y-%m-%d"), "boundary_exit_allowed": 0,
+        "aggregate": 0, "cohort_sequence": mode,
     }
-
 
 def _price_cache_root(output_dir: str | Path) -> Path:
     out = Path(output_dir or "reports")
@@ -1773,6 +1816,12 @@ def _simulate_lifecycle_one(
         "stop_distance_from_entry1_pct": (float(stop_price) / entry1 - 1.0) * 100.0 if entry1 > 0 else np.nan,
         "stop_distance_from_avg_cost_pct": (float(stop_price) / (invested / shares) - 1.0) * 100.0 if shares > 0 else np.nan,
         "time_forced_exit": 0, "observation_end_only": int(lifecycle_status != "STRUCTURE_STOP"),
+        "aggregate_cohort_id": signal.get("aggregate_cohort_id", signal.get("cohort_id", "")),
+        "aggregate_cohort_start": signal.get("aggregate_cohort_start", signal.get("cohort_start", "")),
+        "aggregate_cohort_end": signal.get("aggregate_cohort_end", signal.get("cohort_end", "")),
+        "boundary_crossed": int(bool(signal.get("cohort_end")) and bool(end_date) and pd.Timestamp(end_date) > pd.Timestamp(signal.get("cohort_end"))),
+        "boundary_follow_days": (int((pd.Timestamp(end_date) - pd.Timestamp(signal.get("cohort_end"))).days)
+                                 if bool(signal.get("cohort_end")) and bool(end_date) and pd.Timestamp(end_date) > pd.Timestamp(signal.get("cohort_end")) else 0),
         "research_only": True, "live_logic_changed": False, "real_order_changed": False,
     }
     return rec, fills, horizon_rows
@@ -1783,6 +1832,43 @@ def _summary_pct(s: pd.Series) -> float:
     return float(q.mean() * 100.0) if len(q) else np.nan
 
 
+def _policy_stop_summary(policy_df: pd.DataFrame, summary_cohort_id: str) -> pd.DataFrame:
+    rows: List[Dict[str, Any]] = []
+    if policy_df is None or policy_df.empty:
+        return pd.DataFrame()
+    for lens, g in policy_df.groupby("stop_lens", dropna=False):
+        complete = pd.to_numeric(g.get("horizon_complete60"), errors="coerce").fillna(0).eq(1)
+        uncensored = g[complete]
+        below = pd.to_numeric(g.get("ever_below_avg_close"), errors="coerce").eq(1)
+        rows.append({
+            "version": VERSION, "cohort_id": summary_cohort_id, "stop_lens": lens,
+            "signals": len(g), "complete60": int(complete.sum()), "censored": int((~complete).sum()),
+            "structure_stop_rate_pct": float(g.get("lifecycle_status", pd.Series(dtype=str)).astype(str).eq("STRUCTURE_STOP").mean() * 100.0),
+            "survived60_rate_pct": float(g.get("lifecycle_status", pd.Series(dtype=str)).astype(str).eq("SURVIVED_60D_OBSERVATION_END").mean() * 100.0),
+            "entry2_fill_rate_pct": float(pd.to_numeric(g.get("entry_count"), errors="coerce").ge(2).mean() * 100.0),
+            "entry3_fill_rate_pct": float(pd.to_numeric(g.get("entry_count"), errors="coerce").ge(3).mean() * 100.0),
+            "drawdown_below_avg_rate_pct": float(below.mean() * 100.0),
+            "avg_recovery_rate_after_drawdown_pct": (
+                float(pd.to_numeric(g.loc[below, "avg_recovery_after_drawdown"], errors="coerce").eq(1).mean() * 100.0)
+                if below.any() else np.nan
+            ),
+            "avg_not_underwater_or_recovered_rate_pct": float(pd.to_numeric(g.get("avg_not_underwater_or_recovered"), errors="coerce").eq(1).mean() * 100.0),
+            "median_recovery_days": float(pd.to_numeric(g.get("avg_recovery_day"), errors="coerce").median()) if pd.to_numeric(g.get("avg_recovery_day"), errors="coerce").notna().any() else np.nan,
+            "h1_close_rebreak_rate_pct": float(pd.to_numeric(g.get("h1_rebreak_close_day"), errors="coerce").notna().mean() * 100.0),
+            "profit3_high_rate_pct": float(pd.to_numeric(g.get("profit3_high_day"), errors="coerce").notna().mean() * 100.0),
+            "profit5_high_rate_pct": float(pd.to_numeric(g.get("profit5_high_day"), errors="coerce").notna().mean() * 100.0),
+            "profit10_high_rate_pct": float(pd.to_numeric(g.get("profit10_high_day"), errors="coerce").notna().mean() * 100.0),
+            "median_mfe_pct": float(pd.to_numeric(g.get("mfe_pct"), errors="coerce").median()),
+            "median_mae_pct": float(pd.to_numeric(g.get("mae_pct"), errors="coerce").median()),
+            "median_capital_lock_days": float(pd.to_numeric(g.get("capital_lock_days"), errors="coerce").median()),
+            "median_final_planned_capital_pnl_pct_complete": float(pd.to_numeric(uncensored.get("final_planned_capital_pnl_pct"), errors="coerce").median()) if not uncensored.empty else np.nan,
+            "boundary_cross_rate_pct": float(pd.to_numeric(g.get("boundary_crossed"), errors="coerce").fillna(0).eq(1).mean() * 100.0),
+            "boundary_cross_n": int(pd.to_numeric(g.get("boundary_crossed"), errors="coerce").fillna(0).eq(1).sum()),
+            "research_only": True,
+        })
+    return pd.DataFrame(rows)
+
+
 def run_core224_lifecycle(
     output_dir: str | Path,
     state: pd.DataFrame,
@@ -1790,8 +1876,9 @@ def run_core224_lifecycle(
 ) -> Dict[str, Any]:
     """Run a no-download, research-only lifecycle study from causally observed RESTART rows.
 
-    Cohort boundaries only decide which signals belong to the run. They never liquidate a position.
-    Follow-up is read from the persistent price cache for up to 60 trading sessions beyond the signal.
+    Signal-cohort boundaries only decide ownership. They never liquidate positions. In ALL mode,
+    A/B/C/D signals are merged for aggregate reporting while every signal retains its original
+    six-month cohort label and can continue for up to 60 trading sessions beyond that boundary.
     """
     cfg = cfg or Core224LifecycleConfig(max_follow_days=max(20, _env_int_local("V25_LIFECYCLE_MAX_DAYS", 60)))
     out = _out_dir(output_dir)
@@ -1811,8 +1898,6 @@ def run_core224_lifecycle(
             cs = pd.Timestamp(cohort["requested_start"]); ce = pd.Timestamp(cohort["requested_end"])
             s = s[(s["signal_date"] >= cs) & (s["signal_date"] <= ce)]
         s = s[s.get("core224_state", pd.Series("", index=s.index)).astype(str).eq("CORE224_RESTART")]
-        # signal_date/code is the causal sampling identity. Never backfill a historical transition that
-        # happened before the stock's weekly materialized universe membership.
         s = s.sort_values(["signal_date", "code"]).drop_duplicates(["signal_date", "code"], keep="last")
         for _, r in s.iterrows():
             sig = r.to_dict(); code = _norm_code(sig.get("code", ""))
@@ -1822,11 +1907,15 @@ def run_core224_lifecycle(
             l0 = float(pd.to_numeric(pd.Series([sig.get("l0_low")]), errors="coerce").iloc[0]) if sig.get("l0_low") is not None else np.nan
             h1 = float(pd.to_numeric(pd.Series([sig.get("h1_high")]), errors="coerce").iloc[0]) if sig.get("h1_high") is not None else np.nan
             sig_date = pd.Timestamp(sig["signal_date"]).normalize()
+            owner = _signal_cohort_meta(sig_date, cohort)
             sig_rec = {
-                "version": VERSION, "cohort_id": cohort.get("cohort_id", "ROLLING"),
-                "cohort_start": cohort.get("requested_start", ""), "cohort_end": cohort.get("requested_end", ""),
+                "version": VERSION, "cohort_id": owner.get("cohort_id", cohort.get("cohort_id", "ROLLING")),
+                "cohort_start": owner.get("requested_start", cohort.get("requested_start", "")),
+                "cohort_end": owner.get("requested_end", cohort.get("requested_end", "")),
+                "aggregate_cohort_id": cohort.get("cohort_id", "ROLLING"),
+                "aggregate_cohort_start": cohort.get("requested_start", ""), "aggregate_cohort_end": cohort.get("requested_end", ""),
                 "boundary_forced_exit": 0, "code": code, "name": str(sig.get("name", "") or ""),
-                "signal_date": sig_date.strftime("%Y-%m-%d"), "source_state": "CORE224_RESTART",
+                "signal_date": sig_date.strftime("%Y-%m-%d"), "source_state": str(sig.get("core224_state", "")),
                 "l0_date": sig.get("l0_date", ""), "l0_low": l0, "h1_date": sig.get("h1_date", ""), "h1_high": h1,
                 "pullback_date": sig.get("pullback_date", ""), "healthy_date": sig.get("healthy_date", ""),
                 "restart_date": sig.get("restart_date", ""), "pullback_low": pb_low if pb_low is not None else np.nan,
@@ -1840,13 +1929,12 @@ def run_core224_lifecycle(
             sig_rec["lifecycle_eligible"] = int(bool(lenses) and not px.empty and sig_rec["signal_date_price_present"] == 1)
             signal_rows.append(sig_rec)
             cache_audit_rows.append({k: sig_rec.get(k) for k in (
-                "version","cohort_id","code","name","signal_date","cache_file","cache_rows","cache_min_date","cache_max_date",
-                "signal_date_price_present","stop_lens_count","lifecycle_eligible")})
+                "version","cohort_id","aggregate_cohort_id","code","name","signal_date","cohort_start","cohort_end",
+                "cache_file","cache_rows","cache_min_date","cache_max_date","signal_date_price_present","stop_lens_count","lifecycle_eligible")})
             if not sig_rec["lifecycle_eligible"]:
                 continue
             for lens_name, stop_price in lenses.items():
-                local = dict(sig_rec)
-                rec, fills, horizons = _simulate_lifecycle_one(local, px, lens_name, stop_price, cfg)
+                rec, fills, horizons = _simulate_lifecycle_one(dict(sig_rec), px, lens_name, stop_price, cfg)
                 policy_rows.append(rec); fill_rows.extend(fills); horizon_rows.extend(horizons)
 
     signal_df = pd.DataFrame(signal_rows)
@@ -1855,36 +1943,23 @@ def run_core224_lifecycle(
     horizon_df = pd.DataFrame(horizon_rows)
     censor_df = pd.DataFrame(cache_audit_rows)
 
-    stop_summary_rows = []
-    if not policy_df.empty:
-        for lens, g in policy_df.groupby("stop_lens", dropna=False):
-            complete = pd.to_numeric(g.get("horizon_complete60"), errors="coerce").fillna(0).eq(1)
-            uncensored = g[complete]
-            stop_summary_rows.append({
-                "version": VERSION, "cohort_id": cohort.get("cohort_id", "ROLLING"), "stop_lens": lens,
-                "signals": len(g), "complete60": int(complete.sum()), "censored": int((~complete).sum()),
-                "structure_stop_rate_pct": float(g.get("lifecycle_status", pd.Series(dtype=str)).astype(str).eq("STRUCTURE_STOP").mean() * 100.0),
-                "survived60_rate_pct": float(g.get("lifecycle_status", pd.Series(dtype=str)).astype(str).eq("SURVIVED_60D_OBSERVATION_END").mean() * 100.0),
-                "entry2_fill_rate_pct": float(pd.to_numeric(g.get("entry_count"), errors="coerce").ge(2).mean() * 100.0),
-                "entry3_fill_rate_pct": float(pd.to_numeric(g.get("entry_count"), errors="coerce").ge(3).mean() * 100.0),
-                "drawdown_below_avg_rate_pct": float(pd.to_numeric(g.get("ever_below_avg_close"), errors="coerce").eq(1).mean() * 100.0),
-                "avg_recovery_rate_after_drawdown_pct": (
-                    float(pd.to_numeric(g.loc[pd.to_numeric(g.get("ever_below_avg_close"), errors="coerce").eq(1), "avg_recovery_after_drawdown"], errors="coerce").eq(1).mean() * 100.0)
-                    if pd.to_numeric(g.get("ever_below_avg_close"), errors="coerce").eq(1).any() else np.nan
-                ),
-                "avg_not_underwater_or_recovered_rate_pct": float(pd.to_numeric(g.get("avg_not_underwater_or_recovered"), errors="coerce").eq(1).mean() * 100.0),
-                "median_recovery_days": float(pd.to_numeric(g.get("avg_recovery_day"), errors="coerce").median()) if pd.to_numeric(g.get("avg_recovery_day"), errors="coerce").notna().any() else np.nan,
-                "h1_close_rebreak_rate_pct": float(pd.to_numeric(g.get("h1_rebreak_close_day"), errors="coerce").notna().mean() * 100.0),
-                "profit3_high_rate_pct": float(pd.to_numeric(g.get("profit3_high_day"), errors="coerce").notna().mean() * 100.0),
-                "profit5_high_rate_pct": float(pd.to_numeric(g.get("profit5_high_day"), errors="coerce").notna().mean() * 100.0),
-                "profit10_high_rate_pct": float(pd.to_numeric(g.get("profit10_high_day"), errors="coerce").notna().mean() * 100.0),
-                "median_mfe_pct": float(pd.to_numeric(g.get("mfe_pct"), errors="coerce").median()),
-                "median_mae_pct": float(pd.to_numeric(g.get("mae_pct"), errors="coerce").median()),
-                "median_capital_lock_days": float(pd.to_numeric(g.get("capital_lock_days"), errors="coerce").median()),
-                "median_final_planned_capital_pnl_pct_complete": float(pd.to_numeric(uncensored.get("final_planned_capital_pnl_pct"), errors="coerce").median()) if not uncensored.empty else np.nan,
-                "research_only": True,
-            })
-    stop_summary = pd.DataFrame(stop_summary_rows)
+    # Aggregate 2-year stop-lens result.
+    stop_summary = _policy_stop_summary(policy_df, str(cohort.get("cohort_id", "ROLLING")))
+
+    # Per signal cohort result. In ALL mode this is A/B/C/D; in single mode it remains one cohort.
+    cohort_parts: List[pd.DataFrame] = []
+    if not policy_df.empty and "cohort_id" in policy_df.columns:
+        for cid, g in policy_df.groupby("cohort_id", dropna=False, sort=True):
+            z = _policy_stop_summary(g, str(cid))
+            if not z.empty:
+                meta = next((w for w in (cohort.get("cohort_windows") or []) if str(w.get("cohort_id")) == str(cid)), None)
+                if meta is None:
+                    meta = {"requested_start": cohort.get("requested_start", ""), "requested_end": cohort.get("requested_end", "")}
+                z.insert(2, "cohort_start", meta.get("requested_start", ""))
+                z.insert(3, "cohort_end", meta.get("requested_end", ""))
+                z["boundary_forced_exit"] = 0
+                cohort_parts.append(z)
+    cohort_summary = pd.concat(cohort_parts, ignore_index=True, sort=False) if cohort_parts else pd.DataFrame()
 
     horizon_summary_rows = []
     if not horizon_df.empty:
@@ -1907,6 +1982,7 @@ def run_core224_lifecycle(
     primary = policy_df[policy_df.get("stop_lens", pd.Series(dtype=str)).astype(str).eq("PB_LOW")].copy() if not policy_df.empty else pd.DataFrame()
     complete_primary = int(pd.to_numeric(primary.get("horizon_complete60"), errors="coerce").fillna(0).eq(1).sum()) if not primary.empty else 0
     censor_primary = int(primary.get("lifecycle_status", pd.Series(dtype=str)).astype(str).eq("OPEN_RIGHT_CENSORED").sum()) if not primary.empty else 0
+    boundary_cross_primary = int(pd.to_numeric(primary.get("boundary_crossed"), errors="coerce").fillna(0).eq(1).sum()) if not primary.empty else 0
     readiness_status = "DISABLED" if not enabled else (
         "WARMUP_NO_RESTART_SIGNALS" if len(signal_df) == 0 else
         "WARMUP_NO_ELIGIBLE_FOLLOWUP" if eligible_signals == 0 else
@@ -1918,17 +1994,13 @@ def run_core224_lifecycle(
         "version": VERSION, "status": readiness_status, "cohort_enabled": int(cohort.get("enabled", 0)),
         "cohort_mode": cohort.get("mode", "ROLLING"), "cohort_id": cohort.get("cohort_id", "ROLLING"),
         "cohort_start": cohort.get("requested_start", ""), "cohort_end": cohort.get("requested_end", ""),
-        "boundary_forced_exit": 0, "restart_signal_rows": len(signal_df), "eligible_restart_signals": eligible_signals,
+        "cohort_sequence": cohort.get("cohort_sequence", ""), "auto_chain": int(str(cohort.get("mode", "")).upper() == "ALL"),
+        "boundary_forced_exit": 0, "boundary_crossed_primary": boundary_cross_primary,
+        "restart_signal_rows": len(signal_df), "eligible_restart_signals": eligible_signals,
         "policy_rows": len(policy_df), "primary_pb_low_complete60": complete_primary, "primary_pb_low_censored": censor_primary,
         "max_follow_days": cfg.max_follow_days, "entry_weights": "/".join(f"{x:.2f}" for x in cfg.entry_weights),
         "live_logic_changed": False, "real_order_changed": False, "research_only": True,
     }])
-
-    cohort_summary = stop_summary.copy()
-    if not cohort_summary.empty:
-        cohort_summary.insert(2, "cohort_start", cohort.get("requested_start", ""))
-        cohort_summary.insert(3, "cohort_end", cohort.get("requested_end", ""))
-        cohort_summary["boundary_forced_exit"] = 0
 
     _write_csv(out / LIFECYCLE_SIGNAL_FILE, signal_df)
     _write_csv(out / LIFECYCLE_FILL_FILE, fill_df)
@@ -1947,6 +2019,13 @@ def run_core224_lifecycle(
         "- 손절 SHADOW: PB_LOW / Fib61.8 / Fib78.6 / L0 / HYBRID_TIGHTER · 수익률 보고 최적 손절 선택 금지",
         "- 구간 경계는 신호 소속만 결정합니다. 포지션은 경계에서 닫지 않고 최대 60거래일 추적하며, 데이터 부족은 OPEN_RIGHT_CENSORED로 분리합니다.",
     ]
+    if str(cohort.get("mode", "")).upper() == "ALL":
+        report_lines.append("🔁 [ALL 자동체인] 워크플로 1회 실행으로 A → B → C → D를 독립 6개월 코호트로 순차 계산한 뒤 parent에서 2년 전체를 합칩니다.")
+        counts = signal_df.get("cohort_id", pd.Series(dtype=str)).astype(str).value_counts().to_dict() if not signal_df.empty else {}
+        elig_counts = (signal_df.loc[pd.to_numeric(signal_df.get("lifecycle_eligible"), errors="coerce").fillna(0).eq(1), "cohort_id"].astype(str).value_counts().to_dict()
+                       if not signal_df.empty and "cohort_id" in signal_df.columns else {})
+        report_lines.append("- 코호트 RESTART/eligible: " + " · ".join(f"{c[-1]} {counts.get(c,0)}/{elig_counts.get(c,0)}" for c in ("COHORT_A","COHORT_B","COHORT_C","COHORT_D")))
+        report_lines.append(f"- PB_LOW 포지션 중 코호트 종료일을 넘어 추적된 사례 {boundary_cross_primary}건 · 경계에서 수익/손실 확정 처리 0건")
     if not primary_row.empty:
         report_lines.append(
             f"🎯 PB_LOW 기준: n{int(primary_row.get('signals',0) or 0)} · 구조손절 {float(primary_row.get('structure_stop_rate_pct',np.nan)):.1f}% · "
@@ -1954,7 +2033,7 @@ def run_core224_lifecycle(
             f"하회후회복 {float(primary_row.get('avg_recovery_rate_after_drawdown_pct',np.nan)):.1f}% · H1종가재돌파 {float(primary_row.get('h1_close_rebreak_rate_pct',np.nan)):.1f}% · "
             f"+5고가도달 {float(primary_row.get('profit5_high_rate_pct',np.nan)):.1f}%"
         )
-    report_lines.append(f"- CSV: {LIFECYCLE_SIGNAL_FILE} · {LIFECYCLE_FILL_FILE} · {LIFECYCLE_STOP_FILE} · {LIFECYCLE_HORIZON_FILE} · {LIFECYCLE_CENSOR_FILE} · {LIFECYCLE_READINESS_FILE}")
+    report_lines.append(f"- CSV: {LIFECYCLE_SIGNAL_FILE} · {LIFECYCLE_FILL_FILE} · {LIFECYCLE_STOP_FILE} · {LIFECYCLE_COHORT_FILE} · {LIFECYCLE_HORIZON_FILE} · {LIFECYCLE_CENSOR_FILE} · {LIFECYCLE_READINESS_FILE}")
     report = "\n".join(report_lines)
     (out / LIFECYCLE_REPORT_FILE).write_text(report, encoding="utf-8")
     return {
@@ -1962,7 +2041,6 @@ def run_core224_lifecycle(
         "cohort_summary": cohort_summary, "horizon": horizon_df, "horizon_summary": horizon_summary,
         "censoring": censor_df, "readiness": readiness, "report": report, "cohort": cohort,
     }
-
 
 def _reconcile_universe(payloads: List[Dict[str, Any]]) -> pd.DataFrame:
     rows = []
