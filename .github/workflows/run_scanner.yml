@@ -1,4 +1,4 @@
-name: Run Main Scanner V1107.4.5.73.3.6.6.25.3 CORE224 Cohort Lifecycle Complete
+name: Run Main Scanner V1107.4.5.73.3.6.6.25.3.1 CORE224 ALL Auto Cohort Lifecycle Complete
 
 on:
   schedule:
@@ -79,16 +79,17 @@ on:
           - SIGNAL_STOP_WITH_FALLBACK
           - BOTH_COMPARE
       v25_cohort_mode:
-        description: "CORE224 신호 코호트: 경계는 신호 소속만 결정하며 강제청산하지 않음"
+        description: "CORE224 신호 코호트: ALL=2년 A→B→C→D 자동 순차실행·통합, 경계 강제청산 없음"
         required: false
-        default: ROLLING
+        default: ALL
         type: choice
         options:
-          - ROLLING
+          - ALL
           - A
           - B
           - C
           - D
+          - ROLLING
           - CUSTOM
       v25_two_year_end_date:
         description: "A~D 분할의 2년 종료 기준일(YYYY-MM-DD, 비우면 실행일)"
@@ -142,7 +143,7 @@ concurrency:
 jobs:
   v23-backtest-shard:
     name: V24 TOP500 materialized+formula-shadow shard ${{ matrix.shard }} of 6
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_profile == 'WEEKLY_BACKTEST' && (inputs.backtest_source == 'DIRECT_REPLAY' || inputs.backtest_source == '') }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_profile == 'WEEKLY_BACKTEST' && (inputs.backtest_source == 'DIRECT_REPLAY' || inputs.backtest_source == '') && inputs.v25_cohort_mode != 'ALL' }}
     strategy:
       fail-fast: false
       max-parallel: 6
@@ -191,13 +192,14 @@ jobs:
       V23_SHARD_WORKER_ONLY: "1"
       V23_SHARD_INDEX: ${{ matrix.shard }}
       V23_SHARD_COUNT: "6"
+      V23_HANDOFF_COHORT_ID: ${{ inputs.v25_cohort_mode || 'ROLLING' }}
       V23_MERGE_ONLY_PARENT: "0"
       V23_ZERO_RECOMPUTE: "1"
       V23_MATERIALIZED_DIR: reports/v23_materialized
       V24_FORMULA_SHADOW_ENABLE: "1"
       V24_SHADOW_BYPASS_PRECOMBO: "0"
       V25_ORIGINAL_THESIS_ENABLE: "1"
-      V25_ORIGINAL_THESIS_REV: "25_3"
+      V25_ORIGINAL_THESIS_REV: "25_3_1"
       V25_MANUAL_SAMPLE_PER_BUCKET: "15"
       V25_COHORT_MODE: ${{ inputs.v25_cohort_mode || 'ROLLING' }}
       V25_TWO_YEAR_END_DATE: ${{ inputs.v25_two_year_end_date || '' }}
@@ -213,7 +215,7 @@ jobs:
       MARKET_EXCESS_RESEARCH_ENABLE: "1"
       KOSCOM_API_KEY: ${{ secrets.KOSCOM_API_KEY }}
       KOSCOM_APIGW_URL: https://oap.k-mydata.org
-      # V25.3: pykrx authority retained; cohort/lifecycle remains RESEARCH_ONLY. These secrets already existed in the parent job;
+      # V25.3.1: pykrx authority retained; cohort/lifecycle remains RESEARCH_ONLY. These secrets already existed in the parent job;
       # shard workers also need them because Historical-AsOf/CORE224 Amount authority is built inside shards.
       KRX_ID: ${{ secrets.KRX_DATA_ID }}
       KRX_PW: ${{ secrets.KRX_DATA_PW }}
@@ -251,7 +253,7 @@ jobs:
         run: |
           set -euo pipefail
           SRC="$(sha256sum main7_bugfix_2.py direct_replay_performance_v20.py historical_asof_universe.py direct_replay_sharding_v22.py direct_replay_materialized_v23.py pattern_catalyst_context_pipeline.py bear_winner_stability_diagnostic.py research_readiness_v24.py original_thesis_reconstruction.py | sha256sum | cut -c1-20)"
-          CFG="$(printf '%s' '${{ inputs.direct_top_n || '500' }}|${{ inputs.backtest_weeks || '24' }}|${{ inputs.backtest_hold_days || '10' }}|${{ inputs.backtest_stop_pct || '-5' }}|${{ inputs.backtest_stop_mode || 'SIGNAL_STOP_WITH_FALLBACK' }}|${{ inputs.v25_cohort_mode || 'ROLLING' }}|${{ inputs.v25_two_year_end_date || '' }}|${{ inputs.v25_cohort_start_date || '' }}|${{ inputs.v25_cohort_end_date || '' }}|6|V24_SHADOW_1|V25_ORIGINAL_THESIS_25_3|COHORT_BOUNDARY_NOT_EXIT|STRUCTURAL_SCALEIN_60D|DATA_AUTHORITY_25_2_2_KRX_AUTH|ALNUM_TICKER_IDENTITY' | sha256sum | cut -c1-16)"
+          CFG="$(printf '%s' '${{ inputs.direct_top_n || '500' }}|${{ inputs.backtest_weeks || '24' }}|${{ inputs.backtest_hold_days || '10' }}|${{ inputs.backtest_stop_pct || '-5' }}|${{ inputs.backtest_stop_mode || 'SIGNAL_STOP_WITH_FALLBACK' }}|${{ inputs.v25_cohort_mode || 'ROLLING' }}|${{ inputs.v25_two_year_end_date || '' }}|${{ inputs.v25_cohort_start_date || '' }}|${{ inputs.v25_cohort_end_date || '' }}|6|V24_SHADOW_1|V25_ORIGINAL_THESIS_25_3_1|COHORT_BOUNDARY_NOT_EXIT|STRUCTURAL_SCALEIN_60D|DATA_AUTHORITY_25_2_2_KRX_AUTH|ALNUM_TICKER_IDENTITY' | sha256sum | cut -c1-16)"
           PREFIX="stockhunter-v23-shard-${GITHUB_REF_NAME}-${{ matrix.shard }}-${SRC}-${CFG}"
           KEY="${PREFIX}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           echo "prefix=$PREFIX" >> "$GITHUB_OUTPUT"
@@ -315,13 +317,13 @@ jobs:
           echo "🚄 V23 shard worker ${{ matrix.shard }}/5 | topN=${V1081_DIRECT_TOP_N} weeks=${V1080_BACKTEST_WEEKS} materialized=1"
           python -B - <<'PYV25'
           import original_thesis_reconstruction as m
-          assert m.VERSION == "V73.3.6.6.25.3", m.VERSION
+          assert m.VERSION == "V73.3.6.6.25.3.1", m.VERSION
           assert m.RESEARCH_ONLY and not m.LIVE_LOGIC_CHANGED and not m.REAL_ORDER_CHANGED
-          print("✅ V25.3 shard activation + cohort lifecycle source contract PASS", m.VERSION)
+          print("✅ V25.3.1 shard activation + cohort lifecycle source contract PASS", m.VERSION)
           PYV25
-          grep -Fq "V73.3.6.6.25.3 ORIGINAL THESIS RECONSTRUCTION + CORE224 SHADOW + COHORT LIFECYCLE" main7_bugfix_2.py || { echo "❌ V25.3 main activation marker missing"; exit 206; }
+          grep -Fq "V73.3.6.6.25.3.1 ORIGINAL THESIS RECONSTRUCTION + CORE224 SHADOW + ALL COHORT AUTO CHAIN" main7_bugfix_2.py || { echo "❌ V25.3.1 main activation marker missing"; exit 206; }
           grep -Fq "V73.3.6.6.25.1.1 SHARD UNIVERSE OUTAGE RECOVERY" main7_bugfix_2.py || { echo "❌ V25.1.1 shard universe guard marker missing"; exit 207; }
-          grep -Fq "V73.3.6.6.25.3 DATA AUTHORITY + COHORT LIFECYCLE" main7_bugfix_2.py || { echo "❌ V25.3 data/lifecycle marker missing"; exit 208; }
+          grep -Fq "V73.3.6.6.25.3.1 DATA AUTHORITY + ALL COHORT LIFECYCLE" main7_bugfix_2.py || { echo "❌ V25.3.1 data/lifecycle marker missing"; exit 208; }
           python -u main7_bugfix_2.py 2>&1 | tee "reports/v73_v23_shard_${{ matrix.shard }}_stdout.log"
 
       - name: Save V23 shard cache explicitly
@@ -360,8 +362,899 @@ jobs:
           if-no-files-found: warn
           retention-days: 2
 
+
+  v23-backtest-shard-a:
+    name: V25 ALL A · TOP500 shard ${{ matrix.shard }} of 6
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_profile == 'WEEKLY_BACKTEST' && (inputs.backtest_source == 'DIRECT_REPLAY' || inputs.backtest_source == '') && inputs.v25_cohort_mode == 'ALL' }}
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5]
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    permissions:
+      contents: read
+    env:
+      TZ: Asia/Seoul
+      PYTHONUNBUFFERED: "1"
+      PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/scanner
+      STOCKHUNTER_WEEKLY_BACKTEST_ONLY: "1"
+      STOCKHUNTER_HAM_1503_ONLY: "0"
+      V1081_BACKTEST_SOURCE: DIRECT_REPLAY
+      V1081_DIRECT_DATE_MODE: WEEK_LAST
+      V1081_DIRECT_TOP_N: ${{ inputs.direct_top_n || '500' }}
+      V1081_DIRECT_LIMIT_PER_DATE: ${{ inputs.direct_limit_per_date || '15' }}
+      V1080_BACKTEST_WEEKS: ${{ inputs.backtest_weeks || '24' }}
+      V1080_BACKTEST_HOLD_DAYS: ${{ inputs.backtest_hold_days || '10' }}
+      V1080_BACKTEST_STOP_PCT: ${{ inputs.backtest_stop_pct || '-5' }}
+      V1082_BACKTEST_STOP_MODE: ${{ inputs.backtest_stop_mode || 'SIGNAL_STOP_WITH_FALLBACK' }}
+      V1080_BACKTEST_OUTPUT_DIR: reports
+      V1081_UNIVERSE_MODE: HISTORICAL_ASOF_TOP500_EVENT_EXPANSION
+      V1081_ASOF_LIQUIDITY_DAYS: "20"
+      V1081_ASOF_MIN_PRICE: "3000"
+      V1081_ASOF_MIN_MARCAP: "30000000000"
+      V1081_EVENT_EXPANSION_MAX: "100"
+      V1081_EVENT_AMOUNT_RATIO: "3.0"
+      V1081_EVENT_VOLUME_RATIO: "3.0"
+      V1081_EVENT_PREV_RET_PCT: "5.0"
+      V1081_EVENT_MIN_AMOUNT: "10000000000"
+      V20_REPLAY_ACCEL_ENABLE: "1"
+      V20_PRICE_PREFETCH_ENABLE: "1"
+      V20_PRICE_PREFETCH_WORKERS: "6"
+      V20_PRICE_DISK_CACHE_ENABLE: "1"
+      V20_REPLAY_RESUME_ENABLE: "1"
+      V20_PROGRESS_EVERY: "50"
+      V20_PRICE_CACHE_DIR: reports/.cache/v20_price_history
+      V20_ASOF_CACHE_DIR: reports/.cache/v20_asof_snapshots
+      V20_REPLAY_CHECKPOINT_DIR: reports/.cache/v20_replay_checkpoint
+      V22_SHARD_WORKER_ONLY: "0"
+      V22_NEWEST_FIRST_CACHE_PRIME: "1"
+      V22_FAST_GATE_MODE: AUDIT_ONLY
+      V23_SHARD_WORKER_ONLY: "1"
+      V23_SHARD_INDEX: ${{ matrix.shard }}
+      V23_SHARD_COUNT: "6"
+      V23_HANDOFF_COHORT_ID: "A"
+      V23_MERGE_ONLY_PARENT: "0"
+      V23_ZERO_RECOMPUTE: "1"
+      V23_MATERIALIZED_DIR: reports/v23_materialized
+      V24_FORMULA_SHADOW_ENABLE: "1"
+      V24_SHADOW_BYPASS_PRECOMBO: "0"
+      V25_ORIGINAL_THESIS_ENABLE: "1"
+      V25_ORIGINAL_THESIS_REV: "25_3_1"
+      V25_MANUAL_SAMPLE_PER_BUCKET: "15"
+      V25_COHORT_MODE: "A"
+      V25_TWO_YEAR_END_DATE: ${{ inputs.v25_two_year_end_date || '' }}
+      V25_COHORT_START_DATE: ${{ inputs.v25_cohort_start_date || '' }}
+      V25_COHORT_END_DATE: ${{ inputs.v25_cohort_end_date || '' }}
+      V25_COHORT_DATE_MODE: WEEK_LAST
+      V25_LIFECYCLE_ENABLE: "1"
+      V25_LIFECYCLE_MAX_DAYS: "60"
+      HAM_RESEARCH_ONLY: "1"
+      FAMILIAR_RESEARCH_ENABLE: "1"
+      FAMILIAR_RESEARCH_ONLY: "1"
+      PATTERN_AI_CROSS_RESEARCH_ENABLE: "1"
+      MARKET_EXCESS_RESEARCH_ENABLE: "1"
+      KOSCOM_API_KEY: ${{ secrets.KOSCOM_API_KEY }}
+      KOSCOM_APIGW_URL: https://oap.k-mydata.org
+      # V25.3.1: pykrx authority retained; cohort/lifecycle remains RESEARCH_ONLY. These secrets already existed in the parent job;
+      # shard workers also need them because Historical-AsOf/CORE224 Amount authority is built inside shards.
+      KRX_ID: ${{ secrets.KRX_DATA_ID }}
+      KRX_PW: ${{ secrets.KRX_DATA_PW }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install shard dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas requests beautifulsoup4 pytz scipy ta finance-datareader pykrx mplfinance
+          pip install openai google-generativeai gspread gspread-formatting gspread-dataframe google-auth oauth2client
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; else echo "requirements.txt not found, skip"; fi
+
+      - name: V25 KRX authority credential preflight
+        if: env.V25_ORIGINAL_THESIS_ENABLE == '1'
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os
+          ok=bool(os.getenv('KRX_ID','').strip()) and bool(os.getenv('KRX_PW','').strip())
+          print('V25_KRX_AUTH_ENV', 'READY' if ok else 'MISSING', '| secret_values_not_printed=1')
+          if not ok:
+              print('::warning::V25 actual Amount/Historical-AsOf authority will remain fail-closed because KRX_DATA_ID/KRX_DATA_PW are not configured.')
+          PY
+
+      - name: Build V23 shard cache identity
+        id: v23-shard-key
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="$(sha256sum main7_bugfix_2.py direct_replay_performance_v20.py historical_asof_universe.py direct_replay_sharding_v22.py direct_replay_materialized_v23.py pattern_catalyst_context_pipeline.py bear_winner_stability_diagnostic.py research_readiness_v24.py original_thesis_reconstruction.py | sha256sum | cut -c1-20)"
+          CFG="$(printf '%s' '${{ inputs.direct_top_n || '500' }}|${{ inputs.backtest_weeks || '24' }}|${{ inputs.backtest_hold_days || '10' }}|${{ inputs.backtest_stop_pct || '-5' }}|${{ inputs.backtest_stop_mode || 'SIGNAL_STOP_WITH_FALLBACK' }}|A|${{ inputs.v25_two_year_end_date || '' }}|${{ inputs.v25_cohort_start_date || '' }}|${{ inputs.v25_cohort_end_date || '' }}|6|V24_SHADOW_1|V25_ORIGINAL_THESIS_25_3_1|COHORT_BOUNDARY_NOT_EXIT|STRUCTURAL_SCALEIN_60D|DATA_AUTHORITY_25_2_2_KRX_AUTH|ALNUM_TICKER_IDENTITY' | sha256sum | cut -c1-16)"
+          PREFIX="stockhunter-v23-shard-${GITHUB_REF_NAME}-${{ matrix.shard }}-${SRC}-${CFG}"
+          KEY="${PREFIX}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "prefix=$PREFIX" >> "$GITHUB_OUTPUT"
+          echo "key=$KEY" >> "$GITHUB_OUTPUT"
+          echo "V23_SHARD_CACHE identity shard=${{ matrix.shard }} prefix=$PREFIX key=$KEY"
+
+      - name: Restore V23 shard cache
+        id: v23-shard-restore
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            reports/.cache/v20_price_history
+            reports/.cache/v20_asof_snapshots
+            reports/.cache/v25_actual_amount_history
+            reports/.cache/v20_replay_checkpoint
+            reports/v23_materialized
+          key: ${{ steps.v23-shard-key.outputs.key }}
+          restore-keys: |
+            ${{ steps.v23-shard-key.outputs.prefix }}-
+            stockhunter-v23-shard-${{ github.ref_name }}-${{ matrix.shard }}-
+
+      - name: Restore V73 listing seed for shard universe
+        id: v25-shard-listing-seed
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            reports/v73_listing_cache.csv
+            reports/v73_filter_rejection_ledger.csv
+            reports/v73_discovery_stage_ledger.csv
+          key: stockhunter-v73-state-${{ github.ref_name }}-${{ github.run_id }}-shard-${{ matrix.shard }}
+          restore-keys: |
+            stockhunter-v73-state-${{ github.ref_name }}-
+            stockhunter-v73-state-
+
+      - name: Inspect V25 shard universe seed
+        shell: bash
+        run: |
+          set +e
+          echo "V25_SHARD_SEED cache-hit=${{ steps.v25-shard-listing-seed.outputs.cache-hit }} matched=${{ steps.v25-shard-listing-seed.outputs.cache-matched-key }}"
+          python - <<'PYSEED'
+          from pathlib import Path
+          import pandas as pd
+          p=Path('reports/v73_listing_cache.csv')
+          if p.exists():
+              try:
+                  d=pd.read_csv(p,dtype={'Code':str},low_memory=False)
+                  print('V25_SHARD_SEED listing_rows',len(d),'codes',d.get('Code',pd.Series(dtype=str)).astype(str).nunique())
+              except Exception as e:
+                  print('V25_SHARD_SEED listing_read_error',type(e).__name__,e)
+          else:
+              print('V25_SHARD_SEED listing_rows 0 (cache file missing; provider fallback remains enabled)')
+          PYSEED
+
+      - name: Run V23 materialized shard worker
+        id: v23-shard-worker
+        timeout-minutes: 155
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p reports/.cache/v20_price_history reports/.cache/v20_asof_snapshots reports/.cache/v25_actual_amount_history reports/.cache/v20_replay_checkpoint reports/v23_materialized
+          echo "🚄 V23 ALL cohort A shard ${{ matrix.shard }}/5 | topN=${V1081_DIRECT_TOP_N} weeks=${V1080_BACKTEST_WEEKS} materialized=1"
+          python -B - <<'PYV25'
+          import original_thesis_reconstruction as m
+          assert m.VERSION == "V73.3.6.6.25.3.1", m.VERSION
+          assert m.RESEARCH_ONLY and not m.LIVE_LOGIC_CHANGED and not m.REAL_ORDER_CHANGED
+          print("✅ V25.3.1 shard activation + cohort lifecycle source contract PASS", m.VERSION)
+          PYV25
+          grep -Fq "V73.3.6.6.25.3.1 ORIGINAL THESIS RECONSTRUCTION + CORE224 SHADOW + ALL COHORT AUTO CHAIN" main7_bugfix_2.py || { echo "❌ V25.3.1 main activation marker missing"; exit 206; }
+          grep -Fq "V73.3.6.6.25.1.1 SHARD UNIVERSE OUTAGE RECOVERY" main7_bugfix_2.py || { echo "❌ V25.1.1 shard universe guard marker missing"; exit 207; }
+          grep -Fq "V73.3.6.6.25.3.1 DATA AUTHORITY + ALL COHORT LIFECYCLE" main7_bugfix_2.py || { echo "❌ V25.3.1 data/lifecycle marker missing"; exit 208; }
+          python -u main7_bugfix_2.py 2>&1 | tee "reports/v73_v23_shard_A_${{ matrix.shard }}_stdout.log"
+
+      - name: Save V23 shard cache explicitly
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            reports/.cache/v20_price_history
+            reports/.cache/v20_asof_snapshots
+            reports/.cache/v25_actual_amount_history
+            reports/.cache/v20_replay_checkpoint
+            reports/v23_materialized
+          key: ${{ steps.v23-shard-key.outputs.key }}
+
+      - name: Package V23 same-run materialized handoff
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          mkdir -p reports/.cache/v20_price_history reports/.cache/v20_asof_snapshots reports/.cache/v25_actual_amount_history reports/.cache/v20_replay_checkpoint reports/v23_materialized
+          if [ ! -f reports/v73_v23_shard_manifest.json ]; then
+            echo '{"version":"V73.3.6.6.23","status":"PARTIAL","errors":["SHARD_MANIFEST_MISSING_AFTER_WORKER"]}' > reports/v73_v23_shard_manifest.json
+          fi
+          python -u direct_replay_materialized_v23.py --package-handoff "v23_shard_A_${{ matrix.shard }}_handoff.tar.gz" --output-dir reports
+          rc=$?
+          echo "V23_PACKAGE rc=$rc"
+          ls -lh "v23_shard_A_${{ matrix.shard }}_handoff.tar.gz" 2>/dev/null || true
+          exit 0
+
+      - name: Upload V23 shard handoff
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-v23-shard-A-${{ matrix.shard }}-${{ github.run_id }}
+          path: v23_shard_A_${{ matrix.shard }}_handoff.tar.gz
+          if-no-files-found: warn
+          retention-days: 2
+
+
+  v23-backtest-shard-b:
+    needs: [v23-backtest-shard-a]
+    name: V25 ALL B · TOP500 shard ${{ matrix.shard }} of 6
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_profile == 'WEEKLY_BACKTEST' && (inputs.backtest_source == 'DIRECT_REPLAY' || inputs.backtest_source == '') && inputs.v25_cohort_mode == 'ALL' }}
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5]
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    permissions:
+      contents: read
+    env:
+      TZ: Asia/Seoul
+      PYTHONUNBUFFERED: "1"
+      PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/scanner
+      STOCKHUNTER_WEEKLY_BACKTEST_ONLY: "1"
+      STOCKHUNTER_HAM_1503_ONLY: "0"
+      V1081_BACKTEST_SOURCE: DIRECT_REPLAY
+      V1081_DIRECT_DATE_MODE: WEEK_LAST
+      V1081_DIRECT_TOP_N: ${{ inputs.direct_top_n || '500' }}
+      V1081_DIRECT_LIMIT_PER_DATE: ${{ inputs.direct_limit_per_date || '15' }}
+      V1080_BACKTEST_WEEKS: ${{ inputs.backtest_weeks || '24' }}
+      V1080_BACKTEST_HOLD_DAYS: ${{ inputs.backtest_hold_days || '10' }}
+      V1080_BACKTEST_STOP_PCT: ${{ inputs.backtest_stop_pct || '-5' }}
+      V1082_BACKTEST_STOP_MODE: ${{ inputs.backtest_stop_mode || 'SIGNAL_STOP_WITH_FALLBACK' }}
+      V1080_BACKTEST_OUTPUT_DIR: reports
+      V1081_UNIVERSE_MODE: HISTORICAL_ASOF_TOP500_EVENT_EXPANSION
+      V1081_ASOF_LIQUIDITY_DAYS: "20"
+      V1081_ASOF_MIN_PRICE: "3000"
+      V1081_ASOF_MIN_MARCAP: "30000000000"
+      V1081_EVENT_EXPANSION_MAX: "100"
+      V1081_EVENT_AMOUNT_RATIO: "3.0"
+      V1081_EVENT_VOLUME_RATIO: "3.0"
+      V1081_EVENT_PREV_RET_PCT: "5.0"
+      V1081_EVENT_MIN_AMOUNT: "10000000000"
+      V20_REPLAY_ACCEL_ENABLE: "1"
+      V20_PRICE_PREFETCH_ENABLE: "1"
+      V20_PRICE_PREFETCH_WORKERS: "6"
+      V20_PRICE_DISK_CACHE_ENABLE: "1"
+      V20_REPLAY_RESUME_ENABLE: "1"
+      V20_PROGRESS_EVERY: "50"
+      V20_PRICE_CACHE_DIR: reports/.cache/v20_price_history
+      V20_ASOF_CACHE_DIR: reports/.cache/v20_asof_snapshots
+      V20_REPLAY_CHECKPOINT_DIR: reports/.cache/v20_replay_checkpoint
+      V22_SHARD_WORKER_ONLY: "0"
+      V22_NEWEST_FIRST_CACHE_PRIME: "1"
+      V22_FAST_GATE_MODE: AUDIT_ONLY
+      V23_SHARD_WORKER_ONLY: "1"
+      V23_SHARD_INDEX: ${{ matrix.shard }}
+      V23_SHARD_COUNT: "6"
+      V23_HANDOFF_COHORT_ID: "B"
+      V23_MERGE_ONLY_PARENT: "0"
+      V23_ZERO_RECOMPUTE: "1"
+      V23_MATERIALIZED_DIR: reports/v23_materialized
+      V24_FORMULA_SHADOW_ENABLE: "1"
+      V24_SHADOW_BYPASS_PRECOMBO: "0"
+      V25_ORIGINAL_THESIS_ENABLE: "1"
+      V25_ORIGINAL_THESIS_REV: "25_3_1"
+      V25_MANUAL_SAMPLE_PER_BUCKET: "15"
+      V25_COHORT_MODE: "B"
+      V25_TWO_YEAR_END_DATE: ${{ inputs.v25_two_year_end_date || '' }}
+      V25_COHORT_START_DATE: ${{ inputs.v25_cohort_start_date || '' }}
+      V25_COHORT_END_DATE: ${{ inputs.v25_cohort_end_date || '' }}
+      V25_COHORT_DATE_MODE: WEEK_LAST
+      V25_LIFECYCLE_ENABLE: "1"
+      V25_LIFECYCLE_MAX_DAYS: "60"
+      HAM_RESEARCH_ONLY: "1"
+      FAMILIAR_RESEARCH_ENABLE: "1"
+      FAMILIAR_RESEARCH_ONLY: "1"
+      PATTERN_AI_CROSS_RESEARCH_ENABLE: "1"
+      MARKET_EXCESS_RESEARCH_ENABLE: "1"
+      KOSCOM_API_KEY: ${{ secrets.KOSCOM_API_KEY }}
+      KOSCOM_APIGW_URL: https://oap.k-mydata.org
+      # V25.3.1: pykrx authority retained; cohort/lifecycle remains RESEARCH_ONLY. These secrets already existed in the parent job;
+      # shard workers also need them because Historical-AsOf/CORE224 Amount authority is built inside shards.
+      KRX_ID: ${{ secrets.KRX_DATA_ID }}
+      KRX_PW: ${{ secrets.KRX_DATA_PW }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install shard dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas requests beautifulsoup4 pytz scipy ta finance-datareader pykrx mplfinance
+          pip install openai google-generativeai gspread gspread-formatting gspread-dataframe google-auth oauth2client
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; else echo "requirements.txt not found, skip"; fi
+
+      - name: V25 KRX authority credential preflight
+        if: env.V25_ORIGINAL_THESIS_ENABLE == '1'
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os
+          ok=bool(os.getenv('KRX_ID','').strip()) and bool(os.getenv('KRX_PW','').strip())
+          print('V25_KRX_AUTH_ENV', 'READY' if ok else 'MISSING', '| secret_values_not_printed=1')
+          if not ok:
+              print('::warning::V25 actual Amount/Historical-AsOf authority will remain fail-closed because KRX_DATA_ID/KRX_DATA_PW are not configured.')
+          PY
+
+      - name: Build V23 shard cache identity
+        id: v23-shard-key
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="$(sha256sum main7_bugfix_2.py direct_replay_performance_v20.py historical_asof_universe.py direct_replay_sharding_v22.py direct_replay_materialized_v23.py pattern_catalyst_context_pipeline.py bear_winner_stability_diagnostic.py research_readiness_v24.py original_thesis_reconstruction.py | sha256sum | cut -c1-20)"
+          CFG="$(printf '%s' '${{ inputs.direct_top_n || '500' }}|${{ inputs.backtest_weeks || '24' }}|${{ inputs.backtest_hold_days || '10' }}|${{ inputs.backtest_stop_pct || '-5' }}|${{ inputs.backtest_stop_mode || 'SIGNAL_STOP_WITH_FALLBACK' }}|B|${{ inputs.v25_two_year_end_date || '' }}|${{ inputs.v25_cohort_start_date || '' }}|${{ inputs.v25_cohort_end_date || '' }}|6|V24_SHADOW_1|V25_ORIGINAL_THESIS_25_3_1|COHORT_BOUNDARY_NOT_EXIT|STRUCTURAL_SCALEIN_60D|DATA_AUTHORITY_25_2_2_KRX_AUTH|ALNUM_TICKER_IDENTITY' | sha256sum | cut -c1-16)"
+          PREFIX="stockhunter-v23-shard-${GITHUB_REF_NAME}-${{ matrix.shard }}-${SRC}-${CFG}"
+          KEY="${PREFIX}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "prefix=$PREFIX" >> "$GITHUB_OUTPUT"
+          echo "key=$KEY" >> "$GITHUB_OUTPUT"
+          echo "V23_SHARD_CACHE identity shard=${{ matrix.shard }} prefix=$PREFIX key=$KEY"
+
+      - name: Restore V23 shard cache
+        id: v23-shard-restore
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            reports/.cache/v20_price_history
+            reports/.cache/v20_asof_snapshots
+            reports/.cache/v25_actual_amount_history
+            reports/.cache/v20_replay_checkpoint
+            reports/v23_materialized
+          key: ${{ steps.v23-shard-key.outputs.key }}
+          restore-keys: |
+            ${{ steps.v23-shard-key.outputs.prefix }}-
+            stockhunter-v23-shard-${{ github.ref_name }}-${{ matrix.shard }}-
+
+      - name: Restore V73 listing seed for shard universe
+        id: v25-shard-listing-seed
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            reports/v73_listing_cache.csv
+            reports/v73_filter_rejection_ledger.csv
+            reports/v73_discovery_stage_ledger.csv
+          key: stockhunter-v73-state-${{ github.ref_name }}-${{ github.run_id }}-shard-${{ matrix.shard }}
+          restore-keys: |
+            stockhunter-v73-state-${{ github.ref_name }}-
+            stockhunter-v73-state-
+
+      - name: Inspect V25 shard universe seed
+        shell: bash
+        run: |
+          set +e
+          echo "V25_SHARD_SEED cache-hit=${{ steps.v25-shard-listing-seed.outputs.cache-hit }} matched=${{ steps.v25-shard-listing-seed.outputs.cache-matched-key }}"
+          python - <<'PYSEED'
+          from pathlib import Path
+          import pandas as pd
+          p=Path('reports/v73_listing_cache.csv')
+          if p.exists():
+              try:
+                  d=pd.read_csv(p,dtype={'Code':str},low_memory=False)
+                  print('V25_SHARD_SEED listing_rows',len(d),'codes',d.get('Code',pd.Series(dtype=str)).astype(str).nunique())
+              except Exception as e:
+                  print('V25_SHARD_SEED listing_read_error',type(e).__name__,e)
+          else:
+              print('V25_SHARD_SEED listing_rows 0 (cache file missing; provider fallback remains enabled)')
+          PYSEED
+
+      - name: Run V23 materialized shard worker
+        id: v23-shard-worker
+        timeout-minutes: 155
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p reports/.cache/v20_price_history reports/.cache/v20_asof_snapshots reports/.cache/v25_actual_amount_history reports/.cache/v20_replay_checkpoint reports/v23_materialized
+          echo "🚄 V23 ALL cohort B shard ${{ matrix.shard }}/5 | topN=${V1081_DIRECT_TOP_N} weeks=${V1080_BACKTEST_WEEKS} materialized=1"
+          python -B - <<'PYV25'
+          import original_thesis_reconstruction as m
+          assert m.VERSION == "V73.3.6.6.25.3.1", m.VERSION
+          assert m.RESEARCH_ONLY and not m.LIVE_LOGIC_CHANGED and not m.REAL_ORDER_CHANGED
+          print("✅ V25.3.1 shard activation + cohort lifecycle source contract PASS", m.VERSION)
+          PYV25
+          grep -Fq "V73.3.6.6.25.3.1 ORIGINAL THESIS RECONSTRUCTION + CORE224 SHADOW + ALL COHORT AUTO CHAIN" main7_bugfix_2.py || { echo "❌ V25.3.1 main activation marker missing"; exit 206; }
+          grep -Fq "V73.3.6.6.25.1.1 SHARD UNIVERSE OUTAGE RECOVERY" main7_bugfix_2.py || { echo "❌ V25.1.1 shard universe guard marker missing"; exit 207; }
+          grep -Fq "V73.3.6.6.25.3.1 DATA AUTHORITY + ALL COHORT LIFECYCLE" main7_bugfix_2.py || { echo "❌ V25.3.1 data/lifecycle marker missing"; exit 208; }
+          python -u main7_bugfix_2.py 2>&1 | tee "reports/v73_v23_shard_B_${{ matrix.shard }}_stdout.log"
+
+      - name: Save V23 shard cache explicitly
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            reports/.cache/v20_price_history
+            reports/.cache/v20_asof_snapshots
+            reports/.cache/v25_actual_amount_history
+            reports/.cache/v20_replay_checkpoint
+            reports/v23_materialized
+          key: ${{ steps.v23-shard-key.outputs.key }}
+
+      - name: Package V23 same-run materialized handoff
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          mkdir -p reports/.cache/v20_price_history reports/.cache/v20_asof_snapshots reports/.cache/v25_actual_amount_history reports/.cache/v20_replay_checkpoint reports/v23_materialized
+          if [ ! -f reports/v73_v23_shard_manifest.json ]; then
+            echo '{"version":"V73.3.6.6.23","status":"PARTIAL","errors":["SHARD_MANIFEST_MISSING_AFTER_WORKER"]}' > reports/v73_v23_shard_manifest.json
+          fi
+          python -u direct_replay_materialized_v23.py --package-handoff "v23_shard_B_${{ matrix.shard }}_handoff.tar.gz" --output-dir reports
+          rc=$?
+          echo "V23_PACKAGE rc=$rc"
+          ls -lh "v23_shard_B_${{ matrix.shard }}_handoff.tar.gz" 2>/dev/null || true
+          exit 0
+
+      - name: Upload V23 shard handoff
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-v23-shard-B-${{ matrix.shard }}-${{ github.run_id }}
+          path: v23_shard_B_${{ matrix.shard }}_handoff.tar.gz
+          if-no-files-found: warn
+          retention-days: 2
+
+
+  v23-backtest-shard-c:
+    needs: [v23-backtest-shard-b]
+    name: V25 ALL C · TOP500 shard ${{ matrix.shard }} of 6
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_profile == 'WEEKLY_BACKTEST' && (inputs.backtest_source == 'DIRECT_REPLAY' || inputs.backtest_source == '') && inputs.v25_cohort_mode == 'ALL' }}
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5]
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    permissions:
+      contents: read
+    env:
+      TZ: Asia/Seoul
+      PYTHONUNBUFFERED: "1"
+      PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/scanner
+      STOCKHUNTER_WEEKLY_BACKTEST_ONLY: "1"
+      STOCKHUNTER_HAM_1503_ONLY: "0"
+      V1081_BACKTEST_SOURCE: DIRECT_REPLAY
+      V1081_DIRECT_DATE_MODE: WEEK_LAST
+      V1081_DIRECT_TOP_N: ${{ inputs.direct_top_n || '500' }}
+      V1081_DIRECT_LIMIT_PER_DATE: ${{ inputs.direct_limit_per_date || '15' }}
+      V1080_BACKTEST_WEEKS: ${{ inputs.backtest_weeks || '24' }}
+      V1080_BACKTEST_HOLD_DAYS: ${{ inputs.backtest_hold_days || '10' }}
+      V1080_BACKTEST_STOP_PCT: ${{ inputs.backtest_stop_pct || '-5' }}
+      V1082_BACKTEST_STOP_MODE: ${{ inputs.backtest_stop_mode || 'SIGNAL_STOP_WITH_FALLBACK' }}
+      V1080_BACKTEST_OUTPUT_DIR: reports
+      V1081_UNIVERSE_MODE: HISTORICAL_ASOF_TOP500_EVENT_EXPANSION
+      V1081_ASOF_LIQUIDITY_DAYS: "20"
+      V1081_ASOF_MIN_PRICE: "3000"
+      V1081_ASOF_MIN_MARCAP: "30000000000"
+      V1081_EVENT_EXPANSION_MAX: "100"
+      V1081_EVENT_AMOUNT_RATIO: "3.0"
+      V1081_EVENT_VOLUME_RATIO: "3.0"
+      V1081_EVENT_PREV_RET_PCT: "5.0"
+      V1081_EVENT_MIN_AMOUNT: "10000000000"
+      V20_REPLAY_ACCEL_ENABLE: "1"
+      V20_PRICE_PREFETCH_ENABLE: "1"
+      V20_PRICE_PREFETCH_WORKERS: "6"
+      V20_PRICE_DISK_CACHE_ENABLE: "1"
+      V20_REPLAY_RESUME_ENABLE: "1"
+      V20_PROGRESS_EVERY: "50"
+      V20_PRICE_CACHE_DIR: reports/.cache/v20_price_history
+      V20_ASOF_CACHE_DIR: reports/.cache/v20_asof_snapshots
+      V20_REPLAY_CHECKPOINT_DIR: reports/.cache/v20_replay_checkpoint
+      V22_SHARD_WORKER_ONLY: "0"
+      V22_NEWEST_FIRST_CACHE_PRIME: "1"
+      V22_FAST_GATE_MODE: AUDIT_ONLY
+      V23_SHARD_WORKER_ONLY: "1"
+      V23_SHARD_INDEX: ${{ matrix.shard }}
+      V23_SHARD_COUNT: "6"
+      V23_HANDOFF_COHORT_ID: "C"
+      V23_MERGE_ONLY_PARENT: "0"
+      V23_ZERO_RECOMPUTE: "1"
+      V23_MATERIALIZED_DIR: reports/v23_materialized
+      V24_FORMULA_SHADOW_ENABLE: "1"
+      V24_SHADOW_BYPASS_PRECOMBO: "0"
+      V25_ORIGINAL_THESIS_ENABLE: "1"
+      V25_ORIGINAL_THESIS_REV: "25_3_1"
+      V25_MANUAL_SAMPLE_PER_BUCKET: "15"
+      V25_COHORT_MODE: "C"
+      V25_TWO_YEAR_END_DATE: ${{ inputs.v25_two_year_end_date || '' }}
+      V25_COHORT_START_DATE: ${{ inputs.v25_cohort_start_date || '' }}
+      V25_COHORT_END_DATE: ${{ inputs.v25_cohort_end_date || '' }}
+      V25_COHORT_DATE_MODE: WEEK_LAST
+      V25_LIFECYCLE_ENABLE: "1"
+      V25_LIFECYCLE_MAX_DAYS: "60"
+      HAM_RESEARCH_ONLY: "1"
+      FAMILIAR_RESEARCH_ENABLE: "1"
+      FAMILIAR_RESEARCH_ONLY: "1"
+      PATTERN_AI_CROSS_RESEARCH_ENABLE: "1"
+      MARKET_EXCESS_RESEARCH_ENABLE: "1"
+      KOSCOM_API_KEY: ${{ secrets.KOSCOM_API_KEY }}
+      KOSCOM_APIGW_URL: https://oap.k-mydata.org
+      # V25.3.1: pykrx authority retained; cohort/lifecycle remains RESEARCH_ONLY. These secrets already existed in the parent job;
+      # shard workers also need them because Historical-AsOf/CORE224 Amount authority is built inside shards.
+      KRX_ID: ${{ secrets.KRX_DATA_ID }}
+      KRX_PW: ${{ secrets.KRX_DATA_PW }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install shard dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas requests beautifulsoup4 pytz scipy ta finance-datareader pykrx mplfinance
+          pip install openai google-generativeai gspread gspread-formatting gspread-dataframe google-auth oauth2client
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; else echo "requirements.txt not found, skip"; fi
+
+      - name: V25 KRX authority credential preflight
+        if: env.V25_ORIGINAL_THESIS_ENABLE == '1'
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os
+          ok=bool(os.getenv('KRX_ID','').strip()) and bool(os.getenv('KRX_PW','').strip())
+          print('V25_KRX_AUTH_ENV', 'READY' if ok else 'MISSING', '| secret_values_not_printed=1')
+          if not ok:
+              print('::warning::V25 actual Amount/Historical-AsOf authority will remain fail-closed because KRX_DATA_ID/KRX_DATA_PW are not configured.')
+          PY
+
+      - name: Build V23 shard cache identity
+        id: v23-shard-key
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="$(sha256sum main7_bugfix_2.py direct_replay_performance_v20.py historical_asof_universe.py direct_replay_sharding_v22.py direct_replay_materialized_v23.py pattern_catalyst_context_pipeline.py bear_winner_stability_diagnostic.py research_readiness_v24.py original_thesis_reconstruction.py | sha256sum | cut -c1-20)"
+          CFG="$(printf '%s' '${{ inputs.direct_top_n || '500' }}|${{ inputs.backtest_weeks || '24' }}|${{ inputs.backtest_hold_days || '10' }}|${{ inputs.backtest_stop_pct || '-5' }}|${{ inputs.backtest_stop_mode || 'SIGNAL_STOP_WITH_FALLBACK' }}|C|${{ inputs.v25_two_year_end_date || '' }}|${{ inputs.v25_cohort_start_date || '' }}|${{ inputs.v25_cohort_end_date || '' }}|6|V24_SHADOW_1|V25_ORIGINAL_THESIS_25_3_1|COHORT_BOUNDARY_NOT_EXIT|STRUCTURAL_SCALEIN_60D|DATA_AUTHORITY_25_2_2_KRX_AUTH|ALNUM_TICKER_IDENTITY' | sha256sum | cut -c1-16)"
+          PREFIX="stockhunter-v23-shard-${GITHUB_REF_NAME}-${{ matrix.shard }}-${SRC}-${CFG}"
+          KEY="${PREFIX}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "prefix=$PREFIX" >> "$GITHUB_OUTPUT"
+          echo "key=$KEY" >> "$GITHUB_OUTPUT"
+          echo "V23_SHARD_CACHE identity shard=${{ matrix.shard }} prefix=$PREFIX key=$KEY"
+
+      - name: Restore V23 shard cache
+        id: v23-shard-restore
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            reports/.cache/v20_price_history
+            reports/.cache/v20_asof_snapshots
+            reports/.cache/v25_actual_amount_history
+            reports/.cache/v20_replay_checkpoint
+            reports/v23_materialized
+          key: ${{ steps.v23-shard-key.outputs.key }}
+          restore-keys: |
+            ${{ steps.v23-shard-key.outputs.prefix }}-
+            stockhunter-v23-shard-${{ github.ref_name }}-${{ matrix.shard }}-
+
+      - name: Restore V73 listing seed for shard universe
+        id: v25-shard-listing-seed
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            reports/v73_listing_cache.csv
+            reports/v73_filter_rejection_ledger.csv
+            reports/v73_discovery_stage_ledger.csv
+          key: stockhunter-v73-state-${{ github.ref_name }}-${{ github.run_id }}-shard-${{ matrix.shard }}
+          restore-keys: |
+            stockhunter-v73-state-${{ github.ref_name }}-
+            stockhunter-v73-state-
+
+      - name: Inspect V25 shard universe seed
+        shell: bash
+        run: |
+          set +e
+          echo "V25_SHARD_SEED cache-hit=${{ steps.v25-shard-listing-seed.outputs.cache-hit }} matched=${{ steps.v25-shard-listing-seed.outputs.cache-matched-key }}"
+          python - <<'PYSEED'
+          from pathlib import Path
+          import pandas as pd
+          p=Path('reports/v73_listing_cache.csv')
+          if p.exists():
+              try:
+                  d=pd.read_csv(p,dtype={'Code':str},low_memory=False)
+                  print('V25_SHARD_SEED listing_rows',len(d),'codes',d.get('Code',pd.Series(dtype=str)).astype(str).nunique())
+              except Exception as e:
+                  print('V25_SHARD_SEED listing_read_error',type(e).__name__,e)
+          else:
+              print('V25_SHARD_SEED listing_rows 0 (cache file missing; provider fallback remains enabled)')
+          PYSEED
+
+      - name: Run V23 materialized shard worker
+        id: v23-shard-worker
+        timeout-minutes: 155
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p reports/.cache/v20_price_history reports/.cache/v20_asof_snapshots reports/.cache/v25_actual_amount_history reports/.cache/v20_replay_checkpoint reports/v23_materialized
+          echo "🚄 V23 ALL cohort C shard ${{ matrix.shard }}/5 | topN=${V1081_DIRECT_TOP_N} weeks=${V1080_BACKTEST_WEEKS} materialized=1"
+          python -B - <<'PYV25'
+          import original_thesis_reconstruction as m
+          assert m.VERSION == "V73.3.6.6.25.3.1", m.VERSION
+          assert m.RESEARCH_ONLY and not m.LIVE_LOGIC_CHANGED and not m.REAL_ORDER_CHANGED
+          print("✅ V25.3.1 shard activation + cohort lifecycle source contract PASS", m.VERSION)
+          PYV25
+          grep -Fq "V73.3.6.6.25.3.1 ORIGINAL THESIS RECONSTRUCTION + CORE224 SHADOW + ALL COHORT AUTO CHAIN" main7_bugfix_2.py || { echo "❌ V25.3.1 main activation marker missing"; exit 206; }
+          grep -Fq "V73.3.6.6.25.1.1 SHARD UNIVERSE OUTAGE RECOVERY" main7_bugfix_2.py || { echo "❌ V25.1.1 shard universe guard marker missing"; exit 207; }
+          grep -Fq "V73.3.6.6.25.3.1 DATA AUTHORITY + ALL COHORT LIFECYCLE" main7_bugfix_2.py || { echo "❌ V25.3.1 data/lifecycle marker missing"; exit 208; }
+          python -u main7_bugfix_2.py 2>&1 | tee "reports/v73_v23_shard_C_${{ matrix.shard }}_stdout.log"
+
+      - name: Save V23 shard cache explicitly
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            reports/.cache/v20_price_history
+            reports/.cache/v20_asof_snapshots
+            reports/.cache/v25_actual_amount_history
+            reports/.cache/v20_replay_checkpoint
+            reports/v23_materialized
+          key: ${{ steps.v23-shard-key.outputs.key }}
+
+      - name: Package V23 same-run materialized handoff
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          mkdir -p reports/.cache/v20_price_history reports/.cache/v20_asof_snapshots reports/.cache/v25_actual_amount_history reports/.cache/v20_replay_checkpoint reports/v23_materialized
+          if [ ! -f reports/v73_v23_shard_manifest.json ]; then
+            echo '{"version":"V73.3.6.6.23","status":"PARTIAL","errors":["SHARD_MANIFEST_MISSING_AFTER_WORKER"]}' > reports/v73_v23_shard_manifest.json
+          fi
+          python -u direct_replay_materialized_v23.py --package-handoff "v23_shard_C_${{ matrix.shard }}_handoff.tar.gz" --output-dir reports
+          rc=$?
+          echo "V23_PACKAGE rc=$rc"
+          ls -lh "v23_shard_C_${{ matrix.shard }}_handoff.tar.gz" 2>/dev/null || true
+          exit 0
+
+      - name: Upload V23 shard handoff
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-v23-shard-C-${{ matrix.shard }}-${{ github.run_id }}
+          path: v23_shard_C_${{ matrix.shard }}_handoff.tar.gz
+          if-no-files-found: warn
+          retention-days: 2
+
+
+  v23-backtest-shard-d:
+    needs: [v23-backtest-shard-c]
+    name: V25 ALL D · TOP500 shard ${{ matrix.shard }} of 6
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_profile == 'WEEKLY_BACKTEST' && (inputs.backtest_source == 'DIRECT_REPLAY' || inputs.backtest_source == '') && inputs.v25_cohort_mode == 'ALL' }}
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5]
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    permissions:
+      contents: read
+    env:
+      TZ: Asia/Seoul
+      PYTHONUNBUFFERED: "1"
+      PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/scanner
+      STOCKHUNTER_WEEKLY_BACKTEST_ONLY: "1"
+      STOCKHUNTER_HAM_1503_ONLY: "0"
+      V1081_BACKTEST_SOURCE: DIRECT_REPLAY
+      V1081_DIRECT_DATE_MODE: WEEK_LAST
+      V1081_DIRECT_TOP_N: ${{ inputs.direct_top_n || '500' }}
+      V1081_DIRECT_LIMIT_PER_DATE: ${{ inputs.direct_limit_per_date || '15' }}
+      V1080_BACKTEST_WEEKS: ${{ inputs.backtest_weeks || '24' }}
+      V1080_BACKTEST_HOLD_DAYS: ${{ inputs.backtest_hold_days || '10' }}
+      V1080_BACKTEST_STOP_PCT: ${{ inputs.backtest_stop_pct || '-5' }}
+      V1082_BACKTEST_STOP_MODE: ${{ inputs.backtest_stop_mode || 'SIGNAL_STOP_WITH_FALLBACK' }}
+      V1080_BACKTEST_OUTPUT_DIR: reports
+      V1081_UNIVERSE_MODE: HISTORICAL_ASOF_TOP500_EVENT_EXPANSION
+      V1081_ASOF_LIQUIDITY_DAYS: "20"
+      V1081_ASOF_MIN_PRICE: "3000"
+      V1081_ASOF_MIN_MARCAP: "30000000000"
+      V1081_EVENT_EXPANSION_MAX: "100"
+      V1081_EVENT_AMOUNT_RATIO: "3.0"
+      V1081_EVENT_VOLUME_RATIO: "3.0"
+      V1081_EVENT_PREV_RET_PCT: "5.0"
+      V1081_EVENT_MIN_AMOUNT: "10000000000"
+      V20_REPLAY_ACCEL_ENABLE: "1"
+      V20_PRICE_PREFETCH_ENABLE: "1"
+      V20_PRICE_PREFETCH_WORKERS: "6"
+      V20_PRICE_DISK_CACHE_ENABLE: "1"
+      V20_REPLAY_RESUME_ENABLE: "1"
+      V20_PROGRESS_EVERY: "50"
+      V20_PRICE_CACHE_DIR: reports/.cache/v20_price_history
+      V20_ASOF_CACHE_DIR: reports/.cache/v20_asof_snapshots
+      V20_REPLAY_CHECKPOINT_DIR: reports/.cache/v20_replay_checkpoint
+      V22_SHARD_WORKER_ONLY: "0"
+      V22_NEWEST_FIRST_CACHE_PRIME: "1"
+      V22_FAST_GATE_MODE: AUDIT_ONLY
+      V23_SHARD_WORKER_ONLY: "1"
+      V23_SHARD_INDEX: ${{ matrix.shard }}
+      V23_SHARD_COUNT: "6"
+      V23_HANDOFF_COHORT_ID: "D"
+      V23_MERGE_ONLY_PARENT: "0"
+      V23_ZERO_RECOMPUTE: "1"
+      V23_MATERIALIZED_DIR: reports/v23_materialized
+      V24_FORMULA_SHADOW_ENABLE: "1"
+      V24_SHADOW_BYPASS_PRECOMBO: "0"
+      V25_ORIGINAL_THESIS_ENABLE: "1"
+      V25_ORIGINAL_THESIS_REV: "25_3_1"
+      V25_MANUAL_SAMPLE_PER_BUCKET: "15"
+      V25_COHORT_MODE: "D"
+      V25_TWO_YEAR_END_DATE: ${{ inputs.v25_two_year_end_date || '' }}
+      V25_COHORT_START_DATE: ${{ inputs.v25_cohort_start_date || '' }}
+      V25_COHORT_END_DATE: ${{ inputs.v25_cohort_end_date || '' }}
+      V25_COHORT_DATE_MODE: WEEK_LAST
+      V25_LIFECYCLE_ENABLE: "1"
+      V25_LIFECYCLE_MAX_DAYS: "60"
+      HAM_RESEARCH_ONLY: "1"
+      FAMILIAR_RESEARCH_ENABLE: "1"
+      FAMILIAR_RESEARCH_ONLY: "1"
+      PATTERN_AI_CROSS_RESEARCH_ENABLE: "1"
+      MARKET_EXCESS_RESEARCH_ENABLE: "1"
+      KOSCOM_API_KEY: ${{ secrets.KOSCOM_API_KEY }}
+      KOSCOM_APIGW_URL: https://oap.k-mydata.org
+      # V25.3.1: pykrx authority retained; cohort/lifecycle remains RESEARCH_ONLY. These secrets already existed in the parent job;
+      # shard workers also need them because Historical-AsOf/CORE224 Amount authority is built inside shards.
+      KRX_ID: ${{ secrets.KRX_DATA_ID }}
+      KRX_PW: ${{ secrets.KRX_DATA_PW }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install shard dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas requests beautifulsoup4 pytz scipy ta finance-datareader pykrx mplfinance
+          pip install openai google-generativeai gspread gspread-formatting gspread-dataframe google-auth oauth2client
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; else echo "requirements.txt not found, skip"; fi
+
+      - name: V25 KRX authority credential preflight
+        if: env.V25_ORIGINAL_THESIS_ENABLE == '1'
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os
+          ok=bool(os.getenv('KRX_ID','').strip()) and bool(os.getenv('KRX_PW','').strip())
+          print('V25_KRX_AUTH_ENV', 'READY' if ok else 'MISSING', '| secret_values_not_printed=1')
+          if not ok:
+              print('::warning::V25 actual Amount/Historical-AsOf authority will remain fail-closed because KRX_DATA_ID/KRX_DATA_PW are not configured.')
+          PY
+
+      - name: Build V23 shard cache identity
+        id: v23-shard-key
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="$(sha256sum main7_bugfix_2.py direct_replay_performance_v20.py historical_asof_universe.py direct_replay_sharding_v22.py direct_replay_materialized_v23.py pattern_catalyst_context_pipeline.py bear_winner_stability_diagnostic.py research_readiness_v24.py original_thesis_reconstruction.py | sha256sum | cut -c1-20)"
+          CFG="$(printf '%s' '${{ inputs.direct_top_n || '500' }}|${{ inputs.backtest_weeks || '24' }}|${{ inputs.backtest_hold_days || '10' }}|${{ inputs.backtest_stop_pct || '-5' }}|${{ inputs.backtest_stop_mode || 'SIGNAL_STOP_WITH_FALLBACK' }}|D|${{ inputs.v25_two_year_end_date || '' }}|${{ inputs.v25_cohort_start_date || '' }}|${{ inputs.v25_cohort_end_date || '' }}|6|V24_SHADOW_1|V25_ORIGINAL_THESIS_25_3_1|COHORT_BOUNDARY_NOT_EXIT|STRUCTURAL_SCALEIN_60D|DATA_AUTHORITY_25_2_2_KRX_AUTH|ALNUM_TICKER_IDENTITY' | sha256sum | cut -c1-16)"
+          PREFIX="stockhunter-v23-shard-${GITHUB_REF_NAME}-${{ matrix.shard }}-${SRC}-${CFG}"
+          KEY="${PREFIX}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "prefix=$PREFIX" >> "$GITHUB_OUTPUT"
+          echo "key=$KEY" >> "$GITHUB_OUTPUT"
+          echo "V23_SHARD_CACHE identity shard=${{ matrix.shard }} prefix=$PREFIX key=$KEY"
+
+      - name: Restore V23 shard cache
+        id: v23-shard-restore
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            reports/.cache/v20_price_history
+            reports/.cache/v20_asof_snapshots
+            reports/.cache/v25_actual_amount_history
+            reports/.cache/v20_replay_checkpoint
+            reports/v23_materialized
+          key: ${{ steps.v23-shard-key.outputs.key }}
+          restore-keys: |
+            ${{ steps.v23-shard-key.outputs.prefix }}-
+            stockhunter-v23-shard-${{ github.ref_name }}-${{ matrix.shard }}-
+
+      - name: Restore V73 listing seed for shard universe
+        id: v25-shard-listing-seed
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            reports/v73_listing_cache.csv
+            reports/v73_filter_rejection_ledger.csv
+            reports/v73_discovery_stage_ledger.csv
+          key: stockhunter-v73-state-${{ github.ref_name }}-${{ github.run_id }}-shard-${{ matrix.shard }}
+          restore-keys: |
+            stockhunter-v73-state-${{ github.ref_name }}-
+            stockhunter-v73-state-
+
+      - name: Inspect V25 shard universe seed
+        shell: bash
+        run: |
+          set +e
+          echo "V25_SHARD_SEED cache-hit=${{ steps.v25-shard-listing-seed.outputs.cache-hit }} matched=${{ steps.v25-shard-listing-seed.outputs.cache-matched-key }}"
+          python - <<'PYSEED'
+          from pathlib import Path
+          import pandas as pd
+          p=Path('reports/v73_listing_cache.csv')
+          if p.exists():
+              try:
+                  d=pd.read_csv(p,dtype={'Code':str},low_memory=False)
+                  print('V25_SHARD_SEED listing_rows',len(d),'codes',d.get('Code',pd.Series(dtype=str)).astype(str).nunique())
+              except Exception as e:
+                  print('V25_SHARD_SEED listing_read_error',type(e).__name__,e)
+          else:
+              print('V25_SHARD_SEED listing_rows 0 (cache file missing; provider fallback remains enabled)')
+          PYSEED
+
+      - name: Run V23 materialized shard worker
+        id: v23-shard-worker
+        timeout-minutes: 155
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p reports/.cache/v20_price_history reports/.cache/v20_asof_snapshots reports/.cache/v25_actual_amount_history reports/.cache/v20_replay_checkpoint reports/v23_materialized
+          echo "🚄 V23 ALL cohort D shard ${{ matrix.shard }}/5 | topN=${V1081_DIRECT_TOP_N} weeks=${V1080_BACKTEST_WEEKS} materialized=1"
+          python -B - <<'PYV25'
+          import original_thesis_reconstruction as m
+          assert m.VERSION == "V73.3.6.6.25.3.1", m.VERSION
+          assert m.RESEARCH_ONLY and not m.LIVE_LOGIC_CHANGED and not m.REAL_ORDER_CHANGED
+          print("✅ V25.3.1 shard activation + cohort lifecycle source contract PASS", m.VERSION)
+          PYV25
+          grep -Fq "V73.3.6.6.25.3.1 ORIGINAL THESIS RECONSTRUCTION + CORE224 SHADOW + ALL COHORT AUTO CHAIN" main7_bugfix_2.py || { echo "❌ V25.3.1 main activation marker missing"; exit 206; }
+          grep -Fq "V73.3.6.6.25.1.1 SHARD UNIVERSE OUTAGE RECOVERY" main7_bugfix_2.py || { echo "❌ V25.1.1 shard universe guard marker missing"; exit 207; }
+          grep -Fq "V73.3.6.6.25.3.1 DATA AUTHORITY + ALL COHORT LIFECYCLE" main7_bugfix_2.py || { echo "❌ V25.3.1 data/lifecycle marker missing"; exit 208; }
+          python -u main7_bugfix_2.py 2>&1 | tee "reports/v73_v23_shard_D_${{ matrix.shard }}_stdout.log"
+
+      - name: Save V23 shard cache explicitly
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            reports/.cache/v20_price_history
+            reports/.cache/v20_asof_snapshots
+            reports/.cache/v25_actual_amount_history
+            reports/.cache/v20_replay_checkpoint
+            reports/v23_materialized
+          key: ${{ steps.v23-shard-key.outputs.key }}
+
+      - name: Package V23 same-run materialized handoff
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          mkdir -p reports/.cache/v20_price_history reports/.cache/v20_asof_snapshots reports/.cache/v25_actual_amount_history reports/.cache/v20_replay_checkpoint reports/v23_materialized
+          if [ ! -f reports/v73_v23_shard_manifest.json ]; then
+            echo '{"version":"V73.3.6.6.23","status":"PARTIAL","errors":["SHARD_MANIFEST_MISSING_AFTER_WORKER"]}' > reports/v73_v23_shard_manifest.json
+          fi
+          python -u direct_replay_materialized_v23.py --package-handoff "v23_shard_D_${{ matrix.shard }}_handoff.tar.gz" --output-dir reports
+          rc=$?
+          echo "V23_PACKAGE rc=$rc"
+          ls -lh "v23_shard_D_${{ matrix.shard }}_handoff.tar.gz" 2>/dev/null || true
+          exit 0
+
+      - name: Upload V23 shard handoff
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-v23-shard-D-${{ matrix.shard }}-${{ github.run_id }}
+          path: v23_shard_D_${{ matrix.shard }}_handoff.tar.gz
+          if-no-files-found: warn
+          retention-days: 2
+
   run-scanner:
-    needs: [v23-backtest-shard]
+    needs: [v23-backtest-shard, v23-backtest-shard-a, v23-backtest-shard-b, v23-backtest-shard-c, v23-backtest-shard-d]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 240
@@ -743,7 +1636,7 @@ jobs:
       V24_FORMULA_SHADOW_ENABLE: "1"
       V24_SHADOW_BYPASS_PRECOMBO: "0"
       V25_ORIGINAL_THESIS_ENABLE: "1"
-      V25_ORIGINAL_THESIS_REV: "25_3"
+      V25_ORIGINAL_THESIS_REV: "25_3_1"
       V25_COHORT_MODE: ${{ inputs.v25_cohort_mode || 'ROLLING' }}
       V25_TWO_YEAR_END_DATE: ${{ inputs.v25_two_year_end_date || '' }}
       V25_COHORT_START_DATE: ${{ inputs.v25_cohort_start_date || '' }}
@@ -905,7 +1798,7 @@ jobs:
           bt_stop_mode="$(echo "$bt_stop_mode" | tr '[:lower:]' '[:upper:]')"
           case "$bt_stop_mode" in FIXED_PCT|SIGNAL_STOP|SIGNAL_STOP_WITH_FALLBACK|BOTH_COMPARE) ;; *) bt_stop_mode="SIGNAL_STOP_WITH_FALLBACK" ;; esac
           v25_cohort_mode="$(echo "$v25_cohort_mode" | tr '[:lower:]' '[:upper:]')"
-          case "$v25_cohort_mode" in ROLLING|A|B|C|D|CUSTOM) ;; *) v25_cohort_mode="ROLLING" ;; esac
+          case "$v25_cohort_mode" in ALL|ROLLING|A|B|C|D|CUSTOM) ;; *) v25_cohort_mode="ROLLING" ;; esac
 
           case "$profile" in
             REAL_FULL)
@@ -1072,7 +1965,7 @@ jobs:
             echo "V24_FORMULA_SHADOW_ENABLE=1"
             echo "V24_SHADOW_BYPASS_PRECOMBO=0"
             echo "V25_ORIGINAL_THESIS_ENABLE=1"
-            echo "V25_ORIGINAL_THESIS_REV=25_3"
+            echo "V25_ORIGINAL_THESIS_REV=25_3_1"
             echo "V25_COHORT_MODE=$v25_cohort_mode"
             echo "V25_TWO_YEAR_END_DATE=$v25_two_year_end_date"
             echo "V25_COHORT_START_DATE=$v25_cohort_start_date"
@@ -1241,7 +2134,7 @@ jobs:
           import json, sys
           p='reports/v73_v23_handoff_merge_audit.json'
           q=json.load(open(p,encoding='utf-8'))
-          print('V23_HANDOFF_STRICT',q.get('status'),'shards',len(q.get('complete_shards') or []),'/',q.get('expected_shards'),'dates',q.get('materialized_expected_count'),'/',q.get('expected_date_count'),'identity',q.get('current_identity_match'),'conflicts',q.get('conflicts'))
+          print('V23_HANDOFF_STRICT',q.get('status'),'mode',q.get('cohort_mode'),'cohorts',q.get('manifest_cohorts'),'shards',len(q.get('complete_shards') or []),'/',q.get('expected_shards'),'dates',q.get('materialized_expected_count'),'/',q.get('expected_date_count'),'identity',q.get('current_identity_match'),'conflicts',q.get('conflicts'))
           sys.exit(0 if q.get('status')=='COMPLETE_HANDOFF' and q.get('current_identity_match') and int(q.get('conflicts') or 0)==0 else 193)
           PY
 
@@ -1824,10 +2717,12 @@ jobs:
             u=pd.read_csv('reports/v73_v25_historical_asof_reconciliation.csv'); f=pd.read_csv('reports/v73_v25_formula_audit_01_to_07.csv')
             t=pd.read_csv('reports/v73_v25_pattern_only_transfer_audit.csv'); amt=pd.read_csv('reports/v73_v25_amount_authority_coverage.csv')
             life=pd.read_csv('reports/v73_v25_core224_lifecycle_readiness.csv'); lr=life.iloc[-1] if len(life) else {}
+            cs=pd.read_csv('reports/v73_v25_core224_lifecycle_cohort_summary.csv')
             pf=json.load(open('reports/v73_v23_parent_preflight.json',encoding='utf-8')); expected=int(pf.get('expected_date_count') or pf.get('valid_date_count') or 0)
             fallback=pd.to_numeric(u.get('fallback_used'),errors='coerce'); complete=pd.to_numeric(u.get('complete'),errors='coerce'); badneg=int((fallback<0).sum()) if len(u) else 0; tr=t.iloc[-1] if len(t) else {}
-            print('V25_GUARD','expected',expected,'activation',r.get('activation_executed'),'dates',r.get('materialized_dates'),'sidecar_dates',r.get('sidecar_dates'),'rows',r.get('core224_rows'),'transitions',r.get('transition_rows'),'inv_fail',r.get('invariant_fail_rows'),'formulas',len(f),'universe_days',len(u),'complete',complete.fillna(0).sum() if len(u) else 0,'fallback',fallback.fillna(0).sum() if len(u) else 0,'amount_history20_ready',pd.to_numeric(amt.get('history20_ready_rows'),errors='coerce').fillna(0).sum() if len(amt) else 0,'fallback_negative',badneg,'pattern_transfer',tr.get('status'),'cohort',r.get('cohort_id'),'lifecycle',lr.get('status'),'boundary_exit',lr.get('boundary_forced_exit'),'live',r.get('live_logic_changed'))
-            ok=(expected>0 and str(r.get('pipeline_status',''))=='VALID_SHADOW' and int(float(r.get('activation_executed',0) or 0))==1 and int(float(r.get('materialized_dates',0) or 0))==expected and int(float(r.get('sidecar_dates',0) or 0))==expected and int(float(r.get('core224_rows',0) or 0))>0 and len(f)==66 and len(u)==expected and badneg==0 and str(tr.get('status','')).startswith('PASS') and int(float(lr.get('boundary_forced_exit',0) or 0))==0 and str(lr.get('status','')) not in ('','INVALID') and str(r.get('live_logic_changed')).lower() in ('false','0'))
+            all_mode=str(r.get('cohort_mode','')).upper()=='ALL'; auto_chain=int(float(lr.get('auto_chain',0) or 0)); cohort_ids=sorted(set(cs.get('cohort_id',pd.Series(dtype=str)).astype(str))) if len(cs) else []
+            print('V25_GUARD','expected',expected,'activation',r.get('activation_executed'),'dates',r.get('materialized_dates'),'sidecar_dates',r.get('sidecar_dates'),'rows',r.get('core224_rows'),'transitions',r.get('transition_rows'),'inv_fail',r.get('invariant_fail_rows'),'formulas',len(f),'universe_days',len(u),'complete',complete.fillna(0).sum() if len(u) else 0,'fallback',fallback.fillna(0).sum() if len(u) else 0,'amount_history20_ready',pd.to_numeric(amt.get('history20_ready_rows'),errors='coerce').fillna(0).sum() if len(amt) else 0,'fallback_negative',badneg,'pattern_transfer',tr.get('status'),'cohort',r.get('cohort_id'),'auto_chain',auto_chain,'cohort_summary_ids',cohort_ids,'lifecycle',lr.get('status'),'boundary_exit',lr.get('boundary_forced_exit'),'live',r.get('live_logic_changed'))
+            ok=(expected>0 and str(r.get('pipeline_status',''))=='VALID_SHADOW' and int(float(r.get('activation_executed',0) or 0))==1 and int(float(r.get('materialized_dates',0) or 0))==expected and int(float(r.get('sidecar_dates',0) or 0))==expected and int(float(r.get('core224_rows',0) or 0))>0 and len(f)==66 and len(u)==expected and badneg==0 and str(tr.get('status','')).startswith('PASS') and int(float(lr.get('boundary_forced_exit',0) or 0))==0 and str(lr.get('status','')) not in ('','INVALID') and (not all_mode or auto_chain==1) and str(r.get('live_logic_changed')).lower() in ('false','0'))
             sys.exit(0 if ok else 204)
             PYV25GUARD
             ! grep -Fq "⚡ [V22 병렬진단] SUPERSEDED_BY_V23_V24" "${HAM_RUN_LOG}" || { echo "❌ stale V22 visible marker must be removed in V25"; exit 205; }
