@@ -324,7 +324,26 @@ jobs:
           grep -Fq "V73.3.6.6.25.3.1 ORIGINAL THESIS RECONSTRUCTION + CORE224 SHADOW + ALL COHORT AUTO CHAIN" main7_bugfix_2.py || { echo "❌ V25.3.1 main activation marker missing"; exit 206; }
           grep -Fq "V73.3.6.6.25.1.1 SHARD UNIVERSE OUTAGE RECOVERY" main7_bugfix_2.py || { echo "❌ V25.1.1 shard universe guard marker missing"; exit 207; }
           grep -Fq "V73.3.6.6.25.3.1 DATA AUTHORITY + ALL COHORT LIFECYCLE" main7_bugfix_2.py || { echo "❌ V25.3.1 data/lifecycle marker missing"; exit 208; }
+          set +e
           python -u main7_bugfix_2.py 2>&1 | tee "reports/v73_v23_shard_${{ matrix.shard }}_stdout.log"
+          worker_rc=${PIPESTATUS[0]}
+          if [ "$worker_rc" -eq 192 ] && grep -Fq "NO_DIRECT_UNIVERSE" "reports/v73_v23_shard_${{ matrix.shard }}_stdout.log"; then
+            echo "♻️ V25 shard transient universe outage detected → one bounded retry after 20s"
+            sleep 20
+            python -u main7_bugfix_2.py 2>&1 | tee "reports/v73_v23_shard_${{ matrix.shard }}_stdout_retry.log"
+            worker_rc=${PIPESTATUS[0]}
+          fi
+          exit "$worker_rc"
+
+      - name: Save V73 shard listing seed
+        if: ${{ always() && hashFiles('reports/v73_listing_cache.csv') != '' }}
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            reports/v73_listing_cache.csv
+            reports/v73_filter_rejection_ledger.csv
+            reports/v73_discovery_stage_ledger.csv
+          key: stockhunter-v73-state-${{ github.ref_name }}-${{ github.run_id }}-shard-${{ matrix.shard }}
 
       - name: Save V23 shard cache explicitly
         if: always()
@@ -363,9 +382,10 @@ jobs:
           retention-days: 2
 
 
+# ✅ V25.3.1 HF3: shard universe transient-outage retry + same-run listing-seed persistence + cohort-chain continuation
   v23-backtest-shard-a:
     name: V25 ALL A · TOP500 shard ${{ matrix.shard }} of 6
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_profile == 'WEEKLY_BACKTEST' && (inputs.backtest_source == 'DIRECT_REPLAY' || inputs.backtest_source == '') && inputs.v25_cohort_mode == 'ALL' }}
+    if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.run_profile == 'WEEKLY_BACKTEST' && (inputs.backtest_source == 'DIRECT_REPLAY' || inputs.backtest_source == '') && inputs.v25_cohort_mode == 'ALL' }}
     strategy:
       fail-fast: false
       max-parallel: 6
@@ -546,7 +566,26 @@ jobs:
           grep -Fq "V73.3.6.6.25.3.1 ORIGINAL THESIS RECONSTRUCTION + CORE224 SHADOW + ALL COHORT AUTO CHAIN" main7_bugfix_2.py || { echo "❌ V25.3.1 main activation marker missing"; exit 206; }
           grep -Fq "V73.3.6.6.25.1.1 SHARD UNIVERSE OUTAGE RECOVERY" main7_bugfix_2.py || { echo "❌ V25.1.1 shard universe guard marker missing"; exit 207; }
           grep -Fq "V73.3.6.6.25.3.1 DATA AUTHORITY + ALL COHORT LIFECYCLE" main7_bugfix_2.py || { echo "❌ V25.3.1 data/lifecycle marker missing"; exit 208; }
+          set +e
           python -u main7_bugfix_2.py 2>&1 | tee "reports/v73_v23_shard_A_${{ matrix.shard }}_stdout.log"
+          worker_rc=${PIPESTATUS[0]}
+          if [ "$worker_rc" -eq 192 ] && grep -Fq "NO_DIRECT_UNIVERSE" "reports/v73_v23_shard_A_${{ matrix.shard }}_stdout.log"; then
+            echo "♻️ V25 shard transient universe outage detected → one bounded retry after 20s"
+            sleep 20
+            python -u main7_bugfix_2.py 2>&1 | tee "reports/v73_v23_shard_A_${{ matrix.shard }}_stdout_retry.log"
+            worker_rc=${PIPESTATUS[0]}
+          fi
+          exit "$worker_rc"
+
+      - name: Save V73 shard listing seed
+        if: ${{ always() && hashFiles('reports/v73_listing_cache.csv') != '' }}
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            reports/v73_listing_cache.csv
+            reports/v73_filter_rejection_ledger.csv
+            reports/v73_discovery_stage_ledger.csv
+          key: stockhunter-v73-state-${{ github.ref_name }}-${{ github.run_id }}-shard-${{ matrix.shard }}
 
       - name: Save V23 shard cache explicitly
         if: always()
@@ -588,7 +627,7 @@ jobs:
   v23-backtest-shard-b:
     needs: [v23-backtest-shard-a]
     name: V25 ALL B · TOP500 shard ${{ matrix.shard }} of 6
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_profile == 'WEEKLY_BACKTEST' && (inputs.backtest_source == 'DIRECT_REPLAY' || inputs.backtest_source == '') && inputs.v25_cohort_mode == 'ALL' }}
+    if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.run_profile == 'WEEKLY_BACKTEST' && (inputs.backtest_source == 'DIRECT_REPLAY' || inputs.backtest_source == '') && inputs.v25_cohort_mode == 'ALL' }}
     strategy:
       fail-fast: false
       max-parallel: 6
@@ -769,7 +808,26 @@ jobs:
           grep -Fq "V73.3.6.6.25.3.1 ORIGINAL THESIS RECONSTRUCTION + CORE224 SHADOW + ALL COHORT AUTO CHAIN" main7_bugfix_2.py || { echo "❌ V25.3.1 main activation marker missing"; exit 206; }
           grep -Fq "V73.3.6.6.25.1.1 SHARD UNIVERSE OUTAGE RECOVERY" main7_bugfix_2.py || { echo "❌ V25.1.1 shard universe guard marker missing"; exit 207; }
           grep -Fq "V73.3.6.6.25.3.1 DATA AUTHORITY + ALL COHORT LIFECYCLE" main7_bugfix_2.py || { echo "❌ V25.3.1 data/lifecycle marker missing"; exit 208; }
+          set +e
           python -u main7_bugfix_2.py 2>&1 | tee "reports/v73_v23_shard_B_${{ matrix.shard }}_stdout.log"
+          worker_rc=${PIPESTATUS[0]}
+          if [ "$worker_rc" -eq 192 ] && grep -Fq "NO_DIRECT_UNIVERSE" "reports/v73_v23_shard_B_${{ matrix.shard }}_stdout.log"; then
+            echo "♻️ V25 shard transient universe outage detected → one bounded retry after 20s"
+            sleep 20
+            python -u main7_bugfix_2.py 2>&1 | tee "reports/v73_v23_shard_B_${{ matrix.shard }}_stdout_retry.log"
+            worker_rc=${PIPESTATUS[0]}
+          fi
+          exit "$worker_rc"
+
+      - name: Save V73 shard listing seed
+        if: ${{ always() && hashFiles('reports/v73_listing_cache.csv') != '' }}
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            reports/v73_listing_cache.csv
+            reports/v73_filter_rejection_ledger.csv
+            reports/v73_discovery_stage_ledger.csv
+          key: stockhunter-v73-state-${{ github.ref_name }}-${{ github.run_id }}-shard-${{ matrix.shard }}
 
       - name: Save V23 shard cache explicitly
         if: always()
@@ -811,7 +869,7 @@ jobs:
   v23-backtest-shard-c:
     needs: [v23-backtest-shard-b]
     name: V25 ALL C · TOP500 shard ${{ matrix.shard }} of 6
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_profile == 'WEEKLY_BACKTEST' && (inputs.backtest_source == 'DIRECT_REPLAY' || inputs.backtest_source == '') && inputs.v25_cohort_mode == 'ALL' }}
+    if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.run_profile == 'WEEKLY_BACKTEST' && (inputs.backtest_source == 'DIRECT_REPLAY' || inputs.backtest_source == '') && inputs.v25_cohort_mode == 'ALL' }}
     strategy:
       fail-fast: false
       max-parallel: 6
@@ -992,7 +1050,26 @@ jobs:
           grep -Fq "V73.3.6.6.25.3.1 ORIGINAL THESIS RECONSTRUCTION + CORE224 SHADOW + ALL COHORT AUTO CHAIN" main7_bugfix_2.py || { echo "❌ V25.3.1 main activation marker missing"; exit 206; }
           grep -Fq "V73.3.6.6.25.1.1 SHARD UNIVERSE OUTAGE RECOVERY" main7_bugfix_2.py || { echo "❌ V25.1.1 shard universe guard marker missing"; exit 207; }
           grep -Fq "V73.3.6.6.25.3.1 DATA AUTHORITY + ALL COHORT LIFECYCLE" main7_bugfix_2.py || { echo "❌ V25.3.1 data/lifecycle marker missing"; exit 208; }
+          set +e
           python -u main7_bugfix_2.py 2>&1 | tee "reports/v73_v23_shard_C_${{ matrix.shard }}_stdout.log"
+          worker_rc=${PIPESTATUS[0]}
+          if [ "$worker_rc" -eq 192 ] && grep -Fq "NO_DIRECT_UNIVERSE" "reports/v73_v23_shard_C_${{ matrix.shard }}_stdout.log"; then
+            echo "♻️ V25 shard transient universe outage detected → one bounded retry after 20s"
+            sleep 20
+            python -u main7_bugfix_2.py 2>&1 | tee "reports/v73_v23_shard_C_${{ matrix.shard }}_stdout_retry.log"
+            worker_rc=${PIPESTATUS[0]}
+          fi
+          exit "$worker_rc"
+
+      - name: Save V73 shard listing seed
+        if: ${{ always() && hashFiles('reports/v73_listing_cache.csv') != '' }}
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            reports/v73_listing_cache.csv
+            reports/v73_filter_rejection_ledger.csv
+            reports/v73_discovery_stage_ledger.csv
+          key: stockhunter-v73-state-${{ github.ref_name }}-${{ github.run_id }}-shard-${{ matrix.shard }}
 
       - name: Save V23 shard cache explicitly
         if: always()
@@ -1034,7 +1111,7 @@ jobs:
   v23-backtest-shard-d:
     needs: [v23-backtest-shard-c]
     name: V25 ALL D · TOP500 shard ${{ matrix.shard }} of 6
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_profile == 'WEEKLY_BACKTEST' && (inputs.backtest_source == 'DIRECT_REPLAY' || inputs.backtest_source == '') && inputs.v25_cohort_mode == 'ALL' }}
+    if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.run_profile == 'WEEKLY_BACKTEST' && (inputs.backtest_source == 'DIRECT_REPLAY' || inputs.backtest_source == '') && inputs.v25_cohort_mode == 'ALL' }}
     strategy:
       fail-fast: false
       max-parallel: 6
@@ -1215,7 +1292,26 @@ jobs:
           grep -Fq "V73.3.6.6.25.3.1 ORIGINAL THESIS RECONSTRUCTION + CORE224 SHADOW + ALL COHORT AUTO CHAIN" main7_bugfix_2.py || { echo "❌ V25.3.1 main activation marker missing"; exit 206; }
           grep -Fq "V73.3.6.6.25.1.1 SHARD UNIVERSE OUTAGE RECOVERY" main7_bugfix_2.py || { echo "❌ V25.1.1 shard universe guard marker missing"; exit 207; }
           grep -Fq "V73.3.6.6.25.3.1 DATA AUTHORITY + ALL COHORT LIFECYCLE" main7_bugfix_2.py || { echo "❌ V25.3.1 data/lifecycle marker missing"; exit 208; }
+          set +e
           python -u main7_bugfix_2.py 2>&1 | tee "reports/v73_v23_shard_D_${{ matrix.shard }}_stdout.log"
+          worker_rc=${PIPESTATUS[0]}
+          if [ "$worker_rc" -eq 192 ] && grep -Fq "NO_DIRECT_UNIVERSE" "reports/v73_v23_shard_D_${{ matrix.shard }}_stdout.log"; then
+            echo "♻️ V25 shard transient universe outage detected → one bounded retry after 20s"
+            sleep 20
+            python -u main7_bugfix_2.py 2>&1 | tee "reports/v73_v23_shard_D_${{ matrix.shard }}_stdout_retry.log"
+            worker_rc=${PIPESTATUS[0]}
+          fi
+          exit "$worker_rc"
+
+      - name: Save V73 shard listing seed
+        if: ${{ always() && hashFiles('reports/v73_listing_cache.csv') != '' }}
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            reports/v73_listing_cache.csv
+            reports/v73_filter_rejection_ledger.csv
+            reports/v73_discovery_stage_ledger.csv
+          key: stockhunter-v73-state-${{ github.ref_name }}-${{ github.run_id }}-shard-${{ matrix.shard }}
 
       - name: Save V23 shard cache explicitly
         if: always()
