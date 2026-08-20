@@ -13,8 +13,8 @@ import re
 import numpy as np
 import pandas as pd
 
-VERSION = "V73.3.6.6.25.2.2"
-HOTFIX = "KRX_SHARD_AUTHORITY_AND_SINGLE_CALL_PRIORITY"
+VERSION = "V73.3.6.6.25.3"
+HOTFIX = "CORE224_SIGNAL_COHORT_STRUCTURAL_SCALEIN_LIFECYCLE"
 RESEARCH_ONLY = True
 LIVE_LOGIC_CHANGED = False
 REAL_ORDER_CHANGED = False
@@ -1378,6 +1378,592 @@ def _amount_authority_coverage(state: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows,columns=cols).sort_values("signal_date",kind="stable")
 
 
+
+@dataclass(frozen=True)
+class Core224LifecycleConfig:
+    """Fixed, non-optimized research policy for the user's structural scale-in thesis.
+
+    This policy never changes LIVE behavior. It exists to answer whether a causally observed
+    CORE224_RESTART can survive a structure-defined stop while allowing at most two later
+    confirmation adds and enough time for the structure to recover.
+    """
+    max_follow_days: int = 60
+    horizon_days: Tuple[int, int, int] = (20, 40, 60)
+    entry_weights: Tuple[float, float, float] = (0.30, 0.30, 0.40)
+    pullback_stop_tolerance: float = 0.015
+    fib_stop_tolerance: float = 0.0075
+    support_touch_tolerance: float = 0.020
+    min_gap_between_adds_days: int = 1
+    profit_levels: Tuple[float, float, float] = (0.03, 0.05, 0.10)
+
+
+LIFECYCLE_SIGNAL_FILE = "v73_v25_core224_lifecycle_signal_ledger.csv"
+LIFECYCLE_FILL_FILE = "v73_v25_core224_lifecycle_fill_ledger.csv"
+LIFECYCLE_STOP_FILE = "v73_v25_core224_lifecycle_stop_lens_comparison.csv"
+LIFECYCLE_COHORT_FILE = "v73_v25_core224_lifecycle_cohort_summary.csv"
+LIFECYCLE_HORIZON_FILE = "v73_v25_core224_lifecycle_horizon_summary.csv"
+LIFECYCLE_CENSOR_FILE = "v73_v25_core224_lifecycle_censoring_audit.csv"
+LIFECYCLE_READINESS_FILE = "v73_v25_core224_lifecycle_readiness.csv"
+LIFECYCLE_REPORT_FILE = "v73_v25_core224_lifecycle_report.txt"
+
+
+def _env_on_local(name: str, default: str = "0") -> bool:
+    return str(os.getenv(name, default)).strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _env_int_local(name: str, default: int) -> int:
+    try:
+        return int(float(str(os.getenv(name, default)).strip()))
+    except Exception:
+        return int(default)
+
+
+def resolve_cohort_window(now: Any = None) -> Dict[str, Any]:
+    """Resolve a signal-cohort window without implying a position exit at the boundary.
+
+    Modes:
+      ROLLING/OFF       -> legacy calendar behavior; no explicit cohort window.
+      A/B/C/D           -> trailing two-year window split into four exact six-month signal cohorts.
+      CUSTOM            -> explicit V25_COHORT_START_DATE/V25_COHORT_END_DATE.
+
+    For A-D, V25_TWO_YEAR_END_DATE is the reproducibility anchor. If omitted, today's date is
+    used and the resolved dates are emitted to audit artifacts so a later rerun can pin them.
+    """
+    raw_mode = str(os.getenv("V25_COHORT_MODE", "ROLLING")).strip().upper()
+    aliases = {
+        "": "ROLLING", "OFF": "ROLLING", "NONE": "ROLLING", "ROLLING_24W": "ROLLING",
+        "COHORT_A": "A", "COHORT_B": "B", "COHORT_C": "C", "COHORT_D": "D",
+    }
+    mode = aliases.get(raw_mode, raw_mode)
+    if mode == "ROLLING":
+        return {
+            "enabled": 0, "mode": "ROLLING", "cohort_id": "ROLLING",
+            "requested_start": "", "requested_end": "", "anchor_end": "",
+            "boundary_exit_allowed": 0,
+        }
+    if mode == "CUSTOM":
+        s = pd.to_datetime(os.getenv("V25_COHORT_START_DATE", ""), errors="coerce")
+        e = pd.to_datetime(os.getenv("V25_COHORT_END_DATE", ""), errors="coerce")
+        if pd.isna(s) or pd.isna(e) or pd.Timestamp(s).normalize() > pd.Timestamp(e).normalize():
+            raise ValueError("INVALID_V25_CUSTOM_COHORT_WINDOW")
+        s = pd.Timestamp(s).normalize(); e = pd.Timestamp(e).normalize()
+        return {
+            "enabled": 1, "mode": "CUSTOM", "cohort_id": str(os.getenv("V25_COHORT_ID", "CUSTOM") or "CUSTOM"),
+            "requested_start": s.strftime("%Y-%m-%d"), "requested_end": e.strftime("%Y-%m-%d"),
+            "anchor_end": e.strftime("%Y-%m-%d"), "boundary_exit_allowed": 0,
+        }
+    if mode not in {"A", "B", "C", "D"}:
+        raise ValueError(f"UNKNOWN_V25_COHORT_MODE:{mode}")
+    anchor_raw = str(os.getenv("V25_TWO_YEAR_END_DATE", "")).strip()
+    anchor = pd.to_datetime(anchor_raw, errors="coerce") if anchor_raw else pd.Timestamp(now or datetime.now()).normalize()
+    if pd.isna(anchor):
+        raise ValueError("INVALID_V25_TWO_YEAR_END_DATE")
+    anchor = pd.Timestamp(anchor).normalize()
+    slot = {"A": 0, "B": 1, "C": 2, "D": 3}[mode]
+    two_year_start = anchor - pd.DateOffset(months=24) + pd.Timedelta(days=1)
+    s = two_year_start + pd.DateOffset(months=6 * slot)
+    if slot < 3:
+        e = two_year_start + pd.DateOffset(months=6 * (slot + 1)) - pd.Timedelta(days=1)
+    else:
+        e = anchor
+    return {
+        "enabled": 1, "mode": mode, "cohort_id": f"COHORT_{mode}",
+        "requested_start": pd.Timestamp(s).strftime("%Y-%m-%d"),
+        "requested_end": pd.Timestamp(e).strftime("%Y-%m-%d"),
+        "anchor_end": anchor.strftime("%Y-%m-%d"),
+        "boundary_exit_allowed": 0,
+    }
+
+
+def _price_cache_root(output_dir: str | Path) -> Path:
+    out = Path(output_dir or "reports")
+    return Path(os.getenv("V20_PRICE_CACHE_DIR", str(out / ".cache/v20_price_history")))
+
+
+def _read_price_cache_for_code(output_dir: str | Path, code: str) -> Tuple[pd.DataFrame, Dict[str, Any]]:
+    """Read the richest existing persistent price-cache frame. Never downloads future/history data."""
+    import gzip
+    import pickle
+
+    root = _price_cache_root(output_dir)
+    code = _norm_code(code)
+    candidates = []
+    if root.exists():
+        candidates = sorted(root.glob(f"{code}_*.pkl.gz"), key=lambda p: p.stat().st_mtime, reverse=True)
+    best = pd.DataFrame(); best_path = ""; rejected = 0
+    for p in candidates:
+        try:
+            with gzip.open(p, "rb") as fh:
+                payload = pickle.load(fh)
+            if isinstance(payload, dict):
+                cached_code = _norm_code(payload.get("code", code))
+                if cached_code and cached_code != code:
+                    rejected += 1; continue
+                q = payload.get("frame")
+            else:
+                q = payload
+            if not isinstance(q, pd.DataFrame) or q.empty:
+                continue
+            qq = q.copy()
+            qq.index = pd.to_datetime(qq.index, errors="coerce")
+            qq = qq[qq.index.notna()].sort_index()
+            if len(qq) > len(best):
+                best = qq; best_path = p.name
+        except Exception:
+            rejected += 1
+    return best, {
+        "cache_root": str(root), "cache_candidates": len(candidates), "cache_rejected": rejected,
+        "cache_file": best_path, "cache_rows": len(best),
+        "cache_min_date": _fmt_date(best.index.min()) if not best.empty else "",
+        "cache_max_date": _fmt_date(best.index.max()) if not best.empty else "",
+    }
+
+
+def _normalize_lifecycle_price(df: pd.DataFrame) -> pd.DataFrame:
+    if df is None or df.empty:
+        return pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
+    q = df.copy()
+    q.index = pd.to_datetime(q.index, errors="coerce")
+    q = q[q.index.notna()].sort_index()
+    mapping = {}
+    for k, names in {
+        "open": ["Open", "open", "시가"], "high": ["High", "high", "고가"],
+        "low": ["Low", "low", "저가"], "close": ["Close", "close", "종가"],
+        "volume": ["Volume", "volume", "거래량"],
+    }.items():
+        c = next((x for x in names if x in q.columns), None)
+        if c is None and k != "volume":
+            return pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
+        mapping[k] = c
+    out = pd.DataFrame(index=q.index)
+    for k in ("open", "high", "low", "close"):
+        out[k] = pd.to_numeric(q[mapping[k]], errors="coerce")
+    out["volume"] = pd.to_numeric(q[mapping["volume"]], errors="coerce") if mapping["volume"] else np.nan
+    out = out.dropna(subset=["open", "high", "low", "close"])
+    out = out[(out[["open", "high", "low", "close"]] > 0).all(axis=1)]
+    return out[~out.index.duplicated(keep="last")]
+
+
+def _close_on_or_before(px: pd.DataFrame, date: Any) -> Optional[float]:
+    if px.empty:
+        return None
+    d = pd.to_datetime(date, errors="coerce")
+    if pd.isna(d):
+        return None
+    q = px[px.index.normalize() <= pd.Timestamp(d).normalize()]
+    return float(q.iloc[-1]["close"]) if not q.empty else None
+
+
+def _low_between(px: pd.DataFrame, start: Any, end: Any) -> Optional[float]:
+    s = pd.to_datetime(start, errors="coerce"); e = pd.to_datetime(end, errors="coerce")
+    if px.empty or pd.isna(s) or pd.isna(e):
+        return None
+    q = px[(px.index.normalize() >= pd.Timestamp(s).normalize()) & (px.index.normalize() <= pd.Timestamp(e).normalize())]
+    if q.empty:
+        return None
+    v = pd.to_numeric(q["low"], errors="coerce").dropna()
+    return float(v.min()) if not v.empty else None
+
+
+def _stop_lenses(l0: float, h1: float, pullback_low: float, cfg: Core224LifecycleConfig) -> Dict[str, float]:
+    if not (np.isfinite(l0) and np.isfinite(h1) and np.isfinite(pullback_low) and l0 > 0 and h1 > l0 and pullback_low > 0):
+        return {}
+    rng = h1 - l0
+    fib618 = h1 - 0.618 * rng
+    fib786 = h1 - 0.786 * rng
+    pb = pullback_low * (1.0 - cfg.pullback_stop_tolerance)
+    f618 = fib618 * (1.0 - cfg.fib_stop_tolerance)
+    f786 = fib786 * (1.0 - cfg.fib_stop_tolerance)
+    l0s = l0 * (1.0 - cfg.pullback_stop_tolerance)
+    # HYBRID_TIGHTER is deliberately conservative: break of either the observed pullback floor
+    # or the deep 78.6% structural line is enough to invalidate this comparison lens.
+    return {
+        "PB_LOW": pb,
+        "FIB_61_8": f618,
+        "FIB_78_6": f786,
+        "L0_STRUCTURE": l0s,
+        "HYBRID_TIGHTER": max(pb, f786),
+    }
+
+
+def _first_bar_index_on_or_after(px: pd.DataFrame, date: Any) -> Optional[int]:
+    d = pd.to_datetime(date, errors="coerce")
+    if px.empty or pd.isna(d):
+        return None
+    pos = np.flatnonzero(px.index.normalize() >= pd.Timestamp(d).normalize())
+    return int(pos[0]) if len(pos) else None
+
+
+def _simulate_lifecycle_one(
+    signal: Dict[str, Any], px: pd.DataFrame, stop_name: str, stop_price: float,
+    cfg: Core224LifecycleConfig,
+) -> Tuple[Dict[str, Any], List[Dict[str, Any]], List[Dict[str, Any]]]:
+    code = _norm_code(signal.get("code", "")); name = str(signal.get("name", "") or "")
+    sig_date = pd.to_datetime(signal.get("signal_date"), errors="coerce")
+    if pd.isna(sig_date) or px.empty:
+        return ({"code": code, "name": name, "signal_date": _fmt_date(sig_date), "stop_lens": stop_name,
+                 "lifecycle_status": "NO_PRICE_FOLLOWUP", "research_only": True}, [], [])
+    sig_date = pd.Timestamp(sig_date).normalize()
+    start_idx = _first_bar_index_on_or_after(px, sig_date)
+    if start_idx is None or px.index[start_idx].normalize() != sig_date:
+        return ({"code": code, "name": name, "signal_date": sig_date.strftime("%Y-%m-%d"), "stop_lens": stop_name,
+                 "lifecycle_status": "SIGNAL_DATE_PRICE_MISSING", "research_only": True}, [], [])
+
+    l0 = float(signal.get("l0_low", np.nan)); h1 = float(signal.get("h1_high", np.nan))
+    pb_low = float(signal.get("pullback_low", np.nan)); rng = h1 - l0
+    fib382 = h1 - 0.382 * rng if np.isfinite(rng) and rng > 0 else np.nan
+    fib50 = h1 - 0.50 * rng if np.isfinite(rng) and rng > 0 else np.nan
+    fib618 = h1 - 0.618 * rng if np.isfinite(rng) and rng > 0 else np.nan
+    # Adds are confirmation-at-close, not blind limit averaging.
+    support2 = fib382
+    support3 = max(pb_low, fib618) if np.isfinite(pb_low) and np.isfinite(fib618) else np.nan
+    if np.isfinite(support2) and np.isfinite(support3) and support3 >= support2 * 0.99:
+        support3 = np.nan
+
+    weights = list(cfg.entry_weights)
+    fills: List[Dict[str, Any]] = []
+    shares = 0.0; invested = 0.0; deployed = 0.0
+
+    def add_fill(stage: int, idx: int, reason: str) -> None:
+        nonlocal shares, invested, deployed
+        price = float(px.iloc[idx]["close"])
+        w = float(weights[stage - 1])
+        shares += w / price
+        invested += w
+        deployed += w
+        avg = invested / shares if shares > 0 else np.nan
+        fills.append({
+            "version": VERSION, "cohort_id": signal.get("cohort_id", ""), "code": code, "name": name,
+            "signal_date": sig_date.strftime("%Y-%m-%d"), "stop_lens": stop_name,
+            "entry_stage": stage, "fill_date": _fmt_date(px.index[idx]), "fill_price": price,
+            "planned_weight": w, "deployed_weight_after": deployed, "avg_cost_after": avg,
+            "fill_reason": reason, "research_only": True,
+        })
+
+    add_fill(1, start_idx, "CORE224_RESTART_SIGNAL_CLOSE")
+    entry1 = float(px.iloc[start_idx]["close"])
+    avg_cost = invested / shares
+    ever_below_avg = False
+    recovery_day = None; recovery_date = ""
+    h1_rebreak_high_day = None; h1_rebreak_close_day = None
+    profit_high_days: Dict[str, Optional[int]] = {"3": None, "5": None, "10": None}
+    profit_close_days: Dict[str, Optional[int]] = {"3": None, "5": None, "10": None}
+    mfe = -np.inf; mae = np.inf
+    stopped = False; stop_day = None; stop_date = ""; stop_exit = np.nan
+    last_fill_day = 0
+    horizon_rows: List[Dict[str, Any]] = []
+
+    max_idx = min(len(px) - 1, start_idx + cfg.max_follow_days)
+    available_follow = max_idx - start_idx
+    for idx in range(start_idx, max_idx + 1):
+        day = idx - start_idx
+        bar = px.iloc[idx]
+        if idx > start_idx:
+            # Conservative daily-bar ordering: structure stop is evaluated before any close-confirmed add.
+            if float(bar["low"]) <= float(stop_price):
+                stopped = True; stop_day = day; stop_date = _fmt_date(px.index[idx])
+                stop_exit = float(bar["open"]) if float(bar["open"]) < float(stop_price) else float(stop_price)
+                break
+
+            prev_close = float(px.iloc[idx - 1]["close"])
+            confirmation = (float(bar["close"]) > float(bar["open"])) or (float(bar["close"]) >= prev_close)
+            if confirmation and float(bar["close"]) > stop_price:
+                if len(fills) == 1 and np.isfinite(support2) and float(bar["low"]) <= support2 * (1.0 + cfg.support_touch_tolerance):
+                    add_fill(2, idx, "RETEST_FIB38_2_PLUS_BULLISH_CLOSE")
+                    last_fill_day = day
+                elif (len(fills) == 2 and np.isfinite(support3) and day - last_fill_day >= cfg.min_gap_between_adds_days
+                      and float(bar["low"]) <= support3 * (1.0 + cfg.support_touch_tolerance)):
+                    add_fill(3, idx, "DEEP_STRUCTURE_RETEST_PLUS_BULLISH_CLOSE")
+                    last_fill_day = day
+
+        avg_cost = invested / shares if shares > 0 else np.nan
+        if np.isfinite(avg_cost) and avg_cost > 0:
+            high_ret = float(bar["high"]) / avg_cost - 1.0
+            low_ret = float(bar["low"]) / avg_cost - 1.0
+            close_ret = float(bar["close"]) / avg_cost - 1.0
+            mfe = max(mfe, high_ret); mae = min(mae, low_ret)
+            if close_ret < 0:
+                ever_below_avg = True
+            if day > 0 and ever_below_avg and recovery_day is None and close_ret >= 0:
+                recovery_day = day; recovery_date = _fmt_date(px.index[idx])
+            if h1_rebreak_high_day is None and np.isfinite(h1) and float(bar["high"]) >= h1:
+                h1_rebreak_high_day = day
+            if h1_rebreak_close_day is None and np.isfinite(h1) and float(bar["close"]) >= h1:
+                h1_rebreak_close_day = day
+            for p in cfg.profit_levels:
+                key = str(int(round(p * 100)))
+                if profit_high_days[key] is None and high_ret >= p:
+                    profit_high_days[key] = day
+                if profit_close_days[key] is None and close_ret >= p:
+                    profit_close_days[key] = day
+        if day in cfg.horizon_days:
+            planned_pnl = shares * float(bar["close"]) - invested
+            horizon_rows.append({
+                "version": VERSION, "cohort_id": signal.get("cohort_id", ""), "code": code, "name": name,
+                "signal_date": sig_date.strftime("%Y-%m-%d"), "stop_lens": stop_name, "horizon_day": day,
+                "horizon_date": _fmt_date(px.index[idx]), "valuation_date": _fmt_date(px.index[idx]),
+                "deployed_weight": deployed, "avg_cost": avg_cost, "close": float(bar["close"]),
+                "avg_cost_return_pct": (float(bar["close"]) / avg_cost - 1.0) * 100.0 if avg_cost else np.nan,
+                "planned_capital_pnl_pct": planned_pnl * 100.0,
+                "structure_alive": 1, "horizon_status": "ALIVE_MARK_TO_MARKET",
+                "realized_exit": 0, "research_only": True,
+            })
+
+    if stopped:
+        final_price = float(stop_exit); end_day = int(stop_day or 0); end_date = stop_date
+        final_pnl = shares * final_price - invested
+        lifecycle_status = "STRUCTURE_STOP"
+        horizon_complete = 1
+        # A stopped trade is a resolved outcome at every later analysis horizon.  Carry the
+        # realized stop P&L forward instead of silently dropping it from D20/D40/D60 summaries;
+        # otherwise the horizon table would be survivorship-biased toward trades that never stopped.
+        avg_at_stop = invested / shares if shares > 0 else np.nan
+        stop_pnl = shares * final_price - invested
+        existing_h = {int(x.get("horizon_day")) for x in horizon_rows if pd.notna(x.get("horizon_day"))}
+        for hd in cfg.horizon_days:
+            if int(hd) < int(end_day) or int(hd) in existing_h:
+                continue
+            horizon_rows.append({
+                "version": VERSION, "cohort_id": signal.get("cohort_id", ""), "code": code, "name": name,
+                "signal_date": sig_date.strftime("%Y-%m-%d"), "stop_lens": stop_name, "horizon_day": int(hd),
+                "horizon_date": "", "valuation_date": end_date,
+                "deployed_weight": deployed, "avg_cost": avg_at_stop, "close": final_price,
+                "avg_cost_return_pct": (final_price / avg_at_stop - 1.0) * 100.0 if np.isfinite(avg_at_stop) and avg_at_stop > 0 else np.nan,
+                "planned_capital_pnl_pct": stop_pnl * 100.0,
+                "structure_alive": 0, "horizon_status": "STRUCTURE_STOP_CARRIED_FORWARD",
+                "realized_exit": 1, "research_only": True,
+            })
+    else:
+        end_day = available_follow; end_date = _fmt_date(px.index[max_idx]); final_price = float(px.iloc[max_idx]["close"])
+        final_pnl = shares * final_price - invested
+        horizon_complete = int(available_follow >= cfg.max_follow_days)
+        lifecycle_status = "SURVIVED_60D_OBSERVATION_END" if horizon_complete else "OPEN_RIGHT_CENSORED"
+
+    rec = {
+        "version": VERSION, "cohort_id": signal.get("cohort_id", ""), "cohort_start": signal.get("cohort_start", ""),
+        "cohort_end": signal.get("cohort_end", ""), "boundary_forced_exit": 0,
+        "code": code, "name": name, "signal_date": sig_date.strftime("%Y-%m-%d"),
+        "stop_lens": stop_name, "stop_price": float(stop_price), "entry1_price": entry1,
+        "l0_low": l0, "h1_high": h1, "pullback_low": pb_low,
+        "fib38_2": fib382, "fib50": fib50, "fib61_8": fib618,
+        "support2": support2, "support3": support3,
+        "entry_count": len(fills), "deployed_weight": deployed,
+        "avg_cost_final": invested / shares if shares > 0 else np.nan,
+        "lifecycle_status": lifecycle_status, "horizon_complete60": horizon_complete,
+        "available_follow_days": available_follow, "end_day": end_day, "end_date": end_date,
+        "final_mark_or_exit_price": final_price,
+        "final_avg_cost_return_pct": (final_price / (invested / shares) - 1.0) * 100.0 if shares > 0 else np.nan,
+        "final_planned_capital_pnl_pct": final_pnl * 100.0,
+        "mfe_pct": (mfe * 100.0) if np.isfinite(mfe) else np.nan,
+        "mae_pct": (mae * 100.0) if np.isfinite(mae) else np.nan,
+        "ever_below_avg_close": int(ever_below_avg),
+        "avg_recovery_after_drawdown": int(recovery_day is not None),
+        "avg_not_underwater_or_recovered": int((not ever_below_avg) or (recovery_day is not None)),
+        "avg_recovery_day": recovery_day if recovery_day is not None else np.nan,
+        "avg_recovery_date": recovery_date,
+        "h1_rebreak_high_day": h1_rebreak_high_day if h1_rebreak_high_day is not None else np.nan,
+        "h1_rebreak_close_day": h1_rebreak_close_day if h1_rebreak_close_day is not None else np.nan,
+        "profit3_high_day": profit_high_days["3"] if profit_high_days["3"] is not None else np.nan,
+        "profit5_high_day": profit_high_days["5"] if profit_high_days["5"] is not None else np.nan,
+        "profit10_high_day": profit_high_days["10"] if profit_high_days["10"] is not None else np.nan,
+        "profit3_close_day": profit_close_days["3"] if profit_close_days["3"] is not None else np.nan,
+        "profit5_close_day": profit_close_days["5"] if profit_close_days["5"] is not None else np.nan,
+        "profit10_close_day": profit_close_days["10"] if profit_close_days["10"] is not None else np.nan,
+        "capital_lock_days": recovery_day if recovery_day is not None else end_day,
+        "stop_distance_from_entry1_pct": (float(stop_price) / entry1 - 1.0) * 100.0 if entry1 > 0 else np.nan,
+        "stop_distance_from_avg_cost_pct": (float(stop_price) / (invested / shares) - 1.0) * 100.0 if shares > 0 else np.nan,
+        "time_forced_exit": 0, "observation_end_only": int(lifecycle_status != "STRUCTURE_STOP"),
+        "research_only": True, "live_logic_changed": False, "real_order_changed": False,
+    }
+    return rec, fills, horizon_rows
+
+
+def _summary_pct(s: pd.Series) -> float:
+    q = pd.to_numeric(s, errors="coerce").dropna()
+    return float(q.mean() * 100.0) if len(q) else np.nan
+
+
+def run_core224_lifecycle(
+    output_dir: str | Path,
+    state: pd.DataFrame,
+    cfg: Optional[Core224LifecycleConfig] = None,
+) -> Dict[str, Any]:
+    """Run a no-download, research-only lifecycle study from causally observed RESTART rows.
+
+    Cohort boundaries only decide which signals belong to the run. They never liquidate a position.
+    Follow-up is read from the persistent price cache for up to 60 trading sessions beyond the signal.
+    """
+    cfg = cfg or Core224LifecycleConfig(max_follow_days=max(20, _env_int_local("V25_LIFECYCLE_MAX_DAYS", 60)))
+    out = _out_dir(output_dir)
+    cohort = resolve_cohort_window()
+    enabled = _env_on_local("V25_LIFECYCLE_ENABLE", "1")
+    signal_rows: List[Dict[str, Any]] = []
+    policy_rows: List[Dict[str, Any]] = []
+    fill_rows: List[Dict[str, Any]] = []
+    horizon_rows: List[Dict[str, Any]] = []
+    cache_audit_rows: List[Dict[str, Any]] = []
+
+    if enabled and state is not None and not state.empty:
+        s = state.copy()
+        s["signal_date"] = pd.to_datetime(s.get("signal_date"), errors="coerce")
+        s = s[s["signal_date"].notna()]
+        if cohort.get("enabled"):
+            cs = pd.Timestamp(cohort["requested_start"]); ce = pd.Timestamp(cohort["requested_end"])
+            s = s[(s["signal_date"] >= cs) & (s["signal_date"] <= ce)]
+        s = s[s.get("core224_state", pd.Series("", index=s.index)).astype(str).eq("CORE224_RESTART")]
+        # signal_date/code is the causal sampling identity. Never backfill a historical transition that
+        # happened before the stock's weekly materialized universe membership.
+        s = s.sort_values(["signal_date", "code"]).drop_duplicates(["signal_date", "code"], keep="last")
+        for _, r in s.iterrows():
+            sig = r.to_dict(); code = _norm_code(sig.get("code", ""))
+            px_raw, cache_meta = _read_price_cache_for_code(out, code)
+            px = _normalize_lifecycle_price(px_raw)
+            pb_low = _low_between(px, sig.get("pullback_date"), sig.get("restart_date") or sig.get("signal_date"))
+            l0 = float(pd.to_numeric(pd.Series([sig.get("l0_low")]), errors="coerce").iloc[0]) if sig.get("l0_low") is not None else np.nan
+            h1 = float(pd.to_numeric(pd.Series([sig.get("h1_high")]), errors="coerce").iloc[0]) if sig.get("h1_high") is not None else np.nan
+            sig_date = pd.Timestamp(sig["signal_date"]).normalize()
+            sig_rec = {
+                "version": VERSION, "cohort_id": cohort.get("cohort_id", "ROLLING"),
+                "cohort_start": cohort.get("requested_start", ""), "cohort_end": cohort.get("requested_end", ""),
+                "boundary_forced_exit": 0, "code": code, "name": str(sig.get("name", "") or ""),
+                "signal_date": sig_date.strftime("%Y-%m-%d"), "source_state": "CORE224_RESTART",
+                "l0_date": sig.get("l0_date", ""), "l0_low": l0, "h1_date": sig.get("h1_date", ""), "h1_high": h1,
+                "pullback_date": sig.get("pullback_date", ""), "healthy_date": sig.get("healthy_date", ""),
+                "restart_date": sig.get("restart_date", ""), "pullback_low": pb_low if pb_low is not None else np.nan,
+                "signal_date_price_present": int(sig.get("signal_date_price_present", 0) or 0),
+                "actual_amount_history_ready20": int(sig.get("actual_amount_history_ready20", 0) or 0),
+                "research_only": True,
+            }
+            sig_rec.update(cache_meta)
+            lenses = _stop_lenses(l0, h1, float(pb_low) if pb_low is not None else np.nan, cfg)
+            sig_rec["stop_lens_count"] = len(lenses)
+            sig_rec["lifecycle_eligible"] = int(bool(lenses) and not px.empty and sig_rec["signal_date_price_present"] == 1)
+            signal_rows.append(sig_rec)
+            cache_audit_rows.append({k: sig_rec.get(k) for k in (
+                "version","cohort_id","code","name","signal_date","cache_file","cache_rows","cache_min_date","cache_max_date",
+                "signal_date_price_present","stop_lens_count","lifecycle_eligible")})
+            if not sig_rec["lifecycle_eligible"]:
+                continue
+            for lens_name, stop_price in lenses.items():
+                local = dict(sig_rec)
+                rec, fills, horizons = _simulate_lifecycle_one(local, px, lens_name, stop_price, cfg)
+                policy_rows.append(rec); fill_rows.extend(fills); horizon_rows.extend(horizons)
+
+    signal_df = pd.DataFrame(signal_rows)
+    policy_df = pd.DataFrame(policy_rows)
+    fill_df = pd.DataFrame(fill_rows)
+    horizon_df = pd.DataFrame(horizon_rows)
+    censor_df = pd.DataFrame(cache_audit_rows)
+
+    stop_summary_rows = []
+    if not policy_df.empty:
+        for lens, g in policy_df.groupby("stop_lens", dropna=False):
+            complete = pd.to_numeric(g.get("horizon_complete60"), errors="coerce").fillna(0).eq(1)
+            uncensored = g[complete]
+            stop_summary_rows.append({
+                "version": VERSION, "cohort_id": cohort.get("cohort_id", "ROLLING"), "stop_lens": lens,
+                "signals": len(g), "complete60": int(complete.sum()), "censored": int((~complete).sum()),
+                "structure_stop_rate_pct": float(g.get("lifecycle_status", pd.Series(dtype=str)).astype(str).eq("STRUCTURE_STOP").mean() * 100.0),
+                "survived60_rate_pct": float(g.get("lifecycle_status", pd.Series(dtype=str)).astype(str).eq("SURVIVED_60D_OBSERVATION_END").mean() * 100.0),
+                "entry2_fill_rate_pct": float(pd.to_numeric(g.get("entry_count"), errors="coerce").ge(2).mean() * 100.0),
+                "entry3_fill_rate_pct": float(pd.to_numeric(g.get("entry_count"), errors="coerce").ge(3).mean() * 100.0),
+                "drawdown_below_avg_rate_pct": float(pd.to_numeric(g.get("ever_below_avg_close"), errors="coerce").eq(1).mean() * 100.0),
+                "avg_recovery_rate_after_drawdown_pct": (
+                    float(pd.to_numeric(g.loc[pd.to_numeric(g.get("ever_below_avg_close"), errors="coerce").eq(1), "avg_recovery_after_drawdown"], errors="coerce").eq(1).mean() * 100.0)
+                    if pd.to_numeric(g.get("ever_below_avg_close"), errors="coerce").eq(1).any() else np.nan
+                ),
+                "avg_not_underwater_or_recovered_rate_pct": float(pd.to_numeric(g.get("avg_not_underwater_or_recovered"), errors="coerce").eq(1).mean() * 100.0),
+                "median_recovery_days": float(pd.to_numeric(g.get("avg_recovery_day"), errors="coerce").median()) if pd.to_numeric(g.get("avg_recovery_day"), errors="coerce").notna().any() else np.nan,
+                "h1_close_rebreak_rate_pct": float(pd.to_numeric(g.get("h1_rebreak_close_day"), errors="coerce").notna().mean() * 100.0),
+                "profit3_high_rate_pct": float(pd.to_numeric(g.get("profit3_high_day"), errors="coerce").notna().mean() * 100.0),
+                "profit5_high_rate_pct": float(pd.to_numeric(g.get("profit5_high_day"), errors="coerce").notna().mean() * 100.0),
+                "profit10_high_rate_pct": float(pd.to_numeric(g.get("profit10_high_day"), errors="coerce").notna().mean() * 100.0),
+                "median_mfe_pct": float(pd.to_numeric(g.get("mfe_pct"), errors="coerce").median()),
+                "median_mae_pct": float(pd.to_numeric(g.get("mae_pct"), errors="coerce").median()),
+                "median_capital_lock_days": float(pd.to_numeric(g.get("capital_lock_days"), errors="coerce").median()),
+                "median_final_planned_capital_pnl_pct_complete": float(pd.to_numeric(uncensored.get("final_planned_capital_pnl_pct"), errors="coerce").median()) if not uncensored.empty else np.nan,
+                "research_only": True,
+            })
+    stop_summary = pd.DataFrame(stop_summary_rows)
+
+    horizon_summary_rows = []
+    if not horizon_df.empty:
+        for (lens, hd), g in horizon_df.groupby(["stop_lens", "horizon_day"], dropna=False):
+            horizon_summary_rows.append({
+                "version": VERSION, "cohort_id": cohort.get("cohort_id", "ROLLING"), "stop_lens": lens, "horizon_day": int(hd),
+                "n": len(g),
+                "alive_n": int(pd.to_numeric(g.get("structure_alive"), errors="coerce").fillna(0).eq(1).sum()),
+                "stopped_n": int(pd.to_numeric(g.get("realized_exit"), errors="coerce").fillna(0).eq(1).sum()),
+                "avg_cost_return_mean_pct": float(pd.to_numeric(g["avg_cost_return_pct"], errors="coerce").mean()),
+                "avg_cost_return_median_pct": float(pd.to_numeric(g["avg_cost_return_pct"], errors="coerce").median()),
+                "planned_capital_pnl_mean_pct": float(pd.to_numeric(g["planned_capital_pnl_pct"], errors="coerce").mean()),
+                "planned_capital_pnl_median_pct": float(pd.to_numeric(g["planned_capital_pnl_pct"], errors="coerce").median()),
+                "resolved_stop_carried_forward_rate_pct": float(pd.to_numeric(g.get("realized_exit"), errors="coerce").fillna(0).eq(1).mean() * 100.0),
+                "research_only": True,
+            })
+    horizon_summary = pd.DataFrame(horizon_summary_rows)
+
+    eligible_signals = int(pd.to_numeric(signal_df.get("lifecycle_eligible"), errors="coerce").fillna(0).eq(1).sum()) if not signal_df.empty else 0
+    primary = policy_df[policy_df.get("stop_lens", pd.Series(dtype=str)).astype(str).eq("PB_LOW")].copy() if not policy_df.empty else pd.DataFrame()
+    complete_primary = int(pd.to_numeric(primary.get("horizon_complete60"), errors="coerce").fillna(0).eq(1).sum()) if not primary.empty else 0
+    censor_primary = int(primary.get("lifecycle_status", pd.Series(dtype=str)).astype(str).eq("OPEN_RIGHT_CENSORED").sum()) if not primary.empty else 0
+    readiness_status = "DISABLED" if not enabled else (
+        "WARMUP_NO_RESTART_SIGNALS" if len(signal_df) == 0 else
+        "WARMUP_NO_ELIGIBLE_FOLLOWUP" if eligible_signals == 0 else
+        "RESEARCH_SAMPLE_WARMUP" if eligible_signals < 30 else
+        "DATA_READY_RESEARCH_ONLY" if (complete_primary / max(1, eligible_signals)) >= 0.70 else
+        "FOLLOWUP_COVERAGE_WARMUP"
+    )
+    readiness = pd.DataFrame([{
+        "version": VERSION, "status": readiness_status, "cohort_enabled": int(cohort.get("enabled", 0)),
+        "cohort_mode": cohort.get("mode", "ROLLING"), "cohort_id": cohort.get("cohort_id", "ROLLING"),
+        "cohort_start": cohort.get("requested_start", ""), "cohort_end": cohort.get("requested_end", ""),
+        "boundary_forced_exit": 0, "restart_signal_rows": len(signal_df), "eligible_restart_signals": eligible_signals,
+        "policy_rows": len(policy_df), "primary_pb_low_complete60": complete_primary, "primary_pb_low_censored": censor_primary,
+        "max_follow_days": cfg.max_follow_days, "entry_weights": "/".join(f"{x:.2f}" for x in cfg.entry_weights),
+        "live_logic_changed": False, "real_order_changed": False, "research_only": True,
+    }])
+
+    cohort_summary = stop_summary.copy()
+    if not cohort_summary.empty:
+        cohort_summary.insert(2, "cohort_start", cohort.get("requested_start", ""))
+        cohort_summary.insert(3, "cohort_end", cohort.get("requested_end", ""))
+        cohort_summary["boundary_forced_exit"] = 0
+
+    _write_csv(out / LIFECYCLE_SIGNAL_FILE, signal_df)
+    _write_csv(out / LIFECYCLE_FILL_FILE, fill_df)
+    _write_csv(out / LIFECYCLE_STOP_FILE, stop_summary)
+    _write_csv(out / LIFECYCLE_COHORT_FILE, cohort_summary)
+    _write_csv(out / LIFECYCLE_HORIZON_FILE, horizon_summary)
+    _write_csv(out / LIFECYCLE_CENSOR_FILE, censor_df)
+    _write_csv(out / LIFECYCLE_READINESS_FILE, readiness)
+
+    primary_row = stop_summary[stop_summary.get("stop_lens", pd.Series(dtype=str)).astype(str).eq("PB_LOW")].iloc[0] if not stop_summary.empty and (stop_summary.get("stop_lens", pd.Series(dtype=str)).astype(str) == "PB_LOW").any() else pd.Series(dtype=object)
+    report_lines = [
+        "🧭 [CORE224 신호 코호트 × 구조손절 × 분할매수 생명주기 · RESEARCH_ONLY]",
+        f"📌 {VERSION} · cohort={cohort.get('cohort_id','ROLLING')} {cohort.get('requested_start','') or '-'}~{cohort.get('requested_end','') or '-'} · 경계 강제청산 0",
+        f"📦 RESTART 신호 {len(signal_df)} · lifecycle eligible {eligible_signals} · 정책비교 {len(policy_df)}행 · 상태 {readiness_status}",
+        "- 1차=RESTART 종가 30% · 2차=Fib38.2 재눌림+종가확인 30% · 3차=깊은 구조지지 재확인 40% · 단순 가격하락 물타기 금지",
+        "- 손절 SHADOW: PB_LOW / Fib61.8 / Fib78.6 / L0 / HYBRID_TIGHTER · 수익률 보고 최적 손절 선택 금지",
+        "- 구간 경계는 신호 소속만 결정합니다. 포지션은 경계에서 닫지 않고 최대 60거래일 추적하며, 데이터 부족은 OPEN_RIGHT_CENSORED로 분리합니다.",
+    ]
+    if not primary_row.empty:
+        report_lines.append(
+            f"🎯 PB_LOW 기준: n{int(primary_row.get('signals',0) or 0)} · 구조손절 {float(primary_row.get('structure_stop_rate_pct',np.nan)):.1f}% · "
+            f"60D생존 {float(primary_row.get('survived60_rate_pct',np.nan)):.1f}% · 평단하회 {float(primary_row.get('drawdown_below_avg_rate_pct',np.nan)):.1f}% · "
+            f"하회후회복 {float(primary_row.get('avg_recovery_rate_after_drawdown_pct',np.nan)):.1f}% · H1종가재돌파 {float(primary_row.get('h1_close_rebreak_rate_pct',np.nan)):.1f}% · "
+            f"+5고가도달 {float(primary_row.get('profit5_high_rate_pct',np.nan)):.1f}%"
+        )
+    report_lines.append(f"- CSV: {LIFECYCLE_SIGNAL_FILE} · {LIFECYCLE_FILL_FILE} · {LIFECYCLE_STOP_FILE} · {LIFECYCLE_HORIZON_FILE} · {LIFECYCLE_CENSOR_FILE} · {LIFECYCLE_READINESS_FILE}")
+    report = "\n".join(report_lines)
+    (out / LIFECYCLE_REPORT_FILE).write_text(report, encoding="utf-8")
+    return {
+        "signal": signal_df, "policy": policy_df, "fills": fill_df, "stop_summary": stop_summary,
+        "cohort_summary": cohort_summary, "horizon": horizon_df, "horizon_summary": horizon_summary,
+        "censoring": censor_df, "readiness": readiness, "report": report, "cohort": cohort,
+    }
+
+
 def _reconcile_universe(payloads: List[Dict[str, Any]]) -> pd.DataFrame:
     rows = []
     for z in payloads:
@@ -1539,6 +2125,7 @@ def finalize(
     manual=_manual_ledger(state)
     manual_sample=_manual_review_sample(manual, per_bucket=int(os.getenv("V25_MANUAL_SAMPLE_PER_BUCKET","15") or 15))
     amount_authority=_amount_authority_coverage(state)
+    lifecycle=run_core224_lifecycle(out, state)
     formula=build_formula_audit(registry_path)
     source=audit_source(source_file)
     universe=_reconcile_universe(payloads)
@@ -1554,6 +2141,8 @@ def finalize(
     sector_known=int(_num_col(state,"sector_context_known",0).eq(1).sum()) if not state.empty else 0
     _sidecar_dates=sum(1 for z in payloads if isinstance(z.get("runtime_sidecars",{}),dict) and "V25_CORE224_ROWS" in z.get("runtime_sidecars",{}))
     _pipeline_ok = bool(len(payloads) > 0 and _sidecar_dates == len(payloads) and len(state) > 0 and len(formula) == 66 and len(universe) == len(payloads))
+    _life_ready = lifecycle.get("readiness", pd.DataFrame()) if isinstance(lifecycle, dict) else pd.DataFrame()
+    _life_row = _life_ready.iloc[-1] if isinstance(_life_ready, pd.DataFrame) and not _life_ready.empty else pd.Series(dtype=object)
     activation=pd.DataFrame([{
         "version":VERSION,"activation_executed":1,"pipeline_status":"VALID_SHADOW" if _pipeline_ok else "INVALID_INCOMPLETE_V25_HANDOFF",
         "materialized_dates":len(payloads),"sidecar_dates":_sidecar_dates,
@@ -1568,6 +2157,12 @@ def finalize(
         "historical_asof_days":len(universe),"historical_complete_days":int(_num_col(universe,"complete",0).sum()) if not universe.empty else 0,
         "historical_fallback_days":int(_num_col(universe,"fallback_used",0).sum()) if not universe.empty else 0,
         "pattern_only_transfer_match":int(transfer.iloc[-1].get("transfer_match",0)) if not transfer.empty else 0,
+        "cohort_mode":str(_life_row.get("cohort_mode","ROLLING")),"cohort_id":str(_life_row.get("cohort_id","ROLLING")),
+        "cohort_start":str(_life_row.get("cohort_start","")),"cohort_end":str(_life_row.get("cohort_end","")),
+        "cohort_boundary_forced_exit":0,"lifecycle_status":str(_life_row.get("status","UNKNOWN")),
+        "lifecycle_restart_signals":int(float(_life_row.get("restart_signal_rows",0) or 0)),
+        "lifecycle_eligible_signals":int(float(_life_row.get("eligible_restart_signals",0) or 0)),
+        "lifecycle_policy_rows":int(float(_life_row.get("policy_rows",0) or 0)),
         "live_logic_changed":False,"real_order_changed":False,"parent_top500_recompute_allowed":False,
         "generated_at":datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }])
@@ -1575,12 +2170,14 @@ def finalize(
     _write_csv(out/MANUAL_AUDIT_FILE,manual); _write_csv(out/MANUAL_SAMPLE_FILE,manual_sample); _write_csv(out/AMOUNT_AUTHORITY_FILE,amount_authority); _write_csv(out/FORMULA_AUDIT_FILE,formula); _write_csv(out/SOURCE_AUDIT_FILE,source)
     _write_csv(out/UNIVERSE_RECON_FILE,universe); _write_csv(out/PATTERN_TRANSFER_FILE,transfer); _write_csv(out/ACTIVATION_FILE,activation)
     block=build_report(out,state,event,inv,activation,universe,formula,transfer)
+    if isinstance(lifecycle, dict) and str(lifecycle.get("report","")).strip():
+        block = block.rstrip() + "\n\n" + str(lifecycle.get("report","")).strip()
     (out/REPORT_FILE).write_text(block,encoding="utf-8")
     raw=strip_stale_blocks(str(base_report or ""))
     if HEADER in raw:
         raw=raw.split(HEADER)[0].rstrip()
     fixed=(raw.rstrip()+"\n\n"+block).strip() if raw.strip() else block
-    return fixed,{"state":state,"events":event,"invariants":inv,"manual":manual,"manual_sample":manual_sample,"amount_authority":amount_authority,"formula_audit":formula,"source_audit":source,"universe":universe,"pattern_transfer":transfer,"activation":activation}
+    return fixed,{"state":state,"events":event,"invariants":inv,"manual":manual,"manual_sample":manual_sample,"amount_authority":amount_authority,"lifecycle":lifecycle,"formula_audit":formula,"source_audit":source,"universe":universe,"pattern_transfer":transfer,"activation":activation}
 
 
 def force_report(text: str, output_dir: str | Path = "reports") -> str:

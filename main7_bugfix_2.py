@@ -93778,12 +93778,12 @@ except Exception:
 
 
 # ============================================================
-# ✅ V73.3.6.6.25.2.2 ORIGINAL THESIS RECONSTRUCTION + CORE224 SHADOW + KRX SHARD AUTHORITY GUARD
+# ✅ V73.3.6.6.25.3 ORIGINAL THESIS RECONSTRUCTION + CORE224 SHADOW + COHORT LIFECYCLE
 # - Original search philosophy audit only; no return tuning.
 # - Shard materializes CORE224 evidence; merge-only parent consumes sidecars only.
 # - Existing LIVE/score/rank/entry/exit/order logic remains untouched.
 # ============================================================
-_V7336625_VERSION = 'V73.3.6.6.25.2.2'
+_V7336625_VERSION = 'V73.3.6.6.25.3'
 _V7336625_HEADER = '🧭 [V25 ORIGINAL THESIS RECONSTRUCTION · CORE224 SHADOW · RESEARCH_ONLY]'
 _V7336625_IMPORT_ERROR = ''
 try:
@@ -93794,7 +93794,7 @@ try:
         and not bool(getattr(_v7336625_thesis, 'LIVE_LOGIC_CHANGED', True))
         and not bool(getattr(_v7336625_thesis, 'REAL_ORDER_CHANGED', True))
         and all(callable(getattr(_v7336625_thesis, n, None)) for n in (
-            'build_date_sidecar','evaluate_core224','finalize','force_report','audit_source','build_formula_audit'
+            'build_date_sidecar','evaluate_core224','finalize','force_report','audit_source','build_formula_audit','resolve_cohort_window','run_core224_lifecycle'
         ))
     )
     os.environ.setdefault('V25_ORIGINAL_THESIS_ENABLE', '1')
@@ -93810,8 +93810,72 @@ except Exception as _v7336625_import_e:
 
 
 
+
 # ============================================================
-# ✅ V73.3.6.6.25.2.2 DATA AUTHORITY + AUTHENTICATED SHARD RECOVERY
+# ✅ V73.3.6.6.25.3 SIGNAL COHORT CALENDAR OVERRIDE · RESEARCH_ONLY
+# - A/B/C/D are signal-membership windows only; cohort end NEVER liquidates a position.
+# - Default ROLLING keeps the legacy calendar byte-for-byte behavior.
+# - Explicit cohort dates are reproducible and can be run one six-month window at a time.
+# ============================================================
+_V73366253_BASE_TRADING_CALENDAR = globals().get('_v1081_latest_trading_calendar')
+def _v1081_latest_trading_calendar(weeks: int, hold_days: int) -> list:
+    base = globals().get('_V73366253_BASE_TRADING_CALENDAR')
+    if not (_V7336625_OK and _v1080_env_on('V25_ORIGINAL_THESIS_ENABLE','1')):
+        return base(weeks, hold_days) if callable(base) else []
+    try:
+        cw = _v7336625_thesis.resolve_cohort_window()
+    except Exception as exc:
+        try: log_error(f'🚨 V25 cohort window resolve failed: {type(exc).__name__}:{exc}')
+        except Exception: pass
+        raise
+    if not int(cw.get('enabled',0) or 0):
+        return base(weeks, hold_days) if callable(base) else []
+    try:
+        start = pd.Timestamp(cw.get('requested_start')).normalize()
+        end = pd.Timestamp(cw.get('requested_end')).normalize()
+        today = pd.Timestamp(datetime.now().strftime('%Y-%m-%d')).normalize()
+        fetch_start = (start - pd.Timedelta(days=14)).strftime('%Y-%m-%d')
+        fetch_end = (max(end, today) + pd.Timedelta(days=1)).strftime('%Y-%m-%d')
+        try:
+            idx_df = fdr.DataReader('KS11', fetch_start, fetch_end)
+        except Exception:
+            idx_df = fdr.DataReader('KOSPI', fetch_start, fetch_end)
+        if idx_df is None or idx_df.empty:
+            return []
+        dates = sorted({pd.Timestamp(x).normalize() for x in pd.to_datetime(idx_df.index, errors='coerce') if pd.notna(x)})
+        dates = [d for d in dates if d <= today]
+        hd = max(0, int(hold_days or 0))
+        if len(dates) <= hd:
+            return []
+        max_signal_date = dates[-(hd + 1)] if hd > 0 else dates[-1]
+        eligible = [d for d in dates if start <= d <= end and d <= max_signal_date]
+        if not eligible:
+            return []
+        cal = pd.DataFrame({'date': eligible})
+        cal['week_start'] = cal['date'] - pd.to_timedelta(cal['date'].dt.weekday, unit='D')
+        mode = str(os.environ.get('V25_COHORT_DATE_MODE', os.environ.get('V1081_DIRECT_DATE_MODE','WEEK_LAST'))).strip().upper()
+        out=[]
+        if mode == 'ALL_DAYS':
+            out=list(cal['date'])
+        else:
+            for _, g in cal.groupby('week_start', sort=True):
+                if not g.empty:
+                    out.append(pd.Timestamp(g['date'].max()).normalize())
+        max_dates = _v1080_env_int('V1081_DIRECT_MAX_DATES', 0) if callable(globals().get('_v1080_env_int')) else 0
+        if max_dates and max_dates > 0:
+            out = out[-max_dates:]
+        out = sorted(dict.fromkeys(pd.Timestamp(x).normalize() for x in out))
+        try:
+            log_info(f"🧭 [V25 COHORT CALENDAR] {cw.get('cohort_id')} {start.date()}~{end.date()} | mode={mode} | replay_dates={len(out)} | boundary_exit=0")
+        except Exception: pass
+        return out
+    except Exception as exc:
+        try: log_error(f'🚨 V25 cohort calendar failed: {type(exc).__name__}:{exc}')
+        except Exception: pass
+        raise
+
+# ============================================================
+# ✅ V73.3.6.6.25.3 DATA AUTHORITY + COHORT LIFECYCLE
 # - pykrx all-market OHLCV outage -> reported market-cap/turnover cross-section fallback
 # - potential CORE224 names only: per-ticker reported turnover history fallback
 # - Historical-AsOf complete remains fail-closed unless all-market causal denominator is proven
@@ -94441,6 +94505,10 @@ _V7336625_RELEASE_MARKER = {
     'research_only': True,
     'original_thesis_reconstruction': True,
     'core224_shadow_fsm': True,
+    'signal_cohort_boundary_not_exit': True,
+    'structural_scale_in_lifecycle_research': True,
+    'right_censoring_explicit': True,
+    'pb_low_fib_stop_lens_comparison': True,
     'accumulation_mandatory_before_wave1': True,
     'activation_fail_closed_visible': True,
     'market_context_non_gating': True,
@@ -94456,7 +94524,7 @@ _V7336625_RELEASE_MARKER = {
     'live_logic_changed': False,
     'real_order_changed': False,
 }
-# ✅ END V73.3.6.6.25.2.2 ORIGINAL THESIS RECONSTRUCTION + KRX SHARD AUTHORITY GUARD
+# ✅ END V73.3.6.6.25.3 ORIGINAL THESIS + SIGNAL COHORT + STRUCTURAL SCALE-IN LIFECYCLE
 
 if __name__ == "__main__":
     # V73.3.6.6.23 matrix shard worker: materialized per-date results; no Telegram/Sheet/LIVE side effects.
