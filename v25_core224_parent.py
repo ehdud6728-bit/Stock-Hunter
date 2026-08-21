@@ -23,8 +23,9 @@ import pandas as pd
 
 import direct_replay_materialized_v23 as mat
 import original_thesis_reconstruction as thesis
+import v25_core224_daily_episode_replay as daily_replay
 
-VERSION = "V73.3.6.6.25.3.1-HF5"
+VERSION = "V73.3.6.6.25.4-HF5COMPAT"
 AUDIT_FILE = "v73_v25_core224_only_parent_audit.csv"
 REPORT_FILE = "v73_v25_core224_only_parent_report.txt"
 HEADER = "⚡ [V25 ALL CORE224 LIGHTWEIGHT PARENT · RESEARCH_ONLY]"
@@ -132,11 +133,20 @@ def run(output_dir: str) -> int:
         registry_path=Path("search_formula_contract_registry.json"),
         base_report=base_report,
     )
+    # V25.4: resolve only weekly-seeded CORE224 episodes at daily resolution from already
+    # materialized caches. No provider calls and no full-universe daily recomputation.
+    daily_result = daily_replay.run_daily_episode_replay(
+        out, state=tables.get("state", pd.DataFrame()) if isinstance(tables, dict) else pd.DataFrame()
+    )
+    if str(daily_result.get("report", "")).strip():
+        report = report.rstrip() + "\n\n" + str(daily_result.get("report", "")).strip()
     activation = tables.get("activation", pd.DataFrame()) if isinstance(tables, dict) else pd.DataFrame()
     life = tables.get("lifecycle", {}) if isinstance(tables, dict) else {}
     readiness = life.get("readiness", pd.DataFrame()) if isinstance(life, dict) else pd.DataFrame()
     ar = activation.iloc[-1] if isinstance(activation, pd.DataFrame) and not activation.empty else pd.Series(dtype=object)
     lr = readiness.iloc[-1] if isinstance(readiness, pd.DataFrame) and not readiness.empty else pd.Series(dtype=object)
+    dr = daily_result.get("readiness", pd.DataFrame()) if isinstance(daily_result, dict) else pd.DataFrame()
+    drr = dr.iloc[-1] if isinstance(dr, pd.DataFrame) and not dr.empty else pd.Series(dtype=object)
 
     elapsed = time.monotonic() - t0
     audit = {
@@ -156,6 +166,14 @@ def run(output_dir: str) -> int:
         "lifecycle_eligible_signals": int(float(lr.get("eligible_restart_signals", 0) or 0)),
         "boundary_forced_exit": int(float(lr.get("boundary_forced_exit", 0) or 0)),
         "auto_chain": int(float(lr.get("auto_chain", 0) or 0)),
+        "daily_episode_status": str(drr.get("status", "UNKNOWN")),
+        "daily_seed_codes": int(float(drr.get("seed_codes", 0) or 0)),
+        "daily_evaluated_codes": int(float(drr.get("evaluated_codes", 0) or 0)),
+        "daily_restart_events": int(float(drr.get("daily_restart_events", 0) or 0)),
+        "daily_recovered_restart_events": int(float(drr.get("recovered_restart_events", 0) or 0)),
+        "daily_invariant_fail_rows": int(float(drr.get("daily_invariant_fail_rows", 0) or 0)),
+        "daily_lifecycle_eligible": int(float(drr.get("daily_lifecycle_eligible", 0) or 0)),
+        "daily_provider_calls": int(float(drr.get("provider_calls", 0) or 0)),
         "legacy_v72_v24_parent_research": "SKIPPED_INTENTIONALLY",
         "live_logic_changed": False,
         "real_order_changed": False,
@@ -172,6 +190,9 @@ def run(output_dir: str) -> int:
         and audit["boundary_forced_exit"] == 0
         and audit["auto_chain"] == 1
         and audit["lifecycle_status"] not in {"", "INVALID", "DISABLED"}
+        and not audit["daily_episode_status"].startswith("INVALID")
+        and audit["daily_invariant_fail_rows"] == 0
+        and audit["daily_provider_calls"] == 0
     )
     audit["status"] = "PASS" if guard_ok else "INVALID"
     _write_audit(out, audit)
@@ -179,7 +200,8 @@ def run(output_dir: str) -> int:
         HEADER,
         f"📌 {VERSION} · status={audit['status']} · ALL A/B/C/D materialized payload만 사용",
         f"📦 V23 parent {audit['valid_dates']}/{audit['expected_dates']}일 · CORE224 rows {audit['core224_rows']} · transitions {audit['transition_rows']} · invariant fail {audit['invariant_fail_rows']}",
-        f"🧭 lifecycle {audit['lifecycle_status']} · RESTART {audit['lifecycle_restart_signals']} · eligible {audit['lifecycle_eligible_signals']} · boundary forced exit {audit['boundary_forced_exit']}",
+        f"🧭 weekly lifecycle {audit['lifecycle_status']} · RESTART {audit['lifecycle_restart_signals']} · eligible {audit['lifecycle_eligible_signals']} · boundary forced exit {audit['boundary_forced_exit']}",
+        f"🔬 daily episode {audit['daily_episode_status']} · seed {audit['daily_seed_codes']} → 평가 {audit['daily_evaluated_codes']} · RESTART {audit['daily_restart_events']} (주간사이 복원 {audit['daily_recovered_restart_events']}) · invariant fail {audit['daily_invariant_fail_rows']}",
         "🚫 2년 ALL 실행에서는 기존 V72/V24 전체분모·HAM·FAMILIAR·시장/섹터/검색식 후속연구를 parent에서 재계산하지 않습니다.",
         "✅ 목적: 이미 shard에서 계산한 CORE224 증거를 merge하여 구조손절·분할매수·20/40/60일 생명주기만 빠르게 검증합니다.",
         "🔒 LIVE 점수·랭크·진입·청산·주문 변경 0 · 기존 24주/단일 코호트 FULL 연구경로는 그대로 유지",
