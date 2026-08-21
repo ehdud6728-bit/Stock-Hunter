@@ -93831,11 +93831,30 @@ def _v1081_latest_trading_calendar(weeks: int, hold_days: int) -> list:
     if not int(cw.get('enabled',0) or 0):
         return base(weeks, hold_days) if callable(base) else []
     try:
-        start = pd.Timestamp(cw.get('requested_start')).normalize()
-        end = pd.Timestamp(cw.get('requested_end')).normalize()
+        # V25.3.1 HF4: ALL is the UNION of four independently sampled A/B/C/D
+        # signal cohorts.  A cohort boundary can split one calendar week, so the
+        # same week may legitimately contribute one WEEK_LAST date to each side
+        # of the boundary.  Do not collapse those boundary dates by grouping the
+        # whole two-year ALL window as one continuous weekly calendar.
+        all_mode = str(cw.get('mode','')).strip().upper() == 'ALL'
+        raw_windows = list(cw.get('cohort_windows') or []) if all_mode else [cw]
+        windows = []
+        for w in raw_windows:
+            st = pd.to_datetime(w.get('requested_start'), errors='coerce')
+            en = pd.to_datetime(w.get('requested_end'), errors='coerce')
+            if pd.isna(st) or pd.isna(en):
+                raise ValueError('INVALID_V25_COHORT_CALENDAR_WINDOW')
+            st = pd.Timestamp(st).normalize(); en = pd.Timestamp(en).normalize()
+            if st > en:
+                raise ValueError('INVALID_V25_COHORT_CALENDAR_ORDER')
+            cid = str(w.get('mode') or w.get('cohort_id') or cw.get('cohort_id') or 'COHORT').strip().upper()
+            windows.append((cid, st, en))
+        if not windows:
+            return []
+
         today = pd.Timestamp(datetime.now().strftime('%Y-%m-%d')).normalize()
-        fetch_start = (start - pd.Timedelta(days=14)).strftime('%Y-%m-%d')
-        fetch_end = (max(end, today) + pd.Timedelta(days=1)).strftime('%Y-%m-%d')
+        fetch_start = (min(x[1] for x in windows) - pd.Timedelta(days=14)).strftime('%Y-%m-%d')
+        fetch_end = (max(max(x[2] for x in windows), today) + pd.Timedelta(days=1)).strftime('%Y-%m-%d')
         try:
             idx_df = fdr.DataReader('KS11', fetch_start, fetch_end)
         except Exception:
@@ -93848,25 +93867,38 @@ def _v1081_latest_trading_calendar(weeks: int, hold_days: int) -> list:
         if len(dates) <= hd:
             return []
         max_signal_date = dates[-(hd + 1)] if hd > 0 else dates[-1]
-        eligible = [d for d in dates if start <= d <= end and d <= max_signal_date]
-        if not eligible:
-            return []
-        cal = pd.DataFrame({'date': eligible})
-        cal['week_start'] = cal['date'] - pd.to_timedelta(cal['date'].dt.weekday, unit='D')
         mode = str(os.environ.get('V25_COHORT_DATE_MODE', os.environ.get('V1081_DIRECT_DATE_MODE','WEEK_LAST'))).strip().upper()
-        out=[]
-        if mode == 'ALL_DAYS':
-            out=list(cal['date'])
-        else:
-            for _, g in cal.groupby('week_start', sort=True):
-                if not g.empty:
-                    out.append(pd.Timestamp(g['date'].max()).normalize())
         max_dates = _v1080_env_int('V1081_DIRECT_MAX_DATES', 0) if callable(globals().get('_v1080_env_int')) else 0
-        if max_dates and max_dates > 0:
-            out = out[-max_dates:]
+
+        out = []
+        part_counts = []
+        for cid, start, end in windows:
+            eligible = [d for d in dates if start <= d <= end and d <= max_signal_date]
+            if not eligible:
+                part_counts.append(f'{cid}:0')
+                continue
+            cal = pd.DataFrame({'date': eligible})
+            cal['week_start'] = cal['date'] - pd.to_timedelta(cal['date'].dt.weekday, unit='D')
+            part = []
+            if mode == 'ALL_DAYS':
+                part = list(cal['date'])
+            else:
+                for _, g in cal.groupby('week_start', sort=True):
+                    if not g.empty:
+                        part.append(pd.Timestamp(g['date'].max()).normalize())
+            # In ALL mode each worker A/B/C/D applies any direct max-date cap
+            # independently, so the parent must mirror the same per-cohort cap.
+            if max_dates and max_dates > 0:
+                part = part[-max_dates:]
+            part = sorted(dict.fromkeys(pd.Timestamp(x).normalize() for x in part))
+            out.extend(part)
+            part_counts.append(f'{cid}:{len(part)}')
+
         out = sorted(dict.fromkeys(pd.Timestamp(x).normalize() for x in out))
         try:
-            log_info(f"🧭 [V25 COHORT CALENDAR] {cw.get('cohort_id')} {start.date()}~{end.date()} | mode={mode} | replay_dates={len(out)} | boundary_exit=0")
+            span_start = min(x[1] for x in windows).date(); span_end = max(x[2] for x in windows).date()
+            detail = ','.join(part_counts)
+            log_info(f"🧭 [V25 COHORT CALENDAR] {cw.get('cohort_id')} {span_start}~{span_end} | mode={mode} | replay_dates={len(out)} | parts={detail} | boundary_exit=0 | all_union={int(all_mode)}")
         except Exception: pass
         return out
     except Exception as exc:
