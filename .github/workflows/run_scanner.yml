@@ -2700,10 +2700,31 @@ jobs:
             echo "⏰ V72.29 09:30 NAVER realtime batch strong-sector / leader radar | script=${SCRIPT}"
             python -u "${SCRIPT}" --open-0930
           elif [ "${STOCKHUNTER_WEEKLY_BACKTEST_ONLY}" = "1" ]; then
-            echo "🧪 WEEKLY_BACKTEST + V73.3.6.6.23 six-shard/materialized/merge-only/zero-recompute + V22 gate-audit + V21 fail-safe persist + V20 TOP500 cache/resume/progress + sequence/context/catalyst + complete formula pipeline + universe truth + market/pattern/familiar audits | source=${V1081_BACKTEST_SOURCE} | script=${SCRIPT}"
             mkdir -p reports
             HAM_RUN_LOG="reports/v72_weekly_backtest_stdout.log"
             set -o pipefail
+            # V25.3.1 HF5: ALL already has 24 shard / materialized authority.  The parent
+            # must not recompute the 2-year legacy V72/V24 denominator chain just to reach
+            # CORE224 lifecycle.  Single-cohort / ROLLING runs retain the historical full path.
+            if [ "${V25_COHORT_MODE:-ROLLING}" = "ALL" ] && [ "${V1081_BACKTEST_SOURCE:-}" = "DIRECT_REPLAY" ] && [ "${V25_ORIGINAL_THESIS_ENABLE:-0}" = "1" ]; then
+              echo "⚡ V25.3.1 HF5 ALL CORE224 lightweight parent | V23 materialized-only → V25 CORE224/lifecycle | legacy V72/V24 parent recompute=SKIPPED"
+              export V25_CORE224_ONLY_PARENT=1
+              test -f v25_core224_parent.py || { echo "❌ v25_core224_parent.py missing"; exit 206; }
+              python -m py_compile v25_core224_parent.py original_thesis_reconstruction.py direct_replay_materialized_v23.py
+              python -u v25_core224_parent.py --output-dir reports | tee "${HAM_RUN_LOG}"
+              grep -Fq "⚡ [V25 ALL CORE224 LIGHTWEIGHT PARENT · RESEARCH_ONLY]" "${HAM_RUN_LOG}" || { echo "❌ V25 lightweight parent report header missing"; exit 207; }
+              grep -Fq "🧭 [V25 ORIGINAL THESIS RECONSTRUCTION · CORE224 SHADOW · RESEARCH_ONLY]" "${HAM_RUN_LOG}" || { echo "❌ V25 ORIGINAL THESIS block missing"; exit 208; }
+              test -f reports/v73_v25_core224_only_parent_audit.csv || { echo "❌ V25 lightweight parent audit missing"; exit 209; }
+              test -f reports/v73_v25_core224_only_parent_report.txt || { echo "❌ V25 lightweight parent report file missing"; exit 210; }
+              test -f reports/v73_v23_parent_preflight.json || { echo "❌ V23 parent preflight missing"; exit 211; }
+              for f in v73_v25_core224_state_ledger.csv v73_v25_core224_transition_ledger.csv v73_v25_core224_invariant_audit.csv v73_v25_manual_chart_audit_ledger.csv v73_v25_manual_chart_review_sample.csv v73_v25_amount_authority_coverage.csv v73_v25_formula_audit_01_to_07.csv v73_v25_current_code_audit.csv v73_v25_activation_status.csv v73_v25_historical_asof_reconciliation.csv v73_v25_pattern_only_transfer_audit.csv v73_v25_original_thesis_report.txt v73_v25_core224_lifecycle_signal_ledger.csv v73_v25_core224_lifecycle_fill_ledger.csv v73_v25_core224_lifecycle_stop_lens_comparison.csv v73_v25_core224_lifecycle_cohort_summary.csv v73_v25_core224_lifecycle_horizon_summary.csv v73_v25_core224_lifecycle_censoring_audit.csv v73_v25_core224_lifecycle_readiness.csv v73_v25_core224_lifecycle_report.txt; do
+                test -f "reports/$f" || { echo "❌ V25 artifact missing: $f"; exit 212; }
+              done
+              python -c "import csv,json,pandas as pd,sys; q=list(csv.DictReader(open('reports/v73_v25_core224_only_parent_audit.csv',encoding='utf-8-sig',newline=''))); r=q[-1] if q else {}; p=json.load(open('reports/v73_v23_parent_preflight.json',encoding='utf-8')); a=pd.read_csv('reports/v73_v25_activation_status.csv'); ar=a.iloc[-1] if len(a) else {}; t=pd.read_csv('reports/v73_v25_pattern_only_transfer_audit.csv'); tr=t.iloc[-1] if len(t) else {}; f=pd.read_csv('reports/v73_v25_formula_audit_01_to_07.csv'); u=pd.read_csv('reports/v73_v25_historical_asof_reconciliation.csv'); life=pd.read_csv('reports/v73_v25_core224_lifecycle_readiness.csv'); lr=life.iloc[-1] if len(life) else {}; expected=int(p.get('expected_date_count') or 0); print('V25_HF5_GUARD','audit',r.get('status'),'dates',r.get('valid_dates'),'/',r.get('expected_dates'),'preflight',p.get('status'),'pipeline',ar.get('pipeline_status'),'core',ar.get('core224_rows'),'formulas',len(f),'universe',len(u),'transfer',tr.get('status'),'lifecycle',lr.get('status'),'auto_chain',lr.get('auto_chain'),'boundary',lr.get('boundary_forced_exit')); ok=(r.get('status')=='PASS' and p.get('status')=='PASS' and expected>0 and int(float(r.get('expected_dates') or 0))==expected and int(float(r.get('valid_dates') or 0))==expected and str(ar.get('pipeline_status'))=='VALID_SHADOW' and int(float(ar.get('materialized_dates') or 0))==expected and int(float(ar.get('sidecar_dates') or 0))==expected and int(float(ar.get('core224_rows') or 0))>0 and int(float(ar.get('invariant_fail_rows') or 0))==0 and len(f)==66 and len(u)==expected and str(tr.get('status'))=='SKIPPED_CORE224_ONLY_PARENT' and int(float(lr.get('auto_chain') or 0))==1 and int(float(lr.get('boundary_forced_exit') or 0))==0 and str(lr.get('status')) not in ('','INVALID','DISABLED')); sys.exit(0 if ok else 213)"
+              echo "✅ V25.3.1 HF5 ALL lightweight parent guard PASS — full legacy weekly path intentionally skipped only for ALL"
+              exit 0
+            fi
+            echo "🧪 WEEKLY_BACKTEST + V73.3.6.6.23 six-shard/materialized/merge-only/zero-recompute + V22 gate-audit + V21 fail-safe persist + V20 TOP500 cache/resume/progress + sequence/context/catalyst + complete formula pipeline + universe truth + market/pattern/familiar audits | source=${V1081_BACKTEST_SOURCE} | script=${SCRIPT}"
             python -u "${SCRIPT}" --weekly-backtest | tee "${HAM_RUN_LOG}"
             grep -Fq "🍔 [HAM→SURVIVE→RESTART→15:03 CLOSE 연구 · RESEARCH_ONLY]" "${HAM_RUN_LOG}" || { echo "❌ WEEKLY_BACKTEST HAM report header missing"; exit 71; }
             test "$(grep -Fc "🍔 [HAM→SURVIVE→RESTART→15:03 CLOSE 연구 · RESEARCH_ONLY]" "${HAM_RUN_LOG}")" -eq 1 || { echo "❌ WEEKLY_BACKTEST HAM header count must be exactly 1"; exit 77; }
