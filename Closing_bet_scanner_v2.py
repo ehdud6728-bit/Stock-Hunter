@@ -80,8 +80,8 @@ def _env_float(name: str, default: float = 0.0) -> float:
         except Exception:
             return 0.0
 
-CLOSING_BET_SCANNER_VERSION = 'G_MORALES_V4_4_9_53_8_49_76_6_7_2_CONTINUOUS_AFTER_FINAL_RUNNER_20260819'
-CLOSING_BET_RELEASE_TAG = 'v49.76.6.7.2'
+CLOSING_BET_SCANNER_VERSION = 'G_MORALES_V4_4_9_53_8_49_76_6_7_3_FINAL_SESSION_IMMUTABILITY_20260821'
+CLOSING_BET_RELEASE_TAG = 'v49.76.6.7.3'
 CLOSING_BET_LIVE_PRICE_SANITY_FIX = str(os.environ.get('CLOSING_BET_LIVE_PRICE_SANITY_FIX', '1')).lower() in ('1', 'true', 'yes', 'y', 'on')
 CLOSING_BET_LIVE_READABILITY_COMPACT = str(os.environ.get('CLOSING_BET_LIVE_READABILITY_COMPACT', '1')).lower() in ('1', 'true', 'yes', 'y', 'on')
 # v53.8.42: M5R TRUE60 검증용 장기 월봉 확보. 60개월 월선 계산에는 약 7년 일봉이 필요하다.
@@ -33126,7 +33126,7 @@ def run_closing_bet_backtest(
     diag['lifecycle_research_status']=str(research_lane.get('status','NOT_RUN'))
     diag['lifecycle_research_elapsed_sec']=float(research_lane.get('elapsed_sec',0.0) or 0.0)
 
-    # v49.76.6.7.2 DIRECT FIVE-AXIS lane:
+    # v49.76.6.7.3 DIRECT FIVE-AXIS lane:
     # 공통 OHLCV + Lifecycle causal registry가 준비되는 즉시 5축을 계산하고,
     # 시간이 오래 걸리는 v49.72 COMMON STRATEGY 성과 레인은 의도적으로 건너뛴다.
     # Production/search/rank/STRICT/exit/LIVE authority에는 영향이 없다.
@@ -33137,7 +33137,7 @@ def run_closing_bet_backtest(
             _fa_report,_fa_paths=_v497662_run_five_axis_backtest()
             _fa_status=str((globals().get('_V497660_LAST_RESULT',{}) or {}).get('status','UNKNOWN'))
             _direct_lines=[
-                '[⚙️ FIVE-AXIS DIRECT RESEARCH LANE · v49.76.6.7.2]',
+                '[⚙️ FIVE-AXIS DIRECT RESEARCH LANE · v49.76.6.7.3]',
                 f'- 기간: {start_date} ~ {end_date} · STRICT causal registry 기반',
                 f"- 공통 OHLCV: requested {int(shared.get('requested',len(source_codes)) or len(source_codes))} · loaded {int(shared.get('loaded',0) or 0)} · load {float(shared.get('load_pct',0.0) or 0.0):.1f}%",
                 f"- Lifecycle Research: {str(research_lane.get('status','NOT_RUN')).upper()} · {float(research_lane.get('elapsed_sec',0.0) or 0.0):.1f}s",
@@ -33154,11 +33154,11 @@ def run_closing_bet_backtest(
             _direct_path.write_text(_direct_report,encoding='utf-8')
             _fa_paths=dict(_fa_paths or {}); _fa_paths['direct_report']=str(_direct_path)
             globals()['_V497661_FIVE_AXIS_ONLY_RESULT']={'status':_fa_status,'report':_direct_report,'paths':_fa_paths}
-            log_info(f"v49.76.6.7.2 FIVE-AXIS DIRECT COMPLETE · status {_fa_status} · COMMON STRATEGY bypass")
+            log_info(f"v49.76.6.7.3 FIVE-AXIS DIRECT COMPLETE · status {_fa_status} · COMMON STRATEGY bypass")
             return _direct_report,str(_fa_paths.get('signals','')),str(_fa_paths.get('groups',''))
         except Exception as _fa_direct_e:
             _direct_report=(
-                '[⚙️ FIVE-AXIS DIRECT RESEARCH LANE · v49.76.6.7.2]\n'
+                '[⚙️ FIVE-AXIS DIRECT RESEARCH LANE · v49.76.6.7.3]\n'
                 f'- ⛔ FAIL-CLOSED: {type(_fa_direct_e).__name__}: {_fa_direct_e}\n'
                 '- COMMON STRATEGY로 fallback하지 않음 · 불완전 5축 결과 생성 금지'
             )
@@ -49630,12 +49630,12 @@ def _v49765_action_panel(decision: dict, data_date=None) -> tuple[str,bool,dict]
         err=_v497657_clean_error(e) if '_v497657_clean_error' in globals() else f'{type(e).__name__}:{e}'
         res={'state':'INTERNAL_FAILSAFE','reason':f'INTERNAL_FAILSAFE:{err}','authorized':[],
              'watches':[],'raw_enter_count':0,'raw_strict_items':[]}
-        panel=(f'🚦 [사용자 행동 결론 · SESSION AUTHORITY FAIL-SAFE] | v49.76.6.7.2\n──────────\n'
+        panel=(f'🚦 [사용자 행동 결론 · SESSION AUTHORITY FAIL-SAFE] | v49.76.6.7.3\n──────────\n'
                f'- 🔴 지금 신규매수: 0개\n- ⛔ 사유: ACTION_PANEL_FAILSAFE:{err}\n- 자동주문 0건')
         return panel,False,res
     s=str(panel or '')
     for old in ('v49.76.5.11','v49.76.5.10','v49.76.5.9','v49.76.5.8','v49.76.5.7','v49.76.5.4'):
-        s=s.replace(old,'v49.76.6.7.2')
+        s=s.replace(old,'v49.76.6.7.3')
     is_past,sess=_v4976512_is_past_session(res,data_date)
     if is_past and sess:
         s=s.replace('- ⏰ 20:00 마감 이후 · 오늘 COMPLETED evidence 없음 · 뒤늦은 PAPER 추천/Telegram/원장 신규생성 금지',
@@ -49654,7 +49654,7 @@ def _v49765_normalize_detail(text: str, has_authorized: bool, res: dict) -> str:
     except Exception:
         s=str(text or '')
     for old in ('v49.76.5.11','v49.76.5.10','v49.76.5.9','v49.76.5.8','v49.76.5.7','v49.76.5.4'):
-        s=s.replace(old,'v49.76.6.7.2')
+        s=s.replace(old,'v49.76.6.7.3')
     is_past,sess=_v4976512_is_past_session(res,None)
     if not is_past:
         return s
@@ -49683,12 +49683,12 @@ def _v4938_tracker_lines(df=None) -> list[str]:
     try:
         lines=list(_V4976512_BASE_TRACKER_LINES(df) or [])
     except Exception as e:
-        return ['📍 추천 출처 분리 Forward | v49.76.6.7.2','──────────',f'- tracker 생성 실패: {type(e).__name__}:{e}']
+        return ['📍 추천 출처 분리 Forward | v49.76.6.7.3','──────────',f'- tracker 생성 실패: {type(e).__name__}:{e}']
     out=[]
     for x in lines:
         s=str(x)
         for old in ('v49.76.5.11','v49.76.5.10','v49.76.5.9','v49.76.5.8','v49.76.5.7','v49.76.5.4'):
-            s=s.replace(old,'v49.76.6.7.2')
+            s=s.replace(old,'v49.76.6.7.3')
         out.append(s)
 
     cur=dict(globals().get('_V49765_CURRENT_DECISION',{}) or {})
@@ -49755,7 +49755,7 @@ def _v4938_build_live_parts(hits_df, execution_all, market_short, cov_short, raw
             out.append(x); continue
         s=x
         for old in ('v49.76.5.11','v49.76.5.10','v49.76.5.9','v49.76.5.8','v49.76.5.7','v49.76.5.4'):
-            s=s.replace(old,'v49.76.6.7.2')
+            s=s.replace(old,'v49.76.6.7.3')
         out.append(s)
     if isinstance(parts,tuple): return tuple(out)
     if isinstance(parts,list): return out
@@ -49771,7 +49771,7 @@ def _v4943_prepare_live_recommendations() -> list[dict]:
     for r in rows:
         rr=dict(r or {})
         for old in ('v49.76.5.11','v49.76.5.10','v49.76.5.9','v49.76.5.8','v49.76.5.7'):
-            rr['note']=str(rr.get('note','')).replace(old,'v49.76.6.7.2')
+            rr['note']=str(rr.get('note','')).replace(old,'v49.76.6.7.3')
         out.append(rr)
     globals()['_V4943_CURRENT_RECOMMENDATIONS']=out[:2]
     return out[:2]
@@ -49783,7 +49783,7 @@ def _v4976510_finalize_ledger_note(note: str) -> str:
     try: s=_V4976512_BASE_LEDGER_NOTE(note)
     except Exception: s=str(note or '')
     for old in ('v49.76.5.11','v49.76.5.10','v49.76.5.9','v49.76.5.8','v49.76.5.7'):
-        s=str(s).replace(old,'v49.76.6.7.2')
+        s=str(s).replace(old,'v49.76.6.7.3')
     return s
 
 # =============================================================
@@ -49791,7 +49791,7 @@ def _v4976510_finalize_ledger_note(note: str) -> str:
 # =============================================================
 
 # =============================================================
-# v49.76.6.7.2 FIVE-AXIS SHADOW + CAUSAL BACKTEST
+# v49.76.6.7.3 FIVE-AXIS SHADOW + CAUSAL BACKTEST
 # RESEARCH ONLY / PRODUCTION SEARCH-RANK-ENTRY-FINAL AUTHORITY FROZEN
 # =============================================================
 
@@ -50208,7 +50208,7 @@ def _v497660_split_labels(df: pd.DataFrame) -> pd.Series:
 
 
 def _v497660_backtest_report(df: pd.DataFrame,start_date: str,end_date: str):
-    lines=['[🧭 FIVE-AXIS SHADOW BACKTEST · v49.76.6.7.2 · RESEARCH ONLY]',
+    lines=['[🧭 FIVE-AXIS SHADOW BACKTEST · v49.76.6.7.3 · RESEARCH ONLY]',
            '- Production 검색/랭킹/STRICT/AFTER FINAL/P1 변경 없음 · 5축은 Shadow 성과분해만 수행',
            f'- 기간 {start_date} ~ {end_date} · HIGH 고정기준 {float(CLOSING_BET_V497660_HIGH_SCORE):.0f}점 · 임계값 사후튜닝 없음']
     if df is None or df.empty:return lines,pd.DataFrame(),pd.DataFrame()
@@ -50271,7 +50271,7 @@ def _v497660_run_five_axis_backtest() -> tuple[str,dict]:
 
 
 # =============================================================
-# v49.76.6.7.2 FIVE-AXIS RESEARCH V2
+# v49.76.6.7.3 FIVE-AXIS RESEARCH V2
 # FULL-MARKET MAPPED-UNIVERSE LEADER/THEME + MONEY SEQUENCE
 # TRAIN-FIXED COMPOSITE QUANTILES + EXIT SHADOW
 # RESEARCH ONLY / PRODUCTION AUTHORITY FROZEN
@@ -50568,7 +50568,7 @@ def _v497662_exit_stats(df:pd.DataFrame)->pd.DataFrame:
 
 
 def _v497662_report(df:pd.DataFrame,start_date:str,end_date:str):
-    lines=['[🧭 FIVE-AXIS SHADOW BACKTEST · v49.76.6.7.2 · RESEARCH ONLY]',
+    lines=['[🧭 FIVE-AXIS SHADOW BACKTEST · v49.76.6.7.3 · RESEARCH ONLY]',
            '- Production 검색/랭킹/STRICT/MARCAP/M5/NXT/AFTER FINAL/P1 변경 없음 · 모든 신규 축/청산은 Shadow',
            f'- 기간 {start_date} ~ {end_date} · HIGH 고정 {float(CLOSING_BET_V497660_HIGH_SCORE):.0f}점 · composite 분위수 cutoff는 TRAIN에서만 고정 후 VALIDATION/TEST 재사용']
     if df is None or df.empty:return lines,pd.DataFrame(),pd.DataFrame(),pd.DataFrame(),pd.DataFrame()
@@ -50627,10 +50627,10 @@ def _v497662_run_five_axis_backtest()->tuple[str,dict]:
     global _V497662_LAST_RESULT
     audit=dict(globals().get('_V4940_LAST_LIFECYCLE_AUDIT',{}) or {})
     if str(audit.get('status','')).upper()!='VALID':
-        txt='[🧭 FIVE-AXIS SHADOW BACKTEST · v49.76.6.7.2]\n- ⛔ LIFECYCLE audit가 VALID가 아니므로 fail-closed';_V497662_LAST_RESULT={'status':'FAILED','paths':{}};return txt,{}
+        txt='[🧭 FIVE-AXIS SHADOW BACKTEST · v49.76.6.7.3]\n- ⛔ LIFECYCLE audit가 VALID가 아니므로 fail-closed';_V497662_LAST_RESULT={'status':'FAILED','paths':{}};return txt,{}
     ent=audit.get('entry_events');plan=dict(audit.get('plan') or {})
     if not isinstance(ent,pd.DataFrame) or ent.empty:
-        txt='[🧭 FIVE-AXIS SHADOW BACKTEST · v49.76.6.7.2]\n- 평가 가능한 STRICT causal 표본 없음';_V497662_LAST_RESULT={'status':'NO_SAMPLE','paths':{}};return txt,{}
+        txt='[🧭 FIVE-AXIS SHADOW BACKTEST · v49.76.6.7.3]\n- 평가 가능한 STRICT causal 표본 없음';_V497662_LAST_RESULT={'status':'NO_SAMPLE','paths':{}};return txt,{}
     start=pd.Timestamp(plan.get('start',pd.to_datetime(ent['signal_date']).min())).strftime('%Y-%m-%d');end=pd.Timestamp(plan.get('end',pd.to_datetime(ent['signal_date']).max())).strftime('%Y-%m-%d')
     # Keep v6.1 axes for backward comparison, then add v6.2 independent axes.
     x=_v497660_individual_enrich(ent,start,end);x=_v497660_material_enrich(x,start,end);x=_v497660_theme_cross_section(x);x=_v497660_finalize_scores(x)
@@ -50658,13 +50658,13 @@ def _v497662_run_five_axis_backtest()->tuple[str,dict]:
     return txt,paths
 
 # =============================================================
-# ✅ END v49.76.6.7.2 FIVE-AXIS RESEARCH V2
+# ✅ END v49.76.6.7.3 FIVE-AXIS RESEARCH V2
 # =============================================================
 
 
 
 # =============================================================
-# v49.76.6.7.2 RESEARCH FORENSIC OVERLAY
+# v49.76.6.7.3 RESEARCH FORENSIC OVERLAY
 # LEADER/THEME 6-FOLD FORWARD STABILITY + MA224 DELAYED-RUNNER
 # ROBUST OUTLIER ANATOMY + RULE35 INDEPENDENT ACCOUNTING AUDIT
 # RESEARCH ONLY / PRODUCTION AUTHORITY FROZEN
@@ -50889,7 +50889,7 @@ def _v497663_exit_forensic_stats(df):
 
 
 def _v497663_report(df,start_date,end_date,robust,folds,foldsum,ma224a,exitstats,exitaudit):
-    lines=['[🧪 FIVE-AXIS FORENSIC VALIDATION · v49.76.6.7.2 · RESEARCH ONLY]',
+    lines=['[🧪 FIVE-AXIS FORENSIC VALIDATION · v49.76.6.7.3 · RESEARCH ONLY]',
            '- Production 검색/랭킹/STRICT/MARCAP/M5/NXT/AFTER FINAL/P1 변경 없음 · COMPOSITE_V1은 NON-MONOTONIC REJECTED로 동결',
            f'- 기간 {start_date} ~ {end_date} · fixed rules · chronological {int(CLOSING_BET_V497663_WF_FOLDS)}-fold · fold별 재튜닝 없음']
     # Robustness/outlier dependence.
@@ -50935,10 +50935,10 @@ def _v497662_run_five_axis_backtest()->tuple[str,dict]:
     global _V497662_LAST_RESULT,_V497663_LAST_RESULT
     audit=dict(globals().get('_V4940_LAST_LIFECYCLE_AUDIT',{}) or {})
     if str(audit.get('status','')).upper()!='VALID':
-        txt='[🧪 FIVE-AXIS FORENSIC VALIDATION · v49.76.6.7.2]\n- ⛔ LIFECYCLE audit가 VALID가 아니므로 fail-closed';_V497663_LAST_RESULT={'status':'FAILED','paths':{}};return txt,{}
+        txt='[🧪 FIVE-AXIS FORENSIC VALIDATION · v49.76.6.7.3]\n- ⛔ LIFECYCLE audit가 VALID가 아니므로 fail-closed';_V497663_LAST_RESULT={'status':'FAILED','paths':{}};return txt,{}
     ent=audit.get('entry_events');plan=dict(audit.get('plan') or {})
     if not isinstance(ent,pd.DataFrame) or ent.empty:
-        txt='[🧪 FIVE-AXIS FORENSIC VALIDATION · v49.76.6.7.2]\n- 평가 가능한 STRICT causal 표본 없음';_V497663_LAST_RESULT={'status':'NO_SAMPLE','paths':{}};return txt,{}
+        txt='[🧪 FIVE-AXIS FORENSIC VALIDATION · v49.76.6.7.3]\n- 평가 가능한 STRICT causal 표본 없음';_V497663_LAST_RESULT={'status':'NO_SAMPLE','paths':{}};return txt,{}
     start=pd.Timestamp(plan.get('start',pd.to_datetime(ent['signal_date']).min())).strftime('%Y-%m-%d');end=pd.Timestamp(plan.get('end',pd.to_datetime(ent['signal_date']).max())).strftime('%Y-%m-%d')
     # Reproduce frozen v6.2 axes exactly, then append independent forensic labels only.
     x=_v497660_individual_enrich(ent,start,end);x=_v497660_material_enrich(x,start,end);x=_v497660_theme_cross_section(x);x=_v497660_finalize_scores(x)
@@ -50971,12 +50971,12 @@ def _v497662_run_five_axis_backtest()->tuple[str,dict]:
     return txt,paths
 
 # =============================================================
-# ✅ END v49.76.6.7.2 RESEARCH FORENSIC OVERLAY
+# ✅ END v49.76.6.7.3 RESEARCH FORENSIC OVERLAY
 # =============================================================
 
 
 # =============================================================
-# v49.76.6.7.2 PROFILE VALIDATION OVERLAY
+# v49.76.6.7.3 PROFILE VALIDATION OVERLAY
 # THEME/LEADER REGIME + MONTHLY STABILITY
 # MA224 TRAIN-ONLY WINNER-vs-STOP FEATURE AUDIT
 # PROFILE-SPECIFIC FIXED EXIT SHADOW E0~E4
@@ -51274,7 +51274,7 @@ def _v497664_profile_exit_folds(df: pd.DataFrame):
 
 
 def _v497664_report(df,start,end,robust,foldsum,regstats,monthstats,mafeat,exitstats,exitfoldsum,exitaudit):
-    lines=['[🧪 PROFILE VALIDATION · v49.76.6.7.2 · RESEARCH ONLY]',
+    lines=['[🧪 PROFILE VALIDATION · v49.76.6.7.3 · RESEARCH ONLY]',
            '- Production 검색/랭킹/STRICT/MARCAP/M5/NXT/AFTER FINAL/P1 변경 없음 · 새 threshold/weight 탐색 없음',
            f'- 기간 {start} ~ {end} · LEADER/THEME 현재 HIGH 고정 · MA224 feature discovery TRAIN-only · EXIT E0~E4 fixed rules']
     lines.append('[6.3 생존 profile 강건성 carry-forward]')
@@ -51328,7 +51328,7 @@ def _v497664_report(df,start,end,robust,foldsum,regstats,monthstats,mafeat,exits
 
 
 # Override v6.3 research runner. Direct-lane caller resolves this global at runtime.
-# v49.76.6.7.2 integrity split:
+# v49.76.6.7.3 integrity split:
 # - registry_x may extend through the current observed session so prospective capture/evaluation can work.
 # - every discovery statistic/report is hard-frozen to 2025-02-17..2026-08-17.
 # Future rows can NEVER enter discovery profile statistics.
@@ -51336,10 +51336,10 @@ def _v497662_run_five_axis_backtest()->tuple[str,dict]:
     global _V497662_LAST_RESULT,_V497663_LAST_RESULT,_V497664_LAST_RESULT
     audit=dict(globals().get('_V4940_LAST_LIFECYCLE_AUDIT',{}) or {})
     if str(audit.get('status','')).upper()!='VALID':
-        txt='[🧪 PROFILE VALIDATION · v49.76.6.7.2]\n- ⛔ LIFECYCLE audit가 VALID가 아니므로 fail-closed';_V497664_LAST_RESULT={'status':'FAILED','paths':{}};return txt,{}
+        txt='[🧪 PROFILE VALIDATION · v49.76.6.7.3]\n- ⛔ LIFECYCLE audit가 VALID가 아니므로 fail-closed';_V497664_LAST_RESULT={'status':'FAILED','paths':{}};return txt,{}
     ent=audit.get('entry_events');plan=dict(audit.get('plan') or {})
     if not isinstance(ent,pd.DataFrame) or ent.empty:
-        txt='[🧪 PROFILE VALIDATION · v49.76.6.7.2]\n- 평가 가능한 STRICT causal 표본 없음';_V497664_LAST_RESULT={'status':'NO_SAMPLE','paths':{}};return txt,{}
+        txt='[🧪 PROFILE VALIDATION · v49.76.6.7.3]\n- 평가 가능한 STRICT causal 표본 없음';_V497664_LAST_RESULT={'status':'NO_SAMPLE','paths':{}};return txt,{}
     registry_start=pd.Timestamp(plan.get('start',pd.to_datetime(ent['signal_date']).min())).strftime('%Y-%m-%d')
     registry_end=pd.Timestamp(plan.get('end',pd.to_datetime(ent['signal_date']).max())).strftime('%Y-%m-%d')
     # The registry may be wider than discovery, but it must at least contain the frozen discovery start.
@@ -51357,7 +51357,7 @@ def _v497662_run_five_axis_backtest()->tuple[str,dict]:
                              'start':CLOSING_BET_V497666_DISCOVERY_START,'end':CLOSING_BET_V497665_DISCOVERY_END,
                              'registry_start':registry_start,'registry_end':registry_end,'prospective_only':True}
         globals()['_V497660_LAST_RESULT']={'status':'VALID','paths':{},'signals':registry_x,'start':CLOSING_BET_V497666_DISCOVERY_START,'end':CLOSING_BET_V497665_DISCOVERY_END}
-        return ('[🧪 PROFILE VALIDATION · v49.76.6.7.2 · PROSPECTIVE SENSOR ONLY]\n'
+        return ('[🧪 PROFILE VALIDATION · v49.76.6.7.3 · PROSPECTIVE SENSOR ONLY]\n'
                 f'- DISCOVERY SNAPSHOT: FROZEN {CLOSING_BET_V497666_DISCOVERY_START} ~ {CLOSING_BET_V497665_DISCOVERY_END} · historical performance NOT recomputed\n'
                 f'- Prospective causal registry: {registry_start} ~ {registry_end} · same-day profile tagging/evaluation only'),{}
     # HARD discovery boundary. No row after 2026-08-17 can alter historical research statistics.
@@ -51366,7 +51366,7 @@ def _v497662_run_five_axis_backtest()->tuple[str,dict]:
     discovery_end=pd.Timestamp(CLOSING_BET_V497665_DISCOVERY_END)
     x=registry_x[(sd>=discovery_start)&(sd<=discovery_end)].copy().reset_index(drop=True)
     if x.empty:
-        txt='[🧪 PROFILE VALIDATION · v49.76.6.7.2]\n- ⛔ FROZEN discovery window에 STRICT 표본 없음 · fail-closed';_V497664_LAST_RESULT={'status':'FAILED','paths':{}};return txt,{}
+        txt='[🧪 PROFILE VALIDATION · v49.76.6.7.3]\n- ⛔ FROZEN discovery window에 STRICT 표본 없음 · fail-closed';_V497664_LAST_RESULT={'status':'FAILED','paths':{}};return txt,{}
     start=CLOSING_BET_V497666_DISCOVERY_START;end=CLOSING_BET_V497665_DISCOVERY_END
     robust=_v497663_robust_stats(x);folds,foldsum=_v497663_forward_folds(x);ma224a=_v497663_ma224_anatomy(x);legacy_exit,exitaudit=_v497663_exit_forensic_stats(x)
     regstats,monthstats=_v497664_regime_stats(x);mafeat=_v497664_ma224_feature_audit(x);exitstats=_v497664_profile_exit_stats(x);exitfolds,exitfoldsum=_v497664_profile_exit_folds(x)
@@ -51401,12 +51401,12 @@ def _v497662_run_five_axis_backtest()->tuple[str,dict]:
     return txt,paths
 
 # =============================================================
-# ✅ END v49.76.6.7.2 PROFILE VALIDATION OVERLAY
+# ✅ END v49.76.6.7.3 PROFILE VALIDATION OVERLAY
 # =============================================================
 
 
 # =============================================================
-# v49.76.6.7.2 PROSPECTIVE LOCK / FORWARD-ONLY VALIDATION
+# v49.76.6.7.3 PROSPECTIVE LOCK / FORWARD-ONLY VALIDATION
 # Discovery history frozen through 2026-08-17. New hypotheses are evaluated
 # ONLY on same-day, post-15:40 KRX sessions captured on/after 2026-08-18.
 # No historical backfill, no threshold/weight tuning, no production authority.
@@ -51705,7 +51705,7 @@ def _v497665_prospective_overlay():
         elif not lock_authoritative:cap='LOCK_NOT_PERSISTED_NO_CAPTURE'
         else:cap='CAPTURE_NOT_ALLOWED'
     else:cap=f'CAPTURED_SESSION {observed} · STRICT {len(capture_rows)} · appended {int(signal_write.get("appended",0) or 0)}'
-    lines=['[🔒 PROSPECTIVE LOCK · v49.76.6.7.2 · FORWARD ONLY]',
+    lines=['[🔒 PROSPECTIVE LOCK · v49.76.6.7.3 · FORWARD ONLY]',
            f'- 가설 동결일: discovery ≤ {CLOSING_BET_V497665_DISCOVERY_END} · 미래 신호 authority 시작 {CLOSING_BET_V497665_LOCK_DATE}',
            '- 과거 18개월은 discovery 참고로만 동결 · 2026-08-18 이후 Sheet에 당일 잠긴 신호만 prospective 성과에 포함',
            '- Anti-backfill: observed_session_date == wall_clock_date AND KST 15:40+일 때만 capture · 놓친 세션 소급등록 금지',
@@ -51750,7 +51750,7 @@ def _v497662_run_five_axis_backtest()->tuple[str,dict]:
     return txt,paths
 
 # =============================================================
-# ✅ END v49.76.6.7.2 PROSPECTIVE LOCK
+# ✅ END v49.76.6.7.3 PROSPECTIVE LOCK
 # =============================================================
 
 
@@ -51776,7 +51776,7 @@ def _v497662_run_five_axis_backtest()->tuple[str,dict]:
 # PAPER only. Automatic real orders remain 0.
 # =============================================================
 try:
-    print("✅ V49.76.6.7.2 CONTINUOUS_AFTER_FINAL_RUNNER LOADED")
+    print("✅ V49.76.6.7.3 CONTINUOUS_AFTER_FINAL_RUNNER LOADED")
 except Exception:
     pass
 
@@ -51838,7 +51838,7 @@ def _v497667_recalc_frame(df: pd.DataFrame) -> pd.DataFrame:
         direction=np.sign(out['Close'].diff().fillna(0));out['OBV']=(direction*out['Volume']).cumsum()
         return out.reset_index(drop=True)
     except Exception as e:
-        log_debug(f'v49.76.6.7.2 recalc frame failed: {e}');return pd.DataFrame()
+        log_debug(f'v49.76.6.7.3 recalc frame failed: {e}');return pd.DataFrame()
 
 
 def _v497667_replace_today(frame: pd.DataFrame, row: dict, day: str) -> pd.DataFrame:
@@ -51890,7 +51890,7 @@ def _v497667_save_prefinal_cache(day: str, universe_target: int=0) -> dict:
     """Persist PRE-FINAL frames using the canonical full-universe denominator.
 
     v6.7.1 could report 249/250=99.6% even though AFTER FINAL later needed ~900 names.
-    v6.7.2 forbids that false-ready state: denominator is never below the frozen
+    v6.7.3 retains the canonical-denominator guard against that false-ready state: denominator is never below the frozen
     canonical live target (900 by default). Strategy/search logic is unchanged.
     """
     p=_v497667_paths(day)
@@ -51987,7 +51987,7 @@ except Exception:
 
 
 def _v497667_obj_get(obj, key, default=None):
-    # v49.76.6.7.2 inherits Series-safe signature handling; never truth-test pandas objects.
+    # v49.76.6.7.3 inherits Series-safe signature handling; never truth-test pandas objects.
     if obj is None:
         return default
     if isinstance(obj, dict):
@@ -52107,17 +52107,476 @@ def _v49765_action_panel(decision: dict,data_date=None):
             elif bool(CLOSING_BET_V497667_FULL_PARITY_AUDIT):line='- 🧪 AFTER FINAL engine: FULL CANONICAL RECOVERY + FAST parity audit'
             else:line='- AFTER FINAL engine: FULL CANONICAL'
             parts=text.split('\n');parts.insert(2,line);text='\n'.join(parts)
-        text=text.replace('v49.76.5.6','v49.76.6.7.2').replace('v49.76.6.7.2','v49.76.6.7.2')
+        text=text.replace('v49.76.5.6','v49.76.6.7.3').replace('v49.76.6.7.3','v49.76.6.7.3')
     except Exception:pass
     return text,has,res
 
 # =============================================================
-# ✅ END v49.76.6.7.2 CONTINUOUS AFTER-FINAL
+# ✅ END v49.76.6.7.3 CONTINUOUS AFTER-FINAL
+# =============================================================
+
+
+# =============================================================
+# ✅ V49.76.6.7.3 FINAL SESSION IMMUTABILITY
+# -------------------------------------------------------------
+# Execution/data-authority only. Search/rank/STRICT/Lifecycle/MARCAP/P1/NXT rules
+# are not retuned here.
+#
+# Guarantees:
+# 1) --continuous-after-final keeps ONE Python process alive from PRE-FINAL to AFTER FINAL.
+# 2) PRE-FINAL FAST cache is explicitly preloaded against a canonical 900-code target.
+# 3) The first valid post-15:30 KRX all-market daily snapshot is frozen for the session.
+#    Later retries may not replace it with a different close.
+# 4) A valid post-close M5 coverage context may be restored only for the SAME session.
+# 5) AFTER FINAL production coverage below the frozen minimum fails closed BEFORE NXT.
+# 6) "FULL FALLBACK" is no longer printed for a partial/advisory scan.
+# 7) Same-day pre-15:30 PULLBACK-FAIL remains PENDING_CLOSE and may not terminally commit.
+#
+# PAPER only. Automatic order count remains zero.
+# =============================================================
+try:
+    print("✅ V49.76.6.7.3 FINAL_SESSION_IMMUTABILITY LOADED")
+except Exception:
+    pass
+
+import copy as _v497673_copy
+
+CLOSING_BET_V497673_FINAL_MIN_PRODUCTION_COVERAGE_PCT = float(os.environ.get('CLOSING_BET_V497673_FINAL_MIN_PRODUCTION_COVERAGE_PCT','98.0') or 98.0)
+CLOSING_BET_V497673_PREFETCH_WORKERS = max(1, min(12, int(os.environ.get('CLOSING_BET_V497673_PREFETCH_WORKERS','6') or 6)))
+CLOSING_BET_V497673_NXT_GATE_RETRIES = max(0, min(4, int(os.environ.get('CLOSING_BET_V497673_NXT_GATE_RETRIES','2') or 2)))
+CLOSING_BET_V497673_NXT_GATE_RETRY_SEC = max(15, min(300, int(os.environ.get('CLOSING_BET_V497673_NXT_GATE_RETRY_SEC','90') or 90)))
+
+_V497673_FROZEN_SNAPSHOT_DF = pd.DataFrame()
+_V497673_FROZEN_SNAPSHOT_META = {}
+_V497673_FROZEN_DECISION = {}
+_V497673_FROZEN_HITS = []
+_V497673_FROZEN_STRATEGY_SIGNATURE = {}
+_V497673_ENGINE_HARD_BLOCK = ''
+_V497673_CONTINUOUS_ACTIVE = False
+_V497673_FROZEN_MISS_CODES = set()
+
+
+def _v497673_paths(day: str):
+    root=Path(CLOSING_BET_V497667_FAST_CACHE_DIR);root.mkdir(parents=True,exist_ok=True)
+    d=str(day or '').replace('-','')
+    return {
+        'final_snapshot':root/f'final_session_snapshot_{d}.pkl.gz',
+        'final_manifest':root/f'final_session_snapshot_{d}.json',
+        'm5_final':root/f'final_m5_evidence_{d}.json',
+        'strategy_lock':root/f'frozen_strategy_signature_{d}.json',
+    }
+
+
+def _v497673_snapshot_digest(df: pd.DataFrame) -> str:
+    try:
+        cols=[c for c in ['code','Open','High','Low','Close','Volume','Amount'] if c in df.columns]
+        z=df[cols].copy().sort_values('code').reset_index(drop=True)
+        raw=z.to_csv(index=False,float_format='%.10g').encode('utf-8')
+        return _v497667_hashlib.sha256(raw).hexdigest()
+    except Exception:
+        return ''
+
+
+def _v497673_get_or_freeze_final_snapshot(day: str) -> pd.DataFrame:
+    """Return exactly one immutable KRX post-close snapshot for the session."""
+    global _V497673_FROZEN_SNAPSHOT_DF,_V497673_FROZEN_SNAPSHOT_META
+    p=_v497673_paths(day)
+    if isinstance(_V497673_FROZEN_SNAPSHOT_DF,pd.DataFrame) and not _V497673_FROZEN_SNAPSHOT_DF.empty:
+        return _V497673_FROZEN_SNAPSHOT_DF.copy()
+    try:
+        if p['final_snapshot'].exists() and p['final_manifest'].exists():
+            meta=json.loads(p['final_manifest'].read_text(encoding='utf-8'))
+            if str(meta.get('session_date',''))==str(day) and str(meta.get('state','')).upper()=='FROZEN':
+                with _v497667_gzip.open(p['final_snapshot'],'rb') as f:q=_v497667_pickle.load(f)
+                if isinstance(q,pd.DataFrame) and not q.empty:
+                    dig=_v497673_snapshot_digest(q)
+                    if dig and dig==str(meta.get('sha256','')):
+                        _V497673_FROZEN_SNAPSHOT_DF=q.copy();_V497673_FROZEN_SNAPSHOT_META=dict(meta)
+                        log_info(f"🔒 FINAL SESSION snapshot restored: {len(q)} codes · sha {dig[:12]}")
+                        return q.copy()
+    except Exception as e:
+        log_error(f"FINAL SESSION snapshot restore failed: {type(e).__name__}:{e}")
+    now=_now_kst()
+    if now.strftime('%Y-%m-%d')!=str(day) or (now.hour*60+now.minute)<15*60+30:
+        raise RuntimeError('FINAL_SNAPSHOT_BEFORE_1530_FORBIDDEN')
+    q=_v497667_fetch_krx_snapshot(day)
+    if q is None or q.empty:raise RuntimeError('FINAL_SNAPSHOT_EMPTY')
+    dig=_v497673_snapshot_digest(q)
+    meta={'state':'FROZEN','session_date':str(day),'frozen_at_kst':now.strftime('%Y-%m-%d %H:%M:%S'),
+          'codes':int(len(q)),'sha256':dig,'version':CLOSING_BET_SCANNER_VERSION,'source':'KRX_ALL_MARKET_FIRST_VALID_POST1530'}
+    with _v497667_gzip.open(p['final_snapshot'],'wb',compresslevel=3) as f:_v497667_pickle.dump(q,f,protocol=_v497667_pickle.HIGHEST_PROTOCOL)
+    p['final_manifest'].write_text(json.dumps(meta,ensure_ascii=False,indent=2),encoding='utf-8')
+    _V497673_FROZEN_SNAPSHOT_DF=q.copy();_V497673_FROZEN_SNAPSHOT_META=dict(meta)
+    log_info(f"🔒 FINAL SESSION snapshot FROZEN: {len(q)} codes · sha {dig[:12]} · {meta['frozen_at_kst']}")
+    return q.copy()
+
+
+# v6.7.3 makes FAST finalization consume the immutable session snapshot.
+def _v497667_prepare_fast_after_final(day: str) -> dict:
+    global _V497667_FAST_FRAMES,_V497667_FAST_STATE,_V497672_FAST_HIT_CODES,_V497672_NETWORK_FALLBACK_CODES,_V497673_ENGINE_HARD_BLOCK
+    p=_v497667_paths(day);_V497672_FAST_HIT_CODES=set();_V497672_NETWORK_FALLBACK_CODES=set();_V497673_ENGINE_HARD_BLOCK=''
+    try:
+        if not p['frames'].exists() or not p['manifest'].exists():raise RuntimeError('PREFINAL_CACHE_MISSING')
+        m=json.loads(p['manifest'].read_text(encoding='utf-8'));prev=_v497667_previous_parity(day)
+        if str(prev.get('state','')).upper()=='PARITY_FAIL':raise RuntimeError(f'PREVIOUS_SESSION_PARITY_FAIL:{prev.get("date","")}')
+        if str(m.get('session_date',''))!=str(day):raise RuntimeError('PREFINAL_CACHE_SESSION_MISMATCH')
+        target=max(1,int(m.get('target',0) or 0),int(CLOSING_BET_V497672_CANONICAL_UNIVERSE_TARGET))
+        with _v497667_gzip.open(p['frames'],'rb') as f:frames=_v497667_pickle.load(f)
+        frames=frames if isinstance(frames,dict) else {};cache_cov=len(frames)/target*100.0
+        if cache_cov<float(CLOSING_BET_V497667_FAST_MIN_CACHE_COVERAGE_PCT):raise RuntimeError(f'PREFINAL_CACHE_COVERAGE_LOW:{cache_cov:.1f}:{len(frames)}/{target}')
+        snap=_v497673_get_or_freeze_final_snapshot(day);sm={str(r['code']).zfill(6):r.to_dict() for _,r in snap.iterrows()}
+        prepared={}
+        for code,df in frames.items():
+            c=str(code).zfill(6);r=sm.get(c)
+            if r is None:continue
+            q=_v497667_replace_today(df,r,day)
+            if isinstance(q,pd.DataFrame) and not q.empty:prepared[c]=q
+        matched=len(prepared);final_cov=matched/target*100.0
+        if final_cov<float(CLOSING_BET_V497667_FAST_MIN_FINAL_COVERAGE_PCT):raise RuntimeError(f'KRX_FINAL_COVERAGE_LOW:{final_cov:.1f}:{matched}/{target}')
+        cert='CERTIFIED_PREVIOUS_PASS' if str(prev.get('state','')).upper()=='PASS' else 'WARMUP_NO_PRIOR_PASS'
+        src='CONTINUOUS_SINGLE_PROCESS' if bool(_V497673_CONTINUOUS_ACTIVE) else ('CONTINUOUS_SAME_RUNNER' if bool(CLOSING_BET_V497672_CONTINUOUS_PRIMARY) else 'RESTORED_CACHE_RUNNER')
+        _V497667_FAST_FRAMES=prepared
+        _V497667_FAST_STATE={'state':'VALID','reason':'FROZEN_SESSION_SNAPSHOT','cache_codes':len(frames),'final_codes':matched,
+            'target_codes':target,'cache_coverage_pct':cache_cov,'coverage_pct':final_cov,'session_date':day,'parity_cert':cert,
+            'previous_parity':prev,'execution_source':src,'snapshot_sha256':str(_V497673_FROZEN_SNAPSHOT_META.get('sha256',''))}
+    except Exception as e:
+        _V497667_FAST_FRAMES={};reason=f'{type(e).__name__}:{e}';_V497673_ENGINE_HARD_BLOCK=reason
+        _V497667_FAST_STATE={'state':'INFRA_INVALID','reason':reason,'cache_codes':0,'final_codes':0,
+            'target_codes':int(CLOSING_BET_V497672_CANONICAL_UNIVERSE_TARGET),'cache_coverage_pct':0.0,'coverage_pct':0.0,'session_date':day,
+            'execution_source':'CONTINUOUS_SINGLE_PROCESS' if bool(_V497673_CONTINUOUS_ACTIVE) else 'RESTORED_CACHE_RUNNER'}
+    return dict(_V497667_FAST_STATE)
+
+
+
+# Once FAST final frames are VALID, missing codes are fail-closed FROZEN_MISS.
+# Never silently hit a live network provider for today's bar after the session snapshot is frozen.
+_V497673_BASE_LOAD_DF_WRAPPER=_load_df
+
+def _load_df(code: str,lookback_days: int=730) -> pd.DataFrame:
+    global _V497673_FROZEN_MISS_CODES
+    c=_normalize_code(code)
+    if bool(CLOSING_BET_V497667_FAST_ENABLE) and int(lookback_days)==730 and str((_V497667_FAST_STATE or {}).get('state','')).upper()=='VALID':
+        q=(_V497667_FAST_FRAMES or {}).get(c)
+        if isinstance(q,pd.DataFrame) and not q.empty:
+            _V497672_FAST_HIT_CODES.add(c);return q.copy()
+        _V497673_FROZEN_MISS_CODES.add(c)
+        return pd.DataFrame()
+    return _V497673_BASE_LOAD_DF_WRAPPER(c,lookback_days)
+try:
+    _load_df.cache_info=_V497667_BASE_LOAD_DF.cache_info
+    _load_df.cache_clear=_V497667_BASE_LOAD_DF.cache_clear
+except Exception:pass
+
+
+def _v497673_reset_final_derived_caches():
+    """Drop PRE-FINAL derived objects only; raw preloaded OHLCV stays in memory/disk."""
+    global _V497673_FROZEN_MISS_CODES
+    _V497673_FROZEN_MISS_CODES=set()
+    for name in ['_V4938_PREPARED_CACHE','_V4938_LIFECYCLE_CACHE','_V4938_FORWARD_CACHE','_V4933_LIVE_TEST_CACHE',
+                 '_V4932_STATELESS_HIST_CACHE','_V538419_INDEX_M5_CACHE','_V538422_INDEX_M5_DIAG','_LCZ430_LIVE_SHADOW_CACHE']:
+        obj=globals().get(name)
+        try:
+            if hasattr(obj,'clear'):obj.clear()
+        except Exception:pass
+    # Reset only LAST derived views so AFTER FINAL cannot display PRE-FINAL health/state by accident.
+    globals()['_V4938_LAST_REGISTRY']=pd.DataFrame();globals()['_V4938_LAST_HEALTH']={}
+    globals()['_V4942_LAST_DECISION']={}
+    log_info('🧹 PRE-FINAL derived caches cleared; frozen OHLCV cache retained')
+
+def _v497673_collect_prefetch_codes(day: str) -> list[str]:
+    """Cache-only superset builder; does not change production universe/search authority."""
+    vals=[]
+    try:
+        c,_=_v4948_build_backtest_universe(day);vals.extend(c or [])
+    except Exception as e:log_debug(f'canonical cache universe asof helper: {type(e).__name__}:{e}')
+    try:
+        c,_=_v4938_collect_codes(None);vals.extend(c or [])
+    except Exception:pass
+    try:vals.extend(list(globals().get('CURRENT_UNIVERSE_SET',set()) or set()))
+    except Exception:pass
+    # If live/as-of sources temporarily shrink, supplement cache-only codes by market-cap ordered KRX listing.
+    try:
+        listing=_get_krx_listing()
+        if isinstance(listing,pd.DataFrame) and not listing.empty and 'Code' in listing.columns:
+            z=listing.copy();mc=next((c for c in ['Marcap','MarCap','marcap','MarketCap','Market_Cap','시가총액'] if c in z.columns),None)
+            if mc:
+                z[mc]=pd.to_numeric(z[mc],errors='coerce').fillna(0);z=z.sort_values(mc,ascending=False)
+            vals.extend(z['Code'].astype(str).tolist())
+    except Exception:pass
+    out=[];seen=set();target=int(CLOSING_BET_V497672_CANONICAL_UNIVERSE_TARGET)
+    for c in vals:
+        cd=_normalize_code(c)
+        if cd and cd not in seen and _v4934_valid_stock_code(cd):seen.add(cd);out.append(cd)
+        if len(out)>=target:break
+    return out
+
+
+def _v497673_build_prefinal_cache(day: str) -> dict:
+    """Explicitly preload up to canonical 900 histories before close, then persist once."""
+    global _V497667_LIVE_DF_MEM
+    codes=_v497673_collect_prefetch_codes(day);target=int(CLOSING_BET_V497672_CANONICAL_UNIVERSE_TARGET)
+    t0=time.time();ok=0;fail=0
+    def _one(cd):
+        try:
+            q=_V497667_BASE_LOAD_DF(cd,730)
+            return cd,q if isinstance(q,pd.DataFrame) else pd.DataFrame()
+        except Exception:return cd,pd.DataFrame()
+    with ThreadPoolExecutor(max_workers=int(CLOSING_BET_V497673_PREFETCH_WORKERS)) as ex:
+        futs=[ex.submit(_one,c) for c in codes]
+        for f in as_completed(futs):
+            cd,q=f.result()
+            if isinstance(q,pd.DataFrame) and not q.empty and 'Date' in q.columns:_V497667_LIVE_DF_MEM[cd]=q.copy();ok+=1
+            else:fail+=1
+    st=_v497667_save_prefinal_cache(day,target)
+    st['prefetch_requested']=len(codes);st['prefetch_loaded']=ok;st['prefetch_failed']=fail;st['prefetch_elapsed_sec']=round(time.time()-t0,1)
+    log_info(f"💾 v6.7.3 canonical PREFINAL cache build: {ok}/{target} · requested {len(codes)} · fail {fail} · {st.get('state')} · {st['prefetch_elapsed_sec']}s")
+    return st
+
+
+# Strengthen pre-close terminal commit rule: if the base detector says failure_date is today,
+# it can never remain terminal before 15:30, regardless of the previous derived stage.
+_V497673_BASE_DETECT_STATE_AT=_v4938_detect_state_at
+
+def _v4938_detect_state_at(h: pd.DataFrame,pos: int,code: str='',name: str='') -> dict:
+    raw=dict(_V497673_BASE_DETECT_STATE_AT(h,pos,code,name) or {})
+    try:
+        if not _v497653_is_same_day_partial_bar(h,pos):return raw
+        stage=str(raw.get('stage','') or '').upper();fdate=str(raw.get('failure_date','') or '')[:10]
+        today=_now_kst().strftime('%Y-%m-%d')
+        preview_stage=str(raw.get('intraday_preview_raw_stage','') or '').upper()
+        if stage=='PULLBACK-FAIL' or (preview_stage=='PULLBACK-FAIL' and fdate==today):
+            raw['intraday_preview']=True;raw['intraday_preview_raw_stage']='PULLBACK-FAIL'
+            raw['intraday_preview_note']='장중 지지이탈 관찰 · 15:30 확정종가 전 episode terminal commit 금지'
+            raw['stage']='FIRST-PULLBACK' if bool(raw.get('pullback_seen',True)) else 'PULLBACK-PENDING'
+            raw['action_status']='TRACKING';raw['forward_eligible']=False;raw['risk_status']='INTRADAY-PREVIEW'
+            raw['risk_reason']='PULLBACK_FAIL_PENDING_CLOSE · 15:30 종가확정 필요'
+            raw['failure_date']='';raw['failure_kind']='';raw['failure_price_basis']='장중 부분봉(미확정)'
+            miss=raw.get('missing',[]);miss=list(miss) if isinstance(miss,(list,tuple,set)) else []
+            if '15:30 종가확정' not in miss:miss.append('15:30 종가확정')
+            raw['missing']=miss
+        return raw
+    except Exception:return raw
+
+
+# SAME-SESSION final M5 persistence. Only a VALID post-15:30 context for the same date may restore.
+_V497673_BASE_M5_CONTEXT=_v4949_live_m5_context
+
+def _v4949_live_m5_context(cov_short: str,data_date=None) -> dict:
+    try:ctx=dict(_V497673_BASE_M5_CONTEXT(cov_short,data_date) or {})
+    except Exception:ctx={'status':'UNKNOWN','coverage_pct':np.nan,'source':'LIVE_REPORT_COVERAGE_SNAPSHOT','data_date':str(data_date or TODAY_STR),'fetch_status':'MISSING'}
+    try:
+        st=_v497659_session_state(data_date);sess=str(st.get('session_date','') or str(data_date or TODAY_STR)[:10]);now=_now_kst();p=_v497673_paths(sess)['m5_final']
+        cov=_safe_float(ctx.get('coverage_pct',np.nan),np.nan);valid=bool(str(ctx.get('status','')).upper()=='VALID' and pd.notna(cov) and cov+1e-9>=float(CLOSING_BET_V4976510_M5_MIN_COVERAGE_PCT))
+        postclose=bool(str(st.get('relation',''))=='SAME_SESSION_DAY' and (now.hour*60+now.minute)>=15*60+30)
+        if valid and postclose:
+            obj={'state':'FROZEN_VALID','session_date':sess,'frozen_at_kst':now.strftime('%Y-%m-%d %H:%M:%S'),'coverage_pct':float(cov),
+                 'context':ctx,'version':CLOSING_BET_SCANNER_VERSION}
+            p.write_text(json.dumps(obj,ensure_ascii=False,indent=2,default=str),encoding='utf-8')
+            ctx['same_session_final_frozen']=True;return ctx
+        if (not valid) and postclose and p.exists():
+            obj=json.loads(p.read_text(encoding='utf-8'))
+            if str(obj.get('state',''))=='FROZEN_VALID' and str(obj.get('session_date',''))==sess:
+                old=dict(obj.get('context',{}) or {});oc=_safe_float(old.get('coverage_pct',np.nan),np.nan)
+                if pd.notna(oc) and oc+1e-9>=float(CLOSING_BET_V4976510_M5_MIN_COVERAGE_PCT):
+                    old['status']='VALID';old['production_gate_ok']=True;old['coverage_gate_status']='VALID'
+                    old['source']='FROZEN_SAME_SESSION_FINAL_M5';old['fetch_status']='RESTORED_SAME_SESSION_FINAL_M5';old['same_session_final_restored']=True
+                    return old
+    except Exception:pass
+    # Cross-run same-session restore from the authoritative session-audit ledger. This stores
+    # coverage evidence only; it never borrows a prior-day or pre-close context.
+    try:
+        st=_v497659_session_state(data_date);sess=str(st.get('session_date','') or str(data_date or TODAY_STR)[:10]);now=_now_kst()
+        if str(st.get('relation',''))=='SAME_SESSION_DAY' and (now.hour*60+now.minute)>=15*60+30:
+            rows,state=_v4976510_read_audit_rows()
+            for r in reversed(rows or []):
+                if str(r.get('session_date',''))!=sess or str(r.get('phase','')).upper()!='AFTER_FINAL':continue
+                mc=_safe_float(r.get('m5_coverage_pct',np.nan),np.nan);ms=str(r.get('m5_status','')).upper()
+                if ms=='VALID' and pd.notna(mc) and mc+1e-9>=float(CLOSING_BET_V4976510_M5_MIN_COVERAGE_PCT):
+                    return {'status':'VALID','coverage_pct':float(mc),'source':'SESSION_AUDIT_SAME_SESSION_FINAL_M5',
+                            'data_date':sess,'fetch_status':'RESTORED_SAME_SESSION_FINAL_M5_AUDIT','production_gate_ok':True,
+                            'coverage_gate_status':'VALID','min_coverage_pct':float(CLOSING_BET_V4976510_M5_MIN_COVERAGE_PCT),
+                            'same_session_final_restored':True}
+    except Exception:pass
+    return ctx
+
+
+# AFTER FINAL coverage/cache validity is a gate that precedes NXT. A partial scan may be reported
+# for diagnosis but cannot create an actionable recommendation.
+_V497673_BASE_RESOLVE_AFTER_FINAL=_v49765_resolve_after_final
+
+def _v49765_resolve_after_final(decision: dict,data_date=None) -> dict:
+    global _V49765_CURRENT_AUTHORIZED_CODES,_V49765_CURRENT_DECISION
+    try:
+        st=_v49765_time_state(data_date)
+        if st['minute']>=st['start'] and st['minute']<=st['end']:
+            if _V497673_ENGINE_HARD_BLOCK:
+                out={'state':'INFRA_BLOCKED','reason':f'AFTER_FINAL_ENGINE_INVALID:{_V497673_ENGINE_HARD_BLOCK}','authorized':[],
+                     'watches':_v49765_canonical_watch(decision),'raw_enter_count':len(list(_v49764i_enter_items(decision) or [])),
+                     'nxt_status':'NOT_EVALUATED','nxt_count':0,'evidence_gate_phase':'ENGINE_COVERAGE_FAIL_CLOSED'}
+                _V49765_CURRENT_AUTHORIZED_CODES=set();_V49765_CURRENT_DECISION=out;return out
+            lh=dict(globals().get('_V4938_LAST_HEALTH',{}) or {});req=max(0,_safe_int(lh.get('requested',0),0));loaded=max(0,_safe_int(lh.get('processed',0),0));target=max(1,int(CLOSING_BET_V497672_CANONICAL_UNIVERSE_TARGET))
+            cov=100.0*min(req,target)/target;load_pct=100.0*min(loaded,req)/req if req>0 else 0.0
+            # Cache availability and production-universe coverage are separate authorities.
+            # Even FAST VALID may not authorize a shrunken 153/900 production population.
+            if cov+1e-9<float(CLOSING_BET_V497673_FINAL_MIN_PRODUCTION_COVERAGE_PCT) or load_pct+1e-9<95.0:
+                out={'state':'INFRA_BLOCKED','reason':f'AFTER_FINAL_PRODUCTION_COVERAGE_INSUFFICIENT:{req}/{target}:{cov:.1f}%:loaded={loaded}/{req}:{load_pct:.1f}%',
+                     'authorized':[],'watches':_v49765_canonical_watch(decision),'raw_enter_count':len(list(_v49764i_enter_items(decision) or [])),
+                     'nxt_status':'NOT_EVALUATED','nxt_count':0,'evidence_gate_phase':'ENGINE_COVERAGE_FAIL_CLOSED'}
+                _V49765_CURRENT_AUTHORIZED_CODES=set();_V49765_CURRENT_DECISION=out;return out
+    except Exception:pass
+    return _V497673_BASE_RESOLVE_AFTER_FINAL(decision,data_date)
+
+
+# Visible engine label: partial or missing cache is INFRA INVALID, never "FULL FALLBACK".
+_V497673_BASE_ACTION_PANEL=_v49765_action_panel
+
+def _v49765_action_panel(decision: dict,data_date=None):
+    text,has,res=_V497673_BASE_ACTION_PANEL(decision,data_date)
+    try:
+        mode=str(os.environ.get('CLOSING_BET_RUN_MODE',globals().get('CLOSING_BET_RUN_MODE','main')) or 'main').lower()
+        if mode=='after_final':
+            st=dict(_V497667_FAST_STATE or {})
+            parts=text.split('\n')
+            if bool(CLOSING_BET_V497667_FAST_ENABLE):
+                label='FAST VALID' if st.get('state')=='VALID' else 'INFRA INVALID'
+                line=(f"- ⚡ AFTER FINAL engine: {label} · cache {st.get('cache_codes',0)}/{st.get('target_codes',CLOSING_BET_V497672_CANONICAL_UNIVERSE_TARGET)}"
+                      f" · final {st.get('final_codes',0)} · coverage {float(st.get('coverage_pct',0) or 0):.1f}% · hit {len(_V497672_FAST_HIT_CODES)}"
+                      f" · network-fallback 0 · frozen-miss {len(_V497673_FROZEN_MISS_CODES)} · source {st.get('execution_source','-')} · parity {st.get('parity_cert','-')}")
+                if st.get('state')!='VALID' and st.get('reason'):line+=f" · reason {st.get('reason')}"
+            else:
+                lh=dict(globals().get('_V4938_LAST_HEALTH',{}) or {});req=max(0,_safe_int(lh.get('requested',0),0));target=max(1,int(CLOSING_BET_V497672_CANONICAL_UNIVERSE_TARGET));cov=100.0*min(req,target)/target
+                if req>0 and cov+1e-9>=float(CLOSING_BET_V497673_FINAL_MIN_PRODUCTION_COVERAGE_PCT):
+                    line=f"- 🧪 AFTER FINAL engine: FULL CANONICAL · production {req}/{target} ({cov:.1f}%) · parity audit {'ON' if bool(CLOSING_BET_V497667_FULL_PARITY_AUDIT) else 'OFF'}"
+                else:
+                    line=f"- ⚠️ AFTER FINAL engine: INFRA INVALID · production {req}/{target} ({cov:.1f}%) · FULL 명칭 사용 금지"
+            # Remove older engine line, then insert the authoritative v6.7.3 line.
+            parts=[x for x in parts if not x.startswith('- ⚡ AFTER FINAL engine:') and not x.startswith('- 🧪 AFTER FINAL engine:') and not x.startswith('- ⚠️ AFTER FINAL engine:') and not x.startswith('- AFTER FINAL engine:')]
+            parts.insert(2,line);text='\n'.join(parts)
+        text=text.replace('v49.76.6.7.3','v49.76.6.7.3').replace('v49.76.5.7','v49.76.6.7.3')
+    except Exception:pass
+    return text,has,res
+
+
+def _v497673_set_runtime_mode(mode: str):
+    """Change both env and already-imported module globals; no second Python process."""
+    m=str(mode).lower();after=(m=='after_final');pre=(m=='pre_final')
+    os.environ['CLOSING_BET_RUN_MODE']=m;globals()['CLOSING_BET_RUN_MODE']=m
+    globals()['CLOSING_BET_V497667_FAST_ENABLE']=bool(after)
+    globals()['CLOSING_BET_V497667_FULL_PARITY_AUDIT']=False
+    globals()['CLOSING_BET_V497672_CONTINUOUS_PRIMARY']=True
+    globals()['CLOSING_BET_FINAL_KICK_ONLY']=bool(after)
+    globals()['CLOSING_BET_MAX_FINAL_KICK_CARDS']=2
+    if after:
+        globals()['CLOSING_BET_WORKER_MODE']=1;globals()['CLOSING_BET_SHOW_RISK_DETAILS']=0;globals()['CLOSING_BET_SHOW_LEGACY_SECTIONS']=0
+        globals()['CLOSING_BET_SHOW_C_DIAG']=0;globals()['CLOSING_BET_SHOW_H_DIAG']=0;globals()['CLOSING_BET_FINAL_KICK_COMPACT']=1
+
+
+def _v497673_wait_until(hh:int,mm:int):
+    now=_now_kst();target=now.replace(hour=hh,minute=mm,second=0,microsecond=0)
+    if now<target:
+        sec=max(0,(target-now).total_seconds());log_info(f"⏳ CONTINUOUS SINGLE PROCESS wait {sec:.0f}s → {hh:02d}:{mm:02d} KST")
+        time.sleep(sec)
+
+
+def _v497673_write_strategy_lock(day: str,hits):
+    global _V497673_FROZEN_DECISION,_V497673_FROZEN_HITS,_V497673_FROZEN_STRATEGY_SIGNATURE
+    _V497673_FROZEN_DECISION=_v497673_copy.deepcopy(globals().get('_V4942_LAST_DECISION',{}) or {})
+    _V497673_FROZEN_HITS=_v497673_copy.deepcopy(list(hits or []));sig=_v497667_signal_signature(hits);_V497673_FROZEN_STRATEGY_SIGNATURE=dict(sig)
+    obj={'state':'FROZEN','session_date':day,'frozen_at_kst':_now_kst().strftime('%Y-%m-%d %H:%M:%S'),'signature':sig,
+         'snapshot_sha256':str(_V497673_FROZEN_SNAPSHOT_META.get('sha256','')),'version':CLOSING_BET_SCANNER_VERSION}
+    _v497673_paths(day)['strategy_lock'].write_text(json.dumps(obj,ensure_ascii=False,indent=2,default=str),encoding='utf-8')
+    log_info(f"🔒 STRATEGY SESSION FROZEN: sha {sig.get('sha256','')[:12]} · raw_enter {len(sig.get('raw_enter',[]))}")
+
+
+def _v497673_retry_nxt_gate_only(day: str):
+    """Retry only NXT/evidence on the frozen Lifecycle decision; strategy scanner is not rerun."""
+    if not isinstance(_V497673_FROZEN_DECISION,dict) or not _V497673_FROZEN_DECISION:return
+    for attempt in range(1,int(CLOSING_BET_V497673_NXT_GATE_RETRIES)+1):
+        cur=dict(globals().get('_V49765_CURRENT_DECISION',{}) or {});reason=str(cur.get('reason',''))
+        if 'NXT_ELIGIBILITY_UNAVAILABLE' not in reason and 'EVIDENCE_LEDGER_UNAVAILABLE' not in reason:return
+        if (_now_kst().hour*60+_now_kst().minute)>=20*60:return
+        time.sleep(int(CLOSING_BET_V497673_NXT_GATE_RETRY_SEC))
+        log_info(f"🔁 FROZEN-STRATEGY gate-only retry {attempt}/{CLOSING_BET_V497673_NXT_GATE_RETRIES} · no KRX/Lifecycle recalculation")
+        panel,has,res=_v49765_action_panel(_V497673_FROZEN_DECISION,day)
+        if has:
+            recs=list(_v4943_prepare_live_recommendations() or [])[:2]
+            gen=_v4943_write_recommendation_event(recs,'GENERATED') if recs else {'state':'NO_ROWS'}
+            tg=send_telegram_photo(panel,[])
+            if recs and _safe_int((tg or {}).get('success_count',0),0)>0:
+                _v4943_write_recommendation_event(recs,'DELIVERED',tg)
+                try:_v4943_write_forward_snapshot(pd.DataFrame(_V497673_FROZEN_HITS))
+                except Exception:pass
+            log_info(f"✅ FROZEN gate recovered · auth {len(recs)} · GENERATED {gen.get('state')} · telegram {_safe_int((tg or {}).get('success_count',0),0)}")
+            return
+        nr=str((res or {}).get('reason',''))
+        if 'NXT_ELIGIBILITY_UNAVAILABLE' not in nr and 'EVIDENCE_LEDGER_UNAVAILABLE' not in nr:return
+
+
+
+
+def _v497673_primary_after_final_seen(day: str=None) -> tuple[bool,dict]:
+    """Detect that the primary already froze/evaluated a broad AFTER FINAL production population.
+    This is weaker than prospective-validity (M5 may still be missing) and is used only to stop
+    the 15:40 fallback from launching a second strategy calculation against the same session.
+    """
+    sess=str(day or _now_kst().strftime('%Y-%m-%d'))[:10]
+    try:
+        rows,state=_v4976510_read_audit_rows()
+        for r in reversed(rows or []):
+            if str(r.get('session_date',''))!=sess or str(r.get('phase','')).upper()!='AFTER_FINAL':continue
+            pc=_safe_float(r.get('production_request_coverage_pct',r.get('request_pct',0)),0.0);lc=_safe_float(r.get('lifecycle_load_pct',r.get('load_pct',0)),0.0)
+            seen=bool(pc+1e-9>=float(CLOSING_BET_V497673_FINAL_MIN_PRODUCTION_COVERAGE_PCT) and lc+1e-9>=95.0)
+            return seen,{'state':'SEEN' if seen else 'PARTIAL','session_date':sess,'audit_id':str(r.get('audit_id','')),'production_coverage_pct':pc,'load_pct':lc,'m5_status':str(r.get('m5_status','')),'read_state':state}
+        return False,{'state':'NO_AFTER_FINAL_AUDIT','session_date':sess,'read_state':state}
+    except Exception as e:return False,{'state':'ERROR','session_date':sess,'error':f'{type(e).__name__}:{e}'}
+
+def _v497673_prospective_session_validity(day: str=None) -> tuple[bool,dict]:
+    """Only a comparable LIVE AFTER FINAL production row can unlock prospective session capture."""
+    sess=str(day or _now_kst().strftime('%Y-%m-%d'))[:10]
+    try:
+        rows,state=_v4976510_read_audit_rows()
+        for r in reversed(rows or []):
+            if str(r.get('session_date',''))!=sess:continue
+            prov=str(r.get('snapshot_provenance','')).upper();phase=str(r.get('phase','')).upper()
+            eligible=_v4976511_truthy(r.get('baseline_eligible')) if '_v4976511_truthy' in globals() else str(r.get('baseline_eligible','')).upper()=='TRUE'
+            pc=_safe_float(r.get('production_request_coverage_pct',r.get('request_pct',0)),0.0);lc=_safe_float(r.get('lifecycle_load_pct',r.get('load_pct',0)),0.0);mc=_safe_float(r.get('m5_coverage_pct',np.nan),np.nan)
+            ok=bool(phase=='AFTER_FINAL' and prov=='LIVE_AFTER_FINAL_BASELINE' and eligible and pc+1e-9>=float(CLOSING_BET_V497673_FINAL_MIN_PRODUCTION_COVERAGE_PCT) and lc+1e-9>=95.0 and pd.notna(mc) and mc+1e-9>=float(CLOSING_BET_V4976510_M5_MIN_COVERAGE_PCT))
+            return ok,{'state':'VALID' if ok else 'INVALID','session_date':sess,'audit_id':str(r.get('audit_id','')),'provenance':prov,'production_coverage_pct':pc,'load_pct':lc,'m5_coverage_pct':None if pd.isna(mc) else float(mc),'read_state':state}
+        return False,{'state':'NO_AFTER_FINAL_AUDIT','session_date':sess,'read_state':state}
+    except Exception as e:return False,{'state':'ERROR','session_date':sess,'error':f'{type(e).__name__}:{e}'}
+
+def _v497673_run_continuous_session(force: bool=True):
+    """ONE Python process: PRE-FINAL -> canonical cache -> wait -> frozen FINAL -> one strategy run -> gate-only retries."""
+    global _V497673_CONTINUOUS_ACTIVE
+    _V497673_CONTINUOUS_ACTIVE=True;day=_now_kst().strftime('%Y-%m-%d')
+    log_info('🧷 v49.76.6.7.3 CONTINUOUS SINGLE PYTHON PROCESS START')
+    _v497673_set_runtime_mode('pre_final')
+    pre_hits=run_closing_bet_scan(force=force)
+    st=_v497673_build_prefinal_cache(day)
+    if str(st.get('state','')).upper()!='READY':
+        log_error(f"⛔ PRE-FINAL canonical cache not READY: {st}")
+    _v497673_wait_until(15,40)
+    _v497673_set_runtime_mode('after_final')
+    # Freeze first valid KRX snapshot before any final strategy calculation.
+    try:_v497673_get_or_freeze_final_snapshot(day)
+    except Exception as e:
+        globals()['_V497673_ENGINE_HARD_BLOCK']=f'{type(e).__name__}:{e}'
+        log_error(f"⛔ FINAL snapshot freeze failed: {type(e).__name__}:{e}")
+    _v497673_reset_final_derived_caches()
+    final_hits=run_closing_bet_scan(force=True)
+    _v497673_write_strategy_lock(day,final_hits)
+    _v497673_retry_nxt_gate_only(day)
+    log_info('🧷 v49.76.6.7.3 CONTINUOUS SINGLE PYTHON PROCESS END')
+    return final_hits
+
+# =============================================================
+# ✅ END V49.76.6.7.3 FINAL SESSION IMMUTABILITY
 # =============================================================
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='종가배팅 타점 스캐너')
     parser.add_argument('--force', action='store_true', help='시간 무관 강제 실행')
+    parser.add_argument('--continuous-after-final', action='store_true', help='v49.76.6.7.3: 15:03 PRE-FINAL부터 15:40 AFTER FINAL까지 단일 Python 프로세스로 유지')
     parser.add_argument('--eval-pending', action='store_true', help='미평가 후보를 다음날 성과로 평가')
     parser.add_argument('--summary', action='store_true', help='검증 요약 출력')
     parser.add_argument('--send-summary', action='store_true', help='검증 요약을 텔레그램으로 전송')
@@ -52131,9 +52590,9 @@ if __name__ == '__main__':
     parser.add_argument('--backtest-all-candidates', action='store_true', help='TOP 제한 없이 모든 후보 검증')
     parser.add_argument('--backtest-weekly', action='store_true', help='백테스트 결과에 주차별 성과 요약 포함')
     parser.add_argument('--backtest-debug', action='store_true', help='백테스트 0건/진단 로그를 함께 출력')
-    parser.add_argument('--backtest-five-axis', action='store_true', help='v49.76.6.7.2 재료·거래대금·224전환·대장·테마 5축 Shadow 백테스트 추가(기존 전체 백테스트 후 실행)')
-    parser.add_argument('--backtest-five-axis-only', action='store_true', help='v49.76.6.7.2 5축 전용 DIRECT 연구 lane: 공통 OHLCV→Lifecycle→5축 후 즉시 종료, COMMON STRATEGY 장시간 레인 생략')
-    parser.add_argument('--prospective-lock-only', action='store_true', help='v49.76.6.7.2 prospective lock 전용 출력: 과거 가설은 동결하고 당일 15:40+ 신규 신호 capture/기존 lock 평가만 표시')
+    parser.add_argument('--backtest-five-axis', action='store_true', help='v49.76.6.7.3 재료·거래대금·224전환·대장·테마 5축 Shadow 백테스트 추가(기존 전체 백테스트 후 실행)')
+    parser.add_argument('--backtest-five-axis-only', action='store_true', help='v49.76.6.7.3 5축 전용 DIRECT 연구 lane: 공통 OHLCV→Lifecycle→5축 후 즉시 종료, COMMON STRATEGY 장시간 레인 생략')
+    parser.add_argument('--prospective-lock-only', action='store_true', help='v49.76.6.7.3 prospective lock 전용 출력: 과거 가설은 동결하고 당일 15:40+ 신규 신호 capture/기존 lock 평가만 표시')
     parser.add_argument('--symbol', '--backtest-symbol', dest='backtest_symbol', type=str, default='', help='특정 종목 코드/종목명만 백테스트. 예: --symbol 093370 또는 --symbol 후성')
     parser.add_argument('--backtest-core-only', action='store_true', help='백테스트 결과를 S-CORE(S1우수응축+S2)만 필터링')
     parser.add_argument('--backtest-safe-only', action='store_true', help='백테스트 결과를 S-CORE SAFE(RR 1.0~1.5·거래량비<1.5·종가위치70%+)만 필터링')
@@ -52156,7 +52615,7 @@ if __name__ == '__main__':
         os.environ['CLOSING_BET_COMPACT_OPERATION_SUMMARY'] = '1'
     if getattr(args, 'full_backtest_summary', False):
         os.environ['CLOSING_BET_SHOW_FULL_BACKTEST_REPORT'] = '1'
-    # v49.76.6.7.2: five-axis 전용 연구 lane은 COMMON STRATEGY 전에 조기 종료한다.
+    # v49.76.6.7.3: five-axis 전용 연구 lane은 COMMON STRATEGY 전에 조기 종료한다.
     globals()['_V497661_FIVE_AXIS_ONLY_ACTIVE'] = bool(getattr(args, 'backtest_five_axis_only', False))
     globals()['_V497665_PROSPECTIVE_ONLY_ACTIVE'] = bool(getattr(args, 'prospective_lock_only', False))
     globals()['_V497661_FIVE_AXIS_ONLY_RESULT'] = {'status':'NOT_RUN','report':'','paths':{}}
@@ -52206,7 +52665,7 @@ if __name__ == '__main__':
                 f"· raw {_shard_result.get('raw_path')}"
             )
             sys.exit(0)
-        # v49.76.6.7.2 DIRECT research lane은 공통 백테스트 compact formatter를 통과시키지 않는다.
+        # v49.76.6.7.3 DIRECT research lane은 공통 백테스트 compact formatter를 통과시키지 않는다.
         # 5축 원문이 곧 사용자/Telegram 권위 리포트이며, 기존 20-part COMMON report와 분리한다.
         if getattr(args, 'backtest_five_axis_only', False):
             original_report = str(report or '')
@@ -52273,6 +52732,9 @@ if __name__ == '__main__':
     run_scan = not (args.eval_pending or args.summary)
 
     if run_scan:
+        if getattr(args, 'continuous_after_final', False):
+            _v497673_run_continuous_session(force=True)
+            sys.exit(0)
         if not _is_closing_time(args.force):
             log_info(f"⏸️ 종가배팅 유효 시간 아님 ({now.strftime('%H:%M')}) — 텔레그램 전송 안 함")
             log_info("유효 시간: 14:50~15:25 | 강제 실행: --force")
