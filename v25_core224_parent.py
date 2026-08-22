@@ -25,7 +25,7 @@ import direct_replay_materialized_v23 as mat
 import original_thesis_reconstruction as thesis
 import v25_core224_daily_episode_replay as daily_replay
 
-VERSION = "V73.3.6.6.25.4-HF5COMPAT"
+VERSION = "V73.3.6.6.25.4.1-HF5COMPAT"
 AUDIT_FILE = "v73_v25_core224_only_parent_audit.csv"
 REPORT_FILE = "v73_v25_core224_only_parent_report.txt"
 HEADER = "⚡ [V25 ALL CORE224 LIGHTWEIGHT PARENT · RESEARCH_ONLY]"
@@ -169,8 +169,17 @@ def run(output_dir: str) -> int:
         "daily_episode_status": str(drr.get("status", "UNKNOWN")),
         "daily_seed_codes": int(float(drr.get("seed_codes", 0) or 0)),
         "daily_evaluated_codes": int(float(drr.get("evaluated_codes", 0) or 0)),
+        "daily_raw_restart_rows": int(float(drr.get("raw_daily_restart_rows", drr.get("daily_restart_events", 0)) or 0)),
         "daily_restart_events": int(float(drr.get("daily_restart_events", 0) or 0)),
+        "daily_suppressed_repeat_restart_rows": int(float(drr.get("suppressed_repeat_restart_rows", 0) or 0)),
         "daily_recovered_restart_events": int(float(drr.get("recovered_restart_events", 0) or 0)),
+        "daily_weekly_restart_cycles": int(float(drr.get("weekly_restart_cycles", 0) or 0)),
+        "daily_weekly_exact_date_matches": int(float(drr.get("weekly_restart_exact_date_matches", 0) or 0)),
+        "daily_weekly_same_cycle_date_shifts": int(float(drr.get("weekly_restart_same_cycle_date_shifts", 0) or 0)),
+        "daily_weekly_reconciled": int(float(drr.get("weekly_restart_reconciled", 0) or 0)),
+        "daily_weekly_unreconciled": int(float(drr.get("weekly_restart_unreconciled", 0) or 0)),
+        "daily_event_order_rows": int(float(drr.get("event_order_rows", 0) or 0)),
+        "daily_risk_parity_rows": int(float(drr.get("risk_parity_rows", 0) or 0)),
         "daily_invariant_fail_rows": int(float(drr.get("daily_invariant_fail_rows", 0) or 0)),
         "daily_lifecycle_eligible": int(float(drr.get("daily_lifecycle_eligible", 0) or 0)),
         "daily_provider_calls": int(float(drr.get("provider_calls", 0) or 0)),
@@ -201,7 +210,9 @@ def run(output_dir: str) -> int:
         f"📌 {VERSION} · status={audit['status']} · ALL A/B/C/D materialized payload만 사용",
         f"📦 V23 parent {audit['valid_dates']}/{audit['expected_dates']}일 · CORE224 rows {audit['core224_rows']} · transitions {audit['transition_rows']} · invariant fail {audit['invariant_fail_rows']}",
         f"🧭 weekly lifecycle {audit['lifecycle_status']} · RESTART {audit['lifecycle_restart_signals']} · eligible {audit['lifecycle_eligible_signals']} · boundary forced exit {audit['boundary_forced_exit']}",
-        f"🔬 daily episode {audit['daily_episode_status']} · seed {audit['daily_seed_codes']} → 평가 {audit['daily_evaluated_codes']} · RESTART {audit['daily_restart_events']} (주간사이 복원 {audit['daily_recovered_restart_events']}) · invariant fail {audit['daily_invariant_fail_rows']}",
+        f"🔬 daily episode {audit['daily_episode_status']} · seed {audit['daily_seed_codes']} → 평가 {audit['daily_evaluated_codes']} · RESTART raw {audit['daily_raw_restart_rows']} → unique {audit['daily_restart_events']} (반복억제 {audit['daily_suppressed_repeat_restart_rows']} / 주간사이 복원 {audit['daily_recovered_restart_events']}) · invariant fail {audit['daily_invariant_fail_rows']}",
+        f"🔗 weekly↔daily RESTART: weekly {audit['daily_weekly_restart_cycles']} · exact {audit['daily_weekly_exact_date_matches']} · same-cycle shift {audit['daily_weekly_same_cycle_date_shifts']} · reconciled {audit['daily_weekly_reconciled']} · unresolved {audit['daily_weekly_unreconciled']}",
+        f"⏱️ lifecycle audit: event-order {audit['daily_event_order_rows']}행 · SINGLE↔30/30/40 동일1R 비교 {audit['daily_risk_parity_rows']}행 · 수익률 기반 자동정책선택 0",
         "🚫 2년 ALL 실행에서는 기존 V72/V24 전체분모·HAM·FAMILIAR·시장/섹터/검색식 후속연구를 parent에서 재계산하지 않습니다.",
         "✅ 목적: 이미 shard에서 계산한 CORE224 증거를 merge하여 구조손절·분할매수·20/40/60일 생명주기만 빠르게 검증합니다.",
         "🔒 LIVE 점수·랭크·진입·청산·주문 변경 0 · 기존 24주/단일 코호트 FULL 연구경로는 그대로 유지",
