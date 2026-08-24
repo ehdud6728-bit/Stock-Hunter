@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""V25.4.4 HF5-compatible lightweight ALL-cohort parent.
+"""V25.4.5 HF5-compatible lightweight ALL-cohort parent.
 
 Consumes the already materialized A/B/C/D V23 payloads and runs only the V23
 parent integrity report plus V25 CORE224 thesis/lifecycle finalization. It
@@ -25,7 +25,7 @@ import direct_replay_materialized_v23 as mat
 import original_thesis_reconstruction as thesis
 import v25_core224_daily_episode_replay as daily_replay
 
-VERSION = "V73.3.6.6.25.4.4-HF5COMPAT"
+VERSION = "V73.3.6.6.25.4.5-HF5COMPAT"
 AUDIT_FILE = "v73_v25_core224_only_parent_audit.csv"
 REPORT_FILE = "v73_v25_core224_only_parent_report.txt"
 HEADER = "⚡ [V25 ALL CORE224 LIGHTWEIGHT PARENT · RESEARCH_ONLY]"
@@ -183,6 +183,8 @@ def run(output_dir: str) -> int:
         "daily_weekly_reconciled": int(float(drr.get("weekly_restart_reconciled", 0) or 0)),
         "daily_weekly_unreconciled_raw": int(float(drr.get("weekly_restart_unreconciled_raw", drr.get("weekly_restart_unreconciled", 0)) or 0)),
         "daily_weekly_unexplained": int(float(drr.get("weekly_restart_unexplained", drr.get("weekly_restart_unreconciled", 0)) or 0)),
+        "daily_context_state_trace_rows": int(float(drr.get("context_state_trace_rows", 0) or 0)),
+        "daily_context_state_trace_summary_rows": int(float(drr.get("context_state_trace_summary_rows", 0) or 0)),
         "daily_event_order_rows": int(float(drr.get("event_order_rows", 0) or 0)),
         "daily_path_class_rows": int(float(drr.get("path_class_rows", 0) or 0)),
         "daily_risk_parity_rows": int(float(drr.get("risk_parity_rows", 0) or 0)),
@@ -205,6 +207,11 @@ def run(output_dir: str) -> int:
         "daily_input_fingerprint_changed_components": int(float(drr.get("input_fingerprint_changed_components", 0) or 0)),
         "daily_exit_shadow_rows": int(float(drr.get("exit_shadow_rows", 0) or 0)),
         "daily_exit_shadow_summary_rows": int(float(drr.get("exit_shadow_summary_rows", 0) or 0)),
+        "daily_stop_exit_policy_matrix_rows": int(float(drr.get("stop_exit_policy_matrix_rows", 0) or 0)),
+        "daily_execution_causality_rows": int(float(drr.get("execution_causality_rows", 0) or 0)),
+        "daily_execution_causality_summary_rows": int(float(drr.get("execution_causality_summary_rows", 0) or 0)),
+        "daily_targeted_authority_class_summary_rows": int(float(drr.get("targeted_authority_class_summary_rows", 0) or 0)),
+        "daily_execution_roundtrip_cost_bps_assumption": float(drr.get("execution_roundtrip_cost_bps_assumption", 0) or 0),
         "daily_core_replay_provider_calls": int(float(drr.get("core_daily_replay_provider_calls", 0) or 0)),
         "daily_provider_calls": int(float(drr.get("provider_calls", 0) or 0)),
         "legacy_v72_v24_parent_research": "SKIPPED_INTENTIONALLY",
@@ -235,9 +242,9 @@ def run(output_dir: str) -> int:
         f"📦 V23 parent {audit['valid_dates']}/{audit['expected_dates']}일 · CORE224 rows {audit['core224_rows']} · transitions {audit['transition_rows']} · invariant fail {audit['invariant_fail_rows']}",
         f"🧭 weekly lifecycle {audit['lifecycle_status']} · RESTART {audit['lifecycle_restart_signals']} · eligible {audit['lifecycle_eligible_signals']} · boundary forced exit {audit['boundary_forced_exit']}",
         f"🔬 daily episode {audit['daily_episode_status']} · seed {audit['daily_seed_codes']} → 평가 {audit['daily_evaluated_codes']} · RESTART raw {audit['daily_raw_restart_rows']} → cycle-first {audit['daily_cycle_first_restart_events']} → episode-independent {audit['daily_restart_events']} (cycle반복억제 {audit['daily_suppressed_repeat_restart_rows']} / overlap억제 {audit['daily_episode_overlap_suppressed_events']} / REVIEW {audit['daily_episode_overlap_review_pairs']} / 주간사이복원 {audit['daily_recovered_restart_events']}) · invariant fail {audit['daily_invariant_fail_rows']}",
-        f"🔗 weekly↔daily RESTART: weekly {audit['daily_weekly_restart_cycles']} · exact {audit['daily_weekly_exact_date_matches']} · same-cycle shift {audit['daily_weekly_same_cycle_date_shifts']} · context-explained {audit['daily_weekly_explained_context_divergences']} · reconciled {audit['daily_weekly_reconciled']} · unexplained {audit['daily_weekly_unexplained']}",
+        f"🔗 weekly↔daily RESTART: weekly {audit['daily_weekly_restart_cycles']} · exact {audit['daily_weekly_exact_date_matches']} · same-cycle shift {audit['daily_weekly_same_cycle_date_shifts']} · context-explained {audit['daily_weekly_explained_context_divergences']} · reconciled {audit['daily_weekly_reconciled']} · unexplained {audit['daily_weekly_unexplained']} · full-state trace {audit['daily_context_state_trace_summary_rows']}건",
         f"📦 targeted causal authority: proven events {audit['daily_exact_causal_asof_restart_events']}/{audit['daily_restart_events']} · window-complete {audit['daily_targeted_authority_complete_dates']}/{audit['daily_targeted_authority_dates']} · full-name {audit['daily_targeted_authority_full_name_complete_dates']}/{audit['daily_targeted_authority_dates']} · cache {audit['daily_targeted_authority_cache_valid_before']}→{audit['daily_targeted_authority_cache_valid_after']} (+{audit['daily_targeted_authority_new_valid_market_dates']}) · provider {audit['daily_targeted_authority_provider_calls']}/{audit['daily_targeted_authority_provider_call_budget']} · errors {audit['daily_targeted_authority_provider_errors']}",
-        f"⏱️ lifecycle audit: event-order {audit['daily_event_order_rows']}행 · path-class {audit['daily_path_class_rows']}행 · stop-lens compare {audit['daily_stop_lens_compare_rows']}행 · risk-tradeoff {audit['daily_stop_lens_risk_tradeoff_rows']}행 · SINGLE↔30/30/40 {audit['daily_risk_parity_rows']}행 · fill-group {audit['daily_risk_parity_fill_group_rows']}행 · exit-shadow {audit['daily_exit_shadow_rows']}행 · input-fp changed {audit['daily_input_fingerprint_changed_components']} · 자동정책선택 0",
+        f"⏱️ lifecycle audit: event-order {audit['daily_event_order_rows']}행 · path-class {audit['daily_path_class_rows']}행 · stop-lens compare {audit['daily_stop_lens_compare_rows']}행 · risk-tradeoff {audit['daily_stop_lens_risk_tradeoff_rows']}행 · SINGLE↔30/30/40 {audit['daily_risk_parity_rows']}행 · fill-group {audit['daily_risk_parity_fill_group_rows']}행 · exit-shadow {audit['daily_exit_shadow_rows']}행 · stop×exit matrix {audit['daily_stop_exit_policy_matrix_rows']}행 · D+1 execution {audit['daily_execution_causality_rows']}행 · cost {audit['daily_execution_roundtrip_cost_bps_assumption']:.0f}bp · input-fp changed {audit['daily_input_fingerprint_changed_components']} · 자동정책선택 0",
         "🚫 2년 ALL 실행에서는 기존 V72/V24 전체분모·HAM·FAMILIAR·시장/섹터/검색식 후속연구를 parent에서 재계산하지 않습니다.",
         "✅ 목적: 이미 shard에서 계산한 CORE224 증거를 merge하여 구조손절·분할매수·20/40/60일 생명주기만 빠르게 검증합니다.",
         "🔒 LIVE 점수·랭크·진입·청산·주문 변경 0 · 기존 24주/단일 코호트 FULL 연구경로는 그대로 유지",
