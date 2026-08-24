@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""V25.4.3 CORE224 daily episode replay (research-only, cache-first).
+"""V25.4.4 CORE224 daily episode replay (research-only, cache-first).
 
 Purpose
 -------
@@ -33,7 +33,7 @@ import pandas as pd
 import original_thesis_reconstruction as thesis
 import historical_asof_universe as hist_asof
 
-VERSION = "V73.3.6.6.25.4.3"
+VERSION = "V73.3.6.6.25.4.4"
 RESEARCH_ONLY = True
 LIVE_LOGIC_CHANGED = False
 REAL_ORDER_CHANGED = False
@@ -73,6 +73,10 @@ TARGET_PROGRESS_CACHE_FILE = "v25_targeted_authority_progress.json"
 EXIT_SHADOW_FILE = "v73_v25_core224_daily_exit_policy_shadow.csv"
 EXIT_SHADOW_SUMMARY_FILE = "v73_v25_core224_daily_exit_policy_shadow_summary.csv"
 REPORT_FILE = "v73_v25_core224_daily_episode_report.txt"
+CONTEXT_PARITY_FILE = "v73_v25_core224_weekly_daily_context_parity_audit.csv"
+INPUT_FINGERPRINT_FILE = "v73_v25_core224_input_fingerprint_regression.csv"
+STOP_LENS_RISK_TRADEOFF_FILE = "v73_v25_core224_stop_lens_risk_tradeoff.csv"
+INPUT_FINGERPRINT_CACHE_FILE = "v25_core224_input_fingerprint_last.json"
 
 CORE_STATES = {
     "CORE224_BASE", "CORE224_ACCUMULATION", "CORE224_WAVE1",
@@ -544,6 +548,8 @@ def _risk_parity(scale_policy: pd.DataFrame, fills: pd.DataFrame, single: pd.Dat
             "entry_count": r.get("entry_count", np.nan), "deployed_weight": r.get("deployed_weight", np.nan),
             "single_holding_days": (sr.get("stop_day", np.nan) if str(sr.get("single_status", "")) == "STRUCTURE_STOP" else sr.get("available_follow_days", np.nan)),
             "scale_holding_days": r.get("end_day", np.nan),
+            "single_mae_pct": sr.get("mae_pct", np.nan), "single_mfe_pct": sr.get("mfe_pct", np.nan),
+            "scale_mae_pct": r.get("mae_pct", np.nan), "scale_mfe_pct": r.get("mfe_pct", np.nan),
             "avg_cost_improvement_vs_entry1_pct": (1.0 - avg / entry1) * 100.0 if np.isfinite(avg) and np.isfinite(entry1) and entry1 > 0 else np.nan,
             "single_capital_per_1R": (100.0 / float(pd.to_numeric(pd.Series([sr.get("planned_risk_pct")]), errors="coerce").iloc[0])) if pd.notna(pd.to_numeric(pd.Series([sr.get("planned_risk_pct")]), errors="coerce").iloc[0]) and float(pd.to_numeric(pd.Series([sr.get("planned_risk_pct")]), errors="coerce").iloc[0]) > 0 else np.nan,
             "scale_capital_per_1R": 1.0 / scale_risk if np.isfinite(scale_risk) and scale_risk > 0 else np.nan,
@@ -656,7 +662,9 @@ def _simulate_exit_shadow_one(
     Policies are deliberately few and locked:
       STRUCTURE_HOLD       - current lifecycle behavior, no profit-forced exit.
       PLUS5_FULL_EXIT      - full exit at +5% of the *current pre-close-fill* average cost.
-      H1_CLOSE_PB_TRAIL    - after an H1 close rebreak, tighten future structural stop to PB_LOW.
+      H1_CLOSE_PB_TRAIL    - legacy parity: after an H1 close rebreak, tighten to PB_LOW.
+      WIDE_H1_PB_TRAIL     - meaningful wide-stop experiment: start from Fib/L0 structural stop,
+                             then tighten to PB_LOW only after an H1 close rebreak.
 
     Daily-bar collisions are STOP_FIRST. A close-confirmed add cannot retroactively lower the
     target for a high that occurred earlier on the same bar.
@@ -701,7 +709,8 @@ def _simulate_exit_shadow_one(
     for idx in range(start_idx+1,max_idx+1):
         day=idx-start_idx; bar=px.iloc[idx]
         avg_pre=invested/shares if shares>0 else np.nan
-        effective_stop=max(float(stop_price), pb_stop) if (exit_policy=="H1_CLOSE_PB_TRAIL" and trail_active) else float(stop_price)
+        trail_policy = exit_policy in {"H1_CLOSE_PB_TRAIL", "WIDE_H1_PB_TRAIL"}
+        effective_stop=max(float(stop_price), pb_stop) if (trail_policy and trail_active) else float(stop_price)
         target5=(avg_pre*1.05) if np.isfinite(avg_pre) else np.nan
         stop_hit=float(bar["low"]) <= effective_stop
         target_hit=exit_policy=="PLUS5_FULL_EXIT" and np.isfinite(target5) and float(bar["high"]) >= target5
@@ -718,7 +727,7 @@ def _simulate_exit_shadow_one(
                 add(2,idx); last_fill_day=day
             elif len(fills)==2 and np.isfinite(support3) and day-last_fill_day>=cfg.min_gap_between_adds_days and float(bar["low"]) <= support3*(1.0+cfg.support_touch_tolerance):
                 add(3,idx); last_fill_day=day
-        if exit_policy=="H1_CLOSE_PB_TRAIL" and (not trail_active) and np.isfinite(h1) and float(bar["close"])>=h1:
+        if exit_policy in {"H1_CLOSE_PB_TRAIL", "WIDE_H1_PB_TRAIL"} and (not trail_active) and np.isfinite(h1) and float(bar["close"])>=h1:
             trail_active=True
     avg=invested/shares if shares>0 else np.nan
     pnl=shares*exit_price-invested if shares>0 else np.nan
@@ -742,7 +751,8 @@ def _exit_policy_shadow(
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     if restart_df is None or restart_df.empty:
         return pd.DataFrame(), pd.DataFrame()
-    policies = ["STRUCTURE_HOLD", "PLUS5_FULL_EXIT", "H1_CLOSE_PB_TRAIL"]
+    base_policies = ["STRUCTURE_HOLD", "PLUS5_FULL_EXIT", "H1_CLOSE_PB_TRAIL"]
+    wide_lenses = {"FIB_61_8", "FIB_78_6", "L0_STRUCTURE"}
     rows: List[Dict[str, Any]] = []
     for _, rr in restart_df.iterrows():
         rec=rr.to_dict(); code=_norm_code(rec.get("code", "")); px=px_by_code.get(code, pd.DataFrame())
@@ -751,6 +761,9 @@ def _exit_policy_shadow(
         if pb is None: continue
         lenses=thesis._stop_lenses(l0,h1,float(pb),cfg)
         for lens, stop in lenses.items():
+            policies = list(base_policies)
+            if str(lens) in wide_lenses:
+                policies.append("WIDE_H1_PB_TRAIL")
             for policy in policies:
                 rows.append(_simulate_exit_shadow_one(rec,px,lens,float(stop),cfg,policy))
     df=pd.DataFrame(rows); sums:List[Dict[str,Any]]=[]
@@ -775,6 +788,149 @@ def _exit_policy_shadow(
                     "research_only":True,
                 })
     return df,pd.DataFrame(sums)
+
+
+def _stable_frame_hash(df: pd.DataFrame, cols: Optional[List[str]] = None) -> str:
+    if df is None or df.empty:
+        return hashlib.sha256(b"EMPTY").hexdigest()[:20]
+    q = df.copy()
+    use = [c for c in (cols or list(q.columns)) if c in q.columns]
+    if not use:
+        return hashlib.sha256(b"NO_COLUMNS").hexdigest()[:20]
+    q = q[use].copy()
+    for c in q.columns:
+        if "date" in str(c).lower():
+            z = pd.to_datetime(q[c], errors="coerce")
+            q[c] = np.where(z.notna(), z.dt.strftime("%Y-%m-%d"), q[c].fillna("").astype(str))
+        else:
+            q[c] = q[c].fillna("").astype(str)
+    q = q.sort_values(use, kind="stable").reset_index(drop=True)
+    h = pd.util.hash_pandas_object(q, index=False).values.tobytes()
+    return hashlib.sha256(h).hexdigest()[:20]
+
+
+def _context_parity_audit(
+    recon: pd.DataFrame, weekly: pd.DataFrame, state_df: pd.DataFrame,
+    transition_df: pd.DataFrame, seeds: pd.DataFrame, out: Path,
+) -> pd.DataFrame:
+    """Explain sparse-weekly vs continuous-daily state context without inventing a daily RESTART."""
+    if recon is None or recon.empty:
+        return pd.DataFrame()
+    unresolved = recon[recon.get("reconciliation_status", pd.Series(dtype=str)).astype(str).eq("WEEKLY_ONLY_UNRECONCILED")]
+    if unresolved.empty:
+        return pd.DataFrame()
+    sd = state_df.copy() if isinstance(state_df, pd.DataFrame) else pd.DataFrame()
+    td = transition_df.copy() if isinstance(transition_df, pd.DataFrame) else pd.DataFrame()
+    if not sd.empty:
+        sd["date"] = pd.to_datetime(sd.get("date"), errors="coerce").dt.normalize(); sd["code"] = sd.get("code", pd.Series("", index=sd.index)).map(_norm_code)
+    if not td.empty:
+        td["date"] = pd.to_datetime(td.get("date"), errors="coerce").dt.normalize(); td["code"] = td.get("code", pd.Series("", index=td.index)).map(_norm_code)
+    seed_codes = set(seeds.get("code", pd.Series(dtype=str)).astype(str)) if isinstance(seeds, pd.DataFrame) and not seeds.empty else set()
+    rows: List[Dict[str, Any]] = []
+    for _, rr in unresolved.iterrows():
+        code = _norm_code(rr.get("code", "")); wd = pd.to_datetime(rr.get("weekly_restart_date"), errors="coerce")
+        if pd.isna(wd):
+            rows.append({"version": VERSION, "code": code, "resolution_class": "UNEXPLAINED_BAD_WEEKLY_DATE", "explained": 0, "research_only": True}); continue
+        wd = pd.Timestamp(wd).normalize()
+        same = sd[(sd["code"] == code) & (sd["date"] == wd)] if not sd.empty else pd.DataFrame()
+        prior = td[(td["code"] == code) & (td["date"] <= wd)].sort_values("date", kind="stable") if not td.empty else pd.DataFrame()
+        after = td[(td["code"] == code) & (td["date"] > wd)].sort_values("date", kind="stable") if not td.empty else pd.DataFrame()
+        ctx = prior.iloc[-1].to_dict() if not prior.empty else {}
+        anchors = [("weekly_l0_date","l0_date"),("weekly_h1_date","h1_date"),("weekly_pullback_date","pullback_date")]
+        am = sum(int(bool(_fmt_date(rr.get(a))) and _fmt_date(rr.get(a)) == _fmt_date(ctx.get(b))) for a,b in anchors)
+        same_state = "|".join(sorted(set(same.get("core224_state", pd.Series(dtype=str)).astype(str)))) if not same.empty else ""
+        last_to = str(ctx.get("to_state", "")); last_date = _fmt_date(ctx.get("date")); next_to = str(after.iloc[0].get("to_state", "")) if not after.empty else ""; next_date = _fmt_date(after.iloc[0].get("date")) if not after.empty else ""
+        px, _ = thesis._read_price_cache_for_code(out, code); pxn = thesis._normalize_lifecycle_price(px)
+        cache_has = int(not pxn.empty and (pxn.index.normalize() == wd).any())
+        if code not in seed_codes:
+            cls = "UNEXPLAINED_WEEKLY_CODE_NOT_SEEDED"; explained = 0
+        elif not cache_has:
+            cls = "UNEXPLAINED_WEEKLY_DATE_PRICE_MISSING"; explained = 0
+        elif am >= 2 and same_state and "CORE224_RESTART" not in same_state:
+            cls = "EXPLAINED_WEEKLY_SPARSE_STATE_ARTIFACT"; explained = 1
+        elif am >= 2 and last_to and last_to != "CORE224_RESTART":
+            cls = "EXPLAINED_CONTINUOUS_DAILY_CONTEXT_ADVANCED_DIFFERENTLY"; explained = 1
+        else:
+            cls = "UNEXPLAINED_CONTEXT_DIVERGENCE"; explained = 0
+        rows.append({
+            "version": VERSION, "code": code, "name": rr.get("name", ""), "weekly_restart_date": _fmt_date(wd),
+            "weekly_cycle_id": rr.get("weekly_cycle_id", ""), "seed_present": int(code in seed_codes), "price_cache_weekly_date_present": cache_has,
+            "daily_state_at_weekly_date": same_state, "daily_last_transition_date": last_date, "daily_last_transition_to_state": last_to,
+            "daily_next_transition_date": next_date, "daily_next_transition_to_state": next_to, "weekly_anchor_match_to_daily_context": am,
+            "weekly_l0_date": rr.get("weekly_l0_date", ""), "weekly_h1_date": rr.get("weekly_h1_date", ""), "weekly_pullback_date": rr.get("weekly_pullback_date", ""),
+            "daily_context_l0_date": _fmt_date(ctx.get("l0_date")), "daily_context_h1_date": _fmt_date(ctx.get("h1_date")), "daily_context_pullback_date": _fmt_date(ctx.get("pullback_date")),
+            "resolution_class": cls, "explained": explained,
+            "resolution_note": "EXPLAINED does not create a daily RESTART; it only explains why sparse-weekly and continuous-daily state machines disagree.",
+            "research_only": True,
+        })
+    return pd.DataFrame(rows)
+
+
+def _input_fingerprint_regression(
+    out: Path, state: pd.DataFrame, seeds: pd.DataFrame, state_df: pd.DataFrame,
+    transition_df: pd.DataFrame, restart_df: pd.DataFrame, price_parts: List[str], targeted_dates: pd.DataFrame,
+) -> pd.DataFrame:
+    cache_root = hist_asof._set_cache_root(out)
+    p = Path(cache_root) / INPUT_FINGERPRINT_CACHE_FILE
+    current = {
+        "version": VERSION,
+        "weekly_core_input": _stable_frame_hash(state, ["signal_date","code","core224_state","l0_date","accum_date","h1_date","pullback_date","healthy_date","restart_date","actual_amount_history_ready20"]),
+        "seed_ledger": _stable_frame_hash(seeds),
+        "price_amount_input": hashlib.sha256("|".join(sorted(price_parts)).encode()).hexdigest()[:20] if price_parts else hashlib.sha256(b"EMPTY").hexdigest()[:20],
+        "daily_state": _stable_frame_hash(state_df),
+        "daily_transition": _stable_frame_hash(transition_df),
+        "daily_restart": _stable_frame_hash(restart_df, ["event_id","code","restart_date","l0_date","accum_date","h1_date","pullback_date","daily_universe_membership_proven"]),
+        "targeted_authority": _stable_frame_hash(targeted_dates),
+    }
+    current["composite"] = hashlib.sha256("|".join(current[k] for k in ["weekly_core_input","seed_ledger","price_amount_input","daily_state","daily_transition","daily_restart","targeted_authority"]).encode()).hexdigest()[:20]
+    prev: Dict[str, Any] = {}
+    try:
+        if p.exists(): prev = json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        prev = {}
+    rows=[]
+    for key in ["weekly_core_input","seed_ledger","price_amount_input","daily_state","daily_transition","daily_restart","targeted_authority","composite"]:
+        old=str(prev.get(key,"")); new=str(current.get(key,"")); rows.append({
+            "version":VERSION,"component":key,"previous_fingerprint":old,"current_fingerprint":new,
+            "previous_available":int(bool(old)),"changed_vs_previous":int(bool(old) and old!=new),
+            "classification":"FIRST_OBSERVATION" if not old else ("CHANGED" if old!=new else "IDENTICAL"),"research_only":True,
+        })
+    try:
+        tmp=p.with_suffix(p.suffix+".tmp"); tmp.write_text(json.dumps(current,ensure_ascii=False,sort_keys=True,indent=2),encoding="utf-8"); os.replace(tmp,p)
+    except Exception:
+        pass
+    return pd.DataFrame(rows)
+
+
+def _stop_lens_risk_tradeoff(risk_df: pd.DataFrame, path_summary: pd.DataFrame) -> pd.DataFrame:
+    if risk_df is None or risk_df.empty:
+        return pd.DataFrame()
+    rows: List[Dict[str, Any]]=[]
+    scopes=[("ALL_RESEARCH",risk_df),("EXACT_CAUSAL_ASOF",risk_df[_num(risk_df,"daily_universe_membership_proven",0).eq(1)])]
+    for scope,base in scopes:
+        if base.empty: continue
+        for lens,g in base.groupby("stop_lens",dropna=False):
+            sr=pd.to_numeric(g.get("single_final_r_multiple"),errors="coerce"); sc=pd.to_numeric(g.get("scale_final_r_multiple"),errors="coerce")
+            rec={
+                "version":VERSION,"scope":scope,"stop_lens":lens,"events":len(g),
+                "mean_single_r":float(sr.mean()) if sr.notna().any() else np.nan,"median_single_r":float(sr.median()) if sr.notna().any() else np.nan,"trim10_single_r":_trimmed_mean(sr),
+                "mean_scale_r":float(sc.mean()) if sc.notna().any() else np.nan,"median_scale_r":float(sc.median()) if sc.notna().any() else np.nan,"trim10_scale_r":_trimmed_mean(sc),
+                "median_single_risk_pct":float(pd.to_numeric(g.get("single_planned_risk_pct"),errors="coerce").median()),
+                "median_scale_risk_pct":float(pd.to_numeric(g.get("scale_planned_risk_pct"),errors="coerce").median()),
+                "median_single_mae_pct":float(pd.to_numeric(g.get("single_mae_pct"),errors="coerce").median()),
+                "median_scale_mae_pct":float(pd.to_numeric(g.get("scale_mae_pct"),errors="coerce").median()),
+                "median_single_holding_days":float(pd.to_numeric(g.get("single_holding_days"),errors="coerce").median()),
+                "median_scale_holding_days":float(pd.to_numeric(g.get("scale_holding_days"),errors="coerce").median()),
+                "research_only":True,
+            }
+            if path_summary is not None and not path_summary.empty:
+                z=path_summary[(path_summary.get("scope",pd.Series(dtype=str)).astype(str)==scope)&(path_summary.get("stop_lens",pd.Series(dtype=str)).astype(str)==str(lens))]
+                if not z.empty:
+                    for cls,col in [("EARLY_STOP_RECOVERY","early_stop_recovery_pct"),("TRUE_FAILURE","true_failure_pct"),("CLEAN_WIN","clean_win_pct"),("PROFIT_THEN_BREAK","profit_then_break_pct")]:
+                        x=z[z.get("path_class",pd.Series(dtype=str)).astype(str).eq(cls)]
+                        rec[col]=float(x.iloc[0].get("pct",np.nan)) if not x.empty else 0.0
+            rows.append(rec)
+    return pd.DataFrame(rows)
 
 def _stratified_manual(restart_df: pd.DataFrame, order_df: pd.DataFrame, policy_df: pd.DataFrame, recon: pd.DataFrame, limit: int = 60) -> pd.DataFrame:
     if restart_df is None or restart_df.empty: return pd.DataFrame()
@@ -1398,6 +1554,7 @@ def run_daily_episode_replay(output_dir: str | Path, state: pd.DataFrame) -> Dic
     px_follow_by_code: Dict[str, pd.DataFrame] = {}
     cfg_life = thesis.Core224LifecycleConfig(max_follow_days=max(20, int(float(os.getenv("V25_LIFECYCLE_MAX_DAYS", "60")))))
     evaluated = 0; price_missing = 0; amount_ready_codes = 0
+    price_fingerprint_parts: List[str] = []
 
     for _, sr in seeds.iterrows():
         seed = sr.to_dict(); code = str(seed.get("code", "")); px_raw, cache_meta = thesis._read_price_cache_for_code(out, code); px_follow = thesis._normalize_lifecycle_price(px_raw)
@@ -1408,6 +1565,8 @@ def run_daily_episode_replay(output_dir: str | Path, state: pd.DataFrame) -> Dic
         if q_detect.empty:
             seed_runtime_rows.append({**seed, **cache_meta, "daily_eval_status": "NO_PRICE_BEFORE_COHORT_END", "actual_amount_days": 0}); continue
         actual_days = int(pd.to_numeric(q_detect.get("amount_is_actual", pd.Series(0, index=q_detect.index)), errors="coerce").fillna(0).eq(1).sum())
+        fp_cols=[c for c in ["open","high","low","close","volume","Amount","actual_amount","amount_is_actual"] if c in q_detect.columns]
+        price_fingerprint_parts.append(code+":"+_stable_frame_hash(q_detect.reset_index().rename(columns={q_detect.index.name or "index":"date"}), ["date"]+fp_cols))
         if actual_days >= thesis.Core224Config().actual_amount_min_history_days: amount_ready_codes += 1
         try: daily, ev, inv = thesis.evaluate_core224(q_detect)
         except Exception as exc:
@@ -1438,8 +1597,9 @@ def run_daily_episode_replay(output_dir: str | Path, state: pd.DataFrame) -> Dic
     overlap_audit, family_summary, restart_df = _episode_overlap_audit(cycle_restart_df, transition_df, px_follow_by_code)
     recon = _reconcile_weekly_daily(weekly_ledger, restart_df)
     unresolved_rootcause = _weekly_unresolved_rootcause(recon, seed_runtime, state_df, transition_df, out)
+    context_parity = _context_parity_audit(recon, weekly_ledger, state_df, transition_df, seed_runtime, out)
 
-    # V25.4.3 Targeted Causal Authority: the RESTART set is frozen before any authority lookup.
+    # V25.4.4 Targeted Causal Authority: the RESTART set is frozen before any authority lookup.
     # This lane can only classify an already-found event; it cannot create/delete CORE224 signals.
     targeted_events, targeted_dates, targeted_meta = _targeted_authority_for_restarts(out, restart_df, px_by_code=px_follow_by_code)
     if not restart_df.empty and not targeted_events.empty:
@@ -1474,7 +1634,9 @@ def run_daily_episode_replay(output_dir: str | Path, state: pd.DataFrame) -> Dic
     risk_fill_group_summary = _risk_parity_fill_group_summary(risk_df)
     path_df, path_summary = _path_classification(life_policy_df, order_df, out)
     stop_lens_compare = _stop_lens_path_compare(path_summary)
+    stop_lens_risk_tradeoff = _stop_lens_risk_tradeoff(risk_df, path_summary)
     exit_shadow_df, exit_shadow_summary = _exit_policy_shadow(restart_df, px_follow_by_code, cfg_life)
+    input_fingerprint = _input_fingerprint_regression(out, state, seed_runtime, state_df, transition_df, restart_df, price_fingerprint_parts, targeted_dates)
     manual = _stratified_manual(restart_df, order_df, life_policy_df, recon, 60)
 
     raw_n = len(raw_restart_df); cycle_unique_n = len(cycle_restart_df); unique_n = len(restart_df)
@@ -1486,12 +1648,14 @@ def run_daily_episode_replay(output_dir: str | Path, state: pd.DataFrame) -> Dic
     targeted_complete_dates = int(targeted_meta.get("complete_dates", 0) or 0); targeted_full_name_complete_dates = int(targeted_meta.get("full_name_complete_dates", 0) or 0); targeted_provider_calls = int(targeted_meta.get("provider_calls", 0) or 0); targeted_provider_errors = int(targeted_meta.get("provider_errors", 0) or 0)
     targeted_cache_before = int(targeted_meta.get("cache_valid_before", 0) or 0); targeted_cache_after = int(targeted_meta.get("cache_valid_after", 0) or 0); targeted_new_cache = int(targeted_meta.get("new_valid_market_dates", 0) or 0); targeted_budget = int(targeted_meta.get("provider_call_budget", 0) or 0); targeted_budget_exhausted = int(targeted_meta.get("budget_exhausted", 0) or 0)
     weekly_exact = int(recon.get("reconciliation_status", pd.Series(dtype=str)).astype(str).eq("EXACT_DATE_MATCH").sum()) if not recon.empty else 0; weekly_shift = int(recon.get("reconciliation_status", pd.Series(dtype=str)).astype(str).eq("SAME_CYCLE_DATE_SHIFT").sum()) if not recon.empty else 0; weekly_unresolved = int(recon.get("reconciliation_status", pd.Series(dtype=str)).astype(str).eq("WEEKLY_ONLY_UNRECONCILED").sum()) if not recon.empty else 0
-    weekly_reconciled = weekly_exact + weekly_shift; authority_rate = exact_causal_n / max(1, unique_n); price_cache_coverage = evaluated / max(1, len(seeds))
+    weekly_explained = int(_num(context_parity, "explained", 0).eq(1).sum()) if not context_parity.empty else 0
+    weekly_unexplained = max(0, weekly_unresolved - weekly_explained)
+    weekly_reconciled = weekly_exact + weekly_shift + weekly_explained; authority_rate = exact_causal_n / max(1, unique_n); price_cache_coverage = evaluated / max(1, len(seeds))
     if len(seeds) == 0: status = "WARMUP_NO_WEEKLY_EPISODE_SEEDS"
     elif inv_fail: status = "INVALID_DAILY_SEQUENCE_INVARIANT"
     elif evaluated == 0: status = "INVALID_NO_PRICE_CACHE_EVALUATION"
     elif unique_n == 0: status = "WARMUP_NO_DAILY_RESTART"
-    elif weekly_unresolved > 0: status = "RESEARCH_SAMPLE_READY_RECONCILIATION_REVIEW"
+    elif weekly_unexplained > 0: status = "RESEARCH_SAMPLE_READY_RECONCILIATION_REVIEW"
     elif eligible_n < 30: status = "RESEARCH_SAMPLE_WARMUP"
     elif authority_rate < 0.70: status = "RESEARCH_SAMPLE_READY_UNIVERSE_AUTHORITY_WARMUP"
     else: status = "DATA_READY_RESEARCH_ONLY"
@@ -1500,8 +1664,8 @@ def run_daily_episode_replay(output_dir: str | Path, state: pd.DataFrame) -> Dic
         "version": VERSION, "status": status, "cohort_id": cohort.get("cohort_id", ""), "cohort_start": st.strftime("%Y-%m-%d"), "cohort_end": en.strftime("%Y-%m-%d"),
         "seed_codes": len(seeds), "evaluated_codes": evaluated, "price_cache_missing_codes": price_missing, "price_cache_coverage_pct": price_cache_coverage*100.0, "actual_amount_ready20_codes": amount_ready_codes,
         "daily_state_rows": len(state_df), "daily_transition_rows": len(transition_df), "daily_invariant_fail_rows": inv_fail,
-        "weekly_restart_cycles": len(weekly_ledger), "weekly_restart_exact_date_matches": weekly_exact, "weekly_restart_same_cycle_date_shifts": weekly_shift, "weekly_restart_reconciled": weekly_reconciled, "weekly_restart_unreconciled": weekly_unresolved,
-        "weekly_unresolved_rootcause_rows": len(unresolved_rootcause),
+        "weekly_restart_cycles": len(weekly_ledger), "weekly_restart_exact_date_matches": weekly_exact, "weekly_restart_same_cycle_date_shifts": weekly_shift, "weekly_restart_explained_context_divergences": weekly_explained, "weekly_restart_reconciled": weekly_reconciled, "weekly_restart_unreconciled_raw": weekly_unresolved, "weekly_restart_unexplained": weekly_unexplained,
+        "weekly_unresolved_rootcause_rows": len(unresolved_rootcause), "context_parity_rows": len(context_parity),
         "raw_daily_restart_rows": raw_n, "cycle_first_restart_events": cycle_unique_n, "daily_restart_events": unique_n,
         "suppressed_repeat_restart_rows": suppressed_n, "episode_overlap_suppressed_events": overlap_suppressed_n, "episode_overlap_review_pairs": overlap_review_pairs,
         "recovered_restart_events": recovered_n, "exact_causal_asof_restart_events": exact_causal_n, "daily_universe_authority_rate_pct": authority_rate*100.0,
@@ -1512,17 +1676,18 @@ def run_daily_episode_replay(output_dir: str | Path, state: pd.DataFrame) -> Dic
         "targeted_authority_budget_exhausted": targeted_budget_exhausted,
         "targeted_authority_provider_calls": targeted_provider_calls, "targeted_authority_provider_errors": targeted_provider_errors,
         "daily_lifecycle_signals": len(life_signal_df), "daily_lifecycle_eligible": eligible_n, "event_order_rows": len(order_df), "path_class_rows": len(path_df), "risk_parity_rows": len(risk_df),
-        "risk_parity_fill_group_rows": len(risk_fill_group_summary), "stop_lens_compare_rows": len(stop_lens_compare), "exit_shadow_rows": len(exit_shadow_df), "exit_shadow_summary_rows": len(exit_shadow_summary),
+        "risk_parity_fill_group_rows": len(risk_fill_group_summary), "stop_lens_compare_rows": len(stop_lens_compare), "stop_lens_risk_tradeoff_rows": len(stop_lens_risk_tradeoff), "exit_shadow_rows": len(exit_shadow_df), "exit_shadow_summary_rows": len(exit_shadow_summary),
+        "input_fingerprint_changed_components": int(_num(input_fingerprint, "changed_vs_previous", 0).sum()) if not input_fingerprint.empty else 0,
         "provider_calls": targeted_provider_calls, "core_daily_replay_provider_calls": 0, "close_times_volume_substitution": 0,
         "live_logic_changed": False, "real_order_changed": False, "research_only": True, "elapsed_sec": round(time.monotonic()-t0,3)
     }])
 
     for fn, df in [
         (SEED_FILE, seed_runtime),(STATE_FILE,state_df),(TRANSITION_FILE,transition_df),(RAW_RESTART_FILE,raw_restart_df),(RESTART_FILE,restart_df),
-        (DEDUP_AUDIT_FILE,dedup_audit),(EPISODE_OVERLAP_FILE,overlap_audit),(EPISODE_FAMILY_FILE,family_summary),(RECON_FILE,recon),(UNRESOLVED_ROOTCAUSE_FILE,unresolved_rootcause),
-        (TARGET_AUTHORITY_FILE,targeted_events),(TARGET_AUTHORITY_DATE_FILE,targeted_dates),(INVARIANT_FILE,invariant_df),(MANUAL_FILE,manual),
+        (DEDUP_AUDIT_FILE,dedup_audit),(EPISODE_OVERLAP_FILE,overlap_audit),(EPISODE_FAMILY_FILE,family_summary),(RECON_FILE,recon),(UNRESOLVED_ROOTCAUSE_FILE,unresolved_rootcause),(CONTEXT_PARITY_FILE,context_parity),
+        (TARGET_AUTHORITY_FILE,targeted_events),(TARGET_AUTHORITY_DATE_FILE,targeted_dates),(INPUT_FINGERPRINT_FILE,input_fingerprint),(INVARIANT_FILE,invariant_df),(MANUAL_FILE,manual),
         (LIFECYCLE_SIGNAL_FILE,life_signal_df),(LIFECYCLE_POLICY_FILE,life_policy_df),(LIFECYCLE_FILL_FILE,life_fill_df),(LIFECYCLE_HORIZON_FILE,life_horizon_df),(LIFECYCLE_STOP_FILE,life_stop),
-        (ORDER_FILE,order_df),(ORDER_SUMMARY_FILE,order_summary),(PATH_CLASS_FILE,path_df),(PATH_CLASS_SUMMARY_FILE,path_summary),(STOP_LENS_PATH_COMPARE_FILE,stop_lens_compare),
+        (ORDER_FILE,order_df),(ORDER_SUMMARY_FILE,order_summary),(PATH_CLASS_FILE,path_df),(PATH_CLASS_SUMMARY_FILE,path_summary),(STOP_LENS_PATH_COMPARE_FILE,stop_lens_compare),(STOP_LENS_RISK_TRADEOFF_FILE,stop_lens_risk_tradeoff),
         (SINGLE_POLICY_FILE,single_df),(RISK_PARITY_FILE,risk_df),(RISK_PARITY_SUMMARY_FILE,risk_summary),(RISK_PARITY_FILL_GROUP_FILE,risk_fill_group_summary),
         (EXIT_SHADOW_FILE,exit_shadow_df),(EXIT_SHADOW_SUMMARY_FILE,exit_shadow_summary),(READINESS_FILE,readiness)
     ]: _write_csv(out / fn, df)
@@ -1536,9 +1701,10 @@ def run_daily_episode_replay(output_dir: str | Path, state: pd.DataFrame) -> Dic
         f"📌 {VERSION} · status={status} · CORE224 daily detection은 cache-only/provider 0 · frozen RESTART 날짜의 targeted causal authority만 cache-first bounded fetch",
         f"🧭 seed {len(seeds)}종목 → daily 평가 {evaluated} · 가격cache 누락 {price_missing} · actual Amount 20일-ready 종목 {amount_ready_codes}",
         f"🔁 RESTART raw {raw_n} → cycle-first {cycle_unique_n} → episode-independent {unique_n} · exact-cycle 반복억제 {suppressed_n} · overlap 자동억제 {overlap_suppressed_n} · overlap REVIEW {overlap_review_pairs}",
-        f"🔗 weekly↔daily: exact {weekly_exact}/{len(weekly_ledger)} · same-cycle shift {weekly_shift} · 미해결 {weekly_unresolved} · rootcause {rootcause_text}",
+        f"🔗 weekly↔daily: exact {weekly_exact}/{len(weekly_ledger)} · same-cycle shift {weekly_shift} · context-explained {weekly_explained} · unexplained {weekly_unexplained} · rootcause {rootcause_text}",
         f"📦 독립 RESTART {unique_n} 중 주간사이 복원 {recovered_n} · causal policy-proof {exact_causal_n}/{unique_n} · targeted window-complete {targeted_complete_dates}/{int(targeted_meta.get('dates',0) or 0)} · full-name-complete {targeted_full_name_complete_dates}/{int(targeted_meta.get('dates',0) or 0)}",
         f"♻️ targeted authority resume: cache {targeted_cache_before}→{targeted_cache_after} (+{targeted_new_cache}) · provider {targeted_provider_calls}/{targeted_budget} calls · errors {targeted_provider_errors} · budget_exhausted {targeted_budget_exhausted}",
+        f"🧬 입력 fingerprint: changed-components {int(_num(input_fingerprint, 'changed_vs_previous', 0).sum()) if not input_fingerprint.empty else 0} · 동일 종료일 재실행의 CORE/price/authority 입력 변화를 분리 기록",
         f"🧪 daily lifecycle {len(life_signal_df)} · eligible {eligible_n} · 구조손절/30-30-40/20·40·60일 규칙 동일 · 조건 튜닝 0",
         "⚠️ targeted authority는 이미 고정된 RESTART만 분류하며 CORE224 신호를 만들거나 삭제하지 않습니다. NOT_IN_CAUSAL_UNIVERSE와 AUTHORITY_MISSING을 분리합니다.",
         "⚠️ 동일 일봉에서 stop과 목표가가 모두 닿을 수 있는 경우 전략결과는 기존대로 STOP_FIRST 보수처리하고 collision 원장에 별도 표시합니다.",
@@ -1551,6 +1717,11 @@ def run_daily_episode_replay(output_dir: str | Path, state: pd.DataFrame) -> Dic
         z=stop_lens_compare[stop_lens_compare.get('scope',pd.Series(dtype=str)).astype(str).eq('ALL_RESEARCH')]
         for _,r in z.iterrows():
             lines.append(f"🧭 {r.get('stop_lens')} 경로: CLEAN {float(r.get('clean_win_pct',0)):.1f}% · PROFIT→BREAK {float(r.get('profit_then_break_pct',0)):.1f}% · EARLY_STOP→RECOVERY {float(r.get('early_stop_recovery_pct',0)):.1f}% · TRUE_FAIL {float(r.get('true_failure_pct',0)):.1f}% · LOCK {float(r.get('capital_lock_pct',0)):.1f}%")
+    if not stop_lens_risk_tradeoff.empty:
+        for scope in ["ALL_RESEARCH", "EXACT_CAUSAL_ASOF"]:
+            z=stop_lens_risk_tradeoff[stop_lens_risk_tradeoff.get("scope",pd.Series(dtype=str)).astype(str).eq(scope)]
+            for _,r in z.iterrows():
+                lines.append(f"⚖️ {scope} {r.get('stop_lens')} risk: n{int(r.get('events',0) or 0)} · SINGLE medR {float(r.get('median_single_r',np.nan)):+.2f}/trim {float(r.get('trim10_single_r',np.nan)):+.2f} · SCALE medR {float(r.get('median_scale_r',np.nan)):+.2f} · risk {float(r.get('median_single_risk_pct',np.nan)):.1f}% · MAE {float(r.get('median_single_mae_pct',np.nan)):.1f}% · hold {float(r.get('median_single_holding_days',np.nan)):.1f}D")
     if not risk_fill_group_summary.empty:
         z=risk_fill_group_summary[(risk_fill_group_summary.get('scope',pd.Series(dtype=str)).astype(str)=='ALL_RESEARCH') & (risk_fill_group_summary.get('stop_lens',pd.Series(dtype=str)).astype(str)=='PB_LOW')]
         for fg in ['ENTRY2_FILLED','ENTRY3_FILLED']:
@@ -1563,9 +1734,18 @@ def run_daily_episode_replay(output_dir: str | Path, state: pd.DataFrame) -> Dic
             x=z[z.get('exit_policy',pd.Series(dtype=str)).astype(str).eq(policy)]
             if not x.empty:
                 r=x.iloc[0]; lines.append(f"🚦 PB_LOW exit SHADOW {policy}: n{int(r.get('events',0) or 0)} · 중앙R {float(r.get('median_r',np.nan)):+.2f} · 절사R {float(r.get('trim10_r',np.nan)):+.2f} · 양수 {float(r.get('positive_r_rate_pct',np.nan)):.1f}% · 보유중앙 {float(r.get('median_holding_days',np.nan)):.1f}D")
-    lines.append(f"⏱️ daily episode replay elapsed {time.monotonic()-t0:.1f}s"); lines.append(f"- CSV: {RESTART_FILE} · {UNRESOLVED_ROOTCAUSE_FILE} · {TARGET_AUTHORITY_FILE} · {TARGET_PROGRESS_AUDIT_FILE} · {STOP_LENS_PATH_COMPARE_FILE} · {RISK_PARITY_FILL_GROUP_FILE} · {EXIT_SHADOW_SUMMARY_FILE} · {READINESS_FILE}")
+        for lens in ['FIB_61_8','FIB_78_6','L0_STRUCTURE']:
+            x=exit_shadow_summary[(exit_shadow_summary.get('scope',pd.Series(dtype=str)).astype(str)=='ALL_RESEARCH') & (exit_shadow_summary.get('stop_lens',pd.Series(dtype=str)).astype(str)==lens) & (exit_shadow_summary.get('exit_policy',pd.Series(dtype=str)).astype(str)=='WIDE_H1_PB_TRAIL')]
+            if not x.empty:
+                r=x.iloc[0]; lines.append(f"🚦 {lens}→H1후 PB trail: n{int(r.get('events',0) or 0)} · 중앙R {float(r.get('median_r',np.nan)):+.2f} · 절사R {float(r.get('trim10_r',np.nan)):+.2f} · 양수 {float(r.get('positive_r_rate_pct',np.nan)):.1f}% · 보유중앙 {float(r.get('median_holding_days',np.nan)):.1f}D")
+        zc=exit_shadow_summary[exit_shadow_summary.get('scope',pd.Series(dtype=str)).astype(str).eq('EXACT_CAUSAL_ASOF')]
+        for lens,policy in [('PB_LOW','PLUS5_FULL_EXIT'),('FIB_61_8','WIDE_H1_PB_TRAIL'),('FIB_78_6','WIDE_H1_PB_TRAIL'),('L0_STRUCTURE','WIDE_H1_PB_TRAIL')]:
+            x=zc[(zc.get('stop_lens',pd.Series(dtype=str)).astype(str)==lens)&(zc.get('exit_policy',pd.Series(dtype=str)).astype(str)==policy)]
+            if not x.empty:
+                r=x.iloc[0]; lines.append(f"🔒 CAUSAL {lens}/{policy}: n{int(r.get('events',0) or 0)} · 중앙R {float(r.get('median_r',np.nan)):+.2f} · 절사R {float(r.get('trim10_r',np.nan)):+.2f} · 양수 {float(r.get('positive_r_rate_pct',np.nan)):.1f}%")
+    lines.append(f"⏱️ daily episode replay elapsed {time.monotonic()-t0:.1f}s"); lines.append(f"- CSV: {RESTART_FILE} · {UNRESOLVED_ROOTCAUSE_FILE} · {CONTEXT_PARITY_FILE} · {INPUT_FINGERPRINT_FILE} · {TARGET_AUTHORITY_FILE} · {TARGET_PROGRESS_AUDIT_FILE} · {STOP_LENS_RISK_TRADEOFF_FILE} · {RISK_PARITY_FILL_GROUP_FILE} · {EXIT_SHADOW_SUMMARY_FILE} · {READINESS_FILE}")
     report="\n".join(lines); (out/REPORT_FILE).write_text(report+"\n",encoding="utf-8")
-    return {"status":status,"seed":seed_runtime,"state":state_df,"transitions":transition_df,"raw_restarts":raw_restart_df,"cycle_restarts":cycle_restart_df,"restarts":restart_df,"dedup_audit":dedup_audit,"episode_overlap":overlap_audit,"episode_family":family_summary,"reconciliation":recon,"unresolved_rootcause":unresolved_rootcause,"targeted_authority":targeted_events,"targeted_authority_dates":targeted_dates,"invariants":invariant_df,"manual":manual,"lifecycle_signal":life_signal_df,"lifecycle_policy":life_policy_df,"lifecycle_fill":life_fill_df,"lifecycle_horizon":life_horizon_df,"lifecycle_stop":life_stop,"event_order":order_df,"event_order_summary":order_summary,"path_class":path_df,"path_class_summary":path_summary,"stop_lens_path_compare":stop_lens_compare,"single_policy":single_df,"risk_parity":risk_df,"risk_parity_summary":risk_summary,"risk_parity_fill_group_summary":risk_fill_group_summary,"exit_shadow":exit_shadow_df,"exit_shadow_summary":exit_shadow_summary,"readiness":readiness,"report":report}
+    return {"status":status,"seed":seed_runtime,"state":state_df,"transitions":transition_df,"raw_restarts":raw_restart_df,"cycle_restarts":cycle_restart_df,"restarts":restart_df,"dedup_audit":dedup_audit,"episode_overlap":overlap_audit,"episode_family":family_summary,"reconciliation":recon,"unresolved_rootcause":unresolved_rootcause,"context_parity":context_parity,"input_fingerprint":input_fingerprint,"targeted_authority":targeted_events,"targeted_authority_dates":targeted_dates,"invariants":invariant_df,"manual":manual,"lifecycle_signal":life_signal_df,"lifecycle_policy":life_policy_df,"lifecycle_fill":life_fill_df,"lifecycle_horizon":life_horizon_df,"lifecycle_stop":life_stop,"event_order":order_df,"event_order_summary":order_summary,"path_class":path_df,"path_class_summary":path_summary,"stop_lens_path_compare":stop_lens_compare,"stop_lens_risk_tradeoff":stop_lens_risk_tradeoff,"single_policy":single_df,"risk_parity":risk_df,"risk_parity_summary":risk_summary,"risk_parity_fill_group_summary":risk_fill_group_summary,"exit_shadow":exit_shadow_df,"exit_shadow_summary":exit_shadow_summary,"readiness":readiness,"report":report}
 
 def force_report(output_dir: str | Path = "reports") -> str:
     p = Path(output_dir or "reports") / REPORT_FILE
