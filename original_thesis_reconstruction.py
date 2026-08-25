@@ -32,6 +32,7 @@ ACTIVATION_FILE = "v73_v25_activation_status.csv"
 UNIVERSE_RECON_FILE = "v73_v25_historical_asof_reconciliation.csv"
 PATTERN_TRANSFER_FILE = "v73_v25_pattern_only_transfer_audit.csv"
 REPORT_FILE = "v73_v25_original_thesis_report.txt"
+RESTART_INPUT_PROOF_SCHEMA = "V25.4.7_WEEKLY_RESTART_EXACT_SHARD_INPUT_1"
 
 
 CORE_STATES = (
@@ -208,6 +209,40 @@ def _fmt_date(v: Any) -> str:
         return pd.Timestamp(v).strftime("%Y-%m-%d")
     except Exception:
         return ""
+
+
+def _core224_exact_replay_input(df: pd.DataFrame) -> Tuple[List[Dict[str, Any]], str]:
+    """Serialize the exact normalized CORE224 evaluator input into pickle-safe primitives.
+
+    This is emitted only for weekly rows whose *final state is RESTART*.  It is deliberately
+    narrow: no full-universe history duplication, no provider call, and no LIVE effect.  Parent
+    can later replay the exact shard-local state-machine input instead of guessing from a merged
+    price cache that may have a different history window/Amount authority scope.
+    """
+    try:
+        q = normalize_ohlcv(df)
+    except Exception:
+        q = pd.DataFrame()
+    if q is None or q.empty:
+        return [], hashlib.sha256(b"EMPTY").hexdigest()
+    rows: List[Dict[str, Any]] = []
+    for _, r in q.iterrows():
+        def f(name: str) -> Optional[float]:
+            try:
+                v = float(r.get(name, np.nan))
+                return v if np.isfinite(v) else None
+            except Exception:
+                return None
+        amt = f("amount")
+        actual = int(amt is not None and amt > 0)
+        rows.append({
+            "date": _fmt_date(r.get("date")),
+            "Open": f("open"), "High": f("high"), "Low": f("low"), "Close": f("close"),
+            "Volume": f("volume"), "Amount": amt, "amount_is_actual": actual,
+            "amount_source": "V25_ACTUAL_OVERLAY" if actual else "MISSING",
+        })
+    raw = json.dumps(rows, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
+    return rows, hashlib.sha256(raw).hexdigest()
 
 
 def add_trailing_features(df: pd.DataFrame, cfg: Core224Config) -> pd.DataFrame:
@@ -1051,13 +1086,13 @@ def build_date_sidecar(
     rows, scores, ranks, entries, exits, or orders. Parent later consumes the sidecar only.
     """
     if membership is None or membership.empty or not callable(price_reader):
-        return {"V25_CORE224_ROWS": [], "V25_CORE224_EVENTS": [], "V25_CORE224_INVARIANTS": []}
+        return {"V25_CORE224_ROWS": [], "V25_CORE224_EVENTS": [], "V25_CORE224_INVARIANTS": [], "V25_CORE224_RESTART_INPUTS": []}
     m = membership.copy()
     cc = _pick_col(m, ["code", "Code", "종목코드"])
     nc = _pick_col(m, ["name", "Name", "종목명"])
     mk = _pick_col(m, ["market", "Market", "시장"])
     if not cc:
-        return {"V25_CORE224_ROWS": [], "V25_CORE224_EVENTS": [], "V25_CORE224_INVARIANTS": []}
+        return {"V25_CORE224_ROWS": [], "V25_CORE224_EVENTS": [], "V25_CORE224_INVARIANTS": [], "V25_CORE224_RESTART_INPUTS": []}
     m["_code"] = m[cc].map(_norm_code)
     m = m[m["_code"].ne("")].drop_duplicates("_code", keep="last")
     codes = m["_code"].tolist()
@@ -1066,6 +1101,7 @@ def build_date_sidecar(
     state_rows: List[Dict[str, Any]] = []
     event_rows: List[Dict[str, Any]] = []
     inv_rows: List[Dict[str, Any]] = []
+    restart_input_rows: List[Dict[str, Any]] = []
     total = len(m)
     for pos, (_, meta) in enumerate(m.iterrows(), start=1):
         code = str(meta["_code"])
@@ -1164,6 +1200,38 @@ def build_date_sidecar(
         except Exception: r["day_return_pct"] = np.nan
         r.update(_market_context_for_date(asof, market, market_index_reader))
         state_rows.append(r)
+        # V25.4.7 exact-shard-input proof: only weekly RESTART observations carry their
+        # normalized evaluator input.  This makes later parent parity deterministic without
+        # materializing 900-bar histories for every TOP500 row.
+        if str(r.get("core224_state", "")) == "CORE224_RESTART":
+            _proof_rows, _proof_sha = _core224_exact_replay_input(q)
+            _evr: Dict[str, Any] = {}
+            try:
+                _ez = events.copy() if isinstance(events, pd.DataFrame) else pd.DataFrame()
+                if not _ez.empty:
+                    _ed = pd.to_datetime(_ez.get("date"), errors="coerce").dt.normalize()
+                    _em = _ez.get("to_state", pd.Series("", index=_ez.index)).astype(str).eq("CORE224_RESTART") & _ed.eq(asof)
+                    if _em.any(): _evr = _ez[_em].iloc[-1].to_dict()
+            except Exception:
+                _evr = {}
+            _expected = {**r, **_evr}
+            restart_input_rows.append({
+                "schema": RESTART_INPUT_PROOF_SCHEMA, "version": VERSION,
+                "signal_date": asof.strftime("%Y-%m-%d"), "code": code, "name": name,
+                "market": market, "sector": sector, "expected_state": "CORE224_RESTART",
+                "expected_l0_date": _fmt_date(_expected.get("l0_date")),
+                "expected_accum_date": _fmt_date(_expected.get("accum_date")),
+                "expected_h1_date": _fmt_date(_expected.get("h1_date")),
+                "expected_pullback_date": _fmt_date(_expected.get("pullback_date")),
+                "expected_healthy_date": _fmt_date(_expected.get("healthy_date")),
+                "expected_restart_date": _fmt_date(_expected.get("restart_date") or asof),
+                "input_rows": len(_proof_rows),
+                "input_start": _proof_rows[0]["date"] if _proof_rows else "",
+                "input_end": _proof_rows[-1]["date"] if _proof_rows else "",
+                "input_sha256": _proof_sha, "input_payload": _proof_rows,
+                "source_contract": "SHARD_LOCAL_NORMALIZED_CORE224_INPUT",
+                "research_only": True, "live_logic_changed": False, "real_order_changed": False,
+            })
         if not events.empty:
             ee = events.copy()
             ee["event_date"] = pd.to_datetime(ee["date"], errors="coerce").dt.strftime("%Y-%m-%d")
@@ -1199,7 +1267,10 @@ def build_date_sidecar(
             )
             s["sector_confirmation_role"] = "AUX_OBSERVATION_NON_GATING"
             state_rows = s.drop(columns=["_up"], errors="ignore").to_dict("records")
-    return {"V25_CORE224_ROWS": state_rows, "V25_CORE224_EVENTS": event_rows, "V25_CORE224_INVARIANTS": inv_rows}
+    return {
+        "V25_CORE224_ROWS": state_rows, "V25_CORE224_EVENTS": event_rows,
+        "V25_CORE224_INVARIANTS": inv_rows, "V25_CORE224_RESTART_INPUTS": restart_input_rows,
+    }
 
 
 _AUDIT_TARGETS = [

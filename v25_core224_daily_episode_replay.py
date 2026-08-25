@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""V25.4.6 CORE224 daily episode replay (research-only, cache-first).
+"""V25.4.7 CORE224 daily episode replay (research-only, cache-first).
 
 Purpose
 -------
@@ -33,7 +33,7 @@ import pandas as pd
 import original_thesis_reconstruction as thesis
 import historical_asof_universe as hist_asof
 
-VERSION = "V73.3.6.6.25.4.6"
+VERSION = "V73.3.6.6.25.4.7"
 RESEARCH_ONLY = True
 LIVE_LOGIC_CHANGED = False
 REAL_ORDER_CHANGED = False
@@ -84,14 +84,17 @@ STOP_EXIT_POLICY_MATRIX_FILE = "v73_v25_core224_stop_exit_policy_matrix.csv"
 EXECUTION_CAUSALITY_FILE = "v73_v25_core224_execution_causality_shadow.csv"
 EXECUTION_CAUSALITY_SUMMARY_FILE = "v73_v25_core224_execution_causality_summary.csv"
 WEEKLY_900BAR_PARITY_FILE = "v73_v25_core224_weekly_daily_900bar_contract_parity.csv"
+WEEKLY_SEED_AUTHORITY_FILE = "v73_v25_core224_weekly_seed_authority.csv"
+DAILY_SEED_CAUSALITY_FILE = "v73_v25_core224_daily_seed_causality_audit.csv"
+SHARD_RESTART_INPUT_PROOF_FILE = "v73_v25_core224_weekly_restart_exact_shard_input_proof.csv"
 POLICY_LOCK_MANIFEST_FILE = "v73_v25_core224_policy_lock_manifest.csv"
 POLICY_LOCK_CACHE_FILE = "v25_core224_policy_lock.json"
 FORWARD_OOS_EVENT_FILE = "v73_v25_core224_forward_oos_event_ledger.csv"
 FORWARD_OOS_POLICY_FILE = "v73_v25_core224_forward_oos_policy_ledger.csv"
 FORWARD_OOS_SUMMARY_FILE = "v73_v25_core224_forward_oos_summary.csv"
 FORWARD_OOS_IMMUTABILITY_FILE = "v73_v25_core224_forward_oos_immutability_audit.csv"
-FINGERPRINT_SCHEMA_VERSION = "V25.4.6_CANONICAL_SEMANTIC_1"
-POLICY_LOCK_SCHEMA_VERSION = "V25.4.6_POLICY_LOCK_1"
+FINGERPRINT_SCHEMA_VERSION = "V25.4.7_CANONICAL_SEMANTIC_2"
+POLICY_LOCK_SCHEMA_VERSION = "V25.4.7_POLICY_LOCK_2"
 POLICY_LOCK_CUTOFF_DEFAULT = "2026-08-10"
 POLICY_LOCK_CREATED_DEFAULT = "2026-08-25"
 
@@ -172,6 +175,93 @@ def _build_seed_ledger(state: pd.DataFrame, st: pd.Timestamp, en: pd.Timestamp) 
             "research_only": True,
         })
     return pd.DataFrame(rows).sort_values(["first_seed_date", "code"], kind="stable")
+
+
+def _weekly_seed_qual_mask(q: pd.DataFrame) -> Tuple[pd.Series, pd.Series]:
+    """Return row-level weekly watch-list eligibility and a causal reason string.
+
+    The policy lane may only inspect a Daily RESTART after the latest available weekly snapshot
+    has already placed that code on the watch list.  This closes the retrospective-seed lookahead
+    that is acceptable for structure discovery but not for policy training/OOS.
+    """
+    if q is None or q.empty:
+        return pd.Series(dtype=bool), pd.Series(dtype=str)
+    state_s = q.get("core224_state", pd.Series("", index=q.index)).fillna("").astype(str)
+    state_seed = state_s.isin(CORE_STATES)
+    structural_seed = (
+        _num(q, "base_lens_structural", 0).eq(1)
+        & (_num(q, "base_lens_strict224", 0).eq(1) | _num(q, "base_lens_near224", 0).eq(1))
+        & _num(q, "actual_amount_history_ready20", 0).eq(1)
+    )
+    accum_seed = _num(q, "accum_ok", 0).eq(1) & _num(q, "actual_amount_history_ready20", 0).eq(1)
+    qual = state_seed | structural_seed | accum_seed
+    reasons=[]
+    for i in q.index:
+        rr=[]
+        if bool(state_seed.loc[i]): rr.append("WEEKLY_CORE_STATE")
+        if bool(structural_seed.loc[i]): rr.append("WEEKLY_STRUCTURAL_BASE_LENS")
+        if bool(accum_seed.loc[i]): rr.append("WEEKLY_ACCUM_LENS")
+        reasons.append("+".join(rr))
+    return qual.astype(bool), pd.Series(reasons,index=q.index,dtype=str)
+
+
+def _weekly_seed_authority(state: pd.DataFrame, st: pd.Timestamp, en: pd.Timestamp) -> pd.DataFrame:
+    """Materialize the dated watch-list contract, never a retrospective code-only seed."""
+    if state is None or state.empty:
+        return pd.DataFrame()
+    q=state.copy()
+    q["signal_date"]=pd.to_datetime(q.get("signal_date"),errors="coerce").dt.normalize()
+    q["code"]=q.get("code",pd.Series("",index=q.index)).map(_norm_code)
+    q=q[q["signal_date"].between(st,en,inclusive="both") & q["code"].ne("")].copy()
+    if q.empty: return pd.DataFrame()
+    qual, reason=_weekly_seed_qual_mask(q); q["weekly_seed_qualified"]=qual.astype(int); q["weekly_seed_reason"]=reason
+    snaps=sorted(pd.Timestamp(x).normalize() for x in q["signal_date"].dropna().unique())
+    next_map={d:(snaps[i+1] if i+1<len(snaps) else en+pd.Timedelta(days=1)) for i,d in enumerate(snaps)}
+    z=q[q["weekly_seed_qualified"].eq(1)].copy()
+    if z.empty: return pd.DataFrame()
+    z["watch_start_date"]=z["signal_date"]
+    z["watch_end_exclusive"]=z["signal_date"].map(next_map)
+    keep=[c for c in ["signal_date","code","name","market","core224_state","weekly_seed_reason","watch_start_date","watch_end_exclusive"] if c in z.columns]
+    z=z[keep].copy()
+    z.insert(0,"version",VERSION); z["research_only"]=True
+    for c in ["signal_date","watch_start_date","watch_end_exclusive"]:
+        if c in z.columns: z[c]=pd.to_datetime(z[c],errors="coerce").dt.strftime("%Y-%m-%d")
+    return z.sort_values(["signal_date","code"],kind="stable").drop_duplicates(["signal_date","code"],keep="last")
+
+
+def _daily_seed_causality_audit(restarts: pd.DataFrame, state: pd.DataFrame, st: pd.Timestamp, en: pd.Timestamp) -> pd.DataFrame:
+    """Classify each frozen Daily RESTART using only the latest weekly snapshot known by then."""
+    if restarts is None or restarts.empty:
+        return pd.DataFrame()
+    sq=state.copy() if isinstance(state,pd.DataFrame) else pd.DataFrame()
+    if sq.empty:
+        return pd.DataFrame([{"version":VERSION,"event_id":r.get("event_id",""),"code":_norm_code(r.get("code","")),"restart_date":_fmt_date(r.get("restart_date")),"weekly_seed_causal_eligible":0,"seed_causality_status":"NO_WEEKLY_STATE_AUTHORITY","research_only":True} for _,r in restarts.iterrows()])
+    sq["signal_date"]=pd.to_datetime(sq.get("signal_date"),errors="coerce").dt.normalize(); sq["code"]=sq.get("code",pd.Series("",index=sq.index)).map(_norm_code)
+    sq=sq[sq["signal_date"].between(st,en,inclusive="both") & sq["code"].ne("")].copy()
+    qual, reason=_weekly_seed_qual_mask(sq); sq["weekly_seed_qualified"]=qual.astype(int); sq["weekly_seed_reason"]=reason
+    sq=sq.sort_values(["signal_date","code"],kind="stable").drop_duplicates(["signal_date","code"],keep="last")
+    snapshots=sorted(pd.Timestamp(x).normalize() for x in sq["signal_date"].dropna().unique())
+    by_key={(pd.Timestamp(r["signal_date"]).normalize(),str(r["code"])):r.to_dict() for _,r in sq.iterrows() if pd.notna(r.get("signal_date"))}
+    rows=[]
+    for _,rr in restarts.iterrows():
+        rec=rr.to_dict(); code=_norm_code(rec.get("code","")); d=pd.to_datetime(rec.get("restart_date",rec.get("date")),errors="coerce")
+        prior=[x for x in snapshots if pd.notna(d) and x<=pd.Timestamp(d).normalize()]
+        latest=prior[-1] if prior else None
+        wr=by_key.get((latest,code),{}) if latest is not None else {}
+        elig=int(bool(wr) and int(float(wr.get("weekly_seed_qualified",0) or 0))==1)
+        if latest is None: status="NO_PRIOR_WEEKLY_SNAPSHOT"
+        elif not wr: status="CODE_NOT_IN_LATEST_WEEKLY_SNAPSHOT"
+        elif elig: status="CAUSAL_WEEKLY_SEED_ACTIVE"
+        else: status="LATEST_WEEKLY_SNAPSHOT_NOT_SEEDED"
+        next_snap=next((x for x in snapshots if latest is not None and x>latest),None)
+        rows.append({
+            "version":VERSION,"event_id":rec.get("event_id",rec.get("cycle_id","")),"cycle_id":rec.get("cycle_id",""),"code":code,"name":rec.get("name",""),
+            "restart_date":_fmt_date(d),"latest_weekly_snapshot":_fmt_date(latest),"next_weekly_snapshot":_fmt_date(next_snap),
+            "weekly_seed_causal_eligible":elig,"weekly_seed_reason":wr.get("weekly_seed_reason","") if wr else "",
+            "weekly_state_at_authorization":wr.get("core224_state","") if wr else "","seed_causality_status":status,
+            "causal_rule":"LATEST_WEEKLY_SNAPSHOT_AT_OR_BEFORE_RESTART_MUST_SEED_CODE","research_only":True,
+        })
+    return pd.DataFrame(rows)
 
 
 def _weekly_restart_dates(state: pd.DataFrame, st: pd.Timestamp, en: pd.Timestamp) -> set[Tuple[str, str]]:
@@ -490,7 +580,9 @@ def _order_summary(order_df: pd.DataFrame) -> pd.DataFrame:
 def _simulate_single_entry_one(restart: Dict[str, Any], px: pd.DataFrame, stop_name: str, stop_price: float, cfg: thesis.Core224LifecycleConfig) -> Dict[str, Any]:
     sig_date = pd.to_datetime(restart.get("restart_date") or restart.get("date"), errors="coerce")
     code = _norm_code(restart.get("code", "")); event_id = str(restart.get("event_id", restart.get("cycle_id", "")))
-    base = {"version": VERSION, "event_id": event_id, "cycle_id": restart.get("cycle_id", ""), "code": code, "name": restart.get("name", ""), "stop_lens": stop_name, "research_only": True}
+    base = {"version": VERSION, "event_id": event_id, "cycle_id": restart.get("cycle_id", ""), "code": code, "name": restart.get("name", ""), "stop_lens": stop_name,
+            "weekly_seed_causal_eligible": int(float(restart.get("weekly_seed_causal_eligible", 0) or 0)),
+            "policy_training_eligible": int(float(restart.get("policy_training_eligible", 0) or 0)), "research_only": True}
     if pd.isna(sig_date) or px is None or px.empty:
         return {**base, "single_status": "NO_PRICE_FOLLOWUP"}
     sig_date = pd.Timestamp(sig_date).normalize(); start_idx = thesis._first_bar_index_on_or_after(px, sig_date)
@@ -558,6 +650,8 @@ def _risk_parity(scale_policy: pd.DataFrame, fills: pd.DataFrame, single: pd.Dat
         rows.append({
             "version": VERSION, "event_id": eid, "cycle_id": r.get("cycle_id", ""), "code": r.get("code", ""), "name": r.get("name", ""), "signal_date": r.get("signal_date", ""), "stop_lens": lens,
             "daily_universe_authority": r.get("daily_universe_authority", ""), "daily_universe_membership_proven": int(float(r.get("daily_universe_membership_proven", 0) or 0)),
+            "weekly_seed_causal_eligible": int(float(r.get("weekly_seed_causal_eligible", 0) or 0)),
+            "policy_training_eligible": int(float(r.get("policy_training_eligible", 0) or 0)),
             "single_status": sr.get("single_status", ""), "scale_status": r.get("lifecycle_status", ""),
             "single_planned_risk_pct": sr.get("planned_risk_pct", np.nan), "scale_planned_risk_pct": scale_risk * 100.0 if np.isfinite(scale_risk) else np.nan,
             "single_final_r_multiple": single_r, "scale_final_r_multiple": scale_r,
@@ -575,7 +669,11 @@ def _risk_parity(scale_policy: pd.DataFrame, fills: pd.DataFrame, single: pd.Dat
     df = pd.DataFrame(rows)
     sums: List[Dict[str, Any]] = []
     if not df.empty:
-        scopes = [("ALL_RESEARCH", df), ("EXACT_CAUSAL_ASOF", df[_num(df, "daily_universe_membership_proven", 0).eq(1)])]
+        scopes = [
+            ("ALL_RESEARCH", df),
+            ("EXACT_CAUSAL_ASOF", df[_num(df, "daily_universe_membership_proven", 0).eq(1)]),
+            ("POLICY_TRAINING_CAUSAL", df[_num(df, "policy_training_eligible", 0).eq(1)]),
+        ]
         for scope, base in scopes:
             if base.empty: continue
             for lens, g in base.groupby("stop_lens", dropna=False):
@@ -616,7 +714,8 @@ def _risk_parity_fill_group_summary(risk_df: pd.DataFrame) -> pd.DataFrame:
         default="UNKNOWN",
     )
     rows: List[Dict[str, Any]] = []
-    scopes = [("ALL_RESEARCH", q), ("EXACT_CAUSAL_ASOF", q[_num(q, "daily_universe_membership_proven", 0).eq(1)])]
+    scopes = [("ALL_RESEARCH", q), ("EXACT_CAUSAL_ASOF", q[_num(q, "daily_universe_membership_proven", 0).eq(1)]),
+              ("POLICY_TRAINING_CAUSAL", q[_num(q, "policy_training_eligible", 0).eq(1)])]
     for scope, base in scopes:
         if base.empty:
             continue
@@ -693,6 +792,8 @@ def _simulate_exit_shadow_one(
         "cycle_id": restart.get("cycle_id", ""), "code": code, "name": name,
         "signal_date": _fmt_date(sig), "stop_lens": stop_name, "exit_policy": exit_policy,
         "daily_universe_membership_proven": int(float(restart.get("daily_universe_membership_proven", 0) or 0)),
+        "weekly_seed_causal_eligible": int(float(restart.get("weekly_seed_causal_eligible", 0) or 0)),
+        "policy_training_eligible": int(float(restart.get("policy_training_eligible", 0) or 0)),
         "research_only": True,
     }
     if pd.isna(sig) or px is None or px.empty:
@@ -785,7 +886,11 @@ def _exit_policy_shadow(
                 rows.append(_simulate_exit_shadow_one(rec,px,lens,float(stop),cfg,policy))
     df=pd.DataFrame(rows); sums:List[Dict[str,Any]]=[]
     if not df.empty:
-        scopes=[("ALL_RESEARCH",df),("EXACT_CAUSAL_ASOF",df[_num(df,"daily_universe_membership_proven",0).eq(1)])]
+        scopes=[
+            ("ALL_RESEARCH",df),
+            ("EXACT_CAUSAL_ASOF",df[_num(df,"daily_universe_membership_proven",0).eq(1)]),
+            ("POLICY_TRAINING_CAUSAL",df[_num(df,"policy_training_eligible",0).eq(1)]),
+        ]
         for scope,base in scopes:
             if base.empty: continue
             for (lens,policy),g in base.groupby(["stop_lens","exit_policy"],dropna=False):
@@ -839,7 +944,7 @@ def _stop_exit_policy_matrix(exit_summary: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame()
     stop_order = ["PB_LOW", "FIB_61_8", "FIB_78_6", "L0_STRUCTURE", "HYBRID_TIGHTER"]
     rows: List[Dict[str, Any]] = []
-    for scope in ["ALL_RESEARCH", "EXACT_CAUSAL_ASOF"]:
+    for scope in ["ALL_RESEARCH", "EXACT_CAUSAL_ASOF", "POLICY_TRAINING_CAUSAL"]:
         base = exit_summary[exit_summary.get("scope", pd.Series(dtype=str)).astype(str).eq(scope)]
         if base.empty: continue
         for lens in stop_order:
@@ -896,6 +1001,8 @@ def _simulate_execution_causality_one(
         "stop_lens": stop_name, "exit_policy": exit_policy,
         "daily_universe_authority": restart.get("daily_universe_authority", ""),
         "daily_universe_membership_proven": int(float(restart.get("daily_universe_membership_proven", 0) or 0)),
+        "weekly_seed_causal_eligible": int(float(restart.get("weekly_seed_causal_eligible", 0) or 0)),
+        "policy_training_eligible": int(float(restart.get("policy_training_eligible", 0) or 0)),
         "targeted_authority_class": restart.get("targeted_authority_class", ""),
         "roundtrip_cost_bps_assumption": float(roundtrip_cost_bps),
         "cost_model": "FIXED_RESEARCH_ASSUMPTION_NOT_BROKER_OR_TAX_AUTHORITY",
@@ -1327,6 +1434,96 @@ def _weekly_900bar_contract_parity(
     return pd.DataFrame(rows)
 
 
+def _extract_shard_restart_input_records(payloads: Optional[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]]=[]
+    for z in (payloads or []):
+        if not isinstance(z,dict): continue
+        side=z.get("runtime_sidecars",{}) if isinstance(z.get("runtime_sidecars",{}),dict) else {}
+        vals=side.get("V25_CORE224_RESTART_INPUTS",[]) or []
+        for r in vals:
+            if isinstance(r,dict): rows.append(dict(r))
+    return rows
+
+
+def _exact_input_payload_hash(rows: Any) -> str:
+    try:
+        raw=json.dumps(list(rows or []),ensure_ascii=False,sort_keys=True,separators=(",",":"),allow_nan=False).encode("utf-8")
+    except Exception:
+        return ""
+    return hashlib.sha256(raw).hexdigest()
+
+
+def _exact_shard_restart_input_proof(
+    weekly: pd.DataFrame, payloads: Optional[List[Dict[str, Any]]], continuous_inputs: Dict[str,pd.DataFrame],
+) -> pd.DataFrame:
+    """Replay the exact shard-local normalized input saved at each weekly RESTART.
+
+    This is the only parity proof allowed to satisfy Policy Lock.  Reconstructing a weekly row
+    from a parent-merged cache is diagnostic only because that cache may carry a different start
+    window or Amount authority set.
+    """
+    if weekly is None or weekly.empty:
+        return pd.DataFrame()
+    side_rows=_extract_shard_restart_input_records(payloads)
+    by_key={}
+    for r in side_rows:
+        code=_norm_code(r.get("code","")); ds=_fmt_date(r.get("signal_date") or r.get("expected_restart_date"))
+        if code and ds: by_key[(code,ds)]=r
+    out=[]
+    anchors=["l0_date","accum_date","h1_date","pullback_date","healthy_date","restart_date"]
+    for _,wr0 in weekly.iterrows():
+        wr=wr0.to_dict(); code=_norm_code(wr.get("code","")); obs=_fmt_date(wr.get("weekly_observation_date") or wr.get("weekly_restart_date")); rst=_fmt_date(wr.get("weekly_restart_date"))
+        src=by_key.get((code,obs)) or by_key.get((code,rst))
+        base={"version":VERSION,"code":code,"name":wr.get("name",""),"weekly_observation_date":obs,"weekly_restart_date":rst,"research_only":True}
+        if not src:
+            out.append({**base,"proof_status":"MISSING_EXACT_SHARD_RESTART_INPUT","exact_shard_replay_pass":0,"same_input_nondeterminism":0,"cross_lane_explained":0})
+            continue
+        payload=src.get("input_payload",[]) or []; stored_sha=str(src.get("input_sha256","") or ""); calc_sha=_exact_input_payload_hash(payload); hash_ok=int(bool(stored_sha) and stored_sha==calc_sha)
+        try:
+            q=pd.DataFrame(payload)
+            if not q.empty:
+                q["date"]=pd.to_datetime(q.get("date"),errors="coerce"); q=q[q["date"].notna()].sort_values("date",kind="stable").reset_index(drop=True)
+            d,e,inv=thesis.evaluate_core224(q) if not q.empty else (pd.DataFrame(),pd.DataFrame(),pd.DataFrame())
+            dr=d.iloc[-1].to_dict() if isinstance(d,pd.DataFrame) and not d.empty else {}
+            er={}
+            if isinstance(e,pd.DataFrame) and not e.empty:
+                _ed=pd.to_datetime(e.get("date"),errors="coerce").dt.normalize()
+                _target=pd.to_datetime(obs or rst,errors="coerce")
+                _mask=e.get("to_state",pd.Series("",index=e.index)).astype(str).eq("CORE224_RESTART")
+                if pd.notna(_target): _mask=_mask & _ed.eq(pd.Timestamp(_target).normalize())
+                if _mask.any(): er=e[_mask].iloc[-1].to_dict()
+            replay_ctx={**dr,**er}
+        except Exception as exc:
+            out.append({**base,"proof_status":f"EXACT_SHARD_REPLAY_ERROR:{type(exc).__name__}","stored_input_sha256":stored_sha,"recomputed_input_sha256":calc_sha,"input_hash_match":hash_ok,"exact_shard_replay_pass":0,"same_input_nondeterminism":0,"cross_lane_explained":0})
+            continue
+        exp_state=str(src.get("expected_state","CORE224_RESTART") or "CORE224_RESTART"); replay_state=str(dr.get("core224_state","") or "")
+        am=0; ap=0; rec={**base,"input_schema":src.get("schema",""),"stored_input_sha256":stored_sha,"recomputed_input_sha256":calc_sha,"input_hash_match":hash_ok,"shard_input_rows":int(src.get("input_rows",len(payload)) or len(payload)),"shard_input_start":src.get("input_start",""),"shard_input_end":src.get("input_end",""),"expected_state":exp_state,"replay_state":replay_state,"state_match":int(exp_state==replay_state),"replay_invariant_fail_rows":len(inv) if isinstance(inv,pd.DataFrame) else 0}
+        for a in anchors:
+            ev=_fmt_date(src.get("expected_"+a)); rv=_fmt_date(replay_ctx.get(a)); rec["expected_"+a]=ev; rec["replay_"+a]=rv
+            if ev or rv: ap+=1; am+=int(bool(ev) and ev==rv)
+        rec["anchor_match_count"]=am; rec["anchor_present_count"]=ap; rec["anchor_all_match"]=int(ap==0 or am==ap)
+        proof=int(hash_ok==1 and rec["state_match"]==1 and rec["anchor_all_match"]==1 and rec["replay_invariant_fail_rows"]==0)
+        # Compare to the continuous Daily-lane prefix using the same normalizer/hash contract.
+        cq=continuous_inputs.get(code,pd.DataFrame()) if isinstance(continuous_inputs,dict) else pd.DataFrame(); cont_state=""; cont_sha=""; cont_rows=0; cont_start=""; cont_end=""
+        if isinstance(cq,pd.DataFrame) and not cq.empty:
+            try:
+                wd=pd.to_datetime(obs,errors="coerce"); pref=cq.copy(); pref.index=pd.to_datetime(pref.index,errors="coerce"); pref=pref[pref.index.notna() & (pref.index.normalize()<=pd.Timestamp(wd).normalize())].sort_index()
+                cpayload,cont_sha=thesis._core224_exact_replay_input(pref); cont_rows=len(cpayload); cont_start=cpayload[0]["date"] if cpayload else ""; cont_end=cpayload[-1]["date"] if cpayload else ""
+                cd,_,_=thesis.evaluate_core224(pref); cont_state=str(cd.iloc[-1].get("core224_state","") or "") if isinstance(cd,pd.DataFrame) and not cd.empty else ""
+            except Exception:
+                pass
+        same_input=int(bool(stored_sha) and stored_sha==cont_sha)
+        same_input_nondet=int(proof==1 and same_input==1 and cont_state and cont_state!=replay_state)
+        cross_explained=int(proof==1 and same_input==0)
+        if not proof: status="EXACT_SHARD_INPUT_REPLAY_MISMATCH"
+        elif same_input_nondet: status="INVALID_SAME_INPUT_NONDETERMINISM"
+        elif cross_explained: status="EXACT_SHARD_INPUT_REPLAY_PASS_CONTINUOUS_INPUT_DIFFERS"
+        else: status="EXACT_SHARD_INPUT_REPLAY_PASS_SAME_CONTEXT"
+        rec.update({"exact_shard_replay_pass":proof,"continuous_prefix_state":cont_state,"continuous_prefix_sha256":cont_sha,"continuous_prefix_rows":cont_rows,"continuous_prefix_start":cont_start,"continuous_prefix_end":cont_end,"same_as_continuous_input":same_input,"same_input_nondeterminism":same_input_nondet,"cross_lane_explained":cross_explained,"proof_status":status,"resolution_note":"EXACT_SHARD_INPUT_PROOF_ONLY; DAILY_EVENT_SET_NOT_MUTATED"})
+        out.append(rec)
+    return pd.DataFrame(out)
+
+
 def _semantic_hash(df: pd.DataFrame, cols: Optional[List[str]] = None) -> str:
     """Version-insensitive deterministic hash for input/regression identity."""
     if df is None or df.empty:
@@ -1341,8 +1538,8 @@ def _semantic_hash(df: pd.DataFrame, cols: Optional[List[str]] = None) -> str:
 
 
 def _input_fingerprint_regression(
-    out: Path, state: pd.DataFrame, seeds: pd.DataFrame, state_df: pd.DataFrame,
-    transition_df: pd.DataFrame, restart_df: pd.DataFrame, price_parts: List[str], targeted_dates: pd.DataFrame,
+    out: Path, state: pd.DataFrame, seeds: pd.DataFrame, weekly_seed_authority: pd.DataFrame, state_df: pd.DataFrame,
+    transition_df: pd.DataFrame, restart_df: pd.DataFrame, price_parts: List[str], targeted_dates: pd.DataFrame, exact_shard_proof: pd.DataFrame,
 ) -> pd.DataFrame:
     """Canonical semantic fingerprints.
 
@@ -1353,7 +1550,9 @@ def _input_fingerprint_regression(
     cache_root = hist_asof._set_cache_root(out)
     p = Path(cache_root) / INPUT_FINGERPRINT_CACHE_FILE
     weekly_cols=["signal_date","code","core224_state","l0_date","accum_date","h1_date","pullback_date","healthy_date","restart_date","actual_amount_history_ready20"]
-    seed_cols=["code","seed_reason","seed_first_date","seed_last_date","first_weekly_date","last_weekly_date","weekly_state_count"]
+    seed_cols=["code","seed_reason","first_seed_date","last_seed_date","weekly_seed_rows","weekly_non_none_rows","weekly_states_seen"]
+    weekly_seed_cols=["signal_date","code","core224_state","weekly_seed_reason","watch_start_date","watch_end_exclusive"]
+    shard_proof_cols=["code","weekly_observation_date","weekly_restart_date","stored_input_sha256","recomputed_input_sha256","exact_shard_replay_pass","same_input_nondeterminism","cross_lane_explained"]
     daily_state_cols=["code","date","core224_state","core224_transition","l0_date","accum_date","h1_date","pullback_date","healthy_date","restart_date","amount_is_actual","actual_amount_history_ready20"]
     transition_cols=["code","date","from_state","to_state","l0_date","accum_date","h1_date","pullback_date","healthy_date","restart_date"]
     restart_cols=["event_id","cycle_id","code","restart_date","l0_date","accum_date","h1_date","pullback_date"]
@@ -1362,13 +1561,15 @@ def _input_fingerprint_regression(
         "fingerprint_schema_version": FINGERPRINT_SCHEMA_VERSION,
         "weekly_core_input": _semantic_hash(state, weekly_cols),
         "seed_ledger": _semantic_hash(seeds, seed_cols),
+        "weekly_seed_authority": _semantic_hash(weekly_seed_authority, weekly_seed_cols),
+        "exact_shard_restart_input_proof": _semantic_hash(exact_shard_proof, shard_proof_cols),
         "price_amount_input": hashlib.sha256("|".join(sorted(price_parts)).encode()).hexdigest()[:20] if price_parts else hashlib.sha256(b"EMPTY").hexdigest()[:20],
         "daily_state": _semantic_hash(state_df, daily_state_cols),
         "daily_transition": _semantic_hash(transition_df, transition_cols),
         "daily_restart": _semantic_hash(restart_df, restart_cols),
         "targeted_authority": _semantic_hash(targeted_dates, authority_cols),
     }
-    current["composite"] = hashlib.sha256("|".join(current[k] for k in ["weekly_core_input","seed_ledger","price_amount_input","daily_state","daily_transition","daily_restart","targeted_authority"]).encode()).hexdigest()[:20]
+    current["composite"] = hashlib.sha256("|".join(current[k] for k in ["weekly_core_input","seed_ledger","weekly_seed_authority","exact_shard_restart_input_proof","price_amount_input","daily_state","daily_transition","daily_restart","targeted_authority"]).encode()).hexdigest()[:20]
     prev: Dict[str, Any] = {}
     try:
         if p.exists(): prev = json.loads(p.read_text(encoding="utf-8"))
@@ -1380,9 +1581,9 @@ def _input_fingerprint_regression(
     # so they remain comparable across the one-time schema migration. Other components get a
     # fresh baseline instead of a false CHANGED flag caused by the old version column.
     cross_schema_comparable={"weekly_core_input","price_amount_input"}
-    source_components={"weekly_core_input","seed_ledger","price_amount_input","targeted_authority"}
+    source_components={"weekly_core_input","seed_ledger","weekly_seed_authority","exact_shard_restart_input_proof","price_amount_input","targeted_authority"}
     rows=[]
-    for key in ["weekly_core_input","seed_ledger","price_amount_input","daily_state","daily_transition","daily_restart","targeted_authority","composite"]:
+    for key in ["weekly_core_input","seed_ledger","weekly_seed_authority","exact_shard_restart_input_proof","price_amount_input","daily_state","daily_transition","daily_restart","targeted_authority","composite"]:
         old=str(prev.get(key,"")); new=str(current.get(key,"")); can_compare=bool(old) and (compatible or key in cross_schema_comparable)
         changed=int(can_compare and old!=new)
         if not old:
@@ -1428,7 +1629,9 @@ def _policy_lock_cutoff() -> str:
 
 def _policy_lock_manifest(
     out: Path, parity_unexplained: int, source_input_changed: int,
-    training_restart_events: int, causal_proven_events: int, authority_dates: int, authority_complete_dates: int, invariant_fail_rows: int,
+    training_restart_events: int, causal_proven_events: int, policy_training_eligible_events: int,
+    authority_dates: int, authority_complete_dates: int, invariant_fail_rows: int,
+    weekly_restart_events: int, exact_shard_replay_pass_events: int, same_input_nondeterminism_events: int,
 ) -> Tuple[pd.DataFrame, Dict[str, Any]]:
     cutoff=_policy_lock_cutoff(); specs=_policy_specs()
     payload={
@@ -1436,6 +1639,10 @@ def _policy_lock_manifest(
         "declared_lock_date":POLICY_LOCK_CREATED_DEFAULT,"selection_rule":"STRUCTURAL_RISK_BALANCE_NOT_SAME_SAMPLE_BEST_RETURN",
         "primary_policy_id":"PRIMARY_FIB618_PLUS5_D1","max_follow_days":60,"same_day_collision":"STOP_FIRST",
         "gap_through_stop":"EXIT_AT_OPEN_IF_OPEN_BELOW_STOP","d1_entry_gap_below_stop":"CANCEL_ENTRY",
+        "weekly_seed_gate":"LATEST_WEEKLY_SNAPSHOT_AT_OR_BEFORE_RESTART_MUST_SEED_CODE",
+        "canonical_signal_lane":"CONTINUOUS_DAILY_CORE224_RESTART",
+        "weekly_lane_role":"CAUSAL_WATCHLIST_SEED_ONLY",
+        "exact_weekly_parity":"SHARD_LOCAL_RESTART_INPUT_REPLAY_REQUIRED",
         "policies":specs,"research_only":True,"live_logic_changed":False,"real_order_changed":False,
     }
     digest=hashlib.sha256(json.dumps(payload,sort_keys=True,separators=(",",":"),ensure_ascii=False).encode()).hexdigest()
@@ -1447,8 +1654,10 @@ def _policy_lock_manifest(
     old_digest=str(old.get("policy_lock_digest",""))
     prerequisites_ok=(
         int(parity_unexplained)==0 and int(source_input_changed)==0 and int(invariant_fail_rows)==0
-        and int(training_restart_events)>=30 and int(causal_proven_events)>=30
+        and int(training_restart_events)>=30 and int(causal_proven_events)>=30 and int(policy_training_eligible_events)>=30
         and int(authority_dates)>0 and int(authority_complete_dates)==int(authority_dates)
+        and int(weekly_restart_events)>0 and int(exact_shard_replay_pass_events)==int(weekly_restart_events)
+        and int(same_input_nondeterminism_events)==0
     )
     if old_digest:
         status="LOCKED" if old_digest==digest else "INVALID_POLICY_LOCK_DRIFT"
@@ -1471,14 +1680,19 @@ def _policy_lock_manifest(
             "max_follow_days":60,"same_day_collision":"STOP_FIRST","gap_through_stop":"EXIT_AT_OPEN_IF_OPEN_BELOW_STOP",
             "d1_entry_gap_below_stop":"CANCEL_ENTRY","auto_policy_switch":0,"policy_tuning_after_cutoff":0,
             "lock_prereq_training_restart_events":int(training_restart_events),"lock_prereq_causal_proven_events":int(causal_proven_events),
+            "lock_prereq_policy_training_eligible_events":int(policy_training_eligible_events),
             "lock_prereq_authority_dates":int(authority_dates),"lock_prereq_authority_complete_dates":int(authority_complete_dates),"lock_prereq_invariant_fail_rows":int(invariant_fail_rows),
+            "lock_prereq_weekly_restart_events":int(weekly_restart_events),"lock_prereq_exact_shard_replay_pass_events":int(exact_shard_replay_pass_events),
+            "lock_prereq_same_input_nondeterminism_events":int(same_input_nondeterminism_events),
             **x,"research_only":True,"live_logic_changed":False,"real_order_changed":False,
         })
     meta={
         "status":status,"digest":digest,"cutoff":cutoff,"primary_policy_id":payload["primary_policy_id"],"specs":specs,"prerequisites_ok":int(prerequisites_ok),
         "parity_unexplained":int(parity_unexplained),"source_input_changed":int(source_input_changed),
-        "training_restart_events":int(training_restart_events),"causal_proven_events":int(causal_proven_events),
+        "training_restart_events":int(training_restart_events),"causal_proven_events":int(causal_proven_events),"policy_training_eligible_events":int(policy_training_eligible_events),
         "authority_dates":int(authority_dates),"authority_complete_dates":int(authority_complete_dates),"invariant_fail_rows":int(invariant_fail_rows),
+        "weekly_restart_events":int(weekly_restart_events),"exact_shard_replay_pass_events":int(exact_shard_replay_pass_events),
+        "same_input_nondeterminism_events":int(same_input_nondeterminism_events),
     }
     return pd.DataFrame(rows), meta
 
@@ -1537,12 +1751,15 @@ def _forward_oos_locked_ledgers(
         rec=rr.to_dict(); code=_norm_code(rec.get("code","")); sig=rec.get("_signal_date")
         eid=str(rec.get("event_id",rec.get("cycle_id","")) or f"{code}:{_fmt_date(sig)}")
         proven=int(float(rec.get("daily_universe_membership_proven",0) or 0)==1)
+        seed_eligible=int(float(rec.get("weekly_seed_causal_eligible",0) or 0)==1)
+        policy_eligible=int(proven==1 and seed_eligible==1)
         event_rows.append({
             "version":VERSION,"policy_lock_digest":lock_meta.get("digest",""),"event_id":eid,"cycle_id":rec.get("cycle_id",""),
             "code":code,"name":rec.get("name",""),"signal_date":_fmt_date(sig),"training_cutoff_date":_fmt_date(cutoff),
             "forward_oos":1,"daily_universe_membership_proven":proven,"daily_universe_authority":rec.get("daily_universe_authority",""),
-            "targeted_authority_class":rec.get("targeted_authority_class",""),"score_eligible":proven,
-            "authority_status":"PROVEN_CAUSAL" if proven else "AUTHORITY_PENDING_OR_UNRESOLVED","first_seen_version":VERSION,
+            "weekly_seed_causal_eligible":seed_eligible,"weekly_seed_reason":rec.get("weekly_seed_reason",""),
+            "targeted_authority_class":rec.get("targeted_authority_class",""),"score_eligible":policy_eligible,
+            "authority_status":"PROVEN_CAUSAL_SEED_AND_UNIVERSE" if policy_eligible else ("UNIVERSE_PROVEN_SEED_NOT_CAUSAL" if proven else "AUTHORITY_PENDING_OR_UNRESOLVED"),"first_seen_version":VERSION,
             "research_only":True,"paper_only":True,"real_order_changed":False,
         })
         px=px_by_code.get(code,pd.DataFrame())
@@ -1556,7 +1773,7 @@ def _forward_oos_locked_ledgers(
             sim=_simulate_execution_causality_one(rec,px,lens,float(stop),cfg,"D1_OPEN_CAUSAL","PLUS5_FULL_EXIT",float(spec.get("roundtrip_cost_bps",20.0)))
             sim.update({
                 "policy_lock_digest":lock_meta.get("digest",""),"policy_id":spec.get("policy_id",""),"policy_role":spec.get("role",""),
-                "training_cutoff_date":_fmt_date(cutoff),"forward_oos":1,"score_eligible":proven,"paper_only":True,
+                "training_cutoff_date":_fmt_date(cutoff),"forward_oos":1,"score_eligible":policy_eligible,"weekly_seed_causal_eligible":seed_eligible,"paper_only":True,
                 "finalized":_is_final_forward_execution(sim.get("execution_status")),"auto_policy_switch":0,
             })
             policy_rows.append(sim)
@@ -1573,7 +1790,11 @@ def _forward_oos_locked_ledgers(
             if prev:
                 d["first_seen_version"]=prev.get("first_seen_version",d.get("first_seen_version"))
                 if int(float(prev.get("daily_universe_membership_proven",0) or 0))==1:
-                    d["daily_universe_membership_proven"]=1; d["score_eligible"]=1; d["authority_status"]="PROVEN_CAUSAL"
+                    d["daily_universe_membership_proven"]=1
+                if int(float(prev.get("weekly_seed_causal_eligible",0) or 0))==1:
+                    d["weekly_seed_causal_eligible"]=1
+                d["score_eligible"]=int(int(float(d.get("daily_universe_membership_proven",0) or 0))==1 and int(float(d.get("weekly_seed_causal_eligible",0) or 0))==1)
+                d["authority_status"]="PROVEN_CAUSAL_SEED_AND_UNIVERSE" if d["score_eligible"] else ("UNIVERSE_PROVEN_SEED_NOT_CAUSAL" if int(float(d.get("daily_universe_membership_proven",0) or 0))==1 else "AUTHORITY_PENDING_OR_UNRESOLVED")
             om[k]={**prev,**d}
         merged_events=pd.DataFrame(list(om.values()))
 
@@ -1603,8 +1824,9 @@ def _forward_oos_locked_ledgers(
                     imm.append({"version":VERSION,"policy_id":k[0],"event_id":k[1],"conflict_columns":"|".join(diffs),"status":"FINALIZED_OUTCOME_IMMUTABILITY_CONFLICT","research_only":True})
                 # Preserve frozen result, but permit authority eligibility to upgrade.
                 kept=dict(prev)
-                kept["score_eligible"]=max(int(float(prev.get("score_eligible",0) or 0)),int(float(d.get("score_eligible",0) or 0)))
                 kept["daily_universe_membership_proven"]=max(int(float(prev.get("daily_universe_membership_proven",0) or 0)),int(float(d.get("daily_universe_membership_proven",0) or 0)))
+                kept["weekly_seed_causal_eligible"]=max(int(float(prev.get("weekly_seed_causal_eligible",0) or 0)),int(float(d.get("weekly_seed_causal_eligible",0) or 0)))
+                kept["score_eligible"]=int(kept["daily_universe_membership_proven"]==1 and kept["weekly_seed_causal_eligible"]==1)
                 om[k]=kept
             else:
                 om[k]={**(prev or {}),**d}
@@ -2279,7 +2501,7 @@ def _path_classification(policy_df: pd.DataFrame, order_df: pd.DataFrame, out: P
     return df,pd.DataFrame(sums)
 
 
-def run_daily_episode_replay(output_dir: str | Path, state: pd.DataFrame) -> Dict[str, Any]:
+def run_daily_episode_replay(output_dir: str | Path, state: pd.DataFrame, payloads: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
     t0 = time.monotonic(); out = Path(output_dir or "reports"); out.mkdir(parents=True, exist_ok=True)
     cohort, st, en = _cohort_bounds()
     enabled = str(os.getenv("V25_DAILY_EPISODE_REPLAY_ENABLE", "1")).strip().lower() not in {"0", "false", "off", "no"}
@@ -2288,6 +2510,7 @@ def run_daily_episode_replay(output_dir: str | Path, state: pd.DataFrame) -> Dic
         return {"status": "DISABLED", "readiness": ready, "report": ""}
 
     seeds = _build_seed_ledger(state, st, en)
+    weekly_seed_authority = _weekly_seed_authority(state, st, en)
     weekly_ledger = _weekly_restart_ledger(state, st, en)
     weekly_restart_exact = {(str(r.get("code", "")), str(r.get("weekly_restart_date", ""))) for _, r in weekly_ledger.iterrows()}
     exact_authority = _exact_authority_map(out)
@@ -2301,6 +2524,7 @@ def run_daily_episode_replay(output_dir: str | Path, state: pd.DataFrame) -> Dic
     compact_states: List[pd.DataFrame] = []; transitions: List[pd.DataFrame] = []; invariants: List[pd.DataFrame] = []
     raw_restart_rows: List[Dict[str, Any]] = []; seed_runtime_rows: List[Dict[str, Any]] = []
     px_follow_by_code: Dict[str, pd.DataFrame] = {}
+    continuous_input_by_code: Dict[str, pd.DataFrame] = {}
     cfg_life = thesis.Core224LifecycleConfig(max_follow_days=max(20, int(float(os.getenv("V25_LIFECYCLE_MAX_DAYS", "60")))))
     evaluated = 0; price_missing = 0; amount_ready_codes = 0
     price_fingerprint_parts: List[str] = []
@@ -2313,6 +2537,7 @@ def run_daily_episode_replay(output_dir: str | Path, state: pd.DataFrame) -> Dic
         amount_auth = _merge_amount_authority(out, code, global_amount); q = thesis._overlay_actual_amount(px_raw, code, amount_auth); q.index = pd.to_datetime(q.index, errors="coerce"); q = q[q.index.notna()].sort_index(); q_detect = q[q.index.normalize() <= en].copy()
         if q_detect.empty:
             seed_runtime_rows.append({**seed, **cache_meta, "daily_eval_status": "NO_PRICE_BEFORE_COHORT_END", "actual_amount_days": 0}); continue
+        continuous_input_by_code[code] = q_detect.copy()
         actual_days = int(pd.to_numeric(q_detect.get("amount_is_actual", pd.Series(0, index=q_detect.index)), errors="coerce").fillna(0).eq(1).sum())
         fp_cols=[c for c in ["open","high","low","close","volume","Amount","actual_amount","amount_is_actual"] if c in q_detect.columns]
         price_fingerprint_parts.append(code+":"+_stable_frame_hash(q_detect.reset_index().rename(columns={q_detect.index.name or "index":"date"}), ["date"]+fp_cols))
@@ -2344,13 +2569,19 @@ def run_daily_episode_replay(output_dir: str | Path, state: pd.DataFrame) -> Dic
         raw_restart_df["restart_date"] = pd.to_datetime(raw_restart_df["restart_date"], errors="coerce").dt.strftime("%Y-%m-%d"); raw_restart_df = raw_restart_df.sort_values(["restart_date", "code"], kind="stable")
     cycle_restart_df, dedup_audit = _dedupe_restart_events(raw_restart_df)
     overlap_audit, family_summary, restart_df = _episode_overlap_audit(cycle_restart_df, transition_df, px_follow_by_code)
+    seed_causality = _daily_seed_causality_audit(restart_df, state, st, en)
+    if not restart_df.empty and not seed_causality.empty:
+        sc = seed_causality[[c for c in ["event_id","latest_weekly_snapshot","next_weekly_snapshot","weekly_seed_causal_eligible","weekly_seed_reason","weekly_state_at_authorization","seed_causality_status"] if c in seed_causality.columns]].copy()
+        restart_df = restart_df.merge(sc, on="event_id", how="left")
+        restart_df["weekly_seed_causal_eligible"] = pd.to_numeric(restart_df.get("weekly_seed_causal_eligible"), errors="coerce").fillna(0).astype(int)
     recon = _reconcile_weekly_daily(weekly_ledger, restart_df)
     unresolved_rootcause = _weekly_unresolved_rootcause(recon, seed_runtime, state_df, transition_df, out)
     context_parity = _context_parity_audit(recon, weekly_ledger, state_df, transition_df, seed_runtime, out)
     context_state_trace, context_state_trace_summary = _weekly_daily_full_state_trace(recon, state, seed_runtime, out, global_amount, st, en)
     weekly_900bar_parity = _weekly_900bar_contract_parity(recon, state, out, global_amount)
+    exact_shard_proof = _exact_shard_restart_input_proof(weekly_ledger, payloads, continuous_input_by_code)
 
-    # V25.4.6 Targeted Causal Authority: the RESTART set is frozen before any authority lookup.
+    # V25.4.7 Targeted Causal Authority: the RESTART set is frozen before any authority lookup.
     # This lane can only classify an already-found event; it cannot create/delete CORE224 signals.
     targeted_events, targeted_dates, targeted_meta = _targeted_authority_for_restarts(out, restart_df, px_by_code=px_follow_by_code)
     if not restart_df.empty and not targeted_events.empty:
@@ -2362,6 +2593,9 @@ def run_daily_episode_replay(output_dir: str | Path, state: pd.DataFrame) -> Dic
         cls = restart_df.get("targeted_authority_class", pd.Series("", index=restart_df.index)).fillna("").astype(str)
         old_auth = restart_df.get("daily_universe_authority", pd.Series("", index=restart_df.index)).fillna("").astype(str)
         restart_df["daily_universe_authority"] = np.where(cls.ne("") & ~cls.eq("AUTHORITY_MISSING"), cls, old_auth)
+    if not restart_df.empty:
+        restart_df["weekly_seed_causal_eligible"] = pd.to_numeric(restart_df.get("weekly_seed_causal_eligible"), errors="coerce").fillna(0).astype(int)
+        restart_df["policy_training_eligible"] = (restart_df["weekly_seed_causal_eligible"].eq(1) & pd.to_numeric(restart_df.get("daily_universe_membership_proven"), errors="coerce").fillna(0).eq(1)).astype(int)
     targeted_authority_class_summary = _target_authority_class_summary(targeted_events)
 
     lifecycle_signals: List[Dict[str, Any]] = []; lifecycle_policy: List[Dict[str, Any]] = []; lifecycle_fills: List[Dict[str, Any]] = []; lifecycle_horizons: List[Dict[str, Any]] = []; single_rows: List[Dict[str, Any]] = []
@@ -2371,7 +2605,9 @@ def run_daily_episode_replay(output_dir: str | Path, state: pd.DataFrame) -> Dic
             pr, _ = thesis._read_price_cache_for_code(out, code); px = thesis._normalize_lifecycle_price(pr); px_follow_by_code[code] = px
         sig, pol, ff, hh = _daily_lifecycle_for_restart(out, rec, px, cohort, cfg_life)
         if not sig: continue
-        common = {"cycle_id": rec.get("cycle_id", ""), "event_id": rec.get("event_id", rec.get("cycle_id", "")), "daily_universe_authority": rec.get("daily_universe_authority", ""), "daily_universe_membership_proven": rec.get("daily_universe_membership_proven", 0), "restart_discovery": rec.get("restart_discovery", "")}
+        common = {"cycle_id": rec.get("cycle_id", ""), "event_id": rec.get("event_id", rec.get("cycle_id", "")), "daily_universe_authority": rec.get("daily_universe_authority", ""), "daily_universe_membership_proven": rec.get("daily_universe_membership_proven", 0),
+                  "weekly_seed_causal_eligible": rec.get("weekly_seed_causal_eligible", 0), "weekly_seed_reason": rec.get("weekly_seed_reason", ""),
+                  "policy_training_eligible": rec.get("policy_training_eligible", 0), "restart_discovery": rec.get("restart_discovery", "")}
         sig.update(common); lifecycle_signals.append(sig)
         for x in pol: x.update(common)
         for x in ff: x.update(common)
@@ -2390,16 +2626,52 @@ def run_daily_episode_replay(output_dir: str | Path, state: pd.DataFrame) -> Dic
     exit_shadow_df, exit_shadow_summary = _exit_policy_shadow(restart_df, px_follow_by_code, cfg_life)
     stop_exit_policy_matrix = _stop_exit_policy_matrix(exit_shadow_summary)
     execution_causality_df, execution_causality_summary = _execution_causality_shadow(restart_df, px_follow_by_code, cfg_life)
-    input_fingerprint = _input_fingerprint_regression(out, state, seed_runtime, state_df, transition_df, restart_df, price_fingerprint_parts, targeted_dates)
-    contract_explained_pre = int(_num(weekly_900bar_parity, "contract_explained", 0).eq(1).sum()) if not weekly_900bar_parity.empty else 0
+    input_fingerprint = _input_fingerprint_regression(
+        out, state, seed_runtime, weekly_seed_authority, state_df, transition_df, restart_df,
+        price_fingerprint_parts, targeted_dates, exact_shard_proof,
+    )
+    # V25.4.7 lock authority: parent-merged-cache parity remains diagnostic only.  A weekly
+    # RESTART is policy-reconciled only when its exact shard-local evaluator input replays cleanly.
     weekly_unresolved_pre = int(recon.get("reconciliation_status", pd.Series(dtype=str)).astype(str).eq("WEEKLY_ONLY_UNRECONCILED").sum()) if not recon.empty else 0
-    parity_explained_pre = int(_num(context_parity, "explained", 0).eq(1).sum()) if not context_parity.empty else 0
-    policy_unexplained_pre = max(0, weekly_unresolved_pre - parity_explained_pre - contract_explained_pre)
+    unresolved_keys = set()
+    if not recon.empty:
+        _uq = recon[recon.get("reconciliation_status", pd.Series(dtype=str)).astype(str).eq("WEEKLY_ONLY_UNRECONCILED")]
+        unresolved_keys = {(_norm_code(r.get("code","")), _fmt_date(r.get("weekly_restart_date"))) for _, r in _uq.iterrows()}
+    exact_shard_replay_pass = int(_num(exact_shard_proof, "exact_shard_replay_pass", 0).eq(1).sum()) if not exact_shard_proof.empty else 0
+    exact_shard_same_input_nondeterminism = int(_num(exact_shard_proof, "same_input_nondeterminism", 0).eq(1).sum()) if not exact_shard_proof.empty else 0
+    exact_shard_cross_lane_explained = int(_num(exact_shard_proof, "cross_lane_explained", 0).eq(1).sum()) if not exact_shard_proof.empty else 0
+    exact_shard_unresolved_lane_explained = 0
+    if unresolved_keys and not exact_shard_proof.empty:
+        for _, _pr in exact_shard_proof.iterrows():
+            _k = (_norm_code(_pr.get("code","")), _fmt_date(_pr.get("weekly_restart_date")))
+            if _k in unresolved_keys and int(float(_pr.get("exact_shard_replay_pass",0) or 0)) == 1 and int(float(_pr.get("cross_lane_explained",0) or 0)) == 1 and int(float(_pr.get("same_input_nondeterminism",0) or 0)) == 0:
+                exact_shard_unresolved_lane_explained += 1
+    policy_unexplained_pre = max(0, weekly_unresolved_pre - exact_shard_unresolved_lane_explained)
     source_input_changed_pre = int(_num(input_fingerprint, "source_input_changed", 0).sum()) if not input_fingerprint.empty else 0
+
+    cutoff_ts = pd.to_datetime(_policy_lock_cutoff(), errors="coerce")
+    _train = restart_df.copy() if isinstance(restart_df, pd.DataFrame) else pd.DataFrame()
+    if not _train.empty and pd.notna(cutoff_ts):
+        _train["_lock_signal_date"] = pd.to_datetime(_train.get("restart_date", _train.get("date")), errors="coerce").dt.normalize()
+        _train = _train[_train["_lock_signal_date"].le(pd.Timestamp(cutoff_ts).normalize())].copy()
+    training_restart_events = len(_train)
+    training_causal_proven = int(_num(_train, "daily_universe_membership_proven", 0).eq(1).sum()) if not _train.empty else 0
+    training_policy_eligible = int(_num(_train, "policy_training_eligible", 0).eq(1).sum()) if not _train.empty else 0
+    training_authority_dates = 0; training_authority_complete_dates = 0
+    if not _train.empty:
+        _train_dates = set(pd.to_datetime(_train.get("restart_date"), errors="coerce").dropna().dt.normalize())
+        training_authority_dates = len(_train_dates)
+        if not targeted_dates.empty:
+            _td = targeted_dates.copy()
+            _td["_signal_date"] = pd.to_datetime(_td.get("signal_date", _td.get("restart_date", _td.get("date"))), errors="coerce").dt.normalize()
+            _td = _td[_td["_signal_date"].isin(_train_dates)]
+            _complete_col = "targeted_date_complete" if "targeted_date_complete" in _td.columns else "complete"
+            training_authority_complete_dates = int(_num(_td, _complete_col, 0).eq(1).sum())
     policy_lock_manifest, policy_lock_meta = _policy_lock_manifest(
-        out, policy_unexplained_pre, source_input_changed_pre, len(restart_df),
-        int(_num(restart_df,"daily_universe_membership_proven",0).eq(1).sum()) if not restart_df.empty else 0,
-        int(targeted_meta.get("dates",0) or 0), int(targeted_meta.get("complete_dates",0) or 0), len(invariant_df),
+        out, policy_unexplained_pre, source_input_changed_pre, training_restart_events,
+        training_causal_proven, training_policy_eligible,
+        training_authority_dates, training_authority_complete_dates, len(invariant_df),
+        len(weekly_ledger), exact_shard_replay_pass, exact_shard_same_input_nondeterminism,
     )
     forward_oos_events, forward_oos_policy, forward_oos_summary, forward_oos_immutability, forward_oos_meta = _forward_oos_locked_ledgers(out, restart_df, px_follow_by_code, cfg_life, policy_lock_manifest, policy_lock_meta)
     manual = _stratified_manual(restart_df, order_df, life_policy_df, recon, 60)
@@ -2415,8 +2687,11 @@ def run_daily_episode_replay(output_dir: str | Path, state: pd.DataFrame) -> Dic
     weekly_exact = int(recon.get("reconciliation_status", pd.Series(dtype=str)).astype(str).eq("EXACT_DATE_MATCH").sum()) if not recon.empty else 0; weekly_shift = int(recon.get("reconciliation_status", pd.Series(dtype=str)).astype(str).eq("SAME_CYCLE_DATE_SHIFT").sum()) if not recon.empty else 0; weekly_unresolved = int(recon.get("reconciliation_status", pd.Series(dtype=str)).astype(str).eq("WEEKLY_ONLY_UNRECONCILED").sum()) if not recon.empty else 0
     weekly_explained = int(_num(context_parity, "explained", 0).eq(1).sum()) if not context_parity.empty else 0
     weekly_contract_explained = int(_num(weekly_900bar_parity, "contract_explained", 0).eq(1).sum()) if not weekly_900bar_parity.empty else 0
-    weekly_unexplained = max(0, weekly_unresolved - weekly_explained - weekly_contract_explained)
-    weekly_reconciled = weekly_exact + weekly_shift + weekly_explained + weekly_contract_explained; authority_rate = exact_causal_n / max(1, unique_n); price_cache_coverage = evaluated / max(1, len(seeds))
+    # Legacy context/900bar audits remain diagnostic. Exact shard-local replay is lock authority.
+    weekly_exact_shard_lane_explained = int(exact_shard_unresolved_lane_explained)
+    weekly_unexplained = max(0, weekly_unresolved - weekly_exact_shard_lane_explained)
+    weekly_reconciled = weekly_exact + weekly_shift + weekly_exact_shard_lane_explained
+    authority_rate = exact_causal_n / max(1, unique_n); price_cache_coverage = evaluated / max(1, len(seeds))
     if len(seeds) == 0: status = "WARMUP_NO_WEEKLY_EPISODE_SEEDS"
     elif inv_fail: status = "INVALID_DAILY_SEQUENCE_INVARIANT"
     elif evaluated == 0: status = "INVALID_NO_PRICE_CACHE_EVALUATION"
@@ -2433,6 +2708,19 @@ def run_daily_episode_replay(output_dir: str | Path, state: pd.DataFrame) -> Dic
         "weekly_restart_cycles": len(weekly_ledger), "weekly_restart_exact_date_matches": weekly_exact, "weekly_restart_same_cycle_date_shifts": weekly_shift, "weekly_restart_explained_context_divergences": weekly_explained, "weekly_restart_reconciled": weekly_reconciled, "weekly_restart_unreconciled_raw": weekly_unresolved, "weekly_restart_unexplained": weekly_unexplained,
         "weekly_unresolved_rootcause_rows": len(unresolved_rootcause), "context_parity_rows": len(context_parity),
         "weekly_restart_900bar_contract_explained": weekly_contract_explained, "weekly_900bar_parity_rows": len(weekly_900bar_parity),
+        "weekly_seed_authority_rows": len(weekly_seed_authority),
+        "daily_seed_causal_eligible_events": int(_num(restart_df, "weekly_seed_causal_eligible", 0).eq(1).sum()) if not restart_df.empty else 0,
+        "daily_seed_causal_ineligible_events": int(_num(restart_df, "weekly_seed_causal_eligible", 0).ne(1).sum()) if not restart_df.empty else 0,
+        "policy_training_eligible_events": int(_num(restart_df, "policy_training_eligible", 0).eq(1).sum()) if not restart_df.empty else 0,
+        "training_restart_events_before_cutoff": int(training_restart_events),
+        "training_universe_proven_before_cutoff": int(training_causal_proven),
+        "training_policy_eligible_before_cutoff": int(training_policy_eligible),
+        "exact_shard_restart_input_expected": len(weekly_ledger),
+        "exact_shard_restart_input_proof_rows": len(exact_shard_proof),
+        "exact_shard_restart_input_replay_pass": int(exact_shard_replay_pass),
+        "exact_shard_cross_lane_explained": int(exact_shard_cross_lane_explained),
+        "exact_shard_unresolved_lane_explained": int(weekly_exact_shard_lane_explained),
+        "exact_shard_same_input_nondeterminism": int(exact_shard_same_input_nondeterminism),
         "context_state_trace_rows": len(context_state_trace), "context_state_trace_summary_rows": len(context_state_trace_summary),
         "raw_daily_restart_rows": raw_n, "cycle_first_restart_events": cycle_unique_n, "daily_restart_events": unique_n,
         "suppressed_repeat_restart_rows": suppressed_n, "episode_overlap_suppressed_events": overlap_suppressed_n, "episode_overlap_review_pairs": overlap_review_pairs,
@@ -2459,6 +2747,7 @@ def run_daily_episode_replay(output_dir: str | Path, state: pd.DataFrame) -> Dic
         (SEED_FILE, seed_runtime),(STATE_FILE,state_df),(TRANSITION_FILE,transition_df),(RAW_RESTART_FILE,raw_restart_df),(RESTART_FILE,restart_df),
         (DEDUP_AUDIT_FILE,dedup_audit),(EPISODE_OVERLAP_FILE,overlap_audit),(EPISODE_FAMILY_FILE,family_summary),(RECON_FILE,recon),(UNRESOLVED_ROOTCAUSE_FILE,unresolved_rootcause),(CONTEXT_PARITY_FILE,context_parity),
         (CONTEXT_STATE_TRACE_FILE,context_state_trace),(CONTEXT_STATE_TRACE_SUMMARY_FILE,context_state_trace_summary),(WEEKLY_900BAR_PARITY_FILE,weekly_900bar_parity),
+        (WEEKLY_SEED_AUTHORITY_FILE,weekly_seed_authority),(DAILY_SEED_CAUSALITY_FILE,seed_causality),(SHARD_RESTART_INPUT_PROOF_FILE,exact_shard_proof),
         (TARGET_AUTHORITY_FILE,targeted_events),(TARGET_AUTHORITY_DATE_FILE,targeted_dates),(TARGET_AUTHORITY_CLASS_SUMMARY_FILE,targeted_authority_class_summary),(INPUT_FINGERPRINT_FILE,input_fingerprint),(INVARIANT_FILE,invariant_df),(MANUAL_FILE,manual),
         (LIFECYCLE_SIGNAL_FILE,life_signal_df),(LIFECYCLE_POLICY_FILE,life_policy_df),(LIFECYCLE_FILL_FILE,life_fill_df),(LIFECYCLE_HORIZON_FILE,life_horizon_df),(LIFECYCLE_STOP_FILE,life_stop),
         (ORDER_FILE,order_df),(ORDER_SUMMARY_FILE,order_summary),(PATH_CLASS_FILE,path_df),(PATH_CLASS_SUMMARY_FILE,path_summary),(STOP_LENS_PATH_COMPARE_FILE,stop_lens_compare),(STOP_LENS_RISK_TRADEOFF_FILE,stop_lens_risk_tradeoff),
@@ -2477,7 +2766,9 @@ def run_daily_episode_replay(output_dir: str | Path, state: pd.DataFrame) -> Dic
         f"📌 {VERSION} · status={status} · CORE224 daily detection은 cache-only/provider 0 · frozen RESTART 날짜의 targeted causal authority만 cache-first bounded fetch",
         f"🧭 seed {len(seeds)}종목 → daily 평가 {evaluated} · 가격cache 누락 {price_missing} · actual Amount 20일-ready 종목 {amount_ready_codes}",
         f"🔁 RESTART raw {raw_n} → cycle-first {cycle_unique_n} → episode-independent {unique_n} · exact-cycle 반복억제 {suppressed_n} · overlap 자동억제 {overlap_suppressed_n} · overlap REVIEW {overlap_review_pairs}",
-        f"🔗 weekly↔daily: exact {weekly_exact}/{len(weekly_ledger)} · same-cycle shift {weekly_shift} · context-explained {weekly_explained} · unexplained {weekly_unexplained} · rootcause {rootcause_text}",
+        f"🔗 weekly↔daily: exact {weekly_exact}/{len(weekly_ledger)} · same-cycle shift {weekly_shift} · exact-shard lane-explained {weekly_exact_shard_lane_explained} · unexplained {weekly_unexplained} · legacy-context {weekly_explained} · rootcause {rootcause_text}",
+        f"🛂 weekly-seed causal gate: active {int(_num(restart_df,'weekly_seed_causal_eligible',0).eq(1).sum()) if not restart_df.empty else 0}/{unique_n} · retrospective-only excluded {int(_num(restart_df,'weekly_seed_causal_eligible',0).ne(1).sum()) if not restart_df.empty else 0} · universe proven {exact_causal_n} · strict policy-training {int(_num(restart_df,'policy_training_eligible',0).eq(1).sum()) if not restart_df.empty else 0} · cutoff-train strict {training_policy_eligible}/{training_restart_events}",
+        f"🧷 exact shard RESTART input proof: pass {exact_shard_replay_pass}/{len(weekly_ledger)} · cross-lane explained {exact_shard_cross_lane_explained} (unresolved {weekly_exact_shard_lane_explained}) · same-input nondeterminism {exact_shard_same_input_nondeterminism}",
         f"🧵 unresolved full-state trace: {len(context_state_trace_summary)}건 · first-divergence exposed {int(context_state_trace_summary.get('trace_status',pd.Series(dtype=str)).astype(str).eq('FIRST_DIVERGENCE_EXPOSED').sum()) if not context_state_trace_summary.empty else 0} · 신호 강제 reconcile 0",
         f"📦 독립 RESTART {unique_n} 중 주간사이 복원 {recovered_n} · causal policy-proof {exact_causal_n}/{unique_n} · targeted window-complete {targeted_complete_dates}/{int(targeted_meta.get('dates',0) or 0)} · full-name-complete {targeted_full_name_complete_dates}/{int(targeted_meta.get('dates',0) or 0)}",
         f"♻️ targeted authority resume: cache {targeted_cache_before}→{targeted_cache_after} (+{targeted_new_cache}) · provider {targeted_provider_calls}/{targeted_budget} calls · errors {targeted_provider_errors} · budget_exhausted {targeted_budget_exhausted}",
@@ -2497,7 +2788,7 @@ def run_daily_episode_replay(output_dir: str | Path, state: pd.DataFrame) -> Dic
             lines.append(f"🧵 divergence {tr.get('code')} {tr.get('weekly_restart_date')}: first {tr.get('first_divergence_date') or '-'} · weekly {tr.get('first_divergence_weekly_state') or '-'} ↔ daily {tr.get('first_divergence_daily_state') or '-'} · anchors {tr.get('first_divergence_anchor_match_count')}/{tr.get('first_divergence_anchor_present_count')}")
     if not weekly_900bar_parity.empty:
         for _, tr in weekly_900bar_parity.iterrows():
-            lines.append(f"🧷 weekly 900bar contract {tr.get('code')} {tr.get('weekly_restart_date')}: {tr.get('contract_status')} · weekly {tr.get('weekly_state','-')} ↔ contract {tr.get('contract_900bar_state','-')} · anchors {tr.get('anchor_match_count',0)}/{tr.get('anchor_present_count',0)} · bars {tr.get('contract_history_rows',0)}")
+            lines.append(f"🧪 legacy parent-cache 900bar diagnostic {tr.get('code')} {tr.get('weekly_restart_date')}: {tr.get('contract_status')} · weekly {tr.get('weekly_state','-')} ↔ parent-cache {tr.get('contract_900bar_state','-')} · anchors {tr.get('anchor_match_count',0)}/{tr.get('anchor_present_count',0)} · bars {tr.get('contract_history_rows',0)}")
     if not input_fingerprint.empty:
         ch=input_fingerprint[_num(input_fingerprint,'changed_vs_previous',0).eq(1)]
         mig=input_fingerprint[input_fingerprint.get('classification',pd.Series(dtype=str)).astype(str).eq('SCHEMA_MIGRATION_BASELINE')]
@@ -2545,12 +2836,17 @@ def run_daily_episode_replay(output_dir: str | Path, state: pd.DataFrame) -> Dic
             x=ex[ex.get("stop_lens",pd.Series(dtype=str)).astype(str).eq(lens)]
             if not x.empty:
                 r=x.iloc[0]; lines.append(f"🕘 CAUSAL D+1 OPEN {lens}/+5: exec {int(r.get('executed_trades',0) or 0)}/{int(r.get('signals',0) or 0)} · net medR {float(r.get('median_net_r',np.nan)):+.2f} · trim {float(r.get('trim10_net_r',np.nan)):+.2f} · 양수 {float(r.get('positive_net_r_rate_pct',np.nan)):.1f}% · gap-cancel {float(r.get('entry_cancel_gap_below_stop_rate_pct',np.nan)):.1f}% · cost {float(r.get('roundtrip_cost_bps_assumption',np.nan)):.0f}bp")
+        exs = execution_causality_summary[(execution_causality_summary.get("scope",pd.Series(dtype=str)).astype(str)=="POLICY_TRAINING_CAUSAL") & (execution_causality_summary.get("entry_mode",pd.Series(dtype=str)).astype(str)=="D1_OPEN_CAUSAL") & (execution_causality_summary.get("exit_policy",pd.Series(dtype=str)).astype(str)=="PLUS5_FULL_EXIT")]
+        for lens in ["PB_LOW","FIB_61_8","FIB_78_6","L0_STRUCTURE"]:
+            x=exs[exs.get("stop_lens",pd.Series(dtype=str)).astype(str).eq(lens)]
+            if not x.empty:
+                r=x.iloc[0]; lines.append(f"🕘 STRICT POLICY-TRAIN D+1 OPEN {lens}/+5: exec {int(r.get('executed_trades',0) or 0)}/{int(r.get('signals',0) or 0)} · net medR {float(r.get('median_net_r',np.nan)):+.2f} · trim {float(r.get('trim10_net_r',np.nan)):+.2f} · 양수 {float(r.get('positive_net_r_rate_pct',np.nan)):.1f}% · gap-cancel {float(r.get('entry_cancel_gap_below_stop_rate_pct',np.nan)):.1f}%")
     if not forward_oos_summary.empty:
         for _,r in forward_oos_summary.iterrows():
             lines.append(f"📈 FORWARD {r.get('policy_role')}/{r.get('policy_id')}: events {int(r.get('forward_events',0) or 0)} · eligible {int(r.get('causal_eligible_events',0) or 0)} · finalized {int(r.get('finalized_trades',0) or 0)} · medR {float(r.get('median_net_r',np.nan)):+.2f} · trim {float(r.get('trim10_net_r',np.nan)):+.2f} · cumR {float(r.get('cumulative_trade_sequence_r',0)):+.2f} · DD {float(r.get('max_drawdown_trade_sequence_r',0)):.2f}R")
-    lines.append(f"⏱️ daily episode replay elapsed {time.monotonic()-t0:.1f}s"); lines.append(f"- CSV: {RESTART_FILE} · {WEEKLY_900BAR_PARITY_FILE} · {INPUT_FINGERPRINT_FILE} · {POLICY_LOCK_MANIFEST_FILE} · {FORWARD_OOS_SUMMARY_FILE} · {EXECUTION_CAUSALITY_SUMMARY_FILE} · {READINESS_FILE}")
+    lines.append(f"⏱️ daily episode replay elapsed {time.monotonic()-t0:.1f}s"); lines.append(f"- CSV: {RESTART_FILE} · {WEEKLY_SEED_AUTHORITY_FILE} · {DAILY_SEED_CAUSALITY_FILE} · {SHARD_RESTART_INPUT_PROOF_FILE} · {INPUT_FINGERPRINT_FILE} · {POLICY_LOCK_MANIFEST_FILE} · {FORWARD_OOS_SUMMARY_FILE} · {READINESS_FILE}")
     report="\n".join(lines); (out/REPORT_FILE).write_text(report+"\n",encoding="utf-8")
-    return {"status":status,"seed":seed_runtime,"state":state_df,"transitions":transition_df,"raw_restarts":raw_restart_df,"cycle_restarts":cycle_restart_df,"restarts":restart_df,"dedup_audit":dedup_audit,"episode_overlap":overlap_audit,"episode_family":family_summary,"reconciliation":recon,"unresolved_rootcause":unresolved_rootcause,"context_parity":context_parity,"context_state_trace":context_state_trace,"context_state_trace_summary":context_state_trace_summary,"weekly_900bar_parity":weekly_900bar_parity,"input_fingerprint":input_fingerprint,"policy_lock_manifest":policy_lock_manifest,"policy_lock_meta":policy_lock_meta,"forward_oos_events":forward_oos_events,"forward_oos_policy":forward_oos_policy,"forward_oos_summary":forward_oos_summary,"forward_oos_immutability":forward_oos_immutability,"forward_oos_meta":forward_oos_meta,"targeted_authority":targeted_events,"targeted_authority_dates":targeted_dates,"targeted_authority_class_summary":targeted_authority_class_summary,"invariants":invariant_df,"manual":manual,"lifecycle_signal":life_signal_df,"lifecycle_policy":life_policy_df,"lifecycle_fill":life_fill_df,"lifecycle_horizon":life_horizon_df,"lifecycle_stop":life_stop,"event_order":order_df,"event_order_summary":order_summary,"path_class":path_df,"path_class_summary":path_summary,"stop_lens_path_compare":stop_lens_compare,"stop_lens_risk_tradeoff":stop_lens_risk_tradeoff,"single_policy":single_df,"risk_parity":risk_df,"risk_parity_summary":risk_summary,"risk_parity_fill_group_summary":risk_fill_group_summary,"exit_shadow":exit_shadow_df,"exit_shadow_summary":exit_shadow_summary,"stop_exit_policy_matrix":stop_exit_policy_matrix,"execution_causality":execution_causality_df,"execution_causality_summary":execution_causality_summary,"readiness":readiness,"report":report}
+    return {"status":status,"seed":seed_runtime,"weekly_seed_authority":weekly_seed_authority,"seed_causality":seed_causality,"exact_shard_proof":exact_shard_proof,"state":state_df,"transitions":transition_df,"raw_restarts":raw_restart_df,"cycle_restarts":cycle_restart_df,"restarts":restart_df,"dedup_audit":dedup_audit,"episode_overlap":overlap_audit,"episode_family":family_summary,"reconciliation":recon,"unresolved_rootcause":unresolved_rootcause,"context_parity":context_parity,"context_state_trace":context_state_trace,"context_state_trace_summary":context_state_trace_summary,"weekly_900bar_parity":weekly_900bar_parity,"input_fingerprint":input_fingerprint,"policy_lock_manifest":policy_lock_manifest,"policy_lock_meta":policy_lock_meta,"forward_oos_events":forward_oos_events,"forward_oos_policy":forward_oos_policy,"forward_oos_summary":forward_oos_summary,"forward_oos_immutability":forward_oos_immutability,"forward_oos_meta":forward_oos_meta,"targeted_authority":targeted_events,"targeted_authority_dates":targeted_dates,"targeted_authority_class_summary":targeted_authority_class_summary,"invariants":invariant_df,"manual":manual,"lifecycle_signal":life_signal_df,"lifecycle_policy":life_policy_df,"lifecycle_fill":life_fill_df,"lifecycle_horizon":life_horizon_df,"lifecycle_stop":life_stop,"event_order":order_df,"event_order_summary":order_summary,"path_class":path_df,"path_class_summary":path_summary,"stop_lens_path_compare":stop_lens_compare,"stop_lens_risk_tradeoff":stop_lens_risk_tradeoff,"single_policy":single_df,"risk_parity":risk_df,"risk_parity_summary":risk_summary,"risk_parity_fill_group_summary":risk_fill_group_summary,"exit_shadow":exit_shadow_df,"exit_shadow_summary":exit_shadow_summary,"stop_exit_policy_matrix":stop_exit_policy_matrix,"execution_causality":execution_causality_df,"execution_causality_summary":execution_causality_summary,"readiness":readiness,"report":report}
 
 def force_report(output_dir: str | Path = "reports") -> str:
     p = Path(output_dir or "reports") / REPORT_FILE
