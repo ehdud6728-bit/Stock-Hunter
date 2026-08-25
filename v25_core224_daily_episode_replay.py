@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""V25.4.5 CORE224 daily episode replay (research-only, cache-first).
+"""V25.4.6 CORE224 daily episode replay (research-only, cache-first).
 
 Purpose
 -------
@@ -33,7 +33,7 @@ import pandas as pd
 import original_thesis_reconstruction as thesis
 import historical_asof_universe as hist_asof
 
-VERSION = "V73.3.6.6.25.4.5"
+VERSION = "V73.3.6.6.25.4.6"
 RESEARCH_ONLY = True
 LIVE_LOGIC_CHANGED = False
 REAL_ORDER_CHANGED = False
@@ -83,6 +83,17 @@ TARGET_AUTHORITY_CLASS_SUMMARY_FILE = "v73_v25_core224_targeted_asof_class_summa
 STOP_EXIT_POLICY_MATRIX_FILE = "v73_v25_core224_stop_exit_policy_matrix.csv"
 EXECUTION_CAUSALITY_FILE = "v73_v25_core224_execution_causality_shadow.csv"
 EXECUTION_CAUSALITY_SUMMARY_FILE = "v73_v25_core224_execution_causality_summary.csv"
+WEEKLY_900BAR_PARITY_FILE = "v73_v25_core224_weekly_daily_900bar_contract_parity.csv"
+POLICY_LOCK_MANIFEST_FILE = "v73_v25_core224_policy_lock_manifest.csv"
+POLICY_LOCK_CACHE_FILE = "v25_core224_policy_lock.json"
+FORWARD_OOS_EVENT_FILE = "v73_v25_core224_forward_oos_event_ledger.csv"
+FORWARD_OOS_POLICY_FILE = "v73_v25_core224_forward_oos_policy_ledger.csv"
+FORWARD_OOS_SUMMARY_FILE = "v73_v25_core224_forward_oos_summary.csv"
+FORWARD_OOS_IMMUTABILITY_FILE = "v73_v25_core224_forward_oos_immutability_audit.csv"
+FINGERPRINT_SCHEMA_VERSION = "V25.4.6_CANONICAL_SEMANTIC_1"
+POLICY_LOCK_SCHEMA_VERSION = "V25.4.6_POLICY_LOCK_1"
+POLICY_LOCK_CUTOFF_DEFAULT = "2026-08-10"
+POLICY_LOCK_CREATED_DEFAULT = "2026-08-25"
 
 CORE_STATES = {
     "CORE224_BASE", "CORE224_ACCUMULATION", "CORE224_WAVE1",
@@ -1241,21 +1252,121 @@ def _weekly_daily_full_state_trace(
         })
     return pd.DataFrame(trace_rows), pd.DataFrame(summary_rows)
 
+
+def _weekly_900bar_contract_parity(
+    recon: pd.DataFrame, weekly_state: pd.DataFrame, out: Path,
+    global_amount: pd.DataFrame,
+) -> pd.DataFrame:
+    """Replay unresolved weekly rows using the *exact shard-side 900-bar input contract*.
+
+    V25 shard sidecars call price_reader(days=900), truncate at the historical as-of date,
+    then ``tail(900)`` before evaluate_core224().  The daily episode lane intentionally runs a
+    continuous cached history, so a path-dependent state machine can disagree even though both
+    are individually trailing-only.  This audit tests that precise contract for unresolved rows.
+    A match explains the discrepancy; it never manufactures/deletes a daily RESTART.
+    """
+    if recon is None or recon.empty or weekly_state is None or weekly_state.empty:
+        return pd.DataFrame()
+    uq = recon[recon.get("reconciliation_status", pd.Series(dtype=str)).astype(str).eq("WEEKLY_ONLY_UNRECONCILED")]
+    if uq.empty:
+        return pd.DataFrame()
+    ws = weekly_state.copy()
+    ws["signal_date"] = pd.to_datetime(ws.get("signal_date"), errors="coerce").dt.normalize()
+    ws["code"] = ws.get("code", pd.Series("", index=ws.index)).map(_norm_code)
+    anchors = ["l0_date","accum_date","h1_date","pullback_date","healthy_date","restart_date"]
+    rows: List[Dict[str, Any]] = []
+    for _, rr in uq.iterrows():
+        code=_norm_code(rr.get("code","")); wd=pd.to_datetime(rr.get("weekly_restart_date"), errors="coerce")
+        if not code or pd.isna(wd):
+            continue
+        wd=pd.Timestamp(wd).normalize()
+        wrs=ws[ws["code"].eq(code) & ws["signal_date"].eq(wd)]
+        wr=wrs.iloc[-1].to_dict() if not wrs.empty else {}
+        px_raw, meta = thesis._read_price_cache_for_code(out, code)
+        if px_raw is None or px_raw.empty:
+            rows.append({"version":VERSION,"code":code,"weekly_restart_date":_fmt_date(wd),"contract_status":"PRICE_CACHE_MISSING","contract_explained":0,"research_only":True})
+            continue
+        # Match shard-side authority scope: build_date_sidecar loads at most 90 historical
+        # all-market Amount snapshots as of the weekly date, then may reuse the ticker cache.
+        weekly_amount_panel = thesis.load_cached_amount_panel(out, wd, [code], max_files=90)
+        amount_auth=_merge_amount_authority(out, code, weekly_amount_panel)
+        q=thesis._overlay_actual_amount(px_raw, code, amount_auth)
+        q.index=pd.to_datetime(q.index, errors="coerce")
+        q=q[q.index.notna() & (q.index.normalize() <= wd)].sort_index().tail(900).copy()
+        if q.empty:
+            rows.append({"version":VERSION,"code":code,"weekly_restart_date":_fmt_date(wd),"contract_status":"NO_PRICE_ASOF","contract_explained":0,"research_only":True})
+            continue
+        try:
+            d,e,inv=thesis.evaluate_core224(q)
+        except Exception as exc:
+            rows.append({"version":VERSION,"code":code,"weekly_restart_date":_fmt_date(wd),"contract_status":f"EVAL_ERROR:{type(exc).__name__}","contract_explained":0,"research_only":True})
+            continue
+        dr=d.iloc[-1].to_dict() if isinstance(d,pd.DataFrame) and not d.empty else {}
+        wstate=str(wr.get("core224_state", rr.get("weekly_state","")) or "")
+        dstate=str(dr.get("core224_state","") or "")
+        am=0; ap=0
+        rec={
+            "version":VERSION,"code":code,"name":rr.get("name",""),"weekly_restart_date":_fmt_date(wd),
+            "weekly_state":wstate,"contract_900bar_state":dstate,"state_match":int(wstate==dstate and bool(wstate)),
+            "contract_history_rows":len(q),"contract_history_start":_fmt_date(q.index.min()),"contract_history_end":_fmt_date(q.index.max()),
+            "contract_invariant_fail_rows":len(inv) if isinstance(inv,pd.DataFrame) else 0,
+            "cache_source":meta.get("source", meta.get("price_cache_source","")) if isinstance(meta,dict) else "",
+            "research_only":True,
+        }
+        for c in anchors:
+            wa=_fmt_date(wr.get(c)); da=_fmt_date(dr.get(c))
+            rec[f"weekly_{c}"]=wa; rec[f"contract_{c}"]=da
+            if wa or da:
+                ap += 1; am += int(bool(wa) and wa==da)
+        exact=int(rec["state_match"]==1 and (ap==0 or am==ap))
+        rec["anchor_match_count"]=am; rec["anchor_present_count"]=ap; rec["anchor_all_match"]=int(ap==0 or am==ap)
+        rec["contract_explained"]=exact
+        rec["contract_status"]="EXPLAINED_WEEKLY_900BAR_WINDOW_CONTRACT" if exact else "UNEXPLAINED_AFTER_WEEKLY_900BAR_WINDOW_CONTRACT"
+        rec["resolution_note"]="DIAGNOSTIC_ONLY_DAILY_EVENT_SET_FROZEN"
+        rows.append(rec)
+    return pd.DataFrame(rows)
+
+
+def _semantic_hash(df: pd.DataFrame, cols: Optional[List[str]] = None) -> str:
+    """Version-insensitive deterministic hash for input/regression identity."""
+    if df is None or df.empty:
+        return hashlib.sha256(b"EMPTY").hexdigest()[:20]
+    q=df.copy()
+    volatile={"version","research_only","elapsed_sec","live_logic_changed","real_order_changed"}
+    if cols is None:
+        cols=[c for c in q.columns if c not in volatile]
+    else:
+        cols=[c for c in cols if c in q.columns and c not in volatile]
+    return _stable_frame_hash(q, cols)
+
+
 def _input_fingerprint_regression(
     out: Path, state: pd.DataFrame, seeds: pd.DataFrame, state_df: pd.DataFrame,
     transition_df: pd.DataFrame, restart_df: pd.DataFrame, price_parts: List[str], targeted_dates: pd.DataFrame,
 ) -> pd.DataFrame:
+    """Canonical semantic fingerprints.
+
+    V25.4.5 hashed several derived frames with their ``version`` column, so a code-version bump
+    could look like changed market data.  V25.4.6 separates source-input identity from derived
+    outputs and ignores volatile metadata.  A schema migration is not counted as an input change.
+    """
     cache_root = hist_asof._set_cache_root(out)
     p = Path(cache_root) / INPUT_FINGERPRINT_CACHE_FILE
+    weekly_cols=["signal_date","code","core224_state","l0_date","accum_date","h1_date","pullback_date","healthy_date","restart_date","actual_amount_history_ready20"]
+    seed_cols=["code","seed_reason","seed_first_date","seed_last_date","first_weekly_date","last_weekly_date","weekly_state_count"]
+    daily_state_cols=["code","date","core224_state","core224_transition","l0_date","accum_date","h1_date","pullback_date","healthy_date","restart_date","amount_is_actual","actual_amount_history_ready20"]
+    transition_cols=["code","date","from_state","to_state","l0_date","accum_date","h1_date","pullback_date","healthy_date","restart_date"]
+    restart_cols=["event_id","cycle_id","code","restart_date","l0_date","accum_date","h1_date","pullback_date"]
+    authority_cols=["signal_date","asof_date","status","complete","fallback_used","targeted_date_complete","full_name_complete","valid_market_days","required_market_days"]
     current = {
-        "version": VERSION,
-        "weekly_core_input": _stable_frame_hash(state, ["signal_date","code","core224_state","l0_date","accum_date","h1_date","pullback_date","healthy_date","restart_date","actual_amount_history_ready20"]),
-        "seed_ledger": _stable_frame_hash(seeds),
+        "fingerprint_schema_version": FINGERPRINT_SCHEMA_VERSION,
+        "weekly_core_input": _semantic_hash(state, weekly_cols),
+        "seed_ledger": _semantic_hash(seeds, seed_cols),
         "price_amount_input": hashlib.sha256("|".join(sorted(price_parts)).encode()).hexdigest()[:20] if price_parts else hashlib.sha256(b"EMPTY").hexdigest()[:20],
-        "daily_state": _stable_frame_hash(state_df),
-        "daily_transition": _stable_frame_hash(transition_df),
-        "daily_restart": _stable_frame_hash(restart_df, ["event_id","code","restart_date","l0_date","accum_date","h1_date","pullback_date","daily_universe_membership_proven"]),
-        "targeted_authority": _stable_frame_hash(targeted_dates),
+        "daily_state": _semantic_hash(state_df, daily_state_cols),
+        "daily_transition": _semantic_hash(transition_df, transition_cols),
+        "daily_restart": _semantic_hash(restart_df, restart_cols),
+        "targeted_authority": _semantic_hash(targeted_dates, authority_cols),
     }
     current["composite"] = hashlib.sha256("|".join(current[k] for k in ["weekly_core_input","seed_ledger","price_amount_input","daily_state","daily_transition","daily_restart","targeted_authority"]).encode()).hexdigest()[:20]
     prev: Dict[str, Any] = {}
@@ -1263,18 +1374,281 @@ def _input_fingerprint_regression(
         if p.exists(): prev = json.loads(p.read_text(encoding="utf-8"))
     except Exception:
         prev = {}
+    prev_schema=str(prev.get("fingerprint_schema_version", ""))
+    compatible = prev_schema == FINGERPRINT_SCHEMA_VERSION
+    # weekly_core_input and price_amount_input used the same canonical algorithms in V25.4.5,
+    # so they remain comparable across the one-time schema migration. Other components get a
+    # fresh baseline instead of a false CHANGED flag caused by the old version column.
+    cross_schema_comparable={"weekly_core_input","price_amount_input"}
+    source_components={"weekly_core_input","seed_ledger","price_amount_input","targeted_authority"}
     rows=[]
     for key in ["weekly_core_input","seed_ledger","price_amount_input","daily_state","daily_transition","daily_restart","targeted_authority","composite"]:
-        old=str(prev.get(key,"")); new=str(current.get(key,"")); rows.append({
-            "version":VERSION,"component":key,"previous_fingerprint":old,"current_fingerprint":new,
-            "previous_available":int(bool(old)),"changed_vs_previous":int(bool(old) and old!=new),
-            "classification":"FIRST_OBSERVATION" if not old else ("CHANGED" if old!=new else "IDENTICAL"),"research_only":True,
+        old=str(prev.get(key,"")); new=str(current.get(key,"")); can_compare=bool(old) and (compatible or key in cross_schema_comparable)
+        changed=int(can_compare and old!=new)
+        if not old:
+            cls="FIRST_OBSERVATION"
+        elif not compatible and key not in cross_schema_comparable:
+            cls="SCHEMA_MIGRATION_BASELINE"
+        else:
+            cls="CHANGED" if old!=new else "IDENTICAL"
+        rows.append({
+            "version":VERSION,"fingerprint_schema_version":FINGERPRINT_SCHEMA_VERSION,"previous_schema_version":prev_schema,
+            "component":key,"component_type":"SOURCE_INPUT" if key in source_components else "DERIVED_OUTPUT",
+            "previous_fingerprint":old,"current_fingerprint":new,"previous_available":int(bool(old)),
+            "comparable_to_previous":int(can_compare),"changed_vs_previous":changed,
+            "source_input_changed":int(key in source_components and changed),"classification":cls,"research_only":True,
         })
     try:
         tmp=p.with_suffix(p.suffix+".tmp"); tmp.write_text(json.dumps(current,ensure_ascii=False,sort_keys=True,indent=2),encoding="utf-8"); os.replace(tmp,p)
     except Exception:
         pass
     return pd.DataFrame(rows)
+
+
+
+def _policy_specs() -> List[Dict[str, Any]]:
+    """Frozen policy family chosen *before* forward OOS scoring.
+
+    PRIMARY is Fib61.8 for structural/risk-balance reasons, not because it maximized the same
+    sample. Challengers remain fixed and can never replace PRIMARY automatically.
+    """
+    return [
+        {"policy_id":"PRIMARY_FIB618_PLUS5_D1","role":"PRIMARY","entry_mode":"D1_OPEN_CAUSAL","entry_style":"SINGLE","stop_lens":"FIB_61_8","exit_policy":"PLUS5_FULL_EXIT","roundtrip_cost_bps":20.0},
+        {"policy_id":"CHALLENGER_PBLOW_PLUS5_D1","role":"CHALLENGER_A","entry_mode":"D1_OPEN_CAUSAL","entry_style":"SINGLE","stop_lens":"PB_LOW","exit_policy":"PLUS5_FULL_EXIT","roundtrip_cost_bps":20.0},
+        {"policy_id":"CHALLENGER_FIB786_PLUS5_D1","role":"CHALLENGER_B","entry_mode":"D1_OPEN_CAUSAL","entry_style":"SINGLE","stop_lens":"FIB_78_6","exit_policy":"PLUS5_FULL_EXIT","roundtrip_cost_bps":20.0},
+        {"policy_id":"SHADOW_L0_PLUS5_D1","role":"SHADOW","entry_mode":"D1_OPEN_CAUSAL","entry_style":"SINGLE","stop_lens":"L0_STRUCTURE","exit_policy":"PLUS5_FULL_EXIT","roundtrip_cost_bps":20.0},
+    ]
+
+
+def _policy_lock_cutoff() -> str:
+    raw=str(os.getenv("V25_POLICY_LOCK_CUTOFF_DATE", POLICY_LOCK_CUTOFF_DEFAULT)).strip()
+    d=pd.to_datetime(raw, errors="coerce")
+    return pd.Timestamp(d).strftime("%Y-%m-%d") if pd.notna(d) else POLICY_LOCK_CUTOFF_DEFAULT
+
+
+def _policy_lock_manifest(
+    out: Path, parity_unexplained: int, source_input_changed: int,
+    training_restart_events: int, causal_proven_events: int, authority_dates: int, authority_complete_dates: int, invariant_fail_rows: int,
+) -> Tuple[pd.DataFrame, Dict[str, Any]]:
+    cutoff=_policy_lock_cutoff(); specs=_policy_specs()
+    payload={
+        "schema":POLICY_LOCK_SCHEMA_VERSION,"training_cutoff_date":cutoff,
+        "declared_lock_date":POLICY_LOCK_CREATED_DEFAULT,"selection_rule":"STRUCTURAL_RISK_BALANCE_NOT_SAME_SAMPLE_BEST_RETURN",
+        "primary_policy_id":"PRIMARY_FIB618_PLUS5_D1","max_follow_days":60,"same_day_collision":"STOP_FIRST",
+        "gap_through_stop":"EXIT_AT_OPEN_IF_OPEN_BELOW_STOP","d1_entry_gap_below_stop":"CANCEL_ENTRY",
+        "policies":specs,"research_only":True,"live_logic_changed":False,"real_order_changed":False,
+    }
+    digest=hashlib.sha256(json.dumps(payload,sort_keys=True,separators=(",",":"),ensure_ascii=False).encode()).hexdigest()
+    root=Path(hist_asof._set_cache_root(out))/"v25_forward_oos"; root.mkdir(parents=True,exist_ok=True); lockp=root/POLICY_LOCK_CACHE_FILE
+    old={}
+    try:
+        if lockp.exists(): old=json.loads(lockp.read_text(encoding="utf-8"))
+    except Exception: old={}
+    old_digest=str(old.get("policy_lock_digest",""))
+    prerequisites_ok=(
+        int(parity_unexplained)==0 and int(source_input_changed)==0 and int(invariant_fail_rows)==0
+        and int(training_restart_events)>=30 and int(causal_proven_events)>=30
+        and int(authority_dates)>0 and int(authority_complete_dates)==int(authority_dates)
+    )
+    if old_digest:
+        status="LOCKED" if old_digest==digest else "INVALID_POLICY_LOCK_DRIFT"
+    elif not prerequisites_ok:
+        status="PENDING_POLICY_LOCK_PREREQUISITES"
+    else:
+        status="LOCKED"
+        towrite={**payload,"policy_lock_digest":digest}
+        try:
+            tmp=lockp.with_suffix(lockp.suffix+".tmp"); tmp.write_text(json.dumps(towrite,ensure_ascii=False,sort_keys=True,indent=2),encoding="utf-8"); os.replace(tmp,lockp)
+        except Exception:
+            status="INVALID_POLICY_LOCK_PERSIST_FAILED"
+    rows=[]
+    for x in specs:
+        rows.append({
+            "version":VERSION,"policy_lock_schema":POLICY_LOCK_SCHEMA_VERSION,"policy_lock_status":status,
+            "policy_lock_digest":digest,"persisted_digest":old_digest or (digest if status=="LOCKED" else ""),
+            "training_cutoff_date":cutoff,"declared_lock_date":POLICY_LOCK_CREATED_DEFAULT,
+            "selection_rule":payload["selection_rule"],"primary_policy_id":payload["primary_policy_id"],
+            "max_follow_days":60,"same_day_collision":"STOP_FIRST","gap_through_stop":"EXIT_AT_OPEN_IF_OPEN_BELOW_STOP",
+            "d1_entry_gap_below_stop":"CANCEL_ENTRY","auto_policy_switch":0,"policy_tuning_after_cutoff":0,
+            "lock_prereq_training_restart_events":int(training_restart_events),"lock_prereq_causal_proven_events":int(causal_proven_events),
+            "lock_prereq_authority_dates":int(authority_dates),"lock_prereq_authority_complete_dates":int(authority_complete_dates),"lock_prereq_invariant_fail_rows":int(invariant_fail_rows),
+            **x,"research_only":True,"live_logic_changed":False,"real_order_changed":False,
+        })
+    meta={
+        "status":status,"digest":digest,"cutoff":cutoff,"primary_policy_id":payload["primary_policy_id"],"specs":specs,"prerequisites_ok":int(prerequisites_ok),
+        "parity_unexplained":int(parity_unexplained),"source_input_changed":int(source_input_changed),
+        "training_restart_events":int(training_restart_events),"causal_proven_events":int(causal_proven_events),
+        "authority_dates":int(authority_dates),"authority_complete_dates":int(authority_complete_dates),"invariant_fail_rows":int(invariant_fail_rows),
+    }
+    return pd.DataFrame(rows), meta
+
+
+def _forward_cache_dir(out: Path) -> Path:
+    # Reuse the already-persisted V20 Historical-AsOf cache root so GitHub Actions can
+    # resume the policy lock and forward ledger without any workflow/cache-path change.
+    p=Path(hist_asof._set_cache_root(out))/"v25_forward_oos"; p.mkdir(parents=True,exist_ok=True); return p
+
+
+def _read_csv_safe(p: Path) -> pd.DataFrame:
+    if not p.exists(): return pd.DataFrame()
+    try: return pd.read_csv(p, dtype={"code":str})
+    except Exception: return pd.DataFrame()
+
+
+def _write_csv_atomic(p: Path, df: pd.DataFrame) -> None:
+    p.parent.mkdir(parents=True,exist_ok=True); tmp=p.with_name(p.name+f".{os.getpid()}.tmp")
+    df.to_csv(tmp,index=False,encoding="utf-8-sig"); os.replace(tmp,p)
+
+
+def _is_final_forward_execution(status: Any) -> int:
+    return int(str(status or "") in {"STRUCTURE_STOP","PLUS5_FULL_EXIT","OBSERVATION_END","ENTRY_CANCEL_GAP_AT_OR_BELOW_STOP"})
+
+
+def _max_consecutive_losses(vals: pd.Series) -> int:
+    mx=cur=0
+    for v in pd.to_numeric(vals,errors="coerce").dropna():
+        if float(v)<0: cur+=1; mx=max(mx,cur)
+        else: cur=0
+    return int(mx)
+
+
+def _forward_oos_locked_ledgers(
+    out: Path, restart_df: pd.DataFrame, px_by_code: Dict[str,pd.DataFrame], cfg: thesis.Core224LifecycleConfig,
+    lock_df: pd.DataFrame, lock_meta: Dict[str,Any],
+) -> Tuple[pd.DataFrame,pd.DataFrame,pd.DataFrame,pd.DataFrame,Dict[str,Any]]:
+    """Persistent forward OOS/PAPER ledger after the frozen 2026-08-10 training cutoff.
+
+    Finalized historical outcomes are immutable.  Right-censored/open rows may update as new bars
+    arrive.  Authority can upgrade from unresolved to proven without rewriting the frozen price
+    outcome.  No policy is automatically selected/switchable based on this ledger.
+    """
+    status=str(lock_meta.get("status","")); cutoff=pd.to_datetime(lock_meta.get("cutoff"),errors="coerce")
+    if status!="LOCKED" or pd.isna(cutoff):
+        return pd.DataFrame(),pd.DataFrame(),pd.DataFrame(),pd.DataFrame(),{"status":"POLICY_LOCK_NOT_ACTIVE","events":0,"eligible":0,"finalized":0,"immutability_conflicts":0}
+    cutoff=pd.Timestamp(cutoff).normalize(); root=_forward_cache_dir(out)
+    event_cache=root/"forward_oos_event_ledger.csv"; policy_cache=root/"forward_oos_policy_ledger.csv"
+    r=restart_df.copy() if isinstance(restart_df,pd.DataFrame) else pd.DataFrame()
+    if not r.empty:
+        r["_signal_date"]=pd.to_datetime(r.get("restart_date",r.get("date")),errors="coerce").dt.normalize()
+        r=r[r["_signal_date"].gt(cutoff)].copy()
+    event_rows=[]; policy_rows=[]
+    specs=lock_meta.get("specs",[]) or []
+    for _,rr in r.iterrows():
+        rec=rr.to_dict(); code=_norm_code(rec.get("code","")); sig=rec.get("_signal_date")
+        eid=str(rec.get("event_id",rec.get("cycle_id","")) or f"{code}:{_fmt_date(sig)}")
+        proven=int(float(rec.get("daily_universe_membership_proven",0) or 0)==1)
+        event_rows.append({
+            "version":VERSION,"policy_lock_digest":lock_meta.get("digest",""),"event_id":eid,"cycle_id":rec.get("cycle_id",""),
+            "code":code,"name":rec.get("name",""),"signal_date":_fmt_date(sig),"training_cutoff_date":_fmt_date(cutoff),
+            "forward_oos":1,"daily_universe_membership_proven":proven,"daily_universe_authority":rec.get("daily_universe_authority",""),
+            "targeted_authority_class":rec.get("targeted_authority_class",""),"score_eligible":proven,
+            "authority_status":"PROVEN_CAUSAL" if proven else "AUTHORITY_PENDING_OR_UNRESOLVED","first_seen_version":VERSION,
+            "research_only":True,"paper_only":True,"real_order_changed":False,
+        })
+        px=px_by_code.get(code,pd.DataFrame())
+        if px is None or px.empty: continue
+        pb=thesis._low_between(px,rec.get("pullback_date"),rec.get("restart_date")); l0=pd.to_numeric(pd.Series([rec.get("l0_low")]),errors="coerce").iloc[0]; h1=pd.to_numeric(pd.Series([rec.get("h1_high")]),errors="coerce").iloc[0]
+        if pb is None or pd.isna(l0) or pd.isna(h1): continue
+        lenses=thesis._stop_lenses(float(l0),float(h1),float(pb),cfg)
+        for spec in specs:
+            lens=str(spec.get("stop_lens","")); stop=lenses.get(lens)
+            if stop is None: continue
+            sim=_simulate_execution_causality_one(rec,px,lens,float(stop),cfg,"D1_OPEN_CAUSAL","PLUS5_FULL_EXIT",float(spec.get("roundtrip_cost_bps",20.0)))
+            sim.update({
+                "policy_lock_digest":lock_meta.get("digest",""),"policy_id":spec.get("policy_id",""),"policy_role":spec.get("role",""),
+                "training_cutoff_date":_fmt_date(cutoff),"forward_oos":1,"score_eligible":proven,"paper_only":True,
+                "finalized":_is_final_forward_execution(sim.get("execution_status")),"auto_policy_switch":0,
+            })
+            policy_rows.append(sim)
+    cur_events=pd.DataFrame(event_rows); cur_policy=pd.DataFrame(policy_rows)
+    old_events=_read_csv_safe(event_cache); old_policy=_read_csv_safe(policy_cache); imm=[]
+
+    # Merge event authority monotonically; once proven, never downgrade.
+    if old_events.empty: merged_events=cur_events.copy()
+    elif cur_events.empty: merged_events=old_events.copy()
+    else:
+        om={str(x.get("event_id","")):x.to_dict() for _,x in old_events.iterrows()};
+        for _,x in cur_events.iterrows():
+            d=x.to_dict(); k=str(d.get("event_id","")); prev=om.get(k,{})
+            if prev:
+                d["first_seen_version"]=prev.get("first_seen_version",d.get("first_seen_version"))
+                if int(float(prev.get("daily_universe_membership_proven",0) or 0))==1:
+                    d["daily_universe_membership_proven"]=1; d["score_eligible"]=1; d["authority_status"]="PROVEN_CAUSAL"
+            om[k]={**prev,**d}
+        merged_events=pd.DataFrame(list(om.values()))
+
+    # Merge policy outcomes. Finalized price outcomes are immutable; authority eligibility may upgrade.
+    keycols=["policy_id","event_id"]
+    if old_policy.empty: merged_policy=cur_policy.copy()
+    elif cur_policy.empty: merged_policy=old_policy.copy()
+    else:
+        om={(str(x.get("policy_id","")),str(x.get("event_id",""))):x.to_dict() for _,x in old_policy.iterrows()}
+        critical=["entry_date","entry_price","stop_price","execution_status","exit_reason","exit_date","exit_price","net_r_multiple"]
+        for _,x in cur_policy.iterrows():
+            d=x.to_dict(); k=(str(d.get("policy_id","")),str(d.get("event_id",""))); prev=om.get(k)
+            if prev and int(float(prev.get("finalized",0) or 0))==1:
+                diffs=[]
+                numeric_critical={"entry_price","stop_price","exit_price","net_r_multiple"}
+                for c in critical:
+                    if c in numeric_critical:
+                        av=pd.to_numeric(pd.Series([prev.get(c)]),errors="coerce").iloc[0]; bv=pd.to_numeric(pd.Series([d.get(c)]),errors="coerce").iloc[0]
+                        if pd.isna(av) and pd.isna(bv):
+                            continue
+                        if pd.isna(av) != pd.isna(bv) or (pd.notna(av) and pd.notna(bv) and not np.isclose(float(av),float(bv),rtol=1e-10,atol=1e-12)):
+                            diffs.append(c)
+                    else:
+                        a=str(prev.get(c,"")); b=str(d.get(c,""))
+                        if a!=b: diffs.append(c)
+                if diffs:
+                    imm.append({"version":VERSION,"policy_id":k[0],"event_id":k[1],"conflict_columns":"|".join(diffs),"status":"FINALIZED_OUTCOME_IMMUTABILITY_CONFLICT","research_only":True})
+                # Preserve frozen result, but permit authority eligibility to upgrade.
+                kept=dict(prev)
+                kept["score_eligible"]=max(int(float(prev.get("score_eligible",0) or 0)),int(float(d.get("score_eligible",0) or 0)))
+                kept["daily_universe_membership_proven"]=max(int(float(prev.get("daily_universe_membership_proven",0) or 0)),int(float(d.get("daily_universe_membership_proven",0) or 0)))
+                om[k]=kept
+            else:
+                om[k]={**(prev or {}),**d}
+        merged_policy=pd.DataFrame(list(om.values()))
+    if not merged_events.empty: merged_events=merged_events.sort_values([c for c in ["signal_date","code","event_id"] if c in merged_events.columns],kind="stable")
+    if not merged_policy.empty: merged_policy=merged_policy.sort_values([c for c in ["signal_date","policy_role","policy_id","code"] if c in merged_policy.columns],kind="stable")
+    try:
+        _write_csv_atomic(event_cache,merged_events); _write_csv_atomic(policy_cache,merged_policy)
+    except Exception:
+        pass
+    imm_df=pd.DataFrame(imm)
+
+    sums=[]
+    if not merged_policy.empty:
+        for (pid,role),g in merged_policy.groupby(["policy_id","policy_role"],dropna=False):
+            elig=g[_num(g,"score_eligible",0).eq(1)].copy(); exe=elig[_num(elig,"trade_executed",0).eq(1)].copy(); fin=exe[_num(exe,"finalized",0).eq(1)].copy(); openq=exe[_num(exe,"finalized",0).ne(1)].copy()
+            nr=pd.to_numeric(fin.get("net_r_multiple"),errors="coerce") if not fin.empty else pd.Series(dtype=float)
+            order=fin.copy()
+            if not order.empty:
+                order["_sd"]=pd.to_datetime(order.get("signal_date"),errors="coerce"); order=order.sort_values(["_sd","event_id"],kind="stable"); seq=pd.to_numeric(order.get("net_r_multiple"),errors="coerce").fillna(0); cum=seq.cumsum(); dd=(cum.cummax()-cum); cumulative=float(cum.iloc[-1]) if len(cum) else 0.0; maxdd=float(dd.max()) if len(dd) else 0.0; maxloss=_max_consecutive_losses(seq)
+            else: cumulative=0.0; maxdd=0.0; maxloss=0
+            sums.append({
+                "version":VERSION,"policy_lock_digest":lock_meta.get("digest",""),"policy_id":pid,"policy_role":role,
+                "training_cutoff_date":_fmt_date(cutoff),"forward_events":len(g),"causal_eligible_events":len(elig),"executed_trades":len(exe),"finalized_trades":len(fin),"open_or_censored_trades":len(openq),
+                "plus5_exits":int(fin.get("execution_status",pd.Series(dtype=str)).astype(str).eq("PLUS5_FULL_EXIT").sum()) if not fin.empty else 0,
+                "structure_stops":int(fin.get("execution_status",pd.Series(dtype=str)).astype(str).eq("STRUCTURE_STOP").sum()) if not fin.empty else 0,
+                "positive_net_r_rate_pct":float((nr.dropna()>0).mean()*100.0) if nr.notna().any() else np.nan,
+                "mean_net_r":float(nr.mean()) if nr.notna().any() else np.nan,"median_net_r":float(nr.median()) if nr.notna().any() else np.nan,"trim10_net_r":_trimmed_mean(nr),
+                "cumulative_trade_sequence_r":cumulative,"max_drawdown_trade_sequence_r":maxdd,"max_consecutive_loss_trades":maxloss,
+                "median_mae_pct":float(pd.to_numeric(fin.get("mae_pct"),errors="coerce").median()) if not fin.empty else np.nan,"median_mfe_pct":float(pd.to_numeric(fin.get("mfe_pct"),errors="coerce").median()) if not fin.empty else np.nan,
+                "median_holding_days":float(pd.to_numeric(fin.get("holding_days"),errors="coerce").median()) if not fin.empty else np.nan,
+                "drawdown_definition":"TRADE_SEQUENCE_R_NOT_PORTFOLIO_DRAWDOWN","auto_policy_switch":0,"research_only":True,"paper_only":True,
+            })
+    summary=pd.DataFrame(sums)
+    evn=len(merged_events); eligible=int(_num(merged_events,"score_eligible",0).eq(1).sum()) if not merged_events.empty else 0; finalized=int(_num(merged_policy,"finalized",0).eq(1).sum()) if not merged_policy.empty else 0
+    primary=merged_policy[merged_policy.get("policy_role",pd.Series(dtype=str)).astype(str).eq("PRIMARY")].copy() if not merged_policy.empty else pd.DataFrame()
+    primary_finalized=int((_num(primary,"score_eligible",0).eq(1) & _num(primary,"trade_executed",0).eq(1) & _num(primary,"finalized",0).eq(1)).sum()) if not primary.empty else 0
+    if len(imm_df)>0: fstatus="INVALID_FORWARD_LEDGER_IMMUTABILITY_CONFLICT"
+    elif evn==0: fstatus="LOCKED_AWAITING_FORWARD_EVENTS"
+    elif eligible==0: fstatus="FORWARD_PAPER_AUTHORITY_PENDING"
+    elif primary_finalized<30: fstatus="FORWARD_OOS_WARMUP"
+    else: fstatus="FORWARD_OOS_ACTIVE_LOCKED"
+    meta={"status":fstatus,"events":evn,"eligible":eligible,"finalized":finalized,"primary_finalized":primary_finalized,"immutability_conflicts":len(imm_df)}
+    return merged_events,merged_policy,summary,imm_df,meta
 
 
 def _stop_lens_risk_tradeoff(risk_df: pd.DataFrame, path_summary: pd.DataFrame) -> pd.DataFrame:
@@ -1974,8 +2348,9 @@ def run_daily_episode_replay(output_dir: str | Path, state: pd.DataFrame) -> Dic
     unresolved_rootcause = _weekly_unresolved_rootcause(recon, seed_runtime, state_df, transition_df, out)
     context_parity = _context_parity_audit(recon, weekly_ledger, state_df, transition_df, seed_runtime, out)
     context_state_trace, context_state_trace_summary = _weekly_daily_full_state_trace(recon, state, seed_runtime, out, global_amount, st, en)
+    weekly_900bar_parity = _weekly_900bar_contract_parity(recon, state, out, global_amount)
 
-    # V25.4.5 Targeted Causal Authority: the RESTART set is frozen before any authority lookup.
+    # V25.4.6 Targeted Causal Authority: the RESTART set is frozen before any authority lookup.
     # This lane can only classify an already-found event; it cannot create/delete CORE224 signals.
     targeted_events, targeted_dates, targeted_meta = _targeted_authority_for_restarts(out, restart_df, px_by_code=px_follow_by_code)
     if not restart_df.empty and not targeted_events.empty:
@@ -2016,6 +2391,17 @@ def run_daily_episode_replay(output_dir: str | Path, state: pd.DataFrame) -> Dic
     stop_exit_policy_matrix = _stop_exit_policy_matrix(exit_shadow_summary)
     execution_causality_df, execution_causality_summary = _execution_causality_shadow(restart_df, px_follow_by_code, cfg_life)
     input_fingerprint = _input_fingerprint_regression(out, state, seed_runtime, state_df, transition_df, restart_df, price_fingerprint_parts, targeted_dates)
+    contract_explained_pre = int(_num(weekly_900bar_parity, "contract_explained", 0).eq(1).sum()) if not weekly_900bar_parity.empty else 0
+    weekly_unresolved_pre = int(recon.get("reconciliation_status", pd.Series(dtype=str)).astype(str).eq("WEEKLY_ONLY_UNRECONCILED").sum()) if not recon.empty else 0
+    parity_explained_pre = int(_num(context_parity, "explained", 0).eq(1).sum()) if not context_parity.empty else 0
+    policy_unexplained_pre = max(0, weekly_unresolved_pre - parity_explained_pre - contract_explained_pre)
+    source_input_changed_pre = int(_num(input_fingerprint, "source_input_changed", 0).sum()) if not input_fingerprint.empty else 0
+    policy_lock_manifest, policy_lock_meta = _policy_lock_manifest(
+        out, policy_unexplained_pre, source_input_changed_pre, len(restart_df),
+        int(_num(restart_df,"daily_universe_membership_proven",0).eq(1).sum()) if not restart_df.empty else 0,
+        int(targeted_meta.get("dates",0) or 0), int(targeted_meta.get("complete_dates",0) or 0), len(invariant_df),
+    )
+    forward_oos_events, forward_oos_policy, forward_oos_summary, forward_oos_immutability, forward_oos_meta = _forward_oos_locked_ledgers(out, restart_df, px_follow_by_code, cfg_life, policy_lock_manifest, policy_lock_meta)
     manual = _stratified_manual(restart_df, order_df, life_policy_df, recon, 60)
 
     raw_n = len(raw_restart_df); cycle_unique_n = len(cycle_restart_df); unique_n = len(restart_df)
@@ -2028,8 +2414,9 @@ def run_daily_episode_replay(output_dir: str | Path, state: pd.DataFrame) -> Dic
     targeted_cache_before = int(targeted_meta.get("cache_valid_before", 0) or 0); targeted_cache_after = int(targeted_meta.get("cache_valid_after", 0) or 0); targeted_new_cache = int(targeted_meta.get("new_valid_market_dates", 0) or 0); targeted_budget = int(targeted_meta.get("provider_call_budget", 0) or 0); targeted_budget_exhausted = int(targeted_meta.get("budget_exhausted", 0) or 0)
     weekly_exact = int(recon.get("reconciliation_status", pd.Series(dtype=str)).astype(str).eq("EXACT_DATE_MATCH").sum()) if not recon.empty else 0; weekly_shift = int(recon.get("reconciliation_status", pd.Series(dtype=str)).astype(str).eq("SAME_CYCLE_DATE_SHIFT").sum()) if not recon.empty else 0; weekly_unresolved = int(recon.get("reconciliation_status", pd.Series(dtype=str)).astype(str).eq("WEEKLY_ONLY_UNRECONCILED").sum()) if not recon.empty else 0
     weekly_explained = int(_num(context_parity, "explained", 0).eq(1).sum()) if not context_parity.empty else 0
-    weekly_unexplained = max(0, weekly_unresolved - weekly_explained)
-    weekly_reconciled = weekly_exact + weekly_shift + weekly_explained; authority_rate = exact_causal_n / max(1, unique_n); price_cache_coverage = evaluated / max(1, len(seeds))
+    weekly_contract_explained = int(_num(weekly_900bar_parity, "contract_explained", 0).eq(1).sum()) if not weekly_900bar_parity.empty else 0
+    weekly_unexplained = max(0, weekly_unresolved - weekly_explained - weekly_contract_explained)
+    weekly_reconciled = weekly_exact + weekly_shift + weekly_explained + weekly_contract_explained; authority_rate = exact_causal_n / max(1, unique_n); price_cache_coverage = evaluated / max(1, len(seeds))
     if len(seeds) == 0: status = "WARMUP_NO_WEEKLY_EPISODE_SEEDS"
     elif inv_fail: status = "INVALID_DAILY_SEQUENCE_INVARIANT"
     elif evaluated == 0: status = "INVALID_NO_PRICE_CACHE_EVALUATION"
@@ -2045,6 +2432,7 @@ def run_daily_episode_replay(output_dir: str | Path, state: pd.DataFrame) -> Dic
         "daily_state_rows": len(state_df), "daily_transition_rows": len(transition_df), "daily_invariant_fail_rows": inv_fail,
         "weekly_restart_cycles": len(weekly_ledger), "weekly_restart_exact_date_matches": weekly_exact, "weekly_restart_same_cycle_date_shifts": weekly_shift, "weekly_restart_explained_context_divergences": weekly_explained, "weekly_restart_reconciled": weekly_reconciled, "weekly_restart_unreconciled_raw": weekly_unresolved, "weekly_restart_unexplained": weekly_unexplained,
         "weekly_unresolved_rootcause_rows": len(unresolved_rootcause), "context_parity_rows": len(context_parity),
+        "weekly_restart_900bar_contract_explained": weekly_contract_explained, "weekly_900bar_parity_rows": len(weekly_900bar_parity),
         "context_state_trace_rows": len(context_state_trace), "context_state_trace_summary_rows": len(context_state_trace_summary),
         "raw_daily_restart_rows": raw_n, "cycle_first_restart_events": cycle_unique_n, "daily_restart_events": unique_n,
         "suppressed_repeat_restart_rows": suppressed_n, "episode_overlap_suppressed_events": overlap_suppressed_n, "episode_overlap_review_pairs": overlap_review_pairs,
@@ -2060,6 +2448,9 @@ def run_daily_episode_replay(output_dir: str | Path, state: pd.DataFrame) -> Dic
         "stop_exit_policy_matrix_rows": len(stop_exit_policy_matrix), "execution_causality_rows": len(execution_causality_df), "execution_causality_summary_rows": len(execution_causality_summary),
         "targeted_authority_class_summary_rows": len(targeted_authority_class_summary), "execution_roundtrip_cost_bps_assumption": _execution_cost_bps(),
         "input_fingerprint_changed_components": int(_num(input_fingerprint, "changed_vs_previous", 0).sum()) if not input_fingerprint.empty else 0,
+        "input_fingerprint_source_changed_components": int(_num(input_fingerprint, "source_input_changed", 0).sum()) if not input_fingerprint.empty else 0,
+        "policy_lock_status": str(policy_lock_meta.get("status","UNKNOWN")), "policy_lock_digest": str(policy_lock_meta.get("digest","")), "policy_lock_cutoff_date": str(policy_lock_meta.get("cutoff","")),
+        "forward_oos_status": str(forward_oos_meta.get("status","UNKNOWN")), "forward_oos_events": int(forward_oos_meta.get("events",0) or 0), "forward_oos_causal_eligible": int(forward_oos_meta.get("eligible",0) or 0), "forward_oos_finalized_policy_rows": int(forward_oos_meta.get("finalized",0) or 0), "forward_oos_primary_finalized_trades": int(forward_oos_meta.get("primary_finalized",0) or 0), "forward_oos_immutability_conflicts": int(forward_oos_meta.get("immutability_conflicts",0) or 0),
         "provider_calls": targeted_provider_calls, "core_daily_replay_provider_calls": 0, "close_times_volume_substitution": 0,
         "live_logic_changed": False, "real_order_changed": False, "research_only": True, "elapsed_sec": round(time.monotonic()-t0,3)
     }])
@@ -2067,13 +2458,14 @@ def run_daily_episode_replay(output_dir: str | Path, state: pd.DataFrame) -> Dic
     for fn, df in [
         (SEED_FILE, seed_runtime),(STATE_FILE,state_df),(TRANSITION_FILE,transition_df),(RAW_RESTART_FILE,raw_restart_df),(RESTART_FILE,restart_df),
         (DEDUP_AUDIT_FILE,dedup_audit),(EPISODE_OVERLAP_FILE,overlap_audit),(EPISODE_FAMILY_FILE,family_summary),(RECON_FILE,recon),(UNRESOLVED_ROOTCAUSE_FILE,unresolved_rootcause),(CONTEXT_PARITY_FILE,context_parity),
-        (CONTEXT_STATE_TRACE_FILE,context_state_trace),(CONTEXT_STATE_TRACE_SUMMARY_FILE,context_state_trace_summary),
+        (CONTEXT_STATE_TRACE_FILE,context_state_trace),(CONTEXT_STATE_TRACE_SUMMARY_FILE,context_state_trace_summary),(WEEKLY_900BAR_PARITY_FILE,weekly_900bar_parity),
         (TARGET_AUTHORITY_FILE,targeted_events),(TARGET_AUTHORITY_DATE_FILE,targeted_dates),(TARGET_AUTHORITY_CLASS_SUMMARY_FILE,targeted_authority_class_summary),(INPUT_FINGERPRINT_FILE,input_fingerprint),(INVARIANT_FILE,invariant_df),(MANUAL_FILE,manual),
         (LIFECYCLE_SIGNAL_FILE,life_signal_df),(LIFECYCLE_POLICY_FILE,life_policy_df),(LIFECYCLE_FILL_FILE,life_fill_df),(LIFECYCLE_HORIZON_FILE,life_horizon_df),(LIFECYCLE_STOP_FILE,life_stop),
         (ORDER_FILE,order_df),(ORDER_SUMMARY_FILE,order_summary),(PATH_CLASS_FILE,path_df),(PATH_CLASS_SUMMARY_FILE,path_summary),(STOP_LENS_PATH_COMPARE_FILE,stop_lens_compare),(STOP_LENS_RISK_TRADEOFF_FILE,stop_lens_risk_tradeoff),
         (SINGLE_POLICY_FILE,single_df),(RISK_PARITY_FILE,risk_df),(RISK_PARITY_SUMMARY_FILE,risk_summary),(RISK_PARITY_FILL_GROUP_FILE,risk_fill_group_summary),
         (EXIT_SHADOW_FILE,exit_shadow_df),(EXIT_SHADOW_SUMMARY_FILE,exit_shadow_summary),(STOP_EXIT_POLICY_MATRIX_FILE,stop_exit_policy_matrix),
-        (EXECUTION_CAUSALITY_FILE,execution_causality_df),(EXECUTION_CAUSALITY_SUMMARY_FILE,execution_causality_summary),(READINESS_FILE,readiness)
+        (EXECUTION_CAUSALITY_FILE,execution_causality_df),(EXECUTION_CAUSALITY_SUMMARY_FILE,execution_causality_summary),
+        (POLICY_LOCK_MANIFEST_FILE,policy_lock_manifest),(FORWARD_OOS_EVENT_FILE,forward_oos_events),(FORWARD_OOS_POLICY_FILE,forward_oos_policy),(FORWARD_OOS_SUMMARY_FILE,forward_oos_summary),(FORWARD_OOS_IMMUTABILITY_FILE,forward_oos_immutability),(READINESS_FILE,readiness)
     ]: _write_csv(out / fn, df)
 
     pb = life_stop[life_stop.get("stop_lens", pd.Series(dtype=str)).astype(str).eq("PB_LOW")].iloc[0] if not life_stop.empty and (life_stop.get("stop_lens", pd.Series(dtype=str)).astype(str)=="PB_LOW").any() else pd.Series(dtype=object)
@@ -2089,7 +2481,9 @@ def run_daily_episode_replay(output_dir: str | Path, state: pd.DataFrame) -> Dic
         f"🧵 unresolved full-state trace: {len(context_state_trace_summary)}건 · first-divergence exposed {int(context_state_trace_summary.get('trace_status',pd.Series(dtype=str)).astype(str).eq('FIRST_DIVERGENCE_EXPOSED').sum()) if not context_state_trace_summary.empty else 0} · 신호 강제 reconcile 0",
         f"📦 독립 RESTART {unique_n} 중 주간사이 복원 {recovered_n} · causal policy-proof {exact_causal_n}/{unique_n} · targeted window-complete {targeted_complete_dates}/{int(targeted_meta.get('dates',0) or 0)} · full-name-complete {targeted_full_name_complete_dates}/{int(targeted_meta.get('dates',0) or 0)}",
         f"♻️ targeted authority resume: cache {targeted_cache_before}→{targeted_cache_after} (+{targeted_new_cache}) · provider {targeted_provider_calls}/{targeted_budget} calls · errors {targeted_provider_errors} · budget_exhausted {targeted_budget_exhausted}",
-        f"🧬 입력 fingerprint: changed-components {int(_num(input_fingerprint, 'changed_vs_previous', 0).sum()) if not input_fingerprint.empty else 0} · 동일 종료일 재실행의 CORE/price/authority 입력 변화를 분리 기록",
+        f"🧬 입력 fingerprint: changed {int(_num(input_fingerprint, 'changed_vs_previous', 0).sum()) if not input_fingerprint.empty else 0} · source-changed {int(_num(input_fingerprint, 'source_input_changed', 0).sum()) if not input_fingerprint.empty else 0} · schema {FINGERPRINT_SCHEMA_VERSION}",
+        f"🔒 policy lock: {policy_lock_meta.get('status')} · cutoff {policy_lock_meta.get('cutoff')} · PRIMARY {policy_lock_meta.get('primary_policy_id')} · auto-switch 0",
+        f"🧪 forward OOS/PAPER: {forward_oos_meta.get('status')} · events {forward_oos_meta.get('events',0)} · causal-eligible {forward_oos_meta.get('eligible',0)} · PRIMARY-finalized {forward_oos_meta.get('primary_finalized',0)} · finalized-policy-rows {forward_oos_meta.get('finalized',0)} · immutability-conflict {forward_oos_meta.get('immutability_conflicts',0)}",
         f"🧪 daily lifecycle {len(life_signal_df)} · eligible {eligible_n} · 구조손절/30-30-40/20·40·60일 규칙 동일 · 조건 튜닝 0",
         "⚠️ targeted authority는 이미 고정된 RESTART만 분류하며 CORE224 신호를 만들거나 삭제하지 않습니다. NOT_IN_CAUSAL_UNIVERSE와 AUTHORITY_MISSING을 분리합니다.",
         "⚠️ 동일 일봉에서 stop과 목표가가 모두 닿을 수 있는 경우 전략결과는 기존대로 STOP_FIRST 보수처리하고 collision 원장에 별도 표시합니다.",
@@ -2101,6 +2495,13 @@ def run_daily_episode_replay(output_dir: str | Path, state: pd.DataFrame) -> Dic
     if not context_state_trace_summary.empty:
         for _, tr in context_state_trace_summary.iterrows():
             lines.append(f"🧵 divergence {tr.get('code')} {tr.get('weekly_restart_date')}: first {tr.get('first_divergence_date') or '-'} · weekly {tr.get('first_divergence_weekly_state') or '-'} ↔ daily {tr.get('first_divergence_daily_state') or '-'} · anchors {tr.get('first_divergence_anchor_match_count')}/{tr.get('first_divergence_anchor_present_count')}")
+    if not weekly_900bar_parity.empty:
+        for _, tr in weekly_900bar_parity.iterrows():
+            lines.append(f"🧷 weekly 900bar contract {tr.get('code')} {tr.get('weekly_restart_date')}: {tr.get('contract_status')} · weekly {tr.get('weekly_state','-')} ↔ contract {tr.get('contract_900bar_state','-')} · anchors {tr.get('anchor_match_count',0)}/{tr.get('anchor_present_count',0)} · bars {tr.get('contract_history_rows',0)}")
+    if not input_fingerprint.empty:
+        ch=input_fingerprint[_num(input_fingerprint,'changed_vs_previous',0).eq(1)]
+        mig=input_fingerprint[input_fingerprint.get('classification',pd.Series(dtype=str)).astype(str).eq('SCHEMA_MIGRATION_BASELINE')]
+        lines.append("🧬 fingerprint components changed: " + (", ".join(ch.get('component',pd.Series(dtype=str)).astype(str).tolist()) if not ch.empty else "NONE") + (f" · schema-migration-baseline {','.join(mig.get('component',pd.Series(dtype=str)).astype(str).tolist())}" if not mig.empty else ""))
     if not pb.empty: lines.append(f"🎯 Daily PB_LOW: n{int(pb.get('signals',0) or 0)} · 2차체결 {float(pb.get('entry2_fill_rate_pct',np.nan)):.1f}% · 3차체결 {float(pb.get('entry3_fill_rate_pct',np.nan)):.1f}% · 구조손절 {float(pb.get('structure_stop_rate_pct',np.nan)):.1f}%")
     if not pbo.empty: lines.append(f"⏱️ PB_LOW 선후: 평단회복-before-stop {float(pbo.get('avg_recovery_before_stop_pct',np.nan)):.1f}% · H1종가-before-stop {float(pbo.get('h1_close_before_stop_pct',np.nan)):.1f}% · +5고가-before-stop {float(pbo.get('profit5_high_before_stop_pct',np.nan)):.1f}% · same-day collision {float(pbo.get('same_day_collision_pct',np.nan)):.1f}%")
     if not pbr.empty: lines.append(f"⚖️ PB_LOW 동일 1R 진단: SINGLE 중앙R {float(pbr.get('median_single_r',np.nan)):+.2f} ↔ 30/30/40 중앙R {float(pbr.get('median_scale_r',np.nan)):+.2f} · scale-single {float(pbr.get('median_scale_minus_single_r',np.nan)):+.2f}R · 자동 정책선택 금지")
@@ -2144,9 +2545,12 @@ def run_daily_episode_replay(output_dir: str | Path, state: pd.DataFrame) -> Dic
             x=ex[ex.get("stop_lens",pd.Series(dtype=str)).astype(str).eq(lens)]
             if not x.empty:
                 r=x.iloc[0]; lines.append(f"🕘 CAUSAL D+1 OPEN {lens}/+5: exec {int(r.get('executed_trades',0) or 0)}/{int(r.get('signals',0) or 0)} · net medR {float(r.get('median_net_r',np.nan)):+.2f} · trim {float(r.get('trim10_net_r',np.nan)):+.2f} · 양수 {float(r.get('positive_net_r_rate_pct',np.nan)):.1f}% · gap-cancel {float(r.get('entry_cancel_gap_below_stop_rate_pct',np.nan)):.1f}% · cost {float(r.get('roundtrip_cost_bps_assumption',np.nan)):.0f}bp")
-    lines.append(f"⏱️ daily episode replay elapsed {time.monotonic()-t0:.1f}s"); lines.append(f"- CSV: {RESTART_FILE} · {UNRESOLVED_ROOTCAUSE_FILE} · {CONTEXT_STATE_TRACE_FILE} · {INPUT_FINGERPRINT_FILE} · {TARGET_AUTHORITY_CLASS_SUMMARY_FILE} · {STOP_EXIT_POLICY_MATRIX_FILE} · {EXECUTION_CAUSALITY_SUMMARY_FILE} · {READINESS_FILE}")
+    if not forward_oos_summary.empty:
+        for _,r in forward_oos_summary.iterrows():
+            lines.append(f"📈 FORWARD {r.get('policy_role')}/{r.get('policy_id')}: events {int(r.get('forward_events',0) or 0)} · eligible {int(r.get('causal_eligible_events',0) or 0)} · finalized {int(r.get('finalized_trades',0) or 0)} · medR {float(r.get('median_net_r',np.nan)):+.2f} · trim {float(r.get('trim10_net_r',np.nan)):+.2f} · cumR {float(r.get('cumulative_trade_sequence_r',0)):+.2f} · DD {float(r.get('max_drawdown_trade_sequence_r',0)):.2f}R")
+    lines.append(f"⏱️ daily episode replay elapsed {time.monotonic()-t0:.1f}s"); lines.append(f"- CSV: {RESTART_FILE} · {WEEKLY_900BAR_PARITY_FILE} · {INPUT_FINGERPRINT_FILE} · {POLICY_LOCK_MANIFEST_FILE} · {FORWARD_OOS_SUMMARY_FILE} · {EXECUTION_CAUSALITY_SUMMARY_FILE} · {READINESS_FILE}")
     report="\n".join(lines); (out/REPORT_FILE).write_text(report+"\n",encoding="utf-8")
-    return {"status":status,"seed":seed_runtime,"state":state_df,"transitions":transition_df,"raw_restarts":raw_restart_df,"cycle_restarts":cycle_restart_df,"restarts":restart_df,"dedup_audit":dedup_audit,"episode_overlap":overlap_audit,"episode_family":family_summary,"reconciliation":recon,"unresolved_rootcause":unresolved_rootcause,"context_parity":context_parity,"context_state_trace":context_state_trace,"context_state_trace_summary":context_state_trace_summary,"input_fingerprint":input_fingerprint,"targeted_authority":targeted_events,"targeted_authority_dates":targeted_dates,"targeted_authority_class_summary":targeted_authority_class_summary,"invariants":invariant_df,"manual":manual,"lifecycle_signal":life_signal_df,"lifecycle_policy":life_policy_df,"lifecycle_fill":life_fill_df,"lifecycle_horizon":life_horizon_df,"lifecycle_stop":life_stop,"event_order":order_df,"event_order_summary":order_summary,"path_class":path_df,"path_class_summary":path_summary,"stop_lens_path_compare":stop_lens_compare,"stop_lens_risk_tradeoff":stop_lens_risk_tradeoff,"single_policy":single_df,"risk_parity":risk_df,"risk_parity_summary":risk_summary,"risk_parity_fill_group_summary":risk_fill_group_summary,"exit_shadow":exit_shadow_df,"exit_shadow_summary":exit_shadow_summary,"stop_exit_policy_matrix":stop_exit_policy_matrix,"execution_causality":execution_causality_df,"execution_causality_summary":execution_causality_summary,"readiness":readiness,"report":report}
+    return {"status":status,"seed":seed_runtime,"state":state_df,"transitions":transition_df,"raw_restarts":raw_restart_df,"cycle_restarts":cycle_restart_df,"restarts":restart_df,"dedup_audit":dedup_audit,"episode_overlap":overlap_audit,"episode_family":family_summary,"reconciliation":recon,"unresolved_rootcause":unresolved_rootcause,"context_parity":context_parity,"context_state_trace":context_state_trace,"context_state_trace_summary":context_state_trace_summary,"weekly_900bar_parity":weekly_900bar_parity,"input_fingerprint":input_fingerprint,"policy_lock_manifest":policy_lock_manifest,"policy_lock_meta":policy_lock_meta,"forward_oos_events":forward_oos_events,"forward_oos_policy":forward_oos_policy,"forward_oos_summary":forward_oos_summary,"forward_oos_immutability":forward_oos_immutability,"forward_oos_meta":forward_oos_meta,"targeted_authority":targeted_events,"targeted_authority_dates":targeted_dates,"targeted_authority_class_summary":targeted_authority_class_summary,"invariants":invariant_df,"manual":manual,"lifecycle_signal":life_signal_df,"lifecycle_policy":life_policy_df,"lifecycle_fill":life_fill_df,"lifecycle_horizon":life_horizon_df,"lifecycle_stop":life_stop,"event_order":order_df,"event_order_summary":order_summary,"path_class":path_df,"path_class_summary":path_summary,"stop_lens_path_compare":stop_lens_compare,"stop_lens_risk_tradeoff":stop_lens_risk_tradeoff,"single_policy":single_df,"risk_parity":risk_df,"risk_parity_summary":risk_summary,"risk_parity_fill_group_summary":risk_fill_group_summary,"exit_shadow":exit_shadow_df,"exit_shadow_summary":exit_shadow_summary,"stop_exit_policy_matrix":stop_exit_policy_matrix,"execution_causality":execution_causality_df,"execution_causality_summary":execution_causality_summary,"readiness":readiness,"report":report}
 
 def force_report(output_dir: str | Path = "reports") -> str:
     p = Path(output_dir or "reports") / REPORT_FILE
