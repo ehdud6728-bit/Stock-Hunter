@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""V25.4.8 HF5-compatible lightweight ALL-cohort parent.
+"""V25.4.9 HF5-compatible lightweight ALL-cohort parent.
 
 Consumes the already materialized A/B/C/D V23 payloads and runs only the V23
 parent integrity report plus V25 CORE224 thesis/lifecycle finalization. It
@@ -25,7 +25,7 @@ import direct_replay_materialized_v23 as mat
 import original_thesis_reconstruction as thesis
 import v25_core224_daily_episode_replay as daily_replay
 
-VERSION = "V73.3.6.6.25.4.8-HF5COMPAT"
+VERSION = "V73.3.6.6.25.4.9-HF5COMPAT"
 AUDIT_FILE = "v73_v25_core224_only_parent_audit.csv"
 REPORT_FILE = "v73_v25_core224_only_parent_report.txt"
 HEADER = "⚡ [V25 ALL CORE224 LIGHTWEIGHT PARENT · RESEARCH_ONLY]"

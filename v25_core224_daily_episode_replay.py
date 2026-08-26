@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""V25.4.8 CORE224 daily episode replay (research-only, cache-first).
+"""V25.4.9 CORE224 daily episode replay (research-only, cache-first).
 
 Purpose
 -------
@@ -33,7 +33,7 @@ import pandas as pd
 import original_thesis_reconstruction as thesis
 import historical_asof_universe as hist_asof
 
-VERSION = "V73.3.6.6.25.4.8"
+VERSION = "V73.3.6.6.25.4.9"
 RESEARCH_ONLY = True
 LIVE_LOGIC_CHANGED = False
 REAL_ORDER_CHANGED = False
@@ -97,6 +97,10 @@ LIVE_BOARD_FILE = "v73_v25_core224_live_board.csv"
 LIVE_BOARD_TEXT_FILE = "v73_v25_core224_live_board.txt"
 D1_EXECUTION_BOARD_FILE = "v73_v25_core224_d1_execution_board.csv"
 D1_EXECUTION_BOARD_TEXT_FILE = "v73_v25_core224_d1_execution_board.txt"
+LIVE_SEED_CACHE_DIR = ".cache/v25_core224_live"
+LIVE_SEED_SNAPSHOT_FILE = "weekly_seed_snapshot.csv"
+LIVE_SEED_UNIVERSE_FILE = "seed_universe.csv"
+LIVE_SEED_META_FILE = "seed_meta.json"
 FINGERPRINT_SCHEMA_VERSION = "V25.4.7_CANONICAL_SEMANTIC_2"
 POLICY_LOCK_SCHEMA_VERSION = "V25.4.7_POLICY_LOCK_2"
 POLICY_LOCK_CUTOFF_DEFAULT = "2026-08-10"
@@ -2702,6 +2706,68 @@ def _path_classification(policy_df: pd.DataFrame, order_df: pd.DataFrame, out: P
     return df,pd.DataFrame(sums)
 
 
+def _persist_live_seed_snapshot(out: Path, state: pd.DataFrame, seeds: pd.DataFrame, weekly_seed_authority: pd.DataFrame, en: pd.Timestamp) -> Dict[str, Any]:
+    """Persist only the latest *known* weekly watch-list for the separate LIVE/PAPER runtime.
+
+    The finite backtest authority uses ``watch_end_exclusive=en+1`` for historical causality.
+    A live process has no future weekly snapshot yet, so the latest observed weekly snapshot is
+    exported with an open end and remains merely the *latest known* watch-list until a later
+    WEEKLY_BACKTEST refresh replaces it.  The LIVE runtime independently enforces staleness and
+    never treats this cache as a new signal source.
+    """
+    cache = out / LIVE_SEED_CACHE_DIR
+    cache.mkdir(parents=True, exist_ok=True)
+    sq = state.copy() if isinstance(state, pd.DataFrame) else pd.DataFrame()
+    latest = pd.NaT
+    if not sq.empty and "signal_date" in sq.columns:
+        ds = pd.to_datetime(sq["signal_date"], errors="coerce").dropna()
+        if len(ds): latest = pd.Timestamp(ds.max()).normalize()
+    wa = weekly_seed_authority.copy() if isinstance(weekly_seed_authority, pd.DataFrame) else pd.DataFrame()
+    if not wa.empty:
+        wa["signal_date"] = pd.to_datetime(wa.get("signal_date"), errors="coerce").dt.normalize()
+        if pd.isna(latest):
+            dd = wa["signal_date"].dropna()
+            latest = pd.Timestamp(dd.max()).normalize() if len(dd) else pd.NaT
+        wa = wa[wa["signal_date"].eq(latest)].copy() if pd.notna(latest) else wa.iloc[0:0].copy()
+        if not wa.empty:
+            wa["watch_start_date"] = pd.Timestamp(latest).strftime("%Y-%m-%d")
+            wa["watch_end_exclusive"] = ""
+            wa["live_latest_known_snapshot"] = 1
+            wa["live_runtime_policy_role"] = "CAUSAL_WATCHLIST_SEED_ONLY"
+    su = seeds.copy() if isinstance(seeds, pd.DataFrame) else pd.DataFrame()
+    if not su.empty:
+        su["code"] = su.get("code", pd.Series("", index=su.index)).map(_norm_code)
+        if not wa.empty:
+            active = set(wa.get("code", pd.Series(dtype=str)).map(_norm_code))
+            su = su[su["code"].isin(active)].copy()
+        else:
+            su = su.iloc[0:0].copy()
+    if not wa.empty:
+        wa.to_csv(cache / LIVE_SEED_SNAPSHOT_FILE, index=False, encoding="utf-8-sig")
+    else:
+        pd.DataFrame(columns=["version","signal_date","code","name","market","core224_state","weekly_seed_reason","watch_start_date","watch_end_exclusive"]).to_csv(cache / LIVE_SEED_SNAPSHOT_FILE,index=False,encoding="utf-8-sig")
+    su.to_csv(cache / LIVE_SEED_UNIVERSE_FILE, index=False, encoding="utf-8-sig")
+    codes = sorted(set(wa.get("code", pd.Series(dtype=str)).map(_norm_code))) if not wa.empty else []
+    raw = "|".join(codes).encode("utf-8")
+    meta = {
+        "version": VERSION,
+        "schema": "V25.4.9_LIVE_WEEKLY_SEED_SNAPSHOT_1",
+        "backtest_end_date": _fmt_date(en),
+        "weekly_snapshot_date": _fmt_date(latest),
+        "seed_count": len(codes),
+        "seed_code_sha256": hashlib.sha256(raw).hexdigest(),
+        "source": "WEEKLY_BACKTEST_LATEST_KNOWN_SNAPSHOT",
+        "causal_rule": "LIVE_MAY_USE_ONLY_LATEST_KNOWN_WEEKLY_SEED_UNTIL_REFRESH",
+        "research_only": True,
+        "live_score_rank_changed": False,
+        "real_order_changed": False,
+    }
+    tmp = cache / (LIVE_SEED_META_FILE + f".{os.getpid()}.tmp")
+    tmp.write_text(json.dumps(meta, ensure_ascii=False, sort_keys=True, indent=2), encoding="utf-8")
+    os.replace(tmp, cache / LIVE_SEED_META_FILE)
+    return meta
+
+
 def run_daily_episode_replay(output_dir: str | Path, state: pd.DataFrame, payloads: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
     t0 = time.monotonic(); out = Path(output_dir or "reports"); out.mkdir(parents=True, exist_ok=True)
     cohort, st, en = _cohort_bounds()
@@ -2766,6 +2832,7 @@ def run_daily_episode_replay(output_dir: str | Path, state: pd.DataFrame, payloa
 
     seed_runtime = pd.DataFrame(seed_runtime_rows); state_df = pd.concat(compact_states, ignore_index=True, sort=False) if compact_states else pd.DataFrame(); transition_df = pd.concat(transitions, ignore_index=True, sort=False) if transitions else pd.DataFrame(); invariant_df = pd.concat(invariants, ignore_index=True, sort=False) if invariants else pd.DataFrame()
     raw_restart_df = pd.DataFrame(raw_restart_rows)
+    live_seed_meta = _persist_live_seed_snapshot(out, state, seeds, weekly_seed_authority, en)
     if not raw_restart_df.empty:
         raw_restart_df["restart_date"] = pd.to_datetime(raw_restart_df["restart_date"], errors="coerce").dt.strftime("%Y-%m-%d"); raw_restart_df = raw_restart_df.sort_values(["restart_date", "code"], kind="stable")
     cycle_restart_df, dedup_audit = _dedupe_restart_events(raw_restart_df)
@@ -2945,6 +3012,8 @@ def run_daily_episode_replay(output_dir: str | Path, state: pd.DataFrame, payloa
         "input_fingerprint_source_changed_components": int(_num(input_fingerprint, "source_input_changed", 0).sum()) if not input_fingerprint.empty else 0,
         "policy_lock_status": str(policy_lock_meta.get("status","UNKNOWN")), "policy_lock_digest": str(policy_lock_meta.get("digest","")), "policy_lock_cutoff_date": str(policy_lock_meta.get("cutoff","")),
         "forward_oos_status": str(forward_oos_meta.get("status","UNKNOWN")), "forward_oos_events": int(forward_oos_meta.get("events",0) or 0), "forward_oos_causal_eligible": int(forward_oos_meta.get("eligible",0) or 0), "forward_oos_finalized_policy_rows": int(forward_oos_meta.get("finalized",0) or 0), "forward_oos_primary_finalized_trades": int(forward_oos_meta.get("primary_finalized",0) or 0), "forward_oos_immutability_conflicts": int(forward_oos_meta.get("immutability_conflicts",0) or 0),
+        "live_seed_snapshot_date": str(live_seed_meta.get("weekly_snapshot_date", "")),
+        "live_seed_snapshot_rows": int(live_seed_meta.get("seed_count", 0) or 0),
         "live_board_rows": len(live_board),
         "live_board_entry_review": int(live_board.get("section",pd.Series(dtype=str)).astype(str).eq("ENTRY_REVIEW").sum()) if not live_board.empty else 0,
         "live_board_restart_wait": int(live_board.get("section",pd.Series(dtype=str)).astype(str).eq("RESTART_WAIT").sum()) if not live_board.empty else 0,
@@ -2993,6 +3062,7 @@ def run_daily_episode_replay(output_dir: str | Path, state: pd.DataFrame, payloa
         f"🧬 입력 fingerprint: changed {int(_num(input_fingerprint, 'changed_vs_previous', 0).sum()) if not input_fingerprint.empty else 0} · source-changed {int(_num(input_fingerprint, 'source_input_changed', 0).sum()) if not input_fingerprint.empty else 0} · schema {FINGERPRINT_SCHEMA_VERSION}",
         f"🔒 policy lock: {policy_lock_meta.get('status')} · cutoff {policy_lock_meta.get('cutoff')} · PRIMARY {policy_lock_meta.get('primary_policy_id')} · auto-switch 0",
         f"🧪 forward OOS/PAPER: {forward_oos_meta.get('status')} · events {forward_oos_meta.get('events',0)} · causal-eligible {forward_oos_meta.get('eligible',0)} · PRIMARY-finalized {forward_oos_meta.get('primary_finalized',0)} · finalized-policy-rows {forward_oos_meta.get('finalized',0)} · immutability-conflict {forward_oos_meta.get('immutability_conflicts',0)}",
+        f"🛰️ LIVE seed cache: latest-weekly {live_seed_meta.get('weekly_snapshot_date','-')} · active {int(live_seed_meta.get('seed_count',0) or 0)} · next LIVE는 이 snapshot 이후만 증분평가",
         f"🚦 LIVE BOARD: entry-review {int(live_board.get('section',pd.Series(dtype=str)).astype(str).eq('ENTRY_REVIEW').sum()) if not live_board.empty else 0} · restart-wait {int(live_board.get('section',pd.Series(dtype=str)).astype(str).eq('RESTART_WAIT').sum()) if not live_board.empty else 0} · initial {int(live_board.get('section',pd.Series(dtype=str)).astype(str).eq('INITIAL_WATCH').sum()) if not live_board.empty else 0} · base {int(live_board.get('section',pd.Series(dtype=str)).astype(str).eq('BASE_WATCH').sum()) if not live_board.empty else 0} · excluded-restart {int(live_board.get('section',pd.Series(dtype=str)).astype(str).eq('EXCLUDED_RESTART').sum()) if not live_board.empty else 0} · D+1 rows {len(d1_execution_board)}",
         f"🧪 daily lifecycle {len(life_signal_df)} · eligible {eligible_n} · 구조손절/30-30-40/20·40·60일 규칙 동일 · 조건 튜닝 0",
         "⚠️ targeted authority는 이미 고정된 RESTART만 분류하며 CORE224 신호를 만들거나 삭제하지 않습니다. NOT_IN_CAUSAL_UNIVERSE와 AUTHORITY_MISSING을 분리합니다.",

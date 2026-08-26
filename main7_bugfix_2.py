@@ -94560,6 +94560,59 @@ _V7336625_RELEASE_MARKER = {
 }
 # ✅ END V73.3.6.6.25.3.1 ORIGINAL THESIS + ALL AUTO COHORT + STRUCTURAL SCALE-IN LIFECYCLE
 
+# ============================================================
+# ✅ V73.3.6.6.25.4.9 CORE224 LIVE/PAPER RUNTIME BRIDGE
+# - Existing V72 LIVE scanner remains untouched.
+# - This hook only renders the locked CORE224 watch/EOD/D+1 PAPER board.
+# - Before 15:40 KST it uses completed bars only; EOD FINAL requires actual Amount.
+# - No score/rank/order mutation and no real-order API call.
+# ============================================================
+_V2549_LIVE_VERSION = 'V73.3.6.6.25.4.9'
+_V2549_LIVE_HOOK_RAN = False
+
+def _v2549_core224_live_hook(send_report=True):
+    global _V2549_LIVE_HOOK_RAN
+    if _V2549_LIVE_HOOK_RAN:
+        return {'status':'ALREADY_RAN','report':''}
+    if not _v1080_env_on('V25_CORE224_LIVE_ENABLE','1'):
+        return {'status':'DISABLED','report':''}
+    _V2549_LIVE_HOOK_RAN = True
+    try:
+        import v25_core224_live_runtime as _v2549_live
+        outdir=os.environ.get('V1080_BACKTEST_OUTPUT_DIR','reports')
+        codes=_v2549_live.seed_codes(outdir)
+        snap=pd.DataFrame()
+        # Naver is used only for today's observed D+1 OPEN. It is never used to finalize CORE224.
+        if codes and callable(globals().get('_v7226_naver_batch_snapshot')):
+            try:
+                meta=pd.DataFrame({'Code':codes,'Name':codes,'Market':'','Sector':'','Industry':''})
+                if callable(globals().get('_v7224_load_listing_meta')):
+                    lm=_v7224_load_listing_meta()
+                    if isinstance(lm,pd.DataFrame) and not lm.empty:
+                        lm=lm.copy(); lm['Code']=lm['Code'].map(_v7224_code) if callable(globals().get('_v7224_code')) else lm['Code'].astype(str).str.zfill(6)
+                        hit=lm[lm['Code'].isin(set(codes))].copy()
+                        if not hit.empty: meta=hit
+                snap=_v7226_naver_batch_snapshot(meta)
+            except Exception as _v2549_snap_e:
+                try: log_info(f'⚠️ V25.4.9 D+1 open snapshot unavailable: {type(_v2549_snap_e).__name__}:{_v2549_snap_e}')
+                except Exception: pass
+        res=_v2549_live.run_core224_live_runtime(output_dir=outdir,intraday_snapshot=snap)
+        report=str(res.get('report','') or '')
+        if report:
+            print(report)
+            if send_report:
+                send_telegram_chunks(report,max_len=3500)
+        return res
+    except Exception as exc:
+        msg=(f'🚦 [CORE224 LIVE BOARD · RESEARCH/PAPER]\n📌 {_V2549_LIVE_VERSION} · status=INVALID_LIVE_RUNTIME_BRIDGE\n'
+             f'⛔ {type(exc).__name__}: {exc}\n🔒 기존 LIVE 점수·랭크·주문 변경 0')
+        try:
+            log_error(msg)
+            if send_report: send_telegram_chunks(msg,max_len=3500)
+        except Exception: pass
+        return {'status':'INVALID_LIVE_RUNTIME_BRIDGE','report':msg}
+
+
 if __name__ == "__main__":
     # V73.3.6.6.23 matrix shard worker: materialized per-date results; no Telegram/Sheet/LIVE side effects.
     if _v1080_env_on('V23_SHARD_WORKER_ONLY','0'):
@@ -94568,6 +94621,11 @@ if __name__ == "__main__":
     # Legacy V22 worker remains available for rollback/testing only.
     if _v1080_env_on('V22_SHARD_WORKER_ONLY','0'):
         sys.exit(_v7336622_run_shard_worker())
+
+    # V25.4.9 dedicated lightweight CORE224 LIVE/PAPER board. No legacy scanner recompute.
+    if _v1080_env_on('STOCKHUNTER_CORE224_LIVE_ONLY','0') or '--core224-live' in sys.argv:
+        _v2549_res=_v2549_core224_live_hook(send_report=True)
+        sys.exit(0 if str(_v2549_res.get('status','')).startswith(('PASS','NEEDS_','SEED_','EOD_DATA_PENDING','NO_COMPLETED')) else 76)
 
     # V73.3.6.5 dedicated HAM 15:03 RESEARCH_ONLY capture. Must exit before any LIVE scanner code.
     _v73365_ham_only = _v7224_on('STOCKHUNTER_HAM_1503_ONLY','0') or '--ham-1503-research' in sys.argv
@@ -94658,6 +94716,9 @@ if __name__ == "__main__":
         except Exception as _v7224_send_e:
             try: log_error(f'⚠️ V72.29 09:30 텔레그램 전송 실패: {_v7224_send_e}')
             except Exception: pass
+        try:
+            _v2549_core224_live_hook(send_report=True)
+        except Exception: pass
         sys.exit(0)
 
     if _v1080_env_on('STOCKHUNTER_WEEKLY_BACKTEST_ONLY', '0') or '--weekly-backtest' in sys.argv:
@@ -95937,6 +95998,14 @@ if __name__ == "__main__":
                 send_telegram_chunks(_v733661_shadow,max_len=3500)
     except Exception as _v733661_shadow_e:
         try: log_error(f'⚠️ V73.3.6.6.2 closing pattern/score/AI shadow 생성 실패: {type(_v733661_shadow_e).__name__}: {_v733661_shadow_e}')
+        except Exception: pass
+
+    # ✅ V25.4.9: ordinary LIVE profiles also append the separate CORE224 PAPER board.
+    # The dedicated 15:45 profile uses the early CORE224_LIVE_ONLY branch and skips legacy work.
+    try:
+        _v2549_core224_live_hook(send_report=True)
+    except Exception as _v2549_hook_e:
+        try: log_error(f'⚠️ V25.4.9 CORE224 LIVE hook failed: {type(_v2549_hook_e).__name__}: {_v2549_hook_e}')
         except Exception: pass
 
     # ✅ V1047: 빠른 모드 종료 지점을 여기로 이동
