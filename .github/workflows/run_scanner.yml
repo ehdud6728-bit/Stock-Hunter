@@ -2897,6 +2897,34 @@ jobs:
             python -u "${SCRIPT}"
           fi
 
+      - name: Build current CORE224 LIVE seed snapshot (no hold horizon)
+        if: success() && env.STOCKHUNTER_WEEKLY_BACKTEST_ONLY == '1' && env.V1081_BACKTEST_SOURCE == 'DIRECT_REPLAY'
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "V25_CURRENT_LIVE_SEED_BUILD start end=${V25_TWO_YEAR_END_DATE} historical_hold=${V1080_BACKTEST_HOLD_DAYS}"
+          rm -rf reports/v25_live_seed_build
+          mkdir -p reports/v25_live_seed_build reports/.cache/v25_core224_live
+          rm -f reports/.cache/v25_core224_live/seed_meta.json reports/.cache/v25_core224_live/weekly_seed_snapshot.csv reports/.cache/v25_core224_live/seed_universe.csv
+          env \
+            V1080_BACKTEST_OUTPUT_DIR=reports/v25_live_seed_build \
+            V1080_BACKTEST_HOLD_DAYS=0 \
+            V1080_BACKTEST_WEEKS=1 \
+            V1081_DIRECT_MAX_DATES=1 \
+            V23_SHARD_COUNT=1 \
+            V23_SHARD_INDEX=0 \
+            V23_SHARD_WORKER_ONLY=1 \
+            V23_MERGE_ONLY_PARENT=0 \
+            V23_MATERIALIZED_DIR=reports/v25_live_seed_build/v23_materialized \
+            V25_COHORT_MODE=D \
+            python -u "${SCRIPT}"
+          python -u v25_core224_live_seed_builder.py \
+            --source-dir reports/v25_live_seed_build \
+            --output-dir reports \
+            --expected-end "${V25_TWO_YEAR_END_DATE}"
+          test -f reports/.cache/v25_core224_live/seed_meta.json
+          python -c "import json; d=json.load(open('reports/.cache/v25_core224_live/seed_meta.json',encoding='utf-8')); print('V25_CURRENT_LIVE_SEED_BUILD','snapshot',d.get('weekly_snapshot_date','-'),'seed_count',d.get('seed_count',0),'source',d.get('source','-'),'policy_lock',d.get('policy_lock_status','-')); assert d.get('source')=='CURRENT_NO_HOLD_TOP500_MATERIALIZED_V23'; assert int(d.get('snapshot_calendar_complete',0))==1"
+
       - name: Save CORE224 live state overlay
         if: always() && env.STOCKHUNTER_WEEKLY_BACKTEST_ONLY != '1' && hashFiles('reports/.cache/v25_core224_live/seed_meta.json') != ''
         uses: actions/cache/save@v4
