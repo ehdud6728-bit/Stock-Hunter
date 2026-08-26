@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""V25.4.10 CORE224 daily episode replay (research-only, cache-first).
+"""V25.4.11 CORE224 daily episode replay (research-only, cache-first).
 
 Purpose
 -------
@@ -33,7 +33,7 @@ import pandas as pd
 import original_thesis_reconstruction as thesis
 import historical_asof_universe as hist_asof
 
-VERSION = "V73.3.6.6.25.4.10"
+VERSION = "V73.3.6.6.25.4.11"
 RESEARCH_ONLY = True
 LIVE_LOGIC_CHANGED = False
 REAL_ORDER_CHANGED = False
@@ -97,7 +97,7 @@ LIVE_BOARD_FILE = "v73_v25_core224_live_board.csv"
 LIVE_BOARD_TEXT_FILE = "v73_v25_core224_live_board.txt"
 D1_EXECUTION_BOARD_FILE = "v73_v25_core224_d1_execution_board.csv"
 D1_EXECUTION_BOARD_TEXT_FILE = "v73_v25_core224_d1_execution_board.txt"
-LIVE_SEED_CACHE_DIR = ".cache/v25_core224_live"
+LIVE_SEED_CACHE_DIR = ".cache/v25_core224_backtest_seed"
 LIVE_SEED_SNAPSHOT_FILE = "weekly_seed_snapshot.csv"
 LIVE_SEED_UNIVERSE_FILE = "seed_universe.csv"
 LIVE_SEED_META_FILE = "seed_meta.json"
@@ -2915,7 +2915,7 @@ def _persist_live_seed_snapshot(
     raw = "|".join(codes).encode("utf-8")
     meta = {
         "version": VERSION,
-        "schema": "V25.4.10_LIVE_WEEKLY_SEED_SNAPSHOT_2",
+        "schema": "V25.4.11_BACKTEST_EVALUABLE_WEEKLY_SEED_1",
         "backtest_end_date": _fmt_date(en),
         "weekly_snapshot_date": _fmt_date(latest),
         "seed_count": len(codes),
@@ -2924,8 +2924,8 @@ def _persist_live_seed_snapshot(
         "snapshot_calendar_complete": int(calmeta.get("complete", 0) or 0),
         "snapshot_calendar_count": int(calmeta.get("snapshot_count", len(cal)) or len(cal)),
         "snapshot_calendar_empty_count": int(calmeta.get("empty_snapshot_count", 0) or 0),
-        "source": "WEEKLY_BACKTEST_LATEST_SCHEDULED_SNAPSHOT",
-        "causal_rule": "LIVE_MAY_USE_ONLY_LATEST_SCHEDULED_WEEKLY_SEED_UNTIL_REFRESH;EMPTY_SNAPSHOT_CLEARS_PRIOR_SEEDS",
+        "source": "BACKTEST_EVALUABLE_SNAPSHOT_HOLD_HORIZON_NOT_LIVE_AUTHORITY",
+        "causal_rule": "HISTORICAL_POLICY_AUDIT_ONLY;BACKTEST_HOLD_HORIZON_APPLIES;NOT_LIVE_SEED_AUTHORITY",
         "research_only": True,
         "live_score_rank_changed": False,
         "real_order_changed": False,
@@ -3231,7 +3231,7 @@ def run_daily_episode_replay(output_dir: str | Path, state: pd.DataFrame, payloa
         f"🧭 seed {len(seeds)}종목 → daily 평가 {evaluated} · 가격cache 누락 {price_missing} · actual Amount 20일-ready 종목 {amount_ready_codes}",
         f"🔁 RESTART raw {raw_n} → cycle-first {cycle_unique_n} → episode-independent {unique_n} · exact-cycle 반복억제 {suppressed_n} · overlap 자동억제 {overlap_suppressed_n} · overlap REVIEW {overlap_review_pairs}",
         f"🔗 weekly↔daily: exact {weekly_exact}/{len(weekly_ledger)} · same-cycle shift {weekly_shift} · exact-shard lane-explained {weekly_exact_shard_lane_explained} · unexplained {weekly_unexplained} · legacy-context {weekly_explained} · rootcause {rootcause_text}",
-        f"🗓️ weekly snapshot calendar: {int(snapshot_calendar_meta.get('snapshot_count',0) or 0)}일 · latest {snapshot_calendar_meta.get('latest_snapshot_date','-')} · empty {int(snapshot_calendar_meta.get('empty_snapshot_count',0) or 0)} · authority {'PASS' if int(snapshot_calendar_meta.get('complete',0) or 0)==1 else 'UNPROVEN'} · source {snapshot_calendar_meta.get('source','-')}",
+        f"🗓️ backtest-evaluable weekly calendar: {int(snapshot_calendar_meta.get('snapshot_count',0) or 0)}일 · latest {snapshot_calendar_meta.get('latest_snapshot_date','-')} · hold {int(float(os.getenv('V1080_BACKTEST_HOLD_DAYS','10')))}D · empty {int(snapshot_calendar_meta.get('empty_snapshot_count',0) or 0)} · authority {'PASS' if int(snapshot_calendar_meta.get('complete',0) or 0)==1 else 'UNPROVEN'} · source {snapshot_calendar_meta.get('source','-')}",
         f"🛂 weekly-seed causal gate: active {int(_num(restart_df,'weekly_seed_causal_eligible',0).eq(1).sum()) if not restart_df.empty else 0}/{unique_n} · retrospective-only excluded {int(_num(restart_df,'weekly_seed_causal_eligible',0).ne(1).sum()) if not restart_df.empty else 0} · universe proven {exact_causal_n} · strict policy-training {int(_num(restart_df,'policy_training_eligible',0).eq(1).sum()) if not restart_df.empty else 0} · cutoff-train strict {training_policy_eligible}/{training_restart_events}",
         f"🧷 exact shard RESTART input proof: pass {exact_shard_replay_pass}/{len(weekly_ledger)} · cross-lane explained {exact_shard_cross_lane_explained} (unresolved {weekly_exact_shard_lane_explained}) · same-input nondeterminism {exact_shard_same_input_nondeterminism}",
         f"🧵 unresolved full-state trace: {len(context_state_trace_summary)}건 · first-divergence exposed {int(context_state_trace_summary.get('trace_status',pd.Series(dtype=str)).astype(str).eq('FIRST_DIVERGENCE_EXPOSED').sum()) if not context_state_trace_summary.empty else 0} · 신호 강제 reconcile 0",
@@ -3240,7 +3240,7 @@ def run_daily_episode_replay(output_dir: str | Path, state: pd.DataFrame, payloa
         f"🧬 입력 fingerprint: changed {int(_num(input_fingerprint, 'changed_vs_previous', 0).sum()) if not input_fingerprint.empty else 0} · source-changed {int(_num(input_fingerprint, 'source_input_changed', 0).sum()) if not input_fingerprint.empty else 0} · schema {FINGERPRINT_SCHEMA_VERSION}",
         f"🔒 policy lock: {policy_lock_meta.get('status')} · cutoff {policy_lock_meta.get('cutoff')} · PRIMARY {policy_lock_meta.get('primary_policy_id')} · migration {policy_lock_meta.get('migration_status','NONE')} · auto-switch 0",
         f"🧪 forward OOS/PAPER: {forward_oos_meta.get('status')} · events {forward_oos_meta.get('events',0)} · causal-eligible {forward_oos_meta.get('eligible',0)} · PRIMARY-finalized {forward_oos_meta.get('primary_finalized',0)} · finalized-policy-rows {forward_oos_meta.get('finalized',0)} · immutability-conflict {forward_oos_meta.get('immutability_conflicts',0)}",
-        f"🛰️ LIVE seed cache: latest-scheduled {live_seed_meta.get('weekly_snapshot_date','-')} · active {int(live_seed_meta.get('seed_count',0) or 0)} · calendar {'PASS' if int(live_seed_meta.get('snapshot_calendar_complete',0) or 0)==1 else 'UNPROVEN'} · empty snapshot이면 이전 seed 자동해제",
+        f"🧪 backtest seed horizon: latest-evaluable {live_seed_meta.get('weekly_snapshot_date','-')} · active {int(live_seed_meta.get('seed_count',0) or 0)} · LIVE authority 아님 · current LIVE seed는 no-hold snapshot builder가 별도 생성",
         f"🚦 LIVE BOARD: entry-review {int(live_board.get('section',pd.Series(dtype=str)).astype(str).eq('ENTRY_REVIEW').sum()) if not live_board.empty else 0} · restart-wait {int(live_board.get('section',pd.Series(dtype=str)).astype(str).eq('RESTART_WAIT').sum()) if not live_board.empty else 0} · initial {int(live_board.get('section',pd.Series(dtype=str)).astype(str).eq('INITIAL_WATCH').sum()) if not live_board.empty else 0} · base {int(live_board.get('section',pd.Series(dtype=str)).astype(str).eq('BASE_WATCH').sum()) if not live_board.empty else 0} · excluded-restart {int(live_board.get('section',pd.Series(dtype=str)).astype(str).eq('EXCLUDED_RESTART').sum()) if not live_board.empty else 0} · D+1 rows {len(d1_execution_board)}",
         f"🧪 daily lifecycle {len(life_signal_df)} · eligible {eligible_n} · 구조손절/30-30-40/20·40·60일 규칙 동일 · 조건 튜닝 0",
         "⚠️ targeted authority는 이미 고정된 RESTART만 분류하며 CORE224 신호를 만들거나 삭제하지 않습니다. NOT_IN_CAUSAL_UNIVERSE와 AUTHORITY_MISSING을 분리합니다.",

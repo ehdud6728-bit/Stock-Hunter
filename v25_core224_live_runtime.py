@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-"""V25.4.10 CORE224 LIVE/PAPER runtime bridge.
+"""V25.4.11 CORE224 LIVE/PAPER runtime bridge.
 
 This module is a presentation/execution-audit bridge for the already locked CORE224 policy.
 It does NOT create a new strategy, score, rank, live order, or return-tuned threshold.
 
 Authority model
 ---------------
-* Weekly watch-list comes only from the latest WEEKLY_BACKTEST snapshot persisted by
-  ``v25_core224_daily_episode_replay.py``.  The snapshot expires if it becomes stale.
+* Weekly watch-list comes only from the dedicated current no-hold materialized snapshot
+  built after WEEKLY_BACKTEST. Historical outcome-hold dates are never reused as LIVE freshness authority.
 * Daily CORE224 state uses the same ``original_thesis_reconstruction.evaluate_core224``
   evaluator and verified trading value only.  Close*Volume is never used as Amount.
 * Signal-date universe membership is reconstructed with the existing
@@ -35,7 +35,7 @@ import pandas as pd
 import original_thesis_reconstruction as thesis
 import v25_core224_daily_episode_replay as daily
 
-VERSION = "V73.3.6.6.25.4.10"
+VERSION = "V73.3.6.6.25.4.11"
 RESEARCH_ONLY = True
 LIVE_LOGIC_CHANGED = False
 REAL_ORDER_CHANGED = False
@@ -464,7 +464,7 @@ def _normalize_intraday_snapshot(df: Optional[pd.DataFrame]) -> pd.DataFrame:
     return z
 
 
-def _build_d1_board(output_dir: str | Path, today: pd.Timestamp, prior_asof: Optional[pd.Timestamp], intraday_snapshot: Optional[pd.DataFrame], eod_today: Optional[pd.DataFrame]) -> pd.DataFrame:
+def _build_d1_board(output_dir: str | Path, today: pd.Timestamp, prior_asof: Optional[pd.Timestamp], intraday_snapshot: Optional[pd.DataFrame], eod_today: Optional[pd.DataFrame], policy_locked: bool = False) -> pd.DataFrame:
     cols = ["version","asof_date","code","name","restart_date","weekly_seed_active","daily_universe_membership_proven","amount_authority_pass","fib61_8_stop","d1_open","paper_action","target_plus5","execution_authority","research_only","paper_only"]
     if prior_asof is None: return pd.DataFrame(columns=cols)
     led = _read_csv(_cache(output_dir) / RESTART_LEDGER_FILE)
@@ -484,6 +484,7 @@ def _build_d1_board(output_dir: str | Path, today: pd.Timestamp, prior_asof: Opt
         code = _norm_code(r.get("code", "")); op = _num(sm.get(code)); stop = _num(r.get("fib61_8_stop"))
         weekly = int(float(r.get("weekly_seed_active", 0) or 0) == 1); proven = int(float(r.get("daily_universe_membership_proven", 0) or 0) == 1); amt = int(float(r.get("amount_authority_pass", 0) or 0) == 1)
         if not np.isfinite(op): action = "WAIT_CURRENT_OPEN"
+        elif not policy_locked: action = "PAPER_ONLY_POLICY_LOCK_NOT_ACTIVE"
         elif not (weekly and proven and amt and np.isfinite(stop)): action = "PAPER_ONLY_AUTHORITY_FAIL"
         elif op <= stop: action = "ENTRY_CANCEL_OPEN_AT_OR_BELOW_STOP"
         else: action = "PAPER_ENTRY_AT_D1_OPEN"
@@ -498,14 +499,17 @@ def _render_runtime_report(mode: str, status: str, today: pd.Timestamp, asof: Op
     lines = [
         HEADER,
         f"📌 {VERSION} · mode={mode} · status={status} · 자동주문 0 · LIVE점수/랭크 변경 0",
-        f"🛰️ weekly seed: {seed_meta.get('weekly_snapshot_date','-')} · age {seed_age_days}일 · active-cache {int(seed_meta.get('seed_count',0) or 0)} · calendar {'PASS' if int(seed_meta.get('snapshot_calendar_complete',0) or 0)==1 else 'UNPROVEN'} · {'STALE/BLOCK' if seed_stale else 'FRESH'}",
+        f"🛰️ current weekly seed: {seed_meta.get('weekly_snapshot_date','-')} · age {seed_age_days}일 · active-cache {int(seed_meta.get('seed_count',0) or 0)} · authority {'PASS' if int(seed_meta.get('snapshot_calendar_complete',0) or 0)==1 else 'UNPROVEN'} · {'STALE/BLOCK' if seed_stale else 'FRESH'} · source {seed_meta.get('source','-')}",
+        f"🔒 policy lock: {seed_meta.get('policy_lock_status','MISSING')} · PRIMARY {seed_meta.get('primary_policy_id','PRIMARY_FIB618_PLUS5_D1')}",
         f"📅 평가 completed-bar: {_fmt_date(asof) if asof is not None else '-'} · today {today.strftime('%Y-%m-%d')} · universe {universe_status or 'NOT_REQUIRED'}",
         f"🧪 evaluator: codes {eval_meta.get('codes',0)} · pass {eval_meta.get('evaluated',0)} · Amount20-ready {eval_meta.get('amount_ready',0)} · price-missing {eval_meta.get('price_missing',0)} · invariant {eval_meta.get('invariant_fail',0)}",
     ]
     if int(seed_meta.get('snapshot_calendar_complete',0) or 0) != 1:
         lines.append("⛔ Weekly snapshot calendar authority가 불완전하여 신규 진입 gate를 차단합니다. COMPLETE_HANDOFF selected_dates가 필요합니다.")
     if seed_stale:
-        lines.append("⛔ 최신 Weekly Seed snapshot이 오래되어 신규 RESTART 진입 gate를 차단합니다. WEEKLY_BACKTEST로 seed snapshot을 갱신하세요.")
+        lines.append("⛔ 최신 Weekly Seed snapshot이 오래되어 신규 RESTART 진입 gate를 차단합니다. WEEKLY_BACKTEST current no-hold seed build로 갱신하세요.")
+    if str(seed_meta.get('policy_lock_status','')) != 'LOCKED':
+        lines.append("⛔ Policy Lock이 활성화되지 않았습니다. CORE224 상태 관찰은 계속하지만 ENTRY_REVIEW/D+1 PAPER_ENTRY는 차단합니다.")
     if int(seed_meta.get('snapshot_calendar_complete',0) or 0) == 1 and int(seed_meta.get('seed_count',0) or 0) == 0:
         lines.append("ℹ️ 최신 scheduled Weekly snapshot의 seed가 0개입니다. 이전 주 watch-list를 이월하지 않으며 D+1 기존신호 감사만 계속합니다.")
     if board is None or board.empty:
@@ -543,6 +547,7 @@ def run_core224_live_runtime(
 
     seed_date, age_days, stale = _seed_age(seed_meta, today)
     calendar_complete = int(seed_meta.get("snapshot_calendar_complete", 0) or 0) == 1
+    policy_locked = str(seed_meta.get("policy_lock_status", "")) == "LOCKED"
     codes = sorted(set(wa.get("code", pd.Series(dtype=str)).astype(str))) if not wa.empty else []
     prior_asof = _latest_base_date(out, codes, seed_meta, before=today)
     cutoff_h = int(float(os.getenv("V25_CORE224_LIVE_EOD_FINAL_HOUR", "15"))); cutoff_m = int(float(os.getenv("V25_CORE224_LIVE_EOD_FINAL_MINUTE", "40")))
@@ -583,7 +588,7 @@ def run_core224_live_runtime(
         # Use authority already frozen in the live restart ledger for old RESTARTs; watch states do not need membership.
         universe_status = "PREVIOUS_COMPLETED_BAR_WATCH"
 
-    wa_gate = wa.copy() if (not stale and calendar_complete) else wa.iloc[0:0].copy()
+    wa_gate = wa.copy() if (not stale and calendar_complete and policy_locked) else wa.iloc[0:0].copy()
     eval_meta: Dict[str, Any] = {"codes": len(codes), "evaluated": 0, "amount_ready": 0, "price_missing": 0, "invariant_fail": 0}
     board = pd.DataFrame(); restart_df = pd.DataFrame(); seed_runtime = pd.DataFrame(); px_by_code: Dict[str, pd.DataFrame] = {}
     if asof is not None:
@@ -605,13 +610,14 @@ def run_core224_live_runtime(
             lednew = _restart_ledger_from_board(asof, board)
             if not lednew.empty: _append_dedup(cache / RESTART_LEDGER_FILE, lednew, ["event_id"])
 
-    d1 = _build_d1_board(out, today, prior_asof, intraday_snapshot, eod_today)
+    d1 = _build_d1_board(out, today, prior_asof, intraday_snapshot, eod_today, policy_locked=policy_locked)
     if not d1.empty:
         _append_dedup(cache / EXECUTION_LEDGER_FILE, d1, ["code", "restart_date", "asof_date"])
 
     if mode == "EOD_DATA_PENDING": status = "EOD_DATA_PENDING_NO_SIGNAL_FINALIZE"
     elif not calendar_complete: status = "INVALID_WEEKLY_SNAPSHOT_CALENDAR_AUTHORITY"
     elif stale: status = "SEED_STALE_ENTRY_BLOCKED"
+    elif not policy_locked: status = "POLICY_LOCK_NOT_ACTIVE_PAPER_WATCH_ONLY"
     elif asof is None: status = "NO_COMPLETED_BAR_AUTHORITY"
     elif int(eval_meta.get("invariant_fail", 0) or 0) > 0: status = "INVALID_CORE224_INVARIANT"
     elif len(codes) == 0: status = "PASS_NO_ACTIVE_WEEKLY_SEED"
@@ -623,7 +629,7 @@ def run_core224_live_runtime(
     audit = pd.DataFrame([{
         "version": VERSION, "ts_kst": now.isoformat(), "mode": mode, "status": status, "today": today.strftime("%Y-%m-%d"), "asof_date": _fmt_date(asof),
         "seed_snapshot_date": seed_meta.get("weekly_snapshot_date", ""), "seed_age_days": age_days, "seed_stale": int(stale), "seed_codes": len(codes),
-        "snapshot_calendar_complete": int(calendar_complete), "snapshot_calendar_source": str(seed_meta.get("snapshot_calendar_source", "")),
+        "snapshot_calendar_complete": int(calendar_complete), "snapshot_calendar_source": str(seed_meta.get("snapshot_calendar_source", "")), "policy_lock_status": str(seed_meta.get("policy_lock_status", "")), "policy_locked": int(policy_locked),
         "evaluated": eval_meta.get("evaluated",0), "amount_ready": eval_meta.get("amount_ready",0), "price_missing": eval_meta.get("price_missing",0), "invariant_fail": eval_meta.get("invariant_fail",0),
         "universe_status": universe_status, "universe_rows": len(membership), "board_rows": len(board), "entry_review": int(board.get("section",pd.Series(dtype=str)).astype(str).eq("ENTRY_REVIEW").sum()) if not board.empty else 0,
         "restart_wait": int(board.get("section",pd.Series(dtype=str)).astype(str).eq("RESTART_WAIT").sum()) if not board.empty else 0, "excluded_restart": int(board.get("section",pd.Series(dtype=str)).astype(str).eq("EXCLUDED_RESTART").sum()) if not board.empty else 0,
