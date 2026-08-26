@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""V25.4.7 CORE224 daily episode replay (research-only, cache-first).
+"""V25.4.8 CORE224 daily episode replay (research-only, cache-first).
 
 Purpose
 -------
@@ -33,7 +33,7 @@ import pandas as pd
 import original_thesis_reconstruction as thesis
 import historical_asof_universe as hist_asof
 
-VERSION = "V73.3.6.6.25.4.7"
+VERSION = "V73.3.6.6.25.4.8"
 RESEARCH_ONLY = True
 LIVE_LOGIC_CHANGED = False
 REAL_ORDER_CHANGED = False
@@ -93,6 +93,10 @@ FORWARD_OOS_EVENT_FILE = "v73_v25_core224_forward_oos_event_ledger.csv"
 FORWARD_OOS_POLICY_FILE = "v73_v25_core224_forward_oos_policy_ledger.csv"
 FORWARD_OOS_SUMMARY_FILE = "v73_v25_core224_forward_oos_summary.csv"
 FORWARD_OOS_IMMUTABILITY_FILE = "v73_v25_core224_forward_oos_immutability_audit.csv"
+LIVE_BOARD_FILE = "v73_v25_core224_live_board.csv"
+LIVE_BOARD_TEXT_FILE = "v73_v25_core224_live_board.txt"
+D1_EXECUTION_BOARD_FILE = "v73_v25_core224_d1_execution_board.csv"
+D1_EXECUTION_BOARD_TEXT_FILE = "v73_v25_core224_d1_execution_board.txt"
 FINGERPRINT_SCHEMA_VERSION = "V25.4.7_CANONICAL_SEMANTIC_2"
 POLICY_LOCK_SCHEMA_VERSION = "V25.4.7_POLICY_LOCK_2"
 POLICY_LOCK_CUTOFF_DEFAULT = "2026-08-10"
@@ -1718,6 +1722,203 @@ def _is_final_forward_execution(status: Any) -> int:
     return int(str(status or "") in {"STRUCTURE_STOP","PLUS5_FULL_EXIT","OBSERVATION_END","ENTRY_CANCEL_GAP_AT_OR_BELOW_STOP"})
 
 
+def _int0(v: Any) -> int:
+    x = pd.to_numeric(pd.Series([v]), errors="coerce").iloc[0]
+    return 0 if pd.isna(x) else int(float(x))
+
+
+def _live_board_weekly_active_map(weekly_seed_authority: pd.DataFrame, asof: pd.Timestamp) -> Dict[str, Dict[str, Any]]:
+    out: Dict[str, Dict[str, Any]] = {}
+    if weekly_seed_authority is None or weekly_seed_authority.empty:
+        return out
+    q = weekly_seed_authority.copy()
+    q["code"] = q.get("code", pd.Series("", index=q.index)).map(_norm_code)
+    q["watch_start_date"] = pd.to_datetime(q.get("watch_start_date"), errors="coerce").dt.normalize()
+    q["watch_end_exclusive"] = pd.to_datetime(q.get("watch_end_exclusive"), errors="coerce").dt.normalize()
+    q = q[q["code"].ne("") & q["watch_start_date"].notna()]
+    q = q[q["watch_start_date"].le(asof) & (q["watch_end_exclusive"].isna() | q["watch_end_exclusive"].gt(asof))]
+    if q.empty:
+        return out
+    q = q.sort_values(["watch_start_date", "code"], kind="stable")
+    for _, r in q.iterrows():
+        out[str(r["code"])] = r.to_dict()
+    return out
+
+
+def _core224_live_board(
+    asof: pd.Timestamp, state_df: pd.DataFrame, restart_df: pd.DataFrame,
+    weekly_seed_authority: pd.DataFrame, seed_runtime: pd.DataFrame,
+    px_by_code: Dict[str, pd.DataFrame], cfg: thesis.Core224LifecycleConfig,
+) -> pd.DataFrame:
+    """Build the deterministic CORE224 after-close watch board.
+
+    This is a RESEARCH/PAPER presentation layer only.  It never creates a CORE224 signal,
+    never ranks by return, never changes the locked policy, and never places an order.
+    Only rows whose continuous Daily state is present on ``asof`` are shown.
+    """
+    cols = [
+        "version","asof_date","section","section_priority","code","name","daily_state","state_age",
+        "weekly_seed_active","weekly_seed_reason","amount_authority_pass","amount_source","actual_amount_days",
+        "daily_universe_membership_proven","daily_universe_authority","action","action_reason",
+        "l0_date","l0_low","h1_date","h1_high","pullback_date","pullback_low","fib61_8_stop",
+        "restart_evidence_count","pullback_support_ok","pullback_volume_dry_ok","pullback_amount_dry_ok",
+        "toprisk_warning","d1_entry_price","target_rule","d1_cancel_rule","research_only","paper_only",
+    ]
+    if state_df is None or state_df.empty:
+        return pd.DataFrame(columns=cols)
+    q = state_df.copy()
+    q["date"] = pd.to_datetime(q.get("date"), errors="coerce").dt.normalize()
+    q["code"] = q.get("code", pd.Series("", index=q.index)).map(_norm_code)
+    q = q[q["date"].eq(asof) & q["code"].ne("")].copy()
+    if q.empty:
+        return pd.DataFrame(columns=cols)
+    q = q.sort_values(["code"], kind="stable").drop_duplicates(["code"], keep="last")
+    active_map = _live_board_weekly_active_map(weekly_seed_authority, asof)
+    actual_days_map: Dict[str, int] = {}
+    if seed_runtime is not None and not seed_runtime.empty:
+        sr = seed_runtime.copy(); sr["code"] = sr.get("code", pd.Series("", index=sr.index)).map(_norm_code)
+        for _, r in sr.iterrows():
+            actual_days_map[str(r.get("code", ""))] = _int0(r.get("actual_amount_days", 0))
+    restart_map: Dict[str, Dict[str, Any]] = {}
+    if restart_df is not None and not restart_df.empty:
+        rr = restart_df.copy(); rr["code"] = rr.get("code", pd.Series("", index=rr.index)).map(_norm_code)
+        rr["_rd"] = pd.to_datetime(rr.get("restart_date", rr.get("date")), errors="coerce").dt.normalize()
+        rr = rr[rr["_rd"].eq(asof)]
+        for _, r in rr.iterrows(): restart_map[str(r.get("code", ""))] = r.to_dict()
+    rows: List[Dict[str, Any]] = []
+    for _, r in q.iterrows():
+        rec = r.to_dict(); code = _norm_code(rec.get("code", "")); state = str(rec.get("core224_state", "") or "")
+        if state not in CORE_STATES: continue
+        wa = active_map.get(code, {}); weekly_active = int(bool(wa))
+        actual_days = int(actual_days_map.get(code, 0)); amount_valid = int(_int0(rec.get("amount_valid", 0)) == 1)
+        amount_source = str(rec.get("amount_source", "") or "")
+        amount_pass = int(amount_valid == 1 and actual_days >= thesis.Core224Config().actual_amount_min_history_days and amount_source not in {"", "MISSING", "UNVERIFIED_OR_MISSING"})
+        ev = restart_map.get(code, {}) if state == "CORE224_RESTART" else {}
+        universe_proven = int(float(ev.get("daily_universe_membership_proven", 0) or 0) == 1) if ev else 0
+        universe_auth = str(ev.get("daily_universe_authority", "") or "") if ev else "NOT_REQUIRED_UNTIL_RESTART"
+        l0 = pd.to_numeric(pd.Series([rec.get("l0_low")]), errors="coerce").iloc[0]
+        h1 = pd.to_numeric(pd.Series([rec.get("h1_high")]), errors="coerce").iloc[0]
+        pb_low = np.nan; fib_stop = np.nan
+        px = px_by_code.get(code, pd.DataFrame())
+        if px is not None and not px.empty and str(rec.get("pullback_date", "")):
+            pb = thesis._low_between(px, rec.get("pullback_date"), asof)
+            if pb is not None: pb_low = float(pb)
+        if pd.notna(l0) and pd.notna(h1) and pd.notna(pb_low):
+            lenses = thesis._stop_lenses(float(l0), float(h1), float(pb_low), cfg)
+            fib_stop = float(lenses.get("FIB_61_8", np.nan)) if lenses else np.nan
+        if state == "CORE224_RESTART":
+            if weekly_active and amount_pass and universe_proven:
+                section, pri, action, reason = "ENTRY_REVIEW", 1, "D1_OPEN_REVIEW", "RESTART_AND_POLICY_GATES_PASS"
+            else:
+                bad=[]
+                if not weekly_active: bad.append("WEEKLY_SEED_NOT_ACTIVE")
+                if not amount_pass: bad.append("AMOUNT_AUTHORITY_FAIL")
+                if not universe_proven: bad.append(universe_auth or "UNIVERSE_AUTHORITY_NOT_PROVEN")
+                section, pri, action, reason = "EXCLUDED_RESTART", 5, "PAPER_ONLY_NO_ENTRY", "|".join(bad)
+        elif state == "CORE224_HEALTHY_PULLBACK": section, pri, action, reason = "RESTART_WAIT", 2, "WAIT_RESTART", "HEALTHY_PULLBACK"
+        elif state == "CORE224_FIRST_PULLBACK": section, pri, action, reason = "RESTART_WAIT", 2, "WAIT_HEALTHY_THEN_RESTART", "FIRST_PULLBACK"
+        elif state == "CORE224_WAVE1": section, pri, action, reason = "INITIAL_WATCH", 3, "WAIT_FIRST_PULLBACK", "WAVE1"
+        elif state == "CORE224_ACCUMULATION": section, pri, action, reason = "INITIAL_WATCH", 3, "WAIT_WAVE1", "ACCUMULATION"
+        else: section, pri, action, reason = "BASE_WATCH", 4, "WATCH_ONLY", "BASE"
+        rows.append({
+            "version":VERSION,"asof_date":_fmt_date(asof),"section":section,"section_priority":pri,"code":code,"name":str(rec.get("name","") or ""),
+            "daily_state":state,"state_age":(-1 if pd.isna(pd.to_numeric(pd.Series([rec.get("core224_state_age")]), errors="coerce").iloc[0]) else int(float(pd.to_numeric(pd.Series([rec.get("core224_state_age")]), errors="coerce").iloc[0]))),"weekly_seed_active":weekly_active,
+            "weekly_seed_reason":str(wa.get("weekly_seed_reason","") or ""),"amount_authority_pass":amount_pass,"amount_source":amount_source,"actual_amount_days":actual_days,
+            "daily_universe_membership_proven":universe_proven,"daily_universe_authority":universe_auth,"action":action,"action_reason":reason,
+            "l0_date":_fmt_date(rec.get("l0_date")),"l0_low":float(l0) if pd.notna(l0) else np.nan,"h1_date":_fmt_date(rec.get("h1_date")),"h1_high":float(h1) if pd.notna(h1) else np.nan,
+            "pullback_date":_fmt_date(rec.get("pullback_date")),"pullback_low":pb_low,"fib61_8_stop":fib_stop,
+            "restart_evidence_count":_int0(rec.get("restart_evidence_count",0)),"pullback_support_ok":_int0(rec.get("pullback_support_ok",0)),
+            "pullback_volume_dry_ok":_int0(rec.get("pullback_volume_dry_ok",0)),"pullback_amount_dry_ok":_int0(rec.get("pullback_amount_dry_ok",0)),
+            "toprisk_warning":_int0(rec.get("toprisk_warning",0)),"d1_entry_price":np.nan,"target_rule":"D1_ACTUAL_OPEN_X_1.05",
+            "d1_cancel_rule":"D1_OPEN<=FIB61_8_STOP => CANCEL","research_only":True,"paper_only":True,
+        })
+    z = pd.DataFrame(rows, columns=cols)
+    if z.empty: return z
+    return z.sort_values(["section_priority","state_age","code"], kind="stable").reset_index(drop=True)
+
+
+def _d1_execution_board(asof: pd.Timestamp, state_df: pd.DataFrame, seed_runtime: pd.DataFrame, restart_df: pd.DataFrame, px_by_code: Dict[str,pd.DataFrame], cfg: thesis.Core224LifecycleConfig) -> pd.DataFrame:
+    """Observed D+1-open PAPER execution audit for signals whose next cached bar is ``asof``."""
+    cols=["version","asof_date","code","name","restart_date","weekly_seed_active","daily_universe_membership_proven","amount_authority_pass","fib61_8_stop","d1_open","paper_action","target_plus5","execution_authority","research_only","paper_only"]
+    if restart_df is None or restart_df.empty: return pd.DataFrame(columns=cols)
+    amount_state: Dict[Tuple[str,str], int] = {}
+    if state_df is not None and not state_df.empty:
+        ss=state_df.copy(); ss["code"]=ss.get("code",pd.Series("",index=ss.index)).map(_norm_code); ss["_d"]=pd.to_datetime(ss.get("date"),errors="coerce").dt.normalize()
+        for _,x in ss.iterrows():
+            if pd.notna(x.get("_d")):
+                amount_state[(str(x.get("code","")),_fmt_date(x.get("_d")))] = int(float(x.get("amount_valid",0) or 0)==1 and str(x.get("amount_source","") or "") not in {"","MISSING","UNVERIFIED_OR_MISSING"})
+    actual_days: Dict[str,int] = {}
+    if seed_runtime is not None and not seed_runtime.empty:
+        sr=seed_runtime.copy(); sr["code"]=sr.get("code",pd.Series("",index=sr.index)).map(_norm_code)
+        for _,x in sr.iterrows(): actual_days[str(x.get("code",""))]=_int0(x.get("actual_amount_days",0))
+    q=restart_df.copy(); q["code"]=q.get("code",pd.Series("",index=q.index)).map(_norm_code); q["_rd"]=pd.to_datetime(q.get("restart_date",q.get("date")),errors="coerce").dt.normalize()
+    rows=[]
+    for _,rr in q.iterrows():
+        rec=rr.to_dict(); code=_norm_code(rec.get("code","")); rd=rec.get("_rd")
+        if not code or pd.isna(rd): continue
+        px=px_by_code.get(code,pd.DataFrame())
+        if px is None or px.empty: continue
+        idx=pd.DatetimeIndex(pd.to_datetime(px.index,errors="coerce")).normalize(); nxt=np.flatnonzero(idx>pd.Timestamp(rd).normalize())
+        if not len(nxt): continue
+        ni=int(nxt[0]); nd=pd.Timestamp(idx[ni]).normalize()
+        if nd!=asof: continue
+        pb=thesis._low_between(px,rec.get("pullback_date"),rd); l0=pd.to_numeric(pd.Series([rec.get("l0_low")]),errors="coerce").iloc[0]; h1=pd.to_numeric(pd.Series([rec.get("h1_high")]),errors="coerce").iloc[0]
+        stop=np.nan
+        if pb is not None and pd.notna(l0) and pd.notna(h1): stop=float(thesis._stop_lenses(float(l0),float(h1),float(pb),cfg).get("FIB_61_8",np.nan))
+        op=float(pd.to_numeric(pd.Series([px.iloc[ni].get("open")]),errors="coerce").iloc[0])
+        weekly=int(_int0(rec.get("weekly_seed_causal_eligible",0))==1); proven=int(_int0(rec.get("daily_universe_membership_proven",0))==1)
+        amount_pass=int(amount_state.get((code,_fmt_date(rd)),0)==1 and actual_days.get(code,0)>=thesis.Core224Config().actual_amount_min_history_days)
+        eligible=int(weekly==1 and proven==1 and amount_pass==1 and np.isfinite(stop) and np.isfinite(op))
+        if not eligible: action="PAPER_ONLY_AUTHORITY_FAIL"
+        elif op<=stop: action="ENTRY_CANCEL_OPEN_AT_OR_BELOW_STOP"
+        else: action="PAPER_ENTRY_AT_D1_OPEN"
+        rows.append({"version":VERSION,"asof_date":_fmt_date(asof),"code":code,"name":str(rec.get("name","") or ""),"restart_date":_fmt_date(rd),
+            "weekly_seed_active":weekly,"daily_universe_membership_proven":proven,"amount_authority_pass":amount_pass,"fib61_8_stop":stop,"d1_open":op,"paper_action":action,
+            "target_plus5":op*1.05 if action=="PAPER_ENTRY_AT_D1_OPEN" else np.nan,"execution_authority":"OBSERVED_FROM_CACHED_DAILY_OPEN_NOT_REALTIME_ORDER","research_only":True,"paper_only":True})
+    z=pd.DataFrame(rows,columns=cols)
+    return z.sort_values(["paper_action","code"],kind="stable").reset_index(drop=True) if not z.empty else z
+
+
+def _fmt_money(v: Any) -> str:
+    x=pd.to_numeric(pd.Series([v]),errors="coerce").iloc[0]
+    return "-" if pd.isna(x) else f"{float(x):,.0f}"
+
+
+def _render_live_board(live_board: pd.DataFrame, d1_board: pd.DataFrame, asof: pd.Timestamp) -> str:
+    maxn=max(1,int(float(os.getenv("V25_CORE224_LIVE_BOARD_MAX_PER_SECTION","10"))))
+    lines=["🚦 [CORE224 LIVE BOARD · RESEARCH/PAPER]",f"📅 기준일: {_fmt_date(asof)} · 🔒 PRIMARY_FIB618_PLUS5_D1 · 자동주문 0"]
+    specs=[("ENTRY_REVIEW","🟢 [내일 진입 검토 · RESTART 확정]"),("RESTART_WAIT","🟡 [RESTART 대기]"),("INITIAL_WATCH","🔵 [초기 관찰]"),("BASE_WATCH","⚪ [BASE 관찰]"),("EXCLUDED_RESTART","⛔ [RESTART지만 정책 gate 미통과 · PAPER ONLY]")]
+    for sec,title in specs:
+        z=live_board[live_board.get("section",pd.Series(dtype=str)).astype(str).eq(sec)] if live_board is not None and not live_board.empty else pd.DataFrame()
+        lines.append(f"\n{title} · {len(z)}종목")
+        if z.empty: lines.append("- 없음"); continue
+        for i,(_,r) in enumerate(z.head(maxn).iterrows(),1):
+            nm=str(r.get("name","") or ""); code=str(r.get("code","") or "")
+            lines.append(f"{i}. {nm} ({code}) · {r.get('daily_state')}")
+            if sec=="ENTRY_REVIEW":
+                lines.append(f"   Weekly Seed ACTIVE ✅ · Universe PROVEN ✅ · Amount PASS ✅")
+                lines.append(f"   L0 {_fmt_money(r.get('l0_low'))} · H1 {_fmt_money(r.get('h1_high'))} · PB_LOW {_fmt_money(r.get('pullback_low'))} · Fib61.8 stop {_fmt_money(r.get('fib61_8_stop'))}")
+                lines.append("   D+1 OPEN 대기 · 시가≤stop이면 취소 · 목표=실제 D+1 체결가×1.05")
+            elif sec=="RESTART_WAIT":
+                lines.append(f"   Weekly Seed {'ACTIVE ✅' if int(r.get('weekly_seed_active',0) or 0)==1 else 'INACTIVE ⚠️'} · support {int(r.get('pullback_support_ok',0) or 0)} · volume dry {int(r.get('pullback_volume_dry_ok',0) or 0)} · amount dry {int(r.get('pullback_amount_dry_ok',0) or 0)}")
+                lines.append(f"   L0 {_fmt_money(r.get('l0_low'))} · H1 {_fmt_money(r.get('h1_high'))} · PB_LOW {_fmt_money(r.get('pullback_low'))} · 행동={r.get('action')}")
+            elif sec=="EXCLUDED_RESTART":
+                lines.append(f"   Weekly Seed {int(r.get('weekly_seed_active',0) or 0)} · Universe {int(r.get('daily_universe_membership_proven',0) or 0)} · Amount {int(r.get('amount_authority_pass',0) or 0)}")
+                lines.append(f"   제외사유: {r.get('action_reason')}")
+            else:
+                lines.append(f"   Weekly Seed {'ACTIVE ✅' if int(r.get('weekly_seed_active',0) or 0)==1 else 'INACTIVE'} · 행동={r.get('action')}")
+        if len(z)>maxn: lines.append(f"   ... +{len(z)-maxn}종목 (CSV 전체 기록)")
+    lines.append("\n🌅 [D+1 EXECUTION BOARD · cached open audit]")
+    if d1_board is None or d1_board.empty: lines.append("- 오늘 D+1 해당 종목 없음")
+    else:
+        for i,(_,r) in enumerate(d1_board.head(maxn).iterrows(),1):
+            lines.append(f"{i}. {r.get('name')} ({r.get('code')}) · 전일 RESTART {r.get('restart_date')} · {r.get('paper_action')}")
+            lines.append(f"   D+1 open {_fmt_money(r.get('d1_open'))} · Fib61.8 stop {_fmt_money(r.get('fib61_8_stop'))} · +5 target {_fmt_money(r.get('target_plus5'))}")
+        if len(d1_board)>maxn: lines.append(f"   ... +{len(d1_board)-maxn}종목 (CSV 전체 기록)")
+    lines.append("⚠️ LIVE BOARD는 신호/행동 가시화용 RESEARCH/PAPER 출력이며 LIVE 점수·랭크·주문을 변경하지 않습니다.")
+    return "\n".join(lines)
+
+
 def _max_consecutive_losses(vals: pd.Series) -> int:
     mx=cur=0
     for v in pd.to_numeric(vals,errors="coerce").dropna():
@@ -2598,6 +2799,11 @@ def run_daily_episode_replay(output_dir: str | Path, state: pd.DataFrame, payloa
         restart_df["policy_training_eligible"] = (restart_df["weekly_seed_causal_eligible"].eq(1) & pd.to_numeric(restart_df.get("daily_universe_membership_proven"), errors="coerce").fillna(0).eq(1)).astype(int)
     targeted_authority_class_summary = _target_authority_class_summary(targeted_events)
 
+    # V25.4.8 presentation-only CORE224 board.  No signal/rank/order logic is changed.
+    live_board = _core224_live_board(en, state_df, restart_df, weekly_seed_authority, seed_runtime, px_follow_by_code, cfg_life)
+    d1_execution_board = _d1_execution_board(en, state_df, seed_runtime, restart_df, px_follow_by_code, cfg_life)
+    live_board_text = _render_live_board(live_board, d1_execution_board, en)
+
     lifecycle_signals: List[Dict[str, Any]] = []; lifecycle_policy: List[Dict[str, Any]] = []; lifecycle_fills: List[Dict[str, Any]] = []; lifecycle_horizons: List[Dict[str, Any]] = []; single_rows: List[Dict[str, Any]] = []
     for _, rr in restart_df.iterrows():
         rec = rr.to_dict(); code = _norm_code(rec.get("code", "")); px = px_follow_by_code.get(code)
@@ -2739,6 +2945,15 @@ def run_daily_episode_replay(output_dir: str | Path, state: pd.DataFrame, payloa
         "input_fingerprint_source_changed_components": int(_num(input_fingerprint, "source_input_changed", 0).sum()) if not input_fingerprint.empty else 0,
         "policy_lock_status": str(policy_lock_meta.get("status","UNKNOWN")), "policy_lock_digest": str(policy_lock_meta.get("digest","")), "policy_lock_cutoff_date": str(policy_lock_meta.get("cutoff","")),
         "forward_oos_status": str(forward_oos_meta.get("status","UNKNOWN")), "forward_oos_events": int(forward_oos_meta.get("events",0) or 0), "forward_oos_causal_eligible": int(forward_oos_meta.get("eligible",0) or 0), "forward_oos_finalized_policy_rows": int(forward_oos_meta.get("finalized",0) or 0), "forward_oos_primary_finalized_trades": int(forward_oos_meta.get("primary_finalized",0) or 0), "forward_oos_immutability_conflicts": int(forward_oos_meta.get("immutability_conflicts",0) or 0),
+        "live_board_rows": len(live_board),
+        "live_board_entry_review": int(live_board.get("section",pd.Series(dtype=str)).astype(str).eq("ENTRY_REVIEW").sum()) if not live_board.empty else 0,
+        "live_board_restart_wait": int(live_board.get("section",pd.Series(dtype=str)).astype(str).eq("RESTART_WAIT").sum()) if not live_board.empty else 0,
+        "live_board_initial_watch": int(live_board.get("section",pd.Series(dtype=str)).astype(str).eq("INITIAL_WATCH").sum()) if not live_board.empty else 0,
+        "live_board_base_watch": int(live_board.get("section",pd.Series(dtype=str)).astype(str).eq("BASE_WATCH").sum()) if not live_board.empty else 0,
+        "live_board_excluded_restart": int(live_board.get("section",pd.Series(dtype=str)).astype(str).eq("EXCLUDED_RESTART").sum()) if not live_board.empty else 0,
+        "d1_execution_board_rows": len(d1_execution_board),
+        "d1_execution_paper_entries": int(d1_execution_board.get("paper_action",pd.Series(dtype=str)).astype(str).eq("PAPER_ENTRY_AT_D1_OPEN").sum()) if not d1_execution_board.empty else 0,
+        "d1_execution_entry_cancels": int(d1_execution_board.get("paper_action",pd.Series(dtype=str)).astype(str).eq("ENTRY_CANCEL_OPEN_AT_OR_BELOW_STOP").sum()) if not d1_execution_board.empty else 0,
         "provider_calls": targeted_provider_calls, "core_daily_replay_provider_calls": 0, "close_times_volume_substitution": 0,
         "live_logic_changed": False, "real_order_changed": False, "research_only": True, "elapsed_sec": round(time.monotonic()-t0,3)
     }])
@@ -2754,8 +2969,11 @@ def run_daily_episode_replay(output_dir: str | Path, state: pd.DataFrame, payloa
         (SINGLE_POLICY_FILE,single_df),(RISK_PARITY_FILE,risk_df),(RISK_PARITY_SUMMARY_FILE,risk_summary),(RISK_PARITY_FILL_GROUP_FILE,risk_fill_group_summary),
         (EXIT_SHADOW_FILE,exit_shadow_df),(EXIT_SHADOW_SUMMARY_FILE,exit_shadow_summary),(STOP_EXIT_POLICY_MATRIX_FILE,stop_exit_policy_matrix),
         (EXECUTION_CAUSALITY_FILE,execution_causality_df),(EXECUTION_CAUSALITY_SUMMARY_FILE,execution_causality_summary),
-        (POLICY_LOCK_MANIFEST_FILE,policy_lock_manifest),(FORWARD_OOS_EVENT_FILE,forward_oos_events),(FORWARD_OOS_POLICY_FILE,forward_oos_policy),(FORWARD_OOS_SUMMARY_FILE,forward_oos_summary),(FORWARD_OOS_IMMUTABILITY_FILE,forward_oos_immutability),(READINESS_FILE,readiness)
+        (POLICY_LOCK_MANIFEST_FILE,policy_lock_manifest),(FORWARD_OOS_EVENT_FILE,forward_oos_events),(FORWARD_OOS_POLICY_FILE,forward_oos_policy),(FORWARD_OOS_SUMMARY_FILE,forward_oos_summary),(FORWARD_OOS_IMMUTABILITY_FILE,forward_oos_immutability),
+        (LIVE_BOARD_FILE,live_board),(D1_EXECUTION_BOARD_FILE,d1_execution_board),(READINESS_FILE,readiness)
     ]: _write_csv(out / fn, df)
+    (out / LIVE_BOARD_TEXT_FILE).write_text(live_board_text + "\n", encoding="utf-8")
+    (out / D1_EXECUTION_BOARD_TEXT_FILE).write_text("\n".join(live_board_text.split("🌅 [D+1 EXECUTION BOARD · cached open audit]",1)[1:]) if "🌅 [D+1 EXECUTION BOARD · cached open audit]" in live_board_text else live_board_text, encoding="utf-8")
 
     pb = life_stop[life_stop.get("stop_lens", pd.Series(dtype=str)).astype(str).eq("PB_LOW")].iloc[0] if not life_stop.empty and (life_stop.get("stop_lens", pd.Series(dtype=str)).astype(str)=="PB_LOW").any() else pd.Series(dtype=object)
     pbo = order_summary[(order_summary.get("scope", pd.Series(dtype=str)).astype(str)=="ALL_RESEARCH") & (order_summary.get("stop_lens", pd.Series(dtype=str)).astype(str)=="PB_LOW")].iloc[0] if not order_summary.empty and ((order_summary.get("scope", pd.Series(dtype=str)).astype(str)=="ALL_RESEARCH") & (order_summary.get("stop_lens", pd.Series(dtype=str)).astype(str)=="PB_LOW")).any() else pd.Series(dtype=object)
@@ -2775,6 +2993,7 @@ def run_daily_episode_replay(output_dir: str | Path, state: pd.DataFrame, payloa
         f"🧬 입력 fingerprint: changed {int(_num(input_fingerprint, 'changed_vs_previous', 0).sum()) if not input_fingerprint.empty else 0} · source-changed {int(_num(input_fingerprint, 'source_input_changed', 0).sum()) if not input_fingerprint.empty else 0} · schema {FINGERPRINT_SCHEMA_VERSION}",
         f"🔒 policy lock: {policy_lock_meta.get('status')} · cutoff {policy_lock_meta.get('cutoff')} · PRIMARY {policy_lock_meta.get('primary_policy_id')} · auto-switch 0",
         f"🧪 forward OOS/PAPER: {forward_oos_meta.get('status')} · events {forward_oos_meta.get('events',0)} · causal-eligible {forward_oos_meta.get('eligible',0)} · PRIMARY-finalized {forward_oos_meta.get('primary_finalized',0)} · finalized-policy-rows {forward_oos_meta.get('finalized',0)} · immutability-conflict {forward_oos_meta.get('immutability_conflicts',0)}",
+        f"🚦 LIVE BOARD: entry-review {int(live_board.get('section',pd.Series(dtype=str)).astype(str).eq('ENTRY_REVIEW').sum()) if not live_board.empty else 0} · restart-wait {int(live_board.get('section',pd.Series(dtype=str)).astype(str).eq('RESTART_WAIT').sum()) if not live_board.empty else 0} · initial {int(live_board.get('section',pd.Series(dtype=str)).astype(str).eq('INITIAL_WATCH').sum()) if not live_board.empty else 0} · base {int(live_board.get('section',pd.Series(dtype=str)).astype(str).eq('BASE_WATCH').sum()) if not live_board.empty else 0} · excluded-restart {int(live_board.get('section',pd.Series(dtype=str)).astype(str).eq('EXCLUDED_RESTART').sum()) if not live_board.empty else 0} · D+1 rows {len(d1_execution_board)}",
         f"🧪 daily lifecycle {len(life_signal_df)} · eligible {eligible_n} · 구조손절/30-30-40/20·40·60일 규칙 동일 · 조건 튜닝 0",
         "⚠️ targeted authority는 이미 고정된 RESTART만 분류하며 CORE224 신호를 만들거나 삭제하지 않습니다. NOT_IN_CAUSAL_UNIVERSE와 AUTHORITY_MISSING을 분리합니다.",
         "⚠️ 동일 일봉에서 stop과 목표가가 모두 닿을 수 있는 경우 전략결과는 기존대로 STOP_FIRST 보수처리하고 collision 원장에 별도 표시합니다.",
@@ -2844,9 +3063,11 @@ def run_daily_episode_replay(output_dir: str | Path, state: pd.DataFrame, payloa
     if not forward_oos_summary.empty:
         for _,r in forward_oos_summary.iterrows():
             lines.append(f"📈 FORWARD {r.get('policy_role')}/{r.get('policy_id')}: events {int(r.get('forward_events',0) or 0)} · eligible {int(r.get('causal_eligible_events',0) or 0)} · finalized {int(r.get('finalized_trades',0) or 0)} · medR {float(r.get('median_net_r',np.nan)):+.2f} · trim {float(r.get('trim10_net_r',np.nan)):+.2f} · cumR {float(r.get('cumulative_trade_sequence_r',0)):+.2f} · DD {float(r.get('max_drawdown_trade_sequence_r',0)):.2f}R")
-    lines.append(f"⏱️ daily episode replay elapsed {time.monotonic()-t0:.1f}s"); lines.append(f"- CSV: {RESTART_FILE} · {WEEKLY_SEED_AUTHORITY_FILE} · {DAILY_SEED_CAUSALITY_FILE} · {SHARD_RESTART_INPUT_PROOF_FILE} · {INPUT_FINGERPRINT_FILE} · {POLICY_LOCK_MANIFEST_FILE} · {FORWARD_OOS_SUMMARY_FILE} · {READINESS_FILE}")
+    lines.append("")
+    lines.extend(live_board_text.splitlines())
+    lines.append(f"⏱️ daily episode replay elapsed {time.monotonic()-t0:.1f}s"); lines.append(f"- CSV: {RESTART_FILE} · {WEEKLY_SEED_AUTHORITY_FILE} · {DAILY_SEED_CAUSALITY_FILE} · {SHARD_RESTART_INPUT_PROOF_FILE} · {INPUT_FINGERPRINT_FILE} · {POLICY_LOCK_MANIFEST_FILE} · {FORWARD_OOS_SUMMARY_FILE} · {LIVE_BOARD_FILE} · {D1_EXECUTION_BOARD_FILE} · {READINESS_FILE}")
     report="\n".join(lines); (out/REPORT_FILE).write_text(report+"\n",encoding="utf-8")
-    return {"status":status,"seed":seed_runtime,"weekly_seed_authority":weekly_seed_authority,"seed_causality":seed_causality,"exact_shard_proof":exact_shard_proof,"state":state_df,"transitions":transition_df,"raw_restarts":raw_restart_df,"cycle_restarts":cycle_restart_df,"restarts":restart_df,"dedup_audit":dedup_audit,"episode_overlap":overlap_audit,"episode_family":family_summary,"reconciliation":recon,"unresolved_rootcause":unresolved_rootcause,"context_parity":context_parity,"context_state_trace":context_state_trace,"context_state_trace_summary":context_state_trace_summary,"weekly_900bar_parity":weekly_900bar_parity,"input_fingerprint":input_fingerprint,"policy_lock_manifest":policy_lock_manifest,"policy_lock_meta":policy_lock_meta,"forward_oos_events":forward_oos_events,"forward_oos_policy":forward_oos_policy,"forward_oos_summary":forward_oos_summary,"forward_oos_immutability":forward_oos_immutability,"forward_oos_meta":forward_oos_meta,"targeted_authority":targeted_events,"targeted_authority_dates":targeted_dates,"targeted_authority_class_summary":targeted_authority_class_summary,"invariants":invariant_df,"manual":manual,"lifecycle_signal":life_signal_df,"lifecycle_policy":life_policy_df,"lifecycle_fill":life_fill_df,"lifecycle_horizon":life_horizon_df,"lifecycle_stop":life_stop,"event_order":order_df,"event_order_summary":order_summary,"path_class":path_df,"path_class_summary":path_summary,"stop_lens_path_compare":stop_lens_compare,"stop_lens_risk_tradeoff":stop_lens_risk_tradeoff,"single_policy":single_df,"risk_parity":risk_df,"risk_parity_summary":risk_summary,"risk_parity_fill_group_summary":risk_fill_group_summary,"exit_shadow":exit_shadow_df,"exit_shadow_summary":exit_shadow_summary,"stop_exit_policy_matrix":stop_exit_policy_matrix,"execution_causality":execution_causality_df,"execution_causality_summary":execution_causality_summary,"readiness":readiness,"report":report}
+    return {"status":status,"seed":seed_runtime,"weekly_seed_authority":weekly_seed_authority,"seed_causality":seed_causality,"exact_shard_proof":exact_shard_proof,"state":state_df,"transitions":transition_df,"raw_restarts":raw_restart_df,"cycle_restarts":cycle_restart_df,"restarts":restart_df,"dedup_audit":dedup_audit,"episode_overlap":overlap_audit,"episode_family":family_summary,"reconciliation":recon,"unresolved_rootcause":unresolved_rootcause,"context_parity":context_parity,"context_state_trace":context_state_trace,"context_state_trace_summary":context_state_trace_summary,"weekly_900bar_parity":weekly_900bar_parity,"input_fingerprint":input_fingerprint,"policy_lock_manifest":policy_lock_manifest,"policy_lock_meta":policy_lock_meta,"forward_oos_events":forward_oos_events,"forward_oos_policy":forward_oos_policy,"forward_oos_summary":forward_oos_summary,"forward_oos_immutability":forward_oos_immutability,"forward_oos_meta":forward_oos_meta,"live_board":live_board,"d1_execution_board":d1_execution_board,"live_board_text":live_board_text,"targeted_authority":targeted_events,"targeted_authority_dates":targeted_dates,"targeted_authority_class_summary":targeted_authority_class_summary,"invariants":invariant_df,"manual":manual,"lifecycle_signal":life_signal_df,"lifecycle_policy":life_policy_df,"lifecycle_fill":life_fill_df,"lifecycle_horizon":life_horizon_df,"lifecycle_stop":life_stop,"event_order":order_df,"event_order_summary":order_summary,"path_class":path_df,"path_class_summary":path_summary,"stop_lens_path_compare":stop_lens_compare,"stop_lens_risk_tradeoff":stop_lens_risk_tradeoff,"single_policy":single_df,"risk_parity":risk_df,"risk_parity_summary":risk_summary,"risk_parity_fill_group_summary":risk_fill_group_summary,"exit_shadow":exit_shadow_df,"exit_shadow_summary":exit_shadow_summary,"stop_exit_policy_matrix":stop_exit_policy_matrix,"execution_causality":execution_causality_df,"execution_causality_summary":execution_causality_summary,"readiness":readiness,"report":report}
 
 def force_report(output_dir: str | Path = "reports") -> str:
     p = Path(output_dir or "reports") / REPORT_FILE

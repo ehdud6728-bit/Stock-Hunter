@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""V25.4.7 HF5-compatible lightweight ALL-cohort parent.
+"""V25.4.8 HF5-compatible lightweight ALL-cohort parent.
 
 Consumes the already materialized A/B/C/D V23 payloads and runs only the V23
 parent integrity report plus V25 CORE224 thesis/lifecycle finalization. It
@@ -25,7 +25,7 @@ import direct_replay_materialized_v23 as mat
 import original_thesis_reconstruction as thesis
 import v25_core224_daily_episode_replay as daily_replay
 
-VERSION = "V73.3.6.6.25.4.7-HF5COMPAT"
+VERSION = "V73.3.6.6.25.4.8-HF5COMPAT"
 AUDIT_FILE = "v73_v25_core224_only_parent_audit.csv"
 REPORT_FILE = "v73_v25_core224_only_parent_report.txt"
 HEADER = "⚡ [V25 ALL CORE224 LIGHTWEIGHT PARENT · RESEARCH_ONLY]"
@@ -231,6 +231,15 @@ def run(output_dir: str) -> int:
         "daily_forward_oos_finalized_policy_rows": int(float(drr.get("forward_oos_finalized_policy_rows", 0) or 0)),
         "daily_forward_oos_primary_finalized_trades": int(float(drr.get("forward_oos_primary_finalized_trades", 0) or 0)),
         "daily_forward_oos_immutability_conflicts": int(float(drr.get("forward_oos_immutability_conflicts", 0) or 0)),
+        "daily_live_board_rows": int(float(drr.get("live_board_rows", 0) or 0)),
+        "daily_live_board_entry_review": int(float(drr.get("live_board_entry_review", 0) or 0)),
+        "daily_live_board_restart_wait": int(float(drr.get("live_board_restart_wait", 0) or 0)),
+        "daily_live_board_initial_watch": int(float(drr.get("live_board_initial_watch", 0) or 0)),
+        "daily_live_board_base_watch": int(float(drr.get("live_board_base_watch", 0) or 0)),
+        "daily_live_board_excluded_restart": int(float(drr.get("live_board_excluded_restart", 0) or 0)),
+        "daily_d1_execution_board_rows": int(float(drr.get("d1_execution_board_rows", 0) or 0)),
+        "daily_d1_execution_paper_entries": int(float(drr.get("d1_execution_paper_entries", 0) or 0)),
+        "daily_d1_execution_entry_cancels": int(float(drr.get("d1_execution_entry_cancels", 0) or 0)),
         "daily_exit_shadow_rows": int(float(drr.get("exit_shadow_rows", 0) or 0)),
         "daily_exit_shadow_summary_rows": int(float(drr.get("exit_shadow_summary_rows", 0) or 0)),
         "daily_stop_exit_policy_matrix_rows": int(float(drr.get("stop_exit_policy_matrix_rows", 0) or 0)),
@@ -281,6 +290,7 @@ def run(output_dir: str) -> int:
         f"📦 targeted causal authority: proven events {audit['daily_exact_causal_asof_restart_events']}/{audit['daily_restart_events']} · window-complete {audit['daily_targeted_authority_complete_dates']}/{audit['daily_targeted_authority_dates']} · full-name {audit['daily_targeted_authority_full_name_complete_dates']}/{audit['daily_targeted_authority_dates']} · cache {audit['daily_targeted_authority_cache_valid_before']}→{audit['daily_targeted_authority_cache_valid_after']} (+{audit['daily_targeted_authority_new_valid_market_dates']}) · provider {audit['daily_targeted_authority_provider_calls']}/{audit['daily_targeted_authority_provider_call_budget']} · errors {audit['daily_targeted_authority_provider_errors']}",
         f"⏱️ lifecycle audit: event-order {audit['daily_event_order_rows']}행 · path-class {audit['daily_path_class_rows']}행 · stop-lens compare {audit['daily_stop_lens_compare_rows']}행 · risk-tradeoff {audit['daily_stop_lens_risk_tradeoff_rows']}행 · SINGLE↔30/30/40 {audit['daily_risk_parity_rows']}행 · fill-group {audit['daily_risk_parity_fill_group_rows']}행 · exit-shadow {audit['daily_exit_shadow_rows']}행 · stop×exit matrix {audit['daily_stop_exit_policy_matrix_rows']}행 · D+1 execution {audit['daily_execution_causality_rows']}행 · cost {audit['daily_execution_roundtrip_cost_bps_assumption']:.0f}bp · input-fp changed {audit['daily_input_fingerprint_changed_components']}/source {audit['daily_input_fingerprint_source_changed_components']} · 자동정책선택 0",
         f"🔒 policy lock {audit['daily_policy_lock_status']} · cutoff {audit['daily_policy_lock_cutoff_date']} · forward {audit['daily_forward_oos_status']} · events {audit['daily_forward_oos_events']} · causal {audit['daily_forward_oos_causal_eligible']} · PRIMARY-finalized {audit['daily_forward_oos_primary_finalized_trades']} · finalized-policy {audit['daily_forward_oos_finalized_policy_rows']} · immutability-conflict {audit['daily_forward_oos_immutability_conflicts']}",
+        f"🚦 CORE224 LIVE BOARD: 내일진입 {audit['daily_live_board_entry_review']} · RESTART대기 {audit['daily_live_board_restart_wait']} · 초기관찰 {audit['daily_live_board_initial_watch']} · BASE {audit['daily_live_board_base_watch']} · 제외RESTART {audit['daily_live_board_excluded_restart']} · D+1실행행 {audit['daily_d1_execution_board_rows']} (paper-entry {audit['daily_d1_execution_paper_entries']} / cancel {audit['daily_d1_execution_entry_cancels']})",
         "🚫 2년 ALL 실행에서는 기존 V72/V24 전체분모·HAM·FAMILIAR·시장/섹터/검색식 후속연구를 parent에서 재계산하지 않습니다.",
         "✅ 목적: 이미 shard에서 계산한 CORE224 증거를 merge하여 구조손절·분할매수·20/40/60일 생명주기만 빠르게 검증합니다.",
         "🔒 LIVE 점수·랭크·진입·청산·주문 변경 0 · 기존 24주/단일 코호트 FULL 연구경로는 그대로 유지",
