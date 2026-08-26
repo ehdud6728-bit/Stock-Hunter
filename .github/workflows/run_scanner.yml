@@ -1,4 +1,4 @@
-name: Run Main Scanner V1107.4.5.73.3.6.6.25.4.9 CORE224 LIVE Runtime + Backtest
+name: Run Main Scanner V1107.4.5.73.3.6.6.25.4.10-HF1 CORE224 LIVE Cache Bridge + Backtest
 
 on:
   schedule:
@@ -2898,7 +2898,7 @@ jobs:
           fi
 
       - name: Save CORE224 live state overlay
-        if: always() && env.STOCKHUNTER_WEEKLY_BACKTEST_ONLY != '1'
+        if: always() && env.STOCKHUNTER_WEEKLY_BACKTEST_ONLY != '1' && hashFiles('reports/.cache/v25_core224_live/seed_meta.json') != ''
         uses: actions/cache/save@v4
         with:
           path: |
@@ -2934,6 +2934,27 @@ jobs:
             reports/.cache/v25_core224_live
             reports/.cache/v20_replay_checkpoint
           key: ${{ steps.v21-replay-key.outputs.key }}
+
+      - name: Save CORE224 weekly seed cache for LIVE bridge
+        if: always() && env.STOCKHUNTER_WEEKLY_BACKTEST_ONLY == '1' && env.V1081_BACKTEST_SOURCE == 'DIRECT_REPLAY' && hashFiles('reports/.cache/v25_core224_live/seed_meta.json') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            reports/.cache/v20_asof_snapshots
+            reports/.cache/v25_core224_live
+          key: stockhunter-v25-core224-live-${{ github.ref_name }}-weekly-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Show CORE224 weekly seed LIVE bridge proof
+        if: always() && env.STOCKHUNTER_WEEKLY_BACKTEST_ONLY == '1' && env.V1081_BACKTEST_SOURCE == 'DIRECT_REPLAY'
+        shell: bash
+        run: |
+          set +e
+          if [ -f reports/.cache/v25_core224_live/seed_meta.json ]; then
+            echo "V25_WEEKLY_LIVE_BRIDGE seed_meta=READY"
+            python -c "import json; d=json.load(open('reports/.cache/v25_core224_live/seed_meta.json',encoding='utf-8')); print('V25_WEEKLY_LIVE_BRIDGE','snapshot',d.get('weekly_snapshot_date','-'),'seed_count',d.get('seed_count',0),'calendar_complete',d.get('snapshot_calendar_complete',0))"
+          else
+            echo "V25_WEEKLY_LIVE_BRIDGE seed_meta=MISSING"
+          fi
 
       - name: Show V21 resume save proof
         if: always() && env.STOCKHUNTER_WEEKLY_BACKTEST_ONLY == '1' && env.V1081_BACKTEST_SOURCE == 'DIRECT_REPLAY'
