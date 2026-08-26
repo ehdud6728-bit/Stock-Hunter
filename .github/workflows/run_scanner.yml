@@ -1,4 +1,4 @@
-name: Run Main Scanner V1107.4.5.73.3.6.6.25.3.1 CORE224 ALL Auto Cohort Lifecycle Complete
+name: Run Main Scanner V1107.4.5.73.3.6.6.25.4.9 CORE224 LIVE Runtime + Backtest
 
 on:
   schedule:
@@ -14,6 +14,8 @@ on:
     - cron: '07 06 * * 1-5'
     # 한국시간 평일 오후 3:35 = UTC 06:35, 월~금 — V73 발견→추적 독립 실행
     - cron: '35 06 * * 1-5'
+    # 한국시간 평일 오후 3:45 = UTC 06:45, 월~금 — CORE224 종가확정 전용 PAPER/LIVE BOARD
+    - cron: '45 06 * * 1-5'
   workflow_dispatch:
     inputs:
       run_profile:
@@ -27,6 +29,7 @@ on:
           - TEST_FULL
           - TEST_FAST
           - WEEKLY_BACKTEST
+          - CORE224_LIVE
           - HAM_1503_RESEARCH
           - V73_DISCOVERY
           - V73_CASE_AUDIT
@@ -1799,7 +1802,7 @@ jobs:
           echo "GITHUB_EVENT_SCHEDULE=${{ github.event.schedule }}" >> $GITHUB_ENV
           echo "NOW_UTC=$(date -u '+%Y-%m-%d %H:%M:%S %Z')"
           echo "NOW_KST=$(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M:%S %Z')"
-          echo "SCHEDULE_EXPECTED_KST=08:37 / 09:30 / 14:37 / HAM 15:03 / 15:07 / V73 15:35 weekdays"
+          echo "SCHEDULE_EXPECTED_KST=08:37 / 09:30 / 14:37 / HAM 15:03 / 15:07 / V73 15:35 / CORE224 EOD 15:45 weekdays"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
       - name: Resolve run profile
@@ -1832,6 +1835,7 @@ jobs:
           ham1503=0
           v73_discovery=0
           v73_case_audit=0
+          core224_live_only=0
           catalyst_capture=0
           catalyst_mode="AUTO"
           diagnostic_sheet_sync=0
@@ -1843,6 +1847,9 @@ jobs:
           fi
           if [ "$event" = "schedule" ] && [ "$schedule_expr" = "35 06 * * 1-5" ]; then
             v73_discovery=1
+          fi
+          if [ "$event" = "schedule" ] && [ "$schedule_expr" = "45 06 * * 1-5" ]; then
+            core224_live_only=1
           fi
           # Forward-causal source capture runs twice daily: pre-market and after the 15:07 close scan.
           if [ "$event" = "schedule" ] && { [ "$schedule_expr" = "37 23 * * 0-4" ] || [ "$schedule_expr" = "07 06 * * 1-5" ]; }; then
@@ -1887,6 +1894,7 @@ jobs:
             catalyst_mode="AUTO"
             if [ "$ham1503" = "1" ]; then profile="HAM_1503_RESEARCH"; fi
             if [ "$v73_discovery" = "1" ]; then profile="V73_DISCOVERY"; fi
+            if [ "$core224_live_only" = "1" ]; then profile="CORE224_LIVE"; fi
           fi
 
           bt_source="$(echo "$bt_source" | tr '[:lower:]' '[:upper:]')"
@@ -1905,6 +1913,8 @@ jobs:
               test_mode=1; skip_ai=1; skip_chart=0; skip_google=0; weekly=0; use_bt_token=1 ;;
             WEEKLY_BACKTEST)
               test_mode=1; skip_ai=1; skip_chart=1; skip_google=1; weekly=1; use_bt_token=1 ;;
+            CORE224_LIVE)
+              core224_live_only=1; test_mode=1; skip_ai=1; skip_chart=1; skip_google=1; weekly=0; use_bt_token=1 ;;
             HAM_1503_RESEARCH)
               ham1503=1; test_mode=1; skip_ai=1; skip_chart=1; skip_google=1; weekly=0; use_bt_token=1 ;;
             V73_DISCOVERY)
@@ -1934,6 +1944,13 @@ jobs:
             skip_google=1
             weekly=0
           fi
+          if [ "$core224_live_only" = "1" ]; then
+            skip_ai=1
+            skip_chart=1
+            skip_google=1
+            weekly=0
+            catalyst_capture=0
+          fi
 
           catalyst_mode="$(echo "${catalyst_mode:-AUTO}" | tr '[:lower:]' '[:upper:]')"
           if [ "$event" = "workflow_dispatch" ]; then
@@ -1945,7 +1962,7 @@ jobs:
             esac
           fi
           # Backtests and historical research never issue current web searches.
-          if [ "$weekly" = "1" ] || [ "$ham1503" = "1" ] || [ "$v73_case_audit" = "1" ]; then catalyst_capture=0; fi
+          if [ "$weekly" = "1" ] || [ "$ham1503" = "1" ] || [ "$v73_case_audit" = "1" ] || [ "$core224_live_only" = "1" ]; then catalyst_capture=0; fi
           # WEEKLY_BACKTEST may persist only already-computed diagnostic CSVs to Google Sheets.
           # This is storage I/O, not current-news capture, and does not enter the backtest inputs.
           if [ "$weekly" = "1" ]; then diagnostic_sheet_sync=1; fi
@@ -1992,6 +2009,11 @@ jobs:
             echo "HAM_LISTING_DIRECT_LIMIT=3000"
             echo "HAM_MINUTE_WORKERS=6"
             echo "STOCKHUNTER_OPEN_0930_ONLY=$open0930"
+            echo "STOCKHUNTER_CORE224_LIVE_ONLY=$core224_live_only"
+            echo "V25_CORE224_LIVE_ENABLE=1"
+            echo "V25_CORE224_LIVE_EOD_FINAL_HOUR=15"
+            echo "V25_CORE224_LIVE_EOD_FINAL_MINUTE=40"
+            echo "V25_CORE224_LIVE_SEED_MAX_AGE_DAYS=10"
             echo "STOCKHUNTER_V73_DISCOVERY_ONLY=$v73_discovery"
             echo "STOCKHUNTER_V73_CASE_AUDIT_ONLY=$v73_case_audit"
             echo "V73_DISCOVERY_UNIVERSE_LIMIT=$v73_universe_limit"
@@ -2099,7 +2121,7 @@ jobs:
             echo "V1107_4_5_70_DISABLE_PRICE_SCALE_WATCH=1"
           } >> "$GITHUB_ENV"
 
-          echo "✅ profile resolved: profile=$profile open0930=$open0930 ham1503=$ham1503 v73_discovery=$v73_discovery v73_case=$v73_case_audit catalyst_capture=$catalyst_capture source=$bt_source weeks=$bt_weeks hold=$bt_hold_days stop=$bt_stop_pct mode=$bt_stop_mode cohort=$v25_cohort_mode cohort_start=$v25_cohort_start_date cohort_end=$v25_cohort_end_date anchor=$v25_two_year_end_date"
+          echo "✅ profile resolved: profile=$profile open0930=$open0930 core224_live=$core224_live_only ham1503=$ham1503 v73_discovery=$v73_discovery v73_case=$v73_case_audit catalyst_capture=$catalyst_capture source=$bt_source weeks=$bt_weeks hold=$bt_hold_days stop=$bt_stop_pct mode=$bt_stop_mode cohort=$v25_cohort_mode cohort_start=$v25_cohort_start_date cohort_end=$v25_cohort_end_date anchor=$v25_two_year_end_date"
       - name: Prepare report directories
         run: |
           mkdir -p reports docs
@@ -2153,6 +2175,8 @@ jobs:
               'bear_winner_stability_diagnostic.py',
               'research_readiness_v24.py',
               'original_thesis_reconstruction.py',
+              'v25_core224_daily_episode_replay.py',
+              'v25_core224_live_runtime.py',
           ]
           h = hashlib.sha256()
           for name in files:
@@ -2194,6 +2218,7 @@ jobs:
             reports/.cache/v20_price_history
             reports/.cache/v20_asof_snapshots
             reports/.cache/v25_actual_amount_history
+            reports/.cache/v25_core224_live
             reports/.cache/v20_replay_checkpoint
           key: ${{ steps.v21-replay-key.outputs.key }}
           restore-keys: |
@@ -2203,11 +2228,46 @@ jobs:
         if: env.STOCKHUNTER_WEEKLY_BACKTEST_ONLY == '1' && env.V1081_BACKTEST_SOURCE == 'DIRECT_REPLAY'
         shell: bash
         run: |
-          mkdir -p reports/.cache/v20_price_history reports/.cache/v20_asof_snapshots reports/.cache/v20_replay_checkpoint
+          mkdir -p reports/.cache/v20_price_history reports/.cache/v20_asof_snapshots reports/.cache/v25_core224_live reports/.cache/v20_replay_checkpoint
           echo "V21_RESTORE cache-hit=${{ steps.v21-replay-restore.outputs.cache-hit }} matched=${{ steps.v21-replay-restore.outputs.cache-matched-key }}"
           echo "V21_RESTORE price_files=$(find reports/.cache/v20_price_history -type f 2>/dev/null | wc -l | tr -d ' ')"
           echo "V21_RESTORE asof_files=$(find reports/.cache/v20_asof_snapshots -type f 2>/dev/null | wc -l | tr -d ' ')"
           echo "V21_RESTORE checkpoint_files=$(find reports/.cache/v20_replay_checkpoint -type f 2>/dev/null | wc -l | tr -d ' ')"
+
+      - name: Restore CORE224 live base from latest V21 research cache
+        if: env.STOCKHUNTER_WEEKLY_BACKTEST_ONLY != '1'
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            reports/.cache/v20_price_history
+            reports/.cache/v20_asof_snapshots
+            reports/.cache/v25_actual_amount_history
+            reports/.cache/v25_core224_live
+          key: stockhunter-v25-core224-base-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            stockhunter-v21-replay-${{ github.ref_name }}-
+
+      - name: Restore latest CORE224 live state overlay
+        if: env.STOCKHUNTER_WEEKLY_BACKTEST_ONLY != '1'
+        id: v25-core224-live-restore
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            reports/.cache/v20_asof_snapshots
+            reports/.cache/v25_core224_live
+          key: stockhunter-v25-core224-live-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            stockhunter-v25-core224-live-${{ github.ref_name }}-
+
+      - name: Inspect CORE224 live cache restore
+        if: env.STOCKHUNTER_WEEKLY_BACKTEST_ONLY != '1'
+        shell: bash
+        run: |
+          mkdir -p reports/.cache/v20_price_history reports/.cache/v20_asof_snapshots reports/.cache/v25_actual_amount_history reports/.cache/v25_core224_live
+          echo "V25_LIVE_RESTORE matched=${{ steps.v25-core224-live-restore.outputs.cache-matched-key }}"
+          seed_meta=$(test -f reports/.cache/v25_core224_live/seed_meta.json && echo READY || echo MISSING)
+          eod_rows=$(python -c "import os,pandas as pd; p='reports/.cache/v25_core224_live/live_eod_snapshot_ledger.csv'; print(len(pd.read_csv(p)) if os.path.exists(p) else 0)")
+          echo "V25_LIVE_RESTORE seed_meta=${seed_meta} eod_rows=${eod_rows}"
 
       - name: Download V23 same-run materialized shard handoffs
         if: env.STOCKHUNTER_WEEKLY_BACKTEST_ONLY == '1' && env.V1081_BACKTEST_SOURCE == 'DIRECT_REPLAY'
@@ -2710,7 +2770,7 @@ jobs:
               echo "⚡ V25.3.1 HF5 ALL CORE224 lightweight parent | V23 materialized-only → V25 CORE224/lifecycle | legacy V72/V24 parent recompute=SKIPPED"
               export V25_CORE224_ONLY_PARENT=1
               test -f v25_core224_parent.py || { echo "❌ v25_core224_parent.py missing"; exit 206; }
-              python -m py_compile v25_core224_parent.py original_thesis_reconstruction.py direct_replay_materialized_v23.py
+              python -m py_compile v25_core224_parent.py original_thesis_reconstruction.py v25_core224_daily_episode_replay.py v25_core224_live_runtime.py direct_replay_materialized_v23.py
               python -u v25_core224_parent.py --output-dir reports | tee "${HAM_RUN_LOG}"
               grep -Fq "⚡ [V25 ALL CORE224 LIGHTWEIGHT PARENT · RESEARCH_ONLY]" "${HAM_RUN_LOG}" || { echo "❌ V25 lightweight parent report header missing"; exit 207; }
               grep -Fq "🧭 [V25 ORIGINAL THESIS RECONSTRUCTION · CORE224 SHADOW · RESEARCH_ONLY]" "${HAM_RUN_LOG}" || { echo "❌ V25 ORIGINAL THESIS block missing"; exit 208; }
@@ -2837,12 +2897,21 @@ jobs:
             python -u "${SCRIPT}"
           fi
 
+      - name: Save CORE224 live state overlay
+        if: always() && env.STOCKHUNTER_WEEKLY_BACKTEST_ONLY != '1'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            reports/.cache/v20_asof_snapshots
+            reports/.cache/v25_core224_live
+          key: stockhunter-v25-core224-live-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+
       - name: Capture V21 fail-safe resume manifest
         if: always() && env.STOCKHUNTER_WEEKLY_BACKTEST_ONLY == '1' && env.V1081_BACKTEST_SOURCE == 'DIRECT_REPLAY'
         shell: bash
         run: |
           set +e
-          mkdir -p reports/.cache/v20_price_history reports/.cache/v20_asof_snapshots reports/.cache/v20_replay_checkpoint
+          mkdir -p reports/.cache/v20_price_history reports/.cache/v20_asof_snapshots reports/.cache/v25_core224_live reports/.cache/v20_replay_checkpoint
           python resume_cache_manifest_v21.py \
             --output-dir reports \
             --scanner-outcome "${{ steps.scanner-main.outcome }}" \
@@ -2862,6 +2931,7 @@ jobs:
             reports/.cache/v20_price_history
             reports/.cache/v20_asof_snapshots
             reports/.cache/v25_actual_amount_history
+            reports/.cache/v25_core224_live
             reports/.cache/v20_replay_checkpoint
           key: ${{ steps.v21-replay-key.outputs.key }}
 
