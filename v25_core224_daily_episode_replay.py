@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""V25.4.9 CORE224 daily episode replay (research-only, cache-first).
+"""V25.4.10 CORE224 daily episode replay (research-only, cache-first).
 
 Purpose
 -------
@@ -33,7 +33,7 @@ import pandas as pd
 import original_thesis_reconstruction as thesis
 import historical_asof_universe as hist_asof
 
-VERSION = "V73.3.6.6.25.4.9"
+VERSION = "V73.3.6.6.25.4.10"
 RESEARCH_ONLY = True
 LIVE_LOGIC_CHANGED = False
 REAL_ORDER_CHANGED = False
@@ -101,8 +101,10 @@ LIVE_SEED_CACHE_DIR = ".cache/v25_core224_live"
 LIVE_SEED_SNAPSHOT_FILE = "weekly_seed_snapshot.csv"
 LIVE_SEED_UNIVERSE_FILE = "seed_universe.csv"
 LIVE_SEED_META_FILE = "seed_meta.json"
-FINGERPRINT_SCHEMA_VERSION = "V25.4.7_CANONICAL_SEMANTIC_2"
-POLICY_LOCK_SCHEMA_VERSION = "V25.4.7_POLICY_LOCK_2"
+WEEKLY_SNAPSHOT_CALENDAR_FILE = "v73_v25_core224_weekly_snapshot_calendar.csv"
+V23_MERGE_AUDIT_FILE = "v73_v23_handoff_merge_audit.json"
+FINGERPRINT_SCHEMA_VERSION = "V25.4.10_CANONICAL_SEMANTIC_3"
+POLICY_LOCK_SCHEMA_VERSION = "V25.4.10_POLICY_LOCK_3"
 POLICY_LOCK_CUTOFF_DEFAULT = "2026-08-10"
 POLICY_LOCK_CREATED_DEFAULT = "2026-08-25"
 
@@ -213,8 +215,94 @@ def _weekly_seed_qual_mask(q: pd.DataFrame) -> Tuple[pd.Series, pd.Series]:
     return qual.astype(bool), pd.Series(reasons,index=q.index,dtype=str)
 
 
-def _weekly_seed_authority(state: pd.DataFrame, st: pd.Timestamp, en: pd.Timestamp) -> pd.DataFrame:
-    """Materialize the dated watch-list contract, never a retrospective code-only seed."""
+def _authoritative_weekly_snapshot_calendar(out: Path, state: pd.DataFrame, st: pd.Timestamp, en: pd.Timestamp) -> Tuple[List[pd.Timestamp], Dict[str, Any], pd.DataFrame]:
+    """Return the scheduled/materialized weekly snapshot calendar, including empty snapshots.
+
+    V25.4.7 previously inferred snapshots only from dates that had at least one CORE224 row.
+    That silently skipped valid materialized dates whose seed set was empty and could carry an
+    older watch-list forward too long.  ALL-mode authority is now the V23 COMPLETE_HANDOFF
+    ``selected_dates`` calendar.  If that authority is unavailable we keep a research fallback
+    for diagnostics, but policy lock / live entry must fail closed via ``complete=0``.
+    """
+    ds: List[pd.Timestamp] = []
+    source = "NO_AUTHORITATIVE_SNAPSHOT_CALENDAR"
+    complete = 0
+    merge_status = "MISSING"
+    selected_count = 0
+    materialized_count = 0
+    missing_count = 0
+    invalid_count = 0
+    p = Path(out) / V23_MERGE_AUDIT_FILE
+    if p.exists():
+        try:
+            m = json.loads(p.read_text(encoding="utf-8"))
+            merge_status = str(m.get("status", ""))
+            raw = m.get("selected_dates") or []
+            vals = pd.to_datetime(pd.Series(raw, dtype=object), errors="coerce").dropna().dt.normalize()
+            ds = sorted({pd.Timestamp(x).normalize() for x in vals if st <= pd.Timestamp(x).normalize() <= en})
+            selected_count = int(m.get("selected_date_count", len(ds)) or len(ds))
+            materialized_count = int(m.get("materialized_expected_count", 0) or 0)
+            missing_count = len(m.get("missing_materialized_dates") or [])
+            invalid_count = len(m.get("invalid_materialized_dates") or [])
+            complete = int(
+                merge_status == "COMPLETE_HANDOFF"
+                and len(ds) > 0
+                and missing_count == 0
+                and invalid_count == 0
+                and (materialized_count in {0, selected_count} or materialized_count == len(ds))
+            )
+            if complete:
+                source = "V23_COMPLETE_HANDOFF_SELECTED_DATES"
+        except Exception:
+            ds = []
+            merge_status = "READ_ERROR"
+    if not ds:
+        q = state.copy() if isinstance(state, pd.DataFrame) else pd.DataFrame()
+        if not q.empty and "signal_date" in q.columns:
+            vals = pd.to_datetime(q["signal_date"], errors="coerce").dropna().dt.normalize()
+            ds = sorted({pd.Timestamp(x).normalize() for x in vals if st <= pd.Timestamp(x).normalize() <= en})
+            if ds:
+                source = "STATE_ROW_DATES_FALLBACK_UNVERIFIED"
+        complete = 0
+
+    q = state.copy() if isinstance(state, pd.DataFrame) else pd.DataFrame()
+    if not q.empty:
+        q["signal_date"] = pd.to_datetime(q.get("signal_date"), errors="coerce").dt.normalize()
+        q["code"] = q.get("code", pd.Series("", index=q.index)).map(_norm_code)
+        q = q[q["signal_date"].notna() & q["code"].ne("")].copy()
+        qual, _reason = _weekly_seed_qual_mask(q)
+        q["_seed_qual"] = qual.astype(int)
+    rows: List[Dict[str, Any]] = []
+    for d in ds:
+        g = q[q["signal_date"].eq(d)] if not q.empty else pd.DataFrame()
+        rows.append({
+            "version": VERSION,
+            "snapshot_date": _fmt_date(d),
+            "state_rows": len(g),
+            "qualified_seed_rows": int(pd.to_numeric(g.get("_seed_qual", pd.Series(dtype=float)), errors="coerce").fillna(0).eq(1).sum()) if not g.empty else 0,
+            "empty_snapshot": int(g.empty),
+            "calendar_source": source,
+            "calendar_complete": int(complete),
+            "research_only": True,
+        })
+    audit = pd.DataFrame(rows)
+    meta = {
+        "source": source,
+        "complete": int(complete),
+        "merge_status": merge_status,
+        "snapshot_count": len(ds),
+        "latest_snapshot_date": _fmt_date(ds[-1]) if ds else "",
+        "selected_date_count": selected_count,
+        "materialized_expected_count": materialized_count,
+        "missing_materialized_dates": missing_count,
+        "invalid_materialized_dates": invalid_count,
+        "empty_snapshot_count": int(audit.get("empty_snapshot", pd.Series(dtype=float)).sum()) if not audit.empty else 0,
+    }
+    return ds, meta, audit
+
+
+def _weekly_seed_authority(state: pd.DataFrame, st: pd.Timestamp, en: pd.Timestamp, snapshot_calendar: Optional[List[pd.Timestamp]] = None) -> pd.DataFrame:
+    """Materialize the dated watch-list contract against the full scheduled snapshot calendar."""
     if state is None or state.empty:
         return pd.DataFrame()
     q=state.copy()
@@ -223,7 +311,12 @@ def _weekly_seed_authority(state: pd.DataFrame, st: pd.Timestamp, en: pd.Timesta
     q=q[q["signal_date"].between(st,en,inclusive="both") & q["code"].ne("")].copy()
     if q.empty: return pd.DataFrame()
     qual, reason=_weekly_seed_qual_mask(q); q["weekly_seed_qualified"]=qual.astype(int); q["weekly_seed_reason"]=reason
-    snaps=sorted(pd.Timestamp(x).normalize() for x in q["signal_date"].dropna().unique())
+    if snapshot_calendar:
+        snaps=sorted({pd.Timestamp(x).normalize() for x in snapshot_calendar if st <= pd.Timestamp(x).normalize() <= en})
+        q=q[q["signal_date"].isin(snaps)].copy()
+    else:
+        snaps=sorted(pd.Timestamp(x).normalize() for x in q["signal_date"].dropna().unique())
+    if not snaps: return pd.DataFrame()
     next_map={d:(snaps[i+1] if i+1<len(snaps) else en+pd.Timedelta(days=1)) for i,d in enumerate(snaps)}
     z=q[q["weekly_seed_qualified"].eq(1)].copy()
     if z.empty: return pd.DataFrame()
@@ -237,18 +330,21 @@ def _weekly_seed_authority(state: pd.DataFrame, st: pd.Timestamp, en: pd.Timesta
     return z.sort_values(["signal_date","code"],kind="stable").drop_duplicates(["signal_date","code"],keep="last")
 
 
-def _daily_seed_causality_audit(restarts: pd.DataFrame, state: pd.DataFrame, st: pd.Timestamp, en: pd.Timestamp) -> pd.DataFrame:
-    """Classify each frozen Daily RESTART using only the latest weekly snapshot known by then."""
+def _daily_seed_causality_audit(restarts: pd.DataFrame, state: pd.DataFrame, st: pd.Timestamp, en: pd.Timestamp, snapshot_calendar: Optional[List[pd.Timestamp]] = None, calendar_complete: int = 0) -> pd.DataFrame:
+    """Classify each frozen Daily RESTART using the latest *scheduled* weekly snapshot."""
     if restarts is None or restarts.empty:
         return pd.DataFrame()
     sq=state.copy() if isinstance(state,pd.DataFrame) else pd.DataFrame()
     if sq.empty:
-        return pd.DataFrame([{"version":VERSION,"event_id":r.get("event_id",""),"code":_norm_code(r.get("code","")),"restart_date":_fmt_date(r.get("restart_date")),"weekly_seed_causal_eligible":0,"seed_causality_status":"NO_WEEKLY_STATE_AUTHORITY","research_only":True} for _,r in restarts.iterrows()])
+        return pd.DataFrame([{"version":VERSION,"event_id":r.get("event_id",""),"code":_norm_code(r.get("code","")),"restart_date":_fmt_date(r.get("restart_date")),"weekly_seed_causal_eligible":0,"seed_causality_status":"NO_WEEKLY_STATE_AUTHORITY","snapshot_calendar_complete":int(calendar_complete),"research_only":True} for _,r in restarts.iterrows()])
     sq["signal_date"]=pd.to_datetime(sq.get("signal_date"),errors="coerce").dt.normalize(); sq["code"]=sq.get("code",pd.Series("",index=sq.index)).map(_norm_code)
     sq=sq[sq["signal_date"].between(st,en,inclusive="both") & sq["code"].ne("")].copy()
     qual, reason=_weekly_seed_qual_mask(sq); sq["weekly_seed_qualified"]=qual.astype(int); sq["weekly_seed_reason"]=reason
     sq=sq.sort_values(["signal_date","code"],kind="stable").drop_duplicates(["signal_date","code"],keep="last")
-    snapshots=sorted(pd.Timestamp(x).normalize() for x in sq["signal_date"].dropna().unique())
+    if snapshot_calendar:
+        snapshots=sorted({pd.Timestamp(x).normalize() for x in snapshot_calendar if st <= pd.Timestamp(x).normalize() <= en})
+    else:
+        snapshots=sorted(pd.Timestamp(x).normalize() for x in sq["signal_date"].dropna().unique())
     by_key={(pd.Timestamp(r["signal_date"]).normalize(),str(r["code"])):r.to_dict() for _,r in sq.iterrows() if pd.notna(r.get("signal_date"))}
     rows=[]
     for _,rr in restarts.iterrows():
@@ -256,9 +352,10 @@ def _daily_seed_causality_audit(restarts: pd.DataFrame, state: pd.DataFrame, st:
         prior=[x for x in snapshots if pd.notna(d) and x<=pd.Timestamp(d).normalize()]
         latest=prior[-1] if prior else None
         wr=by_key.get((latest,code),{}) if latest is not None else {}
-        elig=int(bool(wr) and int(float(wr.get("weekly_seed_qualified",0) or 0))==1)
-        if latest is None: status="NO_PRIOR_WEEKLY_SNAPSHOT"
-        elif not wr: status="CODE_NOT_IN_LATEST_WEEKLY_SNAPSHOT"
+        elig=int(bool(wr) and int(float(wr.get("weekly_seed_qualified",0) or 0))==1 and int(calendar_complete)==1)
+        if int(calendar_complete)!=1: status="SNAPSHOT_CALENDAR_AUTHORITY_UNPROVEN"
+        elif latest is None: status="NO_PRIOR_WEEKLY_SNAPSHOT"
+        elif not wr: status="CODE_NOT_IN_LATEST_SCHEDULED_WEEKLY_SNAPSHOT"
         elif elig: status="CAUSAL_WEEKLY_SEED_ACTIVE"
         else: status="LATEST_WEEKLY_SNAPSHOT_NOT_SEEDED"
         next_snap=next((x for x in snapshots if latest is not None and x>latest),None)
@@ -267,7 +364,8 @@ def _daily_seed_causality_audit(restarts: pd.DataFrame, state: pd.DataFrame, st:
             "restart_date":_fmt_date(d),"latest_weekly_snapshot":_fmt_date(latest),"next_weekly_snapshot":_fmt_date(next_snap),
             "weekly_seed_causal_eligible":elig,"weekly_seed_reason":wr.get("weekly_seed_reason","") if wr else "",
             "weekly_state_at_authorization":wr.get("core224_state","") if wr else "","seed_causality_status":status,
-            "causal_rule":"LATEST_WEEKLY_SNAPSHOT_AT_OR_BEFORE_RESTART_MUST_SEED_CODE","research_only":True,
+            "snapshot_calendar_complete":int(calendar_complete),
+            "causal_rule":"LATEST_SCHEDULED_WEEKLY_SNAPSHOT_AT_OR_BEFORE_RESTART_MUST_SEED_CODE","research_only":True,
         })
     return pd.DataFrame(rows)
 
@@ -1546,7 +1644,7 @@ def _semantic_hash(df: pd.DataFrame, cols: Optional[List[str]] = None) -> str:
 
 
 def _input_fingerprint_regression(
-    out: Path, state: pd.DataFrame, seeds: pd.DataFrame, weekly_seed_authority: pd.DataFrame, state_df: pd.DataFrame,
+    out: Path, state: pd.DataFrame, seeds: pd.DataFrame, weekly_seed_authority: pd.DataFrame, weekly_snapshot_calendar: pd.DataFrame, state_df: pd.DataFrame,
     transition_df: pd.DataFrame, restart_df: pd.DataFrame, price_parts: List[str], targeted_dates: pd.DataFrame, exact_shard_proof: pd.DataFrame,
 ) -> pd.DataFrame:
     """Canonical semantic fingerprints.
@@ -1560,6 +1658,7 @@ def _input_fingerprint_regression(
     weekly_cols=["signal_date","code","core224_state","l0_date","accum_date","h1_date","pullback_date","healthy_date","restart_date","actual_amount_history_ready20"]
     seed_cols=["code","seed_reason","first_seed_date","last_seed_date","weekly_seed_rows","weekly_non_none_rows","weekly_states_seen"]
     weekly_seed_cols=["signal_date","code","core224_state","weekly_seed_reason","watch_start_date","watch_end_exclusive"]
+    weekly_calendar_cols=["snapshot_date","state_rows","qualified_seed_rows","empty_snapshot","calendar_source","calendar_complete"]
     shard_proof_cols=["code","weekly_observation_date","weekly_restart_date","stored_input_sha256","recomputed_input_sha256","exact_shard_replay_pass","same_input_nondeterminism","cross_lane_explained"]
     daily_state_cols=["code","date","core224_state","core224_transition","l0_date","accum_date","h1_date","pullback_date","healthy_date","restart_date","amount_is_actual","actual_amount_history_ready20"]
     transition_cols=["code","date","from_state","to_state","l0_date","accum_date","h1_date","pullback_date","healthy_date","restart_date"]
@@ -1570,6 +1669,7 @@ def _input_fingerprint_regression(
         "weekly_core_input": _semantic_hash(state, weekly_cols),
         "seed_ledger": _semantic_hash(seeds, seed_cols),
         "weekly_seed_authority": _semantic_hash(weekly_seed_authority, weekly_seed_cols),
+        "weekly_snapshot_calendar": _semantic_hash(weekly_snapshot_calendar, weekly_calendar_cols),
         "exact_shard_restart_input_proof": _semantic_hash(exact_shard_proof, shard_proof_cols),
         "price_amount_input": hashlib.sha256("|".join(sorted(price_parts)).encode()).hexdigest()[:20] if price_parts else hashlib.sha256(b"EMPTY").hexdigest()[:20],
         "daily_state": _semantic_hash(state_df, daily_state_cols),
@@ -1577,7 +1677,7 @@ def _input_fingerprint_regression(
         "daily_restart": _semantic_hash(restart_df, restart_cols),
         "targeted_authority": _semantic_hash(targeted_dates, authority_cols),
     }
-    current["composite"] = hashlib.sha256("|".join(current[k] for k in ["weekly_core_input","seed_ledger","weekly_seed_authority","exact_shard_restart_input_proof","price_amount_input","daily_state","daily_transition","daily_restart","targeted_authority"]).encode()).hexdigest()[:20]
+    current["composite"] = hashlib.sha256("|".join(current[k] for k in ["weekly_core_input","seed_ledger","weekly_seed_authority","weekly_snapshot_calendar","exact_shard_restart_input_proof","price_amount_input","daily_state","daily_transition","daily_restart","targeted_authority"]).encode()).hexdigest()[:20]
     prev: Dict[str, Any] = {}
     try:
         if p.exists(): prev = json.loads(p.read_text(encoding="utf-8"))
@@ -1589,9 +1689,9 @@ def _input_fingerprint_regression(
     # so they remain comparable across the one-time schema migration. Other components get a
     # fresh baseline instead of a false CHANGED flag caused by the old version column.
     cross_schema_comparable={"weekly_core_input","price_amount_input"}
-    source_components={"weekly_core_input","seed_ledger","weekly_seed_authority","exact_shard_restart_input_proof","price_amount_input","targeted_authority"}
+    source_components={"weekly_core_input","seed_ledger","weekly_seed_authority","weekly_snapshot_calendar","exact_shard_restart_input_proof","price_amount_input","targeted_authority"}
     rows=[]
-    for key in ["weekly_core_input","seed_ledger","weekly_seed_authority","exact_shard_restart_input_proof","price_amount_input","daily_state","daily_transition","daily_restart","targeted_authority","composite"]:
+    for key in ["weekly_core_input","seed_ledger","weekly_seed_authority","weekly_snapshot_calendar","exact_shard_restart_input_proof","price_amount_input","daily_state","daily_transition","daily_restart","targeted_authority","composite"]:
         old=str(prev.get(key,"")); new=str(current.get(key,"")); can_compare=bool(old) and (compatible or key in cross_schema_comparable)
         changed=int(can_compare and old!=new)
         if not old:
@@ -1640,6 +1740,7 @@ def _policy_lock_manifest(
     training_restart_events: int, causal_proven_events: int, policy_training_eligible_events: int,
     authority_dates: int, authority_complete_dates: int, invariant_fail_rows: int,
     weekly_restart_events: int, exact_shard_replay_pass_events: int, same_input_nondeterminism_events: int,
+    snapshot_calendar_complete: int, snapshot_calendar_count: int,
 ) -> Tuple[pd.DataFrame, Dict[str, Any]]:
     cutoff=_policy_lock_cutoff(); specs=_policy_specs()
     payload={
@@ -1647,7 +1748,9 @@ def _policy_lock_manifest(
         "declared_lock_date":POLICY_LOCK_CREATED_DEFAULT,"selection_rule":"STRUCTURAL_RISK_BALANCE_NOT_SAME_SAMPLE_BEST_RETURN",
         "primary_policy_id":"PRIMARY_FIB618_PLUS5_D1","max_follow_days":60,"same_day_collision":"STOP_FIRST",
         "gap_through_stop":"EXIT_AT_OPEN_IF_OPEN_BELOW_STOP","d1_entry_gap_below_stop":"CANCEL_ENTRY",
-        "weekly_seed_gate":"LATEST_WEEKLY_SNAPSHOT_AT_OR_BEFORE_RESTART_MUST_SEED_CODE",
+        "weekly_seed_gate":"LATEST_SCHEDULED_WEEKLY_SNAPSHOT_AT_OR_BEFORE_RESTART_MUST_SEED_CODE",
+        "weekly_snapshot_calendar":"V23_COMPLETE_HANDOFF_SELECTED_DATES_INCLUDING_EMPTY_SNAPSHOTS",
+        "empty_weekly_snapshot_semantics":"EMPTY_SNAPSHOT_CLEARS_PRIOR_WATCHLIST",
         "canonical_signal_lane":"CONTINUOUS_DAILY_CORE224_RESTART",
         "weekly_lane_role":"CAUSAL_WATCHLIST_SEED_ONLY",
         "exact_weekly_parity":"SHARD_LOCAL_RESTART_INPUT_REPLAY_REQUIRED",
@@ -1666,23 +1769,76 @@ def _policy_lock_manifest(
         and int(authority_dates)>0 and int(authority_complete_dates)==int(authority_dates)
         and int(weekly_restart_events)>0 and int(exact_shard_replay_pass_events)==int(weekly_restart_events)
         and int(same_input_nondeterminism_events)==0
+        and int(snapshot_calendar_complete)==1 and int(snapshot_calendar_count)>0
     )
+    migration_status="NONE"; forward_epoch_reset=0; old_scored_finalized=0
+    def _same_specs(a: Any, b: Any) -> bool:
+        try:
+            return json.dumps(a,sort_keys=True,separators=(",",":"),ensure_ascii=False)==json.dumps(b,sort_keys=True,separators=(",",":"),ensure_ascii=False)
+        except Exception:
+            return False
+    def _write_lock(obj: Dict[str,Any]) -> bool:
+        try:
+            tmp=lockp.with_suffix(lockp.suffix+".tmp"); tmp.write_text(json.dumps(obj,ensure_ascii=False,sort_keys=True,indent=2),encoding="utf-8"); os.replace(tmp,lockp); return True
+        except Exception:
+            return False
     if old_digest:
-        status="LOCKED" if old_digest==digest else "INVALID_POLICY_LOCK_DRIFT"
+        if old_digest==digest:
+            status="LOCKED"
+        else:
+            # V25.4.10 semantic migration is permitted only when the trading policy itself is
+            # byte-semantically unchanged and no scored forward trade has finalized yet.
+            fp=root/"forward_oos_policy_ledger.csv"
+            try:
+                oq=_read_csv_safe(fp)
+                if not oq.empty:
+                    old_scored_finalized=int((_num(oq,"score_eligible",0).eq(1) & _num(oq,"finalized",0).eq(1)).sum())
+            except Exception:
+                old_scored_finalized=999999
+            old_schema=str(old.get("schema",""))
+            same_policy=(
+                str(old.get("primary_policy_id",""))==str(payload["primary_policy_id"])
+                and str(old.get("training_cutoff_date",""))==str(payload["training_cutoff_date"])
+                and int(old.get("max_follow_days",60) or 60)==60
+                and str(old.get("same_day_collision",""))==str(payload["same_day_collision"])
+                and str(old.get("gap_through_stop",""))==str(payload["gap_through_stop"])
+                and str(old.get("d1_entry_gap_below_stop",""))==str(payload["d1_entry_gap_below_stop"])
+                and _same_specs(old.get("policies",[]),payload["policies"])
+            )
+            safe_schema=old_schema in {"V25.4.7_POLICY_LOCK_2","V25.4.10_POLICY_LOCK_3"}
+            if safe_schema and same_policy and prerequisites_ok and old_scored_finalized==0:
+                try:
+                    arch=root/"v25_core224_policy_lock_pre_empty_snapshot_calendar_fix.json"
+                    if not arch.exists(): arch.write_text(json.dumps(old,ensure_ascii=False,sort_keys=True,indent=2),encoding="utf-8")
+                    for fn in ["forward_oos_event_ledger.csv","forward_oos_policy_ledger.csv"]:
+                        src=root/fn
+                        if src.exists():
+                            dst=root/(fn+".pre_empty_snapshot_calendar_fix")
+                            if not dst.exists(): os.replace(src,dst)
+                            else: src.unlink(missing_ok=True)
+                    forward_epoch_reset=1
+                except Exception:
+                    forward_epoch_reset=0
+                towrite={**payload,"policy_lock_digest":digest,"migrated_from_digest":old_digest,"migration_reason":"EMPTY_WEEKLY_SNAPSHOT_CALENDAR_FIX","forward_epoch_reset":int(forward_epoch_reset)}
+                status="LOCKED" if _write_lock(towrite) else "INVALID_POLICY_LOCK_PERSIST_FAILED"
+                migration_status="AUTO_RELOCKED_EMPTY_SNAPSHOT_CALENDAR_FIX" if status=="LOCKED" else "MIGRATION_PERSIST_FAILED"
+            else:
+                status="INVALID_POLICY_LOCK_DRIFT"
+                if old_scored_finalized>0: migration_status="BLOCKED_SCORED_FORWARD_ALREADY_FINALIZED"
+                elif not prerequisites_ok: migration_status="BLOCKED_NEW_CAUSAL_PREREQUISITES_FAIL"
+                elif not same_policy: migration_status="BLOCKED_POLICY_SEMANTICS_CHANGED"
+                else: migration_status="BLOCKED_UNKNOWN_OLD_SCHEMA"
     elif not prerequisites_ok:
         status="PENDING_POLICY_LOCK_PREREQUISITES"
     else:
         status="LOCKED"
         towrite={**payload,"policy_lock_digest":digest}
-        try:
-            tmp=lockp.with_suffix(lockp.suffix+".tmp"); tmp.write_text(json.dumps(towrite,ensure_ascii=False,sort_keys=True,indent=2),encoding="utf-8"); os.replace(tmp,lockp)
-        except Exception:
-            status="INVALID_POLICY_LOCK_PERSIST_FAILED"
+        if not _write_lock(towrite): status="INVALID_POLICY_LOCK_PERSIST_FAILED"
     rows=[]
     for x in specs:
         rows.append({
             "version":VERSION,"policy_lock_schema":POLICY_LOCK_SCHEMA_VERSION,"policy_lock_status":status,
-            "policy_lock_digest":digest,"persisted_digest":old_digest or (digest if status=="LOCKED" else ""),
+            "policy_lock_digest":digest,"persisted_digest":digest if status=="LOCKED" else old_digest,
             "training_cutoff_date":cutoff,"declared_lock_date":POLICY_LOCK_CREATED_DEFAULT,
             "selection_rule":payload["selection_rule"],"primary_policy_id":payload["primary_policy_id"],
             "max_follow_days":60,"same_day_collision":"STOP_FIRST","gap_through_stop":"EXIT_AT_OPEN_IF_OPEN_BELOW_STOP",
@@ -1692,6 +1848,8 @@ def _policy_lock_manifest(
             "lock_prereq_authority_dates":int(authority_dates),"lock_prereq_authority_complete_dates":int(authority_complete_dates),"lock_prereq_invariant_fail_rows":int(invariant_fail_rows),
             "lock_prereq_weekly_restart_events":int(weekly_restart_events),"lock_prereq_exact_shard_replay_pass_events":int(exact_shard_replay_pass_events),
             "lock_prereq_same_input_nondeterminism_events":int(same_input_nondeterminism_events),
+            "lock_prereq_snapshot_calendar_complete":int(snapshot_calendar_complete),"lock_prereq_snapshot_calendar_count":int(snapshot_calendar_count),
+            "migration_status":migration_status,"forward_epoch_reset":int(forward_epoch_reset),"old_scored_finalized":int(old_scored_finalized),
             **x,"research_only":True,"live_logic_changed":False,"real_order_changed":False,
         })
     meta={
@@ -1701,6 +1859,8 @@ def _policy_lock_manifest(
         "authority_dates":int(authority_dates),"authority_complete_dates":int(authority_complete_dates),"invariant_fail_rows":int(invariant_fail_rows),
         "weekly_restart_events":int(weekly_restart_events),"exact_shard_replay_pass_events":int(exact_shard_replay_pass_events),
         "same_input_nondeterminism_events":int(same_input_nondeterminism_events),
+        "snapshot_calendar_complete":int(snapshot_calendar_complete),"snapshot_calendar_count":int(snapshot_calendar_count),
+        "migration_status":migration_status,"forward_epoch_reset":int(forward_epoch_reset),"old_scored_finalized":int(old_scored_finalized),
     }
     return pd.DataFrame(rows), meta
 
@@ -2706,28 +2866,32 @@ def _path_classification(policy_df: pd.DataFrame, order_df: pd.DataFrame, out: P
     return df,pd.DataFrame(sums)
 
 
-def _persist_live_seed_snapshot(out: Path, state: pd.DataFrame, seeds: pd.DataFrame, weekly_seed_authority: pd.DataFrame, en: pd.Timestamp) -> Dict[str, Any]:
-    """Persist only the latest *known* weekly watch-list for the separate LIVE/PAPER runtime.
+def _persist_live_seed_snapshot(
+    out: Path, state: pd.DataFrame, seeds: pd.DataFrame, weekly_seed_authority: pd.DataFrame,
+    en: pd.Timestamp, snapshot_calendar: Optional[List[pd.Timestamp]] = None,
+    snapshot_calendar_meta: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Persist the latest scheduled weekly watch-list, including a valid zero-seed snapshot.
 
-    The finite backtest authority uses ``watch_end_exclusive=en+1`` for historical causality.
-    A live process has no future weekly snapshot yet, so the latest observed weekly snapshot is
-    exported with an open end and remains merely the *latest known* watch-list until a later
-    WEEKLY_BACKTEST refresh replaces it.  The LIVE runtime independently enforces staleness and
-    never treats this cache as a new signal source.
+    The latest snapshot date is authority from the materialized V23 calendar, not the last date
+    that happened to emit a CORE224 row.  An empty latest snapshot therefore correctly clears the
+    prior watch-list instead of carrying it forward.
     """
     cache = out / LIVE_SEED_CACHE_DIR
     cache.mkdir(parents=True, exist_ok=True)
-    sq = state.copy() if isinstance(state, pd.DataFrame) else pd.DataFrame()
-    latest = pd.NaT
-    if not sq.empty and "signal_date" in sq.columns:
-        ds = pd.to_datetime(sq["signal_date"], errors="coerce").dropna()
-        if len(ds): latest = pd.Timestamp(ds.max()).normalize()
+    cal = sorted({pd.Timestamp(x).normalize() for x in (snapshot_calendar or []) if pd.notna(x)})
+    latest = cal[-1] if cal else pd.NaT
+    calmeta = dict(snapshot_calendar_meta or {})
+    if pd.isna(latest):
+        # Diagnostic fallback only; the meta marks calendar_complete=0 and LIVE will block entry.
+        sq = state.copy() if isinstance(state, pd.DataFrame) else pd.DataFrame()
+        if not sq.empty and "signal_date" in sq.columns:
+            ds = pd.to_datetime(sq["signal_date"], errors="coerce").dropna()
+            if len(ds): latest = pd.Timestamp(ds.max()).normalize()
+
     wa = weekly_seed_authority.copy() if isinstance(weekly_seed_authority, pd.DataFrame) else pd.DataFrame()
     if not wa.empty:
         wa["signal_date"] = pd.to_datetime(wa.get("signal_date"), errors="coerce").dt.normalize()
-        if pd.isna(latest):
-            dd = wa["signal_date"].dropna()
-            latest = pd.Timestamp(dd.max()).normalize() if len(dd) else pd.NaT
         wa = wa[wa["signal_date"].eq(latest)].copy() if pd.notna(latest) else wa.iloc[0:0].copy()
         if not wa.empty:
             wa["watch_start_date"] = pd.Timestamp(latest).strftime("%Y-%m-%d")
@@ -2751,13 +2915,17 @@ def _persist_live_seed_snapshot(out: Path, state: pd.DataFrame, seeds: pd.DataFr
     raw = "|".join(codes).encode("utf-8")
     meta = {
         "version": VERSION,
-        "schema": "V25.4.9_LIVE_WEEKLY_SEED_SNAPSHOT_1",
+        "schema": "V25.4.10_LIVE_WEEKLY_SEED_SNAPSHOT_2",
         "backtest_end_date": _fmt_date(en),
         "weekly_snapshot_date": _fmt_date(latest),
         "seed_count": len(codes),
         "seed_code_sha256": hashlib.sha256(raw).hexdigest(),
-        "source": "WEEKLY_BACKTEST_LATEST_KNOWN_SNAPSHOT",
-        "causal_rule": "LIVE_MAY_USE_ONLY_LATEST_KNOWN_WEEKLY_SEED_UNTIL_REFRESH",
+        "snapshot_calendar_source": str(calmeta.get("source", "")),
+        "snapshot_calendar_complete": int(calmeta.get("complete", 0) or 0),
+        "snapshot_calendar_count": int(calmeta.get("snapshot_count", len(cal)) or len(cal)),
+        "snapshot_calendar_empty_count": int(calmeta.get("empty_snapshot_count", 0) or 0),
+        "source": "WEEKLY_BACKTEST_LATEST_SCHEDULED_SNAPSHOT",
+        "causal_rule": "LIVE_MAY_USE_ONLY_LATEST_SCHEDULED_WEEKLY_SEED_UNTIL_REFRESH;EMPTY_SNAPSHOT_CLEARS_PRIOR_SEEDS",
         "research_only": True,
         "live_score_rank_changed": False,
         "real_order_changed": False,
@@ -2776,8 +2944,9 @@ def run_daily_episode_replay(output_dir: str | Path, state: pd.DataFrame, payloa
         ready = pd.DataFrame([{"version": VERSION, "status": "DISABLED", "research_only": True}]); _write_csv(out / READINESS_FILE, ready)
         return {"status": "DISABLED", "readiness": ready, "report": ""}
 
+    snapshot_calendar, snapshot_calendar_meta, snapshot_calendar_audit = _authoritative_weekly_snapshot_calendar(out, state, st, en)
     seeds = _build_seed_ledger(state, st, en)
-    weekly_seed_authority = _weekly_seed_authority(state, st, en)
+    weekly_seed_authority = _weekly_seed_authority(state, st, en, snapshot_calendar=snapshot_calendar)
     weekly_ledger = _weekly_restart_ledger(state, st, en)
     weekly_restart_exact = {(str(r.get("code", "")), str(r.get("weekly_restart_date", ""))) for _, r in weekly_ledger.iterrows()}
     exact_authority = _exact_authority_map(out)
@@ -2832,12 +3001,12 @@ def run_daily_episode_replay(output_dir: str | Path, state: pd.DataFrame, payloa
 
     seed_runtime = pd.DataFrame(seed_runtime_rows); state_df = pd.concat(compact_states, ignore_index=True, sort=False) if compact_states else pd.DataFrame(); transition_df = pd.concat(transitions, ignore_index=True, sort=False) if transitions else pd.DataFrame(); invariant_df = pd.concat(invariants, ignore_index=True, sort=False) if invariants else pd.DataFrame()
     raw_restart_df = pd.DataFrame(raw_restart_rows)
-    live_seed_meta = _persist_live_seed_snapshot(out, state, seeds, weekly_seed_authority, en)
+    live_seed_meta = _persist_live_seed_snapshot(out, state, seeds, weekly_seed_authority, en, snapshot_calendar=snapshot_calendar, snapshot_calendar_meta=snapshot_calendar_meta)
     if not raw_restart_df.empty:
         raw_restart_df["restart_date"] = pd.to_datetime(raw_restart_df["restart_date"], errors="coerce").dt.strftime("%Y-%m-%d"); raw_restart_df = raw_restart_df.sort_values(["restart_date", "code"], kind="stable")
     cycle_restart_df, dedup_audit = _dedupe_restart_events(raw_restart_df)
     overlap_audit, family_summary, restart_df = _episode_overlap_audit(cycle_restart_df, transition_df, px_follow_by_code)
-    seed_causality = _daily_seed_causality_audit(restart_df, state, st, en)
+    seed_causality = _daily_seed_causality_audit(restart_df, state, st, en, snapshot_calendar=snapshot_calendar, calendar_complete=int(snapshot_calendar_meta.get("complete",0) or 0))
     if not restart_df.empty and not seed_causality.empty:
         sc = seed_causality[[c for c in ["event_id","latest_weekly_snapshot","next_weekly_snapshot","weekly_seed_causal_eligible","weekly_seed_reason","weekly_state_at_authorization","seed_causality_status"] if c in seed_causality.columns]].copy()
         restart_df = restart_df.merge(sc, on="event_id", how="left")
@@ -2900,7 +3069,7 @@ def run_daily_episode_replay(output_dir: str | Path, state: pd.DataFrame, payloa
     stop_exit_policy_matrix = _stop_exit_policy_matrix(exit_shadow_summary)
     execution_causality_df, execution_causality_summary = _execution_causality_shadow(restart_df, px_follow_by_code, cfg_life)
     input_fingerprint = _input_fingerprint_regression(
-        out, state, seed_runtime, weekly_seed_authority, state_df, transition_df, restart_df,
+        out, state, seed_runtime, weekly_seed_authority, snapshot_calendar_audit, state_df, transition_df, restart_df,
         price_fingerprint_parts, targeted_dates, exact_shard_proof,
     )
     # V25.4.7 lock authority: parent-merged-cache parity remains diagnostic only.  A weekly
@@ -2945,6 +3114,7 @@ def run_daily_episode_replay(output_dir: str | Path, state: pd.DataFrame, payloa
         training_causal_proven, training_policy_eligible,
         training_authority_dates, training_authority_complete_dates, len(invariant_df),
         len(weekly_ledger), exact_shard_replay_pass, exact_shard_same_input_nondeterminism,
+        int(snapshot_calendar_meta.get("complete",0) or 0), int(snapshot_calendar_meta.get("snapshot_count",0) or 0),
     )
     forward_oos_events, forward_oos_policy, forward_oos_summary, forward_oos_immutability, forward_oos_meta = _forward_oos_locked_ledgers(out, restart_df, px_follow_by_code, cfg_life, policy_lock_manifest, policy_lock_meta)
     manual = _stratified_manual(restart_df, order_df, life_policy_df, recon, 60)
@@ -2982,6 +3152,11 @@ def run_daily_episode_replay(output_dir: str | Path, state: pd.DataFrame, payloa
         "weekly_unresolved_rootcause_rows": len(unresolved_rootcause), "context_parity_rows": len(context_parity),
         "weekly_restart_900bar_contract_explained": weekly_contract_explained, "weekly_900bar_parity_rows": len(weekly_900bar_parity),
         "weekly_seed_authority_rows": len(weekly_seed_authority),
+        "weekly_snapshot_calendar_dates": int(snapshot_calendar_meta.get("snapshot_count",0) or 0),
+        "weekly_snapshot_calendar_complete": int(snapshot_calendar_meta.get("complete",0) or 0),
+        "weekly_snapshot_calendar_latest": str(snapshot_calendar_meta.get("latest_snapshot_date", "")),
+        "weekly_snapshot_empty_dates": int(snapshot_calendar_meta.get("empty_snapshot_count",0) or 0),
+        "weekly_snapshot_calendar_source": str(snapshot_calendar_meta.get("source", "")),
         "daily_seed_causal_eligible_events": int(_num(restart_df, "weekly_seed_causal_eligible", 0).eq(1).sum()) if not restart_df.empty else 0,
         "daily_seed_causal_ineligible_events": int(_num(restart_df, "weekly_seed_causal_eligible", 0).ne(1).sum()) if not restart_df.empty else 0,
         "policy_training_eligible_events": int(_num(restart_df, "policy_training_eligible", 0).eq(1).sum()) if not restart_df.empty else 0,
@@ -3011,9 +3186,11 @@ def run_daily_episode_replay(output_dir: str | Path, state: pd.DataFrame, payloa
         "input_fingerprint_changed_components": int(_num(input_fingerprint, "changed_vs_previous", 0).sum()) if not input_fingerprint.empty else 0,
         "input_fingerprint_source_changed_components": int(_num(input_fingerprint, "source_input_changed", 0).sum()) if not input_fingerprint.empty else 0,
         "policy_lock_status": str(policy_lock_meta.get("status","UNKNOWN")), "policy_lock_digest": str(policy_lock_meta.get("digest","")), "policy_lock_cutoff_date": str(policy_lock_meta.get("cutoff","")),
+        "policy_lock_migration_status": str(policy_lock_meta.get("migration_status","NONE")), "policy_lock_forward_epoch_reset": int(policy_lock_meta.get("forward_epoch_reset",0) or 0),
         "forward_oos_status": str(forward_oos_meta.get("status","UNKNOWN")), "forward_oos_events": int(forward_oos_meta.get("events",0) or 0), "forward_oos_causal_eligible": int(forward_oos_meta.get("eligible",0) or 0), "forward_oos_finalized_policy_rows": int(forward_oos_meta.get("finalized",0) or 0), "forward_oos_primary_finalized_trades": int(forward_oos_meta.get("primary_finalized",0) or 0), "forward_oos_immutability_conflicts": int(forward_oos_meta.get("immutability_conflicts",0) or 0),
         "live_seed_snapshot_date": str(live_seed_meta.get("weekly_snapshot_date", "")),
         "live_seed_snapshot_rows": int(live_seed_meta.get("seed_count", 0) or 0),
+        "live_seed_snapshot_calendar_complete": int(live_seed_meta.get("snapshot_calendar_complete",0) or 0),
         "live_board_rows": len(live_board),
         "live_board_entry_review": int(live_board.get("section",pd.Series(dtype=str)).astype(str).eq("ENTRY_REVIEW").sum()) if not live_board.empty else 0,
         "live_board_restart_wait": int(live_board.get("section",pd.Series(dtype=str)).astype(str).eq("RESTART_WAIT").sum()) if not live_board.empty else 0,
@@ -3031,7 +3208,7 @@ def run_daily_episode_replay(output_dir: str | Path, state: pd.DataFrame, payloa
         (SEED_FILE, seed_runtime),(STATE_FILE,state_df),(TRANSITION_FILE,transition_df),(RAW_RESTART_FILE,raw_restart_df),(RESTART_FILE,restart_df),
         (DEDUP_AUDIT_FILE,dedup_audit),(EPISODE_OVERLAP_FILE,overlap_audit),(EPISODE_FAMILY_FILE,family_summary),(RECON_FILE,recon),(UNRESOLVED_ROOTCAUSE_FILE,unresolved_rootcause),(CONTEXT_PARITY_FILE,context_parity),
         (CONTEXT_STATE_TRACE_FILE,context_state_trace),(CONTEXT_STATE_TRACE_SUMMARY_FILE,context_state_trace_summary),(WEEKLY_900BAR_PARITY_FILE,weekly_900bar_parity),
-        (WEEKLY_SEED_AUTHORITY_FILE,weekly_seed_authority),(DAILY_SEED_CAUSALITY_FILE,seed_causality),(SHARD_RESTART_INPUT_PROOF_FILE,exact_shard_proof),
+        (WEEKLY_SNAPSHOT_CALENDAR_FILE,snapshot_calendar_audit),(WEEKLY_SEED_AUTHORITY_FILE,weekly_seed_authority),(DAILY_SEED_CAUSALITY_FILE,seed_causality),(SHARD_RESTART_INPUT_PROOF_FILE,exact_shard_proof),
         (TARGET_AUTHORITY_FILE,targeted_events),(TARGET_AUTHORITY_DATE_FILE,targeted_dates),(TARGET_AUTHORITY_CLASS_SUMMARY_FILE,targeted_authority_class_summary),(INPUT_FINGERPRINT_FILE,input_fingerprint),(INVARIANT_FILE,invariant_df),(MANUAL_FILE,manual),
         (LIFECYCLE_SIGNAL_FILE,life_signal_df),(LIFECYCLE_POLICY_FILE,life_policy_df),(LIFECYCLE_FILL_FILE,life_fill_df),(LIFECYCLE_HORIZON_FILE,life_horizon_df),(LIFECYCLE_STOP_FILE,life_stop),
         (ORDER_FILE,order_df),(ORDER_SUMMARY_FILE,order_summary),(PATH_CLASS_FILE,path_df),(PATH_CLASS_SUMMARY_FILE,path_summary),(STOP_LENS_PATH_COMPARE_FILE,stop_lens_compare),(STOP_LENS_RISK_TRADEOFF_FILE,stop_lens_risk_tradeoff),
@@ -3054,15 +3231,16 @@ def run_daily_episode_replay(output_dir: str | Path, state: pd.DataFrame, payloa
         f"🧭 seed {len(seeds)}종목 → daily 평가 {evaluated} · 가격cache 누락 {price_missing} · actual Amount 20일-ready 종목 {amount_ready_codes}",
         f"🔁 RESTART raw {raw_n} → cycle-first {cycle_unique_n} → episode-independent {unique_n} · exact-cycle 반복억제 {suppressed_n} · overlap 자동억제 {overlap_suppressed_n} · overlap REVIEW {overlap_review_pairs}",
         f"🔗 weekly↔daily: exact {weekly_exact}/{len(weekly_ledger)} · same-cycle shift {weekly_shift} · exact-shard lane-explained {weekly_exact_shard_lane_explained} · unexplained {weekly_unexplained} · legacy-context {weekly_explained} · rootcause {rootcause_text}",
+        f"🗓️ weekly snapshot calendar: {int(snapshot_calendar_meta.get('snapshot_count',0) or 0)}일 · latest {snapshot_calendar_meta.get('latest_snapshot_date','-')} · empty {int(snapshot_calendar_meta.get('empty_snapshot_count',0) or 0)} · authority {'PASS' if int(snapshot_calendar_meta.get('complete',0) or 0)==1 else 'UNPROVEN'} · source {snapshot_calendar_meta.get('source','-')}",
         f"🛂 weekly-seed causal gate: active {int(_num(restart_df,'weekly_seed_causal_eligible',0).eq(1).sum()) if not restart_df.empty else 0}/{unique_n} · retrospective-only excluded {int(_num(restart_df,'weekly_seed_causal_eligible',0).ne(1).sum()) if not restart_df.empty else 0} · universe proven {exact_causal_n} · strict policy-training {int(_num(restart_df,'policy_training_eligible',0).eq(1).sum()) if not restart_df.empty else 0} · cutoff-train strict {training_policy_eligible}/{training_restart_events}",
         f"🧷 exact shard RESTART input proof: pass {exact_shard_replay_pass}/{len(weekly_ledger)} · cross-lane explained {exact_shard_cross_lane_explained} (unresolved {weekly_exact_shard_lane_explained}) · same-input nondeterminism {exact_shard_same_input_nondeterminism}",
         f"🧵 unresolved full-state trace: {len(context_state_trace_summary)}건 · first-divergence exposed {int(context_state_trace_summary.get('trace_status',pd.Series(dtype=str)).astype(str).eq('FIRST_DIVERGENCE_EXPOSED').sum()) if not context_state_trace_summary.empty else 0} · 신호 강제 reconcile 0",
         f"📦 독립 RESTART {unique_n} 중 주간사이 복원 {recovered_n} · causal policy-proof {exact_causal_n}/{unique_n} · targeted window-complete {targeted_complete_dates}/{int(targeted_meta.get('dates',0) or 0)} · full-name-complete {targeted_full_name_complete_dates}/{int(targeted_meta.get('dates',0) or 0)}",
         f"♻️ targeted authority resume: cache {targeted_cache_before}→{targeted_cache_after} (+{targeted_new_cache}) · provider {targeted_provider_calls}/{targeted_budget} calls · errors {targeted_provider_errors} · budget_exhausted {targeted_budget_exhausted}",
         f"🧬 입력 fingerprint: changed {int(_num(input_fingerprint, 'changed_vs_previous', 0).sum()) if not input_fingerprint.empty else 0} · source-changed {int(_num(input_fingerprint, 'source_input_changed', 0).sum()) if not input_fingerprint.empty else 0} · schema {FINGERPRINT_SCHEMA_VERSION}",
-        f"🔒 policy lock: {policy_lock_meta.get('status')} · cutoff {policy_lock_meta.get('cutoff')} · PRIMARY {policy_lock_meta.get('primary_policy_id')} · auto-switch 0",
+        f"🔒 policy lock: {policy_lock_meta.get('status')} · cutoff {policy_lock_meta.get('cutoff')} · PRIMARY {policy_lock_meta.get('primary_policy_id')} · migration {policy_lock_meta.get('migration_status','NONE')} · auto-switch 0",
         f"🧪 forward OOS/PAPER: {forward_oos_meta.get('status')} · events {forward_oos_meta.get('events',0)} · causal-eligible {forward_oos_meta.get('eligible',0)} · PRIMARY-finalized {forward_oos_meta.get('primary_finalized',0)} · finalized-policy-rows {forward_oos_meta.get('finalized',0)} · immutability-conflict {forward_oos_meta.get('immutability_conflicts',0)}",
-        f"🛰️ LIVE seed cache: latest-weekly {live_seed_meta.get('weekly_snapshot_date','-')} · active {int(live_seed_meta.get('seed_count',0) or 0)} · next LIVE는 이 snapshot 이후만 증분평가",
+        f"🛰️ LIVE seed cache: latest-scheduled {live_seed_meta.get('weekly_snapshot_date','-')} · active {int(live_seed_meta.get('seed_count',0) or 0)} · calendar {'PASS' if int(live_seed_meta.get('snapshot_calendar_complete',0) or 0)==1 else 'UNPROVEN'} · empty snapshot이면 이전 seed 자동해제",
         f"🚦 LIVE BOARD: entry-review {int(live_board.get('section',pd.Series(dtype=str)).astype(str).eq('ENTRY_REVIEW').sum()) if not live_board.empty else 0} · restart-wait {int(live_board.get('section',pd.Series(dtype=str)).astype(str).eq('RESTART_WAIT').sum()) if not live_board.empty else 0} · initial {int(live_board.get('section',pd.Series(dtype=str)).astype(str).eq('INITIAL_WATCH').sum()) if not live_board.empty else 0} · base {int(live_board.get('section',pd.Series(dtype=str)).astype(str).eq('BASE_WATCH').sum()) if not live_board.empty else 0} · excluded-restart {int(live_board.get('section',pd.Series(dtype=str)).astype(str).eq('EXCLUDED_RESTART').sum()) if not live_board.empty else 0} · D+1 rows {len(d1_execution_board)}",
         f"🧪 daily lifecycle {len(life_signal_df)} · eligible {eligible_n} · 구조손절/30-30-40/20·40·60일 규칙 동일 · 조건 튜닝 0",
         "⚠️ targeted authority는 이미 고정된 RESTART만 분류하며 CORE224 신호를 만들거나 삭제하지 않습니다. NOT_IN_CAUSAL_UNIVERSE와 AUTHORITY_MISSING을 분리합니다.",
@@ -3135,7 +3313,7 @@ def run_daily_episode_replay(output_dir: str | Path, state: pd.DataFrame, payloa
             lines.append(f"📈 FORWARD {r.get('policy_role')}/{r.get('policy_id')}: events {int(r.get('forward_events',0) or 0)} · eligible {int(r.get('causal_eligible_events',0) or 0)} · finalized {int(r.get('finalized_trades',0) or 0)} · medR {float(r.get('median_net_r',np.nan)):+.2f} · trim {float(r.get('trim10_net_r',np.nan)):+.2f} · cumR {float(r.get('cumulative_trade_sequence_r',0)):+.2f} · DD {float(r.get('max_drawdown_trade_sequence_r',0)):.2f}R")
     lines.append("")
     lines.extend(live_board_text.splitlines())
-    lines.append(f"⏱️ daily episode replay elapsed {time.monotonic()-t0:.1f}s"); lines.append(f"- CSV: {RESTART_FILE} · {WEEKLY_SEED_AUTHORITY_FILE} · {DAILY_SEED_CAUSALITY_FILE} · {SHARD_RESTART_INPUT_PROOF_FILE} · {INPUT_FINGERPRINT_FILE} · {POLICY_LOCK_MANIFEST_FILE} · {FORWARD_OOS_SUMMARY_FILE} · {LIVE_BOARD_FILE} · {D1_EXECUTION_BOARD_FILE} · {READINESS_FILE}")
+    lines.append(f"⏱️ daily episode replay elapsed {time.monotonic()-t0:.1f}s"); lines.append(f"- CSV: {RESTART_FILE} · {WEEKLY_SNAPSHOT_CALENDAR_FILE} · {WEEKLY_SEED_AUTHORITY_FILE} · {DAILY_SEED_CAUSALITY_FILE} · {SHARD_RESTART_INPUT_PROOF_FILE} · {INPUT_FINGERPRINT_FILE} · {POLICY_LOCK_MANIFEST_FILE} · {FORWARD_OOS_SUMMARY_FILE} · {LIVE_BOARD_FILE} · {D1_EXECUTION_BOARD_FILE} · {READINESS_FILE}")
     report="\n".join(lines); (out/REPORT_FILE).write_text(report+"\n",encoding="utf-8")
     return {"status":status,"seed":seed_runtime,"weekly_seed_authority":weekly_seed_authority,"seed_causality":seed_causality,"exact_shard_proof":exact_shard_proof,"state":state_df,"transitions":transition_df,"raw_restarts":raw_restart_df,"cycle_restarts":cycle_restart_df,"restarts":restart_df,"dedup_audit":dedup_audit,"episode_overlap":overlap_audit,"episode_family":family_summary,"reconciliation":recon,"unresolved_rootcause":unresolved_rootcause,"context_parity":context_parity,"context_state_trace":context_state_trace,"context_state_trace_summary":context_state_trace_summary,"weekly_900bar_parity":weekly_900bar_parity,"input_fingerprint":input_fingerprint,"policy_lock_manifest":policy_lock_manifest,"policy_lock_meta":policy_lock_meta,"forward_oos_events":forward_oos_events,"forward_oos_policy":forward_oos_policy,"forward_oos_summary":forward_oos_summary,"forward_oos_immutability":forward_oos_immutability,"forward_oos_meta":forward_oos_meta,"live_board":live_board,"d1_execution_board":d1_execution_board,"live_board_text":live_board_text,"targeted_authority":targeted_events,"targeted_authority_dates":targeted_dates,"targeted_authority_class_summary":targeted_authority_class_summary,"invariants":invariant_df,"manual":manual,"lifecycle_signal":life_signal_df,"lifecycle_policy":life_policy_df,"lifecycle_fill":life_fill_df,"lifecycle_horizon":life_horizon_df,"lifecycle_stop":life_stop,"event_order":order_df,"event_order_summary":order_summary,"path_class":path_df,"path_class_summary":path_summary,"stop_lens_path_compare":stop_lens_compare,"stop_lens_risk_tradeoff":stop_lens_risk_tradeoff,"single_policy":single_df,"risk_parity":risk_df,"risk_parity_summary":risk_summary,"risk_parity_fill_group_summary":risk_fill_group_summary,"exit_shadow":exit_shadow_df,"exit_shadow_summary":exit_shadow_summary,"stop_exit_policy_matrix":stop_exit_policy_matrix,"execution_causality":execution_causality_df,"execution_causality_summary":execution_causality_summary,"readiness":readiness,"report":report}
 

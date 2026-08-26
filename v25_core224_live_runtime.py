@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""V25.4.9 CORE224 LIVE/PAPER runtime bridge.
+"""V25.4.10 CORE224 LIVE/PAPER runtime bridge.
 
 This module is a presentation/execution-audit bridge for the already locked CORE224 policy.
 It does NOT create a new strategy, score, rank, live order, or return-tuned threshold.
@@ -35,7 +35,7 @@ import pandas as pd
 import original_thesis_reconstruction as thesis
 import v25_core224_daily_episode_replay as daily
 
-VERSION = "V73.3.6.6.25.4.9"
+VERSION = "V73.3.6.6.25.4.10"
 RESEARCH_ONLY = True
 LIVE_LOGIC_CHANGED = False
 REAL_ORDER_CHANGED = False
@@ -498,12 +498,16 @@ def _render_runtime_report(mode: str, status: str, today: pd.Timestamp, asof: Op
     lines = [
         HEADER,
         f"📌 {VERSION} · mode={mode} · status={status} · 자동주문 0 · LIVE점수/랭크 변경 0",
-        f"🛰️ weekly seed: {seed_meta.get('weekly_snapshot_date','-')} · age {seed_age_days}일 · active-cache {int(seed_meta.get('seed_count',0) or 0)} · {'STALE/BLOCK' if seed_stale else 'FRESH'}",
+        f"🛰️ weekly seed: {seed_meta.get('weekly_snapshot_date','-')} · age {seed_age_days}일 · active-cache {int(seed_meta.get('seed_count',0) or 0)} · calendar {'PASS' if int(seed_meta.get('snapshot_calendar_complete',0) or 0)==1 else 'UNPROVEN'} · {'STALE/BLOCK' if seed_stale else 'FRESH'}",
         f"📅 평가 completed-bar: {_fmt_date(asof) if asof is not None else '-'} · today {today.strftime('%Y-%m-%d')} · universe {universe_status or 'NOT_REQUIRED'}",
         f"🧪 evaluator: codes {eval_meta.get('codes',0)} · pass {eval_meta.get('evaluated',0)} · Amount20-ready {eval_meta.get('amount_ready',0)} · price-missing {eval_meta.get('price_missing',0)} · invariant {eval_meta.get('invariant_fail',0)}",
     ]
+    if int(seed_meta.get('snapshot_calendar_complete',0) or 0) != 1:
+        lines.append("⛔ Weekly snapshot calendar authority가 불완전하여 신규 진입 gate를 차단합니다. COMPLETE_HANDOFF selected_dates가 필요합니다.")
     if seed_stale:
         lines.append("⛔ 최신 Weekly Seed snapshot이 오래되어 신규 RESTART 진입 gate를 차단합니다. WEEKLY_BACKTEST로 seed snapshot을 갱신하세요.")
+    if int(seed_meta.get('snapshot_calendar_complete',0) or 0) == 1 and int(seed_meta.get('seed_count',0) or 0) == 0:
+        lines.append("ℹ️ 최신 scheduled Weekly snapshot의 seed가 0개입니다. 이전 주 watch-list를 이월하지 않으며 D+1 기존신호 감사만 계속합니다.")
     if board is None or board.empty:
         lines.extend(["", "🟢/🟡/🔵 CORE224 상태 후보: 없음 또는 평가자료 미완성"])
     else:
@@ -532,13 +536,14 @@ def run_core224_live_runtime(
     now = now_kst.astimezone(KST) if isinstance(now_kst, datetime) and now_kst.tzinfo else (now_kst.replace(tzinfo=KST) if isinstance(now_kst, datetime) else datetime.now(KST))
     today = pd.Timestamp(now.date()).normalize()
     wa, su, seed_meta = _load_seed(out)
-    if wa.empty or not seed_meta:
+    if not seed_meta:
         report = "\n".join([HEADER, f"📌 {VERSION} · status=NEEDS_WEEKLY_BACKTEST_SEED", "⛔ CORE224 LIVE seed cache가 없습니다. V25 WEEKLY_BACKTEST를 1회 완료한 뒤 LIVE를 실행하세요.", "🔒 기존 LIVE 점수·랭크·주문에는 영향 없음"])
         (out / RUNTIME_REPORT_FILE).write_text(report + "\n", encoding="utf-8")
         return {"status": "NEEDS_WEEKLY_BACKTEST_SEED", "report": report, "board": pd.DataFrame(), "d1": pd.DataFrame()}
 
     seed_date, age_days, stale = _seed_age(seed_meta, today)
-    codes = sorted(set(wa["code"].astype(str)))
+    calendar_complete = int(seed_meta.get("snapshot_calendar_complete", 0) or 0) == 1
+    codes = sorted(set(wa.get("code", pd.Series(dtype=str)).astype(str))) if not wa.empty else []
     prior_asof = _latest_base_date(out, codes, seed_meta, before=today)
     cutoff_h = int(float(os.getenv("V25_CORE224_LIVE_EOD_FINAL_HOUR", "15"))); cutoff_m = int(float(os.getenv("V25_CORE224_LIVE_EOD_FINAL_MINUTE", "40")))
     after_close = (now.hour, now.minute) >= (cutoff_h, cutoff_m)
@@ -578,7 +583,7 @@ def run_core224_live_runtime(
         # Use authority already frozen in the live restart ledger for old RESTARTs; watch states do not need membership.
         universe_status = "PREVIOUS_COMPLETED_BAR_WATCH"
 
-    wa_gate = wa.copy() if not stale else wa.iloc[0:0].copy()
+    wa_gate = wa.copy() if (not stale and calendar_complete) else wa.iloc[0:0].copy()
     eval_meta: Dict[str, Any] = {"codes": len(codes), "evaluated": 0, "amount_ready": 0, "price_missing": 0, "invariant_fail": 0}
     board = pd.DataFrame(); restart_df = pd.DataFrame(); seed_runtime = pd.DataFrame(); px_by_code: Dict[str, pd.DataFrame] = {}
     if asof is not None:
@@ -605,9 +610,11 @@ def run_core224_live_runtime(
         _append_dedup(cache / EXECUTION_LEDGER_FILE, d1, ["code", "restart_date", "asof_date"])
 
     if mode == "EOD_DATA_PENDING": status = "EOD_DATA_PENDING_NO_SIGNAL_FINALIZE"
+    elif not calendar_complete: status = "INVALID_WEEKLY_SNAPSHOT_CALENDAR_AUTHORITY"
     elif stale: status = "SEED_STALE_ENTRY_BLOCKED"
     elif asof is None: status = "NO_COMPLETED_BAR_AUTHORITY"
     elif int(eval_meta.get("invariant_fail", 0) or 0) > 0: status = "INVALID_CORE224_INVARIANT"
+    elif len(codes) == 0: status = "PASS_NO_ACTIVE_WEEKLY_SEED"
     else: status = "PASS_PAPER_ONLY"
     report = _render_runtime_report(mode, status, today, asof, seed_meta, age_days, stale, eval_meta, universe_status, board, d1)
     (out / RUNTIME_REPORT_FILE).write_text(report + "\n", encoding="utf-8")
@@ -616,6 +623,7 @@ def run_core224_live_runtime(
     audit = pd.DataFrame([{
         "version": VERSION, "ts_kst": now.isoformat(), "mode": mode, "status": status, "today": today.strftime("%Y-%m-%d"), "asof_date": _fmt_date(asof),
         "seed_snapshot_date": seed_meta.get("weekly_snapshot_date", ""), "seed_age_days": age_days, "seed_stale": int(stale), "seed_codes": len(codes),
+        "snapshot_calendar_complete": int(calendar_complete), "snapshot_calendar_source": str(seed_meta.get("snapshot_calendar_source", "")),
         "evaluated": eval_meta.get("evaluated",0), "amount_ready": eval_meta.get("amount_ready",0), "price_missing": eval_meta.get("price_missing",0), "invariant_fail": eval_meta.get("invariant_fail",0),
         "universe_status": universe_status, "universe_rows": len(membership), "board_rows": len(board), "entry_review": int(board.get("section",pd.Series(dtype=str)).astype(str).eq("ENTRY_REVIEW").sum()) if not board.empty else 0,
         "restart_wait": int(board.get("section",pd.Series(dtype=str)).astype(str).eq("RESTART_WAIT").sum()) if not board.empty else 0, "excluded_restart": int(board.get("section",pd.Series(dtype=str)).astype(str).eq("EXCLUDED_RESTART").sum()) if not board.empty else 0,

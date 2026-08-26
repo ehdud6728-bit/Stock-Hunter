@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""V25.4.9 HF5-compatible lightweight ALL-cohort parent.
+"""V25.4.10 HF5-compatible lightweight ALL-cohort parent.
 
 Consumes the already materialized A/B/C/D V23 payloads and runs only the V23
 parent integrity report plus V25 CORE224 thesis/lifecycle finalization. It
@@ -25,7 +25,7 @@ import direct_replay_materialized_v23 as mat
 import original_thesis_reconstruction as thesis
 import v25_core224_daily_episode_replay as daily_replay
 
-VERSION = "V73.3.6.6.25.4.9-HF5COMPAT"
+VERSION = "V73.3.6.6.25.4.10-HF5COMPAT"
 AUDIT_FILE = "v73_v25_core224_only_parent_audit.csv"
 REPORT_FILE = "v73_v25_core224_only_parent_report.txt"
 HEADER = "⚡ [V25 ALL CORE224 LIGHTWEIGHT PARENT · RESEARCH_ONLY]"
@@ -188,6 +188,10 @@ def run(output_dir: str) -> int:
         "daily_weekly_unreconciled_raw": int(float(drr.get("weekly_restart_unreconciled_raw", drr.get("weekly_restart_unreconciled", 0)) or 0)),
         "daily_weekly_unexplained": int(float(drr.get("weekly_restart_unexplained", drr.get("weekly_restart_unreconciled", 0)) or 0)),
         "daily_weekly_seed_authority_rows": int(float(drr.get("weekly_seed_authority_rows", 0) or 0)),
+        "daily_weekly_snapshot_calendar_dates": int(float(drr.get("weekly_snapshot_calendar_dates", 0) or 0)),
+        "daily_weekly_snapshot_calendar_complete": int(float(drr.get("weekly_snapshot_calendar_complete", 0) or 0)),
+        "daily_weekly_snapshot_empty_dates": int(float(drr.get("weekly_snapshot_empty_dates", 0) or 0)),
+        "daily_weekly_snapshot_calendar_latest": str(drr.get("weekly_snapshot_calendar_latest", "")),
         "daily_seed_causal_eligible_events": int(float(drr.get("daily_seed_causal_eligible_events", 0) or 0)),
         "daily_seed_causal_ineligible_events": int(float(drr.get("daily_seed_causal_ineligible_events", 0) or 0)),
         "daily_policy_training_eligible_events": int(float(drr.get("policy_training_eligible_events", 0) or 0)),
@@ -225,6 +229,8 @@ def run(output_dir: str) -> int:
         "daily_policy_lock_status": str(drr.get("policy_lock_status", "UNKNOWN")),
         "daily_policy_lock_digest": str(drr.get("policy_lock_digest", "")),
         "daily_policy_lock_cutoff_date": str(drr.get("policy_lock_cutoff_date", "")),
+        "daily_policy_lock_migration_status": str(drr.get("policy_lock_migration_status", "NONE")),
+        "daily_policy_lock_forward_epoch_reset": int(float(drr.get("policy_lock_forward_epoch_reset", 0) or 0)),
         "daily_forward_oos_status": str(drr.get("forward_oos_status", "UNKNOWN")),
         "daily_forward_oos_events": int(float(drr.get("forward_oos_events", 0) or 0)),
         "daily_forward_oos_causal_eligible": int(float(drr.get("forward_oos_causal_eligible", 0) or 0)),
@@ -269,6 +275,8 @@ def run(output_dir: str) -> int:
         and audit["daily_invariant_fail_rows"] == 0
         and audit["daily_core_replay_provider_calls"] == 0
         and audit["daily_weekly_unexplained"] == 0
+        and audit["daily_weekly_snapshot_calendar_complete"] == 1
+        and audit["daily_weekly_snapshot_calendar_dates"] == audit["expected_dates"]
         and audit["daily_exact_shard_restart_input_expected"] == audit["daily_weekly_restart_cycles"]
         and audit["daily_exact_shard_restart_input_replay_pass"] == audit["daily_weekly_restart_cycles"]
         and audit["daily_exact_shard_same_input_nondeterminism"] == 0
@@ -286,10 +294,11 @@ def run(output_dir: str) -> int:
         f"🔬 daily episode {audit['daily_episode_status']} · seed {audit['daily_seed_codes']} → 평가 {audit['daily_evaluated_codes']} · RESTART raw {audit['daily_raw_restart_rows']} → cycle-first {audit['daily_cycle_first_restart_events']} → episode-independent {audit['daily_restart_events']} (cycle반복억제 {audit['daily_suppressed_repeat_restart_rows']} / overlap억제 {audit['daily_episode_overlap_suppressed_events']} / REVIEW {audit['daily_episode_overlap_review_pairs']} / 주간사이복원 {audit['daily_recovered_restart_events']}) · invariant fail {audit['daily_invariant_fail_rows']}",
         f"🔗 weekly↔daily RESTART: weekly {audit['daily_weekly_restart_cycles']} · exact {audit['daily_weekly_exact_date_matches']} · same-cycle shift {audit['daily_weekly_same_cycle_date_shifts']} · exact-shard lane-explained {audit['daily_weekly_exact_shard_lane_explained']} · reconciled {audit['daily_weekly_reconciled']} · unexplained {audit['daily_weekly_unexplained']} · legacy-900bar {audit['daily_weekly_900bar_contract_explained']}",
         f"🧷 exact shard input proof: pass {audit['daily_exact_shard_restart_input_replay_pass']}/{audit['daily_exact_shard_restart_input_expected']} · proof rows {audit['daily_exact_shard_restart_input_proof_rows']} · cross-lane explained {audit['daily_exact_shard_cross_lane_explained']} · same-input nondeterminism {audit['daily_exact_shard_same_input_nondeterminism']}",
+        f"🗓️ weekly snapshot calendar: {audit['daily_weekly_snapshot_calendar_dates']}/{audit['expected_dates']} · latest {audit['daily_weekly_snapshot_calendar_latest']} · empty {audit['daily_weekly_snapshot_empty_dates']} · authority {'PASS' if audit['daily_weekly_snapshot_calendar_complete']==1 else 'UNPROVEN'}",
         f"🛂 weekly-seed causal gate: active {audit['daily_seed_causal_eligible_events']}/{audit['daily_restart_events']} · excluded {audit['daily_seed_causal_ineligible_events']} · strict policy-training {audit['daily_policy_training_eligible_events']} · cutoff-train {audit['daily_training_policy_eligible_before_cutoff']}/{audit['daily_training_restart_events_before_cutoff']} · universe-proven train {audit['daily_training_universe_proven_before_cutoff']}",
         f"📦 targeted causal authority: proven events {audit['daily_exact_causal_asof_restart_events']}/{audit['daily_restart_events']} · window-complete {audit['daily_targeted_authority_complete_dates']}/{audit['daily_targeted_authority_dates']} · full-name {audit['daily_targeted_authority_full_name_complete_dates']}/{audit['daily_targeted_authority_dates']} · cache {audit['daily_targeted_authority_cache_valid_before']}→{audit['daily_targeted_authority_cache_valid_after']} (+{audit['daily_targeted_authority_new_valid_market_dates']}) · provider {audit['daily_targeted_authority_provider_calls']}/{audit['daily_targeted_authority_provider_call_budget']} · errors {audit['daily_targeted_authority_provider_errors']}",
         f"⏱️ lifecycle audit: event-order {audit['daily_event_order_rows']}행 · path-class {audit['daily_path_class_rows']}행 · stop-lens compare {audit['daily_stop_lens_compare_rows']}행 · risk-tradeoff {audit['daily_stop_lens_risk_tradeoff_rows']}행 · SINGLE↔30/30/40 {audit['daily_risk_parity_rows']}행 · fill-group {audit['daily_risk_parity_fill_group_rows']}행 · exit-shadow {audit['daily_exit_shadow_rows']}행 · stop×exit matrix {audit['daily_stop_exit_policy_matrix_rows']}행 · D+1 execution {audit['daily_execution_causality_rows']}행 · cost {audit['daily_execution_roundtrip_cost_bps_assumption']:.0f}bp · input-fp changed {audit['daily_input_fingerprint_changed_components']}/source {audit['daily_input_fingerprint_source_changed_components']} · 자동정책선택 0",
-        f"🔒 policy lock {audit['daily_policy_lock_status']} · cutoff {audit['daily_policy_lock_cutoff_date']} · forward {audit['daily_forward_oos_status']} · events {audit['daily_forward_oos_events']} · causal {audit['daily_forward_oos_causal_eligible']} · PRIMARY-finalized {audit['daily_forward_oos_primary_finalized_trades']} · finalized-policy {audit['daily_forward_oos_finalized_policy_rows']} · immutability-conflict {audit['daily_forward_oos_immutability_conflicts']}",
+        f"🔒 policy lock {audit['daily_policy_lock_status']} · cutoff {audit['daily_policy_lock_cutoff_date']} · migration {audit['daily_policy_lock_migration_status']} · forward-reset {audit['daily_policy_lock_forward_epoch_reset']} · forward {audit['daily_forward_oos_status']} · events {audit['daily_forward_oos_events']} · causal {audit['daily_forward_oos_causal_eligible']} · PRIMARY-finalized {audit['daily_forward_oos_primary_finalized_trades']} · finalized-policy {audit['daily_forward_oos_finalized_policy_rows']} · immutability-conflict {audit['daily_forward_oos_immutability_conflicts']}",
         f"🚦 CORE224 LIVE BOARD: 내일진입 {audit['daily_live_board_entry_review']} · RESTART대기 {audit['daily_live_board_restart_wait']} · 초기관찰 {audit['daily_live_board_initial_watch']} · BASE {audit['daily_live_board_base_watch']} · 제외RESTART {audit['daily_live_board_excluded_restart']} · D+1실행행 {audit['daily_d1_execution_board_rows']} (paper-entry {audit['daily_d1_execution_paper_entries']} / cancel {audit['daily_d1_execution_entry_cancels']})",
         "🚫 2년 ALL 실행에서는 기존 V72/V24 전체분모·HAM·FAMILIAR·시장/섹터/검색식 후속연구를 parent에서 재계산하지 않습니다.",
         "✅ 목적: 이미 shard에서 계산한 CORE224 증거를 merge하여 구조손절·분할매수·20/40/60일 생명주기만 빠르게 검증합니다.",
