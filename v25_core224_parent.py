@@ -25,7 +25,7 @@ import direct_replay_materialized_v23 as mat
 import original_thesis_reconstruction as thesis
 import v25_core224_daily_episode_replay as daily_replay
 
-VERSION = "V73.3.6.6.25.4.11-HF5COMPAT"
+VERSION = "V73.3.6.6.25.4.11-HF1-HF5COMPAT"
 AUDIT_FILE = "v73_v25_core224_only_parent_audit.csv"
 REPORT_FILE = "v73_v25_core224_only_parent_report.txt"
 HEADER = "⚡ [V25 ALL CORE224 LIGHTWEIGHT PARENT · RESEARCH_ONLY]"
@@ -260,7 +260,7 @@ def run(output_dir: str) -> int:
         "real_order_changed": False,
         "elapsed_sec": round(elapsed, 3),
     }
-    guard_ok = (
+    structural_guard_ok = (
         str(ar.get("pipeline_status", "")) == "VALID_SHADOW"
         and audit["expected_dates"] > 0
         and audit["valid_dates"] == audit["expected_dates"]
@@ -281,14 +281,23 @@ def run(output_dir: str) -> int:
         and audit["daily_exact_shard_restart_input_replay_pass"] == audit["daily_weekly_restart_cycles"]
         and audit["daily_exact_shard_same_input_nondeterminism"] == 0
         and audit["daily_input_fingerprint_source_changed_components"] == 0
-        and audit["daily_policy_lock_status"] == "LOCKED"
         and audit["daily_forward_oos_immutability_conflicts"] == 0
+    )
+    policy_status = audit["daily_policy_lock_status"]
+    policy_state_valid = policy_status in {"LOCKED", "PENDING_POLICY_LOCK_PREREQUISITES"}
+    guard_ok = structural_guard_ok and policy_state_valid
+    audit["research_pipeline_valid"] = int(structural_guard_ok)
+    audit["policy_state_valid"] = int(policy_state_valid)
+    audit["execution_authority"] = (
+        "ENABLED_POLICY_LOCKED" if policy_status == "LOCKED"
+        else "BLOCKED_POLICY_LOCK_PENDING" if policy_status == "PENDING_POLICY_LOCK_PREREQUISITES"
+        else "BLOCKED_INVALID_POLICY_STATE"
     )
     audit["status"] = "PASS" if guard_ok else "INVALID"
     _write_audit(out, audit)
     parent_block = "\n".join([
         HEADER,
-        f"📌 {VERSION} · status={audit['status']} · ALL A/B/C/D materialized payload만 사용",
+        f"📌 {VERSION} · status={audit['status']} · execution={audit['execution_authority']} · ALL A/B/C/D materialized payload만 사용",
         f"📦 V23 parent {audit['valid_dates']}/{audit['expected_dates']}일 · CORE224 rows {audit['core224_rows']} · transitions {audit['transition_rows']} · invariant fail {audit['invariant_fail_rows']}",
         f"🧭 weekly lifecycle {audit['lifecycle_status']} · RESTART {audit['lifecycle_restart_signals']} · eligible {audit['lifecycle_eligible_signals']} · boundary forced exit {audit['boundary_forced_exit']}",
         f"🔬 daily episode {audit['daily_episode_status']} · seed {audit['daily_seed_codes']} → 평가 {audit['daily_evaluated_codes']} · RESTART raw {audit['daily_raw_restart_rows']} → cycle-first {audit['daily_cycle_first_restart_events']} → episode-independent {audit['daily_restart_events']} (cycle반복억제 {audit['daily_suppressed_repeat_restart_rows']} / overlap억제 {audit['daily_episode_overlap_suppressed_events']} / REVIEW {audit['daily_episode_overlap_review_pairs']} / 주간사이복원 {audit['daily_recovered_restart_events']}) · invariant fail {audit['daily_invariant_fail_rows']}",
@@ -298,7 +307,7 @@ def run(output_dir: str) -> int:
         f"🛂 weekly-seed causal gate: active {audit['daily_seed_causal_eligible_events']}/{audit['daily_restart_events']} · excluded {audit['daily_seed_causal_ineligible_events']} · strict policy-training {audit['daily_policy_training_eligible_events']} · cutoff-train {audit['daily_training_policy_eligible_before_cutoff']}/{audit['daily_training_restart_events_before_cutoff']} · universe-proven train {audit['daily_training_universe_proven_before_cutoff']}",
         f"📦 targeted causal authority: proven events {audit['daily_exact_causal_asof_restart_events']}/{audit['daily_restart_events']} · window-complete {audit['daily_targeted_authority_complete_dates']}/{audit['daily_targeted_authority_dates']} · full-name {audit['daily_targeted_authority_full_name_complete_dates']}/{audit['daily_targeted_authority_dates']} · cache {audit['daily_targeted_authority_cache_valid_before']}→{audit['daily_targeted_authority_cache_valid_after']} (+{audit['daily_targeted_authority_new_valid_market_dates']}) · provider {audit['daily_targeted_authority_provider_calls']}/{audit['daily_targeted_authority_provider_call_budget']} · errors {audit['daily_targeted_authority_provider_errors']}",
         f"⏱️ lifecycle audit: event-order {audit['daily_event_order_rows']}행 · path-class {audit['daily_path_class_rows']}행 · stop-lens compare {audit['daily_stop_lens_compare_rows']}행 · risk-tradeoff {audit['daily_stop_lens_risk_tradeoff_rows']}행 · SINGLE↔30/30/40 {audit['daily_risk_parity_rows']}행 · fill-group {audit['daily_risk_parity_fill_group_rows']}행 · exit-shadow {audit['daily_exit_shadow_rows']}행 · stop×exit matrix {audit['daily_stop_exit_policy_matrix_rows']}행 · D+1 execution {audit['daily_execution_causality_rows']}행 · cost {audit['daily_execution_roundtrip_cost_bps_assumption']:.0f}bp · input-fp changed {audit['daily_input_fingerprint_changed_components']}/source {audit['daily_input_fingerprint_source_changed_components']} · 자동정책선택 0",
-        f"🔒 policy lock {audit['daily_policy_lock_status']} · cutoff {audit['daily_policy_lock_cutoff_date']} · migration {audit['daily_policy_lock_migration_status']} · forward-reset {audit['daily_policy_lock_forward_epoch_reset']} · forward {audit['daily_forward_oos_status']} · events {audit['daily_forward_oos_events']} · causal {audit['daily_forward_oos_causal_eligible']} · PRIMARY-finalized {audit['daily_forward_oos_primary_finalized_trades']} · finalized-policy {audit['daily_forward_oos_finalized_policy_rows']} · immutability-conflict {audit['daily_forward_oos_immutability_conflicts']}",
+        f"🔒 policy lock {audit['daily_policy_lock_status']} · execution {audit['execution_authority']} · cutoff {audit['daily_policy_lock_cutoff_date']} · migration {audit['daily_policy_lock_migration_status']} · forward-reset {audit['daily_policy_lock_forward_epoch_reset']} · forward {audit['daily_forward_oos_status']} · events {audit['daily_forward_oos_events']} · causal {audit['daily_forward_oos_causal_eligible']} · PRIMARY-finalized {audit['daily_forward_oos_primary_finalized_trades']} · finalized-policy {audit['daily_forward_oos_finalized_policy_rows']} · immutability-conflict {audit['daily_forward_oos_immutability_conflicts']}",
         f"🚦 CORE224 LIVE BOARD: 내일진입 {audit['daily_live_board_entry_review']} · RESTART대기 {audit['daily_live_board_restart_wait']} · 초기관찰 {audit['daily_live_board_initial_watch']} · BASE {audit['daily_live_board_base_watch']} · 제외RESTART {audit['daily_live_board_excluded_restart']} · D+1실행행 {audit['daily_d1_execution_board_rows']} (paper-entry {audit['daily_d1_execution_paper_entries']} / cancel {audit['daily_d1_execution_entry_cancels']})",
         "🚫 2년 ALL 실행에서는 기존 V72/V24 전체분모·HAM·FAMILIAR·시장/섹터/검색식 후속연구를 parent에서 재계산하지 않습니다.",
         "✅ 목적: 이미 shard에서 계산한 CORE224 증거를 merge하여 구조손절·분할매수·20/40/60일 생명주기만 빠르게 검증합니다.",
