@@ -2770,7 +2770,7 @@ jobs:
               echo "⚡ V25.3.1 HF5 ALL CORE224 lightweight parent | V23 materialized-only → V25 CORE224/lifecycle | legacy V72/V24 parent recompute=SKIPPED"
               export V25_CORE224_ONLY_PARENT=1
               test -f v25_core224_parent.py || { echo "❌ v25_core224_parent.py missing"; exit 206; }
-              python -m py_compile v25_core224_parent.py original_thesis_reconstruction.py v25_core224_daily_episode_replay.py v25_core224_live_runtime.py direct_replay_materialized_v23.py
+              python -m py_compile v25_core224_parent.py original_thesis_reconstruction.py v25_core224_daily_episode_replay.py v25_core224_live_runtime.py v25_core224_live_seed_builder.py direct_replay_materialized_v23.py
               python -u v25_core224_parent.py --output-dir reports | tee "${HAM_RUN_LOG}"
               grep -Fq "⚡ [V25 ALL CORE224 LIGHTWEIGHT PARENT · RESEARCH_ONLY]" "${HAM_RUN_LOG}" || { echo "❌ V25 lightweight parent report header missing"; exit 207; }
               grep -Fq "🧭 [V25 ORIGINAL THESIS RECONSTRUCTION · CORE224 SHADOW · RESEARCH_ONLY]" "${HAM_RUN_LOG}" || { echo "❌ V25 ORIGINAL THESIS block missing"; exit 208; }
@@ -2898,10 +2898,11 @@ jobs:
           fi
 
       - name: Build current CORE224 LIVE seed snapshot (no hold horizon)
-        if: success() && env.STOCKHUNTER_WEEKLY_BACKTEST_ONLY == '1' && env.V1081_BACKTEST_SOURCE == 'DIRECT_REPLAY'
+        if: always() && env.STOCKHUNTER_WEEKLY_BACKTEST_ONLY == '1' && env.V1081_BACKTEST_SOURCE == 'DIRECT_REPLAY'
         shell: bash
         run: |
           set -euo pipefail
+          python -c "import os,pandas as pd; p='reports/v73_v25_core224_only_parent_audit.csv'; assert os.path.exists(p), 'V25_PARENT_AUDIT_MISSING'; q=pd.read_csv(p); assert len(q)>0, 'V25_PARENT_AUDIT_EMPTY'; r=q.iloc[-1]; status=str(r.get('status','')); research=int(float(r.get('research_pipeline_valid',0) or 0)); execution=str(r.get('execution_authority','')); print('V25_CURRENT_LIVE_SEED_PRECHECK','parent_status',status,'research_valid',research,'execution',execution); assert status=='PASS' and research==1, 'V25_PARENT_NOT_RESEARCH_VALID'"
           echo "V25_CURRENT_LIVE_SEED_BUILD start end=${V25_TWO_YEAR_END_DATE} historical_hold=${V1080_BACKTEST_HOLD_DAYS}"
           rm -rf reports/v25_live_seed_build
           mkdir -p reports/v25_live_seed_build reports/.cache/v25_core224_live
@@ -2979,7 +2980,7 @@ jobs:
           set +e
           if [ -f reports/.cache/v25_core224_live/seed_meta.json ]; then
             echo "V25_WEEKLY_LIVE_BRIDGE seed_meta=READY"
-            python -c "import json; d=json.load(open('reports/.cache/v25_core224_live/seed_meta.json',encoding='utf-8')); print('V25_WEEKLY_LIVE_BRIDGE','snapshot',d.get('weekly_snapshot_date','-'),'seed_count',d.get('seed_count',0),'calendar_complete',d.get('snapshot_calendar_complete',0))"
+            python -c "import json; d=json.load(open('reports/.cache/v25_core224_live/seed_meta.json',encoding='utf-8')); print('V25_WEEKLY_LIVE_BRIDGE','snapshot',d.get('weekly_snapshot_date','-'),'seed_count',d.get('seed_count',0),'calendar_complete',d.get('snapshot_calendar_complete',0),'source',d.get('source','-'),'policy_lock',d.get('policy_lock_status','-'))"
           else
             echo "V25_WEEKLY_LIVE_BRIDGE seed_meta=MISSING"
           fi
