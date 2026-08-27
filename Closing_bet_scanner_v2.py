@@ -80,8 +80,8 @@ def _env_float(name: str, default: float = 0.0) -> float:
         except Exception:
             return 0.0
 
-CLOSING_BET_SCANNER_VERSION = 'G_MORALES_V4_4_9_53_8_49_76_6_7_3_2_FINAL_FULL_REBUILD_AUTHORITY_20260825'
-CLOSING_BET_RELEASE_TAG = 'v49.76.6.7.3.2'
+CLOSING_BET_SCANNER_VERSION = 'G_MORALES_V4_4_9_53_8_49_76_6_7_3_2_2_NXT_ELIGIBILITY_RECOVERY_PROVENANCE_20260827'
+CLOSING_BET_RELEASE_TAG = 'v49.76.6.7.3.2.2'
 CLOSING_BET_LIVE_PRICE_SANITY_FIX = str(os.environ.get('CLOSING_BET_LIVE_PRICE_SANITY_FIX', '1')).lower() in ('1', 'true', 'yes', 'y', 'on')
 CLOSING_BET_LIVE_READABILITY_COMPACT = str(os.environ.get('CLOSING_BET_LIVE_READABILITY_COMPACT', '1')).lower() in ('1', 'true', 'yes', 'y', 'on')
 # v53.8.42: M5R TRUE60 검증용 장기 월봉 확보. 60개월 월선 계산에는 약 7년 일봉이 필요하다.
@@ -53126,10 +53126,621 @@ def _v49765_action_panel(decision: dict,data_date=None):
 # ✅ END V49.76.6.7.3.2 FINAL FULL REBUILD AUTHORITY
 # =============================================================
 
+
+# =============================================================
+# ✅ V49.76.6.7.3.2.1 FULL COVERAGE RECONCILIATION
+# -------------------------------------------------------------
+# Scope ONLY:
+# - retain 98% FINAL authority threshold (never lower it)
+# - classify every missing FULL code by exact failure stage
+# - retry HISTORY failures with the uncached base loader at low concurrency
+# - persist FULL-vs-production code-set diagnostics for the next live run
+# - expose reconciliation counts in the AFTER FINAL engine line
+# Strategy/search/rank/STRICT/Lifecycle/MARCAP/P1/NXT semantics are unchanged.
+# =============================================================
+try:
+    print("✅ V49.76.6.7.3.2.1 FULL_COVERAGE_RECONCILIATION LOADED")
+except Exception:
+    pass
+
+CLOSING_BET_V49767321_FULL_RETRY_PASSES = max(0,min(3,int(os.environ.get('CLOSING_BET_V49767321_FULL_RETRY_PASSES','2') or 2)))
+CLOSING_BET_V49767321_FULL_RETRY_WORKERS = max(1,min(4,int(os.environ.get('CLOSING_BET_V49767321_FULL_RETRY_WORKERS','2') or 2)))
+CLOSING_BET_V49767321_FULL_RETRY_SLEEP_SEC = max(0.0,min(3.0,float(os.environ.get('CLOSING_BET_V49767321_FULL_RETRY_SLEEP_SEC','0.35') or 0.35)))
+
+_V49767321_FULL_TARGET_CODES = set()
+_V49767321_FULL_PREPARED_CODES = set()
+_V49767321_FULL_MISSING_REASON = {}
+_V49767321_PRODUCTION_HIST_CODES = set()
+_V49767321_PRODUCTION_ELIGIBLE_CODES = set()
+_V49767321_LAST_RECON = {}
+
+
+def _v49767321_diag_path(day: str) -> Path:
+    root=Path(CLOSING_BET_V497667_FAST_CACHE_DIR);root.mkdir(parents=True,exist_ok=True)
+    return root/f"full_reconcile_{str(day or '').replace('-','')}.json"
+
+
+def _v49767321_uncached_history(code: str, lookback_days: int=730) -> pd.DataFrame:
+    """Bypass lru_cache for reconciliation retries only.
+
+    A first transient FDR failure can otherwise leave an empty DataFrame cached for
+    the rest of the process.  This helper deliberately bypasses that cached empty
+    result without clearing the global cache used by other lanes.
+    """
+    c=_normalize_code(code)
+    base=globals().get('_V497667_BASE_LOAD_DF')
+    raw=getattr(base,'__wrapped__',None)
+    try:
+        q=raw(c,int(lookback_days)) if callable(raw) else base(c,int(lookback_days))
+        return q.copy() if isinstance(q,pd.DataFrame) else pd.DataFrame()
+    except Exception as e:
+        log_debug(f'v6.7.3.2.1 uncached retry failed [{c}]: {type(e).__name__}:{e}')
+        return pd.DataFrame()
+
+
+def _v49767321_reconcile_one(code: str, snap_map: dict, sess: str, uncached: bool=False):
+    c=_normalize_code(code);r=(snap_map or {}).get(c)
+    if r is None:
+        return c,pd.DataFrame(),'NO_FROZEN_FINAL_BAR',0
+    try:
+        q=_v49767321_uncached_history(c,730) if uncached else _V497667_BASE_LOAD_DF(c,730)
+    except Exception as e:
+        return c,pd.DataFrame(),f'HISTORY_EXCEPTION:{type(e).__name__}:{e}',0
+    rows=len(q) if isinstance(q,pd.DataFrame) else 0
+    if not isinstance(q,pd.DataFrame) or q.empty:
+        return c,pd.DataFrame(),'HISTORY_EMPTY',rows
+    if 'Date' not in q.columns:
+        return c,pd.DataFrame(),'HISTORY_DATE_MISSING',rows
+    z=_v497667_replace_today(q,r,sess)
+    if not isinstance(z,pd.DataFrame) or z.empty:
+        return c,pd.DataFrame(),'FINAL_REPLACE_FAILED',rows
+    try:
+        last=pd.to_datetime(z['Date'],errors='coerce').max()
+        if pd.isna(last) or pd.Timestamp(last).strftime('%Y-%m-%d')!=sess:
+            return c,pd.DataFrame(),'FINAL_DATE_MISMATCH',rows
+    except Exception:
+        return c,pd.DataFrame(),'FINAL_DATE_VERIFY_FAILED',rows
+    return c,z,'',rows
+
+
+def _v49767321_write_reconcile_diag(sess: str, state: dict, reason_map: dict, prepared: dict, target_codes: list[str], retry_recovered: list[str], pass_meta: list[dict]):
+    global _V49767321_LAST_RECON,_V49767321_FULL_TARGET_CODES,_V49767321_FULL_PREPARED_CODES,_V49767321_FULL_MISSING_REASON
+    target_set=set(_normalize_code(x) for x in (target_codes or []) if _normalize_code(x))
+    prepared_set=set(prepared or {})
+    missing=sorted(target_set-prepared_set)
+    reason_counts={}
+    for c in missing:
+        r=str((reason_map or {}).get(c,'UNKNOWN') or 'UNKNOWN');reason_counts[r]=reason_counts.get(r,0)+1
+    prod=sorted(set(globals().get('_V49767321_PRODUCTION_ELIGIBLE_CODES',set()) or set()))
+    prod_only_missing=sorted((target_set-prepared_set)&set(prod))
+    obj={
+        'session_date':sess,'version':CLOSING_BET_SCANNER_VERSION,
+        'target':int(state.get('target_codes',CLOSING_BET_V497672_CANONICAL_UNIVERSE_TARGET) or CLOSING_BET_V497672_CANONICAL_UNIVERSE_TARGET),
+        'final_codes':len(prepared_set),'coverage_pct':float(state.get('coverage_pct',0.0) or 0.0),
+        'state':str(state.get('state','')),'execution_source':str(state.get('execution_source','')),
+        'retry_recovered_count':len(set(retry_recovered or [])),'retry_recovered_codes':sorted(set(retry_recovered or [])),
+        'missing_count':len(missing),'missing_codes':missing,'missing_reason_counts':reason_counts,
+        'missing_detail':[{'code':c,'name':str((globals().get('STOCK_NAME_MAP',{}) or {}).get(c,'')),'reason':str((reason_map or {}).get(c,'UNKNOWN'))} for c in missing],
+        'production_eligible_count':len(prod),'full_missing_but_production_eligible_count':len(prod_only_missing),
+        'full_missing_but_production_eligible_codes':prod_only_missing,
+        'passes':pass_meta,'created_at_kst':_now_kst().strftime('%Y-%m-%d %H:%M:%S'),
+    }
+    _V49767321_FULL_TARGET_CODES=target_set;_V49767321_FULL_PREPARED_CODES=prepared_set;_V49767321_FULL_MISSING_REASON=dict(reason_map or {})
+    _V49767321_LAST_RECON=obj
+    try:_v49767321_diag_path(sess).write_text(json.dumps(obj,ensure_ascii=False,indent=2,default=str),encoding='utf-8')
+    except Exception as e:log_debug(f'full reconcile diag write failed: {type(e).__name__}:{e}')
+    return obj
+
+
+# Replace only the .2 FULL builder; FAST path and all strategy code remain untouched.
+def _v4976732_full_final_frames(day: str) -> dict:
+    global _V497667_FAST_FRAMES,_V497667_FAST_STATE,_V497673_ENGINE_HARD_BLOCK
+    global _V497672_FAST_HIT_CODES,_V497672_NETWORK_FALLBACK_CODES
+    global _V4976732_FULL_REBUILD_ATTEMPTED_SESSION,_V4976732_FULL_REBUILD_META
+    global _V49767321_PRODUCTION_HIST_CODES,_V49767321_PRODUCTION_ELIGIBLE_CODES
+    sess=str(day or _now_kst().strftime('%Y-%m-%d'))[:10]
+    _V4976732_FULL_REBUILD_ATTEMPTED_SESSION=sess
+    _V49767321_PRODUCTION_HIST_CODES=set();_V49767321_PRODUCTION_ELIGIBLE_CODES=set()
+    t0=time.time();target=max(1,int(CLOSING_BET_V497672_CANONICAL_UNIVERSE_TARGET))
+    _V497672_FAST_HIT_CODES=set();_V497672_NETWORK_FALLBACK_CODES=set();_V497673_FROZEN_MISS_CODES.clear()
+    prepared={};reason_map={};retry_recovered=[];pass_meta=[];codes=[]
+    try:
+        snap=_v497673_get_or_freeze_final_snapshot(sess)
+        sm={str(r.get('code','')).zfill(6):r.to_dict() for _,r in snap.iterrows() if str(r.get('code','')).strip()}
+        codes=list(_v497673_collect_prefetch_codes(sess) or [])
+        if len(codes)<int(np.ceil(target*float(CLOSING_BET_V4976732_FULL_MIN_COVERAGE_PCT)/100.0)):
+            raise RuntimeError(f'FULL_REBUILD_CANONICAL_INPUT_SHORT:{len(codes)}/{target}')
+        codes=[_normalize_code(x) for x in codes[:target]]
+
+        # Pass 0: same authority as v6.7.3.2.
+        p0_t=time.time()
+        with ThreadPoolExecutor(max_workers=int(CLOSING_BET_V4976732_FULL_REBUILD_WORKERS)) as ex:
+            futs=[ex.submit(_v49767321_reconcile_one,c,sm,sess,False) for c in codes]
+            for f in as_completed(futs):
+                c,q,err,rows=f.result()
+                if isinstance(q,pd.DataFrame) and not q.empty:prepared[c]=q;reason_map.pop(c,None)
+                else:reason_map[c]=err or 'UNKNOWN'
+        pass_meta.append({'pass':0,'mode':'BASE_CACHED','workers':int(CLOSING_BET_V4976732_FULL_REBUILD_WORKERS),'loaded':len(prepared),'missing':target-len(prepared),'elapsed_sec':round(time.time()-p0_t,1)})
+
+        # Reconciliation retries: only missing HISTORY-type codes, uncached and low-concurrency.
+        for ri in range(int(CLOSING_BET_V49767321_FULL_RETRY_PASSES)):
+            missing=[c for c in codes if c not in prepared and str(reason_map.get(c,'')).startswith(('HISTORY_','FINAL_REPLACE','FINAL_DATE'))]
+            if not missing:break
+            if CLOSING_BET_V49767321_FULL_RETRY_SLEEP_SEC>0:time.sleep(float(CLOSING_BET_V49767321_FULL_RETRY_SLEEP_SEC))
+            rt=time.time();before=len(prepared);new=[]
+            with ThreadPoolExecutor(max_workers=int(CLOSING_BET_V49767321_FULL_RETRY_WORKERS)) as ex:
+                futs=[ex.submit(_v49767321_reconcile_one,c,sm,sess,True) for c in missing]
+                for f in as_completed(futs):
+                    c,q,err,rows=f.result()
+                    if isinstance(q,pd.DataFrame) and not q.empty:
+                        prepared[c]=q;reason_map.pop(c,None);new.append(c)
+                    else:reason_map[c]=err or 'UNKNOWN'
+            retry_recovered.extend(new)
+            pass_meta.append({'pass':ri+1,'mode':'UNCACHED_RETRY','workers':int(CLOSING_BET_V49767321_FULL_RETRY_WORKERS),'attempted':len(missing),'recovered':len(new),'loaded':len(prepared),'missing':target-len(prepared),'elapsed_sec':round(time.time()-rt,1)})
+            if len(prepared)>=int(np.ceil(target*float(CLOSING_BET_V4976732_FULL_MIN_COVERAGE_PCT)/100.0)):break
+
+        loaded=len(prepared);coverage=100.0*loaded/target;elapsed=round(time.time()-t0,1)
+        missing=[c for c in codes if c not in prepared]
+        no_final=sum(1 for c in missing if str(reason_map.get(c,''))=='NO_FROZEN_FINAL_BAR')
+        history_fail=sum(1 for c in missing if str(reason_map.get(c,'')).startswith('HISTORY_'))
+        other_fail=max(0,len(missing)-no_final-history_fail)
+        if coverage+1e-9<float(CLOSING_BET_V4976732_FULL_MIN_COVERAGE_PCT):
+            reason=f'FULL_REBUILD_COVERAGE_LOW:{loaded}/{target}:{coverage:.1f}%'
+            _V497667_FAST_FRAMES={};_V497673_ENGINE_HARD_BLOCK=reason
+            _V497667_FAST_STATE={'state':'INFRA_INVALID','reason':reason,'authority_path':'FULL_REBUILD',
+                'cache_codes':0,'final_codes':loaded,'target_codes':target,'cache_coverage_pct':0.0,'coverage_pct':coverage,
+                'session_date':sess,'execution_source':'FULL_REBUILD_INVALID','parity_cert':'N/A',
+                'snapshot_sha256':str(_V497673_FROZEN_SNAPSHOT_META.get('sha256','')),'elapsed_sec':elapsed,
+                'failed_codes':history_fail+other_fail,'missing_final_bar_codes':no_final,
+                'reconcile_recovered_codes':len(set(retry_recovered)),'reconcile_missing_codes':len(missing)}
+            _V4976732_FULL_REBUILD_META=dict(_V497667_FAST_STATE)
+            diag=_v49767321_write_reconcile_diag(sess,_V497667_FAST_STATE,reason_map,prepared,codes,retry_recovered,pass_meta)
+            log_error(f"⛔ TRUE FULL FINAL rebuild invalid: {loaded}/{target} ({coverage:.1f}%) · retry recovered {len(set(retry_recovered))} · history-fail {history_fail} · no-final {no_final} · other {other_fail} · {elapsed}s")
+            if missing:log_error('⛔ FULL missing sample: '+', '.join([f"{c}:{reason_map.get(c,'UNKNOWN')}" for c in missing[:20]]))
+            return dict(_V497667_FAST_STATE)
+
+        _V497667_FAST_FRAMES=prepared;_V497673_ENGINE_HARD_BLOCK=''
+        _V497667_FAST_STATE={'state':'VALID','reason':'TRUE_FULL_CANONICAL_FROZEN_FINAL_RECONCILED','authority_path':'FULL_REBUILD',
+            'cache_codes':0,'final_codes':loaded,'target_codes':target,'cache_coverage_pct':0.0,'coverage_pct':coverage,
+            'session_date':sess,'execution_source':'FULL_REBUILD_VALID','parity_cert':'FULL_AUTHORITY',
+            'snapshot_sha256':str(_V497673_FROZEN_SNAPSHOT_META.get('sha256','')),'elapsed_sec':elapsed,
+            'failed_codes':history_fail+other_fail,'missing_final_bar_codes':no_final,
+            'reconcile_recovered_codes':len(set(retry_recovered)),'reconcile_missing_codes':len(missing)}
+        _V4976732_FULL_REBUILD_META=dict(_V497667_FAST_STATE)
+        _v49767321_write_reconcile_diag(sess,_V497667_FAST_STATE,reason_map,prepared,codes,retry_recovered,pass_meta)
+        log_info(f"🧱 TRUE FULL FINAL rebuild VALID: {loaded}/{target} ({coverage:.1f}%) · retry recovered {len(set(retry_recovered))} · frozen snapshot {_V497667_FAST_STATE.get('snapshot_sha256','')[:12]} · {elapsed}s")
+        return dict(_V497667_FAST_STATE)
+    except Exception as e:
+        reason=f'{type(e).__name__}:{e}'
+        _V497667_FAST_FRAMES={};_V497673_ENGINE_HARD_BLOCK=reason
+        _V497667_FAST_STATE={'state':'INFRA_INVALID','reason':reason,'authority_path':'FULL_REBUILD','cache_codes':0,'final_codes':len(prepared),
+            'target_codes':target,'cache_coverage_pct':0.0,'coverage_pct':100.0*len(prepared)/target,'session_date':sess,
+            'execution_source':'FULL_REBUILD_INVALID','parity_cert':'N/A','elapsed_sec':round(time.time()-t0,1),
+            'reconcile_recovered_codes':len(set(retry_recovered)),'reconcile_missing_codes':max(0,target-len(prepared))}
+        _V4976732_FULL_REBUILD_META=dict(_V497667_FAST_STATE)
+        try:_v49767321_write_reconcile_diag(sess,_V497667_FAST_STATE,reason_map,prepared,codes,retry_recovered,pass_meta)
+        except Exception:pass
+        log_error(f"⛔ TRUE FULL FINAL rebuild failed: {reason}")
+        return dict(_V497667_FAST_STATE)
+
+
+# Capture the exact set of histories the production Lifecycle can actually consume.
+# This is audit-only and never changes a Lifecycle/STRICT decision.
+_V49767321_BASE_GET_HIST=_v4938_get_hist
+
+def _v4938_get_hist(code: str) -> pd.DataFrame:
+    c=_normalize_code(code)
+    q=_V49767321_BASE_GET_HIST(c)
+    try:
+        if isinstance(q,pd.DataFrame) and not q.empty:
+            _V49767321_PRODUCTION_HIST_CODES.add(c)
+            if len(q)>=35:_V49767321_PRODUCTION_ELIGIBLE_CODES.add(c)
+    except Exception:pass
+    return q
+
+
+# Add FULL-vs-production missing-set telemetry after the Lifecycle registry is built.
+_V49767321_BASE_SCAN_REGISTRY=_v4938_scan_registry
+
+def _v4938_scan_registry(df=None):
+    global _V49767321_LAST_RECON
+    reg,health=_V49767321_BASE_SCAN_REGISTRY(df)
+    try:
+        sess=str((health or {}).get('latest_data_date') or _now_kst().strftime('%Y-%m-%d'))[:10]
+        target=set(globals().get('_V49767321_FULL_TARGET_CODES',set()) or set())
+        prepared=set(globals().get('_V49767321_FULL_PREPARED_CODES',set()) or set())
+        prod=set(globals().get('_V49767321_PRODUCTION_ELIGIBLE_CODES',set()) or set())
+        if target and str((globals().get('_V4976732_FULL_REBUILD_META',{}) or {}).get('session_date',''))==sess:
+            full_missing=target-prepared;prod_only=sorted(full_missing&prod)
+            d=dict(globals().get('_V49767321_LAST_RECON',{}) or {})
+            d['production_health_requested']=int((health or {}).get('requested',0) or 0)
+            d['production_health_processed']=int((health or {}).get('processed',0) or 0)
+            d['production_eligible_count']=len(prod)
+            d['full_missing_but_production_eligible_count']=len(prod_only)
+            d['full_missing_but_production_eligible_codes']=prod_only
+            _V49767321_LAST_RECON=d
+            try:_v49767321_diag_path(sess).write_text(json.dumps(d,ensure_ascii=False,indent=2,default=str),encoding='utf-8')
+            except Exception:pass
+            log_info(f"🔬 FULL↔Production reconcile: FULL {len(prepared)}/{len(target)} · production eligible {len(prod)} · FULL-missing∩production {len(prod_only)}")
+            if prod_only:log_info('🔬 FULL-only missing but Production-loaded: '+', '.join(prod_only[:30]))
+    except Exception as e:log_debug(f'FULL↔Production reconcile audit failed: {type(e).__name__}:{e}')
+    return reg,health
+
+
+# Surface reconciliation evidence in the action panel without changing authority.
+_V49767321_BASE_ACTION_PANEL=_v49765_action_panel
+
+def _v49765_action_panel(decision: dict,data_date=None):
+    text,has,res=_V49767321_BASE_ACTION_PANEL(decision,data_date)
+    try:
+        st=dict(globals().get('_V497667_FAST_STATE',{}) or {})
+        if str(st.get('authority_path',''))=='FULL_REBUILD':
+            extra=(f" · reconcile +{int(st.get('reconcile_recovered_codes',0) or 0)}"
+                   f" · remaining {int(st.get('reconcile_missing_codes',0) or 0)}"
+                   f" · no-final {int(st.get('missing_final_bar_codes',0) or 0)}")
+            lines=[]
+            for x in str(text).split('\n'):
+                if ('AFTER FINAL engine:' in x) and ('reconcile +' not in x):x=x+extra
+                lines.append(x)
+            text='\n'.join(lines)
+    except Exception:pass
+    return text,has,res
+
+# =============================================================
+# ✅ END V49.76.6.7.3.2.1 FULL COVERAGE RECONCILIATION
+# =============================================================
+
+
+# =============================================================
+# ✅ V49.76.6.7.3.2.2 NXT ELIGIBILITY RECOVERY / PROVENANCE
+# -------------------------------------------------------------
+# Scope ONLY:
+# - preserve existing NXT execution-only gate and fail-closed semantics
+# - expose exact HTTP/parser/source failure instead of generic RuntimeError
+# - remove single-URL dependence: legacy target page -> official main positive-proof
+#   -> official current-quarter notice/XLSX -> same-session frozen cache
+# - persist successful same-session NXT code set + provenance in the existing
+#   v49_76_fast_final Actions cache so 16:00 gate-only recovery can restore it
+# - do NOT change KRX signal, RAW STRICT, Lifecycle, M5, ranking, risk, P1, MARCAP,
+#   recommendation count, limit/chase rules, or auto-order policy
+# =============================================================
+try:
+    print("✅ V49.76.6.7.3.2.2 NXT_ELIGIBILITY_RECOVERY_PROVENANCE LOADED")
+except Exception:
+    pass
+
+CLOSING_BET_V49767322_NXT_MAIN_URL = str(os.environ.get(
+    'CLOSING_BET_V49767322_NXT_MAIN_URL','https://nextrade.co.kr/main.do') or '').strip()
+CLOSING_BET_V49767322_NXT_NOTICE_LIST_URL = str(os.environ.get(
+    'CLOSING_BET_V49767322_NXT_NOTICE_LIST_URL','https://nextrade.co.kr/menu/notice/menuList.do') or '').strip()
+# Current 2026-Q3 official notice. Auto-discovery is also attempted from NOTICE_LIST_URL;
+# this explicit URL is a deterministic fallback and may be overridden by workflow/env.
+CLOSING_BET_V49767322_NXT_NOTICE_URL = str(os.environ.get(
+    'CLOSING_BET_V49767322_NXT_NOTICE_URL',
+    'https://nextrade.co.kr/menu/notice/view.do?scBbsKndCode=notice&scNttCl=general&scNttNo=40') or '').strip()
+CLOSING_BET_V49767322_NXT_HTTP_TIMEOUT_SEC = max(5,min(30,int(os.environ.get(
+    'CLOSING_BET_V49767322_NXT_HTTP_TIMEOUT_SEC','12') or 12)))
+CLOSING_BET_V49767322_NXT_SOURCE_RETRIES = max(1,min(3,int(os.environ.get(
+    'CLOSING_BET_V49767322_NXT_SOURCE_RETRIES','2') or 2)))
+CLOSING_BET_V49767322_NXT_MAIN_POSITIVE_ENABLE = _bool_env(
+    'CLOSING_BET_V49767322_NXT_MAIN_POSITIVE_ENABLE','1')
+CLOSING_BET_V49767322_NXT_NOTICE_XLSX_ENABLE = _bool_env(
+    'CLOSING_BET_V49767322_NXT_NOTICE_XLSX_ENABLE','1')
+CLOSING_BET_V49767322_NXT_SAME_SESSION_CACHE_ENABLE = _bool_env(
+    'CLOSING_BET_V49767322_NXT_SAME_SESSION_CACHE_ENABLE','1')
+
+_V49767322_NXT_DIAG = {'state':'NOT_RUN','source':'','count':0,'attempts':[],'error':''}
+_V49767322_PREVIOUS_FETCH_NXT = _v49765_fetch_nxt_codes
+
+
+def _v49767322_nxt_paths(day: str=None) -> dict:
+    sess=str(day or _now_kst().strftime('%Y-%m-%d'))[:10]
+    root=Path(CLOSING_BET_V497667_FAST_CACHE_DIR);root.mkdir(parents=True,exist_ok=True)
+    stamp=sess.replace('-','')
+    return {'cache':root/f'nxt_target_{stamp}.json','diag':root/f'nxt_diag_{stamp}.json'}
+
+
+def _v49767322_clean_err(e) -> str:
+    try:
+        s=f'{type(e).__name__}:{e}'
+    except Exception:
+        s=str(e)
+    return re.sub(r'\s+',' ',str(s or 'UNKNOWN')).strip()[:260]
+
+
+def _v49767322_write_diag(obj: dict, day: str=None):
+    global _V49767322_NXT_DIAG
+    _V49767322_NXT_DIAG=dict(obj or {})
+    try:
+        _v49767322_nxt_paths(day)['diag'].write_text(
+            json.dumps(_V49767322_NXT_DIAG,ensure_ascii=False,indent=2,default=str),encoding='utf-8')
+    except Exception:
+        pass
+
+
+def _v49767322_extract_codes_text(text: str, allow_isin: bool=True, allow_query: bool=True) -> set:
+    """Extract only strong code tokens. Never scan arbitrary six-digit numbers/prices."""
+    s=str(text or '')
+    codes=set(re.findall(r'(?<![0-9A-Z])A(\d{6})(?![0-9])',s,flags=re.I))
+    if allow_isin:
+        # Korean equity ISIN: KR7 + 6-digit short code + 3 check/issue digits.
+        codes.update(re.findall(r'(?<![A-Z0-9])KR7(\d{6})\d{3}(?![0-9])',s,flags=re.I))
+    if allow_query:
+        pats=(r'(?:isuSrtCd|shortCode|stockCode|stock_code|code|isuCd)\s*[=:]\s*["\']?A?(\d{6})',
+              r'(?:isuSrtCd|shortCode|stockCode|stock_code|code|isuCd)=A?(\d{6})(?:[^0-9]|$)',
+              r'data-(?:code|stock-code|isu-srt-cd)=["\']A?(\d{6})["\']')
+        for p in pats:
+            codes.update(re.findall(p,s,flags=re.I))
+    return {str(c).zfill(6) for c in codes if str(c).isdigit() and len(str(c))==6}
+
+
+def _v49767322_extract_excel_codes(content: bytes) -> set:
+    """Parse official NXT xlsx/xls attachment conservatively by code columns/ISIN strings."""
+    import io as _io
+    out=set()
+    if not content:return out
+    try:
+        xf=pd.ExcelFile(_io.BytesIO(content))
+        for sh in xf.sheet_names[:12]:
+            try:df=pd.read_excel(xf,sheet_name=sh,dtype=object)
+            except Exception:continue
+            # Named code columns first.
+            for col in list(df.columns):
+                cn=str(col or '')
+                if re.search(r'종목\s*코드|단축\s*코드|short\s*code|stock\s*code|isin',cn,flags=re.I):
+                    for v in df[col].tolist():
+                        if pd.isna(v):continue
+                        sv=str(v).strip()
+                        if re.fullmatch(r'\d+(?:\.0)?',sv):
+                            try:
+                                iv=int(float(sv))
+                                if 0<=iv<=999999:out.add(str(iv).zfill(6))
+                            except Exception:pass
+                        out.update(_v49767322_extract_codes_text(sv,True,False))
+            # ISIN / explicit A-code anywhere is safe.
+            for row in df.astype(str).itertuples(index=False,name=None):
+                for v in row:
+                    out.update(_v49767322_extract_codes_text(v,True,False))
+    except Exception:
+        return set()
+    return out
+
+
+def _v49767322_http_get(url: str, referer: str=''):
+    headers={
+        'User-Agent':'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124 Safari/537.36',
+        'Accept':'text/html,application/xhtml+xml,application/xml;q=0.9,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;q=0.8,*/*;q=0.7',
+        'Accept-Language':'ko-KR,ko;q=0.9,en;q=0.7',
+        'Connection':'close',
+    }
+    if referer:headers['Referer']=referer
+    r=requests.get(str(url),headers=headers,timeout=int(CLOSING_BET_V49767322_NXT_HTTP_TIMEOUT_SEC),allow_redirects=True)
+    r.raise_for_status()
+    return r
+
+
+def _v49767322_extract_download_urls(html_text: str, base_url: str) -> list[str]:
+    import html as _html
+    from urllib.parse import urljoin as _urljoin
+    s=_html.unescape(str(html_text or ''))
+    vals=[]
+    # direct href/src/action URLs
+    vals += re.findall(r'(?:href|src|action)\s*=\s*["\']([^"\']+)["\']',s,flags=re.I)
+    # quoted URLs inside onclick/javascript handlers
+    vals += re.findall(r'["\']([^"\']*(?:download|fileDown|atch|attach|\.xlsx|\.xls)[^"\']*)["\']',s,flags=re.I)
+    out=[]
+    for raw in vals:
+        u=str(raw or '').strip()
+        if not u or u.lower().startswith(('javascript:','#')):continue
+        if not re.search(r'\.xlsx(?:\?|$)|\.xls(?:\?|$)|download|filedown|atch|attach',u,flags=re.I):continue
+        try:u=_urljoin(base_url,u)
+        except Exception:continue
+        if u not in out:out.append(u)
+    return out[:20]
+
+
+def _v49767322_discover_notice_urls() -> tuple[list[str],list[dict]]:
+    """Find recent official notices whose title refers to NXT target securities."""
+    from urllib.parse import urljoin as _urljoin
+    out=[];diag=[]
+    if CLOSING_BET_V49767322_NXT_NOTICE_URL:out.append(CLOSING_BET_V49767322_NXT_NOTICE_URL)
+    try:
+        r=_v49767322_http_get(CLOSING_BET_V49767322_NXT_NOTICE_LIST_URL)
+        s=str(r.text or '')
+        # capture view links; keep those whose nearby HTML mentions target-security terms.
+        for m in re.finditer(r'(?P<href>[^"\']*view\.do\?[^"\']*scNttNo=\d+[^"\']*)',s,flags=re.I):
+            ctx=s[max(0,m.start()-500):min(len(s),m.end()+500)]
+            if not re.search(r'매매체결대상종목|매매체결대상|대상종목',ctx):continue
+            u=_urljoin(str(r.url or CLOSING_BET_V49767322_NXT_NOTICE_LIST_URL),m.group('href'))
+            if u not in out:out.append(u)
+        diag.append({'source':'NOTICE_LIST','status':'OK','http':int(r.status_code),'found':len(out)})
+    except Exception as e:
+        diag.append({'source':'NOTICE_LIST','status':'ERROR','error':_v49767322_clean_err(e)})
+    return out[:8],diag
+
+
+def _v49767322_fetch_notice_xlsx() -> tuple[set,str,list[dict]]:
+    attempts=[]
+    urls,disc=_v49767322_discover_notice_urls();attempts.extend(disc)
+    min_codes=int(CLOSING_BET_V49765_NXT_MIN_CODES)
+    for nu in urls:
+        try:
+            r=_v49767322_http_get(nu,CLOSING_BET_V49767322_NXT_NOTICE_LIST_URL)
+            body=str(r.text or '')
+            # Some older official notices embed the full ISIN list directly.
+            direct=_v49767322_extract_codes_text(body,True,False)
+            attempts.append({'source':'NOTICE','url':str(r.url),'http':int(r.status_code),'direct_codes':len(direct)})
+            if len(direct)>=min_codes:
+                return direct,'OFFICIAL_NOTICE_EMBEDDED',attempts
+            for au in _v49767322_extract_download_urls(body,str(r.url or nu)):
+                try:
+                    ar=_v49767322_http_get(au,str(r.url or nu))
+                    ct=str(ar.headers.get('content-type','') or '').lower()
+                    ac=_v49767322_extract_excel_codes(ar.content)
+                    attempts.append({'source':'NOTICE_ATTACHMENT','url':str(ar.url),'http':int(ar.status_code),'content_type':ct[:100],'codes':len(ac)})
+                    if len(ac)>=min_codes:
+                        return ac,'OFFICIAL_NOTICE_XLSX',attempts
+                except Exception as ae:
+                    attempts.append({'source':'NOTICE_ATTACHMENT','url':au,'status':'ERROR','error':_v49767322_clean_err(ae)})
+        except Exception as e:
+            attempts.append({'source':'NOTICE','url':nu,'status':'ERROR','error':_v49767322_clean_err(e)})
+    return set(),'NOTICE_XLSX_UNAVAILABLE',attempts
+
+
+def _v49767322_fetch_main_positive() -> tuple[set,str,list[dict]]:
+    attempts=[];min_codes=int(CLOSING_BET_V49765_NXT_MIN_CODES)
+    try:
+        r=_v49767322_http_get(CLOSING_BET_V49767322_NXT_MAIN_URL)
+        codes=_v49767322_extract_codes_text(str(r.text or ''),True,True)
+        attempts.append({'source':'OFFICIAL_MAIN_ACTIVE','url':str(r.url),'http':int(r.status_code),'codes':len(codes)})
+        # This is positive proof only: codes shown by the official current NXT page are safe to
+        # treat as eligible; absence must never be interpreted as an exclusion source.
+        if len(codes)>=min_codes:return codes,'OFFICIAL_MAIN_ACTIVE_POSITIVE',attempts
+        return set(),f'MAIN_ACTIVE_COUNT_LOW:{len(codes)}',attempts
+    except Exception as e:
+        attempts.append({'source':'OFFICIAL_MAIN_ACTIVE','status':'ERROR','error':_v49767322_clean_err(e)})
+        return set(),'MAIN_ACTIVE_FETCH_FAILED',attempts
+
+
+def _v49767322_save_same_session_cache(codes: set, source: str, day: str=None):
+    if not bool(CLOSING_BET_V49767322_NXT_SAME_SESSION_CACHE_ENABLE):return
+    sess=str(day or _now_kst().strftime('%Y-%m-%d'))[:10];codes=sorted({str(x).zfill(6) for x in codes if str(x).isdigit()})
+    if len(codes)<int(CLOSING_BET_V49765_NXT_MIN_CODES):return
+    obj={'session_date':sess,'source':str(source),'count':len(codes),'codes':codes,
+         'sha256':hashlib.sha256('|'.join(codes).encode('utf-8')).hexdigest(),
+         'created_at_kst':_now_kst().strftime('%Y-%m-%d %H:%M:%S'),'version':CLOSING_BET_SCANNER_VERSION}
+    try:_v49767322_nxt_paths(sess)['cache'].write_text(json.dumps(obj,ensure_ascii=False,indent=2),encoding='utf-8')
+    except Exception:pass
+
+
+def _v49767322_load_same_session_cache(day: str=None) -> tuple[set,str]:
+    if not bool(CLOSING_BET_V49767322_NXT_SAME_SESSION_CACHE_ENABLE):return set(),'CACHE_DISABLED'
+    sess=str(day or _now_kst().strftime('%Y-%m-%d'))[:10];p=_v49767322_nxt_paths(sess)['cache']
+    try:
+        obj=json.loads(p.read_text(encoding='utf-8'))
+        if str(obj.get('session_date',''))!=sess:return set(),'CACHE_SESSION_MISMATCH'
+        codes={str(x).zfill(6) for x in (obj.get('codes',[]) or []) if str(x).isdigit()}
+        sha=hashlib.sha256('|'.join(sorted(codes)).encode('utf-8')).hexdigest()
+        if sha!=str(obj.get('sha256','')):return set(),'CACHE_SHA_MISMATCH'
+        if len(codes)<int(CLOSING_BET_V49765_NXT_MIN_CODES):return set(),f'CACHE_COUNT_LOW:{len(codes)}'
+        return codes,f"SAME_SESSION_CACHE:{obj.get('source','UNKNOWN')}"
+    except FileNotFoundError:return set(),'CACHE_MISSING'
+    except Exception as e:return set(),f'CACHE_ERROR:{type(e).__name__}'
+
+
+def _v49767322_compact_attempts(attempts: list[dict]) -> str:
+    parts=[]
+    for a in attempts[-10:]:
+        src=str(a.get('source','?'))
+        if a.get('status')=='ERROR':msg=str(a.get('error','ERROR'))
+        elif 'http' in a and int(a.get('http',0) or 0)>=400:msg=f"HTTP{a.get('http')}"
+        elif 'codes' in a:msg=f"codes{a.get('codes')}"
+        elif 'direct_codes' in a:msg=f"codes{a.get('direct_codes')}"
+        else:msg=str(a.get('status','OK'))
+        parts.append(f'{src}:{msg}')
+    return '|'.join(parts)[:420]
+
+
+def _v49765_fetch_nxt_codes(force: bool=False) -> tuple[set,str]:
+    """v6.7.3.2.2 multi-source official NXT eligibility with detailed provenance.
+
+    Success keeps the legacy return contract ('OK'). Failure remains fail-closed but carries
+    exact source causes instead of collapsing to FAILED:RuntimeError.
+    """
+    global _V49765_NXT_CACHE
+    if not bool(CLOSING_BET_V49765_NXT_ELIGIBILITY_ENABLE):return set(),'DISABLED'
+    if _V49765_NXT_CACHE.get('loaded') and not force and str(_V49765_NXT_CACHE.get('status',''))=='OK':
+        return set(_V49765_NXT_CACHE.get('codes',set()) or set()),'OK'
+    sess=_now_kst().strftime('%Y-%m-%d');all_attempts=[];last_errors=[]
+
+    # 0) Exact same-session frozen official proof, especially useful in 16:00 cross-run gate-only recovery.
+    cc,cs=_v49767322_load_same_session_cache(sess)
+    all_attempts.append({'source':'SAME_SESSION_CACHE','status':cs,'codes':len(cc)})
+    if cc:
+        _V49765_NXT_CACHE={'loaded':True,'codes':set(cc),'status':'OK','error':'','count':len(cc)}
+        obj={'state':'OK','source':cs,'count':len(cc),'attempts':all_attempts,'error':'','session_date':sess,'restored':True}
+        _v49767322_write_diag(obj,sess)
+        return set(cc),'OK'
+
+    for outer in range(1,int(CLOSING_BET_V49767322_NXT_SOURCE_RETRIES)+1):
+        # 1) legacy configured target page. Preserve exact underlying error from its cache.
+        try:
+            globals()['_V49765_NXT_CACHE']={'loaded':False,'codes':set(),'status':'NOT_RUN','error':'','count':0}
+            # Call the original pre-retry fetch once to avoid nested sleep/retry amplification.
+            legacy=globals().get('_V497657_BASE_FETCH_NXT')
+            if callable(legacy):
+                lc,ls=legacy(force=True)
+            else:
+                lc,ls=_V49767322_PREVIOUS_FETCH_NXT(force=True)
+            lerr=str((globals().get('_V49765_NXT_CACHE',{}) or {}).get('error','') or ls)
+            all_attempts.append({'source':'LEGACY_TARGET','round':outer,'status':str(ls),'codes':len(lc or []),'error':lerr[:260]})
+            if str(ls)=='OK' and len(lc or [])>=int(CLOSING_BET_V49765_NXT_MIN_CODES):
+                codes=set(lc or set());_v49767322_save_same_session_cache(codes,'LEGACY_TARGET',sess)
+                _V49765_NXT_CACHE={'loaded':True,'codes':codes,'status':'OK','error':'','count':len(codes)}
+                _v49767322_write_diag({'state':'OK','source':'LEGACY_TARGET','count':len(codes),'attempts':all_attempts,'error':'','session_date':sess},sess)
+                return codes,'OK'
+            last_errors.append(f'LEGACY:{lerr or ls}')
+        except Exception as e:
+            er=_v49767322_clean_err(e);all_attempts.append({'source':'LEGACY_TARGET','round':outer,'status':'ERROR','error':er});last_errors.append(f'LEGACY:{er}')
+
+        # 2) Current official main page, positive-proof only. False negatives are allowed; false positives are not.
+        if bool(CLOSING_BET_V49767322_NXT_MAIN_POSITIVE_ENABLE):
+            mc,ms,ma=_v49767322_fetch_main_positive();all_attempts.extend(ma)
+            if mc:
+                _v49767322_save_same_session_cache(mc,ms,sess)
+                _V49765_NXT_CACHE={'loaded':True,'codes':set(mc),'status':'OK','error':'','count':len(mc)}
+                _v49767322_write_diag({'state':'OK','source':ms,'count':len(mc),'attempts':all_attempts,'error':'','session_date':sess,'positive_proof_only':True},sess)
+                return set(mc),'OK'
+            last_errors.append(ms)
+
+        # 3) Official quarterly target notice / attached xlsx.
+        if bool(CLOSING_BET_V49767322_NXT_NOTICE_XLSX_ENABLE):
+            nc,ns,na=_v49767322_fetch_notice_xlsx();all_attempts.extend(na)
+            if nc:
+                _v49767322_save_same_session_cache(nc,ns,sess)
+                _V49765_NXT_CACHE={'loaded':True,'codes':set(nc),'status':'OK','error':'','count':len(nc)}
+                _v49767322_write_diag({'state':'OK','source':ns,'count':len(nc),'attempts':all_attempts,'error':'','session_date':sess},sess)
+                return set(nc),'OK'
+            last_errors.append(ns)
+
+        if outer<int(CLOSING_BET_V49767322_NXT_SOURCE_RETRIES):
+            time.sleep(min(8.0,1.5*outer))
+
+    compact=_v49767322_compact_attempts(all_attempts)
+    err=';'.join([str(x) for x in last_errors[-6:]])[:420]
+    status=f'RETRY_EXHAUSTED:NXT_SOURCE_UNAVAILABLE:{compact or err or "UNKNOWN"}'
+    _V49765_NXT_CACHE={'loaded':True,'codes':set(),'status':'FAILED','error':status,'count':0}
+    _v49767322_write_diag({'state':'FAILED','source':'NONE','count':0,'attempts':all_attempts,'error':status,'session_date':sess},sess)
+    return set(),status
+
+
+# Show one compact provenance line in the user-facing panel. It is diagnostics only.
+_V49767322_BASE_ACTION_PANEL=_v49765_action_panel
+
+def _v49765_action_panel(decision: dict,data_date=None):
+    text,has,res=_V49767322_BASE_ACTION_PANEL(decision,data_date)
+    try:
+        d=dict(globals().get('_V49767322_NXT_DIAG',{}) or {})
+        if str(d.get('state','')) in ('OK','FAILED'):
+            src=str(d.get('source','-'));cnt=int(d.get('count',0) or 0)
+            line=f"- NXT provenance: {src} · codes {cnt} · attempts {len(d.get('attempts',[]) or [])}"
+            if str(d.get('state'))=='FAILED':line+=f" · {str(d.get('error',''))[:180]}"
+            lines=str(text).split('\n')
+            # place immediately after the top fail/success engine/user-action lines; avoid duplicates
+            if not any(x.startswith('- NXT provenance:') for x in lines):
+                ins=min(5,len(lines));lines.insert(ins,line)
+            text='\n'.join(lines)
+    except Exception:pass
+    return text,has,res
+
+# =============================================================
+# ✅ END V49.76.6.7.3.2.2 NXT ELIGIBILITY RECOVERY / PROVENANCE
+# =============================================================
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='종가배팅 타점 스캐너')
     parser.add_argument('--force', action='store_true', help='시간 무관 강제 실행')
-    parser.add_argument('--continuous-after-final', action='store_true', help='v49.76.6.7.3.2: 15:03 PRE-FINAL부터 15:40 AFTER FINAL까지 단일 Python 프로세스로 유지')
+    parser.add_argument('--continuous-after-final', action='store_true', help='v49.76.6.7.3.2.2: 15:03 PRE-FINAL부터 15:40 AFTER FINAL까지 단일 Python 프로세스로 유지')
     parser.add_argument('--eval-pending', action='store_true', help='미평가 후보를 다음날 성과로 평가')
     parser.add_argument('--summary', action='store_true', help='검증 요약 출력')
     parser.add_argument('--send-summary', action='store_true', help='검증 요약을 텔레그램으로 전송')
