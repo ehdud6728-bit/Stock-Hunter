@@ -2263,11 +2263,17 @@ jobs:
         if: env.STOCKHUNTER_WEEKLY_BACKTEST_ONLY != '1'
         shell: bash
         run: |
+          set -euo pipefail
           mkdir -p reports/.cache/v20_price_history reports/.cache/v20_asof_snapshots reports/.cache/v25_actual_amount_history reports/.cache/v25_core224_live
           echo "V25_LIVE_RESTORE matched=${{ steps.v25-core224-live-restore.outputs.cache-matched-key }}"
           seed_meta=$(test -f reports/.cache/v25_core224_live/seed_meta.json && echo READY || echo MISSING)
+          policy_manifest=$(test -f reports/.cache/v25_core224_live/policy_lock_manifest.csv && echo READY || echo MISSING)
+          price_files=$(find reports/.cache/v20_price_history -type f 2>/dev/null | wc -l | tr -d ' ')
           eod_rows=$(python -c "import os,pandas as pd; p='reports/.cache/v25_core224_live/live_eod_snapshot_ledger.csv'; print(len(pd.read_csv(p)) if os.path.exists(p) else 0)")
-          echo "V25_LIVE_RESTORE seed_meta=${seed_meta} eod_rows=${eod_rows}"
+          if [ "$policy_manifest" = "READY" ]; then
+            cp -f reports/.cache/v25_core224_live/policy_lock_manifest.csv reports/v73_v25_core224_policy_lock_manifest.csv
+          fi
+          echo "V25_LIVE_RESTORE seed_meta=${seed_meta} policy_manifest=${policy_manifest} price_files=${price_files} eod_rows=${eod_rows}"
 
       - name: Download V23 same-run materialized shard handoffs
         if: env.STOCKHUNTER_WEEKLY_BACKTEST_ONLY == '1' && env.V1081_BACKTEST_SOURCE == 'DIRECT_REPLAY'
@@ -2902,12 +2908,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python -c "import os,pandas as pd; p='reports/v73_v25_core224_only_parent_audit.csv'; assert os.path.exists(p), 'V25_PARENT_AUDIT_MISSING'; q=pd.read_csv(p); assert len(q)>0, 'V25_PARENT_AUDIT_EMPTY'; r=q.iloc[-1]; status=str(r.get('status','')); research=int(float(r.get('research_pipeline_valid',0) or 0)); execution=str(r.get('execution_authority','')); print('V25_CURRENT_LIVE_SEED_PRECHECK','parent_status',status,'research_valid',research,'execution',execution); assert status=='PASS' and research==1, 'V25_PARENT_NOT_RESEARCH_VALID'"
-          echo "V25_CURRENT_LIVE_SEED_BUILD start end=${V25_TWO_YEAR_END_DATE} historical_hold=${V1080_BACKTEST_HOLD_DAYS}"
+          python -c "import os,pandas as pd; p='reports/v73_v25_core224_only_parent_audit.csv'; assert os.path.exists(p), 'V25_PARENT_AUDIT_MISSING'; q=pd.read_csv(p); assert len(q)>0, 'V25_PARENT_AUDIT_EMPTY'; r=q.iloc[-1]; a=pd.read_csv('reports/v73_v25_activation_status.csv'); ar=a.iloc[-1] if len(a) else {}; status=str(r.get('status','')); research=int(float(r.get('research_pipeline_valid',0) or 0)); policy_valid=int(float(r.get('policy_state_valid',0) or 0)); execution=str(r.get('execution_authority','')); expected=int(float(r.get('expected_dates',0) or 0)); source_changed=int(float(r.get('daily_input_fingerprint_source_changed_components',0) or 0)); seed_structural=(str(ar.get('pipeline_status',''))=='VALID_SHADOW' and expected>0 and int(float(r.get('valid_dates',0) or 0))==expected and int(float(r.get('materialized_dates',0) or 0))==expected and int(float(r.get('sidecar_dates',0) or 0))==expected and int(float(r.get('core224_rows',0) or 0))>0 and int(float(r.get('invariant_fail_rows',0) or 0))==0 and int(float(r.get('boundary_forced_exit',0) or 0))==0 and int(float(r.get('auto_chain',0) or 0))==1 and str(r.get('lifecycle_status','')) not in {'','INVALID','DISABLED'} and not str(r.get('daily_episode_status','')).startswith('INVALID') and int(float(r.get('daily_invariant_fail_rows',0) or 0))==0 and int(float(r.get('daily_core_replay_provider_calls',0) or 0))==0 and int(float(r.get('daily_weekly_unexplained',0) or 0))==0 and int(float(r.get('daily_weekly_snapshot_calendar_complete',0) or 0))==1 and int(float(r.get('daily_weekly_snapshot_calendar_dates',0) or 0))==expected and int(float(r.get('daily_exact_shard_restart_input_expected',0) or 0))==int(float(r.get('daily_exact_shard_restart_input_replay_pass',0) or 0)) and int(float(r.get('daily_exact_shard_same_input_nondeterminism',0) or 0))==0 and int(float(r.get('daily_forward_oos_immutability_conflicts',0) or 0))==0); strict_ok=(status=='PASS' and research==1 and policy_valid==1 and execution in {'ENABLED_POLICY_LOCKED','BLOCKED_POLICY_LOCK_PENDING'}); pending_data_ok=(execution=='BLOCKED_POLICY_LOCK_PENDING' and policy_valid==1 and seed_structural); print('V25_CURRENT_LIVE_SEED_PRECHECK','parent_status',status,'research_valid',research,'policy_state_valid',policy_valid,'execution',execution,'seed_structural',int(seed_structural),'source_changed',source_changed,'allow_mode',('STRICT_RESEARCH_PASS' if strict_ok else 'POLICY_PENDING_DATA_ONLY' if pending_data_ok else 'BLOCK')); assert strict_ok or pending_data_ok, 'V25_PARENT_NOT_SEED_DATA_VALID'"
+          current_live_end=$(python -c "from datetime import datetime,timedelta; from zoneinfo import ZoneInfo; now=datetime.now(ZoneInfo('Asia/Seoul')); d=now.date()-(timedelta(days=1) if (now.hour,now.minute)<(15,40) else timedelta(0)); exec('while d.weekday() >= 5: d -= timedelta(days=1)'); print(d.isoformat())")
+          test -n "$current_live_end"
+          echo "V25_CURRENT_LIVE_END_DATE=$current_live_end" >> "$GITHUB_ENV"
+          echo "V25_CURRENT_LIVE_SEED_BUILD start current_end=${current_live_end} historical_end=${V25_TWO_YEAR_END_DATE:-} historical_hold=${V1080_BACKTEST_HOLD_DAYS} live_hold=0"
           rm -rf reports/v25_live_seed_build
           mkdir -p reports/v25_live_seed_build reports/.cache/v25_core224_live
-          rm -f reports/.cache/v25_core224_live/seed_meta.json reports/.cache/v25_core224_live/weekly_seed_snapshot.csv reports/.cache/v25_core224_live/seed_universe.csv
+          rm -f reports/.cache/v25_core224_live/seed_meta.json reports/.cache/v25_core224_live/weekly_seed_snapshot.csv reports/.cache/v25_core224_live/seed_universe.csv reports/.cache/v25_core224_live/policy_lock_manifest.csv
           env \
+            V25_CURRENT_LIVE_END_DATE="$current_live_end" \
+            V25_TWO_YEAR_END_DATE="$current_live_end" \
             V1080_BACKTEST_OUTPUT_DIR=reports/v25_live_seed_build \
             V1080_BACKTEST_HOLD_DAYS=0 \
             V1080_BACKTEST_WEEKS=1 \
@@ -2922,9 +2933,11 @@ jobs:
           python -u v25_core224_live_seed_builder.py \
             --source-dir reports/v25_live_seed_build \
             --output-dir reports \
-            --expected-end "${V25_TWO_YEAR_END_DATE}"
+            --expected-end "$current_live_end"
           test -f reports/.cache/v25_core224_live/seed_meta.json
-          python -c "import json; d=json.load(open('reports/.cache/v25_core224_live/seed_meta.json',encoding='utf-8')); print('V25_CURRENT_LIVE_SEED_BUILD','snapshot',d.get('weekly_snapshot_date','-'),'seed_count',d.get('seed_count',0),'source',d.get('source','-'),'policy_lock',d.get('policy_lock_status','-')); assert d.get('source')=='CURRENT_NO_HOLD_TOP500_MATERIALIZED_V23'; assert int(d.get('snapshot_calendar_complete',0))==1"
+          test -f reports/v73_v25_core224_policy_lock_manifest.csv
+          cp -f reports/v73_v25_core224_policy_lock_manifest.csv reports/.cache/v25_core224_live/policy_lock_manifest.csv
+          python -c "import json; d=json.load(open('reports/.cache/v25_core224_live/seed_meta.json',encoding='utf-8')); print('V25_CURRENT_LIVE_SEED_BUILD','snapshot',d.get('weekly_snapshot_date','-'),'seed_count',d.get('seed_count',0),'source',d.get('source','-'),'policy_lock',d.get('policy_lock_status','-'),'current_end','${current_live_end}'); assert d.get('source')=='CURRENT_NO_HOLD_TOP500_MATERIALIZED_V23'; assert int(d.get('snapshot_calendar_complete',0))==1; assert str(d.get('weekly_snapshot_date',''))=='${current_live_end}', 'V25_CURRENT_LIVE_SEED_DATE_MISMATCH'; assert str(d.get('policy_lock_status','')) in {'LOCKED','PENDING_POLICY_LOCK_PREREQUISITES'}, 'V25_CURRENT_LIVE_POLICY_STATE_MISSING'"
 
       - name: Save CORE224 live state overlay
         if: always() && env.STOCKHUNTER_WEEKLY_BACKTEST_ONLY != '1' && hashFiles('reports/.cache/v25_core224_live/seed_meta.json') != ''
@@ -2979,10 +2992,11 @@ jobs:
         run: |
           set +e
           if [ -f reports/.cache/v25_core224_live/seed_meta.json ]; then
-            echo "V25_WEEKLY_LIVE_BRIDGE seed_meta=READY"
+            policy_manifest=$(test -f reports/.cache/v25_core224_live/policy_lock_manifest.csv && echo READY || echo MISSING)
+            echo "V25_WEEKLY_LIVE_BRIDGE seed_meta=READY policy_manifest=${policy_manifest}"
             python -c "import json; d=json.load(open('reports/.cache/v25_core224_live/seed_meta.json',encoding='utf-8')); print('V25_WEEKLY_LIVE_BRIDGE','snapshot',d.get('weekly_snapshot_date','-'),'seed_count',d.get('seed_count',0),'calendar_complete',d.get('snapshot_calendar_complete',0),'source',d.get('source','-'),'policy_lock',d.get('policy_lock_status','-'))"
           else
-            echo "V25_WEEKLY_LIVE_BRIDGE seed_meta=MISSING"
+            echo "V25_WEEKLY_LIVE_BRIDGE seed_meta=MISSING policy_manifest=MISSING"
           fi
 
       - name: Show V21 resume save proof
