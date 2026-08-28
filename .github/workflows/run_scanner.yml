@@ -2706,63 +2706,73 @@ jobs:
           test -f "$SCRIPT" || { echo "❌ CORE224 seed refresh root script missing"; exit 221; }
           test -f v25_core224_live_seed_builder.py || { echo "❌ CORE224 seed builder missing"; exit 222; }
 
-          # HF6 diagnostic-only: inspect the exact V23 loader contract before spending ~9 minutes
-          # on another one-date materialization. No strategy/PRIMARY/policy/execution change.
-          echo "V25_SEED_LOADER_CONTRACT_DIAG_BEGIN"
-          python - <<'PYLOADSRC'
-          import ast, inspect
+          # HF7 diagnostic-only: resolve the remaining producer-vs-loader schema/version contract
+          # without running the ~9 minute one-date materialization.
+          echo "V25_SEED_PRODUCER_CONTRACT_DIAG_BEGIN"
+          python - <<'PYPRODSRC'
+          import ast, inspect, re
           import direct_replay_materialized_v23 as mat
 
-          fn = mat.load_materialized_date
-          print('V25_LOADER_MODULE_FILE', inspect.getsourcefile(mat) or '-')
-          print('V25_LOADER_FUNCTION_FILE', inspect.getsourcefile(fn) or '-')
-          for name in sorted(dir(mat)):
-              if not name.isupper():
-                  continue
-              if any(tok in name for tok in ('MATERIAL','SCHEMA','SHARD','DATE','FINGERPRINT','IDENTITY','PAYLOAD')):
-                  try:
-                      v=getattr(mat,name)
-                      if isinstance(v,(str,int,float,bool,type(None))):
-                          print('V25_LOADER_CONST',name,repr(v)[:1000])
-                  except Exception:
-                      pass
-
-          seen=set()
-          def dump_func(obj, depth=0):
-              name=getattr(obj,'__name__','?')
-              if name in seen or depth>2:
-                  return
-              seen.add(name)
+          print('V25_MAT_MODULE_FILE', inspect.getsourcefile(mat) or '-')
+          for name in ('SCHEMA','VERSION','MATERIALIZED_DIRNAME','SHARD_MANIFEST_JSON','SHARD_MANIFEST_CSV'):
               try:
-                  src=inspect.getsource(obj)
+                  print('V25_MAT_CONST', name, repr(getattr(mat,name)))
               except Exception as exc:
-                  print('V25_LOADER_SOURCE_ERROR',name,type(exc).__name__,str(exc)[:500])
-                  return
-              print('V25_LOADER_SOURCE_BEGIN',name)
-              print(src.rstrip())
-              print('V25_LOADER_SOURCE_END',name)
-              try:
-                  tree=ast.parse(src)
-              except Exception:
-                  return
-              calls=[]
-              for node in ast.walk(tree):
-                  if isinstance(node,ast.Call):
-                      f=node.func
-                      if isinstance(f,ast.Name):
-                          calls.append(f.id)
-                      elif isinstance(f,ast.Attribute) and isinstance(f.value,ast.Name) and f.value.id in ('mat',):
-                          calls.append(f.attr)
-              for cname in sorted(set(calls)):
-                  cand=getattr(mat,cname,None)
-                  if inspect.isfunction(cand) and getattr(cand,'__module__','')==mat.__name__:
-                      dump_func(cand, depth+1)
+                  print('V25_MAT_CONST_ERROR', name, type(exc).__name__, str(exc)[:300])
 
-          dump_func(fn)
-          PYLOADSRC
-          echo "V25_SEED_LOADER_CONTRACT_DIAG_END"
-          echo "V25_HF6_DIAGNOSTIC_COMPLETE_INTENTIONAL_STOP=1"
-          exit 224
+          try:
+              print('V25_LOADER_SOURCE_BEGIN load_materialized_date')
+              print(inspect.getsource(mat.load_materialized_date).rstrip())
+              print('V25_LOADER_SOURCE_END load_materialized_date')
+          except Exception as exc:
+              print('V25_LOADER_SOURCE_ERROR', type(exc).__name__, str(exc)[:500])
+
+          module_src = inspect.getsource(mat)
+          tree = ast.parse(module_src)
+          producer_hits = []
+          for node in ast.walk(tree):
+              if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                  continue
+              seg = ast.get_source_segment(module_src, node) or ''
+              contractish = (
+                  'candidate_rows' in seg and
+                  (
+                      '"schema"' in seg or "'schema'" in seg or
+                      '"version"' in seg or "'version'" in seg or
+                      '_save_pickle' in seg or 'materialized_path' in seg or
+                      'shard_index' in seg or 'source_fingerprint' in seg
+                  )
+              )
+              if contractish:
+                  producer_hits.append((node.lineno, node.name, seg))
+          producer_hits.sort()
+          print('V25_PRODUCER_FUNCTION_COUNT', len(producer_hits))
+          for lineno, name, seg in producer_hits[:12]:
+              print('V25_PRODUCER_SOURCE_BEGIN', name, 'line', lineno)
+              print(seg.rstrip())
+              print('V25_PRODUCER_SOURCE_END', name)
+
+          src_lines = module_src.splitlines()
+          token_re = re.compile(r'(\bSCHEMA\b|\bVERSION\b|candidate_rows|materialized_path|_save_pickle|shard_index|shard_count)')
+          hit_lines = [i for i,l in enumerate(src_lines) if token_re.search(l)]
+          spans = []
+          for i in hit_lines:
+              a=max(0,i-3); b=min(len(src_lines),i+5)
+              if spans and a <= spans[-1][1]:
+                  spans[-1]=(spans[-1][0], max(spans[-1][1], b))
+              else:
+                  spans.append((a,b))
+          print('V25_PRODUCER_CONTEXT_SPANS', len(spans))
+          for n,(a,b) in enumerate(spans[:30],1):
+              print('V25_PRODUCER_CONTEXT_BEGIN', n, 'lines', a+1, b)
+              for j in range(a,b):
+                  print(f'{j+1:05d}: {src_lines[j]}')
+              print('V25_PRODUCER_CONTEXT_END', n)
+
+          print('V25_SEED_PRODUCER_CONTRACT_DIAG_END')
+          PYPRODSRC
+          echo "V25_HF7_DIAGNOSTIC_COMPLETE_INTENTIONAL_STOP=1"
+          exit 225
 
           price_before=$(find reports/.cache/v20_price_history -type f 2>/dev/null | wc -l | tr -d ' ')
           asof_before=$(find reports/.cache/v20_asof_snapshots -type f 2>/dev/null | wc -l | tr -d ' ')
