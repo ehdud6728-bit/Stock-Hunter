@@ -2381,6 +2381,91 @@ jobs:
           cmp -s "$root_manifest" "$cache_manifest"
           echo "V25_POLICY_MANIFEST_BOOTSTRAP status=READY byte_identical=1"
 
+      - name: Synchronize CORE224 seed Policy Lock metadata from canonical manifest
+        if: env.STOCKHUNTER_CORE224_LIVE_ONLY == '1'
+        run: |
+          set -euo pipefail
+          python - <<'PYSYNCPOLICY'
+          import csv, json, os, tempfile
+          from pathlib import Path
+
+          manifest = Path('reports/v73_v25_core224_policy_lock_manifest.csv')
+          seed_meta = Path('reports/.cache/v25_core224_live/seed_meta.json')
+
+          if not seed_meta.exists():
+              print('V25_SEED_POLICY_META_SYNC status=SEED_META_MISSING action=DEFER_TO_REFRESH')
+              raise SystemExit(0)
+
+          if not manifest.exists() or manifest.stat().st_size <= 0:
+              print('V25_SEED_POLICY_META_SYNC status=MANIFEST_MISSING fail_closed=1')
+              raise SystemExit(0)
+
+          rows = list(csv.DictReader(manifest.open(encoding='utf-8-sig', newline='')))
+          assert rows, 'V25_POLICY_MANIFEST_EMPTY'
+          r = rows[-1]
+
+          status = str(r.get('policy_lock_status', r.get('status', '')) or '')
+          primary = str(r.get('primary_policy_id', 'PRIMARY_FIB618_PLUS5_D1') or 'PRIMARY_FIB618_PLUS5_D1')
+          cutoff = str(r.get('training_cutoff_date', r.get('cutoff_date', '')) or '')
+          schema = str(r.get('policy_lock_schema', r.get('schema', '')) or '')
+
+          # Keep the exact same contract used by v25_core224_live_seed_builder._policy_lock().
+          assert status in {'LOCKED', 'PENDING_POLICY_LOCK_PREREQUISITES'}, ('V25_POLICY_STATUS_INVALID', status)
+          assert primary == 'PRIMARY_FIB618_PLUS5_D1', ('V25_PRIMARY_POLICY_MISMATCH', primary)
+          assert schema == 'V25.4.10_POLICY_LOCK_3', ('V25_POLICY_SCHEMA_MISMATCH', schema)
+
+          meta = json.loads(seed_meta.read_text(encoding='utf-8'))
+          assert isinstance(meta, dict), 'V25_SEED_META_NOT_DICT'
+          assert str(meta.get('source', '')) == 'CURRENT_NO_HOLD_TOP500_MATERIALIZED_V23', ('V25_SEED_SOURCE_INVALID', meta.get('source'))
+          assert int(meta.get('snapshot_calendar_complete', 0) or 0) == 1, 'V25_SEED_CALENDAR_NOT_COMPLETE'
+          assert int(meta.get('seed_count', 0) or 0) > 0, 'V25_SEED_COUNT_INVALID'
+
+          before = {
+              'policy_lock_status': str(meta.get('policy_lock_status', '') or ''),
+              'primary_policy_id': str(meta.get('primary_policy_id', '') or ''),
+              'training_cutoff_date': str(meta.get('training_cutoff_date', '') or ''),
+              'policy_lock_schema': str(meta.get('policy_lock_schema', '') or ''),
+          }
+
+          # These are exactly the four fields written by the canonical LIVE seed builder.
+          meta['policy_lock_status'] = status
+          meta['primary_policy_id'] = primary
+          meta['training_cutoff_date'] = cutoff
+          meta['policy_lock_schema'] = schema
+
+          seed_meta.parent.mkdir(parents=True, exist_ok=True)
+          fd, tmp = tempfile.mkstemp(prefix=seed_meta.name + '.', suffix='.tmp', dir=str(seed_meta.parent))
+          try:
+              with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                  json.dump(meta, f, ensure_ascii=False, indent=2, sort_keys=True)
+                  f.write('\n')
+                  f.flush()
+                  os.fsync(f.fileno())
+              os.replace(tmp, seed_meta)
+          finally:
+              if os.path.exists(tmp):
+                  os.unlink(tmp)
+
+          reread = json.loads(seed_meta.read_text(encoding='utf-8'))
+          assert reread.get('policy_lock_status') == status
+          assert reread.get('primary_policy_id') == primary
+          assert reread.get('training_cutoff_date') == cutoff
+          assert reread.get('policy_lock_schema') == schema
+
+          print(
+              'V25_SEED_POLICY_META_SYNC',
+              'status=READY',
+              'snapshot', reread.get('weekly_snapshot_date', '-'),
+              'source', reread.get('source', '-'),
+              'before_status', before['policy_lock_status'] or '-',
+              'after_status', status,
+              'primary', primary,
+              'cutoff', cutoff,
+              'schema', schema,
+              'execution_authority=UNCHANGED_FAIL_CLOSED',
+          )
+          PYSYNCPOLICY
+
       - name: Download V23 same-run materialized shard handoffs
         if: env.STOCKHUNTER_WEEKLY_BACKTEST_ONLY == '1' && env.V1081_BACKTEST_SOURCE == 'DIRECT_REPLAY'
         uses: actions/download-artifact@v4
@@ -2828,7 +2913,10 @@ jobs:
               str(d.get('weekly_snapshot_date',''))==expected and
               str(d.get('source',''))=='CURRENT_NO_HOLD_TOP500_MATERIALIZED_V23' and
               int(d.get('snapshot_calendar_complete',0) or 0)==1 and
-              int(d.get('seed_count',0) or 0)>0
+              int(d.get('seed_count',0) or 0)>0 and
+              str(d.get('policy_lock_status','')) in {'LOCKED','PENDING_POLICY_LOCK_PREREQUISITES'} and
+              str(d.get('primary_policy_id',''))=='PRIMARY_FIB618_PLUS5_D1' and
+              str(d.get('policy_lock_schema',''))=='V25.4.10_POLICY_LOCK_3'
           )
           if not ok:
               raise SystemExit(1)
@@ -2940,85 +3028,45 @@ jobs:
           trap - ERR
           rm -rf "$backup_dir"
 
-      - name: Diagnose CORE224 Policy Lock runtime contract
+      - name: Prove CORE224 Policy Lock handoff before LIVE runtime
         if: env.STOCKHUNTER_CORE224_LIVE_ONLY == '1'
         run: |
           set -euo pipefail
-          echo "V25_POLICY_RUNTIME_CONTRACT_DIAG_BEGIN"
-
-          python - <<'PYPOLICYDIAG'
-          import csv, hashlib, os
+          python - <<'PYPROOF'
+          import csv, json
           from pathlib import Path
 
-          paths=[
-              Path('reports/v73_v25_core224_policy_lock_manifest.csv'),
-              Path('reports/.cache/v25_core224_live/policy_lock_manifest.csv'),
-          ]
-          for p in paths:
-              print('V25_POLICY_RUNTIME_FILE',str(p),'exists',int(p.exists()),'size',p.stat().st_size if p.exists() else 0)
-              if p.exists() and p.stat().st_size:
-                  raw=p.read_bytes()
-                  print('V25_POLICY_RUNTIME_FILE_SHA256',str(p),hashlib.sha256(raw).hexdigest())
-                  rows=list(csv.DictReader(raw.decode('utf-8-sig').splitlines()))
-                  print('V25_POLICY_RUNTIME_ROWS',str(p),len(rows))
-                  if rows:
-                      r=rows[-1]
-                      for k in (
-                          'policy_lock_schema','policy_lock_status','policy_lock_digest',
-                          'persisted_digest','training_cutoff_date','primary_policy_id',
-                          'lock_prereq_policy_training_eligible_events','migration_status'
-                      ):
-                          print('V25_POLICY_RUNTIME_FIELD',str(p),k,repr(r.get(k)))
+          mp=Path('reports/v73_v25_core224_policy_lock_manifest.csv')
+          sm=Path('reports/.cache/v25_core224_live/seed_meta.json')
+          assert mp.exists() and mp.stat().st_size>0, 'V25_POLICY_MANIFEST_MISSING_BEFORE_RUNTIME'
+          assert sm.exists() and sm.stat().st_size>0, 'V25_SEED_META_MISSING_BEFORE_RUNTIME'
 
-          for k in sorted(os.environ):
-              if 'POLICY' in k.upper() or 'LOCK' in k.upper():
-                  v=os.environ.get(k,'')
-                  if any(secretish in k.upper() for secretish in ('TOKEN','KEY','SECRET','PASSWORD','PW')):
-                      v='<redacted>'
-                  print('V25_POLICY_RUNTIME_ENV',k,repr(v)[:500])
-          PYPOLICYDIAG
+          rows=list(csv.DictReader(mp.open(encoding='utf-8-sig',newline='')))
+          assert rows, 'V25_POLICY_MANIFEST_EMPTY_BEFORE_RUNTIME'
+          r=rows[-1]
+          d=json.loads(sm.read_text(encoding='utf-8'))
 
-          python - <<'PYSOURCE'
-          import ast
-          from pathlib import Path
+          expected_status=str(r.get('policy_lock_status',r.get('status','')) or '')
+          expected_primary=str(r.get('primary_policy_id','PRIMARY_FIB618_PLUS5_D1') or 'PRIMARY_FIB618_PLUS5_D1')
+          expected_cutoff=str(r.get('training_cutoff_date',r.get('cutoff_date','')) or '')
+          expected_schema=str(r.get('policy_lock_schema',r.get('schema','')) or '')
 
-          needles=(
-              'MISSING_POLICY_LOCK_MANIFEST',
-              'policy_lock_manifest',
-              'v73_v25_core224_policy_lock_manifest',
+          assert d.get('policy_lock_status')==expected_status, ('V25_POLICY_STATUS_HANDOFF_MISMATCH',d.get('policy_lock_status'),expected_status)
+          assert d.get('primary_policy_id')==expected_primary, ('V25_PRIMARY_HANDOFF_MISMATCH',d.get('primary_policy_id'),expected_primary)
+          assert d.get('training_cutoff_date')==expected_cutoff, ('V25_CUTOFF_HANDOFF_MISMATCH',d.get('training_cutoff_date'),expected_cutoff)
+          assert d.get('policy_lock_schema')==expected_schema, ('V25_SCHEMA_HANDOFF_MISMATCH',d.get('policy_lock_schema'),expected_schema)
+
+          print(
+              'V25_POLICY_RUNTIME_HANDOFF_PROOF',
+              'status=PASS',
+              'snapshot',d.get('weekly_snapshot_date','-'),
+              'policy',d.get('policy_lock_status','-'),
+              'primary',d.get('primary_policy_id','-'),
+              'cutoff',d.get('training_cutoff_date','-'),
+              'schema',d.get('policy_lock_schema','-'),
+              'seed_count',d.get('seed_count',0),
           )
-          hits=[]
-          for p in sorted(Path('.').rglob('*.py')):
-              # Avoid virtualenv/cache/vendor noise.
-              sp=str(p)
-              if any(x in sp for x in ('/.git/','/.venv/','site-packages/','__pycache__/')):
-                  continue
-              try:
-                  s=p.read_text(encoding='utf-8',errors='replace')
-              except Exception:
-                  continue
-              if any(n in s for n in needles):
-                  for i,line in enumerate(s.splitlines(),1):
-                      if any(n in line for n in needles):
-                          hits.append((p,i,line))
-          print('V25_POLICY_SOURCE_HIT_COUNT',len(hits))
-          for p,i,line in hits[:80]:
-              print('V25_POLICY_SOURCE_HIT',str(p),'line',i,line[:1000])
-              try:
-                  lines=p.read_text(encoding='utf-8',errors='replace').splitlines()
-                  a=max(0,i-16); b=min(len(lines),i+18)
-                  print('V25_POLICY_SOURCE_CONTEXT_BEGIN',str(p),'lines',a+1,b)
-                  for j in range(a,b):
-                      print(f'{j+1:05d}: {lines[j]}')
-                  print('V25_POLICY_SOURCE_CONTEXT_END',str(p))
-              except Exception as exc:
-                  print('V25_POLICY_SOURCE_CONTEXT_ERROR',str(p),type(exc).__name__,str(exc)[:300])
-          assert hits, 'V25_POLICY_RUNTIME_SOURCE_NOT_FOUND'
-          PYSOURCE
-
-          echo "V25_POLICY_RUNTIME_CONTRACT_DIAG_END"
-          echo "V25_HF10_DIAGNOSTIC_COMPLETE_INTENTIONAL_STOP=1"
-          exit 226
+          PYPROOF
 
       - name: Run scanner or weekly backtest
         id: scanner-main
