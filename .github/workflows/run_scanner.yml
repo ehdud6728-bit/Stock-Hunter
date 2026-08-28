@@ -3285,7 +3285,75 @@ jobs:
             echo "✅ WEEKLY_BACKTEST data-path + HAM + FAMILIAR + PATTERN-AI-CROSS + MARKET-EXCESS + FULL-UNIVERSE-FORMULA + COMPLETE-FORMULA + SEQUENCE-CONTEXT-CATALYST + CONTEXT-OUTCOME + SCALE-IN-RISK-PARITY + GEOPOLITICAL-BEAR-WINNER + UNIQUE-STABILITY-WINDOW + HISTORICAL-ASOF-TOP500-EVENT-EXPANSION + V20-CACHE-RESUME-PROGRESS + V21-FAILSAFE-PERSIST + V22-GATE-AUDIT + V23-SIX-SHARD-MATERIALIZED-MERGE-ONLY-ZERO-RECOMPUTE + V24-CAUSAL-UNIVERSE-FULL-DENOM-PATTERN-OOS-EXIT-HORIZON + V25-ORIGINAL-THESIS-CORE224-COHORT-LIFECYCLE research guard PASS"
           else
             echo "🚀 Stock-Hunter scanner mode | script=${SCRIPT}"
-            python -u "${SCRIPT}"
+            if [ "${STOCKHUNTER_CORE224_LIVE_ONLY:-0}" = "1" ]; then
+              core224_runtime_log="${RUNNER_TEMP:-/tmp}/v25_core224_live_runtime.log"
+              rm -f "$core224_runtime_log"
+              set +e
+              python -u "${SCRIPT}" 2>&1 | tee "$core224_runtime_log"
+              core224_rc=${PIPESTATUS[0]}
+              set -e
+
+              if [ "$core224_rc" -eq 76 ]; then
+                python - "$core224_runtime_log" <<'PYCORE224EXIT'
+          import re, sys
+          from pathlib import Path
+
+          p = Path(sys.argv[1])
+          assert p.exists() and p.stat().st_size > 0, 'V25_CORE224_RUNTIME_LOG_MISSING'
+          s = p.read_text(encoding='utf-8', errors='replace')
+
+          required = [
+              'status=POLICY_LOCK_NOT_ACTIVE_PAPER_WATCH_ONLY',
+              'policy lock: PENDING_POLICY_LOCK_PREREQUISITES · PRIMARY PRIMARY_FIB618_PLUS5_D1',
+              'ENTRY_REVIEW/D+1 PAPER_ENTRY는 차단합니다.',
+              '자동주문 0',
+          ]
+          for token in required:
+              assert token in s, ('V25_EXPECTED_PENDING_PROOF_MISSING', token)
+
+          seed_lines = [x for x in s.splitlines() if 'current weekly seed:' in x]
+          assert seed_lines, 'V25_EXPECTED_PENDING_SEED_LINE_MISSING'
+          seed = seed_lines[-1]
+          for token in (
+              'authority PASS',
+              'FRESH',
+              'source CURRENT_NO_HOLD_TOP500_MATERIALIZED_V23',
+          ):
+              assert token in seed, ('V25_EXPECTED_PENDING_SEED_PROOF_FAIL', token, seed)
+
+          eval_lines = [x for x in s.splitlines() if 'evaluator:' in x]
+          assert eval_lines, 'V25_EXPECTED_PENDING_EVALUATOR_LINE_MISSING'
+          ev = eval_lines[-1]
+          assert re.search(r'\bprice-missing\s+0\b', ev), ('V25_EXPECTED_PENDING_PRICE_MISSING_NOT_ZERO', ev)
+          assert re.search(r'\binvariant\s+0\b', ev), ('V25_EXPECTED_PENDING_INVARIANT_NOT_ZERO', ev)
+
+          for forbidden in (
+              'MISSING_POLICY_LOCK_MANIFEST',
+              'SEED_STALE_ENTRY_BLOCKED',
+              'V25_CURRENT_LIVE_SEED_NO_PRICE_BASE_CACHE',
+          ):
+              assert forbidden not in s, ('V25_EXPECTED_PENDING_FORBIDDEN_MARKER', forbidden)
+
+          print(
+              'V25_CORE224_EXPECTED_POLICY_PENDING_EXIT_PROOF',
+              'status=PASS',
+              'original_rc=76',
+              'normalized_rc=0',
+              'execution_authority=BLOCKED',
+              'real_order=0',
+          )
+          PYCORE224EXIT
+                echo "V25_CORE224_LIVE_EXIT_NORMALIZED expected_policy_pending=1 original_rc=76 normalized_rc=0"
+                core224_rc=0
+              fi
+
+              if [ "$core224_rc" -ne 0 ]; then
+                echo "V25_CORE224_LIVE_EXIT_PROPAGATE rc=$core224_rc"
+                exit "$core224_rc"
+              fi
+            else
+              python -u "${SCRIPT}"
+            fi
           fi
 
       - name: Build current CORE224 LIVE seed snapshot (no hold horizon)
