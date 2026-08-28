@@ -2940,6 +2940,86 @@ jobs:
           trap - ERR
           rm -rf "$backup_dir"
 
+      - name: Diagnose CORE224 Policy Lock runtime contract
+        if: env.STOCKHUNTER_CORE224_LIVE_ONLY == '1'
+        run: |
+          set -euo pipefail
+          echo "V25_POLICY_RUNTIME_CONTRACT_DIAG_BEGIN"
+
+          python - <<'PYPOLICYDIAG'
+          import csv, hashlib, os
+          from pathlib import Path
+
+          paths=[
+              Path('reports/v73_v25_core224_policy_lock_manifest.csv'),
+              Path('reports/.cache/v25_core224_live/policy_lock_manifest.csv'),
+          ]
+          for p in paths:
+              print('V25_POLICY_RUNTIME_FILE',str(p),'exists',int(p.exists()),'size',p.stat().st_size if p.exists() else 0)
+              if p.exists() and p.stat().st_size:
+                  raw=p.read_bytes()
+                  print('V25_POLICY_RUNTIME_FILE_SHA256',str(p),hashlib.sha256(raw).hexdigest())
+                  rows=list(csv.DictReader(raw.decode('utf-8-sig').splitlines()))
+                  print('V25_POLICY_RUNTIME_ROWS',str(p),len(rows))
+                  if rows:
+                      r=rows[-1]
+                      for k in (
+                          'policy_lock_schema','policy_lock_status','policy_lock_digest',
+                          'persisted_digest','training_cutoff_date','primary_policy_id',
+                          'lock_prereq_policy_training_eligible_events','migration_status'
+                      ):
+                          print('V25_POLICY_RUNTIME_FIELD',str(p),k,repr(r.get(k)))
+
+          for k in sorted(os.environ):
+              if 'POLICY' in k.upper() or 'LOCK' in k.upper():
+                  v=os.environ.get(k,'')
+                  if any(secretish in k.upper() for secretish in ('TOKEN','KEY','SECRET','PASSWORD','PW')):
+                      v='<redacted>'
+                  print('V25_POLICY_RUNTIME_ENV',k,repr(v)[:500])
+          PYPOLICYDIAG
+
+          python - <<'PYSOURCE'
+          import ast
+          from pathlib import Path
+
+          needles=(
+              'MISSING_POLICY_LOCK_MANIFEST',
+              'policy_lock_manifest',
+              'v73_v25_core224_policy_lock_manifest',
+          )
+          hits=[]
+          for p in sorted(Path('.').rglob('*.py')):
+              # Avoid virtualenv/cache/vendor noise.
+              sp=str(p)
+              if any(x in sp for x in ('/.git/','/.venv/','site-packages/','__pycache__/')):
+                  continue
+              try:
+                  s=p.read_text(encoding='utf-8',errors='replace')
+              except Exception:
+                  continue
+              if any(n in s for n in needles):
+                  for i,line in enumerate(s.splitlines(),1):
+                      if any(n in line for n in needles):
+                          hits.append((p,i,line))
+          print('V25_POLICY_SOURCE_HIT_COUNT',len(hits))
+          for p,i,line in hits[:80]:
+              print('V25_POLICY_SOURCE_HIT',str(p),'line',i,line[:1000])
+              try:
+                  lines=p.read_text(encoding='utf-8',errors='replace').splitlines()
+                  a=max(0,i-16); b=min(len(lines),i+18)
+                  print('V25_POLICY_SOURCE_CONTEXT_BEGIN',str(p),'lines',a+1,b)
+                  for j in range(a,b):
+                      print(f'{j+1:05d}: {lines[j]}')
+                  print('V25_POLICY_SOURCE_CONTEXT_END',str(p))
+              except Exception as exc:
+                  print('V25_POLICY_SOURCE_CONTEXT_ERROR',str(p),type(exc).__name__,str(exc)[:300])
+          assert hits, 'V25_POLICY_RUNTIME_SOURCE_NOT_FOUND'
+          PYSOURCE
+
+          echo "V25_POLICY_RUNTIME_CONTRACT_DIAG_END"
+          echo "V25_HF10_DIAGNOSTIC_COMPLETE_INTENTIONAL_STOP=1"
+          exit 226
+
       - name: Run scanner or weekly backtest
         id: scanner-main
         timeout-minutes: 205
