@@ -2756,6 +2756,87 @@ jobs:
             V25_COHORT_MODE=D \
             python -u "$SCRIPT"
 
+          echo "V25_CURRENT_LIVE_SEED_PAYLOAD_DIAG_BEGIN"
+          python - <<'PYDIAG'
+          from pathlib import Path
+          import gzip, json, pickle
+
+          root=Path('reports/v25_live_seed_build')
+          mats=sorted(root.rglob('date_*.pkl.gz'))
+          all_files=sorted(p for p in root.rglob('*') if p.is_file())
+          print('V25_SEED_DIAG_TREE','files',len(all_files),'materialized',len(mats))
+          for p in all_files:
+              rel=p.relative_to(root)
+              if p.suffix.lower() in {'.json','.csv','.txt'} or 'manifest' in p.name.lower() or p in mats:
+                  try: sz=p.stat().st_size
+                  except Exception: sz=-1
+                  print('V25_SEED_DIAG_FILE',str(rel),'bytes',sz)
+
+          def scalar(v):
+              return isinstance(v,(str,int,float,bool,type(None)))
+
+          for p in mats:
+              print('V25_SEED_DIAG_PAYLOAD_PATH',str(p.relative_to(root)))
+              try:
+                  with gzip.open(p,'rb') as fh:
+                      obj=pickle.load(fh)
+                  print('V25_SEED_DIAG_PAYLOAD_TYPE',type(obj).__name__)
+                  if isinstance(obj,dict):
+                      keys=sorted(map(str,obj.keys()))
+                      print('V25_SEED_DIAG_TOP_KEYS','|'.join(keys))
+                      for k,v in obj.items():
+                          ks=str(k)
+                          lk=ks.lower()
+                          if scalar(v) and any(t in lk for t in ('date','status','source','config','sha','identity','cohort','shard','material','complete','valid','version')):
+                              print('V25_SEED_DIAG_SCALAR',ks,repr(v)[:500])
+                          elif isinstance(v,(list,tuple,set,dict)) and any(t in lk for t in ('candidate','universe','aux','provenance','meta','identity','full','rows','payload')):
+                              try: ln=len(v)
+                              except Exception: ln=-1
+                              print('V25_SEED_DIAG_CONTAINER',ks,type(v).__name__,'len',ln)
+                              if isinstance(v,dict):
+                                  subkeys=sorted(map(str,v.keys()))
+                                  print('V25_SEED_DIAG_SUBKEYS',ks,'|'.join(subkeys[:120]))
+                                  for sk,sv in v.items():
+                                      if scalar(sv) and any(t in str(sk).lower() for t in ('date','status','source','config','sha','identity','cohort','shard','material','complete','valid','version')):
+                                          print('V25_SEED_DIAG_SUBSCALAR',ks,str(sk),repr(sv)[:500])
+                  else:
+                      try: print('V25_SEED_DIAG_PAYLOAD_LEN',len(obj))
+                      except Exception: pass
+              except Exception as e:
+                  print('V25_SEED_DIAG_PAYLOAD_LOAD_ERROR',type(e).__name__,str(e)[:800])
+
+          for p in sorted(root.rglob('*.json')):
+              try:
+                  q=json.load(open(p,encoding='utf-8'))
+                  if isinstance(q,dict):
+                      print('V25_SEED_DIAG_JSON',str(p.relative_to(root)),'keys','|'.join(sorted(map(str,q.keys()))[:160]))
+                      for k,v in q.items():
+                          if scalar(v):
+                              print('V25_SEED_DIAG_JSON_SCALAR',p.name,str(k),repr(v)[:500])
+              except Exception as e:
+                  print('V25_SEED_DIAG_JSON_ERROR',str(p.relative_to(root)),type(e).__name__,str(e)[:500])
+          PYDIAG
+
+          python - <<'PYBUILDER'
+          from pathlib import Path
+          p=Path('v25_core224_live_seed_builder.py')
+          s=p.read_text(encoding='utf-8').splitlines()
+          needles=('LIVE_SEED_MATERIALIZED_PAYLOAD_MISSING_OR_INVALID','date_','pkl.gz','materialized','source_dir','source-dir')
+          hits=[]
+          for i,line in enumerate(s,1):
+              if any(n in line for n in needles): hits.append(i)
+          print('V25_SEED_BUILDER_DIAG','lines',len(s),'hits',','.join(map(str,hits[:80])))
+          if hits:
+              lo=max(1,min(hits)-80); hi=min(len(s),max(hits)+80)
+          else:
+              lo=1; hi=min(len(s),260)
+          print('V25_SEED_BUILDER_SOURCE_BEGIN',lo,hi)
+          for i in range(lo,hi+1):
+              print(f'{i:04d}: {s[i-1]}')
+          print('V25_SEED_BUILDER_SOURCE_END')
+          PYBUILDER
+          echo "V25_CURRENT_LIVE_SEED_PAYLOAD_DIAG_END"
+
           python -u v25_core224_live_seed_builder.py \
             --source-dir reports/v25_live_seed_build \
             --output-dir reports \
