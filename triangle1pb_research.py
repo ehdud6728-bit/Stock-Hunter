@@ -32,7 +32,7 @@ import pandas as pd
 
 SCHEMA = "TRIANGLE1PB_RESEARCH_SCHEMA_V1"
 STRATEGY_ID = "TRIANGLE1PB_R1_CHRONOLOGY_FIRST"
-LOADER_REVISION = "TRIANGLE1PB_R1_3_1_STRUCTURE_AUDIT_FIX"
+LOADER_REVISION = "TRIANGLE1PB_R1_4_COUNTERFACTUAL_STREAK_AUDIT"
 RESEARCH_AUTHORITY = "RESEARCH_ONLY_NO_LIVE_NO_POLICY_NO_ORDERS"
 STAGES = [
     "TRI_SQUEEZE",
@@ -551,6 +551,8 @@ def squeeze_geometry(window: pd.DataFrame, cfg: FrozenConfig) -> Dict[str, Any]:
         "gate_end_width": gate_end_width,
         "upper_slope_pct_per_bar": hs / mid,
         "lower_slope_pct_per_bar": ls / mid,
+        "upper_slope_price_per_bar": hs,
+        "lower_slope_price_per_bar": ls,
         "upper_r2": upper_r2,
         "lower_r2": lower_r2,
         "width_start_pct": width_start,
@@ -783,6 +785,11 @@ def build_structure_fidelity_row(
         "legacy_accumulation_bar_used_as_gate": 0,
         "code": code,
         "squeeze_date": str(squeeze_date.date()),
+        "squeeze_close": _audit_num(row.get("close")),
+        "projected_upper_next": _audit_num(geom.get("projected_upper_next")),
+        "projected_lower_next": _audit_num(geom.get("projected_lower_next")),
+        "upper_slope_price_per_bar": _audit_num(geom.get("upper_slope_price_per_bar")),
+        "lower_slope_price_per_bar": _audit_num(geom.get("lower_slope_price_per_bar")),
         "shape_score": round(shape_score, 6),
         "upper_r2": _audit_num(geom.get("upper_r2")),
         "lower_r2": _audit_num(geom.get("lower_r2")),
@@ -937,6 +944,7 @@ def detect_code(
         return events, signals, rejects, diag
 
     squeeze_streak = 0
+    squeeze_run_seq = 0
     squeeze_context: Optional[Dict[str, Any]] = None
     state = "IDLE"
     ctx: Dict[str, Any] = {}
@@ -979,14 +987,25 @@ def detect_code(
             diag["end_width_pass_windows"] += 1
         if geom.get("qualifies"):
             diag["squeeze_qualifying_windows"] += 1
+            if squeeze_streak == 0:
+                squeeze_run_seq += 1
+            next_streak = int(squeeze_streak) + 1
             if structure_audit_sink is not None:
                 try:
-                    structure_audit_sink.append(
-                        build_structure_fidelity_row(code, df, i - 1, geom)
-                    )
+                    audit_row = build_structure_fidelity_row(code, df, i - 1, geom)
+                    audit_row.update({
+                        "squeeze_end_index": int(i - 1),
+                        "squeeze_run_seq": int(squeeze_run_seq),
+                        "squeeze_streak_ending": int(next_streak),
+                        "counterfactual_candidate_streak_1": int(next_streak == 1),
+                        "counterfactual_candidate_streak_2": int(next_streak == 2),
+                        "counterfactual_candidate_streak_3": int(next_streak == 3),
+                        "counterfactual_candidate_streak_4": int(next_streak == 4),
+                    })
+                    structure_audit_sink.append(audit_row)
                 except Exception as audit_exc:
                     diag["structure_audit_errors"] += 1
-            squeeze_streak += 1
+            squeeze_streak = next_streak
             diag["max_squeeze_streak"] = max(int(diag["max_squeeze_streak"]), int(squeeze_streak))
             if squeeze_streak >= cfg.squeeze_min_consecutive_windows:
                 diag["squeeze_streak_reached"] += 1
@@ -1197,6 +1216,390 @@ def detect_code(
             state = "IDLE"; ctx = {}; squeeze_streak = 0; squeeze_context = None
 
     return events, signals, rejects, diag
+
+
+
+def _cf_bool(v: Any) -> int:
+    return int(bool(v))
+
+
+def _cf_breakout_eval(
+    df: pd.DataFrame,
+    idx: int,
+    breakout_ref: float,
+    universe: UniverseAuthority,
+    code: str,
+    cfg: FrozenConfig,
+) -> Dict[str, Any]:
+    row = df.iloc[idx]
+    d = pd.Timestamp(row["date"])
+    amount = float(row["amount"]) if pd.notna(row["amount"]) else float("nan")
+    amt20, amt_obs = amount20_stats(df, idx, cfg)
+    amt20_ratio = (
+        amount / amt20
+        if math.isfinite(amount) and amount > 0 and math.isfinite(amt20) and amt20 > 0
+        else float("nan")
+    )
+    price_cross = bool(
+        math.isfinite(breakout_ref)
+        and float(row["close"]) > breakout_ref * (1.0 + cfg.breakout_buffer_pct)
+    )
+    amount_ready = bool(
+        math.isfinite(amount)
+        and amount > 0
+        and amt_obs >= cfg.amount20_min_observations
+        and math.isfinite(amt20_ratio)
+    )
+    amount_pass = bool(amount_ready and amt20_ratio >= cfg.breakout_min_amount20_ratio)
+    candle_pass = bool(
+        float(row["close"]) > float(row["open"])
+        and float(row["close"]) >= (float(row["high"]) + float(row["low"])) / 2.0
+    )
+    uok, udate, uage, ure = universe.lookup(d, code)
+    exact_no_universe = bool(price_cross and amount_pass and candle_pass)
+    exact_with_universe = bool(exact_no_universe and uok)
+    return {
+        "idx": int(idx),
+        "date": d.date().isoformat(),
+        "breakout_reference": float(breakout_ref) if math.isfinite(breakout_ref) else float("nan"),
+        "price_cross": _cf_bool(price_cross),
+        "amount_ready": _cf_bool(amount_ready),
+        "amount_pass": _cf_bool(amount_pass),
+        "candle_pass": _cf_bool(candle_pass),
+        "exact_no_universe": _cf_bool(exact_no_universe),
+        "exact_with_universe": _cf_bool(exact_with_universe),
+        "actual_amount": amount,
+        "amount20_mean_prior": amt20,
+        "amount20_ratio": amt20_ratio,
+        "universe_pass": _cf_bool(uok),
+        "universe_snapshot_date": udate,
+        "universe_age_days": uage,
+        "universe_reason": ure,
+    }
+
+
+def _cf_downstream_existing_rules(
+    code: str,
+    df: pd.DataFrame,
+    breakout: Dict[str, Any],
+    universe: UniverseAuthority,
+    cfg: FrozenConfig,
+    squeeze_close: float,
+) -> Dict[str, Any]:
+    """Replay existing R1 downstream rules from an accepted audit breakout."""
+    out = {
+        "first_pullback_existing": 0,
+        "healthy_pullback_existing": 0,
+        "restart_existing": 0,
+        "structure_broken": 0,
+        "first_pullback_date": "",
+        "healthy_pullback_date": "",
+        "restart_date": "",
+        "first_pullback_drawdown_pct": float("nan"),
+        "healthy_drawdown_pct": float("nan"),
+        "healthy_amount_vs_breakout_ratio": float("nan"),
+        "healthy_amount20_ratio": float("nan"),
+        "restart_amount_vs_pullback_median": float("nan"),
+        "post_breakout_max_high_ret_5bar_pct": float("nan"),
+        "post_breakout_max_high_ret_8bar_pct": float("nan"),
+        "post_breakout_reaches_5pct_5bar": 0,
+        "post_breakout_reaches_10pct_8bar": 0,
+    }
+    if not int(breakout.get("exact_with_universe", 0)):
+        return out
+
+    bidx = int(breakout["idx"])
+    bref = float(breakout["breakout_reference"])
+    bamt = float(breakout["actual_amount"])
+    wave_high = float(df.iloc[bidx]["high"])
+    floor_price = bref * (1.0 - cfg.breakout_floor_tolerance_pct)
+
+    # Descriptive impulse strength after the exact breakout.
+    if math.isfinite(squeeze_close) and squeeze_close > 0:
+        seg5 = df.iloc[bidx:min(len(df), bidx + 5)]
+        seg8 = df.iloc[bidx:min(len(df), bidx + 8)]
+        if not seg5.empty:
+            h5 = pd.to_numeric(seg5["high"], errors="coerce").max()
+            if pd.notna(h5):
+                out["post_breakout_max_high_ret_5bar_pct"] = float((h5 / squeeze_close - 1.0) * 100.0)
+                out["post_breakout_reaches_5pct_5bar"] = int(h5 >= squeeze_close * 1.05)
+        if not seg8.empty:
+            h8 = pd.to_numeric(seg8["high"], errors="coerce").max()
+            if pd.notna(h8):
+                out["post_breakout_max_high_ret_8bar_pct"] = float((h8 / squeeze_close - 1.0) * 100.0)
+                out["post_breakout_reaches_10pct_8bar"] = int(h8 >= squeeze_close * 1.10)
+
+    state = "BREAKOUT_WAVE1"
+    pullback_start_idx = None
+    healthy_idx = None
+    pullback_amounts: List[float] = []
+
+    for i in range(bidx + 1, min(len(df), bidx + cfg.breakout_wave_max_bars + cfg.healthy_wait_max_bars + cfg.restart_wait_max_bars + 4)):
+        row = df.iloc[i]
+        prev = df.iloc[i - 1]
+        d = pd.Timestamp(row["date"])
+        amount = float(row["amount"]) if pd.notna(row["amount"]) else float("nan")
+        amt20, amt_obs = amount20_stats(df, i, cfg)
+        amt20_ratio = (
+            amount / amt20
+            if math.isfinite(amount) and amount > 0 and math.isfinite(amt20) and amt20 > 0
+            else float("nan")
+        )
+
+        wave_high = max(wave_high, float(row["high"]))
+        drawdown = max(0.0, (wave_high - float(row["close"])) / wave_high) if wave_high > 0 else 0.0
+
+        if float(row["close"]) < floor_price or drawdown > cfg.pullback_max_drawdown_pct:
+            out["structure_broken"] = 1
+            return out
+
+        if state == "BREAKOUT_WAVE1":
+            age = i - bidx
+            if age > cfg.breakout_wave_max_bars:
+                return out
+            if drawdown < cfg.pullback_min_drawdown_pct or not (float(row["close"]) < float(prev["close"])):
+                continue
+            uok, _, _, _ = universe.lookup(d, code)
+            if not uok:
+                return out
+            out["first_pullback_existing"] = 1
+            out["first_pullback_date"] = d.date().isoformat()
+            out["first_pullback_drawdown_pct"] = float(drawdown)
+            pullback_start_idx = i
+            pullback_amounts = [amount] if math.isfinite(amount) and amount > 0 else []
+            state = "FIRST_PULLBACK"
+            # Same bar can satisfy healthy condition, matching detect_code().
+
+        if state == "FIRST_PULLBACK":
+            pb_age = i - int(pullback_start_idx)
+            if pb_age > cfg.healthy_wait_max_bars:
+                return out
+            if i != int(pullback_start_idx) and math.isfinite(amount) and amount > 0:
+                pullback_amounts.append(amount)
+            if not (
+                math.isfinite(amount)
+                and amount > 0
+                and amt_obs >= cfg.amount20_min_observations
+                and math.isfinite(amt20_ratio)
+            ):
+                continue
+            amount_vs_breakout = amount / bamt if bamt > 0 else float("nan")
+            healthy = bool(
+                drawdown >= cfg.pullback_min_drawdown_pct
+                and drawdown <= cfg.pullback_max_drawdown_pct
+                and float(row["close"]) >= floor_price
+                and math.isfinite(amount_vs_breakout)
+                and amount_vs_breakout <= cfg.healthy_max_breakout_amount_ratio
+                and amt20_ratio <= cfg.healthy_max_amount20_ratio
+            )
+            if not healthy:
+                continue
+            uok, _, _, _ = universe.lookup(d, code)
+            if not uok:
+                return out
+            out["healthy_pullback_existing"] = 1
+            out["healthy_pullback_date"] = d.date().isoformat()
+            out["healthy_drawdown_pct"] = float(drawdown)
+            out["healthy_amount_vs_breakout_ratio"] = float(amount_vs_breakout)
+            out["healthy_amount20_ratio"] = float(amt20_ratio)
+            healthy_idx = i
+            state = "HEALTHY_PULLBACK"
+            continue
+
+        if state == "HEALTHY_PULLBACK":
+            rest_age = i - int(healthy_idx)
+            if rest_age > cfg.restart_wait_max_bars:
+                return out
+            prior_pb_amounts = [x for x in pullback_amounts if math.isfinite(x) and x > 0]
+            pb_median = float(np.median(prior_pb_amounts)) if prior_pb_amounts else float("nan")
+            restart_ratio = (
+                amount / pb_median
+                if math.isfinite(amount) and amount > 0 and math.isfinite(pb_median) and pb_median > 0
+                else float("nan")
+            )
+            restart = bool(
+                rest_age >= 1
+                and float(row["close"]) > float(prev["high"])
+                and float(row["close"]) > float(row["open"])
+                and float(row["close"]) >= bref
+                and math.isfinite(restart_ratio)
+                and restart_ratio >= cfg.restart_min_pullback_amount_ratio
+            )
+            if restart:
+                out["restart_existing"] = 1
+                out["restart_date"] = d.date().isoformat()
+                out["restart_amount_vs_pullback_median"] = float(restart_ratio)
+                return out
+            if math.isfinite(amount) and amount > 0:
+                pullback_amounts.append(amount)
+
+    return out
+
+
+def build_counterfactual_streak_audit(
+    structure_audit: pd.DataFrame,
+    frames: Dict[str, pd.DataFrame],
+    universe: UniverseAuthority,
+    start: pd.Timestamp,
+    end: pd.Timestamp,
+    cfg: FrozenConfig,
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """Research-only comparison of first-reach streak thresholds 1/2/3/4.
+
+    This lane does not modify detect_code(), stage acceptance, or FrozenConfig.
+    For threshold N, only the first window that reaches streak N within a
+    consecutive squeeze run is evaluated, preventing duplicate episode counts.
+    """
+    base_cols = [
+        "schema","strategy_id","loader_revision","audit_role","streak_threshold","code",
+        "squeeze_date","squeeze_run_seq","squeeze_streak_ending","research_period",
+        "squeeze_universe_pass","squeeze_universe_reason",
+        "first_price_cross_found","first_price_cross_offset","first_price_cross_date",
+        "first_cross_amount_ready","first_cross_amount_pass","first_cross_candle_pass",
+        "first_cross_exact_no_universe","first_cross_exact_with_universe",
+        "any_exact_breakout_no_universe","any_exact_breakout_with_universe",
+        "any_exact_breakout_date","any_exact_breakout_offset","first_pullback_existing",
+        "healthy_pullback_existing","restart_existing","structure_broken",
+        "post_breakout_max_high_ret_5bar_pct","post_breakout_max_high_ret_8bar_pct",
+        "post_breakout_reaches_5pct_5bar","post_breakout_reaches_10pct_8bar",
+    ]
+    if structure_audit is None or structure_audit.empty:
+        return pd.DataFrame(columns=base_cols), pd.DataFrame()
+
+    rows: List[Dict[str, Any]] = []
+    for threshold in (1, 2, 3, 4):
+        cand = structure_audit[
+            pd.to_numeric(structure_audit.get("squeeze_streak_ending"), errors="coerce")
+            .fillna(0).astype(int).eq(threshold)
+        ].copy()
+        if cand.empty:
+            continue
+
+        for _, sr in cand.iterrows():
+            code = str(sr.get("code") or "")
+            sq_date = pd.to_datetime(sr.get("squeeze_date"), errors="coerce")
+            if code not in frames or pd.isna(sq_date):
+                continue
+            research_period = int(pd.Timestamp(start) <= pd.Timestamp(sq_date) <= pd.Timestamp(end))
+            if not research_period:
+                continue
+
+            df = frames[code]
+            idxs = df.index[
+                pd.to_datetime(df["date"]).dt.normalize().eq(pd.Timestamp(sq_date).normalize())
+            ]
+            if len(idxs) == 0:
+                continue
+            sq_idx = int(idxs[-1])
+            projected_upper_next = _audit_num(sr.get("projected_upper_next"))
+            upper_slope_price = _audit_num(sr.get("upper_slope_price_per_bar"))
+            squeeze_close = _audit_num(sr.get("squeeze_close"))
+
+            sq_uok, sq_udate, sq_uage, sq_ure = universe.lookup(pd.Timestamp(sq_date), code)
+
+            first_cross: Optional[Dict[str, Any]] = None
+            any_exact_no_u: Optional[Dict[str, Any]] = None
+            any_exact_with_u: Optional[Dict[str, Any]] = None
+            max_scan = min(len(df) - 1, sq_idx + cfg.breakout_wave_max_bars)
+
+            for idx in range(sq_idx + 1, max_scan + 1):
+                offset = idx - sq_idx
+                bref = (
+                    projected_upper_next + upper_slope_price * (offset - 1)
+                    if math.isfinite(projected_upper_next) and math.isfinite(upper_slope_price)
+                    else float("nan")
+                )
+                ev = _cf_breakout_eval(df, idx, bref, universe, code, cfg)
+                ev["offset"] = int(offset)
+                if first_cross is None and int(ev["price_cross"]):
+                    first_cross = ev
+                if any_exact_no_u is None and int(ev["exact_no_universe"]):
+                    any_exact_no_u = ev
+                if any_exact_with_u is None and int(ev["exact_with_universe"]):
+                    any_exact_with_u = ev
+
+            if first_cross is None:
+                first_cross = {
+                    "idx": -1, "date": "", "offset": -1, "price_cross": 0,
+                    "amount_ready": 0, "amount_pass": 0, "candle_pass": 0,
+                    "exact_no_universe": 0, "exact_with_universe": 0,
+                    "breakout_reference": float("nan"), "actual_amount": float("nan"),
+                    "amount20_mean_prior": float("nan"), "amount20_ratio": float("nan"),
+                    "universe_pass": 0, "universe_snapshot_date": "",
+                    "universe_age_days": 999999, "universe_reason": "NO_PRICE_CROSS",
+                }
+
+            # Existing chronology semantics use the first price cross. If that
+            # first cross fails Amount/candle/universe, downstream is not replayed.
+            downstream = _cf_downstream_existing_rules(
+                code, df, first_cross, universe, cfg, squeeze_close
+            )
+
+            rows.append({
+                "schema": SCHEMA,
+                "strategy_id": STRATEGY_ID,
+                "loader_revision": LOADER_REVISION,
+                "audit_role": "COUNTERFACTUAL_ONLY_NOT_A_GATE",
+                "streak_threshold": int(threshold),
+                "code": code,
+                "squeeze_date": pd.Timestamp(sq_date).date().isoformat(),
+                "squeeze_run_seq": int(pd.to_numeric(sr.get("squeeze_run_seq"), errors="coerce") or 0),
+                "squeeze_streak_ending": int(threshold),
+                "research_period": 1,
+                "shape_score": _audit_num(sr.get("shape_score")),
+                "squeeze_close": squeeze_close,
+                "squeeze_universe_pass": int(sq_uok),
+                "squeeze_universe_snapshot_date": sq_udate,
+                "squeeze_universe_age_days": sq_uage,
+                "squeeze_universe_reason": sq_ure,
+                "first_price_cross_found": int(first_cross.get("price_cross", 0)),
+                "first_price_cross_offset": int(first_cross.get("offset", -1)),
+                "first_price_cross_date": str(first_cross.get("date", "")),
+                "first_cross_amount_ready": int(first_cross.get("amount_ready", 0)),
+                "first_cross_amount_pass": int(first_cross.get("amount_pass", 0)),
+                "first_cross_candle_pass": int(first_cross.get("candle_pass", 0)),
+                "first_cross_exact_no_universe": int(first_cross.get("exact_no_universe", 0)),
+                "first_cross_exact_with_universe": int(first_cross.get("exact_with_universe", 0) and sq_uok),
+                "first_cross_amount20_ratio": _audit_num(first_cross.get("amount20_ratio")),
+                "first_cross_breakout_reference": _audit_num(first_cross.get("breakout_reference")),
+                "first_cross_actual_amount": _audit_num(first_cross.get("actual_amount")),
+                "any_exact_breakout_no_universe": int(any_exact_no_u is not None),
+                "any_exact_breakout_with_universe": int(any_exact_with_u is not None and sq_uok),
+                "any_exact_breakout_date": str((any_exact_with_u or any_exact_no_u or {}).get("date", "")),
+                "any_exact_breakout_offset": int((any_exact_with_u or any_exact_no_u or {}).get("offset", -1)),
+                **downstream,
+            })
+
+    detail = pd.DataFrame(rows)
+    summary_rows = []
+    for threshold in (1, 2, 3, 4):
+        x = detail[detail["streak_threshold"].eq(threshold)] if not detail.empty else pd.DataFrame()
+        def isum(col: str) -> int:
+            return int(pd.to_numeric(x.get(col, pd.Series(dtype=float)), errors="coerce").fillna(0).sum()) if not x.empty else 0
+        summary_rows.append({
+            "schema": SCHEMA,
+            "strategy_id": STRATEGY_ID,
+            "loader_revision": LOADER_REVISION,
+            "streak_threshold": threshold,
+            "research_candidate_runs": int(len(x)),
+            "squeeze_universe_pass": isum("squeeze_universe_pass"),
+            "first_price_cross": isum("first_price_cross_found"),
+            "first_cross_amount_ready": isum("first_cross_amount_ready"),
+            "first_cross_amount_pass": isum("first_cross_amount_pass"),
+            "first_cross_candle_pass": isum("first_cross_candle_pass"),
+            "first_cross_exact_no_universe": isum("first_cross_exact_no_universe"),
+            "first_cross_exact_with_universe": isum("first_cross_exact_with_universe"),
+            "any_exact_breakout_no_universe": isum("any_exact_breakout_no_universe"),
+            "any_exact_breakout_with_universe": isum("any_exact_breakout_with_universe"),
+            "first_pullback_existing": isum("first_pullback_existing"),
+            "healthy_pullback_existing": isum("healthy_pullback_existing"),
+            "restart_existing": isum("restart_existing"),
+            "post_breakout_reaches_5pct_5bar": isum("post_breakout_reaches_5pct_5bar"),
+            "post_breakout_reaches_10pct_8bar": isum("post_breakout_reaches_10pct_8bar"),
+            "used_as_strategy_gate": 0,
+            "frozen_config_changed": 0,
+        })
+    return detail, pd.DataFrame(summary_rows)
 
 
 def build_forward_outcomes(signals: List[Dict[str, Any]], frames: Dict[str, pd.DataFrame], cfg: FrozenConfig) -> pd.DataFrame:
@@ -1519,6 +1922,17 @@ def run(args: argparse.Namespace) -> int:
     structure_review = build_structure_manual_review_sample(structure_audit, n_each=8)
     structure_review_bars = build_structure_review_bars(structure_review, frames)
 
+    structure_dates = pd.to_datetime(structure_audit.get("squeeze_date", pd.Series(dtype=str)), errors="coerce")
+    research_mask = structure_dates.between(start, end, inclusive="both") if not structure_audit.empty else pd.Series(dtype=bool)
+    research_structure_audit = structure_audit.loc[research_mask].copy() if not structure_audit.empty else pd.DataFrame()
+    warmup_structure_audit = structure_audit.loc[~research_mask].copy() if not structure_audit.empty else pd.DataFrame()
+    research_codes_with_squeeze = int(research_structure_audit["code"].nunique()) if not research_structure_audit.empty else 0
+    warmup_codes_with_squeeze = int(warmup_structure_audit["code"].nunique()) if not warmup_structure_audit.empty else 0
+
+    counterfactual_detail, counterfactual_summary = build_counterfactual_streak_audit(
+        structure_audit, frames, universe, start, end, cfg
+    )
+
     structure_integrity_audit = pd.DataFrame([{
         "schema": SCHEMA,
         "strategy_id": STRATEGY_ID,
@@ -1604,6 +2018,8 @@ def run(args: argparse.Namespace) -> int:
     _write_csv(structure_integrity_audit, out / "tri_structure_audit_integrity.csv")
     _write_csv(structure_review, out / "tri_structure_manual_review_sample.csv")
     _write_csv(structure_review_bars, out / "tri_structure_review_bars.csv")
+    _write_csv(counterfactual_detail, out / "tri_counterfactual_streak_detail.csv")
+    _write_csv(counterfactual_summary, out / "tri_counterfactual_streak_summary.csv")
     _write_csv(
         gate_diag.sort_values(
             ["squeeze_qualifying_windows","max_squeeze_streak","breakout_price_cross"],
@@ -1647,6 +2063,10 @@ def run(args: argparse.Namespace) -> int:
         "structure_fidelity_audit": {
             "rows": int(len(structure_audit)),
             "raw_rows": structure_audit_raw_rows,
+            "research_period_rows": int(len(research_structure_audit)),
+            "warmup_rows": int(len(warmup_structure_audit)),
+            "research_period_codes": research_codes_with_squeeze,
+            "warmup_codes": warmup_codes_with_squeeze,
             "expected_full_squeeze_rows": structure_audit_expected_rows,
             "audit_errors": structure_audit_error_count,
             "integrity_fail": structure_audit_integrity_fail,
@@ -1658,6 +2078,11 @@ def run(args: argparse.Namespace) -> int:
             "wave1_found_rows": int(pd.to_numeric(structure_audit.get("post15_wave1_found", pd.Series(dtype=float)), errors="coerce").fillna(0).sum()) if not structure_audit.empty else 0,
             "first_pullback_found_rows": int(pd.to_numeric(structure_audit.get("first_pullback_found", pd.Series(dtype=float)), errors="coerce").fillna(0).sum()) if not structure_audit.empty else 0,
             "restart_after_pullback_rows": int(pd.to_numeric(structure_audit.get("restart_after_pullback_found", pd.Series(dtype=float)), errors="coerce").fillna(0).sum()) if not structure_audit.empty else 0,
+        },
+        "counterfactual_streak_audit": {
+            "research_only": 1,
+            "used_as_strategy_gate": 0,
+            "summary": counterfactual_summary.to_dict("records"),
         },
         "restart_signals": int(len(signals)),
         "invariant_fail": int(invariant_fail + structure_audit_integrity_fail),
@@ -1675,6 +2100,7 @@ def run(args: argparse.Namespace) -> int:
         out / "tri_gate_diagnostics.csv", out / "tri_code_gate_diagnostics.csv",
         out / "tri_structure_fidelity_audit.csv", out / "tri_structure_audit_integrity.csv",
         out / "tri_structure_manual_review_sample.csv", out / "tri_structure_review_bars.csv",
+        out / "tri_counterfactual_streak_detail.csv", out / "tri_counterfactual_streak_summary.csv",
     ]
     h = hashlib.sha256()
     for p in authority_files:
@@ -1692,6 +2118,12 @@ def run(args: argparse.Namespace) -> int:
         f"gate_diagnostics={gate_totals}",
         f"structure_fidelity_audit={json.dumps(manifest['structure_fidelity_audit'], ensure_ascii=False, sort_keys=True)}",
         (
+            f"structure_period_split=research:{len(research_structure_audit)}"
+            f" warmup:{len(warmup_structure_audit)}"
+            f" research_codes:{research_codes_with_squeeze}"
+        ),
+        f"counterfactual_streak_summary={json.dumps(counterfactual_summary.to_dict('records'), ensure_ascii=False, sort_keys=True)}",
+        (
             f"structure_audit_integrity=expected:{structure_audit_expected_rows}"
             f" raw:{structure_audit_raw_rows} errors:{structure_audit_error_count}"
             f" fail:{structure_audit_integrity_fail}"
@@ -1704,7 +2136,7 @@ def run(args: argparse.Namespace) -> int:
         (
             "NEXT_GATE=manual chart review + false-positive taxonomy before any threshold/performance tuning"
             if len(signals) > 0 else
-            "NEXT_GATE=gate diagnostics first; no threshold/performance tuning until zero-stage cause is proven"
+            "NEXT_GATE=counterfactual streak + structure fidelity review; no threshold/performance tuning until causal candidate definition is proven"
         ),
     ]
     (out / "tri_report.txt").write_text("\n".join(report) + "\n", encoding="utf-8")
@@ -1785,6 +2217,17 @@ def self_test() -> int:
     assert gd["structure_audit_errors"] == 0
     assert len(structure_sink) == gd["squeeze_qualifying_windows"] > 0
     assert all(x.get("audit_role") == "DESCRIPTIVE_ONLY_NOT_A_GATE" for x in structure_sink)
+    sa_df = pd.DataFrame(structure_sink)
+    cf_detail, cf_summary = build_counterfactual_streak_audit(
+        sa_df, {"123456": df}, _SyntheticUniverse(), start, end, CONFIG
+    )
+    assert not cf_summary.empty
+    cf1 = cf_summary[cf_summary["streak_threshold"].eq(1)].iloc[0]
+    assert int(cf1["research_candidate_runs"]) >= 1
+    assert int(cf1["first_cross_exact_with_universe"]) >= 1
+    assert int(cf1["first_pullback_existing"]) >= 1
+    assert int(cf1["healthy_pullback_existing"]) >= 1
+    assert int(cf1["restart_existing"]) >= 1
     # Determinism.
     e2, s2, r2, gd2 = detect_code("123456", df, "SYNTHETIC_ACTUAL_AMOUNT", _SyntheticUniverse(), start, end, CONFIG)
     assert json.dumps(e, sort_keys=True, default=str) == json.dumps(e2, sort_keys=True, default=str)
