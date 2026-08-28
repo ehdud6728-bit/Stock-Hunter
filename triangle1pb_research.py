@@ -32,7 +32,7 @@ import pandas as pd
 
 SCHEMA = "TRIANGLE1PB_RESEARCH_SCHEMA_V1"
 STRATEGY_ID = "TRIANGLE1PB_R1_CHRONOLOGY_FIRST"
-LOADER_REVISION = "TRIANGLE1PB_R1_4_COUNTERFACTUAL_STREAK_AUDIT"
+LOADER_REVISION = "TRIANGLE1PB_R1_5_QUALIFIED_BREAKOUT_CHRONOLOGY_AUDIT"
 RESEARCH_AUTHORITY = "RESEARCH_ONLY_NO_LIVE_NO_POLICY_NO_ORDERS"
 STAGES = [
     "TRI_SQUEEZE",
@@ -1458,8 +1458,12 @@ def build_counterfactual_streak_audit(
         "first_cross_amount_ready","first_cross_amount_pass","first_cross_candle_pass",
         "first_cross_exact_no_universe","first_cross_exact_with_universe",
         "any_exact_breakout_no_universe","any_exact_breakout_with_universe",
-        "any_exact_breakout_date","any_exact_breakout_offset","first_pullback_existing",
-        "healthy_pullback_existing","restart_existing","structure_broken",
+        "any_exact_breakout_date","any_exact_breakout_offset",
+        "probe_then_qualified_breakout","probe_to_qualified_delay_bars",
+        "qualified_breakout_date","qualified_breakout_offset",
+        "qualified_first_pullback_existing","qualified_healthy_pullback_existing",
+        "qualified_restart_existing","qualified_structure_broken",
+        "first_pullback_existing","healthy_pullback_existing","restart_existing","structure_broken",
         "post_breakout_max_high_ret_5bar_pct","post_breakout_max_high_ret_8bar_pct",
         "post_breakout_reaches_5pct_5bar","post_breakout_reaches_10pct_8bar",
     ]
@@ -1535,6 +1539,28 @@ def build_counterfactual_streak_audit(
                 code, df, first_cross, universe, cfg, squeeze_close
             )
 
+            # Alternative chronology AUDIT ONLY:
+            # ignore an earlier price-only probe and anchor Wave1 at the first
+            # later bar that satisfies the SAME price+Amount+candle+universe gates.
+            qualified_breakout = any_exact_with_u if (any_exact_with_u is not None and sq_uok) else None
+            if qualified_breakout is not None:
+                qualified_downstream = _cf_downstream_existing_rules(
+                    code, df, qualified_breakout, universe, cfg, squeeze_close
+                )
+            else:
+                qualified_downstream = _cf_downstream_existing_rules(
+                    code, df, {"exact_with_universe": 0}, universe, cfg, squeeze_close
+                )
+            probe_then_qualified = int(
+                qualified_breakout is not None
+                and int(first_cross.get("price_cross", 0)) == 1
+                and int(first_cross.get("exact_with_universe", 0)) == 0
+            )
+            probe_delay = (
+                int(qualified_breakout.get("offset", -1)) - int(first_cross.get("offset", -1))
+                if probe_then_qualified else 0
+            )
+
             rows.append({
                 "schema": SCHEMA,
                 "strategy_id": STRATEGY_ID,
@@ -1567,6 +1593,28 @@ def build_counterfactual_streak_audit(
                 "any_exact_breakout_with_universe": int(any_exact_with_u is not None and sq_uok),
                 "any_exact_breakout_date": str((any_exact_with_u or any_exact_no_u or {}).get("date", "")),
                 "any_exact_breakout_offset": int((any_exact_with_u or any_exact_no_u or {}).get("offset", -1)),
+                "probe_then_qualified_breakout": probe_then_qualified,
+                "probe_to_qualified_delay_bars": int(probe_delay),
+                "probe_first_cross_amount_fail": int(probe_then_qualified and not int(first_cross.get("amount_pass", 0))),
+                "probe_first_cross_candle_fail": int(probe_then_qualified and not int(first_cross.get("candle_pass", 0))),
+                "qualified_breakout_date": str((qualified_breakout or {}).get("date", "")),
+                "qualified_breakout_offset": int((qualified_breakout or {}).get("offset", -1)),
+                "qualified_first_pullback_existing": int(qualified_downstream.get("first_pullback_existing", 0)),
+                "qualified_healthy_pullback_existing": int(qualified_downstream.get("healthy_pullback_existing", 0)),
+                "qualified_restart_existing": int(qualified_downstream.get("restart_existing", 0)),
+                "qualified_structure_broken": int(qualified_downstream.get("structure_broken", 0)),
+                "qualified_first_pullback_date": str(qualified_downstream.get("first_pullback_date", "")),
+                "qualified_healthy_pullback_date": str(qualified_downstream.get("healthy_pullback_date", "")),
+                "qualified_restart_date": str(qualified_downstream.get("restart_date", "")),
+                "qualified_first_pullback_drawdown_pct": _audit_num(qualified_downstream.get("first_pullback_drawdown_pct")),
+                "qualified_healthy_drawdown_pct": _audit_num(qualified_downstream.get("healthy_drawdown_pct")),
+                "qualified_healthy_amount_vs_breakout_ratio": _audit_num(qualified_downstream.get("healthy_amount_vs_breakout_ratio")),
+                "qualified_healthy_amount20_ratio": _audit_num(qualified_downstream.get("healthy_amount20_ratio")),
+                "qualified_restart_amount_vs_pullback_median": _audit_num(qualified_downstream.get("restart_amount_vs_pullback_median")),
+                "qualified_post_breakout_max_high_ret_5bar_pct": _audit_num(qualified_downstream.get("post_breakout_max_high_ret_5bar_pct")),
+                "qualified_post_breakout_max_high_ret_8bar_pct": _audit_num(qualified_downstream.get("post_breakout_max_high_ret_8bar_pct")),
+                "qualified_post_breakout_reaches_5pct_5bar": int(qualified_downstream.get("post_breakout_reaches_5pct_5bar", 0)),
+                "qualified_post_breakout_reaches_10pct_8bar": int(qualified_downstream.get("post_breakout_reaches_10pct_8bar", 0)),
                 **downstream,
             })
 
@@ -1576,6 +1624,21 @@ def build_counterfactual_streak_audit(
         x = detail[detail["streak_threshold"].eq(threshold)] if not detail.empty else pd.DataFrame()
         def isum(col: str) -> int:
             return int(pd.to_numeric(x.get(col, pd.Series(dtype=float)), errors="coerce").fillna(0).sum()) if not x.empty else 0
+        strict_events = (
+            x[pd.to_numeric(x.get("first_cross_exact_with_universe"), errors="coerce").fillna(0).astype(int).eq(1)]
+            [["code","first_price_cross_date"]].drop_duplicates()
+            if not x.empty else pd.DataFrame()
+        )
+        qualified_events = (
+            x[pd.to_numeric(x.get("any_exact_breakout_with_universe"), errors="coerce").fillna(0).astype(int).eq(1)]
+            [["code","qualified_breakout_date"]].drop_duplicates()
+            if not x.empty else pd.DataFrame()
+        )
+        qualified_restart_events = (
+            x[pd.to_numeric(x.get("qualified_restart_existing"), errors="coerce").fillna(0).astype(int).eq(1)]
+            [["code","qualified_breakout_date"]].drop_duplicates()
+            if not x.empty else pd.DataFrame()
+        )
         summary_rows.append({
             "schema": SCHEMA,
             "strategy_id": STRATEGY_ID,
@@ -1591,6 +1654,15 @@ def build_counterfactual_streak_audit(
             "first_cross_exact_with_universe": isum("first_cross_exact_with_universe"),
             "any_exact_breakout_no_universe": isum("any_exact_breakout_no_universe"),
             "any_exact_breakout_with_universe": isum("any_exact_breakout_with_universe"),
+            "probe_then_qualified_breakout": isum("probe_then_qualified_breakout"),
+            "probe_first_cross_amount_fail": isum("probe_first_cross_amount_fail"),
+            "probe_first_cross_candle_fail": isum("probe_first_cross_candle_fail"),
+            "qualified_first_pullback_existing": isum("qualified_first_pullback_existing"),
+            "qualified_healthy_pullback_existing": isum("qualified_healthy_pullback_existing"),
+            "qualified_restart_existing": isum("qualified_restart_existing"),
+            "strict_unique_breakout_events": int(len(strict_events)),
+            "qualified_unique_breakout_events": int(len(qualified_events)),
+            "qualified_unique_restart_events": int(len(qualified_restart_events)),
             "first_pullback_existing": isum("first_pullback_existing"),
             "healthy_pullback_existing": isum("healthy_pullback_existing"),
             "restart_existing": isum("restart_existing"),
@@ -2228,6 +2300,10 @@ def self_test() -> int:
     assert int(cf1["first_pullback_existing"]) >= 1
     assert int(cf1["healthy_pullback_existing"]) >= 1
     assert int(cf1["restart_existing"]) >= 1
+    assert int(cf1["qualified_first_pullback_existing"]) >= 1
+    assert int(cf1["qualified_healthy_pullback_existing"]) >= 1
+    assert int(cf1["qualified_restart_existing"]) >= 1
+    assert int(cf1["qualified_unique_breakout_events"]) >= 1
     # Determinism.
     e2, s2, r2, gd2 = detect_code("123456", df, "SYNTHETIC_ACTUAL_AMOUNT", _SyntheticUniverse(), start, end, CONFIG)
     assert json.dumps(e, sort_keys=True, default=str) == json.dumps(e2, sort_keys=True, default=str)
