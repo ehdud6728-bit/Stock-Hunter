@@ -2706,74 +2706,6 @@ jobs:
           test -f "$SCRIPT" || { echo "❌ CORE224 seed refresh root script missing"; exit 221; }
           test -f v25_core224_live_seed_builder.py || { echo "❌ CORE224 seed builder missing"; exit 222; }
 
-          # HF7 diagnostic-only: resolve the remaining producer-vs-loader schema/version contract
-          # without running the ~9 minute one-date materialization.
-          echo "V25_SEED_PRODUCER_CONTRACT_DIAG_BEGIN"
-          python - <<'PYPRODSRC'
-          import ast, inspect, re
-          import direct_replay_materialized_v23 as mat
-
-          print('V25_MAT_MODULE_FILE', inspect.getsourcefile(mat) or '-')
-          for name in ('SCHEMA','VERSION','MATERIALIZED_DIRNAME','SHARD_MANIFEST_JSON','SHARD_MANIFEST_CSV'):
-              try:
-                  print('V25_MAT_CONST', name, repr(getattr(mat,name)))
-              except Exception as exc:
-                  print('V25_MAT_CONST_ERROR', name, type(exc).__name__, str(exc)[:300])
-
-          try:
-              print('V25_LOADER_SOURCE_BEGIN load_materialized_date')
-              print(inspect.getsource(mat.load_materialized_date).rstrip())
-              print('V25_LOADER_SOURCE_END load_materialized_date')
-          except Exception as exc:
-              print('V25_LOADER_SOURCE_ERROR', type(exc).__name__, str(exc)[:500])
-
-          module_src = inspect.getsource(mat)
-          tree = ast.parse(module_src)
-          producer_hits = []
-          for node in ast.walk(tree):
-              if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                  continue
-              seg = ast.get_source_segment(module_src, node) or ''
-              contractish = (
-                  'candidate_rows' in seg and
-                  (
-                      '"schema"' in seg or "'schema'" in seg or
-                      '"version"' in seg or "'version'" in seg or
-                      '_save_pickle' in seg or 'materialized_path' in seg or
-                      'shard_index' in seg or 'source_fingerprint' in seg
-                  )
-              )
-              if contractish:
-                  producer_hits.append((node.lineno, node.name, seg))
-          producer_hits.sort()
-          print('V25_PRODUCER_FUNCTION_COUNT', len(producer_hits))
-          for lineno, name, seg in producer_hits[:12]:
-              print('V25_PRODUCER_SOURCE_BEGIN', name, 'line', lineno)
-              print(seg.rstrip())
-              print('V25_PRODUCER_SOURCE_END', name)
-
-          src_lines = module_src.splitlines()
-          token_re = re.compile(r'(\bSCHEMA\b|\bVERSION\b|candidate_rows|materialized_path|_save_pickle|shard_index|shard_count)')
-          hit_lines = [i for i,l in enumerate(src_lines) if token_re.search(l)]
-          spans = []
-          for i in hit_lines:
-              a=max(0,i-3); b=min(len(src_lines),i+5)
-              if spans and a <= spans[-1][1]:
-                  spans[-1]=(spans[-1][0], max(spans[-1][1], b))
-              else:
-                  spans.append((a,b))
-          print('V25_PRODUCER_CONTEXT_SPANS', len(spans))
-          for n,(a,b) in enumerate(spans[:30],1):
-              print('V25_PRODUCER_CONTEXT_BEGIN', n, 'lines', a+1, b)
-              for j in range(a,b):
-                  print(f'{j+1:05d}: {src_lines[j]}')
-              print('V25_PRODUCER_CONTEXT_END', n)
-
-          print('V25_SEED_PRODUCER_CONTRACT_DIAG_END')
-          PYPRODSRC
-          echo "V25_HF7_DIAGNOSTIC_COMPLETE_INTENTIONAL_STOP=1"
-          exit 225
-
           price_before=$(find reports/.cache/v20_price_history -type f 2>/dev/null | wc -l | tr -d ' ')
           asof_before=$(find reports/.cache/v20_asof_snapshots -type f 2>/dev/null | wc -l | tr -d ' ')
           echo "V25_CURRENT_LIVE_SEED_PREFLIGHT price_files=${price_before} asof_files=${asof_before} base_matched=${{ steps.v25-core224-base-restore.outputs.cache-matched-key }} overlay_matched=${{ steps.v25-core224-live-restore.outputs.cache-matched-key }}"
@@ -2825,14 +2757,18 @@ jobs:
             python -u "$SCRIPT"
 
           echo "V25_CURRENT_LIVE_SEED_LOADER_PREFLIGHT_BEGIN"
-          python - <<'PYLOAD'
+          # IMPORTANT: direct_replay_materialized_v23._materialized_root() gives
+          # V23_MATERIALIZED_DIR environment authority over its output_dir argument.
+          # The workflow-wide value points at reports/v23_materialized, while this
+          # lightweight LIVE worker writes to reports/v25_live_seed_build/v23_materialized.
+          # Unset it only for loader/builder consumers so --source-dir is authoritative.
+          env -u V23_MATERIALIZED_DIR python - <<'PYLOAD'
           from pathlib import Path
-          import json, shutil
+          import json, os
           import pandas as pd
           import direct_replay_materialized_v23 as mat
 
           root = Path('reports/v25_live_seed_build')
-          mat_dir = root / 'v23_materialized'
           manifest_path = root / mat.SHARD_MANIFEST_JSON
           if not manifest_path.exists():
               raise SystemExit('V25_SEED_LOADER_MANIFEST_MISSING')
@@ -2842,48 +2778,29 @@ jobs:
               raise SystemExit(f'V25_SEED_LOADER_EXPECTED_ONE_DATE:{len(selected)}')
           asof = selected[0]
 
-          results = []
-          for label, candidate in [('ROOT', root), ('MATERIALIZED_DIR', mat_dir)]:
-              try:
-                  payload = mat.load_materialized_date(candidate, asof, require_current_identity=False)
-                  ok = isinstance(payload, dict)
-                  print('V25_SEED_LOADER_PROBE', label, str(candidate), 'type', type(payload).__name__, 'dict', int(ok))
-                  results.append((label, candidate, ok))
-              except Exception as exc:
-                  print('V25_SEED_LOADER_PROBE', label, str(candidate), 'EXC', type(exc).__name__, str(exc)[:500])
-                  results.append((label, candidate, False))
-
-          chosen = None
-          if next((ok for label, candidate, ok in results if label == 'ROOT'), False):
-              chosen = root
-              mode = 'ROOT_NATIVE'
-          elif next((ok for label, candidate, ok in results if label == 'MATERIALIZED_DIR'), False):
-              stage = root / '_builder_source'
-              if stage.exists():
-                  shutil.rmtree(stage)
-              stage.mkdir(parents=True, exist_ok=True)
-              shutil.copy2(manifest_path, stage / mat.SHARD_MANIFEST_JSON)
-              payloads = sorted(mat_dir.glob('date_*.pkl.gz'))
-              if len(payloads) != 1:
-                  raise SystemExit(f'V25_SEED_LOADER_STAGE_EXPECTED_ONE_PAYLOAD:{len(payloads)}')
-              shutil.copy2(payloads[0], stage / payloads[0].name)
-              staged = mat.load_materialized_date(stage, asof, require_current_identity=False)
-              if not isinstance(staged, dict):
-                  raise SystemExit('V25_SEED_LOADER_STAGE_VERIFY_FAILED')
-              chosen = stage
-              mode = 'STAGED_DIRECT_MATERIALIZED_DIR'
-          else:
-              raise SystemExit('V25_SEED_LOADER_NO_VALID_SOURCE')
-
-          marker = root / '.builder_source_path'
-          marker.write_text(str(chosen), encoding='utf-8')
-          print('V25_SEED_LOADER_RESOLVED', 'mode', mode, 'source', str(chosen), 'asof', asof.strftime('%Y-%m-%d'))
+          print('V25_SEED_LOADER_ENV', 'V23_MATERIALIZED_DIR', repr(os.environ.get('V23_MATERIALIZED_DIR')))
+          expected_path = mat.materialized_path(root, asof)
+          print('V25_SEED_LOADER_EXPECTED_PATH', str(expected_path), 'exists', int(expected_path.exists()))
+          payload = mat.load_materialized_date(root, asof, require_current_identity=False)
+          if not isinstance(payload, dict):
+              raise SystemExit('V25_SEED_LOADER_ROOT_VERIFY_FAILED')
+          print(
+              'V25_SEED_LOADER_RESOLVED',
+              'mode', 'ROOT_ARG_ENV_UNSET',
+              'source', str(root),
+              'asof', asof.strftime('%Y-%m-%d'),
+              'schema', payload.get('schema','-'),
+              'version', payload.get('version','-'),
+              'candidate_rows', len(payload.get('candidate_rows') or []),
+          )
+          (root / '.builder_source_path').write_text(str(root), encoding='utf-8')
           PYLOAD
           echo "V25_CURRENT_LIVE_SEED_LOADER_PREFLIGHT_END"
 
           builder_source=$(cat reports/v25_live_seed_build/.builder_source_path)
           test -n "$builder_source"
-          python -u v25_core224_live_seed_builder.py \
+          echo "V25_SEED_BUILDER_ENV_AUTHORITY source_dir=${builder_source} V23_MATERIALIZED_DIR=UNSET"
+          env -u V23_MATERIALIZED_DIR python -u v25_core224_live_seed_builder.py \
             --source-dir "$builder_source" \
             --output-dir reports \
             --expected-end "$current_live_end"
