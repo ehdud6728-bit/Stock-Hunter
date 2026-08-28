@@ -32,6 +32,7 @@ import pandas as pd
 
 SCHEMA = "TRIANGLE1PB_RESEARCH_SCHEMA_V1"
 STRATEGY_ID = "TRIANGLE1PB_R1_CHRONOLOGY_FIRST"
+LOADER_REVISION = "TRIANGLE1PB_R1_1_CACHE_COMPAT"
 RESEARCH_AUTHORITY = "RESEARCH_ONLY_NO_LIVE_NO_POLICY_NO_ORDERS"
 STAGES = [
     "TRI_SQUEEZE",
@@ -158,6 +159,93 @@ def _load_any(path: Path) -> Any:
     raise ValueError(f"unsupported cache file: {path}")
 
 
+
+def _iter_frame_candidates(obj: Any, max_depth: int = 4) -> Iterable[Tuple[pd.DataFrame, Dict[str, Any]]]:
+    """Yield DataFrame candidates from cache containers without inventing data.
+
+    Existing Stock-Hunter caches have changed shape over time (raw DataFrame,
+    dict-wrapped DataFrame, records list, etc.).  This adapter only unwraps
+    explicit stored structures; it never derives OHLC/Amount values.
+    """
+    seen: set[int] = set()
+
+    def walk(x: Any, meta: Dict[str, Any], depth: int):
+        if depth > max_depth or x is None:
+            return
+        oid = id(x)
+        if oid in seen:
+            return
+        seen.add(oid)
+        if isinstance(x, pd.DataFrame):
+            yield x, dict(meta)
+            return
+        if isinstance(x, dict):
+            child_meta = dict(meta)
+            for k in ("code", "Code", "ticker", "symbol", "종목코드", "단축코드", "isu_cd"):
+                if k in x and not isinstance(x[k], (dict, list, tuple, pd.DataFrame)):
+                    child_meta.setdefault("code", x[k])
+                    break
+            for k in ("date", "Date", "날짜", "일자", "signal_date", "asof_date", "snapshot_date"):
+                if k in x and not isinstance(x[k], (dict, list, tuple, pd.DataFrame)):
+                    child_meta.setdefault("date", x[k])
+                    break
+            preferred = (
+                "df", "frame", "dataframe", "price", "prices", "history", "price_history",
+                "ohlcv", "bars", "data", "rows", "items", "payload",
+            )
+            yielded = set()
+            for k in preferred:
+                if k in x:
+                    yielded.add(k)
+                    yield from walk(x[k], child_meta, depth + 1)
+            for k, v in x.items():
+                if k in yielded:
+                    continue
+                if isinstance(v, (pd.DataFrame, dict, list, tuple)):
+                    yield from walk(v, child_meta, depth + 1)
+            return
+        if isinstance(x, (list, tuple)):
+            if x and all(isinstance(v, dict) for v in x):
+                try:
+                    df = pd.DataFrame(x)
+                    if not df.empty:
+                        yield df, dict(meta)
+                except Exception:
+                    pass
+            for v in x:
+                if isinstance(v, (pd.DataFrame, dict, list, tuple)):
+                    yield from walk(v, meta, depth + 1)
+
+    yield from walk(obj, {}, 0)
+
+
+def _date_series_from_frame(df: pd.DataFrame) -> Tuple[Optional[pd.Series], str]:
+    dcol = _first_col(df.columns, DATE_ALIASES)
+    if dcol:
+        return pd.Series(pd.to_datetime(df[dcol], errors="coerce"), index=df.index), f"COLUMN:{dcol}"
+    idx = df.index
+    if isinstance(idx, pd.DatetimeIndex):
+        return pd.Series(pd.to_datetime(idx, errors="coerce"), index=df.index), "DATETIME_INDEX"
+    # Some historical caches persisted YYYYMMDD / YYYY-MM-DD as the index.
+    if len(idx):
+        sample = pd.Series(idx[: min(20, len(idx))]).astype(str)
+        parseable = pd.to_datetime(sample, errors="coerce").notna().mean()
+        if parseable >= 0.8:
+            vals = pd.to_datetime(pd.Series(idx.astype(str), index=df.index), errors="coerce")
+            return vals, "PARSEABLE_INDEX"
+    return None, "MISSING"
+
+
+def _frame_code(df: pd.DataFrame, path: Path, meta: Optional[Dict[str, Any]] = None) -> str:
+    code = _code_from_filename(path) or ""
+    if not code and meta:
+        code = _normalize_code(meta.get("code"))
+    ccol = _first_col(df.columns, CODE_ALIASES)
+    if not code and ccol and df[ccol].notna().any():
+        code = _normalize_code(df.loc[df[ccol].notna(), ccol].iloc[0])
+    return code
+
+
 def _normalize_code(v: Any) -> str:
     if v is None:
         return ""
@@ -257,15 +345,67 @@ class UniverseAuthority:
 
 
 class AmountAuthority:
-    def __init__(self, root: Path):
+    """Explicit historical traded-value authority.
+
+    Priority:
+      1) dedicated v25_actual_amount_history cache when present;
+      2) explicit Amount/traded-value fields contained in causal historical
+         as-of snapshots.
+
+    Close*Volume is deliberately never used.
+    """
+    def __init__(self, root: Path, asof_root: Optional[Path] = None):
         self.root = root
+        self.asof_root = asof_root
         self.index: Dict[str, List[Path]] = {}
         self._cache: Dict[str, pd.DataFrame] = {}
+        self.asof_index: Dict[str, List[Tuple[pd.Timestamp, float]]] = {}
+        self.external_files = 0
+        self.asof_files_scanned = 0
+        self.asof_amount_rows = 0
         if root.exists():
             for p in sorted(x for x in root.rglob("*") if x.is_file()):
                 code = _code_from_filename(p)
                 if code:
                     self.index.setdefault(code, []).append(p)
+                    self.external_files += 1
+        if asof_root is not None and asof_root.exists():
+            self._load_asof_amounts(asof_root)
+
+    def _load_asof_amounts(self, root: Path) -> None:
+        for p in sorted(x for x in root.rglob("*") if x.is_file()):
+            try:
+                obj = _load_any(p)
+            except Exception:
+                continue
+            self.asof_files_scanned += 1
+            snap_date = _extract_snapshot_date(obj, p)
+            for df, meta in _iter_frame_candidates(obj):
+                if df.empty:
+                    continue
+                ccol = _first_col(df.columns, CODE_ALIASES)
+                acol = _first_col(df.columns, AMOUNT_ALIASES)
+                if not ccol or not acol:
+                    continue
+                dates, _ = _date_series_from_frame(df)
+                if dates is None:
+                    if snap_date is None:
+                        continue
+                    dates = pd.Series([snap_date] * len(df), index=df.index)
+                codes = df[ccol].map(_normalize_code)
+                amounts = pd.to_numeric(df[acol], errors="coerce")
+                for d, c, a in zip(pd.to_datetime(dates, errors="coerce"), codes, amounts):
+                    if pd.isna(d) or not c or pd.isna(a) or float(a) <= 0:
+                        continue
+                    self.asof_index.setdefault(c, []).append((pd.Timestamp(d).normalize(), float(a)))
+                    self.asof_amount_rows += 1
+        for code, vals in list(self.asof_index.items()):
+            # Same-day later cache files are allowed to replace earlier copies,
+            # but no future value is ever backfilled to an earlier date.
+            by_date: Dict[pd.Timestamp, float] = {}
+            for d, a in vals:
+                by_date[d] = a
+            self.asof_index[code] = sorted(by_date.items())
 
     def for_code(self, code: str) -> pd.DataFrame:
         if code in self._cache:
@@ -274,73 +414,85 @@ class AmountAuthority:
         for p in self.index.get(code, []):
             try:
                 obj = _load_any(p)
-                if not isinstance(obj, pd.DataFrame):
-                    continue
-                dcol = _first_col(obj.columns, DATE_ALIASES)
-                acol = _first_col(obj.columns, AMOUNT_ALIASES)
-                if not dcol or not acol:
-                    continue
-                x = pd.DataFrame({"date": pd.to_datetime(obj[dcol], errors="coerce").dt.normalize(), "amount_external": pd.to_numeric(obj[acol], errors="coerce")})
-                x = x.dropna(subset=["date"]).drop_duplicates("date", keep="last")
-                frames.append(x)
+                for df, meta in _iter_frame_candidates(obj):
+                    dser, _ = _date_series_from_frame(df)
+                    acol = _first_col(df.columns, AMOUNT_ALIASES)
+                    if dser is None or not acol:
+                        continue
+                    x = pd.DataFrame({
+                        "date": pd.to_datetime(dser, errors="coerce").dt.normalize(),
+                        "amount_external": pd.to_numeric(df[acol], errors="coerce"),
+                    })
+                    x = x.dropna(subset=["date"]).drop_duplicates("date", keep="last")
+                    if not x.empty:
+                        frames.append(x)
             except Exception:
                 pass
         if frames:
             out = pd.concat(frames, ignore_index=True).sort_values("date").drop_duplicates("date", keep="last")
         else:
-            out = pd.DataFrame(columns=["date", "amount_external"])
+            vals = self.asof_index.get(code, [])
+            out = pd.DataFrame(vals, columns=["date", "amount_external"]) if vals else pd.DataFrame(columns=["date", "amount_external"])
         self._cache[code] = out
         return out
 
 
-def normalize_price_frame(obj: Any, path: Path, amount_auth: AmountAuthority) -> Optional[Tuple[str, pd.DataFrame, str]]:
-    if not isinstance(obj, pd.DataFrame) or obj.empty:
-        return None
-    code = _code_from_filename(path)
-    ccol = _first_col(obj.columns, CODE_ALIASES)
-    if not code and ccol and len(obj):
-        code = _normalize_code(obj[ccol].dropna().iloc[0]) if obj[ccol].notna().any() else ""
-    if not code:
-        return None
-    dcol = _first_col(obj.columns, DATE_ALIASES)
-    ocol = _first_col(obj.columns, OPEN_ALIASES)
-    hcol = _first_col(obj.columns, HIGH_ALIASES)
-    lcol = _first_col(obj.columns, LOW_ALIASES)
-    cclose = _first_col(obj.columns, CLOSE_ALIASES)
-    vcol = _first_col(obj.columns, VOLUME_ALIASES)
-    acol = _first_col(obj.columns, AMOUNT_ALIASES)
-    if not all((dcol, ocol, hcol, lcol, cclose)):
-        return None
-    x = pd.DataFrame({
-        "date": pd.to_datetime(obj[dcol], errors="coerce").dt.normalize(),
-        "open": pd.to_numeric(obj[ocol], errors="coerce"),
-        "high": pd.to_numeric(obj[hcol], errors="coerce"),
-        "low": pd.to_numeric(obj[lcol], errors="coerce"),
-        "close": pd.to_numeric(obj[cclose], errors="coerce"),
-        "volume": pd.to_numeric(obj[vcol], errors="coerce") if vcol else np.nan,
-        "amount_price": pd.to_numeric(obj[acol], errors="coerce") if acol else np.nan,
-    })
-    x = x.dropna(subset=["date", "open", "high", "low", "close"])
-    x = x[(x["open"] > 0) & (x["high"] > 0) & (x["low"] > 0) & (x["close"] > 0)]
-    x = x.sort_values("date").drop_duplicates("date", keep="last").reset_index(drop=True)
-    if x.empty:
-        return None
-    ext = amount_auth.for_code(code)
-    source = "MISSING"
-    if not ext.empty:
-        x = x.merge(ext, on="date", how="left")
-        x["amount"] = x["amount_external"]
-        source = "V25_ACTUAL_AMOUNT_HISTORY"
-        if acol:
-            m = x["amount"].isna() & x["amount_price"].notna()
-            x.loc[m, "amount"] = x.loc[m, "amount_price"]
-            if m.any():
-                source = "MIXED_EXTERNAL_THEN_PRICE_ACTUAL_AMOUNT"
-    else:
-        x["amount"] = x["amount_price"] if acol else np.nan
-        source = "PRICE_CACHE_ACTUAL_AMOUNT" if acol else "MISSING"
-    # Deliberately no close*volume fallback.
-    return code, x, source
+
+def normalize_price_frame(obj: Any, path: Path, amount_auth: AmountAuthority) -> Optional[Tuple[str, pd.DataFrame, str, str]]:
+    best: Optional[Tuple[str, pd.DataFrame, str, str]] = None
+    best_rows = -1
+    for raw, meta in _iter_frame_candidates(obj):
+        if raw.empty:
+            continue
+        code = _frame_code(raw, path, meta)
+        if not code:
+            continue
+        dser, date_source = _date_series_from_frame(raw)
+        ocol = _first_col(raw.columns, OPEN_ALIASES)
+        hcol = _first_col(raw.columns, HIGH_ALIASES)
+        lcol = _first_col(raw.columns, LOW_ALIASES)
+        cclose = _first_col(raw.columns, CLOSE_ALIASES)
+        vcol = _first_col(raw.columns, VOLUME_ALIASES)
+        acol = _first_col(raw.columns, AMOUNT_ALIASES)
+        if dser is None or not all((ocol, hcol, lcol, cclose)):
+            continue
+
+        x = pd.DataFrame({
+            "date": pd.to_datetime(dser, errors="coerce").dt.normalize(),
+            "open": pd.to_numeric(raw[ocol], errors="coerce"),
+            "high": pd.to_numeric(raw[hcol], errors="coerce"),
+            "low": pd.to_numeric(raw[lcol], errors="coerce"),
+            "close": pd.to_numeric(raw[cclose], errors="coerce"),
+            "volume": pd.to_numeric(raw[vcol], errors="coerce") if vcol else np.nan,
+            "amount_price": pd.to_numeric(raw[acol], errors="coerce") if acol else np.nan,
+        })
+        x = x.dropna(subset=["date", "open", "high", "low", "close"])
+        x = x[(x["open"] > 0) & (x["high"] > 0) & (x["low"] > 0) & (x["close"] > 0)]
+        x = x.sort_values("date").drop_duplicates("date", keep="last").reset_index(drop=True)
+        if x.empty:
+            continue
+
+        ext = amount_auth.for_code(code)
+        source = "MISSING"
+        if not ext.empty:
+            x = x.merge(ext, on="date", how="left")
+            x["amount"] = x["amount_external"]
+            source = "V25_OR_ASOF_EXPLICIT_ACTUAL_AMOUNT"
+            if acol:
+                m = x["amount"].isna() & x["amount_price"].notna()
+                x.loc[m, "amount"] = x.loc[m, "amount_price"]
+                if m.any():
+                    source = "MIXED_EXTERNAL_ASOF_THEN_PRICE_ACTUAL_AMOUNT"
+        else:
+            x["amount"] = x["amount_price"] if acol else np.nan
+            source = "PRICE_CACHE_ACTUAL_AMOUNT" if acol else "MISSING"
+
+        candidate = (code, x, source, date_source)
+        if len(x) > best_rows:
+            best = candidate
+            best_rows = len(x)
+    return best
+
 
 
 def r2_linear(y: np.ndarray) -> float:
@@ -761,7 +913,7 @@ def run(args: argparse.Namespace) -> int:
     universe = UniverseAuthority(asof_root, cfg.universe_max_calendar_age_days)
     if not universe.dates:
         raise RuntimeError("TRIANGLE1PB_FAIL_CLOSED: no causal historical as-of universe snapshots could be parsed")
-    amount_auth = AmountAuthority(amount_root)
+    amount_auth = AmountAuthority(amount_root, asof_root)
 
     price_files = sorted(x for x in price_root.rglob("*") if x.is_file()) if price_root.exists() else []
     if not price_files:
@@ -769,27 +921,90 @@ def run(args: argparse.Namespace) -> int:
 
     frames: Dict[str, pd.DataFrame] = {}
     amount_sources: Dict[str, str] = {}
+    date_sources: Dict[str, str] = {}
     load_fail = 0
     duplicate_code_files = 0
+    load_failure_samples: List[str] = []
+    price_container_types: Dict[str, int] = {}
     for p in price_files:
         try:
-            z = normalize_price_frame(_load_any(p), p, amount_auth)
+            raw_obj = _load_any(p)
+            typ = type(raw_obj).__name__
+            price_container_types[typ] = price_container_types.get(typ, 0) + 1
+            z = normalize_price_frame(raw_obj, p, amount_auth)
             if z is None:
-                load_fail += 1; continue
-            code, df, amount_source = z
+                load_fail += 1
+                if len(load_failure_samples) < 20:
+                    frame_desc = []
+                    for cand, meta in _iter_frame_candidates(raw_obj):
+                        frame_desc.append({
+                            "shape": list(cand.shape),
+                            "columns": [str(c) for c in list(cand.columns)[:25]],
+                            "index_type": type(cand.index).__name__,
+                            "index_name": str(cand.index.name or ""),
+                            "meta_keys": sorted(str(k) for k in meta.keys()),
+                        })
+                        if len(frame_desc) >= 3:
+                            break
+                    load_failure_samples.append(json.dumps({
+                        "file": p.name,
+                        "object_type": typ,
+                        "frame_candidates": frame_desc,
+                    }, ensure_ascii=False, sort_keys=True))
+                continue
+            code, df, amount_source, date_source = z
             if code in frames:
                 duplicate_code_files += 1
                 merged = pd.concat([frames[code], df], ignore_index=True).sort_values("date").drop_duplicates("date", keep="last").reset_index(drop=True)
                 frames[code] = merged
                 if amount_sources.get(code) != amount_source:
                     amount_sources[code] = "MULTI_FILE_MIXED_ACTUAL_AMOUNT"
+                if date_sources.get(code) != date_source:
+                    date_sources[code] = "MULTI_FILE_MIXED_DATE_SOURCE"
             else:
                 frames[code] = df
                 amount_sources[code] = amount_source
-        except Exception:
+                date_sources[code] = date_source
+        except Exception as exc:
             load_fail += 1
+            if len(load_failure_samples) < 20:
+                load_failure_samples.append(json.dumps({
+                    "file": p.name,
+                    "exception": f"{type(exc).__name__}:{str(exc)[:300]}",
+                }, ensure_ascii=False, sort_keys=True))
+    print(
+        "TRIANGLE1PB_PRICE_LOADER",
+        "files", len(price_files),
+        "usable_codes", len(frames),
+        "load_fail", load_fail,
+        "duplicate_code_files", duplicate_code_files,
+        "container_types", json.dumps(price_container_types, sort_keys=True),
+        "date_sources", json.dumps(pd.Series(list(date_sources.values())).value_counts().to_dict(), sort_keys=True),
+    )
+    print(
+        "TRIANGLE1PB_AMOUNT_AUTHORITY",
+        "dedicated_files", amount_auth.external_files,
+        "asof_files_scanned", amount_auth.asof_files_scanned,
+        "asof_explicit_amount_rows", amount_auth.asof_amount_rows,
+        "asof_codes_with_amount", len(amount_auth.asof_index),
+        "synthetic_close_x_volume_fallback_rows", 0,
+    )
+    if load_failure_samples:
+        for sample in load_failure_samples:
+            print("TRIANGLE1PB_PRICE_LOAD_FAIL_SAMPLE", sample)
     if not frames:
         raise RuntimeError("TRIANGLE1PB_FAIL_CLOSED: no usable price frames")
+
+    total_positive_amount_rows = sum(
+        int(pd.to_numeric(df["amount"], errors="coerce").gt(0).sum())
+        for df in frames.values()
+    )
+    if total_positive_amount_rows <= 0:
+        raise RuntimeError(
+            "TRIANGLE1PB_FAIL_CLOSED: explicit actual Amount unavailable "
+            "(dedicated cache empty and no explicit Amount in as-of/price cache); "
+            "close*volume fallback is forbidden"
+        )
 
     max_data_date = max(df["date"].max() for df in frames.values())
     end = pd.Timestamp(args.end_date).normalize() if args.end_date else pd.Timestamp(max_data_date).normalize()
@@ -893,8 +1108,17 @@ def run(args: argparse.Namespace) -> int:
         "schema": SCHEMA, "strategy_id": STRATEGY_ID,
         "codes_scanned": len(codes), "price_rows": amount_rows, "actual_amount_ready_rows": amount_ready_rows,
         "actual_amount_coverage_pct": amount_coverage,
+        "price_loader_usable_codes": len(frames),
+        "price_loader_failed_files": load_fail,
+        "price_container_types": price_container_types,
+        "price_date_sources": pd.Series(list(date_sources.values())).value_counts().to_dict(),
+        "asof_explicit_amount_rows": amount_auth.asof_amount_rows,
         "synthetic_close_x_volume_fallback_rows": 0,
         "source_counts_json": json.dumps(amount_source_counts, ensure_ascii=False, sort_keys=True),
+        "date_source_counts_json": json.dumps(pd.Series([date_sources.get(c, "MISSING") for c in codes]).value_counts().to_dict(), ensure_ascii=False, sort_keys=True),
+        "dedicated_amount_files": amount_auth.external_files,
+        "asof_explicit_amount_rows": amount_auth.asof_amount_rows,
+        "asof_codes_with_amount": len(amount_auth.asof_index),
     }])
     universe_audit = pd.DataFrame([{
         "schema": SCHEMA, "strategy_id": STRATEGY_ID,
@@ -940,6 +1164,7 @@ def run(args: argparse.Namespace) -> int:
     manifest = {
         "schema": SCHEMA,
         "strategy_id": STRATEGY_ID,
+        "loader_revision": LOADER_REVISION,
         "research_authority": RESEARCH_AUTHORITY,
         "core224_dependency": "NONE",
         "core224_logic_changed": False,
