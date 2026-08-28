@@ -1619,12 +1619,32 @@ jobs:
                   lines += [
                       "",
                       "🧬 [Structure Fidelity Audit]",
-                      f"raw squeeze audit {int(struct.get('rows',0)):,}/{int(struct.get('expected_full_squeeze_rows',0)):,} · errors {int(struct.get('audit_errors',0)):,} · manual sample {int(struct.get('manual_review_rows',0)):,}",
+                      f"raw squeeze audit {int(struct.get('rows',0)):,}/{int(struct.get('expected_full_squeeze_rows',0)):,} · errors {int(struct.get('audit_errors',0)):,}",
+                      f"research {int(struct.get('research_period_rows',0)):,} / warm-up {int(struct.get('warmup_rows',0)):,} · research codes {int(struct.get('research_period_codes',0)):,}",
+                      f"manual sample {int(struct.get('manual_review_rows',0)):,}",
                       f"post15 wave1 {int(struct.get('wave1_found_rows',0)):,}",
                       f"first pullback {int(struct.get('first_pullback_found_rows',0)):,}",
                       f"restart-after-PB {int(struct.get('restart_after_pullback_rows',0)):,}",
                       "※ post-event 수치는 검증용 미래정보이며 검색 gate에는 미사용",
                   ]
+
+              cf = m.get("counterfactual_streak_audit") or {}
+              cf_rows = cf.get("summary") or []
+              if cf_rows:
+                  lines += ["", "🧪 [Streak Counterfactual · 연구기간만]"]
+                  for r in cf_rows:
+                      lines.append(
+                          (
+                              f"streak≥{int(r.get('streak_threshold',0))}: "
+                              f"runs {int(r.get('research_candidate_runs',0))} · "
+                              f"1st-cross exact {int(r.get('first_cross_exact_with_universe',0))} · "
+                              f"any exact {int(r.get('any_exact_breakout_with_universe',0))} · "
+                              f"PB {int(r.get('first_pullback_existing',0))} · "
+                              f"healthy {int(r.get('healthy_pullback_existing',0))} · "
+                              f"restart {int(r.get('restart_existing',0))}"
+                          )
+                      )
+                  lines.append("※ 가상비교 전용 · 실제 streak/전략조건 변경 없음")
 
               amount_cov = m.get("actual_amount_coverage_pct")
               asof_dates = m.get("asof_snapshot_dates")
