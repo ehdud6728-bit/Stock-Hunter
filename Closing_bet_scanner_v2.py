@@ -80,8 +80,8 @@ def _env_float(name: str, default: float = 0.0) -> float:
         except Exception:
             return 0.0
 
-CLOSING_BET_SCANNER_VERSION = 'G_MORALES_V4_4_9_53_8_49_76_6_7_3_2_2_NXT_ELIGIBILITY_RECOVERY_PROVENANCE_20260827'
-CLOSING_BET_RELEASE_TAG = 'v49.76.6.7.3.2.2'
+CLOSING_BET_SCANNER_VERSION = 'G_MORALES_V4_4_9_53_8_49_76_6_7_3_2_3_FINAL_UNIVERSE_IDENTITY_ALIGNMENT_20260828'
+CLOSING_BET_RELEASE_TAG = 'v49.76.6.7.3.2.3'
 CLOSING_BET_LIVE_PRICE_SANITY_FIX = str(os.environ.get('CLOSING_BET_LIVE_PRICE_SANITY_FIX', '1')).lower() in ('1', 'true', 'yes', 'y', 'on')
 CLOSING_BET_LIVE_READABILITY_COMPACT = str(os.environ.get('CLOSING_BET_LIVE_READABILITY_COMPACT', '1')).lower() in ('1', 'true', 'yes', 'y', 'on')
 # v53.8.42: M5R TRUE60 검증용 장기 월봉 확보. 60개월 월선 계산에는 약 7년 일봉이 필요하다.
@@ -53735,6 +53735,280 @@ def _v49765_action_panel(decision: dict,data_date=None):
 
 # =============================================================
 # ✅ END V49.76.6.7.3.2.2 NXT ELIGIBILITY RECOVERY / PROVENANCE
+# =============================================================
+
+
+
+# =============================================================
+# ✅ V49.76.6.7.3.2.3 FINAL UNIVERSE IDENTITY ALIGNMENT
+# -------------------------------------------------------------
+# Scope ONLY (infra / authority identity):
+# - freeze ONE post-close production-universe manifest for the session
+# - FULL rebuild and Lifecycle production use that same ordered code identity
+# - keep the canonical denominator fixed at 900; do not invent/supplement codes
+#   merely to make the numerator look full
+# - persist ordered/set SHA-256 plus FULL↔Production code-set diagnostics
+# - one delayed FULL retry is allowed only after the normal .2.1 reconciliation
+#   fails, to absorb transient provider empties observed immediately before the
+#   later Production scan; 98% authority threshold is unchanged
+# Strategy/search/rank/STRICT/Lifecycle state rules/MARCAP/P1/NXT/M5 semantics
+# are unchanged.
+# =============================================================
+try:
+    print("✅ V49.76.6.7.3.2.3 FINAL_UNIVERSE_IDENTITY_ALIGNMENT LOADED")
+except Exception:
+    pass
+
+CLOSING_BET_V49767323_LATE_RECONCILE_ENABLE = _bool_env(
+    'CLOSING_BET_V49767323_LATE_RECONCILE_ENABLE','1')
+CLOSING_BET_V49767323_LATE_RECONCILE_SLEEP_SEC = max(
+    0.0,min(20.0,float(os.environ.get('CLOSING_BET_V49767323_LATE_RECONCILE_SLEEP_SEC','8.0') or 8.0)))
+
+_V49767323_BASE_PREFETCH_COLLECT = _v497673_collect_prefetch_codes
+_V49767323_BASE_PRODUCTION_COLLECT = _v4938_collect_codes
+_V49767323_BASE_FULL_BUILDER = _v4976732_full_final_frames
+_V49767323_BASE_SCAN_REGISTRY = _v4938_scan_registry
+_V49767323_FINAL_UNIVERSE = {}
+_V49767323_LAST_IDENTITY_AUDIT = {}
+_V49767323_FULL_ORDERED_CODES = []
+
+
+def _v49767323_universe_manifest_path(day: str) -> Path:
+    root=Path(CLOSING_BET_V497667_FAST_CACHE_DIR);root.mkdir(parents=True,exist_ok=True)
+    return root/f"final_universe_manifest_{str(day or '').replace('-','')}.json"
+
+
+def _v49767323_identity_diag_path(day: str) -> Path:
+    root=Path(CLOSING_BET_V497667_FAST_CACHE_DIR);root.mkdir(parents=True,exist_ok=True)
+    return root/f"final_universe_identity_{str(day or '').replace('-','')}.json"
+
+
+def _v49767323_code_digests(codes) -> dict:
+    vals=[];seen=set()
+    for x in list(codes or []):
+        c=_normalize_code(x)
+        if c and c not in seen and _v4934_valid_stock_code(c):
+            seen.add(c);vals.append(c)
+    ordered=_v497667_hashlib.sha256('|'.join(vals).encode('utf-8')).hexdigest()
+    set_sha=_v497667_hashlib.sha256('|'.join(sorted(vals)).encode('utf-8')).hexdigest()
+    return {'count':len(vals),'ordered_sha256':ordered,'set_sha256':set_sha,'codes':vals}
+
+
+def _v49767323_manifest_valid(obj: dict, sess: str) -> bool:
+    try:
+        if not isinstance(obj,dict) or str(obj.get('session_date',''))!=sess:return False
+        d=_v49767323_code_digests(obj.get('codes',[]))
+        if d['count']<=0:return False
+        if d['ordered_sha256']!=str(obj.get('ordered_sha256','')):return False
+        if d['set_sha256']!=str(obj.get('set_sha256','')):return False
+        return True
+    except Exception:
+        return False
+
+
+def _v49767323_get_or_freeze_final_universe(day: str) -> dict:
+    """Freeze the *production* Lifecycle code identity for this FINAL session.
+
+    Important: the denominator remains the configured canonical target (900), but
+    the code list itself is NOT padded with unrelated listing names.  If the live
+    production universe legitimately supplies 899 codes, the manifest is 899 and
+    coverage continues to be measured against 900.  This preserves fail-closed
+    semantics while making FULL and Production compare the same identity.
+    """
+    global _V49767323_FINAL_UNIVERSE
+    sess=str(day or _now_kst().strftime('%Y-%m-%d'))[:10]
+    cur=dict(_V49767323_FINAL_UNIVERSE or {})
+    if _v49767323_manifest_valid(cur,sess):return dict(cur)
+    p=_v49767323_universe_manifest_path(sess)
+    try:
+        obj=json.loads(p.read_text(encoding='utf-8'))
+        if _v49767323_manifest_valid(obj,sess):
+            _V49767323_FINAL_UNIVERSE=dict(obj)
+            log_info(f"🧬 FINAL universe manifest restored: {obj.get('manifest_count',len(obj.get('codes',[])))}/{obj.get('canonical_target',900)} · sha {str(obj.get('set_sha256',''))[:12]}")
+            return dict(obj)
+    except Exception:
+        pass
+    codes,meta=_V49767323_BASE_PRODUCTION_COLLECT(None)
+    target=max(1,int(CLOSING_BET_V497672_CANONICAL_UNIVERSE_TARGET))
+    vals=[];seen=set()
+    for x in list(codes or []):
+        c=_normalize_code(x)
+        if c and c not in seen and _v4934_valid_stock_code(c):
+            seen.add(c);vals.append(c)
+        if len(vals)>=target:break
+    min_n=int(np.ceil(target*float(CLOSING_BET_V4976732_FULL_MIN_COVERAGE_PCT)/100.0))
+    if len(vals)<min_n:
+        raise RuntimeError(f'FINAL_UNIVERSE_PRODUCTION_INPUT_SHORT:{len(vals)}/{target}')
+    dig=_v49767323_code_digests(vals)
+    obj={
+        'state':'FROZEN','session_date':sess,'version':CLOSING_BET_SCANNER_VERSION,
+        'source':'PRODUCTION_LIFECYCLE_UNIVERSE_FROZEN','canonical_target':target,
+        'manifest_count':dig['count'],'manifest_shortfall_vs_target':max(0,target-dig['count']),
+        'ordered_sha256':dig['ordered_sha256'],'set_sha256':dig['set_sha256'],'codes':dig['codes'],
+        'base_meta':dict(meta or {}),'frozen_at_kst':_now_kst().strftime('%Y-%m-%d %H:%M:%S'),
+    }
+    p.write_text(json.dumps(obj,ensure_ascii=False,indent=2,default=str),encoding='utf-8')
+    _V49767323_FINAL_UNIVERSE=dict(obj)
+    log_info(f"🧬 FINAL universe manifest FROZEN: {dig['count']}/{target} · short {obj['manifest_shortfall_vs_target']} · sha {dig['set_sha256'][:12]}")
+    return dict(obj)
+
+
+def _v49767323_final_mode_for_session(sess: str) -> bool:
+    try:
+        mode=str(os.environ.get('CLOSING_BET_RUN_MODE',globals().get('CLOSING_BET_RUN_MODE','')) or '').lower()
+        if mode!='after_final':return False
+        return str(sess)==_now_kst().strftime('%Y-%m-%d')
+    except Exception:
+        return False
+
+
+# FULL builder collector: PRE-FINAL keeps the old speed-oriented superset.  AFTER
+# FINAL uses the frozen production identity only.
+def _v497673_collect_prefetch_codes(day: str) -> list[str]:
+    global _V49767323_FULL_ORDERED_CODES
+    sess=str(day or _now_kst().strftime('%Y-%m-%d'))[:10]
+    if _v49767323_final_mode_for_session(sess):
+        vals=list((_v49767323_get_or_freeze_final_universe(sess) or {}).get('codes',[]) or [])
+        _V49767323_FULL_ORDERED_CODES=list(vals)
+        return vals
+    return list(_V49767323_BASE_PREFETCH_COLLECT(day) or [])
+
+
+# Production Lifecycle collector: when FINAL authority is active, consume exactly
+# the same frozen identity used by FULL.  No df-side extras and no listing padding.
+def _v4938_collect_codes(df=None) -> tuple[list[str],dict]:
+    sess=_now_kst().strftime('%Y-%m-%d')
+    if _v49767323_final_mode_for_session(sess):
+        obj=_v49767323_get_or_freeze_final_universe(sess)
+        codes=list(obj.get('codes',[]) or [])
+        meta={
+            'source':'FINAL_UNIVERSE_MANIFEST','from_df':0,'listing_fallback':0,
+            'scan_codes':len(codes),'canonical_target':int(obj.get('canonical_target',CLOSING_BET_V497672_CANONICAL_UNIVERSE_TARGET)),
+            'ordered_sha256':str(obj.get('ordered_sha256','')),'set_sha256':str(obj.get('set_sha256','')),
+        }
+        return codes,meta
+    return _V49767323_BASE_PRODUCTION_COLLECT(df)
+
+
+# .2.1 already performs two immediate uncached retries.  Today's live evidence
+# showed those retries could recover +0 while the subsequent Production scan loaded
+# ~10 more histories.  Permit exactly one delayed re-run of the same frozen-universe
+# FULL builder; successes stay cache-backed and only remaining misses go through the
+# existing uncached reconciliation.  Threshold remains 98%.
+def _v4976732_full_final_frames(day: str) -> dict:
+    global _V4976732_FULL_REBUILD_META
+    sess=str(day or _now_kst().strftime('%Y-%m-%d'))[:10]
+    _v49767323_get_or_freeze_final_universe(sess)
+    st=dict(_V49767323_BASE_FULL_BUILDER(sess) or {})
+    initial_final=int(st.get('final_codes',0) or 0)
+    target=max(1,int(st.get('target_codes',CLOSING_BET_V497672_CANONICAL_UNIVERSE_TARGET) or CLOSING_BET_V497672_CANONICAL_UNIVERSE_TARGET))
+    need=int(np.ceil(target*float(CLOSING_BET_V4976732_FULL_MIN_COVERAGE_PCT)/100.0))
+    if (str(st.get('state','')).upper()!='VALID' and
+        str(st.get('reason','')).startswith('FULL_REBUILD_COVERAGE_LOW:') and
+        bool(CLOSING_BET_V49767323_LATE_RECONCILE_ENABLE) and initial_final<need):
+        delay=float(CLOSING_BET_V49767323_LATE_RECONCILE_SLEEP_SEC)
+        log_info(f"⏳ FINAL universe late reconciliation: {initial_final}/{target} · need {need} · sleep {delay:.1f}s")
+        if delay>0:time.sleep(delay)
+        st2=dict(_V49767323_BASE_FULL_BUILDER(sess) or {})
+        st2['late_reconcile_attempted']=True
+        st2['late_reconcile_initial_final_codes']=initial_final
+        st2['late_reconcile_delta']=int(st2.get('final_codes',0) or 0)-initial_final
+        st2['late_reconcile_sleep_sec']=delay
+        st=st2
+        _V497667_FAST_STATE.update(st2)
+        _V4976732_FULL_REBUILD_META=dict(_V497667_FAST_STATE)
+        log_info(f"⏳ FINAL universe late reconciliation result: {int(st2.get('final_codes',0) or 0)}/{target} · delta {int(st2.get('late_reconcile_delta',0) or 0):+d} · {st2.get('state','')}")
+    else:
+        st['late_reconcile_attempted']=False
+        st['late_reconcile_initial_final_codes']=initial_final
+        st['late_reconcile_delta']=0
+        _V497667_FAST_STATE.update(st)
+        _V4976732_FULL_REBUILD_META=dict(_V497667_FAST_STATE)
+    return dict(_V497667_FAST_STATE)
+
+
+def _v49767323_write_identity_audit(sess: str, health: dict=None):
+    global _V49767323_LAST_IDENTITY_AUDIT
+    try:
+        man=_v49767323_get_or_freeze_final_universe(sess)
+        manifest_codes=list(man.get('codes',[]) or [])
+        md=_v49767323_code_digests(manifest_codes)
+        full_target_set=set(globals().get('_V49767321_FULL_TARGET_CODES',set()) or set())
+        full_target_ordered=list(globals().get('_V49767323_FULL_ORDERED_CODES',[]) or [])
+        full_target=sorted(full_target_set)
+        full_prepared=sorted(set(globals().get('_V49767321_FULL_PREPARED_CODES',set()) or set()))
+        prod_hist=sorted(set(globals().get('_V49767321_PRODUCTION_HIST_CODES',set()) or set()))
+        prod_eligible=sorted(set(globals().get('_V49767321_PRODUCTION_ELIGIBLE_CODES',set()) or set()))
+        fd=_v49767323_code_digests(full_target_ordered if full_target_ordered else full_target)
+        pdig=_v49767323_code_digests(manifest_codes)  # requested identity is the manifest in FINAL mode
+        mset=set(manifest_codes);ft=set(full_target);fp=set(full_prepared);pe=set(prod_eligible)
+        obj={
+            'session_date':sess,'version':CLOSING_BET_SCANNER_VERSION,
+            'canonical_target':int(man.get('canonical_target',CLOSING_BET_V497672_CANONICAL_UNIVERSE_TARGET)),
+            'manifest_count':len(mset),'manifest_ordered_sha256':md['ordered_sha256'],'manifest_set_sha256':md['set_sha256'],
+            'full_target_count':len(ft),'full_target_ordered_sha256':fd['ordered_sha256'],'full_target_set_sha256':fd['set_sha256'],
+            'production_requested_count':int((health or {}).get('requested',len(manifest_codes)) or 0),
+            'production_identity_ordered_sha256':pdig['ordered_sha256'],'production_identity_set_sha256':pdig['set_sha256'],
+            'manifest_full_set_match':mset==ft,
+            'manifest_full_order_match':bool(full_target_ordered) and list(manifest_codes)==list(full_target_ordered) and md['ordered_sha256']==fd['ordered_sha256'],
+            'full_missing_count':len(mset-fp),'full_missing_codes':sorted(mset-fp),
+            'production_history_count':len(prod_hist),'production_eligible_count':len(pe),
+            'full_missing_but_production_eligible_count':len((mset-fp)&pe),
+            'full_missing_but_production_eligible_codes':sorted((mset-fp)&pe),
+            'production_eligible_outside_manifest_count':len(pe-mset),'production_eligible_outside_manifest_codes':sorted(pe-mset),
+            'created_at_kst':_now_kst().strftime('%Y-%m-%d %H:%M:%S'),
+        }
+        # Order is also proven by the FULL target code list recorded by .2.1.  Sets
+        # are stored globally there, so set equality is the hard authority check;
+        # ordered SHA of the manifest is still persisted for restore/regression.
+        obj['identity_authority_match']=bool(obj['manifest_full_set_match'] and obj['manifest_full_order_match'] and obj['production_eligible_outside_manifest_count']==0)
+        _V49767323_LAST_IDENTITY_AUDIT=obj
+        _v49767323_identity_diag_path(sess).write_text(json.dumps(obj,ensure_ascii=False,indent=2,default=str),encoding='utf-8')
+        log_info(f"🧬 FINAL universe identity: manifest {len(mset)} · FULL target {len(ft)} · production requested {obj['production_requested_count']} · set-match {obj['manifest_full_set_match']} · FULL-missing∩production {obj['full_missing_but_production_eligible_count']}")
+        return obj
+    except Exception as e:
+        log_debug(f'FINAL universe identity audit failed: {type(e).__name__}:{e}')
+        return {}
+
+
+# Add identity proof after Lifecycle has consumed the same manifest.
+def _v4938_scan_registry(df=None):
+    reg,health=_V49767323_BASE_SCAN_REGISTRY(df)
+    try:
+        sess=str((health or {}).get('latest_data_date') or _now_kst().strftime('%Y-%m-%d'))[:10]
+        if _v49767323_final_mode_for_session(sess):
+            _v49767323_write_identity_audit(sess,health)
+    except Exception:
+        pass
+    return reg,health
+
+
+# Surface identity + late-reconciliation provenance in the engine line only.
+_V49767323_BASE_ACTION_PANEL=_v49765_action_panel
+
+def _v49765_action_panel(decision: dict,data_date=None):
+    text,has,res=_V49767323_BASE_ACTION_PANEL(decision,data_date)
+    try:
+        st=dict(globals().get('_V497667_FAST_STATE',{}) or {})
+        man=dict(globals().get('_V49767323_FINAL_UNIVERSE',{}) or {})
+        if str(os.environ.get('CLOSING_BET_RUN_MODE',globals().get('CLOSING_BET_RUN_MODE','')) or '').lower()=='after_final':
+            extra=(f" · universe {int(man.get('manifest_count',0) or 0)}/{int(man.get('canonical_target',CLOSING_BET_V497672_CANONICAL_UNIVERSE_TARGET) or CLOSING_BET_V497672_CANONICAL_UNIVERSE_TARGET)}"
+                   f" · u-sha {str(man.get('set_sha256',''))[:8] or '-'}")
+            if bool(st.get('late_reconcile_attempted',False)):
+                extra += f" · late {int(st.get('late_reconcile_delta',0) or 0):+d}"
+            lines=[]
+            for x in str(text).split('\n'):
+                if ('AFTER FINAL engine:' in x) and ('u-sha ' not in x):x=x+extra
+                lines.append(x)
+            text='\n'.join(lines)
+        text=str(text).replace('v49.76.6.7.3.2.2','v49.76.6.7.3.2.3')
+        text=re.sub(r'(🚦 \[사용자 행동 결론 · [^\]]+\] \| )v[0-9.]+',lambda m:m.group(1)+CLOSING_BET_RELEASE_TAG,text,count=1)
+    except Exception:
+        pass
+    return text,has,res
+
+# =============================================================
+# ✅ END V49.76.6.7.3.2.3 FINAL UNIVERSE IDENTITY ALIGNMENT
 # =============================================================
 
 if __name__ == '__main__':
