@@ -1579,7 +1579,7 @@ jobs:
 
               lines += [
                   f"📌 strategy={m.get('strategy_id','-')}",
-                  f"📅 period={m.get('research_start','-')} ~ {m.get('research_end','-')} · codes={m.get('codes_scanned','-')}",
+                  f"📅 period={m.get('research_start') or m.get('start_date','-')} ~ {m.get('research_end') or m.get('end_date','-')} · codes={m.get('codes_scanned','-')}",
                   "",
                   "🧭 [Chronology]",
                   (
@@ -1619,7 +1619,7 @@ jobs:
                   lines += [
                       "",
                       "🧬 [Structure Fidelity Audit]",
-                      f"raw squeeze audit {int(struct.get('rows',0)):,} · manual sample {int(struct.get('manual_review_rows',0)):,}",
+                      f"raw squeeze audit {int(struct.get('rows',0)):,}/{int(struct.get('expected_full_squeeze_rows',0)):,} · errors {int(struct.get('audit_errors',0)):,} · manual sample {int(struct.get('manual_review_rows',0)):,}",
                       f"post15 wave1 {int(struct.get('wave1_found_rows',0)):,}",
                       f"first pullback {int(struct.get('first_pullback_found_rows',0)):,}",
                       f"restart-after-PB {int(struct.get('restart_after_pullback_rows',0)):,}",
