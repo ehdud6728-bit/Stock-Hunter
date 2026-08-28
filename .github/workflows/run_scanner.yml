@@ -1,4 +1,4 @@
-name: Run Main Scanner V1107.4.5.73.3.6.6.25.4.11-HF3 CORE224 Lightweight Current-Seed Refresh + Cache Bridge
+name: Run Main Scanner V1107.4.5.73.3.6.6.25.4.12-HF12 + TRIANGLE1PB R1 Independent Research
 
 on:
   schedule:
@@ -30,6 +30,7 @@ on:
           - TEST_FAST
           - WEEKLY_BACKTEST
           - CORE224_LIVE
+          - TRIANGLE1PB_RESEARCH
           - HAM_1503_RESEARCH
           - V73_DISCOVERY
           - V73_CASE_AUDIT
@@ -108,6 +109,26 @@ on:
         description: "CUSTOM 신호 코호트 종료일(YYYY-MM-DD)"
         required: false
         default: ""
+        type: string
+      tri_start_date:
+        description: "TRIANGLE1PB 연구 시작일(YYYY-MM-DD, 비우면 cache 최신일 기준 2년)"
+        required: false
+        default: ""
+        type: string
+      tri_end_date:
+        description: "TRIANGLE1PB 연구 종료일(YYYY-MM-DD, 비우면 price cache 최신일)"
+        required: false
+        default: ""
+        type: string
+      tri_max_codes:
+        description: "TRIANGLE1PB 연구 종목 제한(0=복원된 cache 전체, 진단 시 소수 지정 가능)"
+        required: false
+        default: "0"
+        type: string
+      tri_manual_sample_limit:
+        description: "TRIANGLE1PB 수동 차트검증 표본 수"
+        required: false
+        default: "40"
         type: string
       v73_universe_limit:
         description: "V73 동적 발견 유니버스 최대 종목 수"
@@ -1352,9 +1373,164 @@ jobs:
           if-no-files-found: warn
           retention-days: 2
 
+  triangle1pb-research:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_profile == 'TRIANGLE1PB_RESEARCH' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      TZ: Asia/Seoul
+      TRIANGLE1PB_RESEARCH_ONLY: "1"
+      TRIANGLE1PB_STRATEGY_ID: "TRIANGLE1PB_R1_CHRONOLOGY_FIRST"
+      TRIANGLE1PB_LIVE_ENABLE: "0"
+      TRIANGLE1PB_SCORE_RANK_ENABLE: "0"
+      TRIANGLE1PB_ORDER_ENABLE: "0"
+      TRIANGLE1PB_TUNING_ALLOWED: "0"
+      V20_PRICE_CACHE_DIR: reports/.cache/v20_price_history
+      V20_ASOF_CACHE_DIR: reports/.cache/v20_asof_snapshots
+      V25_ACTUAL_AMOUNT_CACHE_DIR: reports/.cache/v25_actual_amount_history
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install TRIANGLE1PB research dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas numpy
+
+      - name: Compile and synthetic chronology preflight
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f triangle1pb_research.py || { echo "TRIANGLE1PB source missing"; exit 231; }
+          python -m py_compile triangle1pb_research.py
+          python triangle1pb_research.py --self-test
+          grep -Fq 'RESEARCH_AUTHORITY = "RESEARCH_ONLY_NO_LIVE_NO_POLICY_NO_ORDERS"' triangle1pb_research.py
+          grep -Fq 'STRATEGY_ID = "TRIANGLE1PB_R1_CHRONOLOGY_FIRST"' triangle1pb_research.py
+          grep -Fq 'synthetic_close_x_volume_fallback_rows' triangle1pb_research.py
+          echo "TRIANGLE1PB_PREFLIGHT PASS independent=1 live=0 score_rank=0 order=0 tuning=0"
+
+      - name: Restore latest V21 research cache read-only
+        id: tri-v21-restore
+        uses: actions/cache/restore@v4
+        with:
+          # This path-set intentionally matches the canonical V21 save path-set byte-for-byte
+          # so actions/cache version matching can restore the existing research cache.
+          path: |
+            reports/.cache/v20_price_history
+            reports/.cache/v20_asof_snapshots
+            reports/.cache/v25_actual_amount_history
+            reports/.cache/v25_core224_live
+            reports/.cache/v20_replay_checkpoint
+          key: triangle1pb-readonly-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            stockhunter-v21-replay-${{ github.ref_name }}-
+
+      - name: Prove TRIANGLE1PB research data authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p reports/.cache/v20_price_history reports/.cache/v20_asof_snapshots reports/.cache/v25_actual_amount_history reports/triangle1pb
+          price_files=$(find reports/.cache/v20_price_history -type f 2>/dev/null | wc -l | tr -d ' ')
+          asof_files=$(find reports/.cache/v20_asof_snapshots -type f 2>/dev/null | wc -l | tr -d ' ')
+          amount_files=$(find reports/.cache/v25_actual_amount_history -type f 2>/dev/null | wc -l | tr -d ' ')
+          echo "TRIANGLE1PB_CACHE_RESTORE matched=${{ steps.tri-v21-restore.outputs.cache-matched-key }} price_files=${price_files} asof_files=${asof_files} amount_files=${amount_files} cache_write=0"
+          test "$price_files" -gt 0 || { echo "TRIANGLE1PB_FAIL_CLOSED price cache empty"; exit 232; }
+          test "$asof_files" -gt 0 || { echo "TRIANGLE1PB_FAIL_CLOSED historical as-of universe cache empty"; exit 233; }
+
+      - name: Run TRIANGLE1PB chronology-first two-year research
+        shell: bash
+        env:
+          TRI_START_DATE: ${{ inputs.tri_start_date }}
+          TRI_END_DATE: ${{ inputs.tri_end_date }}
+          TRI_MAX_CODES: ${{ inputs.tri_max_codes }}
+          TRI_MANUAL_SAMPLE_LIMIT: ${{ inputs.tri_manual_sample_limit }}
+        run: |
+          set -euo pipefail
+          args=(
+            --price-cache-dir reports/.cache/v20_price_history
+            --asof-cache-dir reports/.cache/v20_asof_snapshots
+            --amount-cache-dir reports/.cache/v25_actual_amount_history
+            --output-dir reports/triangle1pb
+            --max-codes "${TRI_MAX_CODES:-0}"
+            --manual-sample-limit "${TRI_MANUAL_SAMPLE_LIMIT:-40}"
+          )
+          if [ -n "${TRI_START_DATE:-}" ]; then args+=(--start-date "$TRI_START_DATE"); fi
+          if [ -n "${TRI_END_DATE:-}" ]; then args+=(--end-date "$TRI_END_DATE"); fi
+          python -u triangle1pb_research.py "${args[@]}" | tee reports/triangle1pb/tri_runtime.log
+
+      - name: TRIANGLE1PB fail-closed research postflight
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PYTRIGUARD'
+          import json
+          from pathlib import Path
+          import pandas as pd
+
+          root=Path('reports/triangle1pb')
+          required=[
+              'tri_state_spec.csv','tri_stage_ledger.csv','tri_signal_ledger.csv','tri_forward_outcomes.csv',
+              'tri_stage_counts.csv','tri_rejection_ledger.csv','tri_rejection_counts.csv',
+              'tri_chronology_audit.csv','tri_lookahead_audit.csv','tri_invariant_audit.csv',
+              'tri_amount_authority_audit.csv','tri_asof_universe_audit.csv','tri_manual_chart_review_sample.csv',
+              'tri_event_study_summary.csv','tri_manifest.json','tri_report.txt','tri_runtime.log',
+          ]
+          missing=[x for x in required if not (root/x).exists()]
+          assert not missing, ('TRIANGLE1PB_OUTPUT_MISSING',missing)
+          m=json.loads((root/'tri_manifest.json').read_text(encoding='utf-8'))
+          assert m.get('schema')=='TRIANGLE1PB_RESEARCH_SCHEMA_V1'
+          assert m.get('strategy_id')=='TRIANGLE1PB_R1_CHRONOLOGY_FIRST'
+          assert m.get('research_authority')=='RESEARCH_ONLY_NO_LIVE_NO_POLICY_NO_ORDERS'
+          assert m.get('core224_dependency')=='NONE'
+          assert m.get('core224_logic_changed') is False
+          assert m.get('live_logic_changed') is False
+          assert m.get('score_rank_changed') is False
+          assert m.get('order_logic_changed') is False
+          assert m.get('primary_policy')=='NONE_EVENT_STUDY_ONLY'
+          assert m.get('tuning_allowed') is False
+          assert int(m.get('actual_amount_synthetic_fallback_rows',-1))==0
+          assert int(m.get('lookahead_fail',-1))==0
+          assert int(m.get('invariant_fail',-1))==0
+          assert m.get('status')=='PASS'
+          inv=pd.read_csv(root/'tri_invariant_audit.csv')
+          la=pd.read_csv(root/'tri_lookahead_audit.csv')
+          amt=pd.read_csv(root/'tri_amount_authority_audit.csv')
+          uni=pd.read_csv(root/'tri_asof_universe_audit.csv')
+          assert len(inv)==1 and str(inv.iloc[-1].get('status'))=='PASS'
+          assert len(la)==1 and str(la.iloc[-1].get('status'))=='PASS'
+          assert int(float(amt.iloc[-1].get('synthetic_close_x_volume_fallback_rows',-1)))==0
+          assert int(float(uni.iloc[-1].get('future_snapshot_fallback_allowed',1)))==0
+          print('TRIANGLE1PB_POSTFLIGHT PASS', 'signals',m.get('restart_signals'), 'digest',m.get('research_authority_digest'), 'core224_changed',m.get('core224_logic_changed'), 'live_changed',m.get('live_logic_changed'))
+          PYTRIGUARD
+
+      - name: Show TRIANGLE1PB research board
+        if: always()
+        shell: bash
+        run: |
+          echo "===== TRIANGLE1PB RESEARCH BOARD ====="
+          cat reports/triangle1pb/tri_report.txt 2>/dev/null || true
+          echo "===== STAGE COUNTS ====="
+          cat reports/triangle1pb/tri_stage_counts.csv 2>/dev/null || true
+          echo "===== INVARIANT ====="
+          cat reports/triangle1pb/tri_invariant_audit.csv 2>/dev/null || true
+
+      - name: Upload TRIANGLE1PB research artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: triangle1pb-r1-chronology-research-${{ github.run_number }}
+          path: reports/triangle1pb/**
+          if-no-files-found: warn
+          retention-days: 30
+
   run-scanner:
     needs: [v23-backtest-shard, v23-backtest-shard-a, v23-backtest-shard-b, v23-backtest-shard-c, v23-backtest-shard-d]
-    if: ${{ always() }}
+    if: ${{ always() && (github.event_name != 'workflow_dispatch' || inputs.run_profile != 'TRIANGLE1PB_RESEARCH') }}
     runs-on: ubuntu-latest
     timeout-minutes: 240
     env:
