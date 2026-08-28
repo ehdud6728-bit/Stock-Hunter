@@ -1637,14 +1637,17 @@ jobs:
                           (
                               f"streak≥{int(r.get('streak_threshold',0))}: "
                               f"runs {int(r.get('research_candidate_runs',0))} · "
-                              f"1st-cross exact {int(r.get('first_cross_exact_with_universe',0))} · "
-                              f"any exact {int(r.get('any_exact_breakout_with_universe',0))} · "
-                              f"PB {int(r.get('first_pullback_existing',0))} · "
-                              f"healthy {int(r.get('healthy_pullback_existing',0))} · "
-                              f"restart {int(r.get('restart_existing',0))}"
+                              f"strict {int(r.get('first_cross_exact_with_universe',0))}"
+                              f"→H{int(r.get('healthy_pullback_existing',0))}"
+                              f"→R{int(r.get('restart_existing',0))} · "
+                              f"qualified {int(r.get('any_exact_breakout_with_universe',0))}"
+                              f"→H{int(r.get('qualified_healthy_pullback_existing',0))}"
+                              f"→R{int(r.get('qualified_restart_existing',0))} · "
+                              f"probe→qualified {int(r.get('probe_then_qualified_breakout',0))}"
                           )
                       )
-                  lines.append("※ 가상비교 전용 · 실제 streak/전략조건 변경 없음")
+                  lines.append("※ strict=첫 가격돌파 즉시판정 · qualified=동일 기존조건을 처음 모두 만족한 본돌파")
+                  lines.append("※ 가상비교 전용 · 실제 chronology/streak/전략조건 변경 없음")
 
               amount_cov = m.get("actual_amount_coverage_pct")
               asof_dates = m.get("asof_snapshot_dates")
