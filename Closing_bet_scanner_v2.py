@@ -80,8 +80,8 @@ def _env_float(name: str, default: float = 0.0) -> float:
         except Exception:
             return 0.0
 
-CLOSING_BET_SCANNER_VERSION = 'G_MORALES_V4_4_9_53_8_49_76_6_7_3_2_3_FINAL_UNIVERSE_IDENTITY_ALIGNMENT_20260828'
-CLOSING_BET_RELEASE_TAG = 'v49.76.6.7.3.2.3'
+CLOSING_BET_SCANNER_VERSION = 'G_MORALES_V4_4_9_53_8_49_76_6_7_3_2_4_NXT_OFFICIAL_BASE_DELTA_AUTHORITY_20260828'
+CLOSING_BET_RELEASE_TAG = 'v49.76.6.7.3.2.4'
 CLOSING_BET_LIVE_PRICE_SANITY_FIX = str(os.environ.get('CLOSING_BET_LIVE_PRICE_SANITY_FIX', '1')).lower() in ('1', 'true', 'yes', 'y', 'on')
 CLOSING_BET_LIVE_READABILITY_COMPACT = str(os.environ.get('CLOSING_BET_LIVE_READABILITY_COMPACT', '1')).lower() in ('1', 'true', 'yes', 'y', 'on')
 # v53.8.42: M5R TRUE60 검증용 장기 월봉 확보. 60개월 월선 계산에는 약 7년 일봉이 필요하다.
@@ -54009,6 +54009,592 @@ def _v49765_action_panel(decision: dict,data_date=None):
 
 # =============================================================
 # ✅ END V49.76.6.7.3.2.3 FINAL UNIVERSE IDENTITY ALIGNMENT
+# =============================================================
+
+
+# =============================================================
+# ✅ V49.76.6.7.3.2.4 NXT OFFICIAL BASE+DELTA AUTHORITY
+# -------------------------------------------------------------
+# Scope ONLY (NXT execution eligibility / provenance):
+# - keep FINAL engine / RAW STRICT / Lifecycle / M5 / MARCAP / P1 unchanged
+# - never interpret javascript function names as downloadable URLs
+# - resolve notice attachments only from direct URLs OR from onclick arguments
+#   plus an endpoint literally declared in the page/same-origin javascript
+# - quarterly official target notice = BASE; official market-status changes = DELTA
+# - current official regular-market page may be accepted only as a sufficiently
+#   complete positive set; absence from a partial page is never negative proof
+# - freeze the successfully materialized session set + SHA for same-session retry
+# - unresolved authority remains fail-closed
+# =============================================================
+try:
+    print("✅ V49.76.6.7.3.2.4 NXT_OFFICIAL_BASE_DELTA_AUTHORITY LOADED")
+except Exception:
+    pass
+
+CLOSING_BET_V49767324_NXT_ACTIVE_URL = str(os.environ.get(
+    'CLOSING_BET_V49767324_NXT_ACTIVE_URL',
+    'https://www.nextrade.co.kr/menu/transactionStatusMain/menuList.do') or '').strip()
+CLOSING_BET_V49767324_NXT_CHANGE_URL = str(os.environ.get(
+    'CLOSING_BET_V49767324_NXT_CHANGE_URL',
+    'https://www.nextrade.co.kr/menu/transactionStatusConclusion/menuList.do') or '').strip()
+CLOSING_BET_V49767324_NXT_MARKETINFO_LIST_URL = str(os.environ.get(
+    'CLOSING_BET_V49767324_NXT_MARKETINFO_LIST_URL',
+    'https://nextrade.co.kr/menu/marketInfo/menuList.do') or '').strip()
+CLOSING_BET_V49767324_NXT_MARKETINFO_BASE_URL = str(os.environ.get(
+    'CLOSING_BET_V49767324_NXT_MARKETINFO_BASE_URL',
+    'https://nextrade.co.kr/menu/marketInfo/view.do?scBbsKndCode=marketInfo&scNttCl=general&scNttNo=281') or '').strip()
+CLOSING_BET_V49767324_NXT_ACTIVE_MIN_CODES = max(100,int(os.environ.get(
+    'CLOSING_BET_V49767324_NXT_ACTIVE_MIN_CODES','500') or 500))
+CLOSING_BET_V49767324_NXT_BASE_EXPECTED_TOL_PCT = max(0.0,min(5.0,float(os.environ.get(
+    'CLOSING_BET_V49767324_NXT_BASE_EXPECTED_TOL_PCT','1.0') or 1.0)))
+CLOSING_BET_V49767324_NXT_MARKETINFO_MAX_PAGES = max(1,min(20,int(os.environ.get(
+    'CLOSING_BET_V49767324_NXT_MARKETINFO_MAX_PAGES','12') or 12)))
+CLOSING_BET_V49767324_NXT_EXTERNAL_JS_MAX = max(0,min(12,int(os.environ.get(
+    'CLOSING_BET_V49767324_NXT_EXTERNAL_JS_MAX','6') or 6)))
+
+_V49767324_PREVIOUS_FETCH_NXT = _v49765_fetch_nxt_codes
+_V49767324_LAST = {'state':'NOT_RUN'}
+
+
+def _v49767324_quarter_info(day: str=None) -> dict:
+    d=pd.Timestamp(str(day or _now_kst().strftime('%Y-%m-%d'))[:10])
+    q=(int(d.month)-1)//3+1
+    start=pd.Timestamp(year=int(d.year),month=(q-1)*3+1,day=1)
+    return {'year':int(d.year),'quarter':q,'key':f'{int(d.year)}Q{q}','start':start.strftime('%Y-%m-%d')}
+
+
+def _v49767324_paths(day: str=None) -> dict:
+    sess=str(day or _now_kst().strftime('%Y-%m-%d'))[:10]
+    qi=_v49767324_quarter_info(sess)
+    root=Path(CLOSING_BET_V497667_FAST_CACHE_DIR);root.mkdir(parents=True,exist_ok=True)
+    return {
+        'base':root/f"nxt_official_base_{qi['key']}.json",
+        'delta':root/f"nxt_official_delta_{sess.replace('-','')}.json",
+        'session':root/f"nxt_official_session_{sess.replace('-','')}.json",
+        'diag':root/f"nxt_diag_{sess.replace('-','')}.json",
+    }
+
+
+def _v49767324_sha(codes) -> str:
+    vals=sorted({str(x).zfill(6) for x in (codes or []) if str(x).isdigit() and len(str(x).zfill(6))==6})
+    return hashlib.sha256('|'.join(vals).encode('utf-8')).hexdigest()
+
+
+def _v49767324_is_excel_response(resp) -> bool:
+    try:
+        b=bytes(resp.content or b'');ct=str(resp.headers.get('content-type','') or '').lower()
+        return (b.startswith(b'PK\x03\x04') or b.startswith(bytes.fromhex('D0CF11E0A1B11AE1')) or
+                'spreadsheet' in ct or 'excel' in ct or 'octet-stream' in ct)
+    except Exception:return False
+
+
+def _v49767324_direct_attachment_urls(html_text: str, base_url: str) -> list[str]:
+    """Only literal direct attachment URLs. Never promote function names/fragments."""
+    from urllib.parse import urljoin
+    try:
+        from bs4 import BeautifulSoup
+        soup=BeautifulSoup(str(html_text or ''),'html.parser')
+    except Exception:
+        soup=None
+    vals=[]
+    if soup is not None:
+        for tag in soup.find_all(['a','form']):
+            raw=tag.get('href') or tag.get('action') or ''
+            if raw: vals.append(str(raw))
+    # literal quoted paths ending xls/xlsx OR literal server actions with query metadata.
+    s=str(html_text or '')
+    vals += re.findall(r'["\']((?:https?://|/)[^"\']*?\.(?:xlsx|xls)(?:\?[^"\']*)?)["\']',s,flags=re.I)
+    out=[]
+    for raw in vals:
+        u=str(raw or '').strip()
+        if not u or u.lower().startswith(('javascript:','#')):continue
+        # Explicitly reject JS resources and function fragments.
+        if re.search(r'\.js(?:\?|$)',u,flags=re.I) or '(' in u or ')' in u:continue
+        if not re.search(r'\.(?:xlsx|xls)(?:\?|$)',u,flags=re.I):continue
+        u=urljoin(base_url,u)
+        if u not in out:out.append(u)
+    return out[:10]
+
+
+def _v49767324_parse_function_calls(html_text: str) -> list[dict]:
+    """Extract file-download function CALL ARGUMENTS, not the function name as URL."""
+    s=str(html_text or '')
+    out=[]
+    # onclick handlers are the authority surface; do not scan arbitrary script calls broadly.
+    handlers=re.findall(r'onclick\s*=\s*["\']([^"\']*(?:file|down|atch|attach)[^"\']*)["\']',s,flags=re.I)
+    # The previous regex can be truncated by nested quotes; also capture complete attributes via BS4.
+    try:
+        from bs4 import BeautifulSoup
+        soup=BeautifulSoup(s,'html.parser')
+        handlers=[str(t.get('onclick')) for t in soup.find_all(attrs={'onclick':True}) if re.search(r'file|down|atch|attach',str(t.get('onclick')),re.I)] or handlers
+    except Exception:pass
+    for h in handlers:
+        m=re.search(r'([A-Za-z_$][\w.$]*)\s*\((.*?)\)',str(h),flags=re.S)
+        if not m:continue
+        fn=m.group(1).split('.')[-1];argtxt=m.group(2)
+        args=[]
+        for qm in re.finditer(r'(["\'])(.*?)\1',argtxt,flags=re.S):args.append(qm.group(2))
+        if not args:
+            args=[x.strip() for x in argtxt.split(',') if x.strip() and re.fullmatch(r'[A-Za-z0-9_.:-]+',x.strip())]
+        if re.search(r'file|down|atch|attach',fn,flags=re.I):
+            out.append({'function':fn,'args':args[:8],'handler':str(h)[:300]})
+    # unique
+    seen=set();uniq=[]
+    for x in out:
+        k=(x['function'],tuple(x['args']))
+        if k not in seen:seen.add(k);uniq.append(x)
+    return uniq[:20]
+
+
+def _v49767324_script_sources(html_text: str, base_url: str) -> list[str]:
+    from urllib.parse import urljoin,urlparse
+    try:
+        from bs4 import BeautifulSoup
+        soup=BeautifulSoup(str(html_text or ''),'html.parser')
+        vals=[str(t.get('src')) for t in soup.find_all('script',src=True)]
+    except Exception:
+        vals=re.findall(r'<script[^>]+src=["\']([^"\']+)["\']',str(html_text or ''),flags=re.I)
+    host=urlparse(base_url).netloc.lower();out=[]
+    for raw in vals:
+        u=urljoin(base_url,str(raw or '').strip())
+        if urlparse(u).netloc.lower()!=host:continue
+        if not re.search(r'\.js(?:\?|$)',u,flags=re.I):continue
+        if u not in out:out.append(u)
+    # prefer likely common/file libraries, but keep bounded fallback.
+    out=sorted(out,key=lambda u:(0 if re.search(r'file|common|util|lib',u,re.I) else 1,len(u)))
+    return out[:int(CLOSING_BET_V49767324_NXT_EXTERNAL_JS_MAX)]
+
+
+def _v49767324_function_definition_sources(page_html: str, page_url: str, fn: str, attempts: list) -> list[str]:
+    texts=[str(page_html or '')]
+    for su in _v49767324_script_sources(page_html,page_url):
+        try:
+            sr=_v49767322_http_get(su,page_url);texts.append(str(sr.text or ''))
+            attempts.append({'source':'NOTICE_JS','url':str(sr.url),'http':int(sr.status_code),'function':fn,'found':bool(re.search(r'function\s+'+re.escape(fn)+r'\s*\(',str(sr.text or ''),re.I))})
+        except Exception as e:
+            attempts.append({'source':'NOTICE_JS','url':su,'status':'ERROR','error':_v49767322_clean_err(e)})
+    return texts
+
+
+def _v49767324_resolve_call_endpoint(call: dict, texts: list[str], page_url: str) -> list[dict]:
+    """Resolve only endpoints literally declared in the matching function body."""
+    from urllib.parse import urljoin,urlparse
+    fn=str(call.get('function',''));args=list(call.get('args',[]) or []);out=[]
+    for txt in texts:
+        # bounded function body; enough for typical form/action helper functions.
+        pat=r'function\s+'+re.escape(fn)+r'\s*\(([^)]*)\)\s*\{([\s\S]{0,5000}?)\n?\}'
+        for m in re.finditer(pat,str(txt or ''),flags=re.I):
+            params=[x.strip() for x in m.group(1).split(',') if x.strip()];body=m.group(2)
+            literals=re.findall(r'["\']((?:https?://|/)[^"\']+)["\']',body)
+            for lit in literals:
+                # server endpoint only; never JS library path and never function fragment.
+                if re.search(r'\.js(?:\?|$)',lit,re.I) or '(' in lit or ')' in lit:continue
+                if not re.search(r'file|down|atch|attach',lit,re.I):continue
+                u=urljoin(page_url,lit)
+                if urlparse(u).netloc.lower()!=urlparse(page_url).netloc.lower():continue
+                mp={}
+                for i,pn in enumerate(params):
+                    if i<len(args) and re.fullmatch(r'[A-Za-z_$][\w$]*',pn):mp[pn]=args[i]
+                out.append({'url':u,'params':mp,'function':fn,'body':body[:1000]})
+    # direct URL argument is permitted only when it is a literal URL/path, never constructed from fn name.
+    for a in args:
+        if re.match(r'^(?:https?://|/)',str(a)) and not re.search(r'\.js(?:\?|$)',str(a),re.I):
+            out.append({'url':urljoin(page_url,str(a)),'params':{},'function':fn,'body':'DIRECT_ARG'})
+    uniq=[];seen=set()
+    for x in out:
+        k=(x['url'],tuple(sorted(x.get('params',{}).items())))
+        if k not in seen:seen.add(k);uniq.append(x)
+    return uniq[:12]
+
+
+def _v49767324_http_file_attempt(ep: dict, referer: str, attempts: list):
+    """Try only a discovered literal endpoint. GET then POST with discovered function parameters."""
+    url=str(ep.get('url',''));params=dict(ep.get('params',{}) or {})
+    headers={
+        'User-Agent':'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124 Safari/537.36',
+        'Accept':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,application/octet-stream,*/*;q=0.5',
+        'Referer':referer,'Accept-Language':'ko-KR,ko;q=0.9,en;q=0.7','Connection':'close'}
+    for method in ('GET','POST'):
+        try:
+            kw={'headers':headers,'timeout':int(CLOSING_BET_V49767322_NXT_HTTP_TIMEOUT_SEC),'allow_redirects':True}
+            if method=='GET':kw['params']=params
+            else:kw['data']=params
+            rr=requests.request(method,url,**kw);rr.raise_for_status()
+            ac=_v49767322_extract_excel_codes(rr.content) if _v49767324_is_excel_response(rr) else set()
+            attempts.append({'source':'NOTICE_ATTACHMENT_META','method':method,'url':str(rr.url),'http':int(rr.status_code),'params':sorted(params.keys()),'codes':len(ac),'content_type':str(rr.headers.get('content-type',''))[:100]})
+            if ac:return ac,rr
+        except Exception as e:
+            attempts.append({'source':'NOTICE_ATTACHMENT_META','method':method,'url':url,'status':'ERROR','params':sorted(params.keys()),'error':_v49767322_clean_err(e)})
+    return set(),None
+
+
+def _v49767324_expected_count(text: str) -> int:
+    vals=[]
+    for m in re.finditer(r'(\d{3,4})\s*종목',str(text or '')):
+        try:
+            n=int(m.group(1))
+            if 100<=n<=1000:vals.append(n)
+        except Exception:pass
+    # Main statement appears before summary subtotals; use first plausible count.
+    return vals[0] if vals else 0
+
+
+def _v49767324_base_cache_load(day: str) -> tuple[set,dict]:
+    p=_v49767324_paths(day)['base']
+    try:
+        o=json.loads(p.read_text(encoding='utf-8'));codes={str(x).zfill(6) for x in (o.get('codes',[]) or []) if str(x).isdigit()}
+        if _v49767324_sha(codes)!=str(o.get('sha256','')):return set(),{'state':'CACHE_SHA_MISMATCH'}
+        if str(o.get('quarter_key',''))!=_v49767324_quarter_info(day)['key']:return set(),{'state':'CACHE_QUARTER_MISMATCH'}
+        exp=int(o.get('expected_count',0) or 0);need=max(int(CLOSING_BET_V49765_NXT_MIN_CODES),int(exp*(1.0-float(CLOSING_BET_V49767324_NXT_BASE_EXPECTED_TOL_PCT)/100.0)) if exp else 0)
+        if len(codes)<need:return set(),{'state':f'CACHE_BASE_COUNT_LOW:{len(codes)}/{need}'}
+        return codes,{**o,'state':'OK','cache':True}
+    except FileNotFoundError:return set(),{'state':'CACHE_MISSING'}
+    except Exception as e:return set(),{'state':f'CACHE_ERROR:{type(e).__name__}'}
+
+
+def _v49767324_base_cache_save(day: str,codes:set,meta:dict):
+    qi=_v49767324_quarter_info(day);p=_v49767324_paths(day)['base'];vals=sorted(codes)
+    o={'state':'FROZEN_BASE','quarter_key':qi['key'],'quarter_start':qi['start'],'expected_count':int(meta.get('expected_count',0) or 0),
+       'count':len(vals),'codes':vals,'sha256':_v49767324_sha(vals),'source':str(meta.get('source','OFFICIAL_NOTICE_XLSX_META')),
+       'notice_url':str(meta.get('notice_url','')),'created_at_kst':_now_kst().strftime('%Y-%m-%d %H:%M:%S'),'version':CLOSING_BET_SCANNER_VERSION}
+    try:p.write_text(json.dumps(o,ensure_ascii=False,indent=2),encoding='utf-8')
+    except Exception:pass
+
+
+def _v49767324_fetch_base_notice(day: str) -> tuple[set,dict,list]:
+    attempts=[]
+    # Stable quarterly base cache first: it is a frozen official document, not a prior-session eligibility set.
+    cc,cm=_v49767324_base_cache_load(day)
+    attempts.append({'source':'QUARTER_BASE_CACHE','status':cm.get('state','UNKNOWN'),'codes':len(cc)})
+    if cc:return cc,cm,attempts
+    urls=[]
+    # Current-quarter notice auto-discovery + explicit notice and parallel marketInfo copy.
+    du,dd=_v49767322_discover_notice_urls();attempts.extend(dd);urls.extend(du)
+    if CLOSING_BET_V49767324_NXT_MARKETINFO_BASE_URL:urls.append(CLOSING_BET_V49767324_NXT_MARKETINFO_BASE_URL)
+    seen=set();urls=[u for u in urls if not (u in seen or seen.add(u))]
+    for nu in urls[:10]:
+        try:
+            r=_v49767322_http_get(nu,CLOSING_BET_V49767322_NXT_NOTICE_LIST_URL);body=str(r.text or '')
+            exp=_v49767324_expected_count(body)
+            attempts.append({'source':'BASE_NOTICE','url':str(r.url),'http':int(r.status_code),'expected_count':exp})
+            direct=_v49767322_extract_codes_text(body,True,False)
+            need=max(int(CLOSING_BET_V49765_NXT_MIN_CODES),int(exp*(1.0-float(CLOSING_BET_V49767324_NXT_BASE_EXPECTED_TOL_PCT)/100.0)) if exp else 0)
+            if len(direct)>=need and len(direct)>=int(CLOSING_BET_V49767324_NXT_ACTIVE_MIN_CODES):
+                meta={'state':'OK','source':'OFFICIAL_NOTICE_EMBEDDED','expected_count':exp or len(direct),'notice_url':str(r.url)}
+                _v49767324_base_cache_save(day,direct,meta);return direct,meta,attempts
+            # Literal direct xlsx URLs only.
+            for au in _v49767324_direct_attachment_urls(body,str(r.url)):
+                try:
+                    ar=_v49767322_http_get(au,str(r.url));ac=_v49767322_extract_excel_codes(ar.content) if _v49767324_is_excel_response(ar) else set()
+                    attempts.append({'source':'BASE_ATTACHMENT_DIRECT','url':str(ar.url),'http':int(ar.status_code),'codes':len(ac)})
+                    if len(ac)>=need and len(ac)>=int(CLOSING_BET_V49767324_NXT_ACTIVE_MIN_CODES):
+                        meta={'state':'OK','source':'OFFICIAL_NOTICE_XLSX_DIRECT','expected_count':exp or len(ac),'notice_url':str(r.url)}
+                        _v49767324_base_cache_save(day,ac,meta);return ac,meta,attempts
+                except Exception as e:attempts.append({'source':'BASE_ATTACHMENT_DIRECT','url':au,'status':'ERROR','error':_v49767322_clean_err(e)})
+            # onclick: parse args, then endpoint must be literally declared in page or same-origin JS.
+            calls=_v49767324_parse_function_calls(body)
+            attempts.append({'source':'BASE_ATTACHMENT_CALLS','url':str(r.url),'calls':len(calls),'functions':sorted({x['function'] for x in calls})[:8]})
+            for call in calls:
+                texts=_v49767324_function_definition_sources(body,str(r.url),call['function'],attempts)
+                eps=_v49767324_resolve_call_endpoint(call,texts,str(r.url))
+                if not eps:
+                    attempts.append({'source':'BASE_ATTACHMENT_META','function':call['function'],'status':'UNRESOLVED_ENDPOINT','args':len(call.get('args',[]))})
+                for ep in eps:
+                    ac,_=_v49767324_http_file_attempt(ep,str(r.url),attempts)
+                    if len(ac)>=need and len(ac)>=int(CLOSING_BET_V49767324_NXT_ACTIVE_MIN_CODES):
+                        meta={'state':'OK','source':'OFFICIAL_NOTICE_XLSX_META','expected_count':exp or len(ac),'notice_url':str(r.url),'function':call['function'],'endpoint':ep['url']}
+                        _v49767324_base_cache_save(day,ac,meta);return ac,meta,attempts
+        except Exception as e:attempts.append({'source':'BASE_NOTICE','url':nu,'status':'ERROR','error':_v49767322_clean_err(e)})
+    return set(),{'state':'BASE_UNAVAILABLE'},attempts
+
+
+def _v49767324_extract_table_codes_and_actions(html_text: str, default_action: str='') -> list[dict]:
+    out=[]
+    try:
+        from bs4 import BeautifulSoup
+        soup=BeautifulSoup(str(html_text or ''),'html.parser')
+        for tr in soup.find_all('tr'):
+            txt=' '.join(tr.stripped_strings);codes=set()
+            for td in tr.find_all(['td','th']):
+                sv=' '.join(td.stripped_strings).strip()
+                if re.fullmatch(r'A?\d{6}',sv,re.I):codes.add(re.sub(r'^A','',sv,flags=re.I))
+                codes.update(_v49767322_extract_codes_text(sv,True,True))
+            if not codes:continue
+            action=default_action
+            if re.search(r'편입|재편입|재개|대상\s*편입',txt):action='INCLUDE'
+            if re.search(r'편출|제외|중단|정지|거래불가',txt):action='EXCLUDE'
+            for c in codes:out.append({'code':str(c).zfill(6),'action':action,'row':txt[:300]})
+    except Exception:pass
+    return out
+
+
+def _v49767324_marketinfo_items(page_html: str, page_url: str) -> list[dict]:
+    from urllib.parse import urljoin
+    out=[]
+    try:
+        from bs4 import BeautifulSoup
+        soup=BeautifulSoup(str(page_html or ''),'html.parser')
+        for a in soup.find_all('a',href=True):
+            href=str(a.get('href') or '')
+            if 'view.do' not in href or 'scNttNo=' not in href:continue
+            title=' '.join(a.stripped_strings).strip()
+            if not title:continue
+            parent=a.parent; ctx=title
+            cur=parent
+            for _ in range(5):
+                if cur is None:break
+                cand=' '.join(cur.stripped_strings)
+                if re.search(r'20\d{2}[-./]\d{1,2}[-./]\d{1,2}',cand):ctx=cand;break
+                cur=getattr(cur,'parent',None)
+            m=re.search(r'(20\d{2})[-./](\d{1,2})[-./](\d{1,2})(?:\s+(\d{1,2}):(\d{2}))?',ctx)
+            dt=''
+            if m:
+                dt=f'{int(m.group(1)):04d}-{int(m.group(2)):02d}-{int(m.group(3)):02d}'
+                if m.group(4):dt+=f' {int(m.group(4)):02d}:{int(m.group(5)):02d}'
+            out.append({'url':urljoin(page_url,href),'title':title,'published':dt})
+    except Exception:pass
+    seen=set();uniq=[]
+    for x in out:
+        k=x['url']
+        if k not in seen:seen.add(k);uniq.append(x)
+    return uniq
+
+
+
+def _v49767324_effective_date(text: str, published: str='') -> str:
+    """Extract an explicit effective/apply/start date; blank means not proven."""
+    t=re.sub(r'\s+',' ',re.sub(r'<[^>]+>',' ',str(text or '')))
+    pub_year=0
+    try:pub_year=int(str(published)[:4])
+    except Exception:pass
+    # Prefer dates near 시행/적용/변경/거래 시작 semantics.
+    patterns=[
+        r'(?:시행일|적용일|변경일|적용시점|시행시점)[^0-9]{0,20}(20\d{2})[.\-/년\s]+(\d{1,2})[.\-/월\s]+(\d{1,2})',
+        r'(?:시행일|적용일|변경일|적용시점|시행시점)[^0-9]{0,20}(\d{1,2})[.\-/월\s]+(\d{1,2})',
+        r'(20\d{2})[.\-/년\s]+(\d{1,2})[.\-/월\s]+(\d{1,2})[^.\n]{0,30}(?:부터|시행|적용|변경)',
+        r'(\d{1,2})월\s*(\d{1,2})일[^.\n]{0,30}(?:부터|시행|적용|변경)',
+    ]
+    for i,p in enumerate(patterns):
+        m=re.search(p,t,re.I)
+        if not m:continue
+        try:
+            if len(m.groups())==3:y,mo,da=map(int,m.groups())
+            else:
+                if not pub_year:continue
+                y=pub_year;mo=int(m.group(1));da=int(m.group(2))
+            return pd.Timestamp(year=y,month=mo,day=da).strftime('%Y-%m-%d')
+        except Exception:continue
+    return ''
+
+def _v49767324_fetch_marketinfo_delta(day: str, base_start: str) -> tuple[list[dict],dict,list]:
+    """Causal delta from official market notices. Unresolved relevant notices are surfaced."""
+    from urllib.parse import urlparse,parse_qs,urlencode,urlunparse
+    attempts=[];items=[];sess=str(day)[:10]
+    base_ts=pd.Timestamp(base_start);sess_ts=pd.Timestamp(sess)
+    # Page until we cross the quarter base or max pages.
+    for pi in range(1,int(CLOSING_BET_V49767324_NXT_MARKETINFO_MAX_PAGES)+1):
+        try:
+            u=CLOSING_BET_V49767324_NXT_MARKETINFO_LIST_URL
+            sep='&' if '?' in u else '?';u=f'{u}{sep}pageIndex={pi}&scBbsKndCode=marketInfo&scNttCl=general'
+            r=_v49767322_http_get(u,CLOSING_BET_V49767324_NXT_MARKETINFO_LIST_URL);pp=_v49767324_marketinfo_items(str(r.text or ''),str(r.url))
+            attempts.append({'source':'DELTA_LIST','page':pi,'http':int(r.status_code),'items':len(pp)})
+            if not pp and pi>1:break
+            items.extend(pp)
+            dates=[]
+            for x in pp:
+                if x.get('published'):
+                    try:dates.append(pd.Timestamp(str(x['published'])[:10]))
+                    except Exception:pass
+            if dates and min(dates)<base_ts:break
+        except Exception as e:
+            attempts.append({'source':'DELTA_LIST','page':pi,'status':'ERROR','error':_v49767322_clean_err(e)});break
+    # de-dupe/filter relevant and causal by publication date. If timestamp absent, page body may still resolve date.
+    relevant=[];seen=set()
+    pat=r'매매체결대상종목|매매거래정지|매매거래재개|거래정지|거래재개|한도\s*관리'
+    for x in items:
+        if x['url'] in seen:continue
+        seen.add(x['url'])
+        if not re.search(pat,x.get('title',''),re.I):continue
+        # The quarterly regular-market target notice is the BASE itself, never a DELTA event.
+        if re.search(r'\d{4}년\s*\d분기.*정규시장.*매매체결대상종목.*변경\s*안내',x.get('title',''),re.I):continue
+        if x.get('published'):
+            try:
+                d=pd.Timestamp(str(x['published'])[:10])
+                if d<base_ts or d>sess_ts:continue
+            except Exception:pass
+        relevant.append(x)
+    changes=[];unresolved=[]
+    for it in relevant[:60]:
+        try:
+            r=_v49767322_http_get(it['url'],CLOSING_BET_V49767324_NXT_MARKETINFO_LIST_URL);body=str(r.text or '');txt=re.sub(r'<[^>]+>',' ',body)
+            # Body publication date guard if list timestamp was absent.
+            dm=re.search(r'(20\d{2})[-./](\d{1,2})[-./](\d{1,2})',txt)
+            pub=it.get('published','')
+            if dm and not pub:pub=f'{int(dm.group(1)):04d}-{int(dm.group(2)):02d}-{int(dm.group(3)):02d}'
+            if pub:
+                d=pd.Timestamp(str(pub)[:10])
+                if d<base_ts or d>sess_ts:continue
+            default=''
+            title=it.get('title','')
+            if re.search(r'재개',title):default='INCLUDE'
+            elif re.search(r'정지',title):default='EXCLUDE'
+            effective=_v49767324_effective_date(body,pub)
+            if effective and pd.Timestamp(effective)>sess_ts:
+                attempts.append({'source':'DELTA_NOTICE','url':str(r.url),'title':title[:80],'http':int(r.status_code),'status':'FUTURE_EFFECTIVE_SKIP','effective':effective})
+                continue
+            # Broad target-set adjustment notices must prove an effective date; do not apply them early by publication date.
+            if re.search(r'한도\s*관리|매매체결대상종목\s*조정',title,re.I) and not effective:
+                unresolved.append({'title':title,'published':pub,'url':str(r.url),'reason':'EFFECTIVE_DATE_UNRESOLVED'})
+                attempts.append({'source':'DELTA_NOTICE','url':str(r.url),'title':title[:80],'http':int(r.status_code),'status':'EFFECTIVE_DATE_UNRESOLVED'})
+                continue
+            rows=_v49767324_extract_table_codes_and_actions(body,default)
+            # Explicit code/ISIN anywhere in body, only when title provides unambiguous direction.
+            if not rows and default:
+                for c in _v49767322_extract_codes_text(body,True,True):rows.append({'code':c,'action':default,'row':'BODY_CODE'})
+            # Adjustment notice: row-level direction is required. Do not guess all codes as excludes.
+            rows=[z for z in rows if z.get('action') in ('INCLUDE','EXCLUDE')]
+            attempts.append({'source':'DELTA_NOTICE','url':str(r.url),'title':title[:80],'http':int(r.status_code),'changes':len(rows),'effective':effective or pub})
+            if rows:
+                for z in rows:changes.append({**z,'title':title,'published':pub,'effective':effective or pub,'url':str(r.url)})
+            elif re.search(pat,title,re.I):
+                # A relevant notice with no resolvable code/action is a provenance warning. Do not silently invent delta.
+                unresolved.append({'title':title,'published':pub,'url':str(r.url),'reason':'NO_CODE_ACTION'})
+        except Exception as e:
+            unresolved.append({'title':it.get('title',''),'published':it.get('published',''),'url':it.get('url',''),'reason':_v49767322_clean_err(e)})
+            attempts.append({'source':'DELTA_NOTICE','url':it.get('url',''),'status':'ERROR','error':_v49767322_clean_err(e)})
+    # Sort causal order; same-day list order is left stable.
+    changes.sort(key=lambda z:(str(z.get('effective') or z.get('published',''))[:16],str(z.get('url','')),str(z.get('code',''))))
+    meta={'state':'OK' if not unresolved else 'PARTIAL','relevant_notices':len(relevant),'changes':len(changes),'unresolved':unresolved[:30]}
+    return changes,meta,attempts
+
+
+def _v49767324_apply_delta(base_codes:set,changes:list[dict]) -> tuple[set,dict]:
+    out=set(base_codes);inc=[];exc=[]
+    for z in changes:
+        c=str(z.get('code','')).zfill(6);a=str(z.get('action',''))
+        if not c.isdigit() or len(c)!=6:continue
+        if a=='EXCLUDE':out.discard(c);exc.append(c)
+        elif a=='INCLUDE':out.add(c);inc.append(c)
+    return out,{'include':len(set(inc)),'exclude':len(set(exc)),'include_codes':sorted(set(inc)),'exclude_codes':sorted(set(exc))}
+
+
+def _v49767324_fetch_current_active() -> tuple[set,str,list]:
+    """Optional complete positive source. Never use absence from a short/partial response as negative proof."""
+    attempts=[]
+    try:
+        r=_v49767322_http_get(CLOSING_BET_V49767324_NXT_ACTIVE_URL)
+        body=str(r.text or '');codes=_v49767322_extract_codes_text(body,True,True)
+        codes.update({z['code'] for z in _v49767324_extract_table_codes_and_actions(body,'INCLUDE')})
+        attempts.append({'source':'OFFICIAL_REGULAR_MARKET','url':str(r.url),'http':int(r.status_code),'codes':len(codes)})
+        if len(codes)>=int(CLOSING_BET_V49767324_NXT_ACTIVE_MIN_CODES):return codes,'OFFICIAL_REGULAR_MARKET_COMPLETE',attempts
+        return set(),f'REGULAR_MARKET_COUNT_LOW:{len(codes)}',attempts
+    except Exception as e:
+        attempts.append({'source':'OFFICIAL_REGULAR_MARKET','status':'ERROR','error':_v49767322_clean_err(e)})
+        return set(),'REGULAR_MARKET_FETCH_FAILED',attempts
+
+
+def _v49767324_save_session(day:str,codes:set,source:str,meta:dict):
+    vals=sorted(codes);obj={'state':'FROZEN','session_date':str(day)[:10],'source':source,'count':len(vals),'codes':vals,
+        'sha256':_v49767324_sha(vals),'base_count':int(meta.get('base_count',0) or 0),'delta_include':int(meta.get('delta_include',0) or 0),
+        'delta_exclude':int(meta.get('delta_exclude',0) or 0),'quarter_key':_v49767324_quarter_info(day)['key'],
+        'created_at_kst':_now_kst().strftime('%Y-%m-%d %H:%M:%S'),'version':CLOSING_BET_SCANNER_VERSION}
+    try:_v49767324_paths(day)['session'].write_text(json.dumps(obj,ensure_ascii=False,indent=2),encoding='utf-8')
+    except Exception:pass
+    # Also populate the legacy .2.2 same-session cache contract for gate-only restoration.
+    _v49767322_save_same_session_cache(set(codes),source,day)
+
+
+def _v49767324_write_delta(day:str,changes:list,meta:dict):
+    try:
+        _v49767324_paths(day)['delta'].write_text(json.dumps({'session_date':str(day)[:10],'changes':changes,'meta':meta,'version':CLOSING_BET_SCANNER_VERSION},ensure_ascii=False,indent=2,default=str),encoding='utf-8')
+    except Exception:pass
+
+
+def _v49765_fetch_nxt_codes(force: bool=False) -> tuple[set,str]:
+    """Official current-set OR quarterly BASE + causal official DELTA. Fail closed on unresolved authority."""
+    global _V49765_NXT_CACHE,_V49767324_LAST
+    if not bool(CLOSING_BET_V49765_NXT_ELIGIBILITY_ENABLE):return set(),'DISABLED'
+    if _V49765_NXT_CACHE.get('loaded') and not force and str(_V49765_NXT_CACHE.get('status',''))=='OK':
+        return set(_V49765_NXT_CACHE.get('codes',set()) or set()),'OK'
+    sess=_now_kst().strftime('%Y-%m-%d');attempts=[]
+    # Same-session frozen authoritative set first.
+    cc,cs=_v49767322_load_same_session_cache(sess);attempts.append({'source':'SAME_SESSION_CACHE','status':cs,'codes':len(cc)})
+    if cc:
+        src=cs;_V49765_NXT_CACHE={'loaded':True,'codes':set(cc),'status':'OK','error':'','count':len(cc)}
+        obj={'state':'OK','source':src,'count':len(cc),'attempts':attempts,'error':'','session_date':sess,'restored':True}
+        _V49767324_LAST=obj;_v49767322_write_diag(obj,sess);return set(cc),'OK'
+    # 1) Official regular-market complete positive list, if the server returns a sufficiently complete table.
+    ac,asrc,aa=_v49767324_fetch_current_active();attempts.extend(aa)
+    if ac:
+        meta={'base_count':len(ac),'delta_include':0,'delta_exclude':0};_v49767324_save_session(sess,ac,asrc,meta)
+        _V49765_NXT_CACHE={'loaded':True,'codes':set(ac),'status':'OK','error':'','count':len(ac)}
+        obj={'state':'OK','source':asrc,'count':len(ac),'base_count':len(ac),'delta_include':0,'delta_exclude':0,'attempts':attempts,'error':'','session_date':sess}
+        _V49767324_LAST=obj;_v49767322_write_diag(obj,sess);return set(ac),'OK'
+    # 2) Quarterly official BASE.
+    base,bmeta,ba=_v49767324_fetch_base_notice(sess);attempts.extend(ba)
+    if not base:
+        compact=_v49767322_compact_attempts(attempts)
+        status=f'RETRY_EXHAUSTED:NXT_BASE_UNAVAILABLE:{compact or bmeta.get("state","UNKNOWN")}'
+        _V49765_NXT_CACHE={'loaded':True,'codes':set(),'status':'FAILED','error':status,'count':0}
+        obj={'state':'FAILED','source':'NONE','count':0,'attempts':attempts,'error':status,'session_date':sess,'base_state':bmeta.get('state')}
+        _V49767324_LAST=obj;_v49767322_write_diag(obj,sess);return set(),status
+    # 3) Causal DELTA from quarter start through session. Partial/unresolved delta cannot silently authorize.
+    qi=_v49767324_quarter_info(sess);changes,dmeta,da=_v49767324_fetch_marketinfo_delta(sess,qi['start']);attempts.extend(da);_v49767324_write_delta(sess,changes,dmeta)
+    if str(dmeta.get('state',''))!='OK':
+        unresolved=dmeta.get('unresolved',[]) or []
+        u='|'.join([f"{x.get('published','')}:{x.get('title','')}:{x.get('reason','')}" for x in unresolved[:4]])[:360]
+        status=f'NXT_DELTA_AUTHORITY_PARTIAL:{u or "UNRESOLVED_NOTICE"}'
+        _V49765_NXT_CACHE={'loaded':True,'codes':set(),'status':'FAILED','error':status,'count':0}
+        obj={'state':'FAILED','source':'OFFICIAL_BASE_DELTA','count':0,'base_count':len(base),'attempts':attempts,'error':status,'session_date':sess,'delta_meta':dmeta}
+        _V49767324_LAST=obj;_v49767322_write_diag(obj,sess);return set(),status
+    final,dm=_v49767324_apply_delta(base,changes)
+    if len(final)<int(CLOSING_BET_V49765_NXT_MIN_CODES):
+        status=f'NXT_BASE_DELTA_COUNT_LOW:{len(final)}'
+        _V49765_NXT_CACHE={'loaded':True,'codes':set(),'status':'FAILED','error':status,'count':0}
+        obj={'state':'FAILED','source':'OFFICIAL_BASE_DELTA','count':0,'base_count':len(base),'attempts':attempts,'error':status,'session_date':sess,'delta_meta':dm}
+        _V49767324_LAST=obj;_v49767322_write_diag(obj,sess);return set(),status
+    src='OFFICIAL_BASE_DELTA';meta={'base_count':len(base),'delta_include':dm['include'],'delta_exclude':dm['exclude']}
+    _v49767324_save_session(sess,final,src,meta)
+    _V49765_NXT_CACHE={'loaded':True,'codes':set(final),'status':'OK','error':'','count':len(final)}
+    obj={'state':'OK','source':src,'count':len(final),'base_count':len(base),'delta_include':dm['include'],'delta_exclude':dm['exclude'],
+         'quarter_key':qi['key'],'sha256':_v49767324_sha(final),'attempts':attempts,'error':'','session_date':sess,'base_source':bmeta.get('source','')}
+    _V49767324_LAST=obj;_v49767322_write_diag(obj,sess);return set(final),'OK'
+
+
+# Richer NXT provenance + always expose engine state during AFTER FINAL.
+_V49767324_BASE_ACTION_PANEL=_v49765_action_panel
+
+def _v49765_action_panel(decision: dict,data_date=None):
+    text,has,res=_V49767324_BASE_ACTION_PANEL(decision,data_date)
+    try:
+        d=dict(globals().get('_V49767324_LAST',{}) or globals().get('_V49767322_NXT_DIAG',{}) or {})
+        lines=str(text).split('\n');new=[]
+        for x in lines:
+            if x.startswith('- NXT provenance:') and d:
+                src=str(d.get('source','-'));cnt=int(d.get('count',0) or 0);base=int(d.get('base_count',0) or 0)
+                di=int(d.get('delta_include',0) or 0);de=int(d.get('delta_exclude',0) or 0)
+                x=f'- NXT provenance: {src} · codes {cnt}'
+                if base:x+=f' · base {base} · delta +{di}/-{de}'
+                x+=f" · attempts {len(d.get('attempts',[]) or [])}"
+                if str(d.get('state',''))=='FAILED':x+=f" · {str(d.get('error',''))[:180]}"
+            new.append(x)
+        text='\n'.join(new)
+        # If NXT is the blocking gate but the final engine already reached a valid LIVE baseline,
+        # expose that engine validity explicitly rather than making the top panel look engine-unknown.
+        if str(os.environ.get('CLOSING_BET_RUN_MODE',globals().get('CLOSING_BET_RUN_MODE','')) or '').lower()=='after_final':
+            if 'AFTER FINAL engine:' not in text:
+                st=dict(globals().get('_V497667_FAST_STATE',{}) or {})
+                if str(st.get('state','')).upper()=='VALID':
+                    ln=(f"- ⚡ AFTER FINAL engine: VALID · final {int(st.get('final_codes',0) or 0)}/{int(st.get('target_codes',CLOSING_BET_V497672_CANONICAL_UNIVERSE_TARGET) or CLOSING_BET_V497672_CANONICAL_UNIVERSE_TARGET)}"
+                        f" · coverage {float(st.get('coverage_pct',0) or 0):.1f}% · source {st.get('execution_source','-')}")
+                    ls=text.split('\n');ls.insert(min(2,len(ls)),ln);text='\n'.join(ls)
+        text=str(text).replace('v49.76.6.7.3.2.3','v49.76.6.7.3.2.4')
+        text=re.sub(r'(🚦 \[사용자 행동 결론 · [^\]]+\] \| )v[0-9.]+',lambda m:m.group(1)+CLOSING_BET_RELEASE_TAG,text,count=1)
+    except Exception:pass
+    return text,has,res
+
+# =============================================================
+# ✅ END V49.76.6.7.3.2.4 NXT OFFICIAL BASE+DELTA AUTHORITY
 # =============================================================
 
 if __name__ == '__main__':
