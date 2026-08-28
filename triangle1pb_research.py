@@ -32,7 +32,7 @@ import pandas as pd
 
 SCHEMA = "TRIANGLE1PB_RESEARCH_SCHEMA_V1"
 STRATEGY_ID = "TRIANGLE1PB_R1_CHRONOLOGY_FIRST"
-LOADER_REVISION = "TRIANGLE1PB_R1_2_GATE_OBSERVABILITY"
+LOADER_REVISION = "TRIANGLE1PB_R1_3_STRUCTURE_FIDELITY_AUDIT"
 RESEARCH_AUTHORITY = "RESEARCH_ONLY_NO_LIVE_NO_POLICY_NO_ORDERS"
 STAGES = [
     "TRI_SQUEEZE",
@@ -582,6 +582,307 @@ def _finite(v: Any) -> Any:
     return v
 
 
+
+def _audit_ratio(a: Any, b: Any) -> float:
+    aa = _safe_num(a)
+    bb = _safe_num(b)
+    if not (math.isfinite(aa) and math.isfinite(bb)) or bb == 0:
+        return float("nan")
+    return float(aa / bb)
+
+
+def _audit_close_location_pct(row: pd.Series) -> float:
+    hi = _safe_num(row.get("high"))
+    lo = _safe_num(row.get("low"))
+    cl = _safe_num(row.get("close"))
+    if not (math.isfinite(hi) and math.isfinite(lo) and math.isfinite(cl)) or hi <= lo:
+        return float("nan")
+    return float((cl - lo) / (hi - lo) * 100.0)
+
+
+def _audit_upper_wick_pct(row: pd.Series) -> float:
+    hi = _safe_num(row.get("high"))
+    op = _safe_num(row.get("open"))
+    cl = _safe_num(row.get("close"))
+    if not (math.isfinite(hi) and math.isfinite(op) and math.isfinite(cl)) or cl <= 0:
+        return float("nan")
+    return float(max(0.0, hi - max(op, cl)) / cl * 100.0)
+
+
+def _audit_obv(close: pd.Series, volume: pd.Series) -> pd.Series:
+    c = pd.to_numeric(close, errors="coerce")
+    v = pd.to_numeric(volume, errors="coerce").fillna(0.0)
+    direction = np.sign(c.diff().fillna(0.0))
+    return (direction * v).cumsum()
+
+
+def _audit_bb40_width_pct(close: pd.Series) -> pd.Series:
+    c = pd.to_numeric(close, errors="coerce")
+    ma = c.rolling(40, min_periods=40).mean()
+    sd = c.rolling(40, min_periods=40).std(ddof=0)
+    return (4.0 * sd / ma.replace(0, np.nan) * 100.0)
+
+
+def build_structure_fidelity_row(
+    code: str,
+    df: pd.DataFrame,
+    squeeze_end_idx: int,
+    geom: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Descriptive audit only; never used by the TRIANGLE1PB state machine."""
+    row = df.iloc[squeeze_end_idx]
+    squeeze_date = pd.Timestamp(row["date"])
+    pre60 = df.iloc[max(0, squeeze_end_idx - 59):squeeze_end_idx + 1].copy()
+    post15 = df.iloc[squeeze_end_idx + 1:min(len(df), squeeze_end_idx + 16)].copy()
+
+    vol = pd.to_numeric(pre60["volume"], errors="coerce") if "volume" in pre60 else pd.Series(dtype=float)
+    amt = pd.to_numeric(pre60["amount"], errors="coerce") if "amount" in pre60 else pd.Series(dtype=float)
+    close = pd.to_numeric(pre60["close"], errors="coerce")
+
+    vma20 = vol.rolling(20, min_periods=10).mean() if len(vol) else pd.Series(dtype=float)
+    ama20 = amt.rolling(20, min_periods=10).mean() if len(amt) else pd.Series(dtype=float)
+    vr = vol / vma20.replace(0, np.nan) if len(vol) else pd.Series(dtype=float)
+    ar = amt / ama20.replace(0, np.nan) if len(amt) else pd.Series(dtype=float)
+
+    vol_spike_15 = int((vr >= 1.5).fillna(False).sum()) if len(vr) else 0
+    vol_spike_20 = int((vr >= 2.0).fillna(False).sum()) if len(vr) else 0
+    amt_spike_15 = int((ar >= 1.5).fillna(False).sum()) if len(ar) else 0
+    amt_spike_20 = int((ar >= 2.0).fillna(False).sum()) if len(ar) else 0
+
+    # Legacy "accumulation bar" observation tag only:
+    # Volume >= 2x its prior/rolling context + upper wick >= 3%.
+    legacy_accum = 0
+    for j in range(len(pre60)):
+        rr = pre60.iloc[j]
+        vratio = _safe_num(vr.iloc[j]) if j < len(vr) else float("nan")
+        wick = _audit_upper_wick_pct(rr)
+        if math.isfinite(vratio) and vratio >= 2.0 and math.isfinite(wick) and wick >= 3.0:
+            legacy_accum += 1
+
+    obv_change10 = float("nan")
+    if len(pre60) >= 12 and "volume" in pre60:
+        obv = _audit_obv(pre60["close"], pre60["volume"])
+        a0 = _safe_num(obv.iloc[-11])
+        a1 = _safe_num(obv.iloc[-1])
+        if math.isfinite(a0) and math.isfinite(a1):
+            obv_change10 = float((a1 - a0) / max(abs(a0), 1.0))
+
+    bbw = _audit_bb40_width_pct(close)
+    bb_now = _safe_num(bbw.iloc[-1]) if len(bbw) else float("nan")
+    bb_10ago = _safe_num(bbw.iloc[-11]) if len(bbw) >= 11 else float("nan")
+    bb_ratio10 = _audit_ratio(bb_now, bb_10ago)
+
+    sq_close = _safe_num(row.get("close"))
+    upper_next = _safe_num(geom.get("projected_upper_next"))
+
+    # Post-event look-forward audit only. It is explicitly excluded from all gates.
+    wave1_found = 0
+    wave1_abs_idx = -1
+    wave1_date = ""
+    wave1_close_ret_pct = float("nan")
+    wave1_high_ret_pct = float("nan")
+    wave1_volume20_ratio = float("nan")
+    wave1_amount20_ratio = float("nan")
+    wave1_close_loc_pct = float("nan")
+    max_high_ret15 = float("nan")
+
+    if len(post15) and math.isfinite(sq_close) and sq_close > 0:
+        ph = pd.to_numeric(post15["high"], errors="coerce")
+        if ph.notna().any():
+            max_high_ret15 = float((ph.max() / sq_close - 1.0) * 100.0)
+
+        for off in range(1, len(post15) + 1):
+            rr = df.iloc[squeeze_end_idx + off]
+            cl = _safe_num(rr.get("close"))
+            hi = _safe_num(rr.get("high"))
+            price_cross = math.isfinite(upper_next) and math.isfinite(cl) and cl > upper_next
+            impulse5 = math.isfinite(cl) and cl >= sq_close * 1.05
+            if not (price_cross or impulse5):
+                continue
+            wave1_found = 1
+            wave1_abs_idx = squeeze_end_idx + off
+            wave1_date = str(pd.Timestamp(rr["date"]).date())
+            wave1_close_ret_pct = float((cl / sq_close - 1.0) * 100.0) if cl > 0 else float("nan")
+            wave1_high_ret_pct = float((hi / sq_close - 1.0) * 100.0) if hi > 0 else float("nan")
+            wave1_close_loc_pct = _audit_close_location_pct(rr)
+            prior20 = df.iloc[max(0, wave1_abs_idx - 20):wave1_abs_idx]
+            vavg = pd.to_numeric(prior20["volume"], errors="coerce").mean() if "volume" in prior20 else float("nan")
+            aavg = pd.to_numeric(prior20["amount"], errors="coerce").mean() if "amount" in prior20 else float("nan")
+            wave1_volume20_ratio = _audit_ratio(rr.get("volume"), vavg)
+            wave1_amount20_ratio = _audit_ratio(rr.get("amount"), aavg)
+            break
+
+    pullback_found = 0
+    pullback_date = ""
+    pullback_dd_pct = float("nan")
+    pullback_vol_vs_wave1 = float("nan")
+    pullback_amt_vs_wave1 = float("nan")
+    pullback_support_sq_close = 0
+    restart_after_pullback = 0
+
+    if wave1_found and wave1_abs_idx >= 0:
+        wave1_row = df.iloc[wave1_abs_idx]
+        wave1_vol = _safe_num(wave1_row.get("volume"))
+        wave1_amt = _safe_num(wave1_row.get("amount"))
+        wave_high = _safe_num(wave1_row.get("high"))
+        pb_idx = -1
+
+        for k in range(wave1_abs_idx + 1, min(len(df), wave1_abs_idx + 9)):
+            rr = df.iloc[k]
+            wave_high = max(wave_high, _safe_num(rr.get("high")))
+            cl = _safe_num(rr.get("close"))
+            prev_cl = _safe_num(df.iloc[k - 1].get("close"))
+            dd = float((cl / wave_high - 1.0) * 100.0) if wave_high > 0 and cl > 0 else float("nan")
+            if math.isfinite(dd) and dd <= -2.0 and cl < prev_cl:
+                pullback_found = 1
+                pb_idx = k
+                pullback_date = str(pd.Timestamp(rr["date"]).date())
+                pullback_dd_pct = dd
+                pullback_vol_vs_wave1 = _audit_ratio(rr.get("volume"), wave1_vol)
+                pullback_amt_vs_wave1 = _audit_ratio(rr.get("amount"), wave1_amt)
+                pullback_support_sq_close = int(math.isfinite(cl) and cl >= sq_close)
+                break
+
+        if pb_idx >= 0:
+            for k in range(pb_idx + 1, min(len(df), pb_idx + 6)):
+                rr = df.iloc[k]
+                prev = df.iloc[k - 1]
+                if (
+                    _safe_num(rr.get("close")) > _safe_num(prev.get("high"))
+                    and _safe_num(rr.get("close")) > _safe_num(rr.get("open"))
+                ):
+                    restart_after_pullback = 1
+                    break
+
+    r2_min = min(_safe_num(geom.get("upper_r2")), _safe_num(geom.get("lower_r2")))
+    contraction = _safe_num(geom.get("contraction_ratio"))
+    width_end = _safe_num(geom.get("width_end_pct"))
+    shape_score = 0.0
+    if math.isfinite(r2_min):
+        shape_score += max(0.0, min(1.0, r2_min)) * 40.0
+    if math.isfinite(contraction):
+        shape_score += max(0.0, min(1.0, 1.0 - contraction)) * 35.0
+    if math.isfinite(width_end):
+        shape_score += max(0.0, 1.0 - abs(width_end - 0.06) / 0.06) * 25.0
+
+    return {
+        "schema": SCHEMA,
+        "strategy_id": STRATEGY_ID,
+        "audit_version": "TRIANGLE1PB_R1_3_STRUCTURE_FIDELITY_AUDIT_1",
+        "audit_role": "DESCRIPTIVE_ONLY_NOT_A_GATE",
+        "post_event_fields_use_future_data": 1,
+        "used_as_strategy_gate": 0,
+        "legacy_accumulation_bar_used_as_gate": 0,
+        "code": code,
+        "squeeze_date": str(squeeze_date.date()),
+        "shape_score": round(shape_score, 6),
+        "upper_r2": _safe_num(geom.get("upper_r2")),
+        "lower_r2": _safe_num(geom.get("lower_r2")),
+        "contraction_ratio": contraction,
+        "width_end_pct": width_end,
+        "upper_slope_pct_per_bar": _safe_num(geom.get("upper_slope_pct_per_bar")),
+        "lower_slope_pct_per_bar": _safe_num(geom.get("lower_slope_pct_per_bar")),
+        "pre60_volume_spike_1p5_count": vol_spike_15,
+        "pre60_volume_spike_2p0_count": vol_spike_20,
+        "pre60_amount_spike_1p5_count": amt_spike_15,
+        "pre60_amount_spike_2p0_count": amt_spike_20,
+        "pre60_legacy_accumulation_bar_count": int(legacy_accum),
+        "pre10_obv_relative_change": obv_change10,
+        "bb40_width_pct_at_squeeze": bb_now,
+        "bb40_width_10bars_ago_pct": bb_10ago,
+        "bb40_contraction_ratio_10bar": bb_ratio10,
+        "post15_wave1_found": int(wave1_found),
+        "wave1_date": wave1_date,
+        "wave1_close_ret_pct": wave1_close_ret_pct,
+        "wave1_high_ret_pct": wave1_high_ret_pct,
+        "wave1_volume20_ratio": wave1_volume20_ratio,
+        "wave1_amount20_ratio": wave1_amount20_ratio,
+        "wave1_close_location_pct": wave1_close_loc_pct,
+        "post15_max_high_ret_pct": max_high_ret15,
+        "first_pullback_found": int(pullback_found),
+        "first_pullback_date": pullback_date,
+        "pullback_from_wave_high_pct": pullback_dd_pct,
+        "pullback_volume_vs_wave1": pullback_vol_vs_wave1,
+        "pullback_amount_vs_wave1": pullback_amt_vs_wave1,
+        "pullback_support_above_squeeze_close": int(pullback_support_sq_close),
+        "restart_after_pullback_found": int(restart_after_pullback),
+    }
+
+
+def build_structure_manual_review_sample(audit: pd.DataFrame, n_each: int = 8) -> pd.DataFrame:
+    if audit is None or audit.empty:
+        return pd.DataFrame()
+    parts: List[pd.DataFrame] = []
+
+    def add(bucket: str, frame: pd.DataFrame) -> None:
+        if frame is None or frame.empty:
+            return
+        x = frame.head(n_each).copy()
+        x.insert(0, "review_bucket", bucket)
+        parts.append(x)
+
+    add("SHAPE_ONLY_TOP", audit.sort_values(["shape_score","code","squeeze_date"], ascending=[False,True,True]))
+
+    x = audit.copy()
+    x["_pre_energy"] = (
+        pd.to_numeric(x["pre60_volume_spike_2p0_count"], errors="coerce").fillna(0) * 2.0
+        + pd.to_numeric(x["pre60_amount_spike_2p0_count"], errors="coerce").fillna(0) * 2.0
+        + pd.to_numeric(x["pre60_legacy_accumulation_bar_count"], errors="coerce").fillna(0)
+        + pd.to_numeric(x["pre10_obv_relative_change"], errors="coerce").fillna(0).clip(lower=0) * 5.0
+    )
+    add("PRE_ENERGY_TOP", x.sort_values(["_pre_energy","shape_score"], ascending=[False,False]))
+
+    post = audit[pd.to_numeric(audit["post15_wave1_found"], errors="coerce").fillna(0).astype(int).eq(1)].copy()
+    add("POST_WAVE1_AUDIT", post.sort_values(["wave1_high_ret_pct","shape_score"], ascending=[False,False]))
+
+    broad = audit.sort_values(["code","squeeze_date"]).copy()
+    if not broad.empty:
+        step = max(1, len(broad) // n_each)
+        add("DETERMINISTIC_BROAD", broad.iloc[::step])
+
+    if not parts:
+        return pd.DataFrame()
+    out = pd.concat(parts, ignore_index=True, sort=False)
+    if "_pre_energy" in out.columns:
+        out = out.drop(columns=["_pre_energy"])
+    out = out.drop_duplicates(["review_bucket","code","squeeze_date"]).reset_index(drop=True)
+    out["manual_triangle_shape"] = "UNREVIEWED"
+    out["manual_pre_energy_accumulation"] = "UNREVIEWED"
+    out["manual_wave1"] = "UNREVIEWED"
+    out["manual_first_pullback"] = "UNREVIEWED"
+    out["manual_notes"] = ""
+    return out
+
+
+def build_structure_review_bars(
+    sample: pd.DataFrame,
+    frames: Dict[str, pd.DataFrame],
+    pre_bars: int = 60,
+    post_bars: int = 20,
+) -> pd.DataFrame:
+    if sample is None or sample.empty:
+        return pd.DataFrame()
+    chunks = []
+    for _, sr in sample.iterrows():
+        code = str(sr.get("code") or "")
+        d = pd.to_datetime(sr.get("squeeze_date"), errors="coerce")
+        if code not in frames or pd.isna(d):
+            continue
+        df = frames[code]
+        idxs = df.index[pd.to_datetime(df["date"]).dt.normalize().eq(pd.Timestamp(d).normalize())]
+        if len(idxs) == 0:
+            continue
+        i = int(idxs[-1])
+        x = df.iloc[max(0, i-pre_bars):min(len(df), i+post_bars+1)].copy()
+        x.insert(0, "review_bucket", sr.get("review_bucket",""))
+        x.insert(1, "review_code", code)
+        x.insert(2, "review_squeeze_date", str(pd.Timestamp(d).date()))
+        x["relative_bar"] = np.arange(max(0, i-pre_bars), min(len(df), i+post_bars+1)) - i
+        keep = ["review_bucket","review_code","review_squeeze_date","relative_bar","date","open","high","low","close","volume","amount"]
+        chunks.append(x[[c for c in keep if c in x.columns]])
+    return pd.concat(chunks, ignore_index=True, sort=False) if chunks else pd.DataFrame()
+
+
 def detect_code(
     code: str,
     df: pd.DataFrame,
@@ -590,6 +891,7 @@ def detect_code(
     start: pd.Timestamp,
     end: pd.Timestamp,
     cfg: FrozenConfig,
+    structure_audit_sink: Optional[List[Dict[str, Any]]] = None,
 ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]], Dict[str, Any]]:
     events: List[Dict[str, Any]] = []
     signals: List[Dict[str, Any]] = []
@@ -668,6 +970,13 @@ def detect_code(
             diag["end_width_pass_windows"] += 1
         if geom.get("qualifies"):
             diag["squeeze_qualifying_windows"] += 1
+            if structure_audit_sink is not None:
+                try:
+                    structure_audit_sink.append(
+                        build_structure_fidelity_row(code, df, i - 1, geom)
+                    )
+                except Exception as audit_exc:
+                    diag["structure_audit_errors"] = int(diag.get("structure_audit_errors", 0)) + 1
             squeeze_streak += 1
             diag["max_squeeze_streak"] = max(int(diag["max_squeeze_streak"]), int(squeeze_streak))
             if squeeze_streak >= cfg.squeeze_min_consecutive_windows:
@@ -1087,13 +1396,17 @@ def run(args: argparse.Namespace) -> int:
     all_signals: List[Dict[str, Any]] = []
     all_rejects: List[Dict[str, Any]] = []
     all_gate_diags: List[Dict[str, Any]] = []
+    all_structure_audit: List[Dict[str, Any]] = []
     per_code_digest: Dict[str, str] = {}
     rerun_fail = 0
 
     for n, code in enumerate(codes, 1):
         df = frames[code]
         # Keep causal warmup and forward bars; detector itself enforces signal date range.
-        e, s, r, gd = detect_code(code, df, amount_sources.get(code, "MISSING"), universe, start, end, cfg)
+        e, s, r, gd = detect_code(
+            code, df, amount_sources.get(code, "MISSING"), universe, start, end, cfg,
+            structure_audit_sink=all_structure_audit,
+        )
         all_events.extend(e); all_signals.extend(s); all_rejects.extend(r); all_gate_diags.append(gd)
         payload = json.dumps(e, sort_keys=True, ensure_ascii=False, default=str, separators=(",", ":"))
         per_code_digest[code] = hashlib.sha256(payload.encode()).hexdigest()
@@ -1178,6 +1491,17 @@ def run(args: argparse.Namespace) -> int:
         **gate_totals,
     }])
 
+    structure_audit = pd.DataFrame(all_structure_audit)
+    if not structure_audit.empty:
+        structure_audit = (
+            structure_audit
+            .sort_values(["squeeze_date","code","shape_score"], ascending=[True,True,False])
+            .drop_duplicates(["code","squeeze_date"], keep="first")
+            .reset_index(drop=True)
+        )
+    structure_review = build_structure_manual_review_sample(structure_audit, n_each=8)
+    structure_review_bars = build_structure_review_bars(structure_review, frames)
+
     stage_counts = pd.DataFrame(
         [{"stage": st, "count": int((events["stage"] == st).sum()) if not events.empty else 0} for st in STAGES]
     )
@@ -1249,6 +1573,9 @@ def run(args: argparse.Namespace) -> int:
     _write_csv(outcomes, out / "tri_forward_outcomes.csv")
     _write_csv(stage_counts, out / "tri_stage_counts.csv")
     _write_csv(gate_totals_df, out / "tri_gate_diagnostics.csv")
+    _write_csv(structure_audit, out / "tri_structure_fidelity_audit.csv")
+    _write_csv(structure_review, out / "tri_structure_manual_review_sample.csv")
+    _write_csv(structure_review_bars, out / "tri_structure_review_bars.csv")
     _write_csv(
         gate_diag.sort_values(
             ["squeeze_qualifying_windows","max_squeeze_streak","breakout_price_cross"],
@@ -1287,6 +1614,17 @@ def run(args: argparse.Namespace) -> int:
         "asof_snapshot_dates": len(universe.dates),
         "stage_counts": {r["stage"]: int(r["count"]) for r in stage_counts.to_dict("records")},
         "gate_diagnostics": gate_totals,
+        "structure_fidelity_audit": {
+            "rows": int(len(structure_audit)),
+            "manual_review_rows": int(len(structure_review)),
+            "post_event_fields_use_future_data": 1,
+            "used_as_strategy_gate": 0,
+            "legacy_accumulation_bar_used_as_gate": 0,
+            "synthetic_close_x_volume_fallback_rows": 0,
+            "wave1_found_rows": int(pd.to_numeric(structure_audit.get("post15_wave1_found", pd.Series(dtype=float)), errors="coerce").fillna(0).sum()) if not structure_audit.empty else 0,
+            "first_pullback_found_rows": int(pd.to_numeric(structure_audit.get("first_pullback_found", pd.Series(dtype=float)), errors="coerce").fillna(0).sum()) if not structure_audit.empty else 0,
+            "restart_after_pullback_rows": int(pd.to_numeric(structure_audit.get("restart_after_pullback_found", pd.Series(dtype=float)), errors="coerce").fillna(0).sum()) if not structure_audit.empty else 0,
+        },
         "restart_signals": int(len(signals)),
         "invariant_fail": invariant_fail,
         "lookahead_fail": lookahead_fail,
@@ -1300,6 +1638,8 @@ def run(args: argparse.Namespace) -> int:
         out / "tri_chronology_audit.csv", out / "tri_lookahead_audit.csv", out / "tri_invariant_audit.csv",
         out / "tri_amount_authority_audit.csv", out / "tri_asof_universe_audit.csv",
         out / "tri_gate_diagnostics.csv", out / "tri_code_gate_diagnostics.csv",
+        out / "tri_structure_fidelity_audit.csv", out / "tri_structure_manual_review_sample.csv",
+        out / "tri_structure_review_bars.csv",
     ]
     h = hashlib.sha256()
     for p in authority_files:
@@ -1315,6 +1655,7 @@ def run(args: argparse.Namespace) -> int:
         "execution_policy=NONE; outcomes are neutral D+1 OPEN event-study only",
         f"stage_counts={manifest['stage_counts']}",
         f"gate_diagnostics={gate_totals}",
+        f"structure_fidelity_audit={json.dumps(manifest['structure_fidelity_audit'], ensure_ascii=False, sort_keys=True)}",
         f"restart_signals={len(signals)}",
         f"actual_amount_coverage_pct={amount_coverage:.2f}; synthetic_close_x_volume_fallback=0",
         f"asof_snapshot_dates={len(universe.dates)}; future_snapshot_fallback=0",
@@ -1328,6 +1669,22 @@ def run(args: argparse.Namespace) -> int:
     ]
     (out / "tri_report.txt").write_text("\n".join(report) + "\n", encoding="utf-8")
     print("\n".join(report))
+    if not structure_review.empty:
+        print("TRIANGLE1PB_STRUCTURE_REVIEW_SAMPLE_BEGIN")
+        show_cols = [
+            "review_bucket","code","squeeze_date","shape_score",
+            "pre60_volume_spike_2p0_count","pre60_amount_spike_2p0_count",
+            "pre60_legacy_accumulation_bar_count","pre10_obv_relative_change",
+            "bb40_width_pct_at_squeeze","post15_wave1_found","wave1_date",
+            "wave1_high_ret_pct","wave1_volume20_ratio","wave1_amount20_ratio",
+            "first_pullback_found","pullback_from_wave_high_pct",
+            "pullback_volume_vs_wave1","pullback_amount_vs_wave1",
+            "restart_after_pullback_found",
+        ]
+        show_cols = [c for c in show_cols if c in structure_review.columns]
+        for rec in structure_review[show_cols].head(32).to_dict("records"):
+            print("TRIANGLE1PB_STRUCTURE_REVIEW", json.dumps(rec, ensure_ascii=False, sort_keys=True, default=str))
+        print("TRIANGLE1PB_STRUCTURE_REVIEW_SAMPLE_END")
     return 0 if invariant_fail == 0 else 31
 
 
