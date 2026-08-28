@@ -1,4 +1,4 @@
-name: Run Main Scanner V1107.4.5.73.3.6.6.25.4.10-HF1 CORE224 LIVE Cache Bridge + Backtest
+name: Run Main Scanner V1107.4.5.73.3.6.6.25.4.11-HF3 CORE224 Lightweight Current-Seed Refresh + Cache Bridge
 
 on:
   schedule:
@@ -2236,13 +2236,18 @@ jobs:
 
       - name: Restore CORE224 live base from latest V21 research cache
         if: env.STOCKHUNTER_WEEKLY_BACKTEST_ONLY != '1'
+        id: v25-core224-base-restore
         uses: actions/cache/restore@v4
         with:
+          # Keep this path set byte-for-byte aligned with the V21 replay save path set.
+          # actions/cache versions include the cached path set; omitting replay_checkpoint made
+          # the existing V21 research cache invisible to CORE224_LIVE despite a matching prefix.
           path: |
             reports/.cache/v20_price_history
             reports/.cache/v20_asof_snapshots
             reports/.cache/v25_actual_amount_history
             reports/.cache/v25_core224_live
+            reports/.cache/v20_replay_checkpoint
           key: stockhunter-v25-core224-base-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
             stockhunter-v21-replay-${{ github.ref_name }}-
@@ -2252,8 +2257,12 @@ jobs:
         id: v25-core224-live-restore
         uses: actions/cache/restore@v4
         with:
+          # HF3 persists the incremental current-data cache together with the seed so the next
+          # CORE224_LIVE run does not fall back to an old V21 price snapshot.
           path: |
+            reports/.cache/v20_price_history
             reports/.cache/v20_asof_snapshots
+            reports/.cache/v25_actual_amount_history
             reports/.cache/v25_core224_live
           key: stockhunter-v25-core224-live-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
@@ -2264,16 +2273,19 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p reports/.cache/v20_price_history reports/.cache/v20_asof_snapshots reports/.cache/v25_actual_amount_history reports/.cache/v25_core224_live
-          echo "V25_LIVE_RESTORE matched=${{ steps.v25-core224-live-restore.outputs.cache-matched-key }}"
+          mkdir -p reports/.cache/v20_price_history reports/.cache/v20_asof_snapshots reports/.cache/v25_actual_amount_history reports/.cache/v25_core224_live reports/.cache/v20_replay_checkpoint
+          echo "V25_LIVE_BASE_RESTORE matched=${{ steps.v25-core224-base-restore.outputs.cache-matched-key }}"
+          echo "V25_LIVE_OVERLAY_RESTORE matched=${{ steps.v25-core224-live-restore.outputs.cache-matched-key }}"
           seed_meta=$(test -f reports/.cache/v25_core224_live/seed_meta.json && echo READY || echo MISSING)
           policy_manifest=$(test -f reports/.cache/v25_core224_live/policy_lock_manifest.csv && echo READY || echo MISSING)
           price_files=$(find reports/.cache/v20_price_history -type f 2>/dev/null | wc -l | tr -d ' ')
+          asof_files=$(find reports/.cache/v20_asof_snapshots -type f 2>/dev/null | wc -l | tr -d ' ')
+          amount_files=$(find reports/.cache/v25_actual_amount_history -type f 2>/dev/null | wc -l | tr -d ' ')
           eod_rows=$(python -c "import os,pandas as pd; p='reports/.cache/v25_core224_live/live_eod_snapshot_ledger.csv'; print(len(pd.read_csv(p)) if os.path.exists(p) else 0)")
           if [ "$policy_manifest" = "READY" ]; then
             cp -f reports/.cache/v25_core224_live/policy_lock_manifest.csv reports/v73_v25_core224_policy_lock_manifest.csv
           fi
-          echo "V25_LIVE_RESTORE seed_meta=${seed_meta} policy_manifest=${policy_manifest} price_files=${price_files} eod_rows=${eod_rows}"
+          echo "V25_LIVE_RESTORE seed_meta=${seed_meta} policy_manifest=${policy_manifest} price_files=${price_files} asof_files=${asof_files} amount_files=${amount_files} eod_rows=${eod_rows}"
 
       - name: Download V23 same-run materialized shard handoffs
         if: env.STOCKHUNTER_WEEKLY_BACKTEST_ONLY == '1' && env.V1081_BACKTEST_SOURCE == 'DIRECT_REPLAY'
@@ -2683,6 +2695,83 @@ jobs:
           sys.exit(0 if st in ('SHEET_HYDRATE_OK','SHEET_DEFERRED_QUOTA') else 149)
           PY
 
+      - name: Refresh current CORE224 LIVE seed (lightweight no-hold, one date)
+        if: env.STOCKHUNTER_CORE224_LIVE_ONLY == '1'
+        timeout-minutes: 45
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PYTHONPATH="${GITHUB_WORKSPACE}:${GITHUB_WORKSPACE}/scanner:${PYTHONPATH:-}"
+          SCRIPT="main7_bugfix_2.py"
+          test -f "$SCRIPT" || { echo "❌ CORE224 seed refresh root script missing"; exit 221; }
+          test -f v25_core224_live_seed_builder.py || { echo "❌ CORE224 seed builder missing"; exit 222; }
+
+          price_before=$(find reports/.cache/v20_price_history -type f 2>/dev/null | wc -l | tr -d ' ')
+          asof_before=$(find reports/.cache/v20_asof_snapshots -type f 2>/dev/null | wc -l | tr -d ' ')
+          echo "V25_CURRENT_LIVE_SEED_PREFLIGHT price_files=${price_before} asof_files=${asof_before} base_matched=${{ steps.v25-core224-base-restore.outputs.cache-matched-key }} overlay_matched=${{ steps.v25-core224-live-restore.outputs.cache-matched-key }}"
+          # The already-computed V21 research cache is the raw-data/cache authority here.
+          # No 2-year parent recomputation is permitted in CORE224_LIVE.
+          test "$price_before" -gt 0 || { echo "❌ V25_CURRENT_LIVE_SEED_NO_PRICE_BASE_CACHE"; exit 223; }
+
+          current_live_end=$(python -c "from datetime import datetime,timedelta; from zoneinfo import ZoneInfo; now=datetime.now(ZoneInfo('Asia/Seoul')); d=now.date()-(timedelta(days=1) if (now.hour,now.minute)<(15,40) else timedelta(0)); exec('while d.weekday() >= 5: d -= timedelta(days=1)'); print(d.isoformat())")
+          test -n "$current_live_end"
+          echo "V25_CURRENT_LIVE_END_DATE=$current_live_end" >> "$GITHUB_ENV"
+          echo "V25_CURRENT_LIVE_SEED_REFRESH start current_end=${current_live_end} mode=ONE_DATE_NO_HOLD historical_parent_recompute=0"
+
+          backup_dir="$(mktemp -d)"
+          restore_seed_backup() {
+            rm -f reports/.cache/v25_core224_live/seed_meta.json reports/.cache/v25_core224_live/weekly_seed_snapshot.csv reports/.cache/v25_core224_live/seed_universe.csv
+            for f in seed_meta.json weekly_seed_snapshot.csv seed_universe.csv; do
+              if [ -f "$backup_dir/$f" ]; then cp -f "$backup_dir/$f" "reports/.cache/v25_core224_live/$f"; fi
+            done
+          }
+          for f in seed_meta.json weekly_seed_snapshot.csv seed_universe.csv; do
+            if [ -f "reports/.cache/v25_core224_live/$f" ]; then cp -f "reports/.cache/v25_core224_live/$f" "$backup_dir/$f"; fi
+          done
+          trap 'rc=$?; echo "❌ V25_CURRENT_LIVE_SEED_REFRESH failed rc=$rc; restoring previous seed"; restore_seed_backup; rm -rf "$backup_dir"; exit $rc' ERR
+
+          rm -rf reports/v25_live_seed_build
+          mkdir -p reports/v25_live_seed_build reports/.cache/v25_core224_live
+          rm -f reports/.cache/v25_core224_live/seed_meta.json reports/.cache/v25_core224_live/weekly_seed_snapshot.csv reports/.cache/v25_core224_live/seed_universe.csv
+
+          env \
+            TEST_PROFILE=WEEKLY_BACKTEST \
+            STOCKHUNTER_WEEKLY_BACKTEST_ONLY=1 \
+            STOCKHUNTER_CORE224_LIVE_ONLY=0 \
+            V25_CORE224_LIVE_ENABLE=0 \
+            V1081_BACKTEST_SOURCE=DIRECT_REPLAY \
+            V1081_DIRECT_DATE_MODE=WEEK_LAST \
+            V25_CURRENT_LIVE_END_DATE="$current_live_end" \
+            V25_TWO_YEAR_END_DATE="$current_live_end" \
+            V1080_BACKTEST_OUTPUT_DIR=reports/v25_live_seed_build \
+            V1080_BACKTEST_HOLD_DAYS=0 \
+            V1080_BACKTEST_WEEKS=1 \
+            V1081_DIRECT_MAX_DATES=1 \
+            V23_SHARD_COUNT=1 \
+            V23_SHARD_INDEX=0 \
+            V23_SHARD_WORKER_ONLY=1 \
+            V23_MERGE_ONLY_PARENT=0 \
+            V23_ZERO_RECOMPUTE=1 \
+            V23_MATERIALIZED_DIR=reports/v25_live_seed_build/v23_materialized \
+            V25_COHORT_MODE=D \
+            python -u "$SCRIPT"
+
+          python -u v25_core224_live_seed_builder.py \
+            --source-dir reports/v25_live_seed_build \
+            --output-dir reports \
+            --expected-end "$current_live_end"
+
+          test -f reports/.cache/v25_core224_live/seed_meta.json
+          test -f reports/.cache/v25_core224_live/weekly_seed_snapshot.csv
+          test -f reports/.cache/v25_core224_live/seed_universe.csv
+          python -c "import json; d=json.load(open('reports/.cache/v25_core224_live/seed_meta.json',encoding='utf-8')); print('V25_CURRENT_LIVE_SEED_REFRESH','snapshot',d.get('weekly_snapshot_date','-'),'seed_count',d.get('seed_count',0),'calendar_complete',d.get('snapshot_calendar_complete',0),'source',d.get('source','-'),'seed_policy_hint',d.get('policy_lock_status','MISSING')); assert d.get('source')=='CURRENT_NO_HOLD_TOP500_MATERIALIZED_V23'; assert int(d.get('snapshot_calendar_complete',0))==1; assert str(d.get('weekly_snapshot_date',''))=='${current_live_end}', 'V25_CURRENT_LIVE_SEED_DATE_MISMATCH'"
+          price_after=$(find reports/.cache/v20_price_history -type f 2>/dev/null | wc -l | tr -d ' ')
+          asof_after=$(find reports/.cache/v20_asof_snapshots -type f 2>/dev/null | wc -l | tr -d ' ')
+          policy_manifest=$(test -f reports/.cache/v25_core224_live/policy_lock_manifest.csv && echo READY || echo MISSING)
+          echo "V25_CURRENT_LIVE_SEED_REFRESH READY current_end=${current_live_end} price_files=${price_before}->${price_after} asof_files=${asof_before}->${asof_after} policy_manifest=${policy_manifest} execution_authority=UNCHANGED_FAIL_CLOSED"
+          trap - ERR
+          rm -rf "$backup_dir"
+
       - name: Run scanner or weekly backtest
         id: scanner-main
         timeout-minutes: 205
@@ -2944,7 +3033,9 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: |
+            reports/.cache/v20_price_history
             reports/.cache/v20_asof_snapshots
+            reports/.cache/v25_actual_amount_history
             reports/.cache/v25_core224_live
           key: stockhunter-v25-core224-live-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
 
