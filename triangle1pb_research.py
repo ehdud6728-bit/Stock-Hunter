@@ -32,7 +32,7 @@ import pandas as pd
 
 SCHEMA = "TRIANGLE1PB_RESEARCH_SCHEMA_V1"
 STRATEGY_ID = "TRIANGLE1PB_R1_CHRONOLOGY_FIRST"
-LOADER_REVISION = "TRIANGLE1PB_R1_3_STRUCTURE_FIDELITY_AUDIT"
+LOADER_REVISION = "TRIANGLE1PB_R1_3_1_STRUCTURE_AUDIT_FIX"
 RESEARCH_AUTHORITY = "RESEARCH_ONLY_NO_LIVE_NO_POLICY_NO_ORDERS"
 STAGES = [
     "TRI_SQUEEZE",
@@ -583,27 +583,35 @@ def _finite(v: Any) -> Any:
 
 
 
+def _audit_num(v: Any) -> float:
+    try:
+        x = float(v)
+    except Exception:
+        return float("nan")
+    return x if math.isfinite(x) else float("nan")
+
+
 def _audit_ratio(a: Any, b: Any) -> float:
-    aa = _safe_num(a)
-    bb = _safe_num(b)
+    aa = _audit_num(a)
+    bb = _audit_num(b)
     if not (math.isfinite(aa) and math.isfinite(bb)) or bb == 0:
         return float("nan")
     return float(aa / bb)
 
 
 def _audit_close_location_pct(row: pd.Series) -> float:
-    hi = _safe_num(row.get("high"))
-    lo = _safe_num(row.get("low"))
-    cl = _safe_num(row.get("close"))
+    hi = _audit_num(row.get("high"))
+    lo = _audit_num(row.get("low"))
+    cl = _audit_num(row.get("close"))
     if not (math.isfinite(hi) and math.isfinite(lo) and math.isfinite(cl)) or hi <= lo:
         return float("nan")
     return float((cl - lo) / (hi - lo) * 100.0)
 
 
 def _audit_upper_wick_pct(row: pd.Series) -> float:
-    hi = _safe_num(row.get("high"))
-    op = _safe_num(row.get("open"))
-    cl = _safe_num(row.get("close"))
+    hi = _audit_num(row.get("high"))
+    op = _audit_num(row.get("open"))
+    cl = _audit_num(row.get("close"))
     if not (math.isfinite(hi) and math.isfinite(op) and math.isfinite(cl)) or cl <= 0:
         return float("nan")
     return float(max(0.0, hi - max(op, cl)) / cl * 100.0)
@@ -654,7 +662,7 @@ def build_structure_fidelity_row(
     legacy_accum = 0
     for j in range(len(pre60)):
         rr = pre60.iloc[j]
-        vratio = _safe_num(vr.iloc[j]) if j < len(vr) else float("nan")
+        vratio = _audit_num(vr.iloc[j]) if j < len(vr) else float("nan")
         wick = _audit_upper_wick_pct(rr)
         if math.isfinite(vratio) and vratio >= 2.0 and math.isfinite(wick) and wick >= 3.0:
             legacy_accum += 1
@@ -662,18 +670,18 @@ def build_structure_fidelity_row(
     obv_change10 = float("nan")
     if len(pre60) >= 12 and "volume" in pre60:
         obv = _audit_obv(pre60["close"], pre60["volume"])
-        a0 = _safe_num(obv.iloc[-11])
-        a1 = _safe_num(obv.iloc[-1])
+        a0 = _audit_num(obv.iloc[-11])
+        a1 = _audit_num(obv.iloc[-1])
         if math.isfinite(a0) and math.isfinite(a1):
             obv_change10 = float((a1 - a0) / max(abs(a0), 1.0))
 
     bbw = _audit_bb40_width_pct(close)
-    bb_now = _safe_num(bbw.iloc[-1]) if len(bbw) else float("nan")
-    bb_10ago = _safe_num(bbw.iloc[-11]) if len(bbw) >= 11 else float("nan")
+    bb_now = _audit_num(bbw.iloc[-1]) if len(bbw) else float("nan")
+    bb_10ago = _audit_num(bbw.iloc[-11]) if len(bbw) >= 11 else float("nan")
     bb_ratio10 = _audit_ratio(bb_now, bb_10ago)
 
-    sq_close = _safe_num(row.get("close"))
-    upper_next = _safe_num(geom.get("projected_upper_next"))
+    sq_close = _audit_num(row.get("close"))
+    upper_next = _audit_num(geom.get("projected_upper_next"))
 
     # Post-event look-forward audit only. It is explicitly excluded from all gates.
     wave1_found = 0
@@ -693,8 +701,8 @@ def build_structure_fidelity_row(
 
         for off in range(1, len(post15) + 1):
             rr = df.iloc[squeeze_end_idx + off]
-            cl = _safe_num(rr.get("close"))
-            hi = _safe_num(rr.get("high"))
+            cl = _audit_num(rr.get("close"))
+            hi = _audit_num(rr.get("high"))
             price_cross = math.isfinite(upper_next) and math.isfinite(cl) and cl > upper_next
             impulse5 = math.isfinite(cl) and cl >= sq_close * 1.05
             if not (price_cross or impulse5):
@@ -722,16 +730,16 @@ def build_structure_fidelity_row(
 
     if wave1_found and wave1_abs_idx >= 0:
         wave1_row = df.iloc[wave1_abs_idx]
-        wave1_vol = _safe_num(wave1_row.get("volume"))
-        wave1_amt = _safe_num(wave1_row.get("amount"))
-        wave_high = _safe_num(wave1_row.get("high"))
+        wave1_vol = _audit_num(wave1_row.get("volume"))
+        wave1_amt = _audit_num(wave1_row.get("amount"))
+        wave_high = _audit_num(wave1_row.get("high"))
         pb_idx = -1
 
         for k in range(wave1_abs_idx + 1, min(len(df), wave1_abs_idx + 9)):
             rr = df.iloc[k]
-            wave_high = max(wave_high, _safe_num(rr.get("high")))
-            cl = _safe_num(rr.get("close"))
-            prev_cl = _safe_num(df.iloc[k - 1].get("close"))
+            wave_high = max(wave_high, _audit_num(rr.get("high")))
+            cl = _audit_num(rr.get("close"))
+            prev_cl = _audit_num(df.iloc[k - 1].get("close"))
             dd = float((cl / wave_high - 1.0) * 100.0) if wave_high > 0 and cl > 0 else float("nan")
             if math.isfinite(dd) and dd <= -2.0 and cl < prev_cl:
                 pullback_found = 1
@@ -748,15 +756,15 @@ def build_structure_fidelity_row(
                 rr = df.iloc[k]
                 prev = df.iloc[k - 1]
                 if (
-                    _safe_num(rr.get("close")) > _safe_num(prev.get("high"))
-                    and _safe_num(rr.get("close")) > _safe_num(rr.get("open"))
+                    _audit_num(rr.get("close")) > _audit_num(prev.get("high"))
+                    and _audit_num(rr.get("close")) > _audit_num(rr.get("open"))
                 ):
                     restart_after_pullback = 1
                     break
 
-    r2_min = min(_safe_num(geom.get("upper_r2")), _safe_num(geom.get("lower_r2")))
-    contraction = _safe_num(geom.get("contraction_ratio"))
-    width_end = _safe_num(geom.get("width_end_pct"))
+    r2_min = min(_audit_num(geom.get("upper_r2")), _audit_num(geom.get("lower_r2")))
+    contraction = _audit_num(geom.get("contraction_ratio"))
+    width_end = _audit_num(geom.get("width_end_pct"))
     shape_score = 0.0
     if math.isfinite(r2_min):
         shape_score += max(0.0, min(1.0, r2_min)) * 40.0
@@ -776,12 +784,12 @@ def build_structure_fidelity_row(
         "code": code,
         "squeeze_date": str(squeeze_date.date()),
         "shape_score": round(shape_score, 6),
-        "upper_r2": _safe_num(geom.get("upper_r2")),
-        "lower_r2": _safe_num(geom.get("lower_r2")),
+        "upper_r2": _audit_num(geom.get("upper_r2")),
+        "lower_r2": _audit_num(geom.get("lower_r2")),
         "contraction_ratio": contraction,
         "width_end_pct": width_end,
-        "upper_slope_pct_per_bar": _safe_num(geom.get("upper_slope_pct_per_bar")),
-        "lower_slope_pct_per_bar": _safe_num(geom.get("lower_slope_pct_per_bar")),
+        "upper_slope_pct_per_bar": _audit_num(geom.get("upper_slope_pct_per_bar")),
+        "lower_slope_pct_per_bar": _audit_num(geom.get("lower_slope_pct_per_bar")),
         "pre60_volume_spike_1p5_count": vol_spike_15,
         "pre60_volume_spike_2p0_count": vol_spike_20,
         "pre60_amount_spike_1p5_count": amt_spike_15,
@@ -921,6 +929,7 @@ def detect_code(
         "first_pullback_accepted": 0,
         "healthy_pullback_accepted": 0,
         "restart_accepted": 0,
+        "structure_audit_errors": 0,
         "short_frame": 0,
     }
     if len(df) < cfg.squeeze_lookback + 5:
@@ -976,7 +985,7 @@ def detect_code(
                         build_structure_fidelity_row(code, df, i - 1, geom)
                     )
                 except Exception as audit_exc:
-                    diag["structure_audit_errors"] = int(diag.get("structure_audit_errors", 0)) + 1
+                    diag["structure_audit_errors"] += 1
             squeeze_streak += 1
             diag["max_squeeze_streak"] = max(int(diag["max_squeeze_streak"]), int(squeeze_streak))
             if squeeze_streak >= cfg.squeeze_min_consecutive_windows:
@@ -1469,7 +1478,7 @@ def run(args: argparse.Namespace) -> int:
         "squeeze_qualifying_windows","squeeze_streak_reached","squeeze_universe_pass","squeeze_universe_fail",
         "squeeze_context_ready","breakout_price_cross","breakout_amount_ready","breakout_amount_expansion_pass",
         "breakout_candle_confirm_pass","breakout_universe_pass","breakout_accepted","first_pullback_accepted",
-        "healthy_pullback_accepted","restart_accepted","short_frame",
+        "healthy_pullback_accepted","restart_accepted","structure_audit_errors","short_frame",
     ]
     for c in gate_metric_cols:
         if c not in gate_diag:
@@ -1491,6 +1500,14 @@ def run(args: argparse.Namespace) -> int:
         **gate_totals,
     }])
 
+    structure_audit_raw_rows = int(len(all_structure_audit))
+    structure_audit_expected_rows = int(gate_totals.get("squeeze_qualifying_windows", 0))
+    structure_audit_error_count = int(gate_totals.get("structure_audit_errors", 0))
+    structure_audit_integrity_fail = int(
+        structure_audit_error_count != 0
+        or structure_audit_raw_rows != structure_audit_expected_rows
+    )
+
     structure_audit = pd.DataFrame(all_structure_audit)
     if not structure_audit.empty:
         structure_audit = (
@@ -1501,6 +1518,16 @@ def run(args: argparse.Namespace) -> int:
         )
     structure_review = build_structure_manual_review_sample(structure_audit, n_each=8)
     structure_review_bars = build_structure_review_bars(structure_review, frames)
+
+    structure_integrity_audit = pd.DataFrame([{
+        "schema": SCHEMA,
+        "strategy_id": STRATEGY_ID,
+        "loader_revision": LOADER_REVISION,
+        "expected_full_squeeze_rows": structure_audit_expected_rows,
+        "raw_structure_audit_rows": structure_audit_raw_rows,
+        "structure_audit_errors": structure_audit_error_count,
+        "integrity_fail": structure_audit_integrity_fail,
+    }])
 
     stage_counts = pd.DataFrame(
         [{"stage": st, "count": int((events["stage"] == st).sum()) if not events.empty else 0} for st in STAGES]
@@ -1518,7 +1545,7 @@ def run(args: argparse.Namespace) -> int:
     }])
     invariant_audit = pd.DataFrame([{
         "schema": SCHEMA, "strategy_id": STRATEGY_ID,
-        "status": "PASS" if invariant_fail == 0 else "FAIL",
+        "status": "PASS" if (invariant_fail == 0 and structure_audit_integrity_fail == 0) else "FAIL",
         "duplicate_event_ids": duplicate_event_ids,
         "chronology_fail": chronology_fail,
         "lookahead_fail": lookahead_fail,
@@ -1574,6 +1601,7 @@ def run(args: argparse.Namespace) -> int:
     _write_csv(stage_counts, out / "tri_stage_counts.csv")
     _write_csv(gate_totals_df, out / "tri_gate_diagnostics.csv")
     _write_csv(structure_audit, out / "tri_structure_fidelity_audit.csv")
+    _write_csv(structure_integrity_audit, out / "tri_structure_audit_integrity.csv")
     _write_csv(structure_review, out / "tri_structure_manual_review_sample.csv")
     _write_csv(structure_review_bars, out / "tri_structure_review_bars.csv")
     _write_csv(
@@ -1607,6 +1635,8 @@ def run(args: argparse.Namespace) -> int:
         "tuning_allowed": False,
         "start_date": start.date().isoformat(),
         "end_date": end.date().isoformat(),
+        "research_start": start.date().isoformat(),
+        "research_end": end.date().isoformat(),
         "codes_scanned": len(codes),
         "price_cache_files_seen": len(price_files),
         "price_load_fail": load_fail,
@@ -1616,6 +1646,10 @@ def run(args: argparse.Namespace) -> int:
         "gate_diagnostics": gate_totals,
         "structure_fidelity_audit": {
             "rows": int(len(structure_audit)),
+            "raw_rows": structure_audit_raw_rows,
+            "expected_full_squeeze_rows": structure_audit_expected_rows,
+            "audit_errors": structure_audit_error_count,
+            "integrity_fail": structure_audit_integrity_fail,
             "manual_review_rows": int(len(structure_review)),
             "post_event_fields_use_future_data": 1,
             "used_as_strategy_gate": 0,
@@ -1626,7 +1660,8 @@ def run(args: argparse.Namespace) -> int:
             "restart_after_pullback_rows": int(pd.to_numeric(structure_audit.get("restart_after_pullback_found", pd.Series(dtype=float)), errors="coerce").fillna(0).sum()) if not structure_audit.empty else 0,
         },
         "restart_signals": int(len(signals)),
-        "invariant_fail": invariant_fail,
+        "invariant_fail": int(invariant_fail + structure_audit_integrity_fail),
+        "structure_audit_integrity_fail": structure_audit_integrity_fail,
         "lookahead_fail": lookahead_fail,
         "actual_amount_coverage_pct": amount_coverage,
         "actual_amount_synthetic_fallback_rows": 0,
@@ -1638,8 +1673,8 @@ def run(args: argparse.Namespace) -> int:
         out / "tri_chronology_audit.csv", out / "tri_lookahead_audit.csv", out / "tri_invariant_audit.csv",
         out / "tri_amount_authority_audit.csv", out / "tri_asof_universe_audit.csv",
         out / "tri_gate_diagnostics.csv", out / "tri_code_gate_diagnostics.csv",
-        out / "tri_structure_fidelity_audit.csv", out / "tri_structure_manual_review_sample.csv",
-        out / "tri_structure_review_bars.csv",
+        out / "tri_structure_fidelity_audit.csv", out / "tri_structure_audit_integrity.csv",
+        out / "tri_structure_manual_review_sample.csv", out / "tri_structure_review_bars.csv",
     ]
     h = hashlib.sha256()
     for p in authority_files:
@@ -1656,6 +1691,11 @@ def run(args: argparse.Namespace) -> int:
         f"stage_counts={manifest['stage_counts']}",
         f"gate_diagnostics={gate_totals}",
         f"structure_fidelity_audit={json.dumps(manifest['structure_fidelity_audit'], ensure_ascii=False, sort_keys=True)}",
+        (
+            f"structure_audit_integrity=expected:{structure_audit_expected_rows}"
+            f" raw:{structure_audit_raw_rows} errors:{structure_audit_error_count}"
+            f" fail:{structure_audit_integrity_fail}"
+        ),
         f"restart_signals={len(signals)}",
         f"actual_amount_coverage_pct={amount_coverage:.2f}; synthetic_close_x_volume_fallback=0",
         f"asof_snapshot_dates={len(universe.dates)}; future_snapshot_fallback=0",
@@ -1685,7 +1725,7 @@ def run(args: argparse.Namespace) -> int:
         for rec in structure_review[show_cols].head(32).to_dict("records"):
             print("TRIANGLE1PB_STRUCTURE_REVIEW", json.dumps(rec, ensure_ascii=False, sort_keys=True, default=str))
         print("TRIANGLE1PB_STRUCTURE_REVIEW_SAMPLE_END")
-    return 0 if invariant_fail == 0 else 31
+    return 0 if (invariant_fail == 0 and structure_audit_integrity_fail == 0) else 31
 
 
 def _synthetic_frame() -> pd.DataFrame:
@@ -1729,7 +1769,11 @@ class _SyntheticUniverse:
 def self_test() -> int:
     df = _synthetic_frame()
     start, end = df["date"].min(), df["date"].max()
-    e, s, r, gd = detect_code("123456", df, "SYNTHETIC_ACTUAL_AMOUNT", _SyntheticUniverse(), start, end, CONFIG)
+    structure_sink = []
+    e, s, r, gd = detect_code(
+        "123456", df, "SYNTHETIC_ACTUAL_AMOUNT", _SyntheticUniverse(), start, end, CONFIG,
+        structure_audit_sink=structure_sink,
+    )
     stages = [x["stage"] for x in e]
     assert STAGES == stages, ("synthetic chronology mismatch", stages)
     assert len(s) == 1 and s[0]["stage"] == "TRI_RESTART"
@@ -1738,6 +1782,9 @@ def self_test() -> int:
     assert gd["first_pullback_accepted"] == 1
     assert gd["healthy_pullback_accepted"] == 1
     assert gd["restart_accepted"] == 1
+    assert gd["structure_audit_errors"] == 0
+    assert len(structure_sink) == gd["squeeze_qualifying_windows"] > 0
+    assert all(x.get("audit_role") == "DESCRIPTIVE_ONLY_NOT_A_GATE" for x in structure_sink)
     # Determinism.
     e2, s2, r2, gd2 = detect_code("123456", df, "SYNTHETIC_ACTUAL_AMOUNT", _SyntheticUniverse(), start, end, CONFIG)
     assert json.dumps(e, sort_keys=True, default=str) == json.dumps(e2, sort_keys=True, default=str)
