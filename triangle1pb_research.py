@@ -32,7 +32,7 @@ import pandas as pd
 
 SCHEMA = "TRIANGLE1PB_RESEARCH_SCHEMA_V1"
 STRATEGY_ID = "TRIANGLE1PB_R1_CHRONOLOGY_FIRST"
-LOADER_REVISION = "TRIANGLE1PB_R1_1_CACHE_COMPAT"
+LOADER_REVISION = "TRIANGLE1PB_R1_2_GATE_OBSERVABILITY"
 RESEARCH_AUTHORITY = "RESEARCH_ONLY_NO_LIVE_NO_POLICY_NO_ORDERS"
 STAGES = [
     "TRI_SQUEEZE",
@@ -529,17 +529,26 @@ def squeeze_geometry(window: pd.DataFrame, cfg: FrozenConfig) -> Dict[str, Any]:
     contraction = width_end / width_start if width_start > 1e-9 else np.inf
     upper_r2 = r2_linear(hi)
     lower_r2 = r2_linear(lo)
+    gate_upper_falling = bool(hs < 0)
+    gate_lower_rising = bool(ls > 0)
+    gate_width_order = bool(upper_start > lower_start and upper_end > lower_end)
+    gate_contraction = bool(0 < contraction <= cfg.squeeze_max_contraction_ratio)
+    gate_r2 = bool(upper_r2 >= cfg.squeeze_min_upper_r2 and lower_r2 >= cfg.squeeze_min_lower_r2)
+    gate_end_width = bool(cfg.squeeze_min_end_width_pct <= width_end <= cfg.squeeze_max_end_width_pct)
     qualifies = bool(
-        hs < 0 and ls > 0 and
-        upper_start > lower_start and upper_end > lower_end and
-        0 < contraction <= cfg.squeeze_max_contraction_ratio and
-        upper_r2 >= cfg.squeeze_min_upper_r2 and lower_r2 >= cfg.squeeze_min_lower_r2 and
-        cfg.squeeze_min_end_width_pct <= width_end <= cfg.squeeze_max_end_width_pct
+        gate_upper_falling and gate_lower_rising and gate_width_order and
+        gate_contraction and gate_r2 and gate_end_width
     )
     projected_upper_next = float(hs * len(window) + hi0)
     projected_lower_next = float(ls * len(window) + lo0)
     return {
         "qualifies": qualifies,
+        "gate_upper_falling": gate_upper_falling,
+        "gate_lower_rising": gate_lower_rising,
+        "gate_width_order": gate_width_order,
+        "gate_contraction": gate_contraction,
+        "gate_r2": gate_r2,
+        "gate_end_width": gate_end_width,
         "upper_slope_pct_per_bar": hs / mid,
         "lower_slope_pct_per_bar": ls / mid,
         "upper_r2": upper_r2,
@@ -581,12 +590,40 @@ def detect_code(
     start: pd.Timestamp,
     end: pd.Timestamp,
     cfg: FrozenConfig,
-) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]]]:
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]], Dict[str, Any]]:
     events: List[Dict[str, Any]] = []
     signals: List[Dict[str, Any]] = []
     rejects: List[Dict[str, Any]] = []
+    diag: Dict[str, Any] = {
+        "code": code,
+        "windows_tested": 0,
+        "upper_falling_windows": 0,
+        "lower_rising_windows": 0,
+        "both_slope_signs_windows": 0,
+        "width_order_windows": 0,
+        "contraction_pass_windows": 0,
+        "r2_pass_windows": 0,
+        "end_width_pass_windows": 0,
+        "squeeze_qualifying_windows": 0,
+        "max_squeeze_streak": 0,
+        "squeeze_streak_reached": 0,
+        "squeeze_universe_pass": 0,
+        "squeeze_universe_fail": 0,
+        "squeeze_context_ready": 0,
+        "breakout_price_cross": 0,
+        "breakout_amount_ready": 0,
+        "breakout_amount_expansion_pass": 0,
+        "breakout_candle_confirm_pass": 0,
+        "breakout_universe_pass": 0,
+        "breakout_accepted": 0,
+        "first_pullback_accepted": 0,
+        "healthy_pullback_accepted": 0,
+        "restart_accepted": 0,
+        "short_frame": 0,
+    }
     if len(df) < cfg.squeeze_lookback + 5:
-        return events, signals, rejects
+        diag["short_frame"] = 1
+        return events, signals, rejects, diag
 
     squeeze_streak = 0
     squeeze_context: Optional[Dict[str, Any]] = None
@@ -614,15 +651,36 @@ def detect_code(
             break
         prev_window = df.iloc[i - cfg.squeeze_lookback:i]
         geom = squeeze_geometry(prev_window, cfg)
+        diag["windows_tested"] += 1
+        if geom.get("gate_upper_falling"):
+            diag["upper_falling_windows"] += 1
+        if geom.get("gate_lower_rising"):
+            diag["lower_rising_windows"] += 1
+        if geom.get("gate_upper_falling") and geom.get("gate_lower_rising"):
+            diag["both_slope_signs_windows"] += 1
+        if geom.get("gate_width_order"):
+            diag["width_order_windows"] += 1
+        if geom.get("gate_contraction"):
+            diag["contraction_pass_windows"] += 1
+        if geom.get("gate_r2"):
+            diag["r2_pass_windows"] += 1
+        if geom.get("gate_end_width"):
+            diag["end_width_pass_windows"] += 1
         if geom.get("qualifies"):
+            diag["squeeze_qualifying_windows"] += 1
             squeeze_streak += 1
+            diag["max_squeeze_streak"] = max(int(diag["max_squeeze_streak"]), int(squeeze_streak))
             if squeeze_streak >= cfg.squeeze_min_consecutive_windows:
+                diag["squeeze_streak_reached"] += 1
                 sq_date = pd.Timestamp(prev_window["date"].iloc[-1])
                 uok, udate, uage, ure = universe.lookup(sq_date, code)
                 if uok:
+                    diag["squeeze_universe_pass"] += 1
                     squeeze_context = dict(geom)
                     squeeze_context.update({"event_date": sq_date, "universe_snapshot_date": udate, "universe_age_days": uage})
+                    diag["squeeze_context_ready"] += 1
                 else:
+                    diag["squeeze_universe_fail"] += 1
                     squeeze_context = None
         else:
             squeeze_streak = 0
@@ -646,24 +704,30 @@ def detect_code(
             upper = float(geom.get("projected_upper_next", float("nan")))
             if not (math.isfinite(upper) and row["close"] > upper * (1.0 + cfg.breakout_buffer_pct)):
                 continue
+            diag["breakout_price_cross"] += 1
             if not (math.isfinite(amount) and amount > 0 and amt_obs >= cfg.amount20_min_observations and math.isfinite(amt20_ratio)):
                 reject(i, "BREAKOUT_ACTUAL_AMOUNT_NOT_READY", "TRI_BREAKOUT_WAVE1", {"amount_source": amount_source, "amount20_obs": amt_obs})
                 squeeze_streak = 0; squeeze_context = None
                 continue
+            diag["breakout_amount_ready"] += 1
             if amt20_ratio < cfg.breakout_min_amount20_ratio:
                 reject(i, "BREAKOUT_AMOUNT_EXPANSION_TOO_LOW", "TRI_BREAKOUT_WAVE1", {"amount20_ratio": amt20_ratio})
                 squeeze_streak = 0; squeeze_context = None
                 continue
+            diag["breakout_amount_expansion_pass"] += 1
             if not (row["close"] > row["open"] and row["close"] >= (row["high"] + row["low"]) / 2.0):
                 reject(i, "BREAKOUT_CANDLE_NOT_CONFIRMING", "TRI_BREAKOUT_WAVE1")
                 squeeze_streak = 0; squeeze_context = None
                 continue
+            diag["breakout_candle_confirm_pass"] += 1
             # Universe must be causal at breakout; squeeze context already passed separately.
             uok, udate, uage, ure = universe.lookup(d, code)
             if not uok:
                 reject(i, ure, "TRI_BREAKOUT_WAVE1", {"universe_snapshot_date": udate, "universe_age_days": uage})
                 squeeze_streak = 0; squeeze_context = None
                 continue
+            diag["breakout_universe_pass"] += 1
+            diag["breakout_accepted"] += 1
             ep = _episode_id(code, d)
             sqd = pd.Timestamp(squeeze_context["event_date"])
             sq_event = {
@@ -733,6 +797,7 @@ def detect_code(
                 "amount20_mean_prior": amt20, "amount20_ratio": amt20_ratio,
             }
             events.append(ev)
+            diag["first_pullback_accepted"] += 1
             ctx["pullback_start_idx"] = i
             ctx["pullback_amounts"] = [amount] if math.isfinite(amount) and amount > 0 else []
             state = "FIRST_PULLBACK"
@@ -770,6 +835,7 @@ def detect_code(
                 "amount20_mean_prior": amt20, "amount20_ratio": amt20_ratio,
                 "amount_vs_breakout_ratio": breakout_amt_ratio,
             })
+            diag["healthy_pullback_accepted"] += 1
             ctx["healthy_idx"] = i
             state = "HEALTHY_PULLBACK"
             continue
@@ -808,10 +874,11 @@ def detect_code(
             }
             events.append(ev)
             signals.append(dict(ev))
+            diag["restart_accepted"] += 1
             cooldown_until = i + cfg.post_signal_cooldown_bars + 1
             state = "IDLE"; ctx = {}; squeeze_streak = 0; squeeze_context = None
 
-    return events, signals, rejects
+    return events, signals, rejects, diag
 
 
 def build_forward_outcomes(signals: List[Dict[str, Any]], frames: Dict[str, pd.DataFrame], cfg: FrozenConfig) -> pd.DataFrame:
@@ -1019,19 +1086,20 @@ def run(args: argparse.Namespace) -> int:
     all_events: List[Dict[str, Any]] = []
     all_signals: List[Dict[str, Any]] = []
     all_rejects: List[Dict[str, Any]] = []
+    all_gate_diags: List[Dict[str, Any]] = []
     per_code_digest: Dict[str, str] = {}
     rerun_fail = 0
 
     for n, code in enumerate(codes, 1):
         df = frames[code]
         # Keep causal warmup and forward bars; detector itself enforces signal date range.
-        e, s, r = detect_code(code, df, amount_sources.get(code, "MISSING"), universe, start, end, cfg)
-        all_events.extend(e); all_signals.extend(s); all_rejects.extend(r)
+        e, s, r, gd = detect_code(code, df, amount_sources.get(code, "MISSING"), universe, start, end, cfg)
+        all_events.extend(e); all_signals.extend(s); all_rejects.extend(r); all_gate_diags.append(gd)
         payload = json.dumps(e, sort_keys=True, ensure_ascii=False, default=str, separators=(",", ":"))
         per_code_digest[code] = hashlib.sha256(payload.encode()).hexdigest()
         # Determinism invariant: rerun codes that emitted anything, plus a deterministic sparse sample.
         if e or n % max(1, len(codes) // 25 or 1) == 0:
-            e2, s2, r2 = detect_code(code, df, amount_sources.get(code, "MISSING"), universe, start, end, cfg)
+            e2, s2, r2, gd2 = detect_code(code, df, amount_sources.get(code, "MISSING"), universe, start, end, cfg)
             payload2 = json.dumps(e2, sort_keys=True, ensure_ascii=False, default=str, separators=(",", ":"))
             if hashlib.sha256(payload2.encode()).hexdigest() != per_code_digest[code]:
                 rerun_fail += 1
@@ -1080,6 +1148,35 @@ def run(args: argparse.Namespace) -> int:
     amount_ready_rows = sum(int(pd.to_numeric(frames[c]["amount"], errors="coerce").gt(0).sum()) for c in codes)
     amount_coverage = (amount_ready_rows / amount_rows * 100.0) if amount_rows else 0.0
     amount_source_counts = pd.Series([amount_sources.get(c, "MISSING") for c in codes]).value_counts().to_dict()
+
+    gate_diag = pd.DataFrame(all_gate_diags)
+    gate_metric_cols = [
+        "windows_tested","upper_falling_windows","lower_rising_windows","both_slope_signs_windows",
+        "width_order_windows","contraction_pass_windows","r2_pass_windows","end_width_pass_windows",
+        "squeeze_qualifying_windows","squeeze_streak_reached","squeeze_universe_pass","squeeze_universe_fail",
+        "squeeze_context_ready","breakout_price_cross","breakout_amount_ready","breakout_amount_expansion_pass",
+        "breakout_candle_confirm_pass","breakout_universe_pass","breakout_accepted","first_pullback_accepted",
+        "healthy_pullback_accepted","restart_accepted","short_frame",
+    ]
+    for c in gate_metric_cols:
+        if c not in gate_diag:
+            gate_diag[c] = 0
+        gate_diag[c] = pd.to_numeric(gate_diag[c], errors="coerce").fillna(0).astype(int)
+
+    gate_totals = {c: int(gate_diag[c].sum()) for c in gate_metric_cols}
+    gate_totals["codes_scanned"] = int(len(gate_diag))
+    gate_totals["codes_with_qualifying_squeeze_window"] = int((gate_diag["squeeze_qualifying_windows"] > 0).sum())
+    gate_totals["codes_reaching_squeeze_streak"] = int((gate_diag["max_squeeze_streak"] >= cfg.squeeze_min_consecutive_windows).sum())
+    gate_totals["codes_with_breakout_price_cross"] = int((gate_diag["breakout_price_cross"] > 0).sum())
+    gate_totals["codes_with_breakout_accepted"] = int((gate_diag["breakout_accepted"] > 0).sum())
+    gate_totals["max_squeeze_streak_global"] = int(gate_diag["max_squeeze_streak"].max()) if not gate_diag.empty else 0
+
+    gate_totals_df = pd.DataFrame([{
+        "schema": SCHEMA,
+        "strategy_id": STRATEGY_ID,
+        "loader_revision": LOADER_REVISION,
+        **gate_totals,
+    }])
 
     stage_counts = pd.DataFrame(
         [{"stage": st, "count": int((events["stage"] == st).sum()) if not events.empty else 0} for st in STAGES]
@@ -1151,6 +1248,14 @@ def run(args: argparse.Namespace) -> int:
     _write_csv(signals, out / "tri_signal_ledger.csv")
     _write_csv(outcomes, out / "tri_forward_outcomes.csv")
     _write_csv(stage_counts, out / "tri_stage_counts.csv")
+    _write_csv(gate_totals_df, out / "tri_gate_diagnostics.csv")
+    _write_csv(
+        gate_diag.sort_values(
+            ["squeeze_qualifying_windows","max_squeeze_streak","breakout_price_cross"],
+            ascending=[False,False,False]
+        ),
+        out / "tri_code_gate_diagnostics.csv"
+    )
     _write_csv(rejects, out / "tri_rejection_ledger.csv")
     _write_csv(rejection_counts, out / "tri_rejection_counts.csv")
     _write_csv(chronology, out / "tri_chronology_audit.csv")
@@ -1181,6 +1286,7 @@ def run(args: argparse.Namespace) -> int:
         "duplicate_code_files": duplicate_code_files,
         "asof_snapshot_dates": len(universe.dates),
         "stage_counts": {r["stage"]: int(r["count"]) for r in stage_counts.to_dict("records")},
+        "gate_diagnostics": gate_totals,
         "restart_signals": int(len(signals)),
         "invariant_fail": invariant_fail,
         "lookahead_fail": lookahead_fail,
@@ -1193,6 +1299,7 @@ def run(args: argparse.Namespace) -> int:
         out / "tri_state_spec.csv", out / "tri_stage_ledger.csv", out / "tri_signal_ledger.csv",
         out / "tri_chronology_audit.csv", out / "tri_lookahead_audit.csv", out / "tri_invariant_audit.csv",
         out / "tri_amount_authority_audit.csv", out / "tri_asof_universe_audit.csv",
+        out / "tri_gate_diagnostics.csv", out / "tri_code_gate_diagnostics.csv",
     ]
     h = hashlib.sha256()
     for p in authority_files:
@@ -1207,12 +1314,17 @@ def run(args: argparse.Namespace) -> int:
         "chronology=TRI_SQUEEZE -> TRI_BREAKOUT_WAVE1 -> TRI_FIRST_PULLBACK -> TRI_HEALTHY_PULLBACK -> TRI_RESTART",
         "execution_policy=NONE; outcomes are neutral D+1 OPEN event-study only",
         f"stage_counts={manifest['stage_counts']}",
+        f"gate_diagnostics={gate_totals}",
         f"restart_signals={len(signals)}",
         f"actual_amount_coverage_pct={amount_coverage:.2f}; synthetic_close_x_volume_fallback=0",
         f"asof_snapshot_dates={len(universe.dates)}; future_snapshot_fallback=0",
         f"lookahead_fail={lookahead_fail}; invariant_fail={invariant_fail}; deterministic_rerun_fail={rerun_fail}",
         f"status={manifest['status']}",
-        "NEXT_GATE=manual chart review + false-positive taxonomy before any threshold/performance tuning",
+        (
+            "NEXT_GATE=manual chart review + false-positive taxonomy before any threshold/performance tuning"
+            if len(signals) > 0 else
+            "NEXT_GATE=gate diagnostics first; no threshold/performance tuning until zero-stage cause is proven"
+        ),
     ]
     (out / "tri_report.txt").write_text("\n".join(report) + "\n", encoding="utf-8")
     print("\n".join(report))
@@ -1260,16 +1372,21 @@ class _SyntheticUniverse:
 def self_test() -> int:
     df = _synthetic_frame()
     start, end = df["date"].min(), df["date"].max()
-    e, s, r = detect_code("123456", df, "SYNTHETIC_ACTUAL_AMOUNT", _SyntheticUniverse(), start, end, CONFIG)
+    e, s, r, gd = detect_code("123456", df, "SYNTHETIC_ACTUAL_AMOUNT", _SyntheticUniverse(), start, end, CONFIG)
     stages = [x["stage"] for x in e]
     assert STAGES == stages, ("synthetic chronology mismatch", stages)
     assert len(s) == 1 and s[0]["stage"] == "TRI_RESTART"
+    assert gd["squeeze_qualifying_windows"] > 0
+    assert gd["breakout_accepted"] == 1
+    assert gd["first_pullback_accepted"] == 1
+    assert gd["healthy_pullback_accepted"] == 1
+    assert gd["restart_accepted"] == 1
     # Determinism.
-    e2, s2, r2 = detect_code("123456", df, "SYNTHETIC_ACTUAL_AMOUNT", _SyntheticUniverse(), start, end, CONFIG)
+    e2, s2, r2, gd2 = detect_code("123456", df, "SYNTHETIC_ACTUAL_AMOUNT", _SyntheticUniverse(), start, end, CONFIG)
     assert json.dumps(e, sort_keys=True, default=str) == json.dumps(e2, sort_keys=True, default=str)
     # No amount fallback: remove amount and verify no restart.
     noamt = df.copy(); noamt["amount"] = np.nan
-    e3, s3, r3 = detect_code("123456", noamt, "MISSING", _SyntheticUniverse(), start, end, CONFIG)
+    e3, s3, r3, gd3 = detect_code("123456", noamt, "MISSING", _SyntheticUniverse(), start, end, CONFIG)
     assert not s3
     print("TRIANGLE1PB_SYNTHETIC_TEST PASS stages=" + ">".join(stages) + " no_amount_signal=0 deterministic=1")
     return 0
