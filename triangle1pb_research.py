@@ -32,7 +32,7 @@ import pandas as pd
 
 SCHEMA = "TRIANGLE1PB_RESEARCH_SCHEMA_V1"
 STRATEGY_ID = "TRIANGLE1PB_R1_CHRONOLOGY_FIRST"
-LOADER_REVISION = "TRIANGLE1PB_R1_9_CAUSAL_PRECURSOR_CASE_CONTROL_AUDIT"
+LOADER_REVISION = "TRIANGLE1PB_R1_10_JOINT_PRECURSOR_STABILITY_AUDIT"
 RESEARCH_AUTHORITY = "RESEARCH_ONLY_NO_LIVE_NO_POLICY_NO_ORDERS"
 STAGES = [
     "TRI_SQUEEZE",
@@ -2652,6 +2652,174 @@ def build_causal_precursor_case_control_audit(
     return detail, summary
 
 
+
+def build_joint_precursor_stability_audit(
+    precursor_detail: pd.DataFrame,
+    frames: Dict[str, pd.DataFrame],
+    start: pd.Timestamp,
+    end: pd.Timestamp,
+) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Exploratory stability audit for the post-hoc candidate:
+    pre10 OBV positive AND BB40 contracting.
+
+    This is NOT a strategy gate. Because the hypothesis was discovered on this
+    same two-year research set, the outputs are descriptive and intended to
+    determine whether the direction is temporally stable enough to justify a
+    future prospectively locked observation lane.
+    """
+    if precursor_detail is None or precursor_detail.empty:
+        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+
+    d = precursor_detail.copy()
+    d["squeeze_date_ts"] = pd.to_datetime(d["squeeze_date"], errors="coerce")
+    d["joint_obv_positive_bb40_contracting"] = (
+        d["pre10_obv_positive"].eq(1) & d["bb40_contracting"].eq(1)
+    ).astype(int)
+
+    def group_name(row: pd.Series) -> str:
+        obv = int(row.get("pre10_obv_positive", 0))
+        bb = int(row.get("bb40_contracting", 0))
+        return f"OBV{'+' if obv else '-'}_BB40{'DOWN' if bb else 'NO_DOWN'}"
+
+    d["joint_group"] = d.apply(group_name, axis=1)
+
+    # Fixed midpoint of declared research calendar span, not outcome-derived.
+    start_ts = pd.Timestamp(start).normalize()
+    end_ts = pd.Timestamp(end).normalize()
+    midpoint = start_ts + (end_ts - start_ts) / 2
+    d["temporal_half"] = np.where(
+        d["squeeze_date_ts"] <= midpoint,
+        "H1_EARLY",
+        "H2_LATE",
+    )
+
+    def summarize(frame: pd.DataFrame, label: str, split: str) -> Dict[str, Any]:
+        n = int(len(frame))
+        q = int(pd.to_numeric(frame.get("label_qualified_breakout"), errors="coerce").fillna(0).sum()) if n else 0
+        strict = int(pd.to_numeric(frame.get("label_first_cross_exact"), errors="coerce").fillna(0).sum()) if n else 0
+        h = int(pd.to_numeric(frame.get("label_healthy_pullback"), errors="coerce").fillna(0).sum()) if n else 0
+        r = int(pd.to_numeric(frame.get("label_restart"), errors="coerce").fillna(0).sum()) if n else 0
+        p5 = int(pd.to_numeric(frame.get("label_impulse_5pct_5bar"), errors="coerce").fillna(0).sum()) if n else 0
+        p10 = int(pd.to_numeric(frame.get("label_impulse_10pct_8bar"), errors="coerce").fillna(0).sum()) if n else 0
+        return {
+            "schema": SCHEMA,
+            "strategy_id": STRATEGY_ID,
+            "loader_revision": LOADER_REVISION,
+            "audit_role": "JOINT_PRECURSOR_STABILITY_ONLY_NOT_A_GATE",
+            "split": split,
+            "group": label,
+            "runs": n,
+            "strict_first_cross_exact": strict,
+            "qualified_breakout": q,
+            "qualified_rate": float(q / n) if n else float("nan"),
+            "impulse_5pct": p5,
+            "impulse_10pct": p10,
+            "healthy": h,
+            "restart": r,
+            "used_as_strategy_gate": 0,
+            "hypothesis_posthoc_on_same_research_period": 1,
+        }
+
+    rows: List[Dict[str, Any]] = []
+    # Full 2x2.
+    for group in [
+        "OBV-_BB40NO_DOWN",
+        "OBV-_BB40DOWN",
+        "OBV+_BB40NO_DOWN",
+        "OBV+_BB40DOWN",
+    ]:
+        rows.append(summarize(d[d["joint_group"].eq(group)], group, "FULL"))
+
+    # Joint-vs-rest, full and temporal halves.
+    for split, frame in [
+        ("FULL", d),
+        ("H1_EARLY", d[d["temporal_half"].eq("H1_EARLY")]),
+        ("H2_LATE", d[d["temporal_half"].eq("H2_LATE")]),
+    ]:
+        joint = frame[frame["joint_obv_positive_bb40_contracting"].eq(1)]
+        rest = frame[frame["joint_obv_positive_bb40_contracting"].eq(0)]
+        rows.append(summarize(joint, "OBV+_AND_BB40DOWN", split))
+        rows.append(summarize(rest, "REST", split))
+
+    summary = pd.DataFrame(rows)
+
+    # Add joint-vs-rest rate lift to the dedicated rows.
+    for split in ["FULL","H1_EARLY","H2_LATE"]:
+        jidx = summary.index[
+            summary["split"].eq(split) & summary["group"].eq("OBV+_AND_BB40DOWN")
+        ]
+        ridx = summary.index[
+            summary["split"].eq(split) & summary["group"].eq("REST")
+        ]
+        if len(jidx) and len(ridx):
+            jr = _audit_num(summary.loc[jidx[0], "qualified_rate"])
+            rr = _audit_num(summary.loc[ridx[0], "qualified_rate"])
+            lift = jr / rr if math.isfinite(jr) and math.isfinite(rr) and rr > 0 else float("nan")
+            summary.loc[jidx[0], "qualified_rate_lift_vs_rest"] = lift
+            summary.loc[ridx[0], "qualified_rate_lift_vs_rest"] = 1.0
+
+    # A compact candidate-run detail file for easier manual sorting.
+    detail_cols = [
+        "schema","strategy_id","loader_revision","audit_role","code","squeeze_date",
+        "feature_max_date","pre10_obv_relative_change","pre10_obv_positive",
+        "bb40_contraction_ratio_10bar","bb40_contracting",
+        "terminal_amount_ratio_late5_vs_early10",
+        "terminal_volume_ratio_late5_vs_early10",
+        "terminal_range_ratio_late5_vs_early10",
+        "terminal_all3_dry","early_flow_present","shape_score",
+        "label_first_cross_exact","label_qualified_breakout",
+        "label_qualified_breakout_date","label_probe_then_qualified",
+        "label_impulse_5pct_5bar","label_impulse_10pct_8bar",
+        "label_healthy_pullback","label_restart",
+        "used_as_strategy_gate","future_labels_not_features",
+    ]
+    detail = d[[c for c in detail_cols if c in d.columns]].copy()
+    detail["joint_group"] = d["joint_group"].values
+    detail["joint_obv_positive_bb40_contracting"] = d["joint_obv_positive_bb40_contracting"].values
+    detail["temporal_half"] = d["temporal_half"].values
+    detail["hypothesis_posthoc_on_same_research_period"] = 1
+
+    # Export bars for ALL 192 streak1 candidates, including non-qualified controls.
+    bar_chunks: List[pd.DataFrame] = []
+    for _, row in d.iterrows():
+        code = str(row.get("code") or "").zfill(6)
+        sq = pd.to_datetime(row.get("squeeze_date"), errors="coerce")
+        if pd.isna(sq):
+            continue
+        df = frames.get(code)
+        if df is None and code.isdigit():
+            df = frames.get(str(int(code)))
+        if df is None or df.empty:
+            continue
+        dates = pd.to_datetime(df["date"], errors="coerce").dt.normalize()
+        matches = df.index[dates.eq(pd.Timestamp(sq).normalize())]
+        if not len(matches):
+            continue
+        si = int(matches[-1])
+        lo = max(0, si - 40)
+        hi = min(len(df), si + 13)  # through +12 bars after squeeze
+        b = df.iloc[lo:hi].copy()
+        b.insert(0, "review_code", code)
+        b.insert(1, "review_squeeze_date", pd.Timestamp(sq).date().isoformat())
+        b.insert(2, "relative_to_squeeze", np.arange(lo, hi) - si)
+        b.insert(3, "joint_group", str(row.get("joint_group") or ""))
+        b.insert(4, "joint_obv_positive_bb40_contracting", int(row.get("joint_obv_positive_bb40_contracting",0)))
+        b.insert(5, "label_qualified_breakout", int(row.get("label_qualified_breakout",0)))
+        b.insert(6, "label_qualified_breakout_date", str(row.get("label_qualified_breakout_date") or ""))
+        b.insert(7, "label_healthy_pullback", int(row.get("label_healthy_pullback",0)))
+        b.insert(8, "label_restart", int(row.get("label_restart",0)))
+        keep = [
+            "review_code","review_squeeze_date","relative_to_squeeze","joint_group",
+            "joint_obv_positive_bb40_contracting","label_qualified_breakout",
+            "label_qualified_breakout_date","label_healthy_pullback","label_restart",
+            "date","open","high","low","close","volume","amount"
+        ]
+        bar_chunks.append(b[[c for c in keep if c in b.columns]])
+
+    bars = pd.concat(bar_chunks, ignore_index=True, sort=False) if bar_chunks else pd.DataFrame()
+    return detail, summary, bars
+
+
 def build_forward_outcomes(signals: List[Dict[str, Any]], frames: Dict[str, pd.DataFrame], cfg: FrozenConfig) -> pd.DataFrame:
     rows: List[Dict[str, Any]] = []
     for s in signals:
@@ -2998,6 +3166,11 @@ def run(args: argparse.Namespace) -> int:
             counterfactual_detail, structure_audit, frames
         )
     )
+    joint_precursor_detail, joint_precursor_summary, joint_precursor_review_bars = (
+        build_joint_precursor_stability_audit(
+            precursor_case_control_detail, frames, start, end
+        )
+    )
 
     structure_integrity_audit = pd.DataFrame([{
         "schema": SCHEMA,
@@ -3095,6 +3268,9 @@ def run(args: argparse.Namespace) -> int:
     _write_csv(terminal_energy_summary, out / "tri_terminal_energy_profile_summary.csv")
     _write_csv(precursor_case_control_detail, out / "tri_causal_precursor_case_control_detail.csv")
     _write_csv(precursor_case_control_summary, out / "tri_causal_precursor_case_control_summary.csv")
+    _write_csv(joint_precursor_detail, out / "tri_joint_precursor_stability_detail.csv")
+    _write_csv(joint_precursor_summary, out / "tri_joint_precursor_stability_summary.csv")
+    _write_csv(joint_precursor_review_bars, out / "tri_joint_precursor_review_bars.csv")
     _write_csv(
         gate_diag.sort_values(
             ["squeeze_qualifying_windows","max_squeeze_streak","breakout_price_cross"],
@@ -3181,6 +3357,14 @@ def run(args: argparse.Namespace) -> int:
             "used_as_strategy_gate": 0,
             "summary": precursor_case_control_summary.to_dict("records"),
         },
+        "joint_precursor_stability_audit": {
+            "research_only": 1,
+            "hypothesis": "PRE10_OBV_POSITIVE_AND_BB40_CONTRACTING",
+            "hypothesis_posthoc_on_same_research_period": 1,
+            "prospective_gate_promoted": 0,
+            "used_as_strategy_gate": 0,
+            "summary": joint_precursor_summary.to_dict("records"),
+        },
         "restart_signals": int(len(signals)),
         "invariant_fail": int(invariant_fail + structure_audit_integrity_fail),
         "structure_audit_integrity_fail": structure_audit_integrity_fail,
@@ -3203,6 +3387,8 @@ def run(args: argparse.Namespace) -> int:
         out / "tri_phase_sequence_detail.csv", out / "tri_phase_sequence_summary.csv",
         out / "tri_terminal_energy_profile_detail.csv", out / "tri_terminal_energy_profile_summary.csv",
         out / "tri_causal_precursor_case_control_detail.csv", out / "tri_causal_precursor_case_control_summary.csv",
+        out / "tri_joint_precursor_stability_detail.csv", out / "tri_joint_precursor_stability_summary.csv",
+        out / "tri_joint_precursor_review_bars.csv",
     ]
     h = hashlib.sha256()
     for p in authority_files:
@@ -3229,6 +3415,7 @@ def run(args: argparse.Namespace) -> int:
         f"phase_sequence_summary={json.dumps(phase_sequence_summary.to_dict('records'), ensure_ascii=False, sort_keys=True)}",
         f"terminal_energy_profile_summary={json.dumps(terminal_energy_summary.to_dict('records'), ensure_ascii=False, sort_keys=True)}",
         f"causal_precursor_case_control_summary={json.dumps(precursor_case_control_summary.to_dict('records'), ensure_ascii=False, sort_keys=True)}",
+        f"joint_precursor_stability_summary={json.dumps(joint_precursor_summary.to_dict('records'), ensure_ascii=False, sort_keys=True)}",
         (
             f"structure_audit_integrity=expected:{structure_audit_expected_rows}"
             f" raw:{structure_audit_raw_rows} errors:{structure_audit_error_count}"
@@ -3242,7 +3429,7 @@ def run(args: argparse.Namespace) -> int:
         (
             "NEXT_GATE=manual chart review + false-positive taxonomy before any threshold/performance tuning"
             if len(signals) > 0 else
-            "NEXT_GATE=causal precursor case-control review across all streak1 runs; promote no precursor feature until qualified-vs-nonqualified separation is proven"
+            "NEXT_GATE=joint precursor temporal stability + full 192-run visual review; post-hoc OBV+BB40 hypothesis remains non-gating until prospective validation"
         ),
     ]
     (out / "tri_report.txt").write_text("\n".join(report) + "\n", encoding="utf-8")
