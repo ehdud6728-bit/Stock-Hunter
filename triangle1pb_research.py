@@ -32,7 +32,7 @@ import pandas as pd
 
 SCHEMA = "TRIANGLE1PB_RESEARCH_SCHEMA_V1"
 STRATEGY_ID = "TRIANGLE1PB_R1_CHRONOLOGY_FIRST"
-LOADER_REVISION = "TRIANGLE1PB_R1_8_TERMINAL_ENERGY_PROFILE_AUDIT"
+LOADER_REVISION = "TRIANGLE1PB_R1_9_CAUSAL_PRECURSOR_CASE_CONTROL_AUDIT"
 RESEARCH_AUTHORITY = "RESEARCH_ONLY_NO_LIVE_NO_POLICY_NO_ORDERS"
 STAGES = [
     "TRI_SQUEEZE",
@@ -2378,6 +2378,280 @@ def build_terminal_energy_profile_audit(
     return detail, summary
 
 
+
+def build_causal_precursor_case_control_audit(
+    counterfactual_detail: pd.DataFrame,
+    structure_audit: pd.DataFrame,
+    frames: Dict[str, pd.DataFrame],
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """Causal precursor case-control audit for ALL research-period streak=1 runs.
+
+    Features use bars only through the squeeze date. Future qualified-breakout /
+    healthy / restart fields are labels only, never candidate features or gates.
+
+    This avoids the selection bias of computing precursor prevalence only inside
+    already-qualified breakout events.
+    """
+    if counterfactual_detail is None or counterfactual_detail.empty:
+        return pd.DataFrame(), pd.DataFrame()
+
+    cand = counterfactual_detail[
+        counterfactual_detail["streak_threshold"].eq(1)
+        & counterfactual_detail["research_period"].eq(1)
+    ].copy()
+    if cand.empty:
+        return pd.DataFrame(), pd.DataFrame()
+
+    structure_key: Dict[Tuple[str, str], Dict[str, Any]] = {}
+    if structure_audit is not None and not structure_audit.empty:
+        for _, sr in structure_audit.iterrows():
+            code = str(sr.get("code") or "").zfill(6)
+            sq_date = str(sr.get("squeeze_date") or "")
+            structure_key[(code, sq_date)] = sr.to_dict()
+
+    def _med(frame: pd.DataFrame, col: str) -> float:
+        if frame is None or frame.empty or col not in frame:
+            return float("nan")
+        x = pd.to_numeric(frame[col], errors="coerce")
+        return float(x.median()) if x.notna().any() else float("nan")
+
+    def _mean(frame: pd.DataFrame, col: str) -> float:
+        if frame is None or frame.empty or col not in frame:
+            return float("nan")
+        x = pd.to_numeric(frame[col], errors="coerce")
+        return float(x.mean()) if x.notna().any() else float("nan")
+
+    def _range_med(frame: pd.DataFrame) -> float:
+        if frame is None or frame.empty:
+            return float("nan")
+        close = pd.to_numeric(frame["close"], errors="coerce").replace(0, np.nan)
+        rng = (
+            pd.to_numeric(frame["high"], errors="coerce")
+            - pd.to_numeric(frame["low"], errors="coerce")
+        ) / close * 100.0
+        return float(rng.median()) if rng.notna().any() else float("nan")
+
+    def _ratio(a: float, b: float) -> float:
+        return float(a / b) if math.isfinite(a) and math.isfinite(b) and b > 0 else float("nan")
+
+    def _spike_count(df: pd.DataFrame, start_idx: int, end_idx: int, col: str) -> int:
+        count = 0
+        for idx in range(max(0, start_idx), min(len(df), end_idx + 1)):
+            val = _audit_num(df.iloc[idx].get(col))
+            prior = df.iloc[max(0, idx - 20):idx]
+            baseline = _mean(prior, col)
+            if (
+                math.isfinite(val) and val > 0
+                and math.isfinite(baseline) and baseline > 0
+                and val >= 2.0 * baseline
+            ):
+                count += 1
+        return int(count)
+
+    rows: List[Dict[str, Any]] = []
+    for _, cr in cand.iterrows():
+        code = str(cr.get("code") or "").zfill(6)
+        sq_date = str(cr.get("squeeze_date") or "")
+        sq_ts = pd.to_datetime(sq_date, errors="coerce")
+        if pd.isna(sq_ts):
+            continue
+
+        df = frames.get(code)
+        if df is None and code.isdigit():
+            df = frames.get(str(int(code)))
+        if df is None or df.empty:
+            continue
+
+        dates = pd.to_datetime(df["date"], errors="coerce").dt.normalize()
+        sq_match = df.index[dates.eq(pd.Timestamp(sq_ts).normalize())]
+        if not len(sq_match):
+            continue
+        si = int(sq_match[-1])
+
+        early_flow = df.iloc[max(0, si - 60):max(0, si - 20)].copy()   # -60..-21
+        squeeze_early = df.iloc[max(0, si - 20):max(0, si - 10)].copy() # -20..-11
+        terminal5 = df.iloc[max(0, si - 4):si + 1].copy()              # -4..0
+
+        early_amt_spikes = _spike_count(df, si - 60, si - 21, "amount")
+        early_vol_spikes = _spike_count(df, si - 60, si - 21, "volume")
+        early_flow_present = int(early_amt_spikes > 0 or early_vol_spikes > 0)
+
+        se_amt = _med(squeeze_early, "amount")
+        t_amt = _med(terminal5, "amount")
+        se_vol = _med(squeeze_early, "volume")
+        t_vol = _med(terminal5, "volume")
+        se_range = _range_med(squeeze_early)
+        t_range = _range_med(terminal5)
+
+        amount_ratio = _ratio(t_amt, se_amt)
+        volume_ratio = _ratio(t_vol, se_vol)
+        range_ratio = _ratio(t_range, se_range)
+
+        amount_dry = int(math.isfinite(amount_ratio) and amount_ratio < 1.0)
+        volume_dry = int(math.isfinite(volume_ratio) and volume_ratio < 1.0)
+        range_dry = int(math.isfinite(range_ratio) and range_ratio < 1.0)
+        terminal_all3 = int(amount_dry and volume_dry and range_dry)
+
+        sr = structure_key.get((code, sq_date), {})
+        obv_change = _audit_num(sr.get("pre10_obv_relative_change"))
+        bb40_ratio = _audit_num(sr.get("bb40_contraction_ratio_10bar"))
+        shape_score = _audit_num(sr.get("shape_score"))
+
+        qualified = int(cr.get("any_exact_breakout_with_universe", 0))
+        strict = int(cr.get("first_cross_exact_with_universe", 0))
+        healthy = int(cr.get("qualified_healthy_pullback_existing", 0))
+        restart = int(cr.get("qualified_restart_existing", 0))
+        impulse5 = int(cr.get("qualified_post_breakout_reaches_5pct_5bar", 0))
+        impulse10 = int(cr.get("qualified_post_breakout_reaches_10pct_8bar", 0))
+
+        rows.append({
+            "schema": SCHEMA,
+            "strategy_id": STRATEGY_ID,
+            "loader_revision": LOADER_REVISION,
+            "audit_role": "CAUSAL_PRECURSOR_CASE_CONTROL_ONLY_NOT_A_GATE",
+            "code": code,
+            "squeeze_date": sq_date,
+            "feature_max_date": sq_date,
+            "streak_threshold": 1,
+            # causal precursor features
+            "early_flow_amount_2x_spike_count": early_amt_spikes,
+            "early_flow_volume_2x_spike_count": early_vol_spikes,
+            "early_flow_present": early_flow_present,
+            "terminal_amount_ratio_late5_vs_early10": amount_ratio,
+            "terminal_volume_ratio_late5_vs_early10": volume_ratio,
+            "terminal_range_ratio_late5_vs_early10": range_ratio,
+            "terminal_amount_dry": amount_dry,
+            "terminal_volume_dry": volume_dry,
+            "terminal_range_dry": range_dry,
+            "terminal_all3_dry": terminal_all3,
+            "pre10_obv_relative_change": obv_change,
+            "pre10_obv_positive": int(math.isfinite(obv_change) and obv_change > 0),
+            "bb40_contraction_ratio_10bar": bb40_ratio,
+            "bb40_contracting": int(math.isfinite(bb40_ratio) and bb40_ratio < 1.0),
+            "shape_score": shape_score,
+            # outcome labels only
+            "label_first_cross_exact": strict,
+            "label_qualified_breakout": qualified,
+            "label_healthy_pullback": healthy,
+            "label_restart": restart,
+            "label_impulse_5pct_5bar": impulse5,
+            "label_impulse_10pct_8bar": impulse10,
+            "label_probe_then_qualified": int(cr.get("probe_then_qualified_breakout", 0)),
+            "label_qualified_breakout_date": str(cr.get("qualified_breakout_date") or ""),
+            "used_as_strategy_gate": 0,
+            "future_labels_not_features": 1,
+        })
+
+    detail = pd.DataFrame(rows)
+    if detail.empty:
+        return detail, pd.DataFrame()
+
+    def _sum(frame: pd.DataFrame, col: str) -> int:
+        if frame.empty or col not in frame:
+            return 0
+        return int(pd.to_numeric(frame[col], errors="coerce").fillna(0).sum())
+
+    def _rate(frame: pd.DataFrame, col: str) -> float:
+        if frame.empty or col not in frame:
+            return float("nan")
+        x = pd.to_numeric(frame[col], errors="coerce").fillna(0)
+        return float(x.mean())
+
+    def _median(frame: pd.DataFrame, col: str) -> float:
+        if frame.empty or col not in frame:
+            return float("nan")
+        x = pd.to_numeric(frame[col], errors="coerce").replace([np.inf,-np.inf], np.nan)
+        return float(x.median()) if x.notna().any() else float("nan")
+
+    qualified = detail[detail["label_qualified_breakout"].eq(1)]
+    no_qualified = detail[detail["label_qualified_breakout"].eq(0)]
+    terminal = detail[detail["terminal_all3_dry"].eq(1)]
+    nonterminal = detail[detail["terminal_all3_dry"].eq(0)]
+    earlyflow = detail[detail["early_flow_present"].eq(1)]
+    no_earlyflow = detail[detail["early_flow_present"].eq(0)]
+    obvpos = detail[detail["pre10_obv_positive"].eq(1)]
+    obvnon = detail[detail["pre10_obv_positive"].eq(0)]
+    bbcontract = detail[detail["bb40_contracting"].eq(1)]
+    bbnon = detail[detail["bb40_contracting"].eq(0)]
+
+    def _lift(a: float, b: float) -> float:
+        return float(a / b) if math.isfinite(a) and math.isfinite(b) and b > 0 else float("nan")
+
+    terminal_q_rate = _rate(terminal, "label_qualified_breakout")
+    nonterminal_q_rate = _rate(nonterminal, "label_qualified_breakout")
+    early_q_rate = _rate(earlyflow, "label_qualified_breakout")
+    noearly_q_rate = _rate(no_earlyflow, "label_qualified_breakout")
+    obv_q_rate = _rate(obvpos, "label_qualified_breakout")
+    obvnon_q_rate = _rate(obvnon, "label_qualified_breakout")
+    bb_q_rate = _rate(bbcontract, "label_qualified_breakout")
+    bbnon_q_rate = _rate(bbnon, "label_qualified_breakout")
+
+    summary = pd.DataFrame([{
+        "schema": SCHEMA,
+        "strategy_id": STRATEGY_ID,
+        "loader_revision": LOADER_REVISION,
+        "streak1_candidate_runs": int(len(detail)),
+        "qualified_breakouts": _sum(detail, "label_qualified_breakout"),
+        "strict_first_cross_exact": _sum(detail, "label_first_cross_exact"),
+
+        "terminal_all3_runs": int(len(terminal)),
+        "terminal_all3_qualified": _sum(terminal, "label_qualified_breakout"),
+        "terminal_all3_qualified_rate": terminal_q_rate,
+        "nonterminal_runs": int(len(nonterminal)),
+        "nonterminal_qualified": _sum(nonterminal, "label_qualified_breakout"),
+        "nonterminal_qualified_rate": nonterminal_q_rate,
+        "terminal_all3_qualified_rate_lift": _lift(terminal_q_rate, nonterminal_q_rate),
+
+        "early_flow_runs": int(len(earlyflow)),
+        "early_flow_qualified": _sum(earlyflow, "label_qualified_breakout"),
+        "early_flow_qualified_rate": early_q_rate,
+        "no_early_flow_runs": int(len(no_earlyflow)),
+        "no_early_flow_qualified": _sum(no_earlyflow, "label_qualified_breakout"),
+        "no_early_flow_qualified_rate": noearly_q_rate,
+        "early_flow_qualified_rate_lift": _lift(early_q_rate, noearly_q_rate),
+
+        "obv_positive_runs": int(len(obvpos)),
+        "obv_positive_qualified": _sum(obvpos, "label_qualified_breakout"),
+        "obv_positive_qualified_rate": obv_q_rate,
+        "obv_nonpositive_runs": int(len(obvnon)),
+        "obv_nonpositive_qualified": _sum(obvnon, "label_qualified_breakout"),
+        "obv_nonpositive_qualified_rate": obvnon_q_rate,
+        "obv_positive_qualified_rate_lift": _lift(obv_q_rate, obvnon_q_rate),
+
+        "bb40_contracting_runs": int(len(bbcontract)),
+        "bb40_contracting_qualified": _sum(bbcontract, "label_qualified_breakout"),
+        "bb40_contracting_qualified_rate": bb_q_rate,
+        "bb40_noncontracting_runs": int(len(bbnon)),
+        "bb40_noncontracting_qualified": _sum(bbnon, "label_qualified_breakout"),
+        "bb40_noncontracting_qualified_rate": bbnon_q_rate,
+        "bb40_contracting_qualified_rate_lift": _lift(bb_q_rate, bbnon_q_rate),
+
+        "qualified_median_terminal_amount_ratio": _median(qualified, "terminal_amount_ratio_late5_vs_early10"),
+        "nonqualified_median_terminal_amount_ratio": _median(no_qualified, "terminal_amount_ratio_late5_vs_early10"),
+        "qualified_median_terminal_volume_ratio": _median(qualified, "terminal_volume_ratio_late5_vs_early10"),
+        "nonqualified_median_terminal_volume_ratio": _median(no_qualified, "terminal_volume_ratio_late5_vs_early10"),
+        "qualified_median_terminal_range_ratio": _median(qualified, "terminal_range_ratio_late5_vs_early10"),
+        "nonqualified_median_terminal_range_ratio": _median(no_qualified, "terminal_range_ratio_late5_vs_early10"),
+        "qualified_median_pre10_obv_change": _median(qualified, "pre10_obv_relative_change"),
+        "nonqualified_median_pre10_obv_change": _median(no_qualified, "pre10_obv_relative_change"),
+        "qualified_median_bb40_ratio": _median(qualified, "bb40_contraction_ratio_10bar"),
+        "nonqualified_median_bb40_ratio": _median(no_qualified, "bb40_contraction_ratio_10bar"),
+        "qualified_median_shape_score": _median(qualified, "shape_score"),
+        "nonqualified_median_shape_score": _median(no_qualified, "shape_score"),
+
+        "terminal_all3_healthy_labels": _sum(terminal, "label_healthy_pullback"),
+        "terminal_all3_restart_labels": _sum(terminal, "label_restart"),
+        "nonterminal_healthy_labels": _sum(nonterminal, "label_healthy_pullback"),
+        "nonterminal_restart_labels": _sum(nonterminal, "label_restart"),
+
+        "feature_cutoff_is_squeeze_date": 1,
+        "future_labels_not_features": 1,
+        "used_as_strategy_gate": 0,
+    }])
+
+    return detail, summary
+
+
 def build_forward_outcomes(signals: List[Dict[str, Any]], frames: Dict[str, pd.DataFrame], cfg: FrozenConfig) -> pd.DataFrame:
     rows: List[Dict[str, Any]] = []
     for s in signals:
@@ -2719,6 +2993,11 @@ def run(args: argparse.Namespace) -> int:
     terminal_energy_detail, terminal_energy_summary = build_terminal_energy_profile_audit(
         qualified_event_detail, frames
     )
+    precursor_case_control_detail, precursor_case_control_summary = (
+        build_causal_precursor_case_control_audit(
+            counterfactual_detail, structure_audit, frames
+        )
+    )
 
     structure_integrity_audit = pd.DataFrame([{
         "schema": SCHEMA,
@@ -2814,6 +3093,8 @@ def run(args: argparse.Namespace) -> int:
     _write_csv(phase_sequence_summary, out / "tri_phase_sequence_summary.csv")
     _write_csv(terminal_energy_detail, out / "tri_terminal_energy_profile_detail.csv")
     _write_csv(terminal_energy_summary, out / "tri_terminal_energy_profile_summary.csv")
+    _write_csv(precursor_case_control_detail, out / "tri_causal_precursor_case_control_detail.csv")
+    _write_csv(precursor_case_control_summary, out / "tri_causal_precursor_case_control_summary.csv")
     _write_csv(
         gate_diag.sort_values(
             ["squeeze_qualifying_windows","max_squeeze_streak","breakout_price_cross"],
@@ -2893,6 +3174,13 @@ def run(args: argparse.Namespace) -> int:
             "used_as_strategy_gate": 0,
             "summary": terminal_energy_summary.to_dict("records"),
         },
+        "causal_precursor_case_control_audit": {
+            "research_only": 1,
+            "features_causal_through_squeeze_date": 1,
+            "future_labels_not_features": 1,
+            "used_as_strategy_gate": 0,
+            "summary": precursor_case_control_summary.to_dict("records"),
+        },
         "restart_signals": int(len(signals)),
         "invariant_fail": int(invariant_fail + structure_audit_integrity_fail),
         "structure_audit_integrity_fail": structure_audit_integrity_fail,
@@ -2914,6 +3202,7 @@ def run(args: argparse.Namespace) -> int:
         out / "tri_qualified_event_review_bars.csv",
         out / "tri_phase_sequence_detail.csv", out / "tri_phase_sequence_summary.csv",
         out / "tri_terminal_energy_profile_detail.csv", out / "tri_terminal_energy_profile_summary.csv",
+        out / "tri_causal_precursor_case_control_detail.csv", out / "tri_causal_precursor_case_control_summary.csv",
     ]
     h = hashlib.sha256()
     for p in authority_files:
@@ -2939,6 +3228,7 @@ def run(args: argparse.Namespace) -> int:
         f"qualified_event_fidelity_summary={json.dumps(qualified_event_summary.to_dict('records'), ensure_ascii=False, sort_keys=True)}",
         f"phase_sequence_summary={json.dumps(phase_sequence_summary.to_dict('records'), ensure_ascii=False, sort_keys=True)}",
         f"terminal_energy_profile_summary={json.dumps(terminal_energy_summary.to_dict('records'), ensure_ascii=False, sort_keys=True)}",
+        f"causal_precursor_case_control_summary={json.dumps(precursor_case_control_summary.to_dict('records'), ensure_ascii=False, sort_keys=True)}",
         (
             f"structure_audit_integrity=expected:{structure_audit_expected_rows}"
             f" raw:{structure_audit_raw_rows} errors:{structure_audit_error_count}"
@@ -2952,7 +3242,7 @@ def run(args: argparse.Namespace) -> int:
         (
             "NEXT_GATE=manual chart review + false-positive taxonomy before any threshold/performance tuning"
             if len(signals) > 0 else
-            "NEXT_GATE=terminal energy-profile review; distinguish orderly drying vs active-squeeze phenotypes before any strategy gate change"
+            "NEXT_GATE=causal precursor case-control review across all streak1 runs; promote no precursor feature until qualified-vs-nonqualified separation is proven"
         ),
     ]
     (out / "tri_report.txt").write_text("\n".join(report) + "\n", encoding="utf-8")
