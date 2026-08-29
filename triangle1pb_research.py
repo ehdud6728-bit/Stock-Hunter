@@ -32,7 +32,7 @@ import pandas as pd
 
 SCHEMA = "TRIANGLE1PB_RESEARCH_SCHEMA_V1"
 STRATEGY_ID = "TRIANGLE1PB_R1_CHRONOLOGY_FIRST"
-LOADER_REVISION = "TRIANGLE1PB_R1_6_QUALIFIED_EVENT_FIDELITY_AUDIT"
+LOADER_REVISION = "TRIANGLE1PB_R1_7_PHASE_SEQUENCE_AUDIT"
 RESEARCH_AUTHORITY = "RESEARCH_ONLY_NO_LIVE_NO_POLICY_NO_ORDERS"
 STAGES = [
     "TRI_SQUEEZE",
@@ -1919,6 +1919,224 @@ def build_qualified_event_fidelity_audit(
     return event, summary, bars
 
 
+
+def build_phase_sequence_audit(
+    qualified_event_detail: pd.DataFrame,
+    structure_audit: pd.DataFrame,
+    frames: Dict[str, pd.DataFrame],
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """Audit the intended sequence:
+    prior flow/accumulation -> squeeze cooling/compression -> qualified breakout
+    re-acceleration -> healthy pullback drying -> restart.
+
+    Descriptive only. No field here is used by detect_code() or any strategy gate.
+    """
+    if qualified_event_detail is None or qualified_event_detail.empty:
+        return pd.DataFrame(), pd.DataFrame()
+
+    structure_key = {}
+    if structure_audit is not None and not structure_audit.empty:
+        for _, sr in structure_audit.iterrows():
+            structure_key[(str(sr.get("code") or "").zfill(6), str(sr.get("squeeze_date") or ""))] = sr.to_dict()
+
+    rows: List[Dict[str, Any]] = []
+
+    def med(series: pd.Series) -> float:
+        x = pd.to_numeric(series, errors="coerce")
+        return float(x.median()) if x.notna().any() else float("nan")
+
+    def mean(series: pd.Series) -> float:
+        x = pd.to_numeric(series, errors="coerce")
+        return float(x.mean()) if x.notna().any() else float("nan")
+
+    def ratio(a: float, b: float) -> float:
+        return float(a / b) if math.isfinite(a) and math.isfinite(b) and b > 0 else float("nan")
+
+    def daily_range_median(frame: pd.DataFrame) -> float:
+        if frame.empty:
+            return float("nan")
+        c = pd.to_numeric(frame["close"], errors="coerce").replace(0, np.nan)
+        r = (
+            pd.to_numeric(frame["high"], errors="coerce")
+            - pd.to_numeric(frame["low"], errors="coerce")
+        ) / c * 100.0
+        return float(r.median()) if r.notna().any() else float("nan")
+
+    for _, er in qualified_event_detail.iterrows():
+        code = str(er.get("code") or "").zfill(6)
+        sq_date = str(er.get("canonical_squeeze_date") or "")
+        bo_date = str(er.get("qualified_breakout_date") or "")
+        df = frames.get(str(int(code)) if code.isdigit() else code)
+        if df is None:
+            df = frames.get(code)
+        if df is None or df.empty:
+            continue
+
+        dates = pd.to_datetime(df["date"], errors="coerce").dt.normalize()
+        sq_ts = pd.to_datetime(sq_date, errors="coerce")
+        bo_ts = pd.to_datetime(bo_date, errors="coerce")
+        sq_match = df.index[dates.eq(pd.Timestamp(sq_ts).normalize())] if pd.notna(sq_ts) else []
+        bo_match = df.index[dates.eq(pd.Timestamp(bo_ts).normalize())] if pd.notna(bo_ts) else []
+        if not len(sq_match) or not len(bo_match):
+            continue
+        si = int(sq_match[-1])
+        bi = int(bo_match[-1])
+
+        pre = df.iloc[max(0, si - 40):max(0, si - 20)].copy()      # -40..-21
+        squeeze = df.iloc[max(0, si - 20):si + 1].copy()          # -20..0
+        prior20_bo = df.iloc[max(0, bi - 20):bi].copy()
+        bo = df.iloc[bi]
+
+        pre_amt_med = med(pre["amount"]) if "amount" in pre else float("nan")
+        sq_amt_med = med(squeeze["amount"]) if "amount" in squeeze else float("nan")
+        pre_vol_med = med(pre["volume"]) if "volume" in pre else float("nan")
+        sq_vol_med = med(squeeze["volume"]) if "volume" in squeeze else float("nan")
+        pre_range_med = daily_range_median(pre)
+        sq_range_med = daily_range_median(squeeze)
+
+        bo_amt = _audit_num(bo.get("amount"))
+        bo_vol = _audit_num(bo.get("volume"))
+        bo_amt20_mean = mean(prior20_bo["amount"]) if "amount" in prior20_bo else float("nan")
+        bo_vol20_mean = mean(prior20_bo["volume"]) if "volume" in prior20_bo else float("nan")
+        bo_amt20_med = med(prior20_bo["amount"]) if "amount" in prior20_bo else float("nan")
+        bo_vol20_med = med(prior20_bo["volume"]) if "volume" in prior20_bo else float("nan")
+
+        sr = structure_key.get((code, sq_date), {})
+
+        # Healthy pullback row, if one exists.
+        hp_date = pd.to_datetime(er.get("qualified_healthy_pullback_date"), errors="coerce")
+        hp_amt = float("nan")
+        hp_vol = float("nan")
+        if pd.notna(hp_date):
+            hp_match = df.index[dates.eq(pd.Timestamp(hp_date).normalize())]
+            if len(hp_match):
+                hp = df.iloc[int(hp_match[-1])]
+                hp_amt = _audit_num(hp.get("amount"))
+                hp_vol = _audit_num(hp.get("volume"))
+
+        # Broader extreme-move context audit: pre-60 through post-breakout+8.
+        lo = max(0, si - 60)
+        hi = min(len(df), bi + 9)
+        ctx = df.iloc[lo:hi].copy()
+        ctx_close = pd.to_numeric(ctx["close"], errors="coerce")
+        ctx_open = pd.to_numeric(ctx["open"], errors="coerce")
+        prev_close = ctx_close.shift(1)
+        abs_cc = ((ctx_close / prev_close) - 1.0).abs() * 100.0
+        abs_gap = ((ctx_open / prev_close) - 1.0).abs() * 100.0
+        extreme_29_count = int((abs_cc >= 29.0).fillna(False).sum())
+        extreme_gap29_count = int((abs_gap >= 29.0).fillna(False).sum())
+
+        cool_amt_ratio = ratio(sq_amt_med, pre_amt_med)
+        cool_vol_ratio = ratio(sq_vol_med, pre_vol_med)
+        range_ratio = ratio(sq_range_med, pre_range_med)
+        bo_amt_mean_ratio = ratio(bo_amt, bo_amt20_mean)
+        bo_vol_mean_ratio = ratio(bo_vol, bo_vol20_mean)
+        bo_amt_med_ratio = ratio(bo_amt, bo_amt20_med)
+        bo_vol_med_ratio = ratio(bo_vol, bo_vol20_med)
+        hp_amt_vs_bo = ratio(hp_amt, bo_amt)
+        hp_vol_vs_bo = ratio(hp_vol, bo_vol)
+
+        cooling_amount = int(math.isfinite(cool_amt_ratio) and cool_amt_ratio < 1.0)
+        cooling_volume = int(math.isfinite(cool_vol_ratio) and cool_vol_ratio < 1.0)
+        range_compressed = int(math.isfinite(range_ratio) and range_ratio < 1.0)
+        three_phase_compression = int(cooling_amount and cooling_volume and range_compressed)
+
+        rows.append({
+            "schema": SCHEMA,
+            "strategy_id": STRATEGY_ID,
+            "loader_revision": LOADER_REVISION,
+            "audit_role": "PHASE_SEQUENCE_ONLY_NOT_A_GATE",
+            "code": code,
+            "canonical_squeeze_date": sq_date,
+            "qualified_breakout_date": bo_date,
+            "probe_then_qualified": int(er.get("canonical_probe_then_qualified", 0)),
+            "healthy": int(er.get("qualified_healthy_pullback_existing", 0)),
+            "restart": int(er.get("qualified_restart_existing", 0)),
+            "impulse_5pct_5bar": int(er.get("qualified_post_breakout_reaches_5pct_5bar", 0)),
+            "impulse_10pct_8bar": int(er.get("qualified_post_breakout_reaches_10pct_8bar", 0)),
+            "pre60_volume_spike_2x_count": int(pd.to_numeric(sr.get("pre60_volume_spike_2p0_count"), errors="coerce") or 0),
+            "pre60_amount_spike_2x_count": int(pd.to_numeric(sr.get("pre60_amount_spike_2p0_count"), errors="coerce") or 0),
+            "pre60_legacy_accumulation_bar_count": int(pd.to_numeric(sr.get("pre60_legacy_accumulation_bar_count"), errors="coerce") or 0),
+            "pre10_obv_relative_change": _audit_num(sr.get("pre10_obv_relative_change")),
+            "bb40_contraction_ratio_10bar": _audit_num(sr.get("bb40_contraction_ratio_10bar")),
+            "pre20_amount_median": pre_amt_med,
+            "squeeze20_amount_median": sq_amt_med,
+            "squeeze_vs_pre_amount_median_ratio": cool_amt_ratio,
+            "pre20_volume_median": pre_vol_med,
+            "squeeze20_volume_median": sq_vol_med,
+            "squeeze_vs_pre_volume_median_ratio": cool_vol_ratio,
+            "pre20_daily_range_pct_median": pre_range_med,
+            "squeeze20_daily_range_pct_median": sq_range_med,
+            "squeeze_vs_pre_range_ratio": range_ratio,
+            "squeeze_amount_cooling": cooling_amount,
+            "squeeze_volume_cooling": cooling_volume,
+            "squeeze_range_compression": range_compressed,
+            "three_phase_compression": three_phase_compression,
+            "qualified_breakout_amount": bo_amt,
+            "qualified_breakout_amount20_mean_ratio": bo_amt_mean_ratio,
+            "qualified_breakout_amount20_median_ratio": bo_amt_med_ratio,
+            "qualified_breakout_volume20_mean_ratio": bo_vol_mean_ratio,
+            "qualified_breakout_volume20_median_ratio": bo_vol_med_ratio,
+            "healthy_pullback_amount_vs_breakout_ratio": hp_amt_vs_bo,
+            "healthy_pullback_volume_vs_breakout_ratio": hp_vol_vs_bo,
+            "lower_structure_intact_tag": int(er.get("wait_structure_intact_lower", 0)),
+            "lower_break_count": int(er.get("wait_lower_trendline_break_count", 0)),
+            "extreme_close_move_29pct_count_pre60_to_post8": extreme_29_count,
+            "extreme_open_gap_29pct_count_pre60_to_post8": extreme_gap29_count,
+            "extreme_context_tag": int(extreme_29_count > 0 or extreme_gap29_count > 0),
+            "used_as_strategy_gate": 0,
+        })
+
+    detail = pd.DataFrame(rows)
+    if detail.empty:
+        return detail, pd.DataFrame()
+
+    def isum(col: str) -> int:
+        return int(pd.to_numeric(detail[col], errors="coerce").fillna(0).sum())
+
+    def median_col(col: str) -> float:
+        x = pd.to_numeric(detail[col], errors="coerce").replace([np.inf, -np.inf], np.nan)
+        return float(x.median()) if x.notna().any() else float("nan")
+
+    sequence_mask = (
+        detail["three_phase_compression"].eq(1)
+        & detail["impulse_5pct_5bar"].eq(1)
+        & detail["healthy"].eq(1)
+    )
+    sequence_restart = int((sequence_mask & detail["restart"].eq(1)).sum())
+
+    summary = pd.DataFrame([{
+        "schema": SCHEMA,
+        "strategy_id": STRATEGY_ID,
+        "loader_revision": LOADER_REVISION,
+        "qualified_unique_events": int(len(detail)),
+        "pre60_volume_spike_2x_present": int((detail["pre60_volume_spike_2x_count"] >= 1).sum()),
+        "pre60_amount_spike_2x_present": int((detail["pre60_amount_spike_2x_count"] >= 1).sum()),
+        "legacy_accumulation_proxy_present": int((detail["pre60_legacy_accumulation_bar_count"] >= 1).sum()),
+        "squeeze_amount_cooling_events": isum("squeeze_amount_cooling"),
+        "squeeze_volume_cooling_events": isum("squeeze_volume_cooling"),
+        "squeeze_range_compression_events": isum("squeeze_range_compression"),
+        "three_phase_compression_events": isum("three_phase_compression"),
+        "median_squeeze_vs_pre_amount_ratio": median_col("squeeze_vs_pre_amount_median_ratio"),
+        "median_squeeze_vs_pre_volume_ratio": median_col("squeeze_vs_pre_volume_median_ratio"),
+        "median_squeeze_vs_pre_range_ratio": median_col("squeeze_vs_pre_range_ratio"),
+        "median_breakout_amount20_mean_ratio": median_col("qualified_breakout_amount20_mean_ratio"),
+        "median_breakout_amount20_median_ratio": median_col("qualified_breakout_amount20_median_ratio"),
+        "healthy_events": isum("healthy"),
+        "restart_events": isum("restart"),
+        "impulse_5pct_events": isum("impulse_5pct_5bar"),
+        "impulse_10pct_events": isum("impulse_10pct_8bar"),
+        "median_healthy_pullback_amount_vs_breakout": median_col("healthy_pullback_amount_vs_breakout_ratio"),
+        "median_healthy_pullback_volume_vs_breakout": median_col("healthy_pullback_volume_vs_breakout_ratio"),
+        "sequence_compression_plus_5pct_plus_healthy": int(sequence_mask.sum()),
+        "sequence_compression_plus_5pct_plus_healthy_restart": sequence_restart,
+        "extreme_context_29pct_events": isum("extreme_context_tag"),
+        "lower_structure_intact_tag_events": isum("lower_structure_intact_tag"),
+        "used_as_strategy_gate": 0,
+    }])
+    return detail, summary
+
+
 def build_forward_outcomes(signals: List[Dict[str, Any]], frames: Dict[str, pd.DataFrame], cfg: FrozenConfig) -> pd.DataFrame:
     rows: List[Dict[str, Any]] = []
     for s in signals:
@@ -2254,6 +2472,9 @@ def run(args: argparse.Namespace) -> int:
             counterfactual_detail, structure_audit, frames, cfg
         )
     )
+    phase_sequence_detail, phase_sequence_summary = build_phase_sequence_audit(
+        qualified_event_detail, structure_audit, frames
+    )
 
     structure_integrity_audit = pd.DataFrame([{
         "schema": SCHEMA,
@@ -2345,6 +2566,8 @@ def run(args: argparse.Namespace) -> int:
     _write_csv(qualified_event_detail, out / "tri_qualified_event_fidelity_detail.csv")
     _write_csv(qualified_event_summary, out / "tri_qualified_event_fidelity_summary.csv")
     _write_csv(qualified_event_review_bars, out / "tri_qualified_event_review_bars.csv")
+    _write_csv(phase_sequence_detail, out / "tri_phase_sequence_detail.csv")
+    _write_csv(phase_sequence_summary, out / "tri_phase_sequence_summary.csv")
     _write_csv(
         gate_diag.sort_values(
             ["squeeze_qualifying_windows","max_squeeze_streak","breakout_price_cross"],
@@ -2414,6 +2637,11 @@ def run(args: argparse.Namespace) -> int:
             "used_as_strategy_gate": 0,
             "summary": qualified_event_summary.to_dict("records"),
         },
+        "phase_sequence_audit": {
+            "research_only": 1,
+            "used_as_strategy_gate": 0,
+            "summary": phase_sequence_summary.to_dict("records"),
+        },
         "restart_signals": int(len(signals)),
         "invariant_fail": int(invariant_fail + structure_audit_integrity_fail),
         "structure_audit_integrity_fail": structure_audit_integrity_fail,
@@ -2433,6 +2661,7 @@ def run(args: argparse.Namespace) -> int:
         out / "tri_counterfactual_streak_detail.csv", out / "tri_counterfactual_streak_summary.csv",
         out / "tri_qualified_event_fidelity_detail.csv", out / "tri_qualified_event_fidelity_summary.csv",
         out / "tri_qualified_event_review_bars.csv",
+        out / "tri_phase_sequence_detail.csv", out / "tri_phase_sequence_summary.csv",
     ]
     h = hashlib.sha256()
     for p in authority_files:
@@ -2456,6 +2685,7 @@ def run(args: argparse.Namespace) -> int:
         ),
         f"counterfactual_streak_summary={json.dumps(counterfactual_summary.to_dict('records'), ensure_ascii=False, sort_keys=True)}",
         f"qualified_event_fidelity_summary={json.dumps(qualified_event_summary.to_dict('records'), ensure_ascii=False, sort_keys=True)}",
+        f"phase_sequence_summary={json.dumps(phase_sequence_summary.to_dict('records'), ensure_ascii=False, sort_keys=True)}",
         (
             f"structure_audit_integrity=expected:{structure_audit_expected_rows}"
             f" raw:{structure_audit_raw_rows} errors:{structure_audit_error_count}"
@@ -2469,7 +2699,7 @@ def run(args: argparse.Namespace) -> int:
         (
             "NEXT_GATE=manual chart review + false-positive taxonomy before any threshold/performance tuning"
             if len(signals) > 0 else
-            "NEXT_GATE=qualified event fidelity + full visual review; no strategy promotion until duplicate/discontinuity/structure-intact audit is proven"
+            "NEXT_GATE=phase-sequence fidelity review; verify flow-in -> compression -> qualified impulse -> drying pullback before strategy promotion"
         ),
     ]
     (out / "tri_report.txt").write_text("\n".join(report) + "\n", encoding="utf-8")
