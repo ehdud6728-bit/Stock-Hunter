@@ -1808,6 +1808,46 @@ jobs:
                       "※ 어떤 precursor도 실제 strategy gate에 미사용",
                   ]
 
+              jp = m.get("joint_precursor_stability_audit") or {}
+              jp_rows = jp.get("summary") or []
+              if jp_rows:
+                  def _find(split, group):
+                      for rr in jp_rows:
+                          if rr.get("split") == split and rr.get("group") == group:
+                              return rr
+                      return {}
+                  fullj = _find("FULL","OBV+_AND_BB40DOWN")
+                  fullr = _find("FULL","REST")
+                  h1j = _find("H1_EARLY","OBV+_AND_BB40DOWN")
+                  h1r = _find("H1_EARLY","REST")
+                  h2j = _find("H2_LATE","OBV+_AND_BB40DOWN")
+                  h2r = _find("H2_LATE","REST")
+                  def _pctrow(r):
+                      try:
+                          return f"{float(r.get('qualified_rate'))*100.0:.1f}%"
+                      except Exception:
+                          return "-"
+                  lines += [
+                      "",
+                      "🧬 [Joint Precursor Stability · 탐색가설]",
+                      (
+                          f"OBV+ & BB40↓ FULL: {int(fullj.get('qualified_breakout',0))}/"
+                          f"{int(fullj.get('runs',0))} = {_pctrow(fullj)}"
+                          f" | rest {int(fullr.get('qualified_breakout',0))}/"
+                          f"{int(fullr.get('runs',0))} = {_pctrow(fullr)}"
+                      ),
+                      (
+                          f"H1: {_pctrow(h1j)} vs {_pctrow(h1r)}"
+                          f" · H2: {_pctrow(h2j)} vs {_pctrow(h2r)}"
+                      ),
+                      (
+                          f"FULL H {int(fullj.get('healthy',0))}/{int(fullj.get('runs',0))}"
+                          f" · R {int(fullj.get('restart',0))}/{int(fullj.get('runs',0))}"
+                      ),
+                      "※ 같은 2년 데이터에서 발견한 post-hoc 조합 · 아직 전략 filter 아님",
+                      "※ 192개 전체 review bars 저장 · qualified/실패 모두 육안 비교 가능",
+                  ]
+
               amount_cov = m.get("actual_amount_coverage_pct")
               asof_dates = m.get("asof_snapshot_dates")
               lookahead = m.get("lookahead_fail", 0)
