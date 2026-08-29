@@ -32,7 +32,7 @@ import pandas as pd
 
 SCHEMA = "TRIANGLE1PB_RESEARCH_SCHEMA_V1"
 STRATEGY_ID = "TRIANGLE1PB_R1_CHRONOLOGY_FIRST"
-LOADER_REVISION = "TRIANGLE1PB_R1_12_1_STALE_SOURCE_FAIL_CLOSED"
+LOADER_REVISION = "TRIANGLE1PB_R1_13_PULLBACK_RESTART_ANATOMY_AUDIT"
 RESEARCH_AUTHORITY = "RESEARCH_ONLY_NO_LIVE_NO_POLICY_NO_ORDERS"
 STAGES = [
     "TRI_SQUEEZE",
@@ -3465,6 +3465,256 @@ def build_conversion_vs_quality_audit(
     return pd.DataFrame(rows)
 
 
+
+def build_stage_quality_anatomy_audit(
+    qualified_event_detail: pd.DataFrame,
+    stage_anchor_event_summary: pd.DataFrame,
+    stage_anchor_path_detail: pd.DataFrame,
+    frames: Dict[str, pd.DataFrame],
+    cfg: FrozenConfig,
+) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Audit why HEALTHY and RESTART anchors do or do not behave like entries.
+
+    No field in this lane is promoted into detect_code(). HEALTHY lower-low
+    fields use future bars and are outcome taxonomy only. RESTART descriptors
+    use information available at the restart close; the wave-high-reclaim
+    hypothesis is explicitly post-hoc on this same research set.
+    """
+    if qualified_event_detail is None or qualified_event_detail.empty:
+        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+
+    qmap: Dict[Tuple[str, str, str], Dict[str, Any]] = {}
+    for _, q in qualified_event_detail.iterrows():
+        key = (
+            str(q.get("code") or "").zfill(6),
+            str(q.get("canonical_squeeze_date") or ""),
+            str(q.get("qualified_breakout_date") or ""),
+        )
+        qmap[key] = q.to_dict()
+
+    healthy_rows: List[Dict[str, Any]] = []
+    restart_rows: List[Dict[str, Any]] = []
+
+    for _, ev in stage_anchor_event_summary.iterrows():
+        anchor_name = str(ev.get("anchor") or "")
+        if anchor_name not in ("HEALTHY", "RESTART"):
+            continue
+        code = str(ev.get("code") or "").zfill(6)
+        sq = str(ev.get("canonical_squeeze_date") or "")
+        qdate = str(ev.get("qualified_breakout_date") or "")
+        qmeta = qmap.get((code, sq, qdate))
+        if not qmeta:
+            continue
+        df = _r111_get_frame(frames, code)
+        if df is None or df.empty:
+            continue
+
+        dates = pd.to_datetime(df["date"], errors="coerce").dt.normalize()
+        qt = pd.to_datetime(qdate, errors="coerce")
+        at = pd.to_datetime(ev.get("anchor_date"), errors="coerce")
+        qm = df.index[dates.eq(pd.Timestamp(qt).normalize())] if pd.notna(qt) else []
+        am = df.index[dates.eq(pd.Timestamp(at).normalize())] if pd.notna(at) else []
+        if not len(qm) or not len(am):
+            continue
+        qi = int(qm[-1]); ai = int(am[-1])
+        qrow = df.iloc[qi]; arow = df.iloc[ai]
+        qclose = _audit_num(qrow.get("close"))
+        aclose = _audit_num(arow.get("close"))
+
+        base = {
+            "schema": SCHEMA, "strategy_id": STRATEGY_ID, "loader_revision": LOADER_REVISION,
+            "code": code, "canonical_squeeze_date": sq,
+            "qualified_breakout_date": qdate,
+            "anchor_date": pd.Timestamp(at).date().isoformat(),
+            "probe_then_qualified": int(ev.get("probe_then_qualified",0)),
+            "joint_obv_positive_bb40_contracting": int(ev.get("joint_obv_positive_bb40_contracting",0)),
+            "anchor_close_vs_ma224_pct": _audit_num(ev.get("anchor_close_vs_ma224_pct")),
+            "anchor_below_ma224": int(ev.get("anchor_below_ma224",0)),
+            "anchor_ma224_ready": int(ev.get("anchor_ma224_ready",0)),
+            "d5_close_ret_pct": _audit_num(ev.get("d5_close_ret_pct")),
+            "d5_mfe_pct": _audit_num(ev.get("d5_mfe_pct")),
+            "d5_mae_pct": _audit_num(ev.get("d5_mae_pct")),
+            "d10_close_ret_pct": _audit_num(ev.get("d10_close_ret_pct")),
+            "d10_mfe_pct": _audit_num(ev.get("d10_mfe_pct")),
+            "d10_mae_pct": _audit_num(ev.get("d10_mae_pct")),
+            "d15_close_ret_pct": _audit_num(ev.get("d15_close_ret_pct")),
+            "d15_mfe_pct": _audit_num(ev.get("d15_mfe_pct")),
+            "d15_mae_pct": _audit_num(ev.get("d15_mae_pct")),
+            "used_as_strategy_gate": 0,
+        }
+
+        if anchor_name == "HEALTHY":
+            alow = _audit_num(arow.get("low"))
+            seg = df.iloc[ai+1:min(len(df), ai+6)].copy()
+            lower_low = 0
+            min_low_ret = float("nan")
+            min_low_day = -1
+            if not seg.empty and math.isfinite(aclose) and aclose > 0:
+                lows = pd.to_numeric(seg["low"], errors="coerce")
+                if lows.notna().any():
+                    min_pos = int(np.nanargmin(lows.to_numpy(dtype=float)))
+                    min_low = float(lows.iloc[min_pos])
+                    min_low_ret = ((min_low / aclose) - 1.0) * 100.0
+                    min_low_day = min_pos + 1
+                    lower_low = int(math.isfinite(alow) and min_low < alow)
+
+            healthy_rows.append({
+                **base,
+                "audit_role": "HEALTHY_BOTTOMING_ANATOMY_FUTURE_TAXONOMY_ONLY",
+                "q_to_healthy_bars": int(ai - qi),
+                "healthy_close_vs_qualified_close_pct": (
+                    ((aclose / qclose) - 1.0) * 100.0
+                    if math.isfinite(aclose) and aclose > 0 and math.isfinite(qclose) and qclose > 0
+                    else float("nan")
+                ),
+                "lower_low_within5_after_healthy": lower_low,
+                "min_low_within5_ret_from_healthy_close_pct": min_low_ret,
+                "day_of_min_low_within5": min_low_day,
+                "future_bottoming_label_only": 1,
+            })
+            continue
+
+        # RESTART anatomy: descriptors use data known by restart close.
+        hdate = pd.to_datetime(qmeta.get("qualified_healthy_pullback_date"), errors="coerce")
+        hm = df.index[dates.eq(pd.Timestamp(hdate).normalize())] if pd.notna(hdate) else []
+        hi = int(hm[-1]) if len(hm) else -1
+        hclose = _audit_num(df.iloc[hi].get("close")) if hi >= 0 else float("nan")
+        prev = df.iloc[ai-1] if ai > 0 else None
+
+        # Previous wave high excludes the restart bar itself.
+        pre_wave_high = float("nan")
+        if ai > qi:
+            hh = pd.to_numeric(df.iloc[qi:ai]["high"], errors="coerce")
+            if hh.notna().any():
+                pre_wave_high = float(hh.max())
+
+        amount = _audit_num(arow.get("amount"))
+        amt20, amt_obs = amount20_stats(df, ai, cfg)
+        amt20_ratio = (
+            amount / amt20
+            if math.isfinite(amount) and amount > 0 and math.isfinite(amt20) and amt20 > 0
+            else float("nan")
+        )
+        high = _audit_num(arow.get("high")); low = _audit_num(arow.get("low"))
+        close_location = (
+            (aclose - low) / (high - low)
+            if all(math.isfinite(x) for x in (aclose,high,low)) and high > low
+            else float("nan")
+        )
+        prev_high = _audit_num(prev.get("high")) if prev is not None else float("nan")
+        prev_close = _audit_num(prev.get("close")) if prev is not None else float("nan")
+        aopen = _audit_num(arow.get("open"))
+
+        restart_rows.append({
+            **base,
+            "audit_role": "RESTART_REACCELERATION_ANATOMY_CAUSAL_AT_RESTART_OUTCOME_AFTER",
+            "q_to_restart_bars": int(ai - qi),
+            "healthy_to_restart_bars": int(ai - hi) if hi >= 0 else -1,
+            "restart_close_vs_qualified_close_pct": (
+                ((aclose/qclose)-1.0)*100.0
+                if math.isfinite(aclose) and aclose>0 and math.isfinite(qclose) and qclose>0
+                else float("nan")
+            ),
+            "restart_close_vs_healthy_close_pct": (
+                ((aclose/hclose)-1.0)*100.0
+                if math.isfinite(aclose) and aclose>0 and math.isfinite(hclose) and hclose>0
+                else float("nan")
+            ),
+            "pre_restart_wave_high": pre_wave_high,
+            "restart_close_vs_pre_wave_high_pct": (
+                ((aclose/pre_wave_high)-1.0)*100.0
+                if math.isfinite(aclose) and aclose>0 and math.isfinite(pre_wave_high) and pre_wave_high>0
+                else float("nan")
+            ),
+            "restart_reclaim_pre_wave_high": int(
+                math.isfinite(pre_wave_high) and math.isfinite(aclose) and aclose >= pre_wave_high
+            ),
+            "restart_amount20_mean_prior": amt20,
+            "restart_amount20_observations": int(amt_obs),
+            "restart_amount20_ratio": amt20_ratio,
+            "restart_amount20_ge_1x": int(math.isfinite(amt20_ratio) and amt20_ratio >= 1.0),
+            "restart_amount20_ge_breakout_1_5x": int(
+                math.isfinite(amt20_ratio) and amt20_ratio >= cfg.breakout_min_amount20_ratio
+            ),
+            "restart_amount_vs_pullback_median_existing": _audit_num(
+                qmeta.get("qualified_restart_amount_vs_pullback_median")
+            ),
+            "restart_close_location_in_bar": close_location,
+            "restart_close_over_prev_high_pct": (
+                ((aclose/prev_high)-1.0)*100.0
+                if math.isfinite(aclose) and aclose>0 and math.isfinite(prev_high) and prev_high>0
+                else float("nan")
+            ),
+            "restart_open_gap_vs_prev_close_pct": (
+                ((aopen/prev_close)-1.0)*100.0
+                if math.isfinite(aopen) and aopen>0 and math.isfinite(prev_close) and prev_close>0
+                else float("nan")
+            ),
+            "wave_high_reclaim_hypothesis_posthoc": 1,
+            "future_outcome_fields_not_features": 1,
+        })
+
+    hdf = pd.DataFrame(healthy_rows)
+    rdf = pd.DataFrame(restart_rows)
+
+    def med(g: pd.DataFrame, col: str) -> float:
+        x = pd.to_numeric(g.get(col,pd.Series(dtype=float)), errors="coerce")
+        return float(x.median()) if x.notna().any() else float("nan")
+
+    def summarize(category: str, group: str, g: pd.DataFrame, posthoc: int = 0) -> Dict[str, Any]:
+        return {
+            "schema": SCHEMA, "strategy_id": STRATEGY_ID, "loader_revision": LOADER_REVISION,
+            "category": category, "group": group, "events": int(len(g)),
+            "d15_positive": int((pd.to_numeric(g.get("d15_close_ret_pct",pd.Series(dtype=float)),errors="coerce")>0).sum()),
+            "d5_close_ret_median_pct": med(g,"d5_close_ret_pct"),
+            "d10_close_ret_median_pct": med(g,"d10_close_ret_pct"),
+            "d15_close_ret_median_pct": med(g,"d15_close_ret_pct"),
+            "d15_mfe_median_pct": med(g,"d15_mfe_pct"),
+            "d15_mae_median_pct": med(g,"d15_mae_pct"),
+            "posthoc_hypothesis": int(posthoc),
+            "used_as_strategy_gate": 0,
+        }
+
+    rows: List[Dict[str, Any]] = []
+    if not hdf.empty:
+        rows.append(summarize("HEALTHY_BOTTOMING","ALL_HEALTHY",hdf))
+        g1 = hdf[hdf["lower_low_within5_after_healthy"].eq(1)]
+        g0 = hdf[hdf["lower_low_within5_after_healthy"].eq(0)]
+        r1 = summarize("HEALTHY_BOTTOMING","LOWER_LOW_WITHIN5",g1)
+        r0 = summarize("HEALTHY_BOTTOMING","NO_LOWER_LOW_WITHIN5",g0)
+        r1["future_taxonomy_only"] = 1; r0["future_taxonomy_only"] = 1
+        rows.extend([r1,r0])
+
+    if not rdf.empty:
+        rows.append(summarize("RESTART_REACCELERATION","ALL_RESTART",rdf))
+        rows.append(summarize(
+            "RESTART_REACCELERATION","RECLAIM_PRE_WAVE_HIGH",
+            rdf[rdf["restart_reclaim_pre_wave_high"].eq(1)],1
+        ))
+        rows.append(summarize(
+            "RESTART_REACCELERATION","NO_RECLAIM_PRE_WAVE_HIGH",
+            rdf[rdf["restart_reclaim_pre_wave_high"].eq(0)],1
+        ))
+        rows.append(summarize(
+            "RESTART_REACCELERATION","AMOUNT20_GE_BREAKOUT_1_5X",
+            rdf[rdf["restart_amount20_ge_breakout_1_5x"].eq(1)]
+        ))
+        rows.append(summarize(
+            "RESTART_REACCELERATION","AMOUNT20_LT_BREAKOUT_1_5X",
+            rdf[rdf["restart_amount20_ge_breakout_1_5x"].eq(0)]
+        ))
+        rows.append(summarize(
+            "RESTART_REACCELERATION","DIRECT",
+            rdf[rdf["probe_then_qualified"].eq(0)]
+        ))
+        rows.append(summarize(
+            "RESTART_REACCELERATION","PROBE_TO_QUALIFIED",
+            rdf[rdf["probe_then_qualified"].eq(1)]
+        ))
+
+    return hdf, rdf, pd.DataFrame(rows)
+
+
 def build_forward_outcomes(signals: List[Dict[str, Any]], frames: Dict[str, pd.DataFrame], cfg: FrozenConfig) -> pd.DataFrame:
     rows: List[Dict[str, Any]] = []
     for s in signals:
@@ -3830,6 +4080,12 @@ def run(args: argparse.Namespace) -> int:
     conversion_quality_summary = build_conversion_vs_quality_audit(
         precursor_case_control_detail, d15_path_event_summary
     )
+    healthy_bottoming_detail, restart_reacceleration_detail, stage_quality_anatomy_summary = (
+        build_stage_quality_anatomy_audit(
+            qualified_event_detail, stage_anchor_event_summary,
+            stage_anchor_path_detail, frames, cfg
+        )
+    )
 
     structure_integrity_audit = pd.DataFrame([{
         "schema": SCHEMA,
@@ -3940,6 +4196,9 @@ def run(args: argparse.Namespace) -> int:
     _write_csv(stage_anchor_event_summary, out / "tri_stage_anchor_d1_d15_event_summary.csv")
     _write_csv(stage_anchor_summary, out / "tri_stage_anchor_d1_d15_summary.csv")
     _write_csv(conversion_quality_summary, out / "tri_conversion_vs_quality_summary.csv")
+    _write_csv(healthy_bottoming_detail, out / "tri_healthy_bottoming_anatomy.csv")
+    _write_csv(restart_reacceleration_detail, out / "tri_restart_reacceleration_anatomy.csv")
+    _write_csv(stage_quality_anatomy_summary, out / "tri_stage_quality_anatomy_summary.csv")
     _write_csv(
         gate_diag.sort_values(
             ["squeeze_qualifying_windows","max_squeeze_streak","breakout_price_cross"],
@@ -4056,6 +4315,13 @@ def run(args: argparse.Namespace) -> int:
             "used_as_strategy_gate": 0,
             "summary": conversion_quality_summary.to_dict("records"),
         },
+        "stage_quality_anatomy_audit": {
+            "research_only": 1,
+            "healthy_lower_low_is_future_taxonomy_only": 1,
+            "restart_wave_high_reclaim_hypothesis_posthoc": 1,
+            "used_as_strategy_gate": 0,
+            "summary": stage_quality_anatomy_summary.to_dict("records"),
+        },
         "restart_signals": int(len(signals)),
         "invariant_fail": int(invariant_fail + structure_audit_integrity_fail),
         "structure_audit_integrity_fail": structure_audit_integrity_fail,
@@ -4086,6 +4352,8 @@ def run(args: argparse.Namespace) -> int:
         out / "tri_long_ma_summary.csv",
         out / "tri_stage_anchor_d1_d15_path_detail.csv", out / "tri_stage_anchor_d1_d15_event_summary.csv",
         out / "tri_stage_anchor_d1_d15_summary.csv", out / "tri_conversion_vs_quality_summary.csv",
+        out / "tri_healthy_bottoming_anatomy.csv", out / "tri_restart_reacceleration_anatomy.csv",
+        out / "tri_stage_quality_anatomy_summary.csv",
     ]
     h = hashlib.sha256()
     for p in authority_files:
@@ -4117,6 +4385,7 @@ def run(args: argparse.Namespace) -> int:
         f"long_ma_context_summary={json.dumps(long_ma_summary.to_dict('records'), ensure_ascii=False, sort_keys=True)}",
         f"stage_anchor_d1_d15_summary={json.dumps(stage_anchor_summary.to_dict('records'), ensure_ascii=False, sort_keys=True)}",
         f"conversion_vs_quality_summary={json.dumps(conversion_quality_summary.to_dict('records'), ensure_ascii=False, sort_keys=True)}",
+        f"stage_quality_anatomy_summary={json.dumps(stage_quality_anatomy_summary.to_dict('records'), ensure_ascii=False, sort_keys=True)}",
         (
             f"structure_audit_integrity=expected:{structure_audit_expected_rows}"
             f" raw:{structure_audit_raw_rows} errors:{structure_audit_error_count}"
@@ -4130,7 +4399,7 @@ def run(args: argparse.Namespace) -> int:
         (
             "NEXT_GATE=manual chart review + false-positive taxonomy before any threshold/performance tuning"
             if len(signals) > 0 else
-            "NEXT_GATE=stage-anchor D+1..D+15 review; evaluate actual HEALTHY/RESTART entry paths before candidate-definition lock"
+            "NEXT_GATE=healthy-bottoming + restart-reacceleration anatomy review; no stage entry promotion until causal restart confirmation is validated"
         ),
     ]
     (out / "tri_report.txt").write_text("\n".join(report) + "\n", encoding="utf-8")
@@ -4233,6 +4502,10 @@ def self_test() -> int:
     mac, mae, mas = build_long_ma_context_audit(ccd, qd, pe15, {"123456": df})
     assert not mac.empty and not mae.empty and not mas.empty
     assert int(mac["ma224_ready"].sum()) == 0
+    sad, sae, sas = build_stage_anchor_path_audit(qd, ccd, {"123456": df})
+    assert not sad.empty and not sae.empty and not sas.empty
+    hba, rra, sqa = build_stage_quality_anatomy_audit(qd, sae, sad, {"123456": df}, CONFIG)
+    assert not hba.empty and not rra.empty and not sqa.empty
     # Determinism.
     e2, s2, r2, gd2 = detect_code("123456", df, "SYNTHETIC_ACTUAL_AMOUNT", _SyntheticUniverse(), start, end, CONFIG)
     assert json.dumps(e, sort_keys=True, default=str) == json.dumps(e2, sort_keys=True, default=str)
