@@ -1848,6 +1848,52 @@ jobs:
                       "※ 192개 전체 review bars 저장 · qualified/실패 모두 육안 비교 가능",
                   ]
 
+              patha = m.get("qualified_d1_d15_path_audit") or {}
+              path_rows = patha.get("summary") or []
+              if path_rows:
+                  def _pgroup(name):
+                      for rr in path_rows:
+                          if rr.get("group") == name:
+                              return rr
+                      return {}
+                  pa = _pgroup("ALL")
+                  pr = _pgroup("RESTART")
+                  lines += [
+                      "",
+                      "📈 [Qualified D+1~D+15 Path · breakout close 기준]",
+                      f"events {int(pa.get('events',0))} · D15 complete {int(pa.get('d15_complete_events',0))} · peak-day median D+{float(pa.get('median_peak_day_within_15',0) or 0):.1f}",
+                      f"D+5 Close {float(pa.get('d5_close_ret_median_pct',0) or 0):+.2f}% / MFE {float(pa.get('d5_mfe_median_pct',0) or 0):+.2f}% / MAE {float(pa.get('d5_mae_median_pct',0) or 0):+.2f}%",
+                      f"D+10 Close {float(pa.get('d10_close_ret_median_pct',0) or 0):+.2f}% / MFE {float(pa.get('d10_mfe_median_pct',0) or 0):+.2f}% / MAE {float(pa.get('d10_mae_median_pct',0) or 0):+.2f}%",
+                      f"D+15 Close {float(pa.get('d15_close_ret_median_pct',0) or 0):+.2f}% / MFE {float(pa.get('d15_mfe_median_pct',0) or 0):+.2f}% / MAE {float(pa.get('d15_mae_median_pct',0) or 0):+.2f}%",
+                      f"within15 +5% {int(pa.get('plus5_reached_within_15',0))} · +10% {int(pa.get('plus10_reached_within_15',0))} · restart-group D15 Close {float(pr.get('d15_close_ret_median_pct',0) or 0):+.2f}%",
+                      "※ D+1~15는 미래 outcome 연구 · 검색 gate 미사용",
+                  ]
+
+              maa = m.get("long_ma_context_audit") or {}
+              ma_rows = maa.get("summary") or []
+              if ma_rows:
+                  def _marow(stype, group):
+                      for rr in ma_rows:
+                          if rr.get("summary_type") == stype and rr.get("group") == group:
+                              return rr
+                      return {}
+                  mb = _marow("SQUEEZE_CAUSAL_QUALIFIED_RATE","SQUEEZE_BELOW_MA224")
+                  ma = _marow("SQUEEZE_CAUSAL_QUALIFIED_RATE","SQUEEZE_AT_OR_ABOVE_MA224")
+                  ebb = _marow("QUALIFIED_PATH_BY_BREAKOUT_MA224","BREAKOUT_BELOW_MA224")
+                  eba = _marow("QUALIFIED_PATH_BY_BREAKOUT_MA224","BREAKOUT_AT_OR_ABOVE_MA224")
+                  cov = _marow("MA_COVERAGE","ALL")
+                  def _rate(rr):
+                      try: return f"{float(rr.get('qualified_rate'))*100.0:.1f}%"
+                      except Exception: return "-"
+                  lines += [
+                      "",
+                      "📏 [Long MA Context · MA120/200/224]",
+                      f"squeeze MA224 ready {int(cov.get('ma224_ready',0))}/{int(cov.get('runs',0))} · below: Q {int(mb.get('qualified',0))}/{int(mb.get('runs',0))} ({_rate(mb)}) · at/above: Q {int(ma.get('qualified',0))}/{int(ma.get('runs',0))} ({_rate(ma)})",
+                      f"qualified breakout below224 {int(ebb.get('runs',0))}: D10 MFE {float(ebb.get('d10_mfe_median_pct',0) or 0):+.2f}% / D15 MFE {float(ebb.get('d15_mfe_median_pct',0) or 0):+.2f}%",
+                      f"qualified breakout at/above224 {int(eba.get('runs',0))}: D10 MFE {float(eba.get('d10_mfe_median_pct',0) or 0):+.2f}% / D15 MFE {float(eba.get('d15_mfe_median_pct',0) or 0):+.2f}%",
+                      "※ squeeze MA 위치는 causal context · MA 조건도 아직 전략 filter 아님",
+                  ]
+
               amount_cov = m.get("actual_amount_coverage_pct")
               asof_dates = m.get("asof_snapshot_dates")
               lookahead = m.get("lookahead_fail", 0)
