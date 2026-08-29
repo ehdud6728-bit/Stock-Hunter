@@ -1649,6 +1649,38 @@ jobs:
                   lines.append("※ strict=첫 가격돌파 즉시판정 · qualified=동일 기존조건을 처음 모두 만족한 본돌파")
                   lines.append("※ 가상비교 전용 · 실제 chronology/streak/전략조건 변경 없음")
 
+              qev = m.get("qualified_event_fidelity_audit") or {}
+              qev_rows = qev.get("summary") or []
+              if qev_rows:
+                  q = qev_rows[0]
+                  lines += [
+                      "",
+                      "🧫 [Qualified Unique Event Audit · streak1]",
+                      (
+                          f"unique {int(q.get('qualified_unique_events',0))}"
+                          f" · duplicate source-runs {int(q.get('duplicate_source_runs',0))}"
+                          f" · direct {int(q.get('direct_canonical_events',0))}"
+                          f" · probe→qualified {int(q.get('probe_to_qualified_canonical_events',0))}"
+                      ),
+                      (
+                          f"healthy {int(q.get('healthy_events',0))}"
+                          f" · restart {int(q.get('restart_events',0))}"
+                          f" · +5% {int(q.get('impulse_5pct_events',0))}"
+                          f" · +10% {int(q.get('impulse_10pct_events',0))}"
+                      ),
+                      (
+                          f"lower-structure intact {int(q.get('wait_structure_intact_lower_events',0))}"
+                          f" · lower-break {int(q.get('wait_lower_break_events',0))}"
+                          f" · discontinuity≥35% {int(q.get('suspicious_price_discontinuity_events',0))}"
+                      ),
+                      (
+                          f"clean+intact {int(q.get('clean_intact_events',0))}"
+                          f" → H{int(q.get('clean_intact_healthy_events',0))}"
+                          f" → R{int(q.get('clean_intact_restart_events',0))}"
+                      ),
+                      "※ event audit 전용 · 실제 전략 gate 미변경",
+                  ]
+
               amount_cov = m.get("actual_amount_coverage_pct")
               asof_dates = m.get("asof_snapshot_dates")
               lookahead = m.get("lookahead_fail", 0)
