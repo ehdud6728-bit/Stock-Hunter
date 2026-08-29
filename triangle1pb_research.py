@@ -32,7 +32,7 @@ import pandas as pd
 
 SCHEMA = "TRIANGLE1PB_RESEARCH_SCHEMA_V1"
 STRATEGY_ID = "TRIANGLE1PB_R1_CHRONOLOGY_FIRST"
-LOADER_REVISION = "TRIANGLE1PB_R1_5_QUALIFIED_BREAKOUT_CHRONOLOGY_AUDIT"
+LOADER_REVISION = "TRIANGLE1PB_R1_6_QUALIFIED_EVENT_FIDELITY_AUDIT"
 RESEARCH_AUTHORITY = "RESEARCH_ONLY_NO_LIVE_NO_POLICY_NO_ORDERS"
 STAGES = [
     "TRI_SQUEEZE",
@@ -1674,6 +1674,251 @@ def build_counterfactual_streak_audit(
     return detail, pd.DataFrame(summary_rows)
 
 
+
+def build_qualified_event_fidelity_audit(
+    counterfactual_detail: pd.DataFrame,
+    structure_audit: pd.DataFrame,
+    frames: Dict[str, pd.DataFrame],
+    cfg: FrozenConfig,
+) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Research-only event-level audit for streak=1 qualified breakouts.
+
+    Dedup key is (code, qualified_breakout_date). If multiple squeeze runs map to
+    the same breakout event, the latest squeeze date is selected as canonical
+    review source and source_run_count is retained. No strategy gate is changed.
+    """
+    if counterfactual_detail is None or counterfactual_detail.empty:
+        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+
+    x = counterfactual_detail[
+        counterfactual_detail["streak_threshold"].eq(1)
+        & counterfactual_detail["any_exact_breakout_with_universe"].eq(1)
+        & counterfactual_detail["qualified_breakout_date"].fillna("").astype(str).ne("")
+    ].copy()
+
+    if x.empty:
+        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+
+    structure_key = {}
+    if structure_audit is not None and not structure_audit.empty:
+        for _, sr in structure_audit.iterrows():
+            structure_key[(str(sr.get("code") or ""), str(sr.get("squeeze_date") or ""))] = sr.to_dict()
+
+    rows: List[Dict[str, Any]] = []
+
+    for (code, breakout_date), grp in x.groupby(["code","qualified_breakout_date"], sort=True):
+        grp = grp.copy()
+        grp["__sq"] = pd.to_datetime(grp["squeeze_date"], errors="coerce")
+        grp = grp.sort_values("__sq", ascending=False)
+        cr = grp.iloc[0].to_dict()  # latest squeeze = closest causal precursor
+
+        source_run_count = int(len(grp))
+        any_probe_source = int(pd.to_numeric(grp["probe_then_qualified_breakout"], errors="coerce").fillna(0).max())
+        any_direct_source = int(pd.to_numeric(grp["first_cross_exact_with_universe"], errors="coerce").fillna(0).max())
+
+        sq_date = str(cr.get("squeeze_date") or "")
+        sr = structure_key.get((str(code), sq_date), {})
+        df = frames.get(str(code))
+
+        wait_lower_break_count = 0
+        wait_structure_intact_lower = 1
+        wait_min_close_vs_squeeze_pct = float("nan")
+        wait_max_drawdown_from_interim_high_pct = float("nan")
+        max_abs_close_to_close_pct = float("nan")
+        max_abs_open_gap_pct = float("nan")
+        suspicious_price_discontinuity = 0
+        squeeze_idx = -1
+        breakout_idx = -1
+
+        if df is not None and not df.empty:
+            dates = pd.to_datetime(df["date"], errors="coerce").dt.normalize()
+            sq_ts = pd.to_datetime(sq_date, errors="coerce")
+            bo_ts = pd.to_datetime(breakout_date, errors="coerce")
+            sq_match = df.index[dates.eq(pd.Timestamp(sq_ts).normalize())] if pd.notna(sq_ts) else []
+            bo_match = df.index[dates.eq(pd.Timestamp(bo_ts).normalize())] if pd.notna(bo_ts) else []
+            if len(sq_match) and len(bo_match):
+                squeeze_idx = int(sq_match[-1])
+                breakout_idx = int(bo_match[-1])
+                squeeze_close = _audit_num(df.iloc[squeeze_idx].get("close"))
+                projected_lower_next = _audit_num(sr.get("projected_lower_next"))
+                lower_slope_price = _audit_num(sr.get("lower_slope_price_per_bar"))
+
+                running_high = _audit_num(df.iloc[squeeze_idx].get("high"))
+                min_close = float("inf")
+                max_dd = 0.0
+                max_cc = 0.0
+                max_gap = 0.0
+
+                # Audit from squeeze+1 through breakout inclusive.
+                for idx in range(squeeze_idx + 1, breakout_idx + 1):
+                    rr = df.iloc[idx]
+                    close = _audit_num(rr.get("close"))
+                    high = _audit_num(rr.get("high"))
+                    op = _audit_num(rr.get("open"))
+                    prev_close = _audit_num(df.iloc[idx - 1].get("close"))
+
+                    if math.isfinite(close):
+                        min_close = min(min_close, close)
+                    if math.isfinite(high):
+                        running_high = max(running_high, high)
+                    if math.isfinite(close) and math.isfinite(running_high) and running_high > 0:
+                        max_dd = max(max_dd, (running_high - close) / running_high * 100.0)
+
+                    offset = idx - squeeze_idx
+                    if math.isfinite(projected_lower_next) and math.isfinite(lower_slope_price):
+                        lower_ref = projected_lower_next + lower_slope_price * (offset - 1)
+                        if math.isfinite(close) and close < lower_ref:
+                            wait_lower_break_count += 1
+
+                    if math.isfinite(close) and math.isfinite(prev_close) and prev_close > 0:
+                        cc = abs((close / prev_close - 1.0) * 100.0)
+                        max_cc = max(max_cc, cc)
+                    if math.isfinite(op) and math.isfinite(prev_close) and prev_close > 0:
+                        gap = abs((op / prev_close - 1.0) * 100.0)
+                        max_gap = max(max_gap, gap)
+
+                if min_close != float("inf") and math.isfinite(squeeze_close) and squeeze_close > 0:
+                    wait_min_close_vs_squeeze_pct = (min_close / squeeze_close - 1.0) * 100.0
+                wait_max_drawdown_from_interim_high_pct = float(max_dd)
+                wait_structure_intact_lower = int(wait_lower_break_count == 0)
+
+                # Extend discontinuity audit through 8 bars after breakout.
+                for idx in range(max(1, squeeze_idx + 1), min(len(df), breakout_idx + 9)):
+                    rr = df.iloc[idx]
+                    op = _audit_num(rr.get("open"))
+                    close = _audit_num(rr.get("close"))
+                    prev_close = _audit_num(df.iloc[idx - 1].get("close"))
+                    if math.isfinite(close) and math.isfinite(prev_close) and prev_close > 0:
+                        max_cc = max(max_cc, abs((close / prev_close - 1.0) * 100.0))
+                    if math.isfinite(op) and math.isfinite(prev_close) and prev_close > 0:
+                        max_gap = max(max_gap, abs((op / prev_close - 1.0) * 100.0))
+
+                max_abs_close_to_close_pct = float(max_cc)
+                max_abs_open_gap_pct = float(max_gap)
+                # Audit tag only. Does not exclude the event.
+                suspicious_price_discontinuity = int(max(max_cc, max_gap) >= 35.0)
+
+        rows.append({
+            "schema": SCHEMA,
+            "strategy_id": STRATEGY_ID,
+            "loader_revision": LOADER_REVISION,
+            "audit_role": "QUALIFIED_EVENT_FIDELITY_ONLY_NOT_A_GATE",
+            "code": str(code),
+            "canonical_squeeze_date": sq_date,
+            "qualified_breakout_date": str(breakout_date),
+            "source_run_count": source_run_count,
+            "any_probe_source": any_probe_source,
+            "any_direct_source": any_direct_source,
+            "canonical_probe_then_qualified": int(cr.get("probe_then_qualified_breakout", 0)),
+            "canonical_probe_to_qualified_delay_bars": int(pd.to_numeric(cr.get("probe_to_qualified_delay_bars"), errors="coerce") or 0),
+            "canonical_shape_score": _audit_num(cr.get("shape_score")),
+            "qualified_breakout_offset": int(pd.to_numeric(cr.get("qualified_breakout_offset"), errors="coerce") or -1),
+            "first_cross_amount20_ratio": _audit_num(cr.get("first_cross_amount20_ratio")),
+            "qualified_first_pullback_existing": int(cr.get("qualified_first_pullback_existing", 0)),
+            "qualified_healthy_pullback_existing": int(cr.get("qualified_healthy_pullback_existing", 0)),
+            "qualified_restart_existing": int(cr.get("qualified_restart_existing", 0)),
+            "qualified_first_pullback_date": str(cr.get("qualified_first_pullback_date") or ""),
+            "qualified_healthy_pullback_date": str(cr.get("qualified_healthy_pullback_date") or ""),
+            "qualified_restart_date": str(cr.get("qualified_restart_date") or ""),
+            "qualified_healthy_drawdown_pct": _audit_num(cr.get("qualified_healthy_drawdown_pct")),
+            "qualified_healthy_amount_vs_breakout_ratio": _audit_num(cr.get("qualified_healthy_amount_vs_breakout_ratio")),
+            "qualified_healthy_amount20_ratio": _audit_num(cr.get("qualified_healthy_amount20_ratio")),
+            "qualified_restart_amount_vs_pullback_median": _audit_num(cr.get("qualified_restart_amount_vs_pullback_median")),
+            "qualified_post_breakout_max_high_ret_5bar_pct": _audit_num(cr.get("qualified_post_breakout_max_high_ret_5bar_pct")),
+            "qualified_post_breakout_max_high_ret_8bar_pct": _audit_num(cr.get("qualified_post_breakout_max_high_ret_8bar_pct")),
+            "qualified_post_breakout_reaches_5pct_5bar": int(cr.get("qualified_post_breakout_reaches_5pct_5bar", 0)),
+            "qualified_post_breakout_reaches_10pct_8bar": int(cr.get("qualified_post_breakout_reaches_10pct_8bar", 0)),
+            "wait_lower_trendline_break_count": int(wait_lower_break_count),
+            "wait_structure_intact_lower": int(wait_structure_intact_lower),
+            "wait_min_close_vs_squeeze_pct": wait_min_close_vs_squeeze_pct,
+            "wait_max_drawdown_from_interim_high_pct": wait_max_drawdown_from_interim_high_pct,
+            "max_abs_close_to_close_pct_squeeze_to_post8": max_abs_close_to_close_pct,
+            "max_abs_open_gap_pct_squeeze_to_post8": max_abs_open_gap_pct,
+            "suspicious_price_discontinuity_35pct": int(suspicious_price_discontinuity),
+            "used_as_strategy_gate": 0,
+        })
+
+    event = pd.DataFrame(rows)
+    if event.empty:
+        return event, pd.DataFrame(), pd.DataFrame()
+
+    def isum(col: str, frame: Optional[pd.DataFrame] = None) -> int:
+        f = event if frame is None else frame
+        return int(pd.to_numeric(f[col], errors="coerce").fillna(0).sum()) if col in f else 0
+
+    direct = event[event["canonical_probe_then_qualified"].eq(0)]
+    probe = event[event["canonical_probe_then_qualified"].eq(1)]
+    clean = event[event["suspicious_price_discontinuity_35pct"].eq(0)]
+    intact = event[event["wait_structure_intact_lower"].eq(1)]
+    clean_intact = event[
+        event["suspicious_price_discontinuity_35pct"].eq(0)
+        & event["wait_structure_intact_lower"].eq(1)
+    ]
+
+    summary = pd.DataFrame([{
+        "schema": SCHEMA,
+        "strategy_id": STRATEGY_ID,
+        "loader_revision": LOADER_REVISION,
+        "qualified_unique_events": int(len(event)),
+        "duplicate_source_runs": int((event["source_run_count"] - 1).clip(lower=0).sum()),
+        "direct_canonical_events": int(len(direct)),
+        "probe_to_qualified_canonical_events": int(len(probe)),
+        "healthy_events": isum("qualified_healthy_pullback_existing"),
+        "restart_events": isum("qualified_restart_existing"),
+        "impulse_5pct_events": isum("qualified_post_breakout_reaches_5pct_5bar"),
+        "impulse_10pct_events": isum("qualified_post_breakout_reaches_10pct_8bar"),
+        "wait_structure_intact_lower_events": int(len(intact)),
+        "wait_lower_break_events": int(len(event) - len(intact)),
+        "suspicious_price_discontinuity_events": int(len(event) - len(clean)),
+        "clean_events": int(len(clean)),
+        "clean_intact_events": int(len(clean_intact)),
+        "clean_intact_healthy_events": isum("qualified_healthy_pullback_existing", clean_intact),
+        "clean_intact_restart_events": isum("qualified_restart_existing", clean_intact),
+        "clean_intact_impulse_5pct_events": isum("qualified_post_breakout_reaches_5pct_5bar", clean_intact),
+        "clean_intact_impulse_10pct_events": isum("qualified_post_breakout_reaches_10pct_8bar", clean_intact),
+        "used_as_strategy_gate": 0,
+    }])
+
+    # Store full bars around every unique qualified event for visual review.
+    bar_chunks: List[pd.DataFrame] = []
+    for _, er in event.iterrows():
+        code = str(er["code"])
+        df = frames.get(code)
+        if df is None or df.empty:
+            continue
+        dates = pd.to_datetime(df["date"], errors="coerce").dt.normalize()
+        sq_ts = pd.to_datetime(er["canonical_squeeze_date"], errors="coerce")
+        bo_ts = pd.to_datetime(er["qualified_breakout_date"], errors="coerce")
+        sq_m = df.index[dates.eq(pd.Timestamp(sq_ts).normalize())] if pd.notna(sq_ts) else []
+        bo_m = df.index[dates.eq(pd.Timestamp(bo_ts).normalize())] if pd.notna(bo_ts) else []
+        if not len(sq_m) or not len(bo_m):
+            continue
+        si = int(sq_m[-1]); bi = int(bo_m[-1])
+        lo = max(0, si - 40)
+        hi = min(len(df), bi + 16)
+        b = df.iloc[lo:hi].copy()
+        b.insert(0, "review_code", code)
+        b.insert(1, "canonical_squeeze_date", str(er["canonical_squeeze_date"]))
+        b.insert(2, "qualified_breakout_date", str(er["qualified_breakout_date"]))
+        b.insert(3, "relative_to_squeeze", np.arange(lo, hi) - si)
+        b.insert(4, "relative_to_breakout", np.arange(lo, hi) - bi)
+        b.insert(5, "event_probe_then_qualified", int(er["canonical_probe_then_qualified"]))
+        b.insert(6, "event_healthy", int(er["qualified_healthy_pullback_existing"]))
+        b.insert(7, "event_restart", int(er["qualified_restart_existing"]))
+        b.insert(8, "event_suspicious_discontinuity", int(er["suspicious_price_discontinuity_35pct"]))
+        keep = [
+            "review_code","canonical_squeeze_date","qualified_breakout_date",
+            "relative_to_squeeze","relative_to_breakout",
+            "event_probe_then_qualified","event_healthy","event_restart",
+            "event_suspicious_discontinuity",
+            "date","open","high","low","close","volume","amount"
+        ]
+        bar_chunks.append(b[[c for c in keep if c in b.columns]])
+
+    bars = pd.concat(bar_chunks, ignore_index=True, sort=False) if bar_chunks else pd.DataFrame()
+    return event, summary, bars
+
+
 def build_forward_outcomes(signals: List[Dict[str, Any]], frames: Dict[str, pd.DataFrame], cfg: FrozenConfig) -> pd.DataFrame:
     rows: List[Dict[str, Any]] = []
     for s in signals:
@@ -2004,6 +2249,11 @@ def run(args: argparse.Namespace) -> int:
     counterfactual_detail, counterfactual_summary = build_counterfactual_streak_audit(
         structure_audit, frames, universe, start, end, cfg
     )
+    qualified_event_detail, qualified_event_summary, qualified_event_review_bars = (
+        build_qualified_event_fidelity_audit(
+            counterfactual_detail, structure_audit, frames, cfg
+        )
+    )
 
     structure_integrity_audit = pd.DataFrame([{
         "schema": SCHEMA,
@@ -2092,6 +2342,9 @@ def run(args: argparse.Namespace) -> int:
     _write_csv(structure_review_bars, out / "tri_structure_review_bars.csv")
     _write_csv(counterfactual_detail, out / "tri_counterfactual_streak_detail.csv")
     _write_csv(counterfactual_summary, out / "tri_counterfactual_streak_summary.csv")
+    _write_csv(qualified_event_detail, out / "tri_qualified_event_fidelity_detail.csv")
+    _write_csv(qualified_event_summary, out / "tri_qualified_event_fidelity_summary.csv")
+    _write_csv(qualified_event_review_bars, out / "tri_qualified_event_review_bars.csv")
     _write_csv(
         gate_diag.sort_values(
             ["squeeze_qualifying_windows","max_squeeze_streak","breakout_price_cross"],
@@ -2156,6 +2409,11 @@ def run(args: argparse.Namespace) -> int:
             "used_as_strategy_gate": 0,
             "summary": counterfactual_summary.to_dict("records"),
         },
+        "qualified_event_fidelity_audit": {
+            "research_only": 1,
+            "used_as_strategy_gate": 0,
+            "summary": qualified_event_summary.to_dict("records"),
+        },
         "restart_signals": int(len(signals)),
         "invariant_fail": int(invariant_fail + structure_audit_integrity_fail),
         "structure_audit_integrity_fail": structure_audit_integrity_fail,
@@ -2173,6 +2431,8 @@ def run(args: argparse.Namespace) -> int:
         out / "tri_structure_fidelity_audit.csv", out / "tri_structure_audit_integrity.csv",
         out / "tri_structure_manual_review_sample.csv", out / "tri_structure_review_bars.csv",
         out / "tri_counterfactual_streak_detail.csv", out / "tri_counterfactual_streak_summary.csv",
+        out / "tri_qualified_event_fidelity_detail.csv", out / "tri_qualified_event_fidelity_summary.csv",
+        out / "tri_qualified_event_review_bars.csv",
     ]
     h = hashlib.sha256()
     for p in authority_files:
@@ -2195,6 +2455,7 @@ def run(args: argparse.Namespace) -> int:
             f" research_codes:{research_codes_with_squeeze}"
         ),
         f"counterfactual_streak_summary={json.dumps(counterfactual_summary.to_dict('records'), ensure_ascii=False, sort_keys=True)}",
+        f"qualified_event_fidelity_summary={json.dumps(qualified_event_summary.to_dict('records'), ensure_ascii=False, sort_keys=True)}",
         (
             f"structure_audit_integrity=expected:{structure_audit_expected_rows}"
             f" raw:{structure_audit_raw_rows} errors:{structure_audit_error_count}"
@@ -2208,7 +2469,7 @@ def run(args: argparse.Namespace) -> int:
         (
             "NEXT_GATE=manual chart review + false-positive taxonomy before any threshold/performance tuning"
             if len(signals) > 0 else
-            "NEXT_GATE=counterfactual streak + structure fidelity review; no threshold/performance tuning until causal candidate definition is proven"
+            "NEXT_GATE=qualified event fidelity + full visual review; no strategy promotion until duplicate/discontinuity/structure-intact audit is proven"
         ),
     ]
     (out / "tri_report.txt").write_text("\n".join(report) + "\n", encoding="utf-8")
