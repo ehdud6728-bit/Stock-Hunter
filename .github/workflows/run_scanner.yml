@@ -1411,8 +1411,8 @@ jobs:
           python triangle1pb_research.py --self-test
           grep -Fq 'RESEARCH_AUTHORITY = "RESEARCH_ONLY_NO_LIVE_NO_POLICY_NO_ORDERS"' triangle1pb_research.py
           grep -Fq 'STRATEGY_ID = "TRIANGLE1PB_R1_CHRONOLOGY_FIRST"' triangle1pb_research.py
-          grep -Fq 'LOADER_REVISION = "TRIANGLE1PB_R1_12_1_STALE_SOURCE_FAIL_CLOSED"' triangle1pb_research.py || {
-            echo "TRIANGLE1PB_STALE_SOURCE_FAIL expected=R1_12_1";
+          grep -Fq 'LOADER_REVISION = "TRIANGLE1PB_R1_13_PULLBACK_RESTART_ANATOMY_AUDIT"' triangle1pb_research.py || {
+            echo "TRIANGLE1PB_STALE_SOURCE_FAIL expected=R1_13";
             grep -n '^LOADER_REVISION' triangle1pb_research.py || true;
             exit 236;
           }
@@ -1421,7 +1421,7 @@ jobs:
           echo "TRIANGLE1PB_SOURCE_SHA256=$(sha256sum triangle1pb_research.py | awk '{print $1}')"
           echo "TRIANGLE1PB_GIT_COMMIT=$(git rev-parse HEAD 2>/dev/null || echo UNKNOWN)"
           echo "TRIANGLE1PB_GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo UNKNOWN)"
-          echo "TRIANGLE1PB_PREFLIGHT PASS revision=R1_12_1 independent=1 live=0 score_rank=0 order=0 tuning=0"
+          echo "TRIANGLE1PB_PREFLIGHT PASS revision=R1_13 independent=1 live=0 score_rank=0 order=0 tuning=0"
 
       - name: Restore latest V21 research cache read-only
         id: tri-v21-restore
@@ -1470,7 +1470,7 @@ jobs:
           )
           if [ -n "${TRI_START_DATE:-}" ]; then args+=(--start-date "$TRI_START_DATE"); fi
           if [ -n "${TRI_END_DATE:-}" ]; then args+=(--end-date "$TRI_END_DATE"); fi
-          grep -Fq 'LOADER_REVISION = "TRIANGLE1PB_R1_12_1_STALE_SOURCE_FAIL_CLOSED"' triangle1pb_research.py || {
+          grep -Fq 'LOADER_REVISION = "TRIANGLE1PB_R1_13_PULLBACK_RESTART_ANATOMY_AUDIT"' triangle1pb_research.py || {
             echo "TRIANGLE1PB_STALE_SOURCE_FAIL immediately_before_run";
             grep -n '^LOADER_REVISION' triangle1pb_research.py || true;
             exit 237;
@@ -1498,6 +1498,9 @@ jobs:
               'tri_stage_anchor_d1_d15_event_summary.csv',
               'tri_stage_anchor_d1_d15_summary.csv',
               'tri_conversion_vs_quality_summary.csv',
+              'tri_healthy_bottoming_anatomy.csv',
+              'tri_restart_reacceleration_anatomy.csv',
+              'tri_stage_quality_anatomy_summary.csv',
               'tri_manifest.json','tri_report.txt','tri_runtime.log',
           ]
           missing=[x for x in required if not (root/x).exists()]
@@ -1505,11 +1508,12 @@ jobs:
           m=json.loads((root/'tri_manifest.json').read_text(encoding='utf-8'))
           assert m.get('schema')=='TRIANGLE1PB_RESEARCH_SCHEMA_V1'
           assert m.get('strategy_id')=='TRIANGLE1PB_R1_CHRONOLOGY_FIRST'
-          assert m.get('loader_revision')=='TRIANGLE1PB_R1_12_1_STALE_SOURCE_FAIL_CLOSED', (
+          assert m.get('loader_revision')=='TRIANGLE1PB_R1_13_PULLBACK_RESTART_ANATOMY_AUDIT', (
               'TRIANGLE1PB_STALE_MANIFEST_REVISION', m.get('loader_revision')
           )
           assert 'stage_anchor_path_audit' in m, 'R1_12_STAGE_ANCHOR_MANIFEST_MISSING'
           assert 'conversion_vs_quality_audit' in m, 'R1_12_CONVERSION_QUALITY_MANIFEST_MISSING'
+          assert 'stage_quality_anatomy_audit' in m, 'R1_13_STAGE_QUALITY_ANATOMY_MANIFEST_MISSING'
           assert m.get('research_authority')=='RESEARCH_ONLY_NO_LIVE_NO_POLICY_NO_ORDERS'
           assert m.get('core224_dependency')=='NONE'
           assert m.get('core224_logic_changed') is False
@@ -1996,6 +2000,45 @@ jobs:
                           f" / MFE {float(rr.get('conditional_d15_mfe_median_pct',0) or 0):+.2f}%"
                       ),
                       "※ precursor의 돌파발생확률과 돌파 후 품질은 같은 점수로 합치지 않음",
+                  ]
+
+              sqa = m.get("stage_quality_anatomy_audit") or {}
+              sqa_rows = sqa.get("summary") or []
+              if sqa_rows:
+                  def _sq(cat, grp):
+                      for rr in sqa_rows:
+                          if rr.get("category") == cat and rr.get("group") == grp:
+                              return rr
+                      return {}
+                  ha = _sq("HEALTHY_BOTTOMING","ALL_HEALTHY")
+                  hl = _sq("HEALTHY_BOTTOMING","LOWER_LOW_WITHIN5")
+                  hn = _sq("HEALTHY_BOTTOMING","NO_LOWER_LOW_WITHIN5")
+                  ra = _sq("RESTART_REACCELERATION","ALL_RESTART")
+                  rw = _sq("RESTART_REACCELERATION","RECLAIM_PRE_WAVE_HIGH")
+                  rn = _sq("RESTART_REACCELERATION","NO_RECLAIM_PRE_WAVE_HIGH")
+                  lines += [
+                      "",
+                      "🧭 [Healthy/Restart Anatomy · audit]",
+                      (
+                          f"HEALTHY {int(ha.get('events',0))}: lower-low≤5 "
+                          f"{int(hl.get('events',0))} · no-lower-low {int(hn.get('events',0))}"
+                      ),
+                      (
+                          f"healthy D15: lower-low {float(hl.get('d15_close_ret_median_pct',0) or 0):+.2f}%"
+                          f" vs stable {float(hn.get('d15_close_ret_median_pct',0) or 0):+.2f}%"
+                      ),
+                      (
+                          f"RESTART {int(ra.get('events',0))}: wave-high reclaim {int(rw.get('events',0))}"
+                          f" vs no-reclaim {int(rn.get('events',0))}"
+                      ),
+                      (
+                          f"restart D15 reclaim {float(rw.get('d15_close_ret_median_pct',0) or 0):+.2f}%"
+                          f" / MFE {float(rw.get('d15_mfe_median_pct',0) or 0):+.2f}%"
+                          f" | no-reclaim {float(rn.get('d15_close_ret_median_pct',0) or 0):+.2f}%"
+                          f" / MFE {float(rn.get('d15_mfe_median_pct',0) or 0):+.2f}%"
+                      ),
+                      "※ healthy lower-low는 미래 taxonomy · wave-high reclaim은 post-hoc 가설",
+                      "※ 어떤 anatomy 태그도 실제 HEALTHY/RESTART gate에 미사용",
                   ]
 
               amount_cov = m.get("actual_amount_coverage_pct")
