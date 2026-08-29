@@ -32,7 +32,7 @@ import pandas as pd
 
 SCHEMA = "TRIANGLE1PB_RESEARCH_SCHEMA_V1"
 STRATEGY_ID = "TRIANGLE1PB_R1_CHRONOLOGY_FIRST"
-LOADER_REVISION = "TRIANGLE1PB_R1_10_JOINT_PRECURSOR_STABILITY_AUDIT"
+LOADER_REVISION = "TRIANGLE1PB_R1_11_D15_PATH_LONG_MA_CONTEXT_AUDIT"
 RESEARCH_AUTHORITY = "RESEARCH_ONLY_NO_LIVE_NO_POLICY_NO_ORDERS"
 STAGES = [
     "TRI_SQUEEZE",
@@ -2820,6 +2820,354 @@ def build_joint_precursor_stability_audit(
     return detail, summary, bars
 
 
+
+def _r111_get_frame(frames: Dict[str, pd.DataFrame], code: str) -> Optional[pd.DataFrame]:
+    c = str(code or "").zfill(6)
+    df = frames.get(c)
+    if df is None and c.isdigit():
+        df = frames.get(str(int(c)))
+    return df
+
+
+def _r111_ma_at(df: pd.DataFrame, idx: int, window: int) -> float:
+    if df is None or idx < 0 or idx + 1 < window:
+        return float("nan")
+    x = pd.to_numeric(df.iloc[idx - window + 1:idx + 1]["close"], errors="coerce")
+    if int(x.notna().sum()) < window:
+        return float("nan")
+    return float(x.mean())
+
+
+def _r111_ma_context(df: Optional[pd.DataFrame], idx: int) -> Dict[str, Any]:
+    out: Dict[str, Any] = {}
+    if df is None or idx < 0 or idx >= len(df):
+        out["close"] = float("nan")
+        for w in (120, 200, 224):
+            out[f"ma{w}"] = float("nan")
+            out[f"close_vs_ma{w}_pct"] = float("nan")
+            out[f"below_ma{w}"] = 0
+            out[f"ma{w}_ready"] = 0
+        out["ma224_slope_20bar_pct"] = float("nan")
+        out["ma224_distance_bucket"] = "MA224_NOT_READY"
+        return out
+
+    close = _audit_num(df.iloc[idx].get("close"))
+    out["close"] = close
+    for w in (120, 200, 224):
+        ma = _r111_ma_at(df, idx, w)
+        ready = int(math.isfinite(ma) and ma > 0 and math.isfinite(close) and close > 0)
+        dist = ((close / ma) - 1.0) * 100.0 if ready else float("nan")
+        out[f"ma{w}"] = ma
+        out[f"close_vs_ma{w}_pct"] = dist
+        out[f"below_ma{w}"] = int(ready and close < ma)
+        out[f"ma{w}_ready"] = ready
+
+    ma224 = out["ma224"]
+    ma224_prev20 = _r111_ma_at(df, idx - 20, 224) if idx >= 20 else float("nan")
+    out["ma224_slope_20bar_pct"] = (
+        ((ma224 / ma224_prev20) - 1.0) * 100.0
+        if math.isfinite(ma224) and ma224 > 0 and math.isfinite(ma224_prev20) and ma224_prev20 > 0
+        else float("nan")
+    )
+    dist224 = out["close_vs_ma224_pct"]
+    if not math.isfinite(dist224):
+        bucket = "MA224_NOT_READY"
+    elif dist224 < -15.0:
+        bucket = "LT_-15"
+    elif dist224 < -5.0:
+        bucket = "-15_TO_-5"
+    elif dist224 < 0.0:
+        bucket = "-5_TO_0"
+    elif dist224 < 5.0:
+        bucket = "0_TO_+5"
+    elif dist224 < 15.0:
+        bucket = "+5_TO_+15"
+    else:
+        bucket = "GE_+15"
+    out["ma224_distance_bucket"] = bucket
+    return out
+
+
+def build_qualified_d1_d15_path_study(
+    qualified_event_detail: pd.DataFrame,
+    precursor_detail: pd.DataFrame,
+    frames: Dict[str, pd.DataFrame],
+) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Future-outcome study from the qualified breakout close through D+15."""
+    if qualified_event_detail is None or qualified_event_detail.empty:
+        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+
+    precursor_key = {}
+    if precursor_detail is not None and not precursor_detail.empty:
+        for _, pr in precursor_detail.iterrows():
+            precursor_key[(str(pr.get("code") or "").zfill(6), str(pr.get("squeeze_date") or ""))] = pr.to_dict()
+
+    path_rows, event_rows = [], []
+    for _, er in qualified_event_detail.iterrows():
+        code = str(er.get("code") or "").zfill(6)
+        sq_date = str(er.get("canonical_squeeze_date") or "")
+        bo_date = pd.to_datetime(er.get("qualified_breakout_date"), errors="coerce")
+        df = _r111_get_frame(frames, code)
+        if df is None or df.empty or pd.isna(bo_date):
+            continue
+        dates = pd.to_datetime(df["date"], errors="coerce").dt.normalize()
+        bm = df.index[dates.eq(pd.Timestamp(bo_date).normalize())]
+        if not len(bm):
+            continue
+        bi = int(bm[-1])
+        baseline = _audit_num(df.iloc[bi].get("close"))
+        if not math.isfinite(baseline) or baseline <= 0:
+            continue
+
+        pr = precursor_key.get((code, sq_date), {})
+        joint = int(int(pr.get("pre10_obv_positive",0)) == 1 and int(pr.get("bb40_contracting",0)) == 1)
+
+        cum_high, cum_low = baseline, baseline
+        first5 = first10 = -1
+        peak_ret, trough_ret = float("-inf"), float("inf")
+        peak_day = trough_day = -1
+        endpoint = {}
+        available = 0
+
+        for d in range(1, 16):
+            idx = bi + d
+            if idx >= len(df):
+                break
+            row = df.iloc[idx]
+            available = d
+            close = _audit_num(row.get("close"))
+            high = _audit_num(row.get("high"))
+            low = _audit_num(row.get("low"))
+            if math.isfinite(high):
+                cum_high = max(cum_high, high)
+            if math.isfinite(low):
+                cum_low = min(cum_low, low)
+            close_ret = ((close / baseline) - 1.0) * 100.0 if math.isfinite(close) else float("nan")
+            hi_ret = ((high / baseline) - 1.0) * 100.0 if math.isfinite(high) else float("nan")
+            lo_ret = ((low / baseline) - 1.0) * 100.0 if math.isfinite(low) else float("nan")
+            mfe = ((cum_high / baseline) - 1.0) * 100.0
+            mae = ((cum_low / baseline) - 1.0) * 100.0
+            if first5 < 0 and mfe >= 5.0: first5 = d
+            if first10 < 0 and mfe >= 10.0: first10 = d
+            if math.isfinite(hi_ret) and hi_ret > peak_ret:
+                peak_ret, peak_day = hi_ret, d
+            if math.isfinite(lo_ret) and lo_ret < trough_ret:
+                trough_ret, trough_day = lo_ret, d
+
+            rec = {
+                "schema": SCHEMA, "strategy_id": STRATEGY_ID, "loader_revision": LOADER_REVISION,
+                "audit_role": "QUALIFIED_D1_D15_FUTURE_OUTCOME_ONLY_NOT_A_GATE",
+                "code": code, "canonical_squeeze_date": sq_date,
+                "qualified_breakout_date": pd.Timestamp(bo_date).date().isoformat(),
+                "day_after_breakout": d, "path_date": pd.Timestamp(row["date"]).date().isoformat(),
+                "breakout_close": baseline, "close_ret_from_breakout_pct": close_ret,
+                "daily_high_ret_from_breakout_pct": hi_ret, "daily_low_ret_from_breakout_pct": lo_ret,
+                "cumulative_mfe_pct": mfe, "cumulative_mae_pct": mae,
+                "probe_then_qualified": int(er.get("canonical_probe_then_qualified",0)),
+                "joint_obv_positive_bb40_contracting": joint,
+                "healthy": int(er.get("qualified_healthy_pullback_existing",0)),
+                "restart": int(er.get("qualified_restart_existing",0)),
+                "future_outcome_only": 1, "used_as_strategy_gate": 0,
+            }
+            path_rows.append(rec)
+            endpoint[d] = rec
+
+        def ep(day, field):
+            r = endpoint.get(day)
+            return _audit_num(r.get(field)) if r else float("nan")
+
+        hdate = pd.to_datetime(er.get("qualified_healthy_pullback_date"), errors="coerce")
+        rdate = pd.to_datetime(er.get("qualified_restart_date"), errors="coerce")
+        hbar = rbar = -1
+        if pd.notna(hdate):
+            hm = df.index[dates.eq(pd.Timestamp(hdate).normalize())]
+            if len(hm): hbar = int(hm[-1]) - bi
+        if pd.notna(rdate):
+            rm = df.index[dates.eq(pd.Timestamp(rdate).normalize())]
+            if len(rm): rbar = int(rm[-1]) - bi
+
+        event_rows.append({
+            "schema": SCHEMA, "strategy_id": STRATEGY_ID, "loader_revision": LOADER_REVISION,
+            "audit_role": "QUALIFIED_D1_D15_EVENT_SUMMARY_FUTURE_ONLY",
+            "code": code, "canonical_squeeze_date": sq_date,
+            "qualified_breakout_date": pd.Timestamp(bo_date).date().isoformat(),
+            "probe_then_qualified": int(er.get("canonical_probe_then_qualified",0)),
+            "joint_obv_positive_bb40_contracting": joint,
+            "healthy": int(er.get("qualified_healthy_pullback_existing",0)),
+            "restart": int(er.get("qualified_restart_existing",0)),
+            "available_post_breakout_bars": available, "d15_complete": int(available >= 15),
+            "first_plus5_day": first5, "first_plus10_day": first10,
+            "peak_day_within_15": peak_day,
+            "peak_high_ret_within_15_pct": peak_ret if peak_day > 0 else float("nan"),
+            "trough_day_within_15": trough_day,
+            "trough_low_ret_within_15_pct": trough_ret if trough_day > 0 else float("nan"),
+            "healthy_day_after_breakout": hbar, "restart_day_after_breakout": rbar,
+            "d5_close_ret_pct": ep(5,"close_ret_from_breakout_pct"),
+            "d5_mfe_pct": ep(5,"cumulative_mfe_pct"), "d5_mae_pct": ep(5,"cumulative_mae_pct"),
+            "d10_close_ret_pct": ep(10,"close_ret_from_breakout_pct"),
+            "d10_mfe_pct": ep(10,"cumulative_mfe_pct"), "d10_mae_pct": ep(10,"cumulative_mae_pct"),
+            "d15_close_ret_pct": ep(15,"close_ret_from_breakout_pct"),
+            "d15_mfe_pct": ep(15,"cumulative_mfe_pct"), "d15_mae_pct": ep(15,"cumulative_mae_pct"),
+            "future_outcome_only": 1, "used_as_strategy_gate": 0,
+        })
+
+    detail, events = pd.DataFrame(path_rows), pd.DataFrame(event_rows)
+    if events.empty:
+        return detail, events, pd.DataFrame()
+
+    def med(g, col):
+        x = pd.to_numeric(g.get(col, pd.Series(dtype=float)), errors="coerce")
+        return float(x.median()) if x.notna().any() else float("nan")
+
+    groups = [
+        ("ALL", events),
+        ("DIRECT", events[events["probe_then_qualified"].eq(0)]),
+        ("PROBE_TO_QUALIFIED", events[events["probe_then_qualified"].eq(1)]),
+        ("OBV+_AND_BB40DOWN", events[events["joint_obv_positive_bb40_contracting"].eq(1)]),
+        ("REST", events[events["joint_obv_positive_bb40_contracting"].eq(0)]),
+        ("RESTART", events[events["restart"].eq(1)]),
+        ("NO_RESTART", events[events["restart"].eq(0)]),
+    ]
+    rows = []
+    for name, g in groups:
+        rows.append({
+            "schema": SCHEMA, "strategy_id": STRATEGY_ID, "loader_revision": LOADER_REVISION,
+            "group": name, "events": int(len(g)),
+            "d15_complete_events": int(pd.to_numeric(g.get("d15_complete",pd.Series(dtype=float)),errors="coerce").fillna(0).sum()),
+            "median_peak_day_within_15": med(g,"peak_day_within_15"),
+            "median_peak_high_ret_within_15_pct": med(g,"peak_high_ret_within_15_pct"),
+            "plus5_reached_within_15": int((pd.to_numeric(g.get("first_plus5_day",pd.Series(dtype=float)),errors="coerce") > 0).sum()),
+            "plus10_reached_within_15": int((pd.to_numeric(g.get("first_plus10_day",pd.Series(dtype=float)),errors="coerce") > 0).sum()),
+            "median_first_plus5_day": med(g[g["first_plus5_day"]>0],"first_plus5_day") if not g.empty else float("nan"),
+            "median_first_plus10_day": med(g[g["first_plus10_day"]>0],"first_plus10_day") if not g.empty else float("nan"),
+            "median_healthy_day_after_breakout": med(g[g["healthy_day_after_breakout"]>0],"healthy_day_after_breakout") if not g.empty else float("nan"),
+            "median_restart_day_after_breakout": med(g[g["restart_day_after_breakout"]>0],"restart_day_after_breakout") if not g.empty else float("nan"),
+            "d5_close_ret_median_pct": med(g,"d5_close_ret_pct"), "d5_mfe_median_pct": med(g,"d5_mfe_pct"), "d5_mae_median_pct": med(g,"d5_mae_pct"),
+            "d10_close_ret_median_pct": med(g,"d10_close_ret_pct"), "d10_mfe_median_pct": med(g,"d10_mfe_pct"), "d10_mae_median_pct": med(g,"d10_mae_pct"),
+            "d15_close_ret_median_pct": med(g,"d15_close_ret_pct"), "d15_mfe_median_pct": med(g,"d15_mfe_pct"), "d15_mae_median_pct": med(g,"d15_mae_pct"),
+            "future_outcome_only": 1, "used_as_strategy_gate": 0,
+        })
+    return detail, events, pd.DataFrame(rows)
+
+
+def build_long_ma_context_audit(
+    precursor_detail: pd.DataFrame,
+    qualified_event_detail: pd.DataFrame,
+    path_event_summary: pd.DataFrame,
+    frames: Dict[str, pd.DataFrame],
+) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """MA120/200/224 research context; no MA gate is promoted."""
+    if precursor_detail is None or precursor_detail.empty:
+        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+
+    qmap = {}
+    if qualified_event_detail is not None and not qualified_event_detail.empty:
+        for _, q in qualified_event_detail.iterrows():
+            qmap[(str(q.get("code") or "").zfill(6), str(q.get("canonical_squeeze_date") or ""))] = q.to_dict()
+
+    pmap = {}
+    if path_event_summary is not None and not path_event_summary.empty:
+        for _, p in path_event_summary.iterrows():
+            pmap[(str(p.get("code") or "").zfill(6), str(p.get("qualified_breakout_date") or ""))] = p.to_dict()
+
+    crows, erows = [], []
+    for _, pr in precursor_detail.iterrows():
+        code = str(pr.get("code") or "").zfill(6)
+        sq_date = str(pr.get("squeeze_date") or "")
+        df = _r111_get_frame(frames, code)
+        if df is None or df.empty:
+            continue
+        dates = pd.to_datetime(df["date"], errors="coerce").dt.normalize()
+        st = pd.to_datetime(sq_date, errors="coerce")
+        sm = df.index[dates.eq(pd.Timestamp(st).normalize())] if pd.notna(st) else []
+        if not len(sm):
+            continue
+        si = int(sm[-1])
+        ctx = _r111_ma_context(df, si)
+        joint = int(int(pr.get("pre10_obv_positive",0)) == 1 and int(pr.get("bb40_contracting",0)) == 1)
+
+        crows.append({
+            "schema": SCHEMA, "strategy_id": STRATEGY_ID, "loader_revision": LOADER_REVISION,
+            "audit_role": "LONG_MA_SQUEEZE_CONTEXT_CAUSAL_ONLY_NOT_A_GATE",
+            "code": code, "squeeze_date": sq_date, "feature_max_date": sq_date,
+            "joint_obv_positive_bb40_contracting": joint,
+            "label_qualified_breakout": int(pr.get("label_qualified_breakout",0)),
+            "label_healthy_pullback": int(pr.get("label_healthy_pullback",0)),
+            "label_restart": int(pr.get("label_restart",0)),
+            **ctx, "future_labels_not_features": 1, "used_as_strategy_gate": 0,
+        })
+
+        q = qmap.get((code, sq_date))
+        if not q:
+            continue
+        bo_date = str(q.get("qualified_breakout_date") or "")
+        bt = pd.to_datetime(bo_date, errors="coerce")
+        bm = df.index[dates.eq(pd.Timestamp(bt).normalize())] if pd.notna(bt) else []
+        if not len(bm):
+            continue
+        boctx = _r111_ma_context(df, int(bm[-1]))
+
+        restart_date = str(q.get("qualified_restart_date") or "")
+        rctx = _r111_ma_context(None, -1)
+        if restart_date:
+            rt = pd.to_datetime(restart_date, errors="coerce")
+            rm = df.index[dates.eq(pd.Timestamp(rt).normalize())] if pd.notna(rt) else []
+            if len(rm):
+                rctx = _r111_ma_context(df, int(rm[-1]))
+
+        path = pmap.get((code, bo_date), {})
+        row = {
+            "schema": SCHEMA, "strategy_id": STRATEGY_ID, "loader_revision": LOADER_REVISION,
+            "audit_role": "LONG_MA_QUALIFIED_EVENT_CONTEXT_ONLY_NOT_A_GATE",
+            "code": code, "canonical_squeeze_date": sq_date,
+            "qualified_breakout_date": bo_date, "restart_date": restart_date,
+            "probe_then_qualified": int(q.get("canonical_probe_then_qualified",0)),
+            "joint_obv_positive_bb40_contracting": joint,
+            "healthy": int(q.get("qualified_healthy_pullback_existing",0)),
+            "restart": int(q.get("qualified_restart_existing",0)),
+        }
+        for k,v in ctx.items(): row[f"squeeze_{k}"] = v
+        for k,v in boctx.items(): row[f"breakout_{k}"] = v
+        for k,v in rctx.items(): row[f"restart_{k}"] = v
+        for col in ("d5_close_ret_pct","d5_mfe_pct","d5_mae_pct","d10_close_ret_pct","d10_mfe_pct","d10_mae_pct","d15_close_ret_pct","d15_mfe_pct","d15_mae_pct","first_plus5_day","first_plus10_day","peak_day_within_15"):
+            row[col] = _audit_num(path.get(col))
+        row["future_path_fields_are_outcomes"] = 1
+        row["used_as_strategy_gate"] = 0
+        erows.append(row)
+
+    candidates, events = pd.DataFrame(crows), pd.DataFrame(erows)
+    if candidates.empty:
+        return candidates, events, pd.DataFrame()
+
+    def med(g,col):
+        x = pd.to_numeric(g.get(col,pd.Series(dtype=float)),errors="coerce")
+        return float(x.median()) if x.notna().any() else float("nan")
+    def qrate(g):
+        return float(pd.to_numeric(g["label_qualified_breakout"],errors="coerce").fillna(0).mean()) if len(g) else float("nan")
+
+    rows = []
+    ready = candidates[candidates["ma224_ready"].eq(1)]
+    for label,g in [("SQUEEZE_BELOW_MA224",ready[ready["below_ma224"].eq(1)]),("SQUEEZE_AT_OR_ABOVE_MA224",ready[ready["below_ma224"].eq(0)])]:
+        rows.append({"schema":SCHEMA,"strategy_id":STRATEGY_ID,"loader_revision":LOADER_REVISION,"summary_type":"SQUEEZE_CAUSAL_QUALIFIED_RATE","group":label,"runs":len(g),"qualified":int(g["label_qualified_breakout"].sum()),"qualified_rate":qrate(g),"healthy":int(g["label_healthy_pullback"].sum()),"restart":int(g["label_restart"].sum()),"used_as_strategy_gate":0})
+
+    for bucket in ["LT_-15","-15_TO_-5","-5_TO_0","0_TO_+5","+5_TO_+15","GE_+15"]:
+        g = ready[ready["ma224_distance_bucket"].eq(bucket)]
+        rows.append({"schema":SCHEMA,"strategy_id":STRATEGY_ID,"loader_revision":LOADER_REVISION,"summary_type":"SQUEEZE_MA224_DISTANCE_BUCKET","group":bucket,"runs":len(g),"qualified":int(g["label_qualified_breakout"].sum()),"qualified_rate":qrate(g),"healthy":int(g["label_healthy_pullback"].sum()),"restart":int(g["label_restart"].sum()),"used_as_strategy_gate":0})
+
+    for jv,jn in [(1,"JOINT"),(0,"REST")]:
+        for bv,bn in [(1,"BELOW224"),(0,"AT_OR_ABOVE224")]:
+            g=ready[ready["joint_obv_positive_bb40_contracting"].eq(jv)&ready["below_ma224"].eq(bv)]
+            rows.append({"schema":SCHEMA,"strategy_id":STRATEGY_ID,"loader_revision":LOADER_REVISION,"summary_type":"SQUEEZE_JOINT_X_MA224","group":f"{jn}_{bn}","runs":len(g),"qualified":int(g["label_qualified_breakout"].sum()),"qualified_rate":qrate(g),"healthy":int(g["label_healthy_pullback"].sum()),"restart":int(g["label_restart"].sum()),"used_as_strategy_gate":0})
+
+    if not events.empty:
+        eready=events[events["breakout_ma224_ready"].eq(1)]
+        for label,g in [("BREAKOUT_BELOW_MA224",eready[eready["breakout_below_ma224"].eq(1)]),("BREAKOUT_AT_OR_ABOVE_MA224",eready[eready["breakout_below_ma224"].eq(0)])]:
+            rows.append({"schema":SCHEMA,"strategy_id":STRATEGY_ID,"loader_revision":LOADER_REVISION,"summary_type":"QUALIFIED_PATH_BY_BREAKOUT_MA224","group":label,"runs":len(g),"qualified":len(g),"qualified_rate":float("nan"),"healthy":int(g["healthy"].sum()),"restart":int(g["restart"].sum()),"d5_close_ret_median_pct":med(g,"d5_close_ret_pct"),"d5_mfe_median_pct":med(g,"d5_mfe_pct"),"d5_mae_median_pct":med(g,"d5_mae_pct"),"d10_close_ret_median_pct":med(g,"d10_close_ret_pct"),"d10_mfe_median_pct":med(g,"d10_mfe_pct"),"d10_mae_median_pct":med(g,"d10_mae_pct"),"d15_close_ret_median_pct":med(g,"d15_close_ret_pct"),"d15_mfe_median_pct":med(g,"d15_mfe_pct"),"d15_mae_median_pct":med(g,"d15_mae_pct"),"used_as_strategy_gate":0})
+
+    rows.append({"schema":SCHEMA,"strategy_id":STRATEGY_ID,"loader_revision":LOADER_REVISION,"summary_type":"MA_COVERAGE","group":"ALL","runs":len(candidates),"ma120_ready":int(candidates["ma120_ready"].sum()),"ma200_ready":int(candidates["ma200_ready"].sum()),"ma224_ready":int(candidates["ma224_ready"].sum()),"qualified_event_rows":len(events),"qualified_breakout_ma224_ready":int(events["breakout_ma224_ready"].sum()) if not events.empty else 0,"used_as_strategy_gate":0})
+    return candidates, events, pd.DataFrame(rows)
+
+
 def build_forward_outcomes(signals: List[Dict[str, Any]], frames: Dict[str, pd.DataFrame], cfg: FrozenConfig) -> pd.DataFrame:
     rows: List[Dict[str, Any]] = []
     for s in signals:
@@ -3171,6 +3519,12 @@ def run(args: argparse.Namespace) -> int:
             precursor_case_control_detail, frames, start, end
         )
     )
+    d15_path_detail, d15_path_event_summary, d15_path_summary = build_qualified_d1_d15_path_study(
+        qualified_event_detail, precursor_case_control_detail, frames
+    )
+    long_ma_candidate_detail, long_ma_event_detail, long_ma_summary = build_long_ma_context_audit(
+        precursor_case_control_detail, qualified_event_detail, d15_path_event_summary, frames
+    )
 
     structure_integrity_audit = pd.DataFrame([{
         "schema": SCHEMA,
@@ -3271,6 +3625,12 @@ def run(args: argparse.Namespace) -> int:
     _write_csv(joint_precursor_detail, out / "tri_joint_precursor_stability_detail.csv")
     _write_csv(joint_precursor_summary, out / "tri_joint_precursor_stability_summary.csv")
     _write_csv(joint_precursor_review_bars, out / "tri_joint_precursor_review_bars.csv")
+    _write_csv(d15_path_detail, out / "tri_qualified_d1_d15_path_detail.csv")
+    _write_csv(d15_path_event_summary, out / "tri_qualified_d1_d15_event_summary.csv")
+    _write_csv(d15_path_summary, out / "tri_qualified_d1_d15_summary.csv")
+    _write_csv(long_ma_candidate_detail, out / "tri_long_ma_candidate_context.csv")
+    _write_csv(long_ma_event_detail, out / "tri_long_ma_event_context.csv")
+    _write_csv(long_ma_summary, out / "tri_long_ma_summary.csv")
     _write_csv(
         gate_diag.sort_values(
             ["squeeze_qualifying_windows","max_squeeze_streak","breakout_price_cross"],
@@ -3365,6 +3725,15 @@ def run(args: argparse.Namespace) -> int:
             "used_as_strategy_gate": 0,
             "summary": joint_precursor_summary.to_dict("records"),
         },
+        "qualified_d1_d15_path_audit": {
+            "research_only": 1, "future_outcome_only": 1, "used_as_strategy_gate": 0,
+            "summary": d15_path_summary.to_dict("records"),
+        },
+        "long_ma_context_audit": {
+            "research_only": 1, "squeeze_features_causal_through_event_date": 1,
+            "qualified_restart_context_event_time_only": 1, "used_as_strategy_gate": 0,
+            "summary": long_ma_summary.to_dict("records"),
+        },
         "restart_signals": int(len(signals)),
         "invariant_fail": int(invariant_fail + structure_audit_integrity_fail),
         "structure_audit_integrity_fail": structure_audit_integrity_fail,
@@ -3389,6 +3758,10 @@ def run(args: argparse.Namespace) -> int:
         out / "tri_causal_precursor_case_control_detail.csv", out / "tri_causal_precursor_case_control_summary.csv",
         out / "tri_joint_precursor_stability_detail.csv", out / "tri_joint_precursor_stability_summary.csv",
         out / "tri_joint_precursor_review_bars.csv",
+        out / "tri_qualified_d1_d15_path_detail.csv", out / "tri_qualified_d1_d15_event_summary.csv",
+        out / "tri_qualified_d1_d15_summary.csv",
+        out / "tri_long_ma_candidate_context.csv", out / "tri_long_ma_event_context.csv",
+        out / "tri_long_ma_summary.csv",
     ]
     h = hashlib.sha256()
     for p in authority_files:
@@ -3416,6 +3789,8 @@ def run(args: argparse.Namespace) -> int:
         f"terminal_energy_profile_summary={json.dumps(terminal_energy_summary.to_dict('records'), ensure_ascii=False, sort_keys=True)}",
         f"causal_precursor_case_control_summary={json.dumps(precursor_case_control_summary.to_dict('records'), ensure_ascii=False, sort_keys=True)}",
         f"joint_precursor_stability_summary={json.dumps(joint_precursor_summary.to_dict('records'), ensure_ascii=False, sort_keys=True)}",
+        f"qualified_d1_d15_path_summary={json.dumps(d15_path_summary.to_dict('records'), ensure_ascii=False, sort_keys=True)}",
+        f"long_ma_context_summary={json.dumps(long_ma_summary.to_dict('records'), ensure_ascii=False, sort_keys=True)}",
         (
             f"structure_audit_integrity=expected:{structure_audit_expected_rows}"
             f" raw:{structure_audit_raw_rows} errors:{structure_audit_error_count}"
@@ -3429,7 +3804,7 @@ def run(args: argparse.Namespace) -> int:
         (
             "NEXT_GATE=manual chart review + false-positive taxonomy before any threshold/performance tuning"
             if len(signals) > 0 else
-            "NEXT_GATE=joint precursor temporal stability + full 192-run visual review; post-hoc OBV+BB40 hypothesis remains non-gating until prospective validation"
+            "NEXT_GATE=D+1..D+15 path + MA120/200/224 context review; separate causal MA location from future path outcomes before candidate-definition lock"
         ),
     ]
     (out / "tri_report.txt").write_text("\n".join(report) + "\n", encoding="utf-8")
@@ -3525,6 +3900,13 @@ def self_test() -> int:
     assert int(cf1["qualified_healthy_pullback_existing"]) >= 1
     assert int(cf1["qualified_restart_existing"]) >= 1
     assert int(cf1["qualified_unique_breakout_events"]) >= 1
+    qd, _, _ = build_qualified_event_fidelity_audit(cf_detail, sa_df, {"123456": df}, CONFIG)
+    ccd, _ = build_causal_precursor_case_control_audit(cf_detail, sa_df, {"123456": df})
+    pd15, pe15, ps15 = build_qualified_d1_d15_path_study(qd, ccd, {"123456": df})
+    assert not pd15.empty and not pe15.empty and not ps15.empty
+    mac, mae, mas = build_long_ma_context_audit(ccd, qd, pe15, {"123456": df})
+    assert not mac.empty and not mae.empty and not mas.empty
+    assert int(mac["ma224_ready"].sum()) == 0
     # Determinism.
     e2, s2, r2, gd2 = detect_code("123456", df, "SYNTHETIC_ACTUAL_AMOUNT", _SyntheticUniverse(), start, end, CONFIG)
     assert json.dumps(e, sort_keys=True, default=str) == json.dumps(e2, sort_keys=True, default=str)
