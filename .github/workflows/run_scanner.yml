@@ -1411,8 +1411,17 @@ jobs:
           python triangle1pb_research.py --self-test
           grep -Fq 'RESEARCH_AUTHORITY = "RESEARCH_ONLY_NO_LIVE_NO_POLICY_NO_ORDERS"' triangle1pb_research.py
           grep -Fq 'STRATEGY_ID = "TRIANGLE1PB_R1_CHRONOLOGY_FIRST"' triangle1pb_research.py
+          grep -Fq 'LOADER_REVISION = "TRIANGLE1PB_R1_12_1_STALE_SOURCE_FAIL_CLOSED"' triangle1pb_research.py || {
+            echo "TRIANGLE1PB_STALE_SOURCE_FAIL expected=R1_12_1";
+            grep -n '^LOADER_REVISION' triangle1pb_research.py || true;
+            exit 236;
+          }
           grep -Fq 'synthetic_close_x_volume_fallback_rows' triangle1pb_research.py
-          echo "TRIANGLE1PB_PREFLIGHT PASS independent=1 live=0 score_rank=0 order=0 tuning=0"
+          echo "TRIANGLE1PB_SOURCE_REVISION=$(grep '^LOADER_REVISION' triangle1pb_research.py)"
+          echo "TRIANGLE1PB_SOURCE_SHA256=$(sha256sum triangle1pb_research.py | awk '{print $1}')"
+          echo "TRIANGLE1PB_GIT_COMMIT=$(git rev-parse HEAD 2>/dev/null || echo UNKNOWN)"
+          echo "TRIANGLE1PB_GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo UNKNOWN)"
+          echo "TRIANGLE1PB_PREFLIGHT PASS revision=R1_12_1 independent=1 live=0 score_rank=0 order=0 tuning=0"
 
       - name: Restore latest V21 research cache read-only
         id: tri-v21-restore
@@ -1461,6 +1470,12 @@ jobs:
           )
           if [ -n "${TRI_START_DATE:-}" ]; then args+=(--start-date "$TRI_START_DATE"); fi
           if [ -n "${TRI_END_DATE:-}" ]; then args+=(--end-date "$TRI_END_DATE"); fi
+          grep -Fq 'LOADER_REVISION = "TRIANGLE1PB_R1_12_1_STALE_SOURCE_FAIL_CLOSED"' triangle1pb_research.py || {
+            echo "TRIANGLE1PB_STALE_SOURCE_FAIL immediately_before_run";
+            grep -n '^LOADER_REVISION' triangle1pb_research.py || true;
+            exit 237;
+          }
+          echo "TRIANGLE1PB_RUN_SOURCE_SHA256=$(sha256sum triangle1pb_research.py | awk '{print $1}')"
           python -u triangle1pb_research.py "${args[@]}" | tee reports/triangle1pb/tri_runtime.log
 
       - name: TRIANGLE1PB fail-closed research postflight
@@ -1478,13 +1493,23 @@ jobs:
               'tri_stage_counts.csv','tri_rejection_ledger.csv','tri_rejection_counts.csv',
               'tri_chronology_audit.csv','tri_lookahead_audit.csv','tri_invariant_audit.csv',
               'tri_amount_authority_audit.csv','tri_asof_universe_audit.csv','tri_manual_chart_review_sample.csv',
-              'tri_event_study_summary.csv','tri_manifest.json','tri_report.txt','tri_runtime.log',
+              'tri_event_study_summary.csv',
+              'tri_stage_anchor_d1_d15_path_detail.csv',
+              'tri_stage_anchor_d1_d15_event_summary.csv',
+              'tri_stage_anchor_d1_d15_summary.csv',
+              'tri_conversion_vs_quality_summary.csv',
+              'tri_manifest.json','tri_report.txt','tri_runtime.log',
           ]
           missing=[x for x in required if not (root/x).exists()]
           assert not missing, ('TRIANGLE1PB_OUTPUT_MISSING',missing)
           m=json.loads((root/'tri_manifest.json').read_text(encoding='utf-8'))
           assert m.get('schema')=='TRIANGLE1PB_RESEARCH_SCHEMA_V1'
           assert m.get('strategy_id')=='TRIANGLE1PB_R1_CHRONOLOGY_FIRST'
+          assert m.get('loader_revision')=='TRIANGLE1PB_R1_12_1_STALE_SOURCE_FAIL_CLOSED', (
+              'TRIANGLE1PB_STALE_MANIFEST_REVISION', m.get('loader_revision')
+          )
+          assert 'stage_anchor_path_audit' in m, 'R1_12_STAGE_ANCHOR_MANIFEST_MISSING'
+          assert 'conversion_vs_quality_audit' in m, 'R1_12_CONVERSION_QUALITY_MANIFEST_MISSING'
           assert m.get('research_authority')=='RESEARCH_ONLY_NO_LIVE_NO_POLICY_NO_ORDERS'
           assert m.get('core224_dependency')=='NONE'
           assert m.get('core224_logic_changed') is False
@@ -1501,6 +1526,16 @@ jobs:
           la=pd.read_csv(root/'tri_lookahead_audit.csv')
           amt=pd.read_csv(root/'tri_amount_authority_audit.csv')
           uni=pd.read_csv(root/'tri_asof_universe_audit.csv')
+          stage=pd.read_csv(root/'tri_stage_anchor_d1_d15_summary.csv')
+          convq=pd.read_csv(root/'tri_conversion_vs_quality_summary.csv')
+          assert not stage.empty, 'R1_12_STAGE_ANCHOR_SUMMARY_EMPTY'
+          assert {'QUALIFIED','HEALTHY','RESTART'}.issubset(set(stage['anchor'].astype(str))), (
+              'R1_12_STAGE_ANCHORS_MISSING', sorted(set(stage['anchor'].astype(str)))
+          )
+          assert not convq.empty, 'R1_12_CONVERSION_QUALITY_EMPTY'
+          assert {'OBV+_AND_BB40DOWN','REST'}.issubset(set(convq['group'].astype(str))), (
+              'R1_12_CONVERSION_GROUPS_MISSING', sorted(set(convq['group'].astype(str)))
+          )
           assert len(inv)==1 and str(inv.iloc[-1].get('status'))=='PASS'
           assert len(la)==1 and str(la.iloc[-1].get('status'))=='PASS'
           assert int(float(amt.iloc[-1].get('synthetic_close_x_volume_fallback_rows',-1)))==0
@@ -1892,6 +1927,75 @@ jobs:
                       f"qualified breakout below224 {int(ebb.get('runs',0))}: D10 MFE {float(ebb.get('d10_mfe_median_pct',0) or 0):+.2f}% / D15 MFE {float(ebb.get('d15_mfe_median_pct',0) or 0):+.2f}%",
                       f"qualified breakout at/above224 {int(eba.get('runs',0))}: D10 MFE {float(eba.get('d10_mfe_median_pct',0) or 0):+.2f}% / D15 MFE {float(eba.get('d15_mfe_median_pct',0) or 0):+.2f}%",
                       "※ squeeze MA 위치는 causal context · MA 조건도 아직 전략 filter 아님",
+                  ]
+
+              sap = m.get("stage_anchor_path_audit") or {}
+              sap_rows = sap.get("summary") or []
+              if sap_rows:
+                  def _sa(name):
+                      for rr in sap_rows:
+                          if rr.get("anchor") == name:
+                              return rr
+                      return {}
+                  q = _sa("QUALIFIED")
+                  h = _sa("HEALTHY")
+                  r = _sa("RESTART")
+                  lines += [
+                      "",
+                      "🎯 [Stage-Anchor D+1~D+15 · 각 stage 종가 기준]",
+                      (
+                          f"QUALIFIED {int(q.get('events',0))}: "
+                          f"D10 Close {float(q.get('d10_close_ret_median_pct',0) or 0):+.2f}%"
+                          f" / MFE {float(q.get('d10_mfe_median_pct',0) or 0):+.2f}%"
+                          f" · D15 Close {float(q.get('d15_close_ret_median_pct',0) or 0):+.2f}%"
+                      ),
+                      (
+                          f"HEALTHY {int(h.get('events',0))}: "
+                          f"D10 Close {float(h.get('d10_close_ret_median_pct',0) or 0):+.2f}%"
+                          f" / MFE {float(h.get('d10_mfe_median_pct',0) or 0):+.2f}%"
+                          f" · D15 Close {float(h.get('d15_close_ret_median_pct',0) or 0):+.2f}%"
+                      ),
+                      (
+                          f"RESTART {int(r.get('events',0))}: "
+                          f"D10 Close {float(r.get('d10_close_ret_median_pct',0) or 0):+.2f}%"
+                          f" / MFE {float(r.get('d10_mfe_median_pct',0) or 0):+.2f}%"
+                          f" · D15 Close {float(r.get('d15_close_ret_median_pct',0) or 0):+.2f}%"
+                      ),
+                      (
+                          f"RESTART within15 +5% {int(r.get('plus5_within15',0))}"
+                          f" · +10% {int(r.get('plus10_within15',0))}"
+                          f" · peak-day median D+{float(r.get('median_peak_day_within15',0) or 0):.1f}"
+                      ),
+                      "※ HEALTHY/RESTART도 미래 stage anchor 연구 · 실제 entry 규칙 미변경",
+                  ]
+
+              cvq = m.get("conversion_vs_quality_audit") or {}
+              cvq_rows = cvq.get("summary") or []
+              if cvq_rows:
+                  def _cv(name):
+                      for rr in cvq_rows:
+                          if rr.get("group") == name:
+                              return rr
+                      return {}
+                  j = _cv("OBV+_AND_BB40DOWN")
+                  rr = _cv("REST")
+                  def _pct(v):
+                      try: return f"{float(v)*100.0:.1f}%"
+                      except Exception: return "-"
+                  lines += [
+                      "",
+                      "⚖️ [Conversion vs Conditional Quality · 분리]",
+                      (
+                          f"JOINT conversion {_pct(j.get('conversion_rate'))}"
+                          f" vs REST {_pct(rr.get('conversion_rate'))}"
+                      ),
+                      (
+                          f"conditional D15: JOINT Close {float(j.get('conditional_d15_close_median_pct',0) or 0):+.2f}%"
+                          f" / MFE {float(j.get('conditional_d15_mfe_median_pct',0) or 0):+.2f}%"
+                          f" | REST Close {float(rr.get('conditional_d15_close_median_pct',0) or 0):+.2f}%"
+                          f" / MFE {float(rr.get('conditional_d15_mfe_median_pct',0) or 0):+.2f}%"
+                      ),
+                      "※ precursor의 돌파발생확률과 돌파 후 품질은 같은 점수로 합치지 않음",
                   ]
 
               amount_cov = m.get("actual_amount_coverage_pct")
