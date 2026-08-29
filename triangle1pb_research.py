@@ -32,7 +32,7 @@ import pandas as pd
 
 SCHEMA = "TRIANGLE1PB_RESEARCH_SCHEMA_V1"
 STRATEGY_ID = "TRIANGLE1PB_R1_CHRONOLOGY_FIRST"
-LOADER_REVISION = "TRIANGLE1PB_R1_11_D15_PATH_LONG_MA_CONTEXT_AUDIT"
+LOADER_REVISION = "TRIANGLE1PB_R1_12_1_STALE_SOURCE_FAIL_CLOSED"
 RESEARCH_AUTHORITY = "RESEARCH_ONLY_NO_LIVE_NO_POLICY_NO_ORDERS"
 STAGES = [
     "TRI_SQUEEZE",
@@ -3168,6 +3168,303 @@ def build_long_ma_context_audit(
     return candidates, events, pd.DataFrame(rows)
 
 
+
+def _r112_anchor_path(
+    code: str,
+    anchor_name: str,
+    anchor_date: str,
+    df: pd.DataFrame,
+    event_meta: Dict[str, Any],
+) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    """Track D+1..D+15 from a stage anchor close. Future outcome only."""
+    if df is None or df.empty or not anchor_date:
+        return [], {}
+    at = pd.to_datetime(anchor_date, errors="coerce")
+    if pd.isna(at):
+        return [], {}
+    dates = pd.to_datetime(df["date"], errors="coerce").dt.normalize()
+    am = df.index[dates.eq(pd.Timestamp(at).normalize())]
+    if not len(am):
+        return [], {}
+    ai = int(am[-1])
+    base = _audit_num(df.iloc[ai].get("close"))
+    if not math.isfinite(base) or base <= 0:
+        return [], {}
+
+    rows: List[Dict[str, Any]] = []
+    endpoints: Dict[int, Dict[str, Any]] = {}
+    cum_high, cum_low = base, base
+    first5 = first10 = -1
+    peak_day = trough_day = -1
+    peak_ret, trough_ret = float("-inf"), float("inf")
+    available = 0
+
+    for d in range(1, 16):
+        idx = ai + d
+        if idx >= len(df):
+            break
+        rr = df.iloc[idx]
+        available = d
+        close = _audit_num(rr.get("close"))
+        high = _audit_num(rr.get("high"))
+        low = _audit_num(rr.get("low"))
+        if math.isfinite(high):
+            cum_high = max(cum_high, high)
+        if math.isfinite(low):
+            cum_low = min(cum_low, low)
+        close_ret = ((close / base) - 1.0) * 100.0 if math.isfinite(close) else float("nan")
+        high_ret = ((high / base) - 1.0) * 100.0 if math.isfinite(high) else float("nan")
+        low_ret = ((low / base) - 1.0) * 100.0 if math.isfinite(low) else float("nan")
+        mfe = ((cum_high / base) - 1.0) * 100.0
+        mae = ((cum_low / base) - 1.0) * 100.0
+        if first5 < 0 and mfe >= 5.0:
+            first5 = d
+        if first10 < 0 and mfe >= 10.0:
+            first10 = d
+        if math.isfinite(high_ret) and high_ret > peak_ret:
+            peak_ret, peak_day = high_ret, d
+        if math.isfinite(low_ret) and low_ret < trough_ret:
+            trough_ret, trough_day = low_ret, d
+
+        rec = {
+            "schema": SCHEMA,
+            "strategy_id": STRATEGY_ID,
+            "loader_revision": LOADER_REVISION,
+            "audit_role": "STAGE_ANCHOR_D1_D15_FUTURE_OUTCOME_ONLY_NOT_A_GATE",
+            "code": code,
+            "anchor": anchor_name,
+            "anchor_date": pd.Timestamp(at).date().isoformat(),
+            "day_after_anchor": d,
+            "path_date": pd.Timestamp(rr["date"]).date().isoformat(),
+            "anchor_close": base,
+            "close_ret_from_anchor_pct": close_ret,
+            "daily_high_ret_from_anchor_pct": high_ret,
+            "daily_low_ret_from_anchor_pct": low_ret,
+            "cumulative_mfe_pct": mfe,
+            "cumulative_mae_pct": mae,
+            **event_meta,
+            "future_outcome_only": 1,
+            "used_as_strategy_gate": 0,
+        }
+        rows.append(rec)
+        endpoints[d] = rec
+
+    def ep(day: int, field: str) -> float:
+        r = endpoints.get(day)
+        return _audit_num(r.get(field)) if r else float("nan")
+
+    summary = {
+        "schema": SCHEMA,
+        "strategy_id": STRATEGY_ID,
+        "loader_revision": LOADER_REVISION,
+        "audit_role": "STAGE_ANCHOR_EVENT_SUMMARY_FUTURE_ONLY",
+        "code": code,
+        "anchor": anchor_name,
+        "anchor_date": pd.Timestamp(at).date().isoformat(),
+        "available_post_anchor_bars": available,
+        "d15_complete": int(available >= 15),
+        "first_plus5_day": first5,
+        "first_plus10_day": first10,
+        "peak_day_within_15": peak_day,
+        "peak_high_ret_within_15_pct": peak_ret if peak_day > 0 else float("nan"),
+        "trough_day_within_15": trough_day,
+        "trough_low_ret_within_15_pct": trough_ret if trough_day > 0 else float("nan"),
+        "d5_close_ret_pct": ep(5, "close_ret_from_anchor_pct"),
+        "d5_mfe_pct": ep(5, "cumulative_mfe_pct"),
+        "d5_mae_pct": ep(5, "cumulative_mae_pct"),
+        "d10_close_ret_pct": ep(10, "close_ret_from_anchor_pct"),
+        "d10_mfe_pct": ep(10, "cumulative_mfe_pct"),
+        "d10_mae_pct": ep(10, "cumulative_mae_pct"),
+        "d15_close_ret_pct": ep(15, "close_ret_from_anchor_pct"),
+        "d15_mfe_pct": ep(15, "cumulative_mfe_pct"),
+        "d15_mae_pct": ep(15, "cumulative_mae_pct"),
+        **event_meta,
+        "future_outcome_only": 1,
+        "used_as_strategy_gate": 0,
+    }
+    return rows, summary
+
+
+def build_stage_anchor_path_audit(
+    qualified_event_detail: pd.DataFrame,
+    precursor_detail: pd.DataFrame,
+    frames: Dict[str, pd.DataFrame],
+) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Compare future paths from QUALIFIED, HEALTHY and RESTART stage closes.
+
+    HEALTHY and RESTART are future stage anchors relative to the squeeze and
+    therefore this entire lane is outcome research, never a candidate feature.
+    """
+    if qualified_event_detail is None or qualified_event_detail.empty:
+        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+
+    pkey: Dict[Tuple[str, str], Dict[str, Any]] = {}
+    if precursor_detail is not None and not precursor_detail.empty:
+        for _, p in precursor_detail.iterrows():
+            pkey[(str(p.get("code") or "").zfill(6), str(p.get("squeeze_date") or ""))] = p.to_dict()
+
+    detail_rows: List[Dict[str, Any]] = []
+    event_rows: List[Dict[str, Any]] = []
+
+    for _, er in qualified_event_detail.iterrows():
+        code = str(er.get("code") or "").zfill(6)
+        sq_date = str(er.get("canonical_squeeze_date") or "")
+        df = _r111_get_frame(frames, code)
+        if df is None or df.empty:
+            continue
+        pr = pkey.get((code, sq_date), {})
+        joint = int(int(pr.get("pre10_obv_positive",0)) == 1 and int(pr.get("bb40_contracting",0)) == 1)
+
+        meta = {
+            "canonical_squeeze_date": sq_date,
+            "qualified_breakout_date": str(er.get("qualified_breakout_date") or ""),
+            "probe_then_qualified": int(er.get("canonical_probe_then_qualified",0)),
+            "joint_obv_positive_bb40_contracting": joint,
+            "healthy_event": int(er.get("qualified_healthy_pullback_existing",0)),
+            "restart_event": int(er.get("qualified_restart_existing",0)),
+        }
+
+        anchors = [
+            ("QUALIFIED", str(er.get("qualified_breakout_date") or "")),
+        ]
+        if int(er.get("qualified_healthy_pullback_existing",0)):
+            anchors.append(("HEALTHY", str(er.get("qualified_healthy_pullback_date") or "")))
+        if int(er.get("qualified_restart_existing",0)):
+            anchors.append(("RESTART", str(er.get("qualified_restart_date") or "")))
+
+        for anchor_name, anchor_date in anchors:
+            rows, ev = _r112_anchor_path(code, anchor_name, anchor_date, df, meta)
+            detail_rows.extend(rows)
+            if ev:
+                # causal MA context at the anchor date itself, still descriptive
+                dates = pd.to_datetime(df["date"], errors="coerce").dt.normalize()
+                at = pd.to_datetime(anchor_date, errors="coerce")
+                am = df.index[dates.eq(pd.Timestamp(at).normalize())] if pd.notna(at) else []
+                ctx = _r111_ma_context(df, int(am[-1])) if len(am) else _r111_ma_context(None, -1)
+                for k,v in ctx.items():
+                    ev[f"anchor_{k}"] = v
+                event_rows.append(ev)
+
+    detail = pd.DataFrame(detail_rows)
+    events = pd.DataFrame(event_rows)
+    if events.empty:
+        return detail, events, pd.DataFrame()
+
+    def med(g: pd.DataFrame, col: str) -> float:
+        x = pd.to_numeric(g.get(col, pd.Series(dtype=float)), errors="coerce")
+        return float(x.median()) if x.notna().any() else float("nan")
+
+    rows: List[Dict[str, Any]] = []
+    for anchor_name in ("QUALIFIED","HEALTHY","RESTART"):
+        g = events[events["anchor"].eq(anchor_name)]
+        if g.empty:
+            continue
+        rows.append({
+            "schema": SCHEMA,
+            "strategy_id": STRATEGY_ID,
+            "loader_revision": LOADER_REVISION,
+            "anchor": anchor_name,
+            "events": int(len(g)),
+            "d15_complete_events": int(pd.to_numeric(g["d15_complete"],errors="coerce").fillna(0).sum()),
+            "plus5_within15": int((pd.to_numeric(g["first_plus5_day"],errors="coerce") > 0).sum()),
+            "plus10_within15": int((pd.to_numeric(g["first_plus10_day"],errors="coerce") > 0).sum()),
+            "median_first_plus5_day": med(g[g["first_plus5_day"]>0],"first_plus5_day"),
+            "median_first_plus10_day": med(g[g["first_plus10_day"]>0],"first_plus10_day"),
+            "median_peak_day_within15": med(g,"peak_day_within_15"),
+            "d5_close_ret_median_pct": med(g,"d5_close_ret_pct"),
+            "d5_mfe_median_pct": med(g,"d5_mfe_pct"),
+            "d5_mae_median_pct": med(g,"d5_mae_pct"),
+            "d10_close_ret_median_pct": med(g,"d10_close_ret_pct"),
+            "d10_mfe_median_pct": med(g,"d10_mfe_pct"),
+            "d10_mae_median_pct": med(g,"d10_mae_pct"),
+            "d15_close_ret_median_pct": med(g,"d15_close_ret_pct"),
+            "d15_mfe_median_pct": med(g,"d15_mfe_pct"),
+            "d15_mae_median_pct": med(g,"d15_mae_pct"),
+            "ma224_ready_events": int(pd.to_numeric(g["anchor_ma224_ready"],errors="coerce").fillna(0).sum()),
+            "below_ma224_events": int(
+                pd.to_numeric(g.loc[g["anchor_ma224_ready"].eq(1),"anchor_below_ma224"],errors="coerce").fillna(0).sum()
+            ),
+            "future_outcome_only": 1,
+            "used_as_strategy_gate": 0,
+        })
+
+    # Restart-specific MA224 split, because restart is the intended conservative entry stage.
+    rg = events[events["anchor"].eq("RESTART") & events["anchor_ma224_ready"].eq(1)]
+    for label, g in [
+        ("RESTART_BELOW_MA224", rg[rg["anchor_below_ma224"].eq(1)]),
+        ("RESTART_AT_OR_ABOVE_MA224", rg[rg["anchor_below_ma224"].eq(0)]),
+    ]:
+        if g.empty:
+            continue
+        rows.append({
+            "schema": SCHEMA, "strategy_id": STRATEGY_ID, "loader_revision": LOADER_REVISION,
+            "anchor": label, "events": int(len(g)),
+            "d15_complete_events": int(g["d15_complete"].sum()),
+            "plus5_within15": int((g["first_plus5_day"]>0).sum()),
+            "plus10_within15": int((g["first_plus10_day"]>0).sum()),
+            "median_first_plus5_day": med(g[g["first_plus5_day"]>0],"first_plus5_day"),
+            "median_first_plus10_day": med(g[g["first_plus10_day"]>0],"first_plus10_day"),
+            "median_peak_day_within15": med(g,"peak_day_within_15"),
+            "d5_close_ret_median_pct": med(g,"d5_close_ret_pct"),
+            "d5_mfe_median_pct": med(g,"d5_mfe_pct"),
+            "d5_mae_median_pct": med(g,"d5_mae_pct"),
+            "d10_close_ret_median_pct": med(g,"d10_close_ret_pct"),
+            "d10_mfe_median_pct": med(g,"d10_mfe_pct"),
+            "d10_mae_median_pct": med(g,"d10_mae_pct"),
+            "d15_close_ret_median_pct": med(g,"d15_close_ret_pct"),
+            "d15_mfe_median_pct": med(g,"d15_mfe_pct"),
+            "d15_mae_median_pct": med(g,"d15_mae_pct"),
+            "ma224_ready_events": int(len(g)),
+            "below_ma224_events": int(g["anchor_below_ma224"].sum()),
+            "future_outcome_only": 1, "used_as_strategy_gate": 0,
+        })
+
+    return detail, events, pd.DataFrame(rows)
+
+
+def build_conversion_vs_quality_audit(
+    precursor_detail: pd.DataFrame,
+    qualified_path_events: pd.DataFrame,
+) -> pd.DataFrame:
+    """Separate precursor conversion probability from conditional path quality."""
+    if precursor_detail is None or precursor_detail.empty:
+        return pd.DataFrame()
+
+    p = precursor_detail.copy()
+    p["joint"] = (
+        p["pre10_obv_positive"].eq(1) & p["bb40_contracting"].eq(1)
+    ).astype(int)
+
+    q = qualified_path_events.copy() if qualified_path_events is not None else pd.DataFrame()
+    rows: List[Dict[str, Any]] = []
+
+    def med(g: pd.DataFrame, col: str) -> float:
+        x = pd.to_numeric(g.get(col, pd.Series(dtype=float)), errors="coerce")
+        return float(x.median()) if x.notna().any() else float("nan")
+
+    for jv, label in [(1,"OBV+_AND_BB40DOWN"),(0,"REST")]:
+        pg = p[p["joint"].eq(jv)]
+        qg = q[q["joint_obv_positive_bb40_contracting"].eq(jv)] if not q.empty else pd.DataFrame()
+        rows.append({
+            "schema": SCHEMA, "strategy_id": STRATEGY_ID, "loader_revision": LOADER_REVISION,
+            "group": label,
+            "candidate_runs": int(len(pg)),
+            "qualified_runs": int(pd.to_numeric(pg["label_qualified_breakout"],errors="coerce").fillna(0).sum()),
+            "conversion_rate": float(pd.to_numeric(pg["label_qualified_breakout"],errors="coerce").fillna(0).mean()) if len(pg) else float("nan"),
+            "unique_qualified_events": int(len(qg)),
+            "conditional_plus5_within15": int((pd.to_numeric(qg.get("first_plus5_day",pd.Series(dtype=float)),errors="coerce")>0).sum()),
+            "conditional_plus10_within15": int((pd.to_numeric(qg.get("first_plus10_day",pd.Series(dtype=float)),errors="coerce")>0).sum()),
+            "conditional_healthy": int(pd.to_numeric(qg.get("healthy",pd.Series(dtype=float)),errors="coerce").fillna(0).sum()),
+            "conditional_restart": int(pd.to_numeric(qg.get("restart",pd.Series(dtype=float)),errors="coerce").fillna(0).sum()),
+            "conditional_d15_close_median_pct": med(qg,"d15_close_ret_pct"),
+            "conditional_d15_mfe_median_pct": med(qg,"d15_mfe_pct"),
+            "conditional_d15_mae_median_pct": med(qg,"d15_mae_pct"),
+            "interpretation_role": "CONVERSION_AND_CONDITIONAL_QUALITY_MUST_REMAIN_SEPARATE",
+            "used_as_strategy_gate": 0,
+        })
+    return pd.DataFrame(rows)
+
+
 def build_forward_outcomes(signals: List[Dict[str, Any]], frames: Dict[str, pd.DataFrame], cfg: FrozenConfig) -> pd.DataFrame:
     rows: List[Dict[str, Any]] = []
     for s in signals:
@@ -3525,6 +3822,14 @@ def run(args: argparse.Namespace) -> int:
     long_ma_candidate_detail, long_ma_event_detail, long_ma_summary = build_long_ma_context_audit(
         precursor_case_control_detail, qualified_event_detail, d15_path_event_summary, frames
     )
+    stage_anchor_path_detail, stage_anchor_event_summary, stage_anchor_summary = (
+        build_stage_anchor_path_audit(
+            qualified_event_detail, precursor_case_control_detail, frames
+        )
+    )
+    conversion_quality_summary = build_conversion_vs_quality_audit(
+        precursor_case_control_detail, d15_path_event_summary
+    )
 
     structure_integrity_audit = pd.DataFrame([{
         "schema": SCHEMA,
@@ -3631,6 +3936,10 @@ def run(args: argparse.Namespace) -> int:
     _write_csv(long_ma_candidate_detail, out / "tri_long_ma_candidate_context.csv")
     _write_csv(long_ma_event_detail, out / "tri_long_ma_event_context.csv")
     _write_csv(long_ma_summary, out / "tri_long_ma_summary.csv")
+    _write_csv(stage_anchor_path_detail, out / "tri_stage_anchor_d1_d15_path_detail.csv")
+    _write_csv(stage_anchor_event_summary, out / "tri_stage_anchor_d1_d15_event_summary.csv")
+    _write_csv(stage_anchor_summary, out / "tri_stage_anchor_d1_d15_summary.csv")
+    _write_csv(conversion_quality_summary, out / "tri_conversion_vs_quality_summary.csv")
     _write_csv(
         gate_diag.sort_values(
             ["squeeze_qualifying_windows","max_squeeze_streak","breakout_price_cross"],
@@ -3734,6 +4043,19 @@ def run(args: argparse.Namespace) -> int:
             "qualified_restart_context_event_time_only": 1, "used_as_strategy_gate": 0,
             "summary": long_ma_summary.to_dict("records"),
         },
+        "stage_anchor_path_audit": {
+            "research_only": 1,
+            "anchors": ["QUALIFIED","HEALTHY","RESTART"],
+            "future_outcome_only": 1,
+            "used_as_strategy_gate": 0,
+            "summary": stage_anchor_summary.to_dict("records"),
+        },
+        "conversion_vs_quality_audit": {
+            "research_only": 1,
+            "precursor_conversion_and_conditional_quality_separated": 1,
+            "used_as_strategy_gate": 0,
+            "summary": conversion_quality_summary.to_dict("records"),
+        },
         "restart_signals": int(len(signals)),
         "invariant_fail": int(invariant_fail + structure_audit_integrity_fail),
         "structure_audit_integrity_fail": structure_audit_integrity_fail,
@@ -3762,6 +4084,8 @@ def run(args: argparse.Namespace) -> int:
         out / "tri_qualified_d1_d15_summary.csv",
         out / "tri_long_ma_candidate_context.csv", out / "tri_long_ma_event_context.csv",
         out / "tri_long_ma_summary.csv",
+        out / "tri_stage_anchor_d1_d15_path_detail.csv", out / "tri_stage_anchor_d1_d15_event_summary.csv",
+        out / "tri_stage_anchor_d1_d15_summary.csv", out / "tri_conversion_vs_quality_summary.csv",
     ]
     h = hashlib.sha256()
     for p in authority_files:
@@ -3791,6 +4115,8 @@ def run(args: argparse.Namespace) -> int:
         f"joint_precursor_stability_summary={json.dumps(joint_precursor_summary.to_dict('records'), ensure_ascii=False, sort_keys=True)}",
         f"qualified_d1_d15_path_summary={json.dumps(d15_path_summary.to_dict('records'), ensure_ascii=False, sort_keys=True)}",
         f"long_ma_context_summary={json.dumps(long_ma_summary.to_dict('records'), ensure_ascii=False, sort_keys=True)}",
+        f"stage_anchor_d1_d15_summary={json.dumps(stage_anchor_summary.to_dict('records'), ensure_ascii=False, sort_keys=True)}",
+        f"conversion_vs_quality_summary={json.dumps(conversion_quality_summary.to_dict('records'), ensure_ascii=False, sort_keys=True)}",
         (
             f"structure_audit_integrity=expected:{structure_audit_expected_rows}"
             f" raw:{structure_audit_raw_rows} errors:{structure_audit_error_count}"
@@ -3804,7 +4130,7 @@ def run(args: argparse.Namespace) -> int:
         (
             "NEXT_GATE=manual chart review + false-positive taxonomy before any threshold/performance tuning"
             if len(signals) > 0 else
-            "NEXT_GATE=D+1..D+15 path + MA120/200/224 context review; separate causal MA location from future path outcomes before candidate-definition lock"
+            "NEXT_GATE=stage-anchor D+1..D+15 review; evaluate actual HEALTHY/RESTART entry paths before candidate-definition lock"
         ),
     ]
     (out / "tri_report.txt").write_text("\n".join(report) + "\n", encoding="utf-8")
