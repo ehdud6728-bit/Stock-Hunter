@@ -32,7 +32,7 @@ import pandas as pd
 
 SCHEMA = "TRIANGLE1PB_RESEARCH_SCHEMA_V1"
 STRATEGY_ID = "TRIANGLE1PB_R1_CHRONOLOGY_FIRST"
-LOADER_REVISION = "TRIANGLE1PB_R1_7_PHASE_SEQUENCE_AUDIT"
+LOADER_REVISION = "TRIANGLE1PB_R1_8_TERMINAL_ENERGY_PROFILE_AUDIT"
 RESEARCH_AUTHORITY = "RESEARCH_ONLY_NO_LIVE_NO_POLICY_NO_ORDERS"
 STAGES = [
     "TRI_SQUEEZE",
@@ -2137,6 +2137,247 @@ def build_phase_sequence_audit(
     return detail, summary
 
 
+
+def build_terminal_energy_profile_audit(
+    qualified_event_detail: pd.DataFrame,
+    frames: Dict[str, pd.DataFrame],
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """Research-only temporal energy-profile audit.
+
+    Splits the causal precursor into:
+      early flow (-60..-21),
+      squeeze early (-20..-11),
+      squeeze late (-5..0),
+      probe/wait (if any),
+      qualified breakout,
+      healthy pullback (descriptive downstream).
+
+    No result is used as a strategy gate.
+    """
+    if qualified_event_detail is None or qualified_event_detail.empty:
+        return pd.DataFrame(), pd.DataFrame()
+
+    rows: List[Dict[str, Any]] = []
+
+    def _med(frame: pd.DataFrame, col: str) -> float:
+        if frame is None or frame.empty or col not in frame:
+            return float("nan")
+        x = pd.to_numeric(frame[col], errors="coerce")
+        return float(x.median()) if x.notna().any() else float("nan")
+
+    def _mean(frame: pd.DataFrame, col: str) -> float:
+        if frame is None or frame.empty or col not in frame:
+            return float("nan")
+        x = pd.to_numeric(frame[col], errors="coerce")
+        return float(x.mean()) if x.notna().any() else float("nan")
+
+    def _range_med(frame: pd.DataFrame) -> float:
+        if frame is None or frame.empty:
+            return float("nan")
+        c = pd.to_numeric(frame["close"], errors="coerce").replace(0, np.nan)
+        r = (
+            pd.to_numeric(frame["high"], errors="coerce")
+            - pd.to_numeric(frame["low"], errors="coerce")
+        ) / c * 100.0
+        return float(r.median()) if r.notna().any() else float("nan")
+
+    def _ratio(a: float, b: float) -> float:
+        return float(a / b) if math.isfinite(a) and math.isfinite(b) and b > 0 else float("nan")
+
+    def _spike_count(df: pd.DataFrame, start_idx: int, end_idx: int, col: str) -> Tuple[int, int, int]:
+        count = 0
+        first_offset = 999999
+        last_offset = -999999
+        for idx in range(max(0, start_idx), min(len(df), end_idx + 1)):
+            val = _audit_num(df.iloc[idx].get(col))
+            prior = df.iloc[max(0, idx - 20):idx]
+            baseline = _mean(prior, col)
+            if math.isfinite(val) and val > 0 and math.isfinite(baseline) and baseline > 0 and val >= 2.0 * baseline:
+                count += 1
+                off = idx - end_idx
+                first_offset = min(first_offset, off)
+                last_offset = max(last_offset, off)
+        if count == 0:
+            return 0, 999999, 999999
+        return count, first_offset, last_offset
+
+    for _, er in qualified_event_detail.iterrows():
+        code = str(er.get("code") or "").zfill(6)
+        sq_date = pd.to_datetime(er.get("canonical_squeeze_date"), errors="coerce")
+        bo_date = pd.to_datetime(er.get("qualified_breakout_date"), errors="coerce")
+
+        df = frames.get(code)
+        if df is None and code.isdigit():
+            df = frames.get(str(int(code)))
+        if df is None or df.empty or pd.isna(sq_date) or pd.isna(bo_date):
+            continue
+
+        dates = pd.to_datetime(df["date"], errors="coerce").dt.normalize()
+        sq_match = df.index[dates.eq(pd.Timestamp(sq_date).normalize())]
+        bo_match = df.index[dates.eq(pd.Timestamp(bo_date).normalize())]
+        if not len(sq_match) or not len(bo_match):
+            continue
+        si = int(sq_match[-1])
+        bi = int(bo_match[-1])
+
+        early_flow = df.iloc[max(0, si - 60):max(0, si - 20)].copy()
+        squeeze_early = df.iloc[max(0, si - 20):max(0, si - 10)].copy()
+        squeeze_late = df.iloc[max(0, si - 4):si + 1].copy()
+        wait = df.iloc[si + 1:bi].copy() if bi > si + 1 else pd.DataFrame()
+        bo = df.iloc[bi]
+
+        early_amt_spikes, _, early_amt_last = _spike_count(df, si - 60, si - 21, "amount")
+        early_vol_spikes, _, early_vol_last = _spike_count(df, si - 60, si - 21, "volume")
+
+        early_amt = _med(squeeze_early, "amount")
+        late_amt = _med(squeeze_late, "amount")
+        early_vol = _med(squeeze_early, "volume")
+        late_vol = _med(squeeze_late, "volume")
+        early_range = _range_med(squeeze_early)
+        late_range = _range_med(squeeze_late)
+
+        late_amt_ratio = _ratio(late_amt, early_amt)
+        late_vol_ratio = _ratio(late_vol, early_vol)
+        late_range_ratio = _ratio(late_range, early_range)
+
+        late_amt_dry = int(math.isfinite(late_amt_ratio) and late_amt_ratio < 1.0)
+        late_vol_dry = int(math.isfinite(late_vol_ratio) and late_vol_ratio < 1.0)
+        late_range_dry = int(math.isfinite(late_range_ratio) and late_range_ratio < 1.0)
+        terminal_all3 = int(late_amt_dry and late_vol_dry and late_range_dry)
+
+        bo_amt = _audit_num(bo.get("amount"))
+        bo_vol = _audit_num(bo.get("volume"))
+        bo_range = (
+            (_audit_num(bo.get("high")) - _audit_num(bo.get("low"))) / _audit_num(bo.get("close")) * 100.0
+            if _audit_num(bo.get("close")) > 0 else float("nan")
+        )
+        bo_vs_late_amt = _ratio(bo_amt, late_amt)
+        bo_vs_late_vol = _ratio(bo_vol, late_vol)
+        bo_vs_late_range = _ratio(bo_range, late_range)
+
+        wait_amt_med = _med(wait, "amount")
+        wait_vol_med = _med(wait, "volume")
+        wait_range_med = _range_med(wait)
+
+        hp_amt = float("nan")
+        hp_vol = float("nan")
+        hp_date = pd.to_datetime(er.get("qualified_healthy_pullback_date"), errors="coerce")
+        if pd.notna(hp_date):
+            hp_match = df.index[dates.eq(pd.Timestamp(hp_date).normalize())]
+            if len(hp_match):
+                hp = df.iloc[int(hp_match[-1])]
+                hp_amt = _audit_num(hp.get("amount"))
+                hp_vol = _audit_num(hp.get("volume"))
+
+        prior_flow_present = int(early_amt_spikes > 0 or early_vol_spikes > 0)
+        flow_then_terminal_dry = int(prior_flow_present and terminal_all3)
+
+        rows.append({
+            "schema": SCHEMA,
+            "strategy_id": STRATEGY_ID,
+            "loader_revision": LOADER_REVISION,
+            "audit_role": "TERMINAL_ENERGY_PROFILE_ONLY_NOT_A_GATE",
+            "code": code,
+            "canonical_squeeze_date": pd.Timestamp(sq_date).date().isoformat(),
+            "qualified_breakout_date": pd.Timestamp(bo_date).date().isoformat(),
+            "probe_then_qualified": int(er.get("canonical_probe_then_qualified", 0)),
+            "healthy": int(er.get("qualified_healthy_pullback_existing", 0)),
+            "restart": int(er.get("qualified_restart_existing", 0)),
+            "impulse_5pct_5bar": int(er.get("qualified_post_breakout_reaches_5pct_5bar", 0)),
+            "impulse_10pct_8bar": int(er.get("qualified_post_breakout_reaches_10pct_8bar", 0)),
+            "early_flow_amount_2x_spike_count": early_amt_spikes,
+            "early_flow_volume_2x_spike_count": early_vol_spikes,
+            "early_flow_present": prior_flow_present,
+            "early_flow_last_amount_spike_offset_to_squeeze": early_amt_last,
+            "early_flow_last_volume_spike_offset_to_squeeze": early_vol_last,
+            "squeeze_early_amount_median": early_amt,
+            "squeeze_late5_amount_median": late_amt,
+            "terminal_amount_ratio_late5_vs_early10": late_amt_ratio,
+            "squeeze_early_volume_median": early_vol,
+            "squeeze_late5_volume_median": late_vol,
+            "terminal_volume_ratio_late5_vs_early10": late_vol_ratio,
+            "squeeze_early_range_pct_median": early_range,
+            "squeeze_late5_range_pct_median": late_range,
+            "terminal_range_ratio_late5_vs_early10": late_range_ratio,
+            "terminal_amount_dry": late_amt_dry,
+            "terminal_volume_dry": late_vol_dry,
+            "terminal_range_dry": late_range_dry,
+            "terminal_all3_dry": terminal_all3,
+            "flow_then_terminal_all3_dry": flow_then_terminal_dry,
+            "probe_wait_bars": max(0, bi - si - 1),
+            "probe_wait_amount_median": wait_amt_med,
+            "probe_wait_volume_median": wait_vol_med,
+            "probe_wait_range_pct_median": wait_range_med,
+            "qualified_breakout_amount": bo_amt,
+            "qualified_breakout_volume": bo_vol,
+            "qualified_breakout_range_pct": bo_range,
+            "breakout_vs_terminal_amount_ratio": bo_vs_late_amt,
+            "breakout_vs_terminal_volume_ratio": bo_vs_late_vol,
+            "breakout_vs_terminal_range_ratio": bo_vs_late_range,
+            "healthy_pullback_amount_vs_breakout_ratio": _ratio(hp_amt, bo_amt),
+            "healthy_pullback_volume_vs_breakout_ratio": _ratio(hp_vol, bo_vol),
+            "used_as_strategy_gate": 0,
+        })
+
+    detail = pd.DataFrame(rows)
+    if detail.empty:
+        return detail, pd.DataFrame()
+
+    def isum(col: str, frame: Optional[pd.DataFrame] = None) -> int:
+        f = detail if frame is None else frame
+        return int(pd.to_numeric(f[col], errors="coerce").fillna(0).sum())
+
+    def med_col(col: str, frame: Optional[pd.DataFrame] = None) -> float:
+        f = detail if frame is None else frame
+        x = pd.to_numeric(f[col], errors="coerce").replace([np.inf, -np.inf], np.nan)
+        return float(x.median()) if x.notna().any() else float("nan")
+
+    terminal = detail[detail["terminal_all3_dry"].eq(1)]
+    nonterminal = detail[detail["terminal_all3_dry"].eq(0)]
+    flowterminal = detail[detail["flow_then_terminal_all3_dry"].eq(1)]
+
+    summary = pd.DataFrame([{
+        "schema": SCHEMA,
+        "strategy_id": STRATEGY_ID,
+        "loader_revision": LOADER_REVISION,
+        "qualified_unique_events": int(len(detail)),
+        "early_flow_present_events": isum("early_flow_present"),
+        "terminal_amount_dry_events": isum("terminal_amount_dry"),
+        "terminal_volume_dry_events": isum("terminal_volume_dry"),
+        "terminal_range_dry_events": isum("terminal_range_dry"),
+        "terminal_all3_dry_events": int(len(terminal)),
+        "flow_then_terminal_all3_dry_events": int(len(flowterminal)),
+        "median_terminal_amount_ratio": med_col("terminal_amount_ratio_late5_vs_early10"),
+        "median_terminal_volume_ratio": med_col("terminal_volume_ratio_late5_vs_early10"),
+        "median_terminal_range_ratio": med_col("terminal_range_ratio_late5_vs_early10"),
+        "median_breakout_vs_terminal_amount_ratio": med_col("breakout_vs_terminal_amount_ratio"),
+        "median_breakout_vs_terminal_volume_ratio": med_col("breakout_vs_terminal_volume_ratio"),
+        "terminal_all3_impulse_5pct": isum("impulse_5pct_5bar", terminal),
+        "terminal_all3_impulse_10pct": isum("impulse_10pct_8bar", terminal),
+        "terminal_all3_healthy": isum("healthy", terminal),
+        "terminal_all3_restart": isum("restart", terminal),
+        "nonterminal_impulse_5pct": isum("impulse_5pct_5bar", nonterminal),
+        "nonterminal_impulse_10pct": isum("impulse_10pct_8bar", nonterminal),
+        "nonterminal_healthy": isum("healthy", nonterminal),
+        "nonterminal_restart": isum("restart", nonterminal),
+        "flow_terminal_impulse_5pct": isum("impulse_5pct_5bar", flowterminal),
+        "flow_terminal_impulse_10pct": isum("impulse_10pct_8bar", flowterminal),
+        "flow_terminal_healthy": isum("healthy", flowterminal),
+        "flow_terminal_restart": isum("restart", flowterminal),
+        "median_healthy_pullback_amount_vs_breakout": med_col(
+            "healthy_pullback_amount_vs_breakout_ratio",
+            detail[detail["healthy"].eq(1)]
+        ),
+        "median_healthy_pullback_volume_vs_breakout": med_col(
+            "healthy_pullback_volume_vs_breakout_ratio",
+            detail[detail["healthy"].eq(1)]
+        ),
+        "used_as_strategy_gate": 0,
+    }])
+
+    return detail, summary
+
+
 def build_forward_outcomes(signals: List[Dict[str, Any]], frames: Dict[str, pd.DataFrame], cfg: FrozenConfig) -> pd.DataFrame:
     rows: List[Dict[str, Any]] = []
     for s in signals:
@@ -2475,6 +2716,9 @@ def run(args: argparse.Namespace) -> int:
     phase_sequence_detail, phase_sequence_summary = build_phase_sequence_audit(
         qualified_event_detail, structure_audit, frames
     )
+    terminal_energy_detail, terminal_energy_summary = build_terminal_energy_profile_audit(
+        qualified_event_detail, frames
+    )
 
     structure_integrity_audit = pd.DataFrame([{
         "schema": SCHEMA,
@@ -2568,6 +2812,8 @@ def run(args: argparse.Namespace) -> int:
     _write_csv(qualified_event_review_bars, out / "tri_qualified_event_review_bars.csv")
     _write_csv(phase_sequence_detail, out / "tri_phase_sequence_detail.csv")
     _write_csv(phase_sequence_summary, out / "tri_phase_sequence_summary.csv")
+    _write_csv(terminal_energy_detail, out / "tri_terminal_energy_profile_detail.csv")
+    _write_csv(terminal_energy_summary, out / "tri_terminal_energy_profile_summary.csv")
     _write_csv(
         gate_diag.sort_values(
             ["squeeze_qualifying_windows","max_squeeze_streak","breakout_price_cross"],
@@ -2642,6 +2888,11 @@ def run(args: argparse.Namespace) -> int:
             "used_as_strategy_gate": 0,
             "summary": phase_sequence_summary.to_dict("records"),
         },
+        "terminal_energy_profile_audit": {
+            "research_only": 1,
+            "used_as_strategy_gate": 0,
+            "summary": terminal_energy_summary.to_dict("records"),
+        },
         "restart_signals": int(len(signals)),
         "invariant_fail": int(invariant_fail + structure_audit_integrity_fail),
         "structure_audit_integrity_fail": structure_audit_integrity_fail,
@@ -2662,6 +2913,7 @@ def run(args: argparse.Namespace) -> int:
         out / "tri_qualified_event_fidelity_detail.csv", out / "tri_qualified_event_fidelity_summary.csv",
         out / "tri_qualified_event_review_bars.csv",
         out / "tri_phase_sequence_detail.csv", out / "tri_phase_sequence_summary.csv",
+        out / "tri_terminal_energy_profile_detail.csv", out / "tri_terminal_energy_profile_summary.csv",
     ]
     h = hashlib.sha256()
     for p in authority_files:
@@ -2686,6 +2938,7 @@ def run(args: argparse.Namespace) -> int:
         f"counterfactual_streak_summary={json.dumps(counterfactual_summary.to_dict('records'), ensure_ascii=False, sort_keys=True)}",
         f"qualified_event_fidelity_summary={json.dumps(qualified_event_summary.to_dict('records'), ensure_ascii=False, sort_keys=True)}",
         f"phase_sequence_summary={json.dumps(phase_sequence_summary.to_dict('records'), ensure_ascii=False, sort_keys=True)}",
+        f"terminal_energy_profile_summary={json.dumps(terminal_energy_summary.to_dict('records'), ensure_ascii=False, sort_keys=True)}",
         (
             f"structure_audit_integrity=expected:{structure_audit_expected_rows}"
             f" raw:{structure_audit_raw_rows} errors:{structure_audit_error_count}"
@@ -2699,7 +2952,7 @@ def run(args: argparse.Namespace) -> int:
         (
             "NEXT_GATE=manual chart review + false-positive taxonomy before any threshold/performance tuning"
             if len(signals) > 0 else
-            "NEXT_GATE=phase-sequence fidelity review; verify flow-in -> compression -> qualified impulse -> drying pullback before strategy promotion"
+            "NEXT_GATE=terminal energy-profile review; distinguish orderly drying vs active-squeeze phenotypes before any strategy gate change"
         ),
     ]
     (out / "tri_report.txt").write_text("\n".join(report) + "\n", encoding="utf-8")
