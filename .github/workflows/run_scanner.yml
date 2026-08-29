@@ -1681,6 +1681,45 @@ jobs:
                       "※ event audit 전용 · 실제 전략 gate 미변경",
                   ]
 
+              ps = m.get("phase_sequence_audit") or {}
+              ps_rows = ps.get("summary") or []
+              if ps_rows:
+                  p = ps_rows[0]
+                  lines += [
+                      "",
+                      "🧩 [Phase Sequence Audit · unique qualified events]",
+                      (
+                          f"pre60 spike: Vol2x {int(p.get('pre60_volume_spike_2x_present',0))}"
+                          f" · Amount2x {int(p.get('pre60_amount_spike_2x_present',0))}"
+                          f" · accum-proxy {int(p.get('legacy_accumulation_proxy_present',0))}"
+                      ),
+                      (
+                          f"squeeze cooling: Amount {int(p.get('squeeze_amount_cooling_events',0))}"
+                          f" · Vol {int(p.get('squeeze_volume_cooling_events',0))}"
+                          f" · range {int(p.get('squeeze_range_compression_events',0))}"
+                          f" · all3 {int(p.get('three_phase_compression_events',0))}"
+                      ),
+                      (
+                          f"breakout Amount20 mean median {float(p.get('median_breakout_amount20_mean_ratio',0) or 0):.2f}x"
+                          f" · +5% {int(p.get('impulse_5pct_events',0))}"
+                          f" · +10% {int(p.get('impulse_10pct_events',0))}"
+                      ),
+                      (
+                          f"healthy {int(p.get('healthy_events',0))}"
+                          f" · PB Amount/BO median {float(p.get('median_healthy_pullback_amount_vs_breakout',0) or 0):.2f}x"
+                          f" · restart {int(p.get('restart_events',0))}"
+                      ),
+                      (
+                          f"all3→+5%→healthy {int(p.get('sequence_compression_plus_5pct_plus_healthy',0))}"
+                          f" · 그중 restart {int(p.get('sequence_compression_plus_5pct_plus_healthy_restart',0))}"
+                      ),
+                      (
+                          f"extreme-context≥29% {int(p.get('extreme_context_29pct_events',0))}"
+                          f" · lower-line intact tag {int(p.get('lower_structure_intact_tag_events',0))}"
+                      ),
+                      "※ phase audit 전용 · 어떤 태그도 실제 strategy gate에 미사용",
+                  ]
+
               amount_cov = m.get("actual_amount_coverage_pct")
               asof_dates = m.get("asof_snapshot_dates")
               lookahead = m.get("lookahead_fail", 0)
