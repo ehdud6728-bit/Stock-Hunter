@@ -1761,6 +1761,53 @@ jobs:
                       "※ terminal profile도 관찰용 · 실제 strategy gate 미사용",
                   ]
 
+              cc = m.get("causal_precursor_case_control_audit") or {}
+              cc_rows = cc.get("summary") or []
+              if cc_rows:
+                  c = cc_rows[0]
+                  def pct(v):
+                      try:
+                          return f"{float(v)*100.0:.1f}%"
+                      except Exception:
+                          return "-"
+                  lines += [
+                      "",
+                      "🧪 [Causal Precursor Case-Control · streak1 전체]",
+                      (
+                          f"runs {int(c.get('streak1_candidate_runs',0))}"
+                          f" → qualified {int(c.get('qualified_breakouts',0))}"
+                          f" · strict {int(c.get('strict_first_cross_exact',0))}"
+                      ),
+                      (
+                          f"terminal-all3 {int(c.get('terminal_all3_runs',0))}"
+                          f" → Q{int(c.get('terminal_all3_qualified',0))}"
+                          f" ({pct(c.get('terminal_all3_qualified_rate'))})"
+                          f" | nonterminal {int(c.get('nonterminal_runs',0))}"
+                          f" → Q{int(c.get('nonterminal_qualified',0))}"
+                          f" ({pct(c.get('nonterminal_qualified_rate'))})"
+                      ),
+                      (
+                          f"early-flow Q-rate {pct(c.get('early_flow_qualified_rate'))}"
+                          f" vs no-flow {pct(c.get('no_early_flow_qualified_rate'))}"
+                      ),
+                      (
+                          f"OBV+ Q-rate {pct(c.get('obv_positive_qualified_rate'))}"
+                          f" vs non+ {pct(c.get('obv_nonpositive_qualified_rate'))}"
+                          f" · BB40↓ {pct(c.get('bb40_contracting_qualified_rate'))}"
+                          f" vs no↓ {pct(c.get('bb40_noncontracting_qualified_rate'))}"
+                      ),
+                      (
+                          f"terminal Amount median Q/nonQ "
+                          f"{float(c.get('qualified_median_terminal_amount_ratio',0) or 0):.2f}x/"
+                          f"{float(c.get('nonqualified_median_terminal_amount_ratio',0) or 0):.2f}x"
+                          f" · Vol "
+                          f"{float(c.get('qualified_median_terminal_volume_ratio',0) or 0):.2f}x/"
+                          f"{float(c.get('nonqualified_median_terminal_volume_ratio',0) or 0):.2f}x"
+                      ),
+                      "※ feature는 squeeze일까지 causal · qualified/H/R은 비교용 미래 label",
+                      "※ 어떤 precursor도 실제 strategy gate에 미사용",
+                  ]
+
               amount_cov = m.get("actual_amount_coverage_pct")
               asof_dates = m.get("asof_snapshot_dates")
               lookahead = m.get("lookahead_fail", 0)
