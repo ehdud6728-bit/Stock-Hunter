@@ -1720,6 +1720,47 @@ jobs:
                       "※ phase audit 전용 · 어떤 태그도 실제 strategy gate에 미사용",
                   ]
 
+              te = m.get("terminal_energy_profile_audit") or {}
+              te_rows = te.get("summary") or []
+              if te_rows:
+                  t = te_rows[0]
+                  total = int(t.get("qualified_unique_events",0))
+                  ta = int(t.get("terminal_all3_dry_events",0))
+                  nt = max(0, total - ta)
+                  lines += [
+                      "",
+                      "⚡ [Terminal Energy Profile · unique qualified events]",
+                      (
+                          f"early-flow {int(t.get('early_flow_present_events',0))}/{total}"
+                          f" · terminal dry: Amount {int(t.get('terminal_amount_dry_events',0))}"
+                          f" / Vol {int(t.get('terminal_volume_dry_events',0))}"
+                          f" / range {int(t.get('terminal_range_dry_events',0))}"
+                          f" / all3 {ta}"
+                      ),
+                      (
+                          f"median late/early: Amount {float(t.get('median_terminal_amount_ratio',0) or 0):.2f}x"
+                          f" · Vol {float(t.get('median_terminal_volume_ratio',0) or 0):.2f}x"
+                          f" · range {float(t.get('median_terminal_range_ratio',0) or 0):.2f}x"
+                      ),
+                      (
+                          f"breakout/terminal median: Amount {float(t.get('median_breakout_vs_terminal_amount_ratio',0) or 0):.2f}x"
+                          f" · Vol {float(t.get('median_breakout_vs_terminal_volume_ratio',0) or 0):.2f}x"
+                      ),
+                      (
+                          f"terminal-all3 {ta}: +5% {int(t.get('terminal_all3_impulse_5pct',0))}"
+                          f" · +10% {int(t.get('terminal_all3_impulse_10pct',0))}"
+                          f" · H{int(t.get('terminal_all3_healthy',0))}"
+                          f" · R{int(t.get('terminal_all3_restart',0))}"
+                      ),
+                      (
+                          f"nonterminal {nt}: +5% {int(t.get('nonterminal_impulse_5pct',0))}"
+                          f" · +10% {int(t.get('nonterminal_impulse_10pct',0))}"
+                          f" · H{int(t.get('nonterminal_healthy',0))}"
+                          f" · R{int(t.get('nonterminal_restart',0))}"
+                      ),
+                      "※ terminal profile도 관찰용 · 실제 strategy gate 미사용",
+                  ]
+
               amount_cov = m.get("actual_amount_coverage_pct")
               asof_dates = m.get("asof_snapshot_dates")
               lookahead = m.get("lookahead_fail", 0)
