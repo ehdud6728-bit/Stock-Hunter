@@ -32,7 +32,11 @@ import pandas as pd
 
 SCHEMA = "TRIANGLE1PB_RESEARCH_SCHEMA_V1"
 STRATEGY_ID = "TRIANGLE1PB_R1_CHRONOLOGY_FIRST"
-LOADER_REVISION = "TRIANGLE1PB_R1_14_RESTART_RECLAIM_ROBUSTNESS_AUDIT"
+LOADER_REVISION = "TRIANGLE1PB_R1_15_R2C1_PROSPECTIVE_SHADOW_FREEZE"
+
+R2_CANDIDATE_ID = "TRIANGLE1PB_R2C1_QUALIFIED_HEALTHY_RESTART_WAVE_HIGH_RECLAIM"
+R2_CANDIDATE_FREEZE_DATE = "2026-08-30"
+R2_CANDIDATE_PROSPECTIVE_START_DATE = "2026-08-31"
 RESEARCH_AUTHORITY = "RESEARCH_ONLY_NO_LIVE_NO_POLICY_NO_ORDERS"
 STAGES = [
     "TRI_SQUEEZE",
@@ -3827,6 +3831,152 @@ def build_restart_reclaim_robustness_audit(
     return pd.DataFrame(rows)
 
 
+
+def build_r2_candidate_prospective_shadow_audit(
+    restart_reacceleration_detail: pd.DataFrame,
+) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Freeze one R2 candidate hypothesis and separate discovery from OOS.
+
+    Candidate definition is intentionally simple and uses only information
+    available by the existing RESTART close:
+
+      - research streak1 squeeze episode (counterfactual research lane);
+      - first fully QUALIFIED breakout within the existing 8-bar horizon,
+        allowing an earlier price-only probe;
+      - existing HEALTHY pullback state;
+      - existing RESTART state;
+      - RESTART close >= prior wave high, excluding the restart bar.
+
+    No OBV/BB40, MA, terminal-dry, Amount rank, or new numeric threshold is
+    added. The existing restart amount-vs-pullback condition remains inherited.
+
+    Events through 2026-08-30 are discovery/pre-freeze and are NEVER counted as
+    prospective validation. Only event dates on/after 2026-08-31 enter the OOS
+    cohort. Future outcome columns are evaluated only after they mature.
+    """
+    definition = pd.DataFrame([{
+        "schema": SCHEMA,
+        "strategy_id": STRATEGY_ID,
+        "loader_revision": LOADER_REVISION,
+        "candidate_id": R2_CANDIDATE_ID,
+        "freeze_date": R2_CANDIDATE_FREEZE_DATE,
+        "prospective_start_date": R2_CANDIDATE_PROSPECTIVE_START_DATE,
+        "research_only": 1,
+        "actual_strategy_changed": 0,
+        "squeeze_research_streak": 1,
+        "qualified_breakout_mode": "FIRST_FULLY_QUALIFIED_WITHIN_EXISTING_8BAR_HORIZON_ALLOW_EARLIER_PRICE_PROBE",
+        "qualified_actual_amount20_min_ratio": CONFIG.breakout_min_amount20_ratio,
+        "healthy_definition": "EXISTING_R1_HEALTHY_UNCHANGED",
+        "restart_definition": "EXISTING_R1_RESTART_UNCHANGED_PLUS_RESTART_CLOSE_GE_PRIOR_WAVE_HIGH",
+        "prior_wave_high_excludes_restart_bar": 1,
+        "obv_bb40_gate": 0,
+        "ma_gate": 0,
+        "terminal_dry_gate": 0,
+        "amount_rank_prefilter": 0,
+        "used_as_actual_strategy_gate": 0,
+    }])
+
+    if restart_reacceleration_detail is None or restart_reacceleration_detail.empty:
+        summary = pd.DataFrame([{
+            "schema": SCHEMA,
+            "strategy_id": STRATEGY_ID,
+            "loader_revision": LOADER_REVISION,
+            "candidate_id": R2_CANDIDATE_ID,
+            "freeze_date": R2_CANDIDATE_FREEZE_DATE,
+            "prospective_start_date": R2_CANDIDATE_PROSPECTIVE_START_DATE,
+            "discovery_candidate_events": 0,
+            "prospective_candidate_events": 0,
+            "prospective_d5_mature": 0,
+            "prospective_d10_mature": 0,
+            "prospective_d15_mature": 0,
+            "prospective_d15_positive": 0,
+            "promotion_status": "WAIT_PROSPECTIVE_OOS",
+            "used_as_actual_strategy_gate": 0,
+        }])
+        return definition, pd.DataFrame(), summary
+
+    d = restart_reacceleration_detail.copy()
+    d = d[d["restart_reclaim_pre_wave_high"].eq(1)].copy()
+    if d.empty:
+        summary = pd.DataFrame([{
+            "schema": SCHEMA,
+            "strategy_id": STRATEGY_ID,
+            "loader_revision": LOADER_REVISION,
+            "candidate_id": R2_CANDIDATE_ID,
+            "freeze_date": R2_CANDIDATE_FREEZE_DATE,
+            "prospective_start_date": R2_CANDIDATE_PROSPECTIVE_START_DATE,
+            "discovery_candidate_events": 0,
+            "prospective_candidate_events": 0,
+            "prospective_d5_mature": 0,
+            "prospective_d10_mature": 0,
+            "prospective_d15_mature": 0,
+            "prospective_d15_positive": 0,
+            "prospective_d5_close_median_pct": float("nan"),
+            "prospective_d10_close_median_pct": float("nan"),
+            "prospective_d15_close_median_pct": float("nan"),
+            "prospective_d15_mfe_median_pct": float("nan"),
+            "prospective_d15_mae_median_pct": float("nan"),
+            "promotion_status": "WAIT_PROSPECTIVE_OOS",
+            "discovery_performance_excluded_from_promotion_decision": 1,
+            "used_as_actual_strategy_gate": 0,
+        }])
+        return definition, d, summary
+
+    d["candidate_id"] = R2_CANDIDATE_ID
+    d["freeze_date"] = R2_CANDIDATE_FREEZE_DATE
+    d["prospective_start_date"] = R2_CANDIDATE_PROSPECTIVE_START_DATE
+    d["candidate_event_date"] = pd.to_datetime(d["anchor_date"], errors="coerce").dt.date.astype(str)
+
+    pstart = pd.Timestamp(R2_CANDIDATE_PROSPECTIVE_START_DATE).normalize()
+    event_ts = pd.to_datetime(d["anchor_date"], errors="coerce").dt.normalize()
+    d["validation_cohort"] = np.where(
+        event_ts >= pstart,
+        "PROSPECTIVE_OOS",
+        "DISCOVERY_OR_PRE_FREEZE_NOT_VALIDATION",
+    )
+
+    for horizon in (5, 10, 15):
+        col = f"d{horizon}_close_ret_pct"
+        d[f"d{horizon}_mature"] = pd.to_numeric(d[col], errors="coerce").notna().astype(int)
+
+    d["prospective_validation_eligible"] = d["validation_cohort"].eq("PROSPECTIVE_OOS").astype(int)
+    d["discovery_rows_never_counted_as_validation"] = 1
+    d["used_as_actual_strategy_gate"] = 0
+
+    prospect = d[d["validation_cohort"].eq("PROSPECTIVE_OOS")].copy()
+
+    def med(frame: pd.DataFrame, col: str) -> float:
+        x = pd.to_numeric(frame.get(col, pd.Series(dtype=float)), errors="coerce")
+        return float(x.median()) if x.notna().any() else float("nan")
+
+    d15m = prospect[prospect["d15_mature"].eq(1)] if not prospect.empty else prospect
+    summary = pd.DataFrame([{
+        "schema": SCHEMA,
+        "strategy_id": STRATEGY_ID,
+        "loader_revision": LOADER_REVISION,
+        "candidate_id": R2_CANDIDATE_ID,
+        "freeze_date": R2_CANDIDATE_FREEZE_DATE,
+        "prospective_start_date": R2_CANDIDATE_PROSPECTIVE_START_DATE,
+        "discovery_candidate_events": int(d["validation_cohort"].ne("PROSPECTIVE_OOS").sum()),
+        "prospective_candidate_events": int(len(prospect)),
+        "prospective_d5_mature": int(prospect["d5_mature"].sum()) if not prospect.empty else 0,
+        "prospective_d10_mature": int(prospect["d10_mature"].sum()) if not prospect.empty else 0,
+        "prospective_d15_mature": int(prospect["d15_mature"].sum()) if not prospect.empty else 0,
+        "prospective_d15_positive": int(
+            (pd.to_numeric(d15m.get("d15_close_ret_pct", pd.Series(dtype=float)), errors="coerce") > 0).sum()
+        ) if not d15m.empty else 0,
+        "prospective_d5_close_median_pct": med(prospect[prospect["d5_mature"].eq(1)], "d5_close_ret_pct") if not prospect.empty else float("nan"),
+        "prospective_d10_close_median_pct": med(prospect[prospect["d10_mature"].eq(1)], "d10_close_ret_pct") if not prospect.empty else float("nan"),
+        "prospective_d15_close_median_pct": med(d15m, "d15_close_ret_pct") if not d15m.empty else float("nan"),
+        "prospective_d15_mfe_median_pct": med(d15m, "d15_mfe_pct") if not d15m.empty else float("nan"),
+        "prospective_d15_mae_median_pct": med(d15m, "d15_mae_pct") if not d15m.empty else float("nan"),
+        "promotion_status": "WAIT_PROSPECTIVE_OOS",
+        "discovery_performance_excluded_from_promotion_decision": 1,
+        "used_as_actual_strategy_gate": 0,
+    }])
+    return definition, d, summary
+
+
 def build_forward_outcomes(signals: List[Dict[str, Any]], frames: Dict[str, pd.DataFrame], cfg: FrozenConfig) -> pd.DataFrame:
     rows: List[Dict[str, Any]] = []
     for s in signals:
@@ -4201,6 +4351,9 @@ def run(args: argparse.Namespace) -> int:
     restart_reclaim_robustness_summary = build_restart_reclaim_robustness_audit(
         healthy_bottoming_detail, restart_reacceleration_detail, start, end
     )
+    r2_candidate_definition, r2_candidate_shadow_detail, r2_candidate_shadow_summary = (
+        build_r2_candidate_prospective_shadow_audit(restart_reacceleration_detail)
+    )
 
     structure_integrity_audit = pd.DataFrame([{
         "schema": SCHEMA,
@@ -4315,6 +4468,9 @@ def run(args: argparse.Namespace) -> int:
     _write_csv(restart_reacceleration_detail, out / "tri_restart_reacceleration_anatomy.csv")
     _write_csv(stage_quality_anatomy_summary, out / "tri_stage_quality_anatomy_summary.csv")
     _write_csv(restart_reclaim_robustness_summary, out / "tri_restart_reclaim_robustness_summary.csv")
+    _write_csv(r2_candidate_definition, out / "tri_r2_candidate_definition.csv")
+    _write_csv(r2_candidate_shadow_detail, out / "tri_r2_candidate_shadow_detail.csv")
+    _write_csv(r2_candidate_shadow_summary, out / "tri_r2_candidate_shadow_summary.csv")
     _write_csv(
         gate_diag.sort_values(
             ["squeeze_qualifying_windows","max_squeeze_streak","breakout_price_cross"],
@@ -4447,6 +4603,17 @@ def run(args: argparse.Namespace) -> int:
             "used_as_strategy_gate": 0,
             "summary": restart_reclaim_robustness_summary.to_dict("records"),
         },
+        "r2_candidate_prospective_shadow": {
+            "research_only": 1,
+            "candidate_id": R2_CANDIDATE_ID,
+            "freeze_date": R2_CANDIDATE_FREEZE_DATE,
+            "prospective_start_date": R2_CANDIDATE_PROSPECTIVE_START_DATE,
+            "actual_strategy_changed": 0,
+            "discovery_rows_never_counted_as_validation": 1,
+            "used_as_strategy_gate": 0,
+            "definition": r2_candidate_definition.to_dict("records"),
+            "summary": r2_candidate_shadow_summary.to_dict("records"),
+        },
         "restart_signals": int(len(signals)),
         "invariant_fail": int(invariant_fail + structure_audit_integrity_fail),
         "structure_audit_integrity_fail": structure_audit_integrity_fail,
@@ -4480,6 +4647,9 @@ def run(args: argparse.Namespace) -> int:
         out / "tri_healthy_bottoming_anatomy.csv", out / "tri_restart_reacceleration_anatomy.csv",
         out / "tri_stage_quality_anatomy_summary.csv",
         out / "tri_restart_reclaim_robustness_summary.csv",
+        out / "tri_r2_candidate_definition.csv",
+        out / "tri_r2_candidate_shadow_detail.csv",
+        out / "tri_r2_candidate_shadow_summary.csv",
     ]
     h = hashlib.sha256()
     for p in authority_files:
@@ -4513,6 +4683,7 @@ def run(args: argparse.Namespace) -> int:
         f"conversion_vs_quality_summary={json.dumps(conversion_quality_summary.to_dict('records'), ensure_ascii=False, sort_keys=True)}",
         f"stage_quality_anatomy_summary={json.dumps(stage_quality_anatomy_summary.to_dict('records'), ensure_ascii=False, sort_keys=True)}",
         f"restart_reclaim_robustness_summary={json.dumps(restart_reclaim_robustness_summary.to_dict('records'), ensure_ascii=False, sort_keys=True)}",
+        f"r2_candidate_shadow_summary={json.dumps(r2_candidate_shadow_summary.to_dict('records'), ensure_ascii=False, sort_keys=True)}",
         (
             f"structure_audit_integrity=expected:{structure_audit_expected_rows}"
             f" raw:{structure_audit_raw_rows} errors:{structure_audit_error_count}"
@@ -4526,7 +4697,7 @@ def run(args: argparse.Namespace) -> int:
         (
             "NEXT_GATE=manual chart review + false-positive taxonomy before any threshold/performance tuning"
             if len(signals) > 0 else
-            "NEXT_GATE=restart wave-high reclaim robustness review; if direction survives fixed splits and LOO, freeze as candidate R2 hypothesis but do not promote without prospective/OOS validation"
+            "NEXT_GATE=R2C1 prospective shadow only; do not tune candidate definition or count discovery rows as validation"
         ),
     ]
     (out / "tri_report.txt").write_text("\n".join(report) + "\n", encoding="utf-8")
@@ -4637,6 +4808,9 @@ def self_test() -> int:
         hba, rra, pd.Timestamp("2024-01-01"), pd.Timestamp("2025-12-31")
     )
     assert not rrb.empty
+    r2def, r2det, r2sum = build_r2_candidate_prospective_shadow_audit(rra)
+    assert not r2def.empty and not r2sum.empty
+    assert int(r2sum.iloc[0]["used_as_actual_strategy_gate"]) == 0
     # Determinism.
     e2, s2, r2, gd2 = detect_code("123456", df, "SYNTHETIC_ACTUAL_AMOUNT", _SyntheticUniverse(), start, end, CONFIG)
     assert json.dumps(e, sort_keys=True, default=str) == json.dumps(e2, sort_keys=True, default=str)
