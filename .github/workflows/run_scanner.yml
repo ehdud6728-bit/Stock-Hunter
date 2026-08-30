@@ -1411,8 +1411,8 @@ jobs:
           python triangle1pb_research.py --self-test
           grep -Fq 'RESEARCH_AUTHORITY = "RESEARCH_ONLY_NO_LIVE_NO_POLICY_NO_ORDERS"' triangle1pb_research.py
           grep -Fq 'STRATEGY_ID = "TRIANGLE1PB_R1_CHRONOLOGY_FIRST"' triangle1pb_research.py
-          grep -Fq 'LOADER_REVISION = "TRIANGLE1PB_R1_15_R2C1_PROSPECTIVE_SHADOW_FREEZE"' triangle1pb_research.py || {
-            echo "TRIANGLE1PB_STALE_SOURCE_FAIL expected=R1_15";
+          grep -Fq 'LOADER_REVISION = "TRIANGLE1PB_R1_15_1_PROSPECTIVE_CONTROL_FREEZE"' triangle1pb_research.py || {
+            echo "TRIANGLE1PB_STALE_SOURCE_FAIL expected=R1_15_1";
             grep -n '^LOADER_REVISION' triangle1pb_research.py || true;
             exit 236;
           }
@@ -1421,7 +1421,7 @@ jobs:
           echo "TRIANGLE1PB_SOURCE_SHA256=$(sha256sum triangle1pb_research.py | awk '{print $1}')"
           echo "TRIANGLE1PB_GIT_COMMIT=$(git rev-parse HEAD 2>/dev/null || echo UNKNOWN)"
           echo "TRIANGLE1PB_GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo UNKNOWN)"
-          echo "TRIANGLE1PB_PREFLIGHT PASS revision=R1_15 independent=1 live=0 score_rank=0 order=0 tuning=0"
+          echo "TRIANGLE1PB_PREFLIGHT PASS revision=R1_15_1 independent=1 live=0 score_rank=0 order=0 tuning=0"
 
       - name: Restore latest V21 research cache read-only
         id: tri-v21-restore
@@ -1470,7 +1470,7 @@ jobs:
           )
           if [ -n "${TRI_START_DATE:-}" ]; then args+=(--start-date "$TRI_START_DATE"); fi
           if [ -n "${TRI_END_DATE:-}" ]; then args+=(--end-date "$TRI_END_DATE"); fi
-          grep -Fq 'LOADER_REVISION = "TRIANGLE1PB_R1_15_R2C1_PROSPECTIVE_SHADOW_FREEZE"' triangle1pb_research.py || {
+          grep -Fq 'LOADER_REVISION = "TRIANGLE1PB_R1_15_1_PROSPECTIVE_CONTROL_FREEZE"' triangle1pb_research.py || {
             echo "TRIANGLE1PB_STALE_SOURCE_FAIL immediately_before_run";
             grep -n '^LOADER_REVISION' triangle1pb_research.py || true;
             exit 237;
@@ -1505,6 +1505,8 @@ jobs:
               'tri_r2_candidate_definition.csv',
               'tri_r2_candidate_shadow_detail.csv',
               'tri_r2_candidate_shadow_summary.csv',
+              'tri_r2_prospective_control_detail.csv',
+              'tri_r2_prospective_control_summary.csv',
               'tri_manifest.json','tri_report.txt','tri_runtime.log',
           ]
           missing=[x for x in required if not (root/x).exists()]
@@ -1512,7 +1514,7 @@ jobs:
           m=json.loads((root/'tri_manifest.json').read_text(encoding='utf-8'))
           assert m.get('schema')=='TRIANGLE1PB_RESEARCH_SCHEMA_V1'
           assert m.get('strategy_id')=='TRIANGLE1PB_R1_CHRONOLOGY_FIRST'
-          assert m.get('loader_revision')=='TRIANGLE1PB_R1_15_R2C1_PROSPECTIVE_SHADOW_FREEZE', (
+          assert m.get('loader_revision')=='TRIANGLE1PB_R1_15_1_PROSPECTIVE_CONTROL_FREEZE', (
               'TRIANGLE1PB_STALE_MANIFEST_REVISION', m.get('loader_revision')
           )
           assert 'stage_anchor_path_audit' in m, 'R1_12_STAGE_ANCHOR_MANIFEST_MISSING'
@@ -1520,6 +1522,7 @@ jobs:
           assert 'stage_quality_anatomy_audit' in m, 'R1_15_STAGE_QUALITY_ANATOMY_MANIFEST_MISSING'
           assert 'restart_reclaim_robustness_audit' in m, 'R1_15_RECLAIM_ROBUSTNESS_MANIFEST_MISSING'
           assert 'r2_candidate_prospective_shadow' in m, 'R1_15_R2_SHADOW_MANIFEST_MISSING'
+          assert 'r2_prospective_control_audit' in m, 'R1_15_1_CONTROL_MANIFEST_MISSING'
           assert m.get('research_authority')=='RESEARCH_ONLY_NO_LIVE_NO_POLICY_NO_ORDERS'
           assert m.get('core224_dependency')=='NONE'
           assert m.get('core224_logic_changed') is False
@@ -2118,6 +2121,25 @@ jobs:
                       ),
                       "※ 2026-08-31 이후 신규 event만 OOS 검증에 사용",
                       "※ candidate 정의 추가튜닝 금지 · 실제 strategy gate 미변경",
+                  ]
+
+              r2c = m.get("r2_prospective_control_audit") or {}
+              r2c_rows = r2c.get("summary") or []
+              if r2c_rows:
+                  cr = r2c_rows[0]
+                  lines += [
+                      "",
+                      "🆚 [R2C1 Prospective Control · same-period]",
+                      (
+                          f"candidate {int(cr.get('candidate_events',0))}"
+                          f" · control {int(cr.get('control_events',0))}"
+                      ),
+                      (
+                          f"D15 mature candidate {int(cr.get('candidate_d15_mature',0))}"
+                          f" · control {int(cr.get('control_d15_mature',0))}"
+                      ),
+                      "※ candidate=reclaim restart · control=no-reclaim restart",
+                      "※ 둘 다 2026-08-31 이후만 OOS 비교 · 역사표본 제외",
                   ]
 
               amount_cov = m.get("actual_amount_coverage_pct")
