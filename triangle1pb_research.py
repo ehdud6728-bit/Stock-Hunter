@@ -32,7 +32,7 @@ import pandas as pd
 
 SCHEMA = "TRIANGLE1PB_RESEARCH_SCHEMA_V1"
 STRATEGY_ID = "TRIANGLE1PB_R1_CHRONOLOGY_FIRST"
-LOADER_REVISION = "TRIANGLE1PB_R1_13_PULLBACK_RESTART_ANATOMY_AUDIT"
+LOADER_REVISION = "TRIANGLE1PB_R1_14_RESTART_RECLAIM_ROBUSTNESS_AUDIT"
 RESEARCH_AUTHORITY = "RESEARCH_ONLY_NO_LIVE_NO_POLICY_NO_ORDERS"
 STAGES = [
     "TRI_SQUEEZE",
@@ -3715,6 +3715,118 @@ def build_stage_quality_anatomy_audit(
     return hdf, rdf, pd.DataFrame(rows)
 
 
+
+def build_restart_reclaim_robustness_audit(
+    healthy_bottoming_detail: pd.DataFrame,
+    restart_reacceleration_detail: pd.DataFrame,
+    start: pd.Timestamp,
+    end: pd.Timestamp,
+) -> pd.DataFrame:
+    """Robustness audit for one frozen post-hoc structural hypothesis.
+
+    Hypothesis under audit:
+      restart close >= prior wave high (prior wave excludes restart bar)
+
+    The rule is natural/structural and has no tuned numeric threshold, but it
+    was discovered on the same research set. Therefore every row remains
+    audit-only and cannot change detect_code().
+
+    Also report the already-observed DIRECT/PROBE difference in HEALTHY
+    bottoming without promoting it.
+    """
+    rows: List[Dict[str, Any]] = []
+
+    def med(g: pd.DataFrame, col: str) -> float:
+        x = pd.to_numeric(g.get(col, pd.Series(dtype=float)), errors="coerce")
+        return float(x.median()) if x.notna().any() else float("nan")
+
+    def base_summary(category: str, group: str, g: pd.DataFrame) -> Dict[str, Any]:
+        return {
+            "schema": SCHEMA,
+            "strategy_id": STRATEGY_ID,
+            "loader_revision": LOADER_REVISION,
+            "category": category,
+            "group": group,
+            "events": int(len(g)),
+            "d15_positive": int((pd.to_numeric(g.get("d15_close_ret_pct", pd.Series(dtype=float)), errors="coerce") > 0).sum()),
+            "d5_close_ret_median_pct": med(g, "d5_close_ret_pct"),
+            "d10_close_ret_median_pct": med(g, "d10_close_ret_pct"),
+            "d15_close_ret_median_pct": med(g, "d15_close_ret_pct"),
+            "d15_mfe_median_pct": med(g, "d15_mfe_pct"),
+            "d15_mae_median_pct": med(g, "d15_mae_pct"),
+            "hypothesis_posthoc_on_same_research_period": 1,
+            "used_as_strategy_gate": 0,
+        }
+
+    r = restart_reacceleration_detail.copy() if restart_reacceleration_detail is not None else pd.DataFrame()
+    if not r.empty:
+        r["anchor_date_ts"] = pd.to_datetime(r["anchor_date"], errors="coerce")
+        start_ts = pd.Timestamp(start).normalize()
+        end_ts = pd.Timestamp(end).normalize()
+        midpoint = start_ts + (end_ts - start_ts) / 2
+        r["temporal_half"] = np.where(r["anchor_date_ts"] <= midpoint, "H1_EARLY", "H2_LATE")
+
+        # Full and fixed temporal halves.
+        for split, sg in [
+            ("FULL", r),
+            ("H1_EARLY", r[r["temporal_half"].eq("H1_EARLY")]),
+            ("H2_LATE", r[r["temporal_half"].eq("H2_LATE")]),
+        ]:
+            for val, name in [(1, "RECLAIM"), (0, "NO_RECLAIM")]:
+                g = sg[sg["restart_reclaim_pre_wave_high"].eq(val)]
+                rec = base_summary("RESTART_RECLAIM_TEMPORAL", f"{split}_{name}", g)
+                rec["split"] = split
+                rows.append(rec)
+
+        # Stratify by direct vs probe-qualified so reclaim is not confused with
+        # breakout chronology phenotype.
+        for probe, pname in [(0, "DIRECT"), (1, "PROBE_TO_QUALIFIED")]:
+            sg = r[r["probe_then_qualified"].eq(probe)]
+            for val, name in [(1, "RECLAIM"), (0, "NO_RECLAIM")]:
+                g = sg[sg["restart_reclaim_pre_wave_high"].eq(val)]
+                rows.append(base_summary("RESTART_RECLAIM_BY_BREAKOUT_TYPE", f"{pname}_{name}", g))
+
+        # Amount interaction. The breakout 1.5x level is an existing frozen
+        # reference, not a newly tuned threshold.
+        for reclaim, rname in [(1,"RECLAIM"),(0,"NO_RECLAIM")]:
+            for amt, aname in [(1,"AMOUNT20_GE_1_5X"),(0,"AMOUNT20_LT_1_5X")]:
+                g = r[
+                    r["restart_reclaim_pre_wave_high"].eq(reclaim)
+                    & r["restart_amount20_ge_breakout_1_5x"].eq(amt)
+                ]
+                if len(g):
+                    rows.append(base_summary("RESTART_RECLAIM_X_AMOUNT", f"{rname}_{aname}", g))
+
+        # Leave-one-event-out median sensitivity. This avoids a single event
+        # (including a large limit-move sequence) determining the conclusion.
+        for val, name in [(1,"RECLAIM"),(0,"NO_RECLAIM")]:
+            g = r[r["restart_reclaim_pre_wave_high"].eq(val)].copy()
+            vals = pd.to_numeric(g["d15_close_ret_pct"], errors="coerce").dropna().to_numpy(dtype=float)
+            if len(vals) >= 2:
+                loo = [float(np.median(np.delete(vals, i))) for i in range(len(vals))]
+                rec = base_summary("RESTART_RECLAIM_LOO", name, g)
+                rec["loo_d15_median_min_pct"] = float(min(loo))
+                rec["loo_d15_median_max_pct"] = float(max(loo))
+                rec["loo_d15_all_positive"] = int(all(x > 0 for x in loo))
+                rec["loo_d15_all_negative"] = int(all(x < 0 for x in loo))
+                rows.append(rec)
+
+    # HEALTHY: causal history tag DIRECT/PROBE vs future lower-low taxonomy.
+    h = healthy_bottoming_detail.copy() if healthy_bottoming_detail is not None else pd.DataFrame()
+    if not h.empty:
+        for probe, pname in [(0,"DIRECT"),(1,"PROBE_TO_QUALIFIED")]:
+            g = h[h["probe_then_qualified"].eq(probe)]
+            n = int(len(g))
+            ll = int(pd.to_numeric(g.get("lower_low_within5_after_healthy", pd.Series(dtype=float)), errors="coerce").fillna(0).sum())
+            rec = base_summary("HEALTHY_BOTTOMING_BY_BREAKOUT_TYPE", pname, g)
+            rec["lower_low_within5_events"] = ll
+            rec["lower_low_within5_rate"] = float(ll / n) if n else float("nan")
+            rec["future_lower_low_is_taxonomy_only"] = 1
+            rows.append(rec)
+
+    return pd.DataFrame(rows)
+
+
 def build_forward_outcomes(signals: List[Dict[str, Any]], frames: Dict[str, pd.DataFrame], cfg: FrozenConfig) -> pd.DataFrame:
     rows: List[Dict[str, Any]] = []
     for s in signals:
@@ -4086,6 +4198,9 @@ def run(args: argparse.Namespace) -> int:
             stage_anchor_path_detail, frames, cfg
         )
     )
+    restart_reclaim_robustness_summary = build_restart_reclaim_robustness_audit(
+        healthy_bottoming_detail, restart_reacceleration_detail, start, end
+    )
 
     structure_integrity_audit = pd.DataFrame([{
         "schema": SCHEMA,
@@ -4199,6 +4314,7 @@ def run(args: argparse.Namespace) -> int:
     _write_csv(healthy_bottoming_detail, out / "tri_healthy_bottoming_anatomy.csv")
     _write_csv(restart_reacceleration_detail, out / "tri_restart_reacceleration_anatomy.csv")
     _write_csv(stage_quality_anatomy_summary, out / "tri_stage_quality_anatomy_summary.csv")
+    _write_csv(restart_reclaim_robustness_summary, out / "tri_restart_reclaim_robustness_summary.csv")
     _write_csv(
         gate_diag.sort_values(
             ["squeeze_qualifying_windows","max_squeeze_streak","breakout_price_cross"],
@@ -4322,6 +4438,15 @@ def run(args: argparse.Namespace) -> int:
             "used_as_strategy_gate": 0,
             "summary": stage_quality_anatomy_summary.to_dict("records"),
         },
+        "restart_reclaim_robustness_audit": {
+            "research_only": 1,
+            "frozen_posthoc_hypothesis": "RESTART_CLOSE_GE_PRIOR_WAVE_HIGH",
+            "natural_threshold_no_parameter_tuning": 1,
+            "temporal_half_split_fixed_by_declared_research_span": 1,
+            "leave_one_event_out_sensitivity": 1,
+            "used_as_strategy_gate": 0,
+            "summary": restart_reclaim_robustness_summary.to_dict("records"),
+        },
         "restart_signals": int(len(signals)),
         "invariant_fail": int(invariant_fail + structure_audit_integrity_fail),
         "structure_audit_integrity_fail": structure_audit_integrity_fail,
@@ -4354,6 +4479,7 @@ def run(args: argparse.Namespace) -> int:
         out / "tri_stage_anchor_d1_d15_summary.csv", out / "tri_conversion_vs_quality_summary.csv",
         out / "tri_healthy_bottoming_anatomy.csv", out / "tri_restart_reacceleration_anatomy.csv",
         out / "tri_stage_quality_anatomy_summary.csv",
+        out / "tri_restart_reclaim_robustness_summary.csv",
     ]
     h = hashlib.sha256()
     for p in authority_files:
@@ -4386,6 +4512,7 @@ def run(args: argparse.Namespace) -> int:
         f"stage_anchor_d1_d15_summary={json.dumps(stage_anchor_summary.to_dict('records'), ensure_ascii=False, sort_keys=True)}",
         f"conversion_vs_quality_summary={json.dumps(conversion_quality_summary.to_dict('records'), ensure_ascii=False, sort_keys=True)}",
         f"stage_quality_anatomy_summary={json.dumps(stage_quality_anatomy_summary.to_dict('records'), ensure_ascii=False, sort_keys=True)}",
+        f"restart_reclaim_robustness_summary={json.dumps(restart_reclaim_robustness_summary.to_dict('records'), ensure_ascii=False, sort_keys=True)}",
         (
             f"structure_audit_integrity=expected:{structure_audit_expected_rows}"
             f" raw:{structure_audit_raw_rows} errors:{structure_audit_error_count}"
@@ -4399,7 +4526,7 @@ def run(args: argparse.Namespace) -> int:
         (
             "NEXT_GATE=manual chart review + false-positive taxonomy before any threshold/performance tuning"
             if len(signals) > 0 else
-            "NEXT_GATE=healthy-bottoming + restart-reacceleration anatomy review; no stage entry promotion until causal restart confirmation is validated"
+            "NEXT_GATE=restart wave-high reclaim robustness review; if direction survives fixed splits and LOO, freeze as candidate R2 hypothesis but do not promote without prospective/OOS validation"
         ),
     ]
     (out / "tri_report.txt").write_text("\n".join(report) + "\n", encoding="utf-8")
@@ -4506,6 +4633,10 @@ def self_test() -> int:
     assert not sad.empty and not sae.empty and not sas.empty
     hba, rra, sqa = build_stage_quality_anatomy_audit(qd, sae, sad, {"123456": df}, CONFIG)
     assert not hba.empty and not rra.empty and not sqa.empty
+    rrb = build_restart_reclaim_robustness_audit(
+        hba, rra, pd.Timestamp("2024-01-01"), pd.Timestamp("2025-12-31")
+    )
+    assert not rrb.empty
     # Determinism.
     e2, s2, r2, gd2 = detect_code("123456", df, "SYNTHETIC_ACTUAL_AMOUNT", _SyntheticUniverse(), start, end, CONFIG)
     assert json.dumps(e, sort_keys=True, default=str) == json.dumps(e2, sort_keys=True, default=str)
