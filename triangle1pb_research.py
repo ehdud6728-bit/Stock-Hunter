@@ -32,7 +32,7 @@ import pandas as pd
 
 SCHEMA = "TRIANGLE1PB_RESEARCH_SCHEMA_V1"
 STRATEGY_ID = "TRIANGLE1PB_R1_CHRONOLOGY_FIRST"
-LOADER_REVISION = "TRIANGLE1PB_R1_15_R2C1_PROSPECTIVE_SHADOW_FREEZE"
+LOADER_REVISION = "TRIANGLE1PB_R1_15_1_PROSPECTIVE_CONTROL_FREEZE"
 
 R2_CANDIDATE_ID = "TRIANGLE1PB_R2C1_QUALIFIED_HEALTHY_RESTART_WAVE_HIGH_RECLAIM"
 R2_CANDIDATE_FREEZE_DATE = "2026-08-30"
@@ -3977,6 +3977,124 @@ def build_r2_candidate_prospective_shadow_audit(
     return definition, d, summary
 
 
+
+def build_r2_prospective_control_audit(
+    restart_reacceleration_detail: pd.DataFrame,
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """Prospectively frozen contemporaneous control for R2C1.
+
+    Candidate group:
+      existing RESTART + restart close >= prior wave high
+
+    Control group:
+      existing RESTART + restart close < prior wave high
+
+    Both groups use the same prospective start date. No historical/pre-freeze
+    event can enter OOS comparison. This does not alter R2C1 or actual strategy.
+    """
+    if restart_reacceleration_detail is None or restart_reacceleration_detail.empty:
+        detail = pd.DataFrame(columns=[
+            "schema","strategy_id","loader_revision","candidate_id",
+            "candidate_event_date","validation_cohort","prospective_group",
+            "d5_mature","d10_mature","d15_mature","used_as_actual_strategy_gate",
+        ])
+        summary = pd.DataFrame([{
+            "schema": SCHEMA,
+            "strategy_id": STRATEGY_ID,
+            "loader_revision": LOADER_REVISION,
+            "candidate_id": R2_CANDIDATE_ID,
+            "freeze_date": R2_CANDIDATE_FREEZE_DATE,
+            "prospective_start_date": R2_CANDIDATE_PROSPECTIVE_START_DATE,
+            "candidate_events": 0,
+            "control_events": 0,
+            "candidate_d15_mature": 0,
+            "control_d15_mature": 0,
+            "candidate_d15_positive": 0,
+            "control_d15_positive": 0,
+            "candidate_d15_close_median_pct": float("nan"),
+            "control_d15_close_median_pct": float("nan"),
+            "candidate_d15_mfe_median_pct": float("nan"),
+            "control_d15_mfe_median_pct": float("nan"),
+            "candidate_d15_mae_median_pct": float("nan"),
+            "control_d15_mae_median_pct": float("nan"),
+            "status": "WAIT_PROSPECTIVE_OOS",
+            "used_as_actual_strategy_gate": 0,
+        }])
+        return detail, summary
+
+    d = restart_reacceleration_detail.copy()
+    d["candidate_id"] = R2_CANDIDATE_ID
+    d["freeze_date"] = R2_CANDIDATE_FREEZE_DATE
+    d["prospective_start_date"] = R2_CANDIDATE_PROSPECTIVE_START_DATE
+    d["candidate_event_date"] = pd.to_datetime(d["anchor_date"], errors="coerce").dt.date.astype(str)
+
+    pstart = pd.Timestamp(R2_CANDIDATE_PROSPECTIVE_START_DATE).normalize()
+    event_ts = pd.to_datetime(d["anchor_date"], errors="coerce").dt.normalize()
+    d["validation_cohort"] = np.where(
+        event_ts >= pstart,
+        "PROSPECTIVE_OOS",
+        "DISCOVERY_OR_PRE_FREEZE_NOT_VALIDATION",
+    )
+    d["prospective_group"] = np.where(
+        d["restart_reclaim_pre_wave_high"].eq(1),
+        "R2C1_RECLAIM_CANDIDATE",
+        "NO_RECLAIM_CONTEMPORANEOUS_CONTROL",
+    )
+    for horizon in (5,10,15):
+        d[f"d{horizon}_mature"] = pd.to_numeric(
+            d[f"d{horizon}_close_ret_pct"], errors="coerce"
+        ).notna().astype(int)
+    d["used_as_actual_strategy_gate"] = 0
+
+    # Output detail contains all restart events for provenance, but only
+    # PROSPECTIVE_OOS rows are used below.
+    p = d[d["validation_cohort"].eq("PROSPECTIVE_OOS")].copy()
+    cand = p[p["prospective_group"].eq("R2C1_RECLAIM_CANDIDATE")]
+    ctrl = p[p["prospective_group"].eq("NO_RECLAIM_CONTEMPORANEOUS_CONTROL")]
+
+    def mature15(g: pd.DataFrame) -> pd.DataFrame:
+        return g[g["d15_mature"].eq(1)] if not g.empty else g
+
+    def med(g: pd.DataFrame, col: str) -> float:
+        x = pd.to_numeric(g.get(col, pd.Series(dtype=float)), errors="coerce")
+        return float(x.median()) if x.notna().any() else float("nan")
+
+    cm = mature15(cand)
+    xm = mature15(ctrl)
+    summary = pd.DataFrame([{
+        "schema": SCHEMA,
+        "strategy_id": STRATEGY_ID,
+        "loader_revision": LOADER_REVISION,
+        "candidate_id": R2_CANDIDATE_ID,
+        "freeze_date": R2_CANDIDATE_FREEZE_DATE,
+        "prospective_start_date": R2_CANDIDATE_PROSPECTIVE_START_DATE,
+        "candidate_events": int(len(cand)),
+        "control_events": int(len(ctrl)),
+        "candidate_d5_mature": int(cand["d5_mature"].sum()) if not cand.empty else 0,
+        "control_d5_mature": int(ctrl["d5_mature"].sum()) if not ctrl.empty else 0,
+        "candidate_d10_mature": int(cand["d10_mature"].sum()) if not cand.empty else 0,
+        "control_d10_mature": int(ctrl["d10_mature"].sum()) if not ctrl.empty else 0,
+        "candidate_d15_mature": int(cand["d15_mature"].sum()) if not cand.empty else 0,
+        "control_d15_mature": int(ctrl["d15_mature"].sum()) if not ctrl.empty else 0,
+        "candidate_d15_positive": int(
+            (pd.to_numeric(cm.get("d15_close_ret_pct", pd.Series(dtype=float)), errors="coerce") > 0).sum()
+        ) if not cm.empty else 0,
+        "control_d15_positive": int(
+            (pd.to_numeric(xm.get("d15_close_ret_pct", pd.Series(dtype=float)), errors="coerce") > 0).sum()
+        ) if not xm.empty else 0,
+        "candidate_d15_close_median_pct": med(cm, "d15_close_ret_pct"),
+        "control_d15_close_median_pct": med(xm, "d15_close_ret_pct"),
+        "candidate_d15_mfe_median_pct": med(cm, "d15_mfe_pct"),
+        "control_d15_mfe_median_pct": med(xm, "d15_mfe_pct"),
+        "candidate_d15_mae_median_pct": med(cm, "d15_mae_pct"),
+        "control_d15_mae_median_pct": med(xm, "d15_mae_pct"),
+        "status": "WAIT_PROSPECTIVE_OOS",
+        "historical_rows_excluded_from_comparison": 1,
+        "used_as_actual_strategy_gate": 0,
+    }])
+    return d, summary
+
+
 def build_forward_outcomes(signals: List[Dict[str, Any]], frames: Dict[str, pd.DataFrame], cfg: FrozenConfig) -> pd.DataFrame:
     rows: List[Dict[str, Any]] = []
     for s in signals:
@@ -4354,6 +4472,9 @@ def run(args: argparse.Namespace) -> int:
     r2_candidate_definition, r2_candidate_shadow_detail, r2_candidate_shadow_summary = (
         build_r2_candidate_prospective_shadow_audit(restart_reacceleration_detail)
     )
+    r2_prospective_control_detail, r2_prospective_control_summary = (
+        build_r2_prospective_control_audit(restart_reacceleration_detail)
+    )
 
     structure_integrity_audit = pd.DataFrame([{
         "schema": SCHEMA,
@@ -4471,6 +4592,8 @@ def run(args: argparse.Namespace) -> int:
     _write_csv(r2_candidate_definition, out / "tri_r2_candidate_definition.csv")
     _write_csv(r2_candidate_shadow_detail, out / "tri_r2_candidate_shadow_detail.csv")
     _write_csv(r2_candidate_shadow_summary, out / "tri_r2_candidate_shadow_summary.csv")
+    _write_csv(r2_prospective_control_detail, out / "tri_r2_prospective_control_detail.csv")
+    _write_csv(r2_prospective_control_summary, out / "tri_r2_prospective_control_summary.csv")
     _write_csv(
         gate_diag.sort_values(
             ["squeeze_qualifying_windows","max_squeeze_streak","breakout_price_cross"],
@@ -4614,6 +4737,17 @@ def run(args: argparse.Namespace) -> int:
             "definition": r2_candidate_definition.to_dict("records"),
             "summary": r2_candidate_shadow_summary.to_dict("records"),
         },
+        "r2_prospective_control_audit": {
+            "research_only": 1,
+            "candidate_id": R2_CANDIDATE_ID,
+            "prospective_start_date": R2_CANDIDATE_PROSPECTIVE_START_DATE,
+            "candidate_group": "R2C1_RECLAIM_CANDIDATE",
+            "control_group": "NO_RECLAIM_CONTEMPORANEOUS_CONTROL",
+            "historical_rows_excluded_from_comparison": 1,
+            "actual_strategy_changed": 0,
+            "used_as_strategy_gate": 0,
+            "summary": r2_prospective_control_summary.to_dict("records"),
+        },
         "restart_signals": int(len(signals)),
         "invariant_fail": int(invariant_fail + structure_audit_integrity_fail),
         "structure_audit_integrity_fail": structure_audit_integrity_fail,
@@ -4650,6 +4784,8 @@ def run(args: argparse.Namespace) -> int:
         out / "tri_r2_candidate_definition.csv",
         out / "tri_r2_candidate_shadow_detail.csv",
         out / "tri_r2_candidate_shadow_summary.csv",
+        out / "tri_r2_prospective_control_detail.csv",
+        out / "tri_r2_prospective_control_summary.csv",
     ]
     h = hashlib.sha256()
     for p in authority_files:
@@ -4684,6 +4820,7 @@ def run(args: argparse.Namespace) -> int:
         f"stage_quality_anatomy_summary={json.dumps(stage_quality_anatomy_summary.to_dict('records'), ensure_ascii=False, sort_keys=True)}",
         f"restart_reclaim_robustness_summary={json.dumps(restart_reclaim_robustness_summary.to_dict('records'), ensure_ascii=False, sort_keys=True)}",
         f"r2_candidate_shadow_summary={json.dumps(r2_candidate_shadow_summary.to_dict('records'), ensure_ascii=False, sort_keys=True)}",
+        f"r2_prospective_control_summary={json.dumps(r2_prospective_control_summary.to_dict('records'), ensure_ascii=False, sort_keys=True)}",
         (
             f"structure_audit_integrity=expected:{structure_audit_expected_rows}"
             f" raw:{structure_audit_raw_rows} errors:{structure_audit_error_count}"
@@ -4697,7 +4834,7 @@ def run(args: argparse.Namespace) -> int:
         (
             "NEXT_GATE=manual chart review + false-positive taxonomy before any threshold/performance tuning"
             if len(signals) > 0 else
-            "NEXT_GATE=R2C1 prospective shadow only; do not tune candidate definition or count discovery rows as validation"
+            "NEXT_GATE=R2C1 prospective candidate-vs-contemporaneous-control observation only; no definition tuning before OOS evidence"
         ),
     ]
     (out / "tri_report.txt").write_text("\n".join(report) + "\n", encoding="utf-8")
@@ -4811,6 +4948,9 @@ def self_test() -> int:
     r2def, r2det, r2sum = build_r2_candidate_prospective_shadow_audit(rra)
     assert not r2def.empty and not r2sum.empty
     assert int(r2sum.iloc[0]["used_as_actual_strategy_gate"]) == 0
+    r2cd, r2cs = build_r2_prospective_control_audit(rra)
+    assert r2cs is not None and not r2cs.empty
+    assert int(r2cs.iloc[0]["used_as_actual_strategy_gate"]) == 0
     # Determinism.
     e2, s2, r2, gd2 = detect_code("123456", df, "SYNTHETIC_ACTUAL_AMOUNT", _SyntheticUniverse(), start, end, CONFIG)
     assert json.dumps(e, sort_keys=True, default=str) == json.dumps(e2, sort_keys=True, default=str)
