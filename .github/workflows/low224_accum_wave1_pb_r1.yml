@@ -14,9 +14,14 @@ on:
         default: "0"
         type: string
       manual_sample_limit:
-        description: "수동 차트검증 episode 수"
+        description: "기존 랜덤 수동검증 episode 수"
         required: false
         default: "40"
+        type: string
+      stratified_sample_per_group:
+        description: "단계별 층화표본 수 (기본 8×최대6그룹)"
+        required: false
+        default: "8"
         type: string
 
 permissions:
@@ -60,7 +65,7 @@ jobs:
           test -f low224_accum_wave1_pb_research.py
           test -f triangle1pb_research.py
           grep -Fq 'STRATEGY_ID = "LOW224_ACCUM_WAVE1_PB_R1_STRUCTURE_FIRST"' low224_accum_wave1_pb_research.py
-          grep -Fq 'LOADER_REVISION = "LOW224_R1_0_STRUCTURE_AUDIT_ONLY"' low224_accum_wave1_pb_research.py
+          grep -Fq 'LOADER_REVISION = "LOW224_R1_0_1_SAMPLE_FIDELITY_AUDIT"' low224_accum_wave1_pb_research.py
           grep -Fq 'RESEARCH_AUTHORITY = "RESEARCH_ONLY_NO_LIVE_NO_SCORE_NO_RANK_NO_ORDERS"' low224_accum_wave1_pb_research.py
           grep -Fq 'Close*Volume is never' low224_accum_wave1_pb_research.py
           python -m py_compile triangle1pb_research.py low224_accum_wave1_pb_research.py
@@ -118,6 +123,7 @@ jobs:
           END_DATE: ${{ inputs.research_end_date }}
           MAX_CODES: ${{ inputs.max_codes }}
           SAMPLE_LIMIT: ${{ inputs.manual_sample_limit }}
+          STRATIFIED_PER_GROUP: ${{ inputs.stratified_sample_per_group }}
         run: |
           set -euo pipefail
           args=(
@@ -128,6 +134,7 @@ jobs:
             --start-date 2024-08-27
             --max-codes "${MAX_CODES:-0}"
             --manual-sample-limit "${SAMPLE_LIMIT:-40}"
+            --stratified-sample-per-group "${STRATIFIED_PER_GROUP:-8}"
           )
           if [ -n "${END_DATE:-}" ]; then args+=(--end-date "$END_DATE"); fi
           python -u low224_accum_wave1_pb_research.py "${args[@]}" | tee reports/low224_r1/low224_runtime.log
@@ -145,6 +152,8 @@ jobs:
             "low224_stage_ledger.csv","low224_stage_counts.csv","low224_gate_funnel.csv",
             "low224_forward_outcomes.csv","low224_stage_outcome_summary.csv",
             "low224_manual_review_sample.csv","low224_manual_review_bars.csv",
+            "low224_episode_overlap_audit.csv","low224_episode_overlap_summary.csv",
+            "low224_stratified_manual_review_sample.csv","low224_episode_review_bars.csv",
             "low224_authority_audit.csv","low224_manifest.json","low224_report.txt","low224_runtime.log"
           ]
           missing=[x for x in req if not (root/x).exists()]
@@ -152,7 +161,7 @@ jobs:
           m=json.loads((root/"low224_manifest.json").read_text(encoding="utf-8"))
           assert m["schema"]=="LOW224_ACCUM_WAVE1_PB_RESEARCH_SCHEMA_V1"
           assert m["strategy_id"]=="LOW224_ACCUM_WAVE1_PB_R1_STRUCTURE_FIRST"
-          assert m["loader_revision"]=="LOW224_R1_0_STRUCTURE_AUDIT_ONLY"
+          assert m["loader_revision"]=="LOW224_R1_0_1_SAMPLE_FIDELITY_AUDIT"
           assert m["research_authority"]=="RESEARCH_ONLY_NO_LIVE_NO_SCORE_NO_RANK_NO_ORDERS"
           assert m["shared_data_authority_only"]=="TRIANGLE1PB_CACHE_ADAPTERS_ONLY_NO_PATTERN_LOGIC"
           assert m["live_logic_changed"] is False
@@ -162,6 +171,8 @@ jobs:
           assert m["triangle1pb_logic_changed"] is False
           assert m["tuning_allowed"] is False
           assert m["outcomes_used_as_gate"] is False
+          assert m["sample_fidelity_audit_only"] is True
+          assert m["detector_gate_changed"] is False
           assert int(m["lookahead_fail"])==0
           assert int(m["deterministic_fail"])==0
           assert int(m["actual_amount_synthetic_fallback_rows"])==0
