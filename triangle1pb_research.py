@@ -32,11 +32,12 @@ import pandas as pd
 
 SCHEMA = "TRIANGLE1PB_RESEARCH_SCHEMA_V1"
 STRATEGY_ID = "TRIANGLE1PB_R1_CHRONOLOGY_FIRST"
-LOADER_REVISION = "TRIANGLE1PB_R1_15_2_CURRENT_CACHE_BRIDGE_OOS_READINESS"
+LOADER_REVISION = "TRIANGLE1PB_R1_15_3_DISCOVERY_WINDOW_LOCK_TELEGRAM_SPLIT"
 
 R2_CANDIDATE_ID = "TRIANGLE1PB_R2C1_QUALIFIED_HEALTHY_RESTART_WAVE_HIGH_RECLAIM"
 R2_CANDIDATE_FREEZE_DATE = "2026-08-30"
 R2_CANDIDATE_PROSPECTIVE_START_DATE = "2026-08-31"
+R2_DISCOVERY_START_DATE = "2024-08-27"
 RESEARCH_AUTHORITY = "RESEARCH_ONLY_NO_LIVE_NO_POLICY_NO_ORDERS"
 STAGES = [
     "TRI_SQUEEZE",
@@ -4366,9 +4367,20 @@ def run(args: argparse.Namespace) -> int:
 
     max_data_date = max(df["date"].max() for df in frames.values())
     end = pd.Timestamp(args.end_date).normalize() if args.end_date else pd.Timestamp(max_data_date).normalize()
-    start = pd.Timestamp(args.start_date).normalize() if args.start_date else (end - pd.Timedelta(days=730))
+
+    # Freeze the discovery left edge after R2C1 hypothesis lock.
+    locked_start = pd.Timestamp(R2_DISCOVERY_START_DATE).normalize()
+    if args.start_date:
+        requested_start = pd.Timestamp(args.start_date).normalize()
+        if requested_start != locked_start:
+            raise RuntimeError(
+                "TRIANGLE1PB_DISCOVERY_WINDOW_LOCK_FAIL "
+                f"expected_start={locked_start.date().isoformat()} "
+                f"requested_start={requested_start.date().isoformat()}"
+            )
+    start = locked_start
     if start >= end:
-        raise ValueError("start_date must be earlier than end_date")
+        raise ValueError("locked discovery start must be earlier than end_date")
 
     codes = sorted(frames)
     if args.max_codes and int(args.max_codes) > 0:
@@ -4837,6 +4849,15 @@ def run(args: argparse.Namespace) -> int:
             "used_as_strategy_gate": 0,
             "summary": r2_oos_readiness.to_dict("records"),
         },
+        "r2_discovery_window_lock": {
+            "research_only": 1,
+            "discovery_start_date_locked": R2_DISCOVERY_START_DATE,
+            "freeze_date": R2_CANDIDATE_FREEZE_DATE,
+            "prospective_start_date": R2_CANDIDATE_PROSPECTIVE_START_DATE,
+            "rolling_left_edge_allowed": 0,
+            "actual_strategy_changed": 0,
+            "used_as_strategy_gate": 0,
+        },
         "restart_signals": int(len(signals)),
         "invariant_fail": int(invariant_fail + structure_audit_integrity_fail),
         "structure_audit_integrity_fail": structure_audit_integrity_fail,
@@ -4912,6 +4933,7 @@ def run(args: argparse.Namespace) -> int:
         f"r2_candidate_shadow_summary={json.dumps(r2_candidate_shadow_summary.to_dict('records'), ensure_ascii=False, sort_keys=True)}",
         f"r2_prospective_control_summary={json.dumps(r2_prospective_control_summary.to_dict('records'), ensure_ascii=False, sort_keys=True)}",
         f"r2_oos_readiness={json.dumps(r2_oos_readiness.to_dict('records'), ensure_ascii=False, sort_keys=True)}",
+        f"r2_discovery_start_locked={R2_DISCOVERY_START_DATE}",
         (
             f"structure_audit_integrity=expected:{structure_audit_expected_rows}"
             f" raw:{structure_audit_raw_rows} errors:{structure_audit_error_count}"
@@ -4925,7 +4947,7 @@ def run(args: argparse.Namespace) -> int:
         (
             "NEXT_GATE=manual chart review + false-positive taxonomy before any threshold/performance tuning"
             if len(signals) > 0 else
-            "NEXT_GATE=advance current price/Amount/as-of data into prospective span; interpret candidate/control only when OOS readiness=READY_PROSPECTIVE_OOS"
+            "NEXT_GATE=keep discovery start fixed at 2024-08-27; advance only the right edge and interpret candidate/control only when OOS readiness=READY_PROSPECTIVE_OOS"
         ),
     ]
     (out / "tri_report.txt").write_text("\n".join(report) + "\n", encoding="utf-8")
