@@ -80,8 +80,8 @@ def _env_float(name: str, default: float = 0.0) -> float:
         except Exception:
             return 0.0
 
-CLOSING_BET_SCANNER_VERSION = 'G_MORALES_V4_4_9_53_8_49_76_6_7_3_2_4_NXT_OFFICIAL_BASE_DELTA_AUTHORITY_20260828'
-CLOSING_BET_RELEASE_TAG = 'v49.76.6.7.3.2.4'
+CLOSING_BET_SCANNER_VERSION = 'G_MORALES_V4_4_9_53_8_49_76_6_7_3_2_5_SHARED_FINAL_FRAME_AUTHORITY_20260831'
+CLOSING_BET_RELEASE_TAG = 'v49.76.6.7.3.2.5'
 CLOSING_BET_LIVE_PRICE_SANITY_FIX = str(os.environ.get('CLOSING_BET_LIVE_PRICE_SANITY_FIX', '1')).lower() in ('1', 'true', 'yes', 'y', 'on')
 CLOSING_BET_LIVE_READABILITY_COMPACT = str(os.environ.get('CLOSING_BET_LIVE_READABILITY_COMPACT', '1')).lower() in ('1', 'true', 'yes', 'y', 'on')
 # v53.8.42: M5R TRUE60 검증용 장기 월봉 확보. 60개월 월선 계산에는 약 7년 일봉이 필요하다.
@@ -54595,6 +54595,274 @@ def _v49765_action_panel(decision: dict,data_date=None):
 
 # =============================================================
 # ✅ END V49.76.6.7.3.2.4 NXT OFFICIAL BASE+DELTA AUTHORITY
+# =============================================================
+
+
+# =============================================================
+# ✅ V49.76.6.7.3.2.5 SHARED FINAL FRAME AUTHORITY
+# -------------------------------------------------------------
+# Scope ONLY (FINAL data authority / frame reuse):
+# - preserve FINAL_UNIVERSE_MANIFEST identity and the fixed 900 denominator
+# - when TRUE FULL rebuild is below 98%, KEEP its already frozen/validated frames
+#   as a partial canonical session store instead of discarding them
+# - during the same AFTER FINAL scan, any still-missing 730-day history may be
+#   fetched through the existing production loader ONLY while authority is not yet
+#   valid; it is admitted to the shared store only after overlaying the immutable
+#   KRX FINAL bar and verifying that the last date equals the session date
+# - FULL / RAW strategy loaders / Lifecycle Production therefore consume the same
+#   canonical session frames whenever available
+# - as soon as the shared store reaches the unchanged 98% threshold, promote the
+#   engine to SHARED_FINAL_FRAME_VALID and freeze further network fallback
+# - a code with no immutable KRX FINAL bar is never recovered from a provider bar
+# - strategy/search/rank/STRICT/Lifecycle state rules/MARCAP/P1/M5/NXT .2.4
+#   semantics are unchanged
+# =============================================================
+try:
+    print("✅ V49.76.6.7.3.2.5 SHARED_FINAL_FRAME_AUTHORITY LOADED")
+except Exception:
+    pass
+
+_V49767325_BASE_RECON_DIAG = _v49767321_write_reconcile_diag
+_V49767325_BASE_LOAD_DF = _load_df
+_V49767325_BASE_SCAN_REGISTRY = _v4938_scan_registry
+_V49767325_BASE_ACTION_PANEL = _v49765_action_panel
+_V49767325_SHARED_SESSION = ''
+_V49767325_SHARED_FRAMES = {}
+_V49767325_SHARED_REASON = {}
+_V49767325_SHARED_RECOVERED_CODES = set()
+_V49767325_SHARED_INITIAL_FULL_CODES = 0
+_V49767325_SHARED_SNAPSHOT_MAP = {}
+_V49767325_LAST_DIAG = {}
+
+
+def _v49767325_shared_diag_path(day: str) -> Path:
+    root=Path(CLOSING_BET_V497667_FAST_CACHE_DIR);root.mkdir(parents=True,exist_ok=True)
+    return root/f"shared_final_frame_{str(day or '').replace('-','')}.json"
+
+
+def _v49767325_session(day: str=None) -> str:
+    return str(day or _now_kst().strftime('%Y-%m-%d'))[:10]
+
+
+def _v49767325_after_final_session(sess: str) -> bool:
+    try:
+        return bool(_v49767323_final_mode_for_session(sess))
+    except Exception:
+        mode=str(os.environ.get('CLOSING_BET_RUN_MODE',globals().get('CLOSING_BET_RUN_MODE','')) or '').lower()
+        return mode=='after_final' and sess==_now_kst().strftime('%Y-%m-%d')
+
+
+def _v49767325_valid_final_frame(q, sess: str) -> bool:
+    try:
+        if not isinstance(q,pd.DataFrame) or q.empty or 'Date' not in q.columns:return False
+        d=pd.to_datetime(q['Date'],errors='coerce').max()
+        return (not pd.isna(d)) and pd.Timestamp(d).strftime('%Y-%m-%d')==sess
+    except Exception:
+        return False
+
+
+def _v49767325_snapshot_map(sess: str) -> dict:
+    global _V49767325_SHARED_SNAPSHOT_MAP
+    if isinstance(_V49767325_SHARED_SNAPSHOT_MAP,dict) and _V49767325_SHARED_SNAPSHOT_MAP.get('__session__')==sess:
+        return _V49767325_SHARED_SNAPSHOT_MAP
+    out={'__session__':sess}
+    try:
+        snap=globals().get('_V497673_FROZEN_SNAPSHOT_DF')
+        meta=dict(globals().get('_V497673_FROZEN_SNAPSHOT_META',{}) or {})
+        if not isinstance(snap,pd.DataFrame) or snap.empty or str(meta.get('session_date',''))!=sess:
+            snap=_v497673_get_or_freeze_final_snapshot(sess)
+        if isinstance(snap,pd.DataFrame) and not snap.empty:
+            for _,r in snap.iterrows():
+                c=_normalize_code(r.get('code',''))
+                if c:out[c]=r.to_dict()
+    except Exception as e:
+        log_debug(f'shared FINAL snapshot-map unavailable: {type(e).__name__}:{e}')
+    _V49767325_SHARED_SNAPSHOT_MAP=out
+    return out
+
+
+def _v49767325_manifest_codes(sess: str) -> list[str]:
+    try:return list((_v49767323_get_or_freeze_final_universe(sess) or {}).get('codes',[]) or [])
+    except Exception:return []
+
+
+def _v49767325_reset_session(sess: str):
+    global _V49767325_SHARED_SESSION,_V49767325_SHARED_FRAMES,_V49767325_SHARED_REASON
+    global _V49767325_SHARED_RECOVERED_CODES,_V49767325_SHARED_INITIAL_FULL_CODES,_V49767325_SHARED_SNAPSHOT_MAP
+    if _V49767325_SHARED_SESSION==sess:return
+    _V49767325_SHARED_SESSION=sess
+    _V49767325_SHARED_FRAMES={};_V49767325_SHARED_REASON={}
+    _V49767325_SHARED_RECOVERED_CODES=set();_V49767325_SHARED_INITIAL_FULL_CODES=0
+    _V49767325_SHARED_SNAPSHOT_MAP={}
+
+
+def _v49767325_write_diag(sess: str, source: str='') -> dict:
+    global _V49767325_LAST_DIAG
+    try:
+        manifest=_v49767325_manifest_codes(sess);mset=set(manifest)
+        frames={c:q for c,q in dict(_V49767325_SHARED_FRAMES or {}).items() if c in mset and _v49767325_valid_final_frame(q,sess)}
+        target=max(1,int(CLOSING_BET_V497672_CANONICAL_UNIVERSE_TARGET));n=len(frames);cov=100.0*n/target
+        missing=sorted(mset-set(frames))
+        obj={'session_date':sess,'version':CLOSING_BET_SCANNER_VERSION,'source':source,
+             'canonical_target':target,'manifest_count':len(manifest),
+             'manifest_set_sha256':str((globals().get('_V49767323_FINAL_UNIVERSE',{}) or {}).get('set_sha256','')),
+             'initial_full_codes':int(_V49767325_SHARED_INITIAL_FULL_CODES or 0),
+             'shared_final_codes':n,'coverage_pct':cov,
+             'shared_recovered_count':len(set(_V49767325_SHARED_RECOVERED_CODES or set())),
+             'shared_recovered_codes':sorted(set(_V49767325_SHARED_RECOVERED_CODES or set())),
+             'missing_count':len(missing),'missing_codes':missing,
+             'missing_reason':{c:str((_V49767325_SHARED_REASON or {}).get(c,'UNKNOWN')) for c in missing},
+             'snapshot_sha256':str((globals().get('_V497673_FROZEN_SNAPSHOT_META',{}) or {}).get('sha256','')),
+             'engine_state':str((globals().get('_V497667_FAST_STATE',{}) or {}).get('state','')),
+             'execution_source':str((globals().get('_V497667_FAST_STATE',{}) or {}).get('execution_source','')),
+             'created_at_kst':_now_kst().strftime('%Y-%m-%d %H:%M:%S')}
+        _V49767325_LAST_DIAG=obj
+        _v49767325_shared_diag_path(sess).write_text(json.dumps(obj,ensure_ascii=False,indent=2,default=str),encoding='utf-8')
+        return obj
+    except Exception as e:
+        log_debug(f'shared FINAL diag write failed: {type(e).__name__}:{e}');return {}
+
+
+def _v49767325_try_promote(sess: str, source: str='SHARED_RECOVERY') -> bool:
+    global _V497667_FAST_FRAMES,_V497667_FAST_STATE,_V497673_ENGINE_HARD_BLOCK,_V4976732_FULL_REBUILD_META
+    target=max(1,int(CLOSING_BET_V497672_CANONICAL_UNIVERSE_TARGET))
+    need=int(np.ceil(target*float(CLOSING_BET_V4976732_FULL_MIN_COVERAGE_PCT)/100.0))
+    manifest=_v49767325_manifest_codes(sess);mset=set(manifest)
+    valid={c:q for c,q in dict(_V49767325_SHARED_FRAMES or {}).items() if c in mset and _v49767325_valid_final_frame(q,sess)}
+    n=len(valid)
+    if n<need:
+        _v49767325_write_diag(sess,source);return False
+    cov=100.0*n/target
+    _V497667_FAST_FRAMES={c:q.copy() for c,q in valid.items()}
+    _V497673_ENGINE_HARD_BLOCK=''
+    prev=dict(globals().get('_V497667_FAST_STATE',{}) or {})
+    _V497667_FAST_STATE={'state':'VALID','reason':'SHARED_CANONICAL_FROZEN_FINAL','authority_path':'SHARED_FINAL_FRAME',
+        'cache_codes':int(prev.get('cache_codes',0) or 0),'final_codes':n,'target_codes':target,
+        'cache_coverage_pct':float(prev.get('cache_coverage_pct',0.0) or 0.0),'coverage_pct':cov,
+        'session_date':sess,'execution_source':'SHARED_FINAL_FRAME_VALID','parity_cert':'SHARED_FULL_AUTHORITY',
+        'snapshot_sha256':str((globals().get('_V497673_FROZEN_SNAPSHOT_META',{}) or {}).get('sha256','')),
+        'shared_initial_full_codes':int(_V49767325_SHARED_INITIAL_FULL_CODES or 0),
+        'shared_recovered_codes':len(set(_V49767325_SHARED_RECOVERED_CODES or set())),
+        'shared_missing_codes':max(0,target-n)}
+    _V4976732_FULL_REBUILD_META=dict(_V497667_FAST_STATE)
+    _v49767325_write_diag(sess,source)
+    log_info(f"🧬 SHARED FINAL FRAME authority VALID: {n}/{target} ({cov:.1f}%) · shared +{len(set(_V49767325_SHARED_RECOVERED_CODES or set()))} · frozen snapshot {_V497667_FAST_STATE.get('snapshot_sha256','')[:12]}")
+    return True
+
+
+# Intercept the existing FULL reconciliation diagnostic while the concrete prepared
+# DataFrames are still in scope.  .2.1/.2.3 may subsequently clear FAST_FRAMES when
+# coverage is 97.x%; the shared store deliberately retains those immutable frames.
+def _v49767321_write_reconcile_diag(sess: str, state: dict, reason_map: dict, prepared: dict, target_codes: list[str], retry_recovered: list[str], pass_meta: list[dict]):
+    global _V49767325_SHARED_FRAMES,_V49767325_SHARED_REASON,_V49767325_SHARED_INITIAL_FULL_CODES
+    ss=_v49767325_session(sess)
+    if _v49767325_after_final_session(ss):
+        _v49767325_reset_session(ss)
+        man=set(_v49767325_manifest_codes(ss))
+        good={}
+        for c,q in dict(prepared or {}).items():
+            cc=_normalize_code(c)
+            if cc in man and _v49767325_valid_final_frame(q,ss):good[cc]=q.copy()
+        # Every FULL re-run is authoritative for its prepared set. Merge so a prior
+        # successful immutable frame is never thrown away by a later transient miss.
+        _V49767325_SHARED_FRAMES.update(good)
+        _V49767325_SHARED_INITIAL_FULL_CODES=max(int(_V49767325_SHARED_INITIAL_FULL_CODES or 0),len(_V49767325_SHARED_FRAMES))
+        _V49767325_SHARED_REASON.update({str(_normalize_code(c)):str(r) for c,r in dict(reason_map or {}).items() if _normalize_code(c)})
+        for c in good:_V49767325_SHARED_REASON.pop(c,None)
+        _v49767325_write_diag(ss,'FULL_PREPARED_CAPTURE')
+    return _V49767325_BASE_RECON_DIAG(sess,state,reason_map,prepared,target_codes,retry_recovered,pass_meta)
+
+
+# Same-session loader authority. Existing shared frames are first-class. A missing
+# frame may use the production loader only while the engine has not yet reached the
+# 98% authority threshold, and the provider result is never admitted as-is: the
+# immutable KRX FINAL bar must exist and replace the session row successfully.
+def _load_df(code: str, lookback_days: int=730) -> pd.DataFrame:
+    global _V49767325_SHARED_FRAMES,_V49767325_SHARED_REASON,_V49767325_SHARED_RECOVERED_CODES
+    c=_normalize_code(code);sess=_now_kst().strftime('%Y-%m-%d')
+    if int(lookback_days)==730 and _v49767325_after_final_session(sess):
+        _v49767325_reset_session(sess)
+        man=set(_v49767325_manifest_codes(sess))
+        q=(_V49767325_SHARED_FRAMES or {}).get(c)
+        if c in man and _v49767325_valid_final_frame(q,sess):
+            try:_V497672_FAST_HIT_CODES.add(c)
+            except Exception:pass
+            return q.copy()
+        # Once promoted, missing names are immutable frozen misses; never re-open
+        # network fallback after authority has been established.
+        if str((globals().get('_V497667_FAST_STATE',{}) or {}).get('state','')).upper()=='VALID' and str((globals().get('_V497667_FAST_STATE',{}) or {}).get('session_date',''))==sess:
+            try:_V497673_FROZEN_MISS_CODES.add(c)
+            except Exception:pass
+            return pd.DataFrame()
+        if c in man:
+            sm=_v49767325_snapshot_map(sess);bar=sm.get(c)
+            if bar is None:
+                _V49767325_SHARED_REASON[c]='NO_FROZEN_FINAL_BAR'
+                return pd.DataFrame()
+            try:
+                raw=_V49767325_BASE_LOAD_DF(c,lookback_days)
+            except Exception as e:
+                _V49767325_SHARED_REASON[c]=f'PRODUCTION_LOAD_EXCEPTION:{type(e).__name__}:{e}'
+                return pd.DataFrame()
+            if not isinstance(raw,pd.DataFrame) or raw.empty:
+                _V49767325_SHARED_REASON[c]='PRODUCTION_HISTORY_EMPTY'
+                return pd.DataFrame()
+            z=_v497667_replace_today(raw,bar,sess)
+            if not _v49767325_valid_final_frame(z,sess):
+                _V49767325_SHARED_REASON[c]='PRODUCTION_FINAL_OVERLAY_INVALID'
+                return pd.DataFrame()
+            _V49767325_SHARED_FRAMES[c]=z.copy();_V49767325_SHARED_REASON.pop(c,None)
+            if c not in set(globals().get('_V49767321_FULL_PREPARED_CODES',set()) or set()):
+                _V49767325_SHARED_RECOVERED_CODES.add(c)
+            # Promotion as soon as the unchanged 98% line is crossed. This happens
+            # before downstream M5/NXT/evidence gates evaluate engine validity.
+            _v49767325_try_promote(sess,'PRODUCTION_FRAME_RECOVERY')
+            return z.copy()
+    return _V49767325_BASE_LOAD_DF(c,lookback_days)
+try:
+    _load_df.cache_info=getattr(_V49767325_BASE_LOAD_DF,'cache_info')
+    _load_df.cache_clear=getattr(_V49767325_BASE_LOAD_DF,'cache_clear')
+except Exception:
+    pass
+
+
+# Final Lifecycle pass is also a deterministic promotion checkpoint and writes the
+# exact FULL-missing ↔ Production-recovered reconciliation evidence.
+def _v4938_scan_registry(df=None):
+    reg,health=_V49767325_BASE_SCAN_REGISTRY(df)
+    try:
+        sess=str((health or {}).get('latest_data_date') or _now_kst().strftime('%Y-%m-%d'))[:10]
+        if _v49767325_after_final_session(sess):
+            _v49767325_try_promote(sess,'LIFECYCLE_SCAN_COMPLETE')
+            d=_v49767325_write_diag(sess,'LIFECYCLE_SCAN_COMPLETE')
+            if d:
+                log_info(f"🔗 Shared FINAL frames: initial {d.get('initial_full_codes',0)} → {d.get('shared_final_codes',0)}/{d.get('canonical_target',900)} · recovered +{d.get('shared_recovered_count',0)} · remaining {d.get('missing_count',0)}")
+    except Exception as e:
+        log_debug(f'shared FINAL promotion checkpoint failed: {type(e).__name__}:{e}')
+    return reg,health
+
+
+# User-facing provenance only. Authority semantics are set above; this formatter
+# makes it explicit when an initially-low FULL build was rescued by the exact same
+# frozen frames later consumed by Production Lifecycle.
+def _v49765_action_panel(decision: dict,data_date=None):
+    text,has,res=_V49767325_BASE_ACTION_PANEL(decision,data_date)
+    try:
+        st=dict(globals().get('_V497667_FAST_STATE',{}) or {})
+        if str(st.get('state','')).upper()=='VALID' and str(st.get('execution_source',''))=='SHARED_FINAL_FRAME_VALID':
+            target=max(1,int(st.get('target_codes',CLOSING_BET_V497672_CANONICAL_UNIVERSE_TARGET) or CLOSING_BET_V497672_CANONICAL_UNIVERSE_TARGET))
+            line=(f"- 🧬 AFTER FINAL engine: SHARED FINAL FRAME VALID · final {int(st.get('final_codes',0) or 0)}/{target}"
+                  f" · coverage {float(st.get('coverage_pct',0) or 0):.1f}% · shared +{int(st.get('shared_recovered_codes',0) or 0)}"
+                  f" · source SHARED_FINAL_FRAME_VALID · snapshot {str(st.get('snapshot_sha256',''))[:12]} · parity SHARED_FULL_AUTHORITY")
+            parts=[x for x in str(text).split('\n') if 'AFTER FINAL engine:' not in x]
+            parts.insert(min(2,len(parts)),line);text='\n'.join(parts)
+        text=str(text).replace('v49.76.6.7.3.2.4','v49.76.6.7.3.2.5')
+        text=re.sub(r'(🚦 \[사용자 행동 결론 · [^\]]+\] \| )v[0-9.]+',lambda m:m.group(1)+CLOSING_BET_RELEASE_TAG,text,count=1)
+    except Exception:pass
+    return text,has,res
+
+# =============================================================
+# ✅ END V49.76.6.7.3.2.5 SHARED FINAL FRAME AUTHORITY
 # =============================================================
 
 if __name__ == '__main__':
