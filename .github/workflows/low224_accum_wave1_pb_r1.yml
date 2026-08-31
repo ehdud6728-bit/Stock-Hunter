@@ -1,0 +1,231 @@
+name: LOW224 ACCUM WAVE1 PB R1 Structure Audit
+
+on:
+  workflow_dispatch:
+    inputs:
+      research_end_date:
+        description: "연구 종료일 (비우면 current cache 최신일)"
+        required: false
+        default: ""
+        type: string
+      max_codes:
+        description: "종목 제한 (0=전체)"
+        required: false
+        default: "0"
+        type: string
+      manual_sample_limit:
+        description: "수동 차트검증 episode 수"
+        required: false
+        default: "40"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: low224-accum-wave1-pb-r1-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  low224-r1:
+    name: LOW224 R1 Structure Audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      TZ: Asia/Seoul
+      LOW224_RESEARCH_ONLY: "1"
+      LOW224_LIVE_ENABLE: "0"
+      LOW224_SCORE_RANK_ENABLE: "0"
+      LOW224_ORDER_ENABLE: "0"
+      LOW224_TUNING_ALLOWED: "0"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install research dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas numpy
+
+      - name: Source and synthetic preflight
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f low224_accum_wave1_pb_research.py
+          test -f triangle1pb_research.py
+          grep -Fq 'STRATEGY_ID = "LOW224_ACCUM_WAVE1_PB_R1_STRUCTURE_FIRST"' low224_accum_wave1_pb_research.py
+          grep -Fq 'LOADER_REVISION = "LOW224_R1_0_STRUCTURE_AUDIT_ONLY"' low224_accum_wave1_pb_research.py
+          grep -Fq 'RESEARCH_AUTHORITY = "RESEARCH_ONLY_NO_LIVE_NO_SCORE_NO_RANK_NO_ORDERS"' low224_accum_wave1_pb_research.py
+          grep -Fq 'Close*Volume is never' low224_accum_wave1_pb_research.py
+          python -m py_compile triangle1pb_research.py low224_accum_wave1_pb_research.py
+          python low224_accum_wave1_pb_research.py --self-test
+          echo "LOW224_R1_PREFLIGHT PASS independent=1 live=0 score_rank=0 order=0 tuning=0"
+
+      - name: Restore latest current-data overlay
+        id: current-overlay
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            reports/.cache/v20_price_history
+            reports/.cache/v20_asof_snapshots
+            reports/.cache/v25_actual_amount_history
+            reports/.cache/v25_core224_live
+          key: low224-current-overlay-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            stockhunter-v25-core224-live-${{ github.ref_name }}-
+
+      - name: Restore V21 research cache only as fallback
+        if: steps.current-overlay.outputs.cache-matched-key == ''
+        id: v21-fallback
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            reports/.cache/v20_price_history
+            reports/.cache/v20_asof_snapshots
+            reports/.cache/v25_actual_amount_history
+            reports/.cache/v25_core224_live
+            reports/.cache/v20_replay_checkpoint
+          key: low224-v21-fallback-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            stockhunter-v21-replay-${{ github.ref_name }}-
+
+      - name: Prove data authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p reports/low224_r1
+          price_files=$(find reports/.cache/v20_price_history -type f 2>/dev/null | wc -l | tr -d ' ')
+          asof_files=$(find reports/.cache/v20_asof_snapshots -type f 2>/dev/null | wc -l | tr -d ' ')
+          amount_files=$(find reports/.cache/v25_actual_amount_history -type f 2>/dev/null | wc -l | tr -d ' ')
+          current="${{ steps.current-overlay.outputs.cache-matched-key }}"
+          fallback="${{ steps.v21-fallback.outputs.cache-matched-key }}"
+          if [ -n "$current" ]; then src=CURRENT_V25_CORE224_LIVE_OVERLAY;
+          elif [ -n "$fallback" ]; then src=V21_REPLAY_FALLBACK;
+          else src=NONE; fi
+          echo "LOW224_CACHE_AUTHORITY source=$src price_files=$price_files asof_files=$asof_files amount_files=$amount_files cache_write=0"
+          test "$price_files" -gt 0
+          test "$asof_files" -gt 0
+
+      - name: Run LOW224 structure audit
+        shell: bash
+        env:
+          END_DATE: ${{ inputs.research_end_date }}
+          MAX_CODES: ${{ inputs.max_codes }}
+          SAMPLE_LIMIT: ${{ inputs.manual_sample_limit }}
+        run: |
+          set -euo pipefail
+          args=(
+            --price-cache-dir reports/.cache/v20_price_history
+            --asof-cache-dir reports/.cache/v20_asof_snapshots
+            --amount-cache-dir reports/.cache/v25_actual_amount_history
+            --output-dir reports/low224_r1
+            --start-date 2024-08-27
+            --max-codes "${MAX_CODES:-0}"
+            --manual-sample-limit "${SAMPLE_LIMIT:-40}"
+          )
+          if [ -n "${END_DATE:-}" ]; then args+=(--end-date "$END_DATE"); fi
+          python -u low224_accum_wave1_pb_research.py "${args[@]}" | tee reports/low224_r1/low224_runtime.log
+
+      - name: Fail-closed postflight
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          import pandas as pd
+          root=Path("reports/low224_r1")
+          req=[
+            "low224_stage_ledger.csv","low224_stage_counts.csv","low224_gate_funnel.csv",
+            "low224_forward_outcomes.csv","low224_stage_outcome_summary.csv",
+            "low224_manual_review_sample.csv","low224_manual_review_bars.csv",
+            "low224_authority_audit.csv","low224_manifest.json","low224_report.txt","low224_runtime.log"
+          ]
+          missing=[x for x in req if not (root/x).exists()]
+          assert not missing, ("LOW224_OUTPUT_MISSING",missing)
+          m=json.loads((root/"low224_manifest.json").read_text(encoding="utf-8"))
+          assert m["schema"]=="LOW224_ACCUM_WAVE1_PB_RESEARCH_SCHEMA_V1"
+          assert m["strategy_id"]=="LOW224_ACCUM_WAVE1_PB_R1_STRUCTURE_FIRST"
+          assert m["loader_revision"]=="LOW224_R1_0_STRUCTURE_AUDIT_ONLY"
+          assert m["research_authority"]=="RESEARCH_ONLY_NO_LIVE_NO_SCORE_NO_RANK_NO_ORDERS"
+          assert m["shared_data_authority_only"]=="TRIANGLE1PB_CACHE_ADAPTERS_ONLY_NO_PATTERN_LOGIC"
+          assert m["live_logic_changed"] is False
+          assert m["score_rank_changed"] is False
+          assert m["order_logic_changed"] is False
+          assert m["core224_logic_changed"] is False
+          assert m["triangle1pb_logic_changed"] is False
+          assert m["tuning_allowed"] is False
+          assert m["outcomes_used_as_gate"] is False
+          assert int(m["lookahead_fail"])==0
+          assert int(m["deterministic_fail"])==0
+          assert int(m["actual_amount_synthetic_fallback_rows"])==0
+          assert int(m["future_universe_fallback"])==0
+          assert m["status"]=="PASS"
+          a=pd.read_csv(root/"low224_authority_audit.csv")
+          assert int(a.iloc[0]["synthetic_close_x_volume_fallback_rows"])==0
+          assert int(a.iloc[0]["future_snapshot_fallback_allowed"])==0
+          print("LOW224_R1_POSTFLIGHT PASS episodes",m["episodes"],"stage_digest",m["stage_digest"])
+          PY
+
+      - name: Send compact LOW224 board to Telegram
+        if: always()
+        continue-on-error: true
+        env:
+          TELEGRAM_BACKTEST_TOKEN: ${{ secrets.TELEGRAM_BACKTEST_TOKEN }}
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          STOCKHUNTER_CHAT_ID: ${{ secrets.STOCKHUNTER_CHAT_ID }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os, urllib.parse, urllib.request, json
+          from pathlib import Path
+          token=(os.environ.get("TELEGRAM_BACKTEST_TOKEN") or os.environ.get("TELEGRAM_TOKEN") or "").strip()
+          chat=(os.environ.get("STOCKHUNTER_CHAT_ID") or os.environ.get("TELEGRAM_CHAT_ID") or "").strip()
+          if not token or not chat:
+              print("LOW224_TELEGRAM_SKIP route_missing=1")
+              raise SystemExit(0)
+          p=Path("reports/low224_r1/low224_report.txt")
+          text=p.read_text(encoding="utf-8") if p.exists() else "⚠️ LOW224 report missing"
+          # Compact board should fit, but split losslessly if later sections grow.
+          max_body=3400
+          lines=text.splitlines()
+          parts=[]; cur=[]
+          for line in lines:
+              trial="\n".join(cur+[line])
+              if cur and len(trial)>max_body:
+                  parts.append("\n".join(cur)); cur=[line]
+              else:
+                  cur.append(line)
+          if cur: parts.append("\n".join(cur))
+          url=f"https://api.telegram.org/bot{token}/sendMessage"
+          ids=[]
+          for i,body in enumerate(parts,1):
+              msg=f"📨 [LOW224 R1 {i}/{len(parts)}]\n"+body
+              assert len(msg)<3900
+              payload=urllib.parse.urlencode({"chat_id":chat,"text":msg,"disable_web_page_preview":"true"}).encode()
+              req=urllib.request.Request(url,data=payload,method="POST")
+              with urllib.request.urlopen(req,timeout=30) as resp:
+                  data=json.loads(resp.read().decode("utf-8","replace"))
+              assert data.get("ok"), data
+              ids.append((data.get("result") or {}).get("message_id"))
+              print("LOW224_TELEGRAM_SEND PASS",f"part={i}/{len(parts)}",f"chars={len(msg)}","truncated=0")
+          assert len(ids)==len(parts)
+          print("LOW224_TELEGRAM_MULTIPART_COMPLETE",len(parts),ids)
+          PY
+
+      - name: Upload LOW224 R1 artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: low224-accum-wave1-pb-r1-${{ github.run_number }}
+          path: reports/low224_r1
+          if-no-files-found: error
+          retention-days: 30
