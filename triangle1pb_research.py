@@ -32,7 +32,7 @@ import pandas as pd
 
 SCHEMA = "TRIANGLE1PB_RESEARCH_SCHEMA_V1"
 STRATEGY_ID = "TRIANGLE1PB_R1_CHRONOLOGY_FIRST"
-LOADER_REVISION = "TRIANGLE1PB_R1_15_1_PROSPECTIVE_CONTROL_FREEZE"
+LOADER_REVISION = "TRIANGLE1PB_R1_15_2_CURRENT_CACHE_BRIDGE_OOS_READINESS"
 
 R2_CANDIDATE_ID = "TRIANGLE1PB_R2C1_QUALIFIED_HEALTHY_RESTART_WAVE_HIGH_RECLAIM"
 R2_CANDIDATE_FREEZE_DATE = "2026-08-30"
@@ -4095,6 +4095,83 @@ def build_r2_prospective_control_audit(
     return d, summary
 
 
+
+def build_r2_oos_readiness_audit(
+    end: pd.Timestamp,
+    universe_dates: List[pd.Timestamp],
+    r2_candidate_shadow_summary: pd.DataFrame,
+    r2_prospective_control_summary: pd.DataFrame,
+    cfg: FrozenConfig,
+) -> pd.DataFrame:
+    """Operational readiness for prospective OOS interpretation.
+
+    This is data-authority metadata only. It changes no candidate definition,
+    chronology, threshold, stage, score, rank, LIVE logic, or order behavior.
+    """
+    end_ts = pd.Timestamp(end).normalize()
+    pstart = pd.Timestamp(R2_CANDIDATE_PROSPECTIVE_START_DATE).normalize()
+    normalized_dates = sorted({
+        pd.Timestamp(x).normalize()
+        for x in (universe_dates or [])
+        if pd.notna(x)
+    })
+    eligible = [x for x in normalized_dates if x <= end_ts]
+    latest_eligible = eligible[-1] if eligible else None
+    latest_any = normalized_dates[-1] if normalized_dates else None
+    age = int((end_ts - latest_eligible).days) if latest_eligible is not None else -1
+
+    data_reached = int(end_ts >= pstart)
+    universe_ready = int(
+        latest_eligible is not None
+        and age >= 0
+        and age <= int(cfg.universe_max_calendar_age_days)
+    )
+    if not data_reached:
+        status = "WAIT_DATA_CATCHUP"
+    elif latest_eligible is None:
+        status = "FAIL_NO_ELIGIBLE_ASOF_UNIVERSE"
+    elif not universe_ready:
+        status = "FAIL_STALE_ASOF_UNIVERSE"
+    else:
+        status = "READY_PROSPECTIVE_OOS"
+
+    cand = 0
+    if r2_candidate_shadow_summary is not None and not r2_candidate_shadow_summary.empty:
+        cand = int(r2_candidate_shadow_summary.iloc[0].get("prospective_candidate_events", 0) or 0)
+    ctrl = 0
+    cand_d15 = 0
+    ctrl_d15 = 0
+    if r2_prospective_control_summary is not None and not r2_prospective_control_summary.empty:
+        rr = r2_prospective_control_summary.iloc[0]
+        ctrl = int(rr.get("control_events", 0) or 0)
+        cand_d15 = int(rr.get("candidate_d15_mature", 0) or 0)
+        ctrl_d15 = int(rr.get("control_d15_mature", 0) or 0)
+
+    return pd.DataFrame([{
+        "schema": SCHEMA,
+        "strategy_id": STRATEGY_ID,
+        "loader_revision": LOADER_REVISION,
+        "candidate_id": R2_CANDIDATE_ID,
+        "freeze_date": R2_CANDIDATE_FREEZE_DATE,
+        "prospective_start_date": R2_CANDIDATE_PROSPECTIVE_START_DATE,
+        "research_data_end": end_ts.date().isoformat(),
+        "prospective_data_reached": data_reached,
+        "asof_snapshot_dates_total": int(len(normalized_dates)),
+        "latest_asof_snapshot_any": latest_any.date().isoformat() if latest_any is not None else "",
+        "latest_asof_snapshot_le_data_end": latest_eligible.date().isoformat() if latest_eligible is not None else "",
+        "asof_age_to_data_end_calendar_days": age,
+        "asof_max_calendar_age_days": int(cfg.universe_max_calendar_age_days),
+        "asof_fresh_for_data_end": universe_ready,
+        "prospective_candidate_events": cand,
+        "prospective_control_events": ctrl,
+        "candidate_d15_mature": cand_d15,
+        "control_d15_mature": ctrl_d15,
+        "oos_readiness_status": status,
+        "candidate_zero_is_interpretable_as_no_event": int(status == "READY_PROSPECTIVE_OOS"),
+        "used_as_actual_strategy_gate": 0,
+    }])
+
+
 def build_forward_outcomes(signals: List[Dict[str, Any]], frames: Dict[str, pd.DataFrame], cfg: FrozenConfig) -> pd.DataFrame:
     rows: List[Dict[str, Any]] = []
     for s in signals:
@@ -4533,6 +4610,10 @@ def run(args: argparse.Namespace) -> int:
         "max_calendar_age_days": cfg.universe_max_calendar_age_days,
         "future_snapshot_fallback_allowed": 0,
     }])
+    r2_oos_readiness = build_r2_oos_readiness_audit(
+        end, universe.dates, r2_candidate_shadow_summary,
+        r2_prospective_control_summary, cfg
+    )
 
     sample = deterministic_manual_sample(signals, events, int(args.manual_sample_limit))
     if not sample.empty:
@@ -4608,6 +4689,7 @@ def run(args: argparse.Namespace) -> int:
     _write_csv(invariant_audit, out / "tri_invariant_audit.csv")
     _write_csv(amount_audit, out / "tri_amount_authority_audit.csv")
     _write_csv(universe_audit, out / "tri_asof_universe_audit.csv")
+    _write_csv(r2_oos_readiness, out / "tri_r2_oos_readiness.csv")
     _write_csv(sample, out / "tri_manual_chart_review_sample.csv")
     _write_csv(outcome_summary_df, out / "tri_event_study_summary.csv")
 
@@ -4748,6 +4830,13 @@ def run(args: argparse.Namespace) -> int:
             "used_as_strategy_gate": 0,
             "summary": r2_prospective_control_summary.to_dict("records"),
         },
+        "r2_oos_readiness": {
+            "research_only": 1,
+            "data_authority_only": 1,
+            "actual_strategy_changed": 0,
+            "used_as_strategy_gate": 0,
+            "summary": r2_oos_readiness.to_dict("records"),
+        },
         "restart_signals": int(len(signals)),
         "invariant_fail": int(invariant_fail + structure_audit_integrity_fail),
         "structure_audit_integrity_fail": structure_audit_integrity_fail,
@@ -4786,6 +4875,7 @@ def run(args: argparse.Namespace) -> int:
         out / "tri_r2_candidate_shadow_summary.csv",
         out / "tri_r2_prospective_control_detail.csv",
         out / "tri_r2_prospective_control_summary.csv",
+        out / "tri_r2_oos_readiness.csv",
     ]
     h = hashlib.sha256()
     for p in authority_files:
@@ -4821,6 +4911,7 @@ def run(args: argparse.Namespace) -> int:
         f"restart_reclaim_robustness_summary={json.dumps(restart_reclaim_robustness_summary.to_dict('records'), ensure_ascii=False, sort_keys=True)}",
         f"r2_candidate_shadow_summary={json.dumps(r2_candidate_shadow_summary.to_dict('records'), ensure_ascii=False, sort_keys=True)}",
         f"r2_prospective_control_summary={json.dumps(r2_prospective_control_summary.to_dict('records'), ensure_ascii=False, sort_keys=True)}",
+        f"r2_oos_readiness={json.dumps(r2_oos_readiness.to_dict('records'), ensure_ascii=False, sort_keys=True)}",
         (
             f"structure_audit_integrity=expected:{structure_audit_expected_rows}"
             f" raw:{structure_audit_raw_rows} errors:{structure_audit_error_count}"
@@ -4834,7 +4925,7 @@ def run(args: argparse.Namespace) -> int:
         (
             "NEXT_GATE=manual chart review + false-positive taxonomy before any threshold/performance tuning"
             if len(signals) > 0 else
-            "NEXT_GATE=R2C1 prospective candidate-vs-contemporaneous-control observation only; no definition tuning before OOS evidence"
+            "NEXT_GATE=advance current price/Amount/as-of data into prospective span; interpret candidate/control only when OOS readiness=READY_PROSPECTIVE_OOS"
         ),
     ]
     (out / "tri_report.txt").write_text("\n".join(report) + "\n", encoding="utf-8")
@@ -4951,6 +5042,14 @@ def self_test() -> int:
     r2cd, r2cs = build_r2_prospective_control_audit(rra)
     assert r2cs is not None and not r2cs.empty
     assert int(r2cs.iloc[0]["used_as_actual_strategy_gate"]) == 0
+    rr_wait = build_r2_oos_readiness_audit(
+        pd.Timestamp("2026-08-28"), [pd.Timestamp("2026-08-19")], r2sum, r2cs, CONFIG
+    )
+    assert str(rr_wait.iloc[0]["oos_readiness_status"]) == "WAIT_DATA_CATCHUP"
+    rr_ready = build_r2_oos_readiness_audit(
+        pd.Timestamp("2026-08-31"), [pd.Timestamp("2026-08-28")], r2sum, r2cs, CONFIG
+    )
+    assert str(rr_ready.iloc[0]["oos_readiness_status"]) == "READY_PROSPECTIVE_OOS"
     # Determinism.
     e2, s2, r2, gd2 = detect_code("123456", df, "SYNTHETIC_ACTUAL_AMOUNT", _SyntheticUniverse(), start, end, CONFIG)
     assert json.dumps(e, sort_keys=True, default=str) == json.dumps(e2, sort_keys=True, default=str)
