@@ -1411,8 +1411,8 @@ jobs:
           python triangle1pb_research.py --self-test
           grep -Fq 'RESEARCH_AUTHORITY = "RESEARCH_ONLY_NO_LIVE_NO_POLICY_NO_ORDERS"' triangle1pb_research.py
           grep -Fq 'STRATEGY_ID = "TRIANGLE1PB_R1_CHRONOLOGY_FIRST"' triangle1pb_research.py
-          grep -Fq 'LOADER_REVISION = "TRIANGLE1PB_R1_15_1_PROSPECTIVE_CONTROL_FREEZE"' triangle1pb_research.py || {
-            echo "TRIANGLE1PB_STALE_SOURCE_FAIL expected=R1_15_1";
+          grep -Fq 'LOADER_REVISION = "TRIANGLE1PB_R1_15_2_CURRENT_CACHE_BRIDGE_OOS_READINESS"' triangle1pb_research.py || {
+            echo "TRIANGLE1PB_STALE_SOURCE_FAIL expected=R1_15_2";
             grep -n '^LOADER_REVISION' triangle1pb_research.py || true;
             exit 236;
           }
@@ -1421,21 +1421,36 @@ jobs:
           echo "TRIANGLE1PB_SOURCE_SHA256=$(sha256sum triangle1pb_research.py | awk '{print $1}')"
           echo "TRIANGLE1PB_GIT_COMMIT=$(git rev-parse HEAD 2>/dev/null || echo UNKNOWN)"
           echo "TRIANGLE1PB_GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo UNKNOWN)"
-          echo "TRIANGLE1PB_PREFLIGHT PASS revision=R1_15_1 independent=1 live=0 score_rank=0 order=0 tuning=0"
+          echo "TRIANGLE1PB_PREFLIGHT PASS revision=R1_15_2 independent=1 live=0 score_rank=0 order=0 tuning=0"
 
-      - name: Restore latest V21 research cache read-only
+      - name: Restore latest CORE224 current-data overlay for TRIANGLE1PB
+        id: tri-current-overlay-restore
+        uses: actions/cache/restore@v4
+        with:
+          # Exact path-set used by "Save CORE224 live state overlay".
+          # TRIANGLE1PB only reads price/as-of/actual-Amount from this cache.
+          path: |
+            reports/.cache/v20_price_history
+            reports/.cache/v20_asof_snapshots
+            reports/.cache/v25_actual_amount_history
+            reports/.cache/v25_core224_live
+          key: triangle1pb-current-overlay-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            stockhunter-v25-core224-live-${{ github.ref_name }}-
+
+      - name: Restore V21 research cache only as fallback
+        if: steps.tri-current-overlay-restore.outputs.cache-matched-key == ''
         id: tri-v21-restore
         uses: actions/cache/restore@v4
         with:
-          # This path-set intentionally matches the canonical V21 save path-set byte-for-byte
-          # so actions/cache version matching can restore the existing research cache.
+          # Exact canonical V21 replay path-set.
           path: |
             reports/.cache/v20_price_history
             reports/.cache/v20_asof_snapshots
             reports/.cache/v25_actual_amount_history
             reports/.cache/v25_core224_live
             reports/.cache/v20_replay_checkpoint
-          key: triangle1pb-readonly-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: triangle1pb-v21-fallback-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
             stockhunter-v21-replay-${{ github.ref_name }}-
 
@@ -1447,7 +1462,19 @@ jobs:
           price_files=$(find reports/.cache/v20_price_history -type f 2>/dev/null | wc -l | tr -d ' ')
           asof_files=$(find reports/.cache/v20_asof_snapshots -type f 2>/dev/null | wc -l | tr -d ' ')
           amount_files=$(find reports/.cache/v25_actual_amount_history -type f 2>/dev/null | wc -l | tr -d ' ')
-          echo "TRIANGLE1PB_CACHE_RESTORE matched=${{ steps.tri-v21-restore.outputs.cache-matched-key }} price_files=${price_files} asof_files=${asof_files} amount_files=${amount_files} cache_write=0"
+          current_match="${{ steps.tri-current-overlay-restore.outputs.cache-matched-key }}"
+          fallback_match="${{ steps.tri-v21-restore.outputs.cache-matched-key }}"
+          if [ -n "$current_match" ]; then
+            cache_source="CURRENT_V25_CORE224_LIVE_OVERLAY"
+            matched="$current_match"
+          elif [ -n "$fallback_match" ]; then
+            cache_source="V21_REPLAY_FALLBACK"
+            matched="$fallback_match"
+          else
+            cache_source="NONE"
+            matched=""
+          fi
+          echo "TRIANGLE1PB_CACHE_AUTHORITY source=${cache_source} matched=${matched} price_files=${price_files} asof_files=${asof_files} amount_files=${amount_files} cache_write=0"
           test "$price_files" -gt 0 || { echo "TRIANGLE1PB_FAIL_CLOSED price cache empty"; exit 232; }
           test "$asof_files" -gt 0 || { echo "TRIANGLE1PB_FAIL_CLOSED historical as-of universe cache empty"; exit 233; }
 
@@ -1470,7 +1497,7 @@ jobs:
           )
           if [ -n "${TRI_START_DATE:-}" ]; then args+=(--start-date "$TRI_START_DATE"); fi
           if [ -n "${TRI_END_DATE:-}" ]; then args+=(--end-date "$TRI_END_DATE"); fi
-          grep -Fq 'LOADER_REVISION = "TRIANGLE1PB_R1_15_1_PROSPECTIVE_CONTROL_FREEZE"' triangle1pb_research.py || {
+          grep -Fq 'LOADER_REVISION = "TRIANGLE1PB_R1_15_2_CURRENT_CACHE_BRIDGE_OOS_READINESS"' triangle1pb_research.py || {
             echo "TRIANGLE1PB_STALE_SOURCE_FAIL immediately_before_run";
             grep -n '^LOADER_REVISION' triangle1pb_research.py || true;
             exit 237;
@@ -1507,6 +1534,7 @@ jobs:
               'tri_r2_candidate_shadow_summary.csv',
               'tri_r2_prospective_control_detail.csv',
               'tri_r2_prospective_control_summary.csv',
+              'tri_r2_oos_readiness.csv',
               'tri_manifest.json','tri_report.txt','tri_runtime.log',
           ]
           missing=[x for x in required if not (root/x).exists()]
@@ -1514,7 +1542,7 @@ jobs:
           m=json.loads((root/'tri_manifest.json').read_text(encoding='utf-8'))
           assert m.get('schema')=='TRIANGLE1PB_RESEARCH_SCHEMA_V1'
           assert m.get('strategy_id')=='TRIANGLE1PB_R1_CHRONOLOGY_FIRST'
-          assert m.get('loader_revision')=='TRIANGLE1PB_R1_15_1_PROSPECTIVE_CONTROL_FREEZE', (
+          assert m.get('loader_revision')=='TRIANGLE1PB_R1_15_2_CURRENT_CACHE_BRIDGE_OOS_READINESS', (
               'TRIANGLE1PB_STALE_MANIFEST_REVISION', m.get('loader_revision')
           )
           assert 'stage_anchor_path_audit' in m, 'R1_12_STAGE_ANCHOR_MANIFEST_MISSING'
@@ -1628,6 +1656,36 @@ jobs:
               lines += [
                   f"📌 strategy={m.get('strategy_id','-')}",
                   f"📅 period={m.get('research_start') or m.get('start_date','-')} ~ {m.get('research_end') or m.get('end_date','-')} · codes={m.get('codes_scanned','-')}",
+              ]
+              ready_rows = ((m.get("r2_oos_readiness") or {}).get("summary") or [])
+              if ready_rows:
+                  rd = ready_rows[0]
+                  lines += [
+                      "",
+                      "🛰️ [R2C1 OOS Readiness · 먼저 확인]",
+                      (
+                          f"data end {rd.get('research_data_end','-')} · prospective start "
+                          f"{rd.get('prospective_start_date','-')}"
+                      ),
+                      (
+                          f"as-of {rd.get('latest_asof_snapshot_le_data_end','-')}"
+                          f" · age {rd.get('asof_age_to_data_end_calendar_days','-')}d"
+                          f" / max {rd.get('asof_max_calendar_age_days','-')}d"
+                      ),
+                      (
+                          f"candidate {int(rd.get('prospective_candidate_events',0))}"
+                          f" · control {int(rd.get('prospective_control_events',0))}"
+                          f" · D15 mature {int(rd.get('candidate_d15_mature',0))}/"
+                          f"{int(rd.get('control_d15_mature',0))}"
+                      ),
+                      f"status={rd.get('oos_readiness_status','-')}",
+                      (
+                          "※ READY일 때만 candidate=0을 '신규 event 없음'으로 해석"
+                          if rd.get("oos_readiness_status") != "READY_PROSPECTIVE_OOS"
+                          else "※ OOS 데이터 준비 완료 · 신규 event만 검증"
+                      ),
+                  ]
+              lines += [
                   "",
                   "🧭 [Chronology]",
                   (
