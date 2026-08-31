@@ -1411,8 +1411,8 @@ jobs:
           python triangle1pb_research.py --self-test
           grep -Fq 'RESEARCH_AUTHORITY = "RESEARCH_ONLY_NO_LIVE_NO_POLICY_NO_ORDERS"' triangle1pb_research.py
           grep -Fq 'STRATEGY_ID = "TRIANGLE1PB_R1_CHRONOLOGY_FIRST"' triangle1pb_research.py
-          grep -Fq 'LOADER_REVISION = "TRIANGLE1PB_R1_15_2_CURRENT_CACHE_BRIDGE_OOS_READINESS"' triangle1pb_research.py || {
-            echo "TRIANGLE1PB_STALE_SOURCE_FAIL expected=R1_15_2";
+          grep -Fq 'LOADER_REVISION = "TRIANGLE1PB_R1_15_3_DISCOVERY_WINDOW_LOCK_TELEGRAM_SPLIT"' triangle1pb_research.py || {
+            echo "TRIANGLE1PB_STALE_SOURCE_FAIL expected=R1_15_3";
             grep -n '^LOADER_REVISION' triangle1pb_research.py || true;
             exit 236;
           }
@@ -1421,7 +1421,7 @@ jobs:
           echo "TRIANGLE1PB_SOURCE_SHA256=$(sha256sum triangle1pb_research.py | awk '{print $1}')"
           echo "TRIANGLE1PB_GIT_COMMIT=$(git rev-parse HEAD 2>/dev/null || echo UNKNOWN)"
           echo "TRIANGLE1PB_GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo UNKNOWN)"
-          echo "TRIANGLE1PB_PREFLIGHT PASS revision=R1_15_2 independent=1 live=0 score_rank=0 order=0 tuning=0"
+          echo "TRIANGLE1PB_PREFLIGHT PASS revision=R1_15_3 independent=1 live=0 score_rank=0 order=0 tuning=0"
 
       - name: Restore latest CORE224 current-data overlay for TRIANGLE1PB
         id: tri-current-overlay-restore
@@ -1497,7 +1497,7 @@ jobs:
           )
           if [ -n "${TRI_START_DATE:-}" ]; then args+=(--start-date "$TRI_START_DATE"); fi
           if [ -n "${TRI_END_DATE:-}" ]; then args+=(--end-date "$TRI_END_DATE"); fi
-          grep -Fq 'LOADER_REVISION = "TRIANGLE1PB_R1_15_2_CURRENT_CACHE_BRIDGE_OOS_READINESS"' triangle1pb_research.py || {
+          grep -Fq 'LOADER_REVISION = "TRIANGLE1PB_R1_15_3_DISCOVERY_WINDOW_LOCK_TELEGRAM_SPLIT"' triangle1pb_research.py || {
             echo "TRIANGLE1PB_STALE_SOURCE_FAIL immediately_before_run";
             grep -n '^LOADER_REVISION' triangle1pb_research.py || true;
             exit 237;
@@ -1542,7 +1542,7 @@ jobs:
           m=json.loads((root/'tri_manifest.json').read_text(encoding='utf-8'))
           assert m.get('schema')=='TRIANGLE1PB_RESEARCH_SCHEMA_V1'
           assert m.get('strategy_id')=='TRIANGLE1PB_R1_CHRONOLOGY_FIRST'
-          assert m.get('loader_revision')=='TRIANGLE1PB_R1_15_2_CURRENT_CACHE_BRIDGE_OOS_READINESS', (
+          assert m.get('loader_revision')=='TRIANGLE1PB_R1_15_3_DISCOVERY_WINDOW_LOCK_TELEGRAM_SPLIT', (
               'TRIANGLE1PB_STALE_MANIFEST_REVISION', m.get('loader_revision')
           )
           assert 'stage_anchor_path_audit' in m, 'R1_12_STAGE_ANCHOR_MANIFEST_MISSING'
@@ -2245,42 +2245,123 @@ jobs:
               except Exception:
                   pass
 
-          message = "\n".join(lines).strip()
-          if len(message) > 3900:
-              message = message[:3860] + "\n…(Telegram 길이 제한으로 생략)"
+          def _split_telegram_parts(src_lines, max_body_chars=3400):
+              """Split on section boundaries and never silently truncate."""
+              sections = []
+              current = []
+              for raw_line in src_lines:
+                  line = str(raw_line)
+                  if line == "":
+                      if current:
+                          sections.append(current)
+                          current = []
+                      continue
+                  current.append(line)
+              if current:
+                  sections.append(current)
+
+              normalized = []
+              for sec in sections:
+                  sec_text = "\n".join(sec)
+                  if len(sec_text) <= max_body_chars:
+                      normalized.append(sec)
+                      continue
+
+                  chunk = []
+                  chunk_len = 0
+                  for line in sec:
+                      pieces = [line[i:i + max_body_chars] for i in range(0, len(line), max_body_chars)] or [""]
+                      for piece in pieces:
+                          add_len = len(piece) + (1 if chunk else 0)
+                          if chunk and chunk_len + add_len > max_body_chars:
+                              normalized.append(chunk)
+                              chunk = []
+                              chunk_len = 0
+                          chunk.append(piece)
+                          chunk_len += len(piece) + (1 if len(chunk) > 1 else 0)
+                  if chunk:
+                      normalized.append(chunk)
+
+              parts = []
+              current_sections = []
+              current_len = 0
+              for sec in normalized:
+                  sec_text = "\n".join(sec)
+                  add_len = len(sec_text) + (2 if current_sections else 0)
+                  if current_sections and current_len + add_len > max_body_chars:
+                      parts.append("\n\n".join(current_sections))
+                      current_sections = []
+                      current_len = 0
+                  current_sections.append(sec_text)
+                  current_len += len(sec_text) + (2 if len(current_sections) > 1 else 0)
+              if current_sections:
+                  parts.append("\n\n".join(current_sections))
+              return [p for p in parts if p.strip()]
+
+
+          parts = _split_telegram_parts(lines, max_body_chars=3400)
+          assert parts, "TRIANGLE1PB_TELEGRAM_SPLIT_EMPTY"
+          assert all(len(p) <= 3400 for p in parts), [
+              ("PART_TOO_LONG", i + 1, len(p)) for i, p in enumerate(parts) if len(p) > 3400
+          ]
 
           url = f"https://api.telegram.org/bot{token}/sendMessage"
-          payload = urllib.parse.urlencode({
-              "chat_id": chat_id,
-              "text": message,
-              "disable_web_page_preview": "true",
-          }).encode("utf-8")
+          sent_ids = []
+          total_parts = len(parts)
 
-          req = urllib.request.Request(url, data=payload, method="POST")
-          try:
-              with urllib.request.urlopen(req, timeout=30) as resp:
-                  raw = resp.read().decode("utf-8", errors="replace")
-                  status = int(getattr(resp, "status", 200))
-          except Exception as exc:
+          for part_idx, body in enumerate(parts, start=1):
+              prefix = f"📨 [TRIANGLE1PB {part_idx}/{total_parts}]\n"
+              message = prefix + body
+              assert len(message) < 3900, ("TELEGRAM_PART_LIMIT_GUARD", part_idx, len(message))
+
+              payload = urllib.parse.urlencode({
+                  "chat_id": chat_id,
+                  "text": message,
+                  "disable_web_page_preview": "true",
+              }).encode("utf-8")
+              req = urllib.request.Request(url, data=payload, method="POST")
+
+              try:
+                  with urllib.request.urlopen(req, timeout=30) as resp:
+                      raw = resp.read().decode("utf-8", errors="replace")
+                      status = int(getattr(resp, "status", 200))
+              except Exception as exc:
+                  print(
+                      "TRIANGLE1PB_TELEGRAM_SEND_FAIL",
+                      f"part={part_idx}/{total_parts}",
+                      f"sent_parts={len(sent_ids)}",
+                      f"token_route={token_route}",
+                      f"chat_route={chat_route}",
+                      f"error={type(exc).__name__}:{str(exc)[:500]}",
+                  )
+                  raise
+
+              data = json.loads(raw)
+              assert status == 200 and bool(data.get("ok")), (
+                  "TELEGRAM_API_NOT_OK", part_idx, total_parts, status, raw[:1000]
+              )
+              msg_id = ((data.get("result") or {}).get("message_id"))
+              sent_ids.append(msg_id)
               print(
-                  "TRIANGLE1PB_TELEGRAM_SEND_FAIL",
+                  "TRIANGLE1PB_TELEGRAM_SEND",
+                  "status=PASS",
+                  f"part={part_idx}/{total_parts}",
                   f"token_route={token_route}",
                   f"chat_route={chat_route}",
-                  f"error={type(exc).__name__}:{str(exc)[:500]}",
+                  f"message_id={msg_id}",
+                  f"chars={len(message)}",
+                  "truncated=0",
+                  "closebet_route_used=0",
               )
-              raise
 
-          data = json.loads(raw)
-          assert status == 200 and bool(data.get("ok")), ("TELEGRAM_API_NOT_OK", status, raw[:1000])
-          msg_id = ((data.get("result") or {}).get("message_id"))
+          assert len(sent_ids) == total_parts, (
+              "TRIANGLE1PB_TELEGRAM_MULTIPART_INCOMPLETE", len(sent_ids), total_parts
+          )
           print(
-              "TRIANGLE1PB_TELEGRAM_SEND",
-              "status=PASS",
-              f"token_route={token_route}",
-              f"chat_route={chat_route}",
-              f"message_id={msg_id}",
-              f"chars={len(message)}",
-              "closebet_route_used=0",
+              "TRIANGLE1PB_TELEGRAM_MULTIPART_COMPLETE",
+              f"parts={total_parts}",
+              f"message_ids={','.join(str(x) for x in sent_ids)}",
+              "truncated=0",
           )
           PYTRITELEGRAM
 
