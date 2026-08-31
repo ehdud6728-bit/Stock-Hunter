@@ -42,7 +42,7 @@ from triangle1pb_research import (
 
 SCHEMA = "LOW224_ACCUM_WAVE1_PB_RESEARCH_SCHEMA_V1"
 STRATEGY_ID = "LOW224_ACCUM_WAVE1_PB_R1_STRUCTURE_FIRST"
-LOADER_REVISION = "LOW224_R1_0_STRUCTURE_AUDIT_ONLY"
+LOADER_REVISION = "LOW224_R1_0_1_SAMPLE_FIDELITY_AUDIT"
 RESEARCH_AUTHORITY = "RESEARCH_ONLY_NO_LIVE_NO_SCORE_NO_RANK_NO_ORDERS"
 SHARED_DATA_AUTHORITY_ONLY = "TRIANGLE1PB_CACHE_ADAPTERS_ONLY_NO_PATTERN_LOGIC"
 
@@ -461,6 +461,177 @@ def detect_code(
     return stages, gate
 
 
+
+def build_episode_overlap_audit(stage_df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """Audit repeated accumulation detections without changing any detector gate."""
+    if stage_df.empty:
+        empty = pd.DataFrame()
+        return empty, pd.DataFrame([{
+            "episodes": 0, "consecutive_runs": 0, "episodes_in_multi_day_runs": 0,
+            "episodes_in_multi_day_runs_pct": 0.0, "median_run_len": float("nan"),
+            "p90_run_len": float("nan"), "max_run_len": 0,
+            "used_as_gate": 0,
+        }])
+
+    base = stage_df[stage_df["stage"].eq("LOW224_BASE")].copy()
+    base = base.sort_values(["code", "bar_index", "event_date"])
+    rows = []
+    for code, g in base.groupby("code", sort=True):
+        local_run = 0
+        prev_bar = None
+        for r in g.to_dict("records"):
+            bi = int(r["bar_index"])
+            if prev_bar is None or bi - prev_bar > 1:
+                local_run += 1
+            rows.append({
+                "episode_id": r["episode_id"],
+                "code": str(code),
+                "event_date": r["event_date"],
+                "bar_index": bi,
+                "consecutive_accum_run_id": f"{code}:RUN{local_run}",
+            })
+            prev_bar = bi
+
+    detail = pd.DataFrame(rows)
+    sizes = (
+        detail.groupby(["code", "consecutive_accum_run_id"])
+        .size().rename("run_length").reset_index()
+    )
+    detail = detail.merge(sizes, on=["code", "consecutive_accum_run_id"], how="left")
+    multi_episodes = int(detail.loc[detail["run_length"].gt(1)].shape[0])
+    n = int(len(detail))
+    summ = pd.DataFrame([{
+        "episodes": n,
+        "consecutive_runs": int(len(sizes)),
+        "episodes_in_multi_day_runs": multi_episodes,
+        "episodes_in_multi_day_runs_pct": (multi_episodes / n * 100.0) if n else 0.0,
+        "median_run_len": float(sizes["run_length"].median()) if not sizes.empty else float("nan"),
+        "p90_run_len": float(sizes["run_length"].quantile(0.90)) if not sizes.empty else float("nan"),
+        "max_run_len": int(sizes["run_length"].max()) if not sizes.empty else 0,
+        "used_as_gate": 0,
+    }])
+    return detail, summ
+
+
+def build_stratified_manual_sample(
+    stage_df: pd.DataFrame,
+    per_stratum: int = 8,
+) -> pd.DataFrame:
+    """Deterministic structural sample across terminal progression strata."""
+    if stage_df.empty:
+        return pd.DataFrame()
+
+    order = {s: i for i, s in enumerate(STAGES)}
+    rows = []
+    for episode_id, g in stage_df.groupby("episode_id", sort=False):
+        gg = g.sort_values(["bar_index", "stage"])
+        stages = list(gg["stage"])
+        max_stage = max(stages, key=lambda x: order[x])
+        rr = gg[gg["stage"].eq("REACCELERATION")]
+        reclaim = (
+            int(pd.to_numeric(rr.iloc[0].get("reaccel_reclaims_prior_wave_high"), errors="coerce"))
+            if not rr.empty and pd.notna(rr.iloc[0].get("reaccel_reclaims_prior_wave_high"))
+            else -1
+        )
+        if max_stage == "GRADUAL_AMOUNT_ACCUM":
+            stratum = "ACCUM_NO_WAVE"
+        elif max_stage == "WAVE1":
+            stratum = "WAVE_NO_PB"
+        elif max_stage == "FIRST_PULLBACK":
+            stratum = "PB_NO_STABLE"
+        elif max_stage == "STABILIZATION":
+            stratum = "STABLE_NO_REACCEL"
+        elif max_stage == "REACCELERATION" and reclaim == 1:
+            stratum = "REACCEL_RECLAIM"
+        else:
+            stratum = "REACCEL_NO_RECLAIM"
+
+        base = gg[gg["stage"].eq("LOW224_BASE")].iloc[0]
+        terminal = gg.iloc[-1]
+        rows.append({
+            "episode_id": episode_id,
+            "code": str(base["code"]),
+            "base_date": base["event_date"],
+            "terminal_stage": max_stage,
+            "terminal_date": terminal["event_date"],
+            "stratum": stratum,
+            "reaccel_reclaims_prior_wave_high": reclaim,
+            "sample_key": hashlib.sha256(str(episode_id).encode("utf-8")).hexdigest(),
+        })
+
+    ep = pd.DataFrame(rows)
+    out = []
+    for stratum, g in ep.groupby("stratum", sort=True):
+        out.append(g.sort_values("sample_key").head(int(per_stratum)))
+    ans = pd.concat(out, ignore_index=True) if out else pd.DataFrame()
+    return ans.drop(columns=["sample_key"], errors="ignore")
+
+
+def build_episode_review_bars(
+    stratified_sample: pd.DataFrame,
+    stage_df: pd.DataFrame,
+    frames: Dict[str, pd.DataFrame],
+    pre_base_bars: int = 30,
+    post_terminal_bars: int = 15,
+) -> pd.DataFrame:
+    """Review each sampled episode from pre-base through post-terminal.
+
+    Stage labels are attached to the exact bar where they occurred. Future bars
+    after terminal are explicit visual-audit rows only.
+    """
+    if stratified_sample.empty:
+        return pd.DataFrame()
+    rows = []
+    for sr in stratified_sample.to_dict("records"):
+        episode_id = sr["episode_id"]
+        code = str(sr["code"])
+        df = frames.get(code)
+        if df is None or df.empty:
+            continue
+        eg = stage_df[stage_df["episode_id"].eq(episode_id)].copy()
+        if eg.empty:
+            continue
+
+        dates = pd.to_datetime(df["date"]).dt.normalize()
+        base_date = pd.Timestamp(eg.loc[eg["stage"].eq("LOW224_BASE"), "event_date"].iloc[0]).normalize()
+        terminal_date = pd.Timestamp(eg.sort_values("bar_index").iloc[-1]["event_date"]).normalize()
+        bidx = np.where(dates.to_numpy() == base_date.to_datetime64())[0]
+        tidx = np.where(dates.to_numpy() == terminal_date.to_datetime64())[0]
+        if len(bidx) != 1 or len(tidx) != 1:
+            continue
+        bidx = int(bidx[0]); tidx = int(tidx[0])
+
+        stage_map: Dict[str, List[str]] = {}
+        for er in eg.to_dict("records"):
+            stage_map.setdefault(str(er["event_date"]), []).append(str(er["stage"]))
+
+        for j in range(max(0, bidx-pre_base_bars), min(len(df), tidx+post_terminal_bars+1)):
+            r = df.iloc[j]
+            d = pd.Timestamp(r["date"]).date().isoformat()
+            rows.append({
+                "schema": SCHEMA,
+                "strategy_id": STRATEGY_ID,
+                "episode_id": episode_id,
+                "code": code,
+                "stratum": sr["stratum"],
+                "base_date": base_date.date().isoformat(),
+                "terminal_stage": sr["terminal_stage"],
+                "terminal_date": terminal_date.date().isoformat(),
+                "bar_offset_from_base": int(j-bidx),
+                "bar_offset_from_terminal": int(j-tidx),
+                "future_after_terminal_for_visual_audit": int(j > tidx),
+                "stage_labels_on_bar": "|".join(stage_map.get(d, [])),
+                "date": d,
+                "open": float(r["open"]),
+                "high": float(r["high"]),
+                "low": float(r["low"]),
+                "close": float(r["close"]),
+                "volume": float(r["volume"]) if _finite(r["volume"]) else float("nan"),
+                "actual_amount": float(r["amount"]) if _finite(r["amount"]) else float("nan"),
+            })
+    return pd.DataFrame(rows)
+
+
 def build_forward_outcomes(
     stage_df: pd.DataFrame,
     frames: Dict[str, pd.DataFrame],
@@ -674,6 +845,14 @@ def run(args: argparse.Namespace) -> int:
     sample = deterministic_manual_sample(stage_df, args.manual_sample_limit)
     review_bars = build_review_bars(sample, frames)
 
+    overlap_detail, overlap_summary = build_episode_overlap_audit(stage_df)
+    stratified_sample = build_stratified_manual_sample(
+        stage_df, per_stratum=int(args.stratified_sample_per_group)
+    )
+    episode_review_bars = build_episode_review_bars(
+        stratified_sample, stage_df, frames
+    )
+
     stage_counts = (
         stage_df["stage"].value_counts().reindex(STAGES, fill_value=0).rename_axis("stage").reset_index(name="count")
         if not stage_df.empty else pd.DataFrame({"stage":STAGES,"count":[0]*len(STAGES)})
@@ -731,6 +910,10 @@ def run(args: argparse.Namespace) -> int:
         "stage_counts": dict(zip(stage_counts["stage"], stage_counts["count"].astype(int))),
         "episodes": episodes,
         "manual_sample_episodes": int(len(sample)),
+        "stratified_manual_sample_episodes": int(len(stratified_sample)),
+        "episode_overlap_audit": overlap_summary.to_dict("records"),
+        "sample_fidelity_audit_only": True,
+        "detector_gate_changed": False,
         "lookahead_fail": lookahead_fail,
         "deterministic_fail": deterministic_fail,
         "actual_amount_synthetic_fallback_rows": 0,
@@ -757,6 +940,10 @@ def run(args: argparse.Namespace) -> int:
     write_csv(stage_summary, "low224_stage_outcome_summary.csv")
     write_csv(sample, "low224_manual_review_sample.csv")
     write_csv(review_bars, "low224_manual_review_bars.csv")
+    write_csv(overlap_detail, "low224_episode_overlap_audit.csv")
+    write_csv(overlap_summary, "low224_episode_overlap_summary.csv")
+    write_csv(stratified_sample, "low224_stratified_manual_review_sample.csv")
+    write_csv(episode_review_bars, "low224_episode_review_bars.csv")
     write_csv(authority, "low224_authority_audit.csv")
     (out/"low224_manifest.json").write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
 
@@ -778,7 +965,20 @@ def run(args: argparse.Namespace) -> int:
         "",
         "📦 [Stage counts]",
         " · ".join(f"{st} {int(sc.get(st,0))}" for st in STAGES),
-        f"episodes {episodes} · manual review sample {len(sample)}",
+        f"episodes {episodes} · legacy manual sample {len(sample)}",
+        "",
+        "🧬 [Sample Fidelity Audit · detector 변경 없음]",
+        (
+            f"consecutive accumulation runs {int(overlap_summary.iloc[0]['consecutive_runs']):,}"
+            f" / raw episodes {int(overlap_summary.iloc[0]['episodes']):,}"
+        ),
+        (
+            f"multi-day run 내부 중복 episode "
+            f"{int(overlap_summary.iloc[0]['episodes_in_multi_day_runs']):,}"
+            f" ({float(overlap_summary.iloc[0]['episodes_in_multi_day_runs_pct']):.1f}%)"
+        ),
+        f"stratified manual sample {len(stratified_sample)} · episode 전체구간 review bars 저장",
+        "※ 이 audit는 threshold/gate를 바꾸지 않고 표본 독립성·육안검증 품질만 측정",
         "",
         "🛡️ [Authority]",
         f"actual Amount coverage {amount_coverage:.2f}% · Close×Volume fallback 0",
@@ -786,7 +986,7 @@ def run(args: argparse.Namespace) -> int:
         f"lookahead {lookahead_fail} · deterministic {deterministic_fail}",
         "",
         "⚠️ R1 원칙: 성과로 threshold를 조정하지 않습니다.",
-        "➡️ NEXT: manual review bars로 실제 '224 아래→스물스물 Amount→1파→첫눌림' 구조가 맞는지 먼저 검증",
+        "➡️ NEXT: stratified episode review bars로 단계별 구조를 먼저 육안검증 · 중복-run은 audit만 하고 detector는 아직 변경 금지",
     ]
     (out/"low224_report.txt").write_text("\n".join(report), encoding="utf-8")
     print("\n".join(report))
@@ -860,6 +1060,7 @@ def main() -> int:
     ap.add_argument("--end-date", default="")
     ap.add_argument("--max-codes", type=int, default=0)
     ap.add_argument("--manual-sample-limit", type=int, default=40)
+    ap.add_argument("--stratified-sample-per-group", type=int, default=8)
     ap.add_argument("--self-test", action="store_true")
     args = ap.parse_args()
     if args.self_test:
