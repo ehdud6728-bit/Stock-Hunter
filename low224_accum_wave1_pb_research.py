@@ -42,7 +42,7 @@ from triangle1pb_research import (
 
 SCHEMA = "LOW224_ACCUM_WAVE1_PB_RESEARCH_SCHEMA_V1"
 STRATEGY_ID = "LOW224_ACCUM_WAVE1_PB_R1_STRUCTURE_FIRST"
-LOADER_REVISION = "LOW224_R1_0_3_RAW_ACCUM_PERSISTENCE_AUDIT"
+LOADER_REVISION = "LOW224_R1_0_4_FIRST_PULLBACK_ANATOMY_AUDIT"
 RESEARCH_AUTHORITY = "RESEARCH_ONLY_NO_LIVE_NO_SCORE_NO_RANK_NO_ORDERS"
 SHARED_DATA_AUTHORITY_ONLY = "TRIANGLE1PB_CACHE_ADAPTERS_ONLY_NO_PATTERN_LOGIC"
 
@@ -1112,6 +1112,241 @@ def build_raw_accum_persistence_audit(
     return raw, runs, ep, summary
 
 
+
+def build_first_pullback_anatomy_audit(
+    stage_df: pd.DataFrame,
+    frames: Dict[str, pd.DataFrame],
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """Causal anatomy of the existing FIRST_PULLBACK stage.
+
+    No pullback rule is changed. Every descriptor in the main anatomy columns
+    uses only information available on or before the FIRST_PULLBACK bar.
+    A small explicitly named `future_taxonomy_*` block is also saved for
+    structural review only and is never a gate.
+    """
+    if stage_df.empty:
+        return pd.DataFrame(), pd.DataFrame()
+
+    rows: List[Dict[str, Any]] = []
+    for episode_id, eg in stage_df.groupby("episode_id", sort=False):
+        eg = eg.sort_values("bar_index")
+        wave = eg[eg["stage"].eq("WAVE1")]
+        pb = eg[eg["stage"].eq("FIRST_PULLBACK")]
+        if wave.empty or pb.empty:
+            continue
+
+        w = wave.iloc[0]
+        p = pb.iloc[0]
+        code = str(w["code"])
+        df = frames.get(code)
+        if df is None or df.empty:
+            continue
+
+        wi = int(w["bar_index"])
+        pi = int(p["bar_index"])
+        if wi < 0 or pi <= wi or pi >= len(df):
+            continue
+
+        wave_amt = float(w["actual_amount"]) if _finite(w.get("actual_amount")) else float("nan")
+        pb_amt = float(p["actual_amount"]) if _finite(p.get("actual_amount")) else float("nan")
+        prior_breakout_high = (
+            float(w.get("wave1_prior_high20"))
+            if _finite(w.get("wave1_prior_high20"))
+            else float("nan")
+        )
+        wave_close = float(w["close"])
+        pb_close = float(p["close"])
+        pb_low = float(p["low"])
+        pb_open = float(p["open"])
+        running_wave_high = (
+            float(p.get("running_wave_high"))
+            if _finite(p.get("running_wave_high"))
+            else float("nan")
+        )
+
+        # Actual Amount during bars after WAVE1 through FIRST_PULLBACK,
+        # inclusive. This is causal at FIRST_PULLBACK.
+        path = df.iloc[wi+1:pi+1]
+        path_amt = pd.to_numeric(path["amount"], errors="coerce")
+        path_amt = path_amt[path_amt > 0]
+        path_close = pd.to_numeric(path["close"], errors="coerce")
+        path_low = pd.to_numeric(path["low"], errors="coerce")
+
+        wave_amt20_prior = (
+            float(w.get("wave1_amount20_mean_prior"))
+            if _finite(w.get("wave1_amount20_mean_prior"))
+            else float("nan")
+        )
+
+        rr = {
+            "schema": SCHEMA,
+            "strategy_id": STRATEGY_ID,
+            "episode_id": episode_id,
+            "code": code,
+            "wave1_date": w["event_date"],
+            "first_pullback_date": p["event_date"],
+            "wave_to_pb_trading_bars": int(pi - wi),
+            "pullback_drawdown_from_running_wave_high": (
+                float(p.get("pullback_drawdown_from_running_wave_high"))
+                if _finite(p.get("pullback_drawdown_from_running_wave_high"))
+                else float("nan")
+            ),
+            "pb_close_vs_wave_close_pct": (
+                (pb_close / wave_close - 1.0) * 100.0 if wave_close > 0 else float("nan")
+            ),
+            "pb_amount_vs_wave": (
+                pb_amt / wave_amt
+                if _finite(pb_amt) and _finite(wave_amt) and wave_amt > 0
+                else float("nan")
+            ),
+            "pb_amount_vs_wave_amount20_prior": (
+                pb_amt / wave_amt20_prior
+                if _finite(pb_amt) and _finite(wave_amt20_prior) and wave_amt20_prior > 0
+                else float("nan")
+            ),
+            "pb_path_amount_median_vs_wave": (
+                float(path_amt.median()) / wave_amt
+                if len(path_amt) and _finite(wave_amt) and wave_amt > 0
+                else float("nan")
+            ),
+            "pb_path_amount_max_vs_wave": (
+                float(path_amt.max()) / wave_amt
+                if len(path_amt) and _finite(wave_amt) and wave_amt > 0
+                else float("nan")
+            ),
+            "pb_close_above_prior_breakout_high": (
+                int(pb_close >= prior_breakout_high)
+                if _finite(prior_breakout_high) else -1
+            ),
+            "pb_low_above_prior_breakout_high": (
+                int(pb_low >= prior_breakout_high)
+                if _finite(prior_breakout_high) else -1
+            ),
+            "pb_close_vs_prior_breakout_high_pct": (
+                (pb_close / prior_breakout_high - 1.0) * 100.0
+                if _finite(prior_breakout_high) and prior_breakout_high > 0
+                else float("nan")
+            ),
+            "pb_low_vs_prior_breakout_high_pct": (
+                (pb_low / prior_breakout_high - 1.0) * 100.0
+                if _finite(prior_breakout_high) and prior_breakout_high > 0
+                else float("nan")
+            ),
+            "pb_green_candle": int(pb_close > pb_open),
+            "pb_path_red_close_fraction": (
+                float((path_close.diff().dropna() < 0).mean())
+                if len(path_close) >= 2 else float("nan")
+            ),
+            "used_as_gate": 0,
+        }
+
+        # Explicit future taxonomy: subsequent 5 bars only for structural audit.
+        future = df.iloc[pi+1:min(len(df), pi+6)]
+        if not future.empty:
+            future_lows = pd.to_numeric(future["low"], errors="coerce")
+            future_closes = pd.to_numeric(future["close"], errors="coerce")
+            rr.update({
+                "future_taxonomy_lower_low_within5": int(
+                    bool((future_lows < pb_low).any())
+                ),
+                "future_taxonomy_close_reclaim_pb_high_within5": int(
+                    bool((future_closes > float(p["high"])).any())
+                ),
+                "future_taxonomy_only_not_gate": 1,
+            })
+        else:
+            rr.update({
+                "future_taxonomy_lower_low_within5": -1,
+                "future_taxonomy_close_reclaim_pb_high_within5": -1,
+                "future_taxonomy_only_not_gate": 1,
+            })
+        rows.append(rr)
+
+    detail = pd.DataFrame(rows)
+    if detail.empty:
+        return detail, pd.DataFrame()
+
+    def q(col: str, p: float) -> float:
+        x = pd.to_numeric(detail[col], errors="coerce").dropna()
+        return float(x.quantile(p)) if len(x) else float("nan")
+
+    valid_support = detail[pd.to_numeric(
+        detail["pb_close_above_prior_breakout_high"], errors="coerce"
+    ).ge(0)]
+    valid_future = detail[pd.to_numeric(
+        detail["future_taxonomy_lower_low_within5"], errors="coerce"
+    ).ge(0)]
+
+    summary = pd.DataFrame([{
+        "schema": SCHEMA,
+        "strategy_id": STRATEGY_ID,
+        "pullback_events": int(len(detail)),
+        "wave_to_pb_bars_median": q("wave_to_pb_trading_bars", .50),
+        "wave_to_pb_bars_p75": q("wave_to_pb_trading_bars", .75),
+        "wave_to_pb_1bar_pct": float(
+            pd.to_numeric(detail["wave_to_pb_trading_bars"], errors="coerce").eq(1).mean() * 100.0
+        ),
+        "drawdown_median_pct": q("pullback_drawdown_from_running_wave_high", .50) * 100.0,
+        "drawdown_p75_pct": q("pullback_drawdown_from_running_wave_high", .75) * 100.0,
+        "pb_amount_vs_wave_median": q("pb_amount_vs_wave", .50),
+        "pb_amount_vs_wave_p75": q("pb_amount_vs_wave", .75),
+        "pb_amount_vs_wave_ge1_pct": float(
+            pd.to_numeric(detail["pb_amount_vs_wave"], errors="coerce").ge(1.0).mean() * 100.0
+        ),
+        "pb_path_amount_median_vs_wave_median": q("pb_path_amount_median_vs_wave", .50),
+        "pb_close_above_prior_breakout_high_pct": float(
+            pd.to_numeric(valid_support["pb_close_above_prior_breakout_high"], errors="coerce").eq(1).mean() * 100.0
+        ) if len(valid_support) else float("nan"),
+        "pb_low_above_prior_breakout_high_pct": float(
+            pd.to_numeric(valid_support["pb_low_above_prior_breakout_high"], errors="coerce").eq(1).mean() * 100.0
+        ) if len(valid_support) else float("nan"),
+        "future_taxonomy_lower_low_within5_pct": float(
+            pd.to_numeric(valid_future["future_taxonomy_lower_low_within5"], errors="coerce").eq(1).mean() * 100.0
+        ) if len(valid_future) else float("nan"),
+        "future_taxonomy_only_not_gate": 1,
+        "used_as_gate": 0,
+    }])
+    return detail, summary
+
+
+def build_pullback_stratified_sample(
+    anatomy: pd.DataFrame,
+    per_group: int = 8,
+) -> pd.DataFrame:
+    """Deterministic pullback anatomy sample; no outcome fields used."""
+    if anatomy.empty:
+        return pd.DataFrame()
+
+    x = anatomy.copy()
+    amt = pd.to_numeric(x["pb_amount_vs_wave"], errors="coerce")
+    support = pd.to_numeric(x["pb_close_above_prior_breakout_high"], errors="coerce")
+    bars = pd.to_numeric(x["wave_to_pb_trading_bars"], errors="coerce")
+
+    def classify(i: int) -> str:
+        # Semantic review buckets only; not gates.
+        if support.iloc[i] == 1 and amt.iloc[i] <= 0.5:
+            return "SUPPORT_HOLD_DRY"
+        if support.iloc[i] == 1 and amt.iloc[i] > 0.5:
+            return "SUPPORT_HOLD_ACTIVE"
+        if support.iloc[i] == 0 and amt.iloc[i] <= 0.5:
+            return "SUPPORT_UNDERCUT_DRY"
+        if support.iloc[i] == 0 and amt.iloc[i] > 0.5:
+            return "SUPPORT_UNDERCUT_ACTIVE"
+        if bars.iloc[i] == 1:
+            return "IMMEDIATE_PB"
+        return "OTHER"
+
+    x["pb_review_stratum"] = [classify(i) for i in range(len(x))]
+    x["sample_key"] = x["episode_id"].map(
+        lambda v: hashlib.sha256(str(v).encode("utf-8")).hexdigest()
+    )
+    out = []
+    for st, g in x.groupby("pb_review_stratum", sort=True):
+        out.append(g.sort_values("sample_key").head(int(per_group)))
+    ans = pd.concat(out, ignore_index=True) if out else pd.DataFrame()
+    return ans.drop(columns=["sample_key"], errors="ignore")
+
+
 def build_forward_outcomes(
     stage_df: pd.DataFrame,
     frames: Dict[str, pd.DataFrame],
@@ -1338,6 +1573,13 @@ def run(args: argparse.Namespace) -> int:
         )
     )
 
+    pullback_anatomy, pullback_anatomy_summary = (
+        build_first_pullback_anatomy_audit(stage_df, frames)
+    )
+    pullback_review_sample = build_pullback_stratified_sample(
+        pullback_anatomy, per_group=8
+    )
+
     stratified_sample = build_stratified_manual_sample(
         stage_df, per_stratum=int(args.stratified_sample_per_group)
     )
@@ -1407,9 +1649,11 @@ def run(args: argparse.Namespace) -> int:
         "run_level_funnel_audit": run_funnel_summary.to_dict("records"),
         "structure_context_audit": structure_context_summary.to_dict("records"),
         "raw_accum_persistence_audit": raw_accum_summary.to_dict("records"),
+        "first_pullback_anatomy_audit": pullback_anatomy_summary.to_dict("records"),
         "sample_fidelity_audit_only": True,
         "run_context_wave_character_audit_only": True,
         "raw_accum_persistence_audit_only": True,
+        "first_pullback_anatomy_audit_only": True,
         "detector_gate_changed": False,
         "lookahead_fail": lookahead_fail,
         "deterministic_fail": deterministic_fail,
@@ -1447,6 +1691,9 @@ def run(args: argparse.Namespace) -> int:
     write_csv(raw_accum_runs, "low224_raw_accum_run_detail.csv")
     write_csv(raw_accum_episode_context, "low224_raw_accum_episode_context.csv")
     write_csv(raw_accum_summary, "low224_raw_accum_persistence_summary.csv")
+    write_csv(pullback_anatomy, "low224_first_pullback_anatomy_detail.csv")
+    write_csv(pullback_anatomy_summary, "low224_first_pullback_anatomy_summary.csv")
+    write_csv(pullback_review_sample, "low224_first_pullback_review_sample.csv")
     write_csv(stratified_sample, "low224_stratified_manual_review_sample.csv")
     write_csv(episode_review_bars, "low224_episode_review_bars.csv")
     write_csv(authority, "low224_authority_audit.csv")
@@ -1527,13 +1774,35 @@ def run(args: argparse.Namespace) -> int:
         ),
         "※ next_allowed/cooldown/WAVE 결과와 무관하게 모든 eligible bar에서 raw mask 재계산 · gate 미사용",
         "",
+        "🪂 [First Pullback Anatomy · audit only]",
+        (
+            f"PB {int(pullback_anatomy_summary.iloc[0]['pullback_events']):,}"
+            f" · WAVE→PB median {float(pullback_anatomy_summary.iloc[0]['wave_to_pb_bars_median']):.1f} bars"
+            f" · immediate1bar {float(pullback_anatomy_summary.iloc[0]['wave_to_pb_1bar_pct']):.1f}%"
+        ),
+        (
+            f"drawdown median {float(pullback_anatomy_summary.iloc[0]['drawdown_median_pct']):.1f}%"
+            f" · PB Amount/WAVE median {float(pullback_anatomy_summary.iloc[0]['pb_amount_vs_wave_median']):.2f}x"
+            f" · PB Amount≥WAVE {float(pullback_anatomy_summary.iloc[0]['pb_amount_vs_wave_ge1_pct']):.1f}%"
+        ),
+        (
+            f"close keeps breakout-high {float(pullback_anatomy_summary.iloc[0]['pb_close_above_prior_breakout_high_pct']):.1f}%"
+            f" · low keeps breakout-high {float(pullback_anatomy_summary.iloc[0]['pb_low_above_prior_breakout_high_pct']):.1f}%"
+        ),
+        (
+            f"future taxonomy lower-low≤5 "
+            f"{float(pullback_anatomy_summary.iloc[0]['future_taxonomy_lower_low_within5_pct']):.1f}%"
+            " (미래 audit only)"
+        ),
+        "※ support/Amount contraction/future taxonomy 모두 아직 FIRST_PB gate 미사용",
+        "",
         "🛡️ [Authority]",
         f"actual Amount coverage {amount_coverage:.2f}% · Close×Volume fallback 0",
         f"as-of snapshots {len(universe.dates)} · future fallback 0",
         f"lookahead {lookahead_fail} · deterministic {deterministic_fail}",
         "",
         "⚠️ R1 원칙: 성과로 threshold를 조정하지 않습니다.",
-        "➡️ NEXT: raw accumulation persistence로 '스물스물'이 실제 반복되는지 확인한 뒤 GRADUAL_AMOUNT_ACCUM 정의 유지/수정 여부 결정",
+        "➡️ NEXT: FIRST_PB가 실제 첫 눌림인지 support 유지·Amount 수축·후속 lower-low 구조를 확인한 뒤 FIRST_PULLBACK 정의 유지/수정 결정",
     ]
     (out/"low224_report.txt").write_text("\n".join(report), encoding="utf-8")
     print("\n".join(report))
