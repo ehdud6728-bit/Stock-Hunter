@@ -42,7 +42,7 @@ from triangle1pb_research import (
 
 SCHEMA = "LOW224_ACCUM_WAVE1_PB_RESEARCH_SCHEMA_V1"
 STRATEGY_ID = "LOW224_ACCUM_WAVE1_PB_R1_STRUCTURE_FIRST"
-LOADER_REVISION = "LOW224_R1_0_1_SAMPLE_FIDELITY_AUDIT"
+LOADER_REVISION = "LOW224_R1_0_2_RUN_CONTEXT_WAVE_CHARACTER_AUDIT"
 RESEARCH_AUTHORITY = "RESEARCH_ONLY_NO_LIVE_NO_SCORE_NO_RANK_NO_ORDERS"
 SHARED_DATA_AUTHORITY_ONLY = "TRIANGLE1PB_CACHE_ADAPTERS_ONLY_NO_PATTERN_LOGIC"
 
@@ -632,6 +632,219 @@ def build_episode_review_bars(
     return pd.DataFrame(rows)
 
 
+
+def build_run_level_funnel(
+    stage_df: pd.DataFrame,
+    overlap_detail: pd.DataFrame,
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """Collapse consecutive accumulation detections for audit only.
+
+    This does NOT change the detector or episode ledger. It asks how many
+    independent-looking accumulation *runs* existed and whether any raw episode
+    inside each run later reached each stage.
+    """
+    if stage_df.empty or overlap_detail.empty:
+        empty = pd.DataFrame()
+        return empty, pd.DataFrame([{
+            "runs": 0, "wave1_runs": 0, "first_pullback_runs": 0,
+            "stabilization_runs": 0, "reacceleration_runs": 0,
+            "used_as_gate": 0,
+        }])
+
+    base = stage_df[stage_df["stage"].eq("LOW224_BASE")][
+        ["episode_id", "code", "event_date", "bar_index"]
+    ].copy()
+    m = base.merge(
+        overlap_detail[[
+            "episode_id", "consecutive_accum_run_id", "run_length"
+        ]],
+        on="episode_id", how="left"
+    )
+    presence = (
+        stage_df.assign(v=1)
+        .pivot_table(index="episode_id", columns="stage", values="v", aggfunc="max", fill_value=0)
+        .reset_index()
+    )
+    dates = (
+        stage_df[stage_df["stage"].isin(["WAVE1","FIRST_PULLBACK","STABILIZATION","REACCELERATION"])]
+        .pivot_table(index="episode_id", columns="stage", values="event_date", aggfunc="min")
+        .reset_index()
+    )
+    m = m.merge(presence, on="episode_id", how="left").merge(dates, on="episode_id", how="left", suffixes=("","_date"))
+
+    rows = []
+    for rid, g in m.groupby("consecutive_accum_run_id", sort=True):
+        run_start = pd.to_datetime(g["event_date"]).min()
+        run_end = pd.to_datetime(g["event_date"]).max()
+        rr = {
+            "schema": SCHEMA,
+            "strategy_id": STRATEGY_ID,
+            "consecutive_accum_run_id": rid,
+            "code": str(g["code"].iloc[0]),
+            "run_start_date": run_start.date().isoformat(),
+            "run_end_date": run_end.date().isoformat(),
+            "run_length_episodes": int(len(g)),
+            "used_as_gate": 0,
+        }
+        for st in ["WAVE1","FIRST_PULLBACK","STABILIZATION","REACCELERATION"]:
+            has = int(pd.to_numeric(g.get(st, 0), errors="coerce").fillna(0).gt(0).any())
+            rr[f"{st.lower()}_any"] = has
+            vals = pd.to_datetime(g.get(f"{st}_date"), errors="coerce").dropna() if f"{st}_date" in g else pd.Series(dtype="datetime64[ns]")
+            if len(vals):
+                first = vals.min()
+                rr[f"{st.lower()}_first_date"] = first.date().isoformat()
+                rr[f"{st.lower()}_calendar_days_from_run_start"] = int((first-run_start).days)
+                rr[f"{st.lower()}_calendar_days_from_run_end"] = int((first-run_end).days)
+            else:
+                rr[f"{st.lower()}_first_date"] = ""
+                rr[f"{st.lower()}_calendar_days_from_run_start"] = -1
+                rr[f"{st.lower()}_calendar_days_from_run_end"] = -1
+        rows.append(rr)
+
+    detail = pd.DataFrame(rows)
+    summ = pd.DataFrame([{
+        "schema": SCHEMA,
+        "strategy_id": STRATEGY_ID,
+        "runs": int(len(detail)),
+        "wave1_runs": int(detail["wave1_any"].sum()),
+        "first_pullback_runs": int(detail["first_pullback_any"].sum()),
+        "stabilization_runs": int(detail["stabilization_any"].sum()),
+        "reacceleration_runs": int(detail["reacceleration_any"].sum()),
+        "wave1_rate_pct": float(detail["wave1_any"].mean()*100.0) if len(detail) else 0.0,
+        "first_pullback_rate_pct": float(detail["first_pullback_any"].mean()*100.0) if len(detail) else 0.0,
+        "stabilization_rate_pct": float(detail["stabilization_any"].mean()*100.0) if len(detail) else 0.0,
+        "reacceleration_rate_pct": float(detail["reacceleration_any"].mean()*100.0) if len(detail) else 0.0,
+        "wave1_days_from_run_start_median": float(
+            pd.to_numeric(detail.loc[detail["wave1_any"].eq(1),"wave1_calendar_days_from_run_start"], errors="coerce").median()
+        ) if int(detail["wave1_any"].sum()) else float("nan"),
+        "wave1_days_from_run_start_p90": float(
+            pd.to_numeric(detail.loc[detail["wave1_any"].eq(1),"wave1_calendar_days_from_run_start"], errors="coerce").quantile(.90)
+        ) if int(detail["wave1_any"].sum()) else float("nan"),
+        "used_as_gate": 0,
+    }])
+    return detail, summ
+
+
+def build_structure_context_audit(
+    stage_df: pd.DataFrame,
+    frames: Dict[str, pd.DataFrame],
+) -> pd.DataFrame:
+    """Add causal context descriptors without changing any detector gate."""
+    rows = []
+    if stage_df.empty:
+        return pd.DataFrame()
+
+    episode_groups = stage_df.groupby("episode_id", sort=False)
+    for episode_id, eg in episode_groups:
+        eg = eg.sort_values("bar_index")
+        base = eg[eg["stage"].eq("LOW224_BASE")]
+        accum = eg[eg["stage"].eq("GRADUAL_AMOUNT_ACCUM")]
+        if base.empty or accum.empty:
+            continue
+        b = base.iloc[0]
+        code = str(b["code"])
+        df = frames.get(code)
+        if df is None or df.empty:
+            continue
+        bi = int(b["bar_index"])
+        if bi >= len(df):
+            continue
+
+        close = float(df.iloc[bi]["close"])
+        lo60 = float(pd.to_numeric(df["low"].iloc[max(0,bi-59):bi+1], errors="coerce").min())
+        hi60 = float(pd.to_numeric(df["high"].iloc[max(0,bi-59):bi+1], errors="coerce").max())
+        pos60 = (close-lo60)/(hi60-lo60) if hi60 > lo60 else float("nan")
+        dd60 = close/hi60-1.0 if hi60 > 0 else float("nan")
+
+        # Causal actual-Amount shape around accumulation anchor.
+        recent = pd.to_numeric(df["amount"].iloc[max(0,bi-4):bi+1], errors="coerce")
+        recent = recent[recent > 0]
+        prior = pd.to_numeric(df["amount"].iloc[max(0,bi-24):max(0,bi-4)], errors="coerce")
+        prior = prior[prior > 0]
+        up_steps = int((recent.diff().dropna() > 0).sum()) if len(recent) >= 2 else -1
+        recent_cv = float(recent.std(ddof=0)/recent.mean()) if len(recent) >= 2 and float(recent.mean()) > 0 else float("nan")
+        recent_max_med = float(recent.max()/recent.median()) if len(recent) and float(recent.median()) > 0 else float("nan")
+        prior_med = float(prior.median()) if len(prior) else float("nan")
+        prior_spike2 = int((prior > prior_med*2.0).sum()) if _finite(prior_med) and prior_med > 0 else -1
+
+        rr = {
+            "schema": SCHEMA,
+            "strategy_id": STRATEGY_ID,
+            "episode_id": episode_id,
+            "code": code,
+            "base_date": b["event_date"],
+            "base_close_vs_ma224_pct": float(b.get("close_vs_ma224_pct")) if _finite(b.get("close_vs_ma224_pct")) else float("nan"),
+            "base_below_ma224_frac20": float(b.get("below_ma224_frac20")) if _finite(b.get("below_ma224_frac20")) else float("nan"),
+            "base_range_position60": pos60,
+            "base_drawdown_from_high60": dd60,
+            "accum_recent5_up_steps": up_steps,
+            "accum_recent5_cv": recent_cv,
+            "accum_recent5_max_over_median": recent_max_med,
+            "accum_prior20_spike2_count": prior_spike2,
+            "used_as_gate": 0,
+        }
+
+        wave = eg[eg["stage"].eq("WAVE1")]
+        if not wave.empty:
+            w = wave.iloc[0]
+            wi = int(w["bar_index"])
+            prev_close = float(df.iloc[wi-1]["close"]) if wi >= 1 else float("nan")
+            op = float(df.iloc[wi]["open"])
+            cl = float(df.iloc[wi]["close"])
+            rr.update({
+                "wave1_present": 1,
+                "wave1_date": w["event_date"],
+                "wave1_trading_bars_from_base": int(wi-bi),
+                "wave1_gain_from_base_low": float(w.get("wave1_gain_from_base_low")) if _finite(w.get("wave1_gain_from_base_low")) else float("nan"),
+                "wave1_amount20_ratio": float(w.get("wave1_amount20_ratio")) if _finite(w.get("wave1_amount20_ratio")) else float("nan"),
+                "wave1_gap_pct": (op/prev_close-1.0)*100.0 if _finite(prev_close) and prev_close>0 else float("nan"),
+                "wave1_day_close_ret_pct": (cl/prev_close-1.0)*100.0 if _finite(prev_close) and prev_close>0 else float("nan"),
+                "wave1_body_pct": (cl/op-1.0)*100.0 if op>0 else float("nan"),
+            })
+        else:
+            rr["wave1_present"] = 0
+
+        rows.append(rr)
+    return pd.DataFrame(rows)
+
+
+def build_structure_context_summary(ctx: pd.DataFrame) -> pd.DataFrame:
+    if ctx.empty:
+        return pd.DataFrame()
+    wave = ctx[ctx["wave1_present"].eq(1)].copy()
+    def q(series, p):
+        return float(pd.to_numeric(series, errors="coerce").quantile(p)) if len(series) else float("nan")
+    return pd.DataFrame([{
+        "schema": SCHEMA,
+        "strategy_id": STRATEGY_ID,
+        "episodes": int(len(ctx)),
+        "base_below_ma224_frac20_lt50_pct": float(
+            (pd.to_numeric(ctx["base_below_ma224_frac20"], errors="coerce") < 0.5).mean()*100.0
+        ),
+        "base_range_position60_median": q(ctx["base_range_position60"], .5),
+        "base_range_position60_p75": q(ctx["base_range_position60"], .75),
+        "accum_recent5_up_steps_median": q(ctx["accum_recent5_up_steps"], .5),
+        "accum_recent5_cv_median": q(ctx["accum_recent5_cv"], .5),
+        "accum_recent5_max_over_median_median": q(ctx["accum_recent5_max_over_median"], .5),
+        "wave1_events": int(len(wave)),
+        "wave1_trading_bars_from_base_median": q(wave["wave1_trading_bars_from_base"], .5),
+        "wave1_amount20_ratio_median": q(wave["wave1_amount20_ratio"], .5),
+        "wave1_amount20_ratio_p75": q(wave["wave1_amount20_ratio"], .75),
+        "wave1_amount20_ratio_p90": q(wave["wave1_amount20_ratio"], .90),
+        "wave1_amount20_ratio_ge10_pct": float(
+            (pd.to_numeric(wave["wave1_amount20_ratio"], errors="coerce") >= 10.0).mean()*100.0
+        ) if len(wave) else 0.0,
+        "wave1_gain_from_base_low_median": q(wave["wave1_gain_from_base_low"], .5),
+        "wave1_gain_from_base_low_ge30_pct": float(
+            (pd.to_numeric(wave["wave1_gain_from_base_low"], errors="coerce") >= 0.30).mean()*100.0
+        ) if len(wave) else 0.0,
+        "wave1_gap_ge5_pct": float(
+            (pd.to_numeric(wave["wave1_gap_pct"], errors="coerce") >= 5.0).mean()*100.0
+        ) if len(wave) else 0.0,
+        "used_as_gate": 0,
+    }])
+
+
 def build_forward_outcomes(
     stage_df: pd.DataFrame,
     frames: Dict[str, pd.DataFrame],
@@ -846,6 +1059,12 @@ def run(args: argparse.Namespace) -> int:
     review_bars = build_review_bars(sample, frames)
 
     overlap_detail, overlap_summary = build_episode_overlap_audit(stage_df)
+    run_funnel_detail, run_funnel_summary = build_run_level_funnel(
+        stage_df, overlap_detail
+    )
+    structure_context = build_structure_context_audit(stage_df, frames)
+    structure_context_summary = build_structure_context_summary(structure_context)
+
     stratified_sample = build_stratified_manual_sample(
         stage_df, per_stratum=int(args.stratified_sample_per_group)
     )
@@ -912,7 +1131,10 @@ def run(args: argparse.Namespace) -> int:
         "manual_sample_episodes": int(len(sample)),
         "stratified_manual_sample_episodes": int(len(stratified_sample)),
         "episode_overlap_audit": overlap_summary.to_dict("records"),
+        "run_level_funnel_audit": run_funnel_summary.to_dict("records"),
+        "structure_context_audit": structure_context_summary.to_dict("records"),
         "sample_fidelity_audit_only": True,
+        "run_context_wave_character_audit_only": True,
         "detector_gate_changed": False,
         "lookahead_fail": lookahead_fail,
         "deterministic_fail": deterministic_fail,
@@ -942,6 +1164,10 @@ def run(args: argparse.Namespace) -> int:
     write_csv(review_bars, "low224_manual_review_bars.csv")
     write_csv(overlap_detail, "low224_episode_overlap_audit.csv")
     write_csv(overlap_summary, "low224_episode_overlap_summary.csv")
+    write_csv(run_funnel_detail, "low224_run_level_funnel_detail.csv")
+    write_csv(run_funnel_summary, "low224_run_level_funnel_summary.csv")
+    write_csv(structure_context, "low224_structure_context_audit.csv")
+    write_csv(structure_context_summary, "low224_structure_context_summary.csv")
     write_csv(stratified_sample, "low224_stratified_manual_review_sample.csv")
     write_csv(episode_review_bars, "low224_episode_review_bars.csv")
     write_csv(authority, "low224_authority_audit.csv")
@@ -980,13 +1206,40 @@ def run(args: argparse.Namespace) -> int:
         f"stratified manual sample {len(stratified_sample)} · episode 전체구간 review bars 저장",
         "※ 이 audit는 threshold/gate를 바꾸지 않고 표본 독립성·육안검증 품질만 측정",
         "",
+        "🧭 [Run-level Funnel · audit only]",
+        (
+            f"runs {int(run_funnel_summary.iloc[0]['runs']):,}"
+            f" → WAVE1 {int(run_funnel_summary.iloc[0]['wave1_runs']):,}"
+            f" → PB {int(run_funnel_summary.iloc[0]['first_pullback_runs']):,}"
+            f" → STABLE {int(run_funnel_summary.iloc[0]['stabilization_runs']):,}"
+            f" → REACCEL {int(run_funnel_summary.iloc[0]['reacceleration_runs']):,}"
+        ),
+        (
+            f"run→WAVE1 {float(run_funnel_summary.iloc[0]['wave1_rate_pct']):.1f}%"
+            f" · WAVE1 latency median {float(run_funnel_summary.iloc[0]['wave1_days_from_run_start_median']):.1f}d"
+        ),
+        "※ raw episode를 제거하지 않음 · 독립 표본 단위 후보를 보기 위한 counterfactual audit",
+        "",
+        "🔬 [Base/Accum/Wave Character · audit only]",
+        (
+            f"BASE prior20 MA224 아래<50% "
+            f"{float(structure_context_summary.iloc[0]['base_below_ma224_frac20_lt50_pct']):.1f}%"
+            f" · 60bar range position median {float(structure_context_summary.iloc[0]['base_range_position60_median'])*100:.1f}%"
+        ),
+        (
+            f"WAVE1 Amount20 median {float(structure_context_summary.iloc[0]['wave1_amount20_ratio_median']):.2f}x"
+            f" · p75 {float(structure_context_summary.iloc[0]['wave1_amount20_ratio_p75']):.2f}x"
+            f" · ≥10x {float(structure_context_summary.iloc[0]['wave1_amount20_ratio_ge10_pct']):.1f}%"
+        ),
+        "※ gap/폭발성/장기하단 여부는 설명변수로만 저장 · gate 미사용",
+        "",
         "🛡️ [Authority]",
         f"actual Amount coverage {amount_coverage:.2f}% · Close×Volume fallback 0",
         f"as-of snapshots {len(universe.dates)} · future fallback 0",
         f"lookahead {lookahead_fail} · deterministic {deterministic_fail}",
         "",
         "⚠️ R1 원칙: 성과로 threshold를 조정하지 않습니다.",
-        "➡️ NEXT: stratified episode review bars로 단계별 구조를 먼저 육안검증 · 중복-run은 audit만 하고 detector는 아직 변경 금지",
+        "➡️ NEXT: run-level 독립성 + BASE 장기하단성 + WAVE1 폭발성 audit를 보고 가장 먼저 잘못 정의된 stage 하나만 다음 revision에서 검토",
     ]
     (out/"low224_report.txt").write_text("\n".join(report), encoding="utf-8")
     print("\n".join(report))
