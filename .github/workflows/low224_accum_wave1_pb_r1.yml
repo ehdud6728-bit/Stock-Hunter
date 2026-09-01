@@ -65,7 +65,7 @@ jobs:
           test -f low224_accum_wave1_pb_research.py
           test -f triangle1pb_research.py
           grep -Fq 'STRATEGY_ID = "LOW224_ACCUM_WAVE1_PB_R1_STRUCTURE_FIRST"' low224_accum_wave1_pb_research.py
-          grep -Fq 'LOADER_REVISION = "LOW224_R1_0_3_RAW_ACCUM_PERSISTENCE_AUDIT"' low224_accum_wave1_pb_research.py
+          grep -Fq 'LOADER_REVISION = "LOW224_R1_0_4_FIRST_PULLBACK_ANATOMY_AUDIT"' low224_accum_wave1_pb_research.py
           grep -Fq 'RESEARCH_AUTHORITY = "RESEARCH_ONLY_NO_LIVE_NO_SCORE_NO_RANK_NO_ORDERS"' low224_accum_wave1_pb_research.py
           grep -Fq 'Close*Volume is never' low224_accum_wave1_pb_research.py
           python -m py_compile triangle1pb_research.py low224_accum_wave1_pb_research.py
@@ -157,6 +157,8 @@ jobs:
             "low224_structure_context_audit.csv","low224_structure_context_summary.csv",
             "low224_raw_accum_pass_detail.csv","low224_raw_accum_run_detail.csv",
             "low224_raw_accum_episode_context.csv","low224_raw_accum_persistence_summary.csv",
+            "low224_first_pullback_anatomy_detail.csv","low224_first_pullback_anatomy_summary.csv",
+            "low224_first_pullback_review_sample.csv",
             "low224_stratified_manual_review_sample.csv","low224_episode_review_bars.csv",
             "low224_authority_audit.csv","low224_manifest.json","low224_report.txt","low224_runtime.log"
           ]
@@ -165,7 +167,7 @@ jobs:
           m=json.loads((root/"low224_manifest.json").read_text(encoding="utf-8"))
           assert m["schema"]=="LOW224_ACCUM_WAVE1_PB_RESEARCH_SCHEMA_V1"
           assert m["strategy_id"]=="LOW224_ACCUM_WAVE1_PB_R1_STRUCTURE_FIRST"
-          assert m["loader_revision"]=="LOW224_R1_0_3_RAW_ACCUM_PERSISTENCE_AUDIT"
+          assert m["loader_revision"]=="LOW224_R1_0_4_FIRST_PULLBACK_ANATOMY_AUDIT"
           assert m["research_authority"]=="RESEARCH_ONLY_NO_LIVE_NO_SCORE_NO_RANK_NO_ORDERS"
           assert m["shared_data_authority_only"]=="TRIANGLE1PB_CACHE_ADAPTERS_ONLY_NO_PATTERN_LOGIC"
           assert m["live_logic_changed"] is False
@@ -178,6 +180,7 @@ jobs:
           assert m["sample_fidelity_audit_only"] is True
           assert m["run_context_wave_character_audit_only"] is True
           assert m["raw_accum_persistence_audit_only"] is True
+          assert m["first_pullback_anatomy_audit_only"] is True
           assert m["detector_gate_changed"] is False
           assert int(m["lookahead_fail"])==0
           assert int(m["deterministic_fail"])==0
