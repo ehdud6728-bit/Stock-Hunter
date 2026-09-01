@@ -42,9 +42,14 @@ from triangle1pb_research import (
 
 SCHEMA = "LOW224_ACCUM_WAVE1_PB_RESEARCH_SCHEMA_V1"
 STRATEGY_ID = "LOW224_ACCUM_WAVE1_PB_R1_STRUCTURE_FIRST"
-LOADER_REVISION = "LOW224_R1_0_6_REACCELERATION_ANATOMY_AUDIT"
+LOADER_REVISION = "LOW224_R1_1_R1C1_PROSPECTIVE_SHADOW_FREEZE"
 RESEARCH_AUTHORITY = "RESEARCH_ONLY_NO_LIVE_NO_SCORE_NO_RANK_NO_ORDERS"
 SHARED_DATA_AUTHORITY_ONLY = "TRIANGLE1PB_CACHE_ADAPTERS_ONLY_NO_PATTERN_LOGIC"
+R1C1_CANDIDATE_ID = "LOW224_R1C1_REACCELERATION_WAVE_HIGH_RECLAIM"
+R1C1_CONTROL_ID = "LOW224_R1C1_REACCELERATION_NO_WAVE_HIGH_RECLAIM"
+R1C1_FREEZE_DATE = "2026-09-01"
+R1C1_PROSPECTIVE_START_DATE = "2026-09-02"
+R1C1_DISCOVERY_START_DATE = "2024-08-27"
 
 STAGES = [
     "LOW224_BASE",
@@ -1962,6 +1967,203 @@ def build_reacceleration_time_split_audit(
     return pd.DataFrame(rows)
 
 
+
+def build_r1c1_prospective_shadow(
+    reaccel_anatomy: pd.DataFrame,
+    outcomes: pd.DataFrame,
+    data_end: pd.Timestamp,
+    universe: UniverseAuthority,
+    cfg: FrozenR1Config,
+) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Freeze R1C1 and contemporaneous control for prospective/OOS validation.
+
+    Candidate:
+      existing REACCELERATION
+      + REACCEL close >= prior wave high excluding the REACCEL bar.
+
+    Control:
+      same existing REACCELERATION chronology
+      + REACCEL close < prior wave high.
+
+    No new numeric threshold, MA/Amount/OBV/rank/score condition is added.
+    Historical rows are permanently tagged discovery/pre-freeze and are not
+    validation evidence.
+    """
+    cols = [
+        "schema","strategy_id","candidate_id","control_id","episode_id","code",
+        "event_date","reacceleration_date","group","validation_status",
+        "freeze_date","prospective_start_date","reaccel_reclaims_prior_wave_high",
+        "prior_wave_high_ex_reaccel","close","actual_amount",
+        "reaccel_amount_vs_pullback_median",
+        "d5_complete","d5_close_ret_pct","d5_mfe_pct","d5_mae_pct",
+        "d10_complete","d10_close_ret_pct","d10_mfe_pct","d10_mae_pct",
+        "d15_complete","d15_close_ret_pct","d15_mfe_pct","d15_mae_pct",
+    ]
+    if reaccel_anatomy.empty:
+        detail = pd.DataFrame(columns=cols)
+    else:
+        base = reaccel_anatomy.copy()
+        base["event_date"] = base["reacceleration_date"].astype(str)
+        keep_out = outcomes[outcomes["stage"].eq("REACCELERATION")].copy()
+        join_cols = [
+            "episode_id","code",
+            "d5_complete","d5_close_ret_pct","d5_mfe_pct","d5_mae_pct",
+            "d10_complete","d10_close_ret_pct","d10_mfe_pct","d10_mae_pct",
+            "d15_complete","d15_close_ret_pct","d15_mfe_pct","d15_mae_pct",
+        ]
+        keep_out = keep_out[[c for c in join_cols if c in keep_out.columns]]
+        base = base.merge(keep_out, on=["episode_id","code"], how="left")
+        base["candidate_id"] = R1C1_CANDIDATE_ID
+        base["control_id"] = R1C1_CONTROL_ID
+        base["freeze_date"] = R1C1_FREEZE_DATE
+        base["prospective_start_date"] = R1C1_PROSPECTIVE_START_DATE
+        base["group"] = np.where(
+            pd.to_numeric(
+                base["reaccel_reclaims_prior_wave_high"], errors="coerce"
+            ).eq(1),
+            "CANDIDATE_RECLAIM",
+            "CONTROL_NO_RECLAIM",
+        )
+        event_ts = pd.to_datetime(base["event_date"], errors="coerce").dt.normalize()
+        prospect = pd.Timestamp(R1C1_PROSPECTIVE_START_DATE).normalize()
+        base["validation_status"] = np.where(
+            event_ts >= prospect,
+            "PROSPECTIVE_OOS",
+            "DISCOVERY_OR_PRE_FREEZE_NOT_VALIDATION",
+        )
+        for c in cols:
+            if c not in base.columns:
+                base[c] = np.nan
+        detail = base[cols].copy()
+
+    candidate = detail[detail["group"].eq("CANDIDATE_RECLAIM")].copy()
+    control = detail[detail["group"].eq("CONTROL_NO_RECLAIM")].copy()
+
+    def summarize(df: pd.DataFrame, group_name: str) -> pd.DataFrame:
+        prospect = df[df["validation_status"].eq("PROSPECTIVE_OOS")].copy()
+        row = {
+            "schema": SCHEMA,
+            "strategy_id": STRATEGY_ID,
+            "candidate_id": R1C1_CANDIDATE_ID,
+            "control_id": R1C1_CONTROL_ID,
+            "group": group_name,
+            "freeze_date": R1C1_FREEZE_DATE,
+            "prospective_start_date": R1C1_PROSPECTIVE_START_DATE,
+            "discovery_pre_freeze_rows": int(
+                df["validation_status"].eq(
+                    "DISCOVERY_OR_PRE_FREEZE_NOT_VALIDATION"
+                ).sum()
+            ),
+            "prospective_rows": int(len(prospect)),
+        }
+        for h in (5,10,15):
+            comp = pd.to_numeric(
+                prospect.get(f"d{h}_complete"), errors="coerce"
+            ).eq(1)
+            mature = prospect[comp]
+            row[f"d{h}_mature"] = int(len(mature))
+            row[f"d{h}_close_median_pct"] = (
+                float(pd.to_numeric(
+                    mature[f"d{h}_close_ret_pct"], errors="coerce"
+                ).median()) if len(mature) else float("nan")
+            )
+            row[f"d{h}_mfe_median_pct"] = (
+                float(pd.to_numeric(
+                    mature[f"d{h}_mfe_pct"], errors="coerce"
+                ).median()) if len(mature) else float("nan")
+            )
+            row[f"d{h}_mae_median_pct"] = (
+                float(pd.to_numeric(
+                    mature[f"d{h}_mae_pct"], errors="coerce"
+                ).median()) if len(mature) else float("nan")
+            )
+        row["same_sample_history_used_as_validation"] = 0
+        return pd.DataFrame([row])
+
+    candidate_summary = summarize(candidate, "CANDIDATE_RECLAIM")
+    control_summary = summarize(control, "CONTROL_NO_RECLAIM")
+
+    latest_asof = None
+    for d in universe.dates:
+        ts = pd.Timestamp(d).normalize()
+        if ts <= data_end and (latest_asof is None or ts > latest_asof):
+            latest_asof = ts
+
+    prospective_start = pd.Timestamp(R1C1_PROSPECTIVE_START_DATE).normalize()
+    if data_end < prospective_start:
+        status = "WAIT_DATA_CATCHUP"
+    elif latest_asof is None:
+        status = "FAIL_NO_ELIGIBLE_ASOF_UNIVERSE"
+    else:
+        age = int((data_end - latest_asof).days)
+        if age > int(cfg.universe_max_calendar_age_days):
+            status = "FAIL_STALE_ASOF_UNIVERSE"
+        else:
+            status = "READY_PROSPECTIVE_OOS"
+
+    asof_age = (
+        int((data_end - latest_asof).days) if latest_asof is not None else -1
+    )
+    readiness = pd.DataFrame([{
+        "schema": SCHEMA,
+        "strategy_id": STRATEGY_ID,
+        "candidate_id": R1C1_CANDIDATE_ID,
+        "control_id": R1C1_CONTROL_ID,
+        "freeze_date": R1C1_FREEZE_DATE,
+        "prospective_start_date": R1C1_PROSPECTIVE_START_DATE,
+        "data_end": data_end.date().isoformat(),
+        "latest_eligible_asof": (
+            latest_asof.date().isoformat() if latest_asof is not None else ""
+        ),
+        "asof_age_calendar_days": asof_age,
+        "max_asof_age_days": int(cfg.universe_max_calendar_age_days),
+        "candidate_prospective_rows": int(
+            candidate["validation_status"].eq("PROSPECTIVE_OOS").sum()
+        ),
+        "control_prospective_rows": int(
+            control["validation_status"].eq("PROSPECTIVE_OOS").sum()
+        ),
+        "candidate_d15_mature": int(candidate_summary.iloc[0]["d15_mature"]),
+        "control_d15_mature": int(control_summary.iloc[0]["d15_mature"]),
+        "status": status,
+        "candidate_zero_is_interpretable_as_no_event": int(
+            status == "READY_PROSPECTIVE_OOS"
+        ),
+        "actual_strategy_changed": 0,
+        "used_as_strategy_gate": 0,
+    }])
+
+    definition = pd.DataFrame([{
+        "schema": SCHEMA,
+        "strategy_id": STRATEGY_ID,
+        "candidate_id": R1C1_CANDIDATE_ID,
+        "control_id": R1C1_CONTROL_ID,
+        "freeze_date": R1C1_FREEZE_DATE,
+        "prospective_start_date": R1C1_PROSPECTIVE_START_DATE,
+        "discovery_start_date_locked": R1C1_DISCOVERY_START_DATE,
+        "candidate_definition": (
+            "existing REACCELERATION and reaccel close >= prior wave high "
+            "excluding reaccel bar"
+        ),
+        "control_definition": (
+            "same existing REACCELERATION and reaccel close < prior wave high"
+        ),
+        "new_numeric_threshold_added": 0,
+        "actual_detector_changed": 0,
+        "historical_rows_valid_for_confirmation": 0,
+        "additional_tuning_allowed": 0,
+    }])
+
+    return (
+        definition,
+        candidate,
+        candidate_summary,
+        control,
+        control_summary,
+        readiness,
+    )
+
+
 def build_forward_outcomes(
     stage_df: pd.DataFrame,
     frames: Dict[str, pd.DataFrame],
@@ -2209,6 +2411,17 @@ def run(args: argparse.Namespace) -> int:
         reaccel_anatomy
     )
 
+    (
+        r1c1_definition,
+        r1c1_candidate_detail,
+        r1c1_candidate_summary,
+        r1c1_control_detail,
+        r1c1_control_summary,
+        r1c1_oos_readiness,
+    ) = build_r1c1_prospective_shadow(
+        reaccel_anatomy, outcomes, end, universe, cfg
+    )
+
     stratified_sample = build_stratified_manual_sample(
         stage_df, per_stratum=int(args.stratified_sample_per_group)
     )
@@ -2282,12 +2495,19 @@ def run(args: argparse.Namespace) -> int:
         "stabilization_anatomy_audit": stabilization_anatomy_summary.to_dict("records"),
         "reacceleration_anatomy_audit": reaccel_anatomy_summary.to_dict("records"),
         "reacceleration_time_split_audit": reaccel_time_split.to_dict("records"),
+        "r1c1_candidate_definition": r1c1_definition.to_dict("records"),
+        "r1c1_prospective_shadow": r1c1_candidate_summary.to_dict("records"),
+        "r1c1_prospective_control": r1c1_control_summary.to_dict("records"),
+        "r1c1_oos_readiness": r1c1_oos_readiness.to_dict("records"),
         "sample_fidelity_audit_only": True,
         "run_context_wave_character_audit_only": True,
         "raw_accum_persistence_audit_only": True,
         "first_pullback_anatomy_audit_only": True,
         "stabilization_anatomy_audit_only": True,
         "reacceleration_anatomy_audit_only": True,
+        "r1c1_candidate_frozen": True,
+        "r1c1_control_frozen": True,
+        "r1c1_additional_tuning_allowed": False,
         "detector_gate_changed": False,
         "lookahead_fail": lookahead_fail,
         "deterministic_fail": deterministic_fail,
@@ -2302,7 +2522,7 @@ def run(args: argparse.Namespace) -> int:
         "outcomes_used_as_gate": False,
         "stage_digest": stage_digest,
         "status": "PASS" if lookahead_fail == 0 and deterministic_fail == 0 else "FAIL",
-        "next_gate": "MANUAL_STRUCTURE_REVIEW_BEFORE_ANY_THRESHOLD_CHANGE",
+        "next_gate": "PROSPECTIVE_OOS_ONLY_FROM_2026_09_02_NO_MORE_SAME_SAMPLE_TUNING",
     }
 
     def write_csv(df: pd.DataFrame, name: str):
@@ -2334,6 +2554,12 @@ def run(args: argparse.Namespace) -> int:
     write_csv(reaccel_anatomy, "low224_reacceleration_anatomy_detail.csv")
     write_csv(reaccel_anatomy_summary, "low224_reacceleration_anatomy_summary.csv")
     write_csv(reaccel_time_split, "low224_reacceleration_time_split_audit.csv")
+    write_csv(r1c1_definition, "low224_r1c1_candidate_definition.csv")
+    write_csv(r1c1_candidate_detail, "low224_r1c1_candidate_shadow_detail.csv")
+    write_csv(r1c1_candidate_summary, "low224_r1c1_candidate_shadow_summary.csv")
+    write_csv(r1c1_control_detail, "low224_r1c1_prospective_control_detail.csv")
+    write_csv(r1c1_control_summary, "low224_r1c1_prospective_control_summary.csv")
+    write_csv(r1c1_oos_readiness, "low224_r1c1_oos_readiness.csv")
     write_csv(stratified_sample, "low224_stratified_manual_review_sample.csv")
     write_csv(episode_review_bars, "low224_episode_review_bars.csv")
     write_csv(authority, "low224_authority_audit.csv")
@@ -2345,6 +2571,29 @@ def run(args: argparse.Namespace) -> int:
         "🧪 [LOW224_ACCUM_WAVE1_PB R1 · STRUCTURE AUDIT]",
         "RESEARCH ONLY · 주문 0 · LIVE/점수/랭킹 0",
         f"📅 period={manifest['research_start']} ~ {manifest['research_end']} · codes={len(codes)}",
+        "",
+        "🛰️ [R1C1 OOS Readiness · 먼저 확인]",
+        (
+            f"data end {r1c1_oos_readiness.iloc[0]['data_end']}"
+            f" · prospective start {R1C1_PROSPECTIVE_START_DATE}"
+        ),
+        (
+            f"as-of {r1c1_oos_readiness.iloc[0]['latest_eligible_asof']}"
+            f" · age {int(r1c1_oos_readiness.iloc[0]['asof_age_calendar_days'])}d"
+            f" / max {int(r1c1_oos_readiness.iloc[0]['max_asof_age_days'])}d"
+        ),
+        (
+            f"candidate {int(r1c1_oos_readiness.iloc[0]['candidate_prospective_rows'])}"
+            f" · control {int(r1c1_oos_readiness.iloc[0]['control_prospective_rows'])}"
+            f" · D15 mature {int(r1c1_oos_readiness.iloc[0]['candidate_d15_mature'])}"
+            f"/{int(r1c1_oos_readiness.iloc[0]['control_d15_mature'])}"
+        ),
+        f"status={r1c1_oos_readiness.iloc[0]['status']}",
+        (
+            "※ READY일 때만 candidate=0을 '신규 event 없음'으로 해석"
+            if r1c1_oos_readiness.iloc[0]["status"] != "READY_PROSPECTIVE_OOS"
+            else "※ OOS 데이터 준비 완료 · 신규 event만 검증"
+        ),
         "",
         "🧭 [Frozen chronology]",
         "LOW224_BASE → GRADUAL_AMOUNT_ACCUM → WAVE1 → FIRST_PULLBACK → STABILIZATION → REACCELERATION",
@@ -2491,7 +2740,38 @@ def run(args: argparse.Namespace) -> int:
             f" PB-low break≤5 {float(reaccel_anatomy_summary.iloc[0]['no_reclaim_group_future_break_pb_low5_pct']):.1f}%"
             f" / +5%≤10 {float(reaccel_anatomy_summary.iloc[0]['no_reclaim_group_future_plus5pct10_pct']):.1f}%"
         ),
-        "※ reclaim 비교는 same-sample post-hoc · 어떤 tag도 아직 gate 미사용",
+        "※ reclaim 비교는 same-sample post-hoc · 어떤 tag도 actual detector gate에 미사용",
+        "",
+        "🔒 [R1C1 Prospective Shadow · definition frozen]",
+        f"candidate={R1C1_CANDIDATE_ID}",
+        (
+            f"freeze {R1C1_FREEZE_DATE} · prospective start "
+            f"{R1C1_PROSPECTIVE_START_DATE}"
+        ),
+        (
+            f"discovery/pre-freeze "
+            f"{int(r1c1_candidate_summary.iloc[0]['discovery_pre_freeze_rows'])}"
+            f" (검증 제외) · prospective "
+            f"{int(r1c1_candidate_summary.iloc[0]['prospective_rows'])}"
+        ),
+        (
+            f"mature D5 {int(r1c1_candidate_summary.iloc[0]['d5_mature'])}"
+            f" · D10 {int(r1c1_candidate_summary.iloc[0]['d10_mature'])}"
+            f" · D15 {int(r1c1_candidate_summary.iloc[0]['d15_mature'])}"
+        ),
+        "※ candidate 정의 추가튜닝 금지 · actual LOW224 detector 미변경",
+        "",
+        "🆚 [R1C1 Prospective Control · same-period]",
+        (
+            f"candidate {int(r1c1_candidate_summary.iloc[0]['prospective_rows'])}"
+            f" · control {int(r1c1_control_summary.iloc[0]['prospective_rows'])}"
+        ),
+        (
+            f"D15 mature candidate {int(r1c1_candidate_summary.iloc[0]['d15_mature'])}"
+            f" · control {int(r1c1_control_summary.iloc[0]['d15_mature'])}"
+        ),
+        "※ candidate=wave-high reclaim REACCEL · control=no-reclaim REACCEL",
+        "※ 둘 다 2026-09-02 이후만 OOS 비교 · 역사표본 제외",
         "",
         "🛡️ [Authority]",
         f"actual Amount coverage {amount_coverage:.2f}% · Close×Volume fallback 0",
@@ -2499,7 +2779,7 @@ def run(args: argparse.Namespace) -> int:
         f"lookahead {lookahead_fail} · deterministic {deterministic_fail}",
         "",
         "⚠️ R1 원칙: 성과로 threshold를 조정하지 않습니다.",
-        "➡️ NEXT: STABILIZATION은 아직 구조 marker로 유지 · REACCELERATION이 실제 2차파동 시작점인지 anatomy/H1-H2 확인 후 R1.1 후보 동결 여부 결정",
+        "➡️ NEXT: R1C1/대조군은 2026-09-02 이후 prospective/OOS만 누적 · 같은 표본 추가튜닝 금지",
     ]
     (out/"low224_report.txt").write_text("\n".join(report), encoding="utf-8")
     print("\n".join(report))
