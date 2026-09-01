@@ -42,7 +42,7 @@ from triangle1pb_research import (
 
 SCHEMA = "LOW224_ACCUM_WAVE1_PB_RESEARCH_SCHEMA_V1"
 STRATEGY_ID = "LOW224_ACCUM_WAVE1_PB_R1_STRUCTURE_FIRST"
-LOADER_REVISION = "LOW224_R1_0_5_STABILIZATION_ANATOMY_AUDIT"
+LOADER_REVISION = "LOW224_R1_0_6_REACCELERATION_ANATOMY_AUDIT"
 RESEARCH_AUTHORITY = "RESEARCH_ONLY_NO_LIVE_NO_SCORE_NO_RANK_NO_ORDERS"
 SHARED_DATA_AUTHORITY_ONLY = "TRIANGLE1PB_CACHE_ADAPTERS_ONLY_NO_PATTERN_LOGIC"
 
@@ -1657,6 +1657,311 @@ def build_stabilization_review_sample(
     return ans.drop(columns=["sample_key"], errors="ignore")
 
 
+
+def build_reacceleration_anatomy_audit(
+    stage_df: pd.DataFrame,
+    frames: Dict[str, pd.DataFrame],
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """Causal anatomy of the existing REACCELERATION stage.
+
+    The detector is unchanged. Main columns use information available on or
+    before REACCELERATION. Explicitly named future taxonomy columns inspect
+    subsequent bars only for structural review and are never gates.
+    """
+    if stage_df.empty:
+        return pd.DataFrame(), pd.DataFrame()
+
+    rows: List[Dict[str, Any]] = []
+    for episode_id, eg in stage_df.groupby("episode_id", sort=False):
+        eg = eg.sort_values("bar_index")
+        wave = eg[eg["stage"].eq("WAVE1")]
+        pb = eg[eg["stage"].eq("FIRST_PULLBACK")]
+        st = eg[eg["stage"].eq("STABILIZATION")]
+        rc = eg[eg["stage"].eq("REACCELERATION")]
+        if wave.empty or pb.empty or st.empty or rc.empty:
+            continue
+
+        w = wave.iloc[0]
+        p = pb.iloc[0]
+        q = st.iloc[0]
+        r = rc.iloc[0]
+        code = str(w["code"])
+        df = frames.get(code)
+        if df is None or df.empty:
+            continue
+
+        wi = int(w["bar_index"])
+        pi = int(p["bar_index"])
+        si = int(q["bar_index"])
+        ri = int(r["bar_index"])
+        if not (0 <= wi < pi < si < ri < len(df)):
+            continue
+
+        wave_amt = float(w["actual_amount"]) if _finite(w.get("actual_amount")) else float("nan")
+        pb_amt = float(p["actual_amount"]) if _finite(p.get("actual_amount")) else float("nan")
+        st_amt = float(q["actual_amount"]) if _finite(q.get("actual_amount")) else float("nan")
+        rc_amt = float(r["actual_amount"]) if _finite(r.get("actual_amount")) else float("nan")
+
+        wave_high = float(w["high"])
+        pb_low = float(p["low"])
+        pb_high = float(p["high"])
+        st_low = float(q["low"])
+        st_high = float(q["high"])
+        rc_low = float(r["low"])
+        rc_close = float(r["close"])
+        rc_open = float(r["open"])
+        prev_close = float(df.iloc[ri-1]["close"])
+
+        prior_wave_high = (
+            float(r.get("prior_wave_high_ex_reaccel"))
+            if _finite(r.get("prior_wave_high_ex_reaccel"))
+            else float("nan")
+        )
+        breakout_high = (
+            float(w.get("wave1_prior_high20"))
+            if _finite(w.get("wave1_prior_high20"))
+            else float("nan")
+        )
+        pb_med = (
+            float(r.get("pullback_amount_median"))
+            if _finite(r.get("pullback_amount_median"))
+            else float("nan")
+        )
+
+        rr = {
+            "schema": SCHEMA,
+            "strategy_id": STRATEGY_ID,
+            "episode_id": episode_id,
+            "code": code,
+            "wave1_date": w["event_date"],
+            "first_pullback_date": p["event_date"],
+            "stabilization_date": q["event_date"],
+            "reacceleration_date": r["event_date"],
+            "stable_to_reaccel_trading_bars": int(ri - si),
+            "wave_to_reaccel_trading_bars": int(ri - wi),
+            "reaccel_amount_vs_pullback_median": (
+                float(r.get("reaccel_amount_vs_pullback_median"))
+                if _finite(r.get("reaccel_amount_vs_pullback_median"))
+                else float("nan")
+            ),
+            "reaccel_amount_vs_wave": (
+                rc_amt / wave_amt
+                if _finite(rc_amt) and _finite(wave_amt) and wave_amt > 0
+                else float("nan")
+            ),
+            "reaccel_amount_vs_stable": (
+                rc_amt / st_amt
+                if _finite(rc_amt) and _finite(st_amt) and st_amt > 0
+                else float("nan")
+            ),
+            "reaccel_amount_vs_pb": (
+                rc_amt / pb_amt
+                if _finite(rc_amt) and _finite(pb_amt) and pb_amt > 0
+                else float("nan")
+            ),
+            "reaccel_close_vs_prior_wave_high_pct": (
+                (rc_close / prior_wave_high - 1.0) * 100.0
+                if _finite(prior_wave_high) and prior_wave_high > 0
+                else float("nan")
+            ),
+            "reaccel_reclaims_prior_wave_high": int(
+                r.get("reaccel_reclaims_prior_wave_high", 0)
+            ),
+            "reaccel_close_above_pb_high": int(rc_close > pb_high),
+            "reaccel_close_above_stable_high": int(rc_close > st_high),
+            "reaccel_close_above_breakout_high": (
+                int(rc_close >= breakout_high)
+                if _finite(breakout_high) else -1
+            ),
+            "reaccel_low_above_pb_low": int(rc_low >= pb_low),
+            "reaccel_low_above_stable_low": int(rc_low >= st_low),
+            "reaccel_gap_pct": (
+                (rc_open / prev_close - 1.0) * 100.0
+                if prev_close > 0 else float("nan")
+            ),
+            "reaccel_body_pct": (
+                (rc_close / rc_open - 1.0) * 100.0
+                if rc_open > 0 else float("nan")
+            ),
+            "reaccel_close_day_ret_pct": (
+                (rc_close / prev_close - 1.0) * 100.0
+                if prev_close > 0 else float("nan")
+            ),
+            "used_as_gate": 0,
+        }
+
+        future5 = df.iloc[ri+1:min(len(df), ri+6)]
+        future10 = df.iloc[ri+1:min(len(df), ri+11)]
+
+        if not future5.empty:
+            f5_low = pd.to_numeric(future5["low"], errors="coerce")
+            f5_close = pd.to_numeric(future5["close"], errors="coerce")
+            f5_high = pd.to_numeric(future5["high"], errors="coerce")
+            rr["future_taxonomy_lower_low_vs_reaccel_within5"] = int(
+                bool((f5_low < rc_low).any())
+            )
+            rr["future_taxonomy_break_stable_low_within5"] = int(
+                bool((f5_low < st_low).any())
+            )
+            rr["future_taxonomy_break_pb_low_within5"] = int(
+                bool((f5_low < pb_low).any())
+            )
+            rr["future_taxonomy_plus5pct_within5"] = int(
+                bool((f5_high >= rc_close * 1.05).any())
+            )
+            rr["future_taxonomy_close_above_prior_wave_high_within5"] = (
+                int(bool((f5_close >= prior_wave_high).any()))
+                if _finite(prior_wave_high) else -1
+            )
+        else:
+            rr["future_taxonomy_lower_low_vs_reaccel_within5"] = -1
+            rr["future_taxonomy_break_stable_low_within5"] = -1
+            rr["future_taxonomy_break_pb_low_within5"] = -1
+            rr["future_taxonomy_plus5pct_within5"] = -1
+            rr["future_taxonomy_close_above_prior_wave_high_within5"] = -1
+
+        if not future10.empty:
+            f10_high = pd.to_numeric(future10["high"], errors="coerce")
+            rr["future_taxonomy_plus5pct_within10"] = int(
+                bool((f10_high >= rc_close * 1.05).any())
+            )
+        else:
+            rr["future_taxonomy_plus5pct_within10"] = -1
+
+        rr["future_taxonomy_only_not_gate"] = 1
+        rows.append(rr)
+
+    detail = pd.DataFrame(rows)
+    if detail.empty:
+        return detail, pd.DataFrame()
+
+    def q(col: str, p: float) -> float:
+        x = pd.to_numeric(detail[col], errors="coerce").dropna()
+        return float(x.quantile(p)) if len(x) else float("nan")
+
+    def valid_rate(col: str, value: int = 1) -> float:
+        x = pd.to_numeric(detail[col], errors="coerce")
+        x = x[x >= 0]
+        return float(x.eq(value).mean() * 100.0) if len(x) else float("nan")
+
+    reclaim = detail[
+        pd.to_numeric(detail["reaccel_reclaims_prior_wave_high"], errors="coerce").eq(1)
+    ]
+    no_reclaim = detail[
+        pd.to_numeric(detail["reaccel_reclaims_prior_wave_high"], errors="coerce").eq(0)
+    ]
+
+    def subset_rate(g: pd.DataFrame, col: str) -> float:
+        x = pd.to_numeric(g[col], errors="coerce")
+        x = x[x >= 0]
+        return float(x.eq(1).mean() * 100.0) if len(x) else float("nan")
+
+    summary = pd.DataFrame([{
+        "schema": SCHEMA,
+        "strategy_id": STRATEGY_ID,
+        "reacceleration_events": int(len(detail)),
+        "stable_to_reaccel_bars_median": q("stable_to_reaccel_trading_bars", .50),
+        "stable_to_reaccel_bars_p75": q("stable_to_reaccel_trading_bars", .75),
+        "reaccel_amount_vs_pullback_median": q("reaccel_amount_vs_pullback_median", .50),
+        "reaccel_amount_vs_wave_median": q("reaccel_amount_vs_wave", .50),
+        "reaccel_reclaim_wave_high_pct": valid_rate("reaccel_reclaims_prior_wave_high"),
+        "reaccel_close_above_pb_high_pct": valid_rate("reaccel_close_above_pb_high"),
+        "reaccel_low_above_pb_low_pct": valid_rate("reaccel_low_above_pb_low"),
+        "reaccel_gap_ge5_pct": float(
+            pd.to_numeric(detail["reaccel_gap_pct"], errors="coerce").ge(5.0).mean() * 100.0
+        ),
+        "future_taxonomy_lower_low_vs_reaccel_within5_pct": valid_rate(
+            "future_taxonomy_lower_low_vs_reaccel_within5"
+        ),
+        "future_taxonomy_break_pb_low_within5_pct": valid_rate(
+            "future_taxonomy_break_pb_low_within5"
+        ),
+        "future_taxonomy_plus5pct_within5_pct": valid_rate(
+            "future_taxonomy_plus5pct_within5"
+        ),
+        "future_taxonomy_plus5pct_within10_pct": valid_rate(
+            "future_taxonomy_plus5pct_within10"
+        ),
+        "reclaim_group_events": int(len(reclaim)),
+        "reclaim_group_future_break_pb_low5_pct": subset_rate(
+            reclaim, "future_taxonomy_break_pb_low_within5"
+        ),
+        "reclaim_group_future_plus5pct10_pct": subset_rate(
+            reclaim, "future_taxonomy_plus5pct_within10"
+        ),
+        "no_reclaim_group_events": int(len(no_reclaim)),
+        "no_reclaim_group_future_break_pb_low5_pct": subset_rate(
+            no_reclaim, "future_taxonomy_break_pb_low_within5"
+        ),
+        "no_reclaim_group_future_plus5pct10_pct": subset_rate(
+            no_reclaim, "future_taxonomy_plus5pct_within10"
+        ),
+        "future_taxonomy_only_not_gate": 1,
+        "used_as_gate": 0,
+    }])
+
+    return detail, summary
+
+
+def build_reacceleration_time_split_audit(
+    anatomy: pd.DataFrame,
+) -> pd.DataFrame:
+    """H1/H2 stability of descriptive reclaim tag; still post-hoc audit only."""
+    if anatomy.empty:
+        return pd.DataFrame()
+
+    x = anatomy.copy()
+    x["date_ts"] = pd.to_datetime(x["reacceleration_date"], errors="coerce")
+    x = x.dropna(subset=["date_ts"]).sort_values("date_ts")
+    if x.empty:
+        return pd.DataFrame()
+
+    mid = x["date_ts"].iloc[len(x) // 2]
+    parts = {
+        "FULL": x,
+        "H1": x[x["date_ts"] <= mid],
+        "H2": x[x["date_ts"] > mid],
+    }
+    rows = []
+
+    def vr(g: pd.DataFrame, col: str) -> float:
+        z = pd.to_numeric(g[col], errors="coerce")
+        z = z[z >= 0]
+        return float(z.eq(1).mean() * 100.0) if len(z) else float("nan")
+
+    for period, g in parts.items():
+        for reclaim_value, label in [(1, "RECLAIM"), (0, "NO_RECLAIM")]:
+            h = g[
+                pd.to_numeric(
+                    g["reaccel_reclaims_prior_wave_high"], errors="coerce"
+                ).eq(reclaim_value)
+            ]
+            rows.append({
+                "schema": SCHEMA,
+                "strategy_id": STRATEGY_ID,
+                "period": period,
+                "split_date": mid.date().isoformat(),
+                "group": label,
+                "events": int(len(h)),
+                "future_break_pb_low5_pct": vr(
+                    h, "future_taxonomy_break_pb_low_within5"
+                ),
+                "future_plus5pct5_pct": vr(
+                    h, "future_taxonomy_plus5pct_within5"
+                ),
+                "future_plus5pct10_pct": vr(
+                    h, "future_taxonomy_plus5pct_within10"
+                ),
+                "future_lower_low_vs_reaccel5_pct": vr(
+                    h, "future_taxonomy_lower_low_vs_reaccel_within5"
+                ),
+                "posthoc_same_sample": 1,
+                "used_as_gate": 0,
+            })
+
+    return pd.DataFrame(rows)
+
+
 def build_forward_outcomes(
     stage_df: pd.DataFrame,
     frames: Dict[str, pd.DataFrame],
@@ -1897,6 +2202,13 @@ def run(args: argparse.Namespace) -> int:
         stabilization_anatomy, per_group=8
     )
 
+    reaccel_anatomy, reaccel_anatomy_summary = (
+        build_reacceleration_anatomy_audit(stage_df, frames)
+    )
+    reaccel_time_split = build_reacceleration_time_split_audit(
+        reaccel_anatomy
+    )
+
     stratified_sample = build_stratified_manual_sample(
         stage_df, per_stratum=int(args.stratified_sample_per_group)
     )
@@ -1968,11 +2280,14 @@ def run(args: argparse.Namespace) -> int:
         "raw_accum_persistence_audit": raw_accum_summary.to_dict("records"),
         "first_pullback_anatomy_audit": pullback_anatomy_summary.to_dict("records"),
         "stabilization_anatomy_audit": stabilization_anatomy_summary.to_dict("records"),
+        "reacceleration_anatomy_audit": reaccel_anatomy_summary.to_dict("records"),
+        "reacceleration_time_split_audit": reaccel_time_split.to_dict("records"),
         "sample_fidelity_audit_only": True,
         "run_context_wave_character_audit_only": True,
         "raw_accum_persistence_audit_only": True,
         "first_pullback_anatomy_audit_only": True,
         "stabilization_anatomy_audit_only": True,
+        "reacceleration_anatomy_audit_only": True,
         "detector_gate_changed": False,
         "lookahead_fail": lookahead_fail,
         "deterministic_fail": deterministic_fail,
@@ -2016,6 +2331,9 @@ def run(args: argparse.Namespace) -> int:
     write_csv(stabilization_anatomy, "low224_stabilization_anatomy_detail.csv")
     write_csv(stabilization_anatomy_summary, "low224_stabilization_anatomy_summary.csv")
     write_csv(stabilization_review_sample, "low224_stabilization_review_sample.csv")
+    write_csv(reaccel_anatomy, "low224_reacceleration_anatomy_detail.csv")
+    write_csv(reaccel_anatomy_summary, "low224_reacceleration_anatomy_summary.csv")
+    write_csv(reaccel_time_split, "low224_reacceleration_time_split_audit.csv")
     write_csv(stratified_sample, "low224_stratified_manual_review_sample.csv")
     write_csv(episode_review_bars, "low224_episode_review_bars.csv")
     write_csv(authority, "low224_authority_audit.csv")
@@ -2147,13 +2465,41 @@ def run(args: argparse.Namespace) -> int:
         ),
         "※ future taxonomy는 구조검증용 미래 label · STABILIZATION/REACCEL gate 미사용",
         "",
+        "🚀 [Reacceleration Anatomy · audit only]",
+        (
+            f"REACCEL {int(reaccel_anatomy_summary.iloc[0]['reacceleration_events']):,}"
+            f" · STABLE→REACCEL median {float(reaccel_anatomy_summary.iloc[0]['stable_to_reaccel_bars_median']):.1f} bars"
+            f" · Amount/PB-median {float(reaccel_anatomy_summary.iloc[0]['reaccel_amount_vs_pullback_median']):.2f}x"
+        ),
+        (
+            f"wave-high reclaim {float(reaccel_anatomy_summary.iloc[0]['reaccel_reclaim_wave_high_pct']):.1f}%"
+            f" · close>PB high {float(reaccel_anatomy_summary.iloc[0]['reaccel_close_above_pb_high_pct']):.1f}%"
+            f" · low≥PB low {float(reaccel_anatomy_summary.iloc[0]['reaccel_low_above_pb_low_pct']):.1f}%"
+        ),
+        (
+            f"future break PB low≤5 {float(reaccel_anatomy_summary.iloc[0]['future_taxonomy_break_pb_low_within5_pct']):.1f}%"
+            f" · +5%≤5 {float(reaccel_anatomy_summary.iloc[0]['future_taxonomy_plus5pct_within5_pct']):.1f}%"
+            f" · +5%≤10 {float(reaccel_anatomy_summary.iloc[0]['future_taxonomy_plus5pct_within10_pct']):.1f}%"
+        ),
+        (
+            f"reclaim group n={int(reaccel_anatomy_summary.iloc[0]['reclaim_group_events'])}"
+            f" PB-low break≤5 {float(reaccel_anatomy_summary.iloc[0]['reclaim_group_future_break_pb_low5_pct']):.1f}%"
+            f" / +5%≤10 {float(reaccel_anatomy_summary.iloc[0]['reclaim_group_future_plus5pct10_pct']):.1f}%"
+        ),
+        (
+            f"no-reclaim n={int(reaccel_anatomy_summary.iloc[0]['no_reclaim_group_events'])}"
+            f" PB-low break≤5 {float(reaccel_anatomy_summary.iloc[0]['no_reclaim_group_future_break_pb_low5_pct']):.1f}%"
+            f" / +5%≤10 {float(reaccel_anatomy_summary.iloc[0]['no_reclaim_group_future_plus5pct10_pct']):.1f}%"
+        ),
+        "※ reclaim 비교는 same-sample post-hoc · 어떤 tag도 아직 gate 미사용",
+        "",
         "🛡️ [Authority]",
         f"actual Amount coverage {amount_coverage:.2f}% · Close×Volume fallback 0",
         f"as-of snapshots {len(universe.dates)} · future fallback 0",
         f"lookahead {lookahead_fail} · deterministic {deterministic_fail}",
         "",
         "⚠️ R1 원칙: 성과로 threshold를 조정하지 않습니다.",
-        "➡️ NEXT: FIRST_PB는 눌림 시작 marker로 유지 · STABILIZATION이 실제 바닥 안정화를 확인하는지 검증 후 R1.1 수정 여부 결정",
+        "➡️ NEXT: STABILIZATION은 아직 구조 marker로 유지 · REACCELERATION이 실제 2차파동 시작점인지 anatomy/H1-H2 확인 후 R1.1 후보 동결 여부 결정",
     ]
     (out/"low224_report.txt").write_text("\n".join(report), encoding="utf-8")
     print("\n".join(report))
