@@ -42,7 +42,7 @@ from triangle1pb_research import (
 
 SCHEMA = "LOW224_ACCUM_WAVE1_PB_RESEARCH_SCHEMA_V1"
 STRATEGY_ID = "LOW224_ACCUM_WAVE1_PB_R1_STRUCTURE_FIRST"
-LOADER_REVISION = "LOW224_R1_0_2_RUN_CONTEXT_WAVE_CHARACTER_AUDIT"
+LOADER_REVISION = "LOW224_R1_0_3_RAW_ACCUM_PERSISTENCE_AUDIT"
 RESEARCH_AUTHORITY = "RESEARCH_ONLY_NO_LIVE_NO_SCORE_NO_RANK_NO_ORDERS"
 SHARED_DATA_AUTHORITY_ONLY = "TRIANGLE1PB_CACHE_ADAPTERS_ONLY_NO_PATTERN_LOGIC"
 
@@ -845,6 +845,273 @@ def build_structure_context_summary(ctx: pd.DataFrame) -> pd.DataFrame:
     }])
 
 
+
+def _longest_true_streak(flags: List[int]) -> int:
+    best = cur = 0
+    for v in flags:
+        if int(v):
+            cur += 1
+            best = max(best, cur)
+        else:
+            cur = 0
+    return int(best)
+
+
+def build_raw_accum_persistence_audit(
+    frames: Dict[str, pd.DataFrame],
+    universe: UniverseAuthority,
+    start: pd.Timestamp,
+    end: pd.Timestamp,
+    cfg: FrozenR1Config,
+    stage_df: pd.DataFrame,
+) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Measure the raw daily accumulation mask independent of detector jumps.
+
+    This is deliberately recomputed on every eligible bar. It does not use
+    next_allowed_i, cooldown, Wave1/PB/Stable/Reaccel state, or future outcome.
+    Therefore raw accumulation persistence is not shortened merely because a
+    later stage was found by the detector.
+
+    Returns:
+      raw_pass_detail: every causal bar where the existing R1 accumulation
+                       descriptor passes.
+      raw_run_summary: consecutive raw-pass run distribution.
+      episode_context: maps existing emitted episodes to the independent raw
+                       mask around BASE and, when present, before WAVE1.
+    """
+    raw_rows: List[Dict[str, Any]] = []
+    pass_sets: Dict[str, set] = {}
+    bar_date_maps: Dict[str, Dict[int, str]] = {}
+
+    min_i = max(
+        cfg.ma_long - 1,
+        cfg.accum_prior_bars + cfg.accum_recent_bars,
+        25,
+    )
+
+    for code, source_df in frames.items():
+        x = (
+            source_df.copy()
+            .sort_values("date")
+            .drop_duplicates("date", keep="last")
+            .reset_index(drop=True)
+        )
+        x["ma224"] = (
+            pd.to_numeric(x["close"], errors="coerce")
+            .rolling(cfg.ma_long, min_periods=cfg.ma_long)
+            .mean()
+        )
+        dates = pd.to_datetime(x["date"]).dt.normalize()
+        pset = set()
+        dmap = {}
+
+        for i in range(min_i, len(x)):
+            d = dates.iloc[i]
+            if d < start or d > end:
+                continue
+            dmap[int(i)] = d.date().isoformat()
+
+            ma224 = x.iloc[i]["ma224"]
+            if not _finite(ma224):
+                continue
+            close = float(x.iloc[i]["close"])
+            if not close < float(ma224):
+                continue
+
+            uni_ok, uni_date, uni_age, _ = universe.lookup(d, code)
+            if not uni_ok:
+                continue
+
+            accum = _find_accum(x, i, cfg)
+            if accum is None or not int(accum.get("accum_pass", 0)):
+                continue
+
+            pset.add(int(i))
+            raw_rows.append({
+                "schema": SCHEMA,
+                "strategy_id": STRATEGY_ID,
+                "code": str(code),
+                "bar_index": int(i),
+                "date": d.date().isoformat(),
+                "universe_snapshot_date": uni_date,
+                "universe_age_days": int(uni_age),
+                "ma224": float(ma224),
+                "close": close,
+                "close_vs_ma224_pct": (close / float(ma224) - 1.0) * 100.0,
+                "accum_recent_vs_prior": float(accum["accum_recent_vs_prior"]),
+                "accum_recent_days_above_prior_median": int(
+                    accum["accum_recent_days_above_prior_median"]
+                ),
+                "accum_max_single_day_vs_prior_median": float(
+                    accum["accum_max_single_day_vs_prior_median"]
+                ),
+                "accum_log_amount_slope": float(accum["accum_log_amount_slope"]),
+                "accum_price_return20": float(accum["accum_price_return20"]),
+                "used_as_gate": 0,
+            })
+
+        pass_sets[str(code)] = pset
+        bar_date_maps[str(code)] = dmap
+
+    raw = pd.DataFrame(raw_rows)
+    run_rows: List[Dict[str, Any]] = []
+    run_lookup: Dict[Tuple[str, int], str] = {}
+
+    for code, pset in pass_sets.items():
+        idxs = sorted(pset)
+        local = 0
+        current: List[int] = []
+        prev = None
+
+        def flush(run_indices: List[int], run_no: int):
+            if not run_indices:
+                return
+            rid = f"{code}:RAW{run_no}"
+            for bi in run_indices:
+                run_lookup[(code, int(bi))] = rid
+            dmap = bar_date_maps.get(code, {})
+            run_rows.append({
+                "schema": SCHEMA,
+                "strategy_id": STRATEGY_ID,
+                "raw_accum_run_id": rid,
+                "code": code,
+                "run_start_bar_index": int(run_indices[0]),
+                "run_end_bar_index": int(run_indices[-1]),
+                "run_start_date": dmap.get(int(run_indices[0]), ""),
+                "run_end_date": dmap.get(int(run_indices[-1]), ""),
+                "run_length_pass_bars": int(len(run_indices)),
+                "used_as_gate": 0,
+            })
+
+        for bi in idxs:
+            if prev is None or bi == prev + 1:
+                current.append(int(bi))
+            else:
+                local += 1
+                flush(current, local)
+                current = [int(bi)]
+            prev = int(bi)
+        if current:
+            local += 1
+            flush(current, local)
+
+    runs = pd.DataFrame(run_rows)
+
+    # Map every existing episode to the independent raw mask.
+    ep_rows: List[Dict[str, Any]] = []
+    if not stage_df.empty:
+        for episode_id, eg in stage_df.groupby("episode_id", sort=False):
+            eg = eg.sort_values("bar_index")
+            base = eg[eg["stage"].eq("LOW224_BASE")]
+            if base.empty:
+                continue
+            b = base.iloc[0]
+            code = str(b["code"])
+            bi = int(b["bar_index"])
+            pset = pass_sets.get(code, set())
+
+            wave = eg[eg["stage"].eq("WAVE1")]
+            wi = int(wave.iloc[0]["bar_index"]) if not wave.empty else None
+
+            next10 = [int((bi+k) in pset) for k in range(0, 10)]
+            next20 = [int((bi+k) in pset) for k in range(0, 20)]
+
+            if wi is not None and wi > bi:
+                pre20_start = max(0, wi - 20)
+                pre10_start = max(0, wi - 10)
+                pre20_flags = [int(k in pset) for k in range(pre20_start, wi)]
+                pre10_flags = [int(k in pset) for k in range(pre10_start, wi)]
+                between_flags = [int(k in pset) for k in range(bi, wi)]
+                prewave20_count = int(sum(pre20_flags))
+                prewave10_count = int(sum(pre10_flags))
+                between_count = int(sum(between_flags))
+                prewave20_longest = _longest_true_streak(pre20_flags)
+                trading_bars_to_wave = int(wi - bi)
+            else:
+                prewave20_count = -1
+                prewave10_count = -1
+                between_count = -1
+                prewave20_longest = -1
+                trading_bars_to_wave = -1
+
+            rid = run_lookup.get((code, bi), "")
+            run_len = 0
+            if rid and not runs.empty:
+                rg = runs[runs["raw_accum_run_id"].eq(rid)]
+                if not rg.empty:
+                    run_len = int(rg.iloc[0]["run_length_pass_bars"])
+
+            ep_rows.append({
+                "schema": SCHEMA,
+                "strategy_id": STRATEGY_ID,
+                "episode_id": episode_id,
+                "code": code,
+                "base_date": b["event_date"],
+                "wave1_present": int(wi is not None),
+                "wave1_date": wave.iloc[0]["event_date"] if wi is not None else "",
+                "trading_bars_base_to_wave": trading_bars_to_wave,
+                "raw_run_id_at_base": rid,
+                "raw_run_length_at_base": run_len,
+                "raw_accum_pass_count_base_next10": int(sum(next10)),
+                "raw_accum_pass_longest_streak_base_next10": _longest_true_streak(next10),
+                "raw_accum_pass_count_base_next20": int(sum(next20)),
+                "raw_accum_pass_longest_streak_base_next20": _longest_true_streak(next20),
+                "raw_accum_pass_count_between_base_and_wave": between_count,
+                "raw_accum_pass_count_prewave10": prewave10_count,
+                "raw_accum_pass_count_prewave20": prewave20_count,
+                "raw_accum_pass_longest_streak_prewave20": prewave20_longest,
+                "used_as_gate": 0,
+            })
+
+    ep = pd.DataFrame(ep_rows)
+
+    def _q(series: pd.Series, p: float) -> float:
+        x = pd.to_numeric(series, errors="coerce").dropna()
+        x = x[x >= 0]
+        return float(x.quantile(p)) if len(x) else float("nan")
+
+    wave_ep = ep[ep["wave1_present"].eq(1)] if not ep.empty else pd.DataFrame()
+    summary = pd.DataFrame([{
+        "schema": SCHEMA,
+        "strategy_id": STRATEGY_ID,
+        "raw_pass_bars": int(len(raw)),
+        "raw_runs": int(len(runs)),
+        "raw_run_length_median": _q(runs["run_length_pass_bars"], .50) if not runs.empty else float("nan"),
+        "raw_run_length_p75": _q(runs["run_length_pass_bars"], .75) if not runs.empty else float("nan"),
+        "raw_run_length_p90": _q(runs["run_length_pass_bars"], .90) if not runs.empty else float("nan"),
+        "raw_run_length_max": int(runs["run_length_pass_bars"].max()) if not runs.empty else 0,
+        "raw_runs_ge2_pct": float(
+            pd.to_numeric(runs["run_length_pass_bars"], errors="coerce").ge(2).mean() * 100.0
+        ) if not runs.empty else 0.0,
+        "raw_runs_ge3_pct": float(
+            pd.to_numeric(runs["run_length_pass_bars"], errors="coerce").ge(3).mean() * 100.0
+        ) if not runs.empty else 0.0,
+        "episodes": int(len(ep)),
+        "wave1_episodes": int(len(wave_ep)),
+        "all_episode_base_next10_pass_count_median": _q(
+            ep["raw_accum_pass_count_base_next10"], .50
+        ) if not ep.empty else float("nan"),
+        "wave1_base_next10_pass_count_median": _q(
+            wave_ep["raw_accum_pass_count_base_next10"], .50
+        ) if not wave_ep.empty else float("nan"),
+        "wave1_base_next20_pass_count_median": _q(
+            wave_ep["raw_accum_pass_count_base_next20"], .50
+        ) if not wave_ep.empty else float("nan"),
+        "wave1_prewave10_pass_count_median": _q(
+            wave_ep["raw_accum_pass_count_prewave10"], .50
+        ) if not wave_ep.empty else float("nan"),
+        "wave1_prewave20_pass_count_median": _q(
+            wave_ep["raw_accum_pass_count_prewave20"], .50
+        ) if not wave_ep.empty else float("nan"),
+        "wave1_prewave20_longest_streak_median": _q(
+            wave_ep["raw_accum_pass_longest_streak_prewave20"], .50
+        ) if not wave_ep.empty else float("nan"),
+        "used_as_gate": 0,
+        "detector_state_independent": 1,
+    }])
+    return raw, runs, ep, summary
+
+
 def build_forward_outcomes(
     stage_df: pd.DataFrame,
     frames: Dict[str, pd.DataFrame],
@@ -1065,6 +1332,12 @@ def run(args: argparse.Namespace) -> int:
     structure_context = build_structure_context_audit(stage_df, frames)
     structure_context_summary = build_structure_context_summary(structure_context)
 
+    raw_accum_pass, raw_accum_runs, raw_accum_episode_context, raw_accum_summary = (
+        build_raw_accum_persistence_audit(
+            frames, universe, start, end, cfg, stage_df
+        )
+    )
+
     stratified_sample = build_stratified_manual_sample(
         stage_df, per_stratum=int(args.stratified_sample_per_group)
     )
@@ -1133,8 +1406,10 @@ def run(args: argparse.Namespace) -> int:
         "episode_overlap_audit": overlap_summary.to_dict("records"),
         "run_level_funnel_audit": run_funnel_summary.to_dict("records"),
         "structure_context_audit": structure_context_summary.to_dict("records"),
+        "raw_accum_persistence_audit": raw_accum_summary.to_dict("records"),
         "sample_fidelity_audit_only": True,
         "run_context_wave_character_audit_only": True,
+        "raw_accum_persistence_audit_only": True,
         "detector_gate_changed": False,
         "lookahead_fail": lookahead_fail,
         "deterministic_fail": deterministic_fail,
@@ -1168,6 +1443,10 @@ def run(args: argparse.Namespace) -> int:
     write_csv(run_funnel_summary, "low224_run_level_funnel_summary.csv")
     write_csv(structure_context, "low224_structure_context_audit.csv")
     write_csv(structure_context_summary, "low224_structure_context_summary.csv")
+    write_csv(raw_accum_pass, "low224_raw_accum_pass_detail.csv")
+    write_csv(raw_accum_runs, "low224_raw_accum_run_detail.csv")
+    write_csv(raw_accum_episode_context, "low224_raw_accum_episode_context.csv")
+    write_csv(raw_accum_summary, "low224_raw_accum_persistence_summary.csv")
     write_csv(stratified_sample, "low224_stratified_manual_review_sample.csv")
     write_csv(episode_review_bars, "low224_episode_review_bars.csv")
     write_csv(authority, "low224_authority_audit.csv")
@@ -1233,13 +1512,28 @@ def run(args: argparse.Namespace) -> int:
         ),
         "※ gap/폭발성/장기하단 여부는 설명변수로만 저장 · gate 미사용",
         "",
+        "🌱 [Raw Accum Persistence · detector-state independent]",
+        (
+            f"raw pass bars {int(raw_accum_summary.iloc[0]['raw_pass_bars']):,}"
+            f" · raw runs {int(raw_accum_summary.iloc[0]['raw_runs']):,}"
+            f" · run length median {float(raw_accum_summary.iloc[0]['raw_run_length_median']):.1f}"
+            f" / p90 {float(raw_accum_summary.iloc[0]['raw_run_length_p90']):.1f}"
+        ),
+        (
+            f"WAVE1 pre10 accum-pass median "
+            f"{float(raw_accum_summary.iloc[0]['wave1_prewave10_pass_count_median']):.1f}/10"
+            f" · pre20 {float(raw_accum_summary.iloc[0]['wave1_prewave20_pass_count_median']):.1f}/20"
+            f" · longest streak {float(raw_accum_summary.iloc[0]['wave1_prewave20_longest_streak_median']):.1f}"
+        ),
+        "※ next_allowed/cooldown/WAVE 결과와 무관하게 모든 eligible bar에서 raw mask 재계산 · gate 미사용",
+        "",
         "🛡️ [Authority]",
         f"actual Amount coverage {amount_coverage:.2f}% · Close×Volume fallback 0",
         f"as-of snapshots {len(universe.dates)} · future fallback 0",
         f"lookahead {lookahead_fail} · deterministic {deterministic_fail}",
         "",
         "⚠️ R1 원칙: 성과로 threshold를 조정하지 않습니다.",
-        "➡️ NEXT: run-level 독립성 + BASE 장기하단성 + WAVE1 폭발성 audit를 보고 가장 먼저 잘못 정의된 stage 하나만 다음 revision에서 검토",
+        "➡️ NEXT: raw accumulation persistence로 '스물스물'이 실제 반복되는지 확인한 뒤 GRADUAL_AMOUNT_ACCUM 정의 유지/수정 여부 결정",
     ]
     (out/"low224_report.txt").write_text("\n".join(report), encoding="utf-8")
     print("\n".join(report))
