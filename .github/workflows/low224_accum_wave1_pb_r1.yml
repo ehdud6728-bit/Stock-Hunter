@@ -65,7 +65,7 @@ jobs:
           test -f low224_accum_wave1_pb_research.py
           test -f triangle1pb_research.py
           grep -Fq 'STRATEGY_ID = "LOW224_ACCUM_WAVE1_PB_R1_STRUCTURE_FIRST"' low224_accum_wave1_pb_research.py
-          grep -Fq 'LOADER_REVISION = "LOW224_R1_1_1_CURRENT_OVERLAY_HANDOFF_FRESHNESS_GUARD"' low224_accum_wave1_pb_research.py
+          grep -Fq 'LOADER_REVISION = "LOW224_R1_1_2_APPEND_ONLY_OOS_LEDGER"' low224_accum_wave1_pb_research.py
           grep -Fq 'RESEARCH_AUTHORITY = "RESEARCH_ONLY_NO_LIVE_NO_SCORE_NO_RANK_NO_ORDERS"' low224_accum_wave1_pb_research.py
           grep -Fq 'Close*Volume is never' low224_accum_wave1_pb_research.py
           python -m py_compile triangle1pb_research.py low224_accum_wave1_pb_research.py
@@ -117,6 +117,15 @@ jobs:
           test "$price_files" -gt 0
           test "$asof_files" -gt 0
 
+      - name: Restore LOW224 R1C1 append-only OOS ledger
+        id: low224-oos-ledger-restore
+        uses: actions/cache/restore@v4
+        with:
+          path: reports/.cache/low224_r1c1_oos_ledger
+          key: stockhunter-low224-r1c1-oos-ledger-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            stockhunter-low224-r1c1-oos-ledger-${{ github.ref_name }}-
+
       - name: Run LOW224 structure audit
         shell: bash
         env:
@@ -135,6 +144,8 @@ jobs:
             --max-codes "${MAX_CODES:-0}"
             --manual-sample-limit "${SAMPLE_LIMIT:-40}"
             --stratified-sample-per-group "${STRATIFIED_PER_GROUP:-8}"
+            --oos-ledger-dir reports/.cache/low224_r1c1_oos_ledger
+            --frozen-discovery-baseline low224_r1c1_frozen_discovery_baseline.csv
           )
           if [ -z "${END_DATE:-}" ]; then
             args+=(--require-current-overlay-authority)
@@ -191,6 +202,8 @@ jobs:
             "low224_r1c1_candidate_definition.csv","low224_r1c1_candidate_shadow_detail.csv",
             "low224_r1c1_candidate_shadow_summary.csv","low224_r1c1_prospective_control_detail.csv",
             "low224_r1c1_prospective_control_summary.csv","low224_r1c1_oos_readiness.csv",
+            "low224_r1c1_oos_append_only_ledger.csv","low224_r1c1_oos_append_only_summary.csv",
+            "low224_r1c1_discovery_baseline_drift_summary.csv",
             "low224_stratified_manual_review_sample.csv","low224_episode_review_bars.csv",
             "low224_authority_audit.csv","low224_manifest.json","low224_report.txt","low224_runtime.log"
           ]
@@ -199,14 +212,24 @@ jobs:
           m=json.loads((root/"low224_manifest.json").read_text(encoding="utf-8"))
           assert m["schema"]=="LOW224_ACCUM_WAVE1_PB_RESEARCH_SCHEMA_V1"
           assert m["strategy_id"]=="LOW224_ACCUM_WAVE1_PB_R1_STRUCTURE_FIRST"
-          assert m["loader_revision"]=="LOW224_R1_1_1_CURRENT_OVERLAY_HANDOFF_FRESHNESS_GUARD"
+          assert m["loader_revision"]=="LOW224_R1_1_2_APPEND_ONLY_OOS_LEDGER"
           rr=pd.read_csv(root/"low224_r1c1_oos_readiness.csv")
           for col in (
               "expected_current_data_end","current_overlay_authority_required",
               "current_overlay_authority_present","current_overlay_handoff_fresh",
               "current_overlay_handoff_lag_days"
           ):
-              assert col in rr.columns, ("LOW224_R1_1_1_HANDOFF_GUARD_COLUMN_MISSING",col)
+              assert col in rr.columns, ("LOW224_R1_1_2_HANDOFF_GUARD_COLUMN_MISSING",col)
+          for col in (
+              "current_day_candidate_events","current_day_control_events",
+              "oos_membership_authority","retroactive_recomputed_not_admitted",
+              "membership_flip_against_frozen_ledger"
+          ):
+              assert col in rr.columns, ("LOW224_R1_1_2_APPEND_ONLY_COLUMN_MISSING",col)
+          ao=pd.read_csv(root/"low224_r1c1_oos_append_only_summary.csv")
+          assert str(ao.iloc[0]["ledger_authority"])=="APPEND_ONLY_FIRST_OBSERVED_ON_EVENT_DATE"
+          assert int(ao.iloc[0]["retroactive_rows_can_enter_ledger"])==0
+          assert int(ao.iloc[0]["membership_rewrite_allowed"])==0
           assert m["research_authority"]=="RESEARCH_ONLY_NO_LIVE_NO_SCORE_NO_RANK_NO_ORDERS"
           assert m["shared_data_authority_only"]=="TRIANGLE1PB_CACHE_ADAPTERS_ONLY_NO_PATTERN_LOGIC"
           assert m["live_logic_changed"] is False
@@ -287,6 +310,13 @@ jobs:
           assert len(ids)==len(parts)
           print("LOW224_TELEGRAM_MULTIPART_COMPLETE",len(parts),ids)
           PY
+
+      - name: Save LOW224 R1C1 append-only OOS ledger
+        if: success() && hashFiles('reports/.cache/low224_r1c1_oos_ledger/state.json') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: reports/.cache/low224_r1c1_oos_ledger
+          key: stockhunter-low224-r1c1-oos-ledger-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Upload LOW224 R1 artifact
         if: always()
