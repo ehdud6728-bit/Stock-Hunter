@@ -60,9 +60,9 @@ jobs:
           echo "TRIANGLE1PB_EVENT_SHA=${GITHUB_SHA}"
           echo "TRIANGLE1PB_WORKSPACE=${GITHUB_WORKSPACE}"
           test -f triangle1pb_research.py || { echo "TRIANGLE1PB source missing"; exit 241; }
-          grep -Fq 'LOADER_REVISION = "TRIANGLE1PB_R1_15_4_CURRENT_OVERLAY_HANDOFF_FRESHNESS_GUARD"' triangle1pb_research.py || {
+          grep -Fq 'LOADER_REVISION = "TRIANGLE1PB_R1_15_5_APPEND_ONLY_OOS_LEDGER"' triangle1pb_research.py || {
             echo "TRIANGLE1PB_DEDICATED_STALE_SOURCE_FAIL";
-            echo "Expected TRIANGLE1PB_R1_15_4_CURRENT_OVERLAY_HANDOFF_FRESHNESS_GUARD";
+            echo "Expected TRIANGLE1PB_R1_15_5_APPEND_ONLY_OOS_LEDGER";
             grep -n '^LOADER_REVISION' triangle1pb_research.py || true;
             exit 242;
           }
@@ -88,8 +88,8 @@ jobs:
           python triangle1pb_research.py --self-test
           grep -Fq 'RESEARCH_AUTHORITY = "RESEARCH_ONLY_NO_LIVE_NO_POLICY_NO_ORDERS"' triangle1pb_research.py
           grep -Fq 'STRATEGY_ID = "TRIANGLE1PB_R1_CHRONOLOGY_FIRST"' triangle1pb_research.py
-          grep -Fq 'LOADER_REVISION = "TRIANGLE1PB_R1_15_4_CURRENT_OVERLAY_HANDOFF_FRESHNESS_GUARD"' triangle1pb_research.py || {
-            echo "TRIANGLE1PB_STALE_SOURCE_FAIL expected=R1_15_4";
+          grep -Fq 'LOADER_REVISION = "TRIANGLE1PB_R1_15_5_APPEND_ONLY_OOS_LEDGER"' triangle1pb_research.py || {
+            echo "TRIANGLE1PB_STALE_SOURCE_FAIL expected=R1_15_5";
             grep -n '^LOADER_REVISION' triangle1pb_research.py || true;
             exit 236;
           }
@@ -98,7 +98,7 @@ jobs:
           echo "TRIANGLE1PB_SOURCE_SHA256=$(sha256sum triangle1pb_research.py | awk '{print $1}')"
           echo "TRIANGLE1PB_GIT_COMMIT=$(git rev-parse HEAD 2>/dev/null || echo UNKNOWN)"
           echo "TRIANGLE1PB_GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo UNKNOWN)"
-          echo "TRIANGLE1PB_PREFLIGHT PASS revision=R1_15_4 independent=1 live=0 score_rank=0 order=0 tuning=0"
+          echo "TRIANGLE1PB_PREFLIGHT PASS revision=R1_15_5 independent=1 live=0 score_rank=0 order=0 tuning=0"
 
       - name: Restore latest CORE224 current-data overlay for TRIANGLE1PB
         id: tri-current-overlay-restore
@@ -155,6 +155,15 @@ jobs:
           test "$price_files" -gt 0 || { echo "TRIANGLE1PB_FAIL_CLOSED price cache empty"; exit 232; }
           test "$asof_files" -gt 0 || { echo "TRIANGLE1PB_FAIL_CLOSED historical as-of universe cache empty"; exit 233; }
 
+      - name: Restore TRIANGLE1PB append-only OOS ledger
+        id: tri-oos-ledger-restore
+        uses: actions/cache/restore@v4
+        with:
+          path: reports/.cache/triangle1pb_r2_oos_ledger
+          key: stockhunter-triangle1pb-r2-oos-ledger-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            stockhunter-triangle1pb-r2-oos-ledger-${{ github.ref_name }}-
+
       - name: Run TRIANGLE1PB chronology-first two-year research
         shell: bash
         env:
@@ -171,6 +180,8 @@ jobs:
             --output-dir reports/triangle1pb
             --max-codes "${TRI_MAX_CODES:-0}"
             --manual-sample-limit "${TRI_MANUAL_SAMPLE_LIMIT:-40}"
+            --oos-ledger-dir reports/.cache/triangle1pb_r2_oos_ledger
+            --frozen-discovery-baseline tri_r2_frozen_discovery_baseline.csv
           )
           if [ -z "${TRI_END_DATE:-}" ]; then
             args+=(--require-current-overlay-authority)
@@ -199,7 +210,7 @@ jobs:
           fi
           if [ -n "${TRI_START_DATE:-}" ]; then args+=(--start-date "$TRI_START_DATE"); fi
           if [ -n "${TRI_END_DATE:-}" ]; then args+=(--end-date "$TRI_END_DATE"); fi
-          grep -Fq 'LOADER_REVISION = "TRIANGLE1PB_R1_15_4_CURRENT_OVERLAY_HANDOFF_FRESHNESS_GUARD"' triangle1pb_research.py || {
+          grep -Fq 'LOADER_REVISION = "TRIANGLE1PB_R1_15_5_APPEND_ONLY_OOS_LEDGER"' triangle1pb_research.py || {
             echo "TRIANGLE1PB_STALE_SOURCE_FAIL immediately_before_run";
             grep -n '^LOADER_REVISION' triangle1pb_research.py || true;
             exit 237;
@@ -237,6 +248,8 @@ jobs:
               'tri_r2_prospective_control_detail.csv',
               'tri_r2_prospective_control_summary.csv',
               'tri_r2_oos_readiness.csv',
+              'tri_r2_oos_append_only_ledger.csv','tri_r2_oos_append_only_summary.csv',
+              'tri_r2_discovery_baseline_drift_summary.csv',
               'tri_manifest.json','tri_report.txt','tri_runtime.log',
           ]
           missing=[x for x in required if not (root/x).exists()]
@@ -244,7 +257,7 @@ jobs:
           m=json.loads((root/'tri_manifest.json').read_text(encoding='utf-8'))
           assert m.get('schema')=='TRIANGLE1PB_RESEARCH_SCHEMA_V1'
           assert m.get('strategy_id')=='TRIANGLE1PB_R1_CHRONOLOGY_FIRST'
-          assert m.get('loader_revision')=='TRIANGLE1PB_R1_15_4_CURRENT_OVERLAY_HANDOFF_FRESHNESS_GUARD', (
+          assert m.get('loader_revision')=='TRIANGLE1PB_R1_15_5_APPEND_ONLY_OOS_LEDGER', (
               'TRIANGLE1PB_STALE_MANIFEST_REVISION', m.get('loader_revision')
           )
           ready=pd.read_csv(root/'tri_r2_oos_readiness.csv')
@@ -253,7 +266,17 @@ jobs:
               'current_overlay_authority_present','current_overlay_handoff_fresh',
               'current_overlay_handoff_lag_days'
           ):
-              assert col in ready.columns, ('R1_15_4_HANDOFF_GUARD_COLUMN_MISSING', col)
+              assert col in ready.columns, ('R1_15_5_HANDOFF_GUARD_COLUMN_MISSING', col)
+          for col in (
+              'current_day_candidate_events','current_day_control_events',
+              'oos_membership_authority','retroactive_recomputed_not_admitted',
+              'membership_flip_against_frozen_ledger'
+          ):
+              assert col in ready.columns, ('R1_15_5_APPEND_ONLY_COLUMN_MISSING', col)
+          ao=pd.read_csv(root/'tri_r2_oos_append_only_summary.csv')
+          assert str(ao.iloc[0]['ledger_authority'])=='APPEND_ONLY_FIRST_OBSERVED_ON_EVENT_DATE'
+          assert int(ao.iloc[0]['retroactive_rows_can_enter_ledger'])==0
+          assert int(ao.iloc[0]['membership_rewrite_allowed'])==0
           assert 'stage_anchor_path_audit' in m, 'R1_12_STAGE_ANCHOR_MANIFEST_MISSING'
           assert 'conversion_vs_quality_audit' in m, 'R1_12_CONVERSION_QUALITY_MANIFEST_MISSING'
           assert 'stage_quality_anatomy_audit' in m, 'R1_15_STAGE_QUALITY_ANATOMY_MANIFEST_MISSING'
@@ -387,10 +410,15 @@ jobs:
                           f" / max {rd.get('asof_max_calendar_age_days','-')}d"
                       ),
                       (
-                          f"candidate {int(rd.get('prospective_candidate_events',0))}"
-                          f" · control {int(rd.get('prospective_control_events',0))}"
-                          f" · D15 mature {int(rd.get('candidate_d15_mature',0))}/"
+                          f"today candidate {int(rd.get('current_day_candidate_events',0))}"
+                          f" · control {int(rd.get('current_day_control_events',0))}"
+                          f" | ledger total {int(rd.get('prospective_candidate_events',0))}/"
+                          f"{int(rd.get('prospective_control_events',0))}"
+                      ),
+                      (
+                          f"D15 mature {int(rd.get('candidate_d15_mature',0))}/"
                           f"{int(rd.get('control_d15_mature',0))}"
+                          f" · retroactive excluded {int(rd.get('retroactive_recomputed_not_admitted',0))}"
                       ),
                       f"status={rd.get('oos_readiness_status','-')}",
                       (
@@ -891,7 +919,7 @@ jobs:
                           f" · D10 {int(rr.get('prospective_d10_mature',0))}"
                           f" · D15 {int(rr.get('prospective_d15_mature',0))}"
                       ),
-                      "※ 2026-08-31 이후 신규 event만 OOS 검증에 사용",
+                      "※ rolling shadow 표시는 감사용 · 공식 OOS membership은 append-only ledger만 사용",
                       "※ candidate 정의 추가튜닝 금지 · 실제 strategy gate 미변경",
                   ]
 
@@ -911,7 +939,7 @@ jobs:
                           f" · control {int(cr.get('control_d15_mature',0))}"
                       ),
                       "※ candidate=reclaim restart · control=no-reclaim restart",
-                      "※ 둘 다 2026-08-31 이후만 OOS 비교 · 역사표본 제외",
+                      "※ 공식 candidate/control 비교는 append-only OOS ledger의 최초관측 event만 사용",
                   ]
 
               amount_cov = m.get("actual_amount_coverage_pct")
@@ -1078,6 +1106,13 @@ jobs:
               "truncated=0",
           )
           PYTRITELEGRAM
+
+      - name: Save TRIANGLE1PB append-only OOS ledger
+        if: success() && hashFiles('reports/.cache/triangle1pb_r2_oos_ledger/state.json') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: reports/.cache/triangle1pb_r2_oos_ledger
+          key: stockhunter-triangle1pb-r2-oos-ledger-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Upload TRIANGLE1PB research artifact
         if: always()
