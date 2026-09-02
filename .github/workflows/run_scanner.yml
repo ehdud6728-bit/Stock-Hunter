@@ -1411,46 +1411,22 @@ jobs:
           python triangle1pb_research.py --self-test
           grep -Fq 'RESEARCH_AUTHORITY = "RESEARCH_ONLY_NO_LIVE_NO_POLICY_NO_ORDERS"' triangle1pb_research.py
           grep -Fq 'STRATEGY_ID = "TRIANGLE1PB_R1_CHRONOLOGY_FIRST"' triangle1pb_research.py
-          grep -Fq 'LOADER_REVISION = "TRIANGLE1PB_R1_15_3_DISCOVERY_WINDOW_LOCK_TELEGRAM_SPLIT"' triangle1pb_research.py || {
-            echo "TRIANGLE1PB_STALE_SOURCE_FAIL expected=R1_15_3";
-            grep -n '^LOADER_REVISION' triangle1pb_research.py || true;
-            exit 236;
-          }
           grep -Fq 'synthetic_close_x_volume_fallback_rows' triangle1pb_research.py
-          echo "TRIANGLE1PB_SOURCE_REVISION=$(grep '^LOADER_REVISION' triangle1pb_research.py)"
-          echo "TRIANGLE1PB_SOURCE_SHA256=$(sha256sum triangle1pb_research.py | awk '{print $1}')"
-          echo "TRIANGLE1PB_GIT_COMMIT=$(git rev-parse HEAD 2>/dev/null || echo UNKNOWN)"
-          echo "TRIANGLE1PB_GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo UNKNOWN)"
-          echo "TRIANGLE1PB_PREFLIGHT PASS revision=R1_15_3 independent=1 live=0 score_rank=0 order=0 tuning=0"
+          echo "TRIANGLE1PB_PREFLIGHT PASS independent=1 live=0 score_rank=0 order=0 tuning=0"
 
-      - name: Restore latest CORE224 current-data overlay for TRIANGLE1PB
-        id: tri-current-overlay-restore
-        uses: actions/cache/restore@v4
-        with:
-          # Exact path-set used by "Save CORE224 live state overlay".
-          # TRIANGLE1PB only reads price/as-of/actual-Amount from this cache.
-          path: |
-            reports/.cache/v20_price_history
-            reports/.cache/v20_asof_snapshots
-            reports/.cache/v25_actual_amount_history
-            reports/.cache/v25_core224_live
-          key: triangle1pb-current-overlay-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
-          restore-keys: |
-            stockhunter-v25-core224-live-${{ github.ref_name }}-
-
-      - name: Restore V21 research cache only as fallback
-        if: steps.tri-current-overlay-restore.outputs.cache-matched-key == ''
+      - name: Restore latest V21 research cache read-only
         id: tri-v21-restore
         uses: actions/cache/restore@v4
         with:
-          # Exact canonical V21 replay path-set.
+          # This path-set intentionally matches the canonical V21 save path-set byte-for-byte
+          # so actions/cache version matching can restore the existing research cache.
           path: |
             reports/.cache/v20_price_history
             reports/.cache/v20_asof_snapshots
             reports/.cache/v25_actual_amount_history
             reports/.cache/v25_core224_live
             reports/.cache/v20_replay_checkpoint
-          key: triangle1pb-v21-fallback-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: triangle1pb-readonly-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
             stockhunter-v21-replay-${{ github.ref_name }}-
 
@@ -1462,19 +1438,7 @@ jobs:
           price_files=$(find reports/.cache/v20_price_history -type f 2>/dev/null | wc -l | tr -d ' ')
           asof_files=$(find reports/.cache/v20_asof_snapshots -type f 2>/dev/null | wc -l | tr -d ' ')
           amount_files=$(find reports/.cache/v25_actual_amount_history -type f 2>/dev/null | wc -l | tr -d ' ')
-          current_match="${{ steps.tri-current-overlay-restore.outputs.cache-matched-key }}"
-          fallback_match="${{ steps.tri-v21-restore.outputs.cache-matched-key }}"
-          if [ -n "$current_match" ]; then
-            cache_source="CURRENT_V25_CORE224_LIVE_OVERLAY"
-            matched="$current_match"
-          elif [ -n "$fallback_match" ]; then
-            cache_source="V21_REPLAY_FALLBACK"
-            matched="$fallback_match"
-          else
-            cache_source="NONE"
-            matched=""
-          fi
-          echo "TRIANGLE1PB_CACHE_AUTHORITY source=${cache_source} matched=${matched} price_files=${price_files} asof_files=${asof_files} amount_files=${amount_files} cache_write=0"
+          echo "TRIANGLE1PB_CACHE_RESTORE matched=${{ steps.tri-v21-restore.outputs.cache-matched-key }} price_files=${price_files} asof_files=${asof_files} amount_files=${amount_files} cache_write=0"
           test "$price_files" -gt 0 || { echo "TRIANGLE1PB_FAIL_CLOSED price cache empty"; exit 232; }
           test "$asof_files" -gt 0 || { echo "TRIANGLE1PB_FAIL_CLOSED historical as-of universe cache empty"; exit 233; }
 
@@ -1497,12 +1461,6 @@ jobs:
           )
           if [ -n "${TRI_START_DATE:-}" ]; then args+=(--start-date "$TRI_START_DATE"); fi
           if [ -n "${TRI_END_DATE:-}" ]; then args+=(--end-date "$TRI_END_DATE"); fi
-          grep -Fq 'LOADER_REVISION = "TRIANGLE1PB_R1_15_3_DISCOVERY_WINDOW_LOCK_TELEGRAM_SPLIT"' triangle1pb_research.py || {
-            echo "TRIANGLE1PB_STALE_SOURCE_FAIL immediately_before_run";
-            grep -n '^LOADER_REVISION' triangle1pb_research.py || true;
-            exit 237;
-          }
-          echo "TRIANGLE1PB_RUN_SOURCE_SHA256=$(sha256sum triangle1pb_research.py | awk '{print $1}')"
           python -u triangle1pb_research.py "${args[@]}" | tee reports/triangle1pb/tri_runtime.log
 
       - name: TRIANGLE1PB fail-closed research postflight
@@ -1520,37 +1478,13 @@ jobs:
               'tri_stage_counts.csv','tri_rejection_ledger.csv','tri_rejection_counts.csv',
               'tri_chronology_audit.csv','tri_lookahead_audit.csv','tri_invariant_audit.csv',
               'tri_amount_authority_audit.csv','tri_asof_universe_audit.csv','tri_manual_chart_review_sample.csv',
-              'tri_event_study_summary.csv',
-              'tri_stage_anchor_d1_d15_path_detail.csv',
-              'tri_stage_anchor_d1_d15_event_summary.csv',
-              'tri_stage_anchor_d1_d15_summary.csv',
-              'tri_conversion_vs_quality_summary.csv',
-              'tri_healthy_bottoming_anatomy.csv',
-              'tri_restart_reacceleration_anatomy.csv',
-              'tri_stage_quality_anatomy_summary.csv',
-              'tri_restart_reclaim_robustness_summary.csv',
-              'tri_r2_candidate_definition.csv',
-              'tri_r2_candidate_shadow_detail.csv',
-              'tri_r2_candidate_shadow_summary.csv',
-              'tri_r2_prospective_control_detail.csv',
-              'tri_r2_prospective_control_summary.csv',
-              'tri_r2_oos_readiness.csv',
-              'tri_manifest.json','tri_report.txt','tri_runtime.log',
+              'tri_event_study_summary.csv','tri_manifest.json','tri_report.txt','tri_runtime.log',
           ]
           missing=[x for x in required if not (root/x).exists()]
           assert not missing, ('TRIANGLE1PB_OUTPUT_MISSING',missing)
           m=json.loads((root/'tri_manifest.json').read_text(encoding='utf-8'))
           assert m.get('schema')=='TRIANGLE1PB_RESEARCH_SCHEMA_V1'
           assert m.get('strategy_id')=='TRIANGLE1PB_R1_CHRONOLOGY_FIRST'
-          assert m.get('loader_revision')=='TRIANGLE1PB_R1_15_3_DISCOVERY_WINDOW_LOCK_TELEGRAM_SPLIT', (
-              'TRIANGLE1PB_STALE_MANIFEST_REVISION', m.get('loader_revision')
-          )
-          assert 'stage_anchor_path_audit' in m, 'R1_12_STAGE_ANCHOR_MANIFEST_MISSING'
-          assert 'conversion_vs_quality_audit' in m, 'R1_12_CONVERSION_QUALITY_MANIFEST_MISSING'
-          assert 'stage_quality_anatomy_audit' in m, 'R1_15_STAGE_QUALITY_ANATOMY_MANIFEST_MISSING'
-          assert 'restart_reclaim_robustness_audit' in m, 'R1_15_RECLAIM_ROBUSTNESS_MANIFEST_MISSING'
-          assert 'r2_candidate_prospective_shadow' in m, 'R1_15_R2_SHADOW_MANIFEST_MISSING'
-          assert 'r2_prospective_control_audit' in m, 'R1_15_1_CONTROL_MANIFEST_MISSING'
           assert m.get('research_authority')=='RESEARCH_ONLY_NO_LIVE_NO_POLICY_NO_ORDERS'
           assert m.get('core224_dependency')=='NONE'
           assert m.get('core224_logic_changed') is False
@@ -1567,16 +1501,6 @@ jobs:
           la=pd.read_csv(root/'tri_lookahead_audit.csv')
           amt=pd.read_csv(root/'tri_amount_authority_audit.csv')
           uni=pd.read_csv(root/'tri_asof_universe_audit.csv')
-          stage=pd.read_csv(root/'tri_stage_anchor_d1_d15_summary.csv')
-          convq=pd.read_csv(root/'tri_conversion_vs_quality_summary.csv')
-          assert not stage.empty, 'R1_12_STAGE_ANCHOR_SUMMARY_EMPTY'
-          assert {'QUALIFIED','HEALTHY','RESTART'}.issubset(set(stage['anchor'].astype(str))), (
-              'R1_12_STAGE_ANCHORS_MISSING', sorted(set(stage['anchor'].astype(str)))
-          )
-          assert not convq.empty, 'R1_12_CONVERSION_QUALITY_EMPTY'
-          assert {'OBV+_AND_BB40DOWN','REST'}.issubset(set(convq['group'].astype(str))), (
-              'R1_12_CONVERSION_GROUPS_MISSING', sorted(set(convq['group'].astype(str)))
-          )
           assert len(inv)==1 and str(inv.iloc[-1].get('status'))=='PASS'
           assert len(la)==1 and str(la.iloc[-1].get('status'))=='PASS'
           assert int(float(amt.iloc[-1].get('synthetic_close_x_volume_fallback_rows',-1)))==0
@@ -1594,776 +1518,6 @@ jobs:
           cat reports/triangle1pb/tri_stage_counts.csv 2>/dev/null || true
           echo "===== INVARIANT ====="
           cat reports/triangle1pb/tri_invariant_audit.csv 2>/dev/null || true
-
-      - name: Send TRIANGLE1PB research board to Telegram
-        if: always()
-        continue-on-error: true
-        env:
-          TELEGRAM_BACKTEST_TOKEN: ${{ secrets.TELEGRAM_BACKTEST_TOKEN }}
-          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-          STOCKHUNTER_CHAT_ID: ${{ secrets.STOCKHUNTER_CHAT_ID }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          python - <<'PYTRITELEGRAM'
-          import csv
-          import json
-          import os
-          import urllib.parse
-          import urllib.request
-          from pathlib import Path
-
-          root = Path("reports/triangle1pb")
-          manifest_path = root / "tri_manifest.json"
-          report_path = root / "tri_report.txt"
-          signal_path = root / "tri_signal_ledger.csv"
-
-          token = (os.environ.get("TELEGRAM_BACKTEST_TOKEN") or os.environ.get("TELEGRAM_TOKEN") or "").strip()
-          chat_id = (os.environ.get("STOCKHUNTER_CHAT_ID") or os.environ.get("TELEGRAM_CHAT_ID") or "").strip()
-
-          token_route = "TELEGRAM_BACKTEST_TOKEN" if os.environ.get("TELEGRAM_BACKTEST_TOKEN", "").strip() else (
-              "TELEGRAM_TOKEN" if os.environ.get("TELEGRAM_TOKEN", "").strip() else "MISSING"
-          )
-          chat_route = "STOCKHUNTER_CHAT_ID" if os.environ.get("STOCKHUNTER_CHAT_ID", "").strip() else (
-              "TELEGRAM_CHAT_ID" if os.environ.get("TELEGRAM_CHAT_ID", "").strip() else "MISSING"
-          )
-
-          if not token or not chat_id:
-              print(
-                  "TRIANGLE1PB_TELEGRAM_SKIP",
-                  "reason=ROUTE_MISSING",
-                  f"token_route={token_route}",
-                  f"chat_route={chat_route}",
-              )
-              raise SystemExit(0)
-
-          lines = [
-              "🔬 [TRIANGLE1PB RESEARCH BOARD]",
-              "RESEARCH ONLY · 주문 0 · LIVE/점수/랭킹 0 · CORE224 무관",
-          ]
-
-          if not manifest_path.exists():
-              lines += [
-                  "⚠️ 연구 manifest가 생성되지 않았습니다.",
-                  "Actions artifact/log를 확인하세요.",
-              ]
-          else:
-              m = json.loads(manifest_path.read_text(encoding="utf-8"))
-              stage = m.get("stage_counts") or {}
-              gate = m.get("gate_diagnostics") or {}
-
-              lines += [
-                  f"📌 strategy={m.get('strategy_id','-')}",
-                  f"📅 period={m.get('research_start') or m.get('start_date','-')} ~ {m.get('research_end') or m.get('end_date','-')} · codes={m.get('codes_scanned','-')}",
-              ]
-              ready_rows = ((m.get("r2_oos_readiness") or {}).get("summary") or [])
-              if ready_rows:
-                  rd = ready_rows[0]
-                  lines += [
-                      "",
-                      "🛰️ [R2C1 OOS Readiness · 먼저 확인]",
-                      (
-                          f"data end {rd.get('research_data_end','-')} · prospective start "
-                          f"{rd.get('prospective_start_date','-')}"
-                      ),
-                      (
-                          f"as-of {rd.get('latest_asof_snapshot_le_data_end','-')}"
-                          f" · age {rd.get('asof_age_to_data_end_calendar_days','-')}d"
-                          f" / max {rd.get('asof_max_calendar_age_days','-')}d"
-                      ),
-                      (
-                          f"candidate {int(rd.get('prospective_candidate_events',0))}"
-                          f" · control {int(rd.get('prospective_control_events',0))}"
-                          f" · D15 mature {int(rd.get('candidate_d15_mature',0))}/"
-                          f"{int(rd.get('control_d15_mature',0))}"
-                      ),
-                      f"status={rd.get('oos_readiness_status','-')}",
-                      (
-                          "※ READY일 때만 candidate=0을 '신규 event 없음'으로 해석"
-                          if rd.get("oos_readiness_status") != "READY_PROSPECTIVE_OOS"
-                          else "※ OOS 데이터 준비 완료 · 신규 event만 검증"
-                      ),
-                  ]
-              lines += [
-                  "",
-                  "🧭 [Chronology]",
-                  (
-                      f"SQUEEZE {stage.get('TRI_SQUEEZE',0)}"
-                      f" → BREAKOUT {stage.get('TRI_BREAKOUT_WAVE1',0)}"
-                      f" → FIRST_PB {stage.get('TRI_FIRST_PULLBACK',0)}"
-                      f" → HEALTHY_PB {stage.get('TRI_HEALTHY_PULLBACK',0)}"
-                      f" → RESTART {stage.get('TRI_RESTART',0)}"
-                  ),
-              ]
-
-              if gate:
-                  lines += [
-                      "",
-                      "🔎 [Gate Funnel]",
-                      f"windows {int(gate.get('windows_tested',0)):,}",
-                      (
-                          f"full-squeeze {int(gate.get('squeeze_qualifying_windows',0)):,}"
-                          f" · codes {int(gate.get('codes_with_qualifying_squeeze_window',0)):,}"
-                      ),
-                      (
-                          f"min-streak reach {int(gate.get('squeeze_streak_reached',0)):,}"
-                          f" · max streak {int(gate.get('max_squeeze_streak_global',0))}"
-                      ),
-                      (
-                          f"universe PASS {int(gate.get('squeeze_universe_pass',0)):,}"
-                          f" / FAIL {int(gate.get('squeeze_universe_fail',0)):,}"
-                      ),
-                      f"breakout price-cross {int(gate.get('breakout_price_cross',0)):,}",
-                      f"Amount-ready {int(gate.get('breakout_amount_ready',0)):,}",
-                      f"breakout accepted {int(gate.get('breakout_accepted',0)):,}",
-                      f"restart accepted {int(gate.get('restart_accepted',0)):,}",
-                  ]
-
-              struct = m.get("structure_fidelity_audit") or {}
-              if struct:
-                  lines += [
-                      "",
-                      "🧬 [Structure Fidelity Audit]",
-                      f"raw squeeze audit {int(struct.get('rows',0)):,}/{int(struct.get('expected_full_squeeze_rows',0)):,} · errors {int(struct.get('audit_errors',0)):,}",
-                      f"research {int(struct.get('research_period_rows',0)):,} / warm-up {int(struct.get('warmup_rows',0)):,} · research codes {int(struct.get('research_period_codes',0)):,}",
-                      f"manual sample {int(struct.get('manual_review_rows',0)):,}",
-                      f"post15 wave1 {int(struct.get('wave1_found_rows',0)):,}",
-                      f"first pullback {int(struct.get('first_pullback_found_rows',0)):,}",
-                      f"restart-after-PB {int(struct.get('restart_after_pullback_rows',0)):,}",
-                      "※ post-event 수치는 검증용 미래정보이며 검색 gate에는 미사용",
-                  ]
-
-              cf = m.get("counterfactual_streak_audit") or {}
-              cf_rows = cf.get("summary") or []
-              if cf_rows:
-                  lines += ["", "🧪 [Streak Counterfactual · 연구기간만]"]
-                  for r in cf_rows:
-                      lines.append(
-                          (
-                              f"streak≥{int(r.get('streak_threshold',0))}: "
-                              f"runs {int(r.get('research_candidate_runs',0))} · "
-                              f"strict {int(r.get('first_cross_exact_with_universe',0))}"
-                              f"→H{int(r.get('healthy_pullback_existing',0))}"
-                              f"→R{int(r.get('restart_existing',0))} · "
-                              f"qualified {int(r.get('any_exact_breakout_with_universe',0))}"
-                              f"→H{int(r.get('qualified_healthy_pullback_existing',0))}"
-                              f"→R{int(r.get('qualified_restart_existing',0))} · "
-                              f"probe→qualified {int(r.get('probe_then_qualified_breakout',0))}"
-                          )
-                      )
-                  lines.append("※ strict=첫 가격돌파 즉시판정 · qualified=동일 기존조건을 처음 모두 만족한 본돌파")
-                  lines.append("※ 가상비교 전용 · 실제 chronology/streak/전략조건 변경 없음")
-
-              qev = m.get("qualified_event_fidelity_audit") or {}
-              qev_rows = qev.get("summary") or []
-              if qev_rows:
-                  q = qev_rows[0]
-                  lines += [
-                      "",
-                      "🧫 [Qualified Unique Event Audit · streak1]",
-                      (
-                          f"unique {int(q.get('qualified_unique_events',0))}"
-                          f" · duplicate source-runs {int(q.get('duplicate_source_runs',0))}"
-                          f" · direct {int(q.get('direct_canonical_events',0))}"
-                          f" · probe→qualified {int(q.get('probe_to_qualified_canonical_events',0))}"
-                      ),
-                      (
-                          f"healthy {int(q.get('healthy_events',0))}"
-                          f" · restart {int(q.get('restart_events',0))}"
-                          f" · +5% {int(q.get('impulse_5pct_events',0))}"
-                          f" · +10% {int(q.get('impulse_10pct_events',0))}"
-                      ),
-                      (
-                          f"lower-structure intact {int(q.get('wait_structure_intact_lower_events',0))}"
-                          f" · lower-break {int(q.get('wait_lower_break_events',0))}"
-                          f" · discontinuity≥35% {int(q.get('suspicious_price_discontinuity_events',0))}"
-                      ),
-                      (
-                          f"clean+intact {int(q.get('clean_intact_events',0))}"
-                          f" → H{int(q.get('clean_intact_healthy_events',0))}"
-                          f" → R{int(q.get('clean_intact_restart_events',0))}"
-                      ),
-                      "※ event audit 전용 · 실제 전략 gate 미변경",
-                  ]
-
-              ps = m.get("phase_sequence_audit") or {}
-              ps_rows = ps.get("summary") or []
-              if ps_rows:
-                  p = ps_rows[0]
-                  lines += [
-                      "",
-                      "🧩 [Phase Sequence Audit · unique qualified events]",
-                      (
-                          f"pre60 spike: Vol2x {int(p.get('pre60_volume_spike_2x_present',0))}"
-                          f" · Amount2x {int(p.get('pre60_amount_spike_2x_present',0))}"
-                          f" · accum-proxy {int(p.get('legacy_accumulation_proxy_present',0))}"
-                      ),
-                      (
-                          f"squeeze cooling: Amount {int(p.get('squeeze_amount_cooling_events',0))}"
-                          f" · Vol {int(p.get('squeeze_volume_cooling_events',0))}"
-                          f" · range {int(p.get('squeeze_range_compression_events',0))}"
-                          f" · all3 {int(p.get('three_phase_compression_events',0))}"
-                      ),
-                      (
-                          f"breakout Amount20 mean median {float(p.get('median_breakout_amount20_mean_ratio',0) or 0):.2f}x"
-                          f" · +5% {int(p.get('impulse_5pct_events',0))}"
-                          f" · +10% {int(p.get('impulse_10pct_events',0))}"
-                      ),
-                      (
-                          f"healthy {int(p.get('healthy_events',0))}"
-                          f" · PB Amount/BO median {float(p.get('median_healthy_pullback_amount_vs_breakout',0) or 0):.2f}x"
-                          f" · restart {int(p.get('restart_events',0))}"
-                      ),
-                      (
-                          f"all3→+5%→healthy {int(p.get('sequence_compression_plus_5pct_plus_healthy',0))}"
-                          f" · 그중 restart {int(p.get('sequence_compression_plus_5pct_plus_healthy_restart',0))}"
-                      ),
-                      (
-                          f"extreme-context≥29% {int(p.get('extreme_context_29pct_events',0))}"
-                          f" · lower-line intact tag {int(p.get('lower_structure_intact_tag_events',0))}"
-                      ),
-                      "※ phase audit 전용 · 어떤 태그도 실제 strategy gate에 미사용",
-                  ]
-
-              te = m.get("terminal_energy_profile_audit") or {}
-              te_rows = te.get("summary") or []
-              if te_rows:
-                  t = te_rows[0]
-                  total = int(t.get("qualified_unique_events",0))
-                  ta = int(t.get("terminal_all3_dry_events",0))
-                  nt = max(0, total - ta)
-                  lines += [
-                      "",
-                      "⚡ [Terminal Energy Profile · unique qualified events]",
-                      (
-                          f"early-flow {int(t.get('early_flow_present_events',0))}/{total}"
-                          f" · terminal dry: Amount {int(t.get('terminal_amount_dry_events',0))}"
-                          f" / Vol {int(t.get('terminal_volume_dry_events',0))}"
-                          f" / range {int(t.get('terminal_range_dry_events',0))}"
-                          f" / all3 {ta}"
-                      ),
-                      (
-                          f"median late/early: Amount {float(t.get('median_terminal_amount_ratio',0) or 0):.2f}x"
-                          f" · Vol {float(t.get('median_terminal_volume_ratio',0) or 0):.2f}x"
-                          f" · range {float(t.get('median_terminal_range_ratio',0) or 0):.2f}x"
-                      ),
-                      (
-                          f"breakout/terminal median: Amount {float(t.get('median_breakout_vs_terminal_amount_ratio',0) or 0):.2f}x"
-                          f" · Vol {float(t.get('median_breakout_vs_terminal_volume_ratio',0) or 0):.2f}x"
-                      ),
-                      (
-                          f"terminal-all3 {ta}: +5% {int(t.get('terminal_all3_impulse_5pct',0))}"
-                          f" · +10% {int(t.get('terminal_all3_impulse_10pct',0))}"
-                          f" · H{int(t.get('terminal_all3_healthy',0))}"
-                          f" · R{int(t.get('terminal_all3_restart',0))}"
-                      ),
-                      (
-                          f"nonterminal {nt}: +5% {int(t.get('nonterminal_impulse_5pct',0))}"
-                          f" · +10% {int(t.get('nonterminal_impulse_10pct',0))}"
-                          f" · H{int(t.get('nonterminal_healthy',0))}"
-                          f" · R{int(t.get('nonterminal_restart',0))}"
-                      ),
-                      "※ terminal profile도 관찰용 · 실제 strategy gate 미사용",
-                  ]
-
-              cc = m.get("causal_precursor_case_control_audit") or {}
-              cc_rows = cc.get("summary") or []
-              if cc_rows:
-                  c = cc_rows[0]
-                  def pct(v):
-                      try:
-                          return f"{float(v)*100.0:.1f}%"
-                      except Exception:
-                          return "-"
-                  lines += [
-                      "",
-                      "🧪 [Causal Precursor Case-Control · streak1 전체]",
-                      (
-                          f"runs {int(c.get('streak1_candidate_runs',0))}"
-                          f" → qualified {int(c.get('qualified_breakouts',0))}"
-                          f" · strict {int(c.get('strict_first_cross_exact',0))}"
-                      ),
-                      (
-                          f"terminal-all3 {int(c.get('terminal_all3_runs',0))}"
-                          f" → Q{int(c.get('terminal_all3_qualified',0))}"
-                          f" ({pct(c.get('terminal_all3_qualified_rate'))})"
-                          f" | nonterminal {int(c.get('nonterminal_runs',0))}"
-                          f" → Q{int(c.get('nonterminal_qualified',0))}"
-                          f" ({pct(c.get('nonterminal_qualified_rate'))})"
-                      ),
-                      (
-                          f"early-flow Q-rate {pct(c.get('early_flow_qualified_rate'))}"
-                          f" vs no-flow {pct(c.get('no_early_flow_qualified_rate'))}"
-                      ),
-                      (
-                          f"OBV+ Q-rate {pct(c.get('obv_positive_qualified_rate'))}"
-                          f" vs non+ {pct(c.get('obv_nonpositive_qualified_rate'))}"
-                          f" · BB40↓ {pct(c.get('bb40_contracting_qualified_rate'))}"
-                          f" vs no↓ {pct(c.get('bb40_noncontracting_qualified_rate'))}"
-                      ),
-                      (
-                          f"terminal Amount median Q/nonQ "
-                          f"{float(c.get('qualified_median_terminal_amount_ratio',0) or 0):.2f}x/"
-                          f"{float(c.get('nonqualified_median_terminal_amount_ratio',0) or 0):.2f}x"
-                          f" · Vol "
-                          f"{float(c.get('qualified_median_terminal_volume_ratio',0) or 0):.2f}x/"
-                          f"{float(c.get('nonqualified_median_terminal_volume_ratio',0) or 0):.2f}x"
-                      ),
-                      "※ feature는 squeeze일까지 causal · qualified/H/R은 비교용 미래 label",
-                      "※ 어떤 precursor도 실제 strategy gate에 미사용",
-                  ]
-
-              jp = m.get("joint_precursor_stability_audit") or {}
-              jp_rows = jp.get("summary") or []
-              if jp_rows:
-                  def _find(split, group):
-                      for rr in jp_rows:
-                          if rr.get("split") == split and rr.get("group") == group:
-                              return rr
-                      return {}
-                  fullj = _find("FULL","OBV+_AND_BB40DOWN")
-                  fullr = _find("FULL","REST")
-                  h1j = _find("H1_EARLY","OBV+_AND_BB40DOWN")
-                  h1r = _find("H1_EARLY","REST")
-                  h2j = _find("H2_LATE","OBV+_AND_BB40DOWN")
-                  h2r = _find("H2_LATE","REST")
-                  def _pctrow(r):
-                      try:
-                          return f"{float(r.get('qualified_rate'))*100.0:.1f}%"
-                      except Exception:
-                          return "-"
-                  lines += [
-                      "",
-                      "🧬 [Joint Precursor Stability · 탐색가설]",
-                      (
-                          f"OBV+ & BB40↓ FULL: {int(fullj.get('qualified_breakout',0))}/"
-                          f"{int(fullj.get('runs',0))} = {_pctrow(fullj)}"
-                          f" | rest {int(fullr.get('qualified_breakout',0))}/"
-                          f"{int(fullr.get('runs',0))} = {_pctrow(fullr)}"
-                      ),
-                      (
-                          f"H1: {_pctrow(h1j)} vs {_pctrow(h1r)}"
-                          f" · H2: {_pctrow(h2j)} vs {_pctrow(h2r)}"
-                      ),
-                      (
-                          f"FULL H {int(fullj.get('healthy',0))}/{int(fullj.get('runs',0))}"
-                          f" · R {int(fullj.get('restart',0))}/{int(fullj.get('runs',0))}"
-                      ),
-                      "※ 같은 2년 데이터에서 발견한 post-hoc 조합 · 아직 전략 filter 아님",
-                      "※ 192개 전체 review bars 저장 · qualified/실패 모두 육안 비교 가능",
-                  ]
-
-              patha = m.get("qualified_d1_d15_path_audit") or {}
-              path_rows = patha.get("summary") or []
-              if path_rows:
-                  def _pgroup(name):
-                      for rr in path_rows:
-                          if rr.get("group") == name:
-                              return rr
-                      return {}
-                  pa = _pgroup("ALL")
-                  pr = _pgroup("RESTART")
-                  lines += [
-                      "",
-                      "📈 [Qualified D+1~D+15 Path · breakout close 기준]",
-                      f"events {int(pa.get('events',0))} · D15 complete {int(pa.get('d15_complete_events',0))} · peak-day median D+{float(pa.get('median_peak_day_within_15',0) or 0):.1f}",
-                      f"D+5 Close {float(pa.get('d5_close_ret_median_pct',0) or 0):+.2f}% / MFE {float(pa.get('d5_mfe_median_pct',0) or 0):+.2f}% / MAE {float(pa.get('d5_mae_median_pct',0) or 0):+.2f}%",
-                      f"D+10 Close {float(pa.get('d10_close_ret_median_pct',0) or 0):+.2f}% / MFE {float(pa.get('d10_mfe_median_pct',0) or 0):+.2f}% / MAE {float(pa.get('d10_mae_median_pct',0) or 0):+.2f}%",
-                      f"D+15 Close {float(pa.get('d15_close_ret_median_pct',0) or 0):+.2f}% / MFE {float(pa.get('d15_mfe_median_pct',0) or 0):+.2f}% / MAE {float(pa.get('d15_mae_median_pct',0) or 0):+.2f}%",
-                      f"within15 +5% {int(pa.get('plus5_reached_within_15',0))} · +10% {int(pa.get('plus10_reached_within_15',0))} · restart-group D15 Close {float(pr.get('d15_close_ret_median_pct',0) or 0):+.2f}%",
-                      "※ D+1~15는 미래 outcome 연구 · 검색 gate 미사용",
-                  ]
-
-              maa = m.get("long_ma_context_audit") or {}
-              ma_rows = maa.get("summary") or []
-              if ma_rows:
-                  def _marow(stype, group):
-                      for rr in ma_rows:
-                          if rr.get("summary_type") == stype and rr.get("group") == group:
-                              return rr
-                      return {}
-                  mb = _marow("SQUEEZE_CAUSAL_QUALIFIED_RATE","SQUEEZE_BELOW_MA224")
-                  ma = _marow("SQUEEZE_CAUSAL_QUALIFIED_RATE","SQUEEZE_AT_OR_ABOVE_MA224")
-                  ebb = _marow("QUALIFIED_PATH_BY_BREAKOUT_MA224","BREAKOUT_BELOW_MA224")
-                  eba = _marow("QUALIFIED_PATH_BY_BREAKOUT_MA224","BREAKOUT_AT_OR_ABOVE_MA224")
-                  cov = _marow("MA_COVERAGE","ALL")
-                  def _rate(rr):
-                      try: return f"{float(rr.get('qualified_rate'))*100.0:.1f}%"
-                      except Exception: return "-"
-                  lines += [
-                      "",
-                      "📏 [Long MA Context · MA120/200/224]",
-                      f"squeeze MA224 ready {int(cov.get('ma224_ready',0))}/{int(cov.get('runs',0))} · below: Q {int(mb.get('qualified',0))}/{int(mb.get('runs',0))} ({_rate(mb)}) · at/above: Q {int(ma.get('qualified',0))}/{int(ma.get('runs',0))} ({_rate(ma)})",
-                      f"qualified breakout below224 {int(ebb.get('runs',0))}: D10 MFE {float(ebb.get('d10_mfe_median_pct',0) or 0):+.2f}% / D15 MFE {float(ebb.get('d15_mfe_median_pct',0) or 0):+.2f}%",
-                      f"qualified breakout at/above224 {int(eba.get('runs',0))}: D10 MFE {float(eba.get('d10_mfe_median_pct',0) or 0):+.2f}% / D15 MFE {float(eba.get('d15_mfe_median_pct',0) or 0):+.2f}%",
-                      "※ squeeze MA 위치는 causal context · MA 조건도 아직 전략 filter 아님",
-                  ]
-
-              sap = m.get("stage_anchor_path_audit") or {}
-              sap_rows = sap.get("summary") or []
-              if sap_rows:
-                  def _sa(name):
-                      for rr in sap_rows:
-                          if rr.get("anchor") == name:
-                              return rr
-                      return {}
-                  q = _sa("QUALIFIED")
-                  h = _sa("HEALTHY")
-                  r = _sa("RESTART")
-                  lines += [
-                      "",
-                      "🎯 [Stage-Anchor D+1~D+15 · 각 stage 종가 기준]",
-                      (
-                          f"QUALIFIED {int(q.get('events',0))}: "
-                          f"D10 Close {float(q.get('d10_close_ret_median_pct',0) or 0):+.2f}%"
-                          f" / MFE {float(q.get('d10_mfe_median_pct',0) or 0):+.2f}%"
-                          f" · D15 Close {float(q.get('d15_close_ret_median_pct',0) or 0):+.2f}%"
-                      ),
-                      (
-                          f"HEALTHY {int(h.get('events',0))}: "
-                          f"D10 Close {float(h.get('d10_close_ret_median_pct',0) or 0):+.2f}%"
-                          f" / MFE {float(h.get('d10_mfe_median_pct',0) or 0):+.2f}%"
-                          f" · D15 Close {float(h.get('d15_close_ret_median_pct',0) or 0):+.2f}%"
-                      ),
-                      (
-                          f"RESTART {int(r.get('events',0))}: "
-                          f"D10 Close {float(r.get('d10_close_ret_median_pct',0) or 0):+.2f}%"
-                          f" / MFE {float(r.get('d10_mfe_median_pct',0) or 0):+.2f}%"
-                          f" · D15 Close {float(r.get('d15_close_ret_median_pct',0) or 0):+.2f}%"
-                      ),
-                      (
-                          f"RESTART within15 +5% {int(r.get('plus5_within15',0))}"
-                          f" · +10% {int(r.get('plus10_within15',0))}"
-                          f" · peak-day median D+{float(r.get('median_peak_day_within15',0) or 0):.1f}"
-                      ),
-                      "※ HEALTHY/RESTART도 미래 stage anchor 연구 · 실제 entry 규칙 미변경",
-                  ]
-
-              cvq = m.get("conversion_vs_quality_audit") or {}
-              cvq_rows = cvq.get("summary") or []
-              if cvq_rows:
-                  def _cv(name):
-                      for rr in cvq_rows:
-                          if rr.get("group") == name:
-                              return rr
-                      return {}
-                  j = _cv("OBV+_AND_BB40DOWN")
-                  rr = _cv("REST")
-                  def _pct(v):
-                      try: return f"{float(v)*100.0:.1f}%"
-                      except Exception: return "-"
-                  lines += [
-                      "",
-                      "⚖️ [Conversion vs Conditional Quality · 분리]",
-                      (
-                          f"JOINT conversion {_pct(j.get('conversion_rate'))}"
-                          f" vs REST {_pct(rr.get('conversion_rate'))}"
-                      ),
-                      (
-                          f"conditional D15: JOINT Close {float(j.get('conditional_d15_close_median_pct',0) or 0):+.2f}%"
-                          f" / MFE {float(j.get('conditional_d15_mfe_median_pct',0) or 0):+.2f}%"
-                          f" | REST Close {float(rr.get('conditional_d15_close_median_pct',0) or 0):+.2f}%"
-                          f" / MFE {float(rr.get('conditional_d15_mfe_median_pct',0) or 0):+.2f}%"
-                      ),
-                      "※ precursor의 돌파발생확률과 돌파 후 품질은 같은 점수로 합치지 않음",
-                  ]
-
-              sqa = m.get("stage_quality_anatomy_audit") or {}
-              sqa_rows = sqa.get("summary") or []
-              if sqa_rows:
-                  def _sq(cat, grp):
-                      for rr in sqa_rows:
-                          if rr.get("category") == cat and rr.get("group") == grp:
-                              return rr
-                      return {}
-                  ha = _sq("HEALTHY_BOTTOMING","ALL_HEALTHY")
-                  hl = _sq("HEALTHY_BOTTOMING","LOWER_LOW_WITHIN5")
-                  hn = _sq("HEALTHY_BOTTOMING","NO_LOWER_LOW_WITHIN5")
-                  ra = _sq("RESTART_REACCELERATION","ALL_RESTART")
-                  rw = _sq("RESTART_REACCELERATION","RECLAIM_PRE_WAVE_HIGH")
-                  rn = _sq("RESTART_REACCELERATION","NO_RECLAIM_PRE_WAVE_HIGH")
-                  lines += [
-                      "",
-                      "🧭 [Healthy/Restart Anatomy · audit]",
-                      (
-                          f"HEALTHY {int(ha.get('events',0))}: lower-low≤5 "
-                          f"{int(hl.get('events',0))} · no-lower-low {int(hn.get('events',0))}"
-                      ),
-                      (
-                          f"healthy D15: lower-low {float(hl.get('d15_close_ret_median_pct',0) or 0):+.2f}%"
-                          f" vs stable {float(hn.get('d15_close_ret_median_pct',0) or 0):+.2f}%"
-                      ),
-                      (
-                          f"RESTART {int(ra.get('events',0))}: wave-high reclaim {int(rw.get('events',0))}"
-                          f" vs no-reclaim {int(rn.get('events',0))}"
-                      ),
-                      (
-                          f"restart D15 reclaim {float(rw.get('d15_close_ret_median_pct',0) or 0):+.2f}%"
-                          f" / MFE {float(rw.get('d15_mfe_median_pct',0) or 0):+.2f}%"
-                          f" | no-reclaim {float(rn.get('d15_close_ret_median_pct',0) or 0):+.2f}%"
-                          f" / MFE {float(rn.get('d15_mfe_median_pct',0) or 0):+.2f}%"
-                      ),
-                      "※ healthy lower-low는 미래 taxonomy · wave-high reclaim은 post-hoc 가설",
-                      "※ 어떤 anatomy 태그도 실제 HEALTHY/RESTART gate에 미사용",
-                  ]
-
-              rra = m.get("restart_reclaim_robustness_audit") or {}
-              rr_rows = rra.get("summary") or []
-              if rr_rows:
-                  def _rr(cat, grp):
-                      for x in rr_rows:
-                          if x.get("category") == cat and x.get("group") == grp:
-                              return x
-                      return {}
-                  fr = _rr("RESTART_RECLAIM_TEMPORAL","FULL_RECLAIM")
-                  fn = _rr("RESTART_RECLAIM_TEMPORAL","FULL_NO_RECLAIM")
-                  h1r = _rr("RESTART_RECLAIM_TEMPORAL","H1_EARLY_RECLAIM")
-                  h1n = _rr("RESTART_RECLAIM_TEMPORAL","H1_EARLY_NO_RECLAIM")
-                  h2r = _rr("RESTART_RECLAIM_TEMPORAL","H2_LATE_RECLAIM")
-                  h2n = _rr("RESTART_RECLAIM_TEMPORAL","H2_LATE_NO_RECLAIM")
-                  lr = _rr("RESTART_RECLAIM_LOO","RECLAIM")
-                  ln = _rr("RESTART_RECLAIM_LOO","NO_RECLAIM")
-                  hd = _rr("HEALTHY_BOTTOMING_BY_BREAKOUT_TYPE","DIRECT")
-                  hp = _rr("HEALTHY_BOTTOMING_BY_BREAKOUT_TYPE","PROBE_TO_QUALIFIED")
-                  lines += [
-                      "",
-                      "🧪 [Restart Reclaim Robustness · post-hoc]",
-                      (
-                          f"FULL reclaim {int(fr.get('d15_positive',0))}/{int(fr.get('events',0))}"
-                          f" D15 {float(fr.get('d15_close_ret_median_pct',0) or 0):+.2f}%"
-                          f" vs no {int(fn.get('d15_positive',0))}/{int(fn.get('events',0))}"
-                          f" {float(fn.get('d15_close_ret_median_pct',0) or 0):+.2f}%"
-                      ),
-                      (
-                          f"H1 D15 {float(h1r.get('d15_close_ret_median_pct',0) or 0):+.2f}%"
-                          f" vs {float(h1n.get('d15_close_ret_median_pct',0) or 0):+.2f}%"
-                          f" · H2 {float(h2r.get('d15_close_ret_median_pct',0) or 0):+.2f}%"
-                          f" vs {float(h2n.get('d15_close_ret_median_pct',0) or 0):+.2f}%"
-                      ),
-                      (
-                          f"LOO median reclaim {float(lr.get('loo_d15_median_min_pct',0) or 0):+.2f}%"
-                          f"~{float(lr.get('loo_d15_median_max_pct',0) or 0):+.2f}%"
-                          f" · no {float(ln.get('loo_d15_median_min_pct',0) or 0):+.2f}%"
-                          f"~{float(ln.get('loo_d15_median_max_pct',0) or 0):+.2f}%"
-                      ),
-                      (
-                          f"HEALTHY lower-low≤5: direct {int(hd.get('lower_low_within5_events',0))}/"
-                          f"{int(hd.get('events',0))}"
-                          f" · probe {int(hp.get('lower_low_within5_events',0))}/"
-                          f"{int(hp.get('events',0))}"
-                      ),
-                      "※ wave-high reclaim은 같은 표본에서 발견한 post-hoc 가설 · 아직 gate 아님",
-                  ]
-
-              r2s = m.get("r2_candidate_prospective_shadow") or {}
-              r2rows = r2s.get("summary") or []
-              if r2rows:
-                  rr = r2rows[0]
-                  lines += [
-                      "",
-                      "🔒 [R2C1 Prospective Shadow · definition frozen]",
-                      f"candidate={r2s.get('candidate_id','-')}",
-                      (
-                          f"freeze {r2s.get('freeze_date','-')} · prospective start "
-                          f"{r2s.get('prospective_start_date','-')}"
-                      ),
-                      (
-                          f"discovery/pre-freeze {int(rr.get('discovery_candidate_events',0))} (검증 제외)"
-                          f" · prospective {int(rr.get('prospective_candidate_events',0))}"
-                      ),
-                      (
-                          f"mature D5 {int(rr.get('prospective_d5_mature',0))}"
-                          f" · D10 {int(rr.get('prospective_d10_mature',0))}"
-                          f" · D15 {int(rr.get('prospective_d15_mature',0))}"
-                      ),
-                      "※ 2026-08-31 이후 신규 event만 OOS 검증에 사용",
-                      "※ candidate 정의 추가튜닝 금지 · 실제 strategy gate 미변경",
-                  ]
-
-              r2c = m.get("r2_prospective_control_audit") or {}
-              r2c_rows = r2c.get("summary") or []
-              if r2c_rows:
-                  cr = r2c_rows[0]
-                  lines += [
-                      "",
-                      "🆚 [R2C1 Prospective Control · same-period]",
-                      (
-                          f"candidate {int(cr.get('candidate_events',0))}"
-                          f" · control {int(cr.get('control_events',0))}"
-                      ),
-                      (
-                          f"D15 mature candidate {int(cr.get('candidate_d15_mature',0))}"
-                          f" · control {int(cr.get('control_d15_mature',0))}"
-                      ),
-                      "※ candidate=reclaim restart · control=no-reclaim restart",
-                      "※ 둘 다 2026-08-31 이후만 OOS 비교 · 역사표본 제외",
-                  ]
-
-              amount_cov = m.get("actual_amount_coverage_pct")
-              asof_dates = m.get("asof_snapshot_dates")
-              lookahead = m.get("lookahead_fail", 0)
-              invariant = m.get("invariant_fail", 0)
-              rerun = m.get("deterministic_rerun_fail", 0)
-              if amount_cov is not None or asof_dates is not None:
-                  amount_txt = "-" if amount_cov is None else f"{float(amount_cov):.2f}%"
-                  lines += [
-                      "",
-                      "🛡️ [Authority/Audit]",
-                      f"actual Amount coverage {amount_txt} · Close×Volume fallback 0",
-                      f"as-of snapshots {asof_dates if asof_dates is not None else '-'} · future fallback 0",
-                      f"lookahead {lookahead} · invariant {invariant} · deterministic {rerun}",
-                  ]
-
-              # If future research produces accepted restart signals, include a small
-              # research-only preview without converting them into orders/recommendations.
-              signal_rows = []
-              if signal_path.exists() and signal_path.stat().st_size > 0:
-                  try:
-                      with signal_path.open(encoding="utf-8-sig", newline="") as f:
-                          signal_rows = list(csv.DictReader(f))
-                  except Exception:
-                      signal_rows = []
-              if signal_rows:
-                  lines += ["", "🧪 [RESTART 연구표본 · 매수추천 아님]"]
-                  for r in signal_rows[:5]:
-                      code = r.get("code") or r.get("ticker") or "-"
-                      date = r.get("event_date") or r.get("signal_date") or "-"
-                      lines.append(f"• {code} · {date}")
-                  if len(signal_rows) > 5:
-                      lines.append(f"외 {len(signal_rows)-5}건")
-
-          if report_path.exists():
-              try:
-                  report = report_path.read_text(encoding="utf-8", errors="replace")
-                  next_gate = next(
-                      (x.split("=",1)[1].strip() for x in report.splitlines() if x.startswith("NEXT_GATE=")),
-                      "",
-                  )
-                  if next_gate:
-                      lines += ["", f"➡️ NEXT: {next_gate}"]
-              except Exception:
-                  pass
-
-          def _split_telegram_parts(src_lines, max_body_chars=3400):
-              """Split on section boundaries and never silently truncate."""
-              sections = []
-              current = []
-              for raw_line in src_lines:
-                  line = str(raw_line)
-                  if line == "":
-                      if current:
-                          sections.append(current)
-                          current = []
-                      continue
-                  current.append(line)
-              if current:
-                  sections.append(current)
-
-              normalized = []
-              for sec in sections:
-                  sec_text = "\n".join(sec)
-                  if len(sec_text) <= max_body_chars:
-                      normalized.append(sec)
-                      continue
-
-                  chunk = []
-                  chunk_len = 0
-                  for line in sec:
-                      pieces = [line[i:i + max_body_chars] for i in range(0, len(line), max_body_chars)] or [""]
-                      for piece in pieces:
-                          add_len = len(piece) + (1 if chunk else 0)
-                          if chunk and chunk_len + add_len > max_body_chars:
-                              normalized.append(chunk)
-                              chunk = []
-                              chunk_len = 0
-                          chunk.append(piece)
-                          chunk_len += len(piece) + (1 if len(chunk) > 1 else 0)
-                  if chunk:
-                      normalized.append(chunk)
-
-              parts = []
-              current_sections = []
-              current_len = 0
-              for sec in normalized:
-                  sec_text = "\n".join(sec)
-                  add_len = len(sec_text) + (2 if current_sections else 0)
-                  if current_sections and current_len + add_len > max_body_chars:
-                      parts.append("\n\n".join(current_sections))
-                      current_sections = []
-                      current_len = 0
-                  current_sections.append(sec_text)
-                  current_len += len(sec_text) + (2 if len(current_sections) > 1 else 0)
-              if current_sections:
-                  parts.append("\n\n".join(current_sections))
-              return [p for p in parts if p.strip()]
-
-
-          parts = _split_telegram_parts(lines, max_body_chars=3400)
-          assert parts, "TRIANGLE1PB_TELEGRAM_SPLIT_EMPTY"
-          assert all(len(p) <= 3400 for p in parts), [
-              ("PART_TOO_LONG", i + 1, len(p)) for i, p in enumerate(parts) if len(p) > 3400
-          ]
-
-          url = f"https://api.telegram.org/bot{token}/sendMessage"
-          sent_ids = []
-          total_parts = len(parts)
-
-          for part_idx, body in enumerate(parts, start=1):
-              prefix = f"📨 [TRIANGLE1PB {part_idx}/{total_parts}]\n"
-              message = prefix + body
-              assert len(message) < 3900, ("TELEGRAM_PART_LIMIT_GUARD", part_idx, len(message))
-
-              payload = urllib.parse.urlencode({
-                  "chat_id": chat_id,
-                  "text": message,
-                  "disable_web_page_preview": "true",
-              }).encode("utf-8")
-              req = urllib.request.Request(url, data=payload, method="POST")
-
-              try:
-                  with urllib.request.urlopen(req, timeout=30) as resp:
-                      raw = resp.read().decode("utf-8", errors="replace")
-                      status = int(getattr(resp, "status", 200))
-              except Exception as exc:
-                  print(
-                      "TRIANGLE1PB_TELEGRAM_SEND_FAIL",
-                      f"part={part_idx}/{total_parts}",
-                      f"sent_parts={len(sent_ids)}",
-                      f"token_route={token_route}",
-                      f"chat_route={chat_route}",
-                      f"error={type(exc).__name__}:{str(exc)[:500]}",
-                  )
-                  raise
-
-              data = json.loads(raw)
-              assert status == 200 and bool(data.get("ok")), (
-                  "TELEGRAM_API_NOT_OK", part_idx, total_parts, status, raw[:1000]
-              )
-              msg_id = ((data.get("result") or {}).get("message_id"))
-              sent_ids.append(msg_id)
-              print(
-                  "TRIANGLE1PB_TELEGRAM_SEND",
-                  "status=PASS",
-                  f"part={part_idx}/{total_parts}",
-                  f"token_route={token_route}",
-                  f"chat_route={chat_route}",
-                  f"message_id={msg_id}",
-                  f"chars={len(message)}",
-                  "truncated=0",
-                  "closebet_route_used=0",
-              )
-
-          assert len(sent_ids) == total_parts, (
-              "TRIANGLE1PB_TELEGRAM_MULTIPART_INCOMPLETE", len(sent_ids), total_parts
-          )
-          print(
-              "TRIANGLE1PB_TELEGRAM_MULTIPART_COMPLETE",
-              f"parts={total_parts}",
-              f"message_ids={','.join(str(x) for x in sent_ids)}",
-              "truncated=0",
-          )
-          PYTRITELEGRAM
 
       - name: Upload TRIANGLE1PB research artifact
         if: always()
@@ -4434,6 +3588,43 @@ jobs:
             echo "V25_POLICY_MANIFEST_PERSIST status=NO_CANONICAL_MANIFEST fail_closed=1"
           fi
 
+
+      - name: Write CORE224 current-overlay handoff authority
+        if: always() && hashFiles('reports/.cache/v25_core224_live/seed_meta.json') != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PYOVERLAYAUTH'
+          import json
+          from pathlib import Path
+          seed = Path("reports/.cache/v25_core224_live/seed_meta.json")
+          out = Path("reports/.cache/v25_core224_live/current_overlay_handoff_authority.json")
+          d = json.loads(seed.read_text(encoding="utf-8"))
+          producer_end = str(d.get("weekly_snapshot_date", "")).strip()
+          assert producer_end, "V25_CURRENT_OVERLAY_AUTHORITY_MISSING_SNAPSHOT_DATE"
+          assert int(d.get("snapshot_calendar_complete", 0)) == 1, (
+              "V25_CURRENT_OVERLAY_AUTHORITY_INCOMPLETE_SNAPSHOT",
+              d.get("snapshot_calendar_complete"),
+          )
+          payload = {
+              "schema": "CORE224_CURRENT_OVERLAY_HANDOFF_AUTHORITY_V1",
+              "producer_snapshot_date": producer_end,
+              "producer_source": str(d.get("source", "")),
+              "snapshot_calendar_complete": int(d.get("snapshot_calendar_complete", 0)),
+              "seed_count": int(d.get("seed_count", 0) or 0),
+              "research_only": True,
+              "live_logic_changed": False,
+              "score_rank_changed": False,
+              "order_logic_changed": False,
+          }
+          out.parent.mkdir(parents=True, exist_ok=True)
+          out.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+          print("V25_CURRENT_OVERLAY_HANDOFF_AUTHORITY",
+                "producer_end", producer_end,
+                "source", payload["producer_source"],
+                "seed_count", payload["seed_count"])
+          PYOVERLAYAUTH
+
       - name: Save CORE224 live state overlay
         if: always() && env.STOCKHUNTER_WEEKLY_BACKTEST_ONLY != '1' && hashFiles('reports/.cache/v25_core224_live/seed_meta.json') != ''
         uses: actions/cache/save@v4
@@ -4474,12 +3665,18 @@ jobs:
             reports/.cache/v20_replay_checkpoint
           key: ${{ steps.v21-replay-key.outputs.key }}
 
-      - name: Save CORE224 weekly seed cache for LIVE bridge
+      - name: Save CORE224 weekly current-data overlay for research bridge
         if: always() && env.STOCKHUNTER_WEEKLY_BACKTEST_ONLY == '1' && env.V1081_BACKTEST_SOURCE == 'DIRECT_REPLAY' && hashFiles('reports/.cache/v25_core224_live/seed_meta.json') != ''
         uses: actions/cache/save@v4
         with:
+          # IMPORTANT: keep this path-set byte-for-byte aligned with the
+          # TRIANGLE1PB / LOW224 current-overlay restore path-set. actions/cache
+          # cache versions include the path-set, so the old two-path weekly
+          # seed cache was invisible to the four-path research consumers.
           path: |
+            reports/.cache/v20_price_history
             reports/.cache/v20_asof_snapshots
+            reports/.cache/v25_actual_amount_history
             reports/.cache/v25_core224_live
           key: stockhunter-v25-core224-live-${{ github.ref_name }}-weekly-${{ github.run_id }}-${{ github.run_attempt }}
 

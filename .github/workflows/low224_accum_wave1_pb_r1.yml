@@ -65,7 +65,7 @@ jobs:
           test -f low224_accum_wave1_pb_research.py
           test -f triangle1pb_research.py
           grep -Fq 'STRATEGY_ID = "LOW224_ACCUM_WAVE1_PB_R1_STRUCTURE_FIRST"' low224_accum_wave1_pb_research.py
-          grep -Fq 'LOADER_REVISION = "LOW224_R1_1_R1C1_PROSPECTIVE_SHADOW_FREEZE"' low224_accum_wave1_pb_research.py
+          grep -Fq 'LOADER_REVISION = "LOW224_R1_1_1_CURRENT_OVERLAY_HANDOFF_FRESHNESS_GUARD"' low224_accum_wave1_pb_research.py
           grep -Fq 'RESEARCH_AUTHORITY = "RESEARCH_ONLY_NO_LIVE_NO_SCORE_NO_RANK_NO_ORDERS"' low224_accum_wave1_pb_research.py
           grep -Fq 'Close*Volume is never' low224_accum_wave1_pb_research.py
           python -m py_compile triangle1pb_research.py low224_accum_wave1_pb_research.py
@@ -136,6 +136,31 @@ jobs:
             --manual-sample-limit "${SAMPLE_LIMIT:-40}"
             --stratified-sample-per-group "${STRATIFIED_PER_GROUP:-8}"
           )
+          if [ -z "${END_DATE:-}" ]; then
+            args+=(--require-current-overlay-authority)
+            current_match="${{ steps.current-overlay.outputs.cache-matched-key }}"
+            producer_end=""
+            if [ -n "$current_match" ]; then
+              producer_end=$(python - <<'PYPRODUCER'
+          import json
+          from pathlib import Path
+          marker=Path("reports/.cache/v25_core224_live/current_overlay_handoff_authority.json")
+          seed=Path("reports/.cache/v25_core224_live/seed_meta.json")
+          m=json.loads(marker.read_text(encoding="utf-8")) if marker.exists() else {}
+          s=json.loads(seed.read_text(encoding="utf-8")) if seed.exists() else {}
+          md=str(m.get("producer_snapshot_date","")).strip()
+          sd=str(s.get("weekly_snapshot_date","")).strip()
+          if md and sd and md != sd:
+              raise SystemExit(f"CURRENT_OVERLAY_AUTHORITY_CONFLICT marker={md} seed={sd}")
+          print(md or sd)
+          PYPRODUCER
+          )
+            fi
+            if [ -n "$producer_end" ]; then args+=(--expected-current-data-end "$producer_end"); fi
+            echo "LOW224_CURRENT_OVERLAY_HANDOFF matched=${current_match:-NONE} producer_end=${producer_end:-MISSING} guard=REQUIRED"
+          else
+            echo "LOW224_CURRENT_OVERLAY_HANDOFF explicit_end=${END_DATE} guard=HISTORICAL_EXPLICIT_END"
+          fi
           if [ -n "${END_DATE:-}" ]; then args+=(--end-date "$END_DATE"); fi
           python -u low224_accum_wave1_pb_research.py "${args[@]}" | tee reports/low224_r1/low224_runtime.log
 
@@ -174,7 +199,14 @@ jobs:
           m=json.loads((root/"low224_manifest.json").read_text(encoding="utf-8"))
           assert m["schema"]=="LOW224_ACCUM_WAVE1_PB_RESEARCH_SCHEMA_V1"
           assert m["strategy_id"]=="LOW224_ACCUM_WAVE1_PB_R1_STRUCTURE_FIRST"
-          assert m["loader_revision"]=="LOW224_R1_1_R1C1_PROSPECTIVE_SHADOW_FREEZE"
+          assert m["loader_revision"]=="LOW224_R1_1_1_CURRENT_OVERLAY_HANDOFF_FRESHNESS_GUARD"
+          rr=pd.read_csv(root/"low224_r1c1_oos_readiness.csv")
+          for col in (
+              "expected_current_data_end","current_overlay_authority_required",
+              "current_overlay_authority_present","current_overlay_handoff_fresh",
+              "current_overlay_handoff_lag_days"
+          ):
+              assert col in rr.columns, ("LOW224_R1_1_1_HANDOFF_GUARD_COLUMN_MISSING",col)
           assert m["research_authority"]=="RESEARCH_ONLY_NO_LIVE_NO_SCORE_NO_RANK_NO_ORDERS"
           assert m["shared_data_authority_only"]=="TRIANGLE1PB_CACHE_ADAPTERS_ONLY_NO_PATTERN_LOGIC"
           assert m["live_logic_changed"] is False
