@@ -2,20 +2,17 @@ name: Run Main Scanner V1107.4.5.73.3.6.6.25.4.12-HF12 + TRIANGLE1PB R1 Independ
 
 on:
   schedule:
-    # 한국시간 평일 오전 8:37 = UTC 전날 23:37, 일~목
-    - cron: '37 23 * * 0-4'
-    # 한국시간 평일 오전 9:30 = UTC 00:30, 월~금 — 강섹터·대장주 독립 레이더
+    # [SLIM SCHEDULE] 자동 실행은 실전 체크포인트 + CORE224 EOD만 유지
+    # 한국시간 평일 오전 9:30 = UTC 00:30, 월~금 — 장초 강섹터·대장주 체크
     - cron: '30 00 * * 1-5'
-    # 한국시간 평일 오후 2:37 = UTC 05:37, 월~금
+    # 한국시간 평일 오후 2:37 = UTC 05:37, 월~금 — 종가배팅 1차 압축
     - cron: '37 05 * * 1-5'
-    # 한국시간 평일 오후 3:03 = UTC 06:03, 월~금 — HAM 연구 전용 + 패턴교차 경로감사(실제 종가후보 SHADOW는 15:07)
-    - cron: '03 06 * * 1-5'
-    # 한국시간 평일 오후 3:07 = UTC 06:07, 월~금
+    # 한국시간 평일 오후 3:07 = UTC 06:07, 월~금 — 종가배팅 최종 체크
     - cron: '07 06 * * 1-5'
-    # 한국시간 평일 오후 3:35 = UTC 06:35, 월~금 — V73 발견→추적 독립 실행
-    - cron: '35 06 * * 1-5'
-    # 한국시간 평일 오후 3:45 = UTC 06:45, 월~금 — CORE224 종가확정 전용 PAPER/LIVE BOARD
+    # 한국시간 평일 오후 3:45 = UTC 06:45, 월~금 — CORE224 EOD FINAL
     - cron: '45 06 * * 1-5'
+    # 08:37 pre-market / 15:03 HAM / 15:35 V73 자동 cron은 제거.
+    # HAM_1503_RESEARCH / V73_DISCOVERY는 workflow_dispatch 수동 실행으로 유지.
   workflow_dispatch:
     inputs:
       run_profile:
@@ -1978,7 +1975,7 @@ jobs:
           echo "GITHUB_EVENT_SCHEDULE=${{ github.event.schedule }}" >> $GITHUB_ENV
           echo "NOW_UTC=$(date -u '+%Y-%m-%d %H:%M:%S %Z')"
           echo "NOW_KST=$(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M:%S %Z')"
-          echo "SCHEDULE_EXPECTED_KST=08:37 / 09:30 / 14:37 / HAM 15:03 / 15:07 / V73 15:35 / CORE224 EOD 15:45 weekdays"
+          echo "SCHEDULE_EXPECTED_KST=09:30 / 14:37 / 15:07 / CORE224 EOD 15:45 weekdays | HAM/V73 manual only"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
       - name: Resolve run profile
@@ -2027,8 +2024,9 @@ jobs:
           if [ "$event" = "schedule" ] && [ "$schedule_expr" = "45 06 * * 1-5" ]; then
             core224_live_only=1
           fi
-          # Forward-causal source capture runs twice daily: pre-market and after the 15:07 close scan.
-          if [ "$event" = "schedule" ] && { [ "$schedule_expr" = "37 23 * * 0-4" ] || [ "$schedule_expr" = "07 06 * * 1-5" ]; }; then
+          # Forward-causal source capture remains twice daily, but shares existing
+          # operational runs: 09:30 and 15:07. No separate 08:37 workflow is needed.
+          if [ "$event" = "schedule" ] && { [ "$schedule_expr" = "30 00 * * 1-5" ] || [ "$schedule_expr" = "07 06 * * 1-5" ]; }; then
             catalyst_capture=1
           fi
 
