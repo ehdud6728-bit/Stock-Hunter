@@ -32,11 +32,13 @@ import pandas as pd
 
 SCHEMA = "TRIANGLE1PB_RESEARCH_SCHEMA_V1"
 STRATEGY_ID = "TRIANGLE1PB_R1_CHRONOLOGY_FIRST"
-LOADER_REVISION = "TRIANGLE1PB_R1_15_4_CURRENT_OVERLAY_HANDOFF_FRESHNESS_GUARD"
+LOADER_REVISION = "TRIANGLE1PB_R1_15_5_APPEND_ONLY_OOS_LEDGER"
 
 R2_CANDIDATE_ID = "TRIANGLE1PB_R2C1_QUALIFIED_HEALTHY_RESTART_WAVE_HIGH_RECLAIM"
 R2_CANDIDATE_FREEZE_DATE = "2026-08-30"
 R2_CANDIDATE_PROSPECTIVE_START_DATE = "2026-08-31"
+R2_OOS_LEDGER_BOOTSTRAP_THROUGH = "2026-09-02"
+R2_FROZEN_DISCOVERY_BASELINE_SHA256 = "65ac0f184045ae57a58e48f5b16042e79790398ffc22e5ef4686e89fed5068d5"
 R2_DISCOVERY_START_DATE = "2024-08-27"
 RESEARCH_AUTHORITY = "RESEARCH_ONLY_NO_LIVE_NO_POLICY_NO_ORDERS"
 STAGES = [
@@ -4097,6 +4099,204 @@ def build_r2_prospective_control_audit(
 
 
 
+
+def _r2_oos_key(code: Any, event_date: Any) -> str:
+    c = re.sub(r"\D", "", str(code))[-6:].zfill(6)
+    d = pd.to_datetime(event_date, errors="coerce")
+    ds = pd.Timestamp(d).date().isoformat() if pd.notna(d) else ""
+    return f"{c}|{ds}"
+
+
+def build_r2_discovery_baseline_drift_audit(
+    current_all_restart: pd.DataFrame,
+    baseline_path: Path,
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    if not baseline_path.exists():
+        raise RuntimeError(f"R2_FROZEN_DISCOVERY_BASELINE_MISSING {baseline_path}")
+    base = pd.read_csv(baseline_path, dtype={"code":str})
+    base["code"] = base["code"].astype(str).str.replace(r"\.0$", "", regex=True).str.zfill(6)
+    base["event_date"] = pd.to_datetime(base["event_date"], errors="coerce").dt.date.astype(str)
+    base["key"] = base.apply(lambda r: _r2_oos_key(r["code"], r["event_date"])+"|"+str(r["group"]), axis=1)
+
+    cur = current_all_restart.copy() if current_all_restart is not None else pd.DataFrame()
+    if cur.empty:
+        cur2 = pd.DataFrame(columns=["code","event_date","group","key"])
+    else:
+        pstart = pd.Timestamp(R2_CANDIDATE_PROSPECTIVE_START_DATE).normalize()
+        cur["event_ts"] = pd.to_datetime(cur["candidate_event_date"], errors="coerce").dt.normalize()
+        cur = cur[cur["event_ts"] < pstart].copy()
+        cur["code"] = cur["code"].astype(str).str.replace(r"\.0$", "", regex=True).str.zfill(6)
+        cur["event_date"] = cur["event_ts"].dt.date.astype(str)
+        cur["group"] = cur["prospective_group"].astype(str)
+        cur["key"] = cur.apply(lambda r: _r2_oos_key(r["code"],r["event_date"])+"|"+str(r["group"]), axis=1)
+        cur2 = cur[["code","event_date","group","key"]].drop_duplicates()
+
+    bset=set(base["key"].astype(str)); cset=set(cur2["key"].astype(str))
+    missing=sorted(bset-cset); extra=sorted(cset-bset)
+    bpair={x.rsplit("|",1)[0]:x.rsplit("|",1)[1] for x in bset}
+    cpair={x.rsplit("|",1)[0]:x.rsplit("|",1)[1] for x in cset}
+    flips=sorted(k for k in set(bpair)&set(cpair) if bpair[k]!=cpair[k])
+    detail=pd.DataFrame(
+        [{"drift_type":"MISSING_FROM_ROLLING","key":k} for k in missing] +
+        [{"drift_type":"EXTRA_IN_ROLLING","key":k} for k in extra] +
+        [{"drift_type":"GROUP_FLIP","key":k,"baseline_group":bpair[k],"rolling_group":cpair[k]} for k in flips]
+    )
+    summary=pd.DataFrame([{
+        "schema":SCHEMA,"strategy_id":STRATEGY_ID,"loader_revision":LOADER_REVISION,
+        "baseline_sha256":R2_FROZEN_DISCOVERY_BASELINE_SHA256,
+        "baseline_rows":int(len(base)),
+        "baseline_candidate_rows":int((base["group"]=="R2C1_RECLAIM_CANDIDATE").sum()),
+        "baseline_control_rows":int((base["group"]=="NO_RECLAIM_CONTEMPORANEOUS_CONTROL").sum()),
+        "rolling_prefreeze_rows":int(len(cur2)),
+        "rolling_candidate_rows":int((cur2["group"]=="R2C1_RECLAIM_CANDIDATE").sum()) if not cur2.empty else 0,
+        "rolling_control_rows":int((cur2["group"]=="NO_RECLAIM_CONTEMPORANEOUS_CONTROL").sum()) if not cur2.empty else 0,
+        "missing_keys":int(len(missing)),"extra_keys":int(len(extra)),
+        "group_flip_pairs":int(len(flips)),
+        "discovery_baseline_drift":int(bool(missing or extra or flips)),
+        "frozen_baseline_rewritten":0,
+        "used_as_oos_membership_authority":0,
+    }])
+    return detail, summary
+
+
+def update_r2_append_only_oos_ledger(
+    all_restart_detail: pd.DataFrame,
+    data_end: pd.Timestamp,
+    preliminary_readiness: pd.DataFrame,
+    ledger_dir: Path,
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    ledger_dir.mkdir(parents=True, exist_ok=True)
+    ledger_path=ledger_dir/"r2c1_append_only_ledger.csv"
+    state_path=ledger_dir/"state.json"
+    if ledger_path.exists():
+        ledger=pd.read_csv(ledger_path,dtype={"code":str})
+    else:
+        ledger=pd.DataFrame(columns=[
+            "schema","strategy_id","candidate_id","code","event_date","group","event_key",
+            "first_observed_data_end","membership_frozen","d5_mature","d10_mature","d15_mature",
+            "d5_close_ret_pct","d10_close_ret_pct","d15_close_ret_pct","d15_mfe_pct","d15_mae_pct"
+        ])
+    if state_path.exists():
+        try: state=json.loads(state_path.read_text(encoding="utf-8"))
+        except Exception: state={}
+    else:
+        state={}
+    if not state:
+        state={
+            "schema":"TRIANGLE1PB_R2_APPEND_ONLY_OOS_LEDGER_STATE_V1",
+            "bootstrap_zero_through":R2_OOS_LEDGER_BOOTSTRAP_THROUGH,
+            "last_processed_data_end":R2_OOS_LEDGER_BOOTSTRAP_THROUGH,
+        }
+
+    src=all_restart_detail.copy() if all_restart_detail is not None else pd.DataFrame()
+    if src.empty:
+        src=pd.DataFrame(columns=["code","candidate_event_date","prospective_group"])
+    else:
+        src["event_ts"]=pd.to_datetime(src["candidate_event_date"],errors="coerce").dt.normalize()
+        src["code"]=src["code"].astype(str).str.replace(r"\.0$","",regex=True).str.zfill(6)
+        src["event_date"]=src["event_ts"].dt.date.astype(str)
+        src["group"]=src["prospective_group"].astype(str)
+        src["event_key"]=src.apply(lambda r:_r2_oos_key(r["code"],r["event_date"]),axis=1)
+
+    end_ts=pd.Timestamp(data_end).normalize()
+    pstart=pd.Timestamp(R2_CANDIDATE_PROSPECTIVE_START_DATE).normalize()
+    ready_status=str(preliminary_readiness.iloc[0]["oos_readiness_status"])
+    if not ledger.empty:
+        ledger["code"]=ledger["code"].astype(str).str.replace(r"\.0$","",regex=True).str.zfill(6)
+        existing=dict(zip(ledger["event_key"].astype(str),ledger["group"].astype(str)))
+    else:
+        existing={}
+    prospective=src[src["event_ts"].ge(pstart)].copy() if "event_ts" in src else src
+    current_day=prospective[prospective["event_ts"].eq(end_ts)].copy() if not prospective.empty else prospective
+    retro=prospective[prospective["event_ts"].lt(end_ts)].copy() if not prospective.empty else prospective
+    retro_new=retro[~retro["event_key"].astype(str).isin(set(existing))].copy() if not retro.empty else retro
+
+    flips=0
+    if existing and not prospective.empty:
+        for _,r in prospective.iterrows():
+            k=str(r["event_key"])
+            if k in existing and str(existing[k])!=str(r["group"]): flips+=1
+
+    last_before=str(state.get("last_processed_data_end") or R2_OOS_LEDGER_BOOTSTRAP_THROUGH)
+    last_before_ts=pd.Timestamp(last_before).normalize()
+    admitted=[]
+    can_mutate=(ready_status=="READY_PROSPECTIVE_OOS")
+    if can_mutate and end_ts>last_before_ts:
+        for _,r in current_day.iterrows():
+            k=str(r["event_key"])
+            if k in existing: continue
+            admitted.append({
+                "schema":SCHEMA,"strategy_id":STRATEGY_ID,"candidate_id":R2_CANDIDATE_ID,
+                "code":str(r["code"]),"event_date":str(r["event_date"]),"group":str(r["group"]),
+                "event_key":k,"first_observed_data_end":end_ts.date().isoformat(),"membership_frozen":1,
+                "d5_mature":int(r.get("d5_mature",0) or 0),
+                "d10_mature":int(r.get("d10_mature",0) or 0),
+                "d15_mature":int(r.get("d15_mature",0) or 0),
+                "d5_close_ret_pct":r.get("d5_close_ret_pct",np.nan),
+                "d10_close_ret_pct":r.get("d10_close_ret_pct",np.nan),
+                "d15_close_ret_pct":r.get("d15_close_ret_pct",np.nan),
+                "d15_mfe_pct":r.get("d15_mfe_pct",np.nan),
+                "d15_mae_pct":r.get("d15_mae_pct",np.nan),
+            })
+        if admitted: ledger=pd.concat([ledger,pd.DataFrame(admitted)],ignore_index=True)
+        state["last_processed_data_end"]=end_ts.date().isoformat()
+        state["last_successful_readiness"]=ready_status
+
+    if not ledger.empty and not src.empty:
+        bykey={str(r["event_key"]):r for _,r in src.iterrows()}
+        for i in ledger.index:
+            r=bykey.get(str(ledger.at[i,"event_key"]))
+            if r is None: continue
+            for c in ("d5_mature","d10_mature","d15_mature","d5_close_ret_pct","d10_close_ret_pct","d15_close_ret_pct","d15_mfe_pct","d15_mae_pct"):
+                if c in r.index: ledger.at[i,c]=r[c]
+
+    if can_mutate:
+        ledger.to_csv(ledger_path,index=False,encoding="utf-8-sig")
+        state_path.write_text(json.dumps(state,ensure_ascii=False,indent=2),encoding="utf-8")
+
+    cand=ledger[ledger["group"].eq("R2C1_RECLAIM_CANDIDATE")] if not ledger.empty else ledger
+    ctrl=ledger[ledger["group"].eq("NO_RECLAIM_CONTEMPORANEOUS_CONTROL")] if not ledger.empty else ledger
+    summary=pd.DataFrame([{
+        "schema":SCHEMA,"strategy_id":STRATEGY_ID,"loader_revision":LOADER_REVISION,
+        "candidate_id":R2_CANDIDATE_ID,
+        "ledger_authority":"APPEND_ONLY_FIRST_OBSERVED_ON_EVENT_DATE",
+        "bootstrap_zero_through":R2_OOS_LEDGER_BOOTSTRAP_THROUGH,
+        "readiness_status":ready_status,"data_end":end_ts.date().isoformat(),
+        "last_processed_before":last_before,
+        "last_processed_after":str(state.get("last_processed_data_end",last_before)),
+        "current_day_candidate_events":int((current_day["group"]=="R2C1_RECLAIM_CANDIDATE").sum()) if not current_day.empty else 0,
+        "current_day_control_events":int((current_day["group"]=="NO_RECLAIM_CONTEMPORANEOUS_CONTROL").sum()) if not current_day.empty else 0,
+        "newly_admitted_events":int(len(admitted)),
+        "ledger_candidate_events_total":int(len(cand)),
+        "ledger_control_events_total":int(len(ctrl)),
+        "candidate_d15_mature":int(pd.to_numeric(cand.get("d15_mature",pd.Series(dtype=float)),errors="coerce").fillna(0).sum()) if not cand.empty else 0,
+        "control_d15_mature":int(pd.to_numeric(ctrl.get("d15_mature",pd.Series(dtype=float)),errors="coerce").fillna(0).sum()) if not ctrl.empty else 0,
+        "retroactive_recomputed_not_admitted":int(len(retro_new)),
+        "membership_flip_against_frozen_ledger":int(flips),
+        "retroactive_rows_can_enter_ledger":0,
+        "membership_rewrite_allowed":0,
+    }])
+    return ledger, summary
+
+
+def apply_r2_append_only_authority_to_readiness(readiness: pd.DataFrame, ledger_summary: pd.DataFrame) -> pd.DataFrame:
+    out=readiness.copy(); rr=ledger_summary.iloc[0]
+    out["oos_membership_authority"]=rr["ledger_authority"]
+    out["current_day_candidate_events"]=int(rr["current_day_candidate_events"])
+    out["current_day_control_events"]=int(rr["current_day_control_events"])
+    out["prospective_candidate_events"]=int(rr["ledger_candidate_events_total"])
+    out["prospective_control_events"]=int(rr["ledger_control_events_total"])
+    out["candidate_d15_mature"]=int(rr["candidate_d15_mature"])
+    out["control_d15_mature"]=int(rr["control_d15_mature"])
+    out["retroactive_recomputed_not_admitted"]=int(rr["retroactive_recomputed_not_admitted"])
+    out["membership_flip_against_frozen_ledger"]=int(rr["membership_flip_against_frozen_ledger"])
+    out["candidate_zero_is_interpretable_as_no_event"]=int(
+        str(out.iloc[0]["oos_readiness_status"])=="READY_PROSPECTIVE_OOS"
+        and int(rr["current_day_candidate_events"])==0
+    )
+    return out
+
+
 def build_r2_oos_readiness_audit(
     end: pd.Timestamp,
     universe_dates: List[pd.Timestamp],
@@ -4652,6 +4852,23 @@ def run(args: argparse.Namespace) -> int:
         ),
         require_current_overlay_authority=bool(args.require_current_overlay_authority),
     )
+    r2_discovery_drift_detail, r2_discovery_drift_summary = (
+        build_r2_discovery_baseline_drift_audit(
+            r2_prospective_control_detail,
+            Path(args.frozen_discovery_baseline),
+        )
+    )
+    r2_oos_append_only_ledger, r2_oos_append_only_summary = (
+        update_r2_append_only_oos_ledger(
+            r2_prospective_control_detail,
+            end,
+            r2_oos_readiness,
+            Path(args.oos_ledger_dir),
+        )
+    )
+    r2_oos_readiness = apply_r2_append_only_authority_to_readiness(
+        r2_oos_readiness, r2_oos_append_only_summary
+    )
 
     sample = deterministic_manual_sample(signals, events, int(args.manual_sample_limit))
     if not sample.empty:
@@ -4709,6 +4926,10 @@ def run(args: argparse.Namespace) -> int:
     _write_csv(stage_quality_anatomy_summary, out / "tri_stage_quality_anatomy_summary.csv")
     _write_csv(restart_reclaim_robustness_summary, out / "tri_restart_reclaim_robustness_summary.csv")
     _write_csv(r2_candidate_definition, out / "tri_r2_candidate_definition.csv")
+    _write_csv(r2_discovery_drift_detail, out / "tri_r2_discovery_baseline_drift_detail.csv")
+    _write_csv(r2_discovery_drift_summary, out / "tri_r2_discovery_baseline_drift_summary.csv")
+    _write_csv(r2_oos_append_only_ledger, out / "tri_r2_oos_append_only_ledger.csv")
+    _write_csv(r2_oos_append_only_summary, out / "tri_r2_oos_append_only_summary.csv")
     _write_csv(r2_candidate_shadow_detail, out / "tri_r2_candidate_shadow_detail.csv")
     _write_csv(r2_candidate_shadow_summary, out / "tri_r2_candidate_shadow_summary.csv")
     _write_csv(r2_prospective_control_detail, out / "tri_r2_prospective_control_detail.csv")
@@ -4874,6 +5095,18 @@ def run(args: argparse.Namespace) -> int:
             "actual_strategy_changed": 0,
             "used_as_strategy_gate": 0,
             "summary": r2_oos_readiness.to_dict("records"),
+        },
+        "r2_oos_append_only_ledger": {
+            "research_only": 1,
+            "membership_authority": "APPEND_ONLY_FIRST_OBSERVED_ON_EVENT_DATE",
+            "retroactive_recompute_admission_allowed": 0,
+            "membership_rewrite_allowed": 0,
+            "summary": r2_oos_append_only_summary.to_dict("records"),
+        },
+        "r2_discovery_baseline_drift": {
+            "research_only": 1,
+            "frozen_baseline_sha256": R2_FROZEN_DISCOVERY_BASELINE_SHA256,
+            "summary": r2_discovery_drift_summary.to_dict("records"),
         },
         "r2_discovery_window_lock": {
             "research_only": 1,
@@ -5132,6 +5365,8 @@ def main() -> int:
     ap.add_argument("--amount-cache-dir", default="reports/.cache/v25_actual_amount_history")
     ap.add_argument("--expected-current-data-end", default="")
     ap.add_argument("--require-current-overlay-authority", action="store_true")
+    ap.add_argument("--oos-ledger-dir", default="reports/.cache/triangle1pb_r2_oos_ledger")
+    ap.add_argument("--frozen-discovery-baseline", default="tri_r2_frozen_discovery_baseline.csv")
     ap.add_argument("--output-dir", default="reports/triangle1pb")
     ap.add_argument("--start-date", default="")
     ap.add_argument("--end-date", default="")

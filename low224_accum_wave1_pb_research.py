@@ -26,6 +26,7 @@ import argparse
 import hashlib
 import json
 import math
+import re
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -42,7 +43,7 @@ from triangle1pb_research import (
 
 SCHEMA = "LOW224_ACCUM_WAVE1_PB_RESEARCH_SCHEMA_V1"
 STRATEGY_ID = "LOW224_ACCUM_WAVE1_PB_R1_STRUCTURE_FIRST"
-LOADER_REVISION = "LOW224_R1_1_1_CURRENT_OVERLAY_HANDOFF_FRESHNESS_GUARD"
+LOADER_REVISION = "LOW224_R1_1_2_APPEND_ONLY_OOS_LEDGER"
 RESEARCH_AUTHORITY = "RESEARCH_ONLY_NO_LIVE_NO_SCORE_NO_RANK_NO_ORDERS"
 SHARED_DATA_AUTHORITY_ONLY = "TRIANGLE1PB_CACHE_ADAPTERS_ONLY_NO_PATTERN_LOGIC"
 R1C1_CANDIDATE_ID = "LOW224_R1C1_REACCELERATION_WAVE_HIGH_RECLAIM"
@@ -50,6 +51,8 @@ R1C1_CONTROL_ID = "LOW224_R1C1_REACCELERATION_NO_WAVE_HIGH_RECLAIM"
 R1C1_FREEZE_DATE = "2026-09-01"
 R1C1_PROSPECTIVE_START_DATE = "2026-09-02"
 R1C1_DISCOVERY_START_DATE = "2024-08-27"
+R1C1_OOS_LEDGER_BOOTSTRAP_THROUGH = "2026-09-02"
+R1C1_FROZEN_DISCOVERY_BASELINE_SHA256 = "1999b2bdf6bd172642bf5348b778d03b6184afe28c6357c5a103a053cb731c8d"
 
 STAGES = [
     "LOW224_BASE",
@@ -2185,6 +2188,206 @@ def build_r1c1_prospective_shadow(
     )
 
 
+
+def _r1c1_oos_key(code: Any, event_date: Any) -> str:
+    c = re.sub(r"\D", "", str(code))[-6:].zfill(6)
+    d = pd.to_datetime(event_date, errors="coerce")
+    ds = pd.Timestamp(d).date().isoformat() if pd.notna(d) else ""
+    return f"{c}|{ds}"
+
+
+def build_r1c1_discovery_baseline_drift_audit(
+    candidate_detail: pd.DataFrame,
+    control_detail: pd.DataFrame,
+    baseline_path: Path,
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    if not baseline_path.exists():
+        raise RuntimeError(f"R1C1_FROZEN_DISCOVERY_BASELINE_MISSING {baseline_path}")
+    base=pd.read_csv(baseline_path,dtype={"code":str})
+    base["code"]=base["code"].astype(str).str.replace(r"\.0$","",regex=True).str.zfill(6)
+    base["event_date"]=pd.to_datetime(base["event_date"],errors="coerce").dt.date.astype(str)
+    base["key"]=base.apply(lambda r:_r1c1_oos_key(r["code"],r["event_date"])+"|"+str(r["group"]),axis=1)
+
+    cur=pd.concat([candidate_detail,control_detail],ignore_index=True,sort=False)
+    if cur.empty:
+        cur2=pd.DataFrame(columns=["code","event_date","group","key"])
+    else:
+        pstart=pd.Timestamp(R1C1_PROSPECTIVE_START_DATE).normalize()
+        cur["event_ts"]=pd.to_datetime(cur["event_date"],errors="coerce").dt.normalize()
+        cur=cur[cur["event_ts"]<pstart].copy()
+        cur["code"]=cur["code"].astype(str).str.replace(r"\.0$","",regex=True).str.zfill(6)
+        cur["event_date"]=cur["event_ts"].dt.date.astype(str)
+        cur["group"]=cur["group"].astype(str)
+        cur["key"]=cur.apply(lambda r:_r1c1_oos_key(r["code"],r["event_date"])+"|"+str(r["group"]),axis=1)
+        cur2=cur[["code","event_date","group","key"]].drop_duplicates()
+
+    bset=set(base["key"].astype(str)); cset=set(cur2["key"].astype(str))
+    missing=sorted(bset-cset); extra=sorted(cset-bset)
+    bpair={x.rsplit("|",1)[0]:x.rsplit("|",1)[1] for x in bset}
+    cpair={x.rsplit("|",1)[0]:x.rsplit("|",1)[1] for x in cset}
+    flips=sorted(k for k in set(bpair)&set(cpair) if bpair[k]!=cpair[k])
+    detail=pd.DataFrame(
+        [{"drift_type":"MISSING_FROM_ROLLING","key":k} for k in missing] +
+        [{"drift_type":"EXTRA_IN_ROLLING","key":k} for k in extra] +
+        [{"drift_type":"GROUP_FLIP","key":k,"baseline_group":bpair[k],"rolling_group":cpair[k]} for k in flips]
+    )
+    summary=pd.DataFrame([{
+        "schema":SCHEMA,"strategy_id":STRATEGY_ID,"loader_revision":LOADER_REVISION,
+        "baseline_sha256":R1C1_FROZEN_DISCOVERY_BASELINE_SHA256,
+        "baseline_rows":int(len(base)),
+        "baseline_candidate_rows":int((base["group"]=="CANDIDATE_RECLAIM").sum()),
+        "baseline_control_rows":int((base["group"]=="CONTROL_NO_RECLAIM").sum()),
+        "rolling_prefreeze_rows":int(len(cur2)),
+        "rolling_candidate_rows":int((cur2["group"]=="CANDIDATE_RECLAIM").sum()) if not cur2.empty else 0,
+        "rolling_control_rows":int((cur2["group"]=="CONTROL_NO_RECLAIM").sum()) if not cur2.empty else 0,
+        "missing_keys":int(len(missing)),"extra_keys":int(len(extra)),
+        "group_flip_pairs":int(len(flips)),
+        "discovery_baseline_drift":int(bool(missing or extra or flips)),
+        "frozen_baseline_rewritten":0,
+        "used_as_oos_membership_authority":0,
+    }])
+    return detail,summary
+
+
+def update_r1c1_append_only_oos_ledger(
+    candidate_detail: pd.DataFrame,
+    control_detail: pd.DataFrame,
+    data_end: pd.Timestamp,
+    preliminary_readiness: pd.DataFrame,
+    ledger_dir: Path,
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    ledger_dir.mkdir(parents=True,exist_ok=True)
+    ledger_path=ledger_dir/"r1c1_append_only_ledger.csv"
+    state_path=ledger_dir/"state.json"
+    if ledger_path.exists():
+        ledger=pd.read_csv(ledger_path,dtype={"code":str})
+    else:
+        ledger=pd.DataFrame(columns=[
+            "schema","strategy_id","candidate_id","control_id","code","event_date","group","event_key",
+            "first_observed_data_end","membership_frozen","d5_complete","d10_complete","d15_complete",
+            "d5_close_ret_pct","d10_close_ret_pct","d15_close_ret_pct","d15_mfe_pct","d15_mae_pct"
+        ])
+    if state_path.exists():
+        try: state=json.loads(state_path.read_text(encoding="utf-8"))
+        except Exception: state={}
+    else: state={}
+    if not state:
+        state={
+            "schema":"LOW224_R1C1_APPEND_ONLY_OOS_LEDGER_STATE_V1",
+            "bootstrap_zero_through":R1C1_OOS_LEDGER_BOOTSTRAP_THROUGH,
+            "last_processed_data_end":R1C1_OOS_LEDGER_BOOTSTRAP_THROUGH,
+        }
+
+    src=pd.concat([candidate_detail,control_detail],ignore_index=True,sort=False)
+    if src.empty:
+        src=pd.DataFrame(columns=["code","event_date","group"])
+    else:
+        src["event_ts"]=pd.to_datetime(src["event_date"],errors="coerce").dt.normalize()
+        src["code"]=src["code"].astype(str).str.replace(r"\.0$","",regex=True).str.zfill(6)
+        src["event_date"]=src["event_ts"].dt.date.astype(str)
+        src["group"]=src["group"].astype(str)
+        src["event_key"]=src.apply(lambda r:_r1c1_oos_key(r["code"],r["event_date"]),axis=1)
+
+    end_ts=pd.Timestamp(data_end).normalize()
+    pstart=pd.Timestamp(R1C1_PROSPECTIVE_START_DATE).normalize()
+    ready_status=str(preliminary_readiness.iloc[0]["status"])
+    if not ledger.empty:
+        ledger["code"]=ledger["code"].astype(str).str.replace(r"\.0$","",regex=True).str.zfill(6)
+        existing=dict(zip(ledger["event_key"].astype(str),ledger["group"].astype(str)))
+    else:
+        existing={}
+    prospective=src[src["event_ts"].ge(pstart)].copy() if "event_ts" in src else src
+    current_day=prospective[prospective["event_ts"].eq(end_ts)].copy() if not prospective.empty else prospective
+    retro=prospective[prospective["event_ts"].lt(end_ts)].copy() if not prospective.empty else prospective
+    retro_new=retro[~retro["event_key"].astype(str).isin(set(existing))].copy() if not retro.empty else retro
+
+    flips=0
+    if existing and not prospective.empty:
+        for _,r in prospective.iterrows():
+            k=str(r["event_key"])
+            if k in existing and str(existing[k])!=str(r["group"]): flips+=1
+
+    last_before=str(state.get("last_processed_data_end") or R1C1_OOS_LEDGER_BOOTSTRAP_THROUGH)
+    last_before_ts=pd.Timestamp(last_before).normalize()
+    admitted=[]
+    can_mutate=(ready_status=="READY_PROSPECTIVE_OOS")
+    if can_mutate and end_ts>last_before_ts:
+        for _,r in current_day.iterrows():
+            k=str(r["event_key"])
+            if k in existing: continue
+            admitted.append({
+                "schema":SCHEMA,"strategy_id":STRATEGY_ID,"candidate_id":R1C1_CANDIDATE_ID,
+                "control_id":R1C1_CONTROL_ID,"code":str(r["code"]),"event_date":str(r["event_date"]),
+                "group":str(r["group"]),"event_key":k,"first_observed_data_end":end_ts.date().isoformat(),
+                "membership_frozen":1,
+                "d5_complete":int(r.get("d5_complete",0) or 0),
+                "d10_complete":int(r.get("d10_complete",0) or 0),
+                "d15_complete":int(r.get("d15_complete",0) or 0),
+                "d5_close_ret_pct":r.get("d5_close_ret_pct",np.nan),
+                "d10_close_ret_pct":r.get("d10_close_ret_pct",np.nan),
+                "d15_close_ret_pct":r.get("d15_close_ret_pct",np.nan),
+                "d15_mfe_pct":r.get("d15_mfe_pct",np.nan),
+                "d15_mae_pct":r.get("d15_mae_pct",np.nan),
+            })
+        if admitted: ledger=pd.concat([ledger,pd.DataFrame(admitted)],ignore_index=True)
+        state["last_processed_data_end"]=end_ts.date().isoformat()
+        state["last_successful_readiness"]=ready_status
+
+    if not ledger.empty and not src.empty:
+        bykey={str(r["event_key"]):r for _,r in src.iterrows()}
+        for i in ledger.index:
+            r=bykey.get(str(ledger.at[i,"event_key"]))
+            if r is None: continue
+            for c in ("d5_complete","d10_complete","d15_complete","d5_close_ret_pct","d10_close_ret_pct","d15_close_ret_pct","d15_mfe_pct","d15_mae_pct"):
+                if c in r.index: ledger.at[i,c]=r[c]
+
+    if can_mutate:
+        ledger.to_csv(ledger_path,index=False,encoding="utf-8-sig")
+        state_path.write_text(json.dumps(state,ensure_ascii=False,indent=2),encoding="utf-8")
+
+    cand=ledger[ledger["group"].eq("CANDIDATE_RECLAIM")] if not ledger.empty else ledger
+    ctrl=ledger[ledger["group"].eq("CONTROL_NO_RECLAIM")] if not ledger.empty else ledger
+    summary=pd.DataFrame([{
+        "schema":SCHEMA,"strategy_id":STRATEGY_ID,"loader_revision":LOADER_REVISION,
+        "candidate_id":R1C1_CANDIDATE_ID,"control_id":R1C1_CONTROL_ID,
+        "ledger_authority":"APPEND_ONLY_FIRST_OBSERVED_ON_EVENT_DATE",
+        "bootstrap_zero_through":R1C1_OOS_LEDGER_BOOTSTRAP_THROUGH,
+        "readiness_status":ready_status,"data_end":end_ts.date().isoformat(),
+        "last_processed_before":last_before,
+        "last_processed_after":str(state.get("last_processed_data_end",last_before)),
+        "current_day_candidate_events":int((current_day["group"]=="CANDIDATE_RECLAIM").sum()) if not current_day.empty else 0,
+        "current_day_control_events":int((current_day["group"]=="CONTROL_NO_RECLAIM").sum()) if not current_day.empty else 0,
+        "newly_admitted_events":int(len(admitted)),
+        "ledger_candidate_events_total":int(len(cand)),
+        "ledger_control_events_total":int(len(ctrl)),
+        "candidate_d15_mature":int(pd.to_numeric(cand.get("d15_complete",pd.Series(dtype=float)),errors="coerce").fillna(0).sum()) if not cand.empty else 0,
+        "control_d15_mature":int(pd.to_numeric(ctrl.get("d15_complete",pd.Series(dtype=float)),errors="coerce").fillna(0).sum()) if not ctrl.empty else 0,
+        "retroactive_recomputed_not_admitted":int(len(retro_new)),
+        "membership_flip_against_frozen_ledger":int(flips),
+        "retroactive_rows_can_enter_ledger":0,
+        "membership_rewrite_allowed":0,
+    }])
+    return ledger,summary
+
+
+def apply_r1c1_append_only_authority_to_readiness(readiness: pd.DataFrame,ledger_summary: pd.DataFrame)->pd.DataFrame:
+    out=readiness.copy(); rr=ledger_summary.iloc[0]
+    out["oos_membership_authority"]=rr["ledger_authority"]
+    out["current_day_candidate_events"]=int(rr["current_day_candidate_events"])
+    out["current_day_control_events"]=int(rr["current_day_control_events"])
+    out["candidate_prospective_rows"]=int(rr["ledger_candidate_events_total"])
+    out["control_prospective_rows"]=int(rr["ledger_control_events_total"])
+    out["candidate_d15_mature"]=int(rr["candidate_d15_mature"])
+    out["control_d15_mature"]=int(rr["control_d15_mature"])
+    out["retroactive_recomputed_not_admitted"]=int(rr["retroactive_recomputed_not_admitted"])
+    out["membership_flip_against_frozen_ledger"]=int(rr["membership_flip_against_frozen_ledger"])
+    out["candidate_zero_is_interpretable_as_no_event"]=int(
+        str(out.iloc[0]["status"])=="READY_PROSPECTIVE_OOS"
+        and int(rr["current_day_candidate_events"])==0
+    )
+    return out
+
+
 def build_forward_outcomes(
     stage_df: pd.DataFrame,
     frames: Dict[str, pd.DataFrame],
@@ -2447,6 +2650,25 @@ def run(args: argparse.Namespace) -> int:
         ),
         require_current_overlay_authority=bool(args.require_current_overlay_authority),
     )
+    r1c1_discovery_drift_detail, r1c1_discovery_drift_summary = (
+        build_r1c1_discovery_baseline_drift_audit(
+            r1c1_candidate_detail,
+            r1c1_control_detail,
+            Path(args.frozen_discovery_baseline),
+        )
+    )
+    r1c1_oos_append_only_ledger, r1c1_oos_append_only_summary = (
+        update_r1c1_append_only_oos_ledger(
+            r1c1_candidate_detail,
+            r1c1_control_detail,
+            end,
+            r1c1_oos_readiness,
+            Path(args.oos_ledger_dir),
+        )
+    )
+    r1c1_oos_readiness = apply_r1c1_append_only_authority_to_readiness(
+        r1c1_oos_readiness, r1c1_oos_append_only_summary
+    )
 
     stratified_sample = build_stratified_manual_sample(
         stage_df, per_stratum=int(args.stratified_sample_per_group)
@@ -2525,6 +2747,8 @@ def run(args: argparse.Namespace) -> int:
         "r1c1_prospective_shadow": r1c1_candidate_summary.to_dict("records"),
         "r1c1_prospective_control": r1c1_control_summary.to_dict("records"),
         "r1c1_oos_readiness": r1c1_oos_readiness.to_dict("records"),
+        "r1c1_oos_append_only_summary": r1c1_oos_append_only_summary.to_dict("records"),
+        "r1c1_discovery_baseline_drift": r1c1_discovery_drift_summary.to_dict("records"),
         "sample_fidelity_audit_only": True,
         "run_context_wave_character_audit_only": True,
         "raw_accum_persistence_audit_only": True,
@@ -2581,6 +2805,10 @@ def run(args: argparse.Namespace) -> int:
     write_csv(reaccel_anatomy_summary, "low224_reacceleration_anatomy_summary.csv")
     write_csv(reaccel_time_split, "low224_reacceleration_time_split_audit.csv")
     write_csv(r1c1_definition, "low224_r1c1_candidate_definition.csv")
+    write_csv(r1c1_discovery_drift_detail, "low224_r1c1_discovery_baseline_drift_detail.csv")
+    write_csv(r1c1_discovery_drift_summary, "low224_r1c1_discovery_baseline_drift_summary.csv")
+    write_csv(r1c1_oos_append_only_ledger, "low224_r1c1_oos_append_only_ledger.csv")
+    write_csv(r1c1_oos_append_only_summary, "low224_r1c1_oos_append_only_summary.csv")
     write_csv(r1c1_candidate_detail, "low224_r1c1_candidate_shadow_detail.csv")
     write_csv(r1c1_candidate_summary, "low224_r1c1_candidate_shadow_summary.csv")
     write_csv(r1c1_control_detail, "low224_r1c1_prospective_control_detail.csv")
@@ -2614,10 +2842,15 @@ def run(args: argparse.Namespace) -> int:
             f" / max {int(r1c1_oos_readiness.iloc[0]['max_asof_age_days'])}d"
         ),
         (
-            f"candidate {int(r1c1_oos_readiness.iloc[0]['candidate_prospective_rows'])}"
-            f" · control {int(r1c1_oos_readiness.iloc[0]['control_prospective_rows'])}"
-            f" · D15 mature {int(r1c1_oos_readiness.iloc[0]['candidate_d15_mature'])}"
+            f"today candidate {int(r1c1_oos_readiness.iloc[0]['current_day_candidate_events'])}"
+            f" · control {int(r1c1_oos_readiness.iloc[0]['current_day_control_events'])}"
+            f" | ledger total {int(r1c1_oos_readiness.iloc[0]['candidate_prospective_rows'])}"
+            f"/{int(r1c1_oos_readiness.iloc[0]['control_prospective_rows'])}"
+        ),
+        (
+            f"D15 mature {int(r1c1_oos_readiness.iloc[0]['candidate_d15_mature'])}"
             f"/{int(r1c1_oos_readiness.iloc[0]['control_d15_mature'])}"
+            f" · retroactive excluded {int(r1c1_oos_readiness.iloc[0]['retroactive_recomputed_not_admitted'])}"
         ),
         f"status={r1c1_oos_readiness.iloc[0]['status']}",
         (
@@ -2780,17 +3013,18 @@ def run(args: argparse.Namespace) -> int:
             f"{R1C1_PROSPECTIVE_START_DATE}"
         ),
         (
-            f"discovery/pre-freeze "
-            f"{int(r1c1_candidate_summary.iloc[0]['discovery_pre_freeze_rows'])}"
-            f" (검증 제외) · prospective "
-            f"{int(r1c1_candidate_summary.iloc[0]['prospective_rows'])}"
+            f"frozen discovery baseline 251/336"
+            f" · rolling recompute "
+            f"{int(r1c1_discovery_drift_summary.iloc[0]['rolling_candidate_rows'])}/"
+            f"{int(r1c1_discovery_drift_summary.iloc[0]['rolling_control_rows'])}"
+            f" · drift {int(r1c1_discovery_drift_summary.iloc[0]['discovery_baseline_drift'])}"
         ),
         (
             f"mature D5 {int(r1c1_candidate_summary.iloc[0]['d5_mature'])}"
             f" · D10 {int(r1c1_candidate_summary.iloc[0]['d10_mature'])}"
             f" · D15 {int(r1c1_candidate_summary.iloc[0]['d15_mature'])}"
         ),
-        "※ candidate 정의 추가튜닝 금지 · actual LOW224 detector 미변경",
+        "※ rolling shadow는 감사용 · 공식 OOS membership은 append-only ledger만 사용",
         "",
         "🆚 [R1C1 Prospective Control · same-period]",
         (
@@ -2802,7 +3036,7 @@ def run(args: argparse.Namespace) -> int:
             f" · control {int(r1c1_control_summary.iloc[0]['d15_mature'])}"
         ),
         "※ candidate=wave-high reclaim REACCEL · control=no-reclaim REACCEL",
-        "※ 둘 다 2026-09-02 이후만 OOS 비교 · 역사표본 제외",
+        "※ 공식 candidate/control 비교는 append-only OOS ledger 최초관측 event만 사용",
         "",
         "🛡️ [Authority]",
         f"actual Amount coverage {amount_coverage:.2f}% · Close×Volume fallback 0",
@@ -2897,6 +3131,8 @@ def main() -> int:
     ap.add_argument("--amount-cache-dir", default="reports/.cache/v25_actual_amount_history")
     ap.add_argument("--expected-current-data-end", default="")
     ap.add_argument("--require-current-overlay-authority", action="store_true")
+    ap.add_argument("--oos-ledger-dir", default="reports/.cache/low224_r1c1_oos_ledger")
+    ap.add_argument("--frozen-discovery-baseline", default="low224_r1c1_frozen_discovery_baseline.csv")
     ap.add_argument("--output-dir", default="reports/low224_r1")
     ap.add_argument("--start-date", default="2024-08-27")
     ap.add_argument("--end-date", default="")
