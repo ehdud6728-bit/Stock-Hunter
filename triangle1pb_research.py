@@ -32,7 +32,7 @@ import pandas as pd
 
 SCHEMA = "TRIANGLE1PB_RESEARCH_SCHEMA_V1"
 STRATEGY_ID = "TRIANGLE1PB_R1_CHRONOLOGY_FIRST"
-LOADER_REVISION = "TRIANGLE1PB_R1_15_3_DISCOVERY_WINDOW_LOCK_TELEGRAM_SPLIT"
+LOADER_REVISION = "TRIANGLE1PB_R1_15_4_CURRENT_OVERLAY_HANDOFF_FRESHNESS_GUARD"
 
 R2_CANDIDATE_ID = "TRIANGLE1PB_R2C1_QUALIFIED_HEALTHY_RESTART_WAVE_HIGH_RECLAIM"
 R2_CANDIDATE_FREEZE_DATE = "2026-08-30"
@@ -4103,6 +4103,8 @@ def build_r2_oos_readiness_audit(
     r2_candidate_shadow_summary: pd.DataFrame,
     r2_prospective_control_summary: pd.DataFrame,
     cfg: FrozenConfig,
+    expected_current_data_end: Optional[pd.Timestamp] = None,
+    require_current_overlay_authority: bool = False,
 ) -> pd.DataFrame:
     """Operational readiness for prospective OOS interpretation.
 
@@ -4127,7 +4129,21 @@ def build_r2_oos_readiness_audit(
         and age >= 0
         and age <= int(cfg.universe_max_calendar_age_days)
     )
-    if not data_reached:
+    expected_ts = (
+        pd.Timestamp(expected_current_data_end).normalize()
+        if expected_current_data_end is not None and str(expected_current_data_end).strip()
+        else None
+    )
+    overlay_required = int(bool(require_current_overlay_authority))
+    overlay_present = int(expected_ts is not None)
+    handoff_lag_days = int((expected_ts - end_ts).days) if expected_ts is not None else -1
+    handoff_fresh = int(expected_ts is not None and end_ts >= expected_ts)
+
+    if overlay_required and expected_ts is None:
+        status = "FAIL_CURRENT_OVERLAY_AUTHORITY_MISSING"
+    elif expected_ts is not None and end_ts < expected_ts:
+        status = "FAIL_CURRENT_OVERLAY_HANDOFF_LAG"
+    elif not data_reached:
         status = "WAIT_DATA_CATCHUP"
     elif latest_eligible is None:
         status = "FAIL_NO_ELIGIBLE_ASOF_UNIVERSE"
@@ -4156,6 +4172,11 @@ def build_r2_oos_readiness_audit(
         "freeze_date": R2_CANDIDATE_FREEZE_DATE,
         "prospective_start_date": R2_CANDIDATE_PROSPECTIVE_START_DATE,
         "research_data_end": end_ts.date().isoformat(),
+        "expected_current_data_end": expected_ts.date().isoformat() if expected_ts is not None else "",
+        "current_overlay_authority_required": overlay_required,
+        "current_overlay_authority_present": overlay_present,
+        "current_overlay_handoff_fresh": handoff_fresh,
+        "current_overlay_handoff_lag_days": handoff_lag_days,
         "prospective_data_reached": data_reached,
         "asof_snapshot_dates_total": int(len(normalized_dates)),
         "latest_asof_snapshot_any": latest_any.date().isoformat() if latest_any is not None else "",
@@ -4624,7 +4645,12 @@ def run(args: argparse.Namespace) -> int:
     }])
     r2_oos_readiness = build_r2_oos_readiness_audit(
         end, universe.dates, r2_candidate_shadow_summary,
-        r2_prospective_control_summary, cfg
+        r2_prospective_control_summary, cfg,
+        expected_current_data_end=(
+            pd.Timestamp(args.expected_current_data_end).normalize()
+            if str(args.expected_current_data_end or "").strip() else None
+        ),
+        require_current_overlay_authority=bool(args.require_current_overlay_authority),
     )
 
     sample = deterministic_manual_sample(signals, events, int(args.manual_sample_limit))
@@ -5068,6 +5094,22 @@ def self_test() -> int:
         pd.Timestamp("2026-08-28"), [pd.Timestamp("2026-08-19")], r2sum, r2cs, CONFIG
     )
     assert str(rr_wait.iloc[0]["oos_readiness_status"]) == "WAIT_DATA_CATCHUP"
+    rr_lag = build_r2_oos_readiness_audit(
+        pd.Timestamp("2026-09-01"), [pd.Timestamp("2026-08-31")],
+        pd.DataFrame(), pd.DataFrame(), CONFIG,
+        expected_current_data_end=pd.Timestamp("2026-09-02"),
+        require_current_overlay_authority=True,
+    )
+    assert str(rr_lag.iloc[0]["oos_readiness_status"]) == "FAIL_CURRENT_OVERLAY_HANDOFF_LAG"
+    assert int(rr_lag.iloc[0]["candidate_zero_is_interpretable_as_no_event"]) == 0
+    rr_missing_overlay = build_r2_oos_readiness_audit(
+        pd.Timestamp("2026-09-02"), [pd.Timestamp("2026-08-31")],
+        pd.DataFrame(), pd.DataFrame(), CONFIG,
+        expected_current_data_end=None,
+        require_current_overlay_authority=True,
+    )
+    assert str(rr_missing_overlay.iloc[0]["oos_readiness_status"]) == "FAIL_CURRENT_OVERLAY_AUTHORITY_MISSING"
+
     rr_ready = build_r2_oos_readiness_audit(
         pd.Timestamp("2026-08-31"), [pd.Timestamp("2026-08-28")], r2sum, r2cs, CONFIG
     )
@@ -5088,6 +5130,8 @@ def main() -> int:
     ap.add_argument("--price-cache-dir", default="reports/.cache/v20_price_history")
     ap.add_argument("--asof-cache-dir", default="reports/.cache/v20_asof_snapshots")
     ap.add_argument("--amount-cache-dir", default="reports/.cache/v25_actual_amount_history")
+    ap.add_argument("--expected-current-data-end", default="")
+    ap.add_argument("--require-current-overlay-authority", action="store_true")
     ap.add_argument("--output-dir", default="reports/triangle1pb")
     ap.add_argument("--start-date", default="")
     ap.add_argument("--end-date", default="")

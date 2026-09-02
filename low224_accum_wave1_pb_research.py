@@ -42,7 +42,7 @@ from triangle1pb_research import (
 
 SCHEMA = "LOW224_ACCUM_WAVE1_PB_RESEARCH_SCHEMA_V1"
 STRATEGY_ID = "LOW224_ACCUM_WAVE1_PB_R1_STRUCTURE_FIRST"
-LOADER_REVISION = "LOW224_R1_1_R1C1_PROSPECTIVE_SHADOW_FREEZE"
+LOADER_REVISION = "LOW224_R1_1_1_CURRENT_OVERLAY_HANDOFF_FRESHNESS_GUARD"
 RESEARCH_AUTHORITY = "RESEARCH_ONLY_NO_LIVE_NO_SCORE_NO_RANK_NO_ORDERS"
 SHARED_DATA_AUTHORITY_ONLY = "TRIANGLE1PB_CACHE_ADAPTERS_ONLY_NO_PATTERN_LOGIC"
 R1C1_CANDIDATE_ID = "LOW224_R1C1_REACCELERATION_WAVE_HIGH_RECLAIM"
@@ -1974,6 +1974,8 @@ def build_r1c1_prospective_shadow(
     data_end: pd.Timestamp,
     universe: UniverseAuthority,
     cfg: FrozenR1Config,
+    expected_current_data_end: Optional[pd.Timestamp] = None,
+    require_current_overlay_authority: bool = False,
 ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Freeze R1C1 and contemporaneous control for prospective/OOS validation.
 
@@ -2090,7 +2092,21 @@ def build_r1c1_prospective_shadow(
             latest_asof = ts
 
     prospective_start = pd.Timestamp(R1C1_PROSPECTIVE_START_DATE).normalize()
-    if data_end < prospective_start:
+    expected_ts = (
+        pd.Timestamp(expected_current_data_end).normalize()
+        if expected_current_data_end is not None and str(expected_current_data_end).strip()
+        else None
+    )
+    overlay_required = int(bool(require_current_overlay_authority))
+    overlay_present = int(expected_ts is not None)
+    handoff_lag_days = int((expected_ts - data_end).days) if expected_ts is not None else -1
+    handoff_fresh = int(expected_ts is not None and data_end >= expected_ts)
+
+    if overlay_required and expected_ts is None:
+        status = "FAIL_CURRENT_OVERLAY_AUTHORITY_MISSING"
+    elif expected_ts is not None and data_end < expected_ts:
+        status = "FAIL_CURRENT_OVERLAY_HANDOFF_LAG"
+    elif data_end < prospective_start:
         status = "WAIT_DATA_CATCHUP"
     elif latest_asof is None:
         status = "FAIL_NO_ELIGIBLE_ASOF_UNIVERSE"
@@ -2112,6 +2128,11 @@ def build_r1c1_prospective_shadow(
         "freeze_date": R1C1_FREEZE_DATE,
         "prospective_start_date": R1C1_PROSPECTIVE_START_DATE,
         "data_end": data_end.date().isoformat(),
+        "expected_current_data_end": expected_ts.date().isoformat() if expected_ts is not None else "",
+        "current_overlay_authority_required": overlay_required,
+        "current_overlay_authority_present": overlay_present,
+        "current_overlay_handoff_fresh": handoff_fresh,
+        "current_overlay_handoff_lag_days": handoff_lag_days,
         "latest_eligible_asof": (
             latest_asof.date().isoformat() if latest_asof is not None else ""
         ),
@@ -2419,7 +2440,12 @@ def run(args: argparse.Namespace) -> int:
         r1c1_control_summary,
         r1c1_oos_readiness,
     ) = build_r1c1_prospective_shadow(
-        reaccel_anatomy, outcomes, end, universe, cfg
+        reaccel_anatomy, outcomes, end, universe, cfg,
+        expected_current_data_end=(
+            pd.Timestamp(args.expected_current_data_end).normalize()
+            if str(args.expected_current_data_end or "").strip() else None
+        ),
+        require_current_overlay_authority=bool(args.require_current_overlay_authority),
     )
 
     stratified_sample = build_stratified_manual_sample(
@@ -2576,6 +2602,11 @@ def run(args: argparse.Namespace) -> int:
         (
             f"data end {r1c1_oos_readiness.iloc[0]['data_end']}"
             f" · prospective start {R1C1_PROSPECTIVE_START_DATE}"
+        ),
+        (
+            f"producer end {r1c1_oos_readiness.iloc[0]['expected_current_data_end'] or '-'}"
+            f" · handoff fresh {int(r1c1_oos_readiness.iloc[0]['current_overlay_handoff_fresh'])}"
+            f" · lag {int(r1c1_oos_readiness.iloc[0]['current_overlay_handoff_lag_days'])}d"
         ),
         (
             f"as-of {r1c1_oos_readiness.iloc[0]['latest_eligible_asof']}"
@@ -2839,6 +2870,22 @@ def self_test() -> int:
     assert gd["wave1"] >= 1
     assert any(x["stage"] == "FIRST_PULLBACK" for x in st)
     assert any(x["stage"] == "STABILIZATION" for x in st)
+    class GuardU:
+        dates = [pd.Timestamp("2026-08-31")]
+    empty = pd.DataFrame()
+    _, _, _, _, _, rr_lag = build_r1c1_prospective_shadow(
+        empty, empty, pd.Timestamp("2026-09-01"), GuardU(), CONFIG,
+        expected_current_data_end=pd.Timestamp("2026-09-02"),
+        require_current_overlay_authority=True,
+    )
+    assert str(rr_lag.iloc[0]["status"]) == "FAIL_CURRENT_OVERLAY_HANDOFF_LAG"
+    assert int(rr_lag.iloc[0]["candidate_zero_is_interpretable_as_no_event"]) == 0
+    _, _, _, _, _, rr_missing = build_r1c1_prospective_shadow(
+        empty, empty, pd.Timestamp("2026-09-02"), GuardU(), CONFIG,
+        expected_current_data_end=None,
+        require_current_overlay_authority=True,
+    )
+    assert str(rr_missing.iloc[0]["status"]) == "FAIL_CURRENT_OVERLAY_AUTHORITY_MISSING"
     print("LOW224_R1_SYNTHETIC_TEST PASS", gd)
     return 0
 
@@ -2848,6 +2895,8 @@ def main() -> int:
     ap.add_argument("--price-cache-dir", default="reports/.cache/v20_price_history")
     ap.add_argument("--asof-cache-dir", default="reports/.cache/v20_asof_snapshots")
     ap.add_argument("--amount-cache-dir", default="reports/.cache/v25_actual_amount_history")
+    ap.add_argument("--expected-current-data-end", default="")
+    ap.add_argument("--require-current-overlay-authority", action="store_true")
     ap.add_argument("--output-dir", default="reports/low224_r1")
     ap.add_argument("--start-date", default="2024-08-27")
     ap.add_argument("--end-date", default="")
