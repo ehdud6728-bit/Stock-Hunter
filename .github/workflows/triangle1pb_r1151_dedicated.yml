@@ -84,6 +84,27 @@ jobs:
         run: |
           set -euo pipefail
           test -f triangle1pb_research.py || { echo "TRIANGLE1PB source missing"; exit 231; }
+
+          # R2C1 append-only OOS authority requires the immutable frozen baseline.
+          test -f tri_r2_frozen_discovery_baseline.csv || {
+            echo "❌ TRIANGLE_R2_FROZEN_BASELINE_MISSING tri_r2_frozen_discovery_baseline.csv"
+            exit 253
+          }
+          actual_baseline_sha="$(sha256sum tri_r2_frozen_discovery_baseline.csv | awk '{print $1}')"
+          expected_baseline_sha="65ac0f184045ae57a58e48f5b16042e79790398ffc22e5ef4686e89fed5068d5"
+          if [ "$actual_baseline_sha" != "$expected_baseline_sha" ]; then
+            echo "❌ TRIANGLE_R2_FROZEN_BASELINE_SHA_MISMATCH expected=$expected_baseline_sha actual=$actual_baseline_sha"
+            exit 254
+          fi
+          baseline_rows="$(tail -n +2 tri_r2_frozen_discovery_baseline.csv | wc -l | tr -d ' ')"
+          baseline_candidate="$(grep -c ',R2C1_RECLAIM_CANDIDATE$' tri_r2_frozen_discovery_baseline.csv || true)"
+          baseline_control="$(grep -c ',NO_RECLAIM_CONTEMPORANEOUS_CONTROL$' tri_r2_frozen_discovery_baseline.csv || true)"
+          if [ "$baseline_rows" != "16" ] || [ "$baseline_candidate" != "7" ] || [ "$baseline_control" != "9" ]; then
+            echo "❌ TRIANGLE_R2_FROZEN_BASELINE_POPULATION_MISMATCH rows=$baseline_rows candidate=$baseline_candidate control=$baseline_control"
+            exit 256
+          fi
+          echo "TRIANGLE_R2_FROZEN_BASELINE PASS rows=$baseline_rows candidate=$baseline_candidate control=$baseline_control sha=$actual_baseline_sha"
+
           python -m py_compile triangle1pb_research.py
           python triangle1pb_research.py --self-test
           grep -Fq 'RESEARCH_AUTHORITY = "RESEARCH_ONLY_NO_LIVE_NO_POLICY_NO_ORDERS"' triangle1pb_research.py

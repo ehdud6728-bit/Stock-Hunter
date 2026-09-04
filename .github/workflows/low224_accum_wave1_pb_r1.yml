@@ -64,6 +64,28 @@ jobs:
           set -euo pipefail
           test -f low224_accum_wave1_pb_research.py
           test -f triangle1pb_research.py
+
+          # Append-only OOS authority requires the immutable frozen baseline.
+          # Fail in preflight instead of after the full research scan.
+          test -f low224_r1c1_frozen_discovery_baseline.csv || {
+            echo "❌ LOW224_FROZEN_BASELINE_MISSING low224_r1c1_frozen_discovery_baseline.csv"
+            exit 251
+          }
+          actual_baseline_sha="$(sha256sum low224_r1c1_frozen_discovery_baseline.csv | awk '{print $1}')"
+          expected_baseline_sha="1999b2bdf6bd172642bf5348b778d03b6184afe28c6357c5a103a053cb731c8d"
+          if [ "$actual_baseline_sha" != "$expected_baseline_sha" ]; then
+            echo "❌ LOW224_FROZEN_BASELINE_SHA_MISMATCH expected=$expected_baseline_sha actual=$actual_baseline_sha"
+            exit 252
+          fi
+          baseline_rows="$(tail -n +2 low224_r1c1_frozen_discovery_baseline.csv | wc -l | tr -d ' ')"
+          baseline_candidate="$(grep -c ',CANDIDATE_RECLAIM$' low224_r1c1_frozen_discovery_baseline.csv || true)"
+          baseline_control="$(grep -c ',CONTROL_NO_RECLAIM$' low224_r1c1_frozen_discovery_baseline.csv || true)"
+          if [ "$baseline_rows" != "587" ] || [ "$baseline_candidate" != "251" ] || [ "$baseline_control" != "336" ]; then
+            echo "❌ LOW224_FROZEN_BASELINE_POPULATION_MISMATCH rows=$baseline_rows candidate=$baseline_candidate control=$baseline_control"
+            exit 255
+          fi
+          echo "LOW224_FROZEN_BASELINE PASS rows=$baseline_rows candidate=$baseline_candidate control=$baseline_control sha=$actual_baseline_sha"
+
           grep -Fq 'STRATEGY_ID = "LOW224_ACCUM_WAVE1_PB_R1_STRUCTURE_FIRST"' low224_accum_wave1_pb_research.py
           grep -Fq 'LOADER_REVISION = "LOW224_R1_1_2_APPEND_ONLY_OOS_LEDGER"' low224_accum_wave1_pb_research.py
           grep -Fq 'RESEARCH_AUTHORITY = "RESEARCH_ONLY_NO_LIVE_NO_SCORE_NO_RANK_NO_ORDERS"' low224_accum_wave1_pb_research.py
@@ -283,7 +305,7 @@ jobs:
               print("LOW224_TELEGRAM_SKIP route_missing=1")
               raise SystemExit(0)
           p=Path("reports/low224_r1/low224_report.txt")
-          text=p.read_text(encoding="utf-8") if p.exists() else "⚠️ LOW224 report missing"
+          text=p.read_text(encoding="utf-8") if p.exists() else "⚠️ LOW224 RUN FAILED · report missing · OOS 결과로 해석 금지"
           # Compact board should fit, but split losslessly if later sections grow.
           max_body=3400
           lines=text.splitlines()
