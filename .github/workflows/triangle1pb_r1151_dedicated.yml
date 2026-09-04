@@ -60,9 +60,9 @@ jobs:
           echo "TRIANGLE1PB_EVENT_SHA=${GITHUB_SHA}"
           echo "TRIANGLE1PB_WORKSPACE=${GITHUB_WORKSPACE}"
           test -f triangle1pb_research.py || { echo "TRIANGLE1PB source missing"; exit 241; }
-          grep -Fq 'LOADER_REVISION = "TRIANGLE1PB_R1_15_5_APPEND_ONLY_OOS_LEDGER"' triangle1pb_research.py || {
+          grep -Fq 'LOADER_REVISION = "TRIANGLE1PB_R1_15_6_OOS_OBSERVATION_GAP_GUARD"' triangle1pb_research.py || {
             echo "TRIANGLE1PB_DEDICATED_STALE_SOURCE_FAIL";
-            echo "Expected TRIANGLE1PB_R1_15_5_APPEND_ONLY_OOS_LEDGER";
+            echo "Expected TRIANGLE1PB_R1_15_6_OOS_OBSERVATION_GAP_GUARD";
             grep -n '^LOADER_REVISION' triangle1pb_research.py || true;
             exit 242;
           }
@@ -109,7 +109,7 @@ jobs:
           python triangle1pb_research.py --self-test
           grep -Fq 'RESEARCH_AUTHORITY = "RESEARCH_ONLY_NO_LIVE_NO_POLICY_NO_ORDERS"' triangle1pb_research.py
           grep -Fq 'STRATEGY_ID = "TRIANGLE1PB_R1_CHRONOLOGY_FIRST"' triangle1pb_research.py
-          grep -Fq 'LOADER_REVISION = "TRIANGLE1PB_R1_15_5_APPEND_ONLY_OOS_LEDGER"' triangle1pb_research.py || {
+          grep -Fq 'LOADER_REVISION = "TRIANGLE1PB_R1_15_6_OOS_OBSERVATION_GAP_GUARD"' triangle1pb_research.py || {
             echo "TRIANGLE1PB_STALE_SOURCE_FAIL expected=R1_15_5";
             grep -n '^LOADER_REVISION' triangle1pb_research.py || true;
             exit 236;
@@ -231,7 +231,7 @@ jobs:
           fi
           if [ -n "${TRI_START_DATE:-}" ]; then args+=(--start-date "$TRI_START_DATE"); fi
           if [ -n "${TRI_END_DATE:-}" ]; then args+=(--end-date "$TRI_END_DATE"); fi
-          grep -Fq 'LOADER_REVISION = "TRIANGLE1PB_R1_15_5_APPEND_ONLY_OOS_LEDGER"' triangle1pb_research.py || {
+          grep -Fq 'LOADER_REVISION = "TRIANGLE1PB_R1_15_6_OOS_OBSERVATION_GAP_GUARD"' triangle1pb_research.py || {
             echo "TRIANGLE1PB_STALE_SOURCE_FAIL immediately_before_run";
             grep -n '^LOADER_REVISION' triangle1pb_research.py || true;
             exit 237;
@@ -278,7 +278,7 @@ jobs:
           m=json.loads((root/'tri_manifest.json').read_text(encoding='utf-8'))
           assert m.get('schema')=='TRIANGLE1PB_RESEARCH_SCHEMA_V1'
           assert m.get('strategy_id')=='TRIANGLE1PB_R1_CHRONOLOGY_FIRST'
-          assert m.get('loader_revision')=='TRIANGLE1PB_R1_15_5_APPEND_ONLY_OOS_LEDGER', (
+          assert m.get('loader_revision')=='TRIANGLE1PB_R1_15_6_OOS_OBSERVATION_GAP_GUARD', (
               'TRIANGLE1PB_STALE_MANIFEST_REVISION', m.get('loader_revision')
           )
           ready=pd.read_csv(root/'tri_r2_oos_readiness.csv')

@@ -87,7 +87,7 @@ jobs:
           echo "LOW224_FROZEN_BASELINE PASS rows=$baseline_rows candidate=$baseline_candidate control=$baseline_control sha=$actual_baseline_sha"
 
           grep -Fq 'STRATEGY_ID = "LOW224_ACCUM_WAVE1_PB_R1_STRUCTURE_FIRST"' low224_accum_wave1_pb_research.py
-          grep -Fq 'LOADER_REVISION = "LOW224_R1_1_2_APPEND_ONLY_OOS_LEDGER"' low224_accum_wave1_pb_research.py
+          grep -Fq 'LOADER_REVISION = "LOW224_R1_1_3_OOS_OBSERVATION_GAP_GUARD"' low224_accum_wave1_pb_research.py
           grep -Fq 'RESEARCH_AUTHORITY = "RESEARCH_ONLY_NO_LIVE_NO_SCORE_NO_RANK_NO_ORDERS"' low224_accum_wave1_pb_research.py
           grep -Fq 'Close*Volume is never' low224_accum_wave1_pb_research.py
           python -m py_compile triangle1pb_research.py low224_accum_wave1_pb_research.py
@@ -224,7 +224,7 @@ jobs:
             "low224_r1c1_candidate_definition.csv","low224_r1c1_candidate_shadow_detail.csv",
             "low224_r1c1_candidate_shadow_summary.csv","low224_r1c1_prospective_control_detail.csv",
             "low224_r1c1_prospective_control_summary.csv","low224_r1c1_oos_readiness.csv",
-            "low224_r1c1_oos_append_only_ledger.csv","low224_r1c1_oos_append_only_summary.csv",
+            "low224_r1c1_oos_append_only_ledger.csv","low224_r1c1_oos_append_only_summary.csv","low224_r1c1_oos_observation_coverage.csv",
             "low224_r1c1_discovery_baseline_drift_summary.csv",
             "low224_stratified_manual_review_sample.csv","low224_episode_review_bars.csv",
             "low224_authority_audit.csv","low224_manifest.json","low224_report.txt","low224_runtime.log"
@@ -234,7 +234,7 @@ jobs:
           m=json.loads((root/"low224_manifest.json").read_text(encoding="utf-8"))
           assert m["schema"]=="LOW224_ACCUM_WAVE1_PB_RESEARCH_SCHEMA_V1"
           assert m["strategy_id"]=="LOW224_ACCUM_WAVE1_PB_R1_STRUCTURE_FIRST"
-          assert m["loader_revision"]=="LOW224_R1_1_2_APPEND_ONLY_OOS_LEDGER"
+          assert m["loader_revision"]=="LOW224_R1_1_3_OOS_OBSERVATION_GAP_GUARD"
           rr=pd.read_csv(root/"low224_r1c1_oos_readiness.csv")
           for col in (
               "expected_current_data_end","current_overlay_authority_required",
