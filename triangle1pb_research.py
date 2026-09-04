@@ -32,7 +32,7 @@ import pandas as pd
 
 SCHEMA = "TRIANGLE1PB_RESEARCH_SCHEMA_V1"
 STRATEGY_ID = "TRIANGLE1PB_R1_CHRONOLOGY_FIRST"
-LOADER_REVISION = "TRIANGLE1PB_R1_15_5_APPEND_ONLY_OOS_LEDGER"
+LOADER_REVISION = "TRIANGLE1PB_R1_15_6_OOS_OBSERVATION_GAP_GUARD"
 
 R2_CANDIDATE_ID = "TRIANGLE1PB_R2C1_QUALIFIED_HEALTHY_RESTART_WAVE_HIGH_RECLAIM"
 R2_CANDIDATE_FREEZE_DATE = "2026-08-30"
@@ -4164,10 +4164,12 @@ def update_r2_append_only_oos_ledger(
     data_end: pd.Timestamp,
     preliminary_readiness: pd.DataFrame,
     ledger_dir: Path,
-) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    trading_dates: Optional[List[pd.Timestamp]] = None,
+) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     ledger_dir.mkdir(parents=True, exist_ok=True)
     ledger_path=ledger_dir/"r2c1_append_only_ledger.csv"
     state_path=ledger_dir/"state.json"
+    observation_path=ledger_dir/"observation_coverage.csv"
     if ledger_path.exists():
         ledger=pd.read_csv(ledger_path,dtype={"code":str})
     else:
@@ -4187,6 +4189,17 @@ def update_r2_append_only_oos_ledger(
             "bootstrap_zero_through":R2_OOS_LEDGER_BOOTSTRAP_THROUGH,
             "last_processed_data_end":R2_OOS_LEDGER_BOOTSTRAP_THROUGH,
         }
+
+    if observation_path.exists():
+        observation=pd.read_csv(observation_path,dtype={"observation_date":str})
+    else:
+        observation=pd.DataFrame(columns=[
+            "schema","strategy_id","candidate_id",
+            "observation_date","observation_status","first_recorded_data_end",
+            "readiness_status","current_day_candidate_events",
+            "current_day_control_events","retroactive_recomputed_not_admitted",
+            "used_as_zero_event_evidence"
+        ])
 
     src=all_restart_detail.copy() if all_restart_detail is not None else pd.DataFrame()
     if src.empty:
@@ -4219,6 +4232,31 @@ def update_r2_append_only_oos_ledger(
 
     last_before=str(state.get("last_processed_data_end") or R2_OOS_LEDGER_BOOTSTRAP_THROUGH)
     last_before_ts=pd.Timestamp(last_before).normalize()
+
+    normalized_trading_dates=sorted({
+        pd.Timestamp(x).normalize()
+        for x in (trading_dates or [])
+        if pd.notna(pd.to_datetime(x,errors="coerce"))
+    })
+    missed_between=[d for d in normalized_trading_dates if last_before_ts < d < end_ts]
+    known_obs=set(observation["observation_date"].astype(str)) if not observation.empty else set()
+    new_gap_rows=[]
+    for d in missed_between:
+        ds=d.date().isoformat()
+        if ds in known_obs:
+            continue
+        new_gap_rows.append({
+            "schema":SCHEMA,"strategy_id":STRATEGY_ID,"candidate_id":R2_CANDIDATE_ID,
+            "observation_date":ds,
+            "observation_status":"MISSED_OBSERVATION",
+            "first_recorded_data_end":end_ts.date().isoformat(),
+            "readiness_status":"NO_SUCCESSFUL_APPEND_ONLY_RUN_ON_TRADING_DATE",
+            "current_day_candidate_events":pd.NA,
+            "current_day_control_events":pd.NA,
+            "retroactive_recomputed_not_admitted":pd.NA,
+            "used_as_zero_event_evidence":0,
+        })
+
     admitted=[]
     can_mutate=(ready_status=="READY_PROSPECTIVE_OOS")
     if can_mutate and end_ts>last_before_ts:
@@ -4251,7 +4289,32 @@ def update_r2_append_only_oos_ledger(
                 if c in r.index: ledger.at[i,c]=r[c]
 
     if can_mutate:
+        if new_gap_rows:
+            observation=pd.concat([observation,pd.DataFrame(new_gap_rows)],ignore_index=True)
+        current_ds=end_ts.date().isoformat()
+        if current_ds not in set(observation["observation_date"].astype(str)):
+            observation=pd.concat([observation,pd.DataFrame([{
+                "schema":SCHEMA,"strategy_id":STRATEGY_ID,"candidate_id":R2_CANDIDATE_ID,
+                "observation_date":current_ds,
+                "observation_status":"OBSERVED_READY",
+                "first_recorded_data_end":current_ds,
+                "readiness_status":ready_status,
+                "current_day_candidate_events":int((current_day["group"]=="R2C1_RECLAIM_CANDIDATE").sum()) if not current_day.empty else 0,
+                "current_day_control_events":int((current_day["group"]=="NO_RECLAIM_CONTEMPORANEOUS_CONTROL").sum()) if not current_day.empty else 0,
+                "retroactive_recomputed_not_admitted":int(len(retro_new)),
+                "used_as_zero_event_evidence":int(
+                    (int((current_day["group"]=="R2C1_RECLAIM_CANDIDATE").sum()) if not current_day.empty else 0)==0
+                    and (int((current_day["group"]=="NO_RECLAIM_CONTEMPORANEOUS_CONTROL").sum()) if not current_day.empty else 0)==0
+                ),
+            }])],ignore_index=True)
         ledger.to_csv(ledger_path,index=False,encoding="utf-8-sig")
+        observation.to_csv(observation_path,index=False,encoding="utf-8-sig")
+        state["missed_observation_dates"]=sorted(
+            observation.loc[
+                observation["observation_status"].eq("MISSED_OBSERVATION"),
+                "observation_date"
+            ].astype(str).tolist()
+        )
         state_path.write_text(json.dumps(state,ensure_ascii=False,indent=2),encoding="utf-8")
 
     cand=ledger[ledger["group"].eq("R2C1_RECLAIM_CANDIDATE")] if not ledger.empty else ledger
@@ -4273,10 +4336,25 @@ def update_r2_append_only_oos_ledger(
         "control_d15_mature":int(pd.to_numeric(ctrl.get("d15_mature",pd.Series(dtype=float)),errors="coerce").fillna(0).sum()) if not ctrl.empty else 0,
         "retroactive_recomputed_not_admitted":int(len(retro_new)),
         "membership_flip_against_frozen_ledger":int(flips),
+        "missed_observation_count_total":int(
+            observation["observation_status"].eq("MISSED_OBSERVATION").sum()
+        ) if not observation.empty else 0,
+        "missed_observation_dates":"|".join(
+            sorted(observation.loc[
+                observation["observation_status"].eq("MISSED_OBSERVATION"),
+                "observation_date"
+            ].astype(str).tolist())
+        ) if not observation.empty else "",
+        "observed_ready_dates_total":int(
+            observation["observation_status"].eq("OBSERVED_READY").sum()
+        ) if not observation.empty else 0,
+        "oos_period_has_observation_gap":int(
+            observation["observation_status"].eq("MISSED_OBSERVATION").any()
+        ) if not observation.empty else 0,
         "retroactive_rows_can_enter_ledger":0,
         "membership_rewrite_allowed":0,
     }])
-    return ledger, summary
+    return ledger,summary,observation
 
 
 def apply_r2_append_only_authority_to_readiness(readiness: pd.DataFrame, ledger_summary: pd.DataFrame) -> pd.DataFrame:
@@ -4290,6 +4368,9 @@ def apply_r2_append_only_authority_to_readiness(readiness: pd.DataFrame, ledger_
     out["control_d15_mature"]=int(rr["control_d15_mature"])
     out["retroactive_recomputed_not_admitted"]=int(rr["retroactive_recomputed_not_admitted"])
     out["membership_flip_against_frozen_ledger"]=int(rr["membership_flip_against_frozen_ledger"])
+    out["missed_observation_count_total"]=int(rr["missed_observation_count_total"])
+    out["missed_observation_dates"]=str(rr["missed_observation_dates"])
+    out["oos_period_has_observation_gap"]=int(rr["oos_period_has_observation_gap"])
     out["candidate_zero_is_interpretable_as_no_event"]=int(
         str(out.iloc[0]["oos_readiness_status"])=="READY_PROSPECTIVE_OOS"
         and int(rr["current_day_candidate_events"])==0
@@ -4858,12 +4939,13 @@ def run(args: argparse.Namespace) -> int:
             Path(args.frozen_discovery_baseline),
         )
     )
-    r2_oos_append_only_ledger, r2_oos_append_only_summary = (
+    r2_oos_append_only_ledger, r2_oos_append_only_summary, r2_oos_observation_coverage = (
         update_r2_append_only_oos_ledger(
             r2_prospective_control_detail,
             end,
             r2_oos_readiness,
             Path(args.oos_ledger_dir),
+            trading_dates=universe.dates,
         )
     )
     r2_oos_readiness = apply_r2_append_only_authority_to_readiness(
@@ -4930,6 +5012,7 @@ def run(args: argparse.Namespace) -> int:
     _write_csv(r2_discovery_drift_summary, out / "tri_r2_discovery_baseline_drift_summary.csv")
     _write_csv(r2_oos_append_only_ledger, out / "tri_r2_oos_append_only_ledger.csv")
     _write_csv(r2_oos_append_only_summary, out / "tri_r2_oos_append_only_summary.csv")
+    _write_csv(r2_oos_observation_coverage, out / "tri_r2_oos_observation_coverage.csv")
     _write_csv(r2_candidate_shadow_detail, out / "tri_r2_candidate_shadow_detail.csv")
     _write_csv(r2_candidate_shadow_summary, out / "tri_r2_candidate_shadow_summary.csv")
     _write_csv(r2_prospective_control_detail, out / "tri_r2_prospective_control_detail.csv")
