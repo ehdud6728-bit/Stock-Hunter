@@ -80,8 +80,8 @@ def _env_float(name: str, default: float = 0.0) -> float:
         except Exception:
             return 0.0
 
-CLOSING_BET_SCANNER_VERSION = 'G_MORALES_V4_4_9_53_8_49_76_6_7_3_2_5_SHARED_FINAL_FRAME_AUTHORITY_20260831'
-CLOSING_BET_RELEASE_TAG = 'v49.76.6.7.3.2.5'
+CLOSING_BET_SCANNER_VERSION = 'G_MORALES_V4_4_9_53_8_49_76_6_7_3_2_5_1_SCHEDULE_SLOT_AUTHORITY_20260902'
+CLOSING_BET_RELEASE_TAG = 'v49.76.6.7.3.2.5.1'
 CLOSING_BET_LIVE_PRICE_SANITY_FIX = str(os.environ.get('CLOSING_BET_LIVE_PRICE_SANITY_FIX', '1')).lower() in ('1', 'true', 'yes', 'y', 'on')
 CLOSING_BET_LIVE_READABILITY_COMPACT = str(os.environ.get('CLOSING_BET_LIVE_READABILITY_COMPACT', '1')).lower() in ('1', 'true', 'yes', 'y', 'on')
 # v53.8.42: M5R TRUE60 검증용 장기 월봉 확보. 60개월 월선 계산에는 약 7년 일봉이 필요하다.
@@ -54863,6 +54863,95 @@ def _v49765_action_panel(decision: dict,data_date=None):
 
 # =============================================================
 # ✅ END V49.76.6.7.3.2.5 SHARED FINAL FRAME AUTHORITY
+# =============================================================
+
+# =============================================================
+# V49.76.6.7.3.2.5.1 SCHEDULE SLOT AUTHORITY
+# - Workflow concurrency lanes isolate scheduled LIVE authority from manual research/utility.
+# - Actual KST start time, not cron label alone, determines PRE-FINAL / AFTER-FINAL / AFTER-WINDOW lane.
+# - AFTER_WINDOW_RESTORE_ONLY must never create a new FINAL authority build.
+# - Strategy / shared-frame / M5 / NXT semantics are unchanged.
+# =============================================================
+
+def _v497673251_slot_meta() -> dict:
+    try:
+        return {
+            'scheduled_slot': str(os.environ.get('CLOSING_BET_V497673251_SCHEDULE_SLOT','') or ''),
+            'actual_start_kst': str(os.environ.get('CLOSING_BET_V497673251_ACTUAL_START_KST','') or ''),
+            'queue_delay_sec': int(float(os.environ.get('CLOSING_BET_V497673251_QUEUE_DELAY_SEC','0') or 0)),
+            'effective_lane': str(os.environ.get('CLOSING_BET_V497673251_EFFECTIVE_LANE','') or ''),
+            'event_name': str(os.environ.get('CLOSING_BET_V497673251_EVENT_NAME','') or ''),
+        }
+    except Exception:
+        return {'scheduled_slot':'','actual_start_kst':'','queue_delay_sec':0,'effective_lane':'','event_name':''}
+
+
+def _v497673251_after_window_restore_only() -> bool:
+    return str(_v497673251_slot_meta().get('effective_lane','')).upper() == 'AFTER_WINDOW_RESTORE_ONLY'
+
+
+# Defense-in-depth: even if a delayed scheduled run is accidentally routed into an
+# AFTER-FINAL scanner branch, no new FAST/FULL/SHARED FINAL authority may be built
+# after the execution window. Existing completed evidence can still be restored by
+# the downstream evidence resolver.
+_V497673251_BASE_PREPARE_FAST_AFTER_FINAL = _v497667_prepare_fast_after_final
+
+def _v497667_prepare_fast_after_final(day: str) -> dict:
+    global _V497667_FAST_STATE, _V497673_ENGINE_HARD_BLOCK
+    if _v497673251_after_window_restore_only():
+        sess=str(day or _now_kst().strftime('%Y-%m-%d'))[:10]
+        reason='SCHEDULE_SLOT_AFTER_WINDOW_NO_FINAL_BUILD'
+        _V497673_ENGINE_HARD_BLOCK=reason
+        _V497667_FAST_STATE={
+            'state':'BLOCKED','session_date':sess,'reason':reason,
+            'execution_source':'AFTER_WINDOW_RESTORE_ONLY','final_codes':0,
+            'target_codes':int(CLOSING_BET_V497672_CANONICAL_UNIVERSE_TARGET),
+            'coverage_pct':0.0,'slot_meta':_v497673251_slot_meta(),
+        }
+        log_info(f"⏰ SLOT AUTHORITY restore-only · {sess} · new FINAL build forbidden")
+        return dict(_V497667_FAST_STATE)
+    return _V497673251_BASE_PREPARE_FAST_AFTER_FINAL(day)
+
+
+# A cron-labelled 15:03 run that actually starts after 15:40 must never wait as a
+# PRE-FINAL continuous process. Workflow routing is primary; this guard protects
+# direct/replayed invocations as well.
+_V497673251_BASE_CONTINUOUS_SESSION = _v497673_run_continuous_session
+
+def _v497673_run_continuous_session(force: bool=True):
+    lane=str(_v497673251_slot_meta().get('effective_lane','')).upper()
+    if lane.startswith('AFTER_FINAL') or lane == 'AFTER_WINDOW_RESTORE_ONLY':
+        log_info(f"⏱ SLOT AUTHORITY reclassified continuous request → {lane}")
+        _v497673_set_runtime_mode('after_final')
+        return run_closing_bet_scan(force=True)
+    return _V497673251_BASE_CONTINUOUS_SESSION(force)
+
+
+# Visible provenance in every action panel so a delayed GitHub runner is distinguishable
+# from scanner runtime latency. No trading authority derives from this line itself.
+_V497673251_BASE_ACTION_PANEL = _v49765_action_panel
+
+def _v49765_action_panel(decision: dict,data_date=None):
+    text,has,res=_V497673251_BASE_ACTION_PANEL(decision,data_date)
+    try:
+        meta=_v497673251_slot_meta(); lane=str(meta.get('effective_lane','') or '')
+        if lane:
+            slot=str(meta.get('scheduled_slot','') or 'manual')
+            actual=str(meta.get('actual_start_kst','') or '-')
+            delay=max(0,int(meta.get('queue_delay_sec',0) or 0))
+            line=f"- ⏱ 실행슬롯: scheduled {slot} · actual {actual} · queue-delay {delay}s · lane {lane}"
+            parts=str(text).split('\n')
+            parts=[x for x in parts if not x.startswith('- ⏱ 실행슬롯:')]
+            parts.insert(min(2,len(parts)),line)
+            text='\n'.join(parts)
+        text=re.sub(r'v49\.76\.6\.7\.3\.2\.5(?!\.)',CLOSING_BET_RELEASE_TAG,str(text))
+        text=re.sub(r'(🚦 \[사용자 행동 결론 · [^\]]+\] \| )v[0-9.]+',lambda m:m.group(1)+CLOSING_BET_RELEASE_TAG,text,count=1)
+    except Exception:
+        pass
+    return text,has,res
+
+# =============================================================
+# ✅ END V49.76.6.7.3.2.5.1 SCHEDULE SLOT AUTHORITY
 # =============================================================
 
 if __name__ == '__main__':
