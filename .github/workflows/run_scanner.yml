@@ -3255,6 +3255,27 @@ jobs:
           )
           PYPROOF
 
+      - name: Restore REAL_FULL TRUST R1 append-only ledger
+        if: env.TEST_PROFILE == 'REAL_FULL'
+        id: real-full-trust-r1-restore
+        uses: actions/cache/restore@v4
+        with:
+          path: reports/.cache/real_full_trust_r1
+          key: stockhunter-real-full-trust-r1-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            stockhunter-real-full-trust-r1-${{ github.ref_name }}-
+
+      - name: REAL_FULL TRUST R1 preflight
+        if: env.TEST_PROFILE == 'REAL_FULL'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f real_full_trust_audit.py || { echo "❌ REAL_FULL_TRUST_R1_SOURCE_MISSING"; exit 241; }
+          test -f triangle1pb_research.py || { echo "❌ REAL_FULL_TRUST_R1_SHARED_ADAPTER_MISSING"; exit 242; }
+          python -m py_compile real_full_trust_audit.py
+          python real_full_trust_audit.py --self-test
+          echo "REAL_FULL_TRUST_R1_PREFLIGHT PASS · strategy/rank/order mutation=0"
+
       - name: Run scanner or weekly backtest
         id: scanner-main
         timeout-minutes: 205
@@ -3542,6 +3563,45 @@ jobs:
               python -u "${SCRIPT}"
             fi
           fi
+
+      - name: Capture REAL_FULL TRUST R1 prospective snapshot
+        if: success() && env.TEST_PROFILE == 'REAL_FULL'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p reports/real_full_trust_r1 reports/.cache/real_full_trust_r1
+          python -u real_full_trust_audit.py             --rank-source reports/v72_pattern_ai_cross_1503_shadow.csv             --listing-source reports/v73_listing_cache.csv             --final-signal-source reports/v1080_stockhunter_signals.csv             --price-cache-dir reports/.cache/v20_price_history             --amount-cache-dir reports/.cache/v25_actual_amount_history             --asof-cache-dir reports/.cache/v20_asof_snapshots             --ledger-dir reports/.cache/real_full_trust_r1             --output-dir reports/real_full_trust_r1
+          test -f reports/real_full_trust_r1/real_full_trust_readiness.csv
+          test -f reports/real_full_trust_r1/real_full_trust_source_audit.csv
+          test -f reports/.cache/real_full_trust_r1/state.json
+          python - <<'PYTRUST'
+          import pandas as pd
+          r=pd.read_csv("reports/real_full_trust_r1/real_full_trust_readiness.csv")
+          s=pd.read_csv("reports/real_full_trust_r1/real_full_trust_source_audit.csv")
+          assert len(r)==1 and len(s)==1
+          rr=r.iloc[-1]; ss=s.iloc[-1]
+          assert int(rr.get("auto_trust_promotion_allowed",1))==0
+          assert int(rr.get("selection_logic_changed",1))==0
+          assert int(rr.get("score_rank_changed",1))==0
+          assert int(rr.get("order_logic_changed",1))==0
+          print(
+              "REAL_FULL_TRUST_R1",
+              "status",rr.get("status"),
+              "source",ss.get("source_status"),
+              "date",ss.get("source_signal_date"),
+              "admitted",ss.get("admitted_current_snapshot_rows"),
+              "retro_rejected",ss.get("retroactive_source_rows_rejected"),
+              "ledger",rr.get("ledger_rows"),
+              "d5",rr.get("d5_mature_rows"),
+          )
+          PYTRUST
+
+      - name: Save REAL_FULL TRUST R1 append-only ledger
+        if: success() && env.TEST_PROFILE == 'REAL_FULL' && hashFiles('reports/.cache/real_full_trust_r1/state.json') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: reports/.cache/real_full_trust_r1
+          key: stockhunter-real-full-trust-r1-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Build current CORE224 LIVE seed snapshot (no hold horizon)
         if: always() && env.STOCKHUNTER_WEEKLY_BACKTEST_ONLY == '1' && env.V1081_BACKTEST_SOURCE == 'DIRECT_REPLAY'
