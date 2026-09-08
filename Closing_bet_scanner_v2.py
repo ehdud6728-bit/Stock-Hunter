@@ -80,8 +80,8 @@ def _env_float(name: str, default: float = 0.0) -> float:
         except Exception:
             return 0.0
 
-CLOSING_BET_SCANNER_VERSION = 'G_MORALES_V4_4_9_53_8_49_76_6_7_3_2_5_1_SCHEDULE_SLOT_AUTHORITY_20260902'
-CLOSING_BET_RELEASE_TAG = 'v49.76.6.7.3.2.5.1'
+CLOSING_BET_SCANNER_VERSION = 'G_MORALES_V4_4_9_53_8_49_76_6_7_3_2_5_1_1_TELEGRAM_RATE_LIMIT_SAFE_PREFLIGHT_20260908'
+CLOSING_BET_RELEASE_TAG = 'v49.76.6.7.3.2.5.1.1'
 CLOSING_BET_LIVE_PRICE_SANITY_FIX = str(os.environ.get('CLOSING_BET_LIVE_PRICE_SANITY_FIX', '1')).lower() in ('1', 'true', 'yes', 'y', 'on')
 CLOSING_BET_LIVE_READABILITY_COMPACT = str(os.environ.get('CLOSING_BET_LIVE_READABILITY_COMPACT', '1')).lower() in ('1', 'true', 'yes', 'y', 'on')
 # v53.8.42: M5R TRUE60 검증용 장기 월봉 확보. 60개월 월선 계산에는 약 7년 일봉이 필요하다.
@@ -54952,6 +54952,95 @@ def _v49765_action_panel(decision: dict,data_date=None):
 
 # =============================================================
 # ✅ END V49.76.6.7.3.2.5.1 SCHEDULE SLOT AUTHORITY
+# =============================================================
+
+# =============================================================
+# V49.76.6.7.3.2.5.1.1 TELEGRAM RATE-LIMIT SAFE PREFLIGHT
+# - Telegram 429/flood-control is transient delivery throttling, never route-invalid evidence.
+# - Route preflight is performed in workflow with non-sending getMe/getChat checks.
+# - Actual sendMessage retries once after Telegram's retry_after, capped by env policy.
+# - Telegram delivery success remains mandatory for LIVE_PAPER_KPI / DELIVERED evidence.
+# =============================================================
+
+CLOSING_BET_V4976732511_TELEGRAM_RETRY_MAX_SEC = max(0, _env_int('CLOSING_BET_V4976732511_TELEGRAM_RETRY_MAX_SEC', '420'))
+
+
+def _v4976732511_retry_after_from_result(result) -> int:
+    try:
+        vals=[]
+        for raw in list((result or {}).get('errors',[]) or []):
+            txt=str(raw or '')
+            for pat in (
+                r'(?i)retry[_ ]after[^0-9]{0,20}(\d+)',
+                r'(?i)"retry_after"\s*:\s*(\d+)',
+                r'(?i)Too Many Requests[^0-9]{0,80}(\d+)',
+            ):
+                for m in re.finditer(pat,txt):
+                    try: vals.append(int(m.group(1)))
+                    except Exception: pass
+        return max(vals) if vals else 0
+    except Exception:
+        return 0
+
+
+_V4976732511_BASE_SEND_TELEGRAM_PHOTO = send_telegram_photo
+
+def send_telegram_photo(message: str, image_paths: list = None):
+    """v49.76.6.7.3.2.5.1.1: retry one actual delivery after Telegram 429 retry_after."""
+    first=_V4976732511_BASE_SEND_TELEGRAM_PHOTO(message,image_paths)
+    try:
+        if int((first or {}).get('success_count',0) or 0)>0:
+            return first
+        retry_after=_v4976732511_retry_after_from_result(first)
+        if retry_after<=0:
+            return first
+        max_wait=int(CLOSING_BET_V4976732511_TELEGRAM_RETRY_MAX_SEC or 0)
+        if max_wait<=0 or retry_after>max_wait:
+            try:
+                first['rate_limit_retry_skipped']=f'retry_after={retry_after}>max_wait={max_wait}'
+            except Exception: pass
+            log_error(f'📡 Telegram RATE_LIMITED · retry_after={retry_after}s · max_wait={max_wait}s · delivery remains fail-closed')
+            return first
+        wait_sec=max(1,retry_after+1)
+        log_info(f'📡 Telegram RATE_LIMITED · retry_after={retry_after}s · wait {wait_sec}s then retry once')
+        time.sleep(wait_sec)
+        second=_V4976732511_BASE_SEND_TELEGRAM_PHOTO(message,image_paths)
+        try:
+            second['rate_limit_retry_after_sec']=retry_after
+            second['rate_limit_retry_attempted']=1
+            second['first_errors']=list((first or {}).get('errors',[]) or [])[:8]
+        except Exception: pass
+        return second
+    except Exception as e:
+        try: first['rate_limit_wrapper_error']=f'{type(e).__name__}:{e}'
+        except Exception: pass
+        return first
+
+
+# Visible only; no trading authority derives from preflight status.
+_V4976732511_BASE_ACTION_PANEL = _v49765_action_panel
+
+def _v49765_action_panel(decision: dict,data_date=None):
+    text,has,res=_V4976732511_BASE_ACTION_PANEL(decision,data_date)
+    try:
+        state=str(os.environ.get('CLOSING_BET_TELEGRAM_PREFLIGHT_STATE','') or '').strip().upper()
+        if state and state not in ('OK','DISABLED'):
+            retry=int(float(os.environ.get('CLOSING_BET_TELEGRAM_PREFLIGHT_RETRY_AFTER_SEC','0') or 0))
+            if state.startswith('RATE_LIMITED'):
+                line=f'- 📡 Telegram preflight: RATE_LIMITED · retry-after {retry}s · route-invalid 아님 · 실제 전송은 retry_after 후 1회 재시도'
+            else:
+                detail=str(os.environ.get('CLOSING_BET_TELEGRAM_PREFLIGHT_DETAIL','') or '')[:160]
+                line=f'- 📡 Telegram preflight: {state} · {detail or "전송경로 확인 필요"} · 실제 PAPER evidence는 delivery 성공 없으면 fail-closed'
+            parts=[x for x in str(text).split('\n') if not x.startswith('- 📡 Telegram preflight:')]
+            parts.insert(min(3,len(parts)),line)
+            text='\n'.join(parts)
+        text=re.sub(r'(🚦 \[사용자 행동 결론 · [^\]]+\] \| )v[0-9.]+',lambda m:m.group(1)+CLOSING_BET_RELEASE_TAG,text,count=1)
+    except Exception:
+        pass
+    return text,has,res
+
+# =============================================================
+# ✅ END V49.76.6.7.3.2.5.1.1 TELEGRAM RATE-LIMIT SAFE PREFLIGHT
 # =============================================================
 
 if __name__ == '__main__':
