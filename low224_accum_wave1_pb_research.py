@@ -43,7 +43,7 @@ from triangle1pb_research import (
 
 SCHEMA = "LOW224_ACCUM_WAVE1_PB_RESEARCH_SCHEMA_V1"
 STRATEGY_ID = "LOW224_ACCUM_WAVE1_PB_R1_STRUCTURE_FIRST"
-LOADER_REVISION = "LOW224_R1_1_3_OOS_OBSERVATION_GAP_GUARD"
+LOADER_REVISION = "LOW224_R1_1_4_KNOWN_MISSED_OBSERVATION_REPAIR"
 RESEARCH_AUTHORITY = "RESEARCH_ONLY_NO_LIVE_NO_SCORE_NO_RANK_NO_ORDERS"
 SHARED_DATA_AUTHORITY_ONLY = "TRIANGLE1PB_CACHE_ADAPTERS_ONLY_NO_PATTERN_LOGIC"
 R1C1_CANDIDATE_ID = "LOW224_R1C1_REACCELERATION_WAVE_HIGH_RECLAIM"
@@ -52,6 +52,7 @@ R1C1_FREEZE_DATE = "2026-09-01"
 R1C1_PROSPECTIVE_START_DATE = "2026-09-02"
 R1C1_DISCOVERY_START_DATE = "2024-08-27"
 R1C1_OOS_LEDGER_BOOTSTRAP_THROUGH = "2026-09-02"
+R1C1_KNOWN_MISSED_OBSERVATION_DATES = ("2026-09-03",)
 R1C1_FROZEN_DISCOVERY_BASELINE_SHA256 = "1999b2bdf6bd172642bf5348b778d03b6184afe28c6357c5a103a053cb731c8d"
 
 STAGES = [
@@ -2290,6 +2291,28 @@ def update_r1c1_append_only_oos_ledger(
             "current_day_control_events","retroactive_recomputed_not_admitted",
             "used_as_zero_event_evidence"
         ])
+
+    # Evidence-backed repair for a previously failed OOS observation date.
+    # Metadata only: never admits candidate/control membership.
+    known_obs=set(observation["observation_date"].astype(str)) if not observation.empty else set()
+    repair_rows=[]
+    for ds in R1C1_KNOWN_MISSED_OBSERVATION_DATES:
+        if ds in known_obs:
+            continue
+        repair_rows.append({
+            "schema":SCHEMA,"strategy_id":STRATEGY_ID,
+            "candidate_id":R1C1_CANDIDATE_ID,"control_id":R1C1_CONTROL_ID,
+            "observation_date":ds,
+            "observation_status":"MISSED_OBSERVATION",
+            "first_recorded_data_end":"2026-09-04",
+            "readiness_status":"KNOWN_FAILED_APPEND_ONLY_RUN_REPAIRED",
+            "current_day_candidate_events":pd.NA,
+            "current_day_control_events":pd.NA,
+            "retroactive_recomputed_not_admitted":pd.NA,
+            "used_as_zero_event_evidence":0,
+        })
+    if repair_rows:
+        observation=pd.concat([observation,pd.DataFrame(repair_rows)],ignore_index=True)
 
     src=pd.concat([candidate_detail,control_detail],ignore_index=True,sort=False)
     if src.empty:
