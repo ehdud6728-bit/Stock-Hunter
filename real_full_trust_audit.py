@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import os
 import json
 import math
 import re
@@ -18,7 +19,7 @@ import pandas as pd
 from triangle1pb_research import AmountAuthority, _load_any, normalize_price_frame
 
 AUDIT_ID = "REAL_FULL_TRUST_AUDIT_R1"
-LOADER_REVISION = "REAL_FULL_TRUST_R1_1_APPEND_ONLY_PROSPECTIVE"
+LOADER_REVISION = "REAL_FULL_TRUST_R1_2_DAILY_CAPTURE_WATCHDOG"
 AUTHORITY = "RESEARCH_ONLY_NO_SELECTION_NO_SCORE_NO_RANK_NO_ORDER_CHANGE"
 
 FREEZE_DATE = "2026-09-07"
@@ -234,7 +235,7 @@ def _event_key(snapshot_date: Any, code: Any) -> str:
 def _empty_ledger() -> pd.DataFrame:
     cols = [
         "audit_id","loader_revision","snapshot_date","first_observed_at_kst",
-        "rank","rank_bucket","code","name","snapshot_price",
+        "capture_slot","rank","rank_bucket","code","name","snapshot_price",
         "pattern_combo","overlap","score","score_bucket","audit_score_bucket",
         "ai_pick_label","evidence","final_signal_same_day",
         "td_label","safe_score","n_score","final_decision",
@@ -469,6 +470,7 @@ def run(args: argparse.Namespace) -> int:
             if not already_observed:
                 b = board.copy()
                 b["first_observed_at_kst"] = now_kst
+                b["capture_slot"] = os.environ.get("REAL_FULL_TRUST_CAPTURE_SLOT","UNKNOWN")
                 b["event_key"] = b.apply(lambda r: _event_key(r["snapshot_date"],r["code"]),axis=1)
                 for h in FORWARD_HORIZONS:
                     b[f"d{h}_complete"] = 0
@@ -542,6 +544,7 @@ def run(args: argparse.Namespace) -> int:
     rank_scorecard = _scorecard(ledger, "rank_bucket")
     score_scorecard = _scorecard(ledger, "audit_score_bucket")
     pattern_scorecard = _scorecard(ledger, "pattern_combo")
+    capture_slot_scorecard = _scorecard(ledger, "capture_slot")
     final_signal_scorecard = _scorecard(ledger, "final_signal_same_day")
     readiness = build_readiness(ledger, observation, source_meta, drift_summary)
 
@@ -564,6 +567,7 @@ def run(args: argparse.Namespace) -> int:
     rank_scorecard.to_csv(out_dir/"real_full_trust_rank_bucket_scorecard.csv",index=False,encoding="utf-8-sig")
     score_scorecard.to_csv(out_dir/"real_full_trust_score_bucket_scorecard.csv",index=False,encoding="utf-8-sig")
     pattern_scorecard.to_csv(out_dir/"real_full_trust_pattern_scorecard.csv",index=False,encoding="utf-8-sig")
+    capture_slot_scorecard.to_csv(out_dir/"real_full_trust_capture_slot_scorecard.csv",index=False,encoding="utf-8-sig")
     final_signal_scorecard.to_csv(out_dir/"real_full_trust_final_signal_scorecard.csv",index=False,encoding="utf-8-sig")
     readiness.to_csv(out_dir/"real_full_trust_readiness.csv",index=False,encoding="utf-8-sig")
 
@@ -579,6 +583,7 @@ def run(args: argparse.Namespace) -> int:
         "source_status":source_meta.get("status",""),
         "source_signal_date":source_meta.get("signal_date",""),
         "source_candidate_rows":source_meta.get("candidate_rows",0),
+        "capture_slot":os.environ.get("REAL_FULL_TRUST_CAPTURE_SLOT","UNKNOWN"),
         "snapshot_price_ready":source_meta.get("snapshot_price_ready",0),
         "admitted_current_snapshot_rows":admitted,
         "retroactive_source_rows_rejected":retroactive_rejected,
@@ -597,6 +602,7 @@ def run(args: argparse.Namespace) -> int:
         f"freeze {FREEZE_DATE} · prospective start {PROSPECTIVE_START_DATE}",
         f"source={RANK_SOURCE_NAME} ({RANK_SOURCE_SEMANTICS}) · Top{TOP_N}",
         f"source date {source_meta.get('signal_date','-')} · source rows {source_meta.get('candidate_rows',0)}",
+        f"capture slot {os.environ.get('REAL_FULL_TRUST_CAPTURE_SLOT','UNKNOWN')}",
         f"today admitted {admitted} · retroactive rejected {retroactive_rejected}",
         f"ledger rows {len(ledger)} · observed days {int(rr['observed_ready_days'])} · missed {int(rr['missed_observation_days'])}",
         f"D5 mature {int(rr['d5_mature_rows'])} · D10 mature {int(rr['d10_mature_rows'])}",
