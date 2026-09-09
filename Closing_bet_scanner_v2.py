@@ -80,8 +80,8 @@ def _env_float(name: str, default: float = 0.0) -> float:
         except Exception:
             return 0.0
 
-CLOSING_BET_SCANNER_VERSION = 'G_MORALES_V4_4_9_53_8_49_76_6_7_3_2_5_1_2_LIVE_SESSION_CONTINUOUS_AUTHORITY_20260909'
-CLOSING_BET_RELEASE_TAG = 'v49.76.6.7.3.2.5.1.2'
+CLOSING_BET_SCANNER_VERSION = 'G_MORALES_V4_4_9_53_8_49_76_6_7_3_2_5_1_2_1_FINAL_UNIVERSE_SOURCE_RECOVERY_20260909'
+CLOSING_BET_RELEASE_TAG = 'v49.76.6.7.3.2.5.1.2.1'
 CLOSING_BET_LIVE_PRICE_SANITY_FIX = str(os.environ.get('CLOSING_BET_LIVE_PRICE_SANITY_FIX', '1')).lower() in ('1', 'true', 'yes', 'y', 'on')
 CLOSING_BET_LIVE_READABILITY_COMPACT = str(os.environ.get('CLOSING_BET_LIVE_READABILITY_COMPACT', '1')).lower() in ('1', 'true', 'yes', 'y', 'on')
 # v53.8.42: M5R TRUE60 검증용 장기 월봉 확보. 60개월 월선 계산에는 약 7년 일봉이 필요하다.
@@ -55208,6 +55208,182 @@ def _v49765_action_panel(decision: dict,data_date=None):
 
 # =============================================================
 # ✅ END V49.76.6.7.3.2.5.1.2 LIVE SESSION CONTINUOUS AUTHORITY
+# =============================================================
+
+
+# =============================================================
+# V49.76.6.7.3.2.5.1.2.1 FINAL UNIVERSE SOURCE RECOVERY
+# - A transient KRX listing failure must not collapse FINAL universe identity to
+#   K200/KQ150/static-core (~379 names) and crash the whole Actions job.
+# - FINAL universe source order is causal and same-session only:
+#     1) existing valid FINAL universe manifest for the session,
+#     2) exact same-day universe snapshot cache (if present and SHA-valid),
+#     3) same-day pykrx market-cap hybrid universe (K200 + KQ150 + MARCAP floor).
+# - No prior-day universe is promoted as same-day FINAL authority.
+# - If all same-day sources remain below the 98% identity minimum, convert the
+#   problem into ENGINE_INVALID instead of raising out of the scanner process.
+# - Strategy / shared-frame / M5 / NXT / P1 semantics are unchanged.
+# =============================================================
+try:
+    print("✅ V49.76.6.7.3.2.5.1.2.1 FINAL_UNIVERSE_SOURCE_RECOVERY LOADED")
+except Exception:
+    pass
+
+_V49767325121_BASE_GET_FINAL_UNIVERSE = _v49767323_get_or_freeze_final_universe
+_V49767325121_BASE_FULL_FINAL_FRAMES = _v4976732_full_final_frames
+_V49767325121_LAST_UNIVERSE_SOURCE = {}
+
+
+def _v49767325121_universe_source_diag_path(day: str) -> Path:
+    root=Path(CLOSING_BET_V497667_FAST_CACHE_DIR); root.mkdir(parents=True,exist_ok=True)
+    return root/f"final_universe_source_{str(day or '').replace('-','')}.json"
+
+
+def _v49767325121_write_universe_source_diag(day: str, obj: dict):
+    global _V49767325121_LAST_UNIVERSE_SOURCE
+    try:
+        payload=dict(obj or {})
+        payload.setdefault('session_date',str(day or '')[:10])
+        payload.setdefault('version',CLOSING_BET_SCANNER_VERSION)
+        payload.setdefault('created_at_kst',_now_kst().strftime('%Y-%m-%d %H:%M:%S'))
+        _V49767325121_LAST_UNIVERSE_SOURCE=dict(payload)
+        _v49767325121_universe_source_diag_path(day).write_text(json.dumps(payload,ensure_ascii=False,indent=2,default=str),encoding='utf-8')
+    except Exception as e:
+        log_debug(f'FINAL universe source diag write failed: {type(e).__name__}:{e}')
+
+
+def _v49767325121_normalize_universe(codes, target: int) -> list[str]:
+    vals=[]; seen=set()
+    for x in list(codes or []):
+        c=_normalize_code(x)
+        if c and c not in seen and _v4934_valid_stock_code(c):
+            seen.add(c); vals.append(c)
+        if len(vals)>=int(target): break
+    return vals
+
+
+def _v49767325121_freeze_manifest(sess: str, codes, source: str, source_meta: dict) -> dict:
+    global _V49767323_FINAL_UNIVERSE
+    target=max(1,int(CLOSING_BET_V497672_CANONICAL_UNIVERSE_TARGET))
+    vals=_v49767325121_normalize_universe(codes,target)
+    need=int(np.ceil(target*float(CLOSING_BET_V4976732_FULL_MIN_COVERAGE_PCT)/100.0))
+    if len(vals)<need:
+        raise RuntimeError(f'FINAL_UNIVERSE_SOURCE_SHORT:{len(vals)}/{target}:{source}')
+    dig=_v49767323_code_digests(vals)
+    obj={
+        'state':'FROZEN','session_date':sess,'version':CLOSING_BET_SCANNER_VERSION,
+        'source':str(source),'canonical_target':target,
+        'manifest_count':dig['count'],'manifest_shortfall_vs_target':max(0,target-dig['count']),
+        'ordered_sha256':dig['ordered_sha256'],'set_sha256':dig['set_sha256'],'codes':dig['codes'],
+        'base_meta':dict(source_meta or {}),'frozen_at_kst':_now_kst().strftime('%Y-%m-%d %H:%M:%S'),
+    }
+    _v49767323_universe_manifest_path(sess).write_text(json.dumps(obj,ensure_ascii=False,indent=2,default=str),encoding='utf-8')
+    _V49767323_FINAL_UNIVERSE=dict(obj)
+    log_info(f"🧬 FINAL universe RECOVERED: {dig['count']}/{target} · source {source} · sha {dig['set_sha256'][:12]}")
+    return dict(obj)
+
+
+def _v49767323_get_or_freeze_final_universe(day: str) -> dict:
+    sess=str(day or _now_kst().strftime('%Y-%m-%d'))[:10]
+    target=max(1,int(CLOSING_BET_V497672_CANONICAL_UNIVERSE_TARGET))
+    need=int(np.ceil(target*float(CLOSING_BET_V4976732_FULL_MIN_COVERAGE_PCT)/100.0))
+    attempts=[]
+    try:
+        obj=dict(_V49767325121_BASE_GET_FINAL_UNIVERSE(sess) or {})
+        if _v49767323_manifest_valid(obj,sess):
+            attempts.append({'source':str(obj.get('source','PRIMARY')),'count':len(list(obj.get('codes',[]) or [])),'state':'OK'})
+            _v49767325121_write_universe_source_diag(sess,{'state':'PRIMARY_OK','need':need,'target':target,'attempts':attempts,'selected_source':str(obj.get('source','PRIMARY'))})
+            return obj
+    except Exception as e:
+        attempts.append({'source':'PRODUCTION_LIFECYCLE_LIVE','state':'FAILED','error':f'{type(e).__name__}:{e}'})
+        # Only source insufficiency is recoverable here. Other exceptions are still
+        # recorded, then same-day authoritative alternatives are tried fail-closed.
+        log_error(f'⚠️ FINAL universe primary source unavailable: {type(e).__name__}:{e} · same-day recovery 시작')
+
+    # 1) Exact same-day universe snapshot cache. Never use a prior-day context.
+    try:
+        ctx=_v4958_universe_snapshot_context(sess,str(globals().get('SCAN_UNIVERSE','hybrid_union') or 'hybrid_union'))
+        snap,detail,_lines=_v4958_load_universe_snapshot(ctx)
+        vals=_v49767325121_normalize_universe(snap,target)
+        attempts.append({'source':'EXACT_SAME_DAY_UNIVERSE_SNAPSHOT','count':len(vals),'state':str((detail or {}).get('status','')),'detail':dict(detail or {})})
+        if len(vals)>=need and str(ctx.get('requested_asof',''))==sess:
+            obj=_v49767325121_freeze_manifest(sess,vals,'EXACT_SAME_DAY_UNIVERSE_SNAPSHOT',{'snapshot_context':ctx,'snapshot_detail':detail})
+            _v49767325121_write_universe_source_diag(sess,{'state':'RECOVERED','need':need,'target':target,'attempts':attempts,'selected_source':'EXACT_SAME_DAY_UNIVERSE_SNAPSHOT','selected_count':len(vals)})
+            return obj
+    except Exception as e:
+        attempts.append({'source':'EXACT_SAME_DAY_UNIVERSE_SNAPSHOT','state':'FAILED','error':f'{type(e).__name__}:{e}'})
+
+    # 2) Same-day KRX/PyKRX market-cap hybrid. The helper may look backward when
+    # its requested date is unavailable; FINAL authority explicitly rejects that.
+    try:
+        pycodes,pymeta=_v4948_pykrx_hybrid_universe(sess)
+        vals=_v49767325121_normalize_universe(pycodes,target)
+        used=str((pymeta or {}).get('asof','') or '')[:10]
+        attempts.append({'source':'PYKRX_SAME_DAY_HYBRID','count':len(vals),'state':'OK' if vals else 'EMPTY','asof':used,'meta':dict(pymeta or {})})
+        if used==sess and len(vals)>=need:
+            obj=_v49767325121_freeze_manifest(sess,vals,'PYKRX_SAME_DAY_HYBRID',{'pykrx_meta':pymeta})
+            _v49767325121_write_universe_source_diag(sess,{'state':'RECOVERED','need':need,'target':target,'attempts':attempts,'selected_source':'PYKRX_SAME_DAY_HYBRID','selected_count':len(vals)})
+            return obj
+        if used and used!=sess:
+            log_error(f'⛔ FINAL universe PyKRX fallback rejected: requested {sess} but asof {used} · prior-day authority 금지')
+    except Exception as e:
+        attempts.append({'source':'PYKRX_SAME_DAY_HYBRID','state':'FAILED','error':f'{type(e).__name__}:{e}'})
+
+    best=max([int(a.get('count',0) or 0) for a in attempts] or [0])
+    reason=f'FINAL_UNIVERSE_SOURCE_SHORT:{best}/{target}:need{need}'
+    _v49767325121_write_universe_source_diag(sess,{'state':'INVALID','reason':reason,'need':need,'target':target,'attempts':attempts,'selected_source':'NONE','selected_count':0})
+    raise RuntimeError(reason)
+
+
+def _v4976732_full_final_frames(day: str) -> dict:
+    """Never let FINAL universe-source insufficiency abort the whole Actions job.
+
+    The scanner still fails closed: no engine authority, no strategy freeze and no
+    PAPER recommendation.  But downstream action-panel/evidence diagnostics remain
+    available instead of GitHub exiting with an uncaught traceback.
+    """
+    global _V497667_FAST_STATE, _V497673_ENGINE_HARD_BLOCK, _V4976732_FULL_REBUILD_META
+    sess=str(day or _now_kst().strftime('%Y-%m-%d'))[:10]
+    try:
+        return dict(_V49767325121_BASE_FULL_FINAL_FRAMES(sess) or {})
+    except Exception as e:
+        target=max(1,int(CLOSING_BET_V497672_CANONICAL_UNIVERSE_TARGET))
+        reason=f'{type(e).__name__}:{e}'
+        _V497673_ENGINE_HARD_BLOCK=reason
+        _V497667_FAST_STATE={
+            'state':'INFRA_INVALID','reason':reason,'authority_path':'FINAL_UNIVERSE_SOURCE',
+            'cache_codes':0,'final_codes':0,'target_codes':target,'cache_coverage_pct':0.0,'coverage_pct':0.0,
+            'session_date':sess,'execution_source':'FINAL_UNIVERSE_SOURCE_INVALID','parity_cert':'N/A',
+            'universe_source_diag':dict(globals().get('_V49767325121_LAST_UNIVERSE_SOURCE',{}) or {}),
+        }
+        _V4976732_FULL_REBUILD_META=dict(_V497667_FAST_STATE)
+        log_error(f'⛔ FINAL universe source invalid · fail-closed without process abort: {reason}')
+        return dict(_V497667_FAST_STATE)
+
+
+# Visible provenance when source recovery was required. It does not grant trading
+# authority; only a subsequent VALID FULL/shared-frame engine may do so.
+_V49767325121_BASE_ACTION_PANEL = _v49765_action_panel
+
+def _v49765_action_panel(decision: dict,data_date=None):
+    text,has,res=_V49767325121_BASE_ACTION_PANEL(decision,data_date)
+    try:
+        d=dict(globals().get('_V49767325121_LAST_UNIVERSE_SOURCE',{}) or {})
+        if d:
+            src=str(d.get('selected_source','') or 'NONE')
+            state=str(d.get('state','') or '')
+            if src not in ('','PRODUCTION_LIFECYCLE_UNIVERSE_FROZEN') or state in ('RECOVERED','INVALID'):
+                cnt=int(d.get('selected_count',0) or 0)
+                line=f'- 🧬 FINAL universe source: {state} · {src} · {cnt}/{int(d.get("target",CLOSING_BET_V497672_CANONICAL_UNIVERSE_TARGET) or CLOSING_BET_V497672_CANONICAL_UNIVERSE_TARGET)}'
+                parts=[x for x in str(text).split('\n') if not x.startswith('- 🧬 FINAL universe source:')]
+                parts.insert(min(3,len(parts)),line); text='\n'.join(parts)
+        text=re.sub(r'(🚦 \[사용자 행동 결론 · [^\]]+\] \| )v[0-9.]+',lambda m:m.group(1)+CLOSING_BET_RELEASE_TAG,text,count=1)
+    except Exception:
+        pass
+    return text,has,res
+
+# =============================================================
+# ✅ END V49.76.6.7.3.2.5.1.2.1 FINAL UNIVERSE SOURCE RECOVERY
 # =============================================================
 
 if __name__ == '__main__':
