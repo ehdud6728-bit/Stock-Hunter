@@ -3683,6 +3683,8 @@ jobs:
               if [ "${TEST_PROFILE:-}" = "REAL_FULL" ]; then
                 echo "🧪 REAL_FULL current-source bridge enabled · slot=${REAL_FULL_TRUST_CAPTURE_SLOT:-UNKNOWN}"
                 echo "🧭 REAL_FULL listing authority · STOCKHUNTER_PYKRX_FORCE_STUB=${STOCKHUNTER_PYKRX_FORCE_STUB:-MISSING}"
+                export REAL_FULL_TRUST_SIGNAL_DATE="${REAL_FULL_TRUST_SIGNAL_DATE:-$(TZ=Asia/Seoul date +%F)}"
+                echo "🗓️ REAL_FULL TRUST signal date frozen at runner start: ${REAL_FULL_TRUST_SIGNAL_DATE}"
                 mkdir -p reports
 
                 # Capture the real runner exit code while also preserving the main log.
