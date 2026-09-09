@@ -6,8 +6,10 @@ on:
     # GitHub schedule은 정확한 시각을 보장하지 않으므로 내부 queue/route 충돌을 최소화한다.
     # 한국시간 평일 오전 9:30 = UTC 00:30 — 경량 OPEN_0930
     - cron: '30 00 * * 1-5'
-    # 한국시간 평일 오후 2:40 = UTC 05:40 — REAL_FULL 광범위 후보 탐색 1회
+    # 한국시간 평일 오후 2:40 = UTC 05:40 — REAL_FULL 광범위 후보 탐색 1차
     - cron: '40 05 * * 1-5'
+    # 한국시간 평일 오후 3:20 = UTC 06:20 — REAL_FULL daily snapshot 누락 감시/조건부 재시도
+    - cron: '20 06 * * 1-5'
     # 한국시간 평일 오후 3:45 = UTC 06:45 — CORE224 EOD FINAL
     - cron: '45 06 * * 1-5'
     # HAM / V73 / TRIANGLE / LOW224는 자동 cron 없음. 필요 시 workflow_dispatch.
@@ -29,6 +31,11 @@ on:
           - HAM_1503_RESEARCH
           - V73_DISCOVERY
           - V73_CASE_AUDIT
+      real_full_capture_slot:
+        description: "REAL_FULL TRUST capture slot"
+        required: false
+        default: "MANUAL"
+        type: string
       backtest_source:
         description: "성과검증 방식 선택"
         required: false
@@ -1525,9 +1532,94 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
+  real-full-trust-fallback-watchdog:
+    name: REAL_FULL TRUST daily capture watchdog
+    if: ${{ github.event_name == 'schedule' && github.event.schedule == '20 06 * * 1-5' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: write
+      contents: read
+    env:
+      TZ: Asia/Seoul
+    steps:
+      - name: Restore latest REAL_FULL TRUST R1 state
+        uses: actions/cache/restore@v4
+        with:
+          path: reports/.cache/real_full_trust_r1
+          key: stockhunter-real-full-trust-r1-${{ github.ref_name }}-watchdog-${{ github.run_id }}
+          restore-keys: |
+            stockhunter-real-full-trust-r1-${{ github.ref_name }}-
+
+      - name: Check same-day prospective snapshot
+        id: decide
+        shell: bash
+        run: |
+          set -euo pipefail
+          today="$(TZ=Asia/Seoul date +%F)"
+          state="reports/.cache/real_full_trust_r1/state.json"
+          last_success=""
+          if [ -f "$state" ]; then
+            last_success="$(python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path("reports/.cache/real_full_trust_r1/state.json")
+          try:
+              d=json.loads(p.read_text(encoding="utf-8"))
+          except Exception:
+              d={}
+          print(str(d.get("last_successful_snapshot_date") or ""))
+          PY
+          )"
+          fi
+          echo "WATCHDOG today=$today last_success=${last_success:-NONE}"
+          if [ "$last_success" = "$today" ]; then
+            echo "need_retry=0" >> "$GITHUB_OUTPUT"
+            echo "✅ REAL_FULL daily capture already present · fallback skip"
+          else
+            echo "need_retry=1" >> "$GITHUB_OUTPUT"
+            echo "⚠️ REAL_FULL daily capture missing · fallback dispatch required"
+          fi
+
+      - name: Dispatch REAL_FULL fallback
+        if: steps.decide.outputs.need_retry == '1'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          payload="$(python - <<'PY'
+          import json, os
+          print(json.dumps({
+              "ref": os.environ["GITHUB_REF_NAME"],
+              "inputs": {
+                  "run_profile": "REAL_FULL",
+                  "real_full_capture_slot": "FALLBACK_1520"
+              }
+          }))
+          PY
+          )"
+          http_code="$(
+            curl --silent --show-error \
+              --output /tmp/dispatch_response.txt \
+              --write-out '%{http_code}' \
+              --request POST \
+              --header "Accept: application/vnd.github+json" \
+              --header "Authorization: Bearer ${GH_TOKEN}" \
+              --header "X-GitHub-Api-Version: 2022-11-28" \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/run_scanner.yml/dispatches" \
+              --data "$payload"
+          )"
+          cat /tmp/dispatch_response.txt || true
+          test "$http_code" = "204" || {
+            echo "❌ REAL_FULL_FALLBACK_DISPATCH_FAILED http=$http_code"
+            exit 261
+          }
+          echo "✅ REAL_FULL_FALLBACK_DISPATCHED slot=FALLBACK_1520"
+
   run-scanner:
     needs: [v23-backtest-shard, v23-backtest-shard-a, v23-backtest-shard-b, v23-backtest-shard-c, v23-backtest-shard-d]
-    if: ${{ always() && (github.event_name != 'workflow_dispatch' || inputs.run_profile != 'TRIANGLE1PB_RESEARCH') }}
+    if: ${{ always() && github.event.schedule != '20 06 * * 1-5' && (github.event_name != 'workflow_dispatch' || inputs.run_profile != 'TRIANGLE1PB_RESEARCH') }}
     runs-on: ubuntu-latest
     timeout-minutes: 240
     env:
@@ -1975,7 +2067,7 @@ jobs:
           echo "GITHUB_EVENT_SCHEDULE=${{ github.event.schedule }}" >> $GITHUB_ENV
           echo "NOW_UTC=$(date -u '+%Y-%m-%d %H:%M:%S %Z')"
           echo "NOW_KST=$(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M:%S %Z')"
-          echo "SCHEDULE_EXPECTED_KST=09:30 OPEN_0930 / 14:40 REAL_FULL / 15:45 CORE224_LIVE weekdays | research profiles manual only"
+          echo "SCHEDULE_EXPECTED_KST=09:30 OPEN_0930 / 14:40 REAL_FULL / 15:20 TRUST watchdog / 15:45 CORE224_LIVE weekdays"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
       - name: Resolve run profile
@@ -1983,6 +2075,7 @@ jobs:
         env:
           GH_EVENT_NAME: ${{ github.event_name }}
           INPUT_RUN_PROFILE: ${{ inputs.run_profile }}
+          INPUT_REAL_FULL_CAPTURE_SLOT: ${{ inputs.real_full_capture_slot }}
           INPUT_TEST_CHAT_ID_OVERRIDE: ${{ inputs.test_chat_id_override }}
           INPUT_BACKTEST_SOURCE: ${{ inputs.backtest_source }}
           INPUT_DIRECT_TOP_N: ${{ inputs.direct_top_n }}
@@ -2012,6 +2105,7 @@ jobs:
           catalyst_capture=0
           catalyst_mode="AUTO"
           diagnostic_sheet_sync=0
+          real_full_capture_slot="UNKNOWN"
           if [ "$event" = "schedule" ] && [ "$schedule_expr" = "30 00 * * 1-5" ]; then
             open0930=1
           fi
@@ -2042,11 +2136,14 @@ jobs:
             v73_case_codes="${INPUT_V73_CASE_CODES:-119850}"
             v73_case_dates="${INPUT_V73_CASE_DATES:-2026-06-29,2026-07-08}"
             catalyst_mode="${INPUT_CATALYST_FORWARD_CAPTURE:-AUTO}"
+            if [ "$profile" = "REAL_FULL" ]; then
+              real_full_capture_slot="${INPUT_REAL_FULL_CAPTURE_SLOT:-MANUAL}"
+            fi
           else
             # Scheduled runs are explicit. Unknown/stale cron expressions fail closed.
             case "$schedule_expr" in
               "30 00 * * 1-5") profile="OPEN_0930" ;;
-              "40 05 * * 1-5") profile="REAL_FULL" ;;
+              "40 05 * * 1-5") profile="REAL_FULL"; real_full_capture_slot="PRIMARY_1440" ;;
               "45 06 * * 1-5") profile="CORE224_LIVE" ;;
               *)
                 echo "❌ UNKNOWN_SCHEDULE_EXPR_FAIL_CLOSED expr=${schedule_expr:-EMPTY}"
@@ -2164,6 +2261,7 @@ jobs:
 
           {
             echo "TEST_PROFILE=$profile"
+            echo "REAL_FULL_TRUST_CAPTURE_SLOT=$real_full_capture_slot"
             echo "TEST_MODE=$test_mode"
             echo "SKIP_AI_IN_TEST=$skip_ai"
             echo "SKIP_CHART_IN_TEST=$skip_chart"
