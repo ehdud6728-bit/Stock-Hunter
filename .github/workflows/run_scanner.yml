@@ -165,7 +165,7 @@ permissions:
 concurrency:
   # Scheduled slots must not all collapse into one "...-schedule" queue.
   # Include the cron expression so 09:30 / 14:40 / 15:45 have independent lanes.
-  group: stockhunter-${{ github.workflow }}-${{ github.ref_name }}-${{ github.event.schedule || github.event.inputs.run_profile || github.event_name }}
+  group: stockhunter-${{ github.workflow }}-${{ github.ref_name }}-${{ (github.event.schedule == '40 05 * * 1-5' && 'REAL_FULL') || github.event.inputs.run_profile || github.event.schedule || github.event_name }}
   cancel-in-progress: false
 
 jobs:
@@ -3658,9 +3658,49 @@ jobs:
                 exit "$core224_rc"
               fi
             else
-              python -u "${SCRIPT}"
+              if [ "${TEST_PROFILE:-}" = "REAL_FULL" ]; then
+                echo "🧪 REAL_FULL current-source bridge enabled · slot=${REAL_FULL_TRUST_CAPTURE_SLOT:-UNKNOWN}"
+                python -u real_full_capture_runner.py --script "${SCRIPT}"
+              else
+                python -u "${SCRIPT}"
+              fi
             fi
           fi
+
+      - name: Validate REAL_FULL current source bridge
+        if: success() && env.TEST_PROFILE == 'REAL_FULL'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f reports/real_full_trust_source_meta.json || {
+            echo "❌ REAL_FULL_SOURCE_META_MISSING"
+            exit 262
+          }
+          python - <<'PYBRIDGE'
+          import json
+          from pathlib import Path
+          p=Path("reports/real_full_trust_source_meta.json")
+          d=json.loads(p.read_text(encoding="utf-8"))
+          status=str(d.get("capture_status") or "")
+          print(
+              "REAL_FULL_SOURCE_BRIDGE",
+              "status",status,
+              "date",d.get("signal_date"),
+              "slot",d.get("capture_slot"),
+              "handoff_rows",d.get("selected_handoff_rows"),
+              "trust_rows",d.get("canonical_top_rows"),
+              "hook_calls",d.get("hook_calls"),
+          )
+          assert status in {"CAPTURED_NONEMPTY","CAPTURED_ZERO"}, (
+              "REAL_FULL_SOURCE_BRIDGE_NOT_READY", d
+          )
+          if status == "CAPTURED_NONEMPTY":
+              assert Path("reports/real_full_trust_source.csv").exists()
+              assert int(d.get("canonical_top_rows",0)) > 0
+          if status == "CAPTURED_ZERO":
+              assert int(d.get("selected_handoff_rows",-1)) == 0
+              assert int(d.get("zero_event_interpretable",0)) == 1
+          PYBRIDGE
 
       - name: Capture REAL_FULL TRUST R1 prospective snapshot
         if: success() && env.TEST_PROFILE == 'REAL_FULL'
@@ -3668,7 +3708,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p reports/real_full_trust_r1 reports/.cache/real_full_trust_r1
-          python -u real_full_trust_audit.py             --rank-source reports/v72_pattern_ai_cross_1503_shadow.csv             --listing-source reports/v73_listing_cache.csv             --final-signal-source reports/v1080_stockhunter_signals.csv             --price-cache-dir reports/.cache/v20_price_history             --amount-cache-dir reports/.cache/v25_actual_amount_history             --asof-cache-dir reports/.cache/v20_asof_snapshots             --ledger-dir reports/.cache/real_full_trust_r1             --output-dir reports/real_full_trust_r1
+          python -u real_full_trust_audit.py             --rank-source reports/real_full_trust_source.csv             --source-meta reports/real_full_trust_source_meta.json             --listing-source reports/v73_listing_cache.csv             --final-signal-source reports/v1080_stockhunter_signals.csv             --price-cache-dir reports/.cache/v20_price_history             --amount-cache-dir reports/.cache/v25_actual_amount_history             --asof-cache-dir reports/.cache/v20_asof_snapshots             --ledger-dir reports/.cache/real_full_trust_r1             --output-dir reports/real_full_trust_r1
           test -f reports/real_full_trust_r1/real_full_trust_readiness.csv
           test -f reports/real_full_trust_r1/real_full_trust_source_audit.csv
           test -f reports/.cache/real_full_trust_r1/state.json
