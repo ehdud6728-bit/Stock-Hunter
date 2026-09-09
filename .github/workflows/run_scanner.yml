@@ -2106,6 +2106,7 @@ jobs:
           catalyst_mode="AUTO"
           diagnostic_sheet_sync=0
           real_full_capture_slot="UNKNOWN"
+          pykrx_force_stub="1"
           if [ "$event" = "schedule" ] && [ "$schedule_expr" = "30 00 * * 1-5" ]; then
             open0930=1
           fi
@@ -2259,8 +2260,18 @@ jobs:
             fi
           fi
 
+          # REAL_FULL must have a real listing fallback. The global stub is kept
+          # for legacy/research profiles, but forcing it in REAL_FULL can make the
+          # entire market universe empty when FDR is unavailable.
+          if [ "$profile" = "REAL_FULL" ]; then
+            pykrx_force_stub="0"
+          else
+            pykrx_force_stub="1"
+          fi
+
           {
             echo "TEST_PROFILE=$profile"
+            echo "STOCKHUNTER_PYKRX_FORCE_STUB=$pykrx_force_stub"
             echo "REAL_FULL_TRUST_CAPTURE_SLOT=$real_full_capture_slot"
             echo "TEST_MODE=$test_mode"
             echo "SKIP_AI_IN_TEST=$skip_ai"
@@ -2393,7 +2404,7 @@ jobs:
             echo "V1107_4_5_70_DISABLE_PRICE_SCALE_WATCH=1"
           } >> "$GITHUB_ENV"
 
-          echo "✅ profile resolved: profile=$profile open0930=$open0930 core224_live=$core224_live_only ham1503=$ham1503 v73_discovery=$v73_discovery v73_case=$v73_case_audit catalyst_capture=$catalyst_capture source=$bt_source weeks=$bt_weeks hold=$bt_hold_days stop=$bt_stop_pct mode=$bt_stop_mode cohort=$v25_cohort_mode cohort_start=$v25_cohort_start_date cohort_end=$v25_cohort_end_date anchor=$v25_two_year_end_date"
+          echo "✅ profile resolved: profile=$profile open0930=$open0930 core224_live=$core224_live_only ham1503=$ham1503 v73_discovery=$v73_discovery v73_case=$v73_case_audit catalyst_capture=$catalyst_capture source=$bt_source weeks=$bt_weeks hold=$bt_hold_days stop=$bt_stop_pct mode=$bt_stop_mode cohort=$v25_cohort_mode cohort_start=$v25_cohort_start_date cohort_end=$v25_cohort_end_date anchor=$v25_two_year_end_date pykrx_force_stub=$pykrx_force_stub"
           if [ "$event" = "schedule" ]; then
             expected_profile=""
             case "$schedule_expr" in
@@ -3369,9 +3380,20 @@ jobs:
         run: |
           set -euo pipefail
           test -f real_full_trust_audit.py || { echo "❌ REAL_FULL_TRUST_R1_SOURCE_MISSING"; exit 241; }
+          test -f real_full_source_postrun_guard.py || { echo "❌ REAL_FULL_POSTRUN_GUARD_MISSING"; exit 243; }
           test -f triangle1pb_research.py || { echo "❌ REAL_FULL_TRUST_R1_SHARED_ADAPTER_MISSING"; exit 242; }
-          python -m py_compile real_full_trust_audit.py
+          python -m py_compile real_full_trust_audit.py real_full_capture_runner.py real_full_source_postrun_guard.py
           python real_full_trust_audit.py --self-test
+          python real_full_source_postrun_guard.py --self-test
+          test "${STOCKHUNTER_PYKRX_FORCE_STUB:-1}" = "0" || {
+            echo "❌ REAL_FULL_PYKRX_STUB_POLICY_INVALID expected=0 actual=${STOCKHUNTER_PYKRX_FORCE_STUB:-MISSING}"
+            exit 244
+          }
+          python - <<'PYREALPYKRX'
+          from pykrx import stock
+          assert hasattr(stock, "get_market_ohlcv")
+          print("REAL_FULL_PYKRX_IMPORT_PREFLIGHT PASS · forced_stub=0")
+          PYREALPYKRX
           echo "REAL_FULL_TRUST_R1_PREFLIGHT PASS · strategy/rank/order mutation=0"
 
       - name: Run scanner or weekly backtest
@@ -3660,7 +3682,31 @@ jobs:
             else
               if [ "${TEST_PROFILE:-}" = "REAL_FULL" ]; then
                 echo "🧪 REAL_FULL current-source bridge enabled · slot=${REAL_FULL_TRUST_CAPTURE_SLOT:-UNKNOWN}"
-                python -u real_full_capture_runner.py --script "${SCRIPT}"
+                echo "🧭 REAL_FULL listing authority · STOCKHUNTER_PYKRX_FORCE_STUB=${STOCKHUNTER_PYKRX_FORCE_STUB:-MISSING}"
+                mkdir -p reports
+
+                # Capture the real runner exit code while also preserving the main log.
+                # The post-run guard is a separate process so even an abrupt legacy exit
+                # cannot silently leave us without failure metadata.
+                set +e
+                python -u real_full_capture_runner.py --script "${SCRIPT}" 2>&1 | tee reports/real_full_main_run.log
+                real_full_runner_rc=${PIPESTATUS[0]}
+                set -e
+
+                set +e
+                python -u real_full_source_postrun_guard.py                   --run-log reports/real_full_main_run.log                   --meta reports/real_full_trust_source_meta.json                   --guard-output reports/real_full_source_postrun_guard.json                   --source reports/real_full_trust_source.csv                   --full-source reports/real_full_current_universe.csv                   --capture-slot "${REAL_FULL_TRUST_CAPTURE_SLOT:-UNKNOWN}"                   --runner-rc "$real_full_runner_rc"
+                real_full_guard_rc=$?
+                set -e
+
+                echo "REAL_FULL_POSTRUN_RESULT runner_rc=$real_full_runner_rc guard_rc=$real_full_guard_rc"
+                if [ "$real_full_guard_rc" -ne 0 ]; then
+                  echo "❌ REAL_FULL_SOURCE_AUTHORITY_INVALID guard_rc=$real_full_guard_rc"
+                  exit "$real_full_guard_rc"
+                fi
+                if [ "$real_full_runner_rc" -ne 0 ]; then
+                  echo "❌ REAL_FULL_RUNNER_NONZERO rc=$real_full_runner_rc"
+                  exit "$real_full_runner_rc"
+                fi
               else
                 python -u "${SCRIPT}"
               fi
@@ -3676,11 +3722,17 @@ jobs:
             echo "❌ REAL_FULL_SOURCE_META_MISSING"
             exit 262
           }
+          test -f reports/real_full_source_postrun_guard.json || {
+            echo "❌ REAL_FULL_POSTRUN_GUARD_RESULT_MISSING"
+            exit 263
+          }
           python - <<'PYBRIDGE'
           import json
           from pathlib import Path
           p=Path("reports/real_full_trust_source_meta.json")
           d=json.loads(p.read_text(encoding="utf-8"))
+          g=json.loads(Path("reports/real_full_source_postrun_guard.json").read_text(encoding="utf-8"))
+          assert int(g.get("pass",0)) == 1, ("REAL_FULL_POSTRUN_GUARD_FAILED", g)
           status=str(d.get("capture_status") or "")
           print(
               "REAL_FULL_SOURCE_BRIDGE",
