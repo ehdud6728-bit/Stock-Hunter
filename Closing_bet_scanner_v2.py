@@ -80,8 +80,8 @@ def _env_float(name: str, default: float = 0.0) -> float:
         except Exception:
             return 0.0
 
-CLOSING_BET_SCANNER_VERSION = 'G_MORALES_V4_4_9_53_8_49_76_6_7_3_2_5_1_1_TELEGRAM_RATE_LIMIT_SAFE_PREFLIGHT_20260908'
-CLOSING_BET_RELEASE_TAG = 'v49.76.6.7.3.2.5.1.1'
+CLOSING_BET_SCANNER_VERSION = 'G_MORALES_V4_4_9_53_8_49_76_6_7_3_2_5_1_2_LIVE_SESSION_CONTINUOUS_AUTHORITY_20260909'
+CLOSING_BET_RELEASE_TAG = 'v49.76.6.7.3.2.5.1.2'
 CLOSING_BET_LIVE_PRICE_SANITY_FIX = str(os.environ.get('CLOSING_BET_LIVE_PRICE_SANITY_FIX', '1')).lower() in ('1', 'true', 'yes', 'y', 'on')
 CLOSING_BET_LIVE_READABILITY_COMPACT = str(os.environ.get('CLOSING_BET_LIVE_READABILITY_COMPACT', '1')).lower() in ('1', 'true', 'yes', 'y', 'on')
 # v53.8.42: M5R TRUE60 검증용 장기 월봉 확보. 60개월 월선 계산에는 약 7년 일봉이 필요하다.
@@ -55043,10 +55043,177 @@ def _v49765_action_panel(decision: dict,data_date=None):
 # ✅ END V49.76.6.7.3.2.5.1.1 TELEGRAM RATE-LIMIT SAFE PREFLIGHT
 # =============================================================
 
+
+# =============================================================
+# V49.76.6.7.3.2.5.1.2 LIVE SESSION CONTINUOUS AUTHORITY
+# - One off-minute scheduled runner owns the same Python process from the
+#   PRE-FINAL checkpoint through 15:40 FINAL and the 16:00 recovery checkpoint.
+# - The 15:40/16:00 checkpoints no longer depend on new scheduled runners.
+# - Same-process PID/session/checkpoint provenance is visible in Telegram.
+# - First valid frozen strategy is immutable; 16:00 is gate-only when a strategy
+#   lock exists, and may rebuild FINAL authority only when no valid strategy lock
+#   was ever established.
+# - After 20:00, NO_LATE_CREATE remains absolute.
+# =============================================================
+try:
+    print("✅ V49.76.6.7.3.2.5.1.2 LIVE_SESSION_CONTINUOUS_AUTHORITY LOADED")
+except Exception:
+    pass
+
+_V4976732512_BASE_CONTINUOUS_SESSION = _v497673_run_continuous_session
+_V4976732512_BASE_SET_RUNTIME_MODE = _v497673_set_runtime_mode
+_V4976732512_BASE_ACTION_PANEL = _v49765_action_panel
+_V4976732512_IN_RECOVERY = False
+
+
+def _v4976732512_set_checkpoint(name: str):
+    try:
+        os.environ['CLOSING_BET_V4976732512_CHECKPOINT'] = str(name or '')
+        os.environ['CLOSING_BET_V4976732512_SESSION_PID'] = str(os.getpid())
+        if not os.environ.get('CLOSING_BET_V4976732512_SESSION_ID'):
+            start=str(os.environ.get('CLOSING_BET_V497673251_ACTUAL_START_KST','') or _now_kst().strftime('%Y-%m-%d %H:%M:%S'))
+            raw=f"{_now_kst().strftime('%Y-%m-%d')}|{os.getpid()}|{start}"
+            try: sid=hashlib.sha256(raw.encode('utf-8')).hexdigest()[:12]
+            except Exception: sid=f"pid{os.getpid()}"
+            os.environ['CLOSING_BET_V4976732512_SESSION_ID']=sid
+    except Exception:
+        pass
+
+
+def _v497673_set_runtime_mode(mode: str):
+    global _V4976732512_IN_RECOVERY
+    _V4976732512_BASE_SET_RUNTIME_MODE(mode)
+    m=str(mode or '').lower()
+    if m=='pre_final':
+        _v4976732512_set_checkpoint('15:03_PRE_FINAL')
+    elif m=='after_final':
+        _v4976732512_set_checkpoint('16:00_RECOVERY' if bool(_V4976732512_IN_RECOVERY) else '15:40_AFTER_FINAL_PRIMARY')
+
+
+def _v4976732512_clear_missing_history_cache():
+    """Clear provider memoization before the one 16:00 same-session retry.
+    Shared frozen frames remain in _V49767325_SHARED_FRAMES, so only still-missing
+    names can reopen the provider path before authority promotion.
+    """
+    for fn in (
+        globals().get('_V49767325_BASE_LOAD_DF'),
+        globals().get('_V497673_BASE_LOAD_DF_WRAPPER'),
+        globals().get('_V497667_BASE_LOAD_DF'),
+    ):
+        try:
+            cc=getattr(fn,'cache_clear',None)
+            if callable(cc): cc()
+        except Exception:
+            pass
+
+
+def _v4976732512_recovery_checkpoint(day: str):
+    global _V4976732512_IN_RECOVERY, _V497673_ENGINE_HARD_BLOCK
+    sess=str(day or _now_kst().strftime('%Y-%m-%d'))[:10]
+    if (_now_kst().hour*60+_now_kst().minute)>=20*60:
+        log_info('⏰ CONTINUOUS SESSION 16:00 recovery skipped: AFTER_WINDOW_NO_LATE_CREATE')
+        return {'state':'AFTER_WINDOW_RESTORE_ONLY'}
+    try:
+        row,state=_v49765_load_evidence(sess)
+        if row is not None:
+            log_info(f'🧷 CONTINUOUS SESSION recovery no-op: completed evidence already exists · {state}')
+            return {'state':'EVIDENCE_ALREADY_COMPLETED','evidence_state':state}
+    except Exception as e:
+        log_debug(f'continuous evidence precheck failed: {type(e).__name__}:{e}')
+
+    try:
+        ok,meta=_v4976732_frozen_strategy_available(sess)
+    except Exception as e:
+        ok,meta=False,{'error':f'{type(e).__name__}:{e}'}
+    if ok:
+        _V4976732512_IN_RECOVERY=True
+        _v4976732512_set_checkpoint('16:00_GATE_ONLY_RECOVERY')
+        try:
+            log_info(f'🔁 CONTINUOUS SESSION 16:00 gate-only recovery · frozen strategy immutable · {meta}')
+            return {'state':'GATE_ONLY','result':_v4976732_gate_only_recovery(sess),'meta':meta}
+        finally:
+            _V4976732512_IN_RECOVERY=False
+
+    # No valid strategy was ever frozen. Only in this case may the same process
+    # retry FINAL frame authority against the already-frozen KRX session snapshot.
+    invalid=str(_v4976731_engine_invalid_reason() or '')
+    if not invalid:
+        log_info('🧷 CONTINUOUS SESSION 16:00 recovery: no evidence, no frozen strategy, engine not invalid; no recompute')
+        return {'state':'NO_RECOMPUTE_NO_INVALID_REASON'}
+
+    _V4976732512_IN_RECOVERY=True
+    _v4976732512_set_checkpoint('16:00_ENGINE_RECOVERY')
+    try:
+        log_info(f'🔁 CONTINUOUS SESSION 16:00 FINAL authority retry · same frozen snapshot · prior={invalid}')
+        _v4976732512_clear_missing_history_cache()
+        _V497673_ENGINE_HARD_BLOCK=''
+        _v497673_set_runtime_mode('after_final')
+        _v497673_reset_final_derived_caches()
+        hits=run_closing_bet_scan(force=True)
+        invalid2=str(_v4976731_engine_invalid_reason() or '')
+        if not invalid2:
+            _v497673_write_strategy_lock(sess,hits)
+            _v497673_retry_nxt_gate_only(sess)
+            return {'state':'ENGINE_RECOVERED','hits':len(list(hits or []))}
+        return {'state':'ENGINE_STILL_INVALID','reason':invalid2,'hits':len(list(hits or []))}
+    finally:
+        _V4976732512_IN_RECOVERY=False
+
+
+def _v497673_run_continuous_session(force: bool=True):
+    lane=str(_v497673251_slot_meta().get('effective_lane','')).upper()
+    if lane!='LIVE_SESSION_CONTINUOUS_PRIMARY':
+        return _V4976732512_BASE_CONTINUOUS_SESSION(force)
+
+    _v4976732512_set_checkpoint('RUNNER_RESERVED_WAIT_15:03')
+    now=_now_kst()
+    if (now.hour*60+now.minute)<15*60+3:
+        _v497673_wait_until(15,3)
+    if (_now_kst().hour*60+_now_kst().minute)>=15*60+40:
+        # Workflow should have reclassified this already. Defense-in-depth avoids
+        # a late PRE-FINAL build if environment metadata is stale.
+        log_info('⏱ CONTINUOUS SESSION primary crossed 15:40 before PRE-FINAL; reclassify to AFTER-FINAL recovery')
+        _v497673_set_runtime_mode('after_final')
+        return run_closing_bet_scan(force=True)
+
+    _v4976732512_set_checkpoint('15:03_PRE_FINAL')
+    result=_V4976732512_BASE_CONTINUOUS_SESSION(force)
+
+    # Same Python process remains alive for the recovery checkpoint. The primary
+    # may finish after 16:00; wait helper becomes a no-op in that case.
+    if (_now_kst().hour*60+_now_kst().minute)<20*60:
+        _v497673_wait_until(16,0)
+        rec=_v4976732512_recovery_checkpoint(_now_kst().strftime('%Y-%m-%d'))
+        log_info(f'🧷 CONTINUOUS SESSION 16:00 checkpoint result: {rec}')
+    _v4976732512_set_checkpoint('SESSION_COMPLETE')
+    return result
+
+
+def _v49765_action_panel(decision: dict,data_date=None):
+    text,has,res=_V4976732512_BASE_ACTION_PANEL(decision,data_date)
+    try:
+        lane=str(_v497673251_slot_meta().get('effective_lane','') or '').upper()
+        if lane=='LIVE_SESSION_CONTINUOUS_PRIMARY':
+            cp=str(os.environ.get('CLOSING_BET_V4976732512_CHECKPOINT','') or '-')
+            sid=str(os.environ.get('CLOSING_BET_V4976732512_SESSION_ID','') or '-')
+            pid=str(os.environ.get('CLOSING_BET_V4976732512_SESSION_PID','') or os.getpid())
+            line=f'- 🧷 연속 LIVE 세션: checkpoint {cp} · session {sid} · pid {pid} · 15:40/16:00 새 runner 불필요'
+            parts=[x for x in str(text).split('\n') if not x.startswith('- 🧷 연속 LIVE 세션:')]
+            parts.insert(min(3,len(parts)),line)
+            text='\n'.join(parts)
+        text=re.sub(r'(🚦 \[사용자 행동 결론 · [^\]]+\] \| )v[0-9.]+',lambda m:m.group(1)+CLOSING_BET_RELEASE_TAG,text,count=1)
+    except Exception:
+        pass
+    return text,has,res
+
+# =============================================================
+# ✅ END V49.76.6.7.3.2.5.1.2 LIVE SESSION CONTINUOUS AUTHORITY
+# =============================================================
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='종가배팅 타점 스캐너')
     parser.add_argument('--force', action='store_true', help='시간 무관 강제 실행')
-    parser.add_argument('--continuous-after-final', action='store_true', help='v49.76.6.7.3.2.2: 15:03 PRE-FINAL부터 15:40 AFTER FINAL까지 단일 Python 프로세스로 유지')
+    parser.add_argument('--continuous-after-final', action='store_true', help='v49.76.6.7.3.2.5.1.2: 비정각 LIVE runner가 15:03 PRE-FINAL→15:40 FINAL→16:00 recovery를 단일 Python 프로세스로 유지')
     parser.add_argument('--eval-pending', action='store_true', help='미평가 후보를 다음날 성과로 평가')
     parser.add_argument('--summary', action='store_true', help='검증 요약 출력')
     parser.add_argument('--send-summary', action='store_true', help='검증 요약을 텔레그램으로 전송')

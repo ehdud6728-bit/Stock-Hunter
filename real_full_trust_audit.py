@@ -3,9 +3,9 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import os
 import json
 import math
+import os
 import re
 from datetime import datetime
 from pathlib import Path
@@ -15,25 +15,26 @@ from zoneinfo import ZoneInfo
 import numpy as np
 import pandas as pd
 
-# Shared data adapters only. No TRIANGLE detector/gate is called.
+# Shared price/Amount adapters only. No TRIANGLE detector/gate is called.
 from triangle1pb_research import AmountAuthority, _load_any, normalize_price_frame
 
 AUDIT_ID = "REAL_FULL_TRUST_AUDIT_R1"
-LOADER_REVISION = "REAL_FULL_TRUST_R1_2_DAILY_CAPTURE_WATCHDOG"
+LOADER_REVISION = "REAL_FULL_TRUST_R1_3_CURRENT_SOURCE_BRIDGE_AUTHORITY"
 AUTHORITY = "RESEARCH_ONLY_NO_SELECTION_NO_SCORE_NO_RANK_NO_ORDER_CHANGE"
 
 FREEZE_DATE = "2026-09-07"
 PROSPECTIVE_START_DATE = "2026-09-08"
 BOOTSTRAP_THROUGH = "2026-09-07"
 
-RANK_SOURCE_NAME = "v72_pattern_ai_cross_1503_shadow.csv"
-RANK_SOURCE_SEMANTICS = "CURRENT_REAL_FULL_TOP15_BOARD_LEGACY_FILENAME"
+RANK_SOURCE_NAME = "real_full_trust_source.csv"
+SOURCE_META_NAME = "real_full_trust_source_meta.json"
+RANK_SOURCE_SEMANTICS = "REAL_FULL_ALL_HITS_SORTED_ORDER_AT_GOOGLE_SHEET_HANDOFF"
 TOP_N = 15
 FORWARD_HORIZONS = (1, 3, 5, 10)
 
-# Non-performance adequacy thresholds only. They DO NOT auto-promote trust.
 DESCRIPTIVE_MIN_OBSERVED_DAYS = 10
 DESCRIPTIVE_MIN_D5_ROWS = 30
+VALID_SOURCE_STATUSES = {"SOURCE_READY", "SOURCE_READY_ZERO"}
 
 
 def _code(v: Any) -> str:
@@ -59,7 +60,10 @@ def _kst_today() -> pd.Timestamp:
 def _read_csv(path: Path, **kwargs) -> pd.DataFrame:
     if not path.exists():
         return pd.DataFrame()
-    return pd.read_csv(path, **kwargs)
+    try:
+        return pd.read_csv(path, **kwargs)
+    except pd.errors.EmptyDataError:
+        return pd.DataFrame()
 
 
 def _load_listing_prices(path: Path) -> pd.DataFrame:
@@ -72,9 +76,9 @@ def _load_listing_prices(path: Path) -> pd.DataFrame:
         return pd.DataFrame(columns=["code","snapshot_price"])
     out = pd.DataFrame({
         "code": df[code_col].map(_code),
-        "snapshot_price": pd.to_numeric(df[price_col], errors="coerce"),
+        "snapshot_price_fallback": pd.to_numeric(df[price_col], errors="coerce"),
     })
-    out = out[out["code"].str.len().eq(6) & out["snapshot_price"].gt(0)]
+    out = out[out["code"].str.len().eq(6) & out["snapshot_price_fallback"].gt(0)]
     return out.drop_duplicates("code", keep="last")
 
 
@@ -100,45 +104,108 @@ def _load_optional_final_signals(path: Path, signal_date: pd.Timestamp) -> pd.Da
 
 def load_current_rank_board(
     rank_source: Path,
-    listing_source: Path,
+    source_meta_path: Path,
+    listing_source: Optional[Path],
     final_signal_source: Optional[Path],
 ) -> Tuple[pd.DataFrame, Dict[str, Any]]:
+    if not source_meta_path.exists():
+        return pd.DataFrame(), {"status":"INVALID_SOURCE_META_MISSING"}
+
+    try:
+        bridge = json.loads(source_meta_path.read_text(encoding="utf-8"))
+    except Exception as e:
+        return pd.DataFrame(), {"status":"INVALID_SOURCE_META_JSON","error":str(e)[:120]}
+
+    capture_status = str(bridge.get("capture_status") or "")
+    signal_date_raw = str(bridge.get("signal_date") or "")
+    signal_ts = pd.to_datetime(signal_date_raw, errors="coerce")
+    if pd.isna(signal_ts):
+        return pd.DataFrame(), {
+            "status":"INVALID_SOURCE_META_DATE",
+            "bridge_capture_status":capture_status,
+        }
+    signal_date = pd.Timestamp(signal_ts).normalize()
+    capture_slot = str(bridge.get("capture_slot") or "UNKNOWN")
+    handoff_rows = int(bridge.get("selected_handoff_rows") or 0)
+
+    if capture_status == "CAPTURED_ZERO":
+        # Valid zero only when the bridge itself saw the sheet-handoff DataFrame and it was empty.
+        return pd.DataFrame(), {
+            "status":"SOURCE_READY_ZERO",
+            "signal_date":signal_date.date().isoformat(),
+            "candidate_rows":0,
+            "bridge_capture_status":capture_status,
+            "capture_slot":capture_slot,
+            "handoff_rows":handoff_rows,
+            "snapshot_price_ready":0,
+            "rank_source_sha256":_sha(rank_source) if rank_source.exists() else "",
+            "source_meta_sha256":_sha(source_meta_path),
+            "zero_event_interpretable":1,
+        }
+
+    if capture_status != "CAPTURED_NONEMPTY":
+        return pd.DataFrame(), {
+            "status":"INVALID_BRIDGE_CAPTURE",
+            "signal_date":signal_date.date().isoformat(),
+            "bridge_capture_status":capture_status,
+            "capture_slot":capture_slot,
+            "handoff_rows":handoff_rows,
+            "zero_event_interpretable":0,
+        }
+
     if not rank_source.exists():
-        return pd.DataFrame(), {"status":"INVALID_RANK_SOURCE_MISSING"}
+        return pd.DataFrame(), {
+            "status":"INVALID_RANK_SOURCE_MISSING",
+            "signal_date":signal_date.date().isoformat(),
+            "bridge_capture_status":capture_status,
+        }
 
-    raw = pd.read_csv(rank_source, dtype={"code":str})
+    raw = _read_csv(rank_source, dtype={"code":str})
     if raw.empty:
-        return pd.DataFrame(), {"status":"INVALID_RANK_SOURCE_EMPTY"}
+        return pd.DataFrame(), {
+            "status":"INVALID_NONEMPTY_META_BUT_SOURCE_EMPTY",
+            "signal_date":signal_date.date().isoformat(),
+        }
 
-    required = {"signal_date","rank","code","name","pattern_combo","overlap","score","score_bucket"}
+    required = {
+        "signal_date","rank","code","name","snapshot_price",
+        "pattern_combo","overlap","score","score_bucket",
+        "ai_pick_label","evidence",
+    }
     missing = sorted(required - set(raw.columns))
     if missing:
-        return pd.DataFrame(), {"status":"INVALID_RANK_SOURCE_COLUMNS","missing":"|".join(missing)}
+        return pd.DataFrame(), {
+            "status":"INVALID_RANK_SOURCE_COLUMNS",
+            "signal_date":signal_date.date().isoformat(),
+            "missing":"|".join(missing),
+        }
 
     raw["signal_ts"] = pd.to_datetime(raw["signal_date"], errors="coerce").dt.normalize()
-    raw = raw[raw["signal_ts"].notna()].copy()
-    if raw.empty:
-        return pd.DataFrame(), {"status":"INVALID_SIGNAL_DATE"}
+    raw = raw[raw["signal_ts"].eq(signal_date)].copy()
+    raw["code"] = raw["code"].map(_code)
+    raw["rank"] = pd.to_numeric(raw["rank"], errors="coerce")
+    raw["score"] = pd.to_numeric(raw["score"], errors="coerce")
+    raw["overlap"] = pd.to_numeric(raw["overlap"], errors="coerce")
+    raw["snapshot_price"] = pd.to_numeric(raw["snapshot_price"], errors="coerce")
+    board = raw[
+        raw["code"].str.len().eq(6)
+        & raw["rank"].between(1, TOP_N, inclusive="both")
+    ].sort_values(["rank","code"]).drop_duplicates("code", keep="first").copy()
 
-    signal_date = pd.Timestamp(raw["signal_ts"].max()).normalize()
-    board = raw[raw["signal_ts"].eq(signal_date)].copy()
-    board["code"] = board["code"].map(_code)
-    board["rank"] = pd.to_numeric(board["rank"], errors="coerce")
-    board["score"] = pd.to_numeric(board["score"], errors="coerce")
-    board["overlap"] = pd.to_numeric(board["overlap"], errors="coerce")
-    board = board[
-        board["code"].str.len().eq(6)
-        & board["rank"].between(1, TOP_N, inclusive="both")
-    ].copy()
-    board = board.sort_values(["rank","code"]).drop_duplicates("code", keep="first")
     if board.empty:
         return pd.DataFrame(), {
             "status":"INVALID_CURRENT_BOARD_EMPTY",
             "signal_date":signal_date.date().isoformat(),
         }
 
-    prices = _load_listing_prices(listing_source)
-    board = board.merge(prices, on="code", how="left")
+    # Listing is fallback only. The bridge-captured row price has first authority.
+    if listing_source is not None and listing_source.exists():
+        fallback = _load_listing_prices(listing_source)
+        if not fallback.empty:
+            board = board.merge(fallback, on="code", how="left")
+            miss = ~pd.to_numeric(board["snapshot_price"], errors="coerce").gt(0)
+            board.loc[miss, "snapshot_price"] = board.loc[miss, "snapshot_price_fallback"]
+            board = board.drop(columns=["snapshot_price_fallback"], errors="ignore")
 
     if final_signal_source is not None and final_signal_source.exists():
         fs = _load_optional_final_signals(final_signal_source, signal_date)
@@ -149,35 +216,38 @@ def load_current_rank_board(
         board["final_signal_same_day"], errors="coerce"
     ).fillna(0).astype(int)
 
-    # Broad, predeclared audit buckets only. They never alter selection.
     board["rank_bucket"] = pd.cut(
-        board["rank"],
-        bins=[0,3,10,15],
+        board["rank"], bins=[0,3,10,15],
         labels=["RANK_1_3","RANK_4_10","RANK_11_15"],
         include_lowest=True,
     ).astype(str)
+
     board["audit_score_bucket"] = pd.cut(
-        board["score"],
-        bins=[-np.inf,399.999999,699.999999,np.inf],
+        board["score"], bins=[-np.inf,399.999999,699.999999,np.inf],
         labels=["SCORE_LT400","SCORE_400_699","SCORE_GE700"],
     ).astype(str)
+    board.loc[board["score"].isna(), "audit_score_bucket"] = "SCORE_MISSING"
 
     board["snapshot_date"] = signal_date.date().isoformat()
     board["source_rank_file"] = rank_source.name
     board["source_rank_sha256"] = _sha(rank_source)
-    board["source_listing_sha256"] = _sha(listing_source) if listing_source.exists() else ""
-    board["selection_authority"] = "FIRST_SUCCESSFUL_SAME_DAY_REAL_FULL_TOP15"
+    board["source_listing_sha256"] = _sha(listing_source) if listing_source and listing_source.exists() else ""
+    board["selection_authority"] = "FIRST_SUCCESSFUL_SAME_DAY_REAL_FULL_BRIDGE_TOP15"
     board["membership_frozen"] = 1
+    board["capture_slot"] = capture_slot
 
-    meta = {
+    return board, {
         "status":"SOURCE_READY",
         "signal_date":signal_date.date().isoformat(),
         "candidate_rows":int(len(board)),
+        "bridge_capture_status":capture_status,
+        "capture_slot":capture_slot,
+        "handoff_rows":handoff_rows,
         "rank_source_sha256":_sha(rank_source),
-        "listing_source_sha256":_sha(listing_source) if listing_source.exists() else "",
+        "source_meta_sha256":_sha(source_meta_path),
         "snapshot_price_ready":int(pd.to_numeric(board["snapshot_price"], errors="coerce").gt(0).sum()),
+        "zero_event_interpretable":0,
     }
-    return board, meta
 
 
 def load_price_frames(
@@ -190,7 +260,6 @@ def load_price_frames(
     files = sorted(x for x in price_root.rglob("*") if x.is_file()) if price_root.exists() else []
     frames: Dict[str,pd.DataFrame] = {}
     failed = 0
-
     for p in files:
         try:
             z = normalize_price_frame(_load_any(p), p, amount_auth)
@@ -212,7 +281,6 @@ def load_price_frames(
                 frames[code] = x.reset_index(drop=True)
         except Exception:
             failed += 1
-
     trading_dates = sorted({
         pd.Timestamp(d).normalize()
         for df in frames.values()
@@ -268,12 +336,10 @@ def _mature_row(row: pd.Series, frame: Optional[pd.DataFrame]) -> Dict[str,Any]:
     price = float(row.get("snapshot_price")) if _finite(row.get("snapshot_price")) else np.nan
     if not _finite(price) or price <= 0:
         return out
-
     d = pd.Timestamp(row["snapshot_date"]).normalize()
     fut = frame[pd.to_datetime(frame["date"],errors="coerce").dt.normalize().gt(d)].copy()
     if fut.empty:
         return out
-
     for h in FORWARD_HORIZONS:
         if len(fut) < h:
             continue
@@ -335,29 +401,20 @@ def build_readiness(
     source_meta: Dict[str,Any],
     drift_summary: pd.DataFrame,
 ) -> pd.DataFrame:
-    observed_days = int(
-        observation["observation_status"].eq("OBSERVED_READY").sum()
-    ) if not observation.empty else 0
-    missed_days = int(
-        observation["observation_status"].eq("MISSED_OBSERVATION").sum()
-    ) if not observation.empty else 0
-    d5_rows = int(pd.to_numeric(ledger.get("d5_complete",pd.Series(dtype=float)),
-                                errors="coerce").fillna(0).eq(1).sum()) if not ledger.empty else 0
-    d10_rows = int(pd.to_numeric(ledger.get("d10_complete",pd.Series(dtype=float)),
-                                 errors="coerce").fillna(0).eq(1).sum()) if not ledger.empty else 0
+    observed_days = int(observation["observation_status"].eq("OBSERVED_READY").sum()) if not observation.empty else 0
+    missed_days = int(observation["observation_status"].eq("MISSED_OBSERVATION").sum()) if not observation.empty else 0
+    d5_rows = int(pd.to_numeric(ledger.get("d5_complete",pd.Series(dtype=float)),errors="coerce").fillna(0).eq(1).sum()) if not ledger.empty else 0
+    d10_rows = int(pd.to_numeric(ledger.get("d10_complete",pd.Series(dtype=float)),errors="coerce").fillna(0).eq(1).sum()) if not ledger.empty else 0
 
     source_status = str(source_meta.get("status",""))
-    if source_status != "SOURCE_READY":
+    if source_status not in VALID_SOURCE_STATUSES:
         status = "INVALID_CURRENT_SOURCE"
     elif observed_days < DESCRIPTIVE_MIN_OBSERVED_DAYS or d5_rows < DESCRIPTIVE_MIN_D5_ROWS:
         status = "WARMUP_PROSPECTIVE"
     else:
         status = "READY_DESCRIPTIVE_ONLY"
 
-    same_day_drift = 0
-    if not drift_summary.empty:
-        same_day_drift = int(drift_summary.iloc[-1].get("same_day_snapshot_drift",0) or 0)
-
+    same_day_drift = int(drift_summary.iloc[-1].get("same_day_snapshot_drift",0) or 0) if not drift_summary.empty else 0
     return pd.DataFrame([{
         "audit_id":AUDIT_ID,
         "loader_revision":LOADER_REVISION,
@@ -365,6 +422,7 @@ def build_readiness(
         "freeze_date":FREEZE_DATE,
         "prospective_start_date":PROSPECTIVE_START_DATE,
         "source_status":source_status,
+        "bridge_capture_status":source_meta.get("bridge_capture_status",""),
         "status":status,
         "observed_ready_days":observed_days,
         "missed_observation_days":missed_days,
@@ -383,14 +441,17 @@ def build_readiness(
 
 def run(args: argparse.Namespace) -> int:
     rank_source = Path(args.rank_source)
-    listing_source = Path(args.listing_source)
+    source_meta_path = Path(args.source_meta)
+    listing_source = Path(args.listing_source) if args.listing_source else None
     final_signal_source = Path(args.final_signal_source) if args.final_signal_source else None
     ledger_dir = Path(args.ledger_dir)
     out_dir = Path(args.output_dir)
     ledger_dir.mkdir(parents=True, exist_ok=True)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    board, source_meta = load_current_rank_board(rank_source, listing_source, final_signal_source)
+    board, source_meta = load_current_rank_board(
+        rank_source, source_meta_path, listing_source, final_signal_source
+    )
 
     ledger_path = ledger_dir / "selection_ledger.csv"
     obs_path = ledger_dir / "observation_coverage.csv"
@@ -399,8 +460,9 @@ def run(args: argparse.Namespace) -> int:
     ledger = _read_csv(ledger_path, dtype={"code":str}) if ledger_path.exists() else _empty_ledger()
     observation = _read_csv(obs_path, dtype={"observation_date":str}) if obs_path.exists() else pd.DataFrame(
         columns=["audit_id","observation_date","observation_status","first_recorded_at_kst",
-                 "source_status","candidate_rows","used_as_zero_event_evidence"]
+                 "source_status","capture_slot","candidate_rows","used_as_zero_event_evidence"]
     )
+
     state = {}
     if state_path.exists():
         try:
@@ -415,7 +477,6 @@ def run(args: argparse.Namespace) -> int:
             "last_successful_snapshot_date":BOOTSTRAP_THROUGH,
         }
 
-    # Price frames are needed only for admitted codes plus current board codes.
     needed = set(ledger["code"].map(_code)) if not ledger.empty and "code" in ledger.columns else set()
     if not board.empty:
         needed.update(board["code"].map(_code))
@@ -423,8 +484,6 @@ def run(args: argparse.Namespace) -> int:
         Path(args.price_cache_dir), Path(args.amount_cache_dir), Path(args.asof_cache_dir),
         needed_codes=needed or None,
     )
-
-    # Always mature already-frozen membership; this cannot rewrite membership/rank/score.
     ledger = update_outcomes(ledger, frames)
 
     now_kst = datetime.now(ZoneInfo("Asia/Seoul")).isoformat(timespec="seconds")
@@ -432,18 +491,17 @@ def run(args: argparse.Namespace) -> int:
     drift_rows: List[Dict[str,Any]] = []
     admitted = 0
     retroactive_rejected = 0
+    zero_observed = 0
 
-    if not board.empty and source_meta.get("status") == "SOURCE_READY":
+    source_status = str(source_meta.get("status",""))
+    if source_status in VALID_SOURCE_STATUSES:
         source_date = pd.Timestamp(source_meta["signal_date"]).normalize()
         pstart = pd.Timestamp(PROSPECTIVE_START_DATE).normalize()
-        last_success = pd.Timestamp(
-            state.get("last_successful_snapshot_date", BOOTSTRAP_THROUGH)
-        ).normalize()
+        last_success = pd.Timestamp(state.get("last_successful_snapshot_date", BOOTSTRAP_THROUGH)).normalize()
 
-        # Record trading-day observation gaps, but never infer zero events for them.
+        # Trading-day gaps only; never infer zero for a missed observation.
         known_obs = set(observation["observation_date"].astype(str)) if not observation.empty else set()
-        gaps = [d for d in trading_dates if last_success < d < source_date]
-        for d in gaps:
+        for d in [d for d in trading_dates if last_success < d < source_date]:
             ds = d.date().isoformat()
             if ds not in known_obs:
                 observation = pd.concat([observation,pd.DataFrame([{
@@ -452,53 +510,67 @@ def run(args: argparse.Namespace) -> int:
                     "observation_status":"MISSED_OBSERVATION",
                     "first_recorded_at_kst":now_kst,
                     "source_status":"NO_SUCCESSFUL_REAL_FULL_TRUST_CAPTURE",
+                    "capture_slot":"",
                     "candidate_rows":pd.NA,
                     "used_as_zero_event_evidence":0,
                 }])],ignore_index=True)
 
-        if source_date < pstart:
+        if source_date < pstart or source_date != today:
             retroactive_rejected = int(len(board))
-        elif source_date != today:
-            # A later rerun cannot backfill an old REAL_FULL board into the prospective ledger.
-            retroactive_rejected = int(len(board))
+            source_meta["status"] = "STALE_SOURCE_DATE"
         else:
             ds = source_date.date().isoformat()
             already_observed = (
                 not observation.empty
                 and observation["observation_date"].astype(str).eq(ds).any()
             )
-            if not already_observed:
-                b = board.copy()
-                b["first_observed_at_kst"] = now_kst
-                b["capture_slot"] = os.environ.get("REAL_FULL_TRUST_CAPTURE_SLOT","UNKNOWN")
-                b["event_key"] = b.apply(lambda r: _event_key(r["snapshot_date"],r["code"]),axis=1)
-                for h in FORWARD_HORIZONS:
-                    b[f"d{h}_complete"] = 0
-                    b[f"d{h}_close_ret_pct"] = np.nan
-                    b[f"d{h}_mfe_pct"] = np.nan
-                    b[f"d{h}_mae_pct"] = np.nan
-                    b[f"d{h}_hit_plus3"] = 0
-                    b[f"d{h}_hit_plus5"] = 0
+            capture_slot = str(source_meta.get("capture_slot") or "UNKNOWN")
 
-                # Normalize optional joined columns.
-                for c in _empty_ledger().columns:
-                    if c not in b.columns:
-                        b[c] = np.nan
-                b = b[_empty_ledger().columns]
-                ledger = pd.concat([ledger,b],ignore_index=True)
-                admitted = int(len(b))
-                observation = pd.concat([observation,pd.DataFrame([{
-                    "audit_id":AUDIT_ID,
-                    "observation_date":ds,
-                    "observation_status":"OBSERVED_READY",
-                    "first_recorded_at_kst":now_kst,
-                    "source_status":"SOURCE_READY",
-                    "candidate_rows":int(len(b)),
-                    "used_as_zero_event_evidence":int(len(b)==0),
-                }])],ignore_index=True)
-                state["last_successful_snapshot_date"] = ds
-            else:
-                # Same-day reruns never rewrite the first snapshot.
+            if not already_observed:
+                if source_status == "SOURCE_READY_ZERO":
+                    zero_observed = 1
+                    observation = pd.concat([observation,pd.DataFrame([{
+                        "audit_id":AUDIT_ID,
+                        "observation_date":ds,
+                        "observation_status":"OBSERVED_READY",
+                        "first_recorded_at_kst":now_kst,
+                        "source_status":"SOURCE_READY_ZERO",
+                        "capture_slot":capture_slot,
+                        "candidate_rows":0,
+                        "used_as_zero_event_evidence":1,
+                    }])],ignore_index=True)
+                    state["last_successful_snapshot_date"] = ds
+                else:
+                    b = board.copy()
+                    b["first_observed_at_kst"] = now_kst
+                    b["capture_slot"] = capture_slot
+                    b["event_key"] = b.apply(lambda r: _event_key(r["snapshot_date"],r["code"]),axis=1)
+                    for h in FORWARD_HORIZONS:
+                        b[f"d{h}_complete"] = 0
+                        b[f"d{h}_close_ret_pct"] = np.nan
+                        b[f"d{h}_mfe_pct"] = np.nan
+                        b[f"d{h}_mae_pct"] = np.nan
+                        b[f"d{h}_hit_plus3"] = 0
+                        b[f"d{h}_hit_plus5"] = 0
+                    for c in _empty_ledger().columns:
+                        if c not in b.columns:
+                            b[c] = np.nan
+                    b = b[_empty_ledger().columns]
+                    ledger = pd.concat([ledger,b],ignore_index=True)
+                    admitted = int(len(b))
+                    observation = pd.concat([observation,pd.DataFrame([{
+                        "audit_id":AUDIT_ID,
+                        "observation_date":ds,
+                        "observation_status":"OBSERVED_READY",
+                        "first_recorded_at_kst":now_kst,
+                        "source_status":"SOURCE_READY",
+                        "capture_slot":capture_slot,
+                        "candidate_rows":int(len(b)),
+                        "used_as_zero_event_evidence":0,
+                    }])],ignore_index=True)
+                    state["last_successful_snapshot_date"] = ds
+            elif source_status == "SOURCE_READY" and not board.empty:
+                # Same-day rerun can be audited but never rewrite the first snapshot.
                 frozen = ledger[pd.to_datetime(ledger["snapshot_date"],errors="coerce").dt.normalize().eq(source_date)].copy()
                 if not frozen.empty:
                     f = frozen[["code","rank","score","pattern_combo"]].copy()
@@ -529,7 +601,6 @@ def run(args: argparse.Namespace) -> int:
                                 "official_snapshot_rewritten":0,
                             })
 
-    # Mature again in case rows were newly admitted (same-day remains incomplete).
     ledger = update_outcomes(ledger, frames)
 
     drift_detail = pd.DataFrame(drift_rows)
@@ -548,7 +619,6 @@ def run(args: argparse.Namespace) -> int:
     final_signal_scorecard = _scorecard(ledger, "final_signal_same_day")
     readiness = build_readiness(ledger, observation, source_meta, drift_summary)
 
-    # Persist only the research authority state.
     ledger.to_csv(ledger_path,index=False,encoding="utf-8-sig")
     observation.to_csv(obs_path,index=False,encoding="utf-8-sig")
     state.update({
@@ -556,10 +626,10 @@ def run(args: argparse.Namespace) -> int:
         "last_run_kst":now_kst,
         "last_source_status":source_meta.get("status",""),
         "last_source_date":source_meta.get("signal_date",""),
+        "last_bridge_capture_status":source_meta.get("bridge_capture_status",""),
     })
     state_path.write_text(json.dumps(state,ensure_ascii=False,indent=2),encoding="utf-8")
 
-    # Artifact copies.
     ledger.to_csv(out_dir/"real_full_trust_selection_ledger.csv",index=False,encoding="utf-8-sig")
     observation.to_csv(out_dir/"real_full_trust_observation_coverage.csv",index=False,encoding="utf-8-sig")
     drift_detail.to_csv(out_dir/"real_full_trust_same_day_drift_detail.csv",index=False,encoding="utf-8-sig")
@@ -576,15 +646,20 @@ def run(args: argparse.Namespace) -> int:
         "loader_revision":LOADER_REVISION,
         "rank_source_semantics":RANK_SOURCE_SEMANTICS,
         "rank_source":str(rank_source),
-        "listing_source":str(listing_source),
+        "source_meta":str(source_meta_path),
+        "listing_source":str(listing_source or ""),
         "final_signal_source":str(final_signal_source or ""),
         "freeze_date":FREEZE_DATE,
         "prospective_start":PROSPECTIVE_START_DATE,
         "source_status":source_meta.get("status",""),
+        "bridge_capture_status":source_meta.get("bridge_capture_status",""),
         "source_signal_date":source_meta.get("signal_date",""),
         "source_candidate_rows":source_meta.get("candidate_rows",0),
-        "capture_slot":os.environ.get("REAL_FULL_TRUST_CAPTURE_SLOT","UNKNOWN"),
+        "handoff_rows":source_meta.get("handoff_rows",0),
+        "capture_slot":source_meta.get("capture_slot","UNKNOWN"),
         "snapshot_price_ready":source_meta.get("snapshot_price_ready",0),
+        "valid_zero_source":int(source_status=="SOURCE_READY_ZERO"),
+        "zero_observed_today":zero_observed,
         "admitted_current_snapshot_rows":admitted,
         "retroactive_source_rows_rejected":retroactive_rejected,
         "price_frames_loaded":price_meta.get("price_frames",0),
@@ -597,19 +672,20 @@ def run(args: argparse.Namespace) -> int:
 
     rr = readiness.iloc[0]
     report = "\n".join([
-        "🧪 [REAL_FULL TRUST AUDIT R1 · APPEND-ONLY PROSPECTIVE]",
-        f"RESEARCH ONLY · selection/score/rank/order 변경 0",
+        "🧪 [REAL_FULL TRUST AUDIT R1 · CURRENT SOURCE BRIDGE]",
+        "RESEARCH ONLY · selection/score/rank/order 변경 0",
         f"freeze {FREEZE_DATE} · prospective start {PROSPECTIVE_START_DATE}",
-        f"source={RANK_SOURCE_NAME} ({RANK_SOURCE_SEMANTICS}) · Top{TOP_N}",
-        f"source date {source_meta.get('signal_date','-')} · source rows {source_meta.get('candidate_rows',0)}",
-        f"capture slot {os.environ.get('REAL_FULL_TRUST_CAPTURE_SLOT','UNKNOWN')}",
-        f"today admitted {admitted} · retroactive rejected {retroactive_rejected}",
+        f"source={RANK_SOURCE_NAME} · semantics={RANK_SOURCE_SEMANTICS} · Top{TOP_N}",
+        f"bridge={source_meta.get('bridge_capture_status','-')} · source status={source_meta.get('status','-')}",
+        f"source date {source_meta.get('signal_date','-')} · handoff rows {source_meta.get('handoff_rows',0)} · trust rows {source_meta.get('candidate_rows',0)}",
+        f"capture slot {source_meta.get('capture_slot','UNKNOWN')}",
+        f"today admitted {admitted} · valid-zero {zero_observed} · retroactive rejected {retroactive_rejected}",
         f"ledger rows {len(ledger)} · observed days {int(rr['observed_ready_days'])} · missed {int(rr['missed_observation_days'])}",
         f"D5 mature {int(rr['d5_mature_rows'])} · D10 mature {int(rr['d10_mature_rows'])}",
         f"status={rr['status']} · auto trust promotion=0",
-        "※ Rank/score/pattern은 당시 최초 관측값을 영구 고정하고 미래 성과만 후행 부착합니다.",
-        "※ 같은 날 재실행으로 순위/점수가 바뀌어도 공식 snapshot은 덮어쓰지 않습니다.",
-        "※ REAL_FULL은 신뢰도 검증 완료 전 DISCOVERY/SHADOW 권한만 유지합니다.",
+        "※ 당일 REAL_FULL Google-Sheet handoff 원본 순서를 연구용으로 복제한 source만 authority입니다.",
+        "※ 같은 날 재실행으로 rank/score/pattern이 바뀌어도 최초 snapshot은 덮어쓰지 않습니다.",
+        "※ HOOK_NOT_CALLED/CAPTURE_INVALID는 0-event가 아니며 실패로 취급합니다.",
     ])
     (out_dir/"real_full_trust_report.txt").write_text(report,encoding="utf-8")
     print(report)
@@ -620,24 +696,43 @@ def self_test() -> int:
     import tempfile
     with tempfile.TemporaryDirectory() as td:
         root=Path(td)
-        rank=root/"rank.csv"
-        listing=root/"listing.csv"
+        rank=root/"source.csv"
+        meta=root/"meta.json"
+
         pd.DataFrame([
             {"signal_date":"2026-09-08","rank":1,"code":"000001","name":"A",
-             "pattern_combo":"P1","overlap":1,"score":800,"score_bucket":"GE90",
-             "ai_pick_label":"X","evidence":"e1"},
+             "snapshot_price":100.0,"pattern_combo":"P1","overlap":1,"score":800,
+             "score_bucket":"SOURCE_NATIVE","ai_pick_label":"X","evidence":"{}"},
             {"signal_date":"2026-09-08","rank":2,"code":"000002","name":"B",
-             "pattern_combo":"P2","overlap":0,"score":300,"score_bucket":"GE90",
-             "ai_pick_label":"X","evidence":"e2"},
+             "snapshot_price":200.0,"pattern_combo":"P2","overlap":0,"score":300,
+             "score_bucket":"SOURCE_NATIVE","ai_pick_label":"X","evidence":"{}"},
         ]).to_csv(rank,index=False)
-        pd.DataFrame([
-            {"Code":"000001","Close":100.0},{"Code":"000002","Close":200.0}
-        ]).to_csv(listing,index=False)
-        b,m=load_current_rank_board(rank,listing,None)
+        meta.write_text(json.dumps({
+            "capture_status":"CAPTURED_NONEMPTY","signal_date":"2026-09-08",
+            "capture_slot":"PRIMARY_1440","selected_handoff_rows":20
+        }),encoding="utf-8")
+        b,m=load_current_rank_board(rank,meta,None,None)
         assert m["status"]=="SOURCE_READY"
         assert len(b)==2
         assert list(b["rank_bucket"])==["RANK_1_3","RANK_1_3"]
         assert list(b["audit_score_bucket"])==["SCORE_GE700","SCORE_LT400"]
+
+        # Valid zero is distinct from missing/failed capture.
+        rank.unlink()
+        meta.write_text(json.dumps({
+            "capture_status":"CAPTURED_ZERO","signal_date":"2026-09-08",
+            "capture_slot":"PRIMARY_1440","selected_handoff_rows":0
+        }),encoding="utf-8")
+        bz,mz=load_current_rank_board(rank,meta,None,None)
+        assert bz.empty and mz["status"]=="SOURCE_READY_ZERO"
+        assert int(mz["zero_event_interpretable"])==1
+
+        meta.write_text(json.dumps({
+            "capture_status":"HOOK_NOT_CALLED","signal_date":"2026-09-08",
+            "capture_slot":"PRIMARY_1440","selected_handoff_rows":0
+        }),encoding="utf-8")
+        bf,mf=load_current_rank_board(rank,meta,None,None)
+        assert bf.empty and mf["status"]=="INVALID_BRIDGE_CAPTURE"
 
         led=_empty_ledger()
         row={c:np.nan for c in led.columns}
@@ -654,13 +749,14 @@ def self_test() -> int:
         assert int(out.iloc[0]["d1_complete"])==1
         assert round(float(out.iloc[0]["d1_close_ret_pct"]),2)==4.0
         assert int(out.iloc[0]["d5_hit_plus5"])==1
-    print("REAL_FULL_TRUST_R1_SELF_TEST PASS")
+    print("REAL_FULL_TRUST_R1_CURRENT_SOURCE_SELF_TEST PASS")
     return 0
 
 
 def main() -> int:
     ap=argparse.ArgumentParser()
-    ap.add_argument("--rank-source",default="reports/v72_pattern_ai_cross_1503_shadow.csv")
+    ap.add_argument("--rank-source",default="reports/real_full_trust_source.csv")
+    ap.add_argument("--source-meta",default="reports/real_full_trust_source_meta.json")
     ap.add_argument("--listing-source",default="reports/v73_listing_cache.csv")
     ap.add_argument("--final-signal-source",default="reports/v1080_stockhunter_signals.csv")
     ap.add_argument("--price-cache-dir",default="reports/.cache/v20_price_history")
