@@ -19,7 +19,7 @@ import pandas as pd
 from triangle1pb_research import AmountAuthority, _load_any, normalize_price_frame
 
 AUDIT_ID = "REAL_FULL_TRUST_AUDIT_R1"
-LOADER_REVISION = "REAL_FULL_TRUST_R1_3_CURRENT_SOURCE_BRIDGE_AUTHORITY"
+LOADER_REVISION = "REAL_FULL_TRUST_R1_4_OS_EXIT_RUNTIME_AI_CANDIDATES_AUTHORITY"
 AUTHORITY = "RESEARCH_ONLY_NO_SELECTION_NO_SCORE_NO_RANK_NO_ORDER_CHANGE"
 
 FREEZE_DATE = "2026-09-07"
@@ -28,7 +28,7 @@ BOOTSTRAP_THROUGH = "2026-09-07"
 
 RANK_SOURCE_NAME = "real_full_trust_source.csv"
 SOURCE_META_NAME = "real_full_trust_source_meta.json"
-RANK_SOURCE_SEMANTICS = "REAL_FULL_ALL_HITS_SORTED_ORDER_AT_GOOGLE_SHEET_HANDOFF"
+RANK_SOURCE_SEMANTICS = "REAL_FULL_AI_CANDIDATES_EXISTING_ORDER_AT_GRACEFUL_SHUTDOWN"
 TOP_N = 15
 FORWARD_HORIZONS = (1, 3, 5, 10)
 
@@ -232,7 +232,7 @@ def load_current_rank_board(
     board["source_rank_file"] = rank_source.name
     board["source_rank_sha256"] = _sha(rank_source)
     board["source_listing_sha256"] = _sha(listing_source) if listing_source and listing_source.exists() else ""
-    board["selection_authority"] = "FIRST_SUCCESSFUL_SAME_DAY_REAL_FULL_BRIDGE_TOP15"
+    board["selection_authority"] = "FIRST_SUCCESSFUL_SAME_DAY_REAL_FULL_RUNTIME_AI_CANDIDATES_TOP15"
     board["membership_frozen"] = 1
     board["capture_slot"] = capture_slot
 
@@ -683,7 +683,7 @@ def run(args: argparse.Namespace) -> int:
         f"ledger rows {len(ledger)} · observed days {int(rr['observed_ready_days'])} · missed {int(rr['missed_observation_days'])}",
         f"D5 mature {int(rr['d5_mature_rows'])} · D10 mature {int(rr['d10_mature_rows'])}",
         f"status={rr['status']} · auto trust promotion=0",
-        "※ 당일 REAL_FULL Google-Sheet handoff 원본 순서를 연구용으로 복제한 source만 authority입니다.",
+        "※ 당일 REAL_FULL의 기존 ai_candidates 순서를 graceful_shutdown 직전 캡처한 source만 authority입니다.",
         "※ 같은 날 재실행으로 rank/score/pattern이 바뀌어도 최초 snapshot은 덮어쓰지 않습니다.",
         "※ HOOK_NOT_CALLED/CAPTURE_INVALID는 0-event가 아니며 실패로 취급합니다.",
     ])
