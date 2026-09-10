@@ -172,7 +172,7 @@ concurrency:
 jobs:
   v23-backtest-shard:
     name: V24 TOP500 materialized+formula-shadow shard ${{ matrix.shard }} of 6
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_profile == 'WEEKLY_BACKTEST' && (inputs.backtest_source == 'DIRECT_REPLAY' || inputs.backtest_source == '') && inputs.v25_cohort_mode != 'ALL' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && ((inputs.run_profile == 'WEEKLY_BACKTEST' && inputs.v25_cohort_mode != 'ALL') || inputs.run_profile == 'REAL_FULL_VALIDATION_BACKTEST') && (inputs.backtest_source == 'DIRECT_REPLAY' || inputs.backtest_source == '') }}
     strategy:
       fail-fast: false
       max-parallel: 6
@@ -191,7 +191,7 @@ jobs:
       V1081_BACKTEST_SOURCE: DIRECT_REPLAY
       V1081_DIRECT_DATE_MODE: WEEK_LAST
       V1081_DIRECT_TOP_N: ${{ inputs.direct_top_n || '500' }}
-      V1081_DIRECT_LIMIT_PER_DATE: ${{ inputs.direct_limit_per_date || '15' }}
+      V1081_DIRECT_LIMIT_PER_DATE: ${{ inputs.run_profile == 'REAL_FULL_VALIDATION_BACKTEST' && '50' || inputs.direct_limit_per_date || '15' }}
       V1080_BACKTEST_WEEKS: ${{ inputs.backtest_weeks || '24' }}
       V1080_BACKTEST_HOLD_DAYS: ${{ inputs.backtest_hold_days || '10' }}
       V1080_BACKTEST_STOP_PCT: ${{ inputs.backtest_stop_pct || '-5' }}
@@ -221,7 +221,7 @@ jobs:
       V23_SHARD_WORKER_ONLY: "1"
       V23_SHARD_INDEX: ${{ matrix.shard }}
       V23_SHARD_COUNT: "6"
-      V23_HANDOFF_COHORT_ID: ${{ inputs.v25_cohort_mode || 'ROLLING' }}
+      V23_HANDOFF_COHORT_ID: ${{ inputs.run_profile == 'REAL_FULL_VALIDATION_BACKTEST' && 'ROLLING' || inputs.v25_cohort_mode || 'ROLLING' }}
       V23_MERGE_ONLY_PARENT: "0"
       V23_ZERO_RECOMPUTE: "1"
       V23_MATERIALIZED_DIR: reports/v23_materialized
@@ -230,7 +230,7 @@ jobs:
       V25_ORIGINAL_THESIS_ENABLE: "1"
       V25_ORIGINAL_THESIS_REV: "25_3_1"
       V25_MANUAL_SAMPLE_PER_BUCKET: "15"
-      V25_COHORT_MODE: ${{ inputs.v25_cohort_mode || 'ROLLING' }}
+      V25_COHORT_MODE: ${{ inputs.run_profile == 'REAL_FULL_VALIDATION_BACKTEST' && 'ROLLING' || inputs.v25_cohort_mode || 'ROLLING' }}
       V25_TWO_YEAR_END_DATE: ${{ inputs.v25_two_year_end_date || '' }}
       V25_COHORT_START_DATE: ${{ inputs.v25_cohort_start_date || '' }}
       V25_COHORT_END_DATE: ${{ inputs.v25_cohort_end_date || '' }}
@@ -282,7 +282,7 @@ jobs:
         run: |
           set -euo pipefail
           SRC="$(sha256sum main7_bugfix_2.py direct_replay_performance_v20.py historical_asof_universe.py direct_replay_sharding_v22.py direct_replay_materialized_v23.py pattern_catalyst_context_pipeline.py bear_winner_stability_diagnostic.py research_readiness_v24.py original_thesis_reconstruction.py | sha256sum | cut -c1-20)"
-          CFG="$(printf '%s' '${{ inputs.direct_top_n || '500' }}|${{ inputs.backtest_weeks || '24' }}|${{ inputs.backtest_hold_days || '10' }}|${{ inputs.backtest_stop_pct || '-5' }}|${{ inputs.backtest_stop_mode || 'SIGNAL_STOP_WITH_FALLBACK' }}|${{ inputs.v25_cohort_mode || 'ROLLING' }}|${{ inputs.v25_two_year_end_date || '' }}|${{ inputs.v25_cohort_start_date || '' }}|${{ inputs.v25_cohort_end_date || '' }}|6|V24_SHADOW_1|V25_ORIGINAL_THESIS_25_3_1|COHORT_BOUNDARY_NOT_EXIT|STRUCTURAL_SCALEIN_60D|DATA_AUTHORITY_25_2_2_KRX_AUTH|ALNUM_TICKER_IDENTITY' | sha256sum | cut -c1-16)"
+          CFG="$(printf '%s' '${{ inputs.direct_top_n || '500' }}|${{ inputs.backtest_weeks || '24' }}|${{ inputs.backtest_hold_days || '10' }}|${{ inputs.backtest_stop_pct || '-5' }}|${{ inputs.backtest_stop_mode || 'SIGNAL_STOP_WITH_FALLBACK' }}|${{ inputs.run_profile == 'REAL_FULL_VALIDATION_BACKTEST' && 'ROLLING' || inputs.v25_cohort_mode || 'ROLLING' }}|${{ inputs.run_profile == 'REAL_FULL_VALIDATION_BACKTEST' && '50' || inputs.direct_limit_per_date || '15' }}|${{ inputs.v25_two_year_end_date || '' }}|${{ inputs.v25_cohort_start_date || '' }}|${{ inputs.v25_cohort_end_date || '' }}|6|V24_SHADOW_1|V25_ORIGINAL_THESIS_25_3_1|COHORT_BOUNDARY_NOT_EXIT|STRUCTURAL_SCALEIN_60D|DATA_AUTHORITY_25_2_2_KRX_AUTH|ALNUM_TICKER_IDENTITY|REAL_FULL_VALIDATION_SHARD_ROUTING_R1' | sha256sum | cut -c1-16)"
           PREFIX="stockhunter-v23-shard-${GITHUB_REF_NAME}-${{ matrix.shard }}-${SRC}-${CFG}"
           KEY="${PREFIX}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           echo "prefix=$PREFIX" >> "$GITHUB_OUTPUT"
@@ -3254,10 +3254,12 @@ jobs:
           mkdir -p reports/v25_live_seed_build reports/.cache/v25_core224_live
           rm -f reports/.cache/v25_core224_live/seed_meta.json reports/.cache/v25_core224_live/weekly_seed_snapshot.csv reports/.cache/v25_core224_live/seed_universe.csv
 
+          echo "V25_CURRENT_LIVE_SEED_LISTING_AUTHORITY STOCKHUNTER_PYKRX_FORCE_STUB=0 scope=seed_refresh_subprocess_only"
           env \
             TEST_PROFILE=WEEKLY_BACKTEST \
             STOCKHUNTER_WEEKLY_BACKTEST_ONLY=1 \
             STOCKHUNTER_CORE224_LIVE_ONLY=0 \
+            STOCKHUNTER_PYKRX_FORCE_STUB=0 \
             V25_CORE224_LIVE_ENABLE=0 \
             V1081_BACKTEST_SOURCE=DIRECT_REPLAY \
             V1081_DIRECT_DATE_MODE=WEEK_LAST \
@@ -3916,7 +3918,7 @@ jobs:
           key: stockhunter-real-full-trust-r1-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Build current CORE224 LIVE seed snapshot (no hold horizon)
-        if: always() && env.STOCKHUNTER_WEEKLY_BACKTEST_ONLY == '1' && env.V1081_BACKTEST_SOURCE == 'DIRECT_REPLAY'
+        if: always() && env.STOCKHUNTER_WEEKLY_BACKTEST_ONLY == '1' && env.V1081_BACKTEST_SOURCE == 'DIRECT_REPLAY' && env.TEST_PROFILE != 'REAL_FULL_VALIDATION_BACKTEST'
         shell: bash
         run: |
           set -euo pipefail
@@ -3952,7 +3954,7 @@ jobs:
           python -c "import json; d=json.load(open('reports/.cache/v25_core224_live/seed_meta.json',encoding='utf-8')); print('V25_CURRENT_LIVE_SEED_BUILD','snapshot',d.get('weekly_snapshot_date','-'),'seed_count',d.get('seed_count',0),'source',d.get('source','-'),'policy_lock',d.get('policy_lock_status','-'),'current_end','${current_live_end}'); assert d.get('source')=='CURRENT_NO_HOLD_TOP500_MATERIALIZED_V23'; assert int(d.get('snapshot_calendar_complete',0))==1; assert str(d.get('weekly_snapshot_date',''))=='${current_live_end}', 'V25_CURRENT_LIVE_SEED_DATE_MISMATCH'; assert str(d.get('policy_lock_status','')) in {'LOCKED','PENDING_POLICY_LOCK_PREREQUISITES'}, 'V25_CURRENT_LIVE_POLICY_STATE_MISSING'"
 
       - name: Persist CORE224 Policy Lock manifest into LIVE cache
-        if: always() && env.STOCKHUNTER_WEEKLY_BACKTEST_ONLY == '1' && env.V1081_BACKTEST_SOURCE == 'DIRECT_REPLAY'
+        if: always() && env.STOCKHUNTER_WEEKLY_BACKTEST_ONLY == '1' && env.V1081_BACKTEST_SOURCE == 'DIRECT_REPLAY' && env.TEST_PROFILE != 'REAL_FULL_VALIDATION_BACKTEST'
         run: |
           set -euo pipefail
           src="reports/v73_v25_core224_policy_lock_manifest.csv"
@@ -4049,7 +4051,7 @@ jobs:
           key: ${{ steps.v21-replay-key.outputs.key }}
 
       - name: Save CORE224 weekly current-data overlay for research bridge
-        if: always() && env.STOCKHUNTER_WEEKLY_BACKTEST_ONLY == '1' && env.V1081_BACKTEST_SOURCE == 'DIRECT_REPLAY' && hashFiles('reports/.cache/v25_core224_live/seed_meta.json') != ''
+        if: always() && env.STOCKHUNTER_WEEKLY_BACKTEST_ONLY == '1' && env.V1081_BACKTEST_SOURCE == 'DIRECT_REPLAY' && hashFiles('reports/.cache/v25_core224_live/seed_meta.json') != '' && env.TEST_PROFILE != 'REAL_FULL_VALIDATION_BACKTEST'
         uses: actions/cache/save@v4
         with:
           # IMPORTANT: keep this path-set byte-for-byte aligned with the
@@ -4064,7 +4066,7 @@ jobs:
           key: stockhunter-v25-core224-live-${{ github.ref_name }}-weekly-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Show CORE224 weekly seed LIVE bridge proof
-        if: always() && env.STOCKHUNTER_WEEKLY_BACKTEST_ONLY == '1' && env.V1081_BACKTEST_SOURCE == 'DIRECT_REPLAY'
+        if: always() && env.STOCKHUNTER_WEEKLY_BACKTEST_ONLY == '1' && env.V1081_BACKTEST_SOURCE == 'DIRECT_REPLAY' && env.TEST_PROFILE != 'REAL_FULL_VALIDATION_BACKTEST'
         shell: bash
         run: |
           set +e
