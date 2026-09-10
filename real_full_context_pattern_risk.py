@@ -10,7 +10,7 @@ from real_full_decision_engine import code, text, num
 from real_full_trust_audit import load_price_frames
 
 ANALYZER_ID="REAL_FULL_CONTEXT_PATTERN_RISK_R1"
-ANALYZER_REVISION="REAL_FULL_CONTEXT_PATTERN_RISK_R1_1_REALIZED_R_MULTIPLE"
+ANALYZER_REVISION="REAL_FULL_CONTEXT_PATTERN_RISK_R1_2_CANONICAL_CONTEXT_R"
 EXPLORATORY_ONLY=1
 
 HORIZONS=(1,3,5,10)
@@ -27,6 +27,33 @@ def sample_tier(n:int)->str:
     if n<10:return "EARLY_5_9"
     if n<30:return "DESCRIPTIVE_10_29"
     return "STRONGER_DESCRIPTIVE_30PLUS"
+
+
+def bucket_num(v, cuts, labels, missing="NA"):
+    x=num(v)
+    if not math.isfinite(x):
+        return missing
+    for hi,label in zip(cuts,labels):
+        if x < hi:
+            return label
+    return labels[-1]
+
+def descriptive_contexts(out:pd.DataFrame)->pd.DataFrame:
+    # Fixed descriptive bins only. They are NOT trading thresholds.
+    out=out.copy()
+    out["pullback_days_context"]=out.get("origin_pullback_days",pd.Series(index=out.index,dtype=float)).map(
+        lambda v: bucket_num(v,[3,5,8,float("inf")],["1-2d","3-4d","5-7d","8d+"])
+    )
+    out["impulse_context"]=out.get("origin_impulse_pct",pd.Series(index=out.index,dtype=float)).map(
+        lambda v: bucket_num(v,[15,30,50,float("inf")],["<15%","15-30%","30-50%",">=50%"])
+    )
+    out["volume_ratio_context"]=out.get("origin_volume_ratio20",pd.Series(index=out.index,dtype=float)).map(
+        lambda v: bucket_num(v,[0.8,1.0,1.2,float("inf")],["<0.8x","0.8-1.0x","1.0-1.2x",">=1.2x"])
+    )
+    out["headroom_context"]=out.get("origin_headroom_pct",pd.Series(index=out.index,dtype=float)).map(
+        lambda v: bucket_num(v,[10,20,30,float("inf")],["<10%","10-20%","20-30%",">=30%"])
+    )
+    return out
 
 def frame_after(frame:pd.DataFrame,date:str,h:int)->pd.DataFrame:
     if frame is None or frame.empty:return pd.DataFrame()
@@ -71,22 +98,36 @@ def enrich(events:pd.DataFrame,frames:Dict[str,pd.DataFrame])->pd.DataFrame:
             path=frame_after(f,r.get("origin_date"),h)
             for rr in TARGET_RS:
                 out.at[i,f"d{h}_{rr}r_path"]=path_result(path,entry,stop,rr)
-    # Context signatures use source categorical descriptions, not optimized thresholds.
-    out["trend_context"]=(
-        out.get("origin_medium_wave_direction","").fillna("").astype(str)+" / "+
-        out.get("origin_medium_wave_position","").fillna("").astype(str)
+    out=descriptive_contexts(out)
+
+    def col(name):
+        return out[name].fillna("").astype(str) if name in out.columns else pd.Series("",index=out.index)
+
+    # Prefer native LIVE wave context when actually present.
+    live_trend=(col("origin_medium_wave_direction")+" / "+col("origin_medium_wave_position")).str.strip(" /")
+    live_micro=(col("origin_small_wave_direction")+" / "+col("origin_small_wave_position")).str.strip(" /")
+
+    # Historical V23 payloads do not contain the same LIVE small/medium-wave
+    # display fields. Use their canonical historical context instead of blank
+    # strings or pretending those concepts are identical.
+    canonical_trend=(
+        "TD:"+col("origin_td_label")+" / GATE:"+col("origin_v1097_gate_group")
     ).str.strip(" /")
-    out["micro_context"]=(
-        out.get("origin_small_wave_direction","").fillna("").astype(str)+" / "+
-        out.get("origin_small_wave_position","").fillna("").astype(str)
+    canonical_micro=(
+        "PB:"+col("pullback_days_context")+" / VOL:"+col("volume_ratio_context")
     ).str.strip(" /")
-    out["structure_context"]=(
-        out.get("origin_watermelon_state","").fillna("").astype(str)+" / "+
-        out.get("origin_cloud_state","").fillna("").astype(str)
+
+    out["trend_context"]=live_trend.where(live_trend.ne(""),canonical_trend)
+    out["micro_context"]=live_micro.where(live_micro.ne(""),canonical_micro)
+
+    live_structure=(col("origin_watermelon_state")+" / "+col("origin_cloud_state")).str.strip(" /")
+    canonical_structure=(
+        "PAT:"+col("origin_pattern_exact_combo")+" / QUALITY:"+col("origin_pullback_grade")
     ).str.strip(" /")
+    out["structure_context"]=live_structure.where(live_structure.ne(""),canonical_structure)
+
     out["phase_context"]=(
-        out.get("origin_wave_state","").fillna("").astype(str)+" / "+
-        out.get("origin_stage_status","").fillna("").astype(str)
+        col("origin_wave_state")+" / "+col("origin_canonical_phase")
     ).str.strip(" /")
     out["chart_context_signature"]=(
         out["trend_context"]+" || "+out["micro_context"]+" || "+out["phase_context"]
@@ -185,11 +226,14 @@ def run(a):
         "pattern_x_micro":["origin_search_pattern","micro_context"],
         "pattern_x_wave":["origin_search_pattern","origin_wave_state"],
         "pattern_x_structure":["origin_search_pattern","structure_context"],
-        "pattern_x_correction":["origin_search_pattern","origin_correction_label"],
-        "wave_x_trend":["origin_wave_state","trend_context"],
-        "watermelon_x_trend":["origin_watermelon_state","trend_context"],
-        "cloud_x_trend":["origin_cloud_state","trend_context"],
-        "action_x_trend":["origin_action","trend_context"],
+        "tdlabel_x_pullbackdays":["origin_td_label","pullback_days_context"],
+        "tdlabel_x_volratio":["origin_td_label","volume_ratio_context"],
+        "tdlabel_x_impulse":["origin_td_label","impulse_context"],
+        "gate_x_pullbackdays":["origin_v1097_gate_group","pullback_days_context"],
+        "pattern_x_tdlabel":["origin_search_pattern","origin_td_label"],
+        "exactcombo_x_tdlabel":["origin_pattern_exact_combo","origin_td_label"],
+        "phase_x_tdlabel":["origin_canonical_phase","origin_td_label"],
+        "pattern_x_headroom":["origin_search_pattern","headroom_context"],
         "full_context":["chart_context_signature"],
     }
     combined=[]
@@ -203,11 +247,15 @@ def run(a):
     top=exploratory_top(allm)
     top.to_csv(out/"context_pattern_exploratory_top.csv",index=False,encoding="utf-8-sig")
 
+    valid_r=int(pd.to_numeric(x.get("initial_risk_pct"),errors="coerce").gt(0).sum())
+    pattern_nonblank=int(x.get("origin_search_pattern",pd.Series(index=x.index,dtype=str)).fillna("").astype(str).str.len().gt(0).sum())
+    td_nonblank=int(x.get("origin_td_label",pd.Series(index=x.index,dtype=str)).fillna("").astype(str).str.len().gt(0).sum())
     report=[
         "🧠 [REAL_FULL CONTEXT × PATTERN × RISK R1]",
-        f"events={len(x)} · matrices={len(matrices)}",
+        f"events={len(x)} · valid 1R={valid_r} · pattern-mapped={pattern_nonblank} · TD-context={td_nonblank} · matrices={len(matrices)}",
         "핵심 지표: 손절거리=1R · D+5 MFE_R/MAE_R · +1R/+2R/+3R이 손절보다 먼저 도달한 비율",
-        "맥락축: 중파동 방향/위치 · 소파동 방향/위치 · 파동상태 · 수박/저항구름 · 조정률라벨 · 검색식",
+        "역사 맥락축: 검색패턴 × TD판정 × pullback days × impulse × volume ratio × headroom × canonical phase/gate",
+        "LIVE의 소/중파동 필드가 역사 payload에 없으면 이를 억지로 복원하지 않고 canonical historical context로 대체합니다.",
         "표본등급: <5 TOO_SMALL / 5~9 EARLY / 10~29 DESCRIPTIVE / 30+ STRONGER_DESCRIPTIVE",
         "주의: exploratory_top은 발견용이며 선택/랭킹 authority가 아닙니다. 같은 표본으로 조건 수정 금지.",
     ]

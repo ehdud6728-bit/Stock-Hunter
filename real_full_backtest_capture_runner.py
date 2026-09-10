@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 
 CAPTURE_ID="REAL_FULL_HISTORICAL_BUILDER_CAPTURE_R1"
-CAPTURE_REVISION="REAL_FULL_HISTORICAL_BUILDER_CAPTURE_R1_1_PROFILE_RETURN"
+CAPTURE_REVISION="REAL_FULL_HISTORICAL_BUILDER_CAPTURE_R1_2_MATERIALIZED_EXIT_NORMALIZATION"
 DATE_KEYS=("signal_date","날짜","date","asof_date","asof","기준일","target_date","evaluation_date")
 
 class ForcedExit(BaseException):
@@ -100,6 +100,59 @@ class Capture:
         (self.out/"capture_report.txt").write_text(rep,encoding="utf-8")
         print(rep)
 
+
+def _read_json(path):
+    try:
+        return json.loads(Path(path).read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+def _read_fail_reason(path):
+    try:
+        q=pd.read_csv(path)
+        return str(q.iloc[-1].get("reason") or "") if len(q) else ""
+    except Exception:
+        return ""
+
+def normalize_materialized_validation_exit(rc:int)->tuple[int,dict]:
+    info={
+        "original_rc":int(rc),"normalized_rc":int(rc),"normalized":0,
+        "reason":"","authority_ok":0,
+    }
+    if int(rc)!=74 or os.environ.get("REAL_FULL_VALIDATION_BACKTEST","0")!="1":
+        return int(rc),info
+    if os.environ.get("V23_MERGE_ONLY_PARENT","0")!="1":
+        info["reason"]="merge_only_parent_not_enabled"
+        return int(rc),info
+
+    pre=_read_json("reports/v73_v23_parent_preflight.json")
+    merge=_read_json("reports/v73_v23_handoff_merge_audit.json")
+    fail_reason=_read_fail_reason("reports/v72_backtest_fail_closed_audit.csv")
+    expected=int(pre.get("expected_date_count") or 0)
+    valid=int(pre.get("valid_date_count") or 0)
+    authority_ok=(
+        pre.get("status")=="PASS" and
+        merge.get("status")=="COMPLETE_HANDOFF" and
+        bool(merge.get("current_identity_match")) and
+        int(merge.get("conflicts") or 0)==0 and
+        expected>0 and valid==expected and
+        fail_reason=="UNIVERSE_EMPTY_OR_LISTING_FAILURE"
+    )
+    info.update({
+        "authority_ok":int(authority_ok),
+        "legacy_fail_reason":fail_reason,
+        "expected_dates":expected,
+        "valid_dates":valid,
+        "merge_status":merge.get("status"),
+    })
+    if authority_ok:
+        info["normalized"]=1
+        info["normalized_rc"]=0
+        info["reason"]="legacy V72 universe path is non-authority under proven V23 zero-recompute materialized parent"
+        return 0,info
+    info["reason"]="exit74 not eligible for normalization"
+    return int(rc),info
+
 def self_test():
     import tempfile, subprocess
     with tempfile.TemporaryDirectory() as td:
@@ -144,5 +197,15 @@ def main():
     finally:
         sys.setprofile(old_prof); threading.setprofile(None); os._exit=old_exit; sys.argv=old_argv
         cap.finish(rc)
-    return rc
+    normalized_rc,info=normalize_materialized_validation_exit(rc)
+    Path(a.output_dir).mkdir(parents=True,exist_ok=True)
+    Path(a.output_dir,"legacy_exit_normalization.json").write_text(
+        json.dumps(info,ensure_ascii=False,indent=2),encoding="utf-8"
+    )
+    if info.get("normalized"):
+        print("REAL_FULL_VALIDATION_LEGACY_EXIT_NORMALIZED",
+              f"original_rc={rc}",f"normalized_rc={normalized_rc}",
+              f"authority_ok={info.get('authority_ok')}",
+              f"reason={info.get('legacy_fail_reason')}")
+    return normalized_rc
 if __name__=="__main__": raise SystemExit(main())

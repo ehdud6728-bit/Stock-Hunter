@@ -8,7 +8,7 @@ from real_full_decision_engine import code,text,num,extract_row,make_event,matur
 from real_full_trust_audit import load_price_frames
 
 VALIDATION_ID="REAL_FULL_VALIDATION_BACKTEST_R1"
-VALIDATION_REVISION="REAL_FULL_VALIDATION_BACKTEST_R1_1_PATTERN_OVERALL_GATE"
+VALIDATION_REVISION="REAL_FULL_VALIDATION_BACKTEST_R1_2_MATERIALIZED_OVERALL_AUTHORITY"
 
 def readcsv(p,**kw):
     p=Path(p)
@@ -72,27 +72,69 @@ def mature_origin(event,frame):
     for k,v in vals.items(): out[k.replace("ready_","origin_")]=v
     return out
 
-def overall_gate(report_dir):
+def overall_gate(report_dir, events=None, snapshot_dates=0, d5_mature=0):
     root=Path(report_dir)
-    required=[
-        "v73_backtest_event_master.csv",
-        "v73_search_formula_scorecard.csv",
-        "v73_formula_stability_matrix.csv",
-        "v73_formula_stability_reconciliation.csv",
-        "v73_universe_rank_bucket_coverage.csv",
-        "v73_direct_replay_performance_audit.csv",
-    ]
-    rows=[]; ready=True
-    for fn in required:
-        p=root/fn
-        if not p.exists():
-            n=-1; status="MISSING"; ready=False
-        else:
-            q=readcsv(p)
-            n=len(q); status="READY" if n>0 else "EMPTY"
-            if n<=0: ready=False
-        rows.append({"file":fn,"rows":n,"status":status})
-    return pd.DataFrame(rows),("READY_OVERALL_BACKTEST" if ready else "INCOMPLETE_OVERALL_BACKTEST")
+    rows=[]
+
+    # 1) Candidate-level historical backtest from V23 materialized authority.
+    cand_ready=(int(snapshot_dates)>=10 and events is not None and len(events)>=30 and int(d5_mature)>=30)
+    rows.append({
+        "lane":"MATERIALIZED_CANDIDATE_BACKTEST",
+        "status":"READY_DESCRIPTIVE" if cand_ready else "NOT_READY",
+        "rows":0 if events is None else len(events),
+        "detail":f"snapshot_dates={snapshot_dates};d5_mature={d5_mature}",
+    })
+
+    # 2) Full-denominator formula truth/performance lane.
+    fs=readcsv(root/"v73_v24_full_denominator_formula_summary.csv")
+    fu=readcsv(root/"v73_v24_full_universe_attempt_outcomes.csv")
+    cov=readcsv(root/"v73_v24_full_denominator_coverage.csv")
+    formula_count=len(fs)
+    attempt_rows=len(fu)
+    known_cells=0; truth_cells=0; known_pct=np.nan
+    if not cov.empty:
+        cr=cov.iloc[-1]
+        known_cells=int(pd.to_numeric(pd.Series([cr.get("known_cells")]),errors="coerce").fillna(0).iloc[0])
+        truth_cells=int(pd.to_numeric(pd.Series([cr.get("truth_cells")]),errors="coerce").fillna(0).iloc[0])
+        known_pct=float(pd.to_numeric(pd.Series([cr.get("known_cell_coverage_pct")]),errors="coerce").iloc[0])
+    formula_ready=(formula_count==66 and attempt_rows>0 and known_cells>0)
+    rows.append({
+        "lane":"FULL_DENOMINATOR_FORMULA_BACKTEST",
+        "status":"READY_PARTIAL_TRUTH_COVERAGE" if formula_ready else "NOT_READY",
+        "rows":attempt_rows,
+        "detail":f"formulas={formula_count};known_cells={known_cells}/{truth_cells};known_pct={known_pct}",
+    })
+
+    # 3) Historical universe authority coverage.
+    ua=readcsv(root/"v73_universe_data_availability.csv")
+    complete_days=fallback_days=0
+    if not ua.empty:
+        complete_days=int(pd.to_numeric(ua.get("complete"),errors="coerce").fillna(0).eq(1).sum())
+        fallback_days=int(pd.to_numeric(ua.get("fallback_used"),errors="coerce").fillna(0).eq(1).sum())
+    rows.append({
+        "lane":"HISTORICAL_UNIVERSE_AUTHORITY",
+        "status":"LIMITED_FALLBACK_PRESENT" if fallback_days>0 else ("READY" if complete_days>0 else "NOT_READY"),
+        "rows":len(ua),
+        "detail":f"complete_days={complete_days};fallback_days={fallback_days}",
+    })
+
+    # 4) Legacy V72 path is diagnostic only under V23 zero-recompute validation.
+    legacy=readcsv(root/"v72_backtest_fail_closed_audit.csv")
+    legacy_reason=""
+    if not legacy.empty:
+        legacy_reason=str(legacy.iloc[-1].get("reason") or "")
+    rows.append({
+        "lane":"LEGACY_V72_WEEKLY_DIAGNOSTIC",
+        "status":"INCOMPATIBLE_WITH_ZERO_RECOMPUTE_NOT_AUTHORITY" if legacy_reason=="UNIVERSE_EMPTY_OR_LISTING_FAILURE" else "DIAGNOSTIC",
+        "rows":len(legacy),
+        "detail":legacy_reason,
+    })
+
+    if cand_ready and formula_ready:
+        overall="READY_DESCRIPTIVE_WITH_AUTHORITY_LIMITS" if fallback_days>0 else "READY_DESCRIPTIVE"
+    else:
+        overall="INCOMPLETE_MATERIALIZED_OVERALL_BACKTEST"
+    return pd.DataFrame(rows),overall
 
 def self_test():
     e={"origin_date":"2026-09-01","origin_price":100}
@@ -166,10 +208,10 @@ def run(a):
     for g in groups:
         pattern_score(events,g).to_csv(out/f"pattern_backtest_scorecard_{g}.csv",index=False,encoding="utf-8-sig")
 
-    gate,overall_status=overall_gate(a.report_dir)
-    gate.to_csv(out/"overall_backtest_gate.csv",index=False,encoding="utf-8-sig")
     dates=len(selected); ev=len(events)
     d5=int(pd.to_numeric(events.get("origin_d5_complete",pd.Series(dtype=float)),errors="coerce").fillna(0).eq(1).sum()) if ev else 0
+    gate,overall_status=overall_gate(a.report_dir,events=events,snapshot_dates=dates,d5_mature=d5)
+    gate.to_csv(out/"overall_backtest_gate.csv",index=False,encoding="utf-8-sig")
     multi=int(amb.get("ambiguity",pd.Series(dtype=int)).sum()) if not amb.empty else 0
 
     # Exact WAIT->NEAR->READY replay requires daily classifier snapshots.
@@ -187,6 +229,16 @@ def run(a):
     if multi>0:
         pattern_status += "_CALL_AMBIGUITY"
 
+    overall_metrics={}
+    if ev:
+        valid=pd.to_numeric(events.get("origin_price"),errors="coerce").gt(0)
+        for h in (1,3,5,10):
+            for m in ("close_ret_pct","mfe_pct","mae_pct"):
+                col=f"origin_d{h}_{m}"
+                vals=pd.to_numeric(events.loc[valid,col],errors="coerce").dropna() if col in events.columns else pd.Series(dtype=float)
+                overall_metrics[f"d{h}_{m}_median"]=float(vals.median()) if len(vals) else np.nan
+                overall_metrics[f"d{h}_{m}_mean"]=float(vals.mean()) if len(vals) else np.nan
+
     readiness=pd.DataFrame([{
         "validation_id":VALIDATION_ID,"validation_revision":VALIDATION_REVISION,
         "snapshot_dates":dates,"top15_events":ev,"d5_mature_events":d5,
@@ -195,6 +247,7 @@ def run(a):
         "overall_status":overall_status,"exact_state_machine_replay_status":exact,
         "capture_frequency":freq_status,
         "same_sample_tuning_allowed":0,"auto_order_allowed":0,
+        **overall_metrics,
     }])
     readiness.to_csv(out/"real_full_validation_readiness.csv",index=False,encoding="utf-8-sig")
     report="\n".join([
@@ -203,6 +256,9 @@ def run(a):
         f"historical snapshots={dates} · Top15 events={ev} · D+5 mature={d5} · multi-call dates={multi}",
         f"pattern={pattern_status}",
         f"overall={overall_status}",
+        f"overall D+5 median close={overall_metrics.get('d5_close_ret_pct_median',np.nan):+.2f}% · "
+        f"MFE={overall_metrics.get('d5_mfe_pct_median',np.nan):+.2f}% · "
+        f"MAE={overall_metrics.get('d5_mae_pct_median',np.nan):+.2f}%",
         f"exact WAIT→NEAR→READY replay={exact} ({freq_status})",
         "해석: 패턴/판정명 성과와 전체 Direct Replay는 과거검증. 3/5거래일 READY 전환은 일별 classifier snapshot 없이는 과거 exact 판정 금지.",
         "동일 표본 결과를 보고 R1 대기기간/조건을 튜닝하지 않습니다.",

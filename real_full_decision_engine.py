@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 
 POLICY_ID = "REAL_FULL_DECISION_STATE_R1"
-POLICY_REVISION = "REAL_FULL_DECISION_STATE_R1_1_FIXED_3_5_BAR"
+POLICY_REVISION = "REAL_FULL_DECISION_STATE_R1_2_CANONICAL_MATERIALIZED_FIELDS"
 CONFIRM_MAX_BARS = 3
 PULLBACK_MAX_BARS = 5
 TERMINAL = {"READY","INVALID_STOP","INVALID_REFERENCE","INVALIDATED","EXPIRED","NO_CHASE"}
@@ -38,6 +38,29 @@ def boolv(v: Any) -> bool:
     if isinstance(v,(float,np.floating)) and math.isfinite(float(v)): return float(v)!=0
     return str(v).strip().lower() in {"1","true","t","yes","y","pass","ok"}
 
+
+def first_num(r: Dict[str,Any], *keys: str) -> float:
+    for k in keys:
+        if k in r:
+            x=num(r.get(k))
+            if math.isfinite(x):
+                return x
+    return np.nan
+
+def first_text(r: Dict[str,Any], *keys: str) -> str:
+    for k in keys:
+        if k in r:
+            x=text(r.get(k))
+            if x:
+                return x
+    return ""
+
+def first_bool(r: Dict[str,Any], *keys: str) -> bool:
+    for k in keys:
+        if k in r and not pd.isna(r.get(k)):
+            return boolv(r.get(k))
+    return False
+
 def price_fmt(v: Any) -> str:
     x=num(v)
     return "-" if not math.isfinite(x) else f"{int(round(x)):,}"
@@ -50,54 +73,98 @@ def extract_row(row: Any) -> Dict[str,Any]:
     if isinstance(row,pd.Series): r=row.to_dict()
     elif isinstance(row,dict): r=dict(row)
     else: r={}
+
+    # LIVE Korean output and V23 materialized canonical payloads are both
+    # authorities for their own lane. Never silently discard the canonical
+    # historical field just because its display label differs from LIVE.
+    current_price=first_num(r,"현재가","snapshot_price","entry_price")
+    stop_price=first_num(r,"🚨손절가","signal_stop_price","v72_stop_line")
+    blue_line=first_num(r,"파란점선기준가","v72_entry_line")
+    blue_state=first_text(r,"파란점선상태","cross_blue_state")
+
+    live_wave=first_text(r,"파동타점상태")
+    canonical_phase=first_text(r,"phase")
+    wave_state=live_wave or canonical_phase
+
+    live_pattern=first_text(r,"검색식대표","검색패턴")
+    canonical_pattern=first_text(r,"search_pattern_primary","strategy","pattern")
+    search_pattern=live_pattern or canonical_pattern
+    search_matches=first_text(r,"검색식매칭","검색패턴매칭","search_pattern_matches")
+
+    # Do not pretend canonical English fields are identical to LIVE Korean
+    # labels. Preserve both explicit historical dimensions below.
     return {
         "code":code(r.get("code") or r.get("종목코드") or r.get("Code")),
-        "name":text(r.get("종목명") or r.get("name") or r.get("Name")),
-        "current_price":num(r.get("현재가") if "현재가" in r else r.get("snapshot_price")),
-        "stop_price":num(r.get("🚨손절가")),
-        "blue_line":num(r.get("파란점선기준가")),
-        "blue_state":text(r.get("파란점선상태")),
-        "optimal_low":num(r.get("파동최적하단")),
-        "optimal_high":num(r.get("파동최적상단")),
-        "wave_state":text(r.get("파동타점상태")),
-        "wave_opinion":text(r.get("파동실행의견")),
-        "wave_invalidation":num(r.get("파동무효화")),
-        "watermelon_state":text(r.get("수박상태명") or r.get("수박최종상태")),
-        "recommendation_stage":text(r.get("추천단계")),
-        "stage_status":text(r.get("단계상태")),
-        "cloud_state":text(r.get("저항구름상태")),
-        "refine_state":text(r.get("수박정제태그")),
-        "five_day_ok":boolv(r.get("5일재안착")),
-        "volume_ok":boolv(r.get("수박정제_vol_ok")),
-        "candle_ok":boolv(r.get("수박정제_candle_ok")),
-        "wick_ok":boolv(r.get("수박정제_wick_ok")),
-        "cloud_ok":boolv(r.get("수박정제_cloud_ok")),
-        "obv_ok":boolv(r.get("수박정제_obv_ok")),
-        "top15_sort_score":num(r.get("TOP15정렬점수")),
-        "recommend_sort_score":num(r.get("추천정렬점수")),
-        "safe_score":num(r.get("안전점수")),
-        "n_score":num(r.get("N점수")),
-        "raw_score":num(r.get("점수")),
-        "search_pattern":text(r.get("검색식대표") or r.get("검색패턴")),
-        "search_matches":text(r.get("검색식매칭") or r.get("검색패턴매칭")),
-        # Existing descriptive context fields. These are analysis dimensions only;
-        # they do not change selection, rank, or READY logic.
-        "small_wave_direction":text(r.get("소파동박스방향")),
-        "small_wave_position":text(r.get("소파동위치권")),
-        "small_wave_angle":num(r.get("소파동각도")),
-        "medium_wave_direction":text(r.get("중파동박스방향")),
-        "medium_wave_position":text(r.get("중파동위치권")),
-        "medium_wave_angle":num(r.get("중파동각도")),
-        "recent_drawdown_pct":num(r.get("최근고점대비조정률")),
-        "correction_label":text(r.get("조정률라벨")),
-        "place_label":text(r.get("자리평가라벨")),
-        "long_pullback_label":text(r.get("장기눌림라벨")),
-        "overheat_label":text(r.get("과열라벨")),
-        "source_rr_ratio":num(r.get("RR비율")),
-        "rsi":num(r.get("RSI")),
-        "bb40":num(r.get("BB40")),
-        "ma_convergence":num(r.get("MA수렴")),
-        "obv_slope":num(r.get("OBV기울기")),
+        "name":first_text(r,"종목명","name","Name"),
+        "current_price":current_price,
+        "stop_price":stop_price,
+        "blue_line":blue_line,
+        "blue_state":blue_state,
+        "optimal_low":first_num(r,"파동최적하단"),
+        "optimal_high":first_num(r,"파동최적상단"),
+        "wave_state":wave_state,
+        "wave_opinion":first_text(r,"파동실행의견","v72_pullback_restart_reason"),
+        "watermelon_state":first_text(r,"수박상태명","수박최종상태"),
+        "recommendation_stage":first_text(r,"추천단계","v1097_gate_group"),
+        "stage_status":first_text(r,"단계상태"),
+        "cloud_state":first_text(r,"저항구름상태"),
+        "refine_state":first_text(r,"수박정제태그","fake_severity"),
+        "five_day_ok":first_bool(r,"5일재안착"),
+        "volume_ok":first_bool(r,"수박정제_vol_ok"),
+        "candle_ok":first_bool(r,"수박정제_candle_ok"),
+        "wick_ok":first_bool(r,"수박정제_wick_ok"),
+        "cloud_ok":first_bool(r,"수박정제_cloud_ok"),
+        "obv_ok":first_bool(r,"수박정제_obv_ok"),
+        "top15_sort_score":first_num(r,"TOP15정렬점수"),
+        "recommend_sort_score":first_num(r,"추천정렬점수"),
+        "safe_score":first_num(r,"안전점수","safe_score"),
+        "n_score":first_num(r,"N점수","n_score"),
+        "raw_score":first_num(r,"점수"),
+        "search_pattern":search_pattern,
+        "search_matches":search_matches,
+
+        # LIVE chart-context fields where present.
+        "small_wave_direction":first_text(r,"소파동박스방향"),
+        "small_wave_position":first_text(r,"소파동위치권"),
+        "small_wave_angle":first_num(r,"소파동각도"),
+        "medium_wave_direction":first_text(r,"중파동박스방향"),
+        "medium_wave_position":first_text(r,"중파동위치권"),
+        "medium_wave_angle":first_num(r,"중파동각도"),
+        "recent_drawdown_pct":first_num(r,"최근고점대비조정률"),
+        "correction_label":first_text(r,"조정률라벨"),
+        "place_label":first_text(r,"자리평가라벨"),
+        "long_pullback_label":first_text(r,"장기눌림라벨"),
+        "overheat_label":first_text(r,"과열라벨"),
+        "source_rr_ratio":first_num(r,"RR비율"),
+        "rsi":first_num(r,"RSI","rsi"),
+        "bb40":first_num(r,"BB40","bb40"),
+        "ma_convergence":first_num(r,"MA수렴"),
+        "obv_slope":first_num(r,"OBV기울기","obv_slope"),
+
+        # Canonical V23 historical context — preserved under its OWN names.
+        "canonical_phase":canonical_phase,
+        "canonical_strategy":first_text(r,"strategy"),
+        "canonical_pattern":first_text(r,"pattern"),
+        "canonical_td_label":first_text(r,"td_label"),
+        "canonical_td_exec_bucket":first_text(r,"td_exec_bucket"),
+        "canonical_td_core_quality":first_text(r,"td_core_quality"),
+        "canonical_v1097_gate_group":first_text(r,"v1097_gate_group"),
+        "canonical_v1096_gate_group":first_text(r,"v1096_gate_group"),
+        "canonical_pullback_grade":first_text(r,"v72_pullback_restart_grade"),
+        "canonical_pullback_restart":first_bool(r,"v72_pullback_restart"),
+        "canonical_impulse_pct":first_num(r,"v72_impulse_pct"),
+        "canonical_pullback_days":first_num(r,"v72_pullback_days"),
+        "canonical_support_count":first_num(r,"v72_support_count"),
+        "canonical_volume_ratio20":first_num(r,"v72_volume_ratio20"),
+        "canonical_headroom_pct":first_num(r,"v72_headroom_pct"),
+        "canonical_stop_distance_pct":first_num(r,"v72_stop_distance_pct"),
+        "canonical_pattern_exact_combo":first_text(r,"pattern_exact_combo"),
+        "canonical_pattern_overlap_count":first_num(r,"pattern_overlap_count"),
+        "canonical_context_status":first_text(r,"v1104_context_status"),
+        "canonical_context_polarity":first_text(r,"v1105_context_polarity"),
+        "canonical_rotation_bucket":first_text(r,"v1103_rotation_bucket"),
+        "canonical_signal_stop_source":first_text(r,"signal_stop_source"),
+        "canonical_signal_stop_pct":first_num(r,"signal_stop_pct"),
     }
 
 def initial_action(x: Dict[str,Any]) -> Tuple[str,int,str]:
@@ -163,6 +230,29 @@ def make_event(row: Any, signal_date: str, rank: int) -> Dict[str,Any]:
         "origin_bb40":x["bb40"],
         "origin_ma_convergence":x["ma_convergence"],
         "origin_obv_slope":x["obv_slope"],
+        "origin_canonical_phase":x["canonical_phase"],
+        "origin_canonical_strategy":x["canonical_strategy"],
+        "origin_canonical_pattern":x["canonical_pattern"],
+        "origin_td_label":x["canonical_td_label"],
+        "origin_td_exec_bucket":x["canonical_td_exec_bucket"],
+        "origin_td_core_quality":x["canonical_td_core_quality"],
+        "origin_v1097_gate_group":x["canonical_v1097_gate_group"],
+        "origin_v1096_gate_group":x["canonical_v1096_gate_group"],
+        "origin_pullback_grade":x["canonical_pullback_grade"],
+        "origin_pullback_restart":int(x["canonical_pullback_restart"]),
+        "origin_impulse_pct":x["canonical_impulse_pct"],
+        "origin_pullback_days":x["canonical_pullback_days"],
+        "origin_support_count":x["canonical_support_count"],
+        "origin_volume_ratio20":x["canonical_volume_ratio20"],
+        "origin_headroom_pct":x["canonical_headroom_pct"],
+        "origin_stop_distance_pct":x["canonical_stop_distance_pct"],
+        "origin_pattern_exact_combo":x["canonical_pattern_exact_combo"],
+        "origin_pattern_overlap_count":x["canonical_pattern_overlap_count"],
+        "origin_market_context_status":x["canonical_context_status"],
+        "origin_market_context_polarity":x["canonical_context_polarity"],
+        "origin_rotation_bucket":x["canonical_rotation_bucket"],
+        "origin_signal_stop_source":x["canonical_signal_stop_source"],
+        "origin_signal_stop_pct":x["canonical_signal_stop_pct"],
         "origin_top15_sort_score":x["top15_sort_score"],
         "origin_recommend_sort_score":x["recommend_sort_score"],
         "origin_safe_score":x["safe_score"],"origin_n_score":x["n_score"],"origin_raw_score":x["raw_score"],
