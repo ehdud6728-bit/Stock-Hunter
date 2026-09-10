@@ -1995,7 +1995,7 @@ jobs:
       V22_SHARD_WORKER_ONLY: "0"
       V23_SHARD_COUNT: "6"
       V23_SHARD_WORKER_ONLY: "0"
-      V23_MERGE_ONLY_PARENT: ${{ github.event_name == 'workflow_dispatch' && inputs.run_profile == 'WEEKLY_BACKTEST' && (inputs.backtest_source == 'DIRECT_REPLAY' || inputs.backtest_source == '') && '1' || '0' }}
+      V23_MERGE_ONLY_PARENT: ${{ github.event_name == 'workflow_dispatch' && (inputs.run_profile == 'WEEKLY_BACKTEST' || inputs.run_profile == 'REAL_FULL_VALIDATION_BACKTEST') && (inputs.backtest_source == 'DIRECT_REPLAY' || inputs.backtest_source == '') && '1' || '0' }}
       V23_ZERO_RECOMPUTE: "1"
       V23_MATERIALIZED_DIR: "reports/v23_materialized"
       V24_FORMULA_SHADOW_ENABLE: "1"
@@ -2368,7 +2368,7 @@ jobs:
             echo "V22_SHARD_WORKER_ONLY=0"
             echo "V23_SHARD_COUNT=6"
             echo "V23_SHARD_WORKER_ONLY=0"
-            if [ "$profile" = "WEEKLY_BACKTEST" ] && [ "$bt_source" = "DIRECT_REPLAY" ]; then
+            if { [ "$profile" = "WEEKLY_BACKTEST" ] || [ "$profile" = "REAL_FULL_VALIDATION_BACKTEST" ]; } && [ "$bt_source" = "DIRECT_REPLAY" ]; then
               echo "V23_MERGE_ONLY_PARENT=1"
             else
               echo "V23_MERGE_ONLY_PARENT=0"
@@ -2797,6 +2797,34 @@ jobs:
           q=json.load(open(p,encoding='utf-8'))
           print('V23_HANDOFF_STRICT',q.get('status'),'mode',q.get('cohort_mode'),'cohorts',q.get('manifest_cohorts'),'shards',len(q.get('complete_shards') or []),'/',q.get('expected_shards'),'dates',q.get('materialized_expected_count'),'/',q.get('expected_date_count'),'identity',q.get('current_identity_match'),'conflicts',q.get('conflicts'))
           sys.exit(0 if q.get('status')=='COMPLETE_HANDOFF' and q.get('current_identity_match') and int(q.get('conflicts') or 0)==0 else 193)
+          PY
+
+      - name: REAL_FULL validation parent materialized authority proof
+        if: success() && env.TEST_PROFILE == 'REAL_FULL_VALIDATION_BACKTEST'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${V23_MERGE_ONLY_PARENT:-0}" = "1" || { echo "❌ REAL_FULL_VALIDATION_PARENT_NOT_MERGE_ONLY"; exit 194; }
+          test -f reports/v73_v23_handoff_merge_audit.json || { echo "❌ REAL_FULL_VALIDATION_V23_MERGE_AUDIT_MISSING"; exit 195; }
+          python - <<'PY'
+          import json, pathlib, sys
+          p=pathlib.Path("reports/v73_v23_handoff_merge_audit.json")
+          q=json.loads(p.read_text(encoding="utf-8"))
+          files=list(pathlib.Path("reports/v23_materialized").glob("date_*.pkl.gz"))
+          expected=int(q.get("expected_date_count") or 0)
+          actual=len(files)
+          ok=(q.get("status")=="COMPLETE_HANDOFF"
+              and bool(q.get("current_identity_match"))
+              and int(q.get("conflicts") or 0)==0
+              and expected>0
+              and actual==expected)
+          print("REAL_FULL_VALIDATION_PARENT_AUTHORITY",
+                "merge_only=1",
+                "status",q.get("status"),
+                "dates",actual,"/",expected,
+                "identity",q.get("current_identity_match"),
+                "conflicts",q.get("conflicts"))
+          sys.exit(0 if ok else 196)
           PY
 
       - name: Restore legacy V1080 signal cache
@@ -3525,10 +3553,12 @@ jobs:
               test -f real_full_backtest_capture_runner.py || { echo "❌ REAL_FULL_BACKTEST_CAPTURE_RUNNER_MISSING"; exit 247; }
               test -f real_full_validation_backtest.py || { echo "❌ REAL_FULL_VALIDATION_BACKTEST_ANALYZER_MISSING"; exit 248; }
               test -f real_full_context_pattern_risk.py || { echo "❌ REAL_FULL_CONTEXT_PATTERN_RISK_MISSING"; exit 249; }
-              python -m py_compile real_full_backtest_capture_runner.py real_full_validation_backtest.py real_full_context_pattern_risk.py real_full_decision_engine.py
+              test -f real_full_materialized_source_adapter.py || { echo "❌ REAL_FULL_MATERIALIZED_SOURCE_ADAPTER_MISSING"; exit 250; }
+              python -m py_compile real_full_backtest_capture_runner.py real_full_validation_backtest.py real_full_context_pattern_risk.py real_full_decision_engine.py real_full_materialized_source_adapter.py
               python real_full_backtest_capture_runner.py --self-test
               python real_full_validation_backtest.py --self-test
               python real_full_context_pattern_risk.py --self-test
+              python real_full_materialized_source_adapter.py --self-test
               echo "🧪 REAL_FULL_VALIDATION_BACKTEST full Direct Replay + historical builder capture | weeks=${V1080_BACKTEST_WEEKS} | per-date-pool=${V1081_DIRECT_LIMIT_PER_DATE}"
               python -u real_full_backtest_capture_runner.py --script "${SCRIPT}" --output-dir reports/real_full_validation_backtest --weekly-backtest | tee "${HAM_RUN_LOG}"
             else
@@ -3749,10 +3779,17 @@ jobs:
         shell: bash
         run: |
           set +e
-          mkdir -p reports/real_full_validation_backtest/analysis
+          mkdir -p reports/real_full_validation_backtest/analysis reports/real_full_validation_backtest/materialized_adapter
+          python -u real_full_materialized_source_adapter.py \
+            --materialized-dir reports/v23_materialized \
+            --output-dir reports/real_full_validation_backtest/materialized_adapter
+          adapter_rc=$?
+          cat reports/real_full_validation_backtest/materialized_adapter/materialized_source_adapter_report.txt 2>/dev/null || true
+
           python -u real_full_validation_backtest.py \
             --capture-dir reports/real_full_validation_backtest \
             --report-dir reports \
+            --materialized-adapter-dir reports/real_full_validation_backtest/materialized_adapter \
             --output-dir reports/real_full_validation_backtest/analysis \
             --price-cache-dir reports/.cache/v20_price_history \
             --amount-cache-dir reports/.cache/v25_actual_amount_history \
@@ -3768,7 +3805,7 @@ jobs:
             --asof-cache-dir reports/.cache/v20_asof_snapshots
           rr_rc=$?
           cat reports/real_full_validation_backtest/context_risk/context_pattern_risk_report.txt 2>/dev/null || true
-          echo "REAL_FULL_VALIDATION_BACKTEST_ANALYZER_RC=$rc CONTEXT_RISK_RC=$rr_rc"
+          echo "REAL_FULL_VALIDATION_BACKTEST_ADAPTER_RC=$adapter_rc ANALYZER_RC=$rc CONTEXT_RISK_RC=$rr_rc"
           exit 0
 
       - name: Validate REAL_FULL current source bridge
