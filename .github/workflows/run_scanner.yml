@@ -22,6 +22,7 @@ on:
         type: choice
         options:
           - REAL_FULL
+          - REAL_FULL_VALIDATION_BACKTEST
           - OPEN_0930
           - TEST_FULL
           - TEST_FAST
@@ -2179,6 +2180,12 @@ jobs:
           case "$profile" in
             REAL_FULL)
               test_mode=0; skip_ai=0; skip_chart=0; skip_google=0; weekly=0; use_bt_token=0 ;;
+            REAL_FULL_VALIDATION_BACKTEST)
+              test_mode=1; skip_ai=1; skip_chart=1; skip_google=1; weekly=1; use_bt_token=1
+              # REAL_FULL validation must run the full legacy Direct Replay path, not the CORE224 ALL lightweight parent.
+              v25_cohort_mode="ROLLING"
+              direct_limit="50"
+              ;;
             OPEN_0930)
               open0930=1; test_mode=1; skip_ai=1; skip_chart=1; skip_google=1; weekly=0; use_bt_token=1 ;;
             TEST_FULL)
@@ -2278,6 +2285,11 @@ jobs:
             echo "SKIP_CHART_IN_TEST=$skip_chart"
             echo "SKIP_GOOGLE_IN_TEST=$skip_google"
             echo "STOCKHUNTER_WEEKLY_BACKTEST_ONLY=$weekly"
+            if [ "$profile" = "REAL_FULL_VALIDATION_BACKTEST" ]; then
+              echo "REAL_FULL_VALIDATION_BACKTEST=1"
+            else
+              echo "REAL_FULL_VALIDATION_BACKTEST=0"
+            fi
             echo "STOCKHUNTER_HAM_1503_ONLY=$ham1503"
             echo "HAM_RESEARCH_ONLY=1"
             echo "HAM_EXPECT_GUARD_VERSION=V73.3.6.5.3"
@@ -3381,10 +3393,13 @@ jobs:
           set -euo pipefail
           test -f real_full_trust_audit.py || { echo "❌ REAL_FULL_TRUST_R1_SOURCE_MISSING"; exit 241; }
           test -f real_full_source_postrun_guard.py || { echo "❌ REAL_FULL_POSTRUN_GUARD_MISSING"; exit 243; }
+          test -f real_full_decision_board.py || { echo "❌ REAL_FULL_DECISION_BOARD_MISSING"; exit 245; }
+          test -f real_full_decision_engine.py || { echo "❌ REAL_FULL_DECISION_ENGINE_MISSING"; exit 246; }
           test -f triangle1pb_research.py || { echo "❌ REAL_FULL_TRUST_R1_SHARED_ADAPTER_MISSING"; exit 242; }
-          python -m py_compile real_full_trust_audit.py real_full_capture_runner.py real_full_source_postrun_guard.py
+          python -m py_compile real_full_trust_audit.py real_full_capture_runner.py real_full_source_postrun_guard.py real_full_decision_engine.py real_full_decision_board.py
           python real_full_trust_audit.py --self-test
           python real_full_source_postrun_guard.py --self-test
+          python real_full_decision_board.py --self-test
           test "${STOCKHUNTER_PYKRX_FORCE_STUB:-1}" = "0" || {
             echo "❌ REAL_FULL_PYKRX_STUB_POLICY_INVALID expected=0 actual=${STOCKHUNTER_PYKRX_FORCE_STUB:-MISSING}"
             exit 244
@@ -3504,7 +3519,19 @@ jobs:
               exit 0
             fi
             echo "🧪 WEEKLY_BACKTEST + V73.3.6.6.23 six-shard/materialized/merge-only/zero-recompute + V22 gate-audit + V21 fail-safe persist + V20 TOP500 cache/resume/progress + sequence/context/catalyst + complete formula pipeline + universe truth + market/pattern/familiar audits | source=${V1081_BACKTEST_SOURCE} | script=${SCRIPT}"
-            python -u "${SCRIPT}" --weekly-backtest | tee "${HAM_RUN_LOG}"
+            if [ "${TEST_PROFILE:-}" = "REAL_FULL_VALIDATION_BACKTEST" ]; then
+              test -f real_full_backtest_capture_runner.py || { echo "❌ REAL_FULL_BACKTEST_CAPTURE_RUNNER_MISSING"; exit 247; }
+              test -f real_full_validation_backtest.py || { echo "❌ REAL_FULL_VALIDATION_BACKTEST_ANALYZER_MISSING"; exit 248; }
+              test -f real_full_context_pattern_risk.py || { echo "❌ REAL_FULL_CONTEXT_PATTERN_RISK_MISSING"; exit 249; }
+              python -m py_compile real_full_backtest_capture_runner.py real_full_validation_backtest.py real_full_context_pattern_risk.py real_full_decision_engine.py
+              python real_full_backtest_capture_runner.py --self-test
+              python real_full_validation_backtest.py --self-test
+              python real_full_context_pattern_risk.py --self-test
+              echo "🧪 REAL_FULL_VALIDATION_BACKTEST full Direct Replay + historical builder capture | weeks=${V1080_BACKTEST_WEEKS} | per-date-pool=${V1081_DIRECT_LIMIT_PER_DATE}"
+              python -u real_full_backtest_capture_runner.py --script "${SCRIPT}" --output-dir reports/real_full_validation_backtest --weekly-backtest | tee "${HAM_RUN_LOG}"
+            else
+              python -u "${SCRIPT}" --weekly-backtest | tee "${HAM_RUN_LOG}"
+            fi
             grep -Fq "🍔 [HAM→SURVIVE→RESTART→15:03 CLOSE 연구 · RESEARCH_ONLY]" "${HAM_RUN_LOG}" || { echo "❌ WEEKLY_BACKTEST HAM report header missing"; exit 71; }
             test "$(grep -Fc "🍔 [HAM→SURVIVE→RESTART→15:03 CLOSE 연구 · RESEARCH_ONLY]" "${HAM_RUN_LOG}")" -eq 1 || { echo "❌ WEEKLY_BACKTEST HAM header count must be exactly 1"; exit 77; }
             grep -Fq "V73.3.6.5.1 ACTIVATION-GUARD PASS" "${HAM_RUN_LOG}" || { echo "❌ WEEKLY_BACKTEST HAM activation PASS marker missing"; exit 72; }
@@ -3696,7 +3723,7 @@ jobs:
                 set -e
 
                 set +e
-                python -u real_full_source_postrun_guard.py                   --run-log reports/real_full_main_run.log                   --meta reports/real_full_trust_source_meta.json                   --guard-output reports/real_full_source_postrun_guard.json                   --source reports/real_full_trust_source.csv                   --full-source reports/real_full_current_universe.csv                   --capture-slot "${REAL_FULL_TRUST_CAPTURE_SLOT:-UNKNOWN}"                   --runner-rc "$real_full_runner_rc"
+                python -u real_full_source_postrun_guard.py                   --run-log reports/real_full_main_run.log                   --meta reports/real_full_trust_source_meta.json                   --guard-output reports/real_full_source_postrun_guard.json                   --source reports/real_full_trust_source.csv                   --full-source reports/real_full_current_universe.csv                   --candidate-json today_candidates.json                   --capture-slot "${REAL_FULL_TRUST_CAPTURE_SLOT:-UNKNOWN}"                   --signal-date "${REAL_FULL_TRUST_SIGNAL_DATE:-}"                   --runner-rc "$real_full_runner_rc"
                 real_full_guard_rc=$?
                 set -e
 
@@ -3714,6 +3741,33 @@ jobs:
               fi
             fi
           fi
+
+      - name: Analyze REAL_FULL validation backtest
+        if: always() && env.TEST_PROFILE == 'REAL_FULL_VALIDATION_BACKTEST'
+        shell: bash
+        run: |
+          set +e
+          mkdir -p reports/real_full_validation_backtest/analysis
+          python -u real_full_validation_backtest.py \
+            --capture-dir reports/real_full_validation_backtest \
+            --report-dir reports \
+            --output-dir reports/real_full_validation_backtest/analysis \
+            --price-cache-dir reports/.cache/v20_price_history \
+            --amount-cache-dir reports/.cache/v25_actual_amount_history \
+            --asof-cache-dir reports/.cache/v20_asof_snapshots
+          rc=$?
+          cat reports/real_full_validation_backtest/analysis/real_full_validation_backtest_report.txt 2>/dev/null || true
+
+          python -u real_full_context_pattern_risk.py \
+            --event-ledger reports/real_full_validation_backtest/analysis/pattern_backtest_event_ledger.csv \
+            --output-dir reports/real_full_validation_backtest/context_risk \
+            --price-cache-dir reports/.cache/v20_price_history \
+            --amount-cache-dir reports/.cache/v25_actual_amount_history \
+            --asof-cache-dir reports/.cache/v20_asof_snapshots
+          rr_rc=$?
+          cat reports/real_full_validation_backtest/context_risk/context_pattern_risk_report.txt 2>/dev/null || true
+          echo "REAL_FULL_VALIDATION_BACKTEST_ANALYZER_RC=$rc CONTEXT_RISK_RC=$rr_rc"
+          exit 0
 
       - name: Validate REAL_FULL current source bridge
         if: success() && env.TEST_PROFILE == 'REAL_FULL'
@@ -3736,6 +3790,7 @@ jobs:
           g=json.loads(Path("reports/real_full_source_postrun_guard.json").read_text(encoding="utf-8"))
           assert int(g.get("pass",0)) == 1, ("REAL_FULL_POSTRUN_GUARD_FAILED", g)
           status=str(d.get("capture_status") or "")
+          print("REAL_FULL_SOURCE_QUALITY", d.get("source_quality","READY"), "trust_eligible", d.get("trust_eligible",1))
           print(
               "REAL_FULL_SOURCE_BRIDGE",
               "status",status,
@@ -3787,6 +3842,71 @@ jobs:
               "d5",rr.get("d5_mature_rows"),
           )
           PYTRUST
+
+      - name: Build REAL_FULL decision clarity + validation board
+        if: success() && env.TEST_PROFILE == 'REAL_FULL'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p reports/real_full_decision_r1 reports/.cache/real_full_trust_r1/decision
+          python -u real_full_decision_board.py \
+            --current-universe reports/real_full_current_universe.csv \
+            --trust-source reports/real_full_trust_source.csv \
+            --listing-source reports/v73_listing_cache.csv \
+            --observation-coverage reports/.cache/real_full_trust_r1/observation_coverage.csv \
+            --state-dir reports/.cache/real_full_trust_r1/decision \
+            --output-dir reports/real_full_decision_r1
+          test -f reports/real_full_decision_r1/real_full_decision_current.csv
+          test -f reports/real_full_decision_r1/real_full_decision_ledger.csv
+          test -f reports/real_full_decision_r1/real_full_decision_brief.txt
+          python - <<'PYDEC'
+          import pandas as pd
+          p="reports/real_full_decision_r1/real_full_decision_event_ledger.csv"
+          d=pd.read_csv(p,dtype={"code":str}) if __import__("pathlib").Path(p).exists() else pd.DataFrame()
+          if len(d):
+              assert d["frozen_stop"].notna().all(), "DECISION_STOP_PRICE_MISSING"
+              assert d["state"].notna().all(), "DECISION_STATE_MISSING"
+              assert (pd.to_numeric(d["auto_order_allowed"],errors="coerce").fillna(1)==0).all()
+          print("REAL_FULL_DECISION_TRACKER events",len(d),"PASS")
+          PYDEC
+
+      - name: Send concise REAL_FULL execution board
+        if: success() && env.TEST_PROFILE == 'REAL_FULL'
+        shell: bash
+        run: |
+          set -euo pipefail
+          TOKEN="${TELEGRAM_BACKTEST_TOKEN:-}"
+          CHAT_ID="${TEST_CHAT_ID_OVERRIDE:-${TELEGRAM_CHAT_ID_EFFECTIVE:-}}"
+          FILE="reports/real_full_decision_r1/real_full_decision_brief.txt"
+          if [ -z "$TOKEN" ] || [ -z "$CHAT_ID" ] || [ ! -s "$FILE" ]; then
+            echo "REAL_FULL_DECISION_TELEGRAM_SKIP token/chat/file unavailable"
+            exit 0
+          fi
+          python - <<'PYTG'
+          from pathlib import Path
+          text=Path("reports/real_full_decision_r1/real_full_decision_brief.txt").read_text(encoding="utf-8")
+          chunks=[]
+          while text:
+              if len(text)<=3500:
+                  chunks.append(text); break
+              cut=text.rfind("\n",0,3500)
+              if cut<1000: cut=3500
+              chunks.append(text[:cut]); text=text[cut:].lstrip("\n")
+          Path("/tmp/decision_chunks.json").write_text(__import__("json").dumps(chunks,ensure_ascii=False),encoding="utf-8")
+          print("decision telegram chunks",len(chunks))
+          PYTG
+          python - <<'PYTG2'
+          import json, os, urllib.parse, urllib.request
+          chunks=json.loads(open("/tmp/decision_chunks.json",encoding="utf-8").read())
+          token=os.environ["TELEGRAM_BACKTEST_TOKEN"]
+          chat=os.environ.get("TEST_CHAT_ID_OVERRIDE") or os.environ.get("TELEGRAM_CHAT_ID_EFFECTIVE")
+          for i,text in enumerate(chunks,1):
+              data=urllib.parse.urlencode({"chat_id":chat,"text":text}).encode()
+              req=urllib.request.Request(f"https://api.telegram.org/bot{token}/sendMessage",data=data)
+              with urllib.request.urlopen(req,timeout=30) as r:
+                  assert r.status==200
+              print("REAL_FULL_DECISION_TELEGRAM_SENT",i,len(text))
+          PYTG2
 
       - name: Save REAL_FULL TRUST R1 append-only ledger
         if: success() && env.TEST_PROFILE == 'REAL_FULL' && hashFiles('reports/.cache/real_full_trust_r1/state.json') != ''
