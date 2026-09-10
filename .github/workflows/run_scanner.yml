@@ -3559,8 +3559,20 @@ jobs:
               python real_full_validation_backtest.py --self-test
               python real_full_context_pattern_risk.py --self-test
               python real_full_materialized_source_adapter.py --self-test
-              echo "🧪 REAL_FULL_VALIDATION_BACKTEST full Direct Replay + historical builder capture | weeks=${V1080_BACKTEST_WEEKS} | per-date-pool=${V1081_DIRECT_LIMIT_PER_DATE}"
-              python -u real_full_backtest_capture_runner.py --script "${SCRIPT}" --output-dir reports/real_full_validation_backtest --weekly-backtest | tee "${HAM_RUN_LOG}"
+              echo "🧪 REAL_FULL_VALIDATION_BACKTEST materialized authority + legacy diagnostic | weeks=${V1080_BACKTEST_WEEKS} | per-date-pool=${V1081_DIRECT_LIMIT_PER_DATE}"
+              # The legacy V72 WEEKLY audit is not the validation authority under V23 zero-recompute.
+              # Silence its Telegram so the user does not receive a false global-failure alert.
+              TELEGRAM_BACKTEST_TOKEN="" TELEGRAM_TOKEN="" TEST_CHAT_ID_OVERRIDE="" TELEGRAM_CHAT_ID_EFFECTIVE="" \
+                python -u real_full_backtest_capture_runner.py --script "${SCRIPT}" --output-dir reports/real_full_validation_backtest --weekly-backtest | tee "${HAM_RUN_LOG}"
+              test -f reports/real_full_validation_backtest/legacy_exit_normalization.json || { echo "❌ VALIDATION_EXIT_NORMALIZATION_AUDIT_MISSING"; exit 251; }
+              python - <<'PYRF'
+              import json,sys
+              q=json.load(open("reports/real_full_validation_backtest/legacy_exit_normalization.json",encoding="utf-8"))
+              print("REAL_FULL_VALIDATION_MAIN_EXIT_AUDIT",q)
+              sys.exit(0 if int(q.get("normalized_rc",1))==0 else int(q.get("normalized_rc",1)))
+              PYRF
+              echo "✅ REAL_FULL_VALIDATION materialized main phase complete"
+              exit 0
             else
               python -u "${SCRIPT}" --weekly-backtest | tee "${HAM_RUN_LOG}"
             fi
@@ -3806,6 +3818,37 @@ jobs:
           rr_rc=$?
           cat reports/real_full_validation_backtest/context_risk/context_pattern_risk_report.txt 2>/dev/null || true
           echo "REAL_FULL_VALIDATION_BACKTEST_ADAPTER_RC=$adapter_rc ANALYZER_RC=$rc CONTEXT_RISK_RC=$rr_rc"
+
+          TOKEN="${TELEGRAM_BACKTEST_TOKEN:-}"
+          CHAT_ID="${TEST_CHAT_ID_OVERRIDE:-${TELEGRAM_CHAT_ID_EFFECTIVE:-}}"
+          if [ -n "$TOKEN" ] && [ -n "$CHAT_ID" ]; then
+            python - <<'PYMSG'
+          from pathlib import Path
+          import os, urllib.parse, urllib.request
+          files=[
+              Path("reports/real_full_validation_backtest/analysis/real_full_validation_backtest_report.txt"),
+              Path("reports/real_full_validation_backtest/context_risk/context_pattern_risk_report.txt"),
+          ]
+          text="\n\n".join(p.read_text(encoding="utf-8") for p in files if p.exists() and p.stat().st_size>0)
+          if text:
+              chunks=[]
+              while text:
+                  if len(text)<=3500:
+                      chunks.append(text); break
+                  cut=text.rfind("\n",0,3500)
+                  if cut<1000: cut=3500
+                  chunks.append(text[:cut]); text=text[cut:].lstrip("\n")
+              token=os.environ["TELEGRAM_BACKTEST_TOKEN"]
+              chat=os.environ.get("TEST_CHAT_ID_OVERRIDE") or os.environ.get("TELEGRAM_CHAT_ID_EFFECTIVE")
+              for part in chunks:
+                  data=urllib.parse.urlencode({"chat_id":chat,"text":part}).encode()
+                  with urllib.request.urlopen(
+                      urllib.request.Request(f"https://api.telegram.org/bot{token}/sendMessage",data=data),
+                      timeout=30
+                  ) as r:
+                      assert r.status==200
+          PYMSG
+          fi
           exit 0
 
       - name: Validate REAL_FULL current source bridge
