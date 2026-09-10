@@ -113,6 +113,21 @@ def run(a):
     manifest=readcsv(Path(a.capture_dir)/"capture_manifest.csv")
     rows=load_jsonl(Path(a.capture_dir)/"candidate_snapshots.jsonl")
     selected,amb=selected_snapshots(manifest,rows)
+
+    source_mode="BUILDER_CAPTURE"
+    materialized_selection=readcsv(Path(a.materialized_adapter_dir)/"materialized_source_selection.csv")
+    if not selected:
+        mrows=load_jsonl(Path(a.materialized_adapter_dir)/"materialized_candidate_snapshots.jsonl")
+        if not mrows.empty and "_snapshot_date" in mrows.columns:
+            rows=mrows.copy()
+            rows["_capture_call_id"]=pd.factorize(rows["_snapshot_date"].astype(str))[0]+1
+            map_ids=(rows[["_snapshot_date","_capture_call_id"]]
+                     .drop_duplicates()
+                     .rename(columns={"_snapshot_date":"snapshot_date","_capture_call_id":"call_id"}))
+            selected={str(r.snapshot_date):int(r.call_id) for r in map_ids.itertuples(index=False)}
+            amb=pd.DataFrame([{"snapshot_date":d,"calls":1,"selected_call_id":cid,"ambiguity":0}
+                              for d,cid in selected.items()])
+            source_mode="V23_MATERIALIZED_ADAPTER"
     amb.to_csv(out/"historical_snapshot_call_audit.csv",index=False,encoding="utf-8-sig")
     if not rows.empty:
         rows["_capture_call_id"]=pd.to_numeric(rows["_capture_call_id"],errors="coerce")
@@ -175,6 +190,7 @@ def run(a):
     readiness=pd.DataFrame([{
         "validation_id":VALIDATION_ID,"validation_revision":VALIDATION_REVISION,
         "snapshot_dates":dates,"top15_events":ev,"d5_mature_events":d5,
+        "historical_source_mode":source_mode,
         "same_date_multi_call_dates":multi,"pattern_status":pattern_status,
         "overall_status":overall_status,"exact_state_machine_replay_status":exact,
         "capture_frequency":freq_status,
@@ -183,6 +199,7 @@ def run(a):
     readiness.to_csv(out/"real_full_validation_readiness.csv",index=False,encoding="utf-8-sig")
     report="\n".join([
         "🧪 [REAL_FULL VALIDATION BACKTEST R1]",
+        f"historical source={source_mode}",
         f"historical snapshots={dates} · Top15 events={ev} · D+5 mature={d5} · multi-call dates={multi}",
         f"pattern={pattern_status}",
         f"overall={overall_status}",
@@ -198,6 +215,7 @@ def main():
     ap=argparse.ArgumentParser()
     ap.add_argument("--capture-dir",default="reports/real_full_validation_backtest")
     ap.add_argument("--report-dir",default="reports")
+    ap.add_argument("--materialized-adapter-dir",default="reports/real_full_validation_backtest/materialized_adapter")
     ap.add_argument("--output-dir",default="reports/real_full_validation_backtest/analysis")
     ap.add_argument("--price-cache-dir",default="reports/.cache/v20_price_history")
     ap.add_argument("--amount-cache-dir",default="reports/.cache/v25_actual_amount_history")
