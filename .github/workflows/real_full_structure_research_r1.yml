@@ -1,0 +1,125 @@
+name: REAL_FULL Structure Research R1
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: "Source REAL_FULL validation workflow run ID"
+        required: true
+        default: "34799606739"
+        type: string
+      expected_snapshots:
+        description: "Expected materialized snapshot count (0 disables this identity check)"
+        required: true
+        default: "24"
+        type: string
+      expected_events:
+        description: "Expected Top15 event count (0 disables this identity check)"
+        required: true
+        default: "115"
+        type: string
+      expected_d5:
+        description: "Expected D+5 mature count (0 disables this identity check)"
+        required: true
+        default: "115"
+        type: string
+      expected_matrices:
+        description: "Expected Context×Pattern matrix count (0 disables this identity check)"
+        required: true
+        default: "13"
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  real-full-structure-research-r1:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+    steps:
+      - name: Checkout current research code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install minimal research dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas numpy
+
+      - name: Download source REAL_FULL artifacts
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.source_run_id }}
+          path: source_artifacts
+
+      - name: Rebuild source reports and price history from artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf source
+          mkdir -p source/reports
+
+          report_dir="$(find source_artifacts -mindepth 1 -maxdepth 1 -type d -name '*reports-*' | head -1)"
+          test -n "$report_dir" || { echo "❌ REAL_FULL_SOURCE_REPORT_ARTIFACT_MISSING"; exit 41; }
+          cp -a "$report_dir"/. source/
+
+          shard_count=0
+          while IFS= read -r tarball; do
+            echo "extract $tarball"
+            tar -xzf "$tarball" -C source/reports
+            shard_count=$((shard_count + 1))
+          done < <(find source_artifacts -type f -name 'v23_shard_*_handoff.tar.gz' | sort)
+
+          echo "REAL_FULL_STRUCTURE_SOURCE shard_count=${shard_count} source_run=${SOURCE_RUN_ID}"
+          test "$shard_count" -eq 6 || { echo "❌ REAL_FULL_SOURCE_SHARDS_INCOMPLETE expected=6 actual=${shard_count}"; exit 42; }
+
+          test -s source/reports/real_full_validation_backtest/analysis/pattern_backtest_event_ledger.csv || { echo "❌ REAL_FULL_EVENT_LEDGER_MISSING"; exit 43; }
+          test -s source/reports/real_full_validation_backtest/materialized_adapter/materialized_candidate_snapshots.jsonl || { echo "❌ REAL_FULL_RAW_SNAPSHOTS_MISSING"; exit 44; }
+          test -d source/reports/.cache/v20_price_history || { echo "❌ REAL_FULL_PRICE_CACHE_MISSING"; exit 45; }
+          echo "price_history_files=$(find source/reports/.cache/v20_price_history -type f | wc -l | tr -d ' ')"
+
+      - name: Research analyzer self-test
+        run: |
+          python -m py_compile real_full_structure_research.py
+          python real_full_structure_research.py --self-test
+
+      - name: Run REAL_FULL Structure Research R1
+        run: |
+          python real_full_structure_research.py \
+            --event-ledger source/reports/real_full_validation_backtest/analysis/pattern_backtest_event_ledger.csv \
+            --raw-snapshots source/reports/real_full_validation_backtest/materialized_adapter/materialized_candidate_snapshots.jsonl \
+            --readiness-csv source/reports/real_full_validation_backtest/analysis/real_full_validation_readiness.csv \
+            --context-report source/reports/real_full_validation_backtest/context_risk/context_pattern_risk_report.txt \
+            --context-dir source/reports/real_full_validation_backtest/context_risk \
+            --price-cache-dir source/reports/.cache/v20_price_history \
+            --output-dir reports/real_full_structure_research_r1 \
+            --expected-snapshots "${{ inputs.expected_snapshots }}" \
+            --expected-events "${{ inputs.expected_events }}" \
+            --expected-d5 "${{ inputs.expected_d5 }}" \
+            --expected-matrices "${{ inputs.expected_matrices }}" \
+            --manual-sample 40
+
+      - name: Print research board
+        if: always()
+        shell: bash
+        run: |
+          cat reports/real_full_structure_research_r1/real_full_structure_research_report.txt 2>/dev/null || true
+          cat reports/real_full_structure_research_r1/identity_audit.csv 2>/dev/null || true
+
+      - name: Upload REAL_FULL Structure Research R1
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: real-full-structure-research-r1-${{ inputs.source_run_id }}
+          path: reports/real_full_structure_research_r1
+          if-no-files-found: error
+          retention-days: 30
