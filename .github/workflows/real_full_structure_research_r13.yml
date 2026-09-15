@@ -1,0 +1,201 @@
+name: REAL_FULL Structure Research R1.3
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: "Source REAL_FULL validation workflow run ID"
+        required: true
+        default: "34799606739"
+        type: string
+      expected_snapshots:
+        description: "Expected materialized snapshot count"
+        required: true
+        default: "24"
+        type: string
+      expected_events:
+        description: "Expected Top15 event count"
+        required: true
+        default: "115"
+        type: string
+      expected_d5:
+        description: "Expected D+5 mature count"
+        required: true
+        default: "115"
+        type: string
+      expected_matrices:
+        description: "Expected Context×Pattern matrix count"
+        required: true
+        default: "13"
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  real-full-structure-research-r13:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+    steps:
+      - name: Checkout current research code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install minimal research dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas numpy
+
+      - name: Download source REAL_FULL artifacts
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.source_run_id }}
+          path: source_artifacts
+
+      - name: Rebuild source reports and price history from artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf source
+          mkdir -p source/reports
+          report_dir="$(find source_artifacts -mindepth 1 -maxdepth 1 -type d -name '*reports-*' | head -1)"
+          test -n "$report_dir" || { echo "❌ REAL_FULL_SOURCE_REPORT_ARTIFACT_MISSING"; exit 41; }
+          cp -a "$report_dir"/. source/
+          shard_count=0
+          while IFS= read -r tarball; do
+            echo "extract $tarball"
+            tar -xzf "$tarball" -C source/reports
+            shard_count=$((shard_count + 1))
+          done < <(find source_artifacts -type f -name 'v23_shard_*_handoff.tar.gz' | sort)
+          echo "REAL_FULL_R13_SOURCE shard_count=${shard_count} source_run=${SOURCE_RUN_ID}"
+          test "$shard_count" -eq 6 || { echo "❌ REAL_FULL_SOURCE_SHARDS_INCOMPLETE expected=6 actual=${shard_count}"; exit 42; }
+          test -s source/reports/real_full_validation_backtest/analysis/pattern_backtest_event_ledger.csv || exit 43
+          test -s source/reports/real_full_validation_backtest/materialized_adapter/materialized_candidate_snapshots.jsonl || exit 44
+          test -d source/reports/.cache/v20_price_history || exit 45
+          test -s source/reports/v72_formula_selector_anchor_serialization.csv || exit 46
+
+      - name: R1 R1.2 R1.3 self-tests
+        run: |
+          python -m py_compile real_full_structure_research.py real_full_structure_research_r12.py real_full_structure_research_r13.py
+          python real_full_structure_research.py --self-test
+          python real_full_structure_research_r12.py --self-test
+          python real_full_structure_research_r13.py --self-test
+
+      - name: Run base R1 research
+        run: |
+          python real_full_structure_research.py \
+            --event-ledger source/reports/real_full_validation_backtest/analysis/pattern_backtest_event_ledger.csv \
+            --raw-snapshots source/reports/real_full_validation_backtest/materialized_adapter/materialized_candidate_snapshots.jsonl \
+            --readiness-csv source/reports/real_full_validation_backtest/analysis/real_full_validation_readiness.csv \
+            --context-report source/reports/real_full_validation_backtest/context_risk/context_pattern_risk_report.txt \
+            --context-dir source/reports/real_full_validation_backtest/context_risk \
+            --price-cache-dir source/reports/.cache/v20_price_history \
+            --output-dir reports/real_full_structure_research_r1 \
+            --expected-snapshots "${{ inputs.expected_snapshots }}" \
+            --expected-events "${{ inputs.expected_events }}" \
+            --expected-d5 "${{ inputs.expected_d5 }}" \
+            --expected-matrices "${{ inputs.expected_matrices }}" \
+            --manual-sample 40
+
+      - name: Validate upgraded R1 true-blind pack
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s reports/real_full_structure_research_r1/blind_review_sample.csv
+          test -s reports/real_full_structure_research_r1/blind_review_bars.csv
+          test -s reports/real_full_structure_research_r1/blind_review_key_DO_NOT_OPEN_UNTIL_REVIEW.csv
+          python - <<'PY'
+          import pandas as pd
+          from pathlib import Path
+          root=Path('reports/real_full_structure_research_r1')
+          sample=pd.read_csv(root/'blind_review_sample.csv')
+          bars=pd.read_csv(root/'blind_review_bars.csv')
+          key=pd.read_csv(root/'blind_review_key_DO_NOT_OPEN_UNTIL_REVIEW.csv')
+          assert sample['blind_id'].nunique()==40, sample['blind_id'].nunique()
+          forbidden={'outcome4','primary_outcome_group','sample_stratum','MFE5_CLOSE_NONPOS','MFE5_CLOSE_POS','DEEP_MAE_D5'}
+          assert not (forbidden & set(sample.columns)), forbidden & set(sample.columns)
+          assert not [c for c in sample.columns if c.startswith(('origin_d1_','origin_d3_','origin_d5_','origin_d10_','origin_d15_'))]
+          assert int(pd.to_numeric(bars['bar_offset'],errors='coerce').max()) <= 0
+          ids=set(sample['blind_id'].astype(str))
+          assert ids <= set(bars['blind_id'].astype(str))
+          assert ids <= set(key['blind_id'].astype(str))
+          print(f"TRUE_BLIND_PASS events={len(ids)} bars={len(bars)} max_offset={pd.to_numeric(bars['bar_offset'],errors='coerce').max()}")
+          PY
+
+      - name: Run R1.2 causal audit
+        run: |
+          python real_full_structure_research_r12.py \
+            --r1-ledger reports/real_full_structure_research_r1/structure_event_ledger.csv \
+            --r1-identity reports/real_full_structure_research_r1/identity_audit.csv \
+            --r1-blind-sample reports/real_full_structure_research_r1/blind_review_sample.csv \
+            --r1-blind-bars reports/real_full_structure_research_r1/blind_review_bars.csv \
+            --r1-blind-key reports/real_full_structure_research_r1/blind_review_key_DO_NOT_OPEN_UNTIL_REVIEW.csv \
+            --output-dir reports/real_full_structure_research_r12 \
+            --blind-sample 40
+
+      - name: Run R1.3 exact anchor dual-axis shadow
+        run: |
+          python real_full_structure_research_r13.py \
+            --r12-ledger reports/real_full_structure_research_r12/r12_event_ledger.csv \
+            --r1-identity reports/real_full_structure_research_r1/identity_audit.csv \
+            --anchor-csv source/reports/v72_formula_selector_anchor_serialization.csv \
+            --price-cache-dir source/reports/.cache/v20_price_history \
+            --output-dir reports/real_full_structure_research_r13 \
+            --source-run-id "${{ inputs.source_run_id }}" \
+            --expected-snapshots "${{ inputs.expected_snapshots }}" \
+            --expected-events "${{ inputs.expected_events }}" \
+            --expected-d5 "${{ inputs.expected_d5 }}" \
+            --expected-matrices "${{ inputs.expected_matrices }}"
+
+      - name: Validate R1.3 freeze guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, pandas as pd
+          from pathlib import Path
+          root=Path('reports/real_full_structure_research_r13')
+          a=pd.read_csv(root/'anchor_authority_audit.csv')
+          assert len(a)==1
+          r=a.iloc[0]
+          assert int(r['event_rows'])==115
+          assert int(r['anchor_available'])==115
+          assert int(r['anchor_temporal_pass'])==115
+          assert int(r['stage_feature_pass'])==115
+          p=json.loads((root/'r1c1_shadow_policy_lock.json').read_text(encoding='utf-8'))
+          assert p['status']=='FROZEN_RESEARCH_ONLY_OOS_PENDING'
+          assert p['production_eligible'] is False
+          assert p['search_formula_changed'] is False
+          assert p['score_changed'] is False
+          assert p['rank_changed'] is False
+          assert p['order_logic_changed'] is False
+          print('R13_FREEZE_GUARD_PASS')
+          PY
+
+      - name: Print R1.3 research board
+        if: always()
+        shell: bash
+        run: |
+          cat reports/real_full_structure_research_r13/real_full_structure_research_r13_report.txt 2>/dev/null || true
+          cat reports/real_full_structure_research_r1/identity_audit.csv 2>/dev/null || true
+
+      - name: Upload REAL_FULL Structure Research R1.3
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: real-full-structure-research-r13-${{ inputs.source_run_id }}
+          path: |
+            reports/real_full_structure_research_r1/identity_audit.csv
+            reports/real_full_structure_research_r12/outcome4_summary_score100.csv
+            reports/real_full_structure_research_r13
+          if-no-files-found: error
+          retention-days: 30
