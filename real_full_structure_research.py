@@ -16,7 +16,7 @@ import numpy as np
 import pandas as pd
 
 RESEARCH_ID = "REAL_FULL_STRUCTURE_RESEARCH_R1"
-RESEARCH_REVISION = "R1_1_CAUSAL_STRUCTURE_224_ACCUM_PB_INFERRED"
+RESEARCH_REVISION = "R1_2_OUTCOME4_V72_SATURATION_TRUE_BLIND"
 
 # These are descriptive research constants, not trading thresholds.
 GRADUAL_LOW = 1.20
@@ -140,6 +140,63 @@ def slope_norm(values: pd.Series) -> float:
     return sl / med
 
 
+def boolish(v) -> bool:
+    if isinstance(v, bool):
+        return v
+    if v is None:
+        return False
+    if isinstance(v, (int, float)) and math.isfinite(float(v)):
+        return float(v) != 0.0
+    return str(v).strip().lower() in {"1","true","yes","y","on","pass","ok"}
+
+
+def parse_v72_debug(v) -> Dict[str, float]:
+    """Parse only fields already present in the causal V72 debug string."""
+    txt = str(v or "")
+    out = {
+        "v72_debug_score": np.nan,
+        "v72_debug_impulse": np.nan,
+        "v72_debug_support": np.nan,
+        "v72_debug_rsi": np.nan,
+        "v72_debug_disp": np.nan,
+        "v72_debug_wick": np.nan,
+        "v72_debug_k": np.nan,
+        "v72_debug_d": np.nan,
+    }
+    pats = {
+        "v72_debug_score": r"(?:^|[,\s])score=([+-]?\d+(?:\.\d+)?)",
+        "v72_debug_impulse": r"(?:^|[,\s])impulse=([+-]?\d+(?:\.\d+)?)",
+        "v72_debug_support": r"(?:^|[,\s])support=([+-]?\d+(?:\.\d+)?)",
+        "v72_debug_rsi": r"(?:^|[,\s])rsi=([+-]?\d+(?:\.\d+)?)",
+        "v72_debug_disp": r"(?:^|[,\s])disp=([+-]?\d+(?:\.\d+)?)",
+        "v72_debug_wick": r"(?:^|[,\s])wick=([+-]?\d+(?:\.\d+)?)",
+    }
+    for k, pat in pats.items():
+        m = re.search(pat, txt, flags=re.I)
+        if m:
+            out[k] = num(m.group(1))
+    mk = re.search(r"(?:^|[,\s])k=([+-]?\d+(?:\.\d+)?)/([+-]?\d+(?:\.\d+)?)", txt, flags=re.I)
+    if mk:
+        out["v72_debug_k"] = num(mk.group(1))
+        out["v72_debug_d"] = num(mk.group(2))
+    return out
+
+
+def assign_outcome4(df: pd.DataFrame) -> pd.Series:
+    """Fixed research outcome taxonomy. Future outcomes are labels only."""
+    hit = pd.to_numeric(df.get("origin_d5_hit_plus5"), errors="coerce").fillna(0).eq(1)
+    close = pd.to_numeric(df.get("origin_d5_close_ret_pct"), errors="coerce")
+    mae = pd.to_numeric(df.get("origin_d5_mae_pct"), errors="coerce")
+    out = pd.Series("NO_HIT", index=df.index, dtype=object)
+    giveback = hit & close.le(0)
+    deep = hit & close.gt(0) & mae.le(DEEP_MAE_PCT)
+    clean = hit & close.gt(0) & mae.gt(DEEP_MAE_PCT)
+    out.loc[giveback] = "GIVEBACK"
+    out.loc[deep] = "DEEP_MAE_WIN"
+    out.loc[clean] = "CLEAN_PATH_WIN"
+    return out
+
+
 def structural_features(fr: pd.DataFrame, origin_date: str, pullback_days) -> Dict[str, float | int | str]:
     out: Dict[str, float | int | str] = {}
     if fr is None or fr.empty:
@@ -253,6 +310,22 @@ def outcome_stats(g: pd.DataFrame) -> Dict[str, float | int]:
     }
 
 
+def horizon_summary(df: pd.DataFrame, label: str) -> pd.DataFrame:
+    rows = []
+    for h in (1,3,5):
+        rec = {"cohort":label, "horizon":h, "events":int(len(df))}
+        for hit in ("hit_plus3","hit_plus5"):
+            col=f"origin_d{h}_{hit}"
+            x=pd.to_numeric(df.get(col),errors="coerce").dropna() if col in df.columns else pd.Series(dtype=float)
+            rec[f"{hit}_rate"] = float(x.mean()) if len(x) else np.nan
+        for m in ("close_ret_pct","mfe_pct","mae_pct"):
+            col=f"origin_d{h}_{m}"
+            x=pd.to_numeric(df.get(col),errors="coerce").dropna() if col in df.columns else pd.Series(dtype=float)
+            rec[f"{m}_median"] = float(x.median()) if len(x) else np.nan
+        rows.append(rec)
+    return pd.DataFrame(rows)
+
+
 def comparison_summary(df: pd.DataFrame, group_col: str, feature_cols: List[str]) -> pd.DataFrame:
     rows = []
     if group_col not in df.columns:
@@ -305,6 +378,113 @@ def deterministic_sample(df: pd.DataFrame, limit: int = 40) -> pd.DataFrame:
     if not picks:
         return df.head(limit).copy()
     out = pd.DataFrame(picks).head(limit).copy()
+    return out
+
+
+
+def deterministic_blind_sample(df: pd.DataFrame, limit: int = 40) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Outcome-stratified selection for coverage, then independently shuffled.
+    Reviewer-facing sample contains NO future outcome labels. Key is separate.
+    """
+    if df.empty:
+        return pd.DataFrame(), pd.DataFrame()
+    target = min(int(limit), len(df))
+    quotas = {"CLEAN_PATH_WIN":10, "GIVEBACK":10, "DEEP_MAE_WIN":10, "NO_HIT":10}
+    picks = []
+    used = set()
+    for grp, q in quotas.items():
+        z = df[df.get("outcome4", pd.Series("", index=df.index)).eq(grp)].copy()
+        if z.empty:
+            continue
+        z["_sel_hash"] = z.apply(
+            lambda r: hashlib.sha256(
+                ("R1_2_SELECT|"+str(r.get("event_id") or f"{r.get('origin_date')}|{r.get('code')}|{r.get('origin_rank')}")).encode()
+            ).hexdigest(), axis=1
+        )
+        for _, r in z.sort_values("_sel_hash").head(q).iterrows():
+            eid = str(r.get("event_id") or f"{r.get('origin_date')}|{r.get('code')}|{r.get('origin_rank')}")
+            if eid in used:
+                continue
+            used.add(eid); picks.append(r.drop(labels=["_sel_hash"], errors="ignore"))
+    # Fill any shortfall from the remaining population without changing labels/thresholds.
+    if len(picks) < target:
+        rest = df.copy()
+        rest["_eid"] = rest.apply(lambda r: str(r.get("event_id") or f"{r.get('origin_date')}|{r.get('code')}|{r.get('origin_rank')}"), axis=1)
+        rest = rest[~rest["_eid"].isin(used)].copy()
+        rest["_sel_hash"] = rest["_eid"].map(lambda x: hashlib.sha256(("R1_2_FILL|"+x).encode()).hexdigest())
+        for _, r in rest.sort_values("_sel_hash").head(target-len(picks)).iterrows():
+            picks.append(r.drop(labels=["_sel_hash","_eid"], errors="ignore"))
+    chosen = pd.DataFrame(picks).head(target).copy()
+    if chosen.empty:
+        return pd.DataFrame(), pd.DataFrame()
+    chosen["_blind_hash"] = chosen.apply(
+        lambda r: hashlib.sha256(
+            ("R1_2_BLIND_ORDER|"+str(r.get("event_id") or f"{r.get('origin_date')}|{r.get('code')}|{r.get('origin_rank')}")).encode()
+        ).hexdigest(), axis=1
+    )
+    chosen = chosen.sort_values("_blind_hash").reset_index(drop=True)
+    chosen["blind_id"] = [f"B{i:02d}" for i in range(1, len(chosen)+1)]
+
+    key_cols = [
+        "blind_id","event_id","origin_date","code","name","origin_rank","outcome4",
+        "origin_d5_hit_plus5","origin_d5_close_ret_pct","origin_d5_mfe_pct","origin_d5_mae_pct",
+        "origin_d10_close_ret_pct","origin_d10_mfe_pct","origin_d10_mae_pct",
+        "v72_score100","v72_pullback_restart_score","v72_pullback_restart_score_raw","v72_pullback_restart_grade"
+    ]
+    key = chosen[[c for c in key_cols if c in chosen.columns]].copy()
+
+    # Reviewer-facing table: causal metadata only. Explicitly strip all future/outcome fields.
+    exclude_prefix = ("origin_d1_","origin_d3_","origin_d5_","origin_d10_","origin_d15_","ready_d")
+    exclude_exact = {
+        "outcome4","primary_outcome_group","MFE5_CLOSE_NONPOS","MFE5_CLOSE_POS","DEEP_MAE_D5",
+        "_blind_hash","sample_stratum"
+    }
+    causal_cols = []
+    for c in chosen.columns:
+        if c in exclude_exact or c.startswith(exclude_prefix):
+            continue
+        causal_cols.append(c)
+    blind = chosen[causal_cols].copy()
+    front = [c for c in ["blind_id","origin_date","code","name","origin_rank"] if c in blind.columns]
+    blind = blind[front + [c for c in blind.columns if c not in front]]
+    return blind, key
+
+
+def make_blind_review_bars(blind_sample: pd.DataFrame, frames: Dict[str, pd.DataFrame], pre: int = 60) -> pd.DataFrame:
+    """True causal blind pack: only pre-origin bars and the origin bar. No D+1+ bars, no outcome labels."""
+    rows = []
+    for _, r in blind_sample.iterrows():
+        c = code(r.get("code")); d = pd.Timestamp(r.get("origin_date")).normalize()
+        f = frames.get(c)
+        if f is None or f.empty:
+            continue
+        z = f.copy(); z["date"] = pd.to_datetime(z["date"], errors="coerce").dt.normalize()
+        before = z[z["date"].lt(d)].tail(pre)
+        origin = z[z["date"].eq(d)].tail(1)
+        q = pd.concat([before, origin], ignore_index=True)
+        if q.empty:
+            continue
+        origin_pos = len(before)
+        for i, bar in q.iterrows():
+            rows.append({
+                "blind_id": r.get("blind_id"),
+                "origin_date": r.get("origin_date"),
+                "code": c,
+                "name": r.get("name"),
+                "bar_offset": int(i-origin_pos),
+                "date": bar.get("date"),
+                "open": bar.get("open"),
+                "high": bar.get("high"),
+                "low": bar.get("low"),
+                "close": bar.get("close"),
+                "volume": bar.get("volume"),
+                "research_amount": bar.get("research_amount"),
+                "ma224": bar.get("ma224"),
+            })
+    out = pd.DataFrame(rows)
+    if not out.empty:
+        assert int(pd.to_numeric(out["bar_offset"], errors="coerce").max()) <= 0, "BLIND_PACK_FUTURE_BAR_LEAK"
     return out
 
 
@@ -418,6 +598,17 @@ def run(a) -> int:
     research["MFE5_CLOSE_NONPOS"] = ((d5mfe >= MFE_WATCH_PCT) & (d5close <= 0)).astype(int)
     research["MFE5_CLOSE_POS"] = ((d5mfe >= MFE_WATCH_PCT) & (d5close > 0)).astype(int)
     research["DEEP_MAE_D5"] = (d5mae <= DEEP_MAE_PCT).astype(int)
+    research["outcome4"] = assign_outcome4(research)
+
+    # R1.2: preserve and parse the detector's own causal V72 diagnostics.
+    dbg_rows = [parse_v72_debug(v) for v in research.get("v72_pullback_restart_debug", pd.Series("", index=research.index))]
+    dbg = pd.DataFrame(dbg_rows, index=research.index)
+    for c in dbg.columns:
+        research[c] = pd.to_numeric(dbg[c], errors="coerce")
+    v72_score = pd.to_numeric(research.get("v72_pullback_restart_score"), errors="coerce")
+    v72_raw = pd.to_numeric(research.get("v72_pullback_restart_score_raw"), errors="coerce")
+    research["v72_score100"] = v72_score.ge(99.999).astype(int)
+
     research["ma224_context"] = np.where(pd.to_numeric(research.get("ma224_ready"), errors="coerce").eq(1), np.where(pd.to_numeric(research.get("below_ma224"), errors="coerce").eq(1), "BELOW224", "AT_OR_ABOVE224"), "MA224_NOT_READY")
     research["inferred_reclaim_context"] = np.where(pd.to_numeric(research.get("inferred_pb_ready"), errors="coerce").eq(1), np.where(pd.to_numeric(research.get("inferred_wave_high_reclaim_at_origin"), errors="coerce").eq(1), "INFERRED_RECLAIM", "INFERRED_NO_RECLAIM"), "INFERRED_PB_NOT_READY")
     research.to_csv(outdir/"structure_event_ledger.csv", index=False, encoding="utf-8-sig")
@@ -429,15 +620,40 @@ def run(a) -> int:
         "signal_amount_vs_pre20_median","signal_volume_vs_pre20_median",
         "origin_impulse_pct","origin_pullback_days","origin_support_count","origin_volume_ratio20","origin_headroom_pct",
         "origin_bb40","origin_obv_slope",
+        "v72_pullback_restart_score","v72_pullback_restart_score_raw","v72_impulse_pct","v72_pullback_days",
+        "v72_support_count","v72_volume_ratio20","v72_headroom_pct","v72_stop_distance_pct",
+        "v72_debug_k","v72_debug_d","v72_debug_rsi","v72_debug_disp","v72_debug_wick",
         "inferred_pb_amount_vs_wave_peak","inferred_pb_volume_vs_wave_peak","inferred_pb_drawdown_from_wave_high_pct",
         "inferred_origin_close_vs_wave_high_pct","below_ma224","inferred_wave_high_reclaim_at_origin","origin_low_holds_inferred_pb_low",
     ]
     comps = []
-    for gcol in ["primary_outcome_group","ma224_context","inferred_reclaim_context","MFE5_CLOSE_NONPOS","DEEP_MAE_D5"]:
+    for gcol in ["primary_outcome_group","outcome4","ma224_context","inferred_reclaim_context","MFE5_CLOSE_NONPOS","DEEP_MAE_D5"]:
         s = comparison_summary(research, gcol, feature_cols)
         if not s.empty: comps.append(s)
     all_comp = pd.concat(comps, ignore_index=True) if comps else pd.DataFrame()
     all_comp.to_csv(outdir/"winner_loser_structure_comparison.csv", index=False, encoding="utf-8-sig")
+
+    # R1.2 V72 saturation audit: quantify whether the legacy detector still separates candidates.
+    restart_series = research.get("v72_pullback_restart", pd.Series(False, index=research.index)).map(boolish)
+    grade_series = research.get("v72_pullback_restart_grade", pd.Series("", index=research.index)).astype(str).str.strip().str.upper()
+    patt_series = research.get("origin_search_pattern", pd.Series("", index=research.index)).astype(str)
+    sat_rows = [
+        {"metric":"v72_restart_true","count":int(restart_series.sum()),"total":len(research),"rate":float(restart_series.mean()) if len(research) else np.nan},
+        {"metric":"v72_grade_A","count":int(grade_series.eq("A").sum()),"total":len(research),"rate":float(grade_series.eq("A").mean()) if len(research) else np.nan},
+        {"metric":"v72_score_100","count":int(research["v72_score100"].eq(1).sum()),"total":len(research),"rate":float(research["v72_score100"].eq(1).mean()) if len(research) else np.nan},
+        {"metric":"v72_raw_score_ge100","count":int(v72_raw.ge(100).sum()),"total":len(research),"rate":float(v72_raw.ge(100).mean()) if len(research) else np.nan},
+        {"metric":"first_pullback_pattern","count":int(patt_series.str.contains("첫눌림|PULLBACK_RESTART", regex=True, na=False).sum()),"total":len(research),"rate":float(patt_series.str.contains("첫눌림|PULLBACK_RESTART", regex=True, na=False).mean()) if len(research) else np.nan},
+    ]
+    pd.DataFrame(sat_rows).to_csv(outdir/"v72_saturation_audit.csv", index=False, encoding="utf-8-sig")
+    score100 = research[research["v72_score100"].eq(1)].copy()
+    score100_cmp = comparison_summary(score100, "outcome4", feature_cols)
+    score100_cmp.to_csv(outdir/"v72_score100_outcome4_comparison.csv", index=False, encoding="utf-8-sig")
+
+    # V72 is an existing short-horizon closing-bet detector. Keep D1/D3 reaction separate from D5 hold-risk.
+    v72_mask = restart_series | patt_series.str.contains("첫눌림|PULLBACK_RESTART", regex=True, na=False)
+    v72_events = research[v72_mask].copy()
+    v72_horizon = horizon_summary(v72_events, "V72_PULLBACK_RESTART")
+    v72_horizon.to_csv(outdir/"v72_horizon_alignment.csv", index=False, encoding="utf-8-sig")
 
     # Compact fixed-context outcome tables; descriptive only.
     context_rows = []
@@ -453,6 +669,13 @@ def run(a) -> int:
     bars = make_review_bars(sample, frames)
     bars.to_csv(outdir/"manual_review_bars.csv", index=False, encoding="utf-8-sig")
 
+    # R1.2 true blind pack. Outcome key is deliberately isolated from the reviewer-facing files.
+    blind_sample, blind_key = deterministic_blind_sample(research, limit=a.manual_sample)
+    blind_sample.to_csv(outdir/"blind_review_sample.csv", index=False, encoding="utf-8-sig")
+    blind_bars = make_blind_review_bars(blind_sample, frames, pre=60)
+    blind_bars.to_csv(outdir/"blind_review_bars.csv", index=False, encoding="utf-8-sig")
+    blind_key.to_csv(outdir/"blind_review_key_DO_NOT_OPEN_UNTIL_REVIEW.csv", index=False, encoding="utf-8-sig")
+
     hist_ready = int(research.get("price_history_status", pd.Series(dtype=str)).eq("READY").sum())
     unique_codes = int(research["code"].nunique())
     hist_codes = int(sum(1 for c in set(research["code"]) if c in frames and not frames[c].empty))
@@ -464,6 +687,10 @@ def run(a) -> int:
     win = research[research["primary_outcome_group"].eq("WIN_PLUS5_D5")]
     lose = research[research["primary_outcome_group"].eq("NO_PLUS5_D5")]
     giveback = research[research["MFE5_CLOSE_NONPOS"].eq(1)]
+    clean = research[research["outcome4"].eq("CLEAN_PATH_WIN")]
+    deepwin = research[research["outcome4"].eq("DEEP_MAE_WIN")]
+    nohit = research[research["outcome4"].eq("NO_HIT")]
+    score100_counts = score100["outcome4"].value_counts().to_dict()
     reclaim = research[research["inferred_reclaim_context"].eq("INFERRED_RECLAIM")]
     noreclaim = research[research["inferred_reclaim_context"].eq("INFERRED_NO_RECLAIM")]
 
@@ -472,7 +699,7 @@ def run(a) -> int:
         return f"{label} n={st['events']} · +5% D5={fmt_pct(st['d5_plus5_rate'])} · D5 Close={fmt_num(st['d5_close_median'],'%')} · MFE={fmt_num(st['d5_mfe_median'],'%')} · MAE={fmt_num(st['d5_mae_median'],'%')}"
 
     report = "\n".join([
-        "🧪 [REAL_FULL STRUCTURE RESEARCH R1]",
+        "🧪 [REAL_FULL STRUCTURE RESEARCH R1.2]",
         "RESEARCH ONLY · 본 검색식/점수/랭킹/주문 변경 0 · same-sample tuning 금지",
         f"revision={RESEARCH_REVISION}",
         f"identity={snapshots}/{top15}/{d5}/{matrices} PASS · raw snapshot match={raw_match}/{len(events)}",
@@ -483,6 +710,24 @@ def run(a) -> int:
         line_group("WIN(+5%≤D5)", win),
         line_group("NO-WIN", lose),
         f"MFE≥+5%인데 D5 Close≤0 giveback n={len(giveback)} · 연구용 실패경로",
+        "",
+        "🧭 [R1.2 Fixed Outcome Taxonomy · outcome label only]",
+        line_group("CLEAN_PATH_WIN (+5% hit · D5 Close>0 · MAE>-5%)", clean),
+        line_group("DEEP_MAE_WIN (+5% hit · D5 Close>0 · MAE≤-5%)", deepwin),
+        line_group("GIVEBACK (+5% hit · D5 Close≤0)", giveback),
+        line_group("NO_HIT", nohit),
+        "※ 이 4분류는 연구 outcome label이며 detector/gate/score에 피드백하지 않음.",
+        "",
+        "🧱 [V72 Saturation Audit]",
+        f"restart TRUE={int(restart_series.sum())}/{len(research)} · Grade A={int(grade_series.eq('A').sum())}/{len(research)} · score=100={int(research['v72_score100'].eq(1).sum())}/{len(research)} · raw≥100={int(v72_raw.ge(100).sum())}/{len(research)}",
+        f"score100 내부: CLEAN={int(score100_counts.get('CLEAN_PATH_WIN',0))} · GIVEBACK={int(score100_counts.get('GIVEBACK',0))} · DEEP_MAE_WIN={int(score100_counts.get('DEEP_MAE_WIN',0))} · NO_HIT={int(score100_counts.get('NO_HIT',0))}",
+        "※ score=100/Grade A가 성과군을 충분히 분리하지 못하는지 감사하는 연구판. 본 V72 판정은 수정하지 않음.",
+        "",
+        "⏱️ [V72 Horizon Alignment · detector quality와 hold-risk 분리]",
+        f"V72 n={len(v72_events)} · D1 +3={fmt_pct(pd.to_numeric(v72_events.get('origin_d1_hit_plus3'),errors='coerce').mean())} / +5={fmt_pct(pd.to_numeric(v72_events.get('origin_d1_hit_plus5'),errors='coerce').mean())} · Close={fmt_num(med(v72_events.get('origin_d1_close_ret_pct',pd.Series(dtype=float))),'%')} · MFE={fmt_num(med(v72_events.get('origin_d1_mfe_pct',pd.Series(dtype=float))),'%')} · MAE={fmt_num(med(v72_events.get('origin_d1_mae_pct',pd.Series(dtype=float))),'%')}",
+        f"D3 +3={fmt_pct(pd.to_numeric(v72_events.get('origin_d3_hit_plus3'),errors='coerce').mean())} / +5={fmt_pct(pd.to_numeric(v72_events.get('origin_d3_hit_plus5'),errors='coerce').mean())} · Close={fmt_num(med(v72_events.get('origin_d3_close_ret_pct',pd.Series(dtype=float))),'%')} · MFE={fmt_num(med(v72_events.get('origin_d3_mfe_pct',pd.Series(dtype=float))),'%')} · MAE={fmt_num(med(v72_events.get('origin_d3_mae_pct',pd.Series(dtype=float))),'%')}",
+        f"D5 +3={fmt_pct(pd.to_numeric(v72_events.get('origin_d5_hit_plus3'),errors='coerce').mean())} / +5={fmt_pct(pd.to_numeric(v72_events.get('origin_d5_hit_plus5'),errors='coerce').mean())} · Close={fmt_num(med(v72_events.get('origin_d5_close_ret_pct',pd.Series(dtype=float))),'%')} · MFE={fmt_num(med(v72_events.get('origin_d5_mfe_pct',pd.Series(dtype=float))),'%')} · MAE={fmt_num(med(v72_events.get('origin_d5_mae_pct',pd.Series(dtype=float))),'%')}",
+        "※ 기존 V72 운용은 +3 우선익절·5일 보유 금지. 따라서 GIVEBACK/D5 Close는 장기보유 위험 label이지 곧바로 detector false-positive 판정이 아님.",
         "",
         "📏 [MA224 Context · signal close 시점 causal]",
         line_group("BELOW224", below),
@@ -502,12 +747,14 @@ def run(a) -> int:
         "",
         "🧭 [Winner vs Loser Anatomy files]",
         "structure_event_ledger.csv · winner_loser_structure_comparison.csv · fixed_context_outcomes.csv",
-        f"manual review sample={len(sample)} · review bars={len(bars)}",
+        f"legacy manual sample={len(sample)} · review bars={len(bars)}",
+        f"TRUE BLIND sample={len(blind_sample)} · causal bars={len(blind_bars)} · max bar_offset={int(pd.to_numeric(blind_bars.get('bar_offset'),errors='coerce').max()) if len(blind_bars) else 'NA'}",
+        "blind_review_sample/bars에는 outcome·D+1 이후 봉을 제거. 정답은 blind_review_key_DO_NOT_OPEN_UNTIL_REVIEW.csv에만 분리.",
         "",
         "🔒 [Authority]",
         "모든 구조 feature는 origin_date 이하 데이터만 사용. D+5/D+10은 outcome label로만 사용.",
-        "이번 R1 결과만 보고 조건 추가/삭제/가중치 변경 금지. CORE224/TRIANGLE1PB/LOW224와 독립.",
-        "➡️ NEXT: 수치 차이와 40개 수동차트 fidelity를 확인한 뒤, 반복되는 가설 1개만 별도 Shadow 후보로 검토.",
+        "이번 R1.2 결과만 보고 조건 추가/삭제/가중치 변경 금지. CORE224/TRIANGLE1PB/LOW224와 독립.",
+        "➡️ NEXT: TRUE BLIND 40개를 outcome 미공개 상태로 판정한 뒤 key와 결합. V72=100 내부 반복 causal 차이 1개가 재현될 때만 Shadow 후보 검토.",
     ])
     (outdir/"real_full_structure_research_report.txt").write_text(report, encoding="utf-8")
     provenance = {
@@ -516,6 +763,12 @@ def run(a) -> int:
         "research_only":1,"search_logic_changed":0,"score_changed":0,"ranking_changed":0,"order_changed":0,
         "same_sample_tuning_allowed":0,"actual_amount_events":actual_amount_events,"proxy_amount_events":proxy_amount_events,
         "inferred_pullback_anchor_is_exact_strategy_anchor":0,
+        "outcome4_is_research_label_only":1,
+        "true_blind_future_bars_removed":1,
+        "true_blind_outcome_labels_removed":1,
+        "v72_detector_changed":0,
+        "v72_horizon_alignment_separated":1,
+        "d5_giveback_is_hold_risk_not_detector_truth":1,
     }
     (outdir/"provenance.json").write_text(json.dumps(provenance, ensure_ascii=False, indent=2), encoding="utf-8")
     print(report)
@@ -530,6 +783,15 @@ def self_test() -> int:
     fr["ma224"] = fr["close"].rolling(224,min_periods=224).mean()
     x=structural_features(fr,str(dates[-1].date()),4)
     assert x["price_history_status"]=="READY" and x["ma224_ready"]==1 and math.isfinite(num(x["ma224_distance_pct"]))
+    t = pd.DataFrame([
+        {"origin_d5_hit_plus5":1,"origin_d5_close_ret_pct":3,"origin_d5_mae_pct":-2},
+        {"origin_d5_hit_plus5":1,"origin_d5_close_ret_pct":2,"origin_d5_mae_pct":-8},
+        {"origin_d5_hit_plus5":1,"origin_d5_close_ret_pct":-1,"origin_d5_mae_pct":-7},
+        {"origin_d5_hit_plus5":0,"origin_d5_close_ret_pct":1,"origin_d5_mae_pct":-1},
+    ])
+    assert list(assign_outcome4(t)) == ["CLEAN_PATH_WIN","DEEP_MAE_WIN","GIVEBACK","NO_HIT"]
+    dbg=parse_v72_debug("score=112, impulse=45.8, support=4, k=88.1/46.6, rsi=58.1, disp=106.9, wick=0.17")
+    assert dbg["v72_debug_score"]==112 and abs(dbg["v72_debug_k"]-88.1)<1e-9 and abs(dbg["v72_debug_d"]-46.6)<1e-9
     print("REAL_FULL_STRUCTURE_RESEARCH_SELF_TEST PASS")
     return 0
 
