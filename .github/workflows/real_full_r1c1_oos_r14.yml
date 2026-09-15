@@ -1,0 +1,237 @@
+name: REAL_FULL R1C1 OOS Tracker R1.4
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "SELF_TEST=인프라검증 / LOCK=당일 prospective 판정고정 / MATURE=D+5 outcome 결합"
+        required: true
+        default: SELF_TEST
+        type: choice
+        options:
+          - SELF_TEST
+          - LOCK
+          - MATURE
+      source_run_id:
+        description: "LOCK 대상 당일 REAL_FULL scanner run ID (LOCK에서만 필요)"
+        required: false
+        default: ""
+        type: string
+      prior_state_run_id:
+        description: "직전 R1.4 tracker run ID. 첫 LOCK은 비움; 이후 LOCK/MATURE는 최신 state run ID 권장"
+        required: false
+        default: ""
+        type: string
+      asof_date:
+        description: "MATURE 평가 기준일 YYYY-MM-DD (비우면 실행일). 연구 outcome만 사용"
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  real-full-r1c1-oos-r14:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      TZ: Asia/Seoul
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - name: Checkout frozen research code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install research dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas numpy finance-datareader pykrx requests
+
+      - name: Frozen policy and tracker self-test
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s real_full_r1c1_oos_tracker.py
+          test -s real_full_r1c1_policy_lock.json
+          python -m py_compile real_full_r1c1_oos_tracker.py
+          python real_full_r1c1_oos_tracker.py --self-test
+          python - <<'PY'
+          import json
+          p=json.load(open('real_full_r1c1_policy_lock.json',encoding='utf-8'))
+          assert p['shadow_id']=='REAL_FULL_R1C1'
+          assert p['shadow_revision']=='R1C1_PB_VOLUME_CONTRACTION_V1'
+          assert p['status']=='FROZEN_RESEARCH_ONLY_OOS_PENDING'
+          assert p['production_eligible'] is False
+          assert p['same_sample_retuning_prohibited'] is True
+          assert p['ma224']=='CONTEXT_ONLY_NOT_GATE'
+          print('R14_FROZEN_POLICY_GUARD_PASS')
+          PY
+
+      - name: Validate dispatch inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          mode='${{ inputs.mode }}'
+          if [ "$mode" = "LOCK" ] && [ -z '${{ inputs.source_run_id }}' ]; then
+            echo '❌ LOCK requires source_run_id from the same-day REAL_FULL run.'
+            exit 41
+          fi
+          if [ "$mode" = "MATURE" ] && [ -z '${{ inputs.prior_state_run_id }}' ]; then
+            echo '❌ MATURE requires prior_state_run_id containing immutable LOCK ledger.'
+            exit 42
+          fi
+
+      - name: Download prior R1.4 state
+        if: ${{ inputs.prior_state_run_id != '' }}
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.prior_state_run_id }}
+          pattern: real-full-r1c1-oos-r14-*
+          path: prior_artifacts
+          merge-multiple: true
+
+      - name: Download same-day REAL_FULL reports
+        if: ${{ inputs.mode == 'LOCK' }}
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.source_run_id }}
+          pattern: stockhunter-*-reports-*
+          path: source_artifacts
+          merge-multiple: true
+
+      - name: SELF_TEST board
+        if: ${{ inputs.mode == 'SELF_TEST' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p reports/real_full_r1c1_oos_r14
+          cp real_full_r1c1_policy_lock.json reports/real_full_r1c1_oos_r14/frozen_policy_snapshot.json
+          {
+            echo '🧪 [REAL_FULL R1C1 OOS TRACKER R1.4 · SELF_TEST]'
+            echo 'status=PASS'
+            echo 'shadow=REAL_FULL_R1C1 / R1C1_PB_VOLUME_CONTRACTION_V1'
+            echo 'rule=PB median Volume / Wave1 median Volume < 1.0'
+            echo 'scope=V72 score=100 · Top15'
+            echo 'prospective LOCK=same KST signal date only'
+            echo 'production/search/score/rank/order changes=0'
+          } | tee reports/real_full_r1c1_oos_r14/real_full_r1c1_oos_r14_report.txt
+
+      - name: Prepare previous state paths
+        if: ${{ inputs.mode != 'SELF_TEST' }}
+        id: prior
+        shell: bash
+        run: |
+          set -euo pipefail
+          lock=''
+          outcome=''
+          if [ -d prior_artifacts ]; then
+            lock="$(find prior_artifacts -type f -name 'r1c1_oos_lock_append_only.csv' | head -1 || true)"
+            outcome="$(find prior_artifacts -type f -name 'r1c1_oos_outcome_append_only.csv' | head -1 || true)"
+          fi
+          echo "lock=$lock" >> "$GITHUB_OUTPUT"
+          echo "outcome=$outcome" >> "$GITHUB_OUTPUT"
+          echo "R14_PRIOR lock=${lock:-NONE} outcome=${outcome:-NONE}"
+
+      - name: LOCK frozen R1C1 prospectively
+        if: ${{ inputs.mode == 'LOCK' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          anchor="$(find source_artifacts -type f -name 'v72_formula_selector_anchor_serialization.csv' | head -1 || true)"
+          test -n "$anchor" || { echo '❌ R14 anchor serialization missing in source reports artifact'; exit 51; }
+
+          candidate=''
+          for base in real_full_trust_source.csv real_full_current_universe.csv v1080_stockhunter_signals.csv; do
+            candidate="$(find source_artifacts -type f -name "$base" | head -1 || true)"
+            [ -n "$candidate" ] && break
+          done
+          test -n "$candidate" || { echo '❌ R14 candidate source missing'; exit 52; }
+
+          echo "R14_LOCK_SOURCE candidate=$candidate anchor=$anchor source_run=${{ inputs.source_run_id }}"
+          args=(
+            --mode LOCK
+            --policy-lock real_full_r1c1_policy_lock.json
+            --candidate-csv "$candidate"
+            --anchor-csv "$anchor"
+            --source-run-id '${{ inputs.source_run_id }}'
+            --source-file "$(basename "$candidate")"
+            --output-dir reports/real_full_r1c1_oos_r14
+            --allow-network
+            --require-same-kst-date
+          )
+          if [ -n '${{ steps.prior.outputs.lock }}' ]; then
+            args+=(--prior-lock-ledger '${{ steps.prior.outputs.lock }}')
+          fi
+          if [ -n '${{ steps.prior.outputs.outcome }}' ]; then
+            args+=(--prior-outcome-ledger '${{ steps.prior.outputs.outcome }}')
+          fi
+          python real_full_r1c1_oos_tracker.py "${args[@]}"
+
+      - name: MATURE locked observations
+        if: ${{ inputs.mode == 'MATURE' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n '${{ steps.prior.outputs.lock }}' || { echo '❌ prior immutable lock ledger missing'; exit 61; }
+          args=(
+            --mode MATURE
+            --policy-lock real_full_r1c1_policy_lock.json
+            --prior-lock-ledger '${{ steps.prior.outputs.lock }}'
+            --output-dir reports/real_full_r1c1_oos_r14
+            --allow-network
+          )
+          if [ -n '${{ steps.prior.outputs.outcome }}' ]; then
+            args+=(--prior-outcome-ledger '${{ steps.prior.outputs.outcome }}')
+          fi
+          if [ -n '${{ inputs.asof_date }}' ]; then
+            args+=(--asof-date '${{ inputs.asof_date }}')
+          fi
+          python real_full_r1c1_oos_tracker.py "${args[@]}"
+
+      - name: Validate append-only guards
+        if: ${{ inputs.mode != 'SELF_TEST' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, pandas as pd
+          from pathlib import Path
+          root=Path('reports/real_full_r1c1_oos_r14')
+          m=json.load(open(root/'r1c1_oos_state_manifest.json',encoding='utf-8'))
+          assert m['shadow_id']=='REAL_FULL_R1C1'
+          assert m['shadow_revision']=='R1C1_PB_VOLUME_CONTRACTION_V1'
+          assert m['production_eligible'] is False
+          assert m['same_sample_retuning_prohibited'] is True
+          lock=pd.read_csv(root/'r1c1_oos_lock_append_only.csv',dtype={'code':str})
+          if len(lock):
+              assert lock['event_key'].is_unique
+              e=lock[lock['shadow_eligible'].astype(str).str.lower().isin(['true','1'])]
+              if len(e):
+                  assert (e['max_predictor_price_date_used'].astype(str) < e['signal_date'].astype(str)).all()
+          print(f"R14_APPEND_ONLY_GUARD_PASS lock={len(lock)} outcome={m['outcome_rows']}")
+          PY
+
+      - name: Print R1.4 board
+        if: always()
+        shell: bash
+        run: |
+          cat reports/real_full_r1c1_oos_r14/real_full_r1c1_oos_r14_report.txt 2>/dev/null || true
+
+      - name: Upload R1.4 append-only state
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: real-full-r1c1-oos-r14-${{ github.run_id }}
+          path: reports/real_full_r1c1_oos_r14
+          if-no-files-found: error
+          retention-days: 90
