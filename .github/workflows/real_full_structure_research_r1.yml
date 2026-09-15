@@ -1,4 +1,4 @@
-name: REAL_FULL Structure Research R1
+name: REAL_FULL Structure Research R1.2
 
 on:
   workflow_dispatch:
@@ -34,7 +34,7 @@ permissions:
   actions: read
 
 jobs:
-  real-full-structure-research-r1:
+  real-full-structure-research-r12:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -92,7 +92,7 @@ jobs:
           python -m py_compile real_full_structure_research.py
           python real_full_structure_research.py --self-test
 
-      - name: Run REAL_FULL Structure Research R1
+      - name: Run REAL_FULL Structure Research R1.2
         run: |
           python real_full_structure_research.py \
             --event-ledger source/reports/real_full_validation_backtest/analysis/pattern_backtest_event_ledger.csv \
@@ -101,25 +101,54 @@ jobs:
             --context-report source/reports/real_full_validation_backtest/context_risk/context_pattern_risk_report.txt \
             --context-dir source/reports/real_full_validation_backtest/context_risk \
             --price-cache-dir source/reports/.cache/v20_price_history \
-            --output-dir reports/real_full_structure_research_r1 \
+            --output-dir reports/real_full_structure_research_r12 \
             --expected-snapshots "${{ inputs.expected_snapshots }}" \
             --expected-events "${{ inputs.expected_events }}" \
             --expected-d5 "${{ inputs.expected_d5 }}" \
             --expected-matrices "${{ inputs.expected_matrices }}" \
             --manual-sample 40
 
+      - name: Validate R1.2 fail-closed research guards
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import pandas as pd
+          from pathlib import Path
+          root=Path('reports/real_full_structure_research_r12')
+          ident=pd.read_csv(root/'identity_audit.csv')
+          assert int(ident.iloc[-1]['identity_pass']) == 1, 'R12_IDENTITY_FAIL'
+          prov=json.loads((root/'provenance.json').read_text(encoding='utf-8'))
+          assert int(prov.get('search_logic_changed',1)) == 0
+          assert int(prov.get('score_changed',1)) == 0
+          assert int(prov.get('ranking_changed',1)) == 0
+          assert int(prov.get('order_changed',1)) == 0
+          assert int(prov.get('v72_detector_changed',1)) == 0
+          bars=pd.read_csv(root/'blind_review_bars.csv')
+          assert len(bars) > 0 and int(pd.to_numeric(bars['bar_offset'],errors='coerce').max()) <= 0, 'R12_BLIND_FUTURE_BAR_LEAK'
+          sample=pd.read_csv(root/'blind_review_sample.csv')
+          forbidden={'outcome4','primary_outcome_group','MFE5_CLOSE_NONPOS','MFE5_CLOSE_POS','DEEP_MAE_D5'}
+          forbidden |= {c for c in sample.columns if c.startswith(('origin_d1_','origin_d3_','origin_d5_','origin_d10_','origin_d15_','ready_d'))}
+          assert not forbidden.intersection(sample.columns), ('R12_BLIND_OUTCOME_LEAK',sorted(forbidden.intersection(sample.columns)))
+          assert (root/'blind_review_key_DO_NOT_OPEN_UNTIL_REVIEW.csv').is_file(), 'R12_BLIND_KEY_MISSING'
+          assert (root/'v72_saturation_audit.csv').is_file(), 'R12_V72_SATURATION_MISSING'
+          assert (root/'v72_horizon_alignment.csv').is_file(), 'R12_HORIZON_AUDIT_MISSING'
+          print('REAL_FULL_STRUCTURE_R1_2_GUARDS PASS',
+                'identity=1','future_bar_leak=0','outcome_leak=0','v72_detector_changed=0')
+          PY
+
       - name: Print research board
         if: always()
         shell: bash
         run: |
-          cat reports/real_full_structure_research_r1/real_full_structure_research_report.txt 2>/dev/null || true
-          cat reports/real_full_structure_research_r1/identity_audit.csv 2>/dev/null || true
+          cat reports/real_full_structure_research_r12/real_full_structure_research_report.txt 2>/dev/null || true
+          cat reports/real_full_structure_research_r12/identity_audit.csv 2>/dev/null || true
 
-      - name: Upload REAL_FULL Structure Research R1
+      - name: Upload REAL_FULL Structure Research R1.2
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: real-full-structure-research-r1-${{ inputs.source_run_id }}
-          path: reports/real_full_structure_research_r1
+          name: real-full-structure-research-r12-${{ inputs.source_run_id }}
+          path: reports/real_full_structure_research_r12
           if-no-files-found: error
           retention-days: 30
