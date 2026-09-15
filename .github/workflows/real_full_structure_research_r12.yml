@@ -104,12 +104,39 @@ jobs:
             --expected-matrices "${{ inputs.expected_matrices }}" \
             --manual-sample 40
 
-      - name: Run R1.2 saturation and blind fidelity research
+      - name: Validate upgraded R1 true-blind pack
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s reports/real_full_structure_research_r1/blind_review_sample.csv
+          test -s reports/real_full_structure_research_r1/blind_review_bars.csv
+          test -s reports/real_full_structure_research_r1/blind_review_key_DO_NOT_OPEN_UNTIL_REVIEW.csv
+          python - <<'PY'
+          import pandas as pd
+          from pathlib import Path
+          root=Path('reports/real_full_structure_research_r1')
+          sample=pd.read_csv(root/'blind_review_sample.csv')
+          bars=pd.read_csv(root/'blind_review_bars.csv')
+          key=pd.read_csv(root/'blind_review_key_DO_NOT_OPEN_UNTIL_REVIEW.csv')
+          assert sample['blind_id'].nunique()==40, sample['blind_id'].nunique()
+          forbidden={'outcome4','primary_outcome_group','sample_stratum','MFE5_CLOSE_NONPOS','MFE5_CLOSE_POS','DEEP_MAE_D5'}
+          assert not (forbidden & set(sample.columns)), forbidden & set(sample.columns)
+          assert not [c for c in sample.columns if c.startswith(('origin_d1_','origin_d3_','origin_d5_','origin_d10_','origin_d15_'))]
+          assert int(pd.to_numeric(bars['bar_offset'],errors='coerce').max()) <= 0
+          ids=set(sample['blind_id'].astype(str))
+          assert ids <= set(bars['blind_id'].astype(str))
+          assert ids <= set(key['blind_id'].astype(str))
+          print(f"TRUE_BLIND_PASS events={len(ids)} bars={len(bars)} max_offset={pd.to_numeric(bars['bar_offset'],errors='coerce').max()}")
+          PY
+
+      - name: Run R1.2 score100 causal audit
         run: |
           python real_full_structure_research_r12.py \
             --r1-ledger reports/real_full_structure_research_r1/structure_event_ledger.csv \
             --r1-identity reports/real_full_structure_research_r1/identity_audit.csv \
-            --r1-review-bars reports/real_full_structure_research_r1/manual_review_bars.csv \
+            --r1-blind-sample reports/real_full_structure_research_r1/blind_review_sample.csv \
+            --r1-blind-bars reports/real_full_structure_research_r1/blind_review_bars.csv \
+            --r1-blind-key reports/real_full_structure_research_r1/blind_review_key_DO_NOT_OPEN_UNTIL_REVIEW.csv \
             --output-dir reports/real_full_structure_research_r12 \
             --blind-sample 40
 
@@ -127,6 +154,9 @@ jobs:
           name: real-full-structure-research-r12-${{ inputs.source_run_id }}
           path: |
             reports/real_full_structure_research_r1/identity_audit.csv
+            reports/real_full_structure_research_r1/blind_review_sample.csv
+            reports/real_full_structure_research_r1/blind_review_bars.csv
+            reports/real_full_structure_research_r1/blind_review_key_DO_NOT_OPEN_UNTIL_REVIEW.csv
             reports/real_full_structure_research_r12
           if-no-files-found: error
           retention-days: 30
