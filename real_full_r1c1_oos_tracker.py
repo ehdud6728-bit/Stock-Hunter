@@ -336,6 +336,13 @@ def build_lock_rows(candidates: pd.DataFrame, anchors: pd.DataFrame, policy_sha:
             "price_source": "UNAVAILABLE", "locked_at_utc": utc_now(),
         }
         reason = None
+        # R141_FROZEN_PREDICTOR_METRICS
+        _r141_runtime = str(r.get("runtime_price_provenance", "") or "").startswith("EXACT_RUNTIME_FDR_CACHE_220")
+        _r141_ratio = num(r.get("pb_volume_vs_wave1"))
+        _r141_wmed = num(r.get("wave1_volume_median"))
+        _r141_pmed = num(r.get("pb_volume_median"))
+        _r141_maxdate = str(r.get("max_predictor_price_date_used", "") or "")[:10]
+        _r141_causal = str(r.get("predictor_causal_invariant", "") or "")
         if str(r.get("_anchor_merge")) != "both":
             reason = "ANCHOR_MISSING"
         elif str(r.get("anchor_status", "")) != "AVAILABLE":
@@ -356,7 +363,29 @@ def build_lock_rows(candidates: pd.DataFrame, anchors: pd.DataFrame, policy_sha:
             ld = hd = pdte = pd.NaT
             if reason is None:
                 reason = "ANCHOR_DATE_PARSE_FAIL"
-        if reason is None:
+        if reason is None and _r141_runtime:
+            if _r141_causal != "PASS":
+                reason = f"R141_CAUSAL_INVARIANT_{_r141_causal or 'MISSING'}"
+            elif not (math.isfinite(_r141_wmed) and _r141_wmed > 0 and math.isfinite(_r141_pmed) and math.isfinite(_r141_ratio)):
+                reason = "R141_FROZEN_VOLUME_METRICS_MISSING"
+            elif not _r141_maxdate:
+                reason = "R141_MAX_PREDICTOR_DATE_MISSING"
+            elif pd.Timestamp(_r141_maxdate).normalize() >= sd:
+                reason = "R141_PREDICTOR_DATE_NOT_PRE_SIGNAL"
+            else:
+                base["wave1_volume_median"] = _r141_wmed
+                base["pb_volume_median"] = _r141_pmed
+                base["pb_volume_vs_wave1"] = _r141_ratio
+                base["max_predictor_price_date_used"] = _r141_maxdate
+                base["price_source"] = str(r.get("predictor_price_source", r.get("runtime_price_provenance", "R141_RUNTIME_CACHE")) or "R141_RUNTIME_CACHE")
+                # Apply the already-frozen R1C1 rule exactly; no new threshold/feature.
+                base["shadow_eligible"] = True
+                _r141_pos = bool(_r141_ratio < THRESHOLD)
+                base["r1c1_shadow_positive"] = _r141_pos
+                base["r1c1_shadow_state"] = "PB_CONTRACTION" if _r141_pos else "NO_PB_CONTRACTION"
+                base["lock_reason"] = "LOCKED_FROZEN_R1C1"
+        if reason is None and not _r141_runtime:
+            # Legacy R1.4 fallback for pre-R1.4.1 inputs only.
             # Predictor is allowed to use only through PB low, which is strictly before signal date.
             fr, psrc = get_price_frame(code, ld - pd.Timedelta(days=5), pdte + pd.Timedelta(days=1), cache_root, allow_network)
             base["price_source"] = psrc
@@ -633,6 +662,12 @@ def main() -> int:
         if not args.candidate_csv or not args.anchor_csv:
             raise SystemExit("R14_LOCK_INPUTS_REQUIRED")
         candidate_path = Path(args.candidate_csv)
+        # R141_RUNTIME_SIDECAR_AUTO_RESOLVE
+        # Workflow may still hand us real_full_trust_source.csv. If the same artifact
+        # contains the exact causal R1.4.1 sidecar, it is the only valid V72 score authority.
+        _r141_sidecar = candidate_path.parent / "real_full_r1c1_v72_runtime_sidecar.csv"
+        if _r141_sidecar.exists():
+            candidate_path = _r141_sidecar
         anchor_path = Path(args.anchor_csv)
         cand = candidate_normalize(candidate_path)
         anch = anchor_normalize(anchor_path)

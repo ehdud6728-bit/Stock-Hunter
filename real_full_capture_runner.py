@@ -341,6 +341,35 @@ class BridgeState:
                     rank_semantics="REAL_FULL_AI_CANDIDATES_EXISTING_ORDER_AT_GRACEFUL_SHUTDOWN",
                     priority=100,
                 ):
+                    # R141_CAUSAL_RUNTIME_ADAPTER_HOOK
+                    # Research-only sidecar. REAL_FULL ranking is already frozen above.
+                    # It replays V72 from the exact existing in-memory fdr_cached(...,220) frame; no refetch.
+                    try:
+                        from real_full_r1c1_runtime_adapter import build_from_runtime_frames as _r141_build
+                        _r141_build(
+                            frames,
+                            loc.get(RUNTIME_PRIMARY_VARIABLE),
+                            signal_date=_signal_date(),
+                            capture_slot=self.capture_slot,
+                        )
+                    except BaseException as _r141_e:
+                        # Fail closed only for research output; never alter REAL_FULL production result.
+                        try:
+                            import json as _r141_json
+                            from pathlib import Path as _R141Path
+                            _r141_p=_R141Path("reports/real_full_r1c1_v72_runtime_sidecar_meta.json")
+                            _r141_p.parent.mkdir(parents=True, exist_ok=True)
+                            _r141_p.write_text(_r141_json.dumps({
+                                "status":"FAIL_CLOSED",
+                                "reason":f"RUNNER_HOOK_EXCEPTION:{type(_r141_e).__name__}:{_r141_e}",
+                                "production_eligible":False,
+                                "selection_logic_changed":False,
+                                "score_rank_changed":False,
+                                "order_logic_changed":False,
+                                "network_refetch_used":False,
+                            }, ensure_ascii=False, indent=2), encoding="utf-8")
+                        except Exception:
+                            pass
                     return True
 
         # Secondary audit fallback: pre-candidate all_hits_sorted.
