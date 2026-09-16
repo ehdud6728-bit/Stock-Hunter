@@ -370,6 +370,38 @@ class BridgeState:
                             }, ensure_ascii=False, indent=2), encoding="utf-8")
                         except Exception:
                             pass
+                    # R142_PROSPECTIVE_STRUCTURE_OBSERVER_HOOK
+                    # Additive research-only observer. It consumes the same causal runtime cache
+                    # after R1.4.1 serialization. Failure can never alter REAL_FULL production.
+                    try:
+                        from real_full_r1c1_structure_observer_r142 import build_observation_board as _r142_build
+                        _r142_build(
+                            frames,
+                            loc.get(RUNTIME_PRIMARY_VARIABLE),
+                            signal_date=_signal_date(),
+                            capture_slot=self.capture_slot,
+                        )
+                    except BaseException as _r142_e:
+                        try:
+                            import json as _r142_json
+                            from pathlib import Path as _R142Path
+                            _r142_p=_R142Path("reports/real_full_r1c1_structure_observer_r142_meta.json")
+                            _r142_p.parent.mkdir(parents=True, exist_ok=True)
+                            _r142_p.write_text(_r142_json.dumps({
+                                "status":"FAIL_CLOSED",
+                                "reason":f"RUNNER_HOOK_EXCEPTION:{type(_r142_e).__name__}:{_r142_e}",
+                                "research_only":True,
+                                "production_eligible":False,
+                                "new_gate_added":False,
+                                "threshold_changed":False,
+                                "selection_logic_changed":False,
+                                "score_rank_changed":False,
+                                "order_logic_changed":False,
+                                "network_refetch_used":False,
+                                "same_sample_retuning":False,
+                            }, ensure_ascii=False, indent=2), encoding="utf-8")
+                        except Exception:
+                            pass
                     return True
 
         # Secondary audit fallback: pre-candidate all_hits_sorted.
