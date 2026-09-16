@@ -1,0 +1,76 @@
+name: Install REAL_FULL R1C1 R1.4.1 Causal Adapter
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  install-r141-causal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Validate package files
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s real_full_r1c1_runtime_adapter.py
+          test -s real_full_r1c1_historical_replay_validation.py
+          test -s apply_real_full_r141_causal_patch.py
+          test -s real_full_r1c1_policy_lock.json
+          python -m py_compile real_full_r1c1_runtime_adapter.py real_full_r1c1_historical_replay_validation.py apply_real_full_r141_causal_patch.py
+          python real_full_r1c1_runtime_adapter.py --self-test
+
+      - name: Apply root-Python-only patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python apply_real_full_r141_causal_patch.py
+          python -m py_compile real_full_capture_runner.py real_full_r1c1_oos_tracker.py
+          grep -q 'R141_CAUSAL_RUNTIME_ADAPTER_HOOK' real_full_capture_runner.py
+          grep -q 'R141_RUNTIME_SIDECAR_AUTO_RESOLVE' real_full_r1c1_oos_tracker.py
+          grep -q 'R141_FROZEN_PREDICTOR_METRICS' real_full_r1c1_oos_tracker.py
+          git diff --check
+          git diff -- real_full_capture_runner.py real_full_r1c1_oos_tracker.py
+
+      - name: Guard scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          changed="$(git diff --name-only)"
+          echo "$changed"
+          if echo "$changed" | grep -E '^\.github/workflows/' >/dev/null; then
+            echo 'FAIL: installer must not modify workflows'
+            exit 71
+          fi
+          bad="$(echo "$changed" | grep -Ev '^(real_full_capture_runner\.py|real_full_r1c1_oos_tracker\.py)$' || true)"
+          if [ -n "$bad" ]; then
+            echo "FAIL: unexpected modified files: $bad"
+            exit 72
+          fi
+
+      - name: Commit root Python patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add real_full_capture_runner.py real_full_r1c1_oos_tracker.py
+          if git diff --cached --quiet; then
+            echo 'R141_CAUSAL_INSTALL_NO_CHANGES'
+            exit 0
+          fi
+          git commit -m "Install REAL_FULL R1C1 R1.4.1 causal runtime adapter"
+          git push

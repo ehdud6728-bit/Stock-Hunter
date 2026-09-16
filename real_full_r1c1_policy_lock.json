@@ -1,0 +1,40 @@
+{
+  "shadow_id": "REAL_FULL_R1C1",
+  "shadow_revision": "R1C1_PB_VOLUME_CONTRACTION_V1",
+  "status": "FROZEN_RESEARCH_ONLY_OOS_PENDING",
+  "revision": "R1_3_EXACT_CAUSAL_ANCHOR_DUAL_AXIS_SHADOW_20260915",
+  "source_run_id": "34799606739",
+  "historical_authority": "DESCRIPTIVE_HISTORICAL_RESEARCH_ONLY",
+  "scope": "V72_PULLBACK_RESTART_SCORE_EQ_100",
+  "anchor_authority": {
+    "method": "CAUSAL_LOW_HIGH_PULLBACK_V1",
+    "provenance": "EXACT_ASOF_HISTORY_SHADOW_SERIALIZER",
+    "temporal_invariant": "PASS_REQUIRED",
+    "native_v72_anchor_claim": false
+  },
+  "eligibility": [
+    "stage_status == PASS",
+    "pullback_low_date < signal_date",
+    "pb_volume_vs_wave1 is finite"
+  ],
+  "shadow_positive_condition": "median(PB daily Volume) / median(Wave1 daily Volume) < 1.0",
+  "threshold_origin": "STRUCTURAL_RELATION_NOT_SAME_SAMPLE_OPTIMIZED: pullback volume contraction means below Wave1 median volume",
+  "ma224": "CONTEXT_ONLY_NOT_GATE",
+  "amount": "NOT_USED_IN_RULE; stage amount is Close×Volume proxy only",
+  "historical_score100_eligible_n": 95,
+  "historical_shadow_positive_n": 51,
+  "historical_shadow_negative_n": 44,
+  "historical_positive_hit_rate_pct": 70.58823529411765,
+  "historical_negative_hit_rate_pct": 47.72727272727273,
+  "historical_hit_rate_gap_pp": 22.860962566844925,
+  "oos_append_only_required": true,
+  "same_sample_retuning_prohibited": true,
+  "production_eligible": false,
+  "search_formula_changed": false,
+  "score_changed": false,
+  "rank_changed": false,
+  "order_logic_changed": false,
+  "core224_changed": false,
+  "triangle1pb_changed": false,
+  "low224_changed": false
+}
