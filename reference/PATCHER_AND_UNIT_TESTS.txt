@@ -1,0 +1,24 @@
+R1.4.1 package verification (2026-09-16)
+
+PASS
+- runtime adapter py_compile
+- historical replay validator py_compile
+- causal patcher py_compile
+- adapter --self-test
+- pytest tests/test_r141_adapter.py: 3 passed
+- patcher contract test against exact current GitHub target snippets: PASS
+- frozen policy byte-for-byte match vs R1.3 artifact: PASS
+- nested workflow copy == root-level workflow copy: PASS
+- historical exact replay: PASS
+  * Run #1390 materialized V72 capped score exact 115/115
+  * Run #1390 materialized V72 raw score exact 115/115
+  * V72 score100 96
+  * R1.3 score100 anchor exact 96/96
+  * causal eligible 95
+  * PB_CONTRACTION 51 / NO_PB_CONTRACTION 44
+  * +5 hits 36/51 vs 21/44
+
+Current GitHub base verified:
+- main head c8afe981afeea6d2a91207dd7802cda77c0be03b
+- real_full_capture_runner.py blob 0d67d0933c753c7f690b4ea8fc18ed165fa472c1
+- real_full_r1c1_oos_tracker.py blob 6269491f6e1473c5ac9fa1cf29f321d56681aa21

@@ -1,0 +1,30 @@
+REAL_FULL R1C1 R1.4.1 historical replay validation authority
+Date validated: 2026-09-16
+
+Run #1390 source run id: 34799606739
+R1.3 run id: 34919078900
+
+PASS:
+- events = 115
+- V72 score100 = 96
+- score100 anchor matched Run #1390 = 96/96
+- anchor field event-by-event mismatches = 0
+  fields: anchor_status, anchor_method, wave1_low_date/price,
+          wave1_high_date/price, pullback_low_date/price,
+          temporal_invariant, anchor_provenance, selector_logic_changed
+- causal eligible = 95
+- PB_CONTRACTION = 51
+- NO_PB_CONTRACTION = 44
+- +5% hits = 36 / 51 (70.5882352941%)
+- +5% hits = 21 / 44 (47.7272727273%)
+- gap = +22.8609625668 percentage points
+
+Frozen rule unchanged: pb_volume_vs_wave1 < 1.0
+MA224 remains context only, not gate.
+
+Additional exact V72 authority check from Run #1390 materialized snapshots:
+- materialized Top15 rows = 115
+- event identity matched R1.3 by signal_date + list-order origin_rank + code = 115/115
+- v72_pullback_restart_score exact = 115/115 (mismatch 0)
+- v72_pullback_restart_score_raw exact = 115/115 (mismatch 0)
+- materialized score100 = 96
