@@ -22,6 +22,12 @@ jobs:
         with:
           python-version: '3.10'
 
+      - name: Install validation dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --quiet numpy pandas
+
       - name: Validate package files
         shell: bash
         run: |
