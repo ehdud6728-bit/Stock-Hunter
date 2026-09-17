@@ -17,6 +17,7 @@ jobs:
   full-scan-and-save-candidates:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+
     env:
       TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
@@ -25,6 +26,7 @@ jobs:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       DART_API_KEY: ${{ secrets.DART_API_KEY }}
+
       QUICK_CANDIDATE_LIMIT: "40"
       QUICK_MERGED_LIMIT: "90"
       AMOUNT_TOP_N: "60"
@@ -46,7 +48,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pandas numpy requests beautifulsoup4 lxml pytz finance-datareader pykrx openai matplotlib mplfinance
+          pip install pandas numpy requests beautifulsoup4 lxml pytz finance-datareader pykrx yfinance openai matplotlib mplfinance
 
       - name: Run StockHunter full scan and create today_candidates.json
         run: |
@@ -59,10 +61,12 @@ jobs:
             echo "❌ today_candidates.json was not created"
             exit 1
           fi
+
           if [ ! -f amount_top60.json ]; then
             echo "❌ amount_top60.json was not created"
             exit 1
           fi
+
           python -c "import json,pathlib; data=json.loads(pathlib.Path('today_candidates.json').read_text(encoding='utf-8-sig')); items=data.get('quick_candidates', []); amt=data.get('amount_top60', []); print('quick candidate count=', len(items)); print('amount_top60 count=', len(amt)); assert isinstance(items, list); assert isinstance(amt, list)"
 
       - name: Commit candidate JSON for quick schedule
