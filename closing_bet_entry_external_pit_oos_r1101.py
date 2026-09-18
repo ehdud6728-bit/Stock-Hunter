@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-REVISION="CLOSEBET_ENTRY_EXTERNAL_PIT_OOS_R1101_20260919"
+REVISION="CLOSEBET_ENTRY_EXTERNAL_PIT_OOS_R1102_COLUMN_GEO_FIX_20260919"
 DISCOVERY_END="2026-08-18"
 FOCUS={"C","B1","B2","I"}
 
@@ -23,16 +23,16 @@ MACRO = {
 }
 
 INTERNAL_FEATURES=[
-    "entry_close_loc_pct","entry_vol20_ratio","entry_amount20_ratio","entry_atr_pct",
-    "entry_ma20_dist_pct","entry_ma60_dist_pct","entry_ma224_dist_pct",
-    "entry_upper_wick_pct","entry_ret5_pct","entry_ret20_pct"
+    "pit_entry_close_loc_pct","pit_entry_vol20_ratio","pit_entry_amount20_ratio","pit_entry_atr_pct",
+    "pit_entry_ma20_dist_pct","pit_entry_ma60_dist_pct","pit_entry_ma224_dist_pct",
+    "pit_entry_upper_wick_pct","pit_entry_ret5_pct","pit_entry_ret20_pct"
 ]
 EXTERNAL_FEATURES=[
-    "USDKRW_ret1_pct","USDKRW_ret5_pct","KOSPI_ret1_pct","KOSPI_ret5_pct",
-    "KOSDAQ_ret1_pct","KOSDAQ_ret5_pct","NASDAQ_ret1_pct","NASDAQ_ret5_pct",
-    "SOX_ret1_pct","SOX_ret5_pct","VIX_ret1_pct","VIX_ret5_pct",
-    "US10Y_ret1_pct","US10Y_ret5_pct","WTI_ret1_pct","WTI_ret5_pct",
-    "DXY_ret1_pct","DXY_ret5_pct","geo_event_count_1d","geo_event_count_5d"
+    "pit_USDKRW_ret1_pct","pit_USDKRW_ret5_pct","pit_KOSPI_ret1_pct","pit_KOSPI_ret5_pct",
+    "pit_KOSDAQ_ret1_pct","pit_KOSDAQ_ret5_pct","pit_NASDAQ_ret1_pct","pit_NASDAQ_ret5_pct",
+    "pit_SOX_ret1_pct","pit_SOX_ret5_pct","pit_VIX_ret1_pct","pit_VIX_ret5_pct",
+    "pit_US10Y_ret1_pct","pit_US10Y_ret5_pct","pit_WTI_ret1_pct","pit_WTI_ret5_pct",
+    "pit_DXY_ret1_pct","pit_DXY_ret5_pct","pit_geo_event_count_1d","pit_geo_event_count_5d"
 ]
 
 def read_csv(p):
@@ -73,7 +73,7 @@ def true_range(q):
 
 def entry_metrics(g,dt):
     z=g[g.date<=dt].sort_values("date").tail(280).reset_index(drop=True).copy()
-    if len(z)<224:return {"entry_feature_status":f"INSUFFICIENT_{len(z)}"}
+    if len(z)<224:return {"pit_entry_feature_status":f"INSUFFICIENT_{len(z)}"}
     for n in [5,10,20,60,224]:
         z[f"ma{n}"]=z.Close.rolling(n,min_periods=n).mean()
     z["tr"]=true_range(z)
@@ -97,17 +97,17 @@ def entry_metrics(g,dt):
         return (px/float(m)-1)*100 if pd.notna(m) and float(m)>0 else np.nan
 
     return {
-        "entry_feature_status":"PASS",
-        "entry_close_loc_pct":close_loc,
-        "entry_vol20_ratio":curv/vmed if vmed and vmed>0 else np.nan,
-        "entry_amount20_ratio":cura/amed if amed and amed>0 else np.nan,
-        "entry_atr_pct":atr14/px*100 if px>0 else np.nan,
-        "entry_ma20_dist_pct":md(20),
-        "entry_ma60_dist_pct":md(60),
-        "entry_ma224_dist_pct":md(224),
-        "entry_upper_wick_pct":wick,
-        "entry_ret5_pct":(px/float(z.Close.iloc[-6])-1)*100 if len(z)>=6 and z.Close.iloc[-6]>0 else np.nan,
-        "entry_ret20_pct":(px/float(z.Close.iloc[-21])-1)*100 if len(z)>=21 and z.Close.iloc[-21]>0 else np.nan,
+        "pit_entry_feature_status":"PASS",
+        "pit_entry_close_loc_pct":close_loc,
+        "pit_entry_vol20_ratio":curv/vmed if vmed and vmed>0 else np.nan,
+        "pit_entry_amount20_ratio":cura/amed if amed and amed>0 else np.nan,
+        "pit_entry_atr_pct":atr14/px*100 if px>0 else np.nan,
+        "pit_entry_ma20_dist_pct":md(20),
+        "pit_entry_ma60_dist_pct":md(60),
+        "pit_entry_ma224_dist_pct":md(224),
+        "pit_entry_upper_wick_pct":wick,
+        "pit_entry_ret5_pct":(px/float(z.Close.iloc[-6])-1)*100 if len(z)>=6 and z.Close.iloc[-6]>0 else np.nan,
+        "pit_entry_ret20_pct":(px/float(z.Close.iloc[-21])-1)*100 if len(z)>=21 and z.Close.iloc[-21]>0 else np.nan,
     }
 
 def infer_signal_clock(row):
@@ -205,18 +205,18 @@ def geo_snapshot(events,geo):
         ts,_=infer_signal_clock(r)
         rec={"signal_date":r.signal_date,"code":r.code}
         if geo.empty:
-            rec["geo_event_count_1d"]=0; rec["geo_event_count_5d"]=0
+            rec["pit_geo_event_count_1d"]=0; rec["pit_geo_event_count_5d"]=0
             rows.append(rec); continue
         seen=geo[geo.available_at<=ts].copy()
         for win in [1,5]:
             lo=ts-pd.Timedelta(days=win)
             w=seen[seen.available_at>lo]
-            rec[f"geo_event_count_{win}d"]=len(w)
+            rec[f"pit_geo_event_count_{win}d"]=len(w)
         for cat in cats:
             w=seen[(seen.category==cat)&(seen.available_at>ts-pd.Timedelta(days=5))]
-            rec[f"GEO_{re.sub('[^A-Z0-9]+','_',cat.upper()).strip('_')}_5D"]=bool(len(w))
+            rec[f"pit_GEO_{re.sub('[^A-Z0-9]+','_',cat.upper()).strip('_')}_5D"]=bool(len(w))
         ids=seen[seen.available_at>ts-pd.Timedelta(days=5)].event_id.astype(str).tolist()
-        rec["geo_event_ids_5d"]="|".join(ids)
+        rec["pit_geo_event_ids_5d"]="|".join(ids)
         rows.append(rec)
     return pd.DataFrame(rows)
 
@@ -244,7 +244,7 @@ def behavior_contrast(oos,features,scope):
     return pd.DataFrame(rows)
 
 def flag_behavior(oos):
-    flagcols=[c for c in oos if c.startswith("GEO_") and c.endswith("_5D")]
+    flagcols=[c for c in oos if c.startswith("pit_GEO_") and c.endswith("_5D")]
     rows=[]
     for p,g in oos.groupby("primary_formula"):
         for f in flagcols:
@@ -298,7 +298,7 @@ def main():
         g=hgroups.get(r.code)
         z={"signal_date":r.signal_date,"code":r.code,"primary_formula":r.primary_formula}
         if g is not None:z.update(entry_metrics(g,r.signal_date))
-        else:z["entry_feature_status"]="NO_HISTORY"
+        else:z["pit_entry_feature_status"]="NO_HISTORY"
         im.append(z)
     internal=pd.DataFrame(im)
 
@@ -308,7 +308,12 @@ def main():
     ms=macro_snapshot(evtbase,macro)
 
     # Causal geopolitical calendar.
+    geo_path=Path(a.geo_calendar)
+    if not geo_path.exists() or geo_path.stat().st_size==0:
+        raise SystemExit(f"R1102_GEO_CALENDAR_MISSING {geo_path}")
     geo=load_geo(a.geo_calendar)
+    if geo.empty:
+        raise SystemExit(f"R1102_GEO_CALENDAR_EMPTY {geo_path}")
     gs=geo_snapshot(evtbase,geo)
 
     enriched=all_evt.merge(internal,on=["signal_date","code","primary_formula"],how="left")
@@ -340,7 +345,7 @@ def main():
     # PIT audit: source date must not violate conservative cutoff.
     audits=[]
     for name,(sym,rule) in MACRO.items():
-        sc=f"{name}_source_date"
+        sc=f"pit_{name}_source_date"
         if sc not in oos:continue
         for _,r in oos[["signal_date","code","signal_timestamp_pit",sc]].dropna().iterrows():
             src=pd.Timestamp(r[sc]).normalize()
@@ -369,6 +374,12 @@ def main():
     pita.to_csv(out/"pit_availability_audit.csv",index=False,encoding="utf-8-sig")
 
     pit_fail=int((~pita.pit_valid).sum()) if len(pita) else 0
+    macro_cov_cols=[c for c in EXTERNAL_FEATURES if c.startswith("pit_") and "geo_" not in c]
+    macro_nonnull={c:int(oos[c].notna().sum()) if c in oos else 0 for c in macro_cov_cols}
+    missing_macro=[c for c,n in macro_nonnull.items() if n==0]
+    if missing_macro:
+        raise SystemExit(f"R1102_MACRO_COVERAGE_ZERO {missing_macro}")
+
     meta={
         "revision":REVISION,"status":"PASS" if pit_fail==0 else "FAIL_CLOSED_PIT",
         "oos_rows":len(oos),"discovery_rows":len(disc),"pit_audit_rows":len(pita),
@@ -394,7 +405,8 @@ def main():
         "- 내부 feature coverage 보완: close location / vol / amount / ATR / MA20/60/224 / wick / ret5/20",
         "- 미국시장·VIX·US10Y·SOX는 한국 신호 전 완료된 직전 일봉만 사용",
         "- KRX 당일 종가는 15:40+가 명확한 경우만 허용",
-        "- 지정학 이벤트는 available_at 기준 causal flag, 점수화 없음",
+        "- 새 PIT 변수는 pit_ prefix로 기존 R105 동명 컬럼과 충돌 방지",
+        "- 지정학 이벤트는 available_at 기준 causal flag, 캘린더 누락/빈 파일은 fail-closed",
         "- external context는 SHADOW only",
         "- production/score/rank/filter/order 변경 0",
     ]
