@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-REVISION="CLOSEBET_PAIRED_ANATOMY_R1061_LONG_MA_CHECKPOINT_FIX_20260918"
+REVISION="CLOSEBET_PAIRED_ANATOMY_R1062_CHECKPOINT_LOOP_FIX_20260918"
 DISCOVERY_END="2026-08-18"
 OOS_START="2026-08-19"
 OOS_END="2026-09-18"
@@ -189,8 +189,6 @@ def checkpoint_contrast(cp):
     if cp.empty:return pd.DataFrame()
     rows=[]
     feature_cols=[c for c in cp.columns if c not in {"pair_id","pattern","side"}]
-    for (p,f),_ in [(None,None)]:
-        pass
     for p,g in cp.groupby("pattern"):
         for f in feature_cols:
             w=pd.to_numeric(g[g.side.eq("winner")][f],errors="coerce").dropna()
