@@ -1,0 +1,97 @@
+name: Closing Bet Structure + Environment OOS R1.0.1
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: "v49.76 BACKTEST run id (failed only at Telegram is acceptable if artifacts exist)"
+        required: true
+        default: "35295676895"
+        type: string
+      discovery_end:
+        required: true
+        default: "2026-08-18"
+        type: string
+      oos_start:
+        required: true
+        default: "2026-08-19"
+        type: string
+      oos_end:
+        required: true
+        default: "2026-09-18"
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TZ: Asia/Seoul
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        run: pip install pandas numpy yfinance
+
+      - name: Download v49.76 source artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p source_artifacts
+          gh run download "${{ inputs.source_run_id }}" -D source_artifacts
+          echo "SOURCE FILE CHECK"
+          find source_artifacts -type f \( \
+            -name 'v49_76_selected_enriched_outcomes.csv' -o \
+            -name 'v49_76_global_canonical.csv' -o \
+            -name 'v49_76_history_authority_global.csv' -o \
+            -name 'v73_backtest_event_master.csv' \
+          \) -print
+
+      - name: Run R1.0.1 input-bridge OOS research
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -u closing_bet_structure_env_oos_r101_bridge.py \
+            --source-root source_artifacts \
+            --discovery-end "${{ inputs.discovery_end }}" \
+            --oos-start "${{ inputs.oos_start }}" \
+            --oos-end "${{ inputs.oos_end }}"
+
+      - name: Validate research-only invariants
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          p='reports/closebet_structure_env_oos_r1/meta.json'
+          m=json.load(open(p,encoding='utf-8'))
+          assert m['status']=='PASS',m
+          assert m['research_only'] is True
+          assert m['production_eligible'] is False
+          assert m['selection_logic_changed'] is False
+          assert m['score_rank_changed'] is False
+          assert m['order_logic_changed'] is False
+          assert m['same_sample_retuning'] is False
+          assert m['discovery_end']=='2026-08-18'
+          assert m['oos_start']=='2026-08-19'
+          assert m['oos_end']=='2026-09-18'
+          assert int(m.get('oos_rows',0)) > 0, m
+          print('R101_INPUT_BRIDGE_OOS PASS',m['discovery_rows'],m['oos_rows'],m['structure_pass_rows'])
+          PY
+
+      - name: Upload R1.0.1 research reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: closing-bet-structure-env-oos-r101-${{ github.run_id }}
+          path: reports/closebet_structure_env_oos_r1/**
+          if-no-files-found: warn
+          retention-days: 30
