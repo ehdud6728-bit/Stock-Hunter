@@ -1,0 +1,131 @@
+name: Closing Bet OHLCV + Path Scale OOS R1.0.4
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: "v49.76 source backtest run"
+        required: true
+        default: "35295676895"
+        type: string
+      r102_run_id:
+        description: "Successful R1.0.2 run"
+        required: true
+        default: "35308434562"
+        type: string
+      r103_run_id:
+        description: "Successful R1.0.3 run"
+        required: true
+        default: "35309770125"
+        type: string
+      discovery_end:
+        required: true
+        default: "2026-08-18"
+        type: string
+      oos_start:
+        required: true
+        default: "2026-08-19"
+        type: string
+      oos_end:
+        required: true
+        default: "2026-09-18"
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TZ: Asia/Seoul
+      R102_HISTORY_WORKERS: "6"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas numpy yfinance pykrx finance-datareader
+
+      - name: Download source artifacts
+        run: |
+          mkdir -p source_artifacts r102_artifacts r103_artifacts
+          gh run download "${{ inputs.source_run_id }}" -D source_artifacts
+          gh run download "${{ inputs.r102_run_id }}" -D r102_artifacts
+          gh run download "${{ inputs.r103_run_id }}" -D r103_artifacts
+
+      - name: Restore R1.0.2 causal OHLCV cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .cache/closebet_structure_env_oos_r102
+          key: closebet-oos-r102-history-${{ github.ref_name }}-${{ inputs.source_run_id }}-${{ inputs.r102_run_id }}
+          restore-keys: |
+            closebet-oos-r102-history-${{ github.ref_name }}-${{ inputs.source_run_id }}-
+
+      - name: Rebuild causal OHLCV only if cache absent
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -s .cache/closebet_structure_env_oos_r102/v49_76_research_raw_history.csv ]; then
+            python -u closing_bet_structure_env_oos_r102_causal_history.py \
+              --source-root source_artifacts \
+              --discovery-end "${{ inputs.discovery_end }}" \
+              --oos-start "${{ inputs.oos_start }}" \
+              --oos-end "${{ inputs.oos_end }}"
+          else
+            echo "R102 causal OHLCV cache restored"
+          fi
+
+      - name: Run Independent OHLCV + Path-Corrected Scale OOS R1.0.4
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -u closing_bet_ohlcv_path_scale_oos_r104.py \
+            --r103-root r103_artifacts \
+            --r102-root r102_artifacts \
+            --history-cache .cache/closebet_structure_env_oos_r102/v49_76_research_raw_history.csv \
+            --output-dir reports/closebet_ohlcv_path_scale_oos_r104 \
+            --discovery-end "${{ inputs.discovery_end }}" \
+            --oos-start "${{ inputs.oos_start }}" \
+            --oos-end "${{ inputs.oos_end }}"
+
+      - name: Validate R1.0.4 invariants
+        run: |
+          python - <<'PY'
+          import json
+          m=json.load(open('reports/closebet_ohlcv_path_scale_oos_r104/meta.json',encoding='utf-8'))
+          assert m['status']=='PASS',m
+          assert m['research_only'] and not m['production_eligible']
+          assert not m['selection_logic_changed']
+          assert not m['score_rank_changed']
+          assert not m['order_logic_changed']
+          assert not m['same_sample_retuning']
+          assert m['post_stop_recovery_credit'] is False
+          assert m['planned_capital_return_emitted'] is True
+          assert m['scanner_internal_flags_required_for_core_semantic'] is False
+          assert m['discovery_end']=='2026-08-18'
+          assert m['oos_start']=='2026-08-19'
+          assert m['oos_end']=='2026-09-18'
+          assert int(m['oos_rows'])>0
+          assert int(m['scale_event_rows'])>0
+          print('R104_OHLCV_PATH_SCALE PASS',m['oos_rows'],m['scale_event_rows'],m['independent_structure_rows'])
+          PY
+
+      - name: Upload R1.0.4 research reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: closing-bet-ohlcv-path-scale-oos-r104-${{ github.run_id }}
+          path: reports/closebet_ohlcv_path_scale_oos_r104/**
+          if-no-files-found: warn
+          retention-days: 30
