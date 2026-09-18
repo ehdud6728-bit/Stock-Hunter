@@ -1,0 +1,126 @@
+name: Closing Bet Entry + External PIT OOS R1.0.10.3
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        required: true
+        default: "35295676895"
+        type: string
+      r102_run_id:
+        required: true
+        default: "35308434562"
+        type: string
+      r105_run_id:
+        required: true
+        default: "35319857025"
+        type: string
+      r110_run_id:
+        required: true
+        default: "35370567601"
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TZ: Asia/Seoul
+      R102_HISTORY_WORKERS: "6"
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas numpy yfinance pykrx finance-datareader
+
+      - name: Download research inputs
+        run: |
+          mkdir -p source_artifacts r105_artifacts r110_artifacts
+          gh run download "${{ inputs.source_run_id }}" -D source_artifacts
+          gh run download "${{ inputs.r105_run_id }}" -D r105_artifacts
+          gh run download "${{ inputs.r110_run_id }}" -D r110_artifacts
+
+      - name: Restore R1.0.2 causal OHLCV cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .cache/closebet_structure_env_oos_r102
+          key: closebet-oos-r102-history-${{ github.ref_name }}-${{ inputs.source_run_id }}-${{ inputs.r102_run_id }}
+          restore-keys: |
+            closebet-oos-r102-history-${{ github.ref_name }}-${{ inputs.source_run_id }}-
+
+      - name: Rebuild causal OHLCV only if cache absent
+        run: |
+          set -euo pipefail
+          if [ ! -s .cache/closebet_structure_env_oos_r102/v49_76_research_raw_history.csv ]; then
+            python -u closing_bet_structure_env_oos_r102_causal_history.py \
+              --source-root source_artifacts \
+              --discovery-end "2026-08-18" \
+              --oos-start "2026-08-19" \
+              --oos-end "2026-09-18"
+          else
+            echo "R102 causal OHLCV cache restored"
+          fi
+
+      - name: Validate geopolitical calendar input
+        run: |
+          test -s research_context/geopolitical_event_calendar_r1101.csv
+          echo "GEO calendar present"
+
+      - name: Run Entry + External PIT OOS R1.0.10.3
+        run: |
+          python -u closing_bet_entry_external_pit_oos_r1101.py \
+            --r105-root r105_artifacts \
+            --r110-root r110_artifacts \
+            --history-cache .cache/closebet_structure_env_oos_r102/v49_76_research_raw_history.csv \
+            --geo-calendar research_context/geopolitical_event_calendar_r1101.csv \
+            --output-dir reports/closebet_entry_external_pit_oos_r1101
+
+      - name: Validate R1.0.10.3 invariants
+        run: |
+          python - <<'PY'
+          import json
+          m=json.load(open('reports/closebet_entry_external_pit_oos_r1101/meta.json',encoding='utf-8'))
+          assert m['status']=='PASS',m
+          assert m['research_only'] and not m['production_eligible']
+          assert not m['selection_logic_changed']
+          assert not m['score_rank_changed']
+          assert not m['order_logic_changed']
+          assert not m['same_sample_retuning']
+          assert m['external_context_shadow_only']
+          assert m['macro_same_day_us_close_forbidden']
+          assert m['krx_same_day_close_requires_explicit_1540_or_later']
+          assert m['unknown_signal_clock_uses_conservative_1503']
+          assert not m['geopolitical_score_created']
+          assert not m['composite_score_created']
+          assert not m['candidate_filter_created']
+          assert int(m['pit_fail_rows'])==0
+          assert int(m['geo_calendar_rows'])>0
+          assert m['column_collision_fix']
+          assert m['geo_calendar_required_nonempty']
+          assert m['macro_snapshot_prefix_fix']
+          assert m['macro_snapshot_schema_validated']
+          assert all(int(v)>0 for v in m['macro_feature_nonnull_rows'].values())
+          assert int(m['oos_rows'])>0
+          print('R1103_ENTRY_EXTERNAL_PIT PASS',m['oos_rows'],m['pit_audit_rows'])
+          PY
+
+      - name: Upload R1.0.10.3 reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: closing-bet-entry-external-pit-r1101-${{ github.run_id }}
+          path: reports/closebet_entry_external_pit_oos_r1101/**
+          if-no-files-found: warn
+          retention-days: 30
