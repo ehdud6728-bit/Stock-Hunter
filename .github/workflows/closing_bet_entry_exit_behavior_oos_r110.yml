@@ -1,0 +1,78 @@
+name: Closing Bet Entry Exit Behavior OOS R1.0.10
+
+on:
+  workflow_dispatch:
+    inputs:
+      r105_run_id:
+        required: true
+        default: "35319857025"
+        type: string
+      r1091_run_id:
+        required: true
+        default: "35346119676"
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TZ: Asia/Seoul
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas numpy
+
+      - name: Download research inputs
+        run: |
+          mkdir -p r105_artifacts r1091_artifacts
+          gh run download "${{ inputs.r105_run_id }}" -D r105_artifacts
+          gh run download "${{ inputs.r1091_run_id }}" -D r1091_artifacts
+
+      - name: Run Entry Quality x Exit Behavior OOS R1.0.10
+        run: |
+          python -u closing_bet_entry_exit_behavior_oos_r110.py \
+            --r105-root r105_artifacts \
+            --r1091-root r1091_artifacts \
+            --output-dir reports/closebet_entry_exit_behavior_oos_r110
+
+      - name: Validate R1.0.10 invariants
+        run: |
+          python - <<'PY'
+          import json
+          m=json.load(open('reports/closebet_entry_exit_behavior_oos_r110/meta.json',encoding='utf-8'))
+          assert m['status']=='PASS',m
+          assert m['research_only'] and not m['production_eligible']
+          assert not m['selection_logic_changed']
+          assert not m['score_rank_changed']
+          assert not m['order_logic_changed']
+          assert not m['same_sample_retuning']
+          assert m['feature_bins_frozen_from_discovery_only']
+          assert m['behavior_labels_use_oos_outcomes_for_description_only']
+          assert not m['composite_score_created']
+          assert not m['candidate_filter_created']
+          assert int(m['oos_rows'])>0
+          print('R110_ENTRY_EXIT_BEHAVIOR PASS',m['oos_rows'])
+          PY
+
+      - name: Upload R1.0.10 reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: closing-bet-entry-exit-behavior-r110-${{ github.run_id }}
+          path: reports/closebet_entry_exit_behavior_oos_r110/**
+          if-no-files-found: warn
+          retention-days: 30
