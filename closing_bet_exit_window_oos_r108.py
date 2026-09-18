@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-REVISION="CLOSEBET_EXIT_WINDOW_OOS_R108_20260918"
+REVISION="CLOSEBET_EXIT_WINDOW_OOS_R1081_FULL_EXIT_WINDOW_FIX_20260918"
 OOS_START="2026-08-19"
 OOS_END="2026-09-18"
 EXIT_DAYS=[2,3,5,7,10,15,20]
@@ -24,6 +24,33 @@ def find(root,name):
     xs=list(Path(root).rglob(name));xs.sort(key=lambda p:(len(p.parts),str(p)))
     return xs[0] if xs else None
 
+def norm_code(v):
+    s=str(v or "").strip().upper()
+    if s.endswith(".0") and s[:-2].isdigit():s=s[:-2]
+    if len(s)==7 and s.startswith("A"):s=s[1:]
+    return s.zfill(6) if s.isdigit() and len(s)<=6 else s
+
+def prep_hist(h):
+    q=h.copy()
+    q["code"]=q["code"].map(norm_code)
+    q["date"]=pd.to_datetime(q["date"],errors="coerce").dt.normalize()
+    for c in ["Open","High","Low","Close","Volume","Amount"]:
+        if c in q:q[c]=pd.to_numeric(q[c],errors="coerce")
+    return q[q.code.ne("") & q.date.notna()].sort_values(["code","date"]).copy()
+
+def exact_exit_from_hist(row,g,day):
+    if g is None or g.empty:return np.nan
+    dt=pd.Timestamp(row.signal_date).normalize()
+    z=g[g.date>=dt].sort_values("date").reset_index(drop=True)
+    if len(z)<=day:return np.nan
+    entry=row.get("entry_price",np.nan)
+    if not fin(entry) or float(entry)<=0:
+        entry=z.loc[0,"Close"]
+    if not fin(entry) or float(entry)<=0:return np.nan
+    px=z.loc[day,"Close"]
+    if not fin(px):return np.nan
+    return (float(px)/float(entry)-1)*100.0
+
 def fin(x):
     try:return math.isfinite(float(x))
     except:return False
@@ -31,7 +58,7 @@ def fin(x):
 def qnum(s):
     return pd.to_numeric(s,errors="coerce")
 
-def build_event_metrics(ev):
+def build_event_metrics(ev,hgroups=None):
     q=ev.copy()
     rows=[]
     for _,r in q.iterrows():
@@ -71,13 +98,26 @@ def build_event_metrics(ev):
                         "giveback_to_D20":np.nan,"capture_ratio_D20_vs_MFE":np.nan,
                         "giveback_pct_of_MFE":np.nan,"peak_bucket":"IMMATURE"})
 
+        g = hgroups.get(norm_code(r.get("code",""))) if isinstance(hgroups,dict) else None
         for d in EXIT_DAYS:
-            mature=bool(r.get(f"D{d}_mature",False))
-            out[f"D{d}_mature"]=mature
-            out[f"D{d}_close_ret"]=r.get(f"D{d}_close_ret",np.nan) if mature else np.nan
-            # Compare fixed exit to D20 MFE only for D20-mature events.
+            source_mature = bool(r.get(f"D{d}_mature",False))
+            source_ret = r.get(f"D{d}_close_ret",np.nan) if source_mature else np.nan
+
+            # R1.0.7 did not emit D2/D3/D7. Reconstruct those from the same causal OHLCV.
+            if d in (2,3,7):
+                hist_ret = exact_exit_from_hist(r,g,d)
+                mature = fin(hist_ret)
+                rr = hist_ret if mature else np.nan
+                out[f"D{d}_source"]="R102_CAUSAL_OHLCV_RECONSTRUCTED"
+            else:
+                mature = source_mature
+                rr = source_ret if mature else np.nan
+                out[f"D{d}_source"]="R107_EVENT_MASTER"
+
+            out[f"D{d}_mature"]=bool(mature)
+            out[f"D{d}_close_ret"]=rr
+
             mfe20=out.get("mfe_20",np.nan)
-            rr=out[f"D{d}_close_ret"]
             out[f"D{d}_capture_of_D20_MFE"]=(rr/mfe20) if mature20 and fin(mfe20) and float(mfe20)>0 and fin(rr) else np.nan
         rows.append(out)
     return pd.DataFrame(rows)
@@ -160,6 +200,7 @@ def tag_exit_summary(m):
 def main():
     ap=argparse.ArgumentParser()
     ap.add_argument("--r107-root",default="r107_artifacts")
+    ap.add_argument("--history-cache",default=".cache/closebet_structure_env_oos_r102/v49_76_research_raw_history.csv")
     ap.add_argument("--output-dir",default="reports/closebet_exit_window_oos_r108")
     a=ap.parse_args()
 
@@ -168,8 +209,13 @@ def main():
     if ep is None: raise SystemExit("R108_INPUT_MISSING oos_swing_event_master.csv")
     ev=read_csv(ep)
     if ev.empty: raise SystemExit("R108_EMPTY_INPUT")
+    hp=Path(a.history_cache)
+    if not hp.exists(): raise SystemExit("R1081_HISTORY_MISSING")
+    hist=prep_hist(read_csv(hp))
+    hgroups={c:g.copy() for c,g in hist.groupby("code")}
+    ev["code"]=ev["code"].map(norm_code)
 
-    metrics=build_event_metrics(ev)
+    metrics=build_event_metrics(ev,hgroups)
     focus=metrics[metrics.primary_formula.astype(str).isin(FOCUS_PATTERNS)].copy()
 
     peaks=peak_summary(metrics)
@@ -209,10 +255,13 @@ def main():
         "same_sample_retuning":False,
         "same_cohort_exit_comparison":True,
         "uses_hindsight_optimized_exit":False,
+        "full_exit_window_complete":True,
+        "d2_d3_d7_reconstructed_from_causal_ohlcv":True,
         "notes":[
             "Fixed exit windows are predeclared and compared on the same D20-mature cohort.",
             "Time-to-peak and giveback are descriptive post-signal diagnostics, not entry filters.",
             "No best-exit rule is promoted from this sample.",
+            "D2/D3/D7 are reconstructed from R102 causal OHLCV; D5/D10/D15/D20 come from R107.",
             "D30/D40 remain outside the current mature comparison."
         ]
     }
@@ -224,6 +273,7 @@ def main():
         "",
         "핵심:",
         "- D20까지 성숙한 동일 코호트에서 D2/3/5/7/10/15/20 고정 출구를 비교",
+        "- D2/D3/D7은 R102 causal OHLCV에서 직접 재구성",
         "- 패턴별 peak day / MFE / D20 giveback / MFE capture 비율 측정",
         "- C/B1/B2/I를 별도 focus table로 출력",
         "- 사후적으로 최적 exit를 선택하지 않음",
