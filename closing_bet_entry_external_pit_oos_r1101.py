@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-REVISION="CLOSEBET_ENTRY_EXTERNAL_PIT_OOS_R1102_COLUMN_GEO_FIX_20260919"
+REVISION="CLOSEBET_ENTRY_EXTERNAL_PIT_OOS_R1103_MACRO_PREFIX_FIX_20260919"
 DISCOVERY_END="2026-08-18"
 FOCUS={"C","B1","B2","I"}
 
@@ -177,15 +177,17 @@ def macro_snapshot(events,macro):
         for name,(sym,rule) in MACRO.items():
             g=groups.get(name)
             if g is None:
-                rec[f"{name}_source_date"]=pd.NaT; continue
+                rec[f"pit_{name}_source_date"]=pd.NaT
+                continue
             mr=choose_macro_row(g,ts,rule)
             if mr is None:
-                rec[f"{name}_source_date"]=pd.NaT; continue
-            rec[f"{name}_source_date"]=mr.date
-            rec[f"{name}_availability_rule"]=rule
-            rec[f"{name}_close"]=mr.close
-            rec[f"{name}_ret1_pct"]=mr.ret1_pct
-            rec[f"{name}_ret5_pct"]=mr.ret5_pct
+                rec[f"pit_{name}_source_date"]=pd.NaT
+                continue
+            rec[f"pit_{name}_source_date"]=mr.date
+            rec[f"pit_{name}_availability_rule"]=rule
+            rec[f"pit_{name}_close"]=mr.close
+            rec[f"pit_{name}_ret1_pct"]=mr.ret1_pct
+            rec[f"pit_{name}_ret5_pct"]=mr.ret5_pct
         rows.append(rec)
     return pd.DataFrame(rows)
 
@@ -307,6 +309,15 @@ def main():
     macro,macro_audit=fetch_macro(start,end)
     ms=macro_snapshot(evtbase,macro)
 
+    expected_macro_cols=[]
+    for name in MACRO:
+        expected_macro_cols += [
+            f"pit_{name}_source_date", f"pit_{name}_ret1_pct", f"pit_{name}_ret5_pct"
+        ]
+    missing_snapshot_cols=[c for c in expected_macro_cols if c not in ms.columns]
+    if missing_snapshot_cols:
+        raise SystemExit(f"R1103_MACRO_SNAPSHOT_SCHEMA_MISSING {missing_snapshot_cols}")
+
     # Causal geopolitical calendar.
     geo_path=Path(a.geo_calendar)
     if not geo_path.exists() or geo_path.stat().st_size==0:
@@ -405,6 +416,7 @@ def main():
         "- 내부 feature coverage 보완: close location / vol / amount / ATR / MA20/60/224 / wick / ret5/20",
         "- 미국시장·VIX·US10Y·SOX는 한국 신호 전 완료된 직전 일봉만 사용",
         "- KRX 당일 종가는 15:40+가 명확한 경우만 허용",
+        "- macro_snapshot 출력 컬럼을 pit_ prefix로 강제하고 schema 검증",
         "- 새 PIT 변수는 pit_ prefix로 기존 R105 동명 컬럼과 충돌 방지",
         "- 지정학 이벤트는 available_at 기준 causal flag, 캘린더 누락/빈 파일은 fail-closed",
         "- external context는 SHADOW only",
