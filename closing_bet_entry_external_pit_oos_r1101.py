@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-REVISION="CLOSEBET_ENTRY_EXTERNAL_PIT_OOS_R1103_MACRO_PREFIX_FIX_20260919"
+REVISION="CLOSEBET_ENTRY_EXTERNAL_PIT_OOS_R1104_META_CONTRACT_FIX_20260919"
 DISCOVERY_END="2026-08-18"
 FOCUS={"C","B1","B2","I"}
 
@@ -395,6 +395,11 @@ def main():
         "revision":REVISION,"status":"PASS" if pit_fail==0 else "FAIL_CLOSED_PIT",
         "oos_rows":len(oos),"discovery_rows":len(disc),"pit_audit_rows":len(pita),
         "pit_fail_rows":pit_fail,"geo_calendar_rows":len(geo),
+        "macro_feature_nonnull_rows":macro_nonnull,
+        "column_collision_fix":True,
+        "geo_calendar_required_nonempty":True,
+        "macro_snapshot_prefix_fix":True,
+        "macro_snapshot_schema_validated":True,
         "research_only":True,"production_eligible":False,
         "selection_logic_changed":False,"score_rank_changed":False,"order_logic_changed":False,
         "same_sample_retuning":False,"external_context_shadow_only":True,
