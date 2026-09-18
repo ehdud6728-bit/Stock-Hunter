@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-REVISION="CLOSEBET_WINNER_LOSER_TRIAGE_R105_20260918"
+REVISION="CLOSEBET_WINNER_LOSER_TRIAGE_R1051_CASEBOOK_FIX_20260918"
 DISCOVERY_END="2026-08-18"
 OOS_START="2026-08-19"
 OOS_END="2026-09-18"
@@ -265,7 +265,7 @@ def main():
     combos=combo_summary(oos)
 
     # Casebook: biggest clean winners/losses and same-pattern matched review targets.
-    cb=oos[["signal_date","code","name","primary_formula","core_pattern_label","outcome_class","_r1","_r3","_r5","_r10","_mfe","_mae","shadow_tag_combo"]+
+    cb=oos[["signal_date","code","name","primary_formula","core_pattern_label","outcome_class","winner_group","loser_group","_r1","_r3","_r5","_r10","_mfe","_mae","shadow_tag_combo"]+
            [c for c in ["wave_gain_pct","pullback_depth_pct","pb_volume_vs_wave","ma_cluster_delta_pct","restart_score","price_to_ma224_pct",
                         "market_ret_5d_t1","sector_peer_positive_pct","sector_peer_mean_ret_1d","USDKRW_ret5_pct","VIX_ret5_pct"] if c in oos]].copy()
     cb["case_priority"]=np.where(cb.outcome_class.eq("BIG_WIN"),"TOP_WIN",
