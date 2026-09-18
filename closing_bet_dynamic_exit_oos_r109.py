@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-REVISION="CLOSEBET_DYNAMIC_EXIT_OOS_R109_20260918"
+REVISION="CLOSEBET_DYNAMIC_EXIT_OOS_R1091_HOLD_POLICY_PARSE_FIX_20260918"
 FOCUS_PATTERNS={"C","B1","B2","I"}
 MAX_HOLD=20
 
@@ -79,7 +79,7 @@ def fixed_exit(z,d):
 
 def dynamic_exit(z,policy):
     if policy.startswith("HOLD_D"):
-        d=int(policy.split("D")[1]); return fixed_exit(z,d)
+        d=int(policy.removeprefix("HOLD_D")); return fixed_exit(z,d)
 
     if policy=="MA5_CLOSE_BREAK_AFTER_D3":
         for d in range(3,MAX_HOLD+1):
