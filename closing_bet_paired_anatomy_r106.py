@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-REVISION="CLOSEBET_PAIRED_ANATOMY_R106_20260918"
+REVISION="CLOSEBET_PAIRED_ANATOMY_R1061_LONG_MA_CHECKPOINT_FIX_20260918"
 DISCOVERY_END="2026-08-18"
 OOS_START="2026-08-19"
 OOS_END="2026-09-18"
@@ -114,34 +114,95 @@ def make_pairs(oos,scales):
     return pd.DataFrame(rows)
 
 def trajectory(g,signal_date):
-    q=g[g.date<=signal_date].sort_values("date").tail(31).copy()
-    if len(q)<11:return pd.DataFrame()
+    # IMPORTANT: compute long MAs on the full causal lookback first,
+    # then slice D-10..D0. This fixes the R1.0.6 short-window MA60/MA224 bug.
+    q=g[g.date<=signal_date].sort_values("date").tail(280).copy()
+    if len(q)<30:return pd.DataFrame()
+
     for n in [5,10,20,60,112,224]:
-        q[f"MA{n}"]=q.Close.rolling(n,min_periods=max(3,min(n,20))).mean()
+        q[f"MA{n}"]=q.Close.rolling(n,min_periods=n).mean()
+
     prev=q.Close.shift(1)
-    tr=pd.concat([(q.High-q.Low).abs(),(q.High-prev).abs(),(q.Low-prev).abs()],axis=1).max(axis=1)
-    q["ATR14"]=tr.rolling(14,min_periods=5).mean()
-    q["close_loc"]=(q.Close-q.Low)/(q.High-q.Low).replace(0,np.nan)
-    q["upper_wick"]=(q.High-q[["Open","Close"]].max(axis=1))/(q.High-q.Low).replace(0,np.nan)
-    q["vol20_med"]=q.Volume.rolling(20,min_periods=5).median().shift(1)
+    tr=pd.concat([
+        (q.High-q.Low).abs(),
+        (q.High-prev).abs(),
+        (q.Low-prev).abs()
+    ],axis=1).max(axis=1)
+    q["ATR14"]=tr.rolling(14,min_periods=14).mean()
+
+    day_range=(q.High-q.Low).replace(0,np.nan)
+    q["close_loc"]=(q.Close-q.Low)/day_range
+    q["upper_wick"]=(q.High-q[["Open","Close"]].max(axis=1))/day_range
+
+    q["vol20_med"]=q.Volume.rolling(20,min_periods=20).median().shift(1)
     q["vol20_ratio"]=q.Volume/q.vol20_med
+
     if "Amount" in q and q.Amount.notna().any():
         amount=q.Amount
     else:
         amount=q.Close*q.Volume
-    q["amt20_med"]=amount.rolling(20,min_periods=5).median().shift(1)
-    q["amt20_ratio"]=amount/q.amt20_med
+    q["_amount_series"]=amount
+    q["amt20_med"]=q["_amount_series"].rolling(20,min_periods=20).median().shift(1)
+    q["amt20_ratio"]=q["_amount_series"]/q.amt20_med
+
     sig=q.iloc[-1]
     sig_close=num(sig.Close)
     z=q.tail(11).copy()
-    z["rel_day"]=range(-len(z)+1,1)
+    if len(z)<11:return pd.DataFrame()
+    z["rel_day"]=range(-10,1)
     z["close_vs_d0_pct"]=(z.Close/sig_close-1)*100
     z["ma20_dist_pct"]=(z.Close/z.MA20-1)*100
     z["ma60_dist_pct"]=(z.Close/z.MA60-1)*100
     z["ma224_dist_pct"]=(z.Close/z.MA224-1)*100
     z["atr_pct"]=z.ATR14/z.Close*100
-    return z[["rel_day","date","close_vs_d0_pct","vol20_ratio","amt20_ratio","close_loc","upper_wick",
-              "ma20_dist_pct","ma60_dist_pct","ma224_dist_pct","atr_pct"]]
+
+    return z[[
+        "rel_day","date","close_vs_d0_pct","vol20_ratio","amt20_ratio",
+        "close_loc","upper_wick","ma20_dist_pct","ma60_dist_pct",
+        "ma224_dist_pct","atr_pct"
+    ]]
+
+def checkpoint_table(tr):
+    if tr.empty:return pd.DataFrame()
+    checkpoints=[-10,-5,-3,-2,-1,0]
+    metrics=[
+        "close_vs_d0_pct","vol20_ratio","amt20_ratio","close_loc","upper_wick",
+        "ma20_dist_pct","ma60_dist_pct","ma224_dist_pct","atr_pct"
+    ]
+    z=tr[tr.rel_day.isin(checkpoints)].copy()
+    rows=[]
+    for (pid,p,side),g in z.groupby(["pair_id","pattern","side"]):
+        row={"pair_id":pid,"pattern":p,"side":side}
+        for d in checkpoints:
+            gd=g[g.rel_day.eq(d)]
+            for m in metrics:
+                row[f"{m}_D{d:+d}"]=pd.to_numeric(gd[m],errors="coerce").iloc[0] if len(gd) else np.nan
+        # useful explicit changes into signal day
+        for m in ["vol20_ratio","amt20_ratio","close_loc","ma20_dist_pct","ma60_dist_pct","ma224_dist_pct","atr_pct"]:
+            d5=row.get(f"{m}_D-5",np.nan);d1=row.get(f"{m}_D-1",np.nan);d0=row.get(f"{m}_D+0",np.nan)
+            row[f"{m}_chg_D5_to_D0"]=d0-d5 if math.isfinite(num(d5)) and math.isfinite(num(d0)) else np.nan
+            row[f"{m}_chg_D1_to_D0"]=d0-d1 if math.isfinite(num(d1)) and math.isfinite(num(d0)) else np.nan
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+def checkpoint_contrast(cp):
+    if cp.empty:return pd.DataFrame()
+    rows=[]
+    feature_cols=[c for c in cp.columns if c not in {"pair_id","pattern","side"}]
+    for (p,f),_ in [(None,None)]:
+        pass
+    for p,g in cp.groupby("pattern"):
+        for f in feature_cols:
+            w=pd.to_numeric(g[g.side.eq("winner")][f],errors="coerce").dropna()
+            s=pd.to_numeric(g[g.side.eq("stop")][f],errors="coerce").dropna()
+            rows.append({
+                "pattern":p,"feature":f,
+                "n_win":len(w),"n_stop":len(s),
+                "winner_median":w.median() if len(w) else np.nan,
+                "stop_median":s.median() if len(s) else np.nan,
+                "median_delta":w.median()-s.median() if len(w) and len(s) else np.nan
+            })
+    return pd.DataFrame(rows)
 
 def build_pair_trajectories(pairs,hist):
     hgroups={c:g.copy() for c,g in hist.groupby("code")}
@@ -242,6 +303,8 @@ def main():
     pairs=make_pairs(oos,scales)
     tr=build_pair_trajectories(pairs,h)
     tc=trajectory_contrast(tr)
+    cp=checkpoint_table(tr)
+    cpc=checkpoint_contrast(cp)
     slopes=pre_signal_slopes(tr)
     sc=slope_contrast(slopes)
     cc=context_contrast(pairs)
@@ -258,6 +321,8 @@ def main():
     pairs.to_csv(out/"oos_winner_stopfirst_pair_ledger.csv",index=False,encoding="utf-8-sig")
     tr.to_csv(out/"oos_pair_pre_signal_trajectory.csv",index=False,encoding="utf-8-sig")
     tc.to_csv(out/"oos_pair_trajectory_contrast.csv",index=False,encoding="utf-8-sig")
+    cp.to_csv(out/"oos_pair_checkpoints.csv",index=False,encoding="utf-8-sig")
+    cpc.to_csv(out/"oos_pair_checkpoint_contrast.csv",index=False,encoding="utf-8-sig")
     slopes.to_csv(out/"oos_pair_pre_signal_slopes.csv",index=False,encoding="utf-8-sig")
     sc.to_csv(out/"oos_pair_slope_contrast.csv",index=False,encoding="utf-8-sig")
     cc.to_csv(out/"oos_pair_context_contrast.csv",index=False,encoding="utf-8-sig")
@@ -271,6 +336,8 @@ def main():
         "oos_rows":len(oos),"pair_rows":len(pairs),"trajectory_rows":len(tr),
         "focus_patterns":sorted(FOCUS_PATTERNS),"pair_features":sorted(scales.keys()),
         "pair_quality_q33":q1,"pair_quality_q67":q2,
+        "checkpoint_rows":len(cp),"checkpoint_contrast_rows":len(cpc),
+        "ma_long_history_fix":True,
         "research_only":True,"production_eligible":False,"selection_logic_changed":False,
         "score_rank_changed":False,"order_logic_changed":False,"same_sample_retuning":False,
         "outcome_used_for_pair_role_only":True,
@@ -279,6 +346,8 @@ def main():
             "Winner vs STOP_FIRST are paired within the same strategy; same core label is preferred.",
             "Pairing distance uses discovery-frozen robust scales only.",
             "D-10..D0 trajectories are reconstructed from causal OHLCV.",
+            "MA20/60/112/224 are computed on up to 280 causal bars before D-10..D0 slicing.",
+            "Explicit D-10/D-5/D-3/D-2/D-1/D0 checkpoint tables are emitted.",
             "External context remains descriptive; no ranking/filter is created."
         ]
     }
@@ -293,6 +362,8 @@ def main():
         "- 같은 패턴 내 Winner와 STOP_FIRST를 구조적으로 가장 비슷한 상대와 1:1 매칭",
         "- 매칭거리 scale은 discovery 데이터 분포에서만 고정",
         "- 신호 직전 D-10~D0의 거래량/거래대금/종가위치/윗꼬리/MA이격/ATR 변화 비교",
+        "- D-10/D-5/D-3/D-2/D-1/D0 체크포인트와 D-5→D0, D-1→D0 변화량 별도 출력",
+        "- MA60/MA224는 장기 causal history에서 먼저 계산 후 D-10~D0 절단",
         "- 시장·섹터·환율·VIX·금리·SOX/Nasdaq은 별도 context contrast",
         "- 검색식/점수/랭킹/후보제거/주문 변경 0",
     ]
