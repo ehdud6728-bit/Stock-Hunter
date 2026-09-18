@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-REVISION="CLOSEBET_OHLCV_PATH_SCALE_OOS_R104_20260918"
+REVISION="CLOSEBET_OHLCV_PATH_SCALE_OOS_R1041_INDEX_FIX_20260918"
 DISCOVERY_END="2026-08-18"
 OOS_START="2026-08-19"
 OOS_END="2026-09-18"
@@ -107,7 +107,6 @@ def independent_structure(g, signal_date):
     pb_bars=max(1,q.index.get_loc(pb_low_idx)-loc)
 
     wave_seg=q.loc[base_idx:peak_idx]
-    pb_seg=q.loc[peak_idx:signal_date] if signal_date in set(q["date"]) else post_peak
     # safer positional segment:
     pb_seg=q.iloc[loc+1:]
     wave_vol=float(pd.to_numeric(wave_seg["Volume"],errors="coerce").median())
