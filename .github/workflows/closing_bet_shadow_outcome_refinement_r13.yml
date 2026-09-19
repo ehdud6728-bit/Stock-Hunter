@@ -1,0 +1,76 @@
+name: Closing Bet SHADOW Outcome Refinement R1.3
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_replay_run_id:
+        description: Successful R1.2 Historical Shadow Replay run id
+        required: true
+        default: "35442522612"
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  refine:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      TZ: Asia/Seoul
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas numpy
+
+      - name: Download R1.2 replay artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p source_replay
+          gh run download "${{ inputs.source_replay_run_id }}" -D source_replay
+          find source_replay -type f | sort
+
+      - name: Refine retrospective outcome classes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -u closing_bet_shadow_outcome_refinement_r13.py \
+            --source-root source_replay \
+            --output-dir reports/shadow_outcome_refinement_r13 \
+            --source-replay-run-id "${{ inputs.source_replay_run_id }}"
+
+      - name: Validate R1.3 guardrails
+        run: |
+          python - <<'PY'
+          import json
+          m=json.load(open('reports/shadow_outcome_refinement_r13/meta.json',encoding='utf-8'))
+          assert m['status']=='PASS',m
+          assert m['research_only']
+          assert not m['new_threshold_optimization']
+          assert not m['same_sample_tuning']
+          assert not m['candidate_membership_changed']
+          assert not m['candidate_order_changed']
+          assert not m['score_rank_changed']
+          assert not m['production_logic_changed']
+          assert not m['intraday_order_inferred_for_same_day']
+          print('SHADOW_OUTCOME_REFINEMENT_R13 PASS',m['events'],m['independent_signal_dates'])
+          PY
+
+      - name: Upload R1.3 artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: closing-bet-shadow-outcome-refinement-r13-${{ github.run_id }}
+          path: reports/shadow_outcome_refinement_r13/**
+          if-no-files-found: warn
+          retention-days: 30
