@@ -1,0 +1,110 @@
+name: Closing Bet v49.76 Live Shadow Board R1.1
+
+on:
+  workflow_run:
+    workflows:
+      - closing-bet-v49.76.6.7.3.2.5.1.2.1-final-universe-source-recovery
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        required: false
+        default: ""
+      send_telegram:
+        required: true
+        default: "true"
+        type: choice
+        options: ["true","false"]
+      top_n:
+        required: true
+        default: "10"
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  shadow:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TZ: Asia/Seoul
+      GH_TOKEN: ${{ github.token }}
+      CLOSING_BET_TOKEN: ${{ secrets.TELEGRAM_CLOSEBET_TOKEN || secrets.TELEGRAM_CLOSE_BET_TOKEN || secrets.CLOSING_BET_TOKEN || secrets.CLOSE_BET_TOKEN || vars.TELEGRAM_CLOSEBET_TOKEN || vars.TELEGRAM_CLOSE_BET_TOKEN }}
+      CLOSING_BET_CHAT_ID: ${{ secrets.TELEGRAM_CLOSEBET_CHAT_ID || secrets.TELEGRAM_CLOSE_BET_CHAT_ID || secrets.CLOSING_BET_CHAT_ID || secrets.CLOSE_BET_CHAT_ID || vars.TELEGRAM_CLOSEBET_CHAT_ID || vars.TELEGRAM_CLOSE_BET_CHAT_ID }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas numpy yfinance requests
+
+      - name: Resolve source run
+        id: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            RID="${{ github.event.workflow_run.id }}"
+          elif [ -n "${{ inputs.source_run_id }}" ]; then
+            RID="${{ inputs.source_run_id }}"
+          else
+            RID="$(gh run list --workflow v49.76.yml --status success --limit 1 --json databaseId --jq '.[0].databaseId')"
+          fi
+          test -n "$RID"
+          echo "run_id=$RID" >> "$GITHUB_OUTPUT"
+
+      - name: Download v49.76 artifacts
+        run: |
+          mkdir -p source_run
+          gh run download "${{ steps.source.outputs.run_id }}" -D source_run
+          echo "=== candidate sidecars ==="
+          find source_run -type f \( -name 'live_shadow_*' -o -name 'schedule_slot_authority_*.json' \) -print | sort || true
+
+      - name: Build R1.1 Shadow Board
+        shell: bash
+        run: |
+          set -euo pipefail
+          SEND=""
+          if [ "${{ github.event_name }}" = "workflow_run" ] || [ "${{ inputs.send_telegram }}" = "true" ]; then SEND="--send-telegram"; fi
+          TOPN="${{ inputs.top_n }}"
+          if [ -z "$TOPN" ]; then TOPN="10"; fi
+          python -u closing_bet_live_shadow_board_r11.py \
+            --source-root source_run \
+            --output-dir reports/live_shadow_board_r11 \
+            --top-n "$TOPN" \
+            --source-run-id "${{ steps.source.outputs.run_id }}" \
+            $SEND
+
+      - name: Validate observer invariants
+        run: |
+          python - <<'PY'
+          import json
+          m=json.load(open('reports/live_shadow_board_r11/meta.json',encoding='utf-8'))
+          assert m['research_only']
+          assert not m.get('score_rank_changed',False)
+          assert not m.get('candidate_filter_created',False)
+          if m['status']=='PASS':
+              assert not m['candidate_membership_changed']
+              assert not m['candidate_order_changed']
+              assert not m['order_logic_changed']
+              print('LIVE_SHADOW_R11 PASS',m['rows'],m['source'])
+          else:
+              print('LIVE_SHADOW_R11 NON-CANDIDATE',m['status'],m.get('source_lane',''),m.get('next_action',''))
+          PY
+
+      - name: Upload R1.1 Shadow Board
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: closing-bet-live-shadow-board-r11-${{ github.run_id }}
+          path: reports/live_shadow_board_r11/**
+          if-no-files-found: warn
+          retention-days: 30
