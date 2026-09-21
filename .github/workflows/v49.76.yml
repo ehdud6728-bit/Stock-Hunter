@@ -673,6 +673,12 @@ jobs:
             v49-76-research-contexts-${{ runner.os }}-${{ github.ref_name }}-engine2-
             v49-76-research-contexts-${{ runner.os }}-${{ github.ref_name }}-
 
+      - name: Install R1.7.6 copy-only LIVE SHADOW source capture
+        shell: bash
+        run: |
+          set -euo pipefail
+          python apply_closebet_live_shadow_capture_r176.py Closing_bet_scanner_v2.py
+
       - name: Show v4.4.9.53.8.49.76.6.7.3 files
         run: |
           echo "Python file check"
