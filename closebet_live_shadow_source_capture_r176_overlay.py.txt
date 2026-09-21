@@ -1,0 +1,180 @@
+# =============================================================
+# ✅ CLOSEBET LIVE SHADOW SOURCE CAPTURE R1.7.6 · COPY-ONLY
+# - Observer-only: calls the existing FINAL builder first and returns its output unchanged.
+# - No search / score / rank / filter / candidate-order / Telegram production change.
+# - Writes exact already-computed FINAL decision rows for the SHADOW observer.
+# =============================================================
+_CLOSEBET_SHADOW_CAPTURE_VERSION = "CLOSEBET_LIVE_SHADOW_SOURCE_CAPTURE_R176_20260921"
+_CLOSEBET_SHADOW_CAPTURE_BASE_LIVE_PARTS = _v4938_build_live_parts
+
+def _closebet_shadow_capture_lane_ok():
+    try:
+        lane=str(os.environ.get("CLOSING_BET_V497673251_EFFECTIVE_LANE","") or "").upper()
+        if any(x in lane for x in ("RESTORE_ONLY","INTRADAY_EXPIRED","AFTER_WINDOW")):
+            return False
+        return any(x in lane for x in ("PREFINAL","PRE_FINAL","LIVE_SESSION_CONTINUOUS_PRIMARY","AFTER_FINAL","FINAL"))
+    except Exception:
+        return False
+
+def _closebet_shadow_capture_code(obj):
+    try:
+        for k in ("code","Code","종목코드","ticker"):
+            v=(obj or {}).get(k,"")
+            s=str(v or "").strip()
+            if s:
+                s=re.sub(r"\.0$","",s)
+                return s.zfill(6) if s.isdigit() and len(s)<=6 else s
+    except Exception:
+        pass
+    return ""
+
+def _closebet_shadow_capture_pattern(obj):
+    try:
+        txt=" ".join(str((obj or {}).get(k,"") or "") for k in
+                     ("primary_formula","primary_strategy","mode","strategy","formula",
+                      "label","practical_label","all_matched_strategies")).upper()
+        for p in ("B1","B2","C","I","A","G","H","S","IT","LP","L"):
+            if re.search(r"(^|[^A-Z0-9])"+re.escape(p)+r"([^A-Z0-9]|$)",txt):
+                return p
+    except Exception:
+        pass
+    return ""
+
+def _closebet_shadow_capture_write(hits_df, execution_all):
+    try:
+        if not _closebet_shadow_capture_lane_ok():
+            return
+
+        decision=dict(globals().get("_V4942_LAST_DECISION",{}) or {})
+        items=list(decision.get("items",[]) or [])
+        if not items:
+            return
+
+        # Mirror the already-existing visible FINAL board selection.
+        top=[]
+        quotas=(("ENTER",3),("MANAGE",2),("REPLAY",1),("WAIT",3),("EXCLUDE",1),("HOLD",1))
+        for cat,limit in quotas:
+            top.extend([x for x in items if str((x or {}).get("decision",""))==cat][:limit])
+        try:
+            top=sorted(
+                top,
+                key=lambda x:(int((x or {}).get("rank",9) or 9),-float((x or {}).get("score",0) or 0))
+            )[:int(globals().get("CLOSING_BET_V4942_FINAL_TOP_N",6) or 6)]
+        except Exception:
+            top=top[:int(globals().get("CLOSING_BET_V4942_FINAL_TOP_N",6) or 6)]
+        if not top:
+            return
+
+        hdf=hits_df.copy() if isinstance(hits_df,pd.DataFrame) else pd.DataFrame(hits_df or [])
+        hit_by_code={}
+        if not hdf.empty:
+            for _,r in hdf.iterrows():
+                d=r.to_dict()
+                c=_closebet_shadow_capture_code(d)
+                if c and c not in hit_by_code:
+                    hit_by_code[c]=d
+
+        exec_by_code={}
+        for e in (execution_all or []):
+            d=dict(e or {})
+            c=_closebet_shadow_capture_code(d)
+            if c and c not in exec_by_code:
+                exec_by_code[c]=d
+
+        rows=[]
+        for order,it0 in enumerate(top,1):
+            it=dict(it0 or {})
+            code=_closebet_shadow_capture_code(it)
+            row=dict(hit_by_code.get(code,{}) or {})
+            ex=dict(exec_by_code.get(code,{}) or {})
+
+            # Preserve scanner feature row first; use existing execution fields only to fill gaps.
+            for k,v in ex.items():
+                if k not in row or pd.isna(row.get(k)):
+                    row[k]=v
+
+            # FINAL decision fields are already computed by production; copy only.
+            for k,v in it.items():
+                row["decision_"+str(k)]=v
+
+            if code:
+                row["code"]=code
+            name=str(it.get("name") or it.get("stock_name") or row.get("name") or ex.get("name") or "").strip()
+            if name:
+                row["name"]=name
+
+            pat=_closebet_shadow_capture_pattern(it) or _closebet_shadow_capture_pattern(ex) or _closebet_shadow_capture_pattern(row)
+            if pat and not str(row.get("primary_strategy","") or "").strip():
+                row["primary_strategy"]=pat
+
+            row["shadow_source_order"]=order
+            row["shadow_final_decision"]=str(it.get("decision","") or "")
+            row["shadow_final_rank"]=it.get("rank","")
+            row["shadow_final_score"]=it.get("score","")
+            row["shadow_capture_version"]=_CLOSEBET_SHADOW_CAPTURE_VERSION
+            row["shadow_copy_only"]=True
+            row["shadow_production_changed"]=False
+
+            if not str(row.get("signal_date","") or "").strip():
+                dd=(globals().get("_V4938_LAST_HEALTH",{}) or {}).get("latest_data_date")
+                if dd:
+                    row["signal_date"]=str(dd)[:10]
+
+            rows.append(row)
+
+        if not rows:
+            return
+
+        now=_now_kst() if callable(globals().get("_now_kst")) else datetime.now()
+        stamp=now.strftime("%Y%m%d_%H%M%S")
+        outdir=Path("reports/live_shadow_source")
+        outdir.mkdir(parents=True,exist_ok=True)
+        csvp=outdir/f"live_shadow_execution_{stamp}.csv"
+        pd.DataFrame(rows).to_csv(csvp,index=False,encoding="utf-8-sig")
+
+        meta={
+            "version":_CLOSEBET_SHADOW_CAPTURE_VERSION,
+            "effective_lane":str(os.environ.get("CLOSING_BET_V497673251_EFFECTIVE_LANE","") or ""),
+            "run_mode":str(os.environ.get("CLOSING_BET_RUN_MODE","") or ""),
+            "source_kind":"EXACT_ALREADY_COMPUTED_FINAL_DECISION_COPY",
+            "source_csv":str(csvp),
+            "rows":len(rows),
+            "decision_item_count":len(items),
+            "final_top_n":int(globals().get("CLOSING_BET_V4942_FINAL_TOP_N",6) or 6),
+            "research_only":True,
+            "copy_only":True,
+            "production_logic_changed":False,
+            "score_rank_changed":False,
+            "candidate_filter_created":False,
+            "candidate_membership_changed":False,
+            "candidate_order_changed":False,
+            "telegram_production_changed":False,
+            "created_at_kst":now.strftime("%Y-%m-%d %H:%M:%S"),
+        }
+        (outdir/f"live_shadow_source_meta_{stamp}.json").write_text(
+            json.dumps(meta,ensure_ascii=False,indent=2),encoding="utf-8"
+        )
+        try:
+            log_info(f"🧪 LIVE SHADOW copy-only sidecar: {csvp} · rows {len(rows)} · production change 0")
+        except Exception:
+            pass
+    except Exception as e:
+        # Observer failure must never affect production.
+        try:
+            log_error(f"⚠️ LIVE SHADOW sidecar observer failure isolated: {type(e).__name__}:{e}")
+        except Exception:
+            pass
+
+def _v4938_build_live_parts(hits_df, execution_all, market_short, cov_short, raw_health):
+    parts=_CLOSEBET_SHADOW_CAPTURE_BASE_LIVE_PARTS(
+        hits_df, execution_all, market_short, cov_short, raw_health
+    )
+    try:
+        _closebet_shadow_capture_write(hits_df, execution_all)
+    except Exception:
+        pass
+    return parts
+
+# =============================================================
+# ✅ END CLOSEBET LIVE SHADOW SOURCE CAPTURE R1.7.6
+# =============================================================
