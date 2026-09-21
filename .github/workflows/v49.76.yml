@@ -83,6 +83,11 @@ on:
         default: 'true'
         type: choice
         options: ['true', 'false']
+      shadow_test_capture:
+        description: SHADOW 수동 테스트 캡처 (TEST_ONLY, 실전 authority 아님)
+        required: true
+        default: false
+        type: boolean
       closing_bet_chat_id_manual:
         description: 종가배팅 전용 CHAT_ID 수동입력, 비워도 됨
         required: false
@@ -107,6 +112,7 @@ jobs:
       CLOSING_BET_CHAT_ID_SOURCE: ${{ inputs.closing_bet_chat_id_manual && 'workflow_input.closing_bet_chat_id_manual' || secrets.TELEGRAM_CLOSEBET_CHAT_ID && 'secrets.TELEGRAM_CLOSEBET_CHAT_ID' || secrets.TELEGRAM_CLOSE_BET_CHAT_ID && 'secrets.TELEGRAM_CLOSE_BET_CHAT_ID' || secrets.CLOSING_BET_CHAT_ID && 'secrets.CLOSING_BET_CHAT_ID' || secrets.CLOSE_BET_CHAT_ID && 'secrets.CLOSE_BET_CHAT_ID' || secrets.CLOSING_BET_TELEGRAM_CHAT_ID && 'secrets.CLOSING_BET_TELEGRAM_CHAT_ID' || secrets.CLOSE_BET_TELEGRAM_CHAT_ID && 'secrets.CLOSE_BET_TELEGRAM_CHAT_ID' || secrets.TELEGRAM_CLOSEBET_ROOM_ID && 'secrets.TELEGRAM_CLOSEBET_ROOM_ID' || secrets.TELEGRAM_CLOSE_BET_ROOM_ID && 'secrets.TELEGRAM_CLOSE_BET_ROOM_ID' || secrets.CLOSING_BET_ROOM_ID && 'secrets.CLOSING_BET_ROOM_ID' || secrets.CLOSE_BET_ROOM_ID && 'secrets.CLOSE_BET_ROOM_ID' || vars.TELEGRAM_CLOSEBET_CHAT_ID && 'vars.TELEGRAM_CLOSEBET_CHAT_ID' || vars.TELEGRAM_CLOSE_BET_CHAT_ID && 'vars.TELEGRAM_CLOSE_BET_CHAT_ID' || vars.CLOSING_BET_CHAT_ID && 'vars.CLOSING_BET_CHAT_ID' || vars.CLOSE_BET_CHAT_ID && 'vars.CLOSE_BET_CHAT_ID' || vars.CLOSING_BET_TELEGRAM_CHAT_ID && 'vars.CLOSING_BET_TELEGRAM_CHAT_ID' || vars.CLOSE_BET_TELEGRAM_CHAT_ID && 'vars.CLOSE_BET_TELEGRAM_CHAT_ID' || vars.TELEGRAM_CLOSEBET_ROOM_ID && 'vars.TELEGRAM_CLOSEBET_ROOM_ID' || vars.TELEGRAM_CLOSE_BET_ROOM_ID && 'vars.TELEGRAM_CLOSE_BET_ROOM_ID' || vars.CLOSING_BET_ROOM_ID && 'vars.CLOSING_BET_ROOM_ID' || vars.CLOSE_BET_ROOM_ID && 'vars.CLOSE_BET_ROOM_ID' || secrets.TELEGRAM_DYUL_CHAT_ID && 'secrets.TELEGRAM_DYUL_CHAT_ID_LEGACY_LAST' || vars.TELEGRAM_DYUL_CHAT_ID && 'vars.TELEGRAM_DYUL_CHAT_ID_LEGACY_LAST' || 'EMPTY' }}
       CLOSING_BET_REQUIRE_DEDICATED_CHAT: '1'
       INPUT_SEND_TELEGRAM: ${{ inputs.send_telegram || 'true' }}
+      CLOSING_BET_SHADOW_MANUAL_TEST_CAPTURE: ${{ inputs.shadow_test_capture || 'false' }}
       TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_CLOSEBET_TOKEN || secrets.TELEGRAM_CLOSE_BET_TOKEN || secrets.CLOSING_BET_TOKEN || secrets.CLOSE_BET_TOKEN || secrets.CLOSING_BET_TELEGRAM_TOKEN || secrets.CLOSE_BET_TELEGRAM_TOKEN || vars.TELEGRAM_CLOSEBET_TOKEN || vars.TELEGRAM_CLOSE_BET_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ inputs.closing_bet_chat_id_manual || secrets.TELEGRAM_CLOSEBET_CHAT_ID || secrets.TELEGRAM_CLOSE_BET_CHAT_ID || secrets.CLOSING_BET_CHAT_ID || secrets.CLOSE_BET_CHAT_ID || secrets.CLOSING_BET_TELEGRAM_CHAT_ID || secrets.CLOSE_BET_TELEGRAM_CHAT_ID || secrets.TELEGRAM_CLOSEBET_ROOM_ID || secrets.TELEGRAM_CLOSE_BET_ROOM_ID || secrets.CLOSING_BET_ROOM_ID || secrets.CLOSE_BET_ROOM_ID || vars.TELEGRAM_CLOSEBET_CHAT_ID || vars.TELEGRAM_CLOSE_BET_CHAT_ID || vars.CLOSING_BET_CHAT_ID || vars.CLOSE_BET_CHAT_ID || vars.CLOSING_BET_TELEGRAM_CHAT_ID || vars.CLOSE_BET_TELEGRAM_CHAT_ID || vars.TELEGRAM_CLOSEBET_ROOM_ID || vars.TELEGRAM_CLOSE_BET_ROOM_ID || vars.CLOSING_BET_ROOM_ID || vars.CLOSE_BET_ROOM_ID || secrets.TELEGRAM_DYUL_CHAT_ID || vars.TELEGRAM_DYUL_CHAT_ID }}
       TELEGRAM_CLOSEBET_TOKEN: ${{ secrets.TELEGRAM_CLOSEBET_TOKEN || secrets.TELEGRAM_CLOSE_BET_TOKEN || vars.TELEGRAM_CLOSEBET_TOKEN || vars.TELEGRAM_CLOSE_BET_TOKEN }}
@@ -673,11 +679,11 @@ jobs:
             v49-76-research-contexts-${{ runner.os }}-${{ github.ref_name }}-engine2-
             v49-76-research-contexts-${{ runner.os }}-${{ github.ref_name }}-
 
-      - name: Install R1.7.6 copy-only LIVE SHADOW source capture
+      - name: Install R1.7.7 LIVE + manual TEST_ONLY SHADOW source capture
         shell: bash
         run: |
           set -euo pipefail
-          python apply_closebet_live_shadow_capture_r176.py Closing_bet_scanner_v2.py
+          python apply_closebet_live_shadow_capture_r177.py Closing_bet_scanner_v2.py
 
       - name: Show v4.4.9.53.8.49.76.6.7.3 files
         run: |

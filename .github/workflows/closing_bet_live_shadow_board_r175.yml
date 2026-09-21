@@ -1,4 +1,4 @@
-name: Closing Bet v49.76 Live Shadow Board R1.7.5 Compact Type Expectation
+name: Closing Bet v49.76 Live Shadow Board R1.7.7 Compact + Manual Test
 
 on:
   workflow_dispatch:
@@ -63,7 +63,7 @@ jobs:
           gh run download "${{ steps.source.outputs.run_id }}" -D source_run
           gh run download "35445479856" -D source_r14
           gh run download "35469509910" -D source_r16_a
-      - name: Build and optionally send R1.7.5 SHADOW
+      - name: Build and optionally send R1.7.7 SHADOW
         shell: bash
         run: |
           EXTRA=""
@@ -73,7 +73,7 @@ jobs:
             if [ "${{ inputs.send_telegram }}" = "true" ]; then EXTRA="$EXTRA --send-telegram"; fi
             if [ "${{ inputs.allow_historical_test_send }}" = "true" ]; then EXTRA="$EXTRA --allow-historical-test-send"; fi
           fi
-          python -u closing_bet_live_shadow_board_r175.py \
+          python -u closing_bet_live_shadow_board_r177.py \
             --source-root source_run \
             --r14-root source_r14 \
             --r16-a-root source_r16_a \
@@ -99,13 +99,13 @@ jobs:
           assert not m.get("production_logic_changed",False)
           assert m["production_final_message_modified"] is False
           assert m["shadow_message_separate_from_production_final"] is True
-          print("R175 PASS")
+          print("R177 PASS")
           PY
-      - name: Upload R1.7.5 artifact
+      - name: Upload R1.7.7 artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: closing-bet-live-shadow-board-r175-${{ github.run_id }}
+          name: closing-bet-live-shadow-board-r177-${{ github.run_id }}
           path: reports/live_shadow_board_r17/**
           if-no-files-found: warn
           retention-days: 30
