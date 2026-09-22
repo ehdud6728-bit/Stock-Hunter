@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 
 RESEARCH_ID = "REAL_FULL_ORIGINAL_THESIS_RESEARCH_R1"
-REVISION = "R1_0_FROZEN_20260922"
+REVISION = "R1_0_1_SOURCE_RECOVERY_20260922"
 DISCOVERY_END = pd.Timestamp("2026-08-28")
 HOLDOUT_START = pd.Timestamp("2026-09-01")
 HOLDOUT_END = pd.Timestamp("2026-09-30")
@@ -57,12 +57,13 @@ def sha_obj(obj: Any) -> str:
     return hashlib.sha256(json.dumps(obj, ensure_ascii=False, sort_keys=True, default=str, separators=(",", ":")).encode()).hexdigest()
 
 
-def find_price_frame(cache_dir: Path, code: str) -> pd.DataFrame:
+def find_price_frame(cache_dir: Path, code: str, signal_date: pd.Timestamp | None = None, allow_refetch: bool = False) -> pd.DataFrame:
     pats = [str(cache_dir / f"{code}_*.pkl.gz"), str(cache_dir / f"{code}*.pkl*")]
     files: List[str] = []
     for p in pats:
         files += glob.glob(p)
     best = None
+    source = "EXISTING_V20_CACHE"
     for f in sorted(set(files)):
         try:
             o = pd.read_pickle(f)
@@ -73,6 +74,23 @@ def find_price_frame(cache_dir: Path, code: str) -> pd.DataFrame:
                 best = fr.copy()
         except Exception:
             continue
+    if best is None and allow_refetch and signal_date is not None:
+        try:
+            import FinanceDataReader as fdr
+            sd = pd.Timestamp(signal_date).normalize()
+            start = (sd - pd.Timedelta(days=520)).strftime("%Y-%m-%d")
+            end = (pd.Timestamp.now(tz="Asia/Seoul").normalize() + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+            fr = fdr.DataReader(code, start, end)
+            if isinstance(fr, pd.DataFrame) and not fr.empty:
+                best = fr.copy()
+                source = "FDR_HISTORICAL_REFETCH_RESEARCH_ONLY"
+                cache_dir.mkdir(parents=True, exist_ok=True)
+                try:
+                    pd.to_pickle({"frame": best.copy(), "source": source}, cache_dir / f"{code}_research_refetch.pkl.gz", compression="gzip")
+                except Exception:
+                    pass
+        except Exception:
+            best = None
     if best is None:
         return pd.DataFrame()
     q = best.copy()
@@ -108,7 +126,9 @@ def find_price_frame(cache_dir: Path, code: str) -> pd.DataFrame:
     q["ma60"] = q["close"].rolling(60, min_periods=60).mean()
     q["ma112"] = q["close"].rolling(112, min_periods=112).mean()
     q["ma224"] = q["close"].rolling(224, min_periods=224).mean()
-    return q.reset_index(drop=True)
+    q = q.reset_index(drop=True)
+    q.attrs["research_price_source"] = source
+    return q
 
 
 def first_num(r: pd.Series, *keys: str) -> float:
@@ -277,10 +297,11 @@ def run(args) -> int:
     ev=ev[ev["cohort"].isin(["DISCOVERY","HOLDOUT_SEPTEMBER"])].copy()
     results=[]; missing=[]
     for _,r in ev.iterrows():
-        code=norm_code(r.get("code")); sd=pd.Timestamp(r["origin_date"]); fr=find_price_frame(Path(args.price_cache_dir),code)
+        code=norm_code(r.get("code")); sd=pd.Timestamp(r["origin_date"]); fr=find_price_frame(Path(args.price_cache_dir),code,sd,args.allow_price_refetch)
         base=r.to_dict(); base["origin_date"]=sd.date().isoformat(); base["code"]=code
         if fr.empty:
-            base["price_history_status"]="MISSING"; missing.append(f"{base['origin_date']}|{code}"); results.append(base); continue
+            base["price_history_status"]="MISSING"; base["research_price_source"]="UNAVAILABLE"; missing.append(f"{base['origin_date']}|{code}"); results.append(base); continue
+        base["research_price_source"] = fr.attrs.get("research_price_source", "UNKNOWN")
         sf=signal_features(fr,sd); base.update(sf)
         entry=first_num(r,"origin_price","entry_price","snapshot_price","source_entry_price","현재가")
         if not math.isfinite(entry): entry=num(sf.get("signal_close_cache"))
@@ -296,7 +317,7 @@ def run(args) -> int:
         res["path_class"]=res.apply(classify_path,axis=1)
         sims=[]
         for _,r in res.iterrows():
-            fr=find_price_frame(Path(args.price_cache_dir),norm_code(r.get("code"))); sd=pd.Timestamp(r["origin_date"]); entry=num(r.get("research_entry_price")); d20c=np.nan
+            fr=find_price_frame(Path(args.price_cache_dir),norm_code(r.get("code")),sd,args.allow_price_refetch); sd=pd.Timestamp(r["origin_date"]); entry=num(r.get("research_entry_price")); d20c=np.nan
             if not fr.empty and int(num(r.get("d20_complete")) or 0)==1:
                 fut=fr[fr["date"].gt(sd)].sort_values("date").head(20); d20c=num(fut.iloc[-1].get("close")) if len(fut)>=20 else np.nan
             sims.append(split_sim(fr,sd,entry,d20c,num(r.get("research_pullback_low"))))
@@ -314,7 +335,7 @@ def run(args) -> int:
       "research_id":RESEARCH_ID,"revision":REVISION,"status":"PASS","discovery_end":"2026-08-28","holdout_start":"2026-09-01","holdout_end":"2026-09-30",
       "horizons_trading_days":list(HORIZONS),"events":len(res),"discovery_events":len(discovery),"holdout_events":len(holdout),"missing_price_events":len(set(missing)),
       "research_only":True,"production_eligible":False,"selection_logic_changed":False,"score_rank_changed":False,"order_logic_changed":False,"new_gate_added":False,
-      "same_sample_retuning":False,"lookahead_predictor_allowed":False,"future_bars_used_for":"OUTCOME_AND_SHADOW_EXECUTION_ONLY",
+      "same_sample_retuning":False,"lookahead_predictor_allowed":False,"historical_price_refetch_allowed":bool(args.allow_price_refetch),"historical_price_refetch_scope":"RESEARCH_RECONSTRUCTION_ONLY_NOT_PRODUCTION", "future_bars_used_for":"OUTCOME_AND_SHADOW_EXECUTION_ONLY",
       "design_hash":sha_obj({"revision":REVISION,"discovery_end":"2026-08-28","holdout":"2026-09","horizons":HORIZONS,"path_taxonomy":"FROZEN_R1","split_rules":"FROZEN_R1"})}
     (out/"real_full_original_thesis_meta.json").write_text(json.dumps(meta,ensure_ascii=False,indent=2),encoding="utf-8")
     rep=["🧪 [REAL_FULL ORIGINAL THESIS RESEARCH R1]",f"status=PASS revision={REVISION}",f"events={len(res)} discovery={len(discovery)} holdout={len(holdout)} missing_price={len(set(missing))}",
@@ -336,7 +357,7 @@ def self_test() -> int:
 
 
 def main():
-    ap=argparse.ArgumentParser(); ap.add_argument("--event-ledger",default="reports/real_full_validation_backtest/analysis/pattern_backtest_event_ledger.csv"); ap.add_argument("--price-cache-dir",default="reports/.cache/v20_price_history"); ap.add_argument("--output-dir",default=str(OUT_DIR_DEFAULT)); ap.add_argument("--self-test",action="store_true"); a=ap.parse_args()
+    ap=argparse.ArgumentParser(); ap.add_argument("--event-ledger",default="reports/real_full_validation_backtest/analysis/pattern_backtest_event_ledger.csv"); ap.add_argument("--price-cache-dir",default="reports/.cache/v20_price_history"); ap.add_argument("--output-dir",default=str(OUT_DIR_DEFAULT)); ap.add_argument("--allow-price-refetch",action="store_true"); ap.add_argument("--self-test",action="store_true"); a=ap.parse_args()
     return self_test() if a.self_test else run(a)
 
 if __name__=="__main__": raise SystemExit(main())
