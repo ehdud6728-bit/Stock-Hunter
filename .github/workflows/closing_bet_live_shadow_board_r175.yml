@@ -1,4 +1,4 @@
-name: Closing Bet v49.76 Live Shadow Board R1.7.7 Compact + Manual Test
+name: Closing Bet v49.76 Live Shadow Board R1.7.9 Outcome Probability + Human Briefing
 
 on:
   workflow_dispatch:
@@ -39,33 +39,47 @@ jobs:
       CLOSING_BET_TOKEN: ${{ secrets.TELEGRAM_CLOSEBET_TOKEN || secrets.TELEGRAM_CLOSE_BET_TOKEN || secrets.CLOSING_BET_TOKEN || secrets.CLOSE_BET_TOKEN || secrets.CLOSING_BET_TELEGRAM_TOKEN || secrets.CLOSE_BET_TELEGRAM_TOKEN || vars.TELEGRAM_CLOSEBET_TOKEN || vars.TELEGRAM_CLOSE_BET_TOKEN }}
       CLOSING_BET_CHAT_ID: ${{ secrets.TELEGRAM_CLOSEBET_CHAT_ID || secrets.TELEGRAM_CLOSE_BET_CHAT_ID || secrets.CLOSING_BET_CHAT_ID || secrets.CLOSE_BET_CHAT_ID || secrets.CLOSING_BET_TELEGRAM_CHAT_ID || secrets.CLOSE_BET_TELEGRAM_CHAT_ID || secrets.TELEGRAM_CLOSEBET_ROOM_ID || secrets.TELEGRAM_CLOSE_BET_ROOM_ID || secrets.CLOSING_BET_ROOM_ID || secrets.CLOSE_BET_ROOM_ID || vars.TELEGRAM_CLOSEBET_CHAT_ID || vars.TELEGRAM_CLOSE_BET_CHAT_ID || vars.CLOSING_BET_CHAT_ID || vars.CLOSE_BET_CHAT_ID || vars.CLOSING_BET_TELEGRAM_CHAT_ID || vars.CLOSE_BET_TELEGRAM_CHAT_ID || vars.TELEGRAM_CLOSEBET_ROOM_ID || vars.TELEGRAM_CLOSE_BET_ROOM_ID || vars.CLOSING_BET_ROOM_ID || vars.CLOSE_BET_ROOM_ID }}
       TELEGRAM_DYUL_CHAT_ID: ${{ secrets.TELEGRAM_DYUL_CHAT_ID || vars.TELEGRAM_DYUL_CHAT_ID }}
+      CLOSEBET_R13_ROOT: source_r13
 
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.10"
           cache: pip
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install pandas numpy yfinance requests
+
       - name: Resolve source run
         id: source
         shell: bash
         run: |
-          if [ "${{ github.event_name }}" = "workflow_run" ]; then RID="${{ github.event.workflow_run.id }}"; else RID="${{ inputs.source_run_id }}"; fi
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            RID="${{ github.event.workflow_run.id }}"
+          else
+            RID="${{ inputs.source_run_id }}"
+          fi
           test -n "$RID"
           echo "run_id=$RID" >> "$GITHUB_OUTPUT"
+
       - name: Download source and frozen references
-        run: |
-          mkdir -p source_run source_r14 source_r16_a
-          gh run download "${{ steps.source.outputs.run_id }}" -D source_run
-          gh run download "35445479856" -D source_r14
-          gh run download "35469509910" -D source_r16_a
-      - name: Build and optionally send R1.7.7 SHADOW
         shell: bash
         run: |
+          set -euo pipefail
+          mkdir -p source_run source_r13 source_r14 source_r16_a
+          gh run download "${{ steps.source.outputs.run_id }}" -D source_run
+          gh run download "35443265652" -D source_r13
+          gh run download "35445479856" -D source_r14
+          gh run download "35469509910" -D source_r16_a
+
+      - name: Build and optionally send R1.7.9 SHADOW
+        shell: bash
+        run: |
+          set -u
           EXTRA=""
           if [ "${{ github.event_name }}" = "workflow_run" ]; then
             EXTRA="--automatic"
@@ -73,24 +87,19 @@ jobs:
             if [ "${{ inputs.send_telegram }}" = "true" ]; then EXTRA="$EXTRA --send-telegram"; fi
             if [ "${{ inputs.allow_historical_test_send }}" = "true" ]; then EXTRA="$EXTRA --allow-historical-test-send"; fi
           fi
-          python -u closing_bet_live_shadow_board_r177.py \
-            --source-root source_run \
-            --r14-root source_r14 \
-            --r16-a-root source_r16_a \
-            --output-dir reports/live_shadow_board_r17 \
-            --top-n "${{ inputs.top_n || '10' }}" \
-            --source-run-id "${{ steps.source.outputs.run_id }}" \
-            --r14-run-id "35445479856" \
-            --r16-a-run-id "35469509910" \
-            $EXTRA || true
-      - name: Validate isolation
+
+          python -u closing_bet_live_shadow_board_r179.py             --source-root source_run             --r14-root source_r14             --r16-a-root source_r16_a             --output-dir reports/live_shadow_board_r17             --top-n "${{ inputs.top_n || '10' }}"             --source-run-id "${{ steps.source.outputs.run_id }}"             --r14-run-id "35445479856"             --r16-a-run-id "35469509910"             $EXTRA || true
+
+      - name: Validate R1.7.9 isolation and probability metadata
         if: always()
+        shell: bash
         run: |
-          python - <<'PY'
+          python - <<'PY2'
           import json
           from pathlib import Path
           p=Path("reports/live_shadow_board_r17/meta.json")
-          if not p.exists(): raise SystemExit(0)
+          if not p.exists():
+              raise SystemExit(0)
           m=json.loads(p.read_text(encoding="utf-8"))
           assert m["research_only"]
           assert not m.get("candidate_membership_changed",False)
@@ -99,13 +108,38 @@ jobs:
           assert not m.get("production_logic_changed",False)
           assert m["production_final_message_modified"] is False
           assert m["shadow_message_separate_from_production_final"] is True
-          print("R177 PASS")
-          PY
-      - name: Upload R1.7.7 artifact
+          status=str(m.get("status",""))
+          if status not in ("NO_LIVE_SIDECAR","SKIP_NON_CANDIDATE_LANE"):
+              assert m.get("version") == "CLOSEBET_LIVE_SHADOW_BOARD_R179_OUTCOME_PROBABILITY_20260922"
+              assert m.get("outcome_probability_enabled") is True
+              assert m.get("probability_semantics") == "EXPERIMENTAL_OOS_EMPIRICAL_ESTIMATE_NOT_FORWARD_CALIBRATED"
+              assert m.get("probability_source_r13") == "35443265652"
+              assert m.get("probability_atr_used") is False
+              assert m.get("probability_ma224_used") is False
+              assert m.get("probability_candidate_order_changed") is False
+              assert m.get("probability_score_rank_changed") is False
+              assert m.get("production_logic_changed") is False
+          print("R179 PASS", status or "OK")
+          PY2
+
+      - name: Show R1.7.9 board preview
+        if: always()
+        shell: bash
+        run: |
+          echo "===== META ====="
+          test -f reports/live_shadow_board_r17/meta.json && cat reports/live_shadow_board_r17/meta.json || true
+          echo
+          echo "===== TELEGRAM DELIVERY ====="
+          test -f reports/live_shadow_board_r17/telegram_delivery.json && cat reports/live_shadow_board_r17/telegram_delivery.json || true
+          echo
+          echo "===== BOARD PREVIEW ====="
+          test -f reports/live_shadow_board_r17/shadow_board.txt && sed -n '1,220p' reports/live_shadow_board_r17/shadow_board.txt || true
+
+      - name: Upload R1.7.9 artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: closing-bet-live-shadow-board-r177-${{ github.run_id }}
+          name: closing-bet-live-shadow-board-r179-${{ github.run_id }}
           path: reports/live_shadow_board_r17/**
           if-no-files-found: warn
           retention-days: 30
