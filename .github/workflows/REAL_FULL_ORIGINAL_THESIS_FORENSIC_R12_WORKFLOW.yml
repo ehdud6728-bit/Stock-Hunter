@@ -1,0 +1,116 @@
+name: REAL_FULL Original Thesis Forensic R1.2
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_r11_run_id:
+        description: "Successful REAL_FULL Original Thesis Forensic R1.1 run id"
+        required: true
+        default: "35705865191"
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: real-full-original-thesis-forensic-r12-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  forensic-r12:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      TZ: Asia/Seoul
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas numpy requests finance-datareader
+
+      - name: Self-test R1.2 engine
+        run: |
+          python -m py_compile real_full_original_thesis_forensic_r12.py
+          python real_full_original_thesis_forensic_r12.py --self-test
+
+      - name: Resolve frozen R1.1 source artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_R11_RUN_ID: ${{ inputs.source_r11_run_id }}
+        run: |
+          set -euo pipefail
+          mkdir -p source_r11
+          python - <<'PY'
+          import io,json,os,pathlib,requests,zipfile
+          repo=os.environ['GITHUB_REPOSITORY']; rid=int(os.environ['SOURCE_R11_RUN_ID']); token=os.environ['GH_TOKEN']
+          h={'Authorization':'Bearer '+token,'Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'}
+          base=f'https://api.github.com/repos/{repo}'
+          r=requests.get(f'{base}/actions/runs/{rid}',headers=h,timeout=60);r.raise_for_status()
+          run=r.json()
+          if run.get('conclusion')!='success': raise SystemExit(f'R11_SOURCE_RUN_NOT_SUCCESS run={rid} conclusion={run.get("conclusion")}')
+          arts=requests.get(f'{base}/actions/runs/{rid}/artifacts?per_page=100',headers=h,timeout=60).json().get('artifacts',[])
+          selected=None
+          for a in arts:
+              if a.get('expired'): continue
+              if str(a.get('name','')).startswith('real-full-original-thesis-forensic-r11-'):
+                  selected=a; break
+          if not selected: raise SystemExit(f'R11_SOURCE_ARTIFACT_NOT_FOUND run={rid}')
+          raw=requests.get(f"{base}/actions/artifacts/{selected['id']}/zip",headers=h,timeout=60,allow_redirects=True);raw.raise_for_status()
+          with zipfile.ZipFile(io.BytesIO(raw.content)) as z:
+              names=z.namelist();target=[n for n in names if n.endswith('real_full_original_thesis_forensic_r11/forensic_event_master.csv')]
+              if not target: raise SystemExit('R11_MASTER_NOT_IN_ARTIFACT')
+              z.extractall('source_r11')
+          meta={'source_r11_run_id':rid,'source_artifact_id':selected['id'],'source_artifact_name':selected['name'],'master_member':target[0]}
+          pathlib.Path('source_r11/source_resolution.json').write_text(json.dumps(meta,ensure_ascii=False,indent=2),encoding='utf-8')
+          print('R11_SOURCE_RESOLVED',meta)
+          PY
+
+      - name: Run taxonomy matched-pair early-warning refinement
+        run: |
+          set -euo pipefail
+          python -u real_full_original_thesis_forensic_r12.py \
+            --r11-master source_r11/reports/real_full_original_thesis_forensic_r11/forensic_event_master.csv \
+            --price-cache-dir reports/.cache/real_full_original_thesis_forensic_r12/price_history \
+            --allow-price-refetch \
+            --output-dir reports/real_full_original_thesis_forensic_r12
+
+      - name: Validate research-only invariants
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          d=json.loads(Path('reports/real_full_original_thesis_forensic_r12/forensic_r12_meta.json').read_text(encoding='utf-8'))
+          assert d['status']=='PASS',d
+          assert d['research_only'] is True
+          assert d['production_eligible'] is False
+          assert d['selection_logic_changed'] is False
+          assert d['score_rank_changed'] is False
+          assert d['order_logic_changed'] is False
+          assert d['same_sample_retuning'] is False
+          assert d['post_signal_monitor_only'] is True
+          assert d['design']['discovery_end']=='2026-08-28'
+          assert d['design']['holdout_start']=='2026-09-01'
+          print('FORENSIC_R1_2_INVARIANTS PASS',d['design_hash'])
+          PY
+
+      - name: Upload R1.2 reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: real-full-original-thesis-forensic-r12-${{ github.run_id }}
+          path: |
+            reports/real_full_original_thesis_forensic_r12/**
+            source_r11/source_resolution.json
+          if-no-files-found: warn
+          retention-days: 30
