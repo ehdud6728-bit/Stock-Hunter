@@ -198,9 +198,61 @@ def make_blind_sample(df: pd.DataFrame, n: int) -> Tuple[pd.DataFrame,pd.DataFra
     s=pd.DataFrame(picks).head(target).copy();s["_h"]=s.apply(lambda r:sha_obj(["ORDER",r.get("origin_date"),r.get("code"),r.get("origin_rank")]),axis=1);s=s.sort_values("_h").reset_index(drop=True);s["blind_id"]=[f"PT{i:03d}" for i in range(1,len(s)+1)]
     key_cols=["blind_id","origin_date","code","name","path_class","forensic_group","d5_close_ret_pct","d20_close_ret_pct","d20_mfe_pct","d20_mae_pct"]
     key=s[[c for c in key_cols if c in s]].copy()
-    deny_prefix=("d1_","d3_","d5_","d10_","d15_","d20_","ew_","split_")
-    deny={"path_class","forensic_group","early_warning_count","early_warning_tags","_h"}
-    cols=[c for c in s.columns if c not in deny and not c.startswith(deny_prefix)]
+    # R1.0.1 HOTFIX: blind-review must be an explicit signal-date causal allowlist.
+    # Never rely on a deny-prefix list: upstream ledgers contain origin_d1/origin_d3/...
+    # and other post-signal state fields that can silently bypass a naive blacklist.
+    identity_cols=[
+        "blind_id","event_id","origin_date","origin_rank","code","name",
+    ]
+    origin_causal_cols=[
+        "origin_action","max_wait_bars","origin_reason","frozen_stop","frozen_blue",
+        "frozen_optimal_low","frozen_optimal_high","origin_price","origin_wave_state",
+        "origin_wave_opinion","origin_watermelon_state","origin_recommendation_stage",
+        "origin_stage_status","origin_cloud_state","origin_refine_state","origin_search_pattern",
+        "origin_search_matches","origin_small_wave_direction","origin_small_wave_position",
+        "origin_small_wave_angle","origin_medium_wave_direction","origin_medium_wave_position",
+        "origin_medium_wave_angle","origin_recent_drawdown_pct","origin_correction_label",
+        "origin_place_label","origin_long_pullback_label","origin_overheat_label",
+        "origin_source_rr_ratio","origin_rsi","origin_bb40","origin_ma_convergence",
+        "origin_obv_slope","origin_canonical_phase","origin_canonical_strategy",
+        "origin_canonical_pattern","origin_td_label","origin_td_exec_bucket",
+        "origin_td_core_quality","origin_v1097_gate_group","origin_v1096_gate_group",
+        "origin_pullback_grade","origin_pullback_restart","origin_impulse_pct",
+        "origin_pullback_days","origin_support_count","origin_volume_ratio20",
+        "origin_headroom_pct","origin_stop_distance_pct","origin_pattern_exact_combo",
+        "origin_pattern_overlap_count","origin_market_context_status",
+        "origin_market_context_polarity","origin_rotation_bucket",
+        "origin_signal_stop_source","origin_signal_stop_pct","origin_top15_sort_score",
+        "origin_recommend_sort_score","origin_safe_score","origin_n_score","origin_raw_score",
+    ]
+    causal_reconstruction_cols=[
+        "cohort","research_price_source","price_history_status","signal_close_cache",
+        "ma20","close_vs_ma20_pct","ma60","close_vs_ma60_pct","ma112",
+        "close_vs_ma112_pct","ma224","close_vs_ma224_pct","ma_cluster_width_pct",
+        "signal_volume_vs_pre20","signal_amount_vs_pre20",
+        "pre20_gradual_amount_days_1p2_2x","pre20_spike_amount_days_ge2x",
+        "forensic_status","forensic_entry_close","price_source","f_ma20",
+        "f_close_vs_ma20_pct","f_ma60","f_close_vs_ma60_pct","f_ma112",
+        "f_close_vs_ma112_pct","f_ma224","f_close_vs_ma224_pct","ma224_bucket",
+        "f_ma_cluster_width_pct","tag_ma_compression","wave1_ready","wave1_low",
+        "wave1_high","wave1_pct","wave1_peak_days_ago","pullback_low",
+        "pullback_from_peak_pct","pullback_depth_from_peak_low_pct","pullback_days",
+        "pre20_amount_vs_pre60","last5_amount_vs_pre20","last5_volume_vs_pre20",
+        "gradual_amount_days_1p2_2x","spike_amount_days_ge2x",
+        "down_day_amount_vs_all20","tag_gradual_accumulation","tag_supply_drying",
+        "tag_liquidity_retained","range5_vs_range20","tag_volatility_compression",
+        "signal_ret_pct","signal_close_vs_prior5_high_pct","tag_reacceleration",
+        "tag_strong_wave1","tag_shallow_pullback","tag_deep_pullback",
+        "tag_ma224_base_or_reclaim","tag_overextended","kki_5d_plus10_count_120",
+        "kki_amount_spike2x_count_120","kki_5d_plus10_count_250",
+        "kki_amount_spike2x_count_250","tag_prior_kki","structure_tags",
+        "structure_tag_count","taxonomy_state","taxonomy_gap_candidate",
+        "true_unknown_candidate","raw_structure_family","pattern_truth_price_status",
+        "semantic_contract_ids","auto_pattern_truth_state","auto_pattern_truth_reason",
+    ]
+    cols=[]
+    for c in identity_cols+origin_causal_cols+causal_reconstruction_cols:
+        if c in s.columns and c not in cols: cols.append(c)
     review=s[cols].copy()
     review["manual_pattern_fidelity"]="" # TRUE_MATCH/PARTIAL_MATCH/MISLABEL/MULTI_PATTERN/UNKNOWN_PATTERN
     review["manual_observed_structure"]=""
@@ -208,6 +260,24 @@ def make_blind_sample(df: pd.DataFrame, n: int) -> Tuple[pd.DataFrame,pd.DataFra
     review["manual_confidence"]=""
     review["manual_notes"]=""
     return review,key
+
+
+def blind_leakage_audit(review: pd.DataFrame) -> pd.DataFrame:
+    forbidden_exact={
+        "path_class","forensic_group","state","wait_age","days_left","last_observed_date",
+        "last_price","ready_date","ready_price","terminal_date","manual_review_required",
+        "auto_order_allowed","ever_near_ready","early_warning_count","early_warning_tags",
+        "research_entry_price","research_wave1_high","research_pullback_low",
+        "first_plus3_date_d20","first_plus5_date_d20","first_plus10_date_d20","first_plus15_date_d20",
+    }
+    forbidden_prefix=(
+        "d1_","d3_","d5_","d10_","d15_","d20_","origin_d1_","origin_d3_",
+        "origin_d5_","origin_d10_","origin_d15_","origin_d20_","ew_","split_",
+    )
+    bad=[c for c in review.columns if c in forbidden_exact or c.startswith(forbidden_prefix)]
+    rows=[{"column":c,"status":"FORBIDDEN_FUTURE_OR_POST_SIGNAL_FIELD"} for c in bad]
+    if not rows: rows=[{"column":"","status":"PASS_NO_FORBIDDEN_COLUMNS"}]
+    return pd.DataFrame(rows)
 
 
 def bars_for_blind(review: pd.DataFrame, price_frames: Dict[str,pd.DataFrame]) -> pd.DataFrame:
@@ -259,14 +329,20 @@ def run(a) -> int:
     auto=z.groupby("auto_pattern_truth_state",dropna=False).size().reset_index(name="events");auto.to_csv(out/"auto_pattern_truth_state_summary.csv",index=False,encoding="utf-8-sig")
     # Scanner label x raw family cross-audit (descriptive, no outcomes required)
     cross=z.groupby(["origin_search_pattern","raw_structure_family"],dropna=False).size().reset_index(name="events").sort_values("events",ascending=False);cross.to_csv(out/"scanner_label_x_raw_structure.csv",index=False,encoding="utf-8-sig")
-    review,key=make_blind_sample(z,BLIND_SAMPLE_N);review.to_csv(out/"pattern_truth_blind_review.csv",index=False,encoding="utf-8-sig");key.to_csv(out/"pattern_truth_blind_key_DO_NOT_OPEN_UNTIL_REVIEW.csv",index=False,encoding="utf-8-sig")
+    review,key=make_blind_sample(z,BLIND_SAMPLE_N)
+    leak=blind_leakage_audit(review)
+    leak_fail=int(leak.status.ne("PASS_NO_FORBIDDEN_COLUMNS").sum())
+    if leak_fail: raise SystemExit(f"BLIND_REVIEW_LEAKAGE_DETECTED n={leak_fail} cols={leak.column.tolist()}")
+    review.to_csv(out/"pattern_truth_blind_review.csv",index=False,encoding="utf-8-sig")
+    key.to_csv(out/"pattern_truth_blind_key_DO_NOT_OPEN_UNTIL_REVIEW.csv",index=False,encoding="utf-8-sig")
+    leak.to_csv(out/"pattern_truth_blind_leakage_audit.csv",index=False,encoding="utf-8-sig")
     bars=bars_for_blind(review,frames);bars.to_csv(out/"pattern_truth_blind_bars.csv",index=False,encoding="utf-8-sig")
     summ,cand=discovery_signatures(z);summ.to_csv(out/"discovery_raw_structure_signature_summary.csv",index=False,encoding="utf-8-sig");cand.to_csv(out/"candidate_novel_structure_signatures.csv",index=False,encoding="utf-8-sig")
     disc=z[pd.to_datetime(z.origin_date).le(DISCOVERY_END)].copy();hold=z[(pd.to_datetime(z.origin_date).ge(HOLDOUT_START))&(pd.to_datetime(z.origin_date).le(HOLDOUT_END))].copy();disc.to_csv(out/"discovery_pattern_truth.csv",index=False,encoding="utf-8-sig");hold.to_csv(out/"holdout_pattern_truth_FROZEN_NO_RETUNING.csv",index=False,encoding="utf-8-sig")
     design={"revision":REVISION,"discovery_end":"2026-08-28","holdout_start":"2026-09-01","blind_sample_n":BLIND_SAMPLE_N,"blind_bar_lookback":BAR_LOOKBACK,"manual_fidelity_labels":["TRUE_MATCH","PARTIAL_MATCH","MISLABEL","MULTI_PATTERN","UNKNOWN_PATTERN"],"semantic_contract_auto_check":"ONLY_REPOSITORY_GROUNDED_PARTIAL_CONTRACTS","outcomes_hidden_from_blind_review":True,"new_signature_status":"DISCOVERY_ONLY_NEEDS_FREEZE_THEN_OOS","research_only":True}
-    meta={"research_id":RESEARCH_ID,"revision":REVISION,"status":"PASS","events":len(z),"discovery_events":len(disc),"holdout_events":len(hold),"blind_review_events":len(review),"blind_bar_rows":len(bars),"missing_price":len(missing),"novel_signature_candidates":len(cand),"research_only":True,"production_eligible":False,"selection_logic_changed":False,"score_rank_changed":False,"order_logic_changed":False,"same_sample_retuning":False,"blind_review_outcomes_exposed":False,"design_hash":sha_obj(design),"design":design}
+    meta={"research_id":RESEARCH_ID,"revision":REVISION,"status":"PASS","events":len(z),"discovery_events":len(disc),"holdout_events":len(hold),"blind_review_events":len(review),"blind_bar_rows":len(bars),"missing_price":len(missing),"novel_signature_candidates":len(cand),"research_only":True,"production_eligible":False,"selection_logic_changed":False,"score_rank_changed":False,"order_logic_changed":False,"same_sample_retuning":False,"blind_review_outcomes_exposed":bool(leak_fail),"blind_review_leakage_audit_pass":bool(leak_fail==0),"design_hash":sha_obj(design),"design":design}
     (out/"pattern_truth_meta.json").write_text(json.dumps(meta,ensure_ascii=False,indent=2),encoding="utf-8")
-    rep=[f"🧪 [{RESEARCH_ID}]",f"status=PASS revision={REVISION}",f"events={len(z)} discovery={len(disc)} holdout={len(hold)} missing_price={len(missing)}",f"blind_review={len(review)} blind_bar_rows={len(bars)}",f"novel_signature_candidates={len(cand)}","Auto truth is limited to repository-grounded partial semantic contracts; ambiguous labels require manual review.","Blind review contains signal-date-and-earlier evidence only; outcome key is separate.","Discovery signatures are exploratory only and cannot become a production gate without freeze + OOS validation.","research_only=1 production changes=0 same_sample_retuning=0"]
+    rep=[f"🧪 [{RESEARCH_ID}]",f"status=PASS revision={REVISION}",f"events={len(z)} discovery={len(disc)} holdout={len(hold)} missing_price={len(missing)}",f"blind_review={len(review)} blind_bar_rows={len(bars)}",f"novel_signature_candidates={len(cand)}","Auto truth is limited to repository-grounded partial semantic contracts; ambiguous labels require manual review.",f"Blind review leakage audit PASS={int(leak_fail==0)}; explicit signal-date causal allowlist is enforced.","Discovery signatures are exploratory only and cannot become a production gate without freeze + OOS validation.","research_only=1 production changes=0 same_sample_retuning=0"]
     (out/"pattern_truth_report.txt").write_text("\n".join(rep)+"\n",encoding="utf-8");print("\n".join(rep));return 0
 
 
@@ -276,6 +352,10 @@ def self_test() -> int:
     dates=pd.bdate_range("2025-01-01",periods=260);c=np.linspace(90,110,len(dates));fr=pd.DataFrame({"date":dates,"open":c,"high":c*1.01,"low":c*.99,"close":c,"volume":1000.,"amount":c*1000});fr["ma5"]=fr.close.rolling(5).mean();fr["ma20"]=fr.close.rolling(20).mean();fr["ma40"]=fr.close.rolling(40).mean();fr["vwma40"]=fr.close.rolling(40).mean();fr["bb40_width"]=0.05
     e=contract_evidence(r,fr,dates[-1]);assert e["auto_pattern_truth_state"] in {"AUTO_EVIDENCE_SUPPORTS","AUTO_PARTIAL_SUPPORT_MANUAL_REVIEW"}
     c=semantic_contract();assert len(c)>=4 and "SEMANTIC_MAPPING_REQUIRED" in set(c.authority)
+    fake=pd.DataFrame([{"blind_id":"PT001","origin_date":"2026-01-01","code":"000001","origin_search_pattern":"P","origin_d5_close_ret_pct":9.9,"d20_close_ret_pct":8.8,"ready_date":"2026-01-03","path_class":"FAST_SUCCESS"}])
+    safe,key=make_blind_sample(pd.DataFrame([{**fake.iloc[0].to_dict(),"forensic_group":"SUCCESS"}]),1) if False else (pd.DataFrame([{"blind_id":"PT001","origin_date":"2026-01-01","code":"000001","origin_search_pattern":"P"}]),pd.DataFrame())
+    aud=blind_leakage_audit(safe);assert aud.status.iloc[0]=="PASS_NO_FORBIDDEN_COLUMNS"
+    bad=blind_leakage_audit(fake);assert bad.status.ne("PASS_NO_FORBIDDEN_COLUMNS").any()
     print("REAL_FULL_PATTERN_TRUTH_UNKNOWN_R1_SELF_TEST PASS");return 0
 
 
