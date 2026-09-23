@@ -53,19 +53,22 @@ jobs:
           assert hashlib.sha256(p.read_bytes()).hexdigest()=="558ff5804134a57d35eb77736f6e064ff925588347919912c3e2b07cb26da51a"
           print("FROZEN_REGISTRY_HASH PASS")
           PY
-      - name: Commit patched run_scanner
+      - name: Stage patched run_scanner artifact
         shell: bash
         run: |
           set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .github/workflows/run_scanner.yml
-          if git diff --cached --quiet; then
-            echo "No run_scanner changes to commit"
-          else
-            git commit -m "REAL_FULL reliable trigger and immediate research overlay Telegram"
-            git push
-          fi
+          mkdir -p patched_workflow
+          cp .github/workflows/run_scanner.yml patched_workflow/run_scanner.yml
+          echo "PATCHED_RUN_SCANNER_READY patched_workflow/run_scanner.yml"
+          echo "GitHub App cannot push workflow files automatically; upload this artifact manually to .github/workflows/run_scanner.yml"
+
+      - name: Upload patched run_scanner
+        uses: actions/upload-artifact@v4
+        with:
+          name: REAL_FULL_PATCHED_RUN_SCANNER_${{ github.run_id }}
+          path: patched_workflow/run_scanner.yml
+          if-no-files-found: error
+          retention-days: 7
 
   dispatch:
     if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.install_patch == true) }}
