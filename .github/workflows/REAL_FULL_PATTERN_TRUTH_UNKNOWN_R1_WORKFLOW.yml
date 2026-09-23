@@ -1,4 +1,4 @@
-name: REAL_FULL Pattern Truth + Unknown Pattern Discovery R1
+name: REAL_FULL Pattern Truth + Unknown Pattern Discovery R1.0.1
 
 on:
   workflow_dispatch:
@@ -14,7 +14,7 @@ permissions:
   actions: read
 
 concurrency:
-  group: real-full-pattern-truth-unknown-r1-${{ github.ref_name }}
+  group: real-full-pattern-truth-unknown-r101-${{ github.ref_name }}
   cancel-in-progress: false
 
 jobs:
@@ -94,16 +94,20 @@ jobs:
           assert d['order_logic_changed'] is False
           assert d['same_sample_retuning'] is False
           assert d['blind_review_outcomes_exposed'] is False
+          assert d['blind_review_leakage_audit_pass'] is True
+          import pandas as pd
+          a=pd.read_csv('reports/real_full_pattern_truth_unknown_r1/pattern_truth_blind_leakage_audit.csv')
+          assert len(a)==1 and a.iloc[0]['status']=='PASS_NO_FORBIDDEN_COLUMNS',a.to_dict('records')
           assert d['design']['discovery_end']=='2026-08-28'
           assert d['design']['holdout_start']=='2026-09-01'
-          print('PATTERN_TRUTH_UNKNOWN_R1_INVARIANTS PASS',d['design_hash'])
+          print('PATTERN_TRUTH_UNKNOWN_R1_0_1_INVARIANTS PASS',d['design_hash'])
           PY
 
       - name: Upload Pattern Truth reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: real-full-pattern-truth-unknown-r1-${{ github.run_id }}
+          name: real-full-pattern-truth-unknown-r101-${{ github.run_id }}
           path: |
             reports/real_full_pattern_truth_unknown_r1/**
             source_r121/source_resolution.json
