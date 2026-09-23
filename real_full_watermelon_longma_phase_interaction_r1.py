@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 
 RESEARCH_ID = "REAL_FULL_WATERMELON_LONGMA_PHASE_INTERACTION_R1"
-REVISION = "R1_WATERMELON_LONGMA_PHASE_INTERACTION_20260923"
+REVISION = "R1_0_2_HOLDOUT_VARIABLE_FIX_20260923"
 DISCOVERY_END = pd.Timestamp("2026-08-28")
 HOLDOUT_START = pd.Timestamp("2026-09-01")
 
@@ -124,7 +124,7 @@ def run(a):
         "ma112_phase","ma224_phase","ma448_phase","longma_phase_code",
         "longma_position_code","close_vs_ma112_pct","close_vs_ma224_pct","close_vs_ma448_pct"
     ]
-    hold[[c for c in hold_cols if c in hold.columns]].to_csv(
+    holdout[[c for c in hold_cols if c in holdout.columns]].to_csv(
         out/"holdout_watermelon_longma_phase_MONITOR_ONLY.csv",index=False,encoding="utf-8-sig"
     )
 
