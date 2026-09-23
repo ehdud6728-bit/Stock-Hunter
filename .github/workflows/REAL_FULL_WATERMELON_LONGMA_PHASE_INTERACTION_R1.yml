@@ -1,4 +1,4 @@
-name: REAL_FULL Watermelon x Long-MA Phase Interaction R1
+name: REAL_FULL Watermelon x Long-MA Phase Interaction R1.0.1
 on:
   workflow_dispatch:
     inputs:
@@ -25,7 +25,7 @@ jobs:
         with:
           python-version: "3.10"
       - name: Install dependencies
-        run: pip install pandas numpy
+        run: pip install pandas numpy requests
       - name: Self-test
         run: |
           python -m py_compile real_full_watermelon_longma_phase_interaction_r1.py
