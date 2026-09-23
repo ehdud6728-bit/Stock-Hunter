@@ -1,0 +1,76 @@
+name: REAL_FULL Watermelon Definition & Long-MA Context Audit R1
+on:
+  workflow_dispatch:
+    inputs:
+      source_pattern_run_id:
+        description: "Successful Pattern Truth R1.0.1 run id"
+        required: true
+        default: "35808223301"
+        type: string
+permissions:
+  contents: read
+  actions: read
+jobs:
+  watermelon-longma-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      TZ: Asia/Seoul
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: Install dependencies
+        run: pip install pandas numpy finance-datareader
+      - name: Self-test
+        run: |
+          python -m py_compile real_full_watermelon_longma_audit_r1.py
+          python real_full_watermelon_longma_audit_r1.py --self-test
+      - name: Resolve frozen Pattern Truth R1.0.1 source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ inputs.source_pattern_run_id }}
+        run: |
+          set -euo pipefail
+          mkdir -p source_pattern
+          python - <<'PY'
+          import io,json,os,pathlib,requests,zipfile
+          repo=os.environ['GITHUB_REPOSITORY']; rid=int(os.environ['SOURCE_RUN_ID']); token=os.environ['GH_TOKEN']
+          h={'Authorization':'Bearer '+token,'Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'}; base=f'https://api.github.com/repos/{repo}'
+          rr=requests.get(f'{base}/actions/runs/{rid}',headers=h,timeout=60); rr.raise_for_status(); run=rr.json()
+          if run.get('conclusion')!='success': raise SystemExit('SOURCE_RUN_NOT_SUCCESS')
+          arts=requests.get(f'{base}/actions/runs/{rid}/artifacts?per_page=100',headers=h,timeout=60).json().get('artifacts',[])
+          a=next((x for x in arts if not x.get('expired') and str(x.get('name','')).startswith('real-full-pattern-truth-unknown-r101-')),None)
+          if not a: raise SystemExit('SOURCE_ARTIFACT_NOT_FOUND')
+          raw=requests.get(f"{base}/actions/artifacts/{a['id']}/zip",headers=h,timeout=60,allow_redirects=True);raw.raise_for_status()
+          with zipfile.ZipFile(io.BytesIO(raw.content)) as z:z.extractall('source_pattern')
+          pathlib.Path('source_pattern/source_resolution.json').write_text(json.dumps({'run_id':rid,'artifact_id':a['id'],'artifact_name':a['name']},indent=2),encoding='utf-8')
+          PY
+      - name: Run Watermelon Definition & Long-MA Audit
+        run: |
+          python -u real_full_watermelon_longma_audit_r1.py \
+            --source-master source_pattern/reports/real_full_pattern_truth_unknown_r1/pattern_truth_event_master.csv \
+            --output-dir reports/real_full_watermelon_longma_audit_r1
+      - name: Validate research-only invariants
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          d=json.loads(Path('reports/real_full_watermelon_longma_audit_r1/watermelon_longma_meta.json').read_text())
+          assert d['status']=='PASS'; assert d['research_only'] is True; assert d['production_eligible'] is False
+          assert d['selection_logic_changed'] is False; assert d['score_rank_changed'] is False; assert d['order_logic_changed'] is False
+          assert d['same_sample_retuning'] is False; assert d['design']['thresholds_newly_optimized'] is False
+          print('WATERMELON_LONGMA_R1_INVARIANTS PASS',d['design_hash'])
+          PY
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: real-full-watermelon-longma-audit-r1-${{ github.run_id }}
+          path: |
+            reports/real_full_watermelon_longma_audit_r1/**
+            source_pattern/source_resolution.json
+          if-no-files-found: warn
+          retention-days: 30
