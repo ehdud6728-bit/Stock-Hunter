@@ -6,7 +6,7 @@ import pandas as pd
 import numpy as np
 
 RESEARCH_ID="REAL_FULL_RESEARCH_OVERLAY_R1"
-REVISION="R1_SIMPLE_FLOW_RESEARCH_EXPECTATION_20260923"
+REVISION="R1_0_2_WATERMELON_ENRICH_FAST_TELEGRAM_20260923"
 
 def code(v):
     s=re.sub(r"\D","",str(v or ""))
@@ -104,6 +104,26 @@ def modern_state_from_source(r):
         if v and v.lower() not in {"nan","none"}: return v
     return "미확인"
 
+def build_watermelon_map(universe_path):
+    if not universe_path or not Path(universe_path).exists():
+        return {}
+    u=pd.read_csv(universe_path,dtype=str,low_memory=False)
+    ccol=next((c for c in ["code","종목코드","Code"] if c in u.columns),None)
+    if not ccol:return {}
+    out={}
+    for _,r in u.iterrows():
+        c=code(r.get(ccol))
+        if not c: continue
+        state=""
+        for k in ["수박최종상태","수박상태명","wm_modern_state","Watermelon_State","watermelon_state","blue_line_state"]:
+            v=str(r.get(k,"") or "").strip()
+            if v and v.lower() not in {"nan","none","없음"}:
+                state=v; break
+        if not state:
+            state="없음"
+        out[c]=state
+    return out
+
 def overlay_level(f, hits):
     good=0; risk=0
     if f.get("ma224_phase")=="BELOW":good+=1
@@ -157,6 +177,7 @@ def expectation(f,hits):
 def run(a):
     src=pd.read_csv(a.source,dtype=str,low_memory=False)
     reg=pd.read_csv(a.registry,dtype=str,low_memory=False) if Path(a.registry).exists() else pd.DataFrame()
+    watermelon_map=build_watermelon_map(a.universe)
     datecol=next((c for c in ["signal_date","date","날짜","snapshot_date"] if c in src.columns),None)
     codecol=next((c for c in ["code","종목코드","Code"] if c in src.columns),None)
     namecol=next((c for c in ["name","종목명","Name"] if c in src.columns),None)
@@ -169,6 +190,8 @@ def run(a):
         fr=load_price(c,sd)
         f=infer(fr,sd) if not fr.empty else {}
         state=modern_state_from_source(r)
+        if state=="미확인":
+            state=watermelon_map.get(c,"미확인")
         hits=match_registry(reg,state,f.get("ma112_phase","UNKNOWN"),f.get("ma224_phase","UNKNOWN"),f.get("ma448_phase","UNKNOWN"))
         level=overlay_level(f,hits)
         flow=flow_lines(f,state)
@@ -198,7 +221,7 @@ def run(a):
           "production_search_changed":False,"production_score_changed":False,
           "production_rank_changed":False,"production_order_changed":False,
           "same_sample_retuning":False,"research_only":True,
-          "amount_note":"FDR close*volume proxy is descriptive only; not authoritative KRX trading value"}
+          "watermelon_source_enriched":True,"amount_note":"FDR close*volume proxy is descriptive only; not authoritative KRX trading value"}
     (out/"real_full_research_overlay_meta.json").write_text(json.dumps(meta,ensure_ascii=False,indent=2),encoding="utf-8")
     print((out/"real_full_research_overlay.txt").read_text())
     return 0
@@ -206,6 +229,7 @@ def run(a):
 def main():
     ap=argparse.ArgumentParser()
     ap.add_argument("--source",required=True)
+    ap.add_argument("--universe",required=False,default="")
     ap.add_argument("--registry",required=True)
     ap.add_argument("--output-dir",default="reports/real_full_research_overlay_r1")
     a=ap.parse_args();raise SystemExit(run(a))
