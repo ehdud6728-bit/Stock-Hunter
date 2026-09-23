@@ -1,4 +1,4 @@
-name: REAL_FULL Research Overlay R1
+name: REAL_FULL Research Overlay R1.0.2
 on:
   workflow_dispatch:
     inputs:
@@ -55,10 +55,16 @@ jobs:
               try: dl(a,td)
               except Exception: continue
               hits=list(td.rglob('real_full_trust_source.csv'))
+              unis=list(td.rglob('real_full_current_universe.csv'))
               if hits:
-                  found=hits[0];break
+                  found=hits[0]
+                  if unis:
+                      pathlib.Path('source_universe_path.txt').write_text(str(unis[0]),encoding='utf-8')
+                  break
           if not found: raise SystemExit('REAL_FULL_TRUST_SOURCE_NOT_FOUND_IN_RUN_ARTIFACTS')
           pathlib.Path('source_prod_path.txt').write_text(str(found),encoding='utf-8')
+          if not pathlib.Path('source_universe_path.txt').exists():
+              raise SystemExit('REAL_FULL_CURRENT_UNIVERSE_NOT_FOUND_IN_RUN_ARTIFACTS')
           # Frozen registry.
           fa=next((x for x in artifacts(os.environ['FREEZE_RUN_ID']) if not x.get('expired') and x['name'].startswith('real-full-watermelon-longma-oos-freeze-r1-')),None)
           if not fa:raise SystemExit('FREEZE_ARTIFACT_NOT_FOUND')
@@ -71,8 +77,9 @@ jobs:
         run: |
           python -m py_compile real_full_research_overlay_r1.py
           SOURCE="$(cat source_prod_path.txt)"
+          UNIVERSE="$(cat source_universe_path.txt)"
           REG="$(cat registry_path.txt)"
-          python -u real_full_research_overlay_r1.py --source "$SOURCE" --registry "$REG"
+          python -u real_full_research_overlay_r1.py --source "$SOURCE" --universe "$UNIVERSE" --registry "$REG"
       - name: Verify no production authority
         run: |
           python - <<'PY'
@@ -85,10 +92,49 @@ jobs:
           assert not d['production_rank_changed']
           assert not d['production_order_changed']
           assert not d['same_sample_retuning']
-          print('REAL_FULL_RESEARCH_OVERLAY_R1_INVARIANTS PASS')
+          assert d.get('watermelon_source_enriched') is True
+          print('REAL_FULL_RESEARCH_OVERLAY_R1_0_1_INVARIANTS PASS')
           PY
       - name: Show simple overlay
         run: cat reports/real_full_research_overlay_r1/real_full_research_overlay.txt
+      - name: Send research overlay to Telegram
+        env:
+          TELEGRAM_BACKTEST_TOKEN: ${{ secrets.TELEGRAM_BACKTEST_TOKEN }}
+          STOCK_SEARCH_CHAT_ID: ${{ secrets.STOCK_SEARCH_CHAT_ID }}
+          STOCKHUNTER_CHAT_ID: ${{ secrets.STOCKHUNTER_CHAT_ID }}
+          TELEGRAM_DYUL_CHAT_ID: ${{ secrets.TELEGRAM_DYUL_CHAT_ID }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          FILE="reports/real_full_research_overlay_r1/real_full_research_overlay.txt"
+          TOKEN="${TELEGRAM_BACKTEST_TOKEN:-}"
+          CHAT="${STOCK_SEARCH_CHAT_ID:-${STOCKHUNTER_CHAT_ID:-${TELEGRAM_DYUL_CHAT_ID:-${TELEGRAM_CHAT_ID:-}}}}"
+          if [ -z "$TOKEN" ] || [ -z "$CHAT" ] || [ ! -s "$FILE" ]; then
+            echo "REAL_FULL_OVERLAY_TELEGRAM_SKIP token/chat/file unavailable"
+            exit 0
+          fi
+          python - <<'PYTG'
+          import os, urllib.parse, urllib.request
+          from pathlib import Path
+          text=Path("reports/real_full_research_overlay_r1/real_full_research_overlay.txt").read_text(encoding="utf-8")
+          chunks=[]
+          while text:
+              if len(text)<=3500:
+                  chunks.append(text); break
+              cut=text.rfind("\n",0,3500)
+              if cut<1000: cut=3500
+              chunks.append(text[:cut]); text=text[cut:].lstrip("\n")
+          token=os.environ["TELEGRAM_BACKTEST_TOKEN"]
+          chat=os.environ.get("STOCK_SEARCH_CHAT_ID") or os.environ.get("STOCKHUNTER_CHAT_ID") or os.environ.get("TELEGRAM_DYUL_CHAT_ID") or os.environ.get("TELEGRAM_CHAT_ID")
+          for i,msg in enumerate(chunks,1):
+              data=urllib.parse.urlencode({"chat_id":chat,"text":msg}).encode()
+              req=urllib.request.Request(f"https://api.telegram.org/bot{token}/sendMessage",data=data)
+              with urllib.request.urlopen(req,timeout=30) as r:
+                  assert r.status==200
+              print("REAL_FULL_OVERLAY_TELEGRAM_SENT",i,len(msg))
+          PYTG
+
       - name: Upload overlay
         uses: actions/upload-artifact@v4
         with:

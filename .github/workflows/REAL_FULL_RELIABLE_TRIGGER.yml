@@ -1,0 +1,140 @@
+name: REAL_FULL Reliable Trigger
+
+on:
+  schedule:
+    # KST 14:30 / 14:35 / 14:40 / 14:45 / 14:50 / 15:00 weekdays
+    - cron: '30 05 * * 1-5'
+    - cron: '35 05 * * 1-5'
+    - cron: '40 05 * * 1-5'
+    - cron: '45 05 * * 1-5'
+    - cron: '50 05 * * 1-5'
+    - cron: '00 06 * * 1-5'
+  workflow_dispatch:
+    inputs:
+      install_patch:
+        description: "One-time: patch run_scanner.yml and commit it"
+        required: false
+        default: false
+        type: boolean
+      force_dispatch:
+        description: "Ignore today's trigger lock and dispatch REAL_FULL now"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: real-full-reliable-trigger-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  install:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.install_patch == true }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: Apply run_scanner patch
+        run: |
+          set -euo pipefail
+          python -m py_compile apply_real_full_reliable_overlay_patch.py real_full_research_overlay_r1.py
+          python apply_real_full_reliable_overlay_patch.py
+          python - <<'PY'
+          import hashlib
+          from pathlib import Path
+          p=Path("reference/FROZEN_watermelon_longma_signature_registry.csv")
+          assert hashlib.sha256(p.read_bytes()).hexdigest()=="558ff5804134a57d35eb77736f6e064ff925588347919912c3e2b07cb26da51a"
+          print("FROZEN_REGISTRY_HASH PASS")
+          PY
+      - name: Commit patched run_scanner
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/workflows/run_scanner.yml
+          if git diff --cached --quiet; then
+            echo "No run_scanner changes to commit"
+          else
+            git commit -m "REAL_FULL reliable trigger and immediate research overlay Telegram"
+            git push
+          fi
+
+  dispatch:
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.install_patch == true) }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve KST day and slot
+        id: day
+        shell: bash
+        run: |
+          echo "kst_date=$(TZ=Asia/Seoul date +%F)" >> "$GITHUB_OUTPUT"
+          echo "kst_slot=$(TZ=Asia/Seoul date +%H%M)" >> "$GITHUB_OUTPUT"
+          echo "now_kst=$(TZ=Asia/Seoul date '+%F %T %Z')"
+
+      - name: Prepare daily lock path
+        run: mkdir -p .real_full_trigger_lock
+
+      - name: Restore today's dispatch lock
+        id: lock
+        uses: actions/cache/restore@v4
+        with:
+          path: .real_full_trigger_lock
+          key: stockhunter-real-full-reliable-trigger-${{ github.ref_name }}-${{ steps.day.outputs.kst_date }}
+
+      - name: Dispatch REAL_FULL production
+        if: ${{ inputs.force_dispatch == true || steps.lock.outputs.cache-hit != 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          KST_SLOT: ${{ steps.day.outputs.kst_slot }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,os,urllib.request
+          repo=os.environ["GITHUB_REPOSITORY"]
+          token=os.environ["GH_TOKEN"]
+          slot=os.environ["KST_SLOT"]
+          payload={
+            "ref": os.environ.get("GITHUB_REF_NAME","main"),
+            "inputs":{
+              "run_profile":"REAL_FULL",
+              "real_full_capture_slot":f"RELIABLE_TRIGGER_{slot}",
+              "test_chat_id_override":"8325973023",
+              "catalyst_forward_capture":"AUTO"
+            }
+          }
+          req=urllib.request.Request(
+              f"https://api.github.com/repos/{repo}/actions/workflows/run_scanner.yml/dispatches",
+              data=json.dumps(payload).encode(),
+              method="POST",
+              headers={
+                "Authorization":f"Bearer {token}",
+                "Accept":"application/vnd.github+json",
+                "X-GitHub-Api-Version":"2022-11-28",
+                "Content-Type":"application/json",
+              },
+          )
+          with urllib.request.urlopen(req,timeout=30) as r:
+              assert r.status==204, r.status
+          print("REAL_FULL_RELIABLE_DISPATCH_SENT", payload["inputs"]["real_full_capture_slot"])
+          PY
+          printf '%s\n' "${{ steps.day.outputs.kst_date }} ${{ steps.day.outputs.kst_slot }} dispatched" > .real_full_trigger_lock/dispatched.txt
+
+      - name: Save today's dispatch lock
+        if: ${{ (inputs.force_dispatch != true) && (steps.lock.outputs.cache-hit != 'true') }}
+        uses: actions/cache/save@v4
+        with:
+          path: .real_full_trigger_lock
+          key: stockhunter-real-full-reliable-trigger-${{ github.ref_name }}-${{ steps.day.outputs.kst_date }}
+
+      - name: Show duplicate suppression
+        if: ${{ inputs.force_dispatch != true && steps.lock.outputs.cache-hit == 'true' }}
+        run: echo "REAL_FULL_RELIABLE_TRIGGER_SKIP already dispatched today"
