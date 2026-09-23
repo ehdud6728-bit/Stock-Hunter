@@ -1,4 +1,4 @@
-name: REAL_FULL Watermelon x Long-MA Phase Interaction R1.0.1
+name: REAL_FULL Watermelon x Long-MA Phase Interaction R1.0.2
 on:
   workflow_dispatch:
     inputs:
