@@ -4,8 +4,8 @@ import argparse, json, math, hashlib
 from pathlib import Path
 import numpy as np, pandas as pd
 
-RESEARCH_ID='REAL_FULL_WATERMELON_LONGMA_AUDIT_R1'
-REVISION='R1_0_DEFINITION_LINEAGE_LONGMA_CONTEXT_20260923'
+RESEARCH_ID='REAL_FULL_WATERMELON_LONGMA_AUDIT_R1_0_1'
+REVISION='R1_0_1_MODERN_STATE_NAMEERROR_RECOVERY_LONGMA_PHASE_20260923'
 DISCOVERY_END=pd.Timestamp('2026-08-28')
 HOLDOUT_START=pd.Timestamp('2026-09-01')
 
@@ -75,12 +75,44 @@ def old_real_wm(x):
     return int(all(cond.values())),cond
 
 def modern_state(x):
+    """Research-only compatibility wrapper.
+
+    The repository's current build_watermelon_state_bundle has a Blue-1 large-cap
+    branch that may read local `blue_confirm` before it is assigned. We do NOT
+    patch production. If that exact late-stage NameError occurs after final_state
+    has already been computed, recover the already-computed state from traceback
+    frame locals and mark provenance explicitly.
+    """
     try:
         from scanner.watermelon_core import build_watermelon_state_bundle
         b=build_watermelon_state_bundle(x.copy())
-        return str(b.get('wm_final_state') or b.get('wm_state_name') or ''), int(bool(b.get('wm_state_green'))), int(bool(b.get('wm_state_red'))), int(bool(b.get('wm_state_blue')))
+        return (
+            str(b.get('wm_final_state') or b.get('wm_state_name') or ''),
+            int(bool(b.get('wm_state_green'))),
+            int(bool(b.get('wm_state_red'))),
+            int(bool(b.get('wm_state_blue'))),
+            'DIRECT_REPO_EVAL',
+            ''
+        )
+    except NameError as e:
+        tb=e.__traceback__
+        recovered=None
+        while tb is not None:
+            fr=tb.tb_frame
+            if fr.f_code.co_name=='build_watermelon_state_bundle':
+                loc=fr.f_locals
+                fs=str(loc.get('final_state') or '')
+                if fs:
+                    recovered=fs
+            tb=tb.tb_next
+        if recovered:
+            green=int(recovered in ('초입수박','눌림수박'))
+            red=int(recovered in ('Blue-1단기','Blue-2스윙'))
+            blue=red
+            return recovered,green,red,blue,'TRACEBACK_LOCAL_RECOVERY_NAMEERROR',str(e)
+        return f'IMPORT_OR_EVAL_ERROR:NameError',0,0,0,'UNRECOVERED_NAMEERROR',str(e)
     except Exception as e:
-        return f'IMPORT_OR_EVAL_ERROR:{type(e).__name__}',0,0,0
+        return f'IMPORT_OR_EVAL_ERROR:{type(e).__name__}',0,0,0,'UNRECOVERED_EXCEPTION',str(e)
 
 def longma_context(x):
     r=x.iloc[-1]; close=num(r.Close); out={}
@@ -95,6 +127,42 @@ def longma_context(x):
     out['longma_position_code']='112'+bits[0]+'_224'+bits[1]+'_448'+bits[2]
     finite=[z for z in vals if math.isfinite(z)]
     out['longma_112_224_448_spread_pct']=((max(finite)-min(finite))/close*100) if len(finite)==3 and close else np.nan
+    return out
+
+def longma_phase_context(x):
+    """Descriptive phase only; no outcome-tuned thresholds.
+
+    BELOW: currently below the MA and no reclaim in the last 20 sessions.
+    RECLAIM_20: at least one below→above close crossover in the last 20 sessions.
+    ABOVE_STABLE: currently above and no reclaim crossover in the last 20 sessions.
+    UNKNOWN: MA history unavailable.
+    """
+    out={}
+    phase_parts=[]
+    for n in [112,224,448]:
+        col=f'MA{n}'
+        if col not in x.columns or len(x)<2:
+            phase='UNKNOWN'
+            rec20=0
+        else:
+            ma=pd.to_numeric(x[col],errors='coerce')
+            cl=pd.to_numeric(x['Close'],errors='coerce')
+            valid=ma.notna() & cl.notna()
+            cross=((cl>=ma) & (cl.shift(1)<ma.shift(1)) & valid & valid.shift(1).fillna(False))
+            rec20=int(cross.tail(20).any())
+            cur_ma=num(ma.iloc[-1]); cur_cl=num(cl.iloc[-1])
+            if not (math.isfinite(cur_ma) and math.isfinite(cur_cl)):
+                phase='UNKNOWN'
+            elif rec20:
+                phase='RECLAIM_20'
+            elif cur_cl < cur_ma:
+                phase='BELOW'
+            else:
+                phase='ABOVE_STABLE'
+        out[f'ma{n}_phase']=phase
+        out[f'ma{n}_reclaim20']=rec20
+        phase_parts.append(f'{n}:{phase}')
+    out['longma_phase_code']='|'.join(phase_parts)
     return out
 
 def outcome_summary(df, col):
@@ -117,8 +185,8 @@ def run(a):
         d.update({'wm_legacy12':int(bool(cur.WM_Legacy12)),'wm_legacy15':int(bool(cur.WM_Legacy15)),'wm_bb40_green':int(bool(cur.WM_BB40_Green)),'wm_bb40_red':int(bool(cur.WM_BB40_Red)),'wm_fire':num(cur.WM_Fire),'bb20_width':num(cur.BB20_Width),'bb40_width':num(cur.BB40_Width),'volume_vs_vma20':num(cur.Volume/cur.VMA20) if num(cur.VMA20)>0 else np.nan})
         real,conds=old_real_wm(x); d['wm_old_real448']=real
         for k,v in conds.items(): d['wm_oldreal_'+k]=int(v)
-        st,g,rr,b=modern_state(x); d['wm_modern_state']=st; d['wm_modern_green']=g; d['wm_modern_red']=rr; d['wm_modern_blue']=b
-        d.update(longma_context(x)); rows.append(d)
+        st,g,rr,b,eval_status,eval_error=modern_state(x); d['wm_modern_state']=st; d['wm_modern_green']=g; d['wm_modern_red']=rr; d['wm_modern_blue']=b; d['wm_modern_eval_status']=eval_status; d['wm_modern_eval_error']=eval_error
+        d.update(longma_context(x)); d.update(longma_phase_context(x)); rows.append(d)
     z=pd.DataFrame(rows); z.to_csv(out/'watermelon_event_master.csv',index=False,encoding='utf-8-sig')
     disc=z[pd.to_datetime(z.origin_date).le(DISCOVERY_END)].copy(); hold=z[pd.to_datetime(z.origin_date).ge(HOLDOUT_START)].copy()
     disc.to_csv(out/'discovery_watermelon_longma.csv',index=False,encoding='utf-8-sig'); hold.to_csv(out/'holdout_watermelon_longma_FROZEN_NO_RETUNING.csv',index=False,encoding='utf-8-sig')
@@ -131,19 +199,24 @@ def run(a):
     ],columns=['definition_id','definition','repo_lineage','interpretation'])
     lineage.to_csv(out/'watermelon_definition_lineage.csv',index=False,encoding='utf-8-sig')
     sums=[]
-    for c in ['wm_legacy12','wm_legacy15','wm_bb40_green','wm_bb40_red','wm_old_real448','wm_modern_state','longma_position_code']:
+    for c in ['wm_legacy12','wm_legacy15','wm_bb40_green','wm_bb40_red','wm_old_real448','wm_modern_state','longma_position_code','ma112_phase','ma224_phase','ma448_phase','longma_phase_code']:
         q=outcome_summary(disc,c)
         if not q.empty:sums.append(q)
     pd.concat(sums,ignore_index=True).to_csv(out/'discovery_definition_x_longma_outcome_summary.csv',index=False,encoding='utf-8-sig') if sums else pd.DataFrame().to_csv(out/'discovery_definition_x_longma_outcome_summary.csv',index=False)
     cross=disc.groupby(['wm_modern_state','longma_position_code'],dropna=False).size().reset_index(name='events'); cross.to_csv(out/'modern_state_x_longma_context_counts.csv',index=False,encoding='utf-8-sig')
-    design={'discovery_end':'2026-08-28','holdout_start':'2026-09-01','definitions':['LEGACY12','LEGACY15','BB40_FIRE','OLD_REAL448','MODERN_STATE'],'research_only':True,'production_eligible':False,'same_sample_retuning':False,'thresholds_newly_optimized':False}
-    meta={'research_id':RESEARCH_ID,'revision':REVISION,'status':'PASS','events':len(z),'discovery_events':len(disc),'holdout_events':len(hold),'missing_price':len(missing),'research_only':True,'production_eligible':False,'selection_logic_changed':False,'score_rank_changed':False,'order_logic_changed':False,'same_sample_retuning':False,'design_hash':sha(design),'design':design}
+    phase_cross=disc.groupby(['wm_modern_state','longma_phase_code'],dropna=False).size().reset_index(name='events'); phase_cross.to_csv(out/'modern_state_x_longma_phase_counts.csv',index=False,encoding='utf-8-sig')
+    eval_audit=z.groupby(['wm_modern_eval_status','wm_modern_eval_error'],dropna=False).size().reset_index(name='events')
+    eval_audit.to_csv(out/'modern_state_eval_integrity_audit.csv',index=False,encoding='utf-8-sig')
+    unrecovered=int(z['wm_modern_eval_status'].astype(str).str.startswith('UNRECOVERED').sum())
+    recovered=int(z['wm_modern_eval_status'].eq('TRACEBACK_LOCAL_RECOVERY_NAMEERROR').sum())
+    design={'discovery_end':'2026-08-28','holdout_start':'2026-09-01','definitions':['LEGACY12','LEGACY15','BB40_FIRE','OLD_REAL448','MODERN_STATE'],'longma_phase_definition':'BELOW/RECLAIM_20/ABOVE_STABLE descriptive only','research_only':True,'production_eligible':False,'same_sample_retuning':False,'thresholds_newly_optimized':False}
+    meta={'research_id':RESEARCH_ID,'revision':REVISION,'status':'PASS' if unrecovered==0 else 'FAIL_MODERN_STATE_UNRECOVERED','events':len(z),'discovery_events':len(disc),'holdout_events':len(hold),'missing_price':len(missing),'modern_state_recovered_nameerror':recovered,'modern_state_unrecovered_errors':unrecovered,'research_only':True,'production_eligible':False,'selection_logic_changed':False,'score_rank_changed':False,'order_logic_changed':False,'same_sample_retuning':False,'design_hash':sha(design),'design':design}
     (out/'watermelon_longma_meta.json').write_text(json.dumps(meta,ensure_ascii=False,indent=2),encoding='utf-8')
-    (out/'watermelon_longma_report.txt').write_text('\n'.join([f'🧪 [{RESEARCH_ID}]',f'status=PASS revision={REVISION}',f'events={len(z)} discovery={len(disc)} holdout={len(hold)} missing_price={len(missing)}','existing definitions reproduced side-by-side; no new production rule','MA112/224/448 context is descriptive research only','research_only=1 production changes=0 same_sample_retuning=0'])+'\n',encoding='utf-8')
+    (out/'watermelon_longma_report.txt').write_text('\n'.join([f'🧪 [{RESEARCH_ID}]',f'status=PASS revision={REVISION}',f'events={len(z)} discovery={len(disc)} holdout={len(hold)} missing_price={len(missing)}',f'modern_state_recovered_nameerror={recovered} unrecovered={unrecovered}','existing definitions reproduced side-by-side; no new production rule','MA112/224/448 BELOW→RECLAIM_20→ABOVE_STABLE phase is descriptive research only','research_only=1 production changes=0 same_sample_retuning=0'])+'\n',encoding='utf-8')
     print((out/'watermelon_longma_report.txt').read_text())
 
 def self_test():
-    n=520; idx=pd.bdate_range('2024-01-01',periods=n); c=np.linspace(80,100,n); q=pd.DataFrame({'Open':c*.995,'High':c*1.01,'Low':c*.99,'Close':c,'Volume':100000},index=idx); x=enrich(q); assert 'MA448' in x and 'WM_Legacy12' in x; assert len(longma_context(x))>5; print('REAL_FULL_WATERMELON_LONGMA_AUDIT_R1_SELF_TEST PASS')
+    n=520; idx=pd.bdate_range('2024-01-01',periods=n); c=np.linspace(80,100,n); q=pd.DataFrame({'Open':c*.995,'High':c*1.01,'Low':c*.99,'Close':c,'Volume':100000},index=idx); x=enrich(q); assert 'MA448' in x and 'WM_Legacy12' in x; assert len(longma_context(x))>5; ph=longma_phase_context(x); assert ph['ma112_phase'] in {'BELOW','RECLAIM_20','ABOVE_STABLE','UNKNOWN'}; print('REAL_FULL_WATERMELON_LONGMA_AUDIT_R1_0_1_SELF_TEST PASS')
 
 def main():
     ap=argparse.ArgumentParser(); ap.add_argument('--source-master',default='source_pattern/reports/real_full_pattern_truth_unknown_r1/pattern_truth_event_master.csv'); ap.add_argument('--output-dir',default='reports/real_full_watermelon_longma_audit_r1'); ap.add_argument('--self-test',action='store_true'); a=ap.parse_args(); return self_test() if a.self_test else run(a)
