@@ -1,0 +1,95 @@
+name: REAL_FULL Watermelon Long-MA OOS Freeze R1
+on:
+  workflow_dispatch:
+    inputs:
+      interaction_run_id:
+        description: "Frozen successful Interaction R1.0.2 run"
+        required: true
+        default: "35827339397"
+        type: string
+      watermelon_run_id:
+        description: "Compatible Watermelon Long-MA Audit run; replace with newer compatible run for future OOS accumulation"
+        required: true
+        default: "35818983451"
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  watermelon-longma-oos-freeze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TZ: Asia/Seoul
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: Install dependencies
+        run: pip install pandas numpy requests
+      - name: Self-test
+        run: |
+          python -m py_compile real_full_watermelon_longma_oos_freeze_r1.py
+          python real_full_watermelon_longma_oos_freeze_r1.py --self-test
+      - name: Resolve frozen Interaction and Watermelon sources
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INTERACTION_RUN_ID: ${{ inputs.interaction_run_id }}
+          WATERMELON_RUN_ID: ${{ inputs.watermelon_run_id }}
+        run: |
+          set -euo pipefail
+          mkdir -p source_interaction source_wm
+          python - <<'PY'
+          import io,json,os,pathlib,requests,zipfile
+          repo=os.environ['GITHUB_REPOSITORY']; token=os.environ['GH_TOKEN']
+          h={'Authorization':'Bearer '+token,'Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'}
+          base=f'https://api.github.com/repos/{repo}'
+          def pull(rid,prefix,dst):
+              rr=requests.get(f'{base}/actions/runs/{rid}',headers=h,timeout=60); rr.raise_for_status()
+              if rr.json().get('conclusion')!='success': raise SystemExit(f'SOURCE_RUN_NOT_SUCCESS:{rid}')
+              arts=requests.get(f'{base}/actions/runs/{rid}/artifacts?per_page=100',headers=h,timeout=60).json().get('artifacts',[])
+              a=next((x for x in arts if not x.get('expired') and str(x.get('name','')).startswith(prefix)),None)
+              if not a: raise SystemExit(f'SOURCE_ARTIFACT_NOT_FOUND:{rid}:{prefix}')
+              raw=requests.get(f"{base}/actions/artifacts/{a['id']}/zip",headers=h,timeout=60,allow_redirects=True); raw.raise_for_status()
+              with zipfile.ZipFile(io.BytesIO(raw.content)) as z:z.extractall(dst)
+              return {'run_id':int(rid),'artifact_id':a['id'],'artifact_name':a['name'],'digest':a.get('digest')}
+          resolved={
+            'interaction':pull(os.environ['INTERACTION_RUN_ID'],'real-full-watermelon-longma-phase-interaction-r1-','source_interaction'),
+            'watermelon':pull(os.environ['WATERMELON_RUN_ID'],'real-full-watermelon-longma-audit-r101-','source_wm'),
+          }
+          pathlib.Path('source_resolution.json').write_text(json.dumps(resolved,indent=2),encoding='utf-8')
+          PY
+      - name: Freeze signatures and evaluate OOS
+        run: |
+          python -u real_full_watermelon_longma_oos_freeze_r1.py \
+            --interaction-master source_interaction/reports/real_full_watermelon_longma_phase_interaction_r1/watermelon_longma_interaction_master.csv \
+            --watermelon-master source_wm/reports/real_full_watermelon_longma_audit_r1/watermelon_event_master.csv \
+            --output-dir reports/real_full_watermelon_longma_oos_freeze_r1
+      - name: Validate frozen research invariants
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          d=json.loads(Path('reports/real_full_watermelon_longma_oos_freeze_r1/watermelon_longma_oos_freeze_meta.json').read_text())
+          assert d['status']=='PASS'
+          assert d['research_only'] is True and d['production_eligible'] is False
+          assert d['selection_logic_changed'] is False and d['score_rank_changed'] is False and d['order_logic_changed'] is False
+          assert d['same_sample_retuning'] is False and d['registry_retuning_allowed'] is False
+          assert d['immature_d20_treated_as_failure'] is False
+          assert d['frozen_signature_count'] > 0
+          print('WATERMELON_LONGMA_OOS_FREEZE_R1_INVARIANTS PASS',d['registry_sha256'])
+          PY
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: real-full-watermelon-longma-oos-freeze-r1-${{ github.run_id }}
+          path: |
+            reports/real_full_watermelon_longma_oos_freeze_r1/**
+            source_resolution.json
+          if-no-files-found: warn
+          retention-days: 30
