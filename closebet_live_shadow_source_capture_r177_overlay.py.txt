@@ -1,15 +1,16 @@
 # =============================================================
-# ✅ CLOSEBET LIVE SHADOW SOURCE CAPTURE R1.7.7 FIX1
-#    MANUAL TEST PRECEDENCE + COPY-ONLY FALLBACK
+# ✅ CLOSEBET LIVE SHADOW SOURCE CAPTURE R1.7.7 FIX2
+#    TEST PRECEDENCE + COPY FALLBACK + FEATURE MATERIALIZATION
 #
-# - LIVE candidate lanes: exact copy-only sidecar, unchanged behavior.
-# - Explicit workflow_dispatch + shadow_test_capture=true is always TEST_ONLY.
-# - TEST_ONLY is never production authority and is clearly marked in metadata.
-# - If FINAL decision items are absent, already-computed production hits_df is
-#   copied in source order. No recomputation, filtering, scoring or reranking.
-# - No search / score / rank / filter / candidate-order / production Telegram change.
+# Research-only observer.
+# - Never changes production search / score / rank / candidate order / Telegram.
+# - Manual workflow_dispatch + shadow_test_capture=true => MANUAL_TEST.
+# - Preferred source = already-computed FINAL decision items.
+# - If FINAL decision items are absent, exact order-preserving hits_df copy fallback.
+# - Materializes only fields already present in production structures.
+# - Never invents or infers a missing pattern.
 # =============================================================
-_CLOSEBET_SHADOW_CAPTURE_VERSION = "CLOSEBET_LIVE_SHADOW_SOURCE_CAPTURE_R177_FIX1_TEST_PRECEDENCE_COPY_FALLBACK_20260923"
+_CLOSEBET_SHADOW_CAPTURE_VERSION = "CLOSEBET_LIVE_SHADOW_SOURCE_CAPTURE_R177_FIX2_FEATURE_MATERIALIZATION_20260923"
 _CLOSEBET_SHADOW_CAPTURE_BASE_LIVE_PARTS = _v4938_build_live_parts
 
 def _closebet_shadow_truthy(v):
@@ -23,14 +24,18 @@ def _closebet_shadow_capture_mode():
             event_name=="workflow_dispatch"
             and _closebet_shadow_truthy(os.environ.get("CLOSING_BET_SHADOW_MANUAL_TEST_CAPTURE","0"))
         )
+
+        # Manual test must never gain LIVE authority merely because lane contains FINAL.
         if manual_test:
             return "MANUAL_TEST"
+
         denied=any(x in lane for x in ("RESTORE_ONLY","INTRADAY_EXPIRED","AFTER_WINDOW"))
         live_candidate=(not denied) and any(
             x in lane for x in ("PREFINAL","PRE_FINAL","LIVE_SESSION_CONTINUOUS_PRIMARY","AFTER_FINAL","FINAL")
         )
         if live_candidate:
             return "LIVE_EXACT"
+
         return "NONE"
     except Exception:
         return "NONE"
@@ -51,7 +56,7 @@ def _closebet_shadow_capture_pattern(obj):
     try:
         txt=" ".join(str((obj or {}).get(k,"") or "") for k in
                      ("primary_formula","primary_strategy","mode","strategy","formula",
-                      "label","practical_label","all_matched_strategies")).upper()
+                      "legacy_strategy_tag","label","practical_label","all_matched_strategies")).upper()
         for p in ("B1","B2","C","I","A","G","H","S","IT","LP","L"):
             if re.search(r"(^|[^A-Z0-9])"+re.escape(p)+r"([^A-Z0-9]|$)",txt):
                 return p
@@ -59,16 +64,147 @@ def _closebet_shadow_capture_pattern(obj):
         pass
     return ""
 
+def _closebet_shadow_is_missing(v):
+    try:
+        if v is None:
+            return True
+        if isinstance(v,str) and v.strip()=="":
+            return True
+        return bool(pd.isna(v))
+    except Exception:
+        return False
+
+def _closebet_shadow_obj_dict(v):
+    """Convert an already-existing nested production object to a plain dict only."""
+    try:
+        if isinstance(v,dict):
+            return dict(v)
+        if isinstance(v,pd.Series):
+            return v.to_dict()
+        if hasattr(v,"to_dict"):
+            d=v.to_dict()
+            if isinstance(d,dict):
+                return d
+    except Exception:
+        pass
+    return {}
+
+def _closebet_shadow_put_if_missing(row,key,value,provenance):
+    if _closebet_shadow_is_missing(value):
+        return False
+    if key not in row or _closebet_shadow_is_missing(row.get(key)):
+        row[key]=value
+        provenance[key]=True
+        return True
+    return False
+
+def _closebet_shadow_materialize(row,it,ex):
+    """
+    Copy-only alias materialization.
+    Values come only from fields already computed by production.
+    No formula reconstruction and no pattern inference.
+    """
+    provenance={}
+
+    nested={}
+    for k in ("row","decision_row","source_row","candidate_row"):
+        if k in it:
+            nested=_closebet_shadow_obj_dict(it.get(k))
+            if nested:
+                break
+
+    # R1.7.9 canonical feature aliases.
+    # decision lifecycle row uses close_loc / volume_ratio / ma20_gap.
+    _closebet_shadow_put_if_missing(
+        row,"entry_close_loc_pct",
+        nested.get("close_loc", row.get("close_loc_pct")),
+        provenance
+    )
+    _closebet_shadow_put_if_missing(
+        row,"close_loc_pct",
+        nested.get("close_loc", row.get("entry_close_loc_pct")),
+        provenance
+    )
+
+    _closebet_shadow_put_if_missing(
+        row,"entry_vol20_ratio",
+        nested.get("volume_ratio", row.get("vol20_ratio")),
+        provenance
+    )
+    _closebet_shadow_put_if_missing(
+        row,"vol20_ratio",
+        nested.get("volume_ratio", row.get("entry_vol20_ratio")),
+        provenance
+    )
+
+    _closebet_shadow_put_if_missing(
+        row,"entry_ma20_dist_pct",
+        nested.get("ma20_gap", row.get("ma20_dist_pct")),
+        provenance
+    )
+    _closebet_shadow_put_if_missing(
+        row,"ma20_dist_pct",
+        nested.get("ma20_gap", row.get("entry_ma20_dist_pct")),
+        provenance
+    )
+
+    # These are copied only when already present under equivalent production names.
+    for dst,sources in (
+        ("entry_amount20_ratio",("entry_amount20_ratio","amount20_ratio")),
+        ("amount20_ratio",("amount20_ratio","entry_amount20_ratio")),
+        ("entry_ma60_dist_pct",("entry_ma60_dist_pct","ma60_dist_pct")),
+        ("ma60_dist_pct",("ma60_dist_pct","entry_ma60_dist_pct")),
+        ("entry_ret5_pct",("entry_ret5_pct","ret5_pct","entry_stock_ret_5d")),
+        ("ret5_pct",("ret5_pct","entry_ret5_pct","entry_stock_ret_5d")),
+    ):
+        for src in sources:
+            val=row.get(src)
+            if not _closebet_shadow_is_missing(val):
+                _closebet_shadow_put_if_missing(row,dst,val,provenance)
+                break
+            val=ex.get(src)
+            if not _closebet_shadow_is_missing(val):
+                _closebet_shadow_put_if_missing(row,dst,val,provenance)
+                break
+            val=nested.get(src)
+            if not _closebet_shadow_is_missing(val):
+                _closebet_shadow_put_if_missing(row,dst,val,provenance)
+                break
+
+    # Pattern: copy an explicit pattern only. Never infer from stage/reasons.
+    pat=(
+        _closebet_shadow_capture_pattern(it)
+        or _closebet_shadow_capture_pattern(nested)
+        or _closebet_shadow_capture_pattern(ex)
+        or _closebet_shadow_capture_pattern(row)
+    )
+    if pat:
+        if not str(row.get("primary_strategy","") or "").strip():
+            row["primary_strategy"]=pat
+            provenance["primary_strategy"]=True
+        row["shadow_pattern_explicit"]=True
+    else:
+        row["shadow_pattern_explicit"]=False
+
+    row["shadow_feature_materialized"]=bool(provenance)
+    row["shadow_feature_materialized_fields"]=",".join(sorted(provenance))
+    row["shadow_feature_provenance"]="COPY_ONLY_EXISTING_PRODUCTION_FIELDS"
+    row["shadow_pattern_inferred"]=False
+    return row
+
 def _closebet_shadow_capture_write(hits_df, execution_all):
     try:
         mode=_closebet_shadow_capture_mode()
         if mode=="NONE":
             return
+
         decision=dict(globals().get("_V4942_LAST_DECISION",{}) or {})
         items=list(decision.get("items",[]) or [])
         hdf=hits_df.copy() if isinstance(hits_df,pd.DataFrame) else pd.DataFrame(hits_df or [])
+
         top=[]
         source_selection="FINAL_DECISION_ITEMS"
+
         if items:
             quotas=(("ENTER",3),("MANAGE",2),("REPLAY",1),("WAIT",3),("EXCLUDE",1),("HOLD",1))
             for cat,limit in quotas:
@@ -80,44 +216,66 @@ def _closebet_shadow_capture_write(hits_df, execution_all):
                 )[:int(globals().get("CLOSING_BET_V4942_FINAL_TOP_N",6) or 6)]
             except Exception:
                 top=top[:int(globals().get("CLOSING_BET_V4942_FINAL_TOP_N",6) or 6)]
+
         if not top and not hdf.empty:
             source_selection="HITS_DF_COPY_ONLY_FALLBACK"
             top=hdf.to_dict("records")[:int(globals().get("CLOSING_BET_V4942_FINAL_TOP_N",6) or 6)]
+
         if not top:
             return
+
         hit_by_code={}
         if not hdf.empty:
             for _,r in hdf.iterrows():
-                d=r.to_dict(); c=_closebet_shadow_capture_code(d)
+                d=r.to_dict()
+                c=_closebet_shadow_capture_code(d)
                 if c and c not in hit_by_code:
                     hit_by_code[c]=d
+
         exec_by_code={}
         for e in (execution_all or []):
-            d=dict(e or {}); c=_closebet_shadow_capture_code(d)
+            d=dict(e or {})
+            c=_closebet_shadow_capture_code(d)
             if c and c not in exec_by_code:
                 exec_by_code[c]=d
+
         rows=[]
         for order,it0 in enumerate(top,1):
             it=dict(it0 or {})
             code=_closebet_shadow_capture_code(it)
+
             row=dict(hit_by_code.get(code,{}) or {})
             ex=dict(exec_by_code.get(code,{}) or {})
+
             if source_selection=="HITS_DF_COPY_ONLY_FALLBACK" and not row:
                 row=dict(it)
+
             for k,v in ex.items():
-                if k not in row or pd.isna(row.get(k)):
+                if k not in row or _closebet_shadow_is_missing(row.get(k)):
                     row[k]=v
+
             if source_selection=="FINAL_DECISION_ITEMS":
                 for k,v in it.items():
+                    # Keep nested production objects in decision_* columns for audit.
                     row["decision_"+str(k)]=v
+
             if code:
                 row["code"]=code
-            name=str(it.get("name") or it.get("stock_name") or row.get("name") or row.get("Name") or ex.get("name") or "").strip()
+
+            name=str(
+                it.get("name")
+                or it.get("stock_name")
+                or row.get("name")
+                or row.get("Name")
+                or ex.get("name")
+                or ""
+            ).strip()
             if name:
                 row["name"]=name
-            pat=_closebet_shadow_capture_pattern(it) or _closebet_shadow_capture_pattern(ex) or _closebet_shadow_capture_pattern(row)
-            if pat and not str(row.get("primary_strategy","") or "").strip():
-                row["primary_strategy"]=pat
+
+            # Critical FIX2: expose already-computed structure fields for R1.7.9.
+            row=_closebet_shadow_materialize(row,it,ex)
+
             row["shadow_source_order"]=order
             row["shadow_source_selection"]=source_selection
             row["shadow_final_decision"]=str(it.get("decision","") or "") if source_selection=="FINAL_DECISION_ITEMS" else ""
@@ -128,20 +286,32 @@ def _closebet_shadow_capture_write(hits_df, execution_all):
             row["shadow_test_only"]=(mode=="MANUAL_TEST")
             row["shadow_copy_only"]=True
             row["shadow_production_changed"]=False
+
             if not str(row.get("signal_date","") or "").strip():
-                dd=(globals().get("_V4938_LAST_HEALTH",{}) or {}).get("latest_data_date")
+                nested=_closebet_shadow_obj_dict(it.get("row"))
+                dd=nested.get("signal_date")
+                if not dd:
+                    dd=(globals().get("_V4938_LAST_HEALTH",{}) or {}).get("latest_data_date")
                 if dd:
                     row["signal_date"]=str(dd)[:10]
+
             rows.append(row)
+
         if not rows:
             return
+
         now=_now_kst() if callable(globals().get("_now_kst")) else datetime.now()
         stamp=now.strftime("%Y%m%d_%H%M%S")
         outdir=Path("reports/live_shadow_source")
         outdir.mkdir(parents=True,exist_ok=True)
+
         csvp=outdir/f"live_shadow_execution_{stamp}.csv"
         pd.DataFrame(rows).to_csv(csvp,index=False,encoding="utf-8-sig")
+
         test_only=(mode=="MANUAL_TEST")
+        explicit_pattern_rows=sum(bool(r.get("shadow_pattern_explicit")) for r in rows)
+        materialized_rows=sum(bool(r.get("shadow_feature_materialized")) for r in rows)
+
         meta={
             "version":_CLOSEBET_SHADOW_CAPTURE_VERSION,
             "effective_lane":str(os.environ.get("CLOSING_BET_V497673251_EFFECTIVE_LANE","") or ""),
@@ -155,6 +325,10 @@ def _closebet_shadow_capture_write(hits_df, execution_all):
             "decision_item_count":len(items),
             "hits_df_rows":int(len(hdf)),
             "final_top_n":int(globals().get("CLOSING_BET_V4942_FINAL_TOP_N",6) or 6),
+            "feature_materialization_enabled":True,
+            "feature_materialized_rows":materialized_rows,
+            "explicit_pattern_rows":explicit_pattern_rows,
+            "pattern_inference_used":False,
             "research_only":True,
             "copy_only":True,
             "test_only":test_only,
@@ -169,12 +343,22 @@ def _closebet_shadow_capture_write(hits_df, execution_all):
             "telegram_production_changed":False,
             "created_at_kst":now.strftime("%Y-%m-%d %H:%M:%S"),
         }
-        (outdir/f"live_shadow_source_meta_{stamp}.json").write_text(json.dumps(meta,ensure_ascii=False,indent=2),encoding="utf-8")
+
+        (outdir/f"live_shadow_source_meta_{stamp}.json").write_text(
+            json.dumps(meta,ensure_ascii=False,indent=2),encoding="utf-8"
+        )
+
         try:
             label="MANUAL TEST_ONLY" if test_only else "LIVE EXACT"
-            log_info(f"🧪 LIVE SHADOW copy-only sidecar [{label}] selection={source_selection}: {csvp} · rows {len(rows)} · production change 0")
+            log_info(
+                f"🧪 LIVE SHADOW copy-only sidecar [{label}] "
+                f"selection={source_selection}: {csvp} · rows {len(rows)} "
+                f"· materialized {materialized_rows} · explicit-pattern {explicit_pattern_rows} "
+                f"· production change 0"
+            )
         except Exception:
             pass
+
     except Exception as e:
         try:
             log_error(f"⚠️ LIVE SHADOW sidecar observer failure isolated: {type(e).__name__}:{e}")
@@ -182,7 +366,9 @@ def _closebet_shadow_capture_write(hits_df, execution_all):
             pass
 
 def _v4938_build_live_parts(hits_df, execution_all, market_short, cov_short, raw_health):
-    parts=_CLOSEBET_SHADOW_CAPTURE_BASE_LIVE_PARTS(hits_df, execution_all, market_short, cov_short, raw_health)
+    parts=_CLOSEBET_SHADOW_CAPTURE_BASE_LIVE_PARTS(
+        hits_df, execution_all, market_short, cov_short, raw_health
+    )
     try:
         _closebet_shadow_capture_write(hits_df, execution_all)
     except Exception:
@@ -190,5 +376,5 @@ def _v4938_build_live_parts(hits_df, execution_all, market_short, cov_short, raw
     return parts
 
 # =============================================================
-# ✅ END CLOSEBET LIVE SHADOW SOURCE CAPTURE R1.7.7 FIX1
+# ✅ END CLOSEBET LIVE SHADOW SOURCE CAPTURE R1.7.7 FIX2
 # =============================================================
