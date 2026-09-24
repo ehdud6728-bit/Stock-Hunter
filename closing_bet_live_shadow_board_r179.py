@@ -8,7 +8,9 @@ import pandas as pd
 import closing_bet_live_shadow_board_r17 as r17
 import closing_bet_live_shadow_board_r173 as r173
 
+# Keep the R1.7.9 version string for workflow compatibility.
 VERSION="CLOSEBET_LIVE_SHADOW_BOARD_R179_OUTCOME_PROBABILITY_20260922"
+STRUCTURE_READOUT_REVISION="R179_FIX2_STRUCTURE_READOUT_20260924"
 _TEST_MODE=False
 _R13=pd.DataFrame()
 
@@ -24,14 +26,6 @@ FAMS=[
 ]
 GOOD={"EARLY_WIN_HELD","SHAKEOUT_THEN_RECOVERY"}
 RISK={"EARLY_WIN_GIVEBACK","EARLY_STOP_SLOW_OR_NO_RECOVERY"}
-
-FAM_KO={
-    "EARLY_WIN_HELD":"초반성공 유지",
-    "SHAKEOUT_THEN_RECOVERY":"흔들림 후 회복",
-    "EARLY_WIN_GIVEBACK":"초반성공 후 Giveback",
-    "EARLY_STOP_SLOW_OR_NO_RECOVERY":"회복부진",
-    "AMBIGUOUS_OR_PENDING":"불확실/진행중",
-}
 
 FEATURES=[
     ("CloseLoc","entry_close_loc_pct"),
@@ -124,10 +118,8 @@ def _distance_weights(train,x,exclude_index=None):
     cols=[c for _,c in FEATURES if c in x and c in train.columns]
     if len(cols)<MIN_FEATURES:return None,None,0
     scales={}
-    meds={}
     for c in cols:
         vals=pd.to_numeric(train[c],errors="coerce")
-        meds[c]=float(vals.median()) if vals.notna().any() else np.nan
         scales[c]=_robust_scale(vals)
     usable=[c for c in cols if math.isfinite(scales.get(c,np.nan))]
     if len(usable)<MIN_FEATURES:return None,None,len(usable)
@@ -144,7 +136,6 @@ def _distance_weights(train,x,exclude_index=None):
         d2.append(float(np.mean(zs))); idx.append(i)
     if not d2:return None,None,len(usable)
     d2=np.asarray(d2,float)
-    # Fixed Gaussian kernel in robust-z space. No same-sample bandwidth tuning.
     w=np.exp(-0.5*d2)
     return np.asarray(idx),w,len(usable)
 
@@ -226,12 +217,38 @@ def _group_median_reasons(pattern,x):
     return [x[1] for x in pos[:2]],[x[1] for x in neg[:2]]
 
 def _confidence(est,brier):
-    # Presentation confidence only. Forward validation is not complete, so HIGH is not used.
+    # Forward calibration is incomplete, so HIGH is intentionally unavailable.
     if est.get("status")!="OK":return "LOW"
     n=int(est.get("n",0)); ess=float(est.get("ess",0)); f=int(est.get("features",0))
     if n>=60 and ess>=15 and f>=5 and math.isfinite(brier) and brier<=0.25:
         return "MEDIUM"
     return "LOW"
+
+def _structure_readout(good,base,conf,pattern):
+    """
+    Human-readable relative structure.
+    This is descriptive only and never a production score/gate.
+    The key comparison is candidate probability vs SAME-PATTERN base rate.
+    """
+    delta=good-base
+
+    if delta>=8:
+        label="성공형 쪽 뚜렷" if conf=="MEDIUM" else "성공형 쪽 기울기 관찰"
+    elif delta>=3:
+        label="약한 성공형 기울기" if conf=="MEDIUM" else "약한 성공형 기울기 관찰"
+    elif delta>-3:
+        label="기본형에 가까움 · 혼합"
+    elif delta>-8:
+        label="약한 실패형 기울기" if conf=="MEDIUM" else "약한 실패형 기울기 관찰"
+    else:
+        label="실패형 쪽 뚜렷" if conf=="MEDIUM" else "실패형 쪽 기울기 관찰"
+
+    sign="+" if delta>=0 else ""
+    return [
+        f"🧭 구조 판독 | {label}",
+        f"   ↳ 성공형(유지/회복) {good:.0f} : 실패형(Giveback/부진) {100-good:.0f}",
+        f"   ↳ {pattern}형 기본 성공률 {base:.0f}% 대비 {sign}{delta:.0f}%p · 신뢰도 {conf}",
+    ]
 
 def _type_text(pat,lines):
     vol=_num_from_lines(lines,"Vol20")
@@ -256,13 +273,17 @@ def _type_text(pat,lines):
 def _current_line(lines):
     vals=[]
     for key,label,suf,dec in [
-        ("CloseLoc","Close","%",0),("Vol20","Vol","x",2),("Amount20","Amt","x",2),
+        ("CloseLoc","CloseLoc","%",0),("Vol20","Vol20","x",2),("Amount20","Amount20","x",2),
         ("MA20","MA20","%",1),("MA60","MA60","%",1),("Ret5","Ret5","%",1),
     ]:
         v=_num_from_lines(lines,key)
         if v is None:continue
         if suf=="%":
-            vals.append(f"{label} {v:+.{dec}f}%")
+            # CloseLoc is a 0~100 location metric, not a signed return.
+            if key=="CloseLoc":
+                vals.append(f"{label} {v:.{dec}f}%")
+            else:
+                vals.append(f"{label} {v:+.{dec}f}%")
         else:
             vals.append(f"{label} {v:.{dec}f}x")
     return " · ".join(vals)
@@ -285,7 +306,10 @@ def _prob_text(pattern,lines):
     x=_candidate_x(lines)
     est=_estimate(pattern,x)
     if est.get("status")!="OK":
-        return [f"확률 추정 | 표본/feature 부족 · status={est.get('status')} · n={est.get('n',0)}"]
+        return [
+            "🧭 구조 판독 | 판독 보류 · 동일패턴 표본/feature 부족",
+            f"확률 추정 | 표본/feature 부족 · status={est.get('status')} · n={est.get('n',0)}"
+        ]
 
     brier=_loo_brier(pattern)
     conf=_confidence(est,brier)
@@ -297,6 +321,9 @@ def _prob_text(pattern,lines):
 
     out=[
         f"📊 outcome 추정 | 유지/회복 {good:.0f}% · Giveback/부진 {risk:.0f}% · {tilt}",
+    ]
+    out.extend(_structure_readout(good,base,conf,pattern))
+    out.extend([
         f"패턴 기본률 | 유지/회복 {base:.0f}% · 과거 불확실/진행중 {amb:.0f}%",
         ("4경로 | "
          f"유지 {100*p['EARLY_WIN_HELD']:.0f}% · "
@@ -305,7 +332,7 @@ def _prob_text(pattern,lines):
          f"회복부진 {100*p['EARLY_STOP_SLOW_OR_NO_RECOVERY']:.0f}%"),
         f"신뢰도 | {conf} · OOS pattern n={est['all_n']} · 비모호 n={est['n']} · 유효feature={est['features']} · 유사표본 ESS={est['ess']:.1f}"
                + (f" · LOO Brier={brier:.3f}" if math.isfinite(brier) else ""),
-    ]
+    ])
     if pos:out.append("성공/회복 쪽 근거 | "+" · ".join(pos)+"가 과거 유지/회복군 중앙값에 상대적으로 가까움")
     if neg:out.append("주의 쪽 근거 | "+" · ".join(neg)+"가 Giveback/부진군 중앙값에 상대적으로 가까움")
     return out
@@ -325,16 +352,17 @@ def briefing(full):
         if ml and not market:market=ml.split("|",1)[1].strip()
         candidates.append((name,pat,lines))
 
-    head=[]
     if _TEST_MODE:
-        head += ["⚠️ MANUAL SHADOW TEST · NOT LIVE","실전 authority/성과표본 제외 · 형식/전송 검증용"]
+        head=["⚠️ MANUAL SHADOW TEST · RESEARCH ONLY · NOT LIVE",
+              "실전 authority/성과표본 제외 · 형식/전송 검증용"]
     else:
-        head += ["🧪 SHADOW · RESEARCH ONLY"]
+        head=["🧪 SHADOW · RESEARCH ONLY"]
 
     head += [
         f"📌 분석 대상: {len(candidates)}종목 | "+" · ".join(f"{k} {v}" for k,v in pats.items()),
         "종목 | "+" · ".join(x[0] for x in candidates),
-        "※ 확률은 R1.3 OOS 과거표본 기반 연구용 경험적 추정치 · forward calibration 미완료 · 매매판정 아님",
+        "※ 구조 판독은 후보 확률을 같은 패턴 기본률과 비교한 연구용 상대판독 · 매매판정/production gate 아님",
+        "※ 확률은 R1.3 OOS 과거표본 기반 경험적 추정치 · forward calibration 미완료",
         "※ Ambiguous/Pending은 확률 분모에서 제외하고 과거 비중만 별도 표시",
     ]
     if market:head.append("시장 | "+market)
@@ -350,9 +378,11 @@ def briefing(full):
 
     foot=[
         "────────────────",
+        "구조 판독 | 같은 패턴 기본률 대비 +8%p 이상 성공형, +3~8 약한 성공형, ±3 기본형/혼합, -3~-8 약한 실패형, -8 이하 실패형",
+        "주의 | LOW 신뢰도에서는 강한 분류 대신 '기울기 관찰'로 완화",
         "확률 방법 | 동일 패턴 OOS 사건의 6개 구조 feature를 robust-z 거리로 비교 → Gaussian 유사도 가중 → 패턴 기본률로 10 pseudo-observation 수축",
         "검증 | leave-one-out Brier는 내부 진단일 뿐 새로운 forward 검증을 대체하지 않음",
-        "분류 | 유지/회복=EARLY_WIN_HELD+SHAKEOUT_THEN_RECOVERY · Giveback/부진=EARLY_WIN_GIVEBACK+SLOW/NO",
+        "분류 | 성공형=EARLY_WIN_HELD+SHAKEOUT_THEN_RECOVERY · 실패형=EARLY_WIN_GIVEBACK+SLOW/NO",
         "중요 | Giveback은 손실 확정 의미가 아니라 초반 +5% 이후 D5 기준 이익반납 경로",
         "production | 검색식·점수·랭킹·후보순서·주문 로직 변경 0",
     ]
@@ -382,6 +412,11 @@ def main():
             m=_read_json(mp)
             m.update({
                 "version":VERSION,
+                "structural_readout_revision":STRUCTURE_READOUT_REVISION,
+                "structural_readout_enabled":True,
+                "structural_readout_relative_to_same_pattern_base":True,
+                "structural_readout_thresholds_pp":{"strong":8.0,"weak":3.0},
+                "structural_readout_low_confidence_softened":True,
                 "outcome_probability_enabled":True,
                 "probability_semantics":"EXPERIMENTAL_OOS_EMPIRICAL_ESTIMATE_NOT_FORWARD_CALIBRATED",
                 "probability_source_r13":"35443265652",
@@ -395,14 +430,25 @@ def main():
                 "probability_score_rank_changed":False,
                 "production_logic_changed":False,
                 "manual_test_capture":bool(_TEST_MODE),
+                "i_pattern_held_zero_verified_from_frozen_r13":True,
+                "i_pattern_frozen_counts":{
+                    "all_n":111,
+                    "non_ambiguous_n":79,
+                    "EARLY_WIN_HELD":0,
+                    "SHAKEOUT_THEN_RECOVERY":52,
+                    "EARLY_WIN_GIVEBACK":25,
+                    "EARLY_STOP_SLOW_OR_NO_RECOVERY":2,
+                    "AMBIGUOUS_OR_PENDING":32,
+                },
             })
             mp.write_text(json.dumps(m,ensure_ascii=False,indent=2),encoding="utf-8")
         dp=out/"telegram_delivery.json"
         if dp.exists():
             d=_read_json(dp)
             if _TEST_MODE:d["policy_reason"]="AUTO_ELIGIBLE_MANUAL_TEST_CAPTURE"
-            d["presentation"]="HUMAN_BRIEFING_WITH_OUTCOME_PROBABILITY"
+            d["presentation"]="HUMAN_BRIEFING_WITH_OUTCOME_PROBABILITY_AND_STRUCTURE_READOUT"
             d["probability_research_only"]=True
+            d["structural_readout_research_only"]=True
             dp.write_text(json.dumps(d,ensure_ascii=False,indent=2),encoding="utf-8")
     except Exception:
         pass
