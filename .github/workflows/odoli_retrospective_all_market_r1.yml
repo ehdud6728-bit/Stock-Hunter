@@ -34,18 +34,18 @@ jobs:
       - name: Restore ODOLI ticker-history cache
         uses: actions/cache@v4
         with:
-          path: reports/.cache/odoli_all_market_r1_fix4
-          key: odoli-all-market-r1-fix4-${{ matrix.shard.id }}-${{ github.run_id }}
+          path: reports/.cache/odoli_all_market_r1_fix5
+          key: odoli-all-market-r1-fix5-${{ matrix.shard.id }}-${{ github.run_id }}
           restore-keys: |
-            odoli-all-market-r1-fix4-${{ matrix.shard.id }}-
-      - name: Scan ever-listed historical ODOLI events
+            odoli-all-market-r1-fix5-${{ matrix.shard.id }}-
+      - name: Scan current+delisted ODOLI events
         run: |
           python -u odoli_retrospective_all_market_r1.py \
             --start "${{ matrix.shard.start }}" \
             --end "${{ matrix.shard.end }}" \
             --output-dir "reports/odoli_r1/${{ matrix.shard.id }}" \
             --workers 4
-      - name: Validate research isolation
+      - name: Validate research isolation and universe authority
         if: success()
         run: |
           python - <<'PY'
@@ -57,11 +57,11 @@ jobs:
           assert m["same_sample_threshold_tuning"] is False
           assert m["definition"]=="STRICT_ODOLI_R1"
           assert m["status"]=="PASS"
-          assert m["historical_membership_authority"]=="FDR_CURRENT_PLUS_KRX_DELISTING_LISTING_INTERVAL"
+          assert m["historical_membership_authority"]=="CURRENT_PLUS_EXPLICIT_KRX_DELISTING_WITH_OHLCV_EXISTENCE"
           assert m["current_only_universe_used"] is False
-          assert m["cross_section_ohlcv_endpoint_used"] is False
+          assert int(m["delisted_codes"])>0
           assert float(m["history_coverage_pct"])>=85.0
-          print("ODOLI R1 FIX4 SHARD PASS",m)
+          print("ODOLI R1 FIX5 SHARD PASS",m)
           PY
       - name: Upload shard result or failure diagnostics
         if: always()
