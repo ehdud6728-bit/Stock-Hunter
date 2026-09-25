@@ -42,6 +42,7 @@ jobs:
             --end "${{ matrix.shard.end }}" \
             --output-dir "reports/odoli_r1/${{ matrix.shard.id }}"
       - name: Validate research isolation
+        if: success()
         run: |
           python - <<'PY'
           import json
@@ -52,16 +53,21 @@ jobs:
           assert m["production_logic_changed"] is False
           assert m["same_sample_threshold_tuning"] is False
           assert m["definition"]=="STRICT_ODOLI_R1"
-          print("ODOLI R1 SHARD PASS",m["events"])
+          assert m["status"]=="PASS"
+          print("ODOLI R1 SHARD PASS",m["events"],"days",m["market_days_loaded"])
           PY
-      - uses: actions/upload-artifact@v4
+      - name: Upload shard result or failure diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
           name: odoli-r1-shard-${{ matrix.shard.id }}-${{ github.run_id }}
           path: reports/odoli_r1/${{ matrix.shard.id }}/**
+          if-no-files-found: warn
           retention-days: 30
 
   merge:
     needs: scan
+    if: ${{ always() && needs.scan.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
