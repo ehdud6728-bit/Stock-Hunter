@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import argparse, json, math, time, os
+import argparse, json, time
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import numpy as np
 import pandas as pd
 
-VERSION="ODOLI_RETROSPECTIVE_ALL_MARKET_R1_FIX2_MEMBERSHIP_PER_TICKER_20260925"
+VERSION="ODOLI_RETROSPECTIVE_ALL_MARKET_R1_FIX4_EVER_LISTED_FDR_20260925"
 DEFINITION="STRICT_ODOLI_R1"
 RESEARCH_ONLY=True
 
@@ -16,37 +16,64 @@ def norm_code(v):
     if s.startswith("A") and len(s)==7: s=s[1:]
     return s.zfill(6) if s.isdigit() and len(s)<=6 else s
 
-def _read_csv(p):
-    try:return pd.read_csv(p,dtype={"code":str},low_memory=False)
-    except Exception:return pd.DataFrame()
+def pick(df,names):
+    for n in names:
+        if n in df.columns:return n
+    return None
 
-def fetch_membership(stock,start,end,outdir,sleep_s=0.05):
-    rows=[]; diag=[]
-    for d in pd.date_range(start,end,freq="D"):
-        if d.weekday()>=5: continue
-        ymd=d.strftime("%Y%m%d")
-        day_codes=[]
-        for market in ("KOSPI","KOSDAQ"):
-            try:
-                try:
-                    xs=list(stock.get_market_ticker_list(date=ymd,market=market) or [])
-                except TypeError:
-                    xs=list(stock.get_market_ticker_list(ymd,market=market) or [])
-                codes=[norm_code(x) for x in xs if norm_code(x)]
-                diag.append({"date":d.strftime("%Y-%m-%d"),"market":market,"rows":len(codes),"status":"OK","error":""})
-                day_codes.extend((c,market) for c in codes)
-            except Exception as e:
-                diag.append({"date":d.strftime("%Y-%m-%d"),"market":market,"rows":0,"status":"FAIL",
-                             "error":f"{type(e).__name__}:{e}"})
-            time.sleep(max(0,sleep_s))
-        for c,m in day_codes:
-            rows.append({"date":d.strftime("%Y-%m-%d"),"code":c,"market":m})
-    mem=pd.DataFrame(rows).drop_duplicates(["date","code"],keep="last") if rows else pd.DataFrame()
-    pd.DataFrame(diag).to_csv(outdir/"membership_diagnostics.csv",index=False,encoding="utf-8-sig")
-    mem.to_csv(outdir/"historical_membership.csv",index=False,encoding="utf-8-sig")
-    return mem
+def normalize_listing(df, default_market="", delisted=False):
+    if df is None or df.empty:return pd.DataFrame()
+    q=df.copy()
+    sym=pick(q,["Symbol","Code","code","종목코드"])
+    if not sym:return pd.DataFrame()
+    out=pd.DataFrame()
+    out["code"]=q[sym].map(norm_code)
+    name=pick(q,["Name","name","종목명"])
+    out["name"]=q[name].astype(str) if name else ""
+    market=pick(q,["Market","market","시장구분"])
+    out["market"]=(q[market].astype(str).str.upper() if market else str(default_market).upper())
+    ld=pick(q,["ListingDate","listing_date","상장일"])
+    dd=pick(q,["DelistingDate","delisting_date","상장폐지일"])
+    out["listing_date"]=pd.to_datetime(q[ld],errors="coerce").dt.normalize() if ld else pd.NaT
+    out["delisting_date"]=pd.to_datetime(q[dd],errors="coerce").dt.normalize() if dd else pd.NaT
+    out["source"]="FDR_KRX_DELISTING" if delisted else "FDR_CURRENT"
+    return out[out["code"].ne("")].drop_duplicates(["code","source"],keep="last")
 
-def load_one_pykrx(code,start,end):
+def build_ever_listed(outdir):
+    import FinanceDataReader as fdr
+    parts=[]; diag=[]
+    for market in ("KOSPI","KOSDAQ"):
+        try:
+            q=fdr.StockListing(market)
+            z=normalize_listing(q,market,False)
+            parts.append(z)
+            diag.append({"source":market,"rows":len(z),"status":"OK","error":""})
+        except Exception as e:
+            diag.append({"source":market,"rows":0,"status":"FAIL","error":f"{type(e).__name__}:{e}"})
+    try:
+        q=fdr.StockListing("KRX-DELISTING")
+        z=normalize_listing(q,"",True)
+        # Keep only main-board markets if market is supplied.
+        if "market" in z.columns:
+            m=z["market"].fillna("").astype(str).str.upper()
+            keep=m.eq("")|m.isin(["KOSPI","KOSDAQ"])
+            z=z[keep].copy()
+        parts.append(z)
+        diag.append({"source":"KRX-DELISTING","rows":len(z),"status":"OK","error":""})
+    except Exception as e:
+        diag.append({"source":"KRX-DELISTING","rows":0,"status":"FAIL","error":f"{type(e).__name__}:{e}"})
+
+    pd.DataFrame(diag).to_csv(outdir/"listing_source_diagnostics.csv",index=False,encoding="utf-8-sig")
+    if not parts:return pd.DataFrame()
+    u=pd.concat(parts,ignore_index=True)
+    # Prefer current listing row if a code exists both as current and old delisted identity.
+    u["is_current"]=u["source"].eq("FDR_CURRENT")
+    u=u.sort_values(["code","is_current"],ascending=[True,False]).drop_duplicates("code",keep="first")
+    u=u.drop(columns=["is_current"])
+    u.to_csv(outdir/"ever_listed_universe.csv",index=False,encoding="utf-8-sig")
+    return u
+
+def load_pykrx(code,start,end):
     from pykrx import stock
     q=stock.get_market_ohlcv_by_date(start.replace("-",""),end.replace("-",""),code)
     if q is None or q.empty:return None,"PYKRX_EMPTY"
@@ -65,54 +92,57 @@ def load_one_pykrx(code,start,end):
     q["date"]=pd.to_datetime(q[dc],errors="coerce").dt.normalize()
     q["code"]=code
     need=["open","high","low","close","volume"]
-    if any(c not in q.columns for c in need):
-        return None,f"PYKRX_SCHEMA_{list(q.columns)}"
+    if any(c not in q.columns for c in need):return None,f"PYKRX_SCHEMA_{list(q.columns)}"
     if "amount" not in q.columns:q["amount"]=np.nan
     return q[["code","date","open","high","low","close","volume","amount"]],"PYKRX"
 
-def load_one_fdr(code,start,end):
+def load_fdr(code,start,end,delisted=False):
     import FinanceDataReader as fdr
-    q=fdr.DataReader(code,start,end)
-    if q is None or q.empty:return None,"FDR_EMPTY"
-    q=q.reset_index()
-    dc=q.columns[0]
-    q["date"]=pd.to_datetime(q[dc],errors="coerce").dt.normalize()
-    q["code"]=code
-    q=q.rename(columns={c:str(c).lower() for c in q.columns})
-    need=["open","high","low","close","volume"]
-    if any(c not in q.columns for c in need):
-        return None,f"FDR_SCHEMA_{list(q.columns)}"
-    q["amount"]=np.nan
-    return q[["code","date","open","high","low","close","volume","amount"]],"FDR"
+    errs=[]
+    candidates=[f"KRX-DELISTING:{code}",code] if delisted else [code,f"KRX-DELISTING:{code}"]
+    for sym in candidates:
+        try:
+            q=fdr.DataReader(sym,start,end)
+            if q is None or q.empty:
+                errs.append(f"{sym}:EMPTY"); continue
+            q=q.reset_index()
+            dc=q.columns[0]
+            q["date"]=pd.to_datetime(q[dc],errors="coerce").dt.normalize()
+            q["code"]=code
+            q=q.rename(columns={c:str(c).lower() for c in q.columns})
+            need=["open","high","low","close","volume"]
+            if any(c not in q.columns for c in need):
+                errs.append(f"{sym}:SCHEMA"); continue
+            if "amount" not in q.columns:q["amount"]=np.nan
+            return q[["code","date","open","high","low","close","volume","amount"]],f"FDR:{sym}"
+        except Exception as e:
+            errs.append(f"{sym}:{type(e).__name__}:{e}")
+    return None," | ".join(errs)[-1200:]
 
-def fetch_code(code,start,end,cache):
+def fetch_code(row,start,end,cache):
+    code=row["code"]; delisted=(row["source"]=="FDR_KRX_DELISTING")
     p=cache/f"{code}.csv.gz"
     if p.exists():
-        q=_read_csv(p)
-        if not q.empty:
-            q["date"]=pd.to_datetime(q["date"],errors="coerce").dt.normalize()
-            return code,q,"CACHE",""
+        try:
+            q=pd.read_csv(p,dtype={"code":str},parse_dates=["date"])
+            if not q.empty:return code,q,"CACHE",""
+        except Exception:pass
     errs=[]
     for attempt in range(2):
         try:
-            q,src=load_one_pykrx(code,start,end)
+            q,src=load_pykrx(code,start,end)
             if q is not None and not q.empty:
-                p.parent.mkdir(parents=True,exist_ok=True)
-                q.to_csv(p,index=False,compression="gzip")
+                p.parent.mkdir(parents=True,exist_ok=True); q.to_csv(p,index=False,compression="gzip")
                 return code,q,src,""
             errs.append(src)
         except Exception as e:
             errs.append(f"PYKRX_{type(e).__name__}:{e}")
-        time.sleep(0.25*(attempt+1))
-    try:
-        q,src=load_one_fdr(code,start,end)
-        if q is not None and not q.empty:
-            p.parent.mkdir(parents=True,exist_ok=True)
-            q.to_csv(p,index=False,compression="gzip")
-            return code,q,src,""
-        errs.append(src)
-    except Exception as e:
-        errs.append(f"FDR_{type(e).__name__}:{e}")
+        time.sleep(0.2*(attempt+1))
+    q,src=load_fdr(code,start,end,delisted)
+    if q is not None and not q.empty:
+        p.parent.mkdir(parents=True,exist_ok=True); q.to_csv(p,index=False,compression="gzip")
+        return code,q,src,""
+    errs.append(src)
     return code,None,"FAIL"," | ".join(errs)[-1200:]
 
 def add_features(g):
@@ -170,109 +200,110 @@ def outcomes(g,idx):
     out["odoli_path_r1"]=fam
     return out
 
+def active_on(row,date):
+    ld=row["listing_date"]; dd=row["delisting_date"]
+    if pd.notna(ld) and date < ld:return False
+    if pd.notna(dd) and date > dd:return False
+    return True
+
 def main():
     ap=argparse.ArgumentParser()
     ap.add_argument("--start",required=True); ap.add_argument("--end",required=True)
     ap.add_argument("--output-dir",required=True)
-    ap.add_argument("--cache-dir",default="reports/.cache/odoli_all_market_r1_fix2")
+    ap.add_argument("--cache-dir",default="reports/.cache/odoli_all_market_r1_fix4")
     ap.add_argument("--workers",type=int,default=4)
     a=ap.parse_args()
     out=Path(a.output_dir); out.mkdir(parents=True,exist_ok=True)
     cache=Path(a.cache_dir); cache.mkdir(parents=True,exist_ok=True)
-    scan_start=pd.Timestamp(a.start); scan_end=pd.Timestamp(a.end)
+    scan_start=pd.Timestamp(a.start).normalize(); scan_end=pd.Timestamp(a.end).normalize()
     fetch_start=(scan_start-pd.Timedelta(days=45)).normalize()
     fetch_end=(scan_end+pd.Timedelta(days=25)).normalize()
 
-    from pykrx import stock
-    mem=fetch_membership(stock,fetch_start,fetch_end,out)
-    if mem.empty:
-        meta={"version":VERSION,"definition":DEFINITION,"research_only":True,"status":"NO_MEMBERSHIP",
-              "start":a.start,"end":a.end,"events":0,"production_logic_changed":False,
-              "same_sample_threshold_tuning":False}
+    u=build_ever_listed(out)
+    if u.empty:
+        meta={"version":VERSION,"definition":DEFINITION,"research_only":True,"status":"NO_EVER_LISTED_UNIVERSE",
+              "events":0,"production_logic_changed":False,"same_sample_threshold_tuning":False}
         (out/"meta.json").write_text(json.dumps(meta,ensure_ascii=False,indent=2),encoding="utf-8")
-        raise SystemExit("ODOLI_R1_NO_MEMBERSHIP")
+        raise SystemExit("ODOLI_R1_NO_EVER_LISTED_UNIVERSE")
 
-    codes=sorted(mem["code"].dropna().astype(str).unique())
-    start_s=fetch_start.strftime("%Y-%m-%d"); end_s=fetch_end.strftime("%Y-%m-%d")
-    audit=[]; hist_parts=[]
+    # Keep securities whose listing interval overlaps this shard's warmup/forward window.
+    overlap=[]
+    for _,r in u.iterrows():
+        ld=r["listing_date"]; dd=r["delisting_date"]
+        if pd.notna(ld) and ld>fetch_end:continue
+        if pd.notna(dd) and dd<fetch_start:continue
+        overlap.append(r)
+    us=pd.DataFrame(overlap)
+    us.to_csv(out/"shard_eligible_universe.csv",index=False,encoding="utf-8-sig")
+    if us.empty:raise SystemExit("ODOLI_R1_NO_ELIGIBLE_CODES")
+
+    rows={str(r["code"]):r for _,r in us.iterrows()}
+    hist_parts=[]; audit=[]
     workers=max(1,min(int(a.workers),6))
     with ThreadPoolExecutor(max_workers=workers) as ex:
-        futs={ex.submit(fetch_code,c,start_s,end_s,cache/"ticker_history"):c for c in codes}
+        futs={ex.submit(fetch_code,r,fetch_start.strftime("%Y-%m-%d"),fetch_end.strftime("%Y-%m-%d"),cache/"ticker_history"):c
+              for c,r in rows.items()}
         done=0
         for fut in as_completed(futs):
             c,q,src,err=fut.result(); done+=1
             if q is not None and not q.empty:
-                hist_parts.append(q)
-                audit.append({"code":c,"status":"OK","source":src,"rows":len(q),"error":""})
+                hist_parts.append(q); audit.append({"code":c,"status":"OK","source":src,"rows":len(q),"error":""})
             else:
                 audit.append({"code":c,"status":"FAIL","source":src,"rows":0,"error":err})
-            if done%100==0 or done==len(codes):
-                print(f"ODOLI_R1_HISTORY_PROGRESS {done}/{len(codes)} ok={sum(x['status']=='OK' for x in audit)}")
-
+            if done%100==0 or done==len(futs):
+                print(f"ODOLI_R1_HISTORY_PROGRESS {done}/{len(futs)} ok={sum(x['status']=='OK' for x in audit)}")
     aud=pd.DataFrame(audit)
     aud.to_csv(out/"history_fetch_audit.csv",index=False,encoding="utf-8-sig")
-    ok_codes=int((aud["status"]=="OK").sum()) if len(aud) else 0
-    coverage=ok_codes/max(1,len(codes))*100
+    ok=int((aud["status"]=="OK").sum()) if len(aud) else 0
+    coverage=ok/max(1,len(us))*100
     if not hist_parts or coverage<85:
         meta={"version":VERSION,"definition":DEFINITION,"research_only":True,"status":"HISTORY_COVERAGE_TOO_LOW",
-              "start":a.start,"end":a.end,"events":0,"membership_codes":len(codes),
-              "history_ok_codes":ok_codes,"history_coverage_pct":coverage,
+              "events":0,"eligible_codes":len(us),"history_ok_codes":ok,"history_coverage_pct":coverage,
               "production_logic_changed":False,"same_sample_threshold_tuning":False}
         (out/"meta.json").write_text(json.dumps(meta,ensure_ascii=False,indent=2),encoding="utf-8")
         raise SystemExit(f"ODOLI_R1_HISTORY_COVERAGE_TOO_LOW {coverage:.1f}%")
 
     hist=pd.concat(hist_parts,ignore_index=True)
     hist["date"]=pd.to_datetime(hist["date"]).dt.normalize()
-    mem["date"]=pd.to_datetime(mem["date"]).dt.normalize()
-    membership_key=set(zip(mem["date"],mem["code"]))
-
     events=[]
     for code,g0 in hist.groupby("code",sort=False):
+        rr=rows.get(str(code))
+        if rr is None:continue
         g=add_features(g0).reset_index(drop=True)
         mask=g["odoli_r1"] & g["date"].between(scan_start,scan_end)
         for idx in g.index[mask]:
             r=g.loc[idx]
-            # Exact historical membership on signal date: fail closed.
-            if (r["date"],code) not in membership_key: continue
-            mm=mem[(mem["date"].eq(r["date"])) & (mem["code"].eq(code))]
-            market=str(mm.iloc[0]["market"]) if not mm.empty else ""
+            if not active_on(rr,r["date"]):continue
             row={
                 "version":VERSION,"definition":DEFINITION,"research_only":True,
-                "signal_date":r["date"].strftime("%Y-%m-%d"),"code":code,"market":market,
+                "signal_date":r["date"].strftime("%Y-%m-%d"),"code":code,"market":rr["market"],
+                "listing_source":rr["source"],"listing_date":rr["listing_date"],"delisting_date":rr["delisting_date"],
                 "open":r["open"],"high":r["high"],"low":r["low"],"close":r["close"],
                 "volume":r["volume"],"amount":r["amount"],
                 "ma5":r["ma5"],"ma10":r["ma10"],
-                "ma5_slope_1d_pct":r["ma5_slope_1d_pct"],
-                "ma5_ma10_gap_pct":r["ma5_ma10_gap_pct"],
-                "pre3_below_ma5_n":r["pre3_below_ma5_n"],
-                "close_loc_pct":r["close_loc_pct"],
-                "upper_wick_pct":r["upper_wick_pct"],
-                "gap_pct":r["gap_pct"],
-                "vol20_ratio":r["vol20_ratio"],
-                "amount20_ratio":r["amount20_ratio"],
-                "ret5_pct":r["ret5_pct"],
+                "ma5_slope_1d_pct":r["ma5_slope_1d_pct"],"ma5_ma10_gap_pct":r["ma5_ma10_gap_pct"],
+                "pre3_below_ma5_n":r["pre3_below_ma5_n"],"close_loc_pct":r["close_loc_pct"],
+                "upper_wick_pct":r["upper_wick_pct"],"gap_pct":r["gap_pct"],
+                "vol20_ratio":r["vol20_ratio"],"amount20_ratio":r["amount20_ratio"],"ret5_pct":r["ret5_pct"],
             }
             row.update(outcomes(g,idx)); events.append(row)
-
     ev=pd.DataFrame(events)
     ev.to_csv(out/"odoli_events.csv",index=False,encoding="utf-8-sig")
     meta={
         "version":VERSION,"definition":DEFINITION,"research_only":True,"status":"PASS",
         "start":a.start,"end":a.end,"events":len(ev),
-        "membership_rows":len(mem),"membership_codes":len(codes),
-        "history_ok_codes":ok_codes,"history_coverage_pct":coverage,
-        "historical_membership_enforced":True,
+        "ever_listed_codes":len(u),"eligible_codes":len(us),
+        "history_ok_codes":ok,"history_coverage_pct":coverage,
+        "historical_membership_authority":"FDR_CURRENT_PLUS_KRX_DELISTING_LISTING_INTERVAL",
+        "current_only_universe_used":False,
         "cross_section_ohlcv_endpoint_used":False,
         "production_logic_changed":False,"same_sample_threshold_tuning":False,
-        "event_rule":{
-            "bull_candle":True,"prev_close_below_prev_ma5":True,
-            "d0_close_above_ma5":True,"ma5_slope_positive":True,
-            "prior_3_below_ma5_min_count":2,
-            "volume_is_gate":False,"amount_is_gate":False,"ma5_ma10_gap_is_gate":False,
-        },
+        "event_rule":{"bull_candle":True,"prev_close_below_prev_ma5":True,"d0_close_above_ma5":True,
+                      "ma5_slope_positive":True,"prior_3_below_ma5_min_count":2,
+                      "volume_is_gate":False,"amount_is_gate":False,"ma5_ma10_gap_is_gate":False}
     }
-    (out/"meta.json").write_text(json.dumps(meta,ensure_ascii=False,indent=2),encoding="utf-8")
-    print(json.dumps(meta,ensure_ascii=False))
+    (out/"meta.json").write_text(json.dumps(meta,ensure_ascii=False,indent=2,default=str),encoding="utf-8")
+    print(json.dumps(meta,ensure_ascii=False,default=str))
 
 if __name__=="__main__":
     main()
