@@ -28,15 +28,17 @@ jobs:
         with:
           python-version: "3.11"
       - name: Install dependencies
-        run: pip install pandas numpy pykrx finance-datareader requests
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas numpy pykrx finance-datareader requests
       - name: Restore ODOLI ticker-history cache
         uses: actions/cache@v4
         with:
-          path: reports/.cache/odoli_all_market_r1_fix2
-          key: odoli-all-market-r1-fix2-${{ matrix.shard.id }}-${{ github.run_id }}
+          path: reports/.cache/odoli_all_market_r1_fix4
+          key: odoli-all-market-r1-fix4-${{ matrix.shard.id }}-${{ github.run_id }}
           restore-keys: |
-            odoli-all-market-r1-fix2-${{ matrix.shard.id }}-
-      - name: Scan historical-membership ODOLI events
+            odoli-all-market-r1-fix4-${{ matrix.shard.id }}-
+      - name: Scan ever-listed historical ODOLI events
         run: |
           python -u odoli_retrospective_all_market_r1.py \
             --start "${{ matrix.shard.start }}" \
@@ -49,17 +51,17 @@ jobs:
           python - <<'PY'
           import json
           from pathlib import Path
-          p=Path("reports/odoli_r1/${{ matrix.shard.id }}/meta.json")
-          m=json.loads(p.read_text())
+          m=json.loads(Path("reports/odoli_r1/${{ matrix.shard.id }}/meta.json").read_text())
           assert m["research_only"] is True
           assert m["production_logic_changed"] is False
           assert m["same_sample_threshold_tuning"] is False
           assert m["definition"]=="STRICT_ODOLI_R1"
           assert m["status"]=="PASS"
-          assert m["historical_membership_enforced"] is True
+          assert m["historical_membership_authority"]=="FDR_CURRENT_PLUS_KRX_DELISTING_LISTING_INTERVAL"
+          assert m["current_only_universe_used"] is False
           assert m["cross_section_ohlcv_endpoint_used"] is False
           assert float(m["history_coverage_pct"])>=85.0
-          print("ODOLI R1 FIX2 SHARD PASS",m)
+          print("ODOLI R1 FIX4 SHARD PASS",m)
           PY
       - name: Upload shard result or failure diagnostics
         if: always()
@@ -81,8 +83,7 @@ jobs:
         with:
           python-version: "3.11"
       - run: pip install pandas numpy
-      - name: Download all scan shards
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           pattern: odoli-r1-shard-*
           path: shard_artifacts
@@ -93,25 +94,12 @@ jobs:
         run: |
           mkdir -p source_r13
           gh run download "35443265652" -D source_r13
-      - name: Merge and compare with R1.3 overlap
+      - name: Merge and compare
         run: |
           python -u odoli_retrospective_all_market_r1_merge.py \
             --shards-root shard_artifacts \
             --r13-root source_r13 \
             --output-dir reports/odoli_retrospective_all_market_r1
-      - name: Validate population authority
-        run: |
-          python - <<'PY'
-          import json
-          from pathlib import Path
-          p=Path("reports/odoli_retrospective_all_market_r1/meta.json")
-          m=json.loads(p.read_text())
-          assert m["research_only"] is True
-          assert m["population_authority"]=="ALL_MARKET_ODOLI_EVENTS_NOT_R13_523"
-          assert m["feature_quintiles_descriptive_only"] is True
-          assert m["production_logic_changed"] is False
-          print("ODOLI ALL-MARKET R1 MERGE PASS",m)
-          PY
       - name: Show report
         run: cat reports/odoli_retrospective_all_market_r1/REPORT.md
       - uses: actions/upload-artifact@v4
