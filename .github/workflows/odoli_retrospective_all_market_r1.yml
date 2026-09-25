@@ -11,6 +11,7 @@ jobs:
   scan:
     strategy:
       fail-fast: false
+      max-parallel: 2
       matrix:
         shard:
           - { id: "2024H1", start: "2024-01-01", end: "2024-06-30" }
@@ -20,27 +21,28 @@ jobs:
           - { id: "2026H1", start: "2026-01-01", end: "2026-06-30" }
           - { id: "2026H2", start: "2026-07-01", end: "2026-09-24" }
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
       - name: Install dependencies
-        run: pip install pandas numpy pykrx requests
-      - name: Restore ODOLI daily market cache
+        run: pip install pandas numpy pykrx FinanceDataReader requests
+      - name: Restore ODOLI ticker-history cache
         uses: actions/cache@v4
         with:
-          path: reports/.cache/odoli_all_market_r1
-          key: odoli-all-market-r1-${{ matrix.shard.id }}-${{ github.run_id }}
+          path: reports/.cache/odoli_all_market_r1_fix2
+          key: odoli-all-market-r1-fix2-${{ matrix.shard.id }}-${{ github.run_id }}
           restore-keys: |
-            odoli-all-market-r1-${{ matrix.shard.id }}-
-      - name: Scan all-market ODOLI events
+            odoli-all-market-r1-fix2-${{ matrix.shard.id }}-
+      - name: Scan historical-membership ODOLI events
         run: |
           python -u odoli_retrospective_all_market_r1.py \
             --start "${{ matrix.shard.start }}" \
             --end "${{ matrix.shard.end }}" \
-            --output-dir "reports/odoli_r1/${{ matrix.shard.id }}"
+            --output-dir "reports/odoli_r1/${{ matrix.shard.id }}" \
+            --workers 4
       - name: Validate research isolation
         if: success()
         run: |
@@ -54,7 +56,10 @@ jobs:
           assert m["same_sample_threshold_tuning"] is False
           assert m["definition"]=="STRICT_ODOLI_R1"
           assert m["status"]=="PASS"
-          print("ODOLI R1 SHARD PASS",m["events"],"days",m["market_days_loaded"])
+          assert m["historical_membership_enforced"] is True
+          assert m["cross_section_ohlcv_endpoint_used"] is False
+          assert float(m["history_coverage_pct"])>=85.0
+          print("ODOLI R1 FIX2 SHARD PASS",m)
           PY
       - name: Upload shard result or failure diagnostics
         if: always()
