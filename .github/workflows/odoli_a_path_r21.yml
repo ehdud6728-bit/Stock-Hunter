@@ -1,0 +1,92 @@
+name: ODOLI A-Path R2.1 Discovery Expansion
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install research dependencies
+        run: pip install pandas numpy pyarrow matplotlib
+
+      - name: Download frozen ODOLI PIT population
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p source_odoli
+          gh run download "36129293163" \
+            -n "odoli-retrospective-all-market-r1-36129293163" \
+            -D source_odoli
+
+      - name: Download frozen A x ODOLI audit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p source_a_audit
+          gh run download "36137759740" \
+            -n "odoli-a-overlap-r2-36137759740" \
+            -D source_a_audit
+
+      - name: Fetch marcap parquet for event paths
+        run: |
+          rm -rf vendor/marcap
+          mkdir -p vendor
+          git clone --depth 1 --filter=blob:none --no-checkout \
+            https://github.com/FinanceData/marcap.git vendor/marcap
+          cd vendor/marcap
+          git sparse-checkout init --no-cone
+          printf '%s\n' \
+            'data/marcap-2025.parquet' \
+            'data/marcap-2026.parquet' \
+            > /tmp/marcap_paths.txt
+          git sparse-checkout set --stdin < /tmp/marcap_paths.txt
+          git checkout
+          ls -lh data/
+          cd ../..
+
+      - name: Rebuild 21 paths and expand hypotheses
+        run: |
+          python -u odoli_a_path_r21.py \
+            --odoli-root source_odoli \
+            --a-audit-root source_a_audit \
+            --marcap-root vendor/marcap \
+            --output-dir reports/odoli_a_path_r21
+
+      - name: Validate research isolation
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          m=json.loads(Path("reports/odoli_a_path_r21/meta.json").read_text())
+          assert m["research_only"] is True
+          assert m["production_logic_changed"] is False
+          assert m["same_sample_threshold_tuning"] is False
+          assert m["odoli_population_n"]==65054
+          assert m["a_odoli_n"]==21
+          assert m["held_n"]==7
+          assert m["giveback_n"]==10
+          assert m["failure_n"]==3
+          assert m["pending_n"]==1
+          assert m["event_charts_ok"]==21
+          assert m["true_oos_validation"] is False
+          print(m)
+          PY
+
+      - run: cat reports/odoli_a_path_r21/REPORT.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: odoli-a-path-r21-${{ github.run_id }}
+          path: reports/odoli_a_path_r21/**
+          retention-days: 30
