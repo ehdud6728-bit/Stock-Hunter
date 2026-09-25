@@ -11,8 +11,11 @@ import closing_bet_live_shadow_board_r173 as r173
 # Keep the R1.7.9 version string for workflow compatibility.
 VERSION="CLOSEBET_LIVE_SHADOW_BOARD_R179_OUTCOME_PROBABILITY_20260922"
 STRUCTURE_READOUT_REVISION="R179_FIX2_STRUCTURE_READOUT_20260924"
+ODOLI_REVISION="R179_ODOLI_SHADOW_TAG_R1_20260925"
 _TEST_MODE=False
 _R13=pd.DataFrame()
+_LIVE_SOURCE=pd.DataFrame()
+_ODOLI_TAG_ROWS=[]
 
 _orig_find_lane=r17._find_lane
 _orig_lane_candidate=r17._lane_is_candidate_generating
@@ -76,6 +79,135 @@ def _load_r13(root):
     xs=sorted(Path(root).rglob("shadow_outcome_refined_events.csv"))
     if not xs:return pd.DataFrame()
     return _read_csv(xs[0])
+
+def _load_live_source(root):
+    xs=sorted(Path(root).rglob("live_shadow_execution_*.csv"))
+    for p in reversed(xs):
+        q=_read_csv(p)
+        if not q.empty:return q
+    return pd.DataFrame()
+
+def _odoli_truthy(v):
+    if isinstance(v,(bool,np.bool_)):return bool(v)
+    return str(v or "").strip().lower() in ("1","true","yes","y","on")
+
+def _odoli_num(r,*keys):
+    for k in keys:
+        if k in r.index:
+            v=pd.to_numeric(pd.Series([r.get(k)]),errors="coerce").iloc[0]
+            if pd.notna(v):return float(v)
+    return np.nan
+
+def _odoli_source_row(name):
+    if _LIVE_SOURCE.empty:return None
+    for c in ("name","Name","종목명","stock_name","decision_name"):
+        if c not in _LIVE_SOURCE.columns:continue
+        q=_LIVE_SOURCE[_LIVE_SOURCE[c].astype(str).str.strip().eq(str(name).strip())]
+        if not q.empty:return q.iloc[0]
+    return None
+
+def _odoli_record(name,pat):
+    r=_odoli_source_row(name)
+    base={
+        "name":name,"pattern":pat,"tag":"NOT_CONFIRMED",
+        "research_only":True,"production_gate":False,
+        "definition_revision":ODOLI_REVISION,
+    }
+    if r is None:
+        base["reason"]="SOURCE_ROW_NOT_FOUND"
+        return base
+
+    close=_odoli_num(r,"close","_close")
+    ma5=_odoli_num(r,"MA5","ma5")
+    ma10=_odoli_num(r,"MA10","ma10")
+    prev_close=_odoli_num(r,"a_prev_close")
+    prev_ma5=_odoli_num(r,"a_prev_ma5")
+    close_loc=_odoli_num(r,"entry_close_loc_pct","close_loc_pct","ymgp_close_loc_pct")
+    vol20=_odoli_num(r,"entry_vol20_ratio","vol20_ratio","today_vol_ratio","ymgp_vol_ratio_now")
+
+    current_above=(math.isfinite(close) and math.isfinite(ma5) and close>=ma5)
+    prior_below=(math.isfinite(prev_close) and math.isfinite(prev_ma5) and prev_close<prev_ma5)
+    explicit_reclaim=any(
+        _odoli_truthy(r.get(k,False))
+        for k in ("i_ma5_reclaim_long","ymgp_reclaim_ma5")
+        if k in r.index
+    )
+    short_turn=any(
+        _odoli_truthy(r.get(k,False))
+        for k in ("st30_short_ma_turn",)
+        if k in r.index
+    )
+
+    ma5_slope_1d=np.nan
+    if math.isfinite(ma5) and math.isfinite(prev_ma5) and prev_ma5!=0:
+        ma5_slope_1d=(ma5/prev_ma5-1.0)*100.0
+
+    ma5_ma10_gap=np.nan
+    if math.isfinite(ma5) and math.isfinite(ma10) and ma10!=0:
+        ma5_ma10_gap=(ma5/ma10-1.0)*100.0
+
+    # Strict research detection only:
+    # current MA5 recovery + explicit evidence of prior-below/reclaim state.
+    if current_above and (prior_below or explicit_reclaim):
+        tag="DETECTED"
+        reason="CURRENT_ABOVE_MA5_AND_RECLAIM_EVIDENCE"
+    elif current_above and short_turn:
+        tag="PARTIAL"
+        reason="CURRENT_ABOVE_MA5_WITH_SHORT_MA_TURN_ONLY"
+    elif current_above:
+        tag="PARTIAL"
+        reason="CURRENT_ABOVE_MA5_BUT_PRIOR_BELOW_EVIDENCE_MISSING"
+    else:
+        tag="NOT_CONFIRMED"
+        reason="MA5_RECLAIM_NOT_CONFIRMED"
+
+    base.update({
+        "tag":tag,"reason":reason,
+        "current_above_ma5":bool(current_above),
+        "prior_below_ma5":bool(prior_below),
+        "explicit_ma5_reclaim":bool(explicit_reclaim),
+        "short_ma_turn_flag":bool(short_turn),
+        "ma5":ma5,"ma10":ma10,
+        "ma5_slope_1d_pct":ma5_slope_1d,
+        "ma5_ma10_gap_pct":ma5_ma10_gap,
+        "close_loc_pct":close_loc,
+        "vol20_ratio":vol20,
+    })
+    return base
+
+def _odoli_lines(name,pat):
+    rec=_odoli_record(name,pat)
+    _ODOLI_TAG_ROWS.append(rec)
+    tag=rec.get("tag","NOT_CONFIRMED")
+
+    if tag=="DETECTED":
+        head="⚡ ODOLI_TRIGGER | 감지"
+    elif tag=="PARTIAL":
+        head="🔎 ODOLI_TRIGGER | 부분관찰"
+    else:
+        return []
+
+    bits=[]
+    if rec.get("prior_below_ma5"):bits.append("직전 MA5 아래")
+    if rec.get("explicit_ma5_reclaim"):bits.append("MA5 재회복 flag")
+    if rec.get("short_ma_turn_flag"):bits.append("단기 MA turn")
+    if rec.get("current_above_ma5"):bits.append("현재 MA5 위")
+
+    vals=[]
+    x=rec.get("ma5_slope_1d_pct")
+    if isinstance(x,(int,float)) and math.isfinite(x):vals.append(f"MA5 slope1D {x:+.2f}%")
+    g=rec.get("ma5_ma10_gap_pct")
+    if isinstance(g,(int,float)) and math.isfinite(g):vals.append(f"MA5/MA10 gap {g:+.2f}%")
+    cl=rec.get("close_loc_pct")
+    if isinstance(cl,(int,float)) and math.isfinite(cl):vals.append(f"CloseLoc {cl:.0f}%")
+    vr=rec.get("vol20_ratio")
+    if isinstance(vr,(int,float)) and math.isfinite(vr):vals.append(f"Vol20 {vr:.2f}x")
+
+    out=[head]
+    if bits:out.append("   ↳ "+" · ".join(bits))
+    if vals:out.append("   ↳ "+" · ".join(vals))
+    out.append("   ↳ 연구 태그만 사용 · 후보/점수/확률모델 입력 아님")
+    return out
 
 def _num_from_lines(lines,key):
     for ln in lines:
@@ -372,6 +504,7 @@ def briefing(full):
         sec=[f"{i}) 🔬 {name} · {pat}",f"유형 | {_type_text(pat,lines)}"]
         cur=_current_line(lines)
         if cur:sec.append("현재 | "+cur)
+        sec.extend(_odoli_lines(name,pat))
         sec.extend(_prob_text(pat,lines))
         sec.append("다음 체크 | "+_checkpoints(pat,lines))
         body.append("\n".join(sec))
@@ -384,6 +517,7 @@ def briefing(full):
         "검증 | leave-one-out Brier는 내부 진단일 뿐 새로운 forward 검증을 대체하지 않음",
         "분류 | 성공형=EARLY_WIN_HELD+SHAKEOUT_THEN_RECOVERY · 실패형=EARLY_WIN_GIVEBACK+SLOW/NO",
         "중요 | Giveback은 손실 확정 의미가 아니라 초반 +5% 이후 D5 기준 이익반납 경로",
+        "ODOLI | MA5 재회복은 독립 SHADOW 연구 태그 · 현재 확률모델 입력/production gate 아님",
         "production | 검색식·점수·랭킹·후보순서·주문 로직 변경 0",
     ]
     return "\n".join(head)+"\n\n"+"\n\n".join(body)+"\n\n"+"\n".join(foot)
@@ -392,11 +526,13 @@ def _prob_split(text,safe_limit=3500):
     return _orig_split(briefing(text),safe_limit=safe_limit)
 
 def main():
-    global _TEST_MODE,_R13
+    global _TEST_MODE,_R13,_LIVE_SOURCE,_ODOLI_TAG_ROWS
     root=_arg_value("--source-root","source_run")
     sm=_latest_source_meta(root)
     _TEST_MODE=bool(sm.get("test_only")) and bool(sm.get("manual_test_authorized"))
     _R13=_load_r13(os.environ.get("CLOSEBET_R13_ROOT","source_r13"))
+    _LIVE_SOURCE=_load_live_source(root)
+    _ODOLI_TAG_ROWS=[]
 
     r17.VERSION=VERSION
     r17._find_lane=_patched_find_lane
@@ -407,6 +543,11 @@ def main():
 
     try:
         out=Path(_arg_value("--output-dir","reports/live_shadow_board_r17"))
+        out.mkdir(parents=True,exist_ok=True)
+        if _ODOLI_TAG_ROWS:
+            pd.DataFrame(_ODOLI_TAG_ROWS).to_csv(
+                out/"odoli_shadow_tags.csv",index=False,encoding="utf-8-sig"
+            )
         mp=out/"meta.json"
         if mp.exists():
             m=_read_json(mp)
@@ -430,6 +571,14 @@ def main():
                 "probability_score_rank_changed":False,
                 "production_logic_changed":False,
                 "manual_test_capture":bool(_TEST_MODE),
+                "odoli_shadow_tag_enabled":True,
+                "odoli_revision":ODOLI_REVISION,
+                "odoli_research_only":True,
+                "odoli_used_as_probability_feature":False,
+                "odoli_used_as_production_gate":False,
+                "odoli_tag_rows":len(_ODOLI_TAG_ROWS),
+                "odoli_detected_rows":sum(1 for x in _ODOLI_TAG_ROWS if x.get("tag")=="DETECTED"),
+                "odoli_partial_rows":sum(1 for x in _ODOLI_TAG_ROWS if x.get("tag")=="PARTIAL"),
                 "i_pattern_held_zero_verified_from_frozen_r13":True,
                 "i_pattern_frozen_counts":{
                     "all_n":111,
