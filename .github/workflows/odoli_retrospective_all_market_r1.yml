@@ -28,8 +28,8 @@ jobs:
         with:
           python-version: "3.11"
       - name: Install dependencies
-        run: pip install pandas numpy
-      - name: Fetch FinanceData marcap point-in-time dataset
+        run: pip install pandas numpy pyarrow
+      - name: Fetch FinanceData marcap parquet PIT dataset
         run: |
           rm -rf vendor/marcap
           mkdir -p vendor
@@ -37,21 +37,22 @@ jobs:
           cd vendor/marcap
           git sparse-checkout init --no-cone
           git ls-tree -r --name-only HEAD | \
-            grep -E '^(__init__\.py|marcap_utils\.py|data/.*(2023|2024|2025|2026).*\.csv\.gz)$' \
+            grep -E '^data/marcap-(2023|2024|2025|2026)\.parquet$' \
             > /tmp/marcap_paths.txt
+          echo "Selected marcap files:"
           cat /tmp/marcap_paths.txt
-          test -s /tmp/marcap_paths.txt
+          test "$(wc -l < /tmp/marcap_paths.txt)" -ge 4
           git sparse-checkout set --stdin < /tmp/marcap_paths.txt
           git checkout
+          ls -lh data/
           cd ../..
-          test -f vendor/marcap/__init__.py
-      - name: Scan marcap PIT ODOLI events
+      - name: Scan marcap parquet PIT ODOLI events
         run: |
           python -u odoli_retrospective_all_market_r1.py \
             --start "${{ matrix.shard.start }}" \
             --end "${{ matrix.shard.end }}" \
             --output-dir "reports/odoli_r1/${{ matrix.shard.id }}" \
-            --marcap-root vendor
+            --marcap-root vendor/marcap
       - name: Validate PIT authority
         if: success()
         run: |
@@ -64,13 +65,13 @@ jobs:
           assert m["same_sample_threshold_tuning"] is False
           assert m["definition"]=="STRICT_ODOLI_R1"
           assert m["status"]=="PASS"
-          assert m["historical_membership_authority"]=="FINANCEDATA_MARCAP_DAILY_PIT_ROWS"
+          assert m["historical_membership_authority"]=="FINANCEDATA_MARCAP_PARQUET_DAILY_PIT_ROWS"
           assert m["point_in_time_universe"] is True
           assert m["current_only_universe_used"] is False
           assert m["source_valid_rows"]>0
           assert m["market_days"]>0
           assert m["amount_nonnull_pct"]>95.0
-          print("ODOLI R1 FIX6 PIT PASS",m)
+          print("ODOLI R1 FIX7 PIT PASS",m)
           PY
       - name: Upload shard result or diagnostics
         if: always()
