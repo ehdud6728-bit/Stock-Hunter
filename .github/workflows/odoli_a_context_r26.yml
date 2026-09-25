@@ -1,0 +1,75 @@
+name: ODOLI A-Context R2.6 Forward Refresh
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install pandas numpy pyarrow
+
+      - name: Download frozen R2.5 cohort
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p source_r25
+          gh run download "36148837491" \
+            -n "odoli-a-context-r25-36148837491" \
+            -D source_r25
+
+      - name: Fetch current 2026 marcap PIT parquet
+        run: |
+          rm -rf vendor/marcap
+          mkdir -p vendor
+          git clone --depth 1 --filter=blob:none --no-checkout \
+            https://github.com/FinanceData/marcap.git vendor/marcap
+          cd vendor/marcap
+          git sparse-checkout init --no-cone
+          printf '%s\n' 'data/marcap-2026.parquet' > /tmp/marcap_paths.txt
+          git sparse-checkout set --stdin < /tmp/marcap_paths.txt
+          git checkout
+          ls -lh data/
+          cd ../..
+
+      - name: Refresh forward outcomes
+        run: |
+          python -u odoli_a_context_r26.py \
+            --r25-root source_r25 \
+            --marcap-root vendor/marcap \
+            --output-dir reports/odoli_a_context_r26
+
+      - name: Validate frozen cohort
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          m=json.loads(Path("reports/odoli_a_context_r26/meta.json").read_text())
+          assert m["research_only"] is True
+          assert m["production_logic_changed"] is False
+          assert m["same_sample_threshold_tuning"] is False
+          assert m["signal_definition_frozen"] is True
+          assert m["core_definition_frozen"] is True
+          assert m["core_n"]==21
+          assert m["core_odoli_n"]==4
+          assert m["core_without_odoli_n"]==17
+          assert m["core_odoli_d5_complete_n"]==4, m
+          print(m)
+          PY
+
+      - run: cat reports/odoli_a_context_r26/REPORT.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: odoli-a-context-r26-${{ github.run_id }}
+          path: reports/odoli_a_context_r26/**
+          retention-days: 30
