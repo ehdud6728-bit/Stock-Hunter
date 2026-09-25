@@ -1,0 +1,55 @@
+name: ODOLI A-Overlap R2 Audit
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install pandas numpy
+      - name: Download frozen ODOLI PIT R1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p source_odoli
+          gh run download "36129293163" -n "odoli-retrospective-all-market-r1-36129293163" -D source_odoli
+      - name: Download frozen R1.3
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p source_r13
+          gh run download "35443265652" -D source_r13
+      - name: Run A x ODOLI audit
+        run: |
+          python -u odoli_a_overlap_r2_audit.py \
+            --odoli-root source_odoli \
+            --r13-root source_r13 \
+            --output-dir reports/odoli_a_overlap_r2
+      - name: Validate isolation
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          m=json.loads(Path("reports/odoli_a_overlap_r2/meta.json").read_text())
+          assert m["research_only"] is True
+          assert m["production_logic_changed"] is False
+          assert m["same_sample_threshold_tuning"] is False
+          assert m["a_n"]==97
+          assert m["a_odoli_n"]==21
+          print(m)
+          PY
+      - run: cat reports/odoli_a_overlap_r2/REPORT.md
+      - uses: actions/upload-artifact@v4
+        with:
+          name: odoli-a-overlap-r2-${{ github.run_id }}
+          path: reports/odoli_a_overlap_r2/**
+          retention-days: 30
