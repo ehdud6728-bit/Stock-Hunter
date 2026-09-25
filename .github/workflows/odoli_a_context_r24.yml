@@ -1,0 +1,57 @@
+name: ODOLI A-Context R2.4 Three-Axis Combo
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install pandas numpy
+
+      - name: Download frozen R2.3
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p source_r23
+          gh run download "36143654300" \
+            -n "odoli-a-context-r23-36143654300" \
+            -D source_r23
+
+      - name: Run three-axis combination audit
+        run: |
+          python -u odoli_a_context_r24.py \
+            --r23-root source_r23 \
+            --output-dir reports/odoli_a_context_r24
+
+      - name: Validate isolation
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          m=json.loads(Path("reports/odoli_a_context_r24/meta.json").read_text())
+          assert m["research_only"] is True
+          assert m["production_logic_changed"] is False
+          assert m["same_sample_threshold_tuning"] is False
+          assert m["a_population_n"]==97
+          assert m["a_odoli_n"]==21
+          assert m["true_oos_validation"] is False
+          print(m)
+          PY
+
+      - run: cat reports/odoli_a_context_r24/REPORT.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: odoli-a-context-r24-${{ github.run_id }}
+          path: reports/odoli_a_context_r24/**
+          retention-days: 30
