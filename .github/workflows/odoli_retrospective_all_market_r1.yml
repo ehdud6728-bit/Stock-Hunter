@@ -28,7 +28,7 @@ jobs:
         with:
           python-version: "3.11"
       - name: Install dependencies
-        run: pip install pandas numpy pykrx FinanceDataReader requests
+        run: pip install pandas numpy pykrx finance-datareader requests
       - name: Restore ODOLI ticker-history cache
         uses: actions/cache@v4
         with:
