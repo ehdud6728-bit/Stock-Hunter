@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import argparse, json, sys
+import argparse, json
 from pathlib import Path
 import numpy as np
 import pandas as pd
 
-VERSION="ODOLI_RETROSPECTIVE_ALL_MARKET_R1_FIX6_MARCAP_PIT_20260925"
+VERSION="ODOLI_RETROSPECTIVE_ALL_MARKET_R1_FIX7_MARCAP_PARQUET_PIT_20260925"
 DEFINITION="STRICT_ODOLI_R1"
 RESEARCH_ONLY=True
 
@@ -24,6 +24,27 @@ def sanitize(q):
     valid &= q["Low"].le(q[["Open","Close"]].min(axis=1))
     valid &= q["High"].ge(q["Low"])
     return q[valid].copy(), int((~valid).sum())
+
+def load_marcap_range(root,start,end):
+    root=Path(root)
+    parts=[]
+    diag=[]
+    for year in range(start.year,end.year+1):
+        p=root/"data"/f"marcap-{year}.parquet"
+        if not p.exists():
+            diag.append({"year":year,"path":str(p),"exists":False,"rows":0})
+            continue
+        q=pd.read_parquet(p)
+        if "Date" not in q.columns:
+            q=q.reset_index()
+        if "Date" not in q.columns:
+            diag.append({"year":year,"path":str(p),"exists":True,"rows":len(q),"schema_error":"Date missing"})
+            continue
+        q["Date"]=pd.to_datetime(q["Date"],errors="coerce").dt.normalize()
+        q=q[q["Date"].between(start,end)].copy()
+        diag.append({"year":year,"path":str(p),"exists":True,"rows":len(q)})
+        if not q.empty: parts.append(q)
+    return (pd.concat(parts,ignore_index=True) if parts else pd.DataFrame()), pd.DataFrame(diag)
 
 def add_features(g):
     g=g.sort_values("Date").copy()
@@ -84,39 +105,42 @@ def main():
     ap=argparse.ArgumentParser()
     ap.add_argument("--start",required=True); ap.add_argument("--end",required=True)
     ap.add_argument("--output-dir",required=True)
-    ap.add_argument("--marcap-root",default="vendor")
+    ap.add_argument("--marcap-root",default="vendor/marcap")
     a=ap.parse_args()
+
     out=Path(a.output_dir); out.mkdir(parents=True,exist_ok=True)
     scan_start=pd.Timestamp(a.start).normalize()
     scan_end=pd.Timestamp(a.end).normalize()
     fetch_start=(scan_start-pd.Timedelta(days=45)).normalize()
     fetch_end=(scan_end+pd.Timedelta(days=25)).normalize()
 
-    sys.path.insert(0,str(Path(a.marcap_root).resolve()))
-    from marcap import marcap_data
-
-    q=marcap_data(fetch_start.strftime("%Y-%m-%d"),fetch_end.strftime("%Y-%m-%d"))
-    if q is None or q.empty:
+    q,srcdiag=load_marcap_range(Path(a.marcap_root),fetch_start,fetch_end)
+    srcdiag.to_csv(out/"marcap_source_diagnostics.csv",index=False,encoding="utf-8-sig")
+    if q.empty:
+        meta={"version":VERSION,"definition":DEFINITION,"research_only":True,"status":"MARCAP_EMPTY",
+              "production_logic_changed":False,"same_sample_threshold_tuning":False}
+        (out/"meta.json").write_text(json.dumps(meta,ensure_ascii=False,indent=2),encoding="utf-8")
         raise SystemExit("ODOLI_R1_MARCAP_EMPTY")
-    q=q.reset_index() if "Date" not in q.columns else q.copy()
-    if "Date" not in q.columns:
-        q=q.rename(columns={q.columns[0]:"Date"})
+
     need=["Date","Code","Open","High","Low","Close","Volume","Amount","Market"]
     missing=[c for c in need if c not in q.columns]
     if missing:
+        meta={"version":VERSION,"definition":DEFINITION,"research_only":True,"status":"MARCAP_SCHEMA_MISSING",
+              "missing":missing,"columns":list(map(str,q.columns)),
+              "production_logic_changed":False,"same_sample_threshold_tuning":False}
+        (out/"meta.json").write_text(json.dumps(meta,ensure_ascii=False,indent=2),encoding="utf-8")
         raise SystemExit(f"ODOLI_R1_MARCAP_SCHEMA_MISSING {missing}")
+
     q["Date"]=pd.to_datetime(q["Date"],errors="coerce").dt.normalize()
     q["Code"]=q["Code"].map(norm_code)
     q["Market"]=q["Market"].astype(str).str.upper()
     q=q[q["Market"].isin(["KOSPI","KOSDAQ"]) & q["Code"].ne("") & q["Date"].notna()].copy()
+
     raw_rows=len(q)
     q,bad=sanitize(q)
 
-    coverage=pd.DataFrame({
-        "date":sorted(q["Date"].dropna().unique())
-    })
-    coverage["rows"]=coverage["date"].map(q.groupby("Date").size())
-    coverage.to_csv(out/"day_coverage.csv",index=False,encoding="utf-8-sig")
+    cov=q.groupby("Date").size().rename("rows").reset_index()
+    cov.to_csv(out/"day_coverage.csv",index=False,encoding="utf-8-sig")
 
     events=[]
     for code,g0 in q.groupby("Code",sort=False):
@@ -141,14 +165,16 @@ def main():
                 "amount20_ratio":r["amount20_ratio"],
                 "ret5_pct":r["ret5_pct"],
             }
-            row.update(outcomes(g,idx)); events.append(row)
+            row.update(outcomes(g,idx))
+            events.append(row)
 
     ev=pd.DataFrame(events)
     ev.to_csv(out/"odoli_events.csv",index=False,encoding="utf-8-sig")
+
     meta={
         "version":VERSION,"definition":DEFINITION,"research_only":True,"status":"PASS",
         "start":a.start,"end":a.end,"events":len(ev),
-        "historical_membership_authority":"FINANCEDATA_MARCAP_DAILY_PIT_ROWS",
+        "historical_membership_authority":"FINANCEDATA_MARCAP_PARQUET_DAILY_PIT_ROWS",
         "point_in_time_universe":True,
         "current_only_universe_used":False,
         "cross_section_network_endpoint_used":False,
