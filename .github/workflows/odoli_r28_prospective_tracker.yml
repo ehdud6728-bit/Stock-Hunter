@@ -4,11 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       signals_csv:
-        description: "Path to frozen-signal CSV committed in repo"
-        required: true
+        description: "Prospective frozen-signal CSV path"
+        required: false
         default: "research/odoli_prospective_signals.csv"
       state_csv:
-        description: "Optional prior tracker state path committed in repo"
+        description: "Optional prior tracker state CSV path"
         required: false
         default: ""
 
@@ -25,6 +25,16 @@ jobs:
         with:
           python-version: "3.11"
       - run: pip install pandas numpy pyarrow
+
+      - name: Validate prospective input file
+        run: |
+          test -f "${{ github.event.inputs.signals_csv }}" || {
+            echo "::error::Missing prospective signals CSV: ${{ github.event.inputs.signals_csv }}"
+            echo "Expected committed file with columns: signal_date,code,name,is_A,is_CORE,is_ODOLI"
+            exit 1
+          }
+          echo "Using signals CSV: ${{ github.event.inputs.signals_csv }}"
+          head -5 "${{ github.event.inputs.signals_csv }}" || true
 
       - name: Fetch current 2026 marcap PIT parquet
         run: |
