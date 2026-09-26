@@ -1,0 +1,92 @@
+name: ODOLI R2.9 Pre-Discovery Historical Validation
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install pandas numpy pyarrow
+
+      - name: Download frozen v49.76 upstream authority
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p source_v4976
+          gh run download "35295676895" \
+            -n "v49.76.6.7.3.2.5.1.2.1-global-performance-163" \
+            -D source_v4976
+
+      - name: Download frozen ODOLI PIT authority
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p source_odoli
+          gh run download "36129293163" \
+            -n "odoli-retrospective-all-market-r1-36129293163" \
+            -D source_odoli
+
+      - name: Download frozen R2.3 bin authority
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p source_r23
+          gh run download "36143654300" \
+            -n "odoli-a-context-r23-36143654300" \
+            -D source_r23
+
+      - name: Fetch 2026 PIT marcap
+        run: |
+          rm -rf vendor/marcap
+          mkdir -p vendor
+          git clone --depth 1 --filter=blob:none --no-checkout \
+            https://github.com/FinanceData/marcap.git vendor/marcap
+          cd vendor/marcap
+          git sparse-checkout init --no-cone
+          printf '%s\n' 'data/marcap-2026.parquet' > /tmp/marcap_paths.txt
+          git sparse-checkout set --stdin < /tmp/marcap_paths.txt
+          git checkout
+          cd ../..
+
+      - name: Run frozen pre-discovery validation
+        run: |
+          python -u odoli_r29_historical_validation.py \
+            --v4976-root source_v4976 \
+            --odoli-root source_odoli \
+            --r23-root source_r23 \
+            --marcap-root vendor/marcap \
+            --output-dir reports/odoli_r29_historical_validation
+
+      - name: Validate no retuning
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          m=json.loads(Path("reports/odoli_r29_historical_validation/meta.json").read_text())
+          assert m["research_only"] is True
+          assert m["production_logic_changed"] is False
+          assert m["a_membership_reclassified"] is False
+          assert m["core_thresholds_recomputed"] is False
+          assert m["same_sample_threshold_tuning"] is False
+          assert m["historical_validation_role"]=="PRE_DISCOVERY_OUT_OF_PERIOD"
+          assert m["validation_end"]=="2026-08-18"
+          print(m)
+          PY
+
+      - run: cat reports/odoli_r29_historical_validation/REPORT.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: odoli-r29-historical-validation-${{ github.run_id }}
+          path: reports/odoli_r29_historical_validation/**
+          retention-days: 30
