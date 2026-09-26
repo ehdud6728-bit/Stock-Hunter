@@ -1,0 +1,73 @@
+name: ODOLI R2.10 Characteristic Anatomy
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install pandas numpy pyarrow
+
+      - name: Download frozen R2.9
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p source_r29
+          gh run download "36243499258" \
+            -n "odoli-r29-historical-validation-36243499258" \
+            -D source_r29
+
+      - name: Fetch 2026 PIT marcap
+        run: |
+          rm -rf vendor/marcap
+          mkdir -p vendor
+          git clone --depth 1 --filter=blob:none --no-checkout \
+            https://github.com/FinanceData/marcap.git vendor/marcap
+          cd vendor/marcap
+          git sparse-checkout init --no-cone
+          printf '%s\n' 'data/marcap-2026.parquet' > /tmp/marcap_paths.txt
+          git sparse-checkout set --stdin < /tmp/marcap_paths.txt
+          git checkout
+          cd ../..
+
+      - name: Run characteristic anatomy
+        run: |
+          python -u odoli_r210_characteristic_anatomy.py \
+            --r29-root source_r29 \
+            --marcap-root vendor/marcap \
+            --tags research/odoli_r210_manual_tags.csv \
+            --output-dir reports/odoli_r210_characteristic_anatomy
+
+      - name: Validate research-only
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          m=json.loads(Path("reports/odoli_r210_characteristic_anatomy/meta.json").read_text())
+          assert m["research_only"] is True
+          assert m["production_logic_changed"] is False
+          assert m["same_sample_tuning"] is False
+          assert m["new_gate_created"] is False
+          assert m["n"]==19
+          assert m["success_n"]==10
+          assert m["failure_n"]==9
+          print(m)
+          PY
+
+      - run: cat reports/odoli_r210_characteristic_anatomy/REPORT.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: odoli-r210-characteristic-anatomy-${{ github.run_id }}
+          path: reports/odoli_r210_characteristic_anatomy/**
+          retention-days: 30
