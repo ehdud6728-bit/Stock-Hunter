@@ -1,0 +1,66 @@
+name: ODOLI R2.13 Long Delayed Wave
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install pandas numpy pyarrow
+      - name: Download frozen R2.12
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p source_r212
+          gh run download "36294223914" -n "odoli-r212-delayed-resolution-36294223914" -D source_r212
+      - name: Validate R2.12 cohort
+        run: |
+          test -f source_r212/r212_delayed_resolution_events.csv
+          python - <<'PY'
+          import pandas as pd
+          x=pd.read_csv("source_r212/r212_delayed_resolution_events.csv",low_memory=False)
+          s=x["success_d5_touch10"].astype(str).str.lower().isin(["true","1"])
+          assert (~s).sum()==9, (~s).sum()
+          print("Original D+5 misses:",int((~s).sum()))
+          PY
+      - name: Fetch 2026 PIT marcap
+        run: |
+          rm -rf vendor/marcap
+          mkdir -p vendor
+          git clone --depth 1 --filter=blob:none --no-checkout https://github.com/FinanceData/marcap.git vendor/marcap
+          cd vendor/marcap
+          git sparse-checkout init --no-cone
+          printf '%s\n' 'data/marcap-2026.parquet' > /tmp/marcap_paths.txt
+          git sparse-checkout set --stdin < /tmp/marcap_paths.txt
+          git checkout
+          cd ../..
+      - name: Run long delayed-wave follow-up
+        run: |
+          python -u odoli_r213_long_delayed_wave.py --r212-root source_r212 --marcap-root vendor/marcap --output-dir reports/odoli_r213_long_delayed_wave
+      - name: Validate isolation
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          m=json.loads(Path("reports/odoli_r213_long_delayed_wave/meta.json").read_text())
+          assert m["research_only"] is True
+          assert m["production_logic_changed"] is False
+          assert m["new_gate_created"] is False
+          assert m["same_sample_tuning"] is False
+          assert m["events"]==9
+          assert m["target_unchanged_pct"]==10
+          print(m)
+          PY
+      - run: cat reports/odoli_r213_long_delayed_wave/REPORT.md
+      - uses: actions/upload-artifact@v4
+        with:
+          name: odoli-r213-long-delayed-wave-${{ github.run_id }}
+          path: reports/odoli_r213_long_delayed_wave/**
+          retention-days: 30
