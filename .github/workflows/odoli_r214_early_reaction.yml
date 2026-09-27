@@ -1,0 +1,93 @@
+name: ODOLI R2.14 Early Reaction Anatomy
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install pandas numpy pyarrow
+
+      - name: Download frozen R2.10
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p source_r210
+          gh run download "36247681600" \
+            -n "odoli-r210-characteristic-anatomy-36247681600" \
+            -D source_r210
+
+      - name: Download frozen R2.11
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p source_r211
+          gh run download "36249556767" \
+            -n "odoli-r211-accumulation-anatomy-36249556767" \
+            -D source_r211
+
+      - name: Validate frozen cohort
+        run: |
+          python - <<'PY'
+          import pandas as pd
+          x=pd.read_csv("source_r210/r210_event_anatomy.csv",low_memory=False)
+          s=x["success_d5_touch10"].astype(str).str.lower().isin(["true","1"])
+          assert len(x)==19, len(x)
+          assert s.sum()==10, s.sum()
+          assert (~s).sum()==9, (~s).sum()
+          print("cohort:",len(x),"success:",int(s.sum()),"failure:",int((~s).sum()))
+          PY
+
+      - name: Fetch 2026 PIT marcap
+        run: |
+          rm -rf vendor/marcap
+          mkdir -p vendor
+          git clone --depth 1 --filter=blob:none --no-checkout \
+            https://github.com/FinanceData/marcap.git vendor/marcap
+          cd vendor/marcap
+          git sparse-checkout init --no-cone
+          printf '%s\n' 'data/marcap-2026.parquet' > /tmp/marcap_paths.txt
+          git sparse-checkout set --stdin < /tmp/marcap_paths.txt
+          git checkout
+          cd ../..
+
+      - name: Run early reaction anatomy
+        run: |
+          python -u odoli_r214_early_reaction.py \
+            --r210-root source_r210 \
+            --r211-root source_r211 \
+            --marcap-root vendor/marcap \
+            --output-dir reports/odoli_r214_early_reaction
+
+      - name: Validate isolation
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          m=json.loads(Path("reports/odoli_r214_early_reaction/meta.json").read_text())
+          assert m["research_only"] is True
+          assert m["production_logic_changed"] is False
+          assert m["new_gate_created"] is False
+          assert m["same_sample_tuning"] is False
+          assert m["cohort_n"]==19 and m["success_n"]==10 and m["failure_n"]==9
+          assert m["exposure_window"]=="D1_TO_D3_ONLY"
+          print(m)
+          PY
+
+      - run: cat reports/odoli_r214_early_reaction/REPORT.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: odoli-r214-early-reaction-${{ github.run_id }}
+          path: reports/odoli_r214_early_reaction/**
+          retention-days: 30
