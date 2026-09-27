@@ -94,6 +94,7 @@ def main():
     audit=pd.read_csv(find_one(a.r211_root,"r211_accumulation_x_characteristics.csv"),dtype={"code":str},low_memory=False)
     audit["code"]=audit["code"].map(norm_code)
     audit["signal_date"]=pd.to_datetime(audit["signal_date"],errors="coerce").dt.normalize()
+    audit["success_d5_touch10"]=audit["success_d5_touch10"].astype(str).str.lower().isin(["true","1"])
 
     mar=load_marcap(a.marcap_root)
     bycode={c:ichimoku(g.sort_values("Date").drop_duplicates("Date",keep="last").reset_index(drop=True))
@@ -190,7 +191,7 @@ def main():
     z.to_csv(out/"r212_delayed_resolution_events.csv",index=False,encoding="utf-8-sig")
 
     # Focus on original D5 failures
-    orig_fail=z[z["outcome10"].eq("FAIL_NO_10P_D5")].copy()
+    orig_fail=z[~z["success_d5_touch10"].fillna(False).astype(bool)].copy()
     cls=(orig_fail.groupby("resolution_class").size().reset_index(name="n")
          .sort_values("n",ascending=False))
     cls.to_csv(out/"r212_original_fail_resolution_summary.csv",index=False,encoding="utf-8-sig")
