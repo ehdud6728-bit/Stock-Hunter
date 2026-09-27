@@ -1,0 +1,80 @@
+name: ODOLI R2.15 Early Reaction Prospective
+
+on:
+  workflow_dispatch:
+    inputs:
+      signals_csv:
+        description: "Frozen prospective signal CSV path"
+        required: false
+        default: "research/odoli_prospective_signals.csv"
+
+permissions:
+  contents: read
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install pandas numpy pyarrow
+
+      - name: Validate prospective input
+        run: |
+          test -f "${{ github.event.inputs.signals_csv }}"
+          python - <<'PY'
+          import pandas as pd
+          p="${{ github.event.inputs.signals_csv }}"
+          x=pd.read_csv(p,dtype={"code":str},low_memory=False)
+          req=["signal_date","code","name","is_A","is_CORE","is_ODOLI"]
+          miss=[c for c in req if c not in x.columns]
+          assert not miss, miss
+          print("prospective rows:",len(x))
+          PY
+
+      - name: Fetch current 2026 marcap PIT parquet
+        run: |
+          rm -rf vendor/marcap
+          mkdir -p vendor
+          git clone --depth 1 --filter=blob:none --no-checkout \
+            https://github.com/FinanceData/marcap.git vendor/marcap
+          cd vendor/marcap
+          git sparse-checkout init --no-cone
+          printf '%s\n' 'data/marcap-2026.parquet' > /tmp/marcap_paths.txt
+          git sparse-checkout set --stdin < /tmp/marcap_paths.txt
+          git checkout
+          cd ../..
+
+      - name: Run prospective early-reaction observer
+        run: |
+          python -u odoli_r215_early_reaction_prospective.py \
+            --signals "${{ github.event.inputs.signals_csv }}" \
+            --marcap-root vendor/marcap \
+            --output-dir reports/odoli_r215_early_reaction_prospective
+
+      - name: Validate isolation
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          m=json.loads(Path("reports/odoli_r215_early_reaction_prospective/meta.json").read_text())
+          assert m["research_only"] is True
+          assert m["production_logic_changed"] is False
+          assert m["automatic_ordering"] is False
+          assert m["new_gate_created"] is False
+          assert m["same_sample_tuning"] is False
+          assert m["prospective_observation_only"] is True
+          assert m["r214_features_frozen_as_descriptors"] is True
+          print(m)
+          PY
+
+      - run: cat reports/odoli_r215_early_reaction_prospective/REPORT.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: odoli-r215-early-reaction-prospective-${{ github.run_id }}
+          path: reports/odoli_r215_early_reaction_prospective/**
+          retention-days: 30
