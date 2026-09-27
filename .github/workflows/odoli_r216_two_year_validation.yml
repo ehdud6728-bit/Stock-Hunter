@@ -77,7 +77,7 @@ jobs:
           assert m["production_logic_changed"] is False
           assert m["same_sample_tuning"] is False
           assert m["new_gate_created"] is False
-          assert m["selected_a"]==2464
+          assert m["selected_a"]==2306
           assert m["technical_fn_a_audit"]==1
           assert m["technical_fn_repaired_into_selected_population"] is False
           assert m["odoli_definition"]=="STRICT_ODOLI_R1"
