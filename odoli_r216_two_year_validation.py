@@ -110,25 +110,39 @@ def path(g,sigdate):
             "low":float(r["Low"]),"close":float(r["Close"]),
             "above_ma5":bool(float(r["Close"])>float(ma5.iloc[i+d]))
         })
-    p=pd.DataFrame(rows)
+    p=pd.DataFrame(rows, columns=["day","high_ret_pct","low_ret_pct","close_ret_pct","low","close","above_ma5"])
     out={"signal_close":sig,"signal_low":siglow,"signal_high":sighigh}
     for h in [1,3,5,10]:
-        q=p[p.day<=h]
+        q=p[p["day"]<=h].copy() if len(p) else p.copy()
         out[f"d{h}_complete"]=len(q)>=h
         if len(q)>=h:
-            out[f"d{h}_mfe_pct"]=float(q.high_ret_pct.max())
-            out[f"d{h}_mae_pct"]=float(q.low_ret_pct.min())
-            out[f"d{h}_close_ret_pct"]=float(q.iloc[-1].close_ret_pct)
-            out[f"d{h}_touch10"]=bool((q.high_ret_pct>=10).any())
+            out[f"d{h}_mfe_pct"]=float(q["high_ret_pct"].max())
+            out[f"d{h}_mae_pct"]=float(q["low_ret_pct"].min())
+            out[f"d{h}_close_ret_pct"]=float(q.iloc[-1]["close_ret_pct"])
+            out[f"d{h}_touch10"]=bool((q["high_ret_pct"]>=10).any())
+        else:
+            out[f"d{h}_mfe_pct"]=np.nan
+            out[f"d{h}_mae_pct"]=np.nan
+            out[f"d{h}_close_ret_pct"]=np.nan
+            out[f"d{h}_touch10"]=np.nan
     if len(p)>=2:
-        out["d1_2_higher_low"]=bool(float(p.iloc[1].low)>float(p.iloc[0].low))
-        out["d2_holds_signal_low"]=bool(float(p.iloc[1].low)>=siglow)
-        out["d2_close_above_ma5"]=bool(p.iloc[1].above_ma5)
+        out["d1_2_higher_low"]=bool(float(p.iloc[1]["low"])>float(p.iloc[0]["low"]))
+        out["d2_holds_signal_low"]=bool(float(p.iloc[1]["low"])>=siglow)
+        out["d2_close_above_ma5"]=bool(p.iloc[1]["above_ma5"])
+    else:
+        out["d1_2_higher_low"]=np.nan
+        out["d2_holds_signal_low"]=np.nan
+        out["d2_close_above_ma5"]=np.nan
     if len(p)>=3:
-        out["d1_3_all_hold_signal_low"]=bool((p.iloc[:3].low>=siglow).all())
-        out["d1_3_all_above_ma5"]=bool(p.iloc[:3].above_ma5.all())
-        out["d1_3_mfe_pct"]=float(p.iloc[:3].high_ret_pct.max())
-        out["d1_3_mae_pct"]=float(p.iloc[:3].low_ret_pct.min())
+        out["d1_3_all_hold_signal_low"]=bool((p.iloc[:3]["low"]>=siglow).all())
+        out["d1_3_all_above_ma5"]=bool(p.iloc[:3]["above_ma5"].all())
+        out["d1_3_mfe_pct"]=float(p.iloc[:3]["high_ret_pct"].max())
+        out["d1_3_mae_pct"]=float(p.iloc[:3]["low_ret_pct"].min())
+    else:
+        out["d1_3_all_hold_signal_low"]=np.nan
+        out["d1_3_all_above_ma5"]=np.nan
+        out["d1_3_mfe_pct"]=np.nan
+        out["d1_3_mae_pct"]=np.nan
     return out
 
 def summ(g,label,period_label):
