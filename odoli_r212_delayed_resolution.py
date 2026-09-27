@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-REV="ODOLI_R2_12_DELAYED_RESOLUTION_20260926"
+REV="ODOLI_R2_12_DELAYED_RESOLUTION_FIX2_20260927"
 
 def find_one(root,name):
     xs=list(Path(root).rglob(name))
@@ -91,28 +91,42 @@ def main():
     a=ap.parse_args()
     out=Path(a.output_dir); out.mkdir(parents=True,exist_ok=True)
 
-    audit=pd.read_csv(find_one(a.r211_root,"r211_accumulation_x_characteristics.csv"),dtype={"code":str},low_memory=False)
-    audit["code"]=audit["code"].map(norm_code)
-    audit["signal_date"]=pd.to_datetime(audit["signal_date"],errors="coerce").dt.normalize()
-    audit["success_d5_touch10"]=audit["success_d5_touch10"].astype(str).str.lower().isin(["true","1"])
+    cross=pd.read_csv(find_one(a.r211_root,"r211_accumulation_x_characteristics.csv"),dtype={"code":str},low_memory=False)
+    auth=pd.read_csv(find_one(a.r211_root,"r211_accumulation_event_audit.csv"),dtype={"code":str},low_memory=False)
+    for df in (cross,auth):
+        df["code"]=df["code"].map(norm_code)
+        df["signal_date"]=pd.to_datetime(df["signal_date"],errors="coerce").dt.normalize()
+
+    if "success_d5_touch10" not in auth.columns:
+        raise SystemExit("R211_AUTH_MISSING_SUCCESS_D5_TOUCH10")
+    auth["success_d5_touch10"]=auth["success_d5_touch10"].astype(str).str.lower().isin(["true","1"])
+
+    auth_keep=[c for c in ["signal_date","code","success_d5_touch10",
+                           "best_accum_low","best_accum_high","best_accum_score",
+                           "best_accum_grade","best_accum_days_before_signal"] if c in auth.columns]
+    auth2=auth[auth_keep].copy()
+    dup=[c for c in auth2.columns if c not in ("signal_date","code","success_d5_touch10") and c in cross.columns]
+    auth2=auth2.drop(columns=dup,errors="ignore")
+
+    audit=cross.merge(auth2,on=["signal_date","code"],how="left",validate="one_to_one")
+    if audit["success_d5_touch10"].isna().any():
+        miss=audit[audit["success_d5_touch10"].isna()][["signal_date","code"]]
+        raise SystemExit("R211_AUTH_MERGE_MISSING:"+miss.to_json(orient="records",date_format="iso"))
+    audit["success_d5_touch10"]=audit["success_d5_touch10"].astype(bool)
 
     mar=load_marcap(a.marcap_root)
     bycode={c:ichimoku(g.sort_values("Date").drop_duplicates("Date",keep="last").reset_index(drop=True))
             for c,g in mar.groupby("Code",sort=False)}
 
-    rows=[]
-    paths=[]
+    rows=[]; paths=[]
     for _,r in audit.iterrows():
         g=bycode.get(r["code"])
         if g is None: continue
         hit=g.index[g["Date"].eq(r["signal_date"])]
         if len(hit)!=1: continue
         i=int(hit[0]); sig=float(g.loc[i,"Close"])
+        rec=r.to_dict(); rec["signal_close"]=sig
 
-        rec=r.to_dict()
-        rec["signal_close"]=sig
-
-        # path D+1..D+20
         pp=[]
         for d in range(1,21):
             if i+d>=len(g): break
@@ -127,6 +141,7 @@ def main():
             })
         p=pd.DataFrame(pp)
         if p.empty: continue
+
         ft10=first_touch(p,10)
         rec["first_plus10_day_20"]=ft10 if ft10 is not None else np.nan
         rec["d10_touch10"]=bool((p[p["day"]<=10]["high_ret_pct"]>=10).any())
@@ -134,7 +149,6 @@ def main():
         rec["d20_touch10"]=bool((p[p["day"]<=20]["high_ret_pct"]>=10).any())
         rec["d20_complete"]=len(p)>=20
 
-        # D5 state
         d5=p[p["day"]<=5]
         if len(d5)>=5:
             row5=g.loc[i+5]
@@ -142,10 +156,8 @@ def main():
             rec["d5_close_ret_pct_refresh"]=float(d5.iloc[-1]["close_ret_pct"])
             rec["d5_mfe_pct_refresh"]=float(d5["high_ret_pct"].max())
             rec["d5_mae_pct_refresh"]=float(d5["low_ret_pct"].min())
-            vp=vp_resistance_proxy(g.iloc[:i+6],float(row5["Close"]))
-            rec.update(vp)
+            rec.update(vp_resistance_proxy(g.iloc[:i+6],float(row5["Close"])))
 
-        # Accumulation-level hold / second pullback
         acc_low=pd.to_numeric(pd.Series([r.get("best_accum_low")]),errors="coerce").iloc[0]
         acc_high=pd.to_numeric(pd.Series([r.get("best_accum_high")]),errors="coerce").iloc[0]
         if np.isfinite(acc_low) and np.isfinite(acc_high):
@@ -153,12 +165,10 @@ def main():
             rec["accum_mid"]=acc_mid
             rec["d5_holds_accum_low"]=bool(float(g.loc[min(i+5,len(g)-1),"Close"])>=acc_low)
             rec["d5_holds_accum_mid"]=bool(float(g.loc[min(i+5,len(g)-1),"Close"])>=acc_mid)
-            # post-D5 second pullback then recovery to +10 by D20
             q6=p[(p["day"]>=6)&(p["day"]<=20)]
             rec["post_d5_min_ret_pct"]=float(q6["low_ret_pct"].min()) if len(q6) else np.nan
             rec["post_d5_recovered_plus10"]=bool((q6["high_ret_pct"]>=10).any()) if len(q6) else False
 
-        # Resolution taxonomy: descriptive, not predictive.
         d5success=bool((p[p["day"]<=5]["high_ret_pct"]>=10).any())
         if d5success:
             cls="EARLY_SUCCESS_D5"
@@ -190,34 +200,28 @@ def main():
     pd.DataFrame(paths).to_csv(out/"r212_d1_d20_paths.csv",index=False,encoding="utf-8-sig")
     z.to_csv(out/"r212_delayed_resolution_events.csv",index=False,encoding="utf-8-sig")
 
-    # Focus on original D5 failures
     orig_fail=z[~z["success_d5_touch10"].fillna(False).astype(bool)].copy()
-    cls=(orig_fail.groupby("resolution_class").size().reset_index(name="n")
-         .sort_values("n",ascending=False))
+    cls=(orig_fail.groupby("resolution_class").size().reset_index(name="n").sort_values("n",ascending=False))
     cls.to_csv(out/"r212_original_fail_resolution_summary.csv",index=False,encoding="utf-8-sig")
 
-    # Strong accumulation subset
     strong=orig_fail[pd.to_numeric(orig_fail["best_accum_score"],errors="coerce").ge(70)].copy()
     strong.to_csv(out/"r212_strong_accum_original_failures.csv",index=False,encoding="utf-8-sig")
 
     report=[
-        "# ODOLI R2.12 — Delayed Resolution / Resistance Anatomy","",
+        "# ODOLI R2.12 FIX2 — Delayed Resolution / Resistance Anatomy","",
         "- Re-examines the 9 original D+5 +10% non-touches.",
+        "- Success/failure authority comes from R2.11 event audit, merged 1:1 by signal_date+code.",
         "- A D+5 miss is NOT automatically treated as permanent failure.",
         "- Checks later +10% touch through D+10/D+15/D+20.",
         "- Adds Ichimoku cloud state at D+5.",
-        "- Adds a daily-OHLCV price-volume overhead-supply proxy (NOT true investor-position data).",
+        "- Adds a daily-OHLCV price-volume overhead-supply proxy.",
         "- Checks whether accumulation candle low/mid remains held.",
-        "- Separates delayed success, supported unresolved, overhead-supply unresolved, second-pullback unresolved, and structural failure.",
         "- Research only; no production gate.","",
-        "## Original D5 failures reclassified",
-        "```",cls.to_string(index=False),"```","",
-        "## Strong-accumulation original failures",
-        "```",
+        "## Original D5 failures reclassified","```",cls.to_string(index=False),"```","",
+        "## Strong-accumulation original failures","```",
         strong[[c for c in ["signal_date","code","name","best_accum_score","resolution_class",
-                            "first_plus10_day_20","d5_cloud_state",
-                            "vp_above_volume_share_pct","d5_holds_accum_mid",
-                            "d5_holds_accum_low","post_d5_min_ret_pct"] if c in strong.columns]].to_string(index=False),
+                            "first_plus10_day_20","d5_cloud_state","vp_above_volume_share_pct",
+                            "d5_holds_accum_mid","d5_holds_accum_low","post_d5_min_ret_pct"] if c in strong.columns]].to_string(index=False),
         "```"
     ]
     (out/"REPORT.md").write_text("\n".join(report),encoding="utf-8")
@@ -227,6 +231,7 @@ def main():
         "new_gate_created":False,"same_sample_tuning":False,
         "original_d5_failure_n":int(len(orig_fail)),
         "d20_complete_n":int(orig_fail["d20_complete"].fillna(False).astype(bool).sum()),
+        "success_authority":"R211_ACCUMULATION_EVENT_AUDIT_MERGED_1TO1",
         "volume_profile_semantics":"DAILY_OHLCV_PRICE_VOLUME_PROXY_NOT_TRUE_HOLDER_COST_BASIS",
         "ichimoku_semantics":"STANDARD_9_26_52_SHIFTED_26",
         "resolution_classes":cls.to_dict(orient="records")
