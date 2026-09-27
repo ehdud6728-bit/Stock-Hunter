@@ -1,4 +1,4 @@
-name: ODOLI R2.12 Delayed Resolution FIX1
+name: ODOLI R2.12 Delayed Resolution FIX2
 
 on:
   workflow_dispatch:
@@ -26,6 +26,20 @@ jobs:
           gh run download "36249556767" \
             -n "odoli-r211-accumulation-anatomy-36249556767" \
             -D source_r211
+
+      - name: Validate R2.11 input authorities
+        run: |
+          test -f source_r211/r211_accumulation_event_audit.csv
+          test -f source_r211/r211_accumulation_x_characteristics.csv
+          python - <<'PY'
+          import pandas as pd
+          a=pd.read_csv("source_r211/r211_accumulation_event_audit.csv",low_memory=False)
+          c=pd.read_csv("source_r211/r211_accumulation_x_characteristics.csv",low_memory=False)
+          assert "success_d5_touch10" in a.columns, a.columns.tolist()
+          assert len(a)==19, len(a)
+          assert len(c)==19, len(c)
+          print("R2.11 authority rows:",len(a),"cross rows:",len(c))
+          PY
 
       - name: Fetch 2026 PIT marcap
         run: |
@@ -58,6 +72,7 @@ jobs:
           assert m["new_gate_created"] is False
           assert m["same_sample_tuning"] is False
           assert m["original_d5_failure_n"]==9
+          assert m["success_authority"]=="R211_ACCUMULATION_EVENT_AUDIT_MERGED_1TO1"
           print(m)
           PY
 
