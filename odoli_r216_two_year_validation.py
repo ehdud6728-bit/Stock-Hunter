@@ -160,8 +160,8 @@ def main():
     src["primary_strategy"]=src["primary_strategy"].astype(str).str.upper().str.strip()
     A=src[(src.signal_date>=START)&(src.signal_date<=END)&src.primary_strategy.eq("A")].copy()
     A=A.sort_values(["signal_date","code"]).drop_duplicates(["signal_date","code"],keep="first")
-    if len(A)!=2464:
-        raise SystemExit(f"A_AUTHORITY_COUNT_MISMATCH:{len(A)}")
+    if len(A)!=2306:
+        raise SystemExit(f"A_AUTHORITY_EVENT_COUNT_MISMATCH:{len(A)}")
 
     tf=pd.read_csv(find_one(a.v4976_root,"v49_76_technical_false_negative.csv"),dtype={"code":str},low_memory=False)
     tf["code"]=tf["code"].map(norm_code)
