@@ -3886,7 +3886,7 @@ jobs:
               assert int(d.get("zero_event_interpretable",0)) == 1
           PYBRIDGE
 
-      - name: Build + send REAL_FULL Research Overlay immediately
+      - name: Build REAL_FULL Research Overlay immediately
         if: success() && env.TEST_PROFILE == 'REAL_FULL'
         shell: bash
         run: |
@@ -3911,6 +3911,45 @@ jobs:
           assert not meta["production_order_changed"]
           print("REAL_FULL_FAST_OVERLAY_INVARIANTS PASS")
           PYOV
+
+      - name: Compute REAL_FULL overlay Telegram fingerprint
+        id: real-full-overlay-fp
+        if: success() && env.TEST_PROFILE == 'REAL_FULL'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .real_full_overlay_dedup
+          python - <<'PYFP'
+          import hashlib, os
+          from datetime import datetime
+          from pathlib import Path
+          from zoneinfo import ZoneInfo
+          p=Path("reports/real_full_research_overlay_r1/real_full_research_overlay.txt")
+          text=p.read_text(encoding="utf-8") if p.exists() else ""
+          digest=hashlib.sha256(text.encode("utf-8")).hexdigest()
+          day=datetime.now(ZoneInfo("Asia/Seoul")).strftime("%Y-%m-%d")
+          Path(".real_full_overlay_dedup/fingerprint.txt").write_text(
+              f"{day}\n{digest}\n", encoding="utf-8"
+          )
+          with open(os.environ["GITHUB_OUTPUT"],"a",encoding="utf-8") as f:
+              f.write(f"kst_date={day}\n")
+              f.write(f"fingerprint={digest}\n")
+          print("REAL_FULL_OVERLAY_FINGERPRINT",day,digest)
+          PYFP
+
+      - name: Restore identical REAL_FULL overlay Telegram fingerprint
+        id: real-full-overlay-dedup
+        if: success() && env.TEST_PROFILE == 'REAL_FULL'
+        uses: actions/cache/restore@v4
+        with:
+          path: .real_full_overlay_dedup
+          key: stockhunter-real-full-overlay-message-${{ github.ref_name }}-${{ steps.real-full-overlay-fp.outputs.kst_date }}-${{ steps.real-full-overlay-fp.outputs.fingerprint }}
+
+      - name: Send REAL_FULL Research Overlay only if changed
+        if: success() && env.TEST_PROFILE == 'REAL_FULL' && steps.real-full-overlay-dedup.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
           TOKEN="${TELEGRAM_BACKTEST_TOKEN:-}"
           CHAT="${STOCK_SEARCH_CHAT_ID:-${STOCKHUNTER_CHAT_ID:-${TELEGRAM_DYUL_CHAT_ID:-${TELEGRAM_CHAT_ID:-}}}}"
           FILE="reports/real_full_research_overlay_r1/real_full_research_overlay.txt"
@@ -3938,6 +3977,17 @@ jobs:
           else
             echo "REAL_FULL_FAST_OVERLAY_TELEGRAM_SKIP token/chat/file unavailable"
           fi
+
+      - name: Save REAL_FULL overlay Telegram fingerprint
+        if: success() && env.TEST_PROFILE == 'REAL_FULL' && steps.real-full-overlay-dedup.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .real_full_overlay_dedup
+          key: stockhunter-real-full-overlay-message-${{ github.ref_name }}-${{ steps.real-full-overlay-fp.outputs.kst_date }}-${{ steps.real-full-overlay-fp.outputs.fingerprint }}
+
+      - name: Show REAL_FULL overlay duplicate suppression
+        if: success() && env.TEST_PROFILE == 'REAL_FULL' && steps.real-full-overlay-dedup.outputs.cache-hit == 'true'
+        run: echo "REAL_FULL_FAST_OVERLAY_TELEGRAM_SKIP identical message already sent today"
 
       - name: Capture REAL_FULL TRUST R1 prospective snapshot
         if: success() && env.TEST_PROFILE == 'REAL_FULL'

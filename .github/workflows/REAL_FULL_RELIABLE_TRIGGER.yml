@@ -17,7 +17,7 @@ on:
         default: false
         type: boolean
       force_dispatch:
-        description: "Ignore today's trigger lock and dispatch REAL_FULL now"
+        description: "Ignore guards and dispatch REAL_FULL now"
         required: false
         default: false
         type: boolean
@@ -82,6 +82,26 @@ jobs:
           echo "kst_slot=$(TZ=Asia/Seoul date +%H%M)" >> "$GITHUB_OUTPUT"
           echo "now_kst=$(TZ=Asia/Seoul date '+%F %T %Z')"
 
+      - name: Reject excessively delayed scheduled trigger
+        id: window
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" != "schedule" ]; then
+            echo "allowed=1" >> "$GITHUB_OUTPUT"
+            echo "RELIABLE_TRIGGER_WINDOW manual_dispatch_allowed"
+            exit 0
+          fi
+          hhmm="$(TZ=Asia/Seoul date +%H%M)"
+          # The scheduled slots are 14:30~15:00. 15:20 watchdog owns missed-production recovery.
+          if [ "$hhmm" -ge 1425 ] && [ "$hhmm" -le 1510 ]; then
+            echo "allowed=1" >> "$GITHUB_OUTPUT"
+            echo "RELIABLE_TRIGGER_WINDOW PASS hhmm=$hhmm"
+          else
+            echo "allowed=0" >> "$GITHUB_OUTPUT"
+            echo "REAL_FULL_RELIABLE_TRIGGER_SKIP stale delayed cron hhmm=$hhmm allowed=1425..1510"
+          fi
+
       - name: Prepare daily lock path
         run: mkdir -p .real_full_trigger_lock
 
@@ -92,8 +112,45 @@ jobs:
           path: .real_full_trigger_lock
           key: stockhunter-real-full-reliable-trigger-${{ github.ref_name }}-${{ steps.day.outputs.kst_date }}
 
+      - name: Restore latest REAL_FULL TRUST state
+        uses: actions/cache/restore@v4
+        with:
+          path: reports/.cache/real_full_trust_r1
+          key: stockhunter-real-full-trust-r1-${{ github.ref_name }}-reliable-${{ github.run_id }}
+          restore-keys: |
+            stockhunter-real-full-trust-r1-${{ github.ref_name }}-
+
+      - name: Check same-day REAL_FULL production snapshot
+        id: captured
+        shell: bash
+        run: |
+          set -euo pipefail
+          today="${{ steps.day.outputs.kst_date }}"
+          state="reports/.cache/real_full_trust_r1/state.json"
+          last_success=""
+          if [ -f "$state" ]; then
+            last_success="$(python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path("reports/.cache/real_full_trust_r1/state.json")
+          try:
+              d=json.loads(p.read_text(encoding="utf-8"))
+          except Exception:
+              d={}
+          print(str(d.get("last_successful_snapshot_date") or ""))
+          PY
+          )"
+          fi
+          echo "RELIABLE_TRIGGER_CAPTURE_CHECK today=$today last_success=${last_success:-NONE}"
+          if [ "$last_success" = "$today" ]; then
+            echo "already_captured=1" >> "$GITHUB_OUTPUT"
+            echo "REAL_FULL_RELIABLE_TRIGGER_SKIP same-day production snapshot already present"
+          else
+            echo "already_captured=0" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Dispatch REAL_FULL production
-        if: ${{ inputs.force_dispatch == true || steps.lock.outputs.cache-hit != 'true' }}
+        if: ${{ inputs.force_dispatch == true || (steps.window.outputs.allowed == '1' && steps.lock.outputs.cache-hit != 'true' && steps.captured.outputs.already_captured != '1') }}
         env:
           GH_TOKEN: ${{ github.token }}
           KST_SLOT: ${{ steps.day.outputs.kst_slot }}
@@ -132,12 +189,18 @@ jobs:
           printf '%s\n' "${{ steps.day.outputs.kst_date }} ${{ steps.day.outputs.kst_slot }} dispatched" > .real_full_trigger_lock/dispatched.txt
 
       - name: Save today's dispatch lock
-        if: ${{ (inputs.force_dispatch != true) && (steps.lock.outputs.cache-hit != 'true') }}
+        if: ${{ inputs.force_dispatch != true && steps.window.outputs.allowed == '1' && steps.lock.outputs.cache-hit != 'true' && steps.captured.outputs.already_captured != '1' }}
         uses: actions/cache/save@v4
         with:
           path: .real_full_trigger_lock
           key: stockhunter-real-full-reliable-trigger-${{ github.ref_name }}-${{ steps.day.outputs.kst_date }}
 
       - name: Show duplicate suppression
-        if: ${{ inputs.force_dispatch != true && steps.lock.outputs.cache-hit == 'true' }}
-        run: echo "REAL_FULL_RELIABLE_TRIGGER_SKIP already dispatched today"
+        if: ${{ inputs.force_dispatch != true && (steps.lock.outputs.cache-hit == 'true' || steps.captured.outputs.already_captured == '1') }}
+        shell: bash
+        run: |
+          if [ "${{ steps.captured.outputs.already_captured }}" = "1" ]; then
+            echo "REAL_FULL_RELIABLE_TRIGGER_SKIP same-day production snapshot already present"
+          else
+            echo "REAL_FULL_RELIABLE_TRIGGER_SKIP already dispatched today"
+          fi
