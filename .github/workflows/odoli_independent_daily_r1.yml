@@ -16,7 +16,7 @@ concurrency:
 jobs:
   odoli-independent:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     env:
       TZ: Asia/Seoul
 
@@ -28,7 +28,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install ODOLI dependencies
-        run: pip install pandas numpy pyarrow exchange-calendars
+        run: pip install pandas numpy pyarrow exchange-calendars pykrx
 
       - name: Restore independent ODOLI state
         uses: actions/cache/restore@v4
@@ -38,7 +38,7 @@ jobs:
           restore-keys: |
             odoli-independent-r1-${{ github.ref_name }}-
 
-      - name: Fetch PIT marcap
+      - name: Fetch PIT marcap base
         shell: bash
         run: |
           set -euo pipefail
@@ -55,7 +55,7 @@ jobs:
           git checkout
           cd ../..
 
-      - name: Run independent all-market ODOLI
+      - name: Run independent all-market ODOLI with pykrx augmentation
         shell: bash
         run: |
           set -euo pipefail
@@ -65,7 +65,7 @@ jobs:
             --state-dir reports/.cache/odoli_independent_r1 \
             --output-dir reports/odoli_independent_r1
 
-      - name: Validate isolation and freshness authority
+      - name: Validate isolation freshness and augmentation authority
         shell: bash
         run: |
           python - <<'PY'
@@ -82,11 +82,18 @@ jobs:
           assert m["production_order_changed"] is False
           assert m["automatic_ordering"] is False
           assert m["telegram_route"]=="TELEGRAM_DYUL_CHAT_ID"
-          if not m["fresh_source"]:
+          if m["fresh_source"]:
+              assert m["asof_date"]==m["expected_krx_session"]
+              assert m["all_missing_sessions_fetched"] is True
+          else:
               assert m["new_frozen_events"]==0
               assert m["source_status"]=="STALE_SOURCE"
-          print("ODOLI_INDEPENDENT_R1_1_GUARDS PASS",m)
+          print("ODOLI_INDEPENDENT_R1_2_GUARDS PASS",m)
           PY
+
+      - name: Show source augmentation diagnostics
+        if: always()
+        run: cat reports/odoli_independent_r1/source_augmentation_diagnostics.json || true
 
       - name: Show message
         run: cat reports/odoli_independent_r1/telegram_message.txt
