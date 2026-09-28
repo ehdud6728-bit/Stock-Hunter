@@ -109,9 +109,9 @@ if "      - name: Build + send REAL_FULL Research Overlay immediately\n" not in 
           while text:
               if len(text)<=3500:
                   chunks.append(text); break
-              cut=text.rfind("\n",0,3500)
+              cut=text.rfind("\\n",0,3500)
               if cut<1000: cut=3500
-              chunks.append(text[:cut]); text=text[cut:].lstrip("\n")
+              chunks.append(text[:cut]); text=text[cut:].lstrip("\\n")
           token=os.environ["TELEGRAM_BACKTEST_TOKEN"]
           chat=os.environ.get("STOCK_SEARCH_CHAT_ID") or os.environ.get("STOCKHUNTER_CHAT_ID") or os.environ.get("TELEGRAM_DYUL_CHAT_ID") or os.environ.get("TELEGRAM_CHAT_ID")
           for i,msg in enumerate(chunks,1):
