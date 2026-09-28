@@ -1,0 +1,101 @@
+name: REAL_FULL 52W Segmented Validation Launcher R1
+
+on:
+  workflow_dispatch:
+    inputs:
+      anchor_end_date:
+        description: "기준 종료일 YYYY-MM-DD (비우면 실행일 기준 최근 금요일)"
+        required: false
+        default: ""
+        type: string
+      dispatch_spacing_seconds:
+        description: "segment dispatch 간격(초)"
+        required: false
+        default: "15"
+        type: string
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  launch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Resolve 4 x 13-week windows
+        shell: bash
+        env:
+          ANCHOR_INPUT: ${{ inputs.anchor_end_date }}
+        run: |
+          set -euo pipefail
+          python - <<'PY' > /tmp/w.env
+          import os
+          from datetime import date,datetime,timedelta
+          raw=os.environ.get("ANCHOR_INPUT","").strip()
+          anchor=datetime.strptime(raw,"%Y-%m-%d").date() if raw else date.today()
+          end=anchor-timedelta(days=(anchor.weekday()-4)%7)
+          seg=[]
+          for _ in range(4):
+              start=end-timedelta(days=90)
+              seg.append((start,end))
+              end=start-timedelta(days=1)
+          for i,(s,e) in enumerate(reversed(seg),1):
+              print(f"SEG{i}_START={s}")
+              print(f"SEG{i}_END={e}")
+          PY
+          cat /tmp/w.env
+          cat /tmp/w.env >> "$GITHUB_ENV"
+
+      - name: Dispatch 4 independent REAL_FULL validation runs
+        shell: bash
+        env:
+          SPACING: ${{ inputs.dispatch_spacing_seconds }}
+        run: |
+          set -euo pipefail
+          send () {
+            idx="$1"; start="$2"; end="$3"
+            payload="$(python - "$idx" "$start" "$end" <<'PY'
+          import json,sys
+          i,s,e=sys.argv[1:4]
+          print(json.dumps({
+            "ref":"main",
+            "inputs":{
+              "run_profile":"REAL_FULL_VALIDATION_BACKTEST",
+              "real_full_capture_slot":f"VALIDATION_52W_SEG{i}_{s}_{e}",
+              "backtest_source":"DIRECT_REPLAY",
+              "direct_top_n":"500",
+              "direct_limit_per_date":"50",
+              "backtest_weeks":"13",
+              "backtest_hold_days":"10",
+              "backtest_stop_pct":"-5",
+              "backtest_stop_mode":"BOTH_COMPARE",
+              "v25_cohort_mode":"CUSTOM",
+              "v25_two_year_end_date":"",
+              "v25_cohort_start_date":s,
+              "v25_cohort_end_date":e,
+              "catalyst_forward_capture":"OFF"
+            }
+          }))
+          PY
+          )"
+            code="$(curl -sS -o /tmp/out -w '%{http_code}' -X POST               -H "Authorization: Bearer ${GH_TOKEN}"               -H "Accept: application/vnd.github+json"               -H "X-GitHub-Api-Version: 2022-11-28"               "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/run_scanner.yml/dispatches"               -d "$payload")"
+            cat /tmp/out || true
+            test "$code" = "204" || { echo "SEG${idx} dispatch failed http=$code"; exit 41; }
+            echo "SEG${idx}_DISPATCH_OK ${start}..${end}"
+          }
+          send 1 "$SEG1_START" "$SEG1_END"
+          sleep "${SPACING:-15}"
+          send 2 "$SEG2_START" "$SEG2_END"
+          sleep "${SPACING:-15}"
+          send 3 "$SEG3_START" "$SEG3_END"
+          sleep "${SPACING:-15}"
+          send 4 "$SEG4_START" "$SEG4_END"
+
+      - name: Summary
+        run: |
+          echo "4 x 13-week validation runs dispatched."
+          echo "Each child uses DIRECT_REPLAY / TOP500 / 6-shard / CUSTOM date range."
