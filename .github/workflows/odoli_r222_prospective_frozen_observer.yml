@@ -1,0 +1,66 @@
+name: ODOLI R2.22 Prospective Frozen Observer
+
+on:
+  workflow_dispatch:
+    inputs:
+      signals_csv:
+        description: "Path to prospective signal ledger CSV in repo/artifact workspace"
+        required: true
+        default: "reports/odoli_prospective/signals.csv"
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install pandas numpy pyarrow
+
+      - name: Fetch PIT marcap
+        run: |
+          rm -rf vendor/marcap
+          mkdir -p vendor
+          git clone --depth 1 --filter=blob:none --no-checkout \
+            https://github.com/FinanceData/marcap.git vendor/marcap
+          cd vendor/marcap
+          git sparse-checkout init --no-cone
+          printf '%s\n' 'data/*.parquet' > /tmp/marcap_paths.txt
+          git sparse-checkout set --stdin < /tmp/marcap_paths.txt
+          git checkout
+          cd ../..
+
+      - name: Run frozen observer
+        run: |
+          python -u odoli_r222_prospective_frozen_observer.py \
+            --signals-csv "${{ inputs.signals_csv }}" \
+            --marcap-root vendor/marcap \
+            --output-dir reports/odoli_r222
+
+      - name: Validate isolation
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          m=json.loads(Path("reports/odoli_r222/meta.json").read_text())
+          assert m["research_only"] is True
+          assert m["production_logic_changed"] is False
+          assert m["same_sample_tuning"] is False
+          assert m["new_gate_created"] is False
+          assert m["observer_version"]=="C2_C3_C4_FROZEN_V1"
+          print(m)
+          PY
+
+      - run: cat reports/odoli_r222/REPORT.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: odoli-r222-prospective-frozen-observer-${{ github.run_id }}
+          path: reports/odoli_r222/**
+          retention-days: 90
