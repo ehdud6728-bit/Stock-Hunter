@@ -1,14 +1,24 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import argparse, hashlib, json, math, re
+
+import argparse
+import hashlib
+import json
+import math
+import re
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
+
+import exchange_calendars as xcals
 import numpy as np
 import pandas as pd
 
-REV="ODOLI_INDEPENDENT_DAILY_R1_20260928"
+REV="ODOLI_INDEPENDENT_DAILY_R1_1_FRESHNESS_GUARD_20260929"
 DEFINITION="STRICT_ODOLI_R1"
 AMOUNT_Q2_UPPER=0.7487214470811911
 VOLUME_Q2_UPPER=0.7562848676975253
+KST=ZoneInfo("Asia/Seoul")
 
 def norm_code(v):
     s=re.sub(r"\D","",str(v or ""))
@@ -51,6 +61,17 @@ def load_marcap(root):
     q=pd.concat(parts,ignore_index=True)
     q=q.dropna(subset=["Date"])
     return q.sort_values(["Code","Date"]).drop_duplicates(["Code","Date"],keep="last")
+
+def expected_krx_session(now_kst=None):
+    now_kst=now_kst or datetime.now(KST)
+    cal=xcals.get_calendar("XKRX")
+    day=pd.Timestamp(now_kst.date())
+    # Scheduled daily run is after KRX close. For manual runs before close,
+    # use the previous completed session rather than today's unfinished session.
+    if now_kst.hour < 16:
+        day=day-pd.Timedelta(days=1)
+    session=cal.date_to_session(day,direction="previous")
+    return pd.Timestamp(session).tz_localize(None).normalize()
 
 def add_features(g):
     g=g.sort_values("Date").reset_index(drop=True).copy()
@@ -135,6 +156,25 @@ def current_signals(bycode,asof):
         })
     return pd.DataFrame(rows)
 
+def migrate_pre_freshness_state(state):
+    marker=state/"r11_freshness_migrated.flag"
+    if marker.exists():
+        return 0
+    moved=0
+    for name in ["events.csv","observations.csv"]:
+        p=state/name
+        if p.exists() and p.stat().st_size:
+            target=state/f"bootstrap_pre_freshness_{name}"
+            if target.exists():
+                target.unlink()
+            p.replace(target)
+            moved+=1
+    marker.write_text(
+        "ODOLI R1.1 freshness migration: prior prospective state quarantined as BOOTSTRAP_PRE_FRESHNESS.\n",
+        encoding="utf-8"
+    )
+    return moved
+
 def append_events(signals,events):
     cols=["signal_date","code","name","market","close","signal_low","definition","source",
           "signal_amount_ratio20","signal_volume_ratio20",
@@ -151,7 +191,8 @@ def append_events(signals,events):
         key=(pd.Timestamp(r["signal_date"]).normalize(),norm_code(r["code"]))
         if key in existing:
             continue
-        add.append(r.to_dict()); existing.add(key)
+        add.append(r.to_dict())
+        existing.add(key)
     if add:
         events=pd.concat([events,pd.DataFrame(add)],ignore_index=True)
     return events,len(add)
@@ -237,10 +278,21 @@ def event_status(row,g):
 
 def xpct(v):
     return "-" if pd.isna(v) else f"{float(v):+.1f}%"
+
 def xx(v):
     return "-" if pd.isna(v) else f"{float(v):.2f}x"
 
-def make_message(signals,status,new_n,asof):
+def make_message(signals,status,new_n,asof,expected,fresh):
+    if not fresh:
+        return "\n".join([
+            "⚠️ [ODOLI 독립 관찰 · SOURCE STALE]",
+            f"KRX 기대 최신 거래일 {expected.date()}",
+            f"marcap 최신 거래일 {asof.date()}",
+            "신규 prospective frozen 0건",
+            "원천이 최신 거래일까지 갱신된 뒤 다시 탐색합니다.",
+            "※ 기존 production 검색/점수/순위/주문에는 영향 없음",
+        ])
+
     lines=[
         "🧪 [ODOLI 독립 관찰 · 전체시장]",
         f"기준일 {pd.Timestamp(asof).date()} · {DEFINITION}",
@@ -287,15 +339,27 @@ def main():
     out=Path(a.output_dir); out.mkdir(parents=True,exist_ok=True)
     state=Path(a.state_dir); state.mkdir(parents=True,exist_ok=True)
 
+    migrated=migrate_pre_freshness_state(state)
+
     mar=load_marcap(a.marcap_root)
     asof=pd.Timestamp(mar["Date"].max()).normalize()
+    expected=expected_krx_session()
+    fresh=(asof==expected)
+    source_status="FRESH" if fresh else "STALE_SOURCE"
+
     bycode={c:add_features(g) for c,g in mar.groupby("Code",sort=False)}
 
-    signals=current_signals(bycode,asof)
+    if fresh:
+        signals=current_signals(bycode,asof)
+    else:
+        signals=pd.DataFrame()
     signals.to_csv(out/"odoli_current_signals.csv",index=False,encoding="utf-8-sig")
 
     events=load_csv(state/"events.csv")
-    events,new_n=append_events(signals,events)
+    if fresh:
+        events,new_n=append_events(signals,events)
+    else:
+        new_n=0
     events.to_csv(state/"events.csv",index=False,encoding="utf-8-sig")
     events.to_csv(out/"odoli_events.csv",index=False,encoding="utf-8-sig")
 
@@ -311,7 +375,7 @@ def main():
     status.to_csv(out/"odoli_current_status.csv",index=False,encoding="utf-8-sig")
 
     obs=load_csv(state/"observations.csv")
-    if len(status):
+    if fresh and len(status):
         cur=status.copy()
         cur["asof_date"]=pd.to_datetime(cur["asof_date"],errors="coerce").dt.normalize()
         cur["signal_date"]=pd.to_datetime(cur["signal_date"],errors="coerce").dt.normalize()
@@ -328,7 +392,7 @@ def main():
             obs=pd.concat([obs,cur],ignore_index=True)
     obs.to_csv(state/"observations.csv",index=False,encoding="utf-8-sig")
 
-    msg=make_message(signals,status,new_n,asof)
+    msg=make_message(signals,status,new_n,asof,expected,fresh)
     fp=hashlib.sha256(msg.encode("utf-8")).hexdigest()
     fpfile=state/"last_message_fingerprint.txt"
     old=fpfile.read_text(encoding="utf-8").strip() if fpfile.exists() else ""
@@ -341,6 +405,9 @@ def main():
         "revision":REV,
         "definition":DEFINITION,
         "asof_date":str(asof.date()),
+        "expected_krx_session":str(expected.date()),
+        "source_status":source_status,
+        "fresh_source":fresh,
         "research_only":True,
         "independent_all_market_lane":True,
         "real_full_source_required":False,
@@ -351,9 +418,11 @@ def main():
         "production_rank_changed":False,
         "production_order_changed":False,
         "automatic_ordering":False,
+        "bootstrap_state_files_quarantined":migrated,
         "current_signals":len(signals),
         "frozen_events":len(events),
         "new_frozen_events":new_n,
+        "telegram_route":"TELEGRAM_DYUL_CHAT_ID",
         "telegram_should_send":should_send,
     }
     (out/"meta.json").write_text(json.dumps(meta,ensure_ascii=False,indent=2,default=str),encoding="utf-8")
