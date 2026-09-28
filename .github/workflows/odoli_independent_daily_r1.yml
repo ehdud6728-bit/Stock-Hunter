@@ -1,0 +1,150 @@
+name: ODOLI Independent Daily R1
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Weekdays 16:50 KST = 07:50 UTC
+    - cron: '50 07 * * 1-5'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: odoli-independent-daily-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  odoli-independent:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      TZ: Asia/Seoul
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - run: pip install pandas numpy pyarrow
+
+      - name: Restore independent ODOLI state
+        uses: actions/cache/restore@v4
+        with:
+          path: reports/.cache/odoli_independent_r1
+          key: odoli-independent-r1-${{ github.ref_name }}-${{ github.run_id }}
+          restore-keys: |
+            odoli-independent-r1-${{ github.ref_name }}-
+
+      - name: Fetch PIT marcap
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf vendor/marcap
+          mkdir -p vendor
+          git clone --depth 1 --filter=blob:none --no-checkout \
+            https://github.com/FinanceData/marcap.git vendor/marcap
+          cd vendor/marcap
+          git sparse-checkout init --no-cone
+          printf '%s\n' \
+            'data/marcap-2025.parquet' \
+            'data/marcap-2026.parquet' > /tmp/marcap_paths.txt
+          git sparse-checkout set --stdin < /tmp/marcap_paths.txt
+          git checkout
+          cd ../..
+
+      - name: Run independent all-market ODOLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile odoli_independent_daily_r1.py
+          python -u odoli_independent_daily_r1.py \
+            --marcap-root vendor/marcap \
+            --state-dir reports/.cache/odoli_independent_r1 \
+            --output-dir reports/odoli_independent_r1
+
+      - name: Validate isolation
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          m=json.load(open("reports/odoli_independent_r1/meta.json",encoding="utf-8"))
+          assert m["definition"]=="STRICT_ODOLI_R1"
+          assert m["independent_all_market_lane"] is True
+          assert m["real_full_source_required"] is False
+          assert m["a_required"] is False
+          assert m["core_required"] is False
+          assert m["production_search_changed"] is False
+          assert m["production_score_changed"] is False
+          assert m["production_rank_changed"] is False
+          assert m["production_order_changed"] is False
+          assert m["automatic_ordering"] is False
+          print("ODOLI_INDEPENDENT_ISOLATION PASS",m)
+          PY
+
+      - name: Show message
+        run: cat reports/odoli_independent_r1/telegram_message.txt
+
+      - name: Send Telegram
+        env:
+          TELEGRAM_BACKTEST_TOKEN: ${{ secrets.TELEGRAM_BACKTEST_TOKEN }}
+          STOCK_SEARCH_CHAT_ID: ${{ secrets.STOCK_SEARCH_CHAT_ID }}
+          STOCKHUNTER_CHAT_ID: ${{ secrets.STOCKHUNTER_CHAT_ID }}
+          TELEGRAM_DYUL_CHAT_ID: ${{ secrets.TELEGRAM_DYUL_CHAT_ID }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          SHOULD="$(python - <<'PY'
+          import json
+          print("1" if json.load(open("reports/odoli_independent_r1/meta.json",encoding="utf-8"))["telegram_should_send"] else "0")
+          PY
+          )"
+          if [ "$SHOULD" != "1" ]; then
+            echo "ODOLI_INDEPENDENT_TELEGRAM_SKIP duplicate"
+            exit 0
+          fi
+          TOKEN="${TELEGRAM_BACKTEST_TOKEN:-}"
+          CHAT="${STOCK_SEARCH_CHAT_ID:-${STOCKHUNTER_CHAT_ID:-${TELEGRAM_DYUL_CHAT_ID:-${TELEGRAM_CHAT_ID:-}}}}"
+          FILE="reports/odoli_independent_r1/telegram_message.txt"
+          if [ -z "$TOKEN" ] || [ -z "$CHAT" ] || [ ! -s "$FILE" ]; then
+            echo "ODOLI_INDEPENDENT_TELEGRAM_SKIP route unavailable"
+            exit 0
+          fi
+          python - <<'PY'
+          import os,urllib.parse,urllib.request
+          from pathlib import Path
+          text=Path("reports/odoli_independent_r1/telegram_message.txt").read_text(encoding="utf-8")
+          chunks=[]
+          while text:
+              if len(text)<=3500:
+                  chunks.append(text); break
+              cut=text.rfind("\n",0,3500)
+              if cut<1000: cut=3500
+              chunks.append(text[:cut]); text=text[cut:].lstrip("\n")
+          token=os.environ["TELEGRAM_BACKTEST_TOKEN"]
+          chat=os.environ.get("STOCK_SEARCH_CHAT_ID") or os.environ.get("STOCKHUNTER_CHAT_ID") or os.environ.get("TELEGRAM_DYUL_CHAT_ID") or os.environ.get("TELEGRAM_CHAT_ID")
+          for i,msg in enumerate(chunks,1):
+              data=urllib.parse.urlencode({"chat_id":chat,"text":msg}).encode()
+              req=urllib.request.Request(f"https://api.telegram.org/bot{token}/sendMessage",data=data)
+              with urllib.request.urlopen(req,timeout=30) as r:
+                  assert r.status==200
+              print("ODOLI_INDEPENDENT_TELEGRAM_SENT",i,len(msg))
+          PY
+
+      - name: Save independent ODOLI state
+        if: always() && hashFiles('reports/.cache/odoli_independent_r1/events.csv') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: reports/.cache/odoli_independent_r1
+          key: odoli-independent-r1-${{ github.ref_name }}-${{ github.run_id }}
+
+      - name: Upload ODOLI independent report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: odoli-independent-r1-${{ github.run_id }}
+          path: reports/odoli_independent_r1/**
+          if-no-files-found: warn
+          retention-days: 90
