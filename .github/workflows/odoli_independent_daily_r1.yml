@@ -27,7 +27,8 @@ jobs:
         with:
           python-version: "3.11"
 
-      - run: pip install pandas numpy pyarrow
+      - name: Install ODOLI dependencies
+        run: pip install pandas numpy pyarrow exchange-calendars
 
       - name: Restore independent ODOLI state
         uses: actions/cache/restore@v4
@@ -64,7 +65,7 @@ jobs:
             --state-dir reports/.cache/odoli_independent_r1 \
             --output-dir reports/odoli_independent_r1
 
-      - name: Validate isolation
+      - name: Validate isolation and freshness authority
         shell: bash
         run: |
           python - <<'PY'
@@ -80,19 +81,20 @@ jobs:
           assert m["production_rank_changed"] is False
           assert m["production_order_changed"] is False
           assert m["automatic_ordering"] is False
-          print("ODOLI_INDEPENDENT_ISOLATION PASS",m)
+          assert m["telegram_route"]=="TELEGRAM_DYUL_CHAT_ID"
+          if not m["fresh_source"]:
+              assert m["new_frozen_events"]==0
+              assert m["source_status"]=="STALE_SOURCE"
+          print("ODOLI_INDEPENDENT_R1_1_GUARDS PASS",m)
           PY
 
       - name: Show message
         run: cat reports/odoli_independent_r1/telegram_message.txt
 
-      - name: Send Telegram
+      - name: Send Telegram to DYUL chat
         env:
           TELEGRAM_BACKTEST_TOKEN: ${{ secrets.TELEGRAM_BACKTEST_TOKEN }}
-          STOCK_SEARCH_CHAT_ID: ${{ secrets.STOCK_SEARCH_CHAT_ID }}
-          STOCKHUNTER_CHAT_ID: ${{ secrets.STOCKHUNTER_CHAT_ID }}
           TELEGRAM_DYUL_CHAT_ID: ${{ secrets.TELEGRAM_DYUL_CHAT_ID }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         shell: bash
         run: |
           set -euo pipefail
@@ -105,36 +107,52 @@ jobs:
             echo "ODOLI_INDEPENDENT_TELEGRAM_SKIP duplicate"
             exit 0
           fi
+
           TOKEN="${TELEGRAM_BACKTEST_TOKEN:-}"
-          CHAT="${STOCK_SEARCH_CHAT_ID:-${STOCKHUNTER_CHAT_ID:-${TELEGRAM_DYUL_CHAT_ID:-${TELEGRAM_CHAT_ID:-}}}}"
+          CHAT="${TELEGRAM_DYUL_CHAT_ID:-}"
           FILE="reports/odoli_independent_r1/telegram_message.txt"
+
+          echo "ODOLI_TELEGRAM_ROUTE=TELEGRAM_DYUL_CHAT_ID"
+
           if [ -z "$TOKEN" ] || [ -z "$CHAT" ] || [ ! -s "$FILE" ]; then
-            echo "ODOLI_INDEPENDENT_TELEGRAM_SKIP route unavailable"
+            echo "ODOLI_INDEPENDENT_TELEGRAM_SKIP DYUL route unavailable"
             exit 0
           fi
+
           python - <<'PY'
           import os,urllib.parse,urllib.request
           from pathlib import Path
+
           text=Path("reports/odoli_independent_r1/telegram_message.txt").read_text(encoding="utf-8")
           chunks=[]
           while text:
               if len(text)<=3500:
-                  chunks.append(text); break
+                  chunks.append(text)
+                  break
               cut=text.rfind("\n",0,3500)
-              if cut<1000: cut=3500
-              chunks.append(text[:cut]); text=text[cut:].lstrip("\n")
+              if cut<1000:
+                  cut=3500
+              chunks.append(text[:cut])
+              text=text[cut:].lstrip("\n")
+
           token=os.environ["TELEGRAM_BACKTEST_TOKEN"]
-          chat=os.environ.get("STOCK_SEARCH_CHAT_ID") or os.environ.get("STOCKHUNTER_CHAT_ID") or os.environ.get("TELEGRAM_DYUL_CHAT_ID") or os.environ.get("TELEGRAM_CHAT_ID")
+          chat=os.environ["TELEGRAM_DYUL_CHAT_ID"]
+
           for i,msg in enumerate(chunks,1):
               data=urllib.parse.urlencode({"chat_id":chat,"text":msg}).encode()
-              req=urllib.request.Request(f"https://api.telegram.org/bot{token}/sendMessage",data=data)
+              req=urllib.request.Request(
+                  f"https://api.telegram.org/bot{token}/sendMessage",
+                  data=data
+              )
               with urllib.request.urlopen(req,timeout=30) as r:
-                  assert r.status==200
-              print("ODOLI_INDEPENDENT_TELEGRAM_SENT",i,len(msg))
+                  body=r.read().decode("utf-8","replace")
+                  if r.status!=200:
+                      raise RuntimeError(f"telegram http={r.status} body={body[:200]}")
+              print("ODOLI_INDEPENDENT_TELEGRAM_SENT_DYUL",i,len(msg))
           PY
 
       - name: Save independent ODOLI state
-        if: always() && hashFiles('reports/.cache/odoli_independent_r1/events.csv') != ''
+        if: always() && hashFiles('reports/.cache/odoli_independent_r1/r11_freshness_migrated.flag') != ''
         uses: actions/cache/save@v4
         with:
           path: reports/.cache/odoli_independent_r1
@@ -145,6 +163,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: odoli-independent-r1-${{ github.run_id }}
-          path: reports/odoli_independent_r1/**
+          path: |
+            reports/odoli_independent_r1/**
+            reports/.cache/odoli_independent_r1/bootstrap_pre_freshness_*.csv
           if-no-files-found: warn
           retention-days: 90
