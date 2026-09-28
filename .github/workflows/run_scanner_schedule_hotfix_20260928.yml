@@ -1,0 +1,62 @@
+name: RUN_SCANNER Schedule Hotfix 2026-09-28
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  hotfix:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Apply schedule hotfix
+        run: |
+          set -euo pipefail
+          python -m py_compile run_scanner_schedule_hotfix_20260928.py
+          python -u run_scanner_schedule_hotfix_20260928.py
+
+      - name: Verify repaired files
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          p=Path(".github/workflows/run_scanner.yml").read_text(encoding="utf-8")
+          assert 'cut=text.rfind("\\n",0,3500)' in p
+          assert 'text=text[cut:].lstrip("\\n")' in p
+          assert "cron: '30 00 * * 1-5'" in p
+          assert "cron: '20 06 * * 1-5'" in p
+          assert "cron: '45 06 * * 1-5'" in p
+          print("RUN_SCANNER_HOTFIX_VERIFY PASS")
+          PY
+
+      - name: Commit repaired workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/workflows/run_scanner.yml apply_real_full_reliable_overlay_patch.py
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          git commit -m "Fix run_scanner schedule workflow parsing"
+          git push
+
+      - name: Summary
+        run: |
+          echo "✅ run_scanner.yml repaired"
+          echo "✅ generator hardened"
+          echo "✅ cron schedules preserved"
+          echo "ℹ️ Missed 2026-09-28 scheduled runs must be dispatched manually if still needed"
