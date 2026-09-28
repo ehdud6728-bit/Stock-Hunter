@@ -1,0 +1,186 @@
+name: ODOLI R2.23 Live Research Overlay
+
+on:
+  workflow_run:
+    workflows:
+      - "Run Main Scanner V1107.4.5.73.3.6.6.25.4.12-HF12 + TRIANGLE1PB R1 Independent Research"
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: "Scanner run ID to inspect"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  overlay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - run: pip install pandas numpy pyarrow
+
+      - name: Resolve source run
+        id: src
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            echo "run_id=${{ github.event.workflow_run.id }}" >> "$GITHUB_OUTPUT"
+            echo "conclusion=${{ github.event.workflow_run.conclusion }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "run_id=${{ inputs.source_run_id }}" >> "$GITHUB_OUTPUT"
+            echo "conclusion=manual" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download source scanner artifact
+        id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set +e
+          mkdir -p source_run
+          gh run download "${{ steps.src.outputs.run_id }}" -D source_run
+          rc=$?
+          set -e
+          SOURCE="$(find source_run -type f -name 'real_full_trust_source.csv' -print -quit 2>/dev/null || true)"
+          if [ $rc -ne 0 ] || [ -z "$SOURCE" ]; then
+            echo "available=0" >> "$GITHUB_OUTPUT"
+            echo "ODOLI_OVERLAY_SKIP source REAL_FULL trust source unavailable"
+            exit 0
+          fi
+          echo "available=1" >> "$GITHUB_OUTPUT"
+          echo "path=$SOURCE" >> "$GITHUB_OUTPUT"
+          echo "ODOLI_OVERLAY_SOURCE=$SOURCE"
+
+      - name: Restore ODOLI overlay state
+        if: steps.source.outputs.available == '1'
+        uses: actions/cache/restore@v4
+        with:
+          path: reports/.cache/odoli_r223
+          key: odoli-r223-state-${{ github.ref_name }}-${{ steps.src.outputs.run_id }}
+          restore-keys: |
+            odoli-r223-state-${{ github.ref_name }}-
+
+      - name: Fetch current PIT marcap
+        if: steps.source.outputs.available == '1'
+        shell: bash
+        run: |
+          rm -rf vendor/marcap
+          mkdir -p vendor
+          git clone --depth 1 --filter=blob:none --no-checkout \
+            https://github.com/FinanceData/marcap.git vendor/marcap
+          cd vendor/marcap
+          git sparse-checkout init --no-cone
+          printf '%s\n' 'data/marcap-2026.parquet' > /tmp/marcap_paths.txt
+          git sparse-checkout set --stdin < /tmp/marcap_paths.txt
+          git checkout
+          cd ../..
+
+      - name: Build ODOLI live research overlay
+        if: steps.source.outputs.available == '1'
+        shell: bash
+        run: |
+          python -m py_compile odoli_r223_live_research_overlay.py
+          python -u odoli_r223_live_research_overlay.py \
+            --source "${{ steps.source.outputs.path }}" \
+            --source-run "${{ steps.src.outputs.run_id }}" \
+            --marcap-root vendor/marcap \
+            --state-dir reports/.cache/odoli_r223 \
+            --output-dir reports/odoli_r223
+
+      - name: Validate isolation
+        if: steps.source.outputs.available == '1'
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          m=json.loads(Path("reports/odoli_r223/meta.json").read_text(encoding="utf-8"))
+          assert m["research_only"] is True
+          assert m["production_search_changed"] is False
+          assert m["production_score_changed"] is False
+          assert m["production_rank_changed"] is False
+          assert m["production_order_changed"] is False
+          assert m["automatic_ordering"] is False
+          assert m["strict_odoli_definition"]=="STRICT_ODOLI_R1"
+          assert m["core_semantics"]=="FROZEN_R23_Q2_UPPER_BOUNDARY"
+          print(m)
+          PY
+
+      - name: Show ODOLI research overlay
+        if: steps.source.outputs.available == '1'
+        run: cat reports/odoli_r223/telegram_message.txt
+
+      - name: Send separate ODOLI research overlay to Telegram
+        if: steps.source.outputs.available == '1'
+        env:
+          TELEGRAM_BACKTEST_TOKEN: ${{ secrets.TELEGRAM_BACKTEST_TOKEN }}
+          STOCK_SEARCH_CHAT_ID: ${{ secrets.STOCK_SEARCH_CHAT_ID }}
+          STOCKHUNTER_CHAT_ID: ${{ secrets.STOCKHUNTER_CHAT_ID }}
+          TELEGRAM_DYUL_CHAT_ID: ${{ secrets.TELEGRAM_DYUL_CHAT_ID }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        shell: bash
+        run: |
+          SHOULD="$(python - <<'PY'
+          import json
+          print("1" if json.load(open("reports/odoli_r223/meta.json",encoding="utf-8"))["telegram_should_send"] else "0")
+          PY
+          )"
+          if [ "$SHOULD" != "1" ]; then
+            echo "ODOLI_OVERLAY_TELEGRAM_SKIP duplicate unchanged message"
+            exit 0
+          fi
+          TOKEN="${TELEGRAM_BACKTEST_TOKEN:-}"
+          CHAT="${STOCK_SEARCH_CHAT_ID:-${STOCKHUNTER_CHAT_ID:-${TELEGRAM_DYUL_CHAT_ID:-${TELEGRAM_CHAT_ID:-}}}}"
+          FILE="reports/odoli_r223/telegram_message.txt"
+          if [ -z "$TOKEN" ] || [ -z "$CHAT" ] || [ ! -s "$FILE" ]; then
+            echo "ODOLI_OVERLAY_TELEGRAM_SKIP route unavailable"
+            exit 0
+          fi
+          python - <<'PY'
+          import os, urllib.parse, urllib.request
+          from pathlib import Path
+          text=Path("reports/odoli_r223/telegram_message.txt").read_text(encoding="utf-8")
+          chunks=[]
+          while text:
+              if len(text)<=3500:
+                  chunks.append(text); break
+              cut=text.rfind("\n",0,3500)
+              if cut<1000: cut=3500
+              chunks.append(text[:cut]); text=text[cut:].lstrip("\n")
+          token=os.environ["TELEGRAM_BACKTEST_TOKEN"]
+          chat=os.environ.get("STOCK_SEARCH_CHAT_ID") or os.environ.get("STOCKHUNTER_CHAT_ID") or os.environ.get("TELEGRAM_DYUL_CHAT_ID") or os.environ.get("TELEGRAM_CHAT_ID")
+          for i,msg in enumerate(chunks,1):
+              data=urllib.parse.urlencode({"chat_id":chat,"text":msg}).encode()
+              req=urllib.request.Request(f"https://api.telegram.org/bot{token}/sendMessage",data=data)
+              with urllib.request.urlopen(req,timeout=30) as r:
+                  assert r.status==200
+              print("ODOLI_OVERLAY_TELEGRAM_SENT",i,len(msg))
+          PY
+
+      - name: Save ODOLI overlay append-only state
+        if: steps.source.outputs.available == '1' && hashFiles('reports/.cache/odoli_r223/events.csv') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: reports/.cache/odoli_r223
+          key: odoli-r223-state-${{ github.ref_name }}-${{ steps.src.outputs.run_id }}
+
+      - name: Upload ODOLI overlay reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: odoli-r223-live-overlay-${{ steps.src.outputs.run_id }}
+          path: |
+            reports/odoli_r223/**
+          if-no-files-found: ignore
+          retention-days: 60
