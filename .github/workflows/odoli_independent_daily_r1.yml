@@ -19,6 +19,8 @@ jobs:
     timeout-minutes: 40
     env:
       TZ: Asia/Seoul
+      KRX_ID: ${{ secrets.KRX_DATA_ID }}
+      KRX_PW: ${{ secrets.KRX_DATA_PW }}
 
     steps:
       - uses: actions/checkout@v4
@@ -55,6 +57,17 @@ jobs:
           git checkout
           cd ../..
 
+      - name: KRX credential preflight
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os
+          ok=bool(os.getenv("KRX_ID","").strip()) and bool(os.getenv("KRX_PW","").strip())
+          print("ODOLI_KRX_AUTH", "READY" if ok else "MISSING")
+          if not ok:
+              print("::warning::KRX_DATA_ID/KRX_DATA_PW are missing; pykrx augmentation may fail closed to STALE_SOURCE.")
+          PY
+
       - name: Run independent all-market ODOLI with pykrx augmentation
         shell: bash
         run: |
@@ -88,7 +101,7 @@ jobs:
           else:
               assert m["new_frozen_events"]==0
               assert m["source_status"]=="STALE_SOURCE"
-          print("ODOLI_INDEPENDENT_R1_2_GUARDS PASS",m)
+          print("ODOLI_INDEPENDENT_R1_3_GUARDS PASS",m)
           PY
 
       - name: Show source augmentation diagnostics
