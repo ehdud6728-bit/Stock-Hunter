@@ -1,0 +1,141 @@
+name: REAL_FULL 52W Segmented Validation Launcher R2
+
+on:
+  workflow_dispatch:
+    inputs:
+      anchor_end_date:
+        description: "기준 종료일 YYYY-MM-DD (비우면 실행일 기준 최근 금요일)"
+        required: false
+        default: ""
+        type: string
+      dispatch_spacing_seconds:
+        description: "segment dispatch 간격(초)"
+        required: false
+        default: "30"
+        type: string
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: real-full-52w-segmented-launcher-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  launch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+
+    steps:
+      - name: Resolve 4 x 13-week windows
+        shell: bash
+        env:
+          ANCHOR_INPUT: ${{ inputs.anchor_end_date }}
+        run: |
+          set -euo pipefail
+          python - <<'PY' > /tmp/segments.env
+          import os
+          from datetime import date, datetime, timedelta
+
+          raw=os.environ.get("ANCHOR_INPUT","").strip()
+          anchor=datetime.strptime(raw,"%Y-%m-%d").date() if raw else date.today()
+
+          # Anchor to the most recent Friday.
+          end=anchor-timedelta(days=(anchor.weekday()-4)%7)
+
+          newest_to_oldest=[]
+          for _ in range(4):
+              start=end-timedelta(days=90)   # 91 inclusive days = exactly 13 weeks
+              newest_to_oldest.append((start,end))
+              end=start-timedelta(days=1)
+
+          for i,(start,end) in enumerate(reversed(newest_to_oldest),1):
+              print(f"SEG{i}_START={start}")
+              print(f"SEG{i}_END={end}")
+          PY
+          cat /tmp/segments.env
+          cat /tmp/segments.env >> "$GITHUB_ENV"
+
+      - name: Validate segment geometry
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          from datetime import date
+          prev_end=None
+          total_days=0
+          for i in range(1,5):
+              s=date.fromisoformat(os.environ[f"SEG{i}_START"])
+              e=date.fromisoformat(os.environ[f"SEG{i}_END"])
+              days=(e-s).days+1
+              assert days==91, (i,s,e,days)
+              if prev_end is not None:
+                  assert (s-prev_end).days==1, (i,prev_end,s)
+              prev_end=e
+              total_days+=days
+          assert total_days==364
+          print("REAL_FULL_52W_SEGMENT_GEOMETRY PASS", "days",total_days, "weeks",total_days//7)
+          PY
+
+      - name: Verify target workflow inputs exist
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh workflow view run_scanner.yml --repo "$GH_REPO" >/tmp/run_scanner_view.txt
+          cat /tmp/run_scanner_view.txt
+          echo "TARGET_WORKFLOW_LOOKUP PASS"
+
+      - name: Dispatch 4 independent 13-week REAL_FULL validation runs
+        shell: bash
+        env:
+          SPACING: ${{ inputs.dispatch_spacing_seconds }}
+        run: |
+          set -euo pipefail
+
+          send_segment () {
+            idx="$1"
+            start="$2"
+            end="$3"
+
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "SEG${idx} dispatch ${start} .. ${end}"
+
+            gh workflow run run_scanner.yml \
+              --repo "$GH_REPO" \
+              --ref "${GITHUB_REF_NAME:-main}" \
+              -f run_profile=REAL_FULL_VALIDATION_BACKTEST \
+              -f real_full_capture_slot="VALIDATION_52W_SEG${idx}_${start}_${end}" \
+              -f backtest_source=DIRECT_REPLAY \
+              -f direct_top_n=500 \
+              -f direct_limit_per_date=50 \
+              -f backtest_weeks=13 \
+              -f backtest_hold_days=10 \
+              -f backtest_stop_pct=-5 \
+              -f backtest_stop_mode=BOTH_COMPARE \
+              -f v25_cohort_mode=CUSTOM \
+              -f v25_two_year_end_date= \
+              -f v25_cohort_start_date="$start" \
+              -f v25_cohort_end_date="$end" \
+              -f catalyst_forward_capture=OFF
+
+            echo "SEG${idx}_DISPATCH_OK ${start}..${end}"
+          }
+
+          send_segment 1 "$SEG1_START" "$SEG1_END"
+          sleep "${SPACING:-30}"
+          send_segment 2 "$SEG2_START" "$SEG2_END"
+          sleep "${SPACING:-30}"
+          send_segment 3 "$SEG3_START" "$SEG3_END"
+          sleep "${SPACING:-30}"
+          send_segment 4 "$SEG4_START" "$SEG4_END"
+
+      - name: Summary
+        run: |
+          echo "REAL_FULL_52W_SEGMENTED_LAUNCH PASS"
+          echo "4 child runs dispatched: each 13 weeks / DIRECT_REPLAY / TOP500 / 6 shards / CUSTOM."
+          echo "Each child run now fail-closes unless its V23 manifest proves CUSTOM + exactly 13 weekly dates + zero dates outside its requested window."
