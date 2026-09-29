@@ -14,7 +14,7 @@ import exchange_calendars as xcals
 import numpy as np
 import pandas as pd
 
-REV="ODOLI_INDEPENDENT_DAILY_R1_2_PYKRX_AUGMENT_20260929"
+REV="ODOLI_INDEPENDENT_DAILY_R1_3_KRX_AUTH_EMPTY_STATE_GUARD_20260929"
 DEFINITION="STRICT_ODOLI_R1"
 AMOUNT_Q2_UPPER=0.7487214470811911
 VOLUME_Q2_UPPER=0.7562848676975253
@@ -39,7 +39,11 @@ def load_csv(p):
     p=Path(p)
     if not p.exists() or p.stat().st_size==0:
         return pd.DataFrame()
-    return pd.read_csv(p,dtype=str,low_memory=False)
+    try:
+        return pd.read_csv(p,dtype=str,low_memory=False)
+    except pd.errors.EmptyDataError:
+        print(f"ODOLI_EMPTY_STATE_CSV_RECOVERED {p}")
+        return pd.DataFrame()
 
 def load_marcap(root):
     parts=[]
