@@ -1,24 +1,44 @@
-name: ODOLI Independent Daily R1
+name: ODOLI Unified Research R1
 
 on:
   workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Run mode: DAILY, AFTER, or BOTH'
+        required: true
+        default: 'DAILY'
+        type: choice
+        options:
+          - DAILY
+          - AFTER
+          - BOTH
   schedule:
-    # Weekdays 16:50 KST = 07:50 UTC
+    # Weekdays 16:50 KST = 07:50 UTC : STRICT_ODOLI_R1 prospective freeze
     - cron: '50 07 * * 1-5'
+    # Weekdays 20:10 KST = 11:10 UTC : research-only AFTER-session context
+    - cron: '10 11 * * 1-5'
 
 permissions:
   contents: read
 
 concurrency:
-  group: odoli-independent-daily-${{ github.ref_name }}
+  group: odoli-unified-r1-${{ github.ref_name }}
   cancel-in-progress: false
 
+env:
+  TZ: Asia/Seoul
+
 jobs:
-  odoli-independent:
+  odoli-daily:
+    name: ODOLI DAILY prospective
+    if: >-
+      ${{
+        (github.event_name == 'schedule' && github.event.schedule == '50 07 * * 1-5') ||
+        (github.event_name == 'workflow_dispatch' && (inputs.mode == 'DAILY' || inputs.mode == 'BOTH'))
+      }}
     runs-on: ubuntu-latest
     timeout-minutes: 40
     env:
-      TZ: Asia/Seoul
       KRX_ID: ${{ secrets.KRX_DATA_ID }}
       KRX_PW: ${{ secrets.KRX_DATA_PW }}
 
@@ -27,9 +47,9 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: '3.11'
 
-      - name: Install ODOLI dependencies
+      - name: Install ODOLI DAILY dependencies
         run: pip install pandas numpy pyarrow exchange-calendars pykrx
 
       - name: Restore independent ODOLI state
@@ -62,10 +82,10 @@ jobs:
         run: |
           python - <<'PY'
           import os
-          ok=bool(os.getenv("KRX_ID","").strip()) and bool(os.getenv("KRX_PW","").strip())
-          print("ODOLI_KRX_AUTH", "READY" if ok else "MISSING")
+          ok=bool(os.getenv('KRX_ID','').strip()) and bool(os.getenv('KRX_PW','').strip())
+          print('ODOLI_KRX_AUTH', 'READY' if ok else 'MISSING')
           if not ok:
-              print("::warning::KRX_DATA_ID/KRX_DATA_PW are missing; pykrx augmentation may fail closed to STALE_SOURCE.")
+              print('::warning::KRX_DATA_ID/KRX_DATA_PW are missing; pykrx augmentation may fail closed to STALE_SOURCE.')
           PY
 
       - name: Run independent all-market ODOLI with pykrx augmentation
@@ -78,97 +98,79 @@ jobs:
             --state-dir reports/.cache/odoli_independent_r1 \
             --output-dir reports/odoli_independent_r1
 
-      - name: Validate isolation freshness and augmentation authority
+      - name: Validate DAILY isolation freshness and augmentation authority
         shell: bash
         run: |
           python - <<'PY'
           import json
-          m=json.load(open("reports/odoli_independent_r1/meta.json",encoding="utf-8"))
-          assert m["definition"]=="STRICT_ODOLI_R1"
-          assert m["independent_all_market_lane"] is True
-          assert m["real_full_source_required"] is False
-          assert m["a_required"] is False
-          assert m["core_required"] is False
-          assert m["production_search_changed"] is False
-          assert m["production_score_changed"] is False
-          assert m["production_rank_changed"] is False
-          assert m["production_order_changed"] is False
-          assert m["automatic_ordering"] is False
-          assert m["telegram_route"]=="TELEGRAM_DYUL_CHAT_ID"
-          if m["fresh_source"]:
-              assert m["asof_date"]==m["expected_krx_session"]
-              assert m["all_missing_sessions_fetched"] is True
+          m=json.load(open('reports/odoli_independent_r1/meta.json',encoding='utf-8'))
+          assert m['definition']=='STRICT_ODOLI_R1'
+          assert m['independent_all_market_lane'] is True
+          assert m['real_full_source_required'] is False
+          assert m['a_required'] is False
+          assert m['core_required'] is False
+          assert m['production_search_changed'] is False
+          assert m['production_score_changed'] is False
+          assert m['production_rank_changed'] is False
+          assert m['production_order_changed'] is False
+          assert m['automatic_ordering'] is False
+          assert m['telegram_route']=='TELEGRAM_DYUL_CHAT_ID'
+          if m['fresh_source']:
+              assert m['asof_date']==m['expected_krx_session']
+              assert m['all_missing_sessions_fetched'] is True
           else:
-              assert m["new_frozen_events"]==0
-              assert m["source_status"]=="STALE_SOURCE"
-          print("ODOLI_INDEPENDENT_R1_3_GUARDS PASS",m)
+              assert m['new_frozen_events']==0
+              assert m['source_status']=='STALE_SOURCE'
+          print('ODOLI_DAILY_UNIFIED_GUARDS PASS',m)
           PY
 
-      - name: Show source augmentation diagnostics
+      - name: Show DAILY source augmentation diagnostics
         if: always()
         run: cat reports/odoli_independent_r1/source_augmentation_diagnostics.json || true
 
-      - name: Show message
-        run: cat reports/odoli_independent_r1/telegram_message.txt
+      - name: Show DAILY message
+        if: always()
+        run: cat reports/odoli_independent_r1/telegram_message.txt || true
 
-      - name: Send Telegram to DYUL chat
+      - name: Send DAILY Telegram to DYUL chat
+        if: always()
         env:
           TELEGRAM_BACKTEST_TOKEN: ${{ secrets.TELEGRAM_BACKTEST_TOKEN }}
           TELEGRAM_DYUL_CHAT_ID: ${{ secrets.TELEGRAM_DYUL_CHAT_ID }}
         shell: bash
         run: |
           set -euo pipefail
+          [ -s reports/odoli_independent_r1/meta.json ] || { echo 'ODOLI_DAILY_TELEGRAM_SKIP no-meta'; exit 0; }
           SHOULD="$(python - <<'PY'
           import json
-          print("1" if json.load(open("reports/odoli_independent_r1/meta.json",encoding="utf-8"))["telegram_should_send"] else "0")
+          print('1' if json.load(open('reports/odoli_independent_r1/meta.json',encoding='utf-8')).get('telegram_should_send') else '0')
           PY
           )"
-          if [ "$SHOULD" != "1" ]; then
-            echo "ODOLI_INDEPENDENT_TELEGRAM_SKIP duplicate"
-            exit 0
-          fi
-
+          [ "$SHOULD" = '1' ] || { echo 'ODOLI_DAILY_TELEGRAM_SKIP duplicate'; exit 0; }
           TOKEN="${TELEGRAM_BACKTEST_TOKEN:-}"
           CHAT="${TELEGRAM_DYUL_CHAT_ID:-}"
-          FILE="reports/odoli_independent_r1/telegram_message.txt"
-
-          echo "ODOLI_TELEGRAM_ROUTE=TELEGRAM_DYUL_CHAT_ID"
-
-          if [ -z "$TOKEN" ] || [ -z "$CHAT" ] || [ ! -s "$FILE" ]; then
-            echo "ODOLI_INDEPENDENT_TELEGRAM_SKIP DYUL route unavailable"
-            exit 0
-          fi
-
+          FILE='reports/odoli_independent_r1/telegram_message.txt'
+          echo 'ODOLI_TELEGRAM_ROUTE=TELEGRAM_DYUL_CHAT_ID'
+          [ -n "$TOKEN" ] && [ -n "$CHAT" ] && [ -s "$FILE" ] || { echo 'ODOLI_DAILY_TELEGRAM_SKIP DYUL route unavailable'; exit 0; }
           python - <<'PY'
           import os,urllib.parse,urllib.request
           from pathlib import Path
-
-          text=Path("reports/odoli_independent_r1/telegram_message.txt").read_text(encoding="utf-8")
+          text=Path('reports/odoli_independent_r1/telegram_message.txt').read_text(encoding='utf-8')
           chunks=[]
           while text:
               if len(text)<=3500:
-                  chunks.append(text)
-                  break
-              cut=text.rfind("\n",0,3500)
-              if cut<1000:
-                  cut=3500
+                  chunks.append(text); break
+              cut=text.rfind('\n',0,3500)
+              if cut<1000: cut=3500
               chunks.append(text[:cut])
-              text=text[cut:].lstrip("\n")
-
-          token=os.environ["TELEGRAM_BACKTEST_TOKEN"]
-          chat=os.environ["TELEGRAM_DYUL_CHAT_ID"]
-
+              text=text[cut:].lstrip('\n')
           for i,msg in enumerate(chunks,1):
-              data=urllib.parse.urlencode({"chat_id":chat,"text":msg}).encode()
-              req=urllib.request.Request(
-                  f"https://api.telegram.org/bot{token}/sendMessage",
-                  data=data
-              )
+              data=urllib.parse.urlencode({'chat_id':os.environ['TELEGRAM_DYUL_CHAT_ID'],'text':msg}).encode()
+              req=urllib.request.Request(f"https://api.telegram.org/bot{os.environ['TELEGRAM_BACKTEST_TOKEN']}/sendMessage",data=data)
               with urllib.request.urlopen(req,timeout=30) as r:
-                  body=r.read().decode("utf-8","replace")
-                  if r.status!=200:
-                      raise RuntimeError(f"telegram http={r.status} body={body[:200]}")
-              print("ODOLI_INDEPENDENT_TELEGRAM_SENT_DYUL",i,len(msg))
+                  body=r.read().decode('utf-8','replace')
+                  if r.status!=200: raise RuntimeError(f'telegram http={r.status} body={body[:200]}')
+              print('ODOLI_DAILY_TELEGRAM_SENT_DYUL',i,len(msg))
           PY
 
       - name: Save independent ODOLI state
@@ -178,7 +180,7 @@ jobs:
           path: reports/.cache/odoli_independent_r1
           key: odoli-independent-r1-${{ github.ref_name }}-${{ github.run_id }}
 
-      - name: Upload ODOLI independent report
+      - name: Upload DAILY report
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -186,5 +188,203 @@ jobs:
           path: |
             reports/odoli_independent_r1/**
             reports/.cache/odoli_independent_r1/bootstrap_pre_freshness_*.csv
+          if-no-files-found: warn
+          retention-days: 90
+
+  odoli-after:
+    name: ODOLI AFTER observational sidecar
+    needs: [odoli-daily]
+    if: >-
+      ${{
+        always() &&
+        (
+          (github.event_name == 'schedule' && github.event.schedule == '10 11 * * 1-5') ||
+          (github.event_name == 'workflow_dispatch' && (inputs.mode == 'AFTER' || inputs.mode == 'BOTH'))
+        ) &&
+        (needs.odoli-daily.result == 'success' || needs.odoli-daily.result == 'skipped')
+      }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install ODOLI AFTER dependencies
+        run: pip install pandas requests beautifulsoup4 exchange-calendars
+
+      - name: Restore latest ODOLI prospective state
+        uses: actions/cache/restore@v4
+        with:
+          path: reports/.cache/odoli_independent_r1
+          key: odoli-independent-r1-${{ github.ref_name }}-${{ github.run_id }}
+          restore-keys: |
+            odoli-independent-r1-${{ github.ref_name }}-
+
+      - name: Restore AFTER context state
+        uses: actions/cache/restore@v4
+        with:
+          path: reports/.cache/odoli_after_session_r1
+          key: odoli-after-session-r1-${{ github.ref_name }}-${{ github.run_id }}
+          restore-keys: |
+            odoli-after-session-r1-${{ github.ref_name }}-
+
+      - name: Guard AFTER against stale ODOLI cohort
+        id: after_guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          from datetime import datetime
+          from pathlib import Path
+          from zoneinfo import ZoneInfo
+          import pandas as pd
+          import exchange_calendars as xcals
+
+          state=Path('reports/.cache/odoli_independent_r1/events.csv')
+          outcome='STALE_ODOLI_STATE'
+          signal_date=''
+          expected=''
+
+          if state.exists() and state.stat().st_size:
+              try:
+                  q=pd.read_csv(state,dtype=str,low_memory=False)
+              except pd.errors.EmptyDataError:
+                  q=pd.DataFrame()
+              if not q.empty and 'signal_date' in q.columns:
+                  s=pd.to_datetime(q['signal_date'],errors='coerce').dropna()
+                  if len(s): signal_date=s.max().normalize().date().isoformat()
+
+          now=datetime.now(ZoneInfo('Asia/Seoul'))
+          cal=xcals.get_calendar('XKRX')
+          day=pd.Timestamp(now.date())
+          # AFTER is an evening job; today's completed KRX session is authoritative.
+          session=cal.date_to_session(day,direction='previous')
+          expected=pd.Timestamp(session).tz_localize(None).normalize().date().isoformat()
+
+          if signal_date and signal_date==expected:
+              outcome='PASS'
+
+          print(f'ODOLI_AFTER_COHORT_GUARD status={outcome} signal_date={signal_date or "NONE"} expected={expected}')
+          with open(os.environ['GITHUB_OUTPUT'],'a',encoding='utf-8') as f:
+              f.write(f'status={outcome}\n')
+              f.write(f'signal_date={signal_date}\n')
+              f.write(f'expected={expected}\n')
+          PY
+
+      - name: Run ODOLI AFTER_SESSION_CONTEXT sidecar
+        if: steps.after_guard.outputs.status == 'PASS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile odoli_after_session_context_r1.py
+          python -u odoli_after_session_context_r1.py \
+            --odoli-state-dir reports/.cache/odoli_independent_r1 \
+            --after-state-dir reports/.cache/odoli_after_session_r1 \
+            --output-dir reports/odoli_after_session_r1
+
+      - name: Emit stale AFTER diagnostic
+        if: steps.after_guard.outputs.status != 'PASS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p reports/odoli_after_session_r1
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          meta={
+            'revision':'ODOLI_AFTER_SESSION_CONTEXT_UNIFIED_YML_GUARD_R1_20260929',
+            'research_only':True,
+            'status':'STALE_ODOLI_STATE',
+            'signal_date':os.environ.get('SIGNAL_DATE') or None,
+            'expected_krx_session':os.environ.get('EXPECTED') or None,
+            'signal_close_authority':'KRX_1530_CLOSE_FROZEN',
+            'after_session_used_as_gate':False,
+            'real_full_changed':False,
+            'core224_changed':False,
+            'production_changed':False,
+            'source_is_observational_only':True,
+            'telegram_should_send':False,
+          }
+          Path('reports/odoli_after_session_r1/meta.json').write_text(json.dumps(meta,ensure_ascii=False,indent=2),encoding='utf-8')
+          Path('reports/odoli_after_session_r1/telegram_message.txt').write_text(
+            f"🌙 [ODOLI AFTER · SKIP]\nODOLI cohort가 최신 KRX session과 일치하지 않아 AFTER 관찰을 건너뜁니다.\nsignal={meta['signal_date']} / expected={meta['expected_krx_session']}\n※ 연구전용 · production 영향 없음",
+            encoding='utf-8'
+          )
+          print(json.dumps(meta,ensure_ascii=False))
+          PY
+        env:
+          SIGNAL_DATE: ${{ steps.after_guard.outputs.signal_date }}
+          EXPECTED: ${{ steps.after_guard.outputs.expected }}
+
+      - name: Validate AFTER research isolation
+        if: always() && hashFiles('reports/odoli_after_session_r1/meta.json') != ''
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          m=json.load(open('reports/odoli_after_session_r1/meta.json',encoding='utf-8'))
+          assert m['signal_close_authority']=='KRX_1530_CLOSE_FROZEN'
+          assert m['after_session_used_as_gate'] is False
+          assert m['real_full_changed'] is False
+          assert m['core224_changed'] is False
+          assert m['production_changed'] is False
+          assert m['source_is_observational_only'] is True
+          print('ODOLI_AFTER_UNIFIED_ISOLATION_GUARD PASS',m)
+          PY
+
+      - name: Show AFTER context diagnostics
+        if: always()
+        run: |
+          cat reports/odoli_after_session_r1/meta.json || true
+          echo
+          head -30 reports/odoli_after_session_r1/odoli_after_session_context.csv || true
+
+      - name: Send AFTER research summary to DYUL
+        if: always()
+        env:
+          TELEGRAM_BACKTEST_TOKEN: ${{ secrets.TELEGRAM_BACKTEST_TOKEN }}
+          TELEGRAM_DYUL_CHAT_ID: ${{ secrets.TELEGRAM_DYUL_CHAT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ -s reports/odoli_after_session_r1/telegram_message.txt ] || exit 0
+          SHOULD="$(python - <<'PY'
+          import json
+          p='reports/odoli_after_session_r1/meta.json'
+          print('1' if json.load(open(p,encoding='utf-8')).get('telegram_should_send') else '0')
+          PY
+          )"
+          [ "$SHOULD" = '1' ] || { echo 'ODOLI_AFTER_TELEGRAM_SKIP duplicate/no-data/stale'; exit 0; }
+          [ -n "${TELEGRAM_BACKTEST_TOKEN:-}" ] && [ -n "${TELEGRAM_DYUL_CHAT_ID:-}" ] || { echo 'ODOLI_AFTER_TELEGRAM_SKIP route-unavailable'; exit 0; }
+          python - <<'PY'
+          import os,urllib.parse,urllib.request
+          from pathlib import Path
+          msg=Path('reports/odoli_after_session_r1/telegram_message.txt').read_text(encoding='utf-8')
+          data=urllib.parse.urlencode({'chat_id':os.environ['TELEGRAM_DYUL_CHAT_ID'],'text':msg[:3900]}).encode()
+          req=urllib.request.Request(f"https://api.telegram.org/bot{os.environ['TELEGRAM_BACKTEST_TOKEN']}/sendMessage",data=data)
+          with urllib.request.urlopen(req,timeout=30) as r:
+              body=r.read().decode('utf-8','replace')
+              if r.status!=200: raise RuntimeError(f'telegram http={r.status} {body[:200]}')
+          print('ODOLI_AFTER_SESSION_TELEGRAM_SENT_DYUL',len(msg))
+          PY
+
+      - name: Save AFTER context state
+        if: always() && hashFiles('reports/.cache/odoli_after_session_r1/after_session_history.csv') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: reports/.cache/odoli_after_session_r1
+          key: odoli-after-session-r1-${{ github.ref_name }}-${{ github.run_id }}
+
+      - name: Upload AFTER context report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: odoli-after-session-context-r1-${{ github.run_id }}
+          path: reports/odoli_after_session_r1/**
           if-no-files-found: warn
           retention-days: 90
