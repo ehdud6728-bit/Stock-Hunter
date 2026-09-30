@@ -1,0 +1,158 @@
+name: Apply REAL_FULL 52W Concurrency Fix R1
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Patch run_scanner.yml
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python - <<'PY'
+          from pathlib import Path
+
+          p = Path(".github/workflows/run_scanner.yml")
+          if not p.exists():
+              raise SystemExit("ERROR: .github/workflows/run_scanner.yml not found")
+
+          s = p.read_text(encoding="utf-8")
+
+          old = """  group: stockhunter-${{ github.workflow }}-${{ github.ref_name }}-${{ (github.event.schedule == '40 05 * * 1-5' && 'REAL_FULL') || github.event.inputs.run_profile || github.event.schedule || github.event_name }}"""
+
+          new = """  group: stockhunter-${{ github.workflow }}-${{ github.ref_name }}-${{ (github.event.schedule == '40 05 * * 1-5' && 'REAL_FULL') || github.event.inputs.run_profile || github.event.schedule || github.event_name }}-${{ github.event.inputs.run_profile == 'REAL_FULL_VALIDATION_BACKTEST' && github.event.inputs.real_full_capture_slot || 'DEFAULT' }}"""
+
+          marker = """github.event.inputs.run_profile == 'REAL_FULL_VALIDATION_BACKTEST' && github.event.inputs.real_full_capture_slot || 'DEFAULT'"""
+
+          if marker in s:
+              print("ALREADY_APPLIED: REAL_FULL 52W concurrency isolation already exists")
+          else:
+              count = s.count(old)
+              if count != 1:
+                  raise SystemExit(
+                      f"ERROR: expected exactly one original concurrency group line, found {count}. "
+                      "Fail-closed: no file changed."
+                  )
+              s = s.replace(old, new, 1)
+              p.write_text(s, encoding="utf-8")
+              print("PATCHED: REAL_FULL 52W concurrency isolation inserted")
+
+          s2 = p.read_text(encoding="utf-8")
+
+          checks = {
+              "52W concurrency slot isolation": marker in s2,
+              "cancel-in-progress false": "cancel-in-progress: false" in s2,
+              "CUSTOM shard proof retained": "Prove REAL_FULL CUSTOM segment source dates" in s2,
+              "parent authority proof retained": "REAL_FULL validation parent materialized authority proof" in s2,
+              "REAL_FULL validation profile retained": "REAL_FULL_VALIDATION_BACKTEST" in s2,
+          }
+
+          failed = [name for name, ok in checks.items() if not ok]
+          for name, ok in checks.items():
+              print(("PASS" if ok else "FAIL"), name)
+
+          if failed:
+              raise SystemExit("ERROR: post-patch validation failed: " + ", ".join(failed))
+
+          print("PASS: patch changes concurrency routing only")
+          print("PASS: production search/score/rank/order logic intentionally untouched")
+          PY
+
+      - name: Show exact diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff -- .github/workflows/run_scanner.yml
+
+      - name: Fail if unexpected files changed
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          changed="$(git status --porcelain | awk '{print $2}' | grep -v '^\.github/workflows/apply_real_full_52w_concurrency_fix_r1\.yml$' || true)"
+
+          if [ -z "$changed" ]; then
+            echo "No run_scanner.yml change required; patch was already applied."
+            exit 0
+          fi
+
+          unexpected="$(printf '%s\n' "$changed" | grep -v '^\.github/workflows/run_scanner\.yml$' || true)"
+          if [ -n "$unexpected" ]; then
+            echo "ERROR: unexpected changed files:"
+            echo "$unexpected"
+            exit 91
+          fi
+
+          echo "PASS: only run_scanner.yml will be committed"
+
+      - name: Commit and push fix
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if git diff --quiet -- .github/workflows/run_scanner.yml; then
+            echo "NO_COMMIT_NEEDED: concurrency fix already applied"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add .github/workflows/run_scanner.yml
+          git commit -m "Fix REAL_FULL 52W validation concurrency lanes"
+          git push origin HEAD:${GITHUB_REF_NAME}
+
+          echo "COMMIT_PUSHED=1"
+
+      - name: Final verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          s = Path(".github/workflows/run_scanner.yml").read_text(encoding="utf-8")
+
+          marker = """github.event.inputs.run_profile == 'REAL_FULL_VALIDATION_BACKTEST' && github.event.inputs.real_full_capture_slot || 'DEFAULT'"""
+
+          assert marker in s
+          assert "cancel-in-progress: false" in s
+          assert "Prove REAL_FULL CUSTOM segment source dates" in s
+          assert "REAL_FULL validation parent materialized authority proof" in s
+
+          print("FINAL_PASS REAL_FULL_52W_CONCURRENCY_ISOLATION")
+          print("Expected child lanes:")
+          print("  REAL_FULL_VALIDATION_BACKTEST-VALIDATION_52W_SEG1_...")
+          print("  REAL_FULL_VALIDATION_BACKTEST-VALIDATION_52W_SEG2_...")
+          print("  REAL_FULL_VALIDATION_BACKTEST-VALIDATION_52W_SEG3_...")
+          print("  REAL_FULL_VALIDATION_BACKTEST-VALIDATION_52W_SEG4_...")
+          PY
+
+      - name: Summary
+        shell: bash
+        run: |
+          {
+            echo "## REAL_FULL 52W Concurrency Fix R1"
+            echo ""
+            echo "- run_scanner.yml concurrency lane split: applied or already present"
+            echo "- REAL_FULL_VALIDATION_BACKTEST uses real_full_capture_slot as segment isolation key"
+            echo "- cancel-in-progress remains false"
+            echo "- CUSTOM shard proof retained"
+            echo "- Parent materialized authority proof retained"
+            echo "- Production search / score / rank / order logic not intentionally changed"
+            echo ""
+            echo "### Next"
+            echo "Run **REAL_FULL 52W Segmented Validation Launcher R1** again."
+          } >> "$GITHUB_STEP_SUMMARY"
