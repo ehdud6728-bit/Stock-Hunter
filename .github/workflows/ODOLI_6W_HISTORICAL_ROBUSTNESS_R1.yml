@@ -1,0 +1,395 @@
+name: ODOLI 6W Historical Robustness Replay R1
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: odoli-6w-historical-robustness-r1
+  cancel-in-progress: false
+
+jobs:
+  replay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install pandas numpy pyarrow
+
+      - name: Fetch marcap history
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf vendor/marcap
+          mkdir -p vendor
+          git clone --depth 1 --filter=blob:none --no-checkout \
+            https://github.com/FinanceData/marcap.git vendor/marcap
+          cd vendor/marcap
+          git sparse-checkout init --no-cone
+          printf '%s\n' \
+            'data/marcap-2026.parquet' > /tmp/marcap_paths.txt
+          git sparse-checkout set --stdin < /tmp/marcap_paths.txt
+          git checkout
+          cd ../..
+
+      - name: Run frozen STRICT_ODOLI_R1 6-week historical replay
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p reports/odoli_6w_historical_r1
+
+          cat > /tmp/odoli_6w_replay.py <<'PY'
+          from pathlib import Path
+          import json
+          import math
+          import re
+          import numpy as np
+          import pandas as pd
+
+          REV="ODOLI_6W_HISTORICAL_ROBUSTNESS_R1_20261001"
+          DEFINITION="STRICT_ODOLI_R1"
+          RULESET="FAST_SLOW_FROZEN_FROM_ODOLI_INDEPENDENT_DAILY_R1_3"
+          OUT=Path("reports/odoli_6w_historical_r1")
+          OUT.mkdir(parents=True,exist_ok=True)
+
+          def norm_code(v):
+              s=re.sub(r"\D","",str(v or ""))
+              return s[-6:].zfill(6) if s else ""
+
+          def load_marcap():
+              p=Path("vendor/marcap/data/marcap-2026.parquet")
+              if not p.exists():
+                  raise SystemExit("MARCAP_2026_PARQUET_MISSING")
+              q=pd.read_parquet(p)
+              if "Date" not in q.columns:
+                  q=q.reset_index()
+              q["Date"]=pd.to_datetime(q["Date"],errors="coerce").dt.normalize()
+              q["Code"]=q["Code"].map(norm_code)
+              if "Market" in q.columns:
+                  q=q[q["Market"].astype(str).str.upper().isin(["KOSPI","KOSDAQ"])]
+              for c in ["Open","High","Low","Close","Volume","Amount"]:
+                  q[c]=pd.to_numeric(q[c],errors="coerce")
+              q=q.dropna(subset=["Date","Code","Open","High","Low","Close"])
+              q=q[q["Code"].ne("")]
+              return q.sort_values(["Code","Date"]).drop_duplicates(["Code","Date"],keep="last")
+
+          def add_features(g):
+              g=g.sort_values("Date").reset_index(drop=True).copy()
+              c=pd.to_numeric(g["Close"],errors="coerce")
+              g["ma5"]=c.rolling(5,min_periods=5).mean()
+              g["ma10"]=c.rolling(10,min_periods=10).mean()
+              g["prev_close"]=c.shift(1)
+              g["prev_ma5"]=g["ma5"].shift(1)
+              g["prev2_close"]=c.shift(2)
+              g["prev2_ma5"]=g["ma5"].shift(2)
+              g["prev3_close"]=c.shift(3)
+              g["prev3_ma5"]=g["ma5"].shift(3)
+              g["pre3_below_ma5_n"]=(
+                  (g["prev_close"]<g["prev_ma5"]).astype(float)
+                  +(g["prev2_close"]<g["prev2_ma5"]).astype(float)
+                  +(g["prev3_close"]<g["prev3_ma5"]).astype(float)
+              )
+              g["ma5_slope_1d_pct"]=(g["ma5"]/g["prev_ma5"]-1)*100
+              g["strict_odoli_r1"]=(
+                  (g["Close"]>g["Open"])
+                  & (g["prev_close"]<g["prev_ma5"])
+                  & (g["Close"]>g["ma5"])
+                  & (g["ma5_slope_1d_pct"]>0)
+                  & (g["pre3_below_ma5_n"]>=2)
+              )
+              return g
+
+          def is_spac(name):
+              s=str(name or "").upper()
+              return ("스팩" in s) or ("SPAC" in s)
+
+          mar=load_marcap()
+          sessions=sorted(pd.Timestamp(x).normalize() for x in mar["Date"].dropna().unique())
+          if len(sessions)<50:
+              raise SystemExit("INSUFFICIENT_SESSIONS")
+
+          latest=sessions[-1]
+          # Need full D+10 outcome. The latest eligible signal date is 10 trading sessions before latest.
+          mature_end=sessions[-11]
+          eligible=[d for d in sessions if d<=mature_end]
+          signal_dates=eligible[-30:]  # six trading weeks, every session
+          signal_set=set(signal_dates)
+
+          bycode={}
+          for code,g in mar.groupby("Code",sort=False):
+              bycode[code]=add_features(g)
+
+          events=[]
+          for code,g in bycode.items():
+              hits=g.index[g["Date"].isin(signal_set) & g["strict_odoli_r1"].fillna(False)]
+              for i in hits:
+                  i=int(i)
+                  if i+10>=len(g):
+                      continue
+                  r=g.iloc[i]
+                  sig=float(r["Close"])
+                  sig_low=float(r["Low"])
+                  name=str(r.get("Name","") or "")
+                  amount=pd.to_numeric(g["Amount"],errors="coerce")
+                  ma5=pd.to_numeric(g["ma5"],errors="coerce")
+
+                  row={
+                      "signal_date":pd.Timestamp(r["Date"]).date().isoformat(),
+                      "code":code,
+                      "name":name,
+                      "market":str(r.get("Market","") or ""),
+                      "is_spac":is_spac(name),
+                      "signal_close":sig,
+                      "signal_low":sig_low,
+                  }
+
+                  for h in [1,2,3,5,10]:
+                      q=g.iloc[i+1:i+h+1].copy()
+                      high=pd.to_numeric(q["High"],errors="coerce")
+                      low=pd.to_numeric(q["Low"],errors="coerce")
+                      close_h=float(g.iloc[i+h]["Close"])
+                      row[f"d{h}_mfe_pct"]=float(((high/sig-1)*100).max())
+                      row[f"d{h}_mae_pct"]=float(((low/sig-1)*100).min())
+                      row[f"d{h}_close_ret_pct"]=(close_h/sig-1)*100
+                      row[f"d{h}_touch5"]=bool(row[f"d{h}_mfe_pct"]>=5)
+                      row[f"d{h}_touch10"]=bool(row[f"d{h}_mfe_pct"]>=10)
+                      row[f"d{h}_touch15"]=bool(row[f"d{h}_mfe_pct"]>=15)
+                      row[f"d{h}_touch20"]=bool(row[f"d{h}_mfe_pct"]>=20)
+
+                  d1_low=float(g.iloc[i+1]["Low"])
+                  d2_low=float(g.iloc[i+2]["Low"])
+                  d2_close=float(g.iloc[i+2]["Close"])
+                  row["d1_to_d2_higher_low"]=bool(d2_low>d1_low)
+                  row["d2_above_ma5"]=bool(pd.notna(ma5.iloc[i+2]) and d2_close>float(ma5.iloc[i+2]))
+                  row["d1_d3_all_above_ma5"]=bool(
+                      all(pd.notna(ma5.iloc[i+k]) and float(g.iloc[i+k]["Close"])>float(ma5.iloc[i+k]) for k in [1,2,3])
+                  )
+                  row["signal_low_survived_d2"]=bool(
+                      pd.to_numeric(g.iloc[i+1:i+3]["Low"],errors="coerce").min()>=sig_low
+                  )
+                  row["signal_low_survived_d10"]=bool(
+                      pd.to_numeric(g.iloc[i+1:i+11]["Low"],errors="coerce").min()>=sig_low
+                  )
+
+                  fast=bool(row["d1_to_d2_higher_low"] and row["d2_above_ma5"])
+                  row["fast_d2"]=fast
+
+                  c2=c3=c4=False
+                  c2d=c3d=c4d=np.nan
+                  for j in range(i+4,i+11):
+                      close=float(g.iloc[j]["Close"])
+                      low=float(g.iloc[j]["Low"])
+                      prev_low=float(g.iloc[j-1]["Low"])
+                      above=bool(pd.notna(ma5.iloc[j]) and close>float(ma5.iloc[j]))
+                      hl=bool(low>prev_low)
+                      pre20=amount.iloc[max(0,j-20):j]
+                      ama=float(pre20.mean()) if len(pre20) else np.nan
+                      ar=float(amount.iloc[j]/ama) if pd.notna(ama) and ama>0 else np.nan
+                      survive=bool(pd.to_numeric(g.iloc[i+1:j+1]["Low"],errors="coerce").min()>=sig_low)
+
+                      if not c2 and above and hl and survive:
+                          c2=True; c2d=j-i
+                      if not c3 and above and pd.notna(ar) and ar>=1.0 and survive:
+                          c3=True; c3d=j-i
+                      if not c4 and above and hl and pd.notna(ar) and ar>=1.0 and survive:
+                          c4=True; c4d=j-i
+
+                  row["C2"]=c2; row["C3"]=c3; row["C4"]=c4
+                  row["C2_day"]=c2d; row["C3_day"]=c3d; row["C4_day"]=c4d
+
+                  if fast:
+                      row["path_class"]="FAST_D2"
+                  elif not row["signal_low_survived_d10"]:
+                      row["path_class"]="WEAK_BROKE_SIGNAL_LOW"
+                  elif c4:
+                      row["path_class"]="SLOW_C4"
+                  elif c2 or c3:
+                      row["path_class"]="SLOW_C2C3"
+                  else:
+                      row["path_class"]="SURVIVING_NO_CONFIRM"
+
+                  events.append(row)
+
+          ev=pd.DataFrame(events)
+          if ev.empty:
+              raise SystemExit("NO_ODOLI_EVENTS_IN_6W_WINDOW")
+
+          ev["signal_date"]=pd.to_datetime(ev["signal_date"]).dt.normalize()
+          ev.to_csv(OUT/"events.csv",index=False,encoding="utf-8-sig")
+
+          def summarize(df,label):
+              rows=[]
+              for path,g in [("ALL",df)]+list(df.groupby("path_class",sort=False)):
+                  if not isinstance(path,str):
+                      continue
+                  r={"population":label,"path_class":path,"n":len(g)}
+                  for h in [1,2,3,5,10]:
+                      for t in [5,10,15,20]:
+                          r[f"d{h}_touch{t}_rate_pct"]=float(g[f"d{h}_touch{t}"].mean()*100) if len(g) else np.nan
+                      r[f"d{h}_close_positive_rate_pct"]=float((g[f"d{h}_close_ret_pct"]>0).mean()*100) if len(g) else np.nan
+                      r[f"d{h}_close_median_pct"]=float(g[f"d{h}_close_ret_pct"].median()) if len(g) else np.nan
+                      r[f"d{h}_mfe_median_pct"]=float(g[f"d{h}_mfe_pct"].median()) if len(g) else np.nan
+                      r[f"d{h}_mae_median_pct"]=float(g[f"d{h}_mae_pct"].median()) if len(g) else np.nan
+                  rows.append(r)
+              return rows
+
+          summary=[]
+          summary += summarize(ev,"ALL")
+          summary += summarize(ev[~ev["is_spac"]],"NON_SPAC")
+          sm=pd.DataFrame(summary)
+          sm.to_csv(OUT/"summary_by_path.csv",index=False,encoding="utf-8-sig")
+
+          daily=[]
+          for d,g in ev.groupby("signal_date"):
+              non=g[~g["is_spac"]]
+              daily.append({
+                  "signal_date":d.date().isoformat(),
+                  "events_all":len(g),
+                  "events_non_spac":len(non),
+                  "fast_n":int((non["path_class"]=="FAST_D2").sum()),
+                  "slow_c4_n":int((non["path_class"]=="SLOW_C4").sum()),
+                  "slow_c2c3_n":int((non["path_class"]=="SLOW_C2C3").sum()),
+                  "weak_n":int((non["path_class"]=="WEAK_BROKE_SIGNAL_LOW").sum()),
+                  "surviving_no_confirm_n":int((non["path_class"]=="SURVIVING_NO_CONFIRM").sum()),
+                  "d5_touch10_rate_pct":float(non["d5_touch10"].mean()*100) if len(non) else np.nan,
+                  "d10_touch10_rate_pct":float(non["d10_touch10"].mean()*100) if len(non) else np.nan,
+                  "d10_touch15_rate_pct":float(non["d10_touch15"].mean()*100) if len(non) else np.nan,
+              })
+          pd.DataFrame(daily).sort_values("signal_date").to_csv(
+              OUT/"summary_by_signal_date.csv",index=False,encoding="utf-8-sig"
+          )
+
+          # Focus table: current research question, FAST vs SLOW vs weak.
+          non=ev[~ev["is_spac"]].copy()
+          focus=[]
+          order=["FAST_D2","SLOW_C4","SLOW_C2C3","SURVIVING_NO_CONFIRM","WEAK_BROKE_SIGNAL_LOW"]
+          for path in order:
+              g=non[non["path_class"]==path]
+              focus.append({
+                  "path_class":path,
+                  "n":len(g),
+                  "d5_touch10_rate_pct":float(g["d5_touch10"].mean()*100) if len(g) else np.nan,
+                  "d10_touch10_rate_pct":float(g["d10_touch10"].mean()*100) if len(g) else np.nan,
+                  "d10_touch15_rate_pct":float(g["d10_touch15"].mean()*100) if len(g) else np.nan,
+                  "d10_close_positive_rate_pct":float((g["d10_close_ret_pct"]>0).mean()*100) if len(g) else np.nan,
+                  "d10_close_median_pct":float(g["d10_close_ret_pct"].median()) if len(g) else np.nan,
+                  "d10_mfe_median_pct":float(g["d10_mfe_pct"].median()) if len(g) else np.nan,
+                  "d10_mae_median_pct":float(g["d10_mae_pct"].median()) if len(g) else np.nan,
+              })
+          focus=pd.DataFrame(focus)
+          focus.to_csv(OUT/"focus_fast_slow_d10.csv",index=False,encoding="utf-8-sig")
+
+          meta={
+              "revision":REV,
+              "definition":DEFINITION,
+              "ruleset":RULESET,
+              "research_only":True,
+              "production_search_changed":False,
+              "production_score_changed":False,
+              "production_rank_changed":False,
+              "production_order_changed":False,
+              "automatic_ordering":False,
+              "same_sample_tuning":False,
+              "new_gate_created":False,
+              "interpretation_scope":"HISTORICAL_ROBUSTNESS_REPLAY_NOT_TRUE_OOS",
+              "latest_data_date":latest.date().isoformat(),
+              "latest_mature_signal_date":mature_end.date().isoformat(),
+              "signal_window_start":signal_dates[0].date().isoformat(),
+              "signal_window_end":signal_dates[-1].date().isoformat(),
+              "signal_sessions":len(signal_dates),
+              "events_all":len(ev),
+              "events_non_spac":int((~ev["is_spac"]).sum()),
+              "spac_events":int(ev["is_spac"].sum()),
+          }
+          (OUT/"meta.json").write_text(json.dumps(meta,ensure_ascii=False,indent=2),encoding="utf-8")
+
+          lines=[
+              "# ODOLI 6W Historical Robustness Replay R1",
+              "",
+              "- STRICT_ODOLI_R1 definition frozen.",
+              "- FAST/SLOW definitions frozen from current ODOLI independent daily lane.",
+              "- 30 mature trading sessions (~6 trading weeks), every session included.",
+              "- Every signal has a complete D+10 path.",
+              "- SPAC rows are reported but excluded from the primary NON_SPAC interpretation.",
+              "- This is historical robustness replay, NOT claimed as true untouched OOS.",
+              "- No production gate / score / rank / order changes.",
+              "",
+              "## Meta",
+              "```",
+              json.dumps(meta,ensure_ascii=False,indent=2),
+              "```",
+              "",
+              "## FAST / SLOW / Weak focus — NON_SPAC",
+              "```",
+              focus.to_string(index=False),
+              "```",
+              "",
+              "## Interpretation guard",
+              "Do not tune rules from this result. Use the replay to test whether the already-frozen FAST/SLOW structure reproduces across prior mature cohorts.",
+          ]
+          (OUT/"REPORT.md").write_text("\n".join(lines),encoding="utf-8")
+
+          print("ODOLI_6W_REPLAY_PASS")
+          print(json.dumps(meta,ensure_ascii=False))
+          print(focus.to_string(index=False))
+          PY
+
+          python /tmp/odoli_6w_replay.py
+
+      - name: Validate research isolation and maturity
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import pandas as pd
+
+          m=json.load(open("reports/odoli_6w_historical_r1/meta.json",encoding="utf-8"))
+          assert m["definition"]=="STRICT_ODOLI_R1"
+          assert m["research_only"] is True
+          assert m["production_search_changed"] is False
+          assert m["production_score_changed"] is False
+          assert m["production_rank_changed"] is False
+          assert m["production_order_changed"] is False
+          assert m["automatic_ordering"] is False
+          assert m["same_sample_tuning"] is False
+          assert m["new_gate_created"] is False
+          assert m["interpretation_scope"]=="HISTORICAL_ROBUSTNESS_REPLAY_NOT_TRUE_OOS"
+          assert int(m["signal_sessions"])==30
+
+          ev=pd.read_csv("reports/odoli_6w_historical_r1/events.csv",low_memory=False)
+          assert len(ev)==int(m["events_all"])
+          for h in [1,2,3,5,10]:
+              assert ev[f"d{h}_mfe_pct"].notna().all()
+              assert ev[f"d{h}_mae_pct"].notna().all()
+
+          print("ODOLI_6W_RESEARCH_ISOLATION_PASS",m)
+          PY
+
+      - name: Show report
+        if: always()
+        shell: bash
+        run: |
+          cat reports/odoli_6w_historical_r1/meta.json || true
+          echo
+          cat reports/odoli_6w_historical_r1/REPORT.md || true
+
+      - name: Upload research report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: odoli-6w-historical-robustness-r1
+          path: reports/odoli_6w_historical_r1/**
+          if-no-files-found: error
+          retention-days: 90

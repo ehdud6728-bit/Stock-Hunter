@@ -1,0 +1,131 @@
+name: Export REAL_FULL 52W Complete run_scanner R1
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-complete-run-scanner:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build complete concurrency-fixed run_scanner.yml
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python - <<'PY'
+          from pathlib import Path
+
+          src = Path(".github/workflows/run_scanner.yml")
+          out = Path("REAL_FULL_52W_COMPLETE")
+          out.mkdir(parents=True, exist_ok=True)
+          dst = out / "run_scanner.yml"
+
+          if not src.exists():
+              raise SystemExit("ERROR: source .github/workflows/run_scanner.yml not found")
+
+          s = src.read_text(encoding="utf-8")
+
+          dollar = chr(36)
+          left = chr(123) * 2
+          right = chr(125) * 2
+          go = dollar + left
+          gc = right
+
+          old_line = (
+              "  group: stockhunter-"
+              + go + " github.workflow " + gc
+              + "-"
+              + go + " github.ref_name " + gc
+              + "-"
+              + go
+              + " (github.event.schedule == '40 05 * * 1-5' && 'REAL_FULL') "
+                "|| github.event.inputs.run_profile || github.event.schedule || github.event_name "
+              + gc
+          )
+
+          extra = (
+              "-"
+              + go
+              + " github.event.inputs.run_profile == 'REAL_FULL_VALIDATION_BACKTEST' "
+                "&& github.event.inputs.real_full_capture_slot || 'DEFAULT' "
+              + gc
+          )
+
+          marker = (
+              "github.event.inputs.run_profile == 'REAL_FULL_VALIDATION_BACKTEST' "
+              "&& github.event.inputs.real_full_capture_slot || 'DEFAULT'"
+          )
+
+          if marker in s:
+              patched = s
+              print("ALREADY_APPLIED: source already contains 52W concurrency isolation")
+          else:
+              count = s.count(old_line)
+              if count != 1:
+                  raise SystemExit(
+                      f"ERROR: expected exactly one original concurrency line, found {count}. "
+                      "Fail-closed: no output generated."
+                  )
+              patched = s.replace(old_line, old_line + extra, 1)
+              print("PATCHED: 52W concurrency isolation inserted into export copy")
+
+          # Hard verification
+          checks = {
+              "slot isolation": marker in patched,
+              "cancel-in-progress false": "cancel-in-progress: false" in patched,
+              "CUSTOM shard proof retained": "Prove REAL_FULL CUSTOM segment source dates" in patched,
+              "parent authority proof retained": "REAL_FULL validation parent materialized authority proof" in patched,
+              "Zero-Recompute retained": "V23_ZERO_RECOMPUTE" in patched,
+              "REAL_FULL validation profile retained": "REAL_FULL_VALIDATION_BACKTEST" in patched,
+          }
+
+          for name, ok in checks.items():
+              print(("PASS" if ok else "FAIL"), name)
+
+          failed = [name for name, ok in checks.items() if not ok]
+          if failed:
+              raise SystemExit("ERROR: verification failed: " + ", ".join(failed))
+
+          dst.write_text(patched, encoding="utf-8")
+
+          print("SOURCE_BYTES", len(s.encode("utf-8")))
+          print("OUTPUT_BYTES", len(patched.encode("utf-8")))
+          print("OUTPUT", dst)
+          print("PASS: production search/score/rank/order logic intentionally unchanged")
+          PY
+
+      - name: Show concurrency block
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -A4 -B1 '^concurrency:' REAL_FULL_52W_COMPLETE/run_scanner.yml
+
+      - name: Upload complete run_scanner artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: REAL_FULL_52W_COMPLETE_run_scanner_R1
+          path: REAL_FULL_52W_COMPLETE/run_scanner.yml
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Summary
+        shell: bash
+        run: |
+          {
+            echo "## REAL_FULL 52W Complete run_scanner R1"
+            echo
+            echo "Artifact: **REAL_FULL_52W_COMPLETE_run_scanner_R1**"
+            echo
+            echo "Download the artifact, extract run_scanner.yml, and replace:"
+            echo
+            echo "  .github/workflows/run_scanner.yml"
+            echo
+            echo "Then commit the replacement and run the 52W segmented validation launcher again."
+          } >> "$GITHUB_STEP_SUMMARY"
