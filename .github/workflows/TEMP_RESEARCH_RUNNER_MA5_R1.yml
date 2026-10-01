@@ -1,0 +1,396 @@
+name: TEMP ODOLI MA5 Pullback Anatomy Holdout Study
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: temp-odoli-ma5-pullback-anatomy-holdout
+  cancel-in-progress: false
+
+jobs:
+  study:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install pandas numpy pyarrow
+
+      - name: Fetch marcap history
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf vendor/marcap
+          mkdir -p vendor
+          git clone --depth 1 --filter=blob:none --no-checkout \
+            https://github.com/FinanceData/marcap.git vendor/marcap
+          cd vendor/marcap
+          git sparse-checkout init --no-cone
+          printf '%s\n' 'data/marcap-2026.parquet' >/tmp/marcap_paths.txt
+          git sparse-checkout set --stdin </tmp/marcap_paths.txt
+          git checkout
+          cd ../..
+
+      - name: Run MA5 pullback anatomy and temporal holdout study
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p reports/temp_odoli_ma5_pullback_anatomy
+
+          cat >/tmp/ma5_pullback_anatomy.py <<'PY'
+          from pathlib import Path
+          import json,re
+          import numpy as np
+          import pandas as pd
+
+          OUT=Path("reports/temp_odoli_ma5_pullback_anatomy")
+          OUT.mkdir(parents=True,exist_ok=True)
+
+          def norm_code(v):
+              s=re.sub(r"\D","",str(v or ""))
+              return s[-6:].zfill(6) if s else ""
+
+          def is_spac(name):
+              s=str(name or "").upper()
+              return ("스팩" in s) or ("SPAC" in s)
+
+          q=pd.read_parquet("vendor/marcap/data/marcap-2026.parquet")
+          if "Date" not in q.columns:q=q.reset_index()
+          q["Date"]=pd.to_datetime(q["Date"],errors="coerce").dt.normalize()
+          q["Code"]=q["Code"].map(norm_code)
+          if "Market" in q.columns:
+              q=q[q["Market"].astype(str).str.upper().isin(["KOSPI","KOSDAQ"])]
+          for c in ["Open","High","Low","Close","Volume","Amount"]:
+              q[c]=pd.to_numeric(q[c],errors="coerce")
+          q=q.dropna(subset=["Date","Code","Open","High","Low","Close"])
+          q=q.sort_values(["Code","Date"]).drop_duplicates(["Code","Date"],keep="last")
+
+          def feat(g):
+              g=g.sort_values("Date").reset_index(drop=True).copy()
+              c=g["Close"]
+              g["ma5"]=c.rolling(5,min_periods=5).mean()
+              g["prev_close"]=c.shift(1)
+              g["prev_ma5"]=g["ma5"].shift(1)
+              g["prev2_close"]=c.shift(2)
+              g["prev2_ma5"]=g["ma5"].shift(2)
+              g["prev3_close"]=c.shift(3)
+              g["prev3_ma5"]=g["ma5"].shift(3)
+              g["pre3_below_ma5_n"]=(
+                  (g.prev_close<g.prev_ma5).astype(float)
+                  +(g.prev2_close<g.prev2_ma5).astype(float)
+                  +(g.prev3_close<g.prev3_ma5).astype(float)
+              )
+              g["ma5_slope_1d_pct"]=(g["ma5"]/g["prev_ma5"]-1)*100
+              g["strict_odoli_r1"]=(
+                  (g.Close>g.Open)&(g.prev_close<g.prev_ma5)&(g.Close>g.ma5)
+                  &(g.ma5_slope_1d_pct>0)&(g.pre3_below_ma5_n>=2)
+              )
+              return g
+
+          sessions=sorted(pd.Timestamp(x).normalize() for x in q.Date.unique())
+          latest=sessions[-1]
+          mature_end=sessions[-22]
+          sig_dates=[d for d in sessions if d<=mature_end][-40:]
+          sig_set=set(sig_dates)
+          split_idx=len(sig_dates)//2
+          train_dates=set(sig_dates[:split_idx])
+          holdout_dates=set(sig_dates[split_idx:])
+
+          rows=[]
+          H=10
+
+          for code,g0 in q.groupby("Code",sort=False):
+              g=feat(g0)
+              ma5=g["ma5"]
+              amt=pd.to_numeric(g["Amount"],errors="coerce")
+              vol=pd.to_numeric(g["Volume"],errors="coerce")
+              hits=g.index[g["Date"].isin(sig_set)&g["strict_odoli_r1"].fillna(False)]
+
+              for ii in hits:
+                  i=int(ii)
+                  if i+21>=len(g):continue
+                  name=str(g.iloc[i].get("Name","") or "")
+                  if is_spac(name):continue
+
+                  sig_date=pd.Timestamp(g.iloc[i].Date)
+                  split="TRAIN_EARLY" if sig_date in train_dates else "HOLDOUT_LATE"
+                  sig_low=float(g.iloc[i].Low)
+                  d1_low=float(g.iloc[i+1].Low)
+                  d2_low=float(g.iloc[i+2].Low)
+                  d2_close=float(g.iloc[i+2].Close)
+                  fast=bool(d2_low>d1_low and pd.notna(ma5.iloc[i+2]) and d2_close>float(ma5.iloc[i+2]))
+                  if not fast:continue
+
+                  trig=None
+                  for j in range(i+3,i+11):
+                      if j+1>=len(g):break
+                      if pd.isna(ma5.iloc[j]) or ma5.iloc[j]<=0:continue
+                      touch=float(g.iloc[j].Low)<=float(ma5.iloc[j])*1.005
+                      reclaim=float(g.iloc[j].Close)>=float(ma5.iloc[j])
+                      if touch and reclaim:
+                          trig=j
+                          break
+                  if trig is None or trig+1+H>=len(g):
+                      continue
+
+                  entry_idx=trig+1
+                  entry=float(g.iloc[entry_idx].Open)
+                  if not np.isfinite(entry) or entry<=0:continue
+
+                  trigger_low=float(g.iloc[trig].Low)
+                  trigger_close=float(g.iloc[trig].Close)
+                  trigger_open=float(g.iloc[trig].Open)
+                  trigger_ma5=float(ma5.iloc[trig])
+
+                  depth_vs_ma5_pct=(trigger_low/trigger_ma5-1)*100
+                  close_vs_ma5_pct=(trigger_close/trigger_ma5-1)*100
+                  body_pct=(trigger_close/trigger_open-1)*100 if trigger_open>0 else np.nan
+
+                  pre20_amt=amt.iloc[max(0,trig-20):trig]
+                  avg20_amt=float(pre20_amt.mean()) if len(pre20_amt) else np.nan
+                  amount_ratio20=float(amt.iloc[trig]/avg20_amt) if pd.notna(avg20_amt) and avg20_amt>0 else np.nan
+
+                  pre20_vol=vol.iloc[max(0,trig-20):trig]
+                  avg20_vol=float(pre20_vol.mean()) if len(pre20_vol) else np.nan
+                  volume_ratio20=float(vol.iloc[trig]/avg20_vol) if pd.notna(avg20_vol) and avg20_vol>0 else np.nan
+
+                  d2_amt=float(amt.iloc[i+2]) if pd.notna(amt.iloc[i+2]) else np.nan
+                  d2_vol=float(vol.iloc[i+2]) if pd.notna(vol.iloc[i+2]) else np.nan
+                  amount_vs_d2=float(amt.iloc[trig]/d2_amt) if pd.notna(d2_amt) and d2_amt>0 else np.nan
+                  volume_vs_d2=float(vol.iloc[trig]/d2_vol) if pd.notna(d2_vol) and d2_vol>0 else np.nan
+
+                  below_days=0
+                  k=trig-1
+                  while k>=i+3 and pd.notna(ma5.iloc[k]) and float(g.iloc[k].Close)<float(ma5.iloc[k]):
+                      below_days+=1
+                      k-=1
+                  reclaim_speed=below_days+1
+
+                  hist=g.iloc[i+3:trig+1]
+                  d2_low_survived=bool(pd.to_numeric(hist.Low,errors="coerce").min()>d2_low) if len(hist) else True
+                  signal_low_survived=bool(pd.to_numeric(hist.Low,errors="coerce").min()>=sig_low) if len(hist) else True
+
+                  pre2=g.iloc[max(i+3,trig-1):trig+1]
+                  pre2_low=float(pd.to_numeric(pre2.Low,errors="coerce").min()) if len(pre2) else trigger_low
+                  stop=pre2_low
+                  if not np.isfinite(stop) or stop<=0 or stop>=entry:
+                      continue
+
+                  risk_abs=entry-stop
+                  risk_pct=risk_abs/entry*100
+                  stop_hit=False
+                  stop_day=np.nan
+                  maxr=0.0
+                  for h in range(1,H+1):
+                      b=g.iloc[entry_idx+h]
+                      if float(b.Low)<=stop:
+                          stop_hit=True
+                          stop_day=h
+                          break
+                      maxr=max(maxr,(float(b.High)-entry)/risk_abs)
+
+                  if depth_vs_ma5_pct>=-1:
+                      depth_bin="SHALLOW_0_TO_-1"
+                  elif depth_vs_ma5_pct>=-3:
+                      depth_bin="MID_-1_TO_-3"
+                  elif depth_vs_ma5_pct>=-5:
+                      depth_bin="DEEP_-3_TO_-5"
+                  else:
+                      depth_bin="VERY_DEEP_BELOW_-5"
+
+                  if pd.isna(amount_vs_d2):
+                      amount_bin="AMOUNT_UNKNOWN"
+                  elif amount_vs_d2<=0.5:
+                      amount_bin="AMOUNT_LE_0_5X_D2"
+                  elif amount_vs_d2<=0.8:
+                      amount_bin="AMOUNT_0_5_TO_0_8X_D2"
+                  elif amount_vs_d2<=1.0:
+                      amount_bin="AMOUNT_0_8_TO_1_0X_D2"
+                  else:
+                      amount_bin="AMOUNT_GT_1_0X_D2"
+
+                  if reclaim_speed<=1:
+                      speed_bin="RECLAIM_FAST_1D"
+                  elif reclaim_speed==2:
+                      speed_bin="RECLAIM_2D"
+                  else:
+                      speed_bin="RECLAIM_3D_PLUS"
+
+                  rows.append({
+                      "split":split,
+                      "signal_date":sig_date,
+                      "code":code,
+                      "name":name,
+                      "trigger_date":g.iloc[trig].Date,
+                      "entry_date":g.iloc[entry_idx].Date,
+                      "trigger_day":trig-i,
+                      "entry_day":entry_idx-i,
+                      "d2_close":d2_close,
+                      "entry_price":entry,
+                      "entry_vs_d2_close_pct":(entry/d2_close-1)*100,
+                      "depth_vs_ma5_pct":depth_vs_ma5_pct,
+                      "close_vs_ma5_pct":close_vs_ma5_pct,
+                      "trigger_body_pct":body_pct,
+                      "amount_ratio20":amount_ratio20,
+                      "volume_ratio20":volume_ratio20,
+                      "amount_vs_d2":amount_vs_d2,
+                      "volume_vs_d2":volume_vs_d2,
+                      "reclaim_speed_days":reclaim_speed,
+                      "d2_low_survived":d2_low_survived,
+                      "signal_low_survived":signal_low_survived,
+                      "depth_bin":depth_bin,
+                      "amount_bin":amount_bin,
+                      "speed_bin":speed_bin,
+                      "stop_price":stop,
+                      "risk_pct":risk_pct,
+                      "d10_stop_hit":stop_hit,
+                      "d10_stop_day":stop_day,
+                      "d10_max_r_before_stop":maxr,
+                      "d10_1R":maxr>=1,
+                      "d10_2R":maxr>=2,
+                      "d10_3R":maxr>=3,
+                      "d10_5R":maxr>=5,
+                      "d10_close_ret_pct":(float(g.iloc[entry_idx+H].Close)/entry-1)*100,
+                  })
+
+          ev=pd.DataFrame(rows)
+          if ev.empty:raise SystemExit("NO_MA5_PULLBACK_EVENTS")
+          ev.to_csv(OUT/"events.csv",index=False,encoding="utf-8-sig")
+
+          def make_summary(group_cols):
+              out=[]
+              for keys,g in ev.groupby(group_cols,dropna=False,sort=False):
+                  if not isinstance(keys,tuple):keys=(keys,)
+                  row={c:v for c,v in zip(group_cols,keys)}
+                  row.update({
+                      "n":len(g),
+                      "risk_pct_median":float(g.risk_pct.median()),
+                      "stop_rate_pct":float(g.d10_stop_hit.mean()*100),
+                      "2R_rate_pct":float(g.d10_2R.mean()*100),
+                      "3R_rate_pct":float(g.d10_3R.mean()*100),
+                      "5R_rate_pct":float(g.d10_5R.mean()*100),
+                      "max_r_median":float(g.d10_max_r_before_stop.median()),
+                      "d10_close_ret_median_pct":float(g.d10_close_ret_pct.median()),
+                      "entry_vs_d2_close_median_pct":float(g.entry_vs_d2_close_pct.median()),
+                  })
+                  out.append(row)
+              return pd.DataFrame(out)
+
+          s_depth=make_summary(["split","depth_bin"])
+          s_amount=make_summary(["split","amount_bin"])
+          s_speed=make_summary(["split","speed_bin"])
+          s_combo=make_summary(["split","depth_bin","amount_bin","speed_bin"])
+
+          s_depth.to_csv(OUT/"summary_depth.csv",index=False,encoding="utf-8-sig")
+          s_amount.to_csv(OUT/"summary_amount.csv",index=False,encoding="utf-8-sig")
+          s_speed.to_csv(OUT/"summary_speed.csv",index=False,encoding="utf-8-sig")
+          s_combo.to_csv(OUT/"summary_combo.csv",index=False,encoding="utf-8-sig")
+
+          train=s_combo[s_combo["split"].eq("TRAIN_EARLY")].copy()
+          hold=s_combo[s_combo["split"].eq("HOLDOUT_LATE")].copy()
+          keys=["depth_bin","amount_bin","speed_bin"]
+          merged=train.merge(hold,on=keys,suffixes=("_train","_hold"))
+          merged=merged[(merged.n_train>=20)&(merged.n_hold>=20)].copy()
+          if len(merged):
+              merged["2R_delta_pp"]=merged["2R_rate_pct_hold"]-merged["2R_rate_pct_train"]
+              merged["3R_delta_pp"]=merged["3R_rate_pct_hold"]-merged["3R_rate_pct_train"]
+              merged["stop_delta_pp"]=merged["stop_rate_pct_hold"]-merged["stop_rate_pct_train"]
+              merged["stable_3R"]=merged["3R_delta_pp"].abs()<=10
+              merged["stable_stop"]=merged["stop_delta_pp"].abs()<=10
+          merged.to_csv(OUT/"temporal_consistency.csv",index=False,encoding="utf-8-sig")
+
+          meta={
+              "revision":"ODOLI_MA5_PULLBACK_ANATOMY_HOLDOUT_R1_20261001",
+              "research_only":True,
+              "same_sample_tuning":False,
+              "entry_rule_promoted":False,
+              "stop_rule_promoted":False,
+              "production_changed":False,
+              "fast_observable_at":"D2_CLOSE",
+              "entry_execution":"NEXT_SESSION_OPEN_AFTER_MA5_TOUCH_RECLAIM_CLOSE",
+              "temporal_split":"EARLY_20_SIGNAL_SESSIONS_VS_LATE_20_SIGNAL_SESSIONS",
+              "interpretation_scope":"TEMPORAL_ROBUSTNESS_SPLIT_NOT_TRUE_PROSPECTIVE_OOS",
+              "signal_window_start":sig_dates[0].date().isoformat(),
+              "signal_window_end":sig_dates[-1].date().isoformat(),
+              "train_signal_sessions":len(train_dates),
+              "holdout_signal_sessions":len(holdout_dates),
+              "events_total":len(ev),
+              "events_train":int((ev["split"]=="TRAIN_EARLY").sum()),
+              "events_holdout":int((ev["split"]=="HOLDOUT_LATE").sum()),
+              "same_bar_policy":"STOP_FIRST_CONSERVATIVE",
+          }
+          (OUT/"meta.json").write_text(json.dumps(meta,ensure_ascii=False,indent=2),encoding="utf-8")
+
+          report=[
+              "# ODOLI MA5 Pullback Anatomy + Temporal Holdout R1","",
+              "- FAST frozen at D2 close.",
+              "- Entry only next session open after MA5 touch/reclaim is known at close.",
+              "- Descriptive dimensions: pullback depth, amount contraction vs D2, reclaim speed.",
+              "- Early 20 signal sessions and later 20 signal sessions reported separately.",
+              "- No bin is promoted to a trading rule from this study.","",
+              "## Meta","```",json.dumps(meta,ensure_ascii=False,indent=2),"```","",
+              "## Depth","```",s_depth.to_string(index=False),"```","",
+              "## Amount","```",s_amount.to_string(index=False),"```","",
+              "## Reclaim speed","```",s_speed.to_string(index=False),"```","",
+              "## Temporal consistency (n>=20 each side)","```",
+              (merged.to_string(index=False) if len(merged) else "NO_COMBO_WITH_N>=20_BOTH_HALVES"),
+              "```"
+          ]
+          (OUT/"REPORT.md").write_text("\n".join(report),encoding="utf-8")
+
+          print("ODOLI_MA5_PULLBACK_ANATOMY_HOLDOUT_PASS")
+          print(json.dumps(meta,ensure_ascii=False))
+          print("DEPTH")
+          print(s_depth.to_string(index=False))
+          print("AMOUNT")
+          print(s_amount.to_string(index=False))
+          print("SPEED")
+          print(s_speed.to_string(index=False))
+          PY
+
+          python /tmp/ma5_pullback_anatomy.py
+
+      - name: Validate anti-leakage and no-promotion
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,pandas as pd
+          m=json.load(open("reports/temp_odoli_ma5_pullback_anatomy/meta.json",encoding="utf-8"))
+          assert m["fast_observable_at"]=="D2_CLOSE"
+          assert m["entry_execution"]=="NEXT_SESSION_OPEN_AFTER_MA5_TOUCH_RECLAIM_CLOSE"
+          assert m["same_sample_tuning"] is False
+          assert m["entry_rule_promoted"] is False
+          assert m["stop_rule_promoted"] is False
+          assert m["production_changed"] is False
+          q=pd.read_csv("reports/temp_odoli_ma5_pullback_anatomy/events.csv")
+          assert len(q)>0
+          assert set(q["split"].unique()).issubset({"TRAIN_EARLY","HOLDOUT_LATE"})
+          assert (pd.to_numeric(q["entry_day"],errors="coerce")>=4).all()
+          print("ODOLI_MA5_PULLBACK_ANTI_LEAKAGE_PASS")
+          PY
+
+      - name: Show report
+        if: always()
+        run: |
+          cat reports/temp_odoli_ma5_pullback_anatomy/meta.json || true
+          echo
+          cat reports/temp_odoli_ma5_pullback_anatomy/REPORT.md || true
+
+      - name: Upload artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: temp-odoli-ma5-pullback-anatomy-holdout
+          path: reports/temp_odoli_ma5_pullback_anatomy/**
+          if-no-files-found: error
+          retention-days: 90
