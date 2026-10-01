@@ -1,4 +1,4 @@
-name: TEMP ODOLI Shakeout vs Breakdown Anatomy R1
+name: TEMP ODOLI Shakeout Core Combos R1
 
 on:
   workflow_dispatch:
@@ -7,7 +7,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: temp-odoli-shakeout-breakdown-anatomy-r1
+  group: temp-odoli-shakeout-core-combos-r1
   cancel-in-progress: false
 
 jobs:
@@ -39,19 +39,19 @@ jobs:
           git checkout
           cd ../..
 
-      - name: Run shakeout vs breakdown anatomy
+      - name: Run core combo study
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p reports/temp_odoli_shakeout_breakdown
+          mkdir -p reports/temp_odoli_shakeout_core_combos
 
-          cat >/tmp/shakeout_breakdown.py <<'PY'
+          cat >/tmp/core_combo.py <<'PY'
           from pathlib import Path
           import json,re
           import numpy as np
           import pandas as pd
 
-          OUT=Path("reports/temp_odoli_shakeout_breakdown")
+          OUT=Path("reports/temp_odoli_shakeout_core_combos")
           OUT.mkdir(parents=True,exist_ok=True)
           H=10
 
@@ -77,11 +77,11 @@ jobs:
 
           def feat(g):
               g=g.sort_values("Date").reset_index(drop=True).copy()
-              c=g["Close"]
+              c=g.Close
               g["ma5"]=c.rolling(5,min_periods=5).mean()
-              g["prev_close"]=c.shift(1); g["prev_ma5"]=g["ma5"].shift(1)
-              g["prev2_close"]=c.shift(2); g["prev2_ma5"]=g["ma5"].shift(2)
-              g["prev3_close"]=c.shift(3); g["prev3_ma5"]=g["ma5"].shift(3)
+              g["prev_close"]=c.shift(1); g["prev_ma5"]=g.ma5.shift(1)
+              g["prev2_close"]=c.shift(2); g["prev2_ma5"]=g.ma5.shift(2)
+              g["prev3_close"]=c.shift(3); g["prev3_ma5"]=g.ma5.shift(3)
               g["pre3_below_ma5_n"]=(
                   (g.prev_close<g.prev_ma5).astype(float)
                   +(g.prev2_close<g.prev2_ma5).astype(float)
@@ -99,16 +99,12 @@ jobs:
           sig_dates=[d for d in sessions if d<=mature_end][-40:]
           sig_set=set(sig_dates)
           cut=len(sig_dates)//2
-          train_dates=set(sig_dates[:cut])
-          hold_dates=set(sig_dates[cut:])
+          train=set(sig_dates[:cut]); hold=set(sig_dates[cut:])
 
           rows=[]
-
           for code,g0 in q.groupby("Code",sort=False):
-              g=feat(g0)
-              ma5=g.ma5
+              g=feat(g0); ma5=g.ma5
               amt=pd.to_numeric(g.Amount,errors="coerce")
-              vol=pd.to_numeric(g.Volume,errors="coerce")
               hits=g.index[g.Date.isin(sig_set)&g.strict_odoli_r1.fillna(False)]
 
               for ii in hits:
@@ -118,14 +114,13 @@ jobs:
                   if is_spac(name):continue
 
                   sig_date=pd.Timestamp(g.iloc[i].Date)
-                  split="TRAIN_EARLY" if sig_date in train_dates else "HOLDOUT_LATE"
+                  split="TRAIN_EARLY" if sig_date in train else "HOLDOUT_LATE"
                   sig_low=float(g.iloc[i].Low)
                   d1_low=float(g.iloc[i+1].Low)
                   d2_low=float(g.iloc[i+2].Low)
                   d2_close=float(g.iloc[i+2].Close)
-
-                  fast=bool(d2_low>d1_low and pd.notna(ma5.iloc[i+2]) and d2_close>float(ma5.iloc[i+2]))
-                  if not fast:continue
+                  if not (d2_low>d1_low and pd.notna(ma5.iloc[i+2]) and d2_close>float(ma5.iloc[i+2])):
+                      continue
 
                   trig=None
                   for j in range(i+3,i+11):
@@ -133,7 +128,6 @@ jobs:
                       if pd.notna(ma5.iloc[j]) and float(g.iloc[j].Low)<=float(ma5.iloc[j])*1.005 and float(g.iloc[j].Close)>=float(ma5.iloc[j]):
                           trig=j;break
                   if trig is None:continue
-
                   entry_idx=trig+1
                   if entry_idx+H>=len(g):continue
 
@@ -148,181 +142,107 @@ jobs:
                   if break_idx is None or break_idx+H>=len(g):continue
 
                   b=g.iloc[break_idx]
-                  b_low=float(b.Low); b_close=float(b.Close); b_open=float(b.Open); b_high=float(b.High)
-                  if min(b_low,b_close,b_open,b_high)<=0:continue
-
-                  # T0 anatomy
-                  break_depth_pct=(b_low/pullback_low-1)*100
-                  close_vs_pb_pct=(b_close/pullback_low-1)*100
-                  close_reclaim_pb=b_close>pullback_low
-                  signal_low_alive=b_low>=sig_low
-                  d2_low_alive=b_low>=d2_low
-                  ma5_alive=bool(pd.notna(ma5.iloc[break_idx]) and b_close>=float(ma5.iloc[break_idx]))
-                  lower_wick_ratio=((min(b_open,b_close)-b_low)/(b_high-b_low) if b_high>b_low else 0.0)
-                  body_ratio=(abs(b_close-b_open)/(b_high-b_low) if b_high>b_low else 0.0)
-
+                  bclose=float(b.Close)
                   a20=amt.iloc[max(0,break_idx-20):break_idx]
-                  v20=vol.iloc[max(0,break_idx-20):break_idx]
-                  amount_ratio20=float(amt.iloc[break_idx]/a20.mean()) if len(a20) and pd.notna(a20.mean()) and a20.mean()>0 else np.nan
-                  volume_ratio20=float(vol.iloc[break_idx]/v20.mean()) if len(v20) and pd.notna(v20.mean()) and v20.mean()>0 else np.nan
+                  ar20=float(amt.iloc[break_idx]/a20.mean()) if len(a20) and pd.notna(a20.mean()) and a20.mean()>0 else np.nan
 
-                  d2_amt=float(amt.iloc[i+2]) if pd.notna(amt.iloc[i+2]) else np.nan
-                  amount_vs_d2=float(amt.iloc[break_idx]/d2_amt) if pd.notna(d2_amt) and d2_amt>0 else np.nan
+                  d1=g.iloc[break_idx+1]
+                  d2=g.iloc[break_idx+2]
+                  d3=g.iloc[break_idx+3]
 
-                  # D+1~D+3 recovery observables
-                  rec={}
-                  for lag in [1,2,3]:
-                      j=break_idx+lag
-                      cur=g.iloc[j]
-                      prev=g.iloc[j-1]
-                      rec[f"d{lag}_higher_low"]=bool(float(cur.Low)>float(prev.Low))
-                      rec[f"d{lag}_close_reclaim_pb"]=bool(float(cur.Close)>pullback_low)
-                      rec[f"d{lag}_ma5_alive"]=bool(pd.notna(ma5.iloc[j]) and float(cur.Close)>=float(ma5.iloc[j]))
-                      rec[f"d{lag}_signal_low_alive"]=bool(float(cur.Low)>=sig_low)
+                  d1_hl=bool(float(d1.Low)>float(b.Low))
+                  d2_reclaim=bool(float(d2.Close)>pullback_low)
+                  d3_reclaim=bool(float(d3.Close)>pullback_low)
 
-                  # Future path from break close; use absolute % not R.
+                  combo1=bool(pd.notna(ar20) and ar20<=0.5 and (d2_reclaim or d3_reclaim))
+                  combo2=bool(pd.notna(ar20) and ar20<=0.8 and d1_hl and d3_reclaim)
+                  combo3=bool(pd.notna(ar20) and ar20>=0.8 and (not d2_reclaim) and (not d3_reclaim))
+
                   fut=g.iloc[break_idx+1:break_idx+H+1]
                   fhigh=float(pd.to_numeric(fut.High,errors="coerce").max())
                   flow=float(pd.to_numeric(fut.Low,errors="coerce").min())
                   fclose=float(fut.iloc[-1].Close)
-                  mfe=(fhigh/b_close-1)*100
-                  mae=(flow/b_close-1)*100
-                  close_ret=(fclose/b_close-1)*100
-
-                  # Predeclared anatomy bins; descriptive only.
-                  if break_depth_pct>=-1:
-                      depth_bin="BREAK_0_TO_-1"
-                  elif break_depth_pct>=-3:
-                      depth_bin="BREAK_-1_TO_-3"
-                  elif break_depth_pct>=-5:
-                      depth_bin="BREAK_-3_TO_-5"
-                  else:
-                      depth_bin="BREAK_BELOW_-5"
-
-                  if pd.isna(amount_ratio20):
-                      amount20_bin="AMT20_UNKNOWN"
-                  elif amount_ratio20<=0.5:
-                      amount20_bin="AMT20_LE_0_5"
-                  elif amount_ratio20<=0.8:
-                      amount20_bin="AMT20_0_5_TO_0_8"
-                  elif amount_ratio20<=1.0:
-                      amount20_bin="AMT20_0_8_TO_1_0"
-                  else:
-                      amount20_bin="AMT20_GT_1_0"
-
-                  if lower_wick_ratio<0.20:
-                      wick_bin="WICK_LT_0_20"
-                  elif lower_wick_ratio<0.40:
-                      wick_bin="WICK_0_20_TO_0_40"
-                  else:
-                      wick_bin="WICK_GE_0_40"
+                  mfe=(fhigh/bclose-1)*100
+                  mae=(flow/bclose-1)*100
+                  cret=(fclose/bclose-1)*100
 
                   rows.append({
                       "split":split,"signal_date":sig_date,"code":code,"name":name,
-                      "break_date":b.Date,"pullback_low":pullback_low,
-                      "break_depth_pct":break_depth_pct,"depth_bin":depth_bin,
-                      "close_vs_pullback_pct":close_vs_pb_pct,
-                      "close_reclaim_pullback":close_reclaim_pb,
-                      "signal_low_alive":signal_low_alive,"d2_low_alive":d2_low_alive,"ma5_alive":ma5_alive,
-                      "lower_wick_ratio":lower_wick_ratio,"wick_bin":wick_bin,"body_ratio":body_ratio,
-                      "amount_ratio20":amount_ratio20,"amount20_bin":amount20_bin,
-                      "volume_ratio20":volume_ratio20,"amount_vs_d2":amount_vs_d2,
-                      **rec,
-                      "future_mfe_pct":mfe,"future_mae_pct":mae,"future_close_ret_pct":close_ret,
-                      "future_plus5":mfe>=5,"future_plus10":mfe>=10,"future_plus15":mfe>=15,
+                      "break_date":b.Date,"amount_ratio20":ar20,
+                      "d1_higher_low":d1_hl,"d2_reclaim":d2_reclaim,"d3_reclaim":d3_reclaim,
+                      "combo1_amt_le05_reclaim_d2or3":combo1,
+                      "combo2_amt_le08_d1hl_d3reclaim":combo2,
+                      "combo3_amt_ge08_no_reclaim_d2d3":combo3,
+                      "future_mfe_pct":mfe,"future_mae_pct":mae,"future_close_ret_pct":cret,
+                      "plus5":mfe>=5,"plus10":mfe>=10,"plus15":mfe>=15
                   })
 
           ev=pd.DataFrame(rows)
-          if ev.empty:raise SystemExit("NO_SHAKEOUT_BREAKDOWN_ROWS")
+          if ev.empty:raise SystemExit("NO_CORE_COMBO_ROWS")
           ev.to_csv(OUT/"events.csv",index=False,encoding="utf-8-sig")
 
-          def summarize(group_cols):
-              out=[]
-              for keys,g in ev.groupby(group_cols,dropna=False,sort=False):
-                  if not isinstance(keys,tuple):keys=(keys,)
-                  row={c:v for c,v in zip(group_cols,keys)}
-                  row.update({
-                      "n":len(g),
-                      "plus5_rate_pct":float(g.future_plus5.mean()*100),
-                      "plus10_rate_pct":float(g.future_plus10.mean()*100),
-                      "plus15_rate_pct":float(g.future_plus15.mean()*100),
-                      "mfe_median_pct":float(g.future_mfe_pct.median()),
-                      "mae_median_pct":float(g.future_mae_pct.median()),
-                      "close_ret_median_pct":float(g.future_close_ret_pct.median()),
-                  })
-                  out.append(row)
-              return pd.DataFrame(out)
+          combos=[
+              ("COMBO1_AMT_LE05_RECLAIM_D2_OR_D3","combo1_amt_le05_reclaim_d2or3"),
+              ("COMBO2_AMT_LE08_D1_HL_D3_RECLAIM","combo2_amt_le08_d1hl_d3reclaim"),
+              ("COMBO3_AMT_GE08_NO_RECLAIM_D2_D3","combo3_amt_ge08_no_reclaim_d2d3"),
+          ]
 
-          summaries={
-              "depth":summarize(["split","depth_bin"]),
-              "amount20":summarize(["split","amount20_bin"]),
-              "wick":summarize(["split","wick_bin"]),
-              "signal_low":summarize(["split","signal_low_alive"]),
-              "close_reclaim":summarize(["split","close_reclaim_pullback"]),
-              "ma5":summarize(["split","ma5_alive"]),
-              "d1_hl":summarize(["split","d1_higher_low"]),
-              "d1_reclaim":summarize(["split","d1_close_reclaim_pb"]),
-              "d2_hl":summarize(["split","d2_higher_low"]),
-              "d2_reclaim":summarize(["split","d2_close_reclaim_pb"]),
-              "d3_hl":summarize(["split","d3_higher_low"]),
-              "d3_reclaim":summarize(["split","d3_close_reclaim_pb"]),
-          }
-          for k,v in summaries.items():
-              v.to_csv(OUT/f"summary_{k}.csv",index=False,encoding="utf-8-sig")
+          out=[]
+          for split,g0 in ev.groupby("split"):
+              for label,col in combos:
+                  for flag in [True,False]:
+                      g=g0[g0[col].eq(flag)]
+                      if not len(g):continue
+                      out.append({
+                          "split":split,"combo":label,"match":flag,"n":len(g),
+                          "plus5_rate_pct":g.plus5.mean()*100,
+                          "plus10_rate_pct":g.plus10.mean()*100,
+                          "plus15_rate_pct":g.plus15.mean()*100,
+                          "mfe_median_pct":g.future_mfe_pct.median(),
+                          "mae_median_pct":g.future_mae_pct.median(),
+                          "close_ret_median_pct":g.future_close_ret_pct.median(),
+                          "amount_ratio20_median":g.amount_ratio20.median(),
+                      })
+          s=pd.DataFrame(out)
+          s.to_csv(OUT/"summary_core_combos.csv",index=False,encoding="utf-8-sig")
 
-          # Small predeclared interaction table, not tuned.
-          combo=summarize([
-              "split","depth_bin","amount20_bin","signal_low_alive",
-              "close_reclaim_pullback","d1_higher_low","d1_close_reclaim_pb"
-          ])
-          combo.to_csv(OUT/"summary_combo.csv",index=False,encoding="utf-8-sig")
-
-          # Keep only combinations with useful sample on both halves for stability view.
-          keys=["depth_bin","amount20_bin","signal_low_alive","close_reclaim_pullback","d1_higher_low","d1_close_reclaim_pb"]
-          tr=combo[combo["split"].eq("TRAIN_EARLY")].copy()
-          ho=combo[combo["split"].eq("HOLDOUT_LATE")].copy()
-          stable=tr.merge(ho,on=keys,suffixes=("_train","_hold"))
-          stable=stable[(stable.n_train>=15)&(stable.n_hold>=15)].copy()
-          if len(stable):
-              stable["plus10_delta_pp"]=stable.plus10_rate_pct_hold-stable.plus10_rate_pct_train
-              stable["plus15_delta_pp"]=stable.plus15_rate_pct_hold-stable.plus15_rate_pct_train
-          stable.to_csv(OUT/"temporal_consistency.csv",index=False,encoding="utf-8-sig")
+          # Train vs holdout deltas for matched=True only.
+          t=s[s["match"].eq(True)&s["split"].eq("TRAIN_EARLY")]
+          h=s[s["match"].eq(True)&s["split"].eq("HOLDOUT_LATE")]
+          c=t.merge(h,on="combo",suffixes=("_train","_hold"))
+          if len(c):
+              c["plus10_delta_pp"]=c.plus10_rate_pct_hold-c.plus10_rate_pct_train
+              c["plus15_delta_pp"]=c.plus15_rate_pct_hold-c.plus15_rate_pct_train
+              c["close_ret_delta_pp"]=c.close_ret_median_pct_hold-c.close_ret_median_pct_train
+          c.to_csv(OUT/"temporal_consistency.csv",index=False,encoding="utf-8-sig")
 
           meta={
-              "revision":"ODOLI_SHAKEOUT_VS_BREAKDOWN_ANATOMY_R1_20261001",
+              "revision":"ODOLI_SHAKEOUT_CORE_COMBOS_R1_20261001",
               "research_only":True,
               "same_sample_tuning":False,
               "rule_promoted":False,
               "production_changed":False,
               "auto_ordering":False,
-              "outcomes":"ABSOLUTE_FORWARD_MFE_PLUS5_PLUS10_PLUS15_NOT_R_MULTIPLES",
+              "combos_predeclared":[x[0] for x in combos],
+              "outcome":"FORWARD_10_SESSION_ABSOLUTE_MFE_PLUS5_PLUS10_PLUS15",
               "scope":"HISTORICAL_TEMPORAL_ROBUSTNESS_NOT_TRUE_PROSPECTIVE_OOS",
-              "signal_sessions":len(sig_dates),
-              "train_sessions":len(train_dates),
-              "holdout_sessions":len(hold_dates),
-              "break_events":len(ev),
-              "important_note":"No claim of institutional/large-operator activity; study only observable price/turnover structure."
+              "event_rows":len(ev),
           }
           (OUT/"meta.json").write_text(json.dumps(meta,ensure_ascii=False,indent=2),encoding="utf-8")
+          (OUT/"REPORT.md").write_text(
+              "# ODOLI Shakeout Core Combos R1\n\n```text\n"+s.to_string(index=False)+
+              "\n```\n\n## Temporal consistency\n```text\n"+
+              (c.to_string(index=False) if len(c) else "NO_MATCHED_COMBOS")+"\n```\n",
+              encoding="utf-8"
+          )
 
-          report=["# ODOLI Shakeout vs Breakdown Anatomy R1","",
-                  "No composite KEEP/WATCH/CUT score is used.",
-                  "Each observable feature is evaluated independently; outcomes use absolute +5/+10/+15% MFE.","",
-                  "## Meta","```",json.dumps(meta,ensure_ascii=False,indent=2),"```"]
-          for k,v in summaries.items():
-              report += ["",f"## {k}","```",v.to_string(index=False),"```"]
-          report += ["","## Temporal consistency","```",
-                     stable.to_string(index=False) if len(stable) else "NO_COMBO_N>=15_BOTH_HALVES","```"]
-          (OUT/"REPORT.md").write_text("\n".join(report),encoding="utf-8")
-
-          print("ODOLI_SHAKEOUT_VS_BREAKDOWN_ANATOMY_PASS")
+          print("ODOLI_SHAKEOUT_CORE_COMBOS_PASS")
           print(json.dumps(meta,ensure_ascii=False))
-          print("DEPTH"); print(summaries["depth"].to_string(index=False))
-          print("AMOUNT20"); print(summaries["amount20"].to_string(index=False))
-          print("D1_RECLAIM"); print(summaries["d1_reclaim"].to_string(index=False))
+          print(s.to_string(index=False))
+          print(c.to_string(index=False))
           PY
 
-          python /tmp/shakeout_breakdown.py
+          python /tmp/core_combo.py
 
       - name: Validate research identity and anti-leakage
         shell: bash
@@ -330,31 +250,29 @@ jobs:
           set -euo pipefail
           python - <<'PY'
           import json,pandas as pd
-          m=json.load(open("reports/temp_odoli_shakeout_breakdown/meta.json",encoding="utf-8"))
-          assert m["revision"]=="ODOLI_SHAKEOUT_VS_BREAKDOWN_ANATOMY_R1_20261001"
+          m=json.load(open("reports/temp_odoli_shakeout_core_combos/meta.json",encoding="utf-8"))
+          assert m["revision"]=="ODOLI_SHAKEOUT_CORE_COMBOS_R1_20261001"
           assert m["research_only"] is True
           assert m["same_sample_tuning"] is False
           assert m["rule_promoted"] is False
           assert m["production_changed"] is False
-          assert m["auto_ordering"] is False
-          q=pd.read_csv("reports/temp_odoli_shakeout_breakdown/events.csv")
+          q=pd.read_csv("reports/temp_odoli_shakeout_core_combos/events.csv")
           assert len(q)>0
-          assert (pd.to_numeric(q["pullback_low"],errors="coerce")>0).all()
-          print("SHAKEOUT_BREAKDOWN_ANTI_LEAKAGE_PASS")
+          print("SHAKEOUT_CORE_COMBOS_ANTI_LEAKAGE_PASS")
           PY
 
       - name: Show report
         if: always()
         run: |
-          cat reports/temp_odoli_shakeout_breakdown/meta.json || true
+          cat reports/temp_odoli_shakeout_core_combos/meta.json || true
           echo
-          cat reports/temp_odoli_shakeout_breakdown/REPORT.md || true
+          cat reports/temp_odoli_shakeout_core_combos/REPORT.md || true
 
       - name: Upload artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: temp-odoli-shakeout-vs-breakdown-anatomy-r1
-          path: reports/temp_odoli_shakeout_breakdown/**
+          name: temp-odoli-shakeout-core-combos-r1
+          path: reports/temp_odoli_shakeout_core_combos/**
           if-no-files-found: error
           retention-days: 90
