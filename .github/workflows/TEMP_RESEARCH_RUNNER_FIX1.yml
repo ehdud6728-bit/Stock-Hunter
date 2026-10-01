@@ -1,0 +1,293 @@
+name: TEMP ODOLI KEEP WATCH CUT State Study R1 FIX1
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: temp-odoli-keep-watch-cut-state-r1
+  cancel-in-progress: false
+
+jobs:
+  study:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install pandas numpy pyarrow
+
+      - name: Restore existing catalyst research state if available
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            reports/v73_catalyst_source_ledger.csv
+            reports/v73_news_source_ledger.csv
+            reports/v73_official_disclosure_ledger.csv
+            reports/v73_global_catalyst_ledger.csv
+            reports/v73_sequence_context_catalyst_join.csv
+            reports/v73_sequence_context_catalyst_readiness.csv
+            reports/v73_market_sector_context_ledger.csv
+            reports/v73_market_sector_context_coverage.csv
+            reports/catalyst_raw
+          key: stockhunter-v73-state-${{ github.ref_name }}-${{ github.run_id }}
+          restore-keys: |
+            stockhunter-v73-state-${{ github.ref_name }}-
+            stockhunter-v73-state-
+
+      - name: Fetch marcap history
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf vendor/marcap
+          mkdir -p vendor
+          git clone --depth 1 --filter=blob:none --no-checkout https://github.com/FinanceData/marcap.git vendor/marcap
+          cd vendor/marcap
+          git sparse-checkout init --no-cone
+          printf '%s\n' 'data/marcap-2026.parquet' >/tmp/marcap_paths.txt
+          git sparse-checkout set --stdin </tmp/marcap_paths.txt
+          git checkout
+          cd ../..
+
+      - name: Run KEEP WATCH CUT state study
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p reports/temp_odoli_keep_watch_cut
+          cat >/tmp/keep_watch_cut.py <<'PY'
+          from pathlib import Path
+          import json,re
+          import numpy as np
+          import pandas as pd
+
+          OUT=Path("reports/temp_odoli_keep_watch_cut")
+          OUT.mkdir(parents=True,exist_ok=True)
+          H=10
+
+          def norm_code(v):
+              s=re.sub(r"\D","",str(v or ""))
+              return s[-6:].zfill(6) if s else ""
+
+          def is_spac(name):
+              s=str(name or "").upper()
+              return ("스팩" in s) or ("SPAC" in s)
+
+          q=pd.read_parquet("vendor/marcap/data/marcap-2026.parquet")
+          if "Date" not in q.columns:q=q.reset_index()
+          q["Date"]=pd.to_datetime(q["Date"],errors="coerce").dt.normalize()
+          q["Code"]=q["Code"].map(norm_code)
+          if "Market" in q.columns:q=q[q["Market"].astype(str).str.upper().isin(["KOSPI","KOSDAQ"])]
+          for c in ["Open","High","Low","Close","Volume","Amount"]:
+              q[c]=pd.to_numeric(q[c],errors="coerce")
+          q=q.dropna(subset=["Date","Code","Open","High","Low","Close"])
+          q=q[(q["Open"]>0)&(q["High"]>0)&(q["Low"]>0)&(q["Close"]>0)]
+          q=q.sort_values(["Code","Date"]).drop_duplicates(["Code","Date"],keep="last")
+
+          def feat(g):
+              g=g.sort_values("Date").reset_index(drop=True).copy()
+              c=g["Close"]
+              g["ma5"]=c.rolling(5,min_periods=5).mean()
+              g["prev_close"]=c.shift(1); g["prev_ma5"]=g["ma5"].shift(1)
+              g["prev2_close"]=c.shift(2); g["prev2_ma5"]=g["ma5"].shift(2)
+              g["prev3_close"]=c.shift(3); g["prev3_ma5"]=g["ma5"].shift(3)
+              g["pre3_below_ma5_n"]=((g.prev_close<g.prev_ma5).astype(float)+(g.prev2_close<g.prev2_ma5).astype(float)+(g.prev3_close<g.prev3_ma5).astype(float))
+              g["ma5_slope_1d_pct"]=(g["ma5"]/g["prev_ma5"]-1)*100
+              g["strict_odoli_r1"]=((g.Close>g.Open)&(g.prev_close<g.prev_ma5)&(g.Close>g.ma5)&(g.ma5_slope_1d_pct>0)&(g.pre3_below_ma5_n>=2))
+              return g
+
+          catalyst_files=[
+              "reports/v73_catalyst_source_ledger.csv","reports/v73_news_source_ledger.csv",
+              "reports/v73_official_disclosure_ledger.csv","reports/v73_global_catalyst_ledger.csv",
+              "reports/v73_sequence_context_catalyst_join.csv"
+          ]
+          cframes=[]
+          for p in catalyst_files:
+              pp=Path(p)
+              if not pp.exists():continue
+              try:z=pd.read_csv(pp,low_memory=False)
+              except Exception:continue
+              cols={c.lower():c for c in z.columns}
+              cc=next((cols[k] for k in ["code","ticker","stock_code","symbol"] if k in cols),None)
+              dc=next((cols[k] for k in ["date","asof_date","signal_date","event_date","captured_at","first_seen_at"] if k in cols),None)
+              if not cc:continue
+              z["_code"]=z[cc].map(norm_code)
+              z["_date"]=pd.to_datetime(z[dc],errors="coerce").dt.normalize() if dc else pd.NaT
+              cframes.append(z[["_code","_date"]])
+          catalyst=pd.concat(cframes,ignore_index=True) if cframes else pd.DataFrame(columns=["_code","_date"])
+          cat_ok=bool(len(catalyst))
+
+          sessions=sorted(pd.Timestamp(x).normalize() for x in q.Date.unique())
+          mature_end=sessions[-22]
+          sig_dates=[d for d in sessions if d<=mature_end][-40:]
+          sig_set=set(sig_dates)
+          cut=len(sig_dates)//2
+          train=set(sig_dates[:cut]); hold=set(sig_dates[cut:])
+          rows=[]
+
+          for code,g0 in q.groupby("Code",sort=False):
+              g=feat(g0); ma5=g["ma5"]; amt=pd.to_numeric(g["Amount"],errors="coerce"); vol=pd.to_numeric(g["Volume"],errors="coerce")
+              hits=g.index[g["Date"].isin(sig_set)&g["strict_odoli_r1"].fillna(False)]
+              for ii in hits:
+                  i=int(ii)
+                  if i+21>=len(g):continue
+                  name=str(g.iloc[i].get("Name","") or "")
+                  if is_spac(name):continue
+                  sig_date=pd.Timestamp(g.iloc[i].Date)
+                  split="TRAIN_EARLY" if sig_date in train else "HOLDOUT_LATE"
+                  sig_low=float(g.iloc[i].Low); d1_low=float(g.iloc[i+1].Low); d2_low=float(g.iloc[i+2].Low); d2_close=float(g.iloc[i+2].Close)
+                  if not (d2_low>d1_low and pd.notna(ma5.iloc[i+2]) and d2_close>float(ma5.iloc[i+2])):continue
+
+                  trig=None
+                  for j in range(i+3,i+11):
+                      if j+1>=len(g):break
+                      if pd.notna(ma5.iloc[j]) and float(g.iloc[j].Low)<=float(ma5.iloc[j])*1.005 and float(g.iloc[j].Close)>=float(ma5.iloc[j]):
+                          trig=j;break
+                  if trig is None:continue
+                  entry_idx=trig+1
+                  if entry_idx+H>=len(g):continue
+                  pre2=g.iloc[max(i+3,trig-1):trig+1]
+                  pullback_low=float(pd.to_numeric(pre2.Low,errors="coerce").min())
+                  if not np.isfinite(pullback_low) or pullback_low<=0:
+                      continue
+
+                  break_idx=None
+                  for j in range(entry_idx+1,entry_idx+H+1):
+                      if float(g.iloc[j].Low)<=pullback_low:
+                          break_idx=j;break
+                  if break_idx is None:continue
+
+                  def cat_state(asof):
+                      if not cat_ok:return ("UNAVAILABLE",0)
+                      z=catalyst[(catalyst._code==code)&catalyst._date.notna()&(catalyst._date<=asof)]
+                      if len(z)==0:return ("NO_CAPTURED_CATALYST",0)
+                      recent=z[z._date>=asof-pd.Timedelta(days=10)]
+                      return (("RECENT_CAPTURED" if len(recent) else "OLDER_CAPTURED"),int(len(recent)))
+
+                  for lag in range(4):
+                      j=break_idx+lag
+                      if j>=len(g) or j+H>=len(g):continue
+                      cur=g.iloc[j]; prev=g.iloc[j-1]; prev2=g.iloc[j-2]
+                      low=float(cur.Low); close=float(cur.Close); op=float(cur.Open); high=float(cur.High)
+                      prev_low=float(prev.Low); prev2_low=float(prev2.Low)
+                      signal_alive=low>=sig_low
+                      reclaim_pb=close>pullback_low
+                      reclaim_d2=close>d2_low
+                      ma5_alive=bool(pd.notna(ma5.iloc[j]) and close>=float(ma5.iloc[j]))
+                      hl=low>prev_low
+                      hl2=(prev_low>prev2_low and low>prev_low)
+                      wick=((min(op,close)-low)/(high-low) if high>low else 0.0)
+
+                      a20=amt.iloc[max(0,j-20):j]; v20=vol.iloc[max(0,j-20):j]
+                      ar20=float(amt.iloc[j]/a20.mean()) if len(a20) and pd.notna(a20.mean()) and a20.mean()>0 else np.nan
+                      vr20=float(vol.iloc[j]/v20.mean()) if len(v20) and pd.notna(v20.mean()) and v20.mean()>0 else np.nan
+                      pa=float(amt.iloc[j-1]) if pd.notna(amt.iloc[j-1]) else np.nan
+                      avp=float(amt.iloc[j]/pa) if pd.notna(pa) and pa>0 else np.nan
+
+                      score=int(signal_alive)+int(reclaim_pb)+int(ma5_alive)+int(hl)
+                      if pd.notna(avp) and avp<0.8:score+=1
+                      if wick>=0.35:score+=1
+                      state="KEEP_LIKE" if score>=5 and signal_alive else ("WATCH_LIKE" if score>=3 and signal_alive else "CUT_LIKE")
+
+                      cs,cn=cat_state(pd.Timestamp(cur.Date))
+                      fut=g.iloc[j+1:j+H+1]
+                      fh=float(pd.to_numeric(fut.High,errors="coerce").max()); fl=float(pd.to_numeric(fut.Low,errors="coerce").min()); fc=float(fut.iloc[-1].Close)
+                      risk=max(close-pullback_low,close*0.01)
+                      maxr=(fh-close)/risk
+
+                      rows.append({
+                          "split":split,"signal_date":sig_date,"code":code,"name":name,
+                          "break_date":g.iloc[break_idx].Date,"decision_date":cur.Date,"decision_lag_after_break":lag,
+                          "state_descriptive":state,"accumulation_like_score":score,
+                          "break_depth_pct":(low/pullback_low-1)*100,"close_vs_pullback_pct":(close/pullback_low-1)*100,
+                          "signal_low_alive":signal_alive,"close_reclaimed_pullback":reclaim_pb,"close_reclaimed_d2":reclaim_d2,
+                          "ma5_alive":ma5_alive,"higher_low_vs_prev":hl,"higher_low_2step":hl2,"lower_wick_ratio":wick,
+                          "amount_ratio20":ar20,"volume_ratio20":vr20,"amount_vs_prev":avp,
+                          "catalyst_state":cs,"catalyst_recent_10d_count":cn,
+                          "future_mfe_pct":(fh/close-1)*100,"future_mae_pct":(fl/close-1)*100,"future_close_ret_pct":(fc/close-1)*100,
+                          "future_2R":maxr>=2,"future_3R":maxr>=3,"future_5R":maxr>=5
+                      })
+
+          ev=pd.DataFrame(rows)
+          if ev.empty:raise SystemExit("NO_KEEP_WATCH_CUT_ROWS")
+          ev.to_csv(OUT/"events.csv",index=False,encoding="utf-8-sig")
+
+          def summarize(cols):
+              out=[]
+              for keys,g in ev.groupby(cols,dropna=False,sort=False):
+                  if not isinstance(keys,tuple):keys=(keys,)
+                  r={c:v for c,v in zip(cols,keys)}
+                  r.update({
+                      "n":len(g),"future_2R_rate_pct":float(g.future_2R.mean()*100),
+                      "future_3R_rate_pct":float(g.future_3R.mean()*100),"future_5R_rate_pct":float(g.future_5R.mean()*100),
+                      "future_mfe_median_pct":float(g.future_mfe_pct.median()),"future_mae_median_pct":float(g.future_mae_pct.median()),
+                      "future_close_ret_median_pct":float(g.future_close_ret_pct.median()),
+                      "break_depth_median_pct":float(g.break_depth_pct.median()),"amount_ratio20_median":float(g.amount_ratio20.median())
+                  })
+                  out.append(r)
+              return pd.DataFrame(out)
+
+          s=summarize(["split","decision_lag_after_break","state_descriptive"])
+          c=summarize(["split","decision_lag_after_break","catalyst_state"])
+          s.to_csv(OUT/"summary_state.csv",index=False,encoding="utf-8-sig")
+          c.to_csv(OUT/"summary_catalyst.csv",index=False,encoding="utf-8-sig")
+
+          meta={
+              "revision":"ODOLI_KEEP_WATCH_CUT_STATE_R1_FIX1_ZERO_PRICE_GUARD_20261001","research_only":True,
+              "same_sample_tuning":False,"state_rule_promoted":False,"production_changed":False,"auto_ordering":False,
+              "scope":"HISTORICAL_DESCRIPTIVE_STATE_STUDY_NOT_TRUE_OOS",
+              "decision_times":["BREAK_CLOSE","BREAK_PLUS_1_CLOSE","BREAK_PLUS_2_CLOSE","BREAK_PLUS_3_CLOSE"],
+              "catalyst_sidecar_available":cat_ok,
+              "important_note":"accumulation_like is a descriptive proxy, not proof of institutional/large-operator activity",
+              "events_rows":len(ev)
+          }
+          (OUT/"meta.json").write_text(json.dumps(meta,ensure_ascii=False,indent=2),encoding="utf-8")
+          (OUT/"REPORT.md").write_text("# ODOLI KEEP/WATCH/CUT State Study R1\n\n```\n"+s.to_string(index=False)+"\n```\n",encoding="utf-8")
+          print("ODOLI_KEEP_WATCH_CUT_STATE_PASS")
+          print(json.dumps(meta,ensure_ascii=False))
+          print(s.to_string(index=False))
+          PY
+
+          python /tmp/keep_watch_cut.py
+
+      - name: Validate research identity and anti-leakage
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,pandas as pd
+          m=json.load(open("reports/temp_odoli_keep_watch_cut/meta.json",encoding="utf-8"))
+          assert m["revision"]=="ODOLI_KEEP_WATCH_CUT_STATE_R1_FIX1_ZERO_PRICE_GUARD_20261001"
+          assert m["research_only"] is True
+          assert m["same_sample_tuning"] is False
+          assert m["state_rule_promoted"] is False
+          assert m["production_changed"] is False
+          assert m["auto_ordering"] is False
+          q=pd.read_csv("reports/temp_odoli_keep_watch_cut/events.csv")
+          assert len(q)>0
+          assert pd.to_numeric(q["decision_lag_after_break"],errors="coerce").between(0,3).all()
+          print("KEEP_WATCH_CUT_ANTI_LEAKAGE_PASS")
+          PY
+
+      - name: Show report
+        if: always()
+        run: |
+          cat reports/temp_odoli_keep_watch_cut/meta.json || true
+          echo
+          cat reports/temp_odoli_keep_watch_cut/REPORT.md || true
+
+      - name: Upload artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: temp-odoli-keep-watch-cut-state-r1
+          path: reports/temp_odoli_keep_watch_cut/**
+          if-no-files-found: error
+          retention-days: 90
