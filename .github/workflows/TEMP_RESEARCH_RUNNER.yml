@@ -1,0 +1,354 @@
+name: TEMP ODOLI FAST Pullback Entry Study
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: temp-odoli-fast-pullback-entry-study
+  cancel-in-progress: false
+
+jobs:
+  study:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install pandas numpy pyarrow
+
+      - name: Fetch marcap history
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf vendor/marcap
+          mkdir -p vendor
+          git clone --depth 1 --filter=blob:none --no-checkout \
+            https://github.com/FinanceData/marcap.git vendor/marcap
+          cd vendor/marcap
+          git sparse-checkout init --no-cone
+          printf '%s\n' 'data/marcap-2026.parquet' >/tmp/marcap_paths.txt
+          git sparse-checkout set --stdin </tmp/marcap_paths.txt
+          git checkout
+          cd ../..
+
+      - name: Run FAST pullback entry study
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p reports/temp_odoli_fast_pullback
+
+          cat >/tmp/fast_pullback.py <<'PY'
+          from pathlib import Path
+          import json,re
+          import numpy as np
+          import pandas as pd
+
+          OUT=Path("reports/temp_odoli_fast_pullback")
+          OUT.mkdir(parents=True,exist_ok=True)
+
+          def norm_code(v):
+              s=re.sub(r"\D","",str(v or ""))
+              return s[-6:].zfill(6) if s else ""
+
+          def is_spac(name):
+              s=str(name or "").upper()
+              return ("스팩" in s) or ("SPAC" in s)
+
+          q=pd.read_parquet("vendor/marcap/data/marcap-2026.parquet")
+          if "Date" not in q.columns:q=q.reset_index()
+          q["Date"]=pd.to_datetime(q["Date"],errors="coerce").dt.normalize()
+          q["Code"]=q["Code"].map(norm_code)
+          if "Market" in q.columns:
+              q=q[q["Market"].astype(str).str.upper().isin(["KOSPI","KOSDAQ"])]
+          for c in ["Open","High","Low","Close","Volume","Amount"]:
+              q[c]=pd.to_numeric(q[c],errors="coerce")
+          q=q.dropna(subset=["Date","Code","Open","High","Low","Close"])
+          q=q.sort_values(["Code","Date"]).drop_duplicates(["Code","Date"],keep="last")
+
+          def feat(g):
+              g=g.sort_values("Date").reset_index(drop=True).copy()
+              c=g["Close"]
+              g["ma5"]=c.rolling(5,min_periods=5).mean()
+              g["prev_close"]=c.shift(1)
+              g["prev_ma5"]=g["ma5"].shift(1)
+              g["prev2_close"]=c.shift(2)
+              g["prev2_ma5"]=g["ma5"].shift(2)
+              g["prev3_close"]=c.shift(3)
+              g["prev3_ma5"]=g["ma5"].shift(3)
+              g["pre3_below_ma5_n"]=(
+                  (g.prev_close<g.prev_ma5).astype(float)
+                  +(g.prev2_close<g.prev2_ma5).astype(float)
+                  +(g.prev3_close<g.prev3_ma5).astype(float)
+              )
+              g["ma5_slope_1d_pct"]=(g["ma5"]/g["prev_ma5"]-1)*100
+              g["strict_odoli_r1"]=(
+                  (g.Close>g.Open)&(g.prev_close<g.prev_ma5)&(g.Close>g.ma5)
+                  &(g.ma5_slope_1d_pct>0)&(g.pre3_below_ma5_n>=2)
+              )
+              return g
+
+          sessions=sorted(pd.Timestamp(x).normalize() for x in q.Date.unique())
+          latest=sessions[-1]
+          mature_end=sessions[-22]  # D10 search + 10 forward sessions
+          sig_dates=[d for d in sessions if d<=mature_end][-30:]
+          sig_set=set(sig_dates)
+
+          rows=[]
+          pullback_diag=[]
+          H=10
+
+          for code,g0 in q.groupby("Code",sort=False):
+              g=feat(g0)
+              ma5=g["ma5"]
+              amount=pd.to_numeric(g["Amount"],errors="coerce")
+              hits=g.index[g["Date"].isin(sig_set)&g["strict_odoli_r1"].fillna(False)]
+
+              for ii in hits:
+                  i=int(ii)
+                  if i+21>=len(g):continue
+                  name=str(g.iloc[i].get("Name","") or "")
+                  if is_spac(name):continue
+
+                  sig_close=float(g.iloc[i].Close)
+                  sig_low=float(g.iloc[i].Low)
+                  d1_low=float(g.iloc[i+1].Low)
+                  d2_low=float(g.iloc[i+2].Low)
+                  d2_close=float(g.iloc[i+2].Close)
+                  fast=bool(d2_low>d1_low and pd.notna(ma5.iloc[i+2]) and d2_close>float(ma5.iloc[i+2]))
+                  if not fast:continue
+
+                  # D3~D10 pullback diagnostics relative to D2 close.
+                  w=g.iloc[i+3:i+11].copy()
+                  low_min=float(pd.to_numeric(w.Low,errors="coerce").min())
+                  close_min=float(pd.to_numeric(w.Close,errors="coerce").min())
+                  max_intraday_pb=(low_min/d2_close-1)*100
+                  max_close_pb=(close_min/d2_close-1)*100
+                  any_red=bool((w.Close<w.Open).any())
+                  any_close_down=bool((w.Close<w.Close.shift(1)).fillna(False).any())
+                  any_ma5_touch=False
+                  for j in range(i+3,i+11):
+                      if pd.notna(ma5.iloc[j]) and float(g.iloc[j].Low)<=float(ma5.iloc[j])*1.005:
+                          any_ma5_touch=True
+                          break
+
+                  pullback_diag.append({
+                      "signal_date":g.iloc[i].Date,
+                      "code":code,
+                      "name":name,
+                      "d2_close":d2_close,
+                      "max_intraday_pullback_pct_d3_d10":max_intraday_pb,
+                      "max_close_pullback_pct_d3_d10":max_close_pb,
+                      "any_red_candle_d3_d10":any_red,
+                      "any_close_down_d3_d10":any_close_down,
+                      "any_ma5_touch_d3_d10":any_ma5_touch,
+                  })
+
+                  candidates=[]
+
+                  # Baseline: first strictly executable entry after FAST confirmation.
+                  candidates.append(("D3_OPEN_BASELINE", i+3, float(g.iloc[i+3].Open), d2_low))
+
+                  # Candidate A: first MA5 touch + close reclaim in D3~D10.
+                  # Trigger known at close -> execute next session open.
+                  for j in range(i+3,i+11):
+                      if j+1>=len(g):break
+                      if pd.notna(ma5.iloc[j]):
+                          touch=float(g.iloc[j].Low)<=float(ma5.iloc[j])*1.005
+                          reclaim=float(g.iloc[j].Close)>=float(ma5.iloc[j])
+                          if touch and reclaim:
+                              stop=float(g.iloc[j].Low)
+                              candidates.append(("MA5_TOUCH_RECLAIM_NEXT_OPEN",j+1,float(g.iloc[j+1].Open),stop))
+                              break
+
+                  # Candidate B: first pullback day followed by higher-low + up close.
+                  # Trigger known at close -> next open.
+                  for j in range(i+4,i+11):
+                      if j+1>=len(g):break
+                      had_pullback=bool(float(g.iloc[j-1].Close)<float(g.iloc[j-2].Close) or float(g.iloc[j-1].Close)<float(g.iloc[j-1].Open))
+                      higher_low=float(g.iloc[j].Low)>float(g.iloc[j-1].Low)
+                      rebound=float(g.iloc[j].Close)>float(g.iloc[j-1].Close)
+                      if had_pullback and higher_low and rebound:
+                          stop=min(float(g.iloc[j].Low),float(g.iloc[j-1].Low))
+                          candidates.append(("PULLBACK_HIGHER_LOW_NEXT_OPEN",j+1,float(g.iloc[j+1].Open),stop))
+                          break
+
+                  # Candidate C: after at least one D3+ pullback, first close above previous day's high.
+                  for j in range(i+4,i+11):
+                      if j+1>=len(g):break
+                      hist=g.iloc[i+3:j]
+                      had_pullback=bool(len(hist) and ((hist.Close<hist.Open).any() or (hist.Close<d2_close).any()))
+                      breakout=float(g.iloc[j].Close)>float(g.iloc[j-1].High)
+                      if had_pullback and breakout:
+                          lows=pd.to_numeric(g.iloc[max(i+3,j-2):j+1].Low,errors="coerce")
+                          stop=float(lows.min())
+                          candidates.append(("PULLBACK_BREAKOUT_NEXT_OPEN",j+1,float(g.iloc[j+1].Open),stop))
+                          break
+
+                  # Candidate D: first pullback that holds above D2 low, then reclaims D2 close.
+                  for j in range(i+3,i+11):
+                      if j+1>=len(g):break
+                      hist=g.iloc[i+3:j+1]
+                      had_pullback=bool((hist.Low<d2_close).any())
+                      holds_d2=bool(pd.to_numeric(hist.Low,errors="coerce").min()>d2_low)
+                      reclaim=bool(float(g.iloc[j].Close)>=d2_close)
+                      if had_pullback and holds_d2 and reclaim:
+                          stop=float(pd.to_numeric(hist.Low,errors="coerce").min())
+                          candidates.append(("D2_LOW_HOLD_RECLAIM_NEXT_OPEN",j+1,float(g.iloc[j+1].Open),stop))
+                          break
+
+                  seen=set()
+                  for mode,ei,entry,stop in candidates:
+                      if mode in seen:continue
+                      seen.add(mode)
+                      if not np.isfinite(entry) or not np.isfinite(stop) or stop<=0 or stop>=entry:continue
+                      if ei+H>=len(g):continue
+
+                      risk_abs=entry-stop
+                      risk_pct=risk_abs/entry*100
+                      maxr=0.0
+                      stop_hit=False
+                      stop_day=np.nan
+                      for k in range(1,H+1):
+                          b=g.iloc[ei+k]
+                          if float(b.Low)<=stop:
+                              stop_hit=True
+                              stop_day=k
+                              break
+                          maxr=max(maxr,(float(b.High)-entry)/risk_abs)
+
+                      rows.append({
+                          "signal_date":g.iloc[i].Date,
+                          "code":code,
+                          "name":name,
+                          "entry_mode":mode,
+                          "entry_day":ei-i,
+                          "entry_date":g.iloc[ei].Date,
+                          "entry_price":entry,
+                          "entry_vs_d2_close_pct":(entry/d2_close-1)*100,
+                          "stop_price":stop,
+                          "risk_pct":risk_pct,
+                          "d10_stop_hit":stop_hit,
+                          "d10_stop_day":stop_day,
+                          "d10_max_r_before_stop":maxr,
+                          "d10_1R":maxr>=1,
+                          "d10_2R":maxr>=2,
+                          "d10_3R":maxr>=3,
+                          "d10_5R":maxr>=5,
+                          "d10_close_ret_pct":(float(g.iloc[ei+H].Close)/entry-1)*100,
+                      })
+
+          ev=pd.DataFrame(rows)
+          pb=pd.DataFrame(pullback_diag)
+          if ev.empty or pb.empty:raise SystemExit("NO_FAST_PULLBACK_ROWS")
+
+          ev.to_csv(OUT/"entry_events.csv",index=False,encoding="utf-8-sig")
+          pb.to_csv(OUT/"pullback_diagnostics.csv",index=False,encoding="utf-8-sig")
+
+          summary=[]
+          for mode,g in ev.groupby("entry_mode",sort=False):
+              summary.append({
+                  "entry_mode":mode,
+                  "n":len(g),
+                  "entry_day_median":float(g.entry_day.median()),
+                  "entry_vs_d2_close_median_pct":float(g.entry_vs_d2_close_pct.median()),
+                  "risk_pct_median":float(g.risk_pct.median()),
+                  "risk_pct_p25":float(g.risk_pct.quantile(.25)),
+                  "risk_pct_p75":float(g.risk_pct.quantile(.75)),
+                  "stop_rate_pct":float(g.d10_stop_hit.mean()*100),
+                  "1R_rate_pct":float(g.d10_1R.mean()*100),
+                  "2R_rate_pct":float(g.d10_2R.mean()*100),
+                  "3R_rate_pct":float(g.d10_3R.mean()*100),
+                  "5R_rate_pct":float(g.d10_5R.mean()*100),
+                  "max_r_median":float(g.d10_max_r_before_stop.median()),
+                  "d10_close_ret_median_pct":float(g.d10_close_ret_pct.median()),
+              })
+          sm=pd.DataFrame(summary)
+          sm.to_csv(OUT/"entry_summary.csv",index=False,encoding="utf-8-sig")
+
+          pbs={
+              "fast_events":len(pb),
+              "any_red_candle_pct":float(pb.any_red_candle_d3_d10.mean()*100),
+              "any_close_down_pct":float(pb.any_close_down_d3_d10.mean()*100),
+              "any_ma5_touch_pct":float(pb.any_ma5_touch_d3_d10.mean()*100),
+              "intraday_pullback_median_pct":float(pb.max_intraday_pullback_pct_d3_d10.median()),
+              "intraday_pullback_p25_pct":float(pb.max_intraday_pullback_pct_d3_d10.quantile(.25)),
+              "close_pullback_median_pct":float(pb.max_close_pullback_pct_d3_d10.median()),
+          }
+
+          meta={
+              "revision":"ODOLI_FAST_PULLBACK_ENTRY_R1_20261001",
+              "research_only":True,
+              "same_sample_tuning":False,
+              "entry_rule_promoted":False,
+              "stop_rule_promoted":False,
+              "production_changed":False,
+              "fast_observable_at":"D2_CLOSE",
+              "execution_policy":"ALL_PULLBACK_TRIGGERS_EXECUTE_NEXT_SESSION_OPEN",
+              "interpretation_scope":"HISTORICAL_ROBUSTNESS_NOT_TRUE_OOS",
+              "signal_window_start":sig_dates[0].date().isoformat(),
+              "signal_window_end":sig_dates[-1].date().isoformat(),
+              "latest_data_date":latest.date().isoformat(),
+              "same_bar_policy":"STOP_FIRST_CONSERVATIVE",
+              "pullback_stats":pbs,
+          }
+          (OUT/"meta.json").write_text(json.dumps(meta,ensure_ascii=False,indent=2),encoding="utf-8")
+          (OUT/"REPORT.md").write_text(
+              "# ODOLI FAST D3~D10 Pullback Entry Study\n\n"
+              "FAST is frozen at D2 close. This study asks whether waiting for a D3~D10 pullback "
+              "creates a better entry than immediate D3 open.\n\n"
+              "All pullback triggers are recognized only after the trigger-day close and entered "
+              "at the next session open. No rule is promoted from this study.\n\n"
+              "## Pullback frequency\n```\n"+json.dumps(pbs,ensure_ascii=False,indent=2)+"\n```\n\n"
+              "## Entry comparison\n```\n"+sm.to_string(index=False)+"\n```\n",
+              encoding="utf-8"
+          )
+          print("ODOLI_FAST_PULLBACK_ENTRY_PASS")
+          print(json.dumps(meta,ensure_ascii=False))
+          print(sm.to_string(index=False))
+          PY
+
+          python /tmp/fast_pullback.py
+
+      - name: Validate anti-leakage
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,pandas as pd
+          m=json.load(open("reports/temp_odoli_fast_pullback/meta.json",encoding="utf-8"))
+          assert m["fast_observable_at"]=="D2_CLOSE"
+          assert m["execution_policy"]=="ALL_PULLBACK_TRIGGERS_EXECUTE_NEXT_SESSION_OPEN"
+          assert m["same_sample_tuning"] is False
+          assert m["entry_rule_promoted"] is False
+          assert m["stop_rule_promoted"] is False
+          assert m["production_changed"] is False
+          q=pd.read_csv("reports/temp_odoli_fast_pullback/entry_events.csv")
+          assert len(q)>0
+          assert (pd.to_numeric(q["entry_day"],errors="coerce")>=3).all()
+          print("ANTI_LEAKAGE_PASS")
+          PY
+
+      - name: Show report
+        if: always()
+        run: |
+          cat reports/temp_odoli_fast_pullback/meta.json || true
+          echo
+          cat reports/temp_odoli_fast_pullback/REPORT.md || true
+
+      - name: Upload artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: temp-odoli-fast-pullback-entry
+          path: reports/temp_odoli_fast_pullback/**
+          if-no-files-found: error
+          retention-days: 90
