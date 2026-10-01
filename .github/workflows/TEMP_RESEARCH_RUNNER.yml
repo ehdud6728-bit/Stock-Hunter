@@ -1,4 +1,4 @@
-name: TEMP ODOLI MA5 Pullback Anatomy Holdout Study
+name: TEMP ODOLI MA5 Stop Placement Comparison R1
 
 on:
   workflow_dispatch:
@@ -7,7 +7,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: temp-odoli-ma5-pullback-anatomy-holdout
+  group: temp-odoli-ma5-stop-placement-r1
   cancel-in-progress: false
 
 jobs:
@@ -40,20 +40,21 @@ jobs:
           git checkout
           cd ../..
 
-      - name: Run MA5 pullback anatomy and temporal holdout study
+      - name: Run MA5 stop placement comparison
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p reports/temp_odoli_ma5_pullback_anatomy
+          mkdir -p reports/temp_odoli_ma5_stop_compare
 
-          cat >/tmp/ma5_pullback_anatomy.py <<'PY'
+          cat >/tmp/ma5_stop_compare.py <<'PY'
           from pathlib import Path
           import json,re
           import numpy as np
           import pandas as pd
 
-          OUT=Path("reports/temp_odoli_ma5_pullback_anatomy")
+          OUT=Path("reports/temp_odoli_ma5_stop_compare")
           OUT.mkdir(parents=True,exist_ok=True)
+          H=10
 
           def norm_code(v):
               s=re.sub(r"\D","",str(v or ""))
@@ -90,6 +91,7 @@ jobs:
                   +(g.prev3_close<g.prev3_ma5).astype(float)
               )
               g["ma5_slope_1d_pct"]=(g["ma5"]/g["prev_ma5"]-1)*100
+              g["atr14"]=(g["High"]-g["Low"]).rolling(14,min_periods=14).mean()
               g["strict_odoli_r1"]=(
                   (g.Close>g.Open)&(g.prev_close<g.prev_ma5)&(g.Close>g.ma5)
                   &(g.ma5_slope_1d_pct>0)&(g.pre3_below_ma5_n>=2)
@@ -101,18 +103,16 @@ jobs:
           mature_end=sessions[-22]
           sig_dates=[d for d in sessions if d<=mature_end][-40:]
           sig_set=set(sig_dates)
-          split_idx=len(sig_dates)//2
-          train_dates=set(sig_dates[:split_idx])
-          holdout_dates=set(sig_dates[split_idx:])
+          cut=len(sig_dates)//2
+          train_dates=set(sig_dates[:cut])
+          hold_dates=set(sig_dates[cut:])
 
           rows=[]
-          H=10
 
           for code,g0 in q.groupby("Code",sort=False):
               g=feat(g0)
               ma5=g["ma5"]
               amt=pd.to_numeric(g["Amount"],errors="coerce")
-              vol=pd.to_numeric(g["Volume"],errors="coerce")
               hits=g.index[g["Date"].isin(sig_set)&g["strict_odoli_r1"].fillna(False)]
 
               for ii in hits:
@@ -139,34 +139,20 @@ jobs:
                       if touch and reclaim:
                           trig=j
                           break
-                  if trig is None or trig+1+H>=len(g):
-                      continue
+                  if trig is None:continue
 
                   entry_idx=trig+1
+                  if entry_idx+H>=len(g):continue
                   entry=float(g.iloc[entry_idx].Open)
                   if not np.isfinite(entry) or entry<=0:continue
 
                   trigger_low=float(g.iloc[trig].Low)
-                  trigger_close=float(g.iloc[trig].Close)
-                  trigger_open=float(g.iloc[trig].Open)
                   trigger_ma5=float(ma5.iloc[trig])
-
                   depth_vs_ma5_pct=(trigger_low/trigger_ma5-1)*100
-                  close_vs_ma5_pct=(trigger_close/trigger_ma5-1)*100
-                  body_pct=(trigger_close/trigger_open-1)*100 if trigger_open>0 else np.nan
-
-                  pre20_amt=amt.iloc[max(0,trig-20):trig]
-                  avg20_amt=float(pre20_amt.mean()) if len(pre20_amt) else np.nan
-                  amount_ratio20=float(amt.iloc[trig]/avg20_amt) if pd.notna(avg20_amt) and avg20_amt>0 else np.nan
-
-                  pre20_vol=vol.iloc[max(0,trig-20):trig]
-                  avg20_vol=float(pre20_vol.mean()) if len(pre20_vol) else np.nan
-                  volume_ratio20=float(vol.iloc[trig]/avg20_vol) if pd.notna(avg20_vol) and avg20_vol>0 else np.nan
 
                   d2_amt=float(amt.iloc[i+2]) if pd.notna(amt.iloc[i+2]) else np.nan
-                  d2_vol=float(vol.iloc[i+2]) if pd.notna(vol.iloc[i+2]) else np.nan
-                  amount_vs_d2=float(amt.iloc[trig]/d2_amt) if pd.notna(d2_amt) and d2_amt>0 else np.nan
-                  volume_vs_d2=float(vol.iloc[trig]/d2_vol) if pd.notna(d2_vol) and d2_vol>0 else np.nan
+                  trig_amt=float(amt.iloc[trig]) if pd.notna(amt.iloc[trig]) else np.nan
+                  amount_vs_d2=(trig_amt/d2_amt) if pd.notna(d2_amt) and d2_amt>0 and pd.notna(trig_amt) else np.nan
 
                   below_days=0
                   k=trig-1
@@ -175,141 +161,99 @@ jobs:
                       k-=1
                   reclaim_speed=below_days+1
 
-                  hist=g.iloc[i+3:trig+1]
-                  d2_low_survived=bool(pd.to_numeric(hist.Low,errors="coerce").min()>d2_low) if len(hist) else True
-                  signal_low_survived=bool(pd.to_numeric(hist.Low,errors="coerce").min()>=sig_low) if len(hist) else True
+                  focus_combo=bool(
+                      (-3.0 <= depth_vs_ma5_pct < -1.0)
+                      and pd.notna(amount_vs_d2)
+                      and (0.5 < amount_vs_d2 <= 0.8)
+                      and reclaim_speed==1
+                  )
 
                   pre2=g.iloc[max(i+3,trig-1):trig+1]
-                  pre2_low=float(pd.to_numeric(pre2.Low,errors="coerce").min()) if len(pre2) else trigger_low
-                  stop=pre2_low
-                  if not np.isfinite(stop) or stop<=0 or stop>=entry:
-                      continue
+                  pullback_low=float(pd.to_numeric(pre2.Low,errors="coerce").min())
+                  atr=float(g.iloc[trig].atr14) if pd.notna(g.iloc[trig].atr14) else np.nan
 
-                  risk_abs=entry-stop
-                  risk_pct=risk_abs/entry*100
-                  stop_hit=False
-                  stop_day=np.nan
-                  maxr=0.0
-                  for h in range(1,H+1):
-                      b=g.iloc[entry_idx+h]
-                      if float(b.Low)<=stop:
-                          stop_hit=True
-                          stop_day=h
-                          break
-                      maxr=max(maxr,(float(b.High)-entry)/risk_abs)
+                  stops={
+                      "PULLBACK_LOW":pullback_low,
+                      "PULLBACK_LOW_MINUS_1PCT":pullback_low*0.99,
+                      "D2_LOW":d2_low,
+                      "SIGNAL_LOW":sig_low,
+                      "ATR1_BELOW_ENTRY":entry-atr if np.isfinite(atr) else np.nan,
+                  }
 
-                  if depth_vs_ma5_pct>=-1:
-                      depth_bin="SHALLOW_0_TO_-1"
-                  elif depth_vs_ma5_pct>=-3:
-                      depth_bin="MID_-1_TO_-3"
-                  elif depth_vs_ma5_pct>=-5:
-                      depth_bin="DEEP_-3_TO_-5"
-                  else:
-                      depth_bin="VERY_DEEP_BELOW_-5"
+                  for stop_mode,stop in stops.items():
+                      if not np.isfinite(stop) or stop<=0 or stop>=entry:continue
+                      risk_abs=entry-stop
+                      risk_pct=risk_abs/entry*100
 
-                  if pd.isna(amount_vs_d2):
-                      amount_bin="AMOUNT_UNKNOWN"
-                  elif amount_vs_d2<=0.5:
-                      amount_bin="AMOUNT_LE_0_5X_D2"
-                  elif amount_vs_d2<=0.8:
-                      amount_bin="AMOUNT_0_5_TO_0_8X_D2"
-                  elif amount_vs_d2<=1.0:
-                      amount_bin="AMOUNT_0_8_TO_1_0X_D2"
-                  else:
-                      amount_bin="AMOUNT_GT_1_0X_D2"
+                      stop_hit=False
+                      stop_day=np.nan
+                      maxr=0.0
+                      for h in range(1,H+1):
+                          b=g.iloc[entry_idx+h]
+                          if float(b.Low)<=stop:
+                              stop_hit=True
+                              stop_day=h
+                              break
+                          maxr=max(maxr,(float(b.High)-entry)/risk_abs)
 
-                  if reclaim_speed<=1:
-                      speed_bin="RECLAIM_FAST_1D"
-                  elif reclaim_speed==2:
-                      speed_bin="RECLAIM_2D"
-                  else:
-                      speed_bin="RECLAIM_3D_PLUS"
-
-                  rows.append({
-                      "split":split,
-                      "signal_date":sig_date,
-                      "code":code,
-                      "name":name,
-                      "trigger_date":g.iloc[trig].Date,
-                      "entry_date":g.iloc[entry_idx].Date,
-                      "trigger_day":trig-i,
-                      "entry_day":entry_idx-i,
-                      "d2_close":d2_close,
-                      "entry_price":entry,
-                      "entry_vs_d2_close_pct":(entry/d2_close-1)*100,
-                      "depth_vs_ma5_pct":depth_vs_ma5_pct,
-                      "close_vs_ma5_pct":close_vs_ma5_pct,
-                      "trigger_body_pct":body_pct,
-                      "amount_ratio20":amount_ratio20,
-                      "volume_ratio20":volume_ratio20,
-                      "amount_vs_d2":amount_vs_d2,
-                      "volume_vs_d2":volume_vs_d2,
-                      "reclaim_speed_days":reclaim_speed,
-                      "d2_low_survived":d2_low_survived,
-                      "signal_low_survived":signal_low_survived,
-                      "depth_bin":depth_bin,
-                      "amount_bin":amount_bin,
-                      "speed_bin":speed_bin,
-                      "stop_price":stop,
-                      "risk_pct":risk_pct,
-                      "d10_stop_hit":stop_hit,
-                      "d10_stop_day":stop_day,
-                      "d10_max_r_before_stop":maxr,
-                      "d10_1R":maxr>=1,
-                      "d10_2R":maxr>=2,
-                      "d10_3R":maxr>=3,
-                      "d10_5R":maxr>=5,
-                      "d10_close_ret_pct":(float(g.iloc[entry_idx+H].Close)/entry-1)*100,
-                  })
+                      rows.append({
+                          "split":split,
+                          "signal_date":sig_date,
+                          "code":code,
+                          "name":name,
+                          "focus_combo":focus_combo,
+                          "depth_vs_ma5_pct":depth_vs_ma5_pct,
+                          "amount_vs_d2":amount_vs_d2,
+                          "reclaim_speed_days":reclaim_speed,
+                          "entry_day":entry_idx-i,
+                          "entry_price":entry,
+                          "stop_mode":stop_mode,
+                          "stop_price":stop,
+                          "risk_pct":risk_pct,
+                          "d10_stop_hit":stop_hit,
+                          "d10_stop_day":stop_day,
+                          "d10_max_r_before_stop":maxr,
+                          "d10_1R":maxr>=1,
+                          "d10_2R":maxr>=2,
+                          "d10_3R":maxr>=3,
+                          "d10_5R":maxr>=5,
+                          "d10_close_ret_pct":(float(g.iloc[entry_idx+H].Close)/entry-1)*100,
+                      })
 
           ev=pd.DataFrame(rows)
-          if ev.empty:raise SystemExit("NO_MA5_PULLBACK_EVENTS")
+          if ev.empty:raise SystemExit("NO_STOP_COMPARE_ROWS")
           ev.to_csv(OUT/"events.csv",index=False,encoding="utf-8-sig")
 
-          def make_summary(group_cols):
+          def summary(df,label):
               out=[]
-              for keys,g in ev.groupby(group_cols,dropna=False,sort=False):
-                  if not isinstance(keys,tuple):keys=(keys,)
-                  row={c:v for c,v in zip(group_cols,keys)}
-                  row.update({
+              for (split,mode),g in df.groupby(["split","stop_mode"],sort=False):
+                  out.append({
+                      "scope":label,
+                      "split":split,
+                      "stop_mode":mode,
                       "n":len(g),
                       "risk_pct_median":float(g.risk_pct.median()),
+                      "risk_pct_p25":float(g.risk_pct.quantile(.25)),
+                      "risk_pct_p75":float(g.risk_pct.quantile(.75)),
                       "stop_rate_pct":float(g.d10_stop_hit.mean()*100),
+                      "1R_rate_pct":float(g.d10_1R.mean()*100),
                       "2R_rate_pct":float(g.d10_2R.mean()*100),
                       "3R_rate_pct":float(g.d10_3R.mean()*100),
                       "5R_rate_pct":float(g.d10_5R.mean()*100),
                       "max_r_median":float(g.d10_max_r_before_stop.median()),
                       "d10_close_ret_median_pct":float(g.d10_close_ret_pct.median()),
-                      "entry_vs_d2_close_median_pct":float(g.entry_vs_d2_close_pct.median()),
                   })
-                  out.append(row)
               return pd.DataFrame(out)
 
-          s_depth=make_summary(["split","depth_bin"])
-          s_amount=make_summary(["split","amount_bin"])
-          s_speed=make_summary(["split","speed_bin"])
-          s_combo=make_summary(["split","depth_bin","amount_bin","speed_bin"])
+          allsum=summary(ev,"ALL_MA5_RECLAIM")
+          focus=ev[ev.focus_combo.fillna(False)].copy()
+          focsum=summary(focus,"FOCUS_MID_DEPTH_AMOUNT_0_5_0_8_FAST_RECLAIM") if len(focus) else pd.DataFrame()
 
-          s_depth.to_csv(OUT/"summary_depth.csv",index=False,encoding="utf-8-sig")
-          s_amount.to_csv(OUT/"summary_amount.csv",index=False,encoding="utf-8-sig")
-          s_speed.to_csv(OUT/"summary_speed.csv",index=False,encoding="utf-8-sig")
-          s_combo.to_csv(OUT/"summary_combo.csv",index=False,encoding="utf-8-sig")
-
-          train=s_combo[s_combo["split"].eq("TRAIN_EARLY")].copy()
-          hold=s_combo[s_combo["split"].eq("HOLDOUT_LATE")].copy()
-          keys=["depth_bin","amount_bin","speed_bin"]
-          merged=train.merge(hold,on=keys,suffixes=("_train","_hold"))
-          merged=merged[(merged.n_train>=20)&(merged.n_hold>=20)].copy()
-          if len(merged):
-              merged["2R_delta_pp"]=merged["2R_rate_pct_hold"]-merged["2R_rate_pct_train"]
-              merged["3R_delta_pp"]=merged["3R_rate_pct_hold"]-merged["3R_rate_pct_train"]
-              merged["stop_delta_pp"]=merged["stop_rate_pct_hold"]-merged["stop_rate_pct_train"]
-              merged["stable_3R"]=merged["3R_delta_pp"].abs()<=10
-              merged["stable_stop"]=merged["stop_delta_pp"].abs()<=10
-          merged.to_csv(OUT/"temporal_consistency.csv",index=False,encoding="utf-8-sig")
+          res=pd.concat([allsum,focsum],ignore_index=True)
+          res.to_csv(OUT/"summary_stop_compare.csv",index=False,encoding="utf-8-sig")
 
           meta={
-              "revision":"ODOLI_MA5_PULLBACK_ANATOMY_HOLDOUT_R1_20261001",
+              "revision":"ODOLI_MA5_STOP_PLACEMENT_COMPARISON_R1_20261001",
               "research_only":True,
               "same_sample_tuning":False,
               "entry_rule_promoted":False,
@@ -317,80 +261,60 @@ jobs:
               "production_changed":False,
               "fast_observable_at":"D2_CLOSE",
               "entry_execution":"NEXT_SESSION_OPEN_AFTER_MA5_TOUCH_RECLAIM_CLOSE",
+              "stop_modes":["PULLBACK_LOW","PULLBACK_LOW_MINUS_1PCT","D2_LOW","SIGNAL_LOW","ATR1_BELOW_ENTRY"],
               "temporal_split":"EARLY_20_SIGNAL_SESSIONS_VS_LATE_20_SIGNAL_SESSIONS",
-              "interpretation_scope":"TEMPORAL_ROBUSTNESS_SPLIT_NOT_TRUE_PROSPECTIVE_OOS",
-              "signal_window_start":sig_dates[0].date().isoformat(),
-              "signal_window_end":sig_dates[-1].date().isoformat(),
-              "train_signal_sessions":len(train_dates),
-              "holdout_signal_sessions":len(holdout_dates),
-              "events_total":len(ev),
-              "events_train":int((ev["split"]=="TRAIN_EARLY").sum()),
-              "events_holdout":int((ev["split"]=="HOLDOUT_LATE").sum()),
               "same_bar_policy":"STOP_FIRST_CONSERVATIVE",
+              "events_rows":len(ev),
+              "focus_rows":len(focus),
+              "interpretation_scope":"HISTORICAL_TEMPORAL_ROBUSTNESS_NOT_TRUE_PROSPECTIVE_OOS"
           }
           (OUT/"meta.json").write_text(json.dumps(meta,ensure_ascii=False,indent=2),encoding="utf-8")
+          (OUT/"REPORT.md").write_text(
+              "# ODOLI MA5 Stop Placement Comparison R1\n\n"
+              "Same MA5-reclaim entry, five observable stop placements. "
+              "No stop is promoted from this historical study.\n\n"
+              "```\n"+res.to_string(index=False)+"\n```\n",
+              encoding="utf-8"
+          )
 
-          report=[
-              "# ODOLI MA5 Pullback Anatomy + Temporal Holdout R1","",
-              "- FAST frozen at D2 close.",
-              "- Entry only next session open after MA5 touch/reclaim is known at close.",
-              "- Descriptive dimensions: pullback depth, amount contraction vs D2, reclaim speed.",
-              "- Early 20 signal sessions and later 20 signal sessions reported separately.",
-              "- No bin is promoted to a trading rule from this study.","",
-              "## Meta","```",json.dumps(meta,ensure_ascii=False,indent=2),"```","",
-              "## Depth","```",s_depth.to_string(index=False),"```","",
-              "## Amount","```",s_amount.to_string(index=False),"```","",
-              "## Reclaim speed","```",s_speed.to_string(index=False),"```","",
-              "## Temporal consistency (n>=20 each side)","```",
-              (merged.to_string(index=False) if len(merged) else "NO_COMBO_WITH_N>=20_BOTH_HALVES"),
-              "```"
-          ]
-          (OUT/"REPORT.md").write_text("\n".join(report),encoding="utf-8")
-
-          print("ODOLI_MA5_PULLBACK_ANATOMY_HOLDOUT_PASS")
+          print("ODOLI_MA5_STOP_PLACEMENT_COMPARISON_PASS")
           print(json.dumps(meta,ensure_ascii=False))
-          print("DEPTH")
-          print(s_depth.to_string(index=False))
-          print("AMOUNT")
-          print(s_amount.to_string(index=False))
-          print("SPEED")
-          print(s_speed.to_string(index=False))
+          print(res.to_string(index=False))
           PY
 
-          python /tmp/ma5_pullback_anatomy.py
+          python /tmp/ma5_stop_compare.py
 
-      - name: Validate anti-leakage and no-promotion
+      - name: Validate new study identity and anti-leakage
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
           import json,pandas as pd
-          m=json.load(open("reports/temp_odoli_ma5_pullback_anatomy/meta.json",encoding="utf-8"))
-          assert m["fast_observable_at"]=="D2_CLOSE"
-          assert m["entry_execution"]=="NEXT_SESSION_OPEN_AFTER_MA5_TOUCH_RECLAIM_CLOSE"
+          m=json.load(open("reports/temp_odoli_ma5_stop_compare/meta.json",encoding="utf-8"))
+          assert m["revision"]=="ODOLI_MA5_STOP_PLACEMENT_COMPARISON_R1_20261001"
+          assert len(m["stop_modes"])==5
           assert m["same_sample_tuning"] is False
           assert m["entry_rule_promoted"] is False
           assert m["stop_rule_promoted"] is False
           assert m["production_changed"] is False
-          q=pd.read_csv("reports/temp_odoli_ma5_pullback_anatomy/events.csv")
+          q=pd.read_csv("reports/temp_odoli_ma5_stop_compare/events.csv")
           assert len(q)>0
-          assert set(q["split"].unique()).issubset({"TRAIN_EARLY","HOLDOUT_LATE"})
-          assert (pd.to_numeric(q["entry_day"],errors="coerce")>=4).all()
-          print("ODOLI_MA5_PULLBACK_ANTI_LEAKAGE_PASS")
+          assert set(q["stop_mode"].unique()).issubset(set(m["stop_modes"]))
+          print("NEW_STUDY_IDENTITY_AND_ANTI_LEAKAGE_PASS")
           PY
 
       - name: Show report
         if: always()
         run: |
-          cat reports/temp_odoli_ma5_pullback_anatomy/meta.json || true
+          cat reports/temp_odoli_ma5_stop_compare/meta.json || true
           echo
-          cat reports/temp_odoli_ma5_pullback_anatomy/REPORT.md || true
+          cat reports/temp_odoli_ma5_stop_compare/REPORT.md || true
 
       - name: Upload artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: temp-odoli-ma5-pullback-anatomy-holdout
-          path: reports/temp_odoli_ma5_pullback_anatomy/**
+          name: temp-odoli-ma5-stop-placement-comparison-r1
+          path: reports/temp_odoli_ma5_stop_compare/**
           if-no-files-found: error
           retention-days: 90
