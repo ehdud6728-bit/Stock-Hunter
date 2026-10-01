@@ -1,4 +1,4 @@
-name: TEMP ODOLI Shakeout Core Combos R1
+name: TEMP ODOLI Shakeout Market Sector Regime R1
 
 on:
   workflow_dispatch:
@@ -7,13 +7,13 @@ permissions:
   contents: read
 
 concurrency:
-  group: temp-odoli-shakeout-core-combos-r1
+  group: temp-odoli-shakeout-market-sector-regime-r1
   cancel-in-progress: false
 
 jobs:
   study:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 50
 
     steps:
       - uses: actions/checkout@v4
@@ -24,6 +24,19 @@ jobs:
 
       - name: Install dependencies
         run: pip install pandas numpy pyarrow
+
+      - name: Restore V73 market-sector research state if available
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            reports/v73_market_sector_context_ledger.csv
+            reports/v73_market_sector_context_coverage.csv
+            reports/v73_daily_sector_regime.csv
+            reports/v73_sector_tape_snapshot.csv
+          key: stockhunter-v73-state-${{ github.ref_name }}-${{ github.run_id }}
+          restore-keys: |
+            stockhunter-v73-state-${{ github.ref_name }}-
+            stockhunter-v73-state-
 
       - name: Fetch marcap history
         shell: bash
@@ -39,19 +52,19 @@ jobs:
           git checkout
           cd ../..
 
-      - name: Run core combo study
+      - name: Run market-sector regime study
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p reports/temp_odoli_shakeout_core_combos
+          mkdir -p reports/temp_odoli_market_sector_regime
 
-          cat >/tmp/core_combo.py <<'PY'
+          cat >/tmp/study.py <<'PY'
           from pathlib import Path
           import json,re
           import numpy as np
           import pandas as pd
 
-          OUT=Path("reports/temp_odoli_shakeout_core_combos")
+          OUT=Path("reports/temp_odoli_market_sector_regime")
           OUT.mkdir(parents=True,exist_ok=True)
           H=10
 
@@ -68,12 +81,61 @@ jobs:
           q["Date"]=pd.to_datetime(q["Date"],errors="coerce").dt.normalize()
           q["Code"]=q["Code"].map(norm_code)
           if "Market" in q.columns:
-              q=q[q["Market"].astype(str).str.upper().isin(["KOSPI","KOSDAQ"])]
+              q["Market"]=q["Market"].astype(str).str.upper()
+              q=q[q.Market.isin(["KOSPI","KOSDAQ"])]
+          else:
+              q["Market"]="UNKNOWN"
           for c in ["Open","High","Low","Close","Volume","Amount"]:
               q[c]=pd.to_numeric(q[c],errors="coerce")
           q=q.dropna(subset=["Date","Code","Open","High","Low","Close"])
           q=q[(q.Open>0)&(q.High>0)&(q.Low>0)&(q.Close>0)]
           q=q.sort_values(["Code","Date"]).drop_duplicates(["Code","Date"],keep="last")
+
+          # Causal per-stock daily returns for market breadth.
+          q["ret1"]=q.groupby("Code").Close.pct_change()*100
+          q["ret5"]=q.groupby("Code").Close.pct_change(5)*100
+
+          # Market context computed only from same/past date information.
+          daily=[]
+          for (m,d),g in q.groupby(["Market","Date"],sort=True):
+              good=g[g.ret1.notna()]
+              amt=pd.to_numeric(g.Amount,errors="coerce")
+              daily.append({
+                  "Market":m,"Date":d,
+                  "market_median_ret1":float(g.ret1.median()),
+                  "market_median_ret5":float(g.ret5.median()),
+                  "market_up_ratio_pct":float((good.ret1>0).mean()*100) if len(good) else np.nan,
+                  "market_down_ratio_pct":float((good.ret1<0).mean()*100) if len(good) else np.nan,
+                  "market_amount_sum":float(amt.sum(min_count=1)),
+              })
+          md=pd.DataFrame(daily).sort_values(["Market","Date"])
+          md["market_amount_ma5"]=md.groupby("Market").market_amount_sum.transform(lambda s:s.shift(1).rolling(5,min_periods=3).mean())
+          md["market_amount_ratio5"]=md.market_amount_sum/md.market_amount_ma5
+          md["market_breadth_ma3"]=md.groupby("Market").market_up_ratio_pct.transform(lambda s:s.rolling(3,min_periods=1).mean())
+
+          def market_regime(r):
+              r5=r.market_median_ret5
+              br=r.market_breadth_ma3
+              if pd.isna(r5) or pd.isna(br):return "UNKNOWN"
+              if r5>=2 and br>=55:return "BULL"
+              if r5<=-2 and br<=45:return "BEAR"
+              if r5>0 and br<50:return "NARROW_UP"
+              if r5<0 and br>50:return "BROAD_RECOVERY"
+              return "NEUTRAL"
+          md["market_regime"]=md.apply(market_regime,axis=1)
+
+          # Optional pre-existing causal sector ledger.
+          sector_path=Path("reports/v73_market_sector_context_ledger.csv")
+          sector=pd.DataFrame()
+          if sector_path.exists():
+              try:
+                  sector=pd.read_csv(sector_path,low_memory=False)
+                  if "code" in sector.columns:sector["code"]=sector["code"].map(norm_code)
+                  if "signal_date" in sector.columns:sector["signal_date"]=pd.to_datetime(sector["signal_date"],errors="coerce").dt.normalize()
+                  if "causal_mode" in sector.columns:
+                      sector=sector[sector.causal_mode.astype(str).isin(["FORWARD_CAUSAL","OFFICIAL_ARCHIVE_CAUSAL"])]
+              except Exception:
+                  sector=pd.DataFrame()
 
           def feat(g):
               g=g.sort_values("Date").reset_index(drop=True).copy()
@@ -82,16 +144,9 @@ jobs:
               g["prev_close"]=c.shift(1); g["prev_ma5"]=g.ma5.shift(1)
               g["prev2_close"]=c.shift(2); g["prev2_ma5"]=g.ma5.shift(2)
               g["prev3_close"]=c.shift(3); g["prev3_ma5"]=g.ma5.shift(3)
-              g["pre3_below_ma5_n"]=(
-                  (g.prev_close<g.prev_ma5).astype(float)
-                  +(g.prev2_close<g.prev2_ma5).astype(float)
-                  +(g.prev3_close<g.prev3_ma5).astype(float)
-              )
+              g["pre3_below_ma5_n"]=((g.prev_close<g.prev_ma5).astype(float)+(g.prev2_close<g.prev2_ma5).astype(float)+(g.prev3_close<g.prev3_ma5).astype(float))
               g["ma5_slope_1d_pct"]=(g.ma5/g.prev_ma5-1)*100
-              g["strict_odoli_r1"]=(
-                  (g.Close>g.Open)&(g.prev_close<g.prev_ma5)&(g.Close>g.ma5)
-                  &(g.ma5_slope_1d_pct>0)&(g.pre3_below_ma5_n>=2)
-              )
+              g["strict_odoli_r1"]=((g.Close>g.Open)&(g.prev_close<g.prev_ma5)&(g.Close>g.ma5)&(g.ma5_slope_1d_pct>0)&(g.pre3_below_ma5_n>=2))
               return g
 
           sessions=sorted(pd.Timestamp(x).normalize() for x in q.Date.unique())
@@ -101,26 +156,22 @@ jobs:
           cut=len(sig_dates)//2
           train=set(sig_dates[:cut]); hold=set(sig_dates[cut:])
 
+          md_lookup={(r.Market,pd.Timestamp(r.Date)):r for r in md.itertuples(index=False)}
           rows=[]
-          for code,g0 in q.groupby("Code",sort=False):
-              g=feat(g0); ma5=g.ma5
-              amt=pd.to_numeric(g.Amount,errors="coerce")
-              hits=g.index[g.Date.isin(sig_set)&g.strict_odoli_r1.fillna(False)]
 
+          for code,g0 in q.groupby("Code",sort=False):
+              g=feat(g0); ma5=g.ma5; amt=pd.to_numeric(g.Amount,errors="coerce")
+              hits=g.index[g.Date.isin(sig_set)&g.strict_odoli_r1.fillna(False)]
               for ii in hits:
                   i=int(ii)
                   if i+21>=len(g):continue
                   name=str(g.iloc[i].get("Name","") or "")
                   if is_spac(name):continue
-
+                  market=str(g.iloc[i].get("Market","UNKNOWN"))
                   sig_date=pd.Timestamp(g.iloc[i].Date)
                   split="TRAIN_EARLY" if sig_date in train else "HOLDOUT_LATE"
-                  sig_low=float(g.iloc[i].Low)
-                  d1_low=float(g.iloc[i+1].Low)
-                  d2_low=float(g.iloc[i+2].Low)
-                  d2_close=float(g.iloc[i+2].Close)
-                  if not (d2_low>d1_low and pd.notna(ma5.iloc[i+2]) and d2_close>float(ma5.iloc[i+2])):
-                      continue
+                  d1_low=float(g.iloc[i+1].Low); d2_low=float(g.iloc[i+2].Low); d2_close=float(g.iloc[i+2].Close)
+                  if not (d2_low>d1_low and pd.notna(ma5.iloc[i+2]) and d2_close>float(ma5.iloc[i+2])):continue
 
                   trig=None
                   for j in range(i+3,i+11):
@@ -130,119 +181,160 @@ jobs:
                   if trig is None:continue
                   entry_idx=trig+1
                   if entry_idx+H>=len(g):continue
-
                   pre2=g.iloc[max(i+3,trig-1):trig+1]
-                  pullback_low=float(pd.to_numeric(pre2.Low,errors="coerce").min())
-                  if not np.isfinite(pullback_low) or pullback_low<=0:continue
+                  pb=float(pd.to_numeric(pre2.Low,errors="coerce").min())
+                  if not np.isfinite(pb) or pb<=0:continue
 
-                  break_idx=None
+                  bi=None
                   for j in range(entry_idx+1,entry_idx+H+1):
-                      if float(g.iloc[j].Low)<=pullback_low:
-                          break_idx=j;break
-                  if break_idx is None or break_idx+H>=len(g):continue
+                      if float(g.iloc[j].Low)<=pb:bi=j;break
+                  if bi is None or bi+H>=len(g):continue
 
-                  b=g.iloc[break_idx]
-                  bclose=float(b.Close)
-                  a20=amt.iloc[max(0,break_idx-20):break_idx]
-                  ar20=float(amt.iloc[break_idx]/a20.mean()) if len(a20) and pd.notna(a20.mean()) and a20.mean()>0 else np.nan
+                  b=g.iloc[bi]; bdate=pd.Timestamp(b.Date); bclose=float(b.Close)
+                  a20=amt.iloc[max(0,bi-20):bi]
+                  ar20=float(amt.iloc[bi]/a20.mean()) if len(a20) and pd.notna(a20.mean()) and a20.mean()>0 else np.nan
+                  d1=g.iloc[bi+1]; d2=g.iloc[bi+2]; d3=g.iloc[bi+3]
+                  d1hl=bool(float(d1.Low)>float(b.Low))
+                  d2rec=bool(float(d2.Close)>pb)
+                  d3rec=bool(float(d3.Close)>pb)
 
-                  d1=g.iloc[break_idx+1]
-                  d2=g.iloc[break_idx+2]
-                  d3=g.iloc[break_idx+3]
+                  combo1=bool(pd.notna(ar20) and ar20<=0.5 and (d2rec or d3rec))
+                  combo2=bool(pd.notna(ar20) and ar20<=0.8 and d1hl and d3rec)
+                  combo3=bool(pd.notna(ar20) and ar20>=0.8 and (not d2rec) and (not d3rec))
 
-                  d1_hl=bool(float(d1.Low)>float(b.Low))
-                  d2_reclaim=bool(float(d2.Close)>pullback_low)
-                  d3_reclaim=bool(float(d3.Close)>pullback_low)
+                  mr=md_lookup.get((market,bdate))
+                  mreg=getattr(mr,"market_regime","UNKNOWN") if mr is not None else "UNKNOWN"
+                  mret5=getattr(mr,"market_median_ret5",np.nan) if mr is not None else np.nan
+                  mbreadth=getattr(mr,"market_breadth_ma3",np.nan) if mr is not None else np.nan
+                  mamtr=getattr(mr,"market_amount_ratio5",np.nan) if mr is not None else np.nan
 
-                  combo1=bool(pd.notna(ar20) and ar20<=0.5 and (d2_reclaim or d3_reclaim))
-                  combo2=bool(pd.notna(ar20) and ar20<=0.8 and d1_hl and d3_reclaim)
-                  combo3=bool(pd.notna(ar20) and ar20>=0.8 and (not d2_reclaim) and (not d3_reclaim))
+                  sec_name="UNAVAILABLE"; sec_ret5=np.nan; sec_positive=np.nan; sec_source="UNAVAILABLE"
+                  if not sector.empty and {"code","signal_date"}.issubset(sector.columns):
+                      z=sector[(sector.code==code)&sector.signal_date.notna()&(sector.signal_date<=bdate)].sort_values("signal_date")
+                      if len(z):
+                          sr=z.iloc[-1]
+                          age=(bdate-pd.Timestamp(sr.signal_date)).days
+                          if age<=10:
+                              sec_name=str(sr.get("sector","") or "UNKNOWN")
+                              sec_ret5=pd.to_numeric(pd.Series([sr.get("sector_return_5d")]),errors="coerce").iloc[0]
+                              sec_positive=sr.get("sector_positive",np.nan)
+                              sec_source=str(sr.get("source_name","V73_LEDGER"))
+                          else:
+                              sec_name="STALE_GT10D"
 
-                  fut=g.iloc[break_idx+1:break_idx+H+1]
-                  fhigh=float(pd.to_numeric(fut.High,errors="coerce").max())
-                  flow=float(pd.to_numeric(fut.Low,errors="coerce").min())
-                  fclose=float(fut.iloc[-1].Close)
-                  mfe=(fhigh/bclose-1)*100
-                  mae=(flow/bclose-1)*100
-                  cret=(fclose/bclose-1)*100
+                  fut=g.iloc[bi+1:bi+H+1]
+                  fh=float(pd.to_numeric(fut.High,errors="coerce").max())
+                  fl=float(pd.to_numeric(fut.Low,errors="coerce").min())
+                  fc=float(fut.iloc[-1].Close)
+                  mfe=(fh/bclose-1)*100; mae=(fl/bclose-1)*100; cret=(fc/bclose-1)*100
 
                   rows.append({
-                      "split":split,"signal_date":sig_date,"code":code,"name":name,
-                      "break_date":b.Date,"amount_ratio20":ar20,
-                      "d1_higher_low":d1_hl,"d2_reclaim":d2_reclaim,"d3_reclaim":d3_reclaim,
-                      "combo1_amt_le05_reclaim_d2or3":combo1,
-                      "combo2_amt_le08_d1hl_d3reclaim":combo2,
-                      "combo3_amt_ge08_no_reclaim_d2d3":combo3,
+                      "split":split,"code":code,"name":name,"market":market,"break_date":bdate,
+                      "amount_ratio20":ar20,"d1_higher_low":d1hl,"d2_reclaim":d2rec,"d3_reclaim":d3rec,
+                      "combo1":combo1,"combo2":combo2,"combo3":combo3,
+                      "market_regime":mreg,"market_median_ret5":mret5,"market_breadth_ma3":mbreadth,"market_amount_ratio5":mamtr,
+                      "sector":sec_name,"sector_return_5d":sec_ret5,"sector_positive":sec_positive,"sector_source":sec_source,
                       "future_mfe_pct":mfe,"future_mae_pct":mae,"future_close_ret_pct":cret,
                       "plus5":mfe>=5,"plus10":mfe>=10,"plus15":mfe>=15
                   })
 
           ev=pd.DataFrame(rows)
-          if ev.empty:raise SystemExit("NO_CORE_COMBO_ROWS")
+          if ev.empty:raise SystemExit("NO_ROWS")
           ev.to_csv(OUT/"events.csv",index=False,encoding="utf-8-sig")
 
-          combos=[
-              ("COMBO1_AMT_LE05_RECLAIM_D2_OR_D3","combo1_amt_le05_reclaim_d2or3"),
-              ("COMBO2_AMT_LE08_D1_HL_D3_RECLAIM","combo2_amt_le08_d1hl_d3reclaim"),
-              ("COMBO3_AMT_GE08_NO_RECLAIM_D2_D3","combo3_amt_ge08_no_reclaim_d2d3"),
-          ]
+          def summarize(cols):
+              out=[]
+              for keys,g in ev.groupby(cols,dropna=False,sort=False):
+                  if not isinstance(keys,tuple):keys=(keys,)
+                  r={c:v for c,v in zip(cols,keys)}
+                  r.update({
+                      "n":len(g),"plus5_rate_pct":g.plus5.mean()*100,
+                      "plus10_rate_pct":g.plus10.mean()*100,"plus15_rate_pct":g.plus15.mean()*100,
+                      "mfe_median_pct":g.future_mfe_pct.median(),"mae_median_pct":g.future_mae_pct.median(),
+                      "close_ret_median_pct":g.future_close_ret_pct.median()
+                  })
+                  out.append(r)
+              return pd.DataFrame(out)
 
-          out=[]
-          for split,g0 in ev.groupby("split"):
-              for label,col in combos:
-                  for flag in [True,False]:
-                      g=g0[g0[col].eq(flag)]
-                      if not len(g):continue
+          long=[]
+          for label,col in [("COMBO1", "combo1"),("COMBO2","combo2"),("COMBO3","combo3")]:
+              z=ev[ev[col]]
+              if len(z):
+                  s=summarize(["split","market_regime"])
+                  # summary above includes all events, so filter directly for combo
+                  out=[]
+                  for keys,g in z.groupby(["split","market_regime"],dropna=False):
+                      if not isinstance(keys,tuple):keys=(keys,)
                       out.append({
-                          "split":split,"combo":label,"match":flag,"n":len(g),
-                          "plus5_rate_pct":g.plus5.mean()*100,
-                          "plus10_rate_pct":g.plus10.mean()*100,
-                          "plus15_rate_pct":g.plus15.mean()*100,
-                          "mfe_median_pct":g.future_mfe_pct.median(),
-                          "mae_median_pct":g.future_mae_pct.median(),
-                          "close_ret_median_pct":g.future_close_ret_pct.median(),
-                          "amount_ratio20_median":g.amount_ratio20.median(),
+                          "combo":label,"split":keys[0],"market_regime":keys[1],"n":len(g),
+                          "plus5_rate_pct":g.plus5.mean()*100,"plus10_rate_pct":g.plus10.mean()*100,
+                          "plus15_rate_pct":g.plus15.mean()*100,"mfe_median_pct":g.future_mfe_pct.median(),
+                          "mae_median_pct":g.future_mae_pct.median(),"close_ret_median_pct":g.future_close_ret_pct.median()
                       })
-          s=pd.DataFrame(out)
-          s.to_csv(OUT/"summary_core_combos.csv",index=False,encoding="utf-8-sig")
+                  long.extend(out)
+          sr=pd.DataFrame(long)
+          sr.to_csv(OUT/"summary_combo_market_regime.csv",index=False,encoding="utf-8-sig")
 
-          # Train vs holdout deltas for matched=True only.
-          t=s[s["match"].eq(True)&s["split"].eq("TRAIN_EARLY")]
-          h=s[s["match"].eq(True)&s["split"].eq("HOLDOUT_LATE")]
-          c=t.merge(h,on="combo",suffixes=("_train","_hold"))
-          if len(c):
-              c["plus10_delta_pp"]=c.plus10_rate_pct_hold-c.plus10_rate_pct_train
-              c["plus15_delta_pp"]=c.plus15_rate_pct_hold-c.plus15_rate_pct_train
-              c["close_ret_delta_pp"]=c.close_ret_median_pct_hold-c.close_ret_median_pct_train
-          c.to_csv(OUT/"temporal_consistency.csv",index=False,encoding="utf-8-sig")
+          # Market context bins independent of hand labels.
+          ev["market_ret5_bin"]=pd.cut(ev.market_median_ret5,[-np.inf,-2,0,2,np.inf],labels=["LE_-2","-2_TO_0","0_TO_2","GT_2"])
+          ev["breadth_bin"]=pd.cut(ev.market_breadth_ma3,[-np.inf,40,50,60,np.inf],labels=["LE_40","40_TO_50","50_TO_60","GT_60"])
+          sret=summarize(["split","market_ret5_bin"])
+          sb=summarize(["split","breadth_bin"])
+          sret.to_csv(OUT/"summary_market_ret5.csv",index=False,encoding="utf-8-sig")
+          sb.to_csv(OUT/"summary_market_breadth.csv",index=False,encoding="utf-8-sig")
+
+          # Sector coverage and descriptive summary only where causal ledger exists.
+          coverage=float((~ev.sector.isin(["UNAVAILABLE","STALE_GT10D"])).mean()*100)
+          sec_ev=ev[~ev.sector.isin(["UNAVAILABLE","STALE_GT10D"])].copy()
+          if len(sec_ev):
+              sec_ev["sector_ret5_bin"]=pd.cut(pd.to_numeric(sec_ev.sector_return_5d,errors="coerce"),[-np.inf,0,3,np.inf],labels=["SECTOR_NEG","SECTOR_0_TO_3","SECTOR_GT3"])
+              ss=summarize(["split","sector_ret5_bin"]) if "sector_ret5_bin" in ev.columns else pd.DataFrame()
+              # summarize on sec_ev explicitly
+              out=[]
+              for keys,g in sec_ev.groupby(["split","sector_ret5_bin"],dropna=False):
+                  if not isinstance(keys,tuple):keys=(keys,)
+                  out.append({"split":keys[0],"sector_ret5_bin":keys[1],"n":len(g),
+                              "plus10_rate_pct":g.plus10.mean()*100,"plus15_rate_pct":g.plus15.mean()*100,
+                              "close_ret_median_pct":g.future_close_ret_pct.median()})
+              pd.DataFrame(out).to_csv(OUT/"summary_sector_context.csv",index=False,encoding="utf-8-sig")
+          else:
+              pd.DataFrame(columns=["split","sector_ret5_bin","n","plus10_rate_pct","plus15_rate_pct","close_ret_median_pct"]).to_csv(OUT/"summary_sector_context.csv",index=False)
+
+          # Focus on why Combo3 flipped across time: market regime composition and within-regime results.
+          c3=ev[ev.combo3].copy()
+          c3comp=c3.groupby(["split","market_regime"],dropna=False).agg(
+              n=("code","size"),plus10_rate_pct=("plus10","mean"),plus15_rate_pct=("plus15","mean"),
+              close_ret_median_pct=("future_close_ret_pct","median"),
+              market_ret5_median=("market_median_ret5","median"),breadth_median=("market_breadth_ma3","median")
+          ).reset_index()
+          c3comp["plus10_rate_pct"]*=100;c3comp["plus15_rate_pct"]*=100
+          c3comp.to_csv(OUT/"combo3_flip_diagnostic.csv",index=False,encoding="utf-8-sig")
 
           meta={
-              "revision":"ODOLI_SHAKEOUT_CORE_COMBOS_R1_20261001",
-              "research_only":True,
-              "same_sample_tuning":False,
-              "rule_promoted":False,
-              "production_changed":False,
-              "auto_ordering":False,
-              "combos_predeclared":[x[0] for x in combos],
-              "outcome":"FORWARD_10_SESSION_ABSOLUTE_MFE_PLUS5_PLUS10_PLUS15",
-              "scope":"HISTORICAL_TEMPORAL_ROBUSTNESS_NOT_TRUE_PROSPECTIVE_OOS",
+              "revision":"ODOLI_SHAKEOUT_MARKET_SECTOR_REGIME_R1_20261002",
+              "research_only":True,"same_sample_tuning":False,"rule_promoted":False,
+              "production_changed":False,"auto_ordering":False,
+              "combo_definitions_frozen":True,
+              "market_context":"CAUSAL_MARCAP_SAME_AND_PAST_DATE_ONLY",
+              "sector_context":"OPTIONAL_PREEXISTING_V73_CAUSAL_LEDGER_ONLY",
+              "sector_coverage_pct":coverage,
               "event_rows":len(ev),
+              "scope":"HISTORICAL_CONTEXT_DIAGNOSTIC_NOT_TRUE_PROSPECTIVE_OOS"
           }
           (OUT/"meta.json").write_text(json.dumps(meta,ensure_ascii=False,indent=2),encoding="utf-8")
           (OUT/"REPORT.md").write_text(
-              "# ODOLI Shakeout Core Combos R1\n\n```text\n"+s.to_string(index=False)+
-              "\n```\n\n## Temporal consistency\n```text\n"+
-              (c.to_string(index=False) if len(c) else "NO_MATCHED_COMBOS")+"\n```\n",
+              "# ODOLI Shakeout Market/Sector Regime R1\n\n```json\n"+json.dumps(meta,ensure_ascii=False,indent=2)+
+              "\n```\n\n## Combo x Market regime\n```text\n"+sr.to_string(index=False)+
+              "\n```\n\n## Combo3 flip diagnostic\n```text\n"+c3comp.to_string(index=False)+"\n```\n",
               encoding="utf-8"
           )
-
-          print("ODOLI_SHAKEOUT_CORE_COMBOS_PASS")
+          print("ODOLI_SHAKEOUT_MARKET_SECTOR_REGIME_PASS")
           print(json.dumps(meta,ensure_ascii=False))
-          print(s.to_string(index=False))
-          print(c.to_string(index=False))
+          print(sr.to_string(index=False))
+          print(c3comp.to_string(index=False))
           PY
 
-          python /tmp/core_combo.py
+          python /tmp/study.py
 
       - name: Validate research identity and anti-leakage
         shell: bash
@@ -250,29 +342,30 @@ jobs:
           set -euo pipefail
           python - <<'PY'
           import json,pandas as pd
-          m=json.load(open("reports/temp_odoli_shakeout_core_combos/meta.json",encoding="utf-8"))
-          assert m["revision"]=="ODOLI_SHAKEOUT_CORE_COMBOS_R1_20261001"
+          m=json.load(open("reports/temp_odoli_market_sector_regime/meta.json",encoding="utf-8"))
+          assert m["revision"]=="ODOLI_SHAKEOUT_MARKET_SECTOR_REGIME_R1_20261002"
           assert m["research_only"] is True
           assert m["same_sample_tuning"] is False
           assert m["rule_promoted"] is False
           assert m["production_changed"] is False
-          q=pd.read_csv("reports/temp_odoli_shakeout_core_combos/events.csv")
+          assert m["combo_definitions_frozen"] is True
+          q=pd.read_csv("reports/temp_odoli_market_sector_regime/events.csv")
           assert len(q)>0
-          print("SHAKEOUT_CORE_COMBOS_ANTI_LEAKAGE_PASS")
+          print("MARKET_SECTOR_REGIME_ANTI_LEAKAGE_PASS")
           PY
 
       - name: Show report
         if: always()
         run: |
-          cat reports/temp_odoli_shakeout_core_combos/meta.json || true
+          cat reports/temp_odoli_market_sector_regime/meta.json || true
           echo
-          cat reports/temp_odoli_shakeout_core_combos/REPORT.md || true
+          cat reports/temp_odoli_market_sector_regime/REPORT.md || true
 
       - name: Upload artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: temp-odoli-shakeout-core-combos-r1
-          path: reports/temp_odoli_shakeout_core_combos/**
+          name: temp-odoli-shakeout-market-sector-regime-r1
+          path: reports/temp_odoli_market_sector_regime/**
           if-no-files-found: error
           retention-days: 90
