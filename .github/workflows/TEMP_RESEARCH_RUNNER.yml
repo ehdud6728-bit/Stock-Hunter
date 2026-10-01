@@ -1,4 +1,4 @@
-name: TEMP ODOLI MA5 Stop Placement Comparison R1
+name: TEMP ODOLI KEEP WATCH CUT State Study R1
 
 on:
   workflow_dispatch:
@@ -7,7 +7,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: temp-odoli-ma5-stop-placement-r1
+  group: temp-odoli-keep-watch-cut-state-r1
   cancel-in-progress: false
 
 jobs:
@@ -25,14 +25,31 @@ jobs:
       - name: Install dependencies
         run: pip install pandas numpy pyarrow
 
+      - name: Restore existing catalyst research state if available
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            reports/v73_catalyst_source_ledger.csv
+            reports/v73_news_source_ledger.csv
+            reports/v73_official_disclosure_ledger.csv
+            reports/v73_global_catalyst_ledger.csv
+            reports/v73_sequence_context_catalyst_join.csv
+            reports/v73_sequence_context_catalyst_readiness.csv
+            reports/v73_market_sector_context_ledger.csv
+            reports/v73_market_sector_context_coverage.csv
+            reports/catalyst_raw
+          key: stockhunter-v73-state-${{ github.ref_name }}-${{ github.run_id }}
+          restore-keys: |
+            stockhunter-v73-state-${{ github.ref_name }}-
+            stockhunter-v73-state-
+
       - name: Fetch marcap history
         shell: bash
         run: |
           set -euo pipefail
           rm -rf vendor/marcap
           mkdir -p vendor
-          git clone --depth 1 --filter=blob:none --no-checkout \
-            https://github.com/FinanceData/marcap.git vendor/marcap
+          git clone --depth 1 --filter=blob:none --no-checkout https://github.com/FinanceData/marcap.git vendor/marcap
           cd vendor/marcap
           git sparse-checkout init --no-cone
           printf '%s\n' 'data/marcap-2026.parquet' >/tmp/marcap_paths.txt
@@ -40,19 +57,18 @@ jobs:
           git checkout
           cd ../..
 
-      - name: Run MA5 stop placement comparison
+      - name: Run KEEP WATCH CUT state study
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p reports/temp_odoli_ma5_stop_compare
-
-          cat >/tmp/ma5_stop_compare.py <<'PY'
+          mkdir -p reports/temp_odoli_keep_watch_cut
+          cat >/tmp/keep_watch_cut.py <<'PY'
           from pathlib import Path
           import json,re
           import numpy as np
           import pandas as pd
 
-          OUT=Path("reports/temp_odoli_ma5_stop_compare")
+          OUT=Path("reports/temp_odoli_keep_watch_cut")
           OUT.mkdir(parents=True,exist_ok=True)
           H=10
 
@@ -68,253 +84,206 @@ jobs:
           if "Date" not in q.columns:q=q.reset_index()
           q["Date"]=pd.to_datetime(q["Date"],errors="coerce").dt.normalize()
           q["Code"]=q["Code"].map(norm_code)
-          if "Market" in q.columns:
-              q=q[q["Market"].astype(str).str.upper().isin(["KOSPI","KOSDAQ"])]
+          if "Market" in q.columns:q=q[q["Market"].astype(str).str.upper().isin(["KOSPI","KOSDAQ"])]
           for c in ["Open","High","Low","Close","Volume","Amount"]:
               q[c]=pd.to_numeric(q[c],errors="coerce")
-          q=q.dropna(subset=["Date","Code","Open","High","Low","Close"])
-          q=q.sort_values(["Code","Date"]).drop_duplicates(["Code","Date"],keep="last")
+          q=q.dropna(subset=["Date","Code","Open","High","Low","Close"]).sort_values(["Code","Date"]).drop_duplicates(["Code","Date"],keep="last")
 
           def feat(g):
               g=g.sort_values("Date").reset_index(drop=True).copy()
               c=g["Close"]
               g["ma5"]=c.rolling(5,min_periods=5).mean()
-              g["prev_close"]=c.shift(1)
-              g["prev_ma5"]=g["ma5"].shift(1)
-              g["prev2_close"]=c.shift(2)
-              g["prev2_ma5"]=g["ma5"].shift(2)
-              g["prev3_close"]=c.shift(3)
-              g["prev3_ma5"]=g["ma5"].shift(3)
-              g["pre3_below_ma5_n"]=(
-                  (g.prev_close<g.prev_ma5).astype(float)
-                  +(g.prev2_close<g.prev2_ma5).astype(float)
-                  +(g.prev3_close<g.prev3_ma5).astype(float)
-              )
+              g["prev_close"]=c.shift(1); g["prev_ma5"]=g["ma5"].shift(1)
+              g["prev2_close"]=c.shift(2); g["prev2_ma5"]=g["ma5"].shift(2)
+              g["prev3_close"]=c.shift(3); g["prev3_ma5"]=g["ma5"].shift(3)
+              g["pre3_below_ma5_n"]=((g.prev_close<g.prev_ma5).astype(float)+(g.prev2_close<g.prev2_ma5).astype(float)+(g.prev3_close<g.prev3_ma5).astype(float))
               g["ma5_slope_1d_pct"]=(g["ma5"]/g["prev_ma5"]-1)*100
-              g["atr14"]=(g["High"]-g["Low"]).rolling(14,min_periods=14).mean()
-              g["strict_odoli_r1"]=(
-                  (g.Close>g.Open)&(g.prev_close<g.prev_ma5)&(g.Close>g.ma5)
-                  &(g.ma5_slope_1d_pct>0)&(g.pre3_below_ma5_n>=2)
-              )
+              g["strict_odoli_r1"]=((g.Close>g.Open)&(g.prev_close<g.prev_ma5)&(g.Close>g.ma5)&(g.ma5_slope_1d_pct>0)&(g.pre3_below_ma5_n>=2))
               return g
 
+          catalyst_files=[
+              "reports/v73_catalyst_source_ledger.csv","reports/v73_news_source_ledger.csv",
+              "reports/v73_official_disclosure_ledger.csv","reports/v73_global_catalyst_ledger.csv",
+              "reports/v73_sequence_context_catalyst_join.csv"
+          ]
+          cframes=[]
+          for p in catalyst_files:
+              pp=Path(p)
+              if not pp.exists():continue
+              try:z=pd.read_csv(pp,low_memory=False)
+              except Exception:continue
+              cols={c.lower():c for c in z.columns}
+              cc=next((cols[k] for k in ["code","ticker","stock_code","symbol"] if k in cols),None)
+              dc=next((cols[k] for k in ["date","asof_date","signal_date","event_date","captured_at","first_seen_at"] if k in cols),None)
+              if not cc:continue
+              z["_code"]=z[cc].map(norm_code)
+              z["_date"]=pd.to_datetime(z[dc],errors="coerce").dt.normalize() if dc else pd.NaT
+              cframes.append(z[["_code","_date"]])
+          catalyst=pd.concat(cframes,ignore_index=True) if cframes else pd.DataFrame(columns=["_code","_date"])
+          cat_ok=bool(len(catalyst))
+
           sessions=sorted(pd.Timestamp(x).normalize() for x in q.Date.unique())
-          latest=sessions[-1]
           mature_end=sessions[-22]
           sig_dates=[d for d in sessions if d<=mature_end][-40:]
           sig_set=set(sig_dates)
           cut=len(sig_dates)//2
-          train_dates=set(sig_dates[:cut])
-          hold_dates=set(sig_dates[cut:])
-
+          train=set(sig_dates[:cut]); hold=set(sig_dates[cut:])
           rows=[]
 
           for code,g0 in q.groupby("Code",sort=False):
-              g=feat(g0)
-              ma5=g["ma5"]
-              amt=pd.to_numeric(g["Amount"],errors="coerce")
+              g=feat(g0); ma5=g["ma5"]; amt=pd.to_numeric(g["Amount"],errors="coerce"); vol=pd.to_numeric(g["Volume"],errors="coerce")
               hits=g.index[g["Date"].isin(sig_set)&g["strict_odoli_r1"].fillna(False)]
-
               for ii in hits:
                   i=int(ii)
                   if i+21>=len(g):continue
                   name=str(g.iloc[i].get("Name","") or "")
                   if is_spac(name):continue
-
                   sig_date=pd.Timestamp(g.iloc[i].Date)
-                  split="TRAIN_EARLY" if sig_date in train_dates else "HOLDOUT_LATE"
-                  sig_low=float(g.iloc[i].Low)
-                  d1_low=float(g.iloc[i+1].Low)
-                  d2_low=float(g.iloc[i+2].Low)
-                  d2_close=float(g.iloc[i+2].Close)
-                  fast=bool(d2_low>d1_low and pd.notna(ma5.iloc[i+2]) and d2_close>float(ma5.iloc[i+2]))
-                  if not fast:continue
+                  split="TRAIN_EARLY" if sig_date in train else "HOLDOUT_LATE"
+                  sig_low=float(g.iloc[i].Low); d1_low=float(g.iloc[i+1].Low); d2_low=float(g.iloc[i+2].Low); d2_close=float(g.iloc[i+2].Close)
+                  if not (d2_low>d1_low and pd.notna(ma5.iloc[i+2]) and d2_close>float(ma5.iloc[i+2])):continue
 
                   trig=None
                   for j in range(i+3,i+11):
                       if j+1>=len(g):break
-                      if pd.isna(ma5.iloc[j]) or ma5.iloc[j]<=0:continue
-                      touch=float(g.iloc[j].Low)<=float(ma5.iloc[j])*1.005
-                      reclaim=float(g.iloc[j].Close)>=float(ma5.iloc[j])
-                      if touch and reclaim:
-                          trig=j
-                          break
+                      if pd.notna(ma5.iloc[j]) and float(g.iloc[j].Low)<=float(ma5.iloc[j])*1.005 and float(g.iloc[j].Close)>=float(ma5.iloc[j]):
+                          trig=j;break
                   if trig is None:continue
-
                   entry_idx=trig+1
                   if entry_idx+H>=len(g):continue
-                  entry=float(g.iloc[entry_idx].Open)
-                  if not np.isfinite(entry) or entry<=0:continue
-
-                  trigger_low=float(g.iloc[trig].Low)
-                  trigger_ma5=float(ma5.iloc[trig])
-                  depth_vs_ma5_pct=(trigger_low/trigger_ma5-1)*100
-
-                  d2_amt=float(amt.iloc[i+2]) if pd.notna(amt.iloc[i+2]) else np.nan
-                  trig_amt=float(amt.iloc[trig]) if pd.notna(amt.iloc[trig]) else np.nan
-                  amount_vs_d2=(trig_amt/d2_amt) if pd.notna(d2_amt) and d2_amt>0 and pd.notna(trig_amt) else np.nan
-
-                  below_days=0
-                  k=trig-1
-                  while k>=i+3 and pd.notna(ma5.iloc[k]) and float(g.iloc[k].Close)<float(ma5.iloc[k]):
-                      below_days+=1
-                      k-=1
-                  reclaim_speed=below_days+1
-
-                  focus_combo=bool(
-                      (-3.0 <= depth_vs_ma5_pct < -1.0)
-                      and pd.notna(amount_vs_d2)
-                      and (0.5 < amount_vs_d2 <= 0.8)
-                      and reclaim_speed==1
-                  )
-
                   pre2=g.iloc[max(i+3,trig-1):trig+1]
                   pullback_low=float(pd.to_numeric(pre2.Low,errors="coerce").min())
-                  atr=float(g.iloc[trig].atr14) if pd.notna(g.iloc[trig].atr14) else np.nan
 
-                  stops={
-                      "PULLBACK_LOW":pullback_low,
-                      "PULLBACK_LOW_MINUS_1PCT":pullback_low*0.99,
-                      "D2_LOW":d2_low,
-                      "SIGNAL_LOW":sig_low,
-                      "ATR1_BELOW_ENTRY":entry-atr if np.isfinite(atr) else np.nan,
-                  }
+                  break_idx=None
+                  for j in range(entry_idx+1,entry_idx+H+1):
+                      if float(g.iloc[j].Low)<=pullback_low:
+                          break_idx=j;break
+                  if break_idx is None:continue
 
-                  for stop_mode,stop in stops.items():
-                      if not np.isfinite(stop) or stop<=0 or stop>=entry:continue
-                      risk_abs=entry-stop
-                      risk_pct=risk_abs/entry*100
+                  def cat_state(asof):
+                      if not cat_ok:return ("UNAVAILABLE",0)
+                      z=catalyst[(catalyst._code==code)&catalyst._date.notna()&(catalyst._date<=asof)]
+                      if len(z)==0:return ("NO_CAPTURED_CATALYST",0)
+                      recent=z[z._date>=asof-pd.Timedelta(days=10)]
+                      return (("RECENT_CAPTURED" if len(recent) else "OLDER_CAPTURED"),int(len(recent)))
 
-                      stop_hit=False
-                      stop_day=np.nan
-                      maxr=0.0
-                      for h in range(1,H+1):
-                          b=g.iloc[entry_idx+h]
-                          if float(b.Low)<=stop:
-                              stop_hit=True
-                              stop_day=h
-                              break
-                          maxr=max(maxr,(float(b.High)-entry)/risk_abs)
+                  for lag in range(4):
+                      j=break_idx+lag
+                      if j>=len(g) or j+H>=len(g):continue
+                      cur=g.iloc[j]; prev=g.iloc[j-1]; prev2=g.iloc[j-2]
+                      low=float(cur.Low); close=float(cur.Close); op=float(cur.Open); high=float(cur.High)
+                      prev_low=float(prev.Low); prev2_low=float(prev2.Low)
+                      signal_alive=low>=sig_low
+                      reclaim_pb=close>pullback_low
+                      reclaim_d2=close>d2_low
+                      ma5_alive=bool(pd.notna(ma5.iloc[j]) and close>=float(ma5.iloc[j]))
+                      hl=low>prev_low
+                      hl2=(prev_low>prev2_low and low>prev_low)
+                      wick=((min(op,close)-low)/(high-low) if high>low else 0.0)
+
+                      a20=amt.iloc[max(0,j-20):j]; v20=vol.iloc[max(0,j-20):j]
+                      ar20=float(amt.iloc[j]/a20.mean()) if len(a20) and pd.notna(a20.mean()) and a20.mean()>0 else np.nan
+                      vr20=float(vol.iloc[j]/v20.mean()) if len(v20) and pd.notna(v20.mean()) and v20.mean()>0 else np.nan
+                      pa=float(amt.iloc[j-1]) if pd.notna(amt.iloc[j-1]) else np.nan
+                      avp=float(amt.iloc[j]/pa) if pd.notna(pa) and pa>0 else np.nan
+
+                      score=int(signal_alive)+int(reclaim_pb)+int(ma5_alive)+int(hl)
+                      if pd.notna(avp) and avp<0.8:score+=1
+                      if wick>=0.35:score+=1
+                      state="KEEP_LIKE" if score>=5 and signal_alive else ("WATCH_LIKE" if score>=3 and signal_alive else "CUT_LIKE")
+
+                      cs,cn=cat_state(pd.Timestamp(cur.Date))
+                      fut=g.iloc[j+1:j+H+1]
+                      fh=float(pd.to_numeric(fut.High,errors="coerce").max()); fl=float(pd.to_numeric(fut.Low,errors="coerce").min()); fc=float(fut.iloc[-1].Close)
+                      risk=max(close-pullback_low,close*0.01)
+                      maxr=(fh-close)/risk
 
                       rows.append({
-                          "split":split,
-                          "signal_date":sig_date,
-                          "code":code,
-                          "name":name,
-                          "focus_combo":focus_combo,
-                          "depth_vs_ma5_pct":depth_vs_ma5_pct,
-                          "amount_vs_d2":amount_vs_d2,
-                          "reclaim_speed_days":reclaim_speed,
-                          "entry_day":entry_idx-i,
-                          "entry_price":entry,
-                          "stop_mode":stop_mode,
-                          "stop_price":stop,
-                          "risk_pct":risk_pct,
-                          "d10_stop_hit":stop_hit,
-                          "d10_stop_day":stop_day,
-                          "d10_max_r_before_stop":maxr,
-                          "d10_1R":maxr>=1,
-                          "d10_2R":maxr>=2,
-                          "d10_3R":maxr>=3,
-                          "d10_5R":maxr>=5,
-                          "d10_close_ret_pct":(float(g.iloc[entry_idx+H].Close)/entry-1)*100,
+                          "split":split,"signal_date":sig_date,"code":code,"name":name,
+                          "break_date":g.iloc[break_idx].Date,"decision_date":cur.Date,"decision_lag_after_break":lag,
+                          "state_descriptive":state,"accumulation_like_score":score,
+                          "break_depth_pct":(low/pullback_low-1)*100,"close_vs_pullback_pct":(close/pullback_low-1)*100,
+                          "signal_low_alive":signal_alive,"close_reclaimed_pullback":reclaim_pb,"close_reclaimed_d2":reclaim_d2,
+                          "ma5_alive":ma5_alive,"higher_low_vs_prev":hl,"higher_low_2step":hl2,"lower_wick_ratio":wick,
+                          "amount_ratio20":ar20,"volume_ratio20":vr20,"amount_vs_prev":avp,
+                          "catalyst_state":cs,"catalyst_recent_10d_count":cn,
+                          "future_mfe_pct":(fh/close-1)*100,"future_mae_pct":(fl/close-1)*100,"future_close_ret_pct":(fc/close-1)*100,
+                          "future_2R":maxr>=2,"future_3R":maxr>=3,"future_5R":maxr>=5
                       })
 
           ev=pd.DataFrame(rows)
-          if ev.empty:raise SystemExit("NO_STOP_COMPARE_ROWS")
+          if ev.empty:raise SystemExit("NO_KEEP_WATCH_CUT_ROWS")
           ev.to_csv(OUT/"events.csv",index=False,encoding="utf-8-sig")
 
-          def summary(df,label):
+          def summarize(cols):
               out=[]
-              for (split,mode),g in df.groupby(["split","stop_mode"],sort=False):
-                  out.append({
-                      "scope":label,
-                      "split":split,
-                      "stop_mode":mode,
-                      "n":len(g),
-                      "risk_pct_median":float(g.risk_pct.median()),
-                      "risk_pct_p25":float(g.risk_pct.quantile(.25)),
-                      "risk_pct_p75":float(g.risk_pct.quantile(.75)),
-                      "stop_rate_pct":float(g.d10_stop_hit.mean()*100),
-                      "1R_rate_pct":float(g.d10_1R.mean()*100),
-                      "2R_rate_pct":float(g.d10_2R.mean()*100),
-                      "3R_rate_pct":float(g.d10_3R.mean()*100),
-                      "5R_rate_pct":float(g.d10_5R.mean()*100),
-                      "max_r_median":float(g.d10_max_r_before_stop.median()),
-                      "d10_close_ret_median_pct":float(g.d10_close_ret_pct.median()),
+              for keys,g in ev.groupby(cols,dropna=False,sort=False):
+                  if not isinstance(keys,tuple):keys=(keys,)
+                  r={c:v for c,v in zip(cols,keys)}
+                  r.update({
+                      "n":len(g),"future_2R_rate_pct":float(g.future_2R.mean()*100),
+                      "future_3R_rate_pct":float(g.future_3R.mean()*100),"future_5R_rate_pct":float(g.future_5R.mean()*100),
+                      "future_mfe_median_pct":float(g.future_mfe_pct.median()),"future_mae_median_pct":float(g.future_mae_pct.median()),
+                      "future_close_ret_median_pct":float(g.future_close_ret_pct.median()),
+                      "break_depth_median_pct":float(g.break_depth_pct.median()),"amount_ratio20_median":float(g.amount_ratio20.median())
                   })
+                  out.append(r)
               return pd.DataFrame(out)
 
-          allsum=summary(ev,"ALL_MA5_RECLAIM")
-          focus=ev[ev.focus_combo.fillna(False)].copy()
-          focsum=summary(focus,"FOCUS_MID_DEPTH_AMOUNT_0_5_0_8_FAST_RECLAIM") if len(focus) else pd.DataFrame()
-
-          res=pd.concat([allsum,focsum],ignore_index=True)
-          res.to_csv(OUT/"summary_stop_compare.csv",index=False,encoding="utf-8-sig")
+          s=summarize(["split","decision_lag_after_break","state_descriptive"])
+          c=summarize(["split","decision_lag_after_break","catalyst_state"])
+          s.to_csv(OUT/"summary_state.csv",index=False,encoding="utf-8-sig")
+          c.to_csv(OUT/"summary_catalyst.csv",index=False,encoding="utf-8-sig")
 
           meta={
-              "revision":"ODOLI_MA5_STOP_PLACEMENT_COMPARISON_R1_20261001",
-              "research_only":True,
-              "same_sample_tuning":False,
-              "entry_rule_promoted":False,
-              "stop_rule_promoted":False,
-              "production_changed":False,
-              "fast_observable_at":"D2_CLOSE",
-              "entry_execution":"NEXT_SESSION_OPEN_AFTER_MA5_TOUCH_RECLAIM_CLOSE",
-              "stop_modes":["PULLBACK_LOW","PULLBACK_LOW_MINUS_1PCT","D2_LOW","SIGNAL_LOW","ATR1_BELOW_ENTRY"],
-              "temporal_split":"EARLY_20_SIGNAL_SESSIONS_VS_LATE_20_SIGNAL_SESSIONS",
-              "same_bar_policy":"STOP_FIRST_CONSERVATIVE",
-              "events_rows":len(ev),
-              "focus_rows":len(focus),
-              "interpretation_scope":"HISTORICAL_TEMPORAL_ROBUSTNESS_NOT_TRUE_PROSPECTIVE_OOS"
+              "revision":"ODOLI_KEEP_WATCH_CUT_STATE_R1_20261001","research_only":True,
+              "same_sample_tuning":False,"state_rule_promoted":False,"production_changed":False,"auto_ordering":False,
+              "scope":"HISTORICAL_DESCRIPTIVE_STATE_STUDY_NOT_TRUE_OOS",
+              "decision_times":["BREAK_CLOSE","BREAK_PLUS_1_CLOSE","BREAK_PLUS_2_CLOSE","BREAK_PLUS_3_CLOSE"],
+              "catalyst_sidecar_available":cat_ok,
+              "important_note":"accumulation_like is a descriptive proxy, not proof of institutional/large-operator activity",
+              "events_rows":len(ev)
           }
           (OUT/"meta.json").write_text(json.dumps(meta,ensure_ascii=False,indent=2),encoding="utf-8")
-          (OUT/"REPORT.md").write_text(
-              "# ODOLI MA5 Stop Placement Comparison R1\n\n"
-              "Same MA5-reclaim entry, five observable stop placements. "
-              "No stop is promoted from this historical study.\n\n"
-              "```\n"+res.to_string(index=False)+"\n```\n",
-              encoding="utf-8"
-          )
-
-          print("ODOLI_MA5_STOP_PLACEMENT_COMPARISON_PASS")
+          (OUT/"REPORT.md").write_text("# ODOLI KEEP/WATCH/CUT State Study R1\n\n```\n"+s.to_string(index=False)+"\n```\n",encoding="utf-8")
+          print("ODOLI_KEEP_WATCH_CUT_STATE_PASS")
           print(json.dumps(meta,ensure_ascii=False))
-          print(res.to_string(index=False))
+          print(s.to_string(index=False))
           PY
 
-          python /tmp/ma5_stop_compare.py
+          python /tmp/keep_watch_cut.py
 
-      - name: Validate new study identity and anti-leakage
+      - name: Validate research identity and anti-leakage
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
           import json,pandas as pd
-          m=json.load(open("reports/temp_odoli_ma5_stop_compare/meta.json",encoding="utf-8"))
-          assert m["revision"]=="ODOLI_MA5_STOP_PLACEMENT_COMPARISON_R1_20261001"
-          assert len(m["stop_modes"])==5
+          m=json.load(open("reports/temp_odoli_keep_watch_cut/meta.json",encoding="utf-8"))
+          assert m["revision"]=="ODOLI_KEEP_WATCH_CUT_STATE_R1_20261001"
+          assert m["research_only"] is True
           assert m["same_sample_tuning"] is False
-          assert m["entry_rule_promoted"] is False
-          assert m["stop_rule_promoted"] is False
+          assert m["state_rule_promoted"] is False
           assert m["production_changed"] is False
-          q=pd.read_csv("reports/temp_odoli_ma5_stop_compare/events.csv")
+          assert m["auto_ordering"] is False
+          q=pd.read_csv("reports/temp_odoli_keep_watch_cut/events.csv")
           assert len(q)>0
-          assert set(q["stop_mode"].unique()).issubset(set(m["stop_modes"]))
-          print("NEW_STUDY_IDENTITY_AND_ANTI_LEAKAGE_PASS")
+          assert pd.to_numeric(q["decision_lag_after_break"],errors="coerce").between(0,3).all()
+          print("KEEP_WATCH_CUT_ANTI_LEAKAGE_PASS")
           PY
 
       - name: Show report
         if: always()
         run: |
-          cat reports/temp_odoli_ma5_stop_compare/meta.json || true
+          cat reports/temp_odoli_keep_watch_cut/meta.json || true
           echo
-          cat reports/temp_odoli_ma5_stop_compare/REPORT.md || true
+          cat reports/temp_odoli_keep_watch_cut/REPORT.md || true
 
       - name: Upload artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: temp-odoli-ma5-stop-placement-comparison-r1
-          path: reports/temp_odoli_ma5_stop_compare/**
+          name: temp-odoli-keep-watch-cut-state-r1
+          path: reports/temp_odoli_keep_watch_cut/**
           if-no-files-found: error
           retention-days: 90
