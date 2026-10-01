@@ -1,4 +1,4 @@
-name: TEMP ODOLI Shakeout Market Sector Close Metrics R2
+name: TEMP ODOLI Shakeout Market Sector Close Metrics R2 FIX1
 
 on:
   workflow_dispatch:
@@ -296,6 +296,9 @@ jobs:
                   out.append(r)
               return pd.DataFrame(out)
 
+          ev["market_ret5_bin"]=pd.cut(ev.market_median_ret5,[-np.inf,-2,0,2,np.inf],labels=["LE_-2","-2_TO_0","0_TO_2","GT_2"])
+          ev["breadth_bin"]=pd.cut(ev.market_breadth_ma3,[-np.inf,40,50,60,np.inf],labels=["LE_40","40_TO_50","50_TO_60","GT_60"])
+
           ev_primary=ev[~ev.suspected_price_discontinuity].copy()
           summarize=lambda cols: summarize_df(ev_primary,cols)
 
@@ -325,8 +328,6 @@ jobs:
           sr.to_csv(OUT/"summary_combo_market_regime.csv",index=False,encoding="utf-8-sig")
 
           # Market context bins independent of hand labels.
-          ev["market_ret5_bin"]=pd.cut(ev.market_median_ret5,[-np.inf,-2,0,2,np.inf],labels=["LE_-2","-2_TO_0","0_TO_2","GT_2"])
-          ev["breadth_bin"]=pd.cut(ev.market_breadth_ma3,[-np.inf,40,50,60,np.inf],labels=["LE_40","40_TO_50","50_TO_60","GT_60"])
           sret=summarize(["split","market_ret5_bin"])
           sb=summarize(["split","breadth_bin"])
           sret.to_csv(OUT/"summary_market_ret5.csv",index=False,encoding="utf-8-sig")
@@ -364,7 +365,7 @@ jobs:
           overall.to_csv(OUT/"summary_overall_primary.csv",index=False,encoding="utf-8-sig")
 
           meta={
-              "revision":"ODOLI_SHAKEOUT_MARKET_SECTOR_CLOSE_METRICS_R2_20261002",
+              "revision":"ODOLI_SHAKEOUT_MARKET_SECTOR_CLOSE_METRICS_R2_FIX1_20261002",
               "research_only":True,"same_sample_tuning":False,"rule_promoted":False,
               "production_changed":False,"auto_ordering":False,
               "combo_definitions_frozen":True,
@@ -399,7 +400,7 @@ jobs:
           python - <<'PY'
           import json,pandas as pd
           m=json.load(open("reports/temp_odoli_market_sector_close_metrics/meta.json",encoding="utf-8"))
-          assert m["revision"]=="ODOLI_SHAKEOUT_MARKET_SECTOR_CLOSE_METRICS_R2_20261002"
+          assert m["revision"]=="ODOLI_SHAKEOUT_MARKET_SECTOR_CLOSE_METRICS_R2_FIX1_20261002"
           assert m["research_only"] is True
           assert m["same_sample_tuning"] is False
           assert m["rule_promoted"] is False
