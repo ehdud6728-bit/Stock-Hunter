@@ -1,4 +1,4 @@
-name: TEMP ODOLI Shakeout Market Sector Regime R1
+name: TEMP ODOLI Shakeout Market Sector Close Metrics R2
 
 on:
   workflow_dispatch:
@@ -7,7 +7,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: temp-odoli-shakeout-market-sector-regime-r1
+  group: temp-odoli-shakeout-market-sector-close-metrics-r2
   cancel-in-progress: false
 
 jobs:
@@ -56,7 +56,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p reports/temp_odoli_market_sector_regime
+          mkdir -p reports/temp_odoli_market_sector_close_metrics
 
           cat >/tmp/study.py <<'PY'
           from pathlib import Path
@@ -64,7 +64,7 @@ jobs:
           import numpy as np
           import pandas as pd
 
-          OUT=Path("reports/temp_odoli_market_sector_regime")
+          OUT=Path("reports/temp_odoli_market_sector_close_metrics")
           OUT.mkdir(parents=True,exist_ok=True)
           H=10
 
@@ -222,11 +222,36 @@ jobs:
                           else:
                               sec_name="STALE_GT10D"
 
-                  fut=g.iloc[bi+1:bi+H+1]
+                  fut=g.iloc[bi+1:bi+H+1].copy()
                   fh=float(pd.to_numeric(fut.High,errors="coerce").max())
                   fl=float(pd.to_numeric(fut.Low,errors="coerce").min())
                   fc=float(fut.iloc[-1].Close)
                   mfe=(fh/bclose-1)*100; mae=(fl/bclose-1)*100; cret=(fc/bclose-1)*100
+
+                  # Close-based outcomes: distinguish intraday touch from closing-price retention.
+                  close_series=pd.to_numeric(fut.Close,errors="coerce")
+                  close_max=float(close_series.max())
+                  close_mfe=(close_max/bclose-1)*100
+                  d5_close=float(fut.iloc[min(4,len(fut)-1)].Close)
+                  d5_close_ret=(d5_close/bclose-1)*100
+                  d10_close_ret=cret
+                  close_plus5=bool((close_series>=bclose*1.05).any())
+                  close_plus10=bool((close_series>=bclose*1.10).any())
+                  close_plus15=bool((close_series>=bclose*1.15).any())
+                  intraday_plus5=mfe>=5
+                  intraday_plus10=mfe>=10
+                  intraday_plus15=mfe>=15
+
+                  # Peak-to-D10 giveback measured in percentage points from break-close baseline.
+                  peak_to_d10_giveback_pp=mfe-d10_close_ret
+
+                  # Corporate-action / price-discontinuity guard.
+                  # Flag extreme adjacent close jumps in the observation window; do not silently delete raw rows.
+                  ca_window=g.iloc[max(0,bi-3):bi+H+1].copy()
+                  adj_close=pd.to_numeric(ca_window.Close,errors="coerce")
+                  adj_ret=adj_close.pct_change()*100
+                  extreme_close_jump_pct=float(adj_ret.abs().max()) if adj_ret.notna().any() else np.nan
+                  suspected_price_discontinuity=bool(pd.notna(extreme_close_jump_pct) and extreme_close_jump_pct>=45)
 
                   rows.append({
                       "split":split,"code":code,"name":name,"market":market,"break_date":bdate,
@@ -235,30 +260,48 @@ jobs:
                       "market_regime":mreg,"market_median_ret5":mret5,"market_breadth_ma3":mbreadth,"market_amount_ratio5":mamtr,
                       "sector":sec_name,"sector_return_5d":sec_ret5,"sector_positive":sec_positive,"sector_source":sec_source,
                       "future_mfe_pct":mfe,"future_mae_pct":mae,"future_close_ret_pct":cret,
-                      "plus5":mfe>=5,"plus10":mfe>=10,"plus15":mfe>=15
+                      "intraday_plus5":intraday_plus5,"intraday_plus10":intraday_plus10,"intraday_plus15":intraday_plus15,
+                      "close_mfe_pct":close_mfe,"close_plus5":close_plus5,"close_plus10":close_plus10,"close_plus15":close_plus15,
+                      "d5_close_ret_pct":d5_close_ret,"d10_close_ret_pct":d10_close_ret,
+                      "peak_to_d10_giveback_pp":peak_to_d10_giveback_pp,
+                      "extreme_close_jump_pct":extreme_close_jump_pct,
+                      "suspected_price_discontinuity":suspected_price_discontinuity,
+                      "plus5":intraday_plus5,"plus10":intraday_plus10,"plus15":intraday_plus15
                   })
 
           ev=pd.DataFrame(rows)
           if ev.empty:raise SystemExit("NO_ROWS")
           ev.to_csv(OUT/"events.csv",index=False,encoding="utf-8-sig")
 
-          def summarize(cols):
+          def summarize_df(df,cols):
               out=[]
-              for keys,g in ev.groupby(cols,dropna=False,sort=False):
+              for keys,g in df.groupby(cols,dropna=False,sort=False):
                   if not isinstance(keys,tuple):keys=(keys,)
                   r={c:v for c,v in zip(cols,keys)}
                   r.update({
-                      "n":len(g),"plus5_rate_pct":g.plus5.mean()*100,
-                      "plus10_rate_pct":g.plus10.mean()*100,"plus15_rate_pct":g.plus15.mean()*100,
-                      "mfe_median_pct":g.future_mfe_pct.median(),"mae_median_pct":g.future_mae_pct.median(),
-                      "close_ret_median_pct":g.future_close_ret_pct.median()
+                      "n":len(g),
+                      "intraday_plus5_rate_pct":g.intraday_plus5.mean()*100,
+                      "intraday_plus10_rate_pct":g.intraday_plus10.mean()*100,
+                      "intraday_plus15_rate_pct":g.intraday_plus15.mean()*100,
+                      "close_plus5_rate_pct":g.close_plus5.mean()*100,
+                      "close_plus10_rate_pct":g.close_plus10.mean()*100,
+                      "close_plus15_rate_pct":g.close_plus15.mean()*100,
+                      "mfe_median_pct":g.future_mfe_pct.median(),
+                      "close_mfe_median_pct":g.close_mfe_pct.median(),
+                      "mae_median_pct":g.future_mae_pct.median(),
+                      "d5_close_ret_median_pct":g.d5_close_ret_pct.median(),
+                      "d10_close_ret_median_pct":g.d10_close_ret_pct.median(),
+                      "peak_to_d10_giveback_median_pp":g.peak_to_d10_giveback_pp.median(),
                   })
                   out.append(r)
               return pd.DataFrame(out)
 
+          ev_primary=ev[~ev.suspected_price_discontinuity].copy()
+          summarize=lambda cols: summarize_df(ev_primary,cols)
+
           long=[]
           for label,col in [("COMBO1", "combo1"),("COMBO2","combo2"),("COMBO3","combo3")]:
-              z=ev[ev[col]]
+              z=ev_primary[ev_primary[col]]
               if len(z):
                   s=summarize(["split","market_regime"])
                   # summary above includes all events, so filter directly for combo
@@ -267,9 +310,15 @@ jobs:
                       if not isinstance(keys,tuple):keys=(keys,)
                       out.append({
                           "combo":label,"split":keys[0],"market_regime":keys[1],"n":len(g),
-                          "plus5_rate_pct":g.plus5.mean()*100,"plus10_rate_pct":g.plus10.mean()*100,
-                          "plus15_rate_pct":g.plus15.mean()*100,"mfe_median_pct":g.future_mfe_pct.median(),
-                          "mae_median_pct":g.future_mae_pct.median(),"close_ret_median_pct":g.future_close_ret_pct.median()
+                          "intraday_plus10_rate_pct":g.intraday_plus10.mean()*100,
+                          "intraday_plus15_rate_pct":g.intraday_plus15.mean()*100,
+                          "close_plus10_rate_pct":g.close_plus10.mean()*100,
+                          "close_plus15_rate_pct":g.close_plus15.mean()*100,
+                          "mfe_median_pct":g.future_mfe_pct.median(),
+                          "d5_close_ret_median_pct":g.d5_close_ret_pct.median(),
+                          "d10_close_ret_median_pct":g.d10_close_ret_pct.median(),
+                          "peak_to_d10_giveback_median_pp":g.peak_to_d10_giveback_pp.median(),
+                          "mae_median_pct":g.future_mae_pct.median()
                       })
                   long.extend(out)
           sr=pd.DataFrame(long)
@@ -285,7 +334,7 @@ jobs:
 
           # Sector coverage and descriptive summary only where causal ledger exists.
           coverage=float((~ev.sector.isin(["UNAVAILABLE","STALE_GT10D"])).mean()*100)
-          sec_ev=ev[~ev.sector.isin(["UNAVAILABLE","STALE_GT10D"])].copy()
+          sec_ev=ev_primary[~ev_primary.sector.isin(["UNAVAILABLE","STALE_GT10D"])].copy()
           if len(sec_ev):
               sec_ev["sector_ret5_bin"]=pd.cut(pd.to_numeric(sec_ev.sector_return_5d,errors="coerce"),[-np.inf,0,3,np.inf],labels=["SECTOR_NEG","SECTOR_0_TO_3","SECTOR_GT3"])
               ss=summarize(["split","sector_ret5_bin"]) if "sector_ret5_bin" in ev.columns else pd.DataFrame()
@@ -301,7 +350,7 @@ jobs:
               pd.DataFrame(columns=["split","sector_ret5_bin","n","plus10_rate_pct","plus15_rate_pct","close_ret_median_pct"]).to_csv(OUT/"summary_sector_context.csv",index=False)
 
           # Focus on why Combo3 flipped across time: market regime composition and within-regime results.
-          c3=ev[ev.combo3].copy()
+          c3=ev_primary[ev_primary.combo3].copy()
           c3comp=c3.groupby(["split","market_regime"],dropna=False).agg(
               n=("code","size"),plus10_rate_pct=("plus10","mean"),plus15_rate_pct=("plus15","mean"),
               close_ret_median_pct=("future_close_ret_pct","median"),
@@ -310,16 +359,23 @@ jobs:
           c3comp["plus10_rate_pct"]*=100;c3comp["plus15_rate_pct"]*=100
           c3comp.to_csv(OUT/"combo3_flip_diagnostic.csv",index=False,encoding="utf-8-sig")
 
+          ev[ev.suspected_price_discontinuity].to_csv(OUT/"price_discontinuity_audit.csv",index=False,encoding="utf-8-sig")
+          overall=summarize_df(ev_primary,["split"])
+          overall.to_csv(OUT/"summary_overall_primary.csv",index=False,encoding="utf-8-sig")
+
           meta={
-              "revision":"ODOLI_SHAKEOUT_MARKET_SECTOR_REGIME_R1_20261002",
+              "revision":"ODOLI_SHAKEOUT_MARKET_SECTOR_CLOSE_METRICS_R2_20261002",
               "research_only":True,"same_sample_tuning":False,"rule_promoted":False,
               "production_changed":False,"auto_ordering":False,
               "combo_definitions_frozen":True,
               "market_context":"CAUSAL_MARCAP_SAME_AND_PAST_DATE_ONLY",
               "sector_context":"OPTIONAL_PREEXISTING_V73_CAUSAL_LEDGER_ONLY",
               "sector_coverage_pct":coverage,
-              "event_rows":len(ev),
-              "scope":"HISTORICAL_CONTEXT_DIAGNOSTIC_NOT_TRUE_PROSPECTIVE_OOS"
+              "event_rows_raw":len(ev),"event_rows_primary":len(ev_primary),
+              "scope":"HISTORICAL_CONTEXT_DIAGNOSTIC_NOT_TRUE_PROSPECTIVE_OOS",
+              "primary_excludes_suspected_price_discontinuity":True,
+              "price_discontinuity_guard":"ABS_ADJACENT_CLOSE_RETURN_GTE_45PCT",
+              "outcomes":"INTRADAY_MFE_AND_CLOSE_BASED_PARALLEL"
           }
           (OUT/"meta.json").write_text(json.dumps(meta,ensure_ascii=False,indent=2),encoding="utf-8")
           (OUT/"REPORT.md").write_text(
@@ -342,30 +398,32 @@ jobs:
           set -euo pipefail
           python - <<'PY'
           import json,pandas as pd
-          m=json.load(open("reports/temp_odoli_market_sector_regime/meta.json",encoding="utf-8"))
-          assert m["revision"]=="ODOLI_SHAKEOUT_MARKET_SECTOR_REGIME_R1_20261002"
+          m=json.load(open("reports/temp_odoli_market_sector_close_metrics/meta.json",encoding="utf-8"))
+          assert m["revision"]=="ODOLI_SHAKEOUT_MARKET_SECTOR_CLOSE_METRICS_R2_20261002"
           assert m["research_only"] is True
           assert m["same_sample_tuning"] is False
           assert m["rule_promoted"] is False
           assert m["production_changed"] is False
           assert m["combo_definitions_frozen"] is True
-          q=pd.read_csv("reports/temp_odoli_market_sector_regime/events.csv")
+          q=pd.read_csv("reports/temp_odoli_market_sector_close_metrics/events.csv")
           assert len(q)>0
-          print("MARKET_SECTOR_REGIME_ANTI_LEAKAGE_PASS")
+          for c in ["intraday_plus10","close_plus10","d5_close_ret_pct","d10_close_ret_pct","peak_to_d10_giveback_pp","suspected_price_discontinuity"]:
+              assert c in q.columns
+          print("MARKET_SECTOR_CLOSE_METRICS_ANTI_LEAKAGE_PASS")
           PY
 
       - name: Show report
         if: always()
         run: |
-          cat reports/temp_odoli_market_sector_regime/meta.json || true
+          cat reports/temp_odoli_market_sector_close_metrics/meta.json || true
           echo
-          cat reports/temp_odoli_market_sector_regime/REPORT.md || true
+          cat reports/temp_odoli_market_sector_close_metrics/REPORT.md || true
 
       - name: Upload artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: temp-odoli-shakeout-market-sector-regime-r1
-          path: reports/temp_odoli_market_sector_regime/**
+          name: temp-odoli-shakeout-market-sector-close-metrics-r2
+          path: reports/temp_odoli_market_sector_close_metrics/**
           if-no-files-found: error
           retention-days: 90
