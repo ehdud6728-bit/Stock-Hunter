@@ -1,0 +1,360 @@
+name: TEMP ODOLI Shakeout vs Breakdown Anatomy R1
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: temp-odoli-shakeout-breakdown-anatomy-r1
+  cancel-in-progress: false
+
+jobs:
+  study:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install pandas numpy pyarrow
+
+      - name: Fetch marcap history
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf vendor/marcap
+          mkdir -p vendor
+          git clone --depth 1 --filter=blob:none --no-checkout https://github.com/FinanceData/marcap.git vendor/marcap
+          cd vendor/marcap
+          git sparse-checkout init --no-cone
+          printf '%s\n' 'data/marcap-2026.parquet' >/tmp/marcap_paths.txt
+          git sparse-checkout set --stdin </tmp/marcap_paths.txt
+          git checkout
+          cd ../..
+
+      - name: Run shakeout vs breakdown anatomy
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p reports/temp_odoli_shakeout_breakdown
+
+          cat >/tmp/shakeout_breakdown.py <<'PY'
+          from pathlib import Path
+          import json,re
+          import numpy as np
+          import pandas as pd
+
+          OUT=Path("reports/temp_odoli_shakeout_breakdown")
+          OUT.mkdir(parents=True,exist_ok=True)
+          H=10
+
+          def norm_code(v):
+              s=re.sub(r"\D","",str(v or ""))
+              return s[-6:].zfill(6) if s else ""
+
+          def is_spac(name):
+              s=str(name or "").upper()
+              return ("스팩" in s) or ("SPAC" in s)
+
+          q=pd.read_parquet("vendor/marcap/data/marcap-2026.parquet")
+          if "Date" not in q.columns:q=q.reset_index()
+          q["Date"]=pd.to_datetime(q["Date"],errors="coerce").dt.normalize()
+          q["Code"]=q["Code"].map(norm_code)
+          if "Market" in q.columns:
+              q=q[q["Market"].astype(str).str.upper().isin(["KOSPI","KOSDAQ"])]
+          for c in ["Open","High","Low","Close","Volume","Amount"]:
+              q[c]=pd.to_numeric(q[c],errors="coerce")
+          q=q.dropna(subset=["Date","Code","Open","High","Low","Close"])
+          q=q[(q.Open>0)&(q.High>0)&(q.Low>0)&(q.Close>0)]
+          q=q.sort_values(["Code","Date"]).drop_duplicates(["Code","Date"],keep="last")
+
+          def feat(g):
+              g=g.sort_values("Date").reset_index(drop=True).copy()
+              c=g["Close"]
+              g["ma5"]=c.rolling(5,min_periods=5).mean()
+              g["prev_close"]=c.shift(1); g["prev_ma5"]=g["ma5"].shift(1)
+              g["prev2_close"]=c.shift(2); g["prev2_ma5"]=g["ma5"].shift(2)
+              g["prev3_close"]=c.shift(3); g["prev3_ma5"]=g["ma5"].shift(3)
+              g["pre3_below_ma5_n"]=(
+                  (g.prev_close<g.prev_ma5).astype(float)
+                  +(g.prev2_close<g.prev2_ma5).astype(float)
+                  +(g.prev3_close<g.prev3_ma5).astype(float)
+              )
+              g["ma5_slope_1d_pct"]=(g.ma5/g.prev_ma5-1)*100
+              g["strict_odoli_r1"]=(
+                  (g.Close>g.Open)&(g.prev_close<g.prev_ma5)&(g.Close>g.ma5)
+                  &(g.ma5_slope_1d_pct>0)&(g.pre3_below_ma5_n>=2)
+              )
+              return g
+
+          sessions=sorted(pd.Timestamp(x).normalize() for x in q.Date.unique())
+          mature_end=sessions[-22]
+          sig_dates=[d for d in sessions if d<=mature_end][-40:]
+          sig_set=set(sig_dates)
+          cut=len(sig_dates)//2
+          train_dates=set(sig_dates[:cut])
+          hold_dates=set(sig_dates[cut:])
+
+          rows=[]
+
+          for code,g0 in q.groupby("Code",sort=False):
+              g=feat(g0)
+              ma5=g.ma5
+              amt=pd.to_numeric(g.Amount,errors="coerce")
+              vol=pd.to_numeric(g.Volume,errors="coerce")
+              hits=g.index[g.Date.isin(sig_set)&g.strict_odoli_r1.fillna(False)]
+
+              for ii in hits:
+                  i=int(ii)
+                  if i+21>=len(g):continue
+                  name=str(g.iloc[i].get("Name","") or "")
+                  if is_spac(name):continue
+
+                  sig_date=pd.Timestamp(g.iloc[i].Date)
+                  split="TRAIN_EARLY" if sig_date in train_dates else "HOLDOUT_LATE"
+                  sig_low=float(g.iloc[i].Low)
+                  d1_low=float(g.iloc[i+1].Low)
+                  d2_low=float(g.iloc[i+2].Low)
+                  d2_close=float(g.iloc[i+2].Close)
+
+                  fast=bool(d2_low>d1_low and pd.notna(ma5.iloc[i+2]) and d2_close>float(ma5.iloc[i+2]))
+                  if not fast:continue
+
+                  trig=None
+                  for j in range(i+3,i+11):
+                      if j+1>=len(g):break
+                      if pd.notna(ma5.iloc[j]) and float(g.iloc[j].Low)<=float(ma5.iloc[j])*1.005 and float(g.iloc[j].Close)>=float(ma5.iloc[j]):
+                          trig=j;break
+                  if trig is None:continue
+
+                  entry_idx=trig+1
+                  if entry_idx+H>=len(g):continue
+
+                  pre2=g.iloc[max(i+3,trig-1):trig+1]
+                  pullback_low=float(pd.to_numeric(pre2.Low,errors="coerce").min())
+                  if not np.isfinite(pullback_low) or pullback_low<=0:continue
+
+                  break_idx=None
+                  for j in range(entry_idx+1,entry_idx+H+1):
+                      if float(g.iloc[j].Low)<=pullback_low:
+                          break_idx=j;break
+                  if break_idx is None or break_idx+H>=len(g):continue
+
+                  b=g.iloc[break_idx]
+                  b_low=float(b.Low); b_close=float(b.Close); b_open=float(b.Open); b_high=float(b.High)
+                  if min(b_low,b_close,b_open,b_high)<=0:continue
+
+                  # T0 anatomy
+                  break_depth_pct=(b_low/pullback_low-1)*100
+                  close_vs_pb_pct=(b_close/pullback_low-1)*100
+                  close_reclaim_pb=b_close>pullback_low
+                  signal_low_alive=b_low>=sig_low
+                  d2_low_alive=b_low>=d2_low
+                  ma5_alive=bool(pd.notna(ma5.iloc[break_idx]) and b_close>=float(ma5.iloc[break_idx]))
+                  lower_wick_ratio=((min(b_open,b_close)-b_low)/(b_high-b_low) if b_high>b_low else 0.0)
+                  body_ratio=(abs(b_close-b_open)/(b_high-b_low) if b_high>b_low else 0.0)
+
+                  a20=amt.iloc[max(0,break_idx-20):break_idx]
+                  v20=vol.iloc[max(0,break_idx-20):break_idx]
+                  amount_ratio20=float(amt.iloc[break_idx]/a20.mean()) if len(a20) and pd.notna(a20.mean()) and a20.mean()>0 else np.nan
+                  volume_ratio20=float(vol.iloc[break_idx]/v20.mean()) if len(v20) and pd.notna(v20.mean()) and v20.mean()>0 else np.nan
+
+                  d2_amt=float(amt.iloc[i+2]) if pd.notna(amt.iloc[i+2]) else np.nan
+                  amount_vs_d2=float(amt.iloc[break_idx]/d2_amt) if pd.notna(d2_amt) and d2_amt>0 else np.nan
+
+                  # D+1~D+3 recovery observables
+                  rec={}
+                  for lag in [1,2,3]:
+                      j=break_idx+lag
+                      cur=g.iloc[j]
+                      prev=g.iloc[j-1]
+                      rec[f"d{lag}_higher_low"]=bool(float(cur.Low)>float(prev.Low))
+                      rec[f"d{lag}_close_reclaim_pb"]=bool(float(cur.Close)>pullback_low)
+                      rec[f"d{lag}_ma5_alive"]=bool(pd.notna(ma5.iloc[j]) and float(cur.Close)>=float(ma5.iloc[j]))
+                      rec[f"d{lag}_signal_low_alive"]=bool(float(cur.Low)>=sig_low)
+
+                  # Future path from break close; use absolute % not R.
+                  fut=g.iloc[break_idx+1:break_idx+H+1]
+                  fhigh=float(pd.to_numeric(fut.High,errors="coerce").max())
+                  flow=float(pd.to_numeric(fut.Low,errors="coerce").min())
+                  fclose=float(fut.iloc[-1].Close)
+                  mfe=(fhigh/b_close-1)*100
+                  mae=(flow/b_close-1)*100
+                  close_ret=(fclose/b_close-1)*100
+
+                  # Predeclared anatomy bins; descriptive only.
+                  if break_depth_pct>=-1:
+                      depth_bin="BREAK_0_TO_-1"
+                  elif break_depth_pct>=-3:
+                      depth_bin="BREAK_-1_TO_-3"
+                  elif break_depth_pct>=-5:
+                      depth_bin="BREAK_-3_TO_-5"
+                  else:
+                      depth_bin="BREAK_BELOW_-5"
+
+                  if pd.isna(amount_ratio20):
+                      amount20_bin="AMT20_UNKNOWN"
+                  elif amount_ratio20<=0.5:
+                      amount20_bin="AMT20_LE_0_5"
+                  elif amount_ratio20<=0.8:
+                      amount20_bin="AMT20_0_5_TO_0_8"
+                  elif amount_ratio20<=1.0:
+                      amount20_bin="AMT20_0_8_TO_1_0"
+                  else:
+                      amount20_bin="AMT20_GT_1_0"
+
+                  if lower_wick_ratio<0.20:
+                      wick_bin="WICK_LT_0_20"
+                  elif lower_wick_ratio<0.40:
+                      wick_bin="WICK_0_20_TO_0_40"
+                  else:
+                      wick_bin="WICK_GE_0_40"
+
+                  rows.append({
+                      "split":split,"signal_date":sig_date,"code":code,"name":name,
+                      "break_date":b.Date,"pullback_low":pullback_low,
+                      "break_depth_pct":break_depth_pct,"depth_bin":depth_bin,
+                      "close_vs_pullback_pct":close_vs_pb_pct,
+                      "close_reclaim_pullback":close_reclaim_pb,
+                      "signal_low_alive":signal_low_alive,"d2_low_alive":d2_low_alive,"ma5_alive":ma5_alive,
+                      "lower_wick_ratio":lower_wick_ratio,"wick_bin":wick_bin,"body_ratio":body_ratio,
+                      "amount_ratio20":amount_ratio20,"amount20_bin":amount20_bin,
+                      "volume_ratio20":volume_ratio20,"amount_vs_d2":amount_vs_d2,
+                      **rec,
+                      "future_mfe_pct":mfe,"future_mae_pct":mae,"future_close_ret_pct":close_ret,
+                      "future_plus5":mfe>=5,"future_plus10":mfe>=10,"future_plus15":mfe>=15,
+                  })
+
+          ev=pd.DataFrame(rows)
+          if ev.empty:raise SystemExit("NO_SHAKEOUT_BREAKDOWN_ROWS")
+          ev.to_csv(OUT/"events.csv",index=False,encoding="utf-8-sig")
+
+          def summarize(group_cols):
+              out=[]
+              for keys,g in ev.groupby(group_cols,dropna=False,sort=False):
+                  if not isinstance(keys,tuple):keys=(keys,)
+                  row={c:v for c,v in zip(group_cols,keys)}
+                  row.update({
+                      "n":len(g),
+                      "plus5_rate_pct":float(g.future_plus5.mean()*100),
+                      "plus10_rate_pct":float(g.future_plus10.mean()*100),
+                      "plus15_rate_pct":float(g.future_plus15.mean()*100),
+                      "mfe_median_pct":float(g.future_mfe_pct.median()),
+                      "mae_median_pct":float(g.future_mae_pct.median()),
+                      "close_ret_median_pct":float(g.future_close_ret_pct.median()),
+                  })
+                  out.append(row)
+              return pd.DataFrame(out)
+
+          summaries={
+              "depth":summarize(["split","depth_bin"]),
+              "amount20":summarize(["split","amount20_bin"]),
+              "wick":summarize(["split","wick_bin"]),
+              "signal_low":summarize(["split","signal_low_alive"]),
+              "close_reclaim":summarize(["split","close_reclaim_pullback"]),
+              "ma5":summarize(["split","ma5_alive"]),
+              "d1_hl":summarize(["split","d1_higher_low"]),
+              "d1_reclaim":summarize(["split","d1_close_reclaim_pb"]),
+              "d2_hl":summarize(["split","d2_higher_low"]),
+              "d2_reclaim":summarize(["split","d2_close_reclaim_pb"]),
+              "d3_hl":summarize(["split","d3_higher_low"]),
+              "d3_reclaim":summarize(["split","d3_close_reclaim_pb"]),
+          }
+          for k,v in summaries.items():
+              v.to_csv(OUT/f"summary_{k}.csv",index=False,encoding="utf-8-sig")
+
+          # Small predeclared interaction table, not tuned.
+          combo=summarize([
+              "split","depth_bin","amount20_bin","signal_low_alive",
+              "close_reclaim_pullback","d1_higher_low","d1_close_reclaim_pb"
+          ])
+          combo.to_csv(OUT/"summary_combo.csv",index=False,encoding="utf-8-sig")
+
+          # Keep only combinations with useful sample on both halves for stability view.
+          keys=["depth_bin","amount20_bin","signal_low_alive","close_reclaim_pullback","d1_higher_low","d1_close_reclaim_pb"]
+          tr=combo[combo["split"].eq("TRAIN_EARLY")].copy()
+          ho=combo[combo["split"].eq("HOLDOUT_LATE")].copy()
+          stable=tr.merge(ho,on=keys,suffixes=("_train","_hold"))
+          stable=stable[(stable.n_train>=15)&(stable.n_hold>=15)].copy()
+          if len(stable):
+              stable["plus10_delta_pp"]=stable.plus10_rate_pct_hold-stable.plus10_rate_pct_train
+              stable["plus15_delta_pp"]=stable.plus15_rate_pct_hold-stable.plus15_rate_pct_train
+          stable.to_csv(OUT/"temporal_consistency.csv",index=False,encoding="utf-8-sig")
+
+          meta={
+              "revision":"ODOLI_SHAKEOUT_VS_BREAKDOWN_ANATOMY_R1_20261001",
+              "research_only":True,
+              "same_sample_tuning":False,
+              "rule_promoted":False,
+              "production_changed":False,
+              "auto_ordering":False,
+              "outcomes":"ABSOLUTE_FORWARD_MFE_PLUS5_PLUS10_PLUS15_NOT_R_MULTIPLES",
+              "scope":"HISTORICAL_TEMPORAL_ROBUSTNESS_NOT_TRUE_PROSPECTIVE_OOS",
+              "signal_sessions":len(sig_dates),
+              "train_sessions":len(train_dates),
+              "holdout_sessions":len(hold_dates),
+              "break_events":len(ev),
+              "important_note":"No claim of institutional/large-operator activity; study only observable price/turnover structure."
+          }
+          (OUT/"meta.json").write_text(json.dumps(meta,ensure_ascii=False,indent=2),encoding="utf-8")
+
+          report=["# ODOLI Shakeout vs Breakdown Anatomy R1","",
+                  "No composite KEEP/WATCH/CUT score is used.",
+                  "Each observable feature is evaluated independently; outcomes use absolute +5/+10/+15% MFE.","",
+                  "## Meta","```",json.dumps(meta,ensure_ascii=False,indent=2),"```"]
+          for k,v in summaries.items():
+              report += ["",f"## {k}","```",v.to_string(index=False),"```"]
+          report += ["","## Temporal consistency","```",
+                     stable.to_string(index=False) if len(stable) else "NO_COMBO_N>=15_BOTH_HALVES","```"]
+          (OUT/"REPORT.md").write_text("\n".join(report),encoding="utf-8")
+
+          print("ODOLI_SHAKEOUT_VS_BREAKDOWN_ANATOMY_PASS")
+          print(json.dumps(meta,ensure_ascii=False))
+          print("DEPTH"); print(summaries["depth"].to_string(index=False))
+          print("AMOUNT20"); print(summaries["amount20"].to_string(index=False))
+          print("D1_RECLAIM"); print(summaries["d1_reclaim"].to_string(index=False))
+          PY
+
+          python /tmp/shakeout_breakdown.py
+
+      - name: Validate research identity and anti-leakage
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,pandas as pd
+          m=json.load(open("reports/temp_odoli_shakeout_breakdown/meta.json",encoding="utf-8"))
+          assert m["revision"]=="ODOLI_SHAKEOUT_VS_BREAKDOWN_ANATOMY_R1_20261001"
+          assert m["research_only"] is True
+          assert m["same_sample_tuning"] is False
+          assert m["rule_promoted"] is False
+          assert m["production_changed"] is False
+          assert m["auto_ordering"] is False
+          q=pd.read_csv("reports/temp_odoli_shakeout_breakdown/events.csv")
+          assert len(q)>0
+          assert (pd.to_numeric(q["pullback_low"],errors="coerce")>0).all()
+          print("SHAKEOUT_BREAKDOWN_ANTI_LEAKAGE_PASS")
+          PY
+
+      - name: Show report
+        if: always()
+        run: |
+          cat reports/temp_odoli_shakeout_breakdown/meta.json || true
+          echo
+          cat reports/temp_odoli_shakeout_breakdown/REPORT.md || true
+
+      - name: Upload artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: temp-odoli-shakeout-vs-breakdown-anatomy-r1
+          path: reports/temp_odoli_shakeout_breakdown/**
+          if-no-files-found: error
+          retention-days: 90
