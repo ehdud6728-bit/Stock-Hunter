@@ -1,17 +1,14 @@
-name: TEMP ODOLI Prospective KKI Symmetry Tracker R1 Scheduled
+name: TEMP REAL_FULL Overlay Outcome Ledger R1
 
 on:
   workflow_dispatch:
-  schedule:
-    # Weekdays 17:40 KST = 08:40 UTC
-    # Runs after ODOLI DAILY (16:50 KST) so the latest frozen cohort is available.
-    - cron: '40 08 * * 1-5'
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
-  group: temp-odoli-prospective-kki-symmetry-tracker-r1
+  group: temp-real-full-overlay-outcome-ledger-r1
   cancel-in-progress: false
 
 env:
@@ -30,37 +27,9 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install pandas numpy pyarrow exchange-calendars
+        run: pip install pandas numpy pyarrow requests
 
-      - name: Restore ODOLI prospective state
-        uses: actions/cache/restore@v4
-        with:
-          path: reports/.cache/odoli_independent_r1
-          key: odoli-independent-r1-${{ github.ref_name }}-${{ github.run_id }}
-          restore-keys: |
-            odoli-independent-r1-${{ github.ref_name }}-
-
-      - name: Restore frozen KKI prospective tracker
-        uses: actions/cache/restore@v4
-        with:
-          path: reports/.cache/odoli_kki_symmetry_prospective_r1
-          key: odoli-kki-symmetry-prospective-r1-${{ github.ref_name }}-${{ github.run_id }}
-          restore-keys: |
-            odoli-kki-symmetry-prospective-r1-${{ github.ref_name }}-
-
-      - name: Snapshot previous tracker for Telegram delta
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ -s reports/.cache/odoli_kki_symmetry_prospective_r1/tracker.csv ]; then
-            cp reports/.cache/odoli_kki_symmetry_prospective_r1/tracker.csv /tmp/odoli_kki_tracker_before.csv
-            echo "ODOLI_KKI_PREV_TRACKER=READY"
-          else
-            rm -f /tmp/odoli_kki_tracker_before.csv
-            echo "ODOLI_KKI_PREV_TRACKER=EMPTY"
-          fi
-
-      - name: Fetch marcap history
+      - name: Fetch marcap 2026
         shell: bash
         run: |
           set -euo pipefail
@@ -69,537 +38,362 @@ jobs:
           git clone --depth 1 --filter=blob:none --no-checkout https://github.com/FinanceData/marcap.git vendor/marcap
           cd vendor/marcap
           git sparse-checkout init --no-cone
-          printf '%s\n' \
-            'data/marcap-2025.parquet' \
-            'data/marcap-2026.parquet' >/tmp/marcap_paths.txt
+          printf '%s\n' 'data/marcap-2026.parquet' >/tmp/marcap_paths.txt
           git sparse-checkout set --stdin </tmp/marcap_paths.txt
           git checkout
           cd ../..
 
-      - name: Run frozen prospective tracker
+      - name: Build frozen overlay outcome ledger
+        env:
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p reports/temp_odoli_kki_symmetry_prospective
-          mkdir -p reports/.cache/odoli_kki_symmetry_prospective_r1
+          mkdir -p reports/temp_real_full_overlay_outcome
 
-          cat >/tmp/tracker.py <<'PY'
+          cat >/tmp/outcome.py <<'PY'
           from pathlib import Path
-          import json,re,hashlib
+          import io, os, json, zipfile, requests, re
           import numpy as np
           import pandas as pd
 
-          OUT=Path("reports/temp_odoli_kki_symmetry_prospective")
-          STATE=Path("reports/.cache/odoli_kki_symmetry_prospective_r1")
-          REV="ODOLI_PROSPECTIVE_KKI_SYMMETRY_TRACKER_R1_20261002"
+          OUT=Path("reports/temp_real_full_overlay_outcome")
+          REV="REAL_FULL_OVERLAY_OUTCOME_LEDGER_R1_20261002"
+          REPO=os.environ["GITHUB_REPOSITORY"]
+          TOKEN=os.environ["GH_TOKEN"]
+          H={"Authorization":"Bearer "+TOKEN,"Accept":"application/vnd.github+json","X-GitHub-Api-Version":"2022-11-28"}
+          BASE=f"https://api.github.com/repos/{REPO}"
 
-          KKI_SPEC={
-              "strong_1d":"+10% or more",
-              "strong_3d":"+15% or more",
-              "strong_5d":"+20% or more",
-              "amount_explosion":"Amount / trailing20 mean >= 3x",
-              "recent":"at least one strong wave or prior 5d MFE>=20 within 60d",
-              "repeated":"at least 2 strong waves in 120d OR at least 2 prior 5d MFE>=20 episodes",
-          }
-          SYM_SPEC={
-              "current_wave":"pre-signal 10d low-to-high wave",
-              "prior_reference":"max(prior 120d 3d return, 5d return, historical 5d MFE)",
-              "candidate":"KKI exists and current/prior ratio between 0.45 and 1.25"
-          }
-          FP=hashlib.sha256(json.dumps(
-              {"kki":KKI_SPEC,"symmetry":SYM_SPEC},
-              ensure_ascii=False,sort_keys=True
-          ).encode()).hexdigest()
+          # Bootstrap pairs already verified in prior research:
+          # 2026-09-21 source -> standalone Overlay run 35861723754
+          # 2026-10-01 source -> integrated REAL_FULL run 36868727334
+          BOOTSTRAP=[
+              {"overlay_run_id":35861723754,"source_run_id":35573389577,"kind":"STANDALONE_VERIFIED"},
+              {"overlay_run_id":36868727334,"source_run_id":36868727334,"kind":"INTEGRATED_VERIFIED"},
+          ]
 
           def norm_code(v):
               s=re.sub(r"\D","",str(v or ""))
               return s[-6:].zfill(6) if s else ""
 
-          def read_csv(p):
-              p=Path(p)
-              if not p.exists() or p.stat().st_size==0:return pd.DataFrame()
-              try:return pd.read_csv(p,dtype=str,encoding="utf-8-sig",low_memory=False).fillna("")
-              except Exception:
-                  try:return pd.read_csv(p,dtype=str,low_memory=False).fillna("")
-                  except Exception:return pd.DataFrame()
+          def api(path):
+              r=requests.get(BASE+path,headers=H,timeout=60)
+              r.raise_for_status()
+              return r.json()
 
-          def load_year(y):
-              p=Path(f"vendor/marcap/data/marcap-{y}.parquet")
-              if not p.exists():return pd.DataFrame()
-              q=pd.read_parquet(p)
-              if "Date" not in q.columns:q=q.reset_index()
-              return q
+          def artifacts(run_id):
+              return api(f"/actions/runs/{run_id}/artifacts?per_page=100").get("artifacts",[])
 
-          q=pd.concat([load_year(2025),load_year(2026)],ignore_index=True,sort=False)
-          q["Date"]=pd.to_datetime(q["Date"],errors="coerce").dt.normalize()
-          q["Code"]=q["Code"].map(norm_code)
+          def download_artifact(a):
+              r=requests.get(f"{BASE}/actions/artifacts/{a['id']}/zip",headers=H,timeout=90,allow_redirects=True)
+              r.raise_for_status()
+              return zipfile.ZipFile(io.BytesIO(r.content))
+
+          def extract_run(run_id, target):
+              target=Path(target);target.mkdir(parents=True,exist_ok=True)
+              got=0
+              for a in artifacts(run_id):
+                  if a.get("expired"): continue
+                  try:
+                      z=download_artifact(a)
+                      td=target/str(a["id"]);td.mkdir(parents=True,exist_ok=True)
+                      z.extractall(td);got+=1
+                  except Exception as e:
+                      print("ARTIFACT_SKIP",run_id,a.get("id"),type(e).__name__)
+              return got
+
+          def first(root,name):
+              hits=list(Path(root).rglob(name))
+              return hits[0] if hits else None
+
+          # Discover recent integrated run_scanner artifacts that already contain both files.
+          discovered=[]
+          try:
+              runs=api("/actions/runs?per_page=100").get("workflow_runs",[])
+              for r in runs:
+                  if r.get("status")!="completed" or r.get("conclusion")!="success": continue
+                  if not str(r.get("path","")).endswith("run_scanner.yml"): continue
+                  rid=int(r["id"])
+                  discovered.append({"overlay_run_id":rid,"source_run_id":rid,"kind":"RECENT_RUN_SCANNER_DISCOVERY"})
+          except Exception as e:
+              print("RUN_DISCOVERY_WARN",type(e).__name__,str(e)[:200])
+
+          pairs=[]
+          seen_pair=set()
+          for x in BOOTSTRAP+discovered:
+              k=(x["overlay_run_id"],x["source_run_id"])
+              if k not in seen_pair:
+                  pairs.append(x);seen_pair.add(k)
+
+          work=Path("/tmp/overlay_outcome_sources")
+          rows=[]; diag=[]
+          expected_revision=None
+
+          for pair in pairs:
+              orid=pair["overlay_run_id"]; srid=pair["source_run_id"]
+              odir=work/f"overlay_{orid}"
+              sdir=work/f"source_{srid}"
+              try:
+                  if not odir.exists(): extract_run(orid,odir)
+                  if srid==orid:
+                      sdir=odir
+                  elif not sdir.exists():
+                      extract_run(srid,sdir)
+                  ov=first(odir,"real_full_research_overlay.csv")
+                  meta=first(odir,"real_full_research_overlay_meta.json")
+                  src=first(sdir,"real_full_trust_source.csv")
+                  if not ov or not src:
+                      diag.append({"overlay_run_id":orid,"source_run_id":srid,"status":"MISSING_REQUIRED_FILE",
+                                   "overlay_found":bool(ov),"source_found":bool(src),"kind":pair["kind"]})
+                      continue
+
+                  m={}
+                  if meta:
+                      try:m=json.loads(Path(meta).read_text(encoding="utf-8"))
+                      except Exception:m={}
+                  revision=str(m.get("revision","UNKNOWN"))
+                  if expected_revision is None and revision!="UNKNOWN":
+                      expected_revision=revision
+                  if expected_revision and revision!="UNKNOWN" and revision!=expected_revision:
+                      diag.append({"overlay_run_id":orid,"source_run_id":srid,"status":"REVISION_MISMATCH_SKIP",
+                                   "revision":revision,"expected_revision":expected_revision,"kind":pair["kind"]})
+                      continue
+
+                  q=pd.read_csv(ov,dtype=str,low_memory=False).fillna("")
+                  s=pd.read_csv(src,dtype=str,low_memory=False).fillna("")
+                  q["code"]=q["code"].map(norm_code); s["code"]=s["code"].map(norm_code)
+                  if "signal_date" not in s.columns or "snapshot_price" not in s.columns:
+                      diag.append({"overlay_run_id":orid,"source_run_id":srid,"status":"SOURCE_SCHEMA_MISSING",
+                                   "kind":pair["kind"]})
+                      continue
+
+                  keep=["code","signal_date","snapshot_price"]
+                  ss=s[keep].drop_duplicates("code",keep="first")
+                  z=q.merge(ss,on="code",how="left",validate="one_to_one")
+                  z["overlay_run_id"]=orid
+                  z["source_run_id"]=srid
+                  z["overlay_revision"]=revision
+                  z["source_kind"]=pair["kind"]
+                  rows.append(z)
+
+                  diag.append({"overlay_run_id":orid,"source_run_id":srid,"status":"LOADED",
+                               "overlay_rows":len(q),"joined_signal_date":int(z["signal_date"].astype(str).str.len().gt(0).sum()),
+                               "revision":revision,"kind":pair["kind"]})
+              except Exception as e:
+                  diag.append({"overlay_run_id":orid,"source_run_id":srid,"status":"ERROR",
+                               "error":f"{type(e).__name__}:{str(e)[:300]}","kind":pair["kind"]})
+
+          pd.DataFrame(diag).to_csv(OUT/"source_run_diagnostics.csv",index=False,encoding="utf-8-sig")
+          if not rows:
+              raise SystemExit("NO_OVERLAY_COHORTS_LOADED")
+
+          ev=pd.concat(rows,ignore_index=True,sort=False)
+          ev=ev[ev["signal_date"].astype(str).str.len().gt(0)].copy()
+          ev["signal_date"]=pd.to_datetime(ev["signal_date"],errors="coerce").dt.normalize()
+          ev["snapshot_price"]=pd.to_numeric(ev["snapshot_price"],errors="coerce")
+          ev=ev[ev.signal_date.notna() & ev.snapshot_price.gt(0)].copy()
+
+          # Deduplicate retries of the same source-date/code; research label must agree.
+          conflicts=(ev.groupby(["signal_date","code"])["research_level"].nunique()>1)
+          bad=set(conflicts[conflicts].index.tolist())
+          if bad:
+              pd.DataFrame([{"signal_date":str(k[0].date()),"code":k[1]} for k in sorted(bad)]).to_csv(
+                  OUT/"research_level_conflicts.csv",index=False,encoding="utf-8-sig")
+              raise SystemExit(f"RESEARCH_LEVEL_CONFLICT n={len(bad)}")
+          ev=ev.sort_values(["signal_date","code","overlay_run_id"]).drop_duplicates(["signal_date","code"],keep="last")
+
+          # Price history.
+          p=Path("vendor/marcap/data/marcap-2026.parquet")
+          px=pd.read_parquet(p)
+          if "Date" not in px.columns:px=px.reset_index()
+          px["Date"]=pd.to_datetime(px["Date"],errors="coerce").dt.normalize()
+          px["Code"]=px["Code"].map(norm_code)
           for c in ["Open","High","Low","Close","Volume","Amount"]:
-              q[c]=pd.to_numeric(q[c],errors="coerce")
-          q=q.dropna(subset=["Date","Code","Open","High","Low","Close"])
-          q=q[(q.Open>0)&(q.High>0)&(q.Low>0)&(q.Close>0)]
-          q=q.sort_values(["Code","Date"]).drop_duplicates(["Code","Date"],keep="last")
+              if c in px.columns:px[c]=pd.to_numeric(px[c],errors="coerce")
+          px=px.dropna(subset=["Date","Code","Open","High","Low","Close"])
+          px=px[(px.Open>0)&(px.High>0)&(px.Low>0)&(px.Close>0)]
+          px=px.sort_values(["Date","Code"]).drop_duplicates(["Date","Code"],keep="last")
+          market_dates=sorted(pd.Timestamp(x).normalize() for x in px.Date.unique())
+          date_pos={d:i for i,d in enumerate(market_dates)}
+          last_date=market_dates[-1]
 
-          def feat(g):
-              g=g.sort_values("Date").reset_index(drop=True).copy()
-              c=g.Close.astype(float)
-              g["ret1"]=(c/c.shift(1)-1)*100
-              g["ret3"]=(c/c.shift(3)-1)*100
-              g["ret5"]=(c/c.shift(5)-1)*100
-              g["amount20"]=g.Amount.rolling(20,min_periods=10).mean()
-              g["amount_ratio20"]=g.Amount/g.amount20
-              g["ma5"]=c.rolling(5,min_periods=5).mean()
-              return g
+          by_code={c:g.set_index("Date").sort_index() for c,g in px.groupby("Code",sort=False)}
+          outrows=[]
 
-          def prior_stats(h):
-              if h.empty:return {}
-              strong1=(h.ret1>=10); strong3=(h.ret3>=15); strong5=(h.ret5>=20)
-              any_strong=(strong1|strong3|strong5)
-              mfe5=[]
-              for k in range(len(h)-5):
-                  base=float(h.Close.iloc[k])
-                  if base<=0:continue
-                  hi=float(h.High.iloc[k+1:k+6].max())
-                  mfe5.append((hi/base-1)*100)
-              return {
-                  "strong_any_n":int(any_strong.sum()),
-                  "prior_mfe5_ge15_n":int(sum(x>=15 for x in mfe5)),
-                  "prior_mfe5_ge20_n":int(sum(x>=20 for x in mfe5)),
-                  "prior_mfe5_max":float(np.nanmax(mfe5)) if mfe5 else np.nan,
-                  "max_ret3":float(pd.to_numeric(h.ret3,errors="coerce").max()),
-                  "max_ret5":float(pd.to_numeric(h.ret5,errors="coerce").max()),
-              }
+          def is_spac(name):
+              s=str(name or "").upper()
+              return "스팩" in s or "SPAC" in s
 
-          events=read_csv("reports/.cache/odoli_independent_r1/events.csv")
-          if events.empty:
-              raise SystemExit("ODOLI_EVENTS_UNAVAILABLE")
-          events["signal_date"]=pd.to_datetime(events["signal_date"],errors="coerce").dt.normalize()
-          events["code"]=events["code"].map(norm_code)
-          events=events[events.signal_date.notna() & events.code.ne("")].copy()
+          for _,r in ev.iterrows():
+              sd=pd.Timestamp(r.signal_date).normalize(); code=norm_code(r.code)
+              if sd not in date_pos: continue
+              g=by_code.get(code)
+              if g is None: continue
+              entry=float(r.snapshot_price)
+              pos=date_pos[sd]
 
-          existing=read_csv(STATE/"tracker.csv")
-          if not existing.empty:
-              existing["signal_date"]=pd.to_datetime(existing["signal_date"],errors="coerce").dt.normalize()
-              existing["code"]=existing["code"].map(norm_code)
+              rec=r.to_dict()
+              rec["is_spac"]=is_spac(r.get("name",""))
+              rec["price_data_last_date"]=last_date.date().isoformat()
 
-          price={code:feat(g) for code,g in q.groupby("Code",sort=False)}
-          rows=[] if existing.empty else existing.to_dict("records")
-          seen={(str(pd.Timestamp(r["signal_date"]).date()),norm_code(r["code"])) for r in rows}
+              # Audit source snapshot vs official market close if available.
+              if sd in g.index:
+                  close0=float(g.loc[sd,"Close"])
+                  rec["signal_market_close"]=close0
+                  rec["snapshot_vs_market_close_pct"]=(entry/close0-1)*100 if close0>0 else np.nan
+              else:
+                  rec["signal_market_close"]=np.nan
+                  rec["snapshot_vs_market_close_pct"]=np.nan
 
-          for _,e in events.sort_values(["signal_date","code"]).iterrows():
-              sd=pd.Timestamp(e.signal_date).normalize(); code=norm_code(e.code)
-              key=(str(sd.date()),code)
-              if key in seen:continue
-              g=price.get(code)
-              if g is None or g.empty:continue
-              idx=g.index[g.Date.eq(sd)]
-              if len(idx)!=1:continue
-              i=int(idx[0])
-              if i<125:continue
+              # 45% adjacent-close discontinuity guard from D-2 through D+10.
+              dstart=max(0,pos-2); dend=min(len(market_dates)-1,pos+10)
+              check_dates=market_dates[dstart:dend+1]
+              closes=[]
+              for d in check_dates:
+                  if d in g.index:closes.append(float(g.loc[d,"Close"]))
+              disc=False
+              for a,b in zip(closes,closes[1:]):
+                  if a>0 and abs(b/a-1)>=0.45:
+                      disc=True;break
+              rec["discontinuity45_flag"]=disc
 
-              h60=g.iloc[i-60:i].copy()
-              h120=g.iloc[i-120:i].copy()
-              s60=prior_stats(h60); s120=prior_stats(h120)
+              for h in [1,3,5,10]:
+                  mature=(pos+h)<len(market_dates)
+                  rec[f"d{h}_calendar_mature"]=mature
+                  if not mature:
+                      for c in [f"d{h}_close_ret_pct",f"mfe{h}_pct",f"mae{h}_pct"]:
+                          rec[c]=np.nan
+                      continue
+                  target=market_dates[pos+h]
+                  rec[f"d{h}_date"]=target.date().isoformat()
+                  if target in g.index:
+                      rec[f"d{h}_close_ret_pct"]=(float(g.loc[target,"Close"])/entry-1)*100
+                  else:
+                      rec[f"d{h}_close_ret_pct"]=np.nan
 
-              recent=bool(s60.get("strong_any_n",0)>=1 or s60.get("prior_mfe5_ge20_n",0)>=1)
-              repeated=bool(s120.get("strong_any_n",0)>=2 or s120.get("prior_mfe5_ge20_n",0)>=2)
-              weak=bool(s120.get("strong_any_n",0)>=1 or s120.get("prior_mfe5_ge15_n",0)>=1)
-              if recent and repeated:kki="RECENT_REPEATED_KKI"
-              elif recent:kki="RECENT_KKI"
-              elif repeated:kki="REPEATED_KKI"
-              elif weak:kki="WEAK_KKI"
-              else:kki="NO_PRIOR_KKI"
+                  win_dates=market_dates[pos+1:pos+h+1]
+                  highs=[];lows=[]
+                  for d in win_dates:
+                      if d in g.index:
+                          highs.append(float(g.loc[d,"High"]))
+                          lows.append(float(g.loc[d,"Low"]))
+                  rec[f"mfe{h}_pct"]=(max(highs)/entry-1)*100 if highs else np.nan
+                  rec[f"mae{h}_pct"]=(min(lows)/entry-1)*100 if lows else np.nan
 
-              pre10=g.iloc[i-10:i]
-              cur_base=float(pre10.Close.min())
-              cur_peak=float(pre10.High.max())
-              cur_wave=(cur_peak/cur_base-1)*100 if cur_base>0 else np.nan
-              vals=[s120.get("max_ret3",np.nan),s120.get("max_ret5",np.nan),s120.get("prior_mfe5_max",np.nan)]
-              vals=[x for x in vals if pd.notna(x)]
-              prior_wave=max(vals) if vals else np.nan
-              ratio=cur_wave/prior_wave if pd.notna(prior_wave) and prior_wave>0 else np.nan
-              sym=bool(kki!="NO_PRIOR_KKI" and pd.notna(ratio) and 0.45<=ratio<=1.25)
+              outrows.append(rec)
 
-              rows.append({
-                  "signal_date":sd.date().isoformat(),
-                  "code":code,
-                  "name":e.get("name",""),
-                  "kki_class_frozen":kki,
-                  "recent_repeated_kki":kki=="RECENT_REPEATED_KKI",
-                  "symmetry_candidate_frozen":sym,
-                  "current_pre10_wave_pct":cur_wave,
-                  "prior_reference_wave_pct":prior_wave,
-                  "symmetry_ratio":ratio,
-                  "strong_any_60_n":s60.get("strong_any_n",0),
-                  "strong_any_120_n":s120.get("strong_any_n",0),
-                  "prior_mfe5_ge20_120_n":s120.get("prior_mfe5_ge20_n",0),
-                  "feature_fingerprint":FP,
-                  "feature_frozen_at_signal":True,
-                  "fast_d2_status":"PENDING",
-                  "c4_status":"PENDING",
-                  "final_state":"PENDING",
-                  "d10_mature":False,
-                  "d10_close_ret_pct":np.nan,
-                  "mfe10_pct":np.nan,
-                  "mfe10_ge10":False,
-                  "mfe10_ge15":False,
-              })
-              seen.add(key)
+          led=pd.DataFrame(outrows)
+          if led.empty: raise SystemExit("OUTCOME_LEDGER_EMPTY")
+          led.to_csv(OUT/"overlay_outcome_ledger.csv",index=False,encoding="utf-8-sig")
 
-          tr=pd.DataFrame(rows)
-          if tr.empty:raise SystemExit("TRACKER_EMPTY")
-          tr["signal_date"]=pd.to_datetime(tr["signal_date"],errors="coerce").dt.normalize()
+          # Summary: RAW plus GUARDED (non-SPAC, no 45% discontinuity)
+          sums=[]
+          for scope,base in [
+              ("RAW",led),
+              ("GUARDED",led[(~led["is_spac"].astype(bool)) & (~led["discontinuity45_flag"].astype(bool))])
+          ]:
+              for level,g in base.groupby("research_level",dropna=False):
+                  for h in [1,3,5,10]:
+                      rr=pd.to_numeric(g[f"d{h}_close_ret_pct"],errors="coerce")
+                      mfe=pd.to_numeric(g[f"mfe{h}_pct"],errors="coerce")
+                      mae=pd.to_numeric(g[f"mae{h}_pct"],errors="coerce")
+                      ok=rr.notna()
+                      sums.append({
+                          "scope":scope,"research_level":level,"horizon":f"D{h}",
+                          "cohort_rows":len(g),"n_close":int(ok.sum()),
+                          "close_positive_pct":float((rr[ok]>0).mean()*100) if ok.any() else np.nan,
+                          "close_mean_pct":float(rr[ok].mean()) if ok.any() else np.nan,
+                          "close_median_pct":float(rr[ok].median()) if ok.any() else np.nan,
+                          "mfe_ge5_pct":float((mfe.dropna()>=5).mean()*100) if mfe.notna().any() else np.nan,
+                          "mfe_ge10_pct":float((mfe.dropna()>=10).mean()*100) if mfe.notna().any() else np.nan,
+                          "mfe_median_pct":float(mfe.dropna().median()) if mfe.notna().any() else np.nan,
+                          "mae_median_pct":float(mae.dropna().median()) if mae.notna().any() else np.nan,
+                      })
+          sm=pd.DataFrame(sums)
+          sm.to_csv(OUT/"summary_by_research_level.csv",index=False,encoding="utf-8-sig")
 
-          # Mature/update only from data that has actually happened.
-          for ix,r in tr.iterrows():
-              code=norm_code(r.code); sd=pd.Timestamp(r.signal_date).normalize()
-              g=price.get(code)
-              if g is None:continue
-              ids=g.index[g.Date.eq(sd)]
-              if len(ids)!=1:continue
-              i=int(ids[0]); last=len(g)-1
-
-              # D2 FAST can only be known once D2 exists.
-              if i+2<=last:
-                  d1=g.iloc[i+1];d2=g.iloc[i+2]
-                  fast=bool(float(d2.Low)>float(d1.Low) and pd.notna(g.ma5.iloc[i+2]) and float(d2.Close)>float(g.ma5.iloc[i+2]))
-                  tr.at[ix,"fast_d2_status"]="FAST" if fast else "NON_FAST"
-
-              # C4 through available D4-D10, using original frozen definition.
-              sig_low=float(g.iloc[i].Low)
-              c4=False
-              maxj=min(i+10,last)
-              if i+4<=last:
-                  for j in range(i+4,maxj+1):
-                      hist=g.iloc[i+1:j+1]
-                      survive=bool(hist.Low.min()>=sig_low)
-                      above=bool(pd.notna(g.ma5.iloc[j]) and float(g.iloc[j].Close)>float(g.ma5.iloc[j]))
-                      hl=bool(float(g.iloc[j].Low)>float(g.iloc[j-1].Low))
-                      pre20=g.Amount.iloc[max(0,j-20):j]
-                      ama=float(pre20.mean()) if len(pre20) else np.nan
-                      ar=float(g.Amount.iloc[j]/ama) if pd.notna(ama) and ama>0 else np.nan
-                      if above and hl and pd.notna(ar) and ar>=1.0 and survive:
-                          c4=True;break
-                  tr.at[ix,"c4_status"]="C4" if c4 else ("NO_C4_YET" if maxj<i+10 else "NO_C4_D10")
-
-              fast_now=str(tr.at[ix,"fast_d2_status"])=="FAST"
-              if fast_now:tr.at[ix,"final_state"]="FAST"
-              elif c4:tr.at[ix,"final_state"]="SLOW_C4"
-              elif i+10<=last:tr.at[ix,"final_state"]="OTHER_WATCH"
-
-              if i+10<=last:
-                  entry=float(g.iloc[i].Close)
-                  fut=g.iloc[i+1:i+11]
-                  tr.at[ix,"d10_mature"]=True
-                  tr.at[ix,"d10_close_ret_pct"]=(float(g.iloc[i+10].Close)/entry-1)*100
-                  mfe=(float(fut.High.max())/entry-1)*100
-                  tr.at[ix,"mfe10_pct"]=mfe
-                  tr.at[ix,"mfe10_ge10"]=bool(mfe>=10)
-                  tr.at[ix,"mfe10_ge15"]=bool(mfe>=15)
-
-          tr=tr.sort_values(["signal_date","code"]).drop_duplicates(["signal_date","code"],keep="first")
-          tr.to_csv(STATE/"tracker.csv",index=False,encoding="utf-8-sig")
-          tr.to_csv(OUT/"prospective_tracker.csv",index=False,encoding="utf-8-sig")
-
-          mature=tr[tr.d10_mature.astype(str).str.lower().isin(["true","1"])].copy()
-          summary=[]
-          if len(mature):
-              for keys,g in mature.groupby(["final_state","recent_repeated_kki","symmetry_candidate_frozen"],dropna=False):
-                  state,kki,sym=keys
-                  r=pd.to_numeric(g.d10_close_ret_pct,errors="coerce")
-                  mfe=pd.to_numeric(g.mfe10_pct,errors="coerce")
-                  summary.append({
-                      "final_state":state,
-                      "recent_repeated_kki":kki,
-                      "symmetry_candidate":sym,
-                      "n":len(g),
-                      "d10_positive_pct":(r>0).mean()*100,
-                      "d10_mean_pct":r.mean(),
-                      "d10_median_pct":r.median(),
-                      "mfe10_ge10_pct":pd.to_numeric(g.mfe10_ge10,errors="coerce").fillna(0).astype(bool).mean()*100,
-                      "mfe10_ge15_pct":pd.to_numeric(g.mfe10_ge15,errors="coerce").fillna(0).astype(bool).mean()*100,
-                      "mfe10_median_pct":mfe.median(),
-                  })
-          sm=pd.DataFrame(summary)
-          sm.to_csv(OUT/"prospective_summary.csv",index=False,encoding="utf-8-sig")
+          # Cohort-level counts, so immature recent cohorts are visible rather than silently mixed.
+          cohort=(led.groupby(["signal_date","research_level"],dropna=False)
+                    .agg(n=("code","size"),
+                         d1_n=("d1_close_ret_pct",lambda x:pd.to_numeric(x,errors="coerce").notna().sum()),
+                         d3_n=("d3_close_ret_pct",lambda x:pd.to_numeric(x,errors="coerce").notna().sum()),
+                         d5_n=("d5_close_ret_pct",lambda x:pd.to_numeric(x,errors="coerce").notna().sum()),
+                         d10_n=("d10_close_ret_pct",lambda x:pd.to_numeric(x,errors="coerce").notna().sum()))
+                    .reset_index())
+          cohort.to_csv(OUT/"cohort_maturity.csv",index=False,encoding="utf-8-sig")
 
           meta={
               "revision":REV,
               "research_only":True,
               "production_changed":False,
-              "automatic_ordering":False,
-              "feature_fingerprint":FP,
-              "feature_definition_locked":True,
-              "kki_spec":KKI_SPEC,
-              "symmetry_spec":SYM_SPEC,
-              "new_events_total":len(tr),
-              "mature_d10_total":len(mature),
-              "point_in_time_features_only":True,
-              "no_retroactive_feature_relabeling":True,
-              "price_gate_changed":False,
-              "rank_changed":False,
-              "order_changed":False,
-              "promotion_allowed":False,
-              "note":"Prospective observational tracker. Do not tune thresholds from this run."
+              "production_search_changed":False,
+              "production_score_changed":False,
+              "production_rank_changed":False,
+              "production_order_changed":False,
+              "same_sample_retuning":False,
+              "outcome_only":True,
+              "entry_reference":"REAL_FULL real_full_trust_source.snapshot_price on signal_date",
+              "signal_date_authority":"REAL_FULL real_full_trust_source.signal_date, not overlay execution date",
+              "horizons":["D1","D3","D5","D10"],
+              "mfe_mae_window":"next market sessions D1..Dh, signal day excluded",
+              "raw_rows":len(led),
+              "signal_dates":sorted({str(pd.Timestamp(x).date()) for x in led.signal_date}),
+              "overlay_revision":expected_revision,
+              "guarded_exclusions":["SPAC name flag","adjacent close discontinuity >=45%"],
+              "price_data_last_date":last_date.date().isoformat(),
+              "note":"Descriptive validation of frozen research labels only. No production promotion or retuning."
           }
-          (OUT/"meta.json").write_text(json.dumps(meta,ensure_ascii=False,indent=2),encoding="utf-8")
-          (OUT/"FROZEN_FEATURE_SPEC.json").write_text(json.dumps({
-              "fingerprint":FP,"kki_spec":KKI_SPEC,"symmetry_spec":SYM_SPEC
-          },ensure_ascii=False,indent=2),encoding="utf-8")
+          (OUT/"meta.json").write_text(json.dumps(meta,ensure_ascii=False,indent=2,default=str),encoding="utf-8")
 
-          report=["# ODOLI Prospective KKI Symmetry Tracker R1","",
-                  "```json",json.dumps(meta,ensure_ascii=False,indent=2),"```",""]
-          if len(sm):
-              report += ["## Mature prospective summary","```text",sm.to_string(index=False),"```"]
-          else:
-              report += ["## Mature prospective summary","No D10-mature frozen observations yet."]
+          report=["# REAL_FULL Overlay Outcome Ledger R1","",
+                  "## Meta","```json",json.dumps(meta,ensure_ascii=False,indent=2,default=str),"```","",
+                  "## Cohort maturity","```text",cohort.to_string(index=False),"```","",
+                  "## Summary by research level","```text",sm.to_string(index=False),"```"]
           (OUT/"REPORT.md").write_text("\n".join(report),encoding="utf-8")
 
-          print("ODOLI_PROSPECTIVE_KKI_SYMMETRY_TRACKER_PASS")
-          print(json.dumps(meta,ensure_ascii=False))
+          print("REAL_FULL_OVERLAY_OUTCOME_LEDGER_PASS")
+          print(json.dumps(meta,ensure_ascii=False,default=str))
+          print(cohort.to_string(index=False))
+          print(sm.to_string(index=False))
           PY
 
-          python /tmp/tracker.py
+          python /tmp/outcome.py
 
-      - name: Validate frozen prospective integrity
+      - name: Validate research-only invariants
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
           import json,pandas as pd
-          m=json.load(open("reports/temp_odoli_kki_symmetry_prospective/meta.json",encoding="utf-8"))
-          assert m["revision"]=="ODOLI_PROSPECTIVE_KKI_SYMMETRY_TRACKER_R1_20261002"
+          m=json.load(open("reports/temp_real_full_overlay_outcome/meta.json",encoding="utf-8"))
+          assert m["revision"]=="REAL_FULL_OVERLAY_OUTCOME_LEDGER_R1_20261002"
           assert m["research_only"] is True
           assert m["production_changed"] is False
-          assert m["automatic_ordering"] is False
-          assert m["feature_definition_locked"] is True
-          assert m["point_in_time_features_only"] is True
-          assert m["no_retroactive_feature_relabeling"] is True
-          assert m["price_gate_changed"] is False
-          assert m["rank_changed"] is False
-          assert m["order_changed"] is False
-          q=pd.read_csv("reports/temp_odoli_kki_symmetry_prospective/prospective_tracker.csv")
+          assert m["production_search_changed"] is False
+          assert m["production_score_changed"] is False
+          assert m["production_rank_changed"] is False
+          assert m["production_order_changed"] is False
+          assert m["same_sample_retuning"] is False
+          assert m["outcome_only"] is True
+
+          q=pd.read_csv("reports/temp_real_full_overlay_outcome/overlay_outcome_ledger.csv")
           assert len(q)>0
-          assert q["feature_fingerprint"].nunique()==1
-          assert q["feature_fingerprint"].iloc[0]==m["feature_fingerprint"]
-          print("PROSPECTIVE_KKI_SYMMETRY_FROZEN_INTEGRITY_PASS")
-          PY
-
-      - name: Build Telegram delta message
-        if: always() && hashFiles('reports/temp_odoli_kki_symmetry_prospective/prospective_tracker.csv') != ''
-        shell: bash
-        run: |
-          set -euo pipefail
-          python - <<'PY'
-          from pathlib import Path
-          import json
-          import pandas as pd
-
-          curp=Path("reports/temp_odoli_kki_symmetry_prospective/prospective_tracker.csv")
-          prevp=Path("/tmp/odoli_kki_tracker_before.csv")
-          out=Path("reports/temp_odoli_kki_symmetry_prospective")
-          cur=pd.read_csv(curp,dtype=str,low_memory=False).fillna("")
-          prev=pd.read_csv(prevp,dtype=str,low_memory=False).fillna("") if prevp.exists() and prevp.stat().st_size else pd.DataFrame()
-
-          key=["signal_date","code"]
-          for q in (cur,prev):
-              if len(q):
-                  q["code"]=q["code"].astype(str).str.replace(r"\D","",regex=True).str[-6:].str.zfill(6)
-
-          if prev.empty:
-              new=cur.copy()
-              changes=pd.DataFrame()
-              matured=cur[cur["d10_mature"].astype(str).str.lower().isin(["true","1"])].copy()
-              baseline_init=True
-          else:
-              pkeys=set(map(tuple,prev[key].astype(str).values.tolist()))
-              ckeys=set(map(tuple,cur[key].astype(str).values.tolist()))
-              new=cur[cur[key].astype(str).apply(tuple,axis=1).isin(ckeys-pkeys)].copy()
-
-              merged=cur.merge(prev,on=key,how="inner",suffixes=("_now","_prev"))
-              fields=["fast_d2_status","c4_status","final_state","d10_mature"]
-              mask=pd.Series(False,index=merged.index)
-              for f in fields:
-                  mask |= merged[f+"_now"].astype(str).ne(merged[f+"_prev"].astype(str))
-              changes=merged[mask].copy()
-
-              matured=merged[
-                  merged["d10_mature_now"].astype(str).str.lower().isin(["true","1"]) &
-                  ~merged["d10_mature_prev"].astype(str).str.lower().isin(["true","1"])
-              ].copy()
-              baseline_init=False
-
-          should_send=(len(new)>0 or len(changes)>0 or len(matured)>0)
-          # On first install, avoid dumping hundreds of historical baseline rows.
-          # Send a one-time initialization summary only.
-          if baseline_init:
-              should_send=True
-
-          lines=[
-              "🧪 [ODOLI KKI/OOS 추적 · RESEARCH_ONLY]",
-              "※ 자동주문/확정매수 신호 아님 · frozen KKI/대칭 정의 변경 없음",
-          ]
-
-          if baseline_init:
-              lines += [
-                  f"📦 초기 tracker 등록: {len(cur)}건",
-                  "앞으로 신규 신호·FAST/C4 전환·D10 성숙 변화만 전송합니다.",
-              ]
-          else:
-              lines.append(f"🆕 신규 {len(new)} | 🔄 상태변화 {len(changes)} | ✅ D10 신규성숙 {len(matured)}")
-
-              if len(new):
-                  lines.append("")
-                  lines.append("🆕 관심종목 등록 · D0 신규 ODOLI")
-                  for _,r in new.sort_values(key).tail(12).iterrows():
-                      kki="KKI✅" if str(r.get("recent_repeated_kki","")).lower() in {"true","1"} else "KKI-"
-                      sym="대칭✅" if str(r.get("symmetry_candidate_frozen","")).lower() in {"true","1"} else "대칭-"
-                      lines.append(f"- {r.get('signal_date','')} {r.get('name','')}({r.get('code','')}) · {kki} · {sym}")
-
-              if len(changes):
-                  fast_changes=changes[
-                      changes["fast_d2_status_now"].astype(str).eq("FAST") &
-                      ~changes["fast_d2_status_prev"].astype(str).eq("FAST")
-                  ].copy()
-                  c4_changes=changes[
-                      changes["c4_status_now"].astype(str).eq("C4") &
-                      ~changes["c4_status_prev"].astype(str).eq("C4")
-                  ].copy()
-                  other_changes=changes.drop(index=set(fast_changes.index)|set(c4_changes.index),errors="ignore").copy()
-
-                  if len(fast_changes):
-                      lines.append("")
-                      lines.append("🚨 빠른 확인 후보 · D2 FAST")
-                      for _,r in fast_changes.sort_values(key).tail(12).iterrows():
-                          kki="KKI✅" if str(r.get("recent_repeated_kki_now","")).lower() in {"true","1"} else "KKI-"
-                          sym="대칭✅" if str(r.get("symmetry_candidate_frozen_now","")).lower() in {"true","1"} else "대칭-"
-                          star=" · ⭐강조" if kki=="KKI✅" and sym=="대칭✅" else ""
-                          lines.append(
-                              f"- {r.get('signal_date','')} {r.get('name_now','')}({r.get('code','')}) "
-                              f"· {kki} · {sym}{star} · 수동 진입 검토"
-                          )
-
-                  if len(c4_changes):
-                      lines.append("")
-                      lines.append("🔄 재상승 확인 후보 · SLOW_C4")
-                      for _,r in c4_changes.sort_values(key).tail(12).iterrows():
-                          kki="KKI✅" if str(r.get("recent_repeated_kki_now","")).lower() in {"true","1"} else "KKI-"
-                          sym="대칭✅" if str(r.get("symmetry_candidate_frozen_now","")).lower() in {"true","1"} else "대칭-"
-                          lines.append(
-                              f"- {r.get('signal_date','')} {r.get('name_now','')}({r.get('code','')}) "
-                              f"· {kki} · {sym} · 수동 진입 검토"
-                          )
-
-                  if len(other_changes):
-                      lines.append("")
-                      lines.append("ℹ️ 기타 상태 변화")
-                      for _,r in other_changes.sort_values(key).tail(8).iterrows():
-                          lines.append(
-                              f"- {r.get('signal_date','')} {r.get('name_now','')}({r.get('code','')}) "
-                              f"· {r.get('final_state_prev','')}→{r.get('final_state_now','')}"
-                          )
-
-              if len(matured):
-                  lines.append("")
-                  lines.append("✅ 성과검증 완료 · D10 신규 성숙")
-                  for _,r in matured.sort_values(key).tail(12).iterrows():
-                      kki="KKI✅" if str(r.get("recent_repeated_kki_now","")).lower() in {"true","1"} else "KKI-"
-                      sym="대칭✅" if str(r.get("symmetry_candidate_frozen_now","")).lower() in {"true","1"} else "대칭-"
-                      try:
-                          ret=float(r.get("d10_close_ret_pct_now",""))
-                          mfe=float(r.get("mfe10_pct_now",""))
-                          perf=f"D10 {ret:+.1f}% · MFE {mfe:+.1f}%"
-                      except Exception:
-                          perf="D10 결과 확인"
-                      lines.append(
-                          f"- {r.get('signal_date','')} {r.get('name_now','')}({r.get('code','')}) "
-                          f"· {r.get('final_state_now','')} · {kki} · {sym} · {perf}"
-                      )
-
-          msg="\n".join(lines)
-          # Telegram safety: split later at sender; save full research message.
-          (out/"telegram_message.txt").write_text(msg,encoding="utf-8")
-          (out/"telegram_delta_meta.json").write_text(json.dumps({
-              "research_only":True,
-              "automatic_ordering":False,
-              "baseline_init":baseline_init,
-              "new_n":int(len(new)),
-              "changed_n":int(len(changes)),
-              "new_d10_mature_n":int(len(matured)),
-              "telegram_should_send":bool(should_send),
-              "route":"TELEGRAM_DYUL_CHAT_ID",
-              "schedule_kst":"weekdays 17:40",
-          },ensure_ascii=False,indent=2),encoding="utf-8")
-          print(msg)
-          print("TELEGRAM_SHOULD_SEND",int(should_send))
-          PY
-
-      - name: Send Telegram research delta to DYUL
-        if: always() && hashFiles('reports/temp_odoli_kki_symmetry_prospective/telegram_delta_meta.json') != ''
-        env:
-          TELEGRAM_BACKTEST_TOKEN: ${{ secrets.TELEGRAM_BACKTEST_TOKEN }}
-          TELEGRAM_DYUL_CHAT_ID: ${{ secrets.TELEGRAM_DYUL_CHAT_ID }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          SHOULD="$(python - <<'PY'
-          import json
-          m=json.load(open('reports/temp_odoli_kki_symmetry_prospective/telegram_delta_meta.json',encoding='utf-8'))
-          print('1' if m.get('telegram_should_send') else '0')
-          PY
-          )"
-          [ "$SHOULD" = "1" ] || { echo "ODOLI_KKI_TELEGRAM_SKIP no-change"; exit 0; }
-          [ -n "${TELEGRAM_BACKTEST_TOKEN:-}" ] && [ -n "${TELEGRAM_DYUL_CHAT_ID:-}" ] || {
-            echo "ODOLI_KKI_TELEGRAM_SKIP route-unavailable"
-            exit 0
-          }
-
-          python - <<'PY'
-          import os,urllib.parse,urllib.request
-          from pathlib import Path
-          text=Path('reports/temp_odoli_kki_symmetry_prospective/telegram_message.txt').read_text(encoding='utf-8')
-          chunks=[]
-          while text:
-              if len(text)<=3500:
-                  chunks.append(text);break
-              cut=text.rfind('\n',0,3500)
-              if cut<1000:cut=3500
-              chunks.append(text[:cut])
-              text=text[cut:].lstrip('\n')
-          for i,msg in enumerate(chunks,1):
-              data=urllib.parse.urlencode({
-                  'chat_id':os.environ['TELEGRAM_DYUL_CHAT_ID'],
-                  'text':msg
-              }).encode()
-              req=urllib.request.Request(
-                  f"https://api.telegram.org/bot{os.environ['TELEGRAM_BACKTEST_TOKEN']}/sendMessage",
-                  data=data
-              )
-              with urllib.request.urlopen(req,timeout=30) as r:
-                  body=r.read().decode('utf-8','replace')
-                  if r.status!=200:
-                      raise RuntimeError(f"telegram http={r.status} body={body[:300]}")
-              print("ODOLI_KKI_TELEGRAM_SENT_DYUL",i,len(msg))
+          assert {"research_level","signal_date","snapshot_price","d1_close_ret_pct","mfe5_pct","mae5_pct"}.issubset(q.columns)
+          print("REAL_FULL_OVERLAY_OUTCOME_INVARIANTS_PASS")
           PY
 
       - name: Show report
         if: always()
         run: |
-          cat reports/temp_odoli_kki_symmetry_prospective/meta.json || true
+          cat reports/temp_real_full_overlay_outcome/meta.json || true
           echo
-          cat reports/temp_odoli_kki_symmetry_prospective/REPORT.md || true
+          cat reports/temp_real_full_overlay_outcome/REPORT.md || true
 
-      - name: Save frozen prospective tracker
-        if: always() && hashFiles('reports/.cache/odoli_kki_symmetry_prospective_r1/tracker.csv') != ''
-        uses: actions/cache/save@v4
-        with:
-          path: reports/.cache/odoli_kki_symmetry_prospective_r1
-          key: odoli-kki-symmetry-prospective-r1-${{ github.ref_name }}-${{ github.run_id }}
-
-      - name: Upload artifact
+      - name: Upload outcome artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: temp-odoli-prospective-kki-symmetry-tracker-r1
-          path: reports/temp_odoli_kki_symmetry_prospective/**
+          name: temp-real-full-overlay-outcome-ledger-r1
+          path: reports/temp_real_full_overlay_outcome/**
           if-no-files-found: error
           retention-days: 90
