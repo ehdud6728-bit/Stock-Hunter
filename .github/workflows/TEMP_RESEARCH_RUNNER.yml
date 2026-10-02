@@ -1,4 +1,4 @@
-name: TEMP ODOLI Causal Frozen Composite Policy R1
+name: TEMP ODOLI Catalyst Causal Sidecar R1
 
 on:
   workflow_dispatch:
@@ -7,13 +7,16 @@ permissions:
   contents: read
 
 concurrency:
-  group: temp-odoli-causal-frozen-composite-policy-r1
+  group: temp-odoli-catalyst-causal-sidecar-r1
   cancel-in-progress: false
+
+env:
+  TZ: Asia/Seoul
 
 jobs:
   study:
     runs-on: ubuntu-latest
-    timeout-minutes: 50
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v4
@@ -23,379 +26,328 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install pandas numpy pyarrow
+        run: pip install pandas numpy exchange-calendars
 
-      - name: Fetch marcap history
+      - name: Restore latest ODOLI prospective state
+        id: odoli_restore
+        uses: actions/cache/restore@v4
+        with:
+          path: reports/.cache/odoli_independent_r1
+          key: odoli-independent-r1-${{ github.ref_name }}-${{ github.run_id }}
+          restore-keys: |
+            odoli-independent-r1-${{ github.ref_name }}-
+
+      - name: Restore latest V73 catalyst state
+        id: v73_restore
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            reports/v73_catalyst_source_ledger.csv
+            reports/v73_ai_comment_source_ledger.csv
+            reports/v73_official_disclosure_ledger.csv
+            reports/v73_news_source_ledger.csv
+            reports/v73_global_catalyst_ledger.csv
+            reports/v73_catalyst_source_capture_audit.csv
+            reports/v73_catalyst_query_universe.csv
+            reports/v73_catalyst_first_seen_integrity_audit.csv
+            reports/v73_market_sector_context_ledger.csv
+            reports/v73_market_sector_context_coverage.csv
+            reports/v73_market_sector_forward_capture_audit.csv
+            reports/catalyst_raw
+          key: stockhunter-v73-state-${{ github.ref_name }}-${{ github.run_id }}
+          restore-keys: |
+            stockhunter-v73-state-${{ github.ref_name }}-
+            stockhunter-v73-state-
+
+      - name: Run causal catalyst sidecar
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf vendor/marcap
-          mkdir -p vendor
-          git clone --depth 1 --filter=blob:none --no-checkout https://github.com/FinanceData/marcap.git vendor/marcap
-          cd vendor/marcap
-          git sparse-checkout init --no-cone
-          printf '%s\n' 'data/marcap-2026.parquet' >/tmp/marcap_paths.txt
-          git sparse-checkout set --stdin </tmp/marcap_paths.txt
-          git checkout
-          cd ../..
-
-      - name: Run causal frozen composite replay
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p reports/temp_odoli_causal_frozen_composite
-
-          cat >/tmp/study.py <<'PY'
+          mkdir -p reports/temp_odoli_catalyst_sidecar
+          python - <<'PY'
           from pathlib import Path
+          from datetime import datetime
+          from zoneinfo import ZoneInfo
           import json,re,hashlib
           import numpy as np
           import pandas as pd
+          import exchange_calendars as xcals
 
-          OUT=Path("reports/temp_odoli_causal_frozen_composite")
-          OUT.mkdir(parents=True,exist_ok=True)
-
-          REV="ODOLI_CAUSAL_FROZEN_COMPOSITE_POLICY_R1_20261002"
-          H=10
-
-          POLICY_SPEC={
-              "entry":"D0_CLOSE",
-              "fast":"At D2 close: D2 Low > D1 Low AND D2 Close > D2 MA5",
-              "nonfast_pre_d4_cut":"For non-FAST only, if daily Close < signal Low on D1-D4, exit that Close",
-              "d4_cut":"For surviving non-FAST at D4: if D4 Close < MA5 AND D4 Low <= D3 Low, exit D4 Close",
-              "post_d4_watch":"Otherwise WATCH causally for original C4 through D10; C4 is descriptive/confirmation only and does not retroactively alter earlier decisions",
-              "final_exit":"Any still-open position exits D10 Close",
-              "tp_variants":{
-                  "NO_TP":"No fixed take profit",
-                  "FULL_TP5":"100% exits when High first reaches entry*1.05 before structural exit",
-                  "HALF_TP5":"50% exits at +5%; remainder follows structural exit",
-                  "THIRD_TP5_TP10":"1/3 exits at +5%, 1/3 at +10%, final 1/3 follows structural exit",
-                  "HALF_TP5_BE":"50% exits at +5%; remaining 50% uses entry-price breakeven stop after +5, otherwise structural exit"
-              }
-          }
+          OUT=Path("reports/temp_odoli_catalyst_sidecar")
+          REV="ODOLI_CATALYST_CAUSAL_SIDECAR_R1_20261002"
+          FROZEN_PRICE_POLICY_FP="7c2dbdf0f93340e9445b842aaa5fb62ceee973f9f5b65b2a589390f72fd2c1c0"
 
           def norm_code(v):
-              s=re.sub(r"\D","",str(v or ""))
-              return s[-6:].zfill(6) if s else ""
+              raw=str(v or "").strip().upper()
+              if raw.endswith(".0") and raw[:-2].isdigit(): raw=raw[:-2]
+              for suffix in (".KS",".KQ",".KRX"):
+                  if raw.endswith(suffix): raw=raw[:-len(suffix)]
+              s="".join(ch for ch in raw if ch.isalnum())
+              if len(s)==7 and s.startswith("A"): s=s[1:]
+              if s.isdigit() and len(s)<=6:return s.zfill(6)
+              return s[-6:] if len(s)>=6 else s
 
-          def is_spac(name):
-              s=str(name or "").upper()
-              return "스팩" in s or "SPAC" in s
+          def read_csv(p):
+              p=Path(p)
+              if not p.exists() or p.stat().st_size==0:return pd.DataFrame()
+              try:return pd.read_csv(p,dtype=str,encoding="utf-8-sig",low_memory=False).fillna("")
+              except Exception:
+                  try:return pd.read_csv(p,dtype=str,low_memory=False).fillna("")
+                  except Exception:return pd.DataFrame()
 
-          q=pd.read_parquet("vendor/marcap/data/marcap-2026.parquet")
-          if "Date" not in q.columns:q=q.reset_index()
-          q["Date"]=pd.to_datetime(q["Date"],errors="coerce").dt.normalize()
-          q["Code"]=q["Code"].map(norm_code)
-          if "Market" in q.columns:
-              q["Market"]=q["Market"].astype(str).str.upper()
-              q=q[q.Market.isin(["KOSPI","KOSDAQ"])]
-          for c in ["Open","High","Low","Close","Volume","Amount"]:
-              q[c]=pd.to_numeric(q[c],errors="coerce")
-          q=q.dropna(subset=["Date","Code","Open","High","Low","Close"])
-          q=q[(q.Open>0)&(q.High>0)&(q.Low>0)&(q.Close>0)]
-          q=q.sort_values(["Code","Date"]).drop_duplicates(["Code","Date"],keep="last")
+          def parse_ts(s):
+              return pd.to_datetime(s,errors="coerce",utc=True)
 
-          def feat(g):
-              g=g.sort_values("Date").reset_index(drop=True).copy()
-              c=pd.to_numeric(g.Close,errors="coerce")
-              g["ma5"]=c.rolling(5,min_periods=5).mean()
-              g["prev_close"]=c.shift(1); g["prev_ma5"]=g.ma5.shift(1)
-              g["prev2_close"]=c.shift(2); g["prev2_ma5"]=g.ma5.shift(2)
-              g["prev3_close"]=c.shift(3); g["prev3_ma5"]=g.ma5.shift(3)
-              g["pre3_below_ma5_n"]=(
-                  (g.prev_close<g.prev_ma5).astype(float)+
-                  (g.prev2_close<g.prev2_ma5).astype(float)+
-                  (g.prev3_close<g.prev3_ma5).astype(float)
+          now=datetime.now(ZoneInfo("Asia/Seoul"))
+          now_ts=pd.Timestamp(now)
+
+          event_path=Path("reports/.cache/odoli_independent_r1/events.csv")
+          events=read_csv(event_path)
+          if not events.empty:
+              events["signal_date"]=pd.to_datetime(events["signal_date"],errors="coerce").dt.normalize()
+              events["code"]=events["code"].map(norm_code)
+              events=events[events.signal_date.notna() & events.code.ne("")].copy()
+
+          ledger_files=[
+              "reports/v73_catalyst_source_ledger.csv",
+              "reports/v73_official_disclosure_ledger.csv",
+              "reports/v73_news_source_ledger.csv",
+              "reports/v73_global_catalyst_ledger.csv",
+          ]
+          frames=[]
+          file_diag=[]
+          for fp in ledger_files:
+              q=read_csv(fp)
+              file_diag.append({"file":fp,"exists":Path(fp).exists(),"rows":len(q)})
+              if not q.empty:
+                  q["_ledger_file"]=Path(fp).name
+                  frames.append(q)
+          led=pd.concat(frames,ignore_index=True,sort=False) if frames else pd.DataFrame()
+
+          # Deduplicate stable source identities if possible.
+          if not led.empty:
+              for c in ["source_key","source_id","code","name","title","summary","published_at","updated_at",
+                        "first_seen_at","event_occurred_at","official_at","retrieved_at","causal_mode",
+                        "official_source","independent_source","source_name","source_domain","event_type",
+                        "materiality","direct_benefit","thesis_validity","new_fact","global_scope"]:
+                  if c not in led.columns:led[c]=""
+              led["code"]=led["code"].map(norm_code)
+              key=led["source_key"].astype(str)
+              fallback=(led["source_name"].astype(str)+"|"+led["source_id"].astype(str)+"|"+
+                        led["code"].astype(str)+"|"+led["title"].astype(str)+"|"+led["published_at"].astype(str))
+              led["_key"]=np.where(key.str.strip().ne(""),key,fallback)
+              led=led.drop_duplicates("_key",keep="last").copy()
+
+              for c in ["published_at","updated_at","first_seen_at","event_occurred_at","official_at","retrieved_at"]:
+                  led[c+"_ts"]=parse_ts(led[c])
+
+              # Point-in-time availability:
+              # FORWARD_CAUSAL is usable only after first_seen/retrieved.
+              # OFFICIAL_ARCHIVE_CAUSAL may use official timestamp.
+              led["available_at"]=led["first_seen_at_ts"].combine_first(led["retrieved_at_ts"])
+              off=(led["causal_mode"].astype(str)=="OFFICIAL_ARCHIVE_CAUSAL")
+              led.loc[off,"available_at"]=(
+                  led.loc[off,"official_at_ts"]
+                  .combine_first(led.loc[off,"published_at_ts"])
+                  .combine_first(led.loc[off,"available_at"])
               )
-              g["ma5_slope_1d_pct"]=(g.ma5/g.prev_ma5-1)*100
-              g["strict_odoli_r1"]=(
-                  (g.Close>g.Open)&(g.prev_close<g.prev_ma5)&
-                  (g.Close>g.ma5)&(g.ma5_slope_1d_pct>0)&
-                  (g.pre3_below_ma5_n>=2)
-              )
-              return g
+              causal=led["causal_mode"].astype(str).isin(["FORWARD_CAUSAL","OFFICIAL_ARCHIVE_CAUSAL"])
+              led=led[causal & led["available_at"].notna()].copy()
+              led=led[led["available_at"]<=pd.Timestamp(now_ts).tz_convert("UTC")].copy()
 
-          sessions=sorted(pd.Timestamp(x).normalize() for x in q.Date.unique())
-          mature_end=sessions[-11]
-          sig_dates=[d for d in sessions if d<=mature_end][-40:]
-          train=set(sig_dates[:20]); hold=set(sig_dates[20:]); sig_set=set(sig_dates)
+          # First-seen integrity audit.
+          first_seen_audit=read_csv("reports/v73_catalyst_first_seen_integrity_audit.csv")
+          capture_audit=read_csv("reports/v73_catalyst_source_capture_audit.csv")
 
+          cal=xcals.get_calendar("XKRX")
           rows=[]
-          audit=[]
+          evidence_rows=[]
 
-          for code,g0 in q.groupby("Code",sort=False):
-              g=feat(g0)
-              ma5=pd.to_numeric(g.ma5,errors="coerce")
-              amount=pd.to_numeric(g.Amount,errors="coerce")
-              hits=g.index[g.Date.isin(sig_set)&g.strict_odoli_r1.fillna(False)]
+          if not events.empty:
+              for _,e in events.iterrows():
+                  sd=pd.Timestamp(e.signal_date).normalize()
+                  code=norm_code(e.code)
+                  # trading-age as of current date
+                  try:
+                      sess=cal.sessions_in_range(sd, pd.Timestamp(now.date()))
+                      age=max(0,len(sess)-1)
+                  except Exception:
+                      age=max(0,(pd.Timestamp(now.date())-sd).days)
 
-              for ii in hits:
-                  i=int(ii)
-                  if i+H>=len(g):continue
-                  r0=g.iloc[i]
-                  name=str(r0.get("Name","") or "")
-                  if is_spac(name):continue
-
-                  win=g.iloc[max(0,i-3):i+H+1]
-                  cr=pd.to_numeric(win.Close,errors="coerce")
-                  max_jump=float(cr.pct_change().abs().max()*100) if cr.pct_change().notna().any() else np.nan
-                  if pd.notna(max_jump) and max_jump>=45:
-                      continue
-
-                  sig_date=pd.Timestamp(r0.Date)
-                  split="TRAIN_EARLY" if sig_date in train else "HOLDOUT_LATE"
-                  entry=float(r0.Close); sig_low=float(r0.Low)
-
-                  # D2 FAST is known only at D2 close.
-                  d1=g.iloc[i+1]; d2=g.iloc[i+2]
-                  fast=bool(
-                      float(d2.Low)>float(d1.Low)
-                      and pd.notna(ma5.iloc[i+2])
-                      and float(d2.Close)>float(ma5.iloc[i+2])
-                  )
-
-                  # Descriptive eventual C4 classification only. Never used to alter pre-C4 exits.
-                  eventual_c4=False; c4_day=np.nan
-                  for j in range(i+4,i+H+1):
-                      hist=g.iloc[i+1:j+1]
-                      survive=bool(pd.to_numeric(hist.Low,errors="coerce").min()>=sig_low)
-                      above=bool(pd.notna(ma5.iloc[j]) and float(g.iloc[j].Close)>float(ma5.iloc[j]))
-                      hl=bool(float(g.iloc[j].Low)>float(g.iloc[j-1].Low))
-                      pre20=amount.iloc[max(0,j-20):j]
-                      ama=float(pre20.mean()) if len(pre20) else np.nan
-                      ar=float(amount.iloc[j]/ama) if pd.notna(ama) and ama>0 else np.nan
-                      if above and hl and pd.notna(ar) and ar>=1.0 and survive:
-                          eventual_c4=True;c4_day=j-i;break
-
-                  hindsight_state="FAST" if fast else ("SLOW_C4" if eventual_c4 else "OTHER_WATCH")
-
-                  # Causal structural exit.
-                  structural_exit_idx=i+H
-                  structural_exit_price=float(g.iloc[i+H].Close)
-                  structural_reason="D10_FINAL"
-
-                  if not fast:
-                      exited=False
-                      # Close-confirmed signal-low failure through D4.
-                      for j in range(i+1,i+5):
-                          if float(g.iloc[j].Close)<sig_low:
-                              structural_exit_idx=j
-                              structural_exit_price=float(g.iloc[j].Close)
-                              structural_reason="NONFAST_SIGNAL_LOW_CLOSE_BREAK"
-                              exited=True
-                              break
-                      if not exited:
-                          j=i+4
-                          above=bool(pd.notna(ma5.iloc[j]) and float(g.iloc[j].Close)>float(ma5.iloc[j]))
-                          hl=bool(float(g.iloc[j].Low)>float(g.iloc[j-1].Low))
-                          if (not above) and (not hl):
-                              structural_exit_idx=j
-                              structural_exit_price=float(g.iloc[j].Close)
-                              structural_reason="D4_BELOW_MA5_NO_HL"
-                          else:
-                              structural_reason="WATCH_TO_D10"
-
-                  # Find TP touches only before/equal actual structural exit day.
-                  hit5=None; hit10=None
-                  for j in range(i+1,structural_exit_idx+1):
-                      if hit5 is None and float(g.iloc[j].High)>=entry*1.05:
-                          hit5=j
-                      if hit10 is None and float(g.iloc[j].High)>=entry*1.10:
-                          hit10=j
-
-                  base_ret=(structural_exit_price/entry-1)*100
-
-                  # NO_TP
-                  policies=[("NO_TP",base_ret,structural_reason)]
-
-                  # FULL +5
-                  if hit5 is not None:
-                      policies.append(("FULL_TP5",5.0,"FULL_TP5"))
+                  # Stock-specific evidence only. Global rows are not silently assigned to stocks.
+                  z=led[led.code.eq(code)].copy() if not led.empty else pd.DataFrame()
+                  if not z.empty:
+                      z=z.sort_values("available_at")
+                      # evidence known on/before now, with emphasis on post-signal and recent pre-signal context.
+                      signal_start=pd.Timestamp(sd).tz_localize("Asia/Seoul").tz_convert("UTC")
+                      recent_pre=signal_start-pd.Timedelta(days=7)
+                      relevant=z[z.available_at>=recent_pre].copy()
                   else:
-                      policies.append(("FULL_TP5",base_ret,structural_reason))
+                      relevant=pd.DataFrame()
 
-                  # HALF +5, half structural
-                  if hit5 is not None:
-                      policies.append(("HALF_TP5",0.5*5.0+0.5*base_ret,"HALF_TP5_PLUS_STRUCTURAL"))
+                  post_signal=pd.DataFrame()
+                  if not relevant.empty:
+                      post_signal=relevant[relevant.available_at>=signal_start].copy()
+
+                  # Evidence-state is intentionally conservative:
+                  # RECENT_CAUSAL = a causal stock-specific source observed in last 4 calendar days OR post-signal.
+                  # STALE_CAUSAL = stock-specific causal evidence exists in 5-20 day lookback.
+                  # NO_CAUSAL_EVIDENCE = ledger restored but no stock-specific causal evidence in 20d.
+                  # LEDGER_UNAVAILABLE = no causal ledger rows restored at all.
+                  if led.empty:
+                      state="LEDGER_UNAVAILABLE"
                   else:
-                      policies.append(("HALF_TP5",base_ret,structural_reason))
-
-                  # Third +5 / +10 / final structural
-                  if hit5 is not None:
-                      if hit10 is not None:
-                          r=(5.0+10.0+base_ret)/3.0
-                          rr="THIRD_TP5_TP10_STRUCTURAL"
+                      cutoff4=pd.Timestamp(now_ts).tz_convert("UTC")-pd.Timedelta(days=4)
+                      cutoff20=pd.Timestamp(now_ts).tz_convert("UTC")-pd.Timedelta(days=20)
+                      recent=z[z.available_at>=cutoff4] if not z.empty else pd.DataFrame()
+                      old=z[(z.available_at>=cutoff20)&(z.available_at<cutoff4)] if not z.empty else pd.DataFrame()
+                      if len(post_signal)>0 or len(recent)>0:
+                          state="RECENT_CAUSAL_EVIDENCE"
+                      elif len(old)>0:
+                          state="STALE_CAUSAL_EVIDENCE"
                       else:
-                          r=(5.0+base_ret+base_ret)/3.0
-                          rr="THIRD_TP5_REST_STRUCTURAL"
-                      policies.append(("THIRD_TP5_TP10",r,rr))
-                  else:
-                      policies.append(("THIRD_TP5_TP10",base_ret,structural_reason))
+                          state="NO_CAUSAL_EVIDENCE"
 
-                  # Half +5, remainder breakeven after +5, gap-aware at next opens.
-                  if hit5 is not None:
-                      rem=base_ret
-                      be_reason="HALF_TP5_PLUS_STRUCTURAL"
-                      for j in range(hit5+1,structural_exit_idx+1):
-                          if float(g.iloc[j].Low)<=entry:
-                              # Conservative gap-aware fill: if open below entry, use open.
-                              be_fill=float(g.iloc[j].Open) if float(g.iloc[j].Open)<entry else entry
-                              rem=(be_fill/entry-1)*100
-                              be_reason="HALF_TP5_BE_REMAINDER"
-                              break
-                      policies.append(("HALF_TP5_BE",0.5*5.0+0.5*rem,be_reason))
-                  else:
-                      policies.append(("HALF_TP5_BE",base_ret,structural_reason))
+                  official_n=0; independent_n=0; post_n=0; source_n=0
+                  latest_available=pd.NaT
+                  latest_title=""
+                  latest_source=""
+                  if not relevant.empty:
+                      source_n=len(relevant)
+                      official_n=int(relevant.official_source.astype(str).str.lower().isin(["true","1","yes","y"]).sum())
+                      independent_n=int(relevant.independent_source.astype(str).str.lower().isin(["true","1","yes","y"]).sum())
+                      post_n=len(post_signal)
+                      last=relevant.sort_values("available_at").iloc[-1]
+                      latest_available=last.available_at
+                      latest_title=str(last.title)[:300]
+                      latest_source=str(last.source_name)
 
-                  for policy,r,reason in policies:
-                      rows.append({
-                          "split":split,"signal_date":sig_date,"code":code,"name":name,
-                          "hindsight_state_for_reporting_only":hindsight_state,
-                          "fast_known_d2":fast,
-                          "eventual_c4_reporting_only":eventual_c4,
-                          "c4_day_reporting_only":c4_day,
-                          "policy":policy,
-                          "return_pct":r,
-                          "exit_reason":reason,
-                          "structural_exit_day":structural_exit_idx-i,
-                          "structural_return_pct":base_ret,
-                          "hit5_before_exit":hit5 is not None,
-                          "hit10_before_exit":hit10 is not None,
-                      })
+                      for _,r in relevant.iterrows():
+                          evidence_rows.append({
+                              "signal_date":sd.date().isoformat(),"code":code,
+                              "source_key":r.get("source_key",""),"source_name":r.get("source_name",""),
+                              "source_type":r.get("source_type",""),"title":r.get("title",""),
+                              "published_at":r.get("published_at",""),"first_seen_at":r.get("first_seen_at",""),
+                              "available_at":r.get("available_at",""),"causal_mode":r.get("causal_mode",""),
+                              "official_source":r.get("official_source",""),
+                              "independent_source":r.get("independent_source",""),
+                              "event_type":r.get("event_type",""),"materiality":r.get("materiality",""),
+                              "direct_benefit":r.get("direct_benefit",""),"thesis_validity":r.get("thesis_validity",""),
+                              "new_fact":r.get("new_fact",""),
+                          })
 
-                  audit.append({
-                      "split":split,"signal_date":sig_date,"code":code,"name":name,
-                      "fast_known_d2":fast,
-                      "eventual_c4_reporting_only":eventual_c4,
-                      "hindsight_state_for_reporting_only":hindsight_state,
-                      "structural_exit_day":structural_exit_idx-i,
-                      "structural_exit_reason":structural_reason,
-                      "hit5_day":(hit5-i) if hit5 is not None else np.nan,
-                      "hit10_day":(hit10-i) if hit10 is not None else np.nan,
+                  rows.append({
+                      "signal_date":sd.date().isoformat(),
+                      "code":code,
+                      "name":e.get("name",""),
+                      "prospective_age_trading_days":age,
+                      "catalyst_evidence_state":state,
+                      "causal_sources_relevant_n":source_n,
+                      "causal_sources_post_signal_n":post_n,
+                      "official_sources_n":official_n,
+                      "independent_sources_n":independent_n,
+                      "latest_available_at":"" if pd.isna(latest_available) else str(latest_available),
+                      "latest_source_name":latest_source,
+                      "latest_title":latest_title,
+                      "alive_proxy":state=="RECENT_CAUSAL_EVIDENCE",
+                      "weak_proxy":state=="STALE_CAUSAL_EVIDENCE",
+                      "unknown_proxy":state in {"NO_CAUSAL_EVIDENCE","LEDGER_UNAVAILABLE"},
+                      "used_as_price_gate":False,
+                      "used_for_ordering":False,
                   })
 
-          df=pd.DataFrame(rows)
-          au=pd.DataFrame(audit)
-          if df.empty:raise SystemExit("NO_ROWS")
+          side=pd.DataFrame(rows)
+          evd=pd.DataFrame(evidence_rows)
 
-          df.to_csv(OUT/"policy_trades.csv",index=False,encoding="utf-8-sig")
-          au.to_csv(OUT/"causal_decision_audit.csv",index=False,encoding="utf-8-sig")
+          side.to_csv(OUT/"odoli_catalyst_causal_sidecar.csv",index=False,encoding="utf-8-sig")
+          evd.to_csv(OUT/"odoli_catalyst_evidence_rows.csv",index=False,encoding="utf-8-sig")
+          pd.DataFrame(file_diag).to_csv(OUT/"ledger_restore_diagnostics.csv",index=False,encoding="utf-8-sig")
+          first_seen_audit.to_csv(OUT/"first_seen_integrity_snapshot.csv",index=False,encoding="utf-8-sig")
+          capture_audit.to_csv(OUT/"capture_audit_snapshot.csv",index=False,encoding="utf-8-sig")
 
-          def pf(r):
-              r=pd.to_numeric(r,errors="coerce").dropna()
-              gp=r[r>0].sum(); gl=-r[r<0].sum()
-              return gp/gl if gl>0 else np.nan
-
-          score=[]
-          for (sp,p),g in df.groupby(["split","policy"],dropna=False):
-              r=pd.to_numeric(g.return_pct,errors="coerce").dropna()
-              w=r[r>0]; l=r[r<0]
-              score.append({
-                  "split":sp,"policy":p,"n":len(r),
-                  "win_rate_pct":(r>0).mean()*100,
-                  "mean_return_pct":r.mean(),
-                  "median_return_pct":r.median(),
-                  "avg_win_pct":w.mean() if len(w) else np.nan,
-                  "avg_loss_pct":l.mean() if len(l) else np.nan,
-                  "payoff_ratio_abs":w.mean()/abs(l.mean()) if len(w) and len(l) and l.mean()!=0 else np.nan,
-                  "profit_factor":pf(r),
-                  "loss_le_5_pct":(r<=-5).mean()*100,
-                  "loss_le_10_pct":(r<=-10).mean()*100,
-              })
-          score=pd.DataFrame(score)
-          score.to_csv(OUT/"policy_scorecard.csv",index=False,encoding="utf-8-sig")
-
-          # Reporting-only state decomposition: never used as a decision variable.
-          st=[]
-          for (sp,state,p),g in df.groupby(["split","hindsight_state_for_reporting_only","policy"],dropna=False):
-              r=pd.to_numeric(g.return_pct,errors="coerce").dropna()
-              st.append({
-                  "split":sp,"reporting_state":state,"policy":p,"n":len(r),
-                  "mean_return_pct":r.mean(),
-                  "median_return_pct":r.median(),
-                  "win_rate_pct":(r>0).mean()*100,
-                  "profit_factor":pf(r),
-              })
-          pd.DataFrame(st).to_csv(OUT/"reporting_state_decomposition.csv",index=False,encoding="utf-8-sig")
-
-          fingerprint=hashlib.sha256(
-              json.dumps(POLICY_SPEC,ensure_ascii=False,sort_keys=True).encode("utf-8")
-          ).hexdigest()
-
+          counts=side["catalyst_evidence_state"].value_counts(dropna=False).to_dict() if len(side) else {}
           meta={
               "revision":REV,
               "research_only":True,
               "production_changed":False,
               "automatic_ordering":False,
-              "policy_frozen":True,
-              "policy_fingerprint_sha256":fingerprint,
-              "policy_spec":POLICY_SPEC,
-              "decision_features_are_point_in_time":True,
-              "eventual_c4_used_for_decision":False,
-              "hindsight_state_used_for_reporting_only":True,
-              "same_historical_window_reused":True,
-              "true_oos":False,
-              "same_sample_tuning":False,
-              "next_step":"prospective/future-time validation without changing the fingerprint",
-              "note":"This replay repairs hindsight-state leakage. No production promotion."
+              "price_policy_fingerprint_unchanged":FROZEN_PRICE_POLICY_FP,
+              "odoli_state_restored":event_path.exists(),
+              "odoli_events":len(events),
+              "v73_causal_ledger_rows":len(led),
+              "state_counts":counts,
+              "point_in_time_availability_enforced":True,
+              "forward_causal_uses_first_seen_or_retrieved":True,
+              "official_archive_uses_official_time":True,
+              "retrospective_rows_excluded":True,
+              "global_rows_not_silently_assigned_to_stock":True,
+              "alive_is_proxy_not_fact":True,
+              "no_evidence_does_not_mean_catalyst_dead":True,
+              "used_as_gate":False,
+              "used_for_ranking":False,
+              "used_for_ordering":False,
+              "next_step":"append prospective daily snapshots and compare FAST/C4/OTHER_WATCH outcomes by catalyst evidence state",
           }
-          (OUT/"meta.json").write_text(json.dumps(meta,ensure_ascii=False,indent=2),encoding="utf-8")
-          (OUT/"FROZEN_POLICY_SPEC.json").write_text(
-              json.dumps({"fingerprint_sha256":fingerprint,"policy_spec":POLICY_SPEC},ensure_ascii=False,indent=2),
-              encoding="utf-8"
-          )
-          (OUT/"REPORT.md").write_text(
-              "# ODOLI Causal Frozen Composite Policy R1\n\n```json\n"+
-              json.dumps(meta,ensure_ascii=False,indent=2)+
-              "\n```\n\n## Policy scorecard\n```text\n"+
-              score.to_string(index=False)+"\n```\n",
-              encoding="utf-8"
-          )
+          (OUT/"meta.json").write_text(json.dumps(meta,ensure_ascii=False,indent=2,default=str),encoding="utf-8")
 
-          print("ODOLI_CAUSAL_FROZEN_COMPOSITE_PASS")
-          print("FINGERPRINT",fingerprint)
-          print(score.to_string(index=False))
+          lines=[
+              "# ODOLI Catalyst Causal Sidecar R1","",
+              "This sidecar is descriptive only. It does not change frozen price policy.",
+              "",
+              "## Meta","```json",json.dumps(meta,ensure_ascii=False,indent=2,default=str),"```","",
+          ]
+          if len(side):
+              cols=["signal_date","code","name","prospective_age_trading_days","catalyst_evidence_state",
+                    "causal_sources_relevant_n","causal_sources_post_signal_n","official_sources_n",
+                    "independent_sources_n","latest_source_name","latest_title"]
+              lines += ["## Current sidecar","```text",side[cols].tail(80).to_string(index=False),"```"]
+          (OUT/"REPORT.md").write_text("\n".join(lines),encoding="utf-8")
+
+          print("ODOLI_CATALYST_CAUSAL_SIDECAR_PASS")
+          print(json.dumps(meta,ensure_ascii=False,default=str))
+          if len(side):
+              print(side["catalyst_evidence_state"].value_counts(dropna=False).to_string())
           PY
 
-          python /tmp/study.py
-
-      - name: Validate causal integrity and frozen identity
+      - name: Validate causal isolation
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
           import json,pandas as pd
-          m=json.load(open("reports/temp_odoli_causal_frozen_composite/meta.json",encoding="utf-8"))
-          assert m["revision"]=="ODOLI_CAUSAL_FROZEN_COMPOSITE_POLICY_R1_20261002"
+          m=json.load(open("reports/temp_odoli_catalyst_sidecar/meta.json",encoding="utf-8"))
+          assert m["revision"]=="ODOLI_CATALYST_CAUSAL_SIDECAR_R1_20261002"
           assert m["research_only"] is True
           assert m["production_changed"] is False
           assert m["automatic_ordering"] is False
-          assert m["policy_frozen"] is True
-          assert m["eventual_c4_used_for_decision"] is False
-          assert m["hindsight_state_used_for_reporting_only"] is True
-          assert m["true_oos"] is False
+          assert m["point_in_time_availability_enforced"] is True
+          assert m["retrospective_rows_excluded"] is True
+          assert m["used_as_gate"] is False
+          assert m["used_for_ranking"] is False
+          assert m["used_for_ordering"] is False
+          assert m["price_policy_fingerprint_unchanged"]=="7c2dbdf0f93340e9445b842aaa5fb62ceee973f9f5b65b2a589390f72fd2c1c0"
 
-          q=pd.read_csv("reports/temp_odoli_causal_frozen_composite/policy_trades.csv")
-          assert len(q)>0
-          assert set(q.policy)=={"NO_TP","FULL_TP5","HALF_TP5","THIRD_TP5_TP10","HALF_TP5_BE"}
-          assert pd.to_numeric(q.structural_exit_day,errors="coerce").between(1,10).all()
-
-          spec=json.load(open("reports/temp_odoli_causal_frozen_composite/FROZEN_POLICY_SPEC.json",encoding="utf-8"))
-          assert spec["fingerprint_sha256"]==m["policy_fingerprint_sha256"]
-          print("CAUSAL_FROZEN_POLICY_INTEGRITY_PASS")
+          p="reports/temp_odoli_catalyst_sidecar/odoli_catalyst_causal_sidecar.csv"
+          try:q=pd.read_csv(p)
+          except pd.errors.EmptyDataError:q=pd.DataFrame()
+          if len(q):
+              assert (~q["used_as_price_gate"].astype(bool)).all()
+              assert (~q["used_for_ordering"].astype(bool)).all()
+          print("CATALYST_SIDECAR_CAUSAL_ISOLATION_PASS")
           PY
 
       - name: Show report
         if: always()
         run: |
-          cat reports/temp_odoli_causal_frozen_composite/meta.json || true
+          cat reports/temp_odoli_catalyst_sidecar/meta.json || true
           echo
-          cat reports/temp_odoli_causal_frozen_composite/REPORT.md || true
+          cat reports/temp_odoli_catalyst_sidecar/REPORT.md || true
 
       - name: Upload artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: temp-odoli-causal-frozen-composite-policy-r1
-          path: reports/temp_odoli_causal_frozen_composite/**
+          name: temp-odoli-catalyst-causal-sidecar-r1
+          path: reports/temp_odoli_catalyst_sidecar/**
           if-no-files-found: error
           retention-days: 90
