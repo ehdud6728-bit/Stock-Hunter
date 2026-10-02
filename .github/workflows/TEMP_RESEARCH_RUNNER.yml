@@ -1,4 +1,4 @@
-name: TEMP ODOLI Holding Horizon Curve R1
+name: TEMP ODOLI Profit Taking Policy R1
 
 on:
   workflow_dispatch:
@@ -7,7 +7,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: temp-odoli-holding-horizon-curve-r1
+  group: temp-odoli-profit-taking-policy-r1
   cancel-in-progress: false
 
 jobs:
@@ -39,11 +39,11 @@ jobs:
           git checkout
           cd ../..
 
-      - name: Run holding horizon study
+      - name: Run profit-taking policy comparison
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p reports/temp_odoli_holding_horizon_curve
+          mkdir -p reports/temp_odoli_profit_taking_policy
 
           cat >/tmp/study.py <<'PY'
           from pathlib import Path
@@ -51,9 +51,10 @@ jobs:
           import numpy as np
           import pandas as pd
 
-          OUT=Path("reports/temp_odoli_holding_horizon_curve")
+          OUT=Path("reports/temp_odoli_profit_taking_policy")
           OUT.mkdir(parents=True,exist_ok=True)
-          REV="ODOLI_HOLDING_HORIZON_CURVE_R1_20261002"
+          REV="ODOLI_PROFIT_TAKING_POLICY_R1_20261002"
+          H=15
 
           def norm_code(v):
               s=re.sub(r"\D","",str(v or ""))
@@ -111,12 +112,12 @@ jobs:
 
               for ii in hits:
                   i=int(ii)
-                  if i+15>=len(g):continue
+                  if i+H>=len(g):continue
                   r0=g.iloc[i]
                   name=str(r0.get("Name","") or "")
                   if is_spac(name):continue
 
-                  win=g.iloc[max(0,i-3):i+16]
+                  win=g.iloc[max(0,i-3):i+H+1]
                   cr=pd.to_numeric(win.Close,errors="coerce")
                   max_jump=float(cr.pct_change().abs().max()*100) if cr.pct_change().notna().any() else np.nan
                   if pd.notna(max_jump) and max_jump>=45:
@@ -124,7 +125,7 @@ jobs:
 
                   sig_date=pd.Timestamp(r0.Date)
                   split="TRAIN_EARLY" if sig_date in train else "HOLDOUT_LATE"
-                  sig_close=float(r0.Close); sig_low=float(r0.Low)
+                  entry=float(r0.Close); sig_low=float(r0.Low)
 
                   d1=g.iloc[i+1]; d2=g.iloc[i+2]
                   fast=bool(
@@ -133,8 +134,7 @@ jobs:
                       and float(d2.Close)>float(ma5.iloc[i+2])
                   )
 
-                  c4=False
-                  c4_idx=None
+                  c4=False; c4_idx=None
                   for j in range(i+4,i+11):
                       hist=g.iloc[i+1:j+1]
                       survive=bool(pd.to_numeric(hist.Low,errors="coerce").min()>=sig_low)
@@ -146,157 +146,215 @@ jobs:
                       if above and hl and pd.notna(ar) and ar>=1.0 and survive:
                           c4=True;c4_idx=j;break
 
-                  if fast:
-                      state="FAST"
-                      confirm_idx=i+2
-                  elif c4:
-                      state="SLOW_C4"
-                      confirm_idx=c4_idx
+                  if fast: state="FAST"
+                  elif c4: state="SLOW_C4"
+                  else: state="OTHER_WATCH"
+
+                  future=g.iloc[i+1:i+H+1].copy()
+                  hit5=None; hit10=None
+                  for j in range(i+1,i+H+1):
+                      if hit5 is None and float(g.iloc[j].High)>=entry*1.05:
+                          hit5=j
+                      if hit10 is None and float(g.iloc[j].High)>=entry*1.10:
+                          hit10=j
+
+                  # baseline family exit: FAST/C4 D10, OTHER_WATCH D4 structure cut candidate else D10
+                  def baseline_exit():
+                      if fast or c4:
+                          return i+10,float(g.iloc[i+10].Close),"D10_BASE"
+                      j=i+4
+                      alive=bool(pd.to_numeric(g.iloc[i+1:j+1].Low,errors="coerce").min()>=sig_low)
+                      above=bool(pd.notna(ma5.iloc[j]) and float(g.iloc[j].Close)>float(ma5.iloc[j]))
+                      hl=bool(float(g.iloc[j].Low)>float(g.iloc[j-1].Low))
+                      if (not alive) or ((not above) and (not hl)):
+                          return j,float(g.iloc[j].Close),"D4_OTHERWATCH_CUT"
+                      return i+10,float(g.iloc[i+10].Close),"D10_OTHERWATCH"
+
+                  bx,bp,breason=baseline_exit()
+                  base_ret=(bp/entry-1)*100
+
+                  policies=[]
+
+                  # A baseline
+                  policies.append(("BASELINE_FAST_C4_D10_D4CUT",base_ret,breason))
+
+                  # B: +5% full take profit; if never hit, baseline exit.
+                  if hit5 is not None and hit5<=bx:
+                      r=5.0
+                      reason="FULL_TP_5"
                   else:
-                      state="OTHER_WATCH"
-                      confirm_idx=None
+                      r=base_ret; reason=breason
+                  policies.append(("FULL_TP_5",r,reason))
 
-                  base={
-                      "split":split,"signal_date":sig_date,"code":code,"name":name,
-                      "state":state,"fast":fast,"slow_c4":c4,
-                      "confirm_day":(confirm_idx-i) if confirm_idx is not None else np.nan,
-                      "signal_close":sig_close,
-                  }
+                  # C: +5% take 50%, remaining 50% baseline exit.
+                  if hit5 is not None and hit5<=bx:
+                      rem_ret=(bp/entry-1)*100
+                      r=0.5*5.0+0.5*rem_ret
+                      reason="HALF_TP5_HALF_BASE"
+                  else:
+                      r=base_ret; reason=breason
+                  policies.append(("HALF_TP_5_HALF_BASE",r,reason))
 
-                  # Signal-date horizons.
-                  for h in [5,7,10,15]:
-                      closep=float(g.iloc[i+h].Close)
-                      future=g.iloc[i+1:i+h+1]
-                      row=base.copy()
-                      row.update({
-                          "axis":"SIGNAL_DAY",
-                          "horizon":f"D{h}",
-                          "horizon_days":h,
-                          "close_return_pct":(closep/sig_close-1)*100,
-                          "mfe_pct":(float(pd.to_numeric(future.High,errors="coerce").max())/sig_close-1)*100,
-                          "mae_pct":(float(pd.to_numeric(future.Low,errors="coerce").min())/sig_close-1)*100,
-                          "peak_to_close_giveback_pp":(
-                              (float(pd.to_numeric(future.High,errors="coerce").max())/sig_close-1)*100
-                              - (closep/sig_close-1)*100
-                          ),
+                  # D: 1/3 at +5, 1/3 at +10, final 1/3 baseline.
+                  if hit5 is not None and hit5<=bx:
+                      if hit10 is not None and hit10<=bx:
+                          r=(5.0+10.0+base_ret)/3.0
+                          reason="THIRD_TP5_TP10_BASE"
+                      else:
+                          r=(5.0+base_ret+base_ret)/3.0
+                          reason="THIRD_TP5_REST_BASE"
+                  else:
+                      r=base_ret; reason=breason
+                  policies.append(("THIRD_TP5_TP10_BASE",r,reason))
+
+                  # E: +5% hit then move remaining 50% to breakeven; otherwise baseline.
+                  if hit5 is not None and hit5<=bx:
+                      # after hit5, if low touches entry before baseline exit, remaining half exits at 0%
+                      be_hit=False
+                      for j in range(hit5+1,bx+1):
+                          if float(g.iloc[j].Low)<=entry:
+                              be_hit=True;break
+                      rem_ret=0.0 if be_hit else base_ret
+                      r=0.5*5.0+0.5*rem_ret
+                      reason="HALF_TP5_BE_STOP" if be_hit else "HALF_TP5_HALF_BASE"
+                  else:
+                      r=base_ret; reason=breason
+                  policies.append(("HALF_TP5_BE_REMAINDER",r,reason))
+
+                  for policy,r,reason in policies:
+                      rows.append({
+                          "split":split,"signal_date":sig_date,"code":code,"name":name,
+                          "state":state,"policy":policy,"return_pct":r,"exit_reason":reason,
+                          "hit5":hit5 is not None,"hit10":hit10 is not None,
+                          "baseline_return_pct":base_ret,
+                          "baseline_exit_day":bx-i,
+                          "max_mfe15_pct":(float(pd.to_numeric(future.High,errors="coerce").max())/entry-1)*100,
                       })
-                      rows.append(row)
-
-                  # Confirmation-date horizons. Only FAST/SLOW_C4.
-                  if confirm_idx is not None:
-                      confirm_close=float(g.iloc[confirm_idx].Close)
-                      for h in [3,5,10]:
-                          if confirm_idx+h>=len(g):continue
-                          closep=float(g.iloc[confirm_idx+h].Close)
-                          future=g.iloc[confirm_idx+1:confirm_idx+h+1]
-                          row=base.copy()
-                          row.update({
-                              "axis":"CONFIRM_DAY",
-                              "horizon":f"C+{h}",
-                              "horizon_days":h,
-                              "confirm_close":confirm_close,
-                              "close_return_pct":(closep/confirm_close-1)*100,
-                              "mfe_pct":(float(pd.to_numeric(future.High,errors="coerce").max())/confirm_close-1)*100,
-                              "mae_pct":(float(pd.to_numeric(future.Low,errors="coerce").min())/confirm_close-1)*100,
-                              "peak_to_close_giveback_pp":(
-                                  (float(pd.to_numeric(future.High,errors="coerce").max())/confirm_close-1)*100
-                                  - (closep/confirm_close-1)*100
-                              ),
-                          })
-                          rows.append(row)
 
           df=pd.DataFrame(rows)
           if df.empty:raise SystemExit("NO_ROWS")
-          df.to_csv(OUT/"horizon_events.csv",index=False,encoding="utf-8-sig")
+          df.to_csv(OUT/"policy_trades.csv",index=False,encoding="utf-8-sig")
 
-          out=[]
-          for (sp,state,axis,h),g in df.groupby(["split","state","axis","horizon"],dropna=False):
-              out.append({
-                  "split":sp,"state":state,"axis":axis,"horizon":h,"n":len(g),
-                  "close_positive_pct":(g.close_return_pct>0).mean()*100,
-                  "close_mean_pct":g.close_return_pct.mean(),
-                  "close_median_pct":g.close_return_pct.median(),
-                  "mfe_median_pct":g.mfe_pct.median(),
-                  "mae_median_pct":g.mae_pct.median(),
-                  "giveback_median_pp":g.peak_to_close_giveback_pp.median(),
-                  "plus5_close_pct":(g.close_return_pct>=5).mean()*100,
-                  "plus10_close_pct":(g.close_return_pct>=10).mean()*100,
+          def pf(r):
+              r=pd.to_numeric(r,errors="coerce").dropna()
+              gp=r[r>0].sum(); gl=-r[r<0].sum()
+              return gp/gl if gl>0 else np.nan
+
+          score=[]
+          for (sp,p),g in df.groupby(["split","policy"],dropna=False):
+              r=pd.to_numeric(g.return_pct,errors="coerce").dropna()
+              w=r[r>0]; l=r[r<0]
+              score.append({
+                  "split":sp,"policy":p,"n":len(r),
+                  "win_rate_pct":(r>0).mean()*100,
+                  "mean_return_pct":r.mean(),
+                  "median_return_pct":r.median(),
+                  "avg_win_pct":w.mean() if len(w) else np.nan,
+                  "avg_loss_pct":l.mean() if len(l) else np.nan,
+                  "payoff_ratio_abs":w.mean()/abs(l.mean()) if len(w) and len(l) and l.mean()!=0 else np.nan,
+                  "profit_factor":pf(r),
+                  "loss_le_5_pct":(r<=-5).mean()*100,
+                  "loss_le_10_pct":(r<=-10).mean()*100,
               })
-          summary=pd.DataFrame(out)
-          summary.to_csv(OUT/"horizon_summary.csv",index=False,encoding="utf-8-sig")
+          score=pd.DataFrame(score)
+          score.to_csv(OUT/"policy_scorecard.csv",index=False,encoding="utf-8-sig")
 
-          # Best descriptive horizon by state/split, reported but not promoted.
-          best=[]
-          for (sp,state,axis),g in summary.groupby(["split","state","axis"],dropna=False):
-              gg=g.sort_values(["close_mean_pct","close_median_pct"],ascending=False)
-              best.append(gg.iloc[0].to_dict())
-          pd.DataFrame(best).to_csv(OUT/"descriptive_best_horizon.csv",index=False,encoding="utf-8-sig")
+          bystate=[]
+          for (sp,state,p),g in df.groupby(["split","state","policy"],dropna=False):
+              r=pd.to_numeric(g.return_pct,errors="coerce").dropna()
+              bystate.append({
+                  "split":sp,"state":state,"policy":p,"n":len(r),
+                  "mean_return_pct":r.mean(),"median_return_pct":r.median(),
+                  "win_rate_pct":(r>0).mean()*100,"profit_factor":pf(r),
+              })
+          pd.DataFrame(bystate).to_csv(OUT/"policy_by_state.csv",index=False,encoding="utf-8-sig")
+
+          # opportunity cost after +5 hit
+          oc=[]
+          z=df[df.policy=="BASELINE_FAST_C4_D10_D4CUT"].copy()
+          for (sp,state),g in z.groupby(["split","state"]):
+              h=g[g.hit5]
+              if len(h):
+                  oc.append({
+                      "split":sp,"state":state,"n_hit5":len(h),
+                      "hit5_rate_pct":len(h)/len(g)*100,
+                      "baseline_return_after_hit5_mean_pct":h.baseline_return_pct.mean(),
+                      "baseline_return_after_hit5_median_pct":h.baseline_return_pct.median(),
+                      "mfe15_median_pct":h.max_mfe15_pct.median(),
+                  })
+          pd.DataFrame(oc).to_csv(OUT/"tp5_opportunity_cost.csv",index=False,encoding="utf-8-sig")
 
           meta={
               "revision":REV,
               "research_only":True,
               "production_changed":False,
               "automatic_ordering":False,
-              "signal_horizons":[5,7,10,15],
-              "confirm_horizons":[3,5,10],
-              "states":["FAST","SLOW_C4","OTHER_WATCH"],
-              "entry_anchor":"D0_CLOSE for signal axis; confirmation close for confirm axis",
+              "entry_anchor":"D0_CLOSE",
+              "policies":[
+                  "BASELINE_FAST_C4_D10_D4CUT",
+                  "FULL_TP_5",
+                  "HALF_TP_5_HALF_BASE",
+                  "THIRD_TP5_TP10_BASE",
+                  "HALF_TP5_BE_REMAINDER"
+              ],
+              "tp_execution_assumption":"intraday High crossing target implies fill at exact target; no fees/slippage",
               "same_historical_window_reused":True,
               "true_oos":False,
               "same_sample_tuning":False,
-              "note":"Descriptive holding-period curve only. Best horizon is not a promoted rule."
+              "note":"Research-only comparison. Do not wire to automatic orders."
           }
           (OUT/"meta.json").write_text(json.dumps(meta,ensure_ascii=False,indent=2),encoding="utf-8")
-
           (OUT/"REPORT.md").write_text(
-              "# ODOLI Holding Horizon Curve R1\n\n```json\n"+
+              "# ODOLI Profit Taking Policy R1\n\n```json\n"+
               json.dumps(meta,ensure_ascii=False,indent=2)+
-              "\n```\n\n## Horizon summary\n```text\n"+
-              summary.to_string(index=False)+
-              "\n```\n",
+              "\n```\n\n## Policy scorecard\n```text\n"+
+              score.to_string(index=False)+"\n```\n",
               encoding="utf-8"
           )
 
-          print("ODOLI_HOLDING_HORIZON_CURVE_PASS")
+          print("ODOLI_PROFIT_TAKING_POLICY_PASS")
           print(json.dumps(meta,ensure_ascii=False))
-          print(summary.to_string(index=False))
+          print(score.to_string(index=False))
           PY
 
           python /tmp/study.py
 
-      - name: Validate identity and horizon integrity
+      - name: Validate identity and policy integrity
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
           import json,pandas as pd
-          m=json.load(open("reports/temp_odoli_holding_horizon_curve/meta.json",encoding="utf-8"))
-          assert m["revision"]=="ODOLI_HOLDING_HORIZON_CURVE_R1_20261002"
+          m=json.load(open("reports/temp_odoli_profit_taking_policy/meta.json",encoding="utf-8"))
+          assert m["revision"]=="ODOLI_PROFIT_TAKING_POLICY_R1_20261002"
           assert m["research_only"] is True
           assert m["production_changed"] is False
           assert m["automatic_ordering"] is False
           assert m["true_oos"] is False
-          q=pd.read_csv("reports/temp_odoli_holding_horizon_curve/horizon_events.csv")
+          q=pd.read_csv("reports/temp_odoli_profit_taking_policy/policy_trades.csv")
           assert len(q)>0
-          sig=set(q[q.axis=="SIGNAL_DAY"].horizon.unique())
-          assert sig=={"D5","D7","D10","D15"}
-          conf=set(q[q.axis=="CONFIRM_DAY"].horizon.unique())
-          assert conf=={"C+3","C+5","C+10"}
-          print("HOLDING_HORIZON_INTEGRITY_PASS")
+          assert set(q.policy)=={
+              "BASELINE_FAST_C4_D10_D4CUT",
+              "FULL_TP_5",
+              "HALF_TP_5_HALF_BASE",
+              "THIRD_TP5_TP10_BASE",
+              "HALF_TP5_BE_REMAINDER"
+          }
+          print("PROFIT_TAKING_POLICY_INTEGRITY_PASS")
           PY
 
       - name: Show report
         if: always()
         run: |
-          cat reports/temp_odoli_holding_horizon_curve/meta.json || true
+          cat reports/temp_odoli_profit_taking_policy/meta.json || true
           echo
-          cat reports/temp_odoli_holding_horizon_curve/REPORT.md || true
+          cat reports/temp_odoli_profit_taking_policy/REPORT.md || true
 
       - name: Upload artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: temp-odoli-holding-horizon-curve-r1
-          path: reports/temp_odoli_holding_horizon_curve/**
+          name: temp-odoli-profit-taking-policy-r1
+          path: reports/temp_odoli_profit_taking_policy/**
           if-no-files-found: error
           retention-days: 90
