@@ -1,4 +1,4 @@
-name: TEMP ODOLI Prior KKI Symmetry Sidecar R1
+name: TEMP ODOLI Prospective KKI Symmetry Tracker R1
 
 on:
   workflow_dispatch:
@@ -7,7 +7,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: temp-odoli-prior-kki-symmetry-sidecar-r1
+  group: temp-odoli-prospective-kki-symmetry-tracker-r1
   cancel-in-progress: false
 
 env:
@@ -16,7 +16,7 @@ env:
 jobs:
   study:
     runs-on: ubuntu-latest
-    timeout-minutes: 50
+    timeout-minutes: 45
 
     steps:
       - uses: actions/checkout@v4
@@ -26,7 +26,23 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install pandas numpy pyarrow
+        run: pip install pandas numpy pyarrow exchange-calendars
+
+      - name: Restore ODOLI prospective state
+        uses: actions/cache/restore@v4
+        with:
+          path: reports/.cache/odoli_independent_r1
+          key: odoli-independent-r1-${{ github.ref_name }}-${{ github.run_id }}
+          restore-keys: |
+            odoli-independent-r1-${{ github.ref_name }}-
+
+      - name: Restore frozen KKI prospective tracker
+        uses: actions/cache/restore@v4
+        with:
+          path: reports/.cache/odoli_kki_symmetry_prospective_r1
+          key: odoli-kki-symmetry-prospective-r1-${{ github.ref_name }}-${{ github.run_id }}
+          restore-keys: |
+            odoli-kki-symmetry-prospective-r1-${{ github.ref_name }}-
 
       - name: Fetch marcap history
         shell: bash
@@ -44,33 +60,56 @@ jobs:
           git checkout
           cd ../..
 
-      - name: Run prior KKI and symmetry sidecar
+      - name: Run frozen prospective tracker
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p reports/temp_odoli_prior_kki_symmetry
+          mkdir -p reports/temp_odoli_kki_symmetry_prospective
+          mkdir -p reports/.cache/odoli_kki_symmetry_prospective_r1
 
-          cat >/tmp/study.py <<'PY'
+          cat >/tmp/tracker.py <<'PY'
           from pathlib import Path
-          import json,re,math
+          import json,re,hashlib
           import numpy as np
           import pandas as pd
 
-          OUT=Path("reports/temp_odoli_prior_kki_symmetry")
-          REV="ODOLI_PRIOR_KKI_SYMMETRY_SIDECAR_R1_20261002"
-          H=10
+          OUT=Path("reports/temp_odoli_kki_symmetry_prospective")
+          STATE=Path("reports/.cache/odoli_kki_symmetry_prospective_r1")
+          REV="ODOLI_PROSPECTIVE_KKI_SYMMETRY_TRACKER_R1_20261002"
+
+          KKI_SPEC={
+              "strong_1d":"+10% or more",
+              "strong_3d":"+15% or more",
+              "strong_5d":"+20% or more",
+              "amount_explosion":"Amount / trailing20 mean >= 3x",
+              "recent":"at least one strong wave or prior 5d MFE>=20 within 60d",
+              "repeated":"at least 2 strong waves in 120d OR at least 2 prior 5d MFE>=20 episodes",
+          }
+          SYM_SPEC={
+              "current_wave":"pre-signal 10d low-to-high wave",
+              "prior_reference":"max(prior 120d 3d return, 5d return, historical 5d MFE)",
+              "candidate":"KKI exists and current/prior ratio between 0.45 and 1.25"
+          }
+          FP=hashlib.sha256(json.dumps(
+              {"kki":KKI_SPEC,"symmetry":SYM_SPEC},
+              ensure_ascii=False,sort_keys=True
+          ).encode()).hexdigest()
 
           def norm_code(v):
               s=re.sub(r"\D","",str(v or ""))
               return s[-6:].zfill(6) if s else ""
 
-          def is_spac(name):
-              s=str(name or "").upper()
-              return "스팩" in s or "SPAC" in s
+          def read_csv(p):
+              p=Path(p)
+              if not p.exists() or p.stat().st_size==0:return pd.DataFrame()
+              try:return pd.read_csv(p,dtype=str,encoding="utf-8-sig",low_memory=False).fillna("")
+              except Exception:
+                  try:return pd.read_csv(p,dtype=str,low_memory=False).fillna("")
+                  except Exception:return pd.DataFrame()
 
           def load_year(y):
               p=Path(f"vendor/marcap/data/marcap-{y}.parquet")
-              if not p.exists(): return pd.DataFrame()
+              if not p.exists():return pd.DataFrame()
               q=pd.read_parquet(p)
               if "Date" not in q.columns:q=q.reset_index()
               return q
@@ -78,9 +117,6 @@ jobs:
           q=pd.concat([load_year(2025),load_year(2026)],ignore_index=True,sort=False)
           q["Date"]=pd.to_datetime(q["Date"],errors="coerce").dt.normalize()
           q["Code"]=q["Code"].map(norm_code)
-          if "Market" in q.columns:
-              q["Market"]=q["Market"].astype(str).str.upper()
-              q=q[q.Market.isin(["KOSPI","KOSDAQ"])]
           for c in ["Open","High","Low","Close","Volume","Amount"]:
               q[c]=pd.to_numeric(q[c],errors="coerce")
           q=q.dropna(subset=["Date","Code","Open","High","Low","Close"])
@@ -90,64 +126,134 @@ jobs:
           def feat(g):
               g=g.sort_values("Date").reset_index(drop=True).copy()
               c=g.Close.astype(float)
-              g["ma5"]=c.rolling(5,min_periods=5).mean()
-              g["prev_close"]=c.shift(1); g["prev_ma5"]=g.ma5.shift(1)
-              g["prev2_close"]=c.shift(2); g["prev2_ma5"]=g.ma5.shift(2)
-              g["prev3_close"]=c.shift(3); g["prev3_ma5"]=g.ma5.shift(3)
-              g["pre3_below_ma5_n"]=(
-                  (g.prev_close<g.prev_ma5).astype(float)+
-                  (g.prev2_close<g.prev2_ma5).astype(float)+
-                  (g.prev3_close<g.prev3_ma5).astype(float)
-              )
-              g["ma5_slope_1d_pct"]=(g.ma5/g.prev_ma5-1)*100
-              g["strict_odoli_r1"]=(
-                  (g.Close>g.Open)&(g.prev_close<g.prev_ma5)&
-                  (g.Close>g.ma5)&(g.ma5_slope_1d_pct>0)&
-                  (g.pre3_below_ma5_n>=2)
-              )
               g["ret1"]=(c/c.shift(1)-1)*100
               g["ret3"]=(c/c.shift(3)-1)*100
               g["ret5"]=(c/c.shift(5)-1)*100
               g["amount20"]=g.Amount.rolling(20,min_periods=10).mean()
               g["amount_ratio20"]=g.Amount/g.amount20
+              g["ma5"]=c.rolling(5,min_periods=5).mean()
               return g
 
-          sessions=sorted(pd.Timestamp(x).normalize() for x in q[q.Date.dt.year==2026].Date.unique())
-          mature_end=sessions[-11]
-          sig_dates=[d for d in sessions if d<=mature_end][-40:]
-          train=set(sig_dates[:20]); hold=set(sig_dates[20:]); sig_set=set(sig_dates)
+          def prior_stats(h):
+              if h.empty:return {}
+              strong1=(h.ret1>=10); strong3=(h.ret3>=15); strong5=(h.ret5>=20)
+              any_strong=(strong1|strong3|strong5)
+              mfe5=[]
+              for k in range(len(h)-5):
+                  base=float(h.Close.iloc[k])
+                  if base<=0:continue
+                  hi=float(h.High.iloc[k+1:k+6].max())
+                  mfe5.append((hi/base-1)*100)
+              return {
+                  "strong_any_n":int(any_strong.sum()),
+                  "prior_mfe5_ge15_n":int(sum(x>=15 for x in mfe5)),
+                  "prior_mfe5_ge20_n":int(sum(x>=20 for x in mfe5)),
+                  "prior_mfe5_max":float(np.nanmax(mfe5)) if mfe5 else np.nan,
+                  "max_ret3":float(pd.to_numeric(h.ret3,errors="coerce").max()),
+                  "max_ret5":float(pd.to_numeric(h.ret5,errors="coerce").max()),
+              }
 
-          rows=[]
+          events=read_csv("reports/.cache/odoli_independent_r1/events.csv")
+          if events.empty:
+              raise SystemExit("ODOLI_EVENTS_UNAVAILABLE")
+          events["signal_date"]=pd.to_datetime(events["signal_date"],errors="coerce").dt.normalize()
+          events["code"]=events["code"].map(norm_code)
+          events=events[events.signal_date.notna() & events.code.ne("")].copy()
 
-          for code,g0 in q.groupby("Code",sort=False):
-              g=feat(g0)
-              hits=g.index[g.Date.isin(sig_set)&g.strict_odoli_r1.fillna(False)]
+          existing=read_csv(STATE/"tracker.csv")
+          if not existing.empty:
+              existing["signal_date"]=pd.to_datetime(existing["signal_date"],errors="coerce").dt.normalize()
+              existing["code"]=existing["code"].map(norm_code)
 
-              for ii in hits:
-                  i=int(ii)
-                  if i+H>=len(g) or i<125: continue
-                  r0=g.iloc[i]
-                  name=str(r0.get("Name","") or "")
-                  if is_spac(name): continue
+          price={code:feat(g) for code,g in q.groupby("Code",sort=False)}
+          rows=[] if existing.empty else existing.to_dict("records")
+          seen={(str(pd.Timestamp(r["signal_date"]).date()),norm_code(r["code"])) for r in rows}
 
-                  # Exclude suspicious split/relisting-like discontinuity around signal/outcome.
-                  cr=pd.to_numeric(g.iloc[max(0,i-3):i+H+1].Close,errors="coerce")
-                  if cr.pct_change().abs().max()*100 >=45: continue
+          for _,e in events.sort_values(["signal_date","code"]).iterrows():
+              sd=pd.Timestamp(e.signal_date).normalize(); code=norm_code(e.code)
+              key=(str(sd.date()),code)
+              if key in seen:continue
+              g=price.get(code)
+              if g is None or g.empty:continue
+              idx=g.index[g.Date.eq(sd)]
+              if len(idx)!=1:continue
+              i=int(idx[0])
+              if i<125:continue
 
-                  sd=pd.Timestamp(r0.Date)
-                  split="TRAIN_EARLY" if sd in train else "HOLDOUT_LATE"
-                  entry=float(r0.Close); sig_low=float(r0.Low)
+              h60=g.iloc[i-60:i].copy()
+              h120=g.iloc[i-120:i].copy()
+              s60=prior_stats(h60); s120=prior_stats(h120)
 
-                  # Frozen descriptive outcome state from prior ODOLI studies.
-                  d1=g.iloc[i+1]; d2=g.iloc[i+2]
-                  fast=bool(
-                      float(d2.Low)>float(d1.Low)
-                      and pd.notna(g.ma5.iloc[i+2])
-                      and float(d2.Close)>float(g.ma5.iloc[i+2])
-                  )
-                  c4=False
-                  c4_day=np.nan
-                  for j in range(i+4,i+11):
+              recent=bool(s60.get("strong_any_n",0)>=1 or s60.get("prior_mfe5_ge20_n",0)>=1)
+              repeated=bool(s120.get("strong_any_n",0)>=2 or s120.get("prior_mfe5_ge20_n",0)>=2)
+              weak=bool(s120.get("strong_any_n",0)>=1 or s120.get("prior_mfe5_ge15_n",0)>=1)
+              if recent and repeated:kki="RECENT_REPEATED_KKI"
+              elif recent:kki="RECENT_KKI"
+              elif repeated:kki="REPEATED_KKI"
+              elif weak:kki="WEAK_KKI"
+              else:kki="NO_PRIOR_KKI"
+
+              pre10=g.iloc[i-10:i]
+              cur_base=float(pre10.Close.min())
+              cur_peak=float(pre10.High.max())
+              cur_wave=(cur_peak/cur_base-1)*100 if cur_base>0 else np.nan
+              vals=[s120.get("max_ret3",np.nan),s120.get("max_ret5",np.nan),s120.get("prior_mfe5_max",np.nan)]
+              vals=[x for x in vals if pd.notna(x)]
+              prior_wave=max(vals) if vals else np.nan
+              ratio=cur_wave/prior_wave if pd.notna(prior_wave) and prior_wave>0 else np.nan
+              sym=bool(kki!="NO_PRIOR_KKI" and pd.notna(ratio) and 0.45<=ratio<=1.25)
+
+              rows.append({
+                  "signal_date":sd.date().isoformat(),
+                  "code":code,
+                  "name":e.get("name",""),
+                  "kki_class_frozen":kki,
+                  "recent_repeated_kki":kki=="RECENT_REPEATED_KKI",
+                  "symmetry_candidate_frozen":sym,
+                  "current_pre10_wave_pct":cur_wave,
+                  "prior_reference_wave_pct":prior_wave,
+                  "symmetry_ratio":ratio,
+                  "strong_any_60_n":s60.get("strong_any_n",0),
+                  "strong_any_120_n":s120.get("strong_any_n",0),
+                  "prior_mfe5_ge20_120_n":s120.get("prior_mfe5_ge20_n",0),
+                  "feature_fingerprint":FP,
+                  "feature_frozen_at_signal":True,
+                  "fast_d2_status":"PENDING",
+                  "c4_status":"PENDING",
+                  "final_state":"PENDING",
+                  "d10_mature":False,
+                  "d10_close_ret_pct":np.nan,
+                  "mfe10_pct":np.nan,
+                  "mfe10_ge10":False,
+                  "mfe10_ge15":False,
+              })
+              seen.add(key)
+
+          tr=pd.DataFrame(rows)
+          if tr.empty:raise SystemExit("TRACKER_EMPTY")
+          tr["signal_date"]=pd.to_datetime(tr["signal_date"],errors="coerce").dt.normalize()
+
+          # Mature/update only from data that has actually happened.
+          for ix,r in tr.iterrows():
+              code=norm_code(r.code); sd=pd.Timestamp(r.signal_date).normalize()
+              g=price.get(code)
+              if g is None:continue
+              ids=g.index[g.Date.eq(sd)]
+              if len(ids)!=1:continue
+              i=int(ids[0]); last=len(g)-1
+
+              # D2 FAST can only be known once D2 exists.
+              if i+2<=last:
+                  d1=g.iloc[i+1];d2=g.iloc[i+2]
+                  fast=bool(float(d2.Low)>float(d1.Low) and pd.notna(g.ma5.iloc[i+2]) and float(d2.Close)>float(g.ma5.iloc[i+2]))
+                  tr.at[ix,"fast_d2_status"]="FAST" if fast else "NON_FAST"
+
+              # C4 through available D4-D10, using original frozen definition.
+              sig_low=float(g.iloc[i].Low)
+              c4=False
+              maxj=min(i+10,last)
+              if i+4<=last:
+                  for j in range(i+4,maxj+1):
                       hist=g.iloc[i+1:j+1]
                       survive=bool(hist.Low.min()>=sig_low)
                       above=bool(pd.notna(g.ma5.iloc[j]) and float(g.iloc[j].Close)>float(g.ma5.iloc[j]))
@@ -156,255 +262,131 @@ jobs:
                       ama=float(pre20.mean()) if len(pre20) else np.nan
                       ar=float(g.Amount.iloc[j]/ama) if pd.notna(ama) and ama>0 else np.nan
                       if above and hl and pd.notna(ar) and ar>=1.0 and survive:
-                          c4=True;c4_day=j-i;break
-                  state="FAST" if fast else ("SLOW_C4" if c4 else "OTHER_WATCH")
+                          c4=True;break
+                  tr.at[ix,"c4_status"]="C4" if c4 else ("NO_C4_YET" if maxj<i+10 else "NO_C4_D10")
 
-                  # Point-in-time prior history only; excludes signal day and all future bars.
-                  h60=g.iloc[i-60:i].copy()
-                  h120=g.iloc[i-120:i].copy()
+              fast_now=str(tr.at[ix,"fast_d2_status"])=="FAST"
+              if fast_now:tr.at[ix,"final_state"]="FAST"
+              elif c4:tr.at[ix,"final_state"]="SLOW_C4"
+              elif i+10<=last:tr.at[ix,"final_state"]="OTHER_WATCH"
 
-                  def prior_stats(h):
-                      if h.empty:
-                          return {}
-                      # Strong-wave proxies frozen before looking at outcomes:
-                      # 1D >= +10, 3D >= +15, 5D >= +20, amount ratio20 >=3.
-                      strong1=(h.ret1>=10)
-                      strong3=(h.ret3>=15)
-                      strong5=(h.ret5>=20)
-                      amt3=(h.amount_ratio20>=3)
-                      any_strong=(strong1|strong3|strong5)
-
-                      # Prior forward MFE computed only within prior history:
-                      # for each historical day, max High over next 5 trading days, requiring all bars before signal.
-                      mfe5=[]
-                      for k in range(len(h)-5):
-                          base=float(h.Close.iloc[k])
-                          if base<=0: continue
-                          hi=float(h.High.iloc[k+1:k+6].max())
-                          mfe5.append((hi/base-1)*100)
-                      return {
-                          "strong1_n":int(strong1.sum()),
-                          "strong3_n":int(strong3.sum()),
-                          "strong5_n":int(strong5.sum()),
-                          "strong_any_n":int(any_strong.sum()),
-                          "amount3x_n":int(amt3.sum()),
-                          "max_ret1":float(pd.to_numeric(h.ret1,errors="coerce").max()),
-                          "max_ret3":float(pd.to_numeric(h.ret3,errors="coerce").max()),
-                          "max_ret5":float(pd.to_numeric(h.ret5,errors="coerce").max()),
-                          "max_amount_ratio20":float(pd.to_numeric(h.amount_ratio20,errors="coerce").max()),
-                          "prior_mfe5_max":float(np.nanmax(mfe5)) if mfe5 else np.nan,
-                          "prior_mfe5_ge15_n":int(sum(x>=15 for x in mfe5)),
-                          "prior_mfe5_ge20_n":int(sum(x>=20 for x in mfe5)),
-                      }
-
-                  s60=prior_stats(h60)
-                  s120=prior_stats(h120)
-
-                  # Recency of latest strong wave.
-                  latest_strong_days=np.nan
-                  strong_mask=(h120.ret1>=10)|(h120.ret3>=15)|(h120.ret5>=20)
-                  idxs=np.where(strong_mask.fillna(False).to_numpy())[0]
-                  if len(idxs):
-                      latest_strong_days=len(h120)-1-int(idxs[-1])
-
-                  # Frozen KKI categories.
-                  # RECENT_KKI: strong wave in last 60d.
-                  # REPEATED_KKI: >=2 strong waves in 120d OR >=2 prior 5d MFE>=20 episodes.
-                  # WEAK_KKI: one strong episode in 120d.
-                  # NO_PRIOR_KKI: none.
-                  recent=bool(s60.get("strong_any_n",0)>=1 or s60.get("prior_mfe5_ge20_n",0)>=1)
-                  repeated=bool(s120.get("strong_any_n",0)>=2 or s120.get("prior_mfe5_ge20_n",0)>=2)
-                  weak=bool(s120.get("strong_any_n",0)>=1 or s120.get("prior_mfe5_ge15_n",0)>=1)
-                  if recent and repeated:
-                      kki="RECENT_REPEATED_KKI"
-                  elif recent:
-                      kki="RECENT_KKI"
-                  elif repeated:
-                      kki="REPEATED_KKI"
-                  elif weak:
-                      kki="WEAK_KKI"
-                  else:
-                      kki="NO_PRIOR_KKI"
-
-                  # Simple symmetry candidate:
-                  # current signal's immediate pre-signal 10d wave magnitude compared with strongest prior 3/5d wave.
-                  # Descriptive only; no future bars used.
-                  pre10=g.iloc[i-10:i]
-                  cur_base=float(pre10.Close.min()) if len(pre10) else np.nan
-                  cur_peak=float(pre10.High.max()) if len(pre10) else np.nan
-                  cur_wave=(cur_peak/cur_base-1)*100 if pd.notna(cur_base) and cur_base>0 else np.nan
-                  prior_wave=max(
-                      x for x in [
-                          s120.get("max_ret3",np.nan),
-                          s120.get("max_ret5",np.nan),
-                          s120.get("prior_mfe5_max",np.nan)
-                      ] if pd.notna(x)
-                  ) if any(pd.notna(x) for x in [
-                      s120.get("max_ret3",np.nan),
-                      s120.get("max_ret5",np.nan),
-                      s120.get("prior_mfe5_max",np.nan)
-                  ]) else np.nan
-
-                  symmetry_ratio=cur_wave/prior_wave if pd.notna(cur_wave) and pd.notna(prior_wave) and prior_wave>0 else np.nan
-                  symmetry_candidate=bool(
-                      kki!="NO_PRIOR_KKI"
-                      and pd.notna(symmetry_ratio)
-                      and 0.45<=symmetry_ratio<=1.25
-                  )
-
-                  # Outcomes for descriptive comparison.
+              if i+10<=last:
+                  entry=float(g.iloc[i].Close)
                   fut=g.iloc[i+1:i+11]
-                  d5_close=(float(g.iloc[i+5].Close)/entry-1)*100
-                  d10_close=(float(g.iloc[i+10].Close)/entry-1)*100
-                  mfe5=(float(g.iloc[i+1:i+6].High.max())/entry-1)*100
-                  mfe10=(float(fut.High.max())/entry-1)*100
-                  mae10=(float(fut.Low.min())/entry-1)*100
+                  tr.at[ix,"d10_mature"]=True
+                  tr.at[ix,"d10_close_ret_pct"]=(float(g.iloc[i+10].Close)/entry-1)*100
+                  mfe=(float(fut.High.max())/entry-1)*100
+                  tr.at[ix,"mfe10_pct"]=mfe
+                  tr.at[ix,"mfe10_ge10"]=bool(mfe>=10)
+                  tr.at[ix,"mfe10_ge15"]=bool(mfe>=15)
 
-                  rows.append({
-                      "split":split,"signal_date":sd,"code":code,"name":name,
-                      "state_reporting_only":state,"fast_d2":fast,"eventual_c4_reporting_only":c4,
-                      "kki_class":kki,
-                      "recent_kki":recent,"repeated_kki":repeated,
-                      "latest_strong_wave_days_ago":latest_strong_days,
-                      "symmetry_candidate":symmetry_candidate,
-                      "current_pre10_wave_pct":cur_wave,
-                      "prior_reference_wave_pct":prior_wave,
-                      "symmetry_ratio":symmetry_ratio,
-                      "strong_any_60_n":s60.get("strong_any_n",0),
-                      "strong_any_120_n":s120.get("strong_any_n",0),
-                      "amount3x_60_n":s60.get("amount3x_n",0),
-                      "amount3x_120_n":s120.get("amount3x_n",0),
-                      "prior_mfe5_ge20_60_n":s60.get("prior_mfe5_ge20_n",0),
-                      "prior_mfe5_ge20_120_n":s120.get("prior_mfe5_ge20_n",0),
-                      "prior_mfe5_max_120_pct":s120.get("prior_mfe5_max",np.nan),
-                      "max_ret1_120_pct":s120.get("max_ret1",np.nan),
-                      "max_ret3_120_pct":s120.get("max_ret3",np.nan),
-                      "max_ret5_120_pct":s120.get("max_ret5",np.nan),
-                      "max_amount_ratio20_120":s120.get("max_amount_ratio20",np.nan),
-                      "d5_close_ret_pct":d5_close,
-                      "d10_close_ret_pct":d10_close,
-                      "mfe5_pct":mfe5,
-                      "mfe10_pct":mfe10,
-                      "mae10_pct":mae10,
-                      "d10_positive":d10_close>0,
-                      "mfe10_ge10":mfe10>=10,
-                      "mfe10_ge15":mfe10>=15,
-                  })
+          tr=tr.sort_values(["signal_date","code"]).drop_duplicates(["signal_date","code"],keep="first")
+          tr.to_csv(STATE/"tracker.csv",index=False,encoding="utf-8-sig")
+          tr.to_csv(OUT/"prospective_tracker.csv",index=False,encoding="utf-8-sig")
 
-          df=pd.DataFrame(rows)
-          if df.empty: raise SystemExit("NO_ROWS")
-          df.to_csv(OUT/"prior_kki_events.csv",index=False,encoding="utf-8-sig")
-
-          def summarize(group_cols):
-              out=[]
-              for keys,g in df.groupby(group_cols,dropna=False):
-                  if not isinstance(keys,tuple): keys=(keys,)
-                  rec={c:k for c,k in zip(group_cols,keys)}
-                  rec.update({
+          mature=tr[tr.d10_mature.astype(str).str.lower().isin(["true","1"])].copy()
+          summary=[]
+          if len(mature):
+              for keys,g in mature.groupby(["final_state","recent_repeated_kki","symmetry_candidate_frozen"],dropna=False):
+                  state,kki,sym=keys
+                  r=pd.to_numeric(g.d10_close_ret_pct,errors="coerce")
+                  mfe=pd.to_numeric(g.mfe10_pct,errors="coerce")
+                  summary.append({
+                      "final_state":state,
+                      "recent_repeated_kki":kki,
+                      "symmetry_candidate":sym,
                       "n":len(g),
-                      "d10_positive_pct":g.d10_positive.mean()*100,
-                      "d10_close_mean_pct":g.d10_close_ret_pct.mean(),
-                      "d10_close_median_pct":g.d10_close_ret_pct.median(),
-                      "mfe10_ge10_pct":g.mfe10_ge10.mean()*100,
-                      "mfe10_ge15_pct":g.mfe10_ge15.mean()*100,
-                      "mfe10_median_pct":g.mfe10_pct.median(),
-                      "mae10_median_pct":g.mae10_pct.median(),
+                      "d10_positive_pct":(r>0).mean()*100,
+                      "d10_mean_pct":r.mean(),
+                      "d10_median_pct":r.median(),
+                      "mfe10_ge10_pct":pd.to_numeric(g.mfe10_ge10,errors="coerce").fillna(0).astype(bool).mean()*100,
+                      "mfe10_ge15_pct":pd.to_numeric(g.mfe10_ge15,errors="coerce").fillna(0).astype(bool).mean()*100,
+                      "mfe10_median_pct":mfe.median(),
                   })
-                  out.append(rec)
-              return pd.DataFrame(out)
-
-          summarize(["split","kki_class"]).to_csv(OUT/"summary_by_kki.csv",index=False,encoding="utf-8-sig")
-          summarize(["split","state_reporting_only","kki_class"]).to_csv(OUT/"summary_by_state_kki.csv",index=False,encoding="utf-8-sig")
-          summarize(["split","symmetry_candidate"]).to_csv(OUT/"summary_by_symmetry.csv",index=False,encoding="utf-8-sig")
-          summarize(["split","state_reporting_only","symmetry_candidate"]).to_csv(OUT/"summary_by_state_symmetry.csv",index=False,encoding="utf-8-sig")
+          sm=pd.DataFrame(summary)
+          sm.to_csv(OUT/"prospective_summary.csv",index=False,encoding="utf-8-sig")
 
           meta={
               "revision":REV,
               "research_only":True,
               "production_changed":False,
               "automatic_ordering":False,
-              "price_policy_changed":False,
-              "point_in_time_prior_history_only":True,
-              "signal_day_excluded_from_kki_features":True,
-              "future_bars_excluded_from_kki_features":True,
-              "kki_definition_frozen_for_this_run":{
-                  "strong_1d":"+10% or more",
-                  "strong_3d":"+15% or more",
-                  "strong_5d":"+20% or more",
-                  "amount_explosion":"Amount / trailing20 mean >= 3x",
-                  "recent":"at least one strong wave or prior 5d MFE>=20 within 60d",
-                  "repeated":"at least 2 strong waves in 120d OR at least 2 prior 5d MFE>=20 episodes",
-              },
-              "symmetry_definition_frozen_for_this_run":{
-                  "current_wave":"pre-signal 10d low-to-high wave",
-                  "prior_reference":"max(prior 120d 3d return, 5d return, historical 5d MFE)",
-                  "candidate":"KKI exists and current/prior ratio between 0.45 and 1.25"
-              },
-              "same_historical_window_reused":True,
-              "true_oos":False,
-              "same_sample_tuning":False,
-              "note":"Descriptive sidecar only. KKI/symmetry must not be promoted without prospective validation."
+              "feature_fingerprint":FP,
+              "feature_definition_locked":True,
+              "kki_spec":KKI_SPEC,
+              "symmetry_spec":SYM_SPEC,
+              "new_events_total":len(tr),
+              "mature_d10_total":len(mature),
+              "point_in_time_features_only":True,
+              "no_retroactive_feature_relabeling":True,
+              "price_gate_changed":False,
+              "rank_changed":False,
+              "order_changed":False,
+              "promotion_allowed":False,
+              "note":"Prospective observational tracker. Do not tune thresholds from this run."
           }
           (OUT/"meta.json").write_text(json.dumps(meta,ensure_ascii=False,indent=2),encoding="utf-8")
+          (OUT/"FROZEN_FEATURE_SPEC.json").write_text(json.dumps({
+              "fingerprint":FP,"kki_spec":KKI_SPEC,"symmetry_spec":SYM_SPEC
+          },ensure_ascii=False,indent=2),encoding="utf-8")
 
-          hold=df[df.split=="HOLDOUT_LATE"]
-          report=[
-              "# ODOLI Prior KKI / Symmetry Sidecar R1","",
-              "## Meta","```json",json.dumps(meta,ensure_ascii=False,indent=2),"```","",
-              "## HOLDOUT KKI","```text",
-              summarize(["split","kki_class"]).query("split=='HOLDOUT_LATE'").to_string(index=False),
-              "```","",
-              "## HOLDOUT state x KKI","```text",
-              summarize(["split","state_reporting_only","kki_class"]).query("split=='HOLDOUT_LATE'").to_string(index=False),
-              "```","",
-              "## HOLDOUT symmetry","```text",
-              summarize(["split","symmetry_candidate"]).query("split=='HOLDOUT_LATE'").to_string(index=False),
-              "```"
-          ]
+          report=["# ODOLI Prospective KKI Symmetry Tracker R1","",
+                  "```json",json.dumps(meta,ensure_ascii=False,indent=2),"```",""]
+          if len(sm):
+              report += ["## Mature prospective summary","```text",sm.to_string(index=False),"```"]
+          else:
+              report += ["## Mature prospective summary","No D10-mature frozen observations yet."]
           (OUT/"REPORT.md").write_text("\n".join(report),encoding="utf-8")
 
-          print("ODOLI_PRIOR_KKI_SYMMETRY_PASS")
+          print("ODOLI_PROSPECTIVE_KKI_SYMMETRY_TRACKER_PASS")
           print(json.dumps(meta,ensure_ascii=False))
-          print(summarize(["split","kki_class"]).query("split=='HOLDOUT_LATE'").to_string(index=False))
           PY
 
-          python /tmp/study.py
+          python /tmp/tracker.py
 
-      - name: Validate sidecar isolation and causality
+      - name: Validate frozen prospective integrity
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
           import json,pandas as pd
-          m=json.load(open("reports/temp_odoli_prior_kki_symmetry/meta.json",encoding="utf-8"))
-          assert m["revision"]=="ODOLI_PRIOR_KKI_SYMMETRY_SIDECAR_R1_20261002"
+          m=json.load(open("reports/temp_odoli_kki_symmetry_prospective/meta.json",encoding="utf-8"))
+          assert m["revision"]=="ODOLI_PROSPECTIVE_KKI_SYMMETRY_TRACKER_R1_20261002"
           assert m["research_only"] is True
           assert m["production_changed"] is False
           assert m["automatic_ordering"] is False
-          assert m["price_policy_changed"] is False
-          assert m["point_in_time_prior_history_only"] is True
-          assert m["signal_day_excluded_from_kki_features"] is True
-          assert m["future_bars_excluded_from_kki_features"] is True
-          q=pd.read_csv("reports/temp_odoli_prior_kki_symmetry/prior_kki_events.csv")
+          assert m["feature_definition_locked"] is True
+          assert m["point_in_time_features_only"] is True
+          assert m["no_retroactive_feature_relabeling"] is True
+          assert m["price_gate_changed"] is False
+          assert m["rank_changed"] is False
+          assert m["order_changed"] is False
+          q=pd.read_csv("reports/temp_odoli_kki_symmetry_prospective/prospective_tracker.csv")
           assert len(q)>0
-          assert set(q.kki_class).issubset({
-              "RECENT_REPEATED_KKI","RECENT_KKI","REPEATED_KKI","WEAK_KKI","NO_PRIOR_KKI"
-          })
-          print("PRIOR_KKI_SYMMETRY_CAUSAL_ISOLATION_PASS")
+          assert q["feature_fingerprint"].nunique()==1
+          assert q["feature_fingerprint"].iloc[0]==m["feature_fingerprint"]
+          print("PROSPECTIVE_KKI_SYMMETRY_FROZEN_INTEGRITY_PASS")
           PY
 
       - name: Show report
         if: always()
         run: |
-          cat reports/temp_odoli_prior_kki_symmetry/meta.json || true
+          cat reports/temp_odoli_kki_symmetry_prospective/meta.json || true
           echo
-          cat reports/temp_odoli_prior_kki_symmetry/REPORT.md || true
+          cat reports/temp_odoli_kki_symmetry_prospective/REPORT.md || true
+
+      - name: Save frozen prospective tracker
+        if: always() && hashFiles('reports/.cache/odoli_kki_symmetry_prospective_r1/tracker.csv') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: reports/.cache/odoli_kki_symmetry_prospective_r1
+          key: odoli-kki-symmetry-prospective-r1-${{ github.ref_name }}-${{ github.run_id }}
 
       - name: Upload artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: temp-odoli-prior-kki-symmetry-sidecar-r1
-          path: reports/temp_odoli_prior_kki_symmetry/**
+          name: temp-odoli-prospective-kki-symmetry-tracker-r1
+          path: reports/temp_odoli_kki_symmetry_prospective/**
           if-no-files-found: error
           retention-days: 90
