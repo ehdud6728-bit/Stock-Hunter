@@ -1,4 +1,4 @@
-name: TEMP ODOLI Other Watch Checkpoint Anatomy R1
+name: TEMP ODOLI Holding Horizon Curve R1
 
 on:
   workflow_dispatch:
@@ -7,7 +7,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: temp-odoli-other-watch-checkpoint-anatomy-r1
+  group: temp-odoli-holding-horizon-curve-r1
   cancel-in-progress: false
 
 jobs:
@@ -39,11 +39,11 @@ jobs:
           git checkout
           cd ../..
 
-      - name: Run OTHER_WATCH checkpoint anatomy
+      - name: Run holding horizon study
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p reports/temp_odoli_other_watch_checkpoint
+          mkdir -p reports/temp_odoli_holding_horizon_curve
 
           cat >/tmp/study.py <<'PY'
           from pathlib import Path
@@ -51,10 +51,9 @@ jobs:
           import numpy as np
           import pandas as pd
 
-          OUT=Path("reports/temp_odoli_other_watch_checkpoint")
+          OUT=Path("reports/temp_odoli_holding_horizon_curve")
           OUT.mkdir(parents=True,exist_ok=True)
-          REV="ODOLI_OTHER_WATCH_CHECKPOINT_ANATOMY_R1_20261002"
-          H=10
+          REV="ODOLI_HOLDING_HORIZON_CURVE_R1_20261002"
 
           def norm_code(v):
               s=re.sub(r"\D","",str(v or ""))
@@ -98,7 +97,7 @@ jobs:
               return g
 
           sessions=sorted(pd.Timestamp(x).normalize() for x in q.Date.unique())
-          mature_end=sessions[-11]
+          mature_end=sessions[-16]
           sig_dates=[d for d in sessions if d<=mature_end][-40:]
           train=set(sig_dates[:20]); hold=set(sig_dates[20:]); sig_set=set(sig_dates)
 
@@ -112,13 +111,12 @@ jobs:
 
               for ii in hits:
                   i=int(ii)
-                  if i+H>=len(g):continue
+                  if i+15>=len(g):continue
                   r0=g.iloc[i]
                   name=str(r0.get("Name","") or "")
                   if is_spac(name):continue
 
-                  # price discontinuity guard
-                  win=g.iloc[max(0,i-3):i+H+1]
+                  win=g.iloc[max(0,i-3):i+16]
                   cr=pd.to_numeric(win.Close,errors="coerce")
                   max_jump=float(cr.pct_change().abs().max()*100) if cr.pct_change().notna().any() else np.nan
                   if pd.notna(max_jump) and max_jump>=45:
@@ -134,13 +132,10 @@ jobs:
                       and pd.notna(ma5.iloc[i+2])
                       and float(d2.Close)>float(ma5.iloc[i+2])
                   )
-                  if fast:
-                      continue
 
-                  # Eventual C4 using original frozen definition.
-                  eventual_c4=False
-                  c4_day=np.nan
-                  for j in range(i+4,i+H+1):
+                  c4=False
+                  c4_idx=None
+                  for j in range(i+4,i+11):
                       hist=g.iloc[i+1:j+1]
                       survive=bool(pd.to_numeric(hist.Low,errors="coerce").min()>=sig_low)
                       above=bool(pd.notna(ma5.iloc[j]) and float(g.iloc[j].Close)>float(ma5.iloc[j]))
@@ -149,162 +144,159 @@ jobs:
                       ama=float(pre20.mean()) if len(pre20) else np.nan
                       ar=float(amount.iloc[j]/ama) if pd.notna(ama) and ama>0 else np.nan
                       if above and hl and pd.notna(ar) and ar>=1.0 and survive:
-                          eventual_c4=True;c4_day=j-i;break
+                          c4=True;c4_idx=j;break
 
-                  d10_ret=(float(g.iloc[i+10].Close)/sig_close-1)*100
-                  future=g.iloc[i+1:i+11]
-                  mfe=(float(pd.to_numeric(future.High,errors="coerce").max())/sig_close-1)*100
-                  mae=(float(pd.to_numeric(future.Low,errors="coerce").min())/sig_close-1)*100
+                  if fast:
+                      state="FAST"
+                      confirm_idx=i+2
+                  elif c4:
+                      state="SLOW_C4"
+                      confirm_idx=c4_idx
+                  else:
+                      state="OTHER_WATCH"
+                      confirm_idx=None
 
-                  for d in [3,4,5]:
-                      j=i+d
-                      r=g.iloc[j]
-                      hist=g.iloc[i+1:j+1]
-                      signal_low_alive=bool(pd.to_numeric(hist.Low,errors="coerce").min()>=sig_low)
-                      close_above_ma5=bool(pd.notna(ma5.iloc[j]) and float(r.Close)>float(ma5.iloc[j]))
-                      higher_low=bool(float(r.Low)>float(g.iloc[j-1].Low))
-                      pre20=amount.iloc[max(0,j-20):j]
-                      ama=float(pre20.mean()) if len(pre20) else np.nan
-                      ar=float(amount.iloc[j]/ama) if pd.notna(ama) and ama>0 else np.nan
-                      amount_ge1=bool(pd.notna(ar) and ar>=1.0)
-                      amount_le08=bool(pd.notna(ar) and ar<=0.8)
-                      close_vs_signal=(float(r.Close)/sig_close-1)*100
+                  base={
+                      "split":split,"signal_date":sig_date,"code":code,"name":name,
+                      "state":state,"fast":fast,"slow_c4":c4,
+                      "confirm_day":(confirm_idx-i) if confirm_idx is not None else np.nan,
+                      "signal_close":sig_close,
+                  }
 
-                      # Predeclared simple state families; descriptive only.
-                      if not signal_low_alive:
-                          state="BROKEN_SIGNAL_LOW"
-                      elif close_above_ma5 and higher_low:
-                          state="ABOVE_MA5_AND_HL"
-                      elif close_above_ma5:
-                          state="ABOVE_MA5_ONLY"
-                      elif higher_low:
-                          state="BELOW_MA5_BUT_HL"
-                      else:
-                          state="BELOW_MA5_NO_HL"
-
-                      rows.append({
-                          "split":split,"checkpoint_day":d,
-                          "signal_date":sig_date,"code":code,"name":name,
-                          "eventual_c4":eventual_c4,"c4_day":c4_day,
-                          "state":state,
-                          "signal_low_alive":signal_low_alive,
-                          "close_above_ma5":close_above_ma5,
-                          "higher_low":higher_low,
-                          "amount_ratio20":ar,
-                          "amount_ge1":amount_ge1,
-                          "amount_le08":amount_le08,
-                          "checkpoint_close_vs_signal_pct":close_vs_signal,
-                          "d10_close_ret_pct":d10_ret,
-                          "mfe_d10_pct":mfe,"mae_d10_pct":mae,
+                  # Signal-date horizons.
+                  for h in [5,7,10,15]:
+                      closep=float(g.iloc[i+h].Close)
+                      future=g.iloc[i+1:i+h+1]
+                      row=base.copy()
+                      row.update({
+                          "axis":"SIGNAL_DAY",
+                          "horizon":f"D{h}",
+                          "horizon_days":h,
+                          "close_return_pct":(closep/sig_close-1)*100,
+                          "mfe_pct":(float(pd.to_numeric(future.High,errors="coerce").max())/sig_close-1)*100,
+                          "mae_pct":(float(pd.to_numeric(future.Low,errors="coerce").min())/sig_close-1)*100,
+                          "peak_to_close_giveback_pp":(
+                              (float(pd.to_numeric(future.High,errors="coerce").max())/sig_close-1)*100
+                              - (closep/sig_close-1)*100
+                          ),
                       })
+                      rows.append(row)
+
+                  # Confirmation-date horizons. Only FAST/SLOW_C4.
+                  if confirm_idx is not None:
+                      confirm_close=float(g.iloc[confirm_idx].Close)
+                      for h in [3,5,10]:
+                          if confirm_idx+h>=len(g):continue
+                          closep=float(g.iloc[confirm_idx+h].Close)
+                          future=g.iloc[confirm_idx+1:confirm_idx+h+1]
+                          row=base.copy()
+                          row.update({
+                              "axis":"CONFIRM_DAY",
+                              "horizon":f"C+{h}",
+                              "horizon_days":h,
+                              "confirm_close":confirm_close,
+                              "close_return_pct":(closep/confirm_close-1)*100,
+                              "mfe_pct":(float(pd.to_numeric(future.High,errors="coerce").max())/confirm_close-1)*100,
+                              "mae_pct":(float(pd.to_numeric(future.Low,errors="coerce").min())/confirm_close-1)*100,
+                              "peak_to_close_giveback_pp":(
+                                  (float(pd.to_numeric(future.High,errors="coerce").max())/confirm_close-1)*100
+                                  - (closep/confirm_close-1)*100
+                              ),
+                          })
+                          rows.append(row)
 
           df=pd.DataFrame(rows)
           if df.empty:raise SystemExit("NO_ROWS")
-          df.to_csv(OUT/"checkpoint_events.csv",index=False,encoding="utf-8-sig")
+          df.to_csv(OUT/"horizon_events.csv",index=False,encoding="utf-8-sig")
 
-          # State summary
           out=[]
-          for (sp,d,state),g in df.groupby(["split","checkpoint_day","state"],dropna=False):
+          for (sp,state,axis,h),g in df.groupby(["split","state","axis","horizon"],dropna=False):
               out.append({
-                  "split":sp,"checkpoint_day":d,"state":state,"n":len(g),
-                  "eventual_c4_rate_pct":g.eventual_c4.mean()*100,
-                  "d10_positive_pct":(g.d10_close_ret_pct>0).mean()*100,
-                  "d10_close_median_pct":g.d10_close_ret_pct.median(),
-                  "mfe10_median_pct":g.mfe_d10_pct.median(),
-                  "mae10_median_pct":g.mae_d10_pct.median(),
+                  "split":sp,"state":state,"axis":axis,"horizon":h,"n":len(g),
+                  "close_positive_pct":(g.close_return_pct>0).mean()*100,
+                  "close_mean_pct":g.close_return_pct.mean(),
+                  "close_median_pct":g.close_return_pct.median(),
+                  "mfe_median_pct":g.mfe_pct.median(),
+                  "mae_median_pct":g.mae_pct.median(),
+                  "giveback_median_pp":g.peak_to_close_giveback_pp.median(),
+                  "plus5_close_pct":(g.close_return_pct>=5).mean()*100,
+                  "plus10_close_pct":(g.close_return_pct>=10).mean()*100,
               })
-          state_summary=pd.DataFrame(out)
-          state_summary.to_csv(OUT/"state_summary.csv",index=False,encoding="utf-8-sig")
+          summary=pd.DataFrame(out)
+          summary.to_csv(OUT/"horizon_summary.csv",index=False,encoding="utf-8-sig")
 
-          # Simple checkpoint policy counterfactuals.
-          # Every rule is only based on information observable at that checkpoint.
-          policy=[]
-          for d in [3,4,5]:
-              z=df[df.checkpoint_day==d].copy()
-              rules={
-                  "CUT_IF_SIGNAL_LOW_BROKEN": ~z.signal_low_alive,
-                  "CUT_IF_BELOW_MA5_NO_HL": (z.signal_low_alive & ~z.close_above_ma5 & ~z.higher_low),
-                  "CUT_IF_BELOW_MA5_AND_AMOUNT_GE1": (z.signal_low_alive & ~z.close_above_ma5 & z.amount_ge1),
-                  "WATCH_IF_ABOVE_MA5_OR_HL": (z.signal_low_alive & (z.close_above_ma5 | z.higher_low)),
-              }
-              for rule,mask in rules.items():
-                  zz=z[mask].copy()
-                  for sp,g in zz.groupby("split"):
-                      policy.append({
-                          "split":sp,"checkpoint_day":d,"rule":rule,"n":len(g),
-                          "eventual_c4_rate_pct":g.eventual_c4.mean()*100,
-                          "d10_positive_pct":(g.d10_close_ret_pct>0).mean()*100,
-                          "d10_close_median_pct":g.d10_close_ret_pct.median(),
-                          "mae10_median_pct":g.mae_d10_pct.median(),
-                      })
-          pol=pd.DataFrame(policy)
-          pol.to_csv(OUT/"checkpoint_rule_summary.csv",index=False,encoding="utf-8-sig")
+          # Best descriptive horizon by state/split, reported but not promoted.
+          best=[]
+          for (sp,state,axis),g in summary.groupby(["split","state","axis"],dropna=False):
+              gg=g.sort_values(["close_mean_pct","close_median_pct"],ascending=False)
+              best.append(gg.iloc[0].to_dict())
+          pd.DataFrame(best).to_csv(OUT/"descriptive_best_horizon.csv",index=False,encoding="utf-8-sig")
 
           meta={
               "revision":REV,
               "research_only":True,
               "production_changed":False,
               "automatic_ordering":False,
-              "population":"STRICT_ODOLI NONFAST_D2 ONLY",
-              "checkpoints":[3,4,5],
-              "features":["signal_low_alive","close_above_ma5","higher_low","amount_ratio20"],
-              "eventual_c4_definition":"D4-D10 Close>MA5 AND Low>prior Low AND Amount>=prior20 mean AND signal-low survives",
-              "state_rules_predeclared":True,
+              "signal_horizons":[5,7,10,15],
+              "confirm_horizons":[3,5,10],
+              "states":["FAST","SLOW_C4","OTHER_WATCH"],
+              "entry_anchor":"D0_CLOSE for signal axis; confirmation close for confirm axis",
               "same_historical_window_reused":True,
               "true_oos":False,
               "same_sample_tuning":False,
-              "note":"Descriptive checkpoint anatomy; no rule promotion. Follow-up must freeze a candidate rule and test on fresh time data."
+              "note":"Descriptive holding-period curve only. Best horizon is not a promoted rule."
           }
           (OUT/"meta.json").write_text(json.dumps(meta,ensure_ascii=False,indent=2),encoding="utf-8")
+
           (OUT/"REPORT.md").write_text(
-              "# ODOLI OTHER_WATCH Checkpoint Anatomy R1\n\n```json\n"+
+              "# ODOLI Holding Horizon Curve R1\n\n```json\n"+
               json.dumps(meta,ensure_ascii=False,indent=2)+
-              "\n```\n\n## State summary\n```text\n"+
-              state_summary.to_string(index=False)+
-              "\n```\n\n## Checkpoint rule summary\n```text\n"+
-              pol.to_string(index=False)+"\n```\n",
+              "\n```\n\n## Horizon summary\n```text\n"+
+              summary.to_string(index=False)+
+              "\n```\n",
               encoding="utf-8"
           )
 
-          print("ODOLI_OTHER_WATCH_CHECKPOINT_ANATOMY_PASS")
+          print("ODOLI_HOLDING_HORIZON_CURVE_PASS")
           print(json.dumps(meta,ensure_ascii=False))
-          print(state_summary.to_string(index=False))
-          print(pol.to_string(index=False))
+          print(summary.to_string(index=False))
           PY
 
           python /tmp/study.py
 
-      - name: Validate identity and causal checkpoints
+      - name: Validate identity and horizon integrity
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
           import json,pandas as pd
-          m=json.load(open("reports/temp_odoli_other_watch_checkpoint/meta.json",encoding="utf-8"))
-          assert m["revision"]=="ODOLI_OTHER_WATCH_CHECKPOINT_ANATOMY_R1_20261002"
+          m=json.load(open("reports/temp_odoli_holding_horizon_curve/meta.json",encoding="utf-8"))
+          assert m["revision"]=="ODOLI_HOLDING_HORIZON_CURVE_R1_20261002"
           assert m["research_only"] is True
           assert m["production_changed"] is False
           assert m["automatic_ordering"] is False
           assert m["true_oos"] is False
-          q=pd.read_csv("reports/temp_odoli_other_watch_checkpoint/checkpoint_events.csv")
+          q=pd.read_csv("reports/temp_odoli_holding_horizon_curve/horizon_events.csv")
           assert len(q)>0
-          assert set(pd.to_numeric(q.checkpoint_day,errors="coerce").dropna().astype(int).unique())=={3,4,5}
-          assert (~q.get("fast_d2",pd.Series(False,index=q.index)).astype(bool)).all() if "fast_d2" in q.columns else True
-          print("OTHER_WATCH_CHECKPOINT_CAUSAL_PASS")
+          sig=set(q[q.axis=="SIGNAL_DAY"].horizon.unique())
+          assert sig=={"D5","D7","D10","D15"}
+          conf=set(q[q.axis=="CONFIRM_DAY"].horizon.unique())
+          assert conf=={"C+3","C+5","C+10"}
+          print("HOLDING_HORIZON_INTEGRITY_PASS")
           PY
 
       - name: Show report
         if: always()
         run: |
-          cat reports/temp_odoli_other_watch_checkpoint/meta.json || true
+          cat reports/temp_odoli_holding_horizon_curve/meta.json || true
           echo
-          cat reports/temp_odoli_other_watch_checkpoint/REPORT.md || true
+          cat reports/temp_odoli_holding_horizon_curve/REPORT.md || true
 
       - name: Upload artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: temp-odoli-other-watch-checkpoint-anatomy-r1
-          path: reports/temp_odoli_other_watch_checkpoint/**
+          name: temp-odoli-holding-horizon-curve-r1
+          path: reports/temp_odoli_holding_horizon_curve/**
           if-no-files-found: error
           retention-days: 90
