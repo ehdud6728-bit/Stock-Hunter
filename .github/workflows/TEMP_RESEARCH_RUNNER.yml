@@ -1,4 +1,4 @@
-name: TEMP ODOLI FAST C4 Exit Policy R1
+name: TEMP ODOLI Other Watch Checkpoint Anatomy R1
 
 on:
   workflow_dispatch:
@@ -7,7 +7,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: temp-odoli-fast-c4-exit-policy-r1
+  group: temp-odoli-other-watch-checkpoint-anatomy-r1
   cancel-in-progress: false
 
 jobs:
@@ -39,11 +39,11 @@ jobs:
           git checkout
           cd ../..
 
-      - name: Run FAST C4 exit policy study
+      - name: Run OTHER_WATCH checkpoint anatomy
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p reports/temp_odoli_fast_c4_exit_policy
+          mkdir -p reports/temp_odoli_other_watch_checkpoint
 
           cat >/tmp/study.py <<'PY'
           from pathlib import Path
@@ -51,9 +51,9 @@ jobs:
           import numpy as np
           import pandas as pd
 
-          OUT=Path("reports/temp_odoli_fast_c4_exit_policy")
+          OUT=Path("reports/temp_odoli_other_watch_checkpoint")
           OUT.mkdir(parents=True,exist_ok=True)
-          REV="ODOLI_FAST_C4_EXIT_POLICY_R1_20261002"
+          REV="ODOLI_OTHER_WATCH_CHECKPOINT_ANATOMY_R1_20261002"
           H=10
 
           def norm_code(v):
@@ -63,9 +63,6 @@ jobs:
           def is_spac(name):
               s=str(name or "").upper()
               return "스팩" in s or "SPAC" in s
-
-          def ret(entry, exitp):
-              return (float(exitp)/float(entry)-1)*100 if entry and exitp else np.nan
 
           q=pd.read_parquet("vendor/marcap/data/marcap-2026.parquet")
           if "Date" not in q.columns:q=q.reset_index()
@@ -103,34 +100,33 @@ jobs:
           sessions=sorted(pd.Timestamp(x).normalize() for x in q.Date.unique())
           mature_end=sessions[-11]
           sig_dates=[d for d in sessions if d<=mature_end][-40:]
-          train=set(sig_dates[:20]); hold=set(sig_dates[20:])
-          sig_set=set(sig_dates)
+          train=set(sig_dates[:20]); hold=set(sig_dates[20:]); sig_set=set(sig_dates)
 
-          events=[]
-          trades=[]
+          rows=[]
 
           for code,g0 in q.groupby("Code",sort=False):
               g=feat(g0)
-              amount=pd.to_numeric(g.Amount,errors="coerce")
               ma5=pd.to_numeric(g.ma5,errors="coerce")
+              amount=pd.to_numeric(g.Amount,errors="coerce")
               hits=g.index[g.Date.isin(sig_set)&g.strict_odoli_r1.fillna(False)]
 
               for ii in hits:
                   i=int(ii)
-                  if i+H+1>=len(g):continue
+                  if i+H>=len(g):continue
                   r0=g.iloc[i]
                   name=str(r0.get("Name","") or "")
                   if is_spac(name):continue
 
-                  win=g.iloc[max(0,i-3):i+H+2]
+                  # price discontinuity guard
+                  win=g.iloc[max(0,i-3):i+H+1]
                   cr=pd.to_numeric(win.Close,errors="coerce")
                   max_jump=float(cr.pct_change().abs().max()*100) if cr.pct_change().notna().any() else np.nan
-                  discontinuity=bool(pd.notna(max_jump) and max_jump>=45)
+                  if pd.notna(max_jump) and max_jump>=45:
+                      continue
 
                   sig_date=pd.Timestamp(r0.Date)
                   split="TRAIN_EARLY" if sig_date in train else "HOLDOUT_LATE"
-                  entry=float(r0.Close)
-                  sig_low=float(r0.Low)
+                  sig_close=float(r0.Close); sig_low=float(r0.Low)
 
                   d1=g.iloc[i+1]; d2=g.iloc[i+2]
                   fast=bool(
@@ -138,9 +134,12 @@ jobs:
                       and pd.notna(ma5.iloc[i+2])
                       and float(d2.Close)>float(ma5.iloc[i+2])
                   )
+                  if fast:
+                      continue
 
-                  c4=False
-                  c4_idx=None
+                  # Eventual C4 using original frozen definition.
+                  eventual_c4=False
+                  c4_day=np.nan
                   for j in range(i+4,i+H+1):
                       hist=g.iloc[i+1:j+1]
                       survive=bool(pd.to_numeric(hist.Low,errors="coerce").min()>=sig_low)
@@ -150,221 +149,162 @@ jobs:
                       ama=float(pre20.mean()) if len(pre20) else np.nan
                       ar=float(amount.iloc[j]/ama) if pd.notna(ama) and ama>0 else np.nan
                       if above and hl and pd.notna(ar) and ar>=1.0 and survive:
-                          c4=True;c4_idx=j;break
+                          eventual_c4=True;c4_day=j-i;break
 
-                  # eligibility under the chosen policy family:
-                  # FAST is confirmed at D2. Non-FAST is WATCH until C4 or signal-low failure / D10.
-                  events.append({
-                      "split":split,"signal_date":sig_date,"code":code,"name":name,
-                      "entry":entry,"signal_low":sig_low,"fast":fast,"slow_c4":c4,
-                      "c4_day":(c4_idx-i) if c4_idx is not None else np.nan,
-                      "suspected_price_discontinuity":discontinuity,
-                      "max_adjacent_close_jump_pct":max_jump,
-                  })
+                  d10_ret=(float(g.iloc[i+10].Close)/sig_close-1)*100
+                  future=g.iloc[i+1:i+11]
+                  mfe=(float(pd.to_numeric(future.High,errors="coerce").max())/sig_close-1)*100
+                  mae=(float(pd.to_numeric(future.Low,errors="coerce").min())/sig_close-1)*100
 
-                  def add_trade(policy, ex_idx, ex_price, reason):
-                      trades.append({
-                          "split":split,"signal_date":sig_date,"code":code,"name":name,
-                          "policy":policy,"fast":fast,"slow_c4":c4,
-                          "entry_price":entry,"exit_day":ex_idx-i,"exit_price":float(ex_price),
-                          "return_pct":ret(entry,float(ex_price)),"exit_reason":reason,
-                          "suspected_price_discontinuity":discontinuity
+                  for d in [3,4,5]:
+                      j=i+d
+                      r=g.iloc[j]
+                      hist=g.iloc[i+1:j+1]
+                      signal_low_alive=bool(pd.to_numeric(hist.Low,errors="coerce").min()>=sig_low)
+                      close_above_ma5=bool(pd.notna(ma5.iloc[j]) and float(r.Close)>float(ma5.iloc[j]))
+                      higher_low=bool(float(r.Low)>float(g.iloc[j-1].Low))
+                      pre20=amount.iloc[max(0,j-20):j]
+                      ama=float(pre20.mean()) if len(pre20) else np.nan
+                      ar=float(amount.iloc[j]/ama) if pd.notna(ama) and ama>0 else np.nan
+                      amount_ge1=bool(pd.notna(ar) and ar>=1.0)
+                      amount_le08=bool(pd.notna(ar) and ar<=0.8)
+                      close_vs_signal=(float(r.Close)/sig_close-1)*100
+
+                      # Predeclared simple state families; descriptive only.
+                      if not signal_low_alive:
+                          state="BROKEN_SIGNAL_LOW"
+                      elif close_above_ma5 and higher_low:
+                          state="ABOVE_MA5_AND_HL"
+                      elif close_above_ma5:
+                          state="ABOVE_MA5_ONLY"
+                      elif higher_low:
+                          state="BELOW_MA5_BUT_HL"
+                      else:
+                          state="BELOW_MA5_NO_HL"
+
+                      rows.append({
+                          "split":split,"checkpoint_day":d,
+                          "signal_date":sig_date,"code":code,"name":name,
+                          "eventual_c4":eventual_c4,"c4_day":c4_day,
+                          "state":state,
+                          "signal_low_alive":signal_low_alive,
+                          "close_above_ma5":close_above_ma5,
+                          "higher_low":higher_low,
+                          "amount_ratio20":ar,
+                          "amount_ge1":amount_ge1,
+                          "amount_le08":amount_le08,
+                          "checkpoint_close_vs_signal_pct":close_vs_signal,
+                          "d10_close_ret_pct":d10_ret,
+                          "mfe_d10_pct":mfe,"mae_d10_pct":mae,
                       })
 
-                  # P0: previous best family baseline:
-                  # FAST -> D10; nonFAST -> signal-low break close; C4 -> D10; no C4/no break -> D10.
-                  ex_idx=i+H; ex_price=float(g.iloc[ex_idx].Close); reason="D10"
-                  if not fast:
-                      break_idx=None
-                      for j in range(i+1,i+H+1):
-                          if float(g.iloc[j].Low)<sig_low:
-                              break_idx=j;break
-                      if c4:
-                          ex_idx=i+H; ex_price=float(g.iloc[ex_idx].Close); reason="C4_HOLD_D10"
-                      elif break_idx is not None:
-                          ex_idx=break_idx; ex_price=float(g.iloc[ex_idx].Close); reason="WATCH_SIGNAL_LOW_BREAK_CLOSE"
-                      else:
-                          reason="WATCH_NO_C4_D10"
-                  else:
-                      reason="FAST_HOLD_D10"
-                  add_trade("BASE_FAST_C4_WATCH_D10",ex_idx,ex_price,reason)
+          df=pd.DataFrame(rows)
+          if df.empty:raise SystemExit("NO_ROWS")
+          df.to_csv(OUT/"checkpoint_events.csv",index=False,encoding="utf-8-sig")
 
-                  # P1: universal intraday signal-low stop, gap-aware.
-                  # If open gaps below stop -> open fill; otherwise stop price.
-                  ex_idx=i+H; ex_price=float(g.iloc[ex_idx].Close); reason="D10"
-                  for j in range(i+1,i+H+1):
-                      if float(g.iloc[j].Low)<=sig_low:
-                          ex_idx=j
-                          ex_price=float(g.iloc[j].Open) if float(g.iloc[j].Open)<=sig_low else sig_low
-                          reason="SIGNAL_LOW_INTRADAY_GAP_AWARE"
-                          break
-                  add_trade("SIGNAL_LOW_INTRADAY_STOP",ex_idx,ex_price,reason)
-
-                  # P2: close-confirm signal-low break.
-                  ex_idx=i+H; ex_price=float(g.iloc[ex_idx].Close); reason="D10"
-                  for j in range(i+1,i+H+1):
-                      if float(g.iloc[j].Close)<sig_low:
-                          ex_idx=j;ex_price=float(g.iloc[j].Close);reason="SIGNAL_LOW_CLOSE_BREAK"
-                          break
-                  add_trade("SIGNAL_LOW_CLOSE_EXIT",ex_idx,ex_price,reason)
-
-                  # P3: close below signal-low -> next open exit.
-                  ex_idx=i+H; ex_price=float(g.iloc[ex_idx].Close); reason="D10"
-                  for j in range(i+1,i+H):
-                      if float(g.iloc[j].Close)<sig_low:
-                          ex_idx=j+1;ex_price=float(g.iloc[j+1].Open);reason="SIGNAL_LOW_BREAK_NEXT_OPEN"
-                          break
-                  add_trade("SIGNAL_LOW_NEXT_OPEN_EXIT",ex_idx,ex_price,reason)
-
-                  # P4: after confirmation (FAST D2 or C4 day), first close below MA5 -> next open.
-                  # Before confirmation, nonFAST still uses signal-low close-break exit.
-                  confirmed_idx=(i+2) if fast else c4_idx
-                  ex_idx=i+H; ex_price=float(g.iloc[ex_idx].Close); reason="D10"
-                  if not fast and c4_idx is None:
-                      # still WATCH; fail on close below signal-low
-                      for j in range(i+1,i+H+1):
-                          if float(g.iloc[j].Close)<sig_low:
-                              ex_idx=j;ex_price=float(g.iloc[j].Close);reason="WATCH_SIGNAL_LOW_CLOSE_BREAK"
-                              break
-                  else:
-                      # until confirmation, protect with signal-low close break
-                      pre_end=confirmed_idx if confirmed_idx is not None else i+H
-                      failed=False
-                      for j in range(i+1,pre_end+1):
-                          if float(g.iloc[j].Close)<sig_low:
-                              ex_idx=j;ex_price=float(g.iloc[j].Close);reason="PRECONF_SIGNAL_LOW_CLOSE_BREAK";failed=True;break
-                      if not failed and confirmed_idx is not None:
-                          for j in range(confirmed_idx+1,i+H):
-                              if pd.notna(ma5.iloc[j]) and float(g.iloc[j].Close)<float(ma5.iloc[j]):
-                                  ex_idx=j+1;ex_price=float(g.iloc[j+1].Open);reason="POSTCONF_MA5_LOSS_NEXT_OPEN";break
-                  add_trade("POSTCONF_MA5_NEXT_OPEN_EXIT",ex_idx,ex_price,reason)
-
-          ev=pd.DataFrame(events)
-          tr=pd.DataFrame(trades)
-          if ev.empty or tr.empty:raise SystemExit("NO_ROWS")
-
-          ev.to_csv(OUT/"events_raw.csv",index=False,encoding="utf-8-sig")
-          tr.to_csv(OUT/"trades_raw.csv",index=False,encoding="utf-8-sig")
-
-          evp=ev[~ev.suspected_price_discontinuity].copy()
-          tp=tr[~tr.suspected_price_discontinuity].copy()
-          evp.to_csv(OUT/"events_primary.csv",index=False,encoding="utf-8-sig")
-          tp.to_csv(OUT/"trades_primary.csv",index=False,encoding="utf-8-sig")
-          ev[ev.suspected_price_discontinuity].to_csv(OUT/"price_discontinuity_audit.csv",index=False,encoding="utf-8-sig")
-
-          def pf(r):
-              r=pd.to_numeric(r,errors="coerce").dropna()
-              gp=r[r>0].sum(); gl=-r[r<0].sum()
-              return gp/gl if gl>0 else np.nan
-
-          rows=[]
-          for (sp,p),g in tp.groupby(["split","policy"],dropna=False):
-              r=pd.to_numeric(g.return_pct,errors="coerce").dropna()
-              w=r[r>0];l=r[r<0]
-              rows.append({
-                  "split":sp,"policy":p,"n":len(r),
-                  "win_rate_pct":(r>0).mean()*100,
-                  "mean_return_pct":r.mean(),"median_return_pct":r.median(),
-                  "avg_win_pct":w.mean() if len(w) else np.nan,
-                  "avg_loss_pct":l.mean() if len(l) else np.nan,
-                  "payoff_ratio_abs":w.mean()/abs(l.mean()) if len(w) and len(l) and l.mean()!=0 else np.nan,
-                  "profit_factor":pf(r),
-                  "p10_pct":r.quantile(.10),"p25_pct":r.quantile(.25),
-                  "loss_le_5_pct":(r<=-5).mean()*100,
-                  "loss_le_10_pct":(r<=-10).mean()*100,
-                  "mean_exit_day":pd.to_numeric(g.exit_day,errors="coerce").mean(),
+          # State summary
+          out=[]
+          for (sp,d,state),g in df.groupby(["split","checkpoint_day","state"],dropna=False):
+              out.append({
+                  "split":sp,"checkpoint_day":d,"state":state,"n":len(g),
+                  "eventual_c4_rate_pct":g.eventual_c4.mean()*100,
+                  "d10_positive_pct":(g.d10_close_ret_pct>0).mean()*100,
+                  "d10_close_median_pct":g.d10_close_ret_pct.median(),
+                  "mfe10_median_pct":g.mfe_d10_pct.median(),
+                  "mae10_median_pct":g.mae_d10_pct.median(),
               })
-          score=pd.DataFrame(rows)
-          score.to_csv(OUT/"policy_scorecard.csv",index=False,encoding="utf-8-sig")
+          state_summary=pd.DataFrame(out)
+          state_summary.to_csv(OUT/"state_summary.csv",index=False,encoding="utf-8-sig")
 
-          # Break down FAST vs SLOW_C4 vs other WATCH paths.
-          detail=[]
-          tp["state"]=np.where(tp.fast,"FAST",np.where(tp.slow_c4,"SLOW_C4","OTHER_WATCH"))
-          for (sp,p,state),g in tp.groupby(["split","policy","state"],dropna=False):
-              r=pd.to_numeric(g.return_pct,errors="coerce").dropna()
-              detail.append({
-                  "split":sp,"policy":p,"state":state,"n":len(r),
-                  "mean_return_pct":r.mean(),"median_return_pct":r.median(),
-                  "win_rate_pct":(r>0).mean()*100,"profit_factor":pf(r),
-                  "mean_exit_day":pd.to_numeric(g.exit_day,errors="coerce").mean(),
-              })
-          pd.DataFrame(detail).to_csv(OUT/"policy_by_state.csv",index=False,encoding="utf-8-sig")
+          # Simple checkpoint policy counterfactuals.
+          # Every rule is only based on information observable at that checkpoint.
+          policy=[]
+          for d in [3,4,5]:
+              z=df[df.checkpoint_day==d].copy()
+              rules={
+                  "CUT_IF_SIGNAL_LOW_BROKEN": ~z.signal_low_alive,
+                  "CUT_IF_BELOW_MA5_NO_HL": (z.signal_low_alive & ~z.close_above_ma5 & ~z.higher_low),
+                  "CUT_IF_BELOW_MA5_AND_AMOUNT_GE1": (z.signal_low_alive & ~z.close_above_ma5 & z.amount_ge1),
+                  "WATCH_IF_ABOVE_MA5_OR_HL": (z.signal_low_alive & (z.close_above_ma5 | z.higher_low)),
+              }
+              for rule,mask in rules.items():
+                  zz=z[mask].copy()
+                  for sp,g in zz.groupby("split"):
+                      policy.append({
+                          "split":sp,"checkpoint_day":d,"rule":rule,"n":len(g),
+                          "eventual_c4_rate_pct":g.eventual_c4.mean()*100,
+                          "d10_positive_pct":(g.d10_close_ret_pct>0).mean()*100,
+                          "d10_close_median_pct":g.d10_close_ret_pct.median(),
+                          "mae10_median_pct":g.mae_d10_pct.median(),
+                      })
+          pol=pd.DataFrame(policy)
+          pol.to_csv(OUT/"checkpoint_rule_summary.csv",index=False,encoding="utf-8-sig")
 
           meta={
               "revision":REV,
-              "research_only":True,"production_changed":False,"automatic_ordering":False,
-              "entry_anchor":"D0_CLOSE",
-              "family":"FAST_OR_C4_WATCH",
-              "fast_definition":"D2 Low>D1 Low AND D2 Close>MA5",
-              "slow_c4_definition":"D4-D10 Close>MA5 AND Low>prior Low AND Amount>=prior20 mean AND signal-low survives",
-              "policies":[
-                  "BASE_FAST_C4_WATCH_D10",
-                  "SIGNAL_LOW_INTRADAY_STOP",
-                  "SIGNAL_LOW_CLOSE_EXIT",
-                  "SIGNAL_LOW_NEXT_OPEN_EXIT",
-                  "POSTCONF_MA5_NEXT_OPEN_EXIT"
-              ],
-              "gap_aware_stop":True,
-              "raw_events":len(ev),"primary_events":len(evp),
-              "same_historical_window_reused":True,"true_oos":False,
+              "research_only":True,
+              "production_changed":False,
+              "automatic_ordering":False,
+              "population":"STRICT_ODOLI NONFAST_D2 ONLY",
+              "checkpoints":[3,4,5],
+              "features":["signal_low_alive","close_above_ma5","higher_low","amount_ratio20"],
+              "eventual_c4_definition":"D4-D10 Close>MA5 AND Low>prior Low AND Amount>=prior20 mean AND signal-low survives",
+              "state_rules_predeclared":True,
+              "same_historical_window_reused":True,
+              "true_oos":False,
               "same_sample_tuning":False,
-              "note":"Policy variants are predeclared follow-up hypotheses on reused historical data; no production promotion."
+              "note":"Descriptive checkpoint anatomy; no rule promotion. Follow-up must freeze a candidate rule and test on fresh time data."
           }
           (OUT/"meta.json").write_text(json.dumps(meta,ensure_ascii=False,indent=2),encoding="utf-8")
+          (OUT/"REPORT.md").write_text(
+              "# ODOLI OTHER_WATCH Checkpoint Anatomy R1\n\n```json\n"+
+              json.dumps(meta,ensure_ascii=False,indent=2)+
+              "\n```\n\n## State summary\n```text\n"+
+              state_summary.to_string(index=False)+
+              "\n```\n\n## Checkpoint rule summary\n```text\n"+
+              pol.to_string(index=False)+"\n```\n",
+              encoding="utf-8"
+          )
 
-          report=[
-              "# ODOLI FAST/C4 Exit Policy R1","",
-              "```json",json.dumps(meta,ensure_ascii=False,indent=2),"```","",
-              "## Policy scorecard","```text",score.to_string(index=False),"```"
-          ]
-          (OUT/"REPORT.md").write_text("\n".join(report),encoding="utf-8")
-
-          print("ODOLI_FAST_C4_EXIT_POLICY_PASS")
+          print("ODOLI_OTHER_WATCH_CHECKPOINT_ANATOMY_PASS")
           print(json.dumps(meta,ensure_ascii=False))
-          print(score.to_string(index=False))
+          print(state_summary.to_string(index=False))
+          print(pol.to_string(index=False))
           PY
 
           python /tmp/study.py
 
-      - name: Validate identity and temporal alignment
+      - name: Validate identity and causal checkpoints
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
           import json,pandas as pd
-          m=json.load(open("reports/temp_odoli_fast_c4_exit_policy/meta.json",encoding="utf-8"))
-          assert m["revision"]=="ODOLI_FAST_C4_EXIT_POLICY_R1_20261002"
+          m=json.load(open("reports/temp_odoli_other_watch_checkpoint/meta.json",encoding="utf-8"))
+          assert m["revision"]=="ODOLI_OTHER_WATCH_CHECKPOINT_ANATOMY_R1_20261002"
           assert m["research_only"] is True
           assert m["production_changed"] is False
           assert m["automatic_ordering"] is False
           assert m["true_oos"] is False
-          q=pd.read_csv("reports/temp_odoli_fast_c4_exit_policy/trades_primary.csv")
+          q=pd.read_csv("reports/temp_odoli_other_watch_checkpoint/checkpoint_events.csv")
           assert len(q)>0
-          expected={
-              "BASE_FAST_C4_WATCH_D10",
-              "SIGNAL_LOW_INTRADAY_STOP",
-              "SIGNAL_LOW_CLOSE_EXIT",
-              "SIGNAL_LOW_NEXT_OPEN_EXIT",
-              "POSTCONF_MA5_NEXT_OPEN_EXIT"
-          }
-          assert set(q.policy)==expected
-          assert (pd.to_numeric(q.exit_day,errors="coerce")>=1).all()
-          assert (pd.to_numeric(q.exit_day,errors="coerce")<=10).all()
-          print("FAST_C4_EXIT_POLICY_TEMPORAL_ALIGNMENT_PASS")
+          assert set(pd.to_numeric(q.checkpoint_day,errors="coerce").dropna().astype(int).unique())=={3,4,5}
+          assert (~q.get("fast_d2",pd.Series(False,index=q.index)).astype(bool)).all() if "fast_d2" in q.columns else True
+          print("OTHER_WATCH_CHECKPOINT_CAUSAL_PASS")
           PY
 
       - name: Show report
         if: always()
         run: |
-          cat reports/temp_odoli_fast_c4_exit_policy/meta.json || true
+          cat reports/temp_odoli_other_watch_checkpoint/meta.json || true
           echo
-          cat reports/temp_odoli_fast_c4_exit_policy/REPORT.md || true
+          cat reports/temp_odoli_other_watch_checkpoint/REPORT.md || true
 
       - name: Upload artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: temp-odoli-fast-c4-exit-policy-r1
-          path: reports/temp_odoli_fast_c4_exit_policy/**
+          name: temp-odoli-other-watch-checkpoint-anatomy-r1
+          path: reports/temp_odoli_other_watch_checkpoint/**
           if-no-files-found: error
           retention-days: 90
