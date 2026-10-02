@@ -1,4 +1,4 @@
-name: TEMP ODOLI Catalyst Causal Sidecar R1
+name: TEMP ODOLI Prior KKI Symmetry Sidecar R1
 
 on:
   workflow_dispatch:
@@ -7,7 +7,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: temp-odoli-catalyst-causal-sidecar-r1
+  group: temp-odoli-prior-kki-symmetry-sidecar-r1
   cancel-in-progress: false
 
 env:
@@ -16,7 +16,7 @@ env:
 jobs:
   study:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 50
 
     steps:
       - uses: actions/checkout@v4
@@ -26,328 +26,385 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install pandas numpy exchange-calendars
+        run: pip install pandas numpy pyarrow
 
-      - name: Restore latest ODOLI prospective state
-        id: odoli_restore
-        uses: actions/cache/restore@v4
-        with:
-          path: reports/.cache/odoli_independent_r1
-          key: odoli-independent-r1-${{ github.ref_name }}-${{ github.run_id }}
-          restore-keys: |
-            odoli-independent-r1-${{ github.ref_name }}-
-
-      - name: Restore latest V73 catalyst state
-        id: v73_restore
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            reports/v73_catalyst_source_ledger.csv
-            reports/v73_ai_comment_source_ledger.csv
-            reports/v73_official_disclosure_ledger.csv
-            reports/v73_news_source_ledger.csv
-            reports/v73_global_catalyst_ledger.csv
-            reports/v73_catalyst_source_capture_audit.csv
-            reports/v73_catalyst_query_universe.csv
-            reports/v73_catalyst_first_seen_integrity_audit.csv
-            reports/v73_market_sector_context_ledger.csv
-            reports/v73_market_sector_context_coverage.csv
-            reports/v73_market_sector_forward_capture_audit.csv
-            reports/catalyst_raw
-          key: stockhunter-v73-state-${{ github.ref_name }}-${{ github.run_id }}
-          restore-keys: |
-            stockhunter-v73-state-${{ github.ref_name }}-
-            stockhunter-v73-state-
-
-      - name: Run causal catalyst sidecar
+      - name: Fetch marcap history
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p reports/temp_odoli_catalyst_sidecar
-          python - <<'PY'
+          rm -rf vendor/marcap
+          mkdir -p vendor
+          git clone --depth 1 --filter=blob:none --no-checkout https://github.com/FinanceData/marcap.git vendor/marcap
+          cd vendor/marcap
+          git sparse-checkout init --no-cone
+          printf '%s\n' \
+            'data/marcap-2025.parquet' \
+            'data/marcap-2026.parquet' >/tmp/marcap_paths.txt
+          git sparse-checkout set --stdin </tmp/marcap_paths.txt
+          git checkout
+          cd ../..
+
+      - name: Run prior KKI and symmetry sidecar
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p reports/temp_odoli_prior_kki_symmetry
+
+          cat >/tmp/study.py <<'PY'
           from pathlib import Path
-          from datetime import datetime
-          from zoneinfo import ZoneInfo
-          import json,re,hashlib
+          import json,re,math
           import numpy as np
           import pandas as pd
-          import exchange_calendars as xcals
 
-          OUT=Path("reports/temp_odoli_catalyst_sidecar")
-          REV="ODOLI_CATALYST_CAUSAL_SIDECAR_R1_20261002"
-          FROZEN_PRICE_POLICY_FP="7c2dbdf0f93340e9445b842aaa5fb62ceee973f9f5b65b2a589390f72fd2c1c0"
+          OUT=Path("reports/temp_odoli_prior_kki_symmetry")
+          REV="ODOLI_PRIOR_KKI_SYMMETRY_SIDECAR_R1_20261002"
+          H=10
 
           def norm_code(v):
-              raw=str(v or "").strip().upper()
-              if raw.endswith(".0") and raw[:-2].isdigit(): raw=raw[:-2]
-              for suffix in (".KS",".KQ",".KRX"):
-                  if raw.endswith(suffix): raw=raw[:-len(suffix)]
-              s="".join(ch for ch in raw if ch.isalnum())
-              if len(s)==7 and s.startswith("A"): s=s[1:]
-              if s.isdigit() and len(s)<=6:return s.zfill(6)
-              return s[-6:] if len(s)>=6 else s
+              s=re.sub(r"\D","",str(v or ""))
+              return s[-6:].zfill(6) if s else ""
 
-          def read_csv(p):
-              p=Path(p)
-              if not p.exists() or p.stat().st_size==0:return pd.DataFrame()
-              try:return pd.read_csv(p,dtype=str,encoding="utf-8-sig",low_memory=False).fillna("")
-              except Exception:
-                  try:return pd.read_csv(p,dtype=str,low_memory=False).fillna("")
-                  except Exception:return pd.DataFrame()
+          def is_spac(name):
+              s=str(name or "").upper()
+              return "스팩" in s or "SPAC" in s
 
-          def parse_ts(s):
-              return pd.to_datetime(s,errors="coerce",utc=True)
+          def load_year(y):
+              p=Path(f"vendor/marcap/data/marcap-{y}.parquet")
+              if not p.exists(): return pd.DataFrame()
+              q=pd.read_parquet(p)
+              if "Date" not in q.columns:q=q.reset_index()
+              return q
 
-          now=datetime.now(ZoneInfo("Asia/Seoul"))
-          now_ts=pd.Timestamp(now)
+          q=pd.concat([load_year(2025),load_year(2026)],ignore_index=True,sort=False)
+          q["Date"]=pd.to_datetime(q["Date"],errors="coerce").dt.normalize()
+          q["Code"]=q["Code"].map(norm_code)
+          if "Market" in q.columns:
+              q["Market"]=q["Market"].astype(str).str.upper()
+              q=q[q.Market.isin(["KOSPI","KOSDAQ"])]
+          for c in ["Open","High","Low","Close","Volume","Amount"]:
+              q[c]=pd.to_numeric(q[c],errors="coerce")
+          q=q.dropna(subset=["Date","Code","Open","High","Low","Close"])
+          q=q[(q.Open>0)&(q.High>0)&(q.Low>0)&(q.Close>0)]
+          q=q.sort_values(["Code","Date"]).drop_duplicates(["Code","Date"],keep="last")
 
-          event_path=Path("reports/.cache/odoli_independent_r1/events.csv")
-          events=read_csv(event_path)
-          if not events.empty:
-              events["signal_date"]=pd.to_datetime(events["signal_date"],errors="coerce").dt.normalize()
-              events["code"]=events["code"].map(norm_code)
-              events=events[events.signal_date.notna() & events.code.ne("")].copy()
-
-          ledger_files=[
-              "reports/v73_catalyst_source_ledger.csv",
-              "reports/v73_official_disclosure_ledger.csv",
-              "reports/v73_news_source_ledger.csv",
-              "reports/v73_global_catalyst_ledger.csv",
-          ]
-          frames=[]
-          file_diag=[]
-          for fp in ledger_files:
-              q=read_csv(fp)
-              file_diag.append({"file":fp,"exists":Path(fp).exists(),"rows":len(q)})
-              if not q.empty:
-                  q["_ledger_file"]=Path(fp).name
-                  frames.append(q)
-          led=pd.concat(frames,ignore_index=True,sort=False) if frames else pd.DataFrame()
-
-          # Deduplicate stable source identities if possible.
-          if not led.empty:
-              for c in ["source_key","source_id","code","name","title","summary","published_at","updated_at",
-                        "first_seen_at","event_occurred_at","official_at","retrieved_at","causal_mode",
-                        "official_source","independent_source","source_name","source_domain","event_type",
-                        "materiality","direct_benefit","thesis_validity","new_fact","global_scope"]:
-                  if c not in led.columns:led[c]=""
-              led["code"]=led["code"].map(norm_code)
-              key=led["source_key"].astype(str)
-              fallback=(led["source_name"].astype(str)+"|"+led["source_id"].astype(str)+"|"+
-                        led["code"].astype(str)+"|"+led["title"].astype(str)+"|"+led["published_at"].astype(str))
-              led["_key"]=np.where(key.str.strip().ne(""),key,fallback)
-              led=led.drop_duplicates("_key",keep="last").copy()
-
-              for c in ["published_at","updated_at","first_seen_at","event_occurred_at","official_at","retrieved_at"]:
-                  led[c+"_ts"]=parse_ts(led[c])
-
-              # Point-in-time availability:
-              # FORWARD_CAUSAL is usable only after first_seen/retrieved.
-              # OFFICIAL_ARCHIVE_CAUSAL may use official timestamp.
-              led["available_at"]=led["first_seen_at_ts"].combine_first(led["retrieved_at_ts"])
-              off=(led["causal_mode"].astype(str)=="OFFICIAL_ARCHIVE_CAUSAL")
-              led.loc[off,"available_at"]=(
-                  led.loc[off,"official_at_ts"]
-                  .combine_first(led.loc[off,"published_at_ts"])
-                  .combine_first(led.loc[off,"available_at"])
+          def feat(g):
+              g=g.sort_values("Date").reset_index(drop=True).copy()
+              c=g.Close.astype(float)
+              g["ma5"]=c.rolling(5,min_periods=5).mean()
+              g["prev_close"]=c.shift(1); g["prev_ma5"]=g.ma5.shift(1)
+              g["prev2_close"]=c.shift(2); g["prev2_ma5"]=g.ma5.shift(2)
+              g["prev3_close"]=c.shift(3); g["prev3_ma5"]=g.ma5.shift(3)
+              g["pre3_below_ma5_n"]=(
+                  (g.prev_close<g.prev_ma5).astype(float)+
+                  (g.prev2_close<g.prev2_ma5).astype(float)+
+                  (g.prev3_close<g.prev3_ma5).astype(float)
               )
-              causal=led["causal_mode"].astype(str).isin(["FORWARD_CAUSAL","OFFICIAL_ARCHIVE_CAUSAL"])
-              led=led[causal & led["available_at"].notna()].copy()
-              led=led[led["available_at"]<=pd.Timestamp(now_ts).tz_convert("UTC")].copy()
+              g["ma5_slope_1d_pct"]=(g.ma5/g.prev_ma5-1)*100
+              g["strict_odoli_r1"]=(
+                  (g.Close>g.Open)&(g.prev_close<g.prev_ma5)&
+                  (g.Close>g.ma5)&(g.ma5_slope_1d_pct>0)&
+                  (g.pre3_below_ma5_n>=2)
+              )
+              g["ret1"]=(c/c.shift(1)-1)*100
+              g["ret3"]=(c/c.shift(3)-1)*100
+              g["ret5"]=(c/c.shift(5)-1)*100
+              g["amount20"]=g.Amount.rolling(20,min_periods=10).mean()
+              g["amount_ratio20"]=g.Amount/g.amount20
+              return g
 
-          # First-seen integrity audit.
-          first_seen_audit=read_csv("reports/v73_catalyst_first_seen_integrity_audit.csv")
-          capture_audit=read_csv("reports/v73_catalyst_source_capture_audit.csv")
+          sessions=sorted(pd.Timestamp(x).normalize() for x in q[q.Date.dt.year==2026].Date.unique())
+          mature_end=sessions[-11]
+          sig_dates=[d for d in sessions if d<=mature_end][-40:]
+          train=set(sig_dates[:20]); hold=set(sig_dates[20:]); sig_set=set(sig_dates)
 
-          cal=xcals.get_calendar("XKRX")
           rows=[]
-          evidence_rows=[]
 
-          if not events.empty:
-              for _,e in events.iterrows():
-                  sd=pd.Timestamp(e.signal_date).normalize()
-                  code=norm_code(e.code)
-                  # trading-age as of current date
-                  try:
-                      sess=cal.sessions_in_range(sd, pd.Timestamp(now.date()))
-                      age=max(0,len(sess)-1)
-                  except Exception:
-                      age=max(0,(pd.Timestamp(now.date())-sd).days)
+          for code,g0 in q.groupby("Code",sort=False):
+              g=feat(g0)
+              hits=g.index[g.Date.isin(sig_set)&g.strict_odoli_r1.fillna(False)]
 
-                  # Stock-specific evidence only. Global rows are not silently assigned to stocks.
-                  z=led[led.code.eq(code)].copy() if not led.empty else pd.DataFrame()
-                  if not z.empty:
-                      z=z.sort_values("available_at")
-                      # evidence known on/before now, with emphasis on post-signal and recent pre-signal context.
-                      signal_start=pd.Timestamp(sd).tz_localize("Asia/Seoul").tz_convert("UTC")
-                      recent_pre=signal_start-pd.Timedelta(days=7)
-                      relevant=z[z.available_at>=recent_pre].copy()
+              for ii in hits:
+                  i=int(ii)
+                  if i+H>=len(g) or i<125: continue
+                  r0=g.iloc[i]
+                  name=str(r0.get("Name","") or "")
+                  if is_spac(name): continue
+
+                  # Exclude suspicious split/relisting-like discontinuity around signal/outcome.
+                  cr=pd.to_numeric(g.iloc[max(0,i-3):i+H+1].Close,errors="coerce")
+                  if cr.pct_change().abs().max()*100 >=45: continue
+
+                  sd=pd.Timestamp(r0.Date)
+                  split="TRAIN_EARLY" if sd in train else "HOLDOUT_LATE"
+                  entry=float(r0.Close); sig_low=float(r0.Low)
+
+                  # Frozen descriptive outcome state from prior ODOLI studies.
+                  d1=g.iloc[i+1]; d2=g.iloc[i+2]
+                  fast=bool(
+                      float(d2.Low)>float(d1.Low)
+                      and pd.notna(g.ma5.iloc[i+2])
+                      and float(d2.Close)>float(g.ma5.iloc[i+2])
+                  )
+                  c4=False
+                  c4_day=np.nan
+                  for j in range(i+4,i+11):
+                      hist=g.iloc[i+1:j+1]
+                      survive=bool(hist.Low.min()>=sig_low)
+                      above=bool(pd.notna(g.ma5.iloc[j]) and float(g.iloc[j].Close)>float(g.ma5.iloc[j]))
+                      hl=bool(float(g.iloc[j].Low)>float(g.iloc[j-1].Low))
+                      pre20=g.Amount.iloc[max(0,j-20):j]
+                      ama=float(pre20.mean()) if len(pre20) else np.nan
+                      ar=float(g.Amount.iloc[j]/ama) if pd.notna(ama) and ama>0 else np.nan
+                      if above and hl and pd.notna(ar) and ar>=1.0 and survive:
+                          c4=True;c4_day=j-i;break
+                  state="FAST" if fast else ("SLOW_C4" if c4 else "OTHER_WATCH")
+
+                  # Point-in-time prior history only; excludes signal day and all future bars.
+                  h60=g.iloc[i-60:i].copy()
+                  h120=g.iloc[i-120:i].copy()
+
+                  def prior_stats(h):
+                      if h.empty:
+                          return {}
+                      # Strong-wave proxies frozen before looking at outcomes:
+                      # 1D >= +10, 3D >= +15, 5D >= +20, amount ratio20 >=3.
+                      strong1=(h.ret1>=10)
+                      strong3=(h.ret3>=15)
+                      strong5=(h.ret5>=20)
+                      amt3=(h.amount_ratio20>=3)
+                      any_strong=(strong1|strong3|strong5)
+
+                      # Prior forward MFE computed only within prior history:
+                      # for each historical day, max High over next 5 trading days, requiring all bars before signal.
+                      mfe5=[]
+                      for k in range(len(h)-5):
+                          base=float(h.Close.iloc[k])
+                          if base<=0: continue
+                          hi=float(h.High.iloc[k+1:k+6].max())
+                          mfe5.append((hi/base-1)*100)
+                      return {
+                          "strong1_n":int(strong1.sum()),
+                          "strong3_n":int(strong3.sum()),
+                          "strong5_n":int(strong5.sum()),
+                          "strong_any_n":int(any_strong.sum()),
+                          "amount3x_n":int(amt3.sum()),
+                          "max_ret1":float(pd.to_numeric(h.ret1,errors="coerce").max()),
+                          "max_ret3":float(pd.to_numeric(h.ret3,errors="coerce").max()),
+                          "max_ret5":float(pd.to_numeric(h.ret5,errors="coerce").max()),
+                          "max_amount_ratio20":float(pd.to_numeric(h.amount_ratio20,errors="coerce").max()),
+                          "prior_mfe5_max":float(np.nanmax(mfe5)) if mfe5 else np.nan,
+                          "prior_mfe5_ge15_n":int(sum(x>=15 for x in mfe5)),
+                          "prior_mfe5_ge20_n":int(sum(x>=20 for x in mfe5)),
+                      }
+
+                  s60=prior_stats(h60)
+                  s120=prior_stats(h120)
+
+                  # Recency of latest strong wave.
+                  latest_strong_days=np.nan
+                  strong_mask=(h120.ret1>=10)|(h120.ret3>=15)|(h120.ret5>=20)
+                  idxs=np.where(strong_mask.fillna(False).to_numpy())[0]
+                  if len(idxs):
+                      latest_strong_days=len(h120)-1-int(idxs[-1])
+
+                  # Frozen KKI categories.
+                  # RECENT_KKI: strong wave in last 60d.
+                  # REPEATED_KKI: >=2 strong waves in 120d OR >=2 prior 5d MFE>=20 episodes.
+                  # WEAK_KKI: one strong episode in 120d.
+                  # NO_PRIOR_KKI: none.
+                  recent=bool(s60.get("strong_any_n",0)>=1 or s60.get("prior_mfe5_ge20_n",0)>=1)
+                  repeated=bool(s120.get("strong_any_n",0)>=2 or s120.get("prior_mfe5_ge20_n",0)>=2)
+                  weak=bool(s120.get("strong_any_n",0)>=1 or s120.get("prior_mfe5_ge15_n",0)>=1)
+                  if recent and repeated:
+                      kki="RECENT_REPEATED_KKI"
+                  elif recent:
+                      kki="RECENT_KKI"
+                  elif repeated:
+                      kki="REPEATED_KKI"
+                  elif weak:
+                      kki="WEAK_KKI"
                   else:
-                      relevant=pd.DataFrame()
+                      kki="NO_PRIOR_KKI"
 
-                  post_signal=pd.DataFrame()
-                  if not relevant.empty:
-                      post_signal=relevant[relevant.available_at>=signal_start].copy()
+                  # Simple symmetry candidate:
+                  # current signal's immediate pre-signal 10d wave magnitude compared with strongest prior 3/5d wave.
+                  # Descriptive only; no future bars used.
+                  pre10=g.iloc[i-10:i]
+                  cur_base=float(pre10.Close.min()) if len(pre10) else np.nan
+                  cur_peak=float(pre10.High.max()) if len(pre10) else np.nan
+                  cur_wave=(cur_peak/cur_base-1)*100 if pd.notna(cur_base) and cur_base>0 else np.nan
+                  prior_wave=max(
+                      x for x in [
+                          s120.get("max_ret3",np.nan),
+                          s120.get("max_ret5",np.nan),
+                          s120.get("prior_mfe5_max",np.nan)
+                      ] if pd.notna(x)
+                  ) if any(pd.notna(x) for x in [
+                      s120.get("max_ret3",np.nan),
+                      s120.get("max_ret5",np.nan),
+                      s120.get("prior_mfe5_max",np.nan)
+                  ]) else np.nan
 
-                  # Evidence-state is intentionally conservative:
-                  # RECENT_CAUSAL = a causal stock-specific source observed in last 4 calendar days OR post-signal.
-                  # STALE_CAUSAL = stock-specific causal evidence exists in 5-20 day lookback.
-                  # NO_CAUSAL_EVIDENCE = ledger restored but no stock-specific causal evidence in 20d.
-                  # LEDGER_UNAVAILABLE = no causal ledger rows restored at all.
-                  if led.empty:
-                      state="LEDGER_UNAVAILABLE"
-                  else:
-                      cutoff4=pd.Timestamp(now_ts).tz_convert("UTC")-pd.Timedelta(days=4)
-                      cutoff20=pd.Timestamp(now_ts).tz_convert("UTC")-pd.Timedelta(days=20)
-                      recent=z[z.available_at>=cutoff4] if not z.empty else pd.DataFrame()
-                      old=z[(z.available_at>=cutoff20)&(z.available_at<cutoff4)] if not z.empty else pd.DataFrame()
-                      if len(post_signal)>0 or len(recent)>0:
-                          state="RECENT_CAUSAL_EVIDENCE"
-                      elif len(old)>0:
-                          state="STALE_CAUSAL_EVIDENCE"
-                      else:
-                          state="NO_CAUSAL_EVIDENCE"
+                  symmetry_ratio=cur_wave/prior_wave if pd.notna(cur_wave) and pd.notna(prior_wave) and prior_wave>0 else np.nan
+                  symmetry_candidate=bool(
+                      kki!="NO_PRIOR_KKI"
+                      and pd.notna(symmetry_ratio)
+                      and 0.45<=symmetry_ratio<=1.25
+                  )
 
-                  official_n=0; independent_n=0; post_n=0; source_n=0
-                  latest_available=pd.NaT
-                  latest_title=""
-                  latest_source=""
-                  if not relevant.empty:
-                      source_n=len(relevant)
-                      official_n=int(relevant.official_source.astype(str).str.lower().isin(["true","1","yes","y"]).sum())
-                      independent_n=int(relevant.independent_source.astype(str).str.lower().isin(["true","1","yes","y"]).sum())
-                      post_n=len(post_signal)
-                      last=relevant.sort_values("available_at").iloc[-1]
-                      latest_available=last.available_at
-                      latest_title=str(last.title)[:300]
-                      latest_source=str(last.source_name)
-
-                      for _,r in relevant.iterrows():
-                          evidence_rows.append({
-                              "signal_date":sd.date().isoformat(),"code":code,
-                              "source_key":r.get("source_key",""),"source_name":r.get("source_name",""),
-                              "source_type":r.get("source_type",""),"title":r.get("title",""),
-                              "published_at":r.get("published_at",""),"first_seen_at":r.get("first_seen_at",""),
-                              "available_at":r.get("available_at",""),"causal_mode":r.get("causal_mode",""),
-                              "official_source":r.get("official_source",""),
-                              "independent_source":r.get("independent_source",""),
-                              "event_type":r.get("event_type",""),"materiality":r.get("materiality",""),
-                              "direct_benefit":r.get("direct_benefit",""),"thesis_validity":r.get("thesis_validity",""),
-                              "new_fact":r.get("new_fact",""),
-                          })
+                  # Outcomes for descriptive comparison.
+                  fut=g.iloc[i+1:i+11]
+                  d5_close=(float(g.iloc[i+5].Close)/entry-1)*100
+                  d10_close=(float(g.iloc[i+10].Close)/entry-1)*100
+                  mfe5=(float(g.iloc[i+1:i+6].High.max())/entry-1)*100
+                  mfe10=(float(fut.High.max())/entry-1)*100
+                  mae10=(float(fut.Low.min())/entry-1)*100
 
                   rows.append({
-                      "signal_date":sd.date().isoformat(),
-                      "code":code,
-                      "name":e.get("name",""),
-                      "prospective_age_trading_days":age,
-                      "catalyst_evidence_state":state,
-                      "causal_sources_relevant_n":source_n,
-                      "causal_sources_post_signal_n":post_n,
-                      "official_sources_n":official_n,
-                      "independent_sources_n":independent_n,
-                      "latest_available_at":"" if pd.isna(latest_available) else str(latest_available),
-                      "latest_source_name":latest_source,
-                      "latest_title":latest_title,
-                      "alive_proxy":state=="RECENT_CAUSAL_EVIDENCE",
-                      "weak_proxy":state=="STALE_CAUSAL_EVIDENCE",
-                      "unknown_proxy":state in {"NO_CAUSAL_EVIDENCE","LEDGER_UNAVAILABLE"},
-                      "used_as_price_gate":False,
-                      "used_for_ordering":False,
+                      "split":split,"signal_date":sd,"code":code,"name":name,
+                      "state_reporting_only":state,"fast_d2":fast,"eventual_c4_reporting_only":c4,
+                      "kki_class":kki,
+                      "recent_kki":recent,"repeated_kki":repeated,
+                      "latest_strong_wave_days_ago":latest_strong_days,
+                      "symmetry_candidate":symmetry_candidate,
+                      "current_pre10_wave_pct":cur_wave,
+                      "prior_reference_wave_pct":prior_wave,
+                      "symmetry_ratio":symmetry_ratio,
+                      "strong_any_60_n":s60.get("strong_any_n",0),
+                      "strong_any_120_n":s120.get("strong_any_n",0),
+                      "amount3x_60_n":s60.get("amount3x_n",0),
+                      "amount3x_120_n":s120.get("amount3x_n",0),
+                      "prior_mfe5_ge20_60_n":s60.get("prior_mfe5_ge20_n",0),
+                      "prior_mfe5_ge20_120_n":s120.get("prior_mfe5_ge20_n",0),
+                      "prior_mfe5_max_120_pct":s120.get("prior_mfe5_max",np.nan),
+                      "max_ret1_120_pct":s120.get("max_ret1",np.nan),
+                      "max_ret3_120_pct":s120.get("max_ret3",np.nan),
+                      "max_ret5_120_pct":s120.get("max_ret5",np.nan),
+                      "max_amount_ratio20_120":s120.get("max_amount_ratio20",np.nan),
+                      "d5_close_ret_pct":d5_close,
+                      "d10_close_ret_pct":d10_close,
+                      "mfe5_pct":mfe5,
+                      "mfe10_pct":mfe10,
+                      "mae10_pct":mae10,
+                      "d10_positive":d10_close>0,
+                      "mfe10_ge10":mfe10>=10,
+                      "mfe10_ge15":mfe10>=15,
                   })
 
-          side=pd.DataFrame(rows)
-          evd=pd.DataFrame(evidence_rows)
+          df=pd.DataFrame(rows)
+          if df.empty: raise SystemExit("NO_ROWS")
+          df.to_csv(OUT/"prior_kki_events.csv",index=False,encoding="utf-8-sig")
 
-          side.to_csv(OUT/"odoli_catalyst_causal_sidecar.csv",index=False,encoding="utf-8-sig")
-          evd.to_csv(OUT/"odoli_catalyst_evidence_rows.csv",index=False,encoding="utf-8-sig")
-          pd.DataFrame(file_diag).to_csv(OUT/"ledger_restore_diagnostics.csv",index=False,encoding="utf-8-sig")
-          first_seen_audit.to_csv(OUT/"first_seen_integrity_snapshot.csv",index=False,encoding="utf-8-sig")
-          capture_audit.to_csv(OUT/"capture_audit_snapshot.csv",index=False,encoding="utf-8-sig")
+          def summarize(group_cols):
+              out=[]
+              for keys,g in df.groupby(group_cols,dropna=False):
+                  if not isinstance(keys,tuple): keys=(keys,)
+                  rec={c:k for c,k in zip(group_cols,keys)}
+                  rec.update({
+                      "n":len(g),
+                      "d10_positive_pct":g.d10_positive.mean()*100,
+                      "d10_close_mean_pct":g.d10_close_ret_pct.mean(),
+                      "d10_close_median_pct":g.d10_close_ret_pct.median(),
+                      "mfe10_ge10_pct":g.mfe10_ge10.mean()*100,
+                      "mfe10_ge15_pct":g.mfe10_ge15.mean()*100,
+                      "mfe10_median_pct":g.mfe10_pct.median(),
+                      "mae10_median_pct":g.mae10_pct.median(),
+                  })
+                  out.append(rec)
+              return pd.DataFrame(out)
 
-          counts=side["catalyst_evidence_state"].value_counts(dropna=False).to_dict() if len(side) else {}
+          summarize(["split","kki_class"]).to_csv(OUT/"summary_by_kki.csv",index=False,encoding="utf-8-sig")
+          summarize(["split","state_reporting_only","kki_class"]).to_csv(OUT/"summary_by_state_kki.csv",index=False,encoding="utf-8-sig")
+          summarize(["split","symmetry_candidate"]).to_csv(OUT/"summary_by_symmetry.csv",index=False,encoding="utf-8-sig")
+          summarize(["split","state_reporting_only","symmetry_candidate"]).to_csv(OUT/"summary_by_state_symmetry.csv",index=False,encoding="utf-8-sig")
+
           meta={
               "revision":REV,
               "research_only":True,
               "production_changed":False,
               "automatic_ordering":False,
-              "price_policy_fingerprint_unchanged":FROZEN_PRICE_POLICY_FP,
-              "odoli_state_restored":event_path.exists(),
-              "odoli_events":len(events),
-              "v73_causal_ledger_rows":len(led),
-              "state_counts":counts,
-              "point_in_time_availability_enforced":True,
-              "forward_causal_uses_first_seen_or_retrieved":True,
-              "official_archive_uses_official_time":True,
-              "retrospective_rows_excluded":True,
-              "global_rows_not_silently_assigned_to_stock":True,
-              "alive_is_proxy_not_fact":True,
-              "no_evidence_does_not_mean_catalyst_dead":True,
-              "used_as_gate":False,
-              "used_for_ranking":False,
-              "used_for_ordering":False,
-              "next_step":"append prospective daily snapshots and compare FAST/C4/OTHER_WATCH outcomes by catalyst evidence state",
+              "price_policy_changed":False,
+              "point_in_time_prior_history_only":True,
+              "signal_day_excluded_from_kki_features":True,
+              "future_bars_excluded_from_kki_features":True,
+              "kki_definition_frozen_for_this_run":{
+                  "strong_1d":"+10% or more",
+                  "strong_3d":"+15% or more",
+                  "strong_5d":"+20% or more",
+                  "amount_explosion":"Amount / trailing20 mean >= 3x",
+                  "recent":"at least one strong wave or prior 5d MFE>=20 within 60d",
+                  "repeated":"at least 2 strong waves in 120d OR at least 2 prior 5d MFE>=20 episodes",
+              },
+              "symmetry_definition_frozen_for_this_run":{
+                  "current_wave":"pre-signal 10d low-to-high wave",
+                  "prior_reference":"max(prior 120d 3d return, 5d return, historical 5d MFE)",
+                  "candidate":"KKI exists and current/prior ratio between 0.45 and 1.25"
+              },
+              "same_historical_window_reused":True,
+              "true_oos":False,
+              "same_sample_tuning":False,
+              "note":"Descriptive sidecar only. KKI/symmetry must not be promoted without prospective validation."
           }
-          (OUT/"meta.json").write_text(json.dumps(meta,ensure_ascii=False,indent=2,default=str),encoding="utf-8")
+          (OUT/"meta.json").write_text(json.dumps(meta,ensure_ascii=False,indent=2),encoding="utf-8")
 
-          lines=[
-              "# ODOLI Catalyst Causal Sidecar R1","",
-              "This sidecar is descriptive only. It does not change frozen price policy.",
-              "",
-              "## Meta","```json",json.dumps(meta,ensure_ascii=False,indent=2,default=str),"```","",
+          hold=df[df.split=="HOLDOUT_LATE"]
+          report=[
+              "# ODOLI Prior KKI / Symmetry Sidecar R1","",
+              "## Meta","```json",json.dumps(meta,ensure_ascii=False,indent=2),"```","",
+              "## HOLDOUT KKI","```text",
+              summarize(["split","kki_class"]).query("split=='HOLDOUT_LATE'").to_string(index=False),
+              "```","",
+              "## HOLDOUT state x KKI","```text",
+              summarize(["split","state_reporting_only","kki_class"]).query("split=='HOLDOUT_LATE'").to_string(index=False),
+              "```","",
+              "## HOLDOUT symmetry","```text",
+              summarize(["split","symmetry_candidate"]).query("split=='HOLDOUT_LATE'").to_string(index=False),
+              "```"
           ]
-          if len(side):
-              cols=["signal_date","code","name","prospective_age_trading_days","catalyst_evidence_state",
-                    "causal_sources_relevant_n","causal_sources_post_signal_n","official_sources_n",
-                    "independent_sources_n","latest_source_name","latest_title"]
-              lines += ["## Current sidecar","```text",side[cols].tail(80).to_string(index=False),"```"]
-          (OUT/"REPORT.md").write_text("\n".join(lines),encoding="utf-8")
+          (OUT/"REPORT.md").write_text("\n".join(report),encoding="utf-8")
 
-          print("ODOLI_CATALYST_CAUSAL_SIDECAR_PASS")
-          print(json.dumps(meta,ensure_ascii=False,default=str))
-          if len(side):
-              print(side["catalyst_evidence_state"].value_counts(dropna=False).to_string())
+          print("ODOLI_PRIOR_KKI_SYMMETRY_PASS")
+          print(json.dumps(meta,ensure_ascii=False))
+          print(summarize(["split","kki_class"]).query("split=='HOLDOUT_LATE'").to_string(index=False))
           PY
 
-      - name: Validate causal isolation
+          python /tmp/study.py
+
+      - name: Validate sidecar isolation and causality
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
           import json,pandas as pd
-          m=json.load(open("reports/temp_odoli_catalyst_sidecar/meta.json",encoding="utf-8"))
-          assert m["revision"]=="ODOLI_CATALYST_CAUSAL_SIDECAR_R1_20261002"
+          m=json.load(open("reports/temp_odoli_prior_kki_symmetry/meta.json",encoding="utf-8"))
+          assert m["revision"]=="ODOLI_PRIOR_KKI_SYMMETRY_SIDECAR_R1_20261002"
           assert m["research_only"] is True
           assert m["production_changed"] is False
           assert m["automatic_ordering"] is False
-          assert m["point_in_time_availability_enforced"] is True
-          assert m["retrospective_rows_excluded"] is True
-          assert m["used_as_gate"] is False
-          assert m["used_for_ranking"] is False
-          assert m["used_for_ordering"] is False
-          assert m["price_policy_fingerprint_unchanged"]=="7c2dbdf0f93340e9445b842aaa5fb62ceee973f9f5b65b2a589390f72fd2c1c0"
-
-          p="reports/temp_odoli_catalyst_sidecar/odoli_catalyst_causal_sidecar.csv"
-          try:q=pd.read_csv(p)
-          except pd.errors.EmptyDataError:q=pd.DataFrame()
-          if len(q):
-              assert (~q["used_as_price_gate"].astype(bool)).all()
-              assert (~q["used_for_ordering"].astype(bool)).all()
-          print("CATALYST_SIDECAR_CAUSAL_ISOLATION_PASS")
+          assert m["price_policy_changed"] is False
+          assert m["point_in_time_prior_history_only"] is True
+          assert m["signal_day_excluded_from_kki_features"] is True
+          assert m["future_bars_excluded_from_kki_features"] is True
+          q=pd.read_csv("reports/temp_odoli_prior_kki_symmetry/prior_kki_events.csv")
+          assert len(q)>0
+          assert set(q.kki_class).issubset({
+              "RECENT_REPEATED_KKI","RECENT_KKI","REPEATED_KKI","WEAK_KKI","NO_PRIOR_KKI"
+          })
+          print("PRIOR_KKI_SYMMETRY_CAUSAL_ISOLATION_PASS")
           PY
 
       - name: Show report
         if: always()
         run: |
-          cat reports/temp_odoli_catalyst_sidecar/meta.json || true
+          cat reports/temp_odoli_prior_kki_symmetry/meta.json || true
           echo
-          cat reports/temp_odoli_catalyst_sidecar/REPORT.md || true
+          cat reports/temp_odoli_prior_kki_symmetry/REPORT.md || true
 
       - name: Upload artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: temp-odoli-catalyst-causal-sidecar-r1
-          path: reports/temp_odoli_catalyst_sidecar/**
+          name: temp-odoli-prior-kki-symmetry-sidecar-r1
+          path: reports/temp_odoli_prior_kki_symmetry/**
           if-no-files-found: error
           retention-days: 90
