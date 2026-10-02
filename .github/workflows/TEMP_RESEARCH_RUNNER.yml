@@ -1,4 +1,4 @@
-name: TEMP ODOLI Early Entry FAST vs C4 Policy R1
+name: TEMP ODOLI FAST C4 Exit Policy R1
 
 on:
   workflow_dispatch:
@@ -7,7 +7,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: temp-odoli-early-entry-fast-vs-c4-policy-r1
+  group: temp-odoli-fast-c4-exit-policy-r1
   cancel-in-progress: false
 
 jobs:
@@ -39,22 +39,21 @@ jobs:
           git checkout
           cd ../..
 
-      - name: Run early-entry policy comparison
+      - name: Run FAST C4 exit policy study
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p reports/temp_odoli_early_entry_policy
+          mkdir -p reports/temp_odoli_fast_c4_exit_policy
 
           cat >/tmp/study.py <<'PY'
           from pathlib import Path
-          import json,re,math
+          import json,re
           import numpy as np
           import pandas as pd
 
-          OUT=Path("reports/temp_odoli_early_entry_policy")
+          OUT=Path("reports/temp_odoli_fast_c4_exit_policy")
           OUT.mkdir(parents=True,exist_ok=True)
-
-          REV="ODOLI_EARLY_ENTRY_FAST_VS_C4_POLICY_R1_20261002"
+          REV="ODOLI_FAST_C4_EXIT_POLICY_R1_20261002"
           H=10
 
           def norm_code(v):
@@ -63,7 +62,10 @@ jobs:
 
           def is_spac(name):
               s=str(name or "").upper()
-              return ("스팩" in s) or ("SPAC" in s)
+              return "스팩" in s or "SPAC" in s
+
+          def ret(entry, exitp):
+              return (float(exitp)/float(entry)-1)*100 if entry and exitp else np.nan
 
           q=pd.read_parquet("vendor/marcap/data/marcap-2026.parquet")
           if "Date" not in q.columns:q=q.reset_index()
@@ -82,12 +84,9 @@ jobs:
               g=g.sort_values("Date").reset_index(drop=True).copy()
               c=pd.to_numeric(g.Close,errors="coerce")
               g["ma5"]=c.rolling(5,min_periods=5).mean()
-              g["prev_close"]=c.shift(1)
-              g["prev_ma5"]=g.ma5.shift(1)
-              g["prev2_close"]=c.shift(2)
-              g["prev2_ma5"]=g.ma5.shift(2)
-              g["prev3_close"]=c.shift(3)
-              g["prev3_ma5"]=g.ma5.shift(3)
+              g["prev_close"]=c.shift(1); g["prev_ma5"]=g.ma5.shift(1)
+              g["prev2_close"]=c.shift(2); g["prev2_ma5"]=g.ma5.shift(2)
+              g["prev3_close"]=c.shift(3); g["prev3_ma5"]=g.ma5.shift(3)
               g["pre3_below_ma5_n"]=(
                   (g.prev_close<g.prev_ma5).astype(float)+
                   (g.prev2_close<g.prev2_ma5).astype(float)+
@@ -95,58 +94,45 @@ jobs:
               )
               g["ma5_slope_1d_pct"]=(g.ma5/g.prev_ma5-1)*100
               g["strict_odoli_r1"]=(
-                  (g.Close>g.Open)&
-                  (g.prev_close<g.prev_ma5)&
-                  (g.Close>g.ma5)&
-                  (g.ma5_slope_1d_pct>0)&
+                  (g.Close>g.Open)&(g.prev_close<g.prev_ma5)&
+                  (g.Close>g.ma5)&(g.ma5_slope_1d_pct>0)&
                   (g.pre3_below_ma5_n>=2)
               )
               return g
 
-          def ret(entry,exitp):
-              return (float(exitp)/float(entry)-1)*100 if entry and exitp else np.nan
-
-          def pf(g):
-              r=pd.to_numeric(g.policy_return_pct,errors="coerce").dropna()
-              gp=float(r[r>0].sum())
-              gl=float(-r[r<0].sum())
-              return gp/gl if gl>0 else np.inf if gp>0 else np.nan
-
           sessions=sorted(pd.Timestamp(x).normalize() for x in q.Date.unique())
           mature_end=sessions[-11]
           sig_dates=[d for d in sessions if d<=mature_end][-40:]
+          train=set(sig_dates[:20]); hold=set(sig_dates[20:])
           sig_set=set(sig_dates)
-          split_at=len(sig_dates)//2
-          train=set(sig_dates[:split_at]); hold=set(sig_dates[split_at:])
 
-          event_rows=[]
-          policy_rows=[]
+          events=[]
+          trades=[]
 
           for code,g0 in q.groupby("Code",sort=False):
               g=feat(g0)
               amount=pd.to_numeric(g.Amount,errors="coerce")
+              ma5=pd.to_numeric(g.ma5,errors="coerce")
               hits=g.index[g.Date.isin(sig_set)&g.strict_odoli_r1.fillna(False)]
 
               for ii in hits:
                   i=int(ii)
-                  if i+H>=len(g):continue
+                  if i+H+1>=len(g):continue
                   r0=g.iloc[i]
                   name=str(r0.get("Name","") or "")
                   if is_spac(name):continue
 
-                  # Corporate-action / data-discontinuity guard over D-3..D10.
-                  win=g.iloc[max(0,i-3):i+H+1]
+                  win=g.iloc[max(0,i-3):i+H+2]
                   cr=pd.to_numeric(win.Close,errors="coerce")
-                  max_adj_jump=float(cr.pct_change().abs().max()*100) if cr.pct_change().notna().any() else np.nan
-                  discontinuity=bool(pd.notna(max_adj_jump) and max_adj_jump>=45)
+                  max_jump=float(cr.pct_change().abs().max()*100) if cr.pct_change().notna().any() else np.nan
+                  discontinuity=bool(pd.notna(max_jump) and max_jump>=45)
 
                   sig_date=pd.Timestamp(r0.Date)
                   split="TRAIN_EARLY" if sig_date in train else "HOLDOUT_LATE"
-                  sig_close=float(r0.Close)
+                  entry=float(r0.Close)
                   sig_low=float(r0.Low)
-                  d1=g.iloc[i+1]; d2=g.iloc[i+2]
-                  ma5=pd.to_numeric(g.ma5,errors="coerce")
 
+                  d1=g.iloc[i+1]; d2=g.iloc[i+2]
                   fast=bool(
                       float(d2.Low)>float(d1.Low)
                       and pd.notna(ma5.iloc[i+2])
@@ -154,289 +140,231 @@ jobs:
                   )
 
                   c4=False
-                  c4_day=np.nan
-                  signal_low_break_day=np.nan
-                  c2=False;c3=False
-                  for j in range(i+1,i+H+1):
+                  c4_idx=None
+                  for j in range(i+4,i+H+1):
                       hist=g.iloc[i+1:j+1]
                       survive=bool(pd.to_numeric(hist.Low,errors="coerce").min()>=sig_low)
-                      if (not survive) and pd.isna(signal_low_break_day):
-                          signal_low_break_day=j-i
-                      if j>=i+4:
-                          above=bool(pd.notna(ma5.iloc[j]) and float(g.iloc[j].Close)>float(ma5.iloc[j]))
-                          hl=bool(float(g.iloc[j].Low)>float(g.iloc[j-1].Low))
-                          pre20=amount.iloc[max(0,j-20):j]
-                          ama=float(pre20.mean()) if len(pre20) else np.nan
-                          ar=float(amount.iloc[j]/ama) if pd.notna(ama) and ama>0 else np.nan
-                          if not c2 and above and hl and survive:c2=True
-                          if not c3 and above and pd.notna(ar) and ar>=1 and survive:c3=True
-                          if (not c4) and above and hl and pd.notna(ar) and ar>=1 and survive:
-                              c4=True;c4_day=j-i
+                      above=bool(pd.notna(ma5.iloc[j]) and float(g.iloc[j].Close)>float(ma5.iloc[j]))
+                      hl=bool(float(g.iloc[j].Low)>float(g.iloc[j-1].Low))
+                      pre20=amount.iloc[max(0,j-20):j]
+                      ama=float(pre20.mean()) if len(pre20) else np.nan
+                      ar=float(amount.iloc[j]/ama) if pd.notna(ama) and ama>0 else np.nan
+                      if above and hl and pd.notna(ar) and ar>=1.0 and survive:
+                          c4=True;c4_idx=j;break
 
-                  # Cohort diagnostics from the original frozen definitions.
-                  if fast:
-                      cohort="FAST_D2"
-                  elif c4:
-                      cohort="SLOW_C4"
-                  elif c2 or c3:
-                      cohort="SLOW_C2C3"
-                  elif pd.notna(signal_low_break_day):
-                      cohort="WEAK_BROKE_SIGNAL_LOW"
-                  else:
-                      cohort="SURVIVING_NO_CONFIRM"
-
-                  d10_close=float(g.iloc[i+10].Close)
-                  d5_close=float(g.iloc[i+5].Close)
-                  future=g.iloc[i+1:i+11]
-                  mfe=(float(pd.to_numeric(future.High,errors="coerce").max())/sig_close-1)*100
-                  mae=(float(pd.to_numeric(future.Low,errors="coerce").min())/sig_close-1)*100
-
-                  event_rows.append({
+                  # eligibility under the chosen policy family:
+                  # FAST is confirmed at D2. Non-FAST is WATCH until C4 or signal-low failure / D10.
+                  events.append({
                       "split":split,"signal_date":sig_date,"code":code,"name":name,
-                      "market":r0.get("Market",""),"signal_close":sig_close,"signal_low":sig_low,
-                      "d1_open":float(d1.Open),"d2_close":float(d2.Close),
-                      "fast_d2":fast,"c2":c2,"c3":c3,"slow_c4":c4,"c4_day":c4_day,
-                      "signal_low_break_day":signal_low_break_day,"cohort":cohort,
-                      "d5_close_ret_from_signal_pct":ret(sig_close,d5_close),
-                      "d10_close_ret_from_signal_pct":ret(sig_close,d10_close),
-                      "mfe_d10_from_signal_pct":mfe,"mae_d10_from_signal_pct":mae,
+                      "entry":entry,"signal_low":sig_low,"fast":fast,"slow_c4":c4,
+                      "c4_day":(c4_idx-i) if c4_idx is not None else np.nan,
                       "suspected_price_discontinuity":discontinuity,
-                      "max_adjacent_close_jump_pct":max_adj_jump
+                      "max_adjacent_close_jump_pct":max_jump,
                   })
 
-                  # Two executable entry anchors.
-                  entries=[
-                      ("D0_CLOSE", i, sig_close),
-                      ("D1_OPEN", i+1, float(d1.Open)),
-                  ]
+                  def add_trade(policy, ex_idx, ex_price, reason):
+                      trades.append({
+                          "split":split,"signal_date":sig_date,"code":code,"name":name,
+                          "policy":policy,"fast":fast,"slow_c4":c4,
+                          "entry_price":entry,"exit_day":ex_idx-i,"exit_price":float(ex_price),
+                          "return_pct":ret(entry,float(ex_price)),"exit_reason":reason,
+                          "suspected_price_discontinuity":discontinuity
+                      })
 
-                  for entry_name,entry_idx,entry_price in entries:
-                      # Policy A1: FAST only, non-FAST exit D2 close.
-                      if fast:
-                          ex_idx=i+10; reason="FAST_HOLD_D10"
+                  # P0: previous best family baseline:
+                  # FAST -> D10; nonFAST -> signal-low break close; C4 -> D10; no C4/no break -> D10.
+                  ex_idx=i+H; ex_price=float(g.iloc[ex_idx].Close); reason="D10"
+                  if not fast:
+                      break_idx=None
+                      for j in range(i+1,i+H+1):
+                          if float(g.iloc[j].Low)<sig_low:
+                              break_idx=j;break
+                      if c4:
+                          ex_idx=i+H; ex_price=float(g.iloc[ex_idx].Close); reason="C4_HOLD_D10"
+                      elif break_idx is not None:
+                          ex_idx=break_idx; ex_price=float(g.iloc[ex_idx].Close); reason="WATCH_SIGNAL_LOW_BREAK_CLOSE"
                       else:
-                          ex_idx=i+2; reason="NONFAST_EXIT_D2_CLOSE"
-                      policy_rows.append({
-                          "split":split,"signal_date":sig_date,"code":code,"name":name,
-                          "entry_anchor":entry_name,"policy":"FAST_ONLY_D2_CLOSE_EXIT",
-                          "cohort":cohort,"fast_d2":fast,"slow_c4":c4,
-                          "entry_day":entry_idx-i,"exit_day":ex_idx-i,
-                          "entry_price":entry_price,"exit_price":float(g.iloc[ex_idx].Close),
-                          "policy_return_pct":ret(entry_price,float(g.iloc[ex_idx].Close)),
-                          "exit_reason":reason,"suspected_price_discontinuity":discontinuity
-                      })
+                          reason="WATCH_NO_C4_D10"
+                  else:
+                      reason="FAST_HOLD_D10"
+                  add_trade("BASE_FAST_C4_WATCH_D10",ex_idx,ex_price,reason)
 
-                      # Policy A2: FAST only, non-FAST decision after D2 -> D3 open exit.
-                      if fast:
-                          ex_idx=i+10; ex_price=float(g.iloc[ex_idx].Close); reason="FAST_HOLD_D10"
-                      else:
-                          ex_idx=i+3; ex_price=float(g.iloc[ex_idx].Open); reason="NONFAST_EXIT_D3_OPEN"
-                      policy_rows.append({
-                          "split":split,"signal_date":sig_date,"code":code,"name":name,
-                          "entry_anchor":entry_name,"policy":"FAST_ONLY_D3_OPEN_EXIT",
-                          "cohort":cohort,"fast_d2":fast,"slow_c4":c4,
-                          "entry_day":entry_idx-i,"exit_day":ex_idx-i,
-                          "entry_price":entry_price,"exit_price":ex_price,
-                          "policy_return_pct":ret(entry_price,ex_price),
-                          "exit_reason":reason,"suspected_price_discontinuity":discontinuity
-                      })
+                  # P1: universal intraday signal-low stop, gap-aware.
+                  # If open gaps below stop -> open fill; otherwise stop price.
+                  ex_idx=i+H; ex_price=float(g.iloc[ex_idx].Close); reason="D10"
+                  for j in range(i+1,i+H+1):
+                      if float(g.iloc[j].Low)<=sig_low:
+                          ex_idx=j
+                          ex_price=float(g.iloc[j].Open) if float(g.iloc[j].Open)<=sig_low else sig_low
+                          reason="SIGNAL_LOW_INTRADAY_GAP_AWARE"
+                          break
+                  add_trade("SIGNAL_LOW_INTRADAY_STOP",ex_idx,ex_price,reason)
 
-                      # Policy B: FAST hold D10. Non-FAST stays on WATCH for C4.
-                      # Before C4, first signal-low break => exit that day's close.
-                      # C4 confirmation => hold to D10. No C4 and signal-low survives => exit D10.
-                      if fast:
-                          ex_idx=i+10; ex_price=float(g.iloc[ex_idx].Close); reason="FAST_HOLD_D10"
-                      elif c4:
-                          # C4 exists only if signal-low survived through its confirmation.
-                          ex_idx=i+10; ex_price=float(g.iloc[ex_idx].Close); reason="SLOW_C4_CONFIRMED_HOLD_D10"
-                      elif pd.notna(signal_low_break_day):
-                          ex_idx=i+int(signal_low_break_day); ex_price=float(g.iloc[ex_idx].Close); reason="WATCH_SIGNAL_LOW_BREAK_EXIT_CLOSE"
-                      else:
-                          ex_idx=i+10; ex_price=float(g.iloc[ex_idx].Close); reason="WATCH_NO_C4_EXIT_D10"
-                      policy_rows.append({
-                          "split":split,"signal_date":sig_date,"code":code,"name":name,
-                          "entry_anchor":entry_name,"policy":"FAST_OR_C4_WATCH",
-                          "cohort":cohort,"fast_d2":fast,"slow_c4":c4,
-                          "entry_day":entry_idx-i,"exit_day":ex_idx-i,
-                          "entry_price":entry_price,"exit_price":ex_price,
-                          "policy_return_pct":ret(entry_price,ex_price),
-                          "exit_reason":reason,"suspected_price_discontinuity":discontinuity
-                      })
+                  # P2: close-confirm signal-low break.
+                  ex_idx=i+H; ex_price=float(g.iloc[ex_idx].Close); reason="D10"
+                  for j in range(i+1,i+H+1):
+                      if float(g.iloc[j].Close)<sig_low:
+                          ex_idx=j;ex_price=float(g.iloc[j].Close);reason="SIGNAL_LOW_CLOSE_BREAK"
+                          break
+                  add_trade("SIGNAL_LOW_CLOSE_EXIT",ex_idx,ex_price,reason)
 
-                      # Baseline: no filtering, simply hold all to D10.
-                      ex_idx=i+10; ex_price=float(g.iloc[ex_idx].Close)
-                      policy_rows.append({
-                          "split":split,"signal_date":sig_date,"code":code,"name":name,
-                          "entry_anchor":entry_name,"policy":"ALL_HOLD_D10_BASELINE",
-                          "cohort":cohort,"fast_d2":fast,"slow_c4":c4,
-                          "entry_day":entry_idx-i,"exit_day":10,
-                          "entry_price":entry_price,"exit_price":ex_price,
-                          "policy_return_pct":ret(entry_price,ex_price),
-                          "exit_reason":"ALL_HOLD_D10","suspected_price_discontinuity":discontinuity
-                      })
+                  # P3: close below signal-low -> next open exit.
+                  ex_idx=i+H; ex_price=float(g.iloc[ex_idx].Close); reason="D10"
+                  for j in range(i+1,i+H):
+                      if float(g.iloc[j].Close)<sig_low:
+                          ex_idx=j+1;ex_price=float(g.iloc[j+1].Open);reason="SIGNAL_LOW_BREAK_NEXT_OPEN"
+                          break
+                  add_trade("SIGNAL_LOW_NEXT_OPEN_EXIT",ex_idx,ex_price,reason)
 
-          ev=pd.DataFrame(event_rows)
-          pol=pd.DataFrame(policy_rows)
-          if ev.empty or pol.empty:raise SystemExit("NO_ROWS")
+                  # P4: after confirmation (FAST D2 or C4 day), first close below MA5 -> next open.
+                  # Before confirmation, nonFAST still uses signal-low close-break exit.
+                  confirmed_idx=(i+2) if fast else c4_idx
+                  ex_idx=i+H; ex_price=float(g.iloc[ex_idx].Close); reason="D10"
+                  if not fast and c4_idx is None:
+                      # still WATCH; fail on close below signal-low
+                      for j in range(i+1,i+H+1):
+                          if float(g.iloc[j].Close)<sig_low:
+                              ex_idx=j;ex_price=float(g.iloc[j].Close);reason="WATCH_SIGNAL_LOW_CLOSE_BREAK"
+                              break
+                  else:
+                      # until confirmation, protect with signal-low close break
+                      pre_end=confirmed_idx if confirmed_idx is not None else i+H
+                      failed=False
+                      for j in range(i+1,pre_end+1):
+                          if float(g.iloc[j].Close)<sig_low:
+                              ex_idx=j;ex_price=float(g.iloc[j].Close);reason="PRECONF_SIGNAL_LOW_CLOSE_BREAK";failed=True;break
+                      if not failed and confirmed_idx is not None:
+                          for j in range(confirmed_idx+1,i+H):
+                              if pd.notna(ma5.iloc[j]) and float(g.iloc[j].Close)<float(ma5.iloc[j]):
+                                  ex_idx=j+1;ex_price=float(g.iloc[j+1].Open);reason="POSTCONF_MA5_LOSS_NEXT_OPEN";break
+                  add_trade("POSTCONF_MA5_NEXT_OPEN_EXIT",ex_idx,ex_price,reason)
+
+          ev=pd.DataFrame(events)
+          tr=pd.DataFrame(trades)
+          if ev.empty or tr.empty:raise SystemExit("NO_ROWS")
 
           ev.to_csv(OUT/"events_raw.csv",index=False,encoding="utf-8-sig")
-          pol.to_csv(OUT/"policy_trades_raw.csv",index=False,encoding="utf-8-sig")
+          tr.to_csv(OUT/"trades_raw.csv",index=False,encoding="utf-8-sig")
 
-          # Primary excludes suspicious price discontinuities, raw remains auditable.
           evp=ev[~ev.suspected_price_discontinuity].copy()
-          pp=pol[~pol.suspected_price_discontinuity].copy()
+          tp=tr[~tr.suspected_price_discontinuity].copy()
           evp.to_csv(OUT/"events_primary.csv",index=False,encoding="utf-8-sig")
-          pp.to_csv(OUT/"policy_trades_primary.csv",index=False,encoding="utf-8-sig")
+          tp.to_csv(OUT/"trades_primary.csv",index=False,encoding="utf-8-sig")
           ev[ev.suspected_price_discontinuity].to_csv(OUT/"price_discontinuity_audit.csv",index=False,encoding="utf-8-sig")
 
-          # Cohort composition/results.
-          cohort=[]
-          for (sp,c),g in evp.groupby(["split","cohort"],dropna=False):
-              cohort.append({
-                  "split":sp,"cohort":c,"n":len(g),
-                  "d5_close_median_pct":g.d5_close_ret_from_signal_pct.median(),
-                  "d10_close_median_pct":g.d10_close_ret_from_signal_pct.median(),
-                  "d10_close_positive_pct":(g.d10_close_ret_from_signal_pct>0).mean()*100,
-                  "mfe10_median_pct":g.mfe_d10_from_signal_pct.median(),
-                  "mae10_median_pct":g.mae_d10_from_signal_pct.median(),
-              })
-          pd.DataFrame(cohort).to_csv(OUT/"cohort_summary.csv",index=False,encoding="utf-8-sig")
+          def pf(r):
+              r=pd.to_numeric(r,errors="coerce").dropna()
+              gp=r[r>0].sum(); gl=-r[r<0].sum()
+              return gp/gl if gl>0 else np.nan
 
-          # Policy scorecard.
           rows=[]
-          for (sp,entry,policy),g in pp.groupby(["split","entry_anchor","policy"],dropna=False):
-              r=pd.to_numeric(g.policy_return_pct,errors="coerce").dropna()
-              wins=r[r>0]; losses=r[r<0]
+          for (sp,p),g in tp.groupby(["split","policy"],dropna=False):
+              r=pd.to_numeric(g.return_pct,errors="coerce").dropna()
+              w=r[r>0];l=r[r<0]
               rows.append({
-                  "split":sp,"entry_anchor":entry,"policy":policy,"n":len(r),
+                  "split":sp,"policy":p,"n":len(r),
                   "win_rate_pct":(r>0).mean()*100,
                   "mean_return_pct":r.mean(),"median_return_pct":r.median(),
-                  "avg_win_pct":wins.mean() if len(wins) else np.nan,
-                  "avg_loss_pct":losses.mean() if len(losses) else np.nan,
-                  "payoff_ratio_abs":(wins.mean()/abs(losses.mean())) if len(wins) and len(losses) and losses.mean()!=0 else np.nan,
-                  "profit_factor":pf(g),
-                  "p10_return_pct":r.quantile(.10),"p25_return_pct":r.quantile(.25),
-                  "p75_return_pct":r.quantile(.75),"p90_return_pct":r.quantile(.90),
+                  "avg_win_pct":w.mean() if len(w) else np.nan,
+                  "avg_loss_pct":l.mean() if len(l) else np.nan,
+                  "payoff_ratio_abs":w.mean()/abs(l.mean()) if len(w) and len(l) and l.mean()!=0 else np.nan,
+                  "profit_factor":pf(r),
+                  "p10_pct":r.quantile(.10),"p25_pct":r.quantile(.25),
                   "loss_le_5_pct":(r<=-5).mean()*100,
                   "loss_le_10_pct":(r<=-10).mean()*100,
+                  "mean_exit_day":pd.to_numeric(g.exit_day,errors="coerce").mean(),
               })
           score=pd.DataFrame(rows)
           score.to_csv(OUT/"policy_scorecard.csv",index=False,encoding="utf-8-sig")
 
-          # Explicit non-FAST D2 loss distribution by entry anchor.
-          nf=pp[(pp.policy=="FAST_ONLY_D2_CLOSE_EXIT") & (~pp.fast_d2)].copy()
-          rows=[]
-          for (sp,entry),g in nf.groupby(["split","entry_anchor"]):
-              r=pd.to_numeric(g.policy_return_pct,errors="coerce").dropna()
-              rows.append({
-                  "split":sp,"entry_anchor":entry,"n_nonfast":len(r),
-                  "nonfast_exit_d2_mean_pct":r.mean(),
-                  "nonfast_exit_d2_median_pct":r.median(),
-                  "nonfast_loss_le_3_pct":(r<=-3).mean()*100,
-                  "nonfast_loss_le_5_pct":(r<=-5).mean()*100,
-                  "nonfast_loss_le_10_pct":(r<=-10).mean()*100,
+          # Break down FAST vs SLOW_C4 vs other WATCH paths.
+          detail=[]
+          tp["state"]=np.where(tp.fast,"FAST",np.where(tp.slow_c4,"SLOW_C4","OTHER_WATCH"))
+          for (sp,p,state),g in tp.groupby(["split","policy","state"],dropna=False):
+              r=pd.to_numeric(g.return_pct,errors="coerce").dropna()
+              detail.append({
+                  "split":sp,"policy":p,"state":state,"n":len(r),
+                  "mean_return_pct":r.mean(),"median_return_pct":r.median(),
+                  "win_rate_pct":(r>0).mean()*100,"profit_factor":pf(r),
+                  "mean_exit_day":pd.to_numeric(g.exit_day,errors="coerce").mean(),
               })
-          pd.DataFrame(rows).to_csv(OUT/"nonfast_d2_exit_loss.csv",index=False,encoding="utf-8-sig")
-
-          # FAST vs C4 opportunity cost: what is lost by exiting all non-FAST at D2?
-          c4=evp[(~evp.fast_d2)&(evp.slow_c4)].copy()
-          c4sum=[]
-          for sp,g in c4.groupby("split"):
-              c4sum.append({
-                  "split":sp,"n_nonfast_slow_c4":len(g),
-                  "d5_close_median_pct":g.d5_close_ret_from_signal_pct.median(),
-                  "d10_close_median_pct":g.d10_close_ret_from_signal_pct.median(),
-                  "d10_close_positive_pct":(g.d10_close_ret_from_signal_pct>0).mean()*100,
-              })
-          pd.DataFrame(c4sum).to_csv(OUT/"nonfast_slow_c4_opportunity.csv",index=False,encoding="utf-8-sig")
+          pd.DataFrame(detail).to_csv(OUT/"policy_by_state.csv",index=False,encoding="utf-8-sig")
 
           meta={
               "revision":REV,
-              "research_only":True,
-              "production_changed":False,
-              "automatic_ordering":False,
-              "definitions_frozen":True,
-              "strict_odoli":"Close>Open; prev close<prev MA5; Close>MA5; MA5 slope>0; >=2 of prior3 closes below MA5",
+              "research_only":True,"production_changed":False,"automatic_ordering":False,
+              "entry_anchor":"D0_CLOSE",
+              "family":"FAST_OR_C4_WATCH",
               "fast_definition":"D2 Low>D1 Low AND D2 Close>MA5",
               "slow_c4_definition":"D4-D10 Close>MA5 AND Low>prior Low AND Amount>=prior20 mean AND signal-low survives",
               "policies":[
-                  "FAST_ONLY_D2_CLOSE_EXIT",
-                  "FAST_ONLY_D3_OPEN_EXIT",
-                  "FAST_OR_C4_WATCH",
-                  "ALL_HOLD_D10_BASELINE"
+                  "BASE_FAST_C4_WATCH_D10",
+                  "SIGNAL_LOW_INTRADAY_STOP",
+                  "SIGNAL_LOW_CLOSE_EXIT",
+                  "SIGNAL_LOW_NEXT_OPEN_EXIT",
+                  "POSTCONF_MA5_NEXT_OPEN_EXIT"
               ],
-              "entry_anchors":["D0_CLOSE","D1_OPEN"],
-              "sample_signal_sessions":40,
-              "train_sessions":20,
-              "holdout_sessions":20,
-              "raw_events":len(ev),
-              "primary_events":len(evp),
-              "same_historical_window_reused":True,
-              "true_oos":False,
+              "gap_aware_stop":True,
+              "raw_events":len(ev),"primary_events":len(evp),
+              "same_historical_window_reused":True,"true_oos":False,
               "same_sample_tuning":False,
-              "note":"Policy hypotheses are data-informed from prior studies; this is not independent OOS validation."
+              "note":"Policy variants are predeclared follow-up hypotheses on reused historical data; no production promotion."
           }
           (OUT/"meta.json").write_text(json.dumps(meta,ensure_ascii=False,indent=2),encoding="utf-8")
 
-          report = [
-              "# ODOLI Early Entry FAST vs C4 Policy R1",
-              "",
-              "## Meta",
-              "```json",json.dumps(meta,ensure_ascii=False,indent=2),"```",
-              "",
-              "## Policy scorecard",
-              "```text",score.to_string(index=False),"```",
+          report=[
+              "# ODOLI FAST/C4 Exit Policy R1","",
+              "```json",json.dumps(meta,ensure_ascii=False,indent=2),"```","",
+              "## Policy scorecard","```text",score.to_string(index=False),"```"
           ]
           (OUT/"REPORT.md").write_text("\n".join(report),encoding="utf-8")
 
-          print("ODOLI_EARLY_ENTRY_FAST_VS_C4_POLICY_PASS")
+          print("ODOLI_FAST_C4_EXIT_POLICY_PASS")
           print(json.dumps(meta,ensure_ascii=False))
           print(score.to_string(index=False))
           PY
 
           python /tmp/study.py
 
-      - name: Validate research identity and temporal policy alignment
+      - name: Validate identity and temporal alignment
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
           import json,pandas as pd
-          m=json.load(open("reports/temp_odoli_early_entry_policy/meta.json",encoding="utf-8"))
-          assert m["revision"]=="ODOLI_EARLY_ENTRY_FAST_VS_C4_POLICY_R1_20261002"
+          m=json.load(open("reports/temp_odoli_fast_c4_exit_policy/meta.json",encoding="utf-8"))
+          assert m["revision"]=="ODOLI_FAST_C4_EXIT_POLICY_R1_20261002"
           assert m["research_only"] is True
           assert m["production_changed"] is False
           assert m["automatic_ordering"] is False
-          assert m["definitions_frozen"] is True
           assert m["true_oos"] is False
-          q=pd.read_csv("reports/temp_odoli_early_entry_policy/policy_trades_primary.csv")
+          q=pd.read_csv("reports/temp_odoli_fast_c4_exit_policy/trades_primary.csv")
           assert len(q)>0
-          assert set(q["policy"])=={
-              "FAST_ONLY_D2_CLOSE_EXIT",
-              "FAST_ONLY_D3_OPEN_EXIT",
-              "FAST_OR_C4_WATCH",
-              "ALL_HOLD_D10_BASELINE"
+          expected={
+              "BASE_FAST_C4_WATCH_D10",
+              "SIGNAL_LOW_INTRADAY_STOP",
+              "SIGNAL_LOW_CLOSE_EXIT",
+              "SIGNAL_LOW_NEXT_OPEN_EXIT",
+              "POSTCONF_MA5_NEXT_OPEN_EXIT"
           }
-          # D2 policy cannot exit before D2; D3-open variant cannot exit non-FAST before D3.
-          z=q[(q.policy=="FAST_ONLY_D2_CLOSE_EXIT") & (~q.fast_d2.astype(bool))]
-          assert (pd.to_numeric(z.exit_day,errors="coerce")==2).all()
-          z=q[(q.policy=="FAST_ONLY_D3_OPEN_EXIT") & (~q.fast_d2.astype(bool))]
-          assert (pd.to_numeric(z.exit_day,errors="coerce")==3).all()
-          print("EARLY_ENTRY_POLICY_TEMPORAL_ALIGNMENT_PASS")
+          assert set(q.policy)==expected
+          assert (pd.to_numeric(q.exit_day,errors="coerce")>=1).all()
+          assert (pd.to_numeric(q.exit_day,errors="coerce")<=10).all()
+          print("FAST_C4_EXIT_POLICY_TEMPORAL_ALIGNMENT_PASS")
           PY
 
       - name: Show report
         if: always()
         run: |
-          cat reports/temp_odoli_early_entry_policy/meta.json || true
+          cat reports/temp_odoli_fast_c4_exit_policy/meta.json || true
           echo
-          cat reports/temp_odoli_early_entry_policy/REPORT.md || true
+          cat reports/temp_odoli_fast_c4_exit_policy/REPORT.md || true
 
       - name: Upload artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: temp-odoli-early-entry-fast-vs-c4-policy-r1
-          path: reports/temp_odoli_early_entry_policy/**
+          name: temp-odoli-fast-c4-exit-policy-r1
+          path: reports/temp_odoli_fast_c4_exit_policy/**
           if-no-files-found: error
           retention-days: 90
