@@ -1,0 +1,9 @@
+﻿{
+  "generated_at": "2026-10-02 11:35:54",
+  "date": "2026-10-02",
+  "purpose": "quick_open_checker.py input",
+  "rules": "거래대금TOP60 + 전략후보 병합. 전략후보는 추격금지/보유자대응/후행수박/가짜수박주의/이격115↑/RSI70↑ 기본 제외",
+  "quick_candidates": [],
+  "amount_top60": [],
+  "strategy_candidates": []
+}
