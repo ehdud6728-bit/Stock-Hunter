@@ -1,7 +1,11 @@
-name: TEMP ODOLI Prospective KKI Symmetry Tracker R1
+name: TEMP ODOLI Prospective KKI Symmetry Tracker R1 Scheduled
 
 on:
   workflow_dispatch:
+  schedule:
+    # Weekdays 17:40 KST = 08:40 UTC
+    # Runs after ODOLI DAILY (16:50 KST) so the latest frozen cohort is available.
+    - cron: '40 08 * * 1-5'
 
 permissions:
   contents: read
@@ -43,6 +47,18 @@ jobs:
           key: odoli-kki-symmetry-prospective-r1-${{ github.ref_name }}-${{ github.run_id }}
           restore-keys: |
             odoli-kki-symmetry-prospective-r1-${{ github.ref_name }}-
+
+      - name: Snapshot previous tracker for Telegram delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -s reports/.cache/odoli_kki_symmetry_prospective_r1/tracker.csv ]; then
+            cp reports/.cache/odoli_kki_symmetry_prospective_r1/tracker.csv /tmp/odoli_kki_tracker_before.csv
+            echo "ODOLI_KKI_PREV_TRACKER=READY"
+          else
+            rm -f /tmp/odoli_kki_tracker_before.csv
+            echo "ODOLI_KKI_PREV_TRACKER=EMPTY"
+          fi
 
       - name: Fetch marcap history
         shell: bash
@@ -366,6 +382,203 @@ jobs:
           assert q["feature_fingerprint"].nunique()==1
           assert q["feature_fingerprint"].iloc[0]==m["feature_fingerprint"]
           print("PROSPECTIVE_KKI_SYMMETRY_FROZEN_INTEGRITY_PASS")
+          PY
+
+      - name: Build Telegram delta message
+        if: always() && hashFiles('reports/temp_odoli_kki_symmetry_prospective/prospective_tracker.csv') != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import json
+          import pandas as pd
+
+          curp=Path("reports/temp_odoli_kki_symmetry_prospective/prospective_tracker.csv")
+          prevp=Path("/tmp/odoli_kki_tracker_before.csv")
+          out=Path("reports/temp_odoli_kki_symmetry_prospective")
+          cur=pd.read_csv(curp,dtype=str,low_memory=False).fillna("")
+          prev=pd.read_csv(prevp,dtype=str,low_memory=False).fillna("") if prevp.exists() and prevp.stat().st_size else pd.DataFrame()
+
+          key=["signal_date","code"]
+          for q in (cur,prev):
+              if len(q):
+                  q["code"]=q["code"].astype(str).str.replace(r"\D","",regex=True).str[-6:].str.zfill(6)
+
+          if prev.empty:
+              new=cur.copy()
+              changes=pd.DataFrame()
+              matured=cur[cur["d10_mature"].astype(str).str.lower().isin(["true","1"])].copy()
+              baseline_init=True
+          else:
+              pkeys=set(map(tuple,prev[key].astype(str).values.tolist()))
+              ckeys=set(map(tuple,cur[key].astype(str).values.tolist()))
+              new=cur[cur[key].astype(str).apply(tuple,axis=1).isin(ckeys-pkeys)].copy()
+
+              merged=cur.merge(prev,on=key,how="inner",suffixes=("_now","_prev"))
+              fields=["fast_d2_status","c4_status","final_state","d10_mature"]
+              mask=pd.Series(False,index=merged.index)
+              for f in fields:
+                  mask |= merged[f+"_now"].astype(str).ne(merged[f+"_prev"].astype(str))
+              changes=merged[mask].copy()
+
+              matured=merged[
+                  merged["d10_mature_now"].astype(str).str.lower().isin(["true","1"]) &
+                  ~merged["d10_mature_prev"].astype(str).str.lower().isin(["true","1"])
+              ].copy()
+              baseline_init=False
+
+          should_send=(len(new)>0 or len(changes)>0 or len(matured)>0)
+          # On first install, avoid dumping hundreds of historical baseline rows.
+          # Send a one-time initialization summary only.
+          if baseline_init:
+              should_send=True
+
+          lines=[
+              "🧪 [ODOLI KKI/OOS 추적 · RESEARCH_ONLY]",
+              "※ 자동주문/확정매수 신호 아님 · frozen KKI/대칭 정의 변경 없음",
+          ]
+
+          if baseline_init:
+              lines += [
+                  f"📦 초기 tracker 등록: {len(cur)}건",
+                  "앞으로 신규 신호·FAST/C4 전환·D10 성숙 변화만 전송합니다.",
+              ]
+          else:
+              lines.append(f"🆕 신규 {len(new)} | 🔄 상태변화 {len(changes)} | ✅ D10 신규성숙 {len(matured)}")
+
+              if len(new):
+                  lines.append("")
+                  lines.append("🆕 관심종목 등록 · D0 신규 ODOLI")
+                  for _,r in new.sort_values(key).tail(12).iterrows():
+                      kki="KKI✅" if str(r.get("recent_repeated_kki","")).lower() in {"true","1"} else "KKI-"
+                      sym="대칭✅" if str(r.get("symmetry_candidate_frozen","")).lower() in {"true","1"} else "대칭-"
+                      lines.append(f"- {r.get('signal_date','')} {r.get('name','')}({r.get('code','')}) · {kki} · {sym}")
+
+              if len(changes):
+                  fast_changes=changes[
+                      changes["fast_d2_status_now"].astype(str).eq("FAST") &
+                      ~changes["fast_d2_status_prev"].astype(str).eq("FAST")
+                  ].copy()
+                  c4_changes=changes[
+                      changes["c4_status_now"].astype(str).eq("C4") &
+                      ~changes["c4_status_prev"].astype(str).eq("C4")
+                  ].copy()
+                  other_changes=changes.drop(index=set(fast_changes.index)|set(c4_changes.index),errors="ignore").copy()
+
+                  if len(fast_changes):
+                      lines.append("")
+                      lines.append("🚨 빠른 확인 후보 · D2 FAST")
+                      for _,r in fast_changes.sort_values(key).tail(12).iterrows():
+                          kki="KKI✅" if str(r.get("recent_repeated_kki_now","")).lower() in {"true","1"} else "KKI-"
+                          sym="대칭✅" if str(r.get("symmetry_candidate_frozen_now","")).lower() in {"true","1"} else "대칭-"
+                          star=" · ⭐강조" if kki=="KKI✅" and sym=="대칭✅" else ""
+                          lines.append(
+                              f"- {r.get('signal_date','')} {r.get('name_now','')}({r.get('code','')}) "
+                              f"· {kki} · {sym}{star} · 수동 진입 검토"
+                          )
+
+                  if len(c4_changes):
+                      lines.append("")
+                      lines.append("🔄 재상승 확인 후보 · SLOW_C4")
+                      for _,r in c4_changes.sort_values(key).tail(12).iterrows():
+                          kki="KKI✅" if str(r.get("recent_repeated_kki_now","")).lower() in {"true","1"} else "KKI-"
+                          sym="대칭✅" if str(r.get("symmetry_candidate_frozen_now","")).lower() in {"true","1"} else "대칭-"
+                          lines.append(
+                              f"- {r.get('signal_date','')} {r.get('name_now','')}({r.get('code','')}) "
+                              f"· {kki} · {sym} · 수동 진입 검토"
+                          )
+
+                  if len(other_changes):
+                      lines.append("")
+                      lines.append("ℹ️ 기타 상태 변화")
+                      for _,r in other_changes.sort_values(key).tail(8).iterrows():
+                          lines.append(
+                              f"- {r.get('signal_date','')} {r.get('name_now','')}({r.get('code','')}) "
+                              f"· {r.get('final_state_prev','')}→{r.get('final_state_now','')}"
+                          )
+
+              if len(matured):
+                  lines.append("")
+                  lines.append("✅ 성과검증 완료 · D10 신규 성숙")
+                  for _,r in matured.sort_values(key).tail(12).iterrows():
+                      kki="KKI✅" if str(r.get("recent_repeated_kki_now","")).lower() in {"true","1"} else "KKI-"
+                      sym="대칭✅" if str(r.get("symmetry_candidate_frozen_now","")).lower() in {"true","1"} else "대칭-"
+                      try:
+                          ret=float(r.get("d10_close_ret_pct_now",""))
+                          mfe=float(r.get("mfe10_pct_now",""))
+                          perf=f"D10 {ret:+.1f}% · MFE {mfe:+.1f}%"
+                      except Exception:
+                          perf="D10 결과 확인"
+                      lines.append(
+                          f"- {r.get('signal_date','')} {r.get('name_now','')}({r.get('code','')}) "
+                          f"· {r.get('final_state_now','')} · {kki} · {sym} · {perf}"
+                      )
+
+          msg="\n".join(lines)
+          # Telegram safety: split later at sender; save full research message.
+          (out/"telegram_message.txt").write_text(msg,encoding="utf-8")
+          (out/"telegram_delta_meta.json").write_text(json.dumps({
+              "research_only":True,
+              "automatic_ordering":False,
+              "baseline_init":baseline_init,
+              "new_n":int(len(new)),
+              "changed_n":int(len(changes)),
+              "new_d10_mature_n":int(len(matured)),
+              "telegram_should_send":bool(should_send),
+              "route":"TELEGRAM_DYUL_CHAT_ID",
+              "schedule_kst":"weekdays 17:40",
+          },ensure_ascii=False,indent=2),encoding="utf-8")
+          print(msg)
+          print("TELEGRAM_SHOULD_SEND",int(should_send))
+          PY
+
+      - name: Send Telegram research delta to DYUL
+        if: always() && hashFiles('reports/temp_odoli_kki_symmetry_prospective/telegram_delta_meta.json') != ''
+        env:
+          TELEGRAM_BACKTEST_TOKEN: ${{ secrets.TELEGRAM_BACKTEST_TOKEN }}
+          TELEGRAM_DYUL_CHAT_ID: ${{ secrets.TELEGRAM_DYUL_CHAT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          SHOULD="$(python - <<'PY'
+          import json
+          m=json.load(open('reports/temp_odoli_kki_symmetry_prospective/telegram_delta_meta.json',encoding='utf-8'))
+          print('1' if m.get('telegram_should_send') else '0')
+          PY
+          )"
+          [ "$SHOULD" = "1" ] || { echo "ODOLI_KKI_TELEGRAM_SKIP no-change"; exit 0; }
+          [ -n "${TELEGRAM_BACKTEST_TOKEN:-}" ] && [ -n "${TELEGRAM_DYUL_CHAT_ID:-}" ] || {
+            echo "ODOLI_KKI_TELEGRAM_SKIP route-unavailable"
+            exit 0
+          }
+
+          python - <<'PY'
+          import os,urllib.parse,urllib.request
+          from pathlib import Path
+          text=Path('reports/temp_odoli_kki_symmetry_prospective/telegram_message.txt').read_text(encoding='utf-8')
+          chunks=[]
+          while text:
+              if len(text)<=3500:
+                  chunks.append(text);break
+              cut=text.rfind('\n',0,3500)
+              if cut<1000:cut=3500
+              chunks.append(text[:cut])
+              text=text[cut:].lstrip('\n')
+          for i,msg in enumerate(chunks,1):
+              data=urllib.parse.urlencode({
+                  'chat_id':os.environ['TELEGRAM_DYUL_CHAT_ID'],
+                  'text':msg
+              }).encode()
+              req=urllib.request.Request(
+                  f"https://api.telegram.org/bot{os.environ['TELEGRAM_BACKTEST_TOKEN']}/sendMessage",
+                  data=data
+              )
+              with urllib.request.urlopen(req,timeout=30) as r:
+                  body=r.read().decode('utf-8','replace')
+                  if r.status!=200:
+                      raise RuntimeError(f"telegram http={r.status} body={body[:300]}")
+              print("ODOLI_KKI_TELEGRAM_SENT_DYUL",i,len(msg))
           PY
 
       - name: Show report
