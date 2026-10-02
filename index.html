@@ -1,0 +1,1076 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0f172a">
+<title>대만여행 2026</title>
+<style>
+:root{--bg:#f6f7fb;--card:#fff;--text:#172033;--muted:#6b7280;--p:#2563eb;--line:#e5e7eb}
+*{box-sizing:border-box}
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;background:var(--bg);color:var(--text)}
+.app{max-width:760px;margin:auto;padding-bottom:92px}
+.hero{background:linear-gradient(135deg,#0f172a,#1d4ed8);color:#fff;padding:18px;position:sticky;top:0;z-index:20}
+.hero h1{margin:0 0 5px;font-size:20px}.hero p{margin:0;opacity:.85;font-size:12px}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-top:12px}
+.stat{background:#ffffff1f;border:1px solid #ffffff26;border-radius:12px;padding:9px;text-align:center}.stat b{display:block;font-size:14px}.stat span{font-size:10px;opacity:.8}
+.nav{display:flex;gap:7px;overflow:auto;padding:10px 12px;background:#f6f7fbeb;position:sticky;top:105px;z-index:15;border-bottom:1px solid var(--line)}
+.nav button{border:0;border-radius:999px;background:#fff;padding:9px 12px;font-weight:800;white-space:nowrap}.nav .active{background:var(--p);color:#fff}
+.section{padding:12px}.card{background:#fff;border:1px solid #edf0f4;border-radius:16px;padding:14px;margin-bottom:11px;box-shadow:0 8px 22px #0f172a10}
+.card h2{font-size:17px;margin:0 0 10px}
+.badge{display:inline-block;background:#dbeafe;color:#1d4ed8;border-radius:999px;padding:4px 8px;font-size:10px;font-weight:800;margin:0 4px 8px 0}
+.timeline{border-left:3px solid #bfdbfe;padding-left:14px;margin-left:4px}.item{position:relative;padding:0 0 14px}.item:before{content:"";position:absolute;width:10px;height:10px;border-radius:50%;background:#2563eb;left:-21px;top:5px;border:3px solid white}
+.time{font-size:11px;color:#2563eb;font-weight:900}.title{font-weight:850;margin:3px 0}.desc{font-size:12px;color:#5b6472;line-height:1.55}
+.btnrow{display:flex;gap:7px;flex-wrap:nowrap;margin-top:8px}.btn{border:0;border-radius:10px;padding:9px 10px;font-size:11px;font-weight:850;background:#eff6ff;color:#1d4ed8;text-decoration:none}.dark{background:#0f172a;color:#fff}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}.kv{padding:10px;background:#f8fafc;border:1px solid #eef2f7;border-radius:12px}.kv small{display:block;color:#64748b;margin-bottom:3px}.kv strong{font-size:14px}
+.listrow{display:grid;grid-template-columns:auto 1fr auto;gap:9px;align-items:center;padding:9px 0;border-bottom:1px dashed #e5e7eb;font-size:12px}
+.notice{font-size:11px;color:#64748b;line-height:1.45}.expense{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px dashed #e5e7eb;font-size:12px}
+.bottom{position:fixed;bottom:0;left:0;right:0;background:#fffffff2;border-top:1px solid var(--line);z-index:30}.bottom .inner{max-width:760px;margin:auto;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));padding:7px 8px calc(7px + env(safe-area-inset-bottom))}
+.bottom button{background:none;border:0;font-size:10px;font-weight:800;color:#475569}.bottom span{display:block;font-size:18px}
+.fab{position:fixed;right:18px;bottom:82px;z-index:45;border:0;border-radius:999px;padding:14px 17px;background:#111827;color:#fff;font-weight:900;box-shadow:0 10px 30px #0f172a3b}
+.sheet{position:fixed;inset:0;background:#0f172a7a;z-index:60;display:none;align-items:flex-end}.sheet.show{display:flex}.panel{width:100%;max-width:760px;margin:auto;background:#fff;border-radius:22px 22px 0 0;padding:16px}
+.big{font-size:30px;font-weight:900;border:0;border-bottom:2px solid #dbeafe;padding:10px 2px;text-align:right;width:100%}
+.chips{display:flex;gap:6px;overflow:auto;padding:5px 0}.chip{border:1px solid #dbe3ec;background:#fff;border-radius:999px;padding:8px 10px;white-space:nowrap;font-weight:800}.chip.active{background:#2563eb;color:#fff;border-color:#2563eb}
+input,select{border:1px solid #dbe1e8;border-radius:10px;padding:10px;font-size:13px}.actions{display:grid;grid-template-columns:1fr 2fr;gap:8px;margin-top:10px}.actions button{padding:12px;border:0;border-radius:11px;font-weight:900}
+
+.link-sections{display:grid;gap:10px;margin-top:12px}
+.link-sector{background:#f8fafc;border:1px solid #e8edf3;border-radius:13px;padding:10px}
+.link-sector h3{font-size:13px;margin:0 0 8px;color:#334155}
+.link-sector .btnrow{margin-top:0}
+
+
+.syncbar{display:flex;align-items:center;gap:7px;margin-bottom:10px;font-size:11px;color:#64748b}
+.dot{width:8px;height:8px;border-radius:50%;background:#94a3b8;display:inline-block}.dot.ok{background:#16a34a}.dot.err{background:#dc2626}
+.rowbtn{border:0;background:#eff6ff;color:#1d4ed8;border-radius:8px;padding:7px 8px;font-size:10px;font-weight:800}.danger{color:#dc2626;background:#fff1f2}
+
+
+/* bottom navigation: 4 utility tabs */
+.bottom-nav,.dock,.bottomnav{grid-template-columns:repeat(5,minmax(0,1fr))!important}
+
+
+/* ===== Mobile app polish v2 ===== */
+body{padding-bottom:96px}
+.nav{
+  display:grid!important;
+  grid-template-columns:repeat(5,minmax(0,1fr))!important;
+  gap:7px!important;
+  overflow:visible!important;
+  padding:12px 12px 11px!important;
+  background:#f7f9fded!important;
+}
+.nav button{
+  width:100%;
+  min-width:0;
+  padding:10px 4px!important;
+  border:1px solid #e7ecf4!important;
+  border-radius:16px!important;
+  background:#fff!important;
+  color:#111827!important;
+  font-size:13px!important;
+  font-weight:900!important;
+  box-shadow:0 3px 10px #0f172a0a;
+  transition:.18s ease;
+}
+.nav button.active{
+  background:linear-gradient(135deg,#1d4ed8,#2563eb)!important;
+  border-color:transparent!important;
+  color:#fff!important;
+  box-shadow:0 8px 18px #2563eb35!important;
+  transform:translateY(-1px);
+}
+
+.section{padding:14px 12px 20px!important}
+.card{
+  border-radius:22px!important;
+  padding:17px!important;
+  box-shadow:0 10px 30px #0f172a12!important;
+}
+.card h2{font-size:19px!important;margin-bottom:13px!important}
+.link-sections{gap:12px!important}
+.link-sector{
+  border-radius:18px!important;
+  padding:14px!important;
+  background:linear-gradient(180deg,#fbfdff,#f8fafc)!important;
+}
+.link-sector h3{font-size:14px!important;margin-bottom:10px!important}
+.btn{
+  border-radius:12px!important;
+  padding:10px 12px!important;
+  font-size:12px!important;
+}
+.notice{font-size:12px!important}
+
+.bottom{
+  position:fixed!important;
+  left:10px!important;
+  right:10px!important;
+  bottom:8px!important;
+  z-index:50!important;
+  display:grid!important;
+  grid-template-columns:repeat(4,minmax(0,1fr))!important;
+  gap:5px!important;
+  padding:7px!important;
+  padding-bottom:calc(7px + env(safe-area-inset-bottom))!important;
+  background:rgba(255,255,255,.96)!important;
+  border:1px solid rgba(226,232,240,.95)!important;
+  border-radius:22px!important;
+  box-shadow:0 14px 38px #0f172a2b!important;
+  backdrop-filter:blur(16px);
+  -webkit-backdrop-filter:blur(16px);
+}
+.bottom button{
+  min-width:0!important;
+  min-height:60px!important;
+  border:0!important;
+  border-radius:16px!important;
+  background:transparent!important;
+  color:#64748b!important;
+  display:flex!important;
+  flex-direction:column!important;
+  align-items:center!important;
+  justify-content:center!important;
+  gap:3px!important;
+  padding:6px 2px!important;
+  transition:transform .16s ease,background .16s ease,color .16s ease,box-shadow .16s ease!important;
+}
+.bottom button .ico{
+  display:block!important;
+  font-size:24px!important;
+  line-height:1!important;
+  filter:saturate(.85);
+}
+.bottom button .label{
+  display:block!important;
+  font-size:11px!important;
+  line-height:1.05!important;
+  font-weight:900!important;
+  letter-spacing:-.3px!important;
+  white-space:nowrap!important;
+}
+.bottom button.active{
+  background:linear-gradient(135deg,#1d4ed8,#2563eb)!important;
+  color:#fff!important;
+  box-shadow:0 8px 18px #2563eb42!important;
+  transform:translateY(-3px)!important;
+}
+.bottom button.active .ico{
+  transform:scale(1.08);
+  filter:none;
+}
+
+.fab{
+  right:18px!important;
+  bottom:94px!important;
+  padding:14px 18px!important;
+  border-radius:18px!important;
+  font-size:14px!important;
+  box-shadow:0 12px 28px #0f172a33!important;
+}
+@media(max-width:370px){
+  .bottom button .label{font-size:10px!important}
+  .bottom button .ico{font-size:22px!important}
+  .nav button{font-size:12px!important}
+}
+
+
+.train-modal-backdrop{
+  position:fixed;inset:0;background:#0f172a66;z-index:120;
+  display:none;align-items:flex-end;justify-content:center;
+}
+.train-modal-backdrop.show{display:flex}
+.train-modal{
+  width:min(100%,520px);background:#fff;border-radius:24px 24px 0 0;
+  padding:18px 16px calc(18px + env(safe-area-inset-bottom));
+  box-shadow:0 -18px 40px #0f172a33;
+}
+.train-modal h3{margin:0 0 14px;font-size:20px}
+.train-form{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.train-form label{display:flex;flex-direction:column;gap:6px;font-size:12px;font-weight:800;color:#475569}
+.train-form input,.train-form select,.train-form textarea{
+  width:100%;box-sizing:border-box;border:1px solid #dbe3ee;border-radius:12px;
+  padding:12px;font-size:16px;background:#fff;color:#111827;
+}
+.train-form textarea{min-height:84px;resize:vertical}
+.train-form .full{grid-column:1/-1}
+.train-modal-actions{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}
+.train-modal-actions button{min-height:48px;border:0;border-radius:14px;font-size:15px;font-weight:900}
+.train-modal-actions .cancel{background:#f1f5f9;color:#334155}
+.train-modal-actions .save{background:#2563eb;color:#fff}
+
+
+.time-picker-row{display:grid;grid-template-columns:1fr;gap:8px}
+.ampm{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.ampm button{min-height:42px;border:1px solid #dbe3ee;border-radius:12px;background:#f8fafc;color:#64748b;font-size:14px;font-weight:900}
+.ampm button.active{background:#2563eb;border-color:#2563eb;color:#fff;box-shadow:0 5px 14px #2563eb33}
+.hm-selects{display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:center}
+.hm-selects select{min-height:46px;font-size:18px!important;font-weight:800;text-align:center}
+.hm-colon{font-size:22px;font-weight:900;color:#475569}
+
+
+.atm-gallery{display:grid;grid-template-columns:1fr;gap:12px;margin-top:10px}
+.atm-shot{background:#f8fafc;border:1px solid #e5edf6;border-radius:18px;padding:12px}
+.atm-shot img{width:100%;display:block;border-radius:14px}
+.atm-shot h4{margin:0 0 8px;font-size:15px;font-weight:900;color:#0f172a}
+.atm-shot .caption{margin-top:8px;font-size:13px;line-height:1.5;color:#475569}
+.atm-rank{display:grid;gap:10px}
+.atm-rank-item{border:1px solid #e5edf6;border-radius:16px;padding:12px;background:#fff}
+.atm-rank-item b{display:block;margin-bottom:5px;font-size:14px}
+.atm-rank-item .sub{font-size:12px;line-height:1.5;color:#64748b}
+
+
+.transport-guide{display:grid;gap:12px;margin-top:14px}
+.transport-card{background:linear-gradient(180deg,#fbfdff,#f8fafc);border:1px solid #e5edf6;border-radius:18px;padding:14px}
+.transport-card h3{margin:0 0 9px;font-size:15px;font-weight:900;color:#0f172a}
+.transport-card .tip{font-size:13px;line-height:1.6;color:#475569}
+.transport-card .tip b{color:#0f172a}
+.transport-card .phrase{margin-top:9px;padding:9px 10px;border-radius:12px;background:#eff6ff;color:#1d4ed8;font-size:12px;font-weight:800}
+
+
+.food-region{margin:18px 0 22px}
+.food-region h3{margin:0 0 10px;font-size:17px}
+.food-card{border:1px solid #e5edf6;border-radius:18px;padding:14px;margin:10px 0;background:#fff}
+.food-card .food-name{font-size:16px;font-weight:900;color:#0f172a}
+.food-card .food-type{margin-top:5px;font-size:14px;font-weight:800;color:#2563eb}
+.food-card .food-desc{margin-top:7px;font-size:13px;line-height:1.55;color:#475569}
+.food-card .food-map{display:inline-block;margin-top:10px}
+
+
+/* 5개 하단 메뉴를 한 줄로 고정 */
+.bottom-nav{
+  display:grid!important;
+  grid-template-columns:repeat(5,minmax(0,1fr))!important;
+  gap:0!important;
+  padding:8px 8px calc(8px + env(safe-area-inset-bottom))!important;
+}
+.bottom-nav button{
+  min-width:0!important;
+  width:100%!important;
+  padding:8px 2px!important;
+  height:72px!important;
+  border-radius:18px!important;
+}
+.bottom-nav .ico{
+  font-size:28px!important;
+  line-height:1!important;
+}
+.bottom-nav .label{
+  font-size:12px!important;
+  line-height:1.15!important;
+  white-space:nowrap!important;
+  letter-spacing:-0.5px!important;
+}
+@media (max-width:390px){
+  .bottom-nav{
+    padding-left:5px!important;
+    padding-right:5px!important;
+  }
+  .bottom-nav button{
+    padding-left:1px!important;
+    padding-right:1px!important;
+  }
+  .bottom-nav .ico{font-size:26px!important}
+  .bottom-nav .label{font-size:11px!important}
+}
+
+
+/* ===== FINAL mobile layout fix ===== */
+
+/* Bottom dock: always one row, 5 equal items */
+.bottom{
+  display:grid!important;
+  grid-template-columns:repeat(5,minmax(0,1fr))!important;
+  gap:2px!important;
+  left:10px!important;
+  right:10px!important;
+  padding:7px 6px calc(7px + env(safe-area-inset-bottom))!important;
+}
+.bottom button{
+  min-width:0!important;
+  width:100%!important;
+  height:68px!important;
+  margin:0!important;
+  padding:7px 1px!important;
+  border-radius:16px!important;
+  overflow:hidden!important;
+}
+.bottom button .ico{
+  display:block!important;
+  font-size:25px!important;
+  line-height:28px!important;
+  margin:0 auto 3px!important;
+}
+.bottom button .label{
+  display:block!important;
+  font-size:10.5px!important;
+  line-height:13px!important;
+  letter-spacing:-.65px!important;
+  white-space:nowrap!important;
+  overflow:visible!important;
+}
+
+/* Daily link buttons: never squeeze text into vertical columns */
+.link-sector .btnrow{
+  display:flex!important;
+  flex-wrap:wrap!important;
+  gap:8px!important;
+  align-items:stretch!important;
+}
+.link-sector .btn{
+  flex:0 1 auto!important;
+  width:auto!important;
+  max-width:100%!important;
+  min-width:0!important;
+  white-space:normal!important;
+  word-break:keep-all!important;
+  overflow-wrap:break-word!important;
+  line-height:1.35!important;
+  text-align:left!important;
+  padding:10px 12px!important;
+}
+
+/* On narrow phones, long food links become clean full-width rows */
+@media (max-width:480px){
+  .link-sector .btnrow{
+    display:grid!important;
+    grid-template-columns:1fr!important;
+  }
+  .link-sector .btn{
+    display:block!important;
+    width:100%!important;
+  }
+  .bottom button .ico{font-size:23px!important}
+  .bottom button .label{font-size:10px!important;letter-spacing:-.8px!important}
+}
+
+/* leave enough content space above floating dock */
+body{padding-bottom:105px!important}
+.app{padding-bottom:105px!important}
+
+
+.food-meta{margin-top:10px;display:grid;gap:6px}
+.food-meta-row{display:flex;gap:8px;align-items:flex-start;font-size:12.5px;line-height:1.45;color:#334155}
+.food-meta-row b{flex:0 0 68px;color:#0f172a}
+
+
+/* 맛집 지역 구분: 스크롤 중 현재 지역을 계속 표시 */
+.food-region{
+  position:relative;
+  margin:0 0 26px!important;
+  padding:0 0 8px;
+  border-radius:20px;
+}
+.food-region h3{
+  position:sticky;
+  top:var(--food-sticky-top, 164px);
+  z-index:18;
+  margin:0 -2px 12px!important;
+  padding:11px 14px;
+  border-radius:14px;
+  background:rgba(239,246,255,.96);
+  backdrop-filter:blur(10px);
+  -webkit-backdrop-filter:blur(10px);
+  box-shadow:0 4px 14px rgba(37,99,235,.10);
+  border:1px solid #dbeafe;
+  color:#1d4ed8;
+  font-size:16px!important;
+  font-weight:900;
+}
+.food-region:not(:first-child){
+  padding-top:8px;
+  border-top:2px solid #eef2f7;
+}
+.food-card{
+  margin-left:4px!important;
+  margin-right:4px!important;
+}
+
+
+.food-pick{
+  display:inline-flex;
+  align-items:center;
+  gap:4px;
+  margin-bottom:8px;
+  padding:5px 9px;
+  border-radius:999px;
+  background:#fff7ed;
+  border:1px solid #fed7aa;
+  color:#c2410c;
+  font-size:11px;
+  font-weight:900;
+  letter-spacing:-.2px;
+}
+
+
+/* 맛집 숟가락 투표 */
+.food-card{position:relative}
+.food-vote-count{
+  position:absolute;top:12px;right:12px;
+  display:inline-flex;align-items:center;gap:3px;
+  padding:5px 8px;border-radius:999px;
+  background:#f8fafc;border:1px solid #e2e8f0;
+  font-size:12px;font-weight:900;color:#334155
+}
+.food-card.has-pick .food-vote-count{top:12px}
+.food-voters{margin:7px 0 0;font-size:11.5px;line-height:1.4;color:#64748b}
+.food-bottom-actions{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:10px}
+.food-bottom-actions .food-map{margin-top:0!important}
+.food-spoon{
+  flex:0 0 54px;height:48px;border:1px solid #dbe4ee;border-radius:16px;
+  background:#fff;font-size:25px;cursor:pointer;box-shadow:0 3px 10px rgba(15,23,42,.07)
+}
+.food-spoon.mine{background:#fff7ed;border-color:#fb923c;box-shadow:0 3px 12px rgba(249,115,22,.16)}
+.food-voter-bar{
+  display:flex;align-items:center;justify-content:space-between;gap:10px;
+  margin:10px 0 16px;padding:10px 12px;border-radius:15px;background:#f8fafc;border:1px solid #e2e8f0
+}
+.food-voter-bar button{border:0;background:none;color:#2563eb;font-weight:800}
+.food-name{padding-right:72px}
+
+
+/* 이모지 대신 앱용 둥근 숟가락 SVG */
+.spoon-svg{width:20px;height:20px;display:inline-block;vertical-align:-4px}
+.spoon-svg path{fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.food-vote-count .spoon-svg{width:16px;height:16px;vertical-align:-3px}
+.food-spoon .spoon-svg{width:28px;height:28px}
+.food-spoon{color:#64748b}
+.food-spoon.mine{
+  color:#2563eb!important;
+  background:#eff6ff!important;
+  border-color:#93c5fd!important;
+  box-shadow:0 3px 12px rgba(37,99,235,.14)!important
+}
+
+</style>
+</head>
+<body>
+<div class="app">
+<header class="hero">
+  <h1>🇹🇼 대만여행 2026</h1>
+  <p id="meta">불러오는 중…</p>
+  <div class="stats">
+    <div class="stat"><b>40만원</b><span>1인 공동경비</span></div>
+    <div class="stat"><b id="spentTop">0원</b><span>누적 사용</span></div>
+    <div class="stat"><b id="remainTop">160만원</b><span>남은 공동경비</span></div>
+  </div>
+</header>
+
+<div class="nav" id="nav"></div>
+<main id="main"></main>
+
+<button class="fab" onclick="openExpense()">＋ 경비</button>
+
+<div class="sheet" id="sheet" onclick="if(event.target.id==='sheet')closeExpense()">
+ <div class="panel">
+  <h2 style="margin:0 0 8px">🧾 빠른 경비 입력</h2>
+  <div style="display:flex;gap:8px;align-items:end">
+   <div style="flex:1"><small>금액</small><input id="amt" class="big" type="number" inputmode="decimal" placeholder="0"></div>
+   <select id="cur"><option>TWD</option><option>KRW</option></select>
+  </div>
+  <small style="display:block;margin-top:10px">분류</small><div class="chips" id="cats"></div>
+  <small style="display:block;margin-top:8px">결제수단</small><div class="chips" id="pays"></div>
+  <input id="memo" style="width:100%;margin-top:8px" placeholder="메모(선택) 예: 우육면 4명">
+  <div class="actions"><button onclick="closeExpense()">취소</button><button style="background:#0f172a;color:#fff" onclick="saveExpense()">저장</button></div>
+ </div>
+</div>
+
+<div class="bottom">
+<button id="u-check" onclick="show('check')"><span class="ico">🎒</span><span class="label">준비물</span></button>
+<button id="u-train" onclick="show('train')"><span class="ico">🚆</span><span class="label">열차</span></button>
+<button id="u-money" onclick="show('money')"><span class="ico">💰</span><span class="label">경비</span></button>
+<button id="u-food" onclick="show('food')"><span class="ico">🍜</span><span class="label">맛집</span></button>
+<button id="u-stay" onclick="show('stay')"><span class="ico">🏨</span><span class="label">숙소·렌탈</span></button>
+</div>
+</div>
+
+<script>
+let DATA=null,active='d1',cat='식비',pay='현금',SHARED={checklist:[],trains:[],expenses:[],foodVotes:{}},SHARED_LOADED=false,SHARED_LOADING=false,AUTO_REFRESH_TIMER=null,LAST_SHARED_SIG='';
+const SHEETS_API_URL='https://script.google.com/macros/s/AKfycbz7r_9lHuw-whMyaSm2pm9lOO__SXbtcS3gWEwM4sipHiI1maRHW8MVxQJb0zD78v6T/exec';
+const cats=['식비','야시장','교통','카페/간식','온천/입장','편의점','기타'];
+const pays=['현금','총무카드','개인카드','모바일페이'];
+const ready=()=>SHEETS_API_URL.startsWith('https://script.google.com/');
+
+function sharedSignature(v){
+  try{return JSON.stringify({
+    checklist:(v.checklist||[]).map(x=>[x.row,x.item,x.owner,x.note]),
+    trains:(v.trains||[]).map(x=>[x.row,x.date,x.route,x.departure,x.arrival,x.trainNo,x.status,x.note]),
+    expenses:(v.expenses||[]).map(x=>[x.row,x.time,x.date,x.cat,x.cur,x.raw,x.pay,x.memo,x.rate,x.krw])
+  })}catch(e){return ''}
+}
+function renderActiveSharedIfNeeded(){
+  renderMoney();
+  if(active==='check')renderCheck();
+  else if(active==='train')renderTrain();
+  else if(active==='money')renderMoneyPage();
+}
+async function backgroundRefresh(){
+  if(!ready() || document.hidden || SHARED_LOADING) return;
+  if(active==='food'){
+    const ok=await loadFoodVotes(true);
+    if(ok&&active==='food')renderFood();
+    return;
+  }
+  const before=LAST_SHARED_SIG || sharedSignature(SHARED);
+  const ok=await loadShared(true);
+  if(!ok) return;
+  const after=sharedSignature(SHARED);
+  if(after!==before){
+    LAST_SHARED_SIG=after;
+    renderActiveSharedIfNeeded();
+  }
+}
+function startAutoRefresh(){
+  if(AUTO_REFRESH_TIMER) clearInterval(AUTO_REFRESH_TIMER);
+  AUTO_REFRESH_TIMER=setInterval(()=>{backgroundRefresh()},30000);
+}
+document.addEventListener('visibilitychange',()=>{
+  if(document.hidden){
+    if(AUTO_REFRESH_TIMER){clearInterval(AUTO_REFRESH_TIMER);AUTO_REFRESH_TIMER=null}
+  }else{
+    backgroundRefresh();
+    startAutoRefresh();
+  }
+});
+
+async function load(){
+  try{
+    DATA=await fetch('trip-data.json?v='+Date.now()).then(r=>{
+      if(!r.ok) throw new Error('trip-data load failed');
+      return r.json();
+    });
+    document.getElementById('meta').textContent=DATA.meta.dates+' · '+DATA.meta.people+'명';
+    renderNav();
+    renderChips();
+
+    // First render immediately from local/static data so the app never stays blank.
+    if(ready()){
+      // Shared data starts empty so the UI never flashes static/local values before Sheet data arrives.
+      SHARED.checklist=[];
+      SHARED.trains=[];
+      SHARED.expenses=[];
+      setMoneyLoading();
+    }else{
+      SHARED.checklist=DATA.checklist||[];
+      SHARED.trains=DATA.trains||[];
+      SHARED.expenses=getLocal();
+      SHARED_LOADED=true;
+      renderMoney();
+    }
+
+    show('d1');
+
+    // Load all shared data once at startup. Tab switches use in-memory data instantly.
+    if(ready()){
+      const ok=await loadShared();
+      if(ok){
+        LAST_SHARED_SIG=sharedSignature(SHARED);
+        renderMoney();
+        if(['check','train','money'].includes(active)) show(active);
+        startAutoRefresh();
+      }else{
+        setMoneyUnavailable();
+        if(['check','train','money'].includes(active)) show(active);
+      }
+    }
+  }catch(err){
+    document.getElementById('meta').textContent='일정 데이터를 불러오지 못했습니다';
+    document.getElementById('main').innerHTML='<section class="section"><div class="card"><h2>데이터 로딩 오류</h2><p class="notice">trip-data.json 업로드 상태를 확인해주세요.</p></div></section>';
+    console.error(err);
+  }
+}
+function loadShared(force=false){
+  if(SHARED_LOADED && !force) return Promise.resolve(true);
+  if(SHARED_LOADING && !force) return new Promise(resolve=>{
+    const wait=setInterval(()=>{
+      if(!SHARED_LOADING){clearInterval(wait);resolve(SHARED_LOADED)}
+    },80);
+  });
+  SHARED_LOADING=true;
+  return new Promise(res=>{
+    const cb='cb_'+Date.now(), s=document.createElement('script');
+    let done=false;
+    const finish=(ok)=>{
+      if(done)return; done=true;
+      SHARED_LOADING=false;
+      try{delete window[cb]}catch(e){}
+      try{s.remove()}catch(e){}
+      res(ok);
+    };
+    const timer=setTimeout(()=>finish(false),5000);
+    window[cb]=r=>{
+      clearTimeout(timer);
+      if(r&&r.ok){
+        SHARED.checklist=r.checklist||[];
+        SHARED.trains=r.trains||[];
+        SHARED.expenses=r.expenses||[];
+        SHARED_LOADED=true;
+        finish(true);
+      }else finish(false);
+    };
+    s.onerror=()=>{clearTimeout(timer);finish(false)};
+    s.src=SHEETS_API_URL+'?action=all&callback='+encodeURIComponent(cb)+'&_='+Date.now();
+    document.head.appendChild(s);
+  });
+}
+function postShared(o,after){if(!ready())return alert('Apps Script 주소 설정이 필요합니다.');let f=document.createElement('form'),i;f.method='POST';f.action=SHEETS_API_URL;f.target='gas_sink';f.style.display='none';Object.entries(o).forEach(([k,v])=>{i=document.createElement('input');i.name=k;i.value=v??'';f.appendChild(i)});document.body.appendChild(f);f.submit();f.remove();setTimeout(async()=>{
+    SHARED_LOADED=false;
+    const ok=await loadShared(true);
+    if(ok)LAST_SHARED_SIG=sharedSignature(SHARED);
+    renderMoney();
+    after?after():show(active);
+  },700)}
+function renderNav(){
+  document.getElementById('nav').innerHTML=
+    DATA.days.map(d=>`<button id="n-${d.id}" onclick="show('${d.id}')">${d.date}</button>`).join('');
+}
+function show(id){active=id;
+  document.querySelectorAll('.nav button').forEach(x=>x.classList.remove('active'));
+  document.querySelectorAll('.bottom button').forEach(x=>x.classList.remove('active'));
+  let b=document.getElementById('n-'+id); if(b)b.classList.add('active');
+  let u=document.getElementById('u-'+id); if(u)u.classList.add('active');
+  let d=DATA.days.find(x=>x.id===id);if(d){document.getElementById('main').innerHTML=`<section class="section"><div class="card">${d.tags.map(t=>`<span class="badge">${t}</span>`).join('')}<h2>${d.date} · ${d.title}</h2><div class="timeline">${d.items.map(i=>`<div class="item"><div class="time">${i[0]}</div><div class="title">${i[1]}</div><div class="desc">${i[2]}</div></div>`).join('')}</div>${d.linkSections?`<div class="link-sections">${d.linkSections.map(s=>`<div class="link-sector"><h3>${s.title}</h3><div class="btnrow">${s.links.map(l=>`<a class="btn" target="_blank" href="${l[1]}">${l[0]}</a>`).join('')}</div></div>`).join('')}</div>`:''}</div></section>`;return}if(id==='check')renderCheck();if(id==='train')renderTrain();if(id==='money')renderMoneyPage();if(id==='food')renderFood();if(id==='stay')renderStay()}
+
+
+
+
+const VOTER_ID_KEY='tw_food_voter_id_v1', VOTER_NAME_KEY='tw_food_voter_name_v1';
+let FOOD_VOTES_LOADING=false, FOOD_VOTES_LOADED_AT=0;
+
+function voterId(){
+  let id=localStorage.getItem(VOTER_ID_KEY);
+  if(!id){
+    id=(window.crypto&&crypto.randomUUID)?crypto.randomUUID():('v_'+Date.now()+'_'+Math.random().toString(36).slice(2));
+    localStorage.setItem(VOTER_ID_KEY,id);
+  }
+  return id;
+}
+function voterName(){return (localStorage.getItem(VOTER_NAME_KEY)||'').trim()}
+function ensureVoterName(){
+  let n=voterName();
+  if(n)return n;
+  n=(prompt('숟가락 투표에 사용할 이름을 입력해주세요.\\n예: 도영, 은율')||'').trim();
+  if(!n)return '';
+  n=n.slice(0,20);
+  localStorage.setItem(VOTER_NAME_KEY,n);
+  voterId();
+  return n;
+}
+function changeVoterName(){
+  const old=voterName();
+  let n=(prompt('투표에 표시할 이름',old)||'').trim();
+  if(!n)return;
+  n=n.slice(0,20);
+  localStorage.setItem(VOTER_NAME_KEY,n);
+  postFoodAction({action:'renameFoodVoter',voterId:voterId(),voterName:n},async()=>{
+    await loadFoodVotes(true);
+    if(active==='food')renderFood();
+  });
+}
+function foodVotesFor(id){return (SHARED.foodVotes&&SHARED.foodVotes[id])||[]}
+function isMyFoodVote(id){const me=voterId();return foodVotesFor(id).some(v=>String(v.id)===me)}
+function loadFoodVotes(force=false){
+  if(!ready())return Promise.resolve(false);
+  if(!force && FOOD_VOTES_LOADED_AT && Date.now()-FOOD_VOTES_LOADED_AT<15000)return Promise.resolve(false);
+  if(FOOD_VOTES_LOADING&&!force)return Promise.resolve(false);
+  FOOD_VOTES_LOADING=true;
+  return new Promise(res=>{
+    const cb='fv_'+Date.now()+'_'+Math.random().toString(36).slice(2),s=document.createElement('script');
+    let done=false;
+    const finish=ok=>{if(done)return;done=true;FOOD_VOTES_LOADING=false;try{delete window[cb]}catch(e){};try{s.remove()}catch(e){};res(ok)};
+    const timer=setTimeout(()=>finish(false),4000);
+    window[cb]=r=>{clearTimeout(timer);if(r&&r.ok){SHARED.foodVotes=r.foodVotes||{};FOOD_VOTES_LOADED_AT=Date.now();finish(true)}else finish(false)};
+    s.onerror=()=>{clearTimeout(timer);finish(false)};
+    s.src=SHEETS_API_URL+'?action=foodVotes&callback='+encodeURIComponent(cb)+'&_='+Date.now();
+    document.head.appendChild(s);
+  });
+}
+function postFoodAction(obj,after){
+  if(!ready())return alert('Apps Script 주소 설정이 필요합니다.');
+  const f=document.createElement('form');f.method='POST';f.action=SHEETS_API_URL;f.target='gas_sink';f.style.display='none';
+  Object.entries(obj).forEach(([k,v])=>{const i=document.createElement('input');i.name=k;i.value=v??'';f.appendChild(i)});
+  document.body.appendChild(f);f.submit();f.remove();
+  setTimeout(()=>{if(after)after()},350);
+}
+function toggleFoodVote(foodId){
+  const name=ensureVoterName(); if(!name)return;
+  const id=voterId(), arr=foodVotesFor(foodId).slice(), idx=arr.findIndex(v=>String(v.id)===id);
+  if(idx>=0)arr.splice(idx,1); else arr.push({id:id,name:name});
+  SHARED.foodVotes[foodId]=arr;
+  if(active==='food')renderFood();
+  postFoodAction({action:'toggleFoodVote',foodId:foodId,voterId:id,voterName:name},async()=>{
+    await loadFoodVotes(true);
+    if(active==='food')renderFood();
+  });
+}
+
+let FOOD_STICKY_RAF=0;
+function syncFoodStickyTop(){
+  if(active!=='food') return;
+  cancelAnimationFrame(FOOD_STICKY_RAF);
+  FOOD_STICKY_RAF=requestAnimationFrame(()=>{
+    const hero=document.querySelector('.hero');
+    const nav=document.querySelector('.nav');
+    let bottom=0;
+    if(hero){
+      const r=hero.getBoundingClientRect();
+      if(r.bottom>0) bottom=Math.max(bottom,r.bottom);
+    }
+    if(nav){
+      const r=nav.getBoundingClientRect();
+      if(r.bottom>0) bottom=Math.max(bottom,r.bottom);
+    }
+    // Keep the food-region title just below the visible sticky header/date bar.
+    const top=Math.max(8,Math.round(bottom+6));
+    document.documentElement.style.setProperty('--food-sticky-top',top+'px');
+  });
+}
+window.addEventListener('scroll',syncFoodStickyTop,{passive:true});
+window.addEventListener('resize',syncFoodStickyTop,{passive:true});
+
+
+function spoonIcon(){
+  return `<svg class="spoon-svg" viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M8.5 2.5c-2.6 0-4.5 2.5-4.5 5.5 0 2.6 1.5 4.6 3.6 5.2l-.7 7.2c-.1.9.5 1.6 1.3 1.6s1.4-.7 1.3-1.6l-.7-7.2c2.1-.6 3.6-2.6 3.6-5.2 0-3-1.9-5.5-3.9-5.5z"/>
+  </svg>`;
+}
+
+function renderFood(){
+  const guide=(DATA&&DATA.foodGuide)||[], me=voterName();
+  document.getElementById('main').innerHTML=`<section class="section"><div class="card">
+    <h2>🍜 대만 맛집 가이드</h2>
+    <p class="notice">각 날짜 일정 아래의 추천 음식은 그대로 유지합니다. 숟가락은 한 사람당 한 식당에 1개만 줄 수 있고, 여러 식당에는 자유롭게 투표할 수 있습니다.</p>
+    <div class="food-voter-bar">
+      <span>👤 ${me?`내 투표 이름: <b>${esc(me)}</b>`:'숟가락을 누르면 이름을 한 번 입력합니다.'}</span>
+      ${me?`<button onclick="changeVoterName()">이름 변경</button>`:''}
+    </div>
+    ${guide.map(g=>`<div class="food-region">
+      <h3>📍 ${esc(g.region)}</h3>
+      ${(g.items||[]).map(x=>{
+        const v=foodVotesFor(x.voteId), mine=isMyFoodVote(x.voteId), names=v.map(a=>a.name).filter(Boolean);
+        return `<div class="food-card ${x.pick?'has-pick':''}">
+          <div class="food-vote-count">${spoonIcon()} × ${v.length}</div>
+          ${x.pick?`<div class="food-pick">⭐ ${esc(x.pick)}</div>`:''}
+          <div class="food-name">${esc(x.name)}${x.krName?` (${esc(x.krName)})`:''}</div>
+          <div class="food-type">${esc(x.food)}</div>
+          <div class="food-desc">${esc(x.desc)}</div>
+          ${names.length?`<div class="food-voters">${spoonIcon()} ${names.map(esc).join(' · ')}</div>`:''}
+          <div class="food-meta">
+            <div class="food-meta-row"><b>📍 기준점</b><span>${esc(x.near||'')}</span></div>
+            <div class="food-meta-row"><b>📏 거리감</b><span>${esc(x.distance||'')}</span></div>
+            <div class="food-meta-row"><b>🗓 추천</b><span>${esc(x.timing||'')}</span></div>
+          </div>
+          <div class="food-bottom-actions">
+            <a class="btn food-map" target="_blank" href="${esc(x.map)}">📍 지도 보기</a>
+            <button class="food-spoon ${mine?'mine':''}" onclick="toggleFoodVote('${esc(x.voteId)}')" aria-label="먹고 싶은 식당 투표">${spoonIcon()}</button>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>`).join('')}
+  </div></section>`;
+  requestAnimationFrame(syncFoodStickyTop);
+  loadFoodVotes().then(ok=>{if(ok&&active==='food')renderFood()});
+}
+
+function renderStay(){
+  document.getElementById('main').innerHTML=`<section class="section"><div class="card">
+    <h2>🏨 숙소 · 🚲 렌탈</h2>
+
+    <div class="link-sections">
+      <div class="link-sector">
+        <h3>🏨 화롄 숙소 · 10/5~10/8</h3>
+        <div class="notice" style="margin-bottom:8px">No. 13, Haibin Street, Hualien City, Taiwan 970</div>
+        <div class="btnrow">
+          <a class="btn" target="_blank" href="https://www.google.com/maps/search/?api=1&query=No.+13,+Haibin+Street,+Hualien+City,+Taiwan+970">지도 열기</a>
+        </div>
+      </div>
+
+      <div class="link-sector">
+        <h3>🚲 화롄 자전거 렌탈샵</h3>
+        <div class="notice" style="margin-bottom:8px">No. 127, Guolian 1st Rd., Guolian Vill., Hualien City, Hualien County 970</div>
+        <div class="btnrow">
+          <a class="btn" target="_blank" href="https://www.google.com/maps/search/?api=1&query=No.+127,+Guolian+1st+Rd.,+Guolian+Vill.,+Hualien+City,+Hualien+County+970">지도 열기</a>
+        </div>
+      </div>
+
+      <div class="link-sector">
+        <h3>🏨 타이베이 숙소 · 10/8~10/9</h3>
+        <div class="notice" style="margin-bottom:8px">No. 80, Huayin Street, 建明里, Taipei City 103</div>
+        <div class="btnrow">
+          <a class="btn" target="_blank" href="https://www.google.com/maps/search/?api=1&query=No.+80,+Huayin+Street,+Taipei+City+103">지도 열기</a>
+        </div>
+      </div>
+    </div>
+  </div></section>`;
+}
+
+function getLocalChecklistState(){try{return JSON.parse(localStorage.getItem('tw_check_state_v1')||'{}')}catch(e){return{}}}
+function setLocalChecklistState(key,done){let s=getLocalChecklistState();s[key]=!!done;localStorage.setItem('tw_check_state_v1',JSON.stringify(s))}
+function checklistKey(x){return 'item:'+(x.item||'')+'|owner:'+(x.owner||'')}
+function renderCheck(){
+  if(ready() && !SHARED_LOADED){
+    document.getElementById('main').innerHTML=`<section class="section"><div class="card">
+      <h2>🎒 준비물</h2>
+      <div class="syncbar"><span class="dot"></span>공용 준비물 목록을 불러오는 중...</div>
+      <div class="listrow"><div></div><div><b>잠시만 기다려주세요</b><div class="notice">체크 상태는 각자 휴대폰에만 저장됩니다.</div></div><div></div></div>
+    </div></section>`;
+    return;
+  }
+  let a=SHARED.checklist||[],s=getLocalChecklistState();
+  document.getElementById('main').innerHTML=`<section class="section"><div class="card">
+    <h2>🎒 준비물</h2>
+    <div class="syncbar"><span class="dot ${ready()?'ok':''}"></span>${ready()?'목록은 공용 · 체크는 내 기기에만 저장':'체크는 내 기기에만 저장'}</div>
+    <div class="btnrow"><button class="btn dark" onclick="addChecklist()">＋ 준비물</button><button class="btn" onclick="refreshChecklist()">↻</button></div>
+    ${a.map(x=>{let key=checklistKey(x),checked=!!s[key];return `<div class="listrow"><input type="checkbox" ${checked?'checked':''} onchange="toggleCheckLocal('${encodeURIComponent(key)}',this.checked)"><div><b>${esc(x.item)}</b><div class="notice">${esc(x.note||'')}</div></div><div style="text-align:right">${esc(x.owner||'')}${x.row?`<br><button class="rowbtn danger" onclick="delCheck(${x.row})">삭제</button>`:''}</div></div>`}).join('')}
+  </div></section>`;
+}
+async function refreshChecklist(){
+  if(!ready()){renderCheck();return;}
+  SHARED_LOADED=false;
+  renderCheck();
+  await loadShared(true);
+  LAST_SHARED_SIG=sharedSignature(SHARED);
+  renderCheck();
+}
+function toggleCheckLocal(encodedKey,done){setLocalChecklistState(decodeURIComponent(encodedKey),done)}
+function addChecklist(){let item=prompt('준비물');if(!item)return;postShared({action:'addChecklist',item,owner:prompt('담당','각자')||'',note:prompt('메모','')||''},renderCheck)}
+function delCheck(row){if(confirm('이 준비물 항목을 공용 목록에서 삭제할까요?'))postShared({action:'deleteChecklist',row},renderCheck)}
+function displayTrainTime(v){
+  const s=String(v||'');
+  const m=s.match(/(\d{1,2}):(\d{2})/);
+  return m ? String(m[1]).padStart(2,'0')+':'+m[2] : s;
+}
+function renderTrain(){
+  if(ready() && !SHARED_LOADED){
+    document.getElementById('main').innerHTML=`<section class="section"><div class="card">
+      <h2>🚆 열차시간</h2>
+      <div class="syncbar"><span class="dot"></span>Google Sheet에서 열차 정보를 불러오는 중...</div>
+    </div></section>`;
+    return;
+  }
+  let a=SHARED.trains||[];
+  document.getElementById('main').innerHTML=`<section class="section">
+    <div class="card">
+      <h2>🚆 열차시간</h2>
+      <div class="syncbar"><span class="dot ${ready()?'ok':''}"></span>${ready()?'Google Sheet 공동 저장':'연결 전'}</div>
+      <div class="btnrow"><button class="btn" onclick="refreshTrain()">↻ 새로고침</button></div>
+      ${a.map(x=>`<div class="listrow"><span>${esc(x.date)}</span><div><b>${esc(x.route)}</b><div class="notice">${esc(x.trainNo?'열차 '+x.trainNo+' · ':'')}${esc(x.status||'')}<br>${esc(x.note||'')}</div></div><div style="text-align:right"><strong>${esc(displayTrainTime(x.departure)||'미정')}</strong>${x.arrival?`<div class="notice">→ ${esc(displayTrainTime(x.arrival))}</div>`:''}${x.row?`<br><button class="rowbtn" onclick="editTrain(${x.row})">수정</button>`:''}</div></div>`).join('')}
+    </div>
+
+    <div class="card" style="margin-top:14px">
+      <h2>🧭 대만 이동 가이드</h2>
+      <div class="transport-guide">
+        <div class="transport-card">
+          <h3>🚇 타이베이 MRT 이용</h3>
+          <div class="tip">
+            <b>가장 간단:</b> Visa·Mastercard·JCB 등 비접촉식 카드 또는 Apple Pay·Google Pay·Samsung Pay로 개찰구에서 바로 탭.<br>
+            <b>중요:</b> 들어갈 때와 나올 때 <b>같은 카드/같은 휴대폰</b>을 사용하세요.<br>
+            카드 탑승은 일반 1회권 요금이 청구되며, 교통카드의 환승 할인은 적용되지 않습니다.
+          </div>
+          <div class="btnrow" style="margin-top:10px">
+            <a class="btn" target="_blank" href="https://english.metro.taipei/News_Content.aspx?n=034BD8E0AB821D47&s=19CEC09373C12170&sms=5B794C46F3CDE718">MRT 카드탑승 공식안내</a>
+            <a class="btn" target="_blank" href="https://english.metro.taipei/cp.aspx?n=BECC2E7AC426F659&s=74E62C405BBE3069">요금·티켓 안내</a>
+          </div>
+        </div>
+
+        <div class="transport-card">
+          <h3>🚕 택시 이용 · 카드결제</h3>
+          <div class="tip">
+            대만 일반 택시는 <b>현금은 기본적으로 가능</b>하지만, 모든 택시가 카드결제를 받는 것은 아닙니다.<br>
+            길에서 잡은 택시에서 카드로 결제하려면 <b>출발 전에 기사에게 카드 가능 여부를 확인</b>하는 게 안전합니다.<br>
+            카드결제를 확실히 하고 싶으면 LINE GO 같은 호출 플랫폼에서 <b>온라인 결제수단을 미리 설정</b>하는 편이 편합니다.
+          </div>
+          <div class="phrase">기사에게 보여주기: 可以刷卡嗎？ · Kěyǐ shuākǎ ma? · 카드 결제 되나요?</div>
+          <div class="btnrow" style="margin-top:10px">
+            <a class="btn" target="_blank" href="https://eng.taiwan.net.tw/m1.aspx?sNo=0029050">대만 관광청 택시 안내</a>
+          </div>
+        </div>
+
+        <div class="transport-card">
+          <h3>📱 LINE으로 택시 부르기 · LINE GO</h3>
+          <div class="tip">
+            <b>별도 앱을 꼭 설치할 필요 없이 LINE에서 LINE GO를 이용</b>할 수 있습니다.<br>
+            ① LINE에서 <b>LINE GO</b> 검색/공식계정 진입 → ② 휴대폰 번호 인증 → ③ <b>地圖叫車(지도 호출)</b> → ④ 출발지·목적지 입력 → ⑤ 차량/예상요금 확인 → 호출.<br>
+            카드로 탈 계획이면 호출 전에 <b>설정 → 결제수단</b>에서 신용카드 또는 지원되는 온라인 결제를 먼저 등록해두는 것이 좋습니다.
+          </div>
+          <div class="phrase">팁: 숙소 주소와 화롄역·렌탈샵 주소를 LINE GO에 복사해 넣으면 중국어 주소 입력이 훨씬 편합니다.</div>
+          <div class="btnrow" style="margin-top:10px">
+            <a class="btn" target="_blank" href="https://www.linego.me/">LINE GO 공식</a>
+            <a class="btn" target="_blank" href="https://www.linego.me/news/672">온라인 결제 설정방법</a>
+          </div>
+        </div>
+
+        <div class="transport-card">
+          <h3>💡 우리 4명 기준 팁</h3>
+          <div class="tip">
+            짧은 시내 이동은 <b>MRT</b>, 화롄에서 4명이 함께 움직이거나 짐이 있을 때는 <b>택시</b>가 편합니다.<br>
+            길거리 택시는 현금 백업을 준비하고, 카드가 꼭 필요하면 <b>LINE GO에서 결제수단을 미리 설정</b>해두는 방식이 가장 간단합니다.
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>`;
+}
+async function refreshTrain(){
+  if(!ready()){renderTrain();return;}
+  SHARED_LOADED=false;
+  renderTrain();
+  const ok=await loadShared(true);
+  if(ok)LAST_SHARED_SIG=sharedSignature(SHARED);
+  renderTrain();
+}
+function editTrain(row){
+  const x=SHARED.trains.find(v=>v.row===row); if(!x)return;
+  TRAIN_EDIT_ROW=row;
+  ensureTimeOptions();
+  applyTime('dep',x.departure);
+  applyTime('arr',x.arrival);
+  document.getElementById('trTrainNo').value=x.trainNo||'';
+  const statusEl=document.getElementById('trStatus');
+  statusEl.value=x.status||'예약 필요';
+  if(!statusEl.value)statusEl.value='예약 필요';
+  document.getElementById('trNote').value=x.note||'';
+  document.getElementById('trainModal').classList.add('show');
+}
+function closeTrainModal(){
+  document.getElementById('trainModal').classList.remove('show');
+  TRAIN_EDIT_ROW=null;
+}
+function saveTrainEdit(){
+  if(!TRAIN_EDIT_ROW)return;
+  const departure=to24('dep');
+  const arrival=to24('arr');
+  const trainNo=document.getElementById('trTrainNo').value.trim();
+  const status=document.getElementById('trStatus').value;
+  const note=document.getElementById('trNote').value.trim();
+  const row=TRAIN_EDIT_ROW;
+  closeTrainModal();
+  postShared({action:'updateTrain',row,departure,arrival,trainNo,status,note},renderTrain);
+}
+function getLocal(){try{return JSON.parse(localStorage.getItem('tw_expenses_v3')||'[]')}catch(e){return[]}}
+function setMoneyLoading(){
+  const spent=document.getElementById('spentTop'), remain=document.getElementById('remainTop');
+  if(spent) spent.textContent='불러오는 중';
+  if(remain) remain.textContent='불러오는 중';
+}
+function setMoneyUnavailable(){
+  const spent=document.getElementById('spentTop'), remain=document.getElementById('remainTop');
+  if(spent) spent.textContent='연결 확인';
+  if(remain) remain.textContent='연결 확인';
+}
+function renderMoney(){let a=SHARED.expenses||[],budget=DATA?DATA.meta.budgetKRW:1600000,total=Math.round(a.reduce((s,x)=>s+(Number(x.krw)||0),0));document.getElementById('spentTop').textContent=total.toLocaleString()+'원';document.getElementById('remainTop').textContent=Math.max(0,budget-total).toLocaleString()+'원';if(active==='money')renderMoneyPage()}
+function renderMoneyPage(){
+  if(ready() && !SHARED_LOADED){
+    document.getElementById('main').innerHTML=`<section class="section"><div class="card">
+      <h2>💰 공동경비</h2>
+      <div class="syncbar"><span class="dot"></span>Google Sheet에서 경비를 불러오는 중...</div>
+      <div class="grid2"><div class="kv"><small>누적 사용</small><strong>—</strong></div><div class="kv"><small>남은 경비</small><strong>—</strong></div></div>
+    </div></section>`;
+    return;
+  }
+  let a=SHARED.expenses||[],budget=DATA.meta.budgetKRW,total=Math.round(a.reduce((s,x)=>s+(Number(x.krw)||0),0));
+  document.getElementById('main').innerHTML=`<section class="section">
+    <div class="card">
+      <h2>💰 공동경비</h2>
+      <div class="syncbar"><span class="dot ${ready()?'ok':''}"></span>${ready()?'Google Sheet 공동 저장':'이 기기 임시 저장'}</div>
+      <div class="grid2"><div class="kv"><small>누적 사용</small><strong>${total.toLocaleString()}원</strong></div><div class="kv"><small>남은 경비</small><strong>${Math.max(0,budget-total).toLocaleString()}원</strong></div></div>
+      <div class="btnrow"><button class="btn dark" onclick="openExpense()">＋ 경비 입력</button><button class="btn" onclick="refreshMoney()">↻ 새로고침</button><button class="btn" onclick="exportCsv()">CSV</button></div>
+      <div style="margin-top:8px">${a.map(x=>`<div class="expense"><div><b>${esc(x.cat)}</b> · ${x.cur==='TWD'?'NT$':''}${Number(x.raw).toLocaleString()}${x.cur==='KRW'?'원':''}<div class="notice">${esc(x.pay||'')}${x.memo?' · '+esc(x.memo):''} · ${esc(x.time||x.local||'')}</div></div>${x.row?`<button onclick="delE(${x.row})" style="border:0;background:none;color:#dc2626">삭제</button>`:''}</div>`).join('')||'<p class="notice">아직 경비가 없습니다.</p>'}</div>
+    </div>
+
+    <div class="card" style="margin-top:14px">
+      <h2>🏧 ATM · 현금인출</h2>
+      <div class="link-sections">
+        <div class="link-sector">
+          <h3>✅ 추천 ATM 우선순위</h3>
+          <div class="atm-rank">
+            <div class="atm-rank-item"><b>1순위 · Cathay United Bank 國泰世華</b><div class="sub">여행자 사용 사례에서 현지 ATM 수수료가 없었다는 보고가 많아 우선 검색. 초록 나무 로고가 특징.</div></div>
+            <div class="atm-rank-item"><b>2순위 · Bank of Taiwan 臺灣銀行</b><div class="sub">공항·도심에서 찾기 쉬운 국영은행. 해외카드 인출 시 수수료가 표시되지 않았다는 여행자 사례가 있어 두 번째 후보로 추천.</div></div>
+            <div class="atm-rank-item"><b>후순위 · CTBC 中國信託</b><div class="sub">7-Eleven 등에 많아 편리하지만 해외카드에 현지 ATM 수수료가 붙는 사례가 있어 먼저 Cathay/Bank of Taiwan을 찾아보는 편이 좋음.</div></div>
+          </div>
+        </div>
+
+        <div class="link-sector"><h3>✈️ 타오위안 공항</h3><div class="notice" style="margin-bottom:8px">도착층에서 먼저 <b>Bank of Taiwan</b> 또는 <b>Cathay United</b> ATM을 찾아보세요. 화면에 별도 ATM 수수료가 나오면 다른 기기를 비교해도 됩니다.</div><div class="btnrow"><a class="btn" target="_blank" href="https://www.google.com/maps/search/?api=1&query=Bank+of+Taiwan+ATM+Taoyuan+International+Airport">Bank of Taiwan 공항 ATM</a><a class="btn" target="_blank" href="https://www.google.com/maps/search/?api=1&query=Cathay+United+Bank+ATM+Taoyuan+International+Airport">Cathay 공항 ATM</a></div></div>
+
+        <div class="link-sector"><h3>🚉 타이베이 메인역 주변</h3><div class="notice" style="margin-bottom:8px">Taipei Main Station 주변에서 두 은행을 우선 검색.</div><div class="btnrow"><a class="btn" target="_blank" href="https://www.google.com/maps/search/?api=1&query=Cathay+United+Bank+ATM+Taipei+Main+Station">Cathay ATM</a><a class="btn" target="_blank" href="https://www.google.com/maps/search/?api=1&query=Bank+of+Taiwan+ATM+Taipei+Main+Station">Bank of Taiwan ATM</a><a class="btn" target="_blank" href="https://www.google.com/maps/search/?api=1&query=Cathay+United+Bank+77+Boai+Road+Taipei">Cathay Bo'ai Rd 지점</a></div></div>
+
+        <div class="link-sector"><h3>🚉 화롄역 주변</h3><div class="notice" style="margin-bottom:8px">화롄에서도 Cathay United → Bank of Taiwan 순으로 검색해보는 방식.</div><div class="btnrow"><a class="btn" target="_blank" href="https://www.google.com/maps/search/?api=1&query=Cathay+United+Bank+ATM+Hualien">Cathay ATM</a><a class="btn" target="_blank" href="https://www.google.com/maps/search/?api=1&query=Bank+of+Taiwan+ATM+Hualien">Bank of Taiwan ATM</a><a class="btn" target="_blank" href="https://www.google.com/maps/search/?api=1&query=Cathay+United+Bank+163+Minguo+Road+Hualien">Cathay 화롄 지점</a></div></div>
+
+        <div class="link-sector"><h3>⚠️ 인출할 때 꼭 확인</h3><div class="notice">1. 카드 삽입 → PIN<br>2. 계좌 선택 시 보통 <b>Default Account</b><br>3. 금액 선택<br>4. 환율변환 화면이 나오면 <b>Defer Conversion</b> 또는 <b>Decline Conversion</b><br>5. 통화 선택은 <b>TWD</b><br><br><b>KRW 환율변환(DCC)을 선택하지 않는 것이 핵심.</b> 현지 ATM 수수료가 화면에 별도로 표시되면 그 안내가 최종 기준입니다.</div></div>
+
+        <div class="link-sector"><h3>🖼 ATM 예시 이미지</h3><div class="atm-gallery">
+          <div class="atm-shot"><h4>예시 1 · Cathay United Bank ATM 찾기</h4><img src="assets/atm-cathay-example.jpg" alt="Cathay United Bank ATM 예시"><div class="caption">초록 나무 로고와 <b>Cathay United Bank ATM</b> 간판을 찾으면 됩니다.</div></div>
+          <div class="atm-shot"><h4>예시 2 · 인출 순서 요약</h4><img src="assets/atm-guide-steps.jpg" alt="대만 ATM 인출 순서 예시"><div class="caption"><b>초록 나무 간판 → 카드 → PIN → Default Account → 금액 → Defer Conversion → 인출</b></div></div>
+        </div></div>
+      </div>
+    </div>
+  </section>`;
+}
+
+async function refreshMoney(){
+  if(!ready()){renderMoney();renderMoneyPage();return;}
+  SHARED_LOADED=false;
+  renderMoneyPage();
+  const ok=await loadShared();
+  if(ok){LAST_SHARED_SIG=sharedSignature(SHARED);renderMoney();renderMoneyPage();}
+  else{setMoneyUnavailable();renderMoneyPage();}
+}
+function renderChips(){document.getElementById('cats').innerHTML=cats.map((x,i)=>`<button class="chip ${i===0?'active':''}" onclick="pick('cat',this,'${x}')">${x}</button>`).join('');document.getElementById('pays').innerHTML=pays.map((x,i)=>`<button class="chip ${i===0?'active':''}" onclick="pick('pay',this,'${x}')">${x}</button>`).join('')}
+function pick(t,b,v){b.parentElement.querySelectorAll('.chip').forEach(x=>x.classList.remove('active'));b.classList.add('active');t==='cat'?cat=v:pay=v}
+function openExpense(){document.getElementById('sheet').classList.add('show');setTimeout(()=>document.getElementById('amt').focus(),100)}function closeExpense(){document.getElementById('sheet').classList.remove('show')}
+function saveExpense(){let raw=parseFloat(document.getElementById('amt').value||0);if(!raw)return;let cur=document.getElementById('cur').value,rate=DATA.meta.exchangeRateKRWPerTWD,memo=document.getElementById('memo').value.trim();if(ready())postShared({action:'addExpense',amount:raw,cur,rate,cat,pay,memo,date:new Date().toLocaleDateString('sv-SE'),inputter:''},()=>{document.getElementById('amt').value='';document.getElementById('memo').value='';closeExpense();renderMoneyPage()});else{let a=getLocal(),krw=cur==='KRW'?raw:raw*rate;a.unshift({raw,cur,krw,cat,pay,memo,local:new Date().toLocaleString('ko-KR')});localStorage.setItem('tw_expenses_v3',JSON.stringify(a));SHARED.expenses=a;renderMoney();closeExpense()}}
+function delE(row){if(confirm('이 경비를 삭제할까요?'))postShared({action:'deleteExpense',row},()=>{renderMoney();renderMoneyPage()})}
+function exportCsv(){let a=SHARED.expenses||[];if(!a.length)return alert('경비 내역이 없습니다.');let rows=[['시간','분류','결제수단','금액','통화','KRW환산','메모'],...a.slice().reverse().map(x=>[x.time||x.local,x.cat,x.pay,x.raw,x.cur,Math.round(x.krw),x.memo])],csv='\uFEFF'+rows.map(r=>r.map(v=>`"${String(v??'').replaceAll('"','""')}"`).join(',')).join('\n'),blob=new Blob([csv],{type:'text/csv;charset=utf-8;'}),u=URL.createObjectURL(blob),aa=document.createElement('a');aa.href=u;aa.download='대만여행_공동경비.csv';aa.click();setTimeout(()=>URL.revokeObjectURL(u),500)}
+function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+load();
+</script>
+<iframe name="gas_sink" id="gas_sink" style="display:none"></iframe>
+
+<div id="trainModal" class="train-modal-backdrop" onclick="if(event.target===this)closeTrainModal()">
+  <div class="train-modal">
+    <h3>🚆 열차시간 수정</h3>
+    <div class="train-form">
+      <label>출발시간
+        <div class="time-picker-row">
+          <div class="ampm">
+            <button type="button" id="depAM" onclick="setPeriod('dep','AM')">오전</button>
+            <button type="button" id="depPM" onclick="setPeriod('dep','PM')">오후</button>
+          </div>
+          <div class="hm-selects">
+            <select id="depHour"></select><span class="hm-colon">:</span><select id="depMinute"></select>
+          </div>
+        </div>
+      </label>
+      <label>도착시간
+        <div class="time-picker-row">
+          <div class="ampm">
+            <button type="button" id="arrAM" onclick="setPeriod('arr','AM')">오전</button>
+            <button type="button" id="arrPM" onclick="setPeriod('arr','PM')">오후</button>
+          </div>
+          <div class="hm-selects">
+            <select id="arrHour"></select><span class="hm-colon">:</span><select id="arrMinute"></select>
+          </div>
+        </div>
+      </label>
+      <label class="full">열차번호
+        <input id="trTrainNo" type="text" inputmode="numeric" placeholder="예: 273">
+      </label>
+      <label class="full">예약상태
+        <select id="trStatus">
+          <option value="예약 필요">예약 필요</option>
+          <option value="예약 예정">예약 예정</option>
+          <option value="예약 완료">예약 완료</option>
+          <option value="변경 필요">변경 필요</option>
+        </select>
+      </label>
+      <label class="full">메모
+        <textarea id="trNote" placeholder="탑승 관련 메모"></textarea>
+      </label>
+    </div>
+    <div class="train-modal-actions">
+      <button class="cancel" onclick="closeTrainModal()">취소</button>
+      <button class="save" onclick="saveTrainEdit()">저장</button>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
