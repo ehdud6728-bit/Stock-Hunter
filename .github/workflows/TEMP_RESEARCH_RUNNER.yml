@@ -1,4 +1,4 @@
-name: TEMP ODOLI Profit Taking Policy R1
+name: TEMP ODOLI Causal Frozen Composite Policy R1
 
 on:
   workflow_dispatch:
@@ -7,7 +7,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: temp-odoli-profit-taking-policy-r1
+  group: temp-odoli-causal-frozen-composite-policy-r1
   cancel-in-progress: false
 
 jobs:
@@ -39,22 +39,39 @@ jobs:
           git checkout
           cd ../..
 
-      - name: Run profit-taking policy comparison
+      - name: Run causal frozen composite replay
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p reports/temp_odoli_profit_taking_policy
+          mkdir -p reports/temp_odoli_causal_frozen_composite
 
           cat >/tmp/study.py <<'PY'
           from pathlib import Path
-          import json,re
+          import json,re,hashlib
           import numpy as np
           import pandas as pd
 
-          OUT=Path("reports/temp_odoli_profit_taking_policy")
+          OUT=Path("reports/temp_odoli_causal_frozen_composite")
           OUT.mkdir(parents=True,exist_ok=True)
-          REV="ODOLI_PROFIT_TAKING_POLICY_R1_20261002"
-          H=15
+
+          REV="ODOLI_CAUSAL_FROZEN_COMPOSITE_POLICY_R1_20261002"
+          H=10
+
+          POLICY_SPEC={
+              "entry":"D0_CLOSE",
+              "fast":"At D2 close: D2 Low > D1 Low AND D2 Close > D2 MA5",
+              "nonfast_pre_d4_cut":"For non-FAST only, if daily Close < signal Low on D1-D4, exit that Close",
+              "d4_cut":"For surviving non-FAST at D4: if D4 Close < MA5 AND D4 Low <= D3 Low, exit D4 Close",
+              "post_d4_watch":"Otherwise WATCH causally for original C4 through D10; C4 is descriptive/confirmation only and does not retroactively alter earlier decisions",
+              "final_exit":"Any still-open position exits D10 Close",
+              "tp_variants":{
+                  "NO_TP":"No fixed take profit",
+                  "FULL_TP5":"100% exits when High first reaches entry*1.05 before structural exit",
+                  "HALF_TP5":"50% exits at +5%; remainder follows structural exit",
+                  "THIRD_TP5_TP10":"1/3 exits at +5%, 1/3 at +10%, final 1/3 follows structural exit",
+                  "HALF_TP5_BE":"50% exits at +5%; remaining 50% uses entry-price breakeven stop after +5, otherwise structural exit"
+              }
+          }
 
           def norm_code(v):
               s=re.sub(r"\D","",str(v or ""))
@@ -98,11 +115,12 @@ jobs:
               return g
 
           sessions=sorted(pd.Timestamp(x).normalize() for x in q.Date.unique())
-          mature_end=sessions[-16]
+          mature_end=sessions[-11]
           sig_dates=[d for d in sessions if d<=mature_end][-40:]
           train=set(sig_dates[:20]); hold=set(sig_dates[20:]); sig_set=set(sig_dates)
 
           rows=[]
+          audit=[]
 
           for code,g0 in q.groupby("Code",sort=False):
               g=feat(g0)
@@ -127,6 +145,7 @@ jobs:
                   split="TRAIN_EARLY" if sig_date in train else "HOLDOUT_LATE"
                   entry=float(r0.Close); sig_low=float(r0.Low)
 
+                  # D2 FAST is known only at D2 close.
                   d1=g.iloc[i+1]; d2=g.iloc[i+2]
                   fast=bool(
                       float(d2.Low)>float(d1.Low)
@@ -134,8 +153,9 @@ jobs:
                       and float(d2.Close)>float(ma5.iloc[i+2])
                   )
 
-                  c4=False; c4_idx=None
-                  for j in range(i+4,i+11):
+                  # Descriptive eventual C4 classification only. Never used to alter pre-C4 exits.
+                  eventual_c4=False; c4_day=np.nan
+                  for j in range(i+4,i+H+1):
                       hist=g.iloc[i+1:j+1]
                       survive=bool(pd.to_numeric(hist.Low,errors="coerce").min()>=sig_low)
                       above=bool(pd.notna(ma5.iloc[j]) and float(g.iloc[j].Close)>float(ma5.iloc[j]))
@@ -144,96 +164,121 @@ jobs:
                       ama=float(pre20.mean()) if len(pre20) else np.nan
                       ar=float(amount.iloc[j]/ama) if pd.notna(ama) and ama>0 else np.nan
                       if above and hl and pd.notna(ar) and ar>=1.0 and survive:
-                          c4=True;c4_idx=j;break
+                          eventual_c4=True;c4_day=j-i;break
 
-                  if fast: state="FAST"
-                  elif c4: state="SLOW_C4"
-                  else: state="OTHER_WATCH"
+                  hindsight_state="FAST" if fast else ("SLOW_C4" if eventual_c4 else "OTHER_WATCH")
 
-                  future=g.iloc[i+1:i+H+1].copy()
+                  # Causal structural exit.
+                  structural_exit_idx=i+H
+                  structural_exit_price=float(g.iloc[i+H].Close)
+                  structural_reason="D10_FINAL"
+
+                  if not fast:
+                      exited=False
+                      # Close-confirmed signal-low failure through D4.
+                      for j in range(i+1,i+5):
+                          if float(g.iloc[j].Close)<sig_low:
+                              structural_exit_idx=j
+                              structural_exit_price=float(g.iloc[j].Close)
+                              structural_reason="NONFAST_SIGNAL_LOW_CLOSE_BREAK"
+                              exited=True
+                              break
+                      if not exited:
+                          j=i+4
+                          above=bool(pd.notna(ma5.iloc[j]) and float(g.iloc[j].Close)>float(ma5.iloc[j]))
+                          hl=bool(float(g.iloc[j].Low)>float(g.iloc[j-1].Low))
+                          if (not above) and (not hl):
+                              structural_exit_idx=j
+                              structural_exit_price=float(g.iloc[j].Close)
+                              structural_reason="D4_BELOW_MA5_NO_HL"
+                          else:
+                              structural_reason="WATCH_TO_D10"
+
+                  # Find TP touches only before/equal actual structural exit day.
                   hit5=None; hit10=None
-                  for j in range(i+1,i+H+1):
+                  for j in range(i+1,structural_exit_idx+1):
                       if hit5 is None and float(g.iloc[j].High)>=entry*1.05:
                           hit5=j
                       if hit10 is None and float(g.iloc[j].High)>=entry*1.10:
                           hit10=j
 
-                  # baseline family exit: FAST/C4 D10, OTHER_WATCH D4 structure cut candidate else D10
-                  def baseline_exit():
-                      if fast or c4:
-                          return i+10,float(g.iloc[i+10].Close),"D10_BASE"
-                      j=i+4
-                      alive=bool(pd.to_numeric(g.iloc[i+1:j+1].Low,errors="coerce").min()>=sig_low)
-                      above=bool(pd.notna(ma5.iloc[j]) and float(g.iloc[j].Close)>float(ma5.iloc[j]))
-                      hl=bool(float(g.iloc[j].Low)>float(g.iloc[j-1].Low))
-                      if (not alive) or ((not above) and (not hl)):
-                          return j,float(g.iloc[j].Close),"D4_OTHERWATCH_CUT"
-                      return i+10,float(g.iloc[i+10].Close),"D10_OTHERWATCH"
+                  base_ret=(structural_exit_price/entry-1)*100
 
-                  bx,bp,breason=baseline_exit()
-                  base_ret=(bp/entry-1)*100
+                  # NO_TP
+                  policies=[("NO_TP",base_ret,structural_reason)]
 
-                  policies=[]
-
-                  # A baseline
-                  policies.append(("BASELINE_FAST_C4_D10_D4CUT",base_ret,breason))
-
-                  # B: +5% full take profit; if never hit, baseline exit.
-                  if hit5 is not None and hit5<=bx:
-                      r=5.0
-                      reason="FULL_TP_5"
+                  # FULL +5
+                  if hit5 is not None:
+                      policies.append(("FULL_TP5",5.0,"FULL_TP5"))
                   else:
-                      r=base_ret; reason=breason
-                  policies.append(("FULL_TP_5",r,reason))
+                      policies.append(("FULL_TP5",base_ret,structural_reason))
 
-                  # C: +5% take 50%, remaining 50% baseline exit.
-                  if hit5 is not None and hit5<=bx:
-                      rem_ret=(bp/entry-1)*100
-                      r=0.5*5.0+0.5*rem_ret
-                      reason="HALF_TP5_HALF_BASE"
+                  # HALF +5, half structural
+                  if hit5 is not None:
+                      policies.append(("HALF_TP5",0.5*5.0+0.5*base_ret,"HALF_TP5_PLUS_STRUCTURAL"))
                   else:
-                      r=base_ret; reason=breason
-                  policies.append(("HALF_TP_5_HALF_BASE",r,reason))
+                      policies.append(("HALF_TP5",base_ret,structural_reason))
 
-                  # D: 1/3 at +5, 1/3 at +10, final 1/3 baseline.
-                  if hit5 is not None and hit5<=bx:
-                      if hit10 is not None and hit10<=bx:
+                  # Third +5 / +10 / final structural
+                  if hit5 is not None:
+                      if hit10 is not None:
                           r=(5.0+10.0+base_ret)/3.0
-                          reason="THIRD_TP5_TP10_BASE"
+                          rr="THIRD_TP5_TP10_STRUCTURAL"
                       else:
                           r=(5.0+base_ret+base_ret)/3.0
-                          reason="THIRD_TP5_REST_BASE"
+                          rr="THIRD_TP5_REST_STRUCTURAL"
+                      policies.append(("THIRD_TP5_TP10",r,rr))
                   else:
-                      r=base_ret; reason=breason
-                  policies.append(("THIRD_TP5_TP10_BASE",r,reason))
+                      policies.append(("THIRD_TP5_TP10",base_ret,structural_reason))
 
-                  # E: +5% hit then move remaining 50% to breakeven; otherwise baseline.
-                  if hit5 is not None and hit5<=bx:
-                      # after hit5, if low touches entry before baseline exit, remaining half exits at 0%
-                      be_hit=False
-                      for j in range(hit5+1,bx+1):
+                  # Half +5, remainder breakeven after +5, gap-aware at next opens.
+                  if hit5 is not None:
+                      rem=base_ret
+                      be_reason="HALF_TP5_PLUS_STRUCTURAL"
+                      for j in range(hit5+1,structural_exit_idx+1):
                           if float(g.iloc[j].Low)<=entry:
-                              be_hit=True;break
-                      rem_ret=0.0 if be_hit else base_ret
-                      r=0.5*5.0+0.5*rem_ret
-                      reason="HALF_TP5_BE_STOP" if be_hit else "HALF_TP5_HALF_BASE"
+                              # Conservative gap-aware fill: if open below entry, use open.
+                              be_fill=float(g.iloc[j].Open) if float(g.iloc[j].Open)<entry else entry
+                              rem=(be_fill/entry-1)*100
+                              be_reason="HALF_TP5_BE_REMAINDER"
+                              break
+                      policies.append(("HALF_TP5_BE",0.5*5.0+0.5*rem,be_reason))
                   else:
-                      r=base_ret; reason=breason
-                  policies.append(("HALF_TP5_BE_REMAINDER",r,reason))
+                      policies.append(("HALF_TP5_BE",base_ret,structural_reason))
 
                   for policy,r,reason in policies:
                       rows.append({
                           "split":split,"signal_date":sig_date,"code":code,"name":name,
-                          "state":state,"policy":policy,"return_pct":r,"exit_reason":reason,
-                          "hit5":hit5 is not None,"hit10":hit10 is not None,
-                          "baseline_return_pct":base_ret,
-                          "baseline_exit_day":bx-i,
-                          "max_mfe15_pct":(float(pd.to_numeric(future.High,errors="coerce").max())/entry-1)*100,
+                          "hindsight_state_for_reporting_only":hindsight_state,
+                          "fast_known_d2":fast,
+                          "eventual_c4_reporting_only":eventual_c4,
+                          "c4_day_reporting_only":c4_day,
+                          "policy":policy,
+                          "return_pct":r,
+                          "exit_reason":reason,
+                          "structural_exit_day":structural_exit_idx-i,
+                          "structural_return_pct":base_ret,
+                          "hit5_before_exit":hit5 is not None,
+                          "hit10_before_exit":hit10 is not None,
                       })
 
+                  audit.append({
+                      "split":split,"signal_date":sig_date,"code":code,"name":name,
+                      "fast_known_d2":fast,
+                      "eventual_c4_reporting_only":eventual_c4,
+                      "hindsight_state_for_reporting_only":hindsight_state,
+                      "structural_exit_day":structural_exit_idx-i,
+                      "structural_exit_reason":structural_reason,
+                      "hit5_day":(hit5-i) if hit5 is not None else np.nan,
+                      "hit10_day":(hit10-i) if hit10 is not None else np.nan,
+                  })
+
           df=pd.DataFrame(rows)
+          au=pd.DataFrame(audit)
           if df.empty:raise SystemExit("NO_ROWS")
+
           df.to_csv(OUT/"policy_trades.csv",index=False,encoding="utf-8-sig")
+          au.to_csv(OUT/"causal_decision_audit.csv",index=False,encoding="utf-8-sig")
 
           def pf(r):
               r=pd.to_numeric(r,errors="coerce").dropna()
@@ -259,102 +304,98 @@ jobs:
           score=pd.DataFrame(score)
           score.to_csv(OUT/"policy_scorecard.csv",index=False,encoding="utf-8-sig")
 
-          bystate=[]
-          for (sp,state,p),g in df.groupby(["split","state","policy"],dropna=False):
+          # Reporting-only state decomposition: never used as a decision variable.
+          st=[]
+          for (sp,state,p),g in df.groupby(["split","hindsight_state_for_reporting_only","policy"],dropna=False):
               r=pd.to_numeric(g.return_pct,errors="coerce").dropna()
-              bystate.append({
-                  "split":sp,"state":state,"policy":p,"n":len(r),
-                  "mean_return_pct":r.mean(),"median_return_pct":r.median(),
-                  "win_rate_pct":(r>0).mean()*100,"profit_factor":pf(r),
+              st.append({
+                  "split":sp,"reporting_state":state,"policy":p,"n":len(r),
+                  "mean_return_pct":r.mean(),
+                  "median_return_pct":r.median(),
+                  "win_rate_pct":(r>0).mean()*100,
+                  "profit_factor":pf(r),
               })
-          pd.DataFrame(bystate).to_csv(OUT/"policy_by_state.csv",index=False,encoding="utf-8-sig")
+          pd.DataFrame(st).to_csv(OUT/"reporting_state_decomposition.csv",index=False,encoding="utf-8-sig")
 
-          # opportunity cost after +5 hit
-          oc=[]
-          z=df[df.policy=="BASELINE_FAST_C4_D10_D4CUT"].copy()
-          for (sp,state),g in z.groupby(["split","state"]):
-              h=g[g.hit5]
-              if len(h):
-                  oc.append({
-                      "split":sp,"state":state,"n_hit5":len(h),
-                      "hit5_rate_pct":len(h)/len(g)*100,
-                      "baseline_return_after_hit5_mean_pct":h.baseline_return_pct.mean(),
-                      "baseline_return_after_hit5_median_pct":h.baseline_return_pct.median(),
-                      "mfe15_median_pct":h.max_mfe15_pct.median(),
-                  })
-          pd.DataFrame(oc).to_csv(OUT/"tp5_opportunity_cost.csv",index=False,encoding="utf-8-sig")
+          fingerprint=hashlib.sha256(
+              json.dumps(POLICY_SPEC,ensure_ascii=False,sort_keys=True).encode("utf-8")
+          ).hexdigest()
 
           meta={
               "revision":REV,
               "research_only":True,
               "production_changed":False,
               "automatic_ordering":False,
-              "entry_anchor":"D0_CLOSE",
-              "policies":[
-                  "BASELINE_FAST_C4_D10_D4CUT",
-                  "FULL_TP_5",
-                  "HALF_TP_5_HALF_BASE",
-                  "THIRD_TP5_TP10_BASE",
-                  "HALF_TP5_BE_REMAINDER"
-              ],
-              "tp_execution_assumption":"intraday High crossing target implies fill at exact target; no fees/slippage",
+              "policy_frozen":True,
+              "policy_fingerprint_sha256":fingerprint,
+              "policy_spec":POLICY_SPEC,
+              "decision_features_are_point_in_time":True,
+              "eventual_c4_used_for_decision":False,
+              "hindsight_state_used_for_reporting_only":True,
               "same_historical_window_reused":True,
               "true_oos":False,
               "same_sample_tuning":False,
-              "note":"Research-only comparison. Do not wire to automatic orders."
+              "next_step":"prospective/future-time validation without changing the fingerprint",
+              "note":"This replay repairs hindsight-state leakage. No production promotion."
           }
           (OUT/"meta.json").write_text(json.dumps(meta,ensure_ascii=False,indent=2),encoding="utf-8")
+          (OUT/"FROZEN_POLICY_SPEC.json").write_text(
+              json.dumps({"fingerprint_sha256":fingerprint,"policy_spec":POLICY_SPEC},ensure_ascii=False,indent=2),
+              encoding="utf-8"
+          )
           (OUT/"REPORT.md").write_text(
-              "# ODOLI Profit Taking Policy R1\n\n```json\n"+
+              "# ODOLI Causal Frozen Composite Policy R1\n\n```json\n"+
               json.dumps(meta,ensure_ascii=False,indent=2)+
               "\n```\n\n## Policy scorecard\n```text\n"+
               score.to_string(index=False)+"\n```\n",
               encoding="utf-8"
           )
 
-          print("ODOLI_PROFIT_TAKING_POLICY_PASS")
-          print(json.dumps(meta,ensure_ascii=False))
+          print("ODOLI_CAUSAL_FROZEN_COMPOSITE_PASS")
+          print("FINGERPRINT",fingerprint)
           print(score.to_string(index=False))
           PY
 
           python /tmp/study.py
 
-      - name: Validate identity and policy integrity
+      - name: Validate causal integrity and frozen identity
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
           import json,pandas as pd
-          m=json.load(open("reports/temp_odoli_profit_taking_policy/meta.json",encoding="utf-8"))
-          assert m["revision"]=="ODOLI_PROFIT_TAKING_POLICY_R1_20261002"
+          m=json.load(open("reports/temp_odoli_causal_frozen_composite/meta.json",encoding="utf-8"))
+          assert m["revision"]=="ODOLI_CAUSAL_FROZEN_COMPOSITE_POLICY_R1_20261002"
           assert m["research_only"] is True
           assert m["production_changed"] is False
           assert m["automatic_ordering"] is False
+          assert m["policy_frozen"] is True
+          assert m["eventual_c4_used_for_decision"] is False
+          assert m["hindsight_state_used_for_reporting_only"] is True
           assert m["true_oos"] is False
-          q=pd.read_csv("reports/temp_odoli_profit_taking_policy/policy_trades.csv")
+
+          q=pd.read_csv("reports/temp_odoli_causal_frozen_composite/policy_trades.csv")
           assert len(q)>0
-          assert set(q.policy)=={
-              "BASELINE_FAST_C4_D10_D4CUT",
-              "FULL_TP_5",
-              "HALF_TP_5_HALF_BASE",
-              "THIRD_TP5_TP10_BASE",
-              "HALF_TP5_BE_REMAINDER"
-          }
-          print("PROFIT_TAKING_POLICY_INTEGRITY_PASS")
+          assert set(q.policy)=={"NO_TP","FULL_TP5","HALF_TP5","THIRD_TP5_TP10","HALF_TP5_BE"}
+          assert pd.to_numeric(q.structural_exit_day,errors="coerce").between(1,10).all()
+
+          spec=json.load(open("reports/temp_odoli_causal_frozen_composite/FROZEN_POLICY_SPEC.json",encoding="utf-8"))
+          assert spec["fingerprint_sha256"]==m["policy_fingerprint_sha256"]
+          print("CAUSAL_FROZEN_POLICY_INTEGRITY_PASS")
           PY
 
       - name: Show report
         if: always()
         run: |
-          cat reports/temp_odoli_profit_taking_policy/meta.json || true
+          cat reports/temp_odoli_causal_frozen_composite/meta.json || true
           echo
-          cat reports/temp_odoli_profit_taking_policy/REPORT.md || true
+          cat reports/temp_odoli_causal_frozen_composite/REPORT.md || true
 
       - name: Upload artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: temp-odoli-profit-taking-policy-r1
-          path: reports/temp_odoli_profit_taking_policy/**
+          name: temp-odoli-causal-frozen-composite-policy-r1
+          path: reports/temp_odoli_causal_frozen_composite/**
           if-no-files-found: error
           retention-days: 90
