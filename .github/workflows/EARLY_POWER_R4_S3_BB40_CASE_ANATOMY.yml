@@ -1,0 +1,76 @@
+name: EARLY POWER R4 S3 BB40 17-Case Anatomy
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  TZ: Asia/Seoul
+
+jobs:
+  r4-case-anatomy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install pandas numpy pyarrow requests
+      - name: Download frozen R3 artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/r3
+          curl -L --fail -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/11277108564/zip" -o /tmp/r3.zip
+          unzip -q /tmp/r3.zip -d /tmp/r3
+          test -f /tmp/r3/r3_s3_structure_ledger.csv
+      - name: Fetch marcap 2025-2026
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf vendor/marcap && mkdir -p vendor
+          git clone --depth 1 --filter=blob:none --no-checkout https://github.com/FinanceData/marcap.git vendor/marcap
+          cd vendor/marcap
+          git sparse-checkout init --no-cone
+          printf '%s\n' 'data/marcap-2025.parquet' 'data/marcap-2026.parquet' >/tmp/marcap_paths.txt
+          git sparse-checkout set --stdin </tmp/marcap_paths.txt
+          git checkout
+          cd ../..
+      - name: Run R4 case/path anatomy
+        run: |
+          python early_power_r4_bb40_case_anatomy.py \
+            --r3-ledger /tmp/r3/r3_s3_structure_ledger.csv \
+            --marcap vendor/marcap/data/marcap-2025.parquet vendor/marcap/data/marcap-2026.parquet \
+            --out reports/early_power_r4
+      - name: Validate RESEARCH_ONLY invariants
+        run: |
+          python - <<'PY'
+          import json,pandas as pd
+          m=json.load(open('reports/early_power_r4/meta.json',encoding='utf-8'))
+          assert m['revision']=='EARLY_POWER_R4_S3_BB40_CASE_ANATOMY_20261004'
+          assert m['research_only'] is True
+          for k in ['production_changed','production_search_changed','production_score_changed','production_rank_changed','production_order_changed','automatic_orders','same_sample_retuning']:
+              assert m[k] is False
+          q=pd.read_csv('reports/early_power_r4/r4_bb40_17_casebook.csv')
+          assert len(q)>0 and q['stage'].eq('S3_CONVERGENCE').all()
+          print('EARLY_POWER_R4_INVARIANTS_PASS')
+          PY
+      - name: Show report
+        if: always()
+        run: cat reports/early_power_r4/REPORT.txt || true
+      - name: Upload artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: early-power-r4-s3-bb40-17-case-anatomy
+          path: reports/early_power_r4/**
+          if-no-files-found: error
+          retention-days: 90
