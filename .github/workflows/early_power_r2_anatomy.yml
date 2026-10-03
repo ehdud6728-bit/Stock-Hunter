@@ -1,0 +1,55 @@
+name: EARLY POWER R2 S2-S3 Anatomy
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  r2-anatomy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install pandas numpy
+      - name: Download frozen R1 artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download 37122005636 -n early-power-ma-transition-r1 -D reports/early_power_r1
+          test -f reports/early_power_r1/early_power_event_ledger.csv
+      - name: Run R2 anatomy
+        run: |
+          python early_power_r2_anatomy.py \
+            --ledger reports/early_power_r1/early_power_event_ledger.csv \
+            --out reports/early_power_r2
+      - name: Validate research-only invariants
+        run: |
+          python - <<'PY'
+          import json, pandas as pd
+          m=json.load(open('reports/early_power_r2/meta.json',encoding='utf-8'))
+          assert m['research_only'] is True
+          assert m['production_changed'] is False
+          assert m['production_search_changed'] is False
+          assert m['production_score_changed'] is False
+          assert m['production_rank_changed'] is False
+          assert m['production_order_changed'] is False
+          assert m['automatic_orders'] is False
+          assert m['same_sample_retuning'] is False
+          q=pd.read_csv('reports/early_power_r2/r2_feature_contrast.csv')
+          assert len(q)>0
+          print('EARLY_POWER_R2_INVARIANTS_PASS')
+          PY
+      - name: Show report
+        if: always()
+        run: cat reports/early_power_r2/REPORT.txt || true
+      - name: Upload artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: early-power-r2-s2-s3-anatomy
+          path: reports/early_power_r2/**
+          retention-days: 90
