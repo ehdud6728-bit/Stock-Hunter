@@ -1,0 +1,154 @@
+name: EARLY POWER R6 Prospective OOS Shadow
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: "Optional run_scanner run ID; blank = latest successful run"
+        required: false
+        default: ""
+  schedule:
+    - cron: "20 7 * * 1-5"  # 16:20 KST weekdays
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  TZ: Asia/Seoul
+
+jobs:
+  r6-prospective-oos:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install pandas numpy pyarrow requests
+
+      - name: Resolve and download ORIGINAL source artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_SOURCE_RUN_ID: ${{ github.event.inputs.source_run_id || '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/source
+          python - <<'PY'
+          import io,os,pathlib,zipfile,requests
+          repo=os.environ["GITHUB_REPOSITORY"]
+          H={"Authorization":"Bearer "+os.environ["GH_TOKEN"],"Accept":"application/vnd.github+json","X-GitHub-Api-Version":"2022-11-28"}
+          base=f"https://api.github.com/repos/{repo}"
+          rid=os.environ.get("INPUT_SOURCE_RUN_ID","").strip()
+          if not rid:
+              runs=requests.get(f"{base}/actions/workflows/run_scanner.yml/runs?status=success&per_page=20",headers=H,timeout=60)
+              runs.raise_for_status()
+              rr=runs.json().get("workflow_runs",[])
+              if not rr: raise SystemExit("R6_NO_SUCCESSFUL_RUN_SCANNER")
+              rid=str(rr[0]["id"])
+          arts=requests.get(f"{base}/actions/runs/{rid}/artifacts?per_page=100",headers=H,timeout=60)
+          arts.raise_for_status()
+          found=None
+          for a in arts.json().get("artifacts",[]):
+              if "reports" not in a.get("name","").lower(): continue
+              z=requests.get(f"{base}/actions/artifacts/{a['id']}/zip",headers=H,timeout=90,allow_redirects=True)
+              if not z.ok: continue
+              td=pathlib.Path("/tmp/source")/str(a["id"]); td.mkdir(parents=True,exist_ok=True)
+              try: zipfile.ZipFile(io.BytesIO(z.content)).extractall(td)
+              except Exception: continue
+              hits=list(td.rglob("real_full_trust_source.csv"))
+              if hits:
+                  found=hits[0]; break
+          if found is None: raise SystemExit(f"R6_REAL_FULL_TRUST_SOURCE_NOT_FOUND:run={rid}")
+          pathlib.Path("/tmp/original_source_path.txt").write_text(str(found),encoding="utf-8")
+          pathlib.Path("/tmp/source_run_id.txt").write_text(str(rid),encoding="utf-8")
+          print("R6_ORIGINAL_SOURCE",rid,found)
+          PY
+
+      - name: Download previous R6 ledger if present
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/previous
+          python - <<'PY'
+          import io,os,pathlib,zipfile,requests
+          repo=os.environ["GITHUB_REPOSITORY"]
+          H={"Authorization":"Bearer "+os.environ["GH_TOKEN"],"Accept":"application/vnd.github+json","X-GitHub-Api-Version":"2022-11-28"}
+          base=f"https://api.github.com/repos/{repo}"
+          r=requests.get(f"{base}/actions/artifacts?per_page=100&name=early-power-r6-oos-ledger",headers=H,timeout=60)
+          r.raise_for_status()
+          arts=[a for a in r.json().get("artifacts",[]) if not a.get("expired")]
+          if not arts:
+              print("R6_PREVIOUS_LEDGER NONE"); raise SystemExit(0)
+          a=sorted(arts,key=lambda x:x["created_at"],reverse=True)[0]
+          z=requests.get(f"{base}/actions/artifacts/{a['id']}/zip",headers=H,timeout=90,allow_redirects=True); z.raise_for_status()
+          zipfile.ZipFile(io.BytesIO(z.content)).extractall("/tmp/previous")
+          hits=list(pathlib.Path("/tmp/previous").rglob("r6_oos_candidate_ledger.csv"))
+          if hits:pathlib.Path("/tmp/previous_ledger_path.txt").write_text(str(hits[0]),encoding="utf-8")
+          print("R6_PREVIOUS_LEDGER",a["id"],hits[:1])
+          PY
+
+      - name: Fetch marcap 2025-2026
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf vendor/marcap; mkdir -p vendor
+          git clone --depth 1 --filter=blob:none --no-checkout https://github.com/FinanceData/marcap.git vendor/marcap
+          cd vendor/marcap
+          git sparse-checkout init --no-cone
+          printf '%s\n' 'data/marcap-2025.parquet' 'data/marcap-2026.parquet' >/tmp/m.txt
+          git sparse-checkout set --stdin </tmp/m.txt
+          git checkout
+          cd ../..
+
+      - name: Run frozen R6 OOS shadow
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC=$(cat /tmp/original_source_path.txt)
+          PREV=""
+          if [ -f /tmp/previous_ledger_path.txt ]; then PREV=$(cat /tmp/previous_ledger_path.txt); fi
+          ARGS=(--marcap vendor/marcap/data/marcap-2025.parquet vendor/marcap/data/marcap-2026.parquet --original-source "$SRC" --out reports/early_power_r6)
+          if [ -n "$PREV" ]; then ARGS+=(--previous-ledger "$PREV"); fi
+          python early_power_r6_oos.py "${ARGS[@]}"
+
+      - name: Validate frozen authority
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json,pandas as pd
+          m=json.load(open("reports/early_power_r6/meta.json",encoding="utf-8"))
+          assert m["revision"]=="EARLY_POWER_R6_FROZEN_V1_OOS_20261004"
+          assert m["frozen_rule_id"]=="R6_FROZEN_V1"
+          assert m["research_only"] and m["prospective_only"]
+          for k in ["production_changed","production_search_changed","production_score_changed",
+                    "production_rank_changed","production_order_changed","automatic_orders","same_sample_retuning"]:
+              assert m[k] is False
+          q=pd.read_csv("reports/early_power_r6/r6_today_shadow_board.csv",dtype={"code":str})
+          o=q[q.lane.eq("ORIGINAL_TOP3")]
+          assert len(o)<=3
+          if len(o): assert list(pd.to_numeric(o.source_rank))==sorted(pd.to_numeric(o.source_rank))
+          e=q[q.lane.eq("EARLY_POWER")]
+          assert len(e)<=3
+          print("EARLY_POWER_R6_FROZEN_AUTHORITY_PASS")
+          PY
+
+      - name: Show report
+        if: always()
+        run: cat reports/early_power_r6/REPORT.txt || true
+
+      - name: Upload persistent R6 ledger
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: early-power-r6-oos-ledger
+          path: reports/early_power_r6/**
+          if-no-files-found: error
+          retention-days: 90
