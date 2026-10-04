@@ -2,7 +2,7 @@
 import argparse, json, re
 from pathlib import Path
 import numpy as np, pandas as pd
-REVISION="EARLY_POWER_R5_CONTROLLED_COMPRESSION_SHAPE_MAP_20261004"
+REVISION="EARLY_POWER_R5_1_CONTROLLED_COMPRESSION_QCUT_FIX_20261004"
 
 def norm_code(v):
     s=re.sub(r"\D","",str(v or ""))
@@ -66,10 +66,17 @@ def rebuild(g,d):
     return out
 
 def qbin(s):
-    s=pd.to_numeric(s,errors="coerce"); out=pd.Series(index=s.index,dtype="object")
+    s=pd.to_numeric(s,errors="coerce")
+    out=pd.Series(index=s.index,dtype="object")
     ok=s.notna()
-    if ok.sum()<4:return out
-    out.loc[ok]=pd.qcut(s.loc[ok],4,labels=["Q1","Q2","Q3","Q4"],duplicates="drop").astype(str)
+    n=int(ok.sum())
+    if n<4:
+        out.loc[ok]="ALL"
+        return out
+    # Deterministic tie handling: rank first, then quartile the ranks.
+    # This prevents qcut duplicate-edge/label mismatches without using outcomes.
+    ranked=s.loc[ok].rank(method="first")
+    out.loc[ok]=pd.qcut(ranked,4,labels=["Q1","Q2","Q3","Q4"]).astype(str)
     return out
 
 def outcome(r):
