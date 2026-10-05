@@ -20,7 +20,7 @@ import numpy as np
 import pandas as pd
 import early_power_r6_oos as base
 
-REVISION="EARLY_POWER_R6_2_PENDING_BACKFILL_20261005"
+REVISION="EARLY_POWER_R6_2_1_PENDING_SUMMARY_FIX_20261005"
 INFRA_REVISION="R6_2_EXACT_DATE_PENDING_BACKFILL"
 
 def read_optional(path, dtype=None):
@@ -57,7 +57,10 @@ def build_summary(ledger):
         col=f"d{h}_ret_pct"
         for lane,g in ledger.groupby("lane"):
             if lane not in ["ORIGINAL_TOP3","EARLY_POWER"]: continue
-            x=pd.to_numeric(g.get(col),errors="coerce")
+            if col in g.columns:
+                x=pd.to_numeric(g[col],errors="coerce")
+            else:
+                x=pd.Series(np.nan,index=g.index,dtype=float)
             ok=x.notna()
             rows.append({
                 "horizon":f"D{h}","lane":lane,"n":int(ok.sum()),
