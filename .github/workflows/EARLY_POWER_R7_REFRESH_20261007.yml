@@ -1,0 +1,123 @@
+name: EARLY POWER R7 Refresh Through 2026-10-07
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_date:
+        description: Exact target trading date
+        required: false
+        default: '2026-10-07'
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  TZ: Asia/Seoul
+
+jobs:
+  r7-refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install pandas numpy pyarrow requests pykrx scipy
+
+      - name: Fetch FinanceData marcap base
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf vendor/marcap; mkdir -p vendor
+          git clone --depth 1 --filter=blob:none --no-checkout https://github.com/FinanceData/marcap.git vendor/marcap
+          cd vendor/marcap
+          git sparse-checkout init --no-cone
+          printf '%s\n' 'data/marcap-2025.parquet' 'data/marcap-2026.parquet' >/tmp/m.txt
+          git sparse-checkout set --stdin </tmp/m.txt
+          git checkout
+          cd ../..
+
+      - name: Extend price authority through target
+        run: |
+          mkdir -p reports/early_power_r7
+          python early_power_r7_refresh.py \
+            --base vendor/marcap/data/marcap-2025.parquet vendor/marcap/data/marcap-2026.parquet \
+            --target '${{ inputs.target_date }}' \
+            --outdir reports/early_power_r7
+
+      - name: Download frozen R1 artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p /tmp/frozen_r1
+          gh run download 37122005636 -n early-power-ma-transition-r1 -D /tmp/frozen_r1
+          test -f /tmp/frozen_r1/early_power_event_ledger.csv
+
+      - name: Refresh R1 unchanged through target
+        run: |
+          python early_power_transition_research.py \
+            --marcap reports/early_power_r7/marcap_augmented.parquet \
+            --start 2026-01-01 --end '${{ inputs.target_date }}' \
+            --cooldown 20 --min-amount-b 20 \
+            --out reports/early_power_r7/r1_refreshed
+
+      - name: Rebuild R2 R3 R5 descriptors
+        run: |
+          python early_power_r2_anatomy.py --ledger reports/early_power_r7/r1_refreshed/early_power_event_ledger.csv --out reports/early_power_r7/r2_refreshed
+          python early_power_r3_structure_anatomy.py --r2-ledger reports/early_power_r7/r2_refreshed/r2_s2_s3_event_ledger.csv --out reports/early_power_r7/r3_refreshed
+          python early_power_r5_controlled_compression.py --r3-ledger reports/early_power_r7/r3_refreshed/r3_s3_structure_ledger.csv --marcap reports/early_power_r7/marcap_augmented.parquet --out reports/early_power_r7/r5_refreshed
+
+      - name: Download latest R6 ledger
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p /tmp/r6
+          python - <<'PY'
+          import io,os,pathlib,zipfile,requests
+          repo=os.environ['GITHUB_REPOSITORY']; h={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'}; b=f'https://api.github.com/repos/{repo}'
+          r=requests.get(f'{b}/actions/artifacts?per_page=100&name=early-power-r6-2-1-oos-ledger',headers=h,timeout=60);r.raise_for_status();arts=[a for a in r.json().get('artifacts',[]) if not a.get('expired')]
+          if not arts: raise SystemExit('R7_NO_R6_LEDGER')
+          a=sorted(arts,key=lambda x:x['created_at'],reverse=True)[0];z=requests.get(f"{b}/actions/artifacts/{a['id']}/zip",headers=h,timeout=90,allow_redirects=True);z.raise_for_status();zipfile.ZipFile(io.BytesIO(z.content)).extractall('/tmp/r6')
+          print('R7_R6_ARTIFACT',a['id'])
+          PY
+          test -f /tmp/r6/r6_oos_candidate_ledger.csv
+          test -f /tmp/r6/r6_oos_cohort_ledger.csv
+
+      - name: Integrated research audit
+        run: |
+          python early_power_r7_audit.py \
+            --frozen /tmp/frozen_r1/early_power_event_ledger.csv \
+            --fresh reports/early_power_r7/r1_refreshed/early_power_event_ledger.csv \
+            --r5 reports/early_power_r7/r5_refreshed/r5_s3_rebuilt_path_ledger.csv \
+            --r6cand /tmp/r6/r6_oos_candidate_ledger.csv \
+            --r6coh /tmp/r6/r6_oos_cohort_ledger.csv \
+            --price reports/early_power_r7/marcap_augmented.parquet \
+            --out reports/early_power_r7/integrated_audit
+
+      - name: Validate invariants
+        run: |
+          python - <<'PY'
+          import json
+          p=json.load(open('reports/early_power_r7/price_meta.json',encoding='utf-8'))
+          m=json.load(open('reports/early_power_r7/integrated_audit/meta.json',encoding='utf-8'))
+          assert p['final_last_date']=='${{ inputs.target_date }}'
+          assert m['historical_missing']==0 and m['historical_extra']==0
+          assert m['research_only'] and not m['production_changed'] and not m['same_sample_retuning']
+          print('EARLY_POWER_R7_INVARIANTS_PASS')
+          PY
+
+      - name: Show report
+        if: always()
+        run: cat reports/early_power_r7/integrated_audit/REPORT.txt || true
+
+      - name: Upload R7 refresh
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: early-power-r7-refresh-through-2026-10-07
+          path: reports/early_power_r7/**
+          if-no-files-found: error
+          retention-days: 90
