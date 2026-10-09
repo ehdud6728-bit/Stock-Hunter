@@ -1,0 +1,293 @@
+name: EARLY POWER R7.1 Refresh Through 2026-10-07
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_date:
+        description: Exact target trading date
+        required: false
+        default: '2026-10-07'
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  TZ: Asia/Seoul
+
+jobs:
+  r7-refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 80
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install pandas numpy pyarrow requests pykrx scipy
+
+      - name: Fetch FinanceData marcap base
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf vendor/marcap; mkdir -p vendor
+          git clone --depth 1 --filter=blob:none --no-checkout https://github.com/FinanceData/marcap.git vendor/marcap
+          cd vendor/marcap
+          git sparse-checkout init --no-cone
+          printf '%s\n' 'data/marcap-2025.parquet' 'data/marcap-2026.parquet' >/tmp/m.txt
+          git sparse-checkout set --stdin </tmp/m.txt
+          git checkout
+          cd ../..
+
+      - name: Extend price authority through target
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p reports/early_power_r7
+          python early_power_r7_refresh.py \
+            --base vendor/marcap/data/marcap-2025.parquet vendor/marcap/data/marcap-2026.parquet \
+            --target '${{ inputs.target_date }}' \
+            --outdir reports/early_power_r7
+
+      - name: Download frozen R1 artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/frozen_r1
+          gh run download 37122005636 -n early-power-ma-transition-r1 -D /tmp/frozen_r1
+          test -f /tmp/frozen_r1/early_power_event_ledger.csv
+          test -f /tmp/frozen_r1/meta.json
+          python - <<'PY'
+          import json
+          m=json.load(open('/tmp/frozen_r1/meta.json',encoding='utf-8'))
+          assert m['study_start']=='2025-01-01', m
+          print('R7_1_FROZEN_R1_START_AUTHORITY',m['study_start'])
+          PY
+
+      - name: Refresh R1 with exact frozen study start
+        shell: bash
+        run: |
+          set -euo pipefail
+          python early_power_transition_research.py \
+            --marcap reports/early_power_r7/marcap_augmented.parquet \
+            --start 2025-01-01 \
+            --end '${{ inputs.target_date }}' \
+            --cooldown 20 \
+            --min-amount-b 20 \
+            --out reports/early_power_r7/r1_refreshed
+
+      - name: Rebuild R2 R3 R5 descriptors
+        shell: bash
+        run: |
+          set -euo pipefail
+          python early_power_r2_anatomy.py \
+            --ledger reports/early_power_r7/r1_refreshed/early_power_event_ledger.csv \
+            --out reports/early_power_r7/r2_refreshed
+          python early_power_r3_structure_anatomy.py \
+            --r2-ledger reports/early_power_r7/r2_refreshed/r2_s2_s3_event_ledger.csv \
+            --out reports/early_power_r7/r3_refreshed
+          python early_power_r5_controlled_compression.py \
+            --r3-ledger reports/early_power_r7/r3_refreshed/r3_s3_structure_ledger.csv \
+            --marcap reports/early_power_r7/marcap_augmented.parquet \
+            --out reports/early_power_r7/r5_refreshed
+
+      - name: Download latest R6 ledger
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/r6
+          python - <<'PY'
+          import io,os,pathlib,zipfile,requests
+          repo=os.environ['GITHUB_REPOSITORY']
+          h={'Authorization':'Bearer '+os.environ['GH_TOKEN'],
+             'Accept':'application/vnd.github+json',
+             'X-GitHub-Api-Version':'2022-11-28'}
+          b=f'https://api.github.com/repos/{repo}'
+          names=['early-power-r6-2-1-oos-ledger','early-power-r6-2-oos-ledger','early-power-r6-1-oos-ledger']
+          arts=[]
+          for name in names:
+              r=requests.get(f'{b}/actions/artifacts?per_page=100&name={name}',headers=h,timeout=60)
+              if r.ok:
+                  arts.extend([a for a in r.json().get('artifacts',[]) if not a.get('expired')])
+          if not arts: raise SystemExit('R7_1_NO_R6_LEDGER')
+          a=sorted(arts,key=lambda x:x['created_at'],reverse=True)[0]
+          z=requests.get(f"{b}/actions/artifacts/{a['id']}/zip",headers=h,timeout=90,allow_redirects=True)
+          z.raise_for_status()
+          zipfile.ZipFile(io.BytesIO(z.content)).extractall('/tmp/r6')
+          print('R7_1_R6_ARTIFACT',a['id'],a['name'])
+          PY
+          test -f /tmp/r6/r6_oos_candidate_ledger.csv
+          test -f /tmp/r6/r6_oos_cohort_ledger.csv
+
+      - name: Resolve newest REAL_FULL trust source for R6 backfill
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/source
+          python - <<'PY'
+          import io,os,pathlib,shutil,zipfile,requests
+          repo=os.environ['GITHUB_REPOSITORY']
+          h={'Authorization':'Bearer '+os.environ['GH_TOKEN'],
+             'Accept':'application/vnd.github+json',
+             'X-GitHub-Api-Version':'2022-11-28'}
+          b=f'https://api.github.com/repos/{repo}'
+          found=chosen=art=None
+          for page in range(1,6):
+              rr=requests.get(f'{b}/actions/workflows/run_scanner.yml/runs?status=success&per_page=50&page={page}',headers=h,timeout=60)
+              rr.raise_for_status()
+              for run in rr.json().get('workflow_runs',[]):
+                  rid=str(run['id'])
+                  ar=requests.get(f'{b}/actions/runs/{rid}/artifacts?per_page=100',headers=h,timeout=60)
+                  ar.raise_for_status()
+                  for a in ar.json().get('artifacts',[]):
+                      if a.get('expired'): continue
+                      z=requests.get(f"{b}/actions/artifacts/{a['id']}/zip",headers=h,timeout=90,allow_redirects=True)
+                      if not z.ok: continue
+                      td=pathlib.Path('/tmp/source')/f'{rid}_{a["id"]}'
+                      shutil.rmtree(td,ignore_errors=True);td.mkdir(parents=True)
+                      try: zipfile.ZipFile(io.BytesIO(z.content)).extractall(td)
+                      except Exception: continue
+                      hits=list(td.rglob('real_full_trust_source.csv'))
+                      if hits:
+                          found,chosen,art=hits[0],rid,a
+                          break
+                  if found: break
+              if found: break
+          if not found: raise SystemExit('R7_1_NO_REAL_FULL_TRUST_SOURCE')
+          pathlib.Path('/tmp/original_source_path.txt').write_text(str(found),encoding='utf-8')
+          pathlib.Path('/tmp/source_run_id.txt').write_text(str(chosen),encoding='utf-8')
+          print('R7_1_REAL_FULL_SOURCE',chosen,art['id'],found)
+          PY
+
+      - name: Backfill R6 on exact augmented trading calendar
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC=$(cat /tmp/original_source_path.txt)
+          python early_power_r6_2_oos.py \
+            --marcap reports/early_power_r7/marcap_augmented.parquet \
+            --original-source "$SRC" \
+            --previous-ledger /tmp/r6/r6_oos_candidate_ledger.csv \
+            --previous-cohorts /tmp/r6/r6_oos_cohort_ledger.csv \
+            --out reports/early_power_r7/r6_refreshed
+
+      - name: Clean non-trading cohorts and enforce backfill
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          import pandas as pd
+
+          price='reports/early_power_r7/marcap_augmented.parquet'
+          candp=Path('reports/early_power_r7/r6_refreshed/r6_oos_candidate_ledger.csv')
+          cohp=Path('reports/early_power_r7/r6_refreshed/r6_oos_cohort_ledger.csv')
+          px=pd.read_parquet(price,columns=['Date'])
+          td={pd.Timestamp(x).date().isoformat() for x in px.Date.dropna().unique()}
+          last=max(td)
+
+          cand=pd.read_csv(candp,dtype={'code':str},low_memory=False)
+          coh=pd.read_csv(cohp,low_memory=False)
+          coh['signal_date']=coh.signal_date.astype(str).str[:10]
+
+          invalid=[]
+          for i,r in coh.iterrows():
+              sd=r.signal_date
+              if sd<=last and sd not in td:
+                  coh.loc[i,'early_power_status']='INVALID_NON_TRADING_DATE'
+                  coh.loc[i,'early_power_rows']=0
+                  coh.loc[i,'price_calendar_has_signal_date']=False
+                  coh.loc[i,'last_update_revision']='R7_1_TRADING_CALENDAR_CLEAN'
+                  invalid.append(sd)
+
+          if invalid:
+              cand=cand[~cand.signal_date.astype(str).str[:10].isin(invalid)].copy()
+
+          # Any real trading date through target must no longer be DATA_PENDING.
+          bad=coh[
+              coh.signal_date.isin(td) &
+              coh.signal_date.le(last) &
+              coh.early_power_status.astype(str).eq('DATA_PENDING')
+          ]
+          if len(bad):
+              raise SystemExit('R7_1_TRADING_DATE_STILL_PENDING:'+','.join(bad.signal_date.tolist()))
+
+          cand.to_csv(candp,index=False,encoding='utf-8-sig')
+          coh.to_csv(cohp,index=False,encoding='utf-8-sig')
+          meta={'revision':'R7_1_TRADING_CALENDAR_CLEAN',
+                'price_last_date':last,
+                'invalid_nontrading_dates':sorted(set(invalid)),
+                'trading_dates_pending_after_clean':bad.signal_date.tolist()}
+          Path('reports/early_power_r7/r6_refreshed/r6_calendar_clean_meta.json').write_text(
+              json.dumps(meta,ensure_ascii=False,indent=2),encoding='utf-8')
+          print('R7_1_R6_CALENDAR_BACKFILL_PASS',json.dumps(meta,ensure_ascii=False))
+          PY
+
+      - name: Integrated research audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          python early_power_r7_audit.py \
+            --frozen /tmp/frozen_r1/early_power_event_ledger.csv \
+            --fresh reports/early_power_r7/r1_refreshed/early_power_event_ledger.csv \
+            --r5 reports/early_power_r7/r5_refreshed/r5_s3_rebuilt_path_ledger.csv \
+            --r6cand reports/early_power_r7/r6_refreshed/r6_oos_candidate_ledger.csv \
+            --r6coh reports/early_power_r7/r6_refreshed/r6_oos_cohort_ledger.csv \
+            --price reports/early_power_r7/marcap_augmented.parquet \
+            --out reports/early_power_r7/integrated_audit
+
+      - name: Validate invariants
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,pandas as pd
+          p=json.load(open('reports/early_power_r7/price_meta.json',encoding='utf-8'))
+          m=json.load(open('reports/early_power_r7/integrated_audit/meta.json',encoding='utf-8'))
+          assert p['final_last_date']=='${{ inputs.target_date }}', p
+          assert m['historical_missing']==0 and m['historical_extra']==0, m
+          assert m['research_only'] and not m['production_changed'] and not m['same_sample_retuning']
+
+          rm=json.load(open('reports/early_power_r7/r6_refreshed/meta.json',encoding='utf-8'))
+          assert rm['frozen_rule_id']=='R6_FROZEN_V1'
+          assert rm['research_only'] and rm['prospective_only']
+          for k in ['production_changed','production_search_changed','production_score_changed',
+                    'production_rank_changed','production_order_changed','automatic_orders','same_sample_retuning']:
+              assert rm[k] is False
+
+          coh=pd.read_csv('reports/early_power_r7/r6_refreshed/r6_oos_cohort_ledger.csv')
+          # 10/5 is not a trading day; 10/6 and 10/7 are exact-date resolved.
+          r={str(x.signal_date)[:10]:str(x.early_power_status) for _,x in coh.iterrows()}
+          assert r.get('2026-10-05')=='INVALID_NON_TRADING_DATE', r
+          for d in ['2026-10-06','2026-10-07']:
+              if d in r:
+                  assert r[d] in ['READY','BACKFILLED_READY'], r
+          print('EARLY_POWER_R7_1_INVARIANTS_PASS')
+          PY
+
+      - name: Show integrated report
+        if: always()
+        run: |
+          cat reports/early_power_r7/integrated_audit/REPORT.txt || true
+          echo
+          echo '=== R6 refreshed cohort ledger ==='
+          cat reports/early_power_r7/r6_refreshed/r6_oos_cohort_ledger.csv || true
+
+      - name: Upload R7.1 complete refresh
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: early-power-r7-1-refresh-through-2026-10-07
+          path: reports/early_power_r7/**
+          if-no-files-found: error
+          retention-days: 90
