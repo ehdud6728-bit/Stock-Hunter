@@ -1,0 +1,78 @@
+name: EARLY POWER R8 Prospective OOS Monitor
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "35 7 * * 1-5"
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  TZ: Asia/Seoul
+
+jobs:
+  r8-oos-monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: pip install pandas numpy requests
+      - name: Download latest R7.1 or R6 ledger authority
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/state
+          python - <<'PY2'
+          import io,os,pathlib,zipfile,requests
+          repo=os.environ["GITHUB_REPOSITORY"]; h={"Authorization":"Bearer "+os.environ["GH_TOKEN"],"Accept":"application/vnd.github+json","X-GitHub-Api-Version":"2022-11-28"}; b=f"https://api.github.com/repos/{repo}"
+          names=["early-power-r7-1-refresh-through-2026-10-07","early-power-r6-2-1-oos-ledger"]
+          arts=[]
+          for name in names:
+              r=requests.get(f"{b}/actions/artifacts?per_page=100&name={name}",headers=h,timeout=60)
+              if r.ok: arts.extend([a for a in r.json().get("artifacts",[]) if not a.get("expired")])
+          if not arts: raise SystemExit("R8_NO_PRIOR_STATE")
+          for a in sorted(arts,key=lambda x:x["created_at"],reverse=True):
+              td=pathlib.Path("/tmp/state")/str(a["id"]); td.mkdir(parents=True,exist_ok=True)
+              z=requests.get(f"{b}/actions/artifacts/{a['id']}/zip",headers=h,timeout=90,allow_redirects=True)
+              if not z.ok: continue
+              try: zipfile.ZipFile(io.BytesIO(z.content)).extractall(td)
+              except Exception: continue
+              cand=list(td.rglob("r6_oos_candidate_ledger.csv")); coh=list(td.rglob("r6_oos_cohort_ledger.csv"))
+              if cand and coh:
+                  pathlib.Path("/tmp/cand.txt").write_text(str(cand[0]),encoding="utf-8"); pathlib.Path("/tmp/coh.txt").write_text(str(coh[0]),encoding="utf-8"); print("R8_STATE",a["id"],a["name"]); break
+          if not pathlib.Path("/tmp/cand.txt").exists(): raise SystemExit("R8_LEDGER_FILES_NOT_FOUND")
+          PY2
+      - name: Build OOS monitoring board
+        shell: bash
+        run: |
+          set -euo pipefail
+          python early_power_r8_oos_monitor.py --candidates "$(cat /tmp/cand.txt)" --cohorts "$(cat /tmp/coh.txt)" --target-independent-days 20 --out reports/early_power_r8
+      - name: Validate frozen boundary
+        shell: bash
+        run: |
+          python - <<'PY2'
+          import json,pandas as pd
+          m=json.load(open("reports/early_power_r8/meta.json",encoding="utf-8")); assert m["frozen_rule_id"]=="R6_FROZEN_V1"; assert m["research_only"]; assert m["spac_filter_changed"] is False; assert m["spac_policy"]=="FLAG_ONLY_DO_NOT_EXCLUDE_FROM_FROZEN_V1"
+          for k in ["production_changed","production_search_changed","production_score_changed","production_rank_changed","production_order_changed","automatic_orders","same_sample_retuning"]: assert m[k] is False
+          c=pd.read_csv("reports/early_power_r8/r8_candidate_ledger_flagged.csv",dtype={"code":str}); assert "spac_flag" in c.columns
+          print("EARLY_POWER_R8_FROZEN_BOUNDARY_PASS")
+          PY2
+      - name: Show report
+        if: always()
+        run: cat reports/early_power_r8/REPORT.txt || true
+      - name: Upload R8 monitor
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: early-power-r8-oos-monitor
+          path: reports/early_power_r8/**
+          if-no-files-found: error
+          retention-days: 90
