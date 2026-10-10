@@ -1,0 +1,204 @@
+name: TRIANGLE1PB Current-Data Refresh Bridge
+
+on:
+  workflow_dispatch:
+    inputs:
+      tri_start_date:
+        description: "TRIANGLE discovery start (locked default)"
+        required: false
+        default: "2024-08-27"
+        type: string
+      tri_max_codes:
+        description: "TRIANGLE max codes (0=all)"
+        required: false
+        default: "0"
+        type: string
+      tri_manual_sample_limit:
+        description: "Manual chart sample limit"
+        required: false
+        default: "40"
+        type: string
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: triangle1pb-current-data-bridge-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  refresh-and-run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TZ: Asia/Seoul
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Record bridge start
+        id: bridge-start
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      - name: Dispatch fresh CORE224 LIVE overlay
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh workflow run run_scanner.yml --ref "${GITHUB_REF_NAME}" -f run_profile=CORE224_LIVE
+          echo "TRIANGLE_BRIDGE_CORE224_DISPATCHED"
+
+      - name: Resolve dispatched CORE224 run
+        id: core-run
+        shell: bash
+        env:
+          START: ${{ steps.bridge-start.outputs.started_at }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os, subprocess, time, datetime
+          start_dt=datetime.datetime.fromisoformat(os.environ['START'].replace('Z','+00:00'))
+          ref=os.environ['GITHUB_REF_NAME']
+          chosen=None
+          for _ in range(30):
+              out=subprocess.check_output(['gh','run','list','--workflow','run_scanner.yml','--branch',ref,'--event','workflow_dispatch','--limit','30','--json','databaseId,createdAt,status,conclusion'],text=True)
+              cand=[]
+              for r in json.loads(out):
+                  dt=datetime.datetime.fromisoformat(r['createdAt'].replace('Z','+00:00'))
+                  if dt >= start_dt: cand.append((dt,r))
+              cand.sort(key=lambda x:x[0])
+              if cand:
+                  chosen=cand[-1][1]; break
+              time.sleep(4)
+          if not chosen: raise SystemExit('TRIANGLE_BRIDGE_CORE224_RUN_NOT_FOUND')
+          rid=str(chosen['databaseId'])
+          open(os.environ['GITHUB_OUTPUT'],'a').write(f'run_id={rid}\n')
+          print('TRIANGLE_BRIDGE_CORE224_RUN',rid)
+          PY
+
+      - name: Wait for CORE224 LIVE
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh run watch '${{ steps.core-run.outputs.run_id }}' --exit-status
+
+      - name: Restore freshly produced CORE224 overlay
+        id: fresh-overlay
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            reports/.cache/v20_price_history
+            reports/.cache/v20_asof_snapshots
+            reports/.cache/v25_actual_amount_history
+            reports/.cache/v25_core224_live
+          key: triangle-current-overlay-${{ github.ref_name }}-${{ github.run_id }}
+          restore-keys: |
+            stockhunter-v25-core224-live-${{ github.ref_name }}-
+
+      - name: Fail closed if overlay handoff is missing or stale
+        id: authority
+        shell: bash
+        env:
+          MATCHED: ${{ steps.fresh-overlay.outputs.cache-matched-key }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          matched=os.environ.get('MATCHED','').strip()
+          if not matched: raise SystemExit('TRIANGLE_BRIDGE_NO_CURRENT_OVERLAY_CACHE_MATCH')
+          marker=Path('reports/.cache/v25_core224_live/current_overlay_handoff_authority.json')
+          seed=Path('reports/.cache/v25_core224_live/seed_meta.json')
+          if not marker.exists() or not seed.exists(): raise SystemExit('TRIANGLE_BRIDGE_OVERLAY_AUTHORITY_FILES_MISSING')
+          m=json.loads(marker.read_text(encoding='utf-8')); s=json.loads(seed.read_text(encoding='utf-8'))
+          md=str(m.get('producer_snapshot_date','')).strip(); sd=str(s.get('weekly_snapshot_date','')).strip()
+          if not md or not sd or md != sd: raise SystemExit(f'TRIANGLE_BRIDGE_OVERLAY_DATE_CONFLICT marker={md} seed={sd}')
+          if int(m.get('snapshot_calendar_complete',0)) != 1: raise SystemExit('TRIANGLE_BRIDGE_OVERLAY_CALENDAR_INCOMPLETE')
+          price_files=sum(1 for p in Path('reports/.cache/v20_price_history').rglob('*') if p.is_file())
+          asof_files=sum(1 for p in Path('reports/.cache/v20_asof_snapshots').rglob('*') if p.is_file())
+          if price_files <= 0 or asof_files <= 0: raise SystemExit(f'TRIANGLE_BRIDGE_CACHE_EMPTY price={price_files} asof={asof_files}')
+          print('TRIANGLE_BRIDGE_OVERLAY_READY', 'matched',matched,'producer_snapshot_date',md,'price_files',price_files,'asof_files',asof_files)
+          open(os.environ['GITHUB_OUTPUT'],'a').write(f'producer_end={md}\n')
+          PY
+
+      - name: Dispatch TRIANGLE1PB against fresh overlay
+        id: tri-dispatch
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+          gh workflow run triangle1pb_r1151_dedicated.yml \
+            --ref "${GITHUB_REF_NAME}" \
+            -f tri_start_date='${{ inputs.tri_start_date }}' \
+            -f tri_max_codes='${{ inputs.tri_max_codes }}' \
+            -f tri_manual_sample_limit='${{ inputs.tri_manual_sample_limit }}'
+          echo "TRIANGLE_BRIDGE_TRIANGLE_DISPATCHED producer_end=${{ steps.authority.outputs.producer_end }}"
+
+      - name: Resolve dispatched TRIANGLE run
+        id: tri-run
+        shell: bash
+        env:
+          START: ${{ steps.tri-dispatch.outputs.started_at }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os, subprocess, time, datetime
+          start_dt=datetime.datetime.fromisoformat(os.environ['START'].replace('Z','+00:00'))
+          ref=os.environ['GITHUB_REF_NAME']; chosen=None
+          for _ in range(30):
+              out=subprocess.check_output(['gh','run','list','--workflow','triangle1pb_r1151_dedicated.yml','--branch',ref,'--event','workflow_dispatch','--limit','20','--json','databaseId,createdAt,status,conclusion'],text=True)
+              cand=[]
+              for r in json.loads(out):
+                  dt=datetime.datetime.fromisoformat(r['createdAt'].replace('Z','+00:00'))
+                  if dt >= start_dt: cand.append((dt,r))
+              cand.sort(key=lambda x:x[0])
+              if cand:
+                  chosen=cand[-1][1]; break
+              time.sleep(4)
+          if not chosen: raise SystemExit('TRIANGLE_BRIDGE_TRIANGLE_RUN_NOT_FOUND')
+          rid=str(chosen['databaseId']); open(os.environ['GITHUB_OUTPUT'],'a').write(f'run_id={rid}\n')
+          print('TRIANGLE_BRIDGE_TRIANGLE_RUN',rid)
+          PY
+
+      - name: Wait for TRIANGLE research
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh run watch '${{ steps.tri-run.outputs.run_id }}' --exit-status
+
+      - name: Download TRIANGLE artifact and verify freshness
+        shell: bash
+        run: |
+          set -euo pipefail
+          RID='${{ steps.tri-run.outputs.run_id }}'
+          mkdir -p reports/triangle_bridge_result
+          gh run download "$RID" -p 'triangle1pb-r1-chronology-research-*' -D reports/triangle_bridge_result
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          import pandas as pd
+          rr=list(Path('reports/triangle_bridge_result').rglob('tri_r2_oos_readiness.csv'))
+          mm=list(Path('reports/triangle_bridge_result').rglob('tri_manifest.json'))
+          if not rr or not mm: raise SystemExit('TRIANGLE_BRIDGE_OUTPUT_NOT_FOUND')
+          r=pd.read_csv(rr[0]); row=r.iloc[-1].to_dict()
+          producer='${{ steps.authority.outputs.producer_end }}'
+          research_end=str(row.get('research_data_end','')); expected=str(row.get('expected_current_data_end',''))
+          status=str(row.get('oos_readiness_status','')); age=int(float(row.get('asof_age_to_data_end_calendar_days',-1)))
+          if research_end != producer: raise SystemExit(f'TRIANGLE_BRIDGE_RESEARCH_END_MISMATCH producer={producer} research={research_end}')
+          if expected != producer: raise SystemExit(f'TRIANGLE_BRIDGE_EXPECTED_END_MISMATCH producer={producer} expected={expected}')
+          if age > 10 or age < 0: raise SystemExit(f'TRIANGLE_BRIDGE_ASOF_STALE age={age}')
+          if status != 'READY_PROSPECTIVE_OOS': raise SystemExit(f'TRIANGLE_BRIDGE_OOS_NOT_READY status={status}')
+          print('TRIANGLE_BRIDGE_FINAL_PASS','producer_end',producer,'research_data_end',research_end,'latest_asof',row.get('latest_asof_snapshot_le_data_end'),'asof_age',age,'status',status,'triangle_run',RID)
+          PY
+
+      - name: Upload bridge proof
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: triangle1pb-current-data-bridge-proof
+          path: reports/triangle_bridge_result/**
+          if-no-files-found: warn
+          retention-days: 30
