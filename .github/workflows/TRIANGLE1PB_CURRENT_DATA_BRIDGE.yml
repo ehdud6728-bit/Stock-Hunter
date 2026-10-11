@@ -30,7 +30,7 @@ concurrency:
 jobs:
   refresh-and-run:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 180
     env:
       GH_TOKEN: ${{ github.token }}
       TZ: Asia/Seoul
@@ -61,8 +61,7 @@ jobs:
           python - <<'PY'
           import json, os, subprocess, time, datetime
           start_dt=datetime.datetime.fromisoformat(os.environ['START'].replace('Z','+00:00'))
-          ref=os.environ['GITHUB_REF_NAME']
-          chosen=None
+          ref=os.environ['GITHUB_REF_NAME']; chosen=None
           for _ in range(30):
               out=subprocess.check_output(['gh','run','list','--workflow','run_scanner.yml','--branch',ref,'--event','workflow_dispatch','--limit','30','--json','databaseId,createdAt,status,conclusion'],text=True)
               cand=[]
@@ -120,7 +119,7 @@ jobs:
           price_files=sum(1 for p in Path('reports/.cache/v20_price_history').rglob('*') if p.is_file())
           asof_files=sum(1 for p in Path('reports/.cache/v20_asof_snapshots').rglob('*') if p.is_file())
           if price_files <= 0 or asof_files <= 0: raise SystemExit(f'TRIANGLE_BRIDGE_CACHE_EMPTY price={price_files} asof={asof_files}')
-          print('TRIANGLE_BRIDGE_OVERLAY_READY', 'matched',matched,'producer_snapshot_date',md,'price_files',price_files,'asof_files',asof_files)
+          print('TRIANGLE_BRIDGE_OVERLAY_READY','matched',matched,'producer_snapshot_date',md,'price_files',price_files,'asof_files',asof_files)
           open(os.environ['GITHUB_OUTPUT'],'a').write(f'producer_end={md}\n')
           PY
 
@@ -159,7 +158,8 @@ jobs:
                   chosen=cand[-1][1]; break
               time.sleep(4)
           if not chosen: raise SystemExit('TRIANGLE_BRIDGE_TRIANGLE_RUN_NOT_FOUND')
-          rid=str(chosen['databaseId']); open(os.environ['GITHUB_OUTPUT'],'a').write(f'run_id={rid}\n')
+          rid=str(chosen['databaseId'])
+          open(os.environ['GITHUB_OUTPUT'],'a').write(f'run_id={rid}\n')
           print('TRIANGLE_BRIDGE_TRIANGLE_RUN',rid)
           PY
 
@@ -177,7 +177,6 @@ jobs:
           mkdir -p reports/triangle_bridge_result
           gh run download "$RID" -p 'triangle1pb-r1-chronology-research-*' -D reports/triangle_bridge_result
           python - <<'PY'
-          import json
           from pathlib import Path
           import pandas as pd
           rr=list(Path('reports/triangle_bridge_result').rglob('tri_r2_oos_readiness.csv'))
