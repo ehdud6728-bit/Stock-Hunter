@@ -2207,9 +2207,54 @@ jobs:
           # No 2-year parent recomputation is permitted in CORE224_LIVE.
           test "$price_before" -gt 0 || { echo "❌ V25_CURRENT_LIVE_SEED_NO_PRICE_BASE_CACHE"; exit 223; }
 
-          current_live_end=$(python -c "from datetime import datetime,timedelta; from zoneinfo import ZoneInfo; now=datetime.now(ZoneInfo('Asia/Seoul')); d=now.date()-(timedelta(days=1) if (now.hour,now.minute)<(15,40) else timedelta(0)); exec('while d.weekday() >= 5: d -= timedelta(days=1)'); print(d.isoformat())")
+          current_live_end=$(python - <<'PYTRADINGDAY'
+          from datetime import datetime, timedelta
+          from zoneinfo import ZoneInfo
+          import pandas as pd
+          import FinanceDataReader as fdr
+
+          now=datetime.now(ZoneInfo("Asia/Seoul"))
+          candidate=now.date()-(timedelta(days=1) if (now.hour,now.minute)<(15,40) else timedelta(0))
+          start=(candidate-timedelta(days=20)).isoformat()
+          end=(candidate+timedelta(days=1)).isoformat()
+
+          resolved=None
+          sources=[]
+
+          # Primary: KRX index session calendar from FDR.
+          for symbol in ("KS11","005930"):
+              try:
+                  q=fdr.DataReader(symbol,start,end)
+                  if q is None or len(q)==0:
+                      continue
+                  idx=pd.to_datetime(q.index,errors="coerce")
+                  valid=[pd.Timestamp(x).date() for x in idx if pd.notna(x) and pd.Timestamp(x).date()<=candidate]
+                  if valid:
+                      r=max(valid)
+                      sources.append((symbol,r.isoformat(),len(valid)))
+                      if resolved is None or r>resolved:
+                          resolved=r
+              except Exception as e:
+                  sources.append((symbol,"ERROR",type(e).__name__))
+
+          if resolved is None:
+              raise SystemExit(f"CORE224_KRX_TRADING_DAY_RESOLVE_FAILED candidate={candidate} sources={sources}")
+
+          print(
+              "CORE224_KRX_TRADING_DAY_RESOLVED",
+              "candidate",candidate.isoformat(),
+              "resolved",resolved.isoformat(),
+              "rollback_days",(candidate-resolved).days,
+              "sources",sources,
+          )
+          print(resolved.isoformat())
+          PYTRADINGDAY
+          )
+          # Command substitution captures all stdout, so keep only the final ISO date.
+          current_live_end=$(printf '%s\n' "$current_live_end" | tail -n 1)
           test -n "$current_live_end"
           echo "V25_CURRENT_LIVE_END_DATE=$current_live_end" >> "$GITHUB_ENV"
+          echo "V25_CURRENT_LIVE_END_DATE_RESOLVED trading_day=$current_live_end authority=FDR_KRX_SESSION_CALENDAR"
 
           # If the exact latest-completed no-hold seed is already persisted, reuse it.
           # This is infrastructure-only and avoids repeating the ~9 minute one-date worker.
@@ -3297,9 +3342,54 @@ jobs:
         run: |
           set -euo pipefail
           python -c "import os,pandas as pd; p='reports/v73_v25_core224_only_parent_audit.csv'; assert os.path.exists(p), 'V25_PARENT_AUDIT_MISSING'; q=pd.read_csv(p); assert len(q)>0, 'V25_PARENT_AUDIT_EMPTY'; r=q.iloc[-1]; a=pd.read_csv('reports/v73_v25_activation_status.csv'); ar=a.iloc[-1] if len(a) else {}; status=str(r.get('status','')); research=int(float(r.get('research_pipeline_valid',0) or 0)); policy_valid=int(float(r.get('policy_state_valid',0) or 0)); execution=str(r.get('execution_authority','')); expected=int(float(r.get('expected_dates',0) or 0)); source_changed=int(float(r.get('daily_input_fingerprint_source_changed_components',0) or 0)); seed_structural=(str(ar.get('pipeline_status',''))=='VALID_SHADOW' and expected>0 and int(float(r.get('valid_dates',0) or 0))==expected and int(float(r.get('materialized_dates',0) or 0))==expected and int(float(r.get('sidecar_dates',0) or 0))==expected and int(float(r.get('core224_rows',0) or 0))>0 and int(float(r.get('invariant_fail_rows',0) or 0))==0 and int(float(r.get('boundary_forced_exit',0) or 0))==0 and int(float(r.get('auto_chain',0) or 0))==1 and str(r.get('lifecycle_status','')) not in {'','INVALID','DISABLED'} and not str(r.get('daily_episode_status','')).startswith('INVALID') and int(float(r.get('daily_invariant_fail_rows',0) or 0))==0 and int(float(r.get('daily_core_replay_provider_calls',0) or 0))==0 and int(float(r.get('daily_weekly_unexplained',0) or 0))==0 and int(float(r.get('daily_weekly_snapshot_calendar_complete',0) or 0))==1 and int(float(r.get('daily_weekly_snapshot_calendar_dates',0) or 0))==expected and int(float(r.get('daily_exact_shard_restart_input_expected',0) or 0))==int(float(r.get('daily_exact_shard_restart_input_replay_pass',0) or 0)) and int(float(r.get('daily_exact_shard_same_input_nondeterminism',0) or 0))==0 and int(float(r.get('daily_forward_oos_immutability_conflicts',0) or 0))==0); strict_ok=(status=='PASS' and research==1 and policy_valid==1 and execution in {'ENABLED_POLICY_LOCKED','BLOCKED_POLICY_LOCK_PENDING'}); pending_data_ok=(execution=='BLOCKED_POLICY_LOCK_PENDING' and policy_valid==1 and seed_structural); print('V25_CURRENT_LIVE_SEED_PRECHECK','parent_status',status,'research_valid',research,'policy_state_valid',policy_valid,'execution',execution,'seed_structural',int(seed_structural),'source_changed',source_changed,'allow_mode',('STRICT_RESEARCH_PASS' if strict_ok else 'POLICY_PENDING_DATA_ONLY' if pending_data_ok else 'BLOCK')); assert strict_ok or pending_data_ok, 'V25_PARENT_NOT_SEED_DATA_VALID'"
-          current_live_end=$(python -c "from datetime import datetime,timedelta; from zoneinfo import ZoneInfo; now=datetime.now(ZoneInfo('Asia/Seoul')); d=now.date()-(timedelta(days=1) if (now.hour,now.minute)<(15,40) else timedelta(0)); exec('while d.weekday() >= 5: d -= timedelta(days=1)'); print(d.isoformat())")
+          current_live_end=$(python - <<'PYTRADINGDAY'
+          from datetime import datetime, timedelta
+          from zoneinfo import ZoneInfo
+          import pandas as pd
+          import FinanceDataReader as fdr
+
+          now=datetime.now(ZoneInfo("Asia/Seoul"))
+          candidate=now.date()-(timedelta(days=1) if (now.hour,now.minute)<(15,40) else timedelta(0))
+          start=(candidate-timedelta(days=20)).isoformat()
+          end=(candidate+timedelta(days=1)).isoformat()
+
+          resolved=None
+          sources=[]
+
+          # Primary: KRX index session calendar from FDR.
+          for symbol in ("KS11","005930"):
+              try:
+                  q=fdr.DataReader(symbol,start,end)
+                  if q is None or len(q)==0:
+                      continue
+                  idx=pd.to_datetime(q.index,errors="coerce")
+                  valid=[pd.Timestamp(x).date() for x in idx if pd.notna(x) and pd.Timestamp(x).date()<=candidate]
+                  if valid:
+                      r=max(valid)
+                      sources.append((symbol,r.isoformat(),len(valid)))
+                      if resolved is None or r>resolved:
+                          resolved=r
+              except Exception as e:
+                  sources.append((symbol,"ERROR",type(e).__name__))
+
+          if resolved is None:
+              raise SystemExit(f"CORE224_KRX_TRADING_DAY_RESOLVE_FAILED candidate={candidate} sources={sources}")
+
+          print(
+              "CORE224_KRX_TRADING_DAY_RESOLVED",
+              "candidate",candidate.isoformat(),
+              "resolved",resolved.isoformat(),
+              "rollback_days",(candidate-resolved).days,
+              "sources",sources,
+          )
+          print(resolved.isoformat())
+          PYTRADINGDAY
+          )
+          # Command substitution captures all stdout, so keep only the final ISO date.
+          current_live_end=$(printf '%s\n' "$current_live_end" | tail -n 1)
           test -n "$current_live_end"
           echo "V25_CURRENT_LIVE_END_DATE=$current_live_end" >> "$GITHUB_ENV"
+          echo "V25_CURRENT_LIVE_END_DATE_RESOLVED trading_day=$current_live_end authority=FDR_KRX_SESSION_CALENDAR"
           echo "V25_CURRENT_LIVE_SEED_BUILD start current_end=${current_live_end} historical_end=${V25_TWO_YEAR_END_DATE:-} historical_hold=${V1080_BACKTEST_HOLD_DAYS} live_hold=0"
           rm -rf reports/v25_live_seed_build
           mkdir -p reports/v25_live_seed_build reports/.cache/v25_core224_live
