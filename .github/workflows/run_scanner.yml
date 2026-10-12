@@ -2315,8 +2315,99 @@ jobs:
               raise SystemExit(f"V25_CURRENT_EXACT_ASOF_INSUFFICIENT_ACTUAL_DAYS:{actual}")
           if membership is None or membership.empty:
               raise SystemExit("V25_CURRENT_EXACT_ASOF_EMPTY_MEMBERSHIP")
+          lag_days=(target-pd.Timestamp(liq).normalize()).days if pd.notna(liq) else 9999
+          print("V25_CURRENT_EXACT_ASOF_MEMBERSHIP_LAG_DAYS",lag_days)
           PYEXACTPRE
           echo "V25_CURRENT_EXACT_ASOF_PREWARM_END target=$current_live_end"
+
+          # R1.2: hydrate persistent V20 per-code price cache through exact target.
+          echo "V25_CURRENT_EXACT_PRICE_HYDRATE_BEGIN target=$current_live_end"
+          env \
+            CORE224_EXACT_TARGET="$current_live_end" \
+            V20_PRICE_CACHE_DIR=reports/.cache/v20_price_history \
+            V20_REPLAY_CHECKPOINT_DIR=reports/.cache/v20_replay_checkpoint \
+            V20_PRICE_DISK_CACHE_ENABLE=1 \
+            V20_PRICE_PREFETCH_ENABLE=1 \
+            V20_PRICE_PREFETCH_WORKERS=8 \
+            V20_PROGRESS_EVERY=50 \
+            python - <<'PYPRICE'
+          import os
+          from pathlib import Path
+          import pandas as pd
+          import FinanceDataReader as fdr
+          import direct_replay_performance_v20 as perf
+
+          target=pd.Timestamp(os.environ["CORE224_EXACT_TARGET"]).normalize()
+          prewarm=Path("reports/v25_live_seed_build/exact_asof_prewarm/v73_universe_asof_membership.csv")
+          if not prewarm.exists() or prewarm.stat().st_size <= 0:
+              raise SystemExit("V25_CURRENT_EXACT_PRICE_HYDRATE_NO_MEMBERSHIP")
+
+          q=pd.read_csv(prewarm,dtype=str,low_memory=False)
+          code_col=next((c for c in ["code","Code","ticker","Ticker","symbol"] if c in q.columns),None)
+          if not code_col:
+              raise SystemExit(f"V25_CURRENT_EXACT_PRICE_HYDRATE_CODE_COL_MISSING:{list(q.columns)[:20]}")
+
+          codes=[]
+          seen=set()
+          for v in q[code_col].astype(str):
+              d=''.join(ch for ch in v if ch.isdigit())[-6:].zfill(6)
+              if d and d!="000000" and d not in seen:
+                  seen.add(d); codes.append(d)
+          if not codes:
+              raise SystemExit("V25_CURRENT_EXACT_PRICE_HYDRATE_NO_CODES")
+
+          def provider(code, days=900):
+              days=max(30,int(days or 900))
+              start=(target-pd.Timedelta(days=max(1200,days*2))).date().isoformat()
+              end=(target+pd.Timedelta(days=1)).date().isoformat()
+              df=fdr.DataReader(str(code),start,end)
+              if not isinstance(df,pd.DataFrame):
+                  return pd.DataFrame()
+              if len(df):
+                  idx=pd.to_datetime(df.index,errors="coerce")
+                  df=df.loc[idx.notna()].copy()
+                  df.index=pd.to_datetime(df.index,errors="coerce")
+                  df=df[df.index<=target]
+              return df
+
+          perf.configure(
+              provider,
+              output_dir="reports",
+              source_fingerprint=os.environ.get("GITHUB_SHA","CORE224_EXACT_PRICE_HYDRATE_R1_2"),
+          )
+          perf.set_required_asof(target)
+          result=perf.prefetch_codes(codes,asof_date=target,days=900,log_fn=print)
+          stats=perf.stats_snapshot()
+          print("V25_CURRENT_EXACT_PRICE_HYDRATE_RESULT",result,stats)
+
+          ok=0
+          bad=[]
+          for code in codes:
+              df=perf.cached_price_reader(code,days=900)
+              latest=None
+              if isinstance(df,pd.DataFrame) and not df.empty:
+                  idx=pd.to_datetime(df.index,errors="coerce")
+                  idx=idx[idx.notna()]
+                  if len(idx):
+                      latest=pd.Timestamp(idx.max()).normalize()
+              if latest is not None and latest>=target:
+                  ok+=1
+              else:
+                  bad.append((code,str(latest.date()) if latest is not None else "NONE"))
+
+          coverage=(100.0*ok/len(codes)) if codes else 0.0
+          print(
+              "V25_CURRENT_EXACT_PRICE_COVERAGE",
+              "target",target.date(),
+              "codes",len(codes),
+              "covered",ok,
+              "coverage_pct",round(coverage,2),
+              "bad_sample",bad[:20],
+          )
+          if coverage < 95.0:
+              raise SystemExit(f"V25_CURRENT_EXACT_PRICE_COVERAGE_TOO_LOW:{coverage:.2f}")
+          PYPRICE
+          echo "V25_CURRENT_EXACT_PRICE_HYDRATE_END target=$current_live_end"
 
           # Exact cohort proof: CORE224 current refresh must evaluate one exact completed
           # session, not the trailing D cohort or an older WEEK_LAST fallback date.
