@@ -2315,6 +2315,25 @@ jobs:
               raise SystemExit(f"V25_CURRENT_EXACT_ASOF_INSUFFICIENT_ACTUAL_DAYS:{actual}")
           if membership is None or membership.empty:
               raise SystemExit("V25_CURRENT_EXACT_ASOF_EMPTY_MEMBERSHIP")
+
+          # R1.2.1 explicit handoff: HistoricalUniverseRuntime.build() returns the
+          # authoritative frames but does not guarantee these caller-specific files.
+          # Persist exactly what was returned so the following price hydration stage
+          # consumes the same causal universe, not a guessed filesystem side effect.
+          from pathlib import Path
+          handoff=Path("reports/v25_live_seed_build/exact_asof_prewarm")
+          handoff.mkdir(parents=True,exist_ok=True)
+          membership.to_csv(handoff/"v73_universe_asof_membership.csv",index=False,encoding="utf-8-sig")
+          summary.to_csv(handoff/"v73_universe_asof_summary.csv",index=False,encoding="utf-8-sig")
+          availability.to_csv(handoff/"v73_universe_data_availability.csv",index=False,encoding="utf-8-sig")
+          print(
+              "V25_CURRENT_EXACT_ASOF_HANDOFF_SAVED",
+              "membership",len(membership),
+              "summary",len(summary),
+              "availability",len(availability),
+              "path",str(handoff),
+          )
+
           lag_days=(target-pd.Timestamp(liq).normalize()).days if pd.notna(liq) else 9999
           print("V25_CURRENT_EXACT_ASOF_MEMBERSHIP_LAG_DAYS",lag_days)
           PYEXACTPRE
@@ -2343,14 +2362,35 @@ jobs:
               raise SystemExit("V25_CURRENT_EXACT_PRICE_HYDRATE_NO_MEMBERSHIP")
 
           q=pd.read_csv(prewarm,dtype=str,low_memory=False)
+          if q.empty:
+              raise SystemExit("V25_CURRENT_EXACT_PRICE_HYDRATE_EMPTY_MEMBERSHIP_FILE")
+          if "signal_date" in q.columns:
+              ds=pd.to_datetime(q["signal_date"],errors="coerce").dropna().dt.normalize().unique()
+              if len(ds)!=1 or pd.Timestamp(ds[0]).normalize()!=target:
+                  raise SystemExit(f"V25_CURRENT_EXACT_PRICE_HYDRATE_SIGNAL_DATE_MISMATCH:{list(map(str,ds))} vs {target.date()}")
           code_col=next((c for c in ["code","Code","ticker","Ticker","symbol"] if c in q.columns),None)
           if not code_col:
               raise SystemExit(f"V25_CURRENT_EXACT_PRICE_HYDRATE_CODE_COL_MISSING:{list(q.columns)[:20]}")
 
+          def norm_code(v):
+              raw=str(v or "").strip().upper()
+              if raw.endswith(".0") and raw[:-2].isdigit():
+                  raw=raw[:-2]
+              for suffix in (".KS",".KQ",".KRX"):
+                  if raw.endswith(suffix):
+                      raw=raw[:-len(suffix)]
+                      break
+              s=''.join(ch for ch in raw if ch in "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+              if len(s)==7 and s.startswith("A"):
+                  s=s[1:]
+              if s.isdigit() and len(s)<=6:
+                  return s.zfill(6)
+              return s[-6:] if len(s)>=6 else s
+
           codes=[]
           seen=set()
           for v in q[code_col].astype(str):
-              d=''.join(ch for ch in v if ch.isdigit())[-6:].zfill(6)
+              d=norm_code(v)
               if d and d!="000000" and d not in seen:
                   seen.add(d); codes.append(d)
           if not codes:
