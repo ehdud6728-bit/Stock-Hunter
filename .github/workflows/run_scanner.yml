@@ -2494,25 +2494,45 @@ jobs:
           PYPRICE
           echo "V25_CURRENT_EXACT_PRICE_HYDRATE_END target=$current_live_end"
 
-          # Exact cohort proof: CORE224 current refresh must evaluate one exact completed
+          # R1.4 selection-window bridge:
+          # WEEK_LAST needs a bounded weekly calendar window; a one-day CUSTOM window can
+          # produce zero replay dates. Open only the selector input window, while keeping
+          # current_live_end as the immutable exact output authority.
+          current_select_start=$(python - <<PYSEL
+          import pandas as pd
+          t=pd.Timestamp("${current_live_end}").normalize()
+          print((t-pd.Timedelta(days=6)).date().isoformat())
+          PYSEL
+          )
+          test -n "$current_select_start"
+          echo "V25_CURRENT_EXACT_SELECTION_WINDOW start=$current_select_start end=$current_live_end exact_authority=$current_live_end mode=WEEK_LAST"
+
+          # Exact cohort proof: selector window may span one calendar week, but its end
+          # must be the exact completed KRX session and downstream manifest must contain
+          # exactly that one date.
           # session, not the trailing D cohort or an older WEEK_LAST fallback date.
           env \
             V25_COHORT_MODE=CUSTOM \
             V25_COHORT_ID=CORE224_CURRENT_EXACT \
-            V25_COHORT_START_DATE="$current_live_end" \
+            V25_COHORT_START_DATE="$current_select_start" \
             V25_COHORT_END_DATE="$current_live_end" \
             CORE224_EXACT_TARGET="$current_live_end" \
+            CORE224_SELECT_START="$current_select_start" \
             python - <<'PYCOHORT'
           import os
           import pandas as pd
           import original_thesis_reconstruction as thesis
           target=pd.Timestamp(os.environ["CORE224_EXACT_TARGET"]).normalize()
+          expected_start=pd.Timestamp(os.environ["CORE224_SELECT_START"]).normalize()
           c=thesis.resolve_cohort_window()
           st=pd.Timestamp(c["requested_start"]).normalize()
           en=pd.Timestamp(c["requested_end"]).normalize()
-          print("V25_CURRENT_EXACT_COHORT_PROOF",c)
-          if st != target or en != target:
-              raise SystemExit(f"V25_CURRENT_EXACT_COHORT_MISMATCH:{st.date()}..{en.date()} vs {target.date()}")
+          print("V25_CURRENT_EXACT_COHORT_PROOF",c,"exact_target",target.date(),"selector_start",expected_start.date())
+          if st != expected_start or en != target or not (st <= target <= en):
+              raise SystemExit(
+                  f"V25_CURRENT_EXACT_COHORT_MISMATCH:{st.date()}..{en.date()} "
+                  f"expected {expected_start.date()}..{target.date()}"
+              )
           PYCOHORT
 
           env \
@@ -2527,7 +2547,7 @@ jobs:
             V25_TWO_YEAR_END_DATE="$current_live_end" \
             V25_COHORT_MODE=CUSTOM \
             V25_COHORT_ID=CORE224_CURRENT_EXACT \
-            V25_COHORT_START_DATE="$current_live_end" \
+            V25_COHORT_START_DATE="$current_select_start" \
             V25_COHORT_END_DATE="$current_live_end" \
             V1080_BACKTEST_OUTPUT_DIR=reports/v25_live_seed_build \
             V1080_BACKTEST_HOLD_DAYS=0 \
@@ -2558,6 +2578,13 @@ jobs:
           if not manifest_path.exists():
               raise SystemExit('V25_SEED_LOADER_MANIFEST_MISSING')
           manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+          print(
+              'V25_SEED_LOADER_MANIFEST_DATES',
+              'all_date_count',manifest.get('all_date_count'),
+              'selected_date_count',manifest.get('selected_date_count'),
+              'selected_dates',manifest.get('selected_dates'),
+              'cohort',manifest.get('cohort_id'),
+          )
           selected = sorted({pd.Timestamp(x).normalize() for x in (manifest.get('selected_dates') or [])})
           if len(selected) != 1:
               raise SystemExit(f'V25_SEED_LOADER_EXPECTED_ONE_DATE:{len(selected)}')
