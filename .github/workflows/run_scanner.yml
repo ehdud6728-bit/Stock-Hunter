@@ -2311,6 +2311,20 @@ jobs:
           # R1.1 exact-date authority: hydrate the causal D-1 universe inputs for the
           # exact completed-bar target before the heavy one-date worker starts.
           # This remains RESEARCH/PAPER only and does not alter production score/rank/order.
+          echo "V25_CURRENT_CALENDAR_FRESHNESS_PATCH_BEGIN target=$current_live_end"
+          python - <<'PYCALPATCH'
+          from pathlib import Path
+          p=Path("historical_asof_universe.py")
+          src=p.read_text(encoding="utf-8")
+          old='def _calendar_before(asof_date: Any, n: int, fdr_reader: Callable[..., pd.DataFrame] | None = None) -> list[pd.Timestamp]:\n    d = pd.Timestamp(asof_date).normalize()\n    if callable(fdr_reader):\n        start = (d - pd.Timedelta(days=max(90, n * 4))).strftime("%Y-%m-%d")\n        end = d.strftime("%Y-%m-%d")\n        for symbol in ["KS11", "KOSPI"]:\n            try:\n                z = fdr_reader(symbol, start, end)\n                if z is not None and not z.empty:\n                    dates = [pd.Timestamp(x).normalize() for x in pd.to_datetime(z.index) if pd.Timestamp(x).normalize() < d]\n                    return sorted(list(dict.fromkeys(dates)))[-n:]\n            except Exception:\n                continue\n    # Fail-safe business-day approximation is diagnostic only. Caller records source quality.\n    return list(pd.bdate_range(end=d - pd.Timedelta(days=1), periods=n))\n'
+          new='def _calendar_before(asof_date: Any, n: int, fdr_reader: Callable[..., pd.DataFrame] | None = None) -> list[pd.Timestamp]:\n    d = pd.Timestamp(asof_date).normalize()\n    if callable(fdr_reader):\n        start = (d - pd.Timedelta(days=max(90, n * 4))).strftime("%Y-%m-%d")\n        end = d.strftime("%Y-%m-%d")\n        candidates = []\n        diagnostics = []\n        for symbol in ["KS11", "KOSPI", "005930"]:\n            try:\n                z = fdr_reader(symbol, start, end)\n                if z is None or z.empty:\n                    diagnostics.append((symbol, "EMPTY", 0))\n                    continue\n                dates = sorted({\n                    pd.Timestamp(x).normalize()\n                    for x in pd.to_datetime(z.index, errors="coerce")\n                    if pd.notna(x) and pd.Timestamp(x).normalize() < d\n                })\n                if dates:\n                    candidates.append((dates[-1], len(dates), symbol, dates))\n                    diagnostics.append((symbol, dates[-1].strftime("%Y-%m-%d"), len(dates)))\n                else:\n                    diagnostics.append((symbol, "NO_PRIOR_DATE", 0))\n            except Exception as exc:\n                diagnostics.append((symbol, f"ERROR:{type(exc).__name__}", 0))\n        if candidates:\n            candidates.sort(key=lambda t: (t[0], t[1]), reverse=True)\n            last_date, _, symbol, dates = candidates[0]\n            chosen = dates[-n:]\n            print(\n                "V25_CALENDAR_BEFORE_FRESHEST",\n                "asof", d.strftime("%Y-%m-%d"),\n                "source", symbol,\n                "latest", last_date.strftime("%Y-%m-%d"),\n                "days", len(chosen),\n                "candidates", diagnostics,\n            )\n            return chosen\n    # Fail-safe business-day approximation is diagnostic only. Caller records source quality.\n    return list(pd.bdate_range(end=d - pd.Timedelta(days=1), periods=n))\n'
+          if old not in src:
+              raise SystemExit("V25_CALENDAR_PATCH_TARGET_NOT_FOUND")
+          p.write_text(src.replace(old,new,1),encoding="utf-8")
+          print("V25_CURRENT_CALENDAR_FRESHNESS_PATCH_APPLIED",p)
+          PYCALPATCH
+          echo "V25_CURRENT_CALENDAR_FRESHNESS_PATCH_END target=$current_live_end"
+
           echo "V25_CURRENT_EXACT_ASOF_PREWARM_BEGIN target=$current_live_end"
           env \
             V20_ASOF_CACHE_DIR=reports/.cache/v20_asof_snapshots \
@@ -2381,6 +2395,8 @@ jobs:
 
           lag_days=(target-pd.Timestamp(liq).normalize()).days if pd.notna(liq) else 9999
           print("V25_CURRENT_EXACT_ASOF_MEMBERSHIP_LAG_DAYS",lag_days)
+          if lag_days > 7:
+              raise SystemExit(f"V25_CURRENT_EXACT_ASOF_MEMBERSHIP_TOO_STALE:{lag_days}")
           PYEXACTPRE
           echo "V25_CURRENT_EXACT_ASOF_PREWARM_END target=$current_live_end"
 
@@ -2547,7 +2563,7 @@ jobs:
           # The workflow-wide value points at reports/v23_materialized, while this
           # lightweight LIVE worker writes to reports/v25_live_seed_build/v23_materialized.
           # Unset it only for loader/builder consumers so --source-dir is authoritative.
-          env -u V23_MATERIALIZED_DIR python - <<'PYLOAD'
+          env -u V23_MATERIALIZED_DIR CORE224_EXPECTED_END="$current_live_end" python - <<'PYLOAD'
           from pathlib import Path
           import json, os
           import pandas as pd
@@ -2572,7 +2588,10 @@ jobs:
           if cohort not in {'ROLLING','CORE224_CURRENT_ROLLING'}:
               raise SystemExit(f'V25_SEED_LOADER_ROLLING_COHORT_MISMATCH:{cohort}')
           asof = selected[0]
-          expected = pd.Timestamp(os.environ.get('V25_CURRENT_LIVE_END_DATE','')).normalize()
+          expected_raw=str(os.environ.get('CORE224_EXPECTED_END','')).strip()
+          if not expected_raw:
+              raise SystemExit('V25_SEED_LOADER_EXPECTED_END_MISSING')
+          expected = pd.Timestamp(expected_raw).normalize()
           if asof != expected:
               raise SystemExit(
                   f'V25_SEED_LOADER_EXACT_DATE_MISMATCH:{asof.date()} vs {expected.date()}'
