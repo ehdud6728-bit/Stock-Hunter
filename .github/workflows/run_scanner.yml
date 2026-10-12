@@ -2243,7 +2243,7 @@ jobs:
             exit 0
           fi
 
-          echo "V25_CURRENT_LIVE_SEED_REFRESH start current_end=${current_live_end} mode=ONE_DATE_NO_HOLD historical_parent_recompute=0"
+          echo "V25_CURRENT_LIVE_SEED_REFRESH start current_end=${current_live_end} mode=EXACT_DATE_ONE_DAY_NO_HOLD historical_parent_recompute=0"
 
           backup_dir="$(mktemp -d)"
           restore_seed_backup() {
@@ -2262,6 +2262,83 @@ jobs:
           rm -f reports/.cache/v25_core224_live/seed_meta.json reports/.cache/v25_core224_live/weekly_seed_snapshot.csv reports/.cache/v25_core224_live/seed_universe.csv
 
           echo "V25_CURRENT_LIVE_SEED_LISTING_AUTHORITY STOCKHUNTER_PYKRX_FORCE_STUB=0 scope=seed_refresh_subprocess_only"
+
+          # R1.1 exact-date authority: hydrate the causal D-1 universe inputs for the
+          # exact completed-bar target before the heavy one-date worker starts.
+          # This remains RESEARCH/PAPER only and does not alter production score/rank/order.
+          echo "V25_CURRENT_EXACT_ASOF_PREWARM_BEGIN target=$current_live_end"
+          env \
+            V20_ASOF_CACHE_DIR=reports/.cache/v20_asof_snapshots \
+            V1081_DIRECT_TOP_N=500 \
+            V1081_ASOF_LIQUIDITY_DAYS=20 \
+            STOCKHUNTER_PYKRX_FORCE_STUB=0 \
+            CORE224_EXACT_TARGET="$current_live_end" \
+            python - <<'PYEXACTPRE'
+          import os
+          import pandas as pd
+          import FinanceDataReader as fdr
+          from pykrx import stock
+          import historical_asof_universe as hu
+
+          target=pd.Timestamp(os.environ["CORE224_EXACT_TARGET"]).normalize()
+          rt=hu.HistoricalUniverseRuntime(
+              stock_module=stock,
+              listing_loader=None,
+              fdr_reader=fdr.DataReader,
+          )
+          membership,summary,availability=rt.build(
+              target,
+              output_dir="reports/v25_live_seed_build/exact_asof_prewarm",
+              fallback_df=None,
+          )
+          if availability is None or availability.empty:
+              raise SystemExit("V25_CURRENT_EXACT_ASOF_PREWARM_NO_AVAILABILITY")
+          r=availability.iloc[-1]
+          status=str(r.get("status",""))
+          signal=pd.Timestamp(r.get("signal_date")).normalize()
+          liq=pd.to_datetime(r.get("membership_asof_date"),errors="coerce")
+          actual=int(r.get("actual_liquidity_snapshot_days",0) or 0)
+          print(
+              "V25_CURRENT_EXACT_ASOF_PREWARM",
+              "target",target.date(),
+              "signal",signal.date(),
+              "membership_asof",pd.Timestamp(liq).date() if pd.notna(liq) else "NONE",
+              "status",status,
+              "actual_days",actual,
+              "membership_rows",len(membership),
+          )
+          if signal != target:
+              raise SystemExit(f"V25_CURRENT_EXACT_ASOF_SIGNAL_MISMATCH:{signal.date()} vs {target.date()}")
+          if status not in {"VALID_CAUSAL_ASOF","VALID_CAUSAL_ASOF_SECURITY_FILTER_PARTIAL"}:
+              raise SystemExit(f"V25_CURRENT_EXACT_ASOF_NOT_CAUSAL:{status}")
+          if actual < 10:
+              raise SystemExit(f"V25_CURRENT_EXACT_ASOF_INSUFFICIENT_ACTUAL_DAYS:{actual}")
+          if membership is None or membership.empty:
+              raise SystemExit("V25_CURRENT_EXACT_ASOF_EMPTY_MEMBERSHIP")
+          PYEXACTPRE
+          echo "V25_CURRENT_EXACT_ASOF_PREWARM_END target=$current_live_end"
+
+          # Exact cohort proof: CORE224 current refresh must evaluate one exact completed
+          # session, not the trailing D cohort or an older WEEK_LAST fallback date.
+          env \
+            V25_COHORT_MODE=CUSTOM \
+            V25_COHORT_ID=CORE224_CURRENT_EXACT \
+            V25_COHORT_START_DATE="$current_live_end" \
+            V25_COHORT_END_DATE="$current_live_end" \
+            CORE224_EXACT_TARGET="$current_live_end" \
+            python - <<'PYCOHORT'
+          import os
+          import pandas as pd
+          import original_thesis_reconstruction as thesis
+          target=pd.Timestamp(os.environ["CORE224_EXACT_TARGET"]).normalize()
+          c=thesis.resolve_cohort_window()
+          st=pd.Timestamp(c["requested_start"]).normalize()
+          en=pd.Timestamp(c["requested_end"]).normalize()
+          print("V25_CURRENT_EXACT_COHORT_PROOF",c)
+          if st != target or en != target:
+              raise SystemExit(f"V25_CURRENT_EXACT_COHORT_MISMATCH:{st.date()}..{en.date()} vs {target.date()}")
+          PYCOHORT
+
           env \
             TEST_PROFILE=WEEKLY_BACKTEST \
             STOCKHUNTER_WEEKLY_BACKTEST_ONLY=1 \
@@ -2272,6 +2349,10 @@ jobs:
             V1081_DIRECT_DATE_MODE=WEEK_LAST \
             V25_CURRENT_LIVE_END_DATE="$current_live_end" \
             V25_TWO_YEAR_END_DATE="$current_live_end" \
+            V25_COHORT_MODE=CUSTOM \
+            V25_COHORT_ID=CORE224_CURRENT_EXACT \
+            V25_COHORT_START_DATE="$current_live_end" \
+            V25_COHORT_END_DATE="$current_live_end" \
             V1080_BACKTEST_OUTPUT_DIR=reports/v25_live_seed_build \
             V1080_BACKTEST_HOLD_DAYS=0 \
             V1080_BACKTEST_WEEKS=1 \
@@ -2282,7 +2363,6 @@ jobs:
             V23_MERGE_ONLY_PARENT=0 \
             V23_ZERO_RECOMPUTE=1 \
             V23_MATERIALIZED_DIR=reports/v25_live_seed_build/v23_materialized \
-            V25_COHORT_MODE=D \
             python -u "$SCRIPT"
 
           echo "V25_CURRENT_LIVE_SEED_LOADER_PREFLIGHT_BEGIN"
@@ -2306,8 +2386,14 @@ jobs:
           if len(selected) != 1:
               raise SystemExit(f'V25_SEED_LOADER_EXPECTED_ONE_DATE:{len(selected)}')
           asof = selected[0]
+          expected = pd.Timestamp(os.environ.get('V25_CURRENT_LIVE_END_DATE','')).normalize()
+          if asof != expected:
+              raise SystemExit(
+                  f'V25_SEED_LOADER_EXACT_DATE_MISMATCH:{asof.date()} vs {expected.date()}'
+              )
 
           print('V25_SEED_LOADER_ENV', 'V23_MATERIALIZED_DIR', repr(os.environ.get('V23_MATERIALIZED_DIR')))
+          print('V25_SEED_LOADER_EXACT_DATE_PASS', 'selected', asof.strftime('%Y-%m-%d'), 'expected', expected.strftime('%Y-%m-%d'))
           expected_path = mat.materialized_path(root, asof)
           print('V25_SEED_LOADER_EXPECTED_PATH', str(expected_path), 'exists', int(expected_path.exists()))
           payload = mat.load_materialized_date(root, asof, require_current_identity=False)
