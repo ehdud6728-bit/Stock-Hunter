@@ -2522,6 +2522,9 @@ jobs:
               raise SystemExit(f"V25_CURRENT_ROLLING_MODE_MISMATCH:{c}")
           PYCOHORT
 
+          echo "CORE224_R3_PATCH_MAIN_PREPARE target=$current_live_end"
+          python -u core224_live_date_selector_r3.py --patch-main "$SCRIPT"
+          echo "CORE224_R3_PATCH_MAIN_READY target=$current_live_end"
           env \
             TEST_PROFILE=WEEKLY_BACKTEST \
             STOCKHUNTER_WEEKLY_BACKTEST_ONLY=1 \
@@ -2546,7 +2549,6 @@ jobs:
             V23_MERGE_ONLY_PARENT=0 \
             V23_ZERO_RECOMPUTE=1 \
             V23_MATERIALIZED_DIR=reports/v25_live_seed_build/v23_materialized \
-            python -u core224_live_date_selector_r3.py --patch-main "$SCRIPT"
             python -u "$SCRIPT"
 
           echo "V25_CURRENT_LIVE_SEED_LOADER_PREFLIGHT_BEGIN"
