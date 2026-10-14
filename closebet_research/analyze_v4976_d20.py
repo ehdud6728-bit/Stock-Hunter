@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import numpy as np
 import pandas as pd
+from wave_research import wave_features
 
 HORIZONS = (1, 3, 5, 10, 15, 20)
 MA_WINDOWS = (60, 120, 150, 200, 224, 240)
@@ -65,6 +66,7 @@ def features(hist, sector_bars, universe_today):
             if len(z) >= w+20:
                 prev_ma = float(z.close.iloc[-w-20:-20].mean())
                 f['ma%d_slope20_pct' % w] = (ma/prev_ma - 1)*100 if prev_ma else np.nan
+    f.update(wave_features(z))
     f.update(previous_completed_pullback(z.iloc[:-3]))  # exclude most recent unfinished swing
     lookback = z.tail(20)
     high20 = float(lookback.high.max())
@@ -163,7 +165,7 @@ def main():
     contrast=[]
     if 'd20_close_ret_pct' in res:
         z=res[res.get('d20_status','').eq('COMPLETE')].copy()
-        for feature in ['prev_pullback_depth_pct','prev_pullback_days','current_drawdown_20d_pct','distance_prev_low_pct','current_vs_prev_pb_volume','ma224_gap_pct','ma224_slope20_pct','sector_ret5_equal_weight_pct','sector_breadth5_pct','stock_vs_sector_5d_pctp']:
+        for feature in ['prev_pullback_depth_pct','prev_pullback_days','current_drawdown_20d_pct','distance_prev_low_pct','current_vs_prev_pb_volume','ma224_gap_pct','ma224_slope20_pct','sector_ret5_equal_weight_pct','sector_breadth5_pct','stock_vs_sector_5d_pctp','squeeze_atr5_vs_prior20','squeeze_volume5_vs_prior20','squeeze_amount5_vs_prior20','wave_depth_contraction_ratio','wave_time_symmetry_ratio','wave_amount_contraction_ratio','wave_last_vs_prev_trough_pct']:
             if feature not in z: continue
             wins=pd.to_numeric(z.loc[z.d20_close_ret_pct>0,feature],errors='coerce').dropna()
             losses=pd.to_numeric(z.loc[z.d20_close_ret_pct<=0,feature],errors='coerce').dropna()
