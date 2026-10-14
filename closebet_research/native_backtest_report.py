@@ -133,6 +133,7 @@ def main():
     ap.add_argument('--out',required=True);ap.add_argument('--workers',type=int,default=4)
     ap.add_argument('--max-codes',type=int,default=1000)
     ap.add_argument('--prices-csv',default='',help='Optional verified daily OHLCV price data for local audit')
+    ap.add_argument('--sessions-csv',default='',help='Official KRX all-market session coverage CSV (required with KRX parity gate)')
     ap.add_argument('--require-krx-parity-json',default='',help='Fail-closed verified OHLCV gate for official results')
     args=ap.parse_args();asof=pd.Timestamp(args.asof);out=pathlib.Path(args.out);out.mkdir(parents=True,exist_ok=True)
     if args.require_krx_parity_json:
@@ -140,6 +141,8 @@ def main():
         if gate.get('status')!='VALIDATED' or float(gate.get('match_pct',0))<98.0:
             raise SystemExit('FAIL_CLOSED_OFFICIAL_KRX_OHLCV_PARITY_NOT_PROVEN')
         if not args.prices_csv:raise SystemExit('OFFICIAL_PARITY_GATE_REQUIRES_KRX_PRICES_CSV')
+        if not args.sessions_csv:raise SystemExit('OFFICIAL_PARITY_GATE_REQUIRES_VERIFIED_KRX_CALENDAR')
+        if str(gate.get('asof','')) != str(asof.date()):raise SystemExit('OFFICIAL_PARITY_ASOF_MISMATCH')
 
     selected=list(pathlib.Path(args.source_root).rglob('v49_76_global_selected_top5.csv'))
     if len(selected)!=1:raise SystemExit('NATIVE_SELECTED_SOURCE_NOT_UNIQUE')
@@ -153,7 +156,21 @@ def main():
         if not fields.issubset(frame.columns):raise SystemExit(f'PRICE_CSV_SCHEMA_MISSING:{fields-set(frame.columns)}')
         frame['code']=frame.code.map(code)
         frame['date']=pd.to_datetime(frame.date,errors='coerce').dt.normalize()
-        sessions=frame['date'].dropna().sort_values().unique()
+        if args.sessions_csv:
+            session_frame=pd.read_csv(args.sessions_csv)
+            if not {'date','status'}.issubset(session_frame.columns):
+                raise SystemExit('KRX_SESSION_COVERAGE_SCHEMA_INVALID')
+            if session_frame['date'].isna().any() or session_frame['date'].duplicated().any():
+                raise SystemExit('KRX_SESSION_COVERAGE_DUPLICATE_OR_NULL')
+            if not session_frame['status'].eq('VALID_SESSION').all():
+                raise SystemExit('KRX_SESSION_COVERAGE_NOT_FULL_VALID')
+            sessions=pd.DatetimeIndex(pd.to_datetime(session_frame['date'],errors='raise')).normalize().sort_values()
+            if not len(sessions) or sessions[-1]>asof:
+                raise SystemExit('KRX_SESSION_COVERAGE_OUTSIDE_ASOF')
+            if args.require_krx_parity_json and len(sessions)!=int(gate['official_session_count']):
+                raise SystemExit('KRX_SESSION_COVERAGE_COUNT_MISMATCH')
+        else:
+            sessions=frame['date'].dropna().sort_values().unique()
         for c,z in frame.groupby('code'):
             z=z.dropna(subset=['date']).set_index('date').sort_index()
             prices[c]=z;labels[c]='SUPPLIED_PRICE_CSV'
@@ -200,7 +217,7 @@ def main():
           'D20_mature_rows':mature,'D20_future_censored_rows':int(len(result)-mature),
           'D20_missing_prices_after_maturity_rows':mature-complete,
           'D20_complete_over_mature_pct':mature_coverage,
-          'exchange_session_calendar':('KRX_VALIDATED_ALL_MARKET_CSV' if args.prices_csv else 'UNVERIFIED_YAHOO_UNION'),
+          'exchange_session_calendar':('OFFICIAL_KRX_INDEX_DATES_PARITY_GATED' if args.sessions_csv and args.require_krx_parity_json else ('OBSERVED_SUPPLIED_PRICE_CSV_UNVERIFIED_CALENDAR' if args.prices_csv else 'UNVERIFIED_YAHOO_UNION')),
           'price_source':('yfinance_raw_unadjusted_ohlc' if not args.prices_csv else 'supplied_csv'),
           'D20_complete_pct':float(result.D20_complete.mean()*100),
           'valid_entry_pct':valid_entry,
