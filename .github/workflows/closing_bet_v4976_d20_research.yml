@@ -1,4 +1,4 @@
-name: Closing Bet v49.76 D20 Research R1.4 (READ ONLY)
+name: Closing Bet v49.76 D20 Research R1.6 (TRUST AUDIT / READ ONLY)
 on:
   workflow_dispatch:
     inputs:
@@ -7,17 +7,17 @@ on:
         required: true
         default: '2026-10-12'
       input_mode:
-        description: 'verified LIVE Sheet ledger (automatic) or explicit CSV evidence'
+        description: 'native_reprice reuses prior complete native v49.76 backtest' 
         required: true
-        default: 'native_backtest'
+        default: 'native_reprice'
         type: choice
-        options: ['native_backtest', 'historical_audit', 'live_ledger', 'csv']
+        options: ['native_reprice', 'native_backtest', 'historical_audit', 'live_ledger', 'csv']
       start:
         description: 'Start date for delivered signals (YYYY-MM-DD)'
         required: true
         default: '2026-08-03'
       source_run_id:
-        description: 'Optional GitHub Actions run ID with signals.csv and daily.csv artifacts'
+        description: 'For native_reprice: prior successful D20 research run ID (38561071601)' 
         required: false
         default: ''
       signals_path:
@@ -44,7 +44,7 @@ jobs:
         with:
           python-version: '3.10'
       - name: Dependencies
-        run: python -m pip install --disable-pip-version-check 'pandas>=2.0,<3' 'numpy>=1.24,<3' 'yfinance>=0.2.60' google-api-python-client google-auth
+        run: python -m pip install --disable-pip-version-check 'pandas>=2.0,<3' 'numpy>=1.24,<3' 'yfinance>=0.2.60' google-api-python-client google-auth pykrx
       - name: Discover historical v49.76 evidence (inventory only)
         if: ${{ inputs.input_mode == 'historical_audit' }}
         env:
@@ -118,14 +118,66 @@ jobs:
           set -euo pipefail
           python -m py_compile closebet_research/native_backtest_orchestrator.py closebet_research/native_backtest_report.py
           python closebet_research/native_backtest_orchestrator.py --start "$START" --end "$ASOF" --hold-days 20 --max-wait-minutes 120 --out reports/closebet_d20
-      - name: Compute independently verified D+1 to D+20 results from native selected rows
-        if: ${{ inputs.input_mode == 'native_backtest' }}
+      - name: Reuse original native results without recomputing 8 shards
+        if: ${{ inputs.input_mode == 'native_reprice' }}
         env:
-          ASOF: ${{ inputs.asof }}
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+        shell: bash
         run: |
           set -euo pipefail
-          python closebet_research/native_backtest_report.py --source-root reports/closebet_d20/native --asof "$ASOF" --out reports/closebet_d20
-          echo "### v49.76 Native backtest D+20" >> "$GITHUB_STEP_SUMMARY"
+          [[ "$SOURCE_RUN_ID" =~ ^[0-9]{8,15}$ ]] || { echo 'Explicit numeric source_run_id required'; exit 1; }
+          mkdir -p reports/closebet_d20
+          gh run download "$SOURCE_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name "closing-bet-v4976-d20-${SOURCE_RUN_ID}" --dir reports/closebet_d20
+          test -s reports/closebet_d20/native/v49_76_global_selected_top5.csv
+          # The old D20 scores are UNVERIFIED YAHOO subsets; remove before regenerating.
+          rm -f reports/closebet_d20/native_d20_*.csv reports/closebet_d20/native_d20_quality.json
+          python - <<'PY_REUSE'
+          import json,os,pathlib
+          p=pathlib.Path('reports/closebet_d20/native_source_manifest.json')
+          obj=json.loads(p.read_text())
+          if str(obj.get('parent_run_id'))!=str(os.environ['SOURCE_RUN_ID']):
+              raise SystemExit('SOURCE_RUN_ID_MANIFEST_IDENTITY_MISMATCH')
+          if obj.get('mode')!='NATIVE_V4976_BACKTEST' or obj.get('child_conclusion')!='success':
+              raise SystemExit('REUSED_NATIVE_SOURCE_NOT_COMPLETE')
+          print('REUSED_ORIGINAL_NATIVE',obj['parent_run_id'],obj['child_run_id'])
+          PY_REUSE
+      - name: Audit raw source, PIT scope and enforce requested as-of cutoff
+        if: ${{ inputs.input_mode == 'native_reprice' || inputs.input_mode == 'native_backtest' }}
+        env:
+          ASOF: ${{ inputs.asof }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python closebet_research/native_source_trust_audit.py \
+            --selected reports/closebet_d20/native/v49_76_global_selected_top5.csv \
+            --asof "$ASOF" --out reports/closebet_d20
+      - name: Re-fetch KRX dated sessions; verify historical source OHLCV parity
+        if: ${{ inputs.input_mode == 'native_reprice' || inputs.input_mode == 'native_backtest' }}
+        env:
+          ASOF: ${{ inputs.asof }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile closebet_research/prepare_native_krx_prices.py closebet_research/native_backtest_report.py
+          python closebet_research/prepare_native_krx_prices.py \
+            --selected reports/closebet_d20/native/v49_76_global_selected_top5.csv \
+            --asof "$ASOF" --out reports/closebet_d20
+      - name: Evaluate verified D+1 through D+20 with official trading-day calendar
+        if: ${{ inputs.input_mode == 'native_reprice' || inputs.input_mode == 'native_backtest' }}
+        env:
+          ASOF: ${{ inputs.asof }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python closebet_research/native_backtest_report.py \
+            --source-root reports/closebet_d20/native --asof "$ASOF" --out reports/closebet_d20 \
+            --prices-csv reports/closebet_d20/native_krx_input_prices.csv \
+            --require-krx-parity-json reports/closebet_d20/native_krx_price_audit.json
+          echo '### Native historical D+20: KRX daily-source parity checked' >> "$GITHUB_STEP_SUMMARY"
+          cat reports/closebet_d20/native_source_trust_audit.json >> "$GITHUB_STEP_SUMMARY"
+          cat reports/closebet_d20/native_krx_price_audit.json >> "$GITHUB_STEP_SUMMARY"
           cat reports/closebet_d20/native_d20_quality.json >> "$GITHUB_STEP_SUMMARY"
       - name: Publish research evidence
         if: always()
