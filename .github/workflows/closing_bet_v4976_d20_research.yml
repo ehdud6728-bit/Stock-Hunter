@@ -1,4 +1,4 @@
-name: Closing Bet v49.76 D20 Research R1.3.1 (READ ONLY)
+name: Closing Bet v49.76 D20 Research R1.4 (READ ONLY)
 on:
   workflow_dispatch:
     inputs:
@@ -9,13 +9,13 @@ on:
       input_mode:
         description: 'verified LIVE Sheet ledger (automatic) or explicit CSV evidence'
         required: true
-        default: 'historical_audit'
+        default: 'native_backtest'
         type: choice
-        options: ['historical_audit', 'live_ledger', 'csv']
+        options: ['native_backtest', 'historical_audit', 'live_ledger', 'csv']
       start:
         description: 'Start date for delivered signals (YYYY-MM-DD)'
         required: true
-        default: '2026-08-07'
+        default: '2026-08-03'
       source_run_id:
         description: 'Optional GitHub Actions run ID with signals.csv and daily.csv artifacts'
         required: false
@@ -30,14 +30,14 @@ on:
         default: 'research_inputs/daily.csv'
 permissions:
   contents: read
-  actions: read
+  actions: write # workflow_dispatch v49.76 native backtest only
 concurrency:
   group: closebet-d20-research-${{ github.ref }}
   cancel-in-progress: false
 jobs:
   analyze:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -101,13 +101,32 @@ jobs:
           echo "D20_SIGNALS=reports/closebet_d20/input/signals.csv" >> "$GITHUB_ENV"
           echo "D20_DAILY=reports/closebet_d20/input/daily.csv" >> "$GITHUB_ENV"
       - name: Research-only D+1 through D+20
-        if: ${{ inputs.input_mode != 'historical_audit' }}
+        if: ${{ inputs.input_mode == 'live_ledger' || inputs.input_mode == 'csv' }}
         env:
           ASOF: ${{ inputs.asof }}
         run: |
           python closebet_research/analyze_v4976_d20.py \
             --signals "$D20_SIGNALS" --daily "$D20_DAILY" \
             --asof "$ASOF" --out reports/closebet_d20
+      - name: Run ORIGINAL 8-shard v49.76 backtest (not LIVE)
+        if: ${{ inputs.input_mode == 'native_backtest' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          START: ${{ inputs.start }}
+          ASOF: ${{ inputs.asof }}
+        run: |
+          set -euo pipefail
+          python -m py_compile closebet_research/native_backtest_orchestrator.py closebet_research/native_backtest_report.py
+          python closebet_research/native_backtest_orchestrator.py --start "$START" --end "$ASOF" --hold-days 20 --max-wait-minutes 120 --out reports/closebet_d20
+      - name: Compute independently verified D+1 to D+20 results from native selected rows
+        if: ${{ inputs.input_mode == 'native_backtest' }}
+        env:
+          ASOF: ${{ inputs.asof }}
+        run: |
+          set -euo pipefail
+          python closebet_research/native_backtest_report.py --source-root reports/closebet_d20/native --asof "$ASOF" --out reports/closebet_d20
+          echo "### v49.76 Native backtest D+20" >> "$GITHUB_STEP_SUMMARY"
+          cat reports/closebet_d20/native_d20_quality.json >> "$GITHUB_STEP_SUMMARY"
       - name: Publish research evidence
         if: always()
         uses: actions/upload-artifact@v4
