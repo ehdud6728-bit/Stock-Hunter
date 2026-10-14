@@ -1,0 +1,85 @@
+name: Closing Bet v49.76 D20 Research (READ ONLY)
+on:
+  workflow_dispatch:
+    inputs:
+      asof:
+        description: 'Evaluation cutoff (YYYY-MM-DD; future days unavailable)' 
+        required: true
+        default: '2026-10-12'
+      source_run_id:
+        description: 'Optional GitHub Actions run ID with signals.csv and daily.csv artifacts'
+        required: false
+        default: ''
+      signals_path:
+        description: 'Repo input CSV path if not using run artifacts'
+        required: true
+        default: 'research_inputs/signals.csv'
+      daily_path:
+        description: 'Repo daily OHLCV CSV path if not using run artifacts'
+        required: true
+        default: 'research_inputs/daily.csv'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: closebet-d20-research-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Dependencies
+        run: python -m pip install --disable-pip-version-check 'pandas>=2.0,<3' 'numpy>=1.24,<3'
+      - name: Optionally download prior evidence artifacts
+        if: ${{ inputs.source_run_id != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+        run: |
+          mkdir -p /tmp/closebet_source
+          gh run download "$SOURCE_RUN_ID" --dir /tmp/closebet_source
+      - name: Resolve exact, non-ambiguous CSV inputs
+        env:
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          SIGNALS_PATH: ${{ inputs.signals_path }}
+          DAILY_PATH: ${{ inputs.daily_path }}
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os, pathlib
+          source = pathlib.Path('/tmp/closebet_source')
+          def locate(which, name):
+              if os.environ.get('SOURCE_RUN_ID'):
+                  found = list(source.rglob(name))
+                  if len(found) != 1:
+                      raise SystemExit(f'INPUT_{which}_NOT_UNIQUE: {len(found)} {name} files in run artifacts; supply canonical prepared CSV inputs')
+                  return found[0]
+              path = pathlib.Path(os.environ[which+'_PATH'])
+              if not path.is_file():
+                  raise SystemExit(f'INPUT_{which}_MISSING: {path}. See research_inputs/README.md; production workflow is unchanged.')
+              return path
+          for which, name in [('SIGNALS','signals.csv'),('DAILY','daily.csv')]:
+              path = locate(which, name)
+              with open(os.environ['GITHUB_ENV'],'a') as f:
+                  f.write(f'D20_{which}={path.absolute()}\n')
+          PY
+      - name: Research-only D+1 through D+20
+        env:
+          ASOF: ${{ inputs.asof }}
+        run: |
+          python closebet_research/analyze_v4976_d20.py \
+            --signals "$D20_SIGNALS" --daily "$D20_DAILY" \
+            --asof "$ASOF" --out reports/closebet_d20
+      - name: Publish research evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: closing-bet-v4976-d20-${{ github.run_id }}
+          path: reports/closebet_d20/
+          retention-days: 30
+          if-no-files-found: warn
