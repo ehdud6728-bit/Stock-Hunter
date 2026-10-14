@@ -1,4 +1,4 @@
-name: Closing Bet v49.76 D20 Research R1.6 (TRUST AUDIT / READ ONLY)
+name: Closing Bet v49.76 D20 Research R1.6.1 (KRX AUTH FIX / READ ONLY)
 on:
   workflow_dispatch:
     inputs:
@@ -157,9 +157,29 @@ jobs:
         if: ${{ inputs.input_mode == 'native_reprice' || inputs.input_mode == 'native_backtest' }}
         env:
           ASOF: ${{ inputs.asof }}
+          # Align historical data identity with the original v49.76 prepare/shard lane.
+          # Only pass KRX credentials to this isolated read-only data step.
+          KRX_DATA_ID: ${{ secrets.KRX_DATA_ID || secrets.KRX_ID || secrets.KRX_USER_ID || secrets.KRX_USERNAME || secrets.KRX_LOGIN_ID || vars.KRX_DATA_ID || vars.KRX_ID || vars.KRX_USER_ID || vars.KRX_USERNAME || vars.KRX_LOGIN_ID }}
+          KRX_DATA_PW: ${{ secrets.KRX_DATA_PW || secrets.KRX_PW || secrets.KRX_PASSWORD || secrets.KRX_PASS || secrets.KRX_LOGIN_PW || secrets.KRX_LOGIN_PASSWORD || vars.KRX_DATA_PW || vars.KRX_PW || vars.KRX_PASSWORD || vars.KRX_PASS || vars.KRX_LOGIN_PW || vars.KRX_LOGIN_PASSWORD }}
+          KRX_ID: ${{ secrets.KRX_ID || secrets.KRX_DATA_ID || secrets.KRX_USER_ID || secrets.KRX_USERNAME || secrets.KRX_LOGIN_ID || vars.KRX_ID || vars.KRX_DATA_ID || vars.KRX_USER_ID || vars.KRX_USERNAME || vars.KRX_LOGIN_ID }}
+          KRX_PW: ${{ secrets.KRX_PW || secrets.KRX_DATA_PW || secrets.KRX_PASSWORD || secrets.KRX_PASS || secrets.KRX_LOGIN_PW || secrets.KRX_LOGIN_PASSWORD || vars.KRX_PW || vars.KRX_DATA_PW || vars.KRX_PASSWORD || vars.KRX_PASS || vars.KRX_LOGIN_PW || vars.KRX_LOGIN_PASSWORD }}
+          KRX_USER_ID: ${{ secrets.KRX_USER_ID || secrets.KRX_ID || secrets.KRX_DATA_ID || vars.KRX_USER_ID || vars.KRX_ID || vars.KRX_DATA_ID }}
+          KRX_PASSWORD: ${{ secrets.KRX_PASSWORD || secrets.KRX_PW || secrets.KRX_DATA_PW || vars.KRX_PASSWORD || vars.KRX_PW || vars.KRX_DATA_PW }}
         shell: bash
         run: |
           set -euo pipefail
+          # Presence-only preflight; NEVER print token values.
+          python - <<'PY_KRX_AUTH'
+          import os
+          from pathlib import Path
+          has_id=bool((os.getenv('KRX_ID') or os.getenv('KRX_DATA_ID') or os.getenv('KRX_USER_ID') or '').strip())
+          has_pw=bool((os.getenv('KRX_PW') or os.getenv('KRX_DATA_PW') or os.getenv('KRX_PASSWORD') or '').strip())
+          Path('reports/closebet_d20').mkdir(parents=True,exist_ok=True)
+          Path('reports/closebet_d20/krx_secret_presence.txt').write_text(f'KRX_ID_PRESENT={has_id}\nKRX_PW_PRESENT={has_pw}\n',encoding='utf-8')
+          print('KRX_AUTH_PREFLIGHT ID=', 'PRESENT' if has_id else 'MISSING', 'PW=', 'PRESENT' if has_pw else 'MISSING')
+          if not (has_id and has_pw):
+              raise SystemExit('KRX_CREDENTIALS_MISSING_IN_RESEARCH_JOB; main v49.76 prepare lane has configured KRX secrets, align read-only research env')
+          PY_KRX_AUTH
           python -m py_compile closebet_research/prepare_native_krx_prices.py closebet_research/native_backtest_report.py
           python closebet_research/prepare_native_krx_prices.py \
             --selected reports/closebet_d20/native/v49_76_global_selected_top5.csv \
@@ -174,6 +194,7 @@ jobs:
           python closebet_research/native_backtest_report.py \
             --source-root reports/closebet_d20/native --asof "$ASOF" --out reports/closebet_d20 \
             --prices-csv reports/closebet_d20/native_krx_input_prices.csv \
+            --sessions-csv reports/closebet_d20/native_krx_session_coverage.csv \
             --require-krx-parity-json reports/closebet_d20/native_krx_price_audit.json
           echo '### Native historical D+20: KRX daily-source parity checked' >> "$GITHUB_STEP_SUMMARY"
           cat reports/closebet_d20/native_source_trust_audit.json >> "$GITHUB_STEP_SUMMARY"
