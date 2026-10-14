@@ -1,4 +1,4 @@
-name: Closing Bet v49.76 D20 Research (READ ONLY)
+name: Closing Bet v49.76 D20 Research R1.1 (READ ONLY)
 on:
   workflow_dispatch:
     inputs:
@@ -6,6 +6,16 @@ on:
         description: 'Evaluation cutoff (YYYY-MM-DD; future days unavailable)' 
         required: true
         default: '2026-10-12'
+      input_mode:
+        description: 'verified LIVE Sheet ledger (automatic) or explicit CSV evidence'
+        required: true
+        default: 'live_ledger'
+        type: choice
+        options: ['live_ledger', 'csv']
+      start:
+        description: 'Start date for delivered signals (YYYY-MM-DD)'
+        required: true
+        default: '2026-08-07'
       source_run_id:
         description: 'Optional GitHub Actions run ID with signals.csv and daily.csv artifacts'
         required: false
@@ -34,9 +44,18 @@ jobs:
         with:
           python-version: '3.10'
       - name: Dependencies
-        run: python -m pip install --disable-pip-version-check 'pandas>=2.0,<3' 'numpy>=1.24,<3'
+        run: python -m pip install --disable-pip-version-check 'pandas>=2.0,<3' 'numpy>=1.24,<3' 'yfinance>=0.2.60' google-api-python-client google-auth
+      - name: Auto-fetch verified delivered signals and OHLCV (no fabricated replay)
+        if: ${{ inputs.input_mode == 'live_ledger' }}
+        env:
+          GOOGLE_JSON_KEY: ${{ secrets.GOOGLE_JSON_KEY }}
+          ASOF: ${{ inputs.asof }}
+          START: ${{ inputs.start }}
+        run: |
+          mkdir -p reports/closebet_d20
+          python closebet_research/prepare_live_ledger_inputs.py --start "$START" --asof "$ASOF" --out reports/closebet_d20/input
       - name: Optionally download prior evidence artifacts
-        if: ${{ inputs.source_run_id != '' }}
+        if: ${{ inputs.input_mode == 'csv' && inputs.source_run_id != '' }}
         env:
           GH_TOKEN: ${{ github.token }}
           SOURCE_RUN_ID: ${{ inputs.source_run_id }}
@@ -44,6 +63,7 @@ jobs:
           mkdir -p /tmp/closebet_source
           gh run download "$SOURCE_RUN_ID" --dir /tmp/closebet_source
       - name: Resolve exact, non-ambiguous CSV inputs
+        if: ${{ inputs.input_mode == 'csv' }}
         env:
           SOURCE_RUN_ID: ${{ inputs.source_run_id }}
           SIGNALS_PATH: ${{ inputs.signals_path }}
@@ -68,6 +88,11 @@ jobs:
               with open(os.environ['GITHUB_ENV'],'a') as f:
                   f.write(f'D20_{which}={path.absolute()}\n')
           PY
+      - name: Set research input paths (auto ledger)
+        if: ${{ inputs.input_mode == 'live_ledger' }}
+        run: |
+          echo "D20_SIGNALS=reports/closebet_d20/input/signals.csv" >> "$GITHUB_ENV"
+          echo "D20_DAILY=reports/closebet_d20/input/daily.csv" >> "$GITHUB_ENV"
       - name: Research-only D+1 through D+20
         env:
           ASOF: ${{ inputs.asof }}
