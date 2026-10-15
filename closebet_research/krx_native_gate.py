@@ -20,15 +20,16 @@ def check_shard(root,shard):
         raise RuntimeError('NATIVE_SHARD_RAW_SHA_MISMATCH')
     traces=[json.loads(x.read_text()) for x in root.glob('krx_provider_trace_*.json')]
     if not traces:raise RuntimeError('NO_KRX_PROVIDER_TRACE:shim may not have been activated')
-    if not all(t.get('patch_active') and t.get('provider')=='PYKRX_KRX_ADJUSTED_FALSE' for t in traces):
+    if not all(t.get('patch_active') and t.get('provider')=='PYKRX_KRX_DAILY_SESSION_SQLITE' for t in traces):
         raise RuntimeError('NON_KRX_PROVIDER_TRACE_FOUND')
     total=sum(int(t.get('fdr_calls',0)) for t in traces)
     errors=sum(int(t.get('fdr_failures',0))+int(t.get('direct_raw_errors',0)) for t in traces)
     if total<=0:raise RuntimeError('NO_FDR_HISTORY_INTERCEPTS:untraced price loader may be in use')
+    if sum(int(t.get('sqlite_reads',0)) for t in traces)<=0:raise RuntimeError('NO_SQLITE_HISTORY_USED')
     if errors>0:raise RuntimeError(f'KRX_HISTORY_FETCH_FAILURES:{errors}')
     data={'status':'KRX_PROVIDER_INTERCEPTS_PASS_NOT_YET_MARKET_PARITY_VERIFIED',
-          'shard':idx,'fdr_calls':total,'krx_price_calls':sum(int(t.get('krx_price_calls',0)) for t in traces),
-          'history_fetch_errors':errors,'native_raw_rows':int(m.get('raw_rows',-1)),'native_raw_sha256':m['raw_sha256'],
+          'shard':idx,'fdr_calls':total,'sqlite_reads':sum(int(t.get('sqlite_reads',0)) for t in traces),'krx_price_calls':sum(int(t.get('krx_price_calls',0)) for t in traces),
+          'history_fetch_errors':errors,'offline_materialized_krx':True,'native_raw_rows':int(m.get('raw_rows',-1)),'native_raw_sha256':m['raw_sha256'],
           'warning':'Input timing/universe and KRX regular-session-specific semantics remain unverified.'}
     (root/f'shard_{idx:02d}_krx_gate.json').write_text(json.dumps(data,indent=2),encoding='utf-8')
     return data
