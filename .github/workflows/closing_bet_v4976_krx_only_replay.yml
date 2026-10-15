@@ -1,0 +1,287 @@
+name: Closing Bet v49.76 R1.7 KRX-only Native Replay (RESEARCH ONLY)
+on:
+  workflow_dispatch:
+    inputs:
+      start:
+        description: Historical search first day (YYYY-MM-DD)
+        type: string
+        required: true
+        default: '2026-08-03'
+      asof:
+        description: Historical search/end evaluation cutoff (YYYY-MM-DD)
+        type: string
+        required: true
+        default: '2026-10-12'
+      source_run_id:
+        description: Prior original research artifact run for signal churn comparison
+        type: string
+        required: true
+        default: '38590572683'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: v4976-krx-only-replay-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      TZ: Asia/Seoul
+      PYTHONUNBUFFERED: '1'
+      KRX_DATA_ID: ${{ secrets.KRX_DATA_ID || secrets.KRX_ID || secrets.KRX_USER_ID || secrets.KRX_USERNAME || secrets.KRX_LOGIN_ID || vars.KRX_DATA_ID || vars.KRX_ID || vars.KRX_USER_ID || vars.KRX_USERNAME || vars.KRX_LOGIN_ID }}
+      KRX_DATA_PW: ${{ secrets.KRX_DATA_PW || secrets.KRX_PW || secrets.KRX_PASSWORD || secrets.KRX_PASS || secrets.KRX_LOGIN_PW || secrets.KRX_LOGIN_PASSWORD || vars.KRX_DATA_PW || vars.KRX_PW || vars.KRX_PASSWORD || vars.KRX_PASS || vars.KRX_LOGIN_PW || vars.KRX_LOGIN_PASSWORD }}
+      KRX_ID: ${{ secrets.KRX_ID || secrets.KRX_DATA_ID || secrets.KRX_USER_ID || vars.KRX_ID || vars.KRX_DATA_ID || vars.KRX_USER_ID }}
+      KRX_PW: ${{ secrets.KRX_PW || secrets.KRX_DATA_PW || secrets.KRX_PASSWORD || vars.KRX_PW || vars.KRX_DATA_PW || vars.KRX_PASSWORD }}
+      CLOSING_BET_SCAN_UNIVERSE: hybrid_union
+      CLOSING_BET_ALLOW_UNIVERSE_FALLBACK: '1'
+      CLOSING_BET_V4958_SEARCH_SPEC_PATH: search_spec_v7.json
+      CLOSING_BET_V4958_UNIVERSE_SNAPSHOT_DIR: closing_bet_logs/v49_76_universe_snapshots
+      CLOSING_BET_V4974_ALLOW_UNVERIFIED_TRADING_DATE: '0'
+      CLOSING_BET_V4974_ALLOW_MARCAP_FALLBACK: '0'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Install native dependencies
+        run: |
+          set -euo pipefail
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          pip install pandas numpy requests finance-datareader beautifulsoup4 lxml pytz python-dateutil openpyxl gspread google-auth pyyaml pykrx
+      - name: Validate research input cutoff and KRX secret presence
+        env:
+          START: ${{ inputs.start }}
+          ASOF: ${{ inputs.asof }}
+        run: |
+          python - <<'PY'
+          import os,datetime
+          start=datetime.date.fromisoformat(os.environ['START'])
+          end=datetime.date.fromisoformat(os.environ['ASOF'])
+          assert datetime.date(2026,8,3)<=start<=end<=datetime.date.today(), 'RESEARCH_DATE_INVALID'
+          assert bool(os.getenv('KRX_DATA_ID') or os.getenv('KRX_ID')), 'KRX_ID_MISSING'
+          assert bool(os.getenv('KRX_DATA_PW') or os.getenv('KRX_PW')), 'KRX_PW_MISSING'
+          PY
+      - name: Prepare ORIGINAL v49.76 universe and market-cap authority (read-only)
+        env:
+          ASOF: ${{ inputs.asof }}
+        run: |
+          set -euo pipefail
+          python v49_76_prepare.py --end-date "$ASOF" --output-dir v49_76_prepare_output
+      - name: KRX raw provider preflight, no eight-shard costs on a broken source
+        env:
+          CLOSING_BET_KRX_ONLY_RESEARCH: '1'
+          CLOSING_BET_KRX_REQUEST_ASOF: ${{ inputs.asof }}
+          PYTHONPATH: ${{ github.workspace }}/closebet_research/krx_overlay:${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          import pandas as pd
+          import FinanceDataReader as fdr
+          from pykrx import stock
+          day='2026-09-22'
+          if pd.Timestamp(os.environ['CLOSING_BET_KRX_REQUEST_ASOF'])<pd.Timestamp(day):
+              print('KRX_RAW_SMOKE_SKIPPED_ASOF_BEFORE_ANCHOR')
+          else:
+              x=fdr.DataReader('044450','2026-09-01',day)
+              y=stock.get_market_ohlcv_by_date('20260922','20260922','044450',adjusted=False)
+              a=float(x.loc[day,'Close']);b=float(y.loc[day,'종가'])
+              assert abs(a-b)<.001 and a>0, f'KRX_BRIDGE_PROVENANCE_FAILED:{a}:{b}'
+              print('KRX_BRIDGE_SMOKE_PASS',day,a,'adjusted=False')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: r17-prepare
+          path: v49_76_prepare_output/
+          if-no-files-found: error
+          retention-days: 14
+
+  shard:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+    env:
+      TZ: Asia/Seoul
+      PYTHONUNBUFFERED: '1'
+      KRX_DATA_ID: ${{ secrets.KRX_DATA_ID || secrets.KRX_ID || secrets.KRX_USER_ID || secrets.KRX_USERNAME || secrets.KRX_LOGIN_ID || vars.KRX_DATA_ID || vars.KRX_ID || vars.KRX_USER_ID || vars.KRX_USERNAME || vars.KRX_LOGIN_ID }}
+      KRX_DATA_PW: ${{ secrets.KRX_DATA_PW || secrets.KRX_PW || secrets.KRX_PASSWORD || secrets.KRX_PASS || secrets.KRX_LOGIN_PW || secrets.KRX_LOGIN_PASSWORD || vars.KRX_DATA_PW || vars.KRX_PW || vars.KRX_PASSWORD || vars.KRX_PASS || vars.KRX_LOGIN_PW || vars.KRX_LOGIN_PASSWORD }}
+      KRX_ID: ${{ secrets.KRX_ID || secrets.KRX_DATA_ID || secrets.KRX_USER_ID || vars.KRX_ID || vars.KRX_DATA_ID || vars.KRX_USER_ID }}
+      KRX_PW: ${{ secrets.KRX_PW || secrets.KRX_DATA_PW || secrets.KRX_PASSWORD || vars.KRX_PW || vars.KRX_DATA_PW || vars.KRX_PASSWORD }}
+      CLOSING_BET_SCAN_UNIVERSE: hybrid_union
+      CLOSING_BET_ALLOW_UNIVERSE_FALLBACK: '1'
+      CLOSING_BET_V4962_PERFORMANCE_ONLY: '1'
+      CLOSING_BET_V4962_UNIVERSE_FILE: v49_76_prepare_output/v49_76_universe.json
+      CLOSING_BET_V4962_SHARD_INDEX: ${{ matrix.shard }}
+      CLOSING_BET_V4962_SHARD_COUNT: '8'
+      CLOSING_BET_V4962_SHARD_OUTPUT_DIR: v49_76_shard_output
+      CLOSING_BET_V4962_SKIP_SEARCH_RUNTIME_AUDIT: '1'
+      CLOSING_BET_V4959_STRATEGY_WORKERS: '2'
+      CLOSING_BET_V4960_ENGINE_WATCHDOG_SECONDS: '4200'
+      CLOSING_BET_V4964_FUNNEL_ENABLE: '1'
+      CLOSING_BET_V4964_ZERO_MODE_AUDIT_ENABLE: '1'
+      CLOSING_BET_V4964_ZERO_AUDIT_PER_CODE: '3'
+      CLOSING_BET_V4964_ZERO_AUDIT_MIN_GLOBAL: '100'
+      CLOSING_BET_V4964_FAIL_ON_FALSE_NEGATIVE: '1'
+      CLOSING_BET_V4964_FAIL_ON_PREDICATE_EXCEPTION: '1'
+      CLOSING_BET_V4964_LP_WALK_MONTHS: '3'
+      CLOSING_BET_V4964_LP_MIN_FOLD_N: '15'
+      CLOSING_BET_V4970_OPPORTUNITY_ENABLE: '1'
+      CLOSING_BET_V4970_OPP_NEXT_CLOSE_PCT: '3.0'
+      CLOSING_BET_V4970_OPP_MAX3_PCT: '5.0'
+      CLOSING_BET_V4970_OPP_MAX5_PCT: '10.0'
+      CLOSING_BET_V4970_OPP_MAX10_PCT: '15.0'
+      CLOSING_BET_V4970_OPP_DEEP_AUDIT_PER_CODE: '8'
+      CLOSING_BET_V4970_OPPORTUNITY_CASEBOOK_MAX: '500'
+      CLOSING_BET_V4970_DRIFT_RECENT_DAYS: '28'
+      CLOSING_BET_V4970_DRIFT_PRIOR_DAYS: '84'
+      CLOSING_BET_V4965_FORCE_SIGNAL_DATE: '1'
+      CLOSING_BET_V4965_I_GATE_LONG_MIN: '-8.0'
+      CLOSING_BET_V4965_I_GATE_LONG_MAX: '26.0'
+      CLOSING_BET_V4958_SEARCH_SPEC_PATH: search_spec_v7.json
+      CLOSING_BET_V4959_STRATEGY_CACHE_DIR: closing_bet_logs/r17_krx_strategy_cache
+      CLOSING_BET_LOG_DIR: closing_bet_logs
+      CLOSING_BET_BACKTEST_WORKERS: '4'
+      CLOSING_BET_MAX_WORKERS: '4'
+      CLOSING_BET_V4946_RESEARCH_ENABLE: '0'
+      CLOSING_BET_V4938_LIFECYCLE_ENABLE: '0'
+      CLOSING_BET_V4939_LIFECYCLE_BT_ENABLE: '0'
+      CLOSING_BET_V4940_LIFECYCLE_BT_ENABLE: '0'
+      CLOSING_BET_V4949_FAIL_PORTFOLIO_ENABLE: '0'
+      CLOSING_BET_V4950_FAIL_LOCK_ENABLE: '0'
+      CLOSING_BET_V4950_RUNNER_ENABLE: '0'
+      CLOSING_BET_V4951_FAIL_WALK_ENABLE: '0'
+      CLOSING_BET_V4951_RUNNER_POLICY_ENABLE: '0'
+      CLOSING_BET_V4953_RUNNER_WALK_ENABLE: '0'
+      CLOSING_BET_V4958_LIFECYCLE_CACHE_ENABLE: '0'
+      CLOSING_BET_V4959_I_FLOW_MODE: CACHE_ONLY_PROXY
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Install native dependencies
+        run: |
+          set -euo pipefail
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          pip install pandas numpy requests finance-datareader beautifulsoup4 lxml pytz python-dateutil openpyxl gspread google-auth pyyaml pykrx
+      - uses: actions/download-artifact@v4
+        with:
+          name: r17-prepare
+          path: v49_76_prepare_output
+      - name: Native v49.76 scan with KRX-only research history bridge
+        env:
+          START: ${{ inputs.start }}
+          ASOF: ${{ inputs.asof }}
+          CLOSING_BET_KRX_ONLY_RESEARCH: '1'
+          CLOSING_BET_KRX_REQUEST_ASOF: ${{ inputs.asof }}
+          CLOSING_BET_KRX_TRACE_DIR: v49_76_shard_output
+          PYTHONPATH: ${{ github.workspace }}/closebet_research/krx_overlay:${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          python Closing_bet_scanner_v2.py --backtest-start "$START" --backtest-end "$ASOF" --backtest-hold-days 20 --backtest-min-eval-days 1 --backtest-top-per-strategy 5 --backtest-all-candidates --force
+      - name: Strict native/provider provenance verification
+        run: |
+          set -euo pipefail
+          python closebet_research/krx_native_gate.py --shard-root v49_76_shard_output --shard ${{ matrix.shard }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: r17-krx-shard-${{ matrix.shard }}
+          path: v49_76_shard_output/
+          if-no-files-found: warn
+          retention-days: 14
+
+  merge:
+    needs: [prepare,shard]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      TZ: Asia/Seoul
+      PYTHONUNBUFFERED: '1'
+      GH_TOKEN: ${{ github.token }}
+      KRX_DATA_ID: ${{ secrets.KRX_DATA_ID || secrets.KRX_ID || secrets.KRX_USER_ID || secrets.KRX_USERNAME || secrets.KRX_LOGIN_ID || vars.KRX_DATA_ID || vars.KRX_ID || vars.KRX_USER_ID || vars.KRX_USERNAME || vars.KRX_LOGIN_ID }}
+      KRX_DATA_PW: ${{ secrets.KRX_DATA_PW || secrets.KRX_PW || secrets.KRX_PASSWORD || secrets.KRX_PASS || secrets.KRX_LOGIN_PW || secrets.KRX_LOGIN_PASSWORD || vars.KRX_DATA_PW || vars.KRX_PW || vars.KRX_PASSWORD || vars.KRX_PASS || vars.KRX_LOGIN_PW || vars.KRX_LOGIN_PASSWORD }}
+      KRX_ID: ${{ secrets.KRX_ID || secrets.KRX_DATA_ID || secrets.KRX_USER_ID || vars.KRX_ID || vars.KRX_DATA_ID || vars.KRX_USER_ID }}
+      KRX_PW: ${{ secrets.KRX_PW || secrets.KRX_DATA_PW || secrets.KRX_PASSWORD || vars.KRX_PW || vars.KRX_DATA_PW || vars.KRX_PASSWORD }}
+      CLOSING_BET_V4967_ANATOMY_ENABLE: '1'
+      CLOSING_BET_V4967_MARKET_MIN_COVERAGE_PCT: '80'
+      CLOSING_BET_V4967_FEATURE_MIN_OOS_N: '30'
+      CLOSING_BET_V4967_FEATURE_MIN_LIFT_PCTP: '0.30'
+      CLOSING_BET_V4970_SECTOR_MIN_COVERAGE_PCT: '20'
+      CLOSING_BET_V4970_REQUIRE_SECTOR_CONTEXT: '0'
+      CLOSING_BET_V4958_SEARCH_SPEC_PATH: search_spec_v7.json
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Install native dependencies
+        run: |
+          set -euo pipefail
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          pip install pandas numpy requests finance-datareader beautifulsoup4 lxml pytz python-dateutil openpyxl gspread google-auth pyyaml pykrx
+      - uses: actions/download-artifact@v4
+        with:
+          name: r17-prepare
+          path: v49_76_prepare_output
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: r17-krx-shard-*
+          path: v49_76_downloads
+          merge-multiple: true
+      - name: Reject incomplete/missing provider trace before native merge
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import pathlib,json
+          d=pathlib.Path('v49_76_downloads')
+          for i in range(8):
+              p=d/f'shard_{i:02d}_krx_gate.json'
+              if not p.is_file():raise SystemExit(f'MISSING_SHARD_KRX_GATE:{i}')
+              v=json.loads(p.read_text())
+              if v.get('status')!='KRX_PROVIDER_INTERCEPTS_PASS_NOT_YET_MARKET_PARITY_VERIFIED':
+                  raise SystemExit(f'KRX_SHARD_NOT_PROVEN:{i}')
+          PY
+      - name: ORIGINAL v49.76 merge, Telegram disabled (RESEARCH ONLY)
+        run: |
+          set -euo pipefail
+          mkdir -p reports
+          python v49_76_merge.py --input-root v49_76_downloads --prepare-dir v49_76_prepare_output --output-dir reports --pit-cache-dir .r17_pit_marcap_cache --top-per-strategy 5 --shard-count 8
+      - name: Independently verify re-searched signal-day bars against KRX and evaluate returns
+        env:
+          ASOF: ${{ inputs.asof }}
+        run: |
+          set -euo pipefail
+          mkdir -p reports/r17_krx/native
+          cp reports/v49_76_global_selected_top5.csv reports/r17_krx/native/v49_76_global_selected_top5.csv
+          python closebet_research/prepare_native_krx_prices.py --selected reports/r17_krx/native/v49_76_global_selected_top5.csv --asof "$ASOF" --out reports/r17_krx --min-match-pct 100.0
+          python closebet_research/krx_native_gate.py --selected reports/r17_krx/native/v49_76_global_selected_top5.csv --prices reports/r17_krx/native_krx_input_prices.csv --out reports/r17_krx
+          python closebet_research/native_backtest_report.py --source-root reports/r17_krx/native --asof "$ASOF" --out reports/r17_krx --prices-csv reports/r17_krx/native_krx_input_prices.csv --sessions-csv reports/r17_krx/native_krx_session_coverage.csv --require-krx-parity-json reports/r17_krx/native_krx_price_audit.json
+      - name: Compare original 1,160 historical signals to KRX-only re-search
+        env:
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_RUN_ID" =~ ^[0-9]{8,15}$ ]] || { echo 'SOURCE_RUN_ID_INVALID'; exit 1; }
+          mkdir -p /tmp/r17_original
+          gh run download "$SOURCE_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "closing-bet-v4976-d20-${SOURCE_RUN_ID}" --dir /tmp/r17_original
+          python closebet_research/krx_native_gate.py --selected reports/v49_76_global_selected_top5.csv --legacy /tmp/r17_original/native/v49_76_global_selected_top5.csv --out reports/r17_krx
+      - name: Attach strictly scoped research evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: closebet-r17-krx-only-replay-${{ github.run_id }}
+          path: |
+            reports/r17_krx/
+            reports/v49_76_global_selected_top5.csv
+            reports/v49_76_input_authority_manifest.json
+            reports/v49_76_history_authority_global.csv
+          retention-days: 30
+          if-no-files-found: warn
