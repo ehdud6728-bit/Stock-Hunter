@@ -32,33 +32,14 @@ class KRXOnlyTests(unittest.TestCase):
             r=compare_selected(p/'a.csv',p/'b.csv',p)
             self.assertEqual((r['krx_only'],r['legacy_only'],r['same_key']),(1,1,1))
             self.assertEqual(r['different_entry_over_0_5pct'],1)
-    def test_bridge_forces_krx_raw_and_clips_asof(self):
+    def test_bridge_refuses_unstaged_database(self):
         from closebet_research import krx_only_provider as mod
-        dates=[]
-        raw=pd.DataFrame({'시가':[100,108],'고가':[110,125],'저가':[95,104],
-               '종가':[100,120],'거래량':[300,400],'거래대금':[31000,45000]},
-               index=pd.to_datetime(['2026-10-08','2026-10-12']))
-        def stock_raw(start,end,ticker,adjusted=True,**kwargs):
-            dates.append((start,end,ticker,adjusted))
-            return raw
-        fake_stock=types.SimpleNamespace(get_market_ohlcv_by_date=stock_raw,
-               get_index_ohlcv_by_date=lambda *args:raw)
-        fake_pykrx=types.ModuleType('pykrx');fake_pykrx.stock=fake_stock
-        fake_fdr=types.ModuleType('FinanceDataReader')
-        fake_fdr.DataReader=lambda *args,**kwargs:None
-        mod._INSTALLED=False;mod._PERSIST=None
-        with mock.patch.dict(sys.modules,{'pykrx':fake_pykrx,'FinanceDataReader':fake_fdr}):
-            with mock.patch.dict(os.environ,{'CLOSING_BET_KRX_ONLY_RESEARCH':'1',
-                                             'CLOSING_BET_KRX_REQUEST_ASOF':'2026-10-12'},clear=False):
-                mod.install()
-                d=fake_fdr.DataReader('005930',start='2026-10-08',end='2026-10-14')
-                self.assertEqual(d.Close.iloc[-1],120)
-                self.assertEqual(dates[-1],('20261008','20261012','005930',False))
-                fake_stock.get_market_ohlcv_by_date('20261008','20261015','005930',adjusted=True)
-                self.assertEqual(dates[-1][-1],False)
-                with self.assertRaisesRegex(ValueError,'KRX_NON_KRX_SYMBOL_FORBIDDEN'):
-                    fake_fdr.DataReader('YAHOO',start='2026-10-08')
         mod._INSTALLED=False
+        with mock.patch.dict(os.environ,{'CLOSING_BET_KRX_ONLY_RESEARCH':'1',
+             'CLOSING_BET_KRX_DATABASE':'/no/such/krx_history.db',
+             'CLOSING_BET_KRX_REQUEST_ASOF':'2026-10-12'},clear=False):
+            with self.assertRaisesRegex(RuntimeError,'KRX_PREMATERIALIZED_DB_MISSING'):
+                mod.install()
     def test_strict_bar_equality_rejects_changed_close(self):
         with tempfile.TemporaryDirectory() as t:
             p=Path(t)
