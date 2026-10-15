@@ -1,4 +1,4 @@
-name: Closing Bet v49.76 R1.9.1 Paired Charts + Price Integrity (RESEARCH ONLY)
+name: Closing Bet v49.76 R1.9.2 Paired Charts + Price Integrity (RESEARCH ONLY)
 
 on:
   workflow_dispatch:
@@ -8,7 +8,7 @@ permissions:
   actions: read
 
 concurrency:
-  group: closing-bet-r191-chart-integrity-${{ github.ref }}
+  group: closing-bet-r192-chart-integrity-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -34,11 +34,17 @@ jobs:
           set -euo pipefail
           python -m py_compile closebet_research/r19_paired_chart_audit.py tests/test_r19_chart_pair_audit.py
           python -m py_compile closebet_research/r18_wave_entry_forensic.py tests/test_r18_wave_entry_forensic.py
-          echo 'R191_PY310_SYNTAX_PASS'
+          echo 'R192_PY310_SYNTAX_PASS'
       - name: Install OFFLINE scientific dependencies
         run: |
           set -euo pipefail
           python -m pip install 'numpy>=1.26,<3' 'pandas>=2,<3' 'matplotlib>=3.8,<4'
+      - name: R1.9.2 Python module invocation preflight BEFORE evidence downloads
+        run: |
+          set -euo pipefail
+          python -c 'from closebet_research import r19_paired_chart_audit, r18_wave_entry_forensic; print("R192_PACKAGE_IMPORT_PASS")'
+          python -m closebet_research.r19_paired_chart_audit --help > /dev/null
+          echo 'R192_MODULE_CLI_PASS'
       - name: Download EXACT completed KRX R1.7.1 and R1.8 artifacts
         shell: bash
         run: |
@@ -65,7 +71,7 @@ jobs:
       - name: Audit ALL selected KRX signal bars and R18 pre-signal features, then prepare paired charts
         run: |
           set -euo pipefail
-          python closebet_research/r19_paired_chart_audit.py \
+          python -m closebet_research.r19_paired_chart_audit \
             --r171-zip evidence/r171 \
             --r18-zip evidence/r18 \
             --history-artifacts evidence/history \
