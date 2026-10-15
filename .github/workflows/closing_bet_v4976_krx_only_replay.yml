@@ -1,4 +1,4 @@
-name: Closing Bet v49.76 R1.7 KRX-only Native Replay (RESEARCH ONLY)
+name: Closing Bet v49.76 R1.7.1 KRX-only Native Replay (MATERIALIZED) (RESEARCH ONLY)
 on:
   workflow_dispatch:
     inputs:
@@ -12,6 +12,11 @@ on:
         type: string
         required: true
         default: '2026-10-12'
+      history_start:
+        description: First KRX daily snapshot to materialize (cover original history)
+        type: string
+        required: true
+        default: '2019-01-01'
       source_run_id:
         description: Prior original research artifact run for signal churn comparison
         type: string
@@ -69,28 +74,28 @@ jobs:
         run: |
           set -euo pipefail
           python v49_76_prepare.py --end-date "$ASOF" --output-dir v49_76_prepare_output
-      - name: KRX raw provider preflight, no eight-shard costs on a broken source
+      - name: KRX per-session ALL-market source preflight (NO broken per-symbol ISIN API)
         env:
-          CLOSING_BET_KRX_ONLY_RESEARCH: '1'
-          CLOSING_BET_KRX_REQUEST_ASOF: ${{ inputs.asof }}
-          PYTHONPATH: ${{ github.workspace }}/closebet_research/krx_overlay:${{ github.workspace }}
+          ASOF: ${{ inputs.asof }}
         run: |
           set -euo pipefail
-          python - <<'PY'
-          import os
+          python - <<'PY_KRX_DAY'
           import pandas as pd
-          import FinanceDataReader as fdr
           from pykrx import stock
-          day='2026-09-22'
-          if pd.Timestamp(os.environ['CLOSING_BET_KRX_REQUEST_ASOF'])<pd.Timestamp(day):
-              print('KRX_RAW_SMOKE_SKIPPED_ASOF_BEFORE_ANCHOR')
-          else:
-              x=fdr.DataReader('044450','2026-09-01',day)
-              y=stock.get_market_ohlcv_by_date('20260922','20260922','044450',adjusted=False)
-              a=float(x.loc[day,'Close']);b=float(y.loc[day,'종가'])
-              assert abs(a-b)<.001 and a>0, f'KRX_BRIDGE_PROVENANCE_FAILED:{a}:{b}'
-              print('KRX_BRIDGE_SMOKE_PASS',day,a,'adjusted=False')
-          PY
+          day='2026-09-22' if pd.Timestamp('2026-09-22')<=pd.Timestamp('${{ inputs.asof }}') else '${{ inputs.asof }}'
+          last=''
+          for attempt in range(3):
+              try:
+                  x=stock.get_market_ohlcv_by_ticker(day.replace('-',''),market='ALL')
+                  if x is None or len(x)<500 or '종가' not in x.columns:
+                      raise RuntimeError('KRX_CROSS_SECTION_UNAVAILABLE')
+                  print('R171_KRX_CROSS_SECTION_SMOKE_PASS',day,'market_tickers',len(x),flush=True)
+                  break
+              except Exception as exc:
+                  last=f'{type(exc).__name__}:{str(exc)[:150]}'
+                  if attempt==2:raise RuntimeError('R171_KRX_CROSS_SECTION_PRECHECK_FAILED:'+last)
+                  import time;time.sleep(3*(attempt+1))
+          PY_KRX_DAY
       - uses: actions/upload-artifact@v4
         with:
           name: r17-prepare
@@ -98,8 +103,55 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  shard:
+  history:
     needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      max-parallel: 2  # avoid exhausting KRX per-session request quotas
+      matrix:
+        history_shard: [0,1,2,3]
+    env:
+      TZ: Asia/Seoul
+      PYTHONUNBUFFERED: '1'
+      KRX_DATA_ID: ${{ secrets.KRX_DATA_ID || secrets.KRX_ID || secrets.KRX_USER_ID || secrets.KRX_USERNAME || secrets.KRX_LOGIN_ID || vars.KRX_DATA_ID || vars.KRX_ID || vars.KRX_USER_ID || vars.KRX_USERNAME || vars.KRX_LOGIN_ID }}
+      KRX_DATA_PW: ${{ secrets.KRX_DATA_PW || secrets.KRX_PW || secrets.KRX_PASSWORD || secrets.KRX_PASS || secrets.KRX_LOGIN_PW || secrets.KRX_LOGIN_PASSWORD || vars.KRX_DATA_PW || vars.KRX_PW || vars.KRX_PASSWORD || vars.KRX_PASS || vars.KRX_LOGIN_PW || vars.KRX_LOGIN_PASSWORD }}
+      KRX_ID: ${{ secrets.KRX_ID || secrets.KRX_DATA_ID || secrets.KRX_USER_ID || vars.KRX_ID || vars.KRX_DATA_ID || vars.KRX_USER_ID }}
+      KRX_PW: ${{ secrets.KRX_PW || secrets.KRX_DATA_PW || secrets.KRX_PASSWORD || vars.KRX_PW || vars.KRX_DATA_PW || vars.KRX_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Install only source materializer dependencies
+        run: |
+          set -euo pipefail
+          pip install pandas numpy pykrx
+      - uses: actions/download-artifact@v4
+        with:
+          name: r17-prepare
+          path: v49_76_prepare_output
+      - name: Fetch ONLY daily KRX market snapshots (no per-symbol history calls)
+        env:
+          START: ${{ inputs.history_start }}
+          ASOF: ${{ inputs.asof }}
+        run: |
+          set -euo pipefail
+          python closebet_research/krx_daily_materialize.py --mode fetch \
+            --start "$START" --asof "$ASOF" --shards 4 --shard ${{ matrix.history_shard }} \
+            --universe v49_76_prepare_output/v49_76_universe.json --root r171_history_parts
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: r171-history-${{ matrix.history_shard }}
+          path: r171_history_parts/
+          if-no-files-found: warn
+          retention-days: 7
+          compression-level: 6
+
+  shard:
+    needs: [prepare,history]
     runs-on: ubuntu-latest
     timeout-minutes: 75
     strategy:
@@ -175,12 +227,24 @@ jobs:
         with:
           name: r17-prepare
           path: v49_76_prepare_output
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: r171-history-*
+          path: r171_history_parts
+          merge-multiple: true
+      - name: Verify all history snapshots and build indexed per-code OFFLINE SQLite
+        run: |
+          set -euo pipefail
+          python closebet_research/krx_daily_materialize.py --mode build \
+            --shards 4 --root r171_history_parts --database r171_data/krx_history.db \
+            --universe v49_76_prepare_output/v49_76_universe.json
       - name: Native v49.76 scan with KRX-only research history bridge
         env:
           START: ${{ inputs.start }}
           ASOF: ${{ inputs.asof }}
           CLOSING_BET_KRX_ONLY_RESEARCH: '1'
           CLOSING_BET_KRX_REQUEST_ASOF: ${{ inputs.asof }}
+          CLOSING_BET_KRX_DATABASE: r171_data/krx_history.db
           CLOSING_BET_KRX_TRACE_DIR: v49_76_shard_output
           PYTHONPATH: ${{ github.workspace }}/closebet_research/krx_overlay:${{ github.workspace }}
         run: |
