@@ -87,7 +87,7 @@ def verify_source(selected_zip, r18_zip, all_unique, r18, history, calendar, his
         require(bar.high>=max(bar.open,bar.close) and bar.low<=min(bar.open,bar.close) and bar.low>0,'SIGNAL_OHLC_INVALID:'+code)
         require(bar.volume>=0 and bar.amount>=0,'SIGNAL_VOLUME_AMOUNT_INVALID:'+code)
         for c,v in [('open',row['_open']),('high',row['_high']),('low',row['_low']),('close',row['_close']),('volume',row['_vol']),('close',row['entry_price'])]:
-            require(float(bar[c])==float(v),f'SIGNAL_PRICE_DISAGREEMENT:{code}:{row['signal_date']}:{c}')
+            require(float(bar[c])==float(v), f"SIGNAL_PRICE_DISAGREEMENT:{code}:{row['signal_date']}:{c}")
         price_checked+=1
     # Recompute key ex-ante features and D20/D5 outcomes independently from raw KRX snapshots.
     features_checked=0; outcome_checked=0; horizon_checked=0; absolute_tol=1e-8
