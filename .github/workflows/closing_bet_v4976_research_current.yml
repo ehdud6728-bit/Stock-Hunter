@@ -1,4 +1,4 @@
-name: Closing Bet v49.76 R1.12 PIT Wave-Phase x Entry Quality (RESEARCH ONLY)
+name: Closing Bet v49.76 R1.13 NO-WAVE Root Cause + KRX Integrity (RESEARCH ONLY)
 
 on:
   workflow_dispatch:
@@ -8,12 +8,12 @@ permissions:
   actions: read
 
 concurrency:
-  group: closebet-current-research-r112-${{ github.ref }}
+  group: closing-bet-research-current-r113-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  r112_causal_wave:
-    name: SHA-pinned KRX wave state research (NO LIVE / NO ORDERS)
+  r113_missing_wave_forensics:
+    name: Immutable KRX 1907-day / OHLCV 1059 / missing-wave 659 (NO LIVE)
     runs-on: ubuntu-latest
     timeout-minutes: 35
     env:
@@ -22,69 +22,60 @@ jobs:
       PYTHONPATH: ${{ github.workspace }}
       GH_TOKEN: ${{ github.token }}
       R171_RUN: '38664095610'
-      R110_RUN: '38745541969'
-      R111_RUN: '38760251901'
-
+      R112_RUN: '38823870672'
     steps:
-      - name: Checkout research source (LIVE never invoked)
+      - name: Checkout research scripts only (NO LIVE OR ORDERS)
         uses: actions/checkout@v4
 
-      - name: Setup Python 3.10
+      - name: Use Python 3.10
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
-      - name: Compile before artifact download (fail closed)
+      - name: Compile R1.13 and its dependencies BEFORE downloading anything
         run: |
           set -euo pipefail
-          python -m py_compile \
-            closebet_research/r111_episode_first_strength_audit.py \
+          python -m py_compile closebet_research/r111_episode_first_strength_audit.py \
             closebet_research/r112_causal_wave_phase_audit.py \
-            tests/test_r112_causal_wave_phase_audit.py
-          echo R112_PY310_COMPILE_PASS
+            closebet_research/r113_nonwave_root_cause.py \
+            tests/test_r113_nonwave_root_cause.py
+          echo R113_PY310_COMPILE_PASS
 
-      - name: Install pinned research dependencies
+      - name: Install pinned local analysis dependencies
         run: |
           set -euo pipefail
           python -m pip install 'numpy==2.2.6' 'pandas==2.3.3'
 
-      - name: Module import and CLI smoke test
+      - name: Import and CLI preflight
         run: |
           set -euo pipefail
-          python -c 'from closebet_research import r112_causal_wave_phase_audit; print("R112_IMPORT_PASS")'
-          python -m closebet_research.r112_causal_wave_phase_audit --help > /dev/null
-          echo R112_CLI_PASS
+          python -c 'from closebet_research import r113_nonwave_root_cause; print("R113_IMPORT_PASS")'
+          python -m closebet_research.r113_nonwave_root_cause --help >/dev/null
 
-      - name: Causal / suspension / corporate-action tests
+      - name: Causal and corruption regression tests (FAIL CLOSED)
         run: |
           set -euo pipefail
+          python -m unittest discover -s tests -p 'test_r113_nonwave_root_cause.py' -v
           python -m unittest discover -s tests -p 'test_r112_causal_wave_phase_audit.py' -v
-          python -m unittest discover -s tests -p 'test_r111_episode_first_strength_audit.py' -v
 
-      - name: Download exact proven upstream evidence
+      - name: Download immutable R1.12 and R1.7.1 selection evidence
         run: |
           set -euo pipefail
-          mkdir -p evidence/r171 evidence/r110 evidence/r111 evidence/history
+          mkdir -p evidence/r112 evidence/r171 evidence/history
+          gh run download "$R112_RUN" --repo "$GITHUB_REPOSITORY" \
+            --name "closebet-r112-causal-wave-entry-${R112_RUN}" --dir evidence/r112
           gh run download "$R171_RUN" --repo "$GITHUB_REPOSITORY" \
             --name "closebet-r17-krx-only-replay-${R171_RUN}" --dir evidence/r171
-          gh run download "$R110_RUN" --repo "$GITHUB_REPOSITORY" \
-            --name "closebet-r110-wave-pullback-entry-${R110_RUN}" --dir evidence/r110
-          gh run download "$R111_RUN" --repo "$GITHUB_REPOSITORY" \
-            --name "closebet-r111-episode-strength-${R111_RUN}" --dir evidence/r111
+          test -s evidence/r112/r112_integrity_manifest.json
           test -s evidence/r171/r17_krx/native/v49_76_global_selected_top5.csv
-          test -s evidence/r110/r110_signal_flags_and_outcomes.csv
-          test -s evidence/r111/r111_all_selected_episode_1059.csv
           python - <<'PY'
-          from closebet_research.r111_episode_first_strength_audit import src_verify
-          from closebet_research.r112_causal_wave_phase_audit import sha,R111_EPISODES_SHA
-          from pathlib import Path
-          s,t,_=src_verify('evidence/r171','evidence/r110')
-          assert len(s)==1133 and len(t)==754
-          assert sha(Path('evidence/r111/r111_all_selected_episode_1059.csv').read_bytes())==R111_EPISODES_SHA
-          print('R112_IMMUTABLE_SOURCE_SHA_PASS')
+          from closebet_research.r113_nonwave_root_cause import load_pinned_source
+          raw,m=load_pinned_source('evidence/r112')
+          assert len(raw)==1059
+          print('R113_PINNED_SOURCE_PASS')
           PY
 
-      - name: Retrieve four original dated KRX shards without refetch
+      - name: Recover four untouched KRX history shards without online refetch
         run: |
           set -euo pipefail
           for i in 0 1 2 3; do
@@ -94,53 +85,52 @@ jobs:
           done
           python - <<'PY'
           from pathlib import Path
-          from zipfile import ZipFile,ZIP_STORED
+          from zipfile import ZipFile, ZIP_STORED
           for i in range(4):
-              root=Path(f'evidence/shard-{i}')
-              manifests=list(root.rglob('krx_history_manifest_*.json'))
+              folder=Path(f'evidence/shard-{i}')
+              manifests=list(folder.rglob('krx_history_manifest_*.json'))
               assert len(manifests)==1,(i,manifests)
-              files=sorted(p for p in root.rglob('*') if p.is_file())
+              files=sorted(p for p in folder.rglob('*') if p.is_file())
               assert len(files)>=400,(i,len(files))
               with ZipFile(f'evidence/history/history_{i}.zip','w',compression=ZIP_STORED) as z:
-                  for p in files:z.write(p,arcname=p.relative_to(root).as_posix())
-          print('R112_FOUR_PINNED_HISTORY_SHARDS_READY')
+                  for f in files:z.write(f,arcname=f.relative_to(folder).as_posix())
+          print('R113_FOUR_DATED_KRX_SHARDS_READY')
           PY
 
-      - name: Audit ALL dated compressed KRX SHA and infer causal wave phases
+      - name: Verify ALL KRX SHA and 1059 bars; explain each of the 659 missing states
         run: |
           set -euo pipefail
-          python -m closebet_research.r112_causal_wave_phase_audit \
+          python -m closebet_research.r113_nonwave_root_cause \
+            --r112-dir evidence/r112 \
             --r171-dir evidence/r171 \
-            --r110-dir evidence/r110 \
-            --r111-dir evidence/r111 \
             --history-artifacts evidence/history \
-            --out reports/r112
+            --out reports/r113
 
-      - name: Final immutable 1907-day and output hash contract
+      - name: Validate R1.13 evidence and forbid unexplained gate contradictions
         run: |
           set -euo pipefail
           python - <<'PY'
           import json,hashlib
           from pathlib import Path
-          root=Path('reports/r112')
-          m=json.loads((root/'r112_integrity_manifest.json').read_text())
-          assert m['status']=='PASS_EXPLORATORY_NOT_TRADE_APPROVED'
-          assert m['pinned_source_runs']=={'r171':38664095610,'r110':38745541969,'r111':38760251901}
-          assert m['all_krx_daily_sha_checked']==1907
-          assert m['native_selected_exact_bar_match']==1059
-          assert m['all_selected_unique_signals']==1059
-          assert m['evaluated_signals']==754 and m['D20_evaluable']==570 and m['D5_recent_evaluable']==184
-          assert sum(m['stage_distribution_all'].values())==1059
-          assert len(m['output_sha256'])>=8
-          for name,h in m['output_sha256'].items():
-              assert hashlib.sha256((root/name).read_bytes()).hexdigest()==h,name
-          print('R112_FINAL_FAIL_CLOSED_EVIDENCE_PASS; LIVE_AUTHORITY=NONE')
+          root=Path('reports/r113')
+          m=json.loads((root/'r113_integrity_manifest.json').read_text())
+          assert m['status']=='PASS_FORENSIC_ONLY_NOT_VALIDATED_TRADING_RULES'
+          assert m['r112_run_id']==38823870672 and m['krx_source_run_id']==38664095610
+          assert m['r112_recomputed_signal_stage_count']==1059
+          assert m['native_all_ohlcv_bars_verified']==1059
+          assert m['krx_all_compressed_daily_sha_checked']==1907
+          assert m['missing_wave_explained']==659
+          assert m['mutually_exclusive_cause_sum']==659
+          assert m['cause_distribution']['GATES_ELIGIBLE_BUT_STATE_NONE_INSPECT']==0
+          for file,digest in m['output_sha256'].items():
+              assert hashlib.sha256((root/file).read_bytes()).hexdigest()==digest,file
+          print('R113_STRICT_RESEARCH_ONLY_CONTRACT_PASS; LIVE_AUTHORITY=NONE')
           PY
 
-      - name: Upload RESEARCH artifact only on full success
+      - name: Upload only fully validated research output
         uses: actions/upload-artifact@v4
         with:
-          name: closebet-r112-causal-wave-entry-${{ github.run_id }}
-          path: reports/r112/
+          name: closebet-r113-nonwave-rootcause-${{ github.run_id }}
+          path: reports/r113/
           retention-days: 30
           if-no-files-found: error
