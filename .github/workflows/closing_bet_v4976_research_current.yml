@@ -1,0 +1,100 @@
+name: Closing Bet v49.76 R1.10 Wave Strength + Pullback + Entry (RESEARCH ONLY)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: closebet-current-research-r110-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  r110_research:
+    name: Immutable R1.8/R1.9 evidence + pre-signal cohort audits (NO LIVE)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      TZ: Asia/Seoul
+      PYTHONUNBUFFERED: '1'
+      PYTHONPATH: ${{ github.workspace }}
+      GH_TOKEN: ${{ github.token }}
+      R18_RUN: '38693918216'
+      R19_RUN: '38729925104'
+    steps:
+      - name: Checkout the research code
+        uses: actions/checkout@v4
+
+      - name: Setup fixed Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Compile Python BEFORE downloading artifacts (FAIL CLOSED)
+        run: |
+          set -euo pipefail
+          python -m py_compile closebet_research/r110_strength_pullback_entry_audit.py tests/test_r110_strength_pullback_entry_audit.py
+          echo 'R110_PY310_SYNTAX_PASS'
+
+      - name: Install pinned offline-analysis libraries
+        run: |
+          set -euo pipefail
+          python -m pip install 'numpy==2.2.6' 'pandas==2.3.3'
+
+      - name: Import and CLI module preflight BEFORE downloading artifacts
+        run: |
+          set -euo pipefail
+          python -c 'from closebet_research import r110_strength_pullback_entry_audit; print("R110_MODULE_IMPORT_PASS")'
+          python -m closebet_research.r110_strength_pullback_entry_audit --help > /dev/null
+
+      - name: R1.10 pre-signal causality and corruption tests
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests -p 'test_r110_strength_pullback_entry_audit.py' -v
+
+      - name: Download EXACT proven R1.8 and R1.9 artifacts (NEVER LIVE)
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/r18 evidence/r19
+          gh run download "$R18_RUN" --repo "$GITHUB_REPOSITORY" \
+            --name "closebet-r18-wave-entry-forensics-${R18_RUN}" --dir evidence/r18
+          gh run download "$R19_RUN" --repo "$GITHUB_REPOSITORY" \
+            --name "closebet-r191-paired-chart-integrity-${R19_RUN}" --dir evidence/r19
+          test -s evidence/r18/r18_all_unique_signal_features.csv
+          test -s evidence/r18/r18_entry_policy_trade_level.csv
+          test -s evidence/r18/r18_research_manifest.json
+          test -s evidence/r19/r19_integrity_manifest.json
+          test -s evidence/r19/r19_matched_contrast_pairs.csv
+          echo 'R110_UPSTREAM_PINNED_ARTIFACTS_AVAILABLE'
+
+      - name: Analyze only verified selected signal evidence; fail on source corruption
+        run: |
+          set -euo pipefail
+          python -m closebet_research.r110_strength_pullback_entry_audit \
+            --r18-dir evidence/r18 --r19-dir evidence/r19 --out reports/r110
+
+      - name: Assert immutable analytic contract BEFORE upload
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib,json
+          from pathlib import Path
+          d=Path('reports/r110')
+          m=json.loads((d/'r110_integrity_manifest.json').read_text(encoding='utf-8'))
+          assert m['status']=='PASS_DISCOVERY_ONLY_NOT_TRADE_APPROVED',m
+          assert m['r18_unique_analyzed']==754 and m['older_complete_D20']==570 and m['recent_complete_D5_only']==184,m
+          assert m['r19_matched_pairs']==36 and m['r19_unique_pair_slots']==68 and m['r19_cross_contrast_repeated_events']==4,m
+          for name,digest in m['output_sha256'].items():
+              assert hashlib.sha256((d/name).read_bytes()).hexdigest()==digest,name
+          print('R110_STRICT_EVIDENCE_PASS; TRADE_AUTHORITY=NONE')
+          PY
+
+      - name: Upload research evidence ONLY after ALL gates pass
+        uses: actions/upload-artifact@v4
+        with:
+          name: closebet-r110-wave-pullback-entry-${{ github.run_id }}
+          path: reports/r110/
+          retention-days: 30
+          if-no-files-found: error
