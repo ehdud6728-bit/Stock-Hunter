@@ -1,4 +1,4 @@
-name: Closing Bet v49.76 R1.11 First Signal x Wave Episode x Early Strength (RESEARCH ONLY)
+name: Closing Bet v49.76 R1.12 PIT Wave-Phase x Entry Quality (RESEARCH ONLY)
 
 on:
   workflow_dispatch:
@@ -8,14 +8,14 @@ permissions:
   actions: read
 
 concurrency:
-  group: closebet-current-research-r111-${{ github.ref }}
+  group: closebet-current-research-r112-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  r111_episodes:
-    name: Pinned KRX 1059-bar replay x signal episodes (NO LIVE)
+  r112_causal_wave:
+    name: SHA-pinned KRX wave state research (NO LIVE / NO ORDERS)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 35
     env:
       TZ: Asia/Seoul
       PYTHONUNBUFFERED: '1'
@@ -23,55 +23,68 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       R171_RUN: '38664095610'
       R110_RUN: '38745541969'
+      R111_RUN: '38760251901'
+
     steps:
-      - name: Checkout RESEARCH ONLY source
+      - name: Checkout research source (LIVE never invoked)
         uses: actions/checkout@v4
 
-      - name: Set up Python 3.10 (matching tested research runtime)
+      - name: Setup Python 3.10
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
-      - name: Python syntax checks before touching inputs
+      - name: Compile before artifact download (fail closed)
         run: |
           set -euo pipefail
-          python -m py_compile closebet_research/r111_episode_first_strength_audit.py tests/test_r111_episode_first_strength_audit.py
-          echo 'R111_PY310_COMPILE_PASS'
+          python -m py_compile \
+            closebet_research/r111_episode_first_strength_audit.py \
+            closebet_research/r112_causal_wave_phase_audit.py \
+            tests/test_r112_causal_wave_phase_audit.py
+          echo R112_PY310_COMPILE_PASS
 
-      - name: Install pinned offline analysis libraries
+      - name: Install pinned research dependencies
         run: |
           set -euo pipefail
           python -m pip install 'numpy==2.2.6' 'pandas==2.3.3'
 
-      - name: Package import and CLI entrypoint preflight
+      - name: Module import and CLI smoke test
         run: |
           set -euo pipefail
-          python -c 'from closebet_research import r111_episode_first_strength_audit; print("R111_IMPORT_PASS")'
-          python -m closebet_research.r111_episode_first_strength_audit --help > /dev/null
-          echo 'R111_CLI_PASS'
+          python -c 'from closebet_research import r112_causal_wave_phase_audit; print("R112_IMPORT_PASS")'
+          python -m closebet_research.r112_causal_wave_phase_audit --help > /dev/null
+          echo R112_CLI_PASS
 
-      - name: Episode causality and corruption tests
+      - name: Causal / suspension / corporate-action tests
         run: |
           set -euo pipefail
+          python -m unittest discover -s tests -p 'test_r112_causal_wave_phase_audit.py' -v
           python -m unittest discover -s tests -p 'test_r111_episode_first_strength_audit.py' -v
 
-      - name: Fetch exact immutable R1.7.1 selected signals and R1.10 features
+      - name: Download exact proven upstream evidence
         run: |
           set -euo pipefail
-          mkdir -p evidence/r171 evidence/r110 evidence/history
+          mkdir -p evidence/r171 evidence/r110 evidence/r111 evidence/history
           gh run download "$R171_RUN" --repo "$GITHUB_REPOSITORY" \
             --name "closebet-r17-krx-only-replay-${R171_RUN}" --dir evidence/r171
           gh run download "$R110_RUN" --repo "$GITHUB_REPOSITORY" \
             --name "closebet-r110-wave-pullback-entry-${R110_RUN}" --dir evidence/r110
+          gh run download "$R111_RUN" --repo "$GITHUB_REPOSITORY" \
+            --name "closebet-r111-episode-strength-${R111_RUN}" --dir evidence/r111
           test -s evidence/r171/r17_krx/native/v49_76_global_selected_top5.csv
           test -s evidence/r110/r110_signal_flags_and_outcomes.csv
+          test -s evidence/r111/r111_all_selected_episode_1059.csv
           python - <<'PY'
           from closebet_research.r111_episode_first_strength_audit import src_verify
-          a,b,_=src_verify('evidence/r171','evidence/r110')
-          print('R111_PINNED_SOURCE_SHA_PASS',len(a),len(b))
+          from closebet_research.r112_causal_wave_phase_audit import sha,R111_EPISODES_SHA
+          from pathlib import Path
+          s,t,_=src_verify('evidence/r171','evidence/r110')
+          assert len(s)==1133 and len(t)==754
+          assert sha(Path('evidence/r111/r111_all_selected_episode_1059.csv').read_bytes())==R111_EPISODES_SHA
+          print('R112_IMMUTABLE_SOURCE_SHA_PASS')
           PY
 
-      - name: Fetch exact 4 independent KRX daily history shards (NO refetch/recompute)
+      - name: Retrieve four original dated KRX shards without refetch
         run: |
           set -euo pipefail
           for i in 0 1 2 3; do
@@ -85,43 +98,49 @@ jobs:
           for i in range(4):
               root=Path(f'evidence/shard-{i}')
               manifests=list(root.rglob('krx_history_manifest_*.json'))
-              assert len(manifests)==1, (i,manifests)
+              assert len(manifests)==1,(i,manifests)
               files=sorted(p for p in root.rglob('*') if p.is_file())
               assert len(files)>=400,(i,len(files))
-              dest=Path(f'evidence/history/history_{i}.zip')
-              with ZipFile(dest,'w',compression=ZIP_STORED) as z:
-                  for f in files:z.write(f,arcname=f.relative_to(root).as_posix())
-          print('R111_FOUR_HISTORY_ARTIFACTS_REPACKAGED_UNCHANGED')
+              with ZipFile(f'evidence/history/history_{i}.zip','w',compression=ZIP_STORED) as z:
+                  for p in files:z.write(p,arcname=p.relative_to(root).as_posix())
+          print('R112_FOUR_PINNED_HISTORY_SHARDS_READY')
           PY
 
-      - name: Audit all selected bars and analyze episodes and real subsequent KRX prices
+      - name: Audit ALL dated compressed KRX SHA and infer causal wave phases
         run: |
           set -euo pipefail
-          python -m closebet_research.r111_episode_first_strength_audit \
-            --r171-dir evidence/r171 --r110-dir evidence/r110 \
-            --history-artifacts evidence/history --out reports/r111
+          python -m closebet_research.r112_causal_wave_phase_audit \
+            --r171-dir evidence/r171 \
+            --r110-dir evidence/r110 \
+            --r111-dir evidence/r111 \
+            --history-artifacts evidence/history \
+            --out reports/r112
 
-      - name: Strict research output contract before upload
+      - name: Final immutable 1907-day and output hash contract
         run: |
           set -euo pipefail
           python - <<'PY'
+          import json,hashlib
           from pathlib import Path
-          import hashlib,json
-          root=Path('reports/r111')
-          m=json.loads((root/'r111_integrity_manifest.json').read_text(encoding='utf-8'))
-          assert m['status']=='PASS_DESCRIPTIVE_ONLY_NOT_TRADE_APPROVED'
-          assert m['all_selected_unique_signals']==1059 and m['krx_selected_price_bars_exact_verified']==1059
-          assert m['r110_reused_unique_signals']==754 and m['mature_D20']==570 and m['recent_D5_only']==184
-          assert m['within_episode_first_repeat_pair_count'] >= 1
-          for f,h in m['output_sha256'].items():
-              assert hashlib.sha256((root/f).read_bytes()).hexdigest()==h,f
-          print('R111_FINAL_RESEARCH_ONLY_EVIDENCE_PASS / NO LIVE AUTHORITY')
+          root=Path('reports/r112')
+          m=json.loads((root/'r112_integrity_manifest.json').read_text())
+          assert m['status']=='PASS_EXPLORATORY_NOT_TRADE_APPROVED'
+          assert m['pinned_source_runs']=={'r171':38664095610,'r110':38745541969,'r111':38760251901}
+          assert m['all_krx_daily_sha_checked']==1907
+          assert m['native_selected_exact_bar_match']==1059
+          assert m['all_selected_unique_signals']==1059
+          assert m['evaluated_signals']==754 and m['D20_evaluable']==570 and m['D5_recent_evaluable']==184
+          assert sum(m['stage_distribution_all'].values())==1059
+          assert len(m['output_sha256'])>=8
+          for name,h in m['output_sha256'].items():
+              assert hashlib.sha256((root/name).read_bytes()).hexdigest()==h,name
+          print('R112_FINAL_FAIL_CLOSED_EVIDENCE_PASS; LIVE_AUTHORITY=NONE')
           PY
 
-      - name: Upload RESEARCH results only if all checks pass
+      - name: Upload RESEARCH artifact only on full success
         uses: actions/upload-artifact@v4
         with:
-          name: closebet-r111-episode-strength-${{ github.run_id }}
-          path: reports/r111/
+          name: closebet-r112-causal-wave-entry-${{ github.run_id }}
+          path: reports/r112/
           retention-days: 30
           if-no-files-found: error
