@@ -1,0 +1,118 @@
+name: Closing Bet R1.21 Frozen Type Entry Scale Stop Temporal Replay (RESEARCH ONLY)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: closing-bet-r121-frozen-research-only
+  cancel-in-progress: false
+
+jobs:
+  research:
+    name: R121 Frozen 7 hypotheses x mature train/validation with strict R120 provenance (NO LIVE)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TZ: Asia/Seoul
+      PYTHONDONTWRITEBYTECODE: '1'
+      R120_RUN: '38871858855'
+      R120_ARTIFACT: 'closebet-r120-entry-scale-stop-38871858855'
+      R121_SOURCE_ROOT: evidence/r120
+    steps:
+      - name: Checkout only existing research source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install fixed analytical dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install 'numpy==2.2.6' 'pandas==2.2.3'
+
+      - name: Fail closed on research script and fixed plan BEFORE source fetch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile closebet_research/r121_frozen_type_policy_replay.py tests/test_r121_frozen_type_policy_replay.py
+          python -m unittest discover -s tests -p 'test_r121_frozen_type_policy_replay.py' -v
+          python -m closebet_research.r121_frozen_type_policy_replay --help >/dev/null
+          echo R121_PRE_SOURCE_TESTS_PASS
+
+      - name: Download immutable R1.20 GitHub results only (not LIVE and not fresh market)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/r120
+          gh run download "$R120_RUN" --repo "$GITHUB_REPOSITORY" --name "$R120_ARTIFACT" --dir evidence/r120
+          test -s evidence/r120/r120_integrity_manifest.json
+          echo R121_PINNED_R120_DOWNLOAD_COMPLETE
+
+      - name: Require exact pinned R1.20 member SHA, source scope, original 1907-day provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          from closebet_research.r121_frozen_type_policy_replay import sha256,source_load
+          root=Path('evidence/r120')
+          expected='c8723c98048dbb6a034a10f54c248b4a8d2a0e4b5e76c01f45052c3863b748ba'
+          assert sha256(root/'r120_integrity_manifest.json')==expected, 'R120_MANIFEST_SHA_MISMATCH'
+          a,s,m=source_load(root)
+          assert len(a)==4567 and len(s)==63200
+          assert m['krx_sha_verified_days']==1907
+          print('R121_PINNED_SOURCE_MEMBER_SHA_AND_SCOPE_PASS')
+          PY
+          python -m unittest discover -s tests -p 'test_r121_frozen_type_policy_replay.py' -v
+          echo R121_PY310_ALL_13_TESTS_PASS
+
+      - name: Replay frozen research hypotheses without future-label driven selection
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m closebet_research.r121_frozen_type_policy_replay \
+            --source evidence/r120 \
+            --contract closebet_research/r121_frozen_hypothesis_contract.json \
+            --output reports/r121_frozen_policy
+
+      - name: Fail closed on temporal limits, lack of PIT / prospective OOS and every output SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from closebet_research.r121_frozen_type_policy_replay import sha256
+          p=Path('reports/r121_frozen_policy');m=json.loads((p/'r121_integrity_manifest.json').read_text())
+          assert m['status']=='PASS_DESCRIPTIVE_TEMPORAL_REPLAY_NOT_OOS_NOT_TRADE_APPROVED'
+          assert not m['trade_authority'] and not m['full_pit_market_available']
+          assert m['source_r120_run']==38871858855
+          assert m['source_mature_episodes']==3160 and m['source_episodes']==4567
+          assert m['validation_first_d0']=='2026-09-02' and m['validation_last_d0']=='2026-09-08'
+          assert m['train_full_d20_by']=='2026-09-01'
+          assert m['shared_tickers']>=1 and m['past_studies_reused_same_sources']
+          assert len(m['output_files_sha256'])==6
+          for filename,expected in m['output_files_sha256'].items():
+              assert sha256(p/filename)==expected, 'OUTPUT_SHA_MISMATCH:'+filename
+          print('R121_FINAL_RESEARCH_ONLY_FAIL_CLOSED_PASS; NOT_TRADE_APPROVED')
+          PY
+
+      - name: Upload R121 research evidence only
+        uses: actions/upload-artifact@v4
+        with:
+          name: closebet-r121-frozen-hypotheses-${{ github.run_id }}
+          path: |
+            reports/r121_frozen_policy/
+            closebet_research/r121_frozen_hypothesis_contract.json
+          if-no-files-found: error
+          retention-days: 90
