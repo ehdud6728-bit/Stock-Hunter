@@ -1,0 +1,69 @@
+name: Closing Bet R1.24.1 Historical Date-Block Robustness Audit (RESEARCH ONLY)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: closebet-r1241-retrospective-date-block-readonly
+  cancel-in-progress: false
+
+jobs:
+  historical_diagnostic_only:
+    name: R1241 pinned R123/R124 day-block checks - NO LIVE - NO OOS
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TZ: Asia/Seoul
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Install exact read-only analytical dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install 'numpy==2.2.6' 'pandas==2.2.3'
+      - name: Unit-test before any historical evidence download
+        run: |
+          set -euo pipefail
+          python -m py_compile closebet_research/r1241_date_block_robustness.py tests/test_r1241_date_block_robustness.py
+          python -m unittest discover -s tests -p 'test_r1241_date_block_robustness.py' -v
+      - name: Download exact pinned R123 and R124 evidence
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/r123 evidence/r124
+          gh run download 38898887953 --repo "$GITHUB_REPOSITORY" --name closebet-r123-success-failure-path-forensics-38898887953 --dir evidence/r123
+          gh run download 38902124049 --repo "$GITHUB_REPOSITORY" --name closebet-r124-frozen-d0-gates-historical-replay-38902124049 --dir evidence/r124
+      - name: Manifest + all member SHA256, freeze and date-block robustness diagnostic
+        run: |
+          set -euo pipefail
+          python -m closebet_research.r1241_date_block_robustness --r123-root evidence/r123 --r124-root evidence/r124 --output-dir reports/r1241
+      - name: Strict output assertions
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import json
+          from closebet_research.r1241_date_block_robustness import sha
+          p=Path('reports/r1241');m=json.loads((p/'r1241_integrity_manifest.json').read_text())
+          assert m['status']=='PASS_RETROSPECTIVE_DATE_BLOCK_DIAGNOSTIC_NOT_OOS_NOT_TRADE_APPROVED'
+          assert m['d20_count']==3077 and m['d0_count']==4453 and m['d20_signal_dates']==26
+          assert not m['oos'] and not m['full_market_pit']
+          assert all(m[k] for k in ('live_unchanged','shadow_unchanged','telegram_unchanged','orders_unchanged'))
+          assert all(sha(p/f)==h for f,h in m['output_sha256'].items())
+          print('R1241_RESULTS_SHA_SCOPE_DATE_PASS; NO_LIVE_AUTHORITY')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: closebet-r1241-date-block-historical-diagnostic-${{ github.run_id }}
+          path: reports/r1241/**
+          if-no-files-found: error
+          retention-days: 30
