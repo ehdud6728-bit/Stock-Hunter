@@ -1,0 +1,120 @@
+name: Closing Bet R1.25.1 New KRX Capture Independent-Code Integrity Audit (RESEARCH ONLY)
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'preflight: offline test/producer-pins only; audit: inspect an ACTUAL future R1250 capture artifact'
+        type: choice
+        options:
+          - preflight
+          - audit
+        required: true
+        default: preflight
+      source_run_id:
+        description: 'For audit: R1250 mode=capture GitHub Actions run ID (not preflight run)'
+        type: string
+        required: false
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: r1251-independent-code-source-check-readonly
+  cancel-in-progress: false
+
+jobs:
+  inspect_snapshot_only:
+    name: Verify frozen provider source and one future daily evidence snapshot - NO LIVE
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      TZ: Asia/Seoul
+      PYTHONDONTWRITEBYTECODE: '1'
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Verify Python and run 28 entirely offline tests
+        run: |
+          set -euo pipefail
+          python -m py_compile closebet_research/r1251_capture_integrity_audit.py tests/test_r1251_capture_integrity_audit.py
+          python -m unittest discover -s tests -p 'test_r1251_capture_integrity_audit.py' -v
+      - name: Check exact GitHub producer code, prevent unnoticed detector changes
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from closebet_research.r1251_capture_integrity_audit import producer_baseline
+          print('R1251_FROZEN_R1250_SOURCE_PASS',len(producer_baseline('.')))
+          PY
+      - name: Download one genuine capture from this repository
+        if: ${{ inputs.mode == 'audit' }}
+        env:
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_RUN_ID" =~ ^[0-9]+$ ]] || { echo SOURCE_RUN_ID_NUMERIC_REQUIRED; exit 2; }
+          # Download ONLY named R1250 capture output. An earlier preflight cannot masquerade as capture.
+          mkdir -p evidence/r1250
+          gh run download "$SOURCE_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name "closebet-r1250-prospective-census-capture-${SOURCE_RUN_ID}" \
+            --dir evidence/r1250
+          # Cross-check the recorded producer commit against GitHub's run metadata.
+          gh run view "$SOURCE_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --json headSha --jq '.headSha' > evidence/r1250_capture_commit.txt
+          grep -Eq '^[0-9a-f]{40}$' evidence/r1250_capture_commit.txt
+      - name: Independent-code retrospective audit of R1250 contemporaneous source
+        if: ${{ inputs.mode == 'audit' }}
+        continue-on-error: true
+        env:
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+        run: |
+          set -euo pipefail
+          python -m closebet_research.r1251_capture_integrity_audit \
+            --snapshot-root evidence/r1250/snapshot \
+            --source-run "$SOURCE_RUN_ID" \
+            --producer-git-sha "$(cat evidence/r1250_capture_commit.txt)" \
+            --repo . --output reports/r1251
+      - name: Write preflight-only readiness
+        if: ${{ inputs.mode == 'preflight' }}
+        run: |
+          mkdir -p reports/r1251
+          python - <<'PY'
+          from pathlib import Path
+          import json
+          from closebet_research.r1251_capture_integrity_audit import REVISION, OUTPUT
+          p=Path('reports/r1251')/OUTPUT
+          p.write_text(json.dumps({'revision':REVISION,'status':'PREFLIGHT_ONLY_WAIT_FOR_R1250_NEW_CAPTURE',
+            'oos_complete':False,'permanent_archive':False,'live_changed':False},indent=2)+'\n')
+          print('R1251_PREFLIGHT_ONLY_NOT_OOS')
+          PY
+      - name: Upload raw audit result even if scope blocked
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: closebet-r1251-audit-${{ inputs.mode }}-${{ github.run_id }}
+          path: reports/r1251/**
+          if-no-files-found: warn
+          retention-days: 90
+      - name: Fail closed if future snapshot was incomplete
+        if: ${{ inputs.mode == 'audit' }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from closebet_research.r1251_capture_integrity_audit import OUTPUT
+          p=Path('reports/r1251')/OUTPUT
+          assert p.is_file(), 'R1251_RESULT_NOT_EMITTED_FAIL_CLOSED'
+          s=json.loads(p.read_text())
+          assert s['status']=='PASS_CAPTURE_SOURCE_INTEGRITY_NOT_OOS_NOT_TRADE_APPROVED',s['status']
+          assert s['scope_pass'] is True and s['independent_krx_certification'] is False
+          assert s['full_market_pit_224_sessions'] is False and s['oos_complete'] is False
+          print('R1251_ONE_DAY_SOURCE_AUDIT_PASS_NOT_A_REAL_OOS')
+          PY

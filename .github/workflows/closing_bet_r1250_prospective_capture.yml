@@ -44,7 +44,7 @@ jobs:
         run: |
           set -euo pipefail
           python -m pip install 'numpy==2.2.6' 'pandas==2.2.3'
-      - name: Run 22 research-only synthetic offline tests
+      - name: Run 25 research-only synthetic offline tests
         run: |
           set -euo pipefail
           python -m py_compile closebet_research/r125_prospective_capture.py tests/test_r125_prospective_capture.py
