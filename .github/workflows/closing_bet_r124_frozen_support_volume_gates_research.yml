@@ -1,0 +1,97 @@
+name: Closing Bet R1.24 Frozen D0 Support x Volume x MA Hypotheses (RESEARCH ONLY)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: closebet-r124-frozen-rules-historical-replay
+  cancel-in-progress: false
+
+jobs:
+  retrospective_replay:
+    name: R124 pinned R123 source, locked D0 gates, no OOS claim (NO LIVE)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TZ: Asia/Seoul
+      PYTHONDONTWRITEBYTECODE: '1'
+      R123_RUN: '38898887953'
+      R123_ARTIFACT: 'closebet-r123-success-failure-path-forensics-38898887953'
+    steps:
+      - name: Checkout research scripts only
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Install exact research dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install 'numpy==2.2.6' 'pandas==2.2.3'
+      - name: Verify frozen rules and run unit tests before downloading evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile closebet_research/r124_frozen_gate_replay.py tests/test_r124_frozen_gate_replay.py
+          python -m unittest discover -s tests -p 'test_r124_frozen_gate_replay.py' -v
+          python -m closebet_research.r124_frozen_gate_replay --help > /dev/null
+          echo R124_PREFLIGHT_LOCKED_RULES_PASS
+      - name: Download exact R123 GitHub artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/r123
+          gh run download "$R123_RUN" --repo "$GITHUB_REPOSITORY" --name "$R123_ARTIFACT" --dir evidence/r123
+          test -s evidence/r123/r123_integrity_manifest.json
+          echo R124_PINNED_R123_GITHUB_ARTIFACT_DOWNLOADED
+      - name: Strict source hashes before analytical replay
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from closebet_research.r124_frozen_gate_replay import load_pinned_r123
+          a,b,m=load_pinned_r123('evidence/r123')
+          assert len(a)==4453 and len(b)==3077
+          print('R124_R123_SOURCE_MANIFEST_MEMBER_SHA_PASS')
+          PY
+      - name: Freeze D0-only decisions and compare prior known outcomes, DESCRIPTIVE ONLY
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m closebet_research.r124_frozen_gate_replay \
+            --r123-root evidence/r123 \
+            --rules closebet_research/r124_frozen_hypotheses.json \
+            --output-dir reports/r124
+      - name: Verify every CSV SHA and do NOT claim future OOS or full PIT
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import json
+          from closebet_research.r124_frozen_gate_replay import sha
+          out=Path('reports/r124')
+          m=json.loads((out/'r124_integrity_manifest.json').read_text(encoding='utf-8'))
+          assert m['status']=='PASS_HISTORICAL_REPLAY_FROZEN_RULES_OOS_PENDING_NOT_TRADE_APPROVED'
+          assert m['asof_decisions']==4453 and m['mature_post_events']==3077
+          assert not m['historical_replay_is_independent_oos'] and not m['prospective_full_market_readiness']
+          assert m['no_live_changes'] and m['no_order_changes'] and m['no_shadow_changes'] and m['no_telegram_changes']
+          for fn,h in m['file_sha256'].items():
+              assert sha(out/fn)==h,('R124_OUTPUT_SHA_MISMATCH',fn)
+          print('R124_STRICT_HISTORICAL_ONLY_RESEARCH_PASS; NO_LIVE_AUTHORITY')
+          PY
+      - name: Upload evidence with freeze and prospective readiness blockers
+        uses: actions/upload-artifact@v4
+        with:
+          name: closebet-r124-frozen-d0-gates-historical-replay-${{ github.run_id }}
+          path: reports/r124/**
+          if-no-files-found: error
+          retention-days: 30
