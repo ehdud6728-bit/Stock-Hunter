@@ -1,0 +1,101 @@
+name: Closing Bet R1.25.0 Prospective KRX EOD Census Intake (RESEARCH ONLY)
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'preflight: frozen baseline verification; capture: today KST EOD snapshot after 16:00 (no future outcomes)'
+        required: true
+        type: choice
+        options:
+          - preflight
+          - capture
+        default: preflight
+      signal_day:
+        description: 'Required for capture. YYYY-MM-DD, exactly current KST date; >= 2026-10-19.'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: closebet-r1250-prospective-census-readonly
+  cancel-in-progress: false
+
+jobs:
+  prospective_eod_intake:
+    name: R1250 check frozen LOW224/R124 then optional KRX asof capture (NO LIVE)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TZ: Asia/Seoul
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Checkout pinned research source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Install fixed analytical libraries
+        run: |
+          set -euo pipefail
+          python -m pip install 'numpy==2.2.6' 'pandas==2.2.3'
+      - name: Run 22 research-only synthetic offline tests
+        run: |
+          set -euo pipefail
+          python -m py_compile closebet_research/r125_prospective_capture.py tests/test_r125_prospective_capture.py
+          python -m unittest discover -s tests -p 'test_r125_prospective_capture.py' -v
+          echo R1250_OFFLINE_TESTS_PASS
+      - name: Produce immutable-baseline preflight evidence
+        if: ${{ inputs.mode == 'preflight' }}
+        run: |
+          set -euo pipefail
+          python -m closebet_research.r125_prospective_capture \
+            --mode preflight --repo . --out reports/r1250
+          test -s reports/r1250/readiness/r1250_READINESS_RESEARCH_ONLY.json
+          echo R1250_PREFLIGHT_READY_FOR_REAL_CAPTURE_NOT_OOS
+      - name: Install pinned KRX adapter for same-day data (only capture)
+        if: ${{ inputs.mode == 'capture' }}
+        run: |
+          set -euo pipefail
+          python -m pip install 'pykrx==1.2.9'
+      - name: Capture source for current KST official session only
+        if: ${{ inputs.mode == 'capture' }}
+        env:
+          SIGNAL_DAY: ${{ inputs.signal_day }}
+        run: |
+          set -euo pipefail
+          test -n "$SIGNAL_DAY" || { echo 'SIGNAL_DAY_REQUIRED'; exit 2; }
+          python -m closebet_research.r125_prospective_capture \
+            --mode capture --repo . --signal-day "$SIGNAL_DAY" --out reports/r1250
+          echo R1250_SNAPSHOT_CAPTURED_NOT_OOS
+      - name: Strict intake permission and outcome status assertions
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import json
+          from closebet_research.r125_prospective_capture import verify_snapshot
+          root=Path('reports/r1250')
+          p=root/'readiness/r1250_READINESS_RESEARCH_ONLY.json'
+          r=json.loads(p.read_text())
+          assert r['revision']=='R1250_CONTEMPORANEOUS_FULL_MARKET_CAPTURE_PILOT_V1'
+          assert r['status']=='WAIT_NEW_REAL_PIT_DATA_AND_224_HISTORY'
+          assert not r['independent_forward_OOS'] and not r['full_market_pit_history_224_sessions_complete']
+          assert all(not r[k] for k in ('live_changed','shadow_changed','telegram_changed','orders_changed'))
+          if (root/'snapshot').is_dir():
+              s=verify_snapshot(root/'snapshot')
+              assert not s['trade_approved'] and not s['oos_complete']
+          print('R1250_READONLY_SCOPE_AND_SOURCE_HASH_PASS')
+          PY
+      - name: Upload research-only prospect capture/readiness, temporary archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: closebet-r1250-prospective-census-${{ inputs.mode }}-${{ github.run_id }}
+          path: reports/r1250/**
+          if-no-files-found: error
+          retention-days: 90
