@@ -1,141 +1,112 @@
-name: Closing Bet v49.76 R1.14 Ex-Ante Volume Wave Distribution + Blind Charts (RESEARCH ONLY)
+name: Closing Bet v49.76 R1.15 Historical Minute Feasibility + Closing Volume Integrity (RESEARCH ONLY)
 
 on:
   workflow_dispatch:
+    inputs:
+      minute_source_run_id:
+        description: Optional GitHub run ID containing a STRICT intraday interval CSV artifact; blank is a readiness audit only
+        type: string
+        required: false
+        default: ''
+      minute_source_artifact_name:
+        description: Exact artifact name within that run; must be supplied together with run ID
+        type: string
+        required: false
+        default: ''
 
 permissions:
   contents: read
   actions: read
 
 concurrency:
-  group: closing-bet-research-current-r114-${{ github.ref }}
+  group: closing-bet-research-current-r115-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  r114_threshold_free_wave_audit:
-    name: Pinned R1.13 659 nonwave x 40 blind pre-D0 KRX charts (NO LIVE)
+  r115_readonly:
+    name: R1.14 SHA-pin + intraday provenance feasibility (NO LIVE, NO ORDERS)
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 20
     env:
       TZ: Asia/Seoul
-      PYTHONUNBUFFERED: '1'
       PYTHONPATH: ${{ github.workspace }}
+      PYTHONUNBUFFERED: '1'
       GH_TOKEN: ${{ github.token }}
-      R171_RUN: '38664095610'
-      R112_RUN: '38823870672'
-      R113_RUN: '38826734127'
+      R114_RUN: '38831145566'
+      R114_ARTIFACT: closebet-r114-wave-descriptive-blindcharts-38831145566
+      OPTIONAL_MINUTE_RUN: ${{ inputs.minute_source_run_id }}
+      OPTIONAL_MINUTE_ARTIFACT: ${{ inputs.minute_source_artifact_name }}
     steps:
-      - name: Checkout research code only; never invoke LIVE
+      - name: Checkout repository research sources only
         uses: actions/checkout@v4
 
-      - name: Set up Python 3.10
+      - name: Configure Python 3.10
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
-      - name: Compile Python 3.10 before dependencies or artifacts
+      - name: Preflight imports, syntax and Python-3.10 unit tests
         run: |
           set -euo pipefail
-          python -m py_compile \
-            closebet_research/r111_episode_first_strength_audit.py \
-            closebet_research/r112_causal_wave_phase_audit.py \
-            closebet_research/r113_nonwave_root_cause.py \
-            closebet_research/r114_threshold_free_wave_gallery.py \
-            tests/test_r114_threshold_free_wave_gallery.py
-          echo R114_PY310_SYNTAX_PASS
+          python -m py_compile closebet_research/r115_intraday_data_readiness_audit.py tests/test_r115_intraday_data_readiness_audit.py
+          python -m closebet_research.r115_intraday_data_readiness_audit --help >/dev/null
+          python -m unittest discover -s tests -p test_r115_intraday_data_readiness_audit.py -v
+          echo 'R115_PY310_UNIT_TEST_PASS'
 
-      - name: Install fixed pure research dependencies
+      - name: Fetch immutable R1.14 GitHub evidence without any market refetch
         run: |
           set -euo pipefail
-          python -m pip install 'numpy==2.2.6' 'pandas==2.3.3' 'matplotlib==3.10.9'
-
-      - name: Smoke test module and CLI before any evidence download
-        run: |
-          set -euo pipefail
-          python -c 'from closebet_research import r114_threshold_free_wave_gallery; print("R114_MODULE_IMPORT_PASS")'
-          python -m closebet_research.r114_threshold_free_wave_gallery --help >/dev/null
-          echo R114_MODULE_CLI_PASS
-
-      - name: Test future-blindness, source corruption and price gates
-        run: |
-          set -euo pipefail
-          python -m unittest discover -s tests -p 'test_r114_threshold_free_wave_gallery.py' -v
-          python -m unittest discover -s tests -p 'test_r113_nonwave_root_cause.py' -v
-          python -m unittest discover -s tests -p 'test_r112_causal_wave_phase_audit.py' -v
-
-      - name: Download only pinned completed R1.13, R1.12 and R1.7.1 evidence
-        run: |
-          set -euo pipefail
-          mkdir -p evidence/r113 evidence/r112 evidence/r171 evidence/history
-          gh run download "$R113_RUN" --repo "$GITHUB_REPOSITORY" \
-            --name "closebet-r113-nonwave-rootcause-${R113_RUN}" --dir evidence/r113
-          gh run download "$R112_RUN" --repo "$GITHUB_REPOSITORY" \
-            --name "closebet-r112-causal-wave-entry-${R112_RUN}" --dir evidence/r112
-          gh run download "$R171_RUN" --repo "$GITHUB_REPOSITORY" \
-            --name "closebet-r17-krx-only-replay-${R171_RUN}" --dir evidence/r171
-          python - <<'PY'
-          from closebet_research.r114_threshold_free_wave_gallery import pinned
-          a,b,case,raw,m=pinned('evidence/r112','evidence/r113','evidence/r171')
-          assert len(a)==1059 and len(b)==659 and len(case)==40
-          print('R114_PINNED_SOURCE_HASHES_PASS')
-          PY
-
-      - name: Repackage exact four untouched KRX daily historical artifacts
-        run: |
-          set -euo pipefail
-          for i in 0 1 2 3; do
-            mkdir -p "evidence/shard-${i}"
-            gh run download "$R171_RUN" --repo "$GITHUB_REPOSITORY" \
-              --name "r171-history-${i}" --dir "evidence/shard-${i}"
-          done
+          mkdir -p evidence/r114 evidence/minute
+          gh run download "$R114_RUN" --repo "$GITHUB_REPOSITORY" --name "$R114_ARTIFACT" --dir evidence/r114
           python - <<'PY'
           from pathlib import Path
-          from zipfile import ZipFile,ZIP_STORED
-          for i in range(4):
-              src=Path(f'evidence/shard-{i}')
-              manifests=list(src.rglob('krx_history_manifest_*.json'))
-              assert len(manifests)==1,(i,manifests)
-              files=sorted(p for p in src.rglob('*') if p.is_file())
-              assert len(files)>=400,(i,len(files))
-              with ZipFile(f'evidence/history/history_{i}.zip','w',compression=ZIP_STORED) as out:
-                  for p in files:out.write(p,p.relative_to(src).as_posix())
-          print('R114_FOUR_IMMUTABLE_DAILY_ARCHIVES_READY')
+          from closebet_research.r115_intraday_data_readiness_audit import verify_r114
+          m,cs,signals=verify_r114(Path('evidence/r114'))
+          assert len(cs)==40 and len(signals)==1059
+          print('R115_R114_SHA_PIN_PASS')
           PY
 
-      - name: Re-verify all 1907 daily SHA and 1059 OHLCV; build only pre-D0 blind charts
+      - name: Optional externally supplied intraday evidence - never silently substitute daily OHLCV
         run: |
           set -euo pipefail
-          python -m closebet_research.r114_threshold_free_wave_gallery \
-            --r112-dir evidence/r112 \
-            --r113-dir evidence/r113 \
-            --r171-dir evidence/r171 \
-            --history-artifacts evidence/history \
-            --out reports/r114 --charts 40
+          if [[ -z "$OPTIONAL_MINUTE_RUN" && -z "$OPTIONAL_MINUTE_ARTIFACT" ]]; then
+            echo 'R115_NO_HISTORICAL_MINUTE_SOURCE_PROVIDED / readiness-only'
+          elif [[ "$OPTIONAL_MINUTE_RUN" =~ ^[0-9]{8,15}$ && "$OPTIONAL_MINUTE_ARTIFACT" =~ ^[a-zA-Z0-9._-]{1,120}$ ]]; then
+            gh run download "$OPTIONAL_MINUTE_RUN" --repo "$GITHUB_REPOSITORY" --name "$OPTIONAL_MINUTE_ARTIFACT" --dir evidence/minute
+            test "$(find evidence/minute -type f -name '*.csv' | wc -l)" -ge 1
+            echo 'R115_OPTIONAL_MINUTE_ARTIFACT_PRESENT / row-level provenance validation next'
+          else
+            echo 'R115_INVALID_OPTIONAL_MINUTE_SOURCE_ARGS' >&2; exit 68
+          fi
 
-      - name: Verify no re-tuning and final immutable research outputs
+      - name: Verify source semantics, pinned R1.14, honest minute coverage and blank 40-case labels
+        run: |
+          set -euo pipefail
+          ARGS=()
+          if [[ -n "$OPTIONAL_MINUTE_RUN" ]]; then ARGS+=(--minute-source evidence/minute); fi
+          python -m closebet_research.r115_intraday_data_readiness_audit \
+            --r114-dir evidence/r114 --repo-root . --out reports/r115 "${ARGS[@]}"
+
+      - name: Final strict results contract (NOT a successful minute backtest)
         run: |
           set -euo pipefail
           python - <<'PY'
-          import json,hashlib
+          import hashlib,json
           from pathlib import Path
-          root=Path('reports/r114')
-          m=json.loads((root/'r114_integrity_manifest.json').read_text(encoding='utf-8'))
-          assert m['status']=='PASS_DESCRIPTIVE_AND_BLIND_GALLERY_ONLY_NOT_TRADE_APPROVED'
-          assert m['pinned_run_ids']=={'r113':38826734127,'r112':38823870672,'r171':38664095610}
-          assert m['krx_dated_sha_verified']==1907
-          assert m['native_full_ohlcv_bars_verified']==1059 and m['r112_recomputed_signal_stages']==1059
-          assert m['no_wave_proxy']==659 and m['recognized_wave_proxy']==357 and m['quarantine']==43
-          assert m['charts_generated']==40 and m['blind_cases_prechosen_in_r113']==40
-          assert len(list((root/'charts').glob('R113-*.png')))==40
-          for filename,digest in m['output_sha256'].items():
-              assert hashlib.sha256((root/filename).read_bytes()).hexdigest()==digest,filename
-          print('R114_STRICT_DESCRIPTIVE_RESEARCH_PASS; LIVE_AUTHORITY=NONE')
+          d=Path('reports/r115'); m=json.loads((d/'r115_integrity_manifest.json').read_text())
+          assert m['status']=='PASS_READINESS_ONLY_NOT_A_MINUTE_BACKTEST',m
+          assert m['signals']==1059 and m['algorithm_no_wave']==659 and m['blind_charts_pre_D0']==40,m
+          assert m['independently_labeled_blind_charts']==0,m
+          assert m['limits']['trade_approval'] is False and m['limits']['no_synthetic_minutes'] is True
+          for fn,dig in m['output_sha256'].items():
+              assert hashlib.sha256((d/fn).read_bytes()).hexdigest()==dig,fn
+          print('R115_READINESS_ONLY_CONTRACT_PASS; NO_LIVE_AUTHORITY')
           PY
 
-      - name: Upload only after all fail-closed gates pass
+      - name: Publish only verified source/coverage audit evidence
         uses: actions/upload-artifact@v4
         with:
-          name: closebet-r114-wave-descriptive-blindcharts-${{ github.run_id }}
-          path: reports/r114/
+          name: closebet-r115-minute-readiness-${{ github.run_id }}
+          path: reports/r115/
           retention-days: 30
           if-no-files-found: error
