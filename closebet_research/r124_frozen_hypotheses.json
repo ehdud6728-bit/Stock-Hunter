@@ -1,0 +1,29 @@
+{
+  "research_revision": "R124_FROZEN_D0_GATE_V1",
+  "research_only": true,
+  "future_oos_complete": false,
+  "discovery_sources": ["R1.10", "R1.12", "R1.17", "R1.18", "R1.19", "R1.20", "R1.21", "R1.22", "R1.23"],
+  "frozen_before_any_new_future_market_observation": true,
+  "entry_assumption": "D+1 official open, not verified live fill",
+  "primary_target": "+5% BEFORE -5%, within D+1..D+20",
+  "controls": ["BASE_ALL", "NEG_OVERHEAD_HEAVY"],
+  "candidate_gates": [
+    "H1_PREV_LOW_HELD",
+    "H2_HELD_MA20_UP_ABOVE_20_60",
+    "H3_HELD_ACCUM20_DRY5"
+  ],
+  "hypotheses": {
+    "BASE_ALL": "Every as-of-valid episode, no filter",
+    "H1_PREV_LOW_HELD": "D0 prev_low_relation == HOLD_PREV_LOW",
+    "H2_HELD_MA20_UP_ABOVE_20_60": "H1 and MA20 slope over 20 sessions > 0 percent and D0 price ABOVE_20_60",
+    "H3_HELD_ACCUM20_DRY5": "H1 and D0 vol20 to prior20 >=1 and last5 to prior20 <1 (ACCUM20_RECENT_DRY5)",
+    "NEG_OVERHEAD_HEAVY": "60 prior D-1 daily closes, heavy near above-close proxy (NOT real volume-at-price)"
+  },
+  "no_tuning_after_seeing_future_labels": true,
+  "same_bar_target_stop": "UNKNOWN neither counted a certain win nor certain loss; provide adverse/favorable bound",
+  "right_censored": "UNAVAILABLE not failure; do not compare 4453 D0 records against 3077 complete paths as if all complete",
+  "sampling": "independent episodes at least 20 sessions apart per ticker x scope from earlier research; still ticker/date overlapping across scopes",
+  "permitted_future_evaluation": "Only new records with D0 > 2026-10-16, genuine captured-asof provenance and 20 subsequent KRX official sessions",
+  "never_changes_live_or_shadow_or_orders": true,
+  "market_scope_limitation": "907-code hindsight-selected 2019-2026 archive, NOT historical full-market PIT"
+}
