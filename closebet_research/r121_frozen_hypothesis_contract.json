@@ -1,0 +1,28 @@
+{
+  "revision": "R121_FROZEN_ASOF_TYPE_ENTRY_SCALE_STOP_TEMPORAL_REPLAY_V1",
+  "baseline": "BASE_D1_STOP5",
+  "expected_r120_run_id": 38871858855,
+  "expected_r120_artifact": "closebet-r120-entry-scale-stop-38871858855",
+  "train_rule": "D0 first of 45 signal dates; full 20-session outcomes before first validation D0",
+  "embargo_rule": "20 subsequent signal-session dates excluded between train and validation",
+  "validation_rule": "D0 indexed 21..25 (five sessions) where D20 complete",
+  "max_ticker_overlap_disclosure": true,
+  "policies": [
+    {"id":"BASE_D1_STOP5","gate":"ALL","entry_policy":"D1_FULL","stop_policy":"STOP5"},
+    {"id":"H1_PB_ACCUM_D1","gate":"PB_ACCUM_DRY","entry_policy":"D1_FULL","stop_policy":"STOP5"},
+    {"id":"H2_PB_ACCUM_CONFIRM","gate":"PB_ACCUM_DRY","entry_policy":"D2TO6_CONFIRM_D0HIGH","stop_policy":"STOP5"},
+    {"id":"H3_PB_ACCUM_SCALE","gate":"PB_ACCUM_DRY","entry_policy":"D1_40_D2TO5_DIP2_D2TO8_DIP4","stop_policy":"STOP5"},
+    {"id":"H4_AVOID_DEEP_AGED","gate":"NOT_DEEP_AGED","entry_policy":"D1_FULL","stop_policy":"STOP5"},
+    {"id":"H5_R112_CONFIRMED","gate":"R112_CONFIRMED_SELECTED_ONLY","entry_policy":"D1_FULL","stop_policy":"STOP5"},
+    {"id":"CONTROL_BOTH_RISING_PB","gate":"PB_BOTH_RISING","entry_policy":"D1_FULL","stop_policy":"STOP5"}
+  ],
+  "warnings": [
+    "Prespecified heuristic gates, not experimentally validated thresholds.",
+    "Time-blocked retrospective replay, never true prospective OOS; antecedent R1.10–R1.20 analyses reused same historical data.",
+    "Historical post-hoc 907-code archive is not whole PIT KRX universe and first D0 is potentially left censored.",
+    "D20 full follow-up ends at 2026-09-08 signals in this data; September/October later signals are right-censored.",
+    "20-session chronological gap does not remove ticker overlap; report overlap explicitly.",
+    "R112 feature availability is selected-only and derived from legacy provisional +16 percent wave heuristics.",
+    "Simulated daily-bar execution, same-day stop-first conservative, not actual fills; no LIVE authority."
+  ]
+}
