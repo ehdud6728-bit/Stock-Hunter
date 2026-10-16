@@ -1,0 +1,119 @@
+name: Closing Bet R1.20 Entry Timing x Scale-In x Stop Timing (RESEARCH ONLY)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: closing-bet-r120-entry-scale-stop-readonly
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    name: R120 As-Of Episodes x 4 Entry Plans x 5 Stop Plans (NO LIVE)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      TZ: Asia/Seoul
+      GH_TOKEN: ${{ github.token }}
+      PYTHONDONTWRITEBYTECODE: '1'
+      R119_RUN: '38865542460'
+      R112_RUN: '38823870672'
+      R110_RUN: '38745541969'
+      R171_RUN: '38664095610'
+    steps:
+      - name: Checkout source (no mutations)
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Install pinned dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install 'numpy==2.2.6' 'pandas==2.2.3'
+      - name: Fail closed on Python regression and source isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile closebet_research/r118_partial_market_wave_geometry.py closebet_research/r120_entry_scale_stop.py tests/test_r120_entry_scale_stop.py
+          python -m unittest discover -s tests -p 'test_r120_entry_scale_stop.py' -v
+          python -m closebet_research.r120_entry_scale_stop --help >/dev/null
+          echo 'R120_PY310_ASOF_ENTRY_SCALE_STOP_TESTS_PASS'
+      - name: Download immutable R119, R112, R110 and pinned R171 day archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/r119 evidence/r112 evidence/r110 evidence/history_archives
+          gh run download "$R119_RUN" --repo "$GITHUB_REPOSITORY" --name 'closebet-r119-d20-target-stop-research-38865542460' --dir evidence/r119
+          gh run download "$R112_RUN" --repo "$GITHUB_REPOSITORY" --name 'closebet-r112-causal-wave-entry-38823870672' --dir evidence/r112
+          gh run download "$R110_RUN" --repo "$GITHUB_REPOSITORY" --name 'closebet-r110-wave-pullback-entry-38745541969' --dir evidence/r110
+          test -s evidence/r119/r119_integrity_manifest.json
+          test -s evidence/r112/r112_integrity_manifest.json
+          test -s evidence/r110/r110_integrity_manifest.json
+          for i in 0 1 2 3; do
+            mkdir -p "evidence/raw$i"
+            gh run download "$R171_RUN" --repo "$GITHUB_REPOSITORY" --name "r171-history-$i" --dir "evidence/raw$i"
+            test "$(find "evidence/raw$i" -maxdepth 1 -name '*.csv.gz' | wc -l)" -ge 450
+            test "$(find "evidence/raw$i" -maxdepth 1 -name 'krx_history_manifest_*.json' | wc -l)" -eq 1
+          done
+          echo 'R120_PINNED_SOURCE_DOWNLOADED'
+      - name: Pack four original gzip archives without changing inner member bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile,ZIP_STORED
+          for i in range(4):
+              p=Path('evidence')/('raw'+str(i))
+              members=sorted(x for x in p.iterdir() if x.is_file())
+              assert len(members)>450,(i,len(members))
+              out=Path('evidence/history_archives')/('immutable_'+str(i)+'.zip')
+              with ZipFile(out,'w',compression=ZIP_STORED) as z:
+                  for f in members:z.write(f,arcname=f.name)
+          print('R120_UNMODIFIED_GZ_BYTES_PACKAGED')
+          PY
+      - name: Verify 1907 original KRX day SHA and compute AS-OF-only episode diagnostics
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m closebet_research.r120_entry_scale_stop \
+            --r119-root evidence/r119 \
+            --r112-root evidence/r112 \
+            --r110-root evidence/r110 \
+            --history-dir evidence/history_archives \
+            --output-dir reports/r120_entry_scale_stop
+      - name: Strict research-only output contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,hashlib
+          from pathlib import Path
+          d=Path('reports/r120_entry_scale_stop')
+          x=json.loads((d/'r120_integrity_manifest.json').read_text(encoding='utf-8'))
+          assert x['status']=='PASS_EPISODE_ENTRY_SCALE_STOP_DESCRIPTIVE_NOT_OOS_NOT_TRADE_APPROVED'
+          assert x['krx_sha_verified_days']==1907 and x['covered_code_days']==40305
+          assert x['selected_code_days']==1059 and x['r110_join_rows']==754 and x['r112_join_rows']==1059
+          assert x['research_only'] and not x['trade_authority']
+          assert not x['live_search_changed'] and not x['shadow_board_changed'] and not x['order_logic_changed']
+          assert not x['true_full_market_PIT_available']
+          assert x['scenario_rows']==x['d20_scenario_eligible_n']*20
+          for f,h in x['file_sha256'].items():
+              assert hashlib.sha256((d/f).read_bytes()).hexdigest()==h,('OUTPUT_HASH_MISMATCH',f)
+          print('R120_RESEARCH_PROVENANCE_AND_SHA_PASS; NO_LIVE_AUTHORITY')
+          PY
+      - name: Upload research artifact only
+        uses: actions/upload-artifact@v4
+        with:
+          name: closebet-r120-entry-scale-stop-${{ github.run_id }}
+          path: reports/r120_entry_scale_stop/**
+          if-no-files-found: error
+          retention-days: 30
