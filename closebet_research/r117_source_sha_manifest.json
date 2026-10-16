@@ -1,0 +1,145 @@
+{
+  "version": 1,
+  "selected_sha256": "4c28007a550007ad8a9c64fdaffab74c90faeb786194e291f9f7d9284e104280",
+  "parent_source_run_id": "38719156471",
+  "parent_source_artifact_name": "v49.76.6.7.3.2.5.1.2.1-research-reports-241",
+  "parent_expected_files": {
+    "reports/live_shadow_source/live_shadow_execution_20261015_195131.csv": "176a2f7750d062bd492c4d5d09620888c90759f44396e0c9f20313e303bc44fa",
+    "reports/live_shadow_source/live_shadow_source_meta_20261015_195131.json": "4b903ad5d25846b4cd8430f7bc741775ef27a13612ece82ce9e84e263bbce285"
+  },
+  "shadow_artifacts": [
+    {
+      "run_id": "38751664217",
+      "artifact_id": "11981851811",
+      "expected_files": {
+        "meta.json": "62980d893897bb960ddc6dcdbe8576b88fe65b0346f09ac5250bdd918a03365f",
+        "telegram_delivery.json": "4b582a583cccc6d0a3e3e861ac81b72f78a63b0275525754795e6a1c90ce3f58"
+      }
+    },
+    {
+      "run_id": "38723653317",
+      "artifact_id": "11967223155",
+      "expected_files": {
+        "meta.json": "42d8bec463b993b91ff1024c1d4f3b37cfd8ba2e263ecc07819e8ecdfdaa1251",
+        "shadow_board_structured.csv": "fe509ca7967a145b7c3f27f98325d149b876b153a14c41ed64697410f2ba0e01",
+        "telegram_delivery.json": "013fd6b1587c3f30e513a7b238c13fc971e493144b6527a0c8c7fc4b5b27745f"
+      }
+    },
+    {
+      "run_id": "38719276969",
+      "artifact_id": "11964640319",
+      "expected_files": {
+        "meta.json": "d85c7ec14d7810c67cab9d9261090df69cc168e1d7af05263e894de3a88e1332",
+        "telegram_delivery.json": "c79bc675cc593d69628490b0452d8fe5fa945c52b036076de248d6674569318f"
+      }
+    },
+    {
+      "run_id": "38579553550",
+      "artifact_id": "11902608199",
+      "expected_files": {
+        "meta.json": "1f48ccde131b9d61f8e9666762da844a25769827bc38cb8579216255fbf42d87",
+        "telegram_delivery.json": "4b582a583cccc6d0a3e3e861ac81b72f78a63b0275525754795e6a1c90ce3f58"
+      }
+    },
+    {
+      "run_id": "38553220450",
+      "artifact_id": "11886699884",
+      "expected_files": {
+        "meta.json": "711203fe8de8707d194dea95564c9f18ff074a4a6700d7285ece668a7df76015",
+        "shadow_board_structured.csv": "692c22fb3810143f770ab5a2b516d1b787b3fd9982d5025b0689f01e9a087563",
+        "telegram_delivery.json": "751bb7e9d5ad8fe3755680e9e1fa1106ec926fa544896145f79cc58d510aeece"
+      }
+    },
+    {
+      "run_id": "38550776454",
+      "artifact_id": "11887175049",
+      "expected_files": {
+        "meta.json": "33732090caf01cb9207a0066e0dc6d2bc82d3bbaaf413b61eb3cca3a8609178e",
+        "telegram_delivery.json": "c79bc675cc593d69628490b0452d8fe5fa945c52b036076de248d6674569318f"
+      }
+    },
+    {
+      "run_id": "38434190485",
+      "artifact_id": "11832570697",
+      "expected_files": {
+        "meta.json": "1f2d5a313a6b76b3fad9e4d0af4d7a80bb2fe28fb37759e8d90156a9a1c65145",
+        "shadow_board_structured.csv": "50b8a6af7fa5183f9e62ba69cc681f37dc27e2892a6b506e50245552732cef51",
+        "telegram_delivery.json": "ffc1e971b1c8c72a818674a6e54375a134714013e8e4f16ca498b6eae7cc313a"
+      }
+    },
+    {
+      "run_id": "38406833108",
+      "artifact_id": "11819028541",
+      "expected_files": {
+        "telegram_delivery.json": "4b582a583cccc6d0a3e3e861ac81b72f78a63b0275525754795e6a1c90ce3f58",
+        "meta.json": "dc9bb4fbc44ab23b784982a9e95aaf41bb1971988ba0be3e1dd12ca03ffdf9c6"
+      }
+    },
+    {
+      "run_id": "38401210973",
+      "artifact_id": "11816215256",
+      "expected_files": {
+        "meta.json": "b1115c66203e7b7d4ef1aac3a7f0d6a6e3a97c92e8210646407bcb6088dd1dcf",
+        "telegram_delivery.json": "c79bc675cc593d69628490b0452d8fe5fa945c52b036076de248d6674569318f"
+      }
+    },
+    {
+      "run_id": "38284354136",
+      "artifact_id": "11762747329",
+      "expected_files": {
+        "meta.json": "b6ef448bca74094e7fd8b35e4ac74437fdb66d7aca1169d50e8eeec78602062c",
+        "shadow_board_structured.csv": "0b115c51b18eb4fe8fb5b2ba6b9ad2137d0ee2bf5628ae6b41efcf1c959bcbb7",
+        "telegram_delivery.json": "8327b913239444235798ff96aa39e59dac610707ae16868e5aa35b1b701a978f"
+      }
+    },
+    {
+      "run_id": "38258204509",
+      "artifact_id": "11750504887",
+      "expected_files": {
+        "meta.json": "02d837fae79d848f659a749d43f03c16476e302ffe7f6621da09d26787194bfd",
+        "telegram_delivery.json": "4b582a583cccc6d0a3e3e861ac81b72f78a63b0275525754795e6a1c90ce3f58"
+      }
+    },
+    {
+      "run_id": "38256262336",
+      "artifact_id": "11750427298",
+      "expected_files": {
+        "meta.json": "0d9eb324bf22da15bb08a13964a14803a073e0be4d63ba3ed9b0274c20e49ffb",
+        "telegram_delivery.json": "c79bc675cc593d69628490b0452d8fe5fa945c52b036076de248d6674569318f"
+      }
+    },
+    {
+      "run_id": "37948172433",
+      "artifact_id": "11624687988",
+      "expected_files": {
+        "meta.json": "d1eed8a90a4a8bbc70898326cf77dc2f9814a2181bede21a4b421e6c0059c85f",
+        "telegram_delivery.json": "4b582a583cccc6d0a3e3e861ac81b72f78a63b0275525754795e6a1c90ce3f58"
+      }
+    },
+    {
+      "run_id": "37932887868",
+      "artifact_id": "11616652958",
+      "expected_files": {
+        "meta.json": "a220e76aac0e04eb6e3792591ce5ac33a28ee0869f10c4670f32f47bcaac0084",
+        "telegram_delivery.json": "4b582a583cccc6d0a3e3e861ac81b72f78a63b0275525754795e6a1c90ce3f58"
+      }
+    },
+    {
+      "run_id": "37927876305",
+      "artifact_id": "11615455024",
+      "expected_files": {
+        "meta.json": "fb91ec63794cc1635d6b7b0943a3b2b0763829c587b34d0b582d6933c1252fe8",
+        "telegram_delivery.json": "c79bc675cc593d69628490b0452d8fe5fa945c52b036076de248d6674569318f"
+      }
+    },
+    {
+      "run_id": "37800148973",
+      "artifact_id": "11561510212",
+      "expected_files": {
+        "meta.json": "7a1127a2c5a4704a74535f241fe7d1d36f910757fcb9a3d0aa3d6f20c1655355",
+        "telegram_delivery.json": "4b582a583cccc6d0a3e3e861ac81b72f78a63b0275525754795e6a1c90ce3f58"
+      }
+    }
+  ],
+  "archive_warning": "GitHub artifact outer ZIP SHA is not stable after re-packaging; pin inner files and KRX source day bytes."
+}
