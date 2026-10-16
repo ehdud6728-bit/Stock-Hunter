@@ -51,10 +51,15 @@ class R1241Test(unittest.TestCase):
     def test_missing_manifest_fails(self):
         with tempfile.TemporaryDirectory() as p:
             with self.assertRaisesRegex(ValueError,'PINNED_MANIFEST_CHANGED'):m.source_verify(p,'R123')
-    def test_root_yml_copy_byte_exact(self):
-        a=ROOT/'.github/workflows/closing_bet_r1241_date_block_robustness.yml'
-        b=ROOT/'closing_bet_r1241_date_block_robustness.yml'
-        self.assertEqual(a.read_bytes(),b.read_bytes())
+    def test_optional_root_yml_copy_matches_if_present(self):
+        # ZIP root YML is a human-readable convenience copy, not a GitHub requirement.
+        # A checkout normally contains only .github/workflows/, so absence is valid.
+        actual=ROOT/'.github/workflows/closing_bet_r1241_date_block_robustness.yml'
+        visible=ROOT/'closing_bet_r1241_date_block_robustness.yml'
+        self.assertTrue(actual.is_file(), 'REQUIRED_WORKFLOW_MISSING')
+        if visible.is_file():
+            self.assertEqual(actual.read_bytes(),visible.read_bytes(),
+                             'OPTIONAL_ROOT_YML_COPY_DIFFERS_FROM_WORKFLOW')
     def test_no_workflow_automation_or_live(self):
         f=(ROOT/'.github/workflows/closing_bet_r1241_date_block_robustness.yml').read_text()
         self.assertIn('workflow_dispatch:',f)
