@@ -1,0 +1,94 @@
+name: StockHunter PIT Stage2 Identity Lifecycle Audit (RESEARCH ONLY)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: stockhunter-pit-stage2-price-source-pin
+  cancel-in-progress: false
+
+jobs:
+  stage2-offline-contracts:
+    name: PIT identity audit offline contract tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install 'pandas>=2.2,<4' numpy
+      - run: python -m unittest discover -s tests -p 'test_pit_security_master_audit.py' -v
+
+  stage2-source-audit-and-sampling:
+    name: Revalidate 5,090,428 price rows and cross-check dated KRX memberships
+    needs: stage2-offline-contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    env:
+      TZ: Asia/Seoul
+      STOCKHUNTER_RESEARCH_ONLY: '1'
+      STOCKHUNTER_LIVE_ENABLE: '0'
+      STOCKHUNTER_SCORE_RANK_ENABLE: '0'
+      STOCKHUNTER_ORDER_ENABLE: '0'
+      KRX_ID: ${{ secrets.KRX_DATA_ID || secrets.KRX_ID }}
+      KRX_PW: ${{ secrets.KRX_DATA_PW || secrets.KRX_PW }}
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_RUN: '39295295197'
+      SOURCE_SHA: '08e328c101f0774a2236c0a44cc1fdbbaa59e96e'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install analysis dependencies
+        run: pip install 'pandas>=2.2,<4' numpy pykrx
+      - name: Pin and verify successful full-market source run (no other runs accepted)
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${SOURCE_RUN}" --jq .head_sha)" = "$SOURCE_SHA"
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${SOURCE_RUN}" --jq .conclusion)" = 'success'
+          test -s research_pit/historical_market_counts_20190102_20261012.csv
+          test "$(sha256sum research_pit/historical_market_counts_20190102_20261012.csv | cut -d' ' -f1)" = 'e733c3bd67a4cf06e93954888ef1ea539ec2e04d193f9d8a2406ef55fc248af1'
+          test -n "${KRX_ID:-}" && test -n "${KRX_PW:-}"
+          echo 'SOURCE_RUN_AND_CREDENTIAL_BINDINGS_PASS'
+      - name: Download the original immutable 8 shard artifacts from run 39295295197
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 39295295197
+          github-token: ${{ github.token }}
+          pattern: stockhunter-allkrx-price-shard-*
+          path: pitdata
+          merge-multiple: true
+      - name: Audit full source and sampled historical membership separately
+        shell: bash
+        run: |
+          python -u research_pit/pit_security_master_audit.py \
+            --root pitdata \
+            --reference research_pit/historical_market_counts_20190102_20261012.csv \
+            --output reports/pit-stage2 \
+            --sample-dates 2019-01-02,2022-01-03,2024-01-02,2026-10-12 \
+            --pause 1.5
+      - name: Publish audit evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-pit-stage2-crossendpoint-evidence
+          path: |
+            reports/pit-stage2/**
+          if-no-files-found: warn
+          retention-days: 90
+      - name: Extend eight shard price-artifact preservation to 90 days (not permanent)
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-wholemarket-price-source-90day-mirror
+          path: pitdata/
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 90
