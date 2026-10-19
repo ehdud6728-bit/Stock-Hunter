@@ -71,8 +71,51 @@ class PITTests(unittest.TestCase):
         self.assertEqual(k.canonical_ticker('123'), '000123')
         self.assertEqual(k.canonical_ticker('03473K'), '03473K')
 
+    def test_2026_krx_internal_letter_code_roundtrip_and_no_filter(self):
+        # 2026-10-12 LIVE canary returned '0099X0' (digit+letters+digit).
+        src=fake_raw()
+        ix=list(src.index)
+        ix[0]='0099X0'
+        ix[1]='03473K'
+        ix[2]='034K30'  # syntax-only; no assumption of actual listing
+        src.index=ix
+        frame, flags=k.normalize_day(src,DATES[0])
+        self.assertEqual(len(frame),len(src))
+        self.assertEqual(frame.code.nunique(),len(src))
+        self.assertTrue({'0099X0','03473K','034K30'}.issubset(set(frame.code)))
+        self.assertEqual(flags['alphanumeric_code_rows'],3)
+        self.assertEqual(flags['noncommon_code_shape_rows'],2)
+        blob=k.encode_day(frame)
+        restored=k.validate_stored_day(blob,DATES[0],len(src))
+        self.assertEqual(set(restored.code),set(frame.code))
+        self.assertEqual(k.canonical_ticker('0099X0'),'0099X0')
+        self.assertEqual(k.canonical_ticker('123'),'000123')
+
+    def test_2026_krx_internal_letter_code_through_all_shards(self):
+        class AlphaKRX(FakeKRX):
+            def get_market_ohlcv_by_ticker(self,date,market,alternative=False):
+                df=super().get_market_ohlcv_by_ticker(date,market,alternative)
+                ix=list(df.index)
+                ix[0]='0099X0'
+                ix[1]='03473K'
+                df.index=ix
+                return df
+        with tempfile.TemporaryDirectory() as tmp:
+            root=pathlib.Path(tmp); reference=root/'reference.csv';make_reference(reference)
+            p=AlphaKRX()
+            for shard in range(2):
+                k.fetch(p,DATES[0],DATES[-1],reference,root/'data',shard,2,1,0)
+            report=k.verify(root/'data',reference,root/'audit.json')
+            self.assertEqual(report['full_market_price_rows'],2400)
+            self.assertFalse(report['whole_market_pit_strategy_ready'])
+            from gzip import decompress
+            raw=(root/'data/shard_00/20200102.csv.gz').read_bytes()
+            q=pd.read_csv(__import__('io').BytesIO(decompress(raw)),dtype={'code':str})
+            self.assertIn('0099X0',set(q.code))
+            self.assertIn('03473K',set(q.code))
+
     def test_alphanumeric_bad_shapes_still_fail_closed(self):
-        for invalid in ('03473k','0347*K','KRX123','03473KK','0347K','034K30'):
+        for invalid in ('03473k','0347*K','KRX123','03473KK','0347K','KRX234','0099-X','0099X','0000@@'):
             with self.subTest(code=invalid):
                 with self.assertRaisesRegex(RuntimeError,'BAD_TICKER'):
                     k.canonical_ticker(invalid)
