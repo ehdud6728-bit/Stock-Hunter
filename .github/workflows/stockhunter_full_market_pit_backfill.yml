@@ -56,9 +56,48 @@ jobs:
           fi
           echo 'KRX_REQUIRED_SECRETS_PRESENT (values hidden); ready for actual market API check'
 
+  # One real old+recent KRX check before starting eight expensive history shards.
+  live-provider-canary:
+    name: KRX live full-market identity and anchor canary (2019 + 2026)
+    needs: offline-contract-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TZ: Asia/Seoul
+      STOCKHUNTER_RESEARCH_ONLY: '1'
+      STOCKHUNTER_LIVE_ENABLE: '0'
+      STOCKHUNTER_ORDER_ENABLE: '0'
+      KRX_ID: ${{ secrets.KRX_DATA_ID || secrets.KRX_ID }}
+      KRX_PW: ${{ secrets.KRX_DATA_PW || secrets.KRX_PW }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install pandas numpy pykrx
+      - name: Verify actual date-specific KRX identity count and gzip roundtrip
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONPATH=research_pit python - <<'PYKRX'
+          from pykrx import stock
+          from krx_full_market_pit import read_reference, normalize_day, encode_day, validate_stored_day
+          ref = read_reference('research_pit/historical_market_counts_20190102_20261012.csv')
+          for day in ('2019-01-02', '2026-10-12'):
+              raw = stock.get_market_ohlcv_by_ticker(day.replace('-', ''), market='ALL', alternative=False)
+              frame, flags = normalize_day(raw, day)
+              if len(frame) != ref[day]:
+                  raise RuntimeError('KRX_LIVE_CANARY_ROW_COUNT_MISMATCH:' + day
+                                     + ':got=' + str(len(frame)) + ':expected=' + str(ref[day]))
+              validate_stored_day(encode_day(frame), day, ref[day])
+              letters = int(frame['code'].str.contains('[A-Z]',regex=True).sum())
+              print('KRX_LIVE_CANARY_PASS',day,'rows=',len(frame),
+                    'alphanumeric_tickers=',letters,'nontradeable=',flags['zero_or_nontradeable_proxy_rows'],flush=True)
+          PYKRX
+
   fetch-full-market:
     name: Fetch full KRX session ${{ matrix.shard }}/8
-    needs: offline-contract-tests
+    needs: live-provider-canary
     runs-on: ubuntu-latest
     timeout-minutes: 180
     strategy:
