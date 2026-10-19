@@ -122,10 +122,21 @@ def normalize_market_frame(raw, day):
     fail(np.isfinite(d[['open','high','low','close','volume','amount']].to_numpy(dtype=float)).all(),
          'KRX_NAN_INF_OR_BAD_NUMERIC')
     fail((d[['open','high','low','close','volume','amount']]>=0).all().all(),'KRX_NEGATIVE_VALUE')
-    fail(((d['high']>=d[['open','close','low']].max(axis=1)) &
-          (d['low']<=d[['open','close','high']].min(axis=1))).all(),'KRX_BAR_RANGE_INVALID')
-    # A suspended symbol may legitimately return a zero-bar, but is NOT tradable.
+    # KRX suspension records may contain last CLOSE while OPEN/HIGH/LOW are zero.
+    # Retain non-tradable suspended members in the full-market census; they MUST
+    # NOT be reclassified as a tradable candle or dropped from historical PIT.
+    # Reject every other partial-zero OHLC combination rather than "repair" it.
     zero_flags=d[['open','high','low','close']].eq(0).any(axis=1)
+    suspended_shape=(d['open'].eq(0)&d['high'].eq(0)&d['low'].eq(0)&
+                     d['volume'].eq(0)&d['amount'].eq(0))
+    fail((~zero_flags | suspended_shape).all(),'KRX_PARTIAL_ZERO_BAR_INVALID')
+    traded=d.loc[~zero_flags]
+    fail(((traded['high']>=traded[['open','close','low']].max(axis=1)) &
+          (traded['low']<=traded[['open','close','high']].min(axis=1))).all(),
+         'KRX_BAR_RANGE_INVALID')
+    # Zero-volume bars are still retained, but may not carry positive traded value.
+    fail((traded['volume'].gt(0)==traded['amount'].gt(0)).all(),
+         'KRX_VOLUME_AMOUNT_CONFLICT')
     d['invalid_or_suspended_bar']=zero_flags
     return d
 
