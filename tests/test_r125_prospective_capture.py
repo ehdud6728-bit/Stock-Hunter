@@ -62,6 +62,22 @@ class R125Tests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             with self.assertRaisesRegex(ValueError,'KRX_DUPLICATE_CODE'):
                 m.create_snapshot(f,'2026-10-19',Path(td)/'out',now=GOOD_UTC)
+    def test_suspended_close_only_retained_in_census(self):
+        raw=FakeKRX().get_market_ohlcv_by_ticker('20261019')
+        raw.loc['000001',['시가','고가','저가','종가','거래량','거래대금']]=[0,0,0,106,0,0]
+        n=m.normalize_market_frame(raw,'2026-10-19')
+        self.assertTrue(bool(n.loc[n.code.eq('000001'),'invalid_or_suspended_bar'].iloc[0]))
+        self.assertEqual(len(n),4)
+    def test_suspended_close_only_must_have_zero_amount_and_volume(self):
+        raw=FakeKRX().get_market_ohlcv_by_ticker('20261019')
+        raw.loc['000001',['시가','고가','저가','종가','거래량','거래대금']]=[0,0,0,106,1,5]
+        with self.assertRaisesRegex(ValueError,'KRX_PARTIAL_ZERO_BAR_INVALID'):
+            m.normalize_market_frame(raw,'2026-10-19')
+    def test_active_zero_volume_with_nonzero_amount_invalid(self):
+        raw=FakeKRX().get_market_ohlcv_by_ticker('20261019')
+        raw.loc['000001',['거래량','거래대금']]=[0,100]
+        with self.assertRaisesRegex(ValueError,'KRX_VOLUME_AMOUNT_CONFLICT'):
+            m.normalize_market_frame(raw,'2026-10-19')
     def test_bad_ohlc_rejected(self):
         f=FakeKRX()
         data=f.get_market_ohlcv_by_ticker('20261019');data.loc['000001','고가']=99
