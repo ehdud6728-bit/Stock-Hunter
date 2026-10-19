@@ -26,6 +26,9 @@ SOURCE_COLS = {'시가': 'open', '고가': 'high', '저가': 'low', '종가': 'c
                '거래량': 'volume', '거래대금': 'amount'}
 FORMAT = 'STOCKHUNTER_KRX_ALL_SESSION_V1'
 MIN_ALL_MARKET_ROWS = 500
+# KRX security codes include letter-suffixed preferred stocks (e.g. SK preferred 03473K).
+# These are valid six-character identities: do not drop them or convert to integers.
+STORED_TICKER_PATTERN = r'(?:[0-9]{6}|[0-9]{5}[A-Z])'
 
 
 def fail(msg):
@@ -50,9 +53,11 @@ def atomic_json(path, value):
 
 def canonical_ticker(x):
     s = str(x).strip()
-    if not re.fullmatch(r'\d{1,6}', s):
-        fail('BAD_TICKER:' + s)
-    return s.zfill(6)
+    if re.fullmatch(r'[0-9]{1,6}', s):
+        return s.zfill(6)
+    if re.fullmatch(r'[0-9]{5}[A-Z]', s):
+        return s  # KRX alphabetic-suffix issue code; preserve verbatim.
+    fail('BAD_TICKER:' + s)
 
 
 def read_reference(path):
@@ -117,7 +122,7 @@ def validate_stored_day(data, date, expected_rows):
         fail('BAD_STORED_GZIP_OR_CSV:' + date + ':' + type(e).__name__)
     if list(obj.columns) != SCHEMA or len(obj) != expected_rows or len(obj) == 0:
         fail('BAD_STORED_SCHEMA_OR_ROW_COUNT:' + date)
-    if set(obj['date']) != {date} or not obj['code'].str.fullmatch(r'\d{6}').all() or obj['code'].duplicated().any():
+    if set(obj['date']) != {date} or not obj['code'].str.fullmatch(STORED_TICKER_PATTERN).all() or obj['code'].duplicated().any():
         fail('BAD_STORED_IDENTITIES:' + date)
     if any(obj[c].isna().any() for c in SCHEMA):
         fail('STORED_NAN:' + date)
