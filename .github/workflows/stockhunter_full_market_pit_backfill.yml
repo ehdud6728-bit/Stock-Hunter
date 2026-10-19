@@ -1,0 +1,101 @@
+name: StockHunter Whole-Market KRX PIT Price Backfill (RESEARCH ONLY)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stockhunter-krx-whole-market-price-backfill-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  offline-contract-tests:
+    name: Offline Source Contract Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install pandas numpy
+      - run: python -m unittest discover -s tests -p 'test_full_market_pit.py' -v
+
+  fetch-full-market:
+    name: Fetch full KRX session ${{ matrix.shard }}/8
+    needs: offline-contract-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+    env:
+      TZ: Asia/Seoul
+      STOCKHUNTER_RESEARCH_ONLY: '1'
+      STOCKHUNTER_LIVE_ENABLE: '0'
+      STOCKHUNTER_SCORE_RANK_ENABLE: '0'
+      STOCKHUNTER_ORDER_ENABLE: '0'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install price-provider dependencies
+        run: pip install pandas numpy pykrx
+      - name: Fetch historical full-market KRX, no ticker allowlist
+        run: |
+          python -u research_pit/krx_full_market_pit.py \
+            --mode fetch \
+            --reference research_pit/historical_market_counts_20190102_20261012.csv \
+            --start 2019-01-02 --end 2026-10-12 \
+            --root pitdata --shard ${{ matrix.shard }} --shards 8 \
+            --retries 3 --pause 1
+      - name: Upload shard (including incomplete evidence if failed)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-allkrx-price-shard-${{ matrix.shard }}
+          path: pitdata/
+          if-no-files-found: warn
+          retention-days: 30
+          compression-level: 0
+
+  verify-unfiltered-price-data:
+    name: Fail-closed multi-shard full-market audit
+    needs: fetch-full-market
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      STOCKHUNTER_RESEARCH_ONLY: '1'
+      STOCKHUNTER_LIVE_ENABLE: '0'
+      STOCKHUNTER_ORDER_ENABLE: '0'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install pandas numpy
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: stockhunter-allkrx-price-shard-*
+          path: pitdata/
+          merge-multiple: true
+      - name: Audit all 1907 days, all KRX rows, SHA and index-series identities
+        run: |
+          python -u research_pit/krx_full_market_pit.py \
+            --mode verify \
+            --reference research_pit/historical_market_counts_20190102_20261012.csv \
+            --root pitdata \
+            --report full_market_price_collection_audit.json
+      - name: Publish collection audit (NOT PIT strategy-ready)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-full-market-collection-audit
+          path: full_market_price_collection_audit.json
+          if-no-files-found: warn
+          retention-days: 30
