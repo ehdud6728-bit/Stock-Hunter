@@ -26,9 +26,15 @@ SOURCE_COLS = {'시가': 'open', '고가': 'high', '저가': 'low', '종가': 'c
                '거래량': 'volume', '거래대금': 'amount'}
 FORMAT = 'STOCKHUNTER_KRX_ALL_SESSION_V1'
 MIN_ALL_MARKET_ROWS = 500
-# KRX security codes include letter-suffixed preferred stocks (e.g. SK preferred 03473K).
-# These are valid six-character identities: do not drop them or convert to integers.
-STORED_TICKER_PATTERN = r'(?:[0-9]{6}|[0-9]{5}[A-Z])'
+# KRX session source uses several six-character issue-code families. Examples observed
+# in REAL historical KRX responses: 03473K (2019) and 0099X0 (2026). Character
+# positions are not a security-type classifier; don't exclude a valid source record
+# for placing an uppercase letter in a different position.
+# Syntax is deliberately permissive for 6-character ASCII uppercase alphanumerics
+# STARTING WITH A DIGIT. Historical constituent/tradability checks come LATER.
+STORED_TICKER_PATTERN = r'[0-9][0-9A-Z]{5}'
+# Extra diagnostics only; never filter out syntactically valid KRX codes.
+COMMON_TICKER_PATTERN = r'(?:[0-9]{6}|[0-9]{5}[A-Z])'
 
 
 def fail(msg):
@@ -55,8 +61,8 @@ def canonical_ticker(x):
     s = str(x).strip()
     if re.fullmatch(r'[0-9]{1,6}', s):
         return s.zfill(6)
-    if re.fullmatch(r'[0-9]{5}[A-Z]', s):
-        return s  # KRX alphabetic-suffix issue code; preserve verbatim.
+    if re.fullmatch(STORED_TICKER_PATTERN, s):
+        return s  # Preserve exactly; alphanumeric can occur BEFORE final character.
     fail('BAD_TICKER:' + s)
 
 
@@ -101,6 +107,8 @@ def normalize_day(raw, date):
         fail('TRADED_BAR_INCONSISTENT_WITH_OHLC:' + date)
     flags = {
         'rows': int(len(frame)),
+        'alphanumeric_code_rows': int(frame['code'].str.contains(r'[A-Z]').sum()),
+        'noncommon_code_shape_rows': int((~frame['code'].str.fullmatch(COMMON_TICKER_PATTERN)).sum()),
         'positive_volume_and_amount_rows': int((frame['volume'].gt(0) & frame['amount'].gt(0)).sum()),
         'tradeable_ohlcv_proxy_rows': int(tradable_proxy.sum()),
         'zero_or_nontradeable_proxy_rows': int((~tradable_proxy).sum()),
