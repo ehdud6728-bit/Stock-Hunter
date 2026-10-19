@@ -22,6 +22,39 @@ jobs:
           python-version: '3.11'
       - run: pip install pandas numpy
       - run: python -m unittest discover -s tests -p 'test_full_market_pit.py' -v
+      - name: Confirm full-market reference and KRX login secrets before 8 shards
+        env:
+          KRX_ID: ${{ secrets.KRX_ID }}
+          KRX_PW: ${{ secrets.KRX_PW }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ref='research_pit/historical_market_counts_20190102_20261012.csv'
+          if [ ! -s "$ref" ]; then
+            echo '::error::Missing research_pit/historical_market_counts_20190102_20261012.csv. Upload the reference CSV retaining its folder.'
+            exit 31
+          fi
+          refsha="$(sha256sum "$ref" | cut -d' ' -f1)"
+          expected='e733c3bd67a4cf06e93954888ef1ea539ec2e04d193f9d8a2406ef55fc248af1'
+          if [ "$refsha" != "$expected" ]; then
+            echo '::error::Historical full-market reference checksum mismatch: do not continue.'
+            exit 32
+          fi
+          python - <<'PYREF'
+          import csv
+          path = 'research_pit/historical_market_counts_20190102_20261012.csv'
+          with open(path, encoding='utf-8-sig', newline='') as f:
+              rows = list(csv.DictReader(f))
+          assert len(rows) == 1907, f'expected 1907 trading dates, found {len(rows)}'
+          assert rows[0]['date'] == '2019-01-02'
+          assert rows[-1]['date'] == '2026-10-12'
+          print('H7_REFERENCE_1907_DATES_SHA_PASS')
+          PYREF
+          if [ -z "${KRX_ID:-}" ] || [ -z "${KRX_PW:-}" ]; then
+            echo '::error::KRX_ID and/or KRX_PW not found as GitHub Actions repository secrets. No credentials are printed.'
+            exit 33
+          fi
+          echo 'KRX_REQUIRED_SECRETS_PRESENT (values hidden); ready for actual market API check'
 
   fetch-full-market:
     name: Fetch full KRX session ${{ matrix.shard }}/8
@@ -39,6 +72,8 @@ jobs:
       STOCKHUNTER_LIVE_ENABLE: '0'
       STOCKHUNTER_SCORE_RANK_ENABLE: '0'
       STOCKHUNTER_ORDER_ENABLE: '0'
+      KRX_ID: ${{ secrets.KRX_ID }}
+      KRX_PW: ${{ secrets.KRX_PW }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
