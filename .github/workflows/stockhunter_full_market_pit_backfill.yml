@@ -24,8 +24,8 @@ jobs:
       - run: python -m unittest discover -s tests -p 'test_full_market_pit.py' -v
       - name: Confirm full-market reference and KRX login secrets before 8 shards
         env:
-          KRX_ID: ${{ secrets.KRX_ID }}
-          KRX_PW: ${{ secrets.KRX_PW }}
+          KRX_ID: ${{ secrets.KRX_DATA_ID || secrets.KRX_ID }}
+          KRX_PW: ${{ secrets.KRX_DATA_PW || secrets.KRX_PW }}
         shell: bash
         run: |
           set -euo pipefail
@@ -72,8 +72,8 @@ jobs:
       STOCKHUNTER_LIVE_ENABLE: '0'
       STOCKHUNTER_SCORE_RANK_ENABLE: '0'
       STOCKHUNTER_ORDER_ENABLE: '0'
-      KRX_ID: ${{ secrets.KRX_ID }}
-      KRX_PW: ${{ secrets.KRX_PW }}
+      KRX_ID: ${{ secrets.KRX_DATA_ID || secrets.KRX_ID }}
+      KRX_PW: ${{ secrets.KRX_DATA_PW || secrets.KRX_PW }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
