@@ -52,6 +52,34 @@ class PITTests(unittest.TestCase):
         self.assertEqual(df.loc[df.code=='000599','close'].item(),101)
         # Many tickers not in a hypothetical current-universe list of first 190.
         self.assertIn('000600',set(df.code))
+    def test_real_krx_alphanumeric_stock_codes_not_dropped(self):
+        # Actual historical response includes 03473K (SK preferred), plus other
+        # Korean listed alphabetic-suffix securities. These are not corrupted codes.
+        src=fake_raw()
+        ix=list(src.index)
+        ix[0]='03473K';ix[1]='00088K';ix[2]='00593K'
+        src.index=ix
+        df,flags=k.normalize_day(src,DATES[0])
+        self.assertEqual(len(df),600)
+        self.assertEqual(df.code.nunique(),600)
+        for ticker in ('03473K','00088K','00593K'):
+            self.assertEqual((df.code==ticker).sum(),1)
+        self.assertEqual(flags['rows'],600)
+        blob=k.encode_day(df)
+        decoded=k.validate_stored_day(blob,DATES[0],600)
+        self.assertEqual(set(decoded.code),set(df.code))
+        self.assertEqual(k.canonical_ticker('123'), '000123')
+        self.assertEqual(k.canonical_ticker('03473K'), '03473K')
+
+    def test_alphanumeric_bad_shapes_still_fail_closed(self):
+        for invalid in ('03473k','0347*K','KRX123','03473KK','0347K','034K30'):
+            with self.subTest(code=invalid):
+                with self.assertRaisesRegex(RuntimeError,'BAD_TICKER'):
+                    k.canonical_ticker(invalid)
+        src=fake_raw();idx=list(src.index);idx[0]='03473K';idx[1]='03473K';src.index=idx
+        with self.assertRaisesRegex(RuntimeError,'DUPLICATE_TICKER'):
+            k.normalize_day(src,DATES[0])
+
     def test_malformed_or_duplicate_records_stop(self):
         x=fake_raw(); x.index=['000001']*len(x)
         with self.assertRaisesRegex(RuntimeError,'DUPLICATE_TICKER'):k.normalize_day(x,DATES[0])
