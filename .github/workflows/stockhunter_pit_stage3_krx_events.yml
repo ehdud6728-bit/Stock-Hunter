@@ -4,11 +4,12 @@ on:
   workflow_dispatch:
     inputs:
       audit_phase:
-        description: 'PIT research phase (Stage4 reuses pinned Stage2 + Stage3 evidence, no new 5M price download)'
+        description: 'PIT research phase (Stage5 verifies dated market membership; existing Stage3/4 unchanged)'
         required: true
         type: choice
-        default: stage4
+        default: stage5
         options:
+          - stage5
           - stage4
           - stage3
 
@@ -22,7 +23,7 @@ concurrency:
 
 jobs:
   offline-test:
-    if: ${{ github.event.inputs.audit_phase != 'stage4' }}
+    if: ${{ github.event.inputs.audit_phase == 'stage3' }}
     name: Stage3 official-event contracts (offline, no network)
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -144,5 +145,181 @@ jobs:
         with:
           name: stockhunter-pit-stage4-retrospective-type-evidence
           path: reports/pit-stage4/**
+          if-no-files-found: warn
+          retention-days: 90
+
+  stage5-offline-contracts:
+    if: ${{ github.event.inputs.audit_phase == 'stage5' }}
+    name: Stage5 code/date roster offline invariants (no KRX network)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run Stage5 synthetic merge / source tamper / identity tests
+        run: python -m unittest discover -s tests -p 'test_pit_stage5_daily_roster.py' -v
+
+  stage5-dated-source-canary:
+    if: ${{ github.event.inputs.audit_phase == 'stage5' }}
+    needs: stage5-offline-contracts
+    name: Stage5 KRX live canary - 4 pinned historical market-date identities
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    env:
+      TZ: Asia/Seoul
+      STOCKHUNTER_RESEARCH_ONLY: '1'
+      STOCKHUNTER_LIVE_ENABLE: '0'
+      STOCKHUNTER_SCORE_RANK_ENABLE: '0'
+      STOCKHUNTER_ORDER_ENABLE: '0'
+      KRX_ID: ${{ secrets.KRX_DATA_ID || secrets.KRX_ID }}
+      KRX_PW: ${{ secrets.KRX_DATA_PW || secrets.KRX_PW }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install 'pykrx==1.2.9'
+      - name: Verify immutable price/Stage2/Stage4 historical reference identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          for item in '39295295197:08e328c101f0774a2236c0a44cc1fdbbaa59e96e' '39343301692:afeee6010254d37ae4729812c13f4bdf0d97e91e' '39364301572:d45fcee5529c339fbbaf721425d249dfa3e2ef39' '39373355974:e2c07532ca507c98d53f061ab987b715cbdfdd50'; do
+            rid="${item%%:*}"
+            sha="${item#*:}"
+            test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${rid}" --jq .head_sha)" = "$sha"
+            test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${rid}" --jq .conclusion)" = success
+          done
+          test -n "${KRX_ID:-}" && test -n "${KRX_PW:-}"
+          echo STAGE5_FOUR_SOURCE_PINS_PASS
+      - name: Download Stage2 historical reference roster (small evidence)
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 39343301692
+          github-token: ${{ github.token }}
+          name: stockhunter-pit-stage2-crossendpoint-evidence
+          path: stage2-source
+      - name: Actual KRX date-qualified market lists equal the prior four anchor date identities
+        run: |
+          python -u research_pit/pit_stage5_daily_roster.py \
+            --mode canary --stage2-dir stage2-source \
+            --out reports/pit-stage5-canary --pause 1.3
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-pit-stage5-4day-canary-evidence
+          path: reports/pit-stage5-canary/
+          if-no-files-found: warn
+          retention-days: 90
+
+  stage5-date-roster-eight-shards:
+    if: ${{ github.event.inputs.audit_phase == 'stage5' }}
+    needs: stage5-dated-source-canary
+    name: Stage5 collect historical KRX 3-market dated rosters (${{ matrix.shard }}/8)
+    runs-on: ubuntu-latest
+    timeout-minutes: 105
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+    env:
+      TZ: Asia/Seoul
+      STOCKHUNTER_RESEARCH_ONLY: '1'
+      STOCKHUNTER_LIVE_ENABLE: '0'
+      STOCKHUNTER_SCORE_RANK_ENABLE: '0'
+      STOCKHUNTER_ORDER_ENABLE: '0'
+      KRX_ID: ${{ secrets.KRX_DATA_ID || secrets.KRX_ID }}
+      KRX_PW: ${{ secrets.KRX_DATA_PW || secrets.KRX_PW }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install 'pykrx==1.2.9'
+      - name: Download pinned Stage2 observed sessions only (no price re-fetch)
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 39343301692
+          github-token: ${{ github.token }}
+          name: stockhunter-pit-stage2-crossendpoint-evidence
+          path: stage2-source
+      - name: Collect assigned dated KOSPI/KOSDAQ/KONEX code rosters without type assumptions
+        shell: bash
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: |
+          shard_dir=$(printf 'stage5-rosters/shard_%02d' "$SHARD")
+          python -u research_pit/pit_stage5_daily_roster.py \
+            --mode scan --stage2-dir stage2-source \
+            --out "$shard_dir" --shard-index "$SHARD" --shards 8 --pause 1.2
+      - name: Preserve evidence for completed and incomplete shards
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-pit-stage5-shard-${{ matrix.shard }}
+          path: stage5-rosters/
+          if-no-files-found: warn
+          retention-days: 90
+          compression-level: 0
+
+  stage5-verified-dated-market-merge:
+    if: ${{ github.event.inputs.audit_phase == 'stage5' }}
+    needs: stage5-date-roster-eight-shards
+    name: Stage5 verify exact 1907-day KRX market membership vs SHA-pinned 5,090,428 price codes
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    env:
+      TZ: Asia/Seoul
+      STOCKHUNTER_RESEARCH_ONLY: '1'
+      STOCKHUNTER_LIVE_ENABLE: '0'
+      STOCKHUNTER_SCORE_RANK_ENABLE: '0'
+      STOCKHUNTER_ORDER_ENABLE: '0'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Download historical dated KRX roster for all 8 shards
+        uses: actions/download-artifact@v4
+        with:
+          pattern: stockhunter-pit-stage5-shard-*
+          path: stage5-rosters
+          merge-multiple: true
+      - name: Download original pinned source price rows, no KRX refetch
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 39295295197
+          github-token: ${{ github.token }}
+          pattern: stockhunter-allkrx-price-shard-*
+          path: pitdata
+          merge-multiple: true
+      - name: Download original source Stage2 observations
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 39343301692
+          github-token: ${{ github.token }}
+          name: stockhunter-pit-stage2-crossendpoint-evidence
+          path: stage2-source
+      - name: Download original Stage4 type-evidence classifications
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 39373355974
+          github-token: ${{ github.token }}
+          name: stockhunter-pit-stage4-retrospective-type-evidence
+          path: stage4-source
+      - name: Fail closed on any missing date, duplicate, SHA, or identity mismatch
+        run: |
+          python -u research_pit/pit_stage5_daily_roster.py \
+            --mode verify --roster-dir stage5-rosters --root pitdata \
+            --stage2-dir stage2-source --stage4-dir stage4-source \
+            --out reports/pit-stage5 --shards 8
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-pit-stage5-date-scoped-market-membership-audit
+          path: reports/pit-stage5/
           if-no-files-found: warn
           retention-days: 90
