@@ -115,6 +115,55 @@ class Tests(unittest.TestCase):
                 raw=(pathlib.Path(d)/e['raw_file']).read_bytes()
                 self.assertEqual(e['raw_sha256'],p.sha(raw))
 
+    def test_official_new_listing_payload_differs_from_delisting_payload(self):
+        start,end='20190102','20191231'
+        listed=p.build_krx_request('new_listing',start,end)
+        deleted=p.build_krx_request('delisted',start,end)
+        self.assertEqual(listed['bld'],'dbms/MDC/STAT/issue/MDCSTAT20001')
+        for key in ('isurCd','isurCd2','listClssCd','secugrpTp','cntrIsoCd'):
+            self.assertEqual(listed[key],'ALL')
+        self.assertEqual(listed['strtDd'],start)
+        self.assertEqual(listed['endDd'],end)
+        for key in ('isuCd','isuCd2'):
+            self.assertNotIn(key,listed)
+            self.assertEqual(deleted[key],'ALL')
+        for key in ('isurCd','isurCd2'):
+            self.assertNotIn(key,deleted)
+        with self.assertRaisesRegex(RuntimeError,'UNKNOWN_KRX_REGISTRY'):
+            p.build_krx_request('unknown',start,end)
+
+    def test_live_like_new_listing_outblock_schema_and_empty_fail_closed(self):
+        class Response:
+            text='{}'
+            def raise_for_status(self):pass
+            def json(self):
+                return {'CURRENT_DATETIME':'2026.10.20 AM 09:18:12',
+                        'OutBlock_1':[{'ISU_CD':'KR7005930003','ISU_SRT_CD':'005930',
+                                       'ISUR_NM':'가짜발행회사','LIST_DD':'2019/01/03'}]}
+        class FakeAuth:
+            def __init__(self):self.received=[]
+            def post(self,url,data,timeout):
+                self.received.append((url,data,timeout));return Response()
+        a=FakeAuth();got=p.fetch_krx('new_listing','20190102','20191231',auth=a)
+        self.assertEqual(a.received[0][1]['isurCd'],'ALL')
+        self.assertNotIn('isuCd',a.received[0][1])
+        normalized=p.normalize_events(p.decode_json(got,'new_listing','20190102','20191231'),
+                                      'new_listing','20190102','20191231')
+        self.assertEqual(normalized[0]['code'],'005930')
+        self.assertEqual(normalized[0]['date'],'2019-01-03')
+        self.assertTrue(normalized[0]['identity_matchable'])
+        with self.assertRaisesRegex(RuntimeError,'KRX_EMPTY_OR_NOT_LIST'):
+            p.decode_json({'CURRENT_DATETIME':'2026.10.20','output':[]},'new_listing','20190102','20191231')
+
+    def test_issuer_identifier_is_never_treated_as_issue_code(self):
+        # Issuer codes and issue-level securities codes use different namespaces.
+        # A six-character issuer ID must not accidentally join to a stock ticker.
+        raw=[{'ISUR_CD':'005930','ISUR_NM':'가짜발행인','LIST_DD':'2020/02/03'}]
+        n=p.normalize_events(raw,'new_listing','20200101','20201231')
+        self.assertEqual(n[0]['code'],'')
+        self.assertEqual(n[0]['raw_issuer_id'],'005930')
+        self.assertFalse(n[0]['identity_matchable'])
+
     def test_no_live_or_strategy_mutations(self):
         src=(BASE/'research_pit'/'pit_official_events_audit.py').read_text(encoding='utf-8')
         self.assertIn('strategy_ready\':False',src)
