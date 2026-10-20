@@ -41,7 +41,7 @@ KRX_BLD='dbms/MDC/STAT/issue/MDCSTAT21301'   # KRX 20011 individual halt history
 SHORT=re.compile(r'[0-9][0-9A-Z]{5}\Z')
 ISIN=re.compile(r'[A-Z]{2}[A-Z0-9]{10}\Z')
 DATE_KEYS=('TRD_HALT_DD','TRD_STOP_DD','HALT_DD','STOP_DD','SUSPEND_DD','TRD_STP_DD','정지일')
-RESUME_KEYS=('TRD_RSM_DD','RESTART_DD','RSM_DD','TRD_RSMPT_DD','REOPEN_DD','재개일')
+RESUME_KEYS=('RESUMP_DD','TRD_RSM_DD','RESTART_DD','RSM_DD','TRD_RSMPT_DD','REOPEN_DD','재개일')  # KRX 20011 live field RESUMP_DD
 CODE_KEYS=('ISU_SRT_CD','ISU_CD2','isuCd2','종목코드')
 SCHEMA='STOCKHUNTER_PIT_STAGE7_KRX_INDIVIDUAL_HALT_CANARY_V1'
 
@@ -175,18 +175,24 @@ def interpret_row(row,issue,start,end):
     date=normalize_date(first(row,DATE_KEYS))
     resume_raw=first(row,RESUME_KEYS)
     resume=normalize_date(resume_raw) if resume_raw else ''
+    # KRX 20011 LST_TRD_DD can be LATER than the historical suspension start.
+    # Preserve this live-like display/snapshot field separately; it is never proof
+    # of an uninterrupted halt or of a confirmed restart.
+    last_trade=normalize_date(first(row,('LST_TRD_DD',)))
+    trailing={'provider_last_trade_date':last_trade,
+              'last_trade_after_halt_event':bool(last_trade and date and last_trade>date)}
     code=first(row,CODE_KEYS)
     # Some endpoint rows return short ticker in ISU_CD; full ISIN instead is permissible.
     if not code and SHORT.fullmatch(str(row.get('ISU_CD',''))):code=str(row['ISU_CD'])
     full=str(row.get('ISU_CD','')).strip()
-    if code and code!=issue['code']:return {'status':'ROW_IDENTITY_CONFLICT','halt_date':date,'resume_date':resume}
+    if code and code!=issue['code']:return {'status':'ROW_IDENTITY_CONFLICT','halt_date':date,'resume_date':resume,**trailing}
     if full and ISIN.fullmatch(full) and full!=issue['official_listing_event_isin']:
-        return {'status':'ROW_ISIN_CONFLICT','halt_date':date,'resume_date':resume}
+        return {'status':'ROW_ISIN_CONFLICT','halt_date':date,'resume_date':resume,**trailing}
     # Missing code means unable to tie provider record to an independently recorded short code.
     if not code or not date or not (start<=date.replace('-','')<=end):
-        return {'status':'SCHEMA_OR_DATE_UNVERIFIED','halt_date':date,'resume_date':resume}
-    if resume and resume<date:return {'status':'BAD_RESUME_BEFORE_START','halt_date':date,'resume_date':resume}
-    return {'status':'SOURCE_EVENT_CODE_DATE_MATCH_ONLY','halt_date':date,'resume_date':resume}
+        return {'status':'SCHEMA_OR_DATE_UNVERIFIED','halt_date':date,'resume_date':resume,**trailing}
+    if resume and resume<date:return {'status':'BAD_RESUME_BEFORE_START','halt_date':date,'resume_date':resume,**trailing}
+    return {'status':'SOURCE_EVENT_CODE_DATE_MATCH_ONLY','halt_date':date,'resume_date':resume,**trailing}
 
 
 def check_windows(windows):
@@ -254,7 +260,8 @@ def run(stage3,stage6,out,auth=None,n=12,pause=1.5,client=None,strict_source=Tru
     outcsv(out/'halt_historical_window_diagnostics.csv',per_window,
            ['code','start','end','rows','raw_file','raw_sha256'])
     outcsv(out/'halt_provider_rows_schema_audit.csv',audit,
-        ['code','official_listing_event_isin','row_number','raw_file','field_names','status','halt_date','resume_date'])
+        ['code','official_listing_event_isin','row_number','raw_file','field_names','status',
+         'halt_date','resume_date','provider_last_trade_date','last_trade_after_halt_event'])
     report={'schema':SCHEMA,'status':'PROVIDER_HALT_CANARY_HAS_MAPPED_EVENTS' if verified else 'PROVIDER_HALT_CANARY_NOT_YET_VALIDATED',
             'research_only':True,'strategy_ready':False,'source_stage3_run':SOURCE_STAGE3_RUN,
             'source_stage6_run':SOURCE_STAGE6_RUN,'source_stage1_run':SOURCE_STAGE1_RUN,
@@ -268,6 +275,8 @@ def run(stage3,stage6,out,auth=None,n=12,pause=1.5,client=None,strict_source=Tru
             'provider_rows_returned':returned,'provider_empty_response_queries':empty,
             'provider_empty_response_codes':len(sample)-len(codes_with_any_provider_rows),
             'provider_unmapped_or_conflicting_rows':unmapped,'provider_mapped_halt_event_rows':verified,
+            'provider_rows_last_trade_after_halt_event':sum(bool(x.get('last_trade_after_halt_event')) for x in audit),
+            'provider_rows_with_explicit_resume_date':sum(bool(x.get('resume_date')) for x in audit),
             'historical_halt_all_codes_verified':False,'zero_volume_halt_day_join_verified':False,
             'date_scoped_security_type_verified':False,'all_dates_issue_isin_verified':False,
             'official_halt_coverage_claim':False,'generated_at_utc':datetime.now(timezone.utc).isoformat(),
