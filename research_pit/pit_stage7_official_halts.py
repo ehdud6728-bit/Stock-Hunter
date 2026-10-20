@@ -30,6 +30,12 @@ EXPECTED_UNRESOLVED_TYPES=2023
 EXPECTED_NEWLIST=1015
 CUTOFF='2026-10-12'
 WINDOW=('20250101','20261012')   # 650 days, less than KRX 730-day restriction
+# Stage7 39423727900 failed with 12/12 *empty* replies because the test queried
+# 2025-26 despite selecting candidates by zero-volume counts from 2019-2026.
+# Do not change endpoint or treat empty rows as a proven clear/active status.
+# Cover all Stage1 observation years with disjoint KRX <=730-day windows.
+HISTORICAL_WINDOWS=(('20190102','20201231'), ('20210101','20221231'),
+                    ('20230101','20241230'), ('20241231','20261012'))
 KRX_URL='https://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd'
 KRX_BLD='dbms/MDC/STAT/issue/MDCSTAT21301'   # KRX 20011 individual halt history
 SHORT=re.compile(r'[0-9][0-9A-Z]{5}\Z')
@@ -183,7 +189,23 @@ def interpret_row(row,issue,start,end):
     return {'status':'SOURCE_EVENT_CODE_DATE_MATCH_ONLY','halt_date':date,'resume_date':resume}
 
 
-def run(stage3,stage6,out,auth=None,n=12,pause=1.5,client=None,strict_source=True):
+def check_windows(windows):
+    """Require bounded, non-overlapping, consecutive calendar coverage."""
+    from datetime import timedelta
+    if not isinstance(windows,(tuple,list)) or not windows:fail('WINDOWS_EMPTY')
+    previous=None
+    for start,end in windows:
+        if not (re.fullmatch(r'[0-9]{8}',start) and re.fullmatch(r'[0-9]{8}',end)):
+            fail('WINDOW_NOT_YYYYMMDD')
+        a=datetime.strptime(start,'%Y%m%d').date()
+        b=datetime.strptime(end,'%Y%m%d').date()
+        if b<a or (b-a).days>729:fail('WINDOW_TOO_LONG_OR_REVERSED')
+        if previous and a!=previous+timedelta(days=1):fail('WINDOW_GAP_OR_OVERLAP')
+        previous=b
+    return tuple(tuple(x) for x in windows)
+
+
+def run(stage3,stage6,out,auth=None,n=12,pause=1.5,client=None,strict_source=True,windows=None):
     del strict_source
     out=pathlib.Path(out);out.mkdir(parents=True,exist_ok=True)
     profiles,links,conflicts=evidence(stage3,stage6)
@@ -200,25 +222,37 @@ def run(stage3,stage6,out,auth=None,n=12,pause=1.5,client=None,strict_source=Tru
             auth=get_auth_session()
         if auth is None:fail('KRX_AUTH_UNAVAILABLE')
         client=lambda issue,start,end:get_source('trading_halt',issue['code'],issue['official_listing_event_isin'],start,end,auth)
+    # Backward-compatible run() defaults for tests; production CLI uses full history.
+    windows=check_windows((WINDOW,) if windows is None else windows)
     audit=[];raw_manifest=[];returned=0;verified=0;unmapped=0;empty=0
+    codes_with_any_provider_rows=set()
+    per_window=[]
     for i,issue in enumerate(sample):
-        start,end=WINDOW
-        obj=client(issue,start,end)
-        filename='raw_krx/issue_'+issue['code']+'_'+start+'_'+end+'.json'
-        raw=(json.dumps(obj,ensure_ascii=False,sort_keys=True,separators=(',',':'))+'\n').encode()
-        save(out/filename,raw) # archive BEFORE any schema mapping
-        raw_manifest.append({'code':issue['code'],'source_listing_isin':issue['official_listing_event_isin'],
-                             'raw_file':filename,'sha256':sha(raw),'start':start,'end':end})
-        dump(out/'official_halt_raw_manifest.json',{'status':'PARTIAL','files':raw_manifest})
-        rows=decode(obj)
-        returned+=len(rows);empty+=int(not rows)
-        for j,row in enumerate(rows):
-            details=interpret_row(row,issue,start,end)
-            status=details['status'];verified+=int(status=='SOURCE_EVENT_CODE_DATE_MATCH_ONLY');unmapped+=int(status!='SOURCE_EVENT_CODE_DATE_MATCH_ONLY')
-            audit.append({'code':issue['code'],'official_listing_event_isin':issue['official_listing_event_isin'],
-                          'row_number':j+1,'raw_file':filename,'field_names':';'.join(sorted(row)),**details})
-        print('STAGE7_PROVIDER_CANARY',i+1,len(sample),issue['code'],'provider_rows',len(rows),flush=True)
-        if pause:time.sleep(pause)
+        for w,(start,end) in enumerate(windows):
+            obj=client(issue,start,end)
+            filename='raw_krx/issue_'+issue['code']+'_'+start+'_'+end+'.json'
+            raw=(json.dumps(obj,ensure_ascii=False,sort_keys=True,separators=(',',':'))+'\n').encode()
+            save(out/filename,raw) # preserve source BEFORE decoding or inferring anything
+            raw_manifest.append({'code':issue['code'],'source_listing_isin':issue['official_listing_event_isin'],
+                                 'raw_file':filename,'sha256':sha(raw),'start':start,'end':end})
+            dump(out/'official_halt_raw_manifest.json',{'status':'PARTIAL','files':raw_manifest})
+            rows=decode(obj)
+            returned+=len(rows);empty+=int(not rows)
+            if rows:codes_with_any_provider_rows.add(issue['code'])
+            per_window.append({'code':issue['code'],'start':start,'end':end,'rows':len(rows),
+                               'raw_file':filename,'raw_sha256':sha(raw)})
+            for j,row in enumerate(rows):
+                details=interpret_row(row,issue,start,end)
+                status=details['status']
+                verified+=int(status=='SOURCE_EVENT_CODE_DATE_MATCH_ONLY')
+                unmapped+=int(status!='SOURCE_EVENT_CODE_DATE_MATCH_ONLY')
+                audit.append({'code':issue['code'],'official_listing_event_isin':issue['official_listing_event_isin'],
+                              'row_number':j+1,'raw_file':filename,'field_names':';'.join(sorted(row)),**details})
+            print('STAGE7_PROVIDER_WINDOW',i+1,len(sample),issue['code'],
+                  start,end,'provider_rows',len(rows),flush=True)
+            if pause:time.sleep(pause)
+    outcsv(out/'halt_historical_window_diagnostics.csv',per_window,
+           ['code','start','end','rows','raw_file','raw_sha256'])
     outcsv(out/'halt_provider_rows_schema_audit.csv',audit,
         ['code','official_listing_event_isin','row_number','raw_file','field_names','status','halt_date','resume_date'])
     report={'schema':SCHEMA,'status':'PROVIDER_HALT_CANARY_HAS_MAPPED_EVENTS' if verified else 'PROVIDER_HALT_CANARY_NOT_YET_VALIDATED',
@@ -227,8 +261,12 @@ def run(stage3,stage6,out,auth=None,n=12,pause=1.5,client=None,strict_source=Tru
             'observed_codes':EXPECTED_CODES,'historical_zero_volume_proxy_rows':EXPECTED_ZERO_VOLUME,
             'stage4_unresolved_security_type_codes':EXPECTED_UNRESOLVED_TYPES,
             'codes_with_retrospective_listing_event_isin':len(links),'conflicting_isin_codes':len(conflicts),
-            'sampled_codes':len(sample),'sample_method':'NONRANDOM_DIAGNOSTIC_ONLY','queried_window':list(WINDOW),
-            'provider_rows_returned':returned,'provider_empty_response_codes':empty,
+            'sampled_codes':len(sample),'sample_method':'NONRANDOM_DIAGNOSTIC_ONLY',
+            'queried_window':list(WINDOW) if len(windows)==1 else None,
+            'queried_windows':[list(x) for x in windows],
+            'provider_code_window_queries':len(per_window),
+            'provider_rows_returned':returned,'provider_empty_response_queries':empty,
+            'provider_empty_response_codes':len(sample)-len(codes_with_any_provider_rows),
             'provider_unmapped_or_conflicting_rows':unmapped,'provider_mapped_halt_event_rows':verified,
             'historical_halt_all_codes_verified':False,'zero_volume_halt_day_join_verified':False,
             'date_scoped_security_type_verified':False,'all_dates_issue_isin_verified':False,
@@ -246,8 +284,12 @@ def main(argv=None):
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--stage3-dir',default='stage3-source');p.add_argument('--stage6-dir',default='stage6-source')
     p.add_argument('--out',default='reports/pit-stage7');p.add_argument('--sample-size',type=int,default=12)
-    p.add_argument('--pause',type=float,default=1.5);a=p.parse_args(argv)
-    run(a.stage3_dir,a.stage6_dir,a.out,n=a.sample_size,pause=a.pause)
+    p.add_argument('--pause',type=float,default=1.5)
+    p.add_argument('--window-mode',choices=['full_history','old_2025_2026'],
+                   default='full_history',help='Default covers 2019-2026 in 4 disjoint <=730-day probes')
+    a=p.parse_args(argv)
+    windows=HISTORICAL_WINDOWS if a.window_mode=='full_history' else (WINDOW,)
+    run(a.stage3_dir,a.stage6_dir,a.out,n=a.sample_size,pause=a.pause,windows=windows)
 
 if __name__=='__main__':
     try:main()
