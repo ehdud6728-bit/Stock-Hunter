@@ -4,11 +4,12 @@ on:
   workflow_dispatch:
     inputs:
       audit_phase:
-        description: 'PIT research phase (Stage6 adds dated market-cap evidence; Stage3/4/5 unchanged)'
+        description: 'PIT research phase (Stage7 bounded official halt API probe; earlier stages unchanged)'
         required: true
         type: choice
-        default: stage6
+        default: stage7
         options:
+          - stage7
           - stage6
           - stage5
           - stage4
@@ -509,5 +510,84 @@ jobs:
         with:
           name: stockhunter-pit-stage6-dated-cap-source-audit
           path: reports/pit-stage6/
+          if-no-files-found: warn
+          retention-days: 90
+
+  stage7-offline-contracts:
+    if: ${{ github.event.inputs.audit_phase == 'stage7' }}
+    name: Stage7 official halt source contracts (offline / RESEARCH_ONLY)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Test halt API identity, empty response behavior, source hashes and no backtest promotion
+        run: python -m unittest discover -s tests -p 'test_pit_stage7_official_halts.py' -v
+
+  stage7-official-halt-canary:
+    if: ${{ github.event.inputs.audit_phase == 'stage7' }}
+    needs: stage7-offline-contracts
+    name: Stage7 KRX 20011 bounded historical halt-register canary (12 targeted codes)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TZ: Asia/Seoul
+      STOCKHUNTER_RESEARCH_ONLY: '1'
+      STOCKHUNTER_LIVE_ENABLE: '0'
+      STOCKHUNTER_SCORE_RANK_ENABLE: '0'
+      STOCKHUNTER_ORDER_ENABLE: '0'
+      KRX_ID: ${{ secrets.KRX_DATA_ID || secrets.KRX_ID }}
+      KRX_PW: ${{ secrets.KRX_DATA_PW || secrets.KRX_PW }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install 'pykrx==1.2.9' 'requests>=2.31,<3'
+      - name: Pin prior Stage3 and Stage6 immutable sources by run and commit identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          for item in \
+            '39364301572:d45fcee5529c339fbbaf721425d249dfa3e2ef39' \
+            '39408210227:ccdeaf82e46164e78f3891742db1c58a75c6bde7'; do
+            rid="${item%%:*}"
+            sha="${item#*:}"
+            test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${rid}" --jq .conclusion)" = success
+            test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${rid}" --jq .head_sha)" = "$sha"
+          done
+          test -n "${KRX_ID:-}" && test -n "${KRX_PW:-}"
+          echo 'STAGE7_SOURCES_AND_KRX_SECRETS_PINNED'
+      - name: Restore Stage3 original event responses and ISINs (small; SHA audited)
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 39364301572
+          github-token: ${{ github.token }}
+          name: stockhunter-pit-stage3-krx-official-event-evidence
+          path: stage3-source
+      - name: Restore Stage6 code-wise zero-volume proxy only (NO 5M-row fetch)
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 39408210227
+          github-token: ${{ github.token }}
+          name: stockhunter-pit-stage6-dated-cap-source-audit
+          path: stage6-source
+      - name: KRX historical 20011 bounded probe; preserve raw and never infer halt from zero volume
+        shell: bash
+        run: |
+          python -u research_pit/pit_stage7_official_halts.py \
+            --stage3-dir stage3-source \
+            --stage6-dir stage6-source \
+            --out reports/pit-stage7 \
+            --sample-size 12 --pause 1.5
+      - name: Keep raw source and diagnostic report even when canary is inconclusive
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-pit-stage7-official-halt-register-canary
+          path: reports/pit-stage7/**
           if-no-files-found: warn
           retention-days: 90
