@@ -4,11 +4,12 @@ on:
   workflow_dispatch:
     inputs:
       audit_phase:
-        description: 'PIT research phase (Stage7-B pinned event x price bridge; earlier stages unchanged)'
+        description: 'PIT research phase (Stage7-C KIND official disclosure evidence CANARY; no backtest or LIVE changes)'
         required: true
         type: choice
-        default: stage7b
+        default: stage7c
         options:
+          - stage7c
           - stage7b
           - stage7
           - stage6
@@ -679,5 +680,83 @@ jobs:
         with:
           name: stockhunter-pit-stage7b-event-vs-original-daily-price-evidence
           path: reports/pit-stage7b/**
+          if-no-files-found: warn
+          retention-days: 90
+
+  stage7c-kind-offline-contracts:
+    if: ${{ github.event.inputs.audit_phase == 'stage7c' }}
+    name: Stage7-C KIND resume-notice source contracts (offline, no network)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      TZ: Asia/Seoul
+      STOCKHUNTER_RESEARCH_ONLY: '1'
+      STOCKHUNTER_LIVE_ENABLE: '0'
+      STOCKHUNTER_SCORE_RANK_ENABLE: '0'
+      STOCKHUNTER_ORDER_ENABLE: '0'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install HTML parser for mocked source contracts only
+        run: pip install 'beautifulsoup4==4.14.3'
+      - name: Stage7-C original source, KIND filters, no-resume-inference contract suite
+        run: python -m unittest discover -s tests -p 'test_pit_stage7c_kind_resume_source.py' -v
+
+  stage7c-kind-official-disclosure-canary:
+    if: ${{ github.event.inputs.audit_phase == 'stage7c' }}
+    needs: stage7c-kind-offline-contracts
+    name: Stage7-C official KIND market-action/resume notices for 377460 and 418250 (NOT daily halt approval)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      TZ: Asia/Seoul
+      STOCKHUNTER_RESEARCH_ONLY: '1'
+      STOCKHUNTER_LIVE_ENABLE: '0'
+      STOCKHUNTER_SCORE_RANK_ENABLE: '0'
+      STOCKHUNTER_ORDER_ENABLE: '0'
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install published HTTP/HTML source parsers, no credential dependencies
+        run: pip install 'requests>=2.31,<3' 'beautifulsoup4==4.14.3'
+      - name: Pin successful prior original price, official halt, and Stage7-B bridge commits
+        shell: bash
+        run: |
+          set -euo pipefail
+          for pin in \
+            '39295295197:08e328c101f0774a2236c0a44cc1fdbbaa59e96e' \
+            '39430555533:d60639f9f9920290b51dbb9e502ead0a4cbe254f' \
+            '39436389287:031713507387142b455476c57db3352688fccc50'; do
+            rid="${pin%%:*}"
+            sh="${pin#*:}"
+            test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${rid}" --jq .conclusion)" = success
+            test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${rid}" --jq .head_sha)" = "$sh"
+          done
+          echo STAGE7C_THREE_IMMUTABLE_SOURCE_PINS_PASS
+      - name: Restore SHA-locked Stage7-B report only (no KRX 5M price refetch)
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 39436389287
+          github-token: ${{ github.token }}
+          name: stockhunter-pit-stage7b-event-vs-original-daily-price-evidence
+          path: stage7b-source
+      - name: Fetch and preserve dated KIND market-action disclosure HTML without inferring daily status
+        shell: bash
+        run: |
+          python -u research_pit/pit_stage7c_kind_resume_source.py \
+            --stage7b-dir stage7b-source \
+            --out reports/pit-stage7c \
+            --pause 1.0
+      - name: Publish all raw HTML, SHA256 manifests, candidate notices and fail-closed diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-pit-stage7c-kind-official-disclosure-source-canary
+          path: reports/pit-stage7c/**
           if-no-files-found: warn
           retention-days: 90
