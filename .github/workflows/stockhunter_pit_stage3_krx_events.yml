@@ -4,11 +4,12 @@ on:
   workflow_dispatch:
     inputs:
       audit_phase:
-        description: 'PIT research phase (Stage5 verifies dated market membership; existing Stage3/4 unchanged)'
+        description: 'PIT research phase (Stage6 adds dated market-cap evidence; Stage3/4/5 unchanged)'
         required: true
         type: choice
-        default: stage5
+        default: stage6
         options:
+          - stage6
           - stage5
           - stage4
           - stage3
@@ -321,5 +322,192 @@ jobs:
         with:
           name: stockhunter-pit-stage5-date-scoped-market-membership-audit
           path: reports/pit-stage5/
+          if-no-files-found: warn
+          retention-days: 90
+
+  stage6-offline-contracts:
+    if: ${{ github.event.inputs.audit_phase == 'stage6' }}
+    name: Stage6 offline cap/roster provenance and fail-closed contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m unittest discover -s tests -p 'test_pit_stage6_market_cap.py' -v
+
+  stage6-marketcap-canary:
+    if: ${{ github.event.inputs.audit_phase == 'stage6' }}
+    needs: stage6-offline-contracts
+    name: Stage6 historical KRX market-cap actual four-date canary
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TZ: Asia/Seoul
+      STOCKHUNTER_RESEARCH_ONLY: '1'
+      STOCKHUNTER_LIVE_ENABLE: '0'
+      STOCKHUNTER_SCORE_RANK_ENABLE: '0'
+      STOCKHUNTER_ORDER_ENABLE: '0'
+      KRX_ID: ${{ secrets.KRX_DATA_ID || secrets.KRX_ID }}
+      KRX_PW: ${{ secrets.KRX_DATA_PW || secrets.KRX_PW }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install 'pykrx==1.2.9'
+      - name: Pin original price, Stage2, Stage4, and Stage5 completed identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          for item in '39295295197:08e328c101f0774a2236c0a44cc1fdbbaa59e96e' '39343301692:afeee6010254d37ae4729812c13f4bdf0d97e91e' '39373355974:e2c07532ca507c98d53f061ab987b715cbdfdd50' '39383970402:6d643b3aade052ebf7e330c5bc005cff36847cf2'; do
+            rid="${item%%:*}"
+            sha="${item#*:}"
+            test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${rid}" --jq .head_sha)" = "$sha"
+            test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${rid}" --jq .conclusion)" = success
+          done
+          test -n "${KRX_ID:-}" && test -n "${KRX_PW:-}"
+          echo STAGE6_FOUR_SOURCE_IDENTITY_PINS_PASS
+      - name: Download Stage2 fixed historical four-date canonical code sets
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 39343301692
+          github-token: ${{ github.token }}
+          name: stockhunter-pit-stage2-crossendpoint-evidence
+          path: stage2-source
+      - name: Probe actual 2019/2022/2024/2026 market-cap source and exact dated membership
+        shell: bash
+        run: |
+          python -u research_pit/pit_stage6_market_cap.py \
+            --mode canary --stage2-dir stage2-source \
+            --out reports/pit-stage6-canary --pause 1.4
+      - name: Save canary evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-pit-stage6-marketcap-canary
+          path: reports/pit-stage6-canary/
+          if-no-files-found: warn
+          retention-days: 90
+
+  stage6-marketcap-eight-shards:
+    if: ${{ github.event.inputs.audit_phase == 'stage6' }}
+    needs: stage6-marketcap-canary
+    name: Stage6 KRX historical dated cap + shares snapshots (${{ matrix.shard }}/8)
+    runs-on: ubuntu-latest
+    timeout-minutes: 110
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+    env:
+      TZ: Asia/Seoul
+      STOCKHUNTER_RESEARCH_ONLY: '1'
+      STOCKHUNTER_LIVE_ENABLE: '0'
+      STOCKHUNTER_SCORE_RANK_ENABLE: '0'
+      STOCKHUNTER_ORDER_ENABLE: '0'
+      KRX_ID: ${{ secrets.KRX_DATA_ID || secrets.KRX_ID }}
+      KRX_PW: ${{ secrets.KRX_DATA_PW || secrets.KRX_PW }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install 'pykrx==1.2.9'
+      - name: Download only the corresponding immutable Stage5 dated-market roster shard
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 39383970402
+          github-token: ${{ github.token }}
+          name: stockhunter-pit-stage5-shard-${{ matrix.shard }}
+          path: stage5-rosters
+      - name: Fetch dated KRX cap snapshots without filtering, score/rank, or trading
+        shell: bash
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: |
+          shard_dir=$(printf 'stage6-cap/shard_%02d' "$SHARD")
+          python -u research_pit/pit_stage6_market_cap.py \
+            --mode scan --stage5-dir stage5-rosters \
+            --shard "$SHARD" --out "$shard_dir" --pause 1.4
+      - name: Preserve partial or complete SHA-pinned raw evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-pit-stage6-cap-shard-${{ matrix.shard }}
+          path: stage6-cap/
+          if-no-files-found: warn
+          compression-level: 0
+          retention-days: 90
+
+  stage6-verified-marketcap-merge:
+    if: ${{ github.event.inputs.audit_phase == 'stage6' }}
+    needs: stage6-marketcap-eight-shards
+    name: Stage6 verify 1907 daily cap snapshots versus immutable 5,090,428 source rows
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    env:
+      TZ: Asia/Seoul
+      STOCKHUNTER_RESEARCH_ONLY: '1'
+      STOCKHUNTER_LIVE_ENABLE: '0'
+      STOCKHUNTER_SCORE_RANK_ENABLE: '0'
+      STOCKHUNTER_ORDER_ENABLE: '0'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Restore completed Stage6 date-and-cap evidence
+        uses: actions/download-artifact@v4
+        with:
+          pattern: stockhunter-pit-stage6-cap-shard-*
+          path: stage6-cap
+          merge-multiple: true
+      - name: Restore original immutable Stage5 market memberships
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 39383970402
+          github-token: ${{ github.token }}
+          pattern: stockhunter-pit-stage5-shard-*
+          path: stage5-rosters
+          merge-multiple: true
+      - name: Restore original immutable Stage1 SHA-validated price rows (no KRX refetch)
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 39295295197
+          github-token: ${{ github.token }}
+          pattern: stockhunter-allkrx-price-shard-*
+          path: pitdata
+          merge-multiple: true
+      - name: Restore Stage2 source calendar and observed ticker evidence
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 39343301692
+          github-token: ${{ github.token }}
+          name: stockhunter-pit-stage2-crossendpoint-evidence
+          path: stage2-source
+      - name: Restore Stage4 evidence (NEVER treat retrospective type as confirmed)
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 39373355974
+          github-token: ${{ github.token }}
+          name: stockhunter-pit-stage4-retrospective-type-evidence
+          path: stage4-source
+      - name: Compare every date/code, cap/price volume, amount, and retained type uncertainty
+        shell: bash
+        run: |
+          python -u research_pit/pit_stage6_market_cap.py \
+            --mode verify --stage6-dir stage6-cap --stage5-dir stage5-rosters \
+            --price-dir pitdata --stage2-dir stage2-source \
+            --stage4-dir stage4-source --out reports/pit-stage6
+      - name: Publish summary and conflicts even if identity or SHA audit fails
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-pit-stage6-dated-cap-source-audit
+          path: reports/pit-stage6/
           if-no-files-found: warn
           retention-days: 90
