@@ -2,6 +2,15 @@ name: StockHunter PIT Stage3 Official KRX Listing Delisting Event Audit (RESEARC
 
 on:
   workflow_dispatch:
+    inputs:
+      audit_phase:
+        description: 'PIT research phase (Stage4 reuses pinned Stage2 + Stage3 evidence, no new 5M price download)'
+        required: true
+        type: choice
+        default: stage4
+        options:
+          - stage4
+          - stage3
 
 permissions:
   contents: read
@@ -13,6 +22,7 @@ concurrency:
 
 jobs:
   offline-test:
+    if: ${{ github.event.inputs.audit_phase != 'stage4' }}
     name: Stage3 official-event contracts (offline, no network)
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -74,5 +84,65 @@ jobs:
         with:
           name: stockhunter-pit-stage3-krx-official-event-evidence
           path: reports/pit-stage3/**
+          if-no-files-found: warn
+          retention-days: 90
+
+  stage4-retrospective-type-evidence:
+    if: ${{ github.event.inputs.audit_phase == 'stage4' }}
+    name: Stage4 retrospective type evidence - pinned artifacts (NOT PIT approved)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TZ: Asia/Seoul
+      STOCKHUNTER_RESEARCH_ONLY: '1'
+      STOCKHUNTER_LIVE_ENABLE: '0'
+      STOCKHUNTER_SCORE_RANK_ENABLE: '0'
+      STOCKHUNTER_ORDER_ENABLE: '0'
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Stage4 offline contracts (stdlib only)
+        run: python -m unittest discover -s tests -p 'test_pit_stage4_security_type_evidence.py' -v
+      - name: Pin previous 1/2/3 successes by commit identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          for item in '39295295197:08e328c101f0774a2236c0a44cc1fdbbaa59e96e' '39343301692:afeee6010254d37ae4729812c13f4bdf0d97e91e' '39364301572:d45fcee5529c339fbbaf721425d249dfa3e2ef39'; do
+            run_id="${item%%:*}"
+            sha="${item#*:}"
+            test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}" --jq .conclusion)" = success
+            test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}" --jq .head_sha)" = "$sha"
+          done
+          echo 'STAGE4_THREE_SOURCE_RUN_PINS_PASS'
+      - name: Download pinned Stage2 small identity evidence (no 5M-row price data)
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 39343301692
+          github-token: ${{ github.token }}
+          name: stockhunter-pit-stage2-crossendpoint-evidence
+          path: stage2-source
+      - name: Download pinned Stage3 official event evidence (16 raw windows + SHA)
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 39364301572
+          github-token: ${{ github.token }}
+          name: stockhunter-pit-stage3-krx-official-event-evidence
+          path: stage3-source
+      - name: Compare all 3341 code types without authorizing backtest or live
+        shell: bash
+        run: |
+          python -u research_pit/pit_stage4_security_type_evidence.py \
+            --stage2-dir stage2-source \
+            --stage3-dir stage3-source \
+            --out reports/pit-stage4
+      - name: Publish Stage4 evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-pit-stage4-retrospective-type-evidence
+          path: reports/pit-stage4/**
           if-no-files-found: warn
           retention-days: 90
