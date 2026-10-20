@@ -33,7 +33,8 @@ CODE_PATTERN = re.compile(r'[0-9A-Z]{6}\Z')
 DATE_FIELDS = {'delisted': ('DELIST_DD','DELIST_DATE','폐지일'),
                'new_listing': ('LIST_DD','LIST_DATE','상장일')}
 CODE_FIELDS = ('ISU_SRT_CD','ISU_CD','isuSrtCd','종목코드')
-NAME_FIELDS = ('ISU_NM','ISU_ABBRV','종목명')
+ISSUER_FIELDS = ('ISUR_CD','isurCd')  # issuer identity is NOT a tradable issue-code
+NAME_FIELDS = ('ISU_NM','ISU_ABBRV','ISUR_NM','종목명')
 MARKET_FIELDS = ('MKT_NM','MKT_TP_NM','시장구분')
 TYPE_FIELDS = ('SECU_GRP_NM','SECUGRP_NM','KIND_STKCERT_TP_NM','주식종류','증권구분')
 REASON_FIELDS = ('DELIST_RSN_DSC','DELIST_RSN','폐지사유')
@@ -144,12 +145,15 @@ def normalize_events(raw_rows,kind,start,end):
             fail('EVENT_OUTSIDE_WINDOW:'+kind+':'+d)
         # Do not merge ISINs with 6-digit codes or perform ticker name matching.
         raw_code=first(row,CODE_FIELDS)
+        raw_issuer=first(row,ISSUER_FIELDS)
         candidates={norm_code(row.get(field,'')) for field in CODE_FIELDS} - {''}
         if len(candidates)>1:fail('CONFLICTING_OFFICIAL_SHORT_CODES:'+kind+':'+d)
         code=next(iter(candidates),'')
-        # If ISU_SRT_CD is empty but ISU_CD is ISIN, unresolved; never guess.
-        if not code and not raw_code:fail('NO_KRX_EVENT_IDENTITY:'+kind+':'+d)
+        # Issuer identity is NEVER equated to security issue-code; unresolved is evidence.
+        # If ISU_CD is an ISIN, preserve but do not truncate or guess.
+        if not code and not raw_code and not raw_issuer:fail('NO_KRX_EVENT_IDENTITY:'+kind+':'+d)
         output.append({'kind':kind,'date':d,'code':code,'raw_issue_id':raw_code,
+                       'raw_issuer_id':raw_issuer,
                        'name':first(row,NAME_FIELDS),'market':first(row,MARKET_FIELDS),
                        'security_class':first(row,TYPE_FIELDS),
                        'reason':first(row,REASON_FIELDS),
@@ -158,15 +162,41 @@ def normalize_events(raw_rows,kind,start,end):
     return output
 
 
+def build_krx_request(kind, start, end):
+    """Screen-specific form data. Do not combine issuer and issue filters.
+
+    Only the authenticated, already-pinned pykrx requests session is used;
+    public endpoint schemas guide request construction, not auth libraries.
+    """
+    if kind not in BLD:
+        fail('UNKNOWN_KRX_REGISTRY:'+str(kind))
+    if not (re.fullmatch(r'[0-9]{8}',start) and re.fullmatch(r'[0-9]{8}',end)
+            and start <= end):
+        fail('INVALID_KRX_REGISTRY_WINDOW:'+str(kind))
+    common={'bld':BLD[kind], 'locale':'ko_KR', 'mktId':'ALL',
+            'strtDd':start,'endDd':end}
+    if kind=='delisted':
+        # Preserve the exact request that fetched 1,168 dated official rows.
+        return {**common,'isuCd':'ALL','isuCd2':'ALL',
+                'share':'1','csvxls_isNo':'true'}
+    # This is the KRX 20001 JSON screen's issuer-name contract.
+    # It must not silently fall back to the unrelated delisting form.
+    return {**common,'isurCd':'ALL','isurCd2':'ALL',
+            'listClssCd':'ALL','secugrpTp':'ALL','cntrIsoCd':'ALL'}
+
+
 def fetch_krx(kind,start,end,auth=None):
     if auth is None:
         # Reuse already-vetted pykrx's authenticated KRX session (NO new dependency with credentials).
         from pykrx.website.comm.auth import get_auth_session
         auth=get_auth_session()
     if auth is None:fail('NO_AUTHENTICATED_KRX_SESSION')
-    body={'bld':BLD[kind], 'locale':'ko_KR', 'mktId':'ALL',
-          'isuCd':'ALL','isuCd2':'ALL','strtDd':start,'endDd':end,
-          'share':'1','csvxls_isNo':'true'}
+    # KRX's issue screens do NOT share the same identity/search fields.
+    # MDCSTAT23801 uses isuCd/isuCd2 (securities), while MDCSTAT20001
+    # uses isurCd/isurCd2 (issuers) plus listing-class/security filters.
+    # Sending isuCd=ALL to the new-listing JSON endpoint returned a valid
+    # HTTP 200 with output=[] for 2019, which is missing evidence, NOT zero IPOs.
+    body = build_krx_request(kind, start, end)
     r=auth.post(OFFICIAL_URL,data=body,timeout=40)
     r.raise_for_status()
     if 'LOGOUT' in r.text[:2000].upper():fail('KRX_LOGIN_EXPIRED:'+kind+':'+start)
@@ -177,7 +207,7 @@ def fetch_krx(kind,start,end,auth=None):
 def fetch_all(out,client=fetch_krx,pause=1.5):
     out=pathlib.Path(out);out.mkdir(parents=True,exist_ok=True)
     events=[]; manifests=[]
-    for kind in ('delisted','new_listing'):
+    for kind in ('new_listing','delisted'):
         for start,end in yearly_windows():
             obj=client(kind,start,end)
             # Write raw evidence BEFORE normalization: failures must remain inspectable.
