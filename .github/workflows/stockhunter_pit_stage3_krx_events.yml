@@ -1,0 +1,78 @@
+name: StockHunter PIT Stage3 Official KRX Listing Delisting Event Audit (RESEARCH ONLY)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: stockhunter-pit-stage3-official-events
+  cancel-in-progress: false
+
+jobs:
+  offline-test:
+    name: Stage3 official-event contracts (offline, no network)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m unittest discover -s tests -p 'test_pit_official_events_audit.py' -v
+
+  official-event-audit:
+    name: Crosscheck pinned 3341 codes & 472 terminal candidates against KRX event registries
+    needs: offline-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      TZ: Asia/Seoul
+      STOCKHUNTER_RESEARCH_ONLY: '1'
+      STOCKHUNTER_LIVE_ENABLE: '0'
+      STOCKHUNTER_SCORE_RANK_ENABLE: '0'
+      STOCKHUNTER_ORDER_ENABLE: '0'
+      KRX_ID: ${{ secrets.KRX_DATA_ID || secrets.KRX_ID }}
+      KRX_PW: ${{ secrets.KRX_DATA_PW || secrets.KRX_PW }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install known KRX client (do not install an unreviewed credential-bearing fork)
+        run: pip install 'pykrx==1.2.9' 'requests>=2.31,<3'
+      - name: Pin BOTH source identities and require KRX secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/39295295197" --jq .conclusion)" = success
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/39295295197" --jq .head_sha)" = 08e328c101f0774a2236c0a44cc1fdbbaa59e96e
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/39343301692" --jq .conclusion)" = success
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/39343301692" --jq .head_sha)" = afeee6010254d37ae4729812c13f4bdf0d97e91e
+          test -n "${KRX_ID:-}" && test -n "${KRX_PW:-}"
+          echo 'PINNED_STAGE1_STAGE2_AND_SECRET_BINDING_PASS'
+      - name: Download source-locked Stage2 evidence ONLY (no repeated 5M-row download)
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 39343301692
+          github-token: ${{ github.token }}
+          name: stockhunter-pit-stage2-crossendpoint-evidence
+          path: stage2-source
+      - name: Inspect pinned 3341 identity rows and 472 terminal observations, fetch OFFICIAL KRX 20037/20001 yearly events
+        shell: bash
+        run: |
+          python -u research_pit/pit_official_events_audit.py \
+            --stage2-dir stage2-source \
+            --out reports/pit-stage3 \
+            --pause 1.5
+      - name: Publish audit, source SHA evidence, and failures (NEVER auto-approve PIT)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-pit-stage3-krx-official-event-evidence
+          path: reports/pit-stage3/**
+          if-no-files-found: warn
+          retention-days: 90
