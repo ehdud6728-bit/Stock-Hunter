@@ -14,6 +14,50 @@ sys.path.insert(0,str(ROOT/'research_pit'))
 import pit_stage7_official_halts as m
 
 class Tests(unittest.TestCase):
+    def test_full_history_windows_are_consecutive_no_gaps_under_730_days(self):
+        from datetime import datetime,timedelta
+        windows=m.check_windows(m.HISTORICAL_WINDOWS)
+        self.assertEqual(windows[0][0],'20190102')
+        self.assertEqual(windows[-1][1],'20261012')
+        self.assertEqual(len(windows),4)
+        for i,(start,end) in enumerate(windows):
+            a=datetime.strptime(start,'%Y%m%d').date()
+            b=datetime.strptime(end,'%Y%m%d').date()
+            self.assertLessEqual((b-a).days,729)
+            if i:
+                prior=datetime.strptime(windows[i-1][1],'%Y%m%d').date()
+                self.assertEqual(prior+timedelta(days=1),a)
+        for invalid in [[],[('20190102','20220102')],
+                        [('20240101','20240601'),('20240601','20241012')]]:
+            with self.subTest(invalid=invalid),self.assertRaises(RuntimeError):
+                m.check_windows(invalid)
+
+    def test_multiwindow_evidence_and_partial_output_stays_fail_closed(self):
+        profiles={f'{i:06d}':{'zero_volume_proxy_sessions':str(i),'observed_cap_sessions':'200'} for i in range(3)}
+        ids={c:'KR'+c+'0000' for c in profiles}
+        requested=[]
+        def mock(issue,start,end):
+            requested.append((issue['code'],start,end))
+            return {'CURRENT_DATETIME':'SYNTHETIC','output':[]}
+        with tempfile.TemporaryDirectory() as d,patch.object(m,'evidence',return_value=(profiles,ids,{})):
+            with self.assertRaisesRegex(RuntimeError,'NO_MAPPED_POSITIVE'):
+                m.run('ignored','ignored',d,n=2,pause=0,client=mock,windows=m.HISTORICAL_WINDOWS)
+            root=pathlib.Path(d)
+            self.assertEqual(len(requested),8)
+            self.assertEqual(len(list((root/'raw_krx').glob('*.json'))),8)
+            raw=m.readjson(root/'official_halt_raw_manifest.json')
+            self.assertEqual(raw['status'],'COMPLETE')
+            self.assertEqual(len(raw['files']),8)
+            for entry in raw['files']:
+                self.assertEqual(m.sha((root/entry['raw_file']).read_bytes()),entry['sha256'])
+            summary=m.readjson(root/'stage7_official_halt_canary_summary.json')
+            self.assertEqual(summary['provider_code_window_queries'],8)
+            self.assertEqual(summary['provider_empty_response_queries'],8)
+            self.assertEqual(summary['provider_empty_response_codes'],2)
+            self.assertEqual(summary['provider_rows_returned'],0)
+            self.assertFalse(summary['strategy_ready'])
+            self.assertFalse(summary['official_halt_coverage_claim'])
+
     def test_selection_not_random_and_controls(self):
         profiles={f'{i:06d}':{'zero_volume_proxy_sessions':str(i),'observed_cap_sessions':'200'} for i in range(20)}
         codes={x:'KR'+x+'0000' for x in profiles}
