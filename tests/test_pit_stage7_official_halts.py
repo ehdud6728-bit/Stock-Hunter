@@ -104,6 +104,31 @@ class Tests(unittest.TestCase):
         self.assertEqual(result['halt_date'],'2025-05-15')
         self.assertEqual(result['resume_date'],'2025-06-17')
 
+    def test_actual_live_krx_20011_schema_preserves_later_trade_date_without_resuming_halt(self):
+        issue={'code':'377460','official_listing_event_isin':'KR7377460001'}
+        row={'ISU_CD':'377460','ISU_NM':'큐에이드','TRD_HALT_DD':'2023/11/28',
+             'RESUMP_DD':'','LST_TRD_DD':'2026/09/18'}
+        result=m.interpret_row(row,issue,'20230101','20241230')
+        self.assertEqual(result['status'],'SOURCE_EVENT_CODE_DATE_MATCH_ONLY')
+        self.assertEqual(result['halt_date'],'2023-11-28')
+        self.assertEqual(result['provider_last_trade_date'],'2026-09-18')
+        self.assertTrue(result['last_trade_after_halt_event'])
+        self.assertEqual(result['resume_date'],'')
+        # The later last-trade field must NOT be mistaken for official re-opening.
+        self.assertFalse(m.RESUME_KEYS[0]=='LST_TRD_DD')
+
+    def test_actual_live_krx_20011_resump_dd_is_the_resume_column(self):
+        issue={'code':'418250','official_listing_event_isin':'KR7418250007'}
+        row={'ISU_CD':'418250','TRD_HALT_DD':'2024/04/05',
+             'RESUMP_DD':'2024/04/12','LST_TRD_DD':'2024/09/11'}
+        result=m.interpret_row(row,issue,'20230101','20241230')
+        self.assertEqual(result['resume_date'],'2024-04-12')
+        self.assertEqual(result['provider_last_trade_date'],'2024-09-11')
+        self.assertEqual(result['status'],'SOURCE_EVENT_CODE_DATE_MATCH_ONLY')
+        row['RESUMP_DD']='2024/03/01'
+        self.assertEqual(m.interpret_row(row,issue,'20230101','20241230')['status'],
+                         'BAD_RESUME_BEFORE_START')
+
     def test_interpret_wrong_identifier_or_unrecognized_date_undecided(self):
         issue={'code':'418250','official_listing_event_isin':'KR7418250007'}
         cases=[({'ISU_SRT_CD':'418251','TRD_HALT_DD':'2025/05/15'},'ROW_IDENTITY_CONFLICT'),
