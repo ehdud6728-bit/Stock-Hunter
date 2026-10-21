@@ -1,7 +1,7 @@
 """Provider-free Stage7-E source parsing and fail-closed regression tests."""
 import importlib.util,json,pathlib,sys,tempfile,unittest
 from unittest.mock import patch
-ROOT=pathlib.Path(__file__).resolve().parent
+ROOT=pathlib.Path(__file__).resolve().parents[1]/'research_pit'
 spec=importlib.util.spec_from_file_location('stage7e',ROOT/'pit_stage7e_effective_event_ledger.py')
 m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
 
