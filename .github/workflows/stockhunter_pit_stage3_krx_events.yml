@@ -4,11 +4,13 @@ on:
   workflow_dispatch:
     inputs:
       audit_phase:
-        description: 'PIT RESEARCH ONLY: Stage7-G KIND other market-notice evidence; all earlier stages unchanged'
+        description: 'PIT RESEARCH ONLY: Stage7-H offline SHA-pinned 57 KIND correction candidate audit; prior phases unchanged'
         required: true
         type: choice
-        default: stage7g
+        default: stage7h
         options:
+          - stage7h
+          - stage7g_verify
           - stage7g
           - stage7f
           - stage7e
@@ -1023,7 +1025,7 @@ jobs:
           retention-days: 90
 
   stage7g-offline-contracts:
-    if: ${{ github.event.inputs.audit_phase == 'stage7g' }}
+    if: ${{ github.event.inputs.audit_phase == 'stage7g' || github.event.inputs.audit_phase == 'stage7g_verify' }}
     name: Stage7-G no-network document identity / correction candidate / UNKNOWN gate invariants
     runs-on: ubuntu-latest
     timeout-minutes: 12
@@ -1039,8 +1041,20 @@ jobs:
           python-version: '3.11'
       - name: Install minimal source HTML reader dependencies
         run: pip install 'beautifulsoup4>=4.12,<5' 'requests>=2.31,<3'
-      - name: 15 strict identity, URL, raw SHA, fail-closed and nonproduction offline contracts
-        run: python -m unittest discover -s tests -p 'test_pit_stage7g_other_market_notices.py' -v
+      - name: Strict Stage7-G offline contracts - reject empty tests (minimum 15)
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s tests/test_pit_stage7g_other_market_notices.py
+          python - <<'PYTEST'
+          import unittest
+          suite=unittest.defaultTestLoader.discover('tests',pattern='test_pit_stage7g_other_market_notices.py')
+          if suite.countTestCases() < 15:
+              raise SystemExit('STAGE7G_TEST_DISCOVERY_EMPTY_OR_INCOMPLETE: '+str(suite.countTestCases()))
+          result=unittest.TextTestRunner(verbosity=2).run(suite)
+          if not result.wasSuccessful():
+              raise SystemExit('STAGE7G_TEST_FAILURE')
+          PYTEST
 
   stage7g-36-other-market-notice-bodies:
     if: ${{ github.event.inputs.audit_phase == 'stage7g' }}
@@ -1120,5 +1134,129 @@ jobs:
         with:
           name: stockhunter-pit-stage7g-kind-other-market-context-full-bodies
           path: reports/pit-stage7g/**
+          if-no-files-found: warn
+          retention-days: 90
+
+  stage7h-offline-contracts:
+    if: ${{ github.event.inputs.audit_phase == 'stage7h' }}
+    name: Stage7-H strict offline 25 source/identity/version/UNKNOWN contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      STOCKHUNTER_RESEARCH_ONLY: '1'
+      STOCKHUNTER_LIVE_ENABLE: '0'
+      STOCKHUNTER_SCORE_RANK_ENABLE: '0'
+      STOCKHUNTER_ORDER_ENABLE: '0'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install only source HTML parser (no KIND requests)
+        run: pip install 'beautifulsoup4>=4.12,<5' 'requests>=2.31,<3'
+      - name: Reject missing test file or zero discovered test cases
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s tests/test_pit_stage7h_57_notice_correction_chain.py
+          python - <<'PYTEST'
+          import unittest
+          suite=unittest.defaultTestLoader.discover('tests',pattern='test_pit_stage7h_57_notice_correction_chain.py')
+          n=suite.countTestCases()
+          print('STAGE7H_DISCOVERED_OFFLINE_TESTS',n,flush=True)
+          if n < 25: raise SystemExit('STAGE7H_NO_TEST_OR_TEST_COUNT_DRIFT:'+str(n))
+          r=unittest.TextTestRunner(verbosity=2).run(suite)
+          if not r.wasSuccessful(): raise SystemExit('STAGE7H_OFFLINE_CONTRACT_FAILURE')
+          PYTEST
+
+  stage7h-57-notice-correction-candidate-ledger:
+    if: ${{ github.event.inputs.audit_phase == 'stage7h' }}
+    needs: stage7h-offline-contracts
+    name: Stage7-H replay immutable C/D/E/F/G SHA evidence - no KIND fetch, NO daily approval
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    env:
+      TZ: Asia/Seoul
+      GH_TOKEN: ${{ github.token }}
+      STOCKHUNTER_RESEARCH_ONLY: '1'
+      STOCKHUNTER_LIVE_ENABLE: '0'
+      STOCKHUNTER_SCORE_RANK_ENABLE: '0'
+      STOCKHUNTER_ORDER_ENABLE: '0'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install only local original HTML parsing dependency
+        run: pip install 'beautifulsoup4>=4.12,<5' 'requests>=2.31,<3'
+      - name: Require exact successful source run and commit identities, fail closed
+        shell: bash
+        run: |
+          set -euo pipefail
+          for pin in \
+            39516839081:a88af6dbde14d4413f228fcd8b7c5e692fe48d7b \
+            39523929718:c8e07a889fc9e0e2497682d2f02a77ec5c505983 \
+            39530243566:489832d63720a45a7edfdca153c340596a08f4ce \
+            39541621602:cfd4a7d2fa71377273137c2b5d2ba9b104a39bc3 \
+            39570031470:4e221be6dfd02518e8fa3725994836fe029c7704
+          do
+            rid="${pin%%:*}"
+            expected_sha="${pin#*:}"
+            test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${rid}" --jq .conclusion)" = success
+            test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${rid}" --jq .head_sha)" = "$expected_sha"
+          done
+          echo STAGE7H_FIVE_PINNED_SOURCE_RUNS_VERIFIED
+      - name: Download Stage7-C official 57 indexed receipts and raw KIND search HTML
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 39516839081
+          github-token: ${{ github.token }}
+          name: stockhunter-pit-stage7c-kind-official-disclosure-source-canary
+          path: stage7c-source
+      - name: Download Stage7-D original 10 official full documents
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 39523929718
+          github-token: ${{ github.token }}
+          name: stockhunter-pit-stage7d-kind-full-document-source-evidence
+          path: stage7d-source
+      - name: Download Stage7-E immutable 3 incident candidate ledger
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 39530243566
+          github-token: ${{ github.token }}
+          name: stockhunter-pit-stage7e-official-document-incident-ledger
+          path: stage7e-source
+      - name: Download Stage7-F next 11 official full documents
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 39541621602
+          github-token: ${{ github.token }}
+          name: stockhunter-pit-stage7f-kind-direct-halt-source-coverage
+          path: stage7f-source
+      - name: Download Stage7-G exact successful 36 other KIND full documents
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 39570031470
+          github-token: ${{ github.token }}
+          name: stockhunter-pit-stage7g-kind-other-market-context-full-bodies
+          path: stage7g-source
+      - name: Offline replay 172 SHA raw objects and classify correction candidates - no KIND requests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -u research_pit/pit_stage7h_57_notice_correction_chain.py \
+            --stage7c-dir stage7c-source \
+            --stage7d-dir stage7d-source \
+            --stage7e-dir stage7e-source \
+            --stage7f-dir stage7f-source \
+            --stage7g-dir stage7g-source \
+            --out reports/pit-stage7h
+      - name: Preserve correction candidates and UNKNOWN evidence even on audit error
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-pit-stage7h-correction-candidates-sha-pinned-research-only
+          path: reports/pit-stage7h/**
           if-no-files-found: warn
           retention-days: 90
