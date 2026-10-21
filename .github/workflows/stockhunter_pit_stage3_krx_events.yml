@@ -4,11 +4,12 @@ on:
   workflow_dispatch:
     inputs:
       audit_phase:
-        description: 'PIT RESEARCH ONLY: Stage7-F KIND halt-notice body coverage, prior phases unchanged'
+        description: 'PIT RESEARCH ONLY: Stage7-G KIND other market-notice evidence; all earlier stages unchanged'
         required: true
         type: choice
-        default: stage7f
+        default: stage7g
         options:
+          - stage7g
           - stage7f
           - stage7e
           - stage7d
@@ -1018,5 +1019,106 @@ jobs:
         with:
           name: stockhunter-pit-stage7f-kind-direct-halt-source-coverage
           path: reports/pit-stage7f/**
+          if-no-files-found: warn
+          retention-days: 90
+
+  stage7g-offline-contracts:
+    if: ${{ github.event.inputs.audit_phase == 'stage7g' }}
+    name: Stage7-G no-network document identity / correction candidate / UNKNOWN gate invariants
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      STOCKHUNTER_RESEARCH_ONLY: '1'
+      STOCKHUNTER_LIVE_ENABLE: '0'
+      STOCKHUNTER_SCORE_RANK_ENABLE: '0'
+      STOCKHUNTER_ORDER_ENABLE: '0'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install minimal source HTML reader dependencies
+        run: pip install 'beautifulsoup4>=4.12,<5' 'requests>=2.31,<3'
+      - name: 15 strict identity, URL, raw SHA, fail-closed and nonproduction offline contracts
+        run: python -m unittest discover -s tests -p 'test_pit_stage7g_other_market_notices.py' -v
+
+  stage7g-36-other-market-notice-bodies:
+    if: ${{ github.event.inputs.audit_phase == 'stage7g' }}
+    needs: stage7g-offline-contracts
+    name: Stage7-G capture 36 unreviewed official KIND market notice bodies (cohort only, NOT PIT approval)
+    runs-on: ubuntu-latest
+    timeout-minutes: 22
+    env:
+      TZ: Asia/Seoul
+      GH_TOKEN: ${{ github.token }}
+      STOCKHUNTER_RESEARCH_ONLY: '1'
+      STOCKHUNTER_LIVE_ENABLE: '0'
+      STOCKHUNTER_SCORE_RANK_ENABLE: '0'
+      STOCKHUNTER_ORDER_ENABLE: '0'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install only official HTML/HTTP source parsing dependencies
+        run: pip install 'beautifulsoup4>=4.12,<5' 'requests>=2.31,<3'
+      - name: Require prior Stage7-C D E F successful immutable run and commit identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          for pin in \
+            '39516839081:a88af6dbde14d4413f228fcd8b7c5e692fe48d7b' \
+            '39523929718:c8e07a889fc9e0e2497682d2f02a77ec5c505983' \
+            '39530243566:489832d63720a45a7edfdca153c340596a08f4ce' \
+            '39541621602:cfd4a7d2fa71377273137c2b5d2ba9b104a39bc3'; do
+            rid="${pin%%:*}"
+            pinned="${pin#*:}"
+            test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${rid}" --jq .conclusion)" = success
+            test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${rid}" --jq .head_sha)" = "$pinned"
+          done
+          echo STAGE7G_CDEF_SOURCE_RUN_COMMIT_PINS_PASS
+      - name: Restore SHA-indexed 14 original KIND list HTML and 57 receipts (Stage7-C)
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 39516839081
+          github-token: ${{ github.token }}
+          name: stockhunter-pit-stage7c-kind-official-disclosure-source-canary
+          path: stage7c-source
+      - name: Restore Stage7-D 10 full original bodies (no refetch)
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 39523929718
+          github-token: ${{ github.token }}
+          name: stockhunter-pit-stage7d-kind-full-document-source-evidence
+          path: stage7d-source
+      - name: Restore Stage7-E 3 incident ledgers (no recomputation)
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 39530243566
+          github-token: ${{ github.token }}
+          name: stockhunter-pit-stage7e-official-document-incident-ledger
+          path: stage7e-source
+      - name: Restore Stage7-F 11 additional halt bodies and 36 pinned remaining notices
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 39541621602
+          github-token: ${{ github.token }}
+          name: stockhunter-pit-stage7f-kind-direct-halt-source-coverage
+          path: stage7f-source
+      - name: SHA replay Stage7-C D E F and request ONLY 36 unseen contextual KIND full documents
+        shell: bash
+        run: |
+          python -u research_pit/pit_stage7g_other_market_notices.py \
+            --stage7c-dir stage7c-source \
+            --stage7d-dir stage7d-source \
+            --stage7e-dir stage7e-source \
+            --stage7f-dir stage7f-source \
+            --out reports/pit-stage7g --pause 0.75
+      - name: Preserve SHA raw HTML, context and UNKNOWN status even after partial failures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-pit-stage7g-kind-other-market-context-full-bodies
+          path: reports/pit-stage7g/**
           if-no-files-found: warn
           retention-days: 90
