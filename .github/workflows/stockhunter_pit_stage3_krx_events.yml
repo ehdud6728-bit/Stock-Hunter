@@ -4,11 +4,12 @@ on:
   workflow_dispatch:
     inputs:
       audit_phase:
-        description: 'PIT research phase (Stage7-C KIND official disclosure evidence CANARY; no backtest or LIVE changes)'
+        description: 'PIT research phase (Stage7-D official KIND full-body canary; no backtest or LIVE changes)'
         required: true
         type: choice
-        default: stage7c
+        default: stage7d
         options:
+          - stage7d
           - stage7c
           - stage7b
           - stage7
@@ -758,5 +759,78 @@ jobs:
         with:
           name: stockhunter-pit-stage7c-kind-official-disclosure-source-canary
           path: reports/pit-stage7c/**
+          if-no-files-found: warn
+          retention-days: 90
+
+  stage7d-offline-document-contracts:
+    if: ${{ github.event.inputs.audit_phase == 'stage7d' }}
+    name: Stage7-D original notice/full-body URL validation and fail-closed contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      STOCKHUNTER_RESEARCH_ONLY: '1'
+      STOCKHUNTER_LIVE_ENABLE: '0'
+      STOCKHUNTER_SCORE_RANK_ENABLE: '0'
+      STOCKHUNTER_ORDER_ENABLE: '0'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install HTML parser only (no credential-bearing third-party fork)
+        run: pip install 'beautifulsoup4>=4.12,<5'
+      - name: Test source-tamper, receipt-bound URL, raw replay, and no PIT promotion
+        run: python -m unittest discover -s tests -p 'test_pit_stage7d_kind_full_document.py' -v
+
+  stage7d-kind-full-document-canary:
+    if: ${{ github.event.inputs.audit_phase == 'stage7d' }}
+    needs: stage7d-offline-document-contracts
+    name: Stage7-D collect 10 official KIND full market-action bodies from SHA-pinned 57 receipts (RESEARCH ONLY)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TZ: Asia/Seoul
+      GH_TOKEN: ${{ github.token }}
+      STOCKHUNTER_RESEARCH_ONLY: '1'
+      STOCKHUNTER_LIVE_ENABLE: '0'
+      STOCKHUNTER_SCORE_RANK_ENABLE: '0'
+      STOCKHUNTER_ORDER_ENABLE: '0'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install minimal published HTTP and HTML parser dependencies
+        run: pip install 'requests>=2.31,<3' 'beautifulsoup4>=4.12,<5'
+      - name: Require pinned successful Stage7-B and Stage7-C runs at exact source commits
+        shell: bash
+        run: |
+          set -euo pipefail
+          for pin in '39436389287:031713507387142b455476c57db3352688fccc50' '39516839081:a88af6dbde14d4413f228fcd8b7c5e692fe48d7b'; do
+            runid="${pin%%:*}"
+            sha="${pin#*:}"
+            test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${runid}" --jq .conclusion)" = success
+            test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${runid}" --jq .head_sha)" = "$sha"
+          done
+          echo STAGE7D_TWO_IMMUTABLE_SOURCE_RUN_PINS_PASS
+      - name: Download Stage7-C official KIND 14-response + 57-receipt original source, NO refetch of candidate list
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 39516839081
+          github-token: ${{ github.token }}
+          name: stockhunter-pit-stage7c-kind-official-disclosure-source-canary
+          path: stage7c-source
+      - name: Independently SHA-replay 14 source HTML and fetch full KIND documents for 10 exact receipts
+        shell: bash
+        run: |
+          python -u research_pit/pit_stage7d_kind_full_document.py \
+            --stage7c-dir stage7c-source \
+            --out reports/pit-stage7d --pause 0.8
+      - name: Save KIND viewer/resolver/body raw source, SHA evidence, and unknowns even after errors
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-pit-stage7d-kind-full-document-source-evidence
+          path: reports/pit-stage7d/**
           if-no-files-found: warn
           retention-days: 90
