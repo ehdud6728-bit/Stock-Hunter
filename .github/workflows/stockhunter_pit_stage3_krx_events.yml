@@ -4,11 +4,12 @@ on:
   workflow_dispatch:
     inputs:
       audit_phase:
-        description: 'PIT research phase (Stage7-D official KIND full-body canary; no backtest or LIVE changes)'
+        description: 'PIT RESEARCH ONLY: Stage7-E document event ledger, prior phases unchanged'
         required: true
         type: choice
-        default: stage7d
+        default: stage7e
         options:
+          - stage7e
           - stage7d
           - stage7c
           - stage7b
@@ -832,5 +833,97 @@ jobs:
         with:
           name: stockhunter-pit-stage7d-kind-full-document-source-evidence
           path: reports/pit-stage7d/**
+          if-no-files-found: warn
+          retention-days: 90
+
+  stage7e-offline-ledger-contracts:
+    if: ${{ github.event.inputs.audit_phase == 'stage7e' }}
+    name: Stage7-E official document effective-date event ledger offline invariants
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      STOCKHUNTER_RESEARCH_ONLY: '1'
+      STOCKHUNTER_LIVE_ENABLE: '0'
+      STOCKHUNTER_SCORE_RANK_ENABLE: '0'
+      STOCKHUNTER_ORDER_ENABLE: '0'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install minimal DOM parser (no KRX credentials or API calls)
+        run: pip install 'beautifulsoup4>=4.12,<5'
+      - name: Run Stage7-E parsing, identity, event segmentation, and fail-closed tests
+        run: python -m unittest discover -s tests -p 'test_pit_stage7e_effective_event_ledger.py' -v
+
+  stage7e-official-document-incident-ledger:
+    if: ${{ github.event.inputs.audit_phase == 'stage7e' }}
+    needs: stage7e-offline-ledger-contracts
+    name: Stage7-E replay SHA-pinned KIND 10 full bodies and build 3 event ledgers (NOT daily eligibility)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TZ: Asia/Seoul
+      GH_TOKEN: ${{ github.token }}
+      STOCKHUNTER_RESEARCH_ONLY: '1'
+      STOCKHUNTER_LIVE_ENABLE: '0'
+      STOCKHUNTER_SCORE_RANK_ENABLE: '0'
+      STOCKHUNTER_ORDER_ENABLE: '0'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install minimal HTML parser (offline evidence, no KRX network)
+        run: pip install 'beautifulsoup4>=4.12,<5'
+      - name: Pin completed Stage7-B, C, and D original source run and commit identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          for pin in \
+            '39436389287:031713507387142b455476c57db3352688fccc50' \
+            '39516839081:a88af6dbde14d4413f228fcd8b7c5e692fe48d7b' \
+            '39523929718:c8e07a889fc9e0e2497682d2f02a77ec5c505983'; do
+            rid="${pin%%:*}"
+            sh="${pin#*:}"
+            test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${rid}" --jq .conclusion)" = success
+            test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${rid}" --jq .head_sha)" = "$sh"
+          done
+          echo STAGE7E_BCD_SOURCE_RUN_AND_COMMIT_IDENTITY_PINS_PASS
+      - name: Download immutable Stage7-B original price observations (1809 focus rows only)
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 39436389287
+          github-token: ${{ github.token }}
+          name: stockhunter-pit-stage7b-event-vs-original-daily-price-evidence
+          path: stage7b-source
+      - name: Download Stage7-C 57 official notice candidates
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 39516839081
+          github-token: ${{ github.token }}
+          name: stockhunter-pit-stage7c-kind-official-disclosure-source-canary
+          path: stage7c-source
+      - name: Download Stage7-D 10 SHA-verified full official HTML document triplets
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 39523929718
+          github-token: ${{ github.token }}
+          name: stockhunter-pit-stage7d-kind-full-document-source-evidence
+          path: stage7d-source
+      - name: Reparse original KIND DOM and isolate 3 incidents without changing backtests
+        shell: bash
+        run: |
+          python -u research_pit/pit_stage7e_effective_event_ledger.py \
+            --stage7b-dir stage7b-source \
+            --stage7c-dir stage7c-source \
+            --stage7d-dir stage7d-source \
+            --out reports/pit-stage7e
+      - name: Preserve incident ledger, original SHA mappings, and unknown status
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-pit-stage7e-official-document-incident-ledger
+          path: reports/pit-stage7e/**
           if-no-files-found: warn
           retention-days: 90
