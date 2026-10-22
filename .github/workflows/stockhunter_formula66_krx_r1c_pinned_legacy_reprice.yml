@@ -1,0 +1,141 @@
+name: StockHunter Formula66 R1-C Pinned KRX Legacy PRE Reprice (RESEARCH ONLY)
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Pinned R1-B capture run 39738384453 + original KRX 39295295197; PRE signals only"
+        type: choice
+        required: true
+        default: full_reprice
+        options:
+          - source_check
+          - full_reprice
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: formula66-krx-pinned-r1c-${{ github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  RESEARCH_ONLY: '1'
+  STOCKHUNTER_LIVE_ENABLE: '0'
+  STOCKHUNTER_SCORE_RANK_ENABLE: '0'
+  STOCKHUNTER_ORDER_ENABLE: '0'
+  PYTHONDONTWRITEBYTECODE: '1'
+  TZ: Asia/Seoul
+
+jobs:
+  offline_and_pinned_source_check:
+    name: Offline 46+R1C regression and exact immutable source identity
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install ONLY local KRX analysis dependencies
+        run: pip install 'pandas>=2.0,<3' 'numpy>=1.24,<3' 'pyyaml>=6,<7'
+      - name: Run previous immutable source truth and R1C tests
+        run: |
+          set -euo pipefail
+          cmp .github/workflows/stockhunter_formula66_krx_r1c_pinned_legacy_reprice.yml stockhunter_formula66_krx_r1c_pinned_legacy_reprice.yml
+          python -m py_compile research_core224/krx_truth_r1.py research_formulas/formula66_krx_r1c_pinned_reprice.py
+          python -m unittest discover -s tests -p 'test_formula66_truth_krx_r1.py' -v
+          python -m unittest discover -s tests -p 'test_formula66_krx_r1c_pinned_reprice.py' -v
+      - name: Verify actual GitHub pinned runs and artifact IDs+digests before any downloads
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p reports/formula66_r1c/remote
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/39738384453" > reports/formula66_r1c/remote/capture_run.json
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/39295295197" > reports/formula66_r1c/remote/krx_run.json
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/39738384453/artifacts?per_page=100" > reports/formula66_r1c/remote/capture_artifacts.json
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/39295295197/artifacts?per_page=100" > reports/formula66_r1c/remote/krx_artifacts.json
+          python - <<'PY'
+          import json,pathlib
+          p=pathlib.Path('reports/formula66_r1c/remote')
+          obj={'capture_run':json.loads((p/'capture_run.json').read_text()),
+               'krx_run':json.loads((p/'krx_run.json').read_text()),
+               'capture_artifacts':json.loads((p/'capture_artifacts.json').read_text()).get('artifacts',[]),
+               'krx_artifacts':json.loads((p/'krx_artifacts.json').read_text()).get('artifacts',[])}
+          (p/'pinned_source_metadata.json').write_text(json.dumps(obj,sort_keys=True,indent=2))
+          PY
+          python research_formulas/formula66_krx_r1c_pinned_reprice.py \
+            --mode source_preflight --repo-root . \
+            --remote-meta reports/formula66_r1c/remote/pinned_source_metadata.json
+      - name: Upload strict provenance preflight
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: formula66-r1c-pinned-source-check
+          path: reports/formula66_r1c/remote/
+          if-no-files-found: warn
+          retention-days: 60
+
+  reprice_verified_existing_krx:
+    name: Existing full-market 1907-session KRX 8-shard reprice of 3884 legacy PRE true hits
+    if: ${{ inputs.mode == 'full_reprice' }}
+    needs: offline_and_pinned_source_check
+    runs-on: ubuntu-latest
+    timeout-minutes: 110
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install ONLY local KRX analysis dependencies
+        run: pip install 'pandas>=2.0,<3' 'numpy>=1.24,<3'
+      - name: Download R1C pinned source identity and digests manifest
+        uses: actions/download-artifact@v4
+        with:
+          name: formula66-r1c-pinned-source-check
+          path: reports/formula66_r1c/remote
+      - name: Download exact R1-B PRE-truth record (no post-only promotion)
+        uses: actions/download-artifact@v4
+        with:
+          name: stockhunter-main7-formula66-r1-capture-capture_truth
+          run-id: 39738384453
+          github-token: ${{ github.token }}
+          path: reports/formula66_r1c/r1b
+      - name: Download all eight KRX full-market raw shards from already completed backfill
+        uses: actions/download-artifact@v4
+        with:
+          pattern: stockhunter-allkrx-price-shard-*
+          run-id: 39295295197
+          github-token: ${{ github.token }}
+          path: reports/formula66_r1c/krx_original
+          merge-multiple: true
+      - name: Strict re-check source identity after download; validate original KRX SHA+rows and reprice
+        shell: bash
+        run: |
+          set -euo pipefail
+          python research_formulas/formula66_krx_r1c_pinned_reprice.py \
+            --mode reprice --repo-root . \
+            --remote-meta reports/formula66_r1c/remote/pinned_source_metadata.json \
+            --capture reports/formula66_r1c/r1b \
+            --krx-root reports/formula66_r1c/krx_original \
+            --reference research_pit/historical_market_counts_20190102_20261012.csv \
+            --out reports/formula66_r1c/result
+      - name: Upload full output even on fail (never uploads 5m raw KRX bars)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: formula66-r1c-legacy-signals-KRX-raw-price-reprice
+          path: |
+            reports/formula66_r1c/result/**
+            reports/formula66_r1c/remote/pinned_source_metadata.json
+          if-no-files-found: warn
+          retention-days: 60
