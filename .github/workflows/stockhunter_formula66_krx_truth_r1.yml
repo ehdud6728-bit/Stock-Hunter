@@ -1,0 +1,183 @@
+name: StockHunter Main7 66 Formula Truth x KRX R1 (RESEARCH ONLY)
+
+on:
+  workflow_dispatch:
+    inputs:
+      scope:
+        description: 'contracts = independent 66+6 static audit; capture_truth = replay historic PRE bitmap; capture_krx_reprice = KRX-only price outcome on legacy signals (not KRX rescreen)'
+        type: choice
+        required: true
+        default: contracts
+        options:
+          - contracts
+          - capture_truth
+          - capture_krx_reprice
+      capture_run_id:
+        description: 'Existing SUCCESS full-universe Direct Replay GitHub run containing v72_search_formula_universe_truth_raw.csv; required except contracts'
+        type: string
+        required: false
+        default: ''
+      capture_artifact_name:
+        description: 'EXACT artifact name in capture_run_id; required except contracts'
+        type: string
+        required: false
+        default: ''
+      krx_run_id:
+        description: 'Successful CORE224 KRX-only R1 scope=full run; required only for capture_krx_reprice'
+        type: string
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: stockhunter-formula66-r1-${{ github.ref }}-${{ inputs.scope }}
+  cancel-in-progress: false
+
+env:
+  RESEARCH_ONLY: '1'
+  STOCKHUNTER_LIVE_ENABLE: '0'
+  STOCKHUNTER_SCORE_RANK_ENABLE: '0'
+  STOCKHUNTER_ORDER_ENABLE: '0'
+
+jobs:
+  contracts:
+    name: Validate current pinned main7 66+6 and temporal review; no performance claim
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install minimal offline requirements
+        run: pip install 'pandas>=2.0,<3' 'numpy>=1.24,<3' 'pyyaml>=6,<7'
+      - name: Refuse drift from current repository baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git hash-object main7_bugfix_2.py)" = 8d210abdb3b01180fb0b5c108e36159f8deec527
+          test "$(git hash-object search_formula_contract_registry.json)" = b477e069c310efed4011fe0a7f2ca394b35cdb72
+          test -s research_formulas/formula66_truth_krx_r1.py
+          test -s tests/test_formula66_truth_krx_r1.py
+          test "$(sha256sum .github/workflows/stockhunter_formula66_krx_truth_r1.yml | cut -d' ' -f1)" = "$(sha256sum stockhunter_formula66_krx_truth_r1.yml | cut -d' ' -f1)"
+          python -m py_compile research_formulas/formula66_truth_krx_r1.py
+      - name: Run isolated registry and captured-formula correctness unit tests
+        run: python -m unittest discover -s tests -p 'test_formula66_truth_krx_r1.py' -v
+      - name: Generate static 66 formula / 6 auxiliary inventory and fail-closed manifest
+        run: |
+          python research_formulas/formula66_truth_krx_r1.py --mode contracts \
+            --registry search_formula_contract_registry.json --main7 main7_bugfix_2.py \
+            --out reports/formula66_krx_r1/contracts
+      - name: Audit manifest has 66 + 6, retains 8 temporal concerns and refuses profit claims
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path('reports/formula66_krx_r1/contracts/formula66_manifest.json')
+          m=json.loads(p.read_text(encoding='utf-8'))
+          assert m['formula_count']==66 and m['aux_count']==6
+          assert m['unique_formula_referenced_keys']==52
+          assert m['static_timing_review_formulas']==8
+          assert m['aux_registry_function_not_found']==2
+          assert m['strategy_ready'] is False and m['provider_of_performance']=='NOT_EVALUATED'
+          print('FORMULA66_STATIC_MANIFEST_VALID',m['status'],flush=True)
+          PY
+      - name: Upload offline static findings even if later capture cannot be proven
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-main7-formula66-r1-contracts
+          path: reports/formula66_krx_r1/contracts/
+          retention-days: 90
+          if-no-files-found: warn
+
+  capture-replay:
+    name: Strict historical PRE signal truth capture and optional original KRX-only reprice
+    if: ${{ inputs.scope != 'contracts' }}
+    needs: contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      SCOPE: ${{ inputs.scope }}
+      CAPTURE_RUN_ID: ${{ inputs.capture_run_id }}
+      CAPTURE_ARTIFACT_NAME: ${{ inputs.capture_artifact_name }}
+      KRX_RUN_ID: ${{ inputs.krx_run_id }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install analysis-only dependencies; NO FinanceDataReader
+        run: pip install 'pandas>=2.0,<3' 'numpy>=1.24,<3'
+      - name: Validate explicitly selected immutable upstream runs and source artifact identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$CAPTURE_RUN_ID" =~ ^[0-9]+$ ]]
+          [[ -n "$CAPTURE_ARTIFACT_NAME" ]]
+          mkdir -p reports/formula66_krx_r1/replay
+          gh api "repos/${{ github.repository }}/actions/runs/$CAPTURE_RUN_ID" \
+            > reports/formula66_krx_r1/replay/upstream_capture_run.json
+          jq -r '.conclusion' reports/formula66_krx_r1/replay/upstream_capture_run.json | grep -Fx success
+          gh api --paginate "repos/${{ github.repository }}/actions/runs/$CAPTURE_RUN_ID/artifacts?per_page=100" \
+            --jq '.artifacts[].name' | grep -Fx "$CAPTURE_ARTIFACT_NAME"
+          if [[ "$SCOPE" = capture_krx_reprice ]]; then
+            [[ "$KRX_RUN_ID" =~ ^[0-9]+$ ]]
+            gh api "repos/${{ github.repository }}/actions/runs/$KRX_RUN_ID" \
+              > reports/formula66_krx_r1/replay/upstream_krx_run.json
+            jq -r '.conclusion' reports/formula66_krx_r1/replay/upstream_krx_run.json | grep -Fx success
+            test -s research_core224/krx_truth_r1.py
+            test "$(git hash-object research_core224/krx_truth_r1.py)" = e0fd01bcb6eb365bb55922a632a4eef18c5fe57c
+          fi
+      - name: Download precisely named historic full-universe original formula-truth artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.capture_artifact_name }}
+          run-id: ${{ inputs.capture_run_id }}
+          github-token: ${{ github.token }}
+          path: reports/formula66_krx_r1/upstream_capture
+      - name: Resolve exact PRE formula-truth capture CSV from upstream artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t files < <(find reports/formula66_krx_r1/upstream_capture -type f -name 'v72_search_formula_universe_truth_raw.csv' | sort)
+          if [ "${#files[@]}" -ne 1 ]; then
+            echo "FAIL_CLOSED_EXPECT_ONE_FULL_UNIVERSE_CAPTURE_FOUND=${#files[@]}" >&2
+            find reports/formula66_krx_r1/upstream_capture -type f | head -100
+            exit 2
+          fi
+          echo "FORMULA66_CAPTURE_CSV=${files[0]}" >> "$GITHUB_ENV"
+          echo "SOURCE_CAPTURE_SHA256=$(sha256sum "${files[0]}" | cut -d' ' -f1)" >> "$GITHUB_ENV"
+      - name: Download eight verified KRX full-market raw shards from explicitly selected prior scope=full run
+        if: ${{ inputs.scope == 'capture_krx_reprice' }}
+        uses: actions/download-artifact@v4
+        with:
+          pattern: core224-krx-source-r1-shard-*
+          run-id: ${{ inputs.krx_run_id }}
+          github-token: ${{ github.token }}
+          merge-multiple: true
+          path: reports/formula66_krx_r1/krx_raw
+      - name: Run exact PRE truth audit and KRX-price-only optional outcome (not KRX-native formula rescreen)
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=(--mode "$SCOPE" --capture "$FORMULA66_CAPTURE_CSV"
+            --registry search_formula_contract_registry.json --main7 main7_bugfix_2.py
+            --out reports/formula66_krx_r1/replay)
+          if [ "$SCOPE" = capture_krx_reprice ]; then
+            args+=(--krx-root reports/formula66_krx_r1/krx_raw
+              --krx-reference research_pit/historical_market_counts_20190102_20261012.csv)
+          fi
+          python -u research_formulas/formula66_truth_krx_r1.py "${args[@]}"
+      - name: Upload data provenance, PRE mismatch, unverified and price path logs even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-main7-formula66-r1-capture-${{ inputs.scope }}
+          path: reports/formula66_krx_r1/replay/
+          retention-days: 90
+          if-no-files-found: warn
