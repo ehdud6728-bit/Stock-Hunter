@@ -1,0 +1,223 @@
+name: StockHunter PIT Stage7-J Selected Official Full Bodies (RESEARCH ONLY)
+
+on:
+  workflow_dispatch:
+    inputs:
+      audit_phase:
+        description: 'Stage7-J: re-pin original 7H/7I and 172 raw; collect ONLY six + four official KIND body candidates'
+        required: true
+        type: choice
+        default: stage7j
+        options:
+          - stage7j
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: stockhunter-pit-stage7j-selected-kind-bodies
+  cancel-in-progress: false
+
+jobs:
+  stage7j-offline-contracts:
+    if: ${{ github.event.inputs.audit_phase == 'stage7j' }}
+    name: Stage7-J replay 57 originals / 172 raw SHA and 7-I 74 raw-list rows (offline)
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    env:
+      TZ: Asia/Seoul
+      GH_TOKEN: ${{ github.token }}
+      STOCKHUNTER_RESEARCH_ONLY: '1'
+      STOCKHUNTER_LIVE_ENABLE: '0'
+      STOCKHUNTER_SCORE_RANK_ENABLE: '0'
+      STOCKHUNTER_ORDER_ENABLE: '0'
+      STAGE7J_EVIDENCE_ROOT: stage7j-source
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install source HTML reader and offline workflow test dependencies
+        run: pip install 'beautifulsoup4>=4.12,<5' 'requests>=2.31,<3' 'PyYAML>=6,<7'
+      - name: Strictly pin all prior successful run SHA and artifact DIGEST identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          for pin in \
+            39523929718:c8e07a889fc9e0e2497682d2f02a77ec5c505983 \
+            39541621602:cfd4a7d2fa71377273137c2b5d2ba9b104a39bc3 \
+            39570031470:4e221be6dfd02518e8fa3725994836fe029c7704 \
+            39578003404:0fb4392da16320c11671f9fd64f5582a28579d00 \
+            39708812035:a3cd338b1306030039f117fa8392a9c9be359db7
+          do
+            rid="${pin%%:*}"
+            expected_sha="${pin#*:}"
+            test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${rid}" --jq .conclusion)" = success
+            test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${rid}" --jq .head_sha)" = "$expected_sha"
+          done
+          for pin in \
+            12311588532:sha256:9134bf69da37dca28aa935647fc3f4c35a93d8c2b22f66874a234f191d24b10b \
+            12320020824:sha256:d25a2b2a9d90478b5699899d9774b57ba268c15d5212efaf320acd14c76c2b08 \
+            12331038075:sha256:78c0ffb56422235b6f492e5b5af5fc6a9c7f1dd523d8c5dbab06dc8afe7be06c \
+            12335870064:sha256:18bee4ef59c5ce7d9cc50483973b469dca2aabeee8c53b9bc9ba320e20bbed04 \
+            12396655109:sha256:275cdfc71fe2be4280bd21ecc400449f78246a0a88fd99fbeffafa553b9e3a48
+          do
+            aid="${pin%%:*}"
+            expected_digest="${pin#*:}"
+            test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${aid}" --jq .digest)" = "$expected_digest"
+            test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${aid}" --jq .expired)" = false
+          done
+          echo STAGE7J_PRIOR_IMMUTABLE_SOURCE_AND_ARTIFACT_PINS_PASS
+      - name: Restore exact Stage7-H 57 docs and 3 incidents (do not re-fetch)
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 39578003404
+          github-token: ${{ github.token }}
+          name: stockhunter-pit-stage7h-correction-candidates-sha-pinned-research-only
+          path: stage7j-source/7h
+      - name: Restore exact Stage7-I real official 8-window canary (do not query again)
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 39708812035
+          github-token: ${{ github.token }}
+          name: stockhunter-pit-stage7i-bounded-outside57-category-gap-canary
+          path: stage7j-source/7i
+      - name: Restore Stage7-D ten existing bodies and their raw SHA evidence
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 39523929718
+          github-token: ${{ github.token }}
+          name: stockhunter-pit-stage7d-kind-full-document-source-evidence
+          path: stage7j-source/7d
+      - name: Restore Stage7-F eleven existing bodies and raw SHA evidence
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 39541621602
+          github-token: ${{ github.token }}
+          name: stockhunter-pit-stage7f-kind-direct-halt-source-coverage
+          path: stage7j-source/7f
+      - name: Restore Stage7-G thirty-six existing bodies and raw SHA evidence
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 39570031470
+          github-token: ${{ github.token }}
+          name: stockhunter-pit-stage7g-kind-other-market-context-full-bodies
+          path: stage7j-source/7g
+      - name: Run >=30 fail-closed synthetic plus REAL pinned SHA regression contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s tests/test_pit_stage7j_selected_notice_fullbody.py
+          python - <<'PYTEST'
+          import unittest
+          suite=unittest.defaultTestLoader.discover('tests', pattern='test_pit_stage7j_selected_notice_fullbody.py')
+          n=suite.countTestCases()
+          print('STAGE7J_DISCOVERED_STRICT_TESTS', n, flush=True)
+          if n < 30: raise SystemExit('STAGE7J_TEST_DISCOVERY_MISSING_OR_COUNT_DRIFT:'+str(n))
+          result=unittest.TextTestRunner(verbosity=2).run(suite)
+          if not result.wasSuccessful(): raise SystemExit('STAGE7J_TESTS_FAILED')
+          PYTEST
+      - name: SHA replay original 172 raw and Stage7-I eight KIND query HTML then select exactly 10
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -u research_pit/pit_stage7j_selected_notice_fullbody.py \
+            --stage7h-dir stage7j-source/7h \
+            --stage7i-dir stage7j-source/7i \
+            --stage7d-dir stage7j-source/7d \
+            --stage7f-dir stage7j-source/7f \
+            --stage7g-dir stage7j-source/7g \
+            --mode offline --out reports/pit-stage7j-offline
+      - name: Publish offline source gap plan even on failure; NEVER approve PIT
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-pit-stage7j-pinned-ten-target-offline-plan
+          path: reports/pit-stage7j-offline/**
+          if-no-files-found: warn
+          retention-days: 90
+
+  stage7j-official-selected-full-bodies:
+    if: ${{ github.event.inputs.audit_phase == 'stage7j' }}
+    needs: stage7j-offline-contracts
+    name: Stage7-J targeted 6 market + 4 court-context KIND bodies (NO new broad search)
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      TZ: Asia/Seoul
+      GH_TOKEN: ${{ github.token }}
+      STOCKHUNTER_RESEARCH_ONLY: '1'
+      STOCKHUNTER_LIVE_ENABLE: '0'
+      STOCKHUNTER_SCORE_RANK_ENABLE: '0'
+      STOCKHUNTER_ORDER_ENABLE: '0'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install previously reviewed Stage7-D KIND provider dependencies only
+        run: pip install 'beautifulsoup4>=4.12,<5' 'requests>=2.31,<3'
+      - name: Re-pin source evidence before any official full body HTTP request
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/39578003404" --jq .head_sha)" = 0fb4392da16320c11671f9fd64f5582a28579d00
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/39708812035" --jq .conclusion)" = success
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/39708812035" --jq .head_sha)" = a3cd338b1306030039f117fa8392a9c9be359db7
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/12396655109" --jq .digest)" = sha256:275cdfc71fe2be4280bd21ecc400449f78246a0a88fd99fbeffafa553b9e3a48
+      - name: Restore pinned 7-H official selected-57 metadata
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 39578003404
+          github-token: ${{ github.token }}
+          name: stockhunter-pit-stage7h-correction-candidates-sha-pinned-research-only
+          path: stage7j-source/7h
+      - name: Restore pinned 7-I eight-window source HTML and six positive candidates
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 39708812035
+          github-token: ${{ github.token }}
+          name: stockhunter-pit-stage7i-bounded-outside57-category-gap-canary
+          path: stage7j-source/7i
+      - name: Restore Stage7-D original unchanged full bodies
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 39523929718
+          github-token: ${{ github.token }}
+          name: stockhunter-pit-stage7d-kind-full-document-source-evidence
+          path: stage7j-source/7d
+      - name: Restore Stage7-F original unchanged full bodies
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 39541621602
+          github-token: ${{ github.token }}
+          name: stockhunter-pit-stage7f-kind-direct-halt-source-coverage
+          path: stage7j-source/7f
+      - name: Restore Stage7-G original unchanged full bodies
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 39570031470
+          github-token: ${{ github.token }}
+          name: stockhunter-pit-stage7g-kind-other-market-context-full-bodies
+          path: stage7j-source/7g
+      - name: Reuse old raw objects, fetch ONLY exact 10 official KIND documents with rate limit
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -u research_pit/pit_stage7j_selected_notice_fullbody.py \
+            --stage7h-dir stage7j-source/7h \
+            --stage7i-dir stage7j-source/7i \
+            --stage7d-dir stage7j-source/7d \
+            --stage7f-dir stage7j-source/7f \
+            --stage7g-dir stage7j-source/7g \
+            --mode collect --pause 1.0 \
+            --out reports/pit-stage7j-bodies
+      - name: Always save all captured raw bodies, manual relationship queue, UNKNOWN gates
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-pit-stage7j-ten-official-bodies-context-sha-research-only
+          path: reports/pit-stage7j-bodies/**
+          if-no-files-found: warn
+          retention-days: 90
