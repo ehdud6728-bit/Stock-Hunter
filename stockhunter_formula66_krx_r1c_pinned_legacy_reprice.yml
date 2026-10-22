@@ -69,7 +69,7 @@ jobs:
                'krx_artifacts':json.loads((p/'krx_artifacts.json').read_text()).get('artifacts',[])}
           (p/'pinned_source_metadata.json').write_text(json.dumps(obj,sort_keys=True,indent=2))
           PY
-          python research_formulas/formula66_krx_r1c_pinned_reprice.py \
+          python -m research_formulas.formula66_krx_r1c_pinned_reprice \
             --mode source_preflight --repo-root . \
             --remote-meta reports/formula66_r1c/remote/pinned_source_metadata.json
       - name: Upload strict provenance preflight
@@ -122,7 +122,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python research_formulas/formula66_krx_r1c_pinned_reprice.py \
+          python -m research_formulas.formula66_krx_r1c_pinned_reprice \
             --mode reprice --repo-root . \
             --remote-meta reports/formula66_r1c/remote/pinned_source_metadata.json \
             --capture reports/formula66_r1c/r1b \
