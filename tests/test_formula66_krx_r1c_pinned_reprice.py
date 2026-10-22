@@ -156,4 +156,30 @@ class PinnedR1C(unittest.TestCase):
         self.assertEqual(m.KRX_SHARD_DIGESTS,expected)
 
 
+    def test_25_GitHub_both_cli_steps_launch_as_importable_module(self):
+        flow=(ROOT/'.github/workflows/stockhunter_formula66_krx_r1c_pinned_legacy_reprice.yml').read_text(encoding='utf-8')
+        good='python -m research_formulas.formula66_krx_r1c_pinned_reprice'
+        self.assertEqual(flow.count(good),2,
+                         'Both preflight and full repricing must share the same importable module entry point')
+        self.assertNotIn('python research_formulas/formula66_krx_r1c_pinned_reprice.py',flow)
+        self.assertIn('--mode source_preflight',flow)
+        self.assertIn('--mode reprice',flow)
+
+    def test_26_module_cli_imports_project_package_with_root_as_sys_path(self):
+        import subprocess
+        completed=subprocess.run(
+            [sys.executable,'-m','research_formulas.formula66_krx_r1c_pinned_reprice','--help'],
+            cwd=str(ROOT),capture_output=True,text=True,timeout=15)
+        self.assertEqual(completed.returncode,0,completed.stderr)
+        self.assertIn('source_preflight',completed.stdout)
+        self.assertIn('reprice',completed.stdout)
+
+    def test_27_script_path_form_would_have_bypassed_project_root(self):
+        # Guard against a regression to the exact direct-script invocation that
+        # produced ModuleNotFoundError: No module named 'research_formulas'.
+        flow=(ROOT/'.github/workflows/stockhunter_formula66_krx_r1c_pinned_legacy_reprice.yml').read_text(encoding='utf-8')
+        self.assertNotRegex(flow,r'(?m)^\s*python\s+research_formulas/')
+        self.assertEqual(flow.count('python -m research_formulas.formula66_krx_r1c_pinned_reprice'),2)
+
+
 if __name__=='__main__':unittest.main()
