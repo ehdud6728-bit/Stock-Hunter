@@ -28,7 +28,7 @@ KRX_SHARD_DIGESTS={
 2:(12209930511,'sha256:5c49df64ad10bafbc09dd7ea78b9377804735fda6ad861018750b396ab2a27cb'),
 3:(12209696204,'sha256:7a359f5959e2374622c40d068920adf9d695142b4a61b540d0752a8cb9bb4dd8'),
 4:(12208882046,'sha256:88b35ea4c9a8a6a0ed4b61250a8018d49ee7ba4489c7345f04012915bb60f997'),
-5:(12208443687,'sha256:eb503f7cabcc40991037092c646ea4f56885b3814'),
+5:(12208443687,'sha256:eb503f7cabcc40991037092c6463437c8a8b71d43fb26fe646ea4f56885b3814'),
 6:(12211336402,'sha256:b3cc055d919c7ab92d7f27b1b3ce6d3e56df787b107af961eaa43dedb885d6cd'),
 7:(12212241289,'sha256:9563747eb8b27928ba0a0d2b7d3cf02e787acd2e9e4a656d410c286139321478'),
 }
@@ -73,6 +73,20 @@ def check_source_pins(root):
 
 def validate_remote_source_metadata(meta):
     """Call with JSON returned from gh api (never trust a user-typed artifact name)."""
+    # Explicit digest-shape sanity guard. A truncated pinned SHA must fail even
+    # when unit-test fixtures are inadvertently generated from that same pin.
+    digest_shape = re.compile(r'sha256:[0-9a-f]{64}\Z')
+    if not digest_shape.fullmatch(CAPTURE_ARTIFACT_DIGEST):
+        fail('MALFORMED_PINNED_CAPTURE_DIGEST')
+    if set(KRX_SHARD_DIGESTS) != set(range(KRX_EXPECTED_SHARDS)):
+        fail('PINNED_KRX_SHARD_SET_INVALID')
+    seen_artifact_ids=set()
+    for shard,(artifact_id,digest) in KRX_SHARD_DIGESTS.items():
+        if not isinstance(artifact_id,int) or artifact_id <= 0 or artifact_id in seen_artifact_ids:
+            fail('PINNED_KRX_SHARD_ARTIFACT_ID_INVALID:'+str(shard))
+        seen_artifact_ids.add(artifact_id)
+        if not isinstance(digest,str) or not digest_shape.fullmatch(digest):
+            fail('MALFORMED_PINNED_KRX_SHARD_DIGEST:'+str(shard))
     cr,ka=meta.get('capture_run',{}),meta.get('krx_run',{})
     if (cr.get('id')!=CAPTURE_RUN or cr.get('conclusion')!='success' or
         ka.get('id')!=KRX_RUN or ka.get('conclusion')!='success'):
