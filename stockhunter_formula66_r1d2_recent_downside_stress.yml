@@ -1,0 +1,166 @@
+name: StockHunter R1-D2 Recent 3-4M KRX 224 Proxy Downside Stress (RESEARCH ONLY)
+
+on:
+  workflow_dispatch:
+    inputs:
+      scope:
+        description: 'Read-only source contract, or recent 3/4M KRX full-market stress'
+        required: true
+        type: choice
+        default: source_check
+        options:
+          - source_check
+          - recent_full_stress
+      window:
+        description: '2026-06-15~10-12 (4m) OR 2026-07-01~10-12 (3m); frozen pre-analysis'
+        required: true
+        type: choice
+        default: recent_4m
+        options:
+          - recent_4m
+          - recent_3m
+      cadence:
+        description: 'Daily all 80/68 trading sessions or once a week (last KRX trading day)'
+        required: true
+        type: choice
+        default: daily
+        options:
+          - daily
+          - weekly
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: stockhunter-formula66-r1d2-recent-krx-${{ github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  RESEARCH_ONLY: '1'
+  STOCKHUNTER_LIVE_ENABLE: '0'
+  STOCKHUNTER_SCORE_RANK_ENABLE: '0'
+  STOCKHUNTER_ORDER_ENABLE: '0'
+  STOCKHUNTER_DRY_RUN: '1'
+  PYTHONDONTWRITEBYTECODE: '1'
+  TZ: Asia/Seoul
+
+jobs:
+  immutable_source_and_regressions:
+    name: Frozen R1-D1 conditions + 22 offline tests + real KRX source evidence
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install required offline libraries (no market network requests)
+        run: pip install 'pandas>=2.0,<3' 'numpy>=1.24,<3'
+      - name: Exact root-YML twin, source and tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmp .github/workflows/stockhunter_formula66_r1d2_recent_downside_stress.yml stockhunter_formula66_r1d2_recent_downside_stress.yml
+          test "$(git hash-object research_formulas/formula66_r1d1_native_context.py)" = '1df1820bff078446f44335216b7ee7910d1d9942'
+          python -m py_compile research_formulas/formula66_r1d2_recent_stress.py research_formulas/formula66_r1d2_blind_charts.py
+          python -m unittest discover -s tests -p 'test_formula66_r1d2*.py' -v
+          python -m research_formulas.formula66_r1d2_recent_stress --mode contract --repo-root . \
+            --out reports/formula66_r1d2/source
+      - name: Actual GitHub immutable source run, shard ids and SHA256 preflight
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p reports/formula66_r1d2/remote
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/39738384453" > reports/formula66_r1d2/remote/capture_run.json
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/39295295197" > reports/formula66_r1d2/remote/krx_run.json
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/39738384453/artifacts?per_page=100" > reports/formula66_r1d2/remote/capture_artifacts.json
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/39295295197/artifacts?per_page=100" > reports/formula66_r1d2/remote/krx_artifacts.json
+          python - <<'PY'
+          import json,pathlib
+          p=pathlib.Path('reports/formula66_r1d2/remote')
+          q={k:json.loads((p/(f'{k}.json')).read_text()) for k in ('capture_run','krx_run','capture_artifacts','krx_artifacts')}
+          q['capture_artifacts']=q['capture_artifacts'].get('artifacts',[])
+          q['krx_artifacts']=q['krx_artifacts'].get('artifacts',[])
+          (p/'pinned_source_metadata.json').write_text(json.dumps(q,sort_keys=True,indent=2))
+          PY
+          python -m research_formulas.formula66_krx_r1c_pinned_reprice \
+            --mode source_preflight --repo-root . \
+            --remote-meta reports/formula66_r1d2/remote/pinned_source_metadata.json
+      - name: Upload read-only source contract and source pins
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-r1d2-recent-source-audit
+          path: |
+            reports/formula66_r1d2/source/**
+            reports/formula66_r1d2/remote/**
+          if-no-files-found: warn
+          retention-days: 60
+
+  recent_whole_market_krx_downside_stress:
+    name: Frozen 224 Proxy x Recent 3-4M KRX full-market stress (NOT 66 native formulas)
+    if: ${{ inputs.scope == 'recent_full_stress' }}
+    needs: immutable_source_and_regressions
+    runs-on: ubuntu-latest
+    timeout-minutes: 110
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install offline analysis and chart libraries
+        run: pip install 'pandas>=2.0,<3' 'numpy>=1.24,<3' 'matplotlib>=3.8,<4'
+      - name: Download existing 8 original KRX shards, NO fresh fetch
+        uses: actions/download-artifact@v4
+        with:
+          pattern: stockhunter-allkrx-price-shard-*
+          run-id: 39295295197
+          github-token: ${{ github.token }}
+          path: reports/formula66_r1d2/krx
+          merge-multiple: true
+      - name: Verify all 1907 days original KRX SHA & actual Amount; 3/4M daily/weekly research
+        shell: bash
+        env:
+          WINDOW: ${{ inputs.window }}
+          CADENCE: ${{ inputs.cadence }}
+        run: |
+          set -euo pipefail
+          python -m research_formulas.formula66_r1d2_recent_stress \
+            --mode run --repo-root . \
+            --window "$WINDOW" --cadence "$CADENCE" \
+            --krx-root reports/formula66_r1d2/krx \
+            --reference research_pit/historical_market_counts_20190102_20261012.csv \
+            --out reports/formula66_r1d2/result
+          python - <<'PY'
+          import json,pathlib,os
+          p=pathlib.Path('reports/formula66_r1d2/result/recent_3to4month_research_manifest.json')
+          m=json.loads(p.read_text())
+          assert m['source_verified'] and m['status']=='RESEARCH_ONLY_RECENT_DOWNSIDE_224_PROXY_CENSUS_COMPLETE'
+          assert m['source_ends']=='2026-10-12'
+          assert m['allmarket_original_rows_scanned']>20000
+          if os.environ['CADENCE']=='daily':
+              assert m['KRX_sessions_scanned']==(80 if os.environ['WINDOW']=='recent_4m' else 68)
+          assert m['no_future_used_for_asof_signal'] and m['not_independent_66_formula_rescreen']
+          assert m['strategy_ready'] is False and m['ORDERS_PLACED']==0 and m['LIVE_CHANGED'] is False
+          print('R1D2_RECENT_KRX_FULL_STRESS_VALID',m['KRX_sessions_scanned'],m['strict_proxy_hits'],flush=True)
+          PY
+      - name: Render sealed no-future 224MA and actual Amount blind charts
+        run: |
+          python -m research_formulas.formula66_r1d2_blind_charts \
+            --result-root reports/formula66_r1d2/result --max-charts 48
+      - name: Upload real 3/4 month index regimes, asof candidates, distinct forward outcomes
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-r1d2-recent-krx-downside-stress-${{ inputs.window }}-${{ inputs.cadence }}
+          path: reports/formula66_r1d2/result/**
+          if-no-files-found: warn
+          retention-days: 60
+          compression-level: 6
