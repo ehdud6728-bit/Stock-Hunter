@@ -116,4 +116,44 @@ class PinnedR1C(unittest.TestCase):
         self.assertEqual(core.sample_outcome('123456',days[0],{'123456':rows},days)['status'],'CORPORATE_ACTION_OR_SOURCE_JUMP_REVIEW')
 
 
+    def test_21_all_historical_KRX_pins_are_complete_SHA256(self):
+        import re
+        self.assertEqual(set(m.KRX_SHARD_DIGESTS),set(range(8)))
+        self.assertEqual(len({row[0] for row in m.KRX_SHARD_DIGESTS.values()}),8)
+        for shard,(artifact_id,digest) in m.KRX_SHARD_DIGESTS.items():
+            with self.subTest(shard=shard):
+                self.assertGreater(artifact_id,0)
+                self.assertRegex(digest,r'^sha256:[0-9a-f]{64}$')
+
+    def test_22_SHARD5_independent_GitHub_artifact_id_and_digest_pin(self):
+        # GitHub Actions 39295295197 artifact 12208443687, checked against the
+        # independently retrieved real GitHub artifact metadata (not a mock
+        # constructed using the module under test).
+        self.assertEqual(m.KRX_SHARD_DIGESTS[5],(
+            12208443687,
+            'sha256:eb503f7cabcc40991037092c6463437c8a8b71d43fb26fe646ea4f56885b3814'))
+
+    def test_23_truncated_pin_rejected_before_metadata_comparison(self):
+        bad=dict(m.KRX_SHARD_DIGESTS)
+        bad[5]=(bad[5][0],bad[5][1][:48])
+        with mock.patch.object(m,'KRX_SHARD_DIGESTS',bad):
+            with self.assertRaisesRegex(RuntimeError,'MALFORMED_PINNED_KRX_SHARD_DIGEST:5'):
+                m.validate_remote_source_metadata(sample_metadata())
+
+    def test_24_official_pinned_metadata_exact_8_SHAs_and_CAPTURE(self):
+        # Independently pinned GitHub artifact metadata for existing source runs;
+        # protects against syntactically valid but incorrect source digests.
+        expected={
+          0:(12208596109,'sha256:84dd5aa62f0c9538cd9c2d0ed0540c8f74063b21be49d9ecfc81e4b1583368b5'),
+          1:(12207608558,'sha256:3d372eebf915c870badf103356c3700d5fa914a32d79ce8057ef1f4c4f89295b'),
+          2:(12209930511,'sha256:5c49df64ad10bafbc09dd7ea78b9377804735fda6ad861018750b396ab2a27cb'),
+          3:(12209696204,'sha256:7a359f5959e2374622c40d068920adf9d695142b4a61b540d0752a8cb9bb4dd8'),
+          4:(12208882046,'sha256:88b35ea4c9a8a6a0ed4b61250a8018d49ee7ba4489c7345f04012915bb60f997'),
+          5:(12208443687,'sha256:eb503f7cabcc40991037092c6463437c8a8b71d43fb26fe646ea4f56885b3814'),
+          6:(12211336402,'sha256:b3cc055d919c7ab92d7f27b1b3ce6d3e56df787b107af961eaa43dedb885d6cd'),
+          7:(12212241289,'sha256:9563747eb8b27928ba0a0d2b7d3cf02e787acd2e9e4a656d410c286139321478'),
+        }
+        self.assertEqual(m.KRX_SHARD_DIGESTS,expected)
+
+
 if __name__=='__main__':unittest.main()
