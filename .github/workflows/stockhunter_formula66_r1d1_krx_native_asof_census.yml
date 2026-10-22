@@ -1,0 +1,154 @@
+name: StockHunter Formula66 R1-D1 KRX Native 224 Pattern Census + Blind Charts (RESEARCH ONLY)
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "R1-D1: static pin audit or full 13-date full-KRX all-market pattern/context census"
+        required: true
+        type: choice
+        default: source_check
+        options:
+          - source_check
+          - full_census
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: stockhunter-formula66-r1d1-native-context-${{ github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  RESEARCH_ONLY: '1'
+  STOCKHUNTER_LIVE_ENABLE: '0'
+  STOCKHUNTER_SCORE_RANK_ENABLE: '0'
+  STOCKHUNTER_ORDER_ENABLE: '0'
+  STOCKHUNTER_DRY_RUN: '1'
+  PYTHONDONTWRITEBYTECODE: '1'
+  TZ: Asia/Seoul
+
+jobs:
+  offline_and_pin_preflight:
+    name: 20 native-asof offline tests, 66 registry keys, R1C immutable KRX and capture proof
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install offline data processing tools only
+        run: pip install 'pandas>=2.0,<3' 'numpy>=1.24,<3'
+      - name: Prove identical root visible YML and validate deterministic as-of logic
+        run: |
+          set -euo pipefail
+          cmp .github/workflows/stockhunter_formula66_r1d1_krx_native_asof_census.yml stockhunter_formula66_r1d1_krx_native_asof_census.yml
+          python -m py_compile research_formulas/formula66_r1d1_native_context.py
+          python -m unittest discover -s tests -p test_formula66_r1d1_native_context.py -v
+          python -m unittest discover -s tests -p test_formula66_truth_krx_r1.py -v
+          python -m unittest discover -s tests -p test_formula66_krx_r1c_pinned_reprice.py -v
+      - name: Fail closed if immutable R1C KRX source runs, registry or artifacts drift
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p reports/formula66_r1d1/remote reports/formula66_r1d1/source
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/39738384453" > reports/formula66_r1d1/remote/capture_run.json
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/39295295197" > reports/formula66_r1d1/remote/krx_run.json
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/39738384453/artifacts?per_page=100" > reports/formula66_r1d1/remote/capture_artifacts.json
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/39295295197/artifacts?per_page=100" > reports/formula66_r1d1/remote/krx_artifacts.json
+          python - <<'PY'
+          import json,pathlib
+          p=pathlib.Path('reports/formula66_r1d1/remote')
+          obj={'capture_run':json.loads((p/'capture_run.json').read_text()),
+               'krx_run':json.loads((p/'krx_run.json').read_text()),
+               'capture_artifacts':json.loads((p/'capture_artifacts.json').read_text()).get('artifacts',[]),
+               'krx_artifacts':json.loads((p/'krx_artifacts.json').read_text()).get('artifacts',[])}
+          (p/'pinned_source_metadata.json').write_text(json.dumps(obj,sort_keys=True,indent=2))
+          PY
+          python -m research_formulas.formula66_krx_r1c_pinned_reprice \
+            --mode source_preflight --repo-root . \
+            --remote-meta reports/formula66_r1d1/remote/pinned_source_metadata.json
+          python -m research_formulas.formula66_r1d1_native_context \
+            --mode contract --repo-root . --out reports/formula66_r1d1/source
+      - name: Upload exact 8-KRX-shard and PRE historical source proof
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: formula66-r1d1-pinned-source-audit
+          path: |
+            reports/formula66_r1d1/remote/**
+            reports/formula66_r1d1/source/**
+          if-no-files-found: warn
+          retention-days: 60
+
+  fullmarket_native_asof_census:
+    name: All-market KRX as-of 224 native PROXY vs 66 legacy PRE + blinded 260-bar chart audit
+    needs: offline_and_pin_preflight
+    if: ${{ inputs.mode == 'full_census' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 110
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install pinned local analysis libraries only (no market network providers)
+        run: pip install 'pandas>=2.0,<3' 'numpy>=1.24,<3' 'matplotlib>=3.8,<4'
+      - name: Download validated R1B original PRE capture with chart blind review keys
+        uses: actions/download-artifact@v4
+        with:
+          name: stockhunter-main7-formula66-r1-capture-capture_truth
+          run-id: 39738384453
+          github-token: ${{ github.token }}
+          path: reports/formula66_r1d1/capture
+      - name: Download all eight original KRX daily-unfiltered data shards from existing collection
+        uses: actions/download-artifact@v4
+        with:
+          pattern: stockhunter-allkrx-price-shard-*
+          run-id: 39295295197
+          github-token: ${{ github.token }}
+          path: reports/formula66_r1d1/krx
+          merge-multiple: true
+      - name: Verify 1907 KRX days SHA, all rows, amounts; run independent FULL day census
+        run: |
+          set -euo pipefail
+          python -m research_formulas.formula66_r1d1_native_context \
+            --mode run --repo-root . \
+            --capture reports/formula66_r1d1/capture \
+            --krx-root reports/formula66_r1d1/krx \
+            --registry search_formula_contract_registry.json \
+            --main7 main7_bugfix_2.py \
+            --reference research_pit/historical_market_counts_20190102_20261012.csv \
+            --out reports/formula66_r1d1/result
+          python - <<'PY'
+          import json,pathlib
+          p=pathlib.Path('reports/formula66_r1d1/result/formula66_r1d1_manifest.json')
+          q=json.loads(p.read_text())
+          assert q['source_verified'] and q['source_KRX_sessions_verified']==1907
+          assert q['legacy_PRE_formula_hits_covered']==3884
+          assert q['original_KRX_ticker_date_rows_on_13_dates']>10000
+          assert q['actual_allmarket_formula_66_native_recalculation']=='NOT_PERFORMED_NO_PRODUCER_PARITY'
+          assert q['strategy_ready'] is False and q['ORDER_COUNT']==0
+          print('R1D1_FULL_CENSUS_RESEARCH_ONLY_VALID',q['original_KRX_ticker_date_rows_on_13_dates'],flush=True)
+          PY
+      - name: Render chart-only signal-day PNGs for up to 66 historical formulas (no future returns)
+        run: |
+          python -m research_formulas.formula66_r1d1_blind_chart_renderer \
+            --result-root reports/formula66_r1d1/result --max-charts 66
+      - name: Upload full-market unbiased census, 66 hit contexts and blind charts WITHOUT future outcomes
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: formula66-r1d1-krx-native-asof-census-and-blind-chart-bars
+          path: reports/formula66_r1d1/result/**
+          if-no-files-found: warn
+          retention-days: 60
+          compression-level: 6
