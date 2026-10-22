@@ -1,0 +1,142 @@
+name: StockHunter PIT Stage7-I Missing Notice Audit (RESEARCH ONLY)
+
+on:
+  workflow_dispatch:
+    inputs:
+      audit_phase:
+        description: 'PIT 7-I official KIND scope-gap canary; previous PIT 7-H remains immutable'
+        required: true
+        type: choice
+        default: stage7i
+        options:
+          - stage7i
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: stockhunter-pit-stage7i-missing-notices
+  cancel-in-progress: false
+
+jobs:
+  stage7i-offline-contracts:
+    if: ${{ github.event.inputs.audit_phase == 'stage7i' }}
+    name: Stage7-I 36+ source-pinned offline scope-gap contracts (NO network scan)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      TZ: Asia/Seoul
+      GH_TOKEN: ${{ github.token }}
+      STOCKHUNTER_RESEARCH_ONLY: '1'
+      STOCKHUNTER_LIVE_ENABLE: '0'
+      STOCKHUNTER_SCORE_RANK_ENABLE: '0'
+      STOCKHUNTER_ORDER_ENABLE: '0'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install minimal offline source HTML parser only
+        run: pip install 'beautifulsoup4>=4.12,<5' 'requests>=2.31,<3' 'PyYAML>=6,<7'
+      - name: Require exact Stage7-H run SHA and artifact digest (no rolling/latest fallback)
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/39578003404" --jq .conclusion)" = success
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/39578003404" --jq .head_sha)" = 0fb4392da16320c11671f9fd64f5582a28579d00
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/12335870064" --jq .workflow_run.id)" = 39578003404
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/12335870064" --jq .digest)" = sha256:18bee4ef59c5ce7d9cc50483973b469dca2aabeee8c53b9bc9ba320e20bbed04
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/12335870064" --jq .expired)" = false
+          echo 'STAGE7I_STAGE7H_SOURCE_RUN_AND_ARTIFACT_DIGEST_PIN_PASS'
+      - name: Reuse only immutable Stage7-H 57-notice evidence; no new data collection
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 39578003404
+          github-token: ${{ github.token }}
+          name: stockhunter-pit-stage7h-correction-candidates-sha-pinned-research-only
+          path: stage7h-source
+      - name: Require at least 36 discovered Stage7-I strict offline tests
+        env:
+          STAGE7H_EVIDENCE_DIR: stage7h-source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s tests/test_pit_stage7i_bounded_missing_notice_audit.py
+          python - <<'PYTEST'
+          import unittest
+          suite=unittest.defaultTestLoader.discover('tests',pattern='test_pit_stage7i_bounded_missing_notice_audit.py')
+          n=suite.countTestCases()
+          print('STAGE7I_DISCOVERED_OFFLINE_TESTS',n,flush=True)
+          if n<36:raise SystemExit('STAGE7I_EMPTY_OR_INCOMPLETE_TEST_DISCOVERY:'+str(n))
+          result=unittest.TextTestRunner(verbosity=2).run(suite)
+          if not result.wasSuccessful():raise SystemExit('STAGE7I_OFFLINE_TEST_FAILURE')
+          PYTEST
+      - name: Independently replay six fixed SHA source outputs and map research gaps
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -u research_pit/pit_stage7i_bounded_missing_notice_audit.py \
+            --stage7h-dir stage7h-source \
+            --mode offline \
+            --out reports/pit-stage7i-offline
+      - name: Preserve offline gap map even on test or preflight failures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-pit-stage7i-offline-source-gap-audit
+          path: reports/pit-stage7i-offline/**
+          if-no-files-found: warn
+          retention-days: 90
+
+  stage7i-bounded-category-canary:
+    if: ${{ github.event.inputs.audit_phase == 'stage7i' }}
+    needs: stage7i-offline-contracts
+    name: Stage7-I bounded 8-window KIND cross-category missing notice canary (max 16 pages)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      TZ: Asia/Seoul
+      GH_TOKEN: ${{ github.token }}
+      STOCKHUNTER_RESEARCH_ONLY: '1'
+      STOCKHUNTER_LIVE_ENABLE: '0'
+      STOCKHUNTER_SCORE_RANK_ENABLE: '0'
+      STOCKHUNTER_ORDER_ENABLE: '0'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install only historical KIND HTML parser / fixed HTTP client
+        run: pip install 'beautifulsoup4>=4.12,<5' 'requests>=2.31,<3'
+      - name: Re-pin last successful Stage7-H evidence identity before network canary
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/39578003404" --jq .conclusion)" = success
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/39578003404" --jq .head_sha)" = 0fb4392da16320c11671f9fd64f5582a28579d00
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/12335870064" --jq .digest)" = sha256:18bee4ef59c5ce7d9cc50483973b469dca2aabeee8c53b9bc9ba320e20bbed04
+      - name: Restore only SHA-pinned Stage7-H 57-notice source (no prior-stage reruns)
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 39578003404
+          github-token: ${{ github.token }}
+          name: stockhunter-pit-stage7h-correction-candidates-sha-pinned-research-only
+          path: stage7h-source
+      - name: Bounded official KIND category-gap canary; receipt/title candidates only
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -u research_pit/pit_stage7i_bounded_missing_notice_audit.py \
+            --stage7h-dir stage7h-source \
+            --mode canary \
+            --pause 1.25 \
+            --out reports/pit-stage7i-canary
+      - name: Preserve raw HTML SHA ledger and UNKNOWN candidate review even on errors
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-pit-stage7i-bounded-outside57-category-gap-canary
+          path: reports/pit-stage7i-canary/**
+          if-no-files-found: warn
+          retention-days: 90
