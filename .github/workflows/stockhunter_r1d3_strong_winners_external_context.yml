@@ -1,4 +1,4 @@
-name: StockHunter R1-D3 Strong Winners vs Failures + AsOf Market Context (RESEARCH ONLY)
+name: StockHunter Research Lab - R1-D3 / R1-D4 (RESEARCH ONLY)
 
 on:
   workflow_dispatch:
@@ -11,6 +11,7 @@ on:
         options:
           - source_check
           - full_compare
+          - r1d4_matched_blind
 
 permissions:
   contents: read
@@ -147,5 +148,107 @@ jobs:
         with:
           name: stockhunter-r1d3-winner-failure-asof-and-outcome-audit
           path: reports/r1d3/result/**
+          if-no-files-found: warn
+          retention-days: 60
+
+
+  r1d4_outcome_stratified_matched_blind:
+    name: R1-D4 same-day matched strong/failure pairs, blinded signal-day 224MA+Amount charts
+    needs: read_only_source_check
+    if: ${{ inputs.scope == 'r1d4_matched_blind' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install isolated offline research libraries
+        run: pip install 'pandas>=2.0,<3' 'numpy>=1.24,<3' 'matplotlib>=3.8,<4'
+      - name: Run R1-D4 invariants and anti-future regression tests
+        run: |
+          set -euo pipefail
+          cmp .github/workflows/stockhunter_r1d3_strong_winners_external_context.yml stockhunter_r1d3_strong_winners_external_context.yml
+          python -m py_compile research_formulas/formula66_r1d4_matched_blind.py
+          python -m unittest discover -s tests -p test_formula66_r1d4_matched_blind.py -v
+      - name: Verify exact immutable R1-D3 original artifact and run pins
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p reports/r1d4/pins
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/39884755058" > reports/r1d4/pins/r1d3_run.json
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/39884755058/artifacts?per_page=100" > reports/r1d4/pins/r1d3_artifacts.json
+          python - <<'PYCODE'
+          import json,pathlib
+          r=pathlib.Path('reports/r1d4/pins')
+          q=json.loads((r/'r1d3_run.json').read_text('utf-8'))
+          assert q['id']==39884755058 and q['conclusion']=='success' and q['head_sha']=='a368f2e5f9bdc77659c1375d785d3b5368fc3964'
+          a=json.loads((r/'r1d3_artifacts.json').read_text('utf-8'))['artifacts']
+          m=[x for x in a if x['id']==12471499751 and x['name']=='stockhunter-r1d3-winner-failure-asof-and-outcome-audit']
+          assert len(m)==1 and not m[0]['expired'] and m[0]['digest']=='sha256:4732f81ec1023bcf0b35a1df937adc8152206ca983c85462c4f4f5125324a0c5'
+          print('R1D4_PINNED_R1D3_SHA256_PASS')
+          PYCODE
+      - name: Download exact immutable R1-D3 source as-of and revealed labels
+        uses: actions/download-artifact@v4
+        with:
+          name: stockhunter-r1d3-winner-failure-asof-and-outcome-audit
+          run-id: 39884755058
+          github-token: ${{ github.token }}
+          path: reports/r1d4/input/r1d3
+      - name: Select one unique-security strong/failure pair per shared signal date
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m research_formulas.formula66_r1d4_matched_blind \
+            --mode select --r1d3 reports/r1d4/input/r1d3 \
+            --out reports/r1d4/result
+          python - <<'PYCODE'
+          import json,pathlib
+          p=pathlib.Path('reports/r1d4/result/sealed_after_reveal/R1D4_MANIFEST.json')
+          m=json.loads(p.read_text('utf-8'))
+          assert m['n_all_original_episodes']==1249 and m['n_D20_complete']==939
+          assert m['n_match_date_pairs']>=25 and m['n_blind_cards']==2*m['n_match_date_pairs']
+          assert not m['strategy_ready'] and m['orders_placed']==0
+          print('R1D4_MATCHED_SELECTION_RESEARCH_ONLY_VALID',m['n_match_date_pairs'])
+          PYCODE
+      - name: Download pinned 8-KRX original raw-price shards (no new provider requests)
+        uses: actions/download-artifact@v4
+        with:
+          pattern: stockhunter-allkrx-price-shard-*
+          run-id: 39295295197
+          github-token: ${{ github.token }}
+          path: reports/r1d4/input/krx
+          merge-multiple: true
+      - name: Render images using original historical KRX bars only; no outcome input
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m research_formulas.formula66_r1d4_matched_blind \
+            --mode render \
+            --selected reports/r1d4/result/internal_only/ASOF_CHART_IDENTIFIERS_DO_NOT_UPLOAD.csv \
+            --krx-root reports/r1d4/input/krx \
+            --out reports/r1d4/result --max-pairs 31
+          rm -rf reports/r1d4/result/internal_only
+      - name: Upload truly blinded chart packet independently of sealed labels
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-r1d4-BLIND-review-chart-pairs-NO-FUTURE
+          path: reports/r1d4/result/blind_review/**
+          if-no-files-found: warn
+          retention-days: 60
+          compression-level: 6
+      - name: Upload sealed research explanation and evidence separately
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-r1d4-SEALED-paired-outcomes-and-source
+          path: |
+            reports/r1d4/result/sealed_after_reveal/**
+            reports/r1d4/pins/**
           if-no-files-found: warn
           retention-days: 60
