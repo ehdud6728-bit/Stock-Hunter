@@ -1,10 +1,10 @@
-name: StockHunter Research Lab - R1-D3 / R1-D4 / R1-D5 / R1-D6 / R1-D7 / R1-D8 (RESEARCH ONLY)
+name: StockHunter Research Lab - R1-D3 / R1-D4 / R1-D5 / R1-D6 / R1-D7 / R1-D8 / R1-D9 (RESEARCH ONLY)
 
 on:
   workflow_dispatch:
     inputs:
       scope:
-        description: "Frozen source contracts, R1D3/D4/D5 hindsight review, R1D6 independent period, or frozen R1D7 path-risk audit"
+        description: "Frozen source contracts, R1D3/D4/D5 hindsight review, R1D6 2024-25 OOS, R1D7/8 retrospective, or R1D9 2021-23 OOS"
         type: choice
         required: true
         default: source_check
@@ -16,6 +16,7 @@ on:
           - r1d6_independent_period
           - r1d7_path_risk_audit
           - r1d8_structure_confounds
+          - r1d9_independent_2021_23
 
 permissions:
   contents: read
@@ -685,5 +686,122 @@ jobs:
           path: |
             reports/r1d8/result/**
             reports/r1d8/pins/**
+          if-no-files-found: warn
+          retention-days: 60
+
+  r1d9_independent_2021_23_holdout:
+    name: R1-D9 pinned original 224MA proxy 2021-2023 NEW PERIOD (NOT native 66) [RESEARCH ONLY]
+    needs: read_only_source_check
+    if: ${{ inputs.scope == 'r1d9_independent_2021_23' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install only local research numerical dependencies
+        run: pip install 'pandas>=2.0,<3' 'numpy>=1.24,<3'
+      - name: Check workflow twin, lock historical definitions and unit tests
+        run: |
+          set -euo pipefail
+          cmp .github/workflows/stockhunter_r1d3_strong_winners_external_context.yml stockhunter_r1d3_strong_winners_external_context.yml
+          python -m py_compile research_formulas/formula66_r1d9_unseen_2021_23_holdout.py
+          python -m unittest discover -s tests -p test_formula66_r1d9_unseen_2021_23_holdout.py -v
+          python - <<'PYCODE'
+          from research_formulas import formula66_r1d9_unseen_2021_23_holdout as r9
+          r9.source_lock('.')
+          print('R1D9_D1_D5_D6_D7_D8_SOURCE_GIT_BLOBS_FROZEN_PASS')
+          PYCODE
+      - name: Verify ORIGINAL 8 full KRX shards and frozen R1D8 comparison run before downloads
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p reports/r1d9/pins
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/39295295197" > reports/r1d9/pins/krx_run.json
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/39295295197/artifacts?per_page=100" > reports/r1d9/pins/krx_artifacts.json
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/39954423000" > reports/r1d9/pins/r1d8_run.json
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/39954423000/artifacts?per_page=100" > reports/r1d9/pins/r1d8_artifacts.json
+          python - <<'PYCODE'
+          import json,pathlib
+          from research_formulas import formula66_r1d9_unseen_2021_23_holdout as r9
+          from research_formulas import formula66_r1d6_oos_holdout as d6
+          p=pathlib.Path('reports/r1d9/pins')
+          old=json.loads((p/'r1d8_run.json').read_text())
+          assert old['id']==r9.D8_RUN and old['conclusion']=='success' and old['head_sha']==r9.D8_SHA,'R1D9_PREVIOUS_RUN_CHANGED'
+          artifacts=json.loads((p/'r1d8_artifacts.json').read_text())['artifacts']
+          a=[x for x in artifacts if x['id']==r9.D8_ARTIFACT_ID and x['name']=='stockhunter-r1d8-FROZEN-D6D7-CLUSTER-STRUCTURE-NOT-OOS']
+          assert len(a)==1 and not a[0]['expired'] and a[0]['digest']=='sha256:'+r9.D8_ARTIFACT_DIGEST,'R1D9_PREVIOUS_RESULT_CHANGED'
+          k=json.loads((p/'krx_run.json').read_text())
+          assert k['id']==d6.SOURCE_RUN and k['conclusion']=='success' and k['head_sha']=='08e328c101f0774a2236c0a44cc1fdbbaa59e96e','KRX_ORIGINAL_RUN_CHANGED'
+          kak=json.loads((p/'krx_artifacts.json').read_text())['artifacts']
+          for i,sha in d6.EXPECTED_SHARD_DIGESTS.items():
+           aa=[a for a in kak if a['name']==f'stockhunter-allkrx-price-shard-{i}']
+           assert len(aa)==1 and not aa[0]['expired'] and aa[0]['digest']=='sha256:'+sha,'R1D9_KRX_SHARD_DRIFT_'+str(i)
+          print('R1D9_2021_23_UNSEEN_KRX_AND_D8_ZIP_DIGESTS_PASS')
+          PYCODE
+      - name: Download frozen R1D8 comparison summary, never used to select candidate signals
+        uses: actions/download-artifact@v4
+        with:
+          name: stockhunter-r1d8-FROZEN-D6D7-CLUSTER-STRUCTURE-NOT-OOS
+          run-id: 39954423000
+          github-token: ${{ github.token }}
+          path: reports/r1d9/input/d8
+      - name: Download original 8-shard KRX historical data, no future search adjustment
+        uses: actions/download-artifact@v4
+        with:
+          pattern: stockhunter-allkrx-price-shard-*
+          run-id: 39295295197
+          github-token: ${{ github.token }}
+          path: reports/r1d9/input/krx
+          merge-multiple: true
+      - name: Verify all 1907 daily KRX hashes, discover NEW 2021-23 cohort and freeze as-of before outcomes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m research_formulas.formula66_r1d9_unseen_2021_23_holdout \
+            --krx-root reports/r1d9/input/krx \
+            --d8-reference reports/r1d9/input/d8 \
+            --repo-root . --out reports/r1d9/result
+          python - <<'PYCODE'
+          import json,pathlib
+          p=pathlib.Path('reports/r1d9/result/R1D9_MANIFEST.json')
+          m=json.loads(p.read_text('utf-8'))
+          assert m['signal_window']==['2021-01-04','2023-11-29'] and m['latest_D20_exit']=='2023-12-28'
+          assert m['n_signal_days']>500 and m['n_after_20_session_cooldown']>0 and m['n_D20_complete']>0
+          assert m['source_verified_daily_raw_count']==1907
+          assert m['orders_placed']==0 and not m['strategy_ready'] and not m['native_original_66_formulas']
+          assert m['non_overlap_with_R1D6_signal_and_D20_paths'] and m['no_posthoc_parameter_tuning']
+          print('R1D9_NEW_PERIOD_2021_23_RESEARCH_ONLY_SUCCESS',m['n_after_20_session_cooldown'])
+          PYCODE
+      - name: Upload NEW independent period ASOF only with no outcomes
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-r1d9-2021-23-INDEPENDENT-ASOF-ONLY
+          path: |
+            reports/r1d9/result/R1D9_ASOF_ONLY_2021_23_NO_OUTCOME.csv.gz
+            reports/r1d9/result/R1D9_DAILY_SIGNAL_COUNTS.csv
+          if-no-files-found: warn
+          retention-days: 60
+      - name: Upload NEW independent period sealed outcome comparisons without any LIVE changes
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-r1d9-2021-23-INDEPENDENT-SEALED-RESULTS
+          path: |
+            reports/r1d9/result/R1D9_SEALED_2021_23_D5_D10_D15_D20.csv.gz
+            reports/r1d9/result/R1D9_D5_D10_D15_D20_SCORECARD.csv
+            reports/r1d9/result/R1D9_NEW_HOLDOUT_GROUP_SCORECARDS.csv
+            reports/r1d9/result/R1D9_NEW_PERIOD_VS_D8_PREDECLARED_CONTRASTS.csv
+            reports/r1d9/result/R1D9_REPEATED_CODE_SENSITIVITY.csv
+            reports/r1d9/result/R1D9_SEALED_AUDIT_JOINED_NO_LIVE.csv.gz
+            reports/r1d9/result/R1D9_MANIFEST.json
+            R1D9_PREDECLARED_PROTOCOL.json
+            reports/r1d9/pins/**
           if-no-files-found: warn
           retention-days: 60
