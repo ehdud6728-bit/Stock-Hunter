@@ -1,10 +1,10 @@
-name: StockHunter Research Lab - R1-D3 / R1-D4 / R1-D5 (RESEARCH ONLY)
+name: StockHunter Research Lab - R1-D3 / R1-D4 / R1-D5 / R1-D6 (RESEARCH ONLY)
 
 on:
   workflow_dispatch:
     inputs:
       scope:
-        description: "Run frozen source contracts or reanalyze R1D2 success/failure using KRX historical bars"
+        description: "Frozen source contracts, R1D3/D4/D5 hindsight review, or R1D6 independent 2024-25 period"
         type: choice
         required: true
         default: source_check
@@ -13,6 +13,7 @@ on:
           - full_compare
           - r1d4_matched_blind
           - r1d5_support_reaction
+          - r1d6_independent_period
 
 permissions:
   contents: read
@@ -52,6 +53,8 @@ jobs:
           cmp .github/workflows/stockhunter_r1d3_strong_winners_external_context.yml stockhunter_r1d3_strong_winners_external_context.yml
           python -m py_compile research_formulas/formula66_r1d3_success_failure_context.py
           python -m unittest discover -s tests -p test_formula66_r1d3_success_failure_context.py -v
+          python -m py_compile research_formulas/formula66_r1d6_oos_holdout.py
+          python -m unittest discover -s tests -p test_formula66_r1d6_oos_holdout.py -v
       - name: Verify immutable R1D2 and all eight KRX GitHub source artifact digests
         shell: bash
         run: |
@@ -366,5 +369,114 @@ jobs:
             reports/r1d5/result/SUPPORT_PLUS_REACTION_INTERACTION_EXPLORATORY.csv
             reports/r1d5/result/MANIFEST.json
             reports/r1d5/pins/**
+          if-no-files-found: warn
+          retention-days: 60
+
+  r1d6_frozen_support_independent_period:
+    name: R1-D6 unmodified R1-D1 proxy and R1-D5 support features on 2024-25 KRX [RESEARCH ONLY]
+    needs: read_only_source_check
+    if: ${{ inputs.scope == 'r1d6_independent_period' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install isolated research dependencies
+        run: pip install 'pandas>=2.0,<3' 'numpy>=1.24,<3'
+      - name: Compare workflow twins, freeze original feature code, run regressions
+        run: |
+          set -euo pipefail
+          cmp .github/workflows/stockhunter_r1d3_strong_winners_external_context.yml stockhunter_r1d3_strong_winners_external_context.yml
+          python -m unittest discover -s tests -p test_formula66_r1d6_oos_holdout.py -v
+      - name: Verify historical input artifacts unchanged and not expired
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p reports/r1d6/pins
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/39901194216" > reports/r1d6/pins/r1d5_run.json
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/39901194216/artifacts?per_page=100" > reports/r1d6/pins/r1d5_artifacts.json
+          python - <<'PYCODE'
+          import json,pathlib
+          from research_formulas.formula66_r1d6_oos_holdout import D5_ARTIFACT_ID,D5_ARTIFACT_SHA,verify_source_frozen
+          verify_source_frozen('.')
+          d=pathlib.Path('reports/r1d6/pins')
+          run=json.loads((d/'r1d5_run.json').read_text())
+          assert run['id']==39901194216 and run['conclusion']=='success' and run['head_sha']=='611d2f7ec9441023257254cf27d86adeb8717512'
+          items=json.loads((d/'r1d5_artifacts.json').read_text())['artifacts']
+          matches=[a for a in items if a['id']==D5_ARTIFACT_ID and a['name']=='stockhunter-r1d5-SEALED-SUPPORT-REBOUND-OUTCOMES']
+          assert len(matches)==1 and not matches[0]['expired'] and matches[0]['digest']=='sha256:'+D5_ARTIFACT_SHA
+          print('R1D6_SOURCE_D5_AND_FROZEN_SCRIPT_PINS_PASS')
+          PYCODE
+      - name: Download frozen R1D5 development reference (not a signal generator)
+        uses: actions/download-artifact@v4
+        with:
+          name: stockhunter-r1d5-SEALED-SUPPORT-REBOUND-OUTCOMES
+          run-id: 39901194216
+          github-token: ${{ github.token }}
+          path: reports/r1d6/input/r1d5
+      - name: Download SHA-pinned original 8-shard 2019-2026 KRX data
+        uses: actions/download-artifact@v4
+        with:
+          pattern: stockhunter-allkrx-price-shard-*
+          run-id: 39295295197
+          github-token: ${{ github.token }}
+          path: reports/r1d6/input/krx
+          merge-multiple: true
+      - name: Confirm ALL 1907 daily original file hashes then scan 2024-25 holdout
+        run: |
+          set -euo pipefail
+          python -m research_formulas.formula66_r1d6_oos_holdout \
+            --krx-root reports/r1d6/input/krx \
+            --reference-d5 reports/r1d6/input/r1d5 \
+            --repo-root . --out reports/r1d6/result
+          python - <<'PYCODE'
+          import json,pathlib
+          m=json.loads(pathlib.Path('reports/r1d6/result/R1D6_MANIFEST.json').read_text('utf-8'))
+          assert m['window']==['2024-01-02','2025-09-30']
+          assert m['allmarket_days_scanned']>300 and m['outcome_D20_complete']>0
+          assert m['source_gzip_SHA_checked'] is True and m['source_all_1907_daily_SHA_checked']==1907
+          assert m['orders_placed']==0 and not m['strategy_ready'] and not m['live_scoring_or_orders_changed']
+          print('R1D6_INDEPENDENT_PERIOD_COMPLETED_RESEARCH_ONLY',m['cooldown_20session_episodes'])
+          PYCODE
+      - name: Upload sealed as-of evidence without forward outcomes
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-r1d6-OOS-ASOF-ONLY-NO-FUTURE
+          path: |
+            reports/r1d6/result/R1D6_ASOF_ONLY_FROZEN_FEATURES_NO_OUTCOME.csv.gz
+            reports/r1d6/result/R1D6_DAILY_FULLMARKET_COVERAGE.csv
+          if-no-files-found: warn
+          retention-days: 60
+      - name: Upload outcomes, market states, frozen hypothesis tests, provenance
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-r1d6-OOS-SEALED-COMPARISONS-RESEARCH-ONLY
+          path: |
+            reports/r1d6/result/R1D6_SEALED_ONLY_FORWARD_PRICE_PATHS.csv.gz
+            reports/r1d6/result/R1D6_SEALED_ASOF_X_OUTCOME_FOR_AUDIT.csv.gz
+            reports/r1d6/result/R1D6_HOLDOUT_HYPOTHESES_BY_FLAG.csv
+            reports/r1d6/result/R1D6_FROZEN_R1D5_REFERENCE_BY_FLAG.csv
+            reports/r1d6/result/R1D6_FROZEN_FACTOR_CROSS_PERIOD_COMPARISON.csv
+            reports/r1d6/result/R1D6_WITHIN_PERIOD_FLAG_1_VS_0_EFFECTS.csv
+            reports/r1d6/result/R1D6_DEVELOPMENT_VS_HOLDOUT_DIRECTION_CHECK.csv
+            reports/r1d6/result/R1D6_SAME_DATE_WITHIN_MARKET_FACTOR_CONTRAST.csv
+            reports/r1d6/result/R1D6_YEAR_MONTH_AND_ASOF_MARKET_REGIME.csv
+            reports/r1d6/result/R1D6_SUPPORT_X_AMOUNT_INTERACTION.csv
+            reports/r1d6/result/R1D6_EXCLUSIVE_NEAREST_SUPPORT.csv
+            reports/r1d6/result/R1D6_SUPPORT_HOLD_RECLAIM_BREAKDOWN_BY_LEVEL.csv
+            reports/r1d6/result/R1D6_WAVE_GAIN_RETRACE_AND_224_STRUCTURE.csv
+            reports/r1d6/result/R1D6_YEAR_X_MARKET_BUCKET.csv
+            reports/r1d6/result/R1D6_FIRST_CODE_ONLY_SENSITIVITY.csv
+            reports/r1d6/result/R1D6_DATE_CLUSTER_WEIGHTING_SENSITIVITY.csv
+            reports/r1d6/result/R1D6_MANIFEST.json
+            reports/r1d6/pins/**
           if-no-files-found: warn
           retention-days: 60
