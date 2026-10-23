@@ -1,4 +1,4 @@
-name: StockHunter Research Lab - R1-D3 / R1-D4 (RESEARCH ONLY)
+name: StockHunter Research Lab - R1-D3 / R1-D4 / R1-D5 (RESEARCH ONLY)
 
 on:
   workflow_dispatch:
@@ -12,6 +12,7 @@ on:
           - source_check
           - full_compare
           - r1d4_matched_blind
+          - r1d5_support_reaction
 
 permissions:
   contents: read
@@ -250,5 +251,120 @@ jobs:
           path: |
             reports/r1d4/result/sealed_after_reveal/**
             reports/r1d4/pins/**
+          if-no-files-found: warn
+          retention-days: 60
+
+
+  r1d5_asof_support_and_reaction_research:
+    name: R1-D5 support location x rebound confirmation x D20 success/failure [research only]
+    needs: read_only_source_check
+    if: ${{ inputs.scope == 'r1d5_support_reaction' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 95
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install offline data libraries only
+        run: pip install 'pandas>=2.0,<3' 'numpy>=1.24,<3'
+      - name: Confirm root/workflow copy, 15 as-of anti-future tests
+        run: |
+          set -euo pipefail
+          cmp .github/workflows/stockhunter_r1d3_strong_winners_external_context.yml stockhunter_r1d3_strong_winners_external_context.yml
+          python -m py_compile research_formulas/formula66_r1d5_support_reaction.py
+          python -m unittest discover -s tests -p test_formula66_r1d5_support_reaction.py -v
+      - name: Pin existing R1-D3 and R1-D4 historical outcomes source digests
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p reports/r1d5/pins
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/39884755058" > reports/r1d5/pins/r1d3_run.json
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/39884755058/artifacts?per_page=100" > reports/r1d5/pins/r1d3_artifacts.json
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/39896686387" > reports/r1d5/pins/r1d4_run.json
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/39896686387/artifacts?per_page=100" > reports/r1d5/pins/r1d4_artifacts.json
+          python - <<'PYCODE'
+          import json,pathlib
+          p=pathlib.Path('reports/r1d5/pins')
+          for phase,run_id,commit,artifact_id,name,digest in [
+             ('r1d3',39884755058,'a368f2e5f9bdc77659c1375d785d3b5368fc3964',12471499751,
+             'stockhunter-r1d3-winner-failure-asof-and-outcome-audit',
+             '4732f81ec1023bcf0b35a1df937adc8152206ca983c85462c4f4f5125324a0c5'),
+             ('r1d4',39896686387,'728f7bf433e6ff2b8ee3241a7af5549ceae63d6d',12476368838,
+             'stockhunter-r1d4-SEALED-paired-outcomes-and-source',
+             '95e09c3938538e05ded853b4a85a62b165b702f368e51cb6195221b0a0270fb8')]:
+            run=json.loads((p/f'{phase}_run.json').read_text())
+            assert run['id']==run_id and run['conclusion']=='success' and run['head_sha']==commit
+            items=json.loads((p/f'{phase}_artifacts.json').read_text())['artifacts']
+            match=[a for a in items if a['id']==artifact_id and a['name']==name]
+            assert len(match)==1 and not match[0]['expired'] and match[0]['digest']=='sha256:'+digest
+          print('R1D5_BOTH_SOURCE_PINS_PASS',flush=True)
+          PYCODE
+      - name: Download frozen source as-of features and D20 labels R1-D3
+        uses: actions/download-artifact@v4
+        with:
+          name: stockhunter-r1d3-winner-failure-asof-and-outcome-audit
+          run-id: 39884755058
+          github-token: ${{ github.token }}
+          path: reports/r1d5/input/r1d3
+      - name: Download frozen matched 31-pair R1-D4 reveal source
+        uses: actions/download-artifact@v4
+        with:
+          name: stockhunter-r1d4-SEALED-paired-outcomes-and-source
+          run-id: 39896686387
+          github-token: ${{ github.token }}
+          path: reports/r1d5/input/r1d4
+      - name: Download 8 SHA-pinned original KRX raw-price shards (no new provider request)
+        uses: actions/download-artifact@v4
+        with:
+          pattern: stockhunter-allkrx-price-shard-*
+          run-id: 39295295197
+          github-token: ${{ github.token }}
+          path: reports/r1d5/input/krx
+          merge-multiple: true
+      - name: Rebuild signal-date support/reaction features before joining outcome labels
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m research_formulas.formula66_r1d5_support_reaction \
+            --r1d3 reports/r1d5/input/r1d3 \
+            --sealed reports/r1d5/input/r1d4 \
+            --shards reports/r1d5/input/krx \
+            --out reports/r1d5/result
+          python - <<'PYCODE'
+          import json,pathlib
+          x=json.loads(pathlib.Path('reports/r1d5/result/MANIFEST.json').read_text())
+          assert (x['n_episode'],x['n_complete'],x['n_strong'],x['n_fail'],x['n_pairs'])==(1249,939,91,286,31)
+          assert not x['strategy_ready'] and x['order_count']==0
+          assert x['price_bars_for_each_event']=='ONLY_DATE_LE_SIGNAL_DATE'
+          print('R1D5_SUPPORT_REACTION_RESEARCH_ONLY_PASS',flush=True)
+          PYCODE
+      - name: Upload PRE-signal support features only, no D20 labels
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-r1d5-ASOF-SUPPORT-ONLY-NO-FUTURE
+          path: reports/r1d5/result/ASOF_ONLY_1249_SUPPORT_REACTION_FEATURES.csv.gz
+          if-no-files-found: warn
+          retention-days: 60
+      - name: Upload retrospective comparisons and source manifest separately
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-r1d5-SEALED-SUPPORT-REBOUND-OUTCOMES
+          path: |
+            reports/r1d5/result/REVEALED_ONLY_GROUP_AND_SUPPORT_FEATURES.csv.gz
+            reports/r1d5/result/OUTCOME_BY_SUPPORT_AND_REACTION_BINARY_DESCRIPTIVE.csv
+            reports/r1d5/result/LEVEL_SUPPORT_TOUCH_RECLAIM_FAIL_COMPARISON.csv
+            reports/r1d5/result/SEALED_SAME_DATE_31_PAIR_INDICATOR_COMPARISON.csv
+            reports/r1d5/result/SEALED_PAIRED_31_SUPPORT_REACTION_DIRECTIONAL.csv
+            reports/r1d5/result/BOUNCE_PRICE_AND_AMOUNT_EVENT_COMPARISON.csv
+            reports/r1d5/result/SUPPORT_PLUS_REACTION_INTERACTION_EXPLORATORY.csv
+            reports/r1d5/result/MANIFEST.json
+            reports/r1d5/pins/**
           if-no-files-found: warn
           retention-days: 60
