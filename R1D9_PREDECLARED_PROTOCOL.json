@@ -1,0 +1,39 @@
+{
+  "version": "STOCKHUNTER_R1D9_PREDECLARED_2021_23_DISJOINT_HOLDOUT_V1",
+  "purpose": "Check whether R1D8 exploratory D+20 failure-risk directions appear in a previously unscanned 2021-2023 signal-date cohort using frozen R1D1 proxy and R1D5 ASOF feature definitions",
+  "research_only": true,
+  "signal_start": "2021-01-04",
+  "signal_end": "2023-11-29",
+  "D20_last_exit": "2023-12-28",
+  "warmup_first_available": "2019-01-02",
+  "KRX_original_raw_run": 39295295197,
+  "KRX_shards": 8,
+  "KRX_daily_raw_sha_required": 1907,
+  "original_224ma_proxy_not_native_66_searches": true,
+  "original_d1_d5_d6_d7_d8_git_blob_pins_required": true,
+  "cooldown_trading_sessions": 20,
+  "entry": "next-session-open-hypothetical",
+  "exits_D_plus_sessions": [5, 10, 15, 20],
+  "fixed_friction_basis_points": 20,
+  "failure_threshold_D20_net_pct": -5.0,
+  "strong_rise_threshold_D20_net_pct": 15.0,
+  "primary_flag_from_R1D8": "BB20_L_hold",
+  "secondary_frozen_flags": ["MA20_hold", "BB40_L_hold", "FIB50_reclaim", "amount3d_above_prior10", "signal_close_above_prev_high"],
+  "reference_R1D8_matched_D20_failure_difference_percentage_points": {
+    "BB20_L_hold": -7.06,
+    "MA20_hold": 3.27,
+    "BB40_L_hold": -3.09,
+    "FIB50_reclaim": 5.31,
+    "amount3d_above_prior10": 7.21,
+    "signal_close_above_prev_high": 4.66
+  },
+  "wave_bins_from_R1D8": {
+    "wave_gain_pct": ["below_20", "20_to_below_35", "35_and_above"],
+    "close_retrace_pct": ["15_to_below_30", "30_to_below_50", "50_to_61.8_inclusive"]
+  },
+  "within_period_analysis": ["all_D20", "year", "market_regime_asof", "same_day", "same_day_and_wave_bin", "first_code_in_holdout_only", "D5_D10_D15_D20", "MFE_and_MAE"],
+  "uncertainty": "equal-date weighting, 1200 fixed-seed date-cluster bootstrap sensitivity bounds, not causal or multiple-comparison-corrected confirmatory inference",
+  "not_new_live_gate": true,
+  "never_optimize_cutoffs_using_holdout_returns": true,
+  "disclaimer": "Historical disjoint signal dates are not future prospective observations; older data may be subject to researcher prior exposure; OHLCV is unadjusted and PIT tradeability, security type and actual execution are not certified."
+}
