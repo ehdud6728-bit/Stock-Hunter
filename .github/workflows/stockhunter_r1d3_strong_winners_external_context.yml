@@ -1,10 +1,10 @@
-name: StockHunter Research Lab - R1-D3 / R1-D4 / R1-D5 / R1-D6 (RESEARCH ONLY)
+name: StockHunter Research Lab - R1-D3 / R1-D4 / R1-D5 / R1-D6 / R1-D7 (RESEARCH ONLY)
 
 on:
   workflow_dispatch:
     inputs:
       scope:
-        description: "Frozen source contracts, R1D3/D4/D5 hindsight review, or R1D6 independent 2024-25 period"
+        description: "Frozen source contracts, R1D3/D4/D5 hindsight review, R1D6 independent period, or frozen R1D7 path-risk audit"
         type: choice
         required: true
         default: source_check
@@ -14,6 +14,7 @@ on:
           - r1d4_matched_blind
           - r1d5_support_reaction
           - r1d6_independent_period
+          - r1d7_path_risk_audit
 
 permissions:
   contents: read
@@ -478,5 +479,111 @@ jobs:
             reports/r1d6/result/R1D6_DATE_CLUSTER_WEIGHTING_SENSITIVITY.csv
             reports/r1d6/result/R1D6_MANIFEST.json
             reports/r1d6/pins/**
+          if-no-files-found: warn
+          retention-days: 60
+
+
+  r1d7_frozen_d6_multihorizon_path_risk:
+    name: R1-D7 frozen R1D6 D5-D20 / MAE-MFE path risk, NOT NEW OOS [RESEARCH ONLY]
+    needs: read_only_source_check
+    if: ${{ inputs.scope == 'r1d7_path_risk_audit' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 95
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install research-only dependencies
+        run: pip install 'pandas>=2.0,<3' 'numpy>=1.24,<3'
+      - name: Verify existing workflow twin, freeze R1D6 code and run R1D7 safety tests
+        run: |
+          set -euo pipefail
+          cmp .github/workflows/stockhunter_r1d3_strong_winners_external_context.yml stockhunter_r1d3_strong_winners_external_context.yml
+          python -m py_compile research_formulas/formula66_r1d7_path_risk_audit.py
+          python -m unittest discover -s tests -p test_formula66_r1d7_path_risk_audit.py -v
+          python - <<'PYCODE'
+          from pathlib import Path
+          from research_formulas import formula66_r1d7_path_risk_audit as d7
+          path=Path('research_formulas/formula66_r1d6_oos_holdout.py')
+          assert d7.git_blob(path.read_bytes()) == d7.D6_CODE_BLOB
+          print('R1D7_ORIGINAL_D6_GIT_BLOB_FROZEN_PASS')
+          PYCODE
+      - name: GitHub-side verify immutable source run, commit and both ZIP digests
+        run: |
+          set -euo pipefail
+          mkdir -p reports/r1d7/pins
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/39941707036" > reports/r1d7/pins/r1d6_run.json
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/39941707036/artifacts?per_page=100" > reports/r1d7/pins/r1d6_artifacts.json
+          python - <<'PYCODE'
+          import json,pathlib
+          from research_formulas import formula66_r1d7_path_risk_audit as d7
+          src=pathlib.Path('reports/r1d7/pins')
+          run=json.loads((src/'r1d6_run.json').read_text('utf-8'))
+          assert run['id']==d7.D6_RUN and run['conclusion']=='success' and run['head_sha']==d7.D6_COMMIT
+          a=json.loads((src/'r1d6_artifacts.json').read_text('utf-8'))['artifacts']
+          for aid,name,digest in [
+            (d7.D6_ASOF_ID,'stockhunter-r1d6-OOS-ASOF-ONLY-NO-FUTURE',d7.D6_ASOF_ZIP_DIGEST),
+            (d7.D6_SEALED_ID,'stockhunter-r1d6-OOS-SEALED-COMPARISONS-RESEARCH-ONLY',d7.D6_SEALED_ZIP_DIGEST)]:
+            found=[x for x in a if x['id']==aid and x['name']==name]
+            assert len(found)==1 and not found[0]['expired'] and found[0]['digest']=='sha256:'+digest
+          print('R1D7_PINNED_R1D6_SOURCES_AND_ARTIFACT_DIGESTS_PASS')
+          PYCODE
+      - name: Download frozen D6 signal-time features ONLY, never recompute events
+        uses: actions/download-artifact@v4
+        with:
+          name: stockhunter-r1d6-OOS-ASOF-ONLY-NO-FUTURE
+          run-id: 39941707036
+          github-token: ${{ github.token }}
+          path: reports/r1d7/input/asof
+      - name: Download exactly frozen D6 sealed D20 paths and manifesto
+        uses: actions/download-artifact@v4
+        with:
+          name: stockhunter-r1d6-OOS-SEALED-COMPARISONS-RESEARCH-ONLY
+          run-id: 39941707036
+          github-token: ${{ github.token }}
+          path: reports/r1d7/input/sealed
+      - name: Download same original KRX SHA-pinned 8 historical shards
+        uses: actions/download-artifact@v4
+        with:
+          pattern: stockhunter-allkrx-price-shard-*
+          run-id: 39295295197
+          github-token: ${{ github.token }}
+          path: reports/r1d7/input/krx
+          merge-multiple: true
+      - name: D5/D10/D15/D20 price paths with original D20 byte-content numerical parity
+        run: |
+          set -euo pipefail
+          python -m research_formulas.formula66_r1d7_path_risk_audit \
+            --asof reports/r1d7/input/asof \
+            --sealed reports/r1d7/input/sealed \
+            --krx-root reports/r1d7/input/krx \
+            --repo-root . --out reports/r1d7/result
+          python - <<'PYCODE'
+          import json,pathlib
+          m=json.loads(pathlib.Path('reports/r1d7/result/R1D7_MANIFEST.json').read_text())
+          assert m['frozen_signal_population']==5247 and m['source_KRX_daily_hashes_verified']==1907
+          assert m['D20_reproduced_exactly']['passed'] and m['D20_reproduced_exactly']['complete']==5214
+          assert m['d20_plus15_count']==541 and m['d20_minus5_count']==1902
+          assert not m['new_independent_OOS'] and not m['strategy_ready'] and m['orders_placed']==0
+          print('R1D7_FROZEN_RETROSPECTIVE_MULTIHORIZON_RESEARCH_ONLY_PASS')
+          PYCODE
+      - name: Upload retrospective sealed paths and audit, no trade authorization
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-r1d7-FROZEN-D6-RETROSPECTIVE-PATH-RISK-NOT-OOS
+          path: |
+            reports/r1d7/result/R1D7_D5_D10_D15_D20_FROZEN_FORWARD_PRICE_PATHS.csv.gz
+            reports/r1d7/result/R1D7_HORIZON_YEAR_REGIME_AND_FIRST_CODE_SCORECARDS.csv
+            reports/r1d7/result/R1D7_FROZEN_SUPPORT_X_AMOUNT_AND_RISK.csv
+            reports/r1d7/result/R1D7_SAME_DATE_CONTRAST_DESCRIPTIVE.csv
+            reports/r1d7/result/R1D7_PRICE_BARRIER_FIRST_TOUCH_ORDER_DESCRIPTIVE.csv
+            reports/r1d7/result/R1D7_MANIFEST.json
+            reports/r1d7/pins/**
           if-no-files-found: warn
           retention-days: 60
