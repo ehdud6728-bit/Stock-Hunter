@@ -1,0 +1,151 @@
+name: StockHunter R1-D3 Strong Winners vs Failures + AsOf Market Context (RESEARCH ONLY)
+
+on:
+  workflow_dispatch:
+    inputs:
+      scope:
+        description: "Run frozen source contracts or reanalyze R1D2 success/failure using KRX historical bars"
+        type: choice
+        required: true
+        default: source_check
+        options:
+          - source_check
+          - full_compare
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: stockhunter-formula66-r1d3-${{ github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  RESEARCH_ONLY: '1'
+  STOCKHUNTER_LIVE_ENABLE: '0'
+  STOCKHUNTER_ORDER_ENABLE: '0'
+  STOCKHUNTER_SCORE_RANK_ENABLE: '0'
+  PYTHONDONTWRITEBYTECODE: '1'
+  TZ: Asia/Seoul
+
+jobs:
+  read_only_source_check:
+    name: 10 local source/temporal contract tests and immutable R1D2 GitHub artifact verification
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install offline local dependencies only
+        run: pip install 'pandas>=2.0,<3' 'numpy>=1.24,<3'
+      - name: Check root workflow twin, module imports, and regression tests
+        run: |
+          set -euo pipefail
+          cmp .github/workflows/stockhunter_r1d3_strong_winners_external_context.yml stockhunter_r1d3_strong_winners_external_context.yml
+          python -m py_compile research_formulas/formula66_r1d3_success_failure_context.py
+          python -m unittest discover -s tests -p test_formula66_r1d3_success_failure_context.py -v
+      - name: Verify immutable R1D2 and all eight KRX GitHub source artifact digests
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p reports/r1d3/source
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/39873801594" > reports/r1d3/source/r1d2_run.json
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/39873801594/artifacts?per_page=100" > reports/r1d3/source/r1d2_artifacts.json
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/39295295197" > reports/r1d3/source/krx_run.json
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/39295295197/artifacts?per_page=100" > reports/r1d3/source/krx_artifacts.json
+          python - <<'PY'
+          import json,pathlib
+          base=pathlib.Path('reports/r1d3/source')
+          rd=json.loads((base/'r1d2_run.json').read_text())
+          ra=json.loads((base/'r1d2_artifacts.json').read_text())['artifacts']
+          kd=json.loads((base/'krx_run.json').read_text())
+          ka=json.loads((base/'krx_artifacts.json').read_text())['artifacts']
+          assert rd['id']==39873801594 and rd['conclusion']=='success' and rd['head_sha']=='a89c3eb5f3ebf0f80c6de4b60b4f1bf8eefe6678'
+          assert kd['id']==39295295197 and kd['conclusion']=='success' and kd['head_sha']=='08e328c101f0774a2236c0a44cc1fdbbaa59e96e'
+          e=next(x for x in ra if x['id']==12468095269 and x['name']=='stockhunter-r1d2-recent-krx-downside-stress-recent_4m-daily')
+          assert e['digest']=='sha256:a3384e292dfc971f6716861de81f5a03e13f89476e4ddad3fdd3b30e34be84a6' and not e['expired']
+          pins={
+           0:(12208596109,'84dd5aa62f0c9538cd9c2d0ed0540c8f74063b21be49d9ecfc81e4b1583368b5'),
+           1:(12207608558,'3d372eebf915c870badf103356c3700d5fa914a32d79ce8057ef1f4c4f89295b'),
+           2:(12209930511,'5c49df64ad10bafbc09dd7ea78b9377804735fda6ad861018750b396ab2a27cb'),
+           3:(12209696204,'7a359f5959e2374622c40d068920adf9d695142b4a61b540d0752a8cb9bb4dd8'),
+           4:(12208882046,'88b35ea4c9a8a6a0ed4b61250a8018d49ee7ba4489c7345f04012915bb60f997'),
+           5:(12208443687,'eb503f7cabcc40991037092c6463437c8a8b71d43fb26fe646ea4f56885b3814'),
+           6:(12211336402,'b3cc055d919c7ab92d7f27b1b3ce6d3e56df787b107af961eaa43dedb885d6cd'),
+           7:(12212241289,'9563747eb8b27928ba0a0d2b7d3cf02e787acd2e9e4a656d410c286139321478'),
+          }
+          for n,(id_,sha) in pins.items():
+           a=[x for x in ka if x['id']==id_ and x['name']==f'stockhunter-allkrx-price-shard-{n}']
+           assert len(a)==1 and a[0]['digest']=='sha256:'+sha and not a[0]['expired'],f'SHARD_DIGEST_DRIFT:{n}'
+          print('R1D3_PINS_PASS_R1D2_AND_8_KRX_SHARDS')
+          PY
+      - name: Upload source check evidence even if blocked
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-r1d3-pinned-sources
+          path: reports/r1d3/source/**
+          if-no-files-found: warn
+          retention-days: 60
+
+  winner_failure_market_context:
+    name: Frozen 1249 episodes + asof KRX OHLCV Amount + market breadth vs completed D20 outcomes
+    needs: read_only_source_check
+    if: ${{ inputs.scope == 'full_compare' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install offline dependencies
+        run: pip install 'pandas>=2.0,<3' 'numpy>=1.24,<3'
+      - name: Download EXACT immutable R1D2 4 month original research output
+        uses: actions/download-artifact@v4
+        with:
+          name: stockhunter-r1d2-recent-krx-downside-stress-recent_4m-daily
+          run-id: 39873801594
+          github-token: ${{ github.token }}
+          path: reports/r1d3/input/r1d2
+      - name: Download 8 ORIGINAL KRX SHA-pinned full-market shards (not a new market data request)
+        uses: actions/download-artifact@v4
+        with:
+          pattern: stockhunter-allkrx-price-shard-*
+          run-id: 39295295197
+          github-token: ${{ github.token }}
+          path: reports/r1d3/input/krx
+          merge-multiple: true
+      - name: Compare only signal-known factors versus post-signal outcome AFTER independent feature extraction
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m research_formulas.formula66_r1d3_success_failure_context \
+            --r1d2 reports/r1d3/input/r1d2 \
+            --krx-root reports/r1d3/input/krx \
+            --out reports/r1d3/result
+          python - <<'PY'
+          import json,pathlib
+          p=pathlib.Path('reports/r1d3/result/r1d3_manifest.json')
+          m=json.loads(p.read_text())
+          x=m['observed_event_counts']
+          assert (x['n_episode'],x['n_complete'],x['n_not_complete'],x['strong_n'],x['failure_n'])==(1249,939,310,91,286)
+          assert m['strategy_ready'] is False and m['orders_placed']==0
+          print('R1D3_FROZEN_SUCCESS_FAILURE_RESEARCH_ONLY_PASS')
+          PY
+      - name: Upload asof-only context SEPARATELY from outcome-revealed comparisons
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-r1d3-winner-failure-asof-and-outcome-audit
+          path: reports/r1d3/result/**
+          if-no-files-found: warn
+          retention-days: 60
