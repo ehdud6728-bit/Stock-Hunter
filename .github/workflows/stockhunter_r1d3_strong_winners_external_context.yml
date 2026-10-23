@@ -1,4 +1,4 @@
-name: StockHunter Research Lab - R1-D3 / R1-D4 / R1-D5 / R1-D6 / R1-D7 (RESEARCH ONLY)
+name: StockHunter Research Lab - R1-D3 / R1-D4 / R1-D5 / R1-D6 / R1-D7 / R1-D8 (RESEARCH ONLY)
 
 on:
   workflow_dispatch:
@@ -15,6 +15,7 @@ on:
           - r1d5_support_reaction
           - r1d6_independent_period
           - r1d7_path_risk_audit
+          - r1d8_structure_confounds
 
 permissions:
   contents: read
@@ -585,5 +586,104 @@ jobs:
             reports/r1d7/result/R1D7_PRICE_BARRIER_FIRST_TOUCH_ORDER_DESCRIPTIVE.csv
             reports/r1d7/result/R1D7_MANIFEST.json
             reports/r1d7/pins/**
+          if-no-files-found: warn
+          retention-days: 60
+
+
+  r1d8_frozen_structure_confounds:
+    name: R1-D8 frozen D6-D7 date/code clusters and wave-support amount [RESEARCH ONLY, NOT OOS]
+    needs: read_only_source_check
+    if: ${{ inputs.scope == 'r1d8_structure_confounds' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install only research dependencies
+        run: pip install 'pandas>=2.0,<3' 'numpy>=1.24,<3'
+      - name: Freeze existing D7 code, verify workflow twins and 12 local anti-leak tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmp .github/workflows/stockhunter_r1d3_strong_winners_external_context.yml stockhunter_r1d3_strong_winners_external_context.yml
+          python -m py_compile research_formulas/formula66_r1d8_structure_confounds.py
+          python -m unittest discover -s tests -p test_formula66_r1d8_structure_confounds.py -v
+      - name: Pin ORIGINAL R1D6 and R1D7 exact runs and artifact digests (fail closed)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p reports/r1d8/pins
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/39941707036" > reports/r1d8/pins/r1d6_run.json
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/39941707036/artifacts?per_page=100" > reports/r1d8/pins/r1d6_artifacts.json
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/39948595864" > reports/r1d8/pins/r1d7_run.json
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/39948595864/artifacts?per_page=100" > reports/r1d8/pins/r1d7_artifacts.json
+          python - <<'PYCODE'
+          import json,pathlib
+          from research_formulas import formula66_r1d8_structure_confounds as x
+          p=pathlib.Path('reports/r1d8/pins')
+          for name,run_id,head in [('r1d6',x.D6_RUN,x.D6_SHA),('r1d7',x.D7_RUN,x.D7_SHA)]:
+           r=json.loads((p/f'{name}_run.json').read_text('utf-8'))
+           assert r['id']==run_id and r['conclusion']=='success' and r['head_sha']==head,'SOURCE_RUN_CHANGED_'+name
+          def pin(batch,id_,expected_name,digest):
+           artifacts=json.loads((p/f'{batch}_artifacts.json').read_text('utf-8'))['artifacts']
+           a=[v for v in artifacts if v['id']==id_ and v['name']==expected_name]
+           assert len(a)==1 and a[0]['digest']=='sha256:'+digest and not a[0]['expired'],'SOURCE_ARTIFACT_DRIFT_'+expected_name
+          pin('r1d6',x.D6_ASOF_ID,'stockhunter-r1d6-OOS-ASOF-ONLY-NO-FUTURE',x.D6_ASOF_DIGEST)
+          pin('r1d6',x.D6_SEALED_ID,'stockhunter-r1d6-OOS-SEALED-COMPARISONS-RESEARCH-ONLY',x.D6_SEALED_DIGEST)
+          pin('r1d7',x.D7_ARTIFACT_ID,'stockhunter-r1d7-FROZEN-D6-RETROSPECTIVE-PATH-RISK-NOT-OOS',x.D7_ARTIFACT_DIGEST)
+          print('R1D8_FROZEN_D6_D7_SOURCE_DIGESTS_PASS')
+          PYCODE
+      - name: Download immutable D6 signal-day FEATURES only
+        uses: actions/download-artifact@v4
+        with:
+          name: stockhunter-r1d6-OOS-ASOF-ONLY-NO-FUTURE
+          run-id: 39941707036
+          github-token: ${{ github.token }}
+          path: reports/r1d8/input/d6asof
+      - name: Download exact ORIGINAL D6 sealed forward prices for parity
+        uses: actions/download-artifact@v4
+        with:
+          name: stockhunter-r1d6-OOS-SEALED-COMPARISONS-RESEARCH-ONLY
+          run-id: 39941707036
+          github-token: ${{ github.token }}
+          path: reports/r1d8/input/d6sealed
+      - name: Download immutable D7 multi-horizon paths (NO RECOMPUTE)
+        uses: actions/download-artifact@v4
+        with:
+          name: stockhunter-r1d7-FROZEN-D6-RETROSPECTIVE-PATH-RISK-NOT-OOS
+          run-id: 39948595864
+          github-token: ${{ github.token }}
+          path: reports/r1d8/input/d7
+      - name: Frozen only R1-D8 same-day and wave-matched risk audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m research_formulas.formula66_r1d8_structure_confounds \
+            --d6-asof reports/r1d8/input/d6asof \
+            --d6-sealed reports/r1d8/input/d6sealed \
+            --d7 reports/r1d8/input/d7 \
+            --repo-root . --out reports/r1d8/result
+          python - <<'PYCODE'
+          import json,pathlib
+          m=json.loads(pathlib.Path('reports/r1d8/result/R1D8_MANIFEST.json').read_text('utf-8'))
+          assert (m['n_original_signals'],m['n_d20_complete'],m['n_d20_fail5'],m['n_d20_strong15'])==(5247,5214,1902,541)
+          assert m['no_new_independent_OOS'] and m['no_new_search_or_optimized_cutoffs']
+          assert not m['strategy_ready'] and m['orders_placed']==0 and not m['new_live_score_rank_or_orders']
+          print('R1D8_SAME_DATE_WAVE_CLUSTER_RETROSPECTIVE_RESEARCH_ONLY_PASS')
+          PYCODE
+      - name: Upload sealed comparisons and original source pins, no LIVE output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-r1d8-FROZEN-D6D7-CLUSTER-STRUCTURE-NOT-OOS
+          path: |
+            reports/r1d8/result/**
+            reports/r1d8/pins/**
           if-no-files-found: warn
           retention-days: 60
