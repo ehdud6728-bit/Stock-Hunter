@@ -1,0 +1,29 @@
+{
+  "version": "STOCKHUNTER_R1D10_ACCUMULATED_PROVENANCE_QA_V1",
+  "prepared_on": "2026-10-24",
+  "research_only": true,
+  "scope": "READ_ONLY_SNAPSHOTS_EXISTING_REAL_FULL_TRUST_R143_AND_ODOLI_AFTER",
+  "source_artifacts": {
+    "realfull": {"run":39948786391,"id":12504190178,"sha256":"3d2ee08727e50b248cdf7c41be7fb21744d2f9ee908747e693895c4d443ab34b"},
+    "r143": {"run":39960213718,"id":12504990509,"sha256":"a1ba01eea0e1976e9edd59ec6b548d2d56f897e7638498dc4185b66b284edbbf"},
+    "odoli": {"run":39956630843,"id":12503340512,"sha256":"bb7025612994c30f4d143f3460089316ed2d97a868506481ac2fc4f567dc9fc9"},
+    "after": {"run":39980702510,"id":12514050084,"sha256":"04eaaf6d2a8309e51aaa32a20096dbb2f42125e93501707a40cd280ea4c9a6c3"}
+  },
+  "original_R1_D9_GitHub_run_success":40051036811,
+  "primary_objectives": [
+    "Exact 6-character alphanumeric ticker identity preserved across sources",
+    "Cross-source event pricing mismatch and unadjusted corporate-action-risk flags, NO automatic corrections",
+    "Trust signal first observed time versus KRX 15:30 authority",
+    "Paired D+5 to D+10 Giveback paths and repeated signal sensitivity",
+    "ODOLI AFTER acquisition coverage plus same-day D+5 comparison, missing is NEVER zero"
+  ],
+  "horizons_real_full": [1,3,5,10],
+  "outlier_abs_return_pct_QA_only":40,
+  "cross_source_return_mismatch_pp_QA_only":10,
+  "overlay_color_classification": "CURRENT_SNAPSHOT_ONLY_NOT_HISTORICALLY_STORED",
+  "origin_reference": "REAL_FULL frozen 2026-09-10~2026-10-23, NXT AFTER 2026-09-28~2026-10-23",
+  "never_retrain_R1D1_to_R1D9_with_new_observations":true,
+  "D9_independent_2021_23_not_forward_prospective":true,
+  "no_production_selection_score_rank_order_change":true,
+  "not_a_strategy_validation":true
+}
