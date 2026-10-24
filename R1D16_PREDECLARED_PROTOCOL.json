@@ -1,0 +1,21 @@
+{
+  "version": "STOCKHUNTER_R1D16_PARALLEL_FROZEN_RESEARCH_V1",
+  "research_only": true,
+  "orders_placed": 0,
+  "live_logic_changed": false,
+  "snapshot_asof": "2026-10-23",
+  "no_new_oos_claim": true,
+  "principles": [
+    "REAL_FULL R143: use only signal-side frozen seeds for 224MA, wave and pullback covariates; outcomes in separate sidecar",
+    "REAL_FULL R1D13: original TRUST QA flags contextual only, lack of match does not equal clean",
+    "ODOLI: status and FAST/SLOW flow as of 2026-10-23 are retrospective and NEVER signal-time predictors",
+    "ODOLI: AFTER unavailable is missing, never substitute 0%",
+    "NO combined REAL_FULL and ODOLI population, rankings, automatic gate changes or orders"
+  ],
+  "pinned_sources": {
+    "r143": {"run_id": 39960213718, "artifact_id": 12504990509, "head_sha": "3b8321a2e48c98a49f93ada68ba64e92e072d6ed", "artifact_name": "real-full-r143-path-integrity-39960213718", "zip_sha256": "a1ba01eea0e1976e9edd59ec6b548d2d56f897e7638498dc4185b66b284edbbf"},
+    "r1d13": {"run_id": 40096795372, "artifact_id": 12561441155, "head_sha": "fd5e32262c3e63792b3e653cab4e79628832dbf6", "artifact_name": "stockhunter-r1d13-FROZEN-FULLCOHORT-CONTAMINATION-SCOPE-NOT-OOS", "zip_sha256": "f15e203bf7528d6cbce637b2c7bc846e35a40b2acbc04bb8b6ee87148a08435d"},
+    "odoli": {"run_id": 39956630843, "artifact_id": 12503340512, "head_sha": "3b8321a2e48c98a49f93ada68ba64e92e072d6ed", "artifact_name": "odoli-independent-r1-39956630843", "zip_sha256": "bb7025612994c30f4d143f3460089316ed2d97a868506481ac2fc4f567dc9fc9"},
+    "after": {"run_id": 39980702510, "artifact_id": 12514050084, "head_sha": "0d8b0297b99157a78ad98ad58f5dcbeb1eecee27", "artifact_name": "odoli-after-session-context-r1-39980702510", "zip_sha256": "04eaaf6d2a8309e51aaa32a20096dbb2f42125e93501707a40cd280ea4c9a6c3"}
+  }
+}

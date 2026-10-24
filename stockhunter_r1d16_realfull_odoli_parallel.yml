@@ -1,0 +1,194 @@
+name: StockHunter R1-D16 REAL_FULL + ODOLI Parallel Frozen Research (RESEARCH ONLY)
+on:
+  workflow_dispatch:
+    inputs:
+      lane:
+        description: 'Independent frozen lane(s). BOTH launches two separate jobs; NEVER merges populations.'
+        required: true
+        type: choice
+        options:
+          - both
+          - realfull
+          - odoli
+        default: both
+permissions:
+  contents: read
+  actions: read
+jobs:
+  realfull_shadow_wave_giveback:
+    name: R1-D16 REAL_FULL R143 signal-time 224MA/wave x paired Giveback (NOT NEW OOS)
+    if: ${{ inputs.lane == 'both' || inputs.lane == 'realfull' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      RESEARCH_ONLY: '1'
+      STOCKHUNTER_ORDER_ENABLE: '0'
+      STOCKHUNTER_LIVE_ENABLE: '0'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Check ROOT protocol, byte-identical workflow twin and local isolated tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f R1D16_PREDECLARED_PROTOCOL.json || { echo 'R1D16_MISSING_ROOT_PROTOCOL'; exit 52; }
+          cmp -s stockhunter_r1d16_realfull_odoli_parallel.yml .github/workflows/stockhunter_r1d16_realfull_odoli_parallel.yml
+          python -m pip install --disable-pip-version-check numpy pandas
+          python -m py_compile research_formulas/stockhunter_r1d16_parallel_research.py
+          python -m unittest discover -s tests -p test_stockhunter_r1d16_parallel_research.py -v
+          python - <<'PY'
+          from research_formulas.stockhunter_r1d16_parallel_research import protocol
+          protocol('R1D16_PREDECLARED_PROTOCOL.json')
+          print('R1D16_REALFULL_SOURCE_PROTOCOL_LOCK_PASS')
+          PY
+      - name: Verify pinned R143 and R1D13 GitHub run heads and artifact ZIP digests
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python - <<'PY'
+          import json,os,urllib.request,pathlib
+          p=json.load(open('R1D16_PREDECLARED_PROTOCOL.json'))['pinned_sources']
+          for key in ('r143','r1d13'):
+            a=p[key]
+            def get(url):
+              req=urllib.request.Request(url,headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json'})
+              return json.load(urllib.request.urlopen(req,timeout=20))
+            repo='https://api.github.com/repos/'+os.environ['GITHUB_REPOSITORY']
+            run=get(repo+'/actions/runs/'+str(a['run_id']))
+            assert run['conclusion']=='success' and run['head_sha']==a['head_sha'],'SOURCE_RUN_DRIFT_'+key
+            arts=get(repo+'/actions/runs/'+str(a['run_id'])+'/artifacts?per_page=100')['artifacts']
+            ok=[x for x in arts if x['id']==a['artifact_id'] and x['name']==a['artifact_name'] and x['digest']=='sha256:'+a['zip_sha256'] and not x['expired']]
+            assert len(ok)==1,'SOURCE_ARTIFACT_DRIFT_'+key
+            pathlib.Path('reports/r1d16/pins').mkdir(parents=True,exist_ok=True)
+            pathlib.Path('reports/r1d16/pins/'+key+'_run.json').write_text(json.dumps(run))
+            pathlib.Path('reports/r1d16/pins/'+key+'_artifact.json').write_text(json.dumps(ok[0]))
+          print('R1D16_REALFULL_TWO_IMMUTABLE_SOURCES_PASS')
+          PY
+      - name: Download frozen R143 seed/outcome artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: real-full-r143-path-integrity-39960213718
+          run-id: '39960213718'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: reports/r1d16/input/r143
+      - name: Download frozen R1D13 original TRUST QA artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: stockhunter-r1d13-FROZEN-FULLCOHORT-CONTAMINATION-SCOPE-NOT-OOS
+          run-id: '40096795372'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: reports/r1d16/input/r1d13
+      - name: Compute RESEARCH_ONLY signal-side wave and Giveback descriptive panel
+        run: |
+          set -euo pipefail
+          python -m research_formulas.stockhunter_r1d16_parallel_research --lane realfull --protocol R1D16_PREDECLARED_PROTOCOL.json --r143 reports/r1d16/input/r143 --r1d13 reports/r1d16/input/r1d13 --out reports/r1d16/result/realfull
+          python - <<'PY'
+          import json
+          p=json.load(open('reports/r1d16/result/realfull/R1D16_MANIFEST.json'))
+          assert p['RESEARCH_ONLY'] and p['orders_placed']==0 and not p['live_logic_changed'] and not p['new_oos']
+          assert p['r143_seeds']==240 and p['r143_outcome_rows']==705 and p['r143_paired_d5d10']==120
+          print('R1D16_REALFULL_FROZEN_RESEARCH_SUCCESS')
+          PY
+      - name: Upload independent REAL_FULL evidence even if blocked
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-r1d16-REALFULL-224-WAVE-GIVEBACK-FROZEN-NOT-OOS
+          if-no-files-found: warn
+          retention-days: 60
+          path: |
+            reports/r1d16/result/realfull/**
+            reports/r1d16/pins/**
+            R1D16_PREDECLARED_PROTOCOL.json
+  odoli_progression_after:
+    name: R1-D16 ODOLI FAST/SLOW snapshot maturity x AFTER observability (NOT PREDICTION)
+    if: ${{ inputs.lane == 'both' || inputs.lane == 'odoli' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      RESEARCH_ONLY: '1'
+      STOCKHUNTER_ORDER_ENABLE: '0'
+      STOCKHUNTER_LIVE_ENABLE: '0'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Check ROOT protocol and isolated tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f R1D16_PREDECLARED_PROTOCOL.json || { echo 'R1D16_MISSING_ROOT_PROTOCOL'; exit 52; }
+          cmp -s stockhunter_r1d16_realfull_odoli_parallel.yml .github/workflows/stockhunter_r1d16_realfull_odoli_parallel.yml
+          python -m pip install --disable-pip-version-check numpy pandas
+          python -m py_compile research_formulas/stockhunter_r1d16_parallel_research.py
+          python -m unittest discover -s tests -p test_stockhunter_r1d16_parallel_research.py -v
+          python - <<'PY'
+          from research_formulas.stockhunter_r1d16_parallel_research import protocol
+          protocol('R1D16_PREDECLARED_PROTOCOL.json')
+          print('R1D16_ODOLI_SOURCE_PROTOCOL_LOCK_PASS')
+          PY
+      - name: Verify pinned ODOLI DAILY and AFTER GitHub run heads and artifact digests
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python - <<'PY'
+          import json,os,urllib.request,pathlib
+          p=json.load(open('R1D16_PREDECLARED_PROTOCOL.json'))['pinned_sources']
+          for key in ('odoli','after'):
+            a=p[key]
+            def get(url):
+              req=urllib.request.Request(url,headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json'})
+              return json.load(urllib.request.urlopen(req,timeout=20))
+            repo='https://api.github.com/repos/'+os.environ['GITHUB_REPOSITORY']
+            run=get(repo+'/actions/runs/'+str(a['run_id']))
+            assert run['conclusion']=='success' and run['head_sha']==a['head_sha'],'SOURCE_RUN_DRIFT_'+key
+            arts=get(repo+'/actions/runs/'+str(a['run_id'])+'/artifacts?per_page=100')['artifacts']
+            ok=[x for x in arts if x['id']==a['artifact_id'] and x['name']==a['artifact_name'] and x['digest']=='sha256:'+a['zip_sha256'] and not x['expired']]
+            assert len(ok)==1,'SOURCE_ARTIFACT_DRIFT_'+key
+            pathlib.Path('reports/r1d16/pins').mkdir(parents=True,exist_ok=True)
+            pathlib.Path('reports/r1d16/pins/'+key+'_run.json').write_text(json.dumps(run))
+            pathlib.Path('reports/r1d16/pins/'+key+'_artifact.json').write_text(json.dumps(ok[0]))
+          print('R1D16_ODOLI_TWO_IMMUTABLE_SOURCES_PASS')
+          PY
+      - name: Download frozen ODOLI DAILY independent research
+        uses: actions/download-artifact@v4
+        with:
+          name: odoli-independent-r1-39956630843
+          run-id: '39956630843'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: reports/r1d16/input/odoli
+      - name: Download frozen ODOLI AFTER observational sidecar
+        uses: actions/download-artifact@v4
+        with:
+          name: odoli-after-session-context-r1-39980702510
+          run-id: '39980702510'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: reports/r1d16/input/after
+      - name: Compute RESEARCH_ONLY snapshot maturity and AFTER coverage panels
+        run: |
+          set -euo pipefail
+          python -m research_formulas.stockhunter_r1d16_parallel_research --lane odoli --protocol R1D16_PREDECLARED_PROTOCOL.json --odoli reports/r1d16/input/odoli --after reports/r1d16/input/after --out reports/r1d16/result/odoli
+          python - <<'PY'
+          import json
+          p=json.load(open('reports/r1d16/result/odoli/R1D16_MANIFEST.json'))
+          assert p['RESEARCH_ONLY'] and p['orders_placed']==0 and not p['live_logic_changed'] and not p['new_oos']
+          assert p['events']==1347 and p['status_missing']==9 and p['after_valid_rows']==50
+          assert p['snapshot_flows_are_not_frozen_predictors']
+          print('R1D16_ODOLI_FROZEN_RESEARCH_SUCCESS')
+          PY
+      - name: Upload independent ODOLI evidence even if blocked
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-r1d16-ODOLI-FAST-SLOW-AFTER-SNAPSHOT-NOT-OOS
+          if-no-files-found: warn
+          retention-days: 60
+          path: |
+            reports/r1d16/result/odoli/**
+            reports/r1d16/pins/**
+            R1D16_PREDECLARED_PROTOCOL.json
