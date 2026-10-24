@@ -78,4 +78,26 @@ class LockedR1D9(unittest.TestCase):
   src=inspect.getsource(d9.discover)
   self.assertIn("'tradeability_certified_PIT':False",src)
   self.assertIn("'native_original_66_formulas':False",src)
+ def test_15_completed_D20_cohort_retains_first_code(self):
+  from unittest.mock import patch
+  with tempfile.TemporaryDirectory() as tmp:
+   rows=[('2021-01-04','000001',0),('2021-02-01','000001',1),('2021-02-01','000002',0)]
+   feat=[];result=[]
+   for date,code,k in rows:
+    f={'date':date,'code':code,'market_regime':'MIXED_NONEXTREME20',
+       'wave_gain_bin':'12_TO_LT20','wave_retrace_bin':'15_TO_LT30'}
+    f.update({flag:int((k+pos)%2==0) for pos,flag in enumerate(d9.CHECK_FLAGS)})
+    feat.append(f)
+    result.append({'date':date,'code':code,'horizon':20,
+       'status_out':d9.DONE,'net_20bps_pct':(-6.0 if k else 16.0),
+       'mae_intraday_pct':(-9.0 if k else -3.0),
+       'mfe_intraday_pct':(3.0 if k else 18.0)})
+   asof=pd.DataFrame(feat);paths=pd.DataFrame(result)
+   with patch.object(d9,'old_d8_reference',return_value=dict(d9.REFERENCE_R1D8_MATCHED_FAIL_DELTA)):
+    metrics=d9.analyze(asof,paths,tmp,tmp)
+   self.assertEqual(metrics['n_D20_complete'],3)
+   self.assertTrue((Path(tmp)/'R1D9_REPEATED_CODE_SENSITIVITY.csv').is_file())
+   audit=pd.read_csv(Path(tmp)/'R1D9_SEALED_AUDIT_JOINED_NO_LIVE.csv.gz')
+   self.assertEqual(audit['first_code'].astype(int).sum(),2)
+   self.assertEqual(int(audit[(audit.code.astype(str)=='1')]['first_code'].sum()),1)
 if __name__=='__main__':unittest.main()
