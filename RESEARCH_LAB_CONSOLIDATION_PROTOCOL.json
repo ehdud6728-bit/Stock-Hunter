@@ -1,0 +1,53 @@
+{
+  "id": "STOCKHUNTER_RESEARCH_LAB_CONSOLIDATION_PHASE1_20261025",
+  "phase": "MIGRATE_FIRST_VERIFY_THEN_RETIRE",
+  "live_logic_changed": false,
+  "production_workflows_modified": false,
+  "orders_placed": 0,
+  "new_independent_oos": false,
+  "source_head_sha_at_design": "b57ddf79e47241f4c0233ad53c790bb7a9ab312b",
+  "existing_research_lab_blob": "15f7ba33d3d6550a8e52b1f360c5f4339c3b2bce",
+  "original_workflow_blobs": {
+    "stockhunter_r1d3_strong_winners_external_context.yml": "15f7ba33d3d6550a8e52b1f360c5f4339c3b2bce",
+    "stockhunter_r1d16_realfull_odoli_parallel.yml": "643521ad8a244a93eda16c54cf3541868cd85243",
+    "stockhunter_r1d17_frozen_green_integrated.yml": "95863da5abc9c621f06fa5bd0c4f791a749f02b9"
+  },
+  "migrated_scopes": [
+    "r1d16_both",
+    "r1d16_realfull",
+    "r1d16_odoli",
+    "r1d17_green_integrated"
+  ],
+  "retire_only_after_verified": [
+    ".github/workflows/stockhunter_r1d16_realfull_odoli_parallel.yml",
+    ".github/workflows/stockhunter_r1d17_frozen_green_integrated.yml"
+  ],
+  "never_remove_auto_capture": [
+    ".github/workflows/run_scanner.yml",
+    ".github/workflows/REAL_FULL_RELIABLE_TRIGGER.yml",
+    ".github/workflows/real_full_r143_path_integrity.yml",
+    ".github/workflows/odoli_independent_daily_r1.yml"
+  ],
+  "retirement_status": "NOT_APPROVED_UNTIL_THREE_MIGRATED_JOBS_PASS_GITHUB",
+  "research_code_changed": false,
+  "scope_contracts": {
+    "r1d16_both": [
+      "realfull_shadow_wave_giveback",
+      "odoli_progression_after"
+    ],
+    "r1d16_realfull": [
+      "realfull_shadow_wave_giveback"
+    ],
+    "r1d16_odoli": [
+      "odoli_progression_after"
+    ],
+    "r1d17_green_integrated": [
+      "historical_grade_repro"
+    ]
+  },
+  "r1d17_test_original_git_blob": "1d97a27db0e8eb41c89a129322889cb03f4ee9da",
+  "r1d17_test_migration_note": "3 existing tests redirected from retired standalone YML twin to consolidated Lab twin; original testing logic unchanged.",
+  "r1d17_test_migrated_git_blob": "fe43d96256ea27bd1017745c2010d47106eb831a",
+  "legacy_readonly_source_check_scope_gate": "!startsWith(inputs.scope, r1d16_) AND scope != r1d17_green_integrated; legacy scope behavior unchanged",
+  "legacy_job_migration_exception": "Only read_only_source_check gains a new-scope-only IF guard to prevent its unrelated old R1D2 source dependency from blocking R1D16/D17. All existing scopes still trigger it."
+}
