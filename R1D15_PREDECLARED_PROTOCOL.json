@@ -1,0 +1,42 @@
+{
+  "apply_data_corrections": false,
+  "base_workflow_blob": "509c44e3b68a53531b9c93ae19050f3639fb763a",
+  "change_live_score_rank_orders": false,
+  "change_production_scanner": false,
+  "data_quality_strategy": "RESEARCH_ONLY; fail-closed for ambiguous aliases; exact IDs never merged; missing dates not zero-filled",
+  "fixed_case_start": "2026-09-01",
+  "frozen_r1d14_bars": 3713,
+  "frozen_r1d14_file_evidence": 4,
+  "input_artifact_role": "frozen R1D14 evidence; newer restored cache inspected separately and never assumed historically as used",
+  "legacy_key_function": "digits_only_last6_zfill6",
+  "meju_exact_code": "0088M0",
+  "meju_signal_date": "2026-09-23",
+  "new_independent_out_of_sample": false,
+  "original_live_66_unchanged": true,
+  "pinned_r1d14": {
+    "artifact_id": 12562425614,
+    "artifact_name": "stockhunter-r1d14-RESTORED-CACHE-EVIDENCE-NOT-HISTORIC-AS-USED",
+    "head": "7fc9d0580f369491aa1b01a31ddfa9f088533723",
+    "run": 40099215663,
+    "sha256": "84ae76f87c17dc4699630afe4d54b09f512f5739ad188712099c954bfda9f3ff"
+  },
+  "place_orders": false,
+  "purpose": "Detect and quarantine collisions of lossy legacy numeric-only code keys, keep exact file identity and time-validity separated; never change scanner/trading",
+  "research_id": "R1D15_EXACT_CACHE_SECURITY_IDENTITY_QUARANTINE",
+  "restore_cache_historical_as_used": false,
+  "retune_hypotheses": false,
+  "revision": "R1D15_V1_CACHE_ALIAS_QUARANTINE_RESEARCH_ONLY_20261024",
+  "schema": "STOCKHUNTER_R1D15_PREDECLARED_RESEARCH_CONTRACT_V1",
+  "static_git_blobs": {
+    "real_full_capture_runner.py": "6167746fe363961919a70e5ec206861bfaec465c",
+    "real_full_r1c1_path_integrity_r143.py": "fe7fba1e26f2a952aeff54b07230c888547e03ef",
+    "real_full_trust_audit.py": "b18d67a13a1d08076b6c0583272939c06ed508af",
+    "triangle1pb_research.py": "1225fa7c90e7e7bab7937f96e7c08dec861e226d"
+  },
+  "target_exact_codes": [
+    "000100",
+    "000150",
+    "000880",
+    "0088M0"
+  ]
+}

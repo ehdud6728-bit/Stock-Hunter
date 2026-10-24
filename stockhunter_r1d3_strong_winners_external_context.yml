@@ -1,4 +1,4 @@
-name: StockHunter Research Lab - R1-D3 / R1-D4 / R1-D5 / R1-D6 / R1-D7 / R1-D8 / R1-D9 / R1-D10 / R1-D11 / R1-D12 / R1-D13 / R1-D14 (RESEARCH ONLY)
+name: StockHunter Research Lab - R1-D3 / R1-D4 / R1-D5 / R1-D6 / R1-D7 / R1-D8 / R1-D9 / R1-D10 / R1-D11 / R1-D12 / R1-D13 / R1-D14 / R1-D15 (RESEARCH ONLY)
 
 on:
   workflow_dispatch:
@@ -22,6 +22,7 @@ on:
           - r1d12_identity_price_source_audit
           - r1d13_contamination_scope_audit
           - r1d14_restored_price_cache_provenance
+          - r1d15_exact_price_cache_identity_quarantine
 
 permissions:
   contents: read
@@ -1347,3 +1348,112 @@ jobs:
             reports/r1d14/result/**
             reports/r1d14/pins/**
             R1D14_PREDECLARED_PROTOCOL.json
+
+  # R1-D15 strictly isolated research: 0088M0 and 000880 NEVER alias, source/time remains unmodified.
+  r1d15_exact_identity_quarantine:
+    name: R1-D15 R1D14 exact 6-char security identity / legacy cache alias quarantine [RESEARCH ONLY]
+    if: ${{ inputs.scope == 'r1d15_exact_price_cache_identity_quarantine' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions:
+      contents: read
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RESEARCH_ONLY: '1'
+      STOCKHUNTER_LIVE_ENABLE: '0'
+      STOCKHUNTER_ORDER_ENABLE: '0'
+      STOCKHUNTER_SCORE_RANK_ENABLE: '0'
+      PYTHONDONTWRITEBYTECODE: '1'
+      TZ: Asia/Seoul
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install isolated research dependencies only
+        run: pip install 'pandas>=2.0,<3' 'numpy>=1.24,<3'
+      - name: Verify frozen original code blobs, root protocol, YML twins and 26 tests
+        run: |
+          set -euo pipefail
+          test -f R1D15_PREDECLARED_PROTOCOL.json || { echo R1D15_ROOT_PROTOCOL_MISSING; exit 52; }
+          cmp .github/workflows/stockhunter_r1d3_strong_winners_external_context.yml stockhunter_r1d3_strong_winners_external_context.yml
+          python -m py_compile research_formulas/stockhunter_r1d15_cache_identity_quarantine.py
+          python -m unittest discover -s tests -p test_stockhunter_r1d15_cache_identity_quarantine.py -v
+          python - <<'PY'
+          from research_formulas.stockhunter_r1d15_cache_identity_quarantine import protocol_guard
+          p=protocol_guard('R1D15_PREDECLARED_PROTOCOL.json','.')
+          assert p['change_production_scanner'] is False and p['place_orders'] is False
+          print('R1D15_FROZEN_EXACT_IDENTITY_RESEARCH_ONLY_CONTRACT_PASS')
+          PY
+      - name: Pin exact completed R1D14 source and verify artifact SHA256
+        run: |
+          set -euo pipefail
+          mkdir -p reports/r1d15/pins
+          python - <<'PY'
+          import json,os,subprocess,pathlib
+          from research_formulas.stockhunter_r1d15_cache_identity_quarantine import PIN
+          repo=os.environ['GITHUB_REPOSITORY']
+          run=json.loads(subprocess.check_output(['gh','api',f'repos/{repo}/actions/runs/{PIN["run"]}'],text=True))
+          artifacts=json.loads(subprocess.check_output(['gh','api',f'repos/{repo}/actions/runs/{PIN["run"]}/artifacts?per_page=100'],text=True))['artifacts']
+          matches=[a for a in artifacts if a['id']==PIN['artifact_id'] and a['name']==PIN['artifact_name']]
+          assert run['conclusion']=='success' and run['head_sha']==PIN['head'],'R1D15_FROZEN_SOURCE_RUN_DRIFT'
+          assert len(matches)==1 and not matches[0]['expired'] and matches[0]['digest']=='sha256:'+PIN['sha256'],'R1D15_FROZEN_SOURCE_ARTIFACT_DRIFT'
+          pathlib.Path('reports/r1d15/pins/R1D14_SOURCE_RUN.json').write_text(json.dumps(run),encoding='utf-8')
+          pathlib.Path('reports/r1d15/pins/R1D14_SOURCE_ARTIFACT.json').write_text(json.dumps(matches[0]),encoding='utf-8')
+          print('R1D15_R1D14_SOURCE_RUN_AND_DIGEST_PASS')
+          PY
+      - name: Download exact frozen R1D14 research result (not production price authority)
+        uses: actions/download-artifact@v4
+        with:
+          name: stockhunter-r1d14-RESTORED-CACHE-EVIDENCE-NOT-HISTORIC-AS-USED
+          run-id: 40099215663
+          github-token: ${{ github.token }}
+          path: reports/r1d15/input/r1d14
+      - name: Restore read-only latest 4-path cache; do not save or patch
+        id: restored-price-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            reports/.cache/v20_price_history
+            reports/.cache/v20_asof_snapshots
+            reports/.cache/v25_actual_amount_history
+            reports/.cache/v25_core224_live
+          key: stockhunter-r1d15-readonly-never-save-${{ github.ref_name }}-${{ github.run_id }}
+          restore-keys: |
+            stockhunter-v25-core224-live-${{ github.ref_name }}-
+      - name: Assert exact security identity, separate each price file and block lossy aliases
+        env:
+          MATCHED_CACHE_KEY: ${{ steps.restored-price-cache.outputs.cache-matched-key }}
+        run: |
+          set -euo pipefail
+          python -m research_formulas.stockhunter_r1d15_cache_identity_quarantine \
+            --r1d14 reports/r1d15/input/r1d14 \
+            --cache-root reports/.cache/v20_price_history \
+            --protocol R1D15_PREDECLARED_PROTOCOL.json \
+            --repo-root . \
+            --cache-key "${MATCHED_CACHE_KEY:-}" \
+            --out reports/r1d15/result
+          python - <<'PY'
+          import json
+          m=json.load(open('reports/r1d15/result/R1D15_MANIFEST.json',encoding='utf-8'))
+          assert m['frozen_files_reviewed']==4 and m['frozen_bars_reviewed']==3713
+          assert m['collision_shared_dates']==98 and m['collision_shared_dates_equal_close']==0
+          assert m['identity_collision_legacy_keys']==1 and m['all_legacy_alias_joins_blocked'] is True
+          assert m['meju_has_post_signal_exact_cache_in_frozen_r1d14'] is False
+          assert m['orders_placed']==0 and m['production_price_parser_mutated'] is False
+          print('R1D15_EXACT_CODE_QUARANTINE_AND_CACHE_SHA_EVIDENCE_PASS')
+          PY
+      - name: Upload isolated provenance proof and frozen manifest; NEVER save current cache
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-r1d15-EXACT-CODE-CACHE-IDENTITY-QUARANTINE-RESEARCH-ONLY
+          if-no-files-found: warn
+          retention-days: 60
+          path: |
+            reports/r1d15/result/**
+            reports/r1d15/pins/**
+            R1D15_PREDECLARED_PROTOCOL.json
