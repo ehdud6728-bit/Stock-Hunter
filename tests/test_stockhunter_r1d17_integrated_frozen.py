@@ -100,14 +100,14 @@ class TestR1D17Frozen(unittest.TestCase):
             sha=hashlib.sha1(f'blob {len(b)}\0'.encode()+b).hexdigest()
             self.assertTrue(audit_repo_readonly(td,{'frozen_code_blobs':{'foo.py':sha}}))
     def test_27_root_twin_is_identical(self):
-        y=ROOT/'stockhunter_r1d17_frozen_green_integrated.yml'
-        z=ROOT/'.github/workflows'/'stockhunter_r1d17_frozen_green_integrated.yml'
+        y=ROOT/'stockhunter_r1d3_strong_winners_external_context.yml'
+        z=ROOT/'.github/workflows'/'stockhunter_r1d3_strong_winners_external_context.yml'
         self.assertEqual(y.read_bytes(),z.read_bytes())
     def test_28_existing_r1d16_not_mentioned_mutation(self):
-        src=(ROOT/'stockhunter_r1d17_frozen_green_integrated.yml').read_text()
+        src=(ROOT/'stockhunter_r1d3_strong_winners_external_context.yml').read_text()
         self.assertNotIn('git push',src);self.assertNotIn('actions/cache/save',src)
     def test_29_no_broad_source_search_or_cache_overwrite(self):
-        src=(ROOT/'stockhunter_r1d17_frozen_green_integrated.yml').read_text()
+        src=(ROOT/'stockhunter_r1d3_strong_winners_external_context.yml').read_text()
         self.assertNotIn('STOCKHUNTER_LIVE_ENABLE: \'1\'',src)
         self.assertNotIn('market-data',src.lower())
     def test_30_expected_original_v1_signals(self):
