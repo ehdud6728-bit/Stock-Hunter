@@ -1,4 +1,4 @@
-name: StockHunter Research Lab - R1-D3 / R1-D4 / R1-D5 / R1-D6 / R1-D7 / R1-D8 / R1-D9 / R1-D10 / R1-D11 / R1-D12 (RESEARCH ONLY)
+name: StockHunter Research Lab - R1-D3 / R1-D4 / R1-D5 / R1-D6 / R1-D7 / R1-D8 / R1-D9 / R1-D10 / R1-D11 / R1-D12 / R1-D13 (RESEARCH ONLY)
 
 on:
   workflow_dispatch:
@@ -20,6 +20,7 @@ on:
           - r1d10_accumulated_provenance_audit
           - r1d11_integrity_giveback_audit
           - r1d12_identity_price_source_audit
+          - r1d13_contamination_scope_audit
 
 permissions:
   contents: read
@@ -1135,3 +1136,109 @@ jobs:
             reports/r1d12/result/**
             reports/r1d12/pins/**
             R1D12_PREDECLARED_PROTOCOL.json
+
+  # R1-D13: immutable outcome archive contamination scope; never mutates any original path.
+  r1d13_contamination_scope_audit:
+    name: R1-D13 frozen REAL_FULL 360-event contamination scope, Giveback sensitivity [RESEARCH ONLY]
+    if: ${{ inputs.scope == 'r1d13_contamination_scope_audit' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RESEARCH_ONLY: '1'
+      STOCKHUNTER_LIVE_ENABLE: '0'
+      STOCKHUNTER_ORDER_ENABLE: '0'
+      STOCKHUNTER_SCORE_RANK_ENABLE: '0'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install only local research numerical dependencies
+        run: pip install 'pandas>=2.0,<3' 'numpy>=1.24,<3'
+      - name: Require root protocol, immutable original code and 21 read-only tests
+        run: |
+          set -euo pipefail
+          test -f R1D13_PREDECLARED_PROTOCOL.json || { echo R1D13_MISSING_ROOT_PROTOCOL; exit 52; }
+          cmp .github/workflows/stockhunter_r1d3_strong_winners_external_context.yml stockhunter_r1d3_strong_winners_external_context.yml
+          python -m py_compile research_formulas/stockhunter_r1d13_contamination_scope.py
+          python -m unittest discover -s tests -p test_stockhunter_r1d13_contamination_scope.py -v
+          python - <<'PY'
+          from research_formulas import stockhunter_r1d13_contamination_scope as r
+          p=r.protocol_guard('.', 'R1D13_PREDECLARED_PROTOCOL.json')
+          assert p['no_corrections'] and p['no_future_labeled_overlay_backfill']
+          print('R1D13_SOURCE_BLOBS_PROTOCOL_FROZEN_PASS')
+          PY
+      - name: Pin three finished research archives by run head and ZIP digest
+        run: |
+          set -euo pipefail
+          mkdir -p reports/r1d13/pins
+          python - <<'PY'
+          import json,subprocess,pathlib,os
+          from research_formulas.stockhunter_r1d13_contamination_scope import PIN
+          root=pathlib.Path('reports/r1d13/pins')
+          for key,p in PIN.items():
+            run=json.loads(subprocess.check_output(['gh','api',f'repos/{os.environ["GITHUB_REPOSITORY"]}/actions/runs/{p["run"]}'],text=True))
+            artifacts=json.loads(subprocess.check_output(['gh','api',f'repos/{os.environ["GITHUB_REPOSITORY"]}/actions/runs/{p["run"]}/artifacts?per_page=100'],text=True))['artifacts']
+            q=[x for x in artifacts if x['id']==p['id'] and x['name']==p['name']]
+            assert run['id']==p['run'] and run['conclusion']=='success' and run['head_sha']==p['head'],f'R1D13_SOURCE_RUN_DRIFT_{key}'
+            assert len(q)==1 and not q[0]['expired'] and q[0]['digest']=='sha256:'+p['sha256'],f'R1D13_ARCHIVE_DIGEST_DRIFT_{key}'
+            (root/f'{key}_run.json').write_text(json.dumps(run),encoding='utf-8')
+            (root/f'{key}_artifact.json').write_text(json.dumps(q[0]),encoding='utf-8')
+          print('R1D13_ALL_THREE_FROZEN_ARTIFACTS_VERIFIED')
+          PY
+      - name: Download frozen REAL_FULL TRUST 360 events
+        uses: actions/download-artifact@v4
+        with:
+          name: stockhunter-v1107-4-5-73-3-6-6-24-causal-universe-full-denom-pattern-oos-exit-reports-1681
+          run-id: 39948786391
+          github-token: ${{ github.token }}
+          path: reports/r1d13/input/trust
+      - name: Download frozen R143 price-outcome research
+        uses: actions/download-artifact@v4
+        with:
+          name: real-full-r143-path-integrity-39960213718
+          run-id: 39960213718
+          github-token: ${{ github.token }}
+          path: reports/r1d13/input/r143
+      - name: Download pinned R1D12 price and ticker audit
+        uses: actions/download-artifact@v4
+        with:
+          name: stockhunter-r1d12-FROZEN-IDENTITY-PRICE-PATH-ROOTCAUSE-NOT-OOS
+          run-id: 40084169858
+          github-token: ${{ github.token }}
+          path: reports/r1d13/input/r1d12
+      - name: Analyze all original observations and warning-only sensitivity without changing them
+        run: |
+          set -euo pipefail
+          python -m research_formulas.stockhunter_r1d13_contamination_scope \
+            --trust reports/r1d13/input/trust \
+            --r143 reports/r1d13/input/r143 \
+            --r1d12 reports/r1d13/input/r1d12 \
+            --repo-root . --protocol R1D13_PREDECLARED_PROTOCOL.json \
+            --out reports/r1d13/result
+          python - <<'PY'
+          import json
+          m=json.load(open('reports/r1d13/result/R1D13_MANIFEST.json',encoding='utf-8'))
+          assert m['trust_events']==360 and m['paired_events']==199 and m['qa_event_union']==8
+          assert m['orders_placed']==0 and m['correction_applied'] is False
+          assert m['underlying_price_file_cause_proven'] is False
+          assert m['input_source_data_mutated'] is False and m['live_search_score_rank_order_changed'] is False
+          print('R1D13_READ_ONLY_FULL_COHORT_QA_SUCCESS')
+          PY
+      - name: Upload frozen read-only panel and source evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-r1d13-FROZEN-FULLCOHORT-CONTAMINATION-SCOPE-NOT-OOS
+          if-no-files-found: warn
+          retention-days: 60
+          path: |
+            reports/r1d13/result/**
+            reports/r1d13/pins/**
+            R1D13_PREDECLARED_PROTOCOL.json
