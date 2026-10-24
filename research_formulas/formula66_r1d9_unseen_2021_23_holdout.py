@@ -256,6 +256,11 @@ def analyze(asof,paths,out,reference_dir):
  if len(j)!=len(asof):fail('UNEXPECTED_JOIN_SIZE')
  j['failure5']=j.status_out.eq(DONE)&j.net_20bps_pct.le(-5)
  j['strong15']=j.status_out.eq(DONE)&j.net_20bps_pct.ge(15)
+ # Compute the first occurrence BEFORE copying the complete D20 subset;
+ # otherwise done lacks the first_code field in repeated-code sensitivity.
+ first_dates=asof.sort_values(['date','code']).drop_duplicates('code')[['date','code']]
+ first=set(map(tuple,first_dates.itertuples(index=False,name=None)))
+ j['first_code']=[(a,b) in first for a,b in zip(j.date,j.code)]
  done=j[j.status_out.eq(DONE)].copy()
  if done.empty:fail('NO_COMPLETE_D20_IN_NEW_PERIOD')
  if any(done.date.ge('2024-01-02')):fail('OLD_TRAIN_PERIOD_LEAK')
@@ -271,9 +276,6 @@ def analyze(asof,paths,out,reference_dir):
   k=paths[paths.horizon==h]
   if k.status_out.eq(DONE).sum()>len(asof):fail('UNEXPECTED_HORIZON_COUNTS')
  stat=[]
- first_dates=asof.sort_values(['date','code']).drop_duplicates('code')[['date','code']]
- first=set(map(tuple,first_dates.itertuples(index=False,name=None)))
- j['first_code']=[(a,b) in first for a,b in zip(j.date,j.code)]
  stat.append(summarize_segment(j,'ALL_PREDECLARED_NEW_PERIOD'))
  stat.append(summarize_segment(j[j.first_code],'FIRST_CODE_IN_NEW_PERIOD'))
  for year,g in j.groupby(j.date.str[:4]):stat.append(summarize_segment(g,'YEAR_'+year))
