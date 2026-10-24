@@ -1,4 +1,4 @@
-name: StockHunter Research Lab - R1-D3 / R1-D4 / R1-D5 / R1-D6 / R1-D7 / R1-D8 / R1-D9 / R1-D10 (RESEARCH ONLY)
+name: StockHunter Research Lab - R1-D3 / R1-D4 / R1-D5 / R1-D6 / R1-D7 / R1-D8 / R1-D9 / R1-D10 / R1-D11 / R1-D12 (RESEARCH ONLY)
 
 on:
   workflow_dispatch:
@@ -19,6 +19,7 @@ on:
           - r1d9_independent_2021_23
           - r1d10_accumulated_provenance_audit
           - r1d11_integrity_giveback_audit
+          - r1d12_identity_price_source_audit
 
 permissions:
   contents: read
@@ -1022,3 +1023,115 @@ jobs:
             R1D11_PREDECLARED_PROTOCOL.json
           if-no-files-found: warn
           retention-days: 60
+
+  # R1-D12: trace source identity loss and cross-provider price-path breaks,
+  # preserving all old studies and every LIVE behavior. No strategy changes.
+  r1d12_identity_price_source_audit:
+    name: R1-D12 exact ticker identity / raw price-path provenance [RESEARCH ONLY, NOT OOS]
+    if: ${{ inputs.scope == 'r1d12_identity_price_source_audit' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RESEARCH_ONLY: '1'
+      STOCKHUNTER_LIVE_ENABLE: '0'
+      STOCKHUNTER_ORDER_ENABLE: '0'
+      STOCKHUNTER_SCORE_RANK_ENABLE: '0'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install only local audit numerical dependencies
+        run: pip install 'pandas>=2.0,<3' 'numpy>=1.24,<3'
+      - name: Verify R1D12 ROOT protocol, unchanged twin, frozen source Git blobs and tests
+        run: |
+          set -euo pipefail
+          test -f R1D12_PREDECLARED_PROTOCOL.json || { echo R1D12_ROOT_PROTOCOL_MISSING; exit 52; }
+          cmp .github/workflows/stockhunter_r1d3_strong_winners_external_context.yml stockhunter_r1d3_strong_winners_external_context.yml
+          python -m py_compile research_formulas/stockhunter_r1d12_price_identity_rootcause.py
+          python -m unittest discover -s tests -p test_stockhunter_r1d12_price_identity_rootcause.py -v
+          python - <<'PY'
+          import json
+          from research_formulas import stockhunter_r1d12_price_identity_rootcause as d
+          protocol=json.load(open('R1D12_PREDECLARED_PROTOCOL.json',encoding='utf-8'))
+          assert protocol['source_pins']==d.PIN and protocol['no_auto_corrections'] is True
+          assert protocol['source_git_blobs']=={k:v[1] for k,v in d.SRC.items()}
+          x=d.source_audit('.')
+          assert len(x)==3
+          print('R1D12_SOURCE_GIT_BLOBS_AND_PROTOCOL_LOCK_PASS')
+          PY
+      - name: Verify pinned GitHub runs, immutable prior output ZIP digests and run heads
+        run: |
+          set -euo pipefail
+          mkdir -p reports/r1d12/pins
+          python - <<'PY'
+          import json,subprocess,pathlib,os
+          from research_formulas.stockhunter_r1d12_price_identity_rootcause import PIN
+          frozen_head={'trust':'ae74ffb655aea226ecbfa0e315b7c46077b3c458','r143':'3b8321a2e48c98a49f93ada68ba64e92e072d6ed','r1d10':'2d8aa4d1c0c0097d798d4ff028474ac8c0cde982'}
+          out=pathlib.Path('reports/r1d12/pins')
+          for key,item in PIN.items():
+            run=json.loads(subprocess.check_output(['gh','api',f'repos/{os.environ["GITHUB_REPOSITORY"]}/actions/runs/{item["run"]}'],text=True))
+            artifacts=json.loads(subprocess.check_output(['gh','api',f'repos/{os.environ["GITHUB_REPOSITORY"]}/actions/runs/{item["run"]}/artifacts?per_page=100'],text=True))['artifacts']
+            matches=[x for x in artifacts if x['id']==item['id'] and x['name']==item['name']]
+            assert run['id']==item['run'] and run['conclusion']=='success' and run['head_sha']==frozen_head[key],f'R1D12_RUN_NOT_FROZEN_{key}'
+            assert len(matches)==1 and matches[0]['expired'] is False and matches[0]['digest']=='sha256:'+item['sha256'],f'R1D12_ARCHIVE_DIGEST_CHANGED_{key}'
+            (out/f'{key}_run.json').write_text(json.dumps(run),encoding='utf-8')
+            (out/f'{key}_artifact.json').write_text(json.dumps(matches[0]),encoding='utf-8')
+          print('R1D12_THREE_SOURCE_ARCHIVES_RUN_SHA_DIGEST_PASS')
+          PY
+      - name: Download frozen REAL_FULL TRUST archive
+        uses: actions/download-artifact@v4
+        with:
+          name: stockhunter-v1107-4-5-73-3-6-6-24-causal-universe-full-denom-pattern-oos-exit-reports-1681
+          run-id: 39948786391
+          github-token: ${{ github.token }}
+          path: reports/r1d12/input/trust
+      - name: Download frozen R143 outcome research
+        uses: actions/download-artifact@v4
+        with:
+          name: real-full-r143-path-integrity-39960213718
+          run-id: 39960213718
+          github-token: ${{ github.token }}
+          path: reports/r1d12/input/r143
+      - name: Download frozen R1D10 source-discrepancy audit
+        uses: actions/download-artifact@v4
+        with:
+          name: stockhunter-r1d10-ACCUMULATED-PROVENANCE-QA-NOT-OOS
+          run-id: 40074113253
+          github-token: ${{ github.token }}
+          path: reports/r1d12/input/r1d10
+      - name: Audit original ticker identity and same-code price paths without any repair
+        run: |
+          set -euo pipefail
+          python -m research_formulas.stockhunter_r1d12_price_identity_rootcause \
+            --trust reports/r1d12/input/trust \
+            --r143 reports/r1d12/input/r143 \
+            --r1d10 reports/r1d12/input/r1d10 \
+            --repo-root . --protocol R1D12_PREDECLARED_PROTOCOL.json \
+            --out reports/r1d12/result
+          python - <<'PY'
+          import json
+          m=json.load(open('reports/r1d12/result/R1D12_MANIFEST.json',encoding='utf-8'))
+          assert m['orders_placed']==0 and m['source_production_changed'] is False
+          assert m['normalization_root_cause_code_proven'] is True
+          assert m['price_file_specific_root_cause_proven'] is False
+          assert m['n_cross_return_discrepancy_rows']==4 and m['n_normalizer_collision_evidence_events']==1
+          print('R1D12_READONLY_IDENTITY_SOURCE_ROOTCAUSE_QA_PASS')
+          PY
+      - name: Upload immutable source evidence and research diagnostics even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-r1d12-FROZEN-IDENTITY-PRICE-PATH-ROOTCAUSE-NOT-OOS
+          if-no-files-found: warn
+          retention-days: 60
+          path: |
+            reports/r1d12/result/**
+            reports/r1d12/pins/**
+            R1D12_PREDECLARED_PROTOCOL.json
