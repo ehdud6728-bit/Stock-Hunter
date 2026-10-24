@@ -1,4 +1,4 @@
-name: StockHunter Research Lab - R1-D3 / R1-D4 / R1-D5 / R1-D6 / R1-D7 / R1-D8 / R1-D9 / R1-D10 / R1-D11 / R1-D12 / R1-D13 / R1-D14 / R1-D15 (RESEARCH ONLY)
+name: StockHunter Research Lab R1-D3 to R1-D17 (RESEARCH ONLY)
 
 on:
   workflow_dispatch:
@@ -23,6 +23,10 @@ on:
           - r1d13_contamination_scope_audit
           - r1d14_restored_price_cache_provenance
           - r1d15_exact_price_cache_identity_quarantine
+          - r1d16_both
+          - r1d16_realfull
+          - r1d16_odoli
+          - r1d17_green_integrated
 
 permissions:
   contents: read
@@ -43,6 +47,7 @@ env:
 jobs:
   read_only_source_check:
     name: 10 local source/temporal contract tests and immutable R1D2 GitHub artifact verification
+    if: ${{ !startsWith(inputs.scope, 'r1d16_') && inputs.scope != 'r1d17_green_integrated' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -1457,3 +1462,363 @@ jobs:
             reports/r1d15/result/**
             reports/r1d15/pins/**
             R1D15_PREDECLARED_PROTOCOL.json
+
+  # Migrated unmodified R1D16 read-only jobs. Kept independent and explicitly scope-gated.
+  realfull_shadow_wave_giveback:
+    name: R1-D16 REAL_FULL R143 signal-time 224MA/wave x paired Giveback (NOT NEW OOS)
+    if: ${{ inputs.scope == 'r1d16_both' || inputs.scope == 'r1d16_realfull' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      RESEARCH_ONLY: '1'
+      STOCKHUNTER_ORDER_ENABLE: '0'
+      STOCKHUNTER_LIVE_ENABLE: '0'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Check ROOT protocol, byte-identical workflow twin and local isolated tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f R1D16_PREDECLARED_PROTOCOL.json || { echo 'R1D16_MISSING_ROOT_PROTOCOL'; exit 52; }
+          cmp -s stockhunter_r1d3_strong_winners_external_context.yml .github/workflows/stockhunter_r1d3_strong_winners_external_context.yml
+          python -m pip install --disable-pip-version-check numpy pandas
+          python -m py_compile research_formulas/stockhunter_r1d16_parallel_research.py
+          python -m unittest discover -s tests -p test_stockhunter_r1d16_parallel_research.py -v
+          python - <<'PY'
+          from research_formulas.stockhunter_r1d16_parallel_research import protocol
+          protocol('R1D16_PREDECLARED_PROTOCOL.json')
+          print('R1D16_REALFULL_SOURCE_PROTOCOL_LOCK_PASS')
+          PY
+      - name: Verify pinned R143 and R1D13 GitHub run heads and artifact ZIP digests
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python - <<'PY'
+          import json,os,urllib.request,pathlib
+          p=json.load(open('R1D16_PREDECLARED_PROTOCOL.json'))['pinned_sources']
+          for key in ('r143','r1d13'):
+            a=p[key]
+            def get(url):
+              req=urllib.request.Request(url,headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json'})
+              return json.load(urllib.request.urlopen(req,timeout=20))
+            repo='https://api.github.com/repos/'+os.environ['GITHUB_REPOSITORY']
+            run=get(repo+'/actions/runs/'+str(a['run_id']))
+            assert run['conclusion']=='success' and run['head_sha']==a['head_sha'],'SOURCE_RUN_DRIFT_'+key
+            arts=get(repo+'/actions/runs/'+str(a['run_id'])+'/artifacts?per_page=100')['artifacts']
+            ok=[x for x in arts if x['id']==a['artifact_id'] and x['name']==a['artifact_name'] and x['digest']=='sha256:'+a['zip_sha256'] and not x['expired']]
+            assert len(ok)==1,'SOURCE_ARTIFACT_DRIFT_'+key
+            pathlib.Path('reports/r1d16/pins').mkdir(parents=True,exist_ok=True)
+            pathlib.Path('reports/r1d16/pins/'+key+'_run.json').write_text(json.dumps(run))
+            pathlib.Path('reports/r1d16/pins/'+key+'_artifact.json').write_text(json.dumps(ok[0]))
+          print('R1D16_REALFULL_TWO_IMMUTABLE_SOURCES_PASS')
+          PY
+      - name: Download frozen R143 seed/outcome artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: real-full-r143-path-integrity-39960213718
+          run-id: '39960213718'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: reports/r1d16/input/r143
+      - name: Download frozen R1D13 original TRUST QA artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: stockhunter-r1d13-FROZEN-FULLCOHORT-CONTAMINATION-SCOPE-NOT-OOS
+          run-id: '40096795372'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: reports/r1d16/input/r1d13
+      - name: Compute RESEARCH_ONLY signal-side wave and Giveback descriptive panel
+        run: |
+          set -euo pipefail
+          python -m research_formulas.stockhunter_r1d16_parallel_research --lane realfull --protocol R1D16_PREDECLARED_PROTOCOL.json --r143 reports/r1d16/input/r143 --r1d13 reports/r1d16/input/r1d13 --out reports/r1d16/result/realfull
+          python - <<'PY'
+          import json
+          p=json.load(open('reports/r1d16/result/realfull/R1D16_MANIFEST.json'))
+          assert p['RESEARCH_ONLY'] and p['orders_placed']==0 and not p['live_logic_changed'] and not p['new_oos']
+          assert p['r143_seeds']==240 and p['r143_outcome_rows']==705 and p['r143_paired_d5d10']==120
+          print('R1D16_REALFULL_FROZEN_RESEARCH_SUCCESS')
+          PY
+      - name: Upload independent REAL_FULL evidence even if blocked
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-r1d16-REALFULL-224-WAVE-GIVEBACK-FROZEN-NOT-OOS
+          if-no-files-found: warn
+          retention-days: 60
+          path: |
+            reports/r1d16/result/realfull/**
+            reports/r1d16/pins/**
+            R1D16_PREDECLARED_PROTOCOL.json
+  odoli_progression_after:
+    name: R1-D16 ODOLI FAST/SLOW snapshot maturity x AFTER observability (NOT PREDICTION)
+    if: ${{ inputs.scope == 'r1d16_both' || inputs.scope == 'r1d16_odoli' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      RESEARCH_ONLY: '1'
+      STOCKHUNTER_ORDER_ENABLE: '0'
+      STOCKHUNTER_LIVE_ENABLE: '0'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Check ROOT protocol and isolated tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f R1D16_PREDECLARED_PROTOCOL.json || { echo 'R1D16_MISSING_ROOT_PROTOCOL'; exit 52; }
+          cmp -s stockhunter_r1d3_strong_winners_external_context.yml .github/workflows/stockhunter_r1d3_strong_winners_external_context.yml
+          python -m pip install --disable-pip-version-check numpy pandas
+          python -m py_compile research_formulas/stockhunter_r1d16_parallel_research.py
+          python -m unittest discover -s tests -p test_stockhunter_r1d16_parallel_research.py -v
+          python - <<'PY'
+          from research_formulas.stockhunter_r1d16_parallel_research import protocol
+          protocol('R1D16_PREDECLARED_PROTOCOL.json')
+          print('R1D16_ODOLI_SOURCE_PROTOCOL_LOCK_PASS')
+          PY
+      - name: Verify pinned ODOLI DAILY and AFTER GitHub run heads and artifact digests
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python - <<'PY'
+          import json,os,urllib.request,pathlib
+          p=json.load(open('R1D16_PREDECLARED_PROTOCOL.json'))['pinned_sources']
+          for key in ('odoli','after'):
+            a=p[key]
+            def get(url):
+              req=urllib.request.Request(url,headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json'})
+              return json.load(urllib.request.urlopen(req,timeout=20))
+            repo='https://api.github.com/repos/'+os.environ['GITHUB_REPOSITORY']
+            run=get(repo+'/actions/runs/'+str(a['run_id']))
+            assert run['conclusion']=='success' and run['head_sha']==a['head_sha'],'SOURCE_RUN_DRIFT_'+key
+            arts=get(repo+'/actions/runs/'+str(a['run_id'])+'/artifacts?per_page=100')['artifacts']
+            ok=[x for x in arts if x['id']==a['artifact_id'] and x['name']==a['artifact_name'] and x['digest']=='sha256:'+a['zip_sha256'] and not x['expired']]
+            assert len(ok)==1,'SOURCE_ARTIFACT_DRIFT_'+key
+            pathlib.Path('reports/r1d16/pins').mkdir(parents=True,exist_ok=True)
+            pathlib.Path('reports/r1d16/pins/'+key+'_run.json').write_text(json.dumps(run))
+            pathlib.Path('reports/r1d16/pins/'+key+'_artifact.json').write_text(json.dumps(ok[0]))
+          print('R1D16_ODOLI_TWO_IMMUTABLE_SOURCES_PASS')
+          PY
+      - name: Download frozen ODOLI DAILY independent research
+        uses: actions/download-artifact@v4
+        with:
+          name: odoli-independent-r1-39956630843
+          run-id: '39956630843'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: reports/r1d16/input/odoli
+      - name: Download frozen ODOLI AFTER observational sidecar
+        uses: actions/download-artifact@v4
+        with:
+          name: odoli-after-session-context-r1-39980702510
+          run-id: '39980702510'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: reports/r1d16/input/after
+      - name: Compute RESEARCH_ONLY snapshot maturity and AFTER coverage panels
+        run: |
+          set -euo pipefail
+          python -m research_formulas.stockhunter_r1d16_parallel_research --lane odoli --protocol R1D16_PREDECLARED_PROTOCOL.json --odoli reports/r1d16/input/odoli --after reports/r1d16/input/after --out reports/r1d16/result/odoli
+          python - <<'PY'
+          import json
+          p=json.load(open('reports/r1d16/result/odoli/R1D16_MANIFEST.json'))
+          assert p['RESEARCH_ONLY'] and p['orders_placed']==0 and not p['live_logic_changed'] and not p['new_oos']
+          assert p['events']==1347 and p['status_missing']==9 and p['after_valid_rows']==50
+          assert p['snapshot_flows_are_not_frozen_predictors']
+          print('R1D16_ODOLI_FROZEN_RESEARCH_SUCCESS')
+          PY
+      - name: Upload independent ODOLI evidence even if blocked
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-r1d16-ODOLI-FAST-SLOW-AFTER-SNAPSHOT-NOT-OOS
+          if-no-files-found: warn
+          retention-days: 60
+          path: |
+            reports/r1d16/result/odoli/**
+            reports/r1d16/pins/**
+            R1D16_PREDECLARED_PROTOCOL.json
+
+  # Migrated unmodified R1D17 fixed-historical replay. Not prospective OOS.
+  historical_grade_repro:
+    if: ${{ inputs.scope == 'r1d17_green_integrated' }}
+    name: R1-D17 immutable 12-day labels x R143 returns x TRUST QA [NOT NEW OOS]
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      RESEARCH_ONLY: '1'
+      STOCKHUNTER_ORDER_ENABLE: '0'
+      STOCKHUNTER_LIVE_ENABLE: '0'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Check ROOT protocol, matching YML copies, isolated tests and frozen Git blobs
+        run: |
+          set -euo pipefail
+          test -f R1D17_PREDECLARED_PROTOCOL.json || { echo R1D17_ROOT_PROTOCOL_MISSING; exit 52; }
+          cmp -s stockhunter_r1d3_strong_winners_external_context.yml .github/workflows/stockhunter_r1d3_strong_winners_external_context.yml
+          echo 'f245d410134f467c521a7e66ba2db2af3d7df0c65874eb3d415ad6e12a0e0339  R1D17_PREDECLARED_PROTOCOL.json' | sha256sum -c -
+          python -m pip install --disable-pip-version-check numpy pandas
+          python -m unittest discover -s tests -p test_stockhunter_r1d17_integrated_frozen.py -v
+          python - <<'PYCHK'
+          from research_formulas.stockhunter_r1d17_integrated_frozen import load_protocol,audit_repo_readonly
+          p=load_protocol('R1D17_PREDECLARED_PROTOCOL.json')
+          assert audit_repo_readonly('.',p)
+          print('R1D17_FROZEN_SOURCE_PROTOCOL_AND_WORKFLOW_TWINS_PASS')
+          PYCHK
+      - name: Verify immutable historical run heads and artifact ZIP SHA256 metadata
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python - <<'PYLOCK'
+          import json,os,urllib.request,pathlib
+          p=json.load(open('R1D17_PREDECLARED_PROTOCOL.json',encoding='utf-8'))
+          sources=p['daily_sources']+list(p['pinned_sources'].values())
+          root='https://api.github.com/repos/'+os.environ['GITHUB_REPOSITORY']
+          def get(path):
+            rq=urllib.request.Request(root+path,headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'})
+            with urllib.request.urlopen(rq,timeout=30) as response:return json.load(response)
+          out=pathlib.Path('reports/r1d17/pins');out.mkdir(parents=True,exist_ok=True)
+          for item in sources:
+            run=get('/actions/runs/'+str(item['run_id']))
+            assert run['id']==item['run_id'] and run['conclusion']=='success' and run['head_sha']==item['head_sha'],'R1D17_RUN_HEAD_DRIFT_'+str(item['run_id'])
+            arts=get('/actions/runs/'+str(item['run_id'])+'/artifacts?per_page=100')['artifacts']
+            match=[z for z in arts if z['id']==item['artifact_id'] and z['name']==item['artifact_name'] and z['digest']=='sha256:'+item['zip_sha256'] and not z['expired']]
+            assert len(match)==1,'R1D17_ARCHIVE_DIGEST_DRIFT_'+str(item['run_id'])
+            (out/(str(item['run_id'])+'_artifact.json')).write_text(json.dumps(match[0],ensure_ascii=False,sort_keys=True),encoding='utf-8')
+          print('R1D17_ALL_14_GITHUB_RUN_HEAD_AND_ARTIFACT_DIGEST_PINS_PASS')
+          PYLOCK
+      - name: Download frozen REAL_FULL grade day 20261002 (run 37008576778)
+        uses: actions/download-artifact@v4
+        with:
+          name: stockhunter-v1107-4-5-73-3-6-6-24-causal-universe-full-denom-pattern-oos-exit-reports-1589
+          run-id: '37008576778'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: reports/r1d17/input/historic/20261002
+      - name: Download frozen REAL_FULL grade day 20261008 (run 37785940981)
+        uses: actions/download-artifact@v4
+        with:
+          name: stockhunter-v1107-4-5-73-3-6-6-24-causal-universe-full-denom-pattern-oos-exit-reports-1609
+          run-id: '37785940981'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: reports/r1d17/input/historic/20261008
+      - name: Download frozen REAL_FULL grade day 20261009 (run 37936606703)
+        uses: actions/download-artifact@v4
+        with:
+          name: stockhunter-v1107-4-5-73-3-6-6-24-causal-universe-full-denom-pattern-oos-exit-reports-1614
+          run-id: '37936606703'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: reports/r1d17/input/historic/20261009
+      - name: Download frozen REAL_FULL grade day 20261013 (run 38412787573)
+        uses: actions/download-artifact@v4
+        with:
+          name: stockhunter-v1107-4-5-73-3-6-6-24-causal-universe-full-denom-pattern-oos-exit-reports-1640
+          run-id: '38412787573'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: reports/r1d17/input/historic/20261013
+      - name: Download frozen REAL_FULL grade day 20261014 (run 38561166337)
+        uses: actions/download-artifact@v4
+        with:
+          name: stockhunter-v1107-4-5-73-3-6-6-24-causal-universe-full-denom-pattern-oos-exit-reports-1646
+          run-id: '38561166337'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: reports/r1d17/input/historic/20261014
+      - name: Download frozen REAL_FULL grade day 20261015 (run 38729162284)
+        uses: actions/download-artifact@v4
+        with:
+          name: stockhunter-v1107-4-5-73-3-6-6-24-causal-universe-full-denom-pattern-oos-exit-reports-1651
+          run-id: '38729162284'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: reports/r1d17/input/historic/20261015
+      - name: Download frozen REAL_FULL grade day 20261016 (run 38894781055)
+        uses: actions/download-artifact@v4
+        with:
+          name: stockhunter-v1107-4-5-73-3-6-6-24-causal-universe-full-denom-pattern-oos-exit-reports-1656
+          run-id: '38894781055'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: reports/r1d17/input/historic/20261016
+      - name: Download frozen REAL_FULL grade day 20261019 (run 39261378349)
+        uses: actions/download-artifact@v4
+        with:
+          name: stockhunter-v1107-4-5-73-3-6-6-24-causal-universe-full-denom-pattern-oos-exit-reports-1661
+          run-id: '39261378349'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: reports/r1d17/input/historic/20261019
+      - name: Download frozen REAL_FULL grade day 20261020 (run 39417727646)
+        uses: actions/download-artifact@v4
+        with:
+          name: stockhunter-v1107-4-5-73-3-6-6-24-causal-universe-full-denom-pattern-oos-exit-reports-1666
+          run-id: '39417727646'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: reports/r1d17/input/historic/20261020
+      - name: Download frozen REAL_FULL grade day 20261021 (run 39596314655)
+        uses: actions/download-artifact@v4
+        with:
+          name: stockhunter-v1107-4-5-73-3-6-6-24-causal-universe-full-denom-pattern-oos-exit-reports-1671
+          run-id: '39596314655'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: reports/r1d17/input/historic/20261021
+      - name: Download frozen REAL_FULL grade day 20261022 (run 39775403379)
+        uses: actions/download-artifact@v4
+        with:
+          name: stockhunter-v1107-4-5-73-3-6-6-24-causal-universe-full-denom-pattern-oos-exit-reports-1676
+          run-id: '39775403379'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: reports/r1d17/input/historic/20261022
+      - name: Download frozen REAL_FULL grade day 20261023 (run 39948786391)
+        uses: actions/download-artifact@v4
+        with:
+          name: stockhunter-v1107-4-5-73-3-6-6-24-causal-universe-full-denom-pattern-oos-exit-reports-1681
+          run-id: '39948786391'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: reports/r1d17/input/historic/20261023
+      - name: Download frozen R143 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: real-full-r143-path-integrity-39960213718
+          run-id: '39960213718'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: reports/r1d17/input/r143
+      - name: Download frozen R1D13 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: stockhunter-r1d13-FROZEN-FULLCOHORT-CONTAMINATION-SCOPE-NOT-OOS
+          run-id: '40096795372'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: reports/r1d17/input/r1d13
+      - name: Deterministic full 12-day historical grade x R143 x quality reproduction
+        run: |
+          set -euo pipefail
+          python -m research_formulas.stockhunter_r1d17_integrated_frozen \
+            --archives reports/r1d17/input/historic \
+            --r143 reports/r1d17/input/r143 \
+            --r1d13 reports/r1d17/input/r1d13 \
+            --protocol R1D17_PREDECLARED_PROTOCOL.json \
+            --repo-root . --out reports/r1d17/result
+          python - <<'PYASSERT'
+          import json,pandas as pd
+          m=json.load(open("reports/r1d17/result/R1D17_MANIFEST.json"))
+          assert m["historical_graded_signal_rows"]==180 and m["r143_matched_seed_signals"]==150
+          assert m["matured_outcome_horizon_rows"]==345 and m["n_d5_mature"]==75 and m["n_d10_mature"]==30
+          assert m["production_unchanged"] and m["orders_placed"]==0 and m["not_new_oos"]
+          g=pd.read_csv("reports/r1d17/result/R1D17_GRADE_WINRATES.csv")
+          assert len(g)==12 and int(g[(g.horizon_td==10)&(g.grade=="GREEN")].wins.iloc[0])==6
+          print("R1D17_REAL_GITHUB_FROZEN_180_GRADE_345_HORIZON_REPLAY_PASS")
+          PYASSERT
+      - name: Upload frozen historical evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-r1d17-FROZEN-12DAY-GREEN-FEATURE-GIVEBACK-NOT-NEW-OOS
+          retention-days: 60
+          if-no-files-found: warn
+          path: |
+            reports/r1d17/result/**
+            reports/r1d17/pins/**
+            R1D17_PREDECLARED_PROTOCOL.json
