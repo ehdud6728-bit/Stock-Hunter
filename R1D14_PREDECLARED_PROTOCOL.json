@@ -1,0 +1,28 @@
+{
+  "allowed_live_change": false,
+  "frozen_signal_change": false,
+  "historic_cache_equivalence_certifiable": false,
+  "no_automatic_repair": true,
+  "pinned_r1d13": {
+    "head": "fd5e32262c3e63792b3e653cab4e79628832dbf6",
+    "id": 12561441155,
+    "name": "stockhunter-r1d13-FROZEN-FULLCOHORT-CONTAMINATION-SCOPE-NOT-OOS",
+    "run": 40096795372,
+    "sha256": "f15e203bf7528d6cbce637b2c7bc846e35a40b2acbc04bb8b6ee87148a08435d"
+  },
+  "reason": "historical cache bytes were not saved with prior archive",
+  "scope": "R1D14_RESTORED_CACHE_SOURCE_EVIDENCE_NOT_HISTORIC_AS_USED",
+  "source_git_blobs": {
+    "real_full_capture_runner.py": "6167746fe363961919a70e5ec206861bfaec465c",
+    "real_full_r1c1_path_integrity_r143.py": "fe7fba1e26f2a952aeff54b07230c888547e03ef",
+    "real_full_trust_audit.py": "b18d67a13a1d08076b6c0583272939c06ed508af",
+    "triangle1pb_research.py": "1225fa7c90e7e7bab7937f96e7c08dec861e226d"
+  },
+  "targets": [
+    "000150",
+    "000100",
+    "000880",
+    "0088M0"
+  ],
+  "version": "R1D14_PRICE_CACHE_EVIDENCE_PREDECLARED_V1"
+}
