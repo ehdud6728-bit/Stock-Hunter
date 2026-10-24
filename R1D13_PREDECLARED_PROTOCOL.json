@@ -1,0 +1,58 @@
+{
+  "baseline": "Frozen REAL_FULL 360 original events; matched R143 original 705 outcome rows and R1D12 exact-code provenance audit",
+  "complete_horizons_only": true,
+  "do_not_coerce_letters_to_numbers": true,
+  "do_not_join_on_name": true,
+  "freeze_date": "2026-10-24",
+  "horizons_trading_days": [
+    1,
+    3,
+    5,
+    10
+  ],
+  "no_causal_inference": true,
+  "no_corrections": true,
+  "no_future_labeled_overlay_backfill": true,
+  "no_live_gate_score_rank_or_orders": true,
+  "no_live_or_source_changes": true,
+  "no_price_cache_hash_present_in_frozen_source": true,
+  "not_new_OOS": true,
+  "pins": {
+    "r143": {
+      "head": "3b8321a2e48c98a49f93ada68ba64e92e072d6ed",
+      "id": 12504990509,
+      "name": "real-full-r143-path-integrity-39960213718",
+      "run": 39960213718,
+      "sha256": "a1ba01eea0e1976e9edd59ec6b548d2d56f897e7638498dc4185b66b284edbbf"
+    },
+    "r1d12": {
+      "head": "044a3c04dc4786baffe8e3bb24862e4df1168075",
+      "id": 12556616388,
+      "name": "stockhunter-r1d12-FROZEN-IDENTITY-PRICE-PATH-ROOTCAUSE-NOT-OOS",
+      "run": 40084169858,
+      "sha256": "21ec907817f145126681bcf7d10dcce381913779db6f63e26052dea854304fbe"
+    },
+    "trust": {
+      "head": "ae74ffb655aea226ecbfa0e315b7c46077b3c458",
+      "id": 12504190178,
+      "name": "stockhunter-v1107-4-5-73-3-6-6-24-causal-universe-full-denom-pattern-oos-exit-reports-1681",
+      "run": 39948786391,
+      "sha256": "3d2ee08727e50b248cdf7c41be7fb21744d2f9ee908747e693895c4d443ab34b"
+    }
+  },
+  "primary_claim": "No reconstructed or adjusted prices; report raw metrics plus separate QA warning sensitivity, never certified strategy results",
+  "quality_diagnostics_not_trading_filters": {
+    "abs_close_return_gt_pct": 40.0,
+    "cross_source_abs_diff_gt_pp": 10.0,
+    "price_ratio_extreme_over": 2.0,
+    "price_ratio_extreme_under": 0.5
+  },
+  "research_only": true,
+  "research_question": "How much do exact-ticker identity and cross-price anomalies affect descriptive Giveback and repeated-signal summaries?",
+  "source_git_blobs": {
+    "real_full_capture_runner.py": "6167746fe363961919a70e5ec206861bfaec465c",
+    "real_full_r1c1_path_integrity_r143.py": "fe7fba1e26f2a952aeff54b07230c888547e03ef",
+    "real_full_trust_audit.py": "b18d67a13a1d08076b6c0583272939c06ed508af"
+  },
+  "version": "STOCKHUNTER_R1D13_FROZEN_PROVENANCE_CONTAMINATION_SCOPE_V1"
+}
