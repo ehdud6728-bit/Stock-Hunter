@@ -1,4 +1,4 @@
-name: StockHunter Research Lab - R1-D3 / R1-D4 / R1-D5 / R1-D6 / R1-D7 / R1-D8 / R1-D9 (RESEARCH ONLY)
+name: StockHunter Research Lab - R1-D3 / R1-D4 / R1-D5 / R1-D6 / R1-D7 / R1-D8 / R1-D9 / R1-D10 (RESEARCH ONLY)
 
 on:
   workflow_dispatch:
@@ -17,6 +17,7 @@ on:
           - r1d7_path_risk_audit
           - r1d8_structure_confounds
           - r1d9_independent_2021_23
+          - r1d10_accumulated_provenance_audit
 
 permissions:
   contents: read
@@ -803,5 +804,123 @@ jobs:
             reports/r1d9/result/R1D9_MANIFEST.json
             R1D9_PREDECLARED_PROTOCOL.json
             reports/r1d9/pins/**
+          if-no-files-found: warn
+          retention-days: 60
+
+
+  r1d10_accumulated_provenance_audit:
+    name: R1-D10 pinned REAL_FULL TRUST x R143 x ODOLI AFTER provenance and Giveback QA [RESEARCH ONLY]
+    if: ${{ inputs.scope == 'r1d10_accumulated_provenance_audit' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install research-only numerical dependencies
+        run: pip install 'pandas>=2,<3' 'numpy>=1.24,<3'
+      - name: Pin protocol, check twin workflows and regression tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmp .github/workflows/stockhunter_r1d3_strong_winners_external_context.yml stockhunter_r1d3_strong_winners_external_context.yml
+          python -m py_compile research_formulas/stockhunter_r1d10_prospective_audit.py
+          python -m unittest discover -s tests -p test_stockhunter_r1d10_prospective_audit.py -v
+          python - <<'PYGUARD'
+          import json
+          from research_formulas import stockhunter_r1d10_prospective_audit as r
+          p=json.load(open('R1D10_PREDECLARED_PROTOCOL.json',encoding='utf-8'))
+          assert p['version']==r.VERSION and p['research_only'] and p['source_artifacts']==r.PIN
+          assert p['horizons_real_full']==list(r.HORIZONS)
+          assert p['outlier_abs_return_pct_QA_only']==r.QA_ABS_RETURN_PCT
+          assert p['cross_source_return_mismatch_pp_QA_only']==r.QA_CROSS_SOURCE_DIFF_PP
+          assert p['no_production_selection_score_rank_order_change']
+          print('R1D10_PREDECLARED_SOURCE_AND_READONLY_PROTOCOL_PASS')
+          PYGUARD
+      - name: Verify four earlier finished GitHub runs and immutable ZIP artifact digests
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p reports/r1d10/pins
+          python - <<'PYPIN'
+          import json,subprocess,pathlib
+          from research_formulas import stockhunter_r1d10_prospective_audit as r
+          repo='ehdud6728-bit/Stock-Hunter'
+          expected_names={
+            'realfull':'stockhunter-v1107-4-5-73-3-6-6-24-causal-universe-full-denom-pattern-oos-exit-reports-1681',
+            'r143':'real-full-r143-path-integrity-39960213718',
+            'odoli':'odoli-independent-r1-39956630843',
+            'after':'odoli-after-session-context-r1-39980702510',
+          }
+          for source,p in r.PIN.items():
+            base='repos/'+repo+'/actions/runs/'+str(p['run'])
+            run=json.loads(subprocess.check_output(['gh','api',base]))
+            assert run['id']==p['run'] and run['conclusion']=='success', 'PINNED_RUN_NOT_COMPLETE_'+source
+            artifacts=json.loads(subprocess.check_output(['gh','api',base+'/artifacts?per_page=100']))['artifacts']
+            q=[a for a in artifacts if a['id']==p['id'] and a['name']==expected_names[source]]
+            assert len(q)==1 and not q[0]['expired'] and q[0]['digest']=='sha256:'+p['sha256'], 'ARTIFACT_DIGEST_DRIFT_'+source
+            pathlib.Path('reports/r1d10/pins/'+source+'_run.json').write_text(json.dumps(run),encoding='utf-8')
+            pathlib.Path('reports/r1d10/pins/'+source+'_artifact.json').write_text(json.dumps(q[0]),encoding='utf-8')
+          print('R1D10_ALL_FOUR_HISTORICAL_ZIP_DIGESTS_PASS')
+          PYPIN
+      - uses: actions/download-artifact@v4
+        with:
+          name: stockhunter-v1107-4-5-73-3-6-6-24-causal-universe-full-denom-pattern-oos-exit-reports-1681
+          run-id: 39948786391
+          github-token: ${{ github.token }}
+          path: reports/r1d10/input/realfull
+      - uses: actions/download-artifact@v4
+        with:
+          name: real-full-r143-path-integrity-39960213718
+          run-id: 39960213718
+          github-token: ${{ github.token }}
+          path: reports/r1d10/input/r143
+      - uses: actions/download-artifact@v4
+        with:
+          name: odoli-independent-r1-39956630843
+          run-id: 39956630843
+          github-token: ${{ github.token }}
+          path: reports/r1d10/input/odoli
+      - uses: actions/download-artifact@v4
+        with:
+          name: odoli-after-session-context-r1-39980702510
+          run-id: 39980702510
+          github-token: ${{ github.token }}
+          path: reports/r1d10/input/after
+      - name: Replay pinned frozen accumulated audit - no LIVE usage
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m research_formulas.stockhunter_r1d10_prospective_audit \
+            --realfull reports/r1d10/input/realfull \
+            --r143 reports/r1d10/input/r143 \
+            --odoli reports/r1d10/input/odoli \
+            --after reports/r1d10/input/after \
+            --out reports/r1d10/result
+          python - <<'PYRESULT'
+          import json
+          m=json.load(open('reports/r1d10/result/R1D10_MANIFEST.json'))
+          assert m['trust_locked_events']==360 and m['trust_dates']==24
+          assert m['trust_d10_complete_paired_d5']==199
+          assert m['r143_return_abs_diff_gt10pp']>=1
+          assert m['odoli_after_n_covered']==50 and m['odoli_after_n_observations']==592
+          assert m['overlay_snapshot_only'] and m['no_historical_overlay_level_success_rates']
+          assert m['orders_placed']==0 and not m['live_logic_changed']
+          print('R1D10_FROZEN_ACCUMULATED_AUDIT_RESEARCH_ONLY_SUCCESS')
+          PYRESULT
+      - name: Upload pinned source manifest and audit-only outputs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-r1d10-ACCUMULATED-PROVENANCE-QA-NOT-OOS
+          path: |
+            reports/r1d10/result/**
+            reports/r1d10/pins/**
+            R1D10_PREDECLARED_PROTOCOL.json
           if-no-files-found: warn
           retention-days: 60
