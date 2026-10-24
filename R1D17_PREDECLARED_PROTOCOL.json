@@ -1,0 +1,149 @@
+{
+  "protocol_id": "STOCKHUNTER_R1D17_FROZEN_INTEGRATED_V1",
+  "authority": "RESEARCH_ONLY_NOT_OOS_NO_LIVE_NO_ORDERS",
+  "locked_before_run_date": "2026-10-25",
+  "analysis_revision": "R1D17_LOCAL_20261025_EXACT_GRADE_MATCHED_HORIZON",
+  "minimum_outcome_policy": "COMPLETE_ONLY_NO_ZERO_FILL_NO_IMPUTATION",
+  "label_policy": "USE_ORIGINAL_SAVED_12_RUN_AFTER_CLOSE_LABELS_NOT_RECOMPUTED",
+  "score_definition": "R143 close_ret_pct > 0 at each matured horizon, no costs or tradable-fill assertion",
+  "feature_hypotheses": [
+    "MA_COMPRESSION_EXPLORATORY",
+    "SHALLOW_PULLBACK_EXPLORATORY",
+    "BOTH_EXPLORATORY"
+  ],
+  "freeze_existing_66_conditions": true,
+  "production_change_allowed": false,
+  "note": "Archived original grades were created with research Close*Volume proxy Amount (not official actual turnover). Retrospective; no new OOS. R143 price path not historically as-used certified.",
+  "daily_sources": [
+    {
+      "signal_date": "20261002",
+      "run_id": 37008576778,
+      "head_sha": "e7be1e9629eb1686e3d1cde08b6a683eb744f4ed",
+      "artifact_id": 11227735597,
+      "artifact_name": "stockhunter-v1107-4-5-73-3-6-6-24-causal-universe-full-denom-pattern-oos-exit-reports-1589",
+      "zip_sha256": "f0c22b21ab8603d8a37ee373d2f9a4ea15ad1e78cf94976f3d1cb8ee89a2f5bf"
+    },
+    {
+      "signal_date": "20261008",
+      "run_id": 37785940981,
+      "head_sha": "d8ba61eaf7f7eb6bebc29404ddbd72b022d59a56",
+      "artifact_id": 11561140536,
+      "artifact_name": "stockhunter-v1107-4-5-73-3-6-6-24-causal-universe-full-denom-pattern-oos-exit-reports-1609",
+      "zip_sha256": "b872780e19b8681d4032fd3c94f6f7286d6c16edcd5651c8d1eb30decc55222f"
+    },
+    {
+      "signal_date": "20261009",
+      "run_id": 37936606703,
+      "head_sha": "440f75e85b79315e470266251466fed127815526",
+      "artifact_id": 11626065472,
+      "artifact_name": "stockhunter-v1107-4-5-73-3-6-6-24-causal-universe-full-denom-pattern-oos-exit-reports-1614",
+      "zip_sha256": "8df3a4e57e324597abd0baff775f7563700a099eb4599903414ce61f8f21aa64"
+    },
+    {
+      "signal_date": "20261013",
+      "run_id": 38412787573,
+      "head_sha": "daefca0840e76f6776485bcdeb21e92d51e34770",
+      "artifact_id": 11830141988,
+      "artifact_name": "stockhunter-v1107-4-5-73-3-6-6-24-causal-universe-full-denom-pattern-oos-exit-reports-1640",
+      "zip_sha256": "d2e6a36395f054e6648d49434b0cf2c45f6f9a4283d2aa1e392f5a1a7353b5c4"
+    },
+    {
+      "signal_date": "20261014",
+      "run_id": 38561166337,
+      "head_sha": "df0883b1bd10e105b80b6e2b4e0375941bc003b9",
+      "artifact_id": 11898334138,
+      "artifact_name": "stockhunter-v1107-4-5-73-3-6-6-24-causal-universe-full-denom-pattern-oos-exit-reports-1646",
+      "zip_sha256": "274730e0955d1e907231ce8c702cf98cccbc26802400ccc05ffb6ec8052e0d09"
+    },
+    {
+      "signal_date": "20261015",
+      "run_id": 38729162284,
+      "head_sha": "bb908957ba93528efd0f6820d7544fc2284dc3de",
+      "artifact_id": 11970740255,
+      "artifact_name": "stockhunter-v1107-4-5-73-3-6-6-24-causal-universe-full-denom-pattern-oos-exit-reports-1651",
+      "zip_sha256": "2994524859e3e41ea62ebdf54a7c8a65338a06f624ab475d5b1b09fe6409597b"
+    },
+    {
+      "signal_date": "20261016",
+      "run_id": 38894781055,
+      "head_sha": "85d60cd8438c40b3fb4511ca5457bd13c4bc5e57",
+      "artifact_id": 12046273442,
+      "artifact_name": "stockhunter-v1107-4-5-73-3-6-6-24-causal-universe-full-denom-pattern-oos-exit-reports-1656",
+      "zip_sha256": "94861503b019e1c5d4e0b401bed58f54a9448289c9cbb4f9e39561b6f5eb602a"
+    },
+    {
+      "signal_date": "20261019",
+      "run_id": 39261378349,
+      "head_sha": "6be6f844a0ef1b84b5ee150648894ee3fd3232ee",
+      "artifact_id": 12192052926,
+      "artifact_name": "stockhunter-v1107-4-5-73-3-6-6-24-causal-universe-full-denom-pattern-oos-exit-reports-1661",
+      "zip_sha256": "4818fa93583867736102b996a863a7fba4e17f39252b188e85dc7c7d7dde2eb5"
+    },
+    {
+      "signal_date": "20261020",
+      "run_id": 39417727646,
+      "head_sha": "ccdeaf82e46164e78f3891742db1c58a75c6bde7",
+      "artifact_id": 12262307012,
+      "artifact_name": "stockhunter-v1107-4-5-73-3-6-6-24-causal-universe-full-denom-pattern-oos-exit-reports-1666",
+      "zip_sha256": "49c6c99e1e69bc0d4238b28ce143e448e901a1e968fcc626ba82b24bcea80373"
+    },
+    {
+      "signal_date": "20261021",
+      "run_id": 39596314655,
+      "head_sha": "0fb4392da16320c11671f9fd64f5582a28579d00",
+      "artifact_id": 12346845628,
+      "artifact_name": "stockhunter-v1107-4-5-73-3-6-6-24-causal-universe-full-denom-pattern-oos-exit-reports-1671",
+      "zip_sha256": "3249187300480f96db8e15ece26b12fa765b35ac09597eec871044a321512d78"
+    },
+    {
+      "signal_date": "20261022",
+      "run_id": 39775403379,
+      "head_sha": "18103dc5bd80dce72bbf76f18d6d05a22ad9c4dc",
+      "artifact_id": 12428760789,
+      "artifact_name": "stockhunter-v1107-4-5-73-3-6-6-24-causal-universe-full-denom-pattern-oos-exit-reports-1676",
+      "zip_sha256": "c75c140af37cbed111e95b59e9767e68bfe4530bb4a5121852c1db71a0e6c5ba"
+    },
+    {
+      "signal_date": "20261023",
+      "run_id": 39948786391,
+      "head_sha": "ae74ffb655aea226ecbfa0e315b7c46077b3c458",
+      "artifact_id": 12504190178,
+      "artifact_name": "stockhunter-v1107-4-5-73-3-6-6-24-causal-universe-full-denom-pattern-oos-exit-reports-1681",
+      "zip_sha256": "3d2ee08727e50b248cdf7c41be7fb21744d2f9ee908747e693895c4d443ab34b"
+    }
+  ],
+  "pinned_sources": {
+    "r143": {
+      "run_id": 39960213718,
+      "head_sha": "3b8321a2e48c98a49f93ada68ba64e92e072d6ed",
+      "artifact_id": 12504990509,
+      "artifact_name": "real-full-r143-path-integrity-39960213718",
+      "zip_sha256": "a1ba01eea0e1976e9edd59ec6b548d2d56f897e7638498dc4185b66b284edbbf"
+    },
+    "r1d13": {
+      "run_id": 40096795372,
+      "head_sha": "fd5e32262c3e63792b3e653cab4e79628832dbf6",
+      "artifact_id": 12561441155,
+      "artifact_name": "stockhunter-r1d13-FROZEN-FULLCOHORT-CONTAMINATION-SCOPE-NOT-OOS",
+      "zip_sha256": "f15e203bf7528d6cbce637b2c7bc846e35a40b2acbc04bb8b6ee87148a08435d"
+    }
+  },
+  "frozen_code_blobs": {
+    "real_full_research_overlay_r1.py": "a0a9eb829c7a48b4531855621acccd4ce3c99492",
+    "real_full_trust_audit.py": "b18d67a13a1d08076b6c0583272939c06ed508af",
+    "real_full_r1c1_path_integrity_r143.py": "fe7fba1e26f2a952aeff54b07230c888547e03ef"
+  },
+  "expected": {
+    "labels": 180,
+    "GREEN": 52,
+    "YELLOW": 115,
+    "RED": 13,
+    "r143_joined_seeds": 150,
+    "outcomes": 345,
+    "horizon_1": 135,
+    "horizon_3": 105,
+    "horizon_5": 75,
+    "horizon_10": 30,
+    "orders_placed": 0
+  }
+}
