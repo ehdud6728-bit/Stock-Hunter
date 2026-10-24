@@ -18,6 +18,7 @@ on:
           - r1d8_structure_confounds
           - r1d9_independent_2021_23
           - r1d10_accumulated_provenance_audit
+          - r1d11_integrity_giveback_audit
 
 permissions:
   contents: read
@@ -922,5 +923,102 @@ jobs:
             reports/r1d10/result/**
             reports/r1d10/pins/**
             R1D10_PREDECLARED_PROTOCOL.json
+          if-no-files-found: warn
+          retention-days: 60
+
+  # R1-D11 read-only integrity research: original R1D10 data sources never recalculated.
+  r1d11_integrity_giveback_audit:
+    name: R1-D11 pinned R1D10 source QA and Giveback sensitivity [RESEARCH ONLY, NOT NEW OOS]
+    needs: [read_only_source_check]
+    if: ${{ inputs.scope == 'r1d11_integrity_giveback_audit' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install read-only research numerical dependencies
+        run: pip install 'pandas>=2.0,<3' 'numpy>=1.24,<3'
+      - name: Verify protocol ROOT, unchanged workflows, code compile and 17 regression tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmp .github/workflows/stockhunter_r1d3_strong_winners_external_context.yml stockhunter_r1d3_strong_winners_external_context.yml
+          test -f R1D11_PREDECLARED_PROTOCOL.json || { echo R1D11_MISSING_ROOT_PROTOCOL; exit 52; }
+          python -m py_compile research_formulas/stockhunter_r1d11_integrity_and_giveback.py
+          python -m unittest discover -s tests -p test_stockhunter_r1d11_integrity_and_giveback.py -v
+          python - <<'PYR'
+          from research_formulas import stockhunter_r1d11_integrity_and_giveback as r
+          x=r.protocol_guard('R1D11_PREDECLARED_PROTOCOL.json')
+          assert x['never_change_original_66_scans'] is True
+          print('R1D11_FROZEN_PREDECLARED_ROOT_PROTOCOL_PASS')
+          PYR
+      - name: Verify exact finished source GitHub runs and artifact ZIP SHA256 (fail closed)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p reports/r1d11/pins
+          python - <<'PYR'
+          import subprocess,json,pathlib,os
+          from research_formulas.stockhunter_r1d11_integrity_and_giveback import PIN
+          root=pathlib.Path('reports/r1d11/pins')
+          repo='repos/'+os.environ['GITHUB_REPOSITORY']
+          for label,p in PIN.items():
+            run=json.loads(subprocess.check_output(['gh','api',f'{repo}/actions/runs/{p["run"]}'],text=True))
+            artifact=json.loads(subprocess.check_output(['gh','api',f'{repo}/actions/runs/{p["run"]}/artifacts?per_page=100'],text=True))['artifacts']
+            name='stockhunter-r1d10-ACCUMULATED-PROVENANCE-QA-NOT-OOS' if label=='r1d10' else 'stockhunter-v1107-4-5-73-3-6-6-24-causal-universe-full-denom-pattern-oos-exit-reports-1681'
+            q=[a for a in artifact if a['id']==p['id'] and a['name']==name]
+            assert run['conclusion']=='success' and run['head_sha']==p['head'],f'R1D11_SOURCE_RUN_DRIFT:{label}'
+            assert len(q)==1 and q[0]['expired'] is False and q[0]['digest']=='sha256:'+p['sha256'],f'R1D11_SOURCE_ARTIFACT_DRIFT:{label}'
+            (root/f'{label}_run.json').write_text(json.dumps(run),encoding='utf-8')
+            (root/f'{label}_artifact.json').write_text(json.dumps(q[0]),encoding='utf-8')
+          print('R1D11_TWO_SOURCE_RUNS_AND_ARTIFACTS_DIGESTS_PASS')
+          PYR
+      - name: Download pinned R1D10 read-only audit outputs
+        uses: actions/download-artifact@v4
+        with:
+          name: stockhunter-r1d10-ACCUMULATED-PROVENANCE-QA-NOT-OOS
+          run-id: 40074113253
+          repository: ${{ github.repository }}
+          github-token: ${{ github.token }}
+          path: reports/r1d11/input/r1d10
+      - name: Download original REAL_FULL TRUST research archive
+        uses: actions/download-artifact@v4
+        with:
+          name: stockhunter-v1107-4-5-73-3-6-6-24-causal-universe-full-denom-pattern-oos-exit-reports-1681
+          run-id: 39948786391
+          repository: ${{ github.repository }}
+          github-token: ${{ github.token }}
+          path: reports/r1d11/input/trust
+      - name: Run immutable paired Giveback and code/price error sensitivity research
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m research_formulas.stockhunter_r1d11_integrity_and_giveback \
+            --r1d10 reports/r1d11/input/r1d10 \
+            --trust reports/r1d11/input/trust \
+            --protocol R1D11_PREDECLARED_PROTOCOL.json \
+            --out reports/r1d11/result
+          python - <<'PYR'
+          import json,pathlib
+          m=json.loads(pathlib.Path('reports/r1d11/result/R1D11_MANIFEST.json').read_text('utf-8'))
+          assert (m['n_paired'],m['n_first'],m['n_repeat'])==(199,97,102)
+          assert m['orders_placed']==0 and m['no_live_code_change'] is True and m['not_new_OOS'] is True
+          print('R1D11_NO_LIVE_CHANGE_FROZEN_SOURCE_QA_PASS')
+          PYR
+      - name: Upload read-only evidence and result panels even when blocked
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-r1d11-FROZEN-R1D10-PROVENANCE-GIVEBACK-QA-NOT-OOS
+          path: |
+            reports/r1d11/result/**
+            reports/r1d11/pins/**
+            R1D11_PREDECLARED_PROTOCOL.json
           if-no-files-found: warn
           retention-days: 60
