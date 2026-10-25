@@ -1,0 +1,20 @@
+{
+  "research_id": "STOCKHUNTER_R1D23_FULL_MARKET_FOUR_THESIS_A_B_C_D_V1",
+  "research_only": true,
+  "periods": {"EARLY_2021_2023": ["2021-01-04", "2023-11-29"], "LATE_2024_2025": ["2024-01-02", "2025-09-30"]},
+  "strategies": ["A_BELOW224_WAVE_PULLBACK", "B_MA224_RECLAIM_SUPPORT", "C_ABOVE224_RISING_WAVE_PULLBACK", "D_LEADER_CONSOLIDATION_BREAKOUT"],
+  "common": {"min_history":350,"cooldown":20,"min_close":1000,"min_signal_amount":1000000000,"min_prior20_median_amount":500000000},
+  "definition": {
+    "A": "Close below MA224, at least 70pct of past 60 closes below their own MA224, 12pct wave1 low-to-high, 15-61.8pct pullback, pre-wave turnover ratio 1.03-2.50, pullback dry amount <=0.85, trough below MA224. NEW SYMMETRIC PROXY not identical old frozen R1D1.",
+    "B": "MA224 recross 3-10 sessions before signal and recent three lows no worse than 2pct below current MA224, close above MA20 and rising since yesterday.",
+    "C": "Mirror of A wave1/dry pullback with signal above rising MA224 and trough above MA224, 60pct of last 60 closes above their own MA224.",
+    "D": "Above rising MA224, close >=1.005x previous 120-session HIGH, 10-session prior high/low range <=18pct, prior10 high within 5pct of prior120 high, signal turnover >=1.5x prior20 median."
+  },
+  "horizons": [5,10,15,20],
+  "entry": "NEXT_TRADING_SESSION_OPEN_HYPOTHETICAL",
+  "exit": "SIGNAL_DATE_PLUS_H_TRADING_SESSION_CLOSE",
+  "friction_bps_total":20,
+  "source": {"raw_krx_run":39295295197,"krx_days":1907,"krx_run_head_sha":"08e328c101f0774a2236c0a44cc1fdbbaa59e96e"},
+  "analysis": "All original KRX observed six-character identity codes; no historical ticker aliasing; missing 20-day forward path censored not counted loss; 20-session per-ticker per-strategy cooldown; date-pair comparisons report matched dates only; no same-sample optimization; no 2026 prospective OOS claim.",
+  "prohibitions": {"no_live_orders":true,"no_live_scanner_or_rank_change":true,"no_future_data_in_asof":true,"no_source_refetch":true,"no_corporate_action_certification_claim":true,"no_new_oos_claim":true,"no_ticker_aliasing":true,"no_same_sample_threshold_optimization":true}
+}
