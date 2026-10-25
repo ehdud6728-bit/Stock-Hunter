@@ -1,10 +1,10 @@
-name: StockHunter R1-D19 + R1-D22 BB203040 Indicator QA (RESEARCH ONLY)
+name: StockHunter Research R1-D19 to R1-D23 (RESEARCH ONLY)
 
 on:
   workflow_dispatch:
     inputs:
       scope:
-        description: "R1D19 to R1D22 historical research selections"
+        description: "R1D19 to R1D23 isolated historical research selections"
         type: choice
         required: true
         default: r1d19_protocol_lock
@@ -14,6 +14,8 @@ on:
           - r1d20_protocol_lock
           - r1d20_historical_validation
           - r1d22_historical_supplemental
+          - r1d23_thesis_lock
+          - r1d23_fullmarket_four_thesis
 
 permissions:
   contents: read
@@ -525,3 +527,161 @@ jobs:
             reports/r1d22/result/**
             reports/r1d22/pins/**
             R1D22_PREDECLARED_PROTOCOL.json
+
+  r1d23_thesis_lock:
+    name: R1-D23 predeclare full-market four thesis definitions [RESEARCH ONLY]
+    if: ${{ inputs.scope == 'r1d23_thesis_lock' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install isolated test libraries and lock research protocol without returns
+        run: |
+          pip install 'pandas>=2.0,<3' 'numpy>=1.24,<3'
+          python -m unittest discover -s tests -p 'test_stockhunter_r1d23*.py' -v
+          python -m research_formulas.stockhunter_r1d23_strategy_challenge \
+            --mode lock --protocol R1D23_PREDECLARED_PROTOCOL.json \
+            --out reports/r1d23/result/lock
+      - name: Upload locked prospective-comparison definitions without outcomes
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-r1d23-FOUR-THESIS-LOCK-NO-OUTCOMES
+          retention-days: 90
+          if-no-files-found: warn
+          path: |
+            R1D23_PREDECLARED_PROTOCOL.json
+            reports/r1d23/result/lock/**
+
+  r1d23_fullmarket_four_thesis:
+    name: R1-D23 all-market A B C D strategy challenge + 1907 KRX SHA + legacy A identity QA [NOT OOS]
+    if: ${{ inputs.scope == 'r1d23_fullmarket_four_thesis' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      RESEARCH_ONLY: '1'
+      STOCKHUNTER_LIVE_ENABLE: '0'
+      STOCKHUNTER_ORDER_ENABLE: '0'
+      STOCKHUNTER_SCORE_RANK_ENABLE: '0'
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify all new definitions and causal data quality unit tests
+        run: |
+          set -euo pipefail
+          pip install 'pandas>=2.0,<3' 'numpy>=1.24,<3'
+          python -m unittest discover -s tests -p 'test_stockhunter_r1d23*.py' -v
+          python -m research_formulas.stockhunter_r1d23_strategy_challenge \
+            --mode lock --protocol R1D23_PREDECLARED_PROTOCOL.json \
+            --out reports/r1d23/result/lock
+      - name: Fail closed on pinned source run SHA and GitHub artifact ZIP digests
+        run: |
+          set -euo pipefail
+          mkdir -p reports/r1d23/pins
+          gh api repos/${GITHUB_REPOSITORY}/actions/runs/39295295197 > reports/r1d23/pins/krx_run.json
+          gh api repos/${GITHUB_REPOSITORY}/actions/runs/39295295197/artifacts?per_page=100 > reports/r1d23/pins/krx_artifacts.json
+          gh api repos/${GITHUB_REPOSITORY}/actions/runs/40051036811 > reports/r1d23/pins/r1d9_run.json
+          gh api repos/${GITHUB_REPOSITORY}/actions/runs/40051036811/artifacts?per_page=100 > reports/r1d23/pins/r1d9_artifacts.json
+          gh api repos/${GITHUB_REPOSITORY}/actions/runs/39941707036 > reports/r1d23/pins/r1d6_run.json
+          gh api repos/${GITHUB_REPOSITORY}/actions/runs/39941707036/artifacts?per_page=100 > reports/r1d23/pins/r1d6_artifacts.json
+          python - <<'PYPIN'
+          import json
+          from pathlib import Path
+          r=Path('reports/r1d23/pins')
+          p=json.loads(Path('R1D23_PREDECLARED_PROTOCOL.json').read_text())
+          def run(name,id,sha):
+              x=json.loads((r/(name+'_run.json')).read_text())
+              assert x['id']==id and x['head_sha']==sha and x['conclusion']=='success',name+'_RUN_DRIFT'
+          def art(name,aid,expected,digest):
+              x=json.loads((r/(name+'_artifacts.json')).read_text())['artifacts']
+              matches=[y for y in x if y['id']==aid and y['name']==expected and not y['expired']]
+              assert len(matches)==1 and matches[0]['digest']=='sha256:'+digest,expected+'_ZIP_DRIFT'
+          run('krx',39295295197,'08e328c101f0774a2236c0a44cc1fdbbaa59e96e')
+          run('r1d9',40051036811,'983bb5332adcb827f77fff7446410f3b21a64ea0')
+          run('r1d6',39941707036,'019956f9aa85e419c4e8e4ca6fcc6f5dc21a9686')
+          hashes={
+             0:'84dd5aa62f0c9538cd9c2d0ed0540c8f74063b21be49d9ecfc81e4b1583368b5',
+             1:'3d372eebf915c870badf103356c3700d5fa914a32d79ce8057ef1f4c4f89295b',
+             2:'5c49df64ad10bafbc09dd7ea78b9377804735fda6ad861018750b396ab2a27cb',
+             3:'7a359f5959e2374622c40d068920adf9d695142b4a61b540d0752a8cb9bb4dd8',
+             4:'88b35ea4c9a8a6a0ed4b61250a8018d49ee7ba4489c7345f04012915bb60f997',
+             5:'eb503f7cabcc40991037092c6463437c8a8b71d43fb26fe646ea4f56885b3814',
+             6:'b3cc055d919c7ab92d7f27b1b3ce6d3e56df787b107af961eaa43dedb885d6cd',
+             7:'9563747eb8b27928ba0a0d2b7d3cf02e787acd2e9e4a656d410c286139321478',
+          }
+          for i,v in hashes.items():
+              x=json.loads((r/'krx_artifacts.json').read_text())['artifacts']
+              hits=[a for a in x if a['name']==f'stockhunter-allkrx-price-shard-{i}' and not a['expired']]
+              assert len(hits)==1 and hits[0]['digest']=='sha256:'+v,'KRX_SHARD_DRIFT_'+str(i)
+          art('r1d9',12543553883,'stockhunter-r1d9-2021-23-INDEPENDENT-ASOF-ONLY','3c5e8a64ff0afedd34637e1d110031a15bbc49e5913e1909d5d18404b536252e')
+          art('r1d6',12496827313,'stockhunter-r1d6-OOS-ASOF-ONLY-NO-FUTURE','7185b582e94131b7ee09daf55024c80eeac881f5a2cbc8cee7bbd418a106a884')
+          print('R1D23_ALL_SOURCES_PINS_VERIFIED')
+          PYPIN
+      - name: Download immutable source KRX 8 shards; no price refetch
+        uses: actions/download-artifact@v4
+        with:
+          pattern: stockhunter-allkrx-price-shard-*
+          run-id: 39295295197
+          github-token: ${{ github.token }}
+          merge-multiple: true
+          path: reports/r1d23/input/krx
+      - name: Download older 2021-2023 frozen A population only for identity audit
+        uses: actions/download-artifact@v4
+        with:
+          name: stockhunter-r1d9-2021-23-INDEPENDENT-ASOF-ONLY
+          run-id: 40051036811
+          github-token: ${{ github.token }}
+          path: reports/r1d23/input/r1d9asof
+      - name: Download older 2024-2025 frozen A population only for identity audit
+        uses: actions/download-artifact@v4
+        with:
+          name: stockhunter-r1d6-OOS-ASOF-ONLY-NO-FUTURE
+          run-id: 39941707036
+          github-token: ${{ github.token }}
+          path: reports/r1d23/input/r1d6asof
+      - name: Full-market A/B/C/D ASOF signal seal first, THEN future D5 D10 D15 D20 paths
+        run: |
+          set -euo pipefail
+          python -m research_formulas.stockhunter_r1d23_strategy_challenge \
+            --mode compare --protocol R1D23_PREDECLARED_PROTOCOL.json \
+            --krx-root reports/r1d23/input/krx --out reports/r1d23/result/historical
+          python -m research_formulas.stockhunter_r1d23_strategy_challenge \
+            --mode legacy-audit --protocol R1D23_PREDECLARED_PROTOCOL.json \
+            --legacy-r1d9 reports/r1d23/input/r1d9asof \
+            --legacy-r1d6 reports/r1d23/input/r1d6asof \
+            --out reports/r1d23/result/historical
+          python -m research_formulas.stockhunter_r1d23_strategy_challenge \
+            --mode regime-audit --protocol R1D23_PREDECLARED_PROTOCOL.json \
+            --krx-root reports/r1d23/input/krx --out reports/r1d23/result/historical
+          python - <<'PYCHECK'
+          import json
+          from pathlib import Path
+          x=json.loads(Path('reports/r1d23/result/historical/R1D23_MANIFEST.json').read_text())
+          assert x['krx_sha256_all_days_verified']==1907
+          assert x['fullmarket_signal_rows']>0 and x['price_path_rows']==4*x['fullmarket_signal_rows']
+          assert x['benchmark_A_is_new_symmetric_proxy_not_old_D1']
+          assert not x['independent_future_OOS'] and not x['strategy_ready']
+          assert x['orders_placed']==0 and x['no_production_changes']
+          print('R1D23_FULLMARKET_RESEARCH_ONLY_CAUSALITY_AND_SOURCE_QA_PASS')
+          PYCHECK
+      - name: Upload 4-way scores, all ASOF signals and detailed provenance
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-r1d23-FOUR-STRATEGY-FULLMARKET-2021TO2025-RESEARCH-NOT-OOS
+          retention-days: 90
+          if-no-files-found: warn
+          path: |
+            reports/r1d23/result/**
+            reports/r1d23/pins/**
+            R1D23_PREDECLARED_PROTOCOL.json
