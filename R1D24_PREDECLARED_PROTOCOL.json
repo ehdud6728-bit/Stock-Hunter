@@ -1,0 +1,50 @@
+{
+  "research_id": "R1D24_FROZEN_R1D23_D_BREAKOUT_TAIL_RISK_RESEARCH_V1",
+  "research_only": true,
+  "source": {
+    "repo": "ehdud6728-bit/Stock-Hunter",
+    "run_id": 40218876941,
+    "run_sha": "e9e5312bbc47f9e7d65586cd7b6101e7066071c0",
+    "artifact_id": 12609117663,
+    "artifact_name": "stockhunter-r1d23-FOUR-STRATEGY-FULLMARKET-2021TO2025-RESEARCH-NOT-OOS",
+    "artifact_zip_sha256": "c944792530ffde5a51dd8119c6f1073426f739a01a57f4ad1aa9fe521f03ab2a",
+    "asof_gz_sha256": "7e1a7149157ce3d1d887a2faf12c3f36596b88329c7130c0e08ea952b3750dd8",
+    "paths_gz_sha256": "584bcab5afb9bbccaec3df1eddc51f8d760a482a0433eb52651ce63d6013b9e1",
+    "expected_all_events": 23266,
+    "expected_D_events": 2811,
+    "expected_paths": 93064,
+    "krx_source_1907_days_checked_by_R1D23": true
+  },
+  "strategy_target": "D_LEADER_CONSOLIDATION_BREAKOUT",
+  "controls": ["A_BELOW224_WAVE_PULLBACK", "C_ABOVE224_RISING_WAVE_PULLBACK"],
+  "populations": ["EARLY_2021_2023", "LATE_2024_2025"],
+  "horizons": [5, 10, 15, 20],
+  "entry": "NEXT_SESSION_OPEN_HYPOTHETICAL_NOT_FILL_CERTIFIED",
+  "transaction_friction_pp_already_in_source_net": 0.20,
+  "binary_conditions_frozen_before_return_join": {
+    "narrow_10d_range_le_10pct": {"column": "base10_range_pct", "op": "le", "value": 10},
+    "narrow_10d_range_le_12pct": {"column": "base10_range_pct", "op": "le", "value": 12},
+    "broad_10d_range_ge_15pct": {"column": "base10_range_pct", "op": "ge", "value": 15},
+    "rel_amount_ge_3x": {"column": "amount_vs_prior20", "op": "ge", "value": 3},
+    "rel_amount_ge_5x": {"column": "amount_vs_prior20", "op": "ge", "value": 5},
+    "absolute_amount_ge_10bil_KRW": {"column": "amount_KRW", "op": "ge", "value": 10000000000},
+    "absolute_amount_ge_30bil_KRW": {"column": "amount_KRW", "op": "ge", "value": 30000000000},
+    "MA224_slope20_ge_2pct": {"column": "ma224_slope20_pct", "op": "ge", "value": 2},
+    "MA224_slope20_ge_4pct": {"column": "ma224_slope20_pct", "op": "ge", "value": 4},
+    "MA224_distance_le_30pct": {"column": "distance224_pct", "op": "le", "value": 30},
+    "MA224_distance_ge_50pct": {"column": "distance224_pct", "op": "ge", "value": 50}
+  },
+  "combinations_frozen_before_return_join": {
+    "narrow10_and_rel_amount3": ["narrow_10d_range_le_10pct", "rel_amount_ge_3x"],
+    "narrow10_and_slope2": ["narrow_10d_range_le_10pct", "MA224_slope20_ge_2pct"],
+    "rel_amount3_and_distance30": ["rel_amount_ge_3x", "MA224_distance_le_30pct"]
+  },
+  "primary_outcomes": ["D20_net_mean", "D20_net_median", "D20_final_return_ge10pct", "D20_final_return_ge15pct", "D20_loss_le_minus5pct"],
+  "secondary_outcomes": ["D5_D10_D15_net", "D20_MFE_ge15", "D20_MFE_ge20", "D20_MAE", "D20_MFE_ge15_and_final_nonpositive"],
+  "periods_are_reused_historical_not_new_OOS": true,
+  "no_threshold_optimization_after_outcome_read": true,
+  "small_cell_below_n": 30,
+  "no_new_market_scanner": true,
+  "no_live_rank_search_entry_exit_order_changes": true,
+  "limitations": ["historical post-selection multiple testing", "unadjusted KRX not corporate-action/PIT tradeability certified", "same-date matched comparisons are not industry/ticker matched", "hypothetical returns not fills", "frozen D candidate generation may be selection-biased"]
+}
