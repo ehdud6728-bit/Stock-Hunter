@@ -1,4 +1,4 @@
-name: StockHunter Research Lab R1-D3 to R1-D17 (RESEARCH ONLY)
+name: StockHunter Research Lab R1-D3 to R1-D18 (RESEARCH ONLY)
 
 on:
   workflow_dispatch:
@@ -27,6 +27,18 @@ on:
           - r1d16_realfull
           - r1d16_odoli
           - r1d17_green_integrated
+          - r1d18_protocol_lock
+          - r1d18_capture_new_signals
+      source_run_id:
+        description: "R1-D18 CAPTURE only: successful NEW ORIGINAL run_scanner REAL_FULL GitHub run ID"
+        type: string
+        required: false
+        default: ""
+      asof_date:
+        description: "R1-D18 CAPTURE only: exact signal date YYYY-MM-DD, >= 2026-10-26"
+        type: string
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -47,7 +59,7 @@ env:
 jobs:
   read_only_source_check:
     name: 10 local source/temporal contract tests and immutable R1D2 GitHub artifact verification
-    if: ${{ !startsWith(inputs.scope, 'r1d16_') && inputs.scope != 'r1d17_green_integrated' }}
+    if: ${{ !startsWith(inputs.scope, 'r1d16_') && inputs.scope != 'r1d17_green_integrated' && !startsWith(inputs.scope, 'r1d18_') }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -1822,3 +1834,154 @@ jobs:
             reports/r1d17/result/**
             reports/r1d17/pins/**
             R1D17_PREDECLARED_PROTOCOL.json
+
+  r1d18_hypothesis_lock:
+    name: R1-D18 fixed 2026-10-23 cutoff + R1-D17 historical baseline (NOT NEW OOS)
+    if: ${{ inputs.scope == 'r1d18_protocol_lock' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      RESEARCH_ONLY: '1'
+      STOCKHUNTER_LIVE_ENABLE: '0'
+      STOCKHUNTER_ORDER_ENABLE: '0'
+      STOCKHUNTER_SCORE_RANK_ENABLE: '0'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate R1-D18 immutable protocol, unified YML copy and isolated tests
+        run: |
+          set -euo pipefail
+          cmp -s .github/workflows/stockhunter_r1d3_strong_winners_external_context.yml stockhunter_r1d3_strong_winners_external_context.yml
+          python -m unittest discover -s tests -p test_stockhunter_r1d18_prospective_shadow.py -v
+          python - <<'PYLOCK'
+          from research_formulas.stockhunter_r1d18_prospective_shadow import load_protocol
+          p=load_protocol('R1D18_PREDECLARED_PROTOCOL.json')
+          assert p['effective_signal_date_min']=='2026-10-26'
+          print('R1D18_FROZEN_HYPOTHESIS_LOCK_PASS')
+          PYLOCK
+      - name: Verify R1-D17 historical baseline immutable GitHub run and SHA256
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python - <<'PYPIN'
+          import json,os,urllib.request
+          p=json.load(open('R1D18_PREDECLARED_PROTOCOL.json'))['baseline_pin']
+          base='https://api.github.com/repos/'+os.environ['GITHUB_REPOSITORY']
+          def get(path):
+            req=urllib.request.Request(base+path,headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json'})
+            with urllib.request.urlopen(req,timeout=30) as resp:return json.load(resp)
+          run=get('/actions/runs/'+str(p['run_id']))
+          assert run['conclusion']=='success' and run['head_sha']==p['head_sha'],'R1D18_BASELINE_RUN_DRIFT'
+          arts=get('/actions/runs/'+str(p['run_id'])+'/artifacts?per_page=100')['artifacts']
+          m=[x for x in arts if x['id']==p['artifact_id'] and x['name']==p['artifact_name'] and x.get('digest')=='sha256:'+p['zip_sha256'] and not x['expired']]
+          assert len(m)==1,'R1D18_BASELINE_ARTIFACT_DRIFT'
+          print('R1D18_PREDECLARED_BASELINE_SOURCE_PIN_PASS')
+          PYPIN
+      - name: Download sealed R1-D17 training period (old observations only)
+        uses: actions/download-artifact@v4
+        with:
+          name: stockhunter-r1d17-FROZEN-12DAY-GREEN-FEATURE-GIVEBACK-NOT-NEW-OOS
+          run-id: '40141210428'
+          github-token: ${{ github.token }}
+          path: reports/r1d18/input/baseline
+      - name: Generate R1-D18 predeclared prospective hypothesis with historical baseline
+        run: |
+          set -euo pipefail
+          python -m research_formulas.stockhunter_r1d18_prospective_shadow \
+            --mode predeclare --protocol R1D18_PREDECLARED_PROTOCOL.json \
+            --source reports/r1d18/input/baseline --out reports/r1d18/result/lock
+          python - <<'PYVERIFY'
+          import json
+          m=json.load(open('reports/r1d18/result/lock/R1D18_MANIFEST.json'))
+          assert m['baseline_rows']==180 and m['baseline_outcome_rows']==345
+          assert m['future_evaluations']==0 and not m['oos_confirmed'] and m['orders_placed']==0
+          print('R1D18_HISTORIC_LOCK_SUCCESS_NOT_FUTURE_OOS')
+          PYVERIFY
+      - name: Upload R1-D18 predeclared baseline research evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-r1d18-LOCKED-BASELINE-NOT-NEW-OOS
+          if-no-files-found: warn
+          retention-days: 90
+          path: |
+            reports/r1d18/result/lock/**
+            R1D18_PREDECLARED_PROTOCOL.json
+
+  r1d18_prospective_capture:
+    name: R1-D18 new REAL_FULL original source snapshot SHADOW after 2026-10-26 (NO RETURNS)
+    if: ${{ inputs.scope == 'r1d18_capture_new_signals' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      RESEARCH_ONLY: '1'
+      STOCKHUNTER_LIVE_ENABLE: '0'
+      STOCKHUNTER_ORDER_ENABLE: '0'
+      STOCKHUNTER_SCORE_RANK_ENABLE: '0'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Check protocol, exact YML twin and isolated capture safety tests
+        run: |
+          set -euo pipefail
+          cmp -s .github/workflows/stockhunter_r1d3_strong_winners_external_context.yml stockhunter_r1d3_strong_winners_external_context.yml
+          python -m unittest discover -s tests -p test_stockhunter_r1d18_prospective_shadow.py -v
+      - name: Pin ORIGINAL new REAL_FULL run + immutable ZIP digest, reject stale or wrong profile
+        id: pin
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+        run: |
+          set -euo pipefail
+          test -n "$SOURCE_RUN_ID" || { echo 'R1D18_SOURCE_RUN_ID_REQUIRED'; exit 51; }
+          python -m research_formulas.stockhunter_r1d18_prospective_shadow \
+            --mode source-pin --protocol R1D18_PREDECLARED_PROTOCOL.json \
+            --repo "$GITHUB_REPOSITORY" --token "$GH_TOKEN" \
+            --run-id "$SOURCE_RUN_ID" --out reports/r1d18/input/source_provenance.json \
+            --github-output "$GITHUB_OUTPUT"
+      - name: Download verified source run ORIGINAL artifact, not a backfilled recomputation
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ steps.pin.outputs.artifact_name }}
+          run-id: ${{ inputs.source_run_id }}
+          github-token: ${{ github.token }}
+          path: reports/r1d18/input/main
+      - name: Freeze future as-of-only signal features (no outcome data, no price refetch)
+        env:
+          SIGNAL_DATE: ${{ inputs.asof_date }}
+        run: |
+          set -euo pipefail
+          test -n "$SIGNAL_DATE" || { echo 'R1D18_EXPLICIT_SIGNAL_DATE_REQUIRED'; exit 52; }
+          python -m research_formulas.stockhunter_r1d18_prospective_shadow \
+            --mode capture --protocol R1D18_PREDECLARED_PROTOCOL.json \
+            --source reports/r1d18/input/main --asof "$SIGNAL_DATE" \
+            --provenance reports/r1d18/input/source_provenance.json \
+            --out reports/r1d18/result/capture
+          python - <<'PYVERIFY'
+          import json
+          m=json.load(open('reports/r1d18/result/capture/R1D18_MANIFEST.json'))
+          assert m['future_outcome_rows']==0 and not m['oos_performance_confirmed']
+          assert m['orders_placed']==0 and not m['live_logic_changed']
+          print('R1D18_NEW_SOURCE_SNAPSHOT_IMMUTABLE_CAPTURE_ONLY_PASS')
+          PYVERIFY
+      - name: Upload future signal-date immutable SHADOW capture artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-r1d18-NEW-REALFULL-SHADOW-SIGNAL-CAPTURE-NO-OUTCOME
+          if-no-files-found: warn
+          retention-days: 90
+          path: |
+            reports/r1d18/result/capture/**
+            reports/r1d18/input/source_provenance.json
+            R1D18_PREDECLARED_PROTOCOL.json

@@ -1,0 +1,46 @@
+{
+  "base_unified_workflow_blob_sha": "bcaeadeee0aa656bee62f427d286c477e935db30",
+  "date": "2026-10-25",
+  "files": [
+    {
+      "bytes": 103332,
+      "path": ".github/workflows/stockhunter_r1d3_strong_winners_external_context.yml",
+      "sha256": "a785aa2f149626c33a904bed41db43b21393f078d566215e1b229b2ac3000cd1"
+    },
+    {
+      "bytes": 103332,
+      "path": "stockhunter_r1d3_strong_winners_external_context.yml",
+      "sha256": "a785aa2f149626c33a904bed41db43b21393f078d566215e1b229b2ac3000cd1"
+    },
+    {
+      "bytes": 2439,
+      "path": "R1D18_PREDECLARED_PROTOCOL.json",
+      "sha256": "161802134deed2393a73d76be76a69ab3f8b0c8cb4ce91c3d150064d4a211202"
+    },
+    {
+      "bytes": 14016,
+      "path": "research_formulas/stockhunter_r1d18_prospective_shadow.py",
+      "sha256": "fd8476464b4f143d2f4b98a0c5cae173d05dc499d5e66dfcffcc62aad1314474"
+    },
+    {
+      "bytes": 9220,
+      "path": "tests/test_stockhunter_r1d18_prospective_shadow.py",
+      "sha256": "d8ffd8b066f1e02f297c4eb27d3381b346b3e1ceb0f4d7ee634f4f39365686a1"
+    },
+    {
+      "bytes": 4662,
+      "path": "README_RESEARCH_LAB_R1D18_KR.md",
+      "sha256": "cefc458f9e4e171f9bd210ae8e59f6d070dded4d691eb31689ba50b8a64051d4"
+    }
+  ],
+  "future_outcome_results": 0,
+  "local_tests_passed": 37,
+  "modified_existing_workflow_files": 1,
+  "new_unified_workflow_sha256": "a785aa2f149626c33a904bed41db43b21393f078d566215e1b229b2ac3000cd1",
+  "new_workflow_yaml_files": 0,
+  "package": "STOCKHUNTER_R1D18_PROSPECTIVE_LOCK_AND_FUTURE_CAPTURE_IN_UNIFIED_LAB",
+  "production_unchanged": true,
+  "research_only": true,
+  "results_are_only_training_baseline": true,
+  "single_workflow_path": ".github/workflows/stockhunter_r1d3_strong_winners_external_context.yml"
+}

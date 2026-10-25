@@ -1,0 +1,51 @@
+{
+  "research_id": "STOCKHUNTER_R1D18_PROSPECTIVE_PREDECLARED_SHADOW",
+  "revision": "R1D18_INITIAL_PROSPECTIVE_SOURCE_FROZEN_20261025",
+  "authority": "RESEARCH_ONLY",
+  "effective_signal_date_min": "2026-10-26",
+  "training_cutoff": "2026-10-23",
+  "baseline_pin": {
+    "run_id": 40141210428,
+    "head_sha": "79150219661ddff9687f6d4f2a198d5b229ef8c3",
+    "artifact_id": 12578906541,
+    "artifact_name": "stockhunter-r1d17-FROZEN-12DAY-GREEN-FEATURE-GIVEBACK-NOT-NEW-OOS",
+    "zip_sha256": "90ce2b0a54f6a12adafe68909031da8ef07a4494335125c1e5d208430489616e",
+    "expected_historic_rows": 180,
+    "expected_horizon_rows": 345
+  },
+  "source_workflow_path": ".github/workflows/run_scanner.yml",
+  "required_capture_status": "CAPTURED_NONEMPTY",
+  "required_source_quality": "READY",
+  "expected_research_overlay_id": "REAL_FULL_RESEARCH_OVERLAY_R1",
+  "treatment_primary": "ma_compression AND shallow_pullback",
+  "four_groups": {
+    "COMPRESSION_AND_SHALLOW": "ma_compression == true AND shallow_pullback == true",
+    "COMPRESSION_ONLY": "ma_compression == true AND shallow_pullback == false",
+    "SHALLOW_ONLY": "ma_compression == false AND shallow_pullback == true",
+    "NEITHER": "ma_compression == false AND shallow_pullback == false"
+  },
+  "secondary_strata": ["GREEN", "YELLOW", "RED", "ma224_below", "gradual_accumulation", "liquidity_retained", "strong_wave1"],
+  "primary_horizon_trading_days": 5,
+  "secondary_horizons_trading_days": [1, 3, 10],
+  "outcome_contract": {
+    "future_price_data_required": true,
+    "entry_reference": "signal_close_ONLY_NOT_EXECUTABLE",
+    "primary_win_definition": "D+5 future trading day close / signal day close - 1 > 0",
+    "future_qa": "exact 6-character code, valid corporate actions, immutable source provenance, matured dates",
+    "event_weighting": "report raw event and equal-date summaries, date/ticker-cluster distinct",
+    "fees_slippage": "NOT_ESTIMATED",
+    "capture_is_not_outcome": true
+  },
+  "research_constraints": {
+    "no_same_sample_tuning": true,
+    "no_live_orders": true,
+    "no_production_search_score_rank_changes": true,
+    "no_new_yaml_files": true,
+    "only_original_post_close_ranking": true,
+    "no_historical_alias_for_alphanumeric_codes": true,
+    "no_after_data_as_predictor": true,
+    "no_adjusted_historic_price_certification": true,
+    "no_new_oos_claim_at_protocol_lock": true,
+    "do_not_recompute_prior_daily_labels": true
+  }
+}
