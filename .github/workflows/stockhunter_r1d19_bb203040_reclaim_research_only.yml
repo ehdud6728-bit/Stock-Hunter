@@ -1,0 +1,204 @@
+name: StockHunter R1-D19 BB20 BB30 BB40 Reclaim (RESEARCH ONLY)
+
+on:
+  workflow_dispatch:
+    inputs:
+      scope:
+        description: "R1D19 historical research protocol lock or retrospective comparison"
+        type: choice
+        required: true
+        default: r1d19_protocol_lock
+        options:
+          - r1d19_protocol_lock
+          - r1d19_historical_reclaim
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: stockhunter-r1d19-${{ github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  RESEARCH_ONLY: '1'
+  STOCKHUNTER_LIVE_ENABLE: '0'
+  STOCKHUNTER_ORDER_ENABLE: '0'
+  STOCKHUNTER_SCORE_RANK_ENABLE: '0'
+  PYTHONDONTWRITEBYTECODE: '1'
+  TZ: Asia/Seoul
+
+jobs:
+  # R1-D19 adds only historical exploratory research; no production scanner, scores, rank, or orders.
+  r1d19_protocol_lock:
+    name: R1-D19 lock BB20/30/40 reclaim definitions [RESEARCH ONLY; NO OUTCOMES]
+    if: ${{ inputs.scope == 'r1d19_protocol_lock' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      RESEARCH_ONLY: '1'
+      STOCKHUNTER_LIVE_ENABLE: '0'
+      STOCKHUNTER_ORDER_ENABLE: '0'
+      STOCKHUNTER_SCORE_RANK_ENABLE: '0'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify original Research Lab YML twin and existing R1-D18 immutable protocol
+        run: |
+          set -euo pipefail
+          cmp -s .github/workflows/stockhunter_r1d19_bb203040_reclaim_research_only.yml stockhunter_r1d19_bb203040_reclaim_research_only.yml
+          python - <<'PY'
+          import json
+          p=json.load(open('R1D18_PREDECLARED_PROTOCOL.json',encoding='utf-8'))
+          assert p['training_cutoff']=='2026-10-23' and p['effective_signal_date_min']=='2026-10-26'
+          assert p['baseline_pin']['run_id']==40141210428 and p['primary_horizon_trading_days']==5
+          print('R1D18_FROZEN_PROSPECTIVE_PROTOCOL_UNCHANGED')
+          PY
+      - name: Install isolated numerical dependencies and run fail-closed unit tests
+        run: |
+          set -euo pipefail
+          pip install 'pandas>=2.0,<3' 'numpy>=1.24,<3'
+          python -m unittest discover -s tests -p test_stockhunter_r1d19_bb_reclaim.py -v
+          python -m research_formulas.stockhunter_r1d19_bb_reclaim --mode protocol \
+            --protocol R1D19_PREDECLARED_PROTOCOL.json --out reports/r1d19/result/lock
+      - name: Upload R1-D19 locked exploratory protocol evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-r1d19-PREDECLARED-BB203040-HISTORIC-PROTOCOL-NOT-OOS
+          path: |
+            R1D19_PREDECLARED_PROTOCOL.json
+            reports/r1d19/result/lock/**
+          retention-days: 90
+          if-no-files-found: warn
+
+  r1d19_historical_reclaim:
+    name: R1-D19 BB20/BB30/BB40 historical source-verified 224 PROXY cohort (NOT NEW OOS)
+    if: ${{ inputs.scope == 'r1d19_historical_reclaim' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      RESEARCH_ONLY: '1'
+      STOCKHUNTER_LIVE_ENABLE: '0'
+      STOCKHUNTER_ORDER_ENABLE: '0'
+      STOCKHUNTER_SCORE_RANK_ENABLE: '0'
+      PYTHONDONTWRITEBYTECODE: '1'
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Check identical YML twins, original source code blobs, protocol and isolation tests
+        run: |
+          set -euo pipefail
+          cmp -s .github/workflows/stockhunter_r1d19_bb203040_reclaim_research_only.yml stockhunter_r1d19_bb203040_reclaim_research_only.yml
+          pip install 'pandas>=2.0,<3' 'numpy>=1.24,<3'
+          python -m unittest discover -s tests -p test_stockhunter_r1d19_bb_reclaim.py -v
+          python - <<'PY'
+          from research_formulas.stockhunter_r1d19_bb_reclaim import source_protocol
+          from pathlib import Path
+          import hashlib, json
+          p=source_protocol('R1D19_PREDECLARED_PROTOCOL.json')
+          d18=json.loads(Path('R1D18_PREDECLARED_PROTOCOL.json').read_text())
+          assert d18['training_cutoff']=='2026-10-23' and d18['effective_signal_date_min']=='2026-10-26'
+          frozen={
+            'research_formulas/formula66_r1d6_oos_holdout.py':'00c78a26117670768b70772f578edcb5995e48a5',
+            'research_formulas/formula66_r1d7_path_risk_audit.py':'4efbb3edd5d5e50786cc90420292b7854eb8e203',
+          }
+          for path,expected in frozen.items():
+            b=Path(path).read_bytes()
+            x=hashlib.sha1(b'blob '+str(len(b)).encode()+b'\0'+b).hexdigest()
+            assert x==expected, 'FROZEN_ORIGINAL_CODE_BLOB_DRIFT_'+path
+          print('R1D19_SOURCES_PROTOCOL_FROZEN')
+          PY
+      - name: Verify three immutable GitHub runs and their source artifact hashes BEFORE download
+        run: |
+          set -euo pipefail
+          mkdir -p reports/r1d19/pins
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/39295295197" > reports/r1d19/pins/krx_run.json
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/39295295197/artifacts?per_page=100" > reports/r1d19/pins/krx_artifacts.json
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/39941707036" > reports/r1d19/pins/d6_run.json
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/39941707036/artifacts?per_page=100" > reports/r1d19/pins/d6_artifacts.json
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/39948595864" > reports/r1d19/pins/d7_run.json
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/39948595864/artifacts?per_page=100" > reports/r1d19/pins/d7_artifacts.json
+          python - <<'PYPIN'
+          import json,pathlib
+          from research_formulas import formula66_r1d6_oos_holdout as d6
+          p=json.load(open('R1D19_PREDECLARED_PROTOCOL.json'))['historical_source']
+          root=pathlib.Path('reports/r1d19/pins')
+          def run(k,id_,sha):
+            r=json.loads((root/f'{k}_run.json').read_text())
+            assert r['id']==id_ and r['conclusion']=='success' and r['head_sha']==sha,'RUN_PIN_DRIFT_'+k
+          def artifacts(k):return json.loads((root/f'{k}_artifacts.json').read_text())['artifacts']
+          def one(rows,name,id_,digest):
+            matches=[a for a in rows if a['id']==id_ and a['name']==name and not a['expired']]
+            assert len(matches)==1 and matches[0]['digest']=='sha256:'+digest,'ARTIFACT_PIN_DRIFT_'+name
+          run('krx',p['krx_run'],p['krx_head_sha'])
+          run('d6',p['r1d6_run'],p['r1d6_head_sha'])
+          run('d7',p['r1d7_run'],p['r1d7_head_sha'])
+          aa=artifacts('krx')
+          for i,digest in d6.EXPECTED_SHARD_DIGESTS.items():
+            matched=[a for a in aa if a['name']==f'stockhunter-allkrx-price-shard-{i}' and not a['expired']]
+            assert len(matched)==1 and matched[0]['digest']=='sha256:'+digest,'KRX_SHARD_DRIFT_'+str(i)
+          one(artifacts('d6'),'stockhunter-r1d6-OOS-ASOF-ONLY-NO-FUTURE',p['r1d6_asof_artifact_id'],p['r1d6_asof_artifact_zip_sha256'])
+          one(artifacts('d7'),'stockhunter-r1d7-FROZEN-D6-RETROSPECTIVE-PATH-RISK-NOT-OOS',p['r1d7_artifact_id'],p['r1d7_artifact_zip_sha256'])
+          print('R1D19_ORIGINAL_ALL_8_SHARDS_R1D6_R1D7_DIGESTS_VERIFIED')
+          PYPIN
+      - name: Download original unchanged 1907 KRX price sessions (eight verified shards)
+        uses: actions/download-artifact@v4
+        with:
+          pattern: stockhunter-allkrx-price-shard-*
+          run-id: 39295295197
+          github-token: ${{ github.token }}
+          merge-multiple: true
+          path: reports/r1d19/input/krx
+      - name: Download immutable R1-D6 5247 frozen ASOF event keys, no outcomes
+        uses: actions/download-artifact@v4
+        with:
+          name: stockhunter-r1d6-OOS-ASOF-ONLY-NO-FUTURE
+          run-id: 39941707036
+          github-token: ${{ github.token }}
+          path: reports/r1d19/input/d6asof
+      - name: Download exact R1-D7 sealed historical path outcomes, not recomputed
+        uses: actions/download-artifact@v4
+        with:
+          name: stockhunter-r1d7-FROZEN-D6-RETROSPECTIVE-PATH-RISK-NOT-OOS
+          run-id: 39948595864
+          github-token: ${{ github.token }}
+          path: reports/r1d19/input/d7
+      - name: ASOF-first BB20/30/40 reclaim, SHA seal, THEN retrospective path comparison
+        run: |
+          set -euo pipefail
+          python -m research_formulas.stockhunter_r1d19_bb_reclaim \
+            --mode historical --protocol R1D19_PREDECLARED_PROTOCOL.json \
+            --krx-root reports/r1d19/input/krx \
+            --d6-asof reports/r1d19/input/d6asof \
+            --d7 reports/r1d19/input/d7 \
+            --out reports/r1d19/result/historical
+          python - <<'PY'
+          import json
+          m=json.load(open('reports/r1d19/result/historical/R1D19_MANIFEST.json'))
+          assert m['historical_signals']==5247 and m['d7_original_path_rows']==5247*4
+          assert m['krx_daily_sha_verified']==1907 and m['complete_d20_original']==5214
+          assert not m['future_independent_oos'] and not m['strategy_ready']
+          assert m['orders_placed']==0 and m['production_unchanged']
+          print('R1D19_HISTORIC_BB_COMPARISON_RESEARCH_ONLY_PASS')
+          PY
+      - name: Upload full ASOF-only features, separate outcome scorecards, all provenance
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-r1d19-BB203040-224PROXY-RETROSPECTIVE-NOT-OOS
+          if-no-files-found: warn
+          retention-days: 90
+          path: |
+            reports/r1d19/result/historical/**
+            reports/r1d19/pins/**
+            R1D19_PREDECLARED_PROTOCOL.json
