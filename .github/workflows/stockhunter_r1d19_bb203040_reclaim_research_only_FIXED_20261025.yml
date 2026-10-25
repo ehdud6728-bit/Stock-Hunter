@@ -1,10 +1,10 @@
-name: StockHunter R1-D19 + R1-D20 BB203040 Ichimoku Research (RESEARCH ONLY)
+name: StockHunter R1-D19 + R1-D22 BB203040 Indicator QA (RESEARCH ONLY)
 
 on:
   workflow_dispatch:
     inputs:
       scope:
-        description: "R1D19 historical or R1D20 Ichimoku + BB historical source verification"
+        description: "R1D19 to R1D22 historical research selections"
         type: choice
         required: true
         default: r1d19_protocol_lock
@@ -13,6 +13,7 @@ on:
           - r1d19_historical_reclaim
           - r1d20_protocol_lock
           - r1d20_historical_validation
+          - r1d22_historical_supplemental
 
 permissions:
   contents: read
@@ -382,3 +383,145 @@ jobs:
             reports/r1d20/result/**
             reports/r1d20/pins/**
             R1D20_PREDECLARED_PROTOCOL.json
+
+  # R1-D22 preserves all prior LIVE and historical algorithms; no production calls.
+  r1d22_historical_supplemental:
+    name: R1-D22 historical BB x RSI ADX ATR MFI CMF volume flow, 1907 KRX SHA [NOT NEW OOS]
+    if: ${{ inputs.scope == 'r1d22_historical_supplemental' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RESEARCH_ONLY: '1'
+      STOCKHUNTER_LIVE_ENABLE: '0'
+      STOCKHUNTER_ORDER_ENABLE: '0'
+      STOCKHUNTER_SCORE_RANK_ENABLE: '0'
+      OPENBLAS_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install isolated dependencies, run deterministic numerical tests, lock thresholds
+        run: |
+          set -euo pipefail
+          pip install 'numpy>=1.24,<3' 'pandas>=2.0,<3'
+          python -m unittest discover -s tests -p 'test_stockhunter_r1d22_indicators.py' -v
+          python -m research_formulas.stockhunter_r1d22_indicators --mode lock \
+            --protocol R1D22_PREDECLARED_PROTOCOL.json --out reports/r1d22/result/lock
+      - name: Verify 6 immutable GitHub source runs and ZIP digests before any download
+        run: |
+          set -euo pipefail
+          mkdir -p reports/r1d22/pins
+          python - <<'PYPIN'
+          import json,os,pathlib,subprocess
+          source=json.load(open('R1D22_PREDECLARED_PROTOCOL.json',encoding='utf-8'))['source']
+          repo=os.environ['GITHUB_REPOSITORY']
+          root=pathlib.Path('reports/r1d22/pins')
+          ids={
+            'krx':(source['krx_run'],source['krx_head_sha']),
+            'r1d9':(source['r1d9_run'],source['r1d9_head_sha']),
+            'r1d6':(source['r1d6_run'],source['r1d6_head_sha']),
+            'r1d7':(source['r1d7_run'],source['r1d7_head_sha']),
+            'r1d19':(source['r1d19_run'],source['r1d19_head_sha']),
+            'r1d20':(40208199240,'dcd8daad58348e9e2040120abdbf9085f70a4b3e'),
+          }
+          def api(url):
+            return json.loads(subprocess.check_output(['gh','api','repos/'+repo+'/'+url],text=True))
+          arts={}
+          for key,(run_id,expected_sha) in ids.items():
+            r=api('actions/runs/'+str(run_id))
+            assert r['id']==run_id and r['head_sha']==expected_sha and r['conclusion']=='success','RUN_SHA_OR_STATUS_DRIFT_'+key
+            aa=api('actions/runs/'+str(run_id)+'/artifacts?per_page=100')['artifacts']
+            (root/(key+'_run.json')).write_text(json.dumps(r))
+            (root/(key+'_artifacts.json')).write_text(json.dumps(aa))
+            arts[key]=aa
+          def pin(run,name,artifact_id,digest):
+            x=[a for a in arts[run] if a['name']==name and a['id']==artifact_id and not a['expired']]
+            assert len(x)==1 and x[0]['digest']=='sha256:'+digest,'PIN_DRIFT_'+name
+          for i,digest in source['krx_shard_digests'].items():
+            name='stockhunter-allkrx-price-shard-'+str(i)
+            a=[v for v in arts['krx'] if v['name']==name]
+            assert len(a)==1,'KRX_SHARD_NOT_UNIQUE_'+str(i)
+            pin('krx',name,a[0]['id'],digest)
+          pin('r1d9','stockhunter-r1d9-2021-23-INDEPENDENT-ASOF-ONLY',source['r1d9_asof_artifact_id'],source['r1d9_asof_zip_sha256'])
+          pin('r1d9','stockhunter-r1d9-2021-23-INDEPENDENT-SEALED-RESULTS',source['r1d9_outcomes_artifact_id'],source['r1d9_outcomes_zip_sha256'])
+          pin('r1d6','stockhunter-r1d6-OOS-ASOF-ONLY-NO-FUTURE',source['r1d6_asof_artifact_id'],source['r1d6_asof_zip_sha256'])
+          pin('r1d7','stockhunter-r1d7-FROZEN-D6-RETROSPECTIVE-PATH-RISK-NOT-OOS',source['r1d7_artifact_id'],source['r1d7_zip_sha256'])
+          pin('r1d19','stockhunter-r1d19-BB203040-224PROXY-RETROSPECTIVE-NOT-OOS',source['r1d19_asof_artifact_id'],source['r1d19_zip_sha256'])
+          pin('r1d20','stockhunter-r1d20-ICHIMOKU-BB-HISTORIC-DATE-DISJOINT-DATA-QA-NOT-OOS',12604971801,'db2ad6002abca75341995b2ba71916139cfe4cd44f7daeb0c802c056a049fb09')
+          print('R1D22_6_RUNS_ALL_ORIGINAL_SOURCE_PINS_PASS')
+          PYPIN
+      - name: Download unchanged 1907 KRX original daily source files
+        uses: actions/download-artifact@v4
+        with:
+          pattern: stockhunter-allkrx-price-shard-*
+          run-id: 39295295197
+          github-token: ${{ github.token }}
+          merge-multiple: true
+          path: reports/r1d22/input/krx
+      - name: Download sealed R1-D20 signal-time BB and cloud features
+        uses: actions/download-artifact@v4
+        with:
+          name: stockhunter-r1d20-ICHIMOKU-BB-HISTORIC-DATE-DISJOINT-DATA-QA-NOT-OOS
+          run-id: 40208199240
+          github-token: ${{ github.token }}
+          path: reports/r1d22/input/r1d20
+      - name: Download frozen 2021-23 signal-time original R1-D9
+        uses: actions/download-artifact@v4
+        with:
+          name: stockhunter-r1d9-2021-23-INDEPENDENT-ASOF-ONLY
+          run-id: 40051036811
+          github-token: ${{ github.token }}
+          path: reports/r1d22/input/r1d9asof
+      - name: Download frozen 2024-25 signal-time original R1-D6
+        uses: actions/download-artifact@v4
+        with:
+          name: stockhunter-r1d6-OOS-ASOF-ONLY-NO-FUTURE
+          run-id: 39941707036
+          github-token: ${{ github.token }}
+          path: reports/r1d22/input/r1d6asof
+      - name: Download sealed 2021-23 outcome paths (read only AFTER features sealed)
+        uses: actions/download-artifact@v4
+        with:
+          name: stockhunter-r1d9-2021-23-INDEPENDENT-SEALED-RESULTS
+          run-id: 40051036811
+          github-token: ${{ github.token }}
+          path: reports/r1d22/input/r1d9out
+      - name: Download sealed 2024-25 outcome paths (read only AFTER features sealed)
+        uses: actions/download-artifact@v4
+        with:
+          name: stockhunter-r1d7-FROZEN-D6-RETROSPECTIVE-PATH-RISK-NOT-OOS
+          run-id: 39948595864
+          github-token: ${{ github.token }}
+          path: reports/r1d22/input/r1d7
+      - name: Verify every KRX raw daily SHA, compute asof indicators, seal, then compare frozen results
+        run: |
+          set -euo pipefail
+          python -m research_formulas.stockhunter_r1d22_indicators --mode validate \
+            --protocol R1D22_PREDECLARED_PROTOCOL.json \
+            --inputs reports/r1d22/input --krx-root reports/r1d22/input/krx \
+            --out reports/r1d22/result/historical
+          python - <<'PYASSERT'
+          import json
+          m=json.load(open('reports/r1d22/result/historical/R1D22_MANIFEST.json'))
+          assert m['krx_daily_sha_verified']==1907 and m['original_signal_count']==12343
+          assert m['asof_valid_r1d22']==12340 and m['previously_blocked']==3 and m['new_feature_blocks']==0
+          assert m['frozen_path_rows']==49372 and m['scores']==456 and m['date_matched_controls']==24
+          assert m['feature_outcome_sealed_before_join'] and not m['strategy_ready'] and not m['new_prospective_oos']
+          assert m['orders_placed']==0 and m['no_live_changes']
+          print('R1D22_FAIL_CLOSED_PIT_DATA_AND_CAUSALITY_AUDIT_PASS')
+          PYASSERT
+      - name: Upload numerical study, raw source QA, locked protocol and provenance
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-r1d22-BB203040-RSI-ADX-ATR-VOLUME-FLOW-HISTORICAL-QA-NOT-OOS
+          retention-days: 90
+          if-no-files-found: warn
+          path: |
+            reports/r1d22/result/**
+            reports/r1d22/pins/**
+            R1D22_PREDECLARED_PROTOCOL.json
