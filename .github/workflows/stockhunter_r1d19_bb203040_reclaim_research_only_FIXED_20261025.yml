@@ -1,4 +1,4 @@
-name: StockHunter Research R1-D19 to R1-D23 (RESEARCH ONLY)
+name: StockHunter Research R1-D19 to R1-D24 (RESEARCH ONLY)
 
 on:
   workflow_dispatch:
@@ -16,6 +16,7 @@ on:
           - r1d22_historical_supplemental
           - r1d23_thesis_lock
           - r1d23_fullmarket_four_thesis
+          - r1d24_historical_D_breakout_audit
 
 permissions:
   contents: read
@@ -685,3 +686,94 @@ jobs:
             reports/r1d23/result/**
             reports/r1d23/pins/**
             R1D23_PREDECLARED_PROTOCOL.json
+
+  # R1-D24: locked source D-exploration, NO new KRX rescan, no LIVE mutation.
+  r1d24_historical_D_breakout_audit:
+    name: R1-D24 frozen R1D23 D-breakout factor x tail risk QA [RESEARCH ONLY, NOT OOS]
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'r1d24_historical_D_breakout_audit'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Checkout source (read only)
+        uses: actions/checkout@v4
+      - name: Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install isolated dependencies and lock frozen hypothesis before reading outcomes
+        run: |
+          set -euo pipefail
+          python -m pip install 'numpy>=1.24,<3' 'pandas>=2.0,<3'
+          python -m unittest discover -s tests -p 'test_stockhunter_r1d24_d_breakout_audit.py' -v
+          python -m research_formulas.stockhunter_r1d24_d_breakout_audit \
+            --mode lock --protocol R1D24_PREDECLARED_PROTOCOL.json \
+            --out reports/r1d24/result/historical
+      - name: Require exact upstream successful R1D23 execution and ZIP digest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python - <<'PY_CHECK'
+          import os,json,urllib.request
+          p=json.load(open('R1D24_PREDECLARED_PROTOCOL.json',encoding='utf-8'))['source']
+          base='https://api.github.com/repos/ehdud6728-bit/Stock-Hunter'
+          def get(path):
+              request=urllib.request.Request(base+path,headers={
+                  'Authorization':'Bearer '+os.environ['GH_TOKEN'],
+                  'Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'})
+              with urllib.request.urlopen(request,timeout=45) as r:return json.load(r)
+          r=get('/actions/runs/'+str(p['run_id']))
+          assert (r['id']==p['run_id'] and r['head_sha']==p['run_sha'] and
+                  r['conclusion']=='success'), 'R1D23_SOURCE_RUN_DRIFT'
+          arts=get('/actions/runs/'+str(p['run_id'])+'/artifacts?per_page=100')['artifacts']
+          a=[x for x in arts if x['id']==p['artifact_id'] and x['name']==p['artifact_name']]
+          assert len(a)==1 and not a[0]['expired'] and a[0]['digest']=='sha256:'+p['artifact_zip_sha256'], 'R1D23_ARTIFACT_DRIFT'
+          print('R1D24_ORIGINAL_R1D23_SOURCE_VERIFIED')
+          PY_CHECK
+      - name: Download pinned original GitHub artifact ZIP unchanged (not extracted)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p reports/r1d24/input
+          curl --fail --silent --show-error --location --retry 3 \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            -o reports/r1d24/input/R1D23_original_artifact.zip \
+            'https://api.github.com/repos/ehdud6728-bit/Stock-Hunter/actions/artifacts/12609117663/zip'
+          python - <<'PY_SHA'
+          import json,hashlib,pathlib
+          p=json.load(open('R1D24_PREDECLARED_PROTOCOL.json',encoding='utf-8'))['source']
+          b=pathlib.Path('reports/r1d24/input/R1D23_original_artifact.zip').read_bytes()
+          assert hashlib.sha256(b).hexdigest()==p['artifact_zip_sha256'],'R1D24_SOURCE_ZIP_SHA_DRIFT'
+          print('R1D24_ORIGINAL_ZIP_SHA256_MATCH')
+          PY_SHA
+      - name: Analyze frozen D signal-time factors, date controls, C/A, tail risk
+        run: |
+          set -euo pipefail
+          python -m research_formulas.stockhunter_r1d24_d_breakout_audit \
+            --mode analyze --protocol R1D24_PREDECLARED_PROTOCOL.json \
+            --source-zip reports/r1d24/input/R1D23_original_artifact.zip \
+            --out reports/r1d24/result/historical
+          python - <<'PY_FINAL'
+          import json
+          r=json.load(open('reports/r1d24/result/historical/R1D24_MANIFEST.json',encoding='utf-8'))
+          assert r['original_A_B_C_D_allmarket_signals']==23266
+          assert r['D_signals']==2811 and r['D_path_rows']==11244
+          assert r['frozen_factor_count']==14
+          assert not r['live_changed'] and not r['strategy_ready'] and r['orders_placed']==0
+          print('R1D24_FROZEN_D_HISTORICAL_AUDIT_SUCCESS_NOT_NEW_OOS')
+          PY_FINAL
+      - name: Upload frozen D study and full QA provenance
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-r1d24-D-BREAKOUT-TAIL-RISK-RESEARCH-NOT-OOS
+          retention-days: 90
+          if-no-files-found: warn
+          path: |
+            reports/r1d24/result/**
+            R1D24_PREDECLARED_PROTOCOL.json
