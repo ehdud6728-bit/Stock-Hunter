@@ -1,0 +1,132 @@
+{
+  "bollinger_contract": {
+    "cross": "C[t-1]<Lower[t-1] AND C[t]>=Lower[t]",
+    "ddof": 0,
+    "periods": [
+      20,
+      30,
+      40
+    ],
+    "recent_reclaim_sessions": 5,
+    "std_multiples": 2
+  },
+  "comparison_periods": {
+    "exploratory": [
+      "2024-01-02",
+      "2025-09-30"
+    ],
+    "retrospective_date_disjoint": [
+      "2021-01-04",
+      "2023-11-29"
+    ]
+  },
+  "frozen_population": {
+    "cooldown_trading_days": 20,
+    "exploratory_events": 5247,
+    "retrospective_date_disjoint_events": 7096
+  },
+  "guards": {
+    "no_corporate_actions_adjusted_certification": true,
+    "no_independent_prospective_claim": true,
+    "no_live_search_score_rank_orders_change": true,
+    "no_new_yaml_files": true,
+    "no_posthoc_threshold_tuning": true,
+    "no_tradability_PIT_certification": true,
+    "no_trading_orders": true
+  },
+  "historical_period_not_new_prospective_oos": true,
+  "hypotheses_locked_before_R1D20_period_labels": [
+    "bb20_reclaim_recent5",
+    "bb30_reclaim_recent5",
+    "bb40_reclaim_recent5",
+    "bb20_reclaim_recent5_AND_signal_5MA_reclaim_today",
+    "bb30_reclaim_recent5_AND_signal_20MA_reclaim_today",
+    "bb40_reclaim_recent5_AND_amount3d_above_prior10",
+    "bb20_reclaim_recent5_AND_cloud_breakout_up_today",
+    "bb30_reclaim_recent5_AND_cloud_breakout_up_today",
+    "bb40_reclaim_recent5_AND_cloud_breakout_up_today",
+    "bb20_reclaim_recent5_AND_cloud_above",
+    "bb30_reclaim_recent5_AND_cloud_above",
+    "bb40_reclaim_recent5_AND_cloud_above",
+    "cloud_breakout_up_today",
+    "cloud_above",
+    "cloud_inside",
+    "cloud_below",
+    "tenkan_above_kijun",
+    "tenkan_cross_up_today",
+    "kijun_reclaim_today"
+  ],
+  "ichimoku_contract": {
+    "chikou_backprojection_not_read": true,
+    "cloud_on_signal_date": "SenkouA[t-26], SenkouB[t-26] from OHLC up to t-26",
+    "cloud_trade_decision_after_signal_close": true,
+    "kijun_high_low_days": 26,
+    "known_projection": "SenkouA[t], SenkouB[t] projected to t+26 NOT current cloud",
+    "plot_forward_sessions": 26,
+    "senkouB_high_low_days": 52,
+    "tenkan_high_low_days": 9
+  },
+  "origin_2024_2025_exploration": "R1D19 published pre-validation",
+  "price_contract": {
+    "entry": "NEXT_SESSION_OPEN_HYPOTHETICAL_NOT_FILL_CERTIFIED",
+    "fixed_roundtrip_cost_bps": 20,
+    "horizons": [
+      5,
+      10,
+      15,
+      20
+    ],
+    "status": "PRICE_PATH_COMPLETE_NOT_EXECUTION_CERTIFIED"
+  },
+  "qa_required": [
+    "1907_daily_KRX_SHA256",
+    "pinned_run_head_sha_artifact_digest",
+    "same_session_code_identity",
+    "no_duplicate_and_asof_exact_date",
+    "no_future_candle_or_shift_error",
+    "OHLC_consistency_and_price_gap_suspect_quarantine",
+    "no_na_imputation",
+    "frozen_population_and_horizon_row_parity",
+    "only_matured_outcome",
+    "source_adjustment_uncertainty_reported",
+    "date_cluster_and_repeat_ticker_sensitivity"
+  ],
+  "research_id": "STOCKHUNTER_R1D20_ICHIMOKU_CAUSAL_QA_AND_BB_INDEPENDENT_PERIOD",
+  "research_only": true,
+  "revision": "R1D20_FROZEN_HYPOTHESES_20261026",
+  "source": {
+    "krx_head_sha": "08e328c101f0774a2236c0a44cc1fdbbaa59e96e",
+    "krx_run": 39295295197,
+    "krx_shard_digests": {
+      "0": "84dd5aa62f0c9538cd9c2d0ed0540c8f74063b21be49d9ecfc81e4b1583368b5",
+      "1": "3d372eebf915c870badf103356c3700d5fa914a32d79ce8057ef1f4c4f89295b",
+      "2": "5c49df64ad10bafbc09dd7ea78b9377804735fda6ad861018750b396ab2a27cb",
+      "3": "7a359f5959e2374622c40d068920adf9d695142b4a61b540d0752a8cb9bb4dd8",
+      "4": "88b35ea4c9a8a6a0ed4b61250a8018d49ee7ba4489c7345f04012915bb60f997",
+      "5": "eb503f7cabcc40991037092c6463437c8a8b71d43fb26fe646ea4f56885b3814",
+      "6": "b3cc055d919c7ab92d7f27b1b3ce6d3e56df787b107af961eaa43dedb885d6cd",
+      "7": "9563747eb8b27928ba0a0d2b7d3cf02e787acd2e9e4a656d410c286139321478"
+    },
+    "r1d19_asof_artifact_id": 12599774223,
+    "r1d19_asof_csv_sha256": "a458432a844484e7c7d341e52a1ad6f8287ee7c4b340a4c9c9a5d7565446fc4d",
+    "r1d19_head_sha": "db70dbc07de92cc7a9c6750453fc7814f37ed6ed",
+    "r1d19_run": 40197991636,
+    "r1d19_zip_sha256": "e94b0020d90bdfbb156d26d5eb48d6498c2af80c4388f5d1be90e3e29a0ed55d",
+    "r1d6_asof_artifact_id": 12496827313,
+    "r1d6_asof_csv_sha256": "5062180dbb9d1299773d61074c687e8f7bf7f7ec2fe06b8622b9ed9cc4de1d29",
+    "r1d6_asof_zip_sha256": "7185b582e94131b7ee09daf55024c80eeac881f5a2cbc8cee7bbd418a106a884",
+    "r1d6_head_sha": "019956f9aa85e419c4e8e4ca6fcc6f5dc21a9686",
+    "r1d6_run": 39941707036,
+    "r1d7_artifact_id": 12499352019,
+    "r1d7_head_sha": "ae74ffb655aea226ecbfa0e315b7c46077b3c458",
+    "r1d7_run": 39948595864,
+    "r1d7_zip_sha256": "1ee50cef93a8e3adc0cf2e239d1088ebe160528d5f4336f9f5b2e3fe20ec80ed",
+    "r1d9_asof_artifact_id": 12543553883,
+    "r1d9_asof_csv_sha256": "4ad2ebc39dfae005c364c179514bdf465feb7c8a2949cc0ac0df179484af538d",
+    "r1d9_asof_zip_sha256": "3c5e8a64ff0afedd34637e1d110031a15bbc49e5913e1909d5d18404b536252e",
+    "r1d9_head_sha": "983bb5332adcb827f77fff7446410f3b21a64ea0",
+    "r1d9_outcomes_artifact_id": 12543524008,
+    "r1d9_outcomes_zip_sha256": "8392f7fd9d8dc3f1c1c4233a848bbf21ac3a9579c5fe5198ca685338673907c0",
+    "r1d9_run": 40051036811
+  }
+}
