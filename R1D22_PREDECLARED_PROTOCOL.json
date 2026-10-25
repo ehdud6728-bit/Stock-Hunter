@@ -1,0 +1,163 @@
+{
+  "research_id": "STOCKHUNTER_R1D22_SUPPLEMENTAL_INDICATOR_QA",
+  "revision": "R1D22_V1_20261026",
+  "research_only": true,
+  "periods": [
+    "2021_2023",
+    "2024_2025"
+  ],
+  "bands": [
+    20,
+    30,
+    40
+  ],
+  "indicators_locked": [
+    "RSI14_LOW",
+    "RSI14_MID",
+    "RSI14_HIGH",
+    "ADX14_TREND25",
+    "ADX14_WEAK20",
+    "ATR14_LOW3PCT",
+    "ATR14_HIGH6PCT",
+    "CMF20_POSITIVE",
+    "CMF20_ABOVE_010",
+    "SIGNED_VOLUME20_POSITIVE",
+    "MFI14_LT50",
+    "MFI14_GE50",
+    "BBW20_NARROW",
+    "BBW20_WIDE",
+    "VOL5_TO20_LT070",
+    "VOL5_TO20_GE120",
+    "RETRACE_LE50",
+    "CLOUD_ABOVE",
+    "CLOUD_BELOW"
+  ],
+  "feature_names_and_thresholds": {
+    "RSI14_LOW": {
+      "series": "rsi14",
+      "rule": "RSI14_LOW"
+    },
+    "RSI14_MID": {
+      "series": "rsi14",
+      "rule": "RSI14_MID"
+    },
+    "RSI14_HIGH": {
+      "series": "rsi14",
+      "rule": "RSI14_HIGH"
+    },
+    "ADX14_TREND25": {
+      "series": "adx14",
+      "rule": "ADX14_TREND25"
+    },
+    "ADX14_WEAK20": {
+      "series": "adx14",
+      "rule": "ADX14_WEAK20"
+    },
+    "ATR14_LOW3PCT": {
+      "series": "atr14_pct",
+      "rule": "ATR14_LOW3PCT"
+    },
+    "ATR14_HIGH6PCT": {
+      "series": "atr14_pct",
+      "rule": "ATR14_HIGH6PCT"
+    },
+    "CMF20_POSITIVE": {
+      "series": "cmf20",
+      "rule": "CMF20_POSITIVE"
+    },
+    "CMF20_ABOVE_010": {
+      "series": "cmf20",
+      "rule": "CMF20_ABOVE_010"
+    },
+    "SIGNED_VOLUME20_POSITIVE": {
+      "series": "signed_vol20",
+      "rule": "SIGNED_VOLUME20_POSITIVE"
+    },
+    "MFI14_LT50": {
+      "series": "mfi14",
+      "rule": "MFI14_LT50"
+    },
+    "MFI14_GE50": {
+      "series": "mfi14",
+      "rule": "MFI14_GE50"
+    },
+    "BBW20_NARROW": {
+      "series": "bb_width20_pct",
+      "rule": "BBW20_NARROW"
+    },
+    "BBW20_WIDE": {
+      "series": "bb_width20_pct",
+      "rule": "BBW20_WIDE"
+    },
+    "VOL5_TO20_LT070": {
+      "series": "volume5_over20",
+      "rule": "VOL5_TO20_LT070"
+    },
+    "VOL5_TO20_GE120": {
+      "series": "volume5_over20",
+      "rule": "VOL5_TO20_GE120"
+    },
+    "RETRACE_LE50": {
+      "series": "pullback_intraday_max_retrace_pct",
+      "rule": "RETRACE_LE50"
+    },
+    "CLOUD_ABOVE": {
+      "series": "cloud_above",
+      "rule": "CLOUD_ABOVE"
+    },
+    "CLOUD_BELOW": {
+      "series": "cloud_below",
+      "rule": "CLOUD_BELOW"
+    }
+  },
+  "source": {
+    "krx_head_sha": "08e328c101f0774a2236c0a44cc1fdbbaa59e96e",
+    "krx_run": 39295295197,
+    "krx_shard_digests": {
+      "0": "84dd5aa62f0c9538cd9c2d0ed0540c8f74063b21be49d9ecfc81e4b1583368b5",
+      "1": "3d372eebf915c870badf103356c3700d5fa914a32d79ce8057ef1f4c4f89295b",
+      "2": "5c49df64ad10bafbc09dd7ea78b9377804735fda6ad861018750b396ab2a27cb",
+      "3": "7a359f5959e2374622c40d068920adf9d695142b4a61b540d0752a8cb9bb4dd8",
+      "4": "88b35ea4c9a8a6a0ed4b61250a8018d49ee7ba4489c7345f04012915bb60f997",
+      "5": "eb503f7cabcc40991037092c6463437c8a8b71d43fb26fe646ea4f56885b3814",
+      "6": "b3cc055d919c7ab92d7f27b1b3ce6d3e56df787b107af961eaa43dedb885d6cd",
+      "7": "9563747eb8b27928ba0a0d2b7d3cf02e787acd2e9e4a656d410c286139321478"
+    },
+    "r1d19_asof_artifact_id": 12599774223,
+    "r1d19_asof_csv_sha256": "a458432a844484e7c7d341e52a1ad6f8287ee7c4b340a4c9c9a5d7565446fc4d",
+    "r1d19_head_sha": "db70dbc07de92cc7a9c6750453fc7814f37ed6ed",
+    "r1d19_run": 40197991636,
+    "r1d19_zip_sha256": "e94b0020d90bdfbb156d26d5eb48d6498c2af80c4388f5d1be90e3e29a0ed55d",
+    "r1d6_asof_artifact_id": 12496827313,
+    "r1d6_asof_csv_sha256": "5062180dbb9d1299773d61074c687e8f7bf7f7ec2fe06b8622b9ed9cc4de1d29",
+    "r1d6_asof_zip_sha256": "7185b582e94131b7ee09daf55024c80eeac881f5a2cbc8cee7bbd418a106a884",
+    "r1d6_head_sha": "019956f9aa85e419c4e8e4ca6fcc6f5dc21a9686",
+    "r1d6_run": 39941707036,
+    "r1d7_artifact_id": 12499352019,
+    "r1d7_head_sha": "ae74ffb655aea226ecbfa0e315b7c46077b3c458",
+    "r1d7_run": 39948595864,
+    "r1d7_zip_sha256": "1ee50cef93a8e3adc0cf2e239d1088ebe160528d5f4336f9f5b2e3fe20ec80ed",
+    "r1d9_asof_artifact_id": 12543553883,
+    "r1d9_asof_csv_sha256": "4ad2ebc39dfae005c364c179514bdf465feb7c8a2949cc0ac0df179484af538d",
+    "r1d9_asof_zip_sha256": "3c5e8a64ff0afedd34637e1d110031a15bbc49e5913e1909d5d18404b536252e",
+    "r1d9_head_sha": "983bb5332adcb827f77fff7446410f3b21a64ea0",
+    "r1d9_outcomes_artifact_id": 12543524008,
+    "r1d9_outcomes_zip_sha256": "8392f7fd9d8dc3f1c1c4233a848bbf21ac3a9579c5fe5198ca685338673907c0",
+    "r1d9_run": 40051036811
+  },
+  "prior_local_r1d21_asof_sha256": "a7cb9eca5db387876f5c231413cec20874a8245c66bb40dcb4e50b8942c06219",
+  "testing": {
+    "all_band_period_symmetric": true,
+    "same_date_controls": true,
+    "market_regime_sensitivity": true,
+    "asof_sealed_before_outcome": true,
+    "no_live_changes": true,
+    "no_future_prices": true
+  },
+  "limitations": [
+    "Existing historical cohorts already exposed to prior research; not new future OOS",
+    "Original unadjusted KRX source; corporate actions PIT and tradeability not certified",
+    "Indicators descriptive; small sample and multiple comparison risk",
+    "No native 66 formula all-market parity"
+  ]
+}
