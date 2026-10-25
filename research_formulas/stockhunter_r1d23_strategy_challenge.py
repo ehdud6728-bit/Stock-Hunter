@@ -373,9 +373,11 @@ def audit_market_regime(result_dir, krx_root):
     require(not x[['date','index']].duplicated().any(),'INDEX_DUPLICATE_DATE_OR_NAME')
     w=x.pivot(index='date',columns='index',values='close').sort_index()
     require(set(w.columns)=={'KOSPI','KOSDAQ'} and len(w)==1907 and not w.isna().any().any(),'INDEX_CALENDAR_DRIFT')
-    ret=w/w.shift(20)-1
-    ret.columns=['KOSPI_RET20','KOSDAQ_RET20'];ret=ret*100
-    ret['date']=ret.index
+    # Preserve the source index labels explicitly. pivot() sorts index labels,
+    # so positional renaming would otherwise SWAP KOSPI and KOSDAQ returns.
+    ret=(w[['KOSPI','KOSDAQ']]/w[['KOSPI','KOSDAQ']].shift(20)-1)*100
+    ret=ret.rename(columns={'KOSPI':'KOSPI_RET20','KOSDAQ':'KOSDAQ_RET20'})
+    ret=ret.rename_axis('date').reset_index()  # date is a column, not also an index level
     def regime(a,b):
         if pd.isna(a) or pd.isna(b):return 'UNKNOWN'
         if a<=-5 and b<=-5:return 'BOTH_INDEX_BEAR'
