@@ -1,4 +1,4 @@
-name: StockHunter Research Hub R1-D19 to R1-D26B (RESEARCH ONLY)
+name: StockHunter Research Hub R1-D19 to R1-D26D (RESEARCH ONLY)
 
 on:
   workflow_dispatch:
@@ -22,6 +22,7 @@ on:
           - r1d26_true_investor_source_probe
           - r1d26b_single_source_diagnostic
           - r1d26c_historical_20x20_investor_krw
+          - r1d26d_historical_flow_d30_descriptive_qa
 
 permissions:
   contents: read
@@ -1172,3 +1173,111 @@ jobs:
           path: |
             reports/r1d26c/result/source_collection/**
             R1D26C_PREDECLARED_PROTOCOL.json
+
+
+  # R1-D26D: immutable real KRW flow 400 rows x original R1D25 D30,
+  # fully descriptive and not a live trading or PIT-certified research result.
+  r1d26d_historical_flow_d30_descriptive_qa:
+    name: R1-D26D frozen C/D actual investor KRW versus D30 descriptive QA [NOT OOS]
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'r1d26d_historical_flow_d30_descriptive_qa'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Checkout fixed source code only
+        uses: actions/checkout@v4
+      - name: Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Freeze descriptive methodology and verify no live code changed
+        run: |
+          set -euo pipefail
+          python -m pip install 'pandas>=2.0,<3' 'numpy>=1.24,<3'
+          python - <<'PY_LOCK'
+          from pathlib import Path
+          import hashlib,json
+          p=Path('R1D26D_PREDECLARED_PROTOCOL.json')
+          x=json.loads(p.read_text(encoding='utf-8'))
+          assert x['research_only'] and x['source_results_only'] and x['no_strategy_or_live_change']
+          assert x['frozen_events']==20 and x['expected_source_rows']==400
+          print('R1D26D_PROTOCOL_LOCKED_BEFORE_OUTCOMES',hashlib.sha256(p.read_bytes()).hexdigest())
+          PY_LOCK
+      - name: Verify exact upstream runs artifacts and SHA digests
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python - <<'PY_PIN'
+          import json,os,urllib.request
+          p=json.load(open('R1D26D_PREDECLARED_PROTOCOL.json',encoding='utf-8'))
+          base='https://api.github.com/repos/ehdud6728-bit/Stock-Hunter'
+          def get(path):
+              r=urllib.request.Request(base+path,headers={
+                  'Authorization':'Bearer '+os.environ['GH_TOKEN'],
+                  'Accept':'application/vnd.github+json',
+                  'X-GitHub-Api-Version':'2022-11-28'})
+              with urllib.request.urlopen(r,timeout=40) as s:return json.load(s)
+          for v in ['r1d26c','r1d26','r1d25']:
+              run=get('/actions/runs/'+str(p[v+'_run_id']))
+              assert run['conclusion']=='success' and run['head_sha']==p[v+'_run_sha'],v+'_RUN_DRIFT'
+              art=get('/actions/artifacts/'+str(p[v+'_artifact_id']))
+              assert art['name']==p[v+'_artifact_name'] and not art['expired'],v+'_ARTIFACT_MISSING'
+              assert art['digest']=='sha256:'+p[v+'_zip_sha256'],v+'_ARCHIVE_DIGEST_CHANGED'
+          print('R1D26D_THREE_FROZEN_UPSTREAM_SOURCES_METADATA_VERIFIED')
+          PY_PIN
+      - name: Download three immutable GitHub source archives without refetching KRX
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p reports/r1d26d/input
+          curl --fail --silent --show-error --location --retry 3 --max-time 90 \
+            -H "Authorization: Bearer ${GH_TOKEN}" -H 'Accept: application/vnd.github+json' \
+            -o reports/r1d26d/input/StockHunter_R1D26C_GitHub_40266290863_result.zip \
+            'https://api.github.com/repos/ehdud6728-bit/Stock-Hunter/actions/artifacts/12626103900/zip'
+          curl --fail --silent --show-error --location --retry 3 --max-time 90 \
+            -H "Authorization: Bearer ${GH_TOKEN}" -H 'Accept: application/vnd.github+json' \
+            -o reports/r1d26d/input/StockHunter_R1D26_GitHub_40256526209_results.zip \
+            'https://api.github.com/repos/ehdud6728-bit/Stock-Hunter/actions/artifacts/12622896493/zip'
+          curl --fail --silent --show-error --location --retry 3 --max-time 90 \
+            -H "Authorization: Bearer ${GH_TOKEN}" -H 'Accept: application/vnd.github+json' \
+            -o reports/r1d26d/input/StockHunter_R1D25_GitHub_40250282796_results.zip \
+            'https://api.github.com/repos/ehdud6728-bit/Stock-Hunter/actions/artifacts/12619869983/zip'
+      - name: Run fail-closed 400-row SHA event-calendar and outcome tests
+        env:
+          R1D26D_TEST_INPUT_DIR: reports/r1d26d/input
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests -p 'test_stockhunter_r1d26d_coverage_outcome_audit.py' -v
+      - name: Generate predeclared actual investor flow plus C/D D30 descriptive audit
+        run: |
+          set -euo pipefail
+          python -m research_formulas.stockhunter_r1d26d_coverage_outcome_audit \
+            --protocol R1D26D_PREDECLARED_PROTOCOL.json \
+            --flow-zip reports/r1d26d/input/StockHunter_R1D26C_GitHub_40266290863_result.zip \
+            --event-zip reports/r1d26d/input/StockHunter_R1D26_GitHub_40256526209_results.zip \
+            --price-zip reports/r1d26d/input/StockHunter_R1D25_GitHub_40250282796_results.zip \
+            --out reports/r1d26d/result/historical
+          python - <<'PY_QA'
+          import json
+          from pathlib import Path
+          m=json.loads(Path('reports/r1d26d/result/historical/R1D26D_QA_MANIFEST.json').read_text())
+          assert m['source_raw_rows']==400 and m['frozen_signal_events']==20
+          assert m['C_events']==10 and m['D_events']==10
+          assert not m['strategy_ready'] and m['orders_placed']==0 and not m['live_changed']
+          assert m['independent_official_amount_crosscheck']=='PENDING'
+          print('R1D26D_HISTORICAL_SOURCE_TO_OUTCOME_DESCRIPTIVE_QA_PASS_NOT_OOS')
+          PY_QA
+      - name: Upload source lineage and descriptive findings even after failures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-r1d26d-FLOW-D30-DESCRIPTIVE-NOT-OOS-NOT-PIT
+          retention-days: 90
+          if-no-files-found: warn
+          path: |
+            reports/r1d26d/result/historical/**
+            R1D26D_PREDECLARED_PROTOCOL.json
