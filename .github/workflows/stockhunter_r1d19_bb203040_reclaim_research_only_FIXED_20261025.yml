@@ -1,4 +1,4 @@
-name: StockHunter Research Hub R1-D19 to R1-D26K (RESEARCH ONLY)
+name: StockHunter Research Hub R1-D19 to R1-D26L (RESEARCH ONLY)
 
 on:
   workflow_dispatch:
@@ -29,6 +29,7 @@ on:
           - r1d26h_new200_ticker_disjoint_institution_accel_test
           - r1d26i_g_vs_h_holdout_failure_official_crosscheck_qa
           - r1d26k_same_month_success_failure_matched_risk_audit
+          - r1d26l_daily_ohlcv_chronological_exit_pilot
 
 permissions:
   contents: read
@@ -2021,3 +2022,129 @@ jobs:
           path: |
             reports/r1d26k/result/historical/**
             R1D26K_PREDECLARED_PROTOCOL.json
+
+
+  r1d26l_daily_ohlcv_chronological_exit_pilot:
+    name: R1-D26L 60 frozen C/D historical real unadjusted OHLC D30 execution-path sensitivity [NOT PIT/OOS]
+    if: ${{ inputs.scope == 'r1d26l_daily_ohlcv_chronological_exit_pilot' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions:
+      contents: read
+      actions: read
+    env:
+      STOCKHUNTER_LIVE_ENABLE: '0'
+      STOCKHUNTER_ORDER_ENABLE: '0'
+    steps:
+      - name: Checkout immutable research input, credentials not persisted
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install isolated historical read-only libraries
+        run: |
+          set -euo pipefail
+          python -m pip install 'pandas>=2,<3' 'numpy>=1.26,<3' 'pykrx>=1.0.45,<2'
+      - name: Check pinned historical D25 run and artifact metadata without accepting changed inputs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python - <<'PY_GUARD'
+          import json,os,urllib.request
+          p=json.load(open('R1D26L_PREDECLARED_PROTOCOL.json',encoding='utf-8'))
+          assert p['research_only'] and p['asof_outcome_blind_selection'] and not p['strategy_ready']
+          assert p['orders_placed']==0 and not p['live_changed']
+          repo=os.environ['GITHUB_REPOSITORY']
+          def get(path):
+              h={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'}
+              with urllib.request.urlopen(urllib.request.Request('https://api.github.com/repos/'+repo+path,headers=h),timeout=45) as r:return json.load(r)
+          run=get('/actions/runs/'+str(p['r1d25_run_id']))
+          art=get('/actions/artifacts/'+str(p['r1d25_artifact_id']))
+          assert run['conclusion']=='success' and run['head_sha']==p['r1d25_head_sha'],'SOURCE_RUN_DRIFT'
+          assert art['name']==p['r1d25_artifact_name'] and not art['expired'],'SOURCE_ARTIFACT_DRIFT'
+          assert art['digest']=='sha256:'+p['r1d25_sha256'],'SOURCE_SHA_DRIFT'
+          print('R1D26L_R1D25_METADATA_PINNED_SHA_VERIFIED')
+          PY_GUARD
+      - name: Download original immutable D25 ZIP and fail on byte SHA mismatch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p reports/r1d26l/input
+          python - <<'PY_DOWNLOAD'
+          import os,subprocess,hashlib,json,pathlib
+          p=json.load(open('R1D26L_PREDECLARED_PROTOCOL.json',encoding='utf-8'))
+          dest=pathlib.Path('reports/r1d26l/input/r1d25.zip')
+          url=f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/actions/artifacts/{p['r1d25_artifact_id']}/zip"
+          # Curl redirect never forwards the bearer to another host; no location-trusted.
+          subprocess.run(['curl','--fail','--silent','--show-error','--location','--retry','3',
+              '--max-time','120','--proto-redir','=https','--header','Authorization: Bearer '+os.environ['GH_TOKEN'],
+              '--header','Accept: application/vnd.github+json','--output',str(dest),url],check=True)
+          assert hashlib.sha256(dest.read_bytes()).hexdigest()==p['r1d25_sha256'],'R1D26L_INPUT_SHA_MISMATCH'
+          print('R1D26L_PINNED_R1D25_AGGREGATE_REFERENCE_ARCHIVE_SHA_PASS')
+          PY_DOWNLOAD
+      - name: Verify outcome-blind locked 60 ASOF events and 17 real-source regression tests
+        env:
+          R1D26L_TEST_R1D25_ZIP: reports/r1d26l/input/r1d25.zip
+        run: |
+          set -euo pipefail
+          python - <<'PY_ASOF'
+          import json,csv,hashlib
+          from pathlib import Path
+          from research_formulas.stockhunter_r1d26l_exitpath import create_frozen_selection,verify_frozen
+          p=json.load(open('R1D26L_PREDECLARED_PROTOCOL.json',encoding='utf-8'))
+          selected=verify_frozen('data/R1D26L_FROZEN_60_ASOF_EVENTS.csv',p)
+          assert [tuple(str(r[x]) for x in ('strategy','date','code','year','selection_basis')) for r in create_frozen_selection('reports/r1d26l/input/r1d25.zip')]==[tuple(r[x] for x in ('strategy','date','code','year','selection_basis')) for r in selected]
+          print('R1D26L_ASOF_60_EVENTS_OUTCOME_BLIND_SHA_AND_TICKER_DISJOINT_RECOMPUTED')
+          PY_ASOF
+          python -m unittest discover -s tests -p 'test_stockhunter_r1d26l_exitpath.py' -v
+      - name: Fetch real unadjusted price OHLC from KRX provider for frozen 60 signals only
+        run: |
+          set -euo pipefail
+          python -m research_formulas.stockhunter_r1d26l_exitpath --mode collect \
+            --selection data/R1D26L_FROZEN_60_ASOF_EVENTS.csv \
+            --protocol R1D26L_PREDECLARED_PROTOCOL.json \
+            --out reports/r1d26l/result/source --sleep-seconds 0.8
+          python - <<'PY_SEAL'
+          import json,hashlib
+          from pathlib import Path
+          d=Path('reports/r1d26l/result/source')
+          m=json.load(open(d/'R1D26L_COLLECTION_MANIFEST.json',encoding='utf-8'))
+          assert m['collection_attempted_events']==60 and not m['strategy_ready'] and m['orders_placed']==0
+          assert hashlib.sha256((d/'R1D26L_RETRIEVED_UNADJUSTED_DAILY_OHLCV.csv.gz').read_bytes()).hexdigest()==m['source_daily_sha256']
+          print('R1D26L_PRICE_SOURCE_SEALED_BEFORE_EVALUATION; valid',m['source_valid_events'],'of 60')
+          PY_SEAL
+      - name: Only after daily source seal run 6 predeclared exit rules with pessimistic vs optimistic same-day order
+        run: |
+          set -euo pipefail
+          python -m research_formulas.stockhunter_r1d26l_exitpath --mode evaluate \
+            --selection data/R1D26L_FROZEN_60_ASOF_EVENTS.csv \
+            --protocol R1D26L_PREDECLARED_PROTOCOL.json \
+            --source-dir reports/r1d26l/result/source \
+            --d25-zip reports/r1d26l/input/r1d25.zip \
+            --out reports/r1d26l/result/exit_pilot
+          python - <<'PY_QA'
+          import json,hashlib
+          from pathlib import Path
+          d=Path('reports/r1d26l/result/exit_pilot');m=json.load(open(d/'R1D26L_QA_MANIFEST.json'))
+          assert m['frozen_signals']==60 and m['baseline_price_parity']>=30 and not m['strategy_ready']
+          assert not m['live_changed'] and m['orders_placed']==0 and not m['prospective_OOS']
+          for file,digest in m['file_sha256'].items():assert hashlib.sha256((d/file).read_bytes()).hexdigest()==digest,'EXIT_REPORT_SHA_CHANGED'
+          print('R1D26L_REAL_PRICE_EXIT_PILOT_QA_PASS_NOT_FILL_NOT_PIT_NOT_OOS')
+          PY_QA
+      - name: Upload source validity and all exit diagnostics even on errors
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-r1d26l-60-REAL-UNADJUSTED-OHLC-D30-EXIT-PILOT-NOT-FILL-PIT-OOS
+          retention-days: 90
+          if-no-files-found: warn
+          path: |
+            reports/r1d26l/result/source/**
+            reports/r1d26l/result/exit_pilot/**
+            data/R1D26L_FROZEN_60_ASOF_EVENTS.csv
+            R1D26L_PREDECLARED_PROTOCOL.json
