@@ -1,0 +1,20 @@
+{
+  "version": "R1D26K_MATCHED_SUCCESS_FAILURE_RETROSPECTIVE_V1",
+  "research_only": true,
+  "live_changed": false,
+  "orders_placed": 0,
+  "r1d25_run_id": 40250282796,
+  "r1d25_head_sha": "8167da127d3db791915c840cc3a768fe9ecdb505",
+  "r1d25_artifact_id": 12619869983,
+  "r1d25_artifact_name": "stockhunter-r1d25-MA448-D30-CVD-PREFLOW-HISTORICAL-NOT-OOS",
+  "r1d25_sha256": "583579a9c009de248c87a590d343f9b762e87482dbac01e4379f0db8a792cff9",
+  "r1d26h_run_id": 40294290940,
+  "r1d26h_head_sha": "8537bcdfc595330a89a2e9e9909a2402cf79635f",
+  "r1d26h_artifact_id": 12637628130,
+  "r1d26h_artifact_name": "stockhunter-r1d26h-NEW200-LOCKED-D-INST-ACCEL-KRW-HOLDOUT-NOT-PIT-OOS",
+  "r1d26h_sha256": "e8ceb3a98f1f90fd59eef1da5f9a65293f7787de32146762d246c48430314f6c",
+  "max_calendar_gap_days": 10,
+  "matching_feature_blind": true,
+  "not_new_OOS": true,
+  "do_not_change_strategy": true
+}
