@@ -1,0 +1,37 @@
+{
+  "version": "R1D26I_G_VS_H_HISTORICAL_HOLDOUT_FAILURE_AND_OFFICIAL_SOURCE_PENDING_V1",
+  "research_only": true,
+  "no_strategy_rule_change": true,
+  "official_verification_is_pending_without_official_export": true,
+  "locked_features": [
+    "institution_recent5_accel_pos"
+  ],
+  "locked_targets": [
+    "hit5_by_d30",
+    "hit10_by_d30",
+    "hit15_by_d30"
+  ],
+  "locked_subgroup": "D_LEADER_CONSOLIDATION_BREAKOUT",
+  "grouping": [
+    "G_EXISTING_100_EXPLORATION",
+    "H_NEW_200_TICKER_DISJOINT"
+  ],
+  "official_KRX_verification": "PENDING_USER_PROVIDED_OR_OFFICIAL_EXPORT_NOT_AUTO_GUESSED",
+  "historical_publication_PIT": "NOT_VERIFIED",
+  "prospective_OOS": false,
+  "order_execution_allowed": false,
+  "g": {
+    "run_id": 40287473949,
+    "head_sha": "efe8eb67dcf958b496ddc445d1fe9e387b411aee",
+    "artifact_id": 12634377596,
+    "artifact_name": "stockhunter-r1d26g-100-FLOW-HIT-LADDER-HISTORICAL-NOT-PIT-NOT-OOS",
+    "zip_sha256": "35c7b254611f5a481f211bc20c29e3e48c71c044d6593413d448740e8dbe1e69"
+  },
+  "h": {
+    "run_id": 40294290940,
+    "head_sha": "8537bcdfc595330a89a2e9e9909a2402cf79635f",
+    "artifact_id": 12637628130,
+    "artifact_name": "stockhunter-r1d26h-NEW200-LOCKED-D-INST-ACCEL-KRW-HOLDOUT-NOT-PIT-OOS",
+    "zip_sha256": "e8ceb3a98f1f90fd59eef1da5f9a65293f7787de32146762d246c48430314f6c"
+  }
+}
