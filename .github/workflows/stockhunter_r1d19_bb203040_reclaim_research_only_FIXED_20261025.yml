@@ -2103,8 +2103,16 @@ jobs:
           PY_ASOF
           python -m unittest discover -s tests -p 'test_stockhunter_r1d26l_exitpath.py' -v
       - name: Fetch real unadjusted price OHLC from KRX provider for frozen 60 signals only
+        env:
+          KRX_ID: ${{ secrets.KRX_DATA_ID || secrets.KRX_ID }}
+          KRX_PW: ${{ secrets.KRX_DATA_PW || secrets.KRX_PW }}
         run: |
           set -euo pipefail
+          if [ -z "${KRX_ID:-}" ] || [ -z "${KRX_PW:-}" ]; then
+            echo '::error::R1D26L_KRX_SECRET_BINDING_MISSING: check repository Actions secrets KRX_DATA_ID/KRX_DATA_PW or KRX_ID/KRX_PW'
+            exit 2
+          fi
+          echo 'R1D26L_KRX_SECRET_BINDING_READY (values redacted; actual login will be verified by pykrx)'
           python -m research_formulas.stockhunter_r1d26l_exitpath --mode collect \
             --selection data/R1D26L_FROZEN_60_ASOF_EVENTS.csv \
             --protocol R1D26L_PREDECLARED_PROTOCOL.json \
