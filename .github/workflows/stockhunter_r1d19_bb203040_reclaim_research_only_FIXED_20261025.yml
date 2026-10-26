@@ -1,4 +1,4 @@
-name: StockHunter Research Hub R1-D19 to R1-D26G (RESEARCH ONLY)
+name: StockHunter Research Hub R1-D19 to R1-D26H (RESEARCH ONLY)
 
 on:
   workflow_dispatch:
@@ -26,6 +26,7 @@ on:
           - r1d26e_historical_hit_ladder_descriptive
           - r1d26f_staged_100_investor_krw
           - r1d26g_historical_100_flow_hit_ladder
+          - r1d26h_new200_ticker_disjoint_institution_accel_test
 
 permissions:
   contents: read
@@ -1613,3 +1614,171 @@ jobs:
           path: |
             reports/r1d26g/result/historical/**
             R1D26G_PREDECLARED_PROTOCOL.json
+
+  r1d26h_new200_ticker_disjoint_institution_accel_test:
+    name: R1-D26H NEW 200 ticker-disjoint KRX investor KRW + locked D institutional acceleration holdout [NOT PIT/OOS]
+    if: ${{ inputs.scope == 'r1d26h_new200_ticker_disjoint_institution_accel_test' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      R1D26H_INPUT_DIR: reports/r1d26h/input
+    steps:
+      - name: Checkout research-only sources
+        uses: actions/checkout@v4
+      - name: Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: requirements.txt
+      - name: Install research-only read dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install 'numpy>=1.26,<3' 'pandas>=2.0,<3' 'pykrx>=1.0.45,<2'
+      - name: Preflight immutable source runs artifact IDs digests before selecting any new signal
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python - <<'PY_META'
+          import json, os, urllib.request
+          p=json.load(open('R1D26H_PREDECLARED_PROTOCOL.json',encoding='utf8'))
+          repo=os.environ['GITHUB_REPOSITORY']
+          def get(url):
+              req=urllib.request.Request('https://api.github.com/repos/'+repo+url,headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'})
+              with urllib.request.urlopen(req,timeout=30) as f:return json.load(f)
+          for x in p['source_ids']:
+              run=get('/actions/runs/'+str(x['run']))
+              assert run['conclusion']=='success' and run['head_sha']==x['head_sha'],x['prefix']+'_UPSTREAM_RUN_CHANGED'
+              art=get('/actions/artifacts/'+str(x['artifact_id']))
+              assert not art['expired'] and art['name']==x['artifact_name'],x['prefix']+'_UPSTREAM_ARTIFACT_CHANGED'
+              assert art['digest']=='sha256:'+p[x['prefix']+'_sha256'],x['prefix']+'_UPSTREAM_DIGEST_CHANGED'
+          print('R1D26H_FOUR_PINNED_RUN_ARTIFACT_IDENTITIES_VERIFIED')
+          PY_META
+      - name: Fetch ASOF and investor source ZIPs ONLY; deliberately defer outcome archive
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p reports/r1d26h/input
+          python - <<'PY_ZIPS'
+          import hashlib,json,os,pathlib,urllib.request
+          p=json.load(open('R1D26H_PREDECLARED_PROTOCOL.json',encoding='utf8'))
+          root=pathlib.Path('reports/r1d26h/input');repo=os.environ['GITHUB_REPOSITORY']
+          for x in p['source_ids']:
+              prefix=x['prefix']
+              if prefix=='r1d26e':continue  # price outcome must not be present at selection / collection
+              url=f"https://api.github.com/repos/{repo}/actions/artifacts/{x['artifact_id']}/zip"
+              req=urllib.request.Request(url,headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json'})
+              with urllib.request.urlopen(req,timeout=120) as response:b=response.read()
+              assert hashlib.sha256(b).hexdigest()==p[prefix+'_sha256'],prefix+'_ZIP_BYTES_MISMATCH'
+              (root/(prefix+'.zip')).write_bytes(b)
+          print('R1D26H_THREE_PRE_HOLDOUT_SOURCE_ARCHIVES_VERIFIED_NO_OUTCOMES_DOWNLOADED')
+          PY_ZIPS
+      - name: Run strict locked protocol and real source regression tests
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests -p 'test_stockhunter_r1d26h_holdout.py' -v
+      - name: Freeze old100 plus outcome-blind NEW200 without accessing any forward-price path
+        run: |
+          set -euo pipefail
+          python -m research_formulas.stockhunter_r1d26h_holdout --mode prepare \
+            --protocol R1D26H_PREDECLARED_PROTOCOL.json \
+            --r1d25 reports/r1d26h/input/r1d25.zip \
+            --r1d26 reports/r1d26h/input/r1d26.zip \
+            --r1d26f reports/r1d26h/input/r1d26f.zip \
+            --out reports/r1d26h/result/source
+          python - <<'PY_LOCK'
+          import json,pathlib
+          m=json.load(open('reports/r1d26h/result/source/R1D26H_COLLECTION_MANIFEST.json'))
+          assert m['mode']=='prepare' and m['fetch_planned']==200
+          assert m['old_completed']==100 and m['holdout_new_completed']==0 and m['combined_rows']==2000
+          print('R1D26H_HOLDOUT_ASOF_SOURCE_SELECTION_SEALED_BEFORE_KRX_AND_OUTCOMES')
+          PY_LOCK
+      - name: KRX real signed KRW fetch for 200 additional unique tickers (strictly no LIVE)
+        env:
+          KRX_ID: ${{ secrets.KRX_DATA_ID || secrets.KRX_ID }}
+          KRX_PW: ${{ secrets.KRX_DATA_PW || secrets.KRX_PW }}
+        run: |
+          set -euo pipefail
+          if [ -z "${KRX_ID:-}" ] || [ -z "${KRX_PW:-}" ]; then
+            echo '::error::R1D26H_KRX_SECRET_BINDING_MISSING'
+            exit 2
+          fi
+          echo 'R1D26H_KRX_SECRET_BINDING_READY (redacted; credential validity not inferred)'
+          python -m research_formulas.stockhunter_r1d26h_holdout --mode collect \
+            --protocol R1D26H_PREDECLARED_PROTOCOL.json \
+            --r1d25 reports/r1d26h/input/r1d25.zip \
+            --r1d26 reports/r1d26h/input/r1d26.zip \
+            --r1d26f reports/r1d26h/input/r1d26f.zip \
+            --out reports/r1d26h/result/source --sleep-seconds 0.8
+      - name: After source fully sealed, fetch immutable E price outcomes for locked contrast
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python - <<'PY_OUTCOME'
+          import json,pathlib,os,urllib.request,hashlib
+          m=json.load(open('reports/r1d26h/result/source/R1D26H_COLLECTION_MANIFEST.json'))
+          assert m['mode']=='collect' and m['holdout_new_completed']==200 and m['combined_rows']==6000,'HOLDOUT_COLLECTION_NOT_SEALED'
+          p=json.load(open('R1D26H_PREDECLARED_PROTOCOL.json'))
+          x=next(i for i in p['source_ids'] if i['prefix']=='r1d26e')
+          url=f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/actions/artifacts/{x['artifact_id']}/zip"
+          req=urllib.request.Request(url,headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json'})
+          with urllib.request.urlopen(req,timeout=120) as f:b=f.read()
+          assert hashlib.sha256(b).hexdigest()==p['r1d26e_sha256'],'PRICE_OUTCOME_SOURCE_SHA_CHANGED'
+          pathlib.Path('reports/r1d26h/input/r1d26e.zip').write_bytes(b)
+          print('R1D26H_OUTCOME_ARCHIVE_ADMITTED_ONLY_AFTER_NEW200_SOURCE_SEAL')
+          PY_OUTCOME
+          python -m unittest discover -s tests -p 'test_stockhunter_r1d26h_holdout.py' -v
+      - name: Only after full raw source seal, evaluate ONE predeclared new-D-holdout feature
+        run: |
+          set -euo pipefail
+          python - <<'PY_SEAL'
+          import json
+          p='reports/r1d26h/result/source/R1D26H_COLLECTION_MANIFEST.json'
+          m=json.load(open(p))
+          if m['mode']!='collect' or m['holdout_new_completed']!=200 or m['combined_rows']!=6000:
+              print('::error::R1D26H_HOLDOUT_INCOMPLETE_NO_OUTCOME_ANALYSIS: research artifact will still be uploaded')
+              raise SystemExit(2)
+          print('R1D26H_200_NEW_SOURCE_20X20_COMPLETE_SEALED')
+          PY_SEAL
+          python -m research_formulas.stockhunter_r1d26h_holdout --mode evaluate \
+            --protocol R1D26H_PREDECLARED_PROTOCOL.json \
+            --r1d26e reports/r1d26h/input/r1d26e.zip \
+            --source-dir reports/r1d26h/result/source \
+            --out reports/r1d26h/result/locked_primary
+          python - <<'PY_END'
+          import json
+          a=json.load(open('reports/r1d26h/result/locked_primary/R1D26H_QA_MANIFEST.json'))
+          assert a['holdout_events']==200 and a['holdout_distinct_tickers']==200 and a['control_training_ticker_overlap']==0
+          assert not a['strategy_ready'] and a['orders_placed']==0 and a['source_amount_PIT']=='NOT_VERIFIED'
+          print('R1D26H_NEW_TICKER_HISTORICAL_HOLDOUT_DESCRIPTIVE_QA_PASS_NOT_PIT_NOT_OOS')
+          PY_END
+      - name: Upload collection evidence and all QA even after failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-r1d26h-NEW200-LOCKED-D-INST-ACCEL-KRW-HOLDOUT-NOT-PIT-OOS
+          if-no-files-found: warn
+          retention-days: 90
+          path: |
+            reports/r1d26h/result/source/**
+            reports/r1d26h/result/locked_primary/**
+            R1D26H_PREDECLARED_PROTOCOL.json
+      - name: Reject partial collection or missing predeclared primary while retaining diagnostic artifact
+        if: always()
+        run: |
+          set -euo pipefail
+          python - <<'PY_FINAL'
+          import json,pathlib
+          s=pathlib.Path('reports/r1d26h/result/source/R1D26H_COLLECTION_MANIFEST.json')
+          t=pathlib.Path('reports/r1d26h/result/locked_primary/R1D26H_QA_MANIFEST.json')
+          assert s.exists(),'R1D26H_NO_SOURCE_MANIFEST'
+          m=json.loads(s.read_text())
+          assert m['mode']=='collect' and m['holdout_new_completed']==200 and m['combined_rows']==6000,'R1D26H_SOURCE_NOT_FULL_DO_NOT_CLAIM_SUCCESS'
+          assert t.exists(),'R1D26H_NO_LOCKED_HOLDOUT_EVALUATION'
+          x=json.loads(t.read_text())
+          assert x['holdout_events']==200 and not x['strategy_ready'] and x['orders_placed']==0
+          print('R1D26H_VERIFIED_SOURCE_300_OF_300_AND_UNTOUCHED_200_HOLDOUT_EVALUATION_COMPLETE_NOT_PIT')
+          PY_FINAL
