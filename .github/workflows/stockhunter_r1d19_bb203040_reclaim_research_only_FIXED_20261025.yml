@@ -21,6 +21,7 @@ on:
           - r1d25_historical_validate
           - r1d26_true_investor_source_probe
           - r1d26b_single_source_diagnostic
+          - r1d26c_historical_20x20_investor_krw
 
 permissions:
   contents: read
@@ -1073,3 +1074,101 @@ jobs:
           if-no-files-found: warn
           path: |
             reports/r1d26b/result/source_diagnostic/**
+
+  # R1-D26C source acquisition, no strategy backtest, no changes to LIVE.
+  r1d26c_historical_20x20_investor_krw:
+    name: R1-D26C pinned 20 C/D events x 20 historical investor KRW flow [NOT PIT, NOT STRATEGY]
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'r1d26c_historical_20x20_investor_krw'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      RESEARCH_ONLY: '1'
+      STOCKHUNTER_LIVE_ENABLE: '0'
+      STOCKHUNTER_ORDER_ENABLE: '0'
+    steps:
+      - name: Checkout research sources read only
+        uses: actions/checkout@v4
+      - name: Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run isolated collection unit tests
+        run: |
+          set -euo pipefail
+          python -m pip install 'pandas>=2,<3' 'numpy>=1.24,<3' 'pykrx>=1.0.45,<2'
+          python -m unittest discover -s tests -p 'test_stockhunter_r1d26c_flow_collection.py' -v
+      - name: Verify original R1D26 source run and pinned artifact archive
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python - <<'PY_PIN'
+          import json,os,urllib.request
+          p=json.load(open('R1D26C_PREDECLARED_PROTOCOL.json',encoding='utf-8'))
+          base='https://api.github.com/repos/ehdud6728-bit/Stock-Hunter'
+          def get(tail):
+              req=urllib.request.Request(base+tail,headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'], 'Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'})
+              with urllib.request.urlopen(req,timeout=45) as f:return json.load(f)
+          run=get('/actions/runs/'+str(p['upstream_source_run']))
+          assert run['conclusion']=='success' and run['head_sha']==p['upstream_source_head_sha'],'UPSTREAM_RUN_DRIFT'
+          x=get('/actions/artifacts/'+str(p['upstream_source_artifact_id']))
+          assert x['name']==p['upstream_source_artifact_name'] and not x['expired'],'UPSTREAM_ARTIFACT_INVALID'
+          assert x['digest']=='sha256:'+p['source_zip_sha256'],'UPSTREAM_ARTIFACT_SHA_DRIFT'
+          print('R1D26C_PINNED_R1D26_ORIGINAL_ARTIFACT_METADATA_PASS')
+          PY_PIN
+          mkdir -p reports/r1d26c/input
+          curl --fail --silent --show-error --location --retry 2 --max-time 90 \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            -o reports/r1d26c/input/R1D26_original_20events.zip \
+            'https://api.github.com/repos/ehdud6728-bit/Stock-Hunter/actions/artifacts/12622896493/zip'
+          python - <<'PY_SRC'
+          import hashlib,json
+          from pathlib import Path
+          p=json.load(open('R1D26C_PREDECLARED_PROTOCOL.json',encoding='utf-8'))
+          b=Path('reports/r1d26c/input/R1D26_original_20events.zip').read_bytes()
+          assert hashlib.sha256(b).hexdigest()==p['source_zip_sha256'],'ORIGINAL_BYTES_SHA_DRIFT'
+          print('R1D26C_ORIGINAL_ZIP_SHA_VERIFIED')
+          PY_SRC
+      - name: Collect original signed KRW amounts only, KRX secrets confined to this step
+        env:
+          KRX_ID: ${{ secrets.KRX_DATA_ID || secrets.KRX_ID }}
+          KRX_PW: ${{ secrets.KRX_DATA_PW || secrets.KRX_PW }}
+        run: |
+          set -euo pipefail
+          if [ -z "${KRX_ID:-}" ] || [ -z "${KRX_PW:-}" ]; then
+            echo '::error::R1D26C_KRX_SECRET_BINDING_MISSING'
+            exit 2
+          fi
+          echo 'R1D26C_KRX_SECRET_BINDING_READY (values redacted, validity unverified)'
+          python -m research_formulas.stockhunter_r1d26c_flow_collection \
+            --protocol R1D26C_PREDECLARED_PROTOCOL.json \
+            --source-zip reports/r1d26c/input/R1D26_original_20events.zip \
+            --out reports/r1d26c/result/source_collection --sleep-seconds 2
+          python - <<'PY_QA'
+          import csv,json
+          from pathlib import Path
+          d=Path('reports/r1d26c/result/source_collection')
+          m=json.loads((d/'R1D26C_COLLECT_MANIFEST.json').read_text())
+          with (d/'R1D26C_VERIFIED_COMPLETE_EVENTS_INVESTOR_PRIOR20_KRW.csv').open(encoding='utf-8-sig') as f:
+            rows=list(csv.DictReader(f))
+          assert m['events_frozen']==20 and m['events_attempted']+m['events_not_attempted']==20
+          assert len(rows)==20*m['events_complete']==m['verified_complete_event_rows']
+          assert m['unit']=='KRW' and not m['strategy_effect_estimated'] and not m['strategy_ready']
+          assert not m['live_changed'] and m['orders_placed']==0
+          print('R1D26C_SOURCE_ONLY_QA_PASS',m['events_complete'],'of 20 complete,',len(rows),'raw historical amounts; not PIT')
+          PY_QA
+      - name: Upload original source and coverage report even on missing provider
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-r1d26c-C-D-PIT-NOT-CERTIFIED-INVESTOR-KRW-20X20-PILOT
+          retention-days: 90
+          if-no-files-found: warn
+          path: |
+            reports/r1d26c/result/source_collection/**
+            R1D26C_PREDECLARED_PROTOCOL.json
