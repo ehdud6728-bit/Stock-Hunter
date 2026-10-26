@@ -950,8 +950,16 @@ jobs:
             --mode prepare --protocol R1D26_PREDECLARED_PROTOCOL.json \
             --out reports/r1d26/result/pilot
       - name: Attempt historical real KRX investor net-buy rows, 20 sessions before signal
+        env:
+          KRX_ID: ${{ secrets.KRX_DATA_ID || secrets.KRX_ID }}
+          KRX_PW: ${{ secrets.KRX_DATA_PW || secrets.KRX_PW }}
         run: |
           set -euo pipefail
+          if [ -z "${KRX_ID:-}" ] || [ -z "${KRX_PW:-}" ]; then
+            echo '::error::KRX_AUTH_SECRET_BINDING_MISSING: require KRX_DATA_ID/KRX_DATA_PW (or KRX_ID/KRX_PW) in repository-accessible secrets'
+            exit 2
+          fi
+          echo 'KRX_AUTH_SECRET_BINDING_READY (values redacted; credential validity NOT verified)'
           python -m research_formulas.stockhunter_r1d26_investor_pilot \
             --mode collect --protocol R1D26_PREDECLARED_PROTOCOL.json \
             --out reports/r1d26/result/pilot --sleep-seconds 1
@@ -1033,8 +1041,16 @@ jobs:
           set -euo pipefail
           python -m unittest discover -s tests -p 'test_stockhunter_r1d26b_source_diagnostic.py' -v
       - name: Probe one five-session historical case, with capped alternate-page read
+        env:
+          KRX_ID: ${{ secrets.KRX_DATA_ID || secrets.KRX_ID }}
+          KRX_PW: ${{ secrets.KRX_DATA_PW || secrets.KRX_PW }}
         run: |
           set -euo pipefail
+          if [ -z "${KRX_ID:-}" ] || [ -z "${KRX_PW:-}" ]; then
+            echo '::error::KRX_AUTH_SECRET_BINDING_MISSING: require KRX_DATA_ID/KRX_DATA_PW (or KRX_ID/KRX_PW) in repository-accessible secrets'
+            exit 2
+          fi
+          echo 'KRX_AUTH_SECRET_BINDING_READY (values redacted; credential validity NOT verified)'
           python -m research_formulas.stockhunter_r1d26b_source_diagnostic \
             --source-zip testdata/r1d26_verified_pilot.zip \
             --out reports/r1d26b/result/source_diagnostic --naver-pages 1
