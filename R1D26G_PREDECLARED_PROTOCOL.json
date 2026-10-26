@@ -1,0 +1,61 @@
+{
+  "research_id": "STOCKHUNTER_R1D26G_100_LOCKED_KRX_FLOW_HIT_LADDER_DESCRIPTIVE",
+  "version": "1.0",
+  "research_only": true,
+  "strategy_ready": false,
+  "outcome_blind_100_sample": true,
+  "source_events": 100,
+  "source_rows": 2000,
+  "price_complete_expected": 99,
+  "price_censored_expected": 1,
+  "src_current_prospect_OOS": false,
+  "time_window_days": [
+    5,
+    10,
+    20
+  ],
+  "hit_targets_pct": [
+    5,
+    10,
+    15
+  ],
+  "no_threshold_search": true,
+  "compare_features": [
+    "foreign_net20_pos",
+    "institution_net20_pos",
+    "both_net20_pos",
+    "rs20_above_both_index"
+  ],
+  "secondary_descriptive_only": [
+    "foreign_net5_pos",
+    "institution_net5_pos",
+    "foreign_recent5_accel_pos",
+    "institution_recent5_accel_pos"
+  ],
+  "bootstrap_cluster": "year_stratified_ticker_cluster",
+  "bootstrap_seed": 26026,
+  "bootstrap_draws": 1000,
+  "official_source_crosscheck": "PENDING",
+  "PIT_publication": "NOT_VERIFIED",
+  "turnover_ratio": "NOT_COMPUTED_NO_TOTAL_TURNOVER_INPUT",
+  "original_GitHub_workflow": "stockhunter_r1d19_bb203040_reclaim_research_only_FIXED_20261025.yml",
+  "LIVE_changed": false,
+  "orders_placed": 0,
+  "r1d26f_zip_sha256": "8fd588bd60b6b52ae46d65fe384ac7c69259c01c0f5373caba6f2cffbad718aa",
+  "r1d26f_source_run_id": 40279550422,
+  "r1d26f_artifact_id": 12631926840,
+  "r1d26f_artifact_name": "stockhunter-r1d26f-100-C-D-KRX-INVESTOR-KRW-PRE-PIT-COVERAGE",
+  "r1d26f_head_sha": "c3f13ba60bdccec7234eaa1bff667cb8327bd160",
+  "r1d26e_zip_sha256": "3b780144bde353a16a583c29e188d869973043b2625625eab4573a49a5b8da14",
+  "r1d26e_source_run_id": 40274796958,
+  "r1d26e_artifact_id": 12629657914,
+  "r1d26e_artifact_name": "stockhunter-r1d26e-ALL-C-D-5-10-15-INTERVAL-HIT-NOT-OOS",
+  "r1d26e_head_sha": "37be3c044f49c8033b65b7bb3d862c011a56867c",
+  "r1d25_zip_sha256": "583579a9c009de248c87a590d343f9b762e87482dbac01e4379f0db8a792cff9",
+  "r1d25_source_run_id": 40250282796,
+  "r1d25_artifact_id": 12619869983,
+  "r1d25_artifact_name": "stockhunter-r1d25-MA448-D30-CVD-PREFLOW-HISTORICAL-NOT-OOS",
+  "r1d25_head_sha": "8167da127d3db791915c840cc3a768fe9ecdb505",
+  "r1d26f_flow_csv_sha256": "68b6df28569f030164c6d4cf4bfb89832478a4334732c276bba1a5fac080930d",
+  "r1d26f_events_csv_sha256": "8fb013626c94f991e552f26dfc9bd576781417909ea524387319457bfbd36c7b"
+}
