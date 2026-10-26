@@ -1,0 +1,45 @@
+{
+  "bigwinner_definition": [
+    "MFE_intraday_>=+15%_within_horizon",
+    "D30_close_return_net>=+15%"
+  ],
+  "cost_bps_total": 20,
+  "factor_cutoffs": {
+    "RS20_and_RS60_vs_both_official_indices": 0,
+    "ma448_period_sessions": 448,
+    "ma448_slope_days": 20,
+    "positive_clv_amount20": 0,
+    "positive_signed_amount20": 0,
+    "pre5_vs_prior20_amount_ge": 1.2,
+    "prior20_vs_prior40_amount_ge": 1.2,
+    "prior_R1D21_wave_retrace_le_pct": 50,
+    "prior_R1D24_base10_range_le_pct": 10,
+    "prior_R1D24_breakout_amount_vs_prior20_ge": 3
+  },
+  "horizons": [
+    5,
+    10,
+    15,
+    20,
+    30
+  ],
+  "krx_run_id": 39295295197,
+  "krx_shards_sha256": {
+    "0": "84dd5aa62f0c9538cd9c2d0ed0540c8f74063b21be49d9ecfc81e4b1583368b5",
+    "1": "3d372eebf915c870badf103356c3700d5fa914a32d79ce8057ef1f4c4f89295b",
+    "2": "5c49df64ad10bafbc09dd7ea78b9377804735fda6ad861018750b396ab2a27cb",
+    "3": "7a359f5959e2374622c40d068920adf9d695142b4a61b540d0752a8cb9bb4dd8",
+    "4": "88b35ea4c9a8a6a0ed4b61250a8018d49ee7ba4489c7345f04012915bb60f997",
+    "5": "eb503f7cabcc40991037092c6463437c8a8b71d43fb26fe646ea4f56885b3814",
+    "6": "b3cc055d919c7ab92d7f27b1b3ce6d3e56df787b107af961eaa43dedb885d6cd",
+    "7": "9563747eb8b27928ba0a0d2b7d3cf02e787acd2e9e4a656d410c286139321478"
+  },
+  "loss_definition": "D30_close_return_net<=-5%",
+  "mode": "FROZEN_RESEARCH_ONLY",
+  "multi_testing_and_non_OOS": "EXPLORATORY_PROOF_NOT_STRATEGY",
+  "r1d23_artifact_id": 12609117663,
+  "r1d23_artifact_zip_sha256": "c944792530ffde5a51dd8119c6f1073426f739a01a57f4ad1aa9fe521f03ab2a",
+  "r1d23_run": 40218876941,
+  "research_id": "R1D25_448MA_D30_PREBREAKOUT_RELATIVE_STRENGTH_MONEY_FLOW_RESEARCH",
+  "sector_data": "ABSENT_DO_NOT_INFER"
+}
