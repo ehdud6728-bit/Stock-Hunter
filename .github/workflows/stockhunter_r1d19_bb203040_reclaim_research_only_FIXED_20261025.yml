@@ -1,4 +1,4 @@
-name: StockHunter Research Hub R1-D19 to R1-D26H (RESEARCH ONLY)
+name: StockHunter Research Hub R1-D19 to R1-D26I (RESEARCH ONLY)
 
 on:
   workflow_dispatch:
@@ -27,6 +27,7 @@ on:
           - r1d26f_staged_100_investor_krw
           - r1d26g_historical_100_flow_hit_ladder
           - r1d26h_new200_ticker_disjoint_institution_accel_test
+          - r1d26i_g_vs_h_holdout_failure_official_crosscheck_qa
 
 permissions:
   contents: read
@@ -1795,3 +1796,122 @@ jobs:
           assert x['holdout_events']==200 and not x['strategy_ready'] and x['orders_placed']==0
           print('R1D26H_VERIFIED_SOURCE_300_OF_300_AND_UNTOUCHED_200_HOLDOUT_EVALUATION_COMPLETE_NOT_PIT')
           PY_FINAL
+
+  # R1-D26I audits the already-frozen G exploratory and H disjoint historical holdout.
+  # No new factor search, no new KRX data retrieval, no official verification claim.
+  r1d26i_g_vs_h_holdout_failure_official_crosscheck_qa:
+    name: R1-D26I frozen G vs H holdout failure diagnosis plus official 10-point PENDING [NOT PIT/OOS]
+    if: ${{ inputs.scope == 'r1d26i_g_vs_h_holdout_failure_official_crosscheck_qa' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 22
+    permissions:
+      contents: read
+      actions: read
+    env:
+      RESEARCH_ONLY: '1'
+      STOCKHUNTER_LIVE_ENABLE: '0'
+      STOCKHUNTER_ORDER_ENABLE: '0'
+      STOCKHUNTER_SCORE_RANK_ENABLE: '0'
+    steps:
+      - name: Checkout research sources without persistent credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Dependencies for read-only frozen historical audit
+        run: |
+          set -euo pipefail
+          python -m pip install 'numpy>=1.25,<3' 'pandas>=2,<3'
+      - name: Verify upstream G/H run artifact identities and original ZIP digests
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python - <<'PY_API'
+          import json,os,urllib.request
+          p=json.load(open('R1D26I_PREDECLARED_PROTOCOL.json',encoding='utf-8'))
+          repo=os.environ['GITHUB_REPOSITORY']
+          def get(path):
+              req=urllib.request.Request('https://api.github.com/repos/'+repo+path,headers={
+                'Authorization':'Bearer '+os.environ['GH_TOKEN'],
+                'Accept':'application/vnd.github+json',
+                'X-GitHub-Api-Version':'2022-11-28'})
+              with urllib.request.urlopen(req,timeout=35) as r:return json.load(r)
+          for st in ('g','h'):
+              d=p[st]
+              run=get('/actions/runs/'+str(d['run_id']))
+              assert run['conclusion']=='success' and run['head_sha']==d['head_sha'],st+'_RUN_IDENTITY_DRIFT'
+              art=get('/actions/artifacts/'+str(d['artifact_id']))
+              assert not art['expired'] and art['name']==d['artifact_name'],st+'_ARTIFACT_IDENTITY_DRIFT'
+              assert art['digest']=='sha256:'+d['zip_sha256'],st+'_SOURCE_DIGEST_DRIFT'
+          assert p['research_only'] and p['no_strategy_rule_change'] and not p['prospective_OOS']
+          print('R1D26I_PINNED_G_H_UPSTREAM_METADATA_VERIFIED')
+          PY_API
+      - name: Download two pinned archives without cross-origin bearer credential forwarding
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p reports/r1d26i/input
+          python - <<'PY_ZIPS'
+          import os,json,hashlib,pathlib,subprocess
+          p=json.load(open('R1D26I_PREDECLARED_PROTOCOL.json',encoding='utf-8'))
+          repo=os.environ['GITHUB_REPOSITORY']
+          for st in ('g','h'):
+              d=p[st]
+              url=f"https://api.github.com/repos/{repo}/actions/artifacts/{d['artifact_id']}/zip"
+              dest=pathlib.Path('reports/r1d26i/input')/(st+'.zip')
+              # --location strips GitHub bearer header across host redirects.
+              # Never use --location-trusted and never output secret values.
+              subprocess.run(['curl','--fail','--silent','--show-error','--location',
+                              '--retry','3','--max-time','120','--proto-redir','=https',
+                              '--header','Authorization: Bearer '+os.environ['GH_TOKEN'],
+                              '--header','Accept: application/vnd.github+json',
+                              '--output',str(dest),url],check=True)
+              assert dest.is_file() and dest.stat().st_size>0,st+'_EMPTY_ARCHIVE'
+              assert hashlib.sha256(dest.read_bytes()).hexdigest()==d['zip_sha256'],st+'_ZIP_SHA_DRIFT'
+          print('R1D26I_FROZEN_G_H_ZIP_BYTES_VERIFIED')
+          PY_ZIPS
+      - name: Strict regression against signed-KRW source and historical holdout
+        env:
+          R1D26I_TEST_G_ZIP: reports/r1d26i/input/g.zip
+          R1D26I_TEST_H_ZIP: reports/r1d26i/input/h.zip
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests -p 'test_stockhunter_r1d26i_audit.py' -v
+      - name: Produce no-reoptimization failure diagnosis with pending independent official crosscheck
+        run: |
+          set -euo pipefail
+          python -m research_formulas.stockhunter_r1d26i_holdout_failure_audit \
+            --protocol R1D26I_PREDECLARED_PROTOCOL.json \
+            --g-zip reports/r1d26i/input/g.zip \
+            --h-zip reports/r1d26i/input/h.zip \
+            --out reports/r1d26i/result/historical
+          python - <<'PY_QA'
+          import json
+          from pathlib import Path
+          p=Path('reports/r1d26i/result/historical')
+          m=json.loads((p/'R1D26I_QA_MANIFEST.json').read_text())
+          assert m['g_D_price_complete']==49 and m['h_D_price_complete']==97
+          assert m['h_total_raw_investor_rows']==6000 and m['h_independent_new_tickers']==200
+          assert abs(m['G_D_diff_hit15_percentage_points']-30)<.0001
+          assert abs(m['H_D_diff_hit15_percentage_points']-1.44928)<.001
+          assert m['source_independent_crosscheck_status']=='PENDING_INDEPENDENT_EXPORT'
+          assert m['official_amount_rows_matched_if_supplied']==0
+          assert m['official_same_date_publication_PIT']=='NOT_VERIFIED'
+          assert not m['strategy_ready'] and not m['live_changed'] and m['orders_placed']==0
+          print('R1D26I_HISTORICAL_HOLDOUT_COLLAPSE_AUDIT_PASS_OFFICIAL_KRX_INDEPENDENT_PENDING_NOT_OOS')
+          PY_QA
+      - name: Always upload diagnostics and 10-point manual official-KRX crosscheck template
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-r1d26i-G-H-HOLDOUT-FAILURE-KRX-10POINT-OFFICIAL-PENDING-NOT-PIT
+          retention-days: 90
+          if-no-files-found: warn
+          path: |
+            reports/r1d26i/result/historical/**
+            R1D26I_PREDECLARED_PROTOCOL.json
