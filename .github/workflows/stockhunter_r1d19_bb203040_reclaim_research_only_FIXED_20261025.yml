@@ -1,4 +1,4 @@
-name: StockHunter Research Hub R1-D19 to R1-D26I (RESEARCH ONLY)
+name: StockHunter Research Hub R1-D19 to R1-D26K (RESEARCH ONLY)
 
 on:
   workflow_dispatch:
@@ -28,6 +28,7 @@ on:
           - r1d26g_historical_100_flow_hit_ladder
           - r1d26h_new200_ticker_disjoint_institution_accel_test
           - r1d26i_g_vs_h_holdout_failure_official_crosscheck_qa
+          - r1d26k_same_month_success_failure_matched_risk_audit
 
 permissions:
   contents: read
@@ -1915,3 +1916,108 @@ jobs:
           path: |
             reports/r1d26i/result/historical/**
             R1D26I_PREDECLARED_PROTOCOL.json
+
+  r1d26k_same_month_success_failure_matched_risk_audit:
+    name: R1-D26K same-month C/D success failure vs +15 touch/D30 giveback [RESEARCH ONLY NOT OOS]
+    if: ${{ inputs.scope == 'r1d26k_same_month_success_failure_matched_risk_audit' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Checkout research sources without credential persistence
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Dependencies for frozen-source read-only research
+        run: |
+          set -euo pipefail
+          python -m pip install 'pandas>=2,<3' 'numpy>=1.26,<3'
+      - name: Verify pinned immutable D25 H runs and artifact digests before reading results
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python - <<'PY_API'
+          import json,os,urllib.request
+          p=json.load(open('R1D26K_PREDECLARED_PROTOCOL.json',encoding='utf-8'))
+          repo=os.environ['GITHUB_REPOSITORY']
+          def get(path):
+              h={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'}
+              with urllib.request.urlopen(urllib.request.Request('https://api.github.com/repos/'+repo+path,headers=h),timeout=45) as r:
+                  return json.load(r)
+          for label in ('r1d25','r1d26h'):
+              run=get('/actions/runs/'+str(p[label+'_run_id']))
+              assert run['conclusion']=='success' and run['head_sha']==p[label+'_head_sha'],label+'_RUN_IDENTITY_DRIFT'
+              art=get('/actions/artifacts/'+str(p[label+'_artifact_id']))
+              assert art['name']==p[label+'_artifact_name'] and not art['expired'],label+'_ARTIFACT_IDENTITY_DRIFT'
+              assert art['digest']=='sha256:'+p[label+'_sha256'],label+'_ARTIFACT_SHA_DRIFT'
+          print('R1D26K_PINNED_SOURCE_IDENTITIES_PASS')
+          PY_API
+      - name: Download immutable original archives without cross-origin bearer forwarding
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p reports/r1d26k/input
+          python - <<'PY_DL'
+          import os,subprocess,hashlib,json,pathlib
+          p=json.load(open('R1D26K_PREDECLARED_PROTOCOL.json',encoding='utf-8'))
+          repo=os.environ['GITHUB_REPOSITORY']
+          for label in ('r1d25','r1d26h'):
+              dest=pathlib.Path('reports/r1d26k/input')/(label+'.zip')
+              url=f"https://api.github.com/repos/{repo}/actions/artifacts/{p[label+'_artifact_id']}/zip"
+              subprocess.run(['curl','--fail','--silent','--show-error','--location','--retry','3','--max-time','120','--proto-redir','=https',
+                              '--header','Authorization: Bearer '+os.environ['GH_TOKEN'],'--header','Accept: application/vnd.github+json',
+                              '--output',str(dest),url],check=True)
+              assert dest.is_file() and dest.stat().st_size>0,label+'_EMPTY_SOURCE'
+              assert hashlib.sha256(dest.read_bytes()).hexdigest()==p[label+'_sha256'],label+'_ZIP_BYTES_DRIFT'
+          print('R1D26K_EXACT_FROZEN_SOURCE_ZIP_BYTES_PASS')
+          PY_DL
+      - name: Test real-source matching and no-leak guards
+        env:
+          R1D26K_TEST_R1D25_ZIP: reports/r1d26k/input/r1d25.zip
+          R1D26K_TEST_R1D26H_ZIP: reports/r1d26k/input/r1d26h.zip
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests -p 'test_stockhunter_r1d26k_matched_failure.py' -v
+      - name: Generate same-month matched success/failure and giveback feature audit
+        run: |
+          set -euo pipefail
+          python -m research_formulas.stockhunter_r1d26k_matched_failure \
+            --protocol R1D26K_PREDECLARED_PROTOCOL.json \
+            --r1d25-zip reports/r1d26k/input/r1d25.zip \
+            --r1d26h-zip reports/r1d26k/input/r1d26h.zip \
+            --out reports/r1d26k/result/historical --bootstrap-draws 1200
+          python - <<'PY_QA'
+          import json,hashlib
+          from pathlib import Path
+          d=Path('reports/r1d26k/result/historical')
+          m=json.loads((d/'R1D26K_QA_MANIFEST.json').read_text())
+          assert m['whole_signals']==10310 and m['complete_D30']==10198
+          assert m['matched_pairs']['SUCCESS_VS_HARD_FAILURE:C']==1327
+          assert m['matched_pairs']['SUCCESS_VS_HARD_FAILURE:D']==471
+          assert m['matched_pairs']['PROFIT_KEEP_VS_GIVEBACK:C']==470
+          assert m['matched_pairs']['PROFIT_KEEP_VS_GIVEBACK:D']==111
+          assert m['flow_300_n']==300 and m['flow_price_complete']==294
+          assert m['KRX_official_independent_crosscheck']=='PENDING' and m['historical_PIT_publication']=='NOT_VERIFIED'
+          assert not m['strategy_ready'] and not m['live_changed'] and m['orders_placed']==0
+          for n,digest in m['file_sha256'].items():
+              assert hashlib.sha256((d/n).read_bytes()).hexdigest()==digest,'RESULT_SHA_CHANGED'
+          print('R1D26K_MATCHED_RISK_GIT_HUB_QA_PASS_RETROSPECTIVE_NOT_OOS')
+          PY_QA
+      - name: Upload immutable lineage and descriptive result even on error
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-r1d26k-MONTH-MATCHED-C-D-SUCCESS-FAILURE-GIVEBACK-NOT-PIT-OOS
+          retention-days: 90
+          if-no-files-found: warn
+          path: |
+            reports/r1d26k/result/historical/**
+            R1D26K_PREDECLARED_PROTOCOL.json
