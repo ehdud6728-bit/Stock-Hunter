@@ -1,0 +1,59 @@
+{
+  "version": "R1D26H_TICKER_DISJOINT_200_HISTORICAL_HOLDOUT_SOURCE_AND_FIXED_PRIMARY_V1",
+  "research_only": true,
+  "live_changed": false,
+  "PIT_certified": false,
+  "strategy_ready": false,
+  "holdout_new": 200,
+  "holdout_per_year_strategy": 20,
+  "pre_signal_sessions": 20,
+  "primary_strategy": "D_LEADER_CONSOLIDATION_BREAKOUT",
+  "primary_flag": "institution_recent5_accel_pos",
+  "primary_target": "hit15_by_d30",
+  "primary_hypothesis_locked_from": "R1D26G_EXPLORATORY_NOT_VALIDATION",
+  "test_only_new_ticker_disjoint_holdout": true,
+  "bootstrap_draws": 2000,
+  "permutation_draws": 4000,
+  "random_seed": 26026,
+  "r1d25_sha256": "583579a9c009de248c87a590d343f9b762e87482dbac01e4379f0db8a792cff9",
+  "r1d26_sha256": "bdb40b5e805d3dde6fe6f824826cc1be160497ef3410cb2adee4478c4c7c14c4",
+  "r1d26f_sha256": "8fd588bd60b6b52ae46d65fe384ac7c69259c01c0f5373caba6f2cffbad718aa",
+  "r1d26e_sha256": "3b780144bde353a16a583c29e188d869973043b2625625eab4573a49a5b8da14",
+  "r1d26f_events_sha256": "8fb013626c94f991e552f26dfc9bd576781417909ea524387319457bfbd36c7b",
+  "r1d26f_flow_sha256": "68b6df28569f030164c6d4cf4bfb89832478a4334732c276bba1a5fac080930d",
+  "source_ids": [
+    {
+      "prefix": "r1d25",
+      "run": 40250282796,
+      "head_sha": "8167da127d3db791915c840cc3a768fe9ecdb505",
+      "artifact_id": 12619869983,
+      "artifact_name": "stockhunter-r1d25-MA448-D30-CVD-PREFLOW-HISTORICAL-NOT-OOS"
+    },
+    {
+      "prefix": "r1d26",
+      "run": 40256526209,
+      "head_sha": "d26dde37dbefc9a280c9e6ac27cf7a64225962d7",
+      "artifact_id": 12622896493,
+      "artifact_name": "stockhunter-r1d26-TRUE-INVESTOR-SOURCE-AVAILABILITY-PILOT-NOT-STRATEGY"
+    },
+    {
+      "prefix": "r1d26f",
+      "run": 40279550422,
+      "head_sha": "c3f13ba60bdccec7234eaa1bff667cb8327bd160",
+      "artifact_id": 12631926840,
+      "artifact_name": "stockhunter-r1d26f-100-C-D-KRX-INVESTOR-KRW-PRE-PIT-COVERAGE"
+    },
+    {
+      "prefix": "r1d26e",
+      "run": 40274796958,
+      "head_sha": "37be3c044f49c8033b65b7bb3d862c011a56867c",
+      "artifact_id": 12629657914,
+      "artifact_name": "stockhunter-r1d26e-ALL-C-D-5-10-15-INTERVAL-HIT-NOT-OOS"
+    }
+  ],
+  "official_KRX_independent_amount_check": "NOT_COMPLETED",
+  "historical_publication_timestamp_PIT": "NOT_VERIFIED",
+  "post_G_outcome_informed_primary_avoids_reoptimization": true,
+  "historical_not_temporal_OOS": true,
+  "no_strategy_changes": true
+}
