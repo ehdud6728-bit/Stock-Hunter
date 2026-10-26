@@ -1,0 +1,271 @@
+{
+  "version": "R1D26L_EXIT_PATH_DAILY_OHLC_60_PILOT_V1",
+  "research_only": true,
+  "asof_outcome_blind_selection": true,
+  "selection_includes_no_outcomes": true,
+  "selection_rule": "SHA256_ASOF_GLOBAL_TICKER_DISJOINT_YEAR_STRATEGY_SIX_EACH",
+  "selection_csv_sha256": "3b55434b3d7d090b10f11346ac374ca13cfdd3ec68db526c7b3ca1801adcc631",
+  "selection_rows": 60,
+  "ranges": {
+    "C_ABOVE224_RISING_WAVE_PULLBACK|2021-03-25|028150": {
+      "entry_day": "2021-03-26",
+      "exit_day": "2021-05-07"
+    },
+    "C_ABOVE224_RISING_WAVE_PULLBACK|2021-04-07|019990": {
+      "entry_day": "2021-04-08",
+      "exit_day": "2021-05-21"
+    },
+    "C_ABOVE224_RISING_WAVE_PULLBACK|2021-01-04|014830": {
+      "entry_day": "2021-01-05",
+      "exit_day": "2021-02-17"
+    },
+    "C_ABOVE224_RISING_WAVE_PULLBACK|2021-03-12|900070": {
+      "entry_day": "2021-03-15",
+      "exit_day": "2021-04-23"
+    },
+    "C_ABOVE224_RISING_WAVE_PULLBACK|2021-06-04|014200": {
+      "entry_day": "2021-06-07",
+      "exit_day": "2021-07-16"
+    },
+    "C_ABOVE224_RISING_WAVE_PULLBACK|2021-07-09|006910": {
+      "entry_day": "2021-07-12",
+      "exit_day": "2021-08-23"
+    },
+    "D_LEADER_CONSOLIDATION_BREAKOUT|2021-04-08|014280": {
+      "entry_day": "2021-04-09",
+      "exit_day": "2021-05-24"
+    },
+    "D_LEADER_CONSOLIDATION_BREAKOUT|2021-11-04|140670": {
+      "entry_day": "2021-11-05",
+      "exit_day": "2021-12-16"
+    },
+    "D_LEADER_CONSOLIDATION_BREAKOUT|2021-04-01|052690": {
+      "entry_day": "2021-04-02",
+      "exit_day": "2021-05-14"
+    },
+    "D_LEADER_CONSOLIDATION_BREAKOUT|2021-06-15|023760": {
+      "entry_day": "2021-06-16",
+      "exit_day": "2021-07-27"
+    },
+    "D_LEADER_CONSOLIDATION_BREAKOUT|2021-07-12|048770": {
+      "entry_day": "2021-07-13",
+      "exit_day": "2021-08-24"
+    },
+    "D_LEADER_CONSOLIDATION_BREAKOUT|2021-01-21|000070": {
+      "entry_day": "2021-01-22",
+      "exit_day": "2021-03-09"
+    },
+    "C_ABOVE224_RISING_WAVE_PULLBACK|2022-03-29|081150": {
+      "entry_day": "2022-03-30",
+      "exit_day": "2022-05-11"
+    },
+    "C_ABOVE224_RISING_WAVE_PULLBACK|2022-04-08|105630": {
+      "entry_day": "2022-04-11",
+      "exit_day": "2022-05-23"
+    },
+    "C_ABOVE224_RISING_WAVE_PULLBACK|2022-03-07|032540": {
+      "entry_day": "2022-03-08",
+      "exit_day": "2022-04-19"
+    },
+    "C_ABOVE224_RISING_WAVE_PULLBACK|2022-01-03|313760": {
+      "entry_day": "2022-01-04",
+      "exit_day": "2022-02-17"
+    },
+    "C_ABOVE224_RISING_WAVE_PULLBACK|2022-01-06|140410": {
+      "entry_day": "2022-01-07",
+      "exit_day": "2022-02-22"
+    },
+    "C_ABOVE224_RISING_WAVE_PULLBACK|2022-04-06|230240": {
+      "entry_day": "2022-04-07",
+      "exit_day": "2022-05-19"
+    },
+    "D_LEADER_CONSOLIDATION_BREAKOUT|2022-09-08|005070": {
+      "entry_day": "2022-09-13",
+      "exit_day": "2022-10-26"
+    },
+    "D_LEADER_CONSOLIDATION_BREAKOUT|2022-03-23|032680": {
+      "entry_day": "2022-03-24",
+      "exit_day": "2022-05-04"
+    },
+    "D_LEADER_CONSOLIDATION_BREAKOUT|2022-05-31|010950": {
+      "entry_day": "2022-06-02",
+      "exit_day": "2022-07-14"
+    },
+    "D_LEADER_CONSOLIDATION_BREAKOUT|2022-04-15|044780": {
+      "entry_day": "2022-04-18",
+      "exit_day": "2022-05-30"
+    },
+    "D_LEADER_CONSOLIDATION_BREAKOUT|2022-04-18|051500": {
+      "entry_day": "2022-04-19",
+      "exit_day": "2022-05-31"
+    },
+    "D_LEADER_CONSOLIDATION_BREAKOUT|2022-02-04|004370": {
+      "entry_day": "2022-02-07",
+      "exit_day": "2022-03-22"
+    },
+    "C_ABOVE224_RISING_WAVE_PULLBACK|2023-08-25|228760": {
+      "entry_day": "2023-08-28",
+      "exit_day": "2023-10-13"
+    },
+    "C_ABOVE224_RISING_WAVE_PULLBACK|2023-09-06|092070": {
+      "entry_day": "2023-09-07",
+      "exit_day": "2023-10-25"
+    },
+    "C_ABOVE224_RISING_WAVE_PULLBACK|2023-07-19|204270": {
+      "entry_day": "2023-07-20",
+      "exit_day": "2023-08-31"
+    },
+    "C_ABOVE224_RISING_WAVE_PULLBACK|2023-04-21|018250": {
+      "entry_day": "2023-04-24",
+      "exit_day": "2023-06-08"
+    },
+    "C_ABOVE224_RISING_WAVE_PULLBACK|2023-06-30|007340": {
+      "entry_day": "2023-07-03",
+      "exit_day": "2023-08-11"
+    },
+    "C_ABOVE224_RISING_WAVE_PULLBACK|2023-08-24|011810": {
+      "entry_day": "2023-08-25",
+      "exit_day": "2023-10-12"
+    },
+    "D_LEADER_CONSOLIDATION_BREAKOUT|2023-10-18|024110": {
+      "entry_day": "2023-10-19",
+      "exit_day": "2023-11-29"
+    },
+    "D_LEADER_CONSOLIDATION_BREAKOUT|2023-09-15|003690": {
+      "entry_day": "2023-09-18",
+      "exit_day": "2023-11-03"
+    },
+    "D_LEADER_CONSOLIDATION_BREAKOUT|2023-05-31|063570": {
+      "entry_day": "2023-06-01",
+      "exit_day": "2023-07-13"
+    },
+    "D_LEADER_CONSOLIDATION_BREAKOUT|2023-07-13|353200": {
+      "entry_day": "2023-07-14",
+      "exit_day": "2023-08-25"
+    },
+    "D_LEADER_CONSOLIDATION_BREAKOUT|2023-06-13|140860": {
+      "entry_day": "2023-06-14",
+      "exit_day": "2023-07-25"
+    },
+    "D_LEADER_CONSOLIDATION_BREAKOUT|2023-05-16|005850": {
+      "entry_day": "2023-05-17",
+      "exit_day": "2023-06-29"
+    },
+    "C_ABOVE224_RISING_WAVE_PULLBACK|2024-11-26|001380": {
+      "entry_day": "2024-11-27",
+      "exit_day": "2025-01-10"
+    },
+    "C_ABOVE224_RISING_WAVE_PULLBACK|2024-05-08|084370": {
+      "entry_day": "2024-05-09",
+      "exit_day": "2024-06-21"
+    },
+    "C_ABOVE224_RISING_WAVE_PULLBACK|2024-03-29|000520": {
+      "entry_day": "2024-04-01",
+      "exit_day": "2024-05-16"
+    },
+    "C_ABOVE224_RISING_WAVE_PULLBACK|2024-10-24|087010": {
+      "entry_day": "2024-10-25",
+      "exit_day": "2024-12-05"
+    },
+    "C_ABOVE224_RISING_WAVE_PULLBACK|2024-09-05|000100": {
+      "entry_day": "2024-09-06",
+      "exit_day": "2024-10-25"
+    },
+    "C_ABOVE224_RISING_WAVE_PULLBACK|2024-03-25|039030": {
+      "entry_day": "2024-03-26",
+      "exit_day": "2024-05-09"
+    },
+    "D_LEADER_CONSOLIDATION_BREAKOUT|2024-01-25|123860": {
+      "entry_day": "2024-01-26",
+      "exit_day": "2024-03-12"
+    },
+    "D_LEADER_CONSOLIDATION_BREAKOUT|2024-12-03|119850": {
+      "entry_day": "2024-12-04",
+      "exit_day": "2025-01-17"
+    },
+    "D_LEADER_CONSOLIDATION_BREAKOUT|2024-04-05|009155": {
+      "entry_day": "2024-04-08",
+      "exit_day": "2024-05-23"
+    },
+    "D_LEADER_CONSOLIDATION_BREAKOUT|2024-11-25|082740": {
+      "entry_day": "2024-11-26",
+      "exit_day": "2025-01-09"
+    },
+    "D_LEADER_CONSOLIDATION_BREAKOUT|2024-09-27|001800": {
+      "entry_day": "2024-09-30",
+      "exit_day": "2024-11-13"
+    },
+    "D_LEADER_CONSOLIDATION_BREAKOUT|2024-05-09|214150": {
+      "entry_day": "2024-05-10",
+      "exit_day": "2024-06-24"
+    },
+    "C_ABOVE224_RISING_WAVE_PULLBACK|2025-08-20|372320": {
+      "entry_day": "2025-08-21",
+      "exit_day": "2025-10-01"
+    },
+    "C_ABOVE224_RISING_WAVE_PULLBACK|2025-06-13|316140": {
+      "entry_day": "2025-06-16",
+      "exit_day": "2025-07-25"
+    },
+    "C_ABOVE224_RISING_WAVE_PULLBACK|2025-03-06|065680": {
+      "entry_day": "2025-03-07",
+      "exit_day": "2025-04-17"
+    },
+    "C_ABOVE224_RISING_WAVE_PULLBACK|2025-09-26|095340": {
+      "entry_day": "2025-09-29",
+      "exit_day": "2025-11-14"
+    },
+    "C_ABOVE224_RISING_WAVE_PULLBACK|2025-08-29|003570": {
+      "entry_day": "2025-09-01",
+      "exit_day": "2025-10-17"
+    },
+    "C_ABOVE224_RISING_WAVE_PULLBACK|2025-05-02|319400": {
+      "entry_day": "2025-05-07",
+      "exit_day": "2025-06-19"
+    },
+    "D_LEADER_CONSOLIDATION_BREAKOUT|2025-05-30|105560": {
+      "entry_day": "2025-06-02",
+      "exit_day": "2025-07-15"
+    },
+    "D_LEADER_CONSOLIDATION_BREAKOUT|2025-08-05|064820": {
+      "entry_day": "2025-08-06",
+      "exit_day": "2025-09-17"
+    },
+    "D_LEADER_CONSOLIDATION_BREAKOUT|2025-02-18|298380": {
+      "entry_day": "2025-02-19",
+      "exit_day": "2025-04-02"
+    },
+    "D_LEADER_CONSOLIDATION_BREAKOUT|2025-05-14|060370": {
+      "entry_day": "2025-05-15",
+      "exit_day": "2025-06-27"
+    },
+    "D_LEADER_CONSOLIDATION_BREAKOUT|2025-06-17|005440": {
+      "entry_day": "2025-06-18",
+      "exit_day": "2025-07-29"
+    },
+    "D_LEADER_CONSOLIDATION_BREAKOUT|2025-04-29|086900": {
+      "entry_day": "2025-04-30",
+      "exit_day": "2025-06-17"
+    }
+  },
+  "r1d25_run_id": 40250282796,
+  "r1d25_head_sha": "8167da127d3db791915c840cc3a768fe9ecdb505",
+  "r1d25_artifact_id": 12619869983,
+  "r1d25_artifact_name": "stockhunter-r1d25-MA448-D30-CVD-PREFLOW-HISTORICAL-NOT-OOS",
+  "r1d25_sha256": "583579a9c009de248c87a590d343f9b762e87482dbac01e4379f0db8a792cff9",
+  "range_source": "R1D25_PREEXISTING_D30_CALENDAR_METADATA_ONLY_NO_PRICES_IN_SELECTION",
+  "round_trip_cost_bps": 20,
+  "stop_first_if_intraday_order_unknown": true,
+  "tp_gap_fills_at_limit": true,
+  "stop_gap_fills_at_open": true,
+  "half_profit_breakeven_activates_next_trading_day": true,
+  "source_adjusted": false,
+  "independent_price_source_certified": false,
+  "historical_PIT_certified": false,
+  "prospective_OOS": false,
+  "strategy_ready": false,
+  "live_changed": false,
+  "orders_placed": 0,
+  "min_ohlc_valid_events": 45,
+  "min_parity_pass_events": 30
+}
