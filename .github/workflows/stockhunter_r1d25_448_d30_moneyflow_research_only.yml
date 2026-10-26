@@ -1,0 +1,135 @@
+name: StockHunter R1-D25 448MA D30 C-vs-D Money-Flow Research (RESEARCH ONLY)
+
+on:
+  workflow_dispatch:
+    inputs:
+      scope:
+        description: 'Predeclare only or full retrospective; never live trading'
+        type: choice
+        required: true
+        default: r1d25_historical_validate
+        options:
+          - r1d25_protocol_lock_only
+          - r1d25_historical_validate
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  RESEARCH_ONLY: '1'
+  STOCKHUNTER_LIVE_ENABLE: '0'
+  STOCKHUNTER_ORDER_ENABLE: '0'
+  STOCKHUNTER_SCORE_RANK_ENABLE: '0'
+  PYTHONDONTWRITEBYTECODE: '1'
+  TZ: Asia/Seoul
+
+jobs:
+  r1d25:
+    name: R1-D25 MA448 x D30 x pre-breakout price-money proxies, C vs D (NOT OOS)
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout research source only
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install isolated dependencies, run tests, lock thresholds before reading outcomes
+        run: |
+          set -euo pipefail
+          python -m pip install 'numpy>=1.24,<3' 'pandas>=2.0,<3'
+          python -m unittest discover -s tests -p 'test_stockhunter_r1d25_448_d30.py' -v
+          python -m research_formulas.stockhunter_r1d25_448_d30 \
+            --mode lock --protocol R1D25_PREDECLARED_PROTOCOL.json \
+            --out reports/r1d25/result/historical
+      - name: GitHub source run identity plus archive SHA preflight, fail closed
+        if: inputs.scope == 'r1d25_historical_validate'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python - <<'PY_PIN'
+          import os,json,urllib.request
+          p=json.load(open('R1D25_PREDECLARED_PROTOCOL.json'))
+          base='https://api.github.com/repos/ehdud6728-bit/Stock-Hunter'
+          def get(path):
+              q=urllib.request.Request(base+path,headers={
+                  'Authorization':'Bearer '+os.environ['GH_TOKEN'],
+                  'Accept':'application/vnd.github+json',
+                  'X-GitHub-Api-Version':'2022-11-28'})
+              with urllib.request.urlopen(q,timeout=45) as r:return json.load(r)
+          x=get('/actions/runs/'+str(p['r1d23_run']))
+          assert x['head_sha']=='e9e5312bbc47f9e7d65586cd7b6101e7066071c0' and x['conclusion']=='success','R1D23_SOURCE_RUN_DRIFT'
+          aa=get('/actions/runs/'+str(p['r1d23_run'])+'/artifacts?per_page=100')['artifacts']
+          x=[a for a in aa if a['id']==p['r1d23_artifact_id']]
+          assert len(x)==1 and not x[0]['expired'] and x[0]['digest']=='sha256:'+p['r1d23_artifact_zip_sha256'],'R1D23_SOURCE_ARTIFACT_DRIFT'
+          x=get('/actions/runs/'+str(p['krx_run_id']))
+          assert x['head_sha']=='08e328c101f0774a2236c0a44cc1fdbbaa59e96e' and x['conclusion']=='success','KRX_SOURCE_RUN_DRIFT'
+          aa=get('/actions/runs/'+str(p['krx_run_id'])+'/artifacts?per_page=100')['artifacts']
+          for key,digest in p['krx_shards_sha256'].items():
+              x=[a for a in aa if a['name']=='stockhunter-allkrx-price-shard-'+key]
+              assert len(x)==1 and not x[0]['expired'] and x[0]['digest']=='sha256:'+digest,'KRX_ARCHIVE_DRIFT_'+key
+          print('R1D25_ALL_UPSTREAM_RUN_AND_ARTIFACT_SHA_PINS_PASS')
+          PY_PIN
+      - name: Download immutable KRX daily raw 8 shards, not API-refetched
+        if: inputs.scope == 'r1d25_historical_validate'
+        uses: actions/download-artifact@v4
+        with:
+          repository: ehdud6728-bit/Stock-Hunter
+          run-id: 39295295197
+          github-token: ${{ github.token }}
+          pattern: stockhunter-allkrx-price-shard-*
+          merge-multiple: true
+          path: reports/r1d25/input/krx
+      - name: Download pinned R1D23 frozen signal and path artifact ZIP, without extraction
+        if: inputs.scope == 'r1d25_historical_validate'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p reports/r1d25/input
+          curl --fail --silent --show-error --location --retry 3 \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            -o reports/r1d25/input/R1D23_source.zip \
+            'https://api.github.com/repos/ehdud6728-bit/Stock-Hunter/actions/artifacts/12609117663/zip'
+          python - <<'PY_SHA'
+          import pathlib,json,hashlib
+          p=json.load(open('R1D25_PREDECLARED_PROTOCOL.json'))
+          b=pathlib.Path('reports/r1d25/input/R1D23_source.zip').read_bytes()
+          assert hashlib.sha256(b).hexdigest()==p['r1d23_artifact_zip_sha256'],'R1D23_ARCHIVE_BYTES_DIFFER'
+          print('R1D25_R1D23_ARCHIVE_BYTES_VERIFIED')
+          PY_SHA
+      - name: Verify all daily KRX SHA and compare fixed A B C D with D30
+        if: inputs.scope == 'r1d25_historical_validate'
+        run: |
+          set -euo pipefail
+          python -m research_formulas.stockhunter_r1d25_448_d30 \
+            --mode analyze --protocol R1D25_PREDECLARED_PROTOCOL.json \
+            --source-zip reports/r1d25/input/R1D23_source.zip \
+            --krx-root reports/r1d25/input/krx \
+            --out reports/r1d25/result/historical
+          python -m research_formulas.stockhunter_r1d25_extra_sensitivity \
+            --results reports/r1d25/result/historical
+          python - <<'PY_QA'
+          import json
+          m=json.load(open('reports/r1d25/result/historical/R1D25_MANIFEST.json'))
+          assert m['krx_daily_sha_verified']==1907 and m['frozen_signal_rows']==23266
+          assert m['new_horizon_rows']==116330 and m['price_parity_old_horizons']==93064
+          assert not m['sector_leadership_tested'] and not m['strategy_ready']
+          assert not m['live_changed'] and m['orders_placed']==0
+          print('R1D25_FULL_HISTORICAL_D30_448_QA_COMPLETE_NOT_OOS')
+          PY_QA
+      - name: Upload research results with manifest, even if verification fails
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-r1d25-MA448-D30-CVD-PREFLOW-HISTORICAL-NOT-OOS
+          retention-days: 90
+          if-no-files-found: warn
+          path: |
+            reports/r1d25/result/**
+            R1D25_PREDECLARED_PROTOCOL.json
