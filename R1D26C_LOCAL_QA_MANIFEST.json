@@ -1,0 +1,26 @@
+{
+  "stage": "R1D26C_PACKAGE_LOCAL_STATIC_QA",
+  "original_workflow_blob_sha": "af47a60ade6a8c856284ecd31fdc4e3b8bb22c4d",
+  "existing_research_jobs_unchanged": 11,
+  "final_research_jobs": 12,
+  "added_yml_files": 0,
+  "workflow_yaml_parse": true,
+  "existing_choices_preserved": true,
+  "new_choice": "r1d26c_historical_20x20_investor_krw",
+  "old_upstream_source_artifact_id": 12622896493,
+  "asof_pilot_signal_count": 20,
+  "signed_KRW_max_rows": 400,
+  "local_unit_tests_passed": 13,
+  "real_KRX_records_collected_in_this_local_package": 0,
+  "live_changed": false,
+  "orders_placed": 0,
+  "PITofficial_cross_source_verified": false,
+  "files": {
+    ".github/workflows/stockhunter_r1d19_bb203040_reclaim_research_only_FIXED_20261025.yml": "0870902c895c3e0dd01d400894810811b4c304bd79721395ddb714401dccaf0f",
+    "stockhunter_r1d19_bb203040_reclaim_research_only_FIXED_20261025.yml": "0870902c895c3e0dd01d400894810811b4c304bd79721395ddb714401dccaf0f",
+    "research_formulas/stockhunter_r1d26c_flow_collection.py": "18b960e5ebd712ddf7c7202b7dc4767cab8df632cfc5d2d2289334157bbffeae",
+    "tests/test_stockhunter_r1d26c_flow_collection.py": "815b15df527994c30c62ee4d62680f553ed9f49faea80efcf8cc5c1f69fe0181",
+    "R1D26C_PREDECLARED_PROTOCOL.json": "aa351f410b73dea7c31bcafee0112a57ba46b046eb9b54a938d481a387248fc8",
+    "README_FIRST_R1D26C_설치_실행_QA.md": "1c41a620c362e82b9416043b03f99c9649d1037a5c04672e47e6506b265f5f25"
+  }
+}
