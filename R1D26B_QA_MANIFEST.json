@@ -1,0 +1,30 @@
+{
+  "package": "R1D26B_HUB_ONLY_KRX_VS_NAVER_PROVIDER_DIAGNOSTIC",
+  "research_only": true,
+  "github_pushed": false,
+  "source_yml_blob_sha_current_main": "b2a4f720109c5f059ef0b420d3c3ba5d5864fafb",
+  "source_hub_prior_merged_sha256": "944a235ead2d4593347797a08e93f8846f8ff280dcc164e0f465098654026335",
+  "output_yml_sha256": "98c1d55e2e97c6f6ae12cc754a15cf84ea67e9c5d43c5565ec8cafabd10b4cf0",
+  "source_R1D26_run_id": 40256526209,
+  "source_original_GitHub_artifact_id": 12622896493,
+  "source_original_zip_sha256": "bdb40b5e805d3dde6fe6f824826cc1be160497ef3410cb2adee4478c4c7c14c4",
+  "existing_hub_jobs_retained_unchanged": 10,
+  "new_hub_jobs": 1,
+  "hub_jobs_after": 11,
+  "scope_options_after": 12,
+  "new_yml_files_in_github": 0,
+  "existing_workflows_deleted": 0,
+  "no_live_changes": true,
+  "orders_placed": 0,
+  "single_frozen_case": {
+    "date": "2025-08-29",
+    "code": "101490",
+    "probe_5_trading_sessions": 5
+  },
+  "alternative_data_unit": "SHARES_NOT_KRW",
+  "data_collection_real_results": "NOT_RUN_ON_GITHUB_YET",
+  "test_count_local": 11,
+  "test_result": "PASS",
+  "yaml_parsed": true,
+  "current_pilot_data_collected_from_original": 0
+}
