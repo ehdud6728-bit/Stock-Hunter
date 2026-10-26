@@ -1,4 +1,4 @@
-name: StockHunter Research Hub R1-D19 to R1-D26E (RESEARCH ONLY)
+name: StockHunter Research Hub R1-D19 to R1-D26F (RESEARCH ONLY)
 
 on:
   workflow_dispatch:
@@ -24,6 +24,7 @@ on:
           - r1d26c_historical_20x20_investor_krw
           - r1d26d_historical_flow_d30_descriptive_qa
           - r1d26e_historical_hit_ladder_descriptive
+          - r1d26f_staged_100_investor_krw
 
 permissions:
   contents: read
@@ -1377,3 +1378,129 @@ jobs:
           path: |
             reports/r1d26e/result/historical/**
             R1D26E_PREDECLARED_PROTOCOL.json
+
+  # R1-D26F stages 100 ASOF C/D signals; real investor KRW, coverage only.
+  r1d26f_staged_100_investor_krw:
+    name: R1-D26F 100 C/D historical investor KRW staged source coverage [NOT PIT / NOT STRATEGY]
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'r1d26f_staged_100_investor_krw'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Checkout source-only research code
+        uses: actions/checkout@v4
+      - name: Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install pinned-range research-only dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install 'pandas>=2.0,<3' 'numpy>=1.24,<3' 'pykrx>=1.0.45,<2'
+      - name: Check three frozen GitHub run/artifact identities without private secrets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python - <<'PY_PIN'
+          import json,os,urllib.request
+          p=json.load(open('R1D26F_PREDECLARED_PROTOCOL.json',encoding='utf-8'))
+          assert p['stage']=='RESEARCH_ONLY' and not p['source_data_timestamps_PIT_certified']
+          base='https://api.github.com/repos/ehdud6728-bit/Stock-Hunter'
+          def api(path):
+              req=urllib.request.Request(base+path,headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'], 'Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'})
+              with urllib.request.urlopen(req,timeout=50) as resp:return json.load(resp)
+          for kind in ('r1d25','r1d26','r1d26c'):
+              r=api('/actions/runs/'+str(p[kind+'_run']))
+              assert r['conclusion']=='success' and r['head_sha']==p[kind+'_head_sha'],kind+'_UPSTREAM_RUN_SHA_DRIFT'
+              a=api('/actions/artifacts/'+str(p[kind+'_artifact_id']))
+              assert a['name']==p[kind+'_artifact_name'] and not a['expired'],kind+'_UPSTREAM_ARTIFACT_NAME_EXPIRED'
+              assert a['digest']=='sha256:'+p[kind+'_sha256'],kind+'_UPSTREAM_ARCHIVE_SHA_DRIFT'
+          print('R1D26F_THREE_FROZEN_UPSTREAM_IDENTITIES_PASS')
+          PY_PIN
+      - name: Fetch immutable R1D25 R1D26 R1D26C source ZIPs and SHA verify
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p reports/r1d26f/input
+          curl --fail --silent --show-error --location --retry 3 --max-time 90 \
+            -H "Authorization: Bearer ${GH_TOKEN}" -H 'Accept: application/vnd.github+json' \
+            -o reports/r1d26f/input/R1D25_frozen.zip \
+            'https://api.github.com/repos/ehdud6728-bit/Stock-Hunter/actions/artifacts/12619869983/zip'
+          curl --fail --silent --show-error --location --retry 3 --max-time 90 \
+            -H "Authorization: Bearer ${GH_TOKEN}" -H 'Accept: application/vnd.github+json' \
+            -o reports/r1d26f/input/R1D26_frozen.zip \
+            'https://api.github.com/repos/ehdud6728-bit/Stock-Hunter/actions/artifacts/12622896493/zip'
+          curl --fail --silent --show-error --location --retry 3 --max-time 90 \
+            -H "Authorization: Bearer ${GH_TOKEN}" -H 'Accept: application/vnd.github+json' \
+            -o reports/r1d26f/input/R1D26C_frozen.zip \
+            'https://api.github.com/repos/ehdud6728-bit/Stock-Hunter/actions/artifacts/12626103900/zip'
+          python - <<'PY_SHA'
+          import hashlib,json,pathlib
+          p=json.load(open('R1D26F_PREDECLARED_PROTOCOL.json',encoding='utf-8'))
+          root=pathlib.Path('reports/r1d26f/input')
+          for kind,name in [('r1d25','R1D25_frozen.zip'),('r1d26','R1D26_frozen.zip'),('r1d26c','R1D26C_frozen.zip')]:
+              assert hashlib.sha256((root/name).read_bytes()).hexdigest()==p[kind+'_sha256'],kind+'_ZIP_BYTES_DRIFT'
+          print('R1D26F_UPSTREAM_ZIP_BYTES_SHA_VERIFIED')
+          PY_SHA
+      - name: Run frozen-source regression tests including provider fail-closed mocks
+        env:
+          R1D26F_TEST_INPUT_DIR: reports/r1d26f/input
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests -p 'test_stockhunter_r1d26f_staged_flow.py' -v
+      - name: Freeze 100 signal dates and deduplicated KRX source request plan (NO OUTCOMES)
+        run: |
+          set -euo pipefail
+          python -m research_formulas.stockhunter_r1d26f_staged_flow \
+            --protocol R1D26F_PREDECLARED_PROTOCOL.json --mode prepare \
+            --r1d25-zip reports/r1d26f/input/R1D25_frozen.zip \
+            --r1d26-zip reports/r1d26f/input/R1D26_frozen.zip \
+            --r1d26c-zip reports/r1d26f/input/R1D26C_frozen.zip \
+            --out reports/r1d26f/result/source_only
+      - name: Collect at most 120 deduplicated historical ticker date spans, secrets isolated
+        id: collect
+        env:
+          KRX_ID: ${{ secrets.KRX_DATA_ID || secrets.KRX_ID }}
+          KRX_PW: ${{ secrets.KRX_DATA_PW || secrets.KRX_PW }}
+        run: |
+          set -euo pipefail
+          if [ -z "${KRX_ID:-}" ] || [ -z "${KRX_PW:-}" ]; then
+            echo '::error::R1D26F_KRX_SECRET_BINDING_MISSING'; exit 2
+          fi
+          echo 'R1D26F_KRX_SECRET_BINDING_READY (values masked; validity not proven)'
+          python -m research_formulas.stockhunter_r1d26f_staged_flow \
+            --protocol R1D26F_PREDECLARED_PROTOCOL.json --mode collect \
+            --r1d25-zip reports/r1d26f/input/R1D25_frozen.zip \
+            --r1d26-zip reports/r1d26f/input/R1D26_frozen.zip \
+            --r1d26c-zip reports/r1d26f/input/R1D26C_frozen.zip \
+            --out reports/r1d26f/result/source_only --sleep-seconds 1
+      - name: Always upload source coverage and failures even when collection fails
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-r1d26f-100-C-D-KRX-INVESTOR-KRW-PRE-PIT-COVERAGE
+          retention-days: 90
+          if-no-files-found: warn
+          path: |
+            reports/r1d26f/result/source_only/**
+            R1D26F_PREDECLARED_PROTOCOL.json
+      - name: Reject misleading green run if no new investor event is verified
+        if: always()
+        run: |
+          set -euo pipefail
+          python - <<'PY_GATE'
+          import json,pathlib
+          path=pathlib.Path('reports/r1d26f/result/source_only/R1D26F_MANIFEST.json')
+          assert path.exists(),'R1D26F_NO_MANIFEST'
+          m=json.loads(path.read_text(encoding='utf-8'))
+          assert m['mode']=='collect','R1D26F_NOT_COLLECTED'
+          assert m['events_frozen']==100 and m['anchors_from_R1D26C']==20
+          assert m['complete_event_rows']==20*m['complete_events']
+          assert m['complete_events']>20,'R1D26F_NO_NEW_VERIFIED_KRW_EVENTS'
+          assert not m['strategy_ready'] and not m['prospective_OOS'] and m['orders_placed']==0
+          print('R1D26F_SOURCE_STAGE_PROGRESS',m['complete_events'],'/100 valid events',m['complete_event_rows'],'rows','NOT_PIT_NOT_STRATEGY')
+          PY_GATE
