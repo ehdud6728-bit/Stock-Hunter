@@ -1,10 +1,10 @@
-name: StockHunter Research R1-D19 to R1-D24 (RESEARCH ONLY)
+name: StockHunter Research Hub R1-D19 to R1-D26B (RESEARCH ONLY)
 
 on:
   workflow_dispatch:
     inputs:
       scope:
-        description: "R1D19 to R1D23 isolated historical research selections"
+        description: "One hub for historical research R1D19 through R1D26 (NO LIVE)"
         type: choice
         required: true
         default: r1d19_protocol_lock
@@ -17,6 +17,10 @@ on:
           - r1d23_thesis_lock
           - r1d23_fullmarket_four_thesis
           - r1d24_historical_D_breakout_audit
+          - r1d25_protocol_lock_only
+          - r1d25_historical_validate
+          - r1d26_true_investor_source_probe
+          - r1d26b_single_source_diagnostic
 
 permissions:
   contents: read
@@ -777,3 +781,279 @@ jobs:
           path: |
             reports/r1d24/result/**
             R1D24_PREDECLARED_PROTOCOL.json
+
+  # R1-D25 consolidated; same code, pins, permissions and lock/audit behavior.
+  r1d25:
+    name: R1-D25 MA448 x D30 x pre-breakout price-money proxies, C vs D (NOT OOS)
+    if: ${{ inputs.scope == 'r1d25_protocol_lock_only' || inputs.scope == 'r1d25_historical_validate' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout research source only
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install isolated dependencies, run tests, lock thresholds before reading outcomes
+        run: |
+          set -euo pipefail
+          python -m pip install 'numpy>=1.24,<3' 'pandas>=2.0,<3'
+          python -m unittest discover -s tests -p 'test_stockhunter_r1d25_448_d30.py' -v
+          python -m research_formulas.stockhunter_r1d25_448_d30 \
+            --mode lock --protocol R1D25_PREDECLARED_PROTOCOL.json \
+            --out reports/r1d25/result/historical
+      - name: GitHub source run identity plus archive SHA preflight, fail closed
+        if: inputs.scope == 'r1d25_historical_validate'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python - <<'PY_PIN'
+          import os,json,urllib.request
+          p=json.load(open('R1D25_PREDECLARED_PROTOCOL.json'))
+          base='https://api.github.com/repos/ehdud6728-bit/Stock-Hunter'
+          def get(path):
+              q=urllib.request.Request(base+path,headers={
+                  'Authorization':'Bearer '+os.environ['GH_TOKEN'],
+                  'Accept':'application/vnd.github+json',
+                  'X-GitHub-Api-Version':'2022-11-28'})
+              with urllib.request.urlopen(q,timeout=45) as r:return json.load(r)
+          x=get('/actions/runs/'+str(p['r1d23_run']))
+          assert x['head_sha']=='e9e5312bbc47f9e7d65586cd7b6101e7066071c0' and x['conclusion']=='success','R1D23_SOURCE_RUN_DRIFT'
+          aa=get('/actions/runs/'+str(p['r1d23_run'])+'/artifacts?per_page=100')['artifacts']
+          x=[a for a in aa if a['id']==p['r1d23_artifact_id']]
+          assert len(x)==1 and not x[0]['expired'] and x[0]['digest']=='sha256:'+p['r1d23_artifact_zip_sha256'],'R1D23_SOURCE_ARTIFACT_DRIFT'
+          x=get('/actions/runs/'+str(p['krx_run_id']))
+          assert x['head_sha']=='08e328c101f0774a2236c0a44cc1fdbbaa59e96e' and x['conclusion']=='success','KRX_SOURCE_RUN_DRIFT'
+          aa=get('/actions/runs/'+str(p['krx_run_id'])+'/artifacts?per_page=100')['artifacts']
+          for key,digest in p['krx_shards_sha256'].items():
+              x=[a for a in aa if a['name']=='stockhunter-allkrx-price-shard-'+key]
+              assert len(x)==1 and not x[0]['expired'] and x[0]['digest']=='sha256:'+digest,'KRX_ARCHIVE_DRIFT_'+key
+          print('R1D25_ALL_UPSTREAM_RUN_AND_ARTIFACT_SHA_PINS_PASS')
+          PY_PIN
+      - name: Download immutable KRX daily raw 8 shards, not API-refetched
+        if: inputs.scope == 'r1d25_historical_validate'
+        uses: actions/download-artifact@v4
+        with:
+          repository: ehdud6728-bit/Stock-Hunter
+          run-id: 39295295197
+          github-token: ${{ github.token }}
+          pattern: stockhunter-allkrx-price-shard-*
+          merge-multiple: true
+          path: reports/r1d25/input/krx
+      - name: Download pinned R1D23 frozen signal and path artifact ZIP, without extraction
+        if: inputs.scope == 'r1d25_historical_validate'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p reports/r1d25/input
+          curl --fail --silent --show-error --location --retry 3 \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            -o reports/r1d25/input/R1D23_source.zip \
+            'https://api.github.com/repos/ehdud6728-bit/Stock-Hunter/actions/artifacts/12609117663/zip'
+          python - <<'PY_SHA'
+          import pathlib,json,hashlib
+          p=json.load(open('R1D25_PREDECLARED_PROTOCOL.json'))
+          b=pathlib.Path('reports/r1d25/input/R1D23_source.zip').read_bytes()
+          assert hashlib.sha256(b).hexdigest()==p['r1d23_artifact_zip_sha256'],'R1D23_ARCHIVE_BYTES_DIFFER'
+          print('R1D25_R1D23_ARCHIVE_BYTES_VERIFIED')
+          PY_SHA
+      - name: Verify all daily KRX SHA and compare fixed A B C D with D30
+        if: inputs.scope == 'r1d25_historical_validate'
+        run: |
+          set -euo pipefail
+          python -m research_formulas.stockhunter_r1d25_448_d30 \
+            --mode analyze --protocol R1D25_PREDECLARED_PROTOCOL.json \
+            --source-zip reports/r1d25/input/R1D23_source.zip \
+            --krx-root reports/r1d25/input/krx \
+            --out reports/r1d25/result/historical
+          python -m research_formulas.stockhunter_r1d25_extra_sensitivity \
+            --results reports/r1d25/result/historical
+          python - <<'PY_QA'
+          import json
+          m=json.load(open('reports/r1d25/result/historical/R1D25_MANIFEST.json'))
+          assert m['krx_daily_sha_verified']==1907 and m['frozen_signal_rows']==23266
+          assert m['new_horizon_rows']==116330 and m['price_parity_old_horizons']==93064
+          assert not m['sector_leadership_tested'] and not m['strategy_ready']
+          assert not m['live_changed'] and m['orders_placed']==0
+          print('R1D25_FULL_HISTORICAL_D30_448_QA_COMPLETE_NOT_OOS')
+          PY_QA
+      - name: Upload research results with manifest, even if verification fails
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-r1d25-MA448-D30-CVD-PREFLOW-HISTORICAL-NOT-OOS
+          retention-days: 90
+          if-no-files-found: warn
+          path: |
+            reports/r1d25/result/**
+            R1D25_PREDECLARED_PROTOCOL.json
+
+  # R1-D26 consolidated; original investor data source pilot is preserved.
+  r1d26_true_investor_source_probe:
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'r1d26_true_investor_source_probe'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install only research dependencies and verify provider schemas and causality tests
+        run: |
+          set -euo pipefail
+          python -m pip install 'numpy>=1.24,<3' 'pandas>=2.0,<3' 'pykrx>=1.0.45,<2'
+          python -m unittest discover -s tests -p 'test_stockhunter_r1d26_investor_pilot.py' -v
+      - name: Verify immutable R1-D25 and KRX archive identity before source retrieval
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os,json,urllib.request
+          p=json.load(open('R1D26_PREDECLARED_PROTOCOL.json',encoding='utf-8'))
+          base='https://api.github.com/repos/ehdud6728-bit/Stock-Hunter'
+          def get(url):
+              r=urllib.request.Request(base+url,headers={
+                'Authorization':'Bearer '+os.environ['GH_TOKEN'],
+                'Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'})
+              with urllib.request.urlopen(r,timeout=45) as h:return json.load(h)
+          run=get('/actions/runs/'+str(p['r1d25_source_run']))
+          assert run['conclusion']=='success' and run['head_sha']==p['r1d25_source_head_sha'],'R1D25_RUN_DRIFT'
+          for id,digest in [(p['r1d25_source_artifact_id'],p['r1d25_artifact_zip_sha256']),
+                             (p['krx_shard0_artifact_id'],p['krx_shard0_artifact_zip_sha256'])]:
+              a=get('/actions/artifacts/'+str(id))
+              assert a['digest']=='sha256:'+digest and not a['expired'],'SOURCE_ARCHIVE_SHA_DRIFT'
+          print('R1D26_PINNED_R1D25_AND_KRX_SOURCE_IDENTITIES_PASS')
+          PY
+      - name: Fetch immutable upstream ZIP bytes without modifying source data
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p reports/r1d26/input
+          curl --fail --silent --show-error --location --retry 3 \
+            -H "Authorization: Bearer ${GH_TOKEN}" -H 'Accept: application/vnd.github+json' \
+            -o reports/r1d26/input/R1D25_original_artifact.zip \
+            'https://api.github.com/repos/ehdud6728-bit/Stock-Hunter/actions/artifacts/12619869983/zip'
+          curl --fail --silent --show-error --location --retry 3 \
+            -H "Authorization: Bearer ${GH_TOKEN}" -H 'Accept: application/vnd.github+json' \
+            -o reports/r1d26/input/KRX_shard0_original_artifact.zip \
+            'https://api.github.com/repos/ehdud6728-bit/Stock-Hunter/actions/artifacts/12208596109/zip'
+      - name: Select outcome-blind C/D 20-event balanced pilot; no real flow claims
+        run: |
+          set -euo pipefail
+          python -m research_formulas.stockhunter_r1d26_investor_pilot \
+            --mode prepare --protocol R1D26_PREDECLARED_PROTOCOL.json \
+            --out reports/r1d26/result/pilot
+      - name: Attempt historical real KRX investor net-buy rows, 20 sessions before signal
+        run: |
+          set -euo pipefail
+          python -m research_formulas.stockhunter_r1d26_investor_pilot \
+            --mode collect --protocol R1D26_PREDECLARED_PROTOCOL.json \
+            --out reports/r1d26/result/pilot --sleep-seconds 1
+          python - <<'PY'
+          import json
+          m=json.load(open('reports/r1d26/result/pilot/R1D26_COLLECT_MANIFEST.json'))
+          assert m['attempted_events']==20
+          assert m['actual_real_observations']==m['complete_events']*20
+          assert not m['strategy_effect_estimated'] and not m['strategy_ready'] and m['orders_placed']==0
+          print('R1D26_SOURCE_PILOT_QA_ENDED',m['complete_events'],'/',m['attempted_events'],
+                'complete; zero coverage is NOT real-data success')
+          PY
+      - name: Upload source readiness even if provider is unavailable
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-r1d26-TRUE-INVESTOR-SOURCE-AVAILABILITY-PILOT-NOT-STRATEGY
+          retention-days: 90
+          if-no-files-found: warn
+          path: |
+            reports/r1d26/result/pilot/**
+            R1D26_PREDECLARED_PROTOCOL.json
+
+
+  r1d26b_single_source_diagnostic:
+    name: R1-D26B one-case KRX / pykrx / Naver read-only provider diagnostic [NOT STRATEGY]
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'r1d26b_single_source_diagnostic'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Checkout research code only
+        uses: actions/checkout@v4
+      - name: Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install isolated source diagnostic requirements
+        run: |
+          set -euo pipefail
+          python -m pip install 'pandas>=2.0,<3' 'numpy>=1.24,<3' 'requests>=2.31,<3' 'beautifulsoup4>=4.12,<5' 'pykrx>=1.0.45,<2'
+      - name: Fail closed on fixed R1-D26 upstream artifact digest and original run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p testdata
+          python - <<'PY_PIN'
+          import os,json,urllib.request
+          base='https://api.github.com/repos/ehdud6728-bit/Stock-Hunter'
+          def get(q):
+              req=urllib.request.Request(base+q,headers={
+                  'Authorization':'Bearer '+os.environ['GH_TOKEN'],
+                  'Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'})
+              with urllib.request.urlopen(req,timeout=40) as f:return json.load(f)
+          run=get('/actions/runs/40256526209')
+          assert run['conclusion']=='success' and run['head_sha']=='d26dde37dbefc9a280c9e6ac27cf7a64225962d7','SOURCE_RUN_CHANGED'
+          arts=get('/actions/runs/40256526209/artifacts?per_page=100')['artifacts']
+          a=[a for a in arts if a['id']==12622896493 and not a['expired']]
+          assert len(a)==1 and a[0]['digest']=='sha256:bdb40b5e805d3dde6fe6f824826cc1be160497ef3410cb2adee4478c4c7c14c4','SOURCE_DIGEST_CHANGED'
+          print('R1D26B_FIXED_SOURCE_RUN_AND_ARTIFACT_VERIFIED')
+          PY_PIN
+          curl --fail --silent --show-error --location --retry 2 --max-time 60 \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            -o testdata/r1d26_verified_pilot.zip \
+            'https://api.github.com/repos/ehdud6728-bit/Stock-Hunter/actions/artifacts/12622896493/zip'
+          python - <<'PY_SHA'
+          import hashlib
+          from pathlib import Path
+          b=Path('testdata/r1d26_verified_pilot.zip').read_bytes()
+          assert hashlib.sha256(b).hexdigest()=='bdb40b5e805d3dde6fe6f824826cc1be160497ef3410cb2adee4478c4c7c14c4','SOURCE_ARCHIVE_SHA_CHANGED'
+          print('R1D26B_ZIP_BYTES_VERIFIED')
+          PY_SHA
+      - name: Run source-only fail-closed tests
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests -p 'test_stockhunter_r1d26b_source_diagnostic.py' -v
+      - name: Probe one five-session historical case, with capped alternate-page read
+        run: |
+          set -euo pipefail
+          python -m research_formulas.stockhunter_r1d26b_source_diagnostic \
+            --source-zip testdata/r1d26_verified_pilot.zip \
+            --out reports/r1d26b/result/source_diagnostic --naver-pages 1
+          python - <<'PY_REPORT'
+          import json
+          m=json.load(open('reports/r1d26b/result/source_diagnostic/R1D26B_SINGLE_CASE_SOURCE_DIAGNOSTIC.json'))
+          assert m['pilot_event_count']==20 and len(m['requested_5_trading_dates'])==5
+          assert m['verified_full_historical_KRW_20_sessions']==0
+          assert not m['historical_investor_model_ready'] and not m['strategy_effect_estimated']
+          assert m['orders_placed']==0 and not m['live_changed']
+          assert m['alternative_share_volume_probe']['unit']=='SHARES_NOT_KRW'
+          print('R1D26B_PROVIDER_QA_ENDED_DATA_READY_FALSE')
+          PY_REPORT
+      - name: Upload diagnostic even when sources are unreachable
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-r1d26b-ONECASE-SOURCE-DIAGNOSTIC-NOT-INVESTOR-BACKTEST
+          retention-days: 90
+          if-no-files-found: warn
+          path: |
+            reports/r1d26b/result/source_diagnostic/**
