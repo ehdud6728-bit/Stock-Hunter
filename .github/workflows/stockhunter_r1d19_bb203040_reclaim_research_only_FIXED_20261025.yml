@@ -1,4 +1,4 @@
-name: StockHunter Research Hub R1-D19 to R1-D26D (RESEARCH ONLY)
+name: StockHunter Research Hub R1-D19 to R1-D26E (RESEARCH ONLY)
 
 on:
   workflow_dispatch:
@@ -23,6 +23,7 @@ on:
           - r1d26b_single_source_diagnostic
           - r1d26c_historical_20x20_investor_krw
           - r1d26d_historical_flow_d30_descriptive_qa
+          - r1d26e_historical_hit_ladder_descriptive
 
 permissions:
   contents: read
@@ -1281,3 +1282,98 @@ jobs:
           path: |
             reports/r1d26d/result/historical/**
             R1D26D_PREDECLARED_PROTOCOL.json
+
+
+  # R1D26E: same frozen C/D signals, price-only 5/10/15 ladder; 20 tiny investor cases exploratory.
+  # NEVER trade, never refetch investor data or 1907-day KRX market bars in this job.
+  r1d26e_historical_hit_ladder_descriptive:
+    name: R1-D26E whole-market C/D +5/10/15 high-touch conversion [NOT EXACT DAY / NOT OOS]
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'r1d26e_historical_hit_ladder_descriptive'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Checkout frozen research sources
+        uses: actions/checkout@v4
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install lightweight analysis dependencies and run causal QA tests
+        run: |
+          set -euo pipefail
+          python -m pip install 'numpy>=1.24,<3' 'pandas>=2.0,<3'
+          python -m unittest discover -s tests -p 'test_stockhunter_r1d26e_hit_ladder.py' -v
+      - name: Verify upstream artifact run IDs SHA and names before reading returns
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python - <<'PY_PIN'
+          import json,os,urllib.request
+          p=json.load(open('R1D26E_PREDECLARED_PROTOCOL.json',encoding='utf-8'))
+          assert p['research_only'] and p['no_live_or_orders'] and p['exact_first_hit_date_available'] is False
+          base='https://api.github.com/repos/ehdud6728-bit/Stock-Hunter'
+          def get(path):
+              q=urllib.request.Request(base+path,headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'})
+              with urllib.request.urlopen(q,timeout=45) as h:return json.load(h)
+          for stem in ('r1d25','r1d26d'):
+              run=get('/actions/runs/'+str(p[stem+'_run_id']))
+              assert run['conclusion']=='success' and run['head_sha']==p[stem+'_run_sha'],stem+'_RUN_SHA_DRIFT'
+              art=get('/actions/artifacts/'+str(p[stem+'_artifact_id']))
+              assert not art['expired'] and art['name']==p[stem+'_artifact_name'],stem+'_ARTIFACT_NOT_FOUND'
+              assert art['digest']=='sha256:'+p[stem+'_zip_sha256'],stem+'_ARTIFACT_SHA_DRIFT'
+          print('R1D26E_PINNED_UPSTREAM_RUN_ARTIFACT_IDENTITY_VERIFIED')
+          PY_PIN
+      - name: Fetch exactly two immutable research source archives and verify bytes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p reports/r1d26e/input
+          curl --fail --silent --show-error --location --retry 2 --max-time 90 \
+            -H "Authorization: Bearer ${GH_TOKEN}" -H 'Accept: application/vnd.github+json' \
+            -o reports/r1d26e/input/R1D25_frozen.zip \
+            'https://api.github.com/repos/ehdud6728-bit/Stock-Hunter/actions/artifacts/12619869983/zip'
+          curl --fail --silent --show-error --location --retry 2 --max-time 90 \
+            -H "Authorization: Bearer ${GH_TOKEN}" -H 'Accept: application/vnd.github+json' \
+            -o reports/r1d26e/input/R1D26D_frozen.zip \
+            'https://api.github.com/repos/ehdud6728-bit/Stock-Hunter/actions/artifacts/12627577290/zip'
+          python - <<'PY_SHA'
+          import hashlib,json
+          from pathlib import Path
+          p=json.load(open('R1D26E_PREDECLARED_PROTOCOL.json',encoding='utf-8'))
+          for st,nm in (('r1d25','R1D25_frozen.zip'),('r1d26d','R1D26D_frozen.zip')):
+              assert hashlib.sha256((Path('reports/r1d26e/input')/nm).read_bytes()).hexdigest()==p[st+'_zip_sha256'],st+'_ZIP_BYTES_DRIFT'
+          print('R1D26E_FROZEN_SOURCE_BYTES_VERIFIED')
+          PY_SHA
+      - name: Build D30 common-denominator 5/10/15 and interval-first-hit evidence
+        run: |
+          set -euo pipefail
+          python -m research_formulas.stockhunter_r1d26e_hit_ladder \
+            --r1d25-zip reports/r1d26e/input/R1D25_frozen.zip \
+            --r1d26d-zip reports/r1d26e/input/R1D26D_frozen.zip \
+            --protocol R1D26E_PREDECLARED_PROTOCOL.json \
+            --out reports/r1d26e/result/historical
+          python - <<'PY_QA'
+          import json
+          m=json.load(open('reports/r1d26e/result/historical/R1D26E_QA_MANIFEST.json'))
+          assert m['all_C_D_signal_count']==10310
+          assert m['D30_complete_C']==7416 and m['D30_complete_D']==2782
+          assert m['D30_censored']==112 and m['full_market_actual_investor_flow_covered']==20
+          assert 'NOT_EXACT_DAY' in m['first_hit_resolution']
+          assert not m['prospective_OOS'] and not m['strategy_ready'] and not m['live_changed'] and m['orders_placed']==0
+          print('R1D26E_HISTORICAL_ALL_SIGNAL_HIGH_TOUCH_QA_COMPLETE_NOT_OOS')
+          PY_QA
+      - name: Upload result with immutable provenance even if source failed
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-r1d26e-ALL-C-D-5-10-15-INTERVAL-HIT-NOT-OOS
+          retention-days: 90
+          if-no-files-found: warn
+          path: |
+            reports/r1d26e/result/historical/**
+            R1D26E_PREDECLARED_PROTOCOL.json
