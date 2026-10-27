@@ -36,6 +36,7 @@ on:
           - r1d26p_reclaim_rebreak_investor_net_flow_research
           - r1d26q_new_d125_ticker_disjoint_reclaim_flow_holdout
           - r1d26r_new_a_d200_repeated_break_entry_filter_research
+          - r1d26u_new_a_d200_entry_location_historical_holdout
 
 permissions:
   contents: read
@@ -2870,3 +2871,117 @@ jobs:
             reports/r1d26r/result/**
             R1D26R_PREDECLARED_PROTOCOL.json
             data/R1D26R_FROZEN_A_D_200_ASOF_ONLY.csv
+
+  r1d26u_new_a_d200_entry_location_historical_holdout:
+    name: R1-D26U 200 ticker-disjoint A below224 / D breakout entry-location audit [HISTORICAL NOT OOS / RESEARCH ONLY]
+    if: ${{ inputs.scope == 'r1d26u_new_a_d200_entry_location_historical_holdout' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    permissions:
+      contents: read
+      actions: read
+    env:
+      RESEARCH_ONLY: '1'
+      STOCKHUNTER_LIVE_ENABLE: '0'
+      STOCKHUNTER_ORDER_ENABLE: '0'
+      STOCKHUNTER_SCORE_RANK_ENABLE: '0'
+    steps:
+      - name: Checkout immutable code (no write credentials)
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install read-only price research dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install 'pandas>=2,<3' 'numpy>=1.26,<3' 'pykrx>=1.0.45,<2'
+      - name: Test policy chronology, seals, and limit fills
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests -p 'test_stockhunter_r1d26u_entry_holdout.py' -v
+      - name: Verify pinned upstream D25 run and download archive
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python - <<'PY_LOCKED_D25'
+          import json, os, urllib.request, pathlib, hashlib, subprocess
+          p=json.load(open('R1D26U_PREDECLARED_PROTOCOL.json',encoding='utf8'))
+          assert p['research_only'] and not p['strategy_ready'] and not p['live_changed'] and not p['prospective_OOS'] and p['orders_placed']==0
+          repo=os.environ['GITHUB_REPOSITORY']
+          h={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json'}
+          def get(s):
+              with urllib.request.urlopen(urllib.request.Request('https://api.github.com/repos/'+repo+s,headers=h),timeout=40) as resp:return json.load(resp)
+          r=get('/actions/runs/'+str(p['parent_d25_run_id']))
+          a=get('/actions/artifacts/'+str(p['parent_d25_artifact_id']))
+          assert r['conclusion']=='success' and r['head_sha']==p['parent_d25_head_sha'],'D25_RUN_IDENTITY_DRIFT'
+          assert not a['expired'] and a['workflow_run']['id']==r['id'] and a['digest']=='sha256:'+p['parent_d25_zip_sha256'],'D25_ARTIFACT_MISMATCH'
+          path=pathlib.Path('reports/r1d26u/input/r1d25.zip');path.parent.mkdir(parents=True,exist_ok=True)
+          cmd=['curl','--fail','--silent','--show-error','--location','--retry','3','--max-time','180',
+              '--proto-redir','=https','--header','Authorization: Bearer '+os.environ['GH_TOKEN'],
+              '--header','Accept: application/vnd.github+json','--output',str(path),a['archive_download_url']]
+          subprocess.run(cmd,check=True)
+          assert hashlib.sha256(path.read_bytes()).hexdigest()==p['parent_d25_zip_sha256'],'D25_ARCHIVE_BYTES_CHANGED'
+          print('R1D26U_D25_PARENT_PIN_PASS')
+          PY_LOCKED_D25
+      - name: Seal new A100/D100 signal-only disjoint selection (no future prices read)
+        run: |
+          set -euo pipefail
+          python -m research_formulas.stockhunter_r1d26u_entry_holdout --mode freeze \
+            --d25 reports/r1d26u/input/r1d25.zip \
+            --out reports/r1d26u/result/selection
+          python -m research_formulas.stockhunter_r1d26u_entry_holdout --mode verify \
+            --out reports/r1d26u/result/selection
+      - name: Obtain PRE-signal 120 bars, lock A S0/S1 and D S0
+        env:
+          KRX_ID: ${{ secrets.KRX_DATA_ID || secrets.KRX_ID }}
+          KRX_PW: ${{ secrets.KRX_DATA_PW || secrets.KRX_PW }}
+        run: |
+          set -euo pipefail
+          if [ -z "${KRX_ID:-}" ] || [ -z "${KRX_PW:-}" ]; then echo '::error::KRX_READ_CREDENTIALS_MISSING'; exit 2; fi
+          python -m research_formulas.stockhunter_r1d26u_entry_holdout --mode pre \
+            --selection-dir reports/r1d26u/result/selection \
+            --out reports/r1d26u/result/pre --sleep-seconds 0.8
+          python -m research_formulas.stockhunter_r1d26u_entry_holdout --mode verify \
+            --out reports/r1d26u/result/pre
+      - name: Only after selection and support seals, collect historical D30 (not certified execution)
+        env:
+          KRX_ID: ${{ secrets.KRX_DATA_ID || secrets.KRX_ID }}
+          KRX_PW: ${{ secrets.KRX_DATA_PW || secrets.KRX_PW }}
+        run: |
+          set -euo pipefail
+          python -m research_formulas.stockhunter_r1d26u_entry_holdout --mode post \
+            --selection-dir reports/r1d26u/result/selection \
+            --pre-dir reports/r1d26u/result/pre \
+            --out reports/r1d26u/result/post --sleep-seconds 0.8
+      - name: Evaluate locked support and E0-E3 entry positions with cash denominator
+        run: |
+          set -euo pipefail
+          python -m research_formulas.stockhunter_r1d26u_entry_holdout --mode evaluate \
+            --selection-dir reports/r1d26u/result/selection \
+            --pre-dir reports/r1d26u/result/pre \
+            --post-dir reports/r1d26u/result/post \
+            --out reports/r1d26u/result/comparison
+          python - <<'PY_QA'
+          import json, pathlib
+          d=pathlib.Path('reports/r1d26u/result/comparison')
+          m=json.loads((d/'U_SHA_MANIFEST.json').read_text())
+          assert m['n_selected']==200 and m['n_evaluable']>=130 and m['n_censored']<=70,'R1D26U_INSUFFICIENT_COVERAGE'
+          assert m['research_only'] and not m['prospective_OOS'] and not m['PIT_certified'] and not m['fills_certified']
+          print('R1D26U_QA_PASS_HISTORICAL_TICKER_DISJOINT_NOT_FUTURE_OOS')
+          PY_QA
+      - name: Upload immutable selection/pre/post/evaluation audits even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-R1D26U-A100-D100-HISTORICAL-ENTRY-NOT-OOS-NOT-LIVE
+          retention-days: 90
+          if-no-files-found: warn
+          path: |
+            reports/r1d26u/result/**
+            R1D26U_PREDECLARED_PROTOCOL.json
+            research_formulas/stockhunter_r1d26u_entry_holdout.py
+            tests/test_stockhunter_r1d26u_entry_holdout.py
