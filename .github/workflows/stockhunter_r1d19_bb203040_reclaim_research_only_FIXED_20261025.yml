@@ -1,4 +1,4 @@
-name: StockHunter Research Hub R1-D19 to R1-D26L (RESEARCH ONLY)
+name: StockHunter Research Hub R1-D19 to R1-D26N (RESEARCH ONLY)
 
 on:
   workflow_dispatch:
@@ -30,6 +30,8 @@ on:
           - r1d26i_g_vs_h_holdout_failure_official_crosscheck_qa
           - r1d26k_same_month_success_failure_matched_risk_audit
           - r1d26l_daily_ohlcv_chronological_exit_pilot
+          - r1d26m_first3day_fast_stop_audit
+          - r1d26n_static_structural_support_stop_research
 
 permissions:
   contents: read
@@ -2156,3 +2158,217 @@ jobs:
             reports/r1d26l/result/exit_pilot/**
             data/R1D26L_FROZEN_60_ASOF_EVENTS.csv
             R1D26L_PREDECLARED_PROTOCOL.json
+
+  r1d26m_first3day_fast_stop_audit:
+    name: R1-D26M frozen 59 daily-OHLC D1/D3 fast-stop risk vs rebound [EXPLORATORY NOT OOS]
+    if: ${{ inputs.scope == 'r1d26m_first3day_fast_stop_audit' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      actions: read
+    env:
+      STOCKHUNTER_LIVE_ENABLE: '0'
+      STOCKHUNTER_ORDER_ENABLE: '0'
+      R1D26M_TEST_L_ZIP: reports/r1d26m/input/r1d26l_frozen.zip
+    steps:
+      - name: Checkout research-only inputs
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Setup isolated Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install read-only numeric dependency
+        run: |
+          set -euo pipefail
+          python -m pip install 'numpy>=1.26,<3'
+      - name: Check immutable L run and artifact identity (NO outcome tuning)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python - <<'PY_PIN'
+          import json,os,urllib.request
+          p=json.load(open('R1D26M_PREDECLARED_PROTOCOL.json',encoding='utf8'))
+          assert p['research_only'] and not p['strategy_ready'] and not p['live_changed'] and p['orders_placed']==0
+          root='https://api.github.com/repos/'+os.environ['GITHUB_REPOSITORY']
+          headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'}
+          def get(url):
+              with urllib.request.urlopen(urllib.request.Request(root+url,headers=headers),timeout=45) as resp:return json.load(resp)
+          run=get('/actions/runs/'+str(p['r1d26l_run_id']))
+          art=get('/actions/artifacts/'+str(p['r1d26l_artifact_id']))
+          assert run['conclusion']=='success' and run['head_sha']==p['r1d26l_head_sha'],'PINNED_RUN_CHANGED'
+          assert not art['expired'] and art['name']==p['r1d26l_artifact_name'],'PINNED_ARTIFACT_CHANGED'
+          assert art['digest']=='sha256:'+p['r1d26l_zip_sha256'],'PINNED_DIGEST_CHANGED'
+          print('R1D26M_PINNED_L_RUN_ARTIFACT_AND_DIGEST_VERIFIED')
+          PY_PIN
+      - name: Download exact original L ZIP and compare SHA256
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p reports/r1d26m/input
+          python - <<'PY_DOWNLOAD'
+          import os,subprocess,hashlib,json,pathlib
+          p=json.load(open('R1D26M_PREDECLARED_PROTOCOL.json',encoding='utf8'))
+          dest=pathlib.Path(os.environ['R1D26M_TEST_L_ZIP'])
+          url=f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/actions/artifacts/{p['r1d26l_artifact_id']}/zip"
+          subprocess.run(['curl','--fail','--silent','--show-error','--location','--retry','3',
+             '--max-time','120','--proto-redir','=https',
+             '--header','Authorization: Bearer '+os.environ['GH_TOKEN'],
+             '--header','Accept: application/vnd.github+json','--output',str(dest),url],check=True)
+          assert hashlib.sha256(dest.read_bytes()).hexdigest()==p['r1d26l_zip_sha256'],'PINNED_ZIP_BYTES_CHANGED'
+          print('R1D26M_EXACT_L_ZIP_BYTES_PASS')
+          PY_DOWNLOAD
+      - name: Replay locked historical source and test chronological no-lookahead rules
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests -p 'test_stockhunter_r1d26m_fast_stop.py' -v
+          python -m research_formulas.stockhunter_r1d26m_fast_stop \
+            --source-zip "${R1D26M_TEST_L_ZIP}" \
+            --protocol R1D26M_PREDECLARED_PROTOCOL.json \
+            --out reports/r1d26m/result/historical
+          python - <<'PY_QA'
+          import json,hashlib,pathlib
+          d=pathlib.Path('reports/r1d26m/result/historical');m=json.loads((d/'R1D26M_QA_MANIFEST.json').read_text())
+          assert m['daily_source_complete']==59 and m['ohlc_rows']==1770 and m['comparison_scenario_rows']==236
+          assert m['daily_source_invalid']==1 and not m['strategy_ready'] and m['orders_placed']==0
+          assert m['corporate_action_historical_PIT']=='NOT_VERIFIED' and not m['prospective_OOS']
+          for file,digest in m['file_sha256'].items():
+              assert hashlib.sha256((d/file).read_bytes()).hexdigest()==digest,'RESULT_CHANGED'
+          print('R1D26M_REAL_SOURCE_FAST_STOP_AUDIT_QA_PASS_NOT_PIT_NOT_OOS')
+          PY_QA
+      - name: Always upload outcomes and diagnostic manifests
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-r1d26m-FIRST3D-QUICKSTOP-LOSS-VS-REBOUND-RETROSPECTIVE-NOT-PIT-OOS
+          retention-days: 90
+          if-no-files-found: warn
+          path: |
+            reports/r1d26m/result/historical/**
+            R1D26M_PREDECLARED_PROTOCOL.json
+
+
+  r1d26n_static_structural_support_stop_research:
+    name: R1-D26N frozen 60 ASOF structural support breaks, 120 pre-signal OHLC and 59 D30 paths [NOT LIVE/OOS]
+    if: ${{ inputs.scope == 'r1d26n_static_structural_support_stop_research' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      actions: read
+    env:
+      STOCKHUNTER_LIVE_ENABLE: '0'
+      STOCKHUNTER_ORDER_ENABLE: '0'
+      R1D26N_TEST_L_ZIP: reports/r1d26n/input/r1d26l_frozen.zip
+    steps:
+      - name: Checkout read-only research code and original fixed selection
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Setup Python 3.11 isolated analysis runtime
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install read-only pykrx and analytics dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install 'pandas>=2,<3' 'numpy>=1.26,<3' 'pykrx>=1.0.45,<2'
+      - name: Verify pinned L artifact metadata and unmodified 60-source protocol
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python - <<'PY_META'
+          import json,os,urllib.request,pathlib,hashlib
+          p=json.load(open('R1D26N_PREDECLARED_PROTOCOL.json',encoding='utf8'))
+          assert p['research_only'] and not p['strategy_ready'] and not p['live_changed'] and p['orders_placed']==0
+          assert p['selection_rows']==60
+          assert hashlib.sha256(pathlib.Path('data/R1D26L_FROZEN_60_ASOF_EVENTS.csv').read_bytes()).hexdigest()==p['selection_csv_sha256']
+          repo=os.environ['GITHUB_REPOSITORY']
+          def get(path):
+              headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'}
+              with urllib.request.urlopen(urllib.request.Request('https://api.github.com/repos/'+repo+path,headers=headers),timeout=45) as r:return json.load(r)
+          run=get('/actions/runs/'+str(p['parent_r1d26l_run_id']))
+          art=get('/actions/artifacts/'+str(p['parent_r1d26l_artifact_id']))
+          assert run['conclusion']=='success' and run['head_sha']==p['parent_r1d26l_head_sha'],'L_SOURCE_RUN_IDENTITY_DRIFT'
+          assert not art['expired'] and art['name']==p['parent_r1d26l_artifact_name'],'L_SOURCE_ARTIFACT_DRIFT'
+          assert art['digest']=='sha256:'+p['r1d26l_zip_sha256'],'L_SOURCE_SHA_DRIFT'
+          print('R1D26N_PINNED_L_SOURCE_RUN_SHA_AND_60_SELECTION_PASS')
+          PY_META
+      - name: Download exact prior L immutable OHLC source, never recompute it
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p reports/r1d26n/input
+          python - <<'PY_DOWNLOAD'
+          import pathlib,json,hashlib,subprocess,os
+          p=json.load(open('R1D26N_PREDECLARED_PROTOCOL.json',encoding='utf8'))
+          url=f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/actions/artifacts/{p['parent_r1d26l_artifact_id']}/zip"
+          dst=pathlib.Path('reports/r1d26n/input/r1d26l_frozen.zip')
+          subprocess.run(['curl','--fail','--silent','--show-error','--location','--retry','3',
+              '--max-time','120','--proto-redir','=https','--header','Authorization: Bearer '+os.environ['GH_TOKEN'],
+              '--header','Accept: application/vnd.github+json','--output',str(dst),url],check=True)
+          assert hashlib.sha256(dst.read_bytes()).hexdigest()==p['r1d26l_zip_sha256'],'L_ARCHIVE_ORIGINAL_BYTES_MISMATCH'
+          print('R1D26N_FROZEN_L_PRICE_59_ROWS_SHA_PASS')
+          PY_DOWNLOAD
+      - name: Run 20 retrospective guards including sealed original L prices
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests -p 'test_stockhunter_r1d26n_structural_support.py' -v
+      - name: Fetch historical 120 pre-signal unadjusted OHLC only, support computed no future prices
+        env:
+          KRX_ID: ${{ secrets.KRX_DATA_ID || secrets.KRX_ID }}
+          KRX_PW: ${{ secrets.KRX_DATA_PW || secrets.KRX_PW }}
+        run: |
+          set -euo pipefail
+          if [ -z "${KRX_ID:-}" ] || [ -z "${KRX_PW:-}" ]; then
+            echo '::error::R1D26N_KRX_AUTH_BINDING_MISSING'; exit 2
+          fi
+          echo 'R1D26N_KRX_AUTH_BINDING_PRESENT (credentials never printed)'
+          python -m research_formulas.stockhunter_r1d26n_structural_support --mode collect \
+            --selection data/R1D26L_FROZEN_60_ASOF_EVENTS.csv \
+            --protocol R1D26N_PREDECLARED_PROTOCOL.json \
+            --out reports/r1d26n/result/pre_source --sleep-seconds 1.2
+          python - <<'PY_SEAL'
+          import json,hashlib,pathlib
+          p=pathlib.Path('reports/r1d26n/result/pre_source')
+          m=json.loads((p/'R1D26N_PRE_SIGNAL_SOURCE_MANIFEST.json').read_text())
+          assert m['attempted']==60 and not m['strategy_ready'] and m['orders_placed']==0
+          assert hashlib.sha256((p/'R1D26N_PRE_SIGNAL_120_UNADJUSTED_OHLCV.csv.gz').read_bytes()).hexdigest()==m['source_file_sha256']
+          print('R1D26N_PRE_SIGNAL_KRX_PRICE_SEALED_BEFORE_POST_OUTCOME_JOIN',m['valid_events'],'of 60')
+          PY_SEAL
+      - name: Evaluate static supports and failed-break versus rebound on sealed existing D30 OHLC
+        run: |
+          set -euo pipefail
+          python -m research_formulas.stockhunter_r1d26n_structural_support --mode evaluate \
+            --selection data/R1D26L_FROZEN_60_ASOF_EVENTS.csv \
+            --protocol R1D26N_PREDECLARED_PROTOCOL.json \
+            --pre-source-dir reports/r1d26n/result/pre_source \
+            --l-zip reports/r1d26n/input/r1d26l_frozen.zip \
+            --out reports/r1d26n/result/audit
+          python - <<'PY_QA'
+          import pathlib,json,hashlib
+          p=pathlib.Path('reports/r1d26n/result/audit')
+          m=json.loads((p/'R1D26N_QA_MANIFEST.json').read_text())
+          assert m['selected_unchanged']==60 and m['support_from_signal_time_only'] and not m['strategy_ready']
+          assert not m['prospective_OOS'] and m['orders_placed']==0 and not m['live_changed']
+          for name,digest in m['file_sha256'].items():assert hashlib.sha256((p/name).read_bytes()).hexdigest()==digest,'REPORT_SHA_DRIFT'
+          print('R1D26N_SUPPORT_STOP_RESEARCH_QA_PASS_NOT_PIT_NOT_OOS')
+          PY_QA
+      - name: Always publish pre-signal coverage and structural stop research artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-r1d26n-STRUCTURAL-ASOF-SUPPORT-STOPS-NOT-LIVE-PIT-OOS
+          if-no-files-found: warn
+          retention-days: 90
+          path: |
+            reports/r1d26n/result/pre_source/**
+            reports/r1d26n/result/audit/**
+            R1D26N_PREDECLARED_PROTOCOL.json
+            data/R1D26L_FROZEN_60_ASOF_EVENTS.csv
