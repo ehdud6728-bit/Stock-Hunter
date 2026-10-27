@@ -1,0 +1,46 @@
+{
+  "version": "R1D26P_ASOF_VOLUME_REBREAK_FLOW_PROTOCOL_V1",
+  "research_only": true,
+  "strategy_ready": false,
+  "live_changed": false,
+  "orders_placed": 0,
+  "purpose": "historical C/D successful support reclaim versus secondary breakdown with honest price-volume-amount & independent signed net foreign/institution amount/share fetch",
+  "parents": {
+    "O": {
+      "run_id": 40434656322,
+      "artifact_id": 12703605813,
+      "sha256": "eebe2b98c1fdee38ed61d20393fff5d05de2fce09ad9c4d0f5a888110d8c3d65",
+      "head_sha": "98799da6fe44f188e404f1ab2f70406591436974"
+    },
+    "N": {
+      "run_id": 40427370551,
+      "artifact_id": 12700094027,
+      "sha256": "b5ece82922cb3251587fe4e1e3e39ddedf12da3fca1923d9e530930e4a7656b7",
+      "head_sha": "8a1631c846122a3e4e503d756eea7f5dfc43813c"
+    },
+    "L": {
+      "run_id": 40356487576,
+      "artifact_id": 12666390722,
+      "sha256": "c4252ed3cdd6f72c3329f710db06d662baae623c4034228f69640883c284869c",
+      "head_sha": "8a0ed4caa4c639e33012e994cc89b82379554334"
+    }
+  },
+  "selection_csv_sha256": "3b55434b3d7d090b10f11346ac374ca13cfdd3ec68db526c7b3ca1801adcc631",
+  "primary_one_per_signal": {
+    "C_ABOVE224_RISING_WAVE_PULLBACK": "C_CONFIRMED_SWING_LOW",
+    "D_LEADER_CONSOLIDATION_BREAKOUT": "D_PRE20_BREAKOUT_RETEST"
+  },
+  "initial_stop": "close_confirm_next_open",
+  "cohort": "all frozen 60 signals, 59 D+30 price-complete, one primary support per signal, 2021-2025; not independently held out",
+  "classification": "REENTRY_SURVIVED_D30 (no secondary stop) vs SECOND_STOP; survival is NOT equivalent to profitability",
+  "signal_time": "as-of reclaim confirmed close, not next-day open or later",
+  "price_volume_baseline": "prior20 excluding signal day within frozen N 120 bars",
+  "repeat_break_definition": "each close crosses support from >=support to <support before reclaim close; intraday_low<support and close>=support counted separately; patterns do NOT imply intentional manipulation",
+  "foreign_institution_flow": "two pykrx/KRX on=순매수 reads per 59 signals, both net value KRW and net volume shares, NOT gross buy+sell volume/value",
+  "privacy": "KRX Secrets only in one isolated collect step, do not print values",
+  "no_lookahead": true,
+  "retrospective_not_PIT": true,
+  "prospective_OOS": false,
+  "independent_KRX_crosscheck": "PENDING",
+  "round_trip_cost_bps": "inherit frozen O; no new strategy selected from these exploratory features"
+}

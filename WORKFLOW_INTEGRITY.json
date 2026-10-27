@@ -1,11 +1,12 @@
 {
-  "based_on_verified_current_GitHub_workflow_blob_SHA": "2fed65b9cba4f201fc75734184b3838346b4c1d2",
-  "new_workflow_blob_sha": "74db1fa919eac7804ba2786635cb33645cad6674",
-  "original_job_count": 22,
-  "new_job_count": 23,
-  "new_scope": "r1d26o_frozen_support_reclaim_reentry_research",
-  "workflow": "/.github/workflows/stockhunter_r1d19_bb203040_reclaim_research_only_FIXED_20261025.yml",
-  "root_copy_same_bytes": true,
+  "version": "R1D26P_PREDECLARED_APPEND_ONLY_20261027",
+  "parent_GH_YML_blob_SHA1": "74db1fa919eac7804ba2786635cb33645cad6674",
+  "parent_workflow_SHA256": "9800a12c154b89dd186e4738d591f03d0bf7194223a2866cb77aaa289ab72b93",
+  "new_workflow_sha256": "98fa23ba80beea8b8d862efbb438d6df2f9d5e2a19a2f81445475d40eda6d4db",
+  "existing_job_count": 23,
+  "total_jobs_after": 24,
+  "all_prior_jobs_yaml_semantically_unchanged": true,
+  "root_yml_identical_to_dotgithub_yml": true,
   "research_only": true,
-  "LIVE_ORDERS_CHANGED": false
+  "no_live_order_changes": true
 }
