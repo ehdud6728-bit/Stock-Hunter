@@ -33,6 +33,7 @@ on:
           - r1d26m_first3day_fast_stop_audit
           - r1d26n_static_structural_support_stop_research
           - r1d26o_frozen_support_reclaim_reentry_research
+          - r1d26p_reclaim_rebreak_investor_net_flow_research
 
 permissions:
   contents: read
@@ -2475,3 +2476,127 @@ jobs:
           path: |
             reports/r1d26o/result/historical/**
             R1D26O_PREDECLARED_PROTOCOL.json
+
+  r1d26p_reclaim_rebreak_investor_net_flow_research:
+    name: R1-D26P frozen C/D 59 support rebreak volume turnover foreign institution net-flow [NOT PIT/OOS/LIVE]
+    if: ${{ inputs.scope == 'r1d26p_reclaim_rebreak_investor_net_flow_research' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      actions: read
+    env:
+      STOCKHUNTER_LIVE_ENABLE: '0'
+      STOCKHUNTER_ORDER_ENABLE: '0'
+      R1D26P_SOURCE_DIR: reports/r1d26p/input
+    steps:
+      - name: Checkout research only
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install isolated price and investor data readers
+        run: |
+          set -euo pipefail
+          python -m pip install 'pandas>=2,<3' 'numpy>=1.26,<3' 'pykrx>=1.0.45,<2'
+      - name: Verify immutable parent O N L run and artifact identities
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python - <<'PY_PIN'
+          import json,hashlib,os,urllib.request
+          p=json.load(open('R1D26P_PREDECLARED_PROTOCOL.json',encoding='utf8'))
+          assert p['research_only'] and not p['strategy_ready'] and not p['live_changed'] and p['orders_placed']==0
+          root=f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}"
+          header={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'}
+          def get(path):
+              with urllib.request.urlopen(urllib.request.Request(root+path,headers=header),timeout=45) as response:return json.load(response)
+          for label,v in p['parents'].items():
+              run=get('/actions/runs/'+str(v['run_id']))
+              art=get('/actions/artifacts/'+str(v['artifact_id']))
+              assert run['status']=='completed' and run['conclusion']=='success' and run['head_sha']==v['head_sha'],label+'_RUN_IDENTITY_DRIFT'
+              assert not art['expired'] and art['digest']=='sha256:'+v['sha256'] and art['workflow_run']['id']==v['run_id'],label+'_ARTIFACT_IDENTITY_DRIFT'
+          print('R1D26P_FROZEN_O_N_L_METADATA_PIN_PASS')
+          PY_PIN
+      - name: Download O N L parent archives and verify original bytes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p reports/r1d26p/input
+          python - <<'PY_SOURCE'
+          import json,hashlib,os,pathlib,subprocess
+          p=json.load(open('R1D26P_PREDECLARED_PROTOCOL.json',encoding='utf8'))
+          for label,v in p['parents'].items():
+              dest=pathlib.Path(f'reports/r1d26p/input/r1d26{label.lower()}.zip')
+              url=f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/actions/artifacts/{v['artifact_id']}/zip"
+              subprocess.run(['curl','--fail','--silent','--show-error','--location','--retry','3','--max-time','120',
+                  '--proto-redir','=https','--header','Authorization: Bearer '+os.environ['GH_TOKEN'],
+                  '--header','Accept: application/vnd.github+json','--output',str(dest),url],check=True)
+              assert hashlib.sha256(dest.read_bytes()).hexdigest()==v['sha256'],label+'_ARCHIVE_SHA_MISMATCH'
+          print('R1D26P_ALL_PARENT_ORIGINAL_ZIP_SHA_PASS')
+          PY_SOURCE
+      - name: Run 16 source identity and chronological guards
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests -p 'test_stockhunter_r1d26p_flow_rebreak.py' -v
+      - name: Freeze one primary C/D support per signal and calculate real as-of OHLC volume-money diagnostic
+        run: |
+          set -euo pipefail
+          python -m research_formulas.stockhunter_r1d26p_flow_rebreak --mode prepare \
+            --protocol R1D26P_PREDECLARED_PROTOCOL.json \
+            --o reports/r1d26p/input/r1d26o.zip \
+            --n reports/r1d26p/input/r1d26n.zip \
+            --l reports/r1d26p/input/r1d26l.zip \
+            --out reports/r1d26p/result/price_features
+      - name: KRX historical net buy amount KRW and net shares; credentials restricted to this step
+        env:
+          KRX_ID: ${{ secrets.KRX_DATA_ID || secrets.KRX_ID }}
+          KRX_PW: ${{ secrets.KRX_DATA_PW || secrets.KRX_PW }}
+        run: |
+          set -euo pipefail
+          if [ -z "${KRX_ID:-}" ] || [ -z "${KRX_PW:-}" ]; then
+            echo '::error::R1D26P_KRX_SECRET_BINDING_MISSING'; exit 2
+          fi
+          echo 'R1D26P_KRX_CREDENTIAL_BINDING_PRESENT_NOT_PRINTED'
+          python -m research_formulas.stockhunter_r1d26p_flow_rebreak --mode collect \
+            --protocol R1D26P_PREDECLARED_PROTOCOL.json \
+            --l reports/r1d26p/input/r1d26l.zip \
+            --out reports/r1d26p/result/investor_source --sleep-seconds 1.5
+      - name: Reconcile only full daily aligned investor net flows versus as-of reclaim, preserve incomplete cases
+        run: |
+          set -euo pipefail
+          python -m research_formulas.stockhunter_r1d26p_flow_rebreak --mode evaluate \
+            --price-dir reports/r1d26p/result/price_features \
+            --flow-dir reports/r1d26p/result/investor_source \
+            --out reports/r1d26p/result/flow_join
+          python - <<'PY_QA'
+          from pathlib import Path
+          import hashlib,json
+          root=Path('reports/r1d26p/result')
+          for sub in ('price_features','investor_source','flow_join'):
+              d=root/sub;m=json.loads((d/'R1D26P_QA_MANIFEST.json').read_text())
+              assert m['research_only'] and not m['strategy_ready'] and not m['live_changed'] and m['orders_placed']==0
+              for name,v in m['file_sha256'].items():assert hashlib.sha256((d/name).read_bytes()).hexdigest()==v,'REPORT_SHA_DRIFT'
+          src=json.loads((root/'investor_source'/'R1D26P_QA_MANIFEST.json').read_text())
+          joined=json.loads((root/'flow_join'/'R1D26P_QA_MANIFEST.json').read_text())
+          assert joined['reentry_events']==22
+          assert src['valid_events']>=45 and joined['reentry_flows_complete']>=12,'R1D26P_KRX_SOURCE_INCOMPLETE_NOT_A_STRATEGY_RESULT'
+          print('R1D26P_REAL_PRICE_VOLUME_KRX_NET_SHARE_AND_KRW_QA_PASS_NOT_PIT_NOT_OOS')
+          PY_QA
+      - name: Always upload both price analysis and investor flow source audit on success or failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-r1d26p-REBREAK-VOLUME-MONEY-KRX-NET-FLOW-RESEARCH-NOT-PIT-OOS
+          if-no-files-found: warn
+          retention-days: 90
+          path: |
+            reports/r1d26p/result/price_features/**
+            reports/r1d26p/result/investor_source/**
+            reports/r1d26p/result/flow_join/**
+            R1D26P_PREDECLARED_PROTOCOL.json
