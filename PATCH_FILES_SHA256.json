@@ -1,21 +1,20 @@
 {
-  "package_version": "R1D26V_DIRECT_UPLOAD_ROOT_YML_COPY",
-  "base_branch_head_sha": "e52ac634f35a8d166c1b7e9471867646b08742d3",
-  "base_workflow_git_blob_sha": "c8a84e8b941966b79c133622dd4dfc3eac77207d",
-  "only_existing_workflow_yml_modified": true,
-  "live_modified": false,
-  "orders_modified": false,
-  "workflows_added": 0,
-  "jobs_added_to_existing_workflow": 1,
-  "file_sha256": {
-    ".github/workflows/stockhunter_r1d19_bb203040_reclaim_research_only_FIXED_20261025.yml": "46774a4244539aa5aa950cc8573c70c1d1163cd5445f40384edc5a40ccbb41ce",
-    "EXISTING_WORKFLOW_FULL_COPY.txt": "46774a4244539aa5aa950cc8573c70c1d1163cd5445f40384edc5a40ccbb41ce",
-    "R1D26V_PREDECLARED_PROTOCOL.json": "7551420bc1ae3b7dd135fa80573e9971f64dde596568e59fd194c96e24356ced",
-    "data/R1D26V_FROZEN_A_D_200_ASOF_ONLY.csv": "23d649e9d4f00f2df635ef08243e2d695df60a2cb6bb5244ec14d74f94a61cc9",
-    "research_formulas/stockhunter_r1d26v_entry_correction.py": "694aa44a9e792c8e3a004773a608eb198c5329282f4e70bbc8aefc4fdd9d7e90",
-    "tests/test_stockhunter_r1d26v_entry_correction.py": "a9dbbf40f92f8e42d963d2d1ac91519cc5621621384019e56f0fbee31e4a695e",
-    "README_FIRST.md": "57ef29c4c68e1d4382aecef0d04b70a309e981d17dee7a688ad6a058d20966d8",
-    "stockhunter_r1d19_bb203040_reclaim_research_only_FIXED_20261025.yml": "46774a4244539aa5aa950cc8573c70c1d1163cd5445f40384edc5a40ccbb41ce"
+  "files_sha256": {
+    ".github/workflows/stockhunter_r1d19_bb203040_reclaim_research_only_FIXED_20261025.yml": "4eb4efd87fb7995dc2042185862059d2ed3ab3a35e7c90ce35c504e2ebd0af6e",
+    "R1D27A_PREDECLARED_PROTOCOL.json": "baad594dfa9ca0cb8f5588b946fa0e00b01330ca606090332a16f9e6d302c28e",
+    "README_FIRST.md": "e8f1f254625874d7145b5012537c99880ef9eebd59c9a91742ea0d2ce543e678",
+    "research_formulas/stockhunter_r1d27a_bb_ma_allmarket.py": "fda0744ae0c126319836b013032928d0e4e7358931bd8fd63814eafd58c7f7da",
+    "stockhunter_r1d19_bb203040_reclaim_research_only_FIXED_20261025.yml": "4eb4efd87fb7995dc2042185862059d2ed3ab3a35e7c90ce35c504e2ebd0af6e",
+    "tests/test_stockhunter_r1d27a_bb_ma_allmarket.py": "af5ff223b6a9e72084274568b535fb12d9059bd94e60d593b856d2dbcf930515"
   },
-  "root_yml_display_copy_only": true
+  "new_jobs": 1,
+  "new_workflow_files": 0,
+  "old_jobs_preserved": 28,
+  "original_research_result_claimed": false,
+  "root_workflow_equals_actual_workflow": true,
+  "source_workflow_git_blob": "7330e72158d3d76aa51f7e33dd0a176976e52d9d",
+  "synthetic_integration_events": 5520,
+  "synthetic_integration_outcome_rows": 27600,
+  "tests_passed": 14,
+  "version": "R1D27A_DIRECT_UPLOAD_V1"
 }
