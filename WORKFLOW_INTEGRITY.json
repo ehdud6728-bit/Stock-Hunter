@@ -1,13 +1,11 @@
 {
-  "actual_repo_git_blob_sha": "fa6fde77b229956e321577c406958b122e9f73d5",
-  "original_repo_workflow_sha256": "2efe54cd85f020d7705422d8ebd56fef40a1b403da337333c2cded8a23bab165",
-  "integrated_git_blob_sha": "2fed65b9cba4f201fc75734184b3838346b4c1d2",
-  "integrated_workflow_sha256": "9aaaf442f6a277a2304b92a8ed744ff87b7168c9ef0c18e9f25bab46d71d5141",
-  "original_repo_job_count": 20,
-  "new_job_count": 22,
-  "workflow_scope_count": 23,
-  "all_original_20_jobs_bytewise_logical_identical": true,
-  "M_and_N_integrated": true,
-  "one_workflow_yaml_with_visible_root_copy": true,
-  "research_only": true
+  "based_on_verified_current_GitHub_workflow_blob_SHA": "2fed65b9cba4f201fc75734184b3838346b4c1d2",
+  "new_workflow_blob_sha": "74db1fa919eac7804ba2786635cb33645cad6674",
+  "original_job_count": 22,
+  "new_job_count": 23,
+  "new_scope": "r1d26o_frozen_support_reclaim_reentry_research",
+  "workflow": "/.github/workflows/stockhunter_r1d19_bb203040_reclaim_research_only_FIXED_20261025.yml",
+  "root_copy_same_bytes": true,
+  "research_only": true,
+  "LIVE_ORDERS_CHANGED": false
 }
