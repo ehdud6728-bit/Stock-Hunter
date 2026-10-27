@@ -1,4 +1,4 @@
-name: StockHunter Research Hub R1-D19 to R1-D26R (RESEARCH ONLY)
+name: StockHunter Research Hub R1-D19 to R1-D27A (RESEARCH ONLY)
 
 on:
   workflow_dispatch:
@@ -38,6 +38,7 @@ on:
           - r1d26r_new_a_d200_repeated_break_entry_filter_research
           - r1d26u_new_a_d200_entry_location_historical_holdout
           - r1d26v_new_a_d200_corrected_entry_fill_historical_holdout
+          - r1d27a_fullmarket_bb_ma_width_d30_investor_sample
 
 permissions:
   contents: read
@@ -3140,3 +3141,110 @@ jobs:
             data/R1D26V_FROZEN_A_D_200_ASOF_ONLY.csv
             research_formulas/stockhunter_r1d26v_entry_correction.py
             tests/test_stockhunter_r1d26v_entry_correction.py
+
+  # R1-D27A: ALL original KRX tickers/days meeting fixed ASOF liquidity; no 224MA pre-gate.
+  r1d27a_fullmarket_bb_ma_width_d30_investor_sample:
+    name: R1-D27A full-market BB20/30/40 lower breaks/reclaims MA8 width + D30 and sampled actual investor flow [RESEARCH ONLY]
+    if: ${{ inputs.scope == 'r1d27a_fullmarket_bb_ma_width_d30_investor_sample' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      RESEARCH_ONLY: '1'
+      STOCKHUNTER_LIVE_ENABLE: '0'
+      STOCKHUNTER_ORDER_ENABLE: '0'
+      STOCKHUNTER_SCORE_RANK_ENABLE: '0'
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install isolated read-only data and verification dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install 'numpy>=1.26,<3' 'pandas>=2,<3' 'pykrx>=1.0.45,<2'
+      - name: Predeclare all-market and actual investor source contract; run isolated tests
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests -p 'test_stockhunter_r1d27a_bb_ma_allmarket.py' -v
+          python - <<'PYCHECK'
+          from research_formulas.stockhunter_r1d27a_bb_ma_allmarket import readcfg
+          p=readcfg()
+          assert p['no_ma224_restriction'] and p['historical_end']=='2025-09-30'
+          assert not p['live_changed'] and p['orders_placed']==0 and not p['prospective_OOS']
+          print('R1D27A_FIXED_ALLMARKET_RESEARCH_CONTRACT_PASS')
+          PYCHECK
+      - name: Check immutable KRX eight shard archive digests before downloading
+        run: |
+          set -euo pipefail
+          python - <<'PYSHARD'
+          import os,json,urllib.request
+          from research_formulas import formula66_r1d6_oos_holdout as d6
+          repo=os.environ['GITHUB_REPOSITORY'];run=39295295197
+          req=urllib.request.Request(f'https://api.github.com/repos/{repo}/actions/runs/{run}/artifacts?per_page=100',headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json'})
+          data=json.load(urllib.request.urlopen(req,timeout=60))
+          aa={r['name']:r for r in data['artifacts'] if not r['expired']}
+          for i,d in d6.EXPECTED_SHARD_DIGESTS.items():
+           name=f'stockhunter-allkrx-price-shard-{i}'
+           assert name in aa and aa[name]['digest']=='sha256:'+d,'R1D27A_PINNED_ORIGINAL_SHARD_MISMATCH_'+name
+          print('R1D27A_VERIFIED_8_KRX_ARTIFACT_DIGESTS')
+          PYSHARD
+      - name: Download original immutable eight KRX price shards (historical read-only)
+        uses: actions/download-artifact@v4
+        with:
+          pattern: stockhunter-allkrx-price-shard-*
+          run-id: 39295295197
+          github-token: ${{ github.token }}
+          merge-multiple: true
+          path: reports/r1d27a/input/krx
+      - name: Census ALL market BB20/30/40 downward BREAK / upward RECLAIM with eight MAs and bandwidth; seal ASOF and freeze flow sample BEFORE outcome
+        run: |
+          set -euo pipefail
+          python -m research_formulas.stockhunter_r1d27a_bb_ma_allmarket \
+            --mode census \
+            --krx-root reports/r1d27a/input/krx \
+            --out reports/r1d27a/result/census
+      - name: Independently collect outcome-blind investor net foreign/institution KRW for fixed BB sample; audit missing with no imputation
+        run: |
+          set -euo pipefail
+          python -m research_formulas.stockhunter_r1d27a_bb_ma_allmarket \
+            --mode flow \
+            --krx-root reports/r1d27a/input/krx \
+            --census reports/r1d27a/result/census \
+            --out reports/r1d27a/result/flow
+      - name: Only now read future prices and produce full-market D5/D10/D15/D20/D30 comparisons and sampled investor-flow joins
+        run: |
+          set -euo pipefail
+          python -m research_formulas.stockhunter_r1d27a_bb_ma_allmarket \
+            --mode evaluate \
+            --krx-root reports/r1d27a/input/krx \
+            --census reports/r1d27a/result/census \
+            --flow reports/r1d27a/result/flow \
+            --out reports/r1d27a/result/evaluate
+          python - <<'PYQA'
+          import json
+          root='reports/r1d27a/result/'
+          a=json.load(open(root+'census/R1D27A_PHASE_MANIFEST.json'))
+          b=json.load(open(root+'flow/R1D27A_PHASE_MANIFEST.json'))
+          c=json.load(open(root+'evaluate/R1D27A_PHASE_MANIFEST.json'))
+          assert (a['phase'],b['phase'],c['phase'])==('census','flow','evaluate')
+          assert a['all_market_without_ma224_gate'] and a['n_events']>100
+          assert c['n_outcome_rows']==a['n_events']*5 and c['n_d30_completed']>0
+          assert c['n_flow_joined_d30']<=b['n_flow_complete']<=b['n_frozen']
+          assert not a['live_changed'] and not b['live_changed'] and not c['live_changed']
+          print('R1D27A_FULL_MARKET_BB_MA_WIDTH_D30_SAMPLE_FLOW_RESEARCH_ONLY_PASS')
+          PYQA
+      - name: Always upload ASOF frozen source, separate investor provenance and historical outcome comparisons
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-R1D27A-ALLMARKET-BB-MA-WIDTH-D30-INVESTOR-SAMPLE-RESEARCH-ONLY
+          retention-days: 90
+          if-no-files-found: warn
+          path: |
+            reports/r1d27a/result/**
+            R1D27A_PREDECLARED_PROTOCOL.json
+            research_formulas/stockhunter_r1d27a_bb_ma_allmarket.py
+            tests/test_stockhunter_r1d27a_bb_ma_allmarket.py
