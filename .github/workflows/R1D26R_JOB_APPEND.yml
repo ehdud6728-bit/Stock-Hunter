@@ -1,0 +1,119 @@
+  r1d26r_new_a_d200_repeated_break_entry_filter_research:
+    name: R1-D26R NEW ASOF ticker-disjoint A(below224) 100 D(breakout) 100 repeated support break entry vs reclaim [RESEARCH ONLY]
+    if: ${{ inputs.scope == 'r1d26r_new_a_d200_repeated_break_entry_filter_research' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 80
+    permissions:
+      contents: read
+      actions: read
+    env:
+      STOCKHUNTER_LIVE_ENABLE: '0'
+      STOCKHUNTER_ORDER_ENABLE: '0'
+      R1D26R_D25_ZIP: reports/r1d26r/input/r1d25.zip
+    steps:
+      - name: Checkout immutable research commit; no write credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Python 3.11 research runner
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install read-only price dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install 'pandas>=2,<3' 'numpy>=1.26,<3' 'pykrx>=1.0.45,<2'
+      - name: Verify historical D25 independent signal-source identity
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python - <<'PY_META'
+          import json,os,urllib.request
+          p=json.load(open('R1D26R_PREDECLARED_PROTOCOL.json',encoding='utf8'))
+          assert p['research_only'] and not p['strategy_ready'] and not p['live_changed'] and p['orders_placed']==0
+          repo=os.environ['GITHUB_REPOSITORY']
+          def get(path):
+              u='https://api.github.com/repos/'+repo+path
+              h={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json'}
+              with urllib.request.urlopen(urllib.request.Request(u,headers=h),timeout=45) as resp:return json.load(resp)
+          run=get('/actions/runs/'+str(p['parent_d25_run_id']))
+          art=get('/actions/artifacts/'+str(p['parent_d25_artifact_id']))
+          assert run['conclusion']=='success' and run['head_sha']==p['parent_d25_head_sha'],'D25_RUN_SHA_CHANGED'
+          assert not art['expired'] and art['workflow_run']['id']==p['parent_d25_run_id']
+          assert art['digest']=='sha256:'+p['parent_d25_zip_sha256'],'D25_ARCHIVE_DIGEST_CHANGED'
+          print('R1D26R_D25_SOURCE_IDENTITY_PASS')
+          PY_META
+      - name: Download exact D25 archive and verify frozen new A100 and D100 selections
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p reports/r1d26r/input
+          python - <<'PY_SOURCE'
+          import json,os,subprocess,hashlib,pathlib
+          p=json.load(open('R1D26R_PREDECLARED_PROTOCOL.json',encoding='utf8'))
+          url=f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/actions/artifacts/{p['parent_d25_artifact_id']}/zip"
+          dst=pathlib.Path('reports/r1d26r/input/r1d25.zip')
+          subprocess.run(['curl','--fail','--silent','--show-error','--location','--retry','3','--max-time','180',
+              '--proto-redir','=https','--header','Authorization: Bearer '+os.environ['GH_TOKEN'],
+              '--header','Accept: application/vnd.github+json','--output',str(dst),url],check=True)
+          assert hashlib.sha256(dst.read_bytes()).hexdigest()==p['parent_d25_zip_sha256'],'D25_BYTES_CHANGED'
+          print('R1D26R_PINNED_D25_ZIP_PASS')
+          PY_SOURCE
+          python -m research_formulas.stockhunter_r1d26r_double_break_entry_filter --mode verify --d25 reports/r1d26r/input/r1d25.zip
+          python -m unittest discover -s tests -p 'test_stockhunter_r1d26r_double_break.py' -v
+      - name: Fetch 200 historical PRE-signal price histories; seal support and first-entry pre-gate
+        env:
+          KRX_ID: ${{ secrets.KRX_DATA_ID || secrets.KRX_ID }}
+          KRX_PW: ${{ secrets.KRX_DATA_PW || secrets.KRX_PW }}
+        run: |
+          set -euo pipefail
+          if [ -z "${KRX_ID:-}" ] || [ -z "${KRX_PW:-}" ]; then echo '::error::R1D26R_KRX_CREDENTIALS_MISSING'; exit 2; fi
+          python -m research_formulas.stockhunter_r1d26r_double_break_entry_filter --mode pre \
+            --out reports/r1d26r/result/pre_source --sleep-seconds 0.8
+          python - <<'PY_SEAL'
+          import json,hashlib,pathlib
+          d=pathlib.Path('reports/r1d26r/result/pre_source');m=json.load((d/'R1D26R_QA_MANIFEST.json').open())
+          assert m['phase']=='pre' and m['attempted']==200 and m['pre_decision_sealed']
+          for name,digest in m['file_sha256'].items():assert hashlib.sha256((d/name).read_bytes()).hexdigest()==digest
+          print('R1D26R_PRE_SIGNAL_GATE_SEALED',m['valid'],'of 200')
+          PY_SEAL
+      - name: Fetch independent D30 OHLC path; do not revise sealed pre-signal decisions
+        env:
+          KRX_ID: ${{ secrets.KRX_DATA_ID || secrets.KRX_ID }}
+          KRX_PW: ${{ secrets.KRX_DATA_PW || secrets.KRX_PW }}
+        run: |
+          set -euo pipefail
+          if [ -z "${KRX_ID:-}" ] || [ -z "${KRX_PW:-}" ]; then echo '::error::R1D26R_KRX_CREDENTIALS_MISSING'; exit 2; fi
+          python -m research_formulas.stockhunter_r1d26r_double_break_entry_filter --mode post \
+            --pre-dir reports/r1d26r/result/pre_source \
+            --out reports/r1d26r/result/post_source --sleep-seconds 0.8
+      - name: Evaluate four strategies, D25 D30 parity and censored non-imputed cases
+        run: |
+          set -euo pipefail
+          python -m research_formulas.stockhunter_r1d26r_double_break_entry_filter --mode evaluate \
+            --d25 reports/r1d26r/input/r1d25.zip \
+            --pre-dir reports/r1d26r/result/pre_source \
+            --post-dir reports/r1d26r/result/post_source \
+            --out reports/r1d26r/result/comparison
+          python - <<'PY_QA'
+          import json,hashlib,pathlib
+          d=pathlib.Path('reports/r1d26r/result/comparison');m=json.load((d/'R1D26R_QA_MANIFEST.json').open())
+          assert m['research_only'] and not m['strategy_ready'] and not m['prospective_OOS'] and m['orders_placed']==0
+          for name,digest in m['file_sha256'].items():assert hashlib.sha256((d/name).read_bytes()).hexdigest()==digest
+          if m['n_paired']<130 or m['A_eligible']<50 or m['D_eligible']<50 or m['reference_D25_comparable']<110:
+              raise ValueError('R1D26R_SOURCE_COVERAGE_INSUFFICIENT_NOT_VALID_STRATEGY_RESULT')
+          print('R1D26R_A_BELOW224_D_BREAKOUT_NEW200_QA_PASS_HISTORICAL_NOT_PIT_OOS')
+          PY_QA
+      - name: Always upload source audit, censored cases, and fixed-protocol outcomes
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-r1d26r-A-BELOW224-D-BREAKOUT-NEW200-SUPPORT-FILTER-NOT-LIVE-PIT-OOS
+          retention-days: 90
+          if-no-files-found: warn
+          path: |
+            reports/r1d26r/result/**
+            R1D26R_PREDECLARED_PROTOCOL.json
+            data/R1D26R_FROZEN_A_D_200_ASOF_ONLY.csv
