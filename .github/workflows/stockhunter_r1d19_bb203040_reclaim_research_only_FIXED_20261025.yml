@@ -1,4 +1,4 @@
-name: StockHunter Research Hub R1-D19 to R1-D26N (RESEARCH ONLY)
+name: StockHunter Research Hub R1-D19 to R1-D26O (RESEARCH ONLY)
 
 on:
   workflow_dispatch:
@@ -32,6 +32,7 @@ on:
           - r1d26l_daily_ohlcv_chronological_exit_pilot
           - r1d26m_first3day_fast_stop_audit
           - r1d26n_static_structural_support_stop_research
+          - r1d26o_frozen_support_reclaim_reentry_research
 
 permissions:
   contents: read
@@ -2372,3 +2373,105 @@ jobs:
             reports/r1d26n/result/audit/**
             R1D26N_PREDECLARED_PROTOCOL.json
             data/R1D26L_FROZEN_60_ASOF_EVENTS.csv
+
+
+  r1d26o_frozen_support_reclaim_reentry_research:
+    name: R1-D26O sealed N-support broken then daily-close reclaim / retest / reentry [NOT LIVE/OOS]
+    if: ${{ inputs.scope == 'r1d26o_frozen_support_reclaim_reentry_research' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      actions: read
+    env:
+      STOCKHUNTER_LIVE_ENABLE: '0'
+      STOCKHUNTER_ORDER_ENABLE: '0'
+      R1D26O_TEST_N_ZIP: reports/r1d26o/input/r1d26n.zip
+      R1D26O_TEST_L_ZIP: reports/r1d26o/input/r1d26l.zip
+    steps:
+      - name: Checkout read-only research code (no persisted credentials)
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify immutable upstream N and L artifact identities before any outcome simulation
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python - <<'PY_META'
+          import os,json,urllib.request
+          p=json.load(open('R1D26O_PREDECLARED_PROTOCOL.json',encoding='utf-8'))
+          assert p['research_only'] and not p['strategy_ready'] and not p['live_changed'] and not p['orders_placed']
+          repo=os.environ['GITHUB_REPOSITORY']
+          def get(path):
+              hdr={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'}
+              with urllib.request.urlopen(urllib.request.Request('https://api.github.com/repos/'+repo+path,headers=hdr),timeout=45) as x:return json.load(x)
+          for label in ('n','l'):
+              r=get('/actions/runs/'+str(p['parent_'+label+'_run_id']))
+              a=get('/actions/artifacts/'+str(p['parent_'+label+'_artifact_id']))
+              assert r['conclusion']=='success' and r['head_sha']==p['parent_'+label+'_head_sha'],label+'_RUN_SHA_DRIFT'
+              assert not a['expired'] and a['name']==p['parent_'+label+'_artifact_name'],label+'_ARTIFACT_DRIFT'
+              assert a['digest']=='sha256:'+p['parent_'+label+'_zip_sha256'],label+'_ZIP_SHA_DRIFT'
+          print('R1D26O_PINNED_N_AND_L_GITHUB_UPSTREAM_IDENTITIES_PASS')
+          PY_META
+      - name: Download both pinned archives and verify exact original ZIP SHA256 bytes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p reports/r1d26o/input
+          python - <<'PY_DOWNLOAD'
+          import os,json,pathlib,hashlib,subprocess
+          p=json.load(open('R1D26O_PREDECLARED_PROTOCOL.json',encoding='utf-8'))
+          for label in ('n','l'):
+              url=f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/actions/artifacts/{p['parent_'+label+'_artifact_id']}/zip"
+              dest=pathlib.Path('reports/r1d26o/input/r1d26'+label+'.zip')
+              # curl does not forward Authorization across origins on redirect;
+              # never enable --location-trusted (and only accept HTTPS redirect).
+              subprocess.run(['curl','--fail','--silent','--show-error','--location','--retry','3',
+                  '--max-time','120','--proto-redir','=https',
+                  '--header','Authorization: Bearer '+os.environ['GH_TOKEN'],
+                  '--header','Accept: application/vnd.github+json','--output',str(dest),url],check=True)
+              assert hashlib.sha256(dest.read_bytes()).hexdigest()==p['parent_'+label+'_zip_sha256'],label+'_DOWNLOADED_BYTES_DRIFT'
+          print('R1D26O_FROZEN_N_L_ZIP_BYTES_VERIFIED')
+          PY_DOWNLOAD
+      - name: Test strict ordering, no future leakage, gap stops and two-leg fees on sealed real data
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests -p 'test_stockhunter_r1d26o_reclaim_reentry.py' -v
+      - name: Evaluate immutable support-stop plus one reentry vs stop-only and hold
+        run: |
+          set -euo pipefail
+          python -m research_formulas.stockhunter_r1d26o_reclaim_reentry \
+            --n-zip reports/r1d26o/input/r1d26n.zip \
+            --l-zip reports/r1d26o/input/r1d26l.zip \
+            --protocol R1D26O_PREDECLARED_PROTOCOL.json \
+            --out reports/r1d26o/result/historical
+          python - <<'PY_QA'
+          from pathlib import Path
+          import json,hashlib
+          d=Path('reports/r1d26o/result/historical')
+          m=json.loads((d/'R1D26O_QA_MANIFEST.json').read_text())
+          assert m['n_frozen_selection']==60 and m['n_post_complete']==59
+          assert m['n_N_paired_input']==590 and m['n_N_eligible']==564
+          assert m['n_initial_stops']==245 and m['reclaim_reentries']==181 and m['retest_reentries']==137
+          assert m['n_second_stops_reclaim']==128 and m['n_second_stops_retest']==88
+          assert not m['strategy_ready'] and not m['live_changed'] and not m['prospective_OOS'] and m['orders_placed']==0
+          for name,digest in m['files_sha256'].items():
+              assert hashlib.sha256((d/name).read_bytes()).hexdigest()==digest,'RESEARCH_RESULT_SHA_DRIFT'
+          print('R1D26O_REENTRY_QA_PASS_FROZEN_RETROSPECTIVE_NOT_PIT_NOT_OOS')
+          PY_QA
+      - name: Always upload research audit and guard manifests
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-r1d26o-SEALED-SUPPORT-RECLAIM-REENTRY-RETROSPECTIVE-NOT-PIT-OOS
+          if-no-files-found: warn
+          retention-days: 90
+          path: |
+            reports/r1d26o/result/historical/**
+            R1D26O_PREDECLARED_PROTOCOL.json
