@@ -37,6 +37,7 @@ on:
           - r1d26q_new_d125_ticker_disjoint_reclaim_flow_holdout
           - r1d26r_new_a_d200_repeated_break_entry_filter_research
           - r1d26u_new_a_d200_entry_location_historical_holdout
+          - r1d26v_new_a_d200_corrected_entry_fill_historical_holdout
 
 permissions:
   contents: read
@@ -2985,3 +2986,157 @@ jobs:
             R1D26U_PREDECLARED_PROTOCOL.json
             research_formulas/stockhunter_r1d26u_entry_holdout.py
             tests/test_stockhunter_r1d26u_entry_holdout.py
+
+
+  # R1-D26V: NO additional workflow, NO LIVE, fixed historical NEW 200 disjoint L/Q/R/U.
+  r1d26v_new_a_d200_corrected_entry_fill_historical_holdout:
+    name: R1-D26V NEW A100 D100 correct next OPEN fill and gap vs U seen-sample replay [RESEARCH ONLY NOT OOS]
+    if: ${{ inputs.scope == 'r1d26v_new_a_d200_corrected_entry_fill_historical_holdout' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      actions: read
+    env:
+      RESEARCH_ONLY: '1'
+      STOCKHUNTER_LIVE_ENABLE: '0'
+      STOCKHUNTER_ORDER_ENABLE: '0'
+      STOCKHUNTER_SCORE_RANK_ENABLE: '0'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Checkout read-only research branch, credentials not persisted
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Python 3.11 research runner
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install isolated read-only historical data dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install 'pandas>=2,<3' 'numpy>=1.26,<3' 'pykrx>=1.0.45,<2'
+      - name: 22 tests on frozen selection, support, fill chronology, gap and sizing
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests -p 'test_stockhunter_r1d26v_entry_correction.py' -v
+      - name: Verify pinned D25 ASOF archive identity before outcome-free selection
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python - <<'PY_PIN'
+          import os,json,hashlib,pathlib,urllib.request,subprocess
+          p=json.load(open('R1D26V_PREDECLARED_PROTOCOL.json',encoding='utf8'))
+          assert p['research_only'] and not p['strategy_ready'] and not p['live_changed'] and p['orders_placed']==0
+          root='https://api.github.com/repos/'+os.environ['GITHUB_REPOSITORY']
+          hdr={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json'}
+          def get(path):
+              with urllib.request.urlopen(urllib.request.Request(root+path,headers=hdr),timeout=45) as r:return json.load(r)
+          d25=get('/actions/runs/'+str(p['parent_d25_run_id']))
+          d25art=get('/actions/artifacts/'+str(p['parent_d25_artifact_id']))
+          assert d25['conclusion']=='success' and d25['head_sha']==p['parent_d25_head_sha'],'V_D25_RUN_SHA_DRIFT'
+          assert d25art['digest']=='sha256:'+p['parent_d25_zip_sha256'] and not d25art['expired'],'V_D25_ARTIFACT_SHA_DRIFT'
+          u=get('/actions/runs/'+str(p['u_run_id']))
+          ua=get('/actions/artifacts/'+str(p['u_artifact_id']))
+          assert u['conclusion']=='success' and u['head_sha']=='e52ac634f35a8d166c1b7e9471867646b08742d3','V_U_RUN_SHA_DRIFT'
+          assert ua['digest']=='sha256:'+p['u_artifact_zip_sha256'] and not ua['expired'],'V_U_ARTIFACT_SHA_DRIFT'
+          dest=pathlib.Path('reports/r1d26v/input/d25.zip');dest.parent.mkdir(parents=True,exist_ok=True)
+          url=f"{root}/actions/artifacts/{p['parent_d25_artifact_id']}/zip"
+          subprocess.run(['curl','--fail','--silent','--show-error','--location','--retry','3',
+             '--max-time','180','--proto-redir','=https','--header','Authorization: Bearer '+os.environ['GH_TOKEN'],
+             '--header','Accept: application/vnd.github+json','--output',str(dest),url],check=True)
+          assert hashlib.sha256(dest.read_bytes()).hexdigest()==p['parent_d25_zip_sha256'],'V_D25_DOWNLOAD_DRIFT'
+          print('R1D26V_D25_ASOF_SOURCE_PINNED_U_ARCHIVE_METADATA_VALID')
+          PY_PIN
+      - name: Outcome-blind V selection freeze and L Q R U disjoint identity audit
+        run: |
+          set -euo pipefail
+          python -m research_formulas.stockhunter_r1d26v_entry_correction --mode freeze \
+             --d25 reports/r1d26v/input/d25.zip \
+             --out reports/r1d26v/result/selection
+          python - <<'PY_LOCK'
+          import json
+          m=json.load(open('reports/r1d26v/result/selection/V_SHA_MANIFEST.json'))
+          assert m['phase']=='selection' and m['n_selected']==200 and m['n_old_ticker_exclusions']==585
+          assert m['selection_ready_before_post'] and not m['prospective_OOS'] and not m['strategy_ready']
+          print('R1D26V_NEW_A100_D100_OUTCOME_BLIND_SELECTION_SEALED')
+          PY_LOCK
+      - name: Collect NEW V200 PRE-signal unadjusted OHLC and seal S0 S1 using past only
+        env:
+          KRX_ID: ${{ secrets.KRX_DATA_ID || secrets.KRX_ID }}
+          KRX_PW: ${{ secrets.KRX_DATA_PW || secrets.KRX_PW }}
+        run: |
+          set -euo pipefail
+          if [ -z "${KRX_ID:-}" ] || [ -z "${KRX_PW:-}" ]; then echo '::error::R1D26V_KRX_SECRETS_MISSING';exit 2;fi
+          python -m research_formulas.stockhunter_r1d26v_entry_correction --mode pre \
+             --out reports/r1d26v/result/pre --sleep-seconds 0.8
+          python - <<'PY_PRE'
+          import json
+          p='reports/r1d26v/result/pre/V_SHA_MANIFEST.json';m=json.load(open(p))
+          assert m['phase']=='pre' and m['attempted']==200 and m['support_sealed_before_future']
+          print('R1D26V_ASOF_SUPPORT_SEALED_BEFORE_D30_READ',m['valid'])
+          PY_PRE
+      - name: Only after pre support seal, fetch independent NEW V200 D30 OHLC
+        env:
+          KRX_ID: ${{ secrets.KRX_DATA_ID || secrets.KRX_ID }}
+          KRX_PW: ${{ secrets.KRX_DATA_PW || secrets.KRX_PW }}
+        run: |
+          set -euo pipefail
+          if [ -z "${KRX_ID:-}" ] || [ -z "${KRX_PW:-}" ]; then echo '::error::R1D26V_KRX_SECRETS_MISSING';exit 2;fi
+          python -m research_formulas.stockhunter_r1d26v_entry_correction --mode post \
+             --pre-dir reports/r1d26v/result/pre \
+             --out reports/r1d26v/result/post --sleep-seconds 0.8
+      - name: Evaluate NEW V200 paired cases, base and 10bp/side stress with cash exposure
+        run: |
+          set -euo pipefail
+          python -m research_formulas.stockhunter_r1d26v_entry_correction --mode evaluate \
+             --out reports/r1d26v/result/comparison
+          python - <<'PY_QA'
+          import json
+          m=json.load(open('reports/r1d26v/result/comparison/V_SHA_MANIFEST.json'))
+          assert m['phase']=='evaluate' and m['n_selected']==200
+          assert m['n_evaluable']>=150 and m['n_censored']<=50,'R1D26V_MISSING_PRICES_TOO_MANY'
+          assert m['n_evaluable']+m['n_censored']==200 and not m['prospective_OOS']
+          assert not m['strategy_ready'] and not m['live_changed'] and m['orders_placed']==0
+          print('R1D26V_NEW_A_D200_HISTORICAL_HOLDOUT_QA_COMPLETE_NOT_OOS')
+          PY_QA
+      - name: Finally download original U archive and run separate SEEN-U fill correction replay
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python - <<'PY_U_ARCHIVE'
+          import os,json,pathlib,subprocess,hashlib
+          p=json.load(open('R1D26V_PREDECLARED_PROTOCOL.json'))
+          path=pathlib.Path('reports/r1d26v/input/u_seen.zip')
+          url=f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/actions/artifacts/{p['u_artifact_id']}/zip"
+          subprocess.run(['curl','--fail','--silent','--show-error','--location','--retry','3',
+             '--max-time','180','--proto-redir','=https','--header','Authorization: Bearer '+os.environ['GH_TOKEN'],
+             '--header','Accept: application/vnd.github+json','--output',str(path),url],check=True)
+          assert hashlib.sha256(path.read_bytes()).hexdigest()==p['u_artifact_zip_sha256'],'ORIGINAL_U_ARCHIVE_BYTES_CHANGED'
+          print('R1D26V_SEEN_U_ORIGINAL_ZIP_SHA_VERIFIED_ONLY_AFTER_V_TEST')
+          PY_U_ARCHIVE
+          python -m research_formulas.stockhunter_r1d26v_entry_correction --mode replay-u \
+             --u-archive reports/r1d26v/input/u_seen.zip \
+             --out reports/r1d26v/result/u_replay
+          python - <<'PY_U_QA'
+          import json
+          m=json.load(open('reports/r1d26v/result/u_replay/V_SHA_MANIFEST.json'))
+          assert m['phase']=='u_replay' and m['n_u_paired']==197 and m['n_u_original_cases']==2368
+          assert not m['strategy_ready'] and m['orders_placed']==0 and not m['prospective_OOS']
+          print('R1D26V_SEEN_U_REPLAY_197_PAIRED_AUDIT_ONLY_NOT_INDEPENDENT')
+          PY_U_QA
+      - name: Always upload full frozen selection PRE POST corrected results and U diagnostic
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-R1D26V-NEW200-CORRECTED-NEXTOPEN-ENTRY-NOT-LIVE-PIT-OOS
+          retention-days: 90
+          if-no-files-found: warn
+          path: |
+            reports/r1d26v/result/**
+            R1D26V_PREDECLARED_PROTOCOL.json
+            data/R1D26V_FROZEN_A_D_200_ASOF_ONLY.csv
+            research_formulas/stockhunter_r1d26v_entry_correction.py
+            tests/test_stockhunter_r1d26v_entry_correction.py
