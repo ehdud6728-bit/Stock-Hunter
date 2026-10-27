@@ -1,0 +1,15 @@
+{
+  "files": {
+    ".github/workflows/stockhunter_r1d19_bb203040_reclaim_research_only_FIXED_20261025.yml": "8df5f299a3d470f5adf9d183ebeadfb74513e27929ec9c819989e45600364e8d",
+    "R1D26R_JOB_APPEND.yml": "35436912fc06a7e282fd5c96442daf2383635ceeab9059529ff505eb6193462e",
+    "R1D26R_PREDECLARED_PROTOCOL.json": "0b66359935013013440ef7a4ebd8a4616d484fe137021fe2313bb45d63eb7011",
+    "README_FIRST_R1D26R.md": "beea0702a12bf0b6f95fd28ca18a7be05ea5354ad9dbd75788313f7085eea46c",
+    "REPORT_R1D26R_PREDECLARED.md": "4fdd35d87d232b286a28b27719596d1b165b419e36404c50b56df5fb98d5325c",
+    "data/R1D26R_FROZEN_A_D_200_ASOF_ONLY.csv": "55e1567114f029ddcb32b9587d971f22a920512729afe43c10be6d126bbab31d",
+    "research_formulas/stockhunter_r1d26r_double_break_entry_filter.py": "298a07956e46c69377680a53446c50b22ddc92ca7638e8bf833a3d371a989dd4",
+    "stockhunter_r1d19_bb203040_reclaim_research_only_FIXED_20261025.yml": "8df5f299a3d470f5adf9d183ebeadfb74513e27929ec9c819989e45600364e8d",
+    "tests/test_stockhunter_r1d26r_double_break.py": "81cda62251b42c89363e2a51d472d729ef47efc30b3505d73efd4c9f07e486c5"
+  },
+  "source_github_yml_blob_sha_before_patch": "15d87d5cb4f01850ea3388155eee09e844f48120",
+  "version": "R1D26R_PATCH_20261027"
+}
