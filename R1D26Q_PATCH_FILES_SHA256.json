@@ -1,0 +1,17 @@
+{
+  "remote_workflow_git_blob_sha": "1661c28aa2083edb37d2ea3173fa1e39215d27cd",
+  "old_hub_jobs": 24,
+  "new_hub_jobs": 25,
+  "file_sha256": {
+    ".github/workflows/stockhunter_r1d19_bb203040_reclaim_research_only_FIXED_20261025.yml": "312fe5b3464f4509933f7217b7901068b12cb66444734be622bc67ed57a8c9f0",
+    "stockhunter_r1d19_bb203040_reclaim_research_only_FIXED_20261025.yml": "312fe5b3464f4509933f7217b7901068b12cb66444734be622bc67ed57a8c9f0",
+    "research_formulas/stockhunter_r1d26q_independent_holdout.py": "7e1c0129716c1e178dacfdf126e059dfbf7378f3d993a06185e26c65439b809c",
+    "tests/test_stockhunter_r1d26q_holdout.py": "5c75f721c47294a3e83add57e263caa786f5b30a865f9bba591ff37d07955d14",
+    "data/R1D26Q_FROZEN_D125_ASOF_ONLY.csv": "dd7bb2c1be14346ffad73195adb04036431d68470a5365ed7ec309452661c642",
+    "data/R1D26L_FROZEN_60_ASOF_EVENTS.csv": "3b55434b3d7d090b10f11346ac374ca13cfdd3ec68db526c7b3ca1801adcc631",
+    "R1D26Q_PREDECLARED_PROTOCOL.json": "a2ecebc230416d667927bc4dac372957125ce6906c32fb61f35a402514c55c69",
+    "R1D26Q_JOB_APPEND.yml": "ddb9c4fd283f11eb8064237d08bf8ec229b2ad3c21ef065d620ce2877dd67a5b",
+    "README_FIRST_R1D26Q_독립종목검증_설치실행.md": "7301fa3075fd38fdbf57206292d87a6bd1bca0f257348ea04eca43e8de48d880",
+    "REPORT_R1D26Q_사전등록_새종목125_외국인거래대금.md": "012d5d8253629a85a568ec2c4398546ca5221fa43cda33dc4bb5ed1f6d20e3b8"
+  }
+}
