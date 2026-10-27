@@ -1,0 +1,9 @@
+{
+  ".github/workflows/stockhunter_r1d19_bb203040_reclaim_research_only_FIXED_20261025.yml": "d974aea514aa6c0c4046e5c8131d54472721fa9a8bdd65bf370283bbc443e106",
+  "stockhunter_r1d19_bb203040_reclaim_research_only_FIXED_20261025.yml": "d974aea514aa6c0c4046e5c8131d54472721fa9a8bdd65bf370283bbc443e106",
+  "research_formulas/stockhunter_r1d26u_entry_holdout.py": "3e608f6ec3288240888393a4538d0bd04b81408b79b93c5845a95d077add72da",
+  "tests/test_stockhunter_r1d26u_entry_holdout.py": "43efdb026060d9d67311bdf6f8c0f43c57f836aaae66f76642874f668039d669",
+  "R1D26U_PREDECLARED_PROTOCOL.json": "45a8ee40a9400888d480ae59a9540381041f8632190cd6eb2596438a4c4c095d",
+  "data/R1D26U_FROZEN_A_D_200_ASOF_ONLY.csv": "45a7f08193f0cf217340118e2d907a35f98024778141e3151af93f7a46a286ba",
+  "README_FIRST.md": "7f46ca580dd29e168be3498b304dabd73506027fdb595b793599b3f9aaaa72ad"
+}
