@@ -1,0 +1,32 @@
+{
+  "version": "R1D26M_FAST_STOP_D1_D3_FROZEN_EXPLORATORY_V1",
+  "research_only": true,
+  "hypothesis_status": "EXPLORATORY_RETROSPECTIVE_NOT_INDEPENDENT_OOS",
+  "not_strategy_reoptimization": true,
+  "strategy_ready": false,
+  "live_changed": false,
+  "orders_placed": 0,
+  "r1d26l_run_id": 40356487576,
+  "r1d26l_head_sha": "8a0ed4caa4c639e33012e994cc89b82379554334",
+  "r1d26l_artifact_id": 12666390722,
+  "r1d26l_artifact_name": "stockhunter-r1d26l-60-REAL-UNADJUSTED-OHLC-D30-EXIT-PILOT-NOT-FILL-PIT-OOS",
+  "r1d26l_zip_sha256": "c4252ed3cdd6f72c3329f710db06d662baae623c4034228f69640883c284869c",
+  "frozen_60_sha256": "3b55434b3d7d090b10f11346ac374ca13cfdd3ec68db526c7b3ca1801adcc631",
+  "roundtrip_cost_pct": 0.2,
+  "early_exit_d1_close_pct": -2.5,
+  "early_exit_d3_close_pct": -4.0,
+  "early_exit_d3_max_high_pct_exclusive": 5.0,
+  "rules": {
+    "D1_CLOSE_WEAK_2P5": "If D1 close <= entry_open * 0.975, hypothetical exit at D2 open",
+    "D3_NO_REBOUND_4P0": "If D3 close <= entry_open * 0.96 AND max(D1..D3 high) < entry_open * 1.05, hypothetical exit at D4 open",
+    "COMBINED_EARLIEST": "earliest of D1 or D3; else D30 close",
+    "HOLD_D30": "D30 close; 20bps roundtrip cost"
+  },
+  "volume_warning_only": "D1..D3 at least two red bars; D3 amount >= 1.5 * mean(D1,D2 amount); D3 close below entry. No exit rule.",
+  "known_limitations": [
+    "Retrospective 59 events; exploratory criteria not OOS",
+    "Next-day open is hypothetical, no fill/latency/limits",
+    "unadjusted price PIT and corporate actions not certified",
+    "single start day baseline entry used; no scale/portfolio/cost of idle capital"
+  ]
+}
