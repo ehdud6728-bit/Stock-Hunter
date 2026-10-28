@@ -9,12 +9,30 @@ from research_formulas import stockhunter_r1d27e_post15_flow as f15
 
 def pct(num,den):return 100*num/den if pd.notna(den) and den>0 else np.nan
 
+def validate_closeout(m,old):
+    # A census is done once every frozen event has been attempted. A retry-pending
+    # provider failure is MISSING (never zero), not a reason to call the API forever.
+    f15.chk(m['n_frozen']==1500 and m['n_attempted']==1500 and len(old)==1500,
+            'FROZEN_CENSUS_NOT_FULLY_ATTEMPTED')
+    f15.chk(m.get('n_never_attempted', 1500-len(old))==0,
+            'NEVER_ATTEMPTED_EVENTS_REMAIN')
+    completed=sum(str(v['source_complete'])=='1' for v in old.values())
+    retry=sum(str(v['status'])=='RETRY_PENDING_PROVIDER_FAILURE' for v in old.values())
+    quarantine=sum(str(v['status'])=='QUARANTINED_NO_IMPUTATION' for v in old.values())
+    f15.chk(completed==m['n_complete'] and retry==m['n_retry_pending']
+            and quarantine==m['n_quarantined']
+            and completed+retry+quarantine==1500
+            and retry==m['n_unattempted'], 'FULL_CENSUS_STATUS_INTEGRITY')
+    f15.chk(completed>=1200,'INSUFFICIENT_VALID_POST_FLOW')
+    return dict(complete=completed,quarantined=quarantine,retry_missing=retry)
+
 def analyze(freeze_file,base_dir,checkpoint,out):
     fr,base,bm=f15.read_base(base_dir,freeze_file)
     root=pathlib.Path(checkpoint);m=f15.stage(root/f15.MAN)
+    print('STAGE start_read_seed',flush=True)
     raw,old=f15.read_seed(root,fr,base,bm['base_sha256'])
-    f15.chk(m['n_unattempted']==0 and len(old)==1500,'INCOMPLETE_SOURCE_COLLECTION')
-    f15.chk(m['n_complete']==sum(str(x['source_complete'])=='1' for x in old.values()),'MANIFEST_COUNTS')
+    print('STAGE seed_validated',len(raw),len(old),flush=True)
+    validate_closeout(m,old)
     bp=pathlib.Path(base_dir);prebytes=(bp/f15.PRE).read_bytes()
     f15.chk(f15.sha(prebytes)==bm['pre_compact_sha256'],'PRE_SOURCE_SHA')
     pre=pd.read_csv(io.BytesIO(gzip.decompress(prebytes)),dtype={k:str for k in f15.KEY})
@@ -41,6 +59,7 @@ def analyze(freeze_file,base_dir,checkpoint,out):
     q['cum_positive_days']=gr.net_buy_day.cumsum()
     q['cum_net_new_high']=gr.big2_cum_net_krw.cummax().eq(q.big2_cum_net_krw).astype(int)
     q.to_csv(out/'R1D27E_POST15_DAILY_FLOW_PRICE_1_15.csv',index=False)
+    print('STAGE daily_flow_price_complete',len(q),flush=True)
     actor=post[post.actor.isin(['기관합계','외국인합계'])].copy().sort_values(f15.KEY+['actor','day'])
     ga=actor.groupby(f15.KEY+['actor'],sort=False)
     actor['cum_net_krw']=ga.net_krw.cumsum()
@@ -50,63 +69,70 @@ def analyze(freeze_file,base_dir,checkpoint,out):
     actor=actor.merge(turnover[f15.KEY+['day','daily_traded_krw']],on=f15.KEY+['day'],how='left',validate='many_to_one')
     actor['daily_net_pct_of_stock_turnover']=[pct(n,t) for n,t in zip(actor.net_krw,actor.daily_traded_krw)]
     actor.to_csv(out/'R1D27E_POST15_INST_FOREIGN_DAILY_SEPARATE.csv',index=False)
+    print('STAGE actor_daily_complete',len(actor),flush=True)
     # Paired signal-time features remain logically separated from future diagnostics.
     q=q.merge(pre[f15.KEY+['big2_net10_krw','inst_net10_krw','foreign_net10_krw',
                          'big2_net10_pct_of_market_turnover','both_inst_foreign_10d_net_acceleration_pos']],
         on=f15.KEY,how='left',validate='many_to_one')
+    # Fast NumPy reductions keep full 1483-event retrospective analysis bounded.
     t=[]
-    for key,g in q.groupby(f15.KEY,sort=False):
-        a=g.sort_values('day');t14=a.loc[a.day.le(10),'net_krw'].sum();p10=a.big2_net10_krw.iloc[0]
-        flow10=a.loc[a.day.le(10),'net_krw'].sum();flow5=a.loc[a.day.le(5),'net_krw'].sum()
-        mid5=a.loc[a.day.between(6,10),'net_krw'].sum();late5=a.loc[a.day.between(11,15),'net_krw'].sum()
-        mask=a.price_status.eq('COMPLETE')
-        d15=a.loc[a.day.eq(15)].iloc[0]
-        peak_idx=a.daily_high.idxmax() if mask.all() else None
-        peak_day=float(a.loc[peak_idx,'day']) if peak_idx is not None else np.nan
-        flow_after_peak=float(a.loc[a.day.gt(peak_day),'net_krw'].sum()) if peak_idx is not None else np.nan
-        max_hi=float(a.daily_high.max()) if mask.all() else np.nan
-        entry=float(a.entry_open.iloc[0])
-        giveback=pct(max_hi-float(d15.daily_close),entry) if mask.all() else np.nan
+    for event_i,(key,g) in enumerate(q.groupby(f15.KEY,sort=False)):
+        if event_i % 200 == 0:print('STAGE event_reduced',event_i,flush=True)
+        a=g.sort_values('day')
+        days=a.day.to_numpy(dtype=int);net=a.net_krw.to_numpy(dtype='int64')
+        turnover15=a.daily_traded_krw.to_numpy(dtype=float)
+        flow5=int(net[:5].sum());mid5=int(net[5:10].sum());late5=int(net[10:15].sum())
+        flow10=int(net[:10].sum());p10=a.big2_net10_krw.iloc[0]
+        full=bool(a.price_status.eq('COMPLETE').all())
+        d15=a.iloc[-1]
+        peak_ix=int(a.daily_high.to_numpy(dtype=float).argmax()) if full else -1
+        peak_day=float(days[peak_ix]) if full else np.nan
+        flow_after_peak=float(net[peak_ix+1:].sum()) if full else np.nan
+        max_hi=float(a.daily_high.iloc[peak_ix]) if full else np.nan
+        entry=float(a.entry_open.iloc[0]);giveback=pct(max_hi-float(d15.daily_close),entry) if full else np.nan
         v={**dict(zip(f15.KEY,key)),
-           'd15_price_complete':bool(mask.all()),
-           'd15_close_net_pct':float(d15.close_net_20bps_pct) if mask.all() else np.nan,
-           'd15_cum_high_pct':float(d15.cum_high_gross_pct) if mask.all() else np.nan,
+           'd15_price_complete':full,
+           'd15_close_net_pct':float(d15.close_net_20bps_pct) if full else np.nan,
+           'd15_cum_high_pct':float(d15.cum_high_gross_pct) if full else np.nan,
            'd15_peak_to_close_giveback_pct_of_entry':giveback,
            'd15_price_peak_day':peak_day,
-           'net_d1_5_krw':int(flow5),'net_d6_10_krw':int(mid5),'net_d11_15_krw':int(late5),
-           'net_d1_10_krw':int(flow10),'net_d1_15_krw':int(a.net_krw.sum()),
+           'net_d1_5_krw':flow5,'net_d6_10_krw':mid5,'net_d11_15_krw':late5,
+           'net_d1_10_krw':flow10,'net_d1_15_krw':int(net.sum()),
            'net_d1_15_pct_of_turnover':float(a.big2_cum_net_pct_of_turnover.iloc[-1]),
            'net_d1_10_minus_presignal10_krw':float(flow10-p10) if pd.notna(p10) else np.nan,
-           'net_d11_15_minus_d6_10_krw':int(late5-mid5),
-           'net_d6_10_minus_d1_5_krw':int(mid5-flow5),
-           'positive_net_days_d1_15':int((a.net_krw>0).sum()),
-           'all_15_days_net_buy':int((a.net_krw>=0).all()),
+           'net_d11_15_minus_d6_10_krw':late5-mid5,
+           'net_d6_10_minus_d1_5_krw':mid5-flow5,
+           'positive_net_days_d1_15':int((net>0).sum()),
+           'all_15_days_net_buy':int((net>=0).all()),
            'net_since_price_peak_krw':flow_after_peak,
            'both_accel_pre10_flag':float(a.both_inst_foreign_10d_net_acceleration_pos.iloc[0]),
            'presignal_net10_krw':float(p10)}
+        cu=np.cumsum(net);ct=np.cumsum(turnover15)
         for d in (3,5,7,10,12,15):
-            subset=a[a.day.le(d)]
-            v[f'cum_net_d{d}_krw']=int(subset.net_krw.sum())
-            v[f'cum_net_d{d}_pct_of_turnover']=pct(subset.net_krw.sum(),subset.daily_traded_krw.sum())
-            v[f'cum_positive_days_d{d}']=int((subset.net_krw>0).sum())
-            v[f'price_cum_high_d{d}_pct']=float(subset.cum_high_gross_pct.iloc[-1]) if mask.all() else np.nan
-        for goal in (5,7,10,12,15):v[f'hit_{goal}_pct_by_d15']=int(bool(mask.all()) and v['d15_cum_high_pct']>=goal)
+            z=d-1
+            v[f'cum_net_d{d}_krw']=int(cu[z])
+            v[f'cum_net_d{d}_pct_of_turnover']=pct(cu[z],ct[z])
+            v[f'cum_positive_days_d{d}']=int((net[:d]>0).sum())
+            v[f'price_cum_high_d{d}_pct']=float(a.cum_high_gross_pct.iloc[z]) if full else np.nan
+        for goal in (5,7,10,12,15):v[f'hit_{goal}_pct_by_d15']=int(full and v['d15_cum_high_pct']>=goal)
         t.append(v)
     events=pd.DataFrame(t)
-    # Separately expose how institutions and foreigners behaved, not just their netted sum.
+    print('STAGE event_summary_complete',len(events),flush=True)
+    # Institutions and foreigners are measured separately, never inferred from aggregate.
     actor_evt=[]
     for key,g in actor.groupby(f15.KEY+['actor'],sort=False):
-        part=g.sort_values('day')
+        part=g.sort_values('day');n=part.net_krw.to_numpy(dtype='int64')
         a={**dict(zip(f15.KEY+['actor'],key)),
-           'net_d1_15_krw':int(part.net_krw.sum()),
-           'net_d1_5_krw':int(part.loc[part.day.le(5),'net_krw'].sum()),
-           'net_d6_10_krw':int(part.loc[part.day.between(6,10),'net_krw'].sum()),
-           'net_d11_15_krw':int(part.loc[part.day.between(11,15),'net_krw'].sum()),
-           'positive_days_d15':int(part.net_krw.gt(0).sum()),
-           'all_days_net_nonnegative':int(part.net_krw.ge(0).all())}
-        for d in (3,5,7,10,12,15):
-            a[f'cum_net_d{d}_krw']=int(part.loc[part.day.le(d),'net_krw'].sum())
+           'net_d1_15_krw':int(n.sum()),
+           'net_d1_5_krw':int(n[:5].sum()),
+           'net_d6_10_krw':int(n[5:10].sum()),
+           'net_d11_15_krw':int(n[10:15].sum()),
+           'positive_days_d15':int((n>0).sum()),
+           'all_days_net_nonnegative':int((n>=0).all())}
+        cs=np.cumsum(n)
+        for d in (3,5,7,10,12,15):a[f'cum_net_d{d}_krw']=int(cs[d-1])
         actor_evt.append(a)
+    print('STAGE actor_event_summary_complete',len(actor_evt),flush=True)
     pd.DataFrame(actor_evt).to_csv(out/'R1D27E_POST15_INST_FOREIGN_EVENT_TRENDS.csv',index=False)
     events.to_csv(out/'R1D27E_POST15_EVENT_FLOW_TREND_1500.csv',index=False)
     # Descriptive associations only. No retrospective feature is a trading-time signal.
@@ -151,6 +177,8 @@ def analyze(freeze_file,base_dir,checkpoint,out):
     missing=pd.DataFrame([*old.values()]);missing.loc[missing.source_complete.astype(str).ne('1')].to_csv(out/'R1D27E_POST15_QUARANTINE_NO_IMPUTATION.csv',index=False)
     summary=dict(version=f15.VERSION,phase='POST_SIGNAL_RETROSPECTIVE_DESCRIPTIVE',frozen=1500,
         post_flow_complete=m['n_complete'],post_flow_quarantined=m['n_quarantined'],
+        post_flow_retry_pending_missing=m['n_retry_pending'],
+        full_1500_frozen_events_attempted=True, missing_17_excluded_not_zero=True,
         paired_pre_signal_and_post_flow=int(events.presignal_net10_krw.notna().sum()),
         d15_price_complete_and_postflow=int(complete.shape[0]),
         net_outflows_not_missing=True,post_signal_flow_is_future_outcome=True,
