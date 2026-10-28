@@ -1,0 +1,344 @@
+name: StockHunter R1-D27E Post-Signal D1-D15 Investor Flow [RESEARCH ONLY]
+on:
+  workflow_dispatch:
+    inputs:
+      seed_run_id:
+        description: "Auto-seeded prior run ID; first run 0"
+        required: true
+        type: string
+        default: '0'
+      seed_part:
+        description: "Part artifact suffix 01..08; first run 00"
+        required: true
+        type: string
+        default: '00'
+      auto_continue:
+        description: "Auto-dispatch until 1500 frozen sources attempted"
+        required: true
+        type: boolean
+        default: true
+      chain_depth:
+        description: "Auto chain depth; first run 0"
+        required: true
+        type: string
+        default: '0'
+      abort_streak:
+        description: "Consecutive provider-aborted runs; first run 0"
+        required: true
+        type: string
+        default: '0'
+permissions:
+  contents: read
+  actions: write
+concurrency:
+  group: r1d27e-post15-research-frozen-1500
+  cancel-in-progress: false
+jobs:
+  post_signal_investor_flow:
+    name: 1500 frozen events D1..D15 investor gross/net × research only
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    env:
+      STOCKHUNTER_LIVE_ENABLE: '0'
+      STOCKHUNTER_ORDER_ENABLE: '0'
+      STOCKHUNTER_SCORE_RANK_ENABLE: '0'
+      R1D27E_LAST_PART: '00'
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout research-only source
+        uses: actions/checkout@v4
+      - name: Install Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install isolated research dependencies
+        run: |
+          python -m pip install --disable-pip-version-check pandas numpy pykrx
+          python -m py_compile research_formulas/stockhunter_r1d27e_post15_flow.py research_formulas/stockhunter_r1d27e_post15_analyze.py
+          python - <<'PYTEST'
+          from research_formulas.stockhunter_r1d27e_post15_flow import read_base
+          f,p,m=read_base('research_inputs','research_inputs/R1D27D_FROZEN_1500_TICKER_DISJOINT_OUTCOME_BLIND.csv')
+          print('R1D27E_FROZEN_INPUT_VERIFIED',len(f),len(p),m['base_sha256'],flush=True)
+          PYTEST
+      - name: Restore exact prior checkpoint (if auto-dispatched)
+        if: ${{ inputs.seed_run_id != '0' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: stockhunter-R1D27E-POST15-PART-${{ inputs.seed_part }}
+          run-id: ${{ inputs.seed_run_id }}
+          github-token: ${{ github.token }}
+          path: r1d27e_seed
+      - name: Collect D+15 future-only flow batch 01
+        id: part01
+        if: ${{ success() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f r1d27e_seed/R1D27E_POST15_MANIFEST.json ]; then SEED='--seed-root r1d27e_seed'; else SEED=''; fi
+          python -m research_formulas.stockhunter_r1d27e_post15_flow collect \
+            --freeze-file research_inputs/R1D27D_FROZEN_1500_TICKER_DISJOINT_OUTCOME_BLIND.csv \
+            --base-dir research_inputs --out r1d27e_work/reports/r1d27e_post15 --batch 30 $SEED
+          python - <<'PYSTATE'
+          import json,os,pathlib
+          m=json.loads(pathlib.Path('r1d27e_work/reports/r1d27e_post15/R1D27E_POST15_MANIFEST.json').read_text())
+          with open(os.environ['GITHUB_OUTPUT'],'a') as h:
+              print('remaining='+str(m['n_unattempted']),file=h)
+              print('abort='+str(m['provider_abort']).lower(),file=h)
+          print('R1D27E_PART_01_STATE',m['n_complete'],m['n_quarantined'],m['n_unattempted'],m['provider_abort'],flush=True)
+          PYSTATE
+          echo 'R1D27E_LAST_PART=01' >> "$GITHUB_ENV"
+      - name: Upload durable R1D27E checkpoint part 01
+        if: ${{ steps.part01.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-R1D27E-POST15-PART-01
+          path: r1d27e_work/reports/r1d27e_post15/*
+          retention-days: 90
+          if-no-files-found: error
+      - name: Provider cooldown after part 01
+        if: ${{ steps.part01.outputs.remaining != '0' && steps.part01.outputs.abort != 'true' }}
+        run: sleep 12
+      - name: Collect D+15 future-only flow batch 02
+        id: part02
+        if: ${{ steps.part01.outputs.remaining != '0' && steps.part01.outputs.abort != 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          SEED='--seed-root r1d27e_work/reports/r1d27e_post15'
+          python -m research_formulas.stockhunter_r1d27e_post15_flow collect \
+            --freeze-file research_inputs/R1D27D_FROZEN_1500_TICKER_DISJOINT_OUTCOME_BLIND.csv \
+            --base-dir research_inputs --out r1d27e_work/reports/r1d27e_post15 --batch 30 $SEED
+          python - <<'PYSTATE'
+          import json,os,pathlib
+          m=json.loads(pathlib.Path('r1d27e_work/reports/r1d27e_post15/R1D27E_POST15_MANIFEST.json').read_text())
+          with open(os.environ['GITHUB_OUTPUT'],'a') as h:
+              print('remaining='+str(m['n_unattempted']),file=h)
+              print('abort='+str(m['provider_abort']).lower(),file=h)
+          print('R1D27E_PART_02_STATE',m['n_complete'],m['n_quarantined'],m['n_unattempted'],m['provider_abort'],flush=True)
+          PYSTATE
+          echo 'R1D27E_LAST_PART=02' >> "$GITHUB_ENV"
+      - name: Upload durable R1D27E checkpoint part 02
+        if: ${{ steps.part02.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-R1D27E-POST15-PART-02
+          path: r1d27e_work/reports/r1d27e_post15/*
+          retention-days: 90
+          if-no-files-found: error
+      - name: Provider cooldown after part 02
+        if: ${{ steps.part02.outputs.remaining != '0' && steps.part02.outputs.abort != 'true' }}
+        run: sleep 12
+      - name: Collect D+15 future-only flow batch 03
+        id: part03
+        if: ${{ steps.part02.outputs.remaining != '0' && steps.part02.outputs.abort != 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          SEED='--seed-root r1d27e_work/reports/r1d27e_post15'
+          python -m research_formulas.stockhunter_r1d27e_post15_flow collect \
+            --freeze-file research_inputs/R1D27D_FROZEN_1500_TICKER_DISJOINT_OUTCOME_BLIND.csv \
+            --base-dir research_inputs --out r1d27e_work/reports/r1d27e_post15 --batch 30 $SEED
+          python - <<'PYSTATE'
+          import json,os,pathlib
+          m=json.loads(pathlib.Path('r1d27e_work/reports/r1d27e_post15/R1D27E_POST15_MANIFEST.json').read_text())
+          with open(os.environ['GITHUB_OUTPUT'],'a') as h:
+              print('remaining='+str(m['n_unattempted']),file=h)
+              print('abort='+str(m['provider_abort']).lower(),file=h)
+          print('R1D27E_PART_03_STATE',m['n_complete'],m['n_quarantined'],m['n_unattempted'],m['provider_abort'],flush=True)
+          PYSTATE
+          echo 'R1D27E_LAST_PART=03' >> "$GITHUB_ENV"
+      - name: Upload durable R1D27E checkpoint part 03
+        if: ${{ steps.part03.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-R1D27E-POST15-PART-03
+          path: r1d27e_work/reports/r1d27e_post15/*
+          retention-days: 90
+          if-no-files-found: error
+      - name: Provider cooldown after part 03
+        if: ${{ steps.part03.outputs.remaining != '0' && steps.part03.outputs.abort != 'true' }}
+        run: sleep 12
+      - name: Collect D+15 future-only flow batch 04
+        id: part04
+        if: ${{ steps.part03.outputs.remaining != '0' && steps.part03.outputs.abort != 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          SEED='--seed-root r1d27e_work/reports/r1d27e_post15'
+          python -m research_formulas.stockhunter_r1d27e_post15_flow collect \
+            --freeze-file research_inputs/R1D27D_FROZEN_1500_TICKER_DISJOINT_OUTCOME_BLIND.csv \
+            --base-dir research_inputs --out r1d27e_work/reports/r1d27e_post15 --batch 30 $SEED
+          python - <<'PYSTATE'
+          import json,os,pathlib
+          m=json.loads(pathlib.Path('r1d27e_work/reports/r1d27e_post15/R1D27E_POST15_MANIFEST.json').read_text())
+          with open(os.environ['GITHUB_OUTPUT'],'a') as h:
+              print('remaining='+str(m['n_unattempted']),file=h)
+              print('abort='+str(m['provider_abort']).lower(),file=h)
+          print('R1D27E_PART_04_STATE',m['n_complete'],m['n_quarantined'],m['n_unattempted'],m['provider_abort'],flush=True)
+          PYSTATE
+          echo 'R1D27E_LAST_PART=04' >> "$GITHUB_ENV"
+      - name: Upload durable R1D27E checkpoint part 04
+        if: ${{ steps.part04.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-R1D27E-POST15-PART-04
+          path: r1d27e_work/reports/r1d27e_post15/*
+          retention-days: 90
+          if-no-files-found: error
+      - name: Provider cooldown after part 04
+        if: ${{ steps.part04.outputs.remaining != '0' && steps.part04.outputs.abort != 'true' }}
+        run: sleep 12
+      - name: Collect D+15 future-only flow batch 05
+        id: part05
+        if: ${{ steps.part04.outputs.remaining != '0' && steps.part04.outputs.abort != 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          SEED='--seed-root r1d27e_work/reports/r1d27e_post15'
+          python -m research_formulas.stockhunter_r1d27e_post15_flow collect \
+            --freeze-file research_inputs/R1D27D_FROZEN_1500_TICKER_DISJOINT_OUTCOME_BLIND.csv \
+            --base-dir research_inputs --out r1d27e_work/reports/r1d27e_post15 --batch 30 $SEED
+          python - <<'PYSTATE'
+          import json,os,pathlib
+          m=json.loads(pathlib.Path('r1d27e_work/reports/r1d27e_post15/R1D27E_POST15_MANIFEST.json').read_text())
+          with open(os.environ['GITHUB_OUTPUT'],'a') as h:
+              print('remaining='+str(m['n_unattempted']),file=h)
+              print('abort='+str(m['provider_abort']).lower(),file=h)
+          print('R1D27E_PART_05_STATE',m['n_complete'],m['n_quarantined'],m['n_unattempted'],m['provider_abort'],flush=True)
+          PYSTATE
+          echo 'R1D27E_LAST_PART=05' >> "$GITHUB_ENV"
+      - name: Upload durable R1D27E checkpoint part 05
+        if: ${{ steps.part05.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-R1D27E-POST15-PART-05
+          path: r1d27e_work/reports/r1d27e_post15/*
+          retention-days: 90
+          if-no-files-found: error
+      - name: Provider cooldown after part 05
+        if: ${{ steps.part05.outputs.remaining != '0' && steps.part05.outputs.abort != 'true' }}
+        run: sleep 12
+      - name: Collect D+15 future-only flow batch 06
+        id: part06
+        if: ${{ steps.part05.outputs.remaining != '0' && steps.part05.outputs.abort != 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          SEED='--seed-root r1d27e_work/reports/r1d27e_post15'
+          python -m research_formulas.stockhunter_r1d27e_post15_flow collect \
+            --freeze-file research_inputs/R1D27D_FROZEN_1500_TICKER_DISJOINT_OUTCOME_BLIND.csv \
+            --base-dir research_inputs --out r1d27e_work/reports/r1d27e_post15 --batch 30 $SEED
+          python - <<'PYSTATE'
+          import json,os,pathlib
+          m=json.loads(pathlib.Path('r1d27e_work/reports/r1d27e_post15/R1D27E_POST15_MANIFEST.json').read_text())
+          with open(os.environ['GITHUB_OUTPUT'],'a') as h:
+              print('remaining='+str(m['n_unattempted']),file=h)
+              print('abort='+str(m['provider_abort']).lower(),file=h)
+          print('R1D27E_PART_06_STATE',m['n_complete'],m['n_quarantined'],m['n_unattempted'],m['provider_abort'],flush=True)
+          PYSTATE
+          echo 'R1D27E_LAST_PART=06' >> "$GITHUB_ENV"
+      - name: Upload durable R1D27E checkpoint part 06
+        if: ${{ steps.part06.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-R1D27E-POST15-PART-06
+          path: r1d27e_work/reports/r1d27e_post15/*
+          retention-days: 90
+          if-no-files-found: error
+      - name: Provider cooldown after part 06
+        if: ${{ steps.part06.outputs.remaining != '0' && steps.part06.outputs.abort != 'true' }}
+        run: sleep 12
+      - name: Collect D+15 future-only flow batch 07
+        id: part07
+        if: ${{ steps.part06.outputs.remaining != '0' && steps.part06.outputs.abort != 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          SEED='--seed-root r1d27e_work/reports/r1d27e_post15'
+          python -m research_formulas.stockhunter_r1d27e_post15_flow collect \
+            --freeze-file research_inputs/R1D27D_FROZEN_1500_TICKER_DISJOINT_OUTCOME_BLIND.csv \
+            --base-dir research_inputs --out r1d27e_work/reports/r1d27e_post15 --batch 30 $SEED
+          python - <<'PYSTATE'
+          import json,os,pathlib
+          m=json.loads(pathlib.Path('r1d27e_work/reports/r1d27e_post15/R1D27E_POST15_MANIFEST.json').read_text())
+          with open(os.environ['GITHUB_OUTPUT'],'a') as h:
+              print('remaining='+str(m['n_unattempted']),file=h)
+              print('abort='+str(m['provider_abort']).lower(),file=h)
+          print('R1D27E_PART_07_STATE',m['n_complete'],m['n_quarantined'],m['n_unattempted'],m['provider_abort'],flush=True)
+          PYSTATE
+          echo 'R1D27E_LAST_PART=07' >> "$GITHUB_ENV"
+      - name: Upload durable R1D27E checkpoint part 07
+        if: ${{ steps.part07.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-R1D27E-POST15-PART-07
+          path: r1d27e_work/reports/r1d27e_post15/*
+          retention-days: 90
+          if-no-files-found: error
+      - name: Provider cooldown after part 07
+        if: ${{ steps.part07.outputs.remaining != '0' && steps.part07.outputs.abort != 'true' }}
+        run: sleep 12
+      - name: Collect D+15 future-only flow batch 08
+        id: part08
+        if: ${{ steps.part07.outputs.remaining != '0' && steps.part07.outputs.abort != 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          SEED='--seed-root r1d27e_work/reports/r1d27e_post15'
+          python -m research_formulas.stockhunter_r1d27e_post15_flow collect \
+            --freeze-file research_inputs/R1D27D_FROZEN_1500_TICKER_DISJOINT_OUTCOME_BLIND.csv \
+            --base-dir research_inputs --out r1d27e_work/reports/r1d27e_post15 --batch 30 $SEED
+          python - <<'PYSTATE'
+          import json,os,pathlib
+          m=json.loads(pathlib.Path('r1d27e_work/reports/r1d27e_post15/R1D27E_POST15_MANIFEST.json').read_text())
+          with open(os.environ['GITHUB_OUTPUT'],'a') as h:
+              print('remaining='+str(m['n_unattempted']),file=h)
+              print('abort='+str(m['provider_abort']).lower(),file=h)
+          print('R1D27E_PART_08_STATE',m['n_complete'],m['n_quarantined'],m['n_unattempted'],m['provider_abort'],flush=True)
+          PYSTATE
+          echo 'R1D27E_LAST_PART=08' >> "$GITHUB_ENV"
+      - name: Upload durable R1D27E checkpoint part 08
+        if: ${{ steps.part08.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-R1D27E-POST15-PART-08
+          path: r1d27e_work/reports/r1d27e_post15/*
+          retention-days: 90
+          if-no-files-found: error
+      - name: Read final collection manifest
+        if: ${{ success() }}
+        id: final
+        run: |
+          python - <<'PYFINAL'
+          import json,os,pathlib
+          m=json.loads(pathlib.Path('r1d27e_work/reports/r1d27e_post15/R1D27E_POST15_MANIFEST.json').read_text())
+          with open(os.environ['GITHUB_OUTPUT'],'a') as h:
+              print('remaining='+str(m['n_unattempted']),file=h)
+              print('aborted='+str(m['provider_abort']).lower(),file=h)
+          print('R1D27E_POST15_FINAL_CHECKPOINT',json.dumps(m,ensure_ascii=False),flush=True)
+          PYFINAL
+      - name: Analyze post-signal investor trend with D3 to D15 highest prices
+        if: ${{ steps.final.outputs.remaining == '0' }}
+        run: |
+          python -m research_formulas.stockhunter_r1d27e_post15_analyze \
+            --freeze-file research_inputs/R1D27D_FROZEN_1500_TICKER_DISJOINT_OUTCOME_BLIND.csv \
+            --base-dir research_inputs \
+            --checkpoint r1d27e_work/reports/r1d27e_post15 \
+            --out r1d27e_analysis
+      - name: Upload final flow/price trend descriptive analysis
+        if: ${{ steps.final.outputs.remaining == '0' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-R1D27E-POST15-FINAL-DESCRIPTIVE-RESEARCH-ONLY
+          path: r1d27e_analysis/*
+          retention-days: 90
+          if-no-files-found: error
+      - name: Auto-continue frozen R1D27E source collection
+        if: ${{ steps.final.outputs.remaining != '0' && inputs.auto_continue }}
+        run: |
+          python -m research_formulas.stockhunter_r1d27e_post15_flow dispatch \
+            --manifest r1d27e_work/reports/r1d27e_post15/R1D27E_POST15_MANIFEST.json \
+            --depth "${{ inputs.chain_depth }}" --abort-streak "${{ inputs.abort_streak }}" \
+            --run-id "${{ github.run_id }}" --part "$R1D27E_LAST_PART" \
+            --branch "${{ github.ref_name }}" \
+            --workflow stockhunter_r1d27e_post15_flow_research_only.yml
