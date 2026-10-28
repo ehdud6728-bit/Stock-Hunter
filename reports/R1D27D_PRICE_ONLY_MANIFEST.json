@@ -1,0 +1,18 @@
+{
+  "censored": 2945,
+  "completed_price_paths": 662955,
+  "duplicate_events_within_stock_date_possible": true,
+  "event_count": 133180,
+  "files_sha256": {
+    "R1D27D_FULLMARKET_PRICE_ONLY_133180_STRATA_HORIZON.csv": "23f702afa5c07d72fffae9fd21e7faf3825c3c25f333fa0166c5a9b66fc3e4ec"
+  },
+  "fill_certified": false,
+  "no_live_changes": true,
+  "observations": 665900,
+  "phase": "price_only",
+  "price_only_not_investor_flow": true,
+  "prospective_oos": false,
+  "research_only": true,
+  "source_zip_sha256": "0a756a97da9a5d2ef8b475a222a9ff27eed3091807632b19b171da0967ba6f79",
+  "version": "R1D27D_ALLMARKET_PRICE_133180_TICKER_DISJOINT_1500_V1"
+}
