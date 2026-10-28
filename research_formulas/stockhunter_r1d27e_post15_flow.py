@@ -103,16 +103,39 @@ def emit(path,rows,cols):
         path.write_bytes(bio.getvalue())
     else:path.write_bytes(body)
 
+def retryable_provider_error(reason):
+    """Provider/network failures need retry, not permanent sample censoring.
+
+    Exact KRX daily calendar mismatch/semantic violations remain quarantined.
+    No HTTP bodies, tokens or credentials are logged.
+    """
+    kind=str(reason).upper()
+    return any(tag in kind for tag in (
+        'PROVIDER_EMPTY','JSONDECODEERROR','CONNECTIONERROR','TIMEOUT',
+        'HTTPERROR','TOOMANYREQUESTS','RATE_LIMIT','REMOTE_DISCONNECTED',
+        'REQUESTEXCEPTION','CHUNKEDENCODINGERROR','READTIMEOUT',
+    ))
+
 def collect(freeze_file,base_dir,out,seed_root=None,batch=30,cooldown=.8,fetch=None,max_fail=3):
     chk(1<=batch<=30,'BATCH_LIMIT')
     f,p,base_m=read_base(base_dir,freeze_file)
     by_key={k:g.sort_values('day') for k,g in p.groupby(KEY,sort=False)}
     raw,old=read_seed(seed_root,f,p,base_m['base_sha256'])
+    # Older (pre-fix) checkpoints incorrectly treated provider outages as
+    # permanent quarantine. Reopen only clearly transient failures; successful
+    # 60-row events and genuine data-integrity quarantine stay untouched.
+    legacy_reopened=0
+    for record in old.values():
+        if str(record['source_complete'])!='1' and retryable_provider_error(record.get('reason_code','')):
+            if record.get('status')!='RETRY_PENDING_PROVIDER_FAILURE':legacy_reopened+=1
+            record['status']='RETRY_PENDING_PROVIDER_FAILURE'
+    if legacy_reopened:
+        print('R1D27E_REOPENED_TRANSIENT_SOURCE_EVENTS',legacy_reopened,flush=True)
     attempted=0;success=0;failrun=0;abort=False
     try:
         for e in f.itertuples(index=False):
             k=key_of(e)
-            if k in old:continue
+            if k in old and old[k].get('status')!='RETRY_PENDING_PROVIDER_FAILURE':continue
             if attempted>=batch:break
             days=by_key[k].price_day.tolist()
             attempted+=1
@@ -123,7 +146,9 @@ def collect(freeze_file,base_dir,out,seed_root=None,batch=30,cooldown=.8,fetch=N
                 success+=1;failrun=0
             except Exception as ex:
                 error=str(ex) if isinstance(ex,(c27.AuditError,RuntimeError)) else type(ex).__name__
-                old[k]=dict(zip(AUDCOL,[*k,0,error[:200],'QUARANTINED_NO_IMPUTATION']))
+                state=('RETRY_PENDING_PROVIDER_FAILURE' if retryable_provider_error(error)
+                       else 'QUARANTINED_NO_IMPUTATION')
+                old[k]=dict(zip(AUDCOL,[*k,0,error[:200],state]))
                 failrun+=1
             if attempted%5==0:print('R1D27E_BATCH',attempted,'new_success',success,'known',len(old),'consecutive_errors',failrun,flush=True)
             if failrun>=max_fail:abort=True;break
@@ -132,10 +157,15 @@ def collect(freeze_file,base_dir,out,seed_root=None,batch=30,cooldown=.8,fetch=N
         root=pathlib.Path(out);root.mkdir(parents=True,exist_ok=True)
         emit(root/RAW,raw,RAWCOL);emit(root/AUD,list(old.values()),AUDCOL)
         n_ok=sum(str(q['source_complete'])=='1' for q in old.values())
+        n_retry=sum(q['status']=='RETRY_PENDING_PROVIDER_FAILURE' for q in old.values())
+        n_bad=sum(q['status']=='QUARANTINED_NO_IMPUTATION' for q in old.values())
+        n_missing=1500-len(old)
         chk(len(raw)==n_ok*60,'SOURCE_ROW_COUNT')
+        chk(n_ok+n_bad+n_retry+n_missing==1500,'MANIFEST_COUNTS')
         m=dict(version=VERSION,phase='POST_SIGNAL_OUTCOME_ONLY',base_sha256=base_m['base_sha256'],
             frozen_sha256=FROZEN_SHA,n_frozen=1500,n_attempted=len(old),n_complete=n_ok,
-            n_quarantined=len(old)-n_ok,n_unattempted=1500-len(old),provider_abort=abort,
+            n_quarantined=n_bad,n_retry_pending=n_retry,n_unattempted=n_missing+n_retry,
+            n_never_attempted=n_missing,provider_abort=abort,
             batch_attempted=attempted,batch_success=success,post_signal_feature_not_tradeable_at_signal=True,
             research_only=True,live_changed=False,orders_placed=0,prospective_OOS=False,
             PIT_certified=False,missing_source_not_zero=True)
@@ -155,11 +185,11 @@ def dispatch(mpath,depth,abort_streak,run_id,part,branch,workflow,token,pause=18
     if not m['provider_abort']:next_streak=0
     else:next_streak=int(abort_streak)+1
     if next_streak>=3:
-        print('::warning::R1D27E_THREE_PROVIDER_ABORT_RUNS_STOPPED_CHECKPOINT_SAFE')
-        return
+        print('::error::R1D27E_THREE_PROVIDER_ABORT_RUNS_STOPPED_CHECKPOINT_SAFE')
+        raise RuntimeError('R1D27E_PROVIDER_ABORT_STOPPED_CHECKPOINT_SAVED_NO_MORE_AUTO_RUNS')
     if int(depth)>=11:
-        print('::warning::R1D27E_CHAIN_DEPTH_LIMIT_CHECKPOINT_SAFE')
-        return
+        print('::error::R1D27E_CHAIN_DEPTH_LIMIT_CHECKPOINT_SAFE')
+        raise RuntimeError('R1D27E_CHAIN_DEPTH_EXHAUSTED_CHECKPOINT_SAVED')
     # Must be the actual uploaded step, not inferred from total attempted count.
     chk(part in range(1,9),'PART_RANGE')
     if m['provider_abort']:time.sleep(pause)
@@ -172,7 +202,12 @@ def dispatch(mpath,depth,abort_streak,run_id,part,branch,workflow,token,pause=18
         'X-GitHub-Api-Version':'2022-11-28','Content-Type':'application/json'},method='POST')
     with urllib.request.urlopen(req,timeout=30) as response:chk(response.status==204,'DISPATCH_HTTP')
     print('R1D27E_AUTOCONTINUE',json.dumps({'status':'DISPATCHED','seed_run':run_id,'seed_part':part,'next_depth':int(depth)+1,
-        'remaining':m['n_unattempted'],'abort_streak':next_streak}))
+        'remaining':m['n_unattempted'],'abort_streak':next_streak}),flush=True)
+    if m['provider_abort'] and m['batch_success']==0:
+        # Explicitly surface 0/new data in Actions. The next run is already
+        # dispatched, and the durable artifact was uploaded earlier.
+        print('::error::R1D27E_ZERO_PROVIDER_SUCCESSES_CHECKPOINT_SAVED_RETRY_DISPATCHED')
+        raise RuntimeError('R1D27E_ZERO_NEW_DATA_PROVIDER_ABORT')
 
 def main():
     ap=argparse.ArgumentParser();sp=ap.add_subparsers(dest='cmd',required=True)
