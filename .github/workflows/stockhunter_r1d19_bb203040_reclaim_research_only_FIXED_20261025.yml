@@ -42,6 +42,17 @@ on:
           - r1d27b_krx_secret_auth_http_diagnostic
           - r1d27c_flow60_pilot
           - r1d27c_flow60_full
+          - r1d27c_flow60_resume_checkpoint
+      resume_run_id:
+        description: "R1-D27C checkpoint Actions run ID; initial 40611915919, then latest checkpoint run ID"
+        type: string
+        required: false
+        default: '40611915919'
+      resume_batch_limit:
+        description: "Additional events this run (10-40, recommended 30)"
+        type: string
+        required: false
+        default: '30'
 
 permissions:
   contents: read
@@ -3438,3 +3449,119 @@ jobs:
             R1D27C_PREDECLARED_PROTOCOL.json
             research_formulas/stockhunter_r1d27c_flow60.py
             tests/test_stockhunter_r1d27c_flow60.py
+
+
+  # R1-D27C checkpoint continuation: preserve immutable old 58 valid 60-day investor histories.
+  # NOTE: a successful checkpoint JOB is not a successfully concluded research result.
+  r1d27c_flow60_resume_checkpoint:
+    name: R1-D27C resume verified raw investor 60d in batches [CHECKPOINT ONLY]
+    if: ${{ inputs.scope == 'r1d27c_flow60_resume_checkpoint' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      RESEARCH_ONLY: '1'
+      STOCKHUNTER_LIVE_ENABLE: '0'
+      STOCKHUNTER_ORDER_ENABLE: '0'
+      STOCKHUNTER_SCORE_RANK_ENABLE: '0'
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run isolated tests, preserve existing research paths
+        run: |
+          set -euo pipefail
+          python -m pip install 'numpy>=1.26,<3' 'pandas>=2,<3' 'pykrx==1.2.9'
+          python -m unittest discover -s tests -p 'test_stockhunter_r1d27c_flow60.py' -v
+          python -m unittest discover -s tests -p 'test_stockhunter_r1d27c_resume.py' -v
+      - name: Verify checkpoint run belongs to same repository and immutable artifact identity
+        id: checkpoint
+        env:
+          RESUME_RUN_ID: ${{ inputs.resume_run_id }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os,json,urllib.request
+          from research_formulas.stockhunter_r1d27c_flow60 import check
+          rid=os.environ.get('RESUME_RUN_ID','').strip()
+          check(rid.isdecimal() and len(rid)<=20,'CHECKPOINT_RUN_ID')
+          repo=os.environ['GITHUB_REPOSITORY'];token=os.environ['GH_TOKEN']
+          def get(uri):
+              request=urllib.request.Request(uri,headers={'Authorization':'Bearer '+token,'Accept':'application/vnd.github+json'})
+              with urllib.request.urlopen(request,timeout=45) as f:return json.load(f)
+          run=get(f'https://api.github.com/repos/{repo}/actions/runs/{rid}')
+          check(run['repository']['full_name']==repo and run['status']=='completed','CHECKPOINT_RUN_REPO_OR_STATUS')
+          arts=get(f'https://api.github.com/repos/{repo}/actions/runs/{rid}/artifacts?per_page=100')['artifacts']
+          base='stockhunter-R1D27C-FLOW60-r1d27c_flow60_full-HISTORICAL-NOT-OOS'
+          nextname='stockhunter-R1D27C-FLOW60-RESUMABLE-CHECKPOINT-NOT-RESULT'
+          target=base if rid=='40611915919' else nextname
+          matches=[a for a in arts if a['name']==target and not a['expired']]
+          check(len(matches)==1,'CHECKPOINT_ARTIFACT_NOT_FOUND')
+          if rid=='40611915919':
+              check(matches[0]['digest']=='sha256:53049732b6dff6d9ff4dc1e81e46210f6a667864f5c6af764382d7f0c499f963','PINNED_FAILURE_ARTIFACT_DRIFT')
+          check(matches[0].get('digest','').startswith('sha256:'),'CHECKPOINT_NO_SHA256')
+          print('R1D27C_CHECKPOINT_FROM_RUN',rid,'artifact_SHA256',matches[0]['digest'])
+          with open(os.environ['GITHUB_OUTPUT'],'a') as f:
+              f.write('name='+target+'\n')
+              f.write('run_id='+rid+'\n')
+          PY
+      - name: Download sealed source checkpoint instead of requerying successful events
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ steps.checkpoint.outputs.name }}
+          run-id: ${{ steps.checkpoint.outputs.run_id }}
+          github-token: ${{ github.token }}
+          path: reports/r1d27c/checkpoint
+      - name: Download original KRX calendar only, not full historical OHLCV
+        uses: actions/download-artifact@v4
+        with:
+          name: stockhunter-allkrx-price-shard-0
+          run-id: 39295295197
+          github-token: ${{ github.token }}
+          path: reports/r1d27c/input/krx
+      - name: Validate entire previous checkpoint, reuse successes, collect limited missing cases
+        env:
+          KRX_ID: ${{ secrets.KRX_DATA_ID || secrets.KRX_ID }}
+          KRX_PW: ${{ secrets.KRX_DATA_PW || secrets.KRX_PW }}
+          RESUME_BATCH_LIMIT: ${{ inputs.resume_batch_limit }}
+        run: |
+          set -euo pipefail
+          if [ -z "${KRX_ID:-}" ] || [ -z "${KRX_PW:-}" ]; then
+            echo '::error::R1D27C_RESUME_KRX_SECRET_BINDING_MISSING'; exit 2
+          fi
+          python - <<'PY'
+          import os
+          v=int(os.environ['RESUME_BATCH_LIMIT'])
+          assert 1<=v<=40, 'RESUME_BATCH_LIMIT_1_TO_40'
+          PY
+          python -m research_formulas.stockhunter_r1d27c_flow60 --mode resume \
+            --checkpoint-root reports/r1d27c/checkpoint \
+            --krx-root reports/r1d27c/input/krx \
+            --out reports/r1d27c/result/flow \
+            --batch-limit "${RESUME_BATCH_LIMIT}"
+          python - <<'PY'
+          import json
+          m=json.load(open('reports/r1d27c/result/flow/R1D27C_PHASE_MANIFEST.json'))
+          print('R1D27C_SOURCE_CHECKPOINT_NOT_PRICE_RESEARCH',m['n_source_complete'],'of',m['n_frozen'],'newly_collected',m['batch_new_success'],'unattempted',m['n_unattempted'])
+          if m['consecutive_failure_abort']:
+              print('::warning::R1D27C_PROVIDER_CONSECUTIVE_FAILURES_CHECKPOINT_SAVED')
+          if m['n_source_complete']<240:
+              print('::warning::R1D27C_ONLY_COLLECTION_CHECKPOINT_NO_VALIDATED_D30_FLOW_RESEARCH_YET')
+          PY
+      - name: Always upload new checkpoint including old confirmed raw data (no futures)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-R1D27C-FLOW60-RESUMABLE-CHECKPOINT-NOT-RESULT
+          retention-days: 90
+          if-no-files-found: warn
+          path: |
+            reports/r1d27c/result/freeze/**
+            reports/r1d27c/result/flow/**
+            R1D27C_PREDECLARED_PROTOCOL.json
+            research_formulas/stockhunter_r1d27c_flow60.py
+            tests/test_stockhunter_r1d27c_flow60.py
+            tests/test_stockhunter_r1d27c_resume.py
