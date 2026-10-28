@@ -1,8 +1,16 @@
 # R1-D27C independent AUTO continuation, research only; does NOT alter the existing hub or LIVE files.
-name: "StockHunter R1-D27C AUTO 60d Investor Checkpoint [RESEARCH ONLY]"
+name: "StockHunter R1-D27C/D AUTO Investor Checkpoint [RESEARCH ONLY]"
 on:
   workflow_dispatch:
     inputs:
+      scope:
+        description: "Choose sealed source collector; R1D27C previous vs R1D27D 1500"
+        type: choice
+        required: true
+        default: r1d27d_flow60_auto_1500
+        options:
+          - r1d27c_auto_checkpoint
+          - r1d27d_flow60_auto_1500
       seed_run_id:
         description: "Run containing prior COMPLETE checkpoint. Initial: 40617919975"
         type: string
@@ -19,6 +27,22 @@ on:
         type: string
         required: true
         default: '30'
+      r1d27d_seed_run_id:
+        description: "R1-D27D prior AUTO run ID, 0 for first run"
+        type: string
+        required: false
+        default: '0'
+      r1d27d_seed_part:
+        description: "Last saved R1D27D AUTO checkpoint part 1..8"
+        type: choice
+        required: false
+        default: '8'
+        options: ['1', '2', '3', '4', '5', '6', '7', '8']
+      r1d27d_batch_limit:
+        description: "Max newly attempted signals per part (1..30)"
+        type: string
+        required: false
+        default: '30'
 permissions:
   contents: read
   actions: read
@@ -28,6 +52,7 @@ concurrency:
 jobs:
   r1d27c_auto_checkpoint:
     name: "R1-D27C AUTO verified 87 -> up to 300 (8 safe checkpoints)"
+    if: ${{ inputs.scope == 'r1d27c_auto_checkpoint' }}
     runs-on: ubuntu-latest
     timeout-minutes: 120
     env:
@@ -357,4 +382,414 @@ jobs:
               print('::warning::R1D27C_MORE_UNATTEMPTED_SOURCE_REMAIN;RESUME_FROM_LAST_AUTO_PART')
           if s['n_incomplete']>0:
               print('::warning::R1D27C_QUARANTINED_EVENTS_NOT_IMPUTED')
+          PY
+
+  # R1-D27D ticker-disjoint 1500 frozen historical flow; RESEARCH ONLY, not OOS / LIVE.
+  r1d27d_flow60_auto_1500:
+    name: R1-D27D verified 1500 source AUTO 8 x 30 [NO OUTCOMES]
+    if: ${{ inputs.scope == 'r1d27d_flow60_auto_1500' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    permissions:
+      contents: read
+      actions: read
+    env:
+      RESEARCH_ONLY: '1'
+      STOCKHUNTER_LIVE_ENABLE: '0'
+      STOCKHUNTER_ORDER_ENABLE: '0'
+      STOCKHUNTER_SCORE_RANK_ENABLE: '0'
+      PYTHONDONTWRITEBYTECODE: '1'
+      TZ: 'Asia/Seoul'
+      GH_TOKEN: ${{ github.token }}
+      KRX_ID: ${{ secrets.KRX_DATA_ID || secrets.KRX_ID }}
+      KRX_PW: ${{ secrets.KRX_DATA_PW || secrets.KRX_PW }}
+    steps:
+      - name: Checkout sealed source read-only
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install isolated research dependencies and test frozen source
+        run: |
+          set -euo pipefail
+          python -m pip install 'numpy>=1.26,<3' 'pandas>=2,<3' 'networkx>=2.8' 'pykrx==1.2.9'
+          python -m unittest discover -s tests -p 'test_stockhunter_r1d27d.py' -v
+      - name: Validate selected seed run and artifact identity
+        id: seed
+        env:
+          R1D27D_SEED_RUN: ${{ inputs.r1d27d_seed_run_id }}
+          R1D27D_SEED_PART: ${{ inputs.r1d27d_seed_part }}
+          R1D27D_BATCH_LIMIT: ${{ inputs.r1d27d_batch_limit }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,os,urllib.request
+          from research_formulas.stockhunter_r1d27d_flow60 import check,read_event_index
+          check(os.environ.get('KRX_ID') and os.environ.get('KRX_PW'),'KRX_SECRETS_MISSING')
+          read_event_index('research_inputs')
+          run=os.environ['R1D27D_SEED_RUN'].strip();part=os.environ['R1D27D_SEED_PART'].strip()
+          lim=os.environ['R1D27D_BATCH_LIMIT'].strip()
+          check(run.isdecimal() and len(run)<=20,'SEED_RUN_BAD')
+          check(part.isdecimal() and 1<=int(part)<=8,'SEED_PART_BAD')
+          check(lim.isdecimal() and 1<=int(lim)<=30,'BATCH_LIMIT_BAD')
+          with open(os.environ['GITHUB_OUTPUT'],'a') as f:
+              f.write('has_seed='+str(run!='0').lower()+'\n')
+          if run=='0':
+              print('R1D27D_NEW_FROZEN_1500_SOURCE_FROM_ZERO');raise SystemExit(0)
+          repo=os.environ['GITHUB_REPOSITORY'];token=os.environ['GH_TOKEN']
+          def get(s):
+              url='https://api.github.com/repos/'+repo+'/actions/'+s
+              req=urllib.request.Request(url,headers={'Authorization':'Bearer '+token,'Accept':'application/vnd.github+json'})
+              with urllib.request.urlopen(req,timeout=60) as res:return json.load(res)
+          obj=get('runs/'+run)
+          check(obj['repository']['full_name']==repo and obj['status']=='completed','SEED_REPO_OR_STATUS')
+          check(obj.get('path')=='.github/workflows/stockhunter_r1d27c_auto_checkpoint_research_only.yml','SEED_WRONG_WORKFLOW')
+          name='stockhunter-R1D27D-FLOW60-AUTO-PART-'+part.zfill(2)
+          matches=[a for a in get('runs/'+run+'/artifacts?per_page=100')['artifacts'] if a['name']==name and not a['expired']]
+          check(len(matches)==1,'SEED_ARTIFACT_MISSING')
+          digest=matches[0].get('digest','')
+          check(digest.startswith('sha256:') and len(digest)==71,'SEED_ARTIFACT_DIGEST')
+          with open(os.environ['GITHUB_OUTPUT'],'a') as f:f.write('seed_name='+name+'\nseed_run='+run+'\n')
+          print('R1D27D_PREVIOUS_ARTIFACT',run,name,digest)
+          PY
+      - name: Restore last durable 1500-source checkpoint if supplied
+        if: ${{ steps.seed.outputs.has_seed == 'true' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ steps.seed.outputs.seed_name }}
+          run-id: ${{ steps.seed.outputs.seed_run }}
+          github-token: ${{ github.token }}
+          path: reports/r1d27d/previous
+      - name: Verify prior 60-session raw investor histories before importing checkpoint
+        if: ${{ steps.seed.outputs.has_seed == 'true' }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import pathlib,shutil
+          from research_formulas.stockhunter_r1d27d_flow60 import read_event_index,load_old,RAW,AUDIT,MAN
+          old=pathlib.Path('reports/r1d27d/previous')
+          freeze=read_event_index('research_inputs')
+          load_old(old,freeze)
+          src=old/'reports/r1d27d/result/flow'
+          dst=pathlib.Path('reports/r1d27d/result/flow')
+          dst.mkdir(parents=True,exist_ok=True)
+          for name in [RAW,AUDIT,MAN]:
+              shutil.copyfile(src/name,dst/name)
+          print('R1D27D_PREVIOUS_SOURCE_REVALIDATED_NO_OUTCOMES')
+          PY
+      - name: Restore original sealed KRX trading sessions (not future returns)
+        uses: actions/download-artifact@v4
+        with:
+          name: stockhunter-allkrx-price-shard-0
+          run-id: 39295295197
+          github-token: ${{ github.token }}
+          path: reports/r1d27d/input/krx
+      - name: Collect and verify new source batch 01
+        id: batch_01
+        env:
+          R1D27D_BATCH_LIMIT: ${{ inputs.r1d27d_batch_limit }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os,pathlib,json
+          from research_formulas.stockhunter_r1d27d_flow60 import collect_batch,MAN
+          state=pathlib.Path('reports/r1d27d/result/flow')/MAN
+          was_seed=state.is_file()
+          m=collect_batch(
+              freeze_dir='research_inputs',krx_root='reports/r1d27d/input/krx',out='.',
+              batch_size=int(os.environ['R1D27D_BATCH_LIMIT']),
+              seed_root='.' if was_seed else None)
+          print('R1D27D_BATCH_01_DURABLE_OUTPUT',json.dumps(m,ensure_ascii=False))
+          go=(m['n_unattempted']>0 and not m['provider_abort'] and m['batch_attempted']>0)
+          with open(os.environ['GITHUB_OUTPUT'],'a') as f:f.write('go='+str(go).lower()+'\n')
+          PY
+      - name: Upload immutable source checkpoint part 01 BEFORE next provider batch
+        if: ${{ steps.batch_01.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-R1D27D-FLOW60-AUTO-PART-01
+          retention-days: 90
+          if-no-files-found: error
+          path: |
+            reports/r1d27d/result/flow/**
+            reports/r1d27d/R1D27D_STAGE_STATE.json
+            research_inputs/R1D27D_FROZEN_1500_TICKER_DISJOINT_OUTCOME_BLIND.csv
+            research_inputs/R1D27D_FROZEN_MANIFEST.json
+            research_formulas/stockhunter_r1d27d_flow60.py
+            R1D27D_PREDECLARED_PROTOCOL.json
+      - name: Provider cooldown after part 01 upload
+        if: ${{ steps.batch_01.outputs.go == 'true' }}
+        run: sleep 20
+      - name: Collect and verify new source batch 02
+        id: batch_02
+        if: ${{ steps.batch_01.outputs.go == 'true' }}
+        env:
+          R1D27D_BATCH_LIMIT: ${{ inputs.r1d27d_batch_limit }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os,pathlib,json
+          from research_formulas.stockhunter_r1d27d_flow60 import collect_batch,MAN
+          state=pathlib.Path('reports/r1d27d/result/flow')/MAN
+          was_seed=state.is_file()
+          m=collect_batch(
+              freeze_dir='research_inputs',krx_root='reports/r1d27d/input/krx',out='.',
+              batch_size=int(os.environ['R1D27D_BATCH_LIMIT']),
+              seed_root='.' if was_seed else None)
+          print('R1D27D_BATCH_02_DURABLE_OUTPUT',json.dumps(m,ensure_ascii=False))
+          go=(m['n_unattempted']>0 and not m['provider_abort'] and m['batch_attempted']>0)
+          with open(os.environ['GITHUB_OUTPUT'],'a') as f:f.write('go='+str(go).lower()+'\n')
+          PY
+      - name: Upload immutable source checkpoint part 02 BEFORE next provider batch
+        if: ${{ steps.batch_02.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-R1D27D-FLOW60-AUTO-PART-02
+          retention-days: 90
+          if-no-files-found: error
+          path: |
+            reports/r1d27d/result/flow/**
+            reports/r1d27d/R1D27D_STAGE_STATE.json
+            research_inputs/R1D27D_FROZEN_1500_TICKER_DISJOINT_OUTCOME_BLIND.csv
+            research_inputs/R1D27D_FROZEN_MANIFEST.json
+            research_formulas/stockhunter_r1d27d_flow60.py
+            R1D27D_PREDECLARED_PROTOCOL.json
+      - name: Provider cooldown after part 02 upload
+        if: ${{ steps.batch_02.outputs.go == 'true' }}
+        run: sleep 20
+      - name: Collect and verify new source batch 03
+        id: batch_03
+        if: ${{ steps.batch_02.outputs.go == 'true' }}
+        env:
+          R1D27D_BATCH_LIMIT: ${{ inputs.r1d27d_batch_limit }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os,pathlib,json
+          from research_formulas.stockhunter_r1d27d_flow60 import collect_batch,MAN
+          state=pathlib.Path('reports/r1d27d/result/flow')/MAN
+          was_seed=state.is_file()
+          m=collect_batch(
+              freeze_dir='research_inputs',krx_root='reports/r1d27d/input/krx',out='.',
+              batch_size=int(os.environ['R1D27D_BATCH_LIMIT']),
+              seed_root='.' if was_seed else None)
+          print('R1D27D_BATCH_03_DURABLE_OUTPUT',json.dumps(m,ensure_ascii=False))
+          go=(m['n_unattempted']>0 and not m['provider_abort'] and m['batch_attempted']>0)
+          with open(os.environ['GITHUB_OUTPUT'],'a') as f:f.write('go='+str(go).lower()+'\n')
+          PY
+      - name: Upload immutable source checkpoint part 03 BEFORE next provider batch
+        if: ${{ steps.batch_03.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-R1D27D-FLOW60-AUTO-PART-03
+          retention-days: 90
+          if-no-files-found: error
+          path: |
+            reports/r1d27d/result/flow/**
+            reports/r1d27d/R1D27D_STAGE_STATE.json
+            research_inputs/R1D27D_FROZEN_1500_TICKER_DISJOINT_OUTCOME_BLIND.csv
+            research_inputs/R1D27D_FROZEN_MANIFEST.json
+            research_formulas/stockhunter_r1d27d_flow60.py
+            R1D27D_PREDECLARED_PROTOCOL.json
+      - name: Provider cooldown after part 03 upload
+        if: ${{ steps.batch_03.outputs.go == 'true' }}
+        run: sleep 20
+      - name: Collect and verify new source batch 04
+        id: batch_04
+        if: ${{ steps.batch_03.outputs.go == 'true' }}
+        env:
+          R1D27D_BATCH_LIMIT: ${{ inputs.r1d27d_batch_limit }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os,pathlib,json
+          from research_formulas.stockhunter_r1d27d_flow60 import collect_batch,MAN
+          state=pathlib.Path('reports/r1d27d/result/flow')/MAN
+          was_seed=state.is_file()
+          m=collect_batch(
+              freeze_dir='research_inputs',krx_root='reports/r1d27d/input/krx',out='.',
+              batch_size=int(os.environ['R1D27D_BATCH_LIMIT']),
+              seed_root='.' if was_seed else None)
+          print('R1D27D_BATCH_04_DURABLE_OUTPUT',json.dumps(m,ensure_ascii=False))
+          go=(m['n_unattempted']>0 and not m['provider_abort'] and m['batch_attempted']>0)
+          with open(os.environ['GITHUB_OUTPUT'],'a') as f:f.write('go='+str(go).lower()+'\n')
+          PY
+      - name: Upload immutable source checkpoint part 04 BEFORE next provider batch
+        if: ${{ steps.batch_04.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-R1D27D-FLOW60-AUTO-PART-04
+          retention-days: 90
+          if-no-files-found: error
+          path: |
+            reports/r1d27d/result/flow/**
+            reports/r1d27d/R1D27D_STAGE_STATE.json
+            research_inputs/R1D27D_FROZEN_1500_TICKER_DISJOINT_OUTCOME_BLIND.csv
+            research_inputs/R1D27D_FROZEN_MANIFEST.json
+            research_formulas/stockhunter_r1d27d_flow60.py
+            R1D27D_PREDECLARED_PROTOCOL.json
+      - name: Provider cooldown after part 04 upload
+        if: ${{ steps.batch_04.outputs.go == 'true' }}
+        run: sleep 20
+      - name: Collect and verify new source batch 05
+        id: batch_05
+        if: ${{ steps.batch_04.outputs.go == 'true' }}
+        env:
+          R1D27D_BATCH_LIMIT: ${{ inputs.r1d27d_batch_limit }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os,pathlib,json
+          from research_formulas.stockhunter_r1d27d_flow60 import collect_batch,MAN
+          state=pathlib.Path('reports/r1d27d/result/flow')/MAN
+          was_seed=state.is_file()
+          m=collect_batch(
+              freeze_dir='research_inputs',krx_root='reports/r1d27d/input/krx',out='.',
+              batch_size=int(os.environ['R1D27D_BATCH_LIMIT']),
+              seed_root='.' if was_seed else None)
+          print('R1D27D_BATCH_05_DURABLE_OUTPUT',json.dumps(m,ensure_ascii=False))
+          go=(m['n_unattempted']>0 and not m['provider_abort'] and m['batch_attempted']>0)
+          with open(os.environ['GITHUB_OUTPUT'],'a') as f:f.write('go='+str(go).lower()+'\n')
+          PY
+      - name: Upload immutable source checkpoint part 05 BEFORE next provider batch
+        if: ${{ steps.batch_05.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-R1D27D-FLOW60-AUTO-PART-05
+          retention-days: 90
+          if-no-files-found: error
+          path: |
+            reports/r1d27d/result/flow/**
+            reports/r1d27d/R1D27D_STAGE_STATE.json
+            research_inputs/R1D27D_FROZEN_1500_TICKER_DISJOINT_OUTCOME_BLIND.csv
+            research_inputs/R1D27D_FROZEN_MANIFEST.json
+            research_formulas/stockhunter_r1d27d_flow60.py
+            R1D27D_PREDECLARED_PROTOCOL.json
+      - name: Provider cooldown after part 05 upload
+        if: ${{ steps.batch_05.outputs.go == 'true' }}
+        run: sleep 20
+      - name: Collect and verify new source batch 06
+        id: batch_06
+        if: ${{ steps.batch_05.outputs.go == 'true' }}
+        env:
+          R1D27D_BATCH_LIMIT: ${{ inputs.r1d27d_batch_limit }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os,pathlib,json
+          from research_formulas.stockhunter_r1d27d_flow60 import collect_batch,MAN
+          state=pathlib.Path('reports/r1d27d/result/flow')/MAN
+          was_seed=state.is_file()
+          m=collect_batch(
+              freeze_dir='research_inputs',krx_root='reports/r1d27d/input/krx',out='.',
+              batch_size=int(os.environ['R1D27D_BATCH_LIMIT']),
+              seed_root='.' if was_seed else None)
+          print('R1D27D_BATCH_06_DURABLE_OUTPUT',json.dumps(m,ensure_ascii=False))
+          go=(m['n_unattempted']>0 and not m['provider_abort'] and m['batch_attempted']>0)
+          with open(os.environ['GITHUB_OUTPUT'],'a') as f:f.write('go='+str(go).lower()+'\n')
+          PY
+      - name: Upload immutable source checkpoint part 06 BEFORE next provider batch
+        if: ${{ steps.batch_06.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-R1D27D-FLOW60-AUTO-PART-06
+          retention-days: 90
+          if-no-files-found: error
+          path: |
+            reports/r1d27d/result/flow/**
+            reports/r1d27d/R1D27D_STAGE_STATE.json
+            research_inputs/R1D27D_FROZEN_1500_TICKER_DISJOINT_OUTCOME_BLIND.csv
+            research_inputs/R1D27D_FROZEN_MANIFEST.json
+            research_formulas/stockhunter_r1d27d_flow60.py
+            R1D27D_PREDECLARED_PROTOCOL.json
+      - name: Provider cooldown after part 06 upload
+        if: ${{ steps.batch_06.outputs.go == 'true' }}
+        run: sleep 20
+      - name: Collect and verify new source batch 07
+        id: batch_07
+        if: ${{ steps.batch_06.outputs.go == 'true' }}
+        env:
+          R1D27D_BATCH_LIMIT: ${{ inputs.r1d27d_batch_limit }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os,pathlib,json
+          from research_formulas.stockhunter_r1d27d_flow60 import collect_batch,MAN
+          state=pathlib.Path('reports/r1d27d/result/flow')/MAN
+          was_seed=state.is_file()
+          m=collect_batch(
+              freeze_dir='research_inputs',krx_root='reports/r1d27d/input/krx',out='.',
+              batch_size=int(os.environ['R1D27D_BATCH_LIMIT']),
+              seed_root='.' if was_seed else None)
+          print('R1D27D_BATCH_07_DURABLE_OUTPUT',json.dumps(m,ensure_ascii=False))
+          go=(m['n_unattempted']>0 and not m['provider_abort'] and m['batch_attempted']>0)
+          with open(os.environ['GITHUB_OUTPUT'],'a') as f:f.write('go='+str(go).lower()+'\n')
+          PY
+      - name: Upload immutable source checkpoint part 07 BEFORE next provider batch
+        if: ${{ steps.batch_07.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-R1D27D-FLOW60-AUTO-PART-07
+          retention-days: 90
+          if-no-files-found: error
+          path: |
+            reports/r1d27d/result/flow/**
+            reports/r1d27d/R1D27D_STAGE_STATE.json
+            research_inputs/R1D27D_FROZEN_1500_TICKER_DISJOINT_OUTCOME_BLIND.csv
+            research_inputs/R1D27D_FROZEN_MANIFEST.json
+            research_formulas/stockhunter_r1d27d_flow60.py
+            R1D27D_PREDECLARED_PROTOCOL.json
+      - name: Provider cooldown after part 07 upload
+        if: ${{ steps.batch_07.outputs.go == 'true' }}
+        run: sleep 20
+      - name: Collect and verify new source batch 08
+        id: batch_08
+        if: ${{ steps.batch_07.outputs.go == 'true' }}
+        env:
+          R1D27D_BATCH_LIMIT: ${{ inputs.r1d27d_batch_limit }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os,pathlib,json
+          from research_formulas.stockhunter_r1d27d_flow60 import collect_batch,MAN
+          state=pathlib.Path('reports/r1d27d/result/flow')/MAN
+          was_seed=state.is_file()
+          m=collect_batch(
+              freeze_dir='research_inputs',krx_root='reports/r1d27d/input/krx',out='.',
+              batch_size=int(os.environ['R1D27D_BATCH_LIMIT']),
+              seed_root='.' if was_seed else None)
+          print('R1D27D_BATCH_08_DURABLE_OUTPUT',json.dumps(m,ensure_ascii=False))
+          go=(m['n_unattempted']>0 and not m['provider_abort'] and m['batch_attempted']>0)
+          with open(os.environ['GITHUB_OUTPUT'],'a') as f:f.write('go='+str(go).lower()+'\n')
+          PY
+      - name: Upload immutable source checkpoint part 08 BEFORE next provider batch
+        if: ${{ steps.batch_08.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-R1D27D-FLOW60-AUTO-PART-08
+          retention-days: 90
+          if-no-files-found: error
+          path: |
+            reports/r1d27d/result/flow/**
+            reports/r1d27d/R1D27D_STAGE_STATE.json
+            research_inputs/R1D27D_FROZEN_1500_TICKER_DISJOINT_OUTCOME_BLIND.csv
+            research_inputs/R1D27D_FROZEN_MANIFEST.json
+            research_formulas/stockhunter_r1d27d_flow60.py
+            R1D27D_PREDECLARED_PROTOCOL.json
+      - name: Final research-only source checkpoint and quarantine summary
+        if: always()
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,pathlib,sys
+          p=pathlib.Path('reports/r1d27d/R1D27D_STAGE_STATE.json')
+          if not p.is_file():raise SystemExit('R1D27D_NO_DURABLE_SOURCE_CHECKPOINT')
+          s=json.loads(p.read_text())
+          print('R1D27D_SOURCE_ONLY_NOT_BACKTEST',json.dumps(s,ensure_ascii=False))
+          if s['n_quarantined']:print('::warning::R1D27D_QUARANTINED_SOURCE_NO_IMPUTATION')
+          if s['n_unattempted']:print('::warning::R1D27D_MORE_FROZEN_SOURCE_PENDING_NEXT_RUN')
+          if s['provider_abort']:raise SystemExit('R1D27D_PROVIDER_ABORT_LAST_GOOD_CHECKPOINT_UPLOADED')
           PY
