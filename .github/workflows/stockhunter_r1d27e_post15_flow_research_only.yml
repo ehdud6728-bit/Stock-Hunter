@@ -60,6 +60,18 @@ jobs:
           f,p,m=read_base('research_inputs','research_inputs/R1D27D_FROZEN_1500_TICKER_DISJOINT_OUTCOME_BLIND.csv')
           print('R1D27E_FROZEN_INPUT_VERIFIED',len(f),len(p),m['base_sha256'],flush=True)
           PYTEST
+      - name: Fail closed if KRX credentials are not injected (values never printed)
+        env:
+          KRX_ID: ${{ secrets.KRX_DATA_ID || secrets.KRX_ID }}
+          KRX_PW: ${{ secrets.KRX_DATA_PW || secrets.KRX_PW }}
+        run: |
+          python - <<'PYCHECK'
+          import os,sys
+          if not os.environ.get('KRX_ID','').strip() or not os.environ.get('KRX_PW','').strip():
+              print('::error::R1D27E_KRX_CREDENTIALS_MISSING: set KRX_DATA_ID/KRX_DATA_PW or KRX_ID/KRX_PW repository Actions secrets')
+              sys.exit(2)
+          print('R1D27E_KRX_CREDENTIALS_PRESENT (credential values withheld; live API remains to be checked)')
+          PYCHECK
       - name: Restore exact prior checkpoint (if auto-dispatched)
         if: ${{ inputs.seed_run_id != '0' }}
         uses: actions/download-artifact@v4
@@ -69,6 +81,9 @@ jobs:
           github-token: ${{ github.token }}
           path: r1d27e_seed
       - name: Collect D+15 future-only flow batch 01
+        env:
+          KRX_ID: ${{ secrets.KRX_DATA_ID || secrets.KRX_ID }}
+          KRX_PW: ${{ secrets.KRX_DATA_PW || secrets.KRX_PW }}
         id: part01
         if: ${{ success() }}
         shell: bash
@@ -99,6 +114,9 @@ jobs:
         if: ${{ steps.part01.outputs.remaining != '0' && steps.part01.outputs.abort != 'true' }}
         run: sleep 12
       - name: Collect D+15 future-only flow batch 02
+        env:
+          KRX_ID: ${{ secrets.KRX_DATA_ID || secrets.KRX_ID }}
+          KRX_PW: ${{ secrets.KRX_DATA_PW || secrets.KRX_PW }}
         id: part02
         if: ${{ steps.part01.outputs.remaining != '0' && steps.part01.outputs.abort != 'true' }}
         shell: bash
@@ -129,6 +147,9 @@ jobs:
         if: ${{ steps.part02.outputs.remaining != '0' && steps.part02.outputs.abort != 'true' }}
         run: sleep 12
       - name: Collect D+15 future-only flow batch 03
+        env:
+          KRX_ID: ${{ secrets.KRX_DATA_ID || secrets.KRX_ID }}
+          KRX_PW: ${{ secrets.KRX_DATA_PW || secrets.KRX_PW }}
         id: part03
         if: ${{ steps.part02.outputs.remaining != '0' && steps.part02.outputs.abort != 'true' }}
         shell: bash
@@ -159,6 +180,9 @@ jobs:
         if: ${{ steps.part03.outputs.remaining != '0' && steps.part03.outputs.abort != 'true' }}
         run: sleep 12
       - name: Collect D+15 future-only flow batch 04
+        env:
+          KRX_ID: ${{ secrets.KRX_DATA_ID || secrets.KRX_ID }}
+          KRX_PW: ${{ secrets.KRX_DATA_PW || secrets.KRX_PW }}
         id: part04
         if: ${{ steps.part03.outputs.remaining != '0' && steps.part03.outputs.abort != 'true' }}
         shell: bash
@@ -189,6 +213,9 @@ jobs:
         if: ${{ steps.part04.outputs.remaining != '0' && steps.part04.outputs.abort != 'true' }}
         run: sleep 12
       - name: Collect D+15 future-only flow batch 05
+        env:
+          KRX_ID: ${{ secrets.KRX_DATA_ID || secrets.KRX_ID }}
+          KRX_PW: ${{ secrets.KRX_DATA_PW || secrets.KRX_PW }}
         id: part05
         if: ${{ steps.part04.outputs.remaining != '0' && steps.part04.outputs.abort != 'true' }}
         shell: bash
@@ -219,6 +246,9 @@ jobs:
         if: ${{ steps.part05.outputs.remaining != '0' && steps.part05.outputs.abort != 'true' }}
         run: sleep 12
       - name: Collect D+15 future-only flow batch 06
+        env:
+          KRX_ID: ${{ secrets.KRX_DATA_ID || secrets.KRX_ID }}
+          KRX_PW: ${{ secrets.KRX_DATA_PW || secrets.KRX_PW }}
         id: part06
         if: ${{ steps.part05.outputs.remaining != '0' && steps.part05.outputs.abort != 'true' }}
         shell: bash
@@ -249,6 +279,9 @@ jobs:
         if: ${{ steps.part06.outputs.remaining != '0' && steps.part06.outputs.abort != 'true' }}
         run: sleep 12
       - name: Collect D+15 future-only flow batch 07
+        env:
+          KRX_ID: ${{ secrets.KRX_DATA_ID || secrets.KRX_ID }}
+          KRX_PW: ${{ secrets.KRX_DATA_PW || secrets.KRX_PW }}
         id: part07
         if: ${{ steps.part06.outputs.remaining != '0' && steps.part06.outputs.abort != 'true' }}
         shell: bash
@@ -279,6 +312,9 @@ jobs:
         if: ${{ steps.part07.outputs.remaining != '0' && steps.part07.outputs.abort != 'true' }}
         run: sleep 12
       - name: Collect D+15 future-only flow batch 08
+        env:
+          KRX_ID: ${{ secrets.KRX_DATA_ID || secrets.KRX_ID }}
+          KRX_PW: ${{ secrets.KRX_DATA_PW || secrets.KRX_PW }}
         id: part08
         if: ${{ steps.part07.outputs.remaining != '0' && steps.part07.outputs.abort != 'true' }}
         shell: bash
