@@ -404,7 +404,7 @@ def audit_checkpoint(checkpoint_root, calendar):
     return root,frozen,entries,audited,sm
 
 
-def collect_resume(checkpoint_root,krx_root,out,protocol,batch_limit=30,fetch=None,sleep_events=0.9,max_fails=3):
+def collect_resume(checkpoint_root,krx_root,out,protocol,batch_limit=30,fetch=None,sleep_events=0.9,max_fails=3,skip_known_calendar_mismatch=False):
     check(1<=batch_limit<=40,'RESUME_BATCH_LIMIT')
     check(0<=sleep_events<=5,'RESUME_SLEEP')
     from research_formulas import formula66_r1d6_oos_holdout as d6
@@ -424,6 +424,13 @@ def collect_resume(checkpoint_root,krx_root,out,protocol,batch_limit=30,fetch=No
     for e in frozen.itertuples(index=False):
         key=tuple(str(getattr(e,k)) for k in KEY)
         if key in cached:continue
+        # Existing provider-calendar mismatch remains quarantined in AUTO mode;
+        # it is not a zero-flow observation and must not monopolize every batch.
+        prev=prior_audit.get(key, {})
+        if (skip_known_calendar_mismatch and
+            prev.get('status')=='SOURCE_QUARANTINED_NO_IMPUTATION' and
+            prev.get('reason_code')=='PROVIDER_60_DAY_CALENDAR_MISMATCH'):
+            continue
         if n_started>=batch_limit:break
         t=int(e.signal_ix);days=cal[t-60:t]
         check(len(days)==60 and days[0]==e.pre60_from and days[-1]==e.pre60_to,'RESUME_EVENT_DATES')
@@ -450,6 +457,7 @@ def collect_resume(checkpoint_root,krx_root,out,protocol,batch_limit=30,fetch=No
         consecutive_failure_abort=aborted,source_frozen_sha256=PINNED_FULL_FREEZE_SHA256,
         gross_net_both_units_validation=True,unavailable_is_not_zero=True,checkpoint_only=n_all<240,
         batch_limit=batch_limit,batch_attempted=n_started,batch_new_success=n_success,n_cached_reused=len(cached),
+        permanent_calendar_mismatch_quarantine=skip_known_calendar_mismatch,
         checkpoint_source_complete_before=old['n_source_complete'],checkpoint_source_digest=old['files_sha256'][FLOW],
         status='SOURCE_CHECKPOINT_NOT_FINAL_RESEARCH' if n_all<240 else 'FLOW_SOURCE_COVERAGE_REACHED_FOR_EXPLORATORY_ANALYSIS')
 
