@@ -1,0 +1,15 @@
+{
+  "data_retrieved": false,
+  "future_price_or_flow_in_selection": false,
+  "n_bb_events": 133180,
+  "n_source_requests": 85576,
+  "no_live_changes": true,
+  "not_pit_certified": true,
+  "phase": "fullmarket_queued_not_fetched",
+  "queued_sha256": "a63698a574d0770653c37df3737c4b1e3dc190761adeb75d1b76a2e66a5f3949",
+  "source_days": 1907,
+  "source_partial": false,
+  "source_request_dedup_by_ticker_date": true,
+  "unique_tickers": 2225,
+  "version": "R1D27D_ALLMARKET_PRICE_133180_TICKER_DISJOINT_1500_V1"
+}
