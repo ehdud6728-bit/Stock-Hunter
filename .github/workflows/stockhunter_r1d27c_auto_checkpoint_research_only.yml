@@ -53,6 +53,11 @@ on:
         type: string
         required: false
         default: '0'
+      r1d27d_abort_streak:
+        description: "Bounded provider recovery: leave 0 on manual start"
+        type: string
+        required: false
+        default: '0'
 permissions:
   contents: read
   actions: read
@@ -771,22 +776,28 @@ jobs:
             R1D27D_PREDECLARED_PROTOCOL.json
       - name: Final research-only source checkpoint and quarantine summary
         if: always()
+        env:
+          R1D27D_AUTO_CHAIN: ${{ inputs.r1d27d_auto_chain }}
         run: |
           set -euo pipefail
           python - <<'PY'
-          import json,pathlib,sys
+          import json,pathlib,sys,os
           p=pathlib.Path('reports/r1d27d/R1D27D_STAGE_STATE.json')
           if not p.is_file():raise SystemExit('R1D27D_NO_DURABLE_SOURCE_CHECKPOINT')
           s=json.loads(p.read_text())
           print('R1D27D_SOURCE_ONLY_NOT_BACKTEST',json.dumps(s,ensure_ascii=False))
           if s['n_quarantined']:print('::warning::R1D27D_QUARANTINED_SOURCE_NO_IMPUTATION')
           if s['n_unattempted']:print('::warning::R1D27D_MORE_FROZEN_SOURCE_PENDING_NEXT_RUN')
-          if s['provider_abort']:raise SystemExit('R1D27D_PROVIDER_ABORT_LAST_GOOD_CHECKPOINT_UPLOADED')
+          if s['provider_abort']:
+              print('::warning::R1D27D_PROVIDER_ABORT_DURABLE_PART_SAVED;BOUNDED_AUTO_RECOVERY')
+              if os.environ.get('R1D27D_AUTO_CHAIN','').lower()!='true':
+                  raise SystemExit('R1D27D_PROVIDER_ABORT_MANUAL_RECOVERY_REQUIRED')
           PY
       - name: Automatically continue sealed R1D27D collection (no manual Run ID)
         if: ${{ success() && inputs.r1d27d_auto_chain }}
         env:
           R1D27D_CHAIN_DEPTH: ${{ inputs.r1d27d_chain_depth }}
+          R1D27D_ABORT_STREAK: ${{ inputs.r1d27d_abort_streak }}
           R1D27D_BATCH_LIMIT: ${{ inputs.r1d27d_batch_limit }}
         run: |
           set -euo pipefail
