@@ -1,0 +1,42 @@
+{
+  "name": "R1D27F_CHECKPOINT_CAUSAL_ORDER_AUDIT_RESEARCH_ONLY",
+  "prepared_date": "2026-10-28",
+  "inputs": {
+    "github_final_zip_sha256": "96fcf4623c3a73b5ab216f3c056c34aecb1cac674c3ed7ac90fbad10670343d1",
+    "candle_source_sha256": "49a64a566b0799a6e9023593c4970545bf91fd2f1dabba884eb5786170e75f5a",
+    "original_daily_OHLC_sha256": "8b6b10c430e5c326b012bb4dd90685e6e305f73a956bbd1039a487f060fb0cf3"
+  },
+  "source_phase": "POST_SIGNAL_RETROSPECTIVE_DESCRIPTIVE",
+  "frozen_n": 1500,
+  "source_postflow_n": 1483,
+  "source_quarantined": 16,
+  "source_missing_retry": 1,
+  "observed_event_rows": 4449,
+  "checkpoint_days": [
+    3,
+    5,
+    7
+  ],
+  "predict_at": "D+t AFTER CLOSE",
+  "hypothetical_entry": "D+t+1 OPEN",
+  "exit": "D+15 CLOSE",
+  "cost_model": "20bps round-trip as end return subtraction; no fills/slippage simulation",
+  "primary": "BOTH_POS: cumulative net>0 AND last 3 sessions net>0 (institution+foreign KRW); checkpoints fixed 3/5/7",
+  "primary_tests": 3,
+  "permutations": 2000,
+  "year_strata": "2021-2025 x BB period x event type",
+  "historical_2025_separate_not_prospective_oos": true,
+  "PIT_certified": false,
+  "source_no_lookahead_at_checkpoint": true,
+  "signal_day_candle_ma_preexisting_only": true,
+  "no_LIVE_or_order_or_rank_changes": true,
+  "outputs": {
+    "04_YEAR_2021_2025_DIAGNOSTICS.csv": "5da1f41ee60a8cb92db08d4a9e3586b9ca0f2de2e39aa5e4ebd9b53df4a02f83",
+    "03_TIMEPOINT_GROUP_METRICS.csv": "83e70fa938c65710cbdda7a10d2711c4f2a11d4b22cfa236ee23fd48f089a0d9",
+    "02_FUTURE_D15_EVENT_EVALUATIONS.csv": "05a22a76f504fa40671c5dd955152188b5f9f22a8d23f1465ab9bd07e322f052",
+    "05_PRIMARY_STRATIFIED_PERMUTATION.csv": "36dab0c229e520e1d6eddbd9a82ba2d257bf991afde4262b6005d58cf5f2225b",
+    "01_FROZEN_CHECKPOINT_FEATURES_D3_D5_D7.csv": "f60f9b7763850941cf7b24ef24a93ef4a884213734fee8d3b63f247eff1aed89",
+    "07_SIGNAL_CANDLE_MA_BB_ENV_EXPLORATORY.csv": "38066ca47784709ea8635d383826c406410f86cafe05e874a7e4a190a0bdab24",
+    "06_EXPLORATORY_FLOW_PRICE_QUADRANTS.csv": "40b8d0bedd15a726ac5f7a7d3f8f4abb08122c2f01794b67b48b7a85dccd2026"
+  }
+}
