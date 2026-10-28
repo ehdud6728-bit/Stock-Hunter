@@ -1,0 +1,68 @@
+name: StockHunter R1-D27F D3-D5-D7 Flow-Price Checkpoint [RESEARCH ONLY]
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  frozen_checkpoint_priceflow:
+    name: Historical D3 D5 D7 -> next-open to D15 [NO LIVE / NO NEW KRX]
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      STOCKHUNTER_LIVE_ENABLE: '0'
+      STOCKHUNTER_ORDER_ENABLE: '0'
+      STOCKHUNTER_SCORE_RANK_ENABLE: '0'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Checkout source without stored GitHub credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install isolated calculation dependencies
+        run: python -m pip install --disable-pip-version-check 'numpy>=1.26,<3' 'pandas>=2,<3'
+      - name: Fetch exact final frozen GitHub R1D27E artifact 12822131773
+        uses: actions/download-artifact@v4
+        with:
+          name: stockhunter-R1D27E-POST15-FINAL-1483-D3-D15-FLOW-HIGH-RESEARCH-ONLY
+          run-id: '40702069936'
+          github-token: ${{ github.token }}
+          path: r1d27f_source
+      - name: Validate frozen source and recreate local archive container
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import zipfile
+          root=Path('r1d27f_source')
+          names={'R1D27E_POST15_ANALYSIS_MANIFEST.json','R1D27E_POST15_DAILY_FLOW_PRICE_1_15.csv',
+                 'R1D27E_POST15_INST_FOREIGN_DAILY_SEPARATE.csv','R1D27E_POST15_QUARANTINE_NO_IMPUTATION.csv'}
+          assert all(len(list(root.rglob(n)))==1 for n in names), 'SOURCE_MEMBER_MISSING_OR_DUP'
+          with zipfile.ZipFile('r1d27f_input_container.zip','w',zipfile.ZIP_DEFLATED) as z:
+              for n in sorted(names):z.write(list(root.rglob(n))[0],n)
+          assert Path('research_inputs/R1D27D_02_CANDLE_MA_BB_ENV_SIGNAL_DAY_1500.csv').exists()
+          assert Path('research_inputs/R1D27D_03_PRICE_DAILY_D1_D15_ALL_1500.csv').exists()
+          print('R1D27F_FROZEN_INPUTS_STAGED_RESEARCH_ONLY')
+          PY
+      - name: Run regression guards (no signal-date future leakage)
+        env:
+          R1D27F_TEST_SOURCE: r1d27f_input_container.zip
+        run: python -m unittest discover -s tests -p 'test_stockhunter_r1d27f.py' -v
+      - name: Produce final checkpoint-to-D15 analysis
+        run: |
+          python -m research_formulas.stockhunter_r1d27f_checkpoint_priceflow \
+            --final-artifact-zip r1d27f_input_container.zip \
+            --signal-candle-csv research_inputs/R1D27D_02_CANDLE_MA_BB_ENV_SIGNAL_DAY_1500.csv \
+            --original-daily-price-csv research_inputs/R1D27D_03_PRICE_DAILY_D1_D15_ALL_1500.csv \
+            --out reports/r1d27f_checkpoint
+      - name: Upload sealed R1D27F outputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-R1D27F-D3-D5-D7-CHECKPOINT-RESEARCH-ONLY
+          path: reports/r1d27f_checkpoint/*
+          if-no-files-found: error
+          retention-days: 90
