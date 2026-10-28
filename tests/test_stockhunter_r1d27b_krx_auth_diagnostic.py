@@ -29,6 +29,35 @@ class TestDiagnostics(unittest.TestCase):
         self.assertEqual(classify({'secret_presence':{'KRX_ID':True,'KRX_PW':True}},[{'http_status':429}]),'HTTP_RATE_LIMITED')
     def test_success(self):
         self.assertEqual(classify({'secret_presence':{'KRX_ID':True,'KRX_PW':True},'complete_data_endpoints':4,'attempted_data_endpoints':4},[]),'KRX_PROVIDER_DIAGNOSTIC_DATA_COMPLETE')
+    def test_http_200_html_with_all_valid_data_must_not_fail(self):
+        # Reproduces real GitHub run #40607154677: 4/4 valid data, six 200 HTML.
+        d={'secret_presence':{'KRX_ID':True,'KRX_PW':True},
+           'complete_data_endpoints':4,'attempted_data_endpoints':4,
+           'configured_secret_pair':{'mixed_pair_risk':False}}
+        http=[{'http_status':200,'content_kind':'HTML'} for _ in range(6)]
+        self.assertEqual(classify(d,http),'KRX_PROVIDER_DIAGNOSTIC_DATA_COMPLETE')
+    def test_http_200_html_without_valid_data_still_fails(self):
+        d={'secret_presence':{'KRX_ID':True,'KRX_PW':True},
+           'complete_data_endpoints':0,'attempted_data_endpoints':4}
+        self.assertEqual(classify(d,[{'http_status':200,'content_kind':'HTML'}]),
+                         'HTML_INSTEAD_OF_EXPECTED_KRX_DATA')
+    def test_http_403_overrides_valid_data(self):
+        d={'secret_presence':{'KRX_ID':True,'KRX_PW':True},
+           'complete_data_endpoints':4,'attempted_data_endpoints':4}
+        self.assertEqual(classify(d,[{'http_status':403,'content_kind':'HTML'}]),
+                         'HTTP_AUTH_OR_PERMISSION_REJECTED')
+    def test_date_mismatch_is_not_validated(self):
+        import pandas as pd
+        from unittest.mock import patch
+        v=pd.DataFrame({'기관합계':[12]*5,'외국인합계':[-1]*5},
+                       index=pd.date_range('2025-02-03',periods=5,freq='D'))
+        with tempfile.TemporaryDirectory() as d:
+            req=Mock();req.sessions.Session.request=Mock()
+            with patch('importlib.metadata.version',return_value='1.2.9'):
+                z=diagnostic(d,env={'KRX_ID':'abc','KRX_PW':'xyz'},
+                    fetch={'NET_VALUE_KRW':lambda *a,**k:v,'NET_VOLUME_SHARES':lambda *a,**k:v},requests_module=req)
+            self.assertEqual(z['complete_data_endpoints'],0)
+            self.assertTrue(all(x['status']=='DATA_FRAME_DATE_NUMERIC_OR_ZERO_INVALID' for x in z['calls']))
     def test_write_no_secret_when_missing(self):
         with tempfile.TemporaryDirectory() as d:
             o=diagnostic(d,env={'KRX_ID':'my-user','KRX_PW':''})
@@ -37,7 +66,8 @@ class TestDiagnostics(unittest.TestCase):
             self.assertNotIn('my-user',raw)
     def test_readonly_data_success(self):
         import pandas as pd
-        v=pd.DataFrame({'기관합계':[123],'외국인합계':[-45]})
+        v=pd.DataFrame({'기관합계':[123,45,67,89,12],'외국인합계':[-45,21,-3,55,2]},
+                       index=pd.date_range('2025-01-06',periods=5,freq='D'))
         with tempfile.TemporaryDirectory() as d:
             from unittest.mock import patch
             req=Mock()
