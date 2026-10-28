@@ -1,10 +1,10 @@
-name: StockHunter Research Hub R1-D19 to R1-D27A (RESEARCH ONLY)
+name: StockHunter Research Hub R1-D19 to R1-D27B (RESEARCH ONLY)
 
 on:
   workflow_dispatch:
     inputs:
       scope:
-        description: "One hub for historical research R1D19 through R1D26 (NO LIVE)"
+        description: "One hub for historical research through R1D27B (NO LIVE)"
         type: choice
         required: true
         default: r1d19_protocol_lock
@@ -39,6 +39,7 @@ on:
           - r1d26u_new_a_d200_entry_location_historical_holdout
           - r1d26v_new_a_d200_corrected_entry_fill_historical_holdout
           - r1d27a_fullmarket_bb_ma_width_d30_investor_sample
+          - r1d27b_krx_secret_auth_http_diagnostic
 
 permissions:
   contents: read
@@ -3164,7 +3165,7 @@ jobs:
       - name: Install isolated read-only data and verification dependencies
         run: |
           set -euo pipefail
-          python -m pip install 'numpy>=1.26,<3' 'pandas>=2,<3' 'pykrx>=1.0.45,<2'
+          python -m pip install 'numpy>=1.26,<3' 'pandas>=2,<3' 'pykrx>=1.2.8,<2'
       - name: Predeclare all-market and actual investor source contract; run isolated tests
         run: |
           set -euo pipefail
@@ -3176,6 +3177,18 @@ jobs:
           assert not p['live_changed'] and p['orders_placed']==0 and not p['prospective_OOS']
           print('R1D27A_FIXED_ALLMARKET_RESEARCH_CONTRACT_PASS')
           PYCHECK
+      - name: Preflight KRX credentials and both investor net-value / net-volume APIs (fail-closed)
+        env:
+          KRX_ID: ${{ secrets.KRX_DATA_ID || secrets.KRX_ID }}
+          KRX_PW: ${{ secrets.KRX_DATA_PW || secrets.KRX_PW }}
+          KRX_DATA_ID_DEFINED: ${{ secrets.KRX_DATA_ID != '' }}
+          KRX_DATA_PW_DEFINED: ${{ secrets.KRX_DATA_PW != '' }}
+          KRX_LEGACY_ID_DEFINED: ${{ secrets.KRX_ID != '' }}
+          KRX_LEGACY_PW_DEFINED: ${{ secrets.KRX_PW != '' }}
+        run: |
+          set -euo pipefail
+          python -m research_formulas.stockhunter_r1d27b_krx_auth_diagnostic \
+            --out reports/r1d27b/diagnostic --require-success
       - name: Check immutable KRX eight shard archive digests before downloading
         run: |
           set -euo pipefail
@@ -3207,6 +3220,9 @@ jobs:
             --krx-root reports/r1d27a/input/krx \
             --out reports/r1d27a/result/census
       - name: Independently collect outcome-blind investor net foreign/institution KRW for fixed BB sample; audit missing with no imputation
+        env:
+          KRX_ID: ${{ secrets.KRX_DATA_ID || secrets.KRX_ID }}
+          KRX_PW: ${{ secrets.KRX_DATA_PW || secrets.KRX_PW }}
         run: |
           set -euo pipefail
           python -m research_formulas.stockhunter_r1d27a_bb_ma_allmarket \
@@ -3214,6 +3230,14 @@ jobs:
             --krx-root reports/r1d27a/input/krx \
             --census reports/r1d27a/result/census \
             --out reports/r1d27a/result/flow
+          python - <<'PYFLOWGUARD'
+          import json,sys
+          m=json.load(open('reports/r1d27a/result/flow/R1D27A_PHASE_MANIFEST.json'))
+          print('R1D27A_FLOW_COVERAGE_COUNTS_ONLY',m['n_flow_complete'],'/',m['n_frozen'])
+          if m['n_flow_complete'] < 240:
+              print('::error::R1D27A_FLOW_COVERAGE_INSUFFICIENT_NOT_SUCCESS')
+              sys.exit(2)
+          PYFLOWGUARD
       - name: Only now read future prices and produce full-market D5/D10/D15/D20/D30 comparisons and sampled investor-flow joins
         run: |
           set -euo pipefail
@@ -3245,6 +3269,51 @@ jobs:
           if-no-files-found: warn
           path: |
             reports/r1d27a/result/**
+            reports/r1d27b/diagnostic/**
             R1D27A_PREDECLARED_PROTOCOL.json
             research_formulas/stockhunter_r1d27a_bb_ma_allmarket.py
             tests/test_stockhunter_r1d27a_bb_ma_allmarket.py
+
+  # R1-D27B: standalone safe KRX login/response diagnosis; four historical reads maximum.
+  # NO new workflow YAML, no LIVE logic, no bulk census, no automatic trading.
+  r1d27b_krx_secret_auth_http_diagnostic:
+    name: R1-D27B KRX Secrets binding, authenticated pykrx HTTP status, investor KRW and volume [DIAGNOSTIC ONLY]
+    if: ${{ inputs.scope == 'r1d27b_krx_secret_auth_http_diagnostic' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install isolated pykrx login-aware read-only client and run unit tests
+        run: |
+          set -euo pipefail
+          python -m pip install 'pandas>=2,<3' 'pykrx>=1.2.8,<2' 'requests>=2,<3'
+          python -m unittest discover -s tests -p 'test_stockhunter_r1d27b_krx_auth_diagnostic.py' -v
+      - name: Verify GitHub Secrets injection and probe 2 tickers x 2 investor APIs without leaking credentials
+        env:
+          KRX_ID: ${{ secrets.KRX_DATA_ID || secrets.KRX_ID }}
+          KRX_PW: ${{ secrets.KRX_DATA_PW || secrets.KRX_PW }}
+          KRX_DATA_ID_DEFINED: ${{ secrets.KRX_DATA_ID != '' }}
+          KRX_DATA_PW_DEFINED: ${{ secrets.KRX_DATA_PW != '' }}
+          KRX_LEGACY_ID_DEFINED: ${{ secrets.KRX_ID != '' }}
+          KRX_LEGACY_PW_DEFINED: ${{ secrets.KRX_PW != '' }}
+        run: |
+          set -euo pipefail
+          python -m research_formulas.stockhunter_r1d27b_krx_auth_diagnostic \
+            --out reports/r1d27b/diagnostic --require-success
+      - name: Always upload only sanitized metadata and predeclared protocol
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-R1D27B-KRX-SECRETS-AUTH-HTTP-STATUS-SAFE-DIAGNOSTIC
+          retention-days: 90
+          if-no-files-found: warn
+          path: |
+            reports/r1d27b/diagnostic/**
+            R1D27B_PREDECLARED_PROTOCOL.json
+            research_formulas/stockhunter_r1d27b_krx_auth_diagnostic.py
+            tests/test_stockhunter_r1d27b_krx_auth_diagnostic.py
