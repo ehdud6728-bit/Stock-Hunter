@@ -1,0 +1,19 @@
+{
+  "version": "R1D27E_POST15_FUTURE_FLOW_DIAGNOSTIC_V1",
+  "research_only": true,
+  "signal_time_model_inputs": false,
+  "frozen_R1D27D_SHA": "545f73cf0cdee0b1c3d2912edcc7a05fac1f9e11c72d19d10eba956ac50bbfba",
+  "n_frozen": 1500,
+  "n_daily_price_rows": 22500,
+  "day_range": [
+    1,
+    15
+  ],
+  "base_sha256": "62a132120bb442831af3a19b8f13faa569fe02bb495650f1df51bf39905a894f",
+  "source_price_csv_sha256": "8b6b10c430e5c326b012bb4dd90685e6e305f73a956bbd1039a487f060fb0cf3",
+  "source": "R1D27D extended price-only D1-D15 reconstructed 2026-10-28",
+  "purpose": "POST_SIGNAL_OUTCOME_DIAGNOSTIC_ONLY_NOT_PREDICTOR",
+  "pre_source_sha256": "6b7d1ffe2edca4e2782d412f9d493cd46557624c2977daa919a635addec0b2a0",
+  "pre_compact_sha256": "25f7ce2b3cbf5632d2dddafb231ef60c811529ed79d22fa67832d216a8edbfbb",
+  "pre_n": 1481
+}
