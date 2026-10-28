@@ -1,0 +1,360 @@
+# R1-D27C independent AUTO continuation, research only; does NOT alter the existing hub or LIVE files.
+name: "StockHunter R1-D27C AUTO 60d Investor Checkpoint [RESEARCH ONLY]"
+on:
+  workflow_dispatch:
+    inputs:
+      seed_run_id:
+        description: "Run containing prior COMPLETE checkpoint. Initial: 40617919975"
+        type: string
+        required: true
+        default: '40617919975'
+      seed_part:
+        description: "0=prior RESUMABLE checkpoint; 1..8=previous AUTO-PART artifact"
+        type: choice
+        required: true
+        default: '0'
+        options: ['0', '1', '2', '3', '4', '5', '6', '7', '8']
+      batch_limit:
+        description: "Max new queries per saved part (1..30); recommended 30"
+        type: string
+        required: true
+        default: '30'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: stockhunter-r1d19-${{ github.ref_name }}
+  cancel-in-progress: false
+jobs:
+  r1d27c_auto_checkpoint:
+    name: "R1-D27C AUTO verified 87 -> up to 300 (8 safe checkpoints)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      RESEARCH_ONLY: '1'
+      STOCKHUNTER_LIVE_ENABLE: '0'
+      STOCKHUNTER_ORDER_ENABLE: '0'
+      STOCKHUNTER_SCORE_RANK_ENABLE: '0'
+      PYTHONDONTWRITEBYTECODE: '1'
+      TZ: 'Asia/Seoul'
+      GH_TOKEN: ${{ github.token }}
+      KRX_ID: ${{ secrets.KRX_DATA_ID || secrets.KRX_ID }}
+      KRX_PW: ${{ secrets.KRX_DATA_PW || secrets.KRX_PW }}
+    steps:
+      - name: "Checkout read-only source"
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: "Run 22+ research and recovery checks before source access"
+        run: |
+          set -euo pipefail
+          python -m pip install 'numpy>=1.26,<3' 'pandas>=2,<3' 'pykrx==1.2.9'
+          python -m unittest discover -s tests -p 'test_stockhunter_r1d27c_flow60.py' -v
+          python -m unittest discover -s tests -p 'test_stockhunter_r1d27c_resume.py' -v
+          python -m unittest discover -s tests -p 'test_stockhunter_r1d27c_auto.py' -v
+      - name: "Verify saved source artifact identity and select checkpoint"
+        id: seed
+        env:
+          SEED_RUN: ${{ inputs.seed_run_id }}
+          SEED_PART: ${{ inputs.seed_part }}
+          BATCH_LIMIT: ${{ inputs.batch_limit }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os,json,urllib.request
+          from research_formulas.stockhunter_r1d27c_flow60 import check
+          repo=os.environ['GITHUB_REPOSITORY'];tok=os.environ['GH_TOKEN']
+          run=os.environ['SEED_RUN'].strip();part=os.environ['SEED_PART'].strip()
+          check(run.isdecimal() and len(run)<=20,'AUTO_RUN_ID')
+          check(part.isdecimal() and 0<=int(part)<=8,'AUTO_PART_ID')
+          check(os.environ['BATCH_LIMIT'].isdigit() and 1<=int(os.environ['BATCH_LIMIT'])<=30,'AUTO_BATCH_LIMIT')
+          check(bool(os.environ.get('KRX_ID')) and bool(os.environ.get('KRX_PW')),'AUTO_KRX_SECRETS_MISSING')
+          def get(s):
+              q=urllib.request.Request('https://api.github.com/repos/'+repo+'/actions/'+s,headers={'Authorization':'Bearer '+tok,'Accept':'application/vnd.github+json'})
+              with urllib.request.urlopen(q,timeout=60) as f:return json.load(f)
+          rd=get('runs/'+run)
+          check(rd['repository']['full_name']==repo and rd['status']=='completed','AUTO_SEED_REPO_OR_STATUS')
+          name=('stockhunter-R1D27C-FLOW60-RESUMABLE-CHECKPOINT-NOT-RESULT' if part=='0' else
+                'stockhunter-R1D27C-FLOW60-AUTO-PART-'+str(int(part)).zfill(2))
+          matches=[a for a in get('runs/'+run+'/artifacts?per_page=100')['artifacts'] if a['name']==name and not a['expired']]
+          check(len(matches)==1,'AUTO_SEED_ARTIFACT')
+          digest=matches[0].get('digest','')
+          check(digest.startswith('sha256:'),'AUTO_NO_SHA')
+          if run=='40617919975' and part=='0':
+              check(digest=='sha256:334ca051dac9e707326475f812760f8fcfa9319920a96b09c975444fbb576df6','AUTO_ORIGINAL_87_DIGEST_DRIFT')
+          with open(os.environ['GITHUB_OUTPUT'],'a') as f:
+              f.write('name='+name+'\nrun_id='+run+'\n')
+          print('R1D27C_AUTO_PINNED_SOURCE',run,'part',part,'artifact',matches[0]['id'],'sha256',digest)
+          PY
+      - name: "Download prior sealed checkpoint (NOT future returns)"
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ steps.seed.outputs.name }}
+          run-id: ${{ steps.seed.outputs.run_id }}
+          github-token: ${{ github.token }}
+          path: reports/r1d27c/checkpoint
+      - name: "Download immutable original KRX trading-calendar shard only"
+        uses: actions/download-artifact@v4
+        with:
+          name: stockhunter-allkrx-price-shard-0
+          run-id: 39295295197
+          github-token: ${{ github.token }}
+          path: reports/r1d27c/input/krx
+      - name: "Collect source batch 01, verify frozen 300 + old raw rows"
+        id: batch_01
+        env:
+          BATCH_LIMIT: ${{ inputs.batch_limit }}
+        run: |
+          set -euo pipefail
+          python -m research_formulas.stockhunter_r1d27c_auto \
+            --batch-index 1 --batch-limit "${BATCH_LIMIT}" \
+            --seed-root reports/r1d27c/checkpoint \
+            --krx-root reports/r1d27c/input/krx \
+            --result-root reports/r1d27c/result
+      - name: "Persist immutable checkpoint part 01 BEFORE requesting next batch"
+        if: ${{ steps.batch_01.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-R1D27C-FLOW60-AUTO-PART-01
+          retention-days: 90
+          if-no-files-found: error
+          path: |
+            reports/r1d27c/result/freeze/**
+            reports/r1d27c/result/flow/**
+            reports/r1d27c/R1D27C_AUTO_STAGE_STATE.json
+            R1D27C_PREDECLARED_PROTOCOL.json
+            research_formulas/stockhunter_r1d27c_flow60.py
+            research_formulas/stockhunter_r1d27c_auto.py
+            tests/test_stockhunter_r1d27c_auto.py
+      - name: "Provider cooldown after durable part 01 upload"
+        if: ${{ steps.batch_01.outputs.go == 'true' }}
+        run: sleep 20
+      - name: "Collect source batch 02, verify frozen 300 + old raw rows"
+        id: batch_02
+        if: ${{ steps.batch_01.outputs.go == 'true' }}
+        env:
+          BATCH_LIMIT: ${{ inputs.batch_limit }}
+        run: |
+          set -euo pipefail
+          python -m research_formulas.stockhunter_r1d27c_auto \
+            --batch-index 2 --batch-limit "${BATCH_LIMIT}" \
+            --seed-root reports/r1d27c/checkpoint \
+            --krx-root reports/r1d27c/input/krx \
+            --result-root reports/r1d27c/result
+      - name: "Persist immutable checkpoint part 02 BEFORE requesting next batch"
+        if: ${{ steps.batch_02.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-R1D27C-FLOW60-AUTO-PART-02
+          retention-days: 90
+          if-no-files-found: error
+          path: |
+            reports/r1d27c/result/freeze/**
+            reports/r1d27c/result/flow/**
+            reports/r1d27c/R1D27C_AUTO_STAGE_STATE.json
+            R1D27C_PREDECLARED_PROTOCOL.json
+            research_formulas/stockhunter_r1d27c_flow60.py
+            research_formulas/stockhunter_r1d27c_auto.py
+            tests/test_stockhunter_r1d27c_auto.py
+      - name: "Provider cooldown after durable part 02 upload"
+        if: ${{ steps.batch_02.outputs.go == 'true' }}
+        run: sleep 20
+      - name: "Collect source batch 03, verify frozen 300 + old raw rows"
+        id: batch_03
+        if: ${{ steps.batch_02.outputs.go == 'true' }}
+        env:
+          BATCH_LIMIT: ${{ inputs.batch_limit }}
+        run: |
+          set -euo pipefail
+          python -m research_formulas.stockhunter_r1d27c_auto \
+            --batch-index 3 --batch-limit "${BATCH_LIMIT}" \
+            --seed-root reports/r1d27c/checkpoint \
+            --krx-root reports/r1d27c/input/krx \
+            --result-root reports/r1d27c/result
+      - name: "Persist immutable checkpoint part 03 BEFORE requesting next batch"
+        if: ${{ steps.batch_03.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-R1D27C-FLOW60-AUTO-PART-03
+          retention-days: 90
+          if-no-files-found: error
+          path: |
+            reports/r1d27c/result/freeze/**
+            reports/r1d27c/result/flow/**
+            reports/r1d27c/R1D27C_AUTO_STAGE_STATE.json
+            R1D27C_PREDECLARED_PROTOCOL.json
+            research_formulas/stockhunter_r1d27c_flow60.py
+            research_formulas/stockhunter_r1d27c_auto.py
+            tests/test_stockhunter_r1d27c_auto.py
+      - name: "Provider cooldown after durable part 03 upload"
+        if: ${{ steps.batch_03.outputs.go == 'true' }}
+        run: sleep 20
+      - name: "Collect source batch 04, verify frozen 300 + old raw rows"
+        id: batch_04
+        if: ${{ steps.batch_03.outputs.go == 'true' }}
+        env:
+          BATCH_LIMIT: ${{ inputs.batch_limit }}
+        run: |
+          set -euo pipefail
+          python -m research_formulas.stockhunter_r1d27c_auto \
+            --batch-index 4 --batch-limit "${BATCH_LIMIT}" \
+            --seed-root reports/r1d27c/checkpoint \
+            --krx-root reports/r1d27c/input/krx \
+            --result-root reports/r1d27c/result
+      - name: "Persist immutable checkpoint part 04 BEFORE requesting next batch"
+        if: ${{ steps.batch_04.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-R1D27C-FLOW60-AUTO-PART-04
+          retention-days: 90
+          if-no-files-found: error
+          path: |
+            reports/r1d27c/result/freeze/**
+            reports/r1d27c/result/flow/**
+            reports/r1d27c/R1D27C_AUTO_STAGE_STATE.json
+            R1D27C_PREDECLARED_PROTOCOL.json
+            research_formulas/stockhunter_r1d27c_flow60.py
+            research_formulas/stockhunter_r1d27c_auto.py
+            tests/test_stockhunter_r1d27c_auto.py
+      - name: "Provider cooldown after durable part 04 upload"
+        if: ${{ steps.batch_04.outputs.go == 'true' }}
+        run: sleep 20
+      - name: "Collect source batch 05, verify frozen 300 + old raw rows"
+        id: batch_05
+        if: ${{ steps.batch_04.outputs.go == 'true' }}
+        env:
+          BATCH_LIMIT: ${{ inputs.batch_limit }}
+        run: |
+          set -euo pipefail
+          python -m research_formulas.stockhunter_r1d27c_auto \
+            --batch-index 5 --batch-limit "${BATCH_LIMIT}" \
+            --seed-root reports/r1d27c/checkpoint \
+            --krx-root reports/r1d27c/input/krx \
+            --result-root reports/r1d27c/result
+      - name: "Persist immutable checkpoint part 05 BEFORE requesting next batch"
+        if: ${{ steps.batch_05.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-R1D27C-FLOW60-AUTO-PART-05
+          retention-days: 90
+          if-no-files-found: error
+          path: |
+            reports/r1d27c/result/freeze/**
+            reports/r1d27c/result/flow/**
+            reports/r1d27c/R1D27C_AUTO_STAGE_STATE.json
+            R1D27C_PREDECLARED_PROTOCOL.json
+            research_formulas/stockhunter_r1d27c_flow60.py
+            research_formulas/stockhunter_r1d27c_auto.py
+            tests/test_stockhunter_r1d27c_auto.py
+      - name: "Provider cooldown after durable part 05 upload"
+        if: ${{ steps.batch_05.outputs.go == 'true' }}
+        run: sleep 20
+      - name: "Collect source batch 06, verify frozen 300 + old raw rows"
+        id: batch_06
+        if: ${{ steps.batch_05.outputs.go == 'true' }}
+        env:
+          BATCH_LIMIT: ${{ inputs.batch_limit }}
+        run: |
+          set -euo pipefail
+          python -m research_formulas.stockhunter_r1d27c_auto \
+            --batch-index 6 --batch-limit "${BATCH_LIMIT}" \
+            --seed-root reports/r1d27c/checkpoint \
+            --krx-root reports/r1d27c/input/krx \
+            --result-root reports/r1d27c/result
+      - name: "Persist immutable checkpoint part 06 BEFORE requesting next batch"
+        if: ${{ steps.batch_06.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-R1D27C-FLOW60-AUTO-PART-06
+          retention-days: 90
+          if-no-files-found: error
+          path: |
+            reports/r1d27c/result/freeze/**
+            reports/r1d27c/result/flow/**
+            reports/r1d27c/R1D27C_AUTO_STAGE_STATE.json
+            R1D27C_PREDECLARED_PROTOCOL.json
+            research_formulas/stockhunter_r1d27c_flow60.py
+            research_formulas/stockhunter_r1d27c_auto.py
+            tests/test_stockhunter_r1d27c_auto.py
+      - name: "Provider cooldown after durable part 06 upload"
+        if: ${{ steps.batch_06.outputs.go == 'true' }}
+        run: sleep 20
+      - name: "Collect source batch 07, verify frozen 300 + old raw rows"
+        id: batch_07
+        if: ${{ steps.batch_06.outputs.go == 'true' }}
+        env:
+          BATCH_LIMIT: ${{ inputs.batch_limit }}
+        run: |
+          set -euo pipefail
+          python -m research_formulas.stockhunter_r1d27c_auto \
+            --batch-index 7 --batch-limit "${BATCH_LIMIT}" \
+            --seed-root reports/r1d27c/checkpoint \
+            --krx-root reports/r1d27c/input/krx \
+            --result-root reports/r1d27c/result
+      - name: "Persist immutable checkpoint part 07 BEFORE requesting next batch"
+        if: ${{ steps.batch_07.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-R1D27C-FLOW60-AUTO-PART-07
+          retention-days: 90
+          if-no-files-found: error
+          path: |
+            reports/r1d27c/result/freeze/**
+            reports/r1d27c/result/flow/**
+            reports/r1d27c/R1D27C_AUTO_STAGE_STATE.json
+            R1D27C_PREDECLARED_PROTOCOL.json
+            research_formulas/stockhunter_r1d27c_flow60.py
+            research_formulas/stockhunter_r1d27c_auto.py
+            tests/test_stockhunter_r1d27c_auto.py
+      - name: "Provider cooldown after durable part 07 upload"
+        if: ${{ steps.batch_07.outputs.go == 'true' }}
+        run: sleep 20
+      - name: "Collect source batch 08, verify frozen 300 + old raw rows"
+        id: batch_08
+        if: ${{ steps.batch_07.outputs.go == 'true' }}
+        env:
+          BATCH_LIMIT: ${{ inputs.batch_limit }}
+        run: |
+          set -euo pipefail
+          python -m research_formulas.stockhunter_r1d27c_auto \
+            --batch-index 8 --batch-limit "${BATCH_LIMIT}" \
+            --seed-root reports/r1d27c/checkpoint \
+            --krx-root reports/r1d27c/input/krx \
+            --result-root reports/r1d27c/result
+      - name: "Persist immutable checkpoint part 08 BEFORE requesting next batch"
+        if: ${{ steps.batch_08.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-R1D27C-FLOW60-AUTO-PART-08
+          retention-days: 90
+          if-no-files-found: error
+          path: |
+            reports/r1d27c/result/freeze/**
+            reports/r1d27c/result/flow/**
+            reports/r1d27c/R1D27C_AUTO_STAGE_STATE.json
+            R1D27C_PREDECLARED_PROTOCOL.json
+            research_formulas/stockhunter_r1d27c_flow60.py
+            research_formulas/stockhunter_r1d27c_auto.py
+            tests/test_stockhunter_r1d27c_auto.py
+      - name: "Research-only checkpoint summary; fail if source provider aborted"
+        if: always()
+        run: |
+          python - <<'PY'
+          import json,pathlib,sys
+          p=pathlib.Path('reports/r1d27c/R1D27C_AUTO_STAGE_STATE.json')
+          if not p.is_file():
+              print('::error::R1D27C_NO_DURABLE_AUTO_CHECKPOINT')
+              sys.exit(2)
+          s=json.loads(p.read_text())
+          print('R1D27C_AUTO_FINAL_CHECKPOINT_NOT_PERFORMANCE_RESEARCH',json.dumps(s,ensure_ascii=False))
+          if s['provider_abort']:
+              print('::error::R1D27C_PROVIDER_ABORT_SAVED_LAST_VALID_CHECKPOINT')
+              sys.exit(2)
+          if s['n_unattempted']>0:
+              print('::warning::R1D27C_MORE_UNATTEMPTED_SOURCE_REMAIN;RESUME_FROM_LAST_AUTO_PART')
+          if s['n_incomplete']>0:
+              print('::warning::R1D27C_QUARANTINED_EVENTS_NOT_IMPUTED')
+          PY
