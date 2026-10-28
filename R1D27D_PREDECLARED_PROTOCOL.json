@@ -1,0 +1,22 @@
+{
+  "version": "R1D27D_ALLMARKET_PRICE_133180_TICKER_DISJOINT_1500_V1",
+  "created_date_KST": "2026-10-28",
+  "research_only": true,
+  "live_changed": false,
+  "orders_placed": 0,
+  "strategy_ready": false,
+  "prospective_OOS": false,
+  "certified_point_in_time": false,
+  "historical_market_period": ["2021-01-04", "2025-09-30"],
+  "original_price_source": {"run_id": 40538219118, "artifact_id": 12750470649, "sha256": "0a756a97da9a5d2ef8b475a222a9ff27eed3091807632b19b171da0967ba6f79"},
+  "original_krx_calendar": {"run_id": 39295295197, "artifact_name": "stockhunter-allkrx-price-shard-0", "sessions": 1907},
+  "full_market": {"bb_signal_events":133180,"unique_ticker_dates":85576,"distinct_codes":2225,"price_path_rows":665900,"completed_price_path_rows":662955,"censored_price_path_rows":2945},
+  "source_request_queue": {"requested": false,"n_distinct_ticker_dates": 85576,"lookback_sessions": 60,"investor_types": 4,"provider_queries_per_ticker_date": 6,"duplicate_same_ticker_date_collapsed": true},
+  "retrospective_replication": {"frozen_events":1500,"strata": ["year", "bb_period", "event_type"],"strata_count":30,"each_stratum":50,"original300_tickers_excluded":true,"source_trade_dates": "PRE_SIGNAL_ONLY", "one_event_per_ticker":true,"selection_does_not_read_future_returns":true},
+  "primary_hypothesis": {"signal_feature": "(institution_last10_net_krw - institution_prior10_net_krw > 0) AND (foreign_last10_net_krw - foreign_prior10_net_krw > 0)", "signal_date_excluded":true,"outcome":"D+15 close minus D+1 open - 20bps cost", "single_primary_test":true,"stratification":"year x BB20/30/40 x BREAK/RECLAIM", "permutations":2000,"no_threshold_selection_on_replication":true},
+  "secondary_outcomes": "No change to primary test; D5/D10/D20/D30 can be separately reported as descriptive but not used to select variant",
+  "failed_source_policy":"Quarantine as missing, never coerce to zero. Keep prior successful checkpoint data and do not reselect signal based on source failure.",
+  "independence_warning":"Ticker-disjoint from original 300 events but same historical years and market regimes; NOT genuine time-forward OOS nor external PIT.",
+  "no_new_yaml":true,
+  "no_224_gate_added":"Preserve original full-market BB-only historical signals; any 224 analysis is supplementary signal-time strata, not a new optimization."
+}
