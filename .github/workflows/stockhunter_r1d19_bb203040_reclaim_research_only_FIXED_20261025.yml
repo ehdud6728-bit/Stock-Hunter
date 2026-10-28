@@ -1,10 +1,10 @@
-name: StockHunter Research Hub R1-D19 to R1-D27B (RESEARCH ONLY)
+name: StockHunter Research Hub R1-D19 to R1-D27C (RESEARCH ONLY)
 
 on:
   workflow_dispatch:
     inputs:
       scope:
-        description: "One hub for historical research through R1D27B (NO LIVE)"
+        description: "One hub for historical research through R1D27C (NO LIVE)"
         type: choice
         required: true
         default: r1d19_protocol_lock
@@ -40,6 +40,8 @@ on:
           - r1d26v_new_a_d200_corrected_entry_fill_historical_holdout
           - r1d27a_fullmarket_bb_ma_width_d30_investor_sample
           - r1d27b_krx_secret_auth_http_diagnostic
+          - r1d27c_flow60_pilot
+          - r1d27c_flow60_full
 
 permissions:
   contents: read
@@ -3317,3 +3319,122 @@ jobs:
             R1D27B_PREDECLARED_PROTOCOL.json
             research_formulas/stockhunter_r1d27b_krx_auth_diagnostic.py
             tests/test_stockhunter_r1d27b_krx_auth_diagnostic.py
+
+  # R1-D27C: preserve R1-D27A frozen 300 event identities, no resampling on returns.
+  # First use 30 stratified pilot events then the unchanged 300 in a separate manual run.
+  r1d27c_gross_investor_flow60:
+    name: R1-D27C frozen BB sample 60-session gross value+volume [PILOT/FULL RESEARCH ONLY]
+    if: ${{ inputs.scope == 'r1d27c_flow60_pilot' || inputs.scope == 'r1d27c_flow60_full' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    env:
+      RESEARCH_ONLY: '1'
+      STOCKHUNTER_LIVE_ENABLE: '0'
+      STOCKHUNTER_ORDER_ENABLE: '0'
+      STOCKHUNTER_SCORE_RANK_ENABLE: '0'
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify new research-only numeric tests before external access
+        run: |
+          set -euo pipefail
+          python -m pip install 'numpy>=1.26,<3' 'pandas>=2,<3' 'pykrx==1.2.9'
+          python -m unittest discover -s tests -p 'test_stockhunter_r1d27c_flow60.py' -v
+      - name: Verify immutable R1-D27A price artifact and original historical KRX calendar artifact
+        run: |
+          set -euo pipefail
+          python - <<'PYVERIFY'
+          import json,os,urllib.request
+          from research_formulas import formula66_r1d6_oos_holdout as d6
+          p=json.load(open('R1D27C_PREDECLARED_PROTOCOL.json'))
+          repo=os.environ['GITHUB_REPOSITORY'];tok=os.environ['GH_TOKEN']
+          def get(url):
+              req=urllib.request.Request(url,headers={'Authorization':'Bearer '+tok,'Accept':'application/vnd.github+json'})
+              with urllib.request.urlopen(req,timeout=60) as f:return json.load(f)
+          a=get(f'https://api.github.com/repos/{repo}/actions/runs/40538219118/artifacts?per_page=100')
+          pin=[q for q in a['artifacts'] if q['id']==p['r1d27a_artifact_id'] and not q['expired']]
+          assert len(pin)==1 and pin[0]['name']==p['r1d27a_artifact_name'] and pin[0]['digest']=='sha256:'+p['r1d27a_artifact_sha256'],'R1D27C_OLD_SOURCE_DRIFT'
+          b=get(f'https://api.github.com/repos/{repo}/actions/runs/39295295197/artifacts?per_page=100')
+          old=[q for q in b['artifacts'] if q['name']=='stockhunter-allkrx-price-shard-0' and not q['expired']]
+          assert len(old)==1 and old[0]['digest']=='sha256:'+d6.EXPECTED_SHARD_DIGESTS[0],'R1D27C_CALENDAR_PIN_DRIFT'
+          print('R1D27C_ORIGINAL_FROZEN_ARTIFACT_AND_CALENDAR_DIGEST_PIN_PASS')
+          PYVERIFY
+      - name: Download original R1-D27A 300 frozen events plus D30 outcomes and feature source
+        uses: actions/download-artifact@v4
+        with:
+          name: stockhunter-R1D27A-ALLMARKET-BB-MA-WIDTH-D30-INVESTOR-SAMPLE-RESEARCH-ONLY
+          run-id: 40538219118
+          github-token: ${{ github.token }}
+          path: reports/r1d27c/input/a27contents
+      - name: Download original KRX calendar (shard-0 only, daily price data not refetched)
+        uses: actions/download-artifact@v4
+        with:
+          name: stockhunter-allkrx-price-shard-0
+          run-id: 39295295197
+          github-token: ${{ github.token }}
+          path: reports/r1d27c/input/krx
+      - name: Seal 30 pilot or original 300 full events BEFORE any investor query or future returns
+        run: |
+          set -euo pipefail
+          MODE=pilot
+          if [ '${{ inputs.scope }}' = 'r1d27c_flow60_full' ]; then MODE=full; fi
+          python -m research_formulas.stockhunter_r1d27c_flow60 --mode freeze \
+            --scope "$MODE" --krx-root reports/r1d27c/input/krx \
+            --a-zip reports/r1d27c/input/a27contents \
+            --out reports/r1d27c/result/freeze
+      - name: Collect BUY SELL NET for investor groups in KRW and shares for preceding 60 sessions
+        env:
+          KRX_ID: ${{ secrets.KRX_DATA_ID || secrets.KRX_ID }}
+          KRX_PW: ${{ secrets.KRX_DATA_PW || secrets.KRX_PW }}
+        run: |
+          set -euo pipefail
+          if [ -z "${KRX_ID:-}" ] || [ -z "${KRX_PW:-}" ]; then echo '::error::R1D27C_KRX_SECRETS_NOT_BOUND';exit 2;fi
+          python -m research_formulas.stockhunter_r1d27c_flow60 --mode collect \
+            --krx-root reports/r1d27c/input/krx \
+            --freeze-dir reports/r1d27c/result/freeze \
+            --out reports/r1d27c/result/flow
+          python - <<'PYGUARD'
+          import json,os,sys
+          a=json.load(open('reports/r1d27c/result/flow/R1D27C_PHASE_MANIFEST.json'))
+          required=24 if os.environ.get('GITHUB_EVENT_NAME')=='workflow_dispatch' and '${{ inputs.scope }}'=='r1d27c_flow60_pilot' else 240
+          print('R1D27C_FLOW60_COVERAGE',a['n_source_complete'],'/',a['n_frozen'],'minimum',required)
+          if a['n_source_complete']<required or a['consecutive_failure_abort']:
+              print('::error::R1D27C_FLOW_SOURCE_INSUFFICIENT_OR_STOPPED;SEE_ARTIFACT_NO_IMPUTATION')
+              sys.exit(2)
+          PYGUARD
+      - name: Only now open previous historical outcomes and compare frozen flow features to D5-D30
+        run: |
+          set -euo pipefail
+          python -m research_formulas.stockhunter_r1d27c_flow60 --mode analyze \
+            --a-zip reports/r1d27c/input/a27contents \
+            --freeze-dir reports/r1d27c/result/freeze \
+            --flow-dir reports/r1d27c/result/flow \
+            --out reports/r1d27c/result/analysis
+          python - <<'PYQA'
+          import json
+          a=json.load(open('reports/r1d27c/result/freeze/R1D27C_PHASE_MANIFEST.json'))
+          b=json.load(open('reports/r1d27c/result/flow/R1D27C_PHASE_MANIFEST.json'))
+          c=json.load(open('reports/r1d27c/result/analysis/R1D27C_PHASE_MANIFEST.json'))
+          assert (a['phase'],b['phase'],c['phase'])==('freeze','collect','analyze')
+          assert a['n_frozen']*5==c['n_event_horizon_join']
+          assert b['n_source_complete']==c['n_flow_complete']
+          assert all(x['research_only'] and not x['live_changed'] and not x['strategy_ready'] for x in (a,b,c))
+          print('R1D27C_60_SESSION_GROSS_INVESTOR_PRICE_PATH_RESEARCH_ONLY_PASS')
+          PYQA
+      - name: Always upload original selection seal, source coverage, and separated historical research
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-R1D27C-FLOW60-${{ inputs.scope }}-HISTORICAL-NOT-OOS
+          retention-days: 90
+          if-no-files-found: warn
+          path: |
+            reports/r1d27c/result/**
+            R1D27C_PREDECLARED_PROTOCOL.json
+            research_formulas/stockhunter_r1d27c_flow60.py
+            tests/test_stockhunter_r1d27c_flow60.py
