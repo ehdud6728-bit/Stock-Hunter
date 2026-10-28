@@ -61,10 +61,14 @@ def classify(calls, http):
         return 'HTTP_RATE_LIMITED'
     if any(x >= 500 for x in statuses):
         return 'HTTP_UPSTREAM_ERROR'
-    if any(x.get('content_kind') == 'HTML' for x in http):
-        return 'HTML_INSTEAD_OF_EXPECTED_KRX_DATA'
+    # KRX/pykrx may request HTML during session/login preparation and then
+    # retrieve valid investor DataFrames. HTML alone is not proof of failure.
+    # Require independently validated endpoint outputs before treating 200/HTML
+    # as non-fatal metadata. Genuine HTTP auth/throttle/server errors win above.
     if calls.get('complete_data_endpoints', 0) == calls.get('attempted_data_endpoints', 0) and calls.get('attempted_data_endpoints', 0) >= 2:
         return 'KRX_PROVIDER_DIAGNOSTIC_DATA_COMPLETE'
+    if any(x.get('content_kind') == 'HTML' for x in http):
+        return 'HTML_INSTEAD_OF_EXPECTED_KRX_DATA'
     if calls.get('attempted_data_endpoints', 0) and not http:
         return 'NO_HTTP_METADATA_CAPTURED_PROVIDER_OR_NETWORK_ERROR'
     return 'KRX_PROVIDER_BAD_OR_INCOMPLETE_RESPONSE'
@@ -143,9 +147,26 @@ def diagnostic(out, policy=None, fetch=None, env=None, requests_module=None):
                     import pandas as pd
                     entry['row_count'] = len(df) if isinstance(df,pd.DataFrame) else 0
                     entry['has_institution_foreign_columns'] = bool(isinstance(df,pd.DataFrame) and {'기관합계','외국인합계'}.issubset(df.columns))
-                    if entry['row_count'] and entry['has_institution_foreign_columns']:
-                        entry['status'] = 'DATA_FRAME_VALID_NONEMPTY'
-                        data['complete_data_endpoints'] += 1
+                    if entry['has_institution_foreign_columns'] and entry['row_count']:
+                        expected_days = {'2025-01-06','2025-01-07','2025-01-08','2025-01-09','2025-01-10'}
+                        try:
+                            actual_days = [pd.Timestamp(day).strftime('%Y-%m-%d') for day in df.index]
+                            date_ok = len(actual_days)==5 and len(set(actual_days))==5 and set(actual_days)==expected_days
+                            numeric_ok = True
+                            nonzero = False
+                            for column in ('기관합계','외국인합계'):
+                                numbers = pd.to_numeric(df[column],errors='coerce')
+                                numeric_ok = numeric_ok and bool(numbers.notna().all() and (numbers % 1 == 0).all())
+                                nonzero = nonzero or bool((numbers != 0).any())
+                        except (ValueError,TypeError,OverflowError):
+                            date_ok = False
+                            numeric_ok = False
+                            nonzero = False
+                        if date_ok and numeric_ok and nonzero:
+                            entry['status'] = 'DATA_FRAME_VALID_NONEMPTY'
+                            data['complete_data_endpoints'] += 1
+                        else:
+                            entry['status'] = 'DATA_FRAME_DATE_NUMERIC_OR_ZERO_INVALID'
                     else:
                         entry['status'] = 'DATA_FRAME_EMPTY_OR_SCHEMA_MISMATCH'
                 except Exception as exc:
@@ -162,6 +183,9 @@ def diagnostic(out, policy=None, fetch=None, env=None, requests_module=None):
     data['http_records'] = http_records[:30]
     data['observed_provider_error_codes'] = sorted(safe_output_codes | {c for x in http_records for c in x.get('recognized_codes', [])})
     data['http_status_counts'] = {str(k):int(v) for k,v in Counter(x.get('http_status') for x in http_records).items()}
+    data['http_200_html_count'] = sum(x.get('http_status')==200 and x.get('content_kind')=='HTML' for x in http_records)
+    data['diagnostic_warnings'] = (['HTTP_200_HTML_OBSERVED_WITH_VALID_ENDPOINT_DATA'] if
+       data['http_200_html_count'] and data['complete_data_endpoints']==data['attempted_data_endpoints'] and data['attempted_data_endpoints']>=2 else [])
     data['diag_status'] = classify(data, http_records)
     _write(out, data)
     return data
@@ -180,7 +204,9 @@ def main():
     safe=dict(version=result['version'],diag_status=result['diag_status'],secret_presence=result['secret_presence'],
               configured_secret_pair=result['configured_secret_pair'],
               pykrx_version=result['pykrx_version'],attempted=result['attempted_data_endpoints'],
-              completed=result['complete_data_endpoints'],http_status_counts=result.get('http_status_counts',{}),
+               completed=result['complete_data_endpoints'],http_status_counts=result.get('http_status_counts',{}),
+               http_200_html_count=result.get('http_200_html_count',0),
+               diagnostic_warnings=result.get('diagnostic_warnings',[]),
               observed_provider_error_codes=result['observed_provider_error_codes'])
     print('R1D27B_DIAGNOSTIC_METADATA_ONLY',json.dumps(safe,ensure_ascii=False))
     if args.require_success and result['diag_status']!='KRX_PROVIDER_DIAGNOSTIC_DATA_COMPLETE':
