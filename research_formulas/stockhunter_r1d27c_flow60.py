@@ -6,7 +6,7 @@ The old R1-D27A 300 events are selected BEFORE reading any post-signal path.
 Original unadjusted KRX daily and investor flow are retrospective, NOT PIT certified.
 """
 from __future__ import annotations
-import argparse, collections, csv, gzip, hashlib, io, json, math, os, pathlib, time, zipfile
+import argparse, collections, csv, gzip, hashlib, io, json, math, os, pathlib, shutil, time, zipfile
 import pandas as pd
 
 VERSION='R1D27C_FROZEN300_60SESS_GROSS_BUY_SELL_NET_VALUE_VOLUME_V1'
@@ -343,18 +343,131 @@ def get_fixed_source_without_calendar(a_zip,protocol):
     f=read_csv_bytes(z.read(A_FROZEN));check(len(f)==300,'R1D27A_SAMPLE')
     return z,f
 
+
+# RECOVERY ADDENDUM: checkpoint raw input is validated without relying on the
+# success/failure of the old workflow. Never resample, fill missing, or read
+# future returns during these requests.
+PINNED_FULL_FREEZE_SHA256='c6dcccdc5ecd5d98d3f1ceae441c34814c062710118148832271ff9191474093'
+
+
+def audit_checkpoint(checkpoint_root, calendar):
+    root=pathlib.Path(checkpoint_root)/'reports/r1d27c/result'
+    fm=verify(root/'freeze','freeze')
+    sm=verify(root/'flow','collect')
+    check(fm['scope']=='full' and fm['n_frozen']==300,'RESUME_NOT_FROZEN300')
+    check(fm['files_sha256'][FROZEN]==PINNED_FULL_FREEZE_SHA256,'RESUME_FREEZE_IDENTITY_DRIFT')
+    check(sm['scope']=='full' and sm['n_frozen']==300,'RESUME_SOURCE_NOT_FULL')
+    check(sm['source_frozen_sha256']==fm['files_sha256'][FROZEN],'RESUME_MISMATCH_FROZEN')
+    check(sm['gross_net_both_units_validation'] and sm['unavailable_is_not_zero'],'RESUME_SOURCE_QA_FLAGS')
+    frozen=pd.read_csv(root/'freeze'/FROZEN,dtype={'date':str,'code':str,'bb_period':str,'event_type':str})
+    check(len(frozen)==300 and not frozen[KEY].duplicated().any(),'RESUME_FROZEN_COUNT')
+    keyset=set(tuple(x) for x in frozen[KEY].itertuples(index=False,name=None))
+    check(len(keyset)==300,'RESUME_FROZEN_KEYS')
+    fidx={tuple(str(getattr(q,k)) for k in KEY):q for q in frozen.itertuples(index=False)}
+    archive_audit=pd.read_csv(root/'flow'/AUDIT,dtype=str).fillna('')
+    check(not archive_audit[KEY].duplicated().any(),'RESUME_DUP_AUDIT')
+    audited={tuple(x[k] for k in KEY):x.to_dict() for _,x in archive_audit.iterrows()}
+    check(set(audited).issubset(keyset),'RESUME_AUDIT_KEYS')
+    archived=pd.read_csv(root/'flow'/FLOW,dtype={'date':str,'code':str,'bb_period':str,'event_type':str,'trade_date':str,'actor':str},compression='gzip')
+    check(len(archived)==sm['n_daily_actor_rows'],'RESUME_RAW_ROW_COUNT')
+    check(not archived[[*KEY,'trade_date','actor']].duplicated().any(),'RESUME_DUP_DAILY_ACTOR')
+    check(set(tuple(x) for x in archived[KEY].itertuples(index=False,name=None)).issubset(keyset),'RESUME_DAILY_KEYS')
+    num=['buy_krw','sell_krw','net_krw','total_krw','buy_shares','sell_shares','net_shares','total_shares']
+    for col in num:
+        x=pd.to_numeric(archived[col],errors='raise')
+        check(x.notna().all() and (x%1==0).all(),'RESUME_NONINTEGER_'+col)
+        if col.startswith(('buy_','sell_','total_')):check((x>=0).all(),'RESUME_NEGATIVE_'+col)
+        archived[col]=x.astype('int64')
+    for suffix in ('krw','shares'):
+        check((archived['buy_'+suffix]-archived['sell_'+suffix]==archived['net_'+suffix]).all(),'RESUME_NET_MISMATCH_'+suffix)
+    entries={};keys=[]
+    for key,g in archived.groupby(KEY,sort=False):
+        key=tuple(str(x) for x in key)
+        check(key in fidx and len(g)==240 and g.trade_date.nunique()==60,'RESUME_ACTOR_CARDINALITY')
+        check(set(g.actor)==set(ACTORS) and (g.groupby('trade_date').actor.nunique()==4).all(),'RESUME_ACTOR_MISSING')
+        r=fidx[key];t=int(r.signal_ix)
+        expected=calendar[t-60:t]
+        check(len(expected)==60 and set(g.trade_date)==set(expected) and min(g.trade_date)==r.pre60_from and max(g.trade_date)==r.pre60_to,'RESUME_DATES')
+        for day,v in g.groupby('trade_date'):
+            for suffix in ('krw','shares'):
+                total=v['total_'+suffix].to_numpy()
+                check(len(set(map(int,total)))==1,'RESUME_DAY_TOTAL_MISMATCH')
+                for gross in ('buy_','sell_'):
+                    agg=int(v[gross+suffix].sum());ref=int(total[0])
+                    check(abs(agg-ref)<=max(1000,ref*.005),'RESUME_ACTOR_SUM_'+gross+suffix)
+        check(key in audited and audited[key]['status'].startswith('COMPLETE'),'RESUME_AUDIT_COMPLETED')
+        entries[key]=g
+        keys.append(key)
+    check(len(entries)==sm['n_source_complete'],'RESUME_COMPLETE_COUNT')
+    check(sum(x['status'].startswith('COMPLETE') for x in audited.values())==len(entries),'RESUME_AUDIT_COMPLETE_COUNT')
+    check(len(audited)==sm['n_attempted'],'RESUME_AUDIT_SIZE')
+    return root,frozen,entries,audited,sm
+
+
+def collect_resume(checkpoint_root,krx_root,out,protocol,batch_limit=30,fetch=None,sleep_events=0.9,max_fails=3):
+    check(1<=batch_limit<=40,'RESUME_BATCH_LIMIT')
+    check(0<=sleep_events<=5,'RESUME_SLEEP')
+    from research_formulas import formula66_r1d6_oos_holdout as d6
+    cal,_=d6.index_asof(krx_root)
+    root,frozen,cached,prior_audit,old=audit_checkpoint(checkpoint_root,cal)
+    out=pathlib.Path(out);out.mkdir(parents=True,exist_ok=True)
+    # Copy frozen bytes exactly; no new selectors, no outcomes.
+    freeze_out=out.parent/'freeze';freeze_out.mkdir(parents=True,exist_ok=True)
+    shutil.copyfile(root/'freeze'/FROZEN,freeze_out/FROZEN)
+    shutil.copyfile(root/'freeze'/'R1D27C_PHASE_MANIFEST.json',freeze_out/'R1D27C_PHASE_MANIFEST.json')
+    check(verify(freeze_out,'freeze')['files_sha256'][FROZEN]==PINNED_FULL_FREEZE_SHA256,'RESUME_COPY_SHA')
+    records=[]
+    for g in cached.values():records.extend(g.to_dict('records'))
+    audit=prior_audit.copy()
+    n_started=0;n_success=0;consec=0;aborted=False
+    # Do not let cached errors falsely count as current consecutive failures.
+    for e in frozen.itertuples(index=False):
+        key=tuple(str(getattr(e,k)) for k in KEY)
+        if key in cached:continue
+        if n_started>=batch_limit:break
+        t=int(e.signal_ix);days=cal[t-60:t]
+        check(len(days)==60 and days[0]==e.pre60_from and days[-1]==e.pre60_to,'RESUME_EVENT_DATES')
+        n_started+=1
+        try:
+            frames=get_flow(days[0].replace('-',''),days[-1].replace('-',''),e.code,fetch)
+            parsed=verify_six(frames,days)
+            records.extend([{**dict(zip(KEY,key)),**q} for q in parsed])
+            status='COMPLETE_60_GROSS_NET_BOTH_UNITS_NOT_PIT';reason='';n_success+=1;consec=0
+        except Exception as err:
+            reason=type(err).__name__ if not isinstance(err,AuditError) else str(err).removeprefix('R1D27C_')
+            status='SOURCE_QUARANTINED_NO_IMPUTATION';consec+=1
+        audit[key]=dict(zip(KEY,key),status=status,reason_code=reason,expected_days=60,source_complete=int(status.startswith('COMPLETE')))
+        if n_started%5==0:print('R1D27C_RESUME_BATCH',n_started,'of',batch_limit,'new_complete',n_success,'total_complete',len(cached)+n_success,'consecutive_errors',consec,flush=True)
+        if consec>=max_fails:aborted=True;break
+        if sleep_events:time.sleep(sleep_events)
+    cols=[*KEY,'trade_date','actor','buy_krw','sell_krw','net_krw','total_krw','buy_shares','sell_shares','net_shares','total_shares']
+    emit(out/FLOW,records,cols)
+    emit(out/AUDIT,list(audit.values()),[*KEY,'status','reason_code','expected_days','source_complete'])
+    n_all=len(cached)+n_success
+    check(len(records)==n_all*240,'RESUME_OUTPUT_ACTOR_ROWS')
+    return manifest(out,'collect',scope='full',n_frozen=300,n_attempted=len(audit),n_source_complete=n_all,
+        n_source_incomplete=len(audit)-n_all,n_unattempted=300-len(audit),n_daily_actor_rows=len(records),
+        consecutive_failure_abort=aborted,source_frozen_sha256=PINNED_FULL_FREEZE_SHA256,
+        gross_net_both_units_validation=True,unavailable_is_not_zero=True,checkpoint_only=n_all<240,
+        batch_limit=batch_limit,batch_attempted=n_started,batch_new_success=n_success,n_cached_reused=len(cached),
+        checkpoint_source_complete_before=old['n_source_complete'],checkpoint_source_digest=old['files_sha256'][FLOW],
+        status='SOURCE_CHECKPOINT_NOT_FINAL_RESEARCH' if n_all<240 else 'FLOW_SOURCE_COVERAGE_REACHED_FOR_EXPLORATORY_ANALYSIS')
+
 def main():
-    ap=argparse.ArgumentParser();ap.add_argument('--mode',required=True,choices=('freeze','collect','analyze'))
+    ap=argparse.ArgumentParser();ap.add_argument('--mode',required=True,choices=('freeze','collect','analyze','resume'))
     ap.add_argument('--a-zip',default='reports/r1d27c/input/R1D27A_ARTIFACT.zip')
     ap.add_argument('--krx-root',default='reports/r1d27c/input/krx')
     ap.add_argument('--freeze-dir',default='reports/r1d27c/result/freeze')
     ap.add_argument('--flow-dir',default='reports/r1d27c/result/flow')
     ap.add_argument('--out',required=True);ap.add_argument('--scope',choices=('pilot','full'),default='pilot')
     ap.add_argument('--protocol',default='R1D27C_PREDECLARED_PROTOCOL.json')
+    ap.add_argument('--checkpoint-root',default='reports/r1d27c/checkpoint')
+    ap.add_argument('--batch-limit',type=int,default=30)
     args=ap.parse_args();p=json.loads(pathlib.Path(args.protocol).read_text(encoding='utf-8'))
     check(p['version']==VERSION and p['lookback_sessions']==60 and p['frozen_population']==300,'PROTOCOL')
     if args.mode=='freeze':v=freeze(args.a_zip,args.krx_root,args.out,p,args.scope)
     elif args.mode=='collect':v=collect(args.freeze_dir,args.krx_root,args.out,p)
+    elif args.mode=='resume':v=collect_resume(args.checkpoint_root,args.krx_root,args.out,p,batch_limit=args.batch_limit)
     else:v=analyze(args.freeze_dir,args.flow_dir,args.a_zip,args.out,p)
     print('R1D27C_PHASE',json.dumps({k:v[k] for k in ['version','phase','research_only','strategy_ready']},ensure_ascii=False),flush=True)
 if __name__=='__main__':main()
