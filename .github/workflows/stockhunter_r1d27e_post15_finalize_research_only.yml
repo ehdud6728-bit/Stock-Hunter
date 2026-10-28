@@ -1,0 +1,88 @@
+name: StockHunter R1-D27E Post15 Finalize 1483 [ANALYSIS ONLY]
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: r1d27e-post15-sealed-1483-finalize
+  cancel-in-progress: false
+jobs:
+  analyze_sealed_checkpoint:
+    name: Sealed 1483 D1-D15 flow × high-price retrospective analysis
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      STOCKHUNTER_LIVE_ENABLE: '0'
+      STOCKHUNTER_ORDER_ENABLE: '0'
+      STOCKHUNTER_SCORE_RANK_ENABLE: '0'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Checkout research inputs without credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install analysis dependencies and run closeout tests
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check 'numpy>=1.26,<3' 'pandas>=2,<3'
+          python -m py_compile research_formulas/stockhunter_r1d27e_post15_analyze.py
+          python -m unittest discover -s tests -p 'test_r1d27e_finalize_only.py' -v
+      - name: Restore exact sealed successful historical source artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: stockhunter-R1D27E-POST15-PART-08
+          run-id: '40693353536'
+          github-token: ${{ github.token }}
+          path: sealed_post15
+      - name: Verify checkpoint identity and 1483-16-1 accounting without new KRX access
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PYVERIFY'
+          import hashlib,json,pathlib
+          root=pathlib.Path('sealed_post15')
+          m=json.loads((root/'R1D27E_POST15_MANIFEST.json').read_text())
+          expected={
+            'R1D27E_POST15_DAILY_ACTOR_VALUE.csv.gz':'2546a78ad1503e0e125acafda5b8d0b518274e61dad6ce855bcebbc4a9c09c48',
+            'R1D27E_POST15_SOURCE_AUDIT.csv':'42dbfa3c6f10add8bb736c9f4539103e17fc5184ecca28164b946bcc532a0628'}
+          for name,digest in expected.items():
+              real=hashlib.sha256((root/name).read_bytes()).hexdigest()
+              assert real==digest==m['files_sha256'][name], 'CHECKPOINT_SOURCE_DRIFT:'+name
+          assert m['n_frozen']==m['n_attempted']==1500, 'NOT_FULL_CENSUS'
+          assert (m['n_complete'],m['n_quarantined'],m['n_retry_pending'],m['n_never_attempted'])==(1483,16,1,0), 'UNEXPECTED_COUNTS'
+          assert m['n_unattempted']==1 and not m['provider_abort'], 'RETRY_STATE_DRIFT'
+          assert m['research_only'] and not m['live_changed'] and m['orders_placed']==0, 'RESEARCH_BOUNDARY'
+          print('R1D27E_SEALED_FINALIZE_PREFLIGHT_PASS complete=1483 quarantine=16 retry_missing=1 api_calls=0')
+          PYVERIFY
+      - name: Analyze all validated flow paths and exclude missing 17 without zeros
+        run: |
+          set -euo pipefail
+          python -m research_formulas.stockhunter_r1d27e_post15_analyze \
+            --freeze-file research_inputs/R1D27D_FROZEN_1500_TICKER_DISJOINT_OUTCOME_BLIND.csv \
+            --base-dir research_inputs \
+            --checkpoint sealed_post15 \
+            --out reports/r1d27e_post15_final_1483
+      - name: Confirm final source and analysis population
+        run: |
+          python - <<'PYFINAL'
+          import json,pathlib
+          p=pathlib.Path('reports/r1d27e_post15_final_1483/R1D27E_POST15_ANALYSIS_MANIFEST.json')
+          m=json.loads(p.read_text())
+          assert m['post_flow_complete']==1483 and m['post_flow_quarantined']==16
+          assert m['post_flow_retry_pending_missing']==1 and m['missing_17_excluded_not_zero']
+          assert m['d15_price_complete_and_postflow']==1483
+          assert m['research_only'] and m['no_LIVE_change'] and m['no_trade_executed']
+          print('R1D27E_POST15_FINALIZED_RESEARCH_ONLY',json.dumps({k:v for k,v in m.items() if k!='files_sha256'},ensure_ascii=False))
+          PYFINAL
+      - name: Upload verified final research results
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-R1D27E-POST15-FINAL-1483-D3-D15-FLOW-HIGH-RESEARCH-ONLY
+          path: reports/r1d27e_post15_final_1483/*
+          retention-days: 90
+          if-no-files-found: error
