@@ -1,0 +1,63 @@
+name: "StockHunter R1-D40 KRX Futures Quarterly Source [RESEARCH ONLY]"
+on:
+  workflow_dispatch:
+    inputs:
+      year:
+        description: "2021-2025 (one verified calendar quarter per run)"
+        type: choice
+        required: true
+        default: '2025'
+        options: ['2021','2022','2023','2024','2025']
+      quarter:
+        description: "Calendar quarter (Q3 contains already verified canary days)"
+        type: choice
+        required: true
+        default: '3'
+        options: ['1','2','3','4']
+permissions:
+  contents: read
+concurrency:
+  group: stockhunter-r1d40-futures-q-${{ inputs.year }}-${{ inputs.quarter }}
+  cancel-in-progress: false
+jobs:
+  source_collection:
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    env:
+      RESEARCH_ONLY: '1'
+      STOCKHUNTER_LIVE_ENABLE: '0'
+      STOCKHUNTER_ORDER_ENABLE: '0'
+      STOCKHUNTER_SCORE_RANK_ENABLE: '0'
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONUNBUFFERED: '1'
+      KRX_ID: ${{ secrets.KRX_DATA_ID || secrets.KRX_ID }}
+      KRX_PW: ${{ secrets.KRX_DATA_PW || secrets.KRX_PW }}
+    steps:
+      - name: Checkout read-only source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Set Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install canary-verified provider
+        run: python -m pip install --disable-pip-version-check 'pykrx==1.2.9' 'pandas>=2,<3'
+      - name: Run offline tests without secret output
+        run: python -m unittest discover -s tests -p 'test_r1d40_futures_quarter_collect.py' -v
+      - name: Collect and validate both futures products
+        env:
+          YEAR: ${{ inputs.year }}
+          QUARTER: ${{ inputs.quarter }}
+        run: |
+          python research_formulas/r1d40_futures_quarter_collect.py \
+            --year "$YEAR" --quarter "$QUARTER" --calendar frozen_krx_sessions_2021_2025.csv \
+            --out reports/r1d40-futures-quarter
+      - name: Upload source audit, checkpoints and validated data only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-R1D40-FUTURES-${{ inputs.year }}-Q${{ inputs.quarter }}
+          path: reports/r1d40-futures-quarter/
+          if-no-files-found: error
+          retention-days: 30
