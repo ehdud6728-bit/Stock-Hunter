@@ -1,0 +1,49 @@
+name: "StockHunter R1-D40 KRX-login futures 2-session CANARY [RESEARCH ONLY]"
+# Manual only. No schedule, no push, no order, no LIVE branch.
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: stockhunter-r1d40-login-futures-canary-${{ github.ref_name }}
+  cancel-in-progress: false
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      STOCKHUNTER_LIVE_ENABLE: '0'
+      STOCKHUNTER_ORDER_ENABLE: '0'
+      STOCKHUNTER_SCORE_RANK_ENABLE: '0'
+      RESEARCH_ONLY: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: "Checkout source without persistent credentials"
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: "Python 3.11"
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: "Install pinned pykrx and data parser"
+        run: |
+          python -m pip install --disable-pip-version-check 'pykrx==1.2.9' 'pandas>=2,<3'
+      - name: "Offline safety and schema checks - no credentials"
+        run: |
+          python -m unittest discover -s tests -p 'test_r1d40_futures_login_canary.py' -v
+      - name: "Probe exactly two historical dates x two futures products"
+        env:
+          KRX_ID: ${{ secrets.KRX_DATA_ID || secrets.KRX_ID }}
+          KRX_PW: ${{ secrets.KRX_DATA_PW || secrets.KRX_PW }}
+        run: |
+          set -euo pipefail
+          python research_formulas/r1d40_futures_login_canary.py --out reports/r1d40-login-futures-canary
+      - name: "Upload sanitized audit only"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-R1D40-KRX-LOGIN-FUTURES-TWO-DAY-CANARY
+          path: reports/r1d40-login-futures-canary/CANARY_SAFE_AUDIT.json
+          if-no-files-found: warn
+          retention-days: 30
