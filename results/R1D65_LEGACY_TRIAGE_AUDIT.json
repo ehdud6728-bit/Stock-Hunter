@@ -1,0 +1,17 @@
+{
+  "study": "R1D65_LEGACY_DIRECTION_TRIAGE",
+  "source": "R1D64 flags inherited from R1D56",
+  "n_legacy_claimed_triangles": 2581,
+  "n_direction_incompatible": 635,
+  "n_direction_only_compatible_but_unverified": 1946,
+  "n_below224_legacy": 1112,
+  "n_below224_direction_incompatible": 277,
+  "n_below224_direction_only_compatible_but_unverified": 835,
+  "n_two_low_pivots": 80,
+  "n_steep_lower_review": 713,
+  "puleun_case": "094940 20210125: upper and lower slope signs match, but unverified actual 4 pivot chronology; user chart did not show clear triangle",
+  "strong_caution": "Direction-only compatible does NOT mean confirmed triangle.",
+  "no_new_signal_count_with_true_pivots": true,
+  "no_new_performance_claim": true,
+  "research_only": true
+}
