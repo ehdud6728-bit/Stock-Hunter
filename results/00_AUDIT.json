@@ -1,0 +1,31 @@
+{
+  "frozen_event_count": 5247,
+  "d20_complete": 5214,
+  "source_bb_parity": [
+    {
+      "source_contract": "R1D6 BB20_L distance vs independent R1D19 same-date band",
+      "n_compared": 5247,
+      "n_equal_tolerance_0p01_krw": 5247,
+      "max_absolute_krw": 8.265305950772017e-08,
+      "median_absolute_krw": 1.2732925824820995e-11
+    },
+    {
+      "source_contract": "R1D6 BB40_L distance vs independent R1D19 same-date band",
+      "n_compared": 5246,
+      "n_equal_tolerance_0p01_krw": 5246,
+      "max_absolute_krw": 2.7721398510038853e-08,
+      "median_absolute_krw": 1.6967760529951192e-11
+    }
+  ],
+  "legacy_R1D19_period": "2024-01-02 ~ 2025-09-30",
+  "cohort": "R1D6 preselected 224MA wave pullback proxy, not all KRX event dates",
+  "source_sha256": {
+    "R1D6_224_BASE_COHORT.zip": "7185b582e94131b7ee09daf55024c80eeac881f5a2cbc8cee7bbd418a106a884",
+    "R1D19_ORIGINAL_BB_RESEARCH.zip": "e94b0020d90bdfbb156d26d5eb48d6498c2af80c4388f5d1be90e3e29a0ed55d",
+    "R1D7_FROZEN_LABELS.zip": "1ee50cef93a8e3adc0cf2e239d1088ebe160528d5f4336f9f5b2e3fe20ec80ed"
+  },
+  "analysis": "Original R1D19/R1D6/R1D7 frozen outcome replay and formula ablation. Not an independent price correction",
+  "cannot certify_corporate_action_adjusted_prices": true,
+  "cannot_certify_causal_strategy_returns": true,
+  "no_new_live_changes": true
+}
