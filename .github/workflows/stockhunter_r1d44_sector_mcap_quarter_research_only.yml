@@ -1,0 +1,61 @@
+name: "StockHunter R1-D44 Historical Sector and MarketCap Quarterly [RESEARCH ONLY]"
+on:
+  workflow_dispatch:
+    inputs:
+      year:
+        description: "Historical year (actual date-matched market cap and industry)"
+        type: choice
+        required: true
+        default: '2025'
+        options: ['2021','2022','2023','2024','2025']
+      quarter:
+        description: "Calendar quarter"
+        type: choice
+        required: true
+        default: '3'
+        options: ['1','2','3','4']
+permissions:
+  contents: read
+concurrency:
+  group: stockhunter-r1d44-sector-mcap-${{ inputs.year }}-${{ inputs.quarter }}
+  cancel-in-progress: false
+jobs:
+  source_only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      RESEARCH_ONLY: '1'
+      STOCKHUNTER_LIVE_ENABLE: '0'
+      STOCKHUNTER_ORDER_ENABLE: '0'
+      STOCKHUNTER_SCORE_RANK_ENABLE: '0'
+      PYTHONUNBUFFERED: '1'
+      KRX_ID: ${{ secrets.KRX_DATA_ID || secrets.KRX_ID }}
+      KRX_PW: ${{ secrets.KRX_DATA_PW || secrets.KRX_PW }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install pinned market source client
+        run: python -m pip install --disable-pip-version-check 'pykrx==1.2.9' 'pandas>=2,<3'
+      - name: Test strict data guards without network
+        run: python -m unittest discover -s research_formulas -p 'test_r1d44_krx_sector_mcap_quarter.py' -v
+      - name: Download exactly one historical quarter for BOTH markets
+        env:
+          YEAR: ${{ inputs.year }}
+          QUARTER: ${{ inputs.quarter }}
+        run: |
+          python research_formulas/r1d44_krx_sector_mcap_quarter.py \
+            --year "$YEAR" --quarter "$QUARTER" \
+            --calendar research_formulas/r1d44_frozen_sessions_2021_2025.csv \
+            --out reports/r1d44_sector_mcap_${YEAR}_Q${QUARTER}
+      - name: Upload complete or explicitly partial raw-source audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-R1D44-SECTOR-MCAP-${{ inputs.year }}-Q${{ inputs.quarter }}
+          path: reports/r1d44_sector_mcap_${{ inputs.year }}_Q${{ inputs.quarter }}/
+          if-no-files-found: warn
+          retention-days: 60
