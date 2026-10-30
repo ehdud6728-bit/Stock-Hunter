@@ -10,13 +10,58 @@ from pathlib import Path
 import pandas as pd
 
 FIELDS=('date','code','company_name','market','industry','mcap_krw','close')
+
+# KRX short issue codes are not universally numeric: the provider can expose
+# six-character alphanumeric official short codes. Preserve those codes exactly.
+# No stripping A prefixes, no numeric-only casting and no missing-to-zero.
+CODE_CANONICAL = re.compile(r'[0-9A-Z]{6}\Z')
+CODE_NUMERIC_SHORT = re.compile(r'[0-9]{1,6}\Z')
+
+def code_shape(raw):
+    value=str(raw).strip() if raw is not None else ''
+    if not value or value.lower() in ('none','nan','<na>'):
+        return 'MISSING'
+    if CODE_NUMERIC_SHORT.fullmatch(value):
+        return 'NUMERIC_6' if len(value)==6 else 'NUMERIC_PADDED'
+    if CODE_CANONICAL.fullmatch(value) and any(c.isdigit() for c in value):
+        return 'ALPHANUMERIC_6'
+    if re.fullmatch(r'A[0-9A-Z]{6}',value):
+        return 'A_PREFIX_7_UNVERIFIED'
+    if re.fullmatch(r'[0-9A-Za-z]{1,12}',value):
+        return 'UNSUPPORTED_ASCII_WIDTH_'+str(len(value))
+    return 'UNSUPPORTED_OTHER'
+
+def code_audit(index):
+    """Safe counts only; never prints or hashes user credentials or source payloads."""
+    from collections import Counter
+    shapes=Counter(code_shape(x) for x in index)
+    return {'row_count':len(index),
+            'shape_counts':dict(sorted(shapes.items())),
+            'numeric_6_rows':shapes['NUMERIC_6'],
+            'numeric_padded_rows':shapes['NUMERIC_PADDED'],
+            'alphanumeric_6_rows':shapes['ALPHANUMERIC_6'],
+            'unsupported_rows':sum(n for k,n in shapes.items() if k not in ('NUMERIC_6','NUMERIC_PADDED','ALPHANUMERIC_6'))}
+
+def normalize_code(raw):
+    value=str(raw).strip() if raw is not None else ''
+    typ=code_shape(raw)
+    if typ in ('NUMERIC_6','NUMERIC_PADDED'):
+        return value.zfill(6)
+    if typ=='ALPHANUMERIC_6':
+        return value
+    raise ValueError('UNSUPPORTED_KRX_SECURITY_CODE_SHAPE')
+
 def norm(raw, market, date):
     required={'종목명','업종명','시가총액','종가'}
     if not isinstance(raw,pd.DataFrame) or raw.empty or not required.issubset(raw.columns):
         raise ValueError('EMPTY_OR_SCHEMA_INVALID_'+market)
+    # Disallow missing/invalid or unsupported raw source identities. A one-row
+    # anomaly must not be silently dropped, altered or joined to another issue.
+    audit=code_audit(raw.index)
+    if audit['unsupported_rows']:
+        raise ValueError('UNSUPPORTED_KRX_SECURITY_CODE_SHAPE')
     x=raw.copy()
-    x['code']=[str(c).strip().zfill(6) for c in x.index]
-    if not all(re.fullmatch(r'\d{6}',s) for s in x.code): raise ValueError('CODE_NOT_6_DIGITS')
+    x['code']=[normalize_code(c) for c in x.index]
     if x.code.duplicated().any():raise ValueError('DUPLICATE_CODE_'+market)
     caps=pd.to_numeric(x['시가총액'].astype(str).str.replace(',','',regex=False),errors='coerce')
     closes=pd.to_numeric(x['종가'].astype(str).str.replace(',','',regex=False),errors='coerce')
@@ -26,6 +71,9 @@ def norm(raw, market, date):
     x=x.loc[ok].copy();caps=caps.loc[ok];closes=closes.loc[ok]
     result=pd.DataFrame({'date':date,'code':x.code.values,'company_name':x['종목명'].astype(str).values,'market':market,'industry':x['업종명'].astype(str).values,'mcap_krw':caps.astype('int64').values,'close':closes.astype('float64').values},columns=list(FIELDS))
     result.attrs['excluded_invalid_source_rows']=rejected
+    result.attrs['code_shape_counts']=audit['shape_counts']
+    result.attrs['alphanumeric_6_rows']=audit['alphanumeric_6_rows']
+    result.attrs['numeric_padded_rows']=audit['numeric_padded_rows']
     return result
 
 def select_dates(path,year,quarter):
@@ -51,7 +99,7 @@ def save(date,dfs,root):
     bio=io.BytesIO()
     with gzip.GzipFile(filename='',mode='wb',fileobj=bio,mtime=0,compresslevel=6) as f:f.write(by)
     tmp=dest.with_suffix('.tmp');tmp.write_bytes(bio.getvalue());tmp.replace(dest)
-    return {'date':date,'name':dest.name,'sha256':sha(dest),'rows':len(x),'kospi':sum(x.market=='KOSPI'),'kosdaq':sum(x.market=='KOSDAQ')}
+    return {'date':date,'name':dest.name,'sha256':sha(dest),'rows':len(x),'kospi':sum(x.market=='KOSPI'),'kosdaq':sum(x.market=='KOSDAQ'), 'alphanumeric_6_rows':sum(d.attrs.get('alphanumeric_6_rows',0) for d in dfs), 'numeric_padded_rows':sum(d.attrs.get('numeric_padded_rows',0) for d in dfs)}
 
 def run(year,quarter,calendar,out,fetch=None,sleep=0.3):
     root=Path(out);root.mkdir(parents=True,exist_ok=True)
@@ -88,7 +136,7 @@ def run(year,quarter,calendar,out,fetch=None,sleep=0.3):
 # login cookies, provider error messages, HTTP URLs, or user credentials.
 SAFE_CODES={
     'EMPTY_OR_SCHEMA_INVALID_KOSPI', 'EMPTY_OR_SCHEMA_INVALID_KOSDAQ',
-    'CODE_NOT_6_DIGITS', 'DUPLICATE_CODE_KOSPI', 'DUPLICATE_CODE_KOSDAQ',
+    'CODE_NOT_6_DIGITS', 'UNSUPPORTED_KRX_SECURITY_CODE_SHAPE', 'DUPLICATE_CODE_KOSPI', 'DUPLICATE_CODE_KOSDAQ',
     'TOO_MANY_UNTRADEABLE_OR_MISSING_ROWS_KOSPI',
     'TOO_MANY_UNTRADEABLE_OR_MISSING_ROWS_KOSDAQ',
 }
@@ -125,6 +173,7 @@ def diagnose_source(out, fetch=None, dates=('2025-07-01','2025-09-23')):
                     if isinstance(raw,pd.DataFrame):
                         p['schema_has_required_columns']=bool({'종목명','업종명','시가총액','종가'}.issubset(raw.columns))
                         p['code_index_is_unique']=bool(raw.index.is_unique)
+                        p['code_shape_audit']=code_audit(raw.index)
                         if p['schema_has_required_columns'] and len(raw):
                             # Aggregate invalid counts, never actual cap, names, or codes.
                             caps=pd.to_numeric(raw['시가총액'].astype(str).str.replace(',','',regex=False),errors='coerce')
@@ -148,6 +197,7 @@ def diagnose_source(out, fetch=None, dates=('2025-07-01','2025-09-23')):
                         p['status']='VALIDATED_SOURCE'
                         p['valid_row_count']=len(clean)
                         p['excluded_source_rows']=int(clean.attrs.get('excluded_invalid_source_rows',0))
+                        p['alphanumeric_6_rows']=int(clean.attrs.get('alphanumeric_6_rows',0))
             probes.append(p)
             print('R1D44_SAFE_DIAG',d,market,p['stage'],p['status'],
                   p.get('error_code',p.get('error_type','')) ,flush=True)
