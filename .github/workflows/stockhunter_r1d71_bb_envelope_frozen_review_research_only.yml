@@ -1,0 +1,43 @@
+name: StockHunter R1-D71 BB Envelope Lower Frozen Audit (RESEARCH ONLY)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  r1d71_frozen_review_only:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout immutable repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install research dependencies
+        run: python -m pip install numpy pandas
+      - name: Verify 3 frozen input ZIP SHA256
+        run: sha256sum --check research_inputs/r1d71/SHA256SUMS.txt
+      - name: Run historical original BB Envelope source contract audit
+        run: |
+          python research_formulas/r1d71_prior_5247_legacy_review.py \
+            --r1d6 research_inputs/r1d71/R1D6_224_BASE_COHORT.zip \
+            --r1d19 research_inputs/r1d71/R1D19_ORIGINAL_BB_RESEARCH.zip \
+            --r1d7 research_inputs/r1d71/R1D7_FROZEN_LABELS.zip \
+            --out reports/r1d71
+      - name: Audit unit tests
+        env:
+          R1D71_OUTPUT_DIR: reports/r1d71
+        run: python -m unittest discover -s tests -p 'test_r1d71*.py' -v
+      - name: Guard existing LIVE tracked files
+        run: |
+          git diff --exit-code
+          git diff --cached --exit-code
+      - name: Upload research-only results
+        uses: actions/upload-artifact@v4
+        with:
+          name: R1D71_BB_ENVELOPE_FROZEN_HISTORICAL_REVIEW_RESEARCH_ONLY
+          path: reports/r1d71/
+          if-no-files-found: error
+          retention-days: 30
