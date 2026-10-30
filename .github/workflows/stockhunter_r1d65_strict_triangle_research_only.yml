@@ -1,0 +1,36 @@
+name: StockHunter R1-D65 Strict Triangle Geometry (RESEARCH ONLY)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  r1d65_strict_triangle_research_only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout frozen repository state
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Test strict actual pivot geometry
+        run: python -m unittest discover -s tests -p 'test_r1d65_strict.py' -v
+      - name: Re-evaluate 300 frozen pilot event dates using existing price context
+        run: |
+          python research_formulas/r1d65_pilot_runner.py \
+            --root . --out reports/r1d65_strict_triangle
+      - name: Guarantee no tracked LIVE source edited
+        run: |
+          git diff --exit-code
+          git diff --cached --exit-code
+      - name: Upload research-only evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: R1D65_STRICT_TRIANGLE_AUDIT
+          path: reports/r1d65_strict_triangle/
+          if-no-files-found: warn
+          retention-days: 30
