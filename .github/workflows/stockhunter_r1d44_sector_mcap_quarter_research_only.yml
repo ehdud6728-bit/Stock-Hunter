@@ -2,6 +2,12 @@ name: "StockHunter R1-D44 Historical Sector and MarketCap Quarterly [RESEARCH ON
 on:
   workflow_dispatch:
     inputs:
+      mode:
+        description: 'Safe 2-date provider diagnostic first; quarter only after verified'
+        type: choice
+        required: true
+        default: 'diagnostic'
+        options: ['diagnostic','quarter']
       year:
         description: "Historical year (actual date-matched market cap and industry)"
         type: choice
@@ -42,13 +48,19 @@ jobs:
         run: python -m pip install --disable-pip-version-check 'pykrx==1.2.9' 'pandas>=2,<3'
       - name: Test strict data guards without network
         run: python -m unittest discover -s research_formulas -p 'test_r1d44_krx_sector_mcap_quarter.py' -v
+      - name: Diagnose original failed date and known futures-canary date for BOTH markets
+        if: ${{ inputs.mode == 'diagnostic' }}
+        run: |
+          python research_formulas/r1d44_krx_sector_mcap_quarter.py \
+            --mode diagnostic --out reports/r1d44_sector_mcap_${{ inputs.year }}_Q${{ inputs.quarter }}
       - name: Download exactly one historical quarter for BOTH markets
+        if: ${{ inputs.mode == 'quarter' }}
         env:
           YEAR: ${{ inputs.year }}
           QUARTER: ${{ inputs.quarter }}
         run: |
           python research_formulas/r1d44_krx_sector_mcap_quarter.py \
-            --year "$YEAR" --quarter "$QUARTER" \
+            --mode quarter --year "$YEAR" --quarter "$QUARTER" \
             --calendar research_formulas/r1d44_frozen_sessions_2021_2025.csv \
             --out reports/r1d44_sector_mcap_${YEAR}_Q${QUARTER}
       - name: Upload complete or explicitly partial raw-source audit
