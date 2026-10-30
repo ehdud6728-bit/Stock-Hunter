@@ -1,0 +1,72 @@
+name: StockHunter R1-D67 FullMarket Price Parity + Strict Triangle (RESEARCH ONLY)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  research_only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout immutable source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install research dependencies
+        run: python -m pip install numpy pandas
+      - name: Freeze input and verify tests
+        run: |
+          set -euo pipefail
+          sha256sum -c <<'CHECK'
+          0e469362863c9435d64aef10ea991e9bc2618b806b66c326edfcf499d6307972  research_inputs/R1D67_FROZEN_84922_MINI.csv.gz
+          CHECK
+          python -m unittest discover -s tests -p 'test_r1d67.py' -v
+          python -m unittest discover -s tests -p 'test_r1d65_strict.py' -v
+      - name: Download 8 KRX original full-market daily OHLC artifacts (fixed run 39295295197)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p reports/r1d67_source_shards
+          while read -r shard artifact sha; do
+            file="reports/r1d67_source_shards/shard_${shard}.zip"
+            curl --fail --location --silent --show-error --retry 3 \
+              --header "Authorization: Bearer ${GH_TOKEN}" \
+              --header "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/ehdud6728-bit/Stock-Hunter/actions/artifacts/${artifact}/zip" -o "$file"
+            echo "${sha}  ${file}" | sha256sum -c -
+          done <<'ARTIFACTS'
+          0 12208596109 84dd5aa62f0c9538cd9c2d0ed0540c8f74063b21be49d9ecfc81e4b1583368b5
+          1 12207608558 3d372eebf915c870badf103356c3700d5fa914a32d79ce8057ef1f4c4f89295b
+          2 12209930511 5c49df64ad10bafbc09dd7ea78b9377804735fda6ad861018750b396ab2a27cb
+          3 12209696204 7a359f5959e2374622c40d068920adf9d695142b4a61b540d0752a8cb9bb4dd8
+          4 12208882046 88b35ea4c9a8a6a0ed4b61250a8018d49ee7ba4489c7345f04012915bb60f997
+          5 12208443687 eb503f7cabcc40991037092c6463437c8a8b71d43fb26fe646ea4f56885b3814
+          6 12211336402 b3cc055d919c7ab92d7f27b1b3ce6d3e56df787b107af961eaa43dedb885d6cd
+          7 12212241289 9563747eb8b27928ba0a0d2b7d3cf02e787acd2e9e4a656d410c286139321478
+          ARTIFACTS
+      - name: Recalculate original 84,922 signals with independent SHA-verified prices
+        run: |
+          set -euo pipefail
+          python research_formulas/r1d67_fullmarket_replay.py \
+            --shards reports/r1d67_source_shards/shard_{0..7}.zip \
+            --d56 research_inputs/R1D67_FROZEN_84922_MINI.csv.gz \
+            --out reports/r1d67
+      - name: Assert zero LIVE tracked modifications
+        run: |
+          git diff --exit-code
+          git diff --cached --exit-code
+      - name: Upload research-only report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: R1D67_FULLMARKET_PRICE_GEOMETRY_RESEARCH_ONLY
+          path: reports/r1d67/
+          if-no-files-found: warn
+          retention-days: 30
