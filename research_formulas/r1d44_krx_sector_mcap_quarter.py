@@ -4,7 +4,7 @@ Requires authenticated pykrx via Actions KRX_ID and KRX_PW. No secret/output-bod
 Fail closed on missing dates, invalid data, authentication, duplicates, and code identity.
 """
 from __future__ import annotations
-import argparse, os, csv, hashlib, json, gzip, re, time
+import argparse, os, csv, hashlib, json, gzip, re, time, contextlib, io, sys
 from datetime import datetime
 from pathlib import Path
 import pandas as pd
@@ -84,6 +84,89 @@ def run(year,quarter,calendar,out,fetch=None,sleep=0.3):
     (root/'STATUS.json').write_text(json.dumps({'status':'COMPLETE','n_dates':len(done),'n_rows':sum(r['rows'] for r in done)},indent=2))
     return done
 
+# Bounded investigation of run 40979298741. Never stores raw provider payloads,
+# login cookies, provider error messages, HTTP URLs, or user credentials.
+SAFE_CODES={
+    'EMPTY_OR_SCHEMA_INVALID_KOSPI', 'EMPTY_OR_SCHEMA_INVALID_KOSDAQ',
+    'CODE_NOT_6_DIGITS', 'DUPLICATE_CODE_KOSPI', 'DUPLICATE_CODE_KOSDAQ',
+    'TOO_MANY_UNTRADEABLE_OR_MISSING_ROWS_KOSPI',
+    'TOO_MANY_UNTRADEABLE_OR_MISSING_ROWS_KOSDAQ',
+}
+
+def diagnose_source(out, fetch=None, dates=('2025-07-01','2025-09-23')):
+    out=Path(out);out.mkdir(parents=True,exist_ok=True)
+    if not os.getenv('KRX_ID') or not os.getenv('KRX_PW'):
+        state={'status':'BLOCKED_NO_KRX_LOGIN_PAIR','research_only':True,'source_verified':False,'probes':[]}
+        (out/'DIAGNOSTIC.json').write_text(json.dumps(state,indent=2),encoding='utf-8')
+        return state
+    if fetch is None:
+        from pykrx import stock
+        fetch=stock.get_market_sector_classifications
+    if len(dates)!=2 or len(set(dates))!=2:
+        raise ValueError('DIAGNOSTIC_REQUIRES_TWO_DISTINCT_DATES')
+    probes=[]
+    for d in dates:
+        datetime.strptime(d,'%Y-%m-%d')
+        for market in ('KOSPI','KOSDAQ'):
+            p={'date':d,'market':market,'stage':'PROVIDER_FETCH','status':'UNSET',
+               'raw_row_count':None,'schema_has_required_columns':False,
+               'code_index_is_unique':False,'valid_row_count':None,'excluded_source_rows':None}
+            # Existing pykrx may emit login/provider messages; do not preserve or
+            # print them. Diagnostic output contains only allowlisted metadata.
+            with contextlib.redirect_stdout(io.StringIO()),contextlib.redirect_stderr(io.StringIO()):
+                try:
+                    raw=fetch(d.replace('-',''),market)
+                except Exception as exc:
+                    p['status']='PROVIDER_FETCH_EXCEPTION'
+                    p['error_type']=type(exc).__name__
+                else:
+                    p['stage']='NORMALIZE'
+                    p['raw_row_count']=len(raw) if isinstance(raw,pd.DataFrame) else None
+                    if isinstance(raw,pd.DataFrame):
+                        p['schema_has_required_columns']=bool({'종목명','업종명','시가총액','종가'}.issubset(raw.columns))
+                        p['code_index_is_unique']=bool(raw.index.is_unique)
+                        if p['schema_has_required_columns'] and len(raw):
+                            # Aggregate invalid counts, never actual cap, names, or codes.
+                            caps=pd.to_numeric(raw['시가총액'].astype(str).str.replace(',','',regex=False),errors='coerce')
+                            closes=pd.to_numeric(raw['종가'].astype(str).str.replace(',','',regex=False),errors='coerce')
+                            industry=raw['업종명'].astype('string')
+                            p['nonpositive_or_missing_caps']=int((caps.isna()|(caps<=0)).sum())
+                            p['nonpositive_or_missing_close']=int((closes.isna()|(closes<=0)).sum())
+                            p['missing_industry']=int((industry.isna()|(industry.str.strip()=='')).sum())
+                    try:
+                        clean=norm(raw,market,d)
+                    except Exception as exc:
+                        p['status']='NORMALIZE_EXCEPTION'
+                        p['error_type']=type(exc).__name__
+                        # Only permit error codes authored in this module.
+                        if type(exc) is ValueError and str(exc) in SAFE_CODES:
+                            p['error_code']=str(exc)
+                        else:
+                            p['error_code']='UNCLASSIFIED_VALIDATION_FAILURE'
+                    else:
+                        p['stage']='DONE'
+                        p['status']='VALIDATED_SOURCE'
+                        p['valid_row_count']=len(clean)
+                        p['excluded_source_rows']=int(clean.attrs.get('excluded_invalid_source_rows',0))
+            probes.append(p)
+            print('R1D44_SAFE_DIAG',d,market,p['stage'],p['status'],
+                  p.get('error_code',p.get('error_type','')) ,flush=True)
+    ok=all(p['status']=='VALIDATED_SOURCE' for p in probes)
+    state={'status':'PASS_2DATES_2MARKETS' if ok else 'FAIL_SOURCE_NOT_YET_VALIDATED',
+           'research_only':True,'source_verified':ok,'quarter_collection_performed':False,
+           'baseline_failed_run':40979298741,'baseline_failed_date':'2025-07-01',
+           'probes':probes,'raw_provider_payload_retained':False,
+           'provider_exception_messages_retained':False,'secret_values_retained':False}
+    (out/'DIAGNOSTIC.json').write_text(json.dumps(state,ensure_ascii=False,indent=2),encoding='utf-8')
+    print('R1D44_DIAGNOSTIC_FINAL',state['status'],flush=True)
+    return state
+
 def main():
-    ap=argparse.ArgumentParser();ap.add_argument('--year',type=int,required=True);ap.add_argument('--quarter',type=int,required=True);ap.add_argument('--calendar',required=True);ap.add_argument('--out',required=True);args=ap.parse_args();run(args.year,args.quarter,args.calendar,args.out)
+    ap=argparse.ArgumentParser();ap.add_argument('--mode',choices=['diagnostic','quarter'],default='quarter');ap.add_argument('--year',type=int,default=2025);ap.add_argument('--quarter',type=int,default=3);ap.add_argument('--calendar');ap.add_argument('--out',required=True);args=ap.parse_args()
+    if args.mode=='diagnostic':
+        status=diagnose_source(args.out)
+        if not status['source_verified']:sys.exit(2)
+    else:
+        if not args.calendar:ap.error('--calendar required for quarter')
+        run(args.year,args.quarter,args.calendar,args.out)
 if __name__=='__main__':main()
