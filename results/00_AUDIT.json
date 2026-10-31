@@ -1,54 +1,85 @@
 {
-  "research": "R1D72_BB_ENV_PRICE_CHART_ENTRY_STAGE",
-  "research_only": true,
-  "source": {
-    "n_shards": 8,
-    "shard_sha256": {
-      "05": "eb503f7cabcc40991037092c6463437c8a8b71d43fb26fe646ea4f56885b3814",
-      "07": "9563747eb8b27928ba0a0d2b7d3cf02e787acd2e9e4a656d410c286139321478",
-      "06": "b3cc055d919c7ab92d7f27b1b3ce6d3e56df787b107af961eaa43dedb885d6cd",
-      "02": "5c49df64ad10bafbc09dd7ea78b9377804735fda6ad861018750b396ab2a27cb",
-      "03": "7a359f5959e2374622c40d068920adf9d695142b4a61b540d0752a8cb9bb4dd8",
-      "04": "88b35ea4c9a8a6a0ed4b61250a8018d49ee7ba4489c7345f04012915bb60f997",
-      "00": "84dd5aa62f0c9538cd9c2d0ed0540c8f74063b21be49d9ecfc81e4b1583368b5",
-      "01": "3d372eebf915c870badf103356c3700d5fa914a32d79ce8057ef1f4c4f89295b"
-    },
-    "days_used": 496,
-    "distinct_days": 496,
-    "selected_price_rows": 994841,
-    "ticker_count": 2012
+  "asof_no_outcome_fields_in_signal_function": true,
+  "source_stage_sha256": "f275684f282d186cabbf44e619aa9e13fb2c0a7d7a852b1e12aa5706f24c4e3e",
+  "source_wave_sha256": "5062180dbb9d1299773d61074c687e8f7bf7f7ec2fe06b8622b9ed9cc4de1d29",
+  "signals_all_unverified_corporate_action": true,
+  "population_preserved": true,
+  "known_279060_excluded_from_provisional": true,
+  "outcome_inference_disabled": true,
+  "market_snapshot_source_missing_for_full_population": true,
+  "not_a_new_marketwide_search": true,
+  "no_live_changes": true,
+  "thresholds": {
+    "signal_amount_min_krw": 100000000,
+    "prior20_average_amount_min_krw": 100000000,
+    "band_close_above_max_pct": 5.0,
+    "close_above_pullback_low_max_pct": 8.0,
+    "very_low_amount_watch_krw": 10000000,
+    "minimum_volume": 10
   },
-  "frozen_events": 5247,
-  "price_parity_pass": 5247,
-  "price_parity_fail": 0,
-  "independent_T1_frozen_trade_parity": 1716,
-  "events_with_any_stage": 1730,
-  "bands": [
-    "BB20_L",
-    "BB40_L",
-    "ENV20_L_10",
-    "ENV20_L_20",
-    "ENV40_L_10",
-    "ENV40_L_40"
-  ],
-  "stage_signal_count": 2049,
-  "n_charts": 9,
-  "chart_names": [
-    "032980_2024-02-07_ENV40_L_10.png",
-    "032980_2024-09-27_ENV20_L_10.png",
-    "032980_2025-01-14_ENV20_L_20.png",
-    "279060_2024-02-26_BB20_L.png",
-    "279060_2024-02-26_BB40_L.png",
-    "279060_2024-05-28_ENV40_L_10.png",
-    "279060_2025-03-25_ENV40_L_10.png",
-    "099220_2024-06-03_ENV20_L_10.png",
-    "214420_2025-02-04_BB20_L.png"
-  ],
-  "ca_ledger_certified": false,
-  "historical_price_authority": "ORIGINAL_UNADJUSTED_KRX",
-  "outcomes": "D+1 OPEN to 20 bars CLOSE, D+2 OPEN after D+1 close confirmation; 0.2 pctpoint cost",
-  "price_watch_definition": "abs daily close-to-close >35% or MAE <-30%; FLAG not verified CA",
-  "population": "preselected R1-D6 5247 224MA proxy events, NOT market-wide scanning or clean OOS",
-  "live_changes": false,
-  "sample_214420_2025_02_04_count": 1
+  "band_rows": 2049,
+  "distinct_date_code": 1730,
+  "known_konex_datecode": 1,
+  "market_unknown_datecode": 1729,
+  "not_trade_ready": 2049,
+  "hard_fail_rows": 10,
+  "watch_rows": 1603,
+  "provisional_asof_rows": 446,
+  "provisional_unique_datecode": 401,
+  "unique_any_undesirable_flag": 1417,
+  "flags": {
+    "audit_f_invalid_ohlc_or_asof": {
+      "rows": 0,
+      "datecode": 0
+    },
+    "audit_f_under10m": {
+      "rows": 91,
+      "datecode": 74
+    },
+    "audit_f_under100m": {
+      "rows": 818,
+      "datecode": 692
+    },
+    "audit_f_prior20_under100m": {
+      "rows": 464,
+      "datecode": 367
+    },
+    "audit_f_volume_lt10": {
+      "rows": 10,
+      "datecode": 6
+    },
+    "audit_f_reclaim_no_contact": {
+      "rows": 5,
+      "datecode": 3
+    },
+    "audit_f_band_chase_gt5": {
+      "rows": 974,
+      "datecode": 934
+    },
+    "audit_f_pullback_chase_gt8": {
+      "rows": 127,
+      "datecode": 88
+    },
+    "audit_f_below_band_not_reclaimed": {
+      "rows": 289,
+      "datecode": 280
+    },
+    "audit_f_no_actual_contact": {
+      "rows": 5,
+      "datecode": 3
+    },
+    "audit_f_amount_ohlc_inconsistent": {
+      "rows": 0,
+      "datecode": 0
+    },
+    "audit_f_known_non_target_market": {
+      "rows": 2,
+      "datecode": 1
+    }
+  },
+  "tiers": {
+    "WATCH_LOW_LIQUIDITY_OR_LATE_PRICE": 1593,
+    "PROVISIONAL_ASOF_PATTERN_REVIEW": 446,
+    "REJECT_KNOWN_UNTRADEABLE_OR_INVALID": 10
+  }
 }

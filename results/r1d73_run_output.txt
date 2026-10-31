@@ -1,0 +1,60 @@
+{
+  "n_bands": 2049,
+  "n_unique": 1730,
+  "tiers": {
+    "WATCH_LOW_LIQUIDITY_OR_LATE_PRICE": 1593,
+    "PROVISIONAL_ASOF_PATTERN_REVIEW": 446,
+    "REJECT_KNOWN_UNTRADEABLE_OR_INVALID": 10
+  },
+  "flag_counts": {
+    "audit_f_invalid_ohlc_or_asof": {
+      "rows": 0,
+      "datecode": 0
+    },
+    "audit_f_under10m": {
+      "rows": 91,
+      "datecode": 74
+    },
+    "audit_f_under100m": {
+      "rows": 818,
+      "datecode": 692
+    },
+    "audit_f_prior20_under100m": {
+      "rows": 464,
+      "datecode": 367
+    },
+    "audit_f_volume_lt10": {
+      "rows": 10,
+      "datecode": 6
+    },
+    "audit_f_reclaim_no_contact": {
+      "rows": 5,
+      "datecode": 3
+    },
+    "audit_f_band_chase_gt5": {
+      "rows": 974,
+      "datecode": 934
+    },
+    "audit_f_pullback_chase_gt8": {
+      "rows": 127,
+      "datecode": 88
+    },
+    "audit_f_below_band_not_reclaimed": {
+      "rows": 289,
+      "datecode": 280
+    },
+    "audit_f_no_actual_contact": {
+      "rows": 5,
+      "datecode": 3
+    },
+    "audit_f_amount_ohlc_inconsistent": {
+      "rows": 0,
+      "datecode": 0
+    },
+    "audit_f_known_non_target_market": {
+      "rows": 2,
+      "datecode": 1
+    }
+  },
+  "market_unknown": 1729
+}
