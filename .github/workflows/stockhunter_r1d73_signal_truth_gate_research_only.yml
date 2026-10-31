@@ -1,0 +1,40 @@
+name: StockHunter R1-D73 Band Bottom Signal Quality Gate (RESEARCH ONLY)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  r1d73_signal_truth_audit_only:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout readonly repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install research dependencies
+        run: python -m pip install 'numpy>=1.26,<3' 'pandas>=2,<4'
+      - name: SHA verification and 14 strict signal-only tests
+        run: |
+          sha256sum --check research_inputs/r1d73/SHA256SUMS.txt
+          python -m unittest discover -s tests -p 'test_r1d73.py' -v
+      - name: Replay D0 price location and liquidity audit
+        run: |
+          python research_formulas/r1d73_signal_quality.py \
+             --stage research_inputs/r1d73/FROZEN_R1D72_1_STAGE_LIQ_2049.csv.gz \
+             --wave research_inputs/r1d73/FROZEN_R1D6_ASOF_5247.csv.gz \
+             --out reports/r1d73_signal_truth
+      - name: Ensure LIVE sources remain untouched
+        run: |
+          git diff --exit-code
+          git diff --cached --exit-code
+      - name: Upload independent audit output
+        uses: actions/upload-artifact@v4
+        with:
+          name: R1D73_SIGNAL_TRUTH_GATE_RESEARCH_ONLY
+          path: reports/r1d73_signal_truth/
+          if-no-files-found: error
+          retention-days: 30
