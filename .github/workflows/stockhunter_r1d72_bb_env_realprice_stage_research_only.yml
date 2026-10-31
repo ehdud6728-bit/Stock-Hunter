@@ -33,6 +33,11 @@ jobs:
           set -euo pipefail
           mkdir -p reports/r1d72_source
           while read -r label artifact sha; do
+            # Fail before curl on malformed pinned SHA256 (exactly 64 lowercase hex digits).
+            if [[ ! "$sha" =~ ^[0-9a-f]{64}$ ]]; then
+              echo "INVALID_FROZEN_SHA256 for ${label}: expected 64 hex chars" >&2
+              exit 2
+            fi
             file="reports/r1d72_source/${label}.zip"
             curl --fail --location --silent --show-error --retry 4 --retry-delay 3 \
               --header "Authorization: Bearer ${GH_TOKEN}" \
@@ -44,7 +49,7 @@ jobs:
           shard_0 12208596109 84dd5aa62f0c9538cd9c2d0ed0540c8f74063b21be49d9ecfc81e4b1583368b5
           shard_1 12207608558 3d372eebf915c870badf103356c3700d5fa914a32d79ce8057ef1f4c4f89295b
           shard_2 12209930511 5c49df64ad10bafbc09dd7ea78b9377804735fda6ad861018750b396ab2a27cb
-          shard_3 12209696204 7a359f5959e2374622c40d068920adf9d695142b61b540d0752a8cb9bb4dd8
+          shard_3 12209696204 7a359f5959e2374622c40d068920adf9d695142b4a61b540d0752a8cb9bb4dd8
           shard_4 12208882046 88b35ea4c9a8a6a0ed4b61250a8018d49ee7ba4489c7345f04012915bb60f997
           shard_5 12208443687 eb503f7cabcc40991037092c6463437c8a8b71d43fb26fe646ea4f56885b3814
           shard_6 12211336402 b3cc055d919c7ab92d7f27b1b3ce6d3e56df787b107af961eaa43dedb885d6cd
