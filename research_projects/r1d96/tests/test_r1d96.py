@@ -34,12 +34,12 @@ class R1D96Test(unittest.TestCase):
   r,p,s=choose(self.c,'2024-08-19')
   self.assertFalse(any(x['h1']=='2024-08-01' and x['h2']=='2024-08-13' for x in s))
  def test_07_no_lookahead_ahn_selected(self):
-  d=self.a.copy(deep=True);u=d[d.date>'2024-10-17'].index
+  d=self.a.copy(deep=True).astype({c:'float64' for c in ('open','high','low','close')});u=d[d.date>'2024-10-17'].index
   d.loc[u,['open','high','low','close']]=d.loc[u,['open','high','low','close']]*1.35
   q=choose(self.a,'2024-10-17')[2];w=choose(d,'2024-10-17')[2]
   self.assertEqual([(r['line_id'],r['rank_score']) for r in q],[(r['line_id'],r['rank_score']) for r in w])
  def test_08_no_lookahead_chem_selected(self):
-  d=self.c.copy(deep=True);u=d[d.date>'2024-08-19'].index
+  d=self.c.copy(deep=True).astype({c:'float64' for c in ('open','high','low','close')});u=d[d.date>'2024-08-19'].index
   d.loc[u,'low']=d.loc[u,'low']*.6;d.loc[u,'close']=d.loc[u,'close']*1.4
   q=choose(self.c,'2024-08-19')[2];w=choose(d,'2024-08-19')[2]
   self.assertEqual([(r['line_id'],r['rank_score']) for r in q],[(r['line_id'],r['rank_score']) for r in w])
