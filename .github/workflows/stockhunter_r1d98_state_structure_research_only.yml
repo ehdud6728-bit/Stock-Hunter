@@ -1,22 +1,39 @@
-name: StockHunter R1-D98 Trendline State and Structure Validation (RESEARCH ONLY)
+name: StockHunter R1-D98 / R1-D99 Trendline Research (RESEARCH ONLY)
+run-name: "Trendline Research ${{ inputs.study }}"
+
 on:
   workflow_dispatch:
+    inputs:
+      study:
+        description: 'Choose which research version to run'
+        type: choice
+        required: true
+        default: r1d99
+        options:
+          - r1d98
+          - r1d99
+          - both
+
 permissions:
   contents: read
+
 jobs:
-  r1d98-research-only:
+  trendline-research-only:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
     steps:
-      - name: Checkout unchanged repository baseline
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
           persist-credentials: false
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Verify independent sources and input hashes
+
+      - name: Verify frozen sources and CSV input hashes
+        shell: bash
         run: |
           set -euo pipefail
           test -f research_projects/r1d97/research_r1d96.py
@@ -25,18 +42,42 @@ jobs:
           test -f research_projects/r1d98/state_machine.py
           test "$(git rev-parse HEAD:research_projects/r1d97/research_r1d96.py)" = b3476db4b204b19344a2e1d3c8693bfca52df094
           test "$(git rev-parse HEAD:research_projects/r1d97/research_r1d97.py)" = 861a025a6775f03a14d2516655204c20749c52ea
-          cd research_projects/r1d97
-          sha256sum --check SHA256_INPUTS.txt
-      - name: Install research-only dependencies
+          if [[ "${{ inputs.study }}" == 'r1d99' || "${{ inputs.study }}" == 'both' ]]; then
+            test -f research_projects/r1d99/research_r1d99.py
+            test -f research_projects/r1d99/recency_dedup.py
+            test -f research_projects/r1d99/tests/test_r1d99.py
+          fi
+          (cd research_projects/r1d97 && sha256sum --check SHA256_INPUTS.txt)
+
+      - name: Install research-only Python dependencies
         run: python -m pip install 'numpy>=1.26,<3' 'pandas>=2,<4' matplotlib
-      - name: Run frozen R1-D96 / R1-D97 regression tests
+
+      - name: Check frozen R1-D96 and R1-D97 regression tests
         run: python -m unittest discover -s research_projects/r1d97/tests -v
-      - name: Run NEW R1-D98 state transition and PIT unit tests
+
+      - name: Check R1-D98 state-machine tests
         run: python -m unittest discover -s research_projects/r1d98/tests -v
-      - name: Run R1-D98 3-stock case study and future-tamper checks
-        run: python research_projects/r1d98/research_r1d98.py | tee research_projects/r1d98/R1D98_RUN.log
-      - name: Upload isolated evidence regardless of later failure
-        if: always()
+
+      - name: Check R1-D99 WATCH history tests
+        if: ${{ inputs.study == 'r1d99' || inputs.study == 'both' }}
+        run: python -m unittest discover -s research_projects/r1d99/tests -v
+
+      - name: Run R1-D98 three-stock case study
+        if: ${{ inputs.study == 'r1d98' || inputs.study == 'both' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python research_projects/r1d98/research_r1d98.py | tee research_projects/r1d98/R1D98_RUN.log
+
+      - name: Run R1-D99 three-stock WATCH no-expiry study
+        if: ${{ inputs.study == 'r1d99' || inputs.study == 'both' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python research_projects/r1d99/research_r1d99.py | tee research_projects/r1d99/R1D99_RUN.log
+
+      - name: Upload R1-D98 evidence (when requested)
+        if: ${{ always() && (inputs.study == 'r1d98' || inputs.study == 'both') }}
         uses: actions/upload-artifact@v4
         with:
           name: R1D98_STATE_STRUCTURE_3STOCKS_RESEARCH_ONLY
@@ -44,5 +85,16 @@ jobs:
             research_projects/r1d98/results/
             research_projects/r1d98/R1D98_RUN.log
             research_projects/r1d98/README_R1D98_KO.md
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload R1-D99 evidence (when requested)
+        if: ${{ always() && (inputs.study == 'r1d99' || inputs.study == 'both') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: R1D99_WATCH_HISTORY_NO_EXPIRY_RESEARCH_ONLY
+          path: |
+            research_projects/r1d99/results/
+            research_projects/r1d99/R1D99_RUN.log
           if-no-files-found: warn
           retention-days: 30
