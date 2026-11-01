@@ -1,0 +1,49 @@
+name: StockHunter R1D97 3 New Stocks Auto SR Band MA Review (RESEARCH ONLY)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  research-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Confirm research source and inputs
+        run: |
+          set -euo pipefail
+          test -f research_projects/r1d97/research_r1d97.py
+          test -f research_projects/r1d97/research_r1d96.py
+          test -f research_projects/r1d97/SHA256_INPUTS.txt
+          test -f research_projects/r1d97/data/039840_KRX.csv
+          test -f research_projects/r1d97/data/071840_KRX.csv
+          test -f research_projects/r1d97/data/006400_KRX.csv
+      - name: Verify frozen CSV SHA256
+        working-directory: research_projects/r1d97
+        run: sha256sum --check SHA256_INPUTS.txt
+      - name: Install isolated research packages
+        run: python -m pip install 'numpy>=1.26,<3' 'pandas>=2,<4' matplotlib
+      - name: Run independent R1D97 fixed case and daily scan
+        working-directory: research_projects/r1d97
+        run: python research_r1d97.py | tee GITHUB_RUN.txt
+      - name: Run R1D96 regression plus R1D97 integrity tests
+        working-directory: research_projects/r1d97
+        run: python -m unittest discover -s tests -v
+      - name: Upload results even if a later test fails
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: R1D97_3_NEW_STOCKS_INTEGRATED_REVIEW_ONLY
+          path: |
+            research_projects/r1d97/results/
+            research_projects/r1d97/README_R1D97_KO.md
+            research_projects/r1d97/GITHUB_RUN.txt
+          if-no-files-found: warn
+          retention-days: 30
