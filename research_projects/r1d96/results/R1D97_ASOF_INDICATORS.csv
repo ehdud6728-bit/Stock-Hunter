@@ -1,0 +1,4 @@
+﻿code,name,asof,n_price_rows,candidate_lines,selected_lines,close,MA112,MA224,MA448,BB20_LO,ENV20_LO,ENV40_LO,amount_yi,amount_vs_prev20,full_inverse_order,below224,close20_range_pct,bb_touch_recover_25d,env20_touch_recover_25d,env40_touch_recover_25d
+039840,디오,2024-09-13,735,46,6,17030,19074.1,20531.6,23481.3,15631.9,14569.2,15372.7,13.2718414,1.716,True,True,7.581,3,4,6
+071840,롯데하이마트,2024-03-04,841,18,6,10030,10012.9,10341.1,12719.7,10029.0,9489.6,9162.9,1.6033706,0.439,True,True,8.383,2,0,0
+006400,삼성SDI,2024-02-07,841,47,5,382000,470959.8,584564.7,605458.7,343288.5,340515.0,371632.5,1762.954455,1.068,True,True,19.856,2,2,4

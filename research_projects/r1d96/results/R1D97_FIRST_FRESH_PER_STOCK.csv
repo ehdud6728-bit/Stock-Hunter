@@ -1,0 +1,4 @@
+﻿code,name,first_fresh_date,h1,h2,tier,line_value,close,first_fresh_warning,distance_pct
+039840,디오,2024-09-09,2024-08-07,2024-09-03,SMALL,16033.333,16200.0,True,1.04
+071840,롯데하이마트,2024-03-21,2024-02-20,2024-03-13,SMALL,9628.0,9670.0,False,0.436
+006400,삼성SDI,2024-02-08,2023-12-28,2024-02-02,MIDDLE,379833.333,385000.0,False,1.36
