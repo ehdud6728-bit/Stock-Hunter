@@ -1,0 +1,48 @@
+name: StockHunter R1-D98 Trendline State and Structure Validation (RESEARCH ONLY)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  r1d98-research-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout unchanged repository baseline
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify independent sources and input hashes
+        run: |
+          set -euo pipefail
+          test -f research_projects/r1d97/research_r1d96.py
+          test -f research_projects/r1d97/research_r1d97.py
+          test -f research_projects/r1d98/research_r1d98.py
+          test -f research_projects/r1d98/state_machine.py
+          test "$(git rev-parse HEAD:research_projects/r1d97/research_r1d96.py)" = b3476db4b204b19344a2e1d3c8693bfca52df094
+          test "$(git rev-parse HEAD:research_projects/r1d97/research_r1d97.py)" = 861a025a6775f03a14d2516655204c20749c52ea
+          cd research_projects/r1d97
+          sha256sum --check SHA256_INPUTS.txt
+      - name: Install research-only dependencies
+        run: python -m pip install 'numpy>=1.26,<3' 'pandas>=2,<4' matplotlib
+      - name: Run frozen R1-D96 / R1-D97 regression tests
+        run: python -m unittest discover -s research_projects/r1d97/tests -v
+      - name: Run NEW R1-D98 state transition and PIT unit tests
+        run: python -m unittest discover -s research_projects/r1d98/tests -v
+      - name: Run R1-D98 3-stock case study and future-tamper checks
+        run: python research_projects/r1d98/research_r1d98.py | tee research_projects/r1d98/R1D98_RUN.log
+      - name: Upload isolated evidence regardless of later failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: R1D98_STATE_STRUCTURE_3STOCKS_RESEARCH_ONLY
+          path: |
+            research_projects/r1d98/results/
+            research_projects/r1d98/R1D98_RUN.log
+            research_projects/r1d98/README_R1D98_KO.md
+          if-no-files-found: warn
+          retention-days: 30
