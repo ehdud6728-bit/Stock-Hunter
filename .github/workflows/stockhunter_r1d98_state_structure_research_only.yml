@@ -1,4 +1,4 @@
-name: StockHunter R1-D98 / R1-D99 Trendline Research (RESEARCH ONLY)
+name: StockHunter R1-D98 / D99 / D100 Trendline Research (RESEARCH ONLY)
 run-name: "Trendline Research ${{ inputs.study }}"
 
 on:
@@ -8,11 +8,13 @@ on:
         description: 'Choose which research version to run'
         type: choice
         required: true
-        default: r1d99
+        default: r1d100
         options:
           - r1d98
           - r1d99
           - both
+          - r1d100
+          - all
 
 permissions:
   contents: read
@@ -20,7 +22,7 @@ permissions:
 jobs:
   trendline-research-only:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -42,15 +44,26 @@ jobs:
           test -f research_projects/r1d98/state_machine.py
           test "$(git rev-parse HEAD:research_projects/r1d97/research_r1d96.py)" = b3476db4b204b19344a2e1d3c8693bfca52df094
           test "$(git rev-parse HEAD:research_projects/r1d97/research_r1d97.py)" = 861a025a6775f03a14d2516655204c20749c52ea
-          if [[ "${{ inputs.study }}" == 'r1d99' || "${{ inputs.study }}" == 'both' ]]; then
+          if [[ "${{ inputs.study }}" == 'r1d99' || "${{ inputs.study }}" == 'both' || "${{ inputs.study }}" == 'r1d100' || "${{ inputs.study }}" == 'all' ]]; then
             test -f research_projects/r1d99/research_r1d99.py
             test -f research_projects/r1d99/recency_dedup.py
             test -f research_projects/r1d99/tests/test_r1d99.py
+          fi
+          if [[ "${{ inputs.study }}" == 'r1d100' || "${{ inputs.study }}" == 'all' ]]; then
+            test -f research_projects/r1d100/research_r1d100.py
+            test -f research_projects/r1d100/dynamic_structure.py
+            test -f research_projects/r1d100/tests/test_r1d100.py
           fi
           (cd research_projects/r1d97 && sha256sum --check SHA256_INPUTS.txt)
 
       - name: Install research-only Python dependencies
         run: python -m pip install 'numpy>=1.26,<3' 'pandas>=2,<4' matplotlib
+
+      - name: Install Korean font for R1-D100 research charts
+        if: ${{ inputs.study == 'r1d100' || inputs.study == 'all' }}
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq fonts-nanum
 
       - name: Check frozen R1-D96 and R1-D97 regression tests
         run: python -m unittest discover -s research_projects/r1d97/tests -v
@@ -59,25 +72,36 @@ jobs:
         run: python -m unittest discover -s research_projects/r1d98/tests -v
 
       - name: Check R1-D99 WATCH history tests
-        if: ${{ inputs.study == 'r1d99' || inputs.study == 'both' }}
+        if: ${{ inputs.study == 'r1d99' || inputs.study == 'both' || inputs.study == 'r1d100' || inputs.study == 'all' }}
         run: python -m unittest discover -s research_projects/r1d99/tests -v
 
+      - name: Check R1-D100 dynamic trend and MA integrity tests
+        if: ${{ inputs.study == 'r1d100' || inputs.study == 'all' }}
+        run: python -m unittest discover -s research_projects/r1d100/tests -v
+
       - name: Run R1-D98 three-stock case study
-        if: ${{ inputs.study == 'r1d98' || inputs.study == 'both' }}
+        if: ${{ inputs.study == 'r1d98' || inputs.study == 'both' || inputs.study == 'all' }}
         shell: bash
         run: |
           set -euo pipefail
           python research_projects/r1d98/research_r1d98.py | tee research_projects/r1d98/R1D98_RUN.log
 
       - name: Run R1-D99 three-stock WATCH no-expiry study
-        if: ${{ inputs.study == 'r1d99' || inputs.study == 'both' }}
+        if: ${{ inputs.study == 'r1d99' || inputs.study == 'both' || inputs.study == 'all' }}
         shell: bash
         run: |
           set -euo pipefail
           python research_projects/r1d99/research_r1d99.py | tee research_projects/r1d99/R1D99_RUN.log
 
+      - name: Run R1-D100 dynamic upper/lower trendlines and MA112/224/448 study
+        if: ${{ inputs.study == 'r1d100' || inputs.study == 'all' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python research_projects/r1d100/research_r1d100.py | tee research_projects/r1d100/R1D100_RUN.log
+
       - name: Upload R1-D98 evidence (when requested)
-        if: ${{ always() && (inputs.study == 'r1d98' || inputs.study == 'both') }}
+        if: ${{ always() && (inputs.study == 'r1d98' || inputs.study == 'both' || inputs.study == 'all') }}
         uses: actions/upload-artifact@v4
         with:
           name: R1D98_STATE_STRUCTURE_3STOCKS_RESEARCH_ONLY
@@ -89,12 +113,24 @@ jobs:
           retention-days: 30
 
       - name: Upload R1-D99 evidence (when requested)
-        if: ${{ always() && (inputs.study == 'r1d99' || inputs.study == 'both') }}
+        if: ${{ always() && (inputs.study == 'r1d99' || inputs.study == 'both' || inputs.study == 'all') }}
         uses: actions/upload-artifact@v4
         with:
           name: R1D99_WATCH_HISTORY_NO_EXPIRY_RESEARCH_ONLY
           path: |
             research_projects/r1d99/results/
             research_projects/r1d99/R1D99_RUN.log
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload R1-D100 evidence (when requested)
+        if: ${{ always() && (inputs.study == 'r1d100' || inputs.study == 'all') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: R1D100_DYNAMIC_DUAL_TRENDLINE_MA_RESEARCH_ONLY
+          path: |
+            research_projects/r1d100/results/
+            research_projects/r1d100/R1D100_RUN.log
+            research_projects/r1d100/README_R1D100_KO.md
           if-no-files-found: warn
           retention-days: 30
