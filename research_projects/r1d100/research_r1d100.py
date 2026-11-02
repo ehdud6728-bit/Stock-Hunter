@@ -10,6 +10,7 @@ from collections import Counter
 import numpy as np
 import pandas as pd
 from dynamic_structure import compare_asofs,structure,ma_report,timeline,index_at
+from band_structure import enrich_bands,band_report
 
 HERE=Path(__file__).resolve().parent
 BASE=HERE.parent/'r1d97'
@@ -51,15 +52,21 @@ def draw(d,code,name,asof,after,basename):
             plt.rcParams['font.family']=fontname;break
     t=index_at(d,after);start=max(0,t-85)
     v=d.iloc[start:t+1];cur=structure(d,after)
-    fig,(ax,axma,axamt)=plt.subplots(3,1,sharex=True,figsize=(15,10),
-          gridspec_kw={'height_ratios':[3.8,1.5,.85]})
+    fig,(ax,axma,axwidth,axamt)=plt.subplots(4,1,sharex=True,figsize=(15,13),
+          gridspec_kw={'height_ratios':[3.8,1.4,1.3,.85]})
     for q in v.itertuples():
         col='#d5514c' if q.close>=q.open else '#3979a6'
         ax.vlines(q.idx,q.low,q.high,color=col,linewidth=1)
         ax.add_patch(Rectangle((q.idx-.28,min(q.open,q.close)),.56,max(.25,abs(q.close-q.open)),
                                color=col,alpha=.86))
-    for ind,c in [('BB20_LO','#42a5bf'),('ENV20_10_LO','#caa45a'),('ENV40_10_LO','#a07f48')]:
-        if ind in v:ax.plot(v.idx,v[ind],label=ind,color=c,alpha=.75,lw=.9)
+    # Complete upper/lower pairs, matching period and line style. BB30/40 widths
+    # are analysed in CSV; the main price panel intentionally keeps BB20 readable.
+    for upper,lower,color,label in (
+        ('BB20_HI','BB20_LO','#39a4bf','BB20 +/-2sd'),
+        ('ENV20_10_HI','ENV20_10_LO','#cb9a3a','ENV20 +/-10%'),
+        ('ENV40_10_HI','ENV40_10_LO','#927253','ENV40 +/-10%')):
+        ax.plot(v.idx,v[upper],color=color,lw=1.1,ls='-',alpha=.77,label=label+' upper')
+        ax.plot(v.idx,v[lower],color=color,lw=1.1,ls='--',alpha=.77,label=label+' lower')
     palette={('HIGH','SHORT'):'#f08c28',('HIGH','MEDIUM'):'#a45516',
              ('LOW','SHORT'):'#18ac91',('LOW','MEDIUM'):'#187865'}
     for l in cur['lines']:
@@ -79,13 +86,24 @@ def draw(d,code,name,asof,after,basename):
         axma.plot(v.idx,v[f'MA{n}'],color=c,linewidth=1.3,label=f'MA{n}')
     axma.plot(v.idx,v.close,color='#777',lw=.9,label='close')
     axma.legend(loc='upper left',fontsize=8,ncol=4)
+    # Relative BB bandwidth measures volatility. Envelope RELATIVE width is
+    # fixed at 20% by construction, so its ABSOLUTE width belongs on right axis.
+    for n,color in ((20,'#299fc3'),(30,'#6255af'),(40,'#23a480')):
+        axwidth.plot(v.idx,v[f'BB{n}_WIDTH_PCT'],color=color,lw=1.2,label=f'BB{n} width %')
+    axwidth.set_ylabel('BB relative width %')
+    aw=axwidth.twinx()
+    for n,color in ((20,'#c39b42'),(40,'#8f674a')):
+        aw.plot(v.idx,v[f'ENV{n}_WIDTH_ABS'],color=color,lw=1.15,ls=':',label=f'ENV{n} abs width KRW')
+    aw.set_ylabel('ENV absolute width KRW')
+    axwidth.legend(loc='upper left',fontsize=7,ncol=3)
+    aw.legend(loc='upper right',fontsize=7,ncol=2)
     axamt.bar(v.idx,v.amount/1e8,color='#929292',width=.7)
     axamt.set_ylabel('amount / 100M KRW')
     xt=v.iloc[::max(1,len(v)//12)]
     axamt.set_xticks(xt.idx)
     axamt.set_xticklabels(xt.date.dt.strftime('%Y-%m-%d'),rotation=38,fontsize=8)
     ax.legend(loc='upper left',fontsize=7.3,ncol=2)
-    for a in (ax,axma,axamt):a.grid(alpha=.13)
+    for a in (ax,axma,axwidth,axamt):a.grid(alpha=.13)
     ax.set_ylabel('OHLC / BANDS / LIVE RE-ANCHOR')
     axma.set_ylabel('MA112/224/448')
     ax.set_xlim(start-.6,t+.6)
@@ -96,14 +114,17 @@ def draw(d,code,name,asof,after,basename):
 
 def run():
     verify();(OUT/'charts').mkdir(parents=True,exist_ok=True)
-    all_ma=[]; all_lines=[];all_events=[];all_compare=[];all_tests=[];all_preservation=[];charts=[]
+    all_ma=[];all_bands=[];all_lines=[];all_events=[];all_compare=[];all_tests=[];all_preservation=[];charts=[]
     for code,name,asof in CASES:
-        d=load(code);t=index_at(d,asof)
+        d=enrich_bands(load(code));t=index_at(d,asof)
         if t+20>=len(d):raise ValueError(f'Insufficient ex-post bars: {code}')
         days=[str(d.iloc[t+k].date.date()) for k in (0,10,20)]
         views=compare_asofs(d,days)
         for stage,day,ma,st in zip(('ASOF','D10_EXPOST','D20_EXPOST'),days,views['ma'],views['structure']):
             all_ma.append({'code':code,'name':name,'stage':stage,**ma,'price_basis':'RAW_UNADJUSTED'})
+            bb_env=band_report(d,day)
+            for band in bb_env:
+                all_bands.append({'code':code,'name':name,'stage':stage,**band})
             for line in st['lines']:
                 all_lines.append({'code':code,'name':name,'stage':stage,
                                   'structure':st['structure'],**line})
@@ -129,28 +150,33 @@ def run():
             'r99_selected_unchanged':len(original_ids),'watch_unchanged':len(watch_ids),
             'old_lines_deleted':0,'new_line_catalog_separate':True})
         # Future prices cannot affect current snapshot (including MA values and pivot confirmation).
-        original=(ma_report(d,asof),structure(d,asof))
+        original=(ma_report(d,asof),structure(d,asof),band_report(d,asof))
         altered=d.copy()
         for col in ('open','high','low','close'):
             altered.loc[altered.index>t,col]=altered.loc[altered.index>t,col].astype(float)*1.217
-        if original!=(ma_report(altered,asof),structure(altered,asof)):
+        altered=enrich_bands(altered)
+        if original!=(ma_report(altered,asof),structure(altered,asof),band_report(altered,asof)):
             raise AssertionError('PIT mutation violated: '+code)
         all_tests.append({'code':code,'asof':asof,'passed':True,'D10':days[1],'D20':days[2]})
         charts.extend([draw(d,code,name,asof,asof,'ASOF'),draw(d,code,name,asof,days[-1],'D20_EXPOST')])
         print(f'{code} {name} asof={days[0]} d20={days[2]}',
               f'structure={views["structure"][0]["structure"]}->{views["structure"][2]["structure"]}',
               f'112MA slope={views["ma"][0]["MA112_slope20_pct"]:.2f}%->{views["ma"][2]["MA112_slope20_pct"]:.2f}%',
-              f'WATCH preserved={len(watch_ids)}')
-    for file,rows in [('R1D100_MA_SLOPE_GAP_CHANGES.csv',all_ma),('R1D100_DYNAMIC_HIGH_LOW_LINES.csv',all_lines),
+              f'WATCH preserved={len(watch_ids)}',
+              f'BB20 width={band_report(d,days[0])[0]["band_width_pct"]:.2f}% -> {band_report(d,days[2])[0]["band_width_pct"]:.2f}%')
+    for file,rows in [('R1D100_MA_SLOPE_GAP_CHANGES.csv',all_ma),('R1D100_BB_ENV_FULL_BAND_WIDTH.csv',all_bands),('R1D100_DYNAMIC_HIGH_LOW_LINES.csv',all_lines),
             ('R1D100_REANCHOR_EVENTS.csv',all_events),('R1D100_SNAPSHOT_COMPARE.csv',all_compare),
             ('R1D100_R98_R99_WATCH_PRESERVED.csv',all_preservation),('R1D100_PIT_TAMPER.csv',all_tests)]:
         write_csv(file,rows)
     audit={'version':'R1D100_DYNAMIC_DUAL_TRENDLINE_MA_112_224_448_RESEARCH_ONLY',
            'cases':len(CASES),'snapshot_rows':len(all_compare),'dynamic_lines':len(all_lines),
-           'reanchor_events':len(all_events),'frozen_watch_preserved':sum(r['watch_unchanged'] for r in all_preservation),
+           'reanchor_events':len(all_events),'full_band_rows':len(all_bands),
+           'bb_periods':[20,30,40],'env_periods':[20,40],'env_k_pct':10,'bb_sigma':2,
+           'frozen_watch_preserved':sum(r['watch_unchanged'] for r in all_preservation),
            'all_pit_test_pass':all(r['passed'] for r in all_tests), 'source_hash_verified':True,
            'charts':charts,'limitations':['Historical unadjusted KRX price: corporate actions not fully verified',
            'No full market/OOS test','Slope/stack states are research diagnostics, not buy recommendations',
+           'Envelope normalized width is mathematically fixed at 20%; only absolute width follows SMA',
            'Forward snapshots computed separately and never used in historical selection',
            'Pivot HIGH uses CLOSE, pivot LOW uses LOW to preserve original basis',
            'No hypothesis return-calibrated selection thresholds']}
