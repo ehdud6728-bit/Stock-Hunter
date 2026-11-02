@@ -10,7 +10,7 @@ from collections import Counter
 import numpy as np
 import pandas as pd
 from dynamic_structure import compare_asofs,structure,ma_report,timeline,index_at
-from band_structure import enrich_bands,band_report
+from band_structure import enrich_bands,band_report,future_price_tamper_copy
 
 HERE=Path(__file__).resolve().parent
 BASE=HERE.parent/'r1d97'
@@ -116,10 +116,12 @@ def run():
     verify();(OUT/'charts').mkdir(parents=True,exist_ok=True)
     all_ma=[];all_bands=[];all_lines=[];all_events=[];all_compare=[];all_tests=[];all_preservation=[];charts=[]
     for code,name,asof in CASES:
+        print('CASE_START',code,name,'asof='+asof,flush=True)
         d=enrich_bands(load(code));t=index_at(d,asof)
         if t+20>=len(d):raise ValueError(f'Insufficient ex-post bars: {code}')
         days=[str(d.iloc[t+k].date.date()) for k in (0,10,20)]
         views=compare_asofs(d,days)
+        print('CASE_SNAPSHOTS',code,'asof='+days[0],'D10='+days[1],'D20='+days[2],flush=True)
         for stage,day,ma,st in zip(('ASOF','D10_EXPOST','D20_EXPOST'),days,views['ma'],views['structure']):
             all_ma.append({'code':code,'name':name,'stage':stage,**ma,'price_basis':'RAW_UNADJUSTED'})
             bb_env=band_report(d,day)
@@ -149,21 +151,24 @@ def run():
         all_preservation.append({'code':code,'asof':asof,'r98_selected':len(original_ids),
             'r99_selected_unchanged':len(original_ids),'watch_unchanged':len(watch_ids),
             'old_lines_deleted':0,'new_line_catalog_separate':True})
+        print('CASE_WATCH_PRESERVED',code,'count='+str(len(watch_ids)),flush=True)
         # Future prices cannot affect current snapshot (including MA values and pivot confirmation).
         original=(ma_report(d,asof),structure(d,asof),band_report(d,asof))
-        altered=d.copy()
-        for col in ('open','high','low','close'):
-            altered.loc[altered.index>t,col]=altered.loc[altered.index>t,col].astype(float)*1.217
-        altered=enrich_bands(altered)
+        # PIT negative-control test: change only observations AFTER the ASOF day.
+        # Make OHLC columns float *before* fractional assignment. Otherwise pandas
+        # 2.x/3.x can reject assigning float values into raw int64 OHLC columns.
+        altered=enrich_bands(future_price_tamper_copy(d,t))
         if original!=(ma_report(altered,asof),structure(altered,asof),band_report(altered,asof)):
             raise AssertionError('PIT mutation violated: '+code)
         all_tests.append({'code':code,'asof':asof,'passed':True,'D10':days[1],'D20':days[2]})
+        print('CASE_PIT_PASS',code,'future_mutation_preserved_asof=True',flush=True)
         charts.extend([draw(d,code,name,asof,asof,'ASOF'),draw(d,code,name,asof,days[-1],'D20_EXPOST')])
         print(f'{code} {name} asof={days[0]} d20={days[2]}',
               f'structure={views["structure"][0]["structure"]}->{views["structure"][2]["structure"]}',
               f'112MA slope={views["ma"][0]["MA112_slope20_pct"]:.2f}%->{views["ma"][2]["MA112_slope20_pct"]:.2f}%',
               f'WATCH preserved={len(watch_ids)}',
               f'BB20 width={band_report(d,days[0])[0]["band_width_pct"]:.2f}% -> {band_report(d,days[2])[0]["band_width_pct"]:.2f}%')
+        print('CASE_DONE',code,'asof='+days[0],flush=True)
     for file,rows in [('R1D100_MA_SLOPE_GAP_CHANGES.csv',all_ma),('R1D100_BB_ENV_FULL_BAND_WIDTH.csv',all_bands),('R1D100_DYNAMIC_HIGH_LOW_LINES.csv',all_lines),
             ('R1D100_REANCHOR_EVENTS.csv',all_events),('R1D100_SNAPSHOT_COMPARE.csv',all_compare),
             ('R1D100_R98_R99_WATCH_PRESERVED.csv',all_preservation),('R1D100_PIT_TAMPER.csv',all_tests)]:

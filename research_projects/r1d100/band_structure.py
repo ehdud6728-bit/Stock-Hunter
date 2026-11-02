@@ -42,6 +42,28 @@ def enrich_bands(d: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def future_price_tamper_copy(d: pd.DataFrame, asof_idx: int, multiplier: float = 1.217) -> pd.DataFrame:
+    """Independent PIT negative control; NEVER used for actual candidate selection.
+
+    The original input, all rows at/before asof, dates, and traded amount are
+    untouched. All OHLC are cast to float BEFORE fractional future mutation,
+    preventing pandas LossySetitemError for KRX integer price columns.
+    """
+    if not (0 <= asof_idx < len(d)):
+        raise ValueError('asof_idx outside dataframe')
+    if not (np.isfinite(multiplier) and multiplier > 0):
+        raise ValueError('multiplier must be positive and finite')
+    if not {'open', 'high', 'low', 'close'}.issubset(d.columns):
+        raise ValueError('OHLC columns are required')
+    out = d.copy(deep=True)
+    positions_after = out.index[asof_idx+1:]
+    for col in ('open', 'high', 'low', 'close'):
+        out[col] = pd.to_numeric(out[col], errors='raise').astype(float)
+        if len(positions_after):
+            out.loc[positions_after,col] = out.loc[positions_after,col] * multiplier
+    return out
+
+
 def _at(d, asof: str) -> int:
     dates=pd.to_datetime(d.date,errors='raise')
     if not dates.is_monotonic_increasing or dates.duplicated().any():
