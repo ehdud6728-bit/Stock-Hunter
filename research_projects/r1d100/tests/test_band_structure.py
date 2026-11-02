@@ -3,7 +3,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
-from band_structure import enrich_bands,band_report
+from band_structure import enrich_bands,band_report,future_price_tamper_copy
 
 
 def sample(n=500):
@@ -60,5 +60,51 @@ class TestFullBands(unittest.TestCase):
     def test_ratio_normalized_to_env(self):
         self.assertTrue(all(r['bb_to_envelope_width_ratio']>0 for r in self.rows if r['family']=='BB' and r['period'] in (20,40)))
         self.assertIsNone([r for r in self.rows if r['family']=='BB' and r['period']==30][0]['bb_to_envelope_width_ratio'])
+
+
+class TestPITIntOHLCRegression(unittest.TestCase):
+    """Regression for GitHub Actions run 41373486891: int64 -> float crash."""
+
+    def make_integer_ohlc(self, count=100):
+        dates=pd.bdate_range('2024-01-01',periods=count)
+        close=np.arange(count,dtype=np.int64)+5000
+        return pd.DataFrame({'date':dates,'open':close+3,'high':close+17,
+                             'low':close-19,'close':close,'amount':close*100000})
+
+    def test_future_fractional_write_is_dtype_safe_and_preserves_past(self):
+        raw=self.make_integer_ohlc()
+        original=raw.copy(deep=True)
+        t=55
+        changed=future_price_tamper_copy(raw,t)
+        pd.testing.assert_frame_equal(raw,original)
+        for col in ('open','high','low','close'):
+            self.assertTrue(pd.api.types.is_float_dtype(changed[col]))
+            np.testing.assert_array_equal(changed[col].iloc[:t+1], raw[col].iloc[:t+1])
+            np.testing.assert_allclose(changed[col].iloc[t+1:],raw[col].iloc[t+1:]*1.217)
+        pd.testing.assert_series_equal(changed['amount'],raw['amount'])
+        pd.testing.assert_series_equal(changed['date'],raw['date'])
+
+    def test_asof_bands_identical_after_future_tamper(self):
+        raw=self.make_integer_ohlc()
+        asof_idx=65
+        day=str(raw.iloc[asof_idx].date.date())
+        original=enrich_bands(raw)
+        changed=enrich_bands(future_price_tamper_copy(original,asof_idx))
+        self.assertEqual(band_report(original,day),band_report(changed,day))
+        for n in (20,30,40):
+            self.assertAlmostEqual(float(original.iloc[asof_idx][f'BB{n}_WIDTH_PCT']),
+                                   float(changed.iloc[asof_idx][f'BB{n}_WIDTH_PCT']))
+
+    def test_irregular_integer_index_is_safe(self):
+        raw=self.make_integer_ohlc(80)
+        raw.index=np.arange(900,980)
+        changed=future_price_tamper_copy(raw,40)
+        self.assertEqual(changed.loc[940,'close'],float(raw.loc[940,'close']))
+        self.assertAlmostEqual(changed.loc[941,'close'],raw.loc[941,'close']*1.217)
+
+    def test_out_of_range_and_invalid_multiplier_rejected(self):
+        d=self.make_integer_ohlc(50)
+        with self.assertRaises(ValueError):future_price_tamper_copy(d,50)
+        with self.assertRaises(ValueError):future_price_tamper_copy(d,35,0)
 
 if __name__=='__main__':unittest.main()
