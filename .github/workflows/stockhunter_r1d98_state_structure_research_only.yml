@@ -1,4 +1,4 @@
-name: StockHunter R1-D98 through D108 Shared Trendline Research (RESEARCH ONLY)
+name: StockHunter R1-D98 through D109 Shared Trendline Research (RESEARCH ONLY)
 run-name: "Trendline Research ${{ inputs.study }}"
 
 on:
@@ -8,7 +8,7 @@ on:
         description: 'Choose which research version to run'
         type: choice
         required: true
-        default: r1d108
+        default: r1d109
         options:
           - r1d98
           - r1d99
@@ -22,6 +22,7 @@ on:
           - r1d106
           - r1d107
           - r1d108
+          - r1d109
           - all
 
 permissions:
@@ -52,7 +53,7 @@ jobs:
           test -f research_projects/r1d98/state_machine.py
           test "$(git rev-parse HEAD:research_projects/r1d97/research_r1d96.py)" = b3476db4b204b19344a2e1d3c8693bfca52df094
           test "$(git rev-parse HEAD:research_projects/r1d97/research_r1d97.py)" = 861a025a6775f03a14d2516655204c20749c52ea
-          if [[ "${{ inputs.study }}" == 'r1d99' || "${{ inputs.study }}" == 'both' || "${{ inputs.study }}" == 'r1d100' || "${{ inputs.study }}" == 'r1d101' || "${{ inputs.study }}" == 'r1d102' || "${{ inputs.study }}" == 'r1d103' || "${{ inputs.study }}" == 'r1d104' || "${{ inputs.study }}" == 'r1d105' || "${{ inputs.study }}" == 'r1d106' || "${{ inputs.study }}" == 'r1d107' || "${{ inputs.study }}" == 'r1d108' || "${{ inputs.study }}" == 'all' ]]; then
+          if [[ "${{ inputs.study }}" == 'r1d99' || "${{ inputs.study }}" == 'both' || "${{ inputs.study }}" == 'r1d100' || "${{ inputs.study }}" == 'r1d101' || "${{ inputs.study }}" == 'r1d102' || "${{ inputs.study }}" == 'r1d103' || "${{ inputs.study }}" == 'r1d104' || "${{ inputs.study }}" == 'r1d105' || "${{ inputs.study }}" == 'r1d106' || "${{ inputs.study }}" == 'r1d107' || "${{ inputs.study }}" == 'r1d108' || "${{ inputs.study }}" == 'r1d109' || "${{ inputs.study }}" == 'all' ]]; then
             test -f research_projects/r1d99/research_r1d99.py
             test -f research_projects/r1d99/recency_dedup.py
             test -f research_projects/r1d99/tests/test_r1d99.py
@@ -62,47 +63,52 @@ jobs:
             test -f research_projects/r1d100/dynamic_structure.py
             test -f research_projects/r1d100/tests/test_r1d100.py
           fi
-          if [[ "${{ inputs.study }}" == 'r1d101' || "${{ inputs.study }}" == 'r1d102' || "${{ inputs.study }}" == 'r1d103' || "${{ inputs.study }}" == 'r1d104' || "${{ inputs.study }}" == 'r1d105' || "${{ inputs.study }}" == 'r1d106' || "${{ inputs.study }}" == 'r1d107' || "${{ inputs.study }}" == 'r1d108' || "${{ inputs.study }}" == 'all' ]]; then
+          if [[ "${{ inputs.study }}" == 'r1d101' || "${{ inputs.study }}" == 'r1d102' || "${{ inputs.study }}" == 'r1d103' || "${{ inputs.study }}" == 'r1d104' || "${{ inputs.study }}" == 'r1d105' || "${{ inputs.study }}" == 'r1d106' || "${{ inputs.study }}" == 'r1d107' || "${{ inputs.study }}" == 'r1d108' || "${{ inputs.study }}" == 'r1d109' || "${{ inputs.study }}" == 'all' ]]; then
             test -f research_projects/r1d101/pre_rise.py
             test -f research_projects/r1d101/research_r1d101.py
             test -f research_projects/r1d101/tests/test_r1d101.py
             test -f research_projects/r1d100/dynamic_structure.py
           fi
-          if [[ "${{ inputs.study }}" == 'r1d102' || "${{ inputs.study }}" == 'r1d103' || "${{ inputs.study }}" == 'r1d104' || "${{ inputs.study }}" == 'r1d105' || "${{ inputs.study }}" == 'r1d106' || "${{ inputs.study }}" == 'r1d107' || "${{ inputs.study }}" == 'r1d108' || "${{ inputs.study }}" == 'all' ]]; then
+          if [[ "${{ inputs.study }}" == 'r1d102' || "${{ inputs.study }}" == 'r1d103' || "${{ inputs.study }}" == 'r1d104' || "${{ inputs.study }}" == 'r1d105' || "${{ inputs.study }}" == 'r1d106' || "${{ inputs.study }}" == 'r1d107' || "${{ inputs.study }}" == 'r1d108' || "${{ inputs.study }}" == 'r1d109' || "${{ inputs.study }}" == 'all' ]]; then
             test -f research_projects/r1d102/research_r1d102.py
             test -f research_projects/r1d102/cloud_geometry.py
             test -f research_projects/r1d102/tests/test_r1d102.py
           fi
-          if [[ "${{ inputs.study }}" == 'r1d103' || "${{ inputs.study }}" == 'r1d104' || "${{ inputs.study }}" == 'r1d105' || "${{ inputs.study }}" == 'r1d106' || "${{ inputs.study }}" == 'r1d107' || "${{ inputs.study }}" == 'r1d108' || "${{ inputs.study }}" == 'all' ]]; then
+          if [[ "${{ inputs.study }}" == 'r1d103' || "${{ inputs.study }}" == 'r1d104' || "${{ inputs.study }}" == 'r1d105' || "${{ inputs.study }}" == 'r1d106' || "${{ inputs.study }}" == 'r1d107' || "${{ inputs.study }}" == 'r1d108' || "${{ inputs.study }}" == 'r1d109' || "${{ inputs.study }}" == 'all' ]]; then
             test -f research_projects/r1d103/research_r1d103.py
             test -f research_projects/r1d103/ma_roles.py
             test -f research_projects/r1d103/tests/test_r1d103.py
           fi
-          if [[ "${{ inputs.study }}" == 'r1d104' || "${{ inputs.study }}" == 'r1d105' || "${{ inputs.study }}" == 'r1d106' || "${{ inputs.study }}" == 'r1d107' || "${{ inputs.study }}" == 'r1d108' || "${{ inputs.study }}" == 'all' ]]; then
+          if [[ "${{ inputs.study }}" == 'r1d104' || "${{ inputs.study }}" == 'r1d105' || "${{ inputs.study }}" == 'r1d106' || "${{ inputs.study }}" == 'r1d107' || "${{ inputs.study }}" == 'r1d108' || "${{ inputs.study }}" == 'r1d109' || "${{ inputs.study }}" == 'all' ]]; then
             test -f research_projects/r1d104/research_r1d104.py
             test -f research_projects/r1d104/confluence.py
             test -f research_projects/r1d104/tests/test_r1d104.py
           fi
-          if [[ "${{ inputs.study }}" == 'r1d105' || "${{ inputs.study }}" == 'r1d106' || "${{ inputs.study }}" == 'r1d107' || "${{ inputs.study }}" == 'r1d108' || "${{ inputs.study }}" == 'all' ]]; then
+          if [[ "${{ inputs.study }}" == 'r1d105' || "${{ inputs.study }}" == 'r1d106' || "${{ inputs.study }}" == 'r1d107' || "${{ inputs.study }}" == 'r1d108' || "${{ inputs.study }}" == 'r1d109' || "${{ inputs.study }}" == 'all' ]]; then
             test -f research_projects/r1d105/research_r1d105.py
             test -f research_projects/r1d105/event_sequences.py
             test -f research_projects/r1d105/tests/test_r1d105.py
           fi
-          if [[ "${{ inputs.study }}" == 'r1d106' || "${{ inputs.study }}" == 'r1d107' || "${{ inputs.study }}" == 'r1d108' || "${{ inputs.study }}" == 'all' ]]; then
+          if [[ "${{ inputs.study }}" == 'r1d106' || "${{ inputs.study }}" == 'r1d107' || "${{ inputs.study }}" == 'r1d108' || "${{ inputs.study }}" == 'r1d109' || "${{ inputs.study }}" == 'all' ]]; then
             test -f research_projects/r1d106/multiline.py
             test -f research_projects/r1d106/research_r1d106.py
             test -f research_projects/r1d106/tests/test_r1d106.py
           fi
-          if [[ "${{ inputs.study }}" == 'r1d107' || "${{ inputs.study }}" == 'r1d108' || "${{ inputs.study }}" == 'all' ]]; then
+          if [[ "${{ inputs.study }}" == 'r1d107' || "${{ inputs.study }}" == 'r1d108' || "${{ inputs.study }}" == 'r1d109' || "${{ inputs.study }}" == 'all' ]]; then
             test -f research_projects/r1d107/quality.py
             test -f research_projects/r1d107/research_r1d107.py
             test -f research_projects/r1d107/tests/test_r1d107.py
           fi
-          if [[ "${{ inputs.study }}" == 'r1d108' || "${{ inputs.study }}" == 'all' ]]; then
+          if [[ "${{ inputs.study }}" == 'r1d108' || "${{ inputs.study }}" == 'r1d109' || "${{ inputs.study }}" == 'all' ]]; then
             test -f research_projects/r1d108/candle_context.py
             test -f research_projects/r1d108/lifecycle.py
             test -f research_projects/r1d108/research_r1d108.py
             test -f research_projects/r1d108/tests/test_r1d108.py
+          fi
+          if [[ "${{ inputs.study }}" == 'r1d109' || "${{ inputs.study }}" == 'all' ]]; then
+            test -f research_projects/r1d109/turning_points.py
+            test -f research_projects/r1d109/research_r1d109.py
+            test -f research_projects/r1d109/tests/test_r1d109.py
           fi
           (cd research_projects/r1d97 && sha256sum --check SHA256_INPUTS.txt)
 
@@ -110,7 +116,7 @@ jobs:
         run: python -m pip install 'numpy>=1.26,<3' 'pandas>=2,<4' matplotlib
 
       - name: Install Korean font for R1-D100 research charts
-        if: ${{ inputs.study == 'r1d100' || inputs.study == 'r1d101' || inputs.study == 'r1d102' || inputs.study == 'r1d103' || inputs.study == 'r1d104' || inputs.study == 'r1d105' || inputs.study == 'r1d106' || inputs.study == 'r1d107' || inputs.study == 'r1d108' || inputs.study == 'all' }}
+        if: ${{ inputs.study == 'r1d100' || inputs.study == 'r1d101' || inputs.study == 'r1d102' || inputs.study == 'r1d103' || inputs.study == 'r1d104' || inputs.study == 'r1d105' || inputs.study == 'r1d106' || inputs.study == 'r1d107' || inputs.study == 'r1d108' || inputs.study == 'r1d109' || inputs.study == 'all' }}
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq fonts-nanum
@@ -122,35 +128,35 @@ jobs:
         run: python -m unittest discover -s research_projects/r1d98/tests -v
 
       - name: Check R1-D99 WATCH history tests
-        if: ${{ inputs.study == 'r1d99' || inputs.study == 'both' || inputs.study == 'r1d100' || inputs.study == 'r1d101' || inputs.study == 'r1d102' || inputs.study == 'r1d103' || inputs.study == 'r1d104' || inputs.study == 'r1d105' || inputs.study == 'r1d106' || inputs.study == 'r1d107' || inputs.study == 'r1d108' || inputs.study == 'all' }}
+        if: ${{ inputs.study == 'r1d99' || inputs.study == 'both' || inputs.study == 'r1d100' || inputs.study == 'r1d101' || inputs.study == 'r1d102' || inputs.study == 'r1d103' || inputs.study == 'r1d104' || inputs.study == 'r1d105' || inputs.study == 'r1d106' || inputs.study == 'r1d107' || inputs.study == 'r1d108' || inputs.study == 'r1d109' || inputs.study == 'all' }}
         run: python -m unittest discover -s research_projects/r1d99/tests -v
 
       - name: Check R1-D100 dynamic trend and MA integrity tests
-        if: ${{ inputs.study == 'r1d100' || inputs.study == 'r1d101' || inputs.study == 'r1d102' || inputs.study == 'r1d103' || inputs.study == 'r1d104' || inputs.study == 'r1d105' || inputs.study == 'r1d106' || inputs.study == 'r1d107' || inputs.study == 'r1d108' || inputs.study == 'all' }}
+        if: ${{ inputs.study == 'r1d100' || inputs.study == 'r1d101' || inputs.study == 'r1d102' || inputs.study == 'r1d103' || inputs.study == 'r1d104' || inputs.study == 'r1d105' || inputs.study == 'r1d106' || inputs.study == 'r1d107' || inputs.study == 'r1d108' || inputs.study == 'r1d109' || inputs.study == 'all' }}
         run: python -m unittest discover -s research_projects/r1d100/tests -v
 
       - name: Check R1-D101 all-MA pre-rise PIT tests
-        if: ${{ inputs.study == 'r1d101' || inputs.study == 'r1d102' || inputs.study == 'r1d103' || inputs.study == 'r1d104' || inputs.study == 'r1d105' || inputs.study == 'r1d106' || inputs.study == 'r1d107' || inputs.study == 'r1d108' || inputs.study == 'all' }}
+        if: ${{ inputs.study == 'r1d101' || inputs.study == 'r1d102' || inputs.study == 'r1d103' || inputs.study == 'r1d104' || inputs.study == 'r1d105' || inputs.study == 'r1d106' || inputs.study == 'r1d107' || inputs.study == 'r1d108' || inputs.study == 'r1d109' || inputs.study == 'all' }}
         run: python -m unittest discover -s research_projects/r1d101/tests -v
 
       - name: Check R1-D102 moving-average and Ichimoku cloud PIT tests
-        if: ${{ inputs.study == 'r1d102' || inputs.study == 'r1d103' || inputs.study == 'r1d104' || inputs.study == 'r1d105' || inputs.study == 'r1d106' || inputs.study == 'r1d107' || inputs.study == 'r1d108' || inputs.study == 'all' }}
+        if: ${{ inputs.study == 'r1d102' || inputs.study == 'r1d103' || inputs.study == 'r1d104' || inputs.study == 'r1d105' || inputs.study == 'r1d106' || inputs.study == 'r1d107' || inputs.study == 'r1d108' || inputs.study == 'r1d109' || inputs.study == 'all' }}
         run: python -m unittest discover -s research_projects/r1d102/tests -v
 
       - name: Check R1-D103 MA role interaction and no-lookahead tests
-        if: ${{ inputs.study == 'r1d103' || inputs.study == 'r1d104' || inputs.study == 'r1d105' || inputs.study == 'r1d106' || inputs.study == 'r1d107' || inputs.study == 'r1d108' || inputs.study == 'all' }}
+        if: ${{ inputs.study == 'r1d103' || inputs.study == 'r1d104' || inputs.study == 'r1d105' || inputs.study == 'r1d106' || inputs.study == 'r1d107' || inputs.study == 'r1d108' || inputs.study == 'r1d109' || inputs.study == 'all' }}
         run: python -m unittest discover -s research_projects/r1d103/tests -v
 
       - name: Check R1-D104 integrated trendline MA BB ENV PIT tests
-        if: ${{ inputs.study == 'r1d104' || inputs.study == 'r1d105' || inputs.study == 'r1d106' || inputs.study == 'r1d107' || inputs.study == 'r1d108' || inputs.study == 'all' }}
+        if: ${{ inputs.study == 'r1d104' || inputs.study == 'r1d105' || inputs.study == 'r1d106' || inputs.study == 'r1d107' || inputs.study == 'r1d108' || inputs.study == 'r1d109' || inputs.study == 'all' }}
         run: python -m unittest discover -s research_projects/r1d104/tests -v
 
       - name: Check R1-D105 all-source event inventory and PIT tests
-        if: ${{ inputs.study == 'r1d105' || inputs.study == 'r1d106' || inputs.study == 'r1d107' || inputs.study == 'r1d108' || inputs.study == 'all' }}
+        if: ${{ inputs.study == 'r1d105' || inputs.study == 'r1d106' || inputs.study == 'r1d107' || inputs.study == 'r1d108' || inputs.study == 'r1d109' || inputs.study == 'all' }}
         run: python -m unittest discover -s research_projects/r1d105/tests -v
 
       - name: Check R1-D106 multi-line candle and triangle PIT tests
-        if: ${{ inputs.study == 'r1d106' || inputs.study == 'r1d107' || inputs.study == 'r1d108' || inputs.study == 'all' }}
+        if: ${{ inputs.study == 'r1d106' || inputs.study == 'r1d107' || inputs.study == 'r1d108' || inputs.study == 'r1d109' || inputs.study == 'all' }}
         run: python -m unittest discover -s research_projects/r1d106/tests -v
 
       - name: Check R1-D107 line quality triangle PIT and no-lookahead tests
@@ -158,14 +164,14 @@ jobs:
         run: python -m unittest discover -s research_projects/r1d107/tests -v
 
       - name: Run R1-D105 full event union and five real-stock case studies
-        if: ${{ inputs.study == 'r1d105' || inputs.study == 'r1d106' || inputs.study == 'r1d107' || inputs.study == 'r1d108' || inputs.study == 'all' }}
+        if: ${{ inputs.study == 'r1d105' || inputs.study == 'r1d106' || inputs.study == 'r1d107' || inputs.study == 'r1d108' || inputs.study == 'r1d109' || inputs.study == 'all' }}
         shell: bash
         run: |
           set -euo pipefail
           python research_projects/r1d105/research_r1d105.py | tee research_projects/r1d105/R1D105_RUN.log
 
       - name: Run R1-D106 multi-anchor lines and triangle followthrough
-        if: ${{ inputs.study == 'r1d106' || inputs.study == 'r1d107' || inputs.study == 'r1d108' || inputs.study == 'all' }}
+        if: ${{ inputs.study == 'r1d106' || inputs.study == 'r1d107' || inputs.study == 'r1d108' || inputs.study == 'r1d109' || inputs.study == 'all' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -179,15 +185,26 @@ jobs:
           python research_projects/r1d107/research_r1d107.py | tee research_projects/r1d107/R1D107_RUN.log
 
       - name: Check R1-D108 candle ratios dynamic line state and future-data isolation
-        if: ${{ inputs.study == 'r1d108' || inputs.study == 'all' }}
+        if: ${{ inputs.study == 'r1d108' || inputs.study == 'r1d109' || inputs.study == 'all' }}
         run: python -m unittest discover -s research_projects/r1d108/tests -v
 
       - name: Run R1-D108 dynamic line lifecycle and full candle indicator confluence
-        if: ${{ inputs.study == 'r1d108' || inputs.study == 'all' }}
+        if: ${{ inputs.study == 'r1d108' || inputs.study == 'r1d109' || inputs.study == 'all' }}
         shell: bash
         run: |
           set -euo pipefail
           python research_projects/r1d108/research_r1d108.py | tee research_projects/r1d108/R1D108_RUN.log
+
+      - name: Check R1-D109 confirmed pivots dynamic trend-turn and role-flip PIT tests
+        if: ${{ inputs.study == 'r1d109' || inputs.study == 'all' }}
+        run: python -m unittest discover -s research_projects/r1d109/tests -v
+
+      - name: Run R1-D109 trend change sequences and full indicator confluence
+        if: ${{ inputs.study == 'r1d109' || inputs.study == 'all' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python research_projects/r1d109/research_r1d109.py | tee research_projects/r1d109/R1D109_RUN.log
 
       - name: Run R1-D104 integrated confluence and counterexamples
         if: ${{ inputs.study == 'r1d104' || inputs.study == 'all' }}
@@ -322,7 +339,7 @@ jobs:
           retention-days: 30
 
       - name: Upload R1-D105 all-signal event union and detailed case studies
-        if: ${{ always() && (inputs.study == 'r1d105' || inputs.study == 'r1d106' || inputs.study == 'r1d107' || inputs.study == 'r1d108' || inputs.study == 'all') }}
+        if: ${{ always() && (inputs.study == 'r1d105' || inputs.study == 'r1d106' || inputs.study == 'r1d107' || inputs.study == 'r1d108' || inputs.study == 'r1d109' || inputs.study == 'all') }}
         uses: actions/upload-artifact@v4
         with:
           name: R1D105_ALL_SIGNAL_UNION_FIVE_CASES_RESEARCH_ONLY
@@ -334,7 +351,7 @@ jobs:
           retention-days: 30
 
       - name: Upload R1-D106 immutable trendline triangle and real-stock evidence
-        if: ${{ always() && (inputs.study == 'r1d106' || inputs.study == 'r1d107' || inputs.study == 'r1d108' || inputs.study == 'all') }}
+        if: ${{ always() && (inputs.study == 'r1d106' || inputs.study == 'r1d107' || inputs.study == 'r1d108' || inputs.study == 'r1d109' || inputs.study == 'all') }}
         uses: actions/upload-artifact@v4
         with:
           name: R1D106_BODY_WICK_TRENDLINES_TRIANGLES_PIT_RESEARCH_ONLY
@@ -358,7 +375,7 @@ jobs:
           retention-days: 30
 
       - name: Upload R1-D108 dynamic-line candle MA BB ENV cloud confluence research
-        if: ${{ always() && (inputs.study == 'r1d108' || inputs.study == 'all') }}
+        if: ${{ always() && (inputs.study == 'r1d108' || inputs.study == 'r1d109' || inputs.study == 'all') }}
         uses: actions/upload-artifact@v4
         with:
           name: R1D108_DYNAMIC_LINE_CANDLE_FULL_INDICATOR_PIT_RESEARCH_ONLY
@@ -366,5 +383,17 @@ jobs:
             research_projects/r1d108/results/
             research_projects/r1d108/R1D108_RUN.log
             research_projects/r1d108/README_R1D108_KO.md
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload R1-D109 pivot trend-changes and full technical confluence research
+        if: ${{ always() && (inputs.study == 'r1d109' || inputs.study == 'all') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: R1D109_DYNAMIC_TREND_CHANGE_PIVOT_FULL_INDICATORS_PIT_RESEARCH_ONLY
+          path: |
+            research_projects/r1d109/results/
+            research_projects/r1d109/R1D109_RUN.log
+            research_projects/r1d109/README_R1D109_KO.md
           if-no-files-found: error
           retention-days: 30
