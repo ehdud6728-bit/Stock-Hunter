@@ -11,7 +11,7 @@ import pandas as pd
 
 HERE=Path(__file__).resolve().parent
 ROOT=HERE.parent
-sys.path[:0]=[str(ROOT/'r1d97'),str(ROOT/'r1d106'),str(HERE)]
+sys.path[:0]=[str(ROOT/f'r1d{x}') for x in (97,100,101,102,103,104,105,106)]+[str(HERE)]
 from multiline import line_value
 from quality import line_quality,display_groups,triangle_quality,apex_limited_outcome
 
@@ -94,7 +94,8 @@ def _plot(d,case,quality_rows,lines,tri,output):
         ax.plot(range(st,end+1),d.iloc[st:end+1][f'ma{n}'],color=col,lw=.8,alpha=.6,label=f'MA{n}')
     # Display top non-overlapping lines. Additionally show user reference lines,
     # but never force them into automatic ranking or claim they were top picks.
-    reps=quality_rows[quality_rows.is_display_representative]
+    reps=(quality_rows[quality_rows.is_display_representative]
+          if 'is_display_representative' in quality_rows.columns else pd.DataFrame(columns=['line_id']))
     selected=lines[lines.line_id.isin(reps.line_id)]
     for code0,f,a,b in USER_REFERENCE_LINES:
         if code0!=code:continue
