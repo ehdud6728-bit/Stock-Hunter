@@ -210,3 +210,18 @@ class RunnerSmokeTests(unittest.TestCase):
             self.assertEqual(report['context_case_count'],1)
             self.assertTrue((dest/'R1D107_AUDIT.json').is_file())
             self.assertEqual(len(pd.read_csv(dest/'R1D107_ALL_LINE_CREATION_QUALITY_PIT.csv')),2)
+
+
+class GitHubProductionImportRegressionTests(unittest.TestCase):
+    def test_import_search_paths_include_real_r104_dependency(self):
+        import research_r1d107 as r107
+        from pathlib import Path
+        path=Path(r107.ROOT/'r1d104').resolve()
+        self.assertIn(str(path), sys.path,
+            'R1-D107 production imports research_r1d104._verify; path required')
+
+    def test_production_dependency_is_importable_from_repo(self):
+        # This is the actual dependency used when raw_provider=None, unlike
+        # synthetic run(raw_provider=...) tests which bypass frozen _verify.
+        from research_r1d104 import _verify
+        self.assertTrue(callable(_verify))
