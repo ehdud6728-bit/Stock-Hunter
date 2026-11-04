@@ -21,6 +21,7 @@ from multiscale import monitor_multiscale
 from recent_turn import replay_one as r116_replay
 from stable_roles import replay_one as r117_replay
 from research_r1d118 import verified_files
+from r118_source_marks import original_daily_marks
 
 ALGORITHM='TS_BODY_WICK_PROXY'
 ROLE_COLS=['code','algorithm','scale','broken_line_id','old_kind','new_role_candidate',
@@ -36,7 +37,11 @@ def generate_one(code,raw):
     # Zero immutable candidates is a valid observed state: all six lanes are NO_ACTIVE_LINE.
     s112,_,roles=monitor_multiscale(d,ALGORITHM,candidates)
     if len(s112)!=len(d)*6:raise AssertionError('R112_6_LANES_NOT_COMPLETE '+code)
-    s116,_,top3=r116_replay(code,ALGORITHM,candidates,s112[['idx','date','close']],top_n=3)
+    # R112 is SIX state rows per bar, while R116 source_marks MUST be 1/bar.
+    # Derive the R116 marks from the original prepared OHLCV after checking
+    # that all R112 lanes correspond to the identical original bars.
+    source_marks=original_daily_marks(d,s112,code)
+    s116,_,top3=r116_replay(code,ALGORITHM,candidates,source_marks,top_n=3)
     if len(s116)!=len(d)*6:raise AssertionError('R116_6_LANES_NOT_COMPLETE '+code)
     raw_with_idx=d.copy();raw_with_idx.insert(0,'idx',range(len(d)))
     s117,_,_=r117_replay(code,ALGORITHM,s116,top3,candidates,raw=raw_with_idx)
