@@ -329,6 +329,20 @@ def compare_rules(selected):
     return pd.DataFrame(records)
 
 
+def verify_line_input_coverage(events, line_source):
+    """Six causal line-state lanes only; do not mix role-event availability.
+
+    A role-event feed describes sparse realized retests and is separately audited.
+    NO_ACTIVE_LINE is a valid known state if the source date was verified.
+    """
+    cols=[f"{scale}_{kind}_coverage" for scale in SCALES for kind in KINDS]
+    missing=[c for c in cols if c not in events.columns]
+    if missing:
+        raise ValueError("MISSING_SIX_LANE_COVERAGE_COLUMNS: "+",".join(missing))
+    return bool(line_source is not None and not events.empty
+                and events[cols].eq("VALID_SOURCE_DATE").all().all())
+
+
 def run(stocks,output,*,line_source=None,line_mode="R112",role_file=None,market_file=None,sector_file=None,
         sample=False,required_min_stocks=200,shard_index=0,shard_count=1,input_provenance=None,study_start=None):
     """Stages data as future-evaluation only; research cannot be marked OOS ready without full coverage."""
@@ -382,8 +396,10 @@ def run(stocks,output,*,line_source=None,line_mode="R112",role_file=None,market_
     # industry classification (historical Market membership is still usable).
     sector_classified=bool(sector_file is not None and selected.sector.notna().all()
             and not selected.sector.astype(str).str.startswith(('UNVERIFIED_','MISSING_','UNKNOWN_')).any())
-    coverage=[x for x in selected if x.endswith("_coverage")]
-    complete=bool(line is not None and selected[coverage].eq("VALID_SOURCE_DATE").all().all())
+    # Check ONLY the six actual R111/R112/R116/R117 trendline-state lanes.
+    # exact_role_event_coverage is a different event stream and may legitimately
+    # be SOURCE_PRESENT_EVENT_SPARSE when the six trendline dates are all valid.
+    complete=verify_line_input_coverage(selected,line)
     readiness={"version":"R1D118_RESEARCH_ONLY","study_stocks":len(codes),"total_input_stocks":len(all_codes),
       "raw_bars_by_code":sources,"sample":bool(sample),"shard_index":shard_index,"shard_count":shard_count,
       "target_stocks":required_min_stocks,"large_universe_met":len(all_codes)>=required_min_stocks and shard_count==1,
