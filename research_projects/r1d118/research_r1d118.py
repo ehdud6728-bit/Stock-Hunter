@@ -330,7 +330,7 @@ def compare_rules(selected):
 
 
 def run(stocks,output,*,line_source=None,line_mode="R112",role_file=None,market_file=None,sector_file=None,
-        sample=False,required_min_stocks=200,shard_index=0,shard_count=1,input_provenance=None):
+        sample=False,required_min_stocks=200,shard_index=0,shard_count=1,input_provenance=None,study_start=None):
     """Stages data as future-evaluation only; research cannot be marked OOS ready without full coverage."""
     if shard_count<1 or shard_index<0 or shard_index>=shard_count:raise ValueError("invalid shard index/count")
     all_codes=sorted(stocks);codes=[c for i,c in enumerate(all_codes) if i%shard_count==shard_index]
@@ -343,6 +343,14 @@ def run(stocks,output,*,line_source=None,line_mode="R112",role_file=None,market_
         u,ua=upper_events(code,s);l,la=lower_events(code,s)
         records.extend(u+l);anchors.extend([dict(family="UPPER_TOUCH",**z)for z in ua]);anchors.extend([dict(family="LOWER_TOUCH",**z)for z in la]);sources[code]=len(s)
     selected=dedup_events(records)
+    # Apply requested study period only after independent causal signals and
+    # cooldowns were computed with the earlier warmup. Selection cutoff is
+    # independent of all after-cutoff outcomes.
+    if study_start is not None:
+        if not (len(study_start)==10 and study_start[4]=='-' and study_start[7]=='-'):
+            raise ValueError('study_start must be YYYY-MM-DD')
+        selected=selected[selected.signal_date.astype(str)>=study_start].copy().reset_index(drop=True)
+        anchors=[z for z in anchors if str(z['anchor_date'])>=study_start]
     if selected.empty:raise ValueError("no event rows in requested shard")
     selected=join_line_context(selected,stocks,line)
     selected=join_exact_retest_event(selected,stocks,role_file)
@@ -370,13 +378,18 @@ def run(stocks,output,*,line_source=None,line_mode="R112",role_file=None,market_
     rules=compare_rules(selected);rules.to_csv(out/"R118_THRESHOLD_MATRIX.csv",index=False,encoding="utf-8-sig")
     code_stats=[{"family":fam,"code":c,**_stats(g)} for (fam,c),g in selected.groupby(["family","code"])]
     pd.DataFrame(code_stats).to_csv(out/"R118_STOCK_CONCENTRATION.csv",index=False,encoding="utf-8-sig")
+    # A placeholder sector tag must never be represented as verified PIT
+    # industry classification (historical Market membership is still usable).
+    sector_classified=bool(sector_file is not None and selected.sector.notna().all()
+            and not selected.sector.astype(str).str.startswith(('UNVERIFIED_','MISSING_','UNKNOWN_')).any())
     coverage=[x for x in selected if x.endswith("_coverage")]
     complete=bool(line is not None and selected[coverage].eq("VALID_SOURCE_DATE").all().all())
     readiness={"version":"R1D118_RESEARCH_ONLY","study_stocks":len(codes),"total_input_stocks":len(all_codes),
       "raw_bars_by_code":sources,"sample":bool(sample),"shard_index":shard_index,"shard_count":shard_count,
       "target_stocks":required_min_stocks,"large_universe_met":len(all_codes)>=required_min_stocks and shard_count==1,
       "all_3scale_line_coverage":complete,"market_connected":mk is not None,
-      "sector_pit_connected":sector_file is not None,"upstream_source":input_provenance or {},
+      "sector_pit_connected":sector_classified,"historical_market_membership_connected":sector_file is not None,
+      "study_start":study_start,"upstream_source":input_provenance or {},
       "decision":"RESEARCH_ONLY_NOT_PRODUCTION_READY",
       "blocked_reasons":[],"event_counts":{str(k):int(v) for k,v in selected.family.value_counts().items()}}
     if len(all_codes)<required_min_stocks:readiness["blocked_reasons"].append("UNIVERSE_BELOW_TARGET")
@@ -384,7 +397,7 @@ def run(stocks,output,*,line_source=None,line_mode="R112",role_file=None,market_
     if not complete:readiness["blocked_reasons"].append("TRENDLINE_PIT_COVERAGE_MISSING")
     if role_file is None:readiness["blocked_reasons"].append("R112_EXACT_RETEST_EVENT_SOURCE_MISSING")
     if mk is None:readiness["blocked_reasons"].append("MARKET_DATA_MISSING")
-    if sector_file is None:readiness["blocked_reasons"].append("SECTOR_PIT_MISSING")
+    if not sector_classified:readiness["blocked_reasons"].append("SECTOR_CLASSIFICATION_UNVERIFIED_OR_MISSING")
     if sample:readiness["blocked_reasons"].append("SMOKE_SAMPLE_ONLY")
     (out/"R118_READINESS_AUDIT.json").write_text(json.dumps(readiness,ensure_ascii=False,indent=2),encoding="utf-8")
     return readiness
@@ -404,6 +417,7 @@ def main(argv=None):
     p.add_argument("--shard-index",type=int,default=0)
     p.add_argument("--shard-count",type=int,default=1)
     p.add_argument("--target-stocks",type=int,default=200)
+    p.add_argument("--study-start",help="Only assess signals on/after date; retain earlier causal warmup and dedup")
     args=p.parse_args(argv)
     provenance={}
     if args.smoke:
@@ -419,7 +433,7 @@ def main(argv=None):
             stocks.update(r)
             provenance[code]={"file":str(f),"sha256":h}
     result=run(stocks,args.out,line_source=args.line_states,line_mode=args.line_mode,role_file=args.role_events,market_file=args.market_daily,sector_file=args.sector_pit,
-               sample=args.smoke,required_min_stocks=args.target_stocks,shard_index=args.shard_index,shard_count=args.shard_count,input_provenance=provenance)
+               sample=args.smoke,required_min_stocks=args.target_stocks,shard_index=args.shard_index,shard_count=args.shard_count,input_provenance=provenance,study_start=args.study_start)
     print(json.dumps(result,ensure_ascii=False,indent=2))
     return 0
 
