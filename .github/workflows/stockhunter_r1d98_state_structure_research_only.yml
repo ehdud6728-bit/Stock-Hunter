@@ -34,11 +34,12 @@ on:
           - r1d118
           - all
       r118_mode:
-        description: 'R118 only: smoke or SHA-pinned manifest'
+        description: 'R118: auto=real 200-stock study, smoke=sample, manifest=manual'
         type: choice
         required: false
-        default: smoke
+        default: auto
         options:
+          - auto
           - smoke
           - manifest
       r118_manifest:
@@ -85,7 +86,7 @@ permissions:
 jobs:
   trendline-research-only:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 150
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -394,6 +395,10 @@ jobs:
           set -euo pipefail
           python research_projects/r1d117/research_r1d117.py | tee research_projects/r1d117/R1D117_RUN.log
 
+      - name: Install pinned public historical source decoder for R118 auto
+        if: ${{ inputs.study == 'r1d118' && inputs.r118_mode == 'auto' }}
+        run: python -m pip install 'pyarrow>=15,<25'
+
       - name: R118 independent tests before research
         if: ${{ inputs.study == 'r1d118' }}
         shell: bash
@@ -416,6 +421,18 @@ jobs:
           R118_SECTOR_PIT: ${{ inputs.r118_sector_pit }}
         run: |
           set -euo pipefail
+          if [[ "$R118_MODE" == 'auto' ]]; then
+            if [[ "$R118_SHARD_INDEX" != '0' || "$R118_SHARD_COUNT" != '1' ]]; then
+              echo '::error::R118 auto mode is a single research run. Use 0/1 shards.'; exit 2
+            fi
+            if [[ -n "$R118_LINE_STATES" || -n "$R118_ROLE_EVENTS" || -n "$R118_MARKET_DAILY" || -n "$R118_SECTOR_PIT" ]]; then
+              echo '::error::R118 auto mode manages its sources and original R117 replay; leave manual source fields empty.'; exit 2
+            fi
+            python research_projects/r1d118/auto_run_r118.py \
+              --stocks 200 --out research_projects/r1d118/results \
+              | tee research_projects/r1d118/R118_RUN.log
+            exit 0
+          fi
           argv=( --out research_projects/r1d118/results
                  --shard-index "$R118_SHARD_INDEX" --shard-count "$R118_SHARD_COUNT" )
           if [[ "$R118_MODE" == 'manifest' ]]; then
