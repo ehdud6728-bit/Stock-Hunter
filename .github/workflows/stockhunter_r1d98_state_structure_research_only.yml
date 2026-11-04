@@ -31,7 +31,53 @@ on:
           - r1d115
           - r1d116
           - r1d117
+          - r1d118
           - all
+      r118_mode:
+        description: 'R118 only: smoke or SHA-pinned manifest'
+        type: choice
+        required: false
+        default: smoke
+        options:
+          - smoke
+          - manifest
+      r118_manifest:
+        description: 'R118 manifest relative path (SHA-pinned code,path,sha256)'
+        type: string
+        required: false
+        default: 'research_projects/r1d118/inputs/manifest.csv'
+      r118_shard_index:
+        description: 'R118 0-based shard index'
+        type: number
+        default: 0
+      r118_shard_count:
+        description: 'R118 number of shards'
+        type: number
+        default: 1
+      r118_line_states:
+        description: 'Optional full PIT line state CSV path (no MA line substitutes)'
+        type: string
+        default: ''
+      r118_line_mode:
+        description: 'R112, R116, or R117 historical PIT schema'
+        type: choice
+        default: R117
+        options:
+          - R112
+          - R116
+          - R117
+      r118_role_events:
+        description: 'Optional R112 exact broken-line retest event CSV'
+        type: string
+        default: ''
+      r118_market_daily:
+        description: 'Optional market,date,close,amount CSV'
+        type: string
+        default: ''
+      r118_sector_pit:
+        description: 'Optional code,date,sector,market PIT CSV'
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -348,6 +394,57 @@ jobs:
           set -euo pipefail
           python research_projects/r1d117/research_r1d117.py | tee research_projects/r1d117/R1D117_RUN.log
 
+      - name: R118 independent tests before research
+        if: ${{ inputs.study == 'r1d118' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s research_projects/r1d118/tests -v
+
+      - name: R118 multi-scale band turnover research (NO PRODUCTION CHANGES)
+        if: ${{ inputs.study == 'r1d118' }}
+        shell: bash
+        env:
+          R118_MODE: ${{ inputs.r118_mode }}
+          R118_MANIFEST: ${{ inputs.r118_manifest }}
+          R118_SHARD_INDEX: ${{ inputs.r118_shard_index }}
+          R118_SHARD_COUNT: ${{ inputs.r118_shard_count }}
+          R118_LINE_STATES: ${{ inputs.r118_line_states }}
+          R118_LINE_MODE: ${{ inputs.r118_line_mode }}
+          R118_ROLE_EVENTS: ${{ inputs.r118_role_events }}
+          R118_MARKET_DAILY: ${{ inputs.r118_market_daily }}
+          R118_SECTOR_PIT: ${{ inputs.r118_sector_pit }}
+        run: |
+          set -euo pipefail
+          argv=( --out research_projects/r1d118/results
+                 --shard-index "$R118_SHARD_INDEX" --shard-count "$R118_SHARD_COUNT" )
+          if [[ "$R118_MODE" == 'manifest' ]]; then
+            test -f "$R118_MANIFEST"
+            argv+=( --manifest "$R118_MANIFEST" )
+          elif [[ "$R118_MODE" == 'smoke' ]]; then
+            argv+=( --smoke )
+          else
+            echo 'Unrecognized R118 mode'; exit 2
+          fi
+          if [[ -n "$R118_LINE_STATES" ]]; then
+            test -f "$R118_LINE_STATES"
+            argv+=( --line-states "$R118_LINE_STATES" --line-mode "$R118_LINE_MODE" )
+          fi
+          if [[ -n "$R118_ROLE_EVENTS" ]]; then
+            test -f "$R118_ROLE_EVENTS"
+            argv+=( --role-events "$R118_ROLE_EVENTS" )
+          fi
+          if [[ -n "$R118_MARKET_DAILY" ]]; then
+            test -f "$R118_MARKET_DAILY"
+            argv+=( --market-daily "$R118_MARKET_DAILY" )
+          fi
+          if [[ -n "$R118_SECTOR_PIT" ]]; then
+            test -f "$R118_SECTOR_PIT"
+            argv+=( --sector-pit "$R118_SECTOR_PIT" )
+          fi
+          python research_projects/r1d118/research_r1d118.py "${argv[@]}" \
+             | tee research_projects/r1d118/R118_RUN.log
+
       - name: Run R1-D104 integrated confluence and counterexamples
         if: ${{ inputs.study == 'r1d104' || inputs.study == 'all' }}
         shell: bash
@@ -636,4 +733,16 @@ jobs:
             research_projects/r1d117/R1D117_RUN.log
             research_projects/r1d117/README_R1D117_KO.md
           if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload R118 PIT bands turnover and three-scale trendline audit
+        if: ${{ always() && inputs.study == 'r1d118' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: R118_BANDS_3SCALE_TURNOVER_RESEARCH_ONLY
+          path: |
+            research_projects/r1d118/results/
+            research_projects/r1d118/R118_RUN.log
+            research_projects/r1d118/README_R118_KO.md
+          if-no-files-found: warn
           retention-days: 30
