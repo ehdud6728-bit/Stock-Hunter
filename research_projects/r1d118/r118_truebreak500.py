@@ -184,6 +184,33 @@ def select_retests(breaks,selected,calendar,market_by_day):
                 break
     return returns,rejected
 
+def validate_event_identity(df, *, stage):
+    """True R117 event identity includes its immutable line ID.
+
+    Several confirmed archived lines may be retested on the same stock/day/
+    scale. These are separate physical line events, but NOT independent
+    portfolio trades. An exact same-line duplicate remains an error.
+    """
+    key = ['code', 'scale', 'signal_kind', 'signal_date', 'line_id']
+    missing = set(key) - set(df.columns)
+    if missing:
+        raise ValueError('TRUEBREAK_EVENT_IDENTITY_FIELDS_MISSING ' + str(sorted(missing)))
+    if df[key].isna().any().any() or df.line_id.astype(str).eq('').any():
+        raise ValueError('TRUEBREAK_EVENT_IDENTITY_EMPTY')
+    duplicate = df.duplicated(key, keep=False)
+    if duplicate.any():
+        examples = df.loc[duplicate, key].head(5).to_dict('records')
+        raise ValueError('DUPLICATE_SAME_LINE_R117_EVENT ' + stage + ' ' + repr(examples))
+    per_day = ['code', 'scale', 'signal_kind', 'signal_date']
+    return int(df.duplicated(per_day).sum())
+
+
+def unique_stock_scale_signal_days(df):
+    """Only for summary counting, NOT mutation of the audited raw event tape."""
+    return (df.sort_values(['code','signal_date','scale','signal_kind','line_id'],kind='stable')
+            .drop_duplicates(['code','scale','signal_kind','signal_date'],keep='first'))
+
+
 def run_shard(manifest,line_states,sector_pit,market,out):
     files=validate_subset_manifest(manifest)
     selected={}
@@ -216,14 +243,15 @@ def run_shard(manifest,line_states,sector_pit,market,out):
     out=Path(out);out.parent.mkdir(parents=True,exist_ok=True)
     result=pd.DataFrame(records)
     if result.empty:raise ValueError('NO_TRUE_BREAK_EVENTS_MATURED_FAIL_CLOSED')
-    if result.duplicated(['code','scale','signal_kind','signal_date']).any():
-        raise ValueError('DUPLICATE_SAME_DAY_R117_EVENT')
+    same_day_distinct_line_events=validate_event_identity(result, stage='SHARD')
     result=result.sort_values(['code','signal_date','scale','signal_kind'])
     result.to_csv(out,index=False,encoding='utf-8-sig')
     audit={'source':'ORIGINAL_R117_6_DAILY_LANES','signals_source_count':len(signals),
            'output_events':len(records),'ret_skips':ret_skips,
            'incomplete_or_market_gapped':reasons,'stocks_verified':len(selected),
            'source_daily_rows':len(daily),'source_files_sha256':sha256(line_states),
+           'same_stock_scale_kind_day_distinct_line_events':same_day_distinct_line_events,
+           'unique_stock_scale_kind_day_rows':len(result)-same_day_distinct_line_events,
            'research_only':True,'live_unmodified':True}
     out.with_suffix('.audit.json').write_text(json.dumps(audit,indent=2,ensure_ascii=False))
     return audit
@@ -237,7 +265,10 @@ def merge_shards(roots,out):
         all_data.append(pd.read_csv(path,dtype={'code':str,'signal_date':str,'line_id':str}))
         files.append({'shard':i,'sha256':sha256(path),'rows':len(all_data[-1])})
     df=pd.concat(all_data,ignore_index=True)
-    if df.duplicated(['code','signal_date','scale','signal_kind']).any():raise ValueError('TRUEBREAK_DUPLICATE_ACROSS_SHARDS')
+    same_day_distinct_line_events=validate_event_identity(df,stage='MERGE')
+    # Preserve every audited line in the raw CSV. Do not count different
+    # projected lines on one stock/day/scale as separate portfolio trades.
+    portfolio_events=unique_stock_scale_signal_days(df)
     if df.code.nunique()<100:raise ValueError('TRUEBREAK_TOO_FEW_STOCKS_WITH_SIGNALS_FOR_TRUST')
     raw=out/'R118_TRUEBREAK_500_EVENTS.csv';df.to_csv(raw,index=False,encoding='utf-8-sig')
     metrics=[]
@@ -252,7 +283,7 @@ def merge_shards(roots,out):
              'TP3SL5_win_pct':100*(g.TP3SL5_net_pct>0).mean(),
              'TP3SL5_date_equal':g.groupby('signal_date').TP3SL5_net_pct.mean().mean(),
              'TP3SL5_same_day_ambiguous':int(g.TP3SL5_ambiguous.sum())}
-    for stage,grp in df.groupby('signal_kind'):
+    for stage,grp in portfolio_events.groupby('signal_kind'):
         for basis,g in [('ALL',grp),('MARKET_DOWN',grp[grp.market_down]),('CLOSE_GT_3AGO',grp[grp.c_gt_c3]),
                         ('3UP_CANDLES',grp[grp.bar3_up]),('STRONG_CANDLE',grp[grp.strong_candle]),
                         ('MA20_UP',grp[grp.ma20_rising]),('CLOUD_ABOVE',grp[grp.cloud_position=='ABOVE']),
@@ -262,7 +293,11 @@ def merge_shards(roots,out):
             for cond,g in [('ALL',s),('GT3',s[s.c_gt_c3])]:
                 if len(g):metrics.append({'stage':stage,'condition':scale+'_'+cond,**ag(g)})
     summary=pd.DataFrame(metrics);summary.to_csv(out/'R118_TRUEBREAK_500_SUMMARY.csv',index=False,encoding='utf-8-sig')
-    report={'source_shards':files,'event_rows':len(df),'true_r117_early':int(df.signal_kind.eq('EARLY_FIRST_CLOSE').sum()),
+    report={'source_shards':files,'event_rows':len(df),
+            'portfolio_signal_day_rows':len(portfolio_events),
+            'same_stock_scale_kind_day_distinct_line_events':same_day_distinct_line_events,
+            'same_day_line_selection':'For summary only, choose lexicographically smallest immutable line_id per code/scale/stage/date; retain all raw events',
+            'true_r117_early':int(df.signal_kind.eq('EARLY_FIRST_CLOSE').sum()),
             'true_r117_confirmed':int(df.signal_kind.eq('CONFIRMED_TWO_CLOSE').sum()),
             'projected_retests_not_R117_confirmed':int(df.signal_kind.str.startswith('RETEST_PROJECTION').sum()),
             'source_semantics':'FIRST pending; TWO confirmed. Each entry next session open, cloud at D uses D-26, stop-first ambiguity.',
