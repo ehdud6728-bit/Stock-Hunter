@@ -1,3 +1,4 @@
+# RESEARCH_ONLY. Replaces existing R2 workflow at the SAME path; no extra workflow created.
 name: 'Stock-Hunter Ticker Guard R2 (RESEARCH_ONLY)'
 on:
   workflow_dispatch:
@@ -5,7 +6,7 @@ permissions:
   contents: read
 jobs:
   ticker-guard-readonly:
-    name: 'Research: candidate code audit - no production changes'
+    name: 'Research: candidate code + TOP60 source-fix dry-run (no production changes)'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -13,9 +14,23 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Self-tests
+      - name: Existing R2 guard self-tests
         run: python -m unittest discover -s ticker_guard_r2 -p 'test_guard.py' -v
-      - name: Audit committed candidate files (expected to detect existing 000000)
+
+      - name: TOP60 fix self-tests + SHA-pinned dry-run (READ_ONLY)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check pandas
+          mkdir -p reports/ticker_guard_r2
+          before="$(sha256sum main7_bugfix_2.py | cut -d' ' -f1)"
+          python ticker_guard_r2/prepare_top60_sourcefix.py --self-test | tee reports/ticker_guard_r2/top60_sourcefix_dry_run.txt
+          python ticker_guard_r2/prepare_top60_sourcefix.py --source main7_bugfix_2.py | tee -a reports/ticker_guard_r2/top60_sourcefix_dry_run.txt
+          after="$(sha256sum main7_bugfix_2.py | cut -d' ' -f1)"
+          test "$before" = "$after" || { echo '::error::Production scanner unexpectedly modified'; exit 1; }
+          echo "ORIGINAL_SCANNER_UNCHANGED sha256=$after" | tee -a reports/ticker_guard_r2/top60_sourcefix_dry_run.txt
+
+      - name: Audit committed candidate files (existing invalid rows expected)
         run: |
           python ticker_guard_r2/guard.py \
             --input today_candidates.json \
@@ -23,7 +38,8 @@ jobs:
             --input today_candidates_full.json \
             --out reports/ticker_guard_r2 \
             --fail-on-invalid
-      - name: Upload issues even when QA fails
+
+      - name: Upload QA and dry-run reports even on findings
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -31,5 +47,6 @@ jobs:
           path: |
             reports/ticker_guard_r2/ticker_guard_summary.json
             reports/ticker_guard_r2/ticker_guard_violations.csv
+            reports/ticker_guard_r2/top60_sourcefix_dry_run.txt
           if-no-files-found: warn
           retention-days: 30
