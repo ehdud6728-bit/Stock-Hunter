@@ -238,15 +238,61 @@ def source_trace_readonly(path=Path('main7_bugfix_2.py')):
                        for i in range(start, end)]
             hits.append({'line': number, 'function': fun, 'tags': tags,
                          'source_context': context})
+    # R2.2: extract narrowly selected function bodies so the exact conversion
+    # behavior (including post-V9.0 overrides) can be reviewed from the same
+    # GitHub Actions artifact. No scanner import or execution.
+    wanted = {
+        '_v90_row_to_amount_item',
+        '_v90_df_to_amount_items',
+        '_v90_export_amount_top_json',
+        '_v90_amount_top_n',
+        '_v87_export_quick_candidates_json',
+        '_v87_row_to_candidate_item',
+        '_v87_df_to_candidate_items',
+        '_v87_dedupe_items',
+        '_v87_pick',
+        '_v91_seed_jsons',
+        '_v97_row_to_quick_item',
+        '_v97_dedupe_items',
+        'normalize_leader_scanner_columns',
+    }
+    excerpts = []
+    aliases = []
+    if parse_status == 'PARSED':
+        for statement in ast.walk(tree):
+            if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef)) and statement.name in wanted:
+                last = getattr(statement, 'end_lineno', statement.lineno)
+                body = lines[statement.lineno-1:min(last, statement.lineno+219)]
+                excerpts.append({
+                    'function': statement.name,
+                    'start_line': statement.lineno,
+                    'end_line': last,
+                    'extracted_lines': len(body),
+                    'truncated': (last - statement.lineno + 1) > len(body),
+                    'source': '\n'.join(f'{k}: {t}' for k, t in enumerate(body, statement.lineno))
+                })
+        # Detect _V91_BASE_* captures, V97 export wrappers, and call-site references.
+        for lineno, line in enumerate(lines, 1):
+            if any(token in line for token in (
+                '_V91_BASE_AMOUNT_ITEM', '_V97_BASE_QUICK_EXPORT',
+                '_v90_row_to_amount_item(', '_v90_df_to_amount_items(',
+                '_v87_export_quick_candidates_json(',
+                "amount_top60_df=", "amount_top60_df'", 'amount_top60_df"',
+            )):
+                aliases.append({'line': lineno, 'text': line.strip()[:450]})
+    excerpts.sort(key=lambda x: (x['start_line'], x['function']))
+    aliases = aliases[:120]
     return {
-        'version': 'R2_1_TOP60_STATIC_TRACE',
-        'status': 'STATIC_LOCATIONS_ONLY_ROOT_CAUSE_NOT_PROVEN',
+        'version': 'R2_2_TOP60_FULL_FUNCTION_TRACE',
+        'status': 'STATIC_FULL_FUNCTIONS_ROOT_CAUSE_NOT_CERTIFIED',
         'source_sha256': hashlib.sha256(raw).hexdigest(),
         'source_line_count': len(lines),
         'parse_status': parse_status,
         'candidate_writer_functions': counts.most_common(40),
         'total_focus_hits': len(hits),
         'focus_hits': hits[:140],
+        'function_excerpts': excerpts,
+        'override_and_call_references': aliases,
         'note': 'No production execution/import. Source line contexts may suggest causes but do not prove them.'
     }
 
