@@ -69,6 +69,10 @@ def validate_receipt(receipt, artifacts_dir):
         f = p / name
         if not f.is_file() or digest(f) != receipt['materialized_sha256'][name]:
             raise ValueError('SHARD_MATERIALIZATION_SHA256_MISMATCH ' + name)
+    if receipt.get('truebreak_sha256'):
+        f=p / 'R118_TRUEBREAK_3CANDLE_SHARD.csv'
+        if not f.is_file() or digest(f)!=receipt['truebreak_sha256']:
+            raise ValueError('TRUEBREAK_SHARD_MATERIALIZATION_SHA256_MISMATCH')
     return True
 
 
@@ -104,6 +108,14 @@ def run(index, *, out_root=None, cache=None):
     line_states, roles, audit = generate_all(subset_manifest, lines_dir)
     if audit['stock_count'] != 100:
         raise AssertionError('R118_SHARD_LINE_COVERAGE_NOT_100')
+    # RESEARCH_ONLY: consume the original full R117 daily states WHILE they
+    # still exist. The previous design discarded them after the band study.
+    # No R111/R112/R116/R117 algorithm or production behavior is modified.
+    from r118_truebreak500 import run_shard as truebreak_run
+    truebreak_path = artifact / 'R118_TRUEBREAK_3CANDLE_SHARD.csv'
+    status['stage'] = 'R117_TRUEBREAK_3CANDLE_MA_ICHI_RESEARCH'
+    save()
+    truebreak_run(subset_manifest, line_states, inp['sector'], inp['market'], truebreak_path)
     status['stage'] = 'R118_SHARD_RESEARCH'
     save()
     run_research([
@@ -145,6 +157,7 @@ def run(index, *, out_root=None, cache=None):
         'selected_count': 100, 'selected_codes': sorted(expected),
         'price_sha256': price_hashes,
         'materialized_sha256': {name:digest(artifact/name) for name in FILE_NAMES},
+        'truebreak_sha256': digest(truebreak_path),
         'original_r111_r117_unchanged': True,
         'research_only': True, 'success': True,
     }

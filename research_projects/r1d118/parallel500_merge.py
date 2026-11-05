@@ -106,6 +106,25 @@ def merge_and_chart(download_dir, output, *, frozen200=None, charts=True):
             '--manifest',str(manifest),'--market',str(market),
             '--source-audit',str(audit), '--baseline-200',str(frozen200 or HERE/'FROZEN_2022_200_COHORT_20261104.json'),
             '--out',str(out/'visual_cases_500'),'--per-outcome','5'])
+    # Merge only source-authenticated true R117 break events. If a single
+    # shard is missing, STOP instead of silently treating missing as zero.
+    true_name='R118_TRUEBREAK_3CANDLE_SHARD.csv'
+    indicators=[(p/true_name).is_file() for p in roots]
+    if any(indicators) and not all(indicators):
+        raise ValueError('INCOMPLETE_TRUEBREAK_5_SHARD_SOURCE')
+    if all(indicators):
+        for idx,rcp in enumerate(receipts):
+            if not rcp.get('truebreak_sha256') or digest(roots[idx]/true_name)!=rcp['truebreak_sha256']:
+                raise ValueError('TRUEBREAK_SHARD_SHA_MISMATCH_'+str(idx))
+        from r118_truebreak500 import merge_shards as merge_truebreak
+        tdir=out/'true_r117_break_3candle_ma_cloud'
+        report=merge_truebreak(roots,tdir)
+        if charts:
+            from r118_truebreak500_charts import make_charts
+            make_charts(tdir/'R118_TRUEBREAK_500_EVENTS.csv',manifest,tdir/'real_charts',per_outcome=5)
+        summary['true_r117_break_study']={'events':report['event_rows'],
+            'early':report['true_r117_early'],'confirmed':report['true_r117_confirmed'],
+            'projected_retests':report['projected_retests_not_R117_confirmed']}
     return summary
 
 
