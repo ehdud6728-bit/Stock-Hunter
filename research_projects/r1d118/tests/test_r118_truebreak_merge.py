@@ -13,7 +13,7 @@ class MergeTests(unittest.TestCase):
     for j in range(25):
      code=f'{i*25+j+1:06d}'
      rows.append({'code':code,'signal_date':'2023-02-01','signal_kind':'EARLY_FIRST_CLOSE',
-         'scale':'MEDIUM','high10_net_pct':4,'d1_net_pct':1,'d5_net_pct':2,'d10_net_pct':3,
+         'scale':'MEDIUM','line_id':'L', 'high10_net_pct':4,'d1_net_pct':1,'d5_net_pct':2,'d10_net_pct':3,
          'TP3SL5_net_pct':2.75,'TP3SL5_ambiguous':False,'market_down':False,'c_gt_c3':True,
          'bar3_up':True,'strong_candle':True,'ma20_rising':True,'cloud_position':'ABOVE'})
     pd.DataFrame(rows).to_csv(p/'R118_TRUEBREAK_3CANDLE_SHARD.csv',index=False)
