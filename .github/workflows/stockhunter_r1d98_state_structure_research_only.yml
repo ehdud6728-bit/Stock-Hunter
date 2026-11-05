@@ -34,12 +34,13 @@ on:
           - r1d118
           - all
       r118_mode:
-        description: 'R118: auto=real 200-stock study, smoke=sample, manifest=manual'
+        description: 'R118: auto=200 stocks, auto500=500 stocks+10 audited charts; smoke=sample, manifest=manual'
         type: choice
         required: false
         default: auto
         options:
           - auto
+          - auto500
           - smoke
           - manifest
       r118_manifest:
@@ -396,8 +397,16 @@ jobs:
           python research_projects/r1d117/research_r1d117.py | tee research_projects/r1d117/R1D117_RUN.log
 
       - name: Install pinned public historical source decoder for R118 auto
-        if: ${{ inputs.study == 'r1d118' && inputs.r118_mode == 'auto' }}
-        run: python -m pip install 'pyarrow>=15,<25'
+        if: ${{ inputs.study == 'r1d118' && (inputs.r118_mode == 'auto' || inputs.r118_mode == 'auto500') }}
+        shell: bash
+        env:
+          R118_MODE: ${{ inputs.r118_mode }}
+        run: |
+          set -euo pipefail
+          python -m pip install 'pyarrow>=15,<25'
+          if [[ "$R118_MODE" == 'auto500' ]]; then
+            python -m pip install 'matplotlib>=3.8,<4'
+          fi
 
       - name: R118 independent tests before research
         if: ${{ inputs.study == 'r1d118' }}
@@ -421,7 +430,9 @@ jobs:
           R118_SECTOR_PIT: ${{ inputs.r118_sector_pit }}
         run: |
           set -euo pipefail
-          if [[ "$R118_MODE" == 'auto' ]]; then
+          if [[ "$R118_MODE" == 'auto' || "$R118_MODE" == 'auto500' ]]; then
+            R118_STOCKS=200
+            if [[ "$R118_MODE" == 'auto500' ]]; then R118_STOCKS=500; fi
             if [[ "$R118_SHARD_INDEX" != '0' || "$R118_SHARD_COUNT" != '1' ]]; then
               echo '::error::R118 auto mode is a single research run. Use 0/1 shards.'; exit 2
             fi
@@ -429,8 +440,19 @@ jobs:
               echo '::error::R118 auto mode manages its sources and original R117 replay; leave manual source fields empty.'; exit 2
             fi
             python research_projects/r1d118/auto_run_r118.py \
-              --stocks 200 --out research_projects/r1d118/results \
+              --stocks "$R118_STOCKS" --out research_projects/r1d118/results \
               | tee research_projects/r1d118/R118_RUN.log
+            if [[ "$R118_MODE" == 'auto500' ]]; then
+              python research_projects/r1d118/visual_audit_500.py \
+                --ledger research_projects/r1d118/results/R118_EVENT_LEDGER_PIT.csv \
+                --manifest research_projects/r1d118/.auto_real_work/real_inputs/manifest.csv \
+                --market research_projects/r1d118/.auto_real_work/real_inputs/market_daily.csv \
+                --source-audit research_projects/r1d118/results/R118_AUTO_SOURCE_AUDIT.json \
+                --baseline-200 research_projects/r1d118/FROZEN_2022_200_COHORT_20261104.json \
+                --out research_projects/r1d118/results/visual_cases_500 \
+                --per-outcome 5 \
+                | tee research_projects/r1d118/R118_500_CHART_AUDIT.log
+            fi
             exit 0
           fi
           argv=( --out research_projects/r1d118/results
@@ -760,6 +782,7 @@ jobs:
           path: |
             research_projects/r1d118/results/
             research_projects/r1d118/R118_RUN.log
+            research_projects/r1d118/R118_500_CHART_AUDIT.log
             research_projects/r1d118/README_R118_KO.md
           if-no-files-found: warn
           retention-days: 30
