@@ -161,6 +161,121 @@ def self_test():
     assert fn(missing_amount) == [], 'missing amount must fail closed'
     assert original != patched
     print('SELF_TEST_PASS: valid-index, alphanumeric, RangeIndex, placeholder, no-price, no-amount (6 cases)')
+    replay_saved_json_snapshot()
+
+
+def replay_saved_json_snapshot(base=pathlib.Path('.')):
+    """Read-only, real committed JSON *negative replay*, not an upstream DataFrame replay.
+
+    Detects whether the already serialized TOP60 has enough identity, quote and
+    actual-amount fields to be used. Data lost before JSON cannot be restored.
+    No stock scanner import, no source rewrite, no network or market requests.
+    """
+    import json
+    from collections import Counter
+    file_map = {
+        'amount_top60': base/'amount_top60.json',
+        'candidate': base/'today_candidates.json',
+        'full': base/'today_candidates_full.json',
+    }
+    for path in file_map.values():
+        if not path.is_file():
+            print('SAVED_JSON_REPLAY_SKIPPED missing=' + str(path))
+            return None
+    original_hashes = {k: hashlib.sha256(p.read_bytes()).hexdigest() for k,p in file_map.items()}
+    try:
+        docs = {k: json.loads(p.read_text(encoding='utf-8-sig')) for k,p in file_map.items()}
+    except (ValueError, UnicodeDecodeError) as err:
+        raise AssertionError('Saved JSON schema could not be read: '+repr(err)) from err
+    dates = {str(doc.get('date', '')) for doc in docs.values()}
+    assert len(dates)==1 and next(iter(dates)), 'Cross-file session date mismatch'
+    amount = docs['amount_top60'].get('amount_top60')
+    merged_amount = docs['candidate'].get('amount_top60')
+    full_amount = docs['full'].get('groups',{}).get('거래대금TOP60')
+    assert isinstance(amount, list) and isinstance(merged_amount, list), 'TOP60 group missing'
+    assert isinstance(full_amount, list), 'TOP60 full-audit group missing'
+    # Distinct file/group copies must be identical in the same snapshot.
+    mirrored = amount == merged_amount == full_amount
+    assert mirrored, 'TOP60 copies differ across same-day files'
+
+    # The integrity filter to be integrated into the intended source fix;
+    # execute only these source-fix helpers (no app imports).
+    helper_ns = {}
+    exec(compile(HELPERS, '<research_helpers>', 'exec'), helper_ns)
+    valid_item = helper_ns['_v90_guard_valid_amount_item']
+    normalize = helper_ns['_v90_guard_code']
+    flags = Counter()
+    valid = []
+    for row in amount:
+        if not isinstance(row, dict):
+            flags['NOT_OBJECT'] += 1
+            continue
+        if normalize(row.get('code')) is None or normalize(row.get('종목코드')) is None:
+            flags['INVALID_TICKER'] += 1
+        if not str(row.get('name') or row.get('종목명') or '').strip():
+            flags['MISSING_NAME'] += 1
+        if not helper_ns['_v90_guard_positive'](row.get('현재가')):
+            flags['MISSING_PRICE'] += 1
+        if not helper_ns['_v90_guard_positive'](row.get('거래대금')):
+            flags['MISSING_AMOUNT'] += 1
+        if valid_item(row):
+            valid.append(row)
+    # The saved JSON is already after the lossy conversion. Reconstructed
+    # rows are used ONLY to test fail-closed behavior, NOT to recover identity.
+    import pandas as pd
+    frame = pd.DataFrame([{
+        'code': row.get('code'),
+        'Name': row.get('name') or row.get('종목명'),
+        'Close': row.get('현재가'),
+        'Amount': row.get('거래대금'),
+    } for row in amount if isinstance(row, dict)])
+    patched_ns = {'pd': pd, '_v90_amount_top_n': lambda: 60,
+                  'coerce_numeric_columns': lambda df, cols: df,
+                  'log_error': lambda message: None}
+    def replay_converter(row, rank):
+        c = str(row.get('code') or '')
+        return {'code': c, '종목코드': c, 'rank': rank,
+                'name': row.get('Name'), '종목명': row.get('Name'),
+                '현재가': row.get('Close'), '거래대금': row.get('Amount')}
+    patched_ns['_v90_row_to_amount_item'] = replay_converter
+    sample_function = """def _v90_df_to_amount_items(df, limit=None):\n    items = []\n    try:\n        if df is None or getattr(df, 'empty', True):\n            return []\n        n = int(limit or _v90_amount_top_n())\n        work = df.copy()\n        if 'Amount' in work.columns:\n            try:\n                work = coerce_numeric_columns(work, ['Amount'])\n            except Exception:\n                work['Amount'] = pd.to_numeric(work['Amount'], errors='coerce').fillna(0)\n            work = work.sort_values('Amount', ascending=False, na_position='last')\n        work = work.head(n)\n        for i, (_, row) in enumerate(work.iterrows(), 1):\n            item = _v90_row_to_amount_item(row, rank=i)\n            if item:\n                items.append(item)\n    except Exception as e:\n        try: log_error(str(e))\n        except Exception: pass\n    return items\n"""
+    patched_fn = patch_text(sample_function)
+    exec(compile(patched_fn, '<saved_json_replay>', 'exec'), patched_ns)
+    replayed = patched_ns['_v90_df_to_amount_items'](frame)
+    assert all(valid_item(row) for row in replayed), 'Fail-closed converter emitted invalid candidate'
+    # The stock quick-candidate rows originate from separate strategy + TOP60 paths.
+    quick = docs['candidate'].get('quick_candidates') or []
+    strategy = docs['candidate'].get('strategy_candidates') or []
+    invalid_quick = sum(not normalize(x.get('code')) for x in quick if isinstance(x, dict))
+    strategy_codes = [normalize(x.get('code')) for x in strategy if isinstance(x,dict)]
+    assert all(strategy_codes), 'Strategy source contains unvalidated codes; check separately'
+    assert len(strategy_codes) == len(set(strategy_codes)), 'Strategy source has duplicate codes'
+    quick_valid_set = {normalize(x.get('code')) for x in quick if isinstance(x,dict) and normalize(x.get('code'))}
+    # Some strategy rows can be intentionally excluded from quick display (e.g., blocked).
+    strategy_codes_excluded_from_quick = len(set(strategy_codes) - quick_valid_set)
+    # Verify no saved JSON file was touched.
+    after = {k:hashlib.sha256(path.read_bytes()).hexdigest() for k,path in file_map.items()}
+    assert original_hashes==after, 'Source JSON unexpectedly changed'
+    output = {
+        'status': 'SAVED_JSON_NEGATIVE_REPLAY_ONLY_NOT_FULL_SOURCE_RECOVERY',
+        'date': next(iter(dates)),
+        'amount_top60_rows': len(amount),
+        'usable_saved_amount_rows': len(valid),
+        'invalid_saved_amount_rows': len(amount)-len(valid),
+        'invalidity_flags': dict(flags),
+        'patched_converter_accepted_rows': len(replayed),
+        'strategy_candidates_unchanged_count': len(strategy),
+        'strategy_codes_not_in_quick_display': strategy_codes_excluded_from_quick,
+        'quick_candidates_rows': len(quick),
+        'quick_candidates_invalid_codes': invalid_quick,
+        'all_three_stored_top60_copies_identical': mirrored,
+        'input_json_sha256': original_hashes,
+        'root_cause_of_missing_input_identity': 'NOT_CERTIFIED',
+        'krx_origin_and_live_recovery': 'NOT_CHECKED',
+        'original_json_files_unchanged': True,
+    }
+    print('SAVED_JSON_REPLAY_RESULT ' + json.dumps(output, ensure_ascii=False, sort_keys=True))
+    return output
 
 
 def main():
