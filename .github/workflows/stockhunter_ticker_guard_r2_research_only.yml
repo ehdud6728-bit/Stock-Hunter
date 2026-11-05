@@ -1,0 +1,35 @@
+name: 'Stock-Hunter Ticker Guard R2 (RESEARCH_ONLY)'
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  ticker-guard-readonly:
+    name: 'Research: candidate code audit - no production changes'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Self-tests
+        run: python -m unittest discover -s ticker_guard_r2 -p 'test_guard.py' -v
+      - name: Audit committed candidate files (expected to detect existing 000000)
+        run: |
+          python ticker_guard_r2/guard.py \
+            --input today_candidates.json \
+            --input amount_top60.json \
+            --input today_candidates_full.json \
+            --out reports/ticker_guard_r2 \
+            --fail-on-invalid
+      - name: Upload issues even when QA fails
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ticker-guard-r2-${{ github.run_id }}
+          path: |
+            reports/ticker_guard_r2/ticker_guard_summary.json
+            reports/ticker_guard_r2/ticker_guard_violations.csv
+          if-no-files-found: warn
+          retention-days: 30
