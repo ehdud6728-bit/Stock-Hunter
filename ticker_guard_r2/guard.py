@@ -193,6 +193,64 @@ def audit(paths, out, membership_path=None, require_membership=False):
     return result
 
 
+
+def source_trace_readonly(path=Path('main7_bugfix_2.py')):
+    """R2.1: locate TOP60 serialization code without importing/running scanner.
+
+    Static source hints are *not* proof of what runtime function produced a row.
+    No KRX downloads, no input modifications, no Telegram, no trading logic.
+    """
+    import ast
+    if not path.exists():
+        return {'status': 'SOURCE_FILE_MISSING', 'path': str(path)}
+    raw = path.read_bytes()
+    lines = raw.decode('utf-8-sig', errors='replace').splitlines()
+    markers = {
+        'TOP60': re.compile(r'amount[_-]?top[_-]?60', re.I),
+        'QUICK': re.compile(r'quick[_-]?candidates|QUICK_|AMOUNT_TOP_N', re.I),
+        'TODAY': re.compile(r'today[_-]?candidates', re.I),
+        'ZERO': re.compile(r'000000|zfill\(\s*6\s*\)', re.I),
+        'WRITER': re.compile(r'json\.dump|write_text\(|to_json\(', re.I),
+    }
+    defs = []
+    parse_status = 'PARSED'
+    try:
+        tree = ast.parse('\n'.join(lines))
+        defs = sorted(
+            ((node.lineno, getattr(node, 'end_lineno', node.lineno), node.name)
+             for node in ast.walk(tree)
+             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))),
+            key=lambda item: item[1] - item[0],
+        )
+    except SyntaxError as exc:
+        parse_status = 'SYNTAX_ERROR_LINE_' + str(exc.lineno)
+    def owner(line_no):
+        return next((name for a, b, name in defs if a <= line_no <= b), '<module>')
+    hits, counts = [], Counter()
+    for number, line in enumerate(lines, 1):
+        tags = [name for name, pattern in markers.items() if pattern.search(line)]
+        if any(name in tags for name in ('TOP60', 'QUICK', 'TODAY')):
+            fun = owner(number)
+            counts[fun] += 1
+            start = max(0, number - 5)
+            end = min(len(lines), number + 4)
+            context = [{'line': i + 1, 'text': lines[i][:300]}
+                       for i in range(start, end)]
+            hits.append({'line': number, 'function': fun, 'tags': tags,
+                         'source_context': context})
+    return {
+        'version': 'R2_1_TOP60_STATIC_TRACE',
+        'status': 'STATIC_LOCATIONS_ONLY_ROOT_CAUSE_NOT_PROVEN',
+        'source_sha256': hashlib.sha256(raw).hexdigest(),
+        'source_line_count': len(lines),
+        'parse_status': parse_status,
+        'candidate_writer_functions': counts.most_common(40),
+        'total_focus_hits': len(hits),
+        'focus_hits': hits[:140],
+        'note': 'No production execution/import. Source line contexts may suggest causes but do not prove them.'
+    }
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--input', type=Path, action='append', required=True, help='Repeat for each candidate JSON')
@@ -203,6 +261,21 @@ def main():
     args = p.parse_args()
     try:
         result = audit(args.input, args.out, args.membership, args.require_membership)
+        try:
+            forensic = source_trace_readonly()
+        except Exception as trace_exc:
+            forensic = {'status': 'TRACE_ERROR', 'exception_type': type(trace_exc).__name__}
+        result['source_trace_readonly'] = forensic
+        (args.out/'ticker_guard_summary.json').write_text(
+            json.dumps(result, ensure_ascii=False, indent=2), encoding='utf-8'
+        )
+        print('TOP60_STATIC_TRACE', json.dumps({
+            'status': forensic.get('status'),
+            'source_sha256': forensic.get('source_sha256'),
+            'source_line_count': forensic.get('source_line_count'),
+            'candidate_writer_functions': forensic.get('candidate_writer_functions', [])[:15],
+        }, ensure_ascii=False))
+
     except Exception as err:
         print(f'TICKER_GUARD_INPUT_ERROR: {type(err).__name__}: {err}', file=sys.stderr)
         return 2
