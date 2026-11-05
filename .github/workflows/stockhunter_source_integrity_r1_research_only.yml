@@ -1,0 +1,61 @@
+# RESEARCH_ONLY: independent, offline candidate JSON QA; NO LIVE code imports.
+# Manual trigger only. No price fetch, no Telegram, no orders, no secrets.
+name: "Stock-Hunter Source Integrity R1 (RESEARCH_ONLY)"
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-integrity-r1:
+    name: "Offline candidate snapshot QA (KRX parity NOT verified)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout selected ref
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run independent self-test
+        run: python source_integrity_r1/stockhunter_source_integrity_audit_r1.py --self-test
+
+      - name: Audit committed today_candidates.json (unknown quote basis)
+        run: |
+          test -f today_candidates.json || { echo '::error::today_candidates.json not present'; exit 1; }
+          python source_integrity_r1/stockhunter_source_integrity_audit_r1.py \
+            --candidate-json today_candidates.json \
+            --snapshot-kind UNKNOWN \
+            --price-basis UNKNOWN \
+            --out-dir reports/source_integrity_r1
+
+      - name: Display audit summary and fail the isolated QA if invalid data exist
+        run: |
+          python - <<'PYCODE'
+          import json, pathlib, sys
+          p=pathlib.Path('reports/source_integrity_r1/audit_summary.json')
+          s=json.loads(p.read_text(encoding='utf-8'))
+          print('RESEARCH_ONLY_INPUT_AUDIT')
+          print(json.dumps({k:s[k] for k in ('signal_date','candidate_rows','invalid_rows','findings','krx_comparisons')},ensure_ascii=False,indent=2))
+          print('KRX_PARITY_NOT_VERIFIED: no certified KRX reference file supplied.')
+          if s.get('invalid_rows',0):
+              print('::error::Candidate source-integrity findings detected; see uploaded CSV/JSON artifact. LIVE not touched.')
+              sys.exit(1)
+          print('CANDIDATE_INPUT_QA_PASS_NOT_KRX_PARITY')
+          PYCODE
+
+      - name: Upload independent audit artifacts (including on findings)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: source-integrity-r1-${{ github.run_id }}
+          path: |
+            reports/source_integrity_r1/audit_summary.json
+            reports/source_integrity_r1/candidate_integrity.csv
+          if-no-files-found: warn
+          retention-days: 30
