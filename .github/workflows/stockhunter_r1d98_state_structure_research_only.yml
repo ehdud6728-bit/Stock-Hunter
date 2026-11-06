@@ -32,6 +32,7 @@ on:
           - r1d116
           - r1d117
           - r1d118
+          - blue20_rsi_delay
           - all
       r118_mode:
         description: 'R118: auto=200 stocks, auto500=500 stocks+10 audited charts; smoke=sample, manifest=manual'
@@ -87,7 +88,7 @@ permissions:
 jobs:
   trendline-research-only:
     # auto500 uses a separate 5-runner matrix below; do not double-compute.
-    if: ${{ inputs.study != 'r1d118' || inputs.r118_mode != 'auto500' }}
+    if: ${{ inputs.study != 'blue20_rsi_delay' && (inputs.study != 'r1d118' || inputs.r118_mode != 'auto500') }}
     runs-on: ubuntu-latest
     timeout-minutes: 150
     steps:
@@ -904,5 +905,57 @@ jobs:
           path: |
             research_projects/r1d118/results_parallel500/
             research_projects/r1d118/R118_PARALLEL500_MERGE.log
+          if-no-files-found: warn
+          retention-days: 30
+
+  # BLUE20 RSI timing research, isolated from R118 and ALL historical jobs.
+  blue20-rsi-delay-research-only:
+    if: ${{ inputs.study == 'blue20_rsi_delay' }}
+    name: BLUE20 three-way breakout and RSI D0-D10 delay (RESEARCH_ONLY)
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout existing research sources only
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install research-only historical source decoder
+        run: python -m pip install 'numpy>=1.26,<3' 'pandas>=2,<4' 'pyarrow>=15,<25'
+
+      - name: Preflight pinned R118 source and independent RSI scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f research_projects/r1d118/auto_data.py
+          test -f research_projects/blue20_rsi_delay_research/blue20_threeway_audit.py
+          test -f research_projects/blue20_rsi_delay_research/blue20_rsi_delay.py
+          test -f research_projects/blue20_rsi_delay_research/auto500_research.py
+          python -m unittest discover -s research_projects/blue20_rsi_delay_research/tests -v
+
+      - name: Run 2022-asof 500-stock RSI D0-D10 study from R118 pinned sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -u research_projects/blue20_rsi_delay_research/auto500_research.py \
+            --out research_projects/blue20_rsi_delay_research/results_auto500 \
+            | tee research_projects/blue20_rsi_delay_research/BLUE20_RSI_RUN.log
+
+      - name: Upload full RSI delay, integrity, and fail-closed audit results
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: BLUE20_RSI_GC_D0_D10_500_RESEARCH_ONLY
+          path: |
+            research_projects/blue20_rsi_delay_research/results_auto500/
+            research_projects/blue20_rsi_delay_research/BLUE20_RSI_RUN.log
+            research_projects/blue20_rsi_delay_research/README_KO.md
           if-no-files-found: warn
           retention-days: 30
