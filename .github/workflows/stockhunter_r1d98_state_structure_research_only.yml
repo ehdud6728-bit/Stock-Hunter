@@ -34,6 +34,7 @@ on:
           - r1d118
           - blue20_rsi_delay
           - blue20_multifactor
+          - blue20_ma_structure
           - all
       r118_mode:
         description: 'R118: auto=200 stocks, auto500=500 stocks+10 audited charts; smoke=sample, manifest=manual'
@@ -1015,6 +1016,75 @@ jobs:
             research_projects/blue20_multifactor_research/results_auto500/
             research_projects/blue20_multifactor_research/MULTIFACTOR_RUN.log
             research_projects/blue20_multifactor_research/README_KO.md
+          if-no-files-found: warn
+          retention-days: 30
+          compression-level: 6
+
+  # Research-only MA60/112/224 alignment and actual OHLCV annotated charts.
+  # Uses R118 pinned historical source and existing unchanged multi-factor code.
+  # Neither LIVE/SEARCH/WATCH nor R118 or prior RSI jobs are modified.
+  blue20-ma-structure-research-only:
+    if: ${{ inputs.study == 'blue20_ma_structure' }}
+    name: BLUE20 MA & post-entry turnover / candle paths (RESEARCH_ONLY)
+    runs-on: ubuntu-latest
+    timeout-minutes: 170
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout unchanged repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install pinned data reader and real chart renderer
+        run: python -m pip install 'numpy>=1.26,<3' 'pandas>=2,<4' 'pyarrow>=15,<25' 'matplotlib>=3.8,<4'
+
+      - name: Validate existing pinned data provenance, new source, and unit tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f research_projects/r1d118/auto_data.py
+          test -f research_projects/blue20_rsi_delay_research/blue20_rsi_delay.py
+          test -f research_projects/blue20_multifactor_research/multifactor.py
+          test -f research_projects/blue20_multifactor_research/run_auto500.py
+          test -f research_projects/blue20_ma_structure_research/analyze_ma.py
+          test -f research_projects/blue20_ma_structure_research/post_entry_flow.py
+          python -m unittest discover -s research_projects/blue20_ma_structure_research/tests -v
+
+      - name: Recompute original verified BLUE20/RSI historical events (no production changes)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -u research_projects/blue20_multifactor_research/run_auto500.py \
+            --out research_projects/blue20_ma_structure_research/.recomputed_base \
+            --stoch 14,3,3 \
+            | tee research_projects/blue20_ma_structure_research/BASELINE_REPLAY.log
+
+      - name: Analyze MA alignment, entry-to-D20 EOD turnover and candle paths, and real charts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -u research_projects/blue20_ma_structure_research/analyze_ma.py \
+            --events research_projects/blue20_ma_structure_research/.recomputed_base/stoch_14_3_3/12_all_events_with_PIT_features.csv.gz \
+            --manifest research_projects/blue20_multifactor_research/.auto500_work/r118_inputs/manifest.csv \
+            --out research_projects/blue20_ma_structure_research/results \
+            | tee research_projects/blue20_ma_structure_research/MA_CHART_RUN.log
+
+      - name: Upload MA, post-entry candle-flow paths, stop-policy audit, and verified charts
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: BLUE20_MA60_112_224_REAL_CHART_CASES_RESEARCH_ONLY
+          path: |
+            research_projects/blue20_ma_structure_research/results/
+            research_projects/blue20_ma_structure_research/BASELINE_REPLAY.log
+            research_projects/blue20_ma_structure_research/MA_CHART_RUN.log
+            research_projects/blue20_ma_structure_research/README_KO.md
           if-no-files-found: warn
           retention-days: 30
           compression-level: 6
