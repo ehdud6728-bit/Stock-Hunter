@@ -1,0 +1,5 @@
+﻿band,day_signal_density,n,stocks,max_high_gross_mean_pct,tp_pct,sl_pct,realized_mean_net_pct
+LOWER,1_TO_20,216,171,10.2048,26.852,56.019,-0.3357
+LOWER,21_PLUS,388,259,9.6001,26.289,53.093,-0.1363
+UPPER,1_TO_20,210,167,11.5466,30.0,50.476,0.4965
+UPPER,21_PLUS,285,211,10.4052,28.07,54.386,0.1027
