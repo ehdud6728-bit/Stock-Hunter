@@ -36,6 +36,7 @@ on:
           - blue20_multifactor
           - blue20_ma_structure
           - blue20_candle_exhaustion
+          - blue20_profile_cloud_avwap
           - all
       r118_mode:
         description: 'R118: auto=200 stocks, auto500=500 stocks+10 audited charts; smoke=sample, manifest=manual'
@@ -91,7 +92,7 @@ permissions:
 jobs:
   trendline-research-only:
     # auto500 uses a separate 5-runner matrix below; do not double-compute.
-    if: ${{ inputs.study != 'blue20_rsi_delay' && inputs.study != 'blue20_multifactor' && inputs.study != 'blue20_ma_structure' && inputs.study != 'blue20_candle_exhaustion' && (inputs.study != 'r1d118' || inputs.r118_mode != 'auto500') }}
+    if: ${{ inputs.study != 'blue20_rsi_delay' && inputs.study != 'blue20_multifactor' && inputs.study != 'blue20_ma_structure' && inputs.study != 'blue20_candle_exhaustion' && inputs.study != 'blue20_profile_cloud_avwap' && (inputs.study != 'r1d118' || inputs.r118_mode != 'auto500') }}
     runs-on: ubuntu-latest
     timeout-minutes: 150
     steps:
@@ -1157,3 +1158,49 @@ jobs:
           retention-days: 30
           compression-level: 6
 
+  blue20-profile-cloud-avwap-research-only:
+    if: ${{ inputs.study == 'blue20_profile_cloud_avwap' }}
+    name: BLUE20 Volume Profile, Ichimoku cloud and AVWAP (RESEARCH_ONLY)
+    runs-on: ubuntu-latest
+    timeout-minutes: 170
+    permissions:
+      contents: read
+    env:
+      STUDY_DIR: research_projects/blue20_profile_cloud_avwap_research
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install historical research dependencies
+        run: python -m pip install 'numpy>=1.26,<3' 'pandas>=2,<4' 'pyarrow>=15,<25'
+      - name: Verify profile and execution-time invariants
+        run: python -m unittest discover -s "$STUDY_DIR" -p 'test_*.py' -v
+      - name: Recompute the original frozen cohort and RSI events
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$STUDY_DIR/results"
+          python -u research_projects/blue20_multifactor_research/run_auto500.py \
+            --out "$STUDY_DIR/.recomputed_base" --stoch 14,3,3 \
+            | tee "$STUDY_DIR/results/BASELINE_REPLAY.log"
+      - name: Analyze event-day structure and causal D1 support policies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -u "$STUDY_DIR/study.py" \
+            --events "$STUDY_DIR/.recomputed_base/stoch_14_3_3/12_all_events_with_PIT_features.csv.gz" \
+            --manifest research_projects/blue20_multifactor_research/.auto500_work/r118_inputs/manifest.csv \
+            --out "$STUDY_DIR/results" | tee "$STUDY_DIR/results/INTEGRATED_RUN.log"
+      - name: Upload independent research and chart evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: BLUE20_PROFILE_CLOUD_AVWAP_RESEARCH_ONLY
+          path: |
+            research_projects/blue20_profile_cloud_avwap_research/results/
+            research_projects/blue20_profile_cloud_avwap_research/PROTOCOL_KO.md
+          if-no-files-found: warn
+          retention-days: 30
