@@ -33,6 +33,7 @@ on:
           - r1d117
           - r1d118
           - blue20_rsi_delay
+          - blue20_multifactor
           - all
       r118_mode:
         description: 'R118: auto=200 stocks, auto500=500 stocks+10 audited charts; smoke=sample, manifest=manual'
@@ -88,7 +89,7 @@ permissions:
 jobs:
   trendline-research-only:
     # auto500 uses a separate 5-runner matrix below; do not double-compute.
-    if: ${{ inputs.study != 'blue20_rsi_delay' && (inputs.study != 'r1d118' || inputs.r118_mode != 'auto500') }}
+    if: ${{ inputs.study != 'blue20_rsi_delay' && inputs.study != 'blue20_multifactor' && (inputs.study != 'r1d118' || inputs.r118_mode != 'auto500') }}
     runs-on: ubuntu-latest
     timeout-minutes: 150
     steps:
@@ -959,3 +960,61 @@ jobs:
             research_projects/blue20_rsi_delay_research/README_KO.md
           if-no-files-found: warn
           retention-days: 30
+
+  # Research-only six-way study. Reuses unchanged R118 pinned 2022-asof
+  # 500-stock sources and the unmodified BLUE20 RSI research algorithm.
+  # r118_mode is deliberately IGNORED for this independent study.
+  blue20-multifactor-research-only:
+    if: ${{ inputs.study == 'blue20_multifactor' }}
+    name: BLUE20 Market x Sector x Turnover x Wave x RSI x Slow (RESEARCH_ONLY)
+    runs-on: ubuntu-latest
+    timeout-minutes: 170
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout existing repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install research-only pinned historical-source reader
+        run: python -m pip install 'numpy>=1.26,<3' 'pandas>=2,<4' 'pyarrow>=15,<25'
+
+      - name: Fail closed on missing immutable research sources, then run tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f research_projects/r1d118/auto_data.py
+          test -f research_projects/blue20_rsi_delay_research/blue20_rsi_delay.py
+          test -f research_projects/blue20_rsi_delay_research/blue20_threeway_audit.py
+          test -f research_projects/blue20_rsi_delay_research/auto500_research.py
+          test -f research_projects/blue20_multifactor_research/multifactor.py
+          test -f research_projects/blue20_multifactor_research/run_auto500.py
+          python -m unittest discover -s research_projects/blue20_multifactor_research/tests -v
+
+      - name: Recompute original RSI reference then six-factor and all three Slow presets
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -u research_projects/blue20_multifactor_research/run_auto500.py \
+            --out research_projects/blue20_multifactor_research/results_auto500 \
+            --stoch all \
+            | tee research_projects/blue20_multifactor_research/MULTIFACTOR_RUN.log
+
+      - name: Upload research results and fail-closed status (even on failure)
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: BLUE20_MULTIFACTOR_500_RSI_SLOW_RESEARCH_ONLY
+          path: |
+            research_projects/blue20_multifactor_research/results_auto500/
+            research_projects/blue20_multifactor_research/MULTIFACTOR_RUN.log
+            research_projects/blue20_multifactor_research/README_KO.md
+          if-no-files-found: warn
+          retention-days: 30
+          compression-level: 6
