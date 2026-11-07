@@ -1,0 +1,5366 @@
+{
+  "head": "5766325f042924b0c254e00354e7661d5d8d16dc",
+  "truncated": false,
+  "files": [
+    {
+      "path": ".github/workflows/EARLY_POWER_R6_2_1_OOS.yml",
+      "git_blob_sha1": "c8a367abbe815680f49737a50baa371cb75d5323",
+      "size": 9048
+    },
+    {
+      "path": ".github/workflows/EARLY_POWER_R8_OOS_MONITOR.yml",
+      "git_blob_sha1": "7d9340cc80d93564b093388cb51a7a38d79be336",
+      "size": 3725
+    },
+    {
+      "path": ".github/workflows/R1D12_PREDECLARED_PROTOCOL.json",
+      "git_blob_sha1": "882311d16b9b18397ea0fd706a316d967faec5c2",
+      "size": 1589
+    },
+    {
+      "path": ".github/workflows/R1D19_PREDECLARED_PROTOCOL.json",
+      "git_blob_sha1": "bb5f7d5702cfb2fe9f492df920af2c5daa18176a",
+      "size": 2906
+    },
+    {
+      "path": ".github/workflows/README_v1107_4_5_57_CLEAN_TELEGRAM_FOOTER.md",
+      "git_blob_sha1": "139d7a95fe446d64e92a23ec4fa98b0d08a277f3",
+      "size": 1407
+    },
+    {
+      "path": ".github/workflows/REAL_FULL_RELIABLE_TRIGGER.yml",
+      "git_blob_sha1": "3f62672f10ceaf2933246dd392b6af2b15e1f083",
+      "size": 8170
+    },
+    {
+      "path": ".github/workflows/TRIANGLE1PB_CURRENT_DATA_BRIDGE.yml",
+      "git_blob_sha1": "041438ab909878f7711473c9fd25ae6b432d3ce7",
+      "size": 9288
+    },
+    {
+      "path": ".github/workflows/V23_COHORT_SHARD_REUSABLE_R1.yml",
+      "git_blob_sha1": "812047afa64945c72ff8ba5b54885d53859c949a",
+      "size": 13541
+    },
+    {
+      "path": ".github/workflows/closing_bet_live_shadow_board_r175.yml",
+      "git_blob_sha1": "ec2ea4ee8e35199fff706029c29873eb157a0343",
+      "size": 6637
+    },
+    {
+      "path": ".github/workflows/closing_bet_live_shadow_board_r179.py",
+      "git_blob_sha1": "30dc3c54b2c1b6279fcf2d09f249f7f3cb8c7eab",
+      "size": 16669
+    },
+    {
+      "path": ".github/workflows/closing_bet_r1250_prospective_capture.yml",
+      "git_blob_sha1": "8b262e03b3223aeafa0bf32ead460c514658468e",
+      "size": 4107
+    },
+    {
+      "path": ".github/workflows/closing_bet_r1251_capture_integrity_audit.yml",
+      "git_blob_sha1": "006000fa80b333bf869437bfe2afdfbdea5ec9a1",
+      "size": 5059
+    },
+    {
+      "path": ".github/workflows/historical_asof_universe.py",
+      "git_blob_sha1": "cab27b84a82a7caa1558a810a8dca93241c0a7c4",
+      "size": 51231
+    },
+    {
+      "path": ".github/workflows/index.html",
+      "git_blob_sha1": "0df1f8a38717e4c63bfec5d4eac79b0488fc782f",
+      "size": 47515
+    },
+    {
+      "path": ".github/workflows/low224_accum_wave1_pb_r1.yml",
+      "git_blob_sha1": "c1782cae281cf7345f9de2b054c87d853eadbf26",
+      "size": 17747
+    },
+    {
+      "path": ".github/workflows/module_contract_preflight.py",
+      "git_blob_sha1": "635fbd8dbf2eed960dd957c131ea4f648b7c8883",
+      "size": 12511
+    },
+    {
+      "path": ".github/workflows/odoli_independent_daily_r1.yml",
+      "git_blob_sha1": "cba76676162c3dd6570123aa5ce9bfec6adf4e9b",
+      "size": 15916
+    },
+    {
+      "path": ".github/workflows/original_thesis_reconstruction.py",
+      "git_blob_sha1": "53e1c4e0a109224407d2407acc42e949a1d6d519",
+      "size": 85685
+    },
+    {
+      "path": ".github/workflows/quick_open_checker.yml",
+      "git_blob_sha1": "e6dfcc2e3401ad95931de3332994b2be32f5ecda",
+      "size": 2392
+    },
+    {
+      "path": ".github/workflows/real_full_r143_path_integrity.yml",
+      "git_blob_sha1": "db690b0dc769da75f2c021a3007f52bc052991cb",
+      "size": 3349
+    },
+    {
+      "path": ".github/workflows/real_full_r1c1_oos_r14.yml",
+      "git_blob_sha1": "15baef79cf8a9c35f0da286f73dfc86a2632eaad",
+      "size": 13361
+    },
+    {
+      "path": ".github/workflows/run_scanner.yml",
+      "git_blob_sha1": "4ef61fb275571d5b333837c6fe929b1314f608a0",
+      "size": 231625
+    },
+    {
+      "path": ".github/workflows/static.yml",
+      "git_blob_sha1": "f2c9e97c91d0ca32002d6eba53cf1981031047bb",
+      "size": 1250
+    },
+    {
+      "path": ".github/workflows/stockhunter_daily_candidates.yml",
+      "git_blob_sha1": "95d5067e11b9a8591346fc30fd13c54809753e28",
+      "size": 3026
+    },
+    {
+      "path": ".github/workflows/stockhunter_full_market_pit_backfill.yml",
+      "git_blob_sha1": "39615223b9daa9ff3281943420771f463640f6bd",
+      "size": 7051
+    },
+    {
+      "path": ".github/workflows/stockhunter_pit_stage2_master_audit.yml",
+      "git_blob_sha1": "66672f5ab4d6b3f7a84ff4f6a5ab10d511561137",
+      "size": 3654
+    },
+    {
+      "path": ".github/workflows/stockhunter_pit_stage3_krx_events.yml",
+      "git_blob_sha1": "f46d0d2c8aa7bcfc1393bdc4d1bc838c8fa6ff5a",
+      "size": 53437
+    },
+    {
+      "path": ".github/workflows/stockhunter_pit_stage7i_missing_notice.yml",
+      "git_blob_sha1": "560b8ec6b041bace2a656d73452ffb6576e98e57",
+      "size": 6280
+    },
+    {
+      "path": ".github/workflows/stockhunter_pit_stage7j_recovery.yml",
+      "git_blob_sha1": "d4c3cbcbf9e1b4be58249e22a84fe1adf5697a45",
+      "size": 10991
+    },
+    {
+      "path": ".github/workflows/stockhunter_pit_stage7j_selected_notice_fullbody.yml",
+      "git_blob_sha1": "cfdc6b197c5c1b80e018ed579a80da3118598426",
+      "size": 10189
+    },
+    {
+      "path": ".github/workflows/stockhunter_r1d16_realfull_odoli_parallel.yml",
+      "git_blob_sha1": "643521ad8a244a93eda16c54cf3541868cd85243",
+      "size": 9877
+    },
+    {
+      "path": ".github/workflows/stockhunter_r1d17_frozen_green_integrated.yml",
+      "git_blob_sha1": "95863da5abc9c621f06fa5bd0c4f791a749f02b9",
+      "size": 10015
+    },
+    {
+      "path": ".github/workflows/stockhunter_r1d19_bb203040_reclaim_research_only_FIXED_20261025.yml",
+      "git_blob_sha1": "7812056104e1895aff6bf9218342f1e1db012675",
+      "size": 192843
+    },
+    {
+      "path": ".github/workflows/stockhunter_r1d27c_auto_checkpoint_research_only.yml",
+      "git_blob_sha1": "be1be3d4b94114ed116ce1814158f7d5ceada804",
+      "size": 37293
+    },
+    {
+      "path": ".github/workflows/stockhunter_r1d27r_fullmarket_asof_flow_research_only.yml",
+      "git_blob_sha1": "513bb460de43bafcd58eafb10555ce892087a394",
+      "size": 6013
+    },
+    {
+      "path": ".github/workflows/stockhunter_r1d3_strong_winners_external_context.yml",
+      "git_blob_sha1": "0a51f5c48fe14e342f98d2855389f98143709009",
+      "size": 103332
+    },
+    {
+      "path": ".github/workflows/stockhunter_r1d40_krx_login_futures_canary_research_only.yml",
+      "git_blob_sha1": "e0e68b2416acbad3fb913506a25f28b4a146a916",
+      "size": 1842
+    },
+    {
+      "path": ".github/workflows/stockhunter_r1d40_krx_login_futures_quarter_research_only.yml",
+      "git_blob_sha1": "4a0fea1c9f11f44b4ac7ce88e2452dd0bf3b71ea",
+      "size": 2325
+    },
+    {
+      "path": ".github/workflows/stockhunter_r1d44_sector_mcap_quarter_research_only.yml",
+      "git_blob_sha1": "cd805a49e1fd61b9ce1d1226bf799511e7d10e50",
+      "size": 2921
+    },
+    {
+      "path": ".github/workflows/stockhunter_r1d67_fullmarket_price_geometry_research_only.yml",
+      "git_blob_sha1": "be3c0f68fbf5d1aca611c6e2b50b48be0825e128",
+      "size": 3234
+    },
+    {
+      "path": ".github/workflows/stockhunter_r1d96_auto_sr_two_real_stock_research_only.yml",
+      "git_blob_sha1": "07f2bcd5e817e4a46bee496bc8329be09e6154af",
+      "size": 1508
+    },
+    {
+      "path": ".github/workflows/stockhunter_r1d97_3newstocks_integrated_review_research_only.yml",
+      "git_blob_sha1": "d846b94af8f17a5c4431db285b260e53977610c2",
+      "size": 1930
+    },
+    {
+      "path": ".github/workflows/stockhunter_r1d98_state_structure_research_only.yml",
+      "git_blob_sha1": "c05f9b8bd9c26037b8d2e8c3dea17bf4a5b32ba5",
+      "size": 82075
+    },
+    {
+      "path": ".github/workflows/stockhunter_source_integrity_r1_research_only.yml",
+      "git_blob_sha1": "3025eb9668e673fe3fc488a264b601672faa3349",
+      "size": 2454
+    },
+    {
+      "path": ".github/workflows/stockhunter_ticker_guard_r2_research_only.yml",
+      "git_blob_sha1": "e7ee74b230c08204cb59d32d66b7f01717a78301",
+      "size": 2312
+    },
+    {
+      "path": ".github/workflows/surge_scan.yml",
+      "git_blob_sha1": "cf2a76773d427d072ab41ad0ad371f2282a1f4d5",
+      "size": 1918
+    },
+    {
+      "path": ".github/workflows/triangle1pb_1610_kst_auto_dispatch.yml",
+      "git_blob_sha1": "d409bf53fc6173398411dc7ae253639cdb2466ef",
+      "size": 2860
+    },
+    {
+      "path": ".github/workflows/triangle1pb_r1151_dedicated.yml",
+      "git_blob_sha1": "b0eaa7ce05dc11e4395dd939ea36e8d2b83fd7ba",
+      "size": 61939
+    },
+    {
+      "path": ".github/workflows/v49.76.yml",
+      "git_blob_sha1": "81a796c7e86e61458d4e4bfdec3f4c7252a4c562",
+      "size": 99204
+    },
+    {
+      "path": "Closing_bet_backtest.py",
+      "git_blob_sha1": "445bd8a30ebd1f72aa251102f340d3b3a7ca866d",
+      "size": 94567
+    },
+    {
+      "path": "Closing_bet_scanner.py",
+      "git_blob_sha1": "778f7f3751e3dd0d6a96982eb4e9a694596a45e6",
+      "size": 41798
+    },
+    {
+      "path": "Closing_bet_scanner_v2.py",
+      "git_blob_sha1": "e0f2077d4b90d7447c617a89b61de941cf5fc0c6",
+      "size": 3460415
+    },
+    {
+      "path": "Closing_bet_scanner_v2_back.py",
+      "git_blob_sha1": "6c49ee8d27772b54a426fb17b95fa3dc22cbe98c",
+      "size": 117337
+    },
+    {
+      "path": "DNA_Analyzer.py",
+      "git_blob_sha1": "3fdf61601a847d296531d14c86a3d46a947e3ba7",
+      "size": 8158
+    },
+    {
+      "path": "LOCAL_VERIFICATION.json",
+      "git_blob_sha1": "e61e77a79442f4b50a45fd82aff3fe1dfac5911b",
+      "size": 190
+    },
+    {
+      "path": "LOW224_ACCUM_WAVE1_PB_RESEARCH.md",
+      "git_blob_sha1": "0b01125839695c1fae11c59c0179a6fabe4b1113",
+      "size": 16247
+    },
+    {
+      "path": "MARCAP_AUTHORITY_DIAGNOSIS.md",
+      "git_blob_sha1": "548c5e043b7ec1b6fafa13c4924666aa927ee17a",
+      "size": 1487
+    },
+    {
+      "path": "PATCH_FILES_SHA256.json",
+      "git_blob_sha1": "d6ca273b7afce32f8170b122b6dc28b52dd8a901",
+      "size": 1173
+    },
+    {
+      "path": "R1D10_PREDECLARED_PROTOCOL.json",
+      "git_blob_sha1": "2dcf87c1561e5e4fb64d401ca03acac15e45d9c4",
+      "size": 1757
+    },
+    {
+      "path": "R1D11_PREDECLARED_PROTOCOL.json",
+      "git_blob_sha1": "406115a51aafeb01955b064721bfaae99be858d1",
+      "size": 1279
+    },
+    {
+      "path": "R1D12_PREDECLARED_PROTOCOL.json",
+      "git_blob_sha1": "882311d16b9b18397ea0fd706a316d967faec5c2",
+      "size": 1589
+    },
+    {
+      "path": "R1D13_PREDECLARED_PROTOCOL.json",
+      "git_blob_sha1": "d49ba42dbbe5d80cf1d715471995183b20b69df3",
+      "size": 2375
+    },
+    {
+      "path": "R1D14_PREDECLARED_PROTOCOL.json",
+      "git_blob_sha1": "abbe0495e02bfe309e7bb4dc432119762c38c494",
+      "size": 1062
+    },
+    {
+      "path": "R1D15_PREDECLARED_PROTOCOL.json",
+      "git_blob_sha1": "c2b4c0308a972ccdb4ad5c2e9fc146d49f401c09",
+      "size": 1967
+    },
+    {
+      "path": "R1D16_PREDECLARED_PROTOCOL.json",
+      "git_blob_sha1": "f3f1f9aee0cd44bcc3caa561be33a9e640d4c707",
+      "size": 1822
+    },
+    {
+      "path": "R1D17_PREDECLARED_PROTOCOL.json",
+      "git_blob_sha1": "a42da71760100a765e72bde3390f24515d0c60dd",
+      "size": 6610
+    },
+    {
+      "path": "R1D18_PACKAGE_MANIFEST.json",
+      "git_blob_sha1": "7d447174c8ededd642a5f6324701c1059d09775a",
+      "size": 1751
+    },
+    {
+      "path": "R1D18_PREDECLARED_PROTOCOL.json",
+      "git_blob_sha1": "38e74fd2c868e1514c000e31833f7462ef26a6d1",
+      "size": 2439
+    },
+    {
+      "path": "R1D19_PREDECLARED_PROTOCOL.json",
+      "git_blob_sha1": "bb5f7d5702cfb2fe9f492df920af2c5daa18176a",
+      "size": 2906
+    },
+    {
+      "path": "R1D20_PREDECLARED_PROTOCOL.json",
+      "git_blob_sha1": "07f61b9de9b0a42a309795e86eb866dbb5f8068d",
+      "size": 5178
+    },
+    {
+      "path": "R1D22_PREDECLARED_PROTOCOL.json",
+      "git_blob_sha1": "0e608e94a702ef3e8f24816e932e6bff401c7046",
+      "size": 5152
+    },
+    {
+      "path": "R1D23_PREDECLARED_PROTOCOL.json",
+      "git_blob_sha1": "40a3312783ea26e9499cabc6baa51a3afd40a8f1",
+      "size": 2153
+    },
+    {
+      "path": "R1D24_PREDECLARED_PROTOCOL.json",
+      "git_blob_sha1": "874ef3d15ad47a5618b1d6c568d53903f8e657e5",
+      "size": 3237
+    },
+    {
+      "path": "R1D25_PREDECLARED_PROTOCOL.json",
+      "git_blob_sha1": "6d6db21986639455fc7e75ad9803970dda0de173",
+      "size": 1727
+    },
+    {
+      "path": "R1D26B_KRX_SECRETS_STATIC_QA.json",
+      "git_blob_sha1": "53b2475086c9a17507f835e0d6d191c7391660b2",
+      "size": 509
+    },
+    {
+      "path": "R1D26B_QA_MANIFEST.json",
+      "git_blob_sha1": "8ff534f56526324d86133b175d7757fd1f6a62cf",
+      "size": 1165
+    },
+    {
+      "path": "R1D26C_LOCAL_QA_MANIFEST.json",
+      "git_blob_sha1": "551693b1f472d2356845a729a63e9b3be29da185",
+      "size": 1439
+    },
+    {
+      "path": "R1D26C_PREDECLARED_PROTOCOL.json",
+      "git_blob_sha1": "6337a59e717676d4a51a56da07094d501957e436",
+      "size": 1212
+    },
+    {
+      "path": "R1D26D_PREDECLARED_PROTOCOL.json",
+      "git_blob_sha1": "a1ae6923e9d231e54268dd354940bed16d050c27",
+      "size": 1881
+    },
+    {
+      "path": "R1D26E_PREDECLARED_PROTOCOL.json",
+      "git_blob_sha1": "565ecb506c925a81f95c1098ca5460f36d75a2fc",
+      "size": 1663
+    },
+    {
+      "path": "R1D26F_PREDECLARED_PROTOCOL.json",
+      "git_blob_sha1": "9d87d1d17a1e9475cba7c37372b37394197a30d8",
+      "size": 1298
+    },
+    {
+      "path": "R1D26G_PREDECLARED_PROTOCOL.json",
+      "git_blob_sha1": "50256481318c7fbc04d87842249608c7d9eca4f0",
+      "size": 2314
+    },
+    {
+      "path": "R1D26H_PREDECLARED_PROTOCOL.json",
+      "git_blob_sha1": "3a174b68a4d9392442a19a8caeaf27f33466fbfb",
+      "size": 2424
+    },
+    {
+      "path": "R1D26I_PREDECLARED_PROTOCOL.json",
+      "git_blob_sha1": "db75746b8100ae4ce31d362fff9df741f79ad974",
+      "size": 1335
+    },
+    {
+      "path": "R1D26K_PREDECLARED_PROTOCOL.json",
+      "git_blob_sha1": "2c5aec55c6bc4374fc683d2a8b4049ebc01e2875",
+      "size": 884
+    },
+    {
+      "path": "R1D26L_PREDECLARED_PROTOCOL.json",
+      "git_blob_sha1": "099b116e58a1d4d507fa27d8936cf8a5ff27a509",
+      "size": 9056
+    },
+    {
+      "path": "R1D26M_PREDECLARED_PROTOCOL.json",
+      "git_blob_sha1": "4367def94a08bdda235351f3a854235ddcf46139",
+      "size": 1628
+    },
+    {
+      "path": "R1D26N_PREDECLARED_PROTOCOL.json",
+      "git_blob_sha1": "fa49def004c19fe97a188b7666f81b63c509799b",
+      "size": 1816
+    },
+    {
+      "path": "R1D26O_PREDECLARED_PROTOCOL.json",
+      "git_blob_sha1": "29a12085fd3da206acd2d12e3ad45a7af49fe252",
+      "size": 2223
+    },
+    {
+      "path": "R1D26P_PREDECLARED_PROTOCOL.json",
+      "git_blob_sha1": "07f35feed585f66955e1eb4dfa520aad409f11c0",
+      "size": 2445
+    },
+    {
+      "path": "R1D26Q_PATCH_FILES_SHA256.json",
+      "git_blob_sha1": "0476e83bff9c64c333013de298839c91052dfa1e",
+      "size": 1404
+    },
+    {
+      "path": "R1D26Q_PREDECLARED_PROTOCOL.json",
+      "git_blob_sha1": "734a49f4a35e8f2447d00506f10ced60afbd6be9",
+      "size": 2388
+    },
+    {
+      "path": "R1D26R_PATCH_FILES_SHA256.json",
+      "git_blob_sha1": "71305fac9b06db03623b9adab6d7108652b19188",
+      "size": 1236
+    },
+    {
+      "path": "R1D26R_PREDECLARED_PROTOCOL.json",
+      "git_blob_sha1": "4d4b54e637bb8d82417ca02eabea65d9b09b646d",
+      "size": 2286
+    },
+    {
+      "path": "R1D26U_PREDECLARED_PROTOCOL.json",
+      "git_blob_sha1": "50c2bd194e0cb5d3d1b74e35f997d07125142c6a",
+      "size": 2915
+    },
+    {
+      "path": "R1D26V_PREDECLARED_PROTOCOL.json",
+      "git_blob_sha1": "0071f558ff74c6a0cfc0a010961d7fd5194bf816",
+      "size": 3406
+    },
+    {
+      "path": "R1D26_PREDECLARED_PROTOCOL.json",
+      "git_blob_sha1": "0eea1f44a0b8b5aedfcf568c3d074c172204e821",
+      "size": 1340
+    },
+    {
+      "path": "R1D27A_PREDECLARED_PROTOCOL.json",
+      "git_blob_sha1": "62106f323b3e0be56fc3e09d796659337c2c2bb4",
+      "size": 2123
+    },
+    {
+      "path": "R1D27B_PREDECLARED_PROTOCOL.json",
+      "git_blob_sha1": "91b7f0e65c0cd543acf40ce1395ab9736cb3e314",
+      "size": 1271
+    },
+    {
+      "path": "R1D27C_PREDECLARED_PROTOCOL.json",
+      "git_blob_sha1": "e2c9cbf5442911c14ccaa1f717f595678928447e",
+      "size": 1955
+    },
+    {
+      "path": "R1D27D_PREDECLARED_PROTOCOL.json",
+      "git_blob_sha1": "dc9b8859d8ff4105c74997d794d4f02017964287",
+      "size": 2343
+    },
+    {
+      "path": "R1D9_PREDECLARED_PROTOCOL.json",
+      "git_blob_sha1": "4771494d76345f14ba6305dffa64891a86ff83f4",
+      "size": 2177
+    },
+    {
+      "path": "README_R141_CAUSAL.md",
+      "git_blob_sha1": "07ecfb7115b133f0a9ea90d2d15181f4eee0c532",
+      "size": 4964
+    },
+    {
+      "path": "README_UPLOAD_KO.md",
+      "git_blob_sha1": "26262d78ce944dc4b42662e32dde132dd2870679",
+      "size": 1654
+    },
+    {
+      "path": "RESEARCH_LAB_CONSOLIDATION_PROTOCOL.json",
+      "git_blob_sha1": "72efbd46b0693dd96b47f194b2264216b663681f",
+      "size": 2383
+    },
+    {
+      "path": "SHA256SUMS.txt",
+      "git_blob_sha1": "23bb1f2494336a541e4cc14799a56c8050ae69e9",
+      "size": 1282
+    },
+    {
+      "path": "StockMarketLeaderSector.py",
+      "git_blob_sha1": "1d8e06db4698040ae6f0a070bb42122f9e32218c",
+      "size": 5421
+    },
+    {
+      "path": "Stock_NewVer_Test5.py",
+      "git_blob_sha1": "b5d9196bf0bd7cd2e035a72fb1b5aafc65d9f267",
+      "size": 9320
+    },
+    {
+      "path": "Stock_Test.py",
+      "git_blob_sha1": "d67a90181db121207c56a1fec3089e6d27add385",
+      "size": 14454
+    },
+    {
+      "path": "Stock_Test3.py",
+      "git_blob_sha1": "c1df4714bd672f8b488dc96cd285c4dcf59a769f",
+      "size": 88951
+    },
+    {
+      "path": "Stock_test4.py",
+      "git_blob_sha1": "4d60d2546e40d6d138aa020477cf4ed59820f1f9",
+      "size": 143014
+    },
+    {
+      "path": "UPLOAD_FILES_SHA256.json",
+      "git_blob_sha1": "a944e1e14671d57b4f89ff83818b11ff4440a78b",
+      "size": 859
+    },
+    {
+      "path": "Ustickerloader.py",
+      "git_blob_sha1": "2b0231b9a6b6fd2307c7008385df9707dcad67dc",
+      "size": 9087
+    },
+    {
+      "path": "VALIDATION_SUMMARY_V73_3_6_6_15.json",
+      "git_blob_sha1": "9e55840e92995b132833dc3d888367775e8b164b",
+      "size": 1037
+    },
+    {
+      "path": "WORKFLOW_INTEGRITY.json",
+      "git_blob_sha1": "2fd4e266a3474a6e2416063efa275f64bcccb966",
+      "size": 533
+    },
+    {
+      "path": "Watermelonchart.py",
+      "git_blob_sha1": "5ad2a29fe92206492306c6c0c18b9901f9135a80",
+      "size": 10326
+    },
+    {
+      "path": "amount_top60.json",
+      "git_blob_sha1": "bd52b069e610a81641139923765ca7fbe51d4d25",
+      "size": 103662
+    },
+    {
+      "path": "analyze_single_stock.py",
+      "git_blob_sha1": "3a48df364be694151e1bdde1d718bcc31ef10a39",
+      "size": 113425
+    },
+    {
+      "path": "analyze_v4976_d20.py",
+      "git_blob_sha1": "f5616a3e330cb30038008196d8bd941d4144b3db",
+      "size": 10483
+    },
+    {
+      "path": "apply_closebet_live_shadow_capture_r176.py",
+      "git_blob_sha1": "1d81dc614a31bbf96d60ac51a64e154af3a4c91e",
+      "size": 1737
+    },
+    {
+      "path": "apply_closebet_live_shadow_capture_r177.py",
+      "git_blob_sha1": "b43db0d38479aeb5c71081badcca054e5d2afac3",
+      "size": 1699
+    },
+    {
+      "path": "apply_closebet_shadow_r179_patch.py",
+      "git_blob_sha1": "a58b4df6e481e1ed50a3bde00542068aaceb40b7",
+      "size": 8180
+    },
+    {
+      "path": "apply_live_shadow_source_r11.py",
+      "git_blob_sha1": "5308adcf2860449bf22d7961a25e1a3bcc45f80e",
+      "size": 995
+    },
+    {
+      "path": "apply_r1d19_patch.py",
+      "git_blob_sha1": "c779723d31ae7de44553f4a1bee9d3b7b54a74e1",
+      "size": 4233
+    },
+    {
+      "path": "apply_real_full_r141_causal_patch.py",
+      "git_blob_sha1": "fab0b636c898632526d4cb39dbaccf12d20a137b",
+      "size": 8781
+    },
+    {
+      "path": "apply_real_full_r141_patch.py",
+      "git_blob_sha1": "9c48a3aa56c781acf20d260dd2a75b20a9528464",
+      "size": 2948
+    },
+    {
+      "path": "apply_real_full_r142_observer_patch.py",
+      "git_blob_sha1": "ad8010f20f110151986c123490ef5bcae6340dd4",
+      "size": 4718
+    },
+    {
+      "path": "apply_real_full_reliable_overlay_patch.py",
+      "git_blob_sha1": "7e858b4a62d0f0aada00fac912cbf00391c3ad7d",
+      "size": 6526
+    },
+    {
+      "path": "apply_run_scanner_r1_cleanup.py",
+      "git_blob_sha1": "cadbb86b5e97283e069beb4b0fb19f87faf8f23b",
+      "size": 9570
+    },
+    {
+      "path": "apply_run_scanner_timeout_patch.py",
+      "git_blob_sha1": "5309da07bf8172a445625bc45ee4c004d4569ee5",
+      "size": 973
+    },
+    {
+      "path": "apply_stockhunter_research_patch.py",
+      "git_blob_sha1": "6c51fa77f508df6d0529804bbe4f8c0061a0d9ab",
+      "size": 8314
+    },
+    {
+      "path": "apply_v49764_final_action_authority.py",
+      "git_blob_sha1": "3cc75b8820cfdeacdbd9289ea40be470687b37ae",
+      "size": 2487
+    },
+    {
+      "path": "archive /workflows/closing_bet_r119_d20_target_stop_research.yml",
+      "git_blob_sha1": "e2391283c134888d5748dc63250965d91b329855",
+      "size": 9077
+    },
+    {
+      "path": "archive/Closing_bet_scanner_v2.py",
+      "git_blob_sha1": "fc5ed14617aee4c02f272511a4a74bb4c3f45060",
+      "size": 121273
+    },
+    {
+      "path": "archive/triangle_combo_analyzer.py",
+      "git_blob_sha1": "f1cfc67436f2653b5ebf7f26135586600928a335",
+      "size": 10151
+    },
+    {
+      "path": "archive/workflows/closing_bet_v4976_krx_only_replay.yml",
+      "git_blob_sha1": "2411ad5b327cac58dc3c5ed7197d8bec699fcb6e",
+      "size": 17891
+    },
+    {
+      "path": "archive/workflows/stockhunter_formula66_krx_r1c_pinned_legacy_reprice.yml",
+      "git_blob_sha1": "6f3f10bba4664f9f794bd2a2747169df507b0c05",
+      "size": 6106
+    },
+    {
+      "path": "archive/workflows/stockhunter_formula66_krx_truth_r1.yml",
+      "git_blob_sha1": "58f2402b86b83c3a5ec0b06a646aefd7487fdfb1",
+      "size": 8602
+    },
+    {
+      "path": "archive/workflows/stockhunter_formula66_r1d1_krx_native_asof_census.yml",
+      "git_blob_sha1": "69c1cc281f42738adadd931730c3a6110cb4d8a8",
+      "size": 7216
+    },
+    {
+      "path": "archive/workflows/stockhunter_formula66_r1d2_recent_downside_stress.yml",
+      "git_blob_sha1": "79aae3c914cc9bc2a6e4de349d084a9f67737695",
+      "size": 7325
+    },
+    {
+      "path": "archive/workflows/stockhunter_r1d25_448_d30_moneyflow_research_only.yml",
+      "git_blob_sha1": "4b207650540caa95005e955d9fbb5ad041d82f55",
+      "size": 6358
+    },
+    {
+      "path": "archive/workflows/stockhunter_r1d26_true_investor_source_pilot_RESEARCH_ONLY.yml",
+      "git_blob_sha1": "6276a65c3c86ec6c5b96f11e6ccce5cce9ec0cd2",
+      "size": 5116
+    },
+    {
+      "path": "archive/workflows/stockhunter_r1d27e_post15_finalize_research_only.yml",
+      "git_blob_sha1": "7da9b1f0e576adfbf84f3d0c34d80459c5b4d3ed",
+      "size": 4293
+    },
+    {
+      "path": "archive/workflows/stockhunter_r1d27e_post15_flow_research_only.yml",
+      "git_blob_sha1": "5165d2cdd20b695499b01717b6be53d7d9b84ea8",
+      "size": 19190
+    },
+    {
+      "path": "archive/workflows/stockhunter_r1d27f_d3_d5_d7_flow_price_research_only.yml",
+      "git_blob_sha1": "caac7f0a8cd6b34a2836968c036f48b5717c5fc9",
+      "size": 3135
+    },
+    {
+      "path": "auto_theme_news.py",
+      "git_blob_sha1": "0a514383128d2b34d3cc0d9a8262d3dde2026bad",
+      "size": 2742
+    },
+    {
+      "path": "backtest.py",
+      "git_blob_sha1": "e041cec3c7072ddd807a70b97895fd5f95d827ca",
+      "size": 7546
+    },
+    {
+      "path": "backtest_sheet_uploader.py",
+      "git_blob_sha1": "03dfd2f2f398550619c488c6a65c5bed6d1277a6",
+      "size": 10747
+    },
+    {
+      "path": "backtest_validator.py",
+      "git_blob_sha1": "e072805f3ca2b34ad5b0fdb4492007b5deb1c152",
+      "size": 42001
+    },
+    {
+      "path": "bear_winner_stability_diagnostic.py",
+      "git_blob_sha1": "e543c62aeb1380132f270d18e9eac14a57b92c60",
+      "size": 64651
+    },
+    {
+      "path": "build_search_formula_contract_registry.py",
+      "git_blob_sha1": "80b2613f40ae9686e33a6b0adaed0d4d04140504",
+      "size": 7557
+    },
+    {
+      "path": "calculate_combination_score_v2.py",
+      "git_blob_sha1": "8a4d89b97180a9f7244645240fee58c2565ff40b",
+      "size": 22157
+    },
+    {
+      "path": "catalyst_google_sheet_store.py",
+      "git_blob_sha1": "e566b770eacf9de4c1961268b1650fa16e9bae36",
+      "size": 13536
+    },
+    {
+      "path": "catalyst_source_adapters.py",
+      "git_blob_sha1": "88d2d95ff74ffde4900e737bab9d46cb19d1498e",
+      "size": 40003
+    },
+    {
+      "path": "closebet_live_shadow_source_capture_r176_overlay.py.txt",
+      "git_blob_sha1": "e3b1699d09c2e35f815a3a886574f9ff7e47f6ae",
+      "size": 7617
+    },
+    {
+      "path": "closebet_live_shadow_source_capture_r177_overlay.py.txt",
+      "git_blob_sha1": "285161206d31146739a657d6e5e903eaf77b23a7",
+      "size": 14804
+    },
+    {
+      "path": "closebet_research/__init__.py",
+      "git_blob_sha1": "f6a4aa1690aab2cf58759b406ee8af05c8c51c7a",
+      "size": 49
+    },
+    {
+      "path": "closebet_research/analyze_v4976_d20.py",
+      "git_blob_sha1": "f5616a3e330cb30038008196d8bd941d4144b3db",
+      "size": 10483
+    },
+    {
+      "path": "closebet_research/discover_historical_sources.py",
+      "git_blob_sha1": "ea20f976de839fd3fc8a29c30a65b36964e80da9",
+      "size": 3985
+    },
+    {
+      "path": "closebet_research/krx_daily_materialize.py",
+      "git_blob_sha1": "37206568b91677785c475cc7310ac79bbdb99d27",
+      "size": 9536
+    },
+    {
+      "path": "closebet_research/krx_full_market_pit.py",
+      "git_blob_sha1": "2e86ca5cb9ff0e68dfded27d87ca416e044ef2a5",
+      "size": 15209
+    },
+    {
+      "path": "closebet_research/krx_native_gate.py",
+      "git_blob_sha1": "0eef49b10c8f413508b168f5602fa01e28485d63",
+      "size": 7303
+    },
+    {
+      "path": "closebet_research/krx_only_provider.py",
+      "git_blob_sha1": "7a66470cddad200435f42b8aefa8dae89645fd27",
+      "size": 7839
+    },
+    {
+      "path": "closebet_research/krx_overlay/sitecustomize.py",
+      "git_blob_sha1": "ef82049e088992bf0505bec57370c170a730f387",
+      "size": 215
+    },
+    {
+      "path": "closebet_research/native_backtest_orchestrator.py",
+      "git_blob_sha1": "73bb4fd8b753266cd979232200af434cfc2f5f1e",
+      "size": 5277
+    },
+    {
+      "path": "closebet_research/native_backtest_report.py",
+      "git_blob_sha1": "e17d637eb4012a0ff979a139eed6afe2b2c9e8c1",
+      "size": 15421
+    },
+    {
+      "path": "closebet_research/native_price_regime_forensics.py",
+      "git_blob_sha1": "300f51aa0002fcfaa25d71485c9267a8ef8bbe05",
+      "size": 13468
+    },
+    {
+      "path": "closebet_research/native_source_trust_audit.py",
+      "git_blob_sha1": "437a481b0f993879deda4e284d0c5ec8fd852742",
+      "size": 7862
+    },
+    {
+      "path": "closebet_research/pit_official_events_audit.py",
+      "git_blob_sha1": "654a09c7b01698e279b638d9adba2a7b62b3926a",
+      "size": 16042
+    },
+    {
+      "path": "closebet_research/pit_security_master_audit.py",
+      "git_blob_sha1": "139af4aa0d1caac2a010e9c383e83af42330421c",
+      "size": 12466
+    },
+    {
+      "path": "closebet_research/prepare_live_ledger_inputs.py",
+      "git_blob_sha1": "d96e4605a0ec97e0c8bfa8488f2489254cdd928d",
+      "size": 5564
+    },
+    {
+      "path": "closebet_research/prepare_native_krx_prices.py",
+      "git_blob_sha1": "517d237b5650bf1bb29f28b27514e92ecff66786",
+      "size": 9104
+    },
+    {
+      "path": "closebet_research/r110_strength_pullback_entry_audit.py",
+      "git_blob_sha1": "3f3f2282428e73010b9f609a000679f9bf035c97",
+      "size": 20275
+    },
+    {
+      "path": "closebet_research/r111_episode_first_strength_audit.py",
+      "git_blob_sha1": "338a375ad408e15686cad97b8e640e5105b557bc",
+      "size": 22386
+    },
+    {
+      "path": "closebet_research/r112_causal_wave_phase_audit.py",
+      "git_blob_sha1": "20e2c4107c2c28bb108252fc93824bc16a48ca35",
+      "size": 23177
+    },
+    {
+      "path": "closebet_research/r113_nonwave_root_cause.py",
+      "git_blob_sha1": "ac0225ad96e9852f77d5f1dbb14b481c29972f84",
+      "size": 17111
+    },
+    {
+      "path": "closebet_research/r114_threshold_free_wave_gallery.py",
+      "git_blob_sha1": "d805eaf4417ef61eb16550559f6257b8d8d8dc37",
+      "size": 16953
+    },
+    {
+      "path": "closebet_research/r115_intraday_data_readiness_audit.py",
+      "git_blob_sha1": "1f2ead0557117ef6a20a8b67b61031ff8a1b6a81",
+      "size": 19379
+    },
+    {
+      "path": "closebet_research/r116_legacy_minute_evidence.py",
+      "git_blob_sha1": "5ef04003500a0533dd4cbc6508ed458b80b3fbf7",
+      "size": 9153
+    },
+    {
+      "path": "closebet_research/r117_integrated_denominator_audit.py",
+      "git_blob_sha1": "277d495cf39403d9e66b3b01f0a36cbbdb352545",
+      "size": 19431
+    },
+    {
+      "path": "closebet_research/r117_shadow_evidence_index.csv",
+      "git_blob_sha1": "b084f18a25513bc993f3120968eda53a5f876630",
+      "size": 1186
+    },
+    {
+      "path": "closebet_research/r117_source_sha_manifest.json",
+      "git_blob_sha1": "87292cafac4de4b31acd88ef96666716f352a24c",
+      "size": 6002
+    },
+    {
+      "path": "closebet_research/r118_partial_market_wave_geometry.py",
+      "git_blob_sha1": "ee5b212927efadcc0ee71af7076e7dbb3f2e28cf",
+      "size": 25618
+    },
+    {
+      "path": "closebet_research/r119_d20_first_touch_research.py",
+      "git_blob_sha1": "ddaafc08c02d69f70f6891996ff4322eb4bf1465",
+      "size": 18778
+    },
+    {
+      "path": "closebet_research/r120_entry_scale_stop.py",
+      "git_blob_sha1": "53234b4923e87fd9f1464f872b7d30e0e231393c",
+      "size": 23741
+    },
+    {
+      "path": "closebet_research/r121_frozen_hypothesis_contract.json",
+      "git_blob_sha1": "0bb076e14805ddd3dfa470e681beccf3f0c92907",
+      "size": 2091
+    },
+    {
+      "path": "closebet_research/r121_frozen_type_policy_replay.py",
+      "git_blob_sha1": "68a5e7da956d6fed4fb1dd51662cfa4c683efe17",
+      "size": 17837
+    },
+    {
+      "path": "closebet_research/r122_candle_support_action_research.py",
+      "git_blob_sha1": "bb78b49160d320cb6e78a80984cd4f4ad14bcd75",
+      "size": 21988
+    },
+    {
+      "path": "closebet_research/r123_success_failure_microstructure_forensics.py",
+      "git_blob_sha1": "e37e1e1a9a20c41d19d372d54e6f1d76e44a997e",
+      "size": 19646
+    },
+    {
+      "path": "closebet_research/r1241_date_block_robustness.py",
+      "git_blob_sha1": "5ee37c2aaac3d3b5b5ccd8939de9daa829199825",
+      "size": 19975
+    },
+    {
+      "path": "closebet_research/r124_frozen_gate_replay.py",
+      "git_blob_sha1": "ee844848bb1fb1e427c6ab510f5e6a9e940eb5be",
+      "size": 13550
+    },
+    {
+      "path": "closebet_research/r124_frozen_hypotheses.json",
+      "git_blob_sha1": "6ceef2b3b2672bf90b227b83deb3be8ec3beb54f",
+      "size": 1784
+    },
+    {
+      "path": "closebet_research/r1251_capture_integrity_audit.py",
+      "git_blob_sha1": "35293460791a787349527811b1456656b84f61d0",
+      "size": 12201
+    },
+    {
+      "path": "closebet_research/r125_prospective_capture.py",
+      "git_blob_sha1": "41c1edd3ad70813853ec71765e1b1b12fbb8b56d",
+      "size": 16173
+    },
+    {
+      "path": "closebet_research/r18_wave_entry_forensic.py",
+      "git_blob_sha1": "f7dc26dbf86f53586ef508dfbd9ab73dc91527aa",
+      "size": 28370
+    },
+    {
+      "path": "closebet_research/r19_paired_chart_audit.py",
+      "git_blob_sha1": "7e98a0e6d23422bd9ec4e7290fc8203b54431c96",
+      "size": 23625
+    },
+    {
+      "path": "closebet_research/wave_research.py",
+      "git_blob_sha1": "ed03425e872072e1a2582c5642cbc393c266f5cf",
+      "size": 3463
+    },
+    {
+      "path": "closing_bet_a_pattern_response_map_r16.py",
+      "git_blob_sha1": "7ec4e0e1695a1002f6febda4d9380555e3adca7b",
+      "size": 9074
+    },
+    {
+      "path": "closing_bet_ai_debate_integration.py",
+      "git_blob_sha1": "6c033d72feaeb25d02d9f9ab66a1f2ddb0a41fee",
+      "size": 26385
+    },
+    {
+      "path": "closing_bet_ai_prompts_complete.py",
+      "git_blob_sha1": "e8ff65099be411c2dd61fa7664fc77c92ba682a4",
+      "size": 16936
+    },
+    {
+      "path": "closing_bet_dynamic_exit_oos_r109.py",
+      "git_blob_sha1": "64e984ff65f0865c7f5af46abf1723efc9ad642e",
+      "size": 9837
+    },
+    {
+      "path": "closing_bet_entry_exit_behavior_oos_r110.py",
+      "git_blob_sha1": "3810489087b26f33cc3f804f2471379e882323ca",
+      "size": 10122
+    },
+    {
+      "path": "closing_bet_entry_external_pit_oos_r1101.py",
+      "git_blob_sha1": "d21ef9f352e31801e092bb6d18350475a4e5d44e",
+      "size": 20294
+    },
+    {
+      "path": "closing_bet_env_expectation_oos_r111.py",
+      "git_blob_sha1": "17c6f315e9ca1a0c68184cbcd812db8e78f0c497",
+      "size": 14281
+    },
+    {
+      "path": "closing_bet_exit_window_oos_r108.py",
+      "git_blob_sha1": "7745564bcd0ff4b66cec398eedf9d5719b632d9e",
+      "size": 12233
+    },
+    {
+      "path": "closing_bet_expectation_capture_audit_r112.py",
+      "git_blob_sha1": "5d5d2ed8f6da1527e38297347eb306d966c393b2",
+      "size": 12053
+    },
+    {
+      "path": "closing_bet_historical_shadow_replay_r12.py",
+      "git_blob_sha1": "a13947251622b4e1b4332fb070a99217f588da46",
+      "size": 21897
+    },
+    {
+      "path": "closing_bet_live_shadow_board_r1.py",
+      "git_blob_sha1": "e09197fbb48fac7ba5481ec4d7a4c776be7e4248",
+      "size": 18540
+    },
+    {
+      "path": "closing_bet_live_shadow_board_r11.py",
+      "git_blob_sha1": "3bffb12af18e597e785ee2624c676691cb6e6b9f",
+      "size": 19623
+    },
+    {
+      "path": "closing_bet_live_shadow_board_r15.py",
+      "git_blob_sha1": "ee73e3a92ba49d16ddea9a43c55caaa445ee6e2e",
+      "size": 16565
+    },
+    {
+      "path": "closing_bet_live_shadow_board_r151.py",
+      "git_blob_sha1": "29871437401f10c3c78eb090d30d73f335abd9c6",
+      "size": 17681
+    },
+    {
+      "path": "closing_bet_live_shadow_board_r161.py",
+      "git_blob_sha1": "3cab5c436eb3fc3b7d1ad7187d3471282144f3b8",
+      "size": 17203
+    },
+    {
+      "path": "closing_bet_live_shadow_board_r162.py",
+      "git_blob_sha1": "c58f9a4f06c31b81407ec3c486d7cbc6676207ce",
+      "size": 2187
+    },
+    {
+      "path": "closing_bet_live_shadow_board_r17.py",
+      "git_blob_sha1": "bd4a52d3761055247632871753319582b215dd8c",
+      "size": 9867
+    },
+    {
+      "path": "closing_bet_live_shadow_board_r171.py",
+      "git_blob_sha1": "3a20d858deaaa0adebdb69ba456b9f1dceb54443",
+      "size": 2143
+    },
+    {
+      "path": "closing_bet_live_shadow_board_r172.py",
+      "git_blob_sha1": "dc0c066ac0080b18f38366e3bcdb43a698c577ef",
+      "size": 3215
+    },
+    {
+      "path": "closing_bet_live_shadow_board_r173.py",
+      "git_blob_sha1": "34539eb5326648c94195822541650f49851134d6",
+      "size": 3538
+    },
+    {
+      "path": "closing_bet_live_shadow_board_r175.py",
+      "git_blob_sha1": "84b9c32fc6dfd8a408c93fb6cd3b55c4b8cb1a78",
+      "size": 5983
+    },
+    {
+      "path": "closing_bet_live_shadow_board_r177.py",
+      "git_blob_sha1": "41dcdd6a1ed83b1c1101baaffcd6c0f8cefd110b",
+      "size": 2983
+    },
+    {
+      "path": "closing_bet_live_shadow_board_r179.py",
+      "git_blob_sha1": "865a7b3ef0721d1ea33646579dd296fe5e9366f7",
+      "size": 24797
+    },
+    {
+      "path": "closing_bet_ohlcv_path_scale_oos_r104.py",
+      "git_blob_sha1": "45737c9226731557ec324df550b95979b6d4d994",
+      "size": 23684
+    },
+    {
+      "path": "closing_bet_paired_anatomy_r106.py",
+      "git_blob_sha1": "aead76fcb0220f168d85961bdd239b6fd8b6d94b",
+      "size": 17372
+    },
+    {
+      "path": "closing_bet_pattern_scale_oos_r103.py",
+      "git_blob_sha1": "84ce9d08756ef2baf5dc033f81c1c4efed4c691c",
+      "size": 26250
+    },
+    {
+      "path": "closing_bet_shadow_outcome_refinement_r13.py",
+      "git_blob_sha1": "608956938eebf76eddde2fe939c5e21e043b5cd5",
+      "size": 9097
+    },
+    {
+      "path": "closing_bet_shadow_response_map_r14.py",
+      "git_blob_sha1": "3ad9b7af6d558d937d4baf841d07e072a145aacb",
+      "size": 9536
+    },
+    {
+      "path": "closing_bet_structure_env_oos_r1.py",
+      "git_blob_sha1": "e3e7d156b820674eb84314111a2f85ab129236c5",
+      "size": 13653
+    },
+    {
+      "path": "closing_bet_structure_env_oos_r102_causal_history.py",
+      "git_blob_sha1": "b07e71e5e9d0e2e29695b3b17389b4a4a3e2a18b",
+      "size": 9423
+    },
+    {
+      "path": "closing_bet_swing_horizon_oos_r107.py",
+      "git_blob_sha1": "571ce84b77eac7c2175e2b1a2905d04400a877dd",
+      "size": 13816
+    },
+    {
+      "path": "closing_bet_v4_4_9_53_7_7_cp6_symbol_audit_sweep_date_guard_10INPUTS.yml",
+      "git_blob_sha1": "49a5743979b25c7262e4cca922149c3f3588f6dc",
+      "size": 28235
+    },
+    {
+      "path": "closing_bet_winner_loser_triage_r105.py",
+      "git_blob_sha1": "9da9c2cca6de5600358be5f216feff38b7ea5e6d",
+      "size": 16756
+    },
+    {
+      "path": "combo_storage.py",
+      "git_blob_sha1": "83d7fd002cc0b79f7f6f8e7169d7f8be93c47d99",
+      "size": 7981
+    },
+    {
+      "path": "context_outcome_diagnostic.py",
+      "git_blob_sha1": "81c38dc3db7b8a415052cca0d51056e4df9ce3dd",
+      "size": 49206
+    },
+    {
+      "path": "core224_calendar_freshness_patch_r16.py",
+      "git_blob_sha1": "028b25350dcdedc915307361aa6be9721c5c4aa1",
+      "size": 3519
+    },
+    {
+      "path": "core224_live_date_forensic_r2.py",
+      "git_blob_sha1": "012f6a0758c8bb9d2d1c6d523f6c9ded2022ea75",
+      "size": 4718
+    },
+    {
+      "path": "core224_live_date_preflight_r1.py",
+      "git_blob_sha1": "f25d02f370d4102daae41f16a2ff18fb56e77886",
+      "size": 4189
+    },
+    {
+      "path": "core224_live_date_selector_r3.py",
+      "git_blob_sha1": "0f1b68c0c1875cb7598c22484200727755fbdd37",
+      "size": 6612
+    },
+    {
+      "path": "core224_r3_env_scope_fix.py",
+      "git_blob_sha1": "5c093744e1bc91b7b430350c42a4306037603fcc",
+      "size": 2088
+    },
+    {
+      "path": "dante_3phase_v4_module.py",
+      "git_blob_sha1": "52f8dc5ac5f18c261f6f0d307b231117eddf0a72",
+      "size": 53744
+    },
+    {
+      "path": "data/R1D26L_FROZEN_60_ASOF_EVENTS.csv",
+      "git_blob_sha1": "ca35348db6976b3bf1209c41459594e140eb4b3a",
+      "size": 4421
+    },
+    {
+      "path": "data/R1D26Q_FROZEN_D125_ASOF_ONLY.csv",
+      "git_blob_sha1": "6ff254dfa594d13f8dcc13fbdc14b652d88725d8",
+      "size": 12041
+    },
+    {
+      "path": "data/R1D26R_FROZEN_A_D_200_ASOF_ONLY.csv",
+      "git_blob_sha1": "ed0dc5668d7925c9aab6fb2c0ff25294bc6e5d2f",
+      "size": 18141
+    },
+    {
+      "path": "data/R1D26U_FROZEN_A_D_200_ASOF_ONLY.csv",
+      "git_blob_sha1": "980f88ce1e6cc4a8bcae2c108ab94d690fde4902",
+      "size": 16740
+    },
+    {
+      "path": "data/R1D26V_FROZEN_A_D_200_ASOF_ONLY.csv",
+      "git_blob_sha1": "00e5377bdd43a34676047e066025d4bce1eb24fc",
+      "size": 16740
+    },
+    {
+      "path": "debug_dante.py",
+      "git_blob_sha1": "8f45fe165f207fe3df358aec0a8d762636f27f2c",
+      "size": 16519
+    },
+    {
+      "path": "direct_replay_materialized_v23.py",
+      "git_blob_sha1": "e577b23dd45d2f12218f308a8a3634ee6af4f314",
+      "size": 32661
+    },
+    {
+      "path": "direct_replay_performance_v20.py",
+      "git_blob_sha1": "d2116df5aae9826feabee6d075e97ef0adbd6ed4",
+      "size": 19254
+    },
+    {
+      "path": "direct_replay_sharding_v22.py",
+      "git_blob_sha1": "0d945082172c79e46f9180f6127fbae5a3350c67",
+      "size": 23765
+    },
+    {
+      "path": "discover_historical_sources.py",
+      "git_blob_sha1": "ea20f976de839fd3fc8a29c30a65b36964e80da9",
+      "size": 3985
+    },
+    {
+      "path": "docs/index.html",
+      "git_blob_sha1": "e6df5570c74925ae281caf436d96352f54db39c9",
+      "size": 19066
+    },
+    {
+      "path": "early_power_r2_anatomy.py",
+      "git_blob_sha1": "dd01f809f3c0303c5052588bc4b6fe02492812d3",
+      "size": 6447
+    },
+    {
+      "path": "early_power_r3_structure_anatomy.py",
+      "git_blob_sha1": "36bc7542591ea3e3b0a4c7460a0636d1f12a4132",
+      "size": 6391
+    },
+    {
+      "path": "early_power_r4_bb40_case_anatomy.py",
+      "git_blob_sha1": "d26314ad314d53d830e7e22b5c9c5786067b58a0",
+      "size": 10442
+    },
+    {
+      "path": "early_power_r5_controlled_compression.py",
+      "git_blob_sha1": "b3a0b253bc293cf9b76d56e848a550675c3c89b3",
+      "size": 7534
+    },
+    {
+      "path": "early_power_r6_2_oos.py",
+      "git_blob_sha1": "65d41fbf0b249a4bf5407258cba16c60cc5b9dce",
+      "size": 9737
+    },
+    {
+      "path": "early_power_r6_oos.py",
+      "git_blob_sha1": "c210b2021e7568a50d7cf6746c7b52d9591b820c",
+      "size": 12979
+    },
+    {
+      "path": "early_power_r7_audit.py",
+      "git_blob_sha1": "586da56871317f11718c5da8664e348a7cc8c9df",
+      "size": 4912
+    },
+    {
+      "path": "early_power_r7_refresh.py",
+      "git_blob_sha1": "eb539dec5f5c346b7bdcc746a0cb29a2268a117d",
+      "size": 3761
+    },
+    {
+      "path": "early_power_r8_oos_monitor.py",
+      "git_blob_sha1": "dcac5143b780ad49e2adcfd3a177d51a6bc54897",
+      "size": 7072
+    },
+    {
+      "path": "early_power_transition_research.py",
+      "git_blob_sha1": "69255216786e69ba025c1a91aa489d88ec54b749",
+      "size": 16115
+    },
+    {
+      "path": "export_complete_fixed_run_scanner.py",
+      "git_blob_sha1": "ff75983f3e01fa80275e0195e23663fcb3bdcd33",
+      "size": 2047
+    },
+    {
+      "path": "familiar_research.py",
+      "git_blob_sha1": "c8a6900831d2dce3576a87ba13c1b4f6b6f7de2e",
+      "size": 63648
+    },
+    {
+      "path": "frozen_krx_sessions_2021_2025.csv",
+      "git_blob_sha1": "245e553816389df2242853a5b97a4836b9087b5f",
+      "size": 13480
+    },
+    {
+      "path": "geopolitical_bear_winner_diagnostic.py",
+      "git_blob_sha1": "fdc9f103096f55a984e1ad16003695ea76d227fb",
+      "size": 49560
+    },
+    {
+      "path": "google_sheet_forward_ledger.py",
+      "git_blob_sha1": "b3e44692cadc9101084d732d4f37be210064af2e",
+      "size": 52951
+    },
+    {
+      "path": "google_sheet_manager.py",
+      "git_blob_sha1": "56b855955cf8e6432a27e90e7c7c19a8ced0eef3",
+      "size": 11247
+    },
+    {
+      "path": "google_sheet_managerEx.py",
+      "git_blob_sha1": "41ddb08de1acc153998567b51997741401fefb6f",
+      "size": 30514
+    },
+    {
+      "path": "ham_restart_research.py",
+      "git_blob_sha1": "efa518f7f4bc8932d629bf2bd0dacb63f00711c5",
+      "size": 69945
+    },
+    {
+      "path": "historical_asof_universe.py",
+      "git_blob_sha1": "cab27b84a82a7caa1558a810a8dca93241c0a7c4",
+      "size": 51231
+    },
+    {
+      "path": "index.html",
+      "git_blob_sha1": "17bd436c42d7eeb74ca99f86231ec5aa1df4d9a9",
+      "size": 55129
+    },
+    {
+      "path": "indicator_engine.py",
+      "git_blob_sha1": "ea5bda641762829931a1ff6a4f04fb3c08126dff",
+      "size": 26884
+    },
+    {
+      "path": "install_into_existing_hub.py",
+      "git_blob_sha1": "1251bef8de106326a8c125b81ac3671c96fca55e",
+      "size": 4849
+    },
+    {
+      "path": "integrated_bot.py",
+      "git_blob_sha1": "463c1166a0c6364531e6387d713c88737fb94d1d",
+      "size": 6204
+    },
+    {
+      "path": "low224_accum_wave1_pb_research.py",
+      "git_blob_sha1": "eef5447b0ee24ee7f7ded3a6e7edc32ae1ada7eb",
+      "size": 142320
+    },
+    {
+      "path": "low224_r1c1_frozen_discovery_baseline.csv",
+      "git_blob_sha1": "eccb3cdcdaf5db42666e76bed16a1c8782c21e2e",
+      "size": 21493
+    },
+    {
+      "path": "main.py",
+      "git_blob_sha1": "fe62bfd0412d65386e3b8cdd6b15b4bf9540a658",
+      "size": 36299
+    },
+    {
+      "path": "main2.py",
+      "git_blob_sha1": "4c8036355e36c005b181e67bfa6ddb6f134a74d6",
+      "size": 39622
+    },
+    {
+      "path": "main3.py",
+      "git_blob_sha1": "791f5b0505302652fdc0a47866d17a0872507cb4",
+      "size": 84599
+    },
+    {
+      "path": "main4.py",
+      "git_blob_sha1": "3459663fb6b6e6b47f8f117137445a7f9974981b",
+      "size": 85739
+    },
+    {
+      "path": "main5.py",
+      "git_blob_sha1": "54cc325f7117639f8792ec35dccfcc99ba8f569d",
+      "size": 88194
+    },
+    {
+      "path": "main6.py",
+      "git_blob_sha1": "da0edf66b78377d6f6d74267dd6d3cfaaeaf7b8c",
+      "size": 95533
+    },
+    {
+      "path": "main7.py",
+      "git_blob_sha1": "3a8cb879785033c4829fea090e9af91810b8a5ce",
+      "size": 146276
+    },
+    {
+      "path": "main7_bugfix_2.py",
+      "git_blob_sha1": "8d210abdb3b01180fb0b5c108e36159f8deec527",
+      "size": 4514064
+    },
+    {
+      "path": "main7_bugfix_2_back.py",
+      "git_blob_sha1": "939350b173a19c8881149f48f34f24f6bf54607a",
+      "size": 1129993
+    },
+    {
+      "path": "main7_bugfix_2_back2.py",
+      "git_blob_sha1": "f4f000ea0d7f867708db6b3fe5937cc5f5503379",
+      "size": 1159321
+    },
+    {
+      "path": "main7_bugfix_back01.py",
+      "git_blob_sha1": "c4564d133f528af7413cda41a2689b574590c814",
+      "size": 171061
+    },
+    {
+      "path": "main7_us_bridge.py",
+      "git_blob_sha1": "466c0d3ac3ddb0c7db1de3cb7b37bc336dbb3f54",
+      "size": 1065
+    },
+    {
+      "path": "main7_us_bridge_v2.py",
+      "git_blob_sha1": "b30524666f1078af1ffc866c475c6185988d841e",
+      "size": 795
+    },
+    {
+      "path": "main_dante.py",
+      "git_blob_sha1": "d51be194dfd673fc62b773b28698a707c3245657",
+      "size": 13877
+    },
+    {
+      "path": "market_issue_engine.py",
+      "git_blob_sha1": "5fdd9874e0eee52c62a9382721c39b471ab4f99d",
+      "size": 2683
+    },
+    {
+      "path": "market_regime_excess_research.py",
+      "git_blob_sha1": "e63f9e4409a411b4f99d7ab4d1f8e84f6003598e",
+      "size": 46821
+    },
+    {
+      "path": "module_contract_preflight.py",
+      "git_blob_sha1": "3a0a5f3898d470dd7438d2521b7b2059bb6f7535",
+      "size": 12561
+    },
+    {
+      "path": "news_ai_engine.py",
+      "git_blob_sha1": "2b31a913d8cae0e6b331fd721eb324dd7b0fa4cf",
+      "size": 4427
+    },
+    {
+      "path": "news_event_engine.py",
+      "git_blob_sha1": "a085eac1798b2b594735f7f88d3a7209aad6af29",
+      "size": 6577
+    },
+    {
+      "path": "news_keyword_engine.py",
+      "git_blob_sha1": "a22c5f04bc0d950adba9ec59f45266deb00f4ec6",
+      "size": 1407
+    },
+    {
+      "path": "news_sentiment.py",
+      "git_blob_sha1": "239d016af32433b7821e8b79814faf0f9452a605",
+      "size": 1890
+    },
+    {
+      "path": "nextrade_backtest.py",
+      "git_blob_sha1": "d4744f4f3936d9c87d8277bb7cc7a01933da2542",
+      "size": 14821
+    },
+    {
+      "path": "nextrade_scanner.py",
+      "git_blob_sha1": "842f556afe73251269a057753924d2dffa53ba15",
+      "size": 21146
+    },
+    {
+      "path": "odoli_a_context_r23.py",
+      "git_blob_sha1": "854abd441b5ad294a8b0df61bd3c2f061245156d",
+      "size": 12961
+    },
+    {
+      "path": "odoli_a_context_r24.py",
+      "git_blob_sha1": "42fb0d358262c0218bfa635ace6f496676bf96b1",
+      "size": 11032
+    },
+    {
+      "path": "odoli_a_context_r25.py",
+      "git_blob_sha1": "c8c4eb5f4084e8054840c0d7968e58754419f71b",
+      "size": 7855
+    },
+    {
+      "path": "odoli_a_context_r26.py",
+      "git_blob_sha1": "196f2d5445163a0ac604fc744be5b1847a801daa",
+      "size": 7547
+    },
+    {
+      "path": "odoli_a_overlap_r2_audit.py",
+      "git_blob_sha1": "e54416fd3e2e5222c677abb26d8796052400dd84",
+      "size": 4983
+    },
+    {
+      "path": "odoli_a_path_r21.py",
+      "git_blob_sha1": "c6bc05da4005a53148365b38296022c982b1cfdc",
+      "size": 12255
+    },
+    {
+      "path": "odoli_after_session_context_r1.py",
+      "git_blob_sha1": "1587ad22a1286019ab2e40f6dcb0af194dc1f5ca",
+      "size": 13324
+    },
+    {
+      "path": "odoli_exit_r27.py",
+      "git_blob_sha1": "0ebdf0ef7c44d2b4caa4283b610a883b65652313",
+      "size": 7093
+    },
+    {
+      "path": "odoli_independent_daily_r1.py",
+      "git_blob_sha1": "88b2709f9a70ce8f1de3c13978858d58fe890356",
+      "size": 23947
+    },
+    {
+      "path": "odoli_path_structure_r22.py",
+      "git_blob_sha1": "018330e308d8d72634f6895c4d062fb1fa490591",
+      "size": 9969
+    },
+    {
+      "path": "odoli_r210_characteristic_anatomy.py",
+      "git_blob_sha1": "3b458568cdff62919e0fc96eb26b0867b99170b5",
+      "size": 7612
+    },
+    {
+      "path": "odoli_r211_accumulation_anatomy.py",
+      "git_blob_sha1": "2590f9589574a02e80d1270593d2ff11edd4f16a",
+      "size": 9447
+    },
+    {
+      "path": "odoli_r212_delayed_resolution.py",
+      "git_blob_sha1": "ead4b33c0aba2e69307facb89418a8fa0a2bac14",
+      "size": 11122
+    },
+    {
+      "path": "odoli_r213_long_delayed_wave.py",
+      "git_blob_sha1": "253d1c8fde3617a0c92472fe433288f860f48858",
+      "size": 9962
+    },
+    {
+      "path": "odoli_r214_early_reaction.py",
+      "git_blob_sha1": "4de0e6659ac9067affe5c75810e9120756294a8a",
+      "size": 10184
+    },
+    {
+      "path": "odoli_r215_early_reaction_prospective.py",
+      "git_blob_sha1": "04d738409bbb08a7bcfc836c56398740fd3b2c83",
+      "size": 11111
+    },
+    {
+      "path": "odoli_r216_two_year_validation.py",
+      "git_blob_sha1": "3f4c6fa615fae654da216a44ea7bfe0656cd5b8d",
+      "size": 15296
+    },
+    {
+      "path": "odoli_r217_outcome_accum_redefinition.py",
+      "git_blob_sha1": "839e0a93604a570a7ffd6b7d9a0f6780f6e32939",
+      "size": 18464
+    },
+    {
+      "path": "odoli_r218_plus15_speed_path_anatomy.py",
+      "git_blob_sha1": "e81b0c1c0700aacf8077187bd73601695f91f8d6",
+      "size": 7241
+    },
+    {
+      "path": "odoli_r219_d0_d3_early_classification.py",
+      "git_blob_sha1": "a842a109fdf68fe288d75823c5f02af0985ea4f0",
+      "size": 11654
+    },
+    {
+      "path": "odoli_r220_slow_entry_timing.py",
+      "git_blob_sha1": "b6da7f3d88c6c6cf4879aaff78710170812ced22",
+      "size": 11992
+    },
+    {
+      "path": "odoli_r221_slow_confirmation_combos.py",
+      "git_blob_sha1": "da26090e88e6c59fbca2d87fd14356003943199a",
+      "size": 6088
+    },
+    {
+      "path": "odoli_r222_prospective_frozen_observer.py",
+      "git_blob_sha1": "7bbe760df254934a580d3c9a0a00f516ed170368",
+      "size": 8392
+    },
+    {
+      "path": "odoli_r223_live_research_overlay.py",
+      "git_blob_sha1": "7281875f60d0b2633bca7230f118a178b35b4dbd",
+      "size": 17348
+    },
+    {
+      "path": "odoli_r28_prospective_tracker.py",
+      "git_blob_sha1": "634828679a3bed55fe405ce8441ff190655f4f02",
+      "size": 8134
+    },
+    {
+      "path": "odoli_r29_historical_validation.py",
+      "git_blob_sha1": "e8eee8cc331cca0a3facc09335c46247c7501164",
+      "size": 11189
+    },
+    {
+      "path": "odoli_retrospective_all_market_r1.py",
+      "git_blob_sha1": "f7ddb8db997fc2e878974ed1da1b9715a04b5c9d",
+      "size": 9041
+    },
+    {
+      "path": "odoli_retrospective_all_market_r1_merge.py",
+      "git_blob_sha1": "2d24b210350f8b650c167df85cf819aba492ed27",
+      "size": 5769
+    },
+    {
+      "path": "original_thesis_reconstruction.py",
+      "git_blob_sha1": "cea510dafd55435564ed8936818d4bf2ffb87af6",
+      "size": 132231
+    },
+    {
+      "path": "pattern_ai_cross_research.py",
+      "git_blob_sha1": "bef75d213f6261f63f4e9c37aafc1be9ac073da4",
+      "size": 53861
+    },
+    {
+      "path": "pattern_catalyst_context_pipeline.py",
+      "git_blob_sha1": "fd62802a65de5fd7f8e420454ce172f172335ac6",
+      "size": 65198
+    },
+    {
+      "path": "pit_official_events_audit.py",
+      "git_blob_sha1": "654a09c7b01698e279b638d9adba2a7b62b3926a",
+      "size": 16042
+    },
+    {
+      "path": "pre_dolbanji_hts_exact_clone.py",
+      "git_blob_sha1": "75914ce2ecf72ccc3393dc47d033396485b95d42",
+      "size": 12413
+    },
+    {
+      "path": "prepare_live_ledger_inputs.py",
+      "git_blob_sha1": "d96e4605a0ec97e0c8bfa8488f2489254cdd928d",
+      "size": 5564
+    },
+    {
+      "path": "presurge_scanner.py",
+      "git_blob_sha1": "2cc0c3283b161b09eb814852dd85188f8bc9d6a5",
+      "size": 46615
+    },
+    {
+      "path": "quick_candidates/amount_top60_2026-09-17.json",
+      "git_blob_sha1": "daafaa7cebf8823b520020e1d9c650424ce55581",
+      "size": 103576
+    },
+    {
+      "path": "quick_candidates/amount_top60_2026-09-18.json",
+      "git_blob_sha1": "0a1295baffc3b1dd3e48ed1a2a86c46702d53220",
+      "size": 103662
+    },
+    {
+      "path": "quick_candidates/amount_top60_2026-09-21.json",
+      "git_blob_sha1": "20ccc98b4b4b4f4f7c5c32fe253acd7ac086292e",
+      "size": 103662
+    },
+    {
+      "path": "quick_candidates/amount_top60_2026-09-22.json",
+      "git_blob_sha1": "5466c1af86f9845e6d062befd0954bca1fba501c",
+      "size": 103662
+    },
+    {
+      "path": "quick_candidates/amount_top60_2026-09-24.json",
+      "git_blob_sha1": "253e7f5db4dce78239a446772f5a9b3a7d2cbb42",
+      "size": 103582
+    },
+    {
+      "path": "quick_candidates/amount_top60_2026-09-25.json",
+      "git_blob_sha1": "30dd3f9e97ad94ea26a4863c7561d382e27702cb",
+      "size": 103582
+    },
+    {
+      "path": "quick_candidates/amount_top60_2026-09-28.json",
+      "git_blob_sha1": "54aea0e7d10de1f17aa6189e931abc9943b0cf9d",
+      "size": 103662
+    },
+    {
+      "path": "quick_candidates/amount_top60_2026-09-29.json",
+      "git_blob_sha1": "5bd19a9cbedaac8559d9e00adfb9d71b392ed234",
+      "size": 103662
+    },
+    {
+      "path": "quick_candidates/amount_top60_2026-09-30.json",
+      "git_blob_sha1": "011ced17821d1b16908f6595dab92e75f32ec6e7",
+      "size": 103662
+    },
+    {
+      "path": "quick_candidates/amount_top60_2026-10-01.json",
+      "git_blob_sha1": "cedff10fac1e7aa3bfb71593316432a84e272cc1",
+      "size": 103662
+    },
+    {
+      "path": "quick_candidates/amount_top60_2026-10-02.json",
+      "git_blob_sha1": "8ba3ddbb95db16ea85a7f01f869a1da6f3717ce1",
+      "size": 229
+    },
+    {
+      "path": "quick_candidates/amount_top60_2026-10-05.json",
+      "git_blob_sha1": "a2c5e6e6430364be7ba6aab7d72e4b783e6a15f7",
+      "size": 103542
+    },
+    {
+      "path": "quick_candidates/amount_top60_2026-10-06.json",
+      "git_blob_sha1": "60c71c25800c3de59e73471e516a460bda1935fb",
+      "size": 103662
+    },
+    {
+      "path": "quick_candidates/amount_top60_2026-10-07.json",
+      "git_blob_sha1": "75d171c031e1e40a4a783799fbebca68e6949ebb",
+      "size": 103662
+    },
+    {
+      "path": "quick_candidates/amount_top60_2026-10-08.json",
+      "git_blob_sha1": "b365e1494075985364bee11c1fd3369d44ed2724",
+      "size": 103662
+    },
+    {
+      "path": "quick_candidates/amount_top60_2026-10-09.json",
+      "git_blob_sha1": "14b657b7647ef2165227cafb4a15837b4eaead02",
+      "size": 103582
+    },
+    {
+      "path": "quick_candidates/amount_top60_2026-10-12.json",
+      "git_blob_sha1": "e495bbcc5e0d82576dc4a1a600d239510f130a97",
+      "size": 103662
+    },
+    {
+      "path": "quick_candidates/amount_top60_2026-10-13.json",
+      "git_blob_sha1": "6096a5f24f7090f73e2d61b96ac20788f46bd5b1",
+      "size": 103662
+    },
+    {
+      "path": "quick_candidates/amount_top60_2026-10-14.json",
+      "git_blob_sha1": "f0117bc9403aec01cfb4a61d229372c108d24653",
+      "size": 103662
+    },
+    {
+      "path": "quick_candidates/amount_top60_2026-10-15.json",
+      "git_blob_sha1": "3dec9d0ce66351b7c0528f4bfd51b7d8f398c095",
+      "size": 103662
+    },
+    {
+      "path": "quick_candidates/amount_top60_2026-10-19.json",
+      "git_blob_sha1": "7119748cabb3806216a20ee88f67f4b2e913fc4c",
+      "size": 103662
+    },
+    {
+      "path": "quick_candidates/amount_top60_2026-10-20.json",
+      "git_blob_sha1": "37663344486c5e46395fd1876d8bbbe1df88e551",
+      "size": 103662
+    },
+    {
+      "path": "quick_candidates/amount_top60_2026-10-21.json",
+      "git_blob_sha1": "f9101fcdc8ba3f8c5fca2de32b8cef930d0207f2",
+      "size": 103662
+    },
+    {
+      "path": "quick_candidates/amount_top60_2026-10-23.json",
+      "git_blob_sha1": "8c8d8c543e22779fc4bd804253d2825886cbb8f1",
+      "size": 103662
+    },
+    {
+      "path": "quick_candidates/amount_top60_2026-10-26.json",
+      "git_blob_sha1": "9418e4d5f448836263c542b3656d6958b0089830",
+      "size": 103662
+    },
+    {
+      "path": "quick_candidates/amount_top60_2026-10-28.json",
+      "git_blob_sha1": "f1fe35fd25e4ff7142053d069738090f93501fb5",
+      "size": 103662
+    },
+    {
+      "path": "quick_candidates/amount_top60_2026-10-29.json",
+      "git_blob_sha1": "144f758d724f244ca4245148feae8c51327f7278",
+      "size": 103662
+    },
+    {
+      "path": "quick_candidates/amount_top60_2026-11-02.json",
+      "git_blob_sha1": "9d0ee90411746668856cb159f39384c8fa36de1b",
+      "size": 103662
+    },
+    {
+      "path": "quick_candidates/amount_top60_2026-11-04.json",
+      "git_blob_sha1": "035a4658fdf7f94aca6162c05ee62d8566e5c6c4",
+      "size": 103662
+    },
+    {
+      "path": "quick_candidates/amount_top60_2026-11-05.json",
+      "git_blob_sha1": "b9a3a4e00d304be67bcfc0205505d003f1260fb4",
+      "size": 103662
+    },
+    {
+      "path": "quick_candidates/amount_top60_2026-11-06.json",
+      "git_blob_sha1": "bd52b069e610a81641139923765ca7fbe51d4d25",
+      "size": 103662
+    },
+    {
+      "path": "quick_candidates/amount_top60_latest.json",
+      "git_blob_sha1": "bc4eaa500cf07c501f2256820204b261ed9ed87b",
+      "size": 246
+    },
+    {
+      "path": "quick_candidates/today_candidates_2026-09-17.json",
+      "git_blob_sha1": "78e104dd8b274d33ff5dce55d54bfcdd0b106cd5",
+      "size": 146829
+    },
+    {
+      "path": "quick_candidates/today_candidates_2026-09-18.json",
+      "git_blob_sha1": "1b54ed8883e4f1be359b8ea76db6cba3dae7c6d7",
+      "size": 117769
+    },
+    {
+      "path": "quick_candidates/today_candidates_2026-09-21.json",
+      "git_blob_sha1": "e3e10916e6af34d34454ce9dc891549fd0b5d34a",
+      "size": 117901
+    },
+    {
+      "path": "quick_candidates/today_candidates_2026-09-22.json",
+      "git_blob_sha1": "536fd58b9f63206fdd64cbe7fc5b75b17539e147",
+      "size": 120849
+    },
+    {
+      "path": "quick_candidates/today_candidates_2026-09-24.json",
+      "git_blob_sha1": "f220962a646729a4ce9c5bda26c3732a73d1f70d",
+      "size": 165761
+    },
+    {
+      "path": "quick_candidates/today_candidates_2026-09-25.json",
+      "git_blob_sha1": "2dfede4d8f1a6689f714a8f08022193249abd938",
+      "size": 165761
+    },
+    {
+      "path": "quick_candidates/today_candidates_2026-09-28.json",
+      "git_blob_sha1": "5737a96191aec466ca4caed887e120e3567af726",
+      "size": 126745
+    },
+    {
+      "path": "quick_candidates/today_candidates_2026-09-29.json",
+      "git_blob_sha1": "eae71541c816c0a761229df008e6da04f5f34b01",
+      "size": 114263
+    },
+    {
+      "path": "quick_candidates/today_candidates_2026-09-30.json",
+      "git_blob_sha1": "11967867df6fb509070b372a88670a878bf26af4",
+      "size": 114483
+    },
+    {
+      "path": "quick_candidates/today_candidates_2026-10-01.json",
+      "git_blob_sha1": "1b8041d4d941ffb9eb779802049df01071d3781f",
+      "size": 109189
+    },
+    {
+      "path": "quick_candidates/today_candidates_2026-10-02.json",
+      "git_blob_sha1": "51cb46e74c3c914e47252b7bd9654fb7657f5433",
+      "size": 359
+    },
+    {
+      "path": "quick_candidates/today_candidates_2026-10-05.json",
+      "git_blob_sha1": "6dc4c835aed3e53115e94cda47bf14ec39572cb7",
+      "size": 152581
+    },
+    {
+      "path": "quick_candidates/today_candidates_2026-10-06.json",
+      "git_blob_sha1": "84330dabc16359f17b5416a21551345fd61c7d95",
+      "size": 117771
+    },
+    {
+      "path": "quick_candidates/today_candidates_2026-10-07.json",
+      "git_blob_sha1": "ba5e3cd64e89c91d10fc88d667600a12dfc8e2d0",
+      "size": 120709
+    },
+    {
+      "path": "quick_candidates/today_candidates_2026-10-08.json",
+      "git_blob_sha1": "018e06552dec30f87045306921cea29f26b2682b",
+      "size": 111463
+    },
+    {
+      "path": "quick_candidates/today_candidates_2026-10-09.json",
+      "git_blob_sha1": "a3873758d174c9211bd87f22b0fea493db5f6aae",
+      "size": 151191
+    },
+    {
+      "path": "quick_candidates/today_candidates_2026-10-12.json",
+      "git_blob_sha1": "eae50d82f80f667d28b6eed13a0827ebab9e514a",
+      "size": 111439
+    },
+    {
+      "path": "quick_candidates/today_candidates_2026-10-13.json",
+      "git_blob_sha1": "1971d5f4fdcdb7d13bf56a35fe41ecdf83db037e",
+      "size": 117977
+    },
+    {
+      "path": "quick_candidates/today_candidates_2026-10-14.json",
+      "git_blob_sha1": "bb2866f413c234353af7923b975ce1127cf1b70a",
+      "size": 108343
+    },
+    {
+      "path": "quick_candidates/today_candidates_2026-10-15.json",
+      "git_blob_sha1": "e57299eac56c873b6e704caa4c05d7d62900a072",
+      "size": 111379
+    },
+    {
+      "path": "quick_candidates/today_candidates_2026-10-19.json",
+      "git_blob_sha1": "23362cf1be7fa84b4512d88b2613f629d7bb21c3",
+      "size": 105517
+    },
+    {
+      "path": "quick_candidates/today_candidates_2026-10-20.json",
+      "git_blob_sha1": "811b75111012f9da52a94dedc3e9ea0423ce80ac",
+      "size": 105517
+    },
+    {
+      "path": "quick_candidates/today_candidates_2026-10-21.json",
+      "git_blob_sha1": "8ec6c21f8b9d51ce64ad741538be321d8bd20017",
+      "size": 111697
+    },
+    {
+      "path": "quick_candidates/today_candidates_2026-10-23.json",
+      "git_blob_sha1": "ebf72f877b56b38d70ba56b0a34e50bffdb87ea1",
+      "size": 105517
+    },
+    {
+      "path": "quick_candidates/today_candidates_2026-10-26.json",
+      "git_blob_sha1": "da0f4184b2f1a639fa6f40d3dee5fedcda2f6207",
+      "size": 109149
+    },
+    {
+      "path": "quick_candidates/today_candidates_2026-10-28.json",
+      "git_blob_sha1": "bb9dd653ed1a3a417292f32b892949eb236e9362",
+      "size": 129975
+    },
+    {
+      "path": "quick_candidates/today_candidates_2026-10-29.json",
+      "git_blob_sha1": "b4cae017336c483226f508083a6afb852fe18b77",
+      "size": 121055
+    },
+    {
+      "path": "quick_candidates/today_candidates_2026-11-02.json",
+      "git_blob_sha1": "ddd04428a57a6cfb398e8f73101ec5a6550e73da",
+      "size": 118695
+    },
+    {
+      "path": "quick_candidates/today_candidates_2026-11-04.json",
+      "git_blob_sha1": "49f5bc2bf1ac9fbdcacde9dfcb0370f8e85b9700",
+      "size": 117869
+    },
+    {
+      "path": "quick_candidates/today_candidates_2026-11-05.json",
+      "git_blob_sha1": "6cb5c41cea94aa847da734f4343dc476733fa7a6",
+      "size": 114217
+    },
+    {
+      "path": "quick_candidates/today_candidates_2026-11-06.json",
+      "git_blob_sha1": "24bb8b3803a5c763deea6c2e401aea42542d98c9",
+      "size": 125073
+    },
+    {
+      "path": "quick_candidates/today_candidates_latest.json",
+      "git_blob_sha1": "26e9ab3c4dac939c3fd07395862aa397b4c1b017",
+      "size": 308
+    },
+    {
+      "path": "quick_open_checker.py",
+      "git_blob_sha1": "4e838a0fb47b1142d590c6cb1b985058cec32e49",
+      "size": 47041
+    },
+    {
+      "path": "r1d72_source_price_replay.py",
+      "git_blob_sha1": "5640f30de301c1eaca48d7b6ae67e62b5fe3d34f",
+      "size": 16857
+    },
+    {
+      "path": "real_full_52w_segment_patch.py",
+      "git_blob_sha1": "08e54f69f5a3e13b879a9daca22f01758b18d19e",
+      "size": 3150
+    },
+    {
+      "path": "real_full_52w_segmented_validation_launcher_r1.yml",
+      "git_blob_sha1": "accd12a13a4ea2ca334c4bf55abb72eaf4dbc8ea",
+      "size": 3712
+    },
+    {
+      "path": "real_full_backtest_capture_runner.py",
+      "git_blob_sha1": "e59a54e0e1fd1e025b80d8e3fa30b1b261bc57a1",
+      "size": 8804
+    },
+    {
+      "path": "real_full_capture_runner.py",
+      "git_blob_sha1": "6167746fe363961919a70e5ec206861bfaec465c",
+      "size": 22449
+    },
+    {
+      "path": "real_full_context_pattern_risk.py",
+      "git_blob_sha1": "e15e1367345596e63d5d780f692d3bf375415b8c",
+      "size": 14873
+    },
+    {
+      "path": "real_full_decision_board.py",
+      "git_blob_sha1": "6d46b9fcc364dd981b23011af71ca1cd4e5b6d24",
+      "size": 14930
+    },
+    {
+      "path": "real_full_decision_engine.py",
+      "git_blob_sha1": "76de1c29732419850ef8e29c9093a5f0f132b0eb",
+      "size": 18015
+    },
+    {
+      "path": "real_full_materialized_source_adapter.py",
+      "git_blob_sha1": "2d517290af0ff83f9b3c1f98a4ba2f505cf24771",
+      "size": 7737
+    },
+    {
+      "path": "real_full_original_thesis_forensic_r11.py",
+      "git_blob_sha1": "603185634e91d936102fa0254726aa3fa896a392",
+      "size": 21391
+    },
+    {
+      "path": "real_full_original_thesis_forensic_r12.py",
+      "git_blob_sha1": "f16ffbdf4c515d9657ee5d2831b3949bfa684a7c",
+      "size": 18771
+    },
+    {
+      "path": "real_full_original_thesis_forensic_r121.py",
+      "git_blob_sha1": "17130d86b23821212e139228937cfb50ed2e1989",
+      "size": 20660
+    },
+    {
+      "path": "real_full_original_thesis_research_r1.py",
+      "git_blob_sha1": "940d607f1acf7a7abd6c48e757d558966dca7f57",
+      "size": 21021
+    },
+    {
+      "path": "real_full_pattern_truth_unknown_r1.py",
+      "git_blob_sha1": "a300d1fb1cd90b36563d3b021c24cb51436e67d6",
+      "size": 26326
+    },
+    {
+      "path": "real_full_r1c1_capture_wrapper.py",
+      "git_blob_sha1": "de7b5ff71beccadf33dc3e43aad14b63e6cb583a",
+      "size": 10435
+    },
+    {
+      "path": "real_full_r1c1_historical_replay_validation.py",
+      "git_blob_sha1": "8833d0ba1a26c8695e96c1ef15c3f7ae32381dc8",
+      "size": 10324
+    },
+    {
+      "path": "real_full_r1c1_oos_tracker.py",
+      "git_blob_sha1": "ba1909287048ff8eed63fdb4a34353f4aa47267f",
+      "size": 34285
+    },
+    {
+      "path": "real_full_r1c1_path_integrity_r143.py",
+      "git_blob_sha1": "fe7fba1e26f2a952aeff54b07230c888547e03ef",
+      "size": 17153
+    },
+    {
+      "path": "real_full_r1c1_policy_lock.json",
+      "git_blob_sha1": "dc0e71813194759344f8df45cbfdcaf35aa13010",
+      "size": 1624
+    },
+    {
+      "path": "real_full_r1c1_r141_install.yml",
+      "git_blob_sha1": "829b1d6c6d3d9622f9ed2fe757ad5adb4b790701",
+      "size": 2685
+    },
+    {
+      "path": "real_full_r1c1_runtime_adapter.py",
+      "git_blob_sha1": "6dc558ef6b35db4d21e387048cab64b60453b899",
+      "size": 20459
+    },
+    {
+      "path": "real_full_r1c1_structure_observer_r142.py",
+      "git_blob_sha1": "2e304a2e49c41cebc24988d3a78d03e0029e2f53",
+      "size": 18729
+    },
+    {
+      "path": "real_full_research_overlay_r1.py",
+      "git_blob_sha1": "a0a9eb829c7a48b4531855621acccd4ce3c99492",
+      "size": 12110
+    },
+    {
+      "path": "real_full_source_postrun_guard.py",
+      "git_blob_sha1": "e8e9d0f16dcd334f2c888093ce10bb0722393a36",
+      "size": 11519
+    },
+    {
+      "path": "real_full_structure_research.py",
+      "git_blob_sha1": "6947e0a9dc0aa1304c8d4ce376d8929d9a31972c",
+      "size": 46263
+    },
+    {
+      "path": "real_full_structure_research_r12.py",
+      "git_blob_sha1": "f903f170d62b27302a30d9c0c9269ade953739b4",
+      "size": 20626
+    },
+    {
+      "path": "real_full_structure_research_r13.py",
+      "git_blob_sha1": "e10819c42f2bc60013da319c8f254a8945de02c1",
+      "size": 28477
+    },
+    {
+      "path": "real_full_trust_audit.py",
+      "git_blob_sha1": "b18d67a13a1d08076b6c0583272939c06ed508af",
+      "size": 35168
+    },
+    {
+      "path": "real_full_validation_backtest.py",
+      "git_blob_sha1": "890d0a4e6368296a5e6820296f1f90c030ed484b",
+      "size": 14343
+    },
+    {
+      "path": "real_full_watermelon_longma_audit_r1.py",
+      "git_blob_sha1": "2ade3bb501ca4e6872b47f96dfb57e302afa364e",
+      "size": 15228
+    },
+    {
+      "path": "real_full_watermelon_longma_oos_freeze_r1.py",
+      "git_blob_sha1": "f0fffc34c472efec9865eea271979c2c1d80181e",
+      "size": 8635
+    },
+    {
+      "path": "real_full_watermelon_longma_phase_interaction_r1.py",
+      "git_blob_sha1": "ff92ddc2eb714c85c343a6e9731d565faa587c6c",
+      "size": 9679
+    },
+    {
+      "path": "reference/FROZEN_watermelon_longma_signature_registry.csv",
+      "git_blob_sha1": "34ac59b83ce47c1ace3e2f29c84949feed881d8a",
+      "size": 6078
+    },
+    {
+      "path": "reference/PATCHER_AND_UNIT_TESTS.txt",
+      "git_blob_sha1": "5fc9821287b92817d96608bfe6a5d725ff949f81",
+      "size": 939
+    },
+    {
+      "path": "reference/VALIDATED_HISTORICAL_IDENTITY.txt",
+      "git_blob_sha1": "9d30ddb24eec1cd25e9cf46d54887aff686800fe",
+      "size": 1093
+    },
+    {
+      "path": "reference/r141_historical_replay_validation.json",
+      "git_blob_sha1": "4a3a046b3d0dbcda1e6a8a0fce418a3c65249fcf",
+      "size": 1311
+    },
+    {
+      "path": "reference/r141_historical_replay_validation_stdout.txt",
+      "git_blob_sha1": "4a3a046b3d0dbcda1e6a8a0fce418a3c65249fcf",
+      "size": 1311
+    },
+    {
+      "path": "reports/R1D27D_FULLMARKET_PRICE_ONLY_133180_STRATA_HORIZON.csv",
+      "git_blob_sha1": "bad24426954ad6596b8fa1185632c5be0e070ce0",
+      "size": 15116
+    },
+    {
+      "path": "reports/R1D27D_PRICE_ONLY_MANIFEST.json",
+      "git_blob_sha1": "0b16b2b24f41413e1d3df42df107fbc6b3542a1c",
+      "size": 651
+    },
+    {
+      "path": "requirements.txt",
+      "git_blob_sha1": "4b0b6a4d8a5e0385fef0f14696f7ac5ba66ba956",
+      "size": 239
+    },
+    {
+      "path": "research/odoli_prospective_signals.csv",
+      "git_blob_sha1": "1f210a50050cbcaaae7d8dfa7036fabb17078739",
+      "size": 100
+    },
+    {
+      "path": "research/odoli_r210_manual_tags.csv",
+      "git_blob_sha1": "f7e6a2528e7d0aa3e991b9749f1c23a2d5100263",
+      "size": 1392
+    },
+    {
+      "path": "research_context/geopolitical_event_calendar_r1101.csv",
+      "git_blob_sha1": "20e86eab01aa10038781b64eeb36de8c24a38679",
+      "size": 1912
+    },
+    {
+      "path": "research_core224/krx_truth_r1.py",
+      "git_blob_sha1": "e0fd01bcb6eb365bb55922a632a4eef18c5fe57c",
+      "size": 20678
+    },
+    {
+      "path": "research_formulas/formula66_krx_r1c_pinned_reprice.py",
+      "git_blob_sha1": "cdfaa2251a6a02a518cd9e09f5a96ad447862a24",
+      "size": 15927
+    },
+    {
+      "path": "research_formulas/formula66_r1d1_blind_chart_renderer.py",
+      "git_blob_sha1": "1b9f8f9aae8d6782929f2cf8b6e1f5c9a4cbd7be",
+      "size": 4768
+    },
+    {
+      "path": "research_formulas/formula66_r1d1_native_context.py",
+      "git_blob_sha1": "1df1820bff078446f44335216b7ee7910d1d9942",
+      "size": 23311
+    },
+    {
+      "path": "research_formulas/formula66_r1d2_blind_charts.py",
+      "git_blob_sha1": "930a347e3e78e99904a23a77bca8627c262ab542",
+      "size": 2695
+    },
+    {
+      "path": "research_formulas/formula66_r1d2_recent_stress.py",
+      "git_blob_sha1": "250b4c011ef4eca9b91e9bd73386fc0dc2f2662b",
+      "size": 19999
+    },
+    {
+      "path": "research_formulas/formula66_r1d3_success_failure_context.py",
+      "git_blob_sha1": "2123742da7f0db462ce05da23b6f1ad1d347414d",
+      "size": 16947
+    },
+    {
+      "path": "research_formulas/formula66_r1d4_matched_blind.py",
+      "git_blob_sha1": "5bdd638d1aabc9f9224d04f8f4007916a2af5c6c",
+      "size": 21961
+    },
+    {
+      "path": "research_formulas/formula66_r1d5_support_reaction.py",
+      "git_blob_sha1": "453a2d5276e7067d40470d782e6be9265d237a00",
+      "size": 21673
+    },
+    {
+      "path": "research_formulas/formula66_r1d6_oos_holdout.py",
+      "git_blob_sha1": "00c78a26117670768b70772f578edcb5995e48a5",
+      "size": 28465
+    },
+    {
+      "path": "research_formulas/formula66_r1d7_path_risk_audit.py",
+      "git_blob_sha1": "4efbb3edd5d5e50786cc90420292b7854eb8e203",
+      "size": 16662
+    },
+    {
+      "path": "research_formulas/formula66_r1d8_structure_confounds.py",
+      "git_blob_sha1": "c8a245ce53e866880d932fca125afc5e0bdf4e90",
+      "size": 16682
+    },
+    {
+      "path": "research_formulas/formula66_r1d9_unseen_2021_23_holdout.py",
+      "git_blob_sha1": "a5ae29aee6252011bf9ddd1c6b374026fac58558",
+      "size": 17814
+    },
+    {
+      "path": "research_formulas/formula66_truth_krx_r1.py",
+      "git_blob_sha1": "1ea6803912d5a0decc1cc3518b84ddd9d39d4002",
+      "size": 30078
+    },
+    {
+      "path": "research_formulas/r1d40_futures_login_canary.py",
+      "git_blob_sha1": "1f7956bbeb078ee21fd663deb7ba37c18889d214",
+      "size": 6180
+    },
+    {
+      "path": "research_formulas/r1d40_futures_quarter_collect.py",
+      "git_blob_sha1": "9029eca20360b3509f068631bf921fe5c4f7e83f",
+      "size": 9326
+    },
+    {
+      "path": "research_formulas/r1d44_frozen_sessions_2021_2025.csv",
+      "git_blob_sha1": "245e553816389df2242853a5b97a4836b9087b5f",
+      "size": 13480
+    },
+    {
+      "path": "research_formulas/r1d44_krx_sector_mcap_quarter.py",
+      "git_blob_sha1": "eeab6392739a5bb12087a6d1a3796fc18aefefbf",
+      "size": 13627
+    },
+    {
+      "path": "research_formulas/r1d62_triangle_engine_reference.py",
+      "git_blob_sha1": "15418c71df2421d59d4f626755da3ba6fc9ff572",
+      "size": 9312
+    },
+    {
+      "path": "research_formulas/r1d65_full_event_runner.py",
+      "git_blob_sha1": "b8b8b8b59505a18b3c3a9e487282e3f6e992e4c0",
+      "size": 5504
+    },
+    {
+      "path": "research_formulas/r1d65_pilot_runner.py",
+      "git_blob_sha1": "744c8b37dc3e8131dabf1305bc4563e249105436",
+      "size": 5407
+    },
+    {
+      "path": "research_formulas/r1d65_strict_triangle.py",
+      "git_blob_sha1": "05e8023ce63e6adde5e464f103c88e3dc48f2cd6",
+      "size": 8373
+    },
+    {
+      "path": "research_formulas/r1d67_fullmarket_replay.py",
+      "git_blob_sha1": "d86c0b19884f3726d8f00bb98b4f1175fae78c3b",
+      "size": 12127
+    },
+    {
+      "path": "research_formulas/r1d71_prior_5247_legacy_review.py",
+      "git_blob_sha1": "4433039d70770150c7ac948bae9349657bf170c6",
+      "size": 9892
+    },
+    {
+      "path": "research_formulas/r1d71_real_ohlc_review_charts.py",
+      "git_blob_sha1": "8dc510e63633fa1a685250814a373ff4974abc96",
+      "size": 6629
+    },
+    {
+      "path": "research_formulas/r1d71_seven_case_parity.py",
+      "git_blob_sha1": "95567865fadea76d8dd3961903d472b04eff6639",
+      "size": 979
+    },
+    {
+      "path": "research_formulas/r1d72_source_price_replay.py",
+      "git_blob_sha1": "5640f30de301c1eaca48d7b6ae67e62b5fe3d34f",
+      "size": 16857
+    },
+    {
+      "path": "research_formulas/r1d73_signal_quality.py",
+      "git_blob_sha1": "b6e97ddc76403bc5112e0008e293844e8cc65a73",
+      "size": 11986
+    },
+    {
+      "path": "research_formulas/stockhunter_r1d10_prospective_audit.py",
+      "git_blob_sha1": "d7596db9558f7773eeceb0ee761192ff1edb3596",
+      "size": 14166
+    },
+    {
+      "path": "research_formulas/stockhunter_r1d11_integrity_and_giveback.py",
+      "git_blob_sha1": "18974bc68824ab5d4700ce7a0b17c847cfa2a598",
+      "size": 13151
+    },
+    {
+      "path": "research_formulas/stockhunter_r1d12_price_identity_rootcause.py",
+      "git_blob_sha1": "331f4b3be816f77c708798b025c57cef0f3c6434",
+      "size": 11702
+    },
+    {
+      "path": "research_formulas/stockhunter_r1d13_contamination_scope.py",
+      "git_blob_sha1": "419aa5c84f2c2e4247966f39d715ad17a654dc99",
+      "size": 13493
+    },
+    {
+      "path": "research_formulas/stockhunter_r1d14_cache_provenance.py",
+      "git_blob_sha1": "6fe8a85d3dc9e5f292a9575262a740f89b303e91",
+      "size": 12258
+    },
+    {
+      "path": "research_formulas/stockhunter_r1d15_cache_identity_quarantine.py",
+      "git_blob_sha1": "d5ada958ee9e95cd4eb3b452317504249ed10682",
+      "size": 14797
+    },
+    {
+      "path": "research_formulas/stockhunter_r1d16_parallel_research.py",
+      "git_blob_sha1": "fb08ba4c4a9fe04aee26431de0d45c162f3382d4",
+      "size": 16656
+    },
+    {
+      "path": "research_formulas/stockhunter_r1d17_integrated_frozen.py",
+      "git_blob_sha1": "e597aca34a6b7e1fe9d4441e1f2148bdee6c4a08",
+      "size": 12781
+    },
+    {
+      "path": "research_formulas/stockhunter_r1d18_prospective_shadow.py",
+      "git_blob_sha1": "c4734c7c7f28bca0722cb41351d06a4118d0b54f",
+      "size": 14016
+    },
+    {
+      "path": "research_formulas/stockhunter_r1d19_bb_reclaim.py",
+      "git_blob_sha1": "acff0ee24e03b0e9568554d86149431668b0ab32",
+      "size": 17490
+    },
+    {
+      "path": "research_formulas/stockhunter_r1d20_ichimoku_qa.py",
+      "git_blob_sha1": "0e508b7433373c8bcb2ca1342f830b57c9b4ca04",
+      "size": 23526
+    },
+    {
+      "path": "research_formulas/stockhunter_r1d22_indicators.py",
+      "git_blob_sha1": "d0e687ca8f08a1c0e20ac67209482152059a3f9d",
+      "size": 16808
+    },
+    {
+      "path": "research_formulas/stockhunter_r1d23_strategy_challenge.py",
+      "git_blob_sha1": "78714b8891a800198c94f68af13694167925483f",
+      "size": 24572
+    },
+    {
+      "path": "research_formulas/stockhunter_r1d24_d_breakout_audit.py",
+      "git_blob_sha1": "dced7723228646c08de0894b287b4ac1b67d976a",
+      "size": 18944
+    },
+    {
+      "path": "research_formulas/stockhunter_r1d25_448_d30.py",
+      "git_blob_sha1": "4dacf6adb995f87d957590c977a5388cf35e015c",
+      "size": 24435
+    },
+    {
+      "path": "research_formulas/stockhunter_r1d25_extra_sensitivity.py",
+      "git_blob_sha1": "3886c7d3e5681b36899dcdabff7ec11947c7dcde",
+      "size": 3584
+    },
+    {
+      "path": "research_formulas/stockhunter_r1d26_investor_pilot.py",
+      "git_blob_sha1": "a4cd021d3b9d73dbc49d2356dabc196d1a4149bb",
+      "size": 12243
+    },
+    {
+      "path": "research_formulas/stockhunter_r1d26b_source_diagnostic.py",
+      "git_blob_sha1": "4bae3182cab885fcebf408a4541195d05001e573",
+      "size": 10622
+    },
+    {
+      "path": "research_formulas/stockhunter_r1d26c_flow_collection.py",
+      "git_blob_sha1": "a11eb6e6d57b887a874f567a5f8cd821d8b593de",
+      "size": 11307
+    },
+    {
+      "path": "research_formulas/stockhunter_r1d26d_coverage_outcome_audit.py",
+      "git_blob_sha1": "5766e86541c80aeff006cec1bea837e7db4dfae9",
+      "size": 15383
+    },
+    {
+      "path": "research_formulas/stockhunter_r1d26e_hit_ladder.py",
+      "git_blob_sha1": "5b1a173ddef83a4fe9d6afac04eec24aa09f1baa",
+      "size": 11175
+    },
+    {
+      "path": "research_formulas/stockhunter_r1d26f_staged_flow.py",
+      "git_blob_sha1": "8d64ce01bfd69c42fa866bcbf2d0f5ff7ddb025f",
+      "size": 14184
+    },
+    {
+      "path": "research_formulas/stockhunter_r1d26g_flow_ladder.py",
+      "git_blob_sha1": "e0f3636994186237655e038de68f4c7de8839bcd",
+      "size": 17226
+    },
+    {
+      "path": "research_formulas/stockhunter_r1d26h_holdout.py",
+      "git_blob_sha1": "b068d29efcd5c15e91ba8fff30bf68f5c8320b8e",
+      "size": 25267
+    },
+    {
+      "path": "research_formulas/stockhunter_r1d26i_holdout_failure_audit.py",
+      "git_blob_sha1": "c6b160a5f85234a90f016491faf8ec07212f5f88",
+      "size": 14290
+    },
+    {
+      "path": "research_formulas/stockhunter_r1d26k_matched_failure.py",
+      "git_blob_sha1": "c4ac42d46e62458e53f2d9261b9f4d925f5b6bf2",
+      "size": 12115
+    },
+    {
+      "path": "research_formulas/stockhunter_r1d26l_exitpath.py",
+      "git_blob_sha1": "7e5b4ffece8863e523cd1d2a05b72c0bda5113c4",
+      "size": 19036
+    },
+    {
+      "path": "research_formulas/stockhunter_r1d26m_fast_stop.py",
+      "git_blob_sha1": "f162914ebcdd82c7179e7b768b69929a07d075fe",
+      "size": 10936
+    },
+    {
+      "path": "research_formulas/stockhunter_r1d26n_structural_support.py",
+      "git_blob_sha1": "62f014f38fb1175f5854a74779551266895cba29",
+      "size": 18722
+    },
+    {
+      "path": "research_formulas/stockhunter_r1d26o_reclaim_reentry.py",
+      "git_blob_sha1": "b5deeeff1886438fe13e508897e6df01da8f6d72",
+      "size": 17912
+    },
+    {
+      "path": "research_formulas/stockhunter_r1d26p_flow_rebreak.py",
+      "git_blob_sha1": "8c408045f4a918db1610b848b28967092ed5298c",
+      "size": 17717
+    },
+    {
+      "path": "research_formulas/stockhunter_r1d26q_independent_holdout.py",
+      "git_blob_sha1": "2ebbacef41bd5b9f388b2a5b12b170ecb02932aa",
+      "size": 26136
+    },
+    {
+      "path": "research_formulas/stockhunter_r1d26r_double_break_entry_filter.py",
+      "git_blob_sha1": "658143fb4001a73e28c254cc2b6127afc4f6901f",
+      "size": 17404
+    },
+    {
+      "path": "research_formulas/stockhunter_r1d26u_entry_holdout.py",
+      "git_blob_sha1": "ac3ad2a615d65fac840025d6e063d4010d7948f2",
+      "size": 20399
+    },
+    {
+      "path": "research_formulas/stockhunter_r1d26v_entry_correction.py",
+      "git_blob_sha1": "3cd9f4fec8d869bad92ef0caa2b77fa44d78dc34",
+      "size": 24003
+    },
+    {
+      "path": "research_formulas/stockhunter_r1d27a_bb_ma_allmarket.py",
+      "git_blob_sha1": "7efc6ff90f65a3056b818f95119b874d1a8af626",
+      "size": 23318
+    },
+    {
+      "path": "research_formulas/stockhunter_r1d27b_krx_auth_diagnostic.py",
+      "git_blob_sha1": "e98222cb820f1542f75e1e46c7334d3aa23dc890",
+      "size": 11704
+    },
+    {
+      "path": "research_formulas/stockhunter_r1d27c_auto.py",
+      "git_blob_sha1": "6f7df9ab294b7eedb5f6d2ffc2189831a43eb95c",
+      "size": 5015
+    },
+    {
+      "path": "research_formulas/stockhunter_r1d27c_flow60.py",
+      "git_blob_sha1": "f4c1e4df690ac5211e4bcfc6f6386783e05de52f",
+      "size": 31573
+    },
+    {
+      "path": "research_formulas/stockhunter_r1d27c_flow60.py.original.sha256",
+      "git_blob_sha1": "bd10da8655a98ab5516d41ca55e63d4c9d7cc893",
+      "size": 65
+    },
+    {
+      "path": "research_formulas/stockhunter_r1d27d_autochain.py",
+      "git_blob_sha1": "2ca4c8ca075b66e828fdb1b57f51cb5a95bf8627",
+      "size": 9002
+    },
+    {
+      "path": "research_formulas/stockhunter_r1d27d_flow60.py",
+      "git_blob_sha1": "5a1ba52230f70b728ff00df6367b8cb3b5a4aa18",
+      "size": 7923
+    },
+    {
+      "path": "research_formulas/stockhunter_r1d27d_fullmarket_freeze.py",
+      "git_blob_sha1": "e20256ce9f1101941d15b52fb34b3ff3508a35b0",
+      "size": 11357
+    },
+    {
+      "path": "research_formulas/stockhunter_r1d27d_validate.py",
+      "git_blob_sha1": "1e2bcb2b4448c36d388744e070b65a6d149129ae",
+      "size": 6523
+    },
+    {
+      "path": "research_formulas/stockhunter_r1d27e_post15_analyze.py",
+      "git_blob_sha1": "7b0270b729b453bf28859598a00057c462564bc8",
+      "size": 12980
+    },
+    {
+      "path": "research_formulas/stockhunter_r1d27e_post15_flow.py",
+      "git_blob_sha1": "ef7a3e95b54648b3143038b47050954bacc667e2",
+      "size": 13447
+    },
+    {
+      "path": "research_formulas/stockhunter_r1d27f_checkpoint_priceflow.py",
+      "git_blob_sha1": "19164901397437e72809c8cc4529ccd947170d6f",
+      "size": 18393
+    },
+    {
+      "path": "research_formulas/stockhunter_r1d27r_flow_collect.py",
+      "git_blob_sha1": "c9ef98327cf03d9282203b55ae3c158b0e8e7267",
+      "size": 8213
+    },
+    {
+      "path": "research_formulas/stockhunter_r1d27r_flow_replay.py",
+      "git_blob_sha1": "64e66ca0711aeedef085d559cac340b463b306ab",
+      "size": 11954
+    },
+    {
+      "path": "research_formulas/test_r1d44_krx_sector_mcap_quarter.py",
+      "git_blob_sha1": "ef6f7b32965aaf1e1330869dc19a50f4c8b95128",
+      "size": 5147
+    },
+    {
+      "path": "research_inputs/R1D27D_02_CANDLE_MA_BB_ENV_SIGNAL_DAY_1500.csv",
+      "git_blob_sha1": "1c6c31f136ec189da5ed7de130f6bc7918823562",
+      "size": 772431
+    },
+    {
+      "path": "research_inputs/R1D27D_03_PRICE_DAILY_D1_D15_ALL_1500.csv",
+      "git_blob_sha1": "aa0f483e177e2b5c309da5785a22697b25fedfa7",
+      "size": 9929648
+    },
+    {
+      "path": "research_inputs/R1D27D_ALLMARKET_85576_TICKER_DATES_SOURCE_QUEUE.csv.gz",
+      "git_blob_sha1": "4444a4719df6d00c21df7bfead3605028e10ab21",
+      "size": 341702
+    },
+    {
+      "path": "research_inputs/R1D27D_FROZEN_1500_TICKER_DISJOINT_OUTCOME_BLIND.csv",
+      "git_blob_sha1": "e97ff6d71b2ee00bc77d55c034eab8c51dad7c2a",
+      "size": 251465
+    },
+    {
+      "path": "research_inputs/R1D27D_FROZEN_MANIFEST.json",
+      "git_blob_sha1": "d4c5397dea046412fac323b204bbf316c190e55b",
+      "size": 1229
+    },
+    {
+      "path": "research_inputs/R1D27D_FULLMARKET_SOURCE_QUEUE_MANIFEST.json",
+      "git_blob_sha1": "8260f0c39dc1752885cb83f9165def913f6527c6",
+      "size": 511
+    },
+    {
+      "path": "research_inputs/R1D27D_ORIGINAL_KRX_INDEX_1907_DAYS.csv",
+      "git_blob_sha1": "d322f813fde4c34de5da764de3fbae935ad8b133",
+      "size": 20982
+    },
+    {
+      "path": "research_inputs/R1D27E_POST15_FIXED_PRICE_BASE_1500.csv.gz",
+      "git_blob_sha1": "aaa6817e7910dba449fa6fd0d5505010f750bea5",
+      "size": 592445
+    },
+    {
+      "path": "research_inputs/R1D27E_POST15_FIXED_PRICE_BASE_MANIFEST.json",
+      "git_blob_sha1": "267fa3fbd5737d598a3a6825eb24c4058cf07f45",
+      "size": 821
+    },
+    {
+      "path": "research_inputs/R1D27E_PRE_SIGNAL_MAGNITUDE_1481.csv.gz",
+      "git_blob_sha1": "1d0f0ace8038dd293f8b42f9cf17b4857fda857e",
+      "size": 68676
+    },
+    {
+      "path": "research_inputs/R1D27R_FLOW_BLIND_FROZEN_1500.csv",
+      "git_blob_sha1": "4d0c7ec6c724d17ac8ae51506fadaeec9302778e",
+      "size": 276269
+    },
+    {
+      "path": "research_inputs/R1D27R_ORIGINAL_KRX_TRADING_CALENDAR.csv",
+      "git_blob_sha1": "34748a545f97cf53cb498d8c2c65c41806a74d87",
+      "size": 31326
+    },
+    {
+      "path": "research_inputs/R1D27R_PILOT_DMINUS60_DPLUS40_PRICE_CONTEXT.csv.gz",
+      "git_blob_sha1": "ba5ece4feda6fb0191c0da17da0fd38c905a83f4",
+      "size": 4084382
+    },
+    {
+      "path": "research_inputs/R1D27R_PILOT_FLOW_BLIND_FROZEN_300.csv",
+      "git_blob_sha1": "77d5446c44ef7fa5ae5db98b06cb9dd88ada649c",
+      "size": 55451
+    },
+    {
+      "path": "research_inputs/R1D67_FROZEN_84922_MINI.csv.gz",
+      "git_blob_sha1": "cc5441298b844babfd8978b4802cb4f3999889bf",
+      "size": 1983714
+    },
+    {
+      "path": "research_inputs/r1d71/FROZEN_R1D6_ASOF_5247.csv.gz",
+      "git_blob_sha1": "b3833ee0b197f694223bb0088e7c0117ee0843fe",
+      "size": 1668524
+    },
+    {
+      "path": "research_inputs/r1d71/FROZEN_R1D72_1_STAGE_LIQ_2049.csv.gz",
+      "git_blob_sha1": "95a4b02fab03bba902d5093ca97972b9a0c47d71",
+      "size": 186481
+    },
+    {
+      "path": "research_inputs/r1d71/R1D19_ORIGINAL_BB_RESEARCH.zip",
+      "git_blob_sha1": "ace66d158063f7e70dfbeab60bc1e2a599cee21e",
+      "size": 448129
+    },
+    {
+      "path": "research_inputs/r1d71/R1D6_224_BASE_COHORT.zip",
+      "git_blob_sha1": "70b619d365bef3d3b5482c3dfc4d4ec8e2087a15",
+      "size": 1672651
+    },
+    {
+      "path": "research_inputs/r1d71/R1D7_FROZEN_LABELS.zip",
+      "git_blob_sha1": "62f3b4dda8a9e3d833ceb1aa47c46ec2bd89963c",
+      "size": 785305
+    },
+    {
+      "path": "research_inputs/r1d71/SHA256SUMS.txt",
+      "git_blob_sha1": "7296b709db2a0ddd923cf9068f7cd312be95b7d0",
+      "size": 242
+    },
+    {
+      "path": "research_pit/historical_market_counts_20190102_20261012.csv",
+      "git_blob_sha1": "2d7d1650d1fc0e2564b42f0aba7ce80af9ac04d9",
+      "size": 164075
+    },
+    {
+      "path": "research_pit/krx_full_market_pit.py",
+      "git_blob_sha1": "03ea1bee1ddc9ededb246c3c076908f58c343128",
+      "size": 15825
+    },
+    {
+      "path": "research_pit/pit_official_events_audit.py",
+      "git_blob_sha1": "654a09c7b01698e279b638d9adba2a7b62b3926a",
+      "size": 16042
+    },
+    {
+      "path": "research_pit/pit_security_master_audit.py",
+      "git_blob_sha1": "139af4aa0d1caac2a010e9c383e83af42330421c",
+      "size": 12466
+    },
+    {
+      "path": "research_pit/pit_stage4_security_type_evidence.py",
+      "git_blob_sha1": "66d75999b50387c20ba25094740311cfeed12c63",
+      "size": 14709
+    },
+    {
+      "path": "research_pit/pit_stage5_daily_roster.py",
+      "git_blob_sha1": "884a19e927a6f114ab986b79c785f69d112c67ae",
+      "size": 18103
+    },
+    {
+      "path": "research_pit/pit_stage6_market_cap.py",
+      "git_blob_sha1": "776c7fbeb5d0a2eca49477a78bb3c098fbc5095a",
+      "size": 19768
+    },
+    {
+      "path": "research_pit/pit_stage7_official_halts.py",
+      "git_blob_sha1": "d45469fef70f8eedca487ad51bfaf197438ea51d",
+      "size": 17969
+    },
+    {
+      "path": "research_pit/pit_stage7b_halt_price_bridge.py",
+      "git_blob_sha1": "acc7cc201d3ed5ac683e7deee2abff13b1ffced3",
+      "size": 19980
+    },
+    {
+      "path": "research_pit/pit_stage7c_kind_resume_source.py",
+      "git_blob_sha1": "cce625e21f53122da1a36b9215022c16ac54929d",
+      "size": 17896
+    },
+    {
+      "path": "research_pit/pit_stage7d_kind_full_document.py",
+      "git_blob_sha1": "49b7da74df0408ca6fe0f737fa458481b548fcb3",
+      "size": 16916
+    },
+    {
+      "path": "research_pit/pit_stage7e_effective_event_ledger.py",
+      "git_blob_sha1": "2f40fefb685ea253c0e15f284ab9c27a83c1f4d6",
+      "size": 18051
+    },
+    {
+      "path": "research_pit/pit_stage7f_full_halt_notice_chain.py",
+      "git_blob_sha1": "3a8250c8967508b43585b6b2745499dcd4924a90",
+      "size": 12635
+    },
+    {
+      "path": "research_pit/pit_stage7g_other_market_notices.py",
+      "git_blob_sha1": "c8295594c3ae2da2ec0e869b2b3b4d5a98313202",
+      "size": 14386
+    },
+    {
+      "path": "research_pit/pit_stage7h_57_notice_correction_chain.py",
+      "git_blob_sha1": "ae1dfae9e25150e85153a6ba36d7f1b70a39d473",
+      "size": 14606
+    },
+    {
+      "path": "research_pit/pit_stage7i_bounded_missing_notice_audit.py",
+      "git_blob_sha1": "73a8f657b9d2be2f3cd6d7746d92c9ab5185fd3c",
+      "size": 23656
+    },
+    {
+      "path": "research_pit/pit_stage7j_selected_notice_fullbody.py",
+      "git_blob_sha1": "90c25f99db221f35079751c3f08f8ad6f86b6c2b",
+      "size": 29820
+    },
+    {
+      "path": "research_pit/pit_stage7j_three_residual_recovery.py",
+      "git_blob_sha1": "433c305493bfbea9d40f8c746f24908cfd960083",
+      "size": 20846
+    },
+    {
+      "path": "research_projects/blue20_candle_exhaustion_research/README_KO.md",
+      "git_blob_sha1": "e0385c3d96a09e3e8620fdb53ede5a9a99bbea77",
+      "size": 5907
+    },
+    {
+      "path": "research_projects/blue20_candle_exhaustion_research/analyze_candle_exhaustion.py",
+      "git_blob_sha1": "aa8ea06e91462979105070be0c09533734f781fb",
+      "size": 25264
+    },
+    {
+      "path": "research_projects/blue20_candle_exhaustion_research/tests/test_candle_exhaustion.py",
+      "git_blob_sha1": "61496275ceeb1cc29ec4a595ce786c41e534ba95",
+      "size": 7960
+    },
+    {
+      "path": "research_projects/blue20_ma_structure_research/README_KO.md",
+      "git_blob_sha1": "9609a5a73644d58b7ae6a316419353f5c0de8b55",
+      "size": 11456
+    },
+    {
+      "path": "research_projects/blue20_ma_structure_research/analyze_ma.py",
+      "git_blob_sha1": "406184efbac7f707540161c88a13fa5760e7d774",
+      "size": 25290
+    },
+    {
+      "path": "research_projects/blue20_ma_structure_research/post_entry_flow.py",
+      "git_blob_sha1": "e9cf7f213a994e4f42e60bbd519fc4bbea79f597",
+      "size": 21398
+    },
+    {
+      "path": "research_projects/blue20_ma_structure_research/tests/test_ma_study.py",
+      "git_blob_sha1": "41abf977c2433ed02aac62d1a217f4078ebaa0ff",
+      "size": 2823
+    },
+    {
+      "path": "research_projects/blue20_ma_structure_research/tests/test_post_entry_flow.py",
+      "git_blob_sha1": "ce399631304968842cfff98e9a94f46cdcf8aa37",
+      "size": 6304
+    },
+    {
+      "path": "research_projects/blue20_multifactor_research/PRELIMINARY_DENSITY_BASELINE.csv",
+      "git_blob_sha1": "5da3b13fb3a660371dd5f71dfa2e1010918fd9e1",
+      "size": 298
+    },
+    {
+      "path": "research_projects/blue20_multifactor_research/README_KO.md",
+      "git_blob_sha1": "13937587ec364d5874ca339edf0ca569448f34e3",
+      "size": 7078
+    },
+    {
+      "path": "research_projects/blue20_multifactor_research/inputs/sector_pit.EXAMPLE.csv",
+      "git_blob_sha1": "f658027e86d23b70818d85a7c7b46d5b32a8f729",
+      "size": 44
+    },
+    {
+      "path": "research_projects/blue20_multifactor_research/inputs/theme_pit.EXAMPLE.csv",
+      "git_blob_sha1": "97930fb353e2d33fa90cfaebee71ca06c08e03e2",
+      "size": 43
+    },
+    {
+      "path": "research_projects/blue20_multifactor_research/multifactor.py",
+      "git_blob_sha1": "b5120e29be9ebf5389e058d28474f88f54cb6caa",
+      "size": 35542
+    },
+    {
+      "path": "research_projects/blue20_multifactor_research/run_auto500.py",
+      "git_blob_sha1": "d745a3d29faefc40aa4fcde72b3fffdab6958712",
+      "size": 4773
+    },
+    {
+      "path": "research_projects/blue20_multifactor_research/tests/test_multifactor.py",
+      "git_blob_sha1": "35277f57ccf2f038e0f510e0e15f6949a1ed05f9",
+      "size": 8128
+    },
+    {
+      "path": "research_projects/blue20_price_interaction_research/DOCUMENTS.json",
+      "git_blob_sha1": "8cae055bd49bee2987f3a1f35aa090876e7649f0",
+      "size": 1313
+    },
+    {
+      "path": "research_projects/blue20_price_interaction_research/PROTOCOL_KO.md",
+      "git_blob_sha1": "5e9934172531a83c8332d7fbff4057eb8c5e3656",
+      "size": 3848
+    },
+    {
+      "path": "research_projects/blue20_price_interaction_research/analyze.py",
+      "git_blob_sha1": "27febccdb0fae97b07dd41e6558fefaf9a9580ab",
+      "size": 9006
+    },
+    {
+      "path": "research_projects/blue20_price_interaction_research/anomaly_report.py",
+      "git_blob_sha1": "b285702072fe39ee9dc719bc4bd38b68979f8755",
+      "size": 6594
+    },
+    {
+      "path": "research_projects/blue20_price_interaction_research/evidence/20221012000523_body.htm",
+      "git_blob_sha1": "58b17272d9e04eb54ceb0d2405c994cf2b033c6c",
+      "size": 3275
+    },
+    {
+      "path": "research_projects/blue20_price_interaction_research/evidence/20221012000523_body.txt",
+      "git_blob_sha1": "e26f9ba18e8f15f355c8dd1594cc7862191b7136",
+      "size": 182
+    },
+    {
+      "path": "research_projects/blue20_price_interaction_research/evidence/20221104000536_body.htm",
+      "git_blob_sha1": "aa8c9da54e7d1b56f99505dd606993c20a0b5e1e",
+      "size": 4122
+    },
+    {
+      "path": "research_projects/blue20_price_interaction_research/evidence/20221104000536_body.txt",
+      "git_blob_sha1": "f6f103b8fbe5b5246955c7cb2088ab6ac40b16bc",
+      "size": 552
+    },
+    {
+      "path": "research_projects/blue20_price_interaction_research/evidence/20221206000422_body.htm",
+      "git_blob_sha1": "fff14a16db791993342e257b8f28bf5fc51beadf",
+      "size": 16561
+    },
+    {
+      "path": "research_projects/blue20_price_interaction_research/evidence/20221206000422_body.txt",
+      "git_blob_sha1": "672c9984aae3d5738471af861a97cb81fe21d164",
+      "size": 2283
+    },
+    {
+      "path": "research_projects/blue20_price_interaction_research/evidence/20221213000271_body.htm",
+      "git_blob_sha1": "c2898bc850ecd878aac41b3bdafe6118b28f8b10",
+      "size": 3817
+    },
+    {
+      "path": "research_projects/blue20_price_interaction_research/evidence/20221213000271_body.txt",
+      "git_blob_sha1": "5993b6de2e858f0848ab7dada06ee703e655e2b5",
+      "size": 505
+    },
+    {
+      "path": "research_projects/blue20_price_interaction_research/evidence/20221215000546_body.htm",
+      "git_blob_sha1": "3ab80b69a89ed813cf4e1c8a5a5a053b78362412",
+      "size": 7579
+    },
+    {
+      "path": "research_projects/blue20_price_interaction_research/evidence/20221215000546_body.txt",
+      "git_blob_sha1": "7a627021373c22ba4b7fa9800ea13a7f3e2a1ce2",
+      "size": 1208
+    },
+    {
+      "path": "research_projects/blue20_price_interaction_research/evidence/20221227000903_body.htm",
+      "git_blob_sha1": "a5a74af14d5aaec9c6d67091f6039e6ce77d0475",
+      "size": 3274
+    },
+    {
+      "path": "research_projects/blue20_price_interaction_research/evidence/20221227000903_body.txt",
+      "git_blob_sha1": "0bcb673230ab592acf5bdfcd56895171bbcc3bfa",
+      "size": 182
+    },
+    {
+      "path": "research_projects/blue20_price_interaction_research/evidence/naver_028300.xml.gz",
+      "git_blob_sha1": "04fcde722fc9ff71b9c166f45538b6d5db06421f",
+      "size": 33337
+    },
+    {
+      "path": "research_projects/blue20_price_interaction_research/evidence/naver_038500.xml.gz",
+      "git_blob_sha1": "4d0192cda6df96ccd14335ffc3e836c38e860907",
+      "size": 27592
+    },
+    {
+      "path": "research_projects/blue20_price_interaction_research/evidence/naver_180640.xml.gz",
+      "git_blob_sha1": "b76bc7b3d4b048cd4288fc8956ab879699b1ee46",
+      "size": 28655
+    },
+    {
+      "path": "research_projects/blue20_price_interaction_research/inputs.py",
+      "git_blob_sha1": "f4fee8224d5e3a4ac953d2ccf0d39ce9cf6c163b",
+      "size": 3650
+    },
+    {
+      "path": "research_projects/blue20_price_interaction_research/interaction_charts.py",
+      "git_blob_sha1": "3c929eb64f9014cf69f801e3c067d91e83c67f0c",
+      "size": 3267
+    },
+    {
+      "path": "research_projects/blue20_price_interaction_research/reference/AMOUNT_SCOPE_FLAGS.csv",
+      "git_blob_sha1": "e699960809da12a64662c03f28eede2abcab808a",
+      "size": 625
+    },
+    {
+      "path": "research_projects/blue20_price_interaction_research/reference/REFERENCE_PRICE_FLAGS.csv",
+      "git_blob_sha1": "3b254760abc0356115d11fec1be822ad938bc73c",
+      "size": 210
+    },
+    {
+      "path": "research_projects/blue20_price_interaction_research/reference/frozen_reference.json",
+      "git_blob_sha1": "f0fadadf965470ebd15f342771acd320124e83b0",
+      "size": 47576
+    },
+    {
+      "path": "research_projects/blue20_price_interaction_research/report.py",
+      "git_blob_sha1": "6c4ccf559e8787000a47862b812ee1111ee0f681",
+      "size": 8656
+    },
+    {
+      "path": "research_projects/blue20_price_interaction_research/structure.py",
+      "git_blob_sha1": "036283dd13cf4daf77f8c1cb68eedd0ad7fe3a08",
+      "size": 4756
+    },
+    {
+      "path": "research_projects/blue20_price_interaction_research/test_structure.py",
+      "git_blob_sha1": "6c6bc185261d36621e4d92b874c97ae39a7f008f",
+      "size": 2217
+    },
+    {
+      "path": "research_projects/blue20_profile_cloud_avwap_research/PROTOCOL_KO.md",
+      "git_blob_sha1": "5a3b029ae3036d9c5e2b6fbdb521cb99e6b4668e",
+      "size": 3823
+    },
+    {
+      "path": "research_projects/blue20_profile_cloud_avwap_research/gallery.py",
+      "git_blob_sha1": "2f2a151ca4fc49f43b268a93d82a48d9062b81c3",
+      "size": 8112
+    },
+    {
+      "path": "research_projects/blue20_profile_cloud_avwap_research/report.py",
+      "git_blob_sha1": "768c000fecc631eb91a4cc1170927883f3c77226",
+      "size": 10399
+    },
+    {
+      "path": "research_projects/blue20_profile_cloud_avwap_research/study.py",
+      "git_blob_sha1": "3ea41ec8ee0499dfb31bd011f39f72d34094ee2b",
+      "size": 20649
+    },
+    {
+      "path": "research_projects/blue20_profile_cloud_avwap_research/test_study.py",
+      "git_blob_sha1": "57482f8b8e97d211292c1c35e5fc58ba8d635c78",
+      "size": 4794
+    },
+    {
+      "path": "research_projects/blue20_repeated_resistance_research/PROTOCOL_KO.md",
+      "git_blob_sha1": "cf8cc25e8b8bdc3c7dd6a1258e72625b0f5a4c09",
+      "size": 4894
+    },
+    {
+      "path": "research_projects/blue20_repeated_resistance_research/deliver.py",
+      "git_blob_sha1": "615c5d686fdd5b830d8742a4ed9acab6ae2a5b96",
+      "size": 14116
+    },
+    {
+      "path": "research_projects/blue20_repeated_resistance_research/frozen_reference.json",
+      "git_blob_sha1": "f0fadadf965470ebd15f342771acd320124e83b0",
+      "size": 47576
+    },
+    {
+      "path": "research_projects/blue20_repeated_resistance_research/research.py",
+      "git_blob_sha1": "b1cbf96267943a0efb58a60111a4857b0db0b6f3",
+      "size": 16496
+    },
+    {
+      "path": "research_projects/blue20_repeated_resistance_research/test_research.py",
+      "git_blob_sha1": "c9a74e1dbbb81e915b8948013023c1925c601e61",
+      "size": 3278
+    },
+    {
+      "path": "research_projects/blue20_rsi_delay_research/README_KO.md",
+      "git_blob_sha1": "1a8c02029b7cabc777405bfa92a658d486bc5c5e",
+      "size": 7101
+    },
+    {
+      "path": "research_projects/blue20_rsi_delay_research/auto500_research.py",
+      "git_blob_sha1": "a81b6e9b5360d24d3569056226980fef38795ce5",
+      "size": 7751
+    },
+    {
+      "path": "research_projects/blue20_rsi_delay_research/blue20_rsi_delay.py",
+      "git_blob_sha1": "b5ddb645de91d9ef6db62e5c649535d2c9e5607e",
+      "size": 17460
+    },
+    {
+      "path": "research_projects/blue20_rsi_delay_research/blue20_threeway_audit.py",
+      "git_blob_sha1": "b838a3e96faafba3b088c9a1dc424ebcf948f9fb",
+      "size": 12654
+    },
+    {
+      "path": "research_projects/blue20_rsi_delay_research/tests/test_auto500_and_workflow.py",
+      "git_blob_sha1": "812b85cd2d27c5e1a3ebb6fc262d86726f1c8589",
+      "size": 2858
+    },
+    {
+      "path": "research_projects/blue20_rsi_delay_research/tests/test_blue20_rsi_delay.py",
+      "git_blob_sha1": "b3cb1b5b3da302fbc655cb6e0bd5ae54fbc1868d",
+      "size": 5456
+    },
+    {
+      "path": "research_projects/blue20_rsi_delay_research/tests/test_blue20_threeway.py",
+      "git_blob_sha1": "c5acc1346b5d654bff9677e27813cbff99ac9a76",
+      "size": 2222
+    },
+    {
+      "path": "research_projects/blue20_structure_validation_research/KRX_PROBE.json",
+      "git_blob_sha1": "b874cd94fe125e7a1b619779980e653277d32821",
+      "size": 235
+    },
+    {
+      "path": "research_projects/blue20_structure_validation_research/PROTOCOL_KO.md",
+      "git_blob_sha1": "10d2e0ecd01659c884af645e810a5352bd3fadf5",
+      "size": 2860
+    },
+    {
+      "path": "research_projects/blue20_structure_validation_research/SOURCE_SHA256.json",
+      "git_blob_sha1": "68826d058c90fedff1d020a6c68061e237728091",
+      "size": 279
+    },
+    {
+      "path": "research_projects/blue20_structure_validation_research/UPSTREAM_DATE_FIELDS.patch",
+      "git_blob_sha1": "637c3bce2e67597bd7f687cb13534432da57fa13",
+      "size": 805
+    },
+    {
+      "path": "research_projects/blue20_structure_validation_research/analyze.py",
+      "git_blob_sha1": "37f9e473542e6c88cdc26e41db30ac67e4d565ba",
+      "size": 12800
+    },
+    {
+      "path": "research_projects/blue20_structure_validation_research/evidence/krx_daily_20221108.response",
+      "git_blob_sha1": "8c4c02b7e4394ac6f64ba3b769cbcb9976dc2ec6",
+      "size": 6
+    },
+    {
+      "path": "research_projects/blue20_structure_validation_research/report.py",
+      "git_blob_sha1": "fa1c8fb4ebd92a7c22093c9f19c28ea51ae21160",
+      "size": 13002
+    },
+    {
+      "path": "research_projects/blue20_structure_validation_research/test_validation.py",
+      "git_blob_sha1": "b2151f7f6d0637ad68007bc86560f3741a135814",
+      "size": 3104
+    },
+    {
+      "path": "research_projects/blue20_trend_stop_research/PROTOCOL_KO.md",
+      "git_blob_sha1": "3bd0341b60d0f25841b673f3ea3d161cc7b0de19",
+      "size": 4457
+    },
+    {
+      "path": "research_projects/blue20_trend_stop_research/__pycache__/analyze.cpython-312.pyc",
+      "git_blob_sha1": "d309d526dc6782b1500adb71ea0cc955e6b1f2b0",
+      "size": 21340
+    },
+    {
+      "path": "research_projects/blue20_trend_stop_research/__pycache__/reliability.cpython-312.pyc",
+      "git_blob_sha1": "7b4bfb6d8029e760ce59db1e28802c9e94d3548f",
+      "size": 9186
+    },
+    {
+      "path": "research_projects/blue20_trend_stop_research/__pycache__/test_study.cpython-312.pyc",
+      "git_blob_sha1": "175a881518dfc9424d35b64e30ae3015ac53af1b",
+      "size": 6515
+    },
+    {
+      "path": "research_projects/blue20_trend_stop_research/analyze.py",
+      "git_blob_sha1": "e1e5f8e972ca76bdd671329561a0cad77941b290",
+      "size": 10391
+    },
+    {
+      "path": "research_projects/blue20_trend_stop_research/reference/BASELINE.csv.gz",
+      "git_blob_sha1": "326a1ebe913ecce89e980b3dd7cf6583c3697f57",
+      "size": 769880
+    },
+    {
+      "path": "research_projects/blue20_trend_stop_research/reference/FROZEN.json",
+      "git_blob_sha1": "f0fadadf965470ebd15f342771acd320124e83b0",
+      "size": 47576
+    },
+    {
+      "path": "research_projects/blue20_trend_stop_research/reference/SHA256.json",
+      "git_blob_sha1": "ee9a920c8e4f94d74a1ed62d4764f8eb2606bec6",
+      "size": 266
+    },
+    {
+      "path": "research_projects/blue20_trend_stop_research/reference/ZONES.csv.gz",
+      "git_blob_sha1": "08aa16cea74681511e812803c65312c080265061",
+      "size": 1153850
+    },
+    {
+      "path": "research_projects/blue20_trend_stop_research/reliability.py",
+      "git_blob_sha1": "5811fe2cd116ec8a4e4a18b5e1f516065e15b569",
+      "size": 4825
+    },
+    {
+      "path": "research_projects/blue20_trend_stop_research/report.py",
+      "git_blob_sha1": "a1149b2f2d44903ffb21b765f8e01b54c8c901ad",
+      "size": 13746
+    },
+    {
+      "path": "research_projects/blue20_trend_stop_research/screen.py",
+      "git_blob_sha1": "1297fa76ee301b9cd5c57c6fed7ca442ed29dc9f",
+      "size": 3834
+    },
+    {
+      "path": "research_projects/blue20_trend_stop_research/test_study.py",
+      "git_blob_sha1": "749bb17b096532d7b5117b390b2601770ef85867",
+      "size": 2358
+    },
+    {
+      "path": "research_projects/blue20_trend_stop_research/vendor/__pycache__/loader.cpython-312.pyc",
+      "git_blob_sha1": "edc18d2cd8ffcf3e1fb79ed4a879415f63a5ab87",
+      "size": 1667
+    },
+    {
+      "path": "research_projects/blue20_trend_stop_research/vendor/__pycache__/profile.cpython-312.pyc",
+      "git_blob_sha1": "e0548beedf1e648a6bd1f7f79b8af91c086841ad",
+      "size": 3646
+    },
+    {
+      "path": "research_projects/blue20_trend_stop_research/vendor/__pycache__/structure.cpython-312.pyc",
+      "git_blob_sha1": "75ce4037854f511c757d9adcdd835bc11b1a44d6",
+      "size": 8849
+    },
+    {
+      "path": "research_projects/blue20_trend_stop_research/vendor/loader.py",
+      "git_blob_sha1": "cde1a229fbd88b8366b94029927c8be0213057e8",
+      "size": 577
+    },
+    {
+      "path": "research_projects/blue20_trend_stop_research/vendor/profile.py",
+      "git_blob_sha1": "582f7f72f8d2b84903053f03075bad97162ae773",
+      "size": 1975
+    },
+    {
+      "path": "research_projects/blue20_trend_stop_research/vendor/structure.py",
+      "git_blob_sha1": "036283dd13cf4daf77f8c1cb68eedd0ad7fe3a08",
+      "size": 4756
+    },
+    {
+      "path": "research_projects/blue20_vp_signal_audit_research/PROTOCOL_KO.md",
+      "git_blob_sha1": "3fed0b38690e4c7b6f1cd0064e41eec54418912c",
+      "size": 4241
+    },
+    {
+      "path": "research_projects/blue20_vp_signal_audit_research/README_KO.md",
+      "git_blob_sha1": "d085713298064db36292c46108d3dc1658043af2",
+      "size": 2173
+    },
+    {
+      "path": "research_projects/blue20_vp_signal_audit_research/analyze.py",
+      "git_blob_sha1": "301334ef8a6c7ff199f2e0e0c64301b42eb24a77",
+      "size": 10154
+    },
+    {
+      "path": "research_projects/blue20_vp_signal_audit_research/profile_core.py",
+      "git_blob_sha1": "785ba4619544c27107dd1e732bed3e4601c0a756",
+      "size": 5548
+    },
+    {
+      "path": "research_projects/blue20_vp_signal_audit_research/reference/BASELINE.csv.gz",
+      "git_blob_sha1": "326a1ebe913ecce89e980b3dd7cf6583c3697f57",
+      "size": 769880
+    },
+    {
+      "path": "research_projects/blue20_vp_signal_audit_research/reference/FROZEN.json",
+      "git_blob_sha1": "f0fadadf965470ebd15f342771acd320124e83b0",
+      "size": 47576
+    },
+    {
+      "path": "research_projects/blue20_vp_signal_audit_research/reference/HTS_SETTINGS.json",
+      "git_blob_sha1": "81abb1228d46544cc592c509c642f9cb650f896a",
+      "size": 1056
+    },
+    {
+      "path": "research_projects/blue20_vp_signal_audit_research/reference/KNOWN_SOURCE_ANOMALIES.csv",
+      "git_blob_sha1": "978dc78337ea071425033d931f92bf87820c98b4",
+      "size": 2658
+    },
+    {
+      "path": "research_projects/blue20_vp_signal_audit_research/reference/PARTIAL_ACTIONS.json",
+      "git_blob_sha1": "1670ddef57c8dba59b499cee0bb77011edbadc3d",
+      "size": 595
+    },
+    {
+      "path": "research_projects/blue20_vp_signal_audit_research/reference/SHA256.json",
+      "git_blob_sha1": "b5d8b35d36430d90c37e2939cee6c39b9ffbbecf",
+      "size": 681
+    },
+    {
+      "path": "research_projects/blue20_vp_signal_audit_research/reference/evidence/20221012000523_body.htm",
+      "git_blob_sha1": "58b17272d9e04eb54ceb0d2405c994cf2b033c6c",
+      "size": 3275
+    },
+    {
+      "path": "research_projects/blue20_vp_signal_audit_research/reference/evidence/20221227000903_body.htm",
+      "git_blob_sha1": "a5a74af14d5aaec9c6d67091f6039e6ce77d0475",
+      "size": 3274
+    },
+    {
+      "path": "research_projects/blue20_vp_signal_audit_research/report.py",
+      "git_blob_sha1": "241a364ade07b29c12efcff83fbec2342a09ccd9",
+      "size": 15759
+    },
+    {
+      "path": "research_projects/blue20_vp_signal_audit_research/test_profile.py",
+      "git_blob_sha1": "700d198282b75dcda9aad42924b68c7eb5f68937",
+      "size": 3721
+    },
+    {
+      "path": "research_projects/blue20_vp_signal_audit_research/trace.py",
+      "git_blob_sha1": "1d8bc074824090b7080c5ddcefb0f05d64defce2",
+      "size": 4005
+    },
+    {
+      "path": "research_projects/blue20_vp_signal_audit_research/vendor/legacy_profile.py",
+      "git_blob_sha1": "582f7f72f8d2b84903053f03075bad97162ae773",
+      "size": 1975
+    },
+    {
+      "path": "research_projects/blue20_vp_signal_audit_research/vendor/loader.py",
+      "git_blob_sha1": "cde1a229fbd88b8366b94029927c8be0213057e8",
+      "size": 577
+    },
+    {
+      "path": "research_projects/blue20_vp_signal_audit_research/vendor/structure.py",
+      "git_blob_sha1": "036283dd13cf4daf77f8c1cb68eedd0ad7fe3a08",
+      "size": 4756
+    },
+    {
+      "path": "research_projects/blue20_vp_signal_audit_research/verify.py",
+      "git_blob_sha1": "4fe48b7ce3f06468017f8163a091e1d26edf607d",
+      "size": 3322
+    },
+    {
+      "path": "research_projects/data/220260_KRX.csv",
+      "git_blob_sha1": "07e2720b5a308612385d1496b83c73d9f2bfb65d",
+      "size": 41385
+    },
+    {
+      "path": "research_projects/r1d100/band_structure.py",
+      "git_blob_sha1": "acd0668c21f792acf9a35aeff583752d898b6e32",
+      "size": 6757
+    },
+    {
+      "path": "research_projects/r1d100/dynamic_structure.py",
+      "git_blob_sha1": "37786095f5bc713b8cd79b60ae06dc441f257d17",
+      "size": 8469
+    },
+    {
+      "path": "research_projects/r1d100/research_r1d100.py",
+      "git_blob_sha1": "82d4d5890971d424e03c24cad794d97bc79a1041",
+      "size": 12127
+    },
+    {
+      "path": "research_projects/r1d100/tests/test_band_structure.py",
+      "git_blob_sha1": "e71b35ebbb6b1e77667f5edeb298530b880fa055",
+      "size": 5713
+    },
+    {
+      "path": "research_projects/r1d100/tests/test_r1d100.py",
+      "git_blob_sha1": "89be4491b00ec8b82a80605ecd95fac2b5427916",
+      "size": 4800
+    },
+    {
+      "path": "research_projects/r1d101/README_R1D101_KO.md",
+      "git_blob_sha1": "1493b0215757ba3eaac1c82cb24cbd0230a37739",
+      "size": 5923
+    },
+    {
+      "path": "research_projects/r1d101/pre_rise.py",
+      "git_blob_sha1": "9754248791fe6f9cdbbd52b44e6af7116434cbcb",
+      "size": 11637
+    },
+    {
+      "path": "research_projects/r1d101/research_r1d100.py",
+      "git_blob_sha1": "0c958c591d548656beba84e72f71bc716c13dfca",
+      "size": 9791
+    },
+    {
+      "path": "research_projects/r1d101/research_r1d101.py",
+      "git_blob_sha1": "edfc4ea5ee7951353f4e557c90414933919651b3",
+      "size": 12874
+    },
+    {
+      "path": "research_projects/r1d101/tests/test_r1d101.py",
+      "git_blob_sha1": "0971b06016496e489ba79a174642afff11990c1a",
+      "size": 7939
+    },
+    {
+      "path": "research_projects/r1d102/README_R1D102_KO.md",
+      "git_blob_sha1": "d9cd76101929c9cb1881be67c28a642cf4c38e10",
+      "size": 4110
+    },
+    {
+      "path": "research_projects/r1d102/cloud_geometry.py",
+      "git_blob_sha1": "678b948cfb2a198fbc81bb33780b582a3a8d3aba",
+      "size": 8086
+    },
+    {
+      "path": "research_projects/r1d102/research_r1d102.py",
+      "git_blob_sha1": "438429b847cd0428d8a7557253f6e17b51b00b14",
+      "size": 15294
+    },
+    {
+      "path": "research_projects/r1d102/tests/test_r1d102.py",
+      "git_blob_sha1": "1af3e376a37d5ce7e5d3e9cf60db65e3d4f5b209",
+      "size": 6339
+    },
+    {
+      "path": "research_projects/r1d103/README_R1D103_KO.md",
+      "git_blob_sha1": "189c5dfca74af64983af5fa55cf7ac29df50dbab",
+      "size": 5015
+    },
+    {
+      "path": "research_projects/r1d103/ma_roles.py",
+      "git_blob_sha1": "9f8e67963db1ae1dbec6617d49ddf5849a8d39f3",
+      "size": 9321
+    },
+    {
+      "path": "research_projects/r1d103/research_r1d103.py",
+      "git_blob_sha1": "cd7dfd7f7aa189439c50afd0c0e1f76506b82b55",
+      "size": 13053
+    },
+    {
+      "path": "research_projects/r1d103/tests/test_r1d103.py",
+      "git_blob_sha1": "4be193dcdeeeec78d19ac772e47a5f59bf18ab6e",
+      "size": 6797
+    },
+    {
+      "path": "research_projects/r1d104/README_R1D104_KO.md",
+      "git_blob_sha1": "60dcc0123d3d2dd692c5c2711e13d352a207e1fd",
+      "size": 3868
+    },
+    {
+      "path": "research_projects/r1d104/confluence.py",
+      "git_blob_sha1": "c794575f2d9bc02970cfe3ad732333fa9768b9cb",
+      "size": 11258
+    },
+    {
+      "path": "research_projects/r1d104/research_r1d103.py",
+      "git_blob_sha1": "cd7dfd7f7aa189439c50afd0c0e1f76506b82b55",
+      "size": 13053
+    },
+    {
+      "path": "research_projects/r1d104/research_r1d104.py",
+      "git_blob_sha1": "5b02fe782a55ee7a074427797ee04695b7fe3499",
+      "size": 12925
+    },
+    {
+      "path": "research_projects/r1d104/tests/test_r1d104.py",
+      "git_blob_sha1": "c02f535db5b1a3c5f9dc63895f2f234a61f33cee",
+      "size": 5833
+    },
+    {
+      "path": "research_projects/r1d105/README_R1D105_KO.md",
+      "git_blob_sha1": "611ec10385a83b38a9edddbc604992ef1bd30a92",
+      "size": 4845
+    },
+    {
+      "path": "research_projects/r1d105/event_sequences.py",
+      "git_blob_sha1": "031059ae49d314ce82ea8835bf3a012165bb545d",
+      "size": 11264
+    },
+    {
+      "path": "research_projects/r1d105/research_r1d105.py",
+      "git_blob_sha1": "ae95082d4c21d02909220666715b2036eae29ff9",
+      "size": 16405
+    },
+    {
+      "path": "research_projects/r1d105/tests/test_r1d105.py",
+      "git_blob_sha1": "7c6e187fd7f53e37b44250caa9e0d998ddbf618b",
+      "size": 7497
+    },
+    {
+      "path": "research_projects/r1d106/README_R1D106_KO.md",
+      "git_blob_sha1": "91bc4bbb1c025017804c01f41332022ce967de28",
+      "size": 5011
+    },
+    {
+      "path": "research_projects/r1d106/multiline.py",
+      "git_blob_sha1": "0657cdd7142235f361b7ce4cd20a2b240156ac63",
+      "size": 13334
+    },
+    {
+      "path": "research_projects/r1d106/research_r1d106.py",
+      "git_blob_sha1": "31fb5cbb6b0ea6bfc5fc29ca6acdb5d50e0caa27",
+      "size": 16096
+    },
+    {
+      "path": "research_projects/r1d106/tests/test_r1d106.py",
+      "git_blob_sha1": "18d183a501e6ad4088689810a01408f24868fdad",
+      "size": 7676
+    },
+    {
+      "path": "research_projects/r1d107/README_R1D107_KO.md",
+      "git_blob_sha1": "36f0bd78a6b33cc52a91e468bc2d394d913e4292",
+      "size": 6494
+    },
+    {
+      "path": "research_projects/r1d107/quality.py",
+      "git_blob_sha1": "b2e80407028e7613e56ad77b53e06da3a6c6c20d",
+      "size": 9215
+    },
+    {
+      "path": "research_projects/r1d107/research_r1d107.py",
+      "git_blob_sha1": "a2bd66938d3ead647968525f5d749607d52519f6",
+      "size": 19075
+    },
+    {
+      "path": "research_projects/r1d107/tests/test_r1d107.py",
+      "git_blob_sha1": "846168feed35a2d7864449547314761d2bc59bbb",
+      "size": 10628
+    },
+    {
+      "path": "research_projects/r1d108/README_R1D108_KO.md",
+      "git_blob_sha1": "25617c722a42fb494323b8cd240d1e7601e09fe8",
+      "size": 6275
+    },
+    {
+      "path": "research_projects/r1d108/candle_context.py",
+      "git_blob_sha1": "e33f7c3e5692bd66056388167931381a3d3c8c78",
+      "size": 5496
+    },
+    {
+      "path": "research_projects/r1d108/lifecycle.py",
+      "git_blob_sha1": "d283aa4b75dbe216c8929aa90a7df798d6db721d",
+      "size": 6349
+    },
+    {
+      "path": "research_projects/r1d108/research_r1d108.py",
+      "git_blob_sha1": "2fc38b8fb91319985854c00b7fad1b8570cd8a7f",
+      "size": 19244
+    },
+    {
+      "path": "research_projects/r1d108/tests/test_r1d108.py",
+      "git_blob_sha1": "a2037df6195b4596c47e6aa80a4127364778e09c",
+      "size": 6042
+    },
+    {
+      "path": "research_projects/r1d109/README_R1D109_KO.md",
+      "git_blob_sha1": "4b8e9c3f3e7d2fc908773c9f752a8437be94a75a",
+      "size": 4930
+    },
+    {
+      "path": "research_projects/r1d109/research_r1d109.py",
+      "git_blob_sha1": "67d38c93432e673be0e5a6125a22716b9977d503",
+      "size": 20837
+    },
+    {
+      "path": "research_projects/r1d109/tests/test_r1d109.py",
+      "git_blob_sha1": "b1d08abae67645c99a3b8b4bc30d3695fff83341",
+      "size": 9177
+    },
+    {
+      "path": "research_projects/r1d109/turning_points.py",
+      "git_blob_sha1": "d6bcf75cc4b3d57133f1c605e3b9a226e22cdcca",
+      "size": 9689
+    },
+    {
+      "path": "research_projects/r1d110/README_R1D110_KO.md",
+      "git_blob_sha1": "f62d17b9dd511a652d752c0a4ca8c42ef2a42414",
+      "size": 6226
+    },
+    {
+      "path": "research_projects/r1d110/episodes.py",
+      "git_blob_sha1": "92151d6322bebfeb4b068dab24ef6f5601b627b7",
+      "size": 20357
+    },
+    {
+      "path": "research_projects/r1d110/research_r1d110.py",
+      "git_blob_sha1": "9ca3a8332362684369d38d189834f7583a125480",
+      "size": 15193
+    },
+    {
+      "path": "research_projects/r1d110/tests/test_r1d110.py",
+      "git_blob_sha1": "fa03f985301412b18899d260a14a343614921b9b",
+      "size": 10458
+    },
+    {
+      "path": "research_projects/r1d111/README_R1D111_KO.md",
+      "git_blob_sha1": "3e01b21f4dc14f786703f39c56dc524f2ef8bbd1",
+      "size": 7602
+    },
+    {
+      "path": "research_projects/r1d111/algorithms.py",
+      "git_blob_sha1": "c77d07d6c5dc6e8f6885acfb8dde1ad4c834371c",
+      "size": 12468
+    },
+    {
+      "path": "research_projects/r1d111/lifecycle.py",
+      "git_blob_sha1": "c1e647caf395755989a38491c45b3a69ad8f1572",
+      "size": 10252
+    },
+    {
+      "path": "research_projects/r1d111/patterns.py",
+      "git_blob_sha1": "5bd1a56f27b5a35c8c8ad133e02bcf70bd4828da",
+      "size": 5309
+    },
+    {
+      "path": "research_projects/r1d111/research_r1d111.py",
+      "git_blob_sha1": "2284a64c4a8210aa200c455902be33515a13657a",
+      "size": 15743
+    },
+    {
+      "path": "research_projects/r1d111/tests/test_r1d111.py",
+      "git_blob_sha1": "2f8406997d66cdb076f553dbae75be221b6f15ea",
+      "size": 9091
+    },
+    {
+      "path": "research_projects/r1d112/README_R1D112_KO.md",
+      "git_blob_sha1": "b85223415b4f5cc9b81f1981394399c81da42cd2",
+      "size": 6961
+    },
+    {
+      "path": "research_projects/r1d112/multiscale.py",
+      "git_blob_sha1": "a297e973e8fe14008e489d4539ee66c43003e63f",
+      "size": 14454
+    },
+    {
+      "path": "research_projects/r1d112/research_r1d112.py",
+      "git_blob_sha1": "0ae2e9d02b6fec33a0768fc959f7baae3aff1208",
+      "size": 13618
+    },
+    {
+      "path": "research_projects/r1d112/tests/test_r1d112.py",
+      "git_blob_sha1": "d7bc20f98837c05ad8977f922b5a9e8dd5ad2c3c",
+      "size": 8585
+    },
+    {
+      "path": "research_projects/r1d113/README_R1D113_KO.md",
+      "git_blob_sha1": "a64cd98379431684576a37f62d2285036607bc3c",
+      "size": 5524
+    },
+    {
+      "path": "research_projects/r1d113/research_r1d113.py",
+      "git_blob_sha1": "716a4b9fac06e9cd3fbc2323c9f0a63c4edad2ea",
+      "size": 17625
+    },
+    {
+      "path": "research_projects/r1d113/structures.py",
+      "git_blob_sha1": "57a8334047f91b15bfaffa4dc83a351ef0aea405",
+      "size": 10543
+    },
+    {
+      "path": "research_projects/r1d113/tests/test_r1d113.py",
+      "git_blob_sha1": "79fe76fde1bae5af552885b5659d3ae368ec6321",
+      "size": 5275
+    },
+    {
+      "path": "research_projects/r1d113/tests/test_regression_static.py",
+      "git_blob_sha1": "a09e47f4a0c7b8817ce751b5603b9f9089b9da84",
+      "size": 1519
+    },
+    {
+      "path": "research_projects/r1d114/README_R1D114_KO.md",
+      "git_blob_sha1": "b0390fe17176fba13663b7861e8ea9bf2456cc90",
+      "size": 5368
+    },
+    {
+      "path": "research_projects/r1d114/full_context.py",
+      "git_blob_sha1": "d0494d7423b95fc9d48ab573dee233e7fdb44ee2",
+      "size": 6798
+    },
+    {
+      "path": "research_projects/r1d114/research_r1d114.py",
+      "git_blob_sha1": "c75b9cbd574dd011f85b5061608b72c980b1f80d",
+      "size": 11349
+    },
+    {
+      "path": "research_projects/r1d114/structure_audit.py",
+      "git_blob_sha1": "10e05a16857510a9c28cac7adf489921e8c3be43",
+      "size": 10180
+    },
+    {
+      "path": "research_projects/r1d114/tests/test_r1d114.py",
+      "git_blob_sha1": "2e17d33a46dacef5a1ef4edccfc9fa438ba4904a",
+      "size": 8191
+    },
+    {
+      "path": "research_projects/r1d115/README_R1D115_KO.md",
+      "git_blob_sha1": "d6942f3ba29339df8c2851b41eeccfe5c2fbdc9f",
+      "size": 5167
+    },
+    {
+      "path": "research_projects/r1d115/atr_cluster_baseline.py",
+      "git_blob_sha1": "36595d101375718aa58d7ae52a498cd570a7b570",
+      "size": 10272
+    },
+    {
+      "path": "research_projects/r1d115/research_r1d115.py",
+      "git_blob_sha1": "97e73fad378eb1b713233604d371a02762ed950b",
+      "size": 15744
+    },
+    {
+      "path": "research_projects/r1d115/tests/test_r1d115.py",
+      "git_blob_sha1": "c68a007f7e83e2d91d6c328a05af8eccb3e7328a",
+      "size": 7231
+    },
+    {
+      "path": "research_projects/r1d116/README_R1D116_KO.md",
+      "git_blob_sha1": "4ce9f7be4a22edb886b27bdeb25ebdbae923e94f",
+      "size": 4516
+    },
+    {
+      "path": "research_projects/r1d116/recent_turn.py",
+      "git_blob_sha1": "c5113578810ecf2d941c154bcacf2dca14fe3b71",
+      "size": 11170
+    },
+    {
+      "path": "research_projects/r1d116/research_r1d116.py",
+      "git_blob_sha1": "1621380d7cabef8c0358a64954affcde60751b64",
+      "size": 17017
+    },
+    {
+      "path": "research_projects/r1d116/tests/test_r1d116.py",
+      "git_blob_sha1": "154ff53840723665f781392e3acbe0c332388d66",
+      "size": 8043
+    },
+    {
+      "path": "research_projects/r1d117/README_R1D117_KO.md",
+      "git_blob_sha1": "dec1182ccc83f70e5363c2e8088751beffe548a7",
+      "size": 3103
+    },
+    {
+      "path": "research_projects/r1d117/research_r1d117.py",
+      "git_blob_sha1": "dbd5a218562dffc4be8831b3709bc10b5955250c",
+      "size": 14584
+    },
+    {
+      "path": "research_projects/r1d117/stable_roles.py",
+      "git_blob_sha1": "545ad7139af94d4e2c78f9179db3c5fe7e78f3f8",
+      "size": 12445
+    },
+    {
+      "path": "research_projects/r1d117/tests/test_r1d117.py",
+      "git_blob_sha1": "a4f0005a52af980684290cd161ba014aa4c91323",
+      "size": 5979
+    },
+    {
+      "path": "research_projects/r1d118/FROZEN_2022_200_COHORT_20261104.json",
+      "git_blob_sha1": "f306a90546f86e2febb778cb380954d52deb90b2",
+      "size": 2968
+    },
+    {
+      "path": "research_projects/r1d118/README_R118_KO.md",
+      "git_blob_sha1": "6ed935d3b372aac777da0ebe0e2f1c1df1761191",
+      "size": 9697
+    },
+    {
+      "path": "research_projects/r1d118/auto_data.py",
+      "git_blob_sha1": "6f9b3caf51361441e4da26c3ee34debb6883a009",
+      "size": 10575
+    },
+    {
+      "path": "research_projects/r1d118/auto_run_r118.py",
+      "git_blob_sha1": "f64b21bddcb344bc758e2ce3ae4d9403e1fa7167",
+      "size": 3082
+    },
+    {
+      "path": "research_projects/r1d118/auto_trendlines.py",
+      "git_blob_sha1": "a098504ad0c00f4a08067e2d6d63b6fbd28f5c85",
+      "size": 5177
+    },
+    {
+      "path": "research_projects/r1d118/merge_r118.py",
+      "git_blob_sha1": "1be61787ab8c8c8fb783b02e86469f25c2739506",
+      "size": 3786
+    },
+    {
+      "path": "research_projects/r1d118/parallel500_merge.py",
+      "git_blob_sha1": "8ee0c6dc72de4ab873e2677caf486f5d65ba92f6",
+      "size": 7382
+    },
+    {
+      "path": "research_projects/r1d118/parallel500_shard.py",
+      "git_blob_sha1": "b0d1b4acc57fd751b6aaf78891fffd569e080712",
+      "size": 8557
+    },
+    {
+      "path": "research_projects/r1d118/r118_causal_indicators.py",
+      "git_blob_sha1": "341f8aa28d289c5cc2d35ebbff131ea5f08f5893",
+      "size": 4585
+    },
+    {
+      "path": "research_projects/r1d118/r118_source_marks.py",
+      "git_blob_sha1": "6adc1c3d972054124532c37893982ddc142ff4a6",
+      "size": 2268
+    },
+    {
+      "path": "research_projects/r1d118/r118_truebreak500.py",
+      "git_blob_sha1": "13ae70b41a32771b415c5846e7ac0cea203a4f9f",
+      "size": 19860
+    },
+    {
+      "path": "research_projects/r1d118/r118_truebreak500_charts.py",
+      "git_blob_sha1": "2c6c72c9c0042c38e050adc216593482d82af751",
+      "size": 7377
+    },
+    {
+      "path": "research_projects/r1d118/research_r1d118.py",
+      "git_blob_sha1": "78a44125ddf0ab67497cebe9c08c4d8318deae6c",
+      "size": 25336
+    },
+    {
+      "path": "research_projects/r1d118/sample/R109_3STOCK_PARTIAL_NOT_FULL.csv",
+      "git_blob_sha1": "ee6a46caf340888e1ab583d670f2c75cd5dcaae7",
+      "size": 53151
+    },
+    {
+      "path": "research_projects/r1d118/tests/test_auto_data.py",
+      "git_blob_sha1": "bbb319e14a860a5ae91bc6f6ed57815dae5c44ef",
+      "size": 3978
+    },
+    {
+      "path": "research_projects/r1d118/tests/test_parallel500_shards.py",
+      "git_blob_sha1": "c65e5b351dde77caa466de735334016e914ed737",
+      "size": 6802
+    },
+    {
+      "path": "research_projects/r1d118/tests/test_r118_line_coverage.py",
+      "git_blob_sha1": "e37255c7b370bea3a845d1ac58b516df3ab1ee0b",
+      "size": 1712
+    },
+    {
+      "path": "research_projects/r1d118/tests/test_r118_source_marks.py",
+      "git_blob_sha1": "cec1d7c63a8c654f87d46de477c6e2bd3f5b4109",
+      "size": 4364
+    },
+    {
+      "path": "research_projects/r1d118/tests/test_r118_truebreak500.py",
+      "git_blob_sha1": "c238a73b5d6d260c711aef6106df51e4cc9bad53",
+      "size": 3561
+    },
+    {
+      "path": "research_projects/r1d118/tests/test_r118_truebreak_merge.py",
+      "git_blob_sha1": "eb49b15ed249c370bf32fb375f86bbf13050d2c9",
+      "size": 1559
+    },
+    {
+      "path": "research_projects/r1d118/tests/test_r118_truebreak_same_day_ids.py",
+      "git_blob_sha1": "53ab33eb88b638a6a502b9e1e3a26261485ec6f7",
+      "size": 2372
+    },
+    {
+      "path": "research_projects/r1d118/tests/test_r1d118.py",
+      "git_blob_sha1": "9ab2bb5ff3cadcca0c9bf982eec4ede8293b545a",
+      "size": 7322
+    },
+    {
+      "path": "research_projects/r1d118/tests/test_visual_audit_500.py",
+      "git_blob_sha1": "7a7bbe31d18b4482a9e0f89d0d56d8dc192a2c3f",
+      "size": 5455
+    },
+    {
+      "path": "research_projects/r1d118/visual_audit_500.py",
+      "git_blob_sha1": "71fb366777c346987b903ad3b89009987cc6364e",
+      "size": 17198
+    },
+    {
+      "path": "research_projects/r1d96/SHA256_INPUTS.txt",
+      "git_blob_sha1": "f4b66a664463ea26c6336668a9b2d1f495c558b3",
+      "size": 430
+    },
+    {
+      "path": "research_projects/r1d96/data/006400_KRX.csv",
+      "git_blob_sha1": "6b64c07d7412589ca3f7ed8e7dd1f61800d787ca",
+      "size": 55432
+    },
+    {
+      "path": "research_projects/r1d96/data/039840_KRX.csv",
+      "git_blob_sha1": "31cf0fbde31538bd32bfaed5aa8d17a932ff4229",
+      "size": 43377
+    },
+    {
+      "path": "research_projects/r1d96/data/053800_KRX.csv",
+      "git_blob_sha1": "7070799d09755dd8ac2d40ecc7b10eb6e3f1040f",
+      "size": 44196
+    },
+    {
+      "path": "research_projects/r1d96/data/071840_KRX.csv",
+      "git_blob_sha1": "527687df30d67da48c9eefd6afe118382b7ee9fc",
+      "size": 48526
+    },
+    {
+      "path": "research_projects/r1d96/data/220260_KRX.csv",
+      "git_blob_sha1": "07e2720b5a308612385d1496b83c73d9f2bfb65d",
+      "size": 41385
+    },
+    {
+      "path": "research_projects/r1d96/research_r1d96.py",
+      "git_blob_sha1": "b3476db4b204b19344a2e1d3c8693bfca52df094",
+      "size": 16115
+    },
+    {
+      "path": "research_projects/r1d96/research_r1d97.py",
+      "git_blob_sha1": "861a025a6775f03a14d2516655204c20749c52ea",
+      "size": 11760
+    },
+    {
+      "path": "research_projects/r1d96/results/R1D97_ALL_LINES.csv",
+      "git_blob_sha1": "54ebe17b30be0cb1e65162053324f256996dc097",
+      "size": 26998
+    },
+    {
+      "path": "research_projects/r1d96/results/R1D97_ASOF_INDICATORS.csv",
+      "git_blob_sha1": "cd15c0bda261cb4983ecc0cfbb0805a9a87e0be0",
+      "size": 656
+    },
+    {
+      "path": "research_projects/r1d96/results/R1D97_AUDIT.json",
+      "git_blob_sha1": "d6fc8f7699786e8d51b21200f1add13e3dd55c0f",
+      "size": 1067
+    },
+    {
+      "path": "research_projects/r1d96/results/R1D97_CONFIRMED_PIVOTS.csv",
+      "git_blob_sha1": "4619984272ae10578c386bd91273b97e03702ae3",
+      "size": 34705
+    },
+    {
+      "path": "research_projects/r1d96/results/R1D97_DAILY_FRESH_BREAK_EVENTS.csv",
+      "git_blob_sha1": "d61567d339097503334e56fb8a87159bdf9bd997",
+      "size": 2173
+    },
+    {
+      "path": "research_projects/r1d96/results/R1D97_DAILY_SCAN_COVERAGE.csv",
+      "git_blob_sha1": "d3e4a59796cfb218bad0808f29e13b5b7109f03a",
+      "size": 4747
+    },
+    {
+      "path": "research_projects/r1d96/results/R1D97_FIRST_FRESH_PER_STOCK.csv",
+      "git_blob_sha1": "83009c2d52a49664d4ff487c6bcf863633227e7a",
+      "size": 351
+    },
+    {
+      "path": "research_projects/r1d96/results/R1D97_FROZEN_FORWARD_20D.csv",
+      "git_blob_sha1": "d4c67d5b48acc6a1b3ed9a7a7e63546c61469198",
+      "size": 51255
+    },
+    {
+      "path": "research_projects/r1d96/results/R1D97_PIT_TAMPER_TEST.csv",
+      "git_blob_sha1": "873992a06c7264f4b2cb12e02e5134d0387736f2",
+      "size": 131
+    },
+    {
+      "path": "research_projects/r1d96/results/R1D97_SELECTED_LINES_WITH_WARNINGS.csv",
+      "git_blob_sha1": "8b7b8eb9835476efcb2797dd9da2d49bb51d2157",
+      "size": 4816
+    },
+    {
+      "path": "research_projects/r1d96/tests/test_r1d96.py",
+      "git_blob_sha1": "a07ff3d99eb3527352cb059d943b1a2efe1f747e",
+      "size": 4789
+    },
+    {
+      "path": "research_projects/r1d96/tests/test_r1d97.py",
+      "git_blob_sha1": "1fcf58b6df824d4dea4ba5f68a5e6c96837a9ce9",
+      "size": 2779
+    },
+    {
+      "path": "research_projects/r1d97/SHA256_INPUTS.txt",
+      "git_blob_sha1": "f4b66a664463ea26c6336668a9b2d1f495c558b3",
+      "size": 430
+    },
+    {
+      "path": "research_projects/r1d97/data/006400_KRX.csv",
+      "git_blob_sha1": "6b64c07d7412589ca3f7ed8e7dd1f61800d787ca",
+      "size": 55432
+    },
+    {
+      "path": "research_projects/r1d97/data/039840_KRX.csv",
+      "git_blob_sha1": "31cf0fbde31538bd32bfaed5aa8d17a932ff4229",
+      "size": 43377
+    },
+    {
+      "path": "research_projects/r1d97/data/053800_KRX.csv",
+      "git_blob_sha1": "7070799d09755dd8ac2d40ecc7b10eb6e3f1040f",
+      "size": 44196
+    },
+    {
+      "path": "research_projects/r1d97/data/071840_KRX.csv",
+      "git_blob_sha1": "527687df30d67da48c9eefd6afe118382b7ee9fc",
+      "size": 48526
+    },
+    {
+      "path": "research_projects/r1d97/data/220260_KRX.csv",
+      "git_blob_sha1": "07e2720b5a308612385d1496b83c73d9f2bfb65d",
+      "size": 41385
+    },
+    {
+      "path": "research_projects/r1d97/research_r1d96.py",
+      "git_blob_sha1": "b3476db4b204b19344a2e1d3c8693bfca52df094",
+      "size": 16115
+    },
+    {
+      "path": "research_projects/r1d97/research_r1d97.py",
+      "git_blob_sha1": "861a025a6775f03a14d2516655204c20749c52ea",
+      "size": 11760
+    },
+    {
+      "path": "research_projects/r1d97/tests/test_r1d96.py",
+      "git_blob_sha1": "a07ff3d99eb3527352cb059d943b1a2efe1f747e",
+      "size": 4789
+    },
+    {
+      "path": "research_projects/r1d97/tests/test_r1d97.py",
+      "git_blob_sha1": "1fcf58b6df824d4dea4ba5f68a5e6c96837a9ce9",
+      "size": 2779
+    },
+    {
+      "path": "research_projects/r1d98/research_r1d98.py",
+      "git_blob_sha1": "497955dbb85f3d17e77323d26330be312d57658e",
+      "size": 9720
+    },
+    {
+      "path": "research_projects/r1d98/state_machine.py",
+      "git_blob_sha1": "75eaf07b973a8a3b04877d583b3bcfa713fb33c6",
+      "size": 8177
+    },
+    {
+      "path": "research_projects/r1d98/tests/test_r1d98.py",
+      "git_blob_sha1": "b8780a48c8ab11abeab706f03505e07a57ecc738",
+      "size": 5163
+    },
+    {
+      "path": "research_projects/r1d99/offline_evidence_check.py",
+      "git_blob_sha1": "0f6985bf01185f1aceb8b72d82fee502e21b358e",
+      "size": 4544
+    },
+    {
+      "path": "research_projects/r1d99/recency_dedup.py",
+      "git_blob_sha1": "bad9e968c90398376774e08b4175d8ce76137f3b",
+      "size": 7575
+    },
+    {
+      "path": "research_projects/r1d99/research_r1d99.py",
+      "git_blob_sha1": "70ed36bf1e5db4f279572b7759d45e1efdc0fc5f",
+      "size": 6652
+    },
+    {
+      "path": "research_projects/r1d99/tests/test_r1d99.py",
+      "git_blob_sha1": "bdfddf2a0283d44416234f6bf8a47fc276fcd1f7",
+      "size": 6931
+    },
+    {
+      "path": "research_readiness_v24.py",
+      "git_blob_sha1": "52aacbd2e956da7712029836c0c63de8b5fad73c",
+      "size": 46877
+    },
+    {
+      "path": "results/00_AUDIT.json",
+      "git_blob_sha1": "0a93867bd79d38f78aa6ac5cad624ffe59509888",
+      "size": 2240
+    },
+    {
+      "path": "results/01_BAND_ASOF_QUALITY_AUDIT_2049.csv",
+      "git_blob_sha1": "c70e9900cd6a0b92981661f8eb99009da418a4bd",
+      "size": 1074530
+    },
+    {
+      "path": "results/01_FROZEN_CHECKPOINT_FEATURES_D3_D5_D7.csv",
+      "git_blob_sha1": "6abe2f4aa4b2eb22553daf60e428b85c8b75e38f",
+      "size": 1101687
+    },
+    {
+      "path": "results/01_FROZEN_SAME_DATE_BB_SOURCE_PARITY.csv",
+      "git_blob_sha1": "96ce0adede41df491d0471bff28140793203e6c0",
+      "size": 316
+    },
+    {
+      "path": "results/01_PRICE_SAME_DATE_PARITY.csv.gz",
+      "git_blob_sha1": "60430ee3ca1e17ad9c193aacaf5ae3dcda7fd57d",
+      "size": 138388
+    },
+    {
+      "path": "results/02_FUTURE_D15_EVENT_EVALUATIONS.csv",
+      "git_blob_sha1": "ae869443e544ec7d7dbfc31ab449674f4d8acb3d",
+      "size": 1562829
+    },
+    {
+      "path": "results/02_HISTORICAL_SIGNAL_DEFINITION_DIFFERENCES.csv",
+      "git_blob_sha1": "786c66e1909db89753cf59a388425fff0e92f035",
+      "size": 2340
+    },
+    {
+      "path": "results/02_STAGE_EVENT_DETAILS.csv.gz",
+      "git_blob_sha1": "ce1f86c6b949d1172c9b324f136e906152d1c297",
+      "size": 114816
+    },
+    {
+      "path": "results/02_UNIQUE_DATECODE_1730_QUALITY.csv",
+      "git_blob_sha1": "2c28c9e66d6457ec721bf7848e2f93ff08f82cdd",
+      "size": 215437
+    },
+    {
+      "path": "results/032980_2024-02-07_ENV40_L_10.png",
+      "git_blob_sha1": "f4f229bece551d02e34a29c54bfa744dc8321f24",
+      "size": 101517
+    },
+    {
+      "path": "results/03_BAND_QUALITY_MATRIX.csv",
+      "git_blob_sha1": "6e284cce0b551f3d6686aa62b643df6e4f1ea88b",
+      "size": 769
+    },
+    {
+      "path": "results/03_DEFINITION_SAME_DATE_CROSS_TAB.csv",
+      "git_blob_sha1": "dda2e964b5b7e88b013b92c7bfab785b081c5ce3",
+      "size": 297
+    },
+    {
+      "path": "results/03_PER_BAND_STAGE_MATCHED_OUTCOME.csv",
+      "git_blob_sha1": "13d9d74d67d90be375f5ec648052b10d334719d4",
+      "size": 3017
+    },
+    {
+      "path": "results/03_TIMEPOINT_GROUP_METRICS.csv",
+      "git_blob_sha1": "36825c6258d84e4c642a8f5d73c43ae2a80245df",
+      "size": 9655
+    },
+    {
+      "path": "results/04_GOOD_BAD_EXAMPLES.csv",
+      "git_blob_sha1": "737e5f90dfa9dfb0ab54e7032b69578f7dc63706",
+      "size": 4468
+    },
+    {
+      "path": "results/04_PER_STOCK_HISTORICAL_PRICE_REVIEW.csv",
+      "git_blob_sha1": "17de30709c7cb66c56788cb508d7990f622cc6aa",
+      "size": 6562
+    },
+    {
+      "path": "results/04_SENSITIVITY_NON_OPTIMIZED.csv",
+      "git_blob_sha1": "b42f3d74a2dcb22b7db1444394c60fcf7c881790",
+      "size": 1022
+    },
+    {
+      "path": "results/04_YEAR_2021_2025_DIAGNOSTICS.csv",
+      "git_blob_sha1": "96442b3d7d720cd6eb8516488c4fe2047a51d06a",
+      "size": 6525
+    },
+    {
+      "path": "results/05_ALL_5247_REAUDIT_DETAILS.csv.gz",
+      "git_blob_sha1": "2712304791b71221f0f9ead842a71aed1ff371bc",
+      "size": 341654
+    },
+    {
+      "path": "results/05_CASE_CHART_GALLERY.html",
+      "git_blob_sha1": "7ffb07f17cb378af2cd6c957a8a1894a854cdf22",
+      "size": 1595
+    },
+    {
+      "path": "results/05_KONEX_ONE_SHARE_CASE.csv",
+      "git_blob_sha1": "b9a17e9c70f92e7ea93ff977da66389042fd8a4d",
+      "size": 2888
+    },
+    {
+      "path": "results/05_PRIMARY_STRATIFIED_PERMUTATION.csv",
+      "git_blob_sha1": "8e03b8a2dc6fb11015ff0b0bc369d66267aa426c",
+      "size": 758
+    },
+    {
+      "path": "results/06_EXPLORATORY_FLOW_PRICE_QUADRANTS.csv",
+      "git_blob_sha1": "1b71c0d86ec2faf6445a41e87940f317fdd52718",
+      "size": 2994
+    },
+    {
+      "path": "results/06_NAMED_CASE_REVIEW.csv",
+      "git_blob_sha1": "d73aaeafd31076ba96f236239fc6cd88ada488c7",
+      "size": 5028
+    },
+    {
+      "path": "results/06_REAL_OHLC_CHART_REVIEW_DATA.csv",
+      "git_blob_sha1": "afdb0c4723325b1f2df21211ee761961ac98051f",
+      "size": 2657
+    },
+    {
+      "path": "results/06_YEARLY_DESCRIPTIVE.csv",
+      "git_blob_sha1": "1652804705ec28c07cd78f6b48a9cebb4dce9747",
+      "size": 1461
+    },
+    {
+      "path": "results/07_RESEARCH_AUDIT_MANIFEST.json",
+      "git_blob_sha1": "d8aad50cc4fcc8e0a28d288828d016e0da7ecc07",
+      "size": 1980
+    },
+    {
+      "path": "results/07_SEVEN_CASE_OHLC_SOURCE_PARITY.csv",
+      "git_blob_sha1": "b4c018bb677cf3fb99006ec71537449b8bef6910",
+      "size": 781
+    },
+    {
+      "path": "results/07_SIGNAL_CANDLE_MA_BB_ENV_EXPLORATORY.csv",
+      "git_blob_sha1": "3027c70cbcb9645a93936a5a47d912a10f382443",
+      "size": 6954
+    },
+    {
+      "path": "results/08_RESEARCH_AUDIT_MANIFEST.json",
+      "git_blob_sha1": "e47a02ed496ab19a9fafa80c9e3a141e221e37d1",
+      "size": 2098
+    },
+    {
+      "path": "results/R1D65_LEGACY_TRI40_CLASSIFICATION_QUEUE.csv.gz",
+      "git_blob_sha1": "7403525a0f59f058a23c6ecc339ed588fdfbef8e",
+      "size": 103377
+    },
+    {
+      "path": "results/R1D65_LEGACY_TRIAGE_AUDIT.json",
+      "git_blob_sha1": "b3df8cdddd555a241d653685bc8a43ba7c8aa679",
+      "size": 758
+    },
+    {
+      "path": "results/R1D67_56_NEW_STRICT_CANDIDATES.csv",
+      "git_blob_sha1": "67cfe7c420fb1d2413a87d316c7eded0d539fcd6",
+      "size": 13477
+    },
+    {
+      "path": "results/R1D67_AUDIT.json",
+      "git_blob_sha1": "d220f762ee5aee74d09a3bc1449969e278f7152c",
+      "size": 2829
+    },
+    {
+      "path": "results/R1D67_PULOON_SAME_DATE_PRICE_BASIS.csv",
+      "git_blob_sha1": "0bf2d82f51b171b9d096c4e688aaa1a98ba0bd95",
+      "size": 1127
+    },
+    {
+      "path": "results/R1D67_VERIFY_AND_LIMITATIONS_KO.md",
+      "git_blob_sha1": "af8da615a9a4efb518fd7583773660452584d6be",
+      "size": 2172
+    },
+    {
+      "path": "results/REVIEW_GALLERY_KO.html",
+      "git_blob_sha1": "9810a4f81e409acd1c58a4a70e4b6ac65ce36c38",
+      "size": 2457
+    },
+    {
+      "path": "results/r1d73_run_output.txt",
+      "git_blob_sha1": "1f763693958d88b3862de08d415a2f1b7ab2fd16",
+      "size": 1215
+    },
+    {
+      "path": "resume_cache_manifest_v21.py",
+      "git_blob_sha1": "63add6e8b830e6ef2fdd9bcf5160c6712fcacac9",
+      "size": 6657
+    },
+    {
+      "path": "run_scanner_schedule_hotfix_20260928.py",
+      "git_blob_sha1": "3d0f8102ca2984617160c4759669831819e75548",
+      "size": 2423
+    },
+    {
+      "path": "save_googleSheet.py",
+      "git_blob_sha1": "e43b1d1b897b87def730ccbacab5f90241a4ebbe",
+      "size": 4362
+    },
+    {
+      "path": "scale_in_policy_diagnostic.py",
+      "git_blob_sha1": "6c9ddf1a221cbabdebcf5fc4a0c45b20a92e40b4",
+      "size": 27410
+    },
+    {
+      "path": "scanner/__init__.py",
+      "git_blob_sha1": "01e5c274c7259ecf38b49f3602f75e48510ee541",
+      "size": 954
+    },
+    {
+      "path": "scanner/a.py",
+      "git_blob_sha1": "8b137891791fe96927ad78e64b0aad7bded08bdc",
+      "size": 1
+    },
+    {
+      "path": "scanner/accumulation_wave_complete.py",
+      "git_blob_sha1": "eab2cb6d33c1bfa4e86a0fdaf666656a757f8c31",
+      "size": 18074
+    },
+    {
+      "path": "scanner/accumulation_wave_complete_singlefile.py",
+      "git_blob_sha1": "7d5f31ff855e94eaf4034c829432b68e62cea9b6",
+      "size": 19920
+    },
+    {
+      "path": "scanner/backup/legacy_main_patched.py",
+      "git_blob_sha1": "03dfeefa2edfeaa2e068b77bdafc1d38c4874f9f",
+      "size": 1725981
+    },
+    {
+      "path": "scanner/backup/legacy_main_patched_2.py",
+      "git_blob_sha1": "c83b8993a506d7b57e8cd110c262a7385951295f",
+      "size": 1247782
+    },
+    {
+      "path": "scanner/breakout_logic.py",
+      "git_blob_sha1": "c29c9982e34779679499032409dffb763c148523",
+      "size": 20078
+    },
+    {
+      "path": "scanner/config.py",
+      "git_blob_sha1": "41ef944d3f51413e5deaa0dedc2202a3e7428432",
+      "size": 399
+    },
+    {
+      "path": "scanner/indicators.py",
+      "git_blob_sha1": "732563a8f287bcb6173ecb5023efecd619466a90",
+      "size": 15747
+    },
+    {
+      "path": "scanner/indicators_back.py",
+      "git_blob_sha1": "7f5cc87a42a6e53941ff6bc4cfae84fe4589a277",
+      "size": 10256
+    },
+    {
+      "path": "scanner/kki_profile.py",
+      "git_blob_sha1": "cf056fb22699f5e86337afcfa1058f28157db1de",
+      "size": 10137
+    },
+    {
+      "path": "scanner/kki_wave.py",
+      "git_blob_sha1": "2c90a0f93e27e50ca22b70fd011c04406e766127",
+      "size": 28864
+    },
+    {
+      "path": "scanner/legacy_main_patched.py",
+      "git_blob_sha1": "808423cde47a5d0f46edfeace0fbd0828d34b84d",
+      "size": 3007179
+    },
+    {
+      "path": "scanner/legacy_main_patched_back.py",
+      "git_blob_sha1": "f3594d38f0eeeb02ab2603a19ca7abfc648c7172",
+      "size": 1177500
+    },
+    {
+      "path": "scanner/legacy_main_patched_back2.py",
+      "git_blob_sha1": "6325e3b4a00da1b1eee3d53999f8b28fa8ec3f49",
+      "size": 622078
+    },
+    {
+      "path": "scanner/legacy_main_patched_back3.py",
+      "git_blob_sha1": "6436741018d4997a7d865b376976eb5c3b402cf2",
+      "size": 603179
+    },
+    {
+      "path": "scanner/legacy_main_patched_back4.py",
+      "git_blob_sha1": "b1561d29b17a736242004b3a6d3b5a7d1f5b484c",
+      "size": 1233524
+    },
+    {
+      "path": "scanner/legacy_main_patched_back5.py",
+      "git_blob_sha1": "10cffed27c0e78e176126cb3b4eec8a94e5179d9",
+      "size": 1224030
+    },
+    {
+      "path": "scanner/legacy_main_patched_back6.py",
+      "git_blob_sha1": "fb48e339175a6619ecd1dc793f3d92eedd7f1c02",
+      "size": 1230158
+    },
+    {
+      "path": "scanner/legacy_main_patched_back7.py",
+      "git_blob_sha1": "fb48e339175a6619ecd1dc793f3d92eedd7f1c02",
+      "size": 1230158
+    },
+    {
+      "path": "scanner/legacy_main_patched_pattern_runtime_complete.py",
+      "git_blob_sha1": "feb8ac709c18e19d2cfb411855016882e0c284f6",
+      "size": 13073
+    },
+    {
+      "path": "scanner/legacy_main_patched_runtime_patch.py",
+      "git_blob_sha1": "7ea062dfc23301eef1dbee95dc56458ff0673eef",
+      "size": 16170
+    },
+    {
+      "path": "scanner/narrative.py",
+      "git_blob_sha1": "c8676db14b12c9896afec6b9d1aa74e8bb2a69e4",
+      "size": 10879
+    },
+    {
+      "path": "scanner/pattern_breakout_retest_guard_complete.py",
+      "git_blob_sha1": "4785bdccdbfe6dabe81eb5c2bd937aba2c903b55",
+      "size": 25954
+    },
+    {
+      "path": "scanner/pattern_overhaul_complete.py",
+      "git_blob_sha1": "558cb5908db1c3b9433a244ad3ebfb16c7d9e596",
+      "size": 25420
+    },
+    {
+      "path": "scanner/render_blocks.py",
+      "git_blob_sha1": "96fa994bf07283c0c88d81273e4512d01dc31dec",
+      "size": 13537
+    },
+    {
+      "path": "scanner/render_blocks_back.py",
+      "git_blob_sha1": "45f33932584e7fecf139cdc5bcb3b33b83c1a37f",
+      "size": 10097
+    },
+    {
+      "path": "scanner/render_helpers.py",
+      "git_blob_sha1": "90e934cac68b858717136348cdd93a6041c5a0a9",
+      "size": 2555
+    },
+    {
+      "path": "scanner/render_telegram.py",
+      "git_blob_sha1": "9f63cf3da181e30e5e132dd83bcbdbc3c0b5a068",
+      "size": 2801
+    },
+    {
+      "path": "scanner/supply.py",
+      "git_blob_sha1": "7984725c0edc26fa47b9445ee77b83ad0bf189a1",
+      "size": 50467
+    },
+    {
+      "path": "scanner/trading_view_compressed_ready.py",
+      "git_blob_sha1": "7d861df6c74d609b7169f02c224ea17ed9d3f7bb",
+      "size": 17331
+    },
+    {
+      "path": "scanner/utils.py",
+      "git_blob_sha1": "2266a31c259d43b1a996f3c2540f0670909ef3c2",
+      "size": 2634
+    },
+    {
+      "path": "scanner/watermelon_core.py",
+      "git_blob_sha1": "eaa59004832ed20aa57799b2347bc568f244d800",
+      "size": 55361
+    },
+    {
+      "path": "scanner/watermelon_engine.py",
+      "git_blob_sha1": "c9076ff9c3ee27783f62e3786502fcd27ddb9f5e",
+      "size": 5538
+    },
+    {
+      "path": "scanner/watermelon_refine.py",
+      "git_blob_sha1": "36a21564956b31f3890cc83939fcf38b23039a48",
+      "size": 1235
+    },
+    {
+      "path": "scanner/wave_signal_engine_v3.py",
+      "git_blob_sha1": "9f50a87b5a9c74877124743eebd1708dd9edb503",
+      "size": 9318
+    },
+    {
+      "path": "scanner_fixed.py",
+      "git_blob_sha1": "d0d6926152ea951f36bbbe918f2f6e4711cebdf7",
+      "size": 71638
+    },
+    {
+      "path": "search_formula_complete_pipeline.py",
+      "git_blob_sha1": "8e8052dd367cdb8ad98e87d677be7e49f33d7e77",
+      "size": 37421
+    },
+    {
+      "path": "search_formula_contract_registry.json",
+      "git_blob_sha1": "b477e069c310efed4011fe0a7f2ca394b35cdb72",
+      "size": 99547
+    },
+    {
+      "path": "search_formula_truth_audit.py",
+      "git_blob_sha1": "dc45bf3e04be0bd30e04c046a932ad0dbe4f0592",
+      "size": 31224
+    },
+    {
+      "path": "search_formula_universe_audit.py",
+      "git_blob_sha1": "844c3b53be0cef8833423276c9787877ca5c3023",
+      "size": 29655
+    },
+    {
+      "path": "search_spec_v5.yml",
+      "git_blob_sha1": "60075cb44b8e50cb273dc8c30dc165efaaff1e63",
+      "size": 13664
+    },
+    {
+      "path": "search_spec_v7.json",
+      "git_blob_sha1": "c71bbc3d2eaf6f392d9d3a083aece390fd6e5dfd",
+      "size": 20200
+    },
+    {
+      "path": "search_spec_v7.yml",
+      "git_blob_sha1": "3b436a4f6e429f6227af6bef13283dce97f95bf2",
+      "size": 17054
+    },
+    {
+      "path": "source_integrity_r1/README.md",
+      "git_blob_sha1": "a2387fa1e965713dfa084d99f8f637b153a3b361",
+      "size": 3770
+    },
+    {
+      "path": "source_integrity_r1/RESEARCH_FINDINGS_20261105.md",
+      "git_blob_sha1": "81850b90e1d681897136859215bf45878ba9da93",
+      "size": 4338
+    },
+    {
+      "path": "source_integrity_r1/stockhunter_source_integrity_audit_r1.py",
+      "git_blob_sha1": "749fc9726aabfe7636de545cf8c333e7c955efe5",
+      "size": 10378
+    },
+    {
+      "path": "stock_hunter_runner.html",
+      "git_blob_sha1": "59b31f4f74defa010bdd03d35db00fe037abda9e",
+      "size": 7036
+    },
+    {
+      "path": "stockhunter_formula66_krx_r1c_pinned_legacy_reprice.yml",
+      "git_blob_sha1": "6f3f10bba4664f9f794bd2a2747169df507b0c05",
+      "size": 6106
+    },
+    {
+      "path": "stockhunter_formula66_krx_truth_r1.yml",
+      "git_blob_sha1": "58f2402b86b83c3a5ec0b06a646aefd7487fdfb1",
+      "size": 8602
+    },
+    {
+      "path": "stockhunter_formula66_r1d1_krx_native_asof_census.yml",
+      "git_blob_sha1": "69c1cc281f42738adadd931730c3a6110cb4d8a8",
+      "size": 7216
+    },
+    {
+      "path": "stockhunter_formula66_r1d2_recent_downside_stress.yml",
+      "git_blob_sha1": "79aae3c914cc9bc2a6e4de349d084a9f67737695",
+      "size": 7325
+    },
+    {
+      "path": "stockhunter_pit_stage7i_missing_notice.yml",
+      "git_blob_sha1": "560b8ec6b041bace2a656d73452ffb6576e98e57",
+      "size": 6280
+    },
+    {
+      "path": "stockhunter_pit_stage7j_recovery.yml",
+      "git_blob_sha1": "d4c3cbcbf9e1b4be58249e22a84fe1adf5697a45",
+      "size": 10991
+    },
+    {
+      "path": "stockhunter_pit_stage7j_selected_notice_fullbody.yml",
+      "git_blob_sha1": "cfdc6b197c5c1b80e018ed579a80da3118598426",
+      "size": 10189
+    },
+    {
+      "path": "stockhunter_r1d16_realfull_odoli_parallel.yml",
+      "git_blob_sha1": "643521ad8a244a93eda16c54cf3541868cd85243",
+      "size": 9877
+    },
+    {
+      "path": "stockhunter_r1d17_frozen_green_integrated.yml",
+      "git_blob_sha1": "95863da5abc9c621f06fa5bd0c4f791a749f02b9",
+      "size": 10015
+    },
+    {
+      "path": "stockhunter_r1d3_strong_winners_external_context.yml",
+      "git_blob_sha1": "0a51f5c48fe14e342f98d2855389f98143709009",
+      "size": 103332
+    },
+    {
+      "path": "surge_scanner.py",
+      "git_blob_sha1": "ed5eeb3a7ca4985e5383a61bc0f1e75286340b13",
+      "size": 25975
+    },
+    {
+      "path": "tactics_engine.py",
+      "git_blob_sha1": "a8cebc9f9bc7f861c189ca10c2ad5c87b7c41a51",
+      "size": 19568
+    },
+    {
+      "path": "telegram_bot.py",
+      "git_blob_sha1": "88ce69af0dce90ab0ba27d8b5aa493993641c244",
+      "size": 10539
+    },
+    {
+      "path": "tests/StockHunter_R1D15_EXACT_CACHE_IDENTITY_QUARANTINE_RESEARCH_ONLY_PATCH_20261024.zip",
+      "git_blob_sha1": "640ca93b19f58569e0b322e92b9276c1102450f3",
+      "size": 14178
+    },
+    {
+      "path": "tests/StockHunter_R1D16_REALFULL_ODOLI_PARALLEL_RESEARCH_ONLY_PATCH_20261025.zip",
+      "git_blob_sha1": "484601dc3eeb4c1929a53ee894aa0bd28123f1ec",
+      "size": 2586
+    },
+    {
+      "path": "tests/StockHunter_R1D17_FROZEN_GREEN_INTEGRATED_GITHUB_RESEARCH_ONLY_PATCH_20261025.zip",
+      "git_blob_sha1": "54858965cc8b42f52d2145d6ae80c2d572de0fab",
+      "size": 2825
+    },
+    {
+      "path": "tests/pit_stage7g_other_market_notices.py",
+      "git_blob_sha1": "c8295594c3ae2da2ec0e869b2b3b4d5a98313202",
+      "size": 14386
+    },
+    {
+      "path": "tests/test_formula66_krx_r1c_pinned_reprice.py",
+      "git_blob_sha1": "307179a7263042541aaa4a19109a437d550de1e5",
+      "size": 12233
+    },
+    {
+      "path": "tests/test_formula66_r1d1_blind_chart_renderer.py",
+      "git_blob_sha1": "16f0dc0e39a76f8fa9d6f6e3e978fda1201bf385",
+      "size": 1925
+    },
+    {
+      "path": "tests/test_formula66_r1d1_native_context.py",
+      "git_blob_sha1": "b981b8d2f8806fc786f902ee6c867ea2d40d505b",
+      "size": 4889
+    },
+    {
+      "path": "tests/test_formula66_r1d2_blind_charts.py",
+      "git_blob_sha1": "cf11426cbc2c8b94a7eaa7ee075a9ed5467a09ce",
+      "size": 1211
+    },
+    {
+      "path": "tests/test_formula66_r1d2_recent_stress.py",
+      "git_blob_sha1": "4aa7f74ac43e3d16abaca916624992117d35b4a6",
+      "size": 4926
+    },
+    {
+      "path": "tests/test_formula66_r1d3_success_failure_context.py",
+      "git_blob_sha1": "41a8cd5ee365f2e5675281fbe02aabcd73dfe13d",
+      "size": 3539
+    },
+    {
+      "path": "tests/test_formula66_r1d4_matched_blind.py",
+      "git_blob_sha1": "28a41a5d9b6d40da51f002741950002761791956",
+      "size": 4476
+    },
+    {
+      "path": "tests/test_formula66_r1d5_support_reaction.py",
+      "git_blob_sha1": "2f1065a2b979609f03e5515452acb1ac1317dc33",
+      "size": 5157
+    },
+    {
+      "path": "tests/test_formula66_r1d6_oos_holdout.py",
+      "git_blob_sha1": "72f9194164093b9e7985dbb003c148f1786c7ef1",
+      "size": 5951
+    },
+    {
+      "path": "tests/test_formula66_r1d7_path_risk_audit.py",
+      "git_blob_sha1": "53549a4c05e066b4bb39f693c3a612d5926455b7",
+      "size": 4041
+    },
+    {
+      "path": "tests/test_formula66_r1d8_structure_confounds.py",
+      "git_blob_sha1": "6df384920c883d68e92a27153f8602c6f5241825",
+      "size": 4152
+    },
+    {
+      "path": "tests/test_formula66_r1d9_unseen_2021_23_holdout.py",
+      "git_blob_sha1": "7f987f861814b3e0ba74887783b559261df0d58b",
+      "size": 6087
+    },
+    {
+      "path": "tests/test_formula66_truth_krx_r1.py",
+      "git_blob_sha1": "16049d9c833a9c19be9bad4ea245e934f6a3516c",
+      "size": 16524
+    },
+    {
+      "path": "tests/test_full_market_pit.py",
+      "git_blob_sha1": "dacae59f12a7463a2fabaced21797af5be38e522",
+      "size": 7865
+    },
+    {
+      "path": "tests/test_krx_only_r17.py",
+      "git_blob_sha1": "40a18bf1e50bd4eec227c7a63872c199a945b261",
+      "size": 4286
+    },
+    {
+      "path": "tests/test_krx_only_r171.py",
+      "git_blob_sha1": "e1d4f61da58a9134907b3cdd24433d94949a8e50",
+      "size": 4743
+    },
+    {
+      "path": "tests/test_native_backtest_report.py",
+      "git_blob_sha1": "f873e7309b1be4263eae39f4b54aee7f4612aedd",
+      "size": 1742
+    },
+    {
+      "path": "tests/test_native_krx_prices.py",
+      "git_blob_sha1": "96b903de64dae04b77b3b76154e1caf48e8a5a4d",
+      "size": 2234
+    },
+    {
+      "path": "tests/test_native_price_regime_r162.py",
+      "git_blob_sha1": "765912ab61fbc281ac0ac0bd7dfb8af29c3aa3c4",
+      "size": 2663
+    },
+    {
+      "path": "tests/test_pit_official_events_audit.py",
+      "git_blob_sha1": "23f7250226bdbea6fc35801e5ce408b320e5a851",
+      "size": 9609
+    },
+    {
+      "path": "tests/test_pit_security_master_audit.py",
+      "git_blob_sha1": "fd0e551da3080b0b692c0a70e893555632e00d35",
+      "size": 5781
+    },
+    {
+      "path": "tests/test_pit_stage4_security_type_evidence.py",
+      "git_blob_sha1": "baf640101d1b9431c1a29b0f83419558748bbd80",
+      "size": 8004
+    },
+    {
+      "path": "tests/test_pit_stage5_daily_roster.py",
+      "git_blob_sha1": "5ffcc3c72245a0775656cf90db650cc23deb827c",
+      "size": 8902
+    },
+    {
+      "path": "tests/test_pit_stage6_market_cap.py",
+      "git_blob_sha1": "14e34ec4baa1b2c3c5a026821cc287ee87635e93",
+      "size": 9757
+    },
+    {
+      "path": "tests/test_pit_stage7_official_halts.py",
+      "git_blob_sha1": "f2c4bb53a37ef82a62389b004486eb8c0615cb8d",
+      "size": 13909
+    },
+    {
+      "path": "tests/test_pit_stage7b_halt_price_bridge.py",
+      "git_blob_sha1": "6a2e7da1c89b9847fdcd542c104b6bc64ce328cc",
+      "size": 7558
+    },
+    {
+      "path": "tests/test_pit_stage7c_kind_resume_source.py",
+      "git_blob_sha1": "995b8a941cbadafd1b13fe314fc850138284df86",
+      "size": 7994
+    },
+    {
+      "path": "tests/test_pit_stage7d_kind_full_document.py",
+      "git_blob_sha1": "67bedd671869638cb04d8f7d0692aea048d18102",
+      "size": 7615
+    },
+    {
+      "path": "tests/test_pit_stage7e_effective_event_ledger.py",
+      "git_blob_sha1": "fa373794117f296642aea6ababf5762dd6304752",
+      "size": 6939
+    },
+    {
+      "path": "tests/test_pit_stage7f_full_halt_notice_chain.py",
+      "git_blob_sha1": "9c39d162ac7a4fef01190d07f2499667c13b2ac8",
+      "size": 5203
+    },
+    {
+      "path": "tests/test_pit_stage7g_other_market_notices.py",
+      "git_blob_sha1": "e73a7f48988412059b7632fae8de3ea041febb89",
+      "size": 4938
+    },
+    {
+      "path": "tests/test_pit_stage7h_57_notice_correction_chain.py",
+      "git_blob_sha1": "2c2f282c670323107eb7312100ac71e6a316c4c6",
+      "size": 7117
+    },
+    {
+      "path": "tests/test_pit_stage7i_bounded_missing_notice_audit.py",
+      "git_blob_sha1": "e9f8830780320e00c1e9398c4f95e70b034d3d98",
+      "size": 18206
+    },
+    {
+      "path": "tests/test_pit_stage7j_selected_notice_fullbody.py",
+      "git_blob_sha1": "8b5c0d722ddf5053b79c8af6913ab1055a95defc",
+      "size": 16596
+    },
+    {
+      "path": "tests/test_pit_stage7j_three_residual_recovery.py",
+      "git_blob_sha1": "db232e13104d5c604d26eff23c55f6b363c2058d",
+      "size": 13096
+    },
+    {
+      "path": "tests/test_r110_strength_pullback_entry_audit.py",
+      "git_blob_sha1": "722618ac20335de0b4cd566cfea874582b851ac3",
+      "size": 4832
+    },
+    {
+      "path": "tests/test_r111_episode_first_strength_audit.py",
+      "git_blob_sha1": "698d67992977648faddca9a34fea8ec2ef6e5f1f",
+      "size": 3238
+    },
+    {
+      "path": "tests/test_r112_causal_wave_phase_audit.py",
+      "git_blob_sha1": "80c28d0124ccdff8286e75a2237ee23ec370a289",
+      "size": 3240
+    },
+    {
+      "path": "tests/test_r113_nonwave_root_cause.py",
+      "git_blob_sha1": "304cfc1a97b76610cb433aef778e716b0f618e61",
+      "size": 2996
+    },
+    {
+      "path": "tests/test_r114_threshold_free_wave_gallery.py",
+      "git_blob_sha1": "014981c20a4d09679f2859e53c46119c852a22ab",
+      "size": 2476
+    },
+    {
+      "path": "tests/test_r115_intraday_data_readiness_audit.py",
+      "git_blob_sha1": "d3dd4f00dd7c49d95bf0d79d7fe4b7c7aa15ad7d",
+      "size": 5522
+    },
+    {
+      "path": "tests/test_r116_legacy_minute_evidence.py",
+      "git_blob_sha1": "4ad9d445a3f6da2807531b1bcdaeea15b33c5169",
+      "size": 1620
+    },
+    {
+      "path": "tests/test_r117_integrated_denominator_audit.py",
+      "git_blob_sha1": "b56d3b00c0c9a2f0fc926eba3241a1fda84ffa6c",
+      "size": 3870
+    },
+    {
+      "path": "tests/test_r118_partial_market_wave_geometry.py",
+      "git_blob_sha1": "29f2cbc19fad1e3fbf76dc19052f1966721b1fa8",
+      "size": 5323
+    },
+    {
+      "path": "tests/test_r119_d20_first_touch_research.py",
+      "git_blob_sha1": "08441aaea0b76462b516b99cc845caab5589e318",
+      "size": 4445
+    },
+    {
+      "path": "tests/test_r120_entry_scale_stop.py",
+      "git_blob_sha1": "20bf36e5f799ccb7374dcf44c118c8b9675371b2",
+      "size": 6663
+    },
+    {
+      "path": "tests/test_r121_frozen_type_policy_replay.py",
+      "git_blob_sha1": "28ca49a90231d790e592224563b9afb4fbabe234",
+      "size": 5728
+    },
+    {
+      "path": "tests/test_r122_candle_support_action_research.py",
+      "git_blob_sha1": "bc421c2d0f769026d576f7a2f166eb6549fa0219",
+      "size": 6259
+    },
+    {
+      "path": "tests/test_r123_scope_contract.py",
+      "git_blob_sha1": "8b652fcbc3eb465842ef76c14a870fe426741a83",
+      "size": 1429
+    },
+    {
+      "path": "tests/test_r123_success_failure_microstructure_forensics.py",
+      "git_blob_sha1": "b19deacd824f0d28eaaf00b33faf4cddf77180cb",
+      "size": 3376
+    },
+    {
+      "path": "tests/test_r1241_date_block_robustness.py",
+      "git_blob_sha1": "b7b2322cf898cd5c95a0c9b2910ebad04064381f",
+      "size": 3810
+    },
+    {
+      "path": "tests/test_r124_frozen_gate_replay.py",
+      "git_blob_sha1": "18a0d08da61e3ca20f5cf5ac58f7232c6e8c8cbe",
+      "size": 4305
+    },
+    {
+      "path": "tests/test_r1251_capture_integrity_audit.py",
+      "git_blob_sha1": "58130aad3e1a5de148b29f7ff88931f5b442a4bb",
+      "size": 9564
+    },
+    {
+      "path": "tests/test_r125_prospective_capture.py",
+      "git_blob_sha1": "ff8fa84efaf398fb80a3504302b557ec7e5130d3",
+      "size": 10596
+    },
+    {
+      "path": "tests/test_r141_adapter.py",
+      "git_blob_sha1": "e188efae37e4bba82ec343eb3a195aa3fd0e8873",
+      "size": 3591
+    },
+    {
+      "path": "tests/test_r142_observer.py",
+      "git_blob_sha1": "58901252ccfff25b26a099a0d8b073f8eb5cc8cb",
+      "size": 2332
+    },
+    {
+      "path": "tests/test_r161_calendar_and_secret_bindings.py",
+      "git_blob_sha1": "60cfe94d455ae74e57944b90cd0b6d4149aec838",
+      "size": 3931
+    },
+    {
+      "path": "tests/test_r18_wave_entry_forensic.py",
+      "git_blob_sha1": "c3b1c1aad3d374cef65dbd588c5ad3927c5e4dd0",
+      "size": 2469
+    },
+    {
+      "path": "tests/test_r19_chart_pair_audit.py",
+      "git_blob_sha1": "bbdbd78825baeafa530fc988bf0f2d7eec7f26e4",
+      "size": 3120
+    },
+    {
+      "path": "tests/test_r1d27e_finalize_only.py",
+      "git_blob_sha1": "6aaa0479fbab8c1e4a12080d908dab1e5eba3736",
+      "size": 1964
+    },
+    {
+      "path": "tests/test_r1d27e_post15_source.py",
+      "git_blob_sha1": "e3af7ffcf9f99bcf87f2a79f435c69deb3d3f68e",
+      "size": 1703
+    },
+    {
+      "path": "tests/test_r1d27r_offline.py",
+      "git_blob_sha1": "3e9c2f2e38f39bdd77cd516f5098dac7421f5e05",
+      "size": 2349
+    },
+    {
+      "path": "tests/test_r1d40_futures_login_canary.py",
+      "git_blob_sha1": "730a2b490db1ab460b298f26dfd1852d3f530ae1",
+      "size": 2684
+    },
+    {
+      "path": "tests/test_r1d40_futures_quarter_collect.py",
+      "git_blob_sha1": "03525ffd23796f594196cd51d714b956dbfbe47e",
+      "size": 3517
+    },
+    {
+      "path": "tests/test_r1d65_strict.py",
+      "git_blob_sha1": "08a21ded063eb3919dc20728f9791c4f028791e8",
+      "size": 3486
+    },
+    {
+      "path": "tests/test_r1d67.py",
+      "git_blob_sha1": "df7569e8f2e8eb0bafde6427ec0b8de4d04bd0b6",
+      "size": 2518
+    },
+    {
+      "path": "tests/test_r1d71_frozen_review.py",
+      "git_blob_sha1": "efd02bd1b1d7762efaa0789053befba5700ff404",
+      "size": 2130
+    },
+    {
+      "path": "tests/test_r1d72.py",
+      "git_blob_sha1": "c3977866fd2cfcfcf7185ef4c524b7fe81b8750f",
+      "size": 2952
+    },
+    {
+      "path": "tests/test_r1d73.py",
+      "git_blob_sha1": "7cca2d56d9be9b526d45abf80ad8faf9aa934c43",
+      "size": 3923
+    },
+    {
+      "path": "tests/test_source_trust_cutoff.py",
+      "git_blob_sha1": "872832f9b6067aeac73e19cfabe04e1691032d0a",
+      "size": 1023
+    },
+    {
+      "path": "tests/test_stockhunter_r1d10_prospective_audit.py",
+      "git_blob_sha1": "5b62fa8aea54ef04827e794cfa0127c01e882d43",
+      "size": 3223
+    },
+    {
+      "path": "tests/test_stockhunter_r1d11_integrity_and_giveback.py",
+      "git_blob_sha1": "79631c3fbcaa2d6e5d94c7e57d0641f9b0ad94cf",
+      "size": 3909
+    },
+    {
+      "path": "tests/test_stockhunter_r1d12_price_identity_rootcause.py",
+      "git_blob_sha1": "421a1bb6a498832d9d65f83fee64d366d60fe339",
+      "size": 4118
+    },
+    {
+      "path": "tests/test_stockhunter_r1d13_contamination_scope.py",
+      "git_blob_sha1": "4eec2445e0d1347a062c0734f5ecc7f00932aaa9",
+      "size": 3709
+    },
+    {
+      "path": "tests/test_stockhunter_r1d14_cache_provenance.py",
+      "git_blob_sha1": "fadde28c42862f483ab82d47f71efce29752fd68",
+      "size": 3741
+    },
+    {
+      "path": "tests/test_stockhunter_r1d15_cache_identity_quarantine.py",
+      "git_blob_sha1": "66d93658de1592f200d4f109242c9dde2b93420e",
+      "size": 6376
+    },
+    {
+      "path": "tests/test_stockhunter_r1d16_parallel_research.py",
+      "git_blob_sha1": "9b53281a580c9eff8b6c7344ea5653289d07c58b",
+      "size": 4553
+    },
+    {
+      "path": "tests/test_stockhunter_r1d17_integrated_frozen.py",
+      "git_blob_sha1": "fe43d96256ea27bd1017745c2010d47106eb831a",
+      "size": 6980
+    },
+    {
+      "path": "tests/test_stockhunter_r1d18_prospective_shadow.py",
+      "git_blob_sha1": "eec1b832f1914763ad72af1d9ed49d68dd0df108",
+      "size": 9220
+    },
+    {
+      "path": "tests/test_stockhunter_r1d19_bb_reclaim.py",
+      "git_blob_sha1": "a3148fe313cdf5ebec15e02b03ee76535cedc0eb",
+      "size": 4796
+    },
+    {
+      "path": "tests/test_stockhunter_r1d20_ichimoku_qa.py",
+      "git_blob_sha1": "e43aaabd51a6d1c11f42cead165bb57dd7930279",
+      "size": 5168
+    },
+    {
+      "path": "tests/test_stockhunter_r1d22_indicators.py",
+      "git_blob_sha1": "b3e6fac49feb57e85de0c2f0e3282cbde2bd7ea4",
+      "size": 2559
+    },
+    {
+      "path": "tests/test_stockhunter_r1d23_regime_audit.py",
+      "git_blob_sha1": "ac7d057d6ad88569be05261c77aa79f4acec0e90",
+      "size": 2581
+    },
+    {
+      "path": "tests/test_stockhunter_r1d23_strategy_challenge.py",
+      "git_blob_sha1": "add4b9e70193fe5a5e32bff1cefe6c28364d58cf",
+      "size": 4672
+    },
+    {
+      "path": "tests/test_stockhunter_r1d24_d_breakout_audit.py",
+      "git_blob_sha1": "b034e8ba78d87164ae6ec8ae08f3587b7073b830",
+      "size": 4753
+    },
+    {
+      "path": "tests/test_stockhunter_r1d25_448_d30.py",
+      "git_blob_sha1": "51eba991adb6ce327fd92a9dcc97634fc3369732",
+      "size": 4685
+    },
+    {
+      "path": "tests/test_stockhunter_r1d26_investor_pilot.py",
+      "git_blob_sha1": "7df4113151f44a6886fb55f7d06bf76e0d9812ee",
+      "size": 3371
+    },
+    {
+      "path": "tests/test_stockhunter_r1d26b_source_diagnostic.py",
+      "git_blob_sha1": "e820b760b62cf36acd742c61727f563ca37e107b",
+      "size": 4707
+    },
+    {
+      "path": "tests/test_stockhunter_r1d26c_flow_collection.py",
+      "git_blob_sha1": "8a2daa18fbe7c2f40242d7d9b6a6ad2df98c9ed7",
+      "size": 5705
+    },
+    {
+      "path": "tests/test_stockhunter_r1d26d_coverage_outcome_audit.py",
+      "git_blob_sha1": "69bda95c3b0a9b3b74d908fc4f45a1451b0b0862",
+      "size": 3927
+    },
+    {
+      "path": "tests/test_stockhunter_r1d26e_hit_ladder.py",
+      "git_blob_sha1": "90db05907c1edf3156ffef861468da977329c7b3",
+      "size": 3904
+    },
+    {
+      "path": "tests/test_stockhunter_r1d26f_staged_flow.py",
+      "git_blob_sha1": "5340f3d716c9b23984f1a0eee0ed2a22844381e0",
+      "size": 6134
+    },
+    {
+      "path": "tests/test_stockhunter_r1d26g_flow_ladder.py",
+      "git_blob_sha1": "f304754e2d01983ecce518139a258aa8f8cb0cf7",
+      "size": 4765
+    },
+    {
+      "path": "tests/test_stockhunter_r1d26h_holdout.py",
+      "git_blob_sha1": "d3786136365f3daa1a1a06f6d711723de053e646",
+      "size": 6957
+    },
+    {
+      "path": "tests/test_stockhunter_r1d26i_audit.py",
+      "git_blob_sha1": "31a29aa9f206fa3d4636c6c667ca0e1922f5cdb4",
+      "size": 5306
+    },
+    {
+      "path": "tests/test_stockhunter_r1d26k_matched_failure.py",
+      "git_blob_sha1": "f10764a0845cc716371870e9a4c06afff3e5d055",
+      "size": 5009
+    },
+    {
+      "path": "tests/test_stockhunter_r1d26l_exitpath.py",
+      "git_blob_sha1": "060bf9eb30fc9af238d087e49514f3d521279977",
+      "size": 8367
+    },
+    {
+      "path": "tests/test_stockhunter_r1d26m_fast_stop.py",
+      "git_blob_sha1": "3d1b7f4f278974855588535050f1a94a37e60aaa",
+      "size": 4639
+    },
+    {
+      "path": "tests/test_stockhunter_r1d26n_structural_support.py",
+      "git_blob_sha1": "e31cebfb579f94e0248a2cb093fbed3d291b43ae",
+      "size": 7292
+    },
+    {
+      "path": "tests/test_stockhunter_r1d26o_reclaim_reentry.py",
+      "git_blob_sha1": "663532253dfcee559ca8ce788230685730ac5277",
+      "size": 7493
+    },
+    {
+      "path": "tests/test_stockhunter_r1d26p_flow_rebreak.py",
+      "git_blob_sha1": "2f774e78a26708a6ceef559d868b7ba9c10067a7",
+      "size": 7520
+    },
+    {
+      "path": "tests/test_stockhunter_r1d26q_holdout.py",
+      "git_blob_sha1": "a68a939ad0eea80127c4b92049d80330da024f5d",
+      "size": 7679
+    },
+    {
+      "path": "tests/test_stockhunter_r1d26r_double_break.py",
+      "git_blob_sha1": "6558a06aa0691ed4e54403cf27ab71374fa59a3f",
+      "size": 6704
+    },
+    {
+      "path": "tests/test_stockhunter_r1d26u_entry_holdout.py",
+      "git_blob_sha1": "7336b36d7ebc77b0427ce29a7dd4e336c40b7e3e",
+      "size": 5623
+    },
+    {
+      "path": "tests/test_stockhunter_r1d26v_entry_correction.py",
+      "git_blob_sha1": "eb19a92ff92a24ba41fde06010f3a85b8be0169a",
+      "size": 7372
+    },
+    {
+      "path": "tests/test_stockhunter_r1d27a_bb_ma_allmarket.py",
+      "git_blob_sha1": "ee032f2bea5570b1493a69e7e7246eaed09dde73",
+      "size": 2851
+    },
+    {
+      "path": "tests/test_stockhunter_r1d27b_krx_auth_diagnostic.py",
+      "git_blob_sha1": "47c3783104d7e8f4ad2955e5bcdea871303b12a1",
+      "size": 5182
+    },
+    {
+      "path": "tests/test_stockhunter_r1d27c_auto.py",
+      "git_blob_sha1": "ab327c3e4bedd54d8a38212af00f989a36b99150",
+      "size": 2894
+    },
+    {
+      "path": "tests/test_stockhunter_r1d27c_flow60.py",
+      "git_blob_sha1": "676ff14395a3a7ffc492f166d45e82cadb4d3c68",
+      "size": 4134
+    },
+    {
+      "path": "tests/test_stockhunter_r1d27c_resume.py",
+      "git_blob_sha1": "677b4dccc355a969be59f4229cf9e654bf747c90",
+      "size": 1084
+    },
+    {
+      "path": "tests/test_stockhunter_r1d27d.py",
+      "git_blob_sha1": "b66867989f5aa55a0d2e6f54dbebd1460e325041",
+      "size": 4680
+    },
+    {
+      "path": "tests/test_stockhunter_r1d27d_autorecover.py",
+      "git_blob_sha1": "30140b6e9afc7db79f93a60e2d059fb9a163dee0",
+      "size": 5623
+    },
+    {
+      "path": "tests/test_stockhunter_r1d27f.py",
+      "git_blob_sha1": "d2313d4b45a343c33560e3e9561514600be0b910",
+      "size": 3122
+    },
+    {
+      "path": "tests/test_stockhunter_research_lab_consolidation.py",
+      "git_blob_sha1": "8a635509eccbe1eba75b8468df1c61d6e438ab0f",
+      "size": 5942
+    },
+    {
+      "path": "theme_news_sentiment.py",
+      "git_blob_sha1": "7939fef942649f96113afdcbe8ae8af3e30f24fe",
+      "size": 3225
+    },
+    {
+      "path": "theme_stock_map.py",
+      "git_blob_sha1": "c703662357ee34d416a478e8fb2c7b0a2bc351e4",
+      "size": 1823
+    },
+    {
+      "path": "ticker_guard_r2/guard.py",
+      "git_blob_sha1": "0058781cabbdf62286bded4a6bd599566955b225",
+      "size": 15859
+    },
+    {
+      "path": "ticker_guard_r2/prepare_top60_sourcefix.py",
+      "git_blob_sha1": "433a0fa3065cdb4f4e6b4d74dae6ca40993421c3",
+      "size": 15645
+    },
+    {
+      "path": "ticker_guard_r2/test_guard.py",
+      "git_blob_sha1": "e520cddeec51188d5afc43e13d35e35e71e00885",
+      "size": 3089
+    },
+    {
+      "path": "today_candidates.json",
+      "git_blob_sha1": "417111efc544e96a437cd90bc3b21567fa397a25",
+      "size": 160995
+    },
+    {
+      "path": "today_candidates_full.json",
+      "git_blob_sha1": "5ad9a8d0b13c128555f22bbae6cde98979f7bf43",
+      "size": 184426
+    },
+    {
+      "path": "topdown_v1107_4_3_backtest.py",
+      "git_blob_sha1": "0be9af04af8f9cdee040435057ffe591b7979456",
+      "size": 47534
+    },
+    {
+      "path": "tri_r2_frozen_discovery_baseline.csv",
+      "git_blob_sha1": "e39979d79d0b7de1ff33278d54d95774fd9a14a4",
+      "size": 789
+    },
+    {
+      "path": "triangle1pb_research.py",
+      "git_blob_sha1": "1225fa7c90e7e7bab7937f96e7c08dec861e226d",
+      "size": 274675
+    },
+    {
+      "path": "triangle_combo_analyzer.py",
+      "git_blob_sha1": "90507c375bb6b7a39c996698e15c5346697ca000",
+      "size": 57127
+    },
+    {
+      "path": "trip-data.json",
+      "git_blob_sha1": "f98219867fc31e980d65c41f8ebf54d4b1a9608f",
+      "size": 68555
+    },
+    {
+      "path": "usStockScanner.py",
+      "git_blob_sha1": "cc2a0a9c7a7bd6af7a375695f01dba35968c523c",
+      "size": 26589
+    },
+    {
+      "path": "us_kor_market_mapper.py",
+      "git_blob_sha1": "7d8da6b38efeb59bea58f4dff58e4da531add10e",
+      "size": 10718
+    },
+    {
+      "path": "v25_core224_daily_episode_replay.py",
+      "git_blob_sha1": "077fa53433b467befbe0f2e799751db36810be08",
+      "size": 249165
+    },
+    {
+      "path": "v25_core224_live_runtime.py",
+      "git_blob_sha1": "a8ce641dfae970951fe41b11219a15189f2f4f71",
+      "size": 38472
+    },
+    {
+      "path": "v25_core224_live_seed_builder.py",
+      "git_blob_sha1": "85bfeedd1505b7611397cb47cb6b65d1da60d825",
+      "size": 11809
+    },
+    {
+      "path": "v25_core224_parent.py",
+      "git_blob_sha1": "0297a9422a15f1d319a03c8d0569484f54f4f63e",
+      "size": 26784
+    },
+    {
+      "path": "v25_core224_universe_forensic.py",
+      "git_blob_sha1": "a88fdf29d24ea5a529813b4fbe4ff683b69a5938",
+      "size": 7385
+    },
+    {
+      "path": "v49.75.py",
+      "git_blob_sha1": "f4b996ca6411152a4e45cbec7606ac181cc683ac",
+      "size": 2869159
+    },
+    {
+      "path": "v49.76.1.py",
+      "git_blob_sha1": "9426bab8c08988a483b45adc6140e019fd90625f",
+      "size": 2883404
+    },
+    {
+      "path": "v49.76.1.yml",
+      "git_blob_sha1": "95674e96fa41e3c2e8a3e7a9cf4fd364b5e16d24",
+      "size": 73309
+    },
+    {
+      "path": "v49.76.2.py",
+      "git_blob_sha1": "0fa89a8dd49f6eeceac6d5eb156f057e03bbc4dc",
+      "size": 2883498
+    },
+    {
+      "path": "v49.76.py",
+      "git_blob_sha1": "0fa89a8dd49f6eeceac6d5eb156f057e03bbc4dc",
+      "size": 2883498
+    },
+    {
+      "path": "v49.76.yml",
+      "git_blob_sha1": "1ad0badb10b6114223802d79f0599c4b5bf1df07",
+      "size": 73309
+    },
+    {
+      "path": "v49_75_input.py",
+      "git_blob_sha1": "a88e8be0798a2fdfd8873d091aad11fd3dd31b99",
+      "size": 16065
+    },
+    {
+      "path": "v49_75_insight.py",
+      "git_blob_sha1": "c5f97fcfa30e957e3e0125b5ad36680ec7ac0bf4",
+      "size": 34694
+    },
+    {
+      "path": "v49_75_marcap.py",
+      "git_blob_sha1": "3ada258eb906fe2f8a786999d20967fb9ebe8284",
+      "size": 20866
+    },
+    {
+      "path": "v49_75_merge.py",
+      "git_blob_sha1": "14791cc81aa166a5f44437383235c0e35a3bed5e",
+      "size": 108670
+    },
+    {
+      "path": "v49_75_pit_marcap.py",
+      "git_blob_sha1": "f4e8669b97ef003a3f03237e198a8649b83da35f",
+      "size": 21053
+    },
+    {
+      "path": "v49_75_prepare.py",
+      "git_blob_sha1": "eb126bac066b448a1c07682b0d059b26822dfe57",
+      "size": 11184
+    },
+    {
+      "path": "v49_75_quality.py",
+      "git_blob_sha1": "ca3b03ddae19e2ec02ffc4bdd4f1341d34b7bcbb",
+      "size": 26685
+    },
+    {
+      "path": "v49_75_research.py",
+      "git_blob_sha1": "ee061babf93f6bb3cb0115bee81305ac8afb0e64",
+      "size": 29418
+    },
+    {
+      "path": "v49_75_telegram_route.py",
+      "git_blob_sha1": "58d947db646f60776caa4dd1a0f5ab9eef2c56cf",
+      "size": 7867
+    },
+    {
+      "path": "v49_76_input.py",
+      "git_blob_sha1": "a88e8be0798a2fdfd8873d091aad11fd3dd31b99",
+      "size": 16065
+    },
+    {
+      "path": "v49_76_insight.py",
+      "git_blob_sha1": "cce438b33082b40321462a33473dc9957bafef36",
+      "size": 34694
+    },
+    {
+      "path": "v49_76_marcap.py",
+      "git_blob_sha1": "c4eccbd909d28468a0b941899be7494dc12b1cf3",
+      "size": 20866
+    },
+    {
+      "path": "v49_76_merge.py",
+      "git_blob_sha1": "7038d971565553ac742753ad7e4cc89151a9377d",
+      "size": 113520
+    },
+    {
+      "path": "v49_76_pit_marcap.py",
+      "git_blob_sha1": "1b647597718c8181f7aabe28b7bf281bd43afed8",
+      "size": 21053
+    },
+    {
+      "path": "v49_76_practical.py",
+      "git_blob_sha1": "e172dd18bf19e4c2e1d0cb2d4fcf9071664a01e5",
+      "size": 14932
+    },
+    {
+      "path": "v49_76_prepare.py",
+      "git_blob_sha1": "db1b63cc4eb95496011d1586f942a14ddf8f0ad2",
+      "size": 11184
+    },
+    {
+      "path": "v49_76_quality.py",
+      "git_blob_sha1": "48012c38bd2cba5f88d4cce4732ed90a04404618",
+      "size": 26685
+    },
+    {
+      "path": "v49_76_research.py",
+      "git_blob_sha1": "0b6b4c8bbdd056662855785967a456aec1f44bc5",
+      "size": 29418
+    },
+    {
+      "path": "v49_76_telegram_route.py",
+      "git_blob_sha1": "352513b4392566fc31c57873ce20ecf8e82f053c",
+      "size": 7867
+    },
+    {
+      "path": "v73_discovery_engine.py",
+      "git_blob_sha1": "30b502c2e8d691e5d436aa91c5c78dc03e7195e5",
+      "size": 119031
+    },
+    {
+      "path": "wave_research.py",
+      "git_blob_sha1": "ed03425e872072e1a2582c5642cbc393c266f5cf",
+      "size": 3463
+    }
+  ]
+}
