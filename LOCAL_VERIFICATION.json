@@ -1,0 +1,8 @@
+{
+  "feature_rows": 5412,
+  "local_entrypoint_replay": "PASS",
+  "identical_to_original_local_results": true,
+  "tests": 4,
+  "remote_upload": "BLOCKED_403",
+  "actions_run": null
+}
