@@ -1,0 +1,36 @@
+[
+  {
+    "code": "028300",
+    "signal_date": "2023-02-20",
+    "band_low": 36900,
+    "band_high": 38000,
+    "displayed_pct": 20.8,
+    "displayed_volume": 21024369,
+    "range_source": "USER_TYPED_RANGE_NOT_PRECISE_IMAGE_OCR",
+    "screenshot": "codex-clipboard-fb3861af-0f89-4cb7-9504-79d4a171a985.png",
+    "profile_start": null,
+    "profile_end": null,
+    "bins": null,
+    "price_basis": null,
+    "allocation_method": null,
+    "total_volume_denominator": null,
+    "settings_status": "MISSING_SETTINGS"
+  },
+  {
+    "code": "145990",
+    "signal_date": "2023-05-08",
+    "band_low": 44960,
+    "band_high": 46350,
+    "displayed_pct": 45.2,
+    "displayed_volume": null,
+    "range_source": "IMAGE_LABEL_TRANSCRIPTION",
+    "screenshot": "codex-clipboard-38c4171c-1d5c-4226-8d79-dff4d70ff19a.png",
+    "profile_start": null,
+    "profile_end": null,
+    "bins": null,
+    "price_basis": null,
+    "allocation_method": null,
+    "total_volume_denominator": null,
+    "settings_status": "MISSING_SETTINGS"
+  }
+]
