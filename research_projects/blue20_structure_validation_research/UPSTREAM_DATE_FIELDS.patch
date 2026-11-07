@@ -1,0 +1,12 @@
+--- a/research_projects/blue20_price_interaction_research/analyze.py
++++ b/research_projects/blue20_price_interaction_research/analyze.py
+@@ -87,7 +87,8 @@
+                                                        abs(bar.close-z["high"]),-z["count"],z["anchor"]))
+                     for t in chosen["tests"]:
+                         assert t["known_date"]<e.date
+-                        trials.append({**identity,**t, "zone_low":selected["low"],"zone_high":selected["high"]})
++                        trials.append({**identity, **t, "event_date":e.date, "test_date":t["date"],
++                                       "zone_low":selected["low"], "zone_high":selected["high"]})
+                 else:
+                     record["state"]="NO_REPEAT_ZONE"
+                 rows.append(record)

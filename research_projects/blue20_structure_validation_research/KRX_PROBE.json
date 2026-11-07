@@ -1,0 +1,10 @@
+[
+  {
+    "date": "20221108",
+    "http_status": 400,
+    "rows": 0,
+    "sha256": "377b375adcc04b5ba5998c978372401a4c6327ccc218e17e383f72861085cb95",
+    "file": "krx_daily_20221108.response",
+    "contains_data": false
+  }
+]
