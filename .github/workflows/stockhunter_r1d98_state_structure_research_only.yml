@@ -38,6 +38,7 @@ on:
           - blue20_candle_exhaustion
           - blue20_profile_cloud_avwap
           - blue20_repeated_resistance
+          - blue20_price_interaction
           - all
       r118_mode:
         description: 'R118: auto=200 stocks, auto500=500 stocks+10 audited charts; smoke=sample, manifest=manual'
@@ -93,7 +94,7 @@ permissions:
 jobs:
   trendline-research-only:
     # auto500 uses a separate 5-runner matrix below; do not double-compute.
-    if: ${{ inputs.study != 'blue20_rsi_delay' && inputs.study != 'blue20_multifactor' && inputs.study != 'blue20_ma_structure' && inputs.study != 'blue20_candle_exhaustion' && inputs.study != 'blue20_profile_cloud_avwap' && inputs.study != 'blue20_repeated_resistance' && (inputs.study != 'r1d118' || inputs.r118_mode != 'auto500') }}
+    if: ${{ inputs.study != 'blue20_rsi_delay' && inputs.study != 'blue20_multifactor' && inputs.study != 'blue20_ma_structure' && inputs.study != 'blue20_candle_exhaustion' && inputs.study != 'blue20_profile_cloud_avwap' && inputs.study != 'blue20_repeated_resistance' && inputs.study != 'blue20_price_interaction' && (inputs.study != 'r1d118' || inputs.r118_mode != 'auto500') }}
     runs-on: ubuntu-latest
     timeout-minutes: 150
     steps:
@@ -1252,5 +1253,55 @@ jobs:
           name: BLUE20_REPEATED_RESISTANCE_RESEARCH_ONLY
           path: |
             research_projects/blue20_repeated_resistance_research/results/
+          if-no-files-found: error
+          retention-days: 30
+
+  blue20-price-interaction-research-only:
+    if: ${{ inputs.study == 'blue20_price_interaction' }}
+    name: BLUE20 confirmed price resistance versus daily profile (RESEARCH_ONLY)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    env:
+      STUDY_DIR: research_projects/blue20_price_interaction_research
+      BLUE20_MANIFEST: research_projects/blue20_multifactor_research/.auto500_work/r118_inputs/manifest.csv
+      BLUE20_EVENTS: research_projects/blue20_price_interaction_research/.recomputed_base/stoch_14_3_3/12_all_events_with_PIT_features.csv.gz
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install independent historical research dependencies
+        run: python -m pip install 'numpy>=1.26,<3' 'pandas>=2.2,<3' 'pyarrow>=15,<27'
+      - name: Test confirmed pivots and resistance state boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$STUDY_DIR/results"
+          python -m unittest discover -s "$STUDY_DIR" -p 'test_*.py' -v 2>&1 | tee "$STUDY_DIR/results/TEST.log"
+      - name: Replay the original fixed 500-stock event source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -u research_projects/blue20_multifactor_research/run_auto500.py \
+            --out "$STUDY_DIR/.recomputed_base" --stoch 14,3,3 \
+            | tee "$STUDY_DIR/results/BASELINE.log"
+      - name: Verify historical identities and compare price resistance
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -u "$STUDY_DIR/inputs.py" | tee "$STUDY_DIR/results/INPUTS.log"
+          python -u "$STUDY_DIR/analyze.py" | tee "$STUDY_DIR/results/RESEARCH.log"
+          python "$STUDY_DIR/anomaly_report.py"
+          python "$STUDY_DIR/report.py"
+      - name: Upload independent source audit and chart gallery
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: BLUE20_PRICE_RESISTANCE_INTERACTION_RESEARCH_ONLY
+          path: research_projects/blue20_price_interaction_research/results/
           if-no-files-found: error
           retention-days: 30
