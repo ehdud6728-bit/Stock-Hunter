@@ -1,0 +1,32 @@
+[
+  {
+    "receipt": "20221012000523",
+    "url": "https://kind.krx.co.kr/external/2022/10/12/000523/20221012001218/70766.htm",
+    "sha256": "8344ece8f6db92b010e515fc322313dfbfc44a7ad977ccc04f84749bc18d4255"
+  },
+  {
+    "receipt": "20221227000903",
+    "url": "https://kind.krx.co.kr/external/2022/12/27/000903/20221227003263/70767.htm",
+    "sha256": "d3e2459ed020cf0b66a2dcdd2824c2569146a148da6d0fc40740a93d223e09a4"
+  },
+  {
+    "receipt": "20221215000546",
+    "url": "https://kind.krx.co.kr/external/2022/12/15/000546/20221214001823/71474.htm",
+    "sha256": "70e1aba4d2203c3ae3926fafe8e753bbc08fd5171f1ca83ce9d0fe1c0f8917f0"
+  },
+  {
+    "receipt": "20221206000422",
+    "url": "https://kind.krx.co.kr/external/2022/12/06/000422/20221206001107/61381.htm",
+    "sha256": "99723a25c7f5a3fe561a6e24e80bfb085ebde1289dbd063e14d754c3cdcdf9f2"
+  },
+  {
+    "receipt": "20221213000271",
+    "url": "https://kind.krx.co.kr/external/2022/12/13/000271/20221213000869/00637_toc.htm",
+    "sha256": "ea9142b19247286dc499a51ee1fb79606424b6f7a73ed53745bd24f734e26ea9"
+  },
+  {
+    "receipt": "20221104000536",
+    "url": "https://kind.krx.co.kr/external/2022/11/04/000536/20221104001197/00636_toc.htm",
+    "sha256": "07eb4df92908850960ba011970fa2005521cae3478e3291849ed43955f9f8747"
+  }
+]
