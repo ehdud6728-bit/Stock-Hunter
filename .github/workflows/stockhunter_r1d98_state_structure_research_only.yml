@@ -44,6 +44,7 @@ on:
           - blue20_vp_signal_audit
           - blue20_early_wave
           - blue20_pullback_reset
+          - blue20_bb_pullback_resistance
           - all
       r118_mode:
         description: 'R118: auto=200 stocks, auto500=500 stocks+10 audited charts; smoke=sample, manifest=manual'
@@ -99,7 +100,7 @@ permissions:
 jobs:
   trendline-research-only:
     # auto500 uses a separate 5-runner matrix below; do not double-compute.
-    if: ${{ inputs.study != 'blue20_rsi_delay' && inputs.study != 'blue20_multifactor' && inputs.study != 'blue20_ma_structure' && inputs.study != 'blue20_candle_exhaustion' && inputs.study != 'blue20_profile_cloud_avwap' && inputs.study != 'blue20_repeated_resistance' && inputs.study != 'blue20_price_interaction' && inputs.study != 'blue20_structure_validation' && inputs.study != 'blue20_trend_stop' && inputs.study != 'blue20_vp_signal_audit' && inputs.study != 'blue20_early_wave' && inputs.study != 'blue20_pullback_reset' && (inputs.study != 'r1d118' || inputs.r118_mode != 'auto500') }}
+    if: ${{ inputs.study != 'blue20_rsi_delay' && inputs.study != 'blue20_multifactor' && inputs.study != 'blue20_ma_structure' && inputs.study != 'blue20_candle_exhaustion' && inputs.study != 'blue20_profile_cloud_avwap' && inputs.study != 'blue20_repeated_resistance' && inputs.study != 'blue20_price_interaction' && inputs.study != 'blue20_structure_validation' && inputs.study != 'blue20_trend_stop' && inputs.study != 'blue20_vp_signal_audit' && inputs.study != 'blue20_early_wave' && inputs.study != 'blue20_pullback_reset' && inputs.study != 'blue20_bb_pullback_resistance' && (inputs.study != 'r1d118' || inputs.r118_mode != 'auto500') }}
     runs-on: ubuntu-latest
     timeout-minutes: 150
     steps:
@@ -1561,6 +1562,56 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: BLUE20_PULLBACK_RESET_STOP_RESEARCH_ONLY
+          path: ${{ env.STUDY_DIR }}/results/
+          if-no-files-found: error
+          retention-days: 30
+
+  blue20-bb-pullback-resistance-research-only:
+    if: ${{ inputs.study == 'blue20_bb_pullback_resistance' }}
+    name: BLUE20 BB20 BB40 pullback and resistance audit (RESEARCH_ONLY)
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      STUDY_DIR: research_projects/blue20_bb_pullback_resistance_research/BLUE20_BB_PULLBACK_RESISTANCE
+      BLUE20_MANIFEST: research_projects/blue20_multifactor_research/.auto500_work/r118_inputs/manifest.csv
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install immutable source readers
+        run: python -m pip install 'numpy>=1.26,<3' 'pandas>=2.2,<3' 'pyarrow>=15,<27'
+      - name: Protect all existing tracked blobs
+        run: python "$STUDY_DIR/protect_repo.py"
+      - name: Test signal-time resistance integrity
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$STUDY_DIR/results"
+          python -m unittest discover -s "$STUDY_DIR" -p 'test_*.py' -v 2>&1 | tee "$STUDY_DIR/results/TEST.log"
+      - name: Rebuild original 500-stock source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -u research_projects/blue20_multifactor_research/run_auto500.py --out "$STUDY_DIR/.recomputed_base" --stoch 14,3,3 | tee "$STUDY_DIR/results/BASELINE.log"
+      - name: Compare first and pullback entries with causal resistance snapshots
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -u "$STUDY_DIR/run_shards.py" | tee "$STUDY_DIR/results/RESEARCH.log"
+          python "$STUDY_DIR/report_results.py" | tee "$STUDY_DIR/results/REPORT.log"
+          python "$STUDY_DIR/sensitivity_bins.py" | tee "$STUDY_DIR/results/SENSITIVITY.log"
+          python "$STUDY_DIR/protect_repo.py"
+      - name: Upload independent research results
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: BLUE20_BB_PULLBACK_RESISTANCE_RESEARCH_ONLY
           path: ${{ env.STUDY_DIR }}/results/
           if-no-files-found: error
           retention-days: 30
