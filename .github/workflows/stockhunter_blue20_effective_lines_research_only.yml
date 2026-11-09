@@ -1,0 +1,57 @@
+name: BLUE20 Effective Lines and Pullback (RESEARCH_ONLY)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  effective-lines-research-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      STUDY_DIR: research_projects/blue20_effective_lines_research
+      BLUE20_MANIFEST: research_projects/blue20_multifactor_research/.auto500_work/r118_inputs/manifest.csv
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install source readers
+        run: python -m pip install 'numpy>=1.26,<3' 'pandas==2.3.3' 'pyarrow>=15,<27'
+      - name: Verify research entry points
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$STUDY_DIR/results"
+          python -m unittest discover -s "$STUDY_DIR" -p 'test_*.py' -v 2>&1 | tee "$STUDY_DIR/results/TEST.log"
+      - name: Restore fixed 500 inputs and verify holdout
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -u research_projects/blue20_multifactor_research/run_auto500.py --out "$RUNNER_TEMP/blue20-effective-lines-base" --stoch 14,3,3 2>&1 | tee "$STUDY_DIR/results/BASELINE.log"
+          python "$STUDY_DIR/fetch_holdout.py"
+      - name: Replay fixed and per-stock policies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -u "$STUDY_DIR/study.py" 2>&1 | tee "$STUDY_DIR/results/RESEARCH.log"
+          python "$STUDY_DIR/summarize.py"
+          git diff --exit-code HEAD --
+      - name: Upload independent results
+        uses: actions/upload-artifact@v4
+        with:
+          name: BLUE20_EFFECTIVE_LINES_RESEARCH_ONLY
+          path: ${{ env.STUDY_DIR }}/results/
+          if-no-files-found: error
+      - name: Upload failure logs
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: BLUE20_EFFECTIVE_LINES_FAILURE_LOGS
+          path: ${{ env.STUDY_DIR }}/results/*.log
+          if-no-files-found: ignore
