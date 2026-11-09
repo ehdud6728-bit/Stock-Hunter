@@ -1,0 +1,20 @@
+{
+  "code": {
+    "market_study.py": "2e18010e094078f076a48262dc25d689b0e2a8bd67dc1a25ee84dbd513550e7a",
+    "PROTOCOL_KO.md": "9905d0712a218267736b1f33b4cf546269ef148b5a1e05cb31ad46984dba431d",
+    "../BLUE20_RESISTANCE/upload/research_projects/blue20_repeated_resistance_research/research.py": "11d3708e6f4a91f0a279d75e1f228b0c7701ee209df4e2c89c0b0449e6e2da63",
+    "source/analyze_candle_exhaustion.py": "a9ff4b65927de9d3c4a411d063c32a6e3c29a75afe83276d627077a4efb3ca8e",
+    "source/analyze_ma.py": "50698cf63b6bba8f17aea4ba53bb3a9b612acde7b0d75e58a75e5d7e4b810b95",
+    "source/blue20_rsi_delay.py": "c69d5de0412d19a6cb9230409319059f0e3e31c447aad38f30ba6f96eff76860",
+    "source/blue20_threeway_audit.py": "7573f3920a382a0c9e518c0502ab746bd13fa4b27a57257ceef010672bafe9b8",
+    "source/post_entry_flow.py": "89810f06dff4aeb17a4bfe97984b7cb3d4c8342b59a7182bb0c10133c4d30a17",
+    "source/profile_study.py": "ff6f405f204ff76555f90a422bf940f7d929f16aa6c3dcc28f19180e2818d552"
+  },
+  "inputs": {
+    "marcap-2022.parquet": "179650f5d1bd6abecb03d1b8eddf5f59c5ca6a0402e7bf2578635790b9ca811c",
+    "marcap-2023.parquet": "08f96990358f5afc4e17321613cef7126e2f0bd4290b82db952b7808d87f9c22",
+    "marcap-2024.parquet": "b0c38943e67637d5faf88429880092cf0f46a394be39860dd3bcd0b04231bccb",
+    "marcap-2025.parquet": "2bfd93c217eb74263bc5020b23fa6debb6b02531c11eaccc2826639bc191559e",
+    "marcap-2026.parquet": "3e4de234880739d81926bb82bece2ce250b631dd37ea8b62435c4d1691ead271"
+  }
+}
