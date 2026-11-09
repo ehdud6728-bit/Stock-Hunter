@@ -1,0 +1,86 @@
+name: BLUE20 Investor Flow and Candle Candidates (RESEARCH_ONLY)
+
+on:
+  workflow_dispatch:
+    inputs:
+      investor_flow_run_id:
+        description: 'Optional run ID in this repository containing BLUE20_INVESTOR_FLOW_INPUT'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  investor-accumulation-research-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      STUDY_DIR: research_projects/blue20_investor_accumulation_research
+      BLUE20_MANIFEST: research_projects/blue20_multifactor_research/.auto500_work/r118_inputs/manifest.csv
+      FLOW_RUN_ID: ${{ inputs.investor_flow_run_id }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install research dependencies
+        run: python -m pip install 'numpy>=1.26,<3' 'pandas==2.3.3' 'pyarrow>=15,<27'
+      - name: Verify entry points and timing tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f "$STUDY_DIR/study.py"
+          test -f "$STUDY_DIR/diagnostics.py"
+          test -f "$STUDY_DIR/reference/SHA256.json"
+          mkdir -p "$STUDY_DIR/results"
+          python -m unittest discover -s "$STUDY_DIR" -p 'test_*.py' -v 2>&1 | tee "$STUDY_DIR/results/TEST.log"
+          if [[ -n "$FLOW_RUN_ID" && ! "$FLOW_RUN_ID" =~ ^[0-9]+$ ]]; then
+            echo "investor_flow_run_id must be numeric" >&2
+            exit 1
+          fi
+      - name: Download optional point-in-time investor input
+        if: ${{ inputs.investor_flow_run_id != '' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: BLUE20_INVESTOR_FLOW_INPUT
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.investor_flow_run_id }}
+          path: ${{ runner.temp }}/blue20-investor-input
+      - name: Rebuild the pinned 500-stock price input
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -u research_projects/blue20_multifactor_research/run_auto500.py --out "$RUNNER_TEMP/blue20-investor-base" --stoch 14,3,3 2>&1 | tee "$STUDY_DIR/results/BASELINE.log"
+      - name: Run all-day candidates and original signal comparisons
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=(--manifest "$BLUE20_MANIFEST")
+          if [[ -n "$FLOW_RUN_ID" ]]; then
+            flow_file="$RUNNER_TEMP/blue20-investor-input/investor_flows.csv"
+            test -s "$flow_file"
+            args+=(--flows "$flow_file")
+          fi
+          python -u "$STUDY_DIR/study.py" "${args[@]}" 2>&1 | tee "$STUDY_DIR/results/RESEARCH.log"
+          python -u "$STUDY_DIR/diagnostics.py" 2>&1 | tee "$STUDY_DIR/results/DIAGNOSTICS.log"
+          git diff --exit-code HEAD --
+      - name: Upload independent results
+        uses: actions/upload-artifact@v4
+        with:
+          name: BLUE20_INVESTOR_ACCUMULATION_RESEARCH_ONLY
+          path: ${{ env.STUDY_DIR }}/results/
+          if-no-files-found: error
+          retention-days: 30
+      - name: Upload failure logs
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: BLUE20_INVESTOR_ACCUMULATION_FAILURE_LOGS
+          path: ${{ env.STUDY_DIR }}/results/*.log
+          if-no-files-found: ignore
+          retention-days: 14
