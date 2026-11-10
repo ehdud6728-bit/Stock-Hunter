@@ -1,0 +1,221 @@
+name: Stock-Hunter KRX 2026-11-10 daily source audit (RESEARCH ONLY)
+
+on:
+  workflow_dispatch:
+    inputs:
+      asof_date:
+        description: 'Target KRX trading date (YYYY-MM-DD)'
+        type: string
+        required: true
+        default: '2026-11-10'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stockhunter-krx-eod-audit-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  krx_daily_source_audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      KRX_ID: ${{ secrets.KRX_DATA_ID || secrets.KRX_ID }}
+      KRX_PW: ${{ secrets.KRX_DATA_PW || secrets.KRX_PW }}
+      AUDIT_ASOF: ${{ inputs.asof_date }}
+      PYTHONUNBUFFERED: '1'
+    steps:
+      - name: Checkout - audit only (no LIVE changes)
+        uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install pinned pykrx (same version as passing auth audit)
+        run: python -m pip install 'pykrx==1.2.9' 'pandas>=2.2,<3' 'requests>=2.31,<3'
+      - name: Check exact-day KOSPI and KOSDAQ OHLCV + date parity (read only)
+        run: |
+          python - <<'PY_AUDIT'
+          #!/usr/bin/env python3
+          """KRX daily OHLCV date/provenance audit. Research-only, minimal calls.
+
+          No credentials, URLs, raw provider responses, per-ticker prices or cookies are logged.
+          This script is embedded into one standalone workflow YAML for easy upload.
+          """
+          import contextlib
+          import datetime as dt
+          import io
+          import json
+          import os
+          import sys
+          from pathlib import Path
+
+          import pandas as pd
+          from pykrx import stock
+
+          ASOF = os.getenv("AUDIT_ASOF", "2026-11-10").strip()
+          OUT = Path("reports/krx_daily_20261110_audit/DIAGNOSTIC.json")
+          MIN_ROWS = {"KOSPI": 300, "KOSDAQ": 500}
+          NEEDED = ["시가", "고가", "저가", "종가", "거래량", "거래대금"]
+          TICKERS = {"KOSPI": "005930", "KOSDAQ": "086520"}
+
+
+          def quiet_call(fn, *args, **kwargs):
+              # pykrx/KRX may emit login IDs and opaque provider payloads; suppress both.
+              with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                  return fn(*args, **kwargs)
+
+
+          def integer_count(series):
+              return int((pd.to_numeric(series, errors="coerce") > 0).sum())
+
+
+          def safe_exception(exc):
+              return type(exc).__name__  # Never return exception message or endpoint URL.
+
+
+          def market_check(asof, market):
+              result = {"status": "NOT_CHECKED", "rows": 0,
+                        "traded_rows": 0, "positive_amount_rows": 0,
+                        "columns_valid": False, "has_sample_ticker": False}
+              try:
+                  frame = quiet_call(stock.get_market_ohlcv_by_ticker, asof, market=market, alternative=False)
+                  if not isinstance(frame, pd.DataFrame) or frame.empty:
+                      result["status"] = "NO_DATA"
+                      return result, None
+                  result["rows"] = int(len(frame))
+                  result["columns_valid"] = all(c in frame.columns for c in NEEDED)
+                  if not result["columns_valid"]:
+                      result["status"] = "COLUMN_MISMATCH"
+                      return result, None
+                  for col in NEEDED:
+                      values = pd.to_numeric(frame[col], errors="coerce")
+                      if values.isna().any() or (values < 0).any():
+                          result["status"] = "BAD_NUMERIC"
+                          return result, None
+                  if (frame["고가"] < frame["저가"]).any():
+                      result["status"] = "BAD_HIGH_LOW"
+                      return result, None
+                  result["traded_rows"] = integer_count(frame["거래량"])
+                  result["positive_amount_rows"] = integer_count(frame["거래대금"])
+                  frame.index = frame.index.map(lambda x: str(x).zfill(6))
+                  result["has_sample_ticker"] = TICKERS[market] in frame.index
+                  if (result["rows"] < MIN_ROWS[market] or
+                          result["traded_rows"] < 100 or
+                          result["positive_amount_rows"] < 100 or
+                          not result["has_sample_ticker"]):
+                      result["status"] = "INCOMPLETE_MARKET_COVERAGE"
+                      return result, frame
+                  result["status"] = "MARKET_FRAME_VALID_DATE_NOT_YET_PROVEN"
+                  return result, frame
+              except Exception as exc:
+                  result["status"] = "FETCH_EXCEPTION"
+                  result["error_type"] = safe_exception(exc)
+                  return result, None
+
+
+          def date_sample_check(asof, market, frame):
+              result = {"status": "NOT_CHECKED", "exact_day_rows": 0,
+                        "sample_ticker": TICKERS[market], "close_matches": False,
+                        "volume_matches": False}
+              if frame is None or TICKERS[market] not in frame.index:
+                  result["status"] = "NO_MARKET_SAMPLE"
+                  return result
+              try:
+                  one = quiet_call(stock.get_market_ohlcv_by_date, asof, asof, TICKERS[market], adjusted=False)
+                  if not isinstance(one, pd.DataFrame) or one.empty or not all(c in one.columns for c in ["종가", "거래량"]):
+                      result["status"] = "NO_EXPLICIT_DATE_DATA"
+                      return result
+                  dates = pd.to_datetime(one.index, errors="coerce")
+                  good = [i for i, d in enumerate(dates) if pd.notna(d) and d.strftime("%Y%m%d") == asof]
+                  result["exact_day_rows"] = int(len(good))
+                  if len(good) != 1 or len(one) != 1:
+                      result["status"] = "DATE_NOT_EXACT"
+                      return result
+                  cross = frame.loc[TICKERS[market]]
+                  row = one.iloc[good[0]]
+                  result["close_matches"] = float(cross["종가"]) == float(row["종가"])
+                  result["volume_matches"] = float(cross["거래량"]) == float(row["거래량"])
+                  result["status"] = "EXACT_DATE_AND_PRICE_MATCH" if result["close_matches"] and result["volume_matches"] else "SAMPLE_VALUE_MISMATCH"
+              except Exception as exc:
+                  result["status"] = "SAMPLE_FETCH_EXCEPTION"
+                  result["error_type"] = safe_exception(exc)
+              return result
+
+
+          def index_date_check(asof):
+              result = {"status": "NOT_CHECKED", "exact_day_rows": 0}
+              try:
+                  df = quiet_call(stock.get_index_ohlcv_by_date, asof, asof, "1001")
+                  if not isinstance(df, pd.DataFrame) or df.empty:
+                      result["status"] = "NO_INDEX_DATA"
+                      return result
+                  days = pd.to_datetime(df.index, errors="coerce")
+                  result["exact_day_rows"] = sum(int(pd.notna(d) and d.strftime("%Y%m%d") == asof) for d in days)
+                  result["status"] = "EXACT_INDEX_DATE" if result["exact_day_rows"] == 1 and len(df) == 1 else "INDEX_DATE_NOT_EXACT"
+              except Exception as exc:
+                  result["status"] = "INDEX_FETCH_EXCEPTION"
+                  result["error_type"] = safe_exception(exc)
+              return result
+
+
+          def run():
+              try:
+                  parsed = dt.date.fromisoformat(ASOF)
+                  if parsed.strftime("%Y-%m-%d") != ASOF or parsed > (dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=9)).date():
+                      raise ValueError("Invalid asof date")
+              except ValueError:
+                  print("AUDIT_INVALID_DATE; required YYYY-MM-DD not in future")
+                  return 2
+              stamp = parsed.strftime("%Y%m%d")
+              present = bool(os.environ.get("KRX_ID") and os.environ.get("KRX_PW"))
+              report = {
+                  "mode": "RESEARCH_ONLY", "live_strategy_unchanged": True, "orders_placed": 0,
+                  "asof": ASOF, "run_utc": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
+                  "source": "PYKRX_KRX_DATA_PORTAL_DAILY_NOT_INTRADAY",
+                  "source_limitations": "Not proof of real-time, pre-close, or KRX Open API AUTH_KEY.",
+                  "secret_pair_present": present,
+                  "markets": {}, "date_samples": {}, "index_date": {"status": "NOT_CHECKED"},
+                  "daily_ohlcv_verified": False, "intraday_verified": False,
+                  "status": "NOT_RUN",
+              }
+              if not present:
+                  report["status"] = "KRX_CREDENTIALS_MISSING"
+              else:
+                  market_frames = {}
+                  for market in ("KOSPI", "KOSDAQ"):
+                      report["markets"][market], market_frames[market] = market_check(stamp, market)
+                  for market in ("KOSPI", "KOSDAQ"):
+                      report["date_samples"][market] = date_sample_check(stamp, market, market_frames[market])
+                  report["index_date"] = index_date_check(stamp)
+                  ready = (
+                      all(report["markets"][m]["status"] == "MARKET_FRAME_VALID_DATE_NOT_YET_PROVEN" for m in MIN_ROWS)
+                      and all(report["date_samples"][m]["status"] == "EXACT_DATE_AND_PRICE_MATCH" for m in MIN_ROWS)
+                      and report["index_date"]["status"] == "EXACT_INDEX_DATE"
+                  )
+                  report["daily_ohlcv_verified"] = bool(ready)
+                  report["status"] = "KRX_DAILY_ASOF_VERIFIED" if ready else "KRX_DAILY_ASOF_NOT_VERIFIED"
+              OUT.parent.mkdir(parents=True, exist_ok=True)
+              OUT.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+              # Do not print credentials, personal identifiers, raw prices, URLs or provider error contents.
+              print("KRX_DAILY_AUDIT", json.dumps(report, ensure_ascii=False, sort_keys=True))
+              if report["daily_ohlcv_verified"]:
+                  print("KRX_DAILY_AUDIT_PASS: full-market EOD date and sample parity verified")
+                  print("INTRADAY_AUDIT_NOT_PROVEN: pykrx daily data is NOT a streaming data feed")
+                  return 0
+              print("::error::KRX_DAILY_AUDIT_NOT_VERIFIED; examine metadata artifact")
+              return 2
+
+
+          if __name__ == "__main__":
+              sys.exit(run())
+          PY_AUDIT
+      - name: Upload safe metadata-only audit even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: KRX-DAILY-DATE-AUDIT-${{ github.run_id }}
+          path: reports/krx_daily_20261110_audit/DIAGNOSTIC.json
+          if-no-files-found: warn
+          retention-days: 14
