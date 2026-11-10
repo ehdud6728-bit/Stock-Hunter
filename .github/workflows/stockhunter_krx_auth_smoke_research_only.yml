@@ -1,0 +1,45 @@
+name: Stock-Hunter KRX authentication audit (RESEARCH ONLY)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  krx_auth_audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      # The diagnostic reads KRX_ID / KRX_PW. Never echo values.
+      KRX_ID: ${{ secrets.KRX_DATA_ID || secrets.KRX_ID }}
+      KRX_PW: ${{ secrets.KRX_DATA_PW || secrets.KRX_PW }}
+      # Presence flags only, to detect mixed/partial secret pairs.
+      KRX_DATA_ID_DEFINED: ${{ secrets.KRX_DATA_ID != '' }}
+      KRX_DATA_PW_DEFINED: ${{ secrets.KRX_DATA_PW != '' }}
+      KRX_LEGACY_ID_DEFINED: ${{ secrets.KRX_ID != '' }}
+      KRX_LEGACY_PW_DEFINED: ${{ secrets.KRX_PW != '' }}
+    steps:
+      - name: Checkout existing research-only diagnostic
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install only required packages
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install 'pykrx>=1.2.8,<2' pandas requests
+      - name: Validate KRX authentication and provider response (4 historical requests)
+        run: |
+          python research_formulas/stockhunter_r1d27b_krx_auth_diagnostic.py \
+            --out reports/krx_auth_audit \
+            --require-success
+      - name: Preserve metadata-only diagnostic even if audit fails
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: KRX-AUTH-METADATA-${{ github.run_id }}
+          path: reports/krx_auth_audit/R1D27B_KRX_AUTH_DIAGNOSTIC.json
+          if-no-files-found: warn
+          retention-days: 14
