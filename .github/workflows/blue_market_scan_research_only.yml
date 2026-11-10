@@ -1,0 +1,119 @@
+name: BLUE Signal Lab R1.1 - Verified Same-Day EOD Research Scan
+
+on:
+  workflow_dispatch:
+    inputs:
+      asof_date:
+        description: 'YYYY-MM-DD (verified EOD only, today accepted after 15:40 KST if provider ready), or latest'
+        required: true
+        default: latest
+        type: string
+      publish_to_d1:
+        description: 'Publish verified EOD result to D1 (Cloudflare repository secrets required)'
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: blue-scan-${{ inputs.asof_date }}
+  cancel-in-progress: false
+
+jobs:
+  research_scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout BLUE Signal Lab
+        uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Python dependencies
+        run: pip install pandas numpy pyarrow requests 'pykrx==1.2.9'
+      - name: Unit tests (including EOD exact-date and no-lookahead tests)
+        run: python -m unittest discover -s tests -v
+      - name: On-demand verified EOD scan - same day requires exact KRX parity
+        env:
+          ASOF: ${{ inputs.asof_date }}
+          KRX_AUTH_KEY: ${{ secrets.KRX_AUTH_KEY }}
+          # Separate BLUE repository secrets; Stock-Hunter secrets DO NOT auto-transfer.
+          KRX_ID: ${{ secrets.KRX_DATA_ID || secrets.KRX_ID }}
+          KRX_PW: ${{ secrets.KRX_DATA_PW || secrets.KRX_PW }}
+          KRX_DATA_ID: ${{ secrets.KRX_DATA_ID || secrets.KRX_ID }}
+          KRX_DATA_PW: ${{ secrets.KRX_DATA_PW || secrets.KRX_PW }}
+        run: |
+          python scripts/market_scan_r11.py --date "$ASOF" --years 2025,2026 --daily-provider auto --out output
+      - name: Validate counts and provenance
+        env:
+          ASOF: ${{ inputs.asof_date }}
+        run: |
+          python - <<'PY'
+          import json,csv,os
+          from pathlib import Path
+          root=Path('output')
+          audit=json.loads((root/'AUDIT.json').read_text())
+          with (root/'signals.csv').open(encoding='utf-8') as f: rows=list(csv.DictReader(f))
+          assert len(rows)==audit['matched_stocks']
+          assert 0<=audit['matched_stocks']<=audit['eligible_stocks']<=audit['observed_stocks']
+          assert audit['source_sha256_by_year'].get('2026')
+          assert os.getenv('ASOF')=='latest' or audit['asof']==os.getenv('ASOF')
+          assert audit['observed_stocks']>=1700, 'Incomplete market universe'
+          assert audit.get('intraday_verified') is False
+          if audit.get('same_day_eod'):
+              assert audit.get('data_phase')=='SAME_DAY_EOD_VERIFIED'
+              assert 'KRX' in audit.get('target_day_source','')
+              assert audit['asof'] in audit.get('supplemental_dates',[])
+          print('BLUE_R11_EOD_AUDIT_OK',audit['asof'],audit['observed_stocks'],
+                audit['matched_stocks'],audit.get('data_phase'),audit['target_day_source'])
+          PY
+      - name: Generate D1 SQL and remove transaction statements
+        run: |
+          python scripts/csv_to_d1.py \
+            --input-dir output \
+            --out output/import.sql \
+            --run-id "blue_market_$(python -c "import json;print(json.load(open('output/AUDIT.json'))['asof'].replace('-',''))")" \
+            --source 'BLUE-R11-VERIFIED-EOD-RESEARCH_ONLY-NOT_INTRADAY'
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('output/import.sql')
+          lines=p.read_text(encoding='utf-8').splitlines()
+          lines=[x for x in lines if x.strip().upper() not in ('BEGIN TRANSACTION;','COMMIT;')]
+          p.write_text('\n'.join(lines)+'\n',encoding='utf-8')
+          print('D1 SQL prepared',p.stat().st_size)
+          PY
+      - name: Append chart and historical evidence snapshots to SQL
+        run: |
+          python scripts/append_chart_sql_r10.py \
+            --input output/chart_snapshots.jsonl \
+            --sql output/import.sql \
+            --run-id "blue_market_$(python -c "import json;print(json.load(open('output/AUDIT.json'))['asof'].replace('-',''))")"
+      - name: Upload EOD audit and D1 SQL as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: BLUE_R11_EOD_VERIFIED_${{ github.run_id }}
+          path: output/
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Setup Node for D1 publish
+        if: ${{ inputs.publish_to_d1 }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Publish verified date to Cloudflare D1
+        if: ${{ inputs.publish_to_d1 }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          test -n "$CLOUDFLARE_API_TOKEN" && test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo 'Missing Cloudflare secrets'; exit 1; }
+          cd worker
+          npm install --no-audit --no-fund --legacy-peer-deps
+          npx wrangler d1 execute blue-signal-lab-db --remote --file=../output/import.sql --yes
