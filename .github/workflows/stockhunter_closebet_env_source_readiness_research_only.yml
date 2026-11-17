@@ -1,0 +1,64 @@
+name: Stock-Hunter Closebet x Envelope Source Readiness (RESEARCH ONLY)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: closebet-env-source-readiness-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  independent_source_gate:
+    name: Audit source inventory and unit tests (NO SEARCH OR TRADE)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      TZ: Asia/Seoul
+    steps:
+      - name: Checkout research files, no repo write
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Setup Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Install pinned offline-analysis packages
+        run: |
+          set -euo pipefail
+          python -m pip install 'numpy==2.2.6' 'pandas==2.2.3'
+      - name: Run independent 19 synthetic/contract tests
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s research_projects/closebet_source_parity_20261117 -p 'test_*.py' -v
+      - name: Inspect historical research data without computing strategy returns
+        run: |
+          set -euo pipefail
+          python research_projects/closebet_source_parity_20261117/source_readiness.py \
+            --repo . --out reports/closebet_env_source_gate
+      - name: Assert any missing provenance blocks performance
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path('reports/closebet_env_source_gate/SOURCE_READINESS_RESEARCH_ONLY.json')
+          x=json.loads(p.read_text(encoding='utf-8'))
+          assert x['research_only'] is True
+          assert x['comparison_performance_status']=='NOT_COMPUTED'
+          assert x['status']=='NOT_READY_FOR_VALID_MARKET_REGIME_BACKTEST'
+          assert x['live_search_watch_order_changed'] is False
+          assert len(x['archive_diagnostics'])==4
+          print('RESEARCH_ONLY_SOURCE_NOT_YET_CERTIFIED_NO_PERFORMANCE_EMITTED')
+          PY
+      - name: Publish source readiness evidence only
+        uses: actions/upload-artifact@v4
+        with:
+          name: closebet-env-source-readiness-${{ github.run_id }}
+          path: reports/closebet_env_source_gate/**
+          if-no-files-found: error
+          retention-days: 90
