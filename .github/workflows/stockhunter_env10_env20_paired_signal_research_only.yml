@@ -1,0 +1,71 @@
+name: Stock-Hunter ENV10 vs ENV20 Paired D0 Signal Preflight (RESEARCH ONLY)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: env10-env20-paired-signal-preflight-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  read_only_signal_preflight:
+    name: Frozen 77 paired ENV signals, no returns and no live changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TZ: Asia/Seoul
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Checkout research sources without persisting credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Setup Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Install reproducible research dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install 'numpy==2.2.6' 'pandas==2.2.3'
+      - name: Run isolated no-lookahead paired-signal tests
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s research_projects/closebet_env_ab_20261118 -p 'test_*.py' -v
+      - name: Compare frozen 77 signal definitions without computing performance
+        run: |
+          set -euo pipefail
+          python research_projects/closebet_env_ab_20261118/env10_env20_signal_preflight.py \
+            --repo . --out reports/closebet_env10_env20_paired_signal
+      - name: Preserve complete signal-only research report
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: env10-vs-env20-77-signal-preflight-${{ github.run_id }}
+          path: reports/closebet_env10_env20_paired_signal/**
+          if-no-files-found: error
+          retention-days: 90
+      - name: Fail closed on missing evidence or misleading winner/performance claims
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path('reports/closebet_env10_env20_paired_signal/ENV10_ENV20_PAIRED_SIGNAL_ONLY_RESEARCH.json')
+          assert p.is_file(), 'MISSING_PAIRED_SIGNAL_REPORT'
+          r=json.loads(p.read_text(encoding='utf-8'), parse_constant=lambda v: (_ for _ in ()).throw(ValueError('NONFINITE_JSON:'+v)))
+          assert r['research_only'] is True and r['fixed_sample_count']==77
+          assert len(r['events'])==77
+          assert r['eligible_signal_count']+r['unknown_signal_count']==77
+          assert r['env20_low_touch_count']<=r['env10_low_touch_count']
+          assert r['env10_only_count']+r['both_touch_count']+r['neither_touch_count']==r['eligible_signal_count']
+          assert r['strategy_winner'] is None
+          assert r['performance_comparison_status']=='NOT_COMPUTED'
+          assert r['can_publish_strategy_performance'] is False
+          assert r['can_modify_live_search_watch'] is False
+          assert all(x['source_certified'] is False and x['intraday_entry_certified'] is False for x in r['events'])
+          print('PAIRED_SIGNAL_PREFLIGHT_GUARD_PASS_NO_TRADING_PERFORMANCE')
+          PY
