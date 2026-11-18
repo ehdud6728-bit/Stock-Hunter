@@ -1,0 +1,75 @@
+name: Stock-Hunter Closebet ENV Historical 17-Case Price Parity (RESEARCH ONLY)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: closebet-env-historical-parity-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  historical_price_case_audit:
+    name: Compare frozen 15+2 historical pilot cases with KRX-derived quotes, NO LIVE
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      TZ: Asia/Seoul
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Checkout research-only source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Setup Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Install fixed numerical and separate KRX-derived adapter dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install 'numpy==2.2.6' 'pandas==2.2.3' 'pykrx==1.2.9'
+      - name: Run historical price parity independent synthetic tests
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s research_projects/closebet_source_parity_20261117 -p 'test_*.py' -v
+      - name: Fetch 15 year-tier cases plus 2 preferred-share sentinels and audit OHLCVA and MAs
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          python research_projects/closebet_source_parity_20261117/historical_case_audit.py \
+            --repo . --out reports/closebet_env_historical_case_audit
+      - name: Upload audit result including mismatches and provider failures
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: closebet-env-historical-case-audit-${{ github.run_id }}
+          path: reports/closebet_env_historical_case_audit/**
+          if-no-files-found: warn
+          retention-days: 90
+      - name: Check audit execution integrity and forbid false parity or performance claims
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path('reports/closebet_env_historical_case_audit/HISTORICAL_CASE_AUDIT_RESEARCH_ONLY.json')
+          assert p.is_file(), 'NO_AUDIT_RESULT_SOURCE_FETCH_OR_CODE_FAILED'
+          r=json.loads(p.read_text(encoding='utf-8'))
+          assert r['research_only'] and not r['live_search_watch_order_changed']
+          assert r['fixed_event_count']==17 and r['comparison_performance_status']=='NOT_COMPUTED'
+          assert r['can_publish_strategy_performance'] is False
+          assert len(r['events'])==17
+          print('AUDIT_RESULT_STATUS',r['status'])
+          print('NUMERICALLY_CONSISTENT',r['numerically_consistent_events'])
+          print('FETCH_BLOCKED',r['fetch_or_panel_blocked_count'])
+          print('MATCHED_DATE_ROWS',r['reference_shared_date_rows'])
+          print('PRELISTING_UNKNOWN_ROWS',r['invalid_candidate_prelisting_rows'])
+          # Genuine prelisting price gaps and differences are findings, not code failures.
+          # Provider fetch failure / missing output is a red workflow: no quiet success.
+          assert r['fetch_or_panel_blocked_count']==0, 'PROVIDER_FETCH_INCOMPLETE_INSPECT_ARTIFACT'
+          assert r['status'] in ('NUMERIC_PILOT_PARITY_ONLY','BLOCKED_INCOMPLETE_OR_MISMATCH')
+          print('AUDIT_EXECUTED_NOT_OFFICIAL_CERTIFICATION_NOT_BACKTEST_READY')
+          PY
