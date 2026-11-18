@@ -1,0 +1,92 @@
+name: Stock-Hunter Closebet ENV 75+2 Cases and Lecture Contract Audit (RESEARCH ONLY)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: closebet-env-75-case-lecture-audit-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  expanded_source_and_lecture_audit:
+    name: Compare 75+2 price cases and exact lecture definitions, NO LIVE
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      TZ: Asia/Seoul
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Checkout read-only research sources
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Setup Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Install pinned numerical and KRX-derived adapter dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install 'numpy==2.2.6' 'pandas==2.2.3' 'pykrx==1.2.9'
+      - name: Run all source-parity and semantics synthetic tests
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s research_projects/closebet_source_parity_20261117 -p 'test_*.py' -v
+      - name: Audit lecture-to-code semantics without importing or executing bot
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          python research_projects/closebet_source_parity_20261117/lecture_contract_audit.py \
+            --repo . --out reports/closebet_env_expanded_lecture_audit
+      - name: Compare fixed 75+2 historical cases (does not compute returns)
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          python research_projects/closebet_source_parity_20261117/expanded_historical_case_audit.py \
+            --repo . --out reports/closebet_env_expanded_lecture_audit
+      - name: Preserve every independent research audit output
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: closebet-env-75plus2-lecture-audit-${{ github.run_id }}
+          path: reports/closebet_env_expanded_lecture_audit/**
+          retention-days: 90
+          if-no-files-found: warn
+      - name: Guard against missing audits, silent partial fetch, or fake performance result
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          out=Path('reports/closebet_env_expanded_lecture_audit')
+          p=out/'EXPANDED_HISTORICAL_CASE_AUDIT_RESEARCH_ONLY.json'
+          q=out/'LECTURE_CONTRACT_AUDIT_RESEARCH_ONLY.json'
+          assert p.is_file() and q.is_file(), 'RESEARCH_REPORT_MISSING_OPEN_ARTIFACT'
+          r=json.loads(p.read_text(encoding='utf-8'))
+          s=json.loads(q.read_text(encoding='utf-8'))
+          assert r['research_only'] and s['research_only']
+          assert r['fixed_event_count']==77 and len(r['events'])==77
+          assert r['frozen_17_subset_preserved'] is True
+          assert len(r['strata'])==15
+          assert r['can_publish_strategy_performance'] is False
+          assert s['can_publish_strategy_performance'] is False
+          assert r['comparison_performance_status']=='NOT_COMPUTED'
+          assert s['comparison_performance_status']=='NOT_COMPUTED'
+          assert not r['live_search_watch_order_changed'] and not s['live_search_watch_order_changed']
+          statuses={x['id']:x['status'] for x in s['contracts']}
+          assert statuses['ENV_BAND_WIDTH']=='CONFIRMED_DEFINITION_MISMATCH', statuses
+          assert statuses['ENV_TOUCH_TIME']=='CONFIRMED_EVENT_DEFINITION_MISMATCH', statuses
+          assert statuses['CLOSEBET_AMOUNT500']=='TRUE_AMOUNT_GATE_UNCERTIFIED_PROXY_PATH_DETECTED', statuses
+          print('CASE_STATUS',r['status'])
+          print('MATCHED_DATES',r['reference_shared_date_rows'])
+          print('FULLY_NUMERICALLY_CONSISTENT',r['numerically_consistent_events'])
+          print('FETCH_BLOCKED',r['fetch_or_panel_blocked_count'])
+          print('INVALID_PRELISTING_ROWS',r['invalid_candidate_prelisting_rows'])
+          print('LECTURE_MATCH_STATUS',statuses)
+          assert r['fetch_or_panel_blocked_count']==0, 'REFERENCE_FETCH_BLOCKED_INSPECT_ARTIFACT'
+          assert r['status'] in ('NUMERIC_EXPANDED_PARITY_ONLY','BLOCKED_INCOMPLETE_OR_MISMATCH')
+          print('RESEARCH_ONLY_NO_TRADING_RETURNS_OR_LIVE_CHANGES')
+          PY
