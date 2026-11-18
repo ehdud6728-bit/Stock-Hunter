@@ -18,11 +18,24 @@ jobs:
     env:
       TZ: Asia/Seoul
       PYTHONDONTWRITEBYTECODE: '1'
+      # Reuse the exact, previously working historical 17-case KRX secret aliases.
+      # Values are never printed, and no credential is committed to the repository.
+      KRX_ID: ${{ secrets.KRX_DATA_ID || secrets.KRX_ID }}
+      KRX_PW: ${{ secrets.KRX_DATA_PW || secrets.KRX_PW }}
     steps:
       - name: Checkout read-only research sources
         uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - name: Assert KRX credential presence without exposing values
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${KRX_ID:-}" || -z "${KRX_PW:-}" ]]; then
+            echo '::error::KRX Secrets unavailable. Configure KRX_DATA_ID/KRX_DATA_PW or KRX_ID/KRX_PW.'
+            exit 2
+          fi
+          echo 'KRX_SECRET_PAIR_PRESENT_VALUES_NOT_LOGGED'
       - name: Setup Python 3.10
         uses: actions/setup-python@v5
         with:
