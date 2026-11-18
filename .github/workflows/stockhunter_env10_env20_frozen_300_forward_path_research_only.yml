@@ -1,0 +1,97 @@
+name: Stock-Hunter ENV10 vs ENV20 Frozen-300 Forward Path Audit (RESEARCH ONLY)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: env10-env20-frozen-300-forward-path-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  frozen_300_forward_path_diagnostic:
+    name: Provisional 300-case D+1-open paths; no strategy decision
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TZ: Asia/Seoul
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Checkout source without persisting credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Install pinned analysis dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install 'numpy==2.2.6' 'pandas==2.2.3'
+      - name: Run pure synthetic no-lookahead and missing-price tests
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s research_projects/closebet_env_ab_20261119 -p 'test_*.py' -v
+      - name: Compute 300 descriptive forward paths and source-readiness gate
+        run: |
+          set -euo pipefail
+          python research_projects/closebet_env_ab_20261119/frozen_300_forward_path.py \
+            --repo . --out reports/env10_env20_frozen_300_forward_path
+      - name: Preserve all event-level paths and unknown statuses
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: env10-env20-frozen-300-forward-path-${{ github.run_id }}
+          path: reports/env10_env20_frozen_300_forward_path/**
+          if-no-files-found: error
+          retention-days: 90
+      - name: Reject missing or deceptive strategy conclusions
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import pandas as pd
+          from pathlib import Path
+          base=Path('reports/env10_env20_frozen_300_forward_path')
+          report=base/'ENV10_ENV20_FROZEN_300_FORWARD_PATH_RESEARCH.json'
+          assert report.is_file(), 'MISSING_REPORT'
+          r=json.loads(report.read_text(encoding='utf-8'), parse_constant=lambda v: (_ for _ in ()).throw(ValueError('NONFINITE_JSON:'+v)))
+          assert r['research_only'] is True and r['frozen_event_count']==300
+          assert len(r['events'])==300
+          assert r['signal_eligible']+r['signal_unknown']==300
+          assert r['env20_touch_count']<=r['env10_touch_count']
+          assert r['first_touch_env10']<=r['env10_touch_count']
+          assert r['first_touch_env20']<=r['env20_touch_count']
+          groups=r['group_descriptive_stats']
+          assert sum(v['event_count'] for v in groups.values())==300
+          assert groups['ENV20_BOTH']['event_count']==r['env20_touch_count']
+          assert groups['ENV10_ONLY']['event_count']+r['env20_touch_count']==r['env10_touch_count']
+          assert r['fullmarket_source_retrieved'] is False
+          assert r['fullmarket_pit_certified'] is False
+          assert r['officially_independent_D0_and_Dplus_reference_certified'] is False
+          assert r['market_regime_status'].startswith('UNKNOWN_')
+          assert r['portfolio_backtest_computed'] is False
+          assert r['out_of_sample_verification'] is False
+          assert r['performance_comparison_status']=='DESCRIPTIVE_UNCERTIFIED_300_PILOT_ONLY'
+          assert r['strategy_winner'] is None
+          assert r['can_publish_strategy_performance'] is False
+          assert r['can_modify_live_search_watch'] is False
+          assert not r['minimum_sample_met_for_env20']
+          assert all(not e['env20_touch'] or e['env10_touch'] for e in r['events'])
+          csv=base/'ENV10_ENV20_FROZEN_300_FORWARD_PATHS.csv'
+          assert csv.is_file() and len(pd.read_csv(csv))==1500
+          for e in r['events']:
+              assert e['signal_group'] in groups
+              for h in ('1','3','5','10','20'):
+                  path=e['forward_paths'].get(h)
+                  if e['signal_group']=='UNKNOWN':
+                      assert path is None
+                  else:
+                      assert path is not None
+                      if path['status'].startswith('UNKNOWN_'):
+                          assert 'gross_return_pct' not in path
+          print('RESEARCH_ONLY_FROZEN_300_GUARD_PASS_NO_STRATEGY_WINNER')
+          PY
