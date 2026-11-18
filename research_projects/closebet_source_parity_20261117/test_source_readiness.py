@@ -15,6 +15,11 @@ def daily():
 
 
 class SourceReadinessTests(unittest.TestCase):
+    def test_preferred_share_alphanumeric_code_is_not_dropped(self):
+        d = daily().iloc[[0]].copy()
+        d.loc[d.index[0], 'code'] = '35320K'
+        observed = normalize(d)
+        self.assertEqual(observed.code.iloc[0], '35320K')
     def test_matching_supplied_bars_is_not_official_certification(self):
         d = daily()
         result = compare_daily(d, d.copy())

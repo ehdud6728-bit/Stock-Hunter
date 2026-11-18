@@ -10,6 +10,7 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
+import re
 
 import numpy as np
 import pandas as pd
@@ -33,10 +34,11 @@ def digest(path: Path) -> str:
 
 
 def _code(value: object) -> str:
-    s = str(value).strip().removesuffix('.0')
-    if not s.isdigit() or len(s) > 6:
+    s = str(value).strip().upper().removesuffix('.0')
+    # Some valid KRX preferred-share tickers end in a letter, e.g. 35320K.
+    if not re.fullmatch(r'(?:[0-9]{1,6}|[0-9]{5}[A-Z])', s):
         raise ValueError('BAD_STOCK_CODE:' + s)
-    return s.zfill(6)
+    return s.zfill(6) if s.isdigit() else s
 
 
 def normalize(frame: pd.DataFrame) -> pd.DataFrame:
