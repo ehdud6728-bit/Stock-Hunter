@@ -1,0 +1,71 @@
+name: Stock-Hunter Trendline R7 Nonoverlap Tail Audit (RESEARCH ONLY)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  r7_tail:
+    name: Frozen 3-stock 94/90 nonoverlap and downside audit (NO LIVE)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      TZ: Asia/Seoul
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Checkout read-only research source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Install fixed calculation dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install 'numpy==2.2.6' 'pandas==2.2.3'
+      - name: Test R7 causality and pinned R5-R6 replay
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s research_projects/trendline_r7_independent_tail_20261119 -p 'test_*.py' -v
+      - name: Run non-overlapping distribution and downside research
+        run: |
+          set -euo pipefail
+          python research_projects/trendline_r7_independent_tail_20261119/r7_tail_audit.py \
+            --repo . --out reports/trendline_r7_tail
+      - name: Gate incomplete source and non-approved strategy promotion
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path('reports/trendline_r7_tail/R7_TAIL_DISTRIBUTION_SUMMARY.json')
+          x = json.loads(p.read_text(encoding='utf-8'))
+          assert x['revision'] == 'R7_NONOVERLAP_DOWNSIDE_DISTRIBUTION_SOURCE_LIMITED'
+          assert x['research_only'] and x['selection_reads_future_returns'] is False
+          assert x['line_events_r6'] == 506 and x['primary_stock_dates'] == 368
+          assert x['nonoverlap_selected'] == 94 and x['same_scenario_comparable'] == 90
+          assert x['returns_distribution']['TIME_D20']['n'] == 90
+          assert x['r7_screenshot_rule_formulas_available'] is False
+          assert x['r7_new_rules_are_independent_explicit_proxies'] is True
+          assert x['source_population'] == 'THREE_HANDPICKED_HISTORICAL_STOCKS_NOT_ALL_MARKET'
+          assert x['independent_price_source_certified'] is False
+          assert x['full_market_pit_coverage'] is False and x['out_of_sample'] is False
+          assert x['strategy_winner'] is None
+          assert x['can_publish_strategy_performance'] is False
+          assert x['can_modify_live_search_watch'] is False
+          assert x['env_lower_touch_events_merged'] is False
+          assert Path('reports/trendline_r7_tail/R7_NONOVERLAP_RULES_FULL_LEDGER.csv').is_file()
+          print('R7_NONOVERLAP_TAIL_RESEARCH_ONLY_GUARD_PASS')
+          PY
+      - name: Upload R7 study ledger and uncertainty report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-r7-independent-tail-audit-research-only
+          path: reports/trendline_r7_tail/**
+          if-no-files-found: warn
+          retention-days: 90
