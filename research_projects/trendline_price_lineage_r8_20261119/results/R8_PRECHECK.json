@@ -1,0 +1,57 @@
+{
+  "revision": "R8_SAMSUNG_SDI_INDEPENDENT_PRICE_LINEAGE_RESEARCH_ONLY",
+  "research_only": true,
+  "can_modify_live_search_watch": false,
+  "source_frozen_sha256": "d0e1ec07da7972728b84865c54312e387db20c3e3dd9dadc813dada394635566",
+  "line_id_raw_R5": "TS_BODY_WICK_PROXY|BEAR_BODY_TOP|2023-09-19|2023-10-18|UPPER",
+  "focal_dates": [
+    "2023-09-19",
+    "2023-10-18",
+    "2023-11-02",
+    "2023-11-03",
+    "2023-11-06"
+  ],
+  "2025_rights_issue_candidate": {
+    "date": "2025-04-10",
+    "pre_rights_close": 171700,
+    "reference_price": 168100,
+    "reference_to_preclose_ratio": 0.979033197437,
+    "ratio_rounded_to_three_decimals": 0.979,
+    "source_provenance": [
+      "https://invest.kiwoom.com/inv/disclosure_detail?code=01&date=2025.04.09&keyword=%EC%82%BC%EC%84%B1SDI&seq=00036095&stockCode=&tp=&type=02",
+      "https://dreago.kr/board/view/?gn=0&no=37347&sgn=3"
+    ],
+    "causality_proven": false,
+    "note": "Observed 0.979 is three-decimal agreement; exact ratio differs."
+  },
+  "screenshot_20231106": {
+    "open": 467962,
+    "high": 511038,
+    "low": 455725,
+    "close": 495374
+  },
+  "screenshot_raw_times_0_979_residuals": {
+    "open": 0.0,
+    "high": 0.0,
+    "low": 0.5,
+    "close": 0.0
+  },
+  "exact_ex_rights_ratio_projected_20231106": {
+    "open": 467978,
+    "high": 511055,
+    "low": 455740,
+    "close": 495391
+  },
+  "screenshot_minus_exact_ex_rights_ratio_projection": {
+    "open": -16,
+    "high": -17,
+    "low": -15,
+    "close": -17
+  },
+  "independent_status": "UNKNOWN_MISSING_BOTH_KIS_SERIES",
+  "raw_source_agrees_on_five_dates": null,
+  "adjustment_ratio_uniform": null,
+  "adjusted_fixed_anchor_line_cross": null,
+  "HTS_matches_independent_adjusted_OHLC": null,
+  "r116_adjusted_full_replay_certified": false
+}
