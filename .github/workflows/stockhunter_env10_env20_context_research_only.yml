@@ -1,0 +1,73 @@
+name: Stock-Hunter ENV10 ENV20 Pre-Signal Context Audit (RESEARCH ONLY)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  frozen_context:
+    name: Frozen 300 prior price and volume contexts
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TZ: Asia/Seoul
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Checkout frozen research repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Install frozen diagnostic dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install 'numpy==2.2.6' 'pandas==2.2.3'
+      - name: Run R2 R3 R4 regression tests
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s research_projects/closebet_env_ab_20261119 -p 'test_*.py' -v
+          python -m unittest discover -s research_projects/closebet_env_year_audit_20261119 -p 'test_*.py' -v
+          python -m unittest discover -s research_projects/closebet_env_context_20261119 -p 'test_*.py' -v
+      - name: Compute D0-only source-limited context
+        run: |
+          set -euo pipefail
+          python research_projects/closebet_env_context_20261119/context_audit.py \
+            --repo . --out reports/env10_env20_pre_signal_context
+      - name: Block source or live promotion
+        run: |
+          set -euo pipefail
+          python -c '
+          import json
+          from pathlib import Path
+          p=Path("reports/env10_env20_pre_signal_context/ENV10_ENV20_FROZEN_300_D0_CONTEXT.json")
+          r=json.loads(p.read_text(encoding="utf-8"))
+          assert r["revision"]=="ENV10_ENV20_FROZEN_300_PRE_SIGNAL_CONTEXT_R4"
+          assert r["research_only"] and r["frozen_events"]==300
+          assert r["original_pool_membership"]==300
+          assert len(r["events"])==300
+          assert sum(v["events"] for v in r["by_signal_group"].values())==300
+          assert r["by_signal_group"]["ENV10_ONLY"]["events"]==37
+          assert r["by_signal_group"]["ENV20_BOTH"]["events"]==3
+          assert r["by_signal_group"]["NO_TOUCH"]["events"]==257
+          assert r["by_signal_group"]["UNKNOWN"]["events"]==3
+          assert r["fullmarket_retrieved"] is False and r["pit_certified"] is False
+          assert r["ma112_ma224_independently_recomputed"] is False
+          assert r["dplus_used_for_context_features"] is False
+          assert r["breakout_line_identity_verified"] is False
+          assert r["strategy_winner"] is None and r["can_publish_strategy_performance"] is False
+          assert r["can_modify_live_search_watch"] is False
+          print("R4_FROZEN_300_CONTEXT_GUARDS_PASS_RESEARCH_ONLY")
+          '
+      - name: Preserve per-event context and summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: env10-env20-frozen-300-pre-signal-context
+          path: reports/env10_env20_pre_signal_context/**
+          if-no-files-found: error
+          retention-days: 90
