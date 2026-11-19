@@ -30,6 +30,7 @@
    - 산출물: https://github.com/ehdud6728-bit/Stock-Hunter/actions/runs/44439817447/artifacts/14491280579
    - ENV10_ONLY 37건 잠정 D+20 평균 +1.851956%, 최고 1건 제외 -0.437111%로 부호 반전.
 4. R4 사전 차트·거래량 맥락 연구 제안:
+   - PR #8 검토/병합 대기: https://github.com/ehdud6728-bit/Stock-Hunter/pull/8
    - 파일: research_projects/closebet_env_context_20261119/context_audit.py
    - Actions: Stock-Hunter ENV10 ENV20 Pre-Signal Context Audit (RESEARCH ONLY).
    - 20일 평균 거래량·거래대금과 D0 상대 비율, D-1 이전 20/60일 고저, MA20/60 대조·MA112/224 출처 상태, 장중 캔들, 60일 파동/눌림 대리값 기록.
