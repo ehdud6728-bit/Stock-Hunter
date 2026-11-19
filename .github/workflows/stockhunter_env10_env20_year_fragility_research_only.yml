@@ -1,0 +1,66 @@
+name: Stock-Hunter ENV10 ENV20 Year Fragility Audit (RESEARCH ONLY)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  year_fragility:
+    name: Frozen 300 cases by year and outlier sensitivity
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TZ: Asia/Seoul
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Checkout without persisted credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Install frozen diagnostic dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install 'numpy==2.2.6' 'pandas==2.2.3'
+      - name: Run synthetic regressions for original and year audits
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s research_projects/closebet_env_ab_20261119 -p 'test_*.py' -v
+          python -m unittest discover -s research_projects/closebet_env_year_audit_20261119 -p 'test_*.py' -v
+      - name: Compute frozen 300 year-by-group sensitivity
+        run: |
+          set -euo pipefail
+          python research_projects/closebet_env_year_audit_20261119/year_fragility_audit.py \
+            --repo . --out reports/env10_env20_year_fragility
+      - name: Reject any signal of strategy promotion
+        run: |
+          set -euo pipefail
+          python -c '
+          import json
+          from pathlib import Path
+          p=Path("reports/env10_env20_year_fragility/ENV10_ENV20_FROZEN_300_YEAR_FRAGILITY.json")
+          r=json.loads(p.read_text(encoding="utf-8"))
+          assert r["research_only"] is True and r["pilot_events"]==300
+          assert sum(v["event_count"] for v in r["group_descriptive_stats"].values())==300
+          assert sum(y["all_pilot_events"]["event_count"] for y in r["by_year"].values())==300
+          assert r["events_verified_in_frozen_preselected_1500"]==300
+          assert r["fullmarket_source_retrieved"] is False and r["fullmarket_pit_certified"] is False
+          assert r["market_regime_status"].startswith("UNKNOWN_")
+          assert r["strategy_winner"] is None and r["can_publish_strategy_performance"] is False
+          assert r["can_modify_live_search_watch"] is False
+          assert r["group_descriptive_stats"]["ENV10_ONLY"]["best_case_removal_changes_mean_sign"] is True
+          print("RESEARCH_ONLY_FRAGILITY_GUARDS_PASS_NO_STRATEGY_PROMOTION")
+          '
+      - name: Preserve year and outlier sensitivity evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: env10-env20-frozen-300-year-fragility
+          path: reports/env10_env20_year_fragility/**
+          if-no-files-found: error
+          retention-days: 90
