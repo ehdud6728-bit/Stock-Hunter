@@ -1,0 +1,77 @@
+name: Stock-Hunter Trendline R7 ATR Volume Structure (RESEARCH ONLY)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  r7_multifactor:
+    name: Frozen R6 ATR volume structure and 20day overlap audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      TZ: Asia/Seoul
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Checkout frozen research sources
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Install pinned research dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install 'numpy==2.2.6' 'pandas==2.2.3'
+      - name: Test frozen R5 R6 and new R7 causality
+        run: |
+          set -euo pipefail
+          python -m unittest discover \
+            -s research_projects/trendline_breakout_quality_20261119 -p 'test_*.py' -v
+          python -m unittest discover \
+            -s research_projects/trendline_exit_timing_r6_20261119 -p 'test_*.py' -v
+          python -m unittest discover \
+            -s research_projects/trendline_multifactor_exit_r7_20261119 -p 'test_*.py' -v
+      - name: Compute R7 precommitted multifactor diagnostics
+        run: |
+          set -euo pipefail
+          python research_projects/trendline_multifactor_exit_r7_20261119/r7_multifactor.py \
+            --repo . --out reports/trendline_r7
+      - name: Fail closed on missing sources or unauthorized strategy claims
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          out = Path('reports/trendline_r7')
+          x = json.loads((out/'R7_SUMMARY.json').read_text(encoding='utf-8'))
+          assert x['revision'] == 'R7_CAUSAL_ATR_VOLUME_STRUCTURE_3STOCK_PROVISIONAL'
+          assert x['research_only'] and x['unique_stock_dates'] == 368
+          assert x['nonoverlap_20d_count'] < 368
+          assert x['source_population'] == 'FROZEN_3_HANDPICKED_STOCKS_2021_TO_2024'
+          assert x['overall_primary']['rules']['R6_TIME_D20_BASELINE']['complete_count'] == 363
+          assert x['volume_at_price_actual'] == 'UNAVAILABLE_DAILY_OHLCV_NOT_VOLUME_PROFILE'
+          assert x['independent_price_and_adjustment_history_certified'] is False
+          assert x['marketwide_point_in_time_universe'] is False
+          assert x['intraday_high_low_order_certified'] is False
+          assert x['out_of_sample'] is False
+          assert x['strategy_winner'] is None
+          assert x['can_publish_strategy_performance'] is False
+          assert x['can_modify_live_search_watch'] is False
+          assert x['env_lower_touch_events_merged'] is False
+          assert (out/'R7_FULL_AUDIT.json').is_file()
+          assert (out/'R7_PRIMARY_EVENTS_AND_MODELS.csv').is_file()
+          print('R7_ATR_VOLUME_STRUCTURE_RESEARCH_ONLY_GUARD_PASS')
+          PY
+      - name: Preserve full R7 provenance and scenario records
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-r7-atr-volume-structure-research-only
+          path: reports/trendline_r7/**
+          if-no-files-found: warn
+          retention-days: 90
