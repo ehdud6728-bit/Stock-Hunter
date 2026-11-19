@@ -1,0 +1,25 @@
+{
+  "revision": "R9_KIS_RAW_ADJUSTED_DATED_SOURCE_RESEARCH_ONLY",
+  "research_only": true,
+  "can_modify_live_search_watch": false,
+  "symbol": "006400",
+  "date_range": [
+    "20230901",
+    "20231106"
+  ],
+  "target_dates": [
+    "2023-09-19",
+    "2023-10-18",
+    "2023-11-02",
+    "2023-11-03",
+    "2023-11-06"
+  ],
+  "api_endpoint": "/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice",
+  "original_flag": "1",
+  "adjusted_flag": "0",
+  "credentials_exported": false,
+  "token_exported": false,
+  "independent_price_lineage_certified": false,
+  "full_r116_adjusted_replay_certified": false,
+  "status": "PENDING_DEDICATED_STOCK_HUNTER_R9_SECRETS"
+}

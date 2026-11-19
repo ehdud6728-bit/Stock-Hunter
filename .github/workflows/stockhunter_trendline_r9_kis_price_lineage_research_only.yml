@@ -1,0 +1,69 @@
+name: "R9 KIS SamsungSDI Raw/Adjusted | RESEARCH_ONLY"
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  kis-readonly-historical-comparison:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Guard new-only research file scope
+        shell: bash
+        run: |
+          python - <<'PY'
+          import subprocess
+          changed = subprocess.check_output(
+              ['git', 'diff', '--name-only', 'HEAD^1', 'HEAD'], text=True).splitlines()
+          allowed = (
+              'research_projects/trendline_kis_source_r9_20261119/',
+              '.github/workflows/stockhunter_trendline_r9_kis_price_lineage_research_only.yml',
+          )
+          unauthorized = [p for p in changed if not any(p.startswith(a) for a in allowed)]
+          if unauthorized:
+              raise SystemExit('R9_RESEARCH_ONLY_CHANGED_FILE_GUARD_FAIL: ' + repr(unauthorized))
+          print('R9_RESEARCH_ONLY_FILE_GUARD_PASS')
+          PY
+      - name: Test no-secrets, bad-data and no-trading guards
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: python -m unittest discover -s research_projects/trendline_kis_source_r9_20261119 -p 'test_*.py' -v
+      - name: Capture independent original and adjusted KIS historical data
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          R9_KIS_APP_KEY: ${{ secrets.R9_KIS_APP_KEY }}
+          R9_KIS_APP_SECRET: ${{ secrets.R9_KIS_APP_SECRET }}
+        run: python research_projects/trendline_kis_source_r9_20261119/r9_kis_readonly.py --out-dir r9-audit
+      - name: Verify study remains unapproved and operationally isolated
+        if: success()
+        run: |
+          python - <<'PY'
+          import json
+          s = json.load(open('r9-audit/R9_SUMMARY.json', encoding='utf-8'))
+          assert s['research_only'] is True
+          assert s['can_modify_live_search_watch'] is False
+          assert s['independent_price_lineage_certified'] is False
+          assert s['full_r116_adjusted_replay_certified'] is False
+          assert s['status'] in {
+              'PENDING_DEDICATED_STOCK_HUNTER_R9_SECRETS',
+              'FIVE_DATE_COMPARISON_COMPLETE_FULL_REPLAY_PENDING',
+          }
+          print('R9_OPERATIONAL_ISOLATION_AND_UNCERTIFIED_GUARD_PASS')
+          print('R9_STATUS=' + s['status'])
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: R9_KIS_RAW_ADJUSTED_RESEARCH_ONLY
+          path: r9-audit/
+          if-no-files-found: warn
