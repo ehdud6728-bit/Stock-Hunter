@@ -1,0 +1,82 @@
+name: Stock-Hunter Trendline R5 Same-Line and Path Pilot (RESEARCH ONLY)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  trendline_r5:
+    name: Frozen 2023 Samsung and 3-stock R5 research
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      TZ: Asia/Seoul
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Checkout pinned historical research inputs
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Install pinned research dependencies and Korean chart font
+        run: |
+          set -euo pipefail
+          python -m pip install 'numpy==2.2.6' 'pandas==2.2.3' 'matplotlib==3.10.7'
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq fonts-noto-cjk
+      - name: Run six frozen R5 regression tests
+        run: |
+          set -euo pipefail
+          python -m unittest discover \
+            -s research_projects/trendline_breakout_quality_20261119 \
+            -p 'test_*.py' -v
+      - name: Reproduce 2023 Samsung same-line and adjustment audit
+        run: |
+          set -euo pipefail
+          python research_projects/trendline_breakout_quality_20261119/samsung_2023_same_line_audit.py \
+            --out reports/trendline_r5
+      - name: Run R5 three-stock independent trendline paths
+        run: |
+          set -euo pipefail
+          python research_projects/trendline_breakout_quality_20261119/r5_breakout_paths.py \
+            --repo . --out reports/trendline_r5
+      - name: Check RESEARCH_ONLY and unresolved-data gates
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          directory = Path('reports/trendline_r5')
+          samsung = json.loads((directory/'SamsungSDI_2023_SAME_LINE_AUDIT.json').read_text(encoding='utf-8'))
+          result = json.loads((directory/'R5_BREAKOUT_PILOT_SUMMARY.json').read_text(encoding='utf-8'))
+          assert samsung['event_year'] == 2023
+          assert samsung['line_identity_same'] is True
+          assert samsung['historical_adjustment_provenance_certified'] is False
+          assert samsung['r116_medium_active_2023_11_02'] == samsung['r116_medium_prior_line_on_2023_11_06']
+          assert result['research_only'] is True
+          assert result['line_events'] == 506
+          assert result['unique_stock_dates'] == 368
+          assert sum(v['dplus20_complete'] for v in result['by_scale'].values()) == 500
+          assert result['source_population'] == 'THREE_HANDPICKED_HISTORICAL_STOCKS_NOT_ALL_MARKET'
+          assert result['independent_price_source_certified'] is False
+          assert result['out_of_sample'] is False
+          assert result['strategy_winner'] is None
+          assert result['can_publish_strategy_performance'] is False
+          assert result['can_modify_live_search_watch'] is False
+          assert result['env10_env20_lower_touch_events_merged'] is False
+          assert (directory/'SamsungSDI_2023-11-06_RAW_vs_0979_adjusted.png').is_file()
+          print('R5_SAMSUNG_SAME_LINE_AND_3_STOCK_GUARDS_PASS_RESEARCH_ONLY')
+          PY
+      - name: Upload R5 evidence and paths for independent inspection
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-r5-trendline-2023-samsung-3stock-research-only
+          path: reports/trendline_r5/**
+          if-no-files-found: warn
+          retention-days: 90
