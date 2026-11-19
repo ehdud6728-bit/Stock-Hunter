@@ -1,0 +1,71 @@
+name: Stock-Hunter Trendline R6 Peak and Exit Timing (RESEARCH ONLY)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  r6_exits:
+    name: Frozen R5 3-stock peak day and conservative exit diagnostics
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      TZ: Asia/Seoul
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Checkout repository (research source only)
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Install pinned calculation dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install 'numpy==2.2.6' 'pandas==2.2.3'
+      - name: Run R5 inherited and R6 exit execution tests
+        run: |
+          set -euo pipefail
+          python -m unittest discover \
+            -s research_projects/trendline_breakout_quality_20261119 -p 'test_*.py' -v
+          python -m unittest discover \
+            -s research_projects/trendline_exit_timing_r6_20261119 -p 'test_*.py' -v
+      - name: Compute predeclared R6 peak and exit path study
+        run: |
+          set -euo pipefail
+          python research_projects/trendline_exit_timing_r6_20261119/r6_exit_timing.py \
+            --repo . --out reports/trendline_r6
+      - name: Block invalid provenance or strategy promotion
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path('reports/trendline_r6/R6_EXIT_TIMING_SUMMARY.json')
+          x = json.loads(p.read_text(encoding='utf-8'))
+          assert x['revision'] == 'R6_DAILY_BAR_MAX_OPPORTUNITY_AND_PRECOMMITTED_EXIT_DIAGNOSTIC'
+          assert x['research_only'] and x['d0_selection_future_independent']
+          assert x['line_events'] == 506 and x['unique_stock_dates'] == 368
+          assert x['all_lines_summary_OVERLAPS']['complete_dplus20'] == 500
+          assert x['daily_ohlc_intrabar_order_known'] is False
+          assert x['execution_assumptions']['simultaneous_target_and_stop'] == 'PESSIMISTIC_STOP_FIRST_FLAGGED'
+          assert x['primary_selection'] == 'MEDIUM_ELSE_LONG_ELSE_SHORT_NOT_PERFORMANCE_SELECTED'
+          assert x['source_population'] == 'THREE_HANDPICKED_HISTORICAL_STOCKS_NOT_ALL_MARKET'
+          assert x['out_of_sample'] is False
+          assert x['strategy_winner'] is None and x['can_publish_strategy_performance'] is False
+          assert x['can_modify_live_search_watch'] is False and x['env_lower_touch_events_merged'] is False
+          assert Path('reports/trendline_r6/R6_PRIMARY_STOCK_DATE_EXIT_RULES.csv').is_file()
+          print('R6_CAUSAL_EXIT_STUDY_GUARD_PASS_RESEARCH_ONLY')
+          PY
+      - name: Preserve R6 scenario results and uncertainty flags
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-r6-trendline-peak-and-exit-research-only
+          path: reports/trendline_r6/**
+          if-no-files-found: warn
+          retention-days: 90
