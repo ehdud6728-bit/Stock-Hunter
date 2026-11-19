@@ -1,0 +1,130 @@
+{
+  "revision": "R5_R116_TRENDLINE_BREAKOUT_FORWARD_PATH_THREE_STOCK_PILOT",
+  "research_only": true,
+  "source_sha256": {
+    "006400": "d0e1ec07da7972728b84865c54312e387db20c3e3dd9dadc813dada394635566",
+    "039840": "330ffdc5febbbf76f3f959d72181a2a37cc144ec567e6e7f691985b7dc82e3e4",
+    "071840": "aba4ffb8702961fbc8d3d411138b755092551f2fd6ef1a2ac3ce02da2c221c1b"
+  },
+  "selection_protocol": "R116_PREVIOUS_DAY_ACTIVE_UPPER_LINE_CROSSED_AT_D0_CLOSE",
+  "line_events": 506,
+  "unique_stock_dates": 368,
+  "by_scale": {
+    "SHORT": {
+      "line_events": 206,
+      "unique_stock_dates": 206,
+      "dplus20_complete": 203,
+      "dplus20_unknown": 3,
+      "dplus20_provisional_mean_net20bps_pct": -1.320819,
+      "dplus20_provisional_median_net20bps_pct": -2.115709,
+      "dplus20_mean_excluding_single_highest": -1.517101,
+      "dplus20_same_line_relost_count": 106
+    },
+    "MEDIUM": {
+      "line_events": 186,
+      "unique_stock_dates": 186,
+      "dplus20_complete": 185,
+      "dplus20_unknown": 1,
+      "dplus20_provisional_mean_net20bps_pct": -1.311962,
+      "dplus20_provisional_median_net20bps_pct": -1.793625,
+      "dplus20_mean_excluding_single_highest": -1.527397,
+      "dplus20_same_line_relost_count": 100
+    },
+    "LONG": {
+      "line_events": 114,
+      "unique_stock_dates": 114,
+      "dplus20_complete": 112,
+      "dplus20_unknown": 2,
+      "dplus20_provisional_mean_net20bps_pct": -2.344154,
+      "dplus20_provisional_median_net20bps_pct": -1.432312,
+      "dplus20_mean_excluding_single_highest": -2.537801,
+      "dplus20_same_line_relost_count": 69
+    }
+  },
+  "by_year": {
+    "2021": {
+      "line_events": 90,
+      "unique_stock_dates": 67,
+      "dplus20_complete": 90,
+      "dplus20_unknown": 0,
+      "dplus20_provisional_mean_net20bps_pct": -2.06653,
+      "dplus20_provisional_median_net20bps_pct": -3.170616,
+      "dplus20_mean_excluding_single_highest": -2.256041,
+      "dplus20_same_line_relost_count": 47
+    },
+    "2022": {
+      "line_events": 160,
+      "unique_stock_dates": 117,
+      "dplus20_complete": 160,
+      "dplus20_unknown": 0,
+      "dplus20_provisional_mean_net20bps_pct": -1.880887,
+      "dplus20_provisional_median_net20bps_pct": -0.344927,
+      "dplus20_mean_excluding_single_highest": -2.062886,
+      "dplus20_same_line_relost_count": 89
+    },
+    "2023": {
+      "line_events": 168,
+      "unique_stock_dates": 115,
+      "dplus20_complete": 168,
+      "dplus20_unknown": 0,
+      "dplus20_provisional_mean_net20bps_pct": -1.156333,
+      "dplus20_provisional_median_net20bps_pct": -1.758586,
+      "dplus20_mean_excluding_single_highest": -1.392767,
+      "dplus20_same_line_relost_count": 94
+    },
+    "2024": {
+      "line_events": 88,
+      "unique_stock_dates": 69,
+      "dplus20_complete": 82,
+      "dplus20_unknown": 6,
+      "dplus20_provisional_mean_net20bps_pct": -1.124279,
+      "dplus20_provisional_median_net20bps_pct": -2.162416,
+      "dplus20_mean_excluding_single_highest": -1.374587,
+      "dplus20_same_line_relost_count": 45
+    }
+  },
+  "by_code": {
+    "006400": {
+      "line_events": 188,
+      "unique_stock_dates": 136,
+      "dplus20_complete": 186,
+      "dplus20_unknown": 2,
+      "dplus20_provisional_mean_net20bps_pct": -1.539105,
+      "dplus20_provisional_median_net20bps_pct": -1.662298,
+      "dplus20_mean_excluding_single_highest": -1.693678,
+      "dplus20_same_line_relost_count": 114
+    },
+    "039840": {
+      "line_events": 152,
+      "unique_stock_dates": 110,
+      "dplus20_complete": 150,
+      "dplus20_unknown": 2,
+      "dplus20_provisional_mean_net20bps_pct": -0.813835,
+      "dplus20_provisional_median_net20bps_pct": -1.629724,
+      "dplus20_mean_excluding_single_highest": -1.076533,
+      "dplus20_same_line_relost_count": 74
+    },
+    "071840": {
+      "line_events": 166,
+      "unique_stock_dates": 122,
+      "dplus20_complete": 164,
+      "dplus20_unknown": 2,
+      "dplus20_provisional_mean_net20bps_pct": -2.225827,
+      "dplus20_provisional_median_net20bps_pct": -2.265681,
+      "dplus20_mean_excluding_single_highest": -2.33028,
+      "dplus20_same_line_relost_count": 87
+    }
+  },
+  "source_population": "THREE_HANDPICKED_HISTORICAL_STOCKS_NOT_ALL_MARKET",
+  "independent_price_source_certified": false,
+  "historical_adjustment_provenance_certified": false,
+  "full_market_pit_coverage": false,
+  "out_of_sample": false,
+  "market_regime_pit": "UNKNOWN",
+  "survivorship_bias_resolved": false,
+  "entry_exit": "D+1_OPEN_TO_D+h_CLOSE_ASSUMED_COST_ONLY",
+  "strategy_winner": null,
+  "can_publish_strategy_performance": false,
+  "can_modify_live_search_watch": false,
+  "env10_env20_lower_touch_events_merged": false
+}
