@@ -1,0 +1,55 @@
+name: "Stock-Hunter R8 SamsungSDI Price Lineage | RESEARCH_ONLY"
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  independent-price-lineage-precheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Protect legacy research and LIVE SEARCH WATCH code
+        shell: bash
+        run: |
+          python - <<'PY'
+          import subprocess
+          allowed = (
+              'research_projects/trendline_price_lineage_r8_20261119/',
+              '.github/workflows/stockhunter_trendline_r8_price_lineage_research_only.yml',
+          )
+          subprocess.run(['git', 'fetch', 'origin', 'main'], check=True)
+          base = subprocess.check_output(['git', 'merge-base', 'HEAD', 'origin/main'], text=True).strip()
+          changed = subprocess.check_output(['git', 'diff', '--name-only', base, 'HEAD'], text=True).splitlines()
+          invalid = [p for p in changed if not any(p.startswith(a) for a in allowed)]
+          if invalid:
+              raise SystemExit('R8_GUARD_FAIL_UNAUTHORIZED_FILES: ' + repr(invalid))
+          print('R8_RESEARCH_ONLY_FILE_GUARD_PASS')
+          PY
+      - name: Unit tests including unknown/fail-closed states
+        run: python -m unittest discover -s research_projects/trendline_price_lineage_r8_20261119 -p 'test_*.py' -v
+      - name: Produce provenance precheck; no KIS keys or fabricated bars
+        run: |
+          python research_projects/trendline_price_lineage_r8_20261119/r8_price_lineage.py --out r8-audit/R8_PRECHECK.json
+          python - <<'PY'
+          import json
+          p = json.load(open('r8-audit/R8_PRECHECK.json', encoding='utf-8'))
+          assert p['research_only'] and not p['can_modify_live_search_watch']
+          assert p['independent_status'] == 'UNKNOWN_MISSING_BOTH_KIS_SERIES'
+          assert p['r116_adjusted_full_replay_certified'] is False
+          print('R8_UNCERTIFIED_DATA_GUARD_PASS: independent prices still UNKNOWN')
+          PY
+          sha256sum research_projects/trendline_price_lineage_r8_20261119/r8_price_lineage.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: R8_PRICE_LINEAGE_PRECHECK_UNCERTIFIED
+          path: r8-audit/R8_PRECHECK.json
+          if-no-files-found: error
