@@ -1,0 +1,73 @@
+name: Stock-Hunter R11 Exit Regret Distribution (RESEARCH ONLY)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  r11_exit_regret_diagnostics:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      TZ: Asia/Seoul
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Checkout immutable research source lineage
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Install pinned offline research dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install 'numpy==2.2.6' 'pandas==2.2.3'
+      - name: Test R11 ex-post attribution and no-lookahead boundaries
+        run: |
+          set -euo pipefail
+          python -m unittest discover \
+            -s research_projects/trendline_resistance_exit_diagnostics_r11_20261120 -p 'test_*.py' -v
+      - name: Replay frozen R10 paired target exits
+        run: |
+          set -euo pipefail
+          python research_projects/trendline_resistance_exit_diagnostics_r11_20261120/r11_exit_diagnostics.py \
+            --repo . --out reports/trendline_r11
+      - name: Fail closed on unauthorized selection or changed parent cohort
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          out=Path('reports/trendline_r11')
+          x=json.loads((out/'R11_SUMMARY.json').read_text(encoding='utf-8'))
+          assert x['revision']=='R11_R10_EXIT_REGRET_DISTRIBUTION_RESEARCH_ONLY_3STOCK'
+          assert x['research_only'] and x['raw_line_events']==506
+          assert x['unique_stock_dates']==368 and x['nonoverlap_20d_count']==94
+          assert x['primary']['PRIOR_PIVOT_120']['paired_n']==259
+          assert x['primary']['DAILY_AMOUNT_HLC3_PROXY_120']['paired_n']==255
+          assert x['nonoverlap_20d']['PRIOR_PIVOT_120']['paired_n']==63
+          assert x['nonoverlap_20d']['DAILY_AMOUNT_HLC3_PROXY_120']['paired_n']==62
+          assert x['predeclared_analysis']['post_exit_high_excludes_day_of_exit']
+          assert x['predeclared_analysis']['additional_parameter_tuning'] is False
+          assert x['real_price_by_volume_available'] is False
+          assert x['independent_adjustment_lineage_certified'] is False
+          assert x['marketwide_point_in_time_universe'] is False
+          assert x['out_of_sample'] is False and x['strategy_winner'] is None
+          assert x['can_publish_strategy_performance'] is False
+          assert x['can_modify_live_search_watch'] is False
+          assert (out/'R11_FULL_AUDIT.json').is_file()
+          assert (out/'R11_PAIRED_EXIT_DIAGNOSTICS.csv').is_file()
+          print('R11_RESEARCH_ONLY_REGRET_AUDIT_GUARD_PASS')
+          PY
+      - name: Upload explanatory R11 audit artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-r11-exit-regret-distribution-research-only
+          path: reports/trendline_r11/**
+          if-no-files-found: warn
+          retention-days: 90
