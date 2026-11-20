@@ -1,0 +1,70 @@
+name: Stock-Hunter R10 PIT Resistance Targets (RESEARCH ONLY)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  r10_pit_resistance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      TZ: Asia/Seoul
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Checkout frozen research only
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Install pinned offline research dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install 'numpy==2.2.6' 'pandas==2.2.3'
+      - name: Run R10 synthetic causality and execution tests
+        run: |
+          set -euo pipefail
+          python -m unittest discover \
+            -s research_projects/trendline_resistance_targets_r10_20261120 -p 'test_*.py' -v
+      - name: Replay frozen three-stock R5 R6 R7 lineage for R10
+        run: |
+          set -euo pipefail
+          python research_projects/trendline_resistance_targets_r10_20261120/r10_resistance_targets.py \
+            --repo . --out reports/trendline_r10
+      - name: Fail closed on population changes or unauthorized promotion
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          d=Path('reports/trendline_r10')
+          x=json.loads((d/'R10_SUMMARY.json').read_text(encoding='utf-8'))
+          assert x['revision']=='R10_PIT_RESISTANCE_EXIT_RESEARCH_ONLY_3STOCK_PROVISIONAL'
+          assert x['raw_line_events']==506 and x['unique_stock_dates']==368
+          assert 0 < x['nonoverlap_20d_count'] < 368
+          assert x['research_only']
+          assert x['actual_volume_at_price_available'] is False
+          assert x['daily_amount_hlc3_proxy_is_real_volume_profile'] is False
+          assert x['independent_price_adjustment_certified'] is False
+          assert x['marketwide_point_in_time_universe'] is False
+          assert x['out_of_sample'] is False
+          assert x['strategy_winner'] is None
+          assert x['can_publish_strategy_performance'] is False
+          assert x['can_modify_live_search_watch'] is False
+          assert (d/'R10_FULL_AUDIT.json').is_file()
+          assert (d/'R10_PRIMARY_EVENTS_AND_MODELS.csv').is_file()
+          print('R10_PIT_RESISTANCE_RESEARCH_ONLY_GUARD_PASS')
+          PY
+      - name: Preserve R10 audit and paired-cohort reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockhunter-r10-pit-resistance-targets-research-only
+          path: reports/trendline_r10/**
+          if-no-files-found: warn
+          retention-days: 90
