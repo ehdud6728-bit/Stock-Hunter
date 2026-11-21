@@ -1,0 +1,68 @@
+name: Stock-Hunter R16 New Ticker Source and Structure Exit Pilot Only
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/stockhunter_r16_new_ticker_source_pilot_research_only.yml'
+      - 'research_projects/trendline_unseen_tickers_r16_20261121/**'
+  workflow_dispatch:
+    inputs:
+      confirm_public_krx_collection:
+        description: 'Explicitly allow R16 historical 30-stock KRX data requests (requires KRX_ID/KRX_PW, NOT KIS keys)'
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  r16-source-preflight:
+    name: R16 frozen ticker selection and source safety tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned research dependencies
+        run: python -m pip install 'numpy>=1.26,<3' 'pandas>=2.1,<3'
+      - name: Fixed holdout, no replacement, bad source refusal
+        run: python -m unittest discover -s research_projects/trendline_unseen_tickers_r16_20261121 -p 'test_r16_*.py' -v
+      - name: Print only preregistered ticker codes (not returns)
+        run: python research_projects/trendline_unseen_tickers_r16_20261121/r16_new_ticker_pilot.py --repo . --out reports/trendline_r16 --phase selection
+
+  r16-manual-public-price-fetch:
+    name: R16 manual KRX source collection and holdout replay
+    if: github.event_name == 'workflow_dispatch' && inputs.confirm_public_krx_collection == true
+    needs: r16-source-preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      KRX_ID: ${{ secrets.KRX_ID }}
+      KRX_PW: ${{ secrets.KRX_PW }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned provider and research dependencies
+        run: python -m pip install 'numpy>=1.26,<3' 'pandas>=2.1,<3' 'pykrx==1.2.9'
+      - name: Check for KRX-only credentials without printing their values
+        shell: bash
+        run: |
+          if [ -z "$KRX_ID" ] || [ -z "$KRX_PW" ]; then
+            echo 'R16_SOURCE_BLOCKED: KRX_ID/KRX_PW GitHub Secrets are required by the 2026 provider; KIS keys are unrelated.'
+            exit 1
+          fi
+      - name: Retrieve and seal fixed 30 ticker historical OHLC, then replay frozen R14/R15
+        run: python research_projects/trendline_unseen_tickers_r16_20261121/r16_new_ticker_pilot.py --repo . --out reports/trendline_r16 --phase all --allow-public-network-fetch
+      - name: Upload source manifest, frozen prices, and full audit even on rejection
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: STOCK_HUNTER_R16_TICKER_DISJOINT_SOURCE_RESEARCH_ONLY
+          path: reports/trendline_r16/
+          if-no-files-found: warn
+          retention-days: 30
