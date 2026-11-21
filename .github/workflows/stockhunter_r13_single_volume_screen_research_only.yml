@@ -1,0 +1,39 @@
+name: Stock-Hunter R13 Single Volume Failure Screen Research Only
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/stockhunter_r13_single_volume_screen_research_only.yml'
+      - 'research_projects/trendline_failure_screen_r13_20261121/**'
+
+permissions:
+  contents: read
+
+jobs:
+  r13-single-volume-screen:
+    name: R13 fixed D0 volume ratio screen no OOS
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - name: Research dependencies
+        run: python -m pip install 'numpy>=1.26,<3' 'pandas>=2.1,<3'
+      - name: R13 invariants
+        run: python -m unittest discover -s research_projects/trendline_failure_screen_r13_20261121 -p 'test_*.py' -v
+      - name: Reproduce frozen R12 then evaluate one filter
+        run: python research_projects/trendline_failure_screen_r13_20261121/r13_single_volume_screen.py --repo . --out reports/trendline_r13
+      - name: Upload research summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: STOCK_HUNTER_R13_SINGLE_VOLUME_SCREEN_RESEARCH_ONLY
+          path: reports/trendline_r13/
+          if-no-files-found: warn
+          retention-days: 30
