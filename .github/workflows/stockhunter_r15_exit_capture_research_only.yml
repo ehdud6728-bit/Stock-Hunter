@@ -1,0 +1,37 @@
+name: Stock-Hunter R15 Structural Exit Profit Capture Research Only
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/stockhunter_r15_exit_capture_research_only.yml'
+      - 'research_projects/trendline_exit_capture_r15_20261121/**'
+
+permissions:
+  contents: read
+
+jobs:
+  r15-profit-capture:
+    name: R15 D20 D60 peak giveback vs downside avoided no OOS
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Research dependencies
+        run: python -m pip install 'numpy>=1.26,<3' 'pandas>=2.1,<3'
+      - name: R15 frozen R14 and ex-post-only invariants
+        run: python -m unittest discover -s research_projects/trendline_exit_capture_r15_20261121 -p 'test_r15_*.py' -v
+      - name: R15 frozen R116 structural exit capture D20 and D60
+        run: python research_projects/trendline_exit_capture_r15_20261121/r15_capture_regret.py --repo . --out reports/trendline_r15
+      - name: Upload event-level diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: STOCK_HUNTER_R15_EXIT_CAPTURE_RESEARCH_ONLY
+          path: reports/trendline_r15/
+          if-no-files-found: warn
+          retention-days: 30
