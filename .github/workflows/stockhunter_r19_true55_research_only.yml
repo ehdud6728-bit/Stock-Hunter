@@ -1,0 +1,83 @@
+name: Stock-Hunter R19 True 55-Day Breakout Research Only
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/stockhunter_r19_true55_research_only.yml'
+      - 'research_projects/trendline_true55_r19_20261122/**'
+  workflow_dispatch:
+    inputs:
+      confirm_research_only_kis_replay:
+        description: 'Replay only fixed BLUE KIS run 44988188271; no new KIS credentials or orders'
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  r19-offline-tests:
+    name: Real previous-55-high as-of, D+1 entry and frozen-train tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install research-only dependencies
+        run: python -m pip install 'numpy>=1.26,<3' 'pandas>=2.1,<3' 'scikit-learn>=1.4,<2'
+      - name: Run R19 no-future-peek and temporal model tests
+        run: python -m unittest discover -s research_projects/trendline_true55_r19_20261122 -p 'test_r19*.py' -v
+
+  r19-manual-frozen-kis-replay:
+    name: Fixed R16 KIS import, R17 structural exits and true-55 R19 report
+    if: github.event_name == 'workflow_dispatch' && inputs.confirm_research_only_kis_replay == true
+    needs: r19-offline-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install research-only dependencies
+        run: python -m pip install 'numpy>=1.26,<3' 'pandas>=2.1,<3' 'scikit-learn>=1.4,<2'
+      - name: Download fixed BLUE KIS capture (not secrets or new API requests)
+        uses: actions/download-artifact@v4
+        with:
+          name: BLUE_STOCKHUNTER_R16_KIS_30_44988188271
+          repository: ehdud6728-bit/BLUE-Signal-Lab
+          run-id: 44988188271
+          github-token: ${{ github.token }}
+          path: reports/r19_source_from_blue
+      - name: Validate KIS source SHA and rebuild R16/R17 from frozen evidence
+        run: |
+          python research_projects/trendline_kis_failure_r17_20261122/r17_failure_exit.py \
+            --repo . \
+            --artifact reports/r19_source_from_blue \
+            --r16-out reports/r19_r16 \
+            --out reports/r19_r17 \
+            --phase all
+      - name: Evaluate genuine previous-55-high D0 closes and R18 risk transfer
+        run: |
+          python research_projects/trendline_true55_r19_20261122/r19_true55_transfer.py \
+            --repo . \
+            --r16-out reports/r19_r16 \
+            --r17-out reports/r19_r17 \
+            --out reports/r19_true55
+      - name: Upload derived research diagnostics only (no raw OHLCV)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: STOCKHUNTER_R19_TRUE55_RESEARCH_ONLY
+          path: |
+            reports/r19_r16/R16_SOURCE_MANIFEST.json
+            reports/r19_r17/R17_SUMMARY.json
+            reports/r19_true55/R19_TRUE55_TRANSFER_SUMMARY.json
+            reports/r19_true55/R19_TRUE55_EVENT_AUDIT.json
+            reports/r19_true55/R19_REVIEW_RISK_SCORES.json
+          if-no-files-found: warn
+          retention-days: 30
