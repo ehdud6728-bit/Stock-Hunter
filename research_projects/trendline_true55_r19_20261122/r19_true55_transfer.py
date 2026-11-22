@@ -173,6 +173,12 @@ def read_frozen_sources(r16_out: Path, r17_out: Path) -> tuple[pd.DataFrame, lis
     data = pd.read_csv(archive, dtype={"code": str, "date": str})
     if len(data) != 37736 or data.code.nunique() != 26 or data.duplicated(["code", "date"]).any():
         raise ValueError("R16_PRICE_ARCHIVE_UNEXPECTED_SHAPE")
+    r17_summary = json.loads((r17_out / "R17_SUMMARY.json").read_text(encoding="utf-8"))
+    if (r17_summary.get("source_kis_run") != KIS_RUN
+            or r17_summary.get("source_price_sha256") != manifest["raw_archive_sha256"]
+            or r17_summary.get("r17_events") != 425
+            or r17_summary.get("cost_roundtrip_pct") != .2):
+        raise ValueError("R17_DIAGNOSTIC_SOURCE_OR_COST_MISMATCH")
     old = json.loads((r17_out / "R17_EVENTS.json").read_text(encoding="utf-8"))
     if len(old) != 425 or len({(r["code"], r["date"]) for r in old}) != 425:
         raise ValueError("R17_FROZEN_EVENTS_UNEXPECTED")
