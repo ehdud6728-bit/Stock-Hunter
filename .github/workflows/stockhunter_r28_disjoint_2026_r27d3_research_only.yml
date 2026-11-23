@@ -1,0 +1,69 @@
+name: Stock-Hunter R28 Ticker-Disjoint 2026 Frozen 55-Day R27 D3 Verification (RESEARCH ONLY)
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/stockhunter_r28_disjoint_2026_r27d3_research_only.yml'
+      - 'research_projects/trendline_true55_r28_2026_oos_20261124/**'
+  workflow_dispatch:
+    inputs:
+      confirm_sha_locked_unseen_2026_research_only:
+        description: 'Use only BLUE run 45221059025 / fixed 29 new valid 2026 tickers; no live trading'
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  r28-independent-source-synthetic-tests:
+    name: Frozen source pin, R19 embargo, R27 D3 next-open and big30 audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install bounded R19-R27 read-only research dependencies
+        run: python -m pip install 'numpy>=1.26,<3' 'pandas>=2.1,<3' 'scikit-learn>=1.4,<2'
+      - name: Run offline tests with synthetic OHLCV only
+        run: python -m unittest discover -s research_projects/trendline_true55_r28_2026_oos_20261124 -p 'test_r28*.py' -v
+
+  r28-pinned-new-2026-evaluation:
+    name: BLUE 45221059025 SHA-locked 2026 new tickers R25 vs unchanged R27 D3
+    if: github.event_name == 'workflow_dispatch' && inputs.confirm_sha_locked_unseen_2026_research_only == true
+    needs: r28-independent-source-synthetic-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install bounded read-only research dependencies
+        run: python -m pip install 'numpy>=1.26,<3' 'pandas>=2.1,<3' 'scikit-learn>=1.4,<2'
+      - name: Download exact precommitted BLUE capture by run ID, no fresh prices requested
+        uses: actions/download-artifact@v4
+        with:
+          repository: ehdud6728-bit/BLUE-Signal-Lab
+          run-id: 45221059025
+          name: BLUE_STOCKHUNTER_R28_UNSEEN2026_45221059025
+          github-token: ${{ github.token }}
+          path: reports/r28_unseen_source
+      - name: Validate CSV SHA + manifest + 2026 universe and evaluate unmodified R19 / R27 rules
+        run: |
+          python research_projects/trendline_true55_r28_2026_oos_20261124/r28_2026_validation.py \
+            --source-dir reports/r28_unseen_source --out reports/r28_2026_validation
+      - name: Upload new 2026 evaluations only, no credentials or raw price CSV
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: STOCKHUNTER_R28_NEW_TICKER_2026_R25_VS_R27_D3_RESEARCH_ONLY
+          path: |
+            reports/r28_2026_validation/R28_TRUE55_DISJOINT_2026_SUMMARY.json
+            reports/r28_2026_validation/R28_TRUE55_DISJOINT_2026_EVENTS.json
+          if-no-files-found: warn
+          retention-days: 30
