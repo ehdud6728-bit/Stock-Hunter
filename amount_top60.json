@@ -1,6 +1,6 @@
 ﻿{
-  "generated_at": "2026-11-20 13:21:57",
-  "date": "2026-11-20",
+  "generated_at": "2026-11-23 13:06:18",
+  "date": "2026-11-23",
   "purpose": "amount_top60 quick universe",
   "rules": "가격/시총/ETF·ETN·스팩·우선주 필터 후 거래대금 상위 60개",
   "amount_top60": [
