@@ -44,7 +44,7 @@ def event(g,idx=70):
 
 
 def scored(select=True,big=True,base=-23.,d3=-10.,code="005930"):
-    return {"code":code,"date":"2026-03-10",
+    return {"code":code,"date":"2026-03-10","year":2026,
       "R25_D0_score_TRAINONLY":.4 if select else .1,
       "R25_D0_selected_TRAINONLY":select,
       "expost_original_full60_intraday_high30":big,
