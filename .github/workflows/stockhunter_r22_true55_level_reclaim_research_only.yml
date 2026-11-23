@@ -1,0 +1,95 @@
+name: Stock-Hunter R22 Frozen55 Level Reclaim Research Only
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/stockhunter_r22_true55_level_reclaim_research_only.yml'
+      - 'research_projects/trendline_true55_r22_level_reclaim_20261123/**'
+  workflow_dispatch:
+    inputs:
+      confirm_research_only_kis_replay:
+        description: 'Pinned BLUE 44988188271 only; re-run R16 R17 R19 R20 R21 then R22. Never trade.'
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  offline-tests:
+    name: R22 frozen 55-day threshold, closed-bar/next-open and day5 no-leak tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install bounded research dependencies
+        run: python -m pip install 'numpy>=1.26,<3' 'pandas>=2.1,<3' 'scikit-learn>=1.4,<2'
+      - name: R22 synthetic no-hindsight tests
+        run: python -m unittest discover -s research_projects/trendline_true55_r22_level_reclaim_20261123 -p 'test_r22*.py' -v
+
+  manual-replay:
+    name: Pinned KIS => 149 true55 => R20 R21 controls => R22 exits / D+5 states
+    if: github.event_name == 'workflow_dispatch' && inputs.confirm_research_only_kis_replay == true
+    needs: offline-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install bounded research dependencies
+        run: python -m pip install 'numpy>=1.26,<3' 'pandas>=2.1,<3' 'scikit-learn>=1.4,<2'
+      - name: Download already frozen BLUE source; do not call KIS or read secrets
+        uses: actions/download-artifact@v4
+        with:
+          name: BLUE_STOCKHUNTER_R16_KIS_30_44988188271
+          repository: ehdud6728-bit/BLUE-Signal-Lab
+          run-id: 44988188271
+          github-token: ${{ github.token }}
+          path: reports/r22_source
+      - name: Rebuild R16 R17 from hash pinned archive
+        run: |
+          python research_projects/trendline_kis_failure_r17_20261122/r17_failure_exit.py \
+            --repo . --artifact reports/r22_source \
+            --r16-out reports/r22_r16 --out reports/r22_r17 --phase all
+      - name: Rebuild same 149 R19 true 55-day breakout events
+        run: |
+          python research_projects/trendline_true55_r19_20261122/r19_true55_transfer.py \
+            --repo . --r16-out reports/r22_r16 \
+            --r17-out reports/r22_r17 --out reports/r22_r19
+      - name: Rebuild R20 MA5 baselines
+        run: |
+          python research_projects/trendline_true55_r20_ma_exit_20261123/r20_ma_exit.py \
+            --r16-out reports/r22_r16 --r19-out reports/r22_r19 \
+            --out reports/r22_r20_ma
+      - name: Rebuild R21 2-day MA5 baseline
+        run: |
+          python research_projects/trendline_true55_r21_phase_exit_20261123/r21_phase_exit.py \
+            --r16-out reports/r22_r16 --r19-out reports/r22_r19 \
+            --r20-ma-out reports/r22_r20_ma --out reports/r22_r21
+      - name: Run R22 level loss / recovery study and anti-regression checks
+        run: |
+          python research_projects/trendline_true55_r22_level_reclaim_20261123/r22_level_reclaim.py \
+            --r16-out reports/r22_r16 --r19-out reports/r22_r19 \
+            --r20-ma-out reports/r22_r20_ma \
+            --r21-out reports/r22_r21 --out reports/r22_level
+      - name: Upload derived audit summary and paired events only, not OHLCV
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: STOCKHUNTER_R22_FROZEN55_LEVEL_RECLAIM_RESEARCH_ONLY
+          path: |
+            reports/r22_r16/R16_SOURCE_MANIFEST.json
+            reports/r22_r19/R19_TRUE55_TRANSFER_SUMMARY.json
+            reports/r22_r20_ma/R20_MA_EXIT_SUMMARY.json
+            reports/r22_r21/R21_PHASE_EXIT_SUMMARY.json
+            reports/r22_level/R22_LEVEL_EXIT_SUMMARY.json
+            reports/r22_level/R22_LEVEL_PAIRED_EVENTS.json
+          if-no-files-found: warn
+          retention-days: 30
