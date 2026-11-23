@@ -1,0 +1,100 @@
+name: Stock-Hunter R23 Entry Quality and Original 224 Pullback Research Only
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/stockhunter_r23_true55_entry_quality_research_only.yml'
+      - 'research_projects/trendline_true55_r23_entry_quality_20261123/**'
+  workflow_dispatch:
+    inputs:
+      confirm_fixed_source_research_only:
+        description: 'Only BLUE KIS 44988188271 fixed source, 500 D0 and 149 R19 events; no orders'
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  r23-offline-tests:
+    name: D0 known-only, original 224 wave pullback and missingness tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install bounded research dependencies
+        run: python -m pip install 'numpy>=1.26,<3' 'pandas>=2.1,<3' 'scikit-learn>=1.4,<2'
+      - name: Run R23 causal tests
+        run: python -m unittest discover -s research_projects/trendline_true55_r23_entry_quality_20261123 -p 'test_r23*.py' -v
+
+  r23-manual-fixed-source-replay:
+    name: Pinned KIS => R16 R17 => R19 149 => R20 R21 R22 => R23 entry quality
+    if: github.event_name == 'workflow_dispatch' && inputs.confirm_fixed_source_research_only == true
+    needs: r23-offline-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install bounded research dependencies
+        run: python -m pip install 'numpy>=1.26,<3' 'pandas>=2.1,<3' 'scikit-learn>=1.4,<2'
+      - name: Download known BLUE fixed KIS source without any API secrets
+        uses: actions/download-artifact@v4
+        with:
+          name: BLUE_STOCKHUNTER_R16_KIS_30_44988188271
+          repository: ehdud6728-bit/BLUE-Signal-Lab
+          run-id: 44988188271
+          github-token: ${{ github.token }}
+          path: reports/r23_source
+      - name: Hash-pin KIS and rebuild R16 R17
+        run: |
+          python research_projects/trendline_kis_failure_r17_20261122/r17_failure_exit.py \
+            --repo . --artifact reports/r23_source \
+            --r16-out reports/r23_r16 --out reports/r23_r17 --phase all
+      - name: Reproduce original 149 R19 true55 entry events
+        run: |
+          python research_projects/trendline_true55_r19_20261122/r19_true55_transfer.py \
+            --repo . --r16-out reports/r23_r16 \
+            --r17-out reports/r23_r17 --out reports/r23_r19
+      - name: Reproduce R20 MA5 baseline
+        run: |
+          python research_projects/trendline_true55_r20_ma_exit_20261123/r20_ma_exit.py \
+            --r16-out reports/r23_r16 --r19-out reports/r23_r19 \
+            --out reports/r23_r20_ma
+      - name: Reproduce R21 phased exit baseline
+        run: |
+          python research_projects/trendline_true55_r21_phase_exit_20261123/r21_phase_exit.py \
+            --r16-out reports/r23_r16 --r19-out reports/r23_r19 \
+            --r20-ma-out reports/r23_r20_ma --out reports/r23_r21
+      - name: Reproduce R22 frozen level exit baseline
+        run: |
+          python research_projects/trendline_true55_r22_level_reclaim_20261123/r22_level_reclaim.py \
+            --r16-out reports/r23_r16 --r19-out reports/r23_r19 \
+            --r20-ma-out reports/r23_r20_ma \
+            --r21-out reports/r23_r21 --out reports/r23_r22
+      - name: Run R23 D0 known-only 224/volume/first-wave/pullback diagnostics
+        run: |
+          python research_projects/trendline_true55_r23_entry_quality_20261123/r23_entry_quality.py \
+            --r16-out reports/r23_r16 --r19-out reports/r23_r19 \
+            --r22-out reports/r23_r22 --out reports/r23_quality
+      - name: Upload derived output only, not raw KIS prices
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: STOCKHUNTER_R23_ENTRY_QUALITY_RESEARCH_ONLY
+          path: |
+            reports/r23_r16/R16_SOURCE_MANIFEST.json
+            reports/r23_r19/R19_TRUE55_TRANSFER_SUMMARY.json
+            reports/r23_r20_ma/R20_MA_EXIT_SUMMARY.json
+            reports/r23_r22/R22_LEVEL_EXIT_SUMMARY.json
+            reports/r23_quality/R23_ENTRY_QUALITY_SUMMARY.json
+            reports/r23_quality/R23_149_ASOF_D0_FEATURE_AUDIT.json
+          if-no-files-found: warn
+          retention-days: 30
