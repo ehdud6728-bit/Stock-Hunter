@@ -1,0 +1,117 @@
+name: Stock-Hunter R27 Early Phase Guards and Strict Forward Landmark Research Only
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/stockhunter_r27_early_phase_guards_research_only.yml'
+      - 'research_projects/trendline_true55_r27_early_phase_20261123/**'
+  workflow_dispatch:
+    inputs:
+      confirm_frozen_kis_research_only:
+        description: 'Replay only fixed BLUE KIS 44988188271, R19 149, R25 40/20/17; research only'
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  r27-offline-tests:
+    name: 3/5-day causal exit guards, next-open fills, strict post-landmark tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install bounded research dependencies
+        run: python -m pip install 'numpy>=1.26,<3' 'pandas>=2.1,<3' 'scikit-learn>=1.4,<2'
+      - name: Run R27 deterministic synthetic no-future tests
+        run: python -m unittest discover -s research_projects/trendline_true55_r27_early_phase_20261123 -p 'test_r27*.py' -v
+
+  r27-manual-frozen-replay:
+    name: SHA-pinned KIS to R19/R20/R21/R22/R24/R25/R26 to R27 phased guards
+    if: github.event_name == 'workflow_dispatch' && inputs.confirm_frozen_kis_research_only == true
+    needs: r27-offline-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 105
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install bounded research dependencies
+        run: python -m pip install 'numpy>=1.26,<3' 'pandas>=2.1,<3' 'scikit-learn>=1.4,<2'
+      - name: Retrieve frozen BLUE KIS artifact only, never issue KIS request
+        uses: actions/download-artifact@v4
+        with:
+          name: BLUE_STOCKHUNTER_R16_KIS_30_44988188271
+          repository: ehdud6728-bit/BLUE-Signal-Lab
+          run-id: 44988188271
+          github-token: ${{ github.token }}
+          path: reports/r27_source
+      - name: Verify raw SHA256 and reproduce R16 R17
+        run: |
+          python research_projects/trendline_kis_failure_r17_20261122/r17_failure_exit.py \
+            --repo . --artifact reports/r27_source \
+            --r16-out reports/r27_r16 --out reports/r27_r17 --phase all
+      - name: Rebuild frozen 149 R19 true55 entries
+        run: |
+          python research_projects/trendline_true55_r19_20261122/r19_true55_transfer.py \
+            --repo . --r16-out reports/r27_r16 \
+            --r17-out reports/r27_r17 --out reports/r27_r19
+      - name: Rebuild R20 frozen MA exit baselines
+        run: |
+          python research_projects/trendline_true55_r20_ma_exit_20261123/r20_ma_exit.py \
+            --r16-out reports/r27_r16 --r19-out reports/r27_r19 \
+            --out reports/r27_r20
+      - name: Rebuild R21 frozen phased exits
+        run: |
+          python research_projects/trendline_true55_r21_phase_exit_20261123/r21_phase_exit.py \
+            --r16-out reports/r27_r16 --r19-out reports/r27_r19 \
+            --r20-ma-out reports/r27_r20 --out reports/r27_r21
+      - name: Rebuild R22 55-day level policies
+        run: |
+          python research_projects/trendline_true55_r22_level_reclaim_20261123/r22_level_reclaim.py \
+            --r16-out reports/r27_r16 --r19-out reports/r27_r19 \
+            --r20-ma-out reports/r27_r20 \
+            --r21-out reports/r27_r21 --out reports/r27_r22
+      - name: Rebuild R24 train-only loss-risk benchmark
+        run: |
+          python research_projects/trendline_true55_r24_entry_risk_20261123/r24_entry_risk.py \
+            --r16-out reports/r27_r16 --r19-out reports/r27_r19 \
+            --r20-ma-out reports/r27_r20 --out reports/r27_r24
+      - name: Rebuild R25 +30 opportunity recall and actual next-open exits
+        run: |
+          python research_projects/trendline_true55_r25_big30_20261123/r25_big30.py \
+            --r16-out reports/r27_r16 --r19-out reports/r27_r19 \
+            --r20-out reports/r27_r20 --r22-out reports/r27_r22 \
+            --r24-out reports/r27_r24 --out reports/r27_r25
+      - name: Rebuild R26 left-tail exit guards
+        run: |
+          python research_projects/trendline_true55_r26_tail_guard_20261123/r26_tail_guard.py \
+            --r16-out reports/r27_r16 --r19-out reports/r27_r19 \
+            --r25-out reports/r27_r25 --out reports/r27_r26
+      - name: Verify R26 event identities and test R27 early-guard phased exits
+        run: |
+          python research_projects/trendline_true55_r27_early_phase_20261123/r27_early_phase.py \
+            --r16-out reports/r27_r16 --r19-out reports/r27_r19 \
+            --r25-out reports/r27_r25 --r26-out reports/r27_r26 \
+            --out reports/r27_phase
+      - name: Upload derived audit only, no raw OHLCV or KIS credentials
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: STOCKHUNTER_R27_TRUE55_EARLY_PHASE_GUARDS_RESEARCH_ONLY
+          path: |
+            reports/r27_r16/R16_SOURCE_MANIFEST.json
+            reports/r27_r19/R19_TRUE55_TRANSFER_SUMMARY.json
+            reports/r27_r25/R25_BIG30_RESEARCH_SUMMARY.json
+            reports/r27_r26/R26_LEFT_TAIL_GUARD_SUMMARY.json
+            reports/r27_phase/R27_PHASED_GUARDS_SUMMARY.json
+            reports/r27_phase/R27_FIXED149_PAIRED_PHASE_EVENTS.json
+          if-no-files-found: warn
+          retention-days: 30
