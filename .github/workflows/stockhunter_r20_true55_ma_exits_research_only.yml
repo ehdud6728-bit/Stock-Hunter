@@ -1,0 +1,97 @@
+name: Stock-Hunter R20 MA and Swing Level Exit Research Only
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/stockhunter_r20_true55_ma_exits_research_only.yml'
+      - 'research_projects/trendline_true55_r20_ma_exit_20261123/**'
+  workflow_dispatch:
+    inputs:
+      confirm_research_only_replay:
+        description: 'Only fixed BLUE run 44988188271; replay R16/R17/R19 then compare MA5/10/20 exits'
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  r20-offline-tests:
+    name: MA5/MA10/MA20 and causal swing pivots timing tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install bounded research dependencies
+        run: python -m pip install 'numpy>=1.26,<3' 'pandas>=2.1,<3' 'scikit-learn>=1.4,<2'
+      - name: R20 no intraday hindsight and next-open execution tests
+        run: python -m unittest discover -s research_projects/trendline_true55_r20_ma_exit_20261123 -p 'test_r20*.py' -v
+
+  r20-manual-fixed-kis-replay:
+    name: Fixed KIS 30 → R16/R17 → R19 true55 → R20 MA5/10/20
+    if: github.event_name == 'workflow_dispatch' && inputs.confirm_research_only_replay == true
+    needs: r20-offline-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install bounded research dependencies
+        run: python -m pip install 'numpy>=1.26,<3' 'pandas>=2.1,<3' 'scikit-learn>=1.4,<2'
+      - name: Download existing frozen BLUE KIS archive, never request API credentials
+        uses: actions/download-artifact@v4
+        with:
+          name: BLUE_STOCKHUNTER_R16_KIS_30_44988188271
+          repository: ehdud6728-bit/BLUE-Signal-Lab
+          run-id: 44988188271
+          github-token: ${{ github.token }}
+          path: reports/r20_source
+      - name: Rebuild source and frozen exit research with original SHA contract
+        run: |
+          python research_projects/trendline_kis_failure_r17_20261122/r17_failure_exit.py \
+            --repo . \
+            --artifact reports/r20_source \
+            --r16-out reports/r20_r16 \
+            --out reports/r20_r17 \
+            --phase all
+      - name: Reproduce identical 149 true55 R19 entries
+        run: |
+          python research_projects/trendline_true55_r19_20261122/r19_true55_transfer.py \
+            --repo . \
+            --r16-out reports/r20_r16 \
+            --r17-out reports/r20_r17 \
+            --out reports/r20_r19
+      - name: Compare 5 10 20-day SMA structural close exits on frozen entries
+        run: |
+          python research_projects/trendline_true55_r20_ma_exit_20261123/r20_ma_exit.py \
+            --r16-out reports/r20_r16 \
+            --r19-out reports/r20_r19 \
+            --out reports/r20_ma
+      - name: Compare previously confirmed swing high target and swing low breach
+        run: |
+          python research_projects/trendline_true55_r20_ma_exit_20261123/r20_swing_levels.py \
+            --r16-out reports/r20_r16 \
+            --r19-out reports/r20_r19 \
+            --r20-ma-out reports/r20_ma \
+            --out reports/r20_swing
+      - name: Upload only derived summaries and paired exit audit; never raw prices
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: STOCKHUNTER_R20_MA5_MA10_MA20_RESEARCH_ONLY
+          path: |
+            reports/r20_r16/R16_SOURCE_MANIFEST.json
+            reports/r20_r19/R19_TRUE55_TRANSFER_SUMMARY.json
+            reports/r20_ma/R20_MA_EXIT_SUMMARY.json
+            reports/r20_ma/R20_MA_PAIRED_EVENTS.json
+            reports/r20_swing/R20_SWING_LEVEL_SUMMARY.json
+            reports/r20_swing/R20_SWING_PAIRED_EVENTS.json
+          if-no-files-found: warn
+          retention-days: 30
