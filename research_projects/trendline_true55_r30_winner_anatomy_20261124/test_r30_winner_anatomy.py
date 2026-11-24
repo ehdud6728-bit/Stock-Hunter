@@ -37,6 +37,7 @@ def new29_row(g,t=75,selected=True,netR25=33.):
         float(f["d0_volume_vs_prior20_ratio"]),
         25.,100*(125./110.-1)],
       "R25_D0_selected_TRAINONLY":selected,
+      "R25_frozen_cutoff":0.17839853,
       "R25_frozen_D0_cutoff":.17839853,
       "R25_D0_score_TRAINONLY":.5,
       "expost_original_full60_intraday_high30":True,
