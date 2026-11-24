@@ -202,7 +202,7 @@ class R30WinnerAnatomyTests(unittest.TestCase):
         self.assertIsNone(z["auc"])
 
     def test_no_live_policy_side_effects(self):
-        self.assertEqual(r30.NEW_BASE,r30.r28.BASE)
+        self.assertEqual(r30.NEW_BASE,r30.r28.R25)
         self.assertEqual(r30.NEW_D3,r30.r28.R27_D3)
         self.assertEqual(r30.FIXED_SEED,20261124)
 
