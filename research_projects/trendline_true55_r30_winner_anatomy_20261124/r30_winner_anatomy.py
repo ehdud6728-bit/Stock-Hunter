@@ -341,6 +341,11 @@ def d3_false_negative_audit(raw:pd.DataFrame,events28:list[dict],
     survivors=[r for r in entries if r["baseline_R25_still_held_without_pending_next_open_exit_at_D3"]]
     failure=[r for r in survivors if r["R27_D3_confirmation_failed_and_sold_D4"]]
     passers=[r for r in survivors if not r["R27_D3_confirmation_failed_and_sold_D4"]]
+    # At D+3 close the original entry versus 55-day breakout level are
+    # different known price facts. This subgroup was identified AFTER seeing
+    # the 2026 results: explanatory ONLY, never a newly tuned exit policy.
+    failure_level_held=[r for r in failure if r["D3_close_above_prior55"]]
+    failure_level_lost=[r for r in failure if not r["D3_close_above_prior55"]]
     def describe(rows):
         return {
           "n":len(rows),
@@ -358,7 +363,10 @@ def d3_false_negative_audit(raw:pd.DataFrame,events28:list[dict],
       "entire_new_36_D3_case_records":entries,
       "R25_still_held_without_pending_D4_sell":describe(survivors),
       "R27_D3_failed_among_R25_survivors":describe(failure),
+      "R27_D3_failed_but_original55_level_held_EXPLORATORY":describe(failure_level_held),
+      "R27_D3_failed_and_original55_level_lost_EXPLORATORY":describe(failure_level_lost),
       "R27_D3_passed_among_R25_survivors":describe(passers),
+      "D3_level_subgroup_created_after_looking_at_2026_outcomes_not_a_rule":True,
       "R27_D3_failed_but_R25_actual_net30_case_ids":[
           {"code":r["code"],"date":r["date"],
            "R25_net_pct":r["R25_actual_net_pct"],
