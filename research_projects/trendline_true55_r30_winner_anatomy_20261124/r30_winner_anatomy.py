@@ -48,7 +48,7 @@ NEW29={
    "c210ec5efb2bfd0114fa50a74fbb986f0d8d8e7681130396786d640d20757342"),
 }
 R25_EXIT=r25.FLOOR_30
-NEW_BASE=r28.BASE
+NEW_BASE=r28.R25
 NEW_D3=r28.R27_D3
 # 11 as-of-D0 hypotheses fixed prior to this automated review (after prior
 # human inspection of the 2026 set; future samples mandatory for confirmation).
