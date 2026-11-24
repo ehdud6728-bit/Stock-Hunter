@@ -147,9 +147,9 @@ class R30WinnerAnatomyTests(unittest.TestCase):
         g=candles()
         original28=new28_row(g)
         original29=new29_row(g)
-        result=r30.normalize_new(g,[original28],[original29])
-        # A synthetic one-event fixture intentionally fails the strict 36 guard.
-        self.assertIsNotNone(result[0]["features_ASOF_D0_ONLY"]["first_wave_amplitude_pct"]) if result else None
+        # A single synthetic event must fail, never masquerade as 36 source events.
+        with self.assertRaisesRegex(ValueError,"36_IDS"):
+            r30.normalize_new(g,[original28],[original29])
 
     def test_d3_known_and_strict_d4_forward_first30(self):
         g=candles()
