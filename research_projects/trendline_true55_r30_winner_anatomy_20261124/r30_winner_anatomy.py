@@ -48,8 +48,8 @@ NEW29={
    "c210ec5efb2bfd0114fa50a74fbb986f0d8d8e7681130396786d640d20757342"),
 }
 R25_EXIT=r25.FLOOR_30
-NEW_BASE=r28.R25
-NEW_D3=r28.R27_D3
+NEW_BASE=r29.BASE
+NEW_D3=r29.D3  # Exact stored R28/R29 outcome JSON keys, NOT policy IDs.
 # 11 as-of-D0 hypotheses fixed prior to this automated review (after prior
 # human inspection of the 2026 set; future samples mandatory for confirmation).
 NUMERIC=(
@@ -130,6 +130,11 @@ def normalize_new(raw:pd.DataFrame,frozen28:list[dict],
          for code,g in frames.items()}
     out=[]
     for a,b in zip(frozen28,frozen29):
+        # An algorithm's policy ID differs from the immutable R28 outcome
+        # alias. Check both source JSONs before extraction; do not substitute.
+        if (set(a.get("outcomes",{}))!={NEW_BASE,NEW_D3} or
+            set(b.get("outcomes",{}))!={NEW_BASE,NEW_D3}):
+            raise ValueError("R30_R28_R29_STORED_EXIT_ALIAS_DRIFT")
         code,date=identity(a)
         if code not in ids or date not in ids[code]:
             raise ValueError("R30_MISSING_FROZEN_2026_EVENT")

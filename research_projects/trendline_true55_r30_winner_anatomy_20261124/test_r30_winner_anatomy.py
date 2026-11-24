@@ -37,6 +37,7 @@ def new29_row(g,t=75,selected=True,netR25=33.):
         float(f["d0_volume_vs_prior20_ratio"]),
         25.,100*(125./110.-1)],
       "R25_D0_selected_TRAINONLY":selected,
+      "R25_frozen_cutoff":0.17839853,
       "R25_frozen_D0_cutoff":.17839853,
       "R25_D0_score_TRAINONLY":.5,
       "expost_original_full60_intraday_high30":True,
@@ -151,6 +152,34 @@ class R30WinnerAnatomyTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"36_IDS"):
             r30.normalize_new(g,[original28],[original29])
 
+    def test_real_R28_R29_36_event_outcome_keys_in_complete_synthetic_replay(self):
+        """Regression: frozen R28 JSON aliases are NOT R25/R27 policy identifiers."""
+        frames=[]; originals=[]; scored=[]
+        for i in range(36):
+            g=candles(code=f"{i:06d}")
+            a=new28_row(g)
+            b=new29_row(g)
+            a["expost_LABELS_NEVER_DECISION"]["full_D1_to_D60_high30"]=i<20
+            b["expost_original_full60_intraday_high30"]=i<20
+            b["R25_D0_selected_TRAINONLY"]=i<28
+            frames.append(g);originals.append(a);scored.append(b)
+        raw=pd.concat(frames,ignore_index=True)
+        rows=r30.normalize_new(raw,originals,scored)
+        self.assertEqual(len(rows),36)
+        self.assertEqual(sum(x["expost_high30"] for x in rows),20)
+        self.assertEqual(sum(x["R29_selected_frozen_D0"] for x in rows),28)
+        self.assertEqual(rows[0]["R25_net_pct"],33.)
+        self.assertEqual(rows[0]["R27_net_pct"],-1.)
+        self.assertEqual(r30.NEW_BASE,"BASE_R25_D0LOW_CLOSE30")
+        self.assertEqual(r30.NEW_D3,"FIXED_R27_D3_CONFIRM")
+        # A stored outcome key accidentally replaced by algorithm ID must
+        # not be silently interpreted as the same exit result.
+        bad=copy.deepcopy(scored)
+        policy_key=r30.r28.R25
+        bad[0]["outcomes"][policy_key]=bad[0]["outcomes"].pop(r30.NEW_BASE)
+        with self.assertRaisesRegex(ValueError,"STORED_EXIT_ALIAS_DRIFT"):
+            r30.normalize_new(raw,originals,bad)
+
     def test_d3_known_and_strict_d4_forward_first30(self):
         g=candles()
         g.loc[78,"close"]=119. # D3 <= entry
@@ -202,8 +231,8 @@ class R30WinnerAnatomyTests(unittest.TestCase):
         self.assertIsNone(z["auc"])
 
     def test_no_live_policy_side_effects(self):
-        self.assertEqual(r30.NEW_BASE,r30.r28.R25)
-        self.assertEqual(r30.NEW_D3,r30.r28.R27_D3)
+        self.assertEqual(r30.NEW_BASE,r30.r29.BASE)
+        self.assertEqual(r30.NEW_D3,r30.r29.D3)
         self.assertEqual(r30.FIXED_SEED,20261124)
 
 
