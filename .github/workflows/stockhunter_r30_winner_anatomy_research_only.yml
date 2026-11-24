@@ -1,0 +1,111 @@
+name: Stock-Hunter R30 Big Winner D0 Wave/Volume/224 Anatomy (RESEARCH ONLY)
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/stockhunter_r30_winner_anatomy_research_only.yml'
+      - 'research_projects/trendline_true55_r30_winner_anatomy_20261124/**'
+  workflow_dispatch:
+    inputs:
+      confirm_exploratory_frozen_sources_no_trade:
+        description: 'Pinned R23 149 + R25 149 + R28/R29 2026 36 + BLUE 29 tickers; no model tuning'
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  r30-offline-safety-tests:
+    name: R23 exact features, no-future, D3 forward-only and sparse-factor guards
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install bounded research-only statistics dependencies
+        run: python -m pip install 'numpy>=1.26,<3' 'pandas>=2.1,<3' 'scikit-learn>=1.4,<2'
+      - name: Test no D+1 feature leak and no fake winner filtering
+        run: python -m unittest discover -s research_projects/trendline_true55_r30_winner_anatomy_20261124 -p 'test_r30*.py' -v
+
+  r30-immutable-185-event-pattern-audit:
+    name: Hash-locked 149 old plus 36 new events, original R23 D0 patterns
+    if: github.event_name == 'workflow_dispatch' && inputs.confirm_exploratory_frozen_sources_no_trade == true
+    needs: r30-offline-safety-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install bounded existing research dependencies
+        run: python -m pip install 'numpy>=1.26,<3' 'pandas>=2.1,<3' 'scikit-learn>=1.4,<2'
+      - name: Retrieve original R23 149 D0 wave and 224 study only
+        uses: actions/download-artifact@v4
+        with:
+          name: STOCKHUNTER_R23_ENTRY_QUALITY_RESEARCH_ONLY
+          repository: ehdud6728-bit/Stock-Hunter
+          run-id: 45122324583
+          github-token: ${{ github.token }}
+          path: reports/r30_r23_frozen
+      - name: Retrieve original R25 149 big30 labels and actual next-open outcomes
+        uses: actions/download-artifact@v4
+        with:
+          name: STOCKHUNTER_R25_BIG30_RECALL_ACTUAL_EXIT_CAPTURE_RESEARCH_ONLY
+          repository: ehdud6728-bit/Stock-Hunter
+          run-id: 45160999953
+          github-token: ${{ github.token }}
+          path: reports/r30_r25_frozen
+      - name: Retrieve original R28 2026 36 true55 events
+        uses: actions/download-artifact@v4
+        with:
+          name: STOCKHUNTER_R28_NEW_TICKER_2026_R25_VS_R27_D3_RESEARCH_ONLY
+          repository: ehdud6728-bit/Stock-Hunter
+          run-id: 45229111748
+          github-token: ${{ github.token }}
+          path: reports/r30_r28_frozen
+      - name: Retrieve R29 unchanged 2026 D0 train-only scores and 36 exits
+        uses: actions/download-artifact@v4
+        with:
+          name: STOCKHUNTER_R29_FROZEN_R25_D0_2026_PAIRED_RESEARCH_ONLY
+          repository: ehdud6728-bit/Stock-Hunter
+          run-id: 45300262235
+          github-token: ${{ github.token }}
+          path: reports/r30_r29_frozen
+      - name: Retrieve BLUE fixed 2026 new29 KIS daily archive read-only
+        uses: actions/download-artifact@v4
+        with:
+          name: BLUE_STOCKHUNTER_R28_UNSEEN2026_45221059025
+          repository: ehdud6728-bit/BLUE-Signal-Lab
+          run-id: 45221059025
+          github-token: ${{ github.token }}
+          path: reports/r30_blue_source
+      - name: Verify SHA of all original files then compare 11 unoptimized D0 features and original 6 R23 factors
+        run: |
+          python research_projects/trendline_true55_r30_winner_anatomy_20261124/r30_winner_anatomy.py \
+            --r23-dir reports/r30_r23_frozen \
+            --r25-dir reports/r30_r25_frozen \
+            --r28-dir reports/r30_r28_frozen \
+            --r29-dir reports/r30_r29_frozen \
+            --blue-dir reports/r30_blue_source \
+            --out reports/r30_winner_anatomy
+      - name: Upload only research derived artifacts, no raw prices or credentials
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: STOCKHUNTER_R30_WAVE_VOLUME_224_BIGWINNER_RESEARCH_ONLY
+          path: |
+            reports/r30_winner_anatomy/R30_WINNER_PATTERN_SUMMARY.json
+            reports/r30_winner_anatomy/R30_185_EVENT_D0_FEATURES_AND_OUTCOMES.json
+            reports/r30_winner_anatomy/R30_2026_D3_FIRST30_CASES.json
+          if-no-files-found: warn
+          retention-days: 30
